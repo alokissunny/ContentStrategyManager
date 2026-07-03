@@ -6,6 +6,7 @@ export const LS_T2 = '#6B7280';
 export const LS_MUTED = '#9CA3AF';
 export const LS_SIGNAL = '#FF5A36';
 export const LS_SOFT = '#FFF1ED';
+export const LS_SOFT_BORDER = '#FAD9CF';
 export const LS_FONT = "'Inter Tight', 'Inter', ui-sans-serif, system-ui, sans-serif";
 export const LS_DISPLAY = "'Archivo', 'Inter Tight', ui-sans-serif, system-ui, sans-serif";
 

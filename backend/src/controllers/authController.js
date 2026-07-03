@@ -49,4 +49,19 @@ async function getMe(req, res) {
   res.json({ user: toPublicUser(req.user) });
 }
 
-module.exports = { register, login, getMe };
+const DEMO_EMAIL = 'demo@widesignals.com';
+const DEMO_PASSWORD = 'demo-password-1234';
+
+async function demoLogin(req, res) {
+  let user = await User.findOne({ email: DEMO_EMAIL });
+  if (!user) {
+    user = await User.create({ name: 'Demo User', email: DEMO_EMAIL, password: DEMO_PASSWORD });
+  }
+
+  res.json({
+    user: toPublicUser(user),
+    token: generateToken(user._id),
+  });
+}
+
+module.exports = { register, login, getMe, demoLogin };

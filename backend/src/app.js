@@ -5,6 +5,7 @@ const morgan = require('morgan');
 const authRoutes = require('./routes/authRoutes');
 const signalRoutes = require('./routes/signalRoutes');
 const routeRoutes = require('./routes/routeRoutes');
+const instagramRoutes = require('./routes/instagramRoutes');
 const { notFound, errorHandler } = require('./middleware/errorHandler');
 
 const app = express();
@@ -18,6 +19,7 @@ app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
 app.use('/api/auth', authRoutes);
 app.use('/api/signals', signalRoutes);
 app.use('/api/routes', routeRoutes);
+app.use('/api/instagram', instagramRoutes);
 
 app.use(notFound);
 app.use(errorHandler);

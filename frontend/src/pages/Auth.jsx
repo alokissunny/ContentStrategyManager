@@ -63,7 +63,8 @@ export default function Auth() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  const { login: doLogin, register: doRegister } = useAuth();
+  const [demoLoading, setDemoLoading] = useState(false);
+  const { login: doLogin, register: doRegister, demoLogin: doDemoLogin } = useAuth();
   const navigate = useNavigate();
 
   async function handleSubmit(e) {
@@ -76,11 +77,24 @@ export default function Auth() {
       } else {
         await doRegister(name, email, password);
       }
-      navigate('/dashboard');
+      navigate('/onboarding');
     } catch (err) {
       setError(err.response?.data?.message || 'Something went wrong');
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function handleDemoLogin() {
+    setError('');
+    setDemoLoading(true);
+    try {
+      await doDemoLogin();
+      navigate('/onboarding');
+    } catch (err) {
+      setError(err.response?.data?.message || 'Could not start the demo');
+    } finally {
+      setDemoLoading(false);
     }
   }
 
@@ -154,6 +168,13 @@ export default function Auth() {
               {login ? "Don't have an account? " : 'Already have an account? '}
               <button onClick={() => setMode(login ? 'signup' : 'login')} style={{ border: 'none', background: 'none', cursor: 'pointer', fontFamily: LS_FONT, fontSize: 14, fontWeight: 600, color: LS_SIGNAL, padding: 0 }}>
                 {login ? 'Create one' : 'Log in'}
+              </button>
+            </p>
+
+            <p style={{ fontFamily: LS_FONT, fontSize: 13.5, color: LS_T2, textAlign: 'center', margin: '14px 0 0' }}>
+              Just exploring?{' '}
+              <button onClick={handleDemoLogin} disabled={demoLoading} style={{ border: 'none', background: 'none', cursor: demoLoading ? 'default' : 'pointer', fontFamily: LS_FONT, fontSize: 13.5, fontWeight: 600, color: LS_SIGNAL, padding: 0 }}>
+                {demoLoading ? 'Loading demo…' : 'Continue as demo user'}
               </button>
             </p>
           </div>
