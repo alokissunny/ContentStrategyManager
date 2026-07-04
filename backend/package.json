@@ -9,6 +9,9 @@
     "dev": "nodemon src/server.js"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.32.1",
+    "@aws-sdk/client-s3": "^3.687.0",
+    "@aws-sdk/s3-request-presigner": "^3.687.0",
     "apify-client": "^2.11.0",
     "bcryptjs": "^2.4.3",
     "cors": "^2.8.5",

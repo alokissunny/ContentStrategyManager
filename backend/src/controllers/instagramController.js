@@ -1,5 +1,8 @@
 const InstagramProfile = require('../models/InstagramProfile');
+const BrandAnalysisReport = require('../models/BrandAnalysisReport');
 const { scrapeProfile, scrapePosts } = require('../services/instagramScraper');
+const { generateBrandAnalysis } = require('../services/brandAnalysis');
+const { uploadMarkdown, getPresignedDownloadUrl } = require('../services/s3Client');
 
 function extractUsername(input) {
   return (input || '')
@@ -28,7 +31,34 @@ async function fetchInstagram(req, res) {
     { new: true, upsert: true }
   );
 
-  res.json({ profile: snapshot });
+  let report = null;
+  let reportError = null;
+  try {
+    const { markdown, quickSummary, model } = await generateBrandAnalysis(snapshot);
+    const s3Key = `reports/${req.user._id}/${username}-${Date.now()}.md`;
+    await uploadMarkdown(s3Key, markdown);
+    const reportDoc = await BrandAnalysisReport.create({
+      user: req.user._id,
+      instagramUsername: username,
+      s3Key,
+      model,
+      whoYouHelp: quickSummary?.whoYouHelp || '',
+      whatYouOffer: quickSummary?.whatYouOffer || '',
+      howYouSound: quickSummary?.howYouSound || '',
+    });
+    report = {
+      id: reportDoc._id,
+      createdAt: reportDoc.createdAt,
+      downloadUrl: await getPresignedDownloadUrl(s3Key),
+      whoYouHelp: reportDoc.whoYouHelp,
+      whatYouOffer: reportDoc.whatYouOffer,
+      howYouSound: reportDoc.howYouSound,
+    };
+  } catch (err) {
+    reportError = err.message;
+  }
+
+  res.json({ profile: snapshot, report, reportError });
 }
 
 async function getInstagramProfile(req, res) {

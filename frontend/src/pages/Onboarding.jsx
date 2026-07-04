@@ -4,9 +4,9 @@ import Glyph from '../components/Glyph';
 import SignalTerrain from '../components/SignalTerrain';
 import RadarPulse from '../components/RadarPulse';
 import StepList from '../components/StepList';
-import { fetchInstagram } from '../api/instagram';
+import { fetchInstagram, confirmReport as confirmReportApi } from '../api/instagram';
 import {
-  LS_BG, LS_SURFACE, LS_BORDER, LS_INK, LS_T2, LS_MUTED, LS_SIGNAL, LS_SOFT, LS_SOFT_BORDER, LS_FONT,
+  LS_BG, LS_SURFACE, LS_BORDER, LS_INK, LS_T2, LS_MUTED, LS_SIGNAL, LS_SOFT, LS_FONT,
 } from '../theme';
 
 function Wordmark() {
@@ -145,11 +145,11 @@ function AnalyzeScreen({ username, onDone, onError }) {
     }, 900);
 
     fetchInstagram(username)
-      .then((profile) => {
+      .then(({ report }) => {
         clearInterval(iv);
         if (cancelled) return;
         setStep(SCRAPE_STEPS.length);
-        setTimeout(() => { if (!cancelled) onDone(profile); }, 500);
+        setTimeout(() => { if (!cancelled) onDone(report); }, 500);
       })
       .catch((err) => {
         clearInterval(iv);
@@ -168,7 +168,7 @@ function AnalyzeScreen({ username, onDone, onError }) {
         <p style={{ fontFamily: LS_FONT, fontSize: 14.5, lineHeight: 1.6, color: LS_T2, margin: '0 auto 24px', maxWidth: 360 }}>{errMsg}</p>
         <div style={{ display: 'flex', gap: 12, justifyContent: 'center' }}>
           <PrimaryBtn onClick={() => window.location.reload()}>Try again</PrimaryBtn>
-          <button onClick={() => onError(errMsg)} style={{ border: 'none', background: 'none', cursor: 'pointer', fontFamily: LS_FONT, fontSize: 14, fontWeight: 500, color: LS_T2 }}>Skip to dashboard →</button>
+          <button onClick={onError} style={{ border: 'none', background: 'none', cursor: 'pointer', fontFamily: LS_FONT, fontSize: 14, fontWeight: 500, color: LS_T2 }}>Skip to dashboard →</button>
         </div>
       </div>
     );
@@ -187,93 +187,60 @@ function AnalyzeScreen({ username, onDone, onError }) {
   );
 }
 
-function DNACard({ label, children, accent }) {
+const FALLBACK_SUMMARY = {
+  whoYouHelp: "You help a specific audience we'll sharpen as you post.",
+  whatYouOffer: 'You offer a core product or service.',
+  howYouSound: 'You want to sound clear, consistent, and recognizable.',
+};
+
+function HypoLine({ label, value, onChange }) {
+  const [focused, setFocused] = useState(false);
   return (
-    <div style={{ background: accent ? LS_SOFT : LS_SURFACE, border: `1px solid ${accent ? LS_SOFT_BORDER : LS_BORDER}`, borderRadius: 14, padding: '20px 22px', marginBottom: 12 }}>
-      <div style={{ fontFamily: LS_FONT, fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: accent ? LS_SIGNAL : LS_MUTED, marginBottom: 10 }}>{label}</div>
-      {children}
+    <div style={{ padding: '16px 0', borderBottom: `1px solid ${LS_BORDER}` }}>
+      <div style={{ fontFamily: LS_FONT, fontSize: 11, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: LS_MUTED, marginBottom: 6 }}>{label}</div>
+      <div style={{ position: 'relative' }}>
+        <textarea
+          value={value}
+          rows={2}
+          onFocus={() => setFocused(true)}
+          onBlur={() => setFocused(false)}
+          onChange={(e) => onChange(e.target.value)}
+          style={{
+            width: '100%', resize: 'none', fontFamily: LS_FONT, fontSize: 17, lineHeight: 1.45, color: LS_INK,
+            background: focused ? LS_SURFACE : 'transparent', border: `1px solid ${focused ? LS_SIGNAL : 'transparent'}`,
+            borderRadius: 9, padding: '7px 34px 7px 9px', margin: '0 -9px', outline: 'none',
+            boxShadow: focused ? `0 0 0 3px ${LS_SOFT}` : 'none',
+          }}
+        />
+        {!focused && <Glyph name="pencil" size={14} color={LS_MUTED} style={{ position: 'absolute', right: 2, top: 10, pointerEvents: 'none' }} />}
+      </div>
     </div>
   );
 }
 
-function formatCount(n) {
-  if (n == null) return '—';
-  if (n >= 1000000) return (n / 1000000).toFixed(1) + 'M';
-  if (n >= 1000) return (n / 1000).toFixed(1) + 'K';
-  return String(n);
-}
-
-function ResultsScreen({ profile, error, onDash, onRetry }) {
-  if (!profile) {
-    return (
-      <div style={{ textAlign: 'center', paddingTop: 40 }}>
-        <Glyph name="alert-circle" size={38} color={LS_SIGNAL} />
-        <h2 style={{ fontFamily: LS_FONT, fontWeight: 600, fontSize: 22, color: LS_INK, margin: '14px 0 8px' }}>Analysis failed</h2>
-        <p style={{ fontFamily: LS_FONT, fontSize: 14.5, lineHeight: 1.6, color: LS_T2, margin: '0 auto 24px', maxWidth: 360 }}>{error || 'Something went wrong. Try again or continue to the dashboard.'}</p>
-        <div style={{ display: 'flex', gap: 12, justifyContent: 'center' }}>
-          <PrimaryBtn onClick={onRetry}>Try again</PrimaryBtn>
-          <button onClick={onDash} style={{ border: 'none', background: 'none', cursor: 'pointer', fontFamily: LS_FONT, fontSize: 14, fontWeight: 500, color: LS_T2 }}>Continue to dashboard →</button>
-        </div>
-      </div>
-    );
-  }
-
-  const posts = profile.posts || [];
+function ConfirmScreen({ initial, onConfirm, saving }) {
+  const [lines, setLines] = useState(initial);
+  const set = (key, val) => setLines((p) => ({ ...p, [key]: val }));
 
   return (
     <div>
-      <Eyebrow>Your Instagram signals</Eyebrow>
-      <h2 style={{ fontFamily: LS_FONT, fontWeight: 600, fontSize: 'clamp(24px,3vw,32px)', letterSpacing: '-0.02em', color: LS_INK, margin: '0 0 24px' }}>
-        Here&rsquo;s what WideSignals found for @{profile.username}.
-      </h2>
-
-      <DNACard label="Profile">
-        <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-          <div style={{ width: 56, height: 56, borderRadius: '50%', background: LS_SOFT, flexShrink: 0, overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            {profile.profilePicUrl ? (
-              <img src={profile.profilePicUrl} alt={profile.username} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-            ) : (
-              <span style={{ fontFamily: LS_FONT, fontWeight: 700, fontSize: 20, color: LS_SIGNAL }}>{(profile.username || '?')[0]?.toUpperCase()}</span>
-            )}
-          </div>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontFamily: LS_FONT, fontWeight: 700, fontSize: 16, color: LS_INK }}>{profile.fullName || profile.username}</div>
-            <div style={{ fontFamily: LS_FONT, fontSize: 13.5, color: LS_T2, marginTop: 2 }}>{profile.biography || 'No bio available'}</div>
-          </div>
-        </div>
-        <div style={{ display: 'flex', gap: 24, marginTop: 18 }}>
-          {[['Followers', profile.followersCount], ['Following', profile.followingCount], ['Posts', profile.postsCount]].map(([label, val]) => (
-            <div key={label}>
-              <div style={{ fontFamily: LS_FONT, fontWeight: 700, fontSize: 18, color: LS_INK }}>{formatCount(val)}</div>
-              <div style={{ fontFamily: LS_FONT, fontSize: 11.5, color: LS_MUTED, textTransform: 'uppercase', letterSpacing: '0.05em' }}>{label}</div>
-            </div>
-          ))}
-        </div>
-      </DNACard>
-
-      <DNACard label={`Recent posts (${posts.length})`}>
-        {posts.length === 0 ? (
-          <p style={{ fontFamily: LS_FONT, fontSize: 13.5, color: LS_T2, margin: 0 }}>No recent posts were returned for this account.</p>
-        ) : (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: 10 }}>
-            {posts.slice(0, 12).map((p, i) => (
-              <div key={p.externalId || i} style={{ border: `1px solid ${LS_BORDER}`, borderRadius: 10, overflow: 'hidden', background: LS_BG }}>
-                {p.displayUrl && <img src={p.displayUrl} alt="" style={{ width: '100%', height: 110, objectFit: 'cover', display: 'block' }} />}
-                <div style={{ padding: '8px 10px' }}>
-                  <p style={{ fontFamily: LS_FONT, fontSize: 12, color: LS_INK, margin: '0 0 6px', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{p.caption || 'No caption'}</p>
-                  <div style={{ display: 'flex', gap: 10, fontFamily: LS_FONT, fontSize: 11, color: LS_MUTED }}>
-                    <span>♥ {formatCount(p.likesCount)}</span>
-                    <span>💬 {formatCount(p.commentsCount)}</span>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </DNACard>
-
-      <div style={{ display: 'flex', justifyContent: 'center', marginTop: 28 }}>
-        <PrimaryBtn onClick={onDash}>Open my dashboard <Glyph name="arrow-right" size={16} color="#fff" /></PrimaryBtn>
+      <Eyebrow>Here&rsquo;s what we understand</Eyebrow>
+      <h2 style={{ fontFamily: LS_FONT, fontWeight: 600, fontSize: 28, letterSpacing: '-0.02em', color: LS_INK, margin: '0 0 8px' }}>Our first hypothesis about you.</h2>
+      <p style={{ fontFamily: LS_FONT, fontSize: 15, lineHeight: 1.6, color: LS_T2, margin: '0 0 22px' }}>
+        This is our best read from what you shared. Edit anything that&rsquo;s off &mdash; it shapes your first route.
+      </p>
+      <div style={{ background: LS_SURFACE, border: `1px solid ${LS_BORDER}`, borderRadius: 16, padding: '8px 30px 24px' }}>
+        <HypoLine label="Who you help" value={lines.whoYouHelp} onChange={(v) => set('whoYouHelp', v)} />
+        <HypoLine label="What you offer" value={lines.whatYouOffer} onChange={(v) => set('whatYouOffer', v)} />
+        <HypoLine label="How you sound" value={lines.howYouSound} onChange={(v) => set('howYouSound', v)} />
+        <p style={{ fontFamily: LS_FONT, fontSize: 12.5, color: LS_MUTED, margin: '14px 0 0', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+          <Glyph name="sparkles" size={13} color={LS_MUTED} /> WideSignals refines this every week as it reads your real signals.
+        </p>
+      </div>
+      <div style={{ marginTop: 26 }}>
+        <PrimaryBtn onClick={() => onConfirm(lines)} disabled={saving}>
+          {saving ? 'Saving…' : 'Looks right — open my dashboard'} <Glyph name="arrow-right" size={16} color="#fff" />
+        </PrimaryBtn>
       </div>
     </div>
   );
@@ -282,11 +249,28 @@ function ResultsScreen({ profile, error, onDash, onRetry }) {
 export default function Onboarding() {
   const [screen, setScreen] = useState('welcome');
   const [handle, setHandle] = useState('');
-  const [profile, setProfile] = useState(null);
-  const [error, setError] = useState('');
+  const [report, setReport] = useState(null);
+  const [confirmSaving, setConfirmSaving] = useState(false);
   const navigate = useNavigate();
 
   const goDashboard = () => navigate('/dashboard');
+
+  async function handleConfirm(lines, initialSummary) {
+    const changed = report && Object.keys(lines).some((key) => lines[key] !== initialSummary[key]);
+    if (!changed) {
+      goDashboard();
+      return;
+    }
+    setConfirmSaving(true);
+    try {
+      await confirmReportApi(report.id, lines);
+    } catch (err) {
+      // Best-effort: still let the user continue even if the save failed.
+    } finally {
+      setConfirmSaving(false);
+      goDashboard();
+    }
+  }
 
   if (screen === 'welcome') {
     return <WelcomeScreen onStart={() => setScreen('connect')} />;
@@ -301,21 +285,22 @@ export default function Onboarding() {
       <Shell max={560}>
         <AnalyzeScreen
           username={extractUsername(handle)}
-          onDone={(p) => { setProfile(p); setScreen('results'); }}
-          onError={(err) => { setError(err); setScreen('results'); }}
+          onDone={(r) => { setReport(r); setScreen('confirm'); }}
+          onError={goDashboard}
         />
       </Shell>
     );
   }
 
+  const initialSummary = {
+    whoYouHelp: report?.whoYouHelp || FALLBACK_SUMMARY.whoYouHelp,
+    whatYouOffer: report?.whatYouOffer || FALLBACK_SUMMARY.whatYouOffer,
+    howYouSound: report?.howYouSound || FALLBACK_SUMMARY.howYouSound,
+  };
+
   return (
-    <Shell max={720}>
-      <ResultsScreen
-        profile={profile}
-        error={error}
-        onDash={goDashboard}
-        onRetry={() => { setProfile(null); setError(''); setScreen('connect'); }}
-      />
+    <Shell max={620}>
+      <ConfirmScreen initial={initialSummary} saving={confirmSaving} onConfirm={(lines) => handleConfirm(lines, initialSummary)} />
     </Shell>
   );
 }

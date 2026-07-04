@@ -23,7 +23,9 @@ Endpoints:
 - `GET/POST /api/signals`, `PUT/DELETE /api/signals/:id`
 - `GET /api/routes/current`, `GET/POST /api/routes`, `PUT /api/routes/:id`
 - `POST /api/instagram/fetch` (body: `{ username }`), `GET /api/instagram` — scrapes a profile + recent
-  posts via Apify and stores the latest snapshot per user
+  posts via Apify, stores the latest snapshot per user, and (if configured) generates a Brand DNA report
+- `GET /api/analysis/reports`, `GET /api/analysis/reports/:id/download` — list a user's generated
+  reports and get a fresh presigned S3 URL for one
 
 `demo-login` needs no credentials — it finds-or-creates a fixed `demo@widesignals.com` account and
 returns a real JWT, for quickly exercising the app without registering.
@@ -42,6 +44,24 @@ upserts them onto an `InstagramProfile` document tied to the requesting user. Se
 The normalizer in `src/services/instagramScraper.js` reads a few common field-name aliases from actor
 output, but actor schemas can change — verify against a live run and adjust the aliases there if fields
 come back empty.
+
+### Brand DNA analysis (Anthropic + S3)
+
+Right after a successful Instagram scrape, `fetchInstagram` also calls Claude to generate a Markdown
+"Brand DNA" report (Business / Positioning / Content Strategy interpretation, each a table of specific
+findings and evidence) and uploads it to S3. This is best-effort — if Claude or S3 fails, the scrape
+still succeeds and the response includes `reportError` instead of `report`.
+
+- The prompt template lives in its own file at `backend/prompts/brand-analysis-prompt.md` — edit it
+  there to change what the report covers; `{{SNAPSHOT_JSON}}` is replaced with the scraped profile/posts.
+- `ANTHROPIC_API_KEY` / `ANTHROPIC_MODEL` (defaults to `claude-sonnet-5`) — used by
+  `src/services/brandAnalysis.js`
+- `AWS_REGION`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `S3_BUCKET_NAME` — used by
+  `src/services/s3Client.js` to upload the report to a unique key
+  (`reports/{userId}/{username}-{timestamp}.md`) and to mint presigned download URLs
+- `S3_REPORT_PRESIGN_EXPIRY_SECONDS` — how long a presigned download URL stays valid (default 3600)
+- Reports are stored **privately** — every download goes through a presigned URL rather than a public
+  object, minted on demand via `GET /api/analysis/reports/:id/download`
 
 ## Frontend
 
