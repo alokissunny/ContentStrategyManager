@@ -1,12 +1,11 @@
 import React, { useEffect, useState } from 'react';
 import client from '../api/client';
-import { useAuth } from '../context/AuthContext';
-import { LS_BG, LS_SURFACE, LS_BORDER, LS_INK, LS_T2, LS_SIGNAL, LS_MUTED, LS_FONT, LS_DISPLAY, LSC } from '../theme';
+import DashboardLayout from '../components/DashboardLayout';
+import { LS_BORDER, LS_SURFACE, LS_INK, LS_T2, LS_SIGNAL, LS_MUTED, LS_FONT, LS_DISPLAY, LSC } from '../theme';
 
 const CATEGORY_LABEL = { audience: 'Audience signal', market: 'Market signal', opportunity: 'Opportunity signal' };
 
 export default function Dashboard() {
-  const { user, logout } = useAuth();
   const [signals, setSignals] = useState([]);
   const [route, setRoute] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -21,22 +20,7 @@ export default function Dashboard() {
   }, []);
 
   return (
-    <div style={{ background: LS_BG, minHeight: '100vh' }}>
-      <div style={{ ...LSC, display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '24px 48px', borderBottom: `1px solid ${LS_BORDER}` }}>
-        <div style={{ fontFamily: LS_FONT, fontWeight: 700, fontSize: 20, letterSpacing: '-0.03em' }}>
-          <span style={{ color: LS_INK }}>wide</span><span style={{ color: LS_SIGNAL }}>signals</span>
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-          <span style={{ fontFamily: LS_FONT, fontSize: 13, color: LS_T2 }}>{user?.name}</span>
-          <button
-            onClick={logout}
-            style={{ border: `1px solid ${LS_BORDER}`, background: 'none', borderRadius: 7, height: 36, padding: '0 14px', cursor: 'pointer', fontFamily: LS_FONT, fontSize: 12, fontWeight: 600, color: LS_INK }}
-          >
-            Log out
-          </button>
-        </div>
-      </div>
-
+    <DashboardLayout>
       <div style={{ ...LSC, padding: '48px 48px' }}>
         <h1 style={{ fontFamily: LS_DISPLAY, fontWeight: 700, fontSize: 30, color: LS_INK, margin: '0 0 8px' }}>Your weekly route</h1>
         <p style={{ fontFamily: LS_FONT, fontSize: 14, color: LS_T2, margin: '0 0 36px' }}>
@@ -66,6 +50,6 @@ export default function Dashboard() {
           </div>
         )}
       </div>
-    </div>
+    </DashboardLayout>
   );
 }

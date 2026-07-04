@@ -9,6 +9,12 @@ const brandAnalysisReportSchema = new mongoose.Schema(
     whoYouHelp: { type: String, default: '' },
     whatYouOffer: { type: String, default: '' },
     howYouSound: { type: String, default: '' },
+    mission: { type: String, default: '' },
+    values: { type: String, default: '' },
+    differentiator: { type: String, default: '' },
+    contentPillars: { type: String, default: '' },
+    proof: { type: String, default: '' },
+    visualStyle: { type: String, default: '' },
     confirmedAt: { type: Date, default: null },
   },
   { timestamps: true }

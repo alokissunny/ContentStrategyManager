@@ -97,4 +97,53 @@ function mergeConfirmedSummary(markdown, summary) {
   return `${base}\n\n${section}\n`;
 }
 
-module.exports = { generateBrandAnalysis, mergeConfirmedSummary };
+// The 9 sections that make up a user's editable "Brand DNA". The first three
+// mirror the AI-generated quick summary; the rest start blank and are filled
+// in by hand on the Brand DNA tab.
+const BRAND_DNA_FIELDS = [
+  { key: 'whoYouHelp', label: 'Who you help' },
+  { key: 'whatYouOffer', label: 'What you offer' },
+  { key: 'howYouSound', label: 'How you sound' },
+  { key: 'mission', label: 'Your mission' },
+  { key: 'values', label: 'Your core values' },
+  { key: 'differentiator', label: 'Your differentiator' },
+  { key: 'contentPillars', label: 'Your content pillars' },
+  { key: 'proof', label: 'Your proof & credibility' },
+  { key: 'visualStyle', label: 'Your visual style' },
+];
+
+const BRAND_DNA_HEADING = /##\s*Brand DNA[\s\S]*$/i;
+
+// Parses the "## Brand DNA" section (written as `**Label:** value` lines) back
+// into a { key: value } map. Returns {} if the section isn't present yet.
+function parseBrandDna(markdown) {
+  const match = markdown.match(BRAND_DNA_HEADING);
+  if (!match) return {};
+
+  const section = match[0];
+  const values = {};
+  for (const { key, label } of BRAND_DNA_FIELDS) {
+    const lineMatch = section.match(new RegExp(`\\*\\*${label}:\\*\\*\\s*(.*)`, 'i'));
+    if (lineMatch) values[key] = lineMatch[1].trim();
+  }
+  return values;
+}
+
+// Replaces (or appends) the "## Brand DNA" section with the given field values.
+function mergeBrandDna(markdown, fields) {
+  const base = markdown.replace(BRAND_DNA_HEADING, '').trim();
+  const lines = ['## Brand DNA', ''];
+  BRAND_DNA_FIELDS.forEach(({ key, label }, i) => {
+    lines.push(`**${label}:** ${fields[key] || ''}`);
+    if (i < BRAND_DNA_FIELDS.length - 1) lines.push('');
+  });
+  return `${base}\n\n${lines.join('\n')}\n`;
+}
+
+module.exports = {
+  generateBrandAnalysis,
+  mergeConfirmedSummary,
+  BRAND_DNA_FIELDS,
+  parseBrandDna,
+  mergeBrandDna,
+};

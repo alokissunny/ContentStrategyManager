@@ -4,6 +4,9 @@ import Landing from './pages/Landing';
 import Auth from './pages/Auth';
 import Onboarding from './pages/Onboarding';
 import Dashboard from './pages/Dashboard';
+import ContentRoute from './pages/ContentRoute';
+import BrandDna from './pages/BrandDna';
+import Settings from './pages/Settings';
 import ProtectedRoute from './components/ProtectedRoute';
 
 export default function App() {
@@ -24,6 +27,30 @@ export default function App() {
         element={
           <ProtectedRoute>
             <Dashboard />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/dashboard/content-route"
+        element={
+          <ProtectedRoute>
+            <ContentRoute />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/dashboard/brand-dna"
+        element={
+          <ProtectedRoute>
+            <BrandDna />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/dashboard/settings"
+        element={
+          <ProtectedRoute>
+            <Settings />
           </ProtectedRoute>
         }
       />
