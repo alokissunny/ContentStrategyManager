@@ -7,6 +7,7 @@ import Glyph from '../components/Glyph';
 import StageFunnel from '../components/StageFunnel';
 import WeeklyRoutePanel from '../components/WeeklyRoutePanel';
 import FocusPanel from '../components/FocusPanel';
+import { useIsMobile } from '../hooks/useMediaQuery';
 import { LS_BORDER, LS_SURFACE, LS_INK, LS_T2, LS_MUTED, LS_FONT, LS_DISPLAY, LSC } from '../theme';
 
 const RANGE_OPTIONS = ['Last 7 days', 'Last 14 days', 'Last 30 days'];
@@ -111,6 +112,7 @@ function getWeekLabel(date) {
 
 export default function Dashboard() {
   const navigate = useNavigate();
+  const isMobile = useIsMobile();
   const [route, setRoute] = useState(null);
   const [brandDna, setBrandDna] = useState({ complete: 0, total: 9 });
   const [rangeIdx, setRangeIdx] = useState(1);
@@ -131,10 +133,10 @@ export default function Dashboard() {
 
   return (
     <DashboardLayout>
-      <div style={{ ...LSC, maxWidth: 1320, padding: '40px 48px 64px' }}>
-        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 32 }}>
+      <div style={{ ...LSC, maxWidth: 1320, padding: 'clamp(20px, 5vw, 40px) clamp(16px, 4vw, 48px) 64px' }}>
+        <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, marginBottom: 32 }}>
           <div>
-            <h1 style={{ fontFamily: LS_DISPLAY, fontWeight: 700, fontSize: 30, color: LS_INK, margin: '0 0 6px' }}>Dashboard</h1>
+            <h1 style={{ fontFamily: LS_DISPLAY, fontWeight: 700, fontSize: 'clamp(24px, 5vw, 30px)', color: LS_INK, margin: '0 0 6px' }}>Dashboard</h1>
             <p style={{ fontFamily: LS_FONT, fontSize: 14, color: LS_T2, margin: 0 }}>Here's your strategy for this week.</p>
           </div>
 
@@ -176,7 +178,7 @@ export default function Dashboard() {
           </div>
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 340px', gap: 24, alignItems: 'flex-start' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'minmax(0, 1fr) 340px', gap: 24, alignItems: 'flex-start' }}>
           <div>
             <StageFunnel stages={STAGES} focusKey={FOCUS_STAGE.key} />
             <WeeklyRoutePanel

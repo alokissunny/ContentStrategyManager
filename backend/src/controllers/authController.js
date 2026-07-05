@@ -1,11 +1,15 @@
+const { OAuth2Client } = require('google-auth-library');
 const User = require('../models/User');
 const generateToken = require('../utils/generateToken');
+
+const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
 function toPublicUser(user) {
   return {
     id: user._id,
     name: user.name,
     email: user.email,
+    avatar: user.avatar || '',
     business: user.business,
   };
 }
@@ -35,7 +39,10 @@ async function login(req, res) {
   }
 
   const user = await User.findOne({ email: email.toLowerCase() }).select('+password');
-  if (!user || !(await user.comparePassword(password))) {
+  if (!user || !user.password) {
+    return res.status(401).json({ message: 'Invalid email or password' });
+  }
+  if (!(await user.comparePassword(password))) {
     return res.status(401).json({ message: 'Invalid email or password' });
   }
 
@@ -64,4 +71,61 @@ async function demoLogin(req, res) {
   });
 }
 
-module.exports = { register, login, getMe, demoLogin };
+async function googleAuth(req, res) {
+  const { credential } = req.body;
+  if (!credential) {
+    return res.status(400).json({ message: 'Google credential is required' });
+  }
+  if (!process.env.GOOGLE_CLIENT_ID) {
+    return res.status(503).json({ message: 'Google sign-in is not configured' });
+  }
+
+  let payload;
+  try {
+    const ticket = await googleClient.verifyIdToken({
+      idToken: credential,
+      audience: process.env.GOOGLE_CLIENT_ID,
+    });
+    payload = ticket.getPayload();
+  } catch {
+    return res.status(401).json({ message: 'Invalid Google credential' });
+  }
+
+  const { sub: googleId, email, name, picture } = payload;
+  if (!email) {
+    return res.status(400).json({ message: 'Google account must have an email address' });
+  }
+
+  const normalizedEmail = email.toLowerCase();
+  let user = await User.findOne({ googleId });
+
+  if (!user) {
+    user = await User.findOne({ email: normalizedEmail });
+    if (user) {
+      if (user.googleId && user.googleId !== googleId) {
+        return res.status(409).json({ message: 'Email is linked to a different Google account' });
+      }
+      user.googleId = googleId;
+      if (picture) user.avatar = picture;
+      await user.save();
+    } else {
+      user = await User.create({
+        name: name || normalizedEmail.split('@')[0],
+        email: normalizedEmail,
+        googleId,
+        authProvider: 'google',
+        avatar: picture || '',
+      });
+    }
+  } else if (picture && user.avatar !== picture) {
+    user.avatar = picture;
+    await user.save();
+  }
+
+  res.json({
+    user: toPublicUser(user),
+    token: generateToken(user._id),
+  });
+}
+
+module.exports = { register, login, getMe, demoLogin, googleAuth };

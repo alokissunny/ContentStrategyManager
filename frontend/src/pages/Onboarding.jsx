@@ -1,10 +1,12 @@
 import React, { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import Glyph from '../components/Glyph';
+import UserMenu from '../components/UserMenu';
 import SignalTerrain from '../components/SignalTerrain';
 import RadarPulse from '../components/RadarPulse';
 import StepList from '../components/StepList';
 import { fetchInstagram, confirmReport as confirmReportApi } from '../api/instagram';
+import { useIsMobile } from '../hooks/useMediaQuery';
 import {
   LS_BG, LS_SURFACE, LS_BORDER, LS_INK, LS_T2, LS_MUTED, LS_SIGNAL, LS_SOFT, LS_FONT,
 } from '../theme';
@@ -62,13 +64,16 @@ function Inp(props) {
 function Shell({ children, max = 620 }) {
   return (
     <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', background: LS_BG }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '22px 40px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: 'clamp(16px, 4vw, 22px) clamp(16px, 5vw, 40px)' }}>
         <Wordmark />
-        <Link to="/dashboard" style={{ fontFamily: LS_FONT, fontSize: 13, fontWeight: 600, color: LS_T2, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-          Skip for now <Glyph name="arrow-right" size={15} color={LS_T2} />
-        </Link>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+          <UserMenu compact />
+          <Link to="/dashboard" style={{ fontFamily: LS_FONT, fontSize: 13, fontWeight: 600, color: LS_T2, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            Skip for now <Glyph name="arrow-right" size={15} color={LS_T2} />
+          </Link>
+        </div>
       </div>
-      <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '12px 40px 64px' }}>
+      <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 'clamp(12px, 3vw, 12px) clamp(16px, 5vw, 40px) 64px' }}>
         <div style={{ width: '100%', maxWidth: max }}>{children}</div>
       </div>
     </div>
@@ -93,12 +98,13 @@ const SCRAPE_STEPS = [
 ];
 
 function WelcomeScreen({ onStart }) {
+  const isMobile = useIsMobile();
   return (
     <Shell max={1040}>
-      <div style={{ display: 'grid', gridTemplateColumns: '0.82fr 1.18fr', gap: 36, alignItems: 'center' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '0.82fr 1.18fr', gap: isMobile ? 12 : 36, alignItems: 'center' }}>
         <div>
           <Eyebrow>Strategic signal intelligence</Eyebrow>
-          <h1 style={{ fontFamily: LS_FONT, fontWeight: 600, fontSize: 'clamp(32px,3.6vw,46px)', lineHeight: 1.06, letterSpacing: '-0.025em', color: LS_INK, margin: 0 }}>
+          <h1 style={{ fontFamily: LS_FONT, fontWeight: 600, fontSize: 'clamp(30px,3.6vw,46px)', lineHeight: 1.06, letterSpacing: '-0.025em', color: LS_INK, margin: 0 }}>
             See what&rsquo;s really happening in your content.
           </h1>
           <p style={{ fontFamily: LS_FONT, fontSize: 16.5, lineHeight: 1.6, color: LS_T2, margin: '20px 0 32px', maxWidth: 380 }}>
@@ -106,7 +112,7 @@ function WelcomeScreen({ onStart }) {
           </p>
           <PrimaryBtn onClick={onStart}>Analyze my Instagram <Glyph name="arrow-right" size={16} color="#fff" /></PrimaryBtn>
         </div>
-        <div style={{ minHeight: 380, margin: '0 -60px 0 0' }}><SignalTerrain /></div>
+        {!isMobile && <div style={{ minHeight: 380, margin: '0 -60px 0 0' }}><SignalTerrain /></div>}
       </div>
     </Shell>
   );
@@ -229,7 +235,7 @@ function ConfirmScreen({ initial, onConfirm, saving }) {
       <p style={{ fontFamily: LS_FONT, fontSize: 15, lineHeight: 1.6, color: LS_T2, margin: '0 0 22px' }}>
         This is our best read from what you shared. Edit anything that&rsquo;s off &mdash; it shapes your first route.
       </p>
-      <div style={{ background: LS_SURFACE, border: `1px solid ${LS_BORDER}`, borderRadius: 16, padding: '8px 30px 24px' }}>
+      <div style={{ background: LS_SURFACE, border: `1px solid ${LS_BORDER}`, borderRadius: 16, padding: '8px clamp(16px, 5vw, 30px) 24px' }}>
         <HypoLine label="Who you help" value={lines.whoYouHelp} onChange={(v) => set('whoYouHelp', v)} />
         <HypoLine label="What you offer" value={lines.whatYouOffer} onChange={(v) => set('whatYouOffer', v)} />
         <HypoLine label="How you sound" value={lines.howYouSound} onChange={(v) => set('howYouSound', v)} />

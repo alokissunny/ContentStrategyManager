@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import Glyph from './Glyph';
+import { useIsMobile } from '../hooks/useMediaQuery';
 import { LS_BORDER, LS_SURFACE, LS_INK, LS_T2, LS_MUTED, LS_SIGNAL, LS_SOFT, LS_FONT } from '../theme';
 
 const TAG_STYLE = {
@@ -8,16 +9,18 @@ const TAG_STYLE = {
   'Show expertise': { bg: '#FDF3DA', color: '#92660C', icon: 'shield-check' },
 };
 
-const VISIBLE = 4;
+const VISIBLE_DESKTOP = 4;
 
 export default function WeeklyRoutePanel({ weekLabel, routeExists, days, onCreateRoute }) {
+  const isMobile = useIsMobile();
+  const VISIBLE = isMobile ? 1 : VISIBLE_DESKTOP;
   const [offset, setOffset] = useState(0);
   const maxOffset = Math.max(0, days.length - VISIBLE);
   const visible = days.slice(offset, offset + VISIBLE);
 
   return (
-    <div style={{ background: LS_SURFACE, border: `1px solid ${LS_BORDER}`, borderRadius: 16, padding: '24px 28px 22px', marginTop: 24 }}>
-      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16 }}>
+    <div style={{ background: LS_SURFACE, border: `1px solid ${LS_BORDER}`, borderRadius: 16, padding: isMobile ? '20px 18px 20px' : '24px 28px 22px', marginTop: 24 }}>
+      <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16 }}>
         <div>
           <div style={{ fontFamily: LS_FONT, fontWeight: 700, fontSize: 11.5, letterSpacing: '0.1em', textTransform: 'uppercase', color: LS_INK, marginBottom: 6 }}>
             Weekly Route
@@ -86,7 +89,7 @@ export default function WeeklyRoutePanel({ weekLabel, routeExists, days, onCreat
         })}
       </div>
 
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 20 }}>
+      <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginTop: 20 }}>
         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 7, fontFamily: LS_FONT, fontSize: 12.5, color: LS_MUTED }}>
           <Glyph name="compass" size={14} color={LS_MUTED} />
           Directions, not finished posts. Open the content route to explore a day.

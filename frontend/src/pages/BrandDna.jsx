@@ -79,7 +79,7 @@ export default function BrandDna() {
 
   return (
     <DashboardLayout>
-      <div style={{ ...LSC, padding: '48px 48px', maxWidth: 760 }}>
+      <div style={{ ...LSC, padding: 'clamp(24px, 6vw, 48px) clamp(16px, 5vw, 48px)', maxWidth: 760 }}>
         <h1 style={{ fontFamily: LS_DISPLAY, fontWeight: 700, fontSize: 30, color: LS_INK, margin: '0 0 8px' }}>Brand DNA</h1>
         <p style={{ fontFamily: LS_FONT, fontSize: 14, color: LS_T2, margin: '0 0 8px' }}>
           What WideSignals knows about your business. Edit anything that's off — the more complete this is, the sharper your weekly route.
@@ -98,7 +98,7 @@ export default function BrandDna() {
             <p style={{ fontFamily: LS_FONT, fontSize: 12.5, fontWeight: 700, letterSpacing: '0.04em', color: LS_SIGNAL, margin: '0 0 24px' }}>
               {completedCount} of {sections.length} sections complete
             </p>
-            <div style={{ background: LS_SURFACE, border: `1px solid ${LS_BORDER}`, borderRadius: 16, padding: '4px 24px 8px' }}>
+            <div style={{ background: LS_SURFACE, border: `1px solid ${LS_BORDER}`, borderRadius: 16, padding: 'clamp(4px, 2vw, 4px) clamp(14px, 4vw, 24px) 8px' }}>
               {sections.map((s) => (
                 <BrandDnaField
                   key={s.key}

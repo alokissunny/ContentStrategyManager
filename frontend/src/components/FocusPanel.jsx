@@ -34,7 +34,7 @@ function RealityItem({ dot, title, text, last }) {
 
 export default function FocusPanel({ focusLabel, focusIcon, tagline, whyText, realityItems, brandDnaComplete, brandDnaTotal }) {
   return (
-    <div style={{ background: LS_SURFACE, border: `1px solid ${LS_BORDER}`, borderRadius: 16, padding: '24px 24px 26px', position: 'relative' }}>
+    <div style={{ background: LS_SURFACE, border: `1px solid ${LS_BORDER}`, borderRadius: 16, padding: 'clamp(18px, 4vw, 24px) clamp(18px, 4vw, 24px) 26px', position: 'relative' }}>
       <div style={{ fontFamily: LS_FONT, fontWeight: 700, fontSize: 19, color: LS_INK, lineHeight: 1.3, marginBottom: 18 }}>
         This week, reinforce {focusLabel}.
       </div>

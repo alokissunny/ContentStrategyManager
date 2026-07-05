@@ -1,8 +1,10 @@
 import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
+import { GoogleLogin } from '@react-oauth/google';
 import Glyph from '../components/Glyph';
 import PanelMotif from '../components/PanelMotif';
 import { useAuth } from '../context/AuthContext';
+import { useIsMobile } from '../hooks/useMediaQuery';
 import { LS_BG, LS_SURFACE, LS_BORDER, LS_INK, LS_T2, LS_MUTED, LS_SIGNAL, LS_SOFT, LS_FONT } from '../theme';
 
 function Wordmark() {
@@ -51,9 +53,11 @@ function TextInput({ icon, ...props }) {
 
 const ghostBtn = {
   display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, width: '100%', height: 46,
-  border: `1px solid ${LS_BORDER}`, background: LS_SURFACE, borderRadius: 10, cursor: 'not-allowed',
-  fontFamily: LS_FONT, fontSize: 14.5, fontWeight: 600, color: LS_INK, opacity: 0.6,
+  border: `1px solid ${LS_BORDER}`, background: LS_SURFACE, borderRadius: 10,
+  fontFamily: LS_FONT, fontSize: 14.5, fontWeight: 600, color: LS_INK,
 };
+
+const googleConfigured = Boolean(import.meta.env.VITE_GOOGLE_CLIENT_ID);
 
 export default function Auth() {
   const [mode, setMode] = useState('login');
@@ -64,8 +68,10 @@ export default function Auth() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [demoLoading, setDemoLoading] = useState(false);
-  const { login: doLogin, register: doRegister, demoLogin: doDemoLogin } = useAuth();
+  const [googleLoading, setGoogleLoading] = useState(false);
+  const { login: doLogin, register: doRegister, demoLogin: doDemoLogin, googleLogin: doGoogleLogin } = useAuth();
   const navigate = useNavigate();
+  const isMobile = useIsMobile();
 
   async function handleSubmit(e) {
     e.preventDefault();
@@ -98,39 +104,92 @@ export default function Auth() {
     }
   }
 
-  return (
-    <div style={{ display: 'flex', minHeight: '100vh', background: LS_BG }}>
-      <div style={{ width: 440, flexShrink: 0, background: 'linear-gradient(165deg, #FFFFFF 0%, #F6F4EF 100%)', borderRight: `1px solid ${LS_BORDER}`, padding: '38px 44px', display: 'flex', flexDirection: 'column' }}>
-        <Wordmark />
-        <div style={{ marginTop: 'auto' }}>
-          <PanelMotif />
-          <p style={{ fontFamily: LS_FONT, fontWeight: 700, fontSize: 11, letterSpacing: '0.18em', textTransform: 'uppercase', color: LS_SIGNAL, margin: '28px 0 14px' }}>Strategic signal intelligence</p>
-          <h1 style={{ fontFamily: LS_FONT, fontWeight: 600, fontSize: 27, lineHeight: 1.22, letterSpacing: '-0.02em', color: LS_INK, margin: 0 }}>Stop guessing what will grow your business.</h1>
-          <p style={{ fontFamily: LS_FONT, fontSize: 14.5, lineHeight: 1.6, color: LS_T2, margin: '16px 0 0', maxWidth: 320 }}>Log in to see what&rsquo;s changing around you and get your weekly route.</p>
-        </div>
-        <div style={{ marginTop: 34, fontFamily: LS_FONT, fontSize: 12.5, color: LS_MUTED }}>We only read public signals. Nothing is posted on your behalf.</div>
-      </div>
+  async function handleGoogleSuccess(credentialResponse) {
+    setError('');
+    setGoogleLoading(true);
+    try {
+      await doGoogleLogin(credentialResponse.credential);
+      navigate('/onboarding');
+    } catch (err) {
+      setError(err.response?.data?.message || 'Google sign-in failed');
+    } finally {
+      setGoogleLoading(false);
+    }
+  }
 
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
-        <div style={{ display: 'flex', justifyContent: 'flex-end', padding: '24px 40px' }}>
+  function handleGoogleError() {
+    setError('Google sign-in was cancelled or failed');
+  }
+
+  return (
+    <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', minHeight: '100vh', background: LS_BG }}>
+      {isMobile ? (
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '20px 20px', borderBottom: `1px solid ${LS_BORDER}` }}>
+          <Wordmark />
           <Link to="/" style={{ fontFamily: LS_FONT, fontSize: 13, fontWeight: 600, color: LS_T2, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-            <Glyph name="arrow-left" size={15} color={LS_T2} /> Back to site
+            <Glyph name="arrow-left" size={15} color={LS_T2} /> Back
           </Link>
         </div>
-        <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 40px 60px' }}>
+      ) : (
+        <div style={{ width: 440, flexShrink: 0, background: 'linear-gradient(165deg, #FFFFFF 0%, #F6F4EF 100%)', borderRight: `1px solid ${LS_BORDER}`, padding: '38px 44px', display: 'flex', flexDirection: 'column' }}>
+          <Wordmark />
+          <div style={{ marginTop: 'auto' }}>
+            <PanelMotif />
+            <p style={{ fontFamily: LS_FONT, fontWeight: 700, fontSize: 11, letterSpacing: '0.18em', textTransform: 'uppercase', color: LS_SIGNAL, margin: '28px 0 14px' }}>Strategic signal intelligence</p>
+            <h1 style={{ fontFamily: LS_FONT, fontWeight: 600, fontSize: 27, lineHeight: 1.22, letterSpacing: '-0.02em', color: LS_INK, margin: 0 }}>Stop guessing what will grow your business.</h1>
+            <p style={{ fontFamily: LS_FONT, fontSize: 14.5, lineHeight: 1.6, color: LS_T2, margin: '16px 0 0', maxWidth: 320 }}>Log in to see what&rsquo;s changing around you and get your weekly route.</p>
+          </div>
+          <div style={{ marginTop: 34, fontFamily: LS_FONT, fontSize: 12.5, color: LS_MUTED }}>We only read public signals. Nothing is posted on your behalf.</div>
+        </div>
+      )}
+
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+        {!isMobile && (
+          <div style={{ display: 'flex', justifyContent: 'flex-end', padding: '24px 40px' }}>
+            <Link to="/" style={{ fontFamily: LS_FONT, fontSize: 13, fontWeight: 600, color: LS_T2, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              <Glyph name="arrow-left" size={15} color={LS_T2} /> Back to site
+            </Link>
+          </div>
+        )}
+        <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: isMobile ? '32px 20px 40px' : '0 40px 60px' }}>
           <div style={{ width: '100%', maxWidth: 380 }}>
             <h2 style={{ fontFamily: LS_FONT, fontWeight: 600, fontSize: 28, letterSpacing: '-0.02em', color: LS_INK, margin: '0 0 6px' }}>{login ? 'Welcome back' : 'Create your account'}</h2>
             <p style={{ fontFamily: LS_FONT, fontSize: 15, color: LS_T2, margin: '0 0 28px' }}>{login ? 'Log in to pick up your weekly route.' : 'A few seconds, then we build your first route.'}</p>
 
-            <button type="button" title="Google sign-in is not configured in this boilerplate" style={ghostBtn}>
-              <svg width="17" height="17" viewBox="0 0 18 18">
-                <path fill="#4285F4" d="M17.6 9.2c0-.6-.1-1.2-.2-1.8H9v3.5h4.8a4.1 4.1 0 0 1-1.8 2.7v2.2h2.9c1.7-1.6 2.7-3.9 2.7-6.6z" />
-                <path fill="#34A853" d="M9 18c2.4 0 4.5-.8 6-2.2l-2.9-2.2c-.8.5-1.8.9-3.1.9-2.4 0-4.4-1.6-5.1-3.8H.9v2.3A9 9 0 0 0 9 18z" />
-                <path fill="#FBBC05" d="M3.9 10.7a5.4 5.4 0 0 1 0-3.4V5H.9a9 9 0 0 0 0 8z" />
-                <path fill="#EA4335" d="M9 3.6c1.3 0 2.5.5 3.4 1.3l2.6-2.6A9 9 0 0 0 .9 5l3 2.3C4.6 5.2 6.6 3.6 9 3.6z" />
-              </svg>
-              Continue with Google
-            </button>
+            {googleConfigured ? (
+              <div style={{ position: 'relative', opacity: googleLoading ? 0.7 : 1, pointerEvents: googleLoading ? 'none' : 'auto' }}>
+                <div style={{ ...ghostBtn, cursor: 'default', pointerEvents: 'none' }}>
+                  <svg width="17" height="17" viewBox="0 0 18 18">
+                    <path fill="#4285F4" d="M17.6 9.2c0-.6-.1-1.2-.2-1.8H9v3.5h4.8a4.1 4.1 0 0 1-1.8 2.7v2.2h2.9c1.7-1.6 2.7-3.9 2.7-6.6z" />
+                    <path fill="#34A853" d="M9 18c2.4 0 4.5-.8 6-2.2l-2.9-2.2c-.8.5-1.8.9-3.1.9-2.4 0-4.4-1.6-5.1-3.8H.9v2.3A9 9 0 0 0 9 18z" />
+                    <path fill="#FBBC05" d="M3.9 10.7a5.4 5.4 0 0 1 0-3.4V5H.9a9 9 0 0 0 0 8z" />
+                    <path fill="#EA4335" d="M9 3.6c1.3 0 2.5.5 3.4 1.3l2.6-2.6A9 9 0 0 0 .9 5l3 2.3C4.6 5.2 6.6 3.6 9 3.6z" />
+                  </svg>
+                  {googleLoading ? 'Signing in…' : 'Continue with Google'}
+                </div>
+                <div style={{ position: 'absolute', inset: 0, opacity: 0, overflow: 'hidden' }}>
+                  <GoogleLogin
+                    onSuccess={handleGoogleSuccess}
+                    onError={handleGoogleError}
+                    useOneTap={false}
+                    width="380"
+                    theme="outline"
+                    size="large"
+                    text="continue_with"
+                  />
+                </div>
+              </div>
+            ) : (
+              <button type="button" title="Set VITE_GOOGLE_CLIENT_ID to enable Google sign-in" style={{ ...ghostBtn, cursor: 'not-allowed', opacity: 0.6 }}>
+                <svg width="17" height="17" viewBox="0 0 18 18">
+                  <path fill="#4285F4" d="M17.6 9.2c0-.6-.1-1.2-.2-1.8H9v3.5h4.8a4.1 4.1 0 0 1-1.8 2.7v2.2h2.9c1.7-1.6 2.7-3.9 2.7-6.6z" />
+                  <path fill="#34A853" d="M9 18c2.4 0 4.5-.8 6-2.2l-2.9-2.2c-.8.5-1.8.9-3.1.9-2.4 0-4.4-1.6-5.1-3.8H.9v2.3A9 9 0 0 0 9 18z" />
+                  <path fill="#FBBC05" d="M3.9 10.7a5.4 5.4 0 0 1 0-3.4V5H.9a9 9 0 0 0 0 8z" />
+                  <path fill="#EA4335" d="M9 3.6c1.3 0 2.5.5 3.4 1.3l2.6-2.6A9 9 0 0 0 .9 5l3 2.3C4.6 5.2 6.6 3.6 9 3.6z" />
+                </svg>
+                Continue with Google
+              </button>
+            )}
 
             <div style={{ display: 'flex', alignItems: 'center', gap: 12, margin: '20px 0' }}>
               <span style={{ flex: 1, height: 1, background: LS_BORDER }} />
