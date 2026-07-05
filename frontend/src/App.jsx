@@ -7,53 +7,20 @@ import Dashboard from './pages/Dashboard';
 import ContentRoute from './pages/ContentRoute';
 import BrandDna from './pages/BrandDna';
 import Settings from './pages/Settings';
-import ProtectedRoute from './components/ProtectedRoute';
+import ProtectedLayout from './components/ProtectedLayout';
 
 export default function App() {
   return (
     <Routes>
       <Route path="/" element={<Landing />} />
       <Route path="/auth" element={<Auth />} />
-      <Route
-        path="/onboarding"
-        element={
-          <ProtectedRoute>
-            <Onboarding />
-          </ProtectedRoute>
-        }
-      />
-      <Route
-        path="/dashboard"
-        element={
-          <ProtectedRoute>
-            <Dashboard />
-          </ProtectedRoute>
-        }
-      />
-      <Route
-        path="/dashboard/content-route"
-        element={
-          <ProtectedRoute>
-            <ContentRoute />
-          </ProtectedRoute>
-        }
-      />
-      <Route
-        path="/dashboard/brand-dna"
-        element={
-          <ProtectedRoute>
-            <BrandDna />
-          </ProtectedRoute>
-        }
-      />
-      <Route
-        path="/dashboard/settings"
-        element={
-          <ProtectedRoute>
-            <Settings />
-          </ProtectedRoute>
-        }
-      />
+      <Route element={<ProtectedLayout />}>
+        <Route path="/onboarding" element={<Onboarding />} />
+        <Route path="/dashboard" element={<Dashboard />} />
+        <Route path="/dashboard/content-route" element={<ContentRoute />} />
+        <Route path="/dashboard/brand-dna" element={<BrandDna />} />
+        <Route path="/dashboard/settings" element={<Settings />} />
+      </Route>
     </Routes>
   );
 }

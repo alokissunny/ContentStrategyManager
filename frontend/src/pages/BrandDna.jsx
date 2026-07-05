@@ -1,5 +1,4 @@
 import React, { useEffect, useState } from 'react';
-import DashboardLayout from '../components/DashboardLayout';
 import Glyph from '../components/Glyph';
 import { getBrandDna, updateBrandDna } from '../api/brandDna';
 import { LS_SURFACE, LS_BORDER, LS_INK, LS_T2, LS_MUTED, LS_SIGNAL, LS_SOFT, LS_FONT, LS_DISPLAY, LSC } from '../theme';
@@ -78,8 +77,7 @@ export default function BrandDna() {
   const completedCount = sections.filter((s) => s.value.trim().length > 0).length;
 
   return (
-    <DashboardLayout>
-      <div style={{ ...LSC, padding: 'clamp(24px, 6vw, 48px) clamp(16px, 5vw, 48px)', maxWidth: 760 }}>
+    <div style={{ ...LSC, padding: 'clamp(24px, 6vw, 48px) clamp(16px, 5vw, 48px)', maxWidth: 760 }}>
         <h1 style={{ fontFamily: LS_DISPLAY, fontWeight: 700, fontSize: 30, color: LS_INK, margin: '0 0 8px' }}>Brand DNA</h1>
         <p style={{ fontFamily: LS_FONT, fontSize: 14, color: LS_T2, margin: '0 0 8px' }}>
           What WideSignals knows about your business. Edit anything that's off — the more complete this is, the sharper your weekly route.
@@ -128,6 +126,5 @@ export default function BrandDna() {
           </>
         )}
       </div>
-    </DashboardLayout>
   );
 }

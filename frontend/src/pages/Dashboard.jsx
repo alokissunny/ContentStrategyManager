@@ -2,7 +2,6 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import client from '../api/client';
 import { getBrandDna } from '../api/brandDna';
-import DashboardLayout from '../components/DashboardLayout';
 import Glyph from '../components/Glyph';
 import StageFunnel from '../components/StageFunnel';
 import WeeklyRoutePanel from '../components/WeeklyRoutePanel';
@@ -132,8 +131,7 @@ export default function Dashboard() {
   }, []);
 
   return (
-    <DashboardLayout>
-      <div style={{ ...LSC, maxWidth: 1320, padding: 'clamp(20px, 5vw, 40px) clamp(16px, 4vw, 48px) 64px' }}>
+    <div style={{ ...LSC, maxWidth: 1320, padding: 'clamp(20px, 5vw, 40px) clamp(16px, 4vw, 48px) 64px' }}>
         <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, marginBottom: 32 }}>
           <div>
             <h1 style={{ fontFamily: LS_DISPLAY, fontWeight: 700, fontSize: 'clamp(24px, 5vw, 30px)', color: LS_INK, margin: '0 0 6px' }}>Dashboard</h1>
@@ -200,6 +198,5 @@ export default function Dashboard() {
           />
         </div>
       </div>
-    </DashboardLayout>
   );
 }

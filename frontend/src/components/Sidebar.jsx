@@ -28,7 +28,6 @@ export default function Sidebar({ open = false, onClose }) {
         style={{
           width: 240,
           flexShrink: 0,
-          minHeight: '100vh',
           background: LS_SURFACE,
           borderRight: `1px solid ${LS_BORDER}`,
           display: 'flex',
@@ -37,10 +36,17 @@ export default function Sidebar({ open = false, onClose }) {
           ...(isMobile
             ? {
                 position: 'fixed', top: 0, left: 0, bottom: 0, zIndex: 50,
+                minHeight: '100vh',
                 transform: open ? 'translateX(0)' : 'translateX(-100%)',
                 transition: 'transform 220ms ease', boxShadow: open ? '0 0 0 100vw rgba(0,0,0,0)' : 'none',
               }
-            : { position: 'sticky', top: 0 }),
+            : {
+                position: 'sticky',
+                top: 0,
+                alignSelf: 'flex-start',
+                height: '100vh',
+                maxHeight: '100vh',
+              }),
         }}
       >
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 8px', marginBottom: 28 }}>
@@ -58,7 +64,7 @@ export default function Sidebar({ open = false, onClose }) {
           )}
         </div>
 
-        <nav style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+        <nav style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: 1, minHeight: 0, overflowY: 'auto' }}>
           {NAV_ITEMS.map((item) => {
             const active = item.exact ? pathname === item.to : pathname.startsWith(item.to);
             return (
@@ -79,9 +85,9 @@ export default function Sidebar({ open = false, onClose }) {
           })}
         </nav>
 
-        <div style={{ flex: 1 }} />
-
-        <UserMenu />
+        <div style={{ flexShrink: 0, marginTop: 12 }}>
+          <UserMenu />
+        </div>
       </div>
     </>
   );

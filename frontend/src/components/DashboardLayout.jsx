@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { Outlet } from 'react-router-dom';
 import Sidebar from './Sidebar';
 import UserMenu from './UserMenu';
 import Glyph from './Glyph';
@@ -8,6 +9,7 @@ import { LS_BG, LS_SURFACE, LS_BORDER, LS_INK, LS_SIGNAL, LS_FONT } from '../the
 export default function DashboardLayout({ children }) {
   const isMobile = useIsMobile();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const content = children ?? <Outlet />;
 
   return (
     <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', minHeight: '100vh', background: LS_BG }}>
@@ -32,7 +34,7 @@ export default function DashboardLayout({ children }) {
         </div>
       )}
       <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
-      <div style={{ flex: 1, minWidth: 0 }}>{children}</div>
+      <div style={{ flex: 1, minWidth: 0 }}>{content}</div>
     </div>
   );
 }

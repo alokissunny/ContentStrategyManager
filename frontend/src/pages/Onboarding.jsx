@@ -1,7 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import Glyph from '../components/Glyph';
-import UserMenu from '../components/UserMenu';
 import { useAuth } from '../context/AuthContext';
 import SignalTerrain from '../components/SignalTerrain';
 import RadarPulse from '../components/RadarPulse';
@@ -9,23 +8,8 @@ import StepList from '../components/StepList';
 import { fetchInstagram, confirmReport as confirmReportApi } from '../api/instagram';
 import { useIsMobile } from '../hooks/useMediaQuery';
 import {
-  LS_BG, LS_SURFACE, LS_BORDER, LS_INK, LS_T2, LS_MUTED, LS_SIGNAL, LS_SOFT, LS_FONT,
+  LS_SURFACE, LS_BORDER, LS_INK, LS_T2, LS_MUTED, LS_SIGNAL, LS_SOFT, LS_FONT,
 } from '../theme';
-
-function Wordmark() {
-  const xs = [4, 9, 14, 19, 24, 29];
-  const ys = [15, 10, 4, 11, 7, 13];
-  return (
-    <Link to="/" style={{ display: 'inline-flex', alignItems: 'center', gap: 9, textDecoration: 'none' }}>
-      <svg width="30" height="24" viewBox="0 0 34 28" fill="none">
-        {xs.map((x, i) => <line key={i} x1={x} y1={ys[i]} x2={x} y2="24" stroke={i === 2 ? LS_SIGNAL : LS_INK} strokeWidth="2" strokeLinecap="round" />)}
-      </svg>
-      <span style={{ fontFamily: LS_FONT, fontWeight: 700, fontSize: 19, letterSpacing: '-0.03em' }}>
-        <span style={{ color: LS_INK }}>wide</span><span style={{ color: LS_SIGNAL }}>signals</span>
-      </span>
-    </Link>
-  );
-}
 
 function PrimaryBtn({ children, onClick, type, full, disabled }) {
   return (
@@ -64,17 +48,13 @@ function Inp(props) {
 
 function Shell({ children, max = 620 }) {
   return (
-    <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', background: LS_BG }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: 'clamp(16px, 4vw, 22px) clamp(16px, 5vw, 40px)' }}>
-        <Wordmark />
-        <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-          <UserMenu compact />
-          <Link to="/dashboard" style={{ fontFamily: LS_FONT, fontSize: 13, fontWeight: 600, color: LS_T2, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-            Skip for now <Glyph name="arrow-right" size={15} color={LS_T2} />
-          </Link>
-        </div>
+    <div style={{ minHeight: '100%', display: 'flex', flexDirection: 'column', padding: 'clamp(20px, 5vw, 40px) clamp(16px, 5vw, 48px) 64px' }}>
+      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 16 }}>
+        <Link to="/dashboard" style={{ fontFamily: LS_FONT, fontSize: 13, fontWeight: 600, color: LS_T2, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+          Skip for now <Glyph name="arrow-right" size={15} color={LS_T2} />
+        </Link>
       </div>
-      <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 'clamp(12px, 3vw, 12px) clamp(16px, 5vw, 40px) 64px' }}>
+      <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
         <div style={{ width: '100%', maxWidth: max }}>{children}</div>
       </div>
     </div>
