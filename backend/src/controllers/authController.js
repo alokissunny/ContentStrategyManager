@@ -1,5 +1,6 @@
 const { OAuth2Client } = require('google-auth-library');
 const User = require('../models/User');
+const InstagramProfile = require('../models/InstagramProfile');
 const generateToken = require('../utils/generateToken');
 
 const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
@@ -11,6 +12,19 @@ function toPublicUser(user) {
     email: user.email,
     avatar: user.avatar || '',
     business: user.business,
+  };
+}
+
+async function userHasInstagramProfile(userId) {
+  return Boolean(await InstagramProfile.exists({ user: userId }));
+}
+
+async function authPayload(user) {
+  const hasInstagramProfile = await userHasInstagramProfile(user._id);
+  return {
+    user: { ...toPublicUser(user), hasInstagramProfile },
+    token: generateToken(user._id),
+    hasInstagramProfile,
   };
 }
 
@@ -26,10 +40,7 @@ async function register(req, res) {
   }
 
   const user = await User.create({ name, email, password });
-  res.status(201).json({
-    user: toPublicUser(user),
-    token: generateToken(user._id),
-  });
+  res.status(201).json(await authPayload(user));
 }
 
 async function login(req, res) {
@@ -46,14 +57,14 @@ async function login(req, res) {
     return res.status(401).json({ message: 'Invalid email or password' });
   }
 
-  res.json({
-    user: toPublicUser(user),
-    token: generateToken(user._id),
-  });
+  res.json(await authPayload(user));
 }
 
 async function getMe(req, res) {
-  res.json({ user: toPublicUser(req.user) });
+  const hasInstagramProfile = await userHasInstagramProfile(req.user._id);
+  res.json({
+    user: { ...toPublicUser(req.user), hasInstagramProfile },
+  });
 }
 
 const DEMO_EMAIL = 'demo@widesignals.com';
@@ -65,10 +76,7 @@ async function demoLogin(req, res) {
     user = await User.create({ name: 'Demo User', email: DEMO_EMAIL, password: DEMO_PASSWORD });
   }
 
-  res.json({
-    user: toPublicUser(user),
-    token: generateToken(user._id),
-  });
+  res.json(await authPayload(user));
 }
 
 async function googleAuth(req, res) {
@@ -122,10 +130,7 @@ async function googleAuth(req, res) {
     await user.save();
   }
 
-  res.json({
-    user: toPublicUser(user),
-    token: generateToken(user._id),
-  });
+  res.json(await authPayload(user));
 }
 
 module.exports = { register, login, getMe, demoLogin, googleAuth };

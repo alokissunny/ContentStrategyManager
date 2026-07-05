@@ -25,28 +25,28 @@ export function AuthProvider({ children }) {
     const res = await client.post('/auth/login', { email, password });
     localStorage.setItem(TOKEN_KEY, res.data.token);
     setUser(res.data.user);
-    return res.data.user;
+    return res.data;
   }
 
   async function register(name, email, password) {
     const res = await client.post('/auth/register', { name, email, password });
     localStorage.setItem(TOKEN_KEY, res.data.token);
     setUser(res.data.user);
-    return res.data.user;
+    return res.data;
   }
 
   async function demoLogin() {
     const res = await client.post('/auth/demo-login');
     localStorage.setItem(TOKEN_KEY, res.data.token);
     setUser(res.data.user);
-    return res.data.user;
+    return res.data;
   }
 
   async function googleLogin(credential) {
     const res = await client.post('/auth/google', { credential });
     localStorage.setItem(TOKEN_KEY, res.data.token);
     setUser(res.data.user);
-    return res.data.user;
+    return res.data;
   }
 
   function logout() {

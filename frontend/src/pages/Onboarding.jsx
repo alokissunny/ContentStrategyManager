@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import Glyph from '../components/Glyph';
 import UserMenu from '../components/UserMenu';
+import { useAuth } from '../context/AuthContext';
 import SignalTerrain from '../components/SignalTerrain';
 import RadarPulse from '../components/RadarPulse';
 import StepList from '../components/StepList';
@@ -257,7 +258,14 @@ export default function Onboarding() {
   const [handle, setHandle] = useState('');
   const [report, setReport] = useState(null);
   const [confirmSaving, setConfirmSaving] = useState(false);
+  const { user } = useAuth();
   const navigate = useNavigate();
+
+  useEffect(() => {
+    if (user?.hasInstagramProfile) {
+      navigate('/dashboard', { replace: true });
+    }
+  }, [user, navigate]);
 
   const goDashboard = () => navigate('/dashboard');
 

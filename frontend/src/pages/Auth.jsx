@@ -59,6 +59,11 @@ const ghostBtn = {
 
 const googleConfigured = Boolean(import.meta.env.VITE_GOOGLE_CLIENT_ID);
 
+function postLoginPath({ hasInstagramProfile, isSignup = false }) {
+  if (isSignup || !hasInstagramProfile) return '/onboarding';
+  return '/dashboard';
+}
+
 export default function Auth() {
   const [mode, setMode] = useState('login');
   const login = mode === 'login';
@@ -79,11 +84,12 @@ export default function Auth() {
     setLoading(true);
     try {
       if (login) {
-        await doLogin(email, password);
+        const data = await doLogin(email, password);
+        navigate(postLoginPath(data));
       } else {
         await doRegister(name, email, password);
+        navigate('/onboarding');
       }
-      navigate('/onboarding');
     } catch (err) {
       setError(err.response?.data?.message || 'Something went wrong');
     } finally {
@@ -95,8 +101,8 @@ export default function Auth() {
     setError('');
     setDemoLoading(true);
     try {
-      await doDemoLogin();
-      navigate('/onboarding');
+      const data = await doDemoLogin();
+      navigate(postLoginPath(data));
     } catch (err) {
       setError(err.response?.data?.message || 'Could not start the demo');
     } finally {
@@ -108,8 +114,8 @@ export default function Auth() {
     setError('');
     setGoogleLoading(true);
     try {
-      await doGoogleLogin(credentialResponse.credential);
-      navigate('/onboarding');
+      const data = await doGoogleLogin(credentialResponse.credential);
+      navigate(postLoginPath(data));
     } catch (err) {
       setError(err.response?.data?.message || 'Google sign-in failed');
     } finally {
