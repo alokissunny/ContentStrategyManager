@@ -9,6 +9,41 @@ IgSignal/
 └── frontend/   Vite + React app (landing page, auth, dashboard)
 ```
 
+# Deployment (Render)
+
+This repo includes a [`render.yaml`](./render.yaml) Blueprint that deploys:
+
+| Service | Type | URL |
+|---------|------|-----|
+| `igsignal-api` | Node web service | `https://igsignal-api.onrender.com` |
+| `igsignal-web` | Static site (Vite) | `https://igsignal-web.onrender.com` |
+
+### One-time setup
+
+1. Push this repo to GitHub (already connected: `ContentStrategyManager`).
+2. Open [Render Dashboard](https://dashboard.render.com/) → **New** → **Blueprint**.
+3. Connect the repo and apply the Blueprint.
+4. When prompted, enter secret env vars:
+   - `MONGO_URI` — MongoDB Atlas connection string
+   - `GOOGLE_CLIENT_ID` — same Client ID for API + frontend
+   - `VITE_GOOGLE_CLIENT_ID` — same value as `GOOGLE_CLIENT_ID`
+   - `APIFY_TOKEN`, `ANTHROPIC_API_KEY`, AWS keys, etc. (copy from local `.env`)
+5. After deploy, add production URLs to [Google OAuth credentials](https://console.cloud.google.com/apis/credentials):
+   - **Authorized JavaScript origins:** `https://igsignal-web.onrender.com`
+   - Use your actual Render frontend URL if the service name differs.
+
+`CLIENT_URL` and `VITE_API_URL` are wired automatically between services via the Blueprint.
+
+### Manual deploy (without Blueprint)
+
+**Backend** — Web Service, root `backend`, build `npm install`, start `npm start`, health check `/api/health`.
+
+**Frontend** — Static Site, root `frontend`, build `npm install && npm run build`, publish `dist`, rewrite `/*` → `/index.html`.
+
+Set `VITE_API_URL` to your API URL (e.g. `https://igsignal-api.onrender.com` — `/api` is appended automatically).
+
+---
+
 ## Backend
 
 ```

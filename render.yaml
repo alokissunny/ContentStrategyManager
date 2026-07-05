@@ -1,0 +1,71 @@
+# Render Blueprint — https://render.com/docs/blueprint-spec
+# Deploy: Dashboard → New → Blueprint → connect this repo, or run `render blueprint apply`
+services:
+  - type: web
+    name: igsignal-api
+    runtime: node
+    region: oregon
+    plan: free
+    rootDir: backend
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: MONGO_URI
+        sync: false
+      - key: JWT_SECRET
+        generateValue: true
+      - key: JWT_EXPIRES_IN
+        value: 7d
+      - key: CLIENT_URL
+        fromService:
+          type: web
+          name: igsignal-web
+          envVarKey: RENDER_EXTERNAL_URL
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: APIFY_TOKEN
+        sync: false
+      - key: APIFY_INSTAGRAM_PROFILE_ACTOR
+        value: apify/instagram-profile-scraper
+      - key: APIFY_INSTAGRAM_POST_ACTOR
+        value: apify/instagram-post-scraper
+      - key: INSTAGRAM_POSTS_LIMIT
+        value: "12"
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: ANTHROPIC_MODEL
+        value: claude-sonnet-5
+      - key: AWS_REGION
+        sync: false
+      - key: AWS_ACCESS_KEY_ID
+        sync: false
+      - key: AWS_SECRET_ACCESS_KEY
+        sync: false
+      - key: S3_BUCKET_NAME
+        sync: false
+      - key: S3_REPORT_PRESIGN_EXPIRY_SECONDS
+        value: "3600"
+
+  - type: web
+    name: igsignal-web
+    runtime: static
+    rootDir: frontend
+    buildCommand: npm install && npm run build
+    staticPublishPath: dist
+    autoDeploy: true
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    envVars:
+      - key: VITE_API_URL
+        fromService:
+          type: web
+          name: igsignal-api
+          envVarKey: RENDER_EXTERNAL_URL
+      - key: VITE_GOOGLE_CLIENT_ID
+        sync: false
