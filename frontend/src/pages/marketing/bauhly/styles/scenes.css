@@ -1,0 +1,3274 @@
+/* ============ shared — linktree-style blocks ============ */
+
+.bauhly-landing .block {
+  padding-block: clamp(96px, 14vh, 180px);
+  overflow: hidden;
+  position: relative;
+}
+
+.bauhly-landing .block-title {
+  font-family: var(--font-display);
+  font-size: var(--text-break);
+  font-weight: 800;
+  line-height: 1.0;
+  letter-spacing: -0.02em;
+  max-width: 15ch;
+  margin-bottom: 24px;
+}
+
+.bauhly-landing .block-sub {
+  font-size: var(--text-lead);
+  font-weight: 500;
+  line-height: 1.55;
+  max-width: 44ch;
+  margin-bottom: 40px;
+}
+
+/* ============ nav — floating, hides on scroll down ============ */
+
+.bauhly-landing .nav {
+  position: fixed;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(var(--grid-max), calc(100% - 32px));
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 10px 10px 10px 26px;
+  background: color-mix(in srgb, var(--paper) 82%, transparent);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border-radius: 999px;
+  box-shadow: 0 12px 34px rgba(0, 0, 0, 0.12);
+  z-index: 100;
+  transition: transform 420ms var(--ease-drawer), opacity 420ms var(--ease-drawer);
+}
+
+.bauhly-landing .nav-hidden {
+  transform: translate(-50%, -140%);
+  opacity: 0;
+  pointer-events: none;
+}
+
+.bauhly-landing .nav-mark {
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: 22px;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+}
+
+.bauhly-landing .nav-dot {
+  color: var(--primary);
+}
+
+.bauhly-landing .nav-links {
+  display: flex;
+  gap: clamp(20px, 3vw, 44px);
+}
+
+.bauhly-landing .nav-links a {
+  text-decoration: none;
+  font-weight: 600;
+  font-size: 16px;
+  color: var(--ink);
+  opacity: 0.85;
+  padding: 8px 4px;
+}
+
+.bauhly-landing .nav-links a:hover {
+  opacity: 1;
+}
+
+.bauhly-landing .nav-actions {
+  display: flex;
+  align-items: center;
+  gap: clamp(10px, 1.4vw, 20px);
+}
+
+.bauhly-landing .nav-login {
+  text-decoration: none;
+  font-weight: 600;
+  font-size: 16px;
+  color: var(--ink);
+  opacity: 0.85;
+  padding: 8px 6px;
+  white-space: nowrap;
+}
+
+.bauhly-landing .nav-login:hover {
+  opacity: 1;
+}
+
+.bauhly-landing .cta.nav-cta {
+  font-size: 16px;
+  padding: 14px 28px;
+}
+
+/* hamburger — desktop hidden, shown at the mobile breakpoint */
+.bauhly-landing .nav-burger {
+  display: none;
+  flex-direction: column;
+  justify-content: center;
+  gap: 5px;
+  width: 44px;
+  height: 44px;
+  padding: 0 11px;
+}
+
+.bauhly-landing .nav-burger span {
+  display: block;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--ink);
+  transition: transform 250ms var(--ease-drawer), opacity 200ms;
+}
+
+.bauhly-landing .nav-open .nav-burger span:nth-child(1) {
+  transform: translateY(7px) rotate(45deg);
+}
+
+.bauhly-landing .nav-open .nav-burger span:nth-child(2) {
+  opacity: 0;
+}
+
+.bauhly-landing .nav-open .nav-burger span:nth-child(3) {
+  transform: translateY(-7px) rotate(-45deg);
+}
+
+.bauhly-landing .nav-panel {
+  position: absolute;
+  top: calc(100% + 10px);
+  left: 0;
+  right: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 16px;
+  background: var(--paper);
+  border-radius: 24px;
+  box-shadow: 0 20px 44px rgba(0, 0, 0, 0.16);
+}
+
+.bauhly-landing .nav-panel a {
+  text-decoration: none;
+  font-weight: 600;
+  font-size: 17px;
+  color: var(--ink);
+  padding: 12px 8px;
+  border-radius: 12px;
+}
+
+.bauhly-landing .nav-panel a:hover {
+  background: color-mix(in srgb, var(--ink) 5%, transparent);
+}
+
+.bauhly-landing .nav-panel-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-top: 8px;
+  padding-top: 12px;
+  border-top: 1px solid color-mix(in srgb, var(--ink) 10%, transparent);
+}
+
+/* Log in becomes a ghost pill matching Sign up's height — balanced halves,
+   filled Sign up still reads as primary */
+.bauhly-landing .nav-panel-actions .nav-login {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 14px 24px;
+  border: 1px solid color-mix(in srgb, var(--ink) 22%, transparent);
+  border-radius: 999px;
+  opacity: 1;
+}
+
+.bauhly-landing .nav-panel-actions .nav-cta {
+  text-align: center;
+}
+
+/* ============ geometry accents ============ */
+
+.bauhly-landing .geo-dots {
+  position: absolute;
+  top: -6%;
+  right: -4%;
+  width: 180px;
+  height: 180px;
+  background-image: radial-gradient(color-mix(in srgb, var(--hero-ink) 32%, transparent) 1.5px, transparent 1.5px);
+  background-size: 18px 18px;
+  pointer-events: none;
+}
+
+.bauhly-landing .geo-dots {
+  opacity: 0.7;
+}
+
+.bauhly-landing .block-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: clamp(40px, 6vw, 110px);
+  align-items: center;
+}
+
+.bauhly-landing .cta {
+  display: inline-block;
+  font-family: var(--font-body);
+  font-weight: 600;
+  font-size: 17px;
+  padding: 18px 34px;
+  border-radius: 999px;
+  transition: transform 250ms var(--ease-drawer);
+}
+
+.bauhly-landing .cta:hover {
+  transform: scale(1.04);
+}
+
+.bauhly-landing .cta:active {
+  transform: scale(0.97);
+}
+
+.bauhly-landing .cta-ink {
+  background: var(--ink);
+  color: var(--canvas);
+}
+
+.bauhly-landing .cta-primary {
+  background: var(--primary);
+  color: var(--primary-contrast);
+}
+
+.bauhly-landing .cta-signature {
+  background: var(--signature);
+  color: var(--signature-ink);
+}
+
+.bauhly-landing .chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--font-body);
+  font-weight: 500;
+  font-size: 14px;
+  padding: 8px 16px;
+  border-radius: 999px;
+}
+
+/* ============ hero — signature block ============ */
+
+.bauhly-landing .h1s {
+  background: var(--signature);
+  /* same dark ink used as the "Seven posts" section background —
+     keeps the hero's voice consistent with the rest of the page */
+  color: var(--ink);
+  /* balanced landing-page proportion — bounded, not a forced full
+     viewport that leaves empty space when content is shorter */
+  min-height: min(88vh, 760px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  position: relative;
+}
+
+/* subtle tonal circle in the corner — bookends the lime final CTA's orb
+   and seeds the page's restrained Bauhaus geometry */
+.bauhly-landing .h1s-orb {
+  position: absolute;
+  left: clamp(-120px, -6vw, -60px);
+  bottom: clamp(-120px, -6vw, -60px);
+  width: clamp(220px, 26vw, 380px);
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--ink) 5%, transparent);
+  pointer-events: none;
+  z-index: 0;
+}
+
+.bauhly-landing .h1s-inner {
+  flex: 1;
+  height: 100%;
+  grid-template-rows: 1fr;
+  align-items: stretch;
+  position: relative;
+  z-index: 1;
+}
+
+.bauhly-landing .h1s-copy {
+  align-self: center;
+  padding-block: clamp(96px, 13vh, 140px) clamp(40px, 6vh, 72px);
+}
+
+.bauhly-landing .h1s-title {
+  font-family: var(--font-display);
+  font-size: clamp(42px, 7.5vw, 88px);
+  font-weight: 800;
+  line-height: 0.99;
+  letter-spacing: -0.02em;
+  margin-bottom: 20px;
+  max-width: 13ch;
+  color: var(--hero-ink);
+}
+
+/* "Built for interior designers" — integrated into the copy itself,
+   not a standalone badge. The emphasis lives in the typography: a
+   premium serif italic in the primary color with a hand-drawn
+   underline, echoing the brand's editorial/Bauhaus voice rather than
+   a decorative pill container. */
+.bauhly-landing .h1s-lead {
+  font-family: var(--font-body);
+  font-weight: 600;
+  font-size: clamp(18px, 1.9vw, 22px);
+  color: var(--hero-ink);
+  margin-bottom: 26px;
+}
+
+.bauhly-landing .hl-designers {
+  position: relative;
+  display: inline-block;
+  font-family: 'Instrument Serif', Georgia, serif;
+  font-style: italic;
+  font-weight: 400;
+  font-size: 1.25em;
+  line-height: 1;
+  color: var(--primary);
+  padding-bottom: 6px;
+}
+
+.bauhly-landing .hl-designers svg {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -6px;
+  width: 100%;
+  height: 12px;
+  color: var(--primary);
+}
+
+.bauhly-landing .h1s-sub {
+  font-size: var(--text-lead);
+  font-weight: 500;
+  line-height: 1.55;
+  max-width: 42ch;
+  margin-bottom: 44px;
+  /* higher contrast than the muted --grey token against the bright
+     signature background */
+  color: color-mix(in srgb, var(--ink) 78%, transparent);
+}
+
+/* hero — continuous vertical marquee, full-bleed: fills the hero's own
+   height edge to edge (no floating card, no shadow, no radius — it reads
+   as part of the hero panel, not an object placed on top of it) */
+
+.bauhly-landing .h1s-stage {
+  position: relative;
+  align-self: stretch;
+}
+
+.bauhly-landing .hdeck {
+  width: 100%;
+  height: 100%;
+}
+
+/* static overlapping composition — mobile only (the auto-scroll marquee
+   doesn't make sense at phone width); pinned-card language, no motion */
+.bauhly-landing .hero-static {
+  display: none;
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+
+.bauhly-landing .hstat {
+  position: absolute;
+  border-radius: 20px;
+  overflow: hidden;
+  box-shadow: 0 18px 38px rgba(0, 0, 0, 0.22);
+}
+
+.bauhly-landing .hstat img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.bauhly-landing .hstat-1 {
+  width: 58%;
+  height: 60%;
+  top: 0;
+  left: 3%;
+  transform: rotate(-4deg);
+  z-index: 2;
+}
+
+.bauhly-landing .hstat-2 {
+  width: 52%;
+  height: 52%;
+  top: 16%;
+  right: 1%;
+  transform: rotate(4deg);
+  z-index: 3;
+}
+
+.bauhly-landing .hstat-3 {
+  width: 50%;
+  height: 42%;
+  bottom: 7%;
+  left: 14%;
+  transform: rotate(-2deg);
+  z-index: 1;
+}
+
+.bauhly-landing .hdeck-stage {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+.bauhly-landing .hdeck-track {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  will-change: transform;
+}
+
+.bauhly-landing .hdeck-slot {
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+
+/* inset within its slot — this is the visible margin between images
+   as they scroll, and what lets the peeking neighbor read as a
+   separate card rather than a hard-cropped continuation */
+.bauhly-landing .hdeck-card {
+  position: absolute;
+  inset: 10px 0;
+  border-radius: 22px;
+  overflow: hidden;
+  background: var(--paper);
+}
+
+.bauhly-landing .hdeck-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* subtle internal life — only on the centered/active card, never on
+   the peeking neighbors, and only a slow zoom + faint brighten, never
+   fast enough to distract from the caption sitting on top */
+.bauhly-landing .hdeck-img.is-active {
+  animation: hdeck-breathe 6.4s ease-in-out infinite alternate;
+}
+
+@keyframes hdeck-breathe {
+  from { transform: scale(1); filter: brightness(1); }
+  to { transform: scale(1.05); filter: brightness(1.04); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bauhly-landing .hdeck-img.is-active {
+    animation: none;
+  }
+}
+
+.bauhly-landing .hdeck-tag {
+  position: absolute;
+  left: 22px;
+  bottom: 22px;
+  max-width: 78%;
+  font-family: var(--font-body);
+  font-weight: 600;
+  font-size: clamp(14px, 1.4vw, 16px);
+  line-height: 1.35;
+  background: var(--paper);
+  color: var(--ink);
+  border-radius: 16px 16px 16px 4px;
+  padding: 11px 16px;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.16);
+}
+
+.bauhly-landing .h1s-ctas {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 14px;
+}
+
+.bauhly-landing .h1s-main-cta {
+  font-size: 18px;
+  padding: 18px 36px;
+}
+
+
+/* ============ block 1b — the problem, before the solution ============ */
+
+.bauhly-landing .b1b {
+  background: var(--ink);
+  color: var(--canvas);
+  text-align: center;
+}
+
+.bauhly-landing .b1b-title {
+  color: var(--canvas);
+  max-width: 20ch;
+  margin-inline: auto;
+}
+
+/* three illustrated vignettes — same glyph grammar as the journey
+   cards, but night to their day: muted panels on ink, one small accent
+   each, and the pain written into the card instead of beside it */
+.bauhly-landing .b1b-cards {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: clamp(16px, 2.5vw, 28px);
+  margin-top: clamp(40px, 5vw, 60px);
+  text-align: left;
+}
+
+.bauhly-landing .pv-card {
+  border-radius: 28px;
+  padding: clamp(26px, 3vw, 40px);
+  min-height: 300px;
+  background: color-mix(in srgb, var(--canvas) 5%, transparent);
+  border: 1px solid color-mix(in srgb, var(--canvas) 12%, transparent);
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  color: var(--ink-soft);
+}
+
+.bauhly-landing .pv-illo {
+  position: relative;
+  height: 150px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.bauhly-landing .pv-ring {
+  position: absolute;
+  width: 132px;
+  height: 132px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--canvas) 6%, transparent);
+}
+
+.bauhly-landing .pv-illo svg {
+  position: relative;
+  z-index: 1;
+}
+
+.bauhly-landing .pv-cap {
+  margin-top: auto;
+  font-family: var(--font-body);
+  font-size: clamp(17px, 1.8vw, 20px);
+  font-weight: 500;
+  line-height: 1.4;
+  color: color-mix(in srgb, var(--canvas) 90%, transparent);
+}
+
+/* one small accent per glyph */
+.bauhly-landing .pv-moon {
+  fill: var(--signature);
+}
+
+.bauhly-landing .pv-heart {
+  fill: var(--primary);
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: pv-pulse 9s ease-in-out 3s infinite;
+}
+
+.bauhly-landing .pv-hand {
+  stroke: var(--signature);
+  transform-box: view-box;
+  transform-origin: 40px 52px;
+  animation: pv-spin 9s ease-in-out 6s infinite;
+}
+
+/* ambient, transform-only, intermittent + staggered so at most one card
+   is subtly alive at a time — never fades */
+.bauhly-landing .pv-scroll {
+  animation: pv-scroll 9s ease-in-out infinite;
+}
+
+@keyframes pv-scroll {
+  0% { transform: translateY(0); }
+  25% { transform: translateY(-40px); }
+  100% { transform: translateY(-40px); }
+}
+
+@keyframes pv-pulse {
+  0%, 100% { transform: scale(1); }
+  6% { transform: scale(1.22); }
+  12% { transform: scale(1); }
+}
+
+@keyframes pv-spin {
+  0% { transform: rotate(0deg); }
+  30% { transform: rotate(360deg); }
+  100% { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bauhly-landing .pv-scroll,
+  .bauhly-landing .pv-heart,
+  .bauhly-landing .pv-hand {
+    animation: none;
+  }
+}
+
+.bauhly-landing .b1b-pivot {
+  margin-top: clamp(40px, 5vw, 64px);
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: clamp(22px, 2.6vw, 34px);
+  letter-spacing: -0.015em;
+  color: var(--signature);
+}
+
+@media (max-width: 760px) {
+  .bauhly-landing .b1b-cards {
+    grid-template-columns: 1fr;
+    max-width: 420px;
+    margin-inline: auto;
+  }
+}
+
+/* hero story stack — auto-cycling center stage (legacy) */
+
+.bauhly-landing .hstack {
+  margin-top: clamp(40px, 6vh, 72px);
+}
+
+.bauhly-landing .hstack-stage {
+  position: relative;
+  height: clamp(420px, 62vh, 680px);
+  display: flex;
+  justify-content: center;
+}
+
+.bauhly-landing .hstack-card {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: min(560px, 78%);
+  border-radius: 28px;
+  overflow: hidden;
+  box-shadow: 0 30px 60px rgba(0, 0, 0, 0.22);
+  background: var(--paper);
+  will-change: transform;
+}
+
+.bauhly-landing .hstack-card > img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.bauhly-landing .hstack-tag {
+  position: absolute;
+  top: 18px;
+  left: 18px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  background: var(--paper);
+  color: var(--ink);
+  border-radius: 999px;
+  padding: 8px 14px;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.14);
+}
+
+.bauhly-landing .hstack-plan {
+  height: 100%;
+  padding: 64px 28px 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.bauhly-landing .hstack-plan .att-plan-row p {
+  font-size: 15px;
+}
+
+.bauhly-landing .hstack-dots {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 26px;
+  flex-wrap: wrap;
+}
+
+.bauhly-landing .hstack-dot {
+  font-family: var(--font-body);
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--hero-ink);
+  background: color-mix(in srgb, var(--hero-ink) 8%, transparent);
+  border-radius: 999px;
+  padding: 8px 16px;
+  transition: background 250ms var(--ease-drawer), color 250ms var(--ease-drawer);
+}
+
+.bauhly-landing .hstack-dot.active {
+  background: var(--hero-ink);
+  color: var(--signature);
+}
+
+.bauhly-landing .att-card {
+  position: absolute;
+  background: var(--paper);
+  border-radius: 18px;
+  padding: 18px 20px;
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.16);
+}
+
+.bauhly-landing .att-label {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--primary);
+  display: block;
+  margin-bottom: 10px;
+}
+
+.bauhly-landing .att-plan {
+  top: -28px;
+  right: clamp(16px, 4%, 56px);
+  width: min(280px, 68%);
+}
+
+.bauhly-landing .att-plan-row {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding-block: 6px;
+  border-top: 1px solid var(--surface);
+}
+
+.bauhly-landing .att-plan-row span {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--primary);
+  min-width: 28px;
+}
+
+.bauhly-landing .att-plan-row p {
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--ink);
+}
+
+.bauhly-landing .att-stat {
+  left: -22px;
+  top: 34%;
+  display: flex;
+  align-items: center;
+}
+
+.bauhly-landing .att-stat > div {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.bauhly-landing .att-big {
+  font-family: var(--font-display);
+  font-size: 56px;
+  font-weight: 800;
+  line-height: 1;
+  color: var(--ink);
+}
+
+.bauhly-landing .att-stat-sub {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--grey);
+  line-height: 1.6;
+}
+
+.bauhly-landing .att-pill {
+  position: absolute;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  background: var(--guest);
+  color: var(--guest-contrast);
+  border-radius: 999px;
+  padding: 9px 16px;
+  box-shadow: 0 12px 26px rgba(0, 0, 0, 0.16);
+}
+
+.bauhly-landing .att-pill-1 {
+  left: 3%;
+  top: 56%;
+}
+
+.bauhly-landing .att-pill-2 {
+  left: 8%;
+  top: 65%;
+  background: var(--paper);
+  color: var(--ink);
+}
+
+.bauhly-landing .att-bubble {
+  position: absolute;
+  right: clamp(16px, 4%, 56px);
+  bottom: -30px;
+  width: min(280px, 74%);
+  background: var(--signature);
+  border: 2px solid var(--hero-ink);
+  border-radius: 22px 22px 4px 22px;
+  padding: 18px 20px;
+  box-shadow: 6px 6px 0 color-mix(in srgb, var(--hero-ink) 22%, transparent);
+}
+
+.bauhly-landing .att-bubble p {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 18px;
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+  color: var(--hero-ink);
+  margin-bottom: 12px;
+}
+
+.bauhly-landing .att-bubble-cta {
+  display: inline-block;
+  background: var(--paper);
+  color: var(--ink);
+  font-weight: 600;
+  font-size: 13px;
+  border-radius: 999px;
+  padding: 9px 16px;
+  cursor: pointer;
+}
+
+.bauhly-landing .hs {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.bauhly-landing .hs-stage {
+  position: relative;
+  width: min(560px, 100%);
+  aspect-ratio: 10 / 11;
+}
+
+.bauhly-landing .hs-board {
+  position: absolute;
+  inset: -4%;
+  border: 1.5px dashed color-mix(in srgb, var(--hero-ink) 35%, transparent);
+  border-radius: 28px;
+  background-image: radial-gradient(color-mix(in srgb, var(--hero-ink) 14%, transparent) 1.5px, transparent 1.5px);
+  background-size: 26px 26px;
+}
+
+.bauhly-landing .hs-lines {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.bauhly-landing .hs-lines path {
+  fill: none;
+  stroke: var(--primary);
+  stroke-width: 0.5;
+  stroke-dasharray: 2 1.4;
+}
+
+.bauhly-landing .hs-piece {
+  position: absolute;
+  top: 0;
+  left: 0;
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 18px 36px rgba(0, 0, 0, 0.16);
+  background: var(--paper);
+  padding: 8px;
+}
+
+.bauhly-landing .hs-piece img {
+  width: 100%;
+  display: block;
+  border-radius: 6px;
+}
+
+.bauhly-landing .hs-piece-tag {
+  position: absolute;
+  top: 14px;
+  left: 14px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  background: var(--primary);
+  color: var(--primary-contrast);
+  border-radius: 999px;
+  padding: 4px 10px;
+}
+
+.bauhly-landing .hs-route {
+  position: absolute;
+  inset: 6% 4%;
+  background: var(--paper);
+  border-radius: 24px;
+  padding: 24px;
+  box-shadow: 0 26px 50px rgba(0, 0, 0, 0.18);
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.bauhly-landing .hs-route .deck-day {
+  gap: 10px;
+}
+
+.bauhly-landing .hs-why {
+  font-style: normal;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--primary);
+  margin-left: auto;
+  white-space: nowrap;
+}
+
+.bauhly-landing .hs-captions {
+  position: relative;
+  width: 100%;
+  height: 28px;
+  margin-top: 20px;
+}
+
+.bauhly-landing .hs-captions p {
+  position: absolute;
+  inset: 0;
+  text-align: center;
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--hero-ink-soft);
+}
+
+/* ============ block 2 — ink: tell it about your project ============ */
+
+.bauhly-landing .b2 {
+  background: var(--canvas);
+  color: var(--ink);
+}
+
+.bauhly-landing .b2 .block-title {
+  color: var(--ink);
+}
+
+.bauhly-landing .b2 .block-sub {
+  color: var(--grey);
+}
+
+.bauhly-landing .b2-route {
+  background: color-mix(in srgb, var(--canvas) 8%, transparent);
+  border: 1px solid color-mix(in srgb, var(--canvas) 14%, transparent);
+  border-radius: 28px;
+  padding: clamp(20px, 3vw, 36px);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  position: relative;
+}
+
+.bauhly-landing .b2-route-label {
+  position: absolute;
+  top: -12px;
+  left: 28px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  background: var(--signature);
+  color: var(--signature-ink);
+  border-radius: 999px;
+  padding: 5px 12px;
+}
+
+.bauhly-landing .b2-day-glyph {
+  display: inline-flex;
+  color: var(--grey);
+  flex-shrink: 0;
+}
+
+.bauhly-landing .b2-input {
+  background: var(--paper);
+  color: var(--grey);
+  border-radius: 999px;
+  padding: 16px 24px;
+  font-size: 15px;
+  margin-bottom: 10px;
+}
+
+.bauhly-landing .b2-day {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  background: var(--paper);
+  color: var(--ink);
+  border-radius: 16px;
+  padding: 14px 20px;
+}
+
+.bauhly-landing .b2-day-left {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.bauhly-landing .b2-day-dot {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  background: var(--surface);
+  border-radius: 999px;
+  padding: 6px 12px;
+  color: var(--ink);
+}
+
+.bauhly-landing .b2-day-what {
+  font-weight: 600;
+  font-size: 15px;
+}
+
+.bauhly-landing .b2-day-why {
+  font-size: 13px;
+  color: var(--primary);
+  white-space: nowrap;
+}
+
+/* ============ block 3 — guest: how it works ============ */
+
+.bauhly-landing .b3 {
+  background: var(--guest);
+  color: var(--guest-contrast);
+}
+
+.bauhly-landing .b3 .block-title {
+  max-width: 18ch;
+}
+
+.bauhly-landing .b3-eyebrow {
+  display: inline-block;
+  font-family: var(--font-mono);
+  font-size: var(--text-mono);
+  letter-spacing: var(--track-mono);
+  text-transform: uppercase;
+  color: var(--guest-contrast);
+  margin-bottom: 20px;
+}
+
+.bauhly-landing .b3-sub {
+  font-size: var(--text-lead);
+  font-weight: 500;
+  line-height: 1.55;
+  max-width: 46ch;
+  color: var(--guest-contrast);
+}
+
+/* five-step flow on a center spine — cards alternate sides, a Bauhaus
+   marker punctuates each step on the thread */
+.bauhly-landing .b3-flow {
+  list-style: none;
+  position: relative;
+  margin-top: clamp(48px, 6vw, 76px);
+  display: flex;
+  flex-direction: column;
+  gap: clamp(20px, 3vw, 40px);
+}
+
+.bauhly-landing .b3-flow::before {
+  content: '';
+  position: absolute;
+  top: 6px;
+  bottom: 6px;
+  left: 50%;
+  width: 2px;
+  transform: translateX(-50%);
+  background-image: linear-gradient(180deg, var(--signature) 55%, transparent 55%);
+  background-size: 100% 12px;
+}
+
+.bauhly-landing .b3-node {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: start;
+  column-gap: clamp(24px, 4vw, 56px);
+}
+
+.bauhly-landing .b3-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-width: 400px;
+  padding: clamp(22px, 2.4vw, 32px);
+  border-radius: 22px;
+  /* deep-violet tonal panel — sits *into* the section rather than lifting
+     off it as a white block; definition from a hairline border + soft
+     dark shadow, not a luminance cliff */
+  background: color-mix(in srgb, var(--guest) 72%, #000);
+  color: var(--guest-contrast);
+  border: 1px solid color-mix(in srgb, #fff 14%, transparent);
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.28);
+}
+
+.bauhly-landing .b3-node.is-left .b3-card {
+  grid-column: 1;
+  align-items: flex-end;
+  text-align: right;
+  margin-left: auto;
+}
+
+.bauhly-landing .b3-node.is-right .b3-card {
+  grid-column: 3;
+  align-items: flex-start;
+  text-align: left;
+  margin-right: auto;
+}
+
+.bauhly-landing .b3-illo {
+  color: var(--signature);
+}
+
+.bauhly-landing .b3-step-label {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--guest-tint);
+}
+
+.bauhly-landing .b3-card h3 {
+  font-family: var(--font-display);
+  font-size: clamp(20px, 2.2vw, 27px);
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  color: var(--guest-contrast);
+}
+
+.bauhly-landing .b3-card p {
+  font-size: clamp(15px, 1.5vw, 17px);
+  font-weight: 500;
+  line-height: 1.5;
+  color: var(--guest-tint);
+}
+
+.bauhly-landing .b3-chip {
+  font-family: var(--font-body);
+  font-weight: 600;
+  font-size: 14px;
+  background: color-mix(in srgb, #fff 12%, transparent);
+  color: var(--guest-contrast);
+  border: 1px solid color-mix(in srgb, #fff 18%, transparent);
+  border-radius: 999px;
+  padding: 8px 16px;
+  margin-top: 2px;
+}
+
+/* the emotional peak — the answer to the "no ideas" fear set up in step 2 */
+.bauhly-landing .b3-node.is-accent .b3-card {
+  background: var(--signature);
+  border-color: transparent;
+  color: var(--signature-ink);
+  box-shadow: 0 22px 46px rgba(0, 0, 0, 0.2);
+}
+
+.bauhly-landing .b3-node.is-accent .b3-illo {
+  color: var(--signature-ink);
+}
+
+/* the base card h3 is light for the dark panels — on the lime accent card
+   it must invert to the dark signature-ink */
+.bauhly-landing .b3-node.is-accent .b3-card h3 {
+  color: var(--signature-ink);
+}
+
+.bauhly-landing .b3-node.is-accent .b3-step-label {
+  color: color-mix(in srgb, var(--signature-ink) 70%, transparent);
+}
+
+.bauhly-landing .b3-node.is-accent .b3-card p {
+  color: color-mix(in srgb, var(--signature-ink) 85%, transparent);
+}
+
+/* Bauhaus marker on the spine — one geometric primitive per step, all
+   in lime for a single cohesive flow */
+.bauhly-landing .b3-marker {
+  position: relative;
+  grid-column: 2;
+  /* explicit row 1 — the card is DOM-first with a far explicit column, so
+     without this the marker gets bumped to an implicit second row */
+  grid-row: 1;
+  /* fixed offset from the row/card top so every marker sits at the same
+     level relative to its card — the "attached" geometry, regardless of
+     differing card heights */
+  margin-top: clamp(26px, 3vw, 40px);
+  width: 34px;
+  height: 34px;
+  background: var(--signature);
+  box-shadow: 0 0 0 6px var(--guest);
+  z-index: 1;
+}
+
+/* a lime connector anchors each marker to its own card, so the eye binds
+   step to card and reads a clear progression down the spine */
+.bauhly-landing .b3-marker::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  height: 2px;
+  width: calc(clamp(24px, 4vw, 56px) + 6px);
+  background: var(--signature);
+  transform: translateY(-50%);
+}
+
+.bauhly-landing .b3-node.is-left .b3-marker::after {
+  right: 100%;
+}
+
+.bauhly-landing .b3-node.is-right .b3-marker::after {
+  left: 100%;
+}
+
+.bauhly-landing .b3-marker-circle {
+  border-radius: 50%;
+}
+
+.bauhly-landing .b3-marker-quarter {
+  border-radius: 100% 0 0 0;
+}
+
+.bauhly-landing .b3-marker-leaf {
+  border-radius: 60% 0 60% 0;
+}
+
+.bauhly-landing .b3-marker-half {
+  border-radius: 100% 100% 0 0;
+}
+
+.bauhly-landing .b3-marker-square {
+  border-radius: 6px;
+}
+
+@media (max-width: 760px) {
+  .bauhly-landing .b3-flow::before {
+    left: 17px;
+  }
+
+  .bauhly-landing .b3-node {
+    grid-template-columns: auto 1fr;
+    column-gap: 22px;
+  }
+
+  .bauhly-landing .b3-node .b3-marker {
+    grid-column: 1;
+  }
+
+  .bauhly-landing .b3-node.is-left .b3-card,
+  .bauhly-landing .b3-node.is-right .b3-card {
+    grid-column: 2;
+    align-items: flex-start;
+    text-align: left;
+    margin: 0;
+    max-width: none;
+  }
+
+  /* left rail: every connector points right into its card */
+  .bauhly-landing .b3-node.is-left .b3-marker::after,
+  .bauhly-landing .b3-node.is-right .b3-marker::after {
+    right: auto;
+    left: 100%;
+  }
+}
+
+/* ============ block 10 — intelligence (proof of the reasons) ============ */
+
+.bauhly-landing .b10 {
+  background: var(--canvas);
+  color: var(--ink);
+}
+
+.bauhly-landing .b10 .block-title {
+  color: var(--ink);
+}
+
+.bauhly-landing .b10 .block-sub {
+  color: var(--grey);
+  margin-bottom: 8px;
+}
+
+.bauhly-landing .intel-eyebrow {
+  display: inline-block;
+  font-family: var(--font-mono);
+  font-size: var(--text-mono);
+  letter-spacing: var(--track-mono);
+  text-transform: uppercase;
+  color: var(--primary);
+  margin-bottom: 20px;
+}
+
+/* the convergence: two inputs (market + your studio) meet at the Bauhly
+   node and resolve into one recommendation — the same input → node →
+   output motif the memory section uses, so it reads as native */
+.bauhly-landing .intel-flow {
+  margin-top: clamp(40px, 5vw, 64px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.bauhly-landing .intel-inputs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: clamp(16px, 2vw, 24px);
+  width: 100%;
+  max-width: 820px;
+  align-items: stretch;
+}
+
+.bauhly-landing .intel-card {
+  position: relative;
+  border-radius: 24px;
+  padding: clamp(24px, 3vw, 34px);
+  background: var(--paper);
+  border: 1px solid color-mix(in srgb, var(--ink) 8%, transparent);
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.07);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* a push-pin in the corner — these are cards on a research wall */
+.bauhly-landing .intel-pin {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--primary);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--primary) 22%, transparent);
+}
+
+/* proof you can see: 300 studios as a wall of tiny plates, a few pinned
+   out in signature */
+.bauhly-landing .intel-mosaic {
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);
+  gap: 8px;
+  margin: 8px 0 4px;
+  max-width: 264px;
+}
+
+.bauhly-landing .intel-tile {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: color-mix(in srgb, var(--ink) 18%, transparent);
+}
+
+.bauhly-landing .intel-tile.on {
+  color: var(--primary);
+}
+
+/* the strategist's own handwriting on the wall */
+.bauhly-landing .intel-note {
+  font-family: 'Instrument Serif', Georgia, serif;
+  font-style: italic;
+  font-size: 20px;
+  line-height: 1.1;
+  color: var(--primary);
+}
+
+.bauhly-landing .intel-card-tag {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--grey);
+}
+
+.bauhly-landing .intel-number {
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: clamp(52px, 6.5vw, 84px);
+  line-height: 0.9;
+  letter-spacing: -0.02em;
+  color: var(--ink);
+}
+
+.bauhly-landing .intel-card-label {
+  font-size: 16px;
+  font-weight: 500;
+  color: var(--grey);
+  max-width: 22ch;
+}
+
+.bauhly-landing .intel-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.bauhly-landing .intel-chip {
+  font-family: var(--font-body);
+  font-weight: 600;
+  font-size: 14px;
+  background: color-mix(in srgb, var(--ink) 6%, transparent);
+  color: var(--ink);
+  border: 1px solid color-mix(in srgb, var(--ink) 14%, transparent);
+  border-radius: 999px;
+  padding: 9px 16px;
+}
+
+.bauhly-landing .intel-chip-more {
+  background: transparent;
+  color: var(--grey);
+  border-style: dashed;
+}
+
+.bauhly-landing .intel-you {
+  justify-content: flex-start;
+}
+
+.bauhly-landing .intel-you .intel-note {
+  margin-top: auto;
+}
+
+/* mirror the market card's illustration zone — your projects, materials
+   and plans, one pinned out in primary like the mosaic highlights */
+.bauhly-landing .intel-you-glyphs {
+  display: flex;
+  gap: 18px;
+  margin: 10px 0 8px;
+}
+
+.bauhly-landing .intel-you-glyph {
+  color: color-mix(in srgb, var(--ink) 32%, transparent);
+}
+
+.bauhly-landing .intel-you-glyph.on {
+  color: var(--primary);
+}
+
+.bauhly-landing .intel-you-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin-top: 4px;
+}
+
+.bauhly-landing .intel-you-list li {
+  position: relative;
+  padding-left: 24px;
+  font-size: clamp(16px, 1.6vw, 19px);
+  font-weight: 500;
+  color: var(--ink);
+}
+
+.bauhly-landing .intel-you-list li::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0.55em;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--primary);
+}
+
+.bauhly-landing .intel-merge {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0;
+}
+
+/* red thread strung between the wall and the conclusion, pinned at each
+   end — pinboard string, not a flowchart arrow */
+.bauhly-landing .intel-thread {
+  position: relative;
+  width: 2px;
+  height: clamp(26px, 3.4vw, 40px);
+  background: var(--primary);
+}
+
+.bauhly-landing .intel-thread::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 22%, transparent);
+}
+
+.bauhly-landing .intel-thread-top::before {
+  top: -4px;
+}
+
+.bauhly-landing .intel-thread-bottom::before {
+  bottom: -4px;
+}
+
+.bauhly-landing .intel-node {
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: 20px;
+  letter-spacing: -0.01em;
+  background: var(--ink);
+  color: var(--canvas);
+  border-radius: 999px;
+  padding: 12px 24px;
+  box-shadow: 0 14px 30px rgba(0, 0, 0, 0.16);
+}
+
+.bauhly-landing .intel-out {
+  width: 100%;
+  max-width: 560px;
+  background: var(--signature);
+  color: var(--signature-ink);
+  border-radius: 26px;
+  padding: clamp(26px, 3.2vw, 40px);
+  box-shadow: 0 24px 50px rgba(0, 0, 0, 0.12);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  text-align: left;
+}
+
+.bauhly-landing .intel-out-tag {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: color-mix(in srgb, var(--signature-ink) 75%, transparent);
+}
+
+.bauhly-landing .intel-out-when {
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: clamp(22px, 2.4vw, 30px);
+  letter-spacing: -0.01em;
+}
+
+.bauhly-landing .intel-out-why {
+  font-size: clamp(16px, 1.6vw, 19px);
+  font-weight: 500;
+  line-height: 1.5;
+}
+
+@media (max-width: 760px) {
+  .bauhly-landing .intel-inputs {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ============ block 9 — memory ============ */
+
+.bauhly-landing .b9 {
+  background: var(--canvas);
+  color: var(--ink);
+}
+
+.bauhly-landing .b9 .block-sub {
+  color: var(--grey);
+}
+
+.bauhly-landing .mem {
+  display: grid;
+  grid-template-columns: 6fr 1.2fr 5fr;
+  gap: clamp(14px, 2.5vw, 32px);
+  align-items: center;
+  margin-top: 40px;
+}
+
+.bauhly-landing .mem-left {
+  position: relative;
+}
+
+.bauhly-landing .mem-map {
+  border-radius: 24px;
+  overflow: hidden;
+  box-shadow: 0 24px 50px rgba(0, 0, 0, 0.12);
+}
+
+.bauhly-landing .mem-map img {
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  object-fit: cover;
+  display: block;
+}
+
+.bauhly-landing .mem-left .mem-chips {
+  position: absolute;
+  left: -14px;
+  bottom: -18px;
+  flex-direction: row;
+  flex-wrap: wrap;
+  max-width: 90%;
+}
+
+.bauhly-landing .mem-left .mem-chip:nth-child(2n) {
+  margin-left: 0;
+}
+
+.bauhly-landing .mem-chips {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: flex-start;
+}
+
+.bauhly-landing .mem-chip {
+  font-family: var(--font-body);
+  font-weight: 600;
+  font-size: 16px;
+  background: var(--paper);
+  color: var(--ink);
+  border-radius: 999px;
+  padding: 13px 22px;
+  box-shadow: 0 12px 26px rgba(0, 0, 0, 0.12);
+}
+
+.bauhly-landing .mem-chip:nth-child(2n) {
+  margin-left: 24px;
+}
+
+.bauhly-landing .mem-flow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.bauhly-landing .mem-line {
+  flex: 1;
+  height: 1.5px;
+  min-width: 14px;
+  background-image: linear-gradient(90deg, var(--primary) 55%, transparent 55%);
+  background-size: 10px 100%;
+  animation: mem-dash 1.2s linear infinite;
+}
+
+@keyframes mem-dash {
+  from { background-position-x: 0; }
+  to { background-position-x: 10px; }
+}
+
+.bauhly-landing .mem-node {
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: 22px;
+  letter-spacing: -0.01em;
+  background: var(--ink);
+  color: var(--canvas);
+  border-radius: 999px;
+  padding: 16px 26px;
+  box-shadow: 0 16px 34px rgba(0, 0, 0, 0.18);
+}
+
+.bauhly-landing .mem-out {
+  background: var(--signature);
+  color: var(--signature-ink);
+  border-radius: 28px;
+  padding: clamp(26px, 3vw, 40px);
+  box-shadow: 0 24px 50px rgba(0, 0, 0, 0.14);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.bauhly-landing .mem-out-title {
+  font-family: var(--font-display);
+  font-size: clamp(22px, 2.2vw, 30px);
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  margin-bottom: 12px;
+}
+
+.bauhly-landing .mem-out .att-plan-row {
+  border-top: 1px solid color-mix(in srgb, var(--signature-ink) 22%, transparent);
+  padding-block: 10px;
+}
+
+.bauhly-landing .mem-out .att-plan-row span {
+  color: var(--signature-ink);
+  opacity: 0.7;
+}
+
+.bauhly-landing .mem-out .att-plan-row p {
+  color: var(--signature-ink);
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.bauhly-landing .mem-out-note {
+  margin-top: 14px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: color-mix(in srgb, var(--signature-ink) 75%, transparent);
+}
+
+/* ============ block 4 — canvas: inquiries pay ============ */
+
+.bauhly-landing .b4 {
+  background: var(--canvas);
+  color: var(--ink);
+}
+
+.bauhly-landing .b4-card {
+  background: var(--paper);
+  border-radius: 28px;
+  padding: clamp(28px, 4vw, 48px);
+  box-shadow: 0 24px 50px rgba(0, 0, 0, 0.08);
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+
+.bauhly-landing .b4-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 16px;
+}
+
+.bauhly-landing .b4-metric {
+  font-family: var(--font-display);
+  font-size: clamp(30px, 3.6vw, 46px);
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+/* the number the whole page argues for — the hottest thing in the section */
+.bauhly-landing .b4-metric:not(.muted) {
+  color: var(--primary);
+}
+
+.bauhly-landing .b4-row .b4-label {
+  text-align: right;
+}
+
+.bauhly-landing .b4-metric.muted {
+  color: var(--grey);
+  text-decoration: line-through;
+  text-decoration-thickness: 3px;
+  text-decoration-color: var(--primary);
+}
+
+.bauhly-landing .b4-label {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--grey);
+}
+
+.bauhly-landing .b4-note {
+  border-top: 1px solid var(--surface);
+  padding-top: 18px;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--grey);
+}
+
+.bauhly-landing .b4-visual {
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  object-fit: cover;
+  border-radius: 16px;
+}
+
+.bauhly-landing .b4-card-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--primary);
+}
+
+.bauhly-landing .b4-spark {
+  width: 100%;
+  height: 48px;
+  color: var(--primary);
+}
+
+/* ============ block 5 — journey cards ============ */
+
+.bauhly-landing .b5 {
+  background: var(--paper);
+  color: var(--ink);
+  text-align: center;
+}
+
+.bauhly-landing .b5 .block-title {
+  margin-inline: auto;
+}
+
+.bauhly-landing .b5 .block-sub {
+  margin-inline: auto;
+}
+
+.bauhly-landing .b5-banner {
+  border-radius: 28px;
+  overflow: hidden;
+  margin-top: 40px;
+  box-shadow: 0 24px 50px rgba(0, 0, 0, 0.1);
+}
+
+.bauhly-landing .b5-banner img {
+  width: 100%;
+  height: clamp(200px, 30vh, 320px);
+  object-fit: cover;
+  display: block;
+}
+
+.bauhly-landing .b5-cards {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: clamp(16px, 2.5vw, 32px);
+  margin-top: 40px;
+  text-align: left;
+}
+
+.bauhly-landing .b5-card {
+  border-radius: 28px;
+  padding: clamp(24px, 3vw, 36px);
+  min-height: 280px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.bauhly-landing .b5-illo {
+  position: relative;
+  height: 190px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.bauhly-landing .b5-illo svg {
+  position: relative;
+  z-index: 1;
+}
+
+.bauhly-landing .b5-illo-ring {
+  position: absolute;
+  width: 150px;
+  height: 150px;
+  border-radius: 50%;
+  background: color-mix(in srgb, currentColor 14%, transparent);
+}
+
+.bauhly-landing .b5-illo-dot {
+  position: absolute;
+  top: 18px;
+  right: 22%;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: color-mix(in srgb, currentColor 30%, transparent);
+}
+
+.bauhly-landing .b5-card h3 {
+  font-size: clamp(26px, 2.6vw, 38px);
+  font-weight: 800;
+  letter-spacing: -0.01em;
+}
+
+.bauhly-landing .b5-card p {
+  font-size: 17px;
+  font-weight: 500;
+  line-height: 1.5;
+}
+
+
+.bauhly-landing .b5-step {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  opacity: 0.7;
+}
+
+.bauhly-landing .b5-found { background: var(--guest); color: var(--guest-contrast); }
+.bauhly-landing .b5-trusted { background: var(--primary); color: var(--primary-contrast); }
+.bauhly-landing .b5-hired { background: var(--signature); color: var(--signature-ink); }
+
+/* ============ block 6 — final cta ============ */
+
+/* the page opens and closes on its brightest brand moment — the dark
+   palette now belongs only to the problem section (the one night) */
+.bauhly-landing .b6 {
+  position: relative;
+  background: var(--signature);
+  color: var(--ink);
+  text-align: center;
+  padding-block: clamp(140px, 20vh, 240px);
+}
+
+/* Bauhaus circles behind the CTA — large tonal orb + a small solid
+   punctuation, both clipped by the panel corners */
+.bauhly-landing .b6-orb {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: clamp(360px, 46vw, 640px);
+  aspect-ratio: 1;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--ink) 7%, transparent);
+  pointer-events: none;
+}
+
+.bauhly-landing .b6-orb-sm {
+  position: absolute;
+  right: clamp(24px, 8vw, 120px);
+  bottom: clamp(24px, 6vw, 90px);
+  width: clamp(40px, 5vw, 68px);
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: var(--primary);
+  pointer-events: none;
+}
+
+.bauhly-landing .b6 .container {
+  position: relative;
+  z-index: 1;
+}
+
+.bauhly-landing .b6-title {
+  font-family: var(--font-display);
+  font-size: var(--text-hero);
+  font-weight: 800;
+  line-height: 0.98;
+  letter-spacing: -0.02em;
+  max-width: 16ch;
+  margin-inline: auto;
+  margin-bottom: 28px;
+  color: var(--hero-ink);
+}
+
+.bauhly-landing .b6-title .hl {
+  color: var(--primary);
+}
+
+.bauhly-landing .b6-sub {
+  font-size: var(--text-lead);
+  color: color-mix(in srgb, var(--ink) 72%, transparent);
+  max-width: 46ch;
+  margin-inline: auto;
+  margin-bottom: 44px;
+}
+
+.bauhly-landing .b6-reassure {
+  margin-top: 44px;
+  font-family: var(--font-mono);
+  font-size: var(--text-mono);
+  letter-spacing: var(--track-mono);
+  text-transform: uppercase;
+  color: color-mix(in srgb, var(--ink) 58%, transparent);
+  line-height: 2;
+}
+
+.bauhly-landing .b6-foot {
+  margin-top: 110px;
+  display: flex;
+  justify-content: space-between;
+  gap: 24px;
+  flex-wrap: wrap;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: var(--track-mono);
+  text-transform: uppercase;
+  color: var(--grey);
+}
+
+/* ============ block 2 — the monday delivery ============ */
+
+.bauhly-landing .wk-delivery {
+  display: inline-flex;
+  align-items: center;
+  gap: 14px;
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: clamp(16px, 1.8vw, 22px);
+  letter-spacing: -0.01em;
+  color: var(--signature-ink);
+  background: var(--signature);
+  border-radius: 999px;
+  padding: 14px 26px;
+  margin-bottom: 30px;
+  box-shadow: 0 14px 30px rgba(0, 0, 0, 0.12);
+}
+
+.bauhly-landing .wk-bell {
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  background: var(--primary);
+  animation: wk-pulse 2s ease-in-out infinite;
+}
+
+@keyframes wk-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--primary) 55%, transparent); }
+  50% { box-shadow: 0 0 0 9px transparent; }
+}
+
+.bauhly-landing .wk-rail {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 12px;
+  margin-block: 40px 22px;
+}
+
+.bauhly-landing .wk-tab {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  border-radius: 18px;
+  padding: 20px 22px;
+  background: color-mix(in srgb, var(--ink) 5%, transparent);
+  color: var(--grey);
+  cursor: pointer;
+  transition: transform 300ms var(--ease-drawer), background 300ms var(--ease-drawer),
+    color 300ms var(--ease-drawer), box-shadow 300ms var(--ease-drawer);
+}
+
+.bauhly-landing .wk-tab:hover {
+  transform: translateY(-2px);
+  color: var(--ink);
+}
+
+.bauhly-landing .wk-tab-d {
+  font-family: var(--font-display);
+  font-size: clamp(18px, 2vw, 26px);
+  font-weight: 800;
+  letter-spacing: -0.01em;
+}
+
+.bauhly-landing .wk-tab-f {
+  font-size: 14px;
+  font-weight: 500;
+  opacity: 0.75;
+}
+
+/* the one clear active state — same signature color reused on the
+   connected brief card below, so tab → card reads as one selection */
+.bauhly-landing .wk-tab.active {
+  background: var(--signature);
+  color: var(--signature-ink);
+  transform: translateY(-4px);
+  box-shadow: 0 14px 28px rgba(0, 0, 0, 0.16);
+}
+
+.bauhly-landing .wk-tab.active .wk-tab-f {
+  opacity: 0.75;
+}
+
+.bauhly-landing .wk-layout {
+  display: grid;
+  grid-template-columns: 6fr 5fr;
+  gap: clamp(14px, 1.8vw, 24px);
+  /* stretch — both columns share exactly one height, top to bottom,
+     so the brief card and the Instagram mockup align perfectly and
+     feel like one connected pair rather than two floating objects */
+  align-items: stretch;
+}
+
+/* fixed height so switching days never resizes the section — the card
+   is absolutely positioned inside it and its text is line-clamped, so
+   overflow truncates instead of growing */
+.bauhly-landing .wk-brief {
+  position: relative;
+  height: clamp(420px, 42vw, 520px);
+}
+
+.bauhly-landing .wk-card {
+  position: absolute;
+  inset: 0;
+  background: var(--paper);
+  border-radius: 26px;
+  padding: clamp(26px, 3.5vw, 46px);
+  box-shadow: 0 24px 48px rgba(0, 0, 0, 0.1);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 22px;
+}
+
+.bauhly-landing .wk-card-head {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 22px;
+}
+
+.bauhly-landing .wk-chip {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink);
+  background: color-mix(in srgb, var(--ink) 8%, transparent);
+  border-radius: 999px;
+  padding: 9px 18px;
+}
+
+.bauhly-landing .wk-chip-active {
+  background: var(--signature);
+  color: var(--signature-ink);
+}
+
+.bauhly-landing .wk-hook {
+  font-family: var(--font-display);
+  font-size: clamp(24px, 3vw, 40px);
+  font-weight: 800;
+  letter-spacing: -0.015em;
+  line-height: 1.1;
+  color: var(--ink);
+  max-width: 20ch;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+
+.bauhly-landing .wk-why-line {
+  font-size: clamp(16px, 1.6vw, 20px);
+  font-weight: 500;
+  line-height: 1.5;
+  color: var(--grey);
+  max-width: 42ch;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+}
+
+/* ============ instagram post mockup ============ */
+
+.bauhly-landing .ig-post {
+  width: 100%;
+  height: 100%;
+  /* fills the full stretched column height — same top and bottom edge
+     as the brief card beside it */
+  display: flex;
+  flex-direction: column;
+  background: var(--paper);
+  border-radius: 18px;
+  overflow: hidden;
+  box-shadow: 0 24px 48px rgba(0, 0, 0, 0.1);
+}
+
+.bauhly-landing .ig-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+}
+
+.bauhly-landing .ig-avatar {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--primary), var(--signature));
+  flex-shrink: 0;
+}
+
+.bauhly-landing .ig-user {
+  font-weight: 700;
+  font-size: 14px;
+  color: var(--ink);
+}
+
+/* fills whatever height remains after the header/actions/caption rows
+   — this is what lets the card match the brief card's height exactly */
+.bauhly-landing .ig-photo {
+  position: relative;
+  width: 100%;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--surface);
+}
+
+.bauhly-landing .ig-photo img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* format indicator — top-right of the photo, matching how Instagram
+   itself marks reels and carousels in the feed */
+.bauhly-landing .ig-format {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.45);
+  color: #fff;
+  backdrop-filter: blur(2px);
+}
+
+.bauhly-landing .ig-dots {
+  position: absolute;
+  left: 50%;
+  bottom: 12px;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 5px;
+}
+
+.bauhly-landing .ig-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.55);
+}
+
+.bauhly-landing .ig-dot.active {
+  background: #fff;
+}
+
+.bauhly-landing .ig-actions {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 14px 2px;
+  color: var(--ink);
+}
+
+.bauhly-landing .ig-likes {
+  padding: 14px 14px 0;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--ink);
+}
+
+.bauhly-landing .ig-caption {
+  padding: 6px 14px 16px;
+  font-size: 15px;
+  font-weight: 500;
+  line-height: 1.45;
+  color: var(--ink);
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+
+.bauhly-landing .ig-caption b {
+  font-weight: 700;
+}
+
+/* ============ block 2 — calendar (legacy) ============ */
+
+.bauhly-landing .cal {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 12px;
+  margin-block: 52px 40px;
+}
+
+.bauhly-landing .cal-day {
+  position: relative;
+  text-align: left;
+  border-radius: 20px;
+  padding: 16px 14px;
+  min-height: 190px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  cursor: pointer;
+  transition: transform 350ms var(--ease-drawer), box-shadow 350ms var(--ease-drawer);
+}
+
+.bauhly-landing .cal-day.active {
+  transform: translateY(-8px) scale(1.03);
+  box-shadow: 0 22px 44px rgba(0, 0, 0, 0.3);
+}
+
+.bauhly-landing .cal-day.t-paper {
+  background: var(--paper);
+  color: var(--ink);
+}
+
+.bauhly-landing .cal-day.t-signature {
+  background: var(--signature);
+  color: var(--signature-ink);
+}
+
+.bauhly-landing .cal-day.t-guest {
+  background: var(--guest);
+  color: var(--guest-contrast);
+}
+
+.bauhly-landing .cal-day.t-ink {
+  background: color-mix(in srgb, var(--canvas) 10%, var(--ink));
+  color: var(--canvas);
+  border: 1px solid color-mix(in srgb, var(--canvas) 22%, transparent);
+}
+
+.bauhly-landing .cal-n {
+  font-family: var(--font-display);
+  font-size: 30px;
+  font-weight: 800;
+  line-height: 1;
+  opacity: 0.9;
+}
+
+.bauhly-landing .cal-d {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  opacity: 0.75;
+}
+
+.bauhly-landing .cal-f {
+  align-self: flex-start;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  padding: 4px 10px;
+  margin-top: 4px;
+  opacity: 0.85;
+}
+
+.bauhly-landing .cal-hook {
+  font-weight: 600;
+  font-size: 13px;
+  line-height: 1.3;
+  margin-top: auto;
+}
+
+.bauhly-landing .cal-lower {
+  display: grid;
+  grid-template-columns: 7fr 5fr;
+  gap: clamp(28px, 5vw, 80px);
+  align-items: start;
+}
+
+.bauhly-landing .cal-detail {
+  background: var(--paper);
+  color: var(--ink);
+  border-radius: 24px;
+  padding: clamp(24px, 3vw, 40px);
+  min-height: 190px;
+}
+
+.bauhly-landing .cal-detail-day {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--primary);
+  display: block;
+  margin-bottom: 14px;
+}
+
+.bauhly-landing .cal-detail-hook {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: clamp(22px, 2.4vw, 32px);
+  letter-spacing: -0.01em;
+  line-height: 1.1;
+  margin-bottom: 12px;
+}
+
+.bauhly-landing .cal-detail-why {
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--grey);
+}
+
+.bauhly-landing .cal-aside {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  align-items: flex-start;
+}
+
+.bauhly-landing .cal-aside-label {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+
+.bauhly-landing .cal-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.bauhly-landing .cal-chip {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--canvas);
+  border: 1px solid color-mix(in srgb, var(--canvas) 30%, transparent);
+  border-radius: 999px;
+  padding: 7px 13px;
+}
+
+/* ============ block 2 — weekly board (legacy) ============ */
+
+.bauhly-landing .board {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 10px;
+  margin-block: 48px;
+}
+
+.bauhly-landing .board-day {
+  position: relative;
+  background: var(--paper);
+  color: var(--ink);
+  border-radius: 16px;
+  padding: 14px 14px 18px;
+  min-height: 150px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.bauhly-landing .board-d {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--grey);
+}
+
+.bauhly-landing .board-format {
+  align-self: flex-start;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  background: var(--surface);
+  border-radius: 999px;
+  padding: 4px 10px;
+  color: var(--ink);
+}
+
+.bauhly-landing .board-hook {
+  font-weight: 600;
+  font-size: 13px;
+  line-height: 1.3;
+  flex: 1;
+}
+
+.bauhly-landing .board-pillar {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+}
+
+.bauhly-landing .board-pillar.p-primary { background: var(--primary); }
+.bauhly-landing .board-pillar.p-guest { background: var(--guest); }
+.bauhly-landing .board-pillar.p-signature { background: var(--signature); }
+
+.bauhly-landing .b2-lower {
+  display: grid;
+  grid-template-columns: 7fr 5fr;
+  gap: clamp(28px, 5vw, 80px);
+  align-items: start;
+}
+
+.bauhly-landing .anatomy {
+  position: relative;
+  background: var(--paper);
+  color: var(--ink);
+  border-radius: 24px;
+  padding: clamp(24px, 3vw, 40px);
+}
+
+.bauhly-landing .anatomy-rows {
+  display: flex;
+  flex-direction: column;
+}
+
+.bauhly-landing .anatomy-row {
+  display: grid;
+  grid-template-columns: 140px 1fr;
+  gap: 16px;
+  padding-block: 10px;
+  border-top: 1px solid var(--surface);
+}
+
+.bauhly-landing .anatomy-row span {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--primary);
+  padding-top: 3px;
+}
+
+.bauhly-landing .anatomy-row p {
+  font-weight: 500;
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+.bauhly-landing .anatomy-tags {
+  margin-top: 18px;
+}
+
+.bauhly-landing .b2-aside {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.bauhly-landing .b2-aside-line {
+  font-size: var(--text-lead);
+  font-weight: 500;
+  line-height: 1.55;
+  color: var(--ink-soft);
+}
+
+.bauhly-landing .b2-aside .cta {
+  align-self: flex-start;
+}
+
+/* ============ block 2 — sources converge (legacy) ============ */
+
+.bauhly-landing .b2-sources {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  max-width: 420px;
+  margin-bottom: 36px;
+}
+
+.bauhly-landing .b2-source {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--canvas);
+  border: 1px solid color-mix(in srgb, var(--canvas) 35%, transparent);
+  border-radius: 999px;
+  padding: 8px 14px;
+}
+
+.bauhly-landing .b2-source-arrow {
+  width: 100%;
+  color: var(--signature);
+  font-size: 18px;
+  line-height: 1;
+  padding-left: 22px;
+}
+
+.bauhly-landing .b2-source-out {
+  background: var(--signature);
+  border-color: var(--signature);
+  color: var(--signature-ink);
+  font-weight: 500;
+}
+
+/* ============ block 7 — pricing + guarantee ============ */
+
+.bauhly-landing .b7 {
+  background: var(--canvas);
+  color: var(--ink);
+  position: relative;
+  overflow: hidden;
+}
+
+.bauhly-landing .b7::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: clamp(80px, 10vw, 150px);
+  aspect-ratio: 1;
+  background: var(--guest);
+  border-radius: 0 0 0 100%;
+}
+
+/* two fixed rows — a qualifier row (struck €39 / "Starting at") over the
+   amount row — so both cards share identical price geometry and nothing
+   can wrap regardless of card width */
+.bauhly-landing .b7-price {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+
+.bauhly-landing .b7-qualifier {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  /* fixed height (not min) so both cards' qualifier rows are exactly
+     equal regardless of content, and the amounts below align */
+  height: clamp(38px, 3.6vw, 46px);
+}
+
+.bauhly-landing .b7-amount-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.bauhly-landing .b7-starting {
+  font-family: var(--font-mono);
+  font-size: var(--text-mono);
+  letter-spacing: var(--track-mono);
+  text-transform: uppercase;
+  color: var(--grey);
+}
+
+.bauhly-landing .b7-amount {
+  font-family: var(--font-display);
+  font-size: clamp(60px, 7.5vw, 104px);
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  line-height: 1;
+}
+
+/* the old price, struck through — the anchor you can see */
+.bauhly-landing .b7-was {
+  font-family: var(--font-display);
+  font-size: clamp(22px, 2.6vw, 32px);
+  font-weight: 700;
+  color: var(--grey);
+  text-decoration: line-through;
+  text-decoration-color: var(--primary);
+  text-decoration-thickness: 2px;
+}
+
+.bauhly-landing .b7-per {
+  font-size: var(--text-lead);
+  font-weight: 500;
+  color: var(--grey);
+}
+
+/* launch note — quiet primary text, one rank below the "Recommended"
+   flag so the two don't compete; the struck €39 already signals the rise */
+.bauhly-landing .b7-launch {
+  align-self: center;
+  font-family: var(--font-mono);
+  font-size: var(--text-mono);
+  letter-spacing: var(--track-mono);
+  text-transform: uppercase;
+  color: var(--primary);
+  margin-bottom: 36px;
+}
+
+.bauhly-landing .b7-launch-alt {
+  color: var(--grey);
+}
+
+
+.bauhly-landing .b7-title {
+  margin-inline: auto;
+  text-align: center;
+  max-width: none;
+}
+
+.bauhly-landing .b7-sub {
+  text-align: center;
+  max-width: 40ch;
+  margin: 18px auto 0;
+  font-size: var(--text-lead);
+  font-weight: 500;
+  color: var(--grey);
+}
+
+.bauhly-landing .price-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: clamp(16px, 2vw, 28px);
+  max-width: 980px;
+  margin-inline: auto;
+  margin-top: 48px;
+  /* stretch — both cards fill the row's height equally, whichever
+     tier has more content decides the height, both cards match it */
+  align-items: stretch;
+}
+
+.bauhly-landing .price-card {
+  position: relative;
+  background: var(--paper);
+  border-radius: 32px;
+  padding: clamp(28px, 3.5vw, 48px);
+  box-shadow: 0 30px 60px rgba(0, 0, 0, 0.1);
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+}
+
+.bauhly-landing .price-card.featured {
+  box-shadow: 0 0 0 4px var(--signature), 0 30px 60px rgba(0, 0, 0, 0.14);
+}
+
+.bauhly-landing .price-flag {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  background: var(--signature);
+  color: var(--signature-ink);
+  border-radius: 999px;
+  padding: 8px 18px;
+  white-space: nowrap;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.12);
+}
+
+.bauhly-landing .price-plan {
+  font-family: var(--font-display);
+  font-size: 22px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+  display: block;
+  margin-bottom: 4px;
+}
+
+.bauhly-landing .price-tagline {
+  display: block;
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--grey);
+  margin-bottom: 20px;
+}
+
+.bauhly-landing .b7-price {
+  justify-content: center;
+}
+
+/* refined feature list — no icons, one weight, one colour; scannability
+   comes from hairline dividers and spacing, not marks */
+.bauhly-landing .price-list {
+  list-style: none;
+  text-align: left;
+  max-width: 380px;
+  margin: 8px auto 0;
+  /* grow to fill leftover space so both cards' CTAs land on the same
+     baseline regardless of how many features each tier lists */
+  flex: 1;
+}
+
+.bauhly-landing .price-list li {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  font-weight: 500;
+  font-size: 16px;
+  line-height: 1.45;
+  color: color-mix(in srgb, var(--ink) 88%, transparent);
+  padding-block: 7px;
+}
+
+/* soft circular check — tonal, not a hot ✓; identical on every row */
+.bauhly-landing .price-list li::before {
+  content: '✓';
+  flex-shrink: 0;
+  display: inline-grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  margin-top: 2px;
+  border-radius: 50%;
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.bauhly-landing .price-list li > span:first-child {
+  flex: 1;
+}
+
+/* the one colored element in the lists — the premium row's tag */
+.bauhly-landing .price-tag {
+  flex-shrink: 0;
+  align-self: center;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: color-mix(in srgb, var(--guest) 62%, #000);
+  background: color-mix(in srgb, var(--guest) 14%, transparent);
+  border-radius: 999px;
+  padding: 3px 9px;
+}
+
+.bauhly-landing .price-note {
+  max-width: 380px;
+  margin: 10px auto 22px;
+  text-align: left;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--grey);
+}
+
+/* section label above the Studio+ list — a header, not a list row */
+.bauhly-landing .price-list-label {
+  display: block;
+  max-width: 380px;
+  margin: 26px auto 0;
+  text-align: left;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--grey);
+}
+
+.bauhly-landing .price-cta {
+  width: 100%;
+  max-width: 380px;
+  margin-inline: auto;
+  font-size: 17px;
+  padding: 18px 32px;
+}
+
+.bauhly-landing .g-band {
+  max-width: 980px;
+  margin-inline: auto;
+  margin-top: clamp(12px, 1.4vw, 18px);
+  background: var(--guest);
+  color: var(--guest-contrast);
+  border-radius: 32px;
+  padding: clamp(28px, 3.5vw, 44px);
+  text-align: center;
+}
+
+.bauhly-landing .g-band-label {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--guest-tint);
+  margin-bottom: 14px;
+}
+
+.bauhly-landing .g-band h3 {
+  font-family: var(--font-display);
+  font-size: clamp(24px, 2.8vw, 36px);
+  font-weight: 800;
+  letter-spacing: -0.015em;
+  line-height: 1.1;
+  margin-bottom: 20px;
+}
+
+.bauhly-landing .g-band-items {
+  display: flex;
+  justify-content: center;
+  gap: 12px 28px;
+  flex-wrap: wrap;
+}
+
+.bauhly-landing .g-band-items span {
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--guest-tint);
+}
+
+.bauhly-landing .b7-makers {
+  max-width: 640px;
+  margin: clamp(34px, 4vw, 56px) auto 0;
+  text-align: center;
+}
+
+.bauhly-landing .b7-makers-label {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: var(--text-mono);
+  letter-spacing: var(--track-mono);
+  text-transform: uppercase;
+  color: var(--primary);
+  margin-bottom: 12px;
+}
+
+.bauhly-landing .b7-makers-line {
+  font-size: clamp(17px, 1.7vw, 20px);
+  font-weight: 500;
+  line-height: 1.5;
+  color: var(--ink);
+}
+
+/* hand-drawn underline accent, reused from the hero's voice */
+.bauhly-landing .hl-underline {
+  position: relative;
+  white-space: nowrap;
+  color: inherit;
+}
+
+.bauhly-landing .hl-underline svg {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -7px;
+  width: 100%;
+  height: 10px;
+  color: var(--primary);
+}
+
+/* ============ block 8 — faq ============ */
+
+.bauhly-landing .b8 {
+  background: var(--canvas);
+  color: var(--ink);
+}
+
+.bauhly-landing .b8 .block-title {
+  text-align: center;
+  max-width: none;
+  margin-inline: auto;
+}
+
+.bauhly-landing .faq {
+  max-width: 720px;
+  margin-top: 24px;
+  margin-inline: auto;
+}
+
+.bauhly-landing .faq-item {
+  border-top: 1px solid color-mix(in srgb, var(--ink) 15%, transparent);
+}
+
+.bauhly-landing .faq-item:last-child {
+  border-bottom: 1px solid color-mix(in srgb, var(--ink) 15%, transparent);
+}
+
+.bauhly-landing .faq-item summary {
+  list-style: none;
+  cursor: pointer;
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: clamp(18px, 2vw, 24px);
+  letter-spacing: -0.01em;
+  padding-block: 22px;
+  position: relative;
+  padding-right: 48px;
+}
+
+.bauhly-landing .faq-item summary::-webkit-details-marker {
+  display: none;
+}
+
+.bauhly-landing .faq-item summary::after {
+  content: '+';
+  position: absolute;
+  right: 4px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-family: var(--font-mono);
+  font-weight: 400;
+  font-size: 22px;
+  color: var(--primary);
+  transition: transform 250ms var(--ease-drawer);
+}
+
+.bauhly-landing .faq-item[open] summary::after {
+  transform: translateY(-50%) rotate(45deg);
+}
+
+.bauhly-landing .faq-item p {
+  font-size: 16px;
+  font-weight: 500;
+  line-height: 1.6;
+  color: var(--grey);
+  max-width: 60ch;
+  padding-bottom: 24px;
+}
+
+/* ============ footer ============ */
+
+.bauhly-landing .foot {
+  background: var(--ink);
+  color: var(--canvas);
+  padding-top: clamp(56px, 8vh, 96px);
+  border-top: 1px solid color-mix(in srgb, var(--canvas) 12%, transparent);
+}
+
+.bauhly-landing .foot-grid {
+  display: grid;
+  grid-template-columns: 2fr 1fr 1fr;
+  gap: clamp(32px, 5vw, 96px);
+  padding-bottom: clamp(40px, 6vh, 72px);
+}
+
+.bauhly-landing .foot-mark {
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: 26px;
+  letter-spacing: -0.01em;
+}
+
+.bauhly-landing .foot-tag {
+  margin-top: 12px;
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--ink-soft);
+  max-width: 30ch;
+}
+
+.bauhly-landing .foot-col {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.bauhly-landing .foot-h {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+  margin-bottom: 6px;
+}
+
+.bauhly-landing .foot-col a {
+  text-decoration: none;
+  font-weight: 500;
+  font-size: 15px;
+  color: var(--canvas);
+  opacity: 0.85;
+}
+
+.bauhly-landing .foot-col a:hover {
+  opacity: 1;
+}
+
+.bauhly-landing .foot-base {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding-block: 24px;
+  border-top: 1px solid color-mix(in srgb, var(--canvas) 12%, transparent);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: var(--track-mono);
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+
+/* ============ theme toggle (dev) ============ */
+
+/* ============ mobile ============ */
+
+@media (max-width: 900px) {
+  /* desktop-scale breathing room reads as emptiness on a phone — scale
+     section padding down proportionally, preserving the finale > section
+     hierarchy */
+  .bauhly-landing .block {
+    padding-block: clamp(56px, 8vh, 72px);
+  }
+
+  .bauhly-landing .b6 {
+    padding-block: clamp(88px, 12vh, 120px);
+  }
+
+  .bauhly-landing .block-title {
+    margin-bottom: 18px;
+  }
+
+  .bauhly-landing .block-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .bauhly-landing .nav-links,
+  .bauhly-landing .nav-actions {
+    display: none;
+  }
+
+  .bauhly-landing .nav-burger {
+    display: flex;
+  }
+
+  .bauhly-landing .h1s {
+    min-height: 0;
+    padding-bottom: clamp(24px, 5vw, 40px);
+  }
+
+  /* the align-items:stretch full-height trick only applies to the
+     desktop two-column row — mobile stacks the columns, so the image
+     panel needs its own explicit height */
+  .bauhly-landing .h1s-stage {
+    height: clamp(340px, 52vh, 460px);
+    padding: 0;
+  }
+
+  /* swap the marquee for the static composition on mobile */
+  .bauhly-landing .hdeck {
+    display: none;
+  }
+
+  .bauhly-landing .hero-static {
+    display: block;
+  }
+
+  .bauhly-landing .h1s-copy {
+    padding-block: clamp(84px, 11vh, 108px) 20px;
+  }
+
+  .bauhly-landing .geo-dots {
+    display: none;
+  }
+
+  .bauhly-landing .mem {
+    grid-template-columns: 1fr;
+  }
+
+  .bauhly-landing .mem-flow {
+    flex-direction: column;
+  }
+
+  .bauhly-landing .mem-line {
+    width: 1.5px;
+    height: 40px;
+    min-width: 0;
+    background-image: linear-gradient(var(--primary) 55%, transparent 55%);
+    background-size: 100% 10px;
+    animation-name: mem-dash-v;
+  }
+
+  @keyframes mem-dash-v {
+    from { background-position-y: 0; }
+    to { background-position-y: 10px; }
+  }
+
+  /* stack the pricing tiers (Recommended first, per DOM order) */
+  .bauhly-landing .price-grid {
+    grid-template-columns: 1fr;
+  }
+
+  /* the Instagram mockup loses its flex-derived height once the planner
+     columns stack — give the photo an explicit ratio so it reappears */
+  .bauhly-landing .ig-post {
+    height: auto;
+  }
+
+  .bauhly-landing .ig-photo {
+    flex: none;
+    aspect-ratio: 4 / 5;
+  }
+
+  /* micro-rail: seven compact day pills fit a phone row without scroll */
+  .bauhly-landing .wk-rail {
+    grid-template-columns: repeat(7, 1fr);
+    gap: 6px;
+  }
+
+  .bauhly-landing .wk-tab {
+    align-items: center;
+    padding: 12px 4px;
+    border-radius: 12px;
+  }
+
+  .bauhly-landing .wk-tab-f {
+    display: none;
+  }
+
+  .bauhly-landing .wk-tab-d {
+    font-size: 15px;
+  }
+
+  /* brief + post read as one connected unit, not two competing blocks */
+  .bauhly-landing .wk-layout {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+
+  .bauhly-landing .wk-brief {
+    height: auto;
+  }
+
+  .bauhly-landing .wk-card {
+    position: static;
+  }
+
+  /* the brief card carries all the words — the mockup becomes a pure
+     visual artifact: header + photo only, photo running into the bottom
+     radius so nothing touches the card edge */
+  .bauhly-landing .ig-likes,
+  .bauhly-landing .ig-caption {
+    display: none;
+  }
+
+  .bauhly-landing .mem-left .mem-chips {
+    position: static;
+    margin-top: 12px;
+  }
+
+  .bauhly-landing .anatomy-row {
+    grid-template-columns: 110px 1fr;
+  }
+
+  .bauhly-landing .foot-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .bauhly-landing .b5-cards {
+    grid-template-columns: 1fr;
+  }
+
+  .bauhly-landing .b2-day-why {
+    display: none;
+  }
+}

@@ -1,0 +1,96 @@
+/* Bauhly landing — base resets, scoped under .bauhly-landing. The V2 app
+   already has its own global base.css for the rest of the site; this only
+   ever applies inside the landing route's wrapper element. */
+
+.bauhly-landing {
+  box-sizing: border-box;
+  font-family: var(--font-body);
+  font-size: var(--text-body);
+  line-height: 1.65;
+  color: var(--ink);
+  background: var(--page);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+.bauhly-landing *,
+.bauhly-landing *::before,
+.bauhly-landing *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+/* the page is a frame: sections sit on it as inset, rounded panels with
+   a consistent gutter between them — the stacked-card treatment */
+.bauhly-landing main {
+  background: var(--page);
+  padding: var(--frame);
+  display: flex;
+  flex-direction: column;
+  gap: var(--frame);
+  min-height: 100vh;
+}
+
+.bauhly-landing main > section,
+.bauhly-landing main > footer {
+  border-radius: var(--panel-radius);
+  overflow: hidden;
+}
+
+.bauhly-landing img,
+.bauhly-landing svg,
+.bauhly-landing video {
+  display: block;
+  max-width: 100%;
+}
+
+.bauhly-landing button {
+  font: inherit;
+  border: none;
+  background: none;
+  cursor: pointer;
+}
+
+.bauhly-landing a {
+  color: inherit;
+}
+
+.bauhly-landing ::selection {
+  background: var(--signature);
+  color: var(--signature-ink);
+}
+
+.bauhly-landing h1,
+.bauhly-landing h2,
+.bauhly-landing h3 {
+  font-family: var(--font-display);
+  font-weight: 700;
+  line-height: 0.98;
+  letter-spacing: -0.015em;
+}
+
+.bauhly-landing .mono {
+  font-family: var(--font-mono);
+  font-size: var(--text-mono);
+  letter-spacing: var(--track-mono);
+  text-transform: uppercase;
+  font-weight: 400;
+}
+
+.bauhly-landing .container {
+  max-width: var(--grid-max);
+  margin-inline: auto;
+  padding-inline: var(--gutter);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bauhly-landing *,
+  .bauhly-landing *::before,
+  .bauhly-landing *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

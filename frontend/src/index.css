@@ -1,22 +1,12 @@
-* { box-sizing: border-box; }
-html, body { margin: 0; padding: 0; background: #FAF9F7; }
-body {
-  font-family: 'Inter Tight', 'Inter', ui-sans-serif, system-ui, sans-serif;
-  -webkit-font-smoothing: antialiased;
-  color: #111827;
-}
-a { color: inherit; }
+/* Global app styles — Bauhly design system (tokens + base primitives).
+   The marketing landing scopes its own tokens under `.bauhly-landing`. */
+@import './styles/tokens.css';
+@import './styles/base.css';
+@import './styles/app.css';
 
+/* legacy motion keyframes still referenced by a few app SVG components */
 @keyframes lsSpark { 0%, 100% { opacity: 0.55; } 50% { opacity: 1; } }
 @keyframes lsBreathe { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.012); } }
 @keyframes lsPulse { 0% { transform: scale(0.6); opacity: 0.55; } 100% { transform: scale(1.5); opacity: 0; } }
 @keyframes lsSpin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { svg [style*="animation"] { animation: none !important; } }
-
-::-webkit-scrollbar { width: 11px; height: 11px; }
-::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: transparent; border-radius: 8px; border: 3px solid transparent; background-clip: content-box; transition: background 220ms ease; }
-:hover::-webkit-scrollbar-thumb { background: #D1D5DB; background-clip: content-box; }
-::-webkit-scrollbar-thumb:hover { background: #9CA3AF; background-clip: content-box; }
-* { scrollbar-width: thin; scrollbar-color: transparent transparent; }
-*:hover { scrollbar-color: #D1D5DB transparent; }

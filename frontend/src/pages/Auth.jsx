@@ -5,18 +5,13 @@ import Glyph from '../components/Glyph';
 import PanelMotif from '../components/PanelMotif';
 import { useAuth } from '../context/AuthContext';
 import { useIsMobile } from '../hooks/useMediaQuery';
-import { LS_BG, LS_SURFACE, LS_BORDER, LS_INK, LS_T2, LS_MUTED, LS_SIGNAL, LS_SOFT, LS_FONT } from '../theme';
+import { LS_BG, LS_SURFACE, LS_BORDER, LS_INK, LS_T2, LS_MUTED, LS_SIGNAL, LS_SOFT, LS_FONT, LS_DISPLAY } from '../theme';
 
 function Wordmark() {
-  const xs = [4, 9, 14, 19, 24, 29];
-  const ys = [15, 10, 4, 11, 7, 13];
   return (
-    <Link to="/" style={{ display: 'inline-flex', alignItems: 'center', gap: 9, textDecoration: 'none' }}>
-      <svg width="30" height="24" viewBox="0 0 34 28" fill="none">
-        {xs.map((x, i) => <line key={i} x1={x} y1={ys[i]} x2={x} y2="24" stroke={i === 2 ? LS_SIGNAL : LS_INK} strokeWidth="2" strokeLinecap="round" />)}
-      </svg>
-      <span style={{ fontFamily: LS_FONT, fontWeight: 700, fontSize: 19, letterSpacing: '-0.03em' }}>
-        <span style={{ color: LS_INK }}>wide</span><span style={{ color: LS_SIGNAL }}>signals</span>
+    <Link to="/" style={{ display: 'inline-flex', alignItems: 'center', textDecoration: 'none' }}>
+      <span style={{ fontFamily: LS_DISPLAY, fontWeight: 700, fontSize: 22, letterSpacing: '-0.02em', color: LS_INK, lineHeight: 1 }}>
+        Bauhly<span style={{ color: LS_SIGNAL }}>.</span>
       </span>
     </Link>
   );
@@ -141,9 +136,9 @@ export default function Auth() {
           <Wordmark />
           <div style={{ marginTop: 'auto' }}>
             <PanelMotif />
-            <p style={{ fontFamily: LS_FONT, fontWeight: 700, fontSize: 11, letterSpacing: '0.18em', textTransform: 'uppercase', color: LS_SIGNAL, margin: '28px 0 14px' }}>Strategic signal intelligence</p>
-            <h1 style={{ fontFamily: LS_FONT, fontWeight: 600, fontSize: 27, lineHeight: 1.22, letterSpacing: '-0.02em', color: LS_INK, margin: 0 }}>Stop guessing what will grow your business.</h1>
-            <p style={{ fontFamily: LS_FONT, fontSize: 14.5, lineHeight: 1.6, color: LS_T2, margin: '16px 0 0', maxWidth: 320 }}>Log in to see what&rsquo;s changing around you and get your weekly route.</p>
+            <p style={{ fontFamily: LS_FONT, fontWeight: 700, fontSize: 11, letterSpacing: '0.18em', textTransform: 'uppercase', color: LS_SIGNAL, margin: '28px 0 14px' }}>Content strategy for design studios</p>
+            <h1 style={{ fontFamily: LS_DISPLAY, fontWeight: 700, fontSize: 29, lineHeight: 1.14, letterSpacing: '-0.02em', color: LS_INK, margin: 0 }}>Your studio&rsquo;s Instagram, planned every Monday.</h1>
+            <p style={{ fontFamily: LS_FONT, fontSize: 14.5, lineHeight: 1.6, color: LS_T2, margin: '16px 0 0', maxWidth: 320 }}>Log in to pick up this week&rsquo;s strategic route &mdash; captions, timing, and the reason behind each post.</p>
           </div>
           <div style={{ marginTop: 34, fontFamily: LS_FONT, fontSize: 12.5, color: LS_MUTED }}>We only read public signals. Nothing is posted on your behalf.</div>
         </div>

@@ -1,0 +1,123 @@
+/* ============================================================================
+ * Bauhly — Design tokens · Interior Designers edition.
+ * Palette: System Indigo leads. Acid Mint / Signal Blue / Brute Orange carry
+ * the three pillars. Poster Yellow & Riot Purple are illustration accents.
+ * Canvas: warm white. Ink: charcoal. Soft neo-brutalist geometry: bold color,
+ * generous radius, no harsh borders, no heavy shadows.
+ * ========================================================================== */
+
+:root {
+  /* ── Brand primary — Brute Orange (the original Bauhly signal) ───── */
+  --signal-700: #c93a10; /* text-only — signal-600 is ~3.9:1 on white/cream and
+                             fails WCAG AA for small text; use this for eyebrows,
+                             labels and links, keep 500/600 for fills and icons */
+  --signal-600: #e63e14;
+  --signal-500: #ff5227;
+  --signal-400: #ff7350;
+  --signal-100: #ffddd2;
+  --signal-50:  #fff1ec;
+
+  /* ── Accent set (illustrations, blocks, rhythm) ────────────────────────── */
+  --mint-500: #2fd58c;
+  --blue-500: #1f6bff;
+  --orange-500: #ff5227;
+  --yellow-500: #ffc712;
+
+  /* ── Experiment — the landing's acid lime, used for exactly one thing:
+   * marking the week's single experiment post (the ~70/30 exploration
+   * budget made visible). Never decoration, never a second accent. ── */
+  --experiment-500: #d2e823;
+  --experiment-ink: #3a4204;
+
+  /* ── Ink — charcoal spine ──────────────────────────────────────────────── */
+  --ink-900: #16161a;
+  --ink-800: #26262c;
+  --ink-700: #3c3c45;
+  --ink-600: #585864;
+  --ink-500: #6c6c79;
+  --ink-400: #9b9ba6;
+  --ink-300: #c7c7cf;
+  --ink-200: #e3e3e8;
+  --ink-100: #efeff2;
+
+  /* ── Canvas & surfaces ─────────────────────────────────────────────────── */
+  --paper: #faf7f2;        /* warm white — marketing canvas */
+  --canvas: #ffffff;       /* app canvas — clean white */
+  --surface: #ffffff;
+  --surface-sunken: #f6f6f8;
+  --border: #e9e9ee;
+  --border-strong: #d9d9e0;
+  --night: #141419;        /* charcoal sections & inverse surfaces */
+  --night-soft: #1d1d24;
+  --night-border: #2f2f38;
+
+  /* ── Authority pillars (no collision with the orange primary) ─────────── */
+  --discovery-600: #1554cc;
+  --discovery-500: var(--blue-500);
+  --discovery-100: #dbe7ff;
+  --discovery-50:  #eef4ff;
+
+  --credibility-600: #a16a00;
+  --credibility-500: var(--yellow-500);
+  --credibility-100: #fff1c2;
+  --credibility-50:  #fff9e3;
+
+  --trust-600: #0da368;
+  --trust-500: var(--mint-500);
+  --trust-100: #d4f6e6;
+  --trust-50:  #eafcf3;
+
+  /* ── Semantic feedback ─────────────────────────────────────────────────── */
+  --positive: #0da368;
+  --positive-soft: #eafcf3;
+  --warning: #b45309;
+  --warning-soft: #fdf3e3;
+  --negative: #d92d20;
+  --negative-soft: #feefec;
+
+  /* ── Typography ────────────────────────────────────────────────────────── */
+  --font-display: 'Bricolage Grotesque', 'Inter', system-ui, sans-serif;
+  --font-ui: 'Inter', system-ui, -apple-system, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, 'SF Mono', monospace;
+
+  --text-xs: 0.75rem;
+  --text-sm: 0.8125rem;
+  --text-base: 0.9375rem;
+  --text-md: 1.0625rem;
+  --text-lg: 1.25rem;
+  --text-xl: 1.5rem;
+  --text-2xl: 2rem;
+  --text-3xl: 2.75rem;
+  --text-4xl: clamp(2.75rem, 5.4vw, 4.25rem);
+
+  /* ── Space — 4px base grid ─────────────────────────────────────────────── */
+  --sp-1: 4px;  --sp-2: 8px;   --sp-3: 12px;  --sp-4: 16px;
+  --sp-5: 20px; --sp-6: 24px;  --sp-7: 32px;  --sp-8: 40px;
+  --sp-9: 48px; --sp-10: 64px; --sp-11: 80px; --sp-12: 112px;
+
+  /* ── Radius — softer geometry ──────────────────────────────────────────── */
+  --r-sm: 10px;
+  --r-md: 14px;
+  --r-lg: 18px;
+  --r-xl: 26px;
+  --r-full: 999px;
+
+  /* ── Elevation — soft, never harsh ─────────────────────────────────────── */
+  --shadow-xs: 0 1px 2px rgba(22, 22, 26, 0.05);
+  --shadow-sm: 0 1px 3px rgba(22, 22, 26, 0.06), 0 5px 16px rgba(22, 22, 26, 0.05);
+  --shadow-md: 0 2px 6px rgba(22, 22, 26, 0.06), 0 14px 36px rgba(22, 22, 26, 0.09);
+  --shadow-lift: 0 6px 14px rgba(22, 22, 26, 0.09), 0 30px 68px rgba(22, 22, 26, 0.15);
+  --shadow-signal: 0 4px 18px rgba(255, 82, 39, 0.3);
+
+  /* ── Motion ────────────────────────────────────────────────────────────── */
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-inout: cubic-bezier(0.65, 0, 0.35, 1);
+  --ease-spring: cubic-bezier(0.34, 1.4, 0.44, 1);
+  --dur-fast: 140ms;
+  --dur-base: 240ms;
+  --dur-slow: 420ms;
+
+  /* ── Layout ────────────────────────────────────────────────────────────── */
+  --container: 1160px;
+  --sidebar-w: 232px;
+}

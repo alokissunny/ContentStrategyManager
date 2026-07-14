@@ -1,0 +1,57 @@
+/* Bauhly landing — design tokens, scoped under .bauhly-landing so they
+   never leak into the rest of the Bauhly app (auth, onboarding,
+   dashboard keep their own token set from src/styles/tokens.css). */
+.bauhly-landing {
+  --canvas: #F8F9F5;
+  --surface: #F0F1EB;
+  --paper: #FFFFFF;
+  --ink: #20261F;
+  --ink-soft: #AEB8AA;
+  --grey: #676D66;
+
+  /* primary — CTAs, links, annotations, the only small-size color */
+  --primary: #FF4D1C;
+  --primary-contrast: #FFF3ED;
+  --primary-ink: #8A3512;
+
+  /* signature — chapter breaks, highlight moments */
+  --signature: #D2E823;
+  --signature-ink: #2F3A00;
+
+  /* guest — journey break, one UI accent */
+  --guest: #6E59CC;
+  --guest-tint: #D8CEF2;
+  --guest-contrast: #F1EDFD;
+
+  /* type on the hero field */
+  --hero-ink: #35470C;
+  --hero-ink-soft: #55632F;
+
+  /* Typography */
+  --font-display: 'Cabinet Grotesk', 'Helvetica Neue', sans-serif;
+  --font-body: 'General Sans', 'Helvetica Neue', sans-serif;
+  --font-mono: 'Spline Sans Mono', 'SF Mono', monospace;
+
+  --text-hero: clamp(44px, 9.5vw, 108px);
+  --text-break: clamp(36px, 7vw, 84px);
+  --text-h2: clamp(30px, 4.5vw, 52px);
+  --text-lead: clamp(17px, 1.6vw, 21px);
+  --text-body: 17px;
+  --text-mono: 12px;
+  --track-mono: 0.14em;
+
+  /* Motion */
+  --ease-drawer: cubic-bezier(0.22, 1, 0.36, 1);
+  --dur-enter: 700ms;
+  --dur-wipe: 700ms;
+
+  /* Layout */
+  --grid-max: 1280px;
+  --gutter: clamp(20px, 4vw, 64px);
+  --section-pad: clamp(80px, 12vh, 160px);
+
+  /* page frame — inset, rounded panels on a page background */
+  --page: #F0F0ED;
+  --frame: clamp(10px, 1.4vw, 18px);
+  --panel-radius: clamp(22px, 2.6vw, 40px);
+}

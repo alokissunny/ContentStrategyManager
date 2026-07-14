@@ -8,7 +8,7 @@ import StepList from '../components/StepList';
 import { fetchInstagram, confirmReport as confirmReportApi } from '../api/instagram';
 import { useIsMobile } from '../hooks/useMediaQuery';
 import {
-  LS_SURFACE, LS_BORDER, LS_INK, LS_T2, LS_MUTED, LS_SIGNAL, LS_SOFT, LS_FONT,
+  LS_SURFACE, LS_BORDER, LS_INK, LS_T2, LS_MUTED, LS_SIGNAL, LS_SOFT, LS_FONT, LS_DISPLAY,
 } from '../theme';
 
 function PrimaryBtn({ children, onClick, type, full, disabled }) {
@@ -84,12 +84,12 @@ function WelcomeScreen({ onStart }) {
     <Shell max={1040}>
       <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '0.82fr 1.18fr', gap: isMobile ? 12 : 36, alignItems: 'center' }}>
         <div>
-          <Eyebrow>Strategic signal intelligence</Eyebrow>
-          <h1 style={{ fontFamily: LS_FONT, fontWeight: 600, fontSize: 'clamp(30px,3.6vw,46px)', lineHeight: 1.06, letterSpacing: '-0.025em', color: LS_INK, margin: 0 }}>
-            See what&rsquo;s really happening in your content.
+          <Eyebrow>Content strategy for design studios</Eyebrow>
+          <h1 style={{ fontFamily: LS_DISPLAY, fontWeight: 700, fontSize: 'clamp(30px,3.6vw,46px)', lineHeight: 1.04, letterSpacing: '-0.025em', color: LS_INK, margin: 0 }}>
+            See the strategy behind your studio&rsquo;s feed.
           </h1>
           <p style={{ fontFamily: LS_FONT, fontSize: 16.5, lineHeight: 1.6, color: LS_T2, margin: '20px 0 32px', maxWidth: 380 }}>
-            WideSignals reads your Instagram and shows you what deserves attention next.
+            Bauhly reads your studio&rsquo;s Instagram and shows you what deserves attention next.
           </p>
           <PrimaryBtn onClick={onStart}>Analyze my Instagram <Glyph name="arrow-right" size={16} color="#fff" /></PrimaryBtn>
         </div>
@@ -221,7 +221,7 @@ function ConfirmScreen({ initial, onConfirm, saving }) {
         <HypoLine label="What you offer" value={lines.whatYouOffer} onChange={(v) => set('whatYouOffer', v)} />
         <HypoLine label="How you sound" value={lines.howYouSound} onChange={(v) => set('howYouSound', v)} />
         <p style={{ fontFamily: LS_FONT, fontSize: 12.5, color: LS_MUTED, margin: '14px 0 0', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-          <Glyph name="sparkles" size={13} color={LS_MUTED} /> WideSignals refines this every week as it reads your real signals.
+          <Glyph name="sparkles" size={13} color={LS_MUTED} /> Bauhly refines this every week as it reads your real signals.
         </p>
       </div>
       <div style={{ marginTop: 26 }}>

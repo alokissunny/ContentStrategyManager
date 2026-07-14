@@ -4,7 +4,7 @@ import Sidebar from './Sidebar';
 import UserMenu from './UserMenu';
 import Glyph from './Glyph';
 import { useIsMobile } from '../hooks/useMediaQuery';
-import { LS_BG, LS_SURFACE, LS_BORDER, LS_INK, LS_SIGNAL, LS_FONT } from '../theme';
+import { LS_BG, LS_SURFACE, LS_BORDER, LS_INK, LS_SIGNAL, LS_FONT, LS_DISPLAY } from '../theme';
 
 export default function DashboardLayout({ children }) {
   const isMobile = useIsMobile();
@@ -27,8 +27,8 @@ export default function DashboardLayout({ children }) {
           >
             <Glyph name="menu" size={22} color={LS_INK} />
           </button>
-          <span style={{ fontFamily: LS_FONT, fontWeight: 700, fontSize: 16, letterSpacing: '-0.03em' }}>
-            <span style={{ color: LS_INK }}>wide</span><span style={{ color: LS_SIGNAL }}>signals</span>
+          <span style={{ fontFamily: LS_DISPLAY, fontWeight: 700, fontSize: 18, letterSpacing: '-0.02em', color: LS_INK }}>
+            Bauhly<span style={{ color: LS_SIGNAL }}>.</span>
           </span>
           <UserMenu compact />
         </div>

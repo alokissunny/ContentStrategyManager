@@ -80,7 +80,7 @@ export default function BrandDna() {
     <div style={{ ...LSC, padding: 'clamp(24px, 6vw, 48px) clamp(16px, 5vw, 48px)', maxWidth: 760 }}>
         <h1 style={{ fontFamily: LS_DISPLAY, fontWeight: 700, fontSize: 30, color: LS_INK, margin: '0 0 8px' }}>Brand DNA</h1>
         <p style={{ fontFamily: LS_FONT, fontSize: 14, color: LS_T2, margin: '0 0 8px' }}>
-          What WideSignals knows about your business. Edit anything that's off — the more complete this is, the sharper your weekly route.
+          What Bauhly knows about your business. Edit anything that's off — the more complete this is, the sharper your weekly route.
         </p>
 
         {loading ? (
