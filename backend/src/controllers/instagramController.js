@@ -25,8 +25,13 @@ async function fetchInstagram(req, res) {
     return res.status(404).json({ message: 'Could not read this Instagram profile. It may be private or the username may be wrong.' });
   }
 
+  // Admins can connect several handles (one snapshot per handle). Non-admins
+  // keep a single profile that is overwritten each time they re-analyze.
+  const isAdmin = req.user.role === 'admin';
+  const filter = isAdmin ? { user: req.user._id, username } : { user: req.user._id };
+
   const snapshot = await InstagramProfile.findOneAndUpdate(
-    { user: req.user._id },
+    filter,
     { ...profile, user: req.user._id, username, posts, fetchedAt: new Date() },
     { new: true, upsert: true }
   );
@@ -62,8 +67,10 @@ async function fetchInstagram(req, res) {
 }
 
 async function getInstagramProfile(req, res) {
-  const snapshot = await InstagramProfile.findOne({ user: req.user._id });
-  res.json({ profile: snapshot });
+  const profiles = await InstagramProfile.find({ user: req.user._id }).sort({ fetchedAt: -1 });
+  // `profile` (the most recently fetched) is kept for backward compatibility;
+  // `profiles` lists every handle connected to this account.
+  res.json({ profile: profiles[0] || null, profiles });
 }
 
 module.exports = { fetchInstagram, getInstagramProfile };

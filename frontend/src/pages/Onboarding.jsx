@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import Glyph from '../components/Glyph';
 import { useAuth } from '../context/AuthContext';
 import SignalTerrain from '../components/SignalTerrain';
@@ -234,7 +234,11 @@ function ConfirmScreen({ initial, onConfirm, saving }) {
 }
 
 export default function Onboarding() {
-  const [screen, setScreen] = useState('welcome');
+  const [searchParams] = useSearchParams();
+  // Admins re-enter this flow to connect an additional handle (`?add=1`),
+  // which skips the first-run welcome screen and the "already onboarded" redirect.
+  const addMode = searchParams.get('add') === '1';
+  const [screen, setScreen] = useState(addMode ? 'connect' : 'welcome');
   const [handle, setHandle] = useState('');
   const [report, setReport] = useState(null);
   const [confirmSaving, setConfirmSaving] = useState(false);
@@ -242,12 +246,13 @@ export default function Onboarding() {
   const navigate = useNavigate();
 
   useEffect(() => {
-    if (user?.hasInstagramProfile) {
+    if (!addMode && user?.hasInstagramProfile) {
       navigate('/dashboard', { replace: true });
     }
-  }, [user, navigate]);
+  }, [addMode, user, navigate]);
 
-  const goDashboard = () => navigate('/dashboard');
+  // After adding an extra handle, return to the accounts list rather than the dashboard.
+  const goDashboard = () => navigate(addMode ? '/dashboard/settings' : '/dashboard');
 
   async function handleConfirm(lines, initialSummary) {
     const changed = report && Object.keys(lines).some((key) => lines[key] !== initialSummary[key]);

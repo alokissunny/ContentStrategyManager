@@ -16,7 +16,7 @@ const postSchema = new mongoose.Schema(
 
 const instagramProfileSchema = new mongoose.Schema(
   {
-    user: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true, unique: true },
+    user: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
     username: { type: String, required: true, trim: true, lowercase: true },
     fullName: { type: String, default: '' },
     biography: { type: String, default: '' },
@@ -31,5 +31,9 @@ const instagramProfileSchema = new mongoose.Schema(
   },
   { timestamps: true }
 );
+
+// One document per (user, handle). Admins can connect several handles;
+// non-admins are held to a single profile in the controller.
+instagramProfileSchema.index({ user: 1, username: 1 }, { unique: true });
 
 module.exports = mongoose.model('InstagramProfile', instagramProfileSchema);

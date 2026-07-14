@@ -9,6 +9,7 @@ const userSchema = new mongoose.Schema(
     googleId: { type: String, unique: true, sparse: true },
     authProvider: { type: String, enum: ['local', 'google'], default: 'local' },
     avatar: { type: String, trim: true, default: '' },
+    role: { type: String, enum: ['user', 'admin'], default: 'user' },
     business: {
       name: { type: String, trim: true, default: '' },
       goals: { type: String, trim: true, default: '' },
