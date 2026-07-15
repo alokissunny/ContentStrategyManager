@@ -8,6 +8,12 @@ export function listInstagramProfiles() {
   return client.get('/instagram').then((res) => res.data);
 }
 
+export function getAuthorityFunnel(username) {
+  return client
+    .get('/instagram/authority', { params: username ? { username } : undefined })
+    .then((res) => res.data);
+}
+
 export function getReportDownloadUrl(reportId) {
   return client.get(`/analysis/reports/${reportId}/download`).then((res) => res.data.downloadUrl);
 }

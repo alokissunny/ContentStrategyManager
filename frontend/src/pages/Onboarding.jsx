@@ -5,7 +5,8 @@ import { useAuth } from '../context/AuthContext';
 import SignalTerrain from '../components/SignalTerrain';
 import RadarPulse from '../components/RadarPulse';
 import StepList from '../components/StepList';
-import { fetchInstagram, confirmReport as confirmReportApi } from '../api/instagram';
+import { fetchInstagram, confirmReport as confirmReportApi, getAuthorityFunnel } from '../api/instagram';
+import AuthorityFunnel from '../components/AuthorityFunnel';
 import { useIsMobile } from '../hooks/useMediaQuery';
 import {
   LS_SURFACE, LS_BORDER, LS_INK, LS_T2, LS_MUTED, LS_SIGNAL, LS_SOFT, LS_FONT, LS_DISPLAY,
@@ -428,6 +429,7 @@ export default function Onboarding() {
   const [handle, setHandle] = useState('');
   const [report, setReport] = useState(null);
   const [confirmSaving, setConfirmSaving] = useState(false);
+  const [funnelData, setFunnelData] = useState(null);
   const { user } = useAuth();
   const navigate = useNavigate();
 
@@ -440,21 +442,36 @@ export default function Onboarding() {
   // After adding an extra handle, return to the accounts list rather than the dashboard.
   const goDashboard = () => navigate(addMode ? '/dashboard/settings' : '/dashboard');
 
+  // Save the confirmed summary (best-effort), then show the authority funnel
+  // built from the Instagram analysis before landing on the dashboard.
   async function handleConfirm(lines, initialSummary) {
     const changed = report && Object.keys(lines).some((key) => lines[key] !== initialSummary[key]);
-    if (!changed) {
-      goDashboard();
-      return;
-    }
     setConfirmSaving(true);
     try {
-      await confirmReportApi(report.id, lines);
+      if (changed) {
+        try {
+          await confirmReportApi(report.id, lines);
+        } catch (err) {
+          // Best-effort: still continue even if the save failed.
+        }
+      }
+      const data = await getAuthorityFunnel();
+      if (data?.funnel?.length) {
+        setFunnelData(data);
+        setScreen('funnel');
+        return;
+      }
+      goDashboard();
     } catch (err) {
-      // Best-effort: still let the user continue even if the save failed.
+      // No analysis to show (e.g. profile missing) — go straight through.
+      goDashboard();
     } finally {
       setConfirmSaving(false);
-      goDashboard();
     }
+  }
+
+  if (screen === 'funnel' && funnelData) {
+    return <AuthorityFunnel data={funnelData} onStart={goDashboard} />;
   }
 
   if (screen === 'welcome') {
