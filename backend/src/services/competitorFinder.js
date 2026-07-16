@@ -210,6 +210,7 @@ async function findCompetitors(profile, options = {}) {
   const cohorts = {
     similar: competitors.filter((c) => c.cohort === 'similar'),
     higher: competitors.filter((c) => c.cohort === 'higher'),
+    smaller: competitors.filter((c) => c.cohort === 'smaller'),
   };
 
   return { baseRegion: region, baseFollowers, model, hashtags, droppedCount, cohorts, competitors };

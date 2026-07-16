@@ -78,6 +78,7 @@ async function getCompetitors(req, res) {
   const cohorts = {
     similar: snapshot.competitors.filter((c) => c.cohort === 'similar'),
     higher: snapshot.competitors.filter((c) => c.cohort === 'higher'),
+    smaller: snapshot.competitors.filter((c) => c.cohort === 'smaller'),
   };
 
   res.json({

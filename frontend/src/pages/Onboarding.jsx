@@ -422,10 +422,12 @@ function ConversationScreen({ initial, onConfirm, saving }) {
 
 export default function Onboarding() {
   const [searchParams] = useSearchParams();
-  // Admins re-enter this flow to connect an additional handle (`?add=1`),
-  // which skips the first-run welcome screen and the "already onboarded" redirect.
-  const addMode = searchParams.get('add') === '1';
-  const [screen, setScreen] = useState(addMode ? 'connect' : 'welcome');
+  // Re-entry into onboarding to connect a different handle. Admins use `?add=1`
+  // to connect an *additional* handle; any user can use `?change=1` to replace
+  // their current handle. Both skip the first-run welcome screen and the
+  // "already onboarded" redirect, and run the full analysis on the new account.
+  const reentryMode = searchParams.get('add') === '1' || searchParams.get('change') === '1';
+  const [screen, setScreen] = useState(reentryMode ? 'connect' : 'welcome');
   const [handle, setHandle] = useState('');
   const [report, setReport] = useState(null);
   const [confirmSaving, setConfirmSaving] = useState(false);
@@ -434,13 +436,14 @@ export default function Onboarding() {
   const navigate = useNavigate();
 
   useEffect(() => {
-    if (!addMode && user?.hasInstagramProfile) {
+    if (!reentryMode && user?.hasInstagramProfile) {
       navigate('/dashboard', { replace: true });
     }
-  }, [addMode, user, navigate]);
+  }, [reentryMode, user, navigate]);
 
-  // After adding an extra handle, return to the accounts list rather than the dashboard.
-  const goDashboard = () => navigate(addMode ? '/dashboard/settings' : '/dashboard');
+  // When re-entering to add/change a handle, return to the accounts list rather
+  // than the dashboard so the user sees the updated connection.
+  const goDashboard = () => navigate(reentryMode ? '/dashboard/settings' : '/dashboard');
 
   // Save the confirmed summary (best-effort), then show the authority funnel
   // built from the Instagram analysis before landing on the dashboard.

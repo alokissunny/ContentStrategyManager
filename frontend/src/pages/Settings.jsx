@@ -67,7 +67,7 @@ export default function Settings() {
       <p style={{ fontFamily: LS_FONT, fontSize: 13, color: LS_T2, margin: '0 0 18px' }}>
         {isAdmin
           ? 'As an admin you can connect more than one handle. Each one runs the onboarding analysis and gets its own Brand DNA.'
-          : 'The Instagram handle connected to your account.'}
+          : 'The Instagram handle connected to your account. You can switch to a different one anytime — the new account runs the onboarding analysis and replaces your current Brand DNA.'}
       </p>
 
       <div style={{ background: LS_SURFACE, border: `1px solid ${LS_BORDER}`, borderRadius: 16, padding: '4px clamp(16px, 4vw, 24px)' }}>
@@ -83,17 +83,21 @@ export default function Settings() {
         )}
       </div>
 
-      {isAdmin && (
+      {(isAdmin || profiles.length > 0) && (
         <div style={{ marginTop: 22 }}>
           <Link
-            to="/onboarding?add=1"
+            to={isAdmin ? '/onboarding?add=1' : '/onboarding?change=1'}
             style={{
               display: 'inline-flex', alignItems: 'center', gap: 9, height: 44, padding: '0 22px', borderRadius: 9,
               textDecoration: 'none', fontFamily: LS_FONT, fontSize: 13, fontWeight: 700, letterSpacing: '0.05em',
               textTransform: 'uppercase', background: LS_SIGNAL, color: '#fff',
             }}
           >
-            <Glyph name="plus" size={16} color="#fff" /> Add Instagram account
+            {isAdmin ? (
+              <><Glyph name="plus" size={16} color="#fff" /> Add Instagram account</>
+            ) : (
+              <><Glyph name="refresh-cw" size={16} color="#fff" /> Change Instagram account</>
+            )}
           </Link>
         </div>
       )}

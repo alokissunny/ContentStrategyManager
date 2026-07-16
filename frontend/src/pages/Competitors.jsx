@@ -49,11 +49,14 @@ function CompetitorCard({ c }) {
             : <Glyph name="user" size={18} color={LS_MUTED} />}
         </div>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <span style={{ fontFamily: LS_DISPLAY, fontWeight: 700, fontSize: 15, color: LS_INK, letterSpacing: '-0.01em' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+            <span style={{
+              fontFamily: LS_DISPLAY, fontWeight: 700, fontSize: 15, color: LS_INK, letterSpacing: '-0.01em',
+              overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0,
+            }}>
               {c.name || `@${c.username}`}
             </span>
-            {c.isVerified && <Glyph name="badge-check" size={14} color={LS_SIGNAL} />}
+            {c.isVerified && <Glyph name="badge-check" size={14} color={LS_SIGNAL} style={{ flexShrink: 0 }} />}
           </div>
           <a
             href={`https://instagram.com/${c.username}`}
@@ -147,7 +150,8 @@ export default function Competitors() {
 
   const similar = data?.cohorts?.similar || [];
   const higher = data?.cohorts?.higher || [];
-  const hasResults = similar.length > 0 || higher.length > 0;
+  const smaller = data?.cohorts?.smaller || [];
+  const hasResults = similar.length > 0 || higher.length > 0 || smaller.length > 0;
 
   return (
     <div style={{ ...LSC, padding: 'clamp(24px, 6vw, 48px) clamp(16px, 5vw, 48px)', maxWidth: 1080 }}>
@@ -214,6 +218,14 @@ export default function Competitors() {
             subtitle="Bigger accounts to study and aspire to."
             items={higher}
           />
+          {smaller.length > 0 && (
+            <Cohort
+              icon="trending-down"
+              title="Smaller reach"
+              subtitle="Smaller accounts in your niche — up-and-comers to keep an eye on."
+              items={smaller}
+            />
+          )}
         </div>
       ) : null}
     </div>
