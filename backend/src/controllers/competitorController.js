@@ -24,6 +24,38 @@ function resolveUsername(req) {
   return raw.replace(/^@/, '').trim().toLowerCase();
 }
 
+// Only two cohorts are surfaced (smaller peers fold into "similar").
+function splitCohorts(competitors) {
+  return {
+    similar: competitors.filter((c) => c.cohort === 'similar'),
+    higher: competitors.filter((c) => c.cohort === 'higher'),
+  };
+}
+
+// Run competitor discovery for a profile and persist it as the user's
+// CompetitorSet for that handle. Shared by the manual endpoint and the
+// automatic refresh triggered when an Instagram account is (re)analyzed.
+async function buildAndSaveCompetitorSet(userId, profile) {
+  const brandDna = await loadBrandDna(userId, profile.username);
+  const result = await findCompetitors(profile, { brandDna });
+
+  const snapshot = await CompetitorSet.findOneAndUpdate(
+    { user: userId, username: profile.username },
+    {
+      user: userId,
+      username: profile.username,
+      baseRegion: result.baseRegion,
+      baseFollowers: result.baseFollowers,
+      model: result.model,
+      competitors: result.competitors,
+      fetchedAt: new Date(),
+    },
+    { new: true, upsert: true }
+  );
+
+  return snapshot;
+}
+
 async function fetchCompetitors(req, res) {
   const username = resolveUsername(req);
 
@@ -38,29 +70,13 @@ async function fetchCompetitors(req, res) {
     });
   }
 
-  const brandDna = await loadBrandDna(req.user._id, profile.username);
-
-  const result = await findCompetitors(profile, { brandDna });
-
-  const snapshot = await CompetitorSet.findOneAndUpdate(
-    { user: req.user._id, username: profile.username },
-    {
-      user: req.user._id,
-      username: profile.username,
-      baseRegion: result.baseRegion,
-      baseFollowers: result.baseFollowers,
-      model: result.model,
-      competitors: result.competitors,
-      fetchedAt: new Date(),
-    },
-    { new: true, upsert: true }
-  );
+  const snapshot = await buildAndSaveCompetitorSet(req.user._id, profile);
 
   res.json({
-    username: profile.username,
+    username: snapshot.username,
     baseRegion: snapshot.baseRegion,
     baseFollowers: snapshot.baseFollowers,
-    cohorts: result.cohorts,
+    cohorts: splitCohorts(snapshot.competitors),
     competitorSet: snapshot,
   });
 }
@@ -75,19 +91,13 @@ async function getCompetitors(req, res) {
     return res.status(404).json({ message: 'No competitor analysis yet. Run a competitor search first.' });
   }
 
-  const cohorts = {
-    similar: snapshot.competitors.filter((c) => c.cohort === 'similar'),
-    higher: snapshot.competitors.filter((c) => c.cohort === 'higher'),
-    smaller: snapshot.competitors.filter((c) => c.cohort === 'smaller'),
-  };
-
   res.json({
     username: snapshot.username,
     baseRegion: snapshot.baseRegion,
     baseFollowers: snapshot.baseFollowers,
-    cohorts,
+    cohorts: splitCohorts(snapshot.competitors),
     competitorSet: snapshot,
   });
 }
 
-module.exports = { fetchCompetitors, getCompetitors };
+module.exports = { fetchCompetitors, getCompetitors, buildAndSaveCompetitorSet };

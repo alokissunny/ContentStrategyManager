@@ -150,8 +150,7 @@ export default function Competitors() {
 
   const similar = data?.cohorts?.similar || [];
   const higher = data?.cohorts?.higher || [];
-  const smaller = data?.cohorts?.smaller || [];
-  const hasResults = similar.length > 0 || higher.length > 0 || smaller.length > 0;
+  const hasResults = similar.length > 0 || higher.length > 0;
 
   return (
     <div style={{ ...LSC, padding: 'clamp(24px, 6vw, 48px) clamp(16px, 5vw, 48px)', maxWidth: 1080 }}>
@@ -218,14 +217,6 @@ export default function Competitors() {
             subtitle="Bigger accounts to study and aspire to."
             items={higher}
           />
-          {smaller.length > 0 && (
-            <Cohort
-              icon="trending-down"
-              title="Smaller reach"
-              subtitle="Smaller accounts in your niche — up-and-comers to keep an eye on."
-              items={smaller}
-            />
-          )}
         </div>
       ) : null}
     </div>

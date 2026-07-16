@@ -1,7 +1,40 @@
 const fs = require('fs');
 const path = require('path');
 const getAnthropicClient = require('./anthropicClient');
-const { scrapeProfile, searchAccountsByHashtags } = require('./instagramScraper');
+const getOpenAIClient = require('./openaiClient');
+
+// Competitor discovery can run on OpenAI or Anthropic. Provider + model are
+// env-configurable; the default is OpenAI per product requirement.
+function competitorProvider() {
+  return (process.env.COMPETITOR_PROVIDER || 'openai').toLowerCase();
+}
+
+function competitorModel() {
+  if (process.env.COMPETITOR_MODEL) return process.env.COMPETITOR_MODEL;
+  return competitorProvider() === 'openai' ? 'gpt-5.6-terra' : 'claude-haiku-4-5-20251001';
+}
+
+// Provider-agnostic single-prompt completion returning the raw text response.
+async function runCompletion(prompt, maxTokens) {
+  const model = competitorModel();
+  if (competitorProvider() === 'openai') {
+    const response = await getOpenAIClient().chat.completions.create({
+      model,
+      messages: [{ role: 'user', content: prompt }],
+      max_completion_tokens: maxTokens,
+    });
+    return response.choices?.[0]?.message?.content || '';
+  }
+  const response = await getAnthropicClient().messages.create({
+    model,
+    max_tokens: maxTokens,
+    messages: [{ role: 'user', content: prompt }],
+  });
+  return response.content
+    .filter((block) => block.type === 'text')
+    .map((block) => block.text)
+    .join('\n');
+}
 
 const PROMPTS_DIR = path.join(__dirname, '..', '..', 'prompts');
 const promptCache = {};
@@ -41,179 +74,95 @@ function extractJson(text) {
   return JSON.parse(text);
 }
 
-function messageText(response) {
-  return response.content
-    .filter((block) => block.type === 'text')
-    .map((block) => block.text)
-    .join('\n');
+function normalizeCandidate(raw) {
+  if (!raw || !raw.username) return null;
+  const username = String(raw.username).replace(/^@/, '').trim().toLowerCase();
+  if (!username) return null;
+  const followers = Number(raw.estimatedFollowers) || 0;
+  return {
+    username,
+    name: raw.name || '',
+    region: raw.region || '',
+    designStyle: raw.designStyle || '',
+    targetClient: raw.targetClient || '',
+    serviceOffering: raw.serviceOffering || '',
+    followersCount: followers,
+    estimatedFollowers: followers,
+    // Follower counts are model estimates now (no live Apify lookup).
+    followersVerified: false,
+    profilePicUrl: '',
+    isVerified: false,
+    matchReasons: Array.isArray(raw.matchReasons) ? raw.matchReasons : [],
+    exists: null,
+  };
 }
 
-// Cohort thresholds are expressed as multiples of the base account's follower
-// count so the bands scale with account size (a 2k and a 2M account get
-// proportionally-sized peer groups).
-const SIMILAR_LOWER_MULTIPLE = 0.5;
+// Accounts noticeably bigger than the base are "higher reach"; everyone else is
+// "similar". We deliberately do NOT surface a separate "smaller" bucket — smaller
+// niche peers fold into "similar" so real competitors are never hidden.
 const HIGHER_LOWER_MULTIPLE = 1.5;
 
-function cohortFor(followers, baseFollowers) {
-  if (!baseFollowers) return 'similar';
-  if (followers > baseFollowers * HIGHER_LOWER_MULTIPLE) return 'higher';
-  if (followers >= baseFollowers * SIMILAR_LOWER_MULTIPLE) return 'similar';
-  return 'smaller';
-}
+// Split competitors into just two cohorts and mutate each with its `cohort`.
+// Relaxation: if the strict rule leaves "similar" empty (every peer is much
+// bigger), the closest higher accounts are demoted into "similar" so the cohort
+// isn't shown empty while real competitors exist.
+function assignCohorts(competitors, baseFollowers) {
+  const sorted = [...competitors].sort((a, b) => b.followersCount - a.followersCount);
+  const higher = [];
+  const similar = [];
+  for (const c of sorted) {
+    if (baseFollowers && c.followersCount > baseFollowers * HIGHER_LOWER_MULTIPLE) higher.push(c);
+    else similar.push(c);
+  }
 
-// Step 1 — ask a cheap model for the niche + region hashtags real competitors
-// post under. This is what grounds discovery in actual Instagram accounts.
-async function deriveSearchTerms(client, model, snapshot) {
-  const prompt = loadPrompt('competitor-search-terms-prompt.md').replace(
-    '{{SNAPSHOT_JSON}}',
-    JSON.stringify(snapshot, null, 2)
-  );
-  const response = await client.messages.create({
-    model,
-    max_tokens: 1024,
-    messages: [{ role: 'user', content: prompt }],
-  });
-  const parsed = extractJson(messageText(response));
-  const hashtags = (parsed.hashtags || [])
-    .map((h) => String(h).replace(/^#/, '').trim().toLowerCase())
-    .filter(Boolean)
-    .slice(0, 10);
-  return { hashtags, region: parsed.region || '' };
-}
+  // Relax the exact match when "similar" came out empty but peers exist.
+  if (similar.length === 0 && higher.length > 0) {
+    const relaxCount = Math.max(1, Math.ceil(higher.length / 2));
+    const moved = higher.splice(higher.length - relaxCount, relaxCount); // the closest (smallest) higher peers
+    similar.push(...moved);
+  }
 
-// Step 3 — pull a real profile for each candidate so we have live follower
-// counts and bios to rank on. Real accounts occasionally fail to scrape
-// (private/blocked); those are dropped rather than shown with fake data.
-async function enrichAccounts(candidates) {
-  const enriched = await Promise.all(
-    candidates.map(async (c) => {
-      try {
-        const profile = await scrapeProfile(c.username);
-        if (!profile || !profile.username) return null;
-        return {
-          username: c.username,
-          fullName: profile.fullName || c.fullName || '',
-          biography: profile.biography || '',
-          externalUrl: profile.externalUrl || '',
-          followersCount: profile.followersCount || 0,
-          profilePicUrl: profile.profilePicUrl || '',
-          isVerified: Boolean(profile.isVerified),
-          postsSeen: c.postsSeen || 0,
-        };
-      } catch (err) {
-        return null;
-      }
-    })
-  );
-  return enriched.filter(Boolean);
+  similar.forEach((c) => { c.cohort = 'similar'; });
+  higher.forEach((c) => { c.cohort = 'higher'; });
+  return { similar, higher };
 }
-
-// Step 4 — a cheap model ranks the *real* accounts by how well they match the
-// base account and discards off-topic ones (suppliers, magazines, hobbyists…).
-async function rankAccounts(client, model, snapshot, accounts) {
-  const payload = {
-    base: snapshot,
-    candidates: accounts.map((a) => ({
-      username: a.username,
-      fullName: a.fullName,
-      biography: a.biography,
-      externalUrl: a.externalUrl,
-      followersCount: a.followersCount,
-    })),
-  };
-  const prompt = loadPrompt('competitor-ranking-prompt.md').replace(
-    '{{PAYLOAD_JSON}}',
-    JSON.stringify(payload, null, 2)
-  );
-  const response = await client.messages.create({
-    model,
-    max_tokens: 8192,
-    messages: [{ role: 'user', content: prompt }],
-  });
-  const parsed = extractJson(messageText(response));
-  return parsed.competitors || [];
-}
-
-const MAX_CANDIDATES = Number(process.env.COMPETITOR_MAX_CANDIDATES) || 18;
 
 /**
  * Find competitors for an Instagram profile and group them into follower cohorts.
  *
- * Discovery is search-grounded: real accounts are pulled from niche hashtags,
- * enriched with live follower counts, then ranked by a cheap model — so every
- * competitor returned is a real, existing account.
+ * The model lists competitors directly from the account snapshot — no Apify /
+ * Instagram scraping is involved, so follower counts are model estimates.
  *
  * @param {object} profile   An InstagramProfile document/snapshot (username, followers, posts…).
  * @param {object} [options]
  * @param {object} [options.brandDna]  Confirmed Brand DNA fields to sharpen the match.
- * @returns {Promise<{ baseRegion, baseFollowers, model, hashtags, cohorts, competitors, droppedCount }>}
+ * @returns {Promise<{ baseRegion, baseFollowers, model, cohorts, competitors }>}
  */
 async function findCompetitors(profile, options = {}) {
   const { brandDna = null } = options;
-  // Discovery is grounded in real accounts, so a low-cost model is all we need
-  // to pick hashtags and rank the results.
-  const model = process.env.COMPETITOR_MODEL || 'claude-haiku-4-5-20251001';
+  const model = competitorModel();
   const snapshot = buildSnapshot(profile, brandDna);
   const baseFollowers = profile.followersCount || 0;
-  const client = getAnthropicClient();
+  console.log(`[competitorFinder] @${snapshot.username}: using ${competitorProvider()} model ${model} (no Apify)`);
 
-  // 1. Niche + region hashtags.
-  const { hashtags, region } = await deriveSearchTerms(client, model, snapshot);
-  console.log(`[competitorFinder] @${snapshot.username}: hashtags ${JSON.stringify(hashtags)} (${region})`);
-  if (hashtags.length === 0) {
-    return { baseRegion: region, baseFollowers, model, hashtags, droppedCount: 0, cohorts: { similar: [], higher: [] }, competitors: [] };
-  }
+  const prompt = loadPrompt('competitor-listing-prompt.md').replace(
+    '{{SNAPSHOT_JSON}}',
+    JSON.stringify(snapshot, null, 2)
+  );
+  const parsed = extractJson(await runCompletion(prompt, 8192));
 
-  // 2. Real accounts active on those hashtags.
-  const found = (await searchAccountsByHashtags(hashtags))
-    .filter((a) => a.username !== profile.username)
-    .slice(0, MAX_CANDIDATES);
-  console.log(`[competitorFinder] @${snapshot.username}: ${found.length} real accounts from hashtag search`);
+  let competitors = (parsed.competitors || [])
+    .map(normalizeCandidate)
+    .filter(Boolean)
+    // Guard against the model returning the base account among the competitors.
+    .filter((c) => c.username !== profile.username);
 
-  // 3. Live follower counts + bios for each.
-  const enriched = await enrichAccounts(found);
+  console.log(`[competitorFinder] @${snapshot.username}: ${competitors.length} competitors listed`);
 
-  // 4. Rank/match with a cheap model; drop off-topic accounts.
-  const ranked = enriched.length ? await rankAccounts(client, model, snapshot, enriched) : [];
-  const byUsername = new Map(enriched.map((e) => [e.username, e]));
+  const cohorts = assignCohorts(competitors, baseFollowers);
+  competitors.sort((a, b) => b.followersCount - a.followersCount);
 
-  let competitors = ranked
-    .map((r) => {
-      const username = String(r.username || '').replace(/^@/, '').trim().toLowerCase();
-      const e = byUsername.get(username);
-      if (!e) return null; // The model must reference a real, scraped candidate.
-      return {
-        username: e.username,
-        name: r.name || e.fullName || '',
-        region: r.region || region,
-        designStyle: r.designStyle || '',
-        targetClient: r.targetClient || '',
-        serviceOffering: r.serviceOffering || '',
-        followersCount: e.followersCount || 0,
-        estimatedFollowers: e.followersCount || 0,
-        followersVerified: Boolean(e.followersCount),
-        profilePicUrl: e.profilePicUrl,
-        isVerified: e.isVerified,
-        matchReasons: Array.isArray(r.matchReasons) ? r.matchReasons : [],
-        exists: true,
-      };
-    })
-    .filter(Boolean);
-
-  const droppedCount = enriched.length - competitors.length;
-  console.log(`[competitorFinder] @${snapshot.username}: ${enriched.length} enriched, ${droppedCount} dropped as off-topic, ${competitors.length} kept`);
-
-  competitors = competitors
-    .map((c) => ({ ...c, cohort: cohortFor(c.followersCount, baseFollowers) }))
-    .sort((a, b) => b.followersCount - a.followersCount);
-
-  const cohorts = {
-    similar: competitors.filter((c) => c.cohort === 'similar'),
-    higher: competitors.filter((c) => c.cohort === 'higher'),
-    smaller: competitors.filter((c) => c.cohort === 'smaller'),
-  };
-
-  return { baseRegion: region, baseFollowers, model, hashtags, droppedCount, cohorts, competitors };
+  return { baseRegion: parsed.baseRegion || '', baseFollowers, model, cohorts, competitors };
 }
 
-module.exports = { findCompetitors, cohortFor };
+module.exports = { findCompetitors, assignCohorts };
