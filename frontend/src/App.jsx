@@ -6,6 +6,7 @@ import Onboarding from './pages/Onboarding';
 import Dashboard from './pages/Dashboard';
 import ContentRoute from './pages/ContentRoute';
 import BrandDna from './pages/BrandDna';
+import Competitors from './pages/Competitors';
 import Settings from './pages/Settings';
 import ProtectedLayout from './components/ProtectedLayout';
 
@@ -19,6 +20,7 @@ export default function App() {
         <Route path="/dashboard" element={<Dashboard />} />
         <Route path="/dashboard/content-route" element={<ContentRoute />} />
         <Route path="/dashboard/brand-dna" element={<BrandDna />} />
+        <Route path="/dashboard/competitors" element={<Competitors />} />
         <Route path="/dashboard/settings" element={<Settings />} />
       </Route>
     </Routes>
