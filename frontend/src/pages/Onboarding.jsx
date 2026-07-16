@@ -441,9 +441,9 @@ export default function Onboarding() {
     }
   }, [reentryMode, user, navigate]);
 
-  // When re-entering to add/change a handle, return to the accounts list rather
-  // than the dashboard so the user sees the updated connection.
-  const goDashboard = () => navigate(reentryMode ? '/dashboard/settings' : '/dashboard');
+  // Every onboarding completion — first run or an add/change re-entry — lands on
+  // the dashboard.
+  const goDashboard = () => navigate('/dashboard');
 
   // Save the confirmed summary (best-effort), then show the authority funnel
   // built from the Instagram analysis before landing on the dashboard.

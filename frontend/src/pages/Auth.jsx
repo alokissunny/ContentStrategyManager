@@ -54,9 +54,10 @@ const ghostBtn = {
 
 const googleConfigured = Boolean(import.meta.env.VITE_GOOGLE_CLIENT_ID);
 
-function postLoginPath({ hasInstagramProfile, isSignup = false }) {
-  if (isSignup || !hasInstagramProfile) return '/onboarding';
-  return '/dashboard';
+// Signing up starts the onboarding flow (which itself lands on the dashboard);
+// every other entry — login, Google, demo — lands straight on the dashboard.
+function postLoginPath({ isSignup = false } = {}) {
+  return isSignup ? '/onboarding' : '/dashboard';
 }
 
 export default function Auth() {
