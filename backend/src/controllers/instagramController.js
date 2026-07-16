@@ -42,7 +42,7 @@ async function fetchInstagram(req, res) {
   let report = null;
   let reportError = null;
   try {
-    const { markdown, quickSummary, model } = await generateBrandAnalysis(snapshot);
+    const { markdown, brandProfile, model } = await generateBrandAnalysis(snapshot);
     const s3Key = `reports/${req.user._id}/${username}-${Date.now()}.md`;
     await uploadMarkdown(s3Key, markdown);
     const reportDoc = await BrandAnalysisReport.create({
@@ -50,14 +50,20 @@ async function fetchInstagram(req, res) {
       instagramUsername: username,
       s3Key,
       model,
-      whoYouHelp: quickSummary?.whoYouHelp || '',
-      whatYouOffer: quickSummary?.whatYouOffer || '',
-      howYouSound: quickSummary?.howYouSound || '',
+      whatYouOffer: brandProfile?.whatYouOffer || '',
+      whoYouHelp: brandProfile?.whoYouHelp || '',
+      firstProblem: brandProfile?.firstProblem || '',
+      position: brandProfile?.position || '',
+      proof: brandProfile?.proof || '',
+      howYouSound: brandProfile?.howYouSound || '',
+      visualStyle: brandProfile?.visualStyle || '',
+      neverDo: brandProfile?.neverDo || '',
     });
     report = {
       id: reportDoc._id,
       createdAt: reportDoc.createdAt,
       downloadUrl: await getPresignedDownloadUrl(s3Key),
+      // Kept for the onboarding confirmation conversation.
       whoYouHelp: reportDoc.whoYouHelp,
       whatYouOffer: reportDoc.whatYouOffer,
       howYouSound: reportDoc.howYouSound,

@@ -32,24 +32,24 @@ function buildSnapshot(profile) {
   };
 }
 
-const QUICK_SUMMARY_HEADING = /##\s*4\.?\s*Quick Summary/i;
+const BRAND_PROFILE_HEADING = /##\s*4\.?\s*Brand Profile/i;
 
-// Claude is asked for 3 report tables followed by a "Quick Summary" JSON block;
-// split those apart so the persisted report stays table-only and the summary
-// fields can drive the confirmation screen.
-function splitQuickSummary(fullText) {
-  const headingMatch = fullText.match(QUICK_SUMMARY_HEADING);
-  if (!headingMatch) return { reportMarkdown: fullText.trim(), quickSummary: null };
+// Claude outputs 3 report tables followed by a "Brand Profile" JSON block; split
+// those apart so the persisted markdown stays table-only and the structured
+// fields populate the Brand profile page + onboarding confirmation.
+function splitBrandProfile(fullText) {
+  const headingMatch = fullText.match(BRAND_PROFILE_HEADING);
+  if (!headingMatch) return { reportMarkdown: fullText.trim(), brandProfile: null };
 
   const reportMarkdown = fullText.slice(0, headingMatch.index).trim();
   const rest = fullText.slice(headingMatch.index);
   const jsonMatch = rest.match(/```json\s*([\s\S]*?)```/i);
-  if (!jsonMatch) return { reportMarkdown, quickSummary: null };
+  if (!jsonMatch) return { reportMarkdown, brandProfile: null };
 
   try {
-    return { reportMarkdown, quickSummary: JSON.parse(jsonMatch[1]) };
+    return { reportMarkdown, brandProfile: JSON.parse(jsonMatch[1]) };
   } catch (err) {
-    return { reportMarkdown, quickSummary: null };
+    return { reportMarkdown, brandProfile: null };
   }
 }
 
@@ -74,9 +74,9 @@ async function generateBrandAnalysis(profile) {
 
   console.log(`[brandAnalysis] Received markdown report for @${snapshot.username} (${fullText.length} chars):\n${fullText}`);
 
-  const { reportMarkdown, quickSummary } = splitQuickSummary(fullText);
+  const { reportMarkdown, brandProfile } = splitBrandProfile(fullText);
 
-  return { markdown: reportMarkdown, quickSummary, model };
+  return { markdown: reportMarkdown, brandProfile, model };
 }
 
 const CONFIRMED_HEADING = /##\s*Your Confirmed Summary[\s\S]*$/i;
@@ -100,16 +100,19 @@ function mergeConfirmedSummary(markdown, summary) {
 // The 9 sections that make up a user's editable "Brand DNA". The first three
 // mirror the AI-generated quick summary; the rest start blank and are filled
 // in by hand on the Brand DNA tab.
+// The Brand Profile fields shown on the Brand profile page — all inferred from
+// the analyzed Instagram page. `inferred: true` fields carry the "Inferred from
+// your page" badge (they're never confirmed in onboarding); the rest overlap
+// with the onboarding quick-confirm (what you offer / who it's for / your voice).
 const BRAND_DNA_FIELDS = [
-  { key: 'whoYouHelp', label: 'Who you help' },
-  { key: 'whatYouOffer', label: 'What you offer' },
-  { key: 'howYouSound', label: 'How you sound' },
-  { key: 'mission', label: 'Your mission' },
-  { key: 'values', label: 'Your core values' },
-  { key: 'differentiator', label: 'Your differentiator' },
-  { key: 'contentPillars', label: 'Your content pillars' },
-  { key: 'proof', label: 'Your proof & credibility' },
-  { key: 'visualStyle', label: 'Your visual style' },
+  { key: 'whatYouOffer', label: 'What you offer', description: 'The product or service this account exists to sell.', inferred: false },
+  { key: 'whoYouHelp', label: "Who it's for", description: 'The specific person your content should reach.', inferred: false },
+  { key: 'firstProblem', label: 'Their first problem', description: 'What your content should speak to before anything else.', inferred: false },
+  { key: 'position', label: 'Your position', description: 'The one-line answer to "why you and not the next account?"', inferred: true },
+  { key: 'proof', label: 'Your proof', description: 'What you can honestly point to when someone asks "does it work?"', inferred: true },
+  { key: 'howYouSound', label: 'Your voice', description: 'How every caption and hook should sound.', inferred: false },
+  { key: 'visualStyle', label: 'Visual language', description: 'The colors, shapes and type your post graphics use.', inferred: true },
+  { key: 'neverDo', label: 'Never do', description: 'Topics, tones and tactics the strategist must not suggest.', inferred: true },
 ];
 
 const BRAND_DNA_HEADING = /##\s*Brand DNA[\s\S]*$/i;

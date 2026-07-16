@@ -14,8 +14,7 @@ async function loadBrandDna(userId, username) {
     targetClient: report.whoYouHelp || '',
     serviceOffering: report.whatYouOffer || '',
     designStyle: report.visualStyle || '',
-    differentiator: report.differentiator || '',
-    contentPillars: report.contentPillars || '',
+    differentiator: report.position || '',
   };
 }
 

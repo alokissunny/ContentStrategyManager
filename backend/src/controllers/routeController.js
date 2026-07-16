@@ -11,12 +11,14 @@ async function loadBrandDna(userId, username) {
   });
   if (!report) return null;
   return {
-    whoYouHelp: report.whoYouHelp || '',
     whatYouOffer: report.whatYouOffer || '',
+    whoYouHelp: report.whoYouHelp || '',
+    firstProblem: report.firstProblem || '',
+    position: report.position || '',
+    proof: report.proof || '',
     howYouSound: report.howYouSound || '',
     visualStyle: report.visualStyle || '',
-    contentPillars: report.contentPillars || '',
-    differentiator: report.differentiator || '',
+    neverDo: report.neverDo || '',
   };
 }
 

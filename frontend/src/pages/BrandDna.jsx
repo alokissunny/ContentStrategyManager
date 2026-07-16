@@ -3,18 +3,27 @@ import Glyph from '../components/Glyph';
 import { getBrandDna, updateBrandDna } from '../api/brandDna';
 import { LS_SURFACE, LS_BORDER, LS_INK, LS_T2, LS_MUTED, LS_SIGNAL, LS_SOFT, LS_FONT, LS_DISPLAY, LSC } from '../theme';
 
-function BrandDnaField({ label, value, onChange, complete }) {
+function InferredBadge() {
+  return (
+    <span style={{
+      fontFamily: LS_FONT, fontSize: 10, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase',
+      color: LS_MUTED, background: '#EFEFF2', borderRadius: 999, padding: '3px 9px', whiteSpace: 'nowrap',
+    }}>
+      Inferred from your page
+    </span>
+  );
+}
+
+function BrandDnaField({ label, description, inferred, value, onChange }) {
   const [focused, setFocused] = useState(false);
   return (
-    <div style={{ padding: '18px 0', borderBottom: `1px solid ${LS_BORDER}` }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-        <span style={{
-          width: 6, height: 6, borderRadius: '50%',
-          background: complete ? '#2E7D32' : LS_MUTED, flexShrink: 0,
-        }} />
-        <span style={{ fontFamily: LS_FONT, fontSize: 11, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: LS_MUTED }}>
-          {label}
+    <div style={{ background: LS_SURFACE, border: `1px solid ${LS_BORDER}`, borderRadius: 14, padding: '18px 22px' }}>
+      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 16, marginBottom: 10, flexWrap: 'wrap' }}>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 10 }}>
+          <span style={{ fontFamily: LS_FONT, fontSize: 16, fontWeight: 700, color: LS_INK }}>{label}</span>
+          {inferred && <InferredBadge />}
         </span>
+        <span style={{ fontFamily: LS_FONT, fontSize: 13, color: LS_MUTED, textAlign: 'right' }}>{description}</span>
       </div>
       <div style={{ position: 'relative' }}>
         <textarea
@@ -25,7 +34,7 @@ function BrandDnaField({ label, value, onChange, complete }) {
           onBlur={() => setFocused(false)}
           onChange={(e) => onChange(e.target.value)}
           style={{
-            width: '100%', resize: 'vertical', fontFamily: LS_FONT, fontSize: 16, lineHeight: 1.5, color: LS_INK,
+            width: '100%', resize: 'vertical', fontFamily: LS_FONT, fontSize: 16, lineHeight: 1.55, color: LS_INK,
             background: focused ? LS_SURFACE : 'transparent', border: `1px solid ${focused ? LS_SIGNAL : 'transparent'}`,
             borderRadius: 9, padding: '7px 34px 7px 9px', margin: '0 -9px', outline: 'none',
             boxShadow: focused ? `0 0 0 3px ${LS_SOFT}` : 'none',
@@ -78,31 +87,32 @@ export default function BrandDna() {
 
   return (
     <div style={{ ...LSC, padding: 'clamp(24px, 6vw, 48px) clamp(16px, 5vw, 48px)', maxWidth: 760 }}>
-        <h1 style={{ fontFamily: LS_DISPLAY, fontWeight: 700, fontSize: 30, color: LS_INK, margin: '0 0 8px' }}>Brand DNA</h1>
+        <h1 style={{ fontFamily: LS_DISPLAY, fontWeight: 700, fontSize: 30, color: LS_INK, margin: '0 0 8px' }}>Brand profile</h1>
         <p style={{ fontFamily: LS_FONT, fontSize: 14, color: LS_T2, margin: '0 0 8px' }}>
-          What Bauhly knows about your business. Edit anything that's off — the more complete this is, the sharper your weekly route.
+          What Bauhly inferred about your business from your Instagram. Edit anything that’s off — the sharper this is, the better your weekly route.
         </p>
 
         {loading ? (
-          <p style={{ fontFamily: LS_FONT, color: LS_T2, marginTop: 24 }}>Loading your Brand DNA…</p>
+          <p style={{ fontFamily: LS_FONT, color: LS_T2, marginTop: 24 }}>Loading your brand profile…</p>
         ) : notFound ? (
           <div style={{ border: `1px dashed ${LS_BORDER}`, borderRadius: 12, padding: '40px 24px', textAlign: 'center', marginTop: 24 }}>
             <p style={{ fontFamily: LS_FONT, fontSize: 14, color: LS_T2, margin: 0 }}>
-              No Brand DNA yet. Connect your Instagram from onboarding to generate a first draft.
+              No brand profile yet. Connect your Instagram from onboarding to generate one from your page.
             </p>
           </div>
         ) : (
           <>
             <p style={{ fontFamily: LS_FONT, fontSize: 12.5, fontWeight: 700, letterSpacing: '0.04em', color: LS_SIGNAL, margin: '0 0 24px' }}>
-              {completedCount} of {sections.length} sections complete
+              {completedCount} of {sections.length} fields filled
             </p>
-            <div style={{ background: LS_SURFACE, border: `1px solid ${LS_BORDER}`, borderRadius: 16, padding: 'clamp(4px, 2vw, 4px) clamp(14px, 4vw, 24px) 8px' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
               {sections.map((s) => (
                 <BrandDnaField
                   key={s.key}
                   label={s.label}
+                  description={s.description}
+                  inferred={s.inferred}
                   value={s.value}
-                  complete={s.value.trim().length > 0}
                   onChange={(v) => setValue(s.key, v)}
                 />
               ))}
@@ -120,7 +130,7 @@ export default function BrandDna() {
                 {saving ? 'Saving…' : 'Save changes'}
               </button>
               {saved && !saving && (
-                <span style={{ fontFamily: LS_FONT, fontSize: 13, color: LS_T2 }}>Saved to your Brand DNA file.</span>
+                <span style={{ fontFamily: LS_FONT, fontSize: 13, color: LS_T2 }}>Saved to your brand profile.</span>
               )}
             </div>
           </>

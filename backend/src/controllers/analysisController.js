@@ -3,9 +3,11 @@ const { getPresignedDownloadUrl, getObjectText, uploadMarkdown } = require('../s
 const { mergeConfirmedSummary, BRAND_DNA_FIELDS, parseBrandDna, mergeBrandDna } = require('../services/brandAnalysis');
 
 function buildBrandDnaSections(report, parsedFromMarkdown) {
-  const sections = BRAND_DNA_FIELDS.map(({ key, label }) => ({
+  const sections = BRAND_DNA_FIELDS.map(({ key, label, description, inferred }) => ({
     key,
     label,
+    description,
+    inferred,
     value: report[key] || parsedFromMarkdown[key] || '',
   }));
   const completedCount = sections.filter((s) => s.value.trim().length > 0).length;
