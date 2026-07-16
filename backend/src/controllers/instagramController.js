@@ -5,6 +5,7 @@ const { generateBrandAnalysis } = require('../services/brandAnalysis');
 const { uploadMarkdown, getPresignedDownloadUrl } = require('../services/s3Client');
 const { computeAuthorityFunnel } = require('../services/authorityFunnel');
 const { buildAndSaveCompetitorSet } = require('./competitorController');
+const { generateAndSaveRoute } = require('./routeController');
 
 function extractUsername(input) {
   return (input || '')
@@ -71,6 +72,12 @@ async function fetchInstagram(req, res) {
   // so the (already slow) analyze request isn't held up by a ~45s discovery run.
   buildAndSaveCompetitorSet(req.user._id, snapshot).catch((err) => {
     console.error(`[instagram] background competitor refresh failed for @${username}:`, err.message);
+  });
+
+  // Same idea for the weekly content plan — generate it in the background so the
+  // dashboard/weekly route reflect the freshly analyzed account.
+  generateAndSaveRoute(req.user._id, snapshot).catch((err) => {
+    console.error(`[instagram] background weekly plan generation failed for @${username}:`, err.message);
   });
 
   res.json({ profile: snapshot, report, reportError });

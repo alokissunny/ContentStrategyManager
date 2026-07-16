@@ -120,6 +120,96 @@ function Cohort({ icon, title, subtitle, items }) {
   );
 }
 
+// A shimmering placeholder block used to build skeleton cards while a scan runs.
+function Shimmer({ w, h, r = 6, style }) {
+  return (
+    <div style={{
+      width: w, height: h, borderRadius: r, flexShrink: 0,
+      background: `linear-gradient(90deg, ${LS_SOFT} 25%, ${LS_SOFT_BORDER} 50%, ${LS_SOFT} 75%)`,
+      backgroundSize: '450px 100%', animation: 'lsShimmer 1.4s ease infinite',
+      ...style,
+    }} />
+  );
+}
+
+// Skeleton mirroring CompetitorCard's layout so the loading state reads as
+// "competitors are coming" rather than a blank spinner.
+function SkeletonCard() {
+  return (
+    <div style={{ background: LS_SURFACE, border: `1px solid ${LS_BORDER}`, borderRadius: 14, padding: 16 }}>
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
+        <Shimmer w={40} h={40} r="50%" />
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <Shimmer w="60%" h={13} style={{ marginBottom: 8 }} />
+          <Shimmer w="38%" h={11} />
+        </div>
+        <Shimmer w={42} h={26} />
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 14 }}>
+        {['72%', '86%', '64%', '78%'].map((w, i) => <Shimmer key={i} w={w} h={9} />)}
+      </div>
+      <div style={{ display: 'flex', gap: 6, marginTop: 14 }}>
+        {[70, 96, 60].map((w, i) => <Shimmer key={i} w={w} h={20} r={999} />)}
+      </div>
+    </div>
+  );
+}
+
+function SkeletonCohort({ icon, title, subtitle, count }) {
+  return (
+    <div style={{ flex: 1, minWidth: 280 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 9, marginBottom: 4 }}>
+        <Glyph name={icon} size={18} color={LS_MUTED} />
+        <h2 style={{ fontFamily: LS_DISPLAY, fontWeight: 700, fontSize: 17, color: LS_INK, margin: 0 }}>{title}</h2>
+        <Glyph name="loader" size={14} color={LS_SIGNAL} style={{ animation: 'lsSpin 0.9s linear infinite' }} />
+      </div>
+      <p style={{ fontFamily: LS_FONT, fontSize: 12.5, color: LS_MUTED, margin: '0 0 14px' }}>{subtitle}</p>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        {Array.from({ length: count }).map((_, i) => <SkeletonCard key={i} />)}
+      </div>
+    </div>
+  );
+}
+
+const SCAN_MESSAGES = [
+  'Reading your brand & niche…',
+  'Pinpointing your location…',
+  'Finding accounts in your market…',
+  'Matching design style & clients…',
+  'Ranking your closest competitors…',
+];
+
+// Cycles through status lines while a scan is in flight (the scan takes ~20s).
+function useCyclingMessage(active, messages, interval = 2600) {
+  const [i, setI] = useState(0);
+  useEffect(() => {
+    if (!active) return undefined;
+    setI(0);
+    const iv = setInterval(() => setI((p) => (p + 1) % messages.length), interval);
+    return () => clearInterval(iv);
+  }, [active, messages, interval]);
+  return messages[i];
+}
+
+function ScanningState({ active }) {
+  const message = useCyclingMessage(active, SCAN_MESSAGES);
+  return (
+    <div style={{ marginTop: 24 }}>
+      <p style={{ display: 'flex', alignItems: 'center', gap: 9, fontFamily: LS_FONT, fontWeight: 700, fontSize: 11, letterSpacing: '0.12em', textTransform: 'uppercase', color: LS_SIGNAL, margin: '0 0 4px' }}>
+        <span style={{ width: 7, height: 7, borderRadius: '50%', background: LS_SIGNAL, animation: 'lsSpark 1.2s ease-in-out infinite' }} />
+        {active ? 'Scanning for competitors' : 'Loading competitors'}
+      </p>
+      <p style={{ fontFamily: LS_FONT, fontSize: 14, color: LS_T2, margin: '0 0 20px', minHeight: 20 }}>
+        {active ? message : 'One moment…'}
+      </p>
+      <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap', alignItems: 'flex-start' }}>
+        <SkeletonCohort icon="users" title="Similar reach" subtitle="Peers at roughly your follower count." count={3} />
+        <SkeletonCohort icon="trending-up" title="Higher reach" subtitle="Bigger accounts to study and aspire to." count={2} />
+      </div>
+    </div>
+  );
+}
+
 export default function Competitors() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -191,8 +281,8 @@ export default function Competitors() {
         </div>
       )}
 
-      {loading ? (
-        <p style={{ fontFamily: LS_FONT, color: LS_T2, marginTop: 28 }}>Loading competitors…</p>
+      {running || (loading && !hasResults) ? (
+        <ScanningState active={running} />
       ) : !hasResults && !error ? (
         <div style={{ border: `1px dashed ${LS_BORDER}`, borderRadius: 16, padding: '48px 24px', textAlign: 'center', marginTop: 28 }}>
           <Glyph name="radar" size={30} color={LS_MUTED} style={{ marginBottom: 12 }} />

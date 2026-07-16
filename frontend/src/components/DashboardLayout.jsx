@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Outlet } from 'react-router-dom';
+import { Outlet, useLocation } from 'react-router-dom';
 import Sidebar from './Sidebar';
 import UserMenu from './UserMenu';
 import Glyph from './Glyph';
@@ -8,12 +8,16 @@ import { LS_BG, LS_SURFACE, LS_BORDER, LS_INK, LS_SIGNAL, LS_FONT, LS_DISPLAY } 
 
 export default function DashboardLayout({ children }) {
   const isMobile = useIsMobile();
+  const { pathname } = useLocation();
+  // Onboarding (including connecting/changing an Instagram account) is a focused,
+  // full-screen flow — hide the app nav so nothing distracts from it.
+  const hideNav = pathname.startsWith('/onboarding');
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const content = children ?? <Outlet />;
 
   return (
     <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', minHeight: '100vh', background: LS_BG }}>
-      {isMobile && (
+      {isMobile && !hideNav && (
         <div
           style={{
             position: 'sticky', top: 0, zIndex: 30, display: 'flex', alignItems: 'center', justifyContent: 'space-between',
@@ -33,7 +37,7 @@ export default function DashboardLayout({ children }) {
           <UserMenu compact />
         </div>
       )}
-      <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
+      {!hideNav && <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />}
       <div style={{ flex: 1, minWidth: 0 }}>{content}</div>
     </div>
   );

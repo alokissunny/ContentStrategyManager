@@ -4,15 +4,16 @@ const { protect } = require('../middleware/auth');
 const {
   getCurrentRoute,
   getRoutes,
-  createRoute,
-  updateRoute,
+  generateRoute,
+  markDayPublished,
 } = require('../controllers/routeController');
 
 const router = express.Router();
 
 router.use(protect);
 router.get('/current', asyncHandler(getCurrentRoute));
-router.route('/').get(asyncHandler(getRoutes)).post(asyncHandler(createRoute));
-router.put('/:id', asyncHandler(updateRoute));
+router.get('/', asyncHandler(getRoutes));
+router.post('/generate', asyncHandler(generateRoute));
+router.patch('/:id/day/:index', asyncHandler(markDayPublished));
 
 module.exports = router;

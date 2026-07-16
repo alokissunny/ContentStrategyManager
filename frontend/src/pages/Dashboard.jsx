@@ -10,9 +10,9 @@
 
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import client from '../api/client';
 import Icon from '../brand/Icon';
 import { useAuth } from '../context/AuthContext';
+import { getCurrentRoute, generateRoute } from '../api/routes';
 
 /* ── the three authority stages, each with its own accent from tokens.css ── */
 const PILLARS = {
@@ -21,48 +21,8 @@ const PILLARS = {
   trust: { label: 'Trust', icon: 'trust', color: 'var(--trust-500)', soft: 'var(--trust-50)', tint: 'var(--trust-100)', strong: 'var(--trust-600)', question: 'Do they reach out?', goalChip: 'Build confidence' },
 };
 
-/* ── where you stand — verdict · evidence · why · recommendation ── */
-const FUNNEL = [
-  {
-    pillar: 'discovery', score: 74, verdict: 'Strong',
-    evidence: ['Stable publishing cadence', '4 Reels published', 'Average Reel views: 14,870', 'Healthy format mix'],
-    whyMatters: 'Discovery brings new people to your work. Keeping this strong means your projects keep reaching future clients you haven’t met yet.',
-    recommendation: 'Keep your publishing rhythm and keep experimenting with Reel hooks — project walkthroughs and process moments travel well.',
-  },
-  {
-    pillar: 'credibility', score: 86, verdict: 'Very strong',
-    evidence: ['64% educational content', '5 educational carousels', 'Consistent design-decision explainers', 'Average 29 comments per post'],
-    whyMatters: 'Credibility is why people save your posts and quote your advice. Teaching how you think about space makes you the designer they remember.',
-    recommendation: 'Keep the design-decision explainers coming, and start layering in more advanced thinking — materials, budgets, trade-offs.',
-  },
-  {
-    pillar: 'trust', score: 48, verdict: 'Moderate',
-    evidence: ['Only 9% project-story content', 'Limited studio & process moments', 'Consistent publishing', 'Low promotional pressure'],
-    whyMatters: 'Trust turns admiration into enquiries. Real project stories — with clients, budgets and the messy middle — help people believe you can do it for them.',
-    recommendation: 'Share more full project stories: the brief, the process, the finished space, and what the client says now.',
-  },
-];
-
-const WEEK = {
-  focus: 'trust',
-  headline: 'Reinforce Trust',
-  hypothesis: 'If we publish more proof-based content — real projects, client outcomes, the messy middle — audience confidence should climb over the coming weeks.',
-  recPara: 'Lead with proof this week. Share one real project — the brief, the messy middle, the result — so admiration turns into enquiries. Keep one educational post running so your expertise stays visible, and one Reel so new people keep finding you. Proof is the piece that’s missing; the rest already works.',
-  whyMatters: 'People already discover your work and recognise your eye. Increasing visible proof is what turns that expertise into trust — and trust into enquiries.',
-  observation: 'Educational content keeps positioning you as an expert, but there’s little evidence yet demonstrating real outcomes or experience.',
-};
-
-/* the app's week plan, shaped into route-rail cards */
-const TAG_TO_PILLAR = { 'Build confidence': 'trust', 'Get noticed': 'discovery', 'Show expertise': 'credibility' };
-const WEEK_PLAN = [
-  { day: 'Monday', type: 'Client Story', direction: 'Walk through one real project, brief to finished space.', tag: 'Build confidence' },
-  { day: 'Tuesday', type: 'Educational Tips', direction: 'Teach one design decision people always get wrong.', tag: 'Show expertise' },
-  { day: 'Wednesday', type: 'Personal Journey', direction: 'Show a real working day, behind the scenes.', tag: 'Build confidence' },
-  { day: 'Thursday', type: 'Educational Tips', direction: 'Bust three design myths people still follow.', tag: 'Get noticed' },
-  { day: 'Friday', type: 'Community', direction: 'Ask what’s stalling people’s projects.', tag: 'Get noticed' },
-  { day: 'Saturday', type: 'Educational Tips', direction: 'Show one small transformation, with the reasoning.', tag: 'Show expertise' },
-  { day: 'Sunday', type: 'Personal Journey', direction: 'A quiet personal note from the studio.', tag: 'Build confidence' },
-];
+/* Route-rail presentation maps (content-type → icon). The plan itself now comes
+   from /routes/current, generated from the user's Instagram analysis. */
 const CONTENT_ICON = { 'Client Story': 'trust', 'Educational Tips': 'brief', 'Personal Journey': 'profile', Community: 'comment' };
 
 function getWeekRange(date) {
@@ -107,19 +67,80 @@ const EVIDENCE_ICONS = ['pulse', 'calendar', 'eye', 'comment', 'evidence'];
 export default function Dashboard() {
   const navigate = useNavigate();
   const { user } = useAuth();
-  const [hasRoute, setHasRoute] = useState(false);
-  const [open, setOpen] = useState(WEEK.focus);
+  const [route, setRoute] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [generating, setGenerating] = useState(false);
+  const [open, setOpen] = useState(null);
   const [expanded, setExpanded] = useState(false);
 
   const range = useMemo(() => getWeekRange(new Date()), []);
-  const focus = PILLARS[WEEK.focus];
   const firstName = (user?.name || 'there').split(' ')[0];
-  const openRow = FUNNEL.find((r) => r.pillar === open);
   const routePath = '/dashboard/content-route';
 
   useEffect(() => {
-    client.get('/routes/current').then((res) => setHasRoute(!!res.data.route)).catch(() => setHasRoute(false));
+    getCurrentRoute()
+      .then((r) => { setRoute(r); if (r) setOpen(r.focus.pillar); })
+      .catch(() => setRoute(null))
+      .finally(() => setLoading(false));
   }, []);
+
+  async function handleGenerate() {
+    setGenerating(true);
+    try {
+      const r = await generateRoute();
+      setRoute(r);
+      if (r) setOpen(r.focus.pillar);
+    } catch (err) {
+      /* leave route as-is; the empty state lets the user retry */
+    } finally {
+      setGenerating(false);
+    }
+  }
+
+  // Plan data, sourced from the generated route (was hardcoded before).
+  const hasRoute = !!route;
+  const WEEK = route?.focus;
+  const FUNNEL = route?.funnel || [];
+  const WEEK_PLAN = route?.days || [];
+  const focus = PILLARS[WEEK?.pillar || 'trust'];
+  const openRow = FUNNEL.find((r) => r.pillar === open);
+
+  if (loading) {
+    return (
+      <div className="app__main">
+        <div className="page-head">
+          <div>
+            <span className="eyebrow">Week of {range}</span>
+            <h1>Here’s your week, {firstName}.</h1>
+          </div>
+        </div>
+        <p className="sec-desc" style={{ marginTop: 8 }}>Loading your week…</p>
+      </div>
+    );
+  }
+
+  if (!hasRoute) {
+    return (
+      <div className="app__main">
+        <div className="page-head">
+          <div>
+            <span className="eyebrow">Week of {range}</span>
+            <h1>Here’s your week, {firstName}.</h1>
+          </div>
+        </div>
+        <section className="card wr" aria-label="Weekly route" style={{ marginTop: 8 }}>
+          <div className="wr__empty" style={{ padding: '40px 24px' }}>
+            <p>Your week hasn’t been planned yet. Bauhly reads your Instagram analysis and builds a
+              focus for the week plus a post for each day — with the reason behind it.</p>
+            <button onClick={handleGenerate} disabled={generating} className="btn btn--primary btn--sm" style={{ flexShrink: 0, opacity: generating ? 0.6 : 1 }}>
+              <Icon name="sparkle" size={15} />
+              {generating ? 'Planning your week…' : 'Generate this week’s plan'}
+            </button>
+          </div>
+        </section>
+      </div>
+    );
+  }
 
   return (
     <div className="app__main">
@@ -148,14 +169,19 @@ export default function Dashboard() {
                   <h2 className="mfocus__headline">{WEEK.headline}</h2>
                 </div>
               </div>
-              {hasRoute ? (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                 <span className="mfocus__status"><i aria-hidden="true" />This week in progress</span>
-              ) : (
-                <Link to={routePath} className="btn btn--primary mfocus__gen">
-                  <Icon name="sparkle" size={16} />
-                  Generate this week’s plan
-                </Link>
-              )}
+                <button
+                  onClick={handleGenerate}
+                  disabled={generating}
+                  className="mfocus__expand"
+                  style={{ marginTop: 0, opacity: generating ? 0.6 : 1 }}
+                  title="Regenerate this week’s plan"
+                >
+                  <Icon name="sparkle" size={14} strokeWidth={2} />
+                  {generating ? 'Regenerating…' : 'Regenerate'}
+                </button>
+              </div>
             </div>
 
             <div className="mfocus__cols">
@@ -172,7 +198,7 @@ export default function Dashboard() {
                     <span className="mfocus__bico"><Icon name="route" size={13} strokeWidth={2} /></span>
                     The recommendation
                   </span>
-                  <p className="mfocus__para">{WEEK.recPara}</p>
+                  <p className="mfocus__para">{WEEK.recommendation}</p>
                 </div>
               </div>
               <aside className="mfocus__side">
@@ -221,13 +247,13 @@ export default function Dashboard() {
                   <div className="as2__list" role="tablist" aria-label="Authority stages">
                     {FUNNEL.map((row) => {
                       const p = PILLARS[row.pillar];
-                      const st = pillarState(row, WEEK.focus);
+                      const st = pillarState(row, WEEK.pillar);
                       return (
                         <button
                           key={row.pillar}
                           role="tab"
                           aria-selected={open === row.pillar}
-                          className={`as2__pillar ${open === row.pillar ? 'is-open' : ''} ${row.pillar === WEEK.focus ? 'is-focus' : ''}`}
+                          className={`as2__pillar ${open === row.pillar ? 'is-open' : ''} ${row.pillar === WEEK.pillar ? 'is-focus' : ''}`}
                           onClick={() => setOpen(row.pillar)}
                           style={{ '--pc': p.color, '--pt': p.tint, '--ps': p.soft, '--pstrong': p.strong }}
                         >
@@ -297,15 +323,15 @@ export default function Dashboard() {
 
             {hasRoute ? (
               <div className="wr__rail">
-                {WEEK_PLAN.map((post) => {
-                  const p = PILLARS[TAG_TO_PILLAR[post.tag]];
+                {WEEK_PLAN.map((post, i) => {
+                  const p = PILLARS[post.pillar] || PILLARS.trust;
                   return (
-                    <Link key={post.day} to={routePath} className="wr__card">
+                    <Link key={post.day} to={`${routePath}?day=${i}`} className="wr__card">
                       <span className="wr__day">{post.day}</span>
-                      <span className="wr__type"><Icon name={CONTENT_ICON[post.type] || 'brief'} size={14} />{post.type}</span>
+                      <span className="wr__type"><Icon name={CONTENT_ICON[post.contentType] || 'brief'} size={14} />{post.contentType}</span>
                       <span className="wr__direction">{post.direction}</span>
                       <span className="wr__goal" style={{ background: p.tint, color: p.strong }}>
-                        <Icon name={p.icon} size={13} strokeWidth={2} />{p.goalChip}
+                        <Icon name={p.icon} size={13} strokeWidth={2} />{post.goalTag || p.goalChip}
                       </span>
                     </Link>
                   );
