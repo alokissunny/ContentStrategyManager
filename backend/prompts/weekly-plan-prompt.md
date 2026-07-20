@@ -48,9 +48,15 @@ Output **only** a single fenced ```json code block (no preamble, no closing rema
 
 ### Rules
 - Return **exactly 7 days**, Monday through Sunday, in order.
-- Bias the week toward the **focus pillar** (most days serve it) while keeping one Discovery-style
-  and one Credibility-style post so the whole funnel stays warm. Set each day's `pillar` and
-  `goalTag` to match: discovery→"Get noticed", credibility→"Show expertise", trust→"Build confidence".
+- **Match `dayAllocation` exactly.** The focus block below contains a `dayAllocation` object such as
+  `{ "discovery": 1, "credibility": 3, "trust": 3 }` — the number of days each authority pillar must
+  get. It is already weighted by how weak each pillar is (a strong Discovery score earns fewer days;
+  weak Credibility/Trust earn more), so the week pushes hardest where the account is lacking. Assign
+  each day's `pillar` so the totals match this object exactly — do not rebalance it yourself.
+- Set each day's `goalTag` from its pillar: discovery→"Get noticed", credibility→"Show expertise",
+  trust→"Build confidence".
+- Sequence the week sensibly (don't clump all of one pillar at the end), and let the `focus` prose
+  reflect the pillar with the most days.
 - Ground every caption, direction and prompt in the account's real niche, audience and voice from
   the snapshot and Brand DNA. Do not invent facts about specific past projects — keep specifics
   generic enough to be true (e.g. "one recent project") unless the snapshot supports them.
@@ -59,6 +65,19 @@ Output **only** a single fenced ```json code block (no preamble, no closing rema
   own captions use them.
 - Output only the json block — no text before or after it.
 
+### Using the competitor insights
+The "Competitor insights" section below reports what is currently working and not working for this
+account's real competitors, from the last 30 days of their activity. Use it to shape the week:
+- **Lean into what's working** — favour the formats, cadence and angles the data shows are earning
+  engagement in this niche (e.g. if Reels clearly out-perform, weight the week toward Reels).
+- **Avoid what's not working** — don't plan formats or angles the insights show are underperforming
+  or saturated across competitors.
+- **Exploit the positioning gaps** — turn openings competitors under-serve into concrete posts,
+  expressed in this account's own voice and differentiator.
+- When a day is driven by a competitor insight, say so plainly in that day's `strategy` field
+  (e.g. "Competitors' Reels out-perform carousels ~60%, so this leads with a Reel").
+- If no competitor insights are provided, plan from the account's own data and ignore this section.
+
 ## This week's focus
 
 {{FOCUS_JSON}}
@@ -66,3 +85,7 @@ Output **only** a single fenced ```json code block (no preamble, no closing rema
 ## Account snapshot & Brand DNA
 
 {{SNAPSHOT_JSON}}
+
+## Competitor insights
+
+{{COMPETITOR_INSIGHTS}}

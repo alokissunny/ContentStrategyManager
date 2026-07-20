@@ -56,7 +56,8 @@ function splitBrandProfile(fullText) {
 async function generateBrandAnalysis(profile) {
   const model = process.env.ANTHROPIC_MODEL || 'claude-sonnet-5';
   const snapshot = buildSnapshot(profile);
-  const prompt = loadPromptTemplate().replace('{{SNAPSHOT_JSON}}', JSON.stringify(snapshot, null, 2));
+  // Function replacement so `$` sequences in captions are inserted literally.
+  const prompt = loadPromptTemplate().replace('{{SNAPSHOT_JSON}}', () => JSON.stringify(snapshot, null, 2));
 
   console.log(`[brandAnalysis] Requesting analysis from ${model} for @${snapshot.username} (${snapshot.posts.length} posts)`);
 

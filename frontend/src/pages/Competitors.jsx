@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import Glyph from '../components/Glyph';
-import { fetchCompetitors, getCompetitors } from '../api/competitors';
+import { fetchCompetitors, getCompetitors, analyzeCompetitors } from '../api/competitors';
 import {
   LS_SURFACE, LS_BORDER, LS_INK, LS_T2, LS_MUTED, LS_SIGNAL, LS_SOFT,
   LS_SOFT_BORDER, LS_FONT, LS_DISPLAY, LSC,
@@ -214,11 +214,16 @@ export default function Competitors() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [running, setRunning] = useState(false);
+  const [analyzing, setAnalyzing] = useState(false);
+  const [analysisUrl, setAnalysisUrl] = useState(null);
   const [error, setError] = useState('');
 
   useEffect(() => {
     getCompetitors()
-      .then(setData)
+      .then((result) => {
+        setData(result);
+        if (result?.analysisDownloadUrl) setAnalysisUrl(result.analysisDownloadUrl);
+      })
       .catch((err) => {
         if (err.response?.status !== 404) setError(err.response?.data?.message || 'Could not load competitors.');
       })
@@ -238,6 +243,19 @@ export default function Competitors() {
     }
   }
 
+  async function handleAnalyze() {
+    setAnalyzing(true);
+    setError('');
+    try {
+      const result = await analyzeCompetitors();
+      setAnalysisUrl(result.downloadUrl);
+    } catch (err) {
+      setError(err.response?.data?.message || 'Could not run competitor analysis.');
+    } finally {
+      setAnalyzing(false);
+    }
+  }
+
   const similar = data?.cohorts?.similar || [];
   const higher = data?.cohorts?.higher || [];
   const hasResults = similar.length > 0 || higher.length > 0;
@@ -252,19 +270,34 @@ export default function Competitors() {
             grouped by how their reach compares to yours.
           </p>
         </div>
-        <button
-          onClick={handleRun}
-          disabled={running}
-          style={{
-            height: 44, padding: '0 22px', borderRadius: 9, border: 'none', cursor: running ? 'default' : 'pointer',
-            opacity: running ? 0.6 : 1, fontFamily: LS_FONT, fontSize: 13, fontWeight: 700, letterSpacing: '0.05em',
-            textTransform: 'uppercase', background: LS_SIGNAL, color: '#fff', flexShrink: 0,
-            display: 'flex', alignItems: 'center', gap: 8,
-          }}
-        >
-          <Glyph name="radar" size={16} color="#fff" />
-          {running ? 'Scanning…' : hasResults ? 'Refresh' : 'Find competitors'}
-        </button>
+        <div style={{ display: 'flex', gap: 10, flexShrink: 0, flexWrap: 'wrap' }}>
+          <button
+            onClick={handleRun}
+            disabled={running || analyzing}
+            style={{
+              height: 44, padding: '0 22px', borderRadius: 9, border: 'none', cursor: running ? 'default' : 'pointer',
+              opacity: running || analyzing ? 0.6 : 1, fontFamily: LS_FONT, fontSize: 13, fontWeight: 700, letterSpacing: '0.05em',
+              textTransform: 'uppercase', background: LS_SIGNAL, color: '#fff',
+              display: 'flex', alignItems: 'center', gap: 8,
+            }}
+          >
+            <Glyph name="radar" size={16} color="#fff" />
+            {running ? 'Scanning…' : hasResults ? 'Refresh' : 'Find competitors'}
+          </button>
+          <button
+            onClick={handleAnalyze}
+            disabled={running || analyzing}
+            style={{
+              height: 44, padding: '0 20px', borderRadius: 9, border: `1px solid ${LS_BORDER}`, cursor: analyzing ? 'default' : 'pointer',
+              opacity: running || analyzing ? 0.6 : 1, fontFamily: LS_FONT, fontSize: 13, fontWeight: 700, letterSpacing: '0.05em',
+              textTransform: 'uppercase', background: LS_SURFACE, color: LS_INK,
+              display: 'flex', alignItems: 'center', gap: 8,
+            }}
+          >
+            <Glyph name="file-text" size={16} color={LS_SIGNAL} />
+            {analyzing ? 'Analyzing…' : 'Run competitor analysis'}
+          </button>
+        </div>
       </div>
 
       {data?.username && (
@@ -273,6 +306,27 @@ export default function Competitors() {
           {data.baseRegion ? ` · ${data.baseRegion}` : ''}
           {data.baseFollowers ? ` · ${formatFollowers(data.baseFollowers)} followers` : ''}
         </p>
+      )}
+
+      {analyzing && (
+        <div style={{ background: LS_SOFT, border: `1px solid ${LS_SOFT_BORDER}`, borderRadius: 12, padding: '14px 16px', marginTop: 16 }}>
+          <p style={{ fontFamily: LS_FONT, fontSize: 13.5, color: LS_INK, margin: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
+            <Glyph name="loader" size={15} color={LS_SIGNAL} style={{ animation: 'lsSpin 0.9s linear infinite' }} />
+            Scraping each competitor’s last 30 days and writing insights… this can take a few minutes.
+          </p>
+        </div>
+      )}
+
+      {!analyzing && analysisUrl && (
+        <div style={{ background: LS_SOFT, border: `1px solid ${LS_SOFT_BORDER}`, borderRadius: 12, padding: '14px 16px', marginTop: 16, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+          <p style={{ fontFamily: LS_FONT, fontSize: 13.5, color: LS_INK, margin: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
+            <Glyph name="check-circle-2" size={16} color="var(--trust-600)" />
+            Competitor analysis ready — linked to your Brand profile.
+          </p>
+          <a href={analysisUrl} target="_blank" rel="noreferrer" style={{ display: 'inline-flex', alignItems: 'center', gap: 7, fontFamily: LS_FONT, fontSize: 13, fontWeight: 700, color: LS_SIGNAL, textDecoration: 'none' }}>
+            <Glyph name="download" size={15} color={LS_SIGNAL} />Download analysis (.md)
+          </a>
+        </div>
       )}
 
       {error && (

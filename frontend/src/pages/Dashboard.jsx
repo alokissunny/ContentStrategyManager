@@ -130,11 +130,12 @@ export default function Dashboard() {
         </div>
         <section className="card wr" aria-label="Weekly route" style={{ marginTop: 8 }}>
           <div className="wr__empty" style={{ padding: '40px 24px' }}>
-            <p>Your week hasn’t been planned yet. Bauhly reads your Instagram analysis and builds a
-              focus for the week plus a post for each day — with the reason behind it.</p>
+            <p>Your week hasn’t been planned yet. Bauhly reads your Instagram analysis and your
+              competitors, then builds a focus for the week plus a post for each day — with the
+              reason behind it. The first run studies your competitors, so it can take a few minutes.</p>
             <button onClick={handleGenerate} disabled={generating} className="btn btn--primary btn--sm" style={{ flexShrink: 0, opacity: generating ? 0.6 : 1 }}>
               <Icon name="sparkle" size={15} />
-              {generating ? 'Planning your week…' : 'Generate this week’s plan'}
+              {generating ? 'Studying competitors & planning…' : 'Generate this week’s plan'}
             </button>
           </div>
         </section>

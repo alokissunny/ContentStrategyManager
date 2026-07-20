@@ -73,17 +73,18 @@ async function fetchInstagram(req, res) {
   }
 
   // Whenever the connected handle is (re)analyzed — including a non-admin
-  // switching accounts — refresh this handle's saved competitor set in the
-  // background so the Competitors page reflects the new account. Fire-and-forget
-  // so the (already slow) analyze request isn't held up by a ~45s discovery run.
-  buildAndSaveCompetitorSet(req.user._id, snapshot).catch((err) => {
-    console.error(`[instagram] background competitor refresh failed for @${username}:`, err.message);
-  });
-
-  // Same idea for the weekly content plan — generate it in the background so the
-  // dashboard/weekly route reflect the freshly analyzed account.
-  generateAndSaveRoute(req.user._id, snapshot).catch((err) => {
-    console.error(`[instagram] background weekly plan generation failed for @${username}:`, err.message);
+  // switching accounts — refresh the whole downstream chain for this handle:
+  // competitor discovery → competitor analysis → weekly plan, so the plan is
+  // built on fresh competitor insights. Run sequentially (the plan step reuses
+  // the competitor set rather than racing to rediscover it) and fire-and-forget,
+  // since the pipeline takes minutes and the analyze request shouldn't wait.
+  (async () => {
+    await buildAndSaveCompetitorSet(req.user._id, snapshot);
+    // generateAndSaveRoute runs the competitor analysis itself when insights
+    // are missing, then plans the week from them.
+    await generateAndSaveRoute(req.user._id, snapshot);
+  })().catch((err) => {
+    console.error(`[instagram] background competitor/plan refresh failed for @${username}:`, err.message);
   });
 
   res.json({ profile: snapshot, report, reportError });

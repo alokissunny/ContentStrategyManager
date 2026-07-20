@@ -41,8 +41,9 @@ Output **only** a single fenced ```json code block (no preamble, no closing rema
 ```
 
 ### Rules
-- Return **10–16** competitors, following the matching priority above (same location + same niche
-  first, widening location only when needed).
+- Return the **5** strongest competitors only, following the matching priority above (same location
+  + same niche first, widening location only when needed). Quality over quantity — the 5 closest
+  real competitors.
 - In each competitor's `matchReasons`, state the location relationship explicitly (e.g.
   `"same city"`, `"same country"`, or `"wider region — no local match found"`) so it's clear why a
   farther-away account was included.

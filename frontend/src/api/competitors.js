@@ -14,3 +14,18 @@ export function getCompetitors(username) {
     .get('/competitors', { params: username ? { username } : undefined })
     .then((res) => res.data);
 }
+
+// Runs a detailed competitor analysis, stores it as a Markdown file linked to
+// the user's Brand profile, and returns { analyzedAt, downloadUrl }.
+export function analyzeCompetitors(username) {
+  return client
+    .post('/competitors/analyze', { username })
+    .then((res) => res.data);
+}
+
+// The full detailed competitor strategy Markdown, for rendering.
+export function getCompetitorAnalysis(username) {
+  return client
+    .get('/competitors/analysis', { params: username ? { username } : undefined })
+    .then((res) => res.data);
+}

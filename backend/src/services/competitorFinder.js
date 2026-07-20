@@ -97,6 +97,9 @@ function normalizeCandidate(raw) {
   };
 }
 
+// Hard cap on how many competitors we surface / store.
+const MAX_COMPETITORS = 5;
+
 // Accounts noticeably bigger than the base are "higher reach"; everyone else is
 // "similar". We deliberately do NOT surface a separate "smaller" bucket — smaller
 // niche peers fold into "similar" so real competitors are never hidden.
@@ -147,7 +150,7 @@ async function findCompetitors(profile, options = {}) {
 
   const prompt = loadPrompt('competitor-listing-prompt.md').replace(
     '{{SNAPSHOT_JSON}}',
-    JSON.stringify(snapshot, null, 2)
+    () => JSON.stringify(snapshot, null, 2)
   );
   const parsed = extractJson(await runCompletion(prompt, 8192));
 
@@ -155,7 +158,9 @@ async function findCompetitors(profile, options = {}) {
     .map(normalizeCandidate)
     .filter(Boolean)
     // Guard against the model returning the base account among the competitors.
-    .filter((c) => c.username !== profile.username);
+    .filter((c) => c.username !== profile.username)
+    // Cap the set to the 5 strongest competitors (model returns them strongest-first).
+    .slice(0, MAX_COMPETITORS);
 
   console.log(`[competitorFinder] @${snapshot.username}: ${competitors.length} competitors listed`);
 
@@ -165,4 +170,65 @@ async function findCompetitors(profile, options = {}) {
   return { baseRegion: parsed.baseRegion || '', baseFollowers, model, cohorts, competitors };
 }
 
-module.exports = { findCompetitors, assignCohorts };
+/**
+ * Produce a detailed written competitor analysis (Markdown) comparing the base
+ * account against its competitors. Uses the Anthropic content model — the same
+ * one that writes the Brand DNA report — since this is an analysis document.
+ *
+ * @returns {Promise<{ analysisMarkdown, model }>}
+ */
+async function generateCompetitorAnalysis(profile, brandDna, competitors, activity = []) {
+  const model = process.env.ANTHROPIC_MODEL || 'claude-sonnet-5';
+  const activityByUser = new Map((activity || []).map((a) => [a.username, a]));
+  const payload = {
+    base: buildSnapshot(profile, brandDna),
+    competitors: (competitors || []).map((c) => {
+      const a = activityByUser.get(c.username);
+      return {
+        username: c.username,
+        name: c.name,
+        region: c.region,
+        followersCount: c.followersCount,
+        designStyle: c.designStyle,
+        targetClient: c.targetClient,
+        serviceOffering: c.serviceOffering,
+        cohort: c.cohort,
+        matchReasons: c.matchReasons,
+        // Real 30-day activity scraped from Instagram (metrics + a few sample posts).
+        last30Days: a && a.metrics
+          ? {
+              ...a.metrics,
+              samplePosts: (a.posts || []).slice(0, 6).map((p) => ({
+                date: p.timestamp,
+                type: p.type,
+                likes: p.likesCount,
+                comments: p.commentsCount,
+                caption: (p.caption || '').slice(0, 160),
+              })),
+            }
+          : null,
+      };
+    }),
+  };
+  const prompt = loadPrompt('competitor-analysis-report-prompt.md').replace(
+    '{{PAYLOAD_JSON}}',
+    () => JSON.stringify(payload, null, 2)
+  );
+
+  console.log(`[competitorFinder] Generating competitor analysis for @${profile.username} with ${model}`);
+
+  const response = await getAnthropicClient().messages.create({
+    model,
+    max_tokens: 8192,
+    messages: [{ role: 'user', content: prompt }],
+  });
+  const analysisMarkdown = response.content
+    .filter((b) => b.type === 'text')
+    .map((b) => b.text)
+    .join('\n')
+    .trim();
+
+  return { analysisMarkdown, model };
+}
+
+module.exports = { findCompetitors, assignCohorts, generateCompetitorAnalysis };

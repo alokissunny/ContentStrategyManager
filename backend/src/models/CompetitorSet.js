@@ -29,6 +29,9 @@ const competitorSetSchema = new mongoose.Schema(
     model: { type: String, default: '' },
     competitors: [competitorSchema],
     fetchedAt: { type: Date, default: Date.now },
+    // Detailed competitor-analysis Markdown (raw data + written analysis) in S3.
+    analysisS3Key: { type: String, default: '' },
+    analyzedAt: { type: Date, default: null },
   },
   { timestamps: true }
 );
