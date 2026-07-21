@@ -73,6 +73,17 @@ function resolveUsername(req) {
   return raw.replace(/^@/, '').trim().toLowerCase();
 }
 
+// Read paths default to the *current* handle (most recently analyzed) rather
+// than "whatever set was saved last". Without this, switching Instagram
+// accounts keeps serving the previous handle's competitors until the background
+// refresh finishes.
+async function resolveTargetUsername(req) {
+  const explicit = resolveUsername(req);
+  if (explicit) return explicit;
+  const profile = await InstagramProfile.findOne({ user: req.user._id }).sort({ fetchedAt: -1 });
+  return profile ? profile.username : null;
+}
+
 // Only two cohorts are surfaced (smaller peers fold into "similar").
 function splitCohorts(competitors) {
   return {
@@ -131,11 +142,12 @@ async function fetchCompetitors(req, res) {
 }
 
 async function getCompetitors(req, res) {
-  const username = resolveUsername(req);
-  const query = { user: req.user._id };
-  if (username) query.username = username;
+  const username = await resolveTargetUsername(req);
+  if (!username) {
+    return res.status(404).json({ message: 'No competitor analysis yet. Run a competitor search first.' });
+  }
 
-  const snapshot = await CompetitorSet.findOne(query).sort({ fetchedAt: -1 });
+  const snapshot = await CompetitorSet.findOne({ user: req.user._id, username }).sort({ fetchedAt: -1 });
   if (!snapshot) {
     return res.status(404).json({ message: 'No competitor analysis yet. Run a competitor search first.' });
   }
@@ -261,11 +273,10 @@ async function analyzeCompetitors(req, res) {
 // Full detailed competitor strategy (the analysis Markdown) for rendering on
 // the Competitor strategy page.
 async function getCompetitorAnalysis(req, res) {
-  const username = resolveUsername(req);
-  const query = { user: req.user._id };
-  if (username) query.username = username;
-
-  const set = await CompetitorSet.findOne(query).sort({ fetchedAt: -1 });
+  const username = await resolveTargetUsername(req);
+  const set = username
+    ? await CompetitorSet.findOne({ user: req.user._id, username }).sort({ fetchedAt: -1 })
+    : null;
   if (!set || !set.analysisS3Key) {
     return res.status(404).json({ message: 'No competitor strategy yet. Run competitor analysis first.' });
   }

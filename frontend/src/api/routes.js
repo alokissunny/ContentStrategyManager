@@ -1,8 +1,10 @@
 import client from './client';
 
-// The current week's generated plan (focus + funnel + 7 days), or null.
+// The current week's plan for the *current* handle.
+// → { route, preparing, username } — `preparing` is true while the background
+//   chain is still building a plan for a freshly (re)connected account.
 export function getCurrentRoute() {
-  return client.get('/routes/current').then((res) => res.data.route);
+  return client.get('/routes/current').then((res) => res.data);
 }
 
 // (Re)generate this week's plan from the latest Instagram analysis.

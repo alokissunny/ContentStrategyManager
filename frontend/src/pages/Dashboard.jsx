@@ -70,6 +70,7 @@ export default function Dashboard() {
   const [route, setRoute] = useState(null);
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
+  const [preparing, setPreparing] = useState(false);
   const [open, setOpen] = useState(null);
   const [expanded, setExpanded] = useState(false);
 
@@ -79,7 +80,11 @@ export default function Dashboard() {
 
   useEffect(() => {
     getCurrentRoute()
-      .then((r) => { setRoute(r); if (r) setOpen(r.focus.pillar); })
+      .then(({ route: r, preparing: p }) => {
+        setRoute(r);
+        setPreparing(Boolean(p));
+        if (r) setOpen(r.focus.pillar);
+      })
       .catch(() => setRoute(null))
       .finally(() => setLoading(false));
   }, []);
@@ -129,15 +134,30 @@ export default function Dashboard() {
           </div>
         </div>
         <section className="card wr" aria-label="Weekly route" style={{ marginTop: 8 }}>
-          <div className="wr__empty" style={{ padding: '40px 24px' }}>
-            <p>Your week hasn’t been planned yet. Bauhly reads your Instagram analysis and your
-              competitors, then builds a focus for the week plus a post for each day — with the
-              reason behind it. The first run studies your competitors, so it can take a few minutes.</p>
-            <button onClick={handleGenerate} disabled={generating} className="btn btn--primary btn--sm" style={{ flexShrink: 0, opacity: generating ? 0.6 : 1 }}>
-              <Icon name="sparkle" size={15} />
-              {generating ? 'Studying competitors & planning…' : 'Generate this week’s plan'}
-            </button>
-          </div>
+          {preparing && !generating ? (
+            <div className="wr__empty" style={{ padding: '40px 24px' }}>
+              <p>
+                <span style={{ display: 'inline-block', width: 7, height: 7, borderRadius: '50%', background: 'var(--signal-500, #FF5227)', marginRight: 9, animation: 'lsSpark 1.2s ease-in-out infinite' }} />
+                We’re building this week from your newly connected account — reading your posts,
+                studying your competitors, then planning the week. This takes a few minutes; refresh
+                to check in.
+              </p>
+              <button onClick={handleGenerate} disabled={generating} className="btn btn--ghost btn--sm" style={{ flexShrink: 0 }}>
+                <Icon name="sparkle" size={15} />
+                Plan it now instead
+              </button>
+            </div>
+          ) : (
+            <div className="wr__empty" style={{ padding: '40px 24px' }}>
+              <p>Your week hasn’t been planned yet. Bauhly reads your Instagram analysis and your
+                competitors, then builds a focus for the week plus a post for each day — with the
+                reason behind it. The first run studies your competitors, so it can take a few minutes.</p>
+              <button onClick={handleGenerate} disabled={generating} className="btn btn--primary btn--sm" style={{ flexShrink: 0, opacity: generating ? 0.6 : 1 }}>
+                <Icon name="sparkle" size={15} />
+                {generating ? 'Studying competitors & planning…' : 'Generate this week’s plan'}
+              </button>
+            </div>
+          )}
         </section>
       </div>
     );

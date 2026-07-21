@@ -89,8 +89,10 @@ async function generateAndSaveRoute(userId, profile, options = {}) {
 
   const plan = await generateWeeklyPlan(profile, brandDna, competitorInsights);
 
+  // Key the upsert by handle too, so plans for different handles don't
+  // overwrite each other within the same week.
   const route = await WeeklyRoute.findOneAndUpdate(
-    { user: userId, weekOf: plan.weekOf },
+    { user: userId, instagramUsername: profile.username, weekOf: plan.weekOf },
     {
       user: userId,
       instagramUsername: profile.username,
@@ -108,9 +110,32 @@ async function generateAndSaveRoute(userId, profile, options = {}) {
   return route;
 }
 
+// The handle the app is currently showing (most recently analyzed).
+async function currentProfile(userId) {
+  return InstagramProfile.findOne({ user: userId }).sort({ fetchedAt: -1 });
+}
+
+// A handle analyzed this recently is assumed to still be running its background
+// discovery → analysis → plan chain.
+const REGENERATING_WINDOW_MS = 15 * 60 * 1000;
+
 async function getCurrentRoute(req, res) {
-  const route = await WeeklyRoute.findOne({ user: req.user._id }).sort({ weekOf: -1 });
-  res.json({ route });
+  // Scope to the *current* handle. Without this, switching Instagram accounts
+  // keeps serving the previous handle's plan until the (multi-minute) background
+  // regeneration finishes — i.e. another account's strategy.
+  const profile = await currentProfile(req.user._id);
+  if (!profile) return res.json({ route: null, preparing: false });
+
+  const route = await WeeklyRoute.findOne({
+    user: req.user._id,
+    instagramUsername: profile.username,
+  }).sort({ weekOf: -1 });
+
+  // No plan yet for a handle that was just analyzed → the chain is still running.
+  const preparing =
+    !route && Date.now() - new Date(profile.fetchedAt).getTime() < REGENERATING_WINDOW_MS;
+
+  res.json({ route, preparing, username: profile.username });
 }
 
 async function getRoutes(req, res) {

@@ -68,7 +68,7 @@ export default function ContentRoute() {
 
   useEffect(() => {
     getCurrentRoute()
-      .then(setRoute)
+      .then(({ route: r }) => setRoute(r))
       .catch(() => setRoute(null))
       .finally(() => setLoading(false));
   }, []);
