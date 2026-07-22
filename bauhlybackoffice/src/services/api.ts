@@ -10,7 +10,15 @@
  * backend (useful offline and in tests).
  */
 
-const BASE_URL = (import.meta.env.VITE_BACKOFFICE_API_URL ?? 'http://localhost:5290/api/backoffice').replace(/\/$/, '')
+function resolveBackofficeBaseUrl(): string {
+  const configured = import.meta.env.VITE_BACKOFFICE_API_URL?.trim()
+  if (!configured) return 'http://localhost:5290/api/backoffice'
+  const normalized = configured.replace(/\/$/, '')
+  // Render Blueprint passes the service origin; append the API prefix when missing.
+  return normalized.endsWith('/api/backoffice') ? normalized : `${normalized}/api/backoffice`
+}
+
+const BASE_URL = resolveBackofficeBaseUrl()
 
 export const USE_MOCKS = import.meta.env.VITE_USE_MOCKS === 'true'
 

@@ -17,24 +17,39 @@ This repo includes a [`render.yaml`](./render.yaml) Blueprint that deploys:
 |---------|------|-----|
 | `igsignal-api` | Node web service | `https://igsignal-api.onrender.com` |
 | `igsignal-web` | Static site (Vite) | `https://igsignal-web.onrender.com` |
+| `bauhly-backoffice-api` | Node web service | `https://bauhly-backoffice-api.onrender.com` |
+| `bauhly-backoffice-web` | Static site (Vite) | `https://bauhly-backoffice-web.onrender.com` |
 
 ### One-time setup
 
 1. Push this repo to GitHub (already connected: `ContentStrategyManager`).
-2. Open [Render Dashboard](https://dashboard.render.com/) → **New** → **Blueprint**.
-3. Connect the repo and apply the Blueprint.
-4. When prompted, enter secret env vars:
-   - `MONGO_URI` — MongoDB Atlas connection string
-   - `GOOGLE_CLIENT_ID` — same Client ID for API + frontend
-   - `VITE_GOOGLE_CLIENT_ID` — same value as `GOOGLE_CLIENT_ID`
-   - `APIFY_TOKEN`, `ANTHROPIC_API_KEY`, AWS keys, etc. (copy from local `.env`)
+2. Open [Render Dashboard](https://dashboard.render.com/) → **New** → **Blueprint** (or open the existing Blueprint → **Manual Sync**).
+3. Connect the repo and apply / sync the Blueprint.
+4. When prompted, enter secret env vars (reuse the same values as local `.env` where noted):
+   - `MONGO_URI` — MongoDB Atlas connection string (**same** for customer API + backoffice API)
+   - `GOOGLE_CLIENT_ID` / `VITE_GOOGLE_CLIENT_ID` — customer app OAuth
+   - `APIFY_TOKEN`, `ANTHROPIC_API_KEY`, AWS keys, etc.
 5. After deploy, add production URLs to [Google OAuth credentials](https://console.cloud.google.com/apis/credentials):
    - **Authorized JavaScript origins:** `https://igsignal-web.onrender.com`
    - Use your actual Render frontend URL if the service name differs.
+6. **Backoffice admin user** (once the API is live):
 
-`CLIENT_URL` and `VITE_API_URL` are wired automatically between services via the Blueprint.
+```bash
+cd backoffice-backend
+MONGO_URI='…' JWT_SECRET='…' npm run create:admin
+```
 
-### Manual deploy (without Blueprint)
+`CLIENT_URL` / `VITE_API_URL` / `VITE_BACKOFFICE_API_URL` are wired between services via the Blueprint.
+
+### Manual deploy — backoffice (without Blueprint)
+
+**API** — Web Service, root `backoffice-backend`, build `npm install`, start `npm start`, health `/api/health`, Node 22+, env from `backoffice-backend/.env.example`.
+
+**UI** — Static Site, root `bauhlybackoffice`, build `npm install && npm run build`, publish `dist`, rewrite `/*` → `/index.html`.
+
+Set `VITE_BACKOFFICE_API_URL` to the API origin (e.g. `https://bauhly-backoffice-api.onrender.com` — `/api/backoffice` is appended automatically).
+
+### Manual deploy — customer app (without Blueprint)
 
 **Backend** — Web Service, root `backend`, build `npm install`, start `npm start`, health check `/api/health`.
 

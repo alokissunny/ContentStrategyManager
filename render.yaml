@@ -1,6 +1,7 @@
 # Render Blueprint — https://render.com/docs/blueprint-spec
-# Deploy: Dashboard → New → Blueprint → connect this repo, or run `render blueprint apply`
+# Deploy: Dashboard → New → Blueprint → connect this repo, or sync an existing Blueprint.
 services:
+  # ── Customer product ─────────────────────────────────────────────────────
   - type: web
     name: igsignal-api
     runtime: node
@@ -69,3 +70,71 @@ services:
           envVarKey: RENDER_EXTERNAL_URL
       - key: VITE_GOOGLE_CLIENT_ID
         sync: false
+
+  # ── Bauhly backoffice (internal) ─────────────────────────────────────────
+  - type: web
+    name: bauhly-backoffice-api
+    runtime: node
+    region: oregon
+    plan: free
+    rootDir: backoffice-backend
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: NODE_ENV
+        value: production
+      # Same Atlas cluster as the customer API (shared competitor + customer data).
+      - key: MONGO_URI
+        sync: false
+      - key: JWT_SECRET
+        generateValue: true
+      - key: JWT_EXPIRES_IN
+        value: 12h
+      - key: CLIENT_URL
+        fromService:
+          type: web
+          name: bauhly-backoffice-web
+          envVarKey: RENDER_EXTERNAL_URL
+      - key: APIFY_TOKEN
+        sync: false
+      - key: APIFY_INSTAGRAM_PROFILE_ACTOR
+        value: apify/instagram-profile-scraper
+      - key: APIFY_INSTAGRAM_POST_ACTOR
+        value: apify/instagram-post-scraper
+      - key: COLLECTION_POSTS_PER_ACCOUNT
+        value: "40"
+      - key: COLLECTION_CONCURRENCY
+        value: "3"
+      - key: COLLECTION_BACKFILL_DAYS
+        value: "30"
+      - key: COLLECTION_BACKFILL_POSTS
+        value: "90"
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: ANTHROPIC_MODEL
+        value: claude-sonnet-5
+
+  - type: web
+    name: bauhly-backoffice-web
+    runtime: static
+    rootDir: bauhlybackoffice
+    buildCommand: npm install && npm run build
+    staticPublishPath: dist
+    autoDeploy: true
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      # Origin only — the UI appends /api/backoffice at build/runtime.
+      - key: VITE_BACKOFFICE_API_URL
+        fromService:
+          type: web
+          name: bauhly-backoffice-api
+          envVarKey: RENDER_EXTERNAL_URL
