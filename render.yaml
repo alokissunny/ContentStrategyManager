@@ -87,9 +87,12 @@ services:
         value: "22"
       - key: NODE_ENV
         value: production
-      # Same Atlas cluster as the customer API (shared competitor + customer data).
+      # Reuse the customer API's Atlas URI — same database, no second secret to fill.
       - key: MONGO_URI
-        sync: false
+        fromService:
+          type: web
+          name: igsignal-api
+          envVarKey: MONGO_URI
       - key: JWT_SECRET
         generateValue: true
       - key: JWT_EXPIRES_IN
@@ -100,7 +103,10 @@ services:
           name: bauhly-backoffice-web
           envVarKey: RENDER_EXTERNAL_URL
       - key: APIFY_TOKEN
-        sync: false
+        fromService:
+          type: web
+          name: igsignal-api
+          envVarKey: APIFY_TOKEN
       - key: APIFY_INSTAGRAM_PROFILE_ACTOR
         value: apify/instagram-profile-scraper
       - key: APIFY_INSTAGRAM_POST_ACTOR
@@ -114,7 +120,10 @@ services:
       - key: COLLECTION_BACKFILL_POSTS
         value: "90"
       - key: ANTHROPIC_API_KEY
-        sync: false
+        fromService:
+          type: web
+          name: igsignal-api
+          envVarKey: ANTHROPIC_API_KEY
       - key: ANTHROPIC_MODEL
         value: claude-sonnet-5
 

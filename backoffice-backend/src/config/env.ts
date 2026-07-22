@@ -8,7 +8,17 @@ function required(name: string): string {
 
 export const env = {
   port: Number(process.env.PORT) || 5290,
-  mongoUri: process.env.MONGO_URI ?? 'mongodb://127.0.0.1:27017/widesignals',
+  // Local default only — production must set MONGO_URI (Atlas). Falling back to
+  // 127.0.0.1 on Render looks like a mysterious crash; fail loudly instead.
+  mongoUri:
+    process.env.MONGO_URI ||
+    (process.env.NODE_ENV === 'production'
+      ? (() => {
+          throw new Error(
+            'MONGO_URI is not set. In Render → bauhly-backoffice-api → Environment, set MONGO_URI to the same Atlas URI as igsignal-api.',
+          )
+        })()
+      : 'mongodb://127.0.0.1:27017/widesignals'),
   /** Allowed browser origins. Comma-separated so staging/prod can list several. */
   clientUrls: (process.env.CLIENT_URL ?? 'http://localhost:5190')
     .split(',')
