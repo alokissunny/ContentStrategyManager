@@ -1,0 +1,279 @@
+/*
+ * Signals feed. Reads as a worklist, not a dashboard: one column, ranked,
+ * scannable in a single pass. Tone is carried by a left edge rather than a
+ * filled card, so a screen of alerts stays readable.
+ */
+
+.signals-page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-5);
+  max-width: 860px;
+}
+
+.signals-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--sp-4);
+  padding-bottom: var(--sp-4);
+  border-bottom: 1px solid var(--border);
+}
+
+.signals-count {
+  margin: 0 0 2px auto;
+  font-size: var(--text-sm);
+  color: var(--ink-600);
+}
+
+.signals-count strong {
+  color: var(--ink-900);
+  font-variant-numeric: tabular-nums;
+}
+
+.signals-feed {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+}
+
+.signal-card {
+  position: relative;
+  padding: var(--sp-5);
+  padding-left: calc(var(--sp-5) + 3px);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--surface);
+}
+
+/* The tone edge is the only colour a card carries by default. */
+.signal-card::before {
+  content: '';
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 3px;
+  border-radius: var(--r-md) 0 0 var(--r-md);
+}
+
+.signal-card--alert::before { background: var(--negative); }
+.signal-card--opportunity::before { background: var(--positive); }
+.signal-card--watch::before { background: var(--ink-500); }
+
+.signal-card--handled {
+  opacity: 0.6;
+}
+
+.signal-card-top {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  margin-bottom: var(--sp-3);
+}
+
+.signal-kind {
+  font-size: var(--text-xs);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.signal-kind--alert { color: var(--negative); }
+.signal-kind--opportunity { color: var(--positive); }
+.signal-kind--watch { color: var(--ink-500); }
+
+.signal-when {
+  margin-left: auto;
+  font-size: var(--text-xs);
+  color: var(--ink-500);
+}
+
+.signal-headline {
+  margin: 0 0 var(--sp-2);
+  font-size: var(--text-lg);
+  font-weight: 600;
+  line-height: 1.35;
+  text-wrap: balance;
+  color: var(--ink-900);
+}
+
+.signal-detail {
+  margin: 0 0 var(--sp-4);
+  font-size: var(--text-sm);
+  line-height: 1.55;
+  color: var(--ink-600);
+  max-width: 64ch;
+}
+
+.signal-evidence {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-5);
+  margin: 0 0 var(--sp-4);
+  padding: var(--sp-3) 0;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+
+.signal-evidence dt {
+  font-size: var(--text-xs);
+  color: var(--ink-500);
+  margin-bottom: 2px;
+}
+
+.signal-evidence dd {
+  margin: 0;
+  font-size: var(--text-sm);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-900);
+}
+
+/* Example posts — the primary source, one click away from every claim. */
+.signal-posts {
+  margin-bottom: var(--sp-4);
+}
+
+.signal-posts-toggle {
+  padding: 0;
+  border: 0;
+  background: none;
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--primary-600);
+  cursor: pointer;
+}
+
+.signal-posts-toggle:hover { text-decoration: underline; }
+
+.signal-post-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  margin: var(--sp-3) 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.signal-post {
+  padding: var(--sp-3) var(--sp-4);
+  border-radius: var(--r-sm);
+  background: var(--surface-sunken);
+}
+
+.signal-post-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-3);
+  margin-bottom: var(--sp-2);
+  font-size: var(--text-xs);
+}
+
+.signal-post-user { font-weight: 600; color: var(--ink-900); }
+.signal-post-format { color: var(--ink-500); }
+.signal-post-date { margin-left: auto; color: var(--ink-500); }
+
+.signal-post-caption {
+  margin: 0 0 var(--sp-2);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+  color: var(--ink-600);
+}
+
+.signal-post-foot {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  font-size: var(--text-xs);
+  color: var(--ink-500);
+  font-variant-numeric: tabular-nums;
+}
+
+.signal-post-foot a { color: var(--primary-600); text-decoration: none; }
+.signal-post-foot a:hover { text-decoration: underline; }
+
+.signal-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-3);
+}
+
+.signal-action {
+  padding: var(--sp-2) var(--sp-4);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--ink-900);
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.signal-action:hover { border-color: var(--primary-600); color: var(--primary-600); }
+
+.signal-action--ghost {
+  border-color: transparent;
+  color: var(--ink-600);
+}
+
+.signal-source {
+  margin-left: auto;
+  font-size: var(--text-xs);
+  color: var(--ink-500);
+}
+
+.signals-reviewed {
+  border-top: 1px solid var(--border);
+  padding-top: var(--sp-4);
+}
+
+.signals-reviewed-toggle {
+  padding: 0;
+  border: 0;
+  background: none;
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--ink-600);
+  cursor: pointer;
+}
+
+.signals-feed--reviewed { margin-top: var(--sp-4); }
+
+.signals-empty {
+  padding: var(--sp-8) var(--sp-5);
+  border: 1px dashed var(--border);
+  border-radius: var(--r-md);
+  text-align: center;
+}
+
+.signals-empty-title {
+  margin: 0 0 var(--sp-2);
+  font-size: var(--text-lg);
+  font-weight: 600;
+  color: var(--ink-900);
+}
+
+.signals-empty-body {
+  margin: 0 auto;
+  max-width: 48ch;
+  font-size: var(--text-sm);
+  line-height: 1.55;
+  color: var(--ink-600);
+}
+
+.signals-footnote {
+  margin: 0;
+  padding-top: var(--sp-4);
+  border-top: 1px solid var(--border);
+  font-size: var(--text-xs);
+  line-height: 1.55;
+  color: var(--ink-500);
+  max-width: 72ch;
+}
+
+@media (max-width: 640px) {
+  .signals-count { margin-left: 0; width: 100%; }
+  .signal-evidence { gap: var(--sp-4); }
+  .signal-source { margin-left: 0; width: 100%; }
+}
