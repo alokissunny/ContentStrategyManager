@@ -163,7 +163,7 @@ export function listCompetitorsSync(q: CompetitorQuery): CompetitorListResult {
   }
 }
 
-const delay = () => new Promise((r) => setTimeout(r, 200))
+const delay = (ms = 200) => new Promise((r) => setTimeout(r, ms))
 
 /** The row shape adds a derived field the account schema doesn't carry. */
 const competitorRow = competitorAccount.extend({ followerChange30d: z.number().nullable() })
