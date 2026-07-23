@@ -6,18 +6,19 @@ import {
   ChevronLeftIcon,
   CloseIcon,
   CompetitorsIcon,
+  CustomersIcon,
   LogoutIcon,
   MenuIcon,
 } from '../../components/icons'
 import { PageActionsProvider, PageActionsSlot } from './pageActions'
 import './shell.css'
 
-// Phase 1 of the backoffice ships the Competitors tab only. The remaining
-// sections (Signals, Intelligence, Customers, Integrations) are already ported
-// under src/features — add them back here as each one is taken live.
+// Competitors + Customers are live. Remaining sections stay under src/features
+// until wired (Signals, Intelligence, Integrations).
 const primaryNav = [
   // The competitors section spans two tab URLs, so it stays active on both.
   { to: '/', label: 'Competitors', icon: CompetitorsIcon, alsoActiveOn: ['/competitors'] as string[] },
+  { to: '/customers', label: 'Customers', icon: CustomersIcon },
 ]
 
 const operationsNav: { to: string; label: string; icon: typeof CompetitorsIcon }[] = []
@@ -27,10 +28,16 @@ const COMPETITORS_TITLE = {
   subtitle: 'Competitor intelligence, segmentation and managed accounts',
 }
 
+const CUSTOMERS_TITLE = {
+  title: 'Customers',
+  subtitle: 'Bauhly signups and the weekly plans presented to each user',
+}
+
 const titles: Record<string, { title: string; subtitle: string }> = {
   '/': COMPETITORS_TITLE,
   '/competitors-overview': COMPETITORS_TITLE,
   '/competitors': COMPETITORS_TITLE,
+  '/customers': CUSTOMERS_TITLE,
 }
 
 export function AppShell() {

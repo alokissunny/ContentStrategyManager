@@ -37,7 +37,12 @@ every request).
 `POST /competitors` · `PATCH /competitors/status` · `GET /competitor-groups` ·
 `GET /competitor-suggestions` · `PATCH /competitor-suggestions/:id` ·
 `GET /collection/status` · `POST /collection/run` · `POST /collection/scrape-posts` ·
-`POST /collection/enrich-accounts` · `GET /analysis/latest` · `POST /analysis/run`
+`POST /collection/enrich-accounts` · `GET /analysis/latest` · `POST /analysis/run` ·
+`GET /customers` · `GET /customers/:id`
+
+`GET /customers` lists Bauhly signups (excludes admins) with Instagram handle and
+whether a weekly plan has been presented. `GET /customers/:id` returns the
+customer plus their latest `WeeklyRoute` (the plan shown in the product).
 
 `POST /competitors` snapshots the profile only (no posts).  
 `POST /collection/scrape-posts` with `{ ids }` scrapes the last

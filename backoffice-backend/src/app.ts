@@ -5,6 +5,7 @@ import { env } from './config/env.ts'
 import { requireAdmin } from './middleware/auth.ts'
 import { authRoutes } from './routes/auth.ts'
 import { competitorRoutes } from './routes/competitors.ts'
+import { customerRoutes } from './routes/customers.ts'
 
 /*
  * Internal tool, so the browser origin is restricted — but in development Vite
@@ -39,6 +40,11 @@ const CORS_ERROR = 'CorsOriginError'
 export function createApp() {
   const app = express()
 
+  // JSON APIs + browser fetch: Express ETags yield 304 with an empty body, and
+  // fetch treats 304 as !ok — which made customer detail (and the weekly plan)
+  // silently fail on re-select. Prefer always returning a body.
+  app.set('etag', false)
+
   app.use(cors({ origin: corsOrigin() }))
   app.use(express.json())
   if (process.env.NODE_ENV !== 'test') app.use(morgan('dev'))
@@ -48,6 +54,7 @@ export function createApp() {
   app.use('/api/backoffice', authRoutes)
   // Everything past this point is admin-only.
   app.use('/api/backoffice', requireAdmin, competitorRoutes)
+  app.use('/api/backoffice', requireAdmin, customerRoutes)
 
   app.use((_req, res) => res.status(404).json({ message: 'Not found' }))
 
