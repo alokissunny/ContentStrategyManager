@@ -1,33 +1,28 @@
 import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { CompetitorAccount } from '../models/CompetitorAccount.ts'
 import { CompetitorAnalysis } from '../models/CompetitorAnalysis.ts'
-import { Post, PostMetricSnapshot } from '../models/snapshots.ts'
 import { env } from '../config/env.ts'
 import { getAnthropicClient } from './anthropicClient.ts'
 import {
-  accountCountryOf,
-  followerInRange,
-  locationMatches,
-  parseFollowerRange,
-  periodToDays,
-  type AnalysisFilterScope,
-} from './filterScope.ts'
-import { followerChangePct, since } from './metrics.ts'
+  buildAnalysisCorpus,
+  type CondensedAccount,
+  type CorpusStats,
+} from './analysisCorpus.ts'
+import { periodToDays, type AnalysisFilterScope } from './filterScope.ts'
 
 const PROMPT_DIR = join(dirname(fileURLToPath(import.meta.url)), '../../prompts')
 const DASHBOARD_PROMPT_PATH = join(PROMPT_DIR, 'register-analysis-prompt.md')
+const BATCH_MEMO_PROMPT_PATH = join(PROMPT_DIR, 'register-batch-memo-prompt.md')
+
+/** Parallel Claude map calls — keep modest to avoid rate limits. */
+const MAP_CONCURRENCY = 3
+const MAP_MAX_TOKENS = 4096
+const REDUCE_MAX_TOKENS = 12288
 
 function loadPrompt(path: string): string {
   return readFileSync(path, 'utf8')
 }
-
-/** Keep the register payload small enough that Claude can finish a JSON reply. */
-const MAX_POSTS_PER_ACCOUNT = 12
-const MAX_TOTAL_POSTS = 120
-const RAW_CAPTION_LIMIT = 160
-const PILLARS = new Set(['discovery', 'credibility', 'trust'])
 
 export interface AnalysisResult {
   id: string
@@ -88,7 +83,6 @@ function extractJson(text: string): unknown {
   const objEnd = trimmed.lastIndexOf('}')
   const arrStart = trimmed.indexOf('[')
   const arrEnd = trimmed.lastIndexOf(']')
-  // Prefer whichever JSON value appears first (object or array).
   if (arrStart >= 0 && (objStart < 0 || arrStart < objStart) && arrEnd > arrStart) {
     return JSON.parse(trimmed.slice(arrStart, arrEnd + 1))
   }
@@ -113,7 +107,6 @@ async function callClaude(label: string, prompt: string, maxTokens: number): Pro
     response = await getAnthropicClient().messages.create({
       model,
       max_tokens: maxTokens,
-      // Critical: without this, claude-sonnet-5 spends all output tokens thinking.
       thinking: { type: 'disabled' },
       messages: [{ role: 'user', content: prompt }],
     })
@@ -125,7 +118,12 @@ async function callClaude(label: string, prompt: string, maxTokens: number): Pro
   const blocks = response.content ?? []
   const blockSummary = blocks.map((b, i) => {
     if (b.type === 'text') {
-      return { i, type: b.type, chars: b.text?.length ?? 0, preview: (b.text ?? '').slice(0, 120).replace(/\s+/g, ' ') }
+      return {
+        i,
+        type: b.type,
+        chars: b.text?.length ?? 0,
+        preview: (b.text ?? '').slice(0, 120).replace(/\s+/g, ' '),
+      }
     }
     return { i, type: b.type, keys: Object.keys(b) }
   })
@@ -151,6 +149,27 @@ async function callClaude(label: string, prompt: string, maxTokens: number): Pro
   }
   return text
 }
+
+async function mapPool<T, R>(
+  items: T[],
+  concurrency: number,
+  fn: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  const results: R[] = new Array(items.length)
+  let next = 0
+  async function worker() {
+    for (;;) {
+      const i = next++
+      if (i >= items.length) return
+      results[i] = await fn(items[i]!, i)
+    }
+  }
+  const workers = Math.min(Math.max(1, concurrency), Math.max(1, items.length))
+  await Promise.all(Array.from({ length: workers }, () => worker()))
+  return results
+}
+
+const PILLARS = new Set(['discovery', 'credibility', 'trust'])
 
 function asNum(v: unknown, fallback = 0): number {
   const n = typeof v === 'number' ? v : Number(v)
@@ -323,7 +342,6 @@ function normalizeDashboard(
       emergingPatterns: movements.filter((m) => m.state === 'emerging' || m.state === 'strengthening').length,
       medianPostsPerWeek: asNum(summaryRaw.medianPostsPerWeek),
       medianEngagementRate: asNum(summaryRaw.medianEngagementRate),
-      // No historical time series yet — leave empty rather than invent sparklines.
       series: [[], [], [], []],
     },
     findings,
@@ -346,110 +364,44 @@ function normalizeDashboard(
   }
 }
 
-async function buildRegisterPayload(
-  windowDays: number,
-  scope: { location: string; followerRangeLabel: string },
-) {
-  const accounts = await CompetitorAccount.find({ approvalStatus: { $ne: 'deleted' } }).sort({
-    latestFollowerCount: -1,
-  })
-  const followerRange = parseFollowerRange(scope.followerRangeLabel)
-  const filtered = accounts.filter(
-    (a) =>
-      locationMatches(accountCountryOf(a), scope.location) &&
-      followerInRange(a.latestFollowerCount, followerRange),
-  )
-
-  const windowStart = since(windowDays)
-  let postsAnalyzed = 0
-  let remainingBudget = MAX_TOTAL_POSTS
-
-  const accountPayloads = []
-
-  for (const account of filtered) {
-    if (remainingBudget <= 0) break
-    const limit = Math.min(MAX_POSTS_PER_ACCOUNT, remainingBudget)
-    const posts = await Post.find({
-      accountId: account._id,
-      publishedAt: { $gte: windowStart },
-      deleted: { $ne: true },
-    })
-      .sort({ publishedAt: -1 })
-      .limit(limit)
-
-    // Skip accounts with nothing in-window — they inflate accountCount and
-    // confuse the "no posts" vs "no accounts" precondition messages.
-    if (posts.length === 0) continue
-
-    const postIds = posts.map((p) => p._id)
-
-    const [metrics, followerChange] = await Promise.all([
-      PostMetricSnapshot.aggregate([
-        { $match: { postId: { $in: postIds } } },
-        { $sort: { collectedAt: -1 } },
-        { $group: { _id: '$postId', likes: { $first: '$likes' }, comments: { $first: '$comments' }, views: { $first: '$views' } } },
-      ]),
-      followerChangePct(account._id, windowDays),
-    ])
-
-    const metricsByPost = new Map(metrics.map((m) => [String(m._id), m]))
-    const formatCounts = new Map<string, number>()
-    const postPayloads = posts.map((p) => {
-      formatCounts.set(p.format, (formatCounts.get(p.format) ?? 0) + 1)
-      const m = metricsByPost.get(String(p._id))
-      return {
-        platformPostId: p.platformPostId,
-        publishedAt: p.publishedAt?.toISOString() ?? null,
-        format: p.format,
-        caption: (p.caption ?? '').slice(0, RAW_CAPTION_LIMIT),
-        hashtags: (p.hashtags ?? []).slice(0, 8),
-        likes: m?.likes ?? null,
-        comments: m?.comments ?? null,
-        views: m?.views ?? null,
-        metricsHidden: p.metricsHidden,
-      }
-    })
-
-    postsAnalyzed += postPayloads.length
-    remainingBudget -= postPayloads.length
-    const totalPosts = Math.max(1, postPayloads.length)
-
-    accountPayloads.push({
-      username: account.username,
-      displayName: account.displayName,
-      role: account.role,
-      followers: account.latestFollowerCount,
-      followerChangePct: followerChange,
-      location: {
-        country: accountCountryOf(account),
-        region: account.location?.region ?? null,
-        city: account.location?.city ?? null,
-      },
-      specialization: account.specialization,
-      dataQuality: account.dataQuality,
-      lastPostsCollectedAt: account.lastPostsCollectedAt?.toISOString() ?? null,
-      window: {
-        days: windowDays,
-        postsCollected: postPayloads.length,
-        postsPerWeek: Math.round((postPayloads.length / windowDays) * 7 * 10) / 10,
-        formatMix: [...formatCounts.entries()].map(([format, count]) => ({
-          format,
-          sharePct: Math.round((count / totalPosts) * 1000) / 10,
-        })),
-      },
-      posts: postPayloads,
-    })
+function batchPayload(batchIndex: number, accounts: CondensedAccount[]) {
+  return {
+    batchIndex,
+    accountCount: accounts.length,
+    accounts,
   }
+}
 
+function reducePayload(corpus: CorpusStats, batchMemos: unknown[], batchCount: number) {
   return {
     generatedAt: new Date().toISOString(),
-    windowDays,
-    filters: scope,
-    matchedAccountCount: filtered.length,
-    accountCount: accountPayloads.length,
-    postCount: postsAnalyzed,
-    accounts: accountPayloads,
+    coverage: {
+      method: corpus.method,
+      matchedAccountCount: corpus.matchedAccountCount,
+      accountsWithPosts: corpus.accountsWithPosts,
+      totalPosts: corpus.totalPosts,
+      mapBatches: batchCount,
+      memoCount: batchMemos.length,
+    },
+    corpus,
+    batchMemos,
   }
+}
+
+async function runMapBatches(batches: CondensedAccount[][]): Promise<unknown[]> {
+  const template = loadPrompt(BATCH_MEMO_PROMPT_PATH)
+  return mapPool(batches, MAP_CONCURRENCY, async (accounts, index) => {
+    const prompt = template.replaceAll(
+      '{{BATCH_JSON}}',
+      JSON.stringify(batchPayload(index, accounts), null, 2),
+    )
+    const text = await callClaude(`map-batch-${index + 1}/${batches.length}`, prompt, MAP_MAX_TOKENS)
+    const memo = extractJson(text)
+    if (memo && typeof memo === 'object' && !Array.isArray(memo)) {
+      return { ...(memo as Record<string, unknown>), batchIndex: index, accountCount: accounts.length }
+    }
+    return { batchIndex: index, accountCount: accounts.length, raw: memo }
+  })
 }
 
 /** Preconditions the operator can fix (filters / scrape) — not server faults. */
@@ -474,17 +426,16 @@ export async function runRegisterAnalysis(input: RunAnalysisInput = {}): Promise
   const windowDays = input.windowDays ?? periodToDays(period)
   const filterScope: AnalysisFilterScope = { location, followerRangeLabel, period, windowDays }
 
-  // Validate scope before opening a run row — missing posts/accounts is an
-  // operator precondition, not a failed Claude call.
-  const payload = await buildRegisterPayload(windowDays, { location, followerRangeLabel })
-  if (payload.matchedAccountCount === 0) {
+  // Local condense + stratify before opening a run row.
+  const built = await buildAnalysisCorpus(windowDays, { location, followerRangeLabel })
+  if (built.corpus.matchedAccountCount === 0) {
     throw new AnalysisPreconditionError(
       `No competitor accounts match ${location} · ${followerRangeLabel}. Adjust filters or add accounts.`,
     )
   }
-  if (payload.postCount === 0 || payload.accountCount === 0) {
+  if (built.corpus.accountsWithPosts === 0 || built.corpus.totalPosts === 0) {
     throw new AnalysisPreconditionError(
-      `${payload.matchedAccountCount} account${payload.matchedAccountCount === 1 ? '' : 's'} match ${location} · ${followerRangeLabel}, but none have posts in the last ${windowDays} days. Select those accounts on Accounts and run Scrape posts, then try again.`,
+      `${built.corpus.matchedAccountCount} account${built.corpus.matchedAccountCount === 1 ? '' : 's'} match ${location} · ${followerRangeLabel}, but none have posts in the last ${windowDays} days. Select those accounts on Accounts and run Scrape posts, then try again.`,
     )
   }
 
@@ -500,14 +451,19 @@ export async function runRegisterAnalysis(input: RunAnalysisInput = {}): Promise
     console.log(
       `[analysis] start run=${String(running._id)} model=${model} ` +
         `scope=${location}/${followerRangeLabel}/${period}(${windowDays}d) ` +
-        `accounts=${payload.accountCount} posts=${payload.postCount}`,
+        `matched=${built.corpus.matchedAccountCount} withPosts=${built.corpus.accountsWithPosts} ` +
+        `posts=${built.corpus.totalPosts} batches=${built.batches.length}`,
     )
 
+    const batchMemos = await runMapBatches(built.batches)
+    console.log(`[analysis] map complete memos=${batchMemos.length}`)
+
+    const reduceBody = reducePayload(built.corpus, batchMemos, built.batches.length)
     const dashboardPrompt = loadPrompt(DASHBOARD_PROMPT_PATH)
       .replaceAll('{{WINDOW_DAYS}}', String(windowDays))
-      .replace('{{PAYLOAD_JSON}}', JSON.stringify(payload, null, 2))
+      .replace('{{PAYLOAD_JSON}}', JSON.stringify(reduceBody, null, 2))
 
-    const dashboardText = await callClaude('dashboard', dashboardPrompt, 12288)
+    const dashboardText = await callClaude('reduce-dashboard', dashboardPrompt, REDUCE_MAX_TOKENS)
     const parsed = extractJson(dashboardText) as Record<string, unknown>
     console.log(
       `[analysis] dashboard keys=[${Object.keys(parsed).join(', ')}] ` +
@@ -517,20 +473,30 @@ export async function runRegisterAnalysis(input: RunAnalysisInput = {}): Promise
 
     const finishedAt = new Date()
     const dashboard = normalizeDashboard(parsed, {
-      accountsAnalyzed: payload.accountCount,
-      postsAnalyzed: payload.postCount,
+      accountsAnalyzed: built.corpus.accountsWithPosts,
+      postsAnalyzed: built.corpus.totalPosts,
       windowDays,
       finishedAt,
     })
-    dashboard.sampleLabel = `${location} · ${followerRangeLabel} · last ${windowDays} days`
+    // Prefer corpus medians when Claude omits or invents them.
+    dashboard.summary.medianPostsPerWeek =
+      asNum(dashboard.summary.medianPostsPerWeek, 0) || built.corpus.medianPostsPerWeek
+    dashboard.summary.medianEngagementRate =
+      asNum(dashboard.summary.medianEngagementRate, 0) || built.corpus.medianEngagementRate
+    dashboard.summary.accountsAnalyzed = built.corpus.accountsWithPosts
+    dashboard.summary.postsAnalyzed = built.corpus.totalPosts
+    dashboard.sampleLabel =
+      `${location} · ${followerRangeLabel} · last ${windowDays} days · ` +
+      `${built.corpus.accountsWithPosts} accounts / ${built.corpus.totalPosts} posts · ` +
+      `${built.batches.length} map batch${built.batches.length === 1 ? '' : 'es'}`
 
     running.status = 'completed'
     running.llmModel = model
     running.markdown = null
     running.dashboard = dashboard
     running.filterScope = filterScope
-    running.accountsAnalyzed = payload.accountCount
-    running.postsAnalyzed = payload.postCount
+    running.accountsAnalyzed = built.corpus.accountsWithPosts
+    running.postsAnalyzed = built.corpus.totalPosts
     running.finishedAt = finishedAt
     await running.save()
 
@@ -573,7 +539,6 @@ export async function getAnalysisForScope(input: {
   const period = input.period ?? 'last-30'
   const windowDays = periodToDays(period)
 
-  // Prefer explicit filterScope match.
   const [scoped] = await CompetitorAnalysis.find({
     status: 'completed',
     'filterScope.location': location,
@@ -586,7 +551,6 @@ export async function getAnalysisForScope(input: {
 
   if (scoped) return serialize(scoped)
 
-  // Legacy rows (no filterScope) count as Global · All sizes · matching window.
   if (location === 'Global' && followerRangeLabel === 'All sizes') {
     const [legacy] = await CompetitorAnalysis.find({
       status: 'completed',

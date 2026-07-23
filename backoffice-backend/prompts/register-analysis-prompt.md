@@ -1,9 +1,12 @@
-# Competitor Register Intelligence Prompt
+# Competitor Register Intelligence Prompt (reduce step)
 
 You are a competitive-strategy analyst for renovation / interior-design Instagram
-accounts. Below is collected data for every competitor in the register over the
-last {{WINDOW_DAYS}} days: identity, followers, posts (caption, format,
-hashtags, metrics).
+accounts. You receive:
+
+1. **corpus** — deterministic stats over **every** matching account with posts
+   in the last {{WINDOW_DAYS}} days (source of truth for rates and counts)
+2. **batchMemos** — qualitative summaries from map batches of locally condensed
+   accounts (stratified by follower size)
 
 Produce a **structured intelligence dashboard** as JSON. Keep it compact —
 widget lists only, no essay, no per-post classification array.
@@ -102,20 +105,22 @@ Return **only one JSON object** (no Markdown fences, no preamble). Shape:
 ### Widget rules
 - **findings** — 5–8 items across Discovery / Credibility / Trust
 - **movements** — 8–12 rows across format / topic / hook / caption / day / time.
-`currentValue` must come from the provided window. Set `previousValue` and
+`currentValue` must come from corpus / memos. Set `previousValue` and
 `changePp` to `null` and `state` to `"inconclusive"` unless the input itself
 contains a clear prior comparison — never invent a previous window.
-- **hooks** — 5–8 abstracted hook types
+- **hooks** — 5–8 abstracted hook types (merge recurring memo hooks)
 - **topics** — 6–10 topics
-- **hashtags** — 8–12 hashtags
-- **weekly** — Mon–Sun (7 rows)
+- **hashtags** — prefer corpus `topHashtags`; classify type; 8–12 rows
+- **weekly** — Mon–Sun (7 rows); use corpus `postingDays` for volume where possible
 
 ### Hard rules
-- Ground claims in the provided data. Do not invent contradicting metrics.
-- Do not invent sparklines, prior-period percentages, or account counts that
-  are not supported by the input.
-- `summary.accountsAnalyzed` / `postsAnalyzed` must match the input counts.
-- Output JSON only. Stay concise.
+- **Quantitative claims** (shares, medians, account/post counts) must align with
+  `corpus`. Do not invent contradicting percentages.
+- Use **batchMemos** for qualitative patterns, hooks, themes, anomalies.
+- `summary.accountsAnalyzed` = `corpus.accountsWithPosts`
+- `summary.postsAnalyzed` = `corpus.totalPosts`
+- `summary.medianPostsPerWeek` / `medianEngagementRate` = corpus values when present
+- Ground claims in the provided data. Output JSON only. Stay concise.
 
 ## Data
 

@@ -35,8 +35,8 @@ function DashboardBody({
         <span className="scrape-spinner" aria-hidden="true" />
         <p className="scrape-overlay-title">Running Claude analysis…</p>
         <p className="scrape-overlay-detail">
-          Analysing {filters.location} · {filters.followerRangeLabel} · {filters.period} from
-          collected posts. This usually takes about a minute.
+          Condensing {filters.location} · {filters.followerRangeLabel} · {filters.period}, then
+          analysing in batches. Larger registers take a few minutes.
         </p>
       </div>
     )
