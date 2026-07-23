@@ -46,6 +46,7 @@ export function CompetitorsPage() {
     queryClient.invalidateQueries({ queryKey: ['competitor-suggestions'] })
     queryClient.invalidateQueries({ queryKey: ['collection-status'] })
     queryClient.invalidateQueries({ queryKey: ['competitor-locations'] })
+    queryClient.invalidateQueries({ queryKey: ['competitor-filter-count'] })
     if (activeId) queryClient.invalidateQueries({ queryKey: ['competitor-detail', activeId] })
   }
 

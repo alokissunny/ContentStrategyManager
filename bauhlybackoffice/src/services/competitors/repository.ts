@@ -209,6 +209,38 @@ export async function getCompetitorLocations(): Promise<string[]> {
   return data.locations ?? []
 }
 
+/** How many accounts match Overview location · follower-range filters. */
+export async function getCompetitorFilterCount(filters: {
+  location: string
+  followerRangeLabel: string
+}): Promise<{ matching: number; total: number }> {
+  if (!USE_MOCKS) {
+    return api.get<{ matching: number; total: number }>('/competitors/filter-count', {
+      location: filters.location,
+      followerRangeLabel: filters.followerRangeLabel,
+    })
+  }
+  await delay()
+  const range = followerBuckets[filters.followerRangeLabel]
+  let matching = 0
+  for (const a of accounts) {
+    if (a.approvalStatus === 'deleted') continue
+    if (filters.location !== 'Global') {
+      const country = a.location.country ?? a.enrichment?.country
+      if (!country || country.toLowerCase() !== filters.location.toLowerCase()) continue
+    }
+    if (range) {
+      const [min, max] = range
+      const f = a.latestFollowerCount
+      if (f == null) continue
+      if (f < min) continue
+      if (max != null && f >= max) continue
+    }
+    matching += 1
+  }
+  return { matching, total: accounts.filter((a) => a.approvalStatus !== 'deleted').length }
+}
+
 export async function listGroups(): Promise<(CompetitorGroup & { memberCount: number })[]> {
   if (USE_MOCKS) {
     await delay()
@@ -352,6 +384,74 @@ export async function addCompetitor(input: NewCompetitorInput): Promise<Competit
   }
   accounts.unshift(account)
   return account
+}
+
+export interface BulkCompetitorInput {
+  inputs: string[]
+  role: CompetitorAccount['role']
+  internalNotes: string | null
+}
+
+export interface BulkAddResult {
+  added: { id: string; username: string }[]
+  skipped: { username: string; reason: string }[]
+  failed: { username: string; error: string }[]
+  role: string
+}
+
+/** Split a paste of handles/URLs (newline, comma, or semicolon separated). */
+export function parseBulkInstagramInputs(text: string): string[] {
+  const seen = new Set<string>()
+  const out: string[] = []
+  for (const part of text.split(/[\n,;]+/)) {
+    const raw = part.trim()
+    if (!raw) continue
+    const key = raw.toLowerCase()
+    if (seen.has(key)) continue
+    seen.add(key)
+    out.push(raw)
+  }
+  return out
+}
+
+/**
+ * Add many Instagram accounts at once. Duplicates and invalid handles are
+ * reported in the result; valid new accounts are created and profile-snapshotted
+ * in the background (same as single add).
+ */
+export async function addCompetitorsBulk(input: BulkCompetitorInput): Promise<BulkAddResult> {
+  if (!USE_MOCKS) {
+    return api.post<BulkAddResult>('/competitors/bulk', input)
+  }
+  await delay()
+  const added: BulkAddResult['added'] = []
+  const skipped: BulkAddResult['skipped'] = []
+  const failed: BulkAddResult['failed'] = []
+  for (const raw of input.inputs) {
+    const username = parseInstagramInput(raw)
+    if (!username) {
+      failed.push({ username: raw.trim(), error: 'Invalid Instagram username or URL' })
+      continue
+    }
+    if (accounts.some((a) => a.username.toLowerCase() === username)) {
+      skipped.push({ username, reason: 'Already in the competitor list' })
+      continue
+    }
+    const account = await addCompetitor({
+      username,
+      displayName: username,
+      website: null,
+      country: 'Unknown',
+      city: null,
+      language: null,
+      role: input.role,
+      specialization: null,
+      internalNotes: input.internalNotes,
+      followerCount: null,
+    })
+    added.push({ id: account.id, username: account.username })
+  }
+  return { added, skipped, failed, role: input.role }
 }
 
 export async function setApprovalStatus(

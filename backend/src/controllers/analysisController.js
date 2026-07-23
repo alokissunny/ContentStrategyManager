@@ -14,6 +14,11 @@ function buildBrandDnaSections(report, parsedFromMarkdown) {
   return { sections, completedCount, totalSections: sections.length };
 }
 
+/** True when Mongo already has at least one Brand Profile field — no S3 round-trip needed. */
+function hasStoredBrandDna(report) {
+  return BRAND_DNA_FIELDS.some(({ key }) => String(report[key] || '').trim().length > 0);
+}
+
 async function listReports(req, res) {
   const reports = await BrandAnalysisReport.find({ user: req.user._id }).sort({ createdAt: -1 });
   res.json({ reports });
@@ -55,13 +60,41 @@ async function confirmReport(req, res) {
 }
 
 async function getLatestBrandDna(req, res) {
-  const report = await BrandAnalysisReport.findOne({ user: req.user._id }).sort({ createdAt: -1 });
+  const report = await BrandAnalysisReport.findOne({ user: req.user._id })
+    .sort({ createdAt: -1 })
+    .select(['_id', 's3Key', ...BRAND_DNA_FIELDS.map(({ key }) => key)].join(' '))
+    .lean();
+
   if (!report) {
-    return res.status(404).json({ message: 'No analysis report yet. Connect your Instagram to generate one.' });
+    return res.status(404).json({
+      message: 'No analysis report yet. Connect your Instagram to generate one.',
+    });
   }
 
-  const markdown = await getObjectText(report.s3Key);
-  const parsed = parseBrandDna(markdown);
+  // Fast path: Brand Profile fields live on the report document. Avoid a
+  // blocking S3 download on every Brand profile tab open.
+  let parsed = {};
+  if (!hasStoredBrandDna(report) && report.s3Key) {
+    try {
+      const markdown = await getObjectText(report.s3Key);
+      parsed = parseBrandDna(markdown);
+      // Backfill Mongo so the next load stays on the fast path.
+      if (Object.keys(parsed).length > 0) {
+        const $set = {};
+        for (const { key } of BRAND_DNA_FIELDS) {
+          if (parsed[key]) $set[key] = parsed[key];
+        }
+        if (Object.keys($set).length > 0) {
+          BrandAnalysisReport.updateOne({ _id: report._id }, { $set }).catch((err) => {
+            console.warn('[brandDna] backfill failed:', err.message);
+          });
+        }
+      }
+    } catch (err) {
+      console.warn('[brandDna] S3 fallback failed:', err.message);
+    }
+  }
+
   res.json({ reportId: report._id, ...buildBrandDnaSections(report, parsed) });
 }
 
@@ -77,13 +110,19 @@ async function updateBrandDna(req, res) {
     report[key] = fields[key];
   });
 
-  const existingMarkdown = await getObjectText(report.s3Key);
-  const mergedMarkdown = mergeBrandDna(existingMarkdown, fields);
-  await uploadMarkdown(report.s3Key, mergedMarkdown);
-
   await report.save();
 
+  // Respond from Mongo first — S3 markdown sync is best-effort and must not
+  // block Save on the Brand profile page.
   res.json({ reportId: report._id, ...buildBrandDnaSections(report, fields) });
+
+  if (report.s3Key) {
+    getObjectText(report.s3Key)
+      .then((existingMarkdown) =>
+        uploadMarkdown(report.s3Key, mergeBrandDna(existingMarkdown, fields)),
+      )
+      .catch((err) => console.warn('[brandDna] S3 sync failed:', err.message));
+  }
 }
 
 module.exports = { listReports, getReportDownloadUrl, confirmReport, getLatestBrandDna, updateBrandDna };

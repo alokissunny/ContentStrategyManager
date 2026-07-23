@@ -50,6 +50,18 @@
   box-shadow: var(--shadow-xs);
 }
 
+.filter-match-count {
+  margin: 0 0 2px;
+  font-size: var(--text-sm);
+  color: var(--ink-600);
+  white-space: nowrap;
+  align-self: center;
+}
+
+.filter-match-total {
+  color: var(--ink-400);
+}
+
 .filter-field {
   display: flex;
   flex-direction: column;

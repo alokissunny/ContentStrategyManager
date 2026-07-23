@@ -696,6 +696,71 @@
 
 .form-submit:disabled { opacity: 0.6; }
 
+.add-mode-tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: var(--sp-3);
+  padding: 3px;
+  border-radius: var(--r-md);
+  background: var(--surface-muted, #f3f1ec);
+}
+
+.add-mode-tab {
+  flex: 1;
+  border: 0;
+  background: transparent;
+  padding: 7px 10px;
+  border-radius: calc(var(--r-md) - 2px);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--ink-600);
+  cursor: pointer;
+}
+
+.add-mode-tab--active {
+  background: var(--surface, #fff);
+  color: var(--ink-900);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 8%);
+}
+
+.bulk-result-summary {
+  font-size: var(--text-sm);
+  color: var(--ink-800);
+  margin: 0 0 var(--sp-2);
+}
+
+.bulk-result-list {
+  list-style: none;
+  margin: 0 0 var(--sp-2);
+  padding: 0;
+  max-height: 180px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+}
+
+.bulk-result-item {
+  padding: 6px 10px;
+  font-size: var(--text-xs);
+  border-bottom: 1px solid var(--border);
+}
+
+.bulk-result-item:last-child {
+  border-bottom: 0;
+}
+
+.bulk-result-item--ok {
+  color: var(--ink-800);
+}
+
+.bulk-result-item--skip {
+  color: var(--ink-500);
+}
+
+.bulk-result-item--fail {
+  color: var(--negative);
+}
+
 /* ── Suggestions ──────────────────────────────────────────────────────────── */
 
 .suggestion-list {

@@ -1,6 +1,12 @@
 import { CompetitorAccount } from '../models/CompetitorAccount.ts'
 import { CollectionRun, Post, PostMetricSnapshot } from '../models/snapshots.ts'
 import { followerChangePct, periodDays } from './metrics.ts'
+import {
+  accountCountryOf,
+  followerInRange,
+  locationMatches,
+  parseFollowerRange as parseOverviewFollowerRange,
+} from './filterScope.ts'
 
 /*
  * Server-side list query. Ports the filter/sort/paginate/stats behaviour the UI
@@ -169,6 +175,33 @@ export async function listCompetitorLocations(options?: {
   }
 
   return [...byKey.values()].sort((a, b) => a.localeCompare(b))
+}
+
+/**
+ * How many live accounts match Overview filters (location · follower range).
+ * Same scope used when running analysis — period affects the post window, not
+ * which accounts are in the register.
+ */
+export async function countMatchingCompetitors(input: {
+  location?: string
+  followerRangeLabel?: string
+}): Promise<{ matching: number; total: number }> {
+  const location = input.location ?? 'Global'
+  const followerRangeLabel = input.followerRangeLabel ?? 'All sizes'
+  const range = parseOverviewFollowerRange(followerRangeLabel)
+
+  const accounts = await CompetitorAccount.find({ approvalStatus: { $ne: 'deleted' } })
+    .select('location enrichment latestFollowerCount')
+    .lean()
+
+  const total = accounts.length
+  const matching = accounts.filter(
+    (a) =>
+      locationMatches(accountCountryOf(a), location) &&
+      followerInRange(a.latestFollowerCount, range),
+  ).length
+
+  return { matching, total }
 }
 
 function normalizeCountryLabel(raw: unknown): string | null {

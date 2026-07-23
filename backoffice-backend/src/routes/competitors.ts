@@ -10,7 +10,7 @@ import {
   PostMetricSnapshot,
   RawPostPayload,
 } from '../models/snapshots.ts'
-import { listCompetitorLocations, listCompetitors, serializeAccount } from '../services/competitorQuery.ts'
+import { countMatchingCompetitors, listCompetitorLocations, listCompetitors, serializeAccount } from '../services/competitorQuery.ts'
 import { accountActivity, followerChangePct, followerSeries, periodDays } from '../services/metrics.ts'
 import {
   collectAccount,
@@ -70,6 +70,17 @@ competitorRoutes.get(
         windowDays,
       }),
     })
+  }),
+)
+
+/** Accounts matching Overview location · follower-range filters. */
+competitorRoutes.get(
+  '/competitors/filter-count',
+  asyncHandler(async (req, res) => {
+    const location = typeof req.query.location === 'string' ? req.query.location : 'Global'
+    const followerRangeLabel =
+      typeof req.query.followerRangeLabel === 'string' ? req.query.followerRangeLabel : 'All sizes'
+    res.json(await countMatchingCompetitors({ location, followerRangeLabel }))
   }),
 )
 
@@ -185,6 +196,85 @@ competitorRoutes.post(
     snapshotNewAccount(account._id, account.username)
 
     res.status(201).json(serializeAccount(account))
+  }),
+)
+
+/*
+ * Add many competitors at once. Accepts Instagram URLs / @handles (one list).
+ * Each account is created immediately; profile snapshot runs in the background
+ * (same as single add). Duplicates and invalid handles are reported, not fatal.
+ */
+competitorRoutes.post(
+  '/competitors/bulk',
+  asyncHandler(async (req, res) => {
+    const body = z
+      .object({
+        inputs: z.array(z.string()).min(1).max(50),
+        role: z.string().optional().default('peer-benchmark'),
+        internalNotes: z.string().nullable().optional().default(null),
+      })
+      .safeParse(req.body)
+    if (!body.success) {
+      return res.status(400).json({ message: 'Provide 1–50 Instagram usernames or URLs.' })
+    }
+
+    const role = body.data.role
+    const notes = body.data.internalNotes
+
+    // Deduplicate while preserving order.
+    const seen = new Set<string>()
+    const usernames: string[] = []
+    const invalid: { input: string; error: string }[] = []
+    for (const raw of body.data.inputs) {
+      const username = parseInstagramInput(raw)
+      if (!username) {
+        invalid.push({ input: raw.trim(), error: 'Invalid Instagram username or URL' })
+        continue
+      }
+      if (seen.has(username)) continue
+      seen.add(username)
+      usernames.push(username)
+    }
+
+    const added: { id: string; username: string }[] = []
+    const skipped: { username: string; reason: string }[] = []
+    const failed: { username: string; error: string }[] = []
+
+    for (const username of usernames) {
+      try {
+        if (await CompetitorAccount.findOne({ username })) {
+          skipped.push({ username, reason: 'Already in the competitor list' })
+          continue
+        }
+        const account = await CompetitorAccount.create({
+          username,
+          displayName: username,
+          website: null,
+          location: { country: null, region: null, city: null },
+          language: null,
+          specialization: null,
+          internalNotes: notes,
+          role,
+          approvalStatus: 'approved',
+          latestFollowerCount: null,
+          addedBy: 'manual',
+        })
+        snapshotNewAccount(account._id, account.username)
+        added.push({ id: String(account._id), username: account.username })
+      } catch (err) {
+        failed.push({
+          username,
+          error: err instanceof Error ? err.message : String(err),
+        })
+      }
+    }
+
+    res.status(201).json({
+      added,
+      skipped,
+      failed: [...invalid.map((i) => ({ username: i.input, error: i.error })), ...failed],
+      role,
+    })
   }),
 )
 

@@ -3,10 +3,12 @@ import { NavLink, useLocation } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   addCompetitor,
+  addCompetitorsBulk,
   getCollectionStatus,
   listSuggestions,
   resolveSuggestion,
   runCompetitorAnalysis,
+  type BulkCompetitorInput,
   type NewCompetitorInput,
 } from '../../services/competitors/repository'
 import { IntelligencePage } from '../intelligence/IntelligencePage'
@@ -50,12 +52,22 @@ export function CompetitorsSection() {
     queryClient.invalidateQueries({ queryKey: ['competitors'] })
     queryClient.invalidateQueries({ queryKey: ['competitor-suggestions'] })
     queryClient.invalidateQueries({ queryKey: ['competitor-locations'] })
+    queryClient.invalidateQueries({ queryKey: ['competitor-filter-count'] })
   }
 
   const addMutation = useMutation({
     mutationFn: (input: NewCompetitorInput) => addCompetitor(input),
     onSuccess: () => {
       setModal(null)
+      setAddError(null)
+      invalidate()
+    },
+    onError: (error: Error) => setAddError(error.message),
+  })
+
+  const bulkAddMutation = useMutation({
+    mutationFn: (input: BulkCompetitorInput) => addCompetitorsBulk(input),
+    onSuccess: () => {
       setAddError(null)
       invalidate()
     },
@@ -151,7 +163,7 @@ export function CompetitorsSection() {
             className={onAccounts ? 'btn-primary' : 'btn-secondary'}
             onClick={() => setModal('add')}
           >
-            + Add Competitor
+            + Add Competitors
           </button>
         </div>
       </div>
@@ -178,15 +190,18 @@ export function CompetitorsSection() {
 
       {modal === 'add' && (
         <Modal
-          title="Add Competitor"
+          title="Add Competitors"
           onClose={() => {
             setModal(null)
             setAddError(null)
+            bulkAddMutation.reset()
           }}
         >
           <AddCompetitorForm
             onSubmit={(input) => addMutation.mutate(input)}
+            onBulkSubmit={(input) => bulkAddMutation.mutateAsync(input)}
             submitting={addMutation.isPending}
+            bulkSubmitting={bulkAddMutation.isPending}
             serverError={addError}
           />
         </Modal>

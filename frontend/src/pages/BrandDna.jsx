@@ -46,6 +46,27 @@ function BrandDnaField({ label, description, inferred, value, onChange }) {
   );
 }
 
+function BrandDnaSkeleton() {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 14, marginTop: 24 }} aria-busy="true" aria-label="Loading brand profile">
+      {Array.from({ length: 4 }, (_, i) => (
+        <div
+          key={i}
+          style={{
+            height: 96,
+            borderRadius: 14,
+            border: `1px solid ${LS_BORDER}`,
+            background: `linear-gradient(90deg, ${LS_BORDER} 25%, ${LS_SURFACE} 50%, ${LS_BORDER} 75%)`,
+            backgroundSize: '200% 100%',
+            animation: 'brandDnaShimmer 1.2s ease-in-out infinite',
+          }}
+        />
+      ))}
+      <style>{`@keyframes brandDnaShimmer { 0% { background-position: 200% 0 } 100% { background-position: -200% 0 } }`}</style>
+    </div>
+  );
+}
+
 export default function BrandDna() {
   const [reportId, setReportId] = useState(null);
   const [sections, setSections] = useState([]);
@@ -55,15 +76,23 @@ export default function BrandDna() {
   const [notFound, setNotFound] = useState(false);
 
   useEffect(() => {
+    let cancelled = false;
     getBrandDna()
       .then((data) => {
+        if (cancelled) return;
         setReportId(data.reportId);
         setSections(data.sections);
       })
       .catch((err) => {
+        if (cancelled) return;
         if (err.response?.status === 404) setNotFound(true);
       })
-      .finally(() => setLoading(false));
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const setValue = (key, value) => {
@@ -93,7 +122,7 @@ export default function BrandDna() {
         </p>
 
         {loading ? (
-          <p style={{ fontFamily: LS_FONT, color: LS_T2, marginTop: 24 }}>Loading your brand profile…</p>
+          <BrandDnaSkeleton />
         ) : notFound ? (
           <div style={{ border: `1px dashed ${LS_BORDER}`, borderRadius: 12, padding: '40px 24px', textAlign: 'center', marginTop: 24 }}>
             <p style={{ fontFamily: LS_FONT, fontSize: 14, color: LS_T2, margin: 0 }}>

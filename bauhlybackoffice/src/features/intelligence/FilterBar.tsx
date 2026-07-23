@@ -1,6 +1,9 @@
 import { useQuery } from '@tanstack/react-query'
 import { defaultFilters, filterOptions, type FilterState } from '../../services/intelligence/filters'
-import { getCompetitorLocations } from '../../services/competitors/repository'
+import {
+  getCompetitorFilterCount,
+  getCompetitorLocations,
+} from '../../services/competitors/repository'
 
 interface FilterBarProps {
   filters: FilterState
@@ -46,6 +49,16 @@ export function FilterBar({ filters, onChange }: FilterBarProps) {
     staleTime: 60_000,
   })
 
+  const matchCount = useQuery({
+    queryKey: ['competitor-filter-count', filters.location, filters.followerRangeLabel],
+    queryFn: () =>
+      getCompetitorFilterCount({
+        location: filters.location,
+        followerRangeLabel: filters.followerRangeLabel,
+      }),
+    staleTime: 30_000,
+  })
+
   const set = <K extends keyof FilterState>(key: K, value: FilterState[K]) =>
     onChange({ ...filters, [key]: value })
   const isDefault = (Object.keys(defaultFilters) as (keyof FilterState)[]).every(
@@ -53,6 +66,8 @@ export function FilterBar({ filters, onChange }: FilterBarProps) {
   )
 
   const locationOptions = ['Global', ...(locations.data ?? [])]
+  const matching = matchCount.data?.matching
+  const total = matchCount.data?.total
 
   return (
     <div className="filter-bar" role="group" aria-label="Dashboard filters">
@@ -80,6 +95,18 @@ export function FilterBar({ filters, onChange }: FilterBarProps) {
         options={[...filterOptions.period]}
         onChange={(v) => set('period', v as FilterState['period'])}
       />
+      <p className="filter-match-count" aria-live="polite">
+        {matchCount.isPending || matching == null
+          ? 'Counting accounts…'
+          : matching === 0
+            ? '0 accounts match these filters'
+            : matching === 1
+              ? '1 account matches these filters'
+              : `${matching.toLocaleString('en-US')} accounts match these filters`}
+        {total != null && matching != null && matching !== total ? (
+          <span className="filter-match-total"> of {total.toLocaleString('en-US')}</span>
+        ) : null}
+      </p>
       {!isDefault && (
         <button type="button" className="filter-clear" onClick={() => onChange(defaultFilters)}>
           Clear all
