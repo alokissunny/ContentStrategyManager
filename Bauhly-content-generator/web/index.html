@@ -1,0 +1,226 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Bauhly Content Generator</title>
+<style>
+  :root {
+    --bg: #0e0e12; --card: #17171d; --line: #26262e; --text: #f2f2f5; --muted: #9a9aa6;
+    --accent: #ff4d8d; --accent2: #6c5ce7; --ok: #22c55e;
+  }
+  @media (prefers-color-scheme: light) {
+    :root { --bg: #f5f4f7; --card: #fff; --line: #e6e6ea; --text: #17171d; --muted: #6a6a76; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: -apple-system, Segoe UI, Helvetica, Arial, sans-serif; background: var(--bg); color: var(--text); }
+  .wrap { max-width: 900px; margin: 0 auto; padding: 28px 18px 80px; }
+  h1 { font-size: 26px; margin: 0 0 4px; }
+  .sub { color: var(--muted); margin: 0 0 22px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 20px; margin-bottom: 18px; }
+  label { display: block; font-weight: 600; margin: 0 0 8px; font-size: 14px; }
+  textarea, .drop { width: 100%; background: transparent; color: var(--text); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; font: inherit; }
+  textarea { min-height: 96px; resize: vertical; }
+  .drop { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 26px; text-align: center; color: var(--muted); cursor: pointer; border-style: dashed; transition: border-color .15s, background .15s; }
+  .drop.over { border-color: var(--accent); background: rgba(255,77,141,.06); }
+  .drop strong { color: var(--text); }
+  input[type=file] { display: none; }
+  .files { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 12px; }
+  .thumb { position: relative; width: 76px; height: 76px; border-radius: 10px; overflow: hidden; border: 1px solid var(--line); background: #000; }
+  .thumb img, .thumb video { width: 100%; height: 100%; object-fit: cover; }
+  .thumb .vtag { position: absolute; bottom: 3px; right: 4px; font-size: 10px; background: rgba(0,0,0,.65); color: #fff; padding: 1px 5px; border-radius: 6px; }
+  .thumb .x { position: absolute; top: 2px; right: 3px; background: rgba(0,0,0,.6); color: #fff; border: 0; border-radius: 50%; width: 18px; height: 18px; cursor: pointer; font-size: 12px; line-height: 1; }
+  .formats { display: flex; flex-wrap: wrap; gap: 10px; }
+  .fmt { border: 1px solid var(--line); border-radius: 999px; padding: 8px 14px; cursor: pointer; user-select: none; font-size: 14px; }
+  .fmt input { display: none; }
+  .fmt.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .fmt.disabled { opacity: .4; pointer-events: none; }
+  button.go { width: 100%; margin-top: 4px; background: linear-gradient(135deg, var(--accent), var(--accent2)); color: #fff; border: 0; border-radius: 12px; padding: 14px; font-size: 16px; font-weight: 700; cursor: pointer; }
+  button.go:disabled { opacity: .6; cursor: default; }
+  .status { margin-top: 12px; color: var(--muted); font-size: 14px; min-height: 20px; }
+  .spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid var(--muted); border-top-color: var(--accent); border-radius: 50%; animation: spin .8s linear infinite; vertical-align: -2px; margin-right: 8px; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .results { margin-top: 8px; }
+  .piece { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 18px; margin-bottom: 16px; }
+  .badge { text-transform: uppercase; font-size: 11px; font-weight: 700; letter-spacing: .5px; padding: 4px 10px; border-radius: 999px; color: #fff; background: var(--accent2); }
+  .piece h3 { margin: 8px 0 2px; }
+  .concept { color: var(--muted); margin: 0 0 12px; font-size: 14px; }
+  .media { display: flex; gap: 10px; overflow-x: auto; padding-bottom: 6px; }
+  .media figure { margin: 0; flex: 0 0 auto; }
+  .media img, .media video { height: 300px; border-radius: 10px; display: block; background: #000; }
+  .media figcaption { text-align: center; margin-top: 6px; }
+  .dl { display: inline-block; margin-top: 6px; font-size: 12px; color: var(--accent); text-decoration: none; border: 1px solid var(--line); padding: 4px 10px; border-radius: 8px; }
+  .cap { margin-top: 14px; border-top: 1px solid var(--line); padding-top: 12px; }
+  .cap .hook { font-weight: 700; margin: 0 0 6px; }
+  .cap .body { margin: 0 0 6px; line-height: 1.5; }
+  .cap .cta { color: var(--accent); font-weight: 600; margin: 0 0 6px; }
+  .cap .tags { color: var(--muted); font-size: 13px; margin: 0; }
+  .rowbtns { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+  .rowbtns a, .rowbtns button { font-size: 13px; text-decoration: none; color: var(--text); border: 1px solid var(--line); background: transparent; padding: 6px 12px; border-radius: 8px; cursor: pointer; }
+  .enginebar { font-size: 13px; color: var(--muted); margin: 6px 2px 14px; }
+  .err { color: #ef4444; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>🎨 Bauhly Content Generator</h1>
+  <p class="sub">Upload your photos or a video, describe your strategy, pick the formats — a team of AI agents will edit your assets into ready-to-post content.</p>
+
+  <form id="form">
+    <div class="card">
+      <label>1 · Your assets (photos and/or a video)</label>
+      <div class="drop" id="drop">
+        <strong>Click to choose files</strong>
+        <span>or drag &amp; drop — JPG, PNG, WebP, MP4, MOV</span>
+      </div>
+      <input type="file" id="files" multiple accept="image/*,video/*" />
+      <div class="files" id="fileList"></div>
+    </div>
+
+    <div class="card">
+      <label for="strategy">2 · Your strategy</label>
+      <textarea id="strategy" placeholder="e.g. Introduce and launch FashDeck AI — an AI fashion stylist. Fresh, trend-forward, playful. Drive beta signups."></textarea>
+    </div>
+
+    <div class="card">
+      <label>3 · Content types</label>
+      <div class="formats" id="formats">
+        <label class="fmt on"><input type="checkbox" value="post" checked /> Post</label>
+        <label class="fmt on"><input type="checkbox" value="carousel" checked /> Carousel</label>
+        <label class="fmt on"><input type="checkbox" value="reel" checked /> Reel cover</label>
+        <label class="fmt disabled" id="fmtVideo"><input type="checkbox" value="video" /> Video edit</label>
+      </div>
+      <p class="sub" id="videoHint" style="margin:10px 0 0;font-size:13px;display:none;">A video is uploaded — the “Video edit” option cuts it into a vertical reel.</p>
+    </div>
+
+    <button class="go" id="go" type="submit">Generate content</button>
+    <div class="status" id="status"></div>
+  </form>
+
+  <div class="enginebar" id="enginebar"></div>
+  <div class="results" id="results"></div>
+</div>
+
+<script>
+const $ = (s) => document.querySelector(s);
+const drop = $("#drop"), fileInput = $("#files"), fileList = $("#fileList");
+const fmtVideo = $("#fmtVideo"), videoHint = $("#videoHint");
+let selected = []; // {file, url, isVideo}
+
+const isVideo = (f) => /^video\//.test(f.type) || /\.(mp4|mov|m4v|webm)$/i.test(f.name);
+
+function renderFiles() {
+  fileList.innerHTML = "";
+  let anyVideo = false;
+  selected.forEach((s, i) => {
+    if (s.isVideo) anyVideo = true;
+    const el = document.createElement("div");
+    el.className = "thumb";
+    el.innerHTML = s.isVideo
+      ? `<video src="${s.url}" muted></video><span class="vtag">video</span><button class="x" data-i="${i}" title="remove">×</button>`
+      : `<img src="${s.url}"/><button class="x" data-i="${i}" title="remove">×</button>`;
+    fileList.appendChild(el);
+  });
+  fmtVideo.classList.toggle("disabled", !anyVideo);
+  videoHint.style.display = anyVideo ? "block" : "none";
+  const cb = fmtVideo.querySelector("input");
+  if (anyVideo && !cb.dataset.touched) { cb.checked = true; fmtVideo.classList.add("on"); }
+  if (!anyVideo) { cb.checked = false; fmtVideo.classList.remove("on"); }
+}
+
+function addFiles(list) {
+  for (const file of list) {
+    selected.push({ file, url: URL.createObjectURL(file), isVideo: isVideo(file) });
+  }
+  renderFiles();
+}
+
+drop.addEventListener("click", () => fileInput.click());
+fileInput.addEventListener("change", (e) => addFiles(e.target.files));
+["dragover", "dragenter"].forEach((ev) => drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.add("over"); }));
+["dragleave", "drop"].forEach((ev) => drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.remove("over"); }));
+drop.addEventListener("drop", (e) => addFiles(e.dataTransfer.files));
+fileList.addEventListener("click", (e) => {
+  const b = e.target.closest(".x"); if (!b) return;
+  selected.splice(Number(b.dataset.i), 1); renderFiles();
+});
+
+$("#formats").addEventListener("click", (e) => {
+  const lbl = e.target.closest(".fmt"); if (!lbl || lbl.classList.contains("disabled")) return;
+  const cb = lbl.querySelector("input");
+  setTimeout(() => { lbl.classList.toggle("on", cb.checked); cb.dataset.touched = "1"; }, 0);
+});
+
+const esc = (s) => String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+
+function mediaBlock(p) {
+  if (p.video) {
+    return `<div class="media"><figure>
+      <video src="${p.video}" controls playsinline poster="${p.cover||""}"></video>
+      <figcaption><a class="dl" href="${p.video}" download>⬇ Download MP4</a></figcaption>
+    </figure></div>`;
+  }
+  return `<div class="media">${p.images.map((img,i)=>`<figure>
+      <img src="${img}" loading="lazy"/>
+      <figcaption><a class="dl" href="${img}" download>⬇ Download</a></figcaption>
+    </figure>`).join("")}</div>`;
+}
+
+function pieceCard(p) {
+  const tags = p.caption.hashtags.map((h)=>"#"+esc(h)).join(" ");
+  const capText = `${p.caption.hook}\n\n${p.caption.body}\n\n${p.caption.cta}\n\n${p.caption.hashtags.map(h=>"#"+h).join(" ")}`;
+  const div = document.createElement("div");
+  div.className = "piece";
+  div.innerHTML = `
+    <span class="badge">${esc(p.format)}</span>
+    <h3>${esc(p.title)}</h3>
+    <p class="concept">${esc(p.concept)}</p>
+    ${mediaBlock(p)}
+    <div class="cap">
+      <p class="hook">${esc(p.caption.hook)}</p>
+      <p class="body">${esc(p.caption.body)}</p>
+      <p class="cta">${esc(p.caption.cta)}</p>
+      <p class="tags">${tags}</p>
+      <div class="rowbtns"><button type="button" class="copy">Copy caption</button></div>
+    </div>`;
+  div.querySelector(".copy").addEventListener("click", (e) => {
+    navigator.clipboard.writeText(capText).then(() => { e.target.textContent = "Copied ✓"; setTimeout(()=>e.target.textContent="Copy caption",1500); });
+  });
+  return div;
+}
+
+$("#form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const status = $("#status"), go = $("#go"), results = $("#results"), enginebar = $("#enginebar");
+  results.innerHTML = ""; enginebar.textContent = "";
+  const strategy = $("#strategy").value.trim();
+  if (selected.length === 0) { status.innerHTML = `<span class="err">Please add at least one photo or video.</span>`; return; }
+  if (!strategy) { status.innerHTML = `<span class="err">Please write a strategy.</span>`; return; }
+
+  const formats = [...document.querySelectorAll("#formats input:checked")].map((c)=>c.value);
+  const fd = new FormData();
+  fd.append("strategy", strategy);
+  fd.append("formats", formats.join(","));
+  selected.forEach((s) => fd.append("files", s.file, s.file.name));
+
+  go.disabled = true;
+  const hasVideo = selected.some((s)=>s.isVideo) && formats.includes("video");
+  status.innerHTML = `<span class="spinner"></span>Agents are working${hasVideo ? " — video editing can take a minute…" : "…"}`;
+
+  try {
+    const r = await fetch("/api/generate", { method: "POST", body: fd });
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.error || "Generation failed.");
+    status.textContent = "";
+    enginebar.innerHTML = `Generated by <strong>${esc(data.engine)}</strong> (${esc(data.model)}) · brand: <strong>${esc(data.brief.brandName)}</strong> · <a class="dl" href="${data.previewUrl}" target="_blank">Open full preview ↗</a>`;
+    data.pieces.forEach((p) => results.appendChild(pieceCard(p)));
+    if (data.pieces.length === 0) results.innerHTML = `<p class="sub">No pieces produced — check that your uploads match the selected formats (images for post/carousel/reel, a video for video edit).</p>`;
+  } catch (err) {
+    status.innerHTML = `<span class="err">${esc(err.message)}</span>`;
+  } finally {
+    go.disabled = false;
+  }
+});
+</script>
+</body>
+</html>

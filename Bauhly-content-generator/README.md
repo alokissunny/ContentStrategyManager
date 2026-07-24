@@ -63,7 +63,22 @@ Frame understanding uses Claude vision; cutting/cropping/overlays use
 Overlays are de-duplicated against the hook and forced to play sequentially so two
 captions never collide.
 
-## Quick start
+## Web UI (upload → strategy → generate → download)
+
+```bash
+cd Bauhly-content-generator
+npm install
+npm run serve
+# open http://localhost:5178
+```
+
+Upload photos and/or a video, write your strategy, tick the content types
+(post / carousel / reel / video edit — the video option unlocks when a video is
+added), and hit **Generate**. Each result shows inline with a **Download** button
+and a copyable caption; each run is also saved under `runs/<id>/` with a full
+`index.html` preview. Set `PORT` to change the port.
+
+## Quick start (CLI)
 
 ```bash
 cd Bauhly-content-generator
@@ -153,8 +168,11 @@ output/
 ## Project layout
 
 ```
+web/
+  index.html           the upload/generate/download web UI
 src/
   index.ts             CLI entry
+  server.ts            Express server for the web UI (upload → generate → serve)
   orchestrator.ts      wires agents → editor, handles offline fallback
   anthropic.ts         Claude client + structured-JSON helper
   agents/

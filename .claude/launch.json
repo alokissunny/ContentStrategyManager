@@ -22,6 +22,17 @@
         "dev"
       ],
       "port": 5190
+    },
+    {
+      "name": "bauhly-content-ui",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "--prefix",
+        "Bauhly-content-generator",
+        "run",
+        "serve"
+      ],
+      "port": 5178
     }
   ]
 }

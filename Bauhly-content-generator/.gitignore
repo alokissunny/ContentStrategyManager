@@ -1,5 +1,6 @@
 node_modules/
 output*/
+runs/
 sample-assets/
 sample-video/
 .env
