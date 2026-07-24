@@ -1,0 +1,26 @@
+{
+  "name": "bauhly-content-generator",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Multi-agent Instagram content generator: turn a high-level strategy + your photos into ready-to-post posts, carousels and reel covers.",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "generate": "tsx src/index.ts",
+    "sample-assets": "tsx scripts/make-sample-assets.ts",
+    "demo": "npm run sample-assets && npm run generate -- --strategy \"Grow a warm, minimal specialty-coffee brand for young urban professionals. Educational + aspirational. Drive footfall to our new store.\" --assets ./sample-assets --formats post,carousel,reel",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.68.0",
+    "ffmpeg-static": "^5.2.0",
+    "sharp": "^0.34.4"
+  },
+  "devDependencies": {
+    "@types/node": "^24.10.0",
+    "tsx": "^4.20.6",
+    "typescript": "^5.9.3"
+  }
+}
