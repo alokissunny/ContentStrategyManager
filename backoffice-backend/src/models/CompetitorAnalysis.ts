@@ -22,11 +22,12 @@ const competitorAnalysisSchema = new Schema(
     error: { type: String, default: null },
     accountsAnalyzed: { type: Number, default: 0 },
     postsAnalyzed: { type: Number, default: 0 },
-    /** Filters used when this analysis was generated (location / followers / period). */
+    /** Filters used when this analysis was generated (location / followers / category / period). */
     filterScope: {
       type: {
         location: { type: String, default: 'Global' },
         followerRangeLabel: { type: String, default: 'All sizes' },
+        businessCategory: { type: String, default: 'interior-designer' },
         period: { type: String, default: 'last-30' },
         windowDays: { type: Number, default: 30 },
       },
@@ -44,6 +45,7 @@ competitorAnalysisSchema.index({ status: 1, startedAt: -1 })
 competitorAnalysisSchema.index({
   'filterScope.location': 1,
   'filterScope.followerRangeLabel': 1,
+  'filterScope.businessCategory': 1,
   'filterScope.period': 1,
   status: 1,
   finishedAt: -1,

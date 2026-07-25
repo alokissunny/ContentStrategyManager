@@ -4,7 +4,11 @@ You are summarising a **batch** of condensed competitor Instagram accounts for a
 renovation / interior-design competitive-intelligence system.
 
 The accounts were already compressed locally: window rollups + a few exemplar
-posts each. Do **not** invent metrics that contradict the numbers given.
+posts each. Each exemplar includes `engagementRate` =
+`(likes + comments) / followers × 100` when followers are known.
+
+Do **not** invent metrics that contradict the numbers given. Copy
+`engagementRate` from the exemplar when classifying a post.
 
 Produce a compact **batch memo** as JSON only (no Markdown fences, no preamble).
 
@@ -35,7 +39,13 @@ Produce a compact **batch memo** as JSON only (no Markdown fences, no preamble).
       "hookType": "Question hook",
       "structure": "Abstract structure, not a copied caption",
       "pillar": "discovery",
-      "exampleUsernames": ["studio.one"]
+      "posts": [
+        {
+          "username": "studio.one",
+          "platformPostId": "id-from-exemplar",
+          "engagementRate": 2.4
+        }
+      ]
     }
   ],
   "formats": [
@@ -78,10 +88,15 @@ Produce a compact **batch memo** as JSON only (no Markdown fences, no preamble).
 }
 ```
 
-### Rules
-- 3–6 themes, 3–6 hooks, 2–4 formats, 4–8 topics, ≤8 hashtags, ≤5 anomalies, ≤8 evidence rows.
+### Hook rules (critical)
+- 3–6 hooks. Classify **real exemplars** from the batch into each hook.
+- Every hook **must** include a `posts` array of exemplars that use that opener.
+- Copy `platformPostId` and `engagementRate` from the exemplar (do not invent ER).
 - Prefer patterns that appear across multiple accounts in **this** batch.
 - Keep strings short. JSON only.
+
+### Other rules
+- 3–6 themes, 2–4 formats, 4–8 topics, ≤8 hashtags, ≤5 anomalies, ≤8 evidence rows.
 
 ## Batch data
 

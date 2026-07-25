@@ -303,8 +303,9 @@ export function HooksSection({ hooks }: { hooks: DashboardData['hooks'] }) {
         </div>
       )}
       <p className="panel-foot-note">
-        Hook structures are abstracted — competitor text is never copied. ER = public engagement
-        rate (likes + comments / followers).
+        Hook structures are abstracted — competitor text is never copied. Median ER is the middle
+        engagement rate across all posts using that hook (pooled from every competitor in the
+        group). Per post: ER = (likes + comments) ÷ followers × 100.
       </p>
     </section>
   )

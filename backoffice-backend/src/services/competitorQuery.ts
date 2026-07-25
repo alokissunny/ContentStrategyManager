@@ -3,6 +3,7 @@ import { CollectionRun, Post, PostMetricSnapshot } from '../models/snapshots.ts'
 import { followerChangePct, periodDays } from './metrics.ts'
 import {
   accountCountryOf,
+  businessCategoryMatches,
   followerInRange,
   locationMatches,
   parseFollowerRange as parseOverviewFollowerRange,
@@ -101,6 +102,18 @@ const SORT_FIELDS: Record<string, string> = {
 }
 
 export async function listCompetitors(input: Partial<CompetitorQuery>) {
+  // Persist default for legacy rows that predate businessCategory.
+  await CompetitorAccount.updateMany(
+    {
+      $or: [
+        { businessCategory: { $exists: false } },
+        { businessCategory: null },
+        { businessCategory: '' },
+      ],
+    },
+    { $set: { businessCategory: 'interior-designer' } },
+  )
+
   const q: CompetitorQuery = { ...defaultQuery, ...input }
   const filter = buildFilter(q)
   const dir = q.sortDir === 'asc' ? 1 : -1
@@ -178,27 +191,30 @@ export async function listCompetitorLocations(options?: {
 }
 
 /**
- * How many live accounts match Overview filters (location · follower range).
+ * How many live accounts match Overview filters (location · followers · category).
  * Same scope used when running analysis — period affects the post window, not
  * which accounts are in the register.
  */
 export async function countMatchingCompetitors(input: {
   location?: string
   followerRangeLabel?: string
+  businessCategory?: string
 }): Promise<{ matching: number; total: number }> {
   const location = input.location ?? 'Global'
   const followerRangeLabel = input.followerRangeLabel ?? 'All sizes'
+  const businessCategory = input.businessCategory ?? 'interior-designer'
   const range = parseOverviewFollowerRange(followerRangeLabel)
 
   const accounts = await CompetitorAccount.find({ approvalStatus: { $ne: 'deleted' } })
-    .select('location enrichment latestFollowerCount')
+    .select('location enrichment latestFollowerCount businessCategory')
     .lean()
 
   const total = accounts.length
   const matching = accounts.filter(
     (a) =>
       locationMatches(accountCountryOf(a), location) &&
-      followerInRange(a.latestFollowerCount, range),
+      followerInRange(a.latestFollowerCount, range) &&
+      businessCategoryMatches(a.businessCategory, businessCategory),
   ).length
 
   return { matching, total }
@@ -231,6 +247,7 @@ export function serializeAccount(doc: InstanceType<typeof CompetitorAccount>) {
     targetAudience: doc.targetAudience,
     positioningNote: doc.positioningNote,
     role: doc.role,
+    businessCategory: doc.businessCategory ?? 'interior-designer',
     approvalStatus: doc.approvalStatus,
     groupIds: (doc.groupIds ?? []).map(String),
     relevantCustomerIds: (doc.relevantCustomerIds ?? []).map(String),

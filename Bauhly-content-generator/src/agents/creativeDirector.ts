@@ -76,6 +76,7 @@ export async function runCreativeDirector(
   brief: StrategyBrief,
   assets: AssetInfo[],
   formats: IGFormat[],
+  feedback?: string,
 ): Promise<PiecePlan[]> {
   const assetList = assets
     .map((a) => `- ${a.file} (${a.width}x${a.height})`)
@@ -84,6 +85,10 @@ export async function runCreativeDirector(
     .map((f) => `- ${f}: ${FORMAT_SLIDE_GUIDANCE[f]} (default aspect ${FORMAT_DEFAULT_RATIO[f]})`)
     .join("\n");
 
+  const feedbackBlock = feedback
+    ? `\n\nQA FEEDBACK on your previous attempt — fix these, redo the plan:\n${feedback}\n`
+    : "";
+
   const userText = `BRAND BRIEF:
 ${JSON.stringify(brief, null, 2)}
 
@@ -91,7 +96,7 @@ AVAILABLE ASSETS (also attached above as images, in order):
 ${assetList}
 
 FORMATS TO PRODUCE (one piece each, in this order):
-${formatGuidance}
+${formatGuidance}${feedbackBlock}
 
 Design the pieces now.`;
 

@@ -128,6 +128,32 @@ export interface RenderedPiece {
   cover?: string;
 }
 
+export interface UsageSummary {
+  calls: number;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadInputTokens: number;
+  cacheCreationInputTokens: number;
+  totalTokens: number;
+  estimatedCostUsd: number;
+}
+
+export interface QAPieceVerdict {
+  format: IGFormat;
+  title: string;
+  action: "pass" | "edit" | "regenerate";
+  score: number;
+  issues: string[];
+}
+
+export interface QASummary {
+  reviewed: number;
+  edited: number;
+  regenerated: number;
+  averageScore: number;
+  pieces: QAPieceVerdict[];
+}
+
 export interface ContentPlan {
   strategyInput: string;
   brief: StrategyBrief;
@@ -135,6 +161,8 @@ export interface ContentPlan {
   generatedAt: string;
   engine: "claude" | "mock";
   model: string;
+  usage: UsageSummary;
+  qa?: QASummary;
 }
 
 export interface AssetInfo {

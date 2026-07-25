@@ -140,7 +140,16 @@ export function buildPreviewHtml(plan: ContentPlan): string {
       <div class="sw" style="background:${kit.accentColor}" title="${kit.accentColor}"></div>
     </div>
   </div>
-  <p class="meta">Generated ${esc(plan.generatedAt)} · engine: <strong>${plan.engine}</strong> (${esc(plan.model)}) · ${plan.pieces.length} pieces</p>
+  <p class="meta">Generated ${esc(plan.generatedAt)} · engine: <strong>${plan.engine}</strong> (${esc(plan.model)}) · ${plan.pieces.length} pieces${
+    plan.engine === "claude"
+      ? ` · ${plan.usage.totalTokens.toLocaleString()} tokens (~$${plan.usage.estimatedCostUsd.toFixed(4)})`
+      : ""
+  }</p>
+  ${
+    plan.qa && plan.engine === "claude"
+      ? `<p class="meta">🛡️ QA: ${plan.qa.reviewed} reviewed · ${plan.qa.edited} edited · ${plan.qa.regenerated} regenerated · avg strategy-fit ${plan.qa.averageScore}/100</p>`
+      : ""
+  }
 
   <section class="pillars">
     <strong>Content pillars</strong>

@@ -12,6 +12,7 @@ import { CompetitorAccount } from '../models/CompetitorAccount.ts'
 import { Post, PostMetricSnapshot } from '../models/snapshots.ts'
 import {
   accountCountryOf,
+  businessCategoryMatches,
   followerInRange,
   locationMatches,
   parseFollowerRange,
@@ -38,6 +39,11 @@ export interface CondensedPost {
   comments: number | null
   views: number | null
   engagement: number
+  /**
+   * Public engagement rate for this post:
+   * (likes + comments) / followers × 100. Null when followers unknown.
+   */
+  engagementRate: number | null
 }
 
 export interface CondensedAccount {
@@ -73,7 +79,7 @@ export interface CorpusStats {
   accountsWithPosts: number
   totalPosts: number
   windowDays: number
-  filters: { location: string; followerRangeLabel: string }
+  filters: { location: string; followerRangeLabel: string; businessCategory: string }
   medianPostsPerWeek: number
   medianEngagementRate: number
   formatMix: { format: string; sharePct: number; posts: number }[]
@@ -104,6 +110,16 @@ function followerTier(followers: number | null): string {
 
 function engagementOf(likes: number | null, comments: number | null): number {
   return (likes ?? 0) + (comments ?? 0)
+}
+
+/** (likes + comments) / followers × 100 — null when followers are missing. */
+export function postEngagementRatePct(
+  likes: number | null,
+  comments: number | null,
+  followers: number | null | undefined,
+): number | null {
+  if (followers == null || followers <= 0) return null
+  return Math.round((((likes ?? 0) + (comments ?? 0)) / followers) * 10000) / 100
 }
 
 /**
@@ -165,7 +181,7 @@ function shareEntries(
  */
 export async function buildAnalysisCorpus(
   windowDays: number,
-  scope: { location: string; followerRangeLabel: string },
+  scope: { location: string; followerRangeLabel: string; businessCategory: string },
 ): Promise<AnalysisCorpus> {
   const accounts = await CompetitorAccount.find({ approvalStatus: { $ne: 'deleted' } }).sort({
     latestFollowerCount: -1,
@@ -174,7 +190,8 @@ export async function buildAnalysisCorpus(
   const filtered = accounts.filter(
     (a) =>
       locationMatches(accountCountryOf(a), scope.location) &&
-      followerInRange(a.latestFollowerCount, followerRange),
+      followerInRange(a.latestFollowerCount, followerRange) &&
+      businessCategoryMatches(a.businessCategory, scope.businessCategory),
   )
 
   const windowStart = since(windowDays)
@@ -289,6 +306,7 @@ export async function buildAnalysisCorpus(
         comments: commentN,
         views: m?.views ?? null,
         engagement: engagementOf(likeN, commentN),
+        engagementRate: null, // filled after we know account followers
       })
     }
 
@@ -297,6 +315,9 @@ export async function buildAnalysisCorpus(
     postsPerWeekValues.push(postsPerWeek)
 
     const followers = account.latestFollowerCount ?? null
+    for (const post of enrichedPosts) {
+      post.engagementRate = postEngagementRatePct(post.likes, post.comments, followers)
+    }
     const eng = account.enrichment?.engagementRate
     if (typeof eng === 'number' && Number.isFinite(eng)) {
       engagementRates.push(eng)
@@ -413,7 +434,7 @@ export async function buildAnalysisCorpus(
 
 function emptyCorpus(
   windowDays: number,
-  scope: { location: string; followerRangeLabel: string },
+  scope: { location: string; followerRangeLabel: string; businessCategory: string },
   matchedAccountCount: number,
 ): AnalysisCorpus {
   return {

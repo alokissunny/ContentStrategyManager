@@ -37,6 +37,13 @@ export const COMPETITOR_ROLES = [
   'category-leader',
 ] as const
 
+/** High-level business type — separate from competitive `role`. */
+export const BUSINESS_CATEGORIES = [
+  'interior-designer',
+  'bauhly-competitor',
+  'other',
+] as const
+
 export const DATA_QUALITY = ['complete', 'partial', 'low', 'failed'] as const
 
 /** Statuses that make up the "tracked" working set (and get collected). */
@@ -67,6 +74,17 @@ const competitorAccountSchema = new Schema(
     positioningNote: { type: String, default: null },
 
     role: { type: String, enum: COMPETITOR_ROLES, default: 'peer-benchmark' },
+    /**
+     * Business category of the Instagram account (who they are commercially),
+     * distinct from competitive `role` (how we use them in benchmarks).
+     * Always persisted; defaults to Interior Designer.
+     */
+    businessCategory: {
+      type: String,
+      enum: BUSINESS_CATEGORIES,
+      default: 'interior-designer',
+      required: true,
+    },
     approvalStatus: { type: String, enum: APPROVAL_STATUSES, default: 'awaiting-review' },
     groupIds: { type: [String], default: [] },
     relevantCustomerIds: { type: [String], default: [] },

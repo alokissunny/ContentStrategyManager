@@ -54,25 +54,44 @@ export function accountCountryOf(account: {
   return null
 }
 
+/** Exact enum match; missing account category counts as Interior Designer. */
+export function businessCategoryMatches(
+  accountCategory: string | null | undefined,
+  filter: string | undefined,
+): boolean {
+  if (!filter) return true
+  const resolved = accountCategory ?? 'interior-designer'
+  return resolved === filter
+}
+
 export interface AnalysisFilterScope {
   location: string
   followerRangeLabel: string
+  businessCategory: string
   period: string
   windowDays: number
 }
 
 export function scopesCompatible(
   stored: AnalysisFilterScope | null | undefined,
-  requested: { location: string; followerRangeLabel: string; period: string },
+  requested: {
+    location: string
+    followerRangeLabel: string
+    businessCategory: string
+    period: string
+  },
 ): boolean {
-  // Legacy analyses (no scope) are treated as Global · All sizes · their window.
+  // Legacy analyses (no scope) are treated as Global · All sizes · Interior Designer · their window.
   const scope = stored ?? {
     location: 'Global',
     followerRangeLabel: 'All sizes',
+    businessCategory: 'interior-designer',
     period: 'last-30',
     windowDays: 30,
   }
   if (scope.location !== requested.location) return false
   if (scope.followerRangeLabel !== requested.followerRangeLabel) return false
+  const storedCat = scope.businessCategory ?? 'interior-designer'
+  if (storedCat !== requested.businessCategory) return false
   return periodToDays(scope.period) === periodToDays(requested.period)
 }

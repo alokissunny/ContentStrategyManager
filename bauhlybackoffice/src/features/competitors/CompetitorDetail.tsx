@@ -3,6 +3,10 @@ import { CloseIcon } from '../../components/icons'
 import { Delta, Sparkline } from '../intelligence/bits'
 import { periodMeta, type ComparisonPeriod } from '../../services/period'
 import { AuthorityPillars } from '../../components/AuthorityPillars'
+import {
+  BUSINESS_CATEGORY_OPTIONS,
+  type BusinessCategory,
+} from '../../types'
 
 /*
  * Competitor detail panel. Shows what the strategist needs to compare this
@@ -14,10 +18,14 @@ export function CompetitorDetailPanel({
   detail,
   period,
   onClose,
+  onBusinessCategoryChange,
+  categorySaving,
 }: {
   detail: Detail
   period: ComparisonPeriod
   onClose: () => void
+  onBusinessCategoryChange: (category: BusinessCategory) => void
+  categorySaving?: boolean
 }) {
   const { account } = detail
   const windowLabel = periodMeta(period).current.toLowerCase()
@@ -53,6 +61,27 @@ export function CompetitorDetailPanel({
         {[account.location.city, account.location.country].filter(Boolean).join(', ')}
         {account.specialization ? ` · ${account.specialization}` : ''}
       </p>
+
+      <section className="cust-detail-section">
+        <h3 className="rail-title">Business category</h3>
+        <div className="form-field" style={{ marginTop: 0 }}>
+          <label htmlFor="detail-business-category" className="visually-hidden">
+            Business category
+          </label>
+          <select
+            id="detail-business-category"
+            value={account.businessCategory ?? 'interior-designer'}
+            disabled={categorySaving}
+            onChange={(e) => onBusinessCategoryChange(e.target.value as BusinessCategory)}
+          >
+            {BUSINESS_CATEGORY_OPTIONS.map(({ value, label }) => (
+              <option key={value} value={value}>
+                {label}
+              </option>
+            ))}
+          </select>
+        </div>
+      </section>
 
       <section className="cust-detail-section">
         <h3 className="rail-title">Account ({windowLabel})</h3>

@@ -65,8 +65,12 @@ export async function runVideoDirector(
   frames: SampledFrame[],
   meta: VideoMeta,
   sourceFile: string,
+  feedback?: string,
 ): Promise<VideoEditPlan> {
   const frameList = frames.map((f) => `t=${f.timeSec.toFixed(1)}s`).join(", ");
+  const feedbackBlock = feedback
+    ? `\n\nQA FEEDBACK on your previous cut — fix these, redo the edit:\n${feedback}\n`
+    : "";
   const userText = `BRAND STRATEGY (verbatim):
 ${strategy}
 
@@ -78,7 +82,7 @@ SOURCE CLIP: ${sourceFile}
 - resolution: ${meta.width}x${meta.height}, ${meta.fps}fps
 - audio: ${meta.hasAudio ? "yes" : "no"}
 
-The attached frames are sampled at: ${frameList}
+The attached frames are sampled at: ${frameList}${feedbackBlock}
 
 Design the viral vertical edit now.`;
 

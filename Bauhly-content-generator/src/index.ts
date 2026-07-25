@@ -122,6 +122,13 @@ async function main(): Promise<void> {
   const totalImages = plan.pieces.reduce((n, p) => n + p.images.length, 0);
   const totalVideos = plan.pieces.filter((p) => p.video).length;
   console.log(`\n✅ Done — ${plan.pieces.length} pieces, ${totalImages} images, ${totalVideos} video(s) (engine: ${plan.engine}).`);
+  if (plan.engine === "claude") {
+    const u = plan.usage;
+    console.log(`   Tokens:   ${u.totalTokens.toLocaleString()} (in ${u.inputTokens.toLocaleString()} / out ${u.outputTokens.toLocaleString()}, ${u.calls} calls) · est. cost ~$${u.estimatedCostUsd.toFixed(4)}`);
+    if (plan.qa) {
+      console.log(`   QA:       ${plan.qa.reviewed} reviewed, ${plan.qa.edited} edited, ${plan.qa.regenerated} regenerated · avg strategy-fit ${plan.qa.averageScore}/100`);
+    }
+  }
   console.log(`   Preview:  ${resolve(outDir, "index.html")}`);
   console.log(`   Plan:     ${resolve(outDir, "content-plan.json")}\n`);
 }

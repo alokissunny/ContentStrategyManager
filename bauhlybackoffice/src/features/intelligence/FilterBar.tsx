@@ -50,20 +50,27 @@ export function FilterBar({ filters, onChange }: FilterBarProps) {
   })
 
   const matchCount = useQuery({
-    queryKey: ['competitor-filter-count', filters.location, filters.followerRangeLabel],
+    queryKey: [
+      'competitor-filter-count',
+      filters.location,
+      filters.followerRangeLabel,
+      filters.businessCategory,
+    ],
     queryFn: () =>
       getCompetitorFilterCount({
         location: filters.location,
         followerRangeLabel: filters.followerRangeLabel,
+        businessCategory: filters.businessCategory,
       }),
     staleTime: 30_000,
   })
 
   const set = <K extends keyof FilterState>(key: K, value: FilterState[K]) =>
     onChange({ ...filters, [key]: value })
-  const isDefault = (Object.keys(defaultFilters) as (keyof FilterState)[]).every(
-    (key) => filters[key] === defaultFilters[key],
-  )
+
+  // Business type lives in the top bar — Clear all only resets Overview filter-bar fields.
+  const filterBarKeys = ['location', 'followerRangeLabel', 'period'] as const
+  const isDefault = filterBarKeys.every((key) => filters[key] === defaultFilters[key])
 
   const locationOptions = ['Global', ...(locations.data ?? [])]
   const matching = matchCount.data?.matching
@@ -84,12 +91,6 @@ export function FilterBar({ filters, onChange }: FilterBarProps) {
         onChange={(v) => set('followerRangeLabel', v)}
       />
       <FilterSelect
-        label="Authority Pillar"
-        value={filters.pillar}
-        options={[...filterOptions.pillar]}
-        onChange={(v) => set('pillar', v as FilterState['pillar'])}
-      />
-      <FilterSelect
         label="Time Period"
         value={filters.period}
         options={[...filterOptions.period]}
@@ -108,7 +109,18 @@ export function FilterBar({ filters, onChange }: FilterBarProps) {
         ) : null}
       </p>
       {!isDefault && (
-        <button type="button" className="filter-clear" onClick={() => onChange(defaultFilters)}>
+        <button
+          type="button"
+          className="filter-clear"
+          onClick={() =>
+            onChange({
+              ...filters,
+              location: defaultFilters.location,
+              followerRangeLabel: defaultFilters.followerRangeLabel,
+              period: defaultFilters.period,
+            })
+          }
+        >
           Clear all
         </button>
       )}

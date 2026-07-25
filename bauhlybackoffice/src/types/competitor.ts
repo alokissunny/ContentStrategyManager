@@ -40,6 +40,28 @@ export const competitorRole = z.enum([
 ])
 export type CompetitorRole = z.infer<typeof competitorRole>
 
+/** Commercial type of the account — distinct from competitive `role`. */
+export const businessCategory = z.enum([
+  'interior-designer',
+  'bauhly-competitor',
+  'other',
+])
+export type BusinessCategory = z.infer<typeof businessCategory>
+
+export const BUSINESS_CATEGORY_OPTIONS: { value: BusinessCategory; label: string }[] = [
+  { value: 'interior-designer', label: 'Interior Designer' },
+  {
+    value: 'bauhly-competitor',
+    label: 'Bauhly Competitor (Instagram Content Strategist)',
+  },
+  { value: 'other', label: 'Other' },
+]
+
+export function businessCategoryLabel(value: BusinessCategory | null | undefined): string {
+  const resolved = value ?? 'interior-designer'
+  return BUSINESS_CATEGORY_OPTIONS.find((o) => o.value === resolved)?.label ?? resolved
+}
+
 export const competitorAccount = z.object({
   id,
   platform: z.literal('instagram'),
@@ -56,6 +78,8 @@ export const competitorAccount = z.object({
   positioningNote: z.string().nullable(),
 
   role: competitorRole,
+  /** Always stored; defaults to Interior Designer. */
+  businessCategory: businessCategory.default('interior-designer'),
   approvalStatus,
   groupIds: z.array(id),
   relevantCustomerIds: z.array(id),

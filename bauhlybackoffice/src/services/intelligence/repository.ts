@@ -470,6 +470,7 @@ export async function getDashboard(filters: FilterState): Promise<DashboardData>
     const analysis = await getLatestAnalysis({
       location: filters.location,
       followerRangeLabel: filters.followerRangeLabel,
+      businessCategory: filters.businessCategory,
       period: filters.period,
     })
     if (analysis?.status === 'completed' && analysis.dashboard && typeof analysis.dashboard === 'object') {
@@ -482,6 +483,7 @@ export async function getDashboard(filters: FilterState): Promise<DashboardData>
   const saved = await getLatestAnalysis({
     location: filters.location,
     followerRangeLabel: filters.followerRangeLabel,
+    businessCategory: filters.businessCategory,
     period: filters.period,
   })
   if (saved?.status === 'completed' && saved.dashboard && typeof saved.dashboard === 'object') {

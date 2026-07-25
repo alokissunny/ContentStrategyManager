@@ -46,6 +46,8 @@ export interface FilterState {
   location: string
   comparisonGroup: ComparisonGroupKey
   followerRangeLabel: string
+  /** Overview business type: interior-designer | bauhly-competitor | other */
+  businessCategory: string
   pillar: AuthorityPillar | 'all'
   dimension: PatternDimensionKey
   period: PeriodKey
@@ -57,6 +59,7 @@ export const defaultFilters: FilterState = {
   location: 'Global',
   comparisonGroup: 'comparable',
   followerRangeLabel: 'All sizes',
+  businessCategory: 'interior-designer',
   pillar: 'all',
   dimension: 'format',
   period: 'last-30',
@@ -90,6 +93,14 @@ export const filterOptions = {
     '20K – 50K',
     'Over 50K',
   ],
+  businessCategory: [
+    { value: 'interior-designer', label: 'Interior Designer' },
+    {
+      value: 'bauhly-competitor',
+      label: 'Bauhly Competitor (Instagram Content Strategist)',
+    },
+    { value: 'other', label: 'Other' },
+  ] as const,
   pillar: [
     { value: 'all', label: 'All pillars' },
     { value: 'discovery', label: 'Discovery' },

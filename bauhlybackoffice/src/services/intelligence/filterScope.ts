@@ -47,21 +47,29 @@ export function locationMatches(accountCountry: string | null | undefined, locat
 export interface AnalysisFilterScope {
   location: string
   followerRangeLabel: string
+  businessCategory: string
   period: string
   windowDays: number
 }
 
 export function scopesCompatible(
   stored: AnalysisFilterScope | null | undefined,
-  requested: { location: string; followerRangeLabel: string; period: string },
+  requested: {
+    location: string
+    followerRangeLabel: string
+    businessCategory: string
+    period: string
+  },
 ): boolean {
   const scope = stored ?? {
     location: 'Global',
     followerRangeLabel: 'All sizes',
+    businessCategory: 'interior-designer',
     period: 'last-30',
     windowDays: 30,
   }
   if (scope.location !== requested.location) return false
   if (scope.followerRangeLabel !== requested.followerRangeLabel) return false
+  if ((scope.businessCategory ?? 'interior-designer') !== requested.businessCategory) return false
   return periodToDays(scope.period as PeriodKey) === periodToDays(requested.period as PeriodKey)
 }

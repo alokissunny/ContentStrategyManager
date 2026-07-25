@@ -25,7 +25,7 @@ function DashboardBody({
   filters: FilterState
   setFilters: (f: FilterState) => void
   running?: boolean
-  onRun?: (filters: FilterState) => void
+  onRun?: () => void
 }) {
   const { data, isPending, isError, refetch } = query
 
@@ -35,8 +35,8 @@ function DashboardBody({
         <span className="scrape-spinner" aria-hidden="true" />
         <p className="scrape-overlay-title">Running Claude analysis…</p>
         <p className="scrape-overlay-detail">
-          Condensing {filters.location} · {filters.followerRangeLabel} · {filters.period}, then
-          analysing in batches. Larger registers take a few minutes.
+          Condensing {filters.location} · {filters.followerRangeLabel} · {filters.businessCategory} ·{' '}
+          {filters.period}, then analysing in batches. Larger registers take a few minutes.
         </p>
       </div>
     )
@@ -81,7 +81,7 @@ function DashboardBody({
           }
           action={
             onRun ? (
-              <button type="button" className="btn-primary" onClick={() => onRun(filters)}>
+              <button type="button" className="btn-primary" onClick={() => onRun()}>
                 Run analysis
               </button>
             ) : undefined
@@ -114,7 +114,7 @@ export function IntelligencePage({
   filters: FilterState
   onFiltersChange: (f: FilterState) => void
   running?: boolean
-  onRun?: (filters: FilterState) => void
+  onRun?: () => void
 }) {
   const query = useQuery({
     queryKey: ['dashboard', filters],

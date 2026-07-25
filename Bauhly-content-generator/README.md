@@ -27,7 +27,12 @@ and edited short-form videos** — each with a caption and hashtags — plus an 
   │ 3. Copywriter Agent                           │  brief + plan → captions:
   │    hook, body, CTA, hashtags per piece         │  hook / body / CTA / hashtags
   ├──────────────────────────────────────────────┤
-  │ 4. Editor  (deterministic, sharp)             │  executes the plan on pixels:
+  │ 4. QA Agent                                   │  audits every piece vs the
+  │    scores each piece vs strategy, then         │  strategy → pass / edit
+  │    EDITS the copy/overlays or REGENERATES      │  (rewrite) / regenerate
+  │    the piece (before rendering)                │
+  ├──────────────────────────────────────────────┤
+  │ 5. Editor  (deterministic, sharp / ffmpeg)    │  executes the approved plan:
   │    crop to IG ratios, grade, text overlays     │  1080×1080 / 1080×1350 / 1080×1920
   └──────────────────────────────────────────────┘
                 │
@@ -35,10 +40,13 @@ and edited short-form videos** — each with a caption and hashtags — plus an 
    output/  → edited images + index.html preview + content-plan.json
 ```
 
-Agents 1–3 run on the **Anthropic API** (Claude, with vision for the creative
-director so it can actually see your photos). Agent 4 is deterministic image
-processing with [`sharp`](https://sharp.pixelplumbing.com/), driven by the plan —
-so the same plan always renders the same pixels.
+Agents 1–4 run on the **Anthropic API** (Claude, with vision for the creative
+director and video director so they can actually see your assets; the QA agent
+reviews the planned content and copy against your strategy and edits or
+regenerates before anything is rendered). The Editor is deterministic image/video
+processing with [`sharp`](https://sharp.pixelplumbing.com/) and
+[ffmpeg](https://ffmpeg.org/), driven by the approved plan — so the same plan
+always renders the same pixels.
 
 ### Video pipeline (when a video asset is present)
 
@@ -77,6 +85,11 @@ Upload photos and/or a video, write your strategy, tick the content types
 added), and hit **Generate**. Each result shows inline with a **Download** button
 and a copyable caption; each run is also saved under `runs/<id>/` with a full
 `index.html` preview. Set `PORT` to change the port.
+
+Every AI run reports its **token usage and estimated cost** (e.g. `7,193 tokens ·
+~$0.0511`) in the UI, the CLI summary, and `content-plan.json` (`usage` field).
+Cost is an estimate from the model's list price (input/output, with cache
+read/write factors); offline `mock` runs are free and show no cost.
 
 ## Quick start (CLI)
 
@@ -180,6 +193,7 @@ src/
     creativeDirector.ts brief + photos → per-piece editing plan (vision)
     videoDirector.ts   brief + sampled video frames → video edit plan (vision)
     copywriter.ts      brief + plan → captions
+    qaAgent.ts         audits pieces vs strategy → pass / edit / regenerate
   imageEditor.ts       sharp: crop, grade, text overlays
   video/
     ffmpeg.ts          ffmpeg binary resolution + runner

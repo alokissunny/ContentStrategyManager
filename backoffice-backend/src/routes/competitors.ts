@@ -73,14 +73,16 @@ competitorRoutes.get(
   }),
 )
 
-/** Accounts matching Overview location · follower-range filters. */
+/** Accounts matching Overview location · follower-range · category filters. */
 competitorRoutes.get(
   '/competitors/filter-count',
   asyncHandler(async (req, res) => {
     const location = typeof req.query.location === 'string' ? req.query.location : 'Global'
     const followerRangeLabel =
       typeof req.query.followerRangeLabel === 'string' ? req.query.followerRangeLabel : 'All sizes'
-    res.json(await countMatchingCompetitors({ location, followerRangeLabel }))
+    const businessCategory =
+      typeof req.query.businessCategory === 'string' ? req.query.businessCategory : 'interior-designer'
+    res.json(await countMatchingCompetitors({ location, followerRangeLabel, businessCategory }))
   }),
 )
 
@@ -113,6 +115,35 @@ competitorRoutes.get(
       lastCollectionAt: account.lastSuccessfulCollectionAt?.toISOString() ?? null,
       followerSeries: series,
     })
+  }),
+)
+
+/*
+ * Update editable account fields. Today: business category (who they are
+ * commercially). Competitive `role` stays on the add flow for now.
+ */
+competitorRoutes.patch(
+  '/competitors/:id',
+  asyncHandler(async (req, res) => {
+    if (!mongoose.isValidObjectId(req.params.id)) {
+      return res.status(400).json({ message: 'Invalid competitor id' })
+    }
+    const body = z
+      .object({
+        businessCategory: z.enum(['interior-designer', 'bauhly-competitor', 'other']),
+      })
+      .safeParse(req.body)
+    if (!body.success) {
+      return res.status(400).json({ message: 'Invalid business category.' })
+    }
+
+    const account = await CompetitorAccount.findByIdAndUpdate(
+      req.params.id,
+      { $set: { businessCategory: body.data.businessCategory } },
+      { new: true, runValidators: true },
+    )
+    if (!account) return res.status(404).json({ message: 'Competitor not found' })
+    res.json(serializeAccount(account))
   }),
 )
 
@@ -162,6 +193,10 @@ const newCompetitor = z.object({
   specialization: z.string().nullable().optional().default(null),
   internalNotes: z.string().nullable().optional().default(null),
   role: z.string().optional().default('peer-benchmark'),
+  businessCategory: z
+    .enum(['interior-designer', 'bauhly-competitor', 'other'])
+    .optional()
+    .default('interior-designer'),
   followerCount: z.number().nullable().optional().default(null),
 })
 
@@ -187,6 +222,7 @@ competitorRoutes.post(
       specialization: input.specialization,
       internalNotes: input.internalNotes,
       role: input.role,
+      businessCategory: input.businessCategory ?? 'interior-designer',
       // No approval workflow: an added account is in the register immediately.
       approvalStatus: 'approved',
       latestFollowerCount: input.followerCount,
@@ -211,6 +247,10 @@ competitorRoutes.post(
       .object({
         inputs: z.array(z.string()).min(1).max(50),
         role: z.string().optional().default('peer-benchmark'),
+        businessCategory: z
+          .enum(['interior-designer', 'bauhly-competitor', 'other'])
+          .optional()
+          .default('interior-designer'),
         internalNotes: z.string().nullable().optional().default(null),
       })
       .safeParse(req.body)
@@ -219,6 +259,7 @@ competitorRoutes.post(
     }
 
     const role = body.data.role
+    const businessCategory = body.data.businessCategory
     const notes = body.data.internalNotes
 
     // Deduplicate while preserving order.
@@ -255,6 +296,7 @@ competitorRoutes.post(
           specialization: null,
           internalNotes: notes,
           role,
+          businessCategory: businessCategory ?? 'interior-designer',
           approvalStatus: 'approved',
           latestFollowerCount: null,
           addedBy: 'manual',
@@ -274,6 +316,7 @@ competitorRoutes.post(
       skipped,
       failed: [...invalid.map((i) => ({ username: i.input, error: i.error })), ...failed],
       role,
+      businessCategory,
     })
   }),
 )
@@ -484,6 +527,7 @@ competitorRoutes.patch(
         username: suggestion.username,
         displayName: suggestion.username,
         role: suggestion.suggestedRole,
+        businessCategory: 'interior-designer',
         approvalStatus: 'approved',
         addedBy: 'discovery',
       })
@@ -588,10 +632,17 @@ competitorRoutes.get(
     const location = typeof req.query.location === 'string' ? req.query.location : undefined
     const followerRangeLabel =
       typeof req.query.followerRangeLabel === 'string' ? req.query.followerRangeLabel : undefined
+    const businessCategory =
+      typeof req.query.businessCategory === 'string' ? req.query.businessCategory : undefined
     const period = typeof req.query.period === 'string' ? req.query.period : undefined
 
-    if (location || followerRangeLabel || period) {
-      const scoped = await getAnalysisForScope({ location, followerRangeLabel, period })
+    if (location || followerRangeLabel || businessCategory || period) {
+      const scoped = await getAnalysisForScope({
+        location,
+        followerRangeLabel,
+        businessCategory,
+        period,
+      })
       return res.json(scoped)
     }
 
@@ -607,6 +658,7 @@ competitorRoutes.post(
       .object({
         location: z.string().optional(),
         followerRangeLabel: z.string().optional(),
+        businessCategory: z.string().optional(),
         period: z.string().optional(),
         windowDays: z.number().optional(),
       })
@@ -624,6 +676,7 @@ competitorRoutes.post(
       const failed = await getFailedAnalysisForScope({
         location: input.location,
         followerRangeLabel: input.followerRangeLabel,
+        businessCategory: input.businessCategory,
         period: input.period,
       })
       if (failed) return res.status(500).json({ ...failed, message: failed.error ?? message })

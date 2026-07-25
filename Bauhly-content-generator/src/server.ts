@@ -89,6 +89,8 @@ app.post("/api/generate", prepareJob, upload.array("files"), async (req: JobRequ
       jobId,
       engine: plan.engine,
       model: plan.model,
+      usage: plan.usage,
+      qa: plan.qa,
       brief: plan.brief,
       previewUrl: `/runs/${jobId}/index.html`,
       pieces: plan.pieces.map((p) => ({

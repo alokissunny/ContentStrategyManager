@@ -97,6 +97,7 @@ function buildAccount(index: number): CompetitorAccount {
     targetAudience: null,
     positioningNote: null,
     role: status === 'watchlist-only' ? pick(['emerging', 'aspirational', 'content-style'] as const) : pick(roles),
+    businessCategory: pick(['interior-designer', 'interior-designer', 'bauhly-competitor', 'other'] as const),
     approvalStatus: status,
     groupIds: groupsFor(status, location.country, location.city, followers),
     relevantCustomerIds: location.city === 'Valencia' ? ['cust-luz'] : [],

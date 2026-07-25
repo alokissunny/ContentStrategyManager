@@ -9,6 +9,13 @@ import {
   type CondensedAccount,
   type CorpusStats,
 } from './analysisCorpus.ts'
+import {
+  aggregateHookMetrics,
+  applyComputedHookMetrics,
+  buildEngagementRateLookup,
+  countExemplars,
+  type ComputedHookMetric,
+} from './hookMetrics.ts'
 import { periodToDays, type AnalysisFilterScope } from './filterScope.ts'
 
 const PROMPT_DIR = join(dirname(fileURLToPath(import.meta.url)), '../../prompts')
@@ -55,6 +62,7 @@ function serialize(doc: InstanceType<typeof CompetitorAnalysis>): AnalysisResult
       ? {
           location: scope.location ?? 'Global',
           followerRangeLabel: scope.followerRangeLabel ?? 'All sizes',
+          businessCategory: scope.businessCategory ?? 'interior-designer',
           period: scope.period ?? 'last-30',
           windowDays: scope.windowDays ?? doc.windowDays,
         }
@@ -285,8 +293,11 @@ function normalizeDashboard(
       structure: asStr(row.structure),
       useRate: asNum(row.useRate),
       medianEngagement: asNum(row.medianEngagement),
-      trend: trend === 'up' || trend === 'down' || trend === 'flat' ? trend : 'flat',
-      pillar: pillarOf(row.pillar) ?? 'discovery',
+      trend: (trend === 'up' || trend === 'down' || trend === 'flat' ? trend : 'flat') as
+        | 'up'
+        | 'down'
+        | 'flat',
+      pillar: (pillarOf(row.pillar) ?? 'discovery') as 'discovery' | 'credibility' | 'trust',
     }
   })
 
@@ -365,14 +376,34 @@ function normalizeDashboard(
 }
 
 function batchPayload(batchIndex: number, accounts: CondensedAccount[]) {
+  const exemplarIndex = accounts.flatMap((a) =>
+    a.exemplars.map((e) => ({
+      username: a.username,
+      platformPostId: e.platformPostId,
+      engagementRate: e.engagementRate,
+      caption: e.caption,
+      format: e.format,
+    })),
+  )
   return {
     batchIndex,
     accountCount: accounts.length,
+    exemplarCount: exemplarIndex.length,
+    /**
+     * Flat list of exemplars with precomputed ER — classify hooks from these
+     * and copy engagementRate into hook.posts.
+     */
+    exemplarIndex,
     accounts,
   }
 }
 
-function reducePayload(corpus: CorpusStats, batchMemos: unknown[], batchCount: number) {
+function reducePayload(
+  corpus: CorpusStats,
+  batchMemos: unknown[],
+  batchCount: number,
+  hookMetrics: ComputedHookMetric[],
+) {
   return {
     generatedAt: new Date().toISOString(),
     coverage: {
@@ -384,6 +415,11 @@ function reducePayload(corpus: CorpusStats, batchMemos: unknown[], batchCount: n
       memoCount: batchMemos.length,
     },
     corpus,
+    /**
+     * Authoritative hook rates. Median ER is pooled across all classified
+     * posts for the hook: (likes + comments) / followers × 100.
+     */
+    hookMetrics,
     batchMemos,
   }
 }
@@ -415,6 +451,7 @@ export class AnalysisPreconditionError extends Error {
 export interface RunAnalysisInput {
   location?: string
   followerRangeLabel?: string
+  businessCategory?: string
   period?: string
   windowDays?: number
 }
@@ -422,20 +459,31 @@ export interface RunAnalysisInput {
 export async function runRegisterAnalysis(input: RunAnalysisInput = {}): Promise<AnalysisResult> {
   const location = input.location ?? 'Global'
   const followerRangeLabel = input.followerRangeLabel ?? 'All sizes'
+  const businessCategory = input.businessCategory ?? 'interior-designer'
   const period = input.period ?? 'last-30'
   const windowDays = input.windowDays ?? periodToDays(period)
-  const filterScope: AnalysisFilterScope = { location, followerRangeLabel, period, windowDays }
+  const filterScope: AnalysisFilterScope = {
+    location,
+    followerRangeLabel,
+    businessCategory,
+    period,
+    windowDays,
+  }
 
   // Local condense + stratify before opening a run row.
-  const built = await buildAnalysisCorpus(windowDays, { location, followerRangeLabel })
+  const built = await buildAnalysisCorpus(windowDays, {
+    location,
+    followerRangeLabel,
+    businessCategory,
+  })
   if (built.corpus.matchedAccountCount === 0) {
     throw new AnalysisPreconditionError(
-      `No competitor accounts match ${location} · ${followerRangeLabel}. Adjust filters or add accounts.`,
+      `No competitor accounts match ${location} · ${followerRangeLabel} · ${businessCategory}. Adjust filters or add accounts.`,
     )
   }
   if (built.corpus.accountsWithPosts === 0 || built.corpus.totalPosts === 0) {
     throw new AnalysisPreconditionError(
-      `${built.corpus.matchedAccountCount} account${built.corpus.matchedAccountCount === 1 ? '' : 's'} match ${location} · ${followerRangeLabel}, but none have posts in the last ${windowDays} days. Select those accounts on Accounts and run Scrape posts, then try again.`,
+      `${built.corpus.matchedAccountCount} account${built.corpus.matchedAccountCount === 1 ? '' : 's'} match ${location} · ${followerRangeLabel} · ${businessCategory}, but none have posts in the last ${windowDays} days. Select those accounts on Accounts and run Scrape posts, then try again.`,
     )
   }
 
@@ -450,7 +498,7 @@ export async function runRegisterAnalysis(input: RunAnalysisInput = {}): Promise
     const model = env.anthropic.model
     console.log(
       `[analysis] start run=${String(running._id)} model=${model} ` +
-        `scope=${location}/${followerRangeLabel}/${period}(${windowDays}d) ` +
+        `scope=${location}/${followerRangeLabel}/${businessCategory}/${period}(${windowDays}d) ` +
         `matched=${built.corpus.matchedAccountCount} withPosts=${built.corpus.accountsWithPosts} ` +
         `posts=${built.corpus.totalPosts} batches=${built.batches.length}`,
     )
@@ -458,7 +506,18 @@ export async function runRegisterAnalysis(input: RunAnalysisInput = {}): Promise
     const batchMemos = await runMapBatches(built.batches)
     console.log(`[analysis] map complete memos=${batchMemos.length}`)
 
-    const reduceBody = reducePayload(built.corpus, batchMemos, built.batches.length)
+    const erLookup = buildEngagementRateLookup(built.accounts)
+    const totalExemplars = countExemplars(built.accounts)
+    const hookMetrics = aggregateHookMetrics(batchMemos, erLookup, totalExemplars)
+    console.log(
+      `[analysis] hookMetrics=${hookMetrics.length} exemplars=${totalExemplars} ` +
+        `top=${hookMetrics
+          .slice(0, 3)
+          .map((h) => `${h.hookType}:${h.useRate}%/${h.medianEngagement}%`)
+          .join(', ') || 'none'}`,
+    )
+
+    const reduceBody = reducePayload(built.corpus, batchMemos, built.batches.length, hookMetrics)
     const dashboardPrompt = loadPrompt(DASHBOARD_PROMPT_PATH)
       .replaceAll('{{WINDOW_DAYS}}', String(windowDays))
       .replace('{{PAYLOAD_JSON}}', JSON.stringify(reduceBody, null, 2))
@@ -485,8 +544,11 @@ export async function runRegisterAnalysis(input: RunAnalysisInput = {}): Promise
       asNum(dashboard.summary.medianEngagementRate, 0) || built.corpus.medianEngagementRate
     dashboard.summary.accountsAnalyzed = built.corpus.accountsWithPosts
     dashboard.summary.postsAnalyzed = built.corpus.totalPosts
+    // Claude often returns useRate/medianEngagement as 0 — overwrite with
+    // pooled post-level metrics from map classifications.
+    dashboard.hooks = applyComputedHookMetrics(dashboard.hooks, hookMetrics)
     dashboard.sampleLabel =
-      `${location} · ${followerRangeLabel} · last ${windowDays} days · ` +
+      `${location} · ${followerRangeLabel} · ${businessCategory} · last ${windowDays} days · ` +
       `${built.corpus.accountsWithPosts} accounts / ${built.corpus.totalPosts} posts · ` +
       `${built.batches.length} map batch${built.batches.length === 1 ? '' : 'es'}`
 
@@ -532,10 +594,12 @@ export async function getLatestAnalysis(): Promise<AnalysisResult | null> {
 export async function getAnalysisForScope(input: {
   location?: string
   followerRangeLabel?: string
+  businessCategory?: string
   period?: string
 }): Promise<AnalysisResult | null> {
   const location = input.location ?? 'Global'
   const followerRangeLabel = input.followerRangeLabel ?? 'All sizes'
+  const businessCategory = input.businessCategory ?? 'interior-designer'
   const period = input.period ?? 'last-30'
   const windowDays = periodToDays(period)
 
@@ -543,6 +607,7 @@ export async function getAnalysisForScope(input: {
     status: 'completed',
     'filterScope.location': location,
     'filterScope.followerRangeLabel': followerRangeLabel,
+    'filterScope.businessCategory': businessCategory,
     'filterScope.period': period,
     dashboard: { $ne: null },
   })
@@ -551,7 +616,30 @@ export async function getAnalysisForScope(input: {
 
   if (scoped) return serialize(scoped)
 
-  if (location === 'Global' && followerRangeLabel === 'All sizes') {
+  // Legacy rows without businessCategory: treat as Interior Designer.
+  if (businessCategory === 'interior-designer') {
+    const [legacyCat] = await CompetitorAnalysis.find({
+      status: 'completed',
+      'filterScope.location': location,
+      'filterScope.followerRangeLabel': followerRangeLabel,
+      'filterScope.period': period,
+      dashboard: { $ne: null },
+      $or: [
+        { 'filterScope.businessCategory': { $exists: false } },
+        { 'filterScope.businessCategory': null },
+        { 'filterScope.businessCategory': 'All categories' },
+      ],
+    })
+      .sort({ finishedAt: -1, startedAt: -1 })
+      .limit(1)
+    if (legacyCat) return serialize(legacyCat)
+  }
+
+  if (
+    location === 'Global' &&
+    followerRangeLabel === 'All sizes' &&
+    businessCategory === 'interior-designer'
+  ) {
     const [legacy] = await CompetitorAnalysis.find({
       status: 'completed',
       dashboard: { $ne: null },
@@ -570,16 +658,19 @@ export async function getAnalysisForScope(input: {
 export async function getFailedAnalysisForScope(input: {
   location?: string
   followerRangeLabel?: string
+  businessCategory?: string
   period?: string
 }): Promise<AnalysisResult | null> {
   const location = input.location ?? 'Global'
   const followerRangeLabel = input.followerRangeLabel ?? 'All sizes'
+  const businessCategory = input.businessCategory ?? 'interior-designer'
   const period = input.period ?? 'last-30'
 
   const [failed] = await CompetitorAnalysis.find({
     status: 'failed',
     'filterScope.location': location,
     'filterScope.followerRangeLabel': followerRangeLabel,
+    'filterScope.businessCategory': businessCategory,
     'filterScope.period': period,
   })
     .sort({ finishedAt: -1, startedAt: -1 })

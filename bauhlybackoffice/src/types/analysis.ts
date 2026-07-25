@@ -16,6 +16,7 @@ export const competitorAnalysis = z.object({
     .object({
       location: z.string(),
       followerRangeLabel: z.string(),
+      businessCategory: z.string().optional().default('interior-designer'),
       period: z.string(),
       windowDays: z.number().int().positive(),
     })

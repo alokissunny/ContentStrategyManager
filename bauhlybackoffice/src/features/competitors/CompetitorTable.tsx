@@ -137,6 +137,7 @@ export function CompetitorTable({
                 </button>
               </th>
               <th scope="col">Location</th>
+              <th scope="col">Category</th>
               <th scope="col">
                 <span className="visually-hidden">Raw data</span>
               </th>
@@ -178,6 +179,17 @@ export function CompetitorTable({
                 <td>
                   <span className="comp-loc">{row.location.country}</span>
                   <span className="comp-loc-city">{row.location.city}</span>
+                </td>
+                <td>
+                  <span className="comp-category">
+                    {row.businessCategory === 'bauhly-competitor'
+                      ? 'Bauhly competitor'
+                      : row.businessCategory === 'other'
+                        ? 'Other'
+                        : row.businessCategory === 'interior-designer'
+                          ? 'Interior designer'
+                          : '—'}
+                  </span>
                 </td>
                 {/* Stop propagation: the row itself opens the detail panel. */}
                 <td onClick={(e) => e.stopPropagation()}>

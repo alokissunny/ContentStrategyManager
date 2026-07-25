@@ -108,7 +108,13 @@ Return **only one JSON object** (no Markdown fences, no preamble). Shape:
 `currentValue` must come from corpus / memos. Set `previousValue` and
 `changePp` to `null` and `state` to `"inconclusive"` unless the input itself
 contains a clear prior comparison — never invent a previous window.
-- **hooks** — 5–8 abstracted hook types (merge recurring memo hooks)
+- **hooks** — 5–8 abstracted hook types (merge recurring memo hooks).
+  **`useRate` and `medianEngagement` must come from `hookMetrics`** (server-
+  computed). Copy those numbers exactly — do not invent zeros.
+  - `useRate` = % of classified exemplars that use the hook
+  - `medianEngagement` = median of per-post ER across **all** posts using that
+    hook (pooled from every competitor), where
+    `ER = (likes + comments) / followers × 100`
 - **topics** — 6–10 topics
 - **hashtags** — prefer corpus `topHashtags`; classify type; 8–12 rows
 - **weekly** — Mon–Sun (7 rows); use corpus `postingDays` for volume where possible
@@ -116,7 +122,9 @@ contains a clear prior comparison — never invent a previous window.
 ### Hard rules
 - **Quantitative claims** (shares, medians, account/post counts) must align with
   `corpus`. Do not invent contradicting percentages.
-- Use **batchMemos** for qualitative patterns, hooks, themes, anomalies.
+- Use **batchMemos** for qualitative patterns, themes, anomalies.
+- Use **hookMetrics** as the source of truth for hook `useRate` and
+  `medianEngagement` (and prefer its `hookType` / `structure` when merging).
 - `summary.accountsAnalyzed` = `corpus.accountsWithPosts`
 - `summary.postsAnalyzed` = `corpus.totalPosts`
 - `summary.medianPostsPerWeek` / `medianEngagementRate` = corpus values when present

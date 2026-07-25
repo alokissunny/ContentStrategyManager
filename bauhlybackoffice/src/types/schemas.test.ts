@@ -27,6 +27,7 @@ describe('entity schemas', () => {
       targetAudience: null,
       positioningNote: null,
       role: 'high-performing-peer',
+      businessCategory: 'interior-designer',
       approvalStatus: 'included-in-benchmarks',
       groupIds: ['grp-comparable'],
       relevantCustomerIds: ['cust-1'],

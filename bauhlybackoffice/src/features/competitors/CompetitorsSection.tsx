@@ -12,7 +12,8 @@ import {
   type NewCompetitorInput,
 } from '../../services/competitors/repository'
 import { IntelligencePage } from '../intelligence/IntelligencePage'
-import { defaultFilters, type FilterState } from '../../services/intelligence/filters'
+import { defaultFilters, filterOptions, type FilterState } from '../../services/intelligence/filters'
+
 import { periodToDays } from '../../services/intelligence/filterScope'
 import { CompetitorsPage } from './CompetitorsPage'
 import { AddCompetitorForm, Modal, SuggestionList } from './modals'
@@ -39,7 +40,7 @@ function relativeTime(iso: string | null): string {
 export function CompetitorsSection() {
   const { pathname } = useLocation()
   const onAccounts = pathname === '/competitors'
-  const [modal, setModal] = useState<'add' | 'discover' | null>(null)
+  const [modal, setModal] = useState<'add' | 'discover' | 'confirm-analysis' | null>(null)
   const [addError, setAddError] = useState<string | null>(null)
   const [analysisError, setAnalysisError] = useState<string | null>(null)
   const [filters, setFilters] = useState<FilterState>(defaultFilters)
@@ -91,6 +92,7 @@ export function CompetitorsSection() {
     mutationFn: (input: {
       location: string
       followerRangeLabel: string
+      businessCategory: string
       period: string
       windowDays: number
     }) => runCompetitorAnalysis(input),
@@ -109,21 +111,49 @@ export function CompetitorsSection() {
     analysisMutation.mutate({
       location: f.location,
       followerRangeLabel: f.followerRangeLabel,
+      businessCategory: f.businessCategory,
       period: f.period,
       windowDays: periodToDays(f.period),
     })
 
+  const requestRunAnalysis = () => setModal('confirm-analysis')
+
+  const confirmRunAnalysis = () => {
+    setModal(null)
+    runAnalysis(filters)
+  }
+
+  const businessTypeLabel =
+    filterOptions.businessCategory.find((o) => o.value === filters.businessCategory)?.label ??
+    filters.businessCategory
+  const periodLabel =
+    filterOptions.period.find((o) => o.value === filters.period)?.label ?? filters.period
+
   return (
     <div>
-      {collection.data && (
+      {!onAccounts && (
         <PageActions>
           <span
             className="collection-status"
-            title={`${collection.data.accountsProcessed} accounts processed, ${collection.data.postsCollected.toLocaleString('en-US')} posts collected, ${collection.data.failures} failed`}
+            title={
+              collection.data
+                ? `${collection.data.accountsProcessed} accounts processed, ${collection.data.postsCollected.toLocaleString('en-US')} posts collected, ${collection.data.failures} failed`
+                : undefined
+            }
           >
             <RefreshIcon width={14} height={14} />
-            Last scrape {relativeTime(collection.data.lastRunAt)} · {collection.data.source}
+            Last scrape{' '}
+            {collection.data ? relativeTime(collection.data.lastRunAt) : '…'}
+            {collection.data ? ` · ${collection.data.source}` : ''}
           </span>
+          <button
+            type="button"
+            className="btn-primary"
+            disabled={analysisMutation.isPending}
+            onClick={requestRunAnalysis}
+          >
+            {analysisMutation.isPending ? 'Analysing…' : 'Run analysis'}
+          </button>
         </PageActions>
       )}
 
@@ -143,14 +173,22 @@ export function CompetitorsSection() {
 
         <div className="section-bar-actions">
           {!onAccounts && (
-            <button
-              type="button"
-              className="btn-primary"
-              disabled={analysisMutation.isPending}
-              onClick={() => runAnalysis(filters)}
-            >
-              {analysisMutation.isPending ? 'Analysing…' : 'Run analysis'}
-            </button>
+            <div className="section-bar-field">
+              <label htmlFor="overview-business-type">Business type</label>
+              <select
+                id="overview-business-type"
+                value={filters.businessCategory}
+                onChange={(e) =>
+                  setFilters({ ...filters, businessCategory: e.target.value })
+                }
+              >
+                {filterOptions.businessCategory.map(({ value, label }) => (
+                  <option key={value} value={value}>
+                    {label}
+                  </option>
+                ))}
+              </select>
+            </div>
           )}
           <button type="button" className="btn-secondary" onClick={() => setModal('discover')}>
             ✦ Discover
@@ -184,8 +222,43 @@ export function CompetitorsSection() {
           filters={filters}
           onFiltersChange={setFilters}
           running={analysisMutation.isPending}
-          onRun={runAnalysis}
+          onRun={requestRunAnalysis}
         />
+      )}
+
+      {modal === 'confirm-analysis' && (
+        <Modal title="Run analysis?" onClose={() => setModal(null)}>
+          <p className="form-note" style={{ marginTop: 0 }}>
+            Claude will condense matching competitors and analyse them in batches for the current
+            Overview filters. This can take a few minutes and uses API credits.
+          </p>
+          <dl className="confirm-analysis-scope">
+            <div>
+              <dt>Business type</dt>
+              <dd>{businessTypeLabel}</dd>
+            </div>
+            <div>
+              <dt>Location</dt>
+              <dd>{filters.location}</dd>
+            </div>
+            <div>
+              <dt>Follower range</dt>
+              <dd>{filters.followerRangeLabel}</dd>
+            </div>
+            <div>
+              <dt>Period</dt>
+              <dd>{periodLabel}</dd>
+            </div>
+          </dl>
+          <div className="confirm-analysis-actions">
+            <button type="button" className="btn-secondary" onClick={() => setModal(null)}>
+              Cancel
+            </button>
+            <button type="button" className="btn-primary" onClick={confirmRunAnalysis}>
+              Run analysis
+            </button>
+          </div>
+        </Modal>
       )}
 
       {modal === 'add' && (

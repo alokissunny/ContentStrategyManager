@@ -1,5 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { MODEL } from "./config.js";
+import { recordUsage } from "./usage.js";
 import type { AssetInfo } from "./types.js";
 import { readFile } from "node:fs/promises";
 
@@ -80,6 +81,8 @@ ${JSON.stringify(opts.schema)}`,
       system: opts.system,
       messages: [{ role: "user", content }],
     });
+
+    recordUsage(response.usage);
 
     if (response.stop_reason === "refusal") {
       throw new Error("Claude declined this request (safety refusal).");

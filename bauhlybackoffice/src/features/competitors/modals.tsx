@@ -10,6 +10,7 @@ import {
   type NewCompetitorInput,
   type ProfilePreview,
 } from '../../services/competitors/repository'
+import { BUSINESS_CATEGORY_OPTIONS, type BusinessCategory } from '../../types'
 
 /* Modal shell + Add Competitor form + Discovery suggestions review. */
 
@@ -45,6 +46,7 @@ export function AddCompetitorForm({
   const [bulkText, setBulkText] = useState('')
   const [preview, setPreview] = useState<ProfilePreview | null>(null)
   const [role, setRole] = useState<NewCompetitorInput['role']>('peer-benchmark')
+  const [businessCategory, setBusinessCategory] = useState<BusinessCategory>('interior-designer')
   const [notes, setNotes] = useState('')
   const [bulkResult, setBulkResult] = useState<BulkAddResult | null>(null)
   const [bulkLocalError, setBulkLocalError] = useState<string | null>(null)
@@ -78,6 +80,7 @@ export function AddCompetitorForm({
       const result = await onBulkSubmit({
         inputs,
         role,
+        businessCategory,
         internalNotes: notes || null,
       })
       setBulkResult(result)
@@ -271,6 +274,20 @@ export function AddCompetitorForm({
             </select>
           </div>
           <div className="form-field">
+            <label htmlFor="add-category">Business category</label>
+            <select
+              id="add-category"
+              value={businessCategory}
+              onChange={(e) => setBusinessCategory(e.target.value as BusinessCategory)}
+            >
+              {BUSINESS_CATEGORY_OPTIONS.map(({ value, label }) => (
+                <option key={value} value={value}>
+                  {label}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="form-field">
             <label htmlFor="add-notes">Internal notes (optional)</label>
             <textarea
               id="add-notes"
@@ -309,6 +326,7 @@ export function AddCompetitorForm({
                   city: preview.locationGuess.city,
                   language: null,
                   role,
+                  businessCategory,
                   specialization: null,
                   internalNotes: notes || null,
                   followerCount: preview.followerCount,
@@ -344,6 +362,20 @@ export function AddCompetitorForm({
               onChange={(e) => setRole(e.target.value as NewCompetitorInput['role'])}
             >
               {roleOptions.map(([value, label]) => (
+                <option key={value} value={value}>
+                  {label}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="form-field">
+            <label htmlFor="add-bulk-category">Business category for all</label>
+            <select
+              id="add-bulk-category"
+              value={businessCategory}
+              onChange={(e) => setBusinessCategory(e.target.value as BusinessCategory)}
+            >
+              {BUSINESS_CATEGORY_OPTIONS.map(({ value, label }) => (
                 <option key={value} value={value}>
                   {label}
                 </option>

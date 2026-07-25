@@ -6,8 +6,10 @@ import {
   getCompetitorDetail,
   listCompetitors,
   scrapeCompetitorPosts,
+  updateCompetitorBusinessCategory,
   type CompetitorQuery,
 } from '../../services/competitors/repository'
+import type { BusinessCategory } from '../../types'
 import { EmptyState } from '../../components/EmptyState'
 import { StatCard } from '../../components/StatCard'
 import { Sparkline } from '../intelligence/bits'
@@ -78,6 +80,12 @@ export function CompetitorsPage() {
     onError: (err) => {
       setScrapeNotice(err instanceof Error ? err.message : 'Failed to scrape posts.')
     },
+  })
+
+  const updateCategory = useMutation({
+    mutationFn: ({ id, businessCategory }: { id: string; businessCategory: BusinessCategory }) =>
+      updateCompetitorBusinessCategory(id, businessCategory),
+    onSuccess: () => invalidate(),
   })
 
   const enrichAccounts = useMutation({
@@ -273,6 +281,11 @@ export function CompetitorsPage() {
           detail={detail.data}
           period={query.period}
           onClose={() => setActiveId(null)}
+          categorySaving={updateCategory.isPending}
+          onBusinessCategoryChange={(businessCategory) => {
+            if (!activeId) return
+            updateCategory.mutate({ id: activeId, businessCategory })
+          }}
         />
       )}
 

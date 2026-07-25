@@ -209,19 +209,22 @@ export async function getCompetitorLocations(): Promise<string[]> {
   return data.locations ?? []
 }
 
-/** How many accounts match Overview location · follower-range filters. */
+/** How many accounts match Overview location · follower-range · category filters. */
 export async function getCompetitorFilterCount(filters: {
   location: string
   followerRangeLabel: string
+  businessCategory?: string
 }): Promise<{ matching: number; total: number }> {
   if (!USE_MOCKS) {
     return api.get<{ matching: number; total: number }>('/competitors/filter-count', {
       location: filters.location,
       followerRangeLabel: filters.followerRangeLabel,
+      businessCategory: filters.businessCategory ?? 'interior-designer',
     })
   }
   await delay()
   const range = followerBuckets[filters.followerRangeLabel]
+  const category = filters.businessCategory ?? 'interior-designer'
   let matching = 0
   for (const a of accounts) {
     if (a.approvalStatus === 'deleted') continue
@@ -236,6 +239,8 @@ export async function getCompetitorFilterCount(filters: {
       if (f < min) continue
       if (max != null && f >= max) continue
     }
+    const cat = a.businessCategory ?? 'interior-designer'
+    if (cat !== category) continue
     matching += 1
   }
   return { matching, total: accounts.filter((a) => a.approvalStatus !== 'deleted').length }
@@ -269,6 +274,7 @@ export interface NewCompetitorInput {
   city: string | null
   language: string | null
   role: CompetitorAccount['role']
+  businessCategory?: CompetitorAccount['businessCategory']
   specialization: string | null
   internalNotes: string | null
   /** From profile lookup, when available. */
@@ -372,6 +378,7 @@ export async function addCompetitor(input: NewCompetitorInput): Promise<Competit
     targetAudience: null,
     positioningNote: null,
     role: input.role,
+    businessCategory: input.businessCategory ?? 'interior-designer',
     approvalStatus: 'awaiting-review',
     groupIds: [],
     relevantCustomerIds: [],
@@ -389,6 +396,7 @@ export async function addCompetitor(input: NewCompetitorInput): Promise<Competit
 export interface BulkCompetitorInput {
   inputs: string[]
   role: CompetitorAccount['role']
+  businessCategory?: CompetitorAccount['businessCategory']
   internalNotes: string | null
 }
 
@@ -448,10 +456,31 @@ export async function addCompetitorsBulk(input: BulkCompetitorInput): Promise<Bu
       specialization: null,
       internalNotes: input.internalNotes,
       followerCount: null,
+      businessCategory: input.businessCategory ?? 'interior-designer',
     })
     added.push({ id: account.id, username: account.username })
   }
   return { added, skipped, failed, role: input.role }
+}
+
+/**
+ * Set business category on an existing competitor (detail panel / list edits).
+ */
+export async function updateCompetitorBusinessCategory(
+  id: string,
+  businessCategory: CompetitorAccount['businessCategory'],
+): Promise<CompetitorAccount> {
+  const category = businessCategory ?? 'interior-designer'
+  if (!USE_MOCKS) {
+    return competitorAccount.parse(
+      await api.patch<unknown>(`/competitors/${id}`, { businessCategory: category }),
+    )
+  }
+  await delay()
+  const account = accounts.find((a) => a.id === id)
+  if (!account) throw new Error('Competitor not found')
+  account.businessCategory = category
+  return account
 }
 
 export async function setApprovalStatus(
@@ -759,11 +788,13 @@ export async function getRawPosts(id: string, limit = 50): Promise<RawPostsRespo
 function scopeKey(input: {
   location?: string
   followerRangeLabel?: string
+  businessCategory?: string
   period?: string
 }): string {
   return [
     input.location ?? 'Global',
     input.followerRangeLabel ?? 'All sizes',
+    input.businessCategory ?? 'interior-designer',
     input.period ?? 'last-30',
   ].join('|')
 }
@@ -772,6 +803,7 @@ function scopeKey(input: {
 export async function getLatestAnalysis(filters?: {
   location?: string
   followerRangeLabel?: string
+  businessCategory?: string
   period?: string
 }): Promise<CompetitorAnalysis | null> {
   if (!USE_MOCKS) {
@@ -781,6 +813,7 @@ export async function getLatestAnalysis(filters?: {
         ? {
             location: filters.location,
             followerRangeLabel: filters.followerRangeLabel,
+            businessCategory: filters.businessCategory,
             period: filters.period,
           }
         : undefined,
@@ -800,12 +833,14 @@ const mockAnalyses = new Map<string, CompetitorAnalysis>()
 export async function runCompetitorAnalysis(input?: {
   location?: string
   followerRangeLabel?: string
+  businessCategory?: string
   period?: string
   windowDays?: number
 }): Promise<CompetitorAnalysis> {
   const windowDays = input?.windowDays ?? 30
   const location = input?.location ?? 'Global'
   const followerRangeLabel = input?.followerRangeLabel ?? 'All sizes'
+  const businessCategory = input?.businessCategory ?? 'interior-designer'
   const period = input?.period ?? 'last-30'
   if (!USE_MOCKS) {
     try {
@@ -813,6 +848,7 @@ export async function runCompetitorAnalysis(input?: {
         await api.post<unknown>('/analysis/run', {
           location,
           followerRangeLabel,
+          businessCategory,
           period,
           windowDays,
         }),
@@ -820,7 +856,12 @@ export async function runCompetitorAnalysis(input?: {
     } catch (err) {
       if (err instanceof ApiError) {
         try {
-          const latest = await getLatestAnalysis({ location, followerRangeLabel, period })
+          const latest = await getLatestAnalysis({
+            location,
+            followerRangeLabel,
+            businessCategory,
+            period,
+          })
           if (latest?.status === 'failed') return latest
         } catch {
           /* fall through */
@@ -836,6 +877,7 @@ export async function runCompetitorAnalysis(input?: {
     ...defaultFilters,
     location,
     followerRangeLabel,
+    businessCategory,
     period: period as typeof defaultFilters.period,
   })
   const saved: CompetitorAnalysis = {
@@ -851,12 +893,13 @@ export async function runCompetitorAnalysis(input?: {
     filterScope: {
       location,
       followerRangeLabel,
+      businessCategory,
       period,
       windowDays,
     },
     startedAt: new Date(Date.now() - 2200).toISOString(),
     finishedAt: new Date().toISOString(),
   }
-  mockAnalyses.set(scopeKey({ location, followerRangeLabel, period }), saved)
+  mockAnalyses.set(scopeKey({ location, followerRangeLabel, businessCategory, period }), saved)
   return saved
 }
