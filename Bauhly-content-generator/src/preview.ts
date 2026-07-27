@@ -57,6 +57,7 @@ function pieceBlock(p: RenderedPiece): string {
         <span class="badge badge-${p.plan.format}">${p.plan.format}</span>
         <h2>${esc(p.plan.title)}</h2>
         <p class="concept">${esc(p.plan.concept)}</p>
+        ${p.plan.hook ? `<p class="hookline">🎯 hook: “${esc(p.plan.hook)}”</p>` : ""}
       </header>
       ${body}
       ${captionBlock(p)}
@@ -101,7 +102,8 @@ export function buildPreviewHtml(plan: ContentPlan): string {
   .piece { background: var(--card); border-radius: 18px; padding: 20px; margin-top: 22px;
     box-shadow: 0 1px 3px rgba(0,0,0,.15); }
   .piece header h2 { margin: 8px 0 4px; font-size: 21px; }
-  .concept { color: var(--muted); margin: 0 0 14px; }
+  .concept { color: var(--muted); margin: 0 0 6px; }
+  .hookline { margin: 0 0 12px; font-weight: 600; }
   .badge { text-transform: uppercase; font-size: 11px; font-weight: 700; letter-spacing: .5px;
     padding: 4px 10px; border-radius: 999px; color: #fff; background: var(--accent); }
   .badge-carousel { background: var(--secondary); }
@@ -155,6 +157,14 @@ export function buildPreviewHtml(plan: ContentPlan): string {
     <strong>Content pillars</strong>
     <ul>${pillars}</ul>
   </section>
+  ${
+    plan.generatedAssets.length
+      ? `<section class="pillars"><strong>🖼️ Generated photos (${plan.generatedAssets.length})</strong> — new assets the Asset Planner created to fill strategy gaps
+        <div class="slides">${plan.generatedAssets
+          .map((g) => `<figure class="slide"><img src="${g.file}" alt="${esc(g.purpose)}" loading="lazy"/><figcaption>${esc(g.purpose)} · ${esc(g.provider)}</figcaption></figure>`)
+          .join("")}</div></section>`
+      : ""
+  }
 
   ${pieces}
 

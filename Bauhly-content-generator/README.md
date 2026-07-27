@@ -6,8 +6,10 @@ edits your assets, and produces ready-to-review **posts, carousels, reel covers,
 and edited short-form videos** — each with a caption and hashtags — plus an HTML preview.
 
 - **Photos** → post / carousel / reel-cover images (crop, colour grade, text overlays).
-- **Videos** → a Video Director agent "watches" your clip, then trims, crops to 9:16,
+- **Videos** → a Video Director agent "watches" each clip, then trims, crops to 9:16,
   speed-ramps, and burns in timed captions to build a viral short — driven by your strategy.
+  Upload several and each gets its own edit (up to `MAX_VIDEOS`, default 12); photos and
+  videos in the same folder are all processed in one run.
 
 ## How it works — the agents
 
@@ -20,33 +22,55 @@ and edited short-form videos** — each with a caption and hashtags — plus an 
   │    audience, tone, pillars, hashtags,         │
   │    CTA, brand colour kit                       │
   ├──────────────────────────────────────────────┤
-  │ 2. Creative Director Agent  (sees the photos) │  brief + assets → per-piece plan:
-  │    which asset, crop, colour grade,            │  which photo, how to edit it,
-  │    overlay text, per format                    │  what text to bake on
+  │ 2. Asset Planner Agent  (sees the photos)     │  brief + uploads → gaps →
+  │    finds shots the strategy needs but the      │  text-to-image prompts;
+  │    uploads lack → generates new photos         │  new photos join the pool
   ├──────────────────────────────────────────────┤
-  │ 3. Copywriter Agent                           │  brief + plan → captions:
+  │ 3. Creative Director Agent  (sees the photos) │  brief + assets → per-piece plan:
+  │    which asset (uploaded OR generated), crop,  │  which photo, how to edit it,
+  │    colour grade, overlay text, per format      │  what text to bake on
+  ├──────────────────────────────────────────────┤
+  │ 4. Hook Agent                                 │  writes the viral on-screen
+  │    one scroll-stopping hook per piece →         │  HOOK, baked onto the hero
+  │    baked onto the image / opening of the video │  image / video opening
+  ├──────────────────────────────────────────────┤
+  │ 5. Copywriter Agent                           │  brief + plan → captions:
   │    hook, body, CTA, hashtags per piece         │  hook / body / CTA / hashtags
   ├──────────────────────────────────────────────┤
-  │ 4. QA Agent                                   │  audits every piece vs the
+  │ 6. QA Agent                                   │  audits every piece vs the
   │    scores each piece vs strategy, then         │  strategy → pass / edit
   │    EDITS the copy/overlays or REGENERATES      │  (rewrite) / regenerate
   │    the piece (before rendering)                │
   ├──────────────────────────────────────────────┤
-  │ 5. Editor  (deterministic, sharp / ffmpeg)    │  executes the approved plan:
-  │    crop to IG ratios, grade, text overlays     │  1080×1080 / 1080×1350 / 1080×1920
+  │ 7. Editor  (deterministic, sharp / ffmpeg)    │  executes the approved plan;
+  │    crop to IG ratios, grade, text overlays,    │  video gets crossfade
+  │    video crossfades + animated hook            │  transitions + hook fade
   └──────────────────────────────────────────────┘
                 │
                 ▼
    output/  → edited images + index.html preview + content-plan.json
 ```
 
-Agents 1–4 run on the **Anthropic API** (Claude, with vision for the creative
-director and video director so they can actually see your assets; the QA agent
-reviews the planned content and copy against your strategy and edits or
+Agents 1–6 run on the **Anthropic API** (Claude, with vision for the asset planner,
+creative director and video director so they can actually see your assets; the QA
+agent reviews the planned content and copy against your strategy and edits or
 regenerates before anything is rendered). The Editor is deterministic image/video
 processing with [`sharp`](https://sharp.pixelplumbing.com/) and
 [ffmpeg](https://ffmpeg.org/), driven by the approved plan — so the same plan
-always renders the same pixels.
+always renders the same pixels. In video, segments are joined with **crossfade
+transitions** and the hook and captions **fade in/out**.
+
+### Generating new photos
+
+When the uploads don't cover the strategy, the **Asset Planner** writes text-to-image
+prompts and the **Asset Generator** creates the photos, which then flow to the
+Creative Director like any uploaded asset. The generator is pluggable:
+
+- **Real photos** — set `OPENAI_API_KEY` (uses an OpenAI-compatible `/images/generations`
+  endpoint; override with `IMAGE_PROVIDER=openai`, `IMAGE_MODEL`, `OPENAI_BASE_URL`).
+- **Branded placeholders** — the default when no image API is configured, so the pipeline
+  always runs. Generated photos are tagged as such and listed in `content-plan.json`
+  (`generatedAssets`) and the UI.
 
 ### Video pipeline (when a video asset is present)
 
@@ -135,6 +159,33 @@ Or ask for it explicitly (and mix with image formats):
 npm run generate -- --strategy "..." --assets ./mixed-media --formats video,carousel
 ```
 
+### Stitch everything into ONE video (montage)
+
+The `montage` format combines **all** your clips **and** photos into a single vertical
+video. A Montage Director agent watches every clip and lays out one story — short
+segments from each video, photos as Ken Burns stills — joined with crossfade
+transitions and a burned-in hook:
+
+```bash
+npm run generate -- --strategy "..." --assets ./mixed-media --formats montage
+```
+
+(In the web UI this is the “Montage (all into one)” option; `video` instead makes one
+reel per clip.)
+
+### Set the output length
+
+Add `--duration <seconds>` (3–120) to pin how long the video/montage should be. The
+director plans to that target and the renderer enforces it exactly (rescales the
+segments, then hard-trims):
+
+```bash
+npm run generate -- --strategy "..." --assets ./clips --formats montage --duration 15
+```
+
+In the web UI, a **“Video length (seconds)”** box appears once a video/montage is in
+play; leave it blank to let the agent choose.
+
 Requires **ffmpeg** — it's bundled via the `ffmpeg-static` npm dependency, so no
 install is needed on most platforms. To use a specific binary, set
 `FFMPEG_PATH=/path/to/ffmpeg`. If ffmpeg can't be found, video is skipped with a
@@ -190,16 +241,22 @@ src/
   anthropic.ts         Claude client + structured-JSON helper
   agents/
     strategyAgent.ts   prose → brand brief
+    assetPlanner.ts    uploads vs strategy → prompts for missing photos (vision)
     creativeDirector.ts brief + photos → per-piece editing plan (vision)
     videoDirector.ts   brief + sampled video frames → video edit plan (vision)
+    montageDirector.ts many clips + photos → one stitched montage plan (vision)
+    hookAgent.ts       one viral on-screen hook per piece
     copywriter.ts      brief + plan → captions
     qaAgent.ts         audits pieces vs strategy → pass / edit / regenerate
   imageEditor.ts       sharp: crop, grade, text overlays
+  assetgen/
+    generate.ts        pluggable photo generator (image API or placeholder)
   video/
     ffmpeg.ts          ffmpeg binary resolution + runner
     probe.ts           duration / dimensions / fps / audio
     frames.ts          sample frames for the Director to "watch"
-    editor.ts          trim → crop → concat → burn overlays → MP4 + cover
+    editor.ts          trim → crop → crossfade → burn overlays → MP4 + cover
+    montage.ts         stitch many clips + photos into one video (Ken Burns + crossfades)
   mock.ts              deterministic offline fallback
   preview.ts           HTML gallery
   assets.ts, config.ts, types.ts

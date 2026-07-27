@@ -18,6 +18,7 @@ export const FORMAT_SLIDE_GUIDANCE: Record<IGFormat, string> = {
   carousel: "3 to 5 slides that tell a sequential story (hook slide first, CTA slide last)",
   reel: "exactly 1 slide: a vertical 9:16 cover frame for the reel",
   video: "an edited short-form vertical video built from the uploaded clip",
+  montage: "one combined vertical video stitched from all videos + photos",
 };
 
 /** Default aspect ratio hint per format. */
@@ -26,16 +27,19 @@ export const FORMAT_DEFAULT_RATIO: Record<IGFormat, AspectRatio> = {
   carousel: "4:5",
   reel: "9:16",
   video: "9:16",
+  montage: "9:16",
 };
 
-/** Formats that consume image assets vs the one that consumes a video asset. */
+/** Formats that consume image assets vs the ones that consume video assets. */
 export const IMAGE_FORMATS: IGFormat[] = ["post", "carousel", "reel"];
-export const VIDEO_FORMATS: IGFormat[] = ["video"];
+export const VIDEO_FORMATS: IGFormat[] = ["video", "montage"];
 
 export const SUPPORTED_IMAGE_EXT = new Set([".jpg", ".jpeg", ".png", ".webp"]);
 export const SUPPORTED_VIDEO_EXT = new Set([".mp4", ".mov", ".m4v", ".webm"]);
 
 /** How many frames to sample from a video for the Director to "watch". */
 export const VIDEO_SAMPLE_FRAMES = 8;
+/** Safety cap on how many uploaded videos we edit in a single run. */
+export const MAX_VIDEOS = Number(process.env.MAX_VIDEOS || 12);
 /** Output pixel size for edited vertical video. */
 export const VIDEO_OUT = { width: 1080, height: 1920, fps: 30 };

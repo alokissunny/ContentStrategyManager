@@ -11,6 +11,7 @@ import type {
   SlidePlan,
   StrategyBrief,
   VideoEditPlan,
+  MontagePlan,
 } from "./types.js";
 
 function titleCase(s: string): string {
@@ -114,6 +115,32 @@ export function mockVideoPlan(brief: StrategyBrief, video: AssetInfo): VideoEdit
     overlays: [
       { text: brief.brandName, atSec: 0.2, durationSec: 2.4, position: "top" },
       { text: brief.cta, atSec: Math.max(0, win * n - 3), durationSec: 3, position: "bottom" },
+    ],
+  };
+}
+
+export function mockMontagePlan(brief: StrategyBrief, videos: AssetInfo[], photos: AssetInfo[]): MontagePlan {
+  const segments = [
+    ...videos.map((v) => ({
+      sourceFile: v.file,
+      kind: "video" as const,
+      startSec: 0,
+      endSec: Math.min(v.durationSec ?? 4, 4),
+      speed: 1,
+      label: `clip ${v.file}`,
+    })),
+    ...photos.map((p) => ({ sourceFile: p.file, kind: "photo" as const, durationSec: 2.5, label: `photo ${p.file}` })),
+  ];
+  return {
+    concept: `A combined montage stitching ${videos.length} clip(s) and ${photos.length} photo(s).`,
+    targetAspect: "9:16",
+    targetDurationSec: 25,
+    hook: brief.contentPillars[0] ?? "Watch this",
+    musicMood: "upbeat",
+    segments,
+    overlays: [
+      { text: brief.brandName, atSec: 0.2, durationSec: 2.4, position: "top" },
+      { text: brief.cta, atSec: 6, durationSec: 3, position: "bottom" },
     ],
   };
 }

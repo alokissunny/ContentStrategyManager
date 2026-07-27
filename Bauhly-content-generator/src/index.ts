@@ -19,9 +19,10 @@ interface Args {
   formats: IGFormat[];
   formatsExplicit: boolean;
   out: string;
+  duration?: number;
 }
 
-const VALID_FORMATS = new Set<IGFormat>(["post", "carousel", "reel", "video"]);
+const VALID_FORMATS = new Set<IGFormat>(["post", "carousel", "reel", "video", "montage"]);
 
 function parseArgs(argv: string[]): Args {
   const out: Partial<Args> = { assets: "./sample-assets", out: "./output", formats: [], formatsExplicit: false };
@@ -40,6 +41,11 @@ function parseArgs(argv: string[]): Args {
           .filter((s): s is IGFormat => VALID_FORMATS.has(s as IGFormat));
         out.formatsExplicit = true;
         break;
+      case "--duration": {
+        const d = Number(next());
+        if (Number.isFinite(d) && d > 0) out.duration = Math.min(120, Math.max(3, Math.round(d)));
+        break;
+      }
       case "-h":
       case "--help":
         printHelp();
@@ -60,7 +66,8 @@ Options:
   --strategy <text>       High-level strategy prose.
   --strategy-file <path>  Read the strategy from a text file instead.
   --assets <dir>          Folder of source photos (jpg/png/webp) and/or videos (mp4/mov/m4v/webm).
-  --formats <list>        Comma list of: post,carousel,reel,video. Default: inferred from your assets.
+  --formats <list>        Comma list of: post,carousel,reel,video,montage. Default: inferred from your assets.
+  --duration <seconds>    Target length for video/montage output (3-120). Default: agent's choice.
   --out <dir>             Output folder. Default ./output
   -h, --help              Show this help.
 
@@ -113,6 +120,7 @@ async function main(): Promise<void> {
     assets,
     formats,
     outDir,
+    durationSec: args.duration,
     log: (m) => console.log(m),
   });
 
@@ -127,6 +135,9 @@ async function main(): Promise<void> {
     console.log(`   Tokens:   ${u.totalTokens.toLocaleString()} (in ${u.inputTokens.toLocaleString()} / out ${u.outputTokens.toLocaleString()}, ${u.calls} calls) · est. cost ~$${u.estimatedCostUsd.toFixed(4)}`);
     if (plan.qa) {
       console.log(`   QA:       ${plan.qa.reviewed} reviewed, ${plan.qa.edited} edited, ${plan.qa.regenerated} regenerated · avg strategy-fit ${plan.qa.averageScore}/100`);
+    }
+    if (plan.generatedAssets.length) {
+      console.log(`   Assets:   generated ${plan.generatedAssets.length} new photo(s) [${plan.generatedAssets.map((g) => g.provider).join(", ")}]`);
     }
   }
   console.log(`   Preview:  ${resolve(outDir, "index.html")}`);

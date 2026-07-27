@@ -1,23 +1,29 @@
 import { mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
-import { FORCE_MOCK, IMAGE_FORMATS, MODEL, VIDEO_SAMPLE_FRAMES } from "./config.js";
+import { FORCE_MOCK, IMAGE_FORMATS, MAX_VIDEOS, MODEL, VIDEO_SAMPLE_FRAMES } from "./config.js";
 import { NoCredentialsError } from "./anthropic.js";
 import { runStrategyAgent } from "./agents/strategyAgent.js";
+import { runAssetPlanner } from "./agents/assetPlanner.js";
 import { runCreativeDirector } from "./agents/creativeDirector.js";
 import { runCopywriter } from "./agents/copywriter.js";
 import { runVideoDirector } from "./agents/videoDirector.js";
+import { runMontageDirector } from "./agents/montageDirector.js";
+import { runHookAgent } from "./agents/hookAgent.js";
 import { runQA, type QAVerdict } from "./agents/qaAgent.js";
-import { mockCaptions, mockPieces, mockStrategy, mockVideoPlan } from "./mock.js";
+import { generateAssets } from "./assetgen/generate.js";
+import { mockCaptions, mockMontagePlan, mockPieces, mockStrategy, mockVideoPlan } from "./mock.js";
 import { renderSlide } from "./imageEditor.js";
 import { withUsageMeter } from "./usage.js";
 import { ffmpegAvailable } from "./video/ffmpeg.js";
 import { probeVideo } from "./video/probe.js";
-import { sampleFrames } from "./video/frames.js";
-import { renderVideo, sanitizePlan } from "./video/editor.js";
+import { sampleFrames, type SampledFrame } from "./video/frames.js";
+import { renderVideo, sanitizePlan, fitPlanToDuration } from "./video/editor.js";
+import { renderMontage, sanitizeMontage, fitMontageToDuration } from "./video/montage.js";
 import type {
   AssetInfo,
   Caption,
   ContentPlan,
+  GeneratedAsset,
   IGFormat,
   PiecePlan,
   QASummary,
@@ -30,6 +36,8 @@ export interface PipelineInput {
   assets: AssetInfo[];
   formats: IGFormat[];
   outDir: string;
+  /** Optional target duration (seconds) for video/montage output. */
+  durationSec?: number;
   log?: (msg: string) => void;
 }
 
@@ -38,6 +46,10 @@ interface Plans {
   pieces: PiecePlan[];
   captions: Caption[];
   qa?: QASummary;
+  /** Generated photos (metadata) for the content plan. */
+  generatedAssets: GeneratedAsset[];
+  /** Generated photos as loadable assets, for the renderer's lookup pool. */
+  generatedAssetInfos: AssetInfo[];
 }
 
 /** Make sure every image slide references a real asset; repair silently if not. */
@@ -59,16 +71,64 @@ function repairPlans(pieces: PiecePlan[], images: AssetInfo[]): PiecePlan[] {
 /** Split requested formats and available assets; decide what we can actually make. */
 function planScope(input: PipelineInput, log: (m: string) => void) {
   const images = input.assets.filter((a) => a.kind === "image");
-  const video = input.assets.find((a) => a.kind === "video");
+  const videos = input.assets.filter((a) => a.kind === "video").slice(0, MAX_VIDEOS);
 
   let imageFormats = input.formats.filter((f) => IMAGE_FORMATS.includes(f));
   const wantVideo = input.formats.includes("video");
+  const wantMontage = input.formats.includes("montage");
 
   if (imageFormats.length && images.length === 0) {
     log(`⚠ Skipping ${imageFormats.join(", ")} — no image assets provided.`);
     imageFormats = [];
   }
-  return { images, video, imageFormats, wantVideo };
+  return { images, videos, imageFormats, wantVideo, wantMontage };
+}
+
+function sanitizeName(s: string): string {
+  return s.replace(/[^\w.-]+/g, "_");
+}
+
+/** Build ONE montage piece stitching all videos + photos together. */
+async function buildMontagePiece(
+  brief: StrategyBrief,
+  strategy: string,
+  videos: AssetInfo[],
+  photos: AssetInfo[],
+  outDir: string,
+  engine: "claude" | "mock",
+  log: (m: string) => void,
+  feedback?: string,
+  target?: number,
+): Promise<PiecePlan> {
+  const sources = new Map<string, AssetInfo>([...videos, ...photos].map((a) => [a.file, a]));
+  const title = `${brief.brandName} montage`;
+
+  if (engine === "mock") {
+    let plan = sanitizeMontage(mockMontagePlan(brief, videos, photos), sources);
+    if (target) plan = fitMontageToDuration(plan, target, sources);
+    return { format: "montage", title, concept: plan.concept, montagePlan: plan };
+  }
+
+  log(
+    feedback
+      ? "→ Montage Director Agent: re-cutting the montage on QA feedback…"
+      : `→ Montage Director Agent: assembling ${videos.length} clip(s) + ${photos.length} photo(s) into one reel…`,
+  );
+  const framesDir = join(outDir, ".montage-frames");
+  const perVideo = Math.max(2, Math.min(4, Math.floor(14 / Math.max(1, videos.length))));
+  const frames: SampledFrame[] = [];
+  for (const v of videos) {
+    const meta = await probeVideo(v.absPath);
+    if (!v.durationSec) v.durationSec = meta.durationSec;
+    if (v.hasAudio === undefined) v.hasAudio = meta.hasAudio;
+    const vf = await sampleFrames(v.absPath, meta.durationSec, perVideo, join(framesDir, sanitizeName(v.file)));
+    for (const f of vf) { f.asset.file = `${v.file}@${f.timeSec.toFixed(1)}s`; frames.push(f); }
+  }
+  const raw = await runMontageDirector(strategy, brief, videos, photos.slice(0, 10), frames, feedback, target);
+  await rm(framesDir, { recursive: true, force: true });
+  let plan = sanitizeMontage(raw, sources);
+  if (target) plan = fitMontageToDuration(plan, target, sources);
+  return { format: "montage", title, concept: plan.concept, montagePlan: plan };
 }
 
 async function buildVideoPiece(
@@ -78,21 +138,31 @@ async function buildVideoPiece(
   outDir: string,
   engine: "claude" | "mock",
   log: (m: string) => void,
-  feedback?: string,
+  feedback: string | undefined,
+  idx: number,
+  target?: number,
 ): Promise<PiecePlan> {
+  const title = `${brief.brandName} reel ${idx}`;
   if (engine === "mock") {
-    const plan = sanitizePlan(mockVideoPlan(brief, video), video.durationSec ?? 15);
-    return { format: "video", title: `${brief.brandName} reel`, concept: plan.concept, videoPlan: plan };
+    const src = video.durationSec ?? 15;
+    let plan = sanitizePlan(mockVideoPlan(brief, video), src);
+    if (target) plan = fitPlanToDuration(plan, target, src);
+    return { format: "video", title, concept: plan.concept, videoPlan: plan };
   }
 
-  log(feedback ? "→ Video Director Agent: re-cutting the clip on QA feedback…" : "→ Video Director Agent: sampling frames and watching the clip…");
-  const framesDir = join(outDir, ".frames");
+  log(
+    feedback
+      ? `→ Video Director Agent: re-cutting ${video.file} on QA feedback…`
+      : `→ Video Director Agent: watching ${video.file} (${idx})…`,
+  );
+  const framesDir = join(outDir, `.frames-${idx}`);
   const meta = await probeVideo(video.absPath);
   const frames = await sampleFrames(video.absPath, meta.durationSec, VIDEO_SAMPLE_FRAMES, framesDir);
-  const raw = await runVideoDirector(brief, strategy, frames, meta, video.file, feedback);
+  const raw = await runVideoDirector(brief, strategy, frames, meta, video.file, feedback, target);
   await rm(framesDir, { recursive: true, force: true });
-  const plan = sanitizePlan(raw, meta.durationSec);
-  return { format: "video", title: `${brief.brandName} reel`, concept: plan.concept, videoPlan: plan };
+  let plan = sanitizePlan(raw, meta.durationSec);
+  if (target) plan = fitPlanToDuration(plan, target, meta.durationSec);
+  return { format: "video", title, concept: plan.concept, videoPlan: plan };
 }
 
 /** Apply an "edit" verdict to a piece + its caption, in place. */
@@ -122,7 +192,10 @@ interface QAContext {
   brief: StrategyBrief;
   strategy: string;
   images: AssetInfo[];
-  video?: AssetInfo;
+  videos: AssetInfo[];
+  /** Uploaded photos used for the montage (vs generated ones). */
+  montagePhotos: AssetInfo[];
+  targetDurationSec?: number;
   outDir: string;
   log: (m: string) => void;
 }
@@ -139,8 +212,9 @@ async function reviewAndFix(
 
   let edited = 0;
   const regenImageFormats: IGFormat[] = [];
-  const regenIssues: string[] = [];
-  let regenVideo = false;
+  const regenImageIssues: string[] = [];
+  const regenVideoIdx: number[] = [];
+  const regenMontageIdx: number[] = [];
 
   pieces.forEach((piece, i) => {
     const v = byIndex.get(i);
@@ -151,24 +225,33 @@ async function reviewAndFix(
       ctx.log(`   • QA edited ${piece.format} (score ${v.score}): ${v.issues.slice(0, 2).join("; ") || "copy polish"}`);
     } else if (v.action === "regenerate") {
       ctx.log(`   • QA flagged ${piece.format} for regeneration (score ${v.score}): ${v.issues.slice(0, 2).join("; ")}`);
-      regenIssues.push(`[${piece.format}] ${v.issues.join(" ")}`);
-      if (piece.videoPlan) regenVideo = true;
-      else regenImageFormats.push(piece.format);
+      if (piece.montagePlan) regenMontageIdx.push(i);
+      else if (piece.videoPlan) regenVideoIdx.push(i);
+      else { regenImageFormats.push(piece.format); regenImageIssues.push(`[${piece.format}] ${v.issues.join(" ")}`); }
     }
   });
 
   let regenerated = 0;
   if (regenImageFormats.length && ctx.images.length) {
-    const fresh = await runCreativeDirector(ctx.brief, ctx.images, regenImageFormats, regenIssues.join("\n"));
+    const fresh = await runCreativeDirector(ctx.brief, ctx.images, regenImageFormats, regenImageIssues.join("\n"));
     for (const np of fresh) {
       const idx = pieces.findIndex((p) => p.format === np.format && p.slides);
       if (idx >= 0) { pieces[idx] = np; regenerated++; }
     }
   }
-  if (regenVideo && ctx.video) {
-    const nv = await buildVideoPiece(ctx.brief, ctx.strategy, ctx.video, ctx.outDir, "claude", ctx.log, regenIssues.join("\n"));
-    const idx = pieces.findIndex((p) => p.videoPlan);
-    if (idx >= 0) { pieces[idx] = nv; regenerated++; }
+  // Regenerate each flagged video from its own source clip.
+  for (const i of regenVideoIdx) {
+    const src = ctx.videos.find((vv) => vv.file === pieces[i].videoPlan?.sourceFile) ?? ctx.videos[0];
+    if (!src) continue;
+    const issues = byIndex.get(i)?.issues?.join(" ") ?? "";
+    pieces[i] = await buildVideoPiece(ctx.brief, ctx.strategy, src, ctx.outDir, "claude", ctx.log, issues, i + 1, ctx.targetDurationSec);
+    regenerated++;
+  }
+  // Regenerate the montage from all its sources.
+  for (const i of regenMontageIdx) {
+    const issues = byIndex.get(i)?.issues?.join(" ") ?? "";
+    pieces[i] = await buildMontagePiece(ctx.brief, ctx.strategy, ctx.videos, ctx.montagePhotos, ctx.outDir, "claude", ctx.log, issues, ctx.targetDurationSec);
+    regenerated++;
   }
 
   // Re-caption regenerated pieces so copy matches the new plan.
@@ -197,48 +280,106 @@ async function reviewAndFix(
 
 async function runClaudePlans(input: PipelineInput, videoOk: boolean): Promise<Plans> {
   const log = input.log ?? (() => {});
-  const { images, video, imageFormats, wantVideo } = planScope(input, log);
+  const { images, videos, imageFormats, wantVideo, wantMontage } = planScope(input, log);
 
   log("→ Strategy Agent: interpreting your strategy…");
   const brief = await runStrategyAgent(input.strategy);
 
+  // Asset Planner: analyse the uploads vs the strategy and generate any missing photos.
+  let allImages = images;
+  let generatedAssets: GeneratedAsset[] = [];
+  let generatedAssetInfos: AssetInfo[] = [];
+  if (imageFormats.length) {
+    log("→ Asset Planner Agent: checking assets against the strategy…");
+    const requests = await runAssetPlanner(input.strategy, brief, images, imageFormats);
+    if (requests.length) {
+      log(`→ Asset Generator: creating ${requests.length} new photo(s)…`);
+      const gen = await generateAssets(requests, brief.brandKit, input.outDir, log);
+      generatedAssets = gen.generated;
+      generatedAssetInfos = gen.assets;
+      allImages = [...images, ...gen.assets];
+    } else {
+      log("   • uploads cover the strategy — no new photos needed.");
+    }
+  }
+
   const pieces: PiecePlan[] = [];
   if (imageFormats.length) {
     log("→ Creative Director Agent: reviewing assets and planning pieces…");
-    const imgPieces = repairPlans(await runCreativeDirector(brief, images, imageFormats), images);
+    const imgPieces = repairPlans(await runCreativeDirector(brief, allImages, imageFormats), allImages);
     pieces.push(...imgPieces);
   }
-  if (wantVideo && video && videoOk) {
-    pieces.push(await buildVideoPiece(brief, input.strategy, video, input.outDir, "claude", log));
+  if (wantVideo && videos.length && videoOk) {
+    if (videos.length > 1) log(`→ Editing ${videos.length} videos…`);
+    for (let vi = 0; vi < videos.length; vi++) {
+      pieces.push(await buildVideoPiece(brief, input.strategy, videos[vi], input.outDir, "claude", log, undefined, vi + 1, input.durationSec));
+    }
+  }
+  if (wantMontage && (videos.length || images.length) && videoOk) {
+    pieces.push(await buildMontagePiece(brief, input.strategy, videos, images, input.outDir, "claude", log, undefined, input.durationSec));
+  }
+
+  if (pieces.length) {
+    log("→ Hook Agent: writing viral on-screen hooks…");
+    const hooks = await runHookAgent(input.strategy, brief, pieces);
+    const byIndex = new Map(hooks.map((h, i) => [typeof h.index === "number" ? h.index : i, h]));
+    pieces.forEach((p, i) => {
+      const h = byIndex.get(i);
+      if (!h || !h.hook?.trim()) return;
+      p.hook = h.hook;
+      if (p.videoPlan) {
+        p.videoPlan.hook = h.hook;
+      } else if (p.montagePlan) {
+        p.montagePlan.hook = h.hook;
+      } else if (p.slides?.length) {
+        const hero = p.slides[0];
+        if (hero.overlay) { hero.overlay.headline = h.hook; hero.overlay.position = h.position; }
+        else hero.overlay = { headline: h.hook, subtext: "", position: h.position };
+      }
+    });
   }
 
   log("→ Copywriter Agent: writing captions…");
   const captions = pieces.length ? await runCopywriter(brief, pieces) : [];
 
-  if (pieces.length === 0) return { brief, pieces, captions };
+  if (pieces.length === 0) return { brief, pieces, captions, generatedAssets, generatedAssetInfos };
 
   const reviewed = await reviewAndFix(pieces, captions, {
     brief,
     strategy: input.strategy,
-    images,
-    video,
+    images: allImages,
+    videos,
+    montagePhotos: images,
+    targetDurationSec: input.durationSec,
     outDir: input.outDir,
     log,
   });
-  return { brief, pieces: reviewed.pieces, captions: reviewed.captions, qa: reviewed.qa };
+  return {
+    brief,
+    pieces: reviewed.pieces,
+    captions: reviewed.captions,
+    qa: reviewed.qa,
+    generatedAssets,
+    generatedAssetInfos,
+  };
 }
 
 async function runMockPlans(input: PipelineInput, videoOk: boolean): Promise<Plans> {
   const log = input.log ?? (() => {});
-  const { images, video, imageFormats, wantVideo } = planScope(input, log);
+  const { images, videos, imageFormats, wantVideo, wantMontage } = planScope(input, log);
   const brief = mockStrategy(input.strategy);
 
   const pieces: PiecePlan[] = [];
   if (imageFormats.length) {
     pieces.push(...repairPlans(mockPieces(brief, images, imageFormats), images));
   }
-  if (wantVideo && video && videoOk) {
-    pieces.push(await buildVideoPiece(brief, input.strategy, video, input.outDir, "mock", log));
+  if (wantVideo && videos.length && videoOk) {
+    for (let vi = 0; vi < videos.length; vi++) {
+      pieces.push(await buildVideoPiece(brief, input.strategy, videos[vi], input.outDir, "mock", log, undefined, vi + 1, input.durationSec));
+    }
+  }
+  if (wantMontage && (videos.length || images.length) && videoOk) {
+    pieces.push(await buildMontagePiece(brief, input.strategy, videos, images, input.outDir, "mock", log, undefined, input.durationSec));
   }
   const qa: QASummary = {
     reviewed: pieces.length,
@@ -247,19 +388,21 @@ async function runMockPlans(input: PipelineInput, videoOk: boolean): Promise<Pla
     averageScore: 0,
     pieces: pieces.map((p) => ({ format: p.format, title: p.title, action: "pass", score: 0, issues: [] })),
   };
-  return { brief, pieces, captions: mockCaptions(brief, pieces), qa };
+  return { brief, pieces, captions: mockCaptions(brief, pieces), qa, generatedAssets: [], generatedAssetInfos: [] };
 }
 
 export async function runPipeline(input: PipelineInput): Promise<ContentPlan> {
   const log = input.log ?? (() => {});
-  const imageByFile = new Map(input.assets.filter((a) => a.kind === "image").map((a) => [a.file, a]));
   const videoByFile = new Map(input.assets.filter((a) => a.kind === "video").map((a) => [a.file, a]));
 
-  // Video needs ffmpeg; check once so we can warn rather than crash.
+  // Video/montage need ffmpeg; check once so we can warn rather than crash.
   let videoOk = true;
-  if (input.formats.includes("video") && input.assets.some((a) => a.kind === "video")) {
+  const needsFfmpeg =
+    (input.formats.includes("video") && input.assets.some((a) => a.kind === "video")) ||
+    (input.formats.includes("montage") && input.assets.length > 0);
+  if (needsFfmpeg) {
     videoOk = await ffmpegAvailable();
-    if (!videoOk) log("⚠ ffmpeg not found — skipping the video edit. Install ffmpeg or the ffmpeg-static package.");
+    if (!videoOk) log("⚠ ffmpeg not found — skipping video/montage. Install ffmpeg or the ffmpeg-static package.");
   }
 
   const { result: planned, meter } = await withUsageMeter(async () => {
@@ -280,6 +423,11 @@ export async function runPipeline(input: PipelineInput): Promise<ContentPlan> {
   const engine = planned.engine;
   const plans = planned.plans;
 
+  // Render pool = uploaded images + any photos the Asset Planner generated.
+  const imageByFile = new Map(
+    [...input.assets.filter((a) => a.kind === "image"), ...(plans.generatedAssetInfos ?? [])].map((a) => [a.file, a]),
+  );
+
   const imagesDir = join(input.outDir, "images");
   await mkdir(imagesDir, { recursive: true });
 
@@ -294,6 +442,24 @@ export async function runPipeline(input: PipelineInput): Promise<ContentPlan> {
       hashtags: plans.brief.hashtags,
     };
 
+    if (plan.montagePlan) {
+      const sources = new Map(input.assets.map((a) => [a.file, a]));
+      const rel = join("images", `${pi + 1}-montage.mp4`);
+      const coverRel = join("images", `${pi + 1}-montage-cover.jpg`);
+      log(`   • stitching montage — ${plan.montagePlan.segments.length} segments`);
+      const res = await renderMontage(
+        sources,
+        plan.montagePlan,
+        plans.brief.brandKit,
+        join(input.outDir, rel),
+        join(input.outDir, coverRel),
+        input.durationSec,
+      );
+      log(`     rendered ${res.durationSec.toFixed(1)}s combined video`);
+      rendered.push({ plan, caption, images: [], video: rel, cover: coverRel });
+      continue;
+    }
+
     if (plan.videoPlan) {
       const source = videoByFile.get(plan.videoPlan.sourceFile);
       if (!source) continue;
@@ -306,6 +472,7 @@ export async function runPipeline(input: PipelineInput): Promise<ContentPlan> {
         plans.brief.brandKit,
         join(input.outDir, rel),
         join(input.outDir, coverRel),
+        input.durationSec,
       );
       log(`     rendered ${res.durationSec.toFixed(1)}s vertical video`);
       rendered.push({ plan, caption, images: [], video: rel, cover: coverRel });
@@ -338,5 +505,6 @@ export async function runPipeline(input: PipelineInput): Promise<ContentPlan> {
     model: engine === "claude" ? MODEL : "offline-mock",
     usage,
     qa: plans.qa,
+    generatedAssets: plans.generatedAssets ?? [],
   };
 }

@@ -20,7 +20,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const WEB_DIR = resolve(__dirname, "..", "web");
 const RUNS_DIR = resolve("runs");
 const PORT = Number(process.env.PORT || 5178);
-const VALID_FORMATS = new Set<IGFormat>(["post", "carousel", "reel", "video"]);
+const VALID_FORMATS = new Set<IGFormat>(["post", "carousel", "reel", "video", "montage"]);
 
 interface JobRequest extends Request {
   jobId?: string;
@@ -77,8 +77,11 @@ app.post("/api/generate", prepareJob, upload.array("files"), async (req: JobRequ
       if (hasVideo) formats.push("video");
     }
 
+    const rawDur = Number(req.body.duration);
+    const durationSec = Number.isFinite(rawDur) && rawDur > 0 ? Math.min(120, Math.max(3, Math.round(rawDur))) : undefined;
+
     const logs: string[] = [];
-    const plan = await runPipeline({ strategy, assets, formats, outDir, log: (m) => logs.push(m) });
+    const plan = await runPipeline({ strategy, assets, formats, outDir, durationSec, log: (m) => logs.push(m) });
 
     await writeFile(join(outDir, "content-plan.json"), JSON.stringify(plan, null, 2));
     await writeFile(join(outDir, "index.html"), buildPreviewHtml(plan));
@@ -91,18 +94,23 @@ app.post("/api/generate", prepareJob, upload.array("files"), async (req: JobRequ
       model: plan.model,
       usage: plan.usage,
       qa: plan.qa,
+      generatedAssets: plan.generatedAssets.map((g) => ({ ...g, url: url(g.file)! })),
       brief: plan.brief,
       previewUrl: `/runs/${jobId}/index.html`,
       pieces: plan.pieces.map((p) => ({
         format: p.plan.format,
         title: p.plan.title,
         concept: p.plan.concept,
+        hook: p.plan.hook,
         caption: p.caption,
         images: p.images.map((i) => url(i)!),
         video: url(p.video),
         cover: url(p.cover),
         videoPlan: p.plan.videoPlan
           ? { segments: p.plan.videoPlan.segments.length, targetDurationSec: p.plan.videoPlan.targetDurationSec, musicMood: p.plan.videoPlan.musicMood }
+          : undefined,
+        montagePlan: p.plan.montagePlan
+          ? { segments: p.plan.montagePlan.segments.length, targetDurationSec: p.plan.montagePlan.targetDurationSec, musicMood: p.plan.montagePlan.musicMood }
           : undefined,
       })),
     });

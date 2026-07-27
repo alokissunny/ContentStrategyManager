@@ -66,10 +66,14 @@ export async function runVideoDirector(
   meta: VideoMeta,
   sourceFile: string,
   feedback?: string,
+  targetDurationSec?: number,
 ): Promise<VideoEditPlan> {
   const frameList = frames.map((f) => `t=${f.timeSec.toFixed(1)}s`).join(", ");
   const feedbackBlock = feedback
     ? `\n\nQA FEEDBACK on your previous cut — fix these, redo the edit:\n${feedback}\n`
+    : "";
+  const durationBlock = targetDurationSec
+    ? `\n\nHARD REQUIREMENT: the final video MUST be about ${targetDurationSec} seconds. Choose and time your segments so their total (after speed) is ~${targetDurationSec}s.\n`
     : "";
   const userText = `BRAND STRATEGY (verbatim):
 ${strategy}
@@ -82,7 +86,7 @@ SOURCE CLIP: ${sourceFile}
 - resolution: ${meta.width}x${meta.height}, ${meta.fps}fps
 - audio: ${meta.hasAudio ? "yes" : "no"}
 
-The attached frames are sampled at: ${frameList}${feedbackBlock}
+The attached frames are sampled at: ${frameList}${feedbackBlock}${durationBlock}
 
 Design the viral vertical edit now.`;
 

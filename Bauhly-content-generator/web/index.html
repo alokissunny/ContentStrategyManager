@@ -19,7 +19,7 @@
   .sub { color: var(--muted); margin: 0 0 22px; }
   .card { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 20px; margin-bottom: 18px; }
   label { display: block; font-weight: 600; margin: 0 0 8px; font-size: 14px; }
-  textarea, .drop { width: 100%; background: transparent; color: var(--text); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; font: inherit; }
+  textarea, .drop, input[type=number] { width: 100%; background: transparent; color: var(--text); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; font: inherit; }
   textarea { min-height: 96px; resize: vertical; }
   .drop { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 26px; text-align: center; color: var(--muted); cursor: pointer; border-style: dashed; transition: border-color .15s, background .15s; }
   .drop.over { border-color: var(--accent); background: rgba(255,77,141,.06); }
@@ -48,7 +48,8 @@
   .qa-edit { background: rgba(245,158,11,.2); color: #b45309; }
   .qa-regenerate { background: rgba(239,68,68,.18); color: #dc2626; }
   .piece h3 { margin: 8px 0 2px; }
-  .concept { color: var(--muted); margin: 0 0 12px; font-size: 14px; }
+  .concept { color: var(--muted); margin: 0 0 4px; font-size: 14px; }
+  .hookline { margin: 0 0 12px; font-weight: 600; font-size: 14px; }
   .media { display: flex; gap: 10px; overflow-x: auto; padding-bottom: 6px; }
   .media figure { margin: 0; flex: 0 0 auto; }
   .media img, .media video { height: 300px; border-radius: 10px; display: block; background: #000; }
@@ -63,6 +64,13 @@
   .rowbtns a, .rowbtns button { font-size: 13px; text-decoration: none; color: var(--text); border: 1px solid var(--line); background: transparent; padding: 6px 12px; border-radius: 8px; cursor: pointer; }
   .enginebar { font-size: 13px; color: var(--muted); margin: 6px 2px 14px; }
   .cost { background: rgba(108,92,231,.15); color: var(--text); padding: 2px 8px; border-radius: 6px; font-weight: 600; }
+  .genbar { margin: 0 2px 14px; }
+  .genbar h4 { margin: 0 0 8px; font-size: 14px; font-weight: 700; }
+  .genbar .g { display: flex; gap: 10px; overflow-x: auto; padding-bottom: 6px; }
+  .genbar figure { margin: 0; flex: 0 0 auto; width: 120px; }
+  .genbar img { width: 120px; height: 150px; object-fit: cover; border-radius: 10px; border: 1px solid var(--line); background: #000; }
+  .genbar figcaption { font-size: 11px; color: var(--muted); margin-top: 5px; }
+  .genbar .prov { display: inline-block; background: rgba(108,92,231,.15); border-radius: 5px; padding: 0 5px; }
   .err { color: #ef4444; }
 </style>
 </head>
@@ -93,9 +101,14 @@
         <label class="fmt on"><input type="checkbox" value="post" checked /> Post</label>
         <label class="fmt on"><input type="checkbox" value="carousel" checked /> Carousel</label>
         <label class="fmt on"><input type="checkbox" value="reel" checked /> Reel cover</label>
-        <label class="fmt disabled" id="fmtVideo"><input type="checkbox" value="video" /> Video edit</label>
+        <label class="fmt disabled" id="fmtVideo"><input type="checkbox" value="video" /> Video edit (one per clip)</label>
+        <label class="fmt disabled" id="fmtMontage"><input type="checkbox" value="montage" /> Montage (all into one)</label>
       </div>
-      <p class="sub" id="videoHint" style="margin:10px 0 0;font-size:13px;display:none;">A video is uploaded — the “Video edit” option cuts it into a vertical reel.</p>
+      <p class="sub" id="videoHint" style="margin:10px 0 0;font-size:13px;display:none;">A video is uploaded — “Video edit” makes one reel per clip; “Montage” stitches all your clips + photos into a single video with transitions.</p>
+      <div class="durwrap" id="durWrap" style="margin-top:14px;display:none;">
+        <label for="duration" style="margin-bottom:6px;">Video length (seconds) — optional</label>
+        <input type="number" id="duration" min="3" max="120" step="1" placeholder="e.g. 15 — leave blank to let the agent decide" />
+      </div>
     </div>
 
     <button class="go" id="go" type="submit">Generate content</button>
@@ -103,13 +116,14 @@
   </form>
 
   <div class="enginebar" id="enginebar"></div>
+  <div class="genbar" id="gen"></div>
   <div class="results" id="results"></div>
 </div>
 
 <script>
 const $ = (s) => document.querySelector(s);
 const drop = $("#drop"), fileInput = $("#files"), fileList = $("#fileList");
-const fmtVideo = $("#fmtVideo"), videoHint = $("#videoHint");
+const fmtVideo = $("#fmtVideo"), fmtMontage = $("#fmtMontage"), videoHint = $("#videoHint");
 let selected = []; // {file, url, isVideo}
 
 const isVideo = (f) => /^video\//.test(f.type) || /\.(mp4|mov|m4v|webm)$/i.test(f.name);
@@ -131,6 +145,15 @@ function renderFiles() {
   const cb = fmtVideo.querySelector("input");
   if (anyVideo && !cb.dataset.touched) { cb.checked = true; fmtVideo.classList.add("on"); }
   if (!anyVideo) { cb.checked = false; fmtVideo.classList.remove("on"); }
+
+  // Montage: available once there are at least 2 assets (or any video).
+  const canMontage = anyVideo || selected.length >= 2;
+  fmtMontage.classList.toggle("disabled", !canMontage);
+  const mcb = fmtMontage.querySelector("input");
+  if (!canMontage) { mcb.checked = false; fmtMontage.classList.remove("on"); }
+
+  // Duration control is only relevant when a video/montage will be produced.
+  document.querySelector("#durWrap").style.display = (anyVideo || canMontage) ? "block" : "none";
 }
 
 function addFiles(list) {
@@ -182,6 +205,7 @@ function pieceCard(p) {
     <span class="badge">${esc(p.format)}</span>${qaChip}
     <h3>${esc(p.title)}</h3>
     <p class="concept">${esc(p.concept)}</p>
+    ${p.hook ? `<p class="hookline">🎯 hook: “${esc(p.hook)}”</p>` : ""}
     ${mediaBlock(p)}
     <div class="cap">
       <p class="hook">${esc(p.caption.hook)}</p>
@@ -199,7 +223,7 @@ function pieceCard(p) {
 $("#form").addEventListener("submit", async (e) => {
   e.preventDefault();
   const status = $("#status"), go = $("#go"), results = $("#results"), enginebar = $("#enginebar");
-  results.innerHTML = ""; enginebar.textContent = "";
+  results.innerHTML = ""; enginebar.textContent = ""; $("#gen").innerHTML = "";
   const strategy = $("#strategy").value.trim();
   if (selected.length === 0) { status.innerHTML = `<span class="err">Please add at least one photo or video.</span>`; return; }
   if (!strategy) { status.innerHTML = `<span class="err">Please write a strategy.</span>`; return; }
@@ -208,6 +232,8 @@ $("#form").addEventListener("submit", async (e) => {
   const fd = new FormData();
   fd.append("strategy", strategy);
   fd.append("formats", formats.join(","));
+  const durVal = $("#duration").value.trim();
+  if (durVal) fd.append("duration", durVal);
   selected.forEach((s) => fd.append("files", s.file, s.file.name));
 
   go.disabled = true;
@@ -230,6 +256,14 @@ $("#form").addEventListener("submit", async (e) => {
       qaStr = `<br/>🛡️ QA agent: ${q.reviewed} reviewed · ${q.edited} edited · ${q.regenerated} regenerated · avg strategy-fit <strong>${q.averageScore}/100</strong>`;
     }
     enginebar.innerHTML = `Generated by <strong>${esc(data.engine)}</strong> (${esc(data.model)}) · brand: <strong>${esc(data.brief.brandName)}</strong>${usageStr} · <a class="dl" href="${data.previewUrl}" target="_blank">Open full preview ↗</a>${qaStr}`;
+    const gen = $("#gen"); gen.innerHTML = "";
+    if (data.generatedAssets && data.generatedAssets.length) {
+      gen.innerHTML = `<h4>🖼️ Asset Planner generated ${data.generatedAssets.length} new photo(s) to fit your strategy</h4>
+        <div class="g">${data.generatedAssets.map((g) => `<figure>
+          <img src="${g.url}" loading="lazy" title="${esc(g.prompt)}"/>
+          <figcaption>${esc(g.purpose)} <span class="prov">${esc(g.provider)}</span></figcaption>
+        </figure>`).join("")}</div>`;
+    }
     data.pieces.forEach((p, i) => { p.qa = data.qa && data.qa.pieces ? data.qa.pieces[i] : null; results.appendChild(pieceCard(p)); });
     if (data.pieces.length === 0) results.innerHTML = `<p class="sub">No pieces produced — check that your uploads match the selected formats (images for post/carousel/reel, a video for video edit).</p>`;
   } catch (err) {
