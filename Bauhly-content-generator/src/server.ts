@@ -52,6 +52,10 @@ const app = express();
 app.use(express.static(WEB_DIR));
 app.use("/runs", express.static(RUNS_DIR));
 
+app.get("/api/health", (_req, res) => {
+  res.json({ ok: true, service: "bauhly-content-generator" });
+});
+
 app.post("/api/generate", prepareJob, upload.array("files"), async (req: JobRequest, res: Response) => {
   const jobId = req.jobId!;
   const outDir = join(RUNS_DIR, jobId);
@@ -120,8 +124,8 @@ app.post("/api/generate", prepareJob, upload.array("files"), async (req: JobRequ
   }
 });
 
-app.listen(PORT, () => {
-  console.log(`\n🎨 Bauhly Content Generator UI running at http://localhost:${PORT}\n`);
+app.listen(PORT, "0.0.0.0", () => {
+  console.log(`\n🎨 Bauhly Content Generator UI running at http://0.0.0.0:${PORT}\n`);
   if (!process.env.ANTHROPIC_API_KEY) {
     console.log("(No ANTHROPIC_API_KEY detected — generations will use the offline deterministic engine. Add a key to .env for AI-authored output.)\n");
   }

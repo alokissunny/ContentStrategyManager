@@ -10,6 +10,7 @@
   "scripts": {
     "generate": "tsx src/index.ts",
     "serve": "tsx src/server.ts",
+    "start": "tsx src/server.ts",
     "sample-assets": "tsx scripts/make-sample-assets.ts",
     "demo": "npm run sample-assets && npm run generate -- --strategy \"Grow a warm, minimal specialty-coffee brand for young urban professionals. Educational + aspirational. Drive footfall to our new store.\" --assets ./sample-assets --formats post,carousel,reel",
     "typecheck": "tsc --noEmit"

@@ -147,3 +147,33 @@ services:
           type: web
           name: bauhly-backoffice-api
           envVarKey: RENDER_EXTERNAL_URL
+
+  # ── Bauhly content generator (strategy → IG posts / carousels / video) ───
+  - type: web
+    name: bauhly-content-generator
+    runtime: node
+    region: oregon
+    # Generation (Claude + ffmpeg) routinely exceeds free-tier request limits.
+    plan: starter
+    rootDir: Bauhly-content-generator
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: NODE_ENV
+        value: production
+      - key: ANTHROPIC_API_KEY
+        fromService:
+          type: web
+          name: igsignal-api
+          envVarKey: ANTHROPIC_API_KEY
+      - key: MODEL
+        value: claude-sonnet-5
+      # Optional — enables real text-to-image when Asset Planner fills gaps.
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: MAX_VIDEOS
+        value: "12"
