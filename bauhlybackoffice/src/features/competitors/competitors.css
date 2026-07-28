@@ -1020,29 +1020,35 @@
   padding-bottom: var(--sp-2);
 }
 
-.section-bar-field {
+/* Business type — centered in the application top bar next to Run analysis. */
+.topbar-field {
   display: flex;
-  flex-direction: column;
-  gap: 2px;
-  margin-right: var(--sp-1);
+  flex-direction: row;
+  align-items: center;
+  gap: var(--sp-2);
+  min-width: 0;
 }
 
-.section-bar-field label {
+.topbar-field label {
   font-size: 10px;
   font-weight: 600;
   letter-spacing: 0.02em;
   text-transform: uppercase;
   color: var(--ink-500);
+  line-height: 1;
+  white-space: nowrap;
 }
 
-.section-bar-field select {
+.topbar-field select {
   border: 1px solid var(--border-strong);
   border-radius: var(--r-md);
   padding: 6px 10px;
   font-size: var(--text-sm);
+  font-weight: 600;
   background: var(--surface, #fff);
   color: var(--ink-900);
-  max-width: 280px;
+  min-width: 160px;
+  max-width: 240px;
 }
 
 /* Last successful scrape — states data freshness before any number is read. */

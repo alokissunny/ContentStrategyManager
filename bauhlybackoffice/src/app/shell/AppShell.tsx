@@ -10,7 +10,7 @@ import {
   LogoutIcon,
   MenuIcon,
 } from '../../components/icons'
-import { PageActionsProvider, PageActionsSlot } from './pageActions'
+import { PageActionsProvider, PageActionsSlot, PageCenterSlot } from './pageActions'
 import './shell.css'
 
 // Competitors + Customers are live. Remaining sections stay under src/features
@@ -196,6 +196,7 @@ export function AppShell() {
             <h1 className="topbar-title">{title}</h1>
             {subtitle && <p className="topbar-subtitle">{subtitle}</p>}
           </div>
+          <PageCenterSlot />
           <PageActionsSlot />
         </header>
         <main className="shell-content">

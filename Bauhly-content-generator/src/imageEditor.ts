@@ -1,6 +1,7 @@
 import sharp from "sharp";
 import { RATIO_DIMENSIONS } from "./config.js";
-import type { AssetInfo, BrandKit, CropStrategy, OverlayText, SlidePlan } from "./types.js";
+import { DEFAULT_CAPTION_STYLE, fontDef, strokeColorFor } from "./captionStyle.js";
+import type { AssetInfo, BrandKit, CaptionStyle, CropStrategy, OverlayText, SlidePlan } from "./types.js";
 
 function clamp(n: number, lo: number, hi: number): number {
   return Math.min(hi, Math.max(lo, n));
@@ -48,51 +49,67 @@ function buildOverlaySvg(
   height: number,
   overlay: OverlayText,
   kit: BrandKit,
+  style: CaptionStyle,
 ): Buffer {
-  const headFont = Math.round(width * 0.075);
-  const subFont = Math.round(width * 0.038);
-  const headLines = wrap(overlay.headline.toUpperCase(), Math.floor((width * 0.86) / (headFont * 0.6)));
-  const subLines = overlay.subtext ? wrap(overlay.subtext, Math.floor((width * 0.86) / (subFont * 0.55))) : [];
+  const def = fontDef(style);
+  const headFont = Math.round(width * 0.075 * def.sizeScale);
+  const subFont = Math.round(width * 0.038 * def.sizeScale);
+  const family = def.svgFamily;
+  const headWeight = style.weight === "bold" ? 800 : 600;
+  const upper = style.case === "upper";
+  const headText = (s: string) => (upper ? s.toUpperCase() : s);
 
-  const lineGap = 1.12;
+  const headLines = wrap(headText(overlay.headline), Math.floor((width * 0.82) / (headFont * 0.6)));
+  const subLines = overlay.subtext ? wrap(overlay.subtext, Math.floor((width * 0.84) / (subFont * 0.55))) : [];
+
+  const lineGap = 1.14;
   const headBlock = headLines.length * headFont * lineGap;
   const subBlock = subLines.length * subFont * lineGap;
   const gap = subLines.length ? subFont * 0.9 : 0;
   const totalBlock = headBlock + gap + subBlock;
 
-  // Vertical anchor for the whole text block.
   let top: number;
   if (overlay.position === "top") top = height * 0.1;
   else if (overlay.position === "center") top = (height - totalBlock) / 2;
   else top = height * 0.88 - totalBlock;
 
-  const scrimPad = width * 0.06;
-  const scrimTop = clamp(top - scrimPad, 0, height);
-  const scrimHeight = clamp(totalBlock + scrimPad * 2, 0, height - scrimTop);
+  const pad = width * 0.06;
+  const boxTop = clamp(top - pad, 0, height);
+  const boxHeight = clamp(totalBlock + pad * 2, 0, height - boxTop);
 
-  const accent = kit.accentColor;
-  const textColor = kit.textColor;
+  const textColor = style.textColor;
+  const stroke = strokeColorFor(textColor);
+  const strokeW = Math.max(1.5, headFont * 0.045);
+  const subStrokeW = Math.max(1, subFont * 0.05);
+  const letterSpacing = upper ? Math.max(1, headFont * 0.02) : 0;
+
+  // Background treatment for legibility.
+  let bg = "";
+  if (style.background === "scrim") {
+    bg = `<rect x="0" y="${boxTop}" width="${width}" height="${boxHeight}" fill="url(#scrim)"/>`;
+  } else if (style.background === "box") {
+    bg = `<rect x="${width * 0.06}" y="${boxTop}" width="${width * 0.88}" height="${boxHeight}" rx="${width * 0.03}" fill="#000000" fill-opacity="0.55"/>`;
+  }
 
   let y = top + headFont * 0.85;
   const cx = width / 2;
   const lineEls: string[] = [];
 
-  // Accent bar above the headline for a branded feel.
   const barW = width * 0.14;
   lineEls.push(
-    `<rect x="${cx - barW / 2}" y="${clamp(top - headFont * 0.55, 0, height)}" width="${barW}" height="${Math.max(4, headFont * 0.09)}" rx="3" fill="${accent}"/>`,
+    `<rect x="${cx - barW / 2}" y="${clamp(top - headFont * 0.55, 0, height)}" width="${barW}" height="${Math.max(4, headFont * 0.09)}" rx="3" fill="${kit.accentColor}"/>`,
   );
 
   for (const l of headLines) {
     lineEls.push(
-      `<text x="${cx}" y="${y}" font-family="Helvetica, Arial, sans-serif" font-size="${headFont}" font-weight="800" fill="${textColor}" text-anchor="middle" letter-spacing="1">${escapeXml(l)}</text>`,
+      `<text x="${cx}" y="${y}" font-family="${family}" font-size="${headFont}" font-weight="${headWeight}" fill="${textColor}" stroke="${stroke}" stroke-width="${strokeW}" paint-order="stroke" stroke-linejoin="round" text-anchor="middle" letter-spacing="${letterSpacing}">${escapeXml(l)}</text>`,
     );
     y += headFont * lineGap;
   }
   y += gap;
   for (const l of subLines) {
     lineEls.push(
-      `<text x="${cx}" y="${y}" font-family="Helvetica, Arial, sans-serif" font-size="${subFont}" font-weight="500" fill="${textColor}" text-anchor="middle" opacity="0.92">${escapeXml(l)}</text>`,
+      `<text x="${cx}" y="${y}" font-family="${family}" font-size="${subFont}" font-weight="${style.weight === "bold" ? 600 : 400}" fill="${textColor}" stroke="${stroke}" stroke-width="${subStrokeW}" paint-order="stroke" stroke-linejoin="round" text-anchor="middle" opacity="0.95">${escapeXml(l)}</text>`,
     );
     y += subFont * lineGap;
   }
@@ -101,11 +118,11 @@ function buildOverlaySvg(
   <defs>
     <linearGradient id="scrim" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0%" stop-color="#000000" stop-opacity="0"/>
-      <stop offset="50%" stop-color="#000000" stop-opacity="0.45"/>
+      <stop offset="50%" stop-color="#000000" stop-opacity="0.5"/>
       <stop offset="100%" stop-color="#000000" stop-opacity="0"/>
     </linearGradient>
   </defs>
-  <rect x="0" y="${scrimTop}" width="${width}" height="${scrimHeight}" fill="url(#scrim)"/>
+  ${bg}
   ${lineEls.join("\n  ")}
 </svg>`;
   return Buffer.from(svg);
@@ -125,6 +142,7 @@ export async function renderSlide(
   slide: SlidePlan,
   kit: BrandKit,
   outPath: string,
+  captionStyle: CaptionStyle = DEFAULT_CAPTION_STYLE,
 ): Promise<{ width: number; height: number }> {
   const { width, height } = RATIO_DIMENSIONS[slide.aspectRatio];
   const adj = slide.adjustments;
@@ -133,21 +151,19 @@ export async function renderSlide(
   const saturation = clamp(adj.saturation, 0, 2);
   const contrast = clamp(adj.contrast, 0.5, 1.5);
 
-  // Base grade: crop-to-fill, brightness/saturation, then contrast around mid-grey.
-  const base = await sharp(asset.absPath)
-    .resize({ width, height, fit: "cover", position: cropPosition(slide.crop) })
-    .modulate({ brightness, saturation })
-    .linear(contrast, 128 * (1 - contrast))
-    .toBuffer();
-
   const layers: sharp.OverlayOptions[] = [];
   const warm = warmthOverlaySvg(width, height, adj.warmth);
   if (warm) layers.push({ input: warm });
-  if (slide.overlay) layers.push({ input: buildOverlaySvg(width, height, slide.overlay, kit) });
+  if (slide.overlay) layers.push({ input: buildOverlaySvg(width, height, slide.overlay, kit, captionStyle) });
 
-  let pipeline = sharp(base);
+  // Single pass: crop-to-fill (Lanczos) → grade → composite overlays → encode ONCE.
+  // (Avoids a lossy JPEG round-trip between grading and compositing.)
+  let pipeline = sharp(asset.absPath, { failOn: "none" })
+    .resize({ width, height, fit: "cover", position: cropPosition(slide.crop), kernel: "lanczos3" })
+    .modulate({ brightness, saturation })
+    .linear(contrast, 128 * (1 - contrast));
   if (layers.length) pipeline = pipeline.composite(layers);
 
-  await pipeline.jpeg({ quality: 90, chromaSubsampling: "4:4:4" }).toFile(outPath);
+  await pipeline.jpeg({ quality: 95, chromaSubsampling: "4:4:4", mozjpeg: true }).toFile(outPath);
   return { width, height };
 }

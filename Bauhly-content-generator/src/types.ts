@@ -10,6 +10,26 @@ export type CropStrategy = "center" | "attention" | "entropy";
 
 export type OverlayPosition = "top" | "center" | "bottom";
 
+/** Curated caption font families that resolve to real fonts on the host. */
+export type CaptionFont =
+  | "modern-sans"
+  | "bold-impact"
+  | "elegant-serif"
+  | "editorial-serif"
+  | "clean-rounded";
+
+/** How captions/overlays should look — chosen by the Strategy Agent per brand. */
+export interface CaptionStyle {
+  font: CaptionFont;
+  weight: "regular" | "bold";
+  /** Sentence case vs ALL CAPS for headline/hook text. */
+  case: "normal" | "upper";
+  /** Text colour, hex. */
+  textColor: string;
+  /** Legibility treatment behind the text. */
+  background: "scrim" | "box" | "none";
+}
+
 export interface BrandKit {
   /** Dominant brand colour, hex. */
   primaryColor: string;
@@ -32,6 +52,7 @@ export interface StrategyBrief {
   hashtags: string[];
   cta: string;
   brandKit: BrandKit;
+  captionStyle: CaptionStyle;
 }
 
 export interface OverlayText {

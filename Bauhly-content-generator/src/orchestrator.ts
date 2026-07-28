@@ -454,6 +454,7 @@ export async function runPipeline(input: PipelineInput): Promise<ContentPlan> {
         join(input.outDir, rel),
         join(input.outDir, coverRel),
         input.durationSec,
+        plans.brief.captionStyle,
       );
       log(`     rendered ${res.durationSec.toFixed(1)}s combined video`);
       rendered.push({ plan, caption, images: [], video: rel, cover: coverRel });
@@ -473,6 +474,7 @@ export async function runPipeline(input: PipelineInput): Promise<ContentPlan> {
         join(input.outDir, rel),
         join(input.outDir, coverRel),
         input.durationSec,
+        plans.brief.captionStyle,
       );
       log(`     rendered ${res.durationSec.toFixed(1)}s vertical video`);
       rendered.push({ plan, caption, images: [], video: rel, cover: coverRel });
@@ -484,7 +486,7 @@ export async function runPipeline(input: PipelineInput): Promise<ContentPlan> {
       const slide = plan.slides![si];
       const asset = imageByFile.get(slide.assetFile)!;
       const rel = join("images", `${pi + 1}-${plan.format}-slide-${si + 1}.jpg`);
-      await renderSlide(asset, slide, plans.brief.brandKit, join(input.outDir, rel));
+      await renderSlide(asset, slide, plans.brief.brandKit, join(input.outDir, rel), plans.brief.captionStyle);
       images.push(rel);
       log(`   • ${plan.format} slide ${si + 1}/${plan.slides!.length} from ${slide.assetFile}`);
     }

@@ -51,6 +51,12 @@ and edited short-form videos** — each with a caption and hashtags — plus an 
    output/  → edited images + index.html preview + content-plan.json
 ```
 
+The Strategy Agent also picks a brand-appropriate **caption style** — font family
+(modern-sans / bold-impact / elegant-serif / editorial-serif / clean-rounded), weight,
+case, text colour, and background treatment (scrim / box / outline). Both the image and
+video renderers apply it, with a contrast outline baked in so captions stay legible over
+any footage. See `src/captionStyle.ts` for the font registry.
+
 Agents 1–6 run on the **Anthropic API** (Claude, with vision for the asset planner,
 creative director and video director so they can actually see your assets; the QA
 agent reviews the planned content and copy against your strategy and edits or
@@ -89,6 +95,12 @@ Creative Director like any uploaded asset. The generator is pluggable:
   │   overlays, export MP4 + cover frame           │  MP4 (H.264/AAC) + poster
   └──────────────────────────────────────────────┘
 ```
+
+**Quality:** editing is tuned to preserve the source. Images are graded, composited and
+encoded in a **single pass** (no lossy JPEG round-trip) at quality 95 / 4:4:4 / mozjpeg
+with Lanczos scaling. Video encodes use **H.264 CRF 18** (visually lossless), a `medium`
+preset, Lanczos scaling and 192 kbps AAC. Segments are concatenated with stream-copy where
+possible so only genuinely-filtered passes re-encode.
 
 Frame understanding uses Claude vision; cutting/cropping/overlays use
 [ffmpeg](https://ffmpeg.org/) (bundled via `ffmpeg-static`, or your system ffmpeg).

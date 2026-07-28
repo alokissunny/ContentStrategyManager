@@ -227,6 +227,21 @@
   z-index: 10;
 }
 
+/* Horizontally center a primary control (e.g. Business type) in the top bar. */
+.topbar-center {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  display: flex;
+  align-items: center;
+  z-index: 1;
+}
+
+.topbar-center:empty {
+  display: none;
+}
+
 .topbar-menu {
   display: none;
 }
@@ -333,5 +348,23 @@
 
   .topbar-status-detail {
     display: none;
+  }
+
+  /* Avoid colliding with title / Run analysis on narrow screens. */
+  .topbar-center {
+    position: static;
+    transform: none;
+    order: 3;
+    flex: 1 1 100%;
+    justify-content: flex-start;
+  }
+
+  .topbar {
+    flex-wrap: wrap;
+    height: auto;
+    min-height: var(--topbar-h);
+    padding-top: var(--sp-2);
+    padding-bottom: var(--sp-2);
+    row-gap: var(--sp-2);
   }
 }

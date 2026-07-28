@@ -152,6 +152,11 @@ export function buildPreviewHtml(plan: ContentPlan): string {
       ? `<p class="meta">🛡️ QA: ${plan.qa.reviewed} reviewed · ${plan.qa.edited} edited · ${plan.qa.regenerated} regenerated · avg strategy-fit ${plan.qa.averageScore}/100</p>`
       : ""
   }
+  ${
+    plan.brief.captionStyle
+      ? `<p class="meta">🔤 Caption style: ${esc(plan.brief.captionStyle.font)} · ${esc(plan.brief.captionStyle.weight)} · ${esc(plan.brief.captionStyle.case === "upper" ? "ALL CAPS" : "sentence case")} · <span style="color:${esc(plan.brief.captionStyle.textColor)}">${esc(plan.brief.captionStyle.textColor)}</span></p>`
+      : ""
+  }
 
   <section class="pillars">
     <strong>Content pillars</strong>

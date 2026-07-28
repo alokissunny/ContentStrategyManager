@@ -34,6 +34,9 @@ export function mockStrategy(strategy: string): StrategyBrief {
     brandKit: warm
       ? { primaryColor: "#5A3E2B", secondaryColor: "#C9A56A", accentColor: "#E4572E", textColor: "#FFF8F0", mood: "warm minimal" }
       : { primaryColor: "#1A1A2E", secondaryColor: "#4361EE", accentColor: "#F72585", textColor: "#FFFFFF", mood: "bold modern" },
+    captionStyle: warm
+      ? { font: "elegant-serif", weight: "regular", case: "normal", textColor: "#FFF8F0", background: "scrim" }
+      : { font: "bold-impact", weight: "bold", case: "upper", textColor: "#FFFFFF", background: "scrim" },
   };
 }
 

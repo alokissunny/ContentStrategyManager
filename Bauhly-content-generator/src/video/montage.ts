@@ -3,8 +3,9 @@ import { join } from "node:path";
 import { VIDEO_OUT } from "../config.js";
 import { ffmpeg } from "./ffmpeg.js";
 import { probeVideo } from "./probe.js";
-import { buildBaseVideo, burnOverlays, coverFrame, TRANSITION, type RenderVideoResult } from "./editor.js";
-import type { AssetInfo, BrandKit, MontagePlan, MontageSegment } from "../types.js";
+import { buildBaseVideo, burnOverlays, coverFrame, TRANSITION, X264, AAC, type RenderVideoResult } from "./editor.js";
+import { DEFAULT_CAPTION_STYLE } from "../captionStyle.js";
+import type { AssetInfo, BrandKit, CaptionStyle, MontagePlan, MontageSegment } from "../types.js";
 
 function clamp(n: number, lo: number, hi: number): number {
   return Math.min(hi, Math.max(lo, n));
@@ -72,13 +73,12 @@ async function normalizeSegment(seg: MontageSegment, src: AssetInfo, out: string
     const bigW = Math.round(W * 1.3), bigH = Math.round(H * 1.3);
     // Ken Burns: slow zoom over the still, with a silent audio track.
     const vf =
-      `scale=${bigW}:${bigH}:force_original_aspect_ratio=increase,crop=${bigW}:${bigH},` +
+      `scale=${bigW}:${bigH}:force_original_aspect_ratio=increase:flags=lanczos,crop=${bigW}:${bigH},` +
       `zoompan=z='min(zoom+0.0007,1.15)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=${frames}:s=${W}x${H}:fps=${fps},setsar=1,format=yuv420p`;
     await ffmpeg([
       "-y", "-loop", "1", "-t", String(dur), "-i", src.absPath, ...SILENT,
       "-vf", vf, "-map", "0:v", "-map", "1:a",
-      "-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p", "-r", String(fps),
-      "-c:a", "aac", "-ar", "44100", "-ac", "2", "-t", String(dur), out,
+      ...X264, "-r", String(fps), ...AAC, "-ac", "2", "-t", String(dur), out,
     ]);
     return;
   }
@@ -86,21 +86,19 @@ async function normalizeSegment(seg: MontageSegment, src: AssetInfo, out: string
   const start = seg.startSec ?? 0;
   const dur = (seg.endSec ?? start + 4) - start;
   const speed = seg.speed ?? 1;
-  const vf = `scale=${W}:${H}:force_original_aspect_ratio=increase,crop=${W}:${H},setpts=PTS/${speed},fps=${fps},setsar=1,format=yuv420p`;
+  const vf = `scale=${W}:${H}:force_original_aspect_ratio=increase:flags=lanczos,crop=${W}:${H},setpts=PTS/${speed},fps=${fps},setsar=1,format=yuv420p`;
   const hasAudio = src.hasAudio ?? false;
   if (hasAudio) {
     await ffmpeg([
       "-y", "-ss", String(start), "-t", String(dur), "-i", src.absPath,
       "-vf", vf, "-af", `atempo=${speed}`, "-map", "0:v", "-map", "0:a",
-      "-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p", "-r", String(fps),
-      "-c:a", "aac", "-ar", "44100", "-ac", "2", out,
+      ...X264, "-r", String(fps), ...AAC, "-ac", "2", out,
     ]);
   } else {
     await ffmpeg([
       "-y", "-ss", String(start), "-t", String(dur), "-i", src.absPath, ...SILENT,
       "-vf", vf, "-map", "0:v", "-map", "1:a",
-      "-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p", "-r", String(fps),
-      "-c:a", "aac", "-ar", "44100", "-ac", "2", "-shortest", out,
+      ...X264, "-r", String(fps), ...AAC, "-ac", "2", "-shortest", out,
     ]);
   }
 }
@@ -116,6 +114,7 @@ export async function renderMontage(
   outVideoPath: string,
   outCoverPath: string,
   targetDurationSec?: number,
+  captionStyle: CaptionStyle = DEFAULT_CAPTION_STYLE,
 ): Promise<RenderVideoResult> {
   const workDir = join(outVideoPath, "..", ".montage-work");
   await mkdir(workDir, { recursive: true });
@@ -134,7 +133,7 @@ export async function renderMontage(
   const baseDur = (await probeVideo(base)).durationSec || 0;
   const cap = targetDurationSec && targetDurationSec > 0 ? targetDurationSec : undefined;
   const outDur = cap && baseDur > cap ? cap : baseDur;
-  await burnOverlays(base, plan.hook, plan.overlays, kit, outDur, workDir, true, outVideoPath, cap && baseDur > cap ? cap : undefined);
+  await burnOverlays(base, plan.hook, plan.overlays, kit, outDur, workDir, true, outVideoPath, cap && baseDur > cap ? cap : undefined, captionStyle);
   await coverFrame(outVideoPath, outDur, outCoverPath);
 
   await rm(workDir, { recursive: true, force: true });

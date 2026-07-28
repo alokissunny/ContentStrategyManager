@@ -4,11 +4,17 @@ import { join } from "node:path";
 import { VIDEO_OUT } from "../config.js";
 import { ffmpeg } from "./ffmpeg.js";
 import { probeVideo } from "./probe.js";
-import type { AssetInfo, BrandKit, VideoEditPlan, VideoOverlay } from "../types.js";
+import { DEFAULT_CAPTION_STYLE, fontDef, resolveFfmpegFont } from "../captionStyle.js";
+import type { AssetInfo, BrandKit, CaptionStyle, VideoEditPlan, VideoOverlay } from "../types.js";
 
 /** Crossfade duration (s) between segments and text fade in/out. */
 export const TRANSITION = 0.4;
 const TEXT_FADE = 0.28;
+
+/** High-quality H.264 settings (CRF 18 ≈ visually lossless) reused across every encode. */
+export const X264 = ["-c:v", "libx264", "-preset", "medium", "-crf", "18", "-pix_fmt", "yuv420p"];
+/** High-quality AAC audio settings. */
+export const AAC = ["-c:a", "aac", "-b:a", "192k", "-ar", "44100"];
 
 const FONT_CANDIDATES = [
   "/System/Library/Fonts/Supplemental/Arial Bold.ttf",
@@ -88,7 +94,7 @@ export function fitPlanToDuration(plan: VideoEditPlan, target: number, sourceDur
   return plan;
 }
 
-function drawtext(font: string, textfile: string, fontSize: number, color: string, position: VideoOverlay["position"], a: number, b: number, isHook = false): string {
+function drawtext(font: string, textfile: string, fontSize: number, color: string, position: VideoOverlay["position"], a: number, b: number, isHook = false, box = true): string {
   const yExpr =
     position === "top" ? "160" :
     position === "bottom" ? "h-text_h-220" :
@@ -107,9 +113,9 @@ function drawtext(font: string, textfile: string, fontSize: number, color: strin
     `fontsize=${fontSize}`,
     `fontcolor=${color}`,
     `alpha='${alpha}'`,
-    `borderw=3`,
+    `borderw=${isHook ? 4 : 3}`,
     `bordercolor=0x000000`,
-    `box=1`,
+    `box=${box ? 1 : 0}`,
     `boxcolor=black@0.45`,
     `boxborderw=28`,
     `line_spacing=14`,
@@ -169,8 +175,8 @@ export async function buildBaseVideo(
     const filter = [...vParts, ...aParts].join(";");
     const out = join(workDir, "base.mp4");
     const args = ["-y", ...inputs, "-filter_complex", filter, "-map", "[vout]"];
-    if (hasAudio) args.push("-map", "[aout]", "-c:a", "aac", "-ar", "44100");
-    args.push("-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p", out);
+    if (hasAudio) args.push("-map", "[aout]", ...AAC);
+    args.push(...X264, out);
     await ffmpeg(args);
     return out;
   } catch {
@@ -192,10 +198,14 @@ export async function burnOverlays(
   hasAudio: boolean,
   outPath: string,
   maxDur?: number,
+  style: CaptionStyle = DEFAULT_CAPTION_STYLE,
 ): Promise<void> {
   const trim = maxDur && maxDur > 0 ? ["-t", String(maxDur)] : [];
-  const font = findFont();
-  const color = hexToFf(kit.textColor);
+  const font = resolveFfmpegFont(style) ?? findFont();
+  const color = hexToFf(style.textColor);
+  const scale = fontDef(style).sizeScale;
+  const box = style.background !== "none";
+  const upper = style.case === "upper";
   const norm = (s: string) => s.trim().toLowerCase().replace(/[^\w\s]/g, "");
 
   const requested: Array<VideoOverlay & { isHook?: boolean }> = [];
@@ -223,17 +233,19 @@ export async function burnOverlays(
     for (let i = 0; i < placed.length; i++) {
       const o = placed[i];
       const tf = join(workDir, `text_${i}.txt`);
-      await writeFile(tf, wrap(o.text, o.isHook ? 18 : 26));
-      parts.push(drawtext(font, tf, o.isHook ? 78 : 54, color, o.position, o.a, o.b, o.isHook));
+      const text = upper ? o.text.toUpperCase() : o.text;
+      await writeFile(tf, wrap(text, o.isHook ? 18 : 26));
+      const size = Math.round((o.isHook ? 78 : 54) * scale);
+      parts.push(drawtext(font, tf, size, color, o.position, o.a, o.b, o.isHook, box));
     }
-    const args = ["-y", "-i", baseVideo, "-vf", parts.join(","), ...trim, "-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p"];
-    if (hasAudio) args.push(...(trim.length ? ["-c:a", "aac", "-ar", "44100"] : ["-c:a", "copy"]));
+    const args = ["-y", "-i", baseVideo, "-vf", parts.join(","), ...trim, ...X264];
+    if (hasAudio) args.push(...(trim.length ? AAC : ["-c:a", "copy"]));
     args.push("-movflags", "+faststart", outPath);
     await ffmpeg(args);
   } else if (trim.length) {
     // No overlays but a duration cap: trim (re-encode for a precise cut).
-    const args = ["-y", "-i", baseVideo, ...trim, "-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p"];
-    if (hasAudio) args.push("-c:a", "aac", "-ar", "44100");
+    const args = ["-y", "-i", baseVideo, ...trim, ...X264];
+    if (hasAudio) args.push(...AAC);
     args.push("-movflags", "+faststart", outPath);
     await ffmpeg(args);
   } else {
@@ -244,7 +256,7 @@ export async function burnOverlays(
 /** Extract a cover/poster frame (near the start, so it shows the hook). */
 export async function coverFrame(video: string, outDur: number, outPath: string): Promise<void> {
   const t = Math.min(1.0, Math.max(0.2, outDur / 2));
-  await ffmpeg(["-y", "-ss", String(t), "-i", video, "-frames:v", "1", "-q:v", "3", outPath]);
+  await ffmpeg(["-y", "-ss", String(t), "-i", video, "-frames:v", "1", "-q:v", "2", outPath]);
 }
 
 export interface RenderVideoResult {
@@ -264,6 +276,7 @@ export async function renderVideo(
   outVideoPath: string,
   outCoverPath: string,
   targetDurationSec?: number,
+  captionStyle: CaptionStyle = DEFAULT_CAPTION_STYLE,
 ): Promise<RenderVideoResult> {
   const { width: W, height: H, fps } = VIDEO_OUT;
   const hasAudio = source.hasAudio ?? false;
@@ -276,14 +289,14 @@ export async function renderVideo(
     const s = plan.segments[i];
     const dur = s.endSec - s.startSec;
     const segOut = join(workDir, `seg_${String(i).padStart(2, "0")}.mp4`);
-    const vf = `scale=${W}:${H}:force_original_aspect_ratio=increase,crop=${W}:${H},setpts=PTS/${s.speed},fps=${fps}`;
+    const vf = `scale=${W}:${H}:force_original_aspect_ratio=increase:flags=lanczos,crop=${W}:${H},setpts=PTS/${s.speed},fps=${fps}`;
     const args = ["-y", "-ss", String(s.startSec), "-t", String(dur), "-i", source.absPath, "-vf", vf];
     if (hasAudio) {
-      args.push("-af", `atempo=${s.speed}`, "-c:a", "aac", "-ar", "44100");
+      args.push("-af", `atempo=${s.speed}`, ...AAC);
     } else {
       args.push("-an");
     }
-    args.push("-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p", "-r", String(fps), segOut);
+    args.push(...X264, "-r", String(fps), segOut);
     await ffmpeg(args);
     segFiles.push(segOut);
   }
@@ -297,7 +310,7 @@ export async function renderVideo(
   const outDur = cap && baseDur > cap ? cap : baseDur;
 
   // 3. Burn the hook + overlays (trimming to the target), then grab a cover frame.
-  await burnOverlays(base, plan.hook, plan.overlays, kit, outDur, workDir, hasAudio, outVideoPath, cap && baseDur > cap ? cap : undefined);
+  await burnOverlays(base, plan.hook, plan.overlays, kit, outDur, workDir, hasAudio, outVideoPath, cap && baseDur > cap ? cap : undefined, captionStyle);
   await coverFrame(outVideoPath, outDur, outCoverPath);
 
   await rm(workDir, { recursive: true, force: true });

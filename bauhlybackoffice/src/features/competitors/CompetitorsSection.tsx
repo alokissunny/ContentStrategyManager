@@ -18,7 +18,7 @@ import { periodToDays } from '../../services/intelligence/filterScope'
 import { CompetitorsPage } from './CompetitorsPage'
 import { AddCompetitorForm, Modal, SuggestionList } from './modals'
 import { RefreshIcon } from '../../components/icons'
-import { PageActions } from '../../app/shell/pageActions'
+import { PageActions, PageCenterActions } from '../../app/shell/pageActions'
 import { ApiError } from '../../services/api'
 import './competitors.css'
 
@@ -132,29 +132,49 @@ export function CompetitorsSection() {
   return (
     <div>
       {!onAccounts && (
-        <PageActions>
-          <span
-            className="collection-status"
-            title={
-              collection.data
-                ? `${collection.data.accountsProcessed} accounts processed, ${collection.data.postsCollected.toLocaleString('en-US')} posts collected, ${collection.data.failures} failed`
-                : undefined
-            }
-          >
-            <RefreshIcon width={14} height={14} />
-            Last scrape{' '}
-            {collection.data ? relativeTime(collection.data.lastRunAt) : '…'}
-            {collection.data ? ` · ${collection.data.source}` : ''}
-          </span>
-          <button
-            type="button"
-            className="btn-primary"
-            disabled={analysisMutation.isPending}
-            onClick={requestRunAnalysis}
-          >
-            {analysisMutation.isPending ? 'Analysing…' : 'Run analysis'}
-          </button>
-        </PageActions>
+        <>
+          <PageCenterActions>
+            <div className="topbar-field">
+              <label htmlFor="overview-business-type">Business type</label>
+              <select
+                id="overview-business-type"
+                value={filters.businessCategory}
+                onChange={(e) =>
+                  setFilters({ ...filters, businessCategory: e.target.value })
+                }
+              >
+                {filterOptions.businessCategory.map(({ value, label }) => (
+                  <option key={value} value={value}>
+                    {label}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </PageCenterActions>
+          <PageActions>
+            <span
+              className="collection-status"
+              title={
+                collection.data
+                  ? `${collection.data.accountsProcessed} accounts processed, ${collection.data.postsCollected.toLocaleString('en-US')} posts collected, ${collection.data.failures} failed`
+                  : undefined
+              }
+            >
+              <RefreshIcon width={14} height={14} />
+              Last scrape{' '}
+              {collection.data ? relativeTime(collection.data.lastRunAt) : '…'}
+              {collection.data ? ` · ${collection.data.source}` : ''}
+            </span>
+            <button
+              type="button"
+              className="btn-primary"
+              disabled={analysisMutation.isPending}
+              onClick={requestRunAnalysis}
+            >
+              {analysisMutation.isPending ? 'Analysing…' : 'Run analysis'}
+            </button>
+          </PageActions>
+        </>
       )}
 
       <div className="section-bar">
@@ -172,24 +192,6 @@ export function CompetitorsSection() {
         </div>
 
         <div className="section-bar-actions">
-          {!onAccounts && (
-            <div className="section-bar-field">
-              <label htmlFor="overview-business-type">Business type</label>
-              <select
-                id="overview-business-type"
-                value={filters.businessCategory}
-                onChange={(e) =>
-                  setFilters({ ...filters, businessCategory: e.target.value })
-                }
-              >
-                {filterOptions.businessCategory.map(({ value, label }) => (
-                  <option key={value} value={value}>
-                    {label}
-                  </option>
-                ))}
-              </select>
-            </div>
-          )}
           <button type="button" className="btn-secondary" onClick={() => setModal('discover')}>
             ✦ Discover
             {suggestions.data && suggestions.data.length > 0 && (
