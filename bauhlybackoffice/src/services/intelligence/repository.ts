@@ -564,6 +564,21 @@ function filterLiveDashboard(data: DashboardData, filters: FilterState): Dashboa
   const weekly =
     pillar === 'all' ? (data.weekly ?? []) : (data.weekly ?? []).filter((w) => w.pillar === pillar)
 
+  // The Caption Pattern Analysis is stored whole; filter its patterns to the
+  // selected pillar here so the widget responds to the pillar control. Formats
+  // and days carry no pillar, so they are left intact.
+  const captionAnalysis =
+    data.captionAnalysis && pillar !== 'all'
+      ? (() => {
+          const patterns = data.captionAnalysis.patterns.filter((p) => p.pillar === pillar)
+          return {
+            ...data.captionAnalysis,
+            patterns,
+            kpis: { ...data.captionAnalysis.kpis, patternsDetected: patterns.length },
+          }
+        })()
+      : data.captionAnalysis
+
   const PILLAR_TITLES = { discovery: 'Discovery', credibility: 'Credibility', trust: 'Trust' } as const
 
   return {
@@ -575,6 +590,7 @@ function filterLiveDashboard(data: DashboardData, filters: FilterState): Dashboa
     trendTopics: data.trendTopics ?? [],
     hashtags: data.hashtags ?? [],
     weekly,
+    captionAnalysis,
     weeklyBasis:
       pillar === 'all' || weekly.length === 0
         ? null

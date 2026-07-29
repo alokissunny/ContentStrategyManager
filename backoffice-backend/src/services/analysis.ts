@@ -24,8 +24,10 @@ const BATCH_MEMO_PROMPT_PATH = join(PROMPT_DIR, 'register-batch-memo-prompt.md')
 
 /** Parallel Claude map calls — keep modest to avoid rate limits. */
 const MAP_CONCURRENCY = 3
-const MAP_MAX_TOKENS = 4096
-const REDUCE_MAX_TOKENS = 12288
+// The map memo now also carries caption patterns; give it headroom so the JSON
+// isn't cut off mid-array at max_tokens (a truncated memo is unparseable).
+const MAP_MAX_TOKENS = 8192
+const REDUCE_MAX_TOKENS = 16384
 
 function loadPrompt(path: string): string {
   return readFileSync(path, 'utf8')
@@ -76,7 +78,62 @@ function isoDay(d: Date): string {
   return d.toISOString().slice(0, 10)
 }
 
-function extractJson(text: string): unknown {
+/** Open `}`/`]` closers still pending at the end of `s`, respecting strings. */
+function openClosers(s: string): string[] {
+  let inStr = false
+  let esc = false
+  const stack: string[] = []
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i]!
+    if (inStr) {
+      if (esc) esc = false
+      else if (c === '\\') esc = true
+      else if (c === '"') inStr = false
+      continue
+    }
+    if (c === '"') inStr = true
+    else if (c === '{') stack.push('}')
+    else if (c === '[') stack.push(']')
+    else if (c === '}' || c === ']') stack.pop()
+  }
+  return stack
+}
+
+/**
+ * Best-effort recovery of JSON truncated mid-output (Claude hit max_tokens):
+ * cut back to the last completed element and close any still-open strings,
+ * arrays and objects. Returns null when it cannot be salvaged.
+ */
+function repairTruncatedJson(text: string): unknown | null {
+  let inStr = false
+  let esc = false
+  let lastSafe = -1
+  // A safe cut point is only right after a closed container (`}`/`]`) or just
+  // before a separator (`,`) — both guarantee the preceding value is complete.
+  // A closing quote is NOT safe: it may be an object key with no value yet.
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i]!
+    if (inStr) {
+      if (esc) esc = false
+      else if (c === '\\') esc = true
+      else if (c === '"') inStr = false
+      continue
+    }
+    if (c === '"') inStr = true
+    else if (c === '}' || c === ']') lastSafe = i + 1
+    else if (c === ',') lastSafe = i
+  }
+  if (lastSafe <= 0) return null
+  const prefix = text.slice(0, lastSafe).replace(/[\s,]+$/, '')
+  const closers = openClosers(prefix)
+  try {
+    return JSON.parse(closers.length ? prefix + closers.reverse().join('') : prefix)
+  } catch {
+    return null
+  }
+}
+
+export function extractJson(text: string): unknown {
   const trimmed = text.trim()
   try {
     return JSON.parse(trimmed)
@@ -85,17 +142,36 @@ function extractJson(text: string): unknown {
   }
   const fenced = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/i)
   if (fenced?.[1]) {
-    return JSON.parse(fenced[1].trim())
+    try {
+      return JSON.parse(fenced[1].trim())
+    } catch {
+      /* fall through */
+    }
   }
   const objStart = trimmed.indexOf('{')
   const objEnd = trimmed.lastIndexOf('}')
   const arrStart = trimmed.indexOf('[')
   const arrEnd = trimmed.lastIndexOf(']')
   if (arrStart >= 0 && (objStart < 0 || arrStart < objStart) && arrEnd > arrStart) {
-    return JSON.parse(trimmed.slice(arrStart, arrEnd + 1))
+    try {
+      return JSON.parse(trimmed.slice(arrStart, arrEnd + 1))
+    } catch {
+      /* fall through */
+    }
   }
   if (objStart >= 0 && objEnd > objStart) {
-    return JSON.parse(trimmed.slice(objStart, objEnd + 1))
+    try {
+      return JSON.parse(trimmed.slice(objStart, objEnd + 1))
+    } catch {
+      /* fall through */
+    }
+  }
+  // Likely truncated at max_tokens — salvage the largest valid prefix.
+  const start =
+    objStart >= 0 && (arrStart < 0 || objStart < arrStart) ? objStart : arrStart
+  if (start >= 0) {
+    const repaired = repairTruncatedJson(trimmed.slice(start))
+    if (repaired !== null) return repaired
   }
   throw new Error('Claude response was not valid JSON')
 }
@@ -743,7 +819,18 @@ async function runMapBatches(batches: CondensedAccount[][]): Promise<unknown[]> 
       JSON.stringify(batchPayload(index, accounts), null, 2),
     )
     const text = await callClaude(`map-batch-${index + 1}/${batches.length}`, prompt, MAP_MAX_TOKENS)
-    const memo = extractJson(text)
+    let memo: unknown
+    try {
+      memo = extractJson(text)
+    } catch (err) {
+      // A single unparseable batch must not sink the whole run — degrade it and
+      // let the reduce step work from the batches that did parse.
+      console.warn(
+        `[analysis:map-batch-${index + 1}/${batches.length}] unparseable memo ` +
+          `(${err instanceof Error ? err.message : String(err)}); using a degraded memo`,
+      )
+      return { batchIndex: index, accountCount: accounts.length, degraded: true }
+    }
     if (memo && typeof memo === 'object' && !Array.isArray(memo)) {
       return { ...(memo as Record<string, unknown>), batchIndex: index, accountCount: accounts.length }
     }

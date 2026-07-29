@@ -110,11 +110,12 @@ Produce a compact **batch memo** as JSON only (no Markdown fences, no preamble).
 - Keep strings short. JSON only.
 
 ### Caption-pattern rules (critical)
-- 3–6 `captionPatterns`. Each is a **recurring caption structure** — how the
+- 3–5 `captionPatterns`. Each is a **recurring caption structure** — how the
   competitor *writes*, not what they post about. Group similar captions in this
   batch into one pattern.
 - Describe frequency / prevalence only — **never** performance, reach or results.
-- `structure` = 2–4 ordered steps ({ step, detail }), the recurring shape.
+- `structure` = 2–3 ordered steps ({ step, detail }); keep each `detail` to a
+  short phrase. Keep `summary` to one short sentence.
 - `exampleUsername` + `examplePlatformPostId` **must** reference a real exemplar
   from this batch (so the reduce step can pull the actual caption). Do not invent.
 - `matchCount` = how many captions in this batch fit the pattern.
