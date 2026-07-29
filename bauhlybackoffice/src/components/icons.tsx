@@ -137,6 +137,12 @@ export const ClockIcon = (p: IconProps) => (
   </Icon>
 )
 
+export const FilterIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M3 5h14M6 10h8M9 15h2" />
+  </Icon>
+)
+
 export const AlertIcon = (p: IconProps) => (
   <Icon {...p}>
     <path d="M10 3 2.5 16.5h15L10 3Z" />

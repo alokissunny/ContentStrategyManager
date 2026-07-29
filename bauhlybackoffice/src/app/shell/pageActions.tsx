@@ -46,3 +46,32 @@ export function PageCenterActions({ children }: { children: ReactNode }) {
   if (!centerNode) return null
   return createPortal(children, centerNode)
 }
+
+/*
+ * A slot on the filter row. On phones the section-bar actions move down here
+ * so they sit beside the Filters button instead of wrapping under the tabs.
+ * The section owns the action (and its modal state) while the page owns the
+ * filter row, so a portal is what lets them share a line.
+ */
+const FilterSlotContext = createContext<{
+  node: HTMLElement | null
+  setNode: (el: HTMLElement | null) => void
+}>({ node: null, setNode: () => {} })
+
+export function FilterActionsProvider({ children }: { children: ReactNode }) {
+  const [node, setNode] = useState<HTMLElement | null>(null)
+  return (
+    <FilterSlotContext.Provider value={{ node, setNode }}>{children}</FilterSlotContext.Provider>
+  )
+}
+
+export function FilterActionsSlot() {
+  const { setNode } = useContext(FilterSlotContext)
+  return <div className="filter-row-actions" ref={setNode} />
+}
+
+export function FilterActions({ children }: { children: ReactNode }) {
+  const { node } = useContext(FilterSlotContext)
+  if (!node) return null
+  return createPortal(children, node)
+}

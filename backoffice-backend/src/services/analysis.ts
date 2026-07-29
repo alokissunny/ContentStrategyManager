@@ -194,12 +194,313 @@ function pillarOf(v: unknown): 'discovery' | 'credibility' | 'trust' | null {
   return PILLARS.has(s) ? (s as 'discovery' | 'credibility' | 'trust') : null
 }
 
+function clampNum(n: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, n))
+}
+
+/* ── Caption Pattern Analysis (the new Overview headline) ───────────────────
+ *
+ * Claude supplies only the qualitative caption *patterns*. Everything countable
+ * — formats, days, peak times, the KPI row — is computed here from the corpus
+ * and condensed accounts, so the numbers stay grounded in observed public data.
+ * All language is frequency-only: prevalence and change, never performance.
+ */
+
+const FORMAT_LABELS: Record<string, string> = {
+  reel: 'Reel',
+  carousel: 'Carousel',
+  image: 'Single image',
+  video: 'Video',
+  sidecar: 'Multi-image post',
+  'multi-image': 'Multi-image post',
+}
+
+function formatLabel(f: string): string {
+  return FORMAT_LABELS[f] ?? (f ? f[0]!.toUpperCase() + f.slice(1) : 'Other')
+}
+
+/** Comparison windows shown with every trend, mirroring the frontend model. */
+const CAPTION_WINDOWS: Record<string, { previous: string; current: string }> = {
+  'last-30': { previous: '31–60 days ago', current: 'Last 30 days' },
+  'previous-30': { previous: '61–90 days ago', current: '31–60 days ago' },
+  'last-90': { previous: 'Prior 90 days', current: 'Last 90 days' },
+  'last-180': { previous: 'Prior 6 months', current: 'Last 6 months' },
+  'last-365': { previous: 'Prior 12 months', current: 'Last 12 months' },
+  'month-over-month': { previous: 'Previous month', current: 'This month' },
+}
+
+function captionWindows(period: string | undefined, windowDays: number) {
+  if (period && CAPTION_WINDOWS[period]) return CAPTION_WINDOWS[period]!
+  return { previous: `Prior ${windowDays} days`, current: `Last ${windowDays} days` }
+}
+
+/** A trend needs a real prior window and enough captions, else it's inconclusive. */
+const MIN_CAPTIONS_FOR_TREND = 40
+
+type CaptionTrendState = 'increasing' | 'decreasing' | 'stable' | 'inconclusive'
+
+function captionTrendState(changePp: number | null, captions: number): CaptionTrendState {
+  if (changePp == null || captions < MIN_CAPTIONS_FOR_TREND) return 'inconclusive'
+  if (Math.abs(changePp) < 1) return 'stable'
+  return changePp > 0 ? 'increasing' : 'decreasing'
+}
+
+function captionTrend(
+  sharePct: number,
+  changePp: number | null,
+  captions: number,
+  windows: { previous: string; current: string },
+) {
+  const state = captionTrendState(changePp, captions)
+  if (state === 'inconclusive') {
+    return {
+      previousPct: null,
+      currentPct: null,
+      changePp: null,
+      state,
+      previousWindow: windows.previous,
+      currentWindow: windows.current,
+    }
+  }
+  const current = Math.round(sharePct * 10) / 10
+  return {
+    previousPct: Math.round((sharePct - (changePp as number)) * 10) / 10,
+    currentPct: current,
+    changePp,
+    state,
+    previousWindow: windows.previous,
+    currentWindow: windows.current,
+  }
+}
+
+function slug(s: string): string {
+  return (
+    s
+      .toLowerCase()
+      .trim()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-|-$/g, '') || 'pattern'
+  )
+}
+
+const WEEKDAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
+
+/** Busiest 2-hour publishing window per weekday, from exemplar timestamps (UTC). */
+function computePeakTimes(accounts: CondensedAccount[]): Map<string, string> {
+  const byDay = new Map<string, Map<number, number>>()
+  for (const a of accounts) {
+    for (const e of a.exemplars) {
+      if (!e.publishedAt) continue
+      const d = new Date(e.publishedAt)
+      if (Number.isNaN(d.getTime())) continue
+      const day = WEEKDAY_NAMES[d.getUTCDay()]!
+      const bucket = Math.floor(d.getUTCHours() / 2) * 2
+      let m = byDay.get(day)
+      if (!m) {
+        m = new Map()
+        byDay.set(day, m)
+      }
+      m.set(bucket, (m.get(bucket) ?? 0) + 1)
+    }
+  }
+  const hh = (n: number) => `${String(n % 24).padStart(2, '0')}:00`
+  const out = new Map<string, string>()
+  for (const [day, m] of byDay) {
+    let best = -1
+    let bestCount = -1
+    for (const [b, c] of m) {
+      if (c > bestCount) {
+        bestCount = c
+        best = b
+      }
+    }
+    if (best >= 0) out.set(day, `${hh(best)}–${hh(best + 2)}`)
+  }
+  return out
+}
+
+/** Rank rows (formats / days) sorted by share and numbered from 1. */
+function rankBySharePct<T extends { sharePct: number }>(rows: T[]): (T & { rank: number })[] {
+  return [...rows].sort((a, b) => b.sharePct - a.sharePct).map((r, i) => ({ ...r, rank: i + 1 }))
+}
+
+function buildCaptionAnalysis(
+  rawCaption: Record<string, unknown> | null,
+  corpus: CorpusStats,
+  accounts: CondensedAccount[],
+  windowDays: number,
+  period: string | undefined,
+) {
+  const windows = captionWindows(period, windowDays)
+  const totalPosts = corpus.totalPosts
+  const accountsWithPosts = corpus.accountsWithPosts
+
+  // Exemplar caption lookup + display names, so pattern examples resolve to a
+  // real caption rather than an invented one.
+  const captionByPostId = new Map<string, { competitor: string; caption: string }>()
+  const displayName = new Map<string, string>()
+  for (const a of accounts) {
+    const name = a.displayName ?? a.username
+    displayName.set(a.username, name)
+    for (const e of a.exemplars) {
+      if (e.platformPostId && e.caption) {
+        captionByPostId.set(e.platformPostId, { competitor: name, caption: e.caption })
+      }
+    }
+  }
+
+  // Formats — competitor counts from per-account format mix; volume from corpus.
+  const formatAccounts = new Map<string, number>()
+  const dayAccounts = new Map<string, number>()
+  for (const a of accounts) {
+    for (const fm of a.window.formatMix) {
+      if (fm.sharePct > 0) formatAccounts.set(fm.format, (formatAccounts.get(fm.format) ?? 0) + 1)
+    }
+    for (const d of a.window.postingDays) {
+      if (d.count > 0) dayAccounts.set(d.day, (dayAccounts.get(d.day) ?? 0) + 1)
+    }
+  }
+
+  const formats = rankBySharePct(
+    corpus.formatMix.map((f, i) => {
+      const t = captionTrend(f.sharePct, null, f.posts, windows)
+      return {
+        id: slug(f.format) || `format-${i + 1}`,
+        label: formatLabel(f.format),
+        competitors: formatAccounts.get(f.format) ?? 0,
+        posts: f.posts,
+        sharePct: Math.round(f.sharePct * 10) / 10,
+        previousPct: t.previousPct,
+        currentPct: t.currentPct,
+        changePp: t.changePp,
+        state: t.state,
+      }
+    }),
+  )
+
+  // Days — competitor counts from per-account posting days; peak time from a
+  // Claude hint when present, else the busiest exemplar window.
+  const peakHintByDay = new Map<string, string>()
+  const hints = Array.isArray(rawCaption?.dayPeakTimes)
+    ? (rawCaption!.dayPeakTimes as unknown[])
+    : []
+  for (const h of hints) {
+    const row = (h ?? {}) as Record<string, unknown>
+    const day = asStr(row.day)
+    const pt = asStr(row.peakTime)
+    if (day && pt) peakHintByDay.set(day, pt)
+  }
+  const computedPeak = computePeakTimes(accounts)
+  const days = rankBySharePct(
+    corpus.postingDays.map((d, i) => {
+      const t = captionTrend(d.sharePct, null, d.posts, windows)
+      return {
+        id: slug(d.day) || `day-${i + 1}`,
+        label: d.day,
+        peakTime: peakHintByDay.get(d.day) ?? computedPeak.get(d.day),
+        competitors: dayAccounts.get(d.day) ?? 0,
+        posts: d.posts,
+        sharePct: Math.round(d.sharePct * 10) / 10,
+        previousPct: t.previousPct,
+        currentPct: t.currentPct,
+        changePp: t.changePp,
+        state: t.state,
+      }
+    }),
+  )
+
+  // Patterns — validated from Claude; counts grounded in corpus totals.
+  const rawPatterns = Array.isArray(rawCaption?.patterns) ? (rawCaption!.patterns as unknown[]) : []
+  const patterns = rawPatterns
+    .map((p) => {
+      const row = (p ?? {}) as Record<string, unknown>
+      const name = asStr(row.name, 'Caption pattern')
+      const pillar = pillarOf(row.pillar) ?? 'discovery'
+      const sharePct = Math.round(clampNum(asNum(row.sharePct), 0, 100) * 10) / 10
+      const captions =
+        row.captions != null
+          ? Math.max(0, Math.round(asNum(row.captions)))
+          : Math.max(0, Math.round((sharePct / 100) * totalPosts))
+      const competitors =
+        row.competitors != null
+          ? Math.max(0, Math.round(asNum(row.competitors)))
+          : Math.max(1, Math.min(accountsWithPosts, Math.round((sharePct / 100) * accountsWithPosts)))
+      const changePp = row.changePp == null ? null : asNum(row.changePp)
+      const structure = (Array.isArray(row.structure) ? row.structure : [])
+        .map((s) => {
+          const sr = (s ?? {}) as Record<string, unknown>
+          return { step: asStr(sr.step, 'Step'), detail: asStr(sr.detail) }
+        })
+        .filter((s) => s.step)
+
+      // Resolve a real example caption: by post id, then an inline example, then
+      // any exemplar from the named account. Null when none is available.
+      let example: { competitor: string; caption: string } | null = null
+      const byId = asStr(row.examplePlatformPostId)
+      if (byId && captionByPostId.has(byId)) {
+        example = captionByPostId.get(byId)!
+      } else if (row.example && typeof row.example === 'object') {
+        const ex = row.example as Record<string, unknown>
+        const cap = asStr(ex.caption)
+        const comp = asStr(ex.competitor)
+        if (cap && comp) example = { competitor: comp, caption: cap }
+      }
+      if (!example) {
+        const user = asStr(row.exampleUsername)
+        const acc = user ? accounts.find((a) => a.username === user) : undefined
+        const e = acc?.exemplars.find((ex) => ex.caption)
+        if (acc && e) example = { competitor: displayName.get(acc.username) ?? acc.username, caption: e.caption }
+      }
+
+      return {
+        id: asStr(row.id) || slug(name),
+        name,
+        summary: asStr(row.summary),
+        pillar,
+        competitors,
+        captions,
+        sharePct,
+        trend: captionTrend(sharePct, changePp, captions, windows),
+        whatWeDetected: asStr(row.whatWeDetected),
+        whyItMatters: asStr(row.whyItMatters),
+        structure,
+        pillarReason: asStr(row.pillarReason),
+        example,
+      }
+    })
+    .filter((p) => p.name)
+    .sort((a, b) => b.sharePct - a.sharePct || b.captions - a.captions)
+    .map((p, i) => ({ ...p, rank: i + 1 }))
+
+  return {
+    kpis: {
+      competitors: accountsWithPosts,
+      captions: totalPosts,
+      patternsDetected: patterns.length,
+    },
+    windows,
+    patterns,
+    formats,
+    days,
+    // Reserved: the UI's "Days & Times" tab reads `days`; `times` stays empty.
+    times: [] as unknown[],
+  }
+}
+
 /**
  * Hydrate Claude's compact JSON into the Overview dashboard shape the UI expects.
  */
 function normalizeDashboard(
   raw: Record<string, unknown>,
-  meta: { accountsAnalyzed: number; postsAnalyzed: number; windowDays: number; finishedAt: Date },
+  meta: {
+    accountsAnalyzed: number
+    postsAnalyzed: number
+    windowDays: number
+    finishedAt: Date
+    period?: string
+    corpus: CorpusStats
+    accounts: CondensedAccount[]
+  },
 ) {
   const from = isoDay(new Date(meta.finishedAt.getTime() - meta.windowDays * 864e5))
   const to = isoDay(meta.finishedAt)
@@ -321,6 +622,9 @@ function normalizeDashboard(
       type: ['Category', 'Local', 'Niche', 'Branded'].includes(type) ? type : 'Category',
       highPerformerAccounts: asNum(row.highPerformerAccounts),
       comparisonAccounts: asNum(row.comparisonAccounts),
+      // Pillar whose top performers lean on the tag hardest vs the comparison
+      // group — a distinctiveness marker, not a causal claim.
+      pillar: pillarOf(row.pillar) ?? 'discovery',
     }
   })
 
@@ -371,6 +675,13 @@ function normalizeDashboard(
       medianChanges: [],
       adoption: [],
     },
+    captionAnalysis: buildCaptionAnalysis(
+      (raw.captionAnalysis ?? null) as Record<string, unknown> | null,
+      meta.corpus,
+      meta.accounts,
+      meta.windowDays,
+      meta.period,
+    ),
     sampleLabel: `Last ${meta.windowDays} days · full register`,
   }
 }
@@ -536,6 +847,9 @@ export async function runRegisterAnalysis(input: RunAnalysisInput = {}): Promise
       postsAnalyzed: built.corpus.totalPosts,
       windowDays,
       finishedAt,
+      period,
+      corpus: built.corpus,
+      accounts: built.accounts,
     })
     // Prefer corpus medians when Claude omits or invents them.
     dashboard.summary.medianPostsPerWeek =

@@ -83,7 +83,8 @@ Return **only one JSON object** (no Markdown fences, no preamble). Shape:
       "tag": "#example",
       "type": "Category|Local|Niche|Branded",
       "highPerformerAccounts": 0,
-      "comparisonAccounts": 0
+      "comparisonAccounts": 0,
+      "pillar": "discovery|credibility|trust"
     }
   ],
   "hashtagBasis": { "highPerformers": 0, "comparison": 0 },
@@ -98,7 +99,30 @@ Return **only one JSON object** (no Markdown fences, no preamble). Shape:
       "posts": 0,
       "medianTime": "10:00"
     }
-  ]
+  ],
+  "captionAnalysis": {
+    "patterns": [
+      {
+        "name": "Educational Misconception",
+        "summary": "Correcting a common misconception before explaining the reasoning.",
+        "pillar": "discovery|credibility|trust",
+        "sharePct": 0,
+        "changePp": null,
+        "whatWeDetected": "1–2 sentences on the recurring caption shape.",
+        "whyItMatters": "Why competitors commonly use it (no performance claims).",
+        "pillarReason": "Why THIS pattern sits under its pillar — specific.",
+        "structure": [
+          { "step": "Misconception", "detail": "The belief the reader already holds" },
+          { "step": "Explanation", "detail": "Why it does not always hold up" }
+        ],
+        "exampleUsername": "studio.one",
+        "examplePlatformPostId": "id-from-exemplar"
+      }
+    ],
+    "dayPeakTimes": [
+      { "day": "Tuesday", "peakTime": "10:00–12:00" }
+    ]
+  }
 }
 ```
 
@@ -116,8 +140,22 @@ contains a clear prior comparison — never invent a previous window.
     hook (pooled from every competitor), where
     `ER = (likes + comments) / followers × 100`
 - **topics** — 6–10 topics
-- **hashtags** — prefer corpus `topHashtags`; classify type; 8–12 rows
+- **hashtags** — prefer corpus `topHashtags`; classify type; 8–12 rows. Set
+  `pillar` to the pillar whose top performers use the tag most distinctively
+  versus the comparison group (a distinctiveness marker, never a causal claim).
 - **weekly** — Mon–Sun (7 rows); use corpus `postingDays` for volume where possible
+- **captionAnalysis.patterns** — 5–9 recurring **caption structures**, merged from
+  the `captionPatterns` across `batchMemos` (combine same-named patterns).
+  - This is the headline widget of the Overview. Report **frequency / prevalence /
+    change only** — never performance, reach, saves or results.
+  - `sharePct` = share of analyzed captions matching the pattern (they need not sum
+    to 100). Set `changePp` to `null` unless the input contains a real prior window.
+  - `structure` = the recurring shape (2–4 ordered { step, detail }).
+  - `exampleUsername` + `examplePlatformPostId` **must** reference a real exemplar
+    (the server resolves the actual caption). Omit both if none is available.
+  - Server-side code computes competitor/caption counts, formats, days and the KPI
+    row from the corpus — do **not** invent those; only supply the qualitative
+    patterns (and optional `dayPeakTimes` hints, one per busy weekday).
 
 ### Hard rules
 - **Quantitative claims** (shares, medians, account/post counts) must align with

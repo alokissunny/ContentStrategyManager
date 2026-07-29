@@ -72,6 +72,20 @@ Produce a compact **batch memo** as JSON only (no Markdown fences, no preamble).
       "note": "grounded in postingDays / exemplars"
     }
   ],
+  "captionPatterns": [
+    {
+      "name": "Educational Misconception",
+      "pillar": "discovery|credibility|trust",
+      "summary": "One-line description of the recurring caption shape",
+      "structure": [
+        { "step": "Misconception", "detail": "The belief the reader already holds" },
+        { "step": "Explanation", "detail": "Why it does not always hold up" }
+      ],
+      "exampleUsername": "studio.one",
+      "examplePlatformPostId": "id-from-exemplar",
+      "matchCount": 0
+    }
+  ],
   "anomalies": [
     {
       "username": "studio.one",
@@ -94,6 +108,16 @@ Produce a compact **batch memo** as JSON only (no Markdown fences, no preamble).
 - Copy `platformPostId` and `engagementRate` from the exemplar (do not invent ER).
 - Prefer patterns that appear across multiple accounts in **this** batch.
 - Keep strings short. JSON only.
+
+### Caption-pattern rules (critical)
+- 3–6 `captionPatterns`. Each is a **recurring caption structure** — how the
+  competitor *writes*, not what they post about. Group similar captions in this
+  batch into one pattern.
+- Describe frequency / prevalence only — **never** performance, reach or results.
+- `structure` = 2–4 ordered steps ({ step, detail }), the recurring shape.
+- `exampleUsername` + `examplePlatformPostId` **must** reference a real exemplar
+  from this batch (so the reduce step can pull the actual caption). Do not invent.
+- `matchCount` = how many captions in this batch fit the pattern.
 
 ### Other rules
 - 3–6 themes, 2–4 formats, 4–8 topics, ≤8 hashtags, ≤5 anomalies, ≤8 evidence rows.

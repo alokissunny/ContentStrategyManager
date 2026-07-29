@@ -18,7 +18,7 @@ import { periodToDays } from '../../services/intelligence/filterScope'
 import { CompetitorsPage } from './CompetitorsPage'
 import { AddCompetitorForm, Modal, SuggestionList } from './modals'
 import { RefreshIcon } from '../../components/icons'
-import { PageActions, PageCenterActions } from '../../app/shell/pageActions'
+import { FilterActionsProvider, PageActions, PageCenterActions } from '../../app/shell/pageActions'
 import { ApiError } from '../../services/api'
 import './competitors.css'
 
@@ -130,6 +130,7 @@ export function CompetitorsSection() {
     filterOptions.period.find((o) => o.value === filters.period)?.label ?? filters.period
 
   return (
+    <FilterActionsProvider>
     <div>
       {!onAccounts && (
         <>
@@ -297,5 +298,6 @@ export function CompetitorsSection() {
         </Modal>
       )}
     </div>
+    </FilterActionsProvider>
   )
 }

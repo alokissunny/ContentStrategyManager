@@ -1,5 +1,6 @@
 import { thresholds } from '../../config/thresholds'
 import type { Finding, PatternMovement } from '../../types'
+import type { CaptionAnalysis } from './captionPatterns'
 import type { EvidenceThresholdKey, FilterState } from './filters'
 import {
   mockCustomerOverview,
@@ -57,6 +58,12 @@ export interface DashboardData {
   customerOverview: CustomerOverviewMock
   /** Human-readable description of the active sample. */
   sampleLabel: string
+  /**
+   * Server-computed caption-pattern research (patterns / formats / days-times +
+   * frequency KPIs). Absent until an analysis has run; the Overview falls back
+   * to the local model when it's missing.
+   */
+  captionAnalysis?: CaptionAnalysis
 }
 
 /* How much narrower each non-default filter makes the mock sample. The point

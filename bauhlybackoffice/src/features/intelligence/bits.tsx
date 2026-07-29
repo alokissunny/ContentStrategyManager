@@ -72,11 +72,31 @@ export function Delta({ value, unit = 'pp' }: { value: number; unit?: string }) 
   )
 }
 
-export function PillarTag({ pillar }: { pillar: string | null }) {
+export function PillarTag({
+  pillar,
+  title,
+  size,
+}: {
+  pillar: string | null
+  title?: string
+  /** 'sm' for list rows, where the badge is a marker rather than the subject. */
+  size?: 'sm'
+}) {
   if (!pillar) return null
   const label = pillar
     .split('-')
     .map((w) => w[0].toUpperCase() + w.slice(1))
     .join(' ')
-  return <span className={`pillar-tag pillar-tag--${pillar}`}>{label}</span>
+  // When a reason is supplied it becomes the tooltip, so hovering the tag
+  // explains why the pattern is filed under this pillar.
+  return (
+    <span
+      className={`pillar-tag pillar-tag--${pillar}${size === 'sm' ? ' pillar-tag--sm' : ''}${
+        title ? ' pillar-tag--explained' : ''
+      }`}
+      title={title ?? label}
+    >
+      {label}
+    </span>
+  )
 }

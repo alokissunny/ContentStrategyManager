@@ -429,17 +429,23 @@ export interface HashtagRow {
   highPerformerAccounts: number
   /** Accounts in the rest of the comparable group using it. */
   comparisonAccounts: number
+  /**
+   * The pillar whose top performers lean on this tag hardest, relative to the
+   * comparison group. Derived from the classified posts carrying the tag —
+   * it says where the tag is most distinctive, not that it caused anything.
+   */
+  pillar: 'discovery' | 'credibility' | 'trust'
 }
 
 export const mockHashtags: HashtagRow[] = [
-  { tag: '#antesydespues', type: 'Niche', highPerformerAccounts: 10, comparisonAccounts: 3 },
-  { tag: '#materialesnaturales', type: 'Niche', highPerformerAccounts: 9, comparisonAccounts: 2 },
-  { tag: '#proyectosdediseno', type: 'Niche', highPerformerAccounts: 9, comparisonAccounts: 4 },
-  { tag: '#reformaintegral', type: 'Category', highPerformerAccounts: 11, comparisonAccounts: 7 },
-  { tag: '#cocinasmodernas', type: 'Category', highPerformerAccounts: 8, comparisonAccounts: 5 },
-  { tag: '#interiorismobarcelona', type: 'Local', highPerformerAccounts: 7, comparisonAccounts: 3 },
-  { tag: '#estudiodeinteriorismo', type: 'Branded', highPerformerAccounts: 7, comparisonAccounts: 4 },
-  { tag: '#interiorismovalencia', type: 'Local', highPerformerAccounts: 5, comparisonAccounts: 2 },
-  { tag: '#interiorismo', type: 'Category', highPerformerAccounts: 12, comparisonAccounts: 13 },
-  { tag: '#decoracion', type: 'Category', highPerformerAccounts: 6, comparisonAccounts: 11 },
+  { tag: '#antesydespues', type: 'Niche', highPerformerAccounts: 10, comparisonAccounts: 3, pillar: 'discovery' },
+  { tag: '#materialesnaturales', type: 'Niche', highPerformerAccounts: 9, comparisonAccounts: 2, pillar: 'credibility' },
+  { tag: '#proyectosdediseno', type: 'Niche', highPerformerAccounts: 9, comparisonAccounts: 4, pillar: 'trust' },
+  { tag: '#reformaintegral', type: 'Category', highPerformerAccounts: 11, comparisonAccounts: 7, pillar: 'discovery' },
+  { tag: '#cocinasmodernas', type: 'Category', highPerformerAccounts: 8, comparisonAccounts: 5, pillar: 'discovery' },
+  { tag: '#interiorismobarcelona', type: 'Local', highPerformerAccounts: 7, comparisonAccounts: 3, pillar: 'trust' },
+  { tag: '#estudiodeinteriorismo', type: 'Branded', highPerformerAccounts: 7, comparisonAccounts: 4, pillar: 'trust' },
+  { tag: '#interiorismovalencia', type: 'Local', highPerformerAccounts: 5, comparisonAccounts: 2, pillar: 'discovery' },
+  { tag: '#interiorismo', type: 'Category', highPerformerAccounts: 12, comparisonAccounts: 13, pillar: 'discovery' },
+  { tag: '#decoracion', type: 'Category', highPerformerAccounts: 6, comparisonAccounts: 11, pillar: 'credibility' },
 ]

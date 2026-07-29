@@ -1,29 +1,31 @@
 import { useQuery, type UseQueryResult } from '@tanstack/react-query'
 import { type FilterState } from '../../services/intelligence/filters'
 import { getDashboard, type DashboardData } from '../../services/intelligence/repository'
+import { getCaptionAnalysis } from '../../services/intelligence/captionPatterns'
 import { EmptyState } from '../../components/EmptyState'
 import { FilterBar } from './FilterBar'
-import {
-  HooksSection,
-  PatternMovementSection,
-  HashtagsSection,
-  StrongerAccounts,
-  SummaryCards,
-  TopicsSection,
-  WeeklySection,
-} from './sections'
+import { CaptionKpis, CaptionPatternAnalysis } from './CaptionPatternAnalysis'
+import { HooksSection, HashtagsSection, TopicsSection } from './sections'
 import './intelligence.css'
+
+/*
+ * The Competitors overview: a public-caption research view. It reports what
+ * competitors publish and how often — frequency, prevalence and change — and
+ * never engagement or performance, which public data cannot support.
+ *
+ * The caption-pattern analysis is produced server-side (stored on the dashboard
+ * as `captionAnalysis`); when the backend hasn't computed one yet we fall back
+ * to the deterministic local model so the view is never blank.
+ */
 
 function DashboardBody({
   query,
   filters,
-  setFilters,
   running,
   onRun,
 }: {
   query: UseQueryResult<DashboardData>
   filters: FilterState
-  setFilters: (f: FilterState) => void
   running?: boolean
   onRun?: () => void
 }) {
@@ -45,8 +47,8 @@ function DashboardBody({
   if (isError) {
     return (
       <EmptyState
-        title="Couldn't load the dashboard"
-        description="Something went wrong loading the intelligence view."
+        title="Couldn't load the research view"
+        description="Something went wrong computing the competitor research."
         action={
           <button type="button" className="filter-clear" onClick={() => refetch()}>
             Retry
@@ -58,49 +60,56 @@ function DashboardBody({
 
   if (isPending || !data) {
     return (
-      <div className="dashboard-loading" role="status" aria-label="Loading dashboard">
-        {Array.from({ length: 6 }, (_, i) => (
+      <div className="dashboard-loading" role="status" aria-label="Loading research">
+        {Array.from({ length: 3 }, (_, i) => (
           <div className="skeleton-card" key={i} />
         ))}
       </div>
     )
   }
 
-  const empty =
-    data.summary.accountsAnalyzed === 0 || data.findings.length + data.movements.length === 0
+  // The overview never runs analysis itself, but a scope with no saved report
+  // returns an empty dashboard. Offer the Run action rather than an empty grid.
+  const hasReport = data.summary.accountsAnalyzed > 0
+  if (!hasReport && onRun) {
+    return (
+      <EmptyState
+        title="No competitor research for these filters"
+        description={
+          data.sampleLabel ||
+          'Run analysis with the current filters to fill this overview from collected posts.'
+        }
+        action={
+          <button type="button" className="btn-primary" onClick={() => onRun()}>
+            Run analysis
+          </button>
+        }
+      />
+    )
+  }
+
+  // Prefer the server-computed caption analysis; fall back to the local model so
+  // the surface is populated even before a report exists.
+  const caption = data.captionAnalysis ?? getCaptionAnalysis(filters)
 
   return (
     <div className="dashboard">
-      {!empty && <SummaryCards summary={data.summary} />}
-      {empty ? (
-        <EmptyState
-          title="No competitor intelligence for these filters"
-          description={
-            data.sampleLabel ||
-            'Run analysis with the current filters to fill this overview from collected posts.'
-          }
-          action={
-            onRun ? (
-              <button type="button" className="btn-primary" onClick={() => onRun()}>
-                Run analysis
-              </button>
-            ) : undefined
-          }
+      <CaptionKpis kpis={caption.kpis} />
+      <CaptionPatternAnalysis
+        analysis={caption}
+        patternLimit={5}
+        showAllHref="/competitors-patterns"
+      />
+      <div className="dashboard-grid">
+        <HooksSection hooks={data.hooks} limit={5} fullHref="/competitors-hooks" />
+        <TopicsSection topics={data.topics} limit={5} fullHref="/competitors-topics" />
+        <HashtagsSection
+          hashtags={data.hashtags}
+          basis={data.hashtagBasis}
+          limit={5}
+          fullHref="/competitors-hashtags"
         />
-      ) : (
-        <div className="dashboard-grid">
-          <StrongerAccounts findings={data.findings} />
-          <PatternMovementSection
-            movements={data.movements}
-            dimension={filters.dimension}
-            onDimensionChange={(dimension) => setFilters({ ...filters, dimension })}
-          />
-          <HooksSection hooks={data.hooks} />
-          <TopicsSection topics={data.topics} trendTopics={data.trendTopics} />
-          <HashtagsSection hashtags={data.hashtags} basis={data.hashtagBasis} />
-          <WeeklySection weekly={data.weekly} basis={data.weeklyBasis} />
-        </div>
-      )}
+      </div>
     </div>
   )
 }
@@ -125,13 +134,7 @@ export function IntelligencePage({
   return (
     <div className="intelligence-main">
       <FilterBar filters={filters} onChange={onFiltersChange} />
-      <DashboardBody
-        query={query}
-        filters={filters}
-        setFilters={onFiltersChange}
-        running={running}
-        onRun={onRun}
-      />
+      <DashboardBody query={query} filters={filters} running={running} onRun={onRun} />
     </div>
   )
 }
