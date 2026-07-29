@@ -1,6 +1,11 @@
 import { useQuery, type UseQueryResult } from '@tanstack/react-query'
 import { type FilterState } from '../../services/intelligence/filters'
+import { periodToDays } from '../../services/intelligence/filterScope'
 import { getDashboard, type DashboardData } from '../../services/intelligence/repository'
+import {
+  getCompetitorFilterCount,
+  type CompetitorFilterCount,
+} from '../../services/competitors/repository'
 import { getCaptionAnalysis } from '../../services/intelligence/captionPatterns'
 import { EmptyState } from '../../components/EmptyState'
 import { FilterBar } from './FilterBar'
@@ -21,11 +26,13 @@ import './intelligence.css'
 function DashboardBody({
   query,
   filters,
+  filterCount,
   running,
   onRun,
 }: {
   query: UseQueryResult<DashboardData>
   filters: FilterState
+  filterCount?: CompetitorFilterCount
   running?: boolean
   onRun?: () => void
 }) {
@@ -72,17 +79,40 @@ function DashboardBody({
   // returns an empty dashboard. Offer the Run action rather than an empty grid.
   const hasReport = data.summary.accountsAnalyzed > 0
   if (!hasReport && onRun) {
+    const windowDays = periodToDays(filters.period)
+    // Only disable once we know the count; while it loads keep Run enabled.
+    const posts = filterCount?.postsAvailable
+    const noPosts = posts === 0
+    const matching = filterCount?.matching ?? 0
+    const description = filterCount
+      ? `${matching.toLocaleString('en-US')} account${matching === 1 ? '' : 's'} match these filters · ` +
+        `${(posts ?? 0).toLocaleString('en-US')} post${posts === 1 ? '' : 's'} available for analysis ` +
+        `in the last ${windowDays} days.`
+      : data.sampleLabel ||
+        'Run analysis with the current filters to fill this overview from collected posts.'
+
     return (
       <EmptyState
         title="No competitor research for these filters"
-        description={
-          data.sampleLabel ||
-          'Run analysis with the current filters to fill this overview from collected posts.'
-        }
+        description={description}
         action={
-          <button type="button" className="btn-primary" onClick={() => onRun()}>
-            Run analysis
-          </button>
+          <div className="overview-empty-actions">
+            <button
+              type="button"
+              className="btn-primary"
+              onClick={() => onRun()}
+              disabled={noPosts}
+              title={noPosts ? 'No posts in this window to analyse' : undefined}
+            >
+              Run analysis
+            </button>
+            {noPosts && (
+              <p className="section-note">
+                No posts in this window. Select these accounts on the Accounts tab and run Scrape
+                posts, then try again.
+              </p>
+            )}
+          </div>
         }
       />
     )
@@ -131,10 +161,36 @@ export function IntelligencePage({
     enabled: !running,
   })
 
+  // Shares its cache with the FilterBar's match-count query (same key), so the
+  // empty state can report accounts matched and posts available for analysis.
+  const filterCount = useQuery({
+    queryKey: [
+      'competitor-filter-count',
+      filters.location,
+      filters.followerRangeLabel,
+      filters.businessCategory,
+      filters.period,
+    ],
+    queryFn: () =>
+      getCompetitorFilterCount({
+        location: filters.location,
+        followerRangeLabel: filters.followerRangeLabel,
+        businessCategory: filters.businessCategory,
+        period: filters.period,
+      }),
+    staleTime: 30_000,
+  })
+
   return (
     <div className="intelligence-main">
       <FilterBar filters={filters} onChange={onFiltersChange} />
-      <DashboardBody query={query} filters={filters} running={running} onRun={onRun} />
+      <DashboardBody
+        query={query}
+        filters={filters}
+        filterCount={filterCount.data}
+        running={running}
+        onRun={onRun}
+      />
     </div>
   )
 }

@@ -203,23 +203,38 @@ export async function getCompetitorLocations(): Promise<string[]> {
     }
     return [...byKey.values()].sort((a, b) => a.localeCompare(b))
   }
+  // List every country present on the competitor register, matching the
+  // Accounts table (and the mock above). Gating this on in-window posts hid
+  // countries whose accounts exist but haven't been scraped recently; a
+  // postless scope is instead reported when analysis is actually run.
   const data = await api.get<{ locations: string[] }>('/competitors/locations', {
-    requirePosts: '1',
+    requirePosts: '0',
   })
   return data.locations ?? []
 }
 
-/** How many accounts match Overview location · follower-range · category filters. */
+export interface CompetitorFilterCount {
+  matching: number
+  total: number
+  /** Posts within the selected period across matching accounts. */
+  postsAvailable: number
+  /** Matching accounts that have at least one post in the window. */
+  accountsWithPosts: number
+}
+
+/** How many accounts match Overview filters, and how many posts are analysable. */
 export async function getCompetitorFilterCount(filters: {
   location: string
   followerRangeLabel: string
   businessCategory?: string
-}): Promise<{ matching: number; total: number }> {
+  period?: string
+}): Promise<CompetitorFilterCount> {
   if (!USE_MOCKS) {
-    return api.get<{ matching: number; total: number }>('/competitors/filter-count', {
+    return api.get<CompetitorFilterCount>('/competitors/filter-count', {
       location: filters.location,
       followerRangeLabel: filters.followerRangeLabel,
       businessCategory: filters.businessCategory ?? 'interior-designer',
+      period: filters.period ?? 'last-30',
     })
   }
   await delay()
@@ -243,7 +258,14 @@ export async function getCompetitorFilterCount(filters: {
     if (cat !== category) continue
     matching += 1
   }
-  return { matching, total: accounts.filter((a) => a.approvalStatus !== 'deleted').length }
+  // The mock dataset has no post store; assume matching accounts are analysable
+  // so the Run button stays enabled offline.
+  return {
+    matching,
+    total: accounts.filter((a) => a.approvalStatus !== 'deleted').length,
+    postsAvailable: matching * 42,
+    accountsWithPosts: matching,
+  }
 }
 
 export async function listGroups(): Promise<(CompetitorGroup & { memberCount: number })[]> {

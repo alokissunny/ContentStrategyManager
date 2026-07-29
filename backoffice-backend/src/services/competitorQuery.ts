@@ -199,25 +199,57 @@ export async function countMatchingCompetitors(input: {
   location?: string
   followerRangeLabel?: string
   businessCategory?: string
-}): Promise<{ matching: number; total: number }> {
+  /** Analysis window; used to count posts available for analysis. */
+  windowDays?: number
+}): Promise<{
+  matching: number
+  total: number
+  /** Posts within the window across matching accounts (analysis input size). */
+  postsAvailable: number
+  /** Matching accounts that have at least one post in the window. */
+  accountsWithPosts: number
+}> {
   const location = input.location ?? 'Global'
   const followerRangeLabel = input.followerRangeLabel ?? 'All sizes'
   const businessCategory = input.businessCategory ?? 'interior-designer'
+  const windowDays = input.windowDays ?? 30
   const range = parseOverviewFollowerRange(followerRangeLabel)
 
   const accounts = await CompetitorAccount.find({ approvalStatus: { $ne: 'deleted' } })
-    .select('location enrichment latestFollowerCount businessCategory')
+    .select('_id location enrichment latestFollowerCount businessCategory')
     .lean()
 
   const total = accounts.length
-  const matching = accounts.filter(
+  const matchingAccounts = accounts.filter(
     (a) =>
       locationMatches(accountCountryOf(a), location) &&
       followerInRange(a.latestFollowerCount, range) &&
       businessCategoryMatches(a.businessCategory, businessCategory),
-  ).length
+  )
+  const matching = matchingAccounts.length
 
-  return { matching, total }
+  // Posts available for analysis = posts in the window belonging to the
+  // matching accounts. This is the same input the analysis run consumes, so a
+  // zero here means Run analysis has nothing to work with.
+  let postsAvailable = 0
+  let accountsWithPosts = 0
+  if (matching > 0) {
+    const since = new Date(Date.now() - windowDays * 864e5)
+    const rows = await Post.aggregate<{ _id: unknown; posts: number }>([
+      {
+        $match: {
+          accountId: { $in: matchingAccounts.map((a) => a._id) },
+          publishedAt: { $gte: since },
+          deleted: { $ne: true },
+        },
+      },
+      { $group: { _id: '$accountId', posts: { $sum: 1 } } },
+    ])
+    accountsWithPosts = rows.length
+    postsAvailable = rows.reduce((sum, r) => sum + r.posts, 0)
+  }
+
+  return { matching, total, postsAvailable, accountsWithPosts }
 }
 
 function normalizeCountryLabel(raw: unknown): string | null {

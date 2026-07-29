@@ -69,12 +69,14 @@ export function FilterBar({ filters, onChange }: FilterBarProps) {
       filters.location,
       filters.followerRangeLabel,
       filters.businessCategory,
+      filters.period,
     ],
     queryFn: () =>
       getCompetitorFilterCount({
         location: filters.location,
         followerRangeLabel: filters.followerRangeLabel,
         businessCategory: filters.businessCategory,
+        period: filters.period,
       }),
     staleTime: 30_000,
   })

@@ -82,7 +82,10 @@ competitorRoutes.get(
       typeof req.query.followerRangeLabel === 'string' ? req.query.followerRangeLabel : 'All sizes'
     const businessCategory =
       typeof req.query.businessCategory === 'string' ? req.query.businessCategory : 'interior-designer'
-    res.json(await countMatchingCompetitors({ location, followerRangeLabel, businessCategory }))
+    const windowDays = periodDays(String(req.query.period ?? 'last-30'))
+    res.json(
+      await countMatchingCompetitors({ location, followerRangeLabel, businessCategory, windowDays }),
+    )
   }),
 )
 
