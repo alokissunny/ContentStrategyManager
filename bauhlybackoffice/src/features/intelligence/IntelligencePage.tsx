@@ -6,7 +6,11 @@ import {
   getCompetitorFilterCount,
   type CompetitorFilterCount,
 } from '../../services/competitors/repository'
-import { getCaptionAnalysis } from '../../services/intelligence/captionPatterns'
+import {
+  emptyCaptionAnalysis,
+  getCaptionAnalysis,
+} from '../../services/intelligence/captionPatterns'
+import { USE_MOCKS } from '../../services/api'
 import { EmptyState } from '../../components/EmptyState'
 import { FilterBar } from './FilterBar'
 import { CaptionKpis, CaptionPatternAnalysis } from './CaptionPatternAnalysis'
@@ -18,9 +22,9 @@ import './intelligence.css'
  * competitors publish and how often — frequency, prevalence and change — and
  * never engagement or performance, which public data cannot support.
  *
- * The caption-pattern analysis is produced server-side (stored on the dashboard
- * as `captionAnalysis`); when the backend hasn't computed one yet we fall back
- * to the deterministic local model so the view is never blank.
+ * Caption patterns come from the saved analysis only. Offline mock mode may
+ * fill a local catalogue; live mode never invents patterns for a filter that
+ * has no report.
  */
 
 function DashboardBody({
@@ -76,9 +80,9 @@ function DashboardBody({
   }
 
   // The overview never runs analysis itself, but a scope with no saved report
-  // returns an empty dashboard. Offer the Run action rather than an empty grid.
+  // returns an empty dashboard. Offer the Run action rather than invented data.
   const hasReport = data.summary.accountsAnalyzed > 0
-  if (!hasReport && onRun) {
+  if (!hasReport) {
     const windowDays = periodToDays(filters.period)
     // Only disable once we know the count; while it loads keep Run enabled.
     const posts = filterCount?.postsAvailable
@@ -96,31 +100,37 @@ function DashboardBody({
         title="No competitor research for these filters"
         description={description}
         action={
-          <div className="overview-empty-actions">
-            <button
-              type="button"
-              className="btn-primary"
-              onClick={() => onRun()}
-              disabled={noPosts}
-              title={noPosts ? 'No posts in this window to analyse' : undefined}
-            >
-              Run analysis
-            </button>
-            {noPosts && (
-              <p className="section-note">
-                No posts in this window. Select these accounts on the Accounts tab and run Scrape
-                posts, then try again.
-              </p>
-            )}
-          </div>
+          onRun ? (
+            <div className="overview-empty-actions">
+              <button
+                type="button"
+                className="btn-primary"
+                onClick={() => onRun()}
+                disabled={noPosts}
+                title={noPosts ? 'No posts in this window to analyse' : undefined}
+              >
+                Run analysis
+              </button>
+              {noPosts && (
+                <p className="section-note">
+                  No posts in this window. Select these accounts on the Accounts tab and run Scrape
+                  posts, then try again.
+                </p>
+              )}
+            </div>
+          ) : undefined
         }
       />
     )
   }
 
-  // Prefer the server-computed caption analysis; fall back to the local model so
-  // the surface is populated even before a report exists.
-  const caption = data.captionAnalysis ?? getCaptionAnalysis(filters)
+  // Live reports only show server-computed caption analysis. Offline mock mode
+  // may fill the local catalogue; never invent patterns for a real empty scope.
+  const caption =
+    data.captionAnalysis ??
+    (USE_MOCKS
+      ? getCaptionAnalysis(filters)
+      : emptyCaptionAnalysis(data.summary, filters.period))
 
   return (
     <div className="dashboard">

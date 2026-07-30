@@ -270,14 +270,90 @@ export interface HookPerformanceRow {
   medianEngagement: number
   trend: 'up' | 'down' | 'flat'
   pillar: 'discovery' | 'credibility' | 'trust'
+  /**
+   * Real captions from classified exemplars in the analyzed set. Empty when the
+   * analysis hasn't surfaced any — never fabricated.
+   */
+  exampleCaptions?: { competitor: string; caption: string }[]
 }
 
 export const mockHooks: HookPerformanceRow[] = [
-  { hookType: 'Problem + Consequence', structure: '“Most [rooms] fail because… and it costs you…”', useRate: 24, medianEngagement: 2.8, trend: 'up', pillar: 'discovery' },
-  { hookType: 'Question hook', structure: '“Would you have kept this wall?”', useRate: 21, medianEngagement: 2.4, trend: 'up', pillar: 'discovery' },
-  { hookType: 'Contrarian statement', structure: '“White walls are not neutral.”', useRate: 17, medianEngagement: 2.6, trend: 'up', pillar: 'credibility' },
-  { hookType: 'Transformation / Result', structure: '“From unusable corner to reading nook.”', useRate: 15, medianEngagement: 2.7, trend: 'flat', pillar: 'trust' },
-  { hookType: 'Common mistake', structure: '“The lighting mistake in almost every rental.”', useRate: 11, medianEngagement: 2.1, trend: 'down', pillar: 'credibility' },
+  {
+    hookType: 'Problem + Consequence',
+    structure: '“Most [rooms] fail because… and it costs you…”',
+    useRate: 24,
+    medianEngagement: 2.8,
+    trend: 'up',
+    pillar: 'discovery',
+    exampleCaptions: [
+      {
+        competitor: 'Studio ABC',
+        caption:
+          'Most open-plan kitchens fail because the cooking zone bleeds into the sofa — and it costs you quiet evenings.',
+      },
+      {
+        competitor: 'Forma Living',
+        caption:
+          'Most rental bathrooms fail because the light is cold and flat — and it makes every tile look cheaper than it is.',
+      },
+    ],
+  },
+  {
+    hookType: 'Question hook',
+    structure: '“Would you have kept this wall?”',
+    useRate: 21,
+    medianEngagement: 2.4,
+    trend: 'up',
+    pillar: 'discovery',
+    exampleCaptions: [
+      {
+        competitor: 'Norte Interiors',
+        caption: 'Would you have kept this wall? We nearly didn’t — then the light told us otherwise.',
+      },
+    ],
+  },
+  {
+    hookType: 'Contrarian statement',
+    structure: '“White walls are not neutral.”',
+    useRate: 17,
+    medianEngagement: 2.6,
+    trend: 'up',
+    pillar: 'credibility',
+    exampleCaptions: [
+      {
+        competitor: 'Atelier Casa',
+        caption: 'White walls are not neutral. In a north-facing flat they read as cold before lunch.',
+      },
+    ],
+  },
+  {
+    hookType: 'Transformation / Result',
+    structure: '“From unusable corner to reading nook.”',
+    useRate: 15,
+    medianEngagement: 2.7,
+    trend: 'flat',
+    pillar: 'trust',
+    exampleCaptions: [
+      {
+        competitor: 'Volta Estudio',
+        caption: 'From unusable corner to reading nook — one bench, two shelves, no structural work.',
+      },
+    ],
+  },
+  {
+    hookType: 'Common mistake',
+    structure: '“The lighting mistake in almost every rental.”',
+    useRate: 11,
+    medianEngagement: 2.1,
+    trend: 'down',
+    pillar: 'credibility',
+    exampleCaptions: [
+      {
+        competitor: 'Lumen Casa',
+        caption: 'The lighting mistake in almost every rental: one ceiling point and nothing at eye level.',
+      },
+    ],
+  },
 ]
 
 export interface WeeklyDayObservation {
@@ -339,13 +415,54 @@ export interface TopicRow {
   posts: number
   changePp: number
   pillar: 'discovery' | 'credibility' | 'trust'
+  /** Real captions from the analyzed set. Empty when none have been surfaced. */
+  exampleCaptions?: { competitor: string; caption: string }[]
 }
 
 /** What comparable accounts are actually posting about, most to least. */
 export const mockTopics: TopicRow[] = [
-  { topic: 'Kitchen projects', sharePct: 21, accounts: 24, posts: 387, changePp: -1, pillar: 'discovery' },
-  { topic: 'Materials & finishes', sharePct: 17, accounts: 22, posts: 313, changePp: 5, pillar: 'credibility' },
-  { topic: 'Full-home renovation', sharePct: 14, accounts: 19, posts: 258, changePp: 2, pillar: 'trust' },
+  {
+    topic: 'Kitchen projects',
+    sharePct: 21,
+    accounts: 24,
+    posts: 387,
+    changePp: -1,
+    pillar: 'discovery',
+    exampleCaptions: [
+      {
+        competitor: 'Studio ABC',
+        caption: 'This kitchen had to work for a family of five — one island, no wasted corner.',
+      },
+    ],
+  },
+  {
+    topic: 'Materials & finishes',
+    sharePct: 17,
+    accounts: 22,
+    posts: 313,
+    changePp: 5,
+    pillar: 'credibility',
+    exampleCaptions: [
+      {
+        competitor: 'Atelier Casa',
+        caption: 'We chose oak over walnut here — and it was not about cost.',
+      },
+    ],
+  },
+  {
+    topic: 'Full-home renovation',
+    sharePct: 14,
+    accounts: 19,
+    posts: 258,
+    changePp: 2,
+    pillar: 'trust',
+    exampleCaptions: [
+      {
+        competitor: 'Volta Estudio',
+        caption: 'Same flat, eleven weeks apart — one structural move, the rest is restraint.',
+      },
+    ],
+  },
   { topic: 'Lighting decisions', sharePct: 12, accounts: 18, posts: 221, changePp: 4, pillar: 'credibility' },
   { topic: 'Budget & cost decisions', sharePct: 11, accounts: 15, posts: 203, changePp: 4, pillar: 'trust' },
   { topic: 'Small spaces', sharePct: 10, accounts: 16, posts: 184, changePp: -4, pillar: 'discovery' },
@@ -435,11 +552,37 @@ export interface HashtagRow {
    * it says where the tag is most distinctive, not that it caused anything.
    */
   pillar: 'discovery' | 'credibility' | 'trust'
+  /** Real captions from posts that carry the tag. */
+  exampleCaptions?: { competitor: string; caption: string }[]
 }
 
 export const mockHashtags: HashtagRow[] = [
-  { tag: '#antesydespues', type: 'Niche', highPerformerAccounts: 10, comparisonAccounts: 3, pillar: 'discovery' },
-  { tag: '#materialesnaturales', type: 'Niche', highPerformerAccounts: 9, comparisonAccounts: 2, pillar: 'credibility' },
+  {
+    tag: '#antesydespues',
+    type: 'Niche',
+    highPerformerAccounts: 10,
+    comparisonAccounts: 3,
+    pillar: 'discovery',
+    exampleCaptions: [
+      {
+        competitor: 'Volta Estudio',
+        caption: 'Same corner, eleven weeks apart. #antesydespues',
+      },
+    ],
+  },
+  {
+    tag: '#materialesnaturales',
+    type: 'Niche',
+    highPerformerAccounts: 9,
+    comparisonAccounts: 2,
+    pillar: 'credibility',
+    exampleCaptions: [
+      {
+        competitor: 'Atelier Casa',
+        caption: 'Oak, linen, clay plaster — materials that age with the house. #materialesnaturales',
+      },
+    ],
+  },
   { tag: '#proyectosdediseno', type: 'Niche', highPerformerAccounts: 9, comparisonAccounts: 4, pillar: 'trust' },
   { tag: '#reformaintegral', type: 'Category', highPerformerAccounts: 11, comparisonAccounts: 7, pillar: 'discovery' },
   { tag: '#cocinasmodernas', type: 'Category', highPerformerAccounts: 8, comparisonAccounts: 5, pillar: 'discovery' },

@@ -1,6 +1,12 @@
 import { thresholds } from '../../config/thresholds'
 import type { Finding, PatternMovement } from '../../types'
-import type { CaptionAnalysis } from './captionPatterns'
+import type { CaptionAnalysis, Pillar, RankRow } from './captionPatterns'
+import {
+  allocateByWeights,
+  getCaptionAnalysis,
+  pillarCaptionWeight,
+  scaleRankRowsToTotal,
+} from './captionPatterns'
 import type { EvidenceThresholdKey, FilterState } from './filters'
 import {
   mockCustomerOverview,
@@ -462,6 +468,7 @@ export function computeDashboard(filters: FilterState): DashboardData {
     sampleLabel: `${filters.location} · ${filters.followerRangeLabel} · ${
       filters.comparisonGroup === 'all-approved' ? 'All approved' : 'Comparable'
     } · ${accounts} accounts · ${posts.toLocaleString('en-US')} posts`,
+    captionAnalysis: getCaptionAnalysis(filters),
   }
 }
 
@@ -505,6 +512,21 @@ export async function getDashboard(filters: FilterState): Promise<DashboardData>
  * never paints placeholder sparklines / search-demand / customer mocks.
  */
 function sanitizeLiveDashboard(data: DashboardData): DashboardData {
+  const totalPosts = data.summary?.postsAnalyzed ?? 0
+  const totalAccounts = data.summary?.accountsAnalyzed ?? 0
+  // Stored analyses often have topic.posts = 0 because Claude returned share
+  // without a post count — fill from share × corpus so the UI is not blank.
+  const topics = (data.topics ?? []).map((t) => {
+    if (t.posts > 0 || !(t.sharePct > 0) || totalPosts <= 0) return t
+    return {
+      ...t,
+      posts: Math.max(0, Math.round((t.sharePct / 100) * totalPosts)),
+      accounts:
+        t.accounts > 0
+          ? t.accounts
+          : Math.max(0, Math.min(totalAccounts, Math.round((t.sharePct / 100) * totalAccounts))),
+    }
+  })
   return {
     ...data,
     summary: {
@@ -516,7 +538,7 @@ function sanitizeLiveDashboard(data: DashboardData): DashboardData {
     findings: data.findings ?? [],
     movements: data.movements ?? [],
     hooks: data.hooks ?? [],
-    topics: data.topics ?? [],
+    topics,
     hashtags: data.hashtags ?? [],
     weekly: data.weekly ?? [],
   }
@@ -564,17 +586,42 @@ function filterLiveDashboard(data: DashboardData, filters: FilterState): Dashboa
   const weekly =
     pillar === 'all' ? (data.weekly ?? []) : (data.weekly ?? []).filter((w) => w.pillar === pillar)
 
-  // The Caption Pattern Analysis is stored whole; filter its patterns to the
-  // selected pillar here so the widget responds to the pillar control. Formats
-  // and days carry no pillar, so they are left intact.
+  // The Caption Pattern Analysis is stored whole; filter it to the selected
+  // pillar here so the widget responds to the pillar control. Patterns filter
+  // by their pillar. Formats/days use the per-pillar mix (when present) but
+  // post counts are scaled to this pillar's share of caption volume so the
+  // three pillars add up to the all-pillars total — Claude only tags a sample
+  // of posts per pillar, so the raw sample counts understate the volume.
   const captionAnalysis =
     data.captionAnalysis && pillar !== 'all'
       ? (() => {
-          const patterns = data.captionAnalysis.patterns.filter((p) => p.pillar === pillar)
+          const ca = data.captionAnalysis
+          const p = pillar as Pillar
+          const patterns = ca.patterns.filter((f) => f.pillar === pillar)
+          const totalCaptions = ca.kpis.captions
+          const competitorCap = Math.max(1, ca.kpis.competitors)
+          const pillarKeys: Pillar[] = ['discovery', 'credibility', 'trust']
+          const targets = allocateByWeights(
+            pillarKeys.map((key) => pillarCaptionWeight(ca.patterns, key)),
+            totalCaptions,
+          )
+          const targetPosts = targets[pillarKeys.indexOf(p)] ?? 0
+          const mixFormats: RankRow[] =
+            ca.formatsByPillar?.[p]?.length ? ca.formatsByPillar[p]! : ca.formats
+          const mixDays: RankRow[] =
+            ca.daysByPillar?.[p]?.length ? ca.daysByPillar[p]! : ca.days
+          const formats = scaleRankRowsToTotal(mixFormats, targetPosts, competitorCap)
+          const days = scaleRankRowsToTotal(mixDays, targetPosts, competitorCap)
           return {
-            ...data.captionAnalysis,
+            ...ca,
             patterns,
-            kpis: { ...data.captionAnalysis.kpis, patternsDetected: patterns.length },
+            formats,
+            days,
+            kpis: {
+              ...ca.kpis,
+              captions: targetPosts,
+              patternsDetected: patterns.length,
+            },
           }
         })()
       : data.captionAnalysis

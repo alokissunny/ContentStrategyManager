@@ -139,7 +139,9 @@ contains a clear prior comparison — never invent a previous window.
   - `medianEngagement` = median of per-post ER across **all** posts using that
     hook (pooled from every competitor), where
     `ER = (likes + comments) / followers × 100`
-- **topics** — 6–10 topics
+- **topics** — 6–10 topics. `sharePct` = share of analyzed posts about the
+  topic. **`posts` must be `round(sharePct/100 * corpus.totalPosts)`** (never
+  leave it 0 when sharePct > 0). `accounts` = distinct accounts posting it.
 - **hashtags** — prefer corpus `topHashtags`; classify type; 8–12 rows. Set
   `pillar` to the pillar whose top performers use the tag most distinctively
   versus the comparison group (a distinctiveness marker, never a causal claim).

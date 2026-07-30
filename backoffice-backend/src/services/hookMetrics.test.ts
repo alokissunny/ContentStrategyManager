@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   aggregateHookMetrics,
   applyComputedHookMetrics,
+  buildCaptionLookup,
   buildEngagementRateLookup,
 } from './hookMetrics.ts'
 import type { CondensedAccount } from './analysisCorpus.ts'
@@ -50,6 +51,7 @@ describe('hookMetrics', () => {
       account('b', [{ id: '3', er: 5 }]),
     ]
     const lookup = buildEngagementRateLookup(accounts)
+    const captions = buildCaptionLookup(accounts)
     const memos = [
       {
         hooks: [
@@ -66,11 +68,13 @@ describe('hookMetrics', () => {
         ],
       },
     ]
-    const metrics = aggregateHookMetrics(memos, lookup, 3)
+    const metrics = aggregateHookMetrics(memos, lookup, 3, captions)
     expect(metrics).toHaveLength(1)
     expect(metrics[0]!.useRate).toBe(100)
     // median of [1, 3, 5] = 3
     expect(metrics[0]!.medianEngagement).toBe(3)
+    expect(metrics[0]!.exampleCaptions.length).toBeGreaterThan(0)
+    expect(metrics[0]!.exampleCaptions[0]).toEqual({ competitor: 'a', caption: 'hello' })
   })
 
   it('overwrites zero Claude hook rates with computed metrics', () => {
@@ -82,6 +86,7 @@ describe('hookMetrics', () => {
         useRate: 24,
         medianEngagement: 2.8,
         postCount: 5,
+        exampleCaptions: [{ competitor: 'Studio One', caption: 'Would you keep this wall?' }],
       },
     ]
     const merged = applyComputedHookMetrics(
@@ -100,5 +105,8 @@ describe('hookMetrics', () => {
     expect(merged[0]!.useRate).toBe(24)
     expect(merged[0]!.medianEngagement).toBe(2.8)
     expect(merged[0]!.trend).toBe('up')
+    expect(merged[0]!.exampleCaptions).toEqual([
+      { competitor: 'Studio One', caption: 'Would you keep this wall?' },
+    ])
   })
 })

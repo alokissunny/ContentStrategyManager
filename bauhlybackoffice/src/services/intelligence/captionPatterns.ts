@@ -90,6 +90,14 @@ export interface CaptionAnalysis {
   formats: RankRow[]
   days: RankRow[]
   times: RankRow[]
+  /**
+   * Format / day rankings computed within each pillar's own posts, so filtering
+   * by pillar shows which formats and days work for Discovery / Credibility /
+   * Trust — not the global list re-scaled. The active pillar's list is swapped
+   * into `formats` / `days` when a pillar filter is applied.
+   */
+  formatsByPillar?: Record<Pillar, RankRow[]>
+  daysByPillar?: Record<Pillar, RankRow[]>
 }
 
 const PILLAR_LABEL: Record<Pillar, string> = {
@@ -99,6 +107,28 @@ const PILLAR_LABEL: Record<Pillar, string> = {
 }
 
 export const pillarLabel = (p: Pillar) => PILLAR_LABEL[p]
+
+/**
+ * Empty caption analysis grounded in real summary counts — used when a live
+ * report has no captionAnalysis yet. Never invents patterns or format rows.
+ */
+export function emptyCaptionAnalysis(
+  summary: { accountsAnalyzed: number; postsAnalyzed: number },
+  period: FilterState['period'],
+): CaptionAnalysis {
+  return {
+    kpis: {
+      competitors: summary.accountsAnalyzed,
+      captions: summary.postsAnalyzed,
+      patternsDetected: 0,
+    },
+    windows: WINDOWS[period],
+    patterns: [],
+    formats: [],
+    days: [],
+    times: [],
+  }
+}
 
 /** A catalogue entry: the pattern minus the fields computed per filter. */
 type PatternSeed = Omit<CaptionPattern, 'rank' | 'trend'> & {
@@ -455,6 +485,91 @@ function makeTrend(
   }
 }
 
+/**
+ * Per-pillar emphasis so each pillar yields a genuinely different format / day
+ * ranking (Discovery leans on Reels/weekends, Credibility on Carousels/midweek,
+ * Trust on stills). Offline stand-in for the backend's real per-pillar counts.
+ */
+const PILLAR_FORMAT_WEIGHT: Record<Pillar, Record<string, number>> = {
+  discovery: { reel: 1.7, video: 1.4, carousel: 1.05, 'single-image': 0.55, 'multi-image': 0.7 },
+  credibility: { carousel: 1.6, 'single-image': 1.25, 'multi-image': 1.15, reel: 0.7, video: 0.85 },
+  trust: { 'single-image': 1.55, 'multi-image': 1.3, carousel: 1.15, reel: 0.75, video: 0.7 },
+}
+const PILLAR_DAY_WEIGHT: Record<Pillar, Record<string, number>> = {
+  discovery: { sat: 1.5, sun: 1.4, fri: 1.1, thu: 0.95, wed: 0.9, tue: 0.9, mon: 0.85 },
+  credibility: { tue: 1.4, wed: 1.35, thu: 1.2, mon: 1.1, fri: 0.9, sat: 0.6, sun: 0.55 },
+  trust: { thu: 1.3, mon: 1.2, fri: 1.15, tue: 1.0, wed: 0.95, sat: 0.85, sun: 0.8 },
+}
+
+/**
+ * Largest-remainder allocation so parts sum exactly to `total`. Used so
+ * Discovery + Credibility + Trust post counts equal the all-pillars total.
+ */
+export function allocateByWeights(weights: number[], total: number): number[] {
+  if (total <= 0 || weights.length === 0) return weights.map(() => 0)
+  const sumW = weights.reduce((s, w) => s + Math.max(0, w), 0)
+  if (sumW <= 0) {
+    const base = Math.floor(total / weights.length)
+    const out = weights.map(() => base)
+    for (let i = 0; i < total - base * weights.length; i++) out[i % out.length]! += 1
+    return out
+  }
+  const exact = weights.map((w) => (Math.max(0, w) / sumW) * total)
+  const floors = exact.map((x) => Math.floor(x))
+  let rem = total - floors.reduce((s, n) => s + n, 0)
+  const order = exact
+    .map((x, i) => ({ i, frac: x - Math.floor(x) }))
+    .sort((a, b) => b.frac - a.frac)
+  for (const { i } of order) {
+    if (rem <= 0) break
+    floors[i]! += 1
+    rem -= 1
+  }
+  return floors
+}
+
+/** Caption volume attributed to a pillar — drives how many posts that pillar owns. */
+export function pillarCaptionWeight(
+  patterns: { pillar: Pillar; captions: number }[],
+  pillar: Pillar,
+): number {
+  return patterns.filter((p) => p.pillar === pillar).reduce((s, p) => s + Math.max(0, p.captions), 0)
+}
+
+/**
+ * Rescale a format/day ranking so its posts sum to `targetPosts`, preserving
+ * relative mix. Claude only tags a sample of posts per pillar; without this
+ * the per-pillar tables undercount and no longer add up to the all-pillars total.
+ */
+export function scaleRankRowsToTotal(rows: RankRow[], targetPosts: number, competitorCap: number): RankRow[] {
+  if (targetPosts <= 0 || rows.length === 0) return []
+  const weights = rows.map((r) => Math.max(0, r.posts))
+  const samplePosts = weights.reduce((s, w) => s + w, 0) || 1
+  const posts = allocateByWeights(weights, targetPosts)
+  return rows
+    .map((r, i) => {
+      const p = posts[i]!
+      const sharePct = Math.round((p / targetPosts) * 1000) / 10
+      const competitors = Math.min(
+        Math.max(1, competitorCap),
+        Math.max(1, Math.round(r.competitors * (targetPosts / samplePosts))),
+      )
+      return {
+        ...r,
+        posts: p,
+        sharePct,
+        competitors,
+        previousPct: null,
+        currentPct: null,
+        changePp: null,
+        state: 'inconclusive' as const,
+      }
+    })
+    .filter((r) => r.posts > 0)
+    .sort((a, b) => b.sharePct - a.sharePct)
+    .map((r, i) => ({ ...r, rank: i + 1 }))
+}
+
 export function getCaptionAnalysis(filters: FilterState): CaptionAnalysis {
   const windows = WINDOWS[filters.period]
   const scale = rangeScale(filters.followerRangeLabel)
@@ -479,10 +594,9 @@ export function getCaptionAnalysis(filters: FilterState): CaptionAnalysis {
     .sort((a, b) => b.sharePct - a.sharePct)
     .map((p, i) => ({ ...p, rank: i + 1 }))
 
-  // Formats / days / times carry no pillar tag, so when a pillar is selected we
-  // report the same behaviour scaled to that pillar's slice of posts — an
-  // honest "within this pillar's posts" view, not an invented breakdown.
-  const rankFrom = (
+  // Ranks a base row set, optionally re-weighted for a pillar so the ordering
+  // and shares genuinely differ per pillar (not the same list re-scaled).
+  const rankWeighted = (
     rows: {
       id: string
       label: string
@@ -492,27 +606,71 @@ export function getCaptionAnalysis(filters: FilterState): CaptionAnalysis {
       changePp: number
       peakTime?: string
     }[],
-  ): RankRow[] =>
-    rows
+    weight: Record<string, number> | null,
+  ): RankRow[] => {
+    const denom = rows.reduce((s, r) => s + r.sharePct * (weight ? (weight[r.id] ?? 1) : 1), 0) || 1
+    return rows
       .map((r) => {
-        const posts = scaleCount(r.posts, pillarFactor)
+        const w = weight ? (weight[r.id] ?? 1) : 1
+        const sharePct = Math.round(((r.sharePct * w) / denom) * 1000) / 10
+        const posts = scaleCount(r.posts, (weight ? pillarFactor : 1) * w)
+        const t = makeTrend(sharePct, r.changePp, posts, windows)
         return {
           id: r.id,
           label: r.label,
           peakTime: r.peakTime,
-          competitors: scaleCount(r.competitors, pillarFilter === 'all' ? 1 : 0.8),
+          competitors: scaleCount(r.competitors, weight ? 0.8 : 1),
           posts,
-          sharePct: r.sharePct,
-          ...(() => {
-            const t = makeTrend(r.sharePct, r.changePp, posts, windows)
-            return { previousPct: t.previousPct, currentPct: t.currentPct, changePp: t.changePp, state: t.state }
-          })(),
+          sharePct,
+          previousPct: t.previousPct,
+          currentPct: t.currentPct,
+          changePp: t.changePp,
+          state: t.state,
         }
       })
       .sort((a, b) => b.sharePct - a.sharePct)
       .map((r, i) => ({ ...r, rank: i + 1 }))
+  }
 
-  const totalCaptions = patterns.reduce((sum, p) => sum + p.captions, 0)
+  // Build unweighted global ranks first, then carve post volume across pillars
+  // by caption share so Discovery + Credibility + Trust equals the all-pillars total.
+  const formatsAll = rankWeighted(FORMATS, null)
+  const daysAll = rankWeighted(DAYS, null)
+  const totalCaptionsAll = PATTERNS.reduce((sum, p) => sum + scaleCount(p.base.captions), 0)
+  const competitorCap = scaleCount(100)
+  const pillarKeys: Pillar[] = ['discovery', 'credibility', 'trust']
+  const pillarTargets = allocateByWeights(
+    pillarKeys.map((p) => pillarCaptionWeight(
+      PATTERNS.map((x) => ({ pillar: x.pillar, captions: scaleCount(x.base.captions) })),
+      p,
+    )),
+    totalCaptionsAll,
+  )
+
+  const formatsByPillar = {} as Record<Pillar, RankRow[]>
+  const daysByPillar = {} as Record<Pillar, RankRow[]>
+  for (let i = 0; i < pillarKeys.length; i++) {
+    const p = pillarKeys[i]!
+    const target = pillarTargets[i]!
+    formatsByPillar[p] = scaleRankRowsToTotal(
+      rankWeighted(FORMATS, PILLAR_FORMAT_WEIGHT[p]),
+      target,
+      competitorCap,
+    )
+    daysByPillar[p] = scaleRankRowsToTotal(
+      rankWeighted(DAYS, PILLAR_DAY_WEIGHT[p]),
+      target,
+      competitorCap,
+    )
+  }
+
+  const isPillar = pillarFilter !== 'all'
+  const formats = isPillar ? formatsByPillar[pillarFilter as Pillar] ?? formatsAll : formatsAll
+  const days = isPillar ? daysByPillar[pillarFilter as Pillar] ?? daysAll : daysAll
+
+  const totalCaptions = isPillar
+    ? formats.reduce((sum, r) => sum + r.posts, 0)
+    : totalCaptionsAll
   // Detected count is the number of recurring patterns we actually hold, so the
   // KPI can never claim more patterns than the table can show.
   const patternsDetected = patterns.length
@@ -520,14 +678,16 @@ export function getCaptionAnalysis(filters: FilterState): CaptionAnalysis {
 
   return {
     kpis: {
-      competitors: pillarFilter === 'all' ? scaleCount(100) : competitors,
+      competitors: pillarFilter === 'all' ? competitorCap : competitors,
       captions: totalCaptions,
       patternsDetected,
     },
     windows,
     patterns,
-    formats: rankFrom(FORMATS),
-    days: rankFrom(DAYS),
-    times: rankFrom(TIMES),
+    formats,
+    days,
+    times: rankWeighted(TIMES, null),
+    formatsByPillar,
+    daysByPillar,
   }
 }

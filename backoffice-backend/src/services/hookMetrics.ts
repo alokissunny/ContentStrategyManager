@@ -6,10 +6,19 @@
  *   ER = (likes + comments) / followers × 100
  *
  * Use rate = share of classified exemplars that use the hook.
+ * Example captions are resolved from the condensed account exemplars — never invented.
  */
 
 import { median } from './metrics.ts'
 import type { CondensedAccount } from './analysisCorpus.ts'
+
+/** Up to this many real captions are surfaced per hook (a sample, not all). */
+export const MAX_HOOK_EXAMPLES = 4
+
+export interface HookExampleCaption {
+  competitor: string
+  caption: string
+}
 
 export interface ComputedHookMetric {
   hookType: string
@@ -18,6 +27,8 @@ export interface ComputedHookMetric {
   useRate: number
   medianEngagement: number
   postCount: number
+  /** Real captions from classified exemplars — empty when none resolved. */
+  exampleCaptions: HookExampleCaption[]
 }
 
 function normalizeHookKey(value: string): string {
@@ -55,17 +66,38 @@ export function buildEngagementRateLookup(accounts: CondensedAccount[]): Map<str
   return map
 }
 
+/** Caption + display name for an exemplar, keyed by username:postId and postId. */
+export function buildCaptionLookup(
+  accounts: CondensedAccount[],
+): Map<string, HookExampleCaption> {
+  const map = new Map<string, HookExampleCaption>()
+  for (const account of accounts) {
+    const name = account.displayName?.trim() || account.username
+    const user = account.username.toLowerCase()
+    for (const post of account.exemplars) {
+      const caption = (post.caption ?? '').trim()
+      if (!caption || !post.platformPostId) continue
+      const entry = { competitor: name, caption }
+      map.set(`${user}:${post.platformPostId}`, entry)
+      if (!map.has(post.platformPostId)) map.set(post.platformPostId, entry)
+    }
+  }
+  return map
+}
+
 export function countExemplars(accounts: CondensedAccount[]): number {
   return accounts.reduce((n, a) => n + a.exemplars.length, 0)
 }
 
 /**
- * Pull classified hook posts out of map memos and compute useRate + median ER.
+ * Pull classified hook posts out of map memos and compute useRate + median ER
+ * + a sample of real matching captions.
  */
 export function aggregateHookMetrics(
   memos: unknown[],
   erLookup: Map<string, number>,
   totalExemplars: number,
+  captionLookup: Map<string, HookExampleCaption> = new Map(),
 ): ComputedHookMetric[] {
   type Bucket = {
     hookType: string
@@ -73,6 +105,8 @@ export function aggregateHookMetrics(
     pillar: 'discovery' | 'credibility' | 'trust' | null
     rates: number[]
     postKeys: Set<string>
+    examples: HookExampleCaption[]
+    seenCaptions: Set<string>
   }
   const buckets = new Map<string, Bucket>()
 
@@ -94,6 +128,8 @@ export function aggregateHookMetrics(
           pillar: pillarOf(row.pillar),
           rates: [],
           postKeys: new Set(),
+          examples: [],
+          seenCaptions: new Set(),
         }
         buckets.set(key, bucket)
       } else if (!bucket.structure && asStr(row.structure)) {
@@ -117,6 +153,16 @@ export function aggregateHookMetrics(
           erLookup.get(platformPostId)
         const er = fromMemo ?? fromLookup ?? null
         if (er != null && er >= 0) bucket.rates.push(er)
+
+        if (bucket.examples.length < MAX_HOOK_EXAMPLES) {
+          const caption =
+            (username ? captionLookup.get(`${username}:${platformPostId}`) : undefined) ??
+            captionLookup.get(platformPostId)
+          if (caption && !bucket.seenCaptions.has(caption.caption)) {
+            bucket.seenCaptions.add(caption.caption)
+            bucket.examples.push(caption)
+          }
+        }
       }
     }
   }
@@ -129,8 +175,8 @@ export function aggregateHookMetrics(
       pillar: b.pillar,
       postCount: b.postKeys.size,
       useRate: Math.round((b.postKeys.size / denom) * 1000) / 10,
-      medianEngagement:
-        b.rates.length > 0 ? Math.round(median(b.rates) * 100) / 100 : 0,
+      medianEngagement: b.rates.length > 0 ? Math.round(median(b.rates) * 100) / 100 : 0,
+      exampleCaptions: b.examples,
     }))
     .filter((h) => h.postCount > 0)
     .sort((a, b) => b.useRate - a.useRate || b.medianEngagement - a.medianEngagement)
@@ -143,11 +189,12 @@ export interface DashboardHookRow {
   medianEngagement: number
   trend: 'up' | 'down' | 'flat'
   pillar: 'discovery' | 'credibility' | 'trust'
+  exampleCaptions?: HookExampleCaption[]
 }
 
 /**
  * Prefer computed useRate / medianEngagement over Claude's (often zero) values.
- * Keep Claude trend / structure / pillar when present.
+ * Keep Claude trend / structure / pillar when present. Attach real example captions.
  */
 export function applyComputedHookMetrics(
   hooks: DashboardHookRow[],
@@ -169,6 +216,7 @@ export function applyComputedHookMetrics(
       useRate: c.useRate,
       medianEngagement: c.medianEngagement,
       pillar: h.pillar ?? c.pillar ?? 'discovery',
+      exampleCaptions: c.exampleCaptions.length > 0 ? c.exampleCaptions : h.exampleCaptions,
     }
   })
 
@@ -183,6 +231,7 @@ export function applyComputedHookMetrics(
       medianEngagement: c.medianEngagement,
       trend: 'flat',
       pillar: c.pillar ?? 'discovery',
+      exampleCaptions: c.exampleCaptions,
     })
   }
 

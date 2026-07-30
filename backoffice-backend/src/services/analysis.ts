@@ -12,10 +12,12 @@ import {
 import {
   aggregateHookMetrics,
   applyComputedHookMetrics,
+  buildCaptionLookup,
   buildEngagementRateLookup,
   countExemplars,
   type ComputedHookMetric,
 } from './hookMetrics.ts'
+import { attachHashtagExamples, attachTopicExamples } from './topicHashtagExamples.ts'
 import { periodToDays, type AnalysisFilterScope } from './filterScope.ts'
 
 const PROMPT_DIR = join(dirname(fileURLToPath(import.meta.url)), '../../prompts')
@@ -403,7 +405,7 @@ function rankBySharePct<T extends { sharePct: number }>(rows: T[]): (T & { rank:
 /** Up to this many real captions are surfaced per pattern (a sample, not all). */
 const MAX_PATTERN_CAPTIONS = 12
 
-function buildCaptionAnalysis(
+export function buildCaptionAnalysis(
   rawCaption: Record<string, unknown> | null,
   corpus: CorpusStats,
   accounts: CondensedAccount[],
@@ -416,16 +418,22 @@ function buildCaptionAnalysis(
   const accountsWithPosts = corpus.accountsWithPosts
 
   // Exemplar caption lookup + display names, so pattern examples resolve to a
-  // real caption rather than an invented one.
+  // real caption rather than an invented one. postInfo also carries the format
+  // and time, used to build the per-pillar format / day breakdowns below.
   const captionByPostId = new Map<string, { competitor: string; caption: string }>()
+  const postInfo = new Map<string, { competitor: string; format: string; publishedAt: string | null }>()
   const displayName = new Map<string, string>()
   for (const a of accounts) {
     const name = a.displayName ?? a.username
     displayName.set(a.username, name)
     for (const e of a.exemplars) {
-      if (e.platformPostId && e.caption) {
-        captionByPostId.set(e.platformPostId, { competitor: name, caption: e.caption })
-      }
+      if (!e.platformPostId) continue
+      if (e.caption) captionByPostId.set(e.platformPostId, { competitor: name, caption: e.caption })
+      postInfo.set(e.platformPostId, {
+        competitor: name,
+        format: e.format ?? 'image',
+        publishedAt: e.publishedAt ?? null,
+      })
     }
   }
 
@@ -601,6 +609,214 @@ function buildCaptionAnalysis(
     .sort((a, b) => b.sharePct - a.sharePct || b.captions - a.captions)
     .map((p, i) => ({ ...p, rank: i + 1 }))
 
+  // Per-pillar format / day breakdowns. Each pillar's posts are the ones tagged
+  // to it, so the rankings genuinely differ by pillar — "which formats do
+  // Discovery-style posts use", not the global list re-scaled.
+  type Pill = 'discovery' | 'credibility' | 'trust'
+  const idsByPillar: Record<Pill, Set<string>> = {
+    discovery: new Set(),
+    credibility: new Set(),
+    trust: new Set(),
+  }
+  // Tag posts to pillars straight from the batch memos: both caption patterns
+  // and hooks carry a pillar and the post ids they matched. Reading these
+  // directly (rather than via the reduce step's renamed patterns) keeps the
+  // breakdown reliably populated on a fresh run.
+  for (const memo of batchMemos) {
+    const m = (memo ?? {}) as Record<string, unknown>
+    for (const cp of Array.isArray(m.captionPatterns) ? m.captionPatterns : []) {
+      const row = (cp ?? {}) as Record<string, unknown>
+      const pill = pillarOf(row.pillar)
+      if (!pill) continue
+      const ex = asStr(row.examplePlatformPostId)
+      if (ex) idsByPillar[pill].add(ex)
+      if (Array.isArray(row.posts)) {
+        for (const pid of row.posts) {
+          const id = asStr(pid)
+          if (id) idsByPillar[pill].add(id)
+        }
+      }
+    }
+    for (const hk of Array.isArray(m.hooks) ? m.hooks : []) {
+      const row = (hk ?? {}) as Record<string, unknown>
+      const pill = pillarOf(row.pillar)
+      if (!pill) continue
+      if (Array.isArray(row.posts)) {
+        for (const post of row.posts) {
+          const id = asStr((post as Record<string, unknown> | null)?.platformPostId)
+          if (id) idsByPillar[pill].add(id)
+        }
+      }
+    }
+  }
+
+  const formatRowsFor = (ids: Set<string>) => {
+    const byFmt = new Map<string, { posts: number; comps: Set<string> }>()
+    for (const id of ids) {
+      const info = postInfo.get(id)
+      if (!info) continue
+      const e = byFmt.get(info.format) ?? { posts: 0, comps: new Set<string>() }
+      e.posts += 1
+      if (info.competitor) e.comps.add(info.competitor)
+      byFmt.set(info.format, e)
+    }
+    const total = [...byFmt.values()].reduce((s, e) => s + e.posts, 0) || 1
+    return rankBySharePct(
+      [...byFmt.entries()].map(([fmt, e], i) => {
+        const sharePct = Math.round((e.posts / total) * 1000) / 10
+        const t = captionTrend(sharePct, null, e.posts, windows)
+        return {
+          id: slug(fmt) || `format-${i + 1}`,
+          label: formatLabel(fmt),
+          competitors: e.comps.size,
+          posts: e.posts,
+          sharePct,
+          previousPct: t.previousPct,
+          currentPct: t.currentPct,
+          changePp: t.changePp,
+          state: t.state,
+        }
+      }),
+    )
+  }
+
+  const dayRowsFor = (ids: Set<string>) => {
+    const byDay = new Map<string, { posts: number; comps: Set<string>; hours: Map<number, number> }>()
+    for (const id of ids) {
+      const info = postInfo.get(id)
+      if (!info?.publishedAt) continue
+      const d = new Date(info.publishedAt)
+      if (Number.isNaN(d.getTime())) continue
+      const day = WEEKDAY_NAMES[d.getUTCDay()]!
+      const e = byDay.get(day) ?? { posts: 0, comps: new Set<string>(), hours: new Map<number, number>() }
+      e.posts += 1
+      if (info.competitor) e.comps.add(info.competitor)
+      const bucket = Math.floor(d.getUTCHours() / 2) * 2
+      e.hours.set(bucket, (e.hours.get(bucket) ?? 0) + 1)
+      byDay.set(day, e)
+    }
+    const total = [...byDay.values()].reduce((s, e) => s + e.posts, 0) || 1
+    const hh = (n: number) => `${String(n % 24).padStart(2, '0')}:00`
+    return rankBySharePct(
+      [...byDay.entries()].map(([day, e], i) => {
+        let best = -1
+        let bestCount = -1
+        for (const [b, c] of e.hours) {
+          if (c > bestCount) {
+            bestCount = c
+            best = b
+          }
+        }
+        const sharePct = Math.round((e.posts / total) * 1000) / 10
+        const t = captionTrend(sharePct, null, e.posts, windows)
+        return {
+          id: slug(day) || `day-${i + 1}`,
+          label: day,
+          peakTime: best >= 0 ? `${hh(best)}–${hh(best + 2)}` : undefined,
+          competitors: e.comps.size,
+          posts: e.posts,
+          sharePct,
+          previousPct: t.previousPct,
+          currentPct: t.currentPct,
+          changePp: t.changePp,
+          state: t.state,
+        }
+      }),
+    )
+  }
+
+  // Claude only tags a sample of posts per pillar (exemplars matched to
+  // patterns/hooks). Use that sample for the *mix*, then scale absolute post
+  // counts so Discovery + Credibility + Trust equals the corpus total.
+  type RankRow = {
+    id: string
+    rank: number
+    label: string
+    competitors: number
+    posts: number
+    sharePct: number
+    previousPct: number | null
+    currentPct: number | null
+    changePp: number | null
+    state: CaptionTrendState
+    peakTime?: string
+  }
+
+  const allocateByWeights = (weights: number[], total: number): number[] => {
+    if (total <= 0 || weights.length === 0) return weights.map(() => 0)
+    const sumW = weights.reduce((s, w) => s + Math.max(0, w), 0)
+    if (sumW <= 0) {
+      const base = Math.floor(total / weights.length)
+      const out = weights.map(() => base)
+      for (let i = 0; i < total - base * weights.length; i++) out[i % out.length]! += 1
+      return out
+    }
+    const exact = weights.map((w) => (Math.max(0, w) / sumW) * total)
+    const floors = exact.map((x) => Math.floor(x))
+    let rem = total - floors.reduce((s, n) => s + n, 0)
+    const order = exact
+      .map((x, i) => ({ i, frac: x - Math.floor(x) }))
+      .sort((a, b) => b.frac - a.frac)
+    for (const { i } of order) {
+      if (rem <= 0) break
+      floors[i]! += 1
+      rem -= 1
+    }
+    return floors
+  }
+
+  const scaleRows = (rows: RankRow[], targetPosts: number): RankRow[] => {
+    if (targetPosts <= 0 || rows.length === 0) return []
+    const weights = rows.map((r) => Math.max(0, r.posts))
+    const samplePosts = weights.reduce((s, w) => s + w, 0) || 1
+    const posts = allocateByWeights(weights, targetPosts)
+    return rankBySharePct(
+      rows
+        .map((r, i) => {
+          const p = posts[i]!
+          const sharePct = Math.round((p / targetPosts) * 1000) / 10
+          const t = captionTrend(sharePct, null, p, windows)
+          return {
+            ...r,
+            posts: p,
+            sharePct,
+            competitors: Math.min(
+              accountsWithPosts,
+              Math.max(1, Math.round(r.competitors * (targetPosts / samplePosts))),
+            ),
+            previousPct: t.previousPct,
+            currentPct: t.currentPct,
+            changePp: t.changePp,
+            state: t.state,
+          }
+        })
+        .filter((r) => r.posts > 0),
+    )
+  }
+
+  const pillarKeys: Pill[] = ['discovery', 'credibility', 'trust']
+  const captionWeights = pillarKeys.map((pill) =>
+    patterns.filter((p) => p.pillar === pill).reduce((s, p) => s + Math.max(0, p.captions), 0),
+  )
+  // Fall back to tagged-post counts when Claude omitted caption volumes.
+  const tagWeights = pillarKeys.map((pill) => idsByPillar[pill].size)
+  const weightSum = captionWeights.reduce((s, w) => s + w, 0)
+  const pillarTargets = allocateByWeights(weightSum > 0 ? captionWeights : tagWeights, totalPosts)
+
+  const formatsByPillar = {} as Record<Pill, RankRow[]>
+  const daysByPillar = {} as Record<Pill, RankRow[]>
+  for (let i = 0; i < pillarKeys.length; i++) {
+    const pill = pillarKeys[i]!
+    const target = pillarTargets[i]!
+    const sampleFormats = formatRowsFor(idsByPillar[pill])
+    const sampleDays = dayRowsFor(idsByPillar[pill])
+    formatsByPillar[pill] = scaleRows(
+      sampleFormats.length > 0 ? sampleFormats : formats,
+      target,
+    )
+    daysByPillar[pill] = scaleRows(sampleDays.length > 0 ? sampleDays : days, target)
+  }
+
   return {
     kpis: {
       competitors: accountsWithPosts,
@@ -611,6 +827,9 @@ function buildCaptionAnalysis(
     patterns,
     formats,
     days,
+    // Per-pillar rankings the UI swaps in when a pillar filter is active.
+    formatsByPillar,
+    daysByPillar,
     // Reserved: the UI's "Days & Times" tab reads `days`; `times` stays empty.
     times: [] as unknown[],
   }
@@ -734,19 +953,58 @@ function normalizeDashboard(
 
   const topics = (Array.isArray(raw.topics) ? raw.topics : []).map((t) => {
     const row = (t ?? {}) as Record<string, unknown>
+    const sharePct = Math.round(clampNum(asNum(row.sharePct), 0, 100) * 10) / 10
+    // Claude often fills sharePct/accounts but leaves posts at 0 — derive from
+    // corpus volume the same way caption-pattern counts are grounded.
+    const postsRaw = row.posts == null ? 0 : Math.max(0, Math.round(asNum(row.posts)))
+    const posts =
+      postsRaw > 0
+        ? postsRaw
+        : Math.max(0, Math.round((sharePct / 100) * meta.postsAnalyzed))
+    const accountsRaw = row.accounts == null ? 0 : Math.max(0, Math.round(asNum(row.accounts)))
+    const accounts =
+      accountsRaw > 0
+        ? accountsRaw
+        : Math.max(
+            0,
+            Math.min(meta.accountsAnalyzed, Math.round((sharePct / 100) * meta.accountsAnalyzed)),
+          )
+    const exampleCaptions = Array.isArray(row.exampleCaptions)
+      ? row.exampleCaptions
+          .map((ex) => {
+            const e = (ex ?? {}) as Record<string, unknown>
+            const competitor = asStr(e.competitor)
+            const caption = asStr(e.caption)
+            return competitor && caption ? { competitor, caption } : null
+          })
+          .filter((e): e is { competitor: string; caption: string } => !!e)
+          .slice(0, 4)
+      : []
     return {
       topic: asStr(row.topic, 'Topic'),
-      sharePct: asNum(row.sharePct),
-      accounts: asNum(row.accounts),
-      posts: asNum(row.posts),
+      sharePct,
+      accounts,
+      posts,
       changePp: asNum(row.changePp),
       pillar: pillarOf(row.pillar) ?? 'credibility',
+      exampleCaptions,
     }
   })
 
   const hashtags = (Array.isArray(raw.hashtags) ? raw.hashtags : []).map((h) => {
     const row = (h ?? {}) as Record<string, unknown>
     const type = asStr(row.type, 'Category')
+    const exampleCaptions = Array.isArray(row.exampleCaptions)
+      ? row.exampleCaptions
+          .map((ex) => {
+            const e = (ex ?? {}) as Record<string, unknown>
+            const competitor = asStr(e.competitor)
+            const caption = asStr(e.caption)
+            return competitor && caption ? { competitor, caption } : null
+          })
+          .filter((e): e is { competitor: string; caption: string } => !!e)
+          .slice(0, 4)
+      : []
     return {
       tag: asStr(row.tag).startsWith('#') ? asStr(row.tag) : `#${asStr(row.tag, 'tag')}`,
       type: ['Category', 'Local', 'Niche', 'Branded'].includes(type) ? type : 'Category',
@@ -755,6 +1013,7 @@ function normalizeDashboard(
       // Pillar whose top performers lean on the tag hardest vs the comparison
       // group — a distinctiveness marker, not a causal claim.
       pillar: pillarOf(row.pillar) ?? 'discovery',
+      exampleCaptions,
     }
   })
 
@@ -792,9 +1051,10 @@ function normalizeDashboard(
     findings,
     movements,
     hooks,
-    topics,
+    // Fill post examples from the analyzed exemplars when Claude omitted them.
+    topics: attachTopicExamples(topics, meta.accounts),
     trendTopics: [],
-    hashtags,
+    hashtags: attachHashtagExamples(hashtags, meta.accounts),
     hashtagBasis: {
       highPerformers: asNum(basisRaw.highPerformers, Math.max(1, Math.round(meta.accountsAnalyzed * 0.3))),
       comparison: asNum(basisRaw.comparison, Math.max(1, meta.accountsAnalyzed)),
@@ -960,8 +1220,9 @@ export async function runRegisterAnalysis(input: RunAnalysisInput = {}): Promise
     console.log(`[analysis] map complete memos=${batchMemos.length}`)
 
     const erLookup = buildEngagementRateLookup(built.accounts)
+    const captionLookup = buildCaptionLookup(built.accounts)
     const totalExemplars = countExemplars(built.accounts)
-    const hookMetrics = aggregateHookMetrics(batchMemos, erLookup, totalExemplars)
+    const hookMetrics = aggregateHookMetrics(batchMemos, erLookup, totalExemplars, captionLookup)
     console.log(
       `[analysis] hookMetrics=${hookMetrics.length} exemplars=${totalExemplars} ` +
         `top=${hookMetrics
