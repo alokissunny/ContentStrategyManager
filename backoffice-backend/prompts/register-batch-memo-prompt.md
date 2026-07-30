@@ -83,6 +83,7 @@ Produce a compact **batch memo** as JSON only (no Markdown fences, no preamble).
       ],
       "exampleUsername": "studio.one",
       "examplePlatformPostId": "id-from-exemplar",
+      "posts": ["platformPostId-a", "platformPostId-b"],
       "matchCount": 0
     }
   ],
@@ -118,6 +119,9 @@ Produce a compact **batch memo** as JSON only (no Markdown fences, no preamble).
   short phrase. Keep `summary` to one short sentence.
 - `exampleUsername` + `examplePlatformPostId` **must** reference a real exemplar
   from this batch (so the reduce step can pull the actual caption). Do not invent.
+- `posts` = the `platformPostId`s of **every** exemplar in this batch that fits
+  the pattern (up to 8), copied verbatim from the exemplars. These become the
+  real matching captions shown to the user, so never invent an id.
 - `matchCount` = how many captions in this batch fit the pattern.
 
 ### Other rules

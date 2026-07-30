@@ -183,7 +183,11 @@ function PatternRow({
                             <span className="cap-example-name">{pattern.example.competitor}</span>
                           </figcaption>
                         </figure>
-                        <Link className="cap-view-all" to={`/competitors-captions/${pattern.id}`}>
+                        <Link
+                          className="cap-view-all"
+                          to={`/competitors-captions/${pattern.id}`}
+                          state={{ pattern }}
+                        >
                           View all {pattern.captions.toLocaleString('en-US')} matching captions →
                         </Link>
                       </>

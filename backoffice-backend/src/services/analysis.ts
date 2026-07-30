@@ -400,12 +400,16 @@ function rankBySharePct<T extends { sharePct: number }>(rows: T[]): (T & { rank:
   return [...rows].sort((a, b) => b.sharePct - a.sharePct).map((r, i) => ({ ...r, rank: i + 1 }))
 }
 
+/** Up to this many real captions are surfaced per pattern (a sample, not all). */
+const MAX_PATTERN_CAPTIONS = 12
+
 function buildCaptionAnalysis(
   rawCaption: Record<string, unknown> | null,
   corpus: CorpusStats,
   accounts: CondensedAccount[],
   windowDays: number,
   period: string | undefined,
+  batchMemos: unknown[],
 ) {
   const windows = captionWindows(period, windowDays)
   const totalPosts = corpus.totalPosts
@@ -423,6 +427,49 @@ function buildCaptionAnalysis(
         captionByPostId.set(e.platformPostId, { competitor: name, caption: e.caption })
       }
     }
+  }
+
+  // Post ids the map step tagged for each caption pattern (by pattern name), so
+  // the "view all matching captions" page shows real captions, never invented.
+  const normName = (s: string) => s.trim().toLowerCase()
+  const postIdsByPattern = new Map<string, string[]>()
+  for (const memo of batchMemos) {
+    const cps = (memo as Record<string, unknown> | null)?.captionPatterns
+    if (!Array.isArray(cps)) continue
+    for (const cp of cps) {
+      const row = (cp ?? {}) as Record<string, unknown>
+      const key = normName(asStr(row.name))
+      if (!key) continue
+      const ids = postIdsByPattern.get(key) ?? []
+      if (asStr(row.examplePlatformPostId)) ids.push(asStr(row.examplePlatformPostId))
+      if (Array.isArray(row.posts)) {
+        for (const pid of row.posts) {
+          const id = asStr(pid)
+          if (id) ids.push(id)
+        }
+      }
+      postIdsByPattern.set(key, ids)
+    }
+  }
+
+  /** Real matching captions for a pattern, resolved from tagged post ids. */
+  const captionsForPattern = (
+    patternName: string,
+    seed: { competitor: string; caption: string } | null,
+  ): { competitor: string; caption: string }[] => {
+    const out: { competitor: string; caption: string }[] = []
+    const seenCaption = new Set<string>()
+    const push = (c: { competitor: string; caption: string } | null | undefined) => {
+      if (!c || !c.caption || seenCaption.has(c.caption)) return
+      seenCaption.add(c.caption)
+      out.push(c)
+    }
+    push(seed)
+    for (const id of postIdsByPattern.get(normName(patternName)) ?? []) {
+      if (out.length >= MAX_PATTERN_CAPTIONS) break
+      push(captionByPostId.get(id))
+    }
+    return out.slice(0, MAX_PATTERN_CAPTIONS)
   }
 
   // Formats — competitor counts from per-account format mix; volume from corpus.
@@ -528,6 +575,11 @@ function buildCaptionAnalysis(
         if (acc && e) example = { competitor: displayName.get(acc.username) ?? acc.username, caption: e.caption }
       }
 
+      // Real matching captions surfaced by the map step (a sample, deduped).
+      const exampleCaptions = captionsForPattern(name, example)
+      // Lead the single example with a real caption when we have one.
+      if (!example && exampleCaptions.length > 0) example = exampleCaptions[0]!
+
       return {
         id: asStr(row.id) || slug(name),
         name,
@@ -542,6 +594,7 @@ function buildCaptionAnalysis(
         structure,
         pillarReason: asStr(row.pillarReason),
         example,
+        exampleCaptions,
       }
     })
     .filter((p) => p.name)
@@ -576,6 +629,7 @@ function normalizeDashboard(
     period?: string
     corpus: CorpusStats
     accounts: CondensedAccount[]
+    batchMemos: unknown[]
   },
 ) {
   const from = isoDay(new Date(meta.finishedAt.getTime() - meta.windowDays * 864e5))
@@ -757,6 +811,7 @@ function normalizeDashboard(
       meta.accounts,
       meta.windowDays,
       meta.period,
+      meta.batchMemos,
     ),
     sampleLabel: `Last ${meta.windowDays} days · full register`,
   }
@@ -937,6 +992,7 @@ export async function runRegisterAnalysis(input: RunAnalysisInput = {}): Promise
       period,
       corpus: built.corpus,
       accounts: built.accounts,
+      batchMemos,
     })
     // Prefer corpus medians when Claude omits or invents them.
     dashboard.summary.medianPostsPerWeek =

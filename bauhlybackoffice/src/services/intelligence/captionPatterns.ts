@@ -54,6 +54,12 @@ export interface CaptionPattern {
    * fabricated "representative" caption would misrepresent the dataset.
    */
   example: { competitor: string; caption: string } | null
+  /**
+   * Real matching captions resolved from analyzed posts (a sample, not the full
+   * set). Populated by the backend; the "view all matching captions" page reads
+   * this. Empty when the analysis hasn't surfaced any — never fabricated.
+   */
+  exampleCaptions?: { competitor: string; caption: string }[]
 }
 
 /** A frequency ranking row for formats, days or times. Never a performance rank. */
@@ -466,6 +472,9 @@ export function getCaptionAnalysis(filters: FilterState): CaptionAnalysis {
       captions: scaleCount(p.base.captions),
       sharePct: p.base.sharePct,
       trend: makeTrend(p.base.sharePct, p.base.changePp, scaleCount(p.base.captions), windows),
+      // Offline we only have the single representative example — never the
+      // fabricated sample list the old mock invented.
+      exampleCaptions: p.example ? [p.example] : [],
     }))
     .sort((a, b) => b.sharePct - a.sharePct)
     .map((p, i) => ({ ...p, rank: i + 1 }))
@@ -520,112 +529,5 @@ export function getCaptionAnalysis(filters: FilterState): CaptionAnalysis {
     formats: rankFrom(FORMATS),
     days: rankFrom(DAYS),
     times: rankFrom(TIMES),
-  }
-}
-
-/*
- * Matching-caption samples for the "view all" page. These are illustrative:
- * the real set is far larger and connects when collection is wired. Everything
- * shown is a plausible caption in the pattern's voice, paired with a competitor
- * from the analyzed set — never presented as more than a sample.
- */
-const SAMPLE_ACCOUNTS = [
-  'Estudio Norte',
-  'Casa Piedra',
-  'Atelier Casa',
-  'Forma Living',
-  'Lumen Casa',
-  'Volta Estudio',
-  'Norte Interiors',
-  'Ambienta Projects',
-  'Sur Craft',
-  'Haus Casa',
-  'Piedra Living',
-  'Taller Doce',
-]
-
-const SAMPLE_BODIES: Record<Pillar, string[]> = {
-  discovery: [
-    'People think a small hallway is wasted space. It is the easiest room to make memorable — here is how.',
-    'Everyone reaches for white to feel bigger. Warm off-whites do more, and here is the proof from a north-facing flat.',
-    'Hang the art lower than feels right. 145cm to the centre, and the whole wall finally settles.',
-    'Open shelving looks great and shows every mess. We mixed it with two closed units — best of both.',
-    'A rug that is too small shrinks a room. The front legs of the sofa should sit on it, always.',
-    'Before you knock a wall down, ask what it is doing for the light. This one stayed for a reason.',
-  ],
-  credibility: [
-    'We chose oak over walnut here — and it was not about cost. The room loses light early; the warmer grain holds the evenings.',
-    'Microcement over tile in a flat with two dogs. Here is the decision and the trade-off we accepted.',
-    'Colour temperature, explained in four photos of the same room. 2700K everywhere except the kitchen.',
-    'Travertine is beautiful and stains if you look at it wrong. Read this before you specify it.',
-    'The lighting plan, room by room. We layered three sources in each; here is why one is never enough.',
-    'Two worktop materials, six months of wear, same light. The winner was not the one the client expected.',
-  ],
-  trust: [
-    'They had a 12m² kitchen and three kids. Everything had to earn its place — here is what mattered to them.',
-    'Two years later we went back to photograph it lived in. Nothing styled. This is what holds up.',
-    '“I did not think it could feel calm with two toddlers.” Her words, not ours. Swipe for the space.',
-    'The brief was one line: somewhere to breathe. Here is how a 40m² flat delivered it.',
-    'This project went over on time, not on scope. Here is the honest version of what happened and why.',
-    'A real budget, broken down. Where it went, what we would cut, what we would never cut.',
-  ],
-}
-
-/** FNV-ish hash so a pattern always yields the same sample set. */
-function sampleHash(s: string): number {
-  let h = 2166136261
-  for (let i = 0; i < s.length; i++) {
-    h ^= s.charCodeAt(i)
-    h = Math.imul(h, 16777619)
-  }
-  return h >>> 0
-}
-
-export interface PatternCaption {
-  id: string
-  competitor: string
-  caption: string
-}
-
-export interface PatternCaptionsResult {
-  pattern: { id: string; name: string; pillar: Pillar; summary: string }
-  /** The full matching count (illustrative sample below is much smaller). */
-  totalCount: number
-  captions: PatternCaption[]
-}
-
-/**
- * A deterministic sample of matching captions for one pattern. Returns null for
- * an unknown pattern id. The list is a sample, never the full set.
- */
-export function getPatternCaptions(patternId: string): PatternCaptionsResult | null {
-  const seed = PATTERNS.find((p) => p.id === patternId)
-  if (!seed) return null
-
-  const pool = SAMPLE_BODIES[seed.pillar]
-  const captions: PatternCaption[] = []
-
-  // Lead with the real representative example when we have one.
-  if (seed.example) {
-    captions.push({
-      id: `${seed.id}-example`,
-      competitor: seed.example.competitor,
-      caption: seed.example.caption,
-    })
-  }
-
-  const h = sampleHash(seed.id)
-  for (let i = 0; i < pool.length; i++) {
-    captions.push({
-      id: `${seed.id}-s${i}`,
-      competitor: SAMPLE_ACCOUNTS[(h + i * 7) % SAMPLE_ACCOUNTS.length],
-      caption: pool[i],
-    })
-  }
-
-  return {
-    pattern: { id: seed.id, name: seed.name, pillar: seed.pillar, summary: seed.summary },
-    totalCount: seed.base.captions,
-    captions,
   }
 }
