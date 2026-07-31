@@ -1,22 +1,49 @@
-/* Bauhly landing — design tokens, scoped under .bauhly-landing so they
-   never leak into the rest of the Bauhly app (auth, onboarding,
-   dashboard keep their own token set from src/styles/tokens.css). */
+/* Bauhly landing — the MARKETING SEMANTIC LAYER (Leon, July 31).
+ *
+ * This file used to declare its own palette and its own type stack, which is
+ * how the brand ended up with two oranges (#FF4D1C vs #FF5227), two inks
+ * (#20261F vs #16161A), two monos and five font families. It now names the
+ * same primitives from src/styles/tokens.css — loaded globally in main.jsx —
+ * and only says what they MEAN out here, where the brand is allowed to be loud.
+ *
+ * What stays deliberately different: the sage ground, the lime chapter fields,
+ * the guest purple, pill CTAs, hero type sizes and 700ms entrances. Those are
+ * the marketing register. What is no longer different: the actual colours. */
+
 .bauhly-landing {
   --canvas: #F8F9F5;
   --surface: #F0F1EB;
   --paper: #FFFFFF;
-  --ink: #20261F;
-  --ink-soft: #AEB8AA;
+  --ink: var(--ink-900); /* was #20261F — a second, greener black */
+  /* Measured and darkened (Leon, July 31 — phase 5). At #AEB8AA this carried
+     small print at 1.8–2.0:1 against a 4.5:1 requirement — the quietest text on
+     the page was also the least readable. Still the soft sage that steps back
+     from --grey; now legible: 4.58 on the canvas, 4.26 on the surface. Where it
+     sits on a surface panel, pair it with --grey instead. */
+  --ink-soft: #6C7469;
+  /* the same role on the dark sections: the footer sets --ink-soft on ink and
+     the darkened value measured 3.73:1 there — a grey that reads as quiet on a
+     light ground reads as unreadable on a black one (Leon, July 31). */
+  --ink-soft-inv: #A9B2A5;
+  /* AA on every light ground here (5.02 canvas / 4.67 surface / 5.31 paper) —
+     but NOT on the lime field (3.87): text on lime is --signature-ink or ink. */
   --grey: #676D66;
 
   /* primary — CTAs, links, annotations, the only small-size color */
-  --primary: #FF4D1C;
-  --primary-contrast: #FFF3ED;
-  --primary-ink: #8A3512;
+  /* the shared accent — was #FF4D1C, four hex-points off the product's orange
+     and distinguishable only in a token file */
+  --primary: var(--signal-500);
+  /* ORANGE AS TEXT (Leon, July 31 — phase 5, measured). #FF5227 on this page's
+     grounds runs 3.06–3.24:1 where AA wants 4.5, so every orange LABEL was
+     failing while the fills were fine. Same rule the app already had
+     (--signal-700 for text); the landing now says it too. */
+  --primary-text: var(--signal-700);
+  --primary-contrast: var(--signal-50);
+  --primary-ink: var(--signal-800);
 
   /* signature — chapter breaks, highlight moments */
-  --signature: #D2E823;
-  --signature-ink: #2F3A00;
+  --signature: var(--experiment-500);
+  --signature-ink: var(--experiment-ink);
 
   /* guest — journey break, one UI accent */
   --guest: #6E59CC;
@@ -28,9 +55,12 @@
   --hero-ink-soft: #55632F;
 
   /* Typography */
+  /* one display voice and one working voice, journey-wide. General Sans is
+     retired: continuity travels in body copy, and Inter is what the product
+     reads in — so the two environments now literally speak in the same face. */
   --font-display: 'Cabinet Grotesk', 'Helvetica Neue', sans-serif;
-  --font-body: 'General Sans', 'Helvetica Neue', sans-serif;
-  --font-mono: 'Spline Sans Mono', 'SF Mono', monospace;
+  --font-body: 'Inter', system-ui, -apple-system, sans-serif;
+  --font-mono: 'Spline Sans Mono', ui-monospace, 'SF Mono', monospace;
 
   --text-hero: clamp(44px, 9.5vw, 108px);
   --text-break: clamp(36px, 7vw, 84px);
@@ -40,18 +70,26 @@
   --text-mono: 12px;
   --track-mono: 0.14em;
 
-  /* Motion */
-  --ease-drawer: cubic-bezier(0.22, 1, 0.36, 1);
-  --dur-enter: 700ms;
-  --dur-wipe: 700ms;
+  /* Motion — the same easing as the app, at the marketing register's volume
+     (Leon, July 31 — phase 2). `--ease-drawer` IS `--ease-out`: the two were
+     the identical curve declared twice. Durations are derived from the shared
+     scale rather than typed, so "marketing runs about three times longer than
+     the workspace" is a rule in the file instead of a coincidence. */
+  --ease-drawer: var(--ease-out);
+  --mkt-motion-scale: 1.65;
+  --dur-enter: calc(var(--dur-slow) * var(--mkt-motion-scale)); /* ≈700ms */
+  --dur-wipe: calc(var(--dur-slow) * var(--mkt-motion-scale));
 
   /* Layout */
   --grid-max: 1280px;
   --gutter: clamp(20px, 4vw, 64px);
   --section-pad: clamp(80px, 12vh, 160px);
 
-  /* page frame — inset, rounded panels on a page background */
+  /* page frame — inset, rounded panels on a page background.
+     `--panel-radius` is the ONE marketing-only radius, and it is named as such:
+     everything else on this page uses the shared scale (--r-sm … --r-full). */
   --page: #F0F0ED;
   --frame: clamp(10px, 1.4vw, 18px);
   --panel-radius: clamp(22px, 2.6vw, 40px);
+  --r-hero: var(--panel-radius);
 }

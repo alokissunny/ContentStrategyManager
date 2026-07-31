@@ -1,14 +1,28 @@
+/*
+ * Your Week — the single central page of the product.
+ *
+ * Merges what used to be two screens (Your Plans + Weekly route) into one, the
+ * way the bauhly-v3 design does (docs/02-information-architecture.md): no plan
+ * yet → the branded invitation; a plan running → the seven-day route with the
+ * day rail and the selected day's caption / strategy / prompts / plan.
+ *
+ * Backend-wired: GET /routes/current is the one current plan per handle;
+ * POST /routes/generate (re)plans it; PATCH marks a day published.
+ */
+
 import React, { useEffect, useState } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
+import { useSearchParams } from 'react-router-dom';
 import Glyph from '../components/Glyph';
+import Icon from '../brand/Icon';
 import { getCurrentRoute, generateRoute, markDayPublished } from '../api/routes';
 import {
   LS_SURFACE, LS_BORDER, LS_INK, LS_T2, LS_MUTED, LS_SIGNAL, LS_SOFT,
   LS_SOFT_BORDER, LS_FONT, LS_DISPLAY, LSC,
 } from '../theme';
+import './yourweek.css';
 
 // Pillar accent colours pulled from the design-system tokens so the goal chips
-// match the dashboard's Discovery / Credibility / Trust palette.
+// match the Discovery / Credibility / Trust palette.
 const PILLAR = {
   discovery: { soft: 'var(--discovery-100)', ink: 'var(--discovery-600)', label: 'Discovery' },
   credibility: { soft: 'var(--credibility-100)', ink: 'var(--credibility-600)', label: 'Credibility' },
@@ -40,7 +54,7 @@ function Para({ children }) {
 }
 
 function buildMarkdown(route) {
-  const lines = [`# Weekly route — ${route.weekLabel}`, `Focus: ${PILLAR[route.focus?.pillar]?.label || ''} — ${route.focus?.headline || ''}`, ''];
+  const lines = [`# Your week — ${route.weekLabel}`, `Focus: ${PILLAR[route.focus?.pillar]?.label || ''} — ${route.focus?.headline || ''}`, ''];
   (route.days || []).forEach((d) => {
     lines.push(`## ${d.day}${d.dateLabel ? ` (${d.dateLabel})` : ''} · ${d.format} · ${d.contentType}`);
     if (d.time) lines.push(`Time: ${d.time}`);
@@ -58,9 +72,10 @@ function buildMarkdown(route) {
   return lines.join('\n');
 }
 
-export default function ContentRoute() {
+export default function YourWeek() {
   const [searchParams] = useSearchParams();
   const [route, setRoute] = useState(null);
+  const [preparing, setPreparing] = useState(false);
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
   const [selected, setSelected] = useState(Number(searchParams.get('day')) || 0);
@@ -68,14 +83,17 @@ export default function ContentRoute() {
 
   useEffect(() => {
     getCurrentRoute()
-      .then(({ route: r }) => setRoute(r))
+      .then(({ route: r, preparing: prep }) => {
+        setRoute(r);
+        setPreparing(Boolean(prep));
+      })
       .catch(() => setRoute(null))
       .finally(() => setLoading(false));
   }, []);
 
   async function handleGenerate() {
     setGenerating(true);
-    try { setRoute(await generateRoute()); } catch (err) { /* retry via button */ } finally { setGenerating(false); }
+    try { setRoute(await generateRoute()); setPreparing(false); } catch (err) { /* retry via button */ } finally { setGenerating(false); }
   }
 
   const days = route?.days || [];
@@ -93,7 +111,7 @@ export default function ContentRoute() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `weekly-route-${route.weekLabel.replace(/\s+/g, '-')}.md`;
+    a.download = `your-week-${route.weekLabel.replace(/\s+/g, '-')}.md`;
     a.click();
     URL.revokeObjectURL(url);
   }
@@ -102,19 +120,40 @@ export default function ContentRoute() {
   const c = PILLAR[day?.pillar] || PILLAR.trust;
 
   if (loading) {
-    return <div style={{ ...LSC, padding: 'clamp(24px, 6vw, 48px) clamp(16px, 5vw, 48px)' }}><p style={{ fontFamily: LS_FONT, color: LS_T2 }}>Loading your weekly route…</p></div>;
+    return <div style={{ ...LSC, padding: 'clamp(24px, 6vw, 48px) clamp(16px, 5vw, 48px)' }}><p style={{ fontFamily: LS_FONT, color: LS_T2 }}>Loading your week…</p></div>;
   }
 
+  // A plan is building in the background after a fresh (re)connect.
+  if (preparing && (!route || days.length === 0)) {
+    return (
+      <div className="empty">
+        <div className="empty__card">
+          <span className="empty__ico"><Icon name="route" size={30} strokeWidth={1.7} /></span>
+          <h1 className="empty__title">We're building your first week</h1>
+          <p className="empty__note">One week you didn't have to invent.</p>
+          <p className="empty__sub">
+            We're reading your account and drafting a week of posts aimed at the stage that moves
+            your enquiries most. This takes a moment — check back shortly.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  // Nothing yet — the branded invitation (one of the app's sanctioned brand moments).
   if (!route || days.length === 0) {
     return (
-      <div style={{ ...LSC, padding: 'clamp(24px, 6vw, 48px) clamp(16px, 5vw, 48px)', maxWidth: 760 }}>
-        <h1 style={{ fontFamily: LS_DISPLAY, fontWeight: 700, fontSize: 30, color: LS_INK, margin: '0 0 8px' }}>Weekly route</h1>
-        <div style={{ border: `1px dashed ${LS_BORDER}`, borderRadius: 16, padding: '48px 24px', textAlign: 'center', marginTop: 20 }}>
-          <Glyph name="route" size={30} color={LS_MUTED} style={{ marginBottom: 12 }} />
-          <p style={{ fontFamily: LS_DISPLAY, fontWeight: 700, fontSize: 17, color: LS_INK, margin: '0 0 6px' }}>No plan for this week yet</p>
-          <p style={{ fontFamily: LS_FONT, fontSize: 13.5, color: LS_T2, margin: '0 0 18px' }}>Generate a week of posts from your Instagram analysis.</p>
-          <button onClick={handleGenerate} disabled={generating} style={{ height: 44, padding: '0 22px', borderRadius: 9, border: 'none', cursor: 'pointer', opacity: generating ? 0.6 : 1, fontFamily: LS_FONT, fontSize: 13, fontWeight: 700, letterSpacing: '0.05em', textTransform: 'uppercase', background: LS_SIGNAL, color: '#fff' }}>
-            {generating ? 'Planning…' : 'Generate this week’s plan'}
+      <div className="empty">
+        <div className="empty__card">
+          <span className="empty__ico"><Icon name="route" size={30} strokeWidth={1.7} /></span>
+          <h1 className="empty__title">You don't have a plan yet</h1>
+          <p className="empty__note">Every Monday, one week you didn't have to invent.</p>
+          <p className="empty__sub">
+            A week of posts built from your own work and aimed at the stage that moves your
+            enquiries most — each with a reason behind it.
+          </p>
+          <button className="btn btn--primary" onClick={handleGenerate} disabled={generating}>
+            {generating ? 'Planning…' : "Let's plan your week"}
           </button>
         </div>
       </div>
@@ -126,7 +165,7 @@ export default function ContentRoute() {
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap', marginBottom: 20 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
-          <h1 style={{ fontFamily: LS_DISPLAY, fontWeight: 700, fontSize: 26, color: LS_INK, margin: 0 }}>{route.focus?.headline || 'Weekly route'}</h1>
+          <h1 style={{ fontFamily: LS_DISPLAY, fontWeight: 700, fontSize: 26, color: LS_INK, margin: 0 }}>{route.focus?.headline || 'Your week'}</h1>
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontFamily: LS_FONT, fontSize: 12.5, color: LS_T2 }}>
             <Glyph name="calendar" size={14} color={LS_MUTED} />{route.weekLabel}
           </span>
@@ -138,7 +177,9 @@ export default function ContentRoute() {
         </div>
         <div style={{ display: 'flex', gap: 10 }}>
           <button onClick={handleExport} style={btnGhost}><Glyph name="download" size={15} color={LS_INK} />Export</button>
-          <Link to="/dashboard" style={{ ...btnGhost, textDecoration: 'none' }}><Glyph name="refresh-cw" size={15} color={LS_INK} />Change this week’s focus</Link>
+          <button onClick={handleGenerate} disabled={generating} style={{ ...btnGhost, opacity: generating ? 0.6 : 1 }}>
+            <Glyph name="refresh-cw" size={15} color={LS_INK} />{generating ? 'Planning…' : 'Plan again'}
+          </button>
         </div>
       </div>
 

@@ -169,7 +169,7 @@ export default function S1Hero() {
               className="cta cta-ink h1s-main-cta"
               onClick={() => nav('/auth', { state: { mode: 'signup' } })}
             >
-              Analyze my profile →
+              Analyse my profile →
             </button>
           </motion.div>
         </div>

@@ -13,9 +13,12 @@ const PATHS = {
   'arrow-right': <path d="M5 12h14m-6-6 6 6-6 6" />,
   'arrow-left': <path d="M19 12H5m6-6-6 6 6 6" />,
   'arrow-up-right': <path d="M7 17 17 7M9 7h8v8" />,
+  'arrow-down': <path d="M12 5v14m-6-6 6 6 6-6" />,
   'chevron-down': <path d="m6 9 6 6 6-6" />,
   'chevron-right': <path d="m9 6 6 6-6 6" />,
   download: <path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14" />,
+  /* the same shape as download, the arrow the other way — one gesture, two directions */
+  upload: <path d="M12 21V9m0 0 4 4m-4-4-4 4M5 3h14" />,
   check: <path d="m5 12.5 4.5 4.5L19 7.5" />,
   plus: <path d="M12 5v14M5 12h14" />,
   x: <path d="m6 6 12 12M18 6 6 18" />,
@@ -81,6 +84,79 @@ const PATHS = {
     </>
   ),
   pulse: <path d="M3 12h4l2.5-7 5 14 2.5-7h4" />,
+  mic: (
+    <>
+      <rect x="9" y="3" width="6" height="11" rx="3" />
+      <path d="M6 11a6 6 0 0 0 12 0" />
+      <path d="M12 17v4M9 21h6" />
+    </>
+  ),
+  search: (
+    <>
+      <circle cx="11" cy="11" r="6.5" />
+      <path d="m16 16 4.5 4.5" />
+    </>
+  ),
+  image: (
+    <>
+      <rect x="3.5" y="4.5" width="17" height="15" rx="2.5" />
+      <circle cx="8.5" cy="9.5" r="1.6" />
+      <path d="m4.5 18 5-5 3.5 3.5 3-3 4 4" />
+    </>
+  ),
+  more: (
+    <>
+      <circle cx="5" cy="12" r="1.4" fill="currentColor" stroke="none" />
+      <circle cx="12" cy="12" r="1.4" fill="currentColor" stroke="none" />
+      <circle cx="19" cy="12" r="1.4" fill="currentColor" stroke="none" />
+    </>
+  ),
+  filter: <path d="M3.5 5.5h17M6.5 12h11M10 18.5h4" />,
+  sun: (
+    <>
+      <circle cx="12" cy="12" r="4.2" />
+      <path d="M12 2.6v2.4M12 19v2.4M2.6 12H5M19 12h2.4M5.1 5.1l1.7 1.7M17.2 17.2l1.7 1.7M18.9 5.1l-1.7 1.7M6.8 17.2l-1.7 1.7" />
+    </>
+  ),
+  contrast: (
+    <>
+      <circle cx="12" cy="12" r="8.5" />
+      <path d="M12 3.5a8.5 8.5 0 0 1 0 17Z" fill="currentColor" stroke="none" />
+    </>
+  ),
+  droplet: <path d="M12 3.2c3.4 3.9 5.8 6.5 5.8 9.8a5.8 5.8 0 0 1-11.6 0c0-3.3 2.4-5.9 5.8-9.8Z" />,
+  thermometer: (
+    <>
+      <path d="M14 14.6V5a2 2 0 0 0-4 0v9.6a3.6 3.6 0 1 0 4 0Z" />
+      <path d="M12 15.5v-6" />
+    </>
+  ),
+  expand: <path d="M9 4H4v5M15 4h5v5M15 20h5v-5M9 20H4v-5" />,
+  crop: (
+    <>
+      <path d="M6.5 2.5v13a2 2 0 0 0 2 2h13" />
+      <path d="M17.5 21.5v-13a2 2 0 0 0-2-2h-13" />
+    </>
+  ),
+  pin: (
+    <>
+      <path d="M12 21s6.5-5.5 6.5-11a6.5 6.5 0 0 0-13 0c0 5.5 6.5 11 6.5 11Z" />
+      <circle cx="12" cy="10" r="2.4" />
+    </>
+  ),
+  trash: (
+    <>
+      <path d="M4 6.5h16M9 6.5V5a1.5 1.5 0 0 1 1.5-1.5h3A1.5 1.5 0 0 1 15 5v1.5" />
+      <path d="M6.5 6.5 7.4 19a2 2 0 0 0 2 1.9h5.2a2 2 0 0 0 2-1.9l.9-12.5" />
+    </>
+  ),
+  dial: (
+    <>
+      <circle cx="12" cy="12" r="8.5" />
+      <circle cx="12" cy="12" r="2" fill="currentColor" stroke="none" />
+      <path d="m12 12 3.4-3.4" />
+    </>
+  ),
   evidence: (
     <>
       <path d="M4 20V10M10 20V4M16 20v-8M21 20H3.5" />
@@ -134,6 +210,13 @@ const PATHS = {
     </>
   ),
   bookmark: <path d="M6.5 3.5h11V21L12 17l-5.5 4V3.5Z" />,
+  bulb: (
+    <>
+      <path d="M9.5 18h5" />
+      <path d="M10 21h4" />
+      <path d="M12 3a6 6 0 0 0-3.8 10.6c.6.5 1.05 1.2 1.15 2.4h5.3c.1-1.2.55-1.9 1.15-2.4A6 6 0 0 0 12 3Z" />
+    </>
+  ),
   share: (
     <>
       <path d="m12 14.5 8.5-8.5M20.5 10V6h-4" />

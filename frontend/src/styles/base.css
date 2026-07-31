@@ -14,12 +14,22 @@ body {
   padding: 0;
 }
 
+html {
+  /* nothing in the product scrolls sideways, so a horizontal gesture that reaches
+     the page should do nothing — not rubber-band the whole screen, and not trigger
+     the browser's back-swipe (Leon, July 30) */
+  overscroll-behavior-x: none;
+}
+
 body {
   font-family: var(--font-ui);
   font-size: var(--text-base);
   line-height: 1.55;
   color: var(--ink-900);
-  background: var(--paper);
+  /* White, everywhere the product lives (Leon, July 30). The warm paper is the
+     marketing canvas and stays there — inside the app it showed as a beige band
+     wherever a screen didn't fill the viewport, which read as a seam. */
+  background: var(--canvas);
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
 }
@@ -64,11 +74,11 @@ svg {
 }
 
 ::placeholder {
-  color: var(--ink-400);
+  color: var(--ink-quiet);
 }
 
 :focus-visible {
-  outline: 2px solid var(--signal-500);
+  outline: 2px solid var(--focus-ring);
   outline-offset: 2px;
   border-radius: 4px;
 }
@@ -123,32 +133,82 @@ svg {
     box-shadow var(--dur-fast) var(--ease-out),
     transform var(--dur-fast) var(--ease-out);
 }
+/* Optical, not mathematical (Leon, July 30).
+ *
+ * `align-items: center` lines up the BOXES, and a line of text's box includes the
+ * descender space under it — so its ink sits a hair above the middle while a glyph
+ * sits dead centre, and the pair reads as if the icon has slipped. One pixel up puts
+ * the two lots of ink on the same line. Same reasoning wherever a label and a glyph
+ * share a row. */
+.btn > svg,
+.ck-chip > svg,
+.yw-sec__label > svg,
+.np__title > svg {
+  margin-top: -1px;
+}
 .btn:active {
   transform: scale(0.98);
 }
-.btn--primary {
-  background: var(--signal-500);
-  color: #fff;
+/* INK, not orange (Leon, July 31 — see the action tokens in tokens.css).
+ * `.btn--ink` stays as an alias: it is on buttons across the app and the two
+ * are now the same thing, so a sweep-rename would be a diff nobody can read. */
+.btn--primary,
+.btn--ink {
+  background: var(--action-primary);
+  color: var(--action-primary-ink);
+}
+.btn--primary:hover,
+.btn--ink:hover {
+  background: var(--action-primary-hover);
+}
+/* the one object still allowed to wear the accent as a fill — its label is
+ * large enough to carry it (see CaptureButton) */
+.btn--accent {
+  background: var(--action-accent);
+  color: var(--action-accent-ink);
   box-shadow: var(--shadow-signal);
 }
-.btn--primary:hover {
-  background: var(--signal-600);
+.btn--accent:hover {
+  background: var(--action-accent-hover);
 }
-.btn--ink {
-  background: var(--ink-900);
-  color: #fff;
-}
-.btn--ink:hover {
-  background: var(--ink-800);
-}
+/* ── THE FOUR LEVELS (Leon, July 30) ─────────────────────────────────────
+ * 1 primary    — filled orange. One per screen: the thing to do.
+ * 2 secondary  — orange text, no border. Wanted, but not the only way on.
+ * 3 tertiary   — bordered, ink text. Available; competes with nothing.
+ * 4 quiet      — text only, ink. The way out, the undo, the "not now".
+ *
+ * `.btn--ghost` is the old name for tertiary and stays as an alias: it is on
+ * dozens of buttons across the app, and a sweep-rename is a diff nobody can
+ * review. New markup should say `--tertiary`.
+ */
+.btn--tertiary,
 .btn--ghost {
   background: var(--surface);
   color: var(--ink-900);
   border: 1px solid var(--border-strong);
 }
+/* the same fill as every other hover in the product — a border shifting from
+ * --border-strong to --ink-400 is a change most people never see, which is why
+ * the ⋯ next to Plan again / Export felt like it responded differently. */
+.btn--tertiary:hover,
 .btn--ghost:hover {
   border-color: var(--ink-400);
+  background: var(--ink-100);
+}
+/* Secondary: orange text in an orange-tinted outline (Leon, July 30 — he wanted the
+   border after all). Declared AFTER tertiary so it wins if a button ever carries both
+   classes. What separates the two levels is the colour, not the presence of an edge:
+   tertiary is ink in a grey outline and recedes; this one is the wanted thing that
+   still isn't the only way on. */
+.btn--secondary {
   background: var(--surface);
+  color: var(--signal-600);
+  border: 1px solid var(--signal-400);
+}
+.btn--secondary:hover {
+  color: var(--signal-700);
+  border-color: var(--signal-500);
+  background: var(--signal-50);
 }
 .btn--quiet {
   background: transparent;
@@ -156,6 +216,14 @@ svg {
   height: 36px;
   padding: 0 var(--sp-3);
 }
+/* THE TERTIARY HOVER CONTRACT.
+ *
+ * Anything quiet — a bare icon button, a text-only action, a "reset" — confirms
+ * the target the same way: the glyph darkens to ink-900 and an --ink-100 fill
+ * appears behind it. Some of these used to change only their colour, which on a
+ * borderless control is a change you can miss entirely, and the inconsistency
+ * read as some buttons being "less real" than others. If you add a quiet
+ * control, give it this pair. */
 .btn--quiet:hover {
   color: var(--ink-900);
   background: var(--ink-100);
@@ -164,7 +232,7 @@ svg {
   height: 52px;
   padding: 0 var(--sp-7);
   font-size: var(--text-md);
-  border-radius: 14px;
+  border-radius: var(--r-md);
 }
 .btn--sm {
   height: 34px;
@@ -172,10 +240,79 @@ svg {
   font-size: var(--text-sm);
   border-radius: var(--r-sm);
 }
-.btn[disabled] {
-  opacity: 0.45;
+/* smaller than small: for a control that sits inside a panel beside other work
+   rather than at the end of a page (Leon, July 30) */
+.btn--xs {
+  height: 28px;
+  padding: 0 10px;
+  gap: 6px;
+  font-size: var(--text-xs);
+  border-radius: var(--r-sm);
+}
+/* On a phone, small isn't a size — it's a hierarchy.
+ *
+ * 34px is a comfortable secondary button under a mouse and a mean target under
+ * a thumb: it is 10px short of the 44px everyone's guidelines settle on, and on
+ * this product `--sm` is not a rare variant — it is what Save, Done, Connect,
+ * Add and Sign out all use. So below 640px it keeps its lighter type and
+ * radius, which is what makes it read as secondary, and takes the height back.
+ * Nothing here is laid out to a fixed 34; every one of these sits in a flex row
+ * that grows with it. */
+@media (max-width: 640px) {
+  .btn--sm { height: 42px; padding: 0 var(--sp-5); }
+}
+/* Disabled is said in colour, not in opacity (Leon, July 31 — phase 2).
+ *
+ * `opacity` is fragile in this codebase: `.ck-chip` enters with a filled
+ * `ck-rise` animation, and a filled animation's own opacity beats a declared
+ * one, so the disabled state silently did nothing on the conversation's chips
+ * (found on the check-in's send button, July 31). Colour always wins, and it
+ * reads the same on every ground. Both registers use it. */
+.btn[disabled],
+.ck-chip[disabled],
+.bauhly-landing .cta[disabled] {
+  background: var(--surface-sunken);
+  border-color: var(--border);
+  /* the one place --ink-400 still carries words: a disabled control is exempt
+     from the contrast minimum, and looking unavailable is the point */
+  color: var(--ink-400);
+  box-shadow: none;
   cursor: default;
   pointer-events: none;
+}
+
+/* ── THE MARKETING REGISTER ───────────────────────────────────────────────
+ *
+ * One button system, two registers (Leon, July 31 — cross-experience audit).
+ * The landing speaks in pills and the workspace in rectangles: that difference
+ * is deliberate — a billboard and a working tool should not have the same
+ * posture. What must NOT differ is everything else, so this variant changes
+ * shape and scale only, and inherits the label voice, the weight, the focus
+ * ring, the press behaviour and the disabled treatment from `.btn` above.
+ *
+ * Rule: a 999px radius on an action is permitted on marketing surfaces only. */
+.btn--pill {
+  height: 56px;
+  padding: 0 34px;
+  border-radius: var(--r-full);
+  font-size: 17px;
+}
+@media (max-width: 640px) {
+  .btn--pill { height: 52px; padding: 0 26px; font-size: var(--text-md); }
+}
+
+/* said to a screen reader, drawn to nobody: for a control whose meaning is carried
+   by a glyph and its position (the upload mark on a slide, for one) */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
 }
 
 /* ── Inputs ── */
@@ -276,5 +413,45 @@ textarea.input {
   .reveal {
     opacity: 1;
     transform: none;
+  }
+}
+
+
+/* ── modal motion ────────────────────────────────────────────────────────
+ * Every overlay in the product enters the same way: the backdrop fades, the
+ * surface rises a little and settles. Shared here rather than redefined per
+ * component, because a sheet that animates differently from a dialog reads as
+ * a different app. Reduced motion gets the fade only — the information still
+ * arrives, it just doesn't travel. */
+@keyframes modal-fade {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+@keyframes modal-rise {
+  from { opacity: 0; transform: translateY(14px) scale(0.985); }
+  to   { opacity: 1; transform: none; }
+}
+.fmodal,
+.np-scrim,
+.lb,
+.nsheet__scrim,
+.acs-scrim {
+  animation: modal-fade var(--dur-base) var(--ease-out);
+}
+.fmodal__card,
+.np,
+.acs-sheet,
+.pe-menu {
+  animation: modal-rise var(--dur-base) var(--ease-out);
+}
+/* `.nsheet` is deliberately absent: a bottom sheet slides its full height from
+ * the edge rather than rising a few pixels, so it defines its own (see
+ * projects.css). Everything else shares this one. */
+@media (prefers-reduced-motion: reduce) {
+  .fmodal__card,
+  .np,
+  .acs-sheet,
+  .pe-menu {
+    animation: modal-fade var(--dur-fast) var(--ease-out);
   }
 }

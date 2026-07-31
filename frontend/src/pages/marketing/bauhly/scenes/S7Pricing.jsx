@@ -11,7 +11,7 @@ const tiers = [
     badge: 'Launch price — yours to keep',
     featured: true,
     flag: 'Recommended',
-    cta: 'Analyze my profile →',
+    cta: 'Analyse my profile →',
     listLabel: 'What’s included',
     items: [
       'An AI strategist that learns your studio',

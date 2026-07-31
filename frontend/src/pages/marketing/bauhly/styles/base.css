@@ -84,6 +84,16 @@
   padding-inline: var(--gutter);
 }
 
+/* The product's focus contract, on the brand's front door (Leon, July 31 —
+ * audit finding 4). The landing shipped with no focus styling at all, so a
+ * keyboard user could not see where they were on the page that does the
+ * selling. Same ring, same offset, same token as the app. */
+.bauhly-landing :focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 3px;
+  border-radius: 6px;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .bauhly-landing *,
   .bauhly-landing *::before,
@@ -93,4 +103,7 @@
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
   }
+  /* CSS is only half of it: the scene entrances are JS. `MotionConfig` in
+     Landing.jsx carries the same preference into the motion library, and Lenis
+     smooth-scrolling is switched off there too. */
 }

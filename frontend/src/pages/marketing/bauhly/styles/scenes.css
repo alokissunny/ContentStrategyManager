@@ -1,3 +1,7 @@
+/* the landing keeps the warm canvas — the body is white for the product now
+   (see base.css) */
+.bauhly-landing { background: var(--paper); }
+
 /* ============ shared — linktree-style blocks ============ */
 
 .bauhly-landing .block {
@@ -61,7 +65,7 @@
 }
 
 .bauhly-landing .nav-dot {
-  color: var(--primary);
+  color: var(--primary-text);
 }
 
 .bauhly-landing .nav-links {
@@ -214,16 +218,32 @@
   align-items: center;
 }
 
+/* THE SAME BUTTON, LOUDER (Leon, July 31 — phase 2).
+ *
+ * This used to be its own control with its own font stack, its own weight and
+ * its own press behaviour. It now states only what the marketing register
+ * changes — shape, scale, and a hover that lifts rather than tints — and takes
+ * the rest (label voice, weight 600, focus ring, disabled treatment) from the
+ * shared `.btn` contract in src/styles/base.css. */
 .bauhly-landing .cta {
-  display: inline-block;
-  font-family: var(--font-body);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-2);
+  font-family: var(--font-ui);
   font-weight: 600;
   font-size: 17px;
-  padding: 18px 34px;
-  border-radius: 999px;
-  transition: transform 250ms var(--ease-drawer);
+  min-height: 56px;
+  padding: 0 34px;
+  border-radius: var(--r-full);
+  white-space: nowrap;
+  transition: transform var(--dur-base) var(--ease-drawer),
+    background var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out);
 }
 
+/* the marketing hover: a lift. The product's is a tint — same event, said at
+   the volume each register speaks in. */
 .bauhly-landing .cta:hover {
   transform: scale(1.04);
 }
@@ -237,9 +257,12 @@
   color: var(--canvas);
 }
 
+/* the ink pill, like every other CTA here (Leon, July 31 — phase 5): white
+   17px/600 on the orange measured 2.94:1, and the page already had one primary
+   treatment. Orange stays where it does not carry words. */
 .bauhly-landing .cta-primary {
-  background: var(--primary);
-  color: var(--primary-contrast);
+  background: var(--ink);
+  color: var(--canvas);
 }
 
 .bauhly-landing .cta-signature {
@@ -247,15 +270,17 @@
   color: var(--signature-ink);
 }
 
+/* the marketing chip: the app's `.ck-chip` in the pill register — same weight
+   family, same gap, same font, wider radius */
 .bauhly-landing .chip {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  font-family: var(--font-body);
+  gap: var(--sp-2);
+  font-family: var(--font-ui);
   font-weight: 500;
   font-size: 14px;
   padding: 8px 16px;
-  border-radius: 999px;
+  border-radius: var(--r-full);
 }
 
 /* ============ hero — signature block ============ */
@@ -334,7 +359,8 @@
   font-weight: 400;
   font-size: 1.25em;
   line-height: 1;
-  color: var(--primary);
+  /* the -800 step: on the lime field the -700 text orange measured 3.74:1 */
+  color: var(--signal-800);
   padding-bottom: 6px;
 }
 
@@ -345,7 +371,7 @@
   bottom: -6px;
   width: 100%;
   height: 12px;
-  color: var(--primary);
+  color: var(--primary-text);
 }
 
 .bauhly-landing .h1s-sub {
@@ -737,7 +763,7 @@
   font-size: 10px;
   letter-spacing: 0.12em;
   text-transform: uppercase;
-  color: var(--primary);
+  color: var(--primary-text);
   display: block;
   margin-bottom: 10px;
 }
@@ -761,7 +787,7 @@
   font-size: 10px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--primary);
+  color: var(--primary-text);
   min-width: 28px;
 }
 
@@ -808,7 +834,7 @@
   letter-spacing: 0.06em;
   text-transform: uppercase;
   background: var(--guest);
-  color: var(--guest-contrast);
+  color: #fff; /* was --guest-contrast (#F1EDFD) at 2.94:1 on the purple */
   border-radius: 999px;
   padding: 9px 16px;
   box-shadow: 0 12px 26px rgba(0, 0, 0, 0.16);
@@ -922,7 +948,7 @@
   letter-spacing: 0.1em;
   text-transform: uppercase;
   background: var(--primary);
-  color: var(--primary-contrast);
+  color: var(--ink); /* 10px cream on orange was 2.9:1 */
   border-radius: 999px;
   padding: 4px 10px;
 }
@@ -947,7 +973,7 @@
   font-style: normal;
   font-size: 12px;
   font-weight: 500;
-  color: var(--primary);
+  color: var(--primary-text);
   margin-left: auto;
   white-space: nowrap;
 }
@@ -1058,7 +1084,7 @@
 
 .bauhly-landing .b2-day-why {
   font-size: 13px;
-  color: var(--primary);
+  color: var(--primary-text);
   white-space: nowrap;
 }
 
@@ -1066,7 +1092,7 @@
 
 .bauhly-landing .b3 {
   background: var(--guest);
-  color: var(--guest-contrast);
+  color: #fff; /* was --guest-contrast (#F1EDFD) at 2.94:1 on the purple */
 }
 
 .bauhly-landing .b3 .block-title {
@@ -1079,7 +1105,7 @@
   font-size: var(--text-mono);
   letter-spacing: var(--track-mono);
   text-transform: uppercase;
-  color: var(--guest-contrast);
+  color: #fff; /* was --guest-contrast (#F1EDFD) at 2.94:1 on the purple */
   margin-bottom: 20px;
 }
 
@@ -1088,7 +1114,7 @@
   font-weight: 500;
   line-height: 1.55;
   max-width: 46ch;
-  color: var(--guest-contrast);
+  color: #fff; /* was --guest-contrast (#F1EDFD) at 2.94:1 on the purple */
 }
 
 /* five-step flow on a center spine — cards alternate sides, a Bauhaus
@@ -1132,7 +1158,7 @@
      off it as a white block; definition from a hairline border + soft
      dark shadow, not a luminance cliff */
   background: color-mix(in srgb, var(--guest) 72%, #000);
-  color: var(--guest-contrast);
+  color: #fff; /* was --guest-contrast (#F1EDFD) at 2.94:1 on the purple */
   border: 1px solid color-mix(in srgb, #fff 14%, transparent);
   box-shadow: 0 18px 40px rgba(0, 0, 0, 0.28);
 }
@@ -1160,7 +1186,7 @@
   font-size: 11px;
   letter-spacing: 0.12em;
   text-transform: uppercase;
-  color: var(--guest-tint);
+  color: #fff; /* --guest-tint on this purple measured 3.54:1 */
 }
 
 .bauhly-landing .b3-card h3 {
@@ -1168,14 +1194,16 @@
   font-size: clamp(20px, 2.2vw, 27px);
   font-weight: 800;
   letter-spacing: -0.01em;
-  color: var(--guest-contrast);
+  color: #fff; /* was --guest-contrast (#F1EDFD) at 2.94:1 on the purple */
 }
 
 .bauhly-landing .b3-card p {
   font-size: clamp(15px, 1.5vw, 17px);
   font-weight: 500;
   line-height: 1.5;
-  color: var(--guest-tint);
+  /* --guest-tint on the deepened purple measured 3.54:1 — this is body copy,
+     so it takes the full-strength light (Leon, July 31 — phase 5) */
+  color: color-mix(in srgb, #fff 92%, var(--guest-tint));
 }
 
 .bauhly-landing .b3-chip {
@@ -1183,7 +1211,7 @@
   font-weight: 600;
   font-size: 14px;
   background: color-mix(in srgb, #fff 12%, transparent);
-  color: var(--guest-contrast);
+  color: #fff; /* was --guest-contrast (#F1EDFD) at 2.94:1 on the purple */
   border: 1px solid color-mix(in srgb, #fff 18%, transparent);
   border-radius: 999px;
   padding: 8px 16px;
@@ -1209,7 +1237,7 @@
 }
 
 .bauhly-landing .b3-node.is-accent .b3-step-label {
-  color: color-mix(in srgb, var(--signature-ink) 70%, transparent);
+  color: var(--signature-ink); /* was 70% of it — 3.5:1 on the lime */
 }
 
 .bauhly-landing .b3-node.is-accent .b3-card p {
@@ -1328,7 +1356,7 @@
   font-size: var(--text-mono);
   letter-spacing: var(--track-mono);
   text-transform: uppercase;
-  color: var(--primary);
+  color: var(--primary-text);
   margin-bottom: 20px;
 }
 
@@ -1393,7 +1421,7 @@
 }
 
 .bauhly-landing .intel-tile.on {
-  color: var(--primary);
+  color: var(--primary-text);
 }
 
 /* the strategist's own handwriting on the wall */
@@ -1402,7 +1430,7 @@
   font-style: italic;
   font-size: 20px;
   line-height: 1.1;
-  color: var(--primary);
+  color: var(--primary-text);
 }
 
 .bauhly-landing .intel-card-tag {
@@ -1474,7 +1502,7 @@
 }
 
 .bauhly-landing .intel-you-glyph.on {
-  color: var(--primary);
+  color: var(--primary-text);
 }
 
 .bauhly-landing .intel-you-list {
@@ -1773,7 +1801,7 @@
 
 /* the number the whole page argues for — the hottest thing in the section */
 .bauhly-landing .b4-metric:not(.muted) {
-  color: var(--primary);
+  color: var(--primary-text);
 }
 
 .bauhly-landing .b4-row .b4-label {
@@ -1784,7 +1812,7 @@
   color: var(--grey);
   text-decoration: line-through;
   text-decoration-thickness: 3px;
-  text-decoration-color: var(--primary);
+  text-decoration-color: var(--primary-text);
 }
 
 .bauhly-landing .b4-label {
@@ -1818,13 +1846,13 @@
   font-size: 11px;
   letter-spacing: 0.1em;
   text-transform: uppercase;
-  color: var(--primary);
+  color: var(--primary-text);
 }
 
 .bauhly-landing .b4-spark {
   width: 100%;
   height: 48px;
-  color: var(--primary);
+  color: var(--primary-text);
 }
 
 /* ============ block 5 — journey cards ============ */
@@ -1923,11 +1951,14 @@
   font-size: 11px;
   letter-spacing: 0.12em;
   text-transform: uppercase;
-  opacity: 0.7;
+  /* the quiet came from `opacity: 0.7`, which took an already-tinted label to
+     2.94:1. Letter-spacing and size carry "quiet" now, and the colour is the
+     card's own — white on the purple, ink on the orange, ink on the lime. */
+  color: inherit;
 }
 
 .bauhly-landing .b5-found { background: var(--guest); color: var(--guest-contrast); }
-.bauhly-landing .b5-trusted { background: var(--primary); color: var(--primary-contrast); }
+.bauhly-landing .b5-trusted { background: var(--primary); color: var(--ink); }
 .bauhly-landing .b5-hired { background: var(--signature); color: var(--signature-ink); }
 
 /* ============ block 6 — final cta ============ */
@@ -1985,7 +2016,9 @@
 }
 
 .bauhly-landing .b6-title .hl {
-  color: var(--primary);
+  /* on the lime field even the darkest orange is 3.5:1 — the headline is ink
+     there, which is 13:1 and the way the hero already treats the same field */
+  color: var(--ink);
 }
 
 .bauhly-landing .b6-sub {
@@ -2344,7 +2377,7 @@
 
 .bauhly-landing .cal-day.t-guest {
   background: var(--guest);
-  color: var(--guest-contrast);
+  color: #fff; /* was --guest-contrast (#F1EDFD) at 2.94:1 on the purple */
 }
 
 .bauhly-landing .cal-day.t-ink {
@@ -2409,7 +2442,7 @@
   font-size: 11px;
   letter-spacing: 0.1em;
   text-transform: uppercase;
-  color: var(--primary);
+  color: var(--primary-text);
   display: block;
   margin-bottom: 14px;
 }
@@ -2552,7 +2585,7 @@
   font-size: 10px;
   letter-spacing: 0.1em;
   text-transform: uppercase;
-  color: var(--primary);
+  color: var(--primary-text);
   padding-top: 3px;
 }
 
@@ -2689,7 +2722,7 @@
   font-weight: 700;
   color: var(--grey);
   text-decoration: line-through;
-  text-decoration-color: var(--primary);
+  text-decoration-color: var(--primary-text);
   text-decoration-thickness: 2px;
 }
 
@@ -2707,7 +2740,7 @@
   font-size: var(--text-mono);
   letter-spacing: var(--track-mono);
   text-transform: uppercase;
-  color: var(--primary);
+  color: var(--primary-text);
   margin-bottom: 36px;
 }
 
@@ -2889,7 +2922,7 @@
   margin-inline: auto;
   margin-top: clamp(12px, 1.4vw, 18px);
   background: var(--guest);
-  color: var(--guest-contrast);
+  color: #fff; /* was --guest-contrast (#F1EDFD) at 2.94:1 on the purple */
   border-radius: 32px;
   padding: clamp(28px, 3.5vw, 44px);
   text-align: center;
@@ -2901,7 +2934,7 @@
   font-size: 12px;
   letter-spacing: 0.12em;
   text-transform: uppercase;
-  color: var(--guest-tint);
+  color: #fff; /* --guest-tint on the purple measured 3.54:1 */
   margin-bottom: 14px;
 }
 
@@ -2924,7 +2957,7 @@
 .bauhly-landing .g-band-items span {
   font-size: 15px;
   font-weight: 500;
-  color: var(--guest-tint);
+  color: #fff; /* was --guest-tint at 3.54:1 */
 }
 
 .bauhly-landing .b7-makers {
@@ -2939,7 +2972,7 @@
   font-size: var(--text-mono);
   letter-spacing: var(--track-mono);
   text-transform: uppercase;
-  color: var(--primary);
+  color: var(--primary-text);
   margin-bottom: 12px;
 }
 
@@ -2964,7 +2997,7 @@
   bottom: -7px;
   width: 100%;
   height: 10px;
-  color: var(--primary);
+  color: var(--primary-text);
 }
 
 /* ============ block 8 — faq ============ */
@@ -3019,7 +3052,7 @@
   font-family: var(--font-mono);
   font-weight: 400;
   font-size: 22px;
-  color: var(--primary);
+  color: var(--primary-text);
   transition: transform 250ms var(--ease-drawer);
 }
 
@@ -3063,7 +3096,7 @@
   margin-top: 12px;
   font-size: 15px;
   font-weight: 500;
-  color: var(--ink-soft);
+  color: var(--ink-soft-inv);
   max-width: 30ch;
 }
 
@@ -3078,7 +3111,7 @@
   font-size: 11px;
   letter-spacing: 0.12em;
   text-transform: uppercase;
-  color: var(--ink-soft);
+  color: var(--ink-soft-inv);
   margin-bottom: 6px;
 }
 
@@ -3105,7 +3138,7 @@
   font-size: 11px;
   letter-spacing: var(--track-mono);
   text-transform: uppercase;
-  color: var(--ink-soft);
+  color: var(--ink-soft-inv);
 }
 
 /* ============ theme toggle (dev) ============ */

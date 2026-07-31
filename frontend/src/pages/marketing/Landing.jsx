@@ -9,6 +9,7 @@
  */
 
 import { useEffect } from 'react';
+import { MotionConfig, useReducedMotion } from 'motion/react';
 import Lenis from 'lenis';
 import S1Hero from './bauhly/scenes/S1Hero.jsx';
 import S1bProblem from './bauhly/scenes/S1bProblem.jsx';
@@ -27,12 +28,28 @@ import './bauhly/styles/base.css';
 import './bauhly/styles/scenes.css';
 
 export default function Landing() {
+  /* The landing page does not touch the store (Leon, July 31 — audit finding 5).
+   *
+   * It used to call `resetState()` on mount, so a signed-in studio that clicked
+   * the wordmark lost its plans, its projects and its brand profile — the two
+   * environments punished moving between them, which is the exact seam the
+   * design system exists to heal. Resetting belongs to the one place that asks
+   * for it: choosing a demo persona in /onboarding. */
+
+  /* Asked for less motion, given less motion (Leon, July 31 — audit finding 4).
+   * The CSS block in base.css stills the transitions; this carries the same
+   * preference into the scene entrances, which are JS, and leaves smooth
+   * scrolling off — hijacked scrolling is itself motion nobody asked for. */
+  const still = useReducedMotion();
+
   useEffect(() => {
+    if (still) return undefined;
     const lenis = new Lenis({ autoRaf: true });
     return () => lenis.destroy();
-  }, []);
+  }, [still]);
 
   return (
+    <MotionConfig reducedMotion="user">
     <div className="bauhly-landing">
       <main>
         <S1Hero />
@@ -49,5 +66,6 @@ export default function Landing() {
         <Footer />
       </main>
     </div>
+    </MotionConfig>
   );
 }

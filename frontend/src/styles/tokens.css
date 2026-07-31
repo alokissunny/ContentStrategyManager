@@ -1,13 +1,34 @@
 /* ============================================================================
- * Bauhly — Design tokens · Interior Designers edition.
- * Palette: System Indigo leads. Acid Mint / Signal Blue / Brute Orange carry
- * the three pillars. Poster Yellow & Riot Purple are illustration accents.
- * Canvas: warm white. Ink: charcoal. Soft neo-brutalist geometry: bold color,
- * generous radius, no harsh borders, no heavy shadows.
+ * Bauhly — Design tokens.
+ *
+ * ONE FILE, THREE LAYERS (Leon, July 31 — cross-experience audit, phase 1).
+ *
+ *   1 · PRIMITIVES     the brand's raw values. Colour, type, space, radius,
+ *                      motion. Both environments inherit these; nothing else
+ *                      may declare a hex value.
+ *   2 · APP SEMANTICS  what a primitive MEANS in the workspace: canvas, action,
+ *                      surface, border. Components consume only these.
+ *   3 · MKT SEMANTICS  the same job, said louder — see
+ *                      pages/marketing/bauhly/styles/tokens.css, which now
+ *                      imports its primitives from here instead of declaring
+ *                      its own.
+ *
+ * The two environments used to keep separate token files that had already
+ * drifted: two oranges four hex-points apart, two inks, two monos, two motion
+ * scales. None of it was a decision anybody made. The product values won,
+ * because the tint ramps and every contrast note below are derived from them.
+ *
+ * Palette: Brute Orange is the accent (NOT the primary action — see base.css).
+ * Ink is the spine and the primary. Acid lime carries exactly one meaning.
+ * Canvas: white in the app, sage on marketing. Soft geometry, no harsh borders.
  * ========================================================================== */
 
 :root {
   /* ── Brand primary — Brute Orange (the original Bauhly signal) ───── */
+  --signal-800: #a8330f; /* text on the orange -100 tint (selected day badge):
+                             even -700 is only ~4.0:1 there. Still unmistakably
+                             orange, so a tinted chip stays quiet without
+                             becoming unreadable at 10–11px */
   --signal-700: #c93a10; /* text-only — signal-600 is ~3.9:1 on white/cream and
                              fails WCAG AA for small text; use this for eyebrows,
                              labels and links, keep 500/600 for fills and icons */
@@ -35,7 +56,18 @@
   --ink-700: #3c3c45;
   --ink-600: #585864;
   --ink-500: #6c6c79;
-  --ink-400: #9b9ba6;
+  --ink-400: #9b9ba6; /* NON-TEXT only: borders, rules, disabled. 2.75:1 on
+                          white — see --ink-quiet for anything with words in it */
+  /* THE QUIET TEXT GREY (Leon, July 31 — phase 5, measured).
+   * A contrast pass over the running app found every 12px secondary line —
+   * group heads, time-ago, captions — set in --ink-400 at 2.75:1 against a
+   * 4.5:1 requirement. This is the same grey, darkened until it clears AA, and
+   * it is now what carries small print and icons. */
+  /* #70707d, not #767683: the first attempt measured 4.48:1 on white — close
+     enough to pass a review and not close enough to pass the standard. This
+     clears 4.5 on white AND on --surface-sunken, which is where half of these
+     lines actually sit. */
+  --ink-quiet: #70707d;
   --ink-300: #c7c7cf;
   --ink-200: #e3e3e8;
   --ink-100: #efeff2;
@@ -48,27 +80,37 @@
   --border: #e9e9ee;
   --border-strong: #d9d9e0;
   --night: #141419;        /* charcoal sections & inverse surfaces */
+  /* the marketing ground, available in the app for exactly two things: the
+   * onboarding header and empty states (see the audit's signal budget) */
+  /* the landing's second surface, not its canvas: #f8f9f5 on white is a
+     half-percent of grey and reads as a rendering artefact rather than a
+     ground. This one is visibly sage and still quiet. */
+  --surface-brand: #f0f1eb;
   --night-soft: #1d1d24;
   --night-border: #2f2f38;
 
-  /* ── Authority pillars (no collision with the orange primary) ─────────── */
+  /* ── Authority pillars (no collision with the orange primary) ───────────
+   * The -600 step is the TEXT weight: it is routinely set on its own -100
+   * tint (goal badges, outcome chips, pillar icons), so it must clear 4.5:1
+   * against that tint, not against white. That is why these read darker than
+   * the -500 fills — do not brighten them back without re-measuring. */
   --discovery-600: #1554cc;
   --discovery-500: var(--blue-500);
   --discovery-100: #dbe7ff;
   --discovery-50:  #eef4ff;
 
-  --credibility-600: #a16a00;
+  --credibility-600: #8a5c00;
   --credibility-500: var(--yellow-500);
   --credibility-100: #fff1c2;
   --credibility-50:  #fff9e3;
 
-  --trust-600: #0da368;
+  --trust-600: #0a6e46;
   --trust-500: var(--mint-500);
   --trust-100: #d4f6e6;
   --trust-50:  #eafcf3;
 
   /* ── Semantic feedback ─────────────────────────────────────────────────── */
-  --positive: #0da368;
+  --positive: #0a6e46;
   --positive-soft: #eafcf3;
   --warning: #b45309;
   --warning-soft: #fdf3e3;
@@ -76,9 +118,25 @@
   --negative-soft: #feefec;
 
   /* ── Typography ────────────────────────────────────────────────────────── */
-  --font-display: 'Bricolage Grotesque', 'Inter', system-ui, sans-serif;
+  /* THE TWO-FONT SYSTEM (Leon, July 31).
+   *
+   * Cabinet Grotesk is the brand's display voice — it was the landing page's
+   * alone, while the app used Bricolage Grotesque, so the product's headings
+   * reinforced the fork instead of the brand. One face now says "Bauhly" from
+   * the hero to the plan title.
+   *
+   * Inter is the working voice on both sides: it is what dense interfaces need,
+   * and continuity travels further in body copy than in headlines.
+   *
+   * Spline Sans Mono is the one mono (JetBrains Mono retired — the two were
+   * indistinguishable in use and distinguishable only in payload). */
+  --font-display: 'Cabinet Grotesk', 'Bricolage Grotesque', Inter, system-ui, sans-serif;
   --font-ui: 'Inter', system-ui, -apple-system, sans-serif;
-  --font-mono: 'JetBrains Mono', ui-monospace, 'SF Mono', monospace;
+  --font-mono: 'Spline Sans Mono', ui-monospace, 'SF Mono', monospace;
+  /* the annotation voice: the landing's serif hand, allowed in the app ONLY on
+   * onboarding headlines, empty states and success moments — never in controls,
+   * tables, forms, navigation, or anything dense and repeated */
+  --font-annotation: 'Instrument Serif', Georgia, serif;
 
   --text-xs: 0.75rem;
   --text-sm: 0.8125rem;
@@ -120,4 +178,49 @@
   /* ── Layout ────────────────────────────────────────────────────────────── */
   --container: 1160px;
   --sidebar-w: 232px;
+  /* the app header's height — the sidebar sticks below it, so the two agree */
+  --apptop-h: 57px;
+  /* Every standalone icon button is this size, and every labelled "back" control
+   * is this tall. They were 32, 34, 36 and 40 depending on where they grew up,
+   * which is visible the moment two of them share a row. Reference: the "+" in
+   * the Projects header. */
+  --icon-btn: 40px;
+  /* …and one shape. Icon buttons were circles while every labelled button was a
+   * rounded rectangle at --r-sm, so a row containing both read as two systems.
+   * Circles are reserved for things that are round by nature: avatars and the
+   * conversation mark. (The capture button was on that list until July 29 —
+   * with a word in it on desktop it is a button, and it now takes --r-md.) */
+  --r-icon-btn: 10px;
+
+  /* ── Actions — the semantic layer components must use ───────────────────
+   *
+   * INK IS THE PRIMARY, ORANGE IS THE ACCENT (Leon, July 31).
+   *
+   * Two reasons, and the accessibility one is not the interesting one:
+   *
+   * 1 · White 15px/600 on --signal-500 measures ≈3.2:1. WCAG AA wants 4.5:1
+   *     below 18.66px bold. The most-clicked control in the product was the
+   *     one that failed — and this file already documents the same failure for
+   *     the neighbouring step ("signal-600 is ~3.9:1 … fails WCAG AA").
+   *     Ink on white is 16.9:1.
+   *
+   * 2 · The landing page had already made this call: its hero and nav CTAs are
+   *     `cta-ink`, black pills. The product answered the same question in
+   *     orange, so the journey's most repeated signal changed colour at the
+   *     exact moment of commitment — the sign-up door.
+   *
+   * Orange did not lose its job; it got a better one. It is the accent that
+   * marks what matters: the mark, selection, the focus ring, links and eyebrows
+   * at --signal-700, tints, and ONE sanctioned fill (Capture) where the label
+   * is large enough to carry it. Scarcer, therefore more Bauhly. */
+  --action-primary: var(--ink-900);
+  --action-primary-hover: var(--ink-800);
+  --action-primary-ink: #ffffff;
+  /* the accent fill, for the one object allowed to wear it */
+  --action-accent: var(--signal-500);
+  --action-accent-hover: var(--signal-600);
+  --action-accent-ink: #ffffff;
+  /* orange as small text — the AA-safe step, never --signal-500 */
+  --action-accent-text: var(--signal-700);
+  --focus-ring: var(--signal-500);
 }
