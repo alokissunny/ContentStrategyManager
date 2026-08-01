@@ -7,6 +7,11 @@ export function getCurrentRoute() {
   return client.get('/routes/current').then((res) => res.data);
 }
 
+// Every plan the user has — newest week first. Drives the Plans list history.
+export function getRoutes() {
+  return client.get('/routes').then((res) => res.data.routes || []);
+}
+
 // (Re)generate this week's plan from the latest Instagram analysis.
 export function generateRoute() {
   return client.post('/routes/generate').then((res) => res.data.route);

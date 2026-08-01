@@ -1,28 +1,20 @@
 /*
- * Your Week — the single central page of the product.
+ * WeekView — one plan's seven-day route, opened from the Plans list.
  *
- * Merges what used to be two screens (Your Plans + Weekly route) into one, the
- * way the bauhly-v3 design does (docs/02-information-architecture.md): no plan
- * yet → the branded invitation; a plan running → the seven-day route with the
- * day rail and the selected day's caption / strategy / prompts / plan.
- *
- * Backend-wired: GET /routes/current is the one current plan per handle;
- * POST /routes/generate (re)plans it; PATCH marks a day published.
+ * Prop-driven (no fetching of its own): the Plans page hands it a `route` and
+ * the callbacks for going back and re-planning. Header → day rail → the selected
+ * day's preview + Caption / Strategy / Prompts / Plan tabs. Publish state is
+ * persisted through PATCH /routes/:id/day/:index.
  */
 
-import React, { useEffect, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import React, { useState } from 'react';
 import Glyph from '../components/Glyph';
-import Icon from '../brand/Icon';
-import { getCurrentRoute, generateRoute, markDayPublished } from '../api/routes';
+import { markDayPublished } from '../api/routes';
 import {
   LS_SURFACE, LS_BORDER, LS_INK, LS_T2, LS_MUTED, LS_SIGNAL, LS_SOFT,
   LS_SOFT_BORDER, LS_FONT, LS_DISPLAY, LSC,
 } from '../theme';
-import './yourweek.css';
 
-// Pillar accent colours pulled from the design-system tokens so the goal chips
-// match the Discovery / Credibility / Trust palette.
 const PILLAR = {
   discovery: { soft: 'var(--discovery-100)', ink: 'var(--discovery-600)', label: 'Discovery' },
   credibility: { soft: 'var(--credibility-100)', ink: 'var(--credibility-600)', label: 'Credibility' },
@@ -72,37 +64,19 @@ function buildMarkdown(route) {
   return lines.join('\n');
 }
 
-export default function YourWeek() {
-  const [searchParams] = useSearchParams();
-  const [route, setRoute] = useState(null);
-  const [preparing, setPreparing] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [generating, setGenerating] = useState(false);
-  const [selected, setSelected] = useState(Number(searchParams.get('day')) || 0);
+export default function WeekView({ route: initialRoute, onBack, onRegenerate, generating }) {
+  const [route, setRoute] = useState(initialRoute);
+  const [selected, setSelected] = useState(0);
   const [tab, setTab] = useState('Caption');
-
-  useEffect(() => {
-    getCurrentRoute()
-      .then(({ route: r, preparing: prep }) => {
-        setRoute(r);
-        setPreparing(Boolean(prep));
-      })
-      .catch(() => setRoute(null))
-      .finally(() => setLoading(false));
-  }, []);
-
-  async function handleGenerate() {
-    setGenerating(true);
-    try { setRoute(await generateRoute()); setPreparing(false); } catch (err) { /* retry via button */ } finally { setGenerating(false); }
-  }
 
   const days = route?.days || [];
   const day = days[selected] || days[0];
+  const focusPillar = route?.focus?.pillar;
+  const c = PILLAR[day?.pillar] || PILLAR.trust;
 
   async function togglePublished() {
     if (!route || !day) return;
-    const updated = await markDayPublished(route._id, selected);
-    setRoute(updated);
+    try { setRoute(await markDayPublished(route._id, selected)); } catch { /* ignore */ }
   }
 
   function handleExport() {
@@ -111,57 +85,18 @@ export default function YourWeek() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `your-week-${route.weekLabel.replace(/\s+/g, '-')}.md`;
+    a.download = `your-week-${(route.weekLabel || 'plan').replace(/\s+/g, '-')}.md`;
     a.click();
     URL.revokeObjectURL(url);
   }
 
-  const focusPillar = route?.focus?.pillar;
-  const c = PILLAR[day?.pillar] || PILLAR.trust;
-
-  if (loading) {
-    return <div style={{ ...LSC, padding: 'clamp(24px, 6vw, 48px) clamp(16px, 5vw, 48px)' }}><p style={{ fontFamily: LS_FONT, color: LS_T2 }}>Loading your week…</p></div>;
-  }
-
-  // A plan is building in the background after a fresh (re)connect.
-  if (preparing && (!route || days.length === 0)) {
-    return (
-      <div className="empty">
-        <div className="empty__card">
-          <span className="empty__ico"><Icon name="route" size={30} strokeWidth={1.7} /></span>
-          <h1 className="empty__title">We're building your first week</h1>
-          <p className="empty__note">One week you didn't have to invent.</p>
-          <p className="empty__sub">
-            We're reading your account and drafting a week of posts aimed at the stage that moves
-            your enquiries most. This takes a moment — check back shortly.
-          </p>
-        </div>
-      </div>
-    );
-  }
-
-  // Nothing yet — the branded invitation (one of the app's sanctioned brand moments).
-  if (!route || days.length === 0) {
-    return (
-      <div className="empty">
-        <div className="empty__card">
-          <span className="empty__ico"><Icon name="route" size={30} strokeWidth={1.7} /></span>
-          <h1 className="empty__title">You don't have a plan yet</h1>
-          <p className="empty__note">Every Monday, one week you didn't have to invent.</p>
-          <p className="empty__sub">
-            A week of posts built from your own work and aimed at the stage that moves your
-            enquiries most — each with a reason behind it.
-          </p>
-          <button className="btn btn--primary" onClick={handleGenerate} disabled={generating}>
-            {generating ? 'Planning…' : "Let's plan your week"}
-          </button>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div style={{ ...LSC, padding: 'clamp(20px, 5vw, 40px) clamp(16px, 5vw, 48px)', maxWidth: 1180 }}>
+      {/* Back to the plans list */}
+      <button onClick={onBack} style={{ ...btnGhost, height: 34, padding: '0 12px', marginBottom: 16 }}>
+        <Glyph name="arrow-left" size={15} color={LS_INK} />Your plans
+      </button>
+
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap', marginBottom: 20 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
@@ -177,7 +112,7 @@ export default function YourWeek() {
         </div>
         <div style={{ display: 'flex', gap: 10 }}>
           <button onClick={handleExport} style={btnGhost}><Glyph name="download" size={15} color={LS_INK} />Export</button>
-          <button onClick={handleGenerate} disabled={generating} style={{ ...btnGhost, opacity: generating ? 0.6 : 1 }}>
+          <button onClick={onRegenerate} disabled={generating} style={{ ...btnGhost, opacity: generating ? 0.6 : 1 }}>
             <Glyph name="refresh-cw" size={15} color={LS_INK} />{generating ? 'Planning…' : 'Plan again'}
           </button>
         </div>

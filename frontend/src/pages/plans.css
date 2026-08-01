@@ -1,0 +1,145 @@
+/* ── Your Plans — the list you land on ────────────────────────────────────
+ * A record and a starting point, not a dashboard. Ported from the bauhly-v3
+ * design system (planhistory.css). Every value from tokens; the only colour is
+ * the pillar's, and only on the goal chip. The .empty brand-moment styles come
+ * from yourweek.css. */
+
+.ph {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-5);
+  width: 100%;
+  max-width: var(--container);
+  margin: 0 auto;
+  padding: clamp(20px, 5vw, 40px) clamp(16px, 5vw, 48px);
+  animation: fade-in var(--dur-base) var(--ease-out);
+}
+.ph__head { display: flex; flex-direction: column; gap: 6px; }
+.ph__headrow { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3); }
+.ph__title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--text-2xl);
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  color: var(--ink-900);
+}
+.ph__sub { margin: 0; max-width: 52ch; font-size: var(--text-sm); line-height: 1.55; color: var(--ink-600); }
+.ph__new { flex-shrink: 0; }
+
+.ph__list { display: flex; flex-direction: column; gap: var(--sp-5); }
+.ph__group { display: flex; flex-direction: column; }
+.ph__groupbox {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: var(--surface);
+  overflow: hidden;
+}
+.ph__groupbox .ph-row + .ph-row { border-top: 1px solid var(--border); }
+.ph__groupbox .ph-row { border-radius: 0; border-left: 0; border-right: 0; border-bottom: 0; }
+.ph__groupbox .ph-row:hover { background: var(--surface-sunken); }
+.ph__groupbox .ph-row:first-child { border-top: 0; }
+.ph__grouphead {
+  margin: 0 0 6px;
+  font-family: var(--font-ui);
+  font-size: var(--text-xs);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink-quiet);
+}
+.ph-row {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  width: 100%;
+  padding: 16px var(--sp-4);
+  border: 1px solid transparent;
+  border-radius: var(--r-lg);
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out);
+}
+.ph-row:hover { background: var(--surface); border-color: var(--border); }
+.ph-row.is-live { border-color: var(--signal-400); }
+.ph-row__mark {
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  flex-shrink: 0;
+  border-radius: var(--r-md);
+  background: var(--pt, var(--surface-sunken));
+  color: var(--pc, var(--ink-500));
+}
+.ph-row__body { display: flex; flex-direction: column; gap: 6px; min-width: 0; flex: 1; }
+.ph-row__line { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.ph-row__range {
+  min-width: 0;
+  font-size: var(--text-base);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--ink-900);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ph-row__meta {
+  display: block;
+  font-size: var(--text-xs);
+  color: var(--ink-500);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ph-row__aim { color: var(--pc); font-weight: 600; }
+.ph-row__meta > span + span::before { content: ' · '; color: var(--ink-300); }
+.ph-row__from { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 22ch; }
+.ph-row__ago { color: var(--ink-quiet); }
+.ph-row > svg { flex-shrink: 0; color: var(--ink-quiet); }
+.ph-card__period,
+.ph-card__live {
+  flex-shrink: 0;
+  padding: 2px 8px;
+  border-radius: var(--r-full);
+  font-size: 11px;
+  font-weight: 700;
+}
+.ph-card__period { border: 1px solid var(--border); background: var(--surface-sunken); color: var(--ink-600); }
+.ph-card__live { background: var(--signal-100); color: var(--signal-800); }
+
+@media (max-width: 640px) {
+  .ph-row__line { justify-content: space-between; width: 100%; }
+  .ph-row__range { flex: 1; }
+  .ph-row .ph-card__period,
+  .ph-row .ph-card__live { margin-left: auto; }
+  .ph__title { font-size: var(--text-xl); white-space: nowrap; }
+}
+
+/* ── the wait while a week is built (RouteLoom) ──────────────────────────── */
+.loom--quiet {
+  max-width: 460px;
+  margin: min(14vh, 130px) auto 0;
+  padding: 0 var(--sp-5);
+  animation: rise-in var(--dur-slow) var(--ease-out) both;
+}
+.lm-stage {
+  margin: 0;
+  text-align: center;
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--ink-900);
+  animation: fade-in var(--dur-base) var(--ease-out) both;
+}
+.lm-eta { margin: 10px 0 0; text-align: center; font-size: var(--text-xs); color: var(--ink-quiet); }
+.lm-dots { display: flex; justify-content: center; gap: 5px; margin-bottom: var(--sp-5); }
+.lm-dots i {
+  width: 7px; height: 7px; border-radius: 50%; background: var(--signal-500);
+  animation: signal-pulse 1.2s var(--ease-inout) infinite;
+}
+.lm-dots i:nth-child(2) { animation-delay: 0.2s; }
+.lm-dots i:nth-child(3) { animation-delay: 0.4s; }
+@media (prefers-reduced-motion: reduce) { .lm-dots i { animation: none; } }

@@ -6,7 +6,7 @@ import { useIsMobile } from '../hooks/useMediaQuery';
 import { LS_SURFACE, LS_BORDER, LS_INK, LS_T2, LS_SIGNAL, LS_SOFT, LS_FONT, LS_DISPLAY } from '../theme';
 
 const NAV_ITEMS = [
-  { to: '/dashboard', label: 'Your week', icon: 'route', exact: true },
+  { to: '/dashboard', label: 'Your plans', icon: 'route', exact: true },
   { to: '/dashboard/projects', label: 'Projects', icon: 'folder' },
   { to: '/dashboard/brand-dna', label: 'Brand profile', icon: 'fingerprint' },
   { to: '/dashboard/competitors', label: 'Competitors', icon: 'radar' },
