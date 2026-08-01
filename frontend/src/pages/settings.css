@@ -1,0 +1,143 @@
+/* Settings — section cards + rows, ported from bauhly-v3 app.css
+   (.set-*, .page-head). Token-based; pairs with base.css .card/.btn. */
+
+.page-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--sp-5);
+  margin-bottom: var(--sp-7);
+}
+.page-head h1 {
+  font-size: var(--text-2xl);
+  margin-top: var(--sp-2);
+}
+.page-head__sub {
+  margin-top: var(--sp-2);
+  color: var(--ink-500);
+  font-size: var(--text-base);
+  max-width: 560px;
+}
+/* ── Settings / profile shared ── */
+.set-card {
+  padding: var(--sp-6);
+  margin-bottom: var(--sp-5);
+  max-width: 720px;
+}
+.set-card h2 {
+  font-size: var(--text-lg);
+  margin-bottom: var(--sp-2);
+}
+.set-card__sub {
+  font-size: var(--text-sm);
+  color: var(--ink-500);
+  margin-bottom: var(--sp-5);
+}
+/* Every settings row is the same shape: an icon, a title with one line of
+ * state under it, and the actions. A grid rather than a wrapping flex row —
+ * wrapping put buttons underneath sentences with nothing to align to, which is
+ * what made this page look broken on a phone. Below 640px the actions move to
+ * their own line, still aligned to the text column. */
+.set-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--sp-3) var(--sp-4);
+  padding: var(--sp-4) 0;
+  border-top: 1px solid var(--border);
+}
+.set-row__ico {
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  background: var(--ink-100);
+  color: var(--ink-700);
+  flex-shrink: 0;
+}
+.set-row__avatar { width: 38px; height: 38px; }
+.set-row__main { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.set-row__title {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  font-size: var(--text-base);
+  font-weight: 700;
+  color: var(--ink-900);
+  overflow-wrap: anywhere;
+}
+/* which account is actually being analysed — the others are just available */
+.set-row__badge {
+  flex-shrink: 0;
+  padding: 2px 8px;
+  border-radius: var(--r-full);
+  background: var(--signal-50);
+  color: var(--signal-700);
+  font-size: 11px;
+  font-weight: 700;
+}
+.set-row__sub { font-size: var(--text-sm); line-height: 1.5; color: var(--ink-500); }
+.set-row__sub.is-good { color: var(--trust-600); }
+.set-row__acts { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; justify-content: flex-end; }
+.set-row__x {
+  display: grid;
+  place-items: center;
+  width: var(--icon-btn);
+  height: var(--icon-btn);
+  border-radius: 50%;
+  color: var(--ink-700);
+  transition: color var(--dur-fast), background var(--dur-fast);
+}
+.set-row__x:hover { color: var(--negative); background: var(--negative-soft); }
+.set-foot { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); padding-top: var(--sp-4); }
+.set-empty { font-size: var(--text-sm); color: var(--ink-500); padding: var(--sp-4) 0 0; margin: 0; }
+.set-card__note { font-size: var(--text-xs); line-height: 1.55; color: var(--ink-quiet); margin: var(--sp-4) 0 0; }
+.set-card--danger { border-color: var(--negative-soft); }
+/* adding a handle: the @ lives in the field, so nobody has to guess whether to
+ * type it — and a pasted profile URL is accepted either way */
+.set-add { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-3); padding-top: var(--sp-4); }
+.set-add__field {
+  display: flex;
+  align-items: center;
+  flex: 1 1 220px;
+  min-width: 0;
+  padding-left: var(--sp-3);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+}
+.set-add__at { color: var(--ink-quiet); font-size: var(--text-base); }
+.set-add__field:focus-within { border-color: var(--ink-400); }
+.set-add__acts { display: flex; gap: var(--sp-2); }
+.set-add__err { flex-basis: 100%; font-size: var(--text-sm); color: var(--negative); }
+/* the on/off switch in Settings — used by "Formats Bauhly can use", which
+ * moved here from Brand profile: which formats exist is a rule about how plans
+ * are built, not a fact about the brand. */
+.set-switch {
+  position: relative;
+  width: 44px;
+  height: 26px;
+  flex-shrink: 0;
+  border-radius: var(--r-full);
+  border: 1px solid var(--border-strong);
+  background: var(--surface-sunken);
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out);
+}
+.set-switch i {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--surface);
+  box-shadow: var(--shadow-xs);
+  transition: transform var(--dur-fast) var(--ease-out);
+}
+.set-switch.is-on {
+  background: var(--signal-500);
+  border-color: var(--signal-500);
+}
+.set-switch.is-on i { transform: translateX(18px); }

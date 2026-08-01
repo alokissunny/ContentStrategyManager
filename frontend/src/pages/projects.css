@@ -11,6 +11,10 @@
   flex-direction: column;
   gap: var(--sp-4);
   min-height: 60vh;
+  /* the page's own gutters — this app gives each page its padding (there is no
+     shared .app__main wrapper like the design repo), so the content clears the
+     sidebar and the top edge instead of sitting flush against them */
+  padding: clamp(20px, 4vw, 40px) clamp(16px, 4vw, 48px);
 }
 .pj-head { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--sp-4); }
 .pj-head__title {
@@ -32,10 +36,11 @@
 
 /* ── project list — one per row, compact, minimal name truncation ───────── */
 .pj-list {
-  display: flex;
-  flex-direction: column;
-  gap: var(--sp-2);
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: var(--sp-5);
   padding-bottom: 24px;
+  max-width: 1120px;
 }
 .pjcard {
   position: relative;
@@ -60,27 +65,30 @@
 /* the whole card is the open target (mobile: a horizontal row) */
 .pjcard__open {
   display: flex;
-  flex-direction: row;
-  align-items: center;
-  gap: var(--sp-3);
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0;
   width: 100%;
-  padding: 10px 44px 10px 12px; /* room on the right for the ⋯ button */
+  padding: 0;
   border-radius: var(--r-lg);
   text-align: left;
 }
 /* ⋯ options button — rename / delete */
 .pjcard__menu {
-  position: absolute; top: 50%; right: 8px; transform: translateY(-50%);
+  position: absolute; top: 8px; right: 8px;
   width: 32px; height: 32px; border-radius: var(--r-sm);
   display: grid; place-items: center;
-  color: var(--ink-500); background: transparent;
+  color: var(--ink-700);
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(8px) saturate(160%);
+  -webkit-backdrop-filter: blur(8px) saturate(160%);
   transition: background var(--dur-fast), color var(--dur-fast);
 }
-.pjcard__menu:hover { background: var(--surface-sunken); color: var(--ink-900); }
+.pjcard__menu:hover { background: rgba(255, 255, 255, 0.95); color: var(--ink-900); }
 .pjcard__pemenu { top: 44px; right: 8px; min-width: 200px; }
 .pjcard__cover {
-  width: 60px; height: 60px; flex-shrink: 0;
-  border-radius: var(--r-md);
+  width: 100%; height: auto; aspect-ratio: 1 / 1; flex-shrink: 0;
+  border-radius: var(--r-lg) var(--r-lg) 0 0;
   overflow: hidden;
   background: #eee7db;
 }
@@ -93,7 +101,7 @@
     #eee7db;
   opacity: 0.5;
 }
-.pjcard__body { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
+.pjcard__body { display: flex; flex-direction: column; gap: 3px; min-width: 0; padding: 12px 14px 14px; }
 /* one step down from --text-md: beside a 60px cover the name was reading as a
    page heading rather than a list item, and long names ran out of room sooner */
 .pjcard__name { font-size: var(--text-base); font-weight: 600; color: var(--ink-900); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -467,6 +475,22 @@
 
 /* media strip — thumbnails aligned to the text's left edge */
 .ms { display: flex; gap: 8px; flex-wrap: wrap; }
+/* upload spinner — shown while files stream to S3 */
+.pj-spin {
+  display: inline-block;
+  width: 15px;
+  height: 15px;
+  flex-shrink: 0;
+  border: 2px solid var(--ink-300);
+  border-top-color: var(--signal-500);
+  border-radius: 50%;
+  animation: pj-spin 0.7s linear infinite;
+}
+@keyframes pj-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .pj-spin { animation-duration: 1.6s; } }
+/* the Add tile while uploading — quiet, not clickable */
+.np__add.is-busy { pointer-events: none; color: var(--ink-500); }
+
 .ms__thumb {
   position: relative;
   width: 76px; height: 76px; flex-shrink: 0;
@@ -1274,13 +1298,12 @@
 
 /* ── desktop ────────────────────────────────────────────────────────────── */
 @media (min-width: 760px) {
-  /* square cards in a grid — never full-width rows */
+  /* square cards in a grid — never full-width rows (now the base layout too) */
   .pj-list {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-    gap: var(--sp-4);
+    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+    gap: var(--sp-5);
     padding-bottom: 0;
-    max-width: 900px;
+    max-width: 1120px;
   }
   .pjcard__open {
     flex-direction: column;

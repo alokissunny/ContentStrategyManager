@@ -124,9 +124,15 @@ function EntryPanel({ project, entry, week, onClose }) {
     return () => window.removeEventListener('keydown', onKey);
   }, [light, atts.length]);
 
+  const [uploading, setUploading] = useState(false);
   const addFiles = async (files) => {
-    const added = await uploadFiles(files);
-    updateEntry(project.id, entry.id, { attachments: [...atts, ...added] });
+    setUploading(true);
+    try {
+      const added = await uploadFiles(files);
+      updateEntry(project.id, entry.id, { attachments: [...atts, ...added] });
+    } finally {
+      setUploading(false);
+    }
   };
   const current = light !== null ? atts[light] : null;
 
@@ -163,10 +169,10 @@ function EntryPanel({ project, entry, week, onClose }) {
                 </span>
               </button>
             ))}
-            <label className="np__add">
-              <Icon name="plus" size={20} strokeWidth={2.5} />
-              <span>Add</span>
-              <input type="file" accept="image/*,video/*" multiple hidden
+            <label className={`np__add ${uploading ? 'is-busy' : ''}`} aria-busy={uploading}>
+              {uploading ? <span className="pj-spin" /> : <Icon name="plus" size={20} strokeWidth={2.5} />}
+              <span>{uploading ? 'Uploading…' : 'Add'}</span>
+              <input type="file" accept="image/*,video/*" multiple hidden disabled={uploading}
                 onChange={(e) => { if (e.target.files?.length) addFiles(e.target.files); e.target.value = ''; }} />
             </label>
           </div>
@@ -232,11 +238,12 @@ function CaptureModal({ project, onClose }) {
   const [text, setText] = useState('');
   const [atts, setAtts] = useState([]);
   const [busy, setBusy] = useState(false);
+  const [uploading, setUploading] = useState(false);
 
   const addFiles = async (files) => {
-    setBusy(true);
+    setUploading(true);
     try { const added = await uploadFiles(files); setAtts((a) => [...a, ...added]); }
-    finally { setBusy(false); }
+    finally { setUploading(false); }
   };
   const save = async () => {
     if (!text.trim() && atts.length === 0) return;
@@ -263,16 +270,18 @@ function CaptureModal({ project, onClose }) {
               onChange={(e) => setText(e.target.value)} />
           </label>
           {atts.length > 0 && <MediaStrip attachments={atts} max={6} />}
-          <label className="btn btn--tertiary btn--sm" style={{ alignSelf: 'flex-start', cursor: 'pointer' }}>
-            <Icon name="image" size={15} /> Add photos or a clip
-            <input type="file" accept="image/*,video/*" multiple hidden
+          <label className="btn btn--tertiary btn--sm" aria-busy={uploading}
+            style={{ alignSelf: 'flex-start', cursor: uploading ? 'default' : 'pointer', pointerEvents: uploading ? 'none' : 'auto' }}>
+            {uploading ? <span className="pj-spin" /> : <Icon name="image" size={15} />}
+            {uploading ? 'Uploading…' : 'Add photos or a clip'}
+            <input type="file" accept="image/*,video/*" multiple hidden disabled={uploading}
               onChange={(e) => { if (e.target.files?.length) addFiles(e.target.files); e.target.value = ''; }} />
           </label>
         </div>
         <div className="fm__foot">
           <span className="fm__spacer" />
           <button className="fm__cancel" onClick={onClose}>Cancel</button>
-          <button className="fm__submit" disabled={busy || (!text.trim() && atts.length === 0)} onClick={save}>Save</button>
+          <button className="fm__submit" disabled={busy || uploading || (!text.trim() && atts.length === 0)} onClick={save}>{busy ? 'Saving…' : 'Save'}</button>
         </div>
       </div>
     </>

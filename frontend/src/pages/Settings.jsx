@@ -1,9 +1,19 @@
+/*
+ * Settings — the accounts Bauhly reads, the competitors it watches, the formats
+ * it may plan with, and the account you're signed in as.
+ *
+ * Restyled to the bauhly-v3 design (page-head + set-card/set-row), wired to the
+ * real app: Instagram profiles come from the API, the account row and sign-out
+ * are the real auth, competitors links to the live Competitors page. Format
+ * preferences persist locally until the plan generator reads them.
+ */
+
 import React, { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
-import Glyph from '../components/Glyph';
+import { Link, useNavigate } from 'react-router-dom';
+import Icon from '../brand/Icon';
 import { useAuth } from '../context/AuthContext';
 import { listInstagramProfiles } from '../api/instagram';
-import { LS_SURFACE, LS_BORDER, LS_INK, LS_T2, LS_MUTED, LS_SIGNAL, LS_SOFT, LS_FONT, LS_DISPLAY, LSC } from '../theme';
+import './settings.css';
 
 function formatCount(n) {
   if (n >= 1000000) return `${(n / 1000000).toFixed(1)}M`;
@@ -11,34 +21,29 @@ function formatCount(n) {
   return `${n || 0}`;
 }
 
-function AccountRow({ profile }) {
-  return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '16px 0', borderBottom: `1px solid ${LS_BORDER}` }}>
-      <div style={{ width: 42, height: 42, borderRadius: '50%', flexShrink: 0, background: LS_SOFT, display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
-        {profile.profilePicUrl ? (
-          <img src={profile.profilePicUrl} alt={profile.username} referrerPolicy="no-referrer" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-        ) : (
-          <Glyph name="instagram" size={20} color={LS_SIGNAL} />
-        )}
-      </div>
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontFamily: LS_FONT, fontSize: 15, fontWeight: 600, color: LS_INK }}>
-          @{profile.username}
-          {profile.isVerified && <Glyph name="badge-check" size={14} color={LS_SIGNAL} style={{ marginLeft: 6, verticalAlign: 'middle' }} />}
-        </div>
-        <div style={{ fontFamily: LS_FONT, fontSize: 12.5, color: LS_MUTED, marginTop: 2 }}>
-          {formatCount(profile.followersCount)} followers · {formatCount(profile.postsCount)} posts
-        </div>
-      </div>
-    </div>
-  );
+/* which formats Bauhly may use — held as EXCLUSIONS so a format added later is
+ * on by default. Persisted locally (self-contained) until generation reads it. */
+const FORMATS = ['Reels', 'Carousels', 'Stories', 'Single posts'];
+const FORMAT_ICON = { Reels: 'play', Carousels: 'copy', Stories: 'eye', 'Single posts': 'brief' };
+const DROPPED_KEY = 'bauhly_dropped_formats';
+const loadDropped = () => {
+  try { return JSON.parse(localStorage.getItem(DROPPED_KEY)) || []; } catch { return []; }
+};
+
+function initialsOf(name = '') {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (!parts.length) return 'U';
+  return (parts[0][0] + (parts[1]?.[0] || '')).toUpperCase();
 }
 
 export default function Settings() {
-  const { user } = useAuth();
+  const { user, logout } = useAuth();
+  const navigate = useNavigate();
   const isAdmin = user?.role === 'admin';
+
   const [profiles, setProfiles] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [dropped, setDropped] = useState(loadDropped);
 
   useEffect(() => {
     listInstagramProfiles()
@@ -47,60 +52,142 @@ export default function Settings() {
       .finally(() => setLoading(false));
   }, []);
 
+  const toggleFormat = (f) => {
+    setDropped((prev) => {
+      const next = prev.includes(f) ? prev.filter((x) => x !== f) : [...prev, f];
+      try { localStorage.setItem(DROPPED_KEY, JSON.stringify(next)); } catch { /* quota */ }
+      return next;
+    });
+  };
+
+  const signOut = () => { logout(); navigate('/'); };
+
   return (
-    <div style={{ ...LSC, padding: 'clamp(24px, 6vw, 48px) clamp(16px, 5vw, 48px)', maxWidth: 760 }}>
-      <h1 style={{ fontFamily: LS_DISPLAY, fontWeight: 700, fontSize: 30, color: LS_INK, margin: '0 0 8px' }}>Settings</h1>
-      <p style={{ fontFamily: LS_FONT, fontSize: 14, color: LS_T2, margin: '0 0 36px' }}>
-        Manage your account and connected Instagram profiles.
-      </p>
-
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
-        <h2 style={{ fontFamily: LS_FONT, fontWeight: 600, fontSize: 17, color: LS_INK, margin: 0 }}>
-          Instagram accounts
-        </h2>
-        {isAdmin && (
-          <span style={{ fontFamily: LS_FONT, fontSize: 11, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: LS_SIGNAL, background: LS_SOFT, padding: '4px 10px', borderRadius: 999 }}>
-            Admin
-          </span>
-        )}
+    <div style={{ maxWidth: 760, margin: '0 auto', padding: 'clamp(24px, 6vw, 48px) clamp(16px, 5vw, 48px)' }}>
+      <div className="page-head">
+        <div>
+          <span className="eyebrow">Settings</span>
+          <h1>Accounts &amp; connections</h1>
+        </div>
+        {isAdmin && <span className="set-row__badge" style={{ alignSelf: 'center' }}>Admin</span>}
       </div>
-      <p style={{ fontFamily: LS_FONT, fontSize: 13, color: LS_T2, margin: '0 0 18px' }}>
-        {isAdmin
-          ? 'As an admin you can connect more than one handle. Each one runs the onboarding analysis and gets its own Brand DNA.'
-          : 'The Instagram handle connected to your account. You can switch to a different one anytime — the new account runs the onboarding analysis and replaces your current Brand DNA.'}
-      </p>
 
-      <div style={{ background: LS_SURFACE, border: `1px solid ${LS_BORDER}`, borderRadius: 16, padding: '4px clamp(16px, 4vw, 24px)' }}>
+      {/* ── Instagram ── */}
+      <section className="card set-card">
+        <h2>Instagram</h2>
+        <p className="set-card__sub">
+          Bauhly reads what's on a public profile: posts, formats, cadence, likes, comments and
+          Reel views. {isAdmin
+            ? 'As an admin you can connect more than one handle — each runs the onboarding analysis and gets its own Brand profile.'
+            : 'Switch to a different handle any time; the new account runs the onboarding analysis and replaces your Brand profile.'}
+        </p>
+
         {loading ? (
-          <p style={{ fontFamily: LS_FONT, fontSize: 14, color: LS_T2, padding: '20px 0' }}>Loading…</p>
+          <p className="set-empty">Loading…</p>
         ) : profiles.length === 0 ? (
-          <p style={{ fontFamily: LS_FONT, fontSize: 14, color: LS_T2, padding: '20px 0' }}>
+          <p className="set-empty">
             No Instagram connected yet.{' '}
-            <Link to="/onboarding" style={{ color: LS_SIGNAL, fontWeight: 600, textDecoration: 'none' }}>Connect one →</Link>
+            <Link to="/onboarding" style={{ color: 'var(--signal-700)', fontWeight: 600 }}>Connect one →</Link>
           </p>
         ) : (
-          profiles.map((p) => <AccountRow key={p._id} profile={p} />)
+          profiles.map((p, i) => (
+            <div className={`set-row ${i === 0 ? 'is-active' : ''}`} key={p._id || p.username}>
+              <span className="set-row__ico">
+                {p.profilePicUrl
+                  ? <img src={p.profilePicUrl} alt="" referrerPolicy="no-referrer" style={{ width: '100%', height: '100%', borderRadius: 'inherit', objectFit: 'cover' }} />
+                  : <Icon name="instagram" size={20} />}
+              </span>
+              <span className="set-row__main">
+                <b className="set-row__title">
+                  @{p.username}
+                  {i === 0 && <span className="set-row__badge">Analysing</span>}
+                </b>
+                <span className="set-row__sub">
+                  {formatCount(p.followersCount)} followers · {formatCount(p.postsCount)} posts
+                </span>
+              </span>
+            </div>
+          ))
         )}
-      </div>
 
-      {(isAdmin || profiles.length > 0) && (
-        <div style={{ marginTop: 22 }}>
-          <Link
-            to={isAdmin ? '/onboarding?add=1' : '/onboarding?change=1'}
-            style={{
-              display: 'inline-flex', alignItems: 'center', gap: 9, height: 44, padding: '0 22px', borderRadius: 9,
-              textDecoration: 'none', fontFamily: LS_FONT, fontSize: 13, fontWeight: 700, letterSpacing: '0.05em',
-              textTransform: 'uppercase', background: LS_SIGNAL, color: '#fff',
-            }}
-          >
-            {isAdmin ? (
-              <><Glyph name="plus" size={16} color="#fff" /> Add Instagram account</>
-            ) : (
-              <><Glyph name="refresh-cw" size={16} color="#fff" /> Change Instagram account</>
-            )}
+        {(isAdmin || profiles.length > 0) && (
+          <div className="set-foot">
+            <Link className="btn btn--ghost btn--sm" to={isAdmin ? '/onboarding?add=1' : '/onboarding?change=1'}>
+              <Icon name={isAdmin ? 'plus' : 'refresh'} size={14} strokeWidth={2.25} />
+              {isAdmin ? 'Add another account' : 'Change Instagram account'}
+            </Link>
+          </div>
+        )}
+
+        <p className="set-card__note">
+          Read-only through Meta's official login. Bauhly never posts, messages, or changes anything.
+        </p>
+      </section>
+
+      {/* ── Competitors ── */}
+      <section className="card set-card">
+        <h2>Competitors</h2>
+        <p className="set-card__sub">
+          Bauhly assembles a comparison set of similar studios and reads the same public signals from
+          each. Review the set and its analysis on the Competitors page.
+        </p>
+        <div className="set-foot">
+          <Link className="btn btn--ghost btn--sm" to="/dashboard/competitors">
+            <Icon name="eye" size={14} />
+            Open competitors
           </Link>
         </div>
-      )}
+      </section>
+
+      {/* ── Formats ── */}
+      <section className="card set-card">
+        <h2>Formats Bauhly can use</h2>
+        <p className="set-card__sub">Unticked formats are left out of every plan. Changes apply from your next plan.</p>
+        {FORMATS.map((f) => {
+          const on = !dropped.includes(f);
+          return (
+            <div className="set-row" key={f}>
+              <span className="set-row__ico"><Icon name={FORMAT_ICON[f] || 'brief'} size={20} /></span>
+              <span className="set-row__main">
+                <b className="set-row__title">{f}</b>
+                <span className="set-row__sub">{on ? 'Bauhly can plan these' : 'Left out of every plan'}</span>
+              </span>
+              <span className="set-row__acts">
+                <button
+                  className={`set-switch ${on ? 'is-on' : ''}`}
+                  role="switch"
+                  aria-checked={on}
+                  aria-label={`${on ? 'Exclude' : 'Include'} ${f}`}
+                  onClick={() => toggleFormat(f)}
+                >
+                  <i aria-hidden="true" />
+                </button>
+              </span>
+            </div>
+          );
+        })}
+        {dropped.length === FORMATS.length && (
+          <p className="set-empty">Every format is off — Bauhly has nothing to plan with. Turn at least one back on.</p>
+        )}
+      </section>
+
+      {/* ── You ── */}
+      <section className="card set-card">
+        <h2>You</h2>
+        <div className="set-row">
+          <span className="set-row__avatar">{initialsOf(user?.name)}</span>
+          <span className="set-row__main">
+            <b className="set-row__title">{user?.name || 'Your account'}</b>
+            <span className="set-row__sub">{user?.email || ''}</span>
+          </span>
+          <span className="set-row__acts">
+            <button className="btn btn--ghost btn--sm" onClick={signOut}>
+              <Icon name="logout" size={14} />
+              Sign out
+            </button>
+          </span>
+        </div>
+      </section>
     </div>
   );
 }
