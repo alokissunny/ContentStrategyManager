@@ -15,6 +15,18 @@ const daySchema = new mongoose.Schema(
     direction: { type: String, default: '' },
     published: { type: Boolean, default: false },
     content: {
+      // Structured slides for carousels / multi-frame posts. Roles like Hook,
+      // Setup, Process, Result, CTA. assetKey ties a slide to a project photo.
+      slides: {
+        type: [
+          {
+            role: { type: String, default: '' },
+            title: { type: String, default: '' },
+            assetKey: { type: String, default: '' },
+          },
+        ],
+        default: [],
+      },
       onScreenText: { type: [String], default: [] },
       caption: { type: String, default: '' },
       cta: { type: String, default: '' },
@@ -22,6 +34,7 @@ const daySchema = new mongoose.Schema(
       strategy: { type: String, default: '' },
       prompts: { type: [String], default: [] },
       plan: { type: String, default: '' },
+      notes: { type: String, default: '' },
     },
   },
   { _id: false }

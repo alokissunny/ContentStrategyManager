@@ -1,82 +1,414 @@
 /*
- * WeekView — one plan's seven-day route, opened from the Plans list.
+ * WeekView — complete content for one plan's seven-day route.
  *
- * Prop-driven (no fetching of its own): the Plans page hands it a `route` and
- * the callbacks for going back and re-planning. Header → day rail → the selected
- * day's preview + Caption / Strategy / Prompts / Plan tabs. Publish state is
- * persisted through PATCH /routes/:id/day/:index.
+ * Day rail → IG preview + Slides list (default) / Caption / Why / Notes.
+ * Opening a slide shows the Text | Image detail editor; × closes back to
+ * the list. Edits persist via PATCH /routes/:id/day/:index.
  */
 
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import Glyph from '../components/Glyph';
-import { markDayPublished } from '../api/routes';
-import {
-  LS_SURFACE, LS_BORDER, LS_INK, LS_T2, LS_MUTED, LS_SIGNAL, LS_SOFT,
-  LS_SOFT_BORDER, LS_FONT, LS_DISPLAY, LSC,
-} from '../theme';
+import YourAnalysisModal from '../components/YourAnalysisModal';
+import ConnectMetaModal from '../components/ConnectMetaModal';
+import { markDayPublished, updateDayContent } from '../api/routes';
+import { getMetaStatus, publishDayToMeta } from '../api/meta';
+import { useProjects, uploadFiles } from '../lib/projectsStore';
+import './weekView.css';
 
-const PILLAR = {
-  discovery: { soft: 'var(--discovery-100)', ink: 'var(--discovery-600)', label: 'Discovery' },
-  credibility: { soft: 'var(--credibility-100)', ink: 'var(--credibility-600)', label: 'Credibility' },
-  trust: { soft: 'var(--trust-100)', ink: 'var(--trust-600)', label: 'Trust' },
-};
 const FORMAT_ICON = { Reel: 'play', Carousel: 'copy', Post: 'image', Story: 'book-open' };
-const TABS = ['Caption', 'Strategy', 'Prompts', 'Plan'];
-
-const btnGhost = {
-  display: 'inline-flex', alignItems: 'center', gap: 7, height: 40, padding: '0 16px', borderRadius: 10,
-  border: `1px solid ${LS_BORDER}`, background: LS_SURFACE, cursor: 'pointer', fontFamily: LS_FONT,
-  fontSize: 13.5, fontWeight: 600, color: LS_INK,
+const SLIDE_ROLES = {
+  Carousel: ['Hook', 'Setup', 'Process', 'Process', 'Result', 'CTA'],
+  Reel: ['Hook', 'Setup', 'CTA'],
+  Story: ['Hook', 'Beat', 'CTA'],
+  Post: ['Hook', 'CTA'],
 };
+const TABS = ['Slides', 'Caption', 'Why this post', 'Notes'];
 
-function Field({ icon, label, children }) {
-  return (
-    <div style={{ border: `1px solid ${LS_BORDER}`, borderRadius: 12, padding: '14px 16px' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 8 }}>
-        <Glyph name={icon} size={13} color={LS_MUTED} />
-        <span style={{ fontFamily: LS_FONT, fontSize: 10.5, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: LS_MUTED }}>{label}</span>
-      </div>
-      {children}
-    </div>
-  );
+const TEXT_SUGGESTIONS = [
+  { id: 'sharpen', label: 'Sharpen the opening', hint: 'Cut to the point sooner.', icon: 'sparkles' },
+  { id: 'shorter', label: 'Make it shorter', hint: 'Make it punchier.', icon: 'scissors' },
+];
+
+function shortDay(day) {
+  return String(day || '').slice(0, 3);
 }
 
-function Para({ children }) {
-  return <p style={{ fontFamily: LS_FONT, fontSize: 14.5, lineHeight: 1.6, color: LS_INK, margin: '0 0 10px', whiteSpace: 'pre-wrap' }}>{children}</p>;
+function dayDateLabel(day) {
+  if (!day?.dateLabel) return day?.day || '';
+  return `${day.day}, ${day.dateLabel}`;
+}
+
+function collectProjectImages(projects) {
+  const images = [];
+  for (const p of projects || []) {
+    for (const e of p.captures || []) {
+      for (const a of e.attachments || []) {
+        if (a.type === 'image' && (a.url || a.thumbnailUrl)) {
+          images.push({
+            key: a.key,
+            url: a.url || a.thumbnailUrl,
+            thumb: a.thumbnailUrl || a.url,
+            projectName: p.name,
+            note: e.text || '',
+          });
+        }
+      }
+    }
+  }
+  return images;
+}
+
+function deriveSlides(day) {
+  const roles = SLIDE_ROLES[day.format] || SLIDE_ROLES.Post;
+  const existing = day.content?.slides;
+  if (Array.isArray(existing) && existing.length) {
+    return existing.map((s, i) => ({
+      role: s.role || roles[Math.min(i, roles.length - 1)],
+      title: s.title || '',
+      assetKey: s.assetKey || '',
+    }));
+  }
+  const texts = (day.content?.onScreenText || []).filter(Boolean);
+  if (texts.length) {
+    return texts.map((t, i) => ({
+      role: roles[Math.min(i, roles.length - 1)],
+      title: t,
+      assetKey: '',
+    }));
+  }
+  const base = [{ role: 'Hook', title: day.title || day.direction || 'Open strong', assetKey: '' }];
+  if (day.format === 'Carousel') {
+    base.push(
+      { role: 'Setup', title: 'Set the context', assetKey: '' },
+      { role: 'Process', title: 'Show the work in progress', assetKey: '' },
+      { role: 'Result', title: 'The finished outcome', assetKey: '' },
+    );
+  } else if (day.format === 'Reel' || day.format === 'Story') {
+    base.push({ role: 'Setup', title: day.direction || 'The beat in the middle', assetKey: '' });
+  }
+  base.push({ role: 'CTA', title: day.content?.cta || 'Invite them to enquire', assetKey: '' });
+  return base;
+}
+
+/** Resolve slides to images. Explicit assetKey = owned; auto-fill = standing-in. */
+function bindSlidesToAssets(slides, dayIndex, allImages, localMedia) {
+  const byKey = new Map(allImages.map((img) => [img.key, img]));
+  Object.entries(localMedia || {}).forEach(([key, url]) => {
+    if (!byKey.has(key)) byKey.set(key, { key, url, thumb: url, projectName: 'Uploaded', note: '' });
+  });
+
+  const used = new Set();
+  const bound = slides.map((s) => {
+    if (!s.assetKey) return { ...s, image: null, standing: false };
+    const hit = byKey.get(s.assetKey) || null;
+    if (hit) used.add(hit.key);
+    return { ...s, image: hit, standing: false };
+  });
+
+  const pool = allImages.filter((img) => !used.has(img.key));
+  let cursor = (dayIndex * 3) % Math.max(pool.length, 1);
+  return bound.map((s) => {
+    if (s.image || !pool.length) return s;
+    const img = pool[cursor % pool.length];
+    cursor += 1;
+    return { ...s, image: img, standing: true };
+  });
+}
+
+function dayAssetStatus(slides, published) {
+  if (published) return { label: 'Published', kind: 'done', icon: 'check-circle-2' };
+  const missing = slides.some((s) => !s.assetKey || s.standing);
+  if (missing) return { label: 'Needs image', kind: 'need', icon: 'alert-circle' };
+  return { label: 'Ready', kind: 'ready', icon: 'check' };
+}
+
+function rewriteText(current, kind, custom) {
+  const text = String(current || '').trim();
+  if (kind === 'sharpen') {
+    const cut = text.split(/[.!?—–]/)[0]?.trim() || text;
+    return cut.length > 48 ? `${cut.slice(0, 45).trim()}…` : cut;
+  }
+  if (kind === 'shorter') {
+    const words = text.split(/\s+/);
+    if (words.length <= 5) return text;
+    return words.slice(0, 5).join(' ');
+  }
+  if (kind === 'custom' && custom) {
+    const q = custom.toLowerCase();
+    if (q.includes('shorter') || q.includes('punch')) return rewriteText(text, 'shorter');
+    if (q.includes('sharpen') || q.includes('opening') || q.includes('cut')) return rewriteText(text, 'sharpen');
+    if (q.startsWith('add ')) return `${text} ${custom.slice(4).trim()}`.trim();
+    if (q.startsWith('replace with ')) return custom.slice('replace with '.length).trim();
+    // Treat freeform as the new line when it looks like copy, else append.
+    if (custom.length <= 80 && !q.includes('make') && !q.includes('change')) return custom.trim();
+    return text;
+  }
+  return text;
+}
+
+function slidesPayload(slides) {
+  return slides.map((s) => ({
+    role: s.role || '',
+    title: s.title || '',
+    assetKey: s.assetKey || '',
+  }));
 }
 
 function buildMarkdown(route) {
-  const lines = [`# Your week — ${route.weekLabel}`, `Focus: ${PILLAR[route.focus?.pillar]?.label || ''} — ${route.focus?.headline || ''}`, ''];
+  const lines = [`# Your week — ${route.weekLabel}`, `Focus: ${route.focus?.headline || ''}`, ''];
   (route.days || []).forEach((d) => {
     lines.push(`## ${d.day}${d.dateLabel ? ` (${d.dateLabel})` : ''} · ${d.format} · ${d.contentType}`);
-    if (d.time) lines.push(`Time: ${d.time}`);
     if (d.title) lines.push(`Title: ${d.title}`);
-    if (d.direction) lines.push(`Direction: ${d.direction}`);
-    if (d.content?.onScreenText?.length) lines.push('', 'On-screen text:', ...d.content.onScreenText.map((t, i) => `  ${i + 1}. ${t}`));
+    const slides = d.content?.slides?.length ? d.content.slides : (d.content?.onScreenText || []).map((t) => ({ title: t }));
+    if (slides.length) {
+      lines.push('', 'Slides:');
+      slides.forEach((s, i) => lines.push(`  ${i + 1}. [${s.role || 'Slide'}] ${s.title || ''}`));
+    }
     if (d.content?.caption) lines.push('', 'Caption:', d.content.caption);
-    if (d.content?.cta) lines.push('', `CTA: ${d.content.cta}`);
-    if (d.content?.hashtags?.length) lines.push('', `Hashtags: ${d.content.hashtags.map((h) => `#${h}`).join(' ')}`);
-    if (d.content?.strategy) lines.push('', `Strategy: ${d.content.strategy}`);
-    if (d.content?.prompts?.length) lines.push('', 'Prompts:', ...d.content.prompts.map((p) => `  - ${p}`));
-    if (d.content?.plan) lines.push('', `Plan: ${d.content.plan}`);
+    if (d.content?.strategy) lines.push('', `Why: ${d.content.strategy}`);
+    if (d.content?.notes || d.content?.plan) lines.push('', `Notes: ${d.content.notes || d.content.plan}`);
     lines.push('', '---', '');
   });
   return lines.join('\n');
 }
 
 export default function WeekView({ route: initialRoute, onBack, onRegenerate, generating }) {
+  const projects = useProjects();
   const [route, setRoute] = useState(initialRoute);
   const [selected, setSelected] = useState(0);
-  const [tab, setTab] = useState('Caption');
+  const [tab, setTab] = useState('Slides');
+  const [slideIdx, setSlideIdx] = useState(0);
+  const [detailOpen, setDetailOpen] = useState(false); // false = slides list (default)
+  const [mode, setMode] = useState('text'); // 'text' | 'image'
+  const [editing, setEditing] = useState(false);
+  const [draftText, setDraftText] = useState('');
+  const [listDraft, setListDraft] = useState(null); // { i, text } inline list edit
+  const [menuIdx, setMenuIdx] = useState(null);
+  const [ask, setAsk] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [analysisOpen, setAnalysisOpen] = useState(false);
+  const [connectOpen, setConnectOpen] = useState(false);
+  const [metaStatus, setMetaStatus] = useState({ connected: false, configured: false });
+  const [publishing, setPublishing] = useState(false);
+  const [publishMsg, setPublishMsg] = useState('');
+  const [localMedia, setLocalMedia] = useState({});
+  const fileRef = useRef(null);
+  const textRef = useRef(null);
 
+  useEffect(() => {
+    getMetaStatus()
+      .then(setMetaStatus)
+      .catch(() => setMetaStatus({ connected: false, configured: false }));
+  }, []);
+
+  const allImages = useMemo(() => collectProjectImages(projects), [projects]);
   const days = route?.days || [];
   const day = days[selected] || days[0];
-  const focusPillar = route?.focus?.pillar;
-  const c = PILLAR[day?.pillar] || PILLAR.trust;
 
-  async function togglePublished() {
-    if (!route || !day) return;
-    try { setRoute(await markDayPublished(route._id, selected)); } catch { /* ignore */ }
+  const enrichedDays = useMemo(
+    () =>
+      days.map((d, i) => {
+        const slides = bindSlidesToAssets(deriveSlides(d), i, allImages, localMedia);
+        return { ...d, slides, status: dayAssetStatus(slides, d.published) };
+      }),
+    [days, allImages, localMedia],
+  );
+
+  const enriched = enrichedDays[selected] || enrichedDays[0];
+  const slides = enriched?.slides || [];
+  const safeIdx = Math.min(slideIdx, Math.max(slides.length - 1, 0));
+  const activeSlide = slides[safeIdx] || null;
+  const handle = route?.instagramUsername || 'your.studio';
+
+  useEffect(() => {
+    setDraftText(activeSlide?.title || '');
+    setEditing(false);
+    setAsk('');
+  }, [selected, safeIdx, activeSlide?.title]);
+
+  useEffect(() => {
+    if (editing && textRef.current) textRef.current.focus();
+  }, [editing]);
+
+  function selectDay(i) {
+    setSelected(i);
+    setSlideIdx(0);
+    setTab('Slides');
+    setDetailOpen(false);
+    setMode('text');
+    setPickerOpen(false);
+    setMenuIdx(null);
+    setListDraft(null);
+  }
+
+  function closeDetail() {
+    setDetailOpen(false);
+    setEditing(false);
+    setPickerOpen(false);
+    setAsk('');
+  }
+
+  useEffect(() => {
+    if (!detailOpen) return undefined;
+    function onKey(e) {
+      if (e.key === 'Escape') closeDetail();
+    }
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [detailOpen]);
+
+  function openDetail(i, nextMode = 'text') {
+    setSlideIdx(i);
+    setMode(nextMode);
+    setDetailOpen(true);
+    setPickerOpen(false);
+    setMenuIdx(null);
+    setListDraft(null);
+  }
+
+  async function persistSlides(nextSlides) {
+    if (!route?._id) return;
+    setSaving(true);
+    try {
+      const updated = await updateDayContent(route._id, selected, { slides: slidesPayload(nextSlides) });
+      setRoute(updated);
+    } catch { /* keep local until retry */ }
+    finally { setSaving(false); }
+  }
+
+  function replaceSlides(next) {
+    setRoute((prev) => {
+      const daysCopy = [...(prev.days || [])];
+      const d = { ...daysCopy[selected] };
+      const content = { ...(d.content || {}), slides: slidesPayload(next), onScreenText: next.map((s) => s.title) };
+      daysCopy[selected] = { ...d, content };
+      return { ...prev, days: daysCopy };
+    });
+    persistSlides(next);
+  }
+
+  function patchActiveSlide(patch) {
+    const base = deriveSlides(day);
+    const next = base.map((s, i) => (i === safeIdx ? { ...s, ...patch } : s));
+    replaceSlides(next);
+  }
+
+  function patchSlideAt(index, patch) {
+    const base = deriveSlides(day);
+    const next = base.map((s, i) => (i === index ? { ...s, ...patch } : s));
+    replaceSlides(next);
+  }
+
+  function addSlide() {
+    const roles = SLIDE_ROLES[day.format] || SLIDE_ROLES.Post;
+    const base = deriveSlides(day);
+    const role = roles[Math.min(base.length, roles.length - 1)] || 'Slide';
+    const next = [...base, { role, title: '', assetKey: '' }];
+    replaceSlides(next);
+    setSlideIdx(next.length - 1);
+  }
+
+  function removeSlide(index) {
+    const base = deriveSlides(day);
+    if (base.length <= 1) return;
+    const next = base.filter((_, i) => i !== index);
+    replaceSlides(next);
+    setMenuIdx(null);
+    setSlideIdx((cur) => Math.min(cur, next.length - 1));
+    if (detailOpen && index === safeIdx) closeDetail();
+  }
+
+  function applyText(nextTitle) {
+    setDraftText(nextTitle);
+    patchActiveSlide({ title: nextTitle });
+    setEditing(false);
+  }
+
+  function clearText() {
+    applyText('');
+  }
+
+  function onAskSubmit(e) {
+    e.preventDefault();
+    if (!ask.trim()) return;
+    if (mode === 'text') {
+      applyText(rewriteText(draftText || activeSlide?.title, 'custom', ask.trim()));
+    }
+    setAsk('');
+  }
+
+  async function onUploadFiles(files) {
+    const list = [...files].filter((f) => f.type.startsWith('image/'));
+    if (!list.length) return;
+    setUploading(true);
+    try {
+      const added = await uploadFiles(list);
+      const first = added[0];
+      if (!first) return;
+      setLocalMedia((m) => ({ ...m, [first.key]: first.url }));
+      patchActiveSlide({ assetKey: first.key });
+      setPickerOpen(false);
+    } catch { /* ignore */ }
+    finally { setUploading(false); }
+  }
+
+  function pickProjectImage(img) {
+    patchActiveSlide({ assetKey: img.key });
+    setPickerOpen(false);
+  }
+
+  function claimStandingImage() {
+    if (activeSlide?.image?.key) {
+      patchActiveSlide({ assetKey: activeSlide.image.key });
+    } else {
+      setPickerOpen(true);
+    }
+  }
+
+  async function markPublishedManually() {
+    setConnectOpen(false);
+    if (!route || day?.published) return;
+    try {
+      setRoute(await markDayPublished(route._id, selected, true));
+      setPublishMsg('Marked as published');
+    } catch { /* ignore */ }
+  }
+
+  async function handlePublish() {
+    if (!route || !day || publishing) return;
+    setPublishMsg('');
+
+    if (day.published) {
+      // Allow unpublish locally
+      try {
+        setRoute(await markDayPublished(route._id, selected, false));
+        setPublishMsg('');
+      } catch { /* ignore */ }
+      return;
+    }
+
+    if (!metaStatus.connected) {
+      setConnectOpen(true);
+      return;
+    }
+
+    setPublishing(true);
+    try {
+      const result = await publishDayToMeta(route._id, selected);
+      if (result.route) setRoute(result.route);
+      setPublishMsg(result.live ? 'Posted to Instagram' : (result.message || 'Published'));
+    } catch (err) {
+      if (err.response?.data?.code === 'META_NOT_CONNECTED') {
+        setMetaStatus((s) => ({ ...s, connected: false }));
+        setConnectOpen(true);
+      } else {
+        setPublishMsg(err.response?.data?.message || 'Could not publish just now');
+      }
+    } finally {
+      setPublishing(false);
+    }
   }
 
   function handleExport() {
@@ -90,176 +422,560 @@ export default function WeekView({ route: initialRoute, onBack, onRegenerate, ge
     URL.revokeObjectURL(url);
   }
 
+  const formatMeta = day
+    ? `${day.contentType || 'Post'} | ${day.format}${
+        slides.length > 1 ? ` (${slides.length} slides)` : ''
+      }`
+    : '';
+
+  const hasOwnImage = Boolean(activeSlide?.assetKey && !activeSlide?.standing && activeSlide?.image);
+
   return (
-    <div style={{ ...LSC, padding: 'clamp(20px, 5vw, 40px) clamp(16px, 5vw, 48px)', maxWidth: 1180 }}>
-      {/* Back to the plans list */}
-      <button onClick={onBack} style={{ ...btnGhost, height: 34, padding: '0 12px', marginBottom: 16 }}>
-        <Glyph name="arrow-left" size={15} color={LS_INK} />Your plans
+    <div className="wv">
+      <button type="button" className="wv-back" onClick={onBack}>
+        <Glyph name="arrow-left" size={15} />Your plans
       </button>
 
-      {/* Header */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap', marginBottom: 20 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
-          <h1 style={{ fontFamily: LS_DISPLAY, fontWeight: 700, fontSize: 26, color: LS_INK, margin: 0 }}>{route.focus?.headline || 'Your week'}</h1>
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontFamily: LS_FONT, fontSize: 12.5, color: LS_T2 }}>
-            <Glyph name="calendar" size={14} color={LS_MUTED} />{route.weekLabel}
+      <div className="wv-head">
+        <div className="wv-head__meta">
+          <h1 className="wv-head__title">{route.focus?.headline || 'Your week'}</h1>
+          <span className="wv-head__chip">
+            <Glyph name="calendar" size={14} />{route.weekLabel}
           </span>
-          {focusPillar && (
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontFamily: LS_FONT, fontSize: 12.5, color: LS_T2 }}>
-              <Glyph name="route" size={14} color={LS_MUTED} />Strengthening <strong style={{ color: PILLAR[focusPillar].ink }}>{PILLAR[focusPillar].label}</strong>
-            </span>
-          )}
+          {saving && <span className="wv-head__chip">Saving…</span>}
         </div>
-        <div style={{ display: 'flex', gap: 10 }}>
-          <button onClick={handleExport} style={btnGhost}><Glyph name="download" size={15} color={LS_INK} />Export</button>
-          <button onClick={onRegenerate} disabled={generating} style={{ ...btnGhost, opacity: generating ? 0.6 : 1 }}>
-            <Glyph name="refresh-cw" size={15} color={LS_INK} />{generating ? 'Planning…' : 'Plan again'}
+        <div className="wv-actions">
+          <button type="button" className="wv-btn" onClick={() => setAnalysisOpen(true)}>
+            <Glyph name="bar-chart-2" size={15} />Your analysis
+          </button>
+          <button type="button" className="wv-btn" onClick={handleExport}>
+            <Glyph name="download" size={15} />Export
+          </button>
+          <button type="button" className="wv-btn" onClick={onRegenerate} disabled={generating}>
+            <Glyph name="refresh-cw" size={15} />{generating ? 'Planning…' : 'Plan again'}
           </button>
         </div>
       </div>
 
-      {/* Day rail */}
-      <div style={{ display: 'flex', gap: 12, overflowX: 'auto', paddingBottom: 6, marginBottom: 20 }}>
-        {days.map((d, i) => {
+      {analysisOpen && (
+        <YourAnalysisModal
+          username={route?.instagramUsername}
+          onClose={() => setAnalysisOpen(false)}
+        />
+      )}
+
+      {connectOpen && (
+        <ConnectMetaModal
+          configured={metaStatus.configured}
+          onClose={() => setConnectOpen(false)}
+          onMarkManually={markPublishedManually}
+          onConnected={(status) => {
+            setMetaStatus(status);
+            setConnectOpen(false);
+          }}
+        />
+      )}
+
+      <div className="wv-rail">
+        {enrichedDays.map((d, i) => {
           const active = i === selected;
-          const pc = PILLAR[d.pillar] || PILLAR.trust;
+          const st = d.status;
           return (
             <button
-              key={d.day}
-              onClick={() => setSelected(i)}
-              style={{
-                flexShrink: 0, minWidth: 150, textAlign: 'left', cursor: 'pointer', borderRadius: 12,
-                padding: '11px 14px', border: `1px solid ${active ? LS_SIGNAL : LS_BORDER}`,
-                background: active ? LS_SIGNAL : LS_SURFACE, boxShadow: active ? `0 0 0 3px ${LS_SOFT}` : 'none',
-              }}
+              key={`${d.day}-${i}`}
+              type="button"
+              className={`wv-day${active ? ' is-active' : ''}`}
+              onClick={() => selectDay(i)}
             >
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-                <span style={{ fontFamily: LS_DISPLAY, fontWeight: 700, fontSize: 15, color: active ? '#fff' : LS_INK }}>{d.day}</span>
-                <span style={{ fontFamily: LS_FONT, fontSize: 11, color: active ? 'rgba(255,255,255,0.85)' : LS_MUTED }}>{d.time}</span>
+              <div className="wv-day__top">
+                <span className="wv-day__label">
+                  {shortDay(d.day)} {String(d.dateLabel || '').replace(/^[A-Za-z]+\s/, '') || ''}
+                </span>
               </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6, margin: '7px 0' }}>
-                <Glyph name={FORMAT_ICON[d.format] || 'image'} size={13} color={active ? '#fff' : LS_T2} />
-                <span style={{ fontFamily: LS_FONT, fontSize: 12, color: active ? '#fff' : LS_T2 }}>{d.format}</span>
-                {d.published && <Glyph name="check-circle-2" size={13} color={active ? '#fff' : 'var(--trust-600)'} />}
-              </div>
-              <span style={{
-                display: 'inline-flex', alignItems: 'center', gap: 4, fontFamily: LS_FONT, fontSize: 10.5, fontWeight: 700,
-                color: active ? '#fff' : pc.ink, background: active ? 'rgba(255,255,255,0.18)' : pc.soft, borderRadius: 999, padding: '2px 8px',
-              }}>
-                {d.goalTag}
+              <span className="wv-day__type">{d.contentType || d.format}</span>
+              <span className="wv-day__icon">
+                <Glyph name={FORMAT_ICON[d.format] || 'image'} size={16} />
+              </span>
+              <span className={`wv-day__status is-${st.kind}`}>
+                <Glyph name={st.icon} size={12} />
+                {st.label}
               </span>
             </button>
           );
         })}
       </div>
 
-      {/* Selected day */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(260px, 0.9fr) 1.4fr', gap: 20, alignItems: 'start' }}>
-        {/* Preview card */}
-        <div style={{ background: LS_SURFACE, border: `1px solid ${LS_BORDER}`, borderRadius: 16, overflow: 'hidden' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 14px', borderBottom: `1px solid ${LS_BORDER}` }}>
-            <span style={{ width: 30, height: 30, borderRadius: '50%', background: LS_SOFT, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <Glyph name="user" size={15} color={LS_SIGNAL} />
-            </span>
-            <span style={{ fontFamily: LS_FONT, fontSize: 13.5, fontWeight: 600, color: LS_INK, flex: 1 }}>{route.instagramUsername ? `@${route.instagramUsername}` : 'Your account'}</span>
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontFamily: LS_FONT, fontSize: 11.5, color: LS_T2 }}>
-              <Glyph name={FORMAT_ICON[day.format] || 'image'} size={13} color={LS_T2} />{day.format}
-            </span>
+      {day && (
+        <>
+          <div className="wv-dayhead">
+            <h2 className="wv-dayhead__date">{dayDateLabel(day)}</h2>
+            <span className="wv-dayhead__meta">{formatMeta}</span>
           </div>
-          <div style={{ padding: '18px 16px', background: 'linear-gradient(180deg, var(--paper) 0%, #fff 100%)', minHeight: 220 }}>
-            <span style={{ fontFamily: LS_FONT, fontSize: 10.5, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: c.ink }}>{day.contentType}</span>
-            <h3 style={{ fontFamily: LS_DISPLAY, fontWeight: 700, fontSize: 19, lineHeight: 1.25, color: LS_INK, margin: '8px 0 14px' }}>{day.title || day.direction}</h3>
-            {day.content?.onScreenText?.length > 0 && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                {day.content.onScreenText.map((t, i) => (
-                  <div key={i} style={{ fontFamily: LS_FONT, fontSize: 13.5, color: LS_T2, borderLeft: `2px solid ${LS_SOFT_BORDER}`, paddingLeft: 10 }}>
-                    <span style={{ color: LS_MUTED, fontSize: 11 }}>Frame {i + 1}</span><br />{t}
+
+          <div className="wv-studio">
+            <article className="wv-ig">
+              <header className="wv-ig__head">
+                <span className="wv-ig__avatar">
+                  {allImages[0]?.thumb
+                    ? <img src={allImages[0].thumb} alt="" />
+                    : <Glyph name="user" size={15} />}
+                </span>
+                <span className="wv-ig__user">{handle}</span>
+              </header>
+              <div className="wv-ig__photo">
+                {activeSlide?.image?.url ? (
+                  <img src={activeSlide.image.url} alt="" />
+                ) : (
+                  <div className="wv-ig__empty">
+                    <Glyph name="image" size={28} />
+                    <span>Needs image</span>
                   </div>
-                ))}
-              </div>
-            )}
-          </div>
-          <div style={{ padding: '12px 14px', borderTop: `1px solid ${LS_BORDER}`, fontFamily: LS_FONT, fontSize: 12.5, color: LS_T2 }}>
-            {(day.content?.caption || '').slice(0, 120)}{(day.content?.caption || '').length > 120 ? '…' : ''}
-          </div>
-        </div>
-
-        {/* Detail: tabs */}
-        <div style={{ background: LS_SURFACE, border: `1px solid ${LS_BORDER}`, borderRadius: 16, padding: 'clamp(16px, 3vw, 22px)' }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 4 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
-              <Glyph name="user" size={17} color={LS_INK} />
-              <span style={{ fontFamily: LS_DISPLAY, fontWeight: 700, fontSize: 16, color: LS_INK }}>{day.contentType}</span>
-            </div>
-            <button onClick={togglePublished} style={{ ...btnGhost, borderColor: day.published ? 'var(--trust-600)' : LS_BORDER, color: day.published ? 'var(--trust-600)' : LS_INK }}>
-              <Glyph name={day.published ? 'check-circle-2' : 'check'} size={15} color={day.published ? 'var(--trust-600)' : LS_INK} />
-              {day.published ? 'Published' : 'Mark as published'}
-            </button>
-          </div>
-          <span style={{ fontFamily: LS_FONT, fontSize: 10.5, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: c.ink }}>{PILLAR[day.pillar]?.label} · {day.goalTag}</span>
-          <h2 style={{ fontFamily: LS_DISPLAY, fontWeight: 700, fontSize: 21, lineHeight: 1.25, color: LS_INK, margin: '6px 0 16px' }}>{day.title || day.direction}</h2>
-
-          {/* Tab bar */}
-          <div style={{ display: 'flex', gap: 22, borderBottom: `1px solid ${LS_BORDER}`, marginBottom: 18 }}>
-            {TABS.map((t) => (
-              <button
-                key={t}
-                onClick={() => setTab(t)}
-                style={{
-                  border: 'none', background: 'none', cursor: 'pointer', padding: '0 0 10px', fontFamily: LS_FONT,
-                  fontSize: 14, fontWeight: 600, color: tab === t ? LS_SIGNAL : LS_T2,
-                  borderBottom: `2px solid ${tab === t ? LS_SIGNAL : 'transparent'}`, marginBottom: -1,
-                }}
-              >
-                {t}
-              </button>
-            ))}
-          </div>
-
-          {tab === 'Caption' && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-              {day.content?.onScreenText?.length > 0 && (
-                <Field icon="type" label={`On-screen text · ${day.content.onScreenText.length} frame${day.content.onScreenText.length > 1 ? 's' : ''}`}>
-                  {day.content.onScreenText.map((t, i) => <Para key={i}>{t}</Para>)}
-                </Field>
-              )}
-              <Field icon="message-square" label="Caption"><Para>{day.content?.caption || '—'}</Para></Field>
-              {day.content?.cta && <Field icon="arrow-up-right" label="Call to action"><Para>{day.content.cta}</Para></Field>}
-              {day.content?.hashtags?.length > 0 && (
-                <Field icon="hash" label="Suggested hashtags">
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 7 }}>
-                    {day.content.hashtags.map((h) => (
-                      <span key={h} style={{ fontFamily: LS_FONT, fontSize: 12.5, color: LS_T2, background: LS_SOFT, border: `1px solid ${LS_SOFT_BORDER}`, borderRadius: 999, padding: '3px 10px' }}>#{h}</span>
+                )}
+                {slides.length > 1 && (
+                  <span className="wv-ig__count">{safeIdx + 1}/{slides.length}</span>
+                )}
+                {(activeSlide?.title || day.title) && (
+                  <div className="wv-ig__overlay">
+                    <span className="wv-ig__badge">{day.contentType || day.format}</span>
+                    <p className="wv-ig__hook">{activeSlide?.title || day.title}</p>
+                  </div>
+                )}
+                {slides.length > 1 && (
+                  <div className="wv-ig__dots" aria-hidden="true">
+                    {slides.map((_, i) => (
+                      <button
+                        key={i}
+                        type="button"
+                        className={`wv-ig__dot${i === safeIdx ? ' is-active' : ''}`}
+                        onClick={() => setSlideIdx(i)}
+                      />
                     ))}
                   </div>
-                </Field>
-              )}
-            </div>
-          )}
+                )}
+              </div>
+              <div className="wv-ig__caption">
+                <b>{handle}</b>{' '}
+                {(day.content?.caption || day.direction || '').slice(0, 220)}
+                {(day.content?.caption || '').length > 220 ? '…' : ''}
+              </div>
+              <div className="wv-ig__publish">
+                <button
+                  type="button"
+                  className={`wv-publish${day.published ? ' is-done' : ''}`}
+                  onClick={handlePublish}
+                  disabled={publishing}
+                >
+                  <Glyph name={day.published ? 'check-circle-2' : 'send'} size={15} />
+                  {publishing ? 'Publishing…' : day.published ? 'Published' : 'Publish'}
+                </button>
+                {metaStatus.connected && metaStatus.igUsername && !day.published && (
+                  <span className="wv-publish__hint">to @{metaStatus.igUsername}</span>
+                )}
+                {!metaStatus.connected && !day.published && (
+                  <span className="wv-publish__hint">Connect Meta to post</span>
+                )}
+                {publishMsg && <span className="wv-publish__msg">{publishMsg}</span>}
+              </div>
+            </article>
 
-          {tab === 'Strategy' && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-              <Field icon="target" label="Why this post, this day"><Para>{day.content?.strategy || '—'}</Para></Field>
-              <Field icon="route" label="Direction"><Para>{day.direction || '—'}</Para></Field>
-            </div>
-          )}
+            <div className="wv-detail">
+              <div className="wv-tabs">
+                {TABS.map((t) => {
+                  const label = t === 'Slides' && slides.length ? `Slides (${slides.length})` : t;
+                  return (
+                    <button
+                      key={t}
+                      type="button"
+                      className={`wv-tab${tab === t ? ' is-active' : ''}`}
+                      onClick={() => { setTab(t); setPickerOpen(false); if (t === 'Slides') setDetailOpen(false); setMenuIdx(null); }}
+                    >
+                      {label}
+                    </button>
+                  );
+                })}
+              </div>
 
-          {tab === 'Prompts' && (
-            <Field icon="sparkles" label="Idea prompts">
-              {day.content?.prompts?.length > 0
-                ? day.content.prompts.map((p, i) => (
-                    <div key={i} style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
-                      <span style={{ color: LS_SIGNAL, fontFamily: LS_FONT, fontWeight: 700 }}>{i + 1}.</span>
-                      <span style={{ fontFamily: LS_FONT, fontSize: 14.5, lineHeight: 1.55, color: LS_INK }}>{p}</span>
+              {tab === 'Slides' && !detailOpen && (
+                <div className="wv-list">
+                  {slides.map((s, i) => (
+                    <div
+                      key={`${s.role}-${i}`}
+                      className={`wv-row${i === safeIdx ? ' is-active' : ''}`}
+                      onClick={() => setSlideIdx(i)}
+                    >
+                      <button
+                        type="button"
+                        className="wv-row__thumb"
+                        aria-label={`Edit image for slide ${i + 1}`}
+                        onClick={(e) => { e.stopPropagation(); openDetail(i, 'image'); }}
+                      >
+                        {s.image?.thumb
+                          ? <img src={s.image.thumb} alt="" />
+                          : <Glyph name="image" size={18} />}
+                        <span className="wv-row__badge">{i + 1}</span>
+                        {i === safeIdx && (
+                          <span className="wv-row__upload"><Glyph name="upload" size={16} /></span>
+                        )}
+                      </button>
+
+                      <div className="wv-row__body">
+                        <span className="wv-row__role">{s.role}</span>
+                        {listDraft?.i === i ? (
+                          <input
+                            className="wv-row__input"
+                            autoFocus
+                            value={listDraft.text}
+                            onClick={(e) => e.stopPropagation()}
+                            onChange={(e) => setListDraft({ i, text: e.target.value })}
+                            onBlur={() => {
+                              patchSlideAt(i, { title: listDraft.text });
+                              setListDraft(null);
+                            }}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                e.preventDefault();
+                                patchSlideAt(i, { title: listDraft.text });
+                                setListDraft(null);
+                              }
+                              if (e.key === 'Escape') setListDraft(null);
+                            }}
+                          />
+                        ) : (
+                          <button
+                            type="button"
+                            className="wv-row__title"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setSlideIdx(i);
+                              setListDraft({ i, text: s.title || '' });
+                            }}
+                            onDoubleClick={(e) => {
+                              e.stopPropagation();
+                              openDetail(i, 'text');
+                            }}
+                          >
+                            {s.title || <span className="wv-muted">Add text…</span>}
+                          </button>
+                        )}
+                      </div>
+
+                      <div className="wv-row__menu">
+                        <button
+                          type="button"
+                          className="wv-iconbtn"
+                          aria-label="Slide options"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setMenuIdx(menuIdx === i ? null : i);
+                          }}
+                        >
+                          <Glyph name="more-horizontal" size={16} />
+                        </button>
+                        {menuIdx === i && (
+                          <div className="wv-menu" role="menu">
+                            <button type="button" role="menuitem" onClick={(e) => { e.stopPropagation(); openDetail(i, 'text'); }}>
+                              Edit text
+                            </button>
+                            <button type="button" role="menuitem" onClick={(e) => { e.stopPropagation(); openDetail(i, 'image'); }}>
+                              Change image
+                            </button>
+                            {slides.length > 1 && (
+                              <button type="button" role="menuitem" className="is-danger" onClick={(e) => { e.stopPropagation(); removeSlide(i); }}>
+                                Remove slide
+                              </button>
+                            )}
+                          </div>
+                        )}
+                      </div>
                     </div>
-                  ))
-                : <Para>—</Para>}
-            </Field>
-          )}
+                  ))}
 
-          {tab === 'Plan' && <Field icon="clipboard-list" label="Production plan"><Para>{day.content?.plan || '—'}</Para></Field>}
-        </div>
-      </div>
+                  <button type="button" className="wv-add" onClick={addSlide}>
+                    <Glyph name="plus" size={18} />
+                    Add slide
+                  </button>
+                </div>
+              )}
+
+              {tab === 'Slides' && detailOpen && (
+                <div className="wv-editor">
+                  <div className="wv-thumbs" role="tablist" aria-label="Slides">
+                    {slides.map((s, i) => (
+                      <button
+                        key={`${s.role}-${i}`}
+                        type="button"
+                        role="tab"
+                        aria-selected={i === safeIdx}
+                        className={`wv-thumb${i === safeIdx ? ' is-active' : ''}`}
+                        onClick={() => { setSlideIdx(i); setPickerOpen(false); }}
+                      >
+                        <span className="wv-thumb__n">{i + 1}</span>
+                        <span className="wv-thumb__img">
+                          {s.image?.thumb
+                            ? <img src={s.image.thumb} alt="" />
+                            : <Glyph name="image" size={16} />}
+                          {i === safeIdx && mode === 'image' && (
+                            <span className="wv-thumb__badge"><Glyph name="upload" size={12} /></span>
+                          )}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+
+                  <div className="wv-pane">
+                    <div className="wv-pane__top">
+                      <div className="wv-mode" role="tablist" aria-label="Edit mode">
+                        <button
+                          type="button"
+                          className={`wv-mode__btn${mode === 'text' ? ' is-active' : ''}`}
+                          onClick={() => { setMode('text'); setPickerOpen(false); }}
+                        >
+                          <Glyph name="pencil" size={14} />Text
+                        </button>
+                        <button
+                          type="button"
+                          className={`wv-mode__btn${mode === 'image' ? ' is-active' : ''}`}
+                          onClick={() => setMode('image')}
+                        >
+                          <Glyph name="image" size={14} />Image
+                        </button>
+                      </div>
+                      <button type="button" className="wv-close" aria-label="Close slide details" onClick={closeDetail}>
+                        <Glyph name="x" size={18} />
+                      </button>
+                    </div>
+
+                    {mode === 'text' ? (
+                      <>
+                        <div className="wv-textcard">
+                          {editing ? (
+                            <textarea
+                              ref={textRef}
+                              className="wv-textcard__input"
+                              rows={3}
+                              value={draftText}
+                              onChange={(e) => setDraftText(e.target.value)}
+                              onBlur={() => applyText(draftText)}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter' && !e.shiftKey) {
+                                  e.preventDefault();
+                                  applyText(draftText);
+                                }
+                                if (e.key === 'Escape') {
+                                  setDraftText(activeSlide?.title || '');
+                                  setEditing(false);
+                                }
+                              }}
+                            />
+                          ) : (
+                            <button type="button" className="wv-textcard__body" onClick={() => setEditing(true)}>
+                              {activeSlide?.title || <span className="wv-muted">Add on-slide text…</span>}
+                            </button>
+                          )}
+                          <div className="wv-textcard__actions">
+                            <button type="button" className="wv-iconbtn" aria-label="Edit text" onClick={() => setEditing(true)}>
+                              <Glyph name="pencil" size={14} />
+                            </button>
+                            {activeSlide?.title && (
+                              <button type="button" className="wv-iconbtn" aria-label="Clear text" onClick={clearText}>
+                                <Glyph name="x" size={14} />
+                              </button>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="wv-suggest">
+                          <span className="wv-suggest__label">Suggested edits</span>
+                          <div className="wv-suggest__row">
+                            {TEXT_SUGGESTIONS.map((s) => (
+                              <button
+                                key={s.id}
+                                type="button"
+                                className="wv-suggest__chip"
+                                onClick={() => applyText(rewriteText(activeSlide?.title, s.id))}
+                              >
+                                <Glyph name={s.icon} size={14} />
+                                <span>
+                                  <b>{s.label}</b>
+                                  <small>{s.hint}</small>
+                                </span>
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+
+                        <form className="wv-ask" onSubmit={onAskSubmit}>
+                          <input
+                            value={ask}
+                            onChange={(e) => setAsk(e.target.value)}
+                            placeholder="Change these words — e.g. 'add another line'"
+                          />
+                          <button type="submit" className="wv-ask__go" aria-label="Apply" disabled={!ask.trim()}>
+                            <Glyph name="arrow-up" size={16} />
+                          </button>
+                        </form>
+                      </>
+                    ) : (
+                      <>
+                        <p className="wv-imgstatus">
+                          {hasOwnImage
+                            ? 'This slide uses one of your pictures.'
+                            : activeSlide?.standing
+                              ? 'No picture of yours on this slide yet — Bauhly is standing in.'
+                              : 'No picture on this slide yet.'}
+                        </p>
+
+                        {activeSlide?.image?.url && (
+                          <div className="wv-imgprev">
+                            <img src={activeSlide.image.url} alt="" />
+                          </div>
+                        )}
+
+                        <div className="wv-imgactions">
+                          <label className={`wv-imgbtn wv-imgbtn--dark${uploading ? ' is-busy' : ''}`}>
+                            <Glyph name="upload" size={18} />
+                            <span>
+                              <b>{uploading ? 'Uploading…' : 'Upload an image'}</b>
+                              <small>From your files</small>
+                            </span>
+                            <input
+                              ref={fileRef}
+                              type="file"
+                              accept="image/*"
+                              hidden
+                              disabled={uploading}
+                              onChange={(e) => {
+                                onUploadFiles(e.target.files || []);
+                                e.target.value = '';
+                              }}
+                            />
+                          </label>
+                          <button
+                            type="button"
+                            className="wv-imgbtn"
+                            onClick={() => (activeSlide?.standing ? claimStandingImage() : setPickerOpen((o) => !o))}
+                          >
+                            <Glyph name="sparkles" size={18} />
+                            <span>
+                              <b>{activeSlide?.standing ? 'Keep this one' : 'Make one for this slide'}</b>
+                              <small>{activeSlide?.standing ? 'Use the standing image' : 'From your projects'}</small>
+                            </span>
+                          </button>
+                        </div>
+
+                        {(pickerOpen || (!activeSlide?.standing && !hasOwnImage)) && allImages.length > 0 && (
+                          <div className="wv-picker">
+                            <span className="wv-suggest__label">From your projects</span>
+                            <div className="wv-picker__grid">
+                              {allImages.slice(0, 24).map((img) => (
+                                <button
+                                  key={img.key}
+                                  type="button"
+                                  className={`wv-picker__cell${activeSlide?.assetKey === img.key ? ' is-active' : ''}`}
+                                  onClick={() => pickProjectImage(img)}
+                                  title={img.projectName}
+                                >
+                                  <img src={img.thumb} alt="" />
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        {!allImages.length && !hasOwnImage && (
+                          <p className="wv-muted" style={{ marginTop: 8 }}>
+                            Add photos in Projects, then pick them here — or upload above.
+                          </p>
+                        )}
+
+                        <form className="wv-ask" onSubmit={(e) => { e.preventDefault(); setPickerOpen(true); setAsk(''); }}>
+                          <input
+                            value={ask}
+                            onChange={(e) => setAsk(e.target.value)}
+                            placeholder="Ask about the picture — e.g. 'pick a brighter photo'"
+                          />
+                          <button type="submit" className="wv-ask__go" aria-label="Open library">
+                            <Glyph name="arrow-up" size={16} />
+                          </button>
+                        </form>
+                      </>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {tab === 'Caption' && (
+                <div>
+                  <div className="wv-field">
+                    <div className="wv-field__label"><Glyph name="message-square" size={13} />Caption</div>
+                    <p>{day.content?.caption || '—'}</p>
+                  </div>
+                  {day.content?.cta && (
+                    <div className="wv-field">
+                      <div className="wv-field__label"><Glyph name="arrow-up-right" size={13} />Call to action</div>
+                      <p>{day.content.cta}</p>
+                    </div>
+                  )}
+                  {day.content?.hashtags?.length > 0 && (
+                    <div className="wv-field">
+                      <div className="wv-field__label"><Glyph name="hash" size={13} />Hashtags</div>
+                      <div className="wv-tags">
+                        {day.content.hashtags.map((h) => (
+                          <span key={h} className="wv-tag">#{h}</span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {tab === 'Why this post' && (
+                <div>
+                  <div className="wv-field">
+                    <div className="wv-field__label"><Glyph name="target" size={13} />Why this post</div>
+                    <p>{day.content?.strategy || '—'}</p>
+                  </div>
+                  {day.direction && (
+                    <div className="wv-field">
+                      <div className="wv-field__label"><Glyph name="route" size={13} />Direction</div>
+                      <p>{day.direction}</p>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {tab === 'Notes' && (
+                <div>
+                  <div className="wv-field">
+                    <div className="wv-field__label"><Glyph name="clipboard-list" size={13} />Production notes</div>
+                    <p>{day.content?.notes || day.content?.plan || '—'}</p>
+                  </div>
+                  {day.content?.prompts?.length > 0 && (
+                    <div className="wv-field">
+                      <div className="wv-field__label"><Glyph name="sparkles" size={13} />Prompts</div>
+                      {day.content.prompts.map((p, i) => (
+                        <p key={i}>{i + 1}. {p}</p>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              <div className="wv-detail__foot">
+                <button
+                  type="button"
+                  className={`wv-btn${day.published ? ' wv-btn--ok' : ' wv-btn--signal'}`}
+                  onClick={handlePublish}
+                  disabled={publishing}
+                >
+                  <Glyph name={day.published ? 'check-circle-2' : 'send'} size={15} />
+                  {publishing ? 'Publishing…' : day.published ? 'Published' : 'Publish'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }

@@ -2,6 +2,7 @@ const WeeklyRoute = require('../models/WeeklyRoute');
 const InstagramProfile = require('../models/InstagramProfile');
 const BrandAnalysisReport = require('../models/BrandAnalysisReport');
 const CompetitorSet = require('../models/CompetitorSet');
+const Project = require('../models/Project');
 const { generateWeeklyPlan } = require('../services/weeklyPlan');
 const { getObjectText } = require('../services/s3Client');
 
@@ -64,6 +65,29 @@ async function loadBrandDna(userId, username) {
   };
 }
 
+// Studio projects → compact inventory the planner can ground posts and slides in.
+async function loadProjectAssets(userId) {
+  const projects = await Project.find({ user: userId }).sort({ updatedAt: -1 }).limit(12);
+  return projects.map((p) => {
+    const notes = [];
+    const assets = [];
+    for (const c of p.captures || []) {
+      if (c.text?.trim()) notes.push(c.text.trim().slice(0, 280));
+      for (const a of c.attachments || []) {
+        if (a.type === 'image' && a.key) {
+          assets.push({ key: a.key, note: (c.text || '').trim().slice(0, 120) });
+        }
+      }
+    }
+    return {
+      id: p._id.toString(),
+      name: p.name,
+      notes: notes.slice(0, 8),
+      assets: assets.slice(0, 24),
+    };
+  });
+}
+
 // Generate this week's plan for a profile and persist it as the user's current
 // route. Shared by the manual endpoint and the auto-refresh after analysis.
 async function generateAndSaveRoute(userId, profile, options = {}) {
@@ -87,7 +111,12 @@ async function generateAndSaveRoute(userId, profile, options = {}) {
     }
   }
 
-  const plan = await generateWeeklyPlan(profile, brandDna, competitorInsights);
+  const projects = await loadProjectAssets(userId).catch((err) => {
+    console.error(`[route] could not load projects for plan:`, err.message);
+    return [];
+  });
+
+  const plan = await generateWeeklyPlan(profile, brandDna, competitorInsights, projects);
 
   // Key the upsert by handle too, so plans for different handles don't
   // overwrite each other within the same week.
@@ -160,7 +189,39 @@ async function markDayPublished(req, res) {
   if (!route) return res.status(404).json({ message: 'Route not found' });
   if (!route.days[index]) return res.status(404).json({ message: 'Day not found' });
 
-  route.days[index].published = req.body.published !== undefined ? Boolean(req.body.published) : !route.days[index].published;
+  const day = route.days[index];
+
+  if (req.body.published !== undefined) {
+    day.published = Boolean(req.body.published);
+  } else if (req.body.content === undefined && req.body.slides === undefined) {
+    // Legacy toggle when the body is empty / only flipping publish.
+    day.published = !day.published;
+  }
+
+  // Persist slide / caption edits from the studio editor.
+  if (req.body.content && typeof req.body.content === 'object') {
+    const incoming = req.body.content;
+    const cur = day.content || {};
+    if (Array.isArray(incoming.slides)) {
+      cur.slides = incoming.slides.map((s) => ({
+        role: String(s.role || ''),
+        title: String(s.title || ''),
+        assetKey: String(s.assetKey || ''),
+      }));
+      cur.onScreenText = cur.slides.map((s) => s.title).filter(Boolean);
+    }
+    if (incoming.caption !== undefined) cur.caption = String(incoming.caption);
+    if (incoming.cta !== undefined) cur.cta = String(incoming.cta);
+    if (incoming.strategy !== undefined) cur.strategy = String(incoming.strategy);
+    if (incoming.notes !== undefined) cur.notes = String(incoming.notes);
+    if (incoming.plan !== undefined) cur.plan = String(incoming.plan);
+    if (Array.isArray(incoming.hashtags)) {
+      cur.hashtags = incoming.hashtags.map((h) => String(h).replace(/^#/, ''));
+    }
+    day.content = cur;
+  }
+
+  route.markModified('days');
   await route.save();
   res.json({ route });
 }

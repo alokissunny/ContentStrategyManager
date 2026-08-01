@@ -116,14 +116,88 @@ function renderCompetitorInsights(competitorInsights) {
   return parts.join('\n') || 'No competitor analysis available yet.';
 }
 
+// Project inventory for the planner: names, notes, and image keys it can assign
+// to slides. Kept compact so the prompt stays within context.
+function renderProjectAssets(projects) {
+  if (!projects?.length) {
+    return 'No project assets on file yet. Keep posts specific to the niche but do not invent named projects or claim photos exist.';
+  }
+  const parts = projects.map((p) => {
+    const lines = [`### ${p.name}`];
+    if (p.notes?.length) {
+      lines.push('Notes:');
+      p.notes.forEach((n) => lines.push(`- ${n}`));
+    }
+    if (p.assets?.length) {
+      lines.push('Photos (use assetKey on matching slides):');
+      p.assets.forEach((a) => {
+        const note = a.note ? ` — ${a.note}` : '';
+        lines.push(`- assetKey: ${a.key}${note}`);
+      });
+    } else {
+      lines.push('Photos: none yet');
+    }
+    return lines.join('\n');
+  });
+  return parts.join('\n\n');
+}
+
+const SLIDE_ROLES = {
+  Carousel: ['Hook', 'Setup', 'Process', 'Process', 'Result', 'CTA'],
+  Reel: ['Hook', 'Setup', 'CTA'],
+  Story: ['Hook', 'Beat', 'CTA'],
+  Post: ['Hook', 'CTA'],
+};
+
+function normalizeSlides(rawSlides, onScreenText, format, title, cta) {
+  const roles = SLIDE_ROLES[format] || SLIDE_ROLES.Post;
+  let slides = Array.isArray(rawSlides)
+    ? rawSlides.map((s) => ({
+        role: String(s.role || '').trim(),
+        title: String(s.title || '').trim(),
+        assetKey: String(s.assetKey || '').trim(),
+      })).filter((s) => s.title || s.role)
+    : [];
+
+  if (!slides.length) {
+    const texts = Array.isArray(onScreenText) ? onScreenText.filter(Boolean) : [];
+    if (texts.length) {
+      slides = texts.map((t, i) => ({
+        role: roles[Math.min(i, roles.length - 1)],
+        title: String(t),
+        assetKey: '',
+      }));
+    } else {
+      slides = [
+        { role: 'Hook', title: title || 'Open with the strongest frame', assetKey: '' },
+        ...(format === 'Carousel'
+          ? [
+              { role: 'Setup', title: 'Set the context', assetKey: '' },
+              { role: 'Process', title: 'Show the work', assetKey: '' },
+              { role: 'Result', title: 'The outcome', assetKey: '' },
+            ]
+          : []),
+        { role: 'CTA', title: cta || 'Invite them to enquire', assetKey: '' },
+      ];
+    }
+  }
+
+  return slides.map((s, i) => ({
+    role: s.role || roles[Math.min(i, roles.length - 1)],
+    title: s.title || '',
+    assetKey: s.assetKey || '',
+  }));
+}
+
 /**
  * Generate a full weekly content plan for a profile.
  * @param {object} profile
  * @param {object} brandDna
  * @param {object} [competitorInsights]  { competitors, insights } from the competitor analysis.
+ * @param {object[]} [projects]  Project names + notes + image assetKeys from the studio.
  * @returns {Promise<{ weekOf, weekLabel, model, focus, funnel, days }>}
  */
-async function generateWeeklyPlan(profile, brandDna, competitorInsights = null) {
+async function generateWeeklyPlan(profile, brandDna, competitorInsights = null, projects = []) {
   const model = process.env.ANTHROPIC_MODEL || 'claude-sonnet-5';
   const { funnel, focusPillar, confidence, seed } = buildFunnelWithScores(profile);
   const { weekOf, weekLabel, monday } = weekRange();
@@ -146,10 +220,15 @@ async function generateWeeklyPlan(profile, brandDna, competitorInsights = null) 
   const prompt = loadPrompt()
     .replace('{{FOCUS_JSON}}', () => JSON.stringify(focusSummary, null, 2))
     .replace('{{SNAPSHOT_JSON}}', () => JSON.stringify(snapshot, null, 2))
-    .replace('{{COMPETITOR_INSIGHTS}}', () => renderCompetitorInsights(competitorInsights));
+    .replace('{{COMPETITOR_INSIGHTS}}', () => renderCompetitorInsights(competitorInsights))
+    .replace('{{PROJECT_ASSETS}}', () => renderProjectAssets(projects));
 
   const insightNote = competitorInsights ? 'with competitor insights' : 'no competitor insights';
-  console.log(`[weeklyPlan] Generating plan for @${snapshot.username} (focus: ${focusPillar}, ${insightNote}) with ${model}`);
+  const assetCount = projects.reduce((n, p) => n + (p.assets?.length || 0), 0);
+  console.log(
+    `[weeklyPlan] Generating plan for @${snapshot.username} (focus: ${focusPillar}, ${insightNote}, ` +
+      `${projects.length} projects / ${assetCount} photos) with ${model}`
+  );
 
   const client = getAnthropicClient();
   const response = await client.messages.create({
@@ -191,11 +270,16 @@ async function generateWeeklyPlan(profile, brandDna, competitorInsights = null) 
     const date = new Date(monday);
     date.setDate(monday.getDate() + i);
     const c = d.content || {};
+    const format = ['Reel', 'Carousel', 'Post', 'Story'].includes(d.format) ? d.format : 'Post';
+    const slides = normalizeSlides(c.slides, c.onScreenText, format, d.title, c.cta);
+    const onScreenText = Array.isArray(c.onScreenText) && c.onScreenText.length
+      ? c.onScreenText
+      : slides.map((s) => s.title).filter(Boolean);
     return {
       day: d.day || DAY_NAMES[i],
       dateLabel: date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
       time: d.time || '',
-      format: ['Reel', 'Carousel', 'Post', 'Story'].includes(d.format) ? d.format : 'Post',
+      format,
       contentType: d.contentType || '',
       pillar,
       goalTag: d.goalTag || GOAL_TAG[pillar],
@@ -203,13 +287,15 @@ async function generateWeeklyPlan(profile, brandDna, competitorInsights = null) 
       direction: d.direction || '',
       published: false,
       content: {
-        onScreenText: Array.isArray(c.onScreenText) ? c.onScreenText : [],
+        slides,
+        onScreenText,
         caption: c.caption || '',
         cta: c.cta || '',
         hashtags: Array.isArray(c.hashtags) ? c.hashtags.map((h) => String(h).replace(/^#/, '')) : [],
         strategy: c.strategy || '',
         prompts: Array.isArray(c.prompts) ? c.prompts : [],
         plan: c.plan || '',
+        notes: c.notes || '',
       },
     };
   });
@@ -224,4 +310,4 @@ async function generateWeeklyPlan(profile, brandDna, competitorInsights = null) 
   return { weekOf, weekLabel, model, focus, funnel, days, dayAllocation };
 }
 
-module.exports = { generateWeeklyPlan, buildFunnelWithScores, weekRange, allocateDays };
+module.exports = { generateWeeklyPlan, buildFunnelWithScores, weekRange, allocateDays, normalizeSlides };

@@ -9,6 +9,7 @@ const projectRoutes = require('./routes/projectRoutes');
 const instagramRoutes = require('./routes/instagramRoutes');
 const competitorRoutes = require('./routes/competitorRoutes');
 const analysisRoutes = require('./routes/analysisRoutes');
+const metaRoutes = require('./routes/metaRoutes');
 const { notFound, errorHandler } = require('./middleware/errorHandler');
 
 const app = express();
@@ -26,6 +27,7 @@ app.use('/api/projects', projectRoutes);
 app.use('/api/instagram', instagramRoutes);
 app.use('/api/competitors', competitorRoutes);
 app.use('/api/analysis', analysisRoutes);
+app.use('/api/meta', metaRoutes);
 
 app.use(notFound);
 app.use(errorHandler);

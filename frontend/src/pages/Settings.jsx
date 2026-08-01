@@ -13,6 +13,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import Icon from '../brand/Icon';
 import { useAuth } from '../context/AuthContext';
 import { listInstagramProfiles } from '../api/instagram';
+import { getMetaStatus, startMetaConnect, disconnectMeta } from '../api/meta';
 import './settings.css';
 
 function formatCount(n) {
@@ -44,13 +45,39 @@ export default function Settings() {
   const [profiles, setProfiles] = useState([]);
   const [loading, setLoading] = useState(true);
   const [dropped, setDropped] = useState(loadDropped);
+  const [meta, setMeta] = useState({ connected: false, configured: false });
+  const [metaBusy, setMetaBusy] = useState(false);
 
   useEffect(() => {
     listInstagramProfiles()
       .then((data) => setProfiles(data.profiles || []))
       .catch(() => setProfiles([]))
       .finally(() => setLoading(false));
+    getMetaStatus()
+      .then(setMeta)
+      .catch(() => setMeta({ connected: false, configured: false }));
   }, []);
+
+  async function connectMeta() {
+    setMetaBusy(true);
+    try {
+      const { url, state } = await startMetaConnect();
+      if (state) sessionStorage.setItem('meta_oauth_state', state);
+      if (url) window.location.href = url;
+    } catch (err) {
+      alert(err.response?.data?.message || 'Meta connect is not available yet.');
+    } finally {
+      setMetaBusy(false);
+    }
+  }
+
+  async function disconnectMetaAccount() {
+    setMetaBusy(true);
+    try {
+      setMeta(await disconnectMeta());
+    } catch { /* ignore */ }
+    finally { setMetaBusy(false); }
+  }
 
   const toggleFormat = (f) => {
     setDropped((prev) => {
@@ -120,8 +147,60 @@ export default function Settings() {
         )}
 
         <p className="set-card__note">
-          Read-only through Meta's official login. Bauhly never posts, messages, or changes anything.
+          Profile analysis reads public posts. Publishing to Instagram uses a separate Meta connection below.
         </p>
+      </section>
+
+      {/* ── Meta publishing ── */}
+      <section className="card set-card">
+        <h2>Publish with Meta</h2>
+        <p className="set-card__sub">
+          Connect an Instagram Professional account (Business or Creator) linked to a Facebook Page
+          so Bauhly can post carousels and Reels from your weekly plan.
+        </p>
+
+        {meta.connected ? (
+          <div className="set-row is-active">
+            <span className="set-row__ico"><Icon name="instagram" size={20} /></span>
+            <span className="set-row__main">
+              <b className="set-row__title">
+                @{meta.igUsername || 'connected'}
+                <span className="set-row__badge">Connected</span>
+              </b>
+              <span className="set-row__sub">
+                {meta.pageName ? `Page: ${meta.pageName}` : 'Ready to publish from Your plans'}
+              </span>
+            </span>
+          </div>
+        ) : (
+          <p className="set-empty">
+            Not connected yet. You’ll also be prompted when you hit Publish on a post.
+          </p>
+        )}
+
+        <div className="set-foot">
+          {meta.connected ? (
+            <button
+              type="button"
+              className="btn btn--ghost btn--sm"
+              disabled={metaBusy}
+              onClick={disconnectMetaAccount}
+            >
+              <Icon name="x" size={14} />
+              Disconnect Meta
+            </button>
+          ) : (
+            <button
+              type="button"
+              className="btn btn--ghost btn--sm"
+              disabled={metaBusy}
+              onClick={connectMeta}
+            >
+              <Icon name="instagram" size={14} />
+              {metaBusy ? 'Connecting…' : 'Connect with Meta'}
+            </button>
+          )}
+        </div>
       </section>
 
       {/* ── Competitors ── */}

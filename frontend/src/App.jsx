@@ -9,6 +9,7 @@ import BrandDna from './pages/BrandDna';
 import Competitors from './pages/Competitors';
 import CompetitorStrategy from './pages/CompetitorStrategy';
 import Settings from './pages/Settings';
+import MetaCallback from './pages/MetaCallback';
 import ProtectedLayout from './components/ProtectedLayout';
 
 export default function App() {
@@ -27,6 +28,7 @@ export default function App() {
         <Route path="/dashboard/competitors" element={<Competitors />} />
         <Route path="/dashboard/competitor-strategy" element={<CompetitorStrategy />} />
         <Route path="/dashboard/settings" element={<Settings />} />
+        <Route path="/dashboard/meta/callback" element={<MetaCallback />} />
       </Route>
     </Routes>
   );

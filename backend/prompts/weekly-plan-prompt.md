@@ -33,13 +33,21 @@ Output **only** a single fenced ```json code block (no preamble, no closing rema
       "title": "A short working title for the post.",
       "direction": "One sentence telling them what to make that day.",
       "content": {
-        "onScreenText": ["Frame 1 text", "Frame 2 text", "Frame 3 text"],
+        "slides": [
+          { "role": "Hook", "title": "Short on-slide headline", "assetKey": "optional S3 key from project assets" },
+          { "role": "Setup", "title": "…", "assetKey": "" },
+          { "role": "Process", "title": "…", "assetKey": "" },
+          { "role": "Result", "title": "…", "assetKey": "" },
+          { "role": "CTA", "title": "…", "assetKey": "" }
+        ],
+        "onScreenText": ["Same titles as slides, in order — kept for compatibility"],
         "caption": "A ready-to-post caption in the brand's voice (2–4 short paragraphs).",
         "cta": "One call-to-action line.",
         "hashtags": ["nichehashtag", "regionalhashtag"],
         "strategy": "Why this post, this day — the strategic reasoning (2–3 sentences).",
         "prompts": ["A shot/idea prompt", "Another prompt"],
-        "plan": "Practical shot/production notes for making it."
+        "plan": "Practical shot/production notes for making it.",
+        "notes": "Short production notes: which project photos to use, what still needs shooting."
       }
     }
   ]
@@ -58,9 +66,16 @@ Output **only** a single fenced ```json code block (no preamble, no closing rema
 - Sequence the week sensibly (don't clump all of one pillar at the end), and let the `focus` prose
   reflect the pillar with the most days.
 - Ground every caption, direction and prompt in the account's real niche, audience and voice from
-  the snapshot and Brand DNA. Do not invent facts about specific past projects — keep specifics
-  generic enough to be true (e.g. "one recent project") unless the snapshot supports them.
-- `onScreenText`: 1–3 short frames. `hashtags`: 3–6, lowercase, no `#`. `prompts`: 2–4 items.
+  the snapshot and Brand DNA. Prefer real projects and notes from **Project assets** below — name
+  them when they exist. Only stay generic when no project material is available.
+- **`slides` (required)** — complete post content, not outline guidance:
+  - Carousel: 5–6 slides with roles in story order: Hook → Setup → Process (1–2) → Result → CTA.
+  - Reel / Story: 3 beat-slides (Hook, Setup/Beat, CTA) describing on-screen moments.
+  - Single Post: 1–2 slides (Hook, optional CTA).
+  - Each slide needs a short `title` (the on-screen text). Set `assetKey` to a key from Project
+    assets when a real photo fits; otherwise `""`.
+  - Also fill `onScreenText` with the same titles in order.
+- `hashtags`: 3–6, lowercase, no `#`. `prompts`: 2–4 items. `notes`: 1–3 short production lines.
 - Keep the voice consistent with `howYouSound` from the Brand DNA. No emojis unless the account's
   own captions use them.
 - Output only the json block — no text before or after it.
@@ -89,3 +104,10 @@ account's real competitors, from the last 30 days of their activity. Use it to s
 ## Competitor insights
 
 {{COMPETITOR_INSIGHTS}}
+
+## Project assets
+
+Studio projects and photos the planner can use. Prefer these over inventing scenes.
+Each asset lists an `assetKey` you may put on a slide when that photo fits.
+
+{{PROJECT_ASSETS}}

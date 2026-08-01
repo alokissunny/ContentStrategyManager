@@ -23,3 +23,10 @@ export function markDayPublished(routeId, index, published) {
     .patch(`/routes/${routeId}/day/${index}`, published === undefined ? {} : { published })
     .then((res) => res.data.route);
 }
+
+// Persist slide / caption / notes edits for one day.
+export function updateDayContent(routeId, index, content) {
+  return client
+    .patch(`/routes/${routeId}/day/${index}`, { content })
+    .then((res) => res.data.route);
+}
