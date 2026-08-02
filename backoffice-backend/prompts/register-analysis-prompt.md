@@ -11,13 +11,21 @@ accounts. You receive:
 Produce a **structured intelligence dashboard** as JSON. Keep it compact —
 widget lists only, no essay, no per-post classification array.
 
-## Authority pillars (use on findings / hooks / topics / weekly)
+## Authority pillars (use on findings / hooks / topics / hashtags / weekly / caption patterns)
 
 | Pillar | When to use |
 |--------|-------------|
 | `discovery` | Reach / curiosity / hooks that stop the scroll |
 | `credibility` | Expertise / teaching / educational authority |
 | `trust` | Proof / process / client stories / before-after |
+
+**Balance across pillars.** The dashboard is filtered one pillar at a time, so
+every pillar-scoped widget must stand on its own when the reader picks a single
+pillar. Distribute items so **each** of Discovery, Credibility and Trust carries
+the per-pillar minimum stated in each widget rule below — never let one pillar
+dominate a widget while another is left with one or two rows. If the corpus
+genuinely under-supports a pillar, still surface its best available items up to
+the minimum rather than collapsing it.
 
 ## Output
 
@@ -127,26 +135,33 @@ Return **only one JSON object** (no Markdown fences, no preamble). Shape:
 ```
 
 ### Widget rules
-- **findings** — 5–8 items across Discovery / Credibility / Trust
+> Counts below are **per-pillar minimums where noted** so a single-pillar filter
+> still fills every widget. Prefer real, distinct items; only merge duplicates.
+- **findings** — **at least 3 per pillar** (Discovery, Credibility, Trust), 9–15 total
 - **movements** — 8–12 rows across format / topic / hook / caption / day / time.
 `currentValue` must come from corpus / memos. Set `previousValue` and
 `changePp` to `null` and `state` to `"inconclusive"` unless the input itself
 contains a clear prior comparison — never invent a previous window.
-- **hooks** — 5–8 abstracted hook types (merge recurring memo hooks).
+- **hooks** — **at least 3 per pillar** (9–12 total) abstracted hook types (merge recurring memo hooks).
   **`useRate` and `medianEngagement` must come from `hookMetrics`** (server-
   computed). Copy those numbers exactly — do not invent zeros.
   - `useRate` = % of classified exemplars that use the hook
   - `medianEngagement` = median of per-post ER across **all** posts using that
     hook (pooled from every competitor), where
     `ER = (likes + comments) / followers × 100`
-- **topics** — 6–10 topics. `sharePct` = share of analyzed posts about the
+- **topics** — **at least 4 per pillar** (12–18 total). `sharePct` = share of analyzed posts about the
   topic. **`posts` must be `round(sharePct/100 * corpus.totalPosts)`** (never
   leave it 0 when sharePct > 0). `accounts` = distinct accounts posting it.
-- **hashtags** — prefer corpus `topHashtags`; classify type; 8–12 rows. Set
-  `pillar` to the pillar whose top performers use the tag most distinctively
-  versus the comparison group (a distinctiveness marker, never a causal claim).
-- **weekly** — Mon–Sun (7 rows); use corpus `postingDays` for volume where possible
-- **captionAnalysis.patterns** — 5–9 recurring **caption structures**, merged from
+- **hashtags** — prefer corpus `topHashtags`; classify type; **at least 3 per
+  pillar** (9–15 rows). Set `pillar` to the pillar whose top performers use the
+  tag most distinctively versus the comparison group (a distinctiveness marker,
+  never a causal claim).
+- **weekly** — emit a full **Mon–Sun (7 rows) for each pillar** (21 rows total),
+  so a pillar filter still shows a complete week. Each row is that day's plan
+  *if the account leads with that pillar*; use corpus `postingDays` for volume
+  where possible.
+- **captionAnalysis.patterns** — **at least 3 per pillar** (9–15 total) recurring
+  **caption structures**, merged from
   the `captionPatterns` across `batchMemos` (combine same-named patterns).
   - This is the headline widget of the Overview. Report **frequency / prevalence /
     change only** — never performance, reach, saves or results.
@@ -160,6 +175,10 @@ contains a clear prior comparison — never invent a previous window.
     patterns (and optional `dayPeakTimes` hints, one per busy weekday).
 
 ### Hard rules
+- **Per-pillar coverage** — findings, hooks, topics, hashtags, caption patterns and
+  weekly must each meet their stated per-pillar minimum for **all three** pillars.
+  A pillar filter reads these lists directly, so a pillar left short renders a
+  half-empty widget. Balance first, then trim only true duplicates.
 - **Quantitative claims** (shares, medians, account/post counts) must align with
   `corpus`. Do not invent contradicting percentages.
 - Use **batchMemos** for qualitative patterns, themes, anomalies.

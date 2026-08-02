@@ -416,6 +416,7 @@ export function computeDashboard(filters: FilterState): DashboardData {
     hashtags: sampleTooSmall
       ? []
       : mockHashtags
+          .filter((h) => filters.pillar === 'all' || h.pillar === filters.pillar)
           .map((h) => ({
             ...h,
             highPerformerAccounts: Math.max(
@@ -583,6 +584,10 @@ function filterLiveDashboard(data: DashboardData, filters: FilterState): Dashboa
     pillar === 'all' ? (data.hooks ?? []) : (data.hooks ?? []).filter((h) => h.pillar === pillar)
   const topics =
     pillar === 'all' ? (data.topics ?? []) : (data.topics ?? []).filter((t) => t.pillar === pillar)
+  const hashtags =
+    pillar === 'all'
+      ? (data.hashtags ?? [])
+      : (data.hashtags ?? []).filter((h) => h.pillar === pillar)
   const weekly =
     pillar === 'all' ? (data.weekly ?? []) : (data.weekly ?? []).filter((w) => w.pillar === pillar)
 
@@ -635,7 +640,7 @@ function filterLiveDashboard(data: DashboardData, filters: FilterState): Dashboa
     hooks,
     topics,
     trendTopics: data.trendTopics ?? [],
-    hashtags: data.hashtags ?? [],
+    hashtags,
     weekly,
     captionAnalysis,
     weeklyBasis:

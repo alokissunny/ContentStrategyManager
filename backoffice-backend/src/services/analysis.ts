@@ -29,7 +29,10 @@ const MAP_CONCURRENCY = 3
 // The map memo now also carries caption patterns; give it headroom so the JSON
 // isn't cut off mid-array at max_tokens (a truncated memo is unparseable).
 const MAP_MAX_TOKENS = 8192
-const REDUCE_MAX_TOKENS = 16384
+// Per-pillar widget minimums roughly 2–3× the item counts, so the reduce step
+// needs more output headroom to emit balanced Discovery/Credibility/Trust rows
+// across every widget without truncating the JSON mid-array.
+const REDUCE_MAX_TOKENS = 32768
 
 function loadPrompt(path: string): string {
   return readFileSync(path, 'utf8')
@@ -190,12 +193,18 @@ async function callClaude(label: string, prompt: string, maxTokens: number): Pro
   const startedMs = Date.now()
   let response
   try {
-    response = await getAnthropicClient().messages.create({
-      model,
-      max_tokens: maxTokens,
-      thinking: { type: 'disabled' },
-      messages: [{ role: 'user', content: prompt }],
-    })
+    // Stream and await the final message: the SDK refuses non-streaming
+    // requests whose max_tokens budget could exceed its 10-minute cap, which
+    // the larger per-pillar REDUCE_MAX_TOKENS now trips. finalMessage() yields
+    // the same shape as messages.create() once the stream completes.
+    response = await getAnthropicClient()
+      .messages.stream({
+        model,
+        max_tokens: maxTokens,
+        thinking: { type: 'disabled' },
+        messages: [{ role: 'user', content: prompt }],
+      })
+      .finalMessage()
   } catch (apiErr) {
     console.error(`[analysis:${label}] API error after ${Date.now() - startedMs}ms:`, apiErr)
     throw apiErr
