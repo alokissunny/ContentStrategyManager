@@ -1,10 +1,9 @@
-const InstagramProfile = require('../models/InstagramProfile');
 const BrandAnalysisReport = require('../models/BrandAnalysisReport');
 const CompetitorSet = require('../models/CompetitorSet');
 const CustomerCohort = require('../models/CustomerCohort');
 const CompetitorAnalysis = require('../models/CompetitorAnalysis');
 const { findCompetitors, generateCompetitorAnalysis } = require('../services/competitorFinder');
-const { uploadMarkdown, getPresignedDownloadUrl, getObjectText } = require('../services/s3Client');
+const { uploadMarkdown } = require('../services/s3Client');
 const { scrapePosts } = require('../services/instagramScraper');
 
 const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
@@ -70,33 +69,9 @@ async function loadBrandDna(userId, username) {
   };
 }
 
-function resolveUsername(req) {
-  const raw = req.body.username || req.query.username || '';
-  return raw.replace(/^@/, '').trim().toLowerCase();
-}
-
-// Read paths default to the *current* handle (most recently analyzed) rather
-// than "whatever set was saved last". Without this, switching Instagram
-// accounts keeps serving the previous handle's competitors until the background
-// refresh finishes.
-async function resolveTargetUsername(req) {
-  const explicit = resolveUsername(req);
-  if (explicit) return explicit;
-  const profile = await InstagramProfile.findOne({ user: req.user._id }).sort({ fetchedAt: -1 });
-  return profile ? profile.username : null;
-}
-
-// Only two cohorts are surfaced (smaller peers fold into "similar").
-function splitCohorts(competitors) {
-  return {
-    similar: competitors.filter((c) => c.cohort === 'similar'),
-    higher: competitors.filter((c) => c.cohort === 'higher'),
-  };
-}
-
 // Run competitor discovery for a profile and persist it as the user's
-// CompetitorSet for that handle. Shared by the manual endpoint and the
-// automatic refresh triggered when an Instagram account is (re)analyzed.
+// CompetitorSet for that handle. Used by the automatic refresh triggered when
+// an Instagram account is (re)analyzed.
 async function buildAndSaveCompetitorSet(userId, profile) {
   const brandDna = await loadBrandDna(userId, profile.username);
   const result = await findCompetitors(profile, { brandDna });
@@ -116,53 +91,6 @@ async function buildAndSaveCompetitorSet(userId, profile) {
   );
 
   return snapshot;
-}
-
-async function fetchCompetitors(req, res) {
-  const username = resolveUsername(req);
-
-  // Default to the user's most recently analysed handle when none is given.
-  const query = { user: req.user._id };
-  if (username) query.username = username;
-  const profile = await InstagramProfile.findOne(query).sort({ fetchedAt: -1 });
-
-  if (!profile) {
-    return res.status(404).json({
-      message: 'No Instagram profile found. Connect and analyze a handle before finding competitors.',
-    });
-  }
-
-  const snapshot = await buildAndSaveCompetitorSet(req.user._id, profile);
-
-  res.json({
-    username: snapshot.username,
-    baseRegion: snapshot.baseRegion,
-    baseFollowers: snapshot.baseFollowers,
-    cohorts: splitCohorts(snapshot.competitors),
-    competitorSet: snapshot,
-  });
-}
-
-async function getCompetitors(req, res) {
-  const username = await resolveTargetUsername(req);
-  if (!username) {
-    return res.status(404).json({ message: 'No competitor analysis yet. Run a competitor search first.' });
-  }
-
-  const snapshot = await CompetitorSet.findOne({ user: req.user._id, username }).sort({ fetchedAt: -1 });
-  if (!snapshot) {
-    return res.status(404).json({ message: 'No competitor analysis yet. Run a competitor search first.' });
-  }
-
-  res.json({
-    username: snapshot.username,
-    baseRegion: snapshot.baseRegion,
-    baseFollowers: snapshot.baseFollowers,
-    cohorts: splitCohorts(snapshot.competitors),
-    competitorSet: snapshot,
-    analyzedAt: snapshot.analyzedAt || null,
-    analysisDownloadUrl: snapshot.analysisS3Key ? await getPresignedDownloadUrl(snapshot.analysisS3Key) : null,
-  });
 }
 
 function fmtDate(ts) {
@@ -219,8 +147,8 @@ function buildCompetitorAnalysisMarkdown(profile, set, activity, analysisMarkdow
 
 // Run the full competitor analysis for a profile: ensure a competitor set
 // exists, scrape each competitor's last 30 days, write the analysis, store the
-// Markdown in S3 and link it to the user's Brand DNA. Shared by the endpoint and
-// by the weekly-plan chain (which needs the insights before planning).
+// Markdown in S3 and link it to the user's Brand DNA. Used by the weekly-plan
+// chain (which needs the insights before planning).
 async function buildAndSaveCompetitorAnalysis(userId, profile) {
   let set = await CompetitorSet.findOne({ user: userId, username: profile.username }).sort({ fetchedAt: -1 });
   if (!set || !set.competitors.length) {
@@ -250,49 +178,6 @@ async function buildAndSaveCompetitorAnalysis(userId, profile) {
   return set;
 }
 
-async function analyzeCompetitors(req, res) {
-  const username = resolveUsername(req);
-  const query = { user: req.user._id };
-  if (username) query.username = username;
-
-  const profile = await InstagramProfile.findOne(query).sort({ fetchedAt: -1 });
-  if (!profile) {
-    return res.status(404).json({
-      message: 'No Instagram profile found. Connect and analyze a handle before running competitor analysis.',
-    });
-  }
-
-  const set = await buildAndSaveCompetitorAnalysis(req.user._id, profile);
-  const s3Key = set.analysisS3Key;
-
-  res.json({
-    username: profile.username,
-    analyzedAt: set.analyzedAt,
-    downloadUrl: await getPresignedDownloadUrl(s3Key),
-  });
-}
-
-// Full detailed competitor strategy (the analysis Markdown) for rendering on
-// the Competitor strategy page.
-async function getCompetitorAnalysis(req, res) {
-  const username = await resolveTargetUsername(req);
-  const set = username
-    ? await CompetitorSet.findOne({ user: req.user._id, username }).sort({ fetchedAt: -1 })
-    : null;
-  if (!set || !set.analysisS3Key) {
-    return res.status(404).json({ message: 'No competitor strategy yet. Run competitor analysis first.' });
-  }
-  const markdown = await getObjectText(set.analysisS3Key);
-  res.json({
-    username: set.username,
-    analyzedAt: set.analyzedAt,
-    markdown,
-    // The page renders insights only; the full file (incl. the raw 30-day dump)
-    // stays available to download.
-    downloadUrl: await getPresignedDownloadUrl(set.analysisS3Key),
-  });
-}
-
 // Latest completed dashboard for a filter scope, newest first. Follower range /
 // period are pinned to the back office Overview defaults, so a cohort is keyed
 // by Business Type + Location.
@@ -316,10 +201,10 @@ function findCohortAnalysis(businessCategory, location) {
  * Global when the user's country has not been analysed yet, so there is always
  * a relevant view when any analysis exists.
  */
-async function getCompetitorOverview(req, res) {
-  const cohortDoc = await CustomerCohort.findOne({ user: req.user._id }).lean();
+async function loadCompetitorOverviewForUser(userId) {
+  const cohortDoc = await CustomerCohort.findOne({ user: userId }).lean();
   if (!cohortDoc) {
-    return res.json({ cohort: null, scopeUsed: null, dashboard: null, generatedAt: null });
+    return { cohort: null, scopeUsed: null, dashboard: null, generatedAt: null };
   }
 
   const businessCategory = cohortDoc.businessCategory || 'interior-designer';
@@ -333,22 +218,23 @@ async function getCompetitorOverview(req, res) {
     if (analysis) scopeUsed = { businessCategory, location: 'Global' };
   }
 
-  res.json({
+  return {
     cohort: { businessCategory, location },
     scopeUsed,
     dashboard: analysis ? analysis.dashboard : null,
     generatedAt: analysis ? analysis.finishedAt || analysis.startedAt || null : null,
     accountsAnalyzed: analysis ? analysis.accountsAnalyzed ?? null : null,
     postsAnalyzed: analysis ? analysis.postsAnalyzed ?? null : null,
-  });
+  };
+}
+
+async function getCompetitorOverview(req, res) {
+  res.json(await loadCompetitorOverviewForUser(req.user._id));
 }
 
 module.exports = {
-  fetchCompetitors,
-  getCompetitors,
-  analyzeCompetitors,
-  getCompetitorAnalysis,
   getCompetitorOverview,
+  loadCompetitorOverviewForUser,
   buildAndSaveCompetitorSet,
   buildAndSaveCompetitorAnalysis,
 };

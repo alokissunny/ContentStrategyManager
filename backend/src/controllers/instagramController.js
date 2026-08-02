@@ -1,10 +1,12 @@
 const InstagramProfile = require('../models/InstagramProfile');
 const BrandAnalysisReport = require('../models/BrandAnalysisReport');
+const WeeklyRoute = require('../models/WeeklyRoute');
 const { scrapeProfile, scrapePosts } = require('../services/instagramScraper');
 const { generateBrandAnalysis } = require('../services/brandAnalysis');
 const { uploadMarkdown, getPresignedDownloadUrl } = require('../services/s3Client');
 const { computeAuthorityFunnel } = require('../services/authorityFunnel');
-const { buildAndSaveCompetitorSet } = require('./competitorController');
+const { buildAnalysisOverview } = require('../services/analysisOverview');
+const { buildAndSaveCompetitorSet, loadCompetitorOverviewForUser } = require('./competitorController');
 const { generateAndSaveRoute } = require('./routeController');
 
 function extractUsername(input) {
@@ -110,4 +112,41 @@ async function getAuthorityFunnel(req, res) {
   res.json({ username: profile.username, week, funnel });
 }
 
-module.exports = { fetchInstagram, getInstagramProfile, getAuthorityFunnel };
+async function loadBrandDna(userId, username) {
+  const report = await BrandAnalysisReport.findOne({ user: userId, instagramUsername: username }).sort({
+    createdAt: -1,
+  });
+  if (!report) return null;
+  return {
+    whatYouOffer: report.whatYouOffer || '',
+    whoYouHelp: report.whoYouHelp || '',
+    firstProblem: report.firstProblem || '',
+    position: report.position || '',
+    proof: report.proof || '',
+    howYouSound: report.howYouSound || '',
+    visualStyle: report.visualStyle || '',
+    neverDo: report.neverDo || '',
+  };
+}
+
+// Full "Your analysis" modal payload: verdict, account summary, strengths,
+// opportunities, similar accounts (when a cohort is assigned), strategic focus.
+async function getAnalysisOverview(req, res) {
+  const query = { user: req.user._id };
+  if (req.query.username) query.username = req.query.username.toLowerCase();
+  const profile = await InstagramProfile.findOne(query).sort({ fetchedAt: -1 });
+  if (!profile) {
+    return res.status(404).json({ message: 'No Instagram analysis yet. Connect a handle first.' });
+  }
+
+  const [brandDna, cohortOverview, weeklyRoute] = await Promise.all([
+    loadBrandDna(req.user._id, profile.username),
+    loadCompetitorOverviewForUser(req.user._id),
+    WeeklyRoute.findOne({ user: req.user._id, instagramUsername: profile.username }).sort({ weekOf: -1 }),
+  ]);
+
+  const overview = buildAnalysisOverview(profile, brandDna, cohortOverview, weeklyRoute);
+  res.json(overview);
+}
+
+module.exports = { fetchInstagram, getInstagramProfile, getAuthorityFunnel, getAnalysisOverview };

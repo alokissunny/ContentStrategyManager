@@ -14,6 +14,14 @@ export function getAuthorityFunnel(username) {
     .then((res) => res.data);
 }
 
+// Full analysis modal: verdict, account summary, strengths, opportunities,
+// similar accounts (when cohort assigned), strategic focus, shapes-week.
+export function getAnalysisOverview(username) {
+  return client
+    .get('/instagram/analysis-overview', { params: username ? { username } : undefined })
+    .then((res) => res.data);
+}
+
 export function getReportDownloadUrl(reportId) {
   return client.get(`/analysis/reports/${reportId}/download`).then((res) => res.data.downloadUrl);
 }

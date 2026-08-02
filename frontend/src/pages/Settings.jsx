@@ -1,11 +1,11 @@
 /*
- * Settings — the accounts Bauhly reads, the competitors it watches, the formats
- * it may plan with, and the account you're signed in as.
+ * Settings — the accounts Bauhly reads, the formats it may plan with, and the
+ * account you're signed in as.
  *
  * Restyled to the bauhly-v3 design (page-head + set-card/set-row), wired to the
  * real app: Instagram profiles come from the API, the account row and sign-out
- * are the real auth, competitors links to the live Competitors page. Format
- * preferences persist locally until the plan generator reads them.
+ * are the real auth. Format preferences persist locally until the plan
+ * generator reads them.
  */
 
 import React, { useEffect, useState } from 'react';
@@ -200,21 +200,6 @@ export default function Settings() {
               {metaBusy ? 'Connecting…' : 'Connect with Meta'}
             </button>
           )}
-        </div>
-      </section>
-
-      {/* ── Competitors ── */}
-      <section className="card set-card">
-        <h2>Competitors</h2>
-        <p className="set-card__sub">
-          Bauhly assembles a comparison set of similar studios and reads the same public signals from
-          each. Review the set and its analysis on the Competitors page.
-        </p>
-        <div className="set-foot">
-          <Link className="btn btn--ghost btn--sm" to="/dashboard/competitors">
-            <Icon name="eye" size={14} />
-            Open competitors
-          </Link>
         </div>
       </section>
 
