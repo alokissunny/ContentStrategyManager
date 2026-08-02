@@ -1,6 +1,6 @@
 import { Router } from 'express'
 import { z } from 'zod'
-import { getCustomerDetail, listCustomers } from '../services/customers.ts'
+import { getCustomerDetail, listCustomers, setCustomerCohort } from '../services/customers.ts'
 import { asyncHandler } from '../utils/asyncHandler.ts'
 
 export const customerRoutes = Router()
@@ -27,5 +27,25 @@ customerRoutes.get(
     const detail = await getCustomerDetail(String(req.params.id))
     if (!detail) return res.status(404).json({ message: 'Customer not found' })
     res.json(detail)
+  }),
+)
+
+/** Assign a competitor cohort (Business Type + Location) to the customer. */
+customerRoutes.patch(
+  '/customers/:id/cohort',
+  asyncHandler(async (req, res) => {
+    const body = z
+      .object({
+        businessCategory: z.enum(['interior-designer', 'bauhly-competitor', 'other']),
+        location: z.string().trim().min(1),
+      })
+      .safeParse(req.body)
+    if (!body.success) {
+      return res.status(400).json({ message: 'Business type and location are required.' })
+    }
+
+    const cohort = await setCustomerCohort(String(req.params.id), body.data)
+    if (!cohort) return res.status(404).json({ message: 'Customer not found' })
+    res.json(cohort)
   }),
 )

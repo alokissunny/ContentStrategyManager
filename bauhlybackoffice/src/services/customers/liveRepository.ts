@@ -69,12 +69,19 @@ const customerWeeklyPlan = z.object({
 })
 export type CustomerWeeklyPlan = z.infer<typeof customerWeeklyPlan>
 
+const customerCohort = z.object({
+  businessCategory: z.string(),
+  location: z.string(),
+})
+export type CustomerCohort = z.infer<typeof customerCohort>
+
 const customerDetail = z.object({
   id: z.string(),
   name: z.string(),
   email: z.string(),
   role: z.string(),
   createdAt: z.string(),
+  cohort: customerCohort.nullable(),
   business: z
     .object({
       name: z.string(),
@@ -151,4 +158,16 @@ export async function getCustomerDetail(id: string): Promise<CustomerDetail | nu
   }
   await delay()
   return null
+}
+
+/** Assign the competitor cohort (Business Type + Location) to a customer. */
+export async function updateCustomerCohort(
+  id: string,
+  input: CustomerCohort,
+): Promise<CustomerCohort> {
+  if (!USE_MOCKS) {
+    return customerCohort.parse(await api.patch<unknown>(`/customers/${id}/cohort`, input))
+  }
+  await delay()
+  return input
 }

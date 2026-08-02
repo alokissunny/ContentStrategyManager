@@ -592,6 +592,23 @@
   margin-top: var(--sp-2);
 }
 
+/* ── Competitor cohort assignment ─────────────────────────────────────────── */
+.cohort-editor-fields {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--sp-3);
+  margin-top: var(--sp-3);
+}
+
+.cohort-editor-fields .filter-field {
+  min-width: 12rem;
+}
+
+.cohort-editor-error {
+  color: var(--negative);
+}
+
 .plan-grid {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));

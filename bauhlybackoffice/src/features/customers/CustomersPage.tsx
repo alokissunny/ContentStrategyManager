@@ -1,12 +1,17 @@
 import { useEffect, useRef, useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   defaultCustomerQuery,
   getCustomerDetail,
   listCustomers,
+  updateCustomerCohort,
+  type CustomerCohort,
   type CustomerQuery,
   type CustomerWeeklyPlan,
 } from '../../services/customers/liveRepository'
+import { getCompetitorLocations } from '../../services/competitors/repository'
+import { filterOptions } from '../../services/intelligence/filters'
+import { ApiError } from '../../services/api'
 import { EmptyState } from '../../components/EmptyState'
 import { StatCard } from '../../components/StatCard'
 import { CustomersIcon } from '../../components/icons'
@@ -122,6 +127,106 @@ function WeeklyPlanCalendar({
         {plan.generatedAt ? ` · presented ${formatDate(plan.generatedAt)}` : ''}
         {plan.instagramUsername ? ` · plan for @${plan.instagramUsername}` : ''}
       </p>
+    </section>
+  )
+}
+
+/**
+ * Assign a competitor cohort — Business Type + Location — to this customer's
+ * Instagram account. Remounted per customer (keyed by id) so the selects reset
+ * to the saved assignment when a different customer is opened.
+ */
+function CohortEditor({
+  customerId,
+  handle,
+  cohort,
+}: {
+  customerId: string
+  handle: string | null
+  cohort: CustomerCohort | null
+}) {
+  const queryClient = useQueryClient()
+  const [businessCategory, setBusinessCategory] = useState(
+    cohort?.businessCategory ?? 'interior-designer',
+  )
+  const [location, setLocation] = useState(cohort?.location ?? 'Global')
+
+  const locations = useQuery({
+    queryKey: ['competitor-locations'],
+    queryFn: getCompetitorLocations,
+    staleTime: 60_000,
+  })
+  const locationOptions = ['Global', ...(locations.data ?? [])]
+  if (location && !locationOptions.includes(location)) locationOptions.push(location)
+
+  const mutation = useMutation({
+    mutationFn: () => updateCustomerCohort(customerId, { businessCategory, location }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['customer-detail', customerId] })
+      queryClient.invalidateQueries({ queryKey: ['customers'] })
+    },
+  })
+
+  const savedBusiness = cohort?.businessCategory ?? 'interior-designer'
+  const savedLocation = cohort?.location ?? 'Global'
+  const dirty = businessCategory !== savedBusiness || location !== savedLocation
+
+  return (
+    <section className="weekly-plan cohort-editor">
+      <div className="panel-head weekly-plan-head">
+        <h2>Competitor cohort</h2>
+      </div>
+      <p className="section-note">
+        The competitor cohort {handle ? `@${handle}` : 'this account'} is benchmarked against.
+      </p>
+      <div className="cohort-editor-fields">
+        <div className="filter-field">
+          <label htmlFor="cohort-business-type">Business type</label>
+          <select
+            id="cohort-business-type"
+            value={businessCategory}
+            onChange={(e) => setBusinessCategory(e.target.value)}
+          >
+            {filterOptions.businessCategory.map(({ value, label }) => (
+              <option key={value} value={value}>
+                {label}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="filter-field">
+          <label htmlFor="cohort-location">Location</label>
+          <select
+            id="cohort-location"
+            value={location}
+            onChange={(e) => setLocation(e.target.value)}
+          >
+            {locationOptions.map((c) => (
+              <option key={c} value={c}>
+                {c}
+              </option>
+            ))}
+          </select>
+        </div>
+        <button
+          type="button"
+          className="btn-primary"
+          disabled={!dirty || mutation.isPending}
+          onClick={() => mutation.mutate()}
+        >
+          {mutation.isPending ? 'Saving…' : cohort ? 'Update cohort' : 'Assign cohort'}
+        </button>
+      </div>
+      {mutation.isError && (
+        <p className="section-note cohort-editor-error">
+          {mutation.error instanceof ApiError
+            ? mutation.error.message
+            : 'Could not save the cohort.'}
+        </p>
+      )}
+      {mutation.isSuccess && !dirty && (
+        <p className="section-note">Saved.</p>
+      )}
     </section>
   )
 }
@@ -305,6 +410,15 @@ export function CustomersPage() {
               Retry
             </button>
           </div>
+        )}
+
+        {selectedId && detail.data && !detail.isPending && !detail.isError && (
+          <CohortEditor
+            key={selectedId}
+            customerId={selectedId}
+            handle={detail.data.profiles[0]?.username ?? selectedRow?.instagramUsername ?? null}
+            cohort={detail.data.cohort}
+          />
         )}
 
         {selectedId && detail.data?.weeklyPlan && (

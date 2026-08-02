@@ -1,6 +1,7 @@
 import mongoose from 'mongoose'
 import { User } from '../middleware/auth.ts'
 import { InstagramProfile, WeeklyRoute } from '../models/customerData.ts'
+import { CustomerCohort } from '../models/customerCohort.ts'
 
 export interface CustomerListQuery {
   search?: string
@@ -70,12 +71,20 @@ export interface CustomerWeeklyPlan {
   days: WeeklyPlanDay[]
 }
 
+/** Competitor cohort (Business Type + Location) assigned to a customer. */
+export interface CustomerCohortAssignment {
+  businessCategory: string
+  location: string
+}
+
 export interface CustomerDetail {
   id: string
   name: string
   email: string
   role: string
   createdAt: string
+  /** Assigned competitor cohort, or null when none has been set. */
+  cohort: CustomerCohortAssignment | null
   business: {
     name: string
     goals: string
@@ -260,7 +269,7 @@ export async function getCustomerDetail(id: string): Promise<CustomerDetail | nu
     .lean()) as LeanUser | null
   if (!user || user.role === 'admin') return null
 
-  const [profiles, route] = await Promise.all([
+  const [profiles, route, cohort] = await Promise.all([
     InstagramProfile.find({ user: user._id })
       .select('username fullName followersCount postsCount fetchedAt')
       .sort({ fetchedAt: -1 })
@@ -268,6 +277,10 @@ export async function getCustomerDetail(id: string): Promise<CustomerDetail | nu
     // Freshest plan first (see listCustomers): generatedAt beats a stale
     // regeneration for the same weekOf, so the detail never shows an old plan.
     WeeklyRoute.findOne({ user: user._id }).sort({ generatedAt: -1, weekOf: -1, createdAt: -1 }),
+    CustomerCohort.findOne({ user: user._id }).lean() as Promise<{
+      businessCategory?: string
+      location?: string
+    } | null>,
   ])
 
   const business = user.business
@@ -278,6 +291,12 @@ export async function getCustomerDetail(id: string): Promise<CustomerDetail | nu
     email: String(user.email ?? ''),
     role: String(user.role ?? 'user'),
     createdAt: user.createdAt ? new Date(user.createdAt).toISOString() : new Date(0).toISOString(),
+    cohort: cohort
+      ? {
+          businessCategory: String(cohort.businessCategory ?? 'interior-designer'),
+          location: String(cohort.location ?? 'Global'),
+        }
+      : null,
     business: business
       ? {
           name: String(business.name ?? ''),
@@ -295,4 +314,39 @@ export async function getCustomerDetail(id: string): Promise<CustomerDetail | nu
     })),
     weeklyPlan: route ? serializeWeeklyPlan(route) : null,
   }
+}
+
+/**
+ * Assign (upsert) a competitor cohort — Business Type + Location — to a
+ * customer's Instagram account. Stored in a backoffice-owned collection so the
+ * customer app's data is left untouched. Returns null when the customer does
+ * not exist (or is an admin).
+ */
+export async function setCustomerCohort(
+  id: string,
+  input: { businessCategory: string; location: string },
+): Promise<CustomerCohortAssignment | null> {
+  if (!mongoose.isValidObjectId(id)) return null
+
+  const user = (await User.findById(id).select('role').lean()) as LeanUser | null
+  if (!user || user.role === 'admin') return null
+
+  const profile = (await InstagramProfile.findOne({ user: id })
+    .select('username')
+    .sort({ fetchedAt: -1 })
+    .lean()) as { username?: string } | null
+
+  const doc = await CustomerCohort.findOneAndUpdate(
+    { user: id },
+    {
+      $set: {
+        businessCategory: input.businessCategory,
+        location: input.location,
+        instagramUsername: profile?.username ?? null,
+      },
+    },
+    { new: true, upsert: true, runValidators: true, setDefaultsOnInsert: true },
+  )
+
+  return { businessCategory: String(doc.businessCategory), location: String(doc.location) }
 }
