@@ -11,12 +11,17 @@ import { FilterActionsSlot } from '../../app/shell/pageActions'
 interface FilterBarProps {
   filters: FilterState
   onChange: (next: FilterState) => void
+  /**
+   * Overview locks the follower range to the "All sizes" default and hides the
+   * control, so the tab always analyses the full register regardless of size.
+   */
+  hideFollowerRange?: boolean
 }
 
 interface FilterSelectProps {
   label: string
   value: string
-  options: { value: string; label: string }[]
+  options: { value: string; label: string; disabled?: boolean }[]
   onChange: (value: string) => void
 }
 
@@ -34,7 +39,7 @@ function FilterSelect({ label, value, options, onChange }: FilterSelectProps) {
       <label htmlFor={selectId}>{label}</label>
       <select id={selectId} value={value} onChange={(e) => onChange(e.target.value)}>
         {optionsWithValue.map((o) => (
-          <option key={o.value} value={o.value}>
+          <option key={o.value} value={o.value} disabled={o.disabled}>
             {o.label}
           </option>
         ))}
@@ -56,7 +61,7 @@ function compact(n: number): string {
 /** The filter-bar fields that Clear all / the active-count badge consider. */
 const FILTER_BAR_KEYS = ['location', 'followerRangeLabel', 'pillar', 'period'] as const
 
-export function FilterBar({ filters, onChange }: FilterBarProps) {
+export function FilterBar({ filters, onChange, hideFollowerRange = false }: FilterBarProps) {
   const locations = useQuery({
     queryKey: ['competitor-locations'],
     queryFn: getCompetitorLocations,
@@ -85,8 +90,13 @@ export function FilterBar({ filters, onChange }: FilterBarProps) {
     onChange({ ...filters, [key]: value })
 
   // Business type lives in the top bar — Clear all only resets Overview filter-bar fields.
-  const isDefault = FILTER_BAR_KEYS.every((key) => filters[key] === defaultFilters[key])
-  const activeCount = FILTER_BAR_KEYS.filter((key) => filters[key] !== defaultFilters[key]).length
+  // When the follower range is hidden it stays pinned to its default, so it never
+  // counts toward the active-filter badge or the Clear all affordance.
+  const activeKeys = hideFollowerRange
+    ? FILTER_BAR_KEYS.filter((key) => key !== 'followerRangeLabel')
+    : FILTER_BAR_KEYS
+  const isDefault = activeKeys.every((key) => filters[key] === defaultFilters[key])
+  const activeCount = activeKeys.filter((key) => filters[key] !== defaultFilters[key]).length
 
   // Phones collapse the whole bar behind a button; the toggle is hidden by CSS
   // at wider widths, where the fields are always shown.
@@ -133,6 +143,7 @@ export function FilterBar({ filters, onChange }: FilterBarProps) {
           options={asOptions(locationOptions)}
           onChange={(v) => set('location', v)}
         />
+        {!hideFollowerRange && (
         <div className="filter-field">
           <label htmlFor="filter-follower-range">Follower Range</label>
           <select
@@ -186,6 +197,7 @@ export function FilterBar({ filters, onChange }: FilterBarProps) {
             </div>
           )}
         </div>
+        )}
         <FilterSelect
           label="Authority Pillar"
           value={filters.pillar}
@@ -198,7 +210,12 @@ export function FilterBar({ filters, onChange }: FilterBarProps) {
         <FilterSelect
           label="Time Period"
           value={filters.period}
-          options={[...filterOptions.period]}
+          // Locked to the last-30-days default: other windows are shown but
+          // disabled until the register carries enough history to trust them.
+          options={filterOptions.period.map((p) => ({
+            ...p,
+            disabled: p.value !== 'last-30',
+          }))}
           onChange={(v) => set('period', v as FilterState['period'])}
         />
         <p className="filter-match-count" aria-live="polite">

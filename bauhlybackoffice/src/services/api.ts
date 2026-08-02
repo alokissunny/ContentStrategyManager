@@ -88,6 +88,41 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   return (await res.json()) as T
 }
 
+/** Raw-text GET (e.g. Markdown downloads) that skips JSON parsing. */
+async function requestText(
+  path: string,
+  params?: Record<string, string | number | undefined>,
+): Promise<string> {
+  const query = params
+    ? `?${new URLSearchParams(
+        Object.entries(params)
+          .filter(([, v]) => v !== undefined && v !== '')
+          .map(([k, v]) => [k, String(v)]),
+      )}`
+    : ''
+  const token = getToken()
+  const res = await fetch(`${BASE_URL}${path}${query}`, {
+    cache: 'no-store',
+    headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+  })
+  if (!res.ok) {
+    let message = `Request failed (${res.status})`
+    try {
+      const body = (await res.json()) as { message?: string; error?: string }
+      if (body?.message) message = body.message
+      else if (body?.error) message = body.error
+    } catch {
+      /* non-JSON error body */
+    }
+    if (res.status === 401) {
+      setToken(null)
+      onUnauthorized?.()
+    }
+    throw new ApiError(message, res.status)
+  }
+  return res.text()
+}
+
 export const api = {
   get: <T>(path: string, params?: Record<string, string | number | undefined>) => {
     const query = params
@@ -99,6 +134,8 @@ export const api = {
       : ''
     return request<T>(`${path}${query}`)
   },
+  getText: (path: string, params?: Record<string, string | number | undefined>) =>
+    requestText(path, params),
   post: <T>(path: string, body?: unknown) =>
     request<T>(path, { method: 'POST', body: body === undefined ? undefined : JSON.stringify(body) }),
   patch: <T>(path: string, body?: unknown) =>

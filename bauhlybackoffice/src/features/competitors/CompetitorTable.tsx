@@ -1,4 +1,9 @@
-import type { CompetitorListResult, CompetitorQuery } from '../../services/competitors/repository'
+import { useQuery } from '@tanstack/react-query'
+import {
+  getCompetitorLocations,
+  type CompetitorListResult,
+  type CompetitorQuery,
+} from '../../services/competitors/repository'
 import { PeriodFilter } from '../../components/PeriodFilter'
 
 /* Table + filter row + pagination for the competitor list. */
@@ -24,6 +29,19 @@ export function CompetitorFilterRow({
   const hasFilters =
     query.search !== '' || query.country !== 'all' || query.followerRange !== 'all'
 
+  // Real countries in the register (same source the Overview uses), so a picked
+  // location always maps to accounts. Keep the current value selectable even if
+  // it fell out of the live list.
+  const locations = useQuery({
+    queryKey: ['competitor-locations'],
+    queryFn: getCompetitorLocations,
+    staleTime: 60_000,
+  })
+  const countryOptions = ['all', ...(locations.data ?? [])]
+  if (query.country !== 'all' && !countryOptions.includes(query.country)) {
+    countryOptions.push(query.country)
+  }
+
   return (
     <div className="comp-filters" role="group" aria-label="Competitor filters">
       <input
@@ -37,7 +55,7 @@ export function CompetitorFilterRow({
       <div className="filter-field">
         <label htmlFor="f-country">Location</label>
         <select id="f-country" value={query.country} onChange={(e) => set('country', e.target.value)}>
-          {['all', 'Spain', 'Netherlands', 'Germany', 'Denmark'].map((c) => (
+          {countryOptions.map((c) => (
             <option key={c} value={c}>
               {c === 'all' ? 'All' : c}
             </option>

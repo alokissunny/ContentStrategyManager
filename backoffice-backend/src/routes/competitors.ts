@@ -42,6 +42,7 @@ competitorRoutes.get(
       search: String(q.search ?? ''),
       country: String(q.country ?? 'all'),
       followerRange: String(q.followerRange ?? 'all'),
+      businessCategory: String(q.businessCategory ?? 'all'),
       status: String(q.status ?? 'tracked'),
       period: String(q.period ?? 'last-30'),
       sort: (q.sort as 'name' | 'followers' | 'change' | 'lastCollection') ?? 'followers',
@@ -651,6 +652,42 @@ competitorRoutes.get(
 
     const latest = await getLatestAnalysis()
     res.json(latest)
+  }),
+)
+
+/**
+ * The stored detailed analysis, served as a downloadable Markdown file for the
+ * cohort (Business Type + Location). Follower range / period fall back to the
+ * Overview defaults so the cohort key is effectively Business Type + Location.
+ */
+competitorRoutes.get(
+  '/analysis/markdown',
+  asyncHandler(async (req, res) => {
+    const location = typeof req.query.location === 'string' ? req.query.location : undefined
+    const followerRangeLabel =
+      typeof req.query.followerRangeLabel === 'string' ? req.query.followerRangeLabel : undefined
+    const businessCategory =
+      typeof req.query.businessCategory === 'string' ? req.query.businessCategory : undefined
+    const period = typeof req.query.period === 'string' ? req.query.period : undefined
+
+    const scoped = await getAnalysisForScope({
+      location,
+      followerRangeLabel,
+      businessCategory,
+      period,
+    })
+    if (!scoped || !scoped.markdown) {
+      return res.status(404).json({ message: 'No stored analysis report for this cohort.' })
+    }
+
+    const slug = (v: string) => v.replace(/[^a-z0-9]+/gi, '-').replace(/^-+|-+$/g, '').toLowerCase()
+    const scope = scoped.filterScope
+    const filename = `analysis-${slug(scope?.businessCategory ?? 'cohort')}-${slug(
+      scope?.location ?? 'global',
+    )}.md`
+    res.setHeader('Content-Type', 'text/markdown; charset=utf-8')
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`)
+    res.send(scoped.markdown)
   }),
 )
 

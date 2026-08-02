@@ -27,6 +27,8 @@ export interface CompetitorQuery {
   search: string
   country: string
   followerRange: string
+  /** Business category to filter the list to; 'all' (or empty) means no filter. */
+  businessCategory: string
   status: string
   period: string
   sort: 'name' | 'followers' | 'change' | 'lastCollection'
@@ -39,6 +41,7 @@ export const defaultQuery: CompetitorQuery = {
   search: '',
   country: 'all',
   followerRange: 'all',
+  businessCategory: 'all',
   status: 'tracked',
   period: 'last-30',
   sort: 'followers',
@@ -72,12 +75,37 @@ export function parseFollowerRange(label: string): [number, number | null] | nul
 
 function buildFilter(q: CompetitorQuery): Record<string, unknown> {
   const filter: Record<string, unknown> = {}
+  // Each independent clause that needs its own $or goes here, then they are
+  // combined with $and so search and location never clobber one another.
+  const and: Record<string, unknown>[] = []
 
   if (q.search) {
     const rx = new RegExp(q.search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i')
-    filter.$or = [{ username: rx }, { displayName: rx }, { website: rx }]
+    and.push({ $or: [{ username: rx }, { displayName: rx }, { website: rx }] })
   }
-  if (q.country && q.country !== 'all') filter['location.country'] = q.country
+  if (q.country && q.country !== 'all') {
+    // Match the effective country the Accounts table and Overview show:
+    // location.country when present, else enrichment.country. Case-insensitive
+    // and whitespace-tolerant, mirroring accountCountryOf + locationMatches so a
+    // country offered in the dropdown always resolves to its accounts.
+    const rx = new RegExp(`^\\s*${q.country.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*$`, 'i')
+    const missingLocation = {
+      $or: [
+        { 'location.country': { $in: [null, ''] } },
+        { 'location.country': { $exists: false } },
+      ],
+    }
+    and.push({
+      $or: [
+        { 'location.country': rx },
+        { $and: [missingLocation, { 'enrichment.country': rx }] },
+      ],
+    })
+  }
+  // Legacy rows are backfilled to 'interior-designer' in listCompetitors, so a
+  // plain equality filter is sufficient here (mirrors businessCategoryMatches).
+  if (q.businessCategory && q.businessCategory !== 'all')
+    filter.businessCategory = q.businessCategory
 
   /*
    * There is no approval workflow: an account is either in the register or
@@ -92,6 +120,7 @@ function buildFilter(q: CompetitorQuery): Record<string, unknown> {
     const [min, max] = bucket
     filter.latestFollowerCount = max == null ? { $gte: min } : { $gte: min, $lt: max }
   }
+  if (and.length > 0) filter.$and = and
   return filter
 }
 

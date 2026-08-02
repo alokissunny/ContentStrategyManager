@@ -1178,6 +1178,202 @@ export interface RunAnalysisInput {
   windowDays?: number
 }
 
+const BUSINESS_TYPE_LABELS: Record<string, string> = {
+  'interior-designer': 'Interior Designer',
+  'bauhly-competitor': 'Bauhly Competitor (Instagram Content Strategist)',
+  other: 'Other',
+}
+
+const PILLAR_LABELS: Record<string, string> = {
+  discovery: 'Discovery',
+  credibility: 'Credibility',
+  trust: 'Trust',
+}
+
+function businessTypeLabel(category: string): string {
+  return BUSINESS_TYPE_LABELS[category] ?? category
+}
+
+function pillarLabelOf(pillar: string | null | undefined): string {
+  if (!pillar) return '—'
+  return PILLAR_LABELS[pillar] ?? pillar
+}
+
+/** Format a finding value with its unit for the report. */
+function formatFindingValue(value: number | null, unit: string): string {
+  if (value == null) return '—'
+  const n = Math.round(value * 10) / 10
+  switch (unit) {
+    case 'per-week':
+      return `${n}/week`
+    case 'ratio':
+      return `${n}×`
+    case 'absolute':
+      return String(n)
+    default:
+      return `${n}%`
+  }
+}
+
+/**
+ * Render the completed dashboard into a detailed, human-readable Markdown
+ * report keyed to the cohort (Business Type + Location). Persisted on the
+ * analysis document so every cohort keeps its latest full write-up alongside
+ * the structured dashboard. Deterministic — no extra LLM call.
+ */
+export function renderAnalysisMarkdown(
+  dashboard: ReturnType<typeof normalizeDashboard>,
+  meta: {
+    location: string
+    businessCategory: string
+    followerRangeLabel: string
+    period: string
+    windowDays: number
+    model: string
+    finishedAt: Date
+  },
+): string {
+  const L: string[] = []
+  const cohort = `${businessTypeLabel(meta.businessCategory)} · ${meta.location}`
+  const s = dashboard.summary
+  const ca = dashboard.captionAnalysis
+
+  L.push(`# Competitor Intelligence — ${cohort}`)
+  L.push('')
+  L.push(`**Cohort:** ${businessTypeLabel(meta.businessCategory)} · ${meta.location}  `)
+  L.push(`**Follower range:** ${meta.followerRangeLabel}  `)
+  L.push(`**Window:** last ${meta.windowDays} days (${meta.period})  `)
+  L.push(`**Generated:** ${meta.finishedAt.toISOString()}  `)
+  L.push(`**Model:** ${meta.model}`)
+  L.push('')
+
+  L.push('## Summary')
+  L.push('')
+  L.push(`- Accounts analysed: **${s.accountsAnalyzed}** (target ${s.accountTarget.min}–${s.accountTarget.max})`)
+  L.push(`- Captions analysed: **${s.postsAnalyzed}**`)
+  L.push(`- Recommendation-ready findings: **${s.recommendationReady}**`)
+  L.push(`- Emerging / strengthening patterns: **${s.emergingPatterns}**`)
+  L.push(`- Median posts / week: **${s.medianPostsPerWeek}**`)
+  L.push(`- Median engagement rate: **${s.medianEngagementRate}%**`)
+  L.push('')
+
+  L.push('## Findings')
+  L.push('')
+  if (dashboard.findings.length === 0) {
+    L.push('_No findings for this cohort._')
+  } else {
+    for (const f of dashboard.findings) {
+      L.push(`### ${f.title}`)
+      L.push('')
+      L.push(`- **Pillar:** ${pillarLabelOf(f.authorityPillar)}`)
+      L.push(
+        `- **This cohort:** ${formatFindingValue(f.focusValue, f.valueUnit)} · ` +
+          `**Comparison:** ${formatFindingValue(f.comparisonValue, f.valueUnit)}`,
+      )
+      L.push(`- **Evidence:** ${f.evidenceStrength}`)
+      if (f.explanation) L.push(`- ${f.explanation}`)
+      if (f.metricDefinition) L.push(`- _${f.metricDefinition}_`)
+      L.push('')
+    }
+  }
+
+  L.push('## Movements')
+  L.push('')
+  if (dashboard.movements.length === 0) {
+    L.push('_No movements for this cohort._')
+    L.push('')
+  } else {
+    L.push('| Pattern | Dimension | Previous | Current | Change | State |')
+    L.push('| --- | --- | --- | --- | --- | --- |')
+    for (const m of dashboard.movements) {
+      const prev = m.previousValue == null ? '—' : `${m.previousValue}%`
+      const curr = m.currentValue == null ? '—' : `${m.currentValue}%`
+      const chg = m.changePp == null ? '—' : `${m.changePp > 0 ? '+' : ''}${m.changePp}pp`
+      L.push(`| ${m.pattern} | ${m.dimension} | ${prev} | ${curr} | ${chg} | ${m.state} |`)
+    }
+    L.push('')
+  }
+
+  L.push('## Hooks')
+  L.push('')
+  if (dashboard.hooks.length === 0) {
+    L.push('_No hooks for this cohort._')
+    L.push('')
+  } else {
+    L.push('| Hook | Pillar | Use rate | Median ER | Trend |')
+    L.push('| --- | --- | --- | --- | --- |')
+    for (const h of dashboard.hooks) {
+      L.push(
+        `| ${h.hookType} | ${pillarLabelOf(h.pillar)} | ${h.useRate}% | ${h.medianEngagement}% | ${h.trend} |`,
+      )
+    }
+    L.push('')
+  }
+
+  L.push('## Topics')
+  L.push('')
+  if (dashboard.topics.length === 0) {
+    L.push('_No topics for this cohort._')
+    L.push('')
+  } else {
+    L.push('| Topic | Pillar | Share | Accounts | Posts | Change |')
+    L.push('| --- | --- | --- | --- | --- | --- |')
+    for (const t of dashboard.topics) {
+      const chg = t.changePp == null ? '—' : `${t.changePp > 0 ? '+' : ''}${t.changePp}pp`
+      L.push(
+        `| ${t.topic} | ${pillarLabelOf(t.pillar)} | ${t.sharePct}% | ${t.accounts} | ${t.posts} | ${chg} |`,
+      )
+    }
+    L.push('')
+  }
+
+  L.push('## Hashtags')
+  L.push('')
+  if (dashboard.hashtags.length === 0) {
+    L.push('_No hashtags for this cohort._')
+    L.push('')
+  } else {
+    L.push('| Tag | Type | Pillar | High performers | Comparison |')
+    L.push('| --- | --- | --- | --- | --- |')
+    for (const h of dashboard.hashtags) {
+      L.push(
+        `| ${h.tag} | ${h.type} | ${pillarLabelOf(h.pillar)} | ${h.highPerformerAccounts} | ${h.comparisonAccounts} |`,
+      )
+    }
+    L.push('')
+  }
+
+  L.push('## Caption Patterns')
+  L.push('')
+  if (!ca || ca.patterns.length === 0) {
+    L.push('_No caption patterns for this cohort._')
+    L.push('')
+  } else {
+    L.push(
+      `Based on ${ca.kpis.competitors} competitors · ${ca.kpis.captions} captions · ` +
+        `${ca.kpis.patternsDetected} patterns.`,
+    )
+    L.push('')
+    for (const p of ca.patterns) {
+      L.push(`### ${p.name}`)
+      L.push('')
+      L.push(`- **Pillar:** ${pillarLabelOf(p.pillar)}`)
+      L.push(`- **Share of captions:** ${p.sharePct}% · **Captions:** ${p.captions} · **Competitors:** ${p.competitors}`)
+      if (p.whatWeDetected) L.push(`- **What we detected:** ${p.whatWeDetected}`)
+      if (p.whyItMatters) L.push(`- **Why it matters:** ${p.whyItMatters}`)
+      if (Array.isArray(p.structure) && p.structure.length > 0) {
+        L.push('- **Structure:**')
+        for (const step of p.structure) {
+          L.push(`  1. **${step.step}** — ${step.detail}`)
+        }
+      }
+      L.push('')
+    }
+  }
+
+  return L.join('\n')
+}
+
 export async function runRegisterAnalysis(input: RunAnalysisInput = {}): Promise<AnalysisResult> {
   const location = input.location ?? 'Global'
   const followerRangeLabel = input.followerRangeLabel ?? 'All sizes'
@@ -1281,7 +1477,18 @@ export async function runRegisterAnalysis(input: RunAnalysisInput = {}): Promise
 
     running.status = 'completed'
     running.llmModel = model
-    running.markdown = null
+    // Detailed Markdown write-up stored against the cohort (filterScope carries
+    // Business Type + Location). Kept in the DB alongside the dashboard — small
+    // text, cohort-keyed, fetched in the same query. See renderAnalysisMarkdown.
+    running.markdown = renderAnalysisMarkdown(dashboard, {
+      location,
+      businessCategory,
+      followerRangeLabel,
+      period,
+      windowDays,
+      model,
+      finishedAt,
+    })
     running.dashboard = dashboard
     running.filterScope = filterScope
     running.accountsAnalyzed = built.corpus.accountsWithPosts

@@ -12,6 +12,7 @@ import {
   type NewCompetitorInput,
 } from '../../services/competitors/repository'
 import { IntelligencePage } from '../intelligence/IntelligencePage'
+import { getAnalysisReportMarkdown } from '../../services/intelligence/repository'
 import { defaultFilters, filterOptions, type FilterState } from '../../services/intelligence/filters'
 
 import { periodToDays } from '../../services/intelligence/filterScope'
@@ -43,8 +44,39 @@ export function CompetitorsSection() {
   const [modal, setModal] = useState<'add' | 'discover' | 'confirm-analysis' | null>(null)
   const [addError, setAddError] = useState<string | null>(null)
   const [analysisError, setAnalysisError] = useState<string | null>(null)
+  const [downloading, setDownloading] = useState(false)
   const [filters, setFilters] = useState<FilterState>(defaultFilters)
   const queryClient = useQueryClient()
+
+  const slug = (v: string) =>
+    v.replace(/[^a-z0-9]+/gi, '-').replace(/^-+|-+$/g, '').toLowerCase() || 'cohort'
+
+  const downloadReport = async () => {
+    setDownloading(true)
+    setAnalysisError(null)
+    try {
+      const markdown = await getAnalysisReportMarkdown(filters)
+      const blob = new Blob([markdown], { type: 'text/markdown;charset=utf-8' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `analysis-${slug(filters.businessCategory)}-${slug(filters.location)}.md`
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      URL.revokeObjectURL(url)
+    } catch (err) {
+      setAnalysisError(
+        err instanceof ApiError
+          ? err.status === 404
+            ? 'No saved report for this cohort yet — run analysis first.'
+            : err.message
+          : 'Could not download the report.',
+      )
+    } finally {
+      setDownloading(false)
+    }
+  }
 
   const suggestions = useQuery({ queryKey: ['competitor-suggestions'], queryFn: listSuggestions })
   const collection = useQuery({ queryKey: ['collection-status'], queryFn: getCollectionStatus })
@@ -132,51 +164,54 @@ export function CompetitorsSection() {
   return (
     <FilterActionsProvider>
     <div>
-      {!onAccounts && (
-        <>
-          <PageCenterActions>
-            <div className="topbar-field">
-              <label htmlFor="overview-business-type">Business type</label>
-              <select
-                id="overview-business-type"
-                value={filters.businessCategory}
-                onChange={(e) =>
-                  setFilters({ ...filters, businessCategory: e.target.value })
-                }
-              >
-                {filterOptions.businessCategory.map(({ value, label }) => (
-                  <option key={value} value={value}>
-                    {label}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </PageCenterActions>
-          <PageActions>
-            <span
-              className="collection-status"
-              title={
-                collection.data
-                  ? `${collection.data.accountsProcessed} accounts processed, ${collection.data.postsCollected.toLocaleString('en-US')} posts collected, ${collection.data.failures} failed`
-                  : undefined
-              }
-            >
-              <RefreshIcon width={14} height={14} />
-              Last scrape{' '}
-              {collection.data ? relativeTime(collection.data.lastRunAt) : '…'}
-              {collection.data ? ` · ${collection.data.source}` : ''}
-            </span>
-            <button
-              type="button"
-              className="btn-primary"
-              disabled={analysisMutation.isPending}
-              onClick={requestRunAnalysis}
-            >
-              {analysisMutation.isPending ? 'Analysing…' : 'Run analysis'}
-            </button>
-          </PageActions>
-        </>
-      )}
+      {/* Business type + Run analysis live in the header on both the Overview
+          and Accounts tabs, so the register can be re-analysed from either. */}
+      <PageCenterActions>
+        <div className="topbar-field">
+          <label htmlFor="overview-business-type">Business type</label>
+          <select
+            id="overview-business-type"
+            value={filters.businessCategory}
+            onChange={(e) => setFilters({ ...filters, businessCategory: e.target.value })}
+          >
+            {filterOptions.businessCategory.map(({ value, label }) => (
+              <option key={value} value={value}>
+                {label}
+              </option>
+            ))}
+          </select>
+        </div>
+      </PageCenterActions>
+      <PageActions>
+        <span
+          className="collection-status"
+          title={
+            collection.data
+              ? `${collection.data.accountsProcessed} accounts processed, ${collection.data.postsCollected.toLocaleString('en-US')} posts collected, ${collection.data.failures} failed`
+              : undefined
+          }
+        >
+          <RefreshIcon width={14} height={14} />
+          Last scrape {collection.data ? relativeTime(collection.data.lastRunAt) : '…'}
+          {collection.data ? ` · ${collection.data.source}` : ''}
+        </span>
+        <button
+          type="button"
+          className="btn-secondary"
+          disabled={downloading}
+          onClick={downloadReport}
+        >
+          {downloading ? 'Preparing…' : 'Download report (.md)'}
+        </button>
+        <button
+          type="button"
+          className="btn-primary"
+          disabled={analysisMutation.isPending}
+          onClick={requestRunAnalysis}
+        >
+          {analysisMutation.isPending ? 'Analysing…' : 'Run analysis'}
+        </button>
+      </PageActions>
 
       <div className="section-bar">
         <div className="review-tabs" role="tablist" aria-label="Competitor views">
@@ -209,7 +244,7 @@ export function CompetitorsSection() {
         </div>
       </div>
 
-      {analysisError && !onAccounts && !analysisMutation.isPending && (
+      {analysisError && !analysisMutation.isPending && (
         <div className="bulk-bar bulk-bar--notice" role="alert">
           <span>{analysisError}</span>
           <button type="button" className="btn-secondary" onClick={() => setAnalysisError(null)}>
@@ -219,7 +254,7 @@ export function CompetitorsSection() {
       )}
 
       {onAccounts ? (
-        <CompetitorsPage />
+        <CompetitorsPage businessCategory={filters.businessCategory} />
       ) : (
         <IntelligencePage
           filters={filters}

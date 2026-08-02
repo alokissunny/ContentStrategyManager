@@ -545,6 +545,79 @@ function sanitizeLiveDashboard(data: DashboardData): DashboardData {
   }
 }
 
+/**
+ * The stored detailed analysis report (.md) for the current cohort. Live mode
+ * downloads the backend-rendered report keyed by Business Type + Location; mock
+ * mode renders a concise report from the computed dashboard so the download
+ * works offline.
+ */
+export async function getAnalysisReportMarkdown(filters: FilterState): Promise<string> {
+  const scope = {
+    location: filters.location,
+    followerRangeLabel: filters.followerRangeLabel,
+    businessCategory: filters.businessCategory,
+    period: filters.period,
+  }
+  const { USE_MOCKS, api } = await import('../api')
+  if (!USE_MOCKS) return api.getText('/analysis/markdown', scope)
+  return dashboardToMarkdown(await getDashboard(filters), filters)
+}
+
+/** Compact Markdown rendering used only in mock mode (see above). */
+function dashboardToMarkdown(data: DashboardData, filters: FilterState): string {
+  const businessLabel =
+    filterOptionsBusiness[filters.businessCategory] ?? filters.businessCategory
+  const s = data.summary
+  const L: string[] = [
+    `# Competitor Intelligence — ${businessLabel} · ${filters.location}`,
+    '',
+    `**Cohort:** ${businessLabel} · ${filters.location}  `,
+    `**Window:** ${filters.period}  `,
+    `**Generated:** ${new Date().toISOString()}`,
+    '',
+    '## Summary',
+    '',
+    `- Accounts analysed: **${s.accountsAnalyzed}**`,
+    `- Captions analysed: **${s.postsAnalyzed}**`,
+    `- Recommendation-ready findings: **${s.recommendationReady}**`,
+    `- Emerging / strengthening patterns: **${s.emergingPatterns}**`,
+    '',
+  ]
+  const section = (title: string, rows: string[]) => {
+    L.push(`## ${title}`, '')
+    L.push(rows.length ? rows.join('\n') : `_No ${title.toLowerCase()} for this cohort._`, '')
+  }
+  section(
+    'Findings',
+    data.findings.map((f) => `- **${f.title}** (${f.authorityPillar ?? '—'}) — ${f.evidenceStrength}`),
+  )
+  section(
+    'Hooks',
+    data.hooks.map((h) => `- **${h.hookType}** (${h.pillar}) — use ${h.useRate}%, median ER ${h.medianEngagement}%`),
+  )
+  section(
+    'Topics',
+    data.topics.map((t) => `- **${t.topic}** (${t.pillar}) — ${t.sharePct}% · ${t.posts} posts`),
+  )
+  section(
+    'Hashtags',
+    data.hashtags.map((h) => `- **${h.tag}** (${h.type}) — high performers ${h.highPerformerAccounts}`),
+  )
+  section(
+    'Caption Patterns',
+    (data.captionAnalysis?.patterns ?? []).map(
+      (p) => `- **${p.name}** (${p.pillar}) — ${p.sharePct}% · ${p.captions} captions`,
+    ),
+  )
+  return L.join('\n')
+}
+
+const filterOptionsBusiness: Record<string, string> = {
+  'interior-designer': 'Interior Designer',
+  'bauhly-competitor': 'Bauhly Competitor (Instagram Content Strategist)',
+  other: 'Other',
+}
+
 function emptyDashboard(filters: FilterState): DashboardData {
   const scopeLabel = `${filters.location} · ${filters.followerRangeLabel} · ${filters.period}`
   return {

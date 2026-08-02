@@ -23,6 +23,8 @@ export interface CompetitorQuery {
   search: string
   country: string
   followerRange: string
+  /** Business category to filter the list to; 'all' means no filter. */
+  businessCategory: string
   period: ComparisonPeriod
   sort: 'name' | 'followers' | 'change' | 'lastCollection'
   sortDir: 'asc' | 'desc'
@@ -34,6 +36,7 @@ export const defaultCompetitorQuery: CompetitorQuery = {
   search: '',
   country: 'all',
   followerRange: 'all',
+  businessCategory: 'all',
   period: 'last-30',
   sort: 'followers',
   sortDir: 'desc',
@@ -85,7 +88,20 @@ function matches(account: CompetitorAccount, q: CompetitorQuery): boolean {
       (account.website?.toLowerCase().includes(s) ?? false)
     if (!hit) return false
   }
-  if (q.country !== 'all' && account.location.country !== q.country) return false
+  if (q.country !== 'all') {
+    // Effective country: location.country, else enrichment country — matched
+    // case-insensitively, mirroring the Overview and the backend list filter.
+    const effective = (
+      account.location.country?.trim() ||
+      account.enrichment?.country?.trim() ||
+      ''
+    ).toLowerCase()
+    if (effective !== q.country.trim().toLowerCase()) return false
+  }
+  if (q.businessCategory !== 'all') {
+    const cat = account.businessCategory ?? 'interior-designer'
+    if (cat !== q.businessCategory) return false
+  }
   if (account.approvalStatus === 'deleted') return false
   if (q.followerRange !== 'all') {
     const bucket = followerBuckets[q.followerRange]
@@ -177,6 +193,7 @@ export async function listCompetitors(q: CompetitorQuery): Promise<CompetitorLis
     search: q.search,
     country: q.country,
     followerRange: q.followerRange,
+    businessCategory: q.businessCategory,
     period: q.period,
     sort: q.sort,
     sortDir: q.sortDir,

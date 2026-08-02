@@ -21,8 +21,16 @@ import { DeleteCompetitorsModal } from './DeleteCompetitorsModal'
 import { RawPostsModal } from './RawPostsModal'
 import './competitors.css'
 
-export function CompetitorsPage() {
+interface CompetitorsPageProps {
+  /** Business category chosen in the section header; 'all' shows every category. */
+  businessCategory?: string
+}
+
+export function CompetitorsPage({ businessCategory = 'all' }: CompetitorsPageProps) {
   const [query, setQuery] = useState<CompetitorQuery>(defaultCompetitorQuery)
+  // The category filter is driven by the section header, not the in-page filter
+  // row, so merge it into the query the list/stats actually run against.
+  const listQuery = { ...query, businessCategory }
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [activeId, setActiveId] = useState<string | null>(null)
   /** Ids awaiting delete confirmation; null = dialog closed. */
@@ -33,8 +41,8 @@ export function CompetitorsPage() {
   const queryClient = useQueryClient()
 
   const list = useQuery({
-    queryKey: ['competitors', query],
-    queryFn: () => listCompetitors(query),
+    queryKey: ['competitors', listQuery],
+    queryFn: () => listCompetitors(listQuery),
     placeholderData: (prev) => prev,
   })
   const detail = useQuery({

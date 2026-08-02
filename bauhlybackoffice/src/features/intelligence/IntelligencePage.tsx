@@ -193,7 +193,7 @@ export function IntelligencePage({
 
   return (
     <div className="intelligence-main">
-      <FilterBar filters={filters} onChange={onFiltersChange} />
+      <FilterBar filters={filters} onChange={onFiltersChange} hideFollowerRange />
       <DashboardBody
         query={query}
         filters={filters}
