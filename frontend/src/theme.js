@@ -8,9 +8,12 @@ export const LS_BORDER = '#E9E9EE';
 export const LS_INK = '#16161A';      // charcoal spine
 export const LS_T2 = '#585864';       // ink-600
 export const LS_MUTED = '#9B9BA6';    // ink-400
-export const LS_SIGNAL = '#FF5227';   // Brute Orange — the Bauhly signal
+export const LS_SIGNAL = '#FF5227';   // Brute Orange — the Bauhly signal (signal-500)
+export const LS_SIGNAL_TEXT = '#A8330F'; // signal-800 — AA-safe accent-as-text on a tint (selected nav)
 export const LS_SOFT = '#FFF1EC';     // signal-50
 export const LS_SOFT_BORDER = '#FFDDD2'; // signal-100
+export const LS_INK_MENU = '#26262C'; // ink-800 — resting nav label
+export const LS_HOVER = '#EFEFF2';     // ink-100 — nav hover ground
 export const LS_FONT = "'Inter', system-ui, -apple-system, sans-serif";
 export const LS_DISPLAY = "'Cabinet Grotesk', 'Bricolage Grotesque', 'Inter', ui-sans-serif, system-ui, sans-serif";
 

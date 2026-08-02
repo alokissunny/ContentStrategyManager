@@ -2,7 +2,10 @@
   "CORSRules": [
     {
       "ID": "bauhly-project-media",
-      "AllowedOrigins": ["http://localhost:5173"],
+      "AllowedOrigins": [
+        "http://localhost:5173",
+        "https://igsignal-web.onrender.com"
+      ],
       "AllowedMethods": ["PUT", "GET", "HEAD"],
       "AllowedHeaders": ["*"],
       "ExposeHeaders": ["ETag"],
