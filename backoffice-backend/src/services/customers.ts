@@ -200,8 +200,11 @@ export async function listCustomers(input: CustomerListQuery = {}) {
       .sort({ fetchedAt: -1 })
       .lean(),
     WeeklyRoute.find({ user: { $in: ids } })
-      .select('user weekLabel focus generatedAt weekOf updatedAt')
-      .sort({ weekOf: -1 })
+      .select('user weekLabel focus generatedAt weekOf updatedAt createdAt')
+      // Freshest plan first: generatedAt is stamped once when the plan is
+      // produced, so a regenerated plan (even for the same weekOf) wins over the
+      // stale one. weekOf / createdAt break ties and cover legacy null rows.
+      .sort({ generatedAt: -1, weekOf: -1, createdAt: -1 })
       .lean(),
   ])
 
@@ -262,7 +265,9 @@ export async function getCustomerDetail(id: string): Promise<CustomerDetail | nu
       .select('username fullName followersCount postsCount fetchedAt')
       .sort({ fetchedAt: -1 })
       .lean(),
-    WeeklyRoute.findOne({ user: user._id }).sort({ weekOf: -1 }),
+    // Freshest plan first (see listCustomers): generatedAt beats a stale
+    // regeneration for the same weekOf, so the detail never shows an old plan.
+    WeeklyRoute.findOne({ user: user._id }).sort({ generatedAt: -1, weekOf: -1, createdAt: -1 }),
   ])
 
   const business = user.business
