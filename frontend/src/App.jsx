@@ -7,6 +7,7 @@ import YourPlans from './pages/YourPlans';
 import Projects from './pages/Projects';
 import BrandDna from './pages/BrandDna';
 import Competitors from './pages/Competitors';
+import CompetitorOverview from './pages/CompetitorOverview';
 import CompetitorStrategy from './pages/CompetitorStrategy';
 import Settings from './pages/Settings';
 import MetaCallback from './pages/MetaCallback';
@@ -26,6 +27,7 @@ export default function App() {
         <Route path="/dashboard/projects" element={<Projects />} />
         <Route path="/dashboard/brand-dna" element={<BrandDna />} />
         <Route path="/dashboard/competitors" element={<Competitors />} />
+        <Route path="/dashboard/competitor-overview" element={<CompetitorOverview />} />
         <Route path="/dashboard/competitor-strategy" element={<CompetitorStrategy />} />
         <Route path="/dashboard/settings" element={<Settings />} />
         <Route path="/dashboard/meta/callback" element={<MetaCallback />} />

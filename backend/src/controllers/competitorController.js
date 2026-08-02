@@ -1,6 +1,8 @@
 const InstagramProfile = require('../models/InstagramProfile');
 const BrandAnalysisReport = require('../models/BrandAnalysisReport');
 const CompetitorSet = require('../models/CompetitorSet');
+const CustomerCohort = require('../models/CustomerCohort');
+const CompetitorAnalysis = require('../models/CompetitorAnalysis');
 const { findCompetitors, generateCompetitorAnalysis } = require('../services/competitorFinder');
 const { uploadMarkdown, getPresignedDownloadUrl, getObjectText } = require('../services/s3Client');
 const { scrapePosts } = require('../services/instagramScraper');
@@ -291,11 +293,62 @@ async function getCompetitorAnalysis(req, res) {
   });
 }
 
+// Latest completed dashboard for a filter scope, newest first. Follower range /
+// period are pinned to the back office Overview defaults, so a cohort is keyed
+// by Business Type + Location.
+function findCohortAnalysis(businessCategory, location) {
+  return CompetitorAnalysis.findOne({
+    status: 'completed',
+    dashboard: { $ne: null },
+    'filterScope.businessCategory': businessCategory,
+    'filterScope.location': location,
+    'filterScope.followerRangeLabel': 'All sizes',
+    'filterScope.period': 'last-30',
+  })
+    .sort({ finishedAt: -1, startedAt: -1 })
+    .lean();
+}
+
+/*
+ * Competitor Overview for the signed-in user: the same analysis the back office
+ * Overview renders, scoped to the competitor cohort (Business Type + Location)
+ * an operator assigned to this user. Falls back to the same business type at
+ * Global when the user's country has not been analysed yet, so there is always
+ * a relevant view when any analysis exists.
+ */
+async function getCompetitorOverview(req, res) {
+  const cohortDoc = await CustomerCohort.findOne({ user: req.user._id }).lean();
+  if (!cohortDoc) {
+    return res.json({ cohort: null, scopeUsed: null, dashboard: null, generatedAt: null });
+  }
+
+  const businessCategory = cohortDoc.businessCategory || 'interior-designer';
+  const location = cohortDoc.location || 'Global';
+
+  let analysis = await findCohortAnalysis(businessCategory, location);
+  let scopeUsed = analysis ? { businessCategory, location } : null;
+
+  if (!analysis && location !== 'Global') {
+    analysis = await findCohortAnalysis(businessCategory, 'Global');
+    if (analysis) scopeUsed = { businessCategory, location: 'Global' };
+  }
+
+  res.json({
+    cohort: { businessCategory, location },
+    scopeUsed,
+    dashboard: analysis ? analysis.dashboard : null,
+    generatedAt: analysis ? analysis.finishedAt || analysis.startedAt || null : null,
+    accountsAnalyzed: analysis ? analysis.accountsAnalyzed ?? null : null,
+    postsAnalyzed: analysis ? analysis.postsAnalyzed ?? null : null,
+  });
+}
+
 module.exports = {
   fetchCompetitors,
   getCompetitors,
   analyzeCompetitors,
   getCompetitorAnalysis,
+  getCompetitorOverview,
   buildAndSaveCompetitorSet,
   buildAndSaveCompetitorAnalysis,
 };
