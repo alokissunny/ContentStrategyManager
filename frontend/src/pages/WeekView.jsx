@@ -13,6 +13,7 @@ import ConnectMetaModal from '../components/ConnectMetaModal';
 import { markDayPublished, updateDayContent } from '../api/routes';
 import { getMetaStatus, publishDayToMeta } from '../api/meta';
 import { useProjects, uploadFiles } from '../lib/projectsStore';
+import { CaptureModal } from './Projects';
 import './weekView.css';
 
 const FORMAT_ICON = { Reel: 'play', Carousel: 'copy', Post: 'image', Story: 'book-open' };
@@ -174,6 +175,7 @@ function buildMarkdown(route) {
 
 export default function WeekView({ route: initialRoute, onBack, onRegenerate, generating }) {
   const projects = useProjects();
+  const [capturing, setCapturing] = useState(false);
   const [route, setRoute] = useState(initialRoute);
   const [selected, setSelected] = useState(0);
   const [tab, setTab] = useState('Slides');
@@ -396,7 +398,11 @@ export default function WeekView({ route: initialRoute, onBack, onRegenerate, ge
 
     setPublishing(true);
     try {
-      const result = await publishDayToMeta(route._id, selected);
+      // Publish the images actually shown for the day — owned photos and the
+      // "standing-in" ones the app auto-filled (both are the user's project
+      // media, keyed by S3 key). The backend re-presigns each key server-side.
+      const imageKeys = slides.map((s) => s.assetKey || s.image?.key).filter(Boolean);
+      const result = await publishDayToMeta(route._id, selected, { imageKeys });
       if (result.route) setRoute(result.route);
       setPublishMsg(result.live ? 'Posted to Instagram' : (result.message || 'Published'));
     } catch (err) {
@@ -432,9 +438,22 @@ export default function WeekView({ route: initialRoute, onBack, onRegenerate, ge
 
   return (
     <div className="wv">
-      <button type="button" className="wv-back" onClick={onBack}>
-        <Glyph name="arrow-left" size={15} />Your plans
-      </button>
+      <div className="wv-topbar">
+        <button type="button" className="wv-back" onClick={onBack}>
+          <Glyph name="arrow-left" size={15} />Your plans
+        </button>
+        <button type="button" className="wv-capture" onClick={() => setCapturing(true)}>
+          <Glyph name="plus" size={15} strokeWidth={2.5} />Capture idea
+        </button>
+      </div>
+
+      {capturing && (
+        <CaptureModal
+          projects={projects}
+          defaultProjectId={projects[0]?.id}
+          onClose={() => setCapturing(false)}
+        />
+      )}
 
       <div className="wv-head">
         <div className="wv-head__meta">

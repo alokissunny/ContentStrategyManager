@@ -233,12 +233,26 @@ function ProjectFormModal({ mode, project, onClose, onSubmit }) {
   );
 }
 
-/* ── capture — a streamlined "add a moment" modal ──────────────────────── */
-function CaptureModal({ project, onClose }) {
+/* ── capture — a streamlined "add a moment" modal ──────────────────────────
+ *
+ * Two ways in. From a project detail, `project` is fixed and the capture files
+ * straight into it. From Your Week (no single project in view), pass the
+ * `projects` list instead: the modal offers a picker over them, and — for a
+ * studio that has no project yet — a name field that creates one on save so the
+ * one thing the flow needs from them is never blocked behind a setup step. */
+export function CaptureModal({ project, projects, defaultProjectId, onClose }) {
+  const fixed = Boolean(project);
+  const list = projects || [];
+  const noProjects = !fixed && list.length === 0;
   const [text, setText] = useState('');
   const [atts, setAtts] = useState([]);
   const [busy, setBusy] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [targetId, setTargetId] = useState(defaultProjectId ?? list[0]?.id ?? '');
+  const [newName, setNewName] = useState('');
+
+  const hasContent = Boolean(text.trim()) || atts.length > 0;
+  const canSave = hasContent && (fixed || !noProjects || Boolean(newName.trim()));
 
   const addFiles = async (files) => {
     setUploading(true);
@@ -246,26 +260,48 @@ function CaptureModal({ project, onClose }) {
     finally { setUploading(false); }
   };
   const save = async () => {
-    if (!text.trim() && atts.length === 0) return;
+    if (!canSave) return;
     const type = atts.some((a) => a.type === 'video') && !text.trim() ? 'video'
       : atts.length && !text.trim() ? 'photo' : 'note';
     setBusy(true);
-    try { await addEntry(project.id, { type, text: text.trim(), attachments: atts }); onClose(); }
+    try {
+      const id = fixed ? project.id : (noProjects ? await createProject(newName.trim()) : targetId);
+      await addEntry(id, { type, text: text.trim(), attachments: atts });
+      onClose();
+    }
     finally { setBusy(false); }
   };
+
+  const title = fixed ? `Capture to ${project.name}` : 'Capture idea';
 
   return (
     <>
       <div className="fm-scrim" onClick={onClose} />
-      <div className="fm" role="dialog" aria-modal="true" aria-label={`Capture to ${project.name}`}>
+      <div className="fm" role="dialog" aria-modal="true" aria-label={title}>
         <div className="fm__head">
-          <h2>Capture to {project.name}</h2>
+          <h2>{title}</h2>
           <button className="np__close" onClick={onClose} aria-label="Close"><Icon name="x" size={16} strokeWidth={2.25} /></button>
         </div>
         <div className="fm__body">
+          {!fixed && !noProjects && (
+            <label className="fm__field">
+              <span className="fm__label">Add to project</span>
+              <select className="input" value={targetId} onChange={(e) => setTargetId(e.target.value)}>
+                {list.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+              </select>
+            </label>
+          )}
+          {noProjects && (
+            <label className="fm__field">
+              <span className="fm__label">New project</span>
+              <input className="input" value={newName} autoFocus
+                placeholder="e.g. Portfolio week"
+                onChange={(e) => setNewName(e.target.value)} />
+            </label>
+          )}
           <label className="fm__field">
             <span className="fm__label">What happened?</span>
-            <textarea className="input" rows={4} value={text} autoFocus
+            <textarea className="input" rows={4} value={text} autoFocus={!noProjects}
               placeholder="e.g. Kitchen after the rewire — client picked the darker oak"
               onChange={(e) => setText(e.target.value)} />
           </label>
@@ -281,7 +317,7 @@ function CaptureModal({ project, onClose }) {
         <div className="fm__foot">
           <span className="fm__spacer" />
           <button className="fm__cancel" onClick={onClose}>Cancel</button>
-          <button className="fm__submit" disabled={busy || uploading || (!text.trim() && atts.length === 0)} onClick={save}>{busy ? 'Saving…' : 'Save'}</button>
+          <button className="fm__submit" disabled={busy || uploading || !canSave} onClick={save}>{busy ? 'Saving…' : 'Save'}</button>
         </div>
       </div>
     </>

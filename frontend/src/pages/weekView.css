@@ -6,13 +6,21 @@
   margin: 0 auto;
 }
 
+/* the way back and the one thing the studio adds, on one row (per bauhly-v3) */
+.wv-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
 .wv-back {
   display: inline-flex;
   align-items: center;
   gap: 7px;
   height: 34px;
   padding: 0 12px;
-  margin-bottom: 16px;
   border-radius: 10px;
   border: 1px solid var(--border);
   background: var(--surface);
@@ -22,6 +30,26 @@
   font-weight: 600;
   color: var(--ink-900);
 }
+
+/* Capture idea — the loudest control on the page: it is the only contribution
+   the plan needs from the studio, so it takes the ink-as-primary treatment. */
+.wv-capture {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 38px;
+  padding: 0 18px;
+  border-radius: 10px;
+  border: 1px solid var(--ink-900);
+  background: var(--ink-900);
+  cursor: pointer;
+  font-family: var(--font-ui);
+  font-size: 13.5px;
+  font-weight: 600;
+  color: #fff;
+  white-space: nowrap;
+}
+.wv-capture:hover { filter: brightness(1.15); }
 
 .wv-head {
   display: flex;

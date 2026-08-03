@@ -40,6 +40,20 @@ services:
         sync: false
       - key: ANTHROPIC_MODEL
         value: claude-sonnet-5
+      # Meta Instagram Content Publishing (Connect with Meta → publish to IG).
+      - key: META_APP_ID
+        value: "965034379672554"
+      # Secret: set in the Render dashboard, never committed. Use the value from
+      # Meta AFTER clicking Reset (the one in chat/screenshots is compromised).
+      - key: META_APP_SECRET
+        sync: false
+      # Must exactly match a Valid OAuth Redirect URI in the Meta app. This is the
+      # frontend (igsignal-web) callback route.
+      - key: META_REDIRECT_URI
+        value: https://igsignal-web.onrender.com/dashboard/meta/callback
+      # 1 enables live Graph publishing; needs public HTTPS image URLs (see notes).
+      - key: META_PUBLISH_LIVE
+        value: "0"
       - key: AWS_REGION
         sync: false
       - key: AWS_ACCESS_KEY_ID
