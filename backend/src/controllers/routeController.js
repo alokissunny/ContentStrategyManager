@@ -1,49 +1,19 @@
 const WeeklyRoute = require('../models/WeeklyRoute');
 const InstagramProfile = require('../models/InstagramProfile');
 const BrandAnalysisReport = require('../models/BrandAnalysisReport');
-const CompetitorSet = require('../models/CompetitorSet');
 const Project = require('../models/Project');
 const { generateWeeklyPlan } = require('../services/weeklyPlan');
-const { getObjectText } = require('../services/s3Client');
+const { loadCompetitorOverviewForUser } = require('./competitorController');
 
-// The insight sections of the competitor analysis worth feeding into the plan —
-// what's working / not working and the openings to exploit.
-const INSIGHT_SECTIONS = /^##\s*(What's working|What's not working|Positioning gaps)/i;
-
-function extractInsightSections(markdown) {
-  const out = [];
-  let keep = false;
-  for (const line of String(markdown || '').split('\n')) {
-    if (/^##\s/.test(line)) keep = INSIGHT_SECTIONS.test(line);
-    if (keep) out.push(line);
-  }
-  return out.join('\n').trim();
-}
-
-// Competitor context for the weekly plan: the peer set plus the written
-// insights from the latest competitor analysis (if one has been run).
-async function loadCompetitorInsights(userId, username) {
-  const set = await CompetitorSet.findOne({ user: userId, username }).sort({ fetchedAt: -1 });
-  if (!set) return null;
-
-  const competitors = (set.competitors || []).map((c) => ({
-    username: c.username,
-    followers: c.followersCount,
-    cohort: c.cohort,
-    designStyle: c.designStyle,
-  }));
-
-  let insights = '';
-  if (set.analysisS3Key) {
-    try {
-      insights = extractInsightSections(await getObjectText(set.analysisS3Key));
-    } catch (err) {
-      console.error(`[route] could not read competitor analysis for @${username}:`, err.message);
-    }
-  }
-
-  if (!competitors.length && !insights) return null;
-  return { competitors, insights };
+// Competitor context for the weekly plan: the competitor cohort (Business Type +
+// Location) an operator assigned to this user in the back office, and its saved
+// analysis dashboard. The plan uses "what's working for the cohort" as a
+// reference. Returns null when no cohort is assigned or no analysis exists yet,
+// in which case the plan is built from the account's own Brand DNA and history.
+async function loadCohortCompetitorInsights(userId) {
+  const overview = await loadCompetitorOverviewForUser(userId);
+  if (!overview || !overview.cohort || !overview.dashboard) return null;
+  return { cohort: overview.cohort, scopeUsed: overview.scopeUsed, dashboard: overview.dashboard };
 }
 
 // Brand DNA axes that sharpen the plan's voice/positioning, from the latest
@@ -90,26 +60,15 @@ async function loadProjectAssets(userId) {
 
 // Generate this week's plan for a profile and persist it as the user's current
 // route. Shared by the manual endpoint and the auto-refresh after analysis.
-async function generateAndSaveRoute(userId, profile, options = {}) {
-  const { ensureInsights = true } = options;
+async function generateAndSaveRoute(userId, profile) {
   const brandDna = await loadBrandDna(userId, profile.username);
 
-  let competitorInsights = await loadCompetitorInsights(userId, profile.username);
-
-  // Chain: the weekly strategy should be built on competitor insights, so if no
-  // analysis has been written yet, run it first. Best-effort — if competitor
-  // discovery/scraping/S3 fails we still plan from the account's own data.
-  if (ensureInsights && !competitorInsights?.insights) {
-    try {
-      // Required lazily to avoid a require cycle at module load.
-      const { buildAndSaveCompetitorAnalysis } = require('./competitorController');
-      console.log(`[route] no competitor insights for @${profile.username} — running analysis first`);
-      await buildAndSaveCompetitorAnalysis(userId, profile);
-      competitorInsights = await loadCompetitorInsights(userId, profile.username);
-    } catch (err) {
-      console.error(`[route] competitor analysis chain failed for @${profile.username}:`, err.message);
-    }
-  }
+  // Reference the assigned competitor cohort's analysis when one exists.
+  // Best-effort — a plan can always be built from the account's own data.
+  const competitorInsights = await loadCohortCompetitorInsights(userId).catch((err) => {
+    console.error(`[route] could not load cohort competitor insights for @${profile.username}:`, err.message);
+    return null;
+  });
 
   const projects = await loadProjectAssets(userId).catch((err) => {
     console.error(`[route] could not load projects for plan:`, err.message);

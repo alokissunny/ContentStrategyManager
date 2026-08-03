@@ -24,6 +24,27 @@ function extractJson(text) {
 const PILLAR_LABEL = { discovery: 'Discovery', credibility: 'Credibility', trust: 'Trust' };
 const GOAL_TAG = { discovery: 'Get noticed', credibility: 'Show expertise', trust: 'Build confidence' };
 
+// Content-pillar priority: Discovery > Credibility > Trust. When two pillars are
+// both gaps, the higher-priority one always earns more days. Used to weight the
+// day split so the week leans hardest on the highest-priority gap.
+const PILLAR_ORDER = ['discovery', 'credibility', 'trust'];
+const PRIORITY_WEIGHT = { discovery: 3, credibility: 2, trust: 1 };
+
+// A pillar is a "gap" (needs work this week) when it hasn't reached Strong.
+// Moderate/Strong pillars are already carrying their weight, so they only keep
+// the single baseline day that keeps the whole funnel warm.
+function isGapVerdict(verdict) {
+  return verdict === 'Not established' || verdict === 'Early stage';
+}
+
+// This week's focus = the highest-priority pillar that is a gap (Discovery
+// first), regardless of which gap is numerically largest. Falls back to
+// Discovery when nothing is clearly lacking, so reach stays warm.
+function pickFocus(funnel) {
+  const verdictOf = Object.fromEntries(funnel.map((f) => [f.pillar, f.verdict]));
+  return PILLAR_ORDER.find((p) => isGapVerdict(verdictOf[p])) || 'discovery';
+}
+
 // The authority funnel gives a verdict per pillar; the dashboard's stage bars
 // need a numeric 0–100. Map the verdict to a representative score.
 const VERDICT_SCORE = { 'Strong': 82, 'Moderate': 60, 'Early stage': 44, 'Not established': 26 };
@@ -45,30 +66,61 @@ function weekRange(date = new Date()) {
 
 const DAY_NAMES = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 
-// Split the 7 days across Discovery / Credibility / Trust in proportion to how
-// much each pillar *needs* work (weaker score → more days), so a week for an
-// account with strong Discovery but weak Credibility/Trust leans C+T. Every
-// pillar keeps at least one day so the whole funnel stays warm.
+// Split the 7 days across Discovery / Credibility / Trust by content-pillar gap,
+// with a firm priority of Discovery > Credibility > Trust:
+//   • Every pillar keeps 1 baseline day, so the week always covers all of D/C/T.
+//   • The remaining days go to the *gap* pillars (those below Strong), weighted
+//     by priority — so when D and T are both gaps, D always gets more days than
+//     C and T. Priority, not gap size, decides the order: a bigger Trust gap
+//     never out-weights a Discovery gap.
+//   • If nothing is a clear gap, the extra days still lean by priority so
+//     Discovery (reach) stays warm.
 function allocateDays(funnel, totalDays = 7) {
-  const needs = funnel.map((f) => ({ pillar: f.pillar, need: Math.max(1, 100 - (f.score || 0)) }));
-  const totalNeed = needs.reduce((s, n) => s + n.need, 0) || 1;
+  const alloc = { discovery: 1, credibility: 1, trust: 1 };
+  let remaining = totalDays - PILLAR_ORDER.length;
+  if (remaining <= 0) return alloc;
 
-  const alloc = {};
-  needs.forEach((n) => { alloc[n.pillar] = 1; });
+  const gaps = funnel.filter((f) => isGapVerdict(f.verdict));
+  const pool = gaps.length ? gaps : funnel; // no gaps → lean by priority
+  const weights = pool.map((f) => ({ pillar: f.pillar, w: PRIORITY_WEIGHT[f.pillar] }));
+  const totalW = weights.reduce((s, x) => s + x.w, 0) || 1;
 
-  let remaining = totalDays - needs.length;
-  const shares = needs.map((n) => ({ pillar: n.pillar, exact: (n.need / totalNeed) * remaining }));
-  shares.forEach((s) => {
-    const whole = Math.floor(s.exact);
-    alloc[s.pillar] += whole;
+  // Largest-remainder apportionment of the remaining days, weighted by priority.
+  const exact = weights.map((x) => ({ pillar: x.pillar, x: (x.w / totalW) * remaining }));
+  exact.forEach((e) => {
+    const whole = Math.floor(e.x);
+    alloc[e.pillar] += whole;
     remaining -= whole;
   });
-  // Hand out any leftover days by largest fractional remainder.
-  shares.sort((a, b) => (b.exact % 1) - (a.exact % 1));
-  for (let i = 0; i < shares.length && remaining > 0; i += 1, remaining -= 1) {
-    alloc[shares[i].pillar] += 1;
+  // Leftover days by largest fractional remainder, ties broken by priority so
+  // the higher-priority pillar wins.
+  exact.sort((a, b) => (b.x % 1) - (a.x % 1) || PRIORITY_WEIGHT[b.pillar] - PRIORITY_WEIGHT[a.pillar]);
+  for (let i = 0; i < exact.length && remaining > 0; i += 1, remaining -= 1) {
+    alloc[exact[i].pillar] += 1;
   }
   return alloc;
+}
+
+// Compact historical read of the account, so the plan is explicitly grounded in
+// the account's own history (not just its Brand DNA). The authority funnel turns
+// these same signals into per-pillar verdicts; this surfaces the raw numbers to
+// the planner too.
+function summarizeHistory(profile) {
+  const posts = Array.isArray(profile?.posts) ? profile.posts : [];
+  const now = Date.now();
+  const THIRTY = 30 * 24 * 60 * 60 * 1000;
+  const last30 = posts.filter((p) => p.timestamp && now - new Date(p.timestamp).getTime() <= THIRTY);
+  const reels = posts.filter((p) => /video|reel|clip/i.test(p.type || '')).length;
+  const engaged = posts.filter((p) => p.likesCount != null || p.commentsCount != null);
+  const avg = (key) =>
+    engaged.length ? Math.round(engaged.reduce((s, p) => s + (p[key] || 0), 0) / engaged.length) : 0;
+  return {
+    totalPostsAnalyzed: posts.length,
+    postsLast30: last30.length,
+    reels,
+    avgLikes: avg('likesCount'),
+    avgComments: avg('commentsCount'),
+  };
 }
 
 function buildSnapshot(profile, brandDna) {
@@ -79,6 +131,7 @@ function buildSnapshot(profile, brandDna) {
     followersCount: profile.followersCount,
     externalUrl: profile.externalUrl,
     brandDna: brandDna || null,
+    history: summarizeHistory(profile),
     recentCaptions: (profile.posts || []).slice(0, 12).map((p) => p.caption).filter(Boolean),
   };
 }
@@ -95,25 +148,76 @@ function buildFunnelWithScores(profile) {
     whyMatters: row.whyMatters,
     recommendation: row.recommendation,
   }));
-  return { funnel: scored, focusPillar: week.focus, confidence: week.confidence, seed: week };
+  // Focus by content-pillar priority (Discovery > Credibility > Trust) rather
+  // than by which gap is largest, so the week's lead matches the day split.
+  const focusPillar = pickFocus(scored);
+  return { funnel: scored, focusPillar, confidence: week.confidence, seed: week };
 }
 
-// Render the competitor context the plan should react to: who they are plus the
-// "what's working / what's not" insights pulled from the competitor analysis.
-function renderCompetitorInsights(competitorInsights) {
-  if (!competitorInsights) return 'No competitor analysis available yet — plan from the account\'s own data.';
-  const { competitors = [], insights = '' } = competitorInsights;
-  const parts = [];
-  if (competitors.length) {
-    parts.push(
-      'Competitors:\n' +
-        competitors
-          .map((c) => `- @${c.username} — ${c.followers || '?'} followers, ${c.cohort || 'peer'}${c.designStyle ? `, ${c.designStyle}` : ''}`)
-          .join('\n')
+const trendPp = (changePp) =>
+  changePp == null ? '' : `, ${changePp > 0 ? '+' : ''}${changePp}pp`;
+
+// Render the assigned competitor cohort's analysis (the same dashboard the back
+// office / Competitor Overview shows) into a compact "what's working for the
+// cohort" brief, grouped so the planner can lean into what works within each
+// pillar. When the user has no assigned cohort (or no analysis yet), the plan
+// falls back to the account's own Brand DNA and history.
+function renderCompetitorInsights(cohortInsights) {
+  if (!cohortInsights || !cohortInsights.dashboard) {
+    return "No competitor cohort assigned (or no analysis yet) — plan from the account's own Brand DNA and history.";
+  }
+  const { cohort, scopeUsed, dashboard } = cohortInsights;
+  const ca = dashboard.captionAnalysis || {};
+  const lines = [];
+
+  const closest =
+    scopeUsed && cohort && scopeUsed.location !== cohort.location
+      ? ` (no analysis for ${cohort.location} yet — using the closest cohort: ${scopeUsed.location})`
+      : '';
+  lines.push(`Competitor cohort: ${cohort.businessCategory} · ${cohort.location}${closest}.`);
+  const kp = ca.kpis || {};
+  if (kp.competitors || kp.captions) {
+    lines.push(`Based on ${kp.competitors || '?'} competitors · ${kp.captions || '?'} public captions (last 30 days).`);
+  }
+
+  const patterns = (ca.patterns || []).slice(0, 6);
+  if (patterns.length) {
+    lines.push('\nTop caption patterns that work for the cohort (pillar in brackets):');
+    patterns.forEach((p) =>
+      lines.push(
+        `- [${p.pillar || '—'}] ${p.name} — ${p.sharePct}% of captions${trendPp(p.trend && p.trend.changePp)}` +
+          `${p.whatWeDetected ? `: ${p.whatWeDetected}` : ''}`
+      )
     );
   }
-  if (insights) parts.push(`\nFrom their last 30 days:\n${insights}`);
-  return parts.join('\n') || 'No competitor analysis available yet.';
+
+  const hooks = (dashboard.hooks || []).slice(0, 5);
+  if (hooks.length) {
+    lines.push('\nHooks the cohort opens with:');
+    hooks.forEach((h) =>
+      lines.push(`- [${h.pillar || '—'}] ${h.hookType} — used in ${h.useRate}% of captions${h.trend ? `, ${h.trend}` : ''}`)
+    );
+  }
+
+  const topics = (dashboard.topics || []).slice(0, 5);
+  if (topics.length) {
+    lines.push('\nTopics the cohort posts about:');
+    topics.forEach((t) => lines.push(`- [${t.pillar || '—'}] ${t.topic} — ${t.sharePct}% of posts${trendPp(t.changePp)}`));
+  }
+
+  const formats = (ca.formats || []).slice(0, 4);
+  if (formats.length) {
+    lines.push('\nFormat mix (share of posts):');
+    formats.forEach((f) => lines.push(`- ${f.label} — ${f.sharePct}%${trendPp(f.changePp)}`));
+  }
+
+  const days = (ca.days || []).slice(0, 4);
+  if (days.length) {
+    lines.push('\nBusiest days / peak times:');
+    days.forEach((d) => lines.push(`- ${d.label}${d.peakTime ? ` — ${d.peakTime}` : ''} (${d.sharePct}% of posts)`));
+  }
+
+  return lines.join('\n');
 }
 
 // Project inventory for the planner: names, notes, and image keys it can assign
@@ -193,7 +297,8 @@ function normalizeSlides(rawSlides, onScreenText, format, title, cta) {
  * Generate a full weekly content plan for a profile.
  * @param {object} profile
  * @param {object} brandDna
- * @param {object} [competitorInsights]  { competitors, insights } from the competitor analysis.
+ * @param {object} [competitorInsights]  { cohort, scopeUsed, dashboard } — the assigned
+ *   competitor cohort's analysis, or null when the user has no cohort / no analysis yet.
  * @param {object[]} [projects]  Project names + notes + image assetKeys from the studio.
  * @returns {Promise<{ weekOf, weekLabel, model, focus, funnel, days }>}
  */
@@ -209,8 +314,17 @@ async function generateWeeklyPlan(profile, brandDna, competitorInsights = null, 
     confidence,
     seedObservation: seed.observation,
     seedHeadline: seed.headline,
-    funnel: funnel.map((f) => ({ pillar: f.pillar, verdict: f.verdict, score: f.score, recommendation: f.recommendation })),
-    // How many of the 7 days each pillar must get, weighted by how weak it is.
+    // Per-pillar verdict + the historical evidence behind it, so the planner
+    // grounds the week in the account's own history, not just its Brand DNA.
+    funnel: funnel.map((f) => ({
+      pillar: f.pillar,
+      verdict: f.verdict,
+      score: f.score,
+      evidence: f.evidence,
+      recommendation: f.recommendation,
+    })),
+    // How many of the 7 days each pillar gets — weighted by the content-pillar
+    // gap with priority Discovery > Credibility > Trust.
     dayAllocation,
   };
 
@@ -256,12 +370,20 @@ async function generateWeeklyPlan(profile, brandDna, competitorInsights = null, 
   }
 
   const focusOut = parsed.focus || {};
+  // Fallbacks reference the chosen (priority-based) focus pillar, which can
+  // differ from the funnel's own seed focus.
+  const focusRow = funnel.find((f) => f.pillar === focusPillar);
+  const focusLabel = PILLAR_LABEL[focusPillar];
   const focus = {
     pillar: focusPillar,
-    headline: focusOut.headline || seed.headline,
-    hypothesis: focusOut.hypothesis || seed.hypothesis,
-    recommendation: focusOut.recommendation || '',
-    whyMatters: focusOut.whyMatters || seed.whyMatters,
+    headline:
+      focusOut.headline ||
+      (confidence === 'low' ? 'Build Your Authority Foundation' : `Strengthen Your ${focusLabel}`),
+    hypothesis:
+      focusOut.hypothesis ||
+      `If we focus on ${focusLabel} this week, we can turn the account's momentum into measurable growth.`,
+    recommendation: focusOut.recommendation || focusRow?.recommendation || '',
+    whyMatters: focusOut.whyMatters || focusRow?.whyMatters || seed.whyMatters,
     observation: focusOut.observation || seed.observation,
   };
 

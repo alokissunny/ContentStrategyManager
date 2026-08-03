@@ -6,7 +6,7 @@ const { generateBrandAnalysis } = require('../services/brandAnalysis');
 const { uploadMarkdown, getPresignedDownloadUrl } = require('../services/s3Client');
 const { computeAuthorityFunnel } = require('../services/authorityFunnel');
 const { buildAnalysisOverview } = require('../services/analysisOverview');
-const { buildAndSaveCompetitorSet, loadCompetitorOverviewForUser } = require('./competitorController');
+const { loadCompetitorOverviewForUser } = require('./competitorController');
 const { generateAndSaveRoute } = require('./routeController');
 
 function extractUsername(input) {
@@ -75,18 +75,12 @@ async function fetchInstagram(req, res) {
   }
 
   // Whenever the connected handle is (re)analyzed — including a non-admin
-  // switching accounts — refresh the whole downstream chain for this handle:
-  // competitor discovery → competitor analysis → weekly plan, so the plan is
-  // built on fresh competitor insights. Run sequentially (the plan step reuses
-  // the competitor set rather than racing to rediscover it) and fire-and-forget,
-  // since the pipeline takes minutes and the analyze request shouldn't wait.
-  (async () => {
-    await buildAndSaveCompetitorSet(req.user._id, snapshot);
-    // generateAndSaveRoute runs the competitor analysis itself when insights
-    // are missing, then plans the week from them.
-    await generateAndSaveRoute(req.user._id, snapshot);
-  })().catch((err) => {
-    console.error(`[instagram] background competitor/plan refresh failed for @${username}:`, err.message);
+  // switching accounts — refresh this week's plan for the handle. The plan is
+  // built from the account's Brand DNA + history and, when an operator has
+  // assigned a competitor cohort, that cohort's saved analysis. Fire-and-forget,
+  // since planning takes a while and the analyze request shouldn't wait.
+  generateAndSaveRoute(req.user._id, snapshot).catch((err) => {
+    console.error(`[instagram] background plan refresh failed for @${username}:`, err.message);
   });
 
   res.json({ profile: snapshot, report, reportError });
