@@ -177,17 +177,17 @@ function CohortEditor({
     },
   })
 
-  const assigned = Boolean(cohort)
   // Unassigned handles are always "dirty" so Assign works with the default
   // dropdown values; assigned ones only enable Update when something changed.
   const dirty =
-    !assigned ||
+    cohort == null ||
     businessCategory !== cohort.businessCategory ||
     location !== cohort.location
   const fieldId = `${customerId}-${handle}`
-  const businessLabel =
-    filterOptions.businessCategory.find((o) => o.value === cohort?.businessCategory)?.label ??
-    cohort?.businessCategory
+  const businessLabel = cohort
+    ? (filterOptions.businessCategory.find((o) => o.value === cohort.businessCategory)?.label ??
+      cohort.businessCategory)
+    : null
 
   return (
     <section className="weekly-plan cohort-editor">
@@ -195,7 +195,7 @@ function CohortEditor({
         <h2>Competitor cohort · @{handle}</h2>
       </div>
 
-      {assigned ? (
+      {cohort ? (
         <p className="section-note cohort-status cohort-status--assigned">
           Assigned · {businessLabel} · {cohort.location}
         </p>
@@ -240,7 +240,7 @@ function CohortEditor({
           disabled={!dirty || mutation.isPending}
           onClick={() => mutation.mutate()}
         >
-          {mutation.isPending ? 'Saving…' : assigned ? 'Update cohort' : 'Assign cohort'}
+          {mutation.isPending ? 'Saving…' : cohort ? 'Update cohort' : 'Assign cohort'}
         </button>
       </div>
       {mutation.isError && (
@@ -250,7 +250,7 @@ function CohortEditor({
             : 'Could not save the cohort.'}
         </p>
       )}
-      {mutation.isSuccess && assigned && !dirty && (
+      {mutation.isSuccess && cohort && !dirty && (
         <p className="section-note">Saved.</p>
       )}
     </section>
