@@ -2,6 +2,7 @@ const BrandAnalysisReport = require('../models/BrandAnalysisReport');
 const CompetitorSet = require('../models/CompetitorSet');
 const CustomerCohort = require('../models/CustomerCohort');
 const CompetitorAnalysis = require('../models/CompetitorAnalysis');
+const InstagramProfile = require('../models/InstagramProfile');
 const { findCompetitors, generateCompetitorAnalysis } = require('../services/competitorFinder');
 const { uploadMarkdown } = require('../services/s3Client');
 const { scrapePosts } = require('../services/instagramScraper');
@@ -195,16 +196,57 @@ function findCohortAnalysis(businessCategory, location) {
 }
 
 /*
- * Competitor Overview for the signed-in user: the same analysis the back office
- * Overview renders, scoped to the competitor cohort (Business Type + Location)
- * an operator assigned to this user. Falls back to the same business type at
- * Global when the user's country has not been analysed yet, so there is always
- * a relevant view when any analysis exists.
+ * Competitor Overview for a signed-in user's Instagram handle: the same analysis
+ * the back office Overview renders, scoped to the competitor cohort (Business
+ * Type + Location) an operator assigned to that handle. Falls back to the same
+ * business type at Global when the handle's country has not been analysed yet.
+ *
+ * `username` should be the active Instagram handle. When omitted, falls back to
+ * any cohort for the user (legacy single-cohort rows).
  */
-async function loadCompetitorOverviewForUser(userId) {
-  const cohortDoc = await CustomerCohort.findOne({ user: userId }).lean();
+async function loadCompetitorOverviewForUser(userId, username) {
+  const handle = username ? String(username).trim().toLowerCase() : '';
+  let cohortDoc = null;
+  if (handle) {
+    cohortDoc = await CustomerCohort.findOne({ user: userId, instagramUsername: handle }).lean();
+  }
+  // Legacy: one cohort per user with a missing/stale username.
   if (!cohortDoc) {
-    return { cohort: null, scopeUsed: null, dashboard: null, generatedAt: null };
+    cohortDoc = await CustomerCohort.findOne({
+      user: userId,
+      $or: [{ instagramUsername: null }, { instagramUsername: '' }, { instagramUsername: { $exists: false } }],
+    }).lean();
+  }
+  if (!cohortDoc && !handle) {
+    cohortDoc = await CustomerCohort.findOne({ user: userId }).sort({ updatedAt: -1 }).lean();
+  }
+
+  // Other *currently connected* handles that already have a cohort — used so
+  // the empty state can explain "assigned, but not for *this* account".
+  const connected = await InstagramProfile.find({ user: userId }).select('username').lean();
+  const connectedSet = new Set(
+    connected.map((p) => String(p.username || '').toLowerCase()).filter(Boolean),
+  );
+  const otherAssigned = await CustomerCohort.find({ user: userId })
+    .select('instagramUsername')
+    .lean();
+  const otherAssignedHandles = [
+    ...new Set(
+      otherAssigned
+        .map((c) => (c.instagramUsername ? String(c.instagramUsername).toLowerCase() : ''))
+        .filter((u) => u && u !== handle && connectedSet.has(u)),
+    ),
+  ];
+
+  if (!cohortDoc) {
+    return {
+      username: handle || null,
+      cohort: null,
+      scopeUsed: null,
+      dashboard: null,
+      generatedAt: null,
+      otherAssignedHandles,
+    };
   }
 
   const businessCategory = cohortDoc.businessCategory || 'interior-designer';
@@ -219,17 +261,29 @@ async function loadCompetitorOverviewForUser(userId) {
   }
 
   return {
-    cohort: { businessCategory, location },
+    username: handle || cohortDoc.instagramUsername || null,
+    cohort: {
+      businessCategory,
+      location,
+      instagramUsername: cohortDoc.instagramUsername || handle || null,
+    },
     scopeUsed,
     dashboard: analysis ? analysis.dashboard : null,
     generatedAt: analysis ? analysis.finishedAt || analysis.startedAt || null : null,
     accountsAnalyzed: analysis ? analysis.accountsAnalyzed ?? null : null,
     postsAnalyzed: analysis ? analysis.postsAnalyzed ?? null : null,
+    otherAssignedHandles,
   };
 }
 
 async function getCompetitorOverview(req, res) {
-  res.json(await loadCompetitorOverviewForUser(req.user._id));
+  const profile = await InstagramProfile.findOne({ user: req.user._id }).sort({
+    activatedAt: -1,
+    fetchedAt: -1,
+  });
+  // Avoid intermediaries serving a stale empty overview after a cohort is assigned.
+  res.set('Cache-Control', 'no-store');
+  res.json(await loadCompetitorOverviewForUser(req.user._id, profile?.username));
 }
 
 module.exports = {

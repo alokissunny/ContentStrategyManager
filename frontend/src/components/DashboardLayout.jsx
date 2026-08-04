@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Outlet, useLocation } from 'react-router-dom';
 import Sidebar from './Sidebar';
 import UserMenu from './UserMenu';
+import AccountSwitcher from './AccountSwitcher';
 import Glyph from './Glyph';
 import { useIsMobile } from '../hooks/useMediaQuery';
 import { LS_BG, LS_SURFACE, LS_BORDER, LS_INK, LS_SIGNAL, LS_FONT, LS_DISPLAY } from '../theme';
@@ -20,8 +21,8 @@ export default function DashboardLayout({ children }) {
       {isMobile && !hideNav && (
         <div
           style={{
-            position: 'sticky', top: 0, zIndex: 30, display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-            height: 56, padding: '0 16px', background: LS_SURFACE, borderBottom: `1px solid ${LS_BORDER}`,
+            position: 'sticky', top: 0, zIndex: 30, display: 'flex', alignItems: 'center', gap: 10,
+            height: 56, padding: '0 12px', background: LS_SURFACE, borderBottom: `1px solid ${LS_BORDER}`,
           }}
         >
           <button
@@ -34,11 +35,26 @@ export default function DashboardLayout({ children }) {
           <span style={{ fontFamily: LS_DISPLAY, fontWeight: 700, fontSize: 18, letterSpacing: '-0.02em', color: LS_INK }}>
             Bauhly<span style={{ color: LS_SIGNAL }}>.</span>
           </span>
+          <div style={{ flex: 1, display: 'flex', justifyContent: 'flex-end' }}>
+            <AccountSwitcher />
+          </div>
           <UserMenu compact />
         </div>
       )}
       {!hideNav && <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />}
-      <div style={{ flex: 1, minWidth: 0 }}>{content}</div>
+      <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
+        {!isMobile && !hideNav && (
+          <div
+            style={{
+              position: 'sticky', top: 0, zIndex: 30, display: 'flex', alignItems: 'center', justifyContent: 'flex-end',
+              height: 64, padding: '0 clamp(16px, 5vw, 48px)', background: LS_SURFACE, borderBottom: `1px solid ${LS_BORDER}`,
+            }}
+          >
+            <AccountSwitcher />
+          </div>
+        )}
+        <div style={{ flex: 1, minWidth: 0 }}>{content}</div>
+      </div>
     </div>
   );
 }

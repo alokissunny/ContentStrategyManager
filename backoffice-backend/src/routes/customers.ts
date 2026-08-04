@@ -30,7 +30,7 @@ customerRoutes.get(
   }),
 )
 
-/** Assign a competitor cohort (Business Type + Location) to the customer. */
+/** Assign a competitor cohort (Business Type + Location) to one Instagram handle. */
 customerRoutes.patch(
   '/customers/:id/cohort',
   asyncHandler(async (req, res) => {
@@ -38,14 +38,21 @@ customerRoutes.patch(
       .object({
         businessCategory: z.enum(['interior-designer', 'bauhly-competitor', 'other']),
         location: z.string().trim().min(1),
+        instagramUsername: z.string().trim().min(1),
       })
       .safeParse(req.body)
     if (!body.success) {
-      return res.status(400).json({ message: 'Business type and location are required.' })
+      return res.status(400).json({
+        message: 'Business type, location, and Instagram username are required.',
+      })
     }
 
     const cohort = await setCustomerCohort(String(req.params.id), body.data)
-    if (!cohort) return res.status(404).json({ message: 'Customer not found' })
+    if (!cohort) {
+      return res.status(404).json({
+        message: 'Customer or Instagram account not found',
+      })
+    }
     res.json(cohort)
   }),
 )

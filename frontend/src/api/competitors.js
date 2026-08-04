@@ -1,8 +1,10 @@
 import client from './client';
 
-// The competitor cohort overview assigned to this user by an operator: the same
-// analysis the back office Overview shows, scoped to the user's cohort.
-// Returns { cohort, scopeUsed, dashboard, generatedAt, accountsAnalyzed, postsAnalyzed }.
+// The competitor cohort overview for the *active* Instagram handle: the same
+// analysis the back office Overview shows, scoped to that handle's cohort.
+// Returns { username, cohort, scopeUsed, dashboard, generatedAt, otherAssignedHandles, … }.
 export function getCompetitorOverview() {
-  return client.get('/competitors/overview').then((res) => res.data);
+  return client
+    .get('/competitors/overview', { params: { _ts: Date.now() } })
+    .then((res) => res.data);
 }

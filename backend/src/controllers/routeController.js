@@ -6,12 +6,11 @@ const { generateWeeklyPlan } = require('../services/weeklyPlan');
 const { loadCompetitorOverviewForUser } = require('./competitorController');
 
 // Competitor context for the weekly plan: the competitor cohort (Business Type +
-// Location) an operator assigned to this user in the back office, and its saved
-// analysis dashboard. The plan uses "what's working for the cohort" as a
-// reference. Returns null when no cohort is assigned or no analysis exists yet,
-// in which case the plan is built from the account's own Brand DNA and history.
-async function loadCohortCompetitorInsights(userId) {
-  const overview = await loadCompetitorOverviewForUser(userId);
+// Location) an operator assigned to this Instagram handle in the back office,
+// and its saved analysis dashboard. Returns null when no cohort is assigned or
+// no analysis exists yet — the plan is then built from Brand DNA + history.
+async function loadCohortCompetitorInsights(userId, username) {
+  const overview = await loadCompetitorOverviewForUser(userId, username);
   if (!overview || !overview.cohort || !overview.dashboard) return null;
   return { cohort: overview.cohort, scopeUsed: overview.scopeUsed, dashboard: overview.dashboard };
 }
@@ -65,7 +64,7 @@ async function generateAndSaveRoute(userId, profile) {
 
   // Reference the assigned competitor cohort's analysis when one exists.
   // Best-effort — a plan can always be built from the account's own data.
-  const competitorInsights = await loadCohortCompetitorInsights(userId).catch((err) => {
+  const competitorInsights = await loadCohortCompetitorInsights(userId, profile.username).catch((err) => {
     console.error(`[route] could not load cohort competitor insights for @${profile.username}:`, err.message);
     return null;
   });
@@ -98,9 +97,10 @@ async function generateAndSaveRoute(userId, profile) {
   return route;
 }
 
-// The handle the app is currently showing (most recently analyzed).
+// The handle the app is currently showing — most recently activated (analyzed
+// or switched to in the header), with fetchedAt as a legacy-row tiebreaker.
 async function currentProfile(userId) {
-  return InstagramProfile.findOne({ user: userId }).sort({ fetchedAt: -1 });
+  return InstagramProfile.findOne({ user: userId }).sort({ activatedAt: -1, fetchedAt: -1 });
 }
 
 // A handle analyzed this recently is assumed to still be running its background
@@ -127,12 +127,21 @@ async function getCurrentRoute(req, res) {
 }
 
 async function getRoutes(req, res) {
-  const routes = await WeeklyRoute.find({ user: req.user._id }).sort({ weekOf: -1 });
-  res.json({ routes });
+  // Same handle scoping as getCurrentRoute — switching accounts in the header
+  // must only show that account's archive, not every plan for the user.
+  const profile = await currentProfile(req.user._id);
+  if (!profile) return res.json({ routes: [], username: null });
+
+  const routes = await WeeklyRoute.find({
+    user: req.user._id,
+    instagramUsername: profile.username,
+  }).sort({ weekOf: -1 });
+
+  res.json({ routes, username: profile.username });
 }
 
 async function generateRoute(req, res) {
-  const profile = await InstagramProfile.findOne({ user: req.user._id }).sort({ fetchedAt: -1 });
+  const profile = await currentProfile(req.user._id);
   if (!profile) {
     return res.status(404).json({
       message: 'No Instagram profile found. Connect and analyze a handle before generating a plan.',

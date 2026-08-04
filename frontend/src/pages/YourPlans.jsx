@@ -7,8 +7,9 @@
  * "Create a new plan" runs the real generation behind the RouteLoom stage
  * animation (PlanLoom), then drops you into the fresh plan.
  *
- * Backend-wired: GET /routes/current (the running plan for the current handle),
- * GET /routes (the whole history), POST /routes/generate (build the next one).
+ * Backend-wired: GET /routes/current (running plan for the active Instagram handle),
+ * GET /routes (that handle's history), POST /routes/generate (build the next one).
+ * Switching accounts in the header reloads; both endpoints follow the active handle.
  */
 
 import React, { useEffect, useState } from 'react';

@@ -9,6 +9,11 @@ const { buildAnalysisOverview } = require('../services/analysisOverview');
 const { loadCompetitorOverviewForUser } = require('./competitorController');
 const { generateAndSaveRoute } = require('./routeController');
 
+// The "current" handle is the one most recently activated (analyzed or switched
+// to in the header). fetchedAt is the tiebreaker so legacy rows — which predate
+// activatedAt — still order by when they were last analyzed.
+const CURRENT_SORT = { activatedAt: -1, fetchedAt: -1 };
+
 function extractUsername(input) {
   return (input || '')
     .replace(/^https?:\/\/(www\.)?instagram\.com\//i, '')
@@ -30,14 +35,11 @@ async function fetchInstagram(req, res) {
     return res.status(404).json({ message: 'Could not read this Instagram profile. It may be private or the username may be wrong.' });
   }
 
-  // Admins can connect several handles (one snapshot per handle). Non-admins
-  // keep a single profile that is overwritten each time they re-analyze.
-  const isAdmin = req.user.role === 'admin';
-  const filter = isAdmin ? { user: req.user._id, username } : { user: req.user._id };
-
+  // One snapshot per handle. Adding another account creates a new row;
+  // re-analyzing an existing handle updates that row and makes it current.
   const snapshot = await InstagramProfile.findOneAndUpdate(
-    filter,
-    { ...profile, user: req.user._id, username, posts, fetchedAt: new Date() },
+    { user: req.user._id, username },
+    { ...profile, user: req.user._id, username, posts, fetchedAt: new Date(), activatedAt: new Date() },
     { new: true, upsert: true }
   );
 
@@ -74,11 +76,11 @@ async function fetchInstagram(req, res) {
     reportError = err.message;
   }
 
-  // Whenever the connected handle is (re)analyzed — including a non-admin
-  // switching accounts — refresh this week's plan for the handle. The plan is
-  // built from the account's Brand DNA + history and, when an operator has
-  // assigned a competitor cohort, that cohort's saved analysis. Fire-and-forget,
-  // since planning takes a while and the analyze request shouldn't wait.
+  // Whenever a handle is (re)analyzed — including adding another account —
+  // refresh this week's plan for that handle. The plan is built from the
+  // account's Brand DNA + history and, when an operator has assigned a
+  // competitor cohort, that cohort's saved analysis. Fire-and-forget, since
+  // planning takes a while and the analyze request shouldn't wait.
   generateAndSaveRoute(req.user._id, snapshot).catch((err) => {
     console.error(`[instagram] background plan refresh failed for @${username}:`, err.message);
   });
@@ -87,10 +89,29 @@ async function fetchInstagram(req, res) {
 }
 
 async function getInstagramProfile(req, res) {
-  const profiles = await InstagramProfile.find({ user: req.user._id }).sort({ fetchedAt: -1 });
-  // `profile` (the most recently fetched) is kept for backward compatibility;
-  // `profiles` lists every handle connected to this account.
+  const profiles = await InstagramProfile.find({ user: req.user._id }).sort(CURRENT_SORT);
+  // `profile` (the current handle) is kept for backward compatibility; `profiles`
+  // lists every handle connected to this account, current one first.
   res.json({ profile: profiles[0] || null, profiles });
+}
+
+// Make an already-connected handle the current one, so plans, brand profile and
+// analysis across the app follow it. Used by the header account switcher.
+async function activateInstagram(req, res) {
+  const username = extractUsername(req.body.username);
+  if (!username) {
+    return res.status(400).json({ message: 'Instagram username is required' });
+  }
+  const profile = await InstagramProfile.findOneAndUpdate(
+    { user: req.user._id, username },
+    { activatedAt: new Date() },
+    { new: true }
+  );
+  if (!profile) {
+    return res.status(404).json({ message: 'That Instagram account is not connected to your workspace.' });
+  }
+  const profiles = await InstagramProfile.find({ user: req.user._id }).sort(CURRENT_SORT);
+  res.json({ profile, profiles });
 }
 
 // Authority funnel (Discovery / Credibility / Trust) for the most recently
@@ -98,7 +119,7 @@ async function getInstagramProfile(req, res) {
 async function getAuthorityFunnel(req, res) {
   const query = { user: req.user._id };
   if (req.query.username) query.username = req.query.username.toLowerCase();
-  const profile = await InstagramProfile.findOne(query).sort({ fetchedAt: -1 });
+  const profile = await InstagramProfile.findOne(query).sort(CURRENT_SORT);
   if (!profile) {
     return res.status(404).json({ message: 'No Instagram analysis yet. Connect a handle first.' });
   }
@@ -128,14 +149,14 @@ async function loadBrandDna(userId, username) {
 async function getAnalysisOverview(req, res) {
   const query = { user: req.user._id };
   if (req.query.username) query.username = req.query.username.toLowerCase();
-  const profile = await InstagramProfile.findOne(query).sort({ fetchedAt: -1 });
+  const profile = await InstagramProfile.findOne(query).sort(CURRENT_SORT);
   if (!profile) {
     return res.status(404).json({ message: 'No Instagram analysis yet. Connect a handle first.' });
   }
 
   const [brandDna, cohortOverview, weeklyRoute] = await Promise.all([
     loadBrandDna(req.user._id, profile.username),
-    loadCompetitorOverviewForUser(req.user._id),
+    loadCompetitorOverviewForUser(req.user._id, profile.username),
     WeeklyRoute.findOne({ user: req.user._id, instagramUsername: profile.username }).sort({ weekOf: -1 }),
   ]);
 
@@ -143,4 +164,4 @@ async function getAnalysisOverview(req, res) {
   res.json(overview);
 }
 
-module.exports = { fetchInstagram, getInstagramProfile, getAuthorityFunnel, getAnalysisOverview };
+module.exports = { fetchInstagram, getInstagramProfile, activateInstagram, getAuthorityFunnel, getAnalysisOverview };

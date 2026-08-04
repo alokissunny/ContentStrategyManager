@@ -426,9 +426,14 @@ export default function CompetitorOverview() {
   const dashboard = data?.dashboard;
 
   if (!cohort) {
+    const handle = data?.username;
+    const others = (data?.otherAssignedHandles || []).filter(Boolean);
+    const body = others.length
+      ? `No competitor cohort is assigned for ${handle ? `@${handle}` : 'this Instagram account'} yet. A cohort is already set for ${others.map((h) => `@${h}`).join(', ')} — switch to that account in the header to view it, or ask your operator to assign one for this account.`
+      : `No competitor cohort is assigned for ${handle ? `@${handle}` : 'this Instagram account'} yet. Once an operator assigns one in the back office, this page will show the analysis for accounts like yours.`;
     return (
       <div style={wrap}>{header(null)}
-        <CenterNote title="No competitor cohort assigned yet" body="Your competitor cohort hasn’t been set up yet. Once it’s assigned, this page will show the analysis for accounts like yours." />
+        <CenterNote title="No competitor cohort assigned yet" body={body} />
       </div>
     );
   }

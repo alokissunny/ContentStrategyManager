@@ -28,12 +28,16 @@ const instagramProfileSchema = new mongoose.Schema(
     externalUrl: { type: String, default: '' },
     posts: [postSchema],
     fetchedAt: { type: Date, default: Date.now },
+    // When this handle was last made the *current* one (via analyze or an
+    // explicit switch in the header). The app's "current profile" is the handle
+    // with the newest activatedAt, falling back to fetchedAt for legacy rows.
+    activatedAt: { type: Date, default: Date.now },
   },
   { timestamps: true }
 );
 
-// One document per (user, handle). Admins can connect several handles;
-// non-admins are held to a single profile in the controller.
+// One document per (user, handle). Users can connect several handles and
+// switch which one is current via activatedAt.
 instagramProfileSchema.index({ user: 1, username: 1 }, { unique: true });
 
 module.exports = mongoose.model('InstagramProfile', instagramProfileSchema);

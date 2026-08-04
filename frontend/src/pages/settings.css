@@ -46,6 +46,33 @@
   padding: var(--sp-4) 0;
   border-top: 1px solid var(--border);
 }
+/* Instagram rows that switch the current handle — reset button chrome */
+.set-row--switch {
+  width: 100%;
+  margin: 0;
+  border-left: none;
+  border-right: none;
+  border-bottom: none;
+  background: transparent;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  color: inherit;
+}
+.set-row--switch:disabled {
+  cursor: default;
+}
+.set-row--switch:not(:disabled):hover {
+  background: var(--surface-sunken);
+  border-radius: var(--r-md);
+  padding-left: var(--sp-3);
+  padding-right: var(--sp-3);
+  margin-left: calc(var(--sp-3) * -1);
+  margin-right: calc(var(--sp-3) * -1);
+}
+.set-row--switch.is-active:hover {
+  background: var(--signal-50);
+}
 .set-row__ico {
   display: grid;
   place-items: center;
@@ -57,6 +84,24 @@
   flex-shrink: 0;
 }
 .set-row__avatar { width: 38px; height: 38px; }
+/* filled handle avatar — matches the header account switcher (ink-900 + initials) */
+.set-row__ico--avatar {
+  background: var(--ink-900);
+  color: #fff;
+  font-size: var(--text-sm);
+  font-weight: 700;
+}
+/* the current handle — soft signal fill + check, mirroring the switcher's active row */
+.set-row.is-active {
+  background: var(--signal-50);
+  border-top-color: transparent;
+  border-radius: var(--r-md);
+  padding-left: var(--sp-3);
+  padding-right: var(--sp-3);
+  margin-left: calc(var(--sp-3) * -1);
+  margin-right: calc(var(--sp-3) * -1);
+}
+.set-row__check { color: var(--signal-500); }
 .set-row__main { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
 .set-row__title {
   display: flex;

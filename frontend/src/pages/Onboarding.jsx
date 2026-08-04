@@ -422,10 +422,9 @@ function ConversationScreen({ initial, onConfirm, saving }) {
 
 export default function Onboarding() {
   const [searchParams] = useSearchParams();
-  // Re-entry into onboarding to connect a different handle. Admins use `?add=1`
-  // to connect an *additional* handle; any user can use `?change=1` to replace
-  // their current handle. Both skip the first-run welcome screen and the
-  // "already onboarded" redirect, and run the full analysis on the new account.
+  // Re-entry into onboarding to connect another handle (`?add=1` or legacy
+  // `?change=1`). Skips the first-run welcome screen and the "already
+  // onboarded" redirect, and runs the full analysis on the new account.
   const reentryMode = searchParams.get('add') === '1' || searchParams.get('change') === '1';
   const [screen, setScreen] = useState(reentryMode ? 'connect' : 'welcome');
   const [handle, setHandle] = useState('');

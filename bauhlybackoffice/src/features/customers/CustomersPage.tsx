@@ -51,6 +51,11 @@ function shortDay(day: string): string {
   return trimmed.slice(0, 3)
 }
 
+function formatFollowers(n: number | null | undefined): string {
+  if (n == null) return ''
+  return ` · ${n.toLocaleString('en-US')}`
+}
+
 /**
  * Calendar view of the weekly plan presented to the customer — Mon–Fri cards
  * with time, pillar, title and format (matches the Recommended weekly plan mock).
@@ -67,9 +72,9 @@ function WeeklyPlanCalendar({
   const focusPillar = plan.focus?.pillar ? pillarLabel(plan.focus.pillar) : null
 
   return (
-    <section className="weekly-plan" aria-labelledby="weekly-plan-title">
+    <section className="weekly-plan" aria-labelledby={`weekly-plan-title-${plan.id}`}>
       <div className="panel-head weekly-plan-head">
-        <h2 id="weekly-plan-title">
+        <h2 id={`weekly-plan-title-${plan.id}`}>
           Recommended weekly plan — {customerName || 'Customer'}
           {plan.weekLabel ? ` · ${plan.weekLabel}` : ''}
         </h2>
@@ -132,9 +137,9 @@ function WeeklyPlanCalendar({
 }
 
 /**
- * Assign a competitor cohort — Business Type + Location — to this customer's
- * Instagram account. Remounted per customer (keyed by id) so the selects reset
- * to the saved assignment when a different customer is opened.
+ * Assign a competitor cohort — Business Type + Location — to one Instagram
+ * handle on this customer. Remounted per handle (keyed by customer+username)
+ * so the selects reset when switching accounts.
  */
 function CohortEditor({
   customerId,
@@ -142,8 +147,8 @@ function CohortEditor({
   cohort,
 }: {
   customerId: string
-  handle: string | null
-  cohort: CustomerCohort | null
+  handle: string
+  cohort: Pick<CustomerCohort, 'businessCategory' | 'location'> | null
 }) {
   const queryClient = useQueryClient()
   const [businessCategory, setBusinessCategory] = useState(
@@ -160,30 +165,51 @@ function CohortEditor({
   if (location && !locationOptions.includes(location)) locationOptions.push(location)
 
   const mutation = useMutation({
-    mutationFn: () => updateCustomerCohort(customerId, { businessCategory, location }),
+    mutationFn: () =>
+      updateCustomerCohort(customerId, {
+        businessCategory,
+        location,
+        instagramUsername: handle,
+      }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['customer-detail', customerId] })
       queryClient.invalidateQueries({ queryKey: ['customers'] })
     },
   })
 
-  const savedBusiness = cohort?.businessCategory ?? 'interior-designer'
-  const savedLocation = cohort?.location ?? 'Global'
-  const dirty = businessCategory !== savedBusiness || location !== savedLocation
+  const assigned = Boolean(cohort)
+  // Unassigned handles are always "dirty" so Assign works with the default
+  // dropdown values; assigned ones only enable Update when something changed.
+  const dirty =
+    !assigned ||
+    businessCategory !== cohort.businessCategory ||
+    location !== cohort.location
+  const fieldId = `${customerId}-${handle}`
+  const businessLabel =
+    filterOptions.businessCategory.find((o) => o.value === cohort?.businessCategory)?.label ??
+    cohort?.businessCategory
 
   return (
     <section className="weekly-plan cohort-editor">
       <div className="panel-head weekly-plan-head">
-        <h2>Competitor cohort</h2>
+        <h2>Competitor cohort · @{handle}</h2>
       </div>
-      <p className="section-note">
-        The competitor cohort {handle ? `@${handle}` : 'this account'} is benchmarked against.
-      </p>
+
+      {assigned ? (
+        <p className="section-note cohort-status cohort-status--assigned">
+          Assigned · {businessLabel} · {cohort.location}
+        </p>
+      ) : (
+        <p className="section-note cohort-status cohort-status--empty">
+          No cohort assigned — choose a business type and location below, then assign.
+        </p>
+      )}
+
       <div className="cohort-editor-fields">
         <div className="filter-field">
-          <label htmlFor="cohort-business-type">Business type</label>
+          <label htmlFor={`cohort-business-type-${fieldId}`}>Business type</label>
           <select
-            id="cohort-business-type"
+            id={`cohort-business-type-${fieldId}`}
             value={businessCategory}
             onChange={(e) => setBusinessCategory(e.target.value)}
           >
@@ -195,9 +221,9 @@ function CohortEditor({
           </select>
         </div>
         <div className="filter-field">
-          <label htmlFor="cohort-location">Location</label>
+          <label htmlFor={`cohort-location-${fieldId}`}>Location</label>
           <select
-            id="cohort-location"
+            id={`cohort-location-${fieldId}`}
             value={location}
             onChange={(e) => setLocation(e.target.value)}
           >
@@ -214,7 +240,7 @@ function CohortEditor({
           disabled={!dirty || mutation.isPending}
           onClick={() => mutation.mutate()}
         >
-          {mutation.isPending ? 'Saving…' : cohort ? 'Update cohort' : 'Assign cohort'}
+          {mutation.isPending ? 'Saving…' : assigned ? 'Update cohort' : 'Assign cohort'}
         </button>
       </div>
       {mutation.isError && (
@@ -224,7 +250,7 @@ function CohortEditor({
             : 'Could not save the cohort.'}
         </p>
       )}
-      {mutation.isSuccess && !dirty && (
+      {mutation.isSuccess && assigned && !dirty && (
         <p className="section-note">Saved.</p>
       )}
     </section>
@@ -234,6 +260,7 @@ function CohortEditor({
 export function CustomersPage() {
   const [query, setQuery] = useState<CustomerQuery>(defaultCustomerQuery)
   const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [selectedHandle, setSelectedHandle] = useState<string | null>(null)
 
   const list = useQuery({
     queryKey: ['customers', query],
@@ -252,7 +279,20 @@ export function CustomersPage() {
     if (!selectedId) return
     if (detail.isPending) return
     planRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-  }, [selectedId, detail.isPending, detail.dataUpdatedAt])
+  }, [selectedId, selectedHandle, detail.isPending, detail.dataUpdatedAt])
+
+  function selectAccount(customerId: string, handle: string | null) {
+    const same =
+      selectedId === customerId &&
+      (selectedHandle ?? null) === (handle ?? null)
+    if (same) {
+      setSelectedId(null)
+      setSelectedHandle(null)
+      return
+    }
+    setSelectedId(customerId)
+    setSelectedHandle(handle)
+  }
 
   if (list.isError) {
     return (
@@ -270,7 +310,26 @@ export function CustomersPage() {
 
   const stats = list.data?.stats
   const rows = list.data?.rows ?? []
-  const selectedRow = rows.find((r) => r.id === selectedId)
+  const selectedRow = rows.find(
+    (r) =>
+      r.id === selectedId &&
+      (r.instagramUsername ?? null) === (selectedHandle ?? null),
+  )
+  const profiles = detail.data?.profiles ?? []
+  const activeProfile = selectedHandle
+    ? profiles.find((p) => p.username.toLowerCase() === selectedHandle.toLowerCase())
+    : profiles[0]
+  const weeklyPlans =
+    detail.data?.weeklyPlans?.length
+      ? detail.data.weeklyPlans
+      : detail.data?.weeklyPlan
+        ? [detail.data.weeklyPlan]
+        : []
+  const activePlan = selectedHandle
+    ? weeklyPlans.find(
+        (p) => p.instagramUsername.toLowerCase() === selectedHandle.toLowerCase(),
+      ) ?? null
+    : weeklyPlans[0] ?? null
 
   return (
     <div className="cust-layout">
@@ -319,48 +378,69 @@ export function CustomersPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {rows.map((row) => (
-                    <tr
-                      key={row.id}
-                      className={`cust-row${selectedId === row.id ? ' cust-row--active' : ''}`}
-                      onClick={() => setSelectedId(selectedId === row.id ? null : row.id)}
-                    >
-                      <td>
-                        <div className="comp-ident">
-                          <span className="comp-avatar" aria-hidden="true">
-                            {initials(row.name || row.email)}
-                          </span>
-                          <div>
-                            <div className="comp-name">{row.name || 'Unnamed'}</div>
-                            <div className="comp-handle">{row.email}</div>
-                          </div>
-                        </div>
-                      </td>
-                      <td>
-                        {row.instagramUsername ? (
-                          <>
-                            @{row.instagramUsername}
-                            {row.followersCount != null
-                              ? ` · ${row.followersCount.toLocaleString('en-US')}`
-                              : ''}
-                          </>
-                        ) : (
-                          <span className="cust-stage">—</span>
-                        )}
-                      </td>
-                      <td>{formatDate(row.createdAt)}</td>
-                      <td>
-                        {row.hasWeeklyPlan ? (
-                          <span className="cust-stage">
-                            {row.weekLabel || 'Plan ready'}
-                            {row.focusPillar ? ` · ${pillarLabel(row.focusPillar)}` : ''}
-                          </span>
-                        ) : (
-                          <span className="cust-stage">Not presented</span>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
+                  {rows.map((row) => {
+                    const isActive =
+                      selectedId === row.id &&
+                      (selectedHandle ?? null) === (row.instagramUsername ?? null)
+                    return (
+                      <tr
+                        key={`${row.id}:${row.instagramUsername ?? '_'}`}
+                        className={[
+                          'cust-row',
+                          isActive ? 'cust-row--active' : '',
+                          row.sameUserContinuation ? 'cust-row--continuation' : '',
+                        ]
+                          .filter(Boolean)
+                          .join(' ')}
+                        onClick={() => selectAccount(row.id, row.instagramUsername)}
+                      >
+                        <td>
+                          {row.sameUserContinuation ? (
+                            <div className="comp-ident cust-ident--continued">
+                              <span className="cust-continued-mark" aria-hidden="true" />
+                              <div>
+                                <div className="comp-name cust-continued-name">
+                                  {row.name || 'Unnamed'}
+                                </div>
+                                <div className="comp-handle">same account</div>
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="comp-ident">
+                              <span className="comp-avatar" aria-hidden="true">
+                                {initials(row.name || row.email)}
+                              </span>
+                              <div>
+                                <div className="comp-name">{row.name || 'Unnamed'}</div>
+                                <div className="comp-handle">{row.email}</div>
+                              </div>
+                            </div>
+                          )}
+                        </td>
+                        <td>
+                          {row.instagramUsername ? (
+                            <>
+                              @{row.instagramUsername}
+                              {formatFollowers(row.followersCount)}
+                            </>
+                          ) : (
+                            <span className="cust-stage">—</span>
+                          )}
+                        </td>
+                        <td>{formatDate(row.createdAt)}</td>
+                        <td>
+                          {row.hasWeeklyPlan ? (
+                            <span className="cust-stage">
+                              {row.weekLabel || 'Plan ready'}
+                              {row.focusPillar ? ` · ${pillarLabel(row.focusPillar)}` : ''}
+                            </span>
+                          ) : (
+                            <span className="cust-stage">Not presented</span>
+                          )}
+                        </td>
+                      </tr>
+                    )
+                  })}
                 </tbody>
               </table>
 
@@ -393,17 +473,17 @@ export function CustomersPage() {
 
         {selectedId && detail.isPending && (
           <div className="weekly-plan" role="status" ref={planRef}>
-            <p className="section-note">Loading weekly plan…</p>
+            <p className="section-note">Loading customer…</p>
           </div>
         )}
 
         {selectedId && detail.isError && (
           <div className="weekly-plan" role="alert" ref={planRef}>
             <div className="panel-head weekly-plan-head">
-              <h2>Recommended weekly plan</h2>
+              <h2>Customer detail</h2>
             </div>
             <p className="section-note">
-              Couldn’t load this customer’s weekly plan.
+              Couldn’t load this customer.
               {detail.error instanceof Error ? ` ${detail.error.message}` : ''}
             </p>
             <button type="button" className="btn-secondary" onClick={() => detail.refetch()}>
@@ -413,36 +493,45 @@ export function CustomersPage() {
         )}
 
         {selectedId && detail.data && !detail.isPending && !detail.isError && (
-          <CohortEditor
-            key={selectedId}
-            customerId={selectedId}
-            handle={detail.data.profiles[0]?.username ?? selectedRow?.instagramUsername ?? null}
-            cohort={detail.data.cohort}
-          />
-        )}
-
-        {selectedId && detail.data?.weeklyPlan && (
           <div ref={planRef}>
-            <WeeklyPlanCalendar
-              plan={detail.data.weeklyPlan}
-              customerName={detail.data.name || selectedRow?.name || ''}
-              handle={
-                detail.data.profiles[0]?.username ??
-                detail.data.weeklyPlan.instagramUsername ??
-                selectedRow?.instagramUsername ??
-                null
-              }
-            />
-          </div>
-        )}
+            {!selectedHandle || !activeProfile ? (
+              <section className="weekly-plan">
+                <div className="panel-head weekly-plan-head">
+                  <h2>Competitor cohort</h2>
+                </div>
+                <p className="section-note">
+                  This customer has no Instagram account connected yet.
+                </p>
+              </section>
+            ) : (
+              <CohortEditor
+                key={`${selectedId}:${activeProfile.username}`}
+                customerId={selectedId}
+                handle={activeProfile.username}
+                cohort={activeProfile.cohort ?? null}
+              />
+            )}
 
-        {selectedId && detail.data && !detail.data.weeklyPlan && !detail.isPending && !detail.isError && (
-          <section className="weekly-plan" ref={planRef}>
-            <div className="panel-head weekly-plan-head">
-              <h2>Recommended weekly plan — {detail.data.name || 'Customer'}</h2>
-            </div>
-            <p className="section-note">No weekly plan has been presented to this customer yet.</p>
-          </section>
+            {activePlan ? (
+              <WeeklyPlanCalendar
+                plan={activePlan}
+                customerName={detail.data.name || selectedRow?.name || ''}
+                handle={activePlan.instagramUsername || selectedHandle}
+              />
+            ) : (
+              <section className="weekly-plan">
+                <div className="panel-head weekly-plan-head">
+                  <h2>
+                    Recommended weekly plan —{' '}
+                    {selectedHandle ? `@${selectedHandle}` : detail.data.name || 'Customer'}
+                  </h2>
+                </div>
+                <p className="section-note">
+                  No weekly plan has been presented for this Instagram account yet.
+                </p>
+              </section>
+            )}
+          </div>
         )}
       </div>
     </div>

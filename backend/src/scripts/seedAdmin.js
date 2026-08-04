@@ -25,9 +25,9 @@ async function seedAdmin() {
   await mongoose.connect(uri);
   console.log(`MongoDB connected: ${mongoose.connection.host}`);
 
-  // Older databases have a single-field unique index on InstagramProfile.user
-  // (from when each user could only have one handle). Drop it so admins can
-  // connect multiple handles; the model now enforces uniqueness on user+username.
+  // Older databases may still have a unique index on `user` alone (from when
+  // each account could only hold one handle). Drop it so multi-account works;
+  // the model enforces uniqueness on user+username.
   try {
     const indexes = await InstagramProfile.collection.indexes();
     if (indexes.some((ix) => ix.name === 'user_1')) {
@@ -35,7 +35,7 @@ async function seedAdmin() {
       console.log('Dropped stale unique index InstagramProfile.user_1');
     }
   } catch (err) {
-    console.warn(`Could not check/drop stale index: ${err.message}`);
+    console.warn(`Could not check/drop stale InstagramProfile index: ${err.message}`);
   }
   await InstagramProfile.syncIndexes();
 

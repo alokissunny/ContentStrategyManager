@@ -9,13 +9,21 @@ export interface CustomerListQuery {
   pageSize?: number
 }
 
+export interface CustomerInstagramAccount {
+  username: string
+  followersCount: number | null
+}
+
 export interface CustomerRow {
   id: string
   name: string
   email: string
   createdAt: string
+  /** Instagram handle for this row (one account per row). */
   instagramUsername: string | null
   followersCount: number | null
+  /** True when this is not the first account row for the same customer. */
+  sameUserContinuation: boolean
   hasWeeklyPlan: boolean
   weekLabel: string | null
   focusPillar: string | null
@@ -71,10 +79,21 @@ export interface CustomerWeeklyPlan {
   days: WeeklyPlanDay[]
 }
 
-/** Competitor cohort (Business Type + Location) assigned to a customer. */
+/** Competitor cohort (Business Type + Location) assigned to one Instagram handle. */
 export interface CustomerCohortAssignment {
+  instagramUsername: string
   businessCategory: string
   location: string
+}
+
+export interface CustomerProfile {
+  username: string
+  fullName: string | null
+  followersCount: number | null
+  postsCount: number | null
+  fetchedAt: string | null
+  /** Cohort assigned to this handle, or null when none has been set. */
+  cohort: Omit<CustomerCohortAssignment, 'instagramUsername'> | null
 }
 
 export interface CustomerDetail {
@@ -83,22 +102,22 @@ export interface CustomerDetail {
   email: string
   role: string
   createdAt: string
-  /** Assigned competitor cohort, or null when none has been set. */
-  cohort: CustomerCohortAssignment | null
+  /**
+   * @deprecated Prefer `profiles[].cohort`. Kept as the primary handle's cohort
+   * so older clients still parse.
+   */
+  cohort: Omit<CustomerCohortAssignment, 'instagramUsername'> | null
   business: {
     name: string
     goals: string
     audience: string
     positioning: string
   } | null
-  profiles: {
-    username: string
-    fullName: string | null
-    followersCount: number | null
-    postsCount: number | null
-    fetchedAt: string | null
-  }[]
+  profiles: CustomerProfile[]
+  /** Freshest plan overall (legacy). Prefer `weeklyPlans`. */
   weeklyPlan: CustomerWeeklyPlan | null
+  /** One plan per Instagram handle that has been presented a route. */
+  weeklyPlans: CustomerWeeklyPlan[]
 }
 
 function serializeDay(d: Record<string, unknown>): WeeklyPlanDay {
@@ -178,6 +197,15 @@ type LeanUser = {
   }
 }
 
+function normalizeHandle(input: string): string {
+  return input
+    .replace(/^https?:\/\/(www\.)?instagram\.com\//i, '')
+    .replace(/^@/, '')
+    .replace(/[/?].*$/, '')
+    .trim()
+    .toLowerCase()
+}
+
 /** Signed-up Bauhly customers (excludes backoffice admins). */
 export async function listCustomers(input: CustomerListQuery = {}) {
   const pageSize = Math.min(Math.max(Number(input.pageSize) || 20, 1), 100)
@@ -205,11 +233,11 @@ export async function listCustomers(input: CustomerListQuery = {}) {
 
   const [profiles, routes] = await Promise.all([
     InstagramProfile.find({ user: { $in: ids } })
-      .select('user username followersCount fetchedAt')
-      .sort({ fetchedAt: -1 })
+      .select('user username followersCount fetchedAt activatedAt')
+      .sort({ activatedAt: -1, fetchedAt: -1 })
       .lean(),
     WeeklyRoute.find({ user: { $in: ids } })
-      .select('user weekLabel focus generatedAt weekOf updatedAt createdAt')
+      .select('user instagramUsername weekLabel focus generatedAt weekOf updatedAt createdAt')
       // Freshest plan first: generatedAt is stamped once when the plan is
       // produced, so a regenerated plan (even for the same weekOf) wins over the
       // stale one. weekOf / createdAt break ties and cover legacy null rows.
@@ -217,40 +245,73 @@ export async function listCustomers(input: CustomerListQuery = {}) {
       .lean(),
   ])
 
-  const profileByUser = new Map<string, (typeof profiles)[number]>()
+  const accountsByUser = new Map<string, CustomerInstagramAccount[]>()
   for (const p of profiles) {
     const key = String(p.user)
-    if (!profileByUser.has(key)) profileByUser.set(key, p)
+    const username = p.username ? String(p.username) : ''
+    if (!username) continue
+    const list = accountsByUser.get(key) ?? []
+    list.push({
+      username,
+      followersCount: typeof p.followersCount === 'number' ? p.followersCount : null,
+    })
+    accountsByUser.set(key, list)
   }
 
-  const routeByUser = new Map<string, (typeof routes)[number]>()
+  // Freshest plan per (user, handle).
+  const routeByUserHandle = new Map<string, (typeof routes)[number]>()
   for (const r of routes) {
-    const key = String(r.user)
-    if (!routeByUser.has(key)) routeByUser.set(key, r)
+    const handle = r.instagramUsername ? String(r.instagramUsername).toLowerCase() : ''
+    const key = `${String(r.user)}:${handle}`
+    if (!routeByUserHandle.has(key)) routeByUserHandle.set(key, r)
   }
 
-  const rows: CustomerRow[] = users.map((u) => {
+  // One table row per Instagram account; same customer's accounts stay back-to-back.
+  // Users with no Instagram yet still get a single placeholder row.
+  const rows: CustomerRow[] = []
+  for (const u of users) {
     const id = String(u._id)
-    const profile = profileByUser.get(id)
-    const route = routeByUser.get(id)
-    const focus = route?.focus as { pillar?: string; headline?: string } | undefined
-    return {
+    const accounts = accountsByUser.get(id) ?? []
+    const base = {
       id,
       name: String(u.name ?? ''),
       email: String(u.email ?? ''),
       createdAt: u.createdAt ? new Date(u.createdAt).toISOString() : new Date(0).toISOString(),
-      instagramUsername: profile?.username ? String(profile.username) : null,
-      followersCount:
-        typeof profile?.followersCount === 'number' ? profile.followersCount : null,
-      hasWeeklyPlan: Boolean(route),
-      weekLabel: route?.weekLabel ? String(route.weekLabel) : null,
-      focusPillar: focus?.pillar ? String(focus.pillar) : null,
-      focusHeadline: focus?.headline ? String(focus.headline) : null,
-      planGeneratedAt: route?.generatedAt
-        ? new Date(route.generatedAt as Date).toISOString()
-        : null,
     }
-  })
+
+    if (accounts.length === 0) {
+      rows.push({
+        ...base,
+        instagramUsername: null,
+        followersCount: null,
+        sameUserContinuation: false,
+        hasWeeklyPlan: false,
+        weekLabel: null,
+        focusPillar: null,
+        focusHeadline: null,
+        planGeneratedAt: null,
+      })
+      continue
+    }
+
+    accounts.forEach((account, index) => {
+      const route = routeByUserHandle.get(`${id}:${account.username.toLowerCase()}`)
+      const focus = route?.focus as { pillar?: string; headline?: string } | undefined
+      rows.push({
+        ...base,
+        instagramUsername: account.username,
+        followersCount: account.followersCount,
+        sameUserContinuation: index > 0,
+        hasWeeklyPlan: Boolean(route),
+        weekLabel: route?.weekLabel ? String(route.weekLabel) : null,
+        focusPillar: focus?.pillar ? String(focus.pillar) : null,
+        focusHeadline: focus?.headline ? String(focus.headline) : null,
+        planGeneratedAt: route?.generatedAt
+          ? new Date(route.generatedAt as Date).toISOString()
+          : null,
+      })
+    })
+  }
 
   return {
     rows,
@@ -269,21 +330,56 @@ export async function getCustomerDetail(id: string): Promise<CustomerDetail | nu
     .lean()) as LeanUser | null
   if (!user || user.role === 'admin') return null
 
-  const [profiles, route, cohort] = await Promise.all([
+  const [profiles, routes, cohorts] = await Promise.all([
     InstagramProfile.find({ user: user._id })
-      .select('username fullName followersCount postsCount fetchedAt')
-      .sort({ fetchedAt: -1 })
+      .select('username fullName followersCount postsCount fetchedAt activatedAt')
+      .sort({ activatedAt: -1, fetchedAt: -1 })
       .lean(),
-    // Freshest plan first (see listCustomers): generatedAt beats a stale
-    // regeneration for the same weekOf, so the detail never shows an old plan.
-    WeeklyRoute.findOne({ user: user._id }).sort({ generatedAt: -1, weekOf: -1, createdAt: -1 }),
-    CustomerCohort.findOne({ user: user._id }).lean() as Promise<{
-      businessCategory?: string
-      location?: string
-    } | null>,
+    WeeklyRoute.find({ user: user._id }).sort({ generatedAt: -1, weekOf: -1, createdAt: -1 }),
+    CustomerCohort.find({ user: user._id }).lean() as Promise<
+      {
+        instagramUsername?: string
+        businessCategory?: string
+        location?: string
+      }[]
+    >,
   ])
 
+  const cohortByHandle = new Map<string, { businessCategory: string; location: string }>()
+  for (const c of cohorts) {
+    const handle = c.instagramUsername ? String(c.instagramUsername).toLowerCase() : ''
+    if (!handle) continue
+    cohortByHandle.set(handle, {
+      businessCategory: String(c.businessCategory ?? 'interior-designer'),
+      location: String(c.location ?? 'Global'),
+    })
+  }
+
+  const serializedProfiles: CustomerProfile[] = profiles.map((p) => {
+    const username = String(p.username ?? '')
+    const cohort = username ? cohortByHandle.get(username.toLowerCase()) ?? null : null
+    return {
+      username,
+      fullName: p.fullName ? String(p.fullName) : null,
+      followersCount: typeof p.followersCount === 'number' ? p.followersCount : null,
+      postsCount: typeof p.postsCount === 'number' ? p.postsCount : null,
+      fetchedAt: p.fetchedAt ? new Date(p.fetchedAt as Date).toISOString() : null,
+      cohort,
+    }
+  })
+
+  // Freshest plan per handle (routes already sorted newest-first).
+  const planByHandle = new Map<string, CustomerWeeklyPlan>()
+  for (const route of routes) {
+    const handle = String(route.instagramUsername ?? '').toLowerCase()
+    if (!handle || planByHandle.has(handle)) continue
+    planByHandle.set(handle, serializeWeeklyPlan(route))
+  }
+  const weeklyPlans = [...planByHandle.values()]
+  const weeklyPlan = weeklyPlans[0] ?? null
+
   const business = user.business
+  const primaryCohort = serializedProfiles[0]?.cohort ?? null
 
   return {
     id: String(user._id),
@@ -291,12 +387,7 @@ export async function getCustomerDetail(id: string): Promise<CustomerDetail | nu
     email: String(user.email ?? ''),
     role: String(user.role ?? 'user'),
     createdAt: user.createdAt ? new Date(user.createdAt).toISOString() : new Date(0).toISOString(),
-    cohort: cohort
-      ? {
-          businessCategory: String(cohort.businessCategory ?? 'interior-designer'),
-          location: String(cohort.location ?? 'Global'),
-        }
-      : null,
+    cohort: primaryCohort,
     business: business
       ? {
           name: String(business.name ?? ''),
@@ -305,48 +396,48 @@ export async function getCustomerDetail(id: string): Promise<CustomerDetail | nu
           positioning: String(business.positioning ?? ''),
         }
       : null,
-    profiles: profiles.map((p) => ({
-      username: String(p.username ?? ''),
-      fullName: p.fullName ? String(p.fullName) : null,
-      followersCount: typeof p.followersCount === 'number' ? p.followersCount : null,
-      postsCount: typeof p.postsCount === 'number' ? p.postsCount : null,
-      fetchedAt: p.fetchedAt ? new Date(p.fetchedAt as Date).toISOString() : null,
-    })),
-    weeklyPlan: route ? serializeWeeklyPlan(route) : null,
+    profiles: serializedProfiles,
+    weeklyPlan,
+    weeklyPlans,
   }
 }
 
 /**
- * Assign (upsert) a competitor cohort — Business Type + Location — to a
- * customer's Instagram account. Stored in a backoffice-owned collection so the
- * customer app's data is left untouched. Returns null when the customer does
- * not exist (or is an admin).
+ * Assign (upsert) a competitor cohort — Business Type + Location — to one of
+ * the customer's Instagram handles. Returns null when the customer or handle
+ * does not exist (or the user is an admin).
  */
 export async function setCustomerCohort(
   id: string,
-  input: { businessCategory: string; location: string },
+  input: { businessCategory: string; location: string; instagramUsername: string },
 ): Promise<CustomerCohortAssignment | null> {
   if (!mongoose.isValidObjectId(id)) return null
 
   const user = (await User.findById(id).select('role').lean()) as LeanUser | null
   if (!user || user.role === 'admin') return null
 
-  const profile = (await InstagramProfile.findOne({ user: id })
-    .select('username')
-    .sort({ fetchedAt: -1 })
-    .lean()) as { username?: string } | null
+  const username = normalizeHandle(input.instagramUsername)
+  if (!username) return null
+
+  const profile = await InstagramProfile.findOne({ user: id, username }).select('username').lean()
+  if (!profile) return null
 
   const doc = await CustomerCohort.findOneAndUpdate(
-    { user: id },
+    { user: id, instagramUsername: username },
     {
       $set: {
         businessCategory: input.businessCategory,
         location: input.location,
-        instagramUsername: profile?.username ?? null,
+        instagramUsername: username,
+        user: id,
       },
     },
     { new: true, upsert: true, runValidators: true, setDefaultsOnInsert: true },
   )
 
-  return { businessCategory: String(doc.businessCategory), location: String(doc.location) }
+  return {
+    instagramUsername: String(doc.instagramUsername),
+    businessCategory: String(doc.businessCategory),
+    location: String(doc.location),
+  }
 }

@@ -8,6 +8,7 @@ const customerRow = z.object({
   createdAt: z.string(),
   instagramUsername: z.string().nullable(),
   followersCount: z.number().nullable(),
+  sameUserContinuation: z.boolean().default(false),
   hasWeeklyPlan: z.boolean(),
   weekLabel: z.string().nullable(),
   focusPillar: z.string().nullable(),
@@ -69,11 +70,24 @@ const customerWeeklyPlan = z.object({
 })
 export type CustomerWeeklyPlan = z.infer<typeof customerWeeklyPlan>
 
-const customerCohort = z.object({
+const cohortFields = z.object({
   businessCategory: z.string(),
   location: z.string(),
 })
+
+const customerCohort = cohortFields.extend({
+  instagramUsername: z.string().optional(),
+})
 export type CustomerCohort = z.infer<typeof customerCohort>
+
+const customerProfile = z.object({
+  username: z.string(),
+  fullName: z.string().nullable(),
+  followersCount: z.number().nullable(),
+  postsCount: z.number().nullable(),
+  fetchedAt: z.string().nullable(),
+  cohort: cohortFields.nullable().optional().default(null),
+})
 
 const customerDetail = z.object({
   id: z.string(),
@@ -81,7 +95,7 @@ const customerDetail = z.object({
   email: z.string(),
   role: z.string(),
   createdAt: z.string(),
-  cohort: customerCohort.nullable(),
+  cohort: cohortFields.nullable(),
   business: z
     .object({
       name: z.string(),
@@ -90,16 +104,9 @@ const customerDetail = z.object({
       positioning: z.string(),
     })
     .nullable(),
-  profiles: z.array(
-    z.object({
-      username: z.string(),
-      fullName: z.string().nullable(),
-      followersCount: z.number().nullable(),
-      postsCount: z.number().nullable(),
-      fetchedAt: z.string().nullable(),
-    }),
-  ),
+  profiles: z.array(customerProfile),
   weeklyPlan: customerWeeklyPlan.nullable(),
+  weeklyPlans: z.array(customerWeeklyPlan).default([]),
 })
 export type CustomerDetail = z.infer<typeof customerDetail>
 
@@ -160,10 +167,10 @@ export async function getCustomerDetail(id: string): Promise<CustomerDetail | nu
   return null
 }
 
-/** Assign the competitor cohort (Business Type + Location) to a customer. */
+/** Assign the competitor cohort to one of the customer's Instagram handles. */
 export async function updateCustomerCohort(
   id: string,
-  input: CustomerCohort,
+  input: { businessCategory: string; location: string; instagramUsername: string },
 ): Promise<CustomerCohort> {
   if (!USE_MOCKS) {
     return customerCohort.parse(await api.patch<unknown>(`/customers/${id}/cohort`, input))

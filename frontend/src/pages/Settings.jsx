@@ -12,15 +12,9 @@ import React, { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import Icon from '../brand/Icon';
 import { useAuth } from '../context/AuthContext';
-import { listInstagramProfiles } from '../api/instagram';
+import { listInstagramProfiles, activateInstagramProfile } from '../api/instagram';
 import { getMetaStatus, startMetaConnect, disconnectMeta } from '../api/meta';
 import './settings.css';
-
-function formatCount(n) {
-  if (n >= 1000000) return `${(n / 1000000).toFixed(1)}M`;
-  if (n >= 1000) return `${(n / 1000).toFixed(1)}K`;
-  return `${n || 0}`;
-}
 
 /* which formats Bauhly may use — held as EXCLUSIONS so a format added later is
  * on by default. Persisted locally (self-contained) until generation reads it. */
@@ -37,6 +31,11 @@ function initialsOf(name = '') {
   return (parts[0][0] + (parts[1]?.[0] || '')).toUpperCase();
 }
 
+// First two letters of a handle — the header switcher's avatar convention.
+function handleInitials(username = '') {
+  return (username.replace(/[^a-z0-9]/gi, '').slice(0, 2) || 'IG').toUpperCase();
+}
+
 export default function Settings() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
@@ -44,6 +43,7 @@ export default function Settings() {
 
   const [profiles, setProfiles] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [switching, setSwitching] = useState('');
   const [dropped, setDropped] = useState(loadDropped);
   const [meta, setMeta] = useState({ connected: false, configured: false });
   const [metaBusy, setMetaBusy] = useState(false);
@@ -79,6 +79,21 @@ export default function Settings() {
     finally { setMetaBusy(false); }
   }
 
+  // Make another connected handle current — same path as the header switcher.
+  async function switchTo(username) {
+    if (!username || switching) return;
+    const current = profiles[0];
+    if (current && current.username === username) return;
+    setSwitching(username);
+    try {
+      await activateInstagramProfile(username);
+      window.location.reload();
+    } catch (err) {
+      alert(err.response?.data?.message || 'Could not switch Instagram account.');
+      setSwitching('');
+    }
+  }
+
   const toggleFormat = (f) => {
     setDropped((prev) => {
       const next = prev.includes(f) ? prev.filter((x) => x !== f) : [...prev, f];
@@ -103,48 +118,64 @@ export default function Settings() {
       <section className="card set-card">
         <h2>Instagram</h2>
         <p className="set-card__sub">
-          Bauhly reads what's on a public profile: posts, formats, cadence, likes, comments and
-          Reel views. {isAdmin
-            ? 'As an admin you can connect more than one handle — each runs the onboarding analysis and gets its own Brand profile.'
-            : 'Switch to a different handle any time; the new account runs the onboarding analysis and replaces your Brand profile.'}
+          Bauhly reads what&rsquo;s on a public profile: posts, formats, cadence, likes, comments and
+          Reel views. Connect more than one handle — each gets its own Brand profile and plans.
+          Switch from here or the header anytime.
         </p>
 
         {loading ? (
           <p className="set-empty">Loading…</p>
         ) : profiles.length === 0 ? (
-          <p className="set-empty">
-            No Instagram connected yet.{' '}
-            <Link to="/onboarding" style={{ color: 'var(--signal-700)', fontWeight: 600 }}>Connect one →</Link>
-          </p>
+          <p className="set-empty">No Instagram connected yet — add one below.</p>
         ) : (
-          profiles.map((p, i) => (
-            <div className={`set-row ${i === 0 ? 'is-active' : ''}`} key={p._id || p.username}>
-              <span className="set-row__ico">
-                {p.profilePicUrl
-                  ? <img src={p.profilePicUrl} alt="" referrerPolicy="no-referrer" style={{ width: '100%', height: '100%', borderRadius: 'inherit', objectFit: 'cover' }} />
-                  : <Icon name="instagram" size={20} />}
-              </span>
-              <span className="set-row__main">
-                <b className="set-row__title">
-                  @{p.username}
-                  {i === 0 && <span className="set-row__badge">Analysing</span>}
-                </b>
-                <span className="set-row__sub">
-                  {formatCount(p.followersCount)} followers · {formatCount(p.postsCount)} posts
+          profiles.map((p, i) => {
+            const isCurrent = i === 0;
+            const busy = switching === p.username;
+            const insights = meta.connected && meta.igUsername
+              && meta.igUsername.toLowerCase() === p.username.toLowerCase();
+            return (
+              <button
+                type="button"
+                className={`set-row set-row--switch ${isCurrent ? 'is-active' : ''}`}
+                key={p._id || p.username}
+                disabled={!!switching || isCurrent}
+                onClick={() => switchTo(p.username)}
+                aria-current={isCurrent ? 'true' : undefined}
+                title={isCurrent ? 'Current account' : `Switch to @${p.username}`}
+              >
+                <span className={`set-row__ico ${p.profilePicUrl ? '' : 'set-row__ico--avatar'}`}>
+                  {p.profilePicUrl
+                    ? <img src={p.profilePicUrl} alt="" referrerPolicy="no-referrer" style={{ width: '100%', height: '100%', borderRadius: 'inherit', objectFit: 'cover' }} />
+                    : handleInitials(p.username)}
                 </span>
-              </span>
-            </div>
-          ))
+                <span className="set-row__main">
+                  <b className="set-row__title">@{p.username}</b>
+                  <span className={`set-row__sub ${insights ? 'is-good' : ''}`}>
+                    {busy
+                      ? 'Switching…'
+                      : insights
+                        ? 'Insights connected — saves, reach, shares and profile visits'
+                        : isCurrent
+                          ? 'Current account · public profile'
+                          : 'Tap to switch · public profile'}
+                  </span>
+                </span>
+                {isCurrent && (
+                  <span className="set-row__acts" title="Current account">
+                    <Icon name="check" size={18} className="set-row__check" />
+                  </span>
+                )}
+              </button>
+            );
+          })
         )}
 
-        {(isAdmin || profiles.length > 0) && (
-          <div className="set-foot">
-            <Link className="btn btn--ghost btn--sm" to={isAdmin ? '/onboarding?add=1' : '/onboarding?change=1'}>
-              <Icon name={isAdmin ? 'plus' : 'refresh'} size={14} strokeWidth={2.25} />
-              {isAdmin ? 'Add another account' : 'Change Instagram account'}
-            </Link>
-          </div>
-        )}
+        <div className="set-foot">
+          <Link className="btn btn--ghost btn--sm" to="/onboarding?add=1">
+            <Icon name="plus" size={14} strokeWidth={2.25} />
+            Add another account
+          </Link>
+        </div>
 
         <p className="set-card__note">
           Profile analysis reads public posts. Publishing to Instagram uses a separate Meta connection below.

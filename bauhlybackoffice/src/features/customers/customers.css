@@ -32,6 +32,37 @@
   white-space: nowrap;
 }
 
+.cust-row--continuation td {
+  border-top-color: transparent;
+}
+
+.cust-ident--continued {
+  opacity: 0.72;
+}
+
+.cust-continued-mark {
+  width: 34px;
+  height: 34px;
+  flex-shrink: 0;
+  border-left: 2px solid var(--border-strong);
+  margin-left: 16px;
+}
+
+.cust-continued-name {
+  font-weight: 500;
+}
+
+.cust-ig-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.cust-ig-line {
+  font-size: var(--text-sm);
+  white-space: nowrap;
+}
+
 .cust-trend {
   min-width: 90px;
 }
@@ -593,6 +624,19 @@
 }
 
 /* ── Competitor cohort assignment ─────────────────────────────────────────── */
+.cohort-status {
+  margin: 0 0 var(--sp-1);
+  font-weight: 600;
+}
+
+.cohort-status--empty {
+  color: var(--negative, #b42318);
+}
+
+.cohort-status--assigned {
+  color: var(--positive, #0a6e46);
+}
+
 .cohort-editor-fields {
   display: flex;
   flex-wrap: wrap;
