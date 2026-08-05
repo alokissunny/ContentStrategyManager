@@ -822,9 +822,25 @@ function ProjectDetail({ project, projects, onBack }) {
   const [open, setOpen] = useState(null);   // entry id in the side panel
   const [editing, setEditing] = useState(false);
   const [capturing, setCapturing] = useState(false);
+  const [uploading, setUploading] = useState(false);
   const others = projects.filter((p) => p.id !== project.id);
   const groups = groupByWeek(project.captures);
   const openEntry = open && project.captures.find((e) => e.id === open);
+
+  // Add photos/clips straight to the project — no note required. The capture is
+  // filed with the files and empty text (the backend allows a file-only capture).
+  async function addFiles(files) {
+    const list = [...files].filter((f) => f.type.startsWith('image/') || f.type.startsWith('video/'));
+    if (!list.length) return;
+    setUploading(true);
+    try {
+      const added = await uploadFiles(list);
+      const type = added.some((a) => a.type === 'video') ? 'video' : 'photo';
+      await addEntry(project.id, { type, text: '', attachments: added });
+    } finally {
+      setUploading(false);
+    }
+  }
 
   return (
     <div className="pj pj--detail">
@@ -839,6 +855,17 @@ function ProjectDetail({ project, projects, onBack }) {
             <button className="btn btn--tertiary btn--sm pd__edit" onClick={() => setEditing(true)}>
               <Icon name="edit" size={15} strokeWidth={2} /> Edit
             </button>
+            <label className={`btn btn--tertiary btn--sm pd__addfiles${uploading ? ' is-busy' : ''}`}>
+              <Icon name="image" size={15} strokeWidth={2} /> {uploading ? 'Adding…' : 'Add files'}
+              <input
+                type="file"
+                accept="image/*,video/*"
+                multiple
+                hidden
+                disabled={uploading}
+                onChange={(e) => { addFiles(e.target.files || []); e.target.value = ''; }}
+              />
+            </label>
             <button className="btn btn--primary btn--sm" onClick={() => setCapturing(true)}>
               <Icon name="plus" size={15} strokeWidth={2.5} /> Capture idea
             </button>
@@ -846,7 +873,21 @@ function ProjectDetail({ project, projects, onBack }) {
         </div>
 
         {project.captures.length === 0 && (
-          <p className="pd__empty">Nothing here yet — tap <b>Capture idea</b> to write something down or add a file.</p>
+          <p className="pd__empty">
+            Nothing here yet — tap <b>Capture idea</b> to write something down, or{' '}
+            <label className="pd__emptylink">
+              <b>Add files</b>
+              <input
+                type="file"
+                accept="image/*,video/*"
+                multiple
+                hidden
+                disabled={uploading}
+                onChange={(e) => { addFiles(e.target.files || []); e.target.value = ''; }}
+              />
+            </label>{' '}
+            to drop in photos or clips.
+          </p>
         )}
 
         {groups.map((g) => (
