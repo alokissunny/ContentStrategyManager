@@ -1,5 +1,6 @@
 const crypto = require('crypto');
 const Project = require('../models/Project');
+const InstagramProfile = require('../models/InstagramProfile');
 const {
   isS3Configured,
   getPresignedUploadUrl,
@@ -88,15 +89,38 @@ async function signUploads(req, res) {
 }
 
 // ── projects ─────────────────────────────────────────────────────────────
+// The handle projects belong to = the user's *current* Instagram account (the
+// one most recently activated/switched in the header). Mirrors instagram
+// controller's CURRENT_SORT so "current" means the same thing everywhere.
+async function currentUsername(userId) {
+  const profile = await InstagramProfile.findOne({ user: userId })
+    .sort({ activatedAt: -1, fetchedAt: -1 })
+    .select('username')
+    .lean();
+  return profile?.username || null;
+}
+
 async function listProjects(req, res) {
-  const projects = await Project.find({ user: req.user._id }).sort({ updatedAt: -1 });
+  const username = await currentUsername(req.user._id);
+  const filter = { user: req.user._id };
+  if (username) {
+    // Adopt legacy projects (created before projects were tied to a handle) into
+    // the current account so nothing disappears now that projects are scoped.
+    await Project.updateMany(
+      { user: req.user._id, instagramUsername: { $in: [null, ''] } },
+      { $set: { instagramUsername: username } }
+    );
+    filter.instagramUsername = username;
+  }
+  const projects = await Project.find(filter).sort({ updatedAt: -1 });
   res.json({ projects: await Promise.all(projects.map(serializeProject)) });
 }
 
 async function createProject(req, res) {
   const name = (req.body.name || '').trim();
   if (!name) return res.status(400).json({ message: 'Project name is required' });
-  const project = await Project.create({ user: req.user._id, name, captures: [] });
+  const instagramUsername = await currentUsername(req.user._id);
+  const project = await Project.create({ user: req.user._id, name, captures: [], instagramUsername });
   res.status(201).json({ project: await serializeProject(project) });
 }
 

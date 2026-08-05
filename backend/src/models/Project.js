@@ -28,12 +28,17 @@ const captureSchema = new mongoose.Schema(
 const projectSchema = new mongoose.Schema(
   {
     user: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+    // The Instagram handle this project belongs to — the app's "current" account
+    // when the project was created. Projects follow the header account switcher,
+    // so each handle sees only its own projects. Null for projects created
+    // before any handle was connected (or before this field existed).
+    instagramUsername: { type: String, trim: true, lowercase: true, default: null },
     name: { type: String, required: true, trim: true },
     captures: { type: [captureSchema], default: [] },
   },
   { timestamps: true }
 );
 
-projectSchema.index({ user: 1, updatedAt: -1 });
+projectSchema.index({ user: 1, instagramUsername: 1, updatedAt: -1 });
 
 module.exports = mongoose.model('Project', projectSchema);
