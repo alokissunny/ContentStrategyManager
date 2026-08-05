@@ -22,6 +22,7 @@ import { useAuth } from '../context/AuthContext';
 import WeekView from './WeekView';
 import PlanLoom from './PlanLoom';
 import Checkin from './checkin/Checkin';
+import NeedsAWord from '../components/NeedsAWord';
 import './plans.css';
 import './yourweek.css'; /* the shared .empty brand-moment styles */
 
@@ -260,6 +261,8 @@ export default function YourPlans() {
         </p>
         {error && <p className="ph__sub" style={{ color: 'var(--negative)' }}>{error}</p>}
       </div>
+
+      <NeedsAWord />
 
       <div className="ph__list">
         {current && (

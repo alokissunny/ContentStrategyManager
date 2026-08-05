@@ -115,7 +115,7 @@ function EntryCard({ entry, others, onOpen, onMove, onDelete }) {
 }
 
 /* ── the full entry, in a side panel with a lightbox ───────────────────── */
-function EntryPanel({ project, entry, week, onClose }) {
+export function EntryPanel({ project, entry, week, onClose }) {
   const [light, setLight] = useState(null); // index into attachments, or null
   const atts = entry.attachments || [];
 

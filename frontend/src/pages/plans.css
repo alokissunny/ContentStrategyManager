@@ -150,3 +150,139 @@
   .ph__headacts { width: 100%; }
   .ph__headacts .btn { flex: 1; justify-content: center; }
 }
+
+/* ── "Bauhly has a question about these photos" (NeedsAWord) ──────────────────
+   Ported from bauhly-v3's Library group onto Your Plans: wordless captures the
+   plan can't use until the studio adds a line. */
+.nw {
+  margin-bottom: 28px;
+}
+.nw__head {
+  margin-bottom: 14px;
+}
+.nw__title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 6px;
+  font-family: var(--font-ui);
+  font-size: 17px;
+  font-weight: 700;
+  color: #6d28d9;
+}
+.nw__count {
+  display: inline-grid;
+  place-items: center;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 7px;
+  border-radius: 999px;
+  background: #ede9fe;
+  color: #6d28d9;
+  font-size: 12px;
+  font-weight: 700;
+}
+.nw__lead {
+  margin: 0;
+  max-width: 62ch;
+  font-family: var(--font-ui);
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--ink-600);
+}
+.nw__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: #f8f7fc;
+  overflow: hidden;
+}
+.nw-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px 0 0;
+}
+.nw-row + .nw-row {
+  border-top: 1px solid color-mix(in srgb, #6d28d9 12%, transparent);
+}
+.nw-row__hit {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 16px;
+  border: none;
+  background: none;
+  cursor: pointer;
+  text-align: left;
+}
+.nw-row__thumb {
+  position: relative;
+  flex-shrink: 0;
+  width: 56px;
+  height: 56px;
+  border-radius: 14px;
+  overflow: hidden;
+  background: #ebe8e1;
+  display: grid;
+  place-items: center;
+  color: var(--ink-quiet);
+}
+.nw-row__thumb img { width: 100%; height: 100%; object-fit: cover; }
+.nw-row__count {
+  position: absolute;
+  left: 6px;
+  bottom: 6px;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 5px;
+  display: grid;
+  place-items: center;
+  border-radius: 7px;
+  background: rgba(22, 22, 26, 0.82);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+}
+.nw-row__body {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.nw-row__text {
+  font-family: var(--font-ui);
+  font-size: 16px;
+  font-weight: 500;
+  color: var(--ink-900);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.nw-row__meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-ui);
+  font-size: 13px;
+  color: var(--ink-quiet);
+}
+.nw-row__meta svg { flex-shrink: 0; }
+.nw-row__del {
+  flex-shrink: 0;
+  width: 40px;
+  height: 40px;
+  border: none;
+  background: none;
+  border-radius: 10px;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  color: var(--ink-quiet);
+  transition: background var(--dur-fast), color var(--dur-fast);
+}
+.nw-row__del:hover { background: var(--surface); color: var(--negative); }
