@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Glyph from './Glyph';
 import { useAuth } from '../context/AuthContext';
-import { LS_SURFACE, LS_BORDER, LS_INK, LS_T2, LS_MUTED, LS_SIGNAL, LS_FONT } from '../theme';
+import { LS_SURFACE, LS_BORDER, LS_INK, LS_T2, LS_MUTED, LS_SIGNAL, LS_HOVER, LS_FONT } from '../theme';
 
 function UserAvatar({ user, size = 32 }) {
   const initial = (user?.name || 'U').slice(0, 1).toUpperCase();
@@ -68,6 +68,18 @@ export default function UserMenu({ compact = false }) {
     logout();
     navigate('/auth');
   }
+
+  function go(path) {
+    setOpen(false);
+    navigate(path);
+  }
+
+  // Settings and Business memory (the brand profile) live here in the account
+  // menu rather than the main nav.
+  const LINKS = [
+    { label: 'Settings', icon: 'settings', to: '/dashboard/settings' },
+    { label: 'Business memory', icon: 'file-text', to: '/dashboard/brand-dna' },
+  ];
 
   return (
     <div ref={menuRef} style={{ position: 'relative' }}>
@@ -148,6 +160,38 @@ export default function UserMenu({ compact = false }) {
               <div style={{ fontFamily: LS_FONT, fontSize: 11, color: LS_MUTED, marginTop: 2 }}>{user.email}</div>
             </div>
           )}
+          {LINKS.map((link) => (
+            <button
+              key={link.to}
+              type="button"
+              role="menuitem"
+              onClick={() => go(link.to)}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 10,
+                width: '100%',
+                padding: '10px 12px',
+                border: 'none',
+                borderRadius: 8,
+                background: 'transparent',
+                cursor: 'pointer',
+                fontFamily: LS_FONT,
+                fontSize: 13,
+                fontWeight: 600,
+                color: LS_INK,
+                textAlign: 'left',
+              }}
+              onMouseEnter={(e) => { e.currentTarget.style.background = LS_HOVER; }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
+            >
+              <Glyph name={link.icon} size={16} color={LS_T2} />
+              {link.label}
+            </button>
+          ))}
+
+          <div style={{ height: 1, background: LS_BORDER, margin: '4px 6px' }} />
+
           <button
             type="button"
             role="menuitem"
@@ -170,7 +214,7 @@ export default function UserMenu({ compact = false }) {
             }}
           >
             <Glyph name="log-out" size={16} color={LS_SIGNAL} />
-            Log out
+            Sign out
           </button>
         </div>
       )}

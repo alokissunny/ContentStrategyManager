@@ -48,7 +48,7 @@ function BrandDnaField({ label, description, inferred, value, onChange }) {
 
 function BrandDnaSkeleton() {
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 14, marginTop: 24 }} aria-busy="true" aria-label="Loading brand profile">
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 14, marginTop: 24 }} aria-busy="true" aria-label="Loading business memory">
       {Array.from({ length: 4 }, (_, i) => (
         <div
           key={i}
@@ -116,7 +116,7 @@ export default function BrandDna() {
 
   return (
     <div style={{ ...LSC, padding: 'clamp(24px, 6vw, 48px) clamp(16px, 5vw, 48px)', maxWidth: 760 }}>
-        <h1 style={{ fontFamily: LS_DISPLAY, fontWeight: 700, fontSize: 30, color: LS_INK, margin: '0 0 8px' }}>Brand profile</h1>
+        <h1 style={{ fontFamily: LS_DISPLAY, fontWeight: 700, fontSize: 30, color: LS_INK, margin: '0 0 8px' }}>Business memory</h1>
         <p style={{ fontFamily: LS_FONT, fontSize: 14, color: LS_T2, margin: '0 0 8px' }}>
           What Bauhly inferred about your business from your Instagram. Edit anything that’s off — the sharper this is, the better your weekly route.
         </p>
@@ -126,7 +126,7 @@ export default function BrandDna() {
         ) : notFound ? (
           <div style={{ border: `1px dashed ${LS_BORDER}`, borderRadius: 12, padding: '40px 24px', textAlign: 'center', marginTop: 24 }}>
             <p style={{ fontFamily: LS_FONT, fontSize: 14, color: LS_T2, margin: 0 }}>
-              No brand profile yet. Connect your Instagram from onboarding to generate one from your page.
+              No business memory yet. Connect your Instagram from onboarding to generate one from your page.
             </p>
           </div>
         ) : (
@@ -159,7 +159,7 @@ export default function BrandDna() {
                 {saving ? 'Saving…' : 'Save changes'}
               </button>
               {saved && !saving && (
-                <span style={{ fontFamily: LS_FONT, fontSize: 13, color: LS_T2 }}>Saved to your brand profile.</span>
+                <span style={{ fontFamily: LS_FONT, fontSize: 13, color: LS_T2 }}>Saved to your business memory.</span>
               )}
             </div>
           </>

@@ -119,7 +119,7 @@ export default function Settings() {
         <h2>Instagram</h2>
         <p className="set-card__sub">
           Bauhly reads what&rsquo;s on a public profile: posts, formats, cadence, likes, comments and
-          Reel views. Connect more than one handle — each gets its own Brand profile and plans.
+          Reel views. Connect more than one handle — each gets its own Business memory and plans.
           Switch from here or the header anytime.
         </p>
 

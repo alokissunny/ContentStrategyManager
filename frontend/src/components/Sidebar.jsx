@@ -5,13 +5,13 @@ import UserMenu from './UserMenu';
 import { useIsMobile } from '../hooks/useMediaQuery';
 import { LS_SURFACE, LS_BORDER, LS_INK, LS_T2, LS_SIGNAL, LS_SIGNAL_TEXT, LS_SOFT, LS_INK_MENU, LS_HOVER, LS_FONT, LS_DISPLAY } from '../theme';
 
+// Settings and Business memory (the brand profile) live in the user menu at the
+// bottom of the sidebar (see UserMenu), not in the main nav.
 const NAV_ITEMS = [
   { to: '/dashboard', label: 'Your plans', icon: 'route', exact: true },
   { to: '/dashboard/projects', label: 'Projects', icon: 'folder' },
-  { to: '/dashboard/brand-dna', label: 'Brand profile', icon: 'fingerprint' },
   { to: '/dashboard/visual-brand', label: 'Visual Brand', icon: 'palette' },
   { to: '/dashboard/competitor-overview', label: 'Competitor overview', icon: 'trending-up' },
-  { to: '/dashboard/settings', label: 'Settings', icon: 'settings' },
 ];
 
 export default function Sidebar({ open = false, onClose }) {
