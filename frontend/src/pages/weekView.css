@@ -248,11 +248,98 @@
 }
 
 /* ── studio layout ──────────────────────────────────────────────────────── */
+/* Slide rail · Instagram preview · editor panel — three columns, per bauhly-v3. */
 .wv-studio {
   display: grid;
-  grid-template-columns: minmax(260px, 340px) 1fr;
-  gap: 24px;
+  grid-template-columns: 92px minmax(280px, 330px) minmax(0, 1fr);
+  gap: 20px;
   align-items: start;
+}
+
+/* ── slide rail (vertical numbered thumbnails) ─────────────────────────────── */
+.wv-slides {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.wv-slide {
+  border: none;
+  background: none;
+  padding: 0;
+  cursor: pointer;
+  display: block;
+}
+.wv-slide__thumb {
+  position: relative;
+  display: block;
+  width: 100%;
+  aspect-ratio: 4 / 5;
+  border-radius: 12px;
+  overflow: hidden;
+  background: #ebe8e1;
+  border: 2px solid var(--border);
+  color: var(--ink-quiet);
+  display: grid;
+  place-items: center;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.wv-slide__thumb img { width: 100%; height: 100%; object-fit: cover; }
+.wv-slide.is-on .wv-slide__thumb {
+  border-color: var(--signal-500);
+  box-shadow: 0 0 0 3px var(--signal-50);
+}
+.wv-slide:hover .wv-slide__thumb { border-color: var(--border-strong); }
+.wv-slide.is-on:hover .wv-slide__thumb { border-color: var(--signal-500); }
+.wv-slide__num {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 5px;
+  display: grid;
+  place-items: center;
+  border-radius: 6px;
+  background: rgba(22, 22, 26, 0.78);
+  color: #fff;
+  font-family: var(--font-ui);
+  font-size: 11px;
+  font-weight: 700;
+}
+.wv-slide.is-on .wv-slide__num { background: var(--signal-500); }
+.wv-slide__cap {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: 16px 6px 6px;
+  background: linear-gradient(transparent, rgba(22, 22, 26, 0.74));
+  color: #fff;
+  font-family: var(--font-ui);
+  font-size: 10.5px;
+  line-height: 1.25;
+  font-weight: 600;
+  text-align: left;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.wv-slide--add .wv-slide__thumb--add {
+  background: none;
+  border-style: dashed;
+  border-color: var(--border-strong);
+  color: var(--ink-quiet);
+}
+.wv-slide--add:hover .wv-slide__thumb--add { border-color: var(--ink-600); color: var(--ink-900); }
+.wv-slide__addlabel {
+  display: block;
+  margin-top: 5px;
+  font-family: var(--font-ui);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ink-600);
+  text-align: center;
 }
 
 /* Instagram preview */
@@ -270,15 +357,16 @@
   padding: 12px 14px;
 }
 .wv-ig__avatar {
-  width: 32px;
-  height: 32px;
+  width: 30px;
+  height: 30px;
   border-radius: 50%;
-  background: var(--signal-50);
+  background: var(--ink-900);
   display: grid;
   place-items: center;
-  color: var(--signal-500);
+  color: #fff;
   overflow: hidden;
   flex-shrink: 0;
+  box-shadow: 0 0 0 2px var(--surface), 0 0 0 3.5px var(--signal-400, #ff7a45);
 }
 .wv-ig__avatar img {
   width: 100%;
@@ -286,9 +374,56 @@
   object-fit: cover;
 }
 .wv-ig__user {
-  font-size: 13.5px;
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
   font-weight: 700;
   color: var(--ink-900);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.wv-ig__format {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex-shrink: 0;
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: var(--ink-100, #ececf0);
+  font-size: 10.5px;
+  font-weight: 700;
+  color: var(--ink-700);
+  white-space: nowrap;
+}
+.wv-ig__format svg { color: var(--ink-500); }
+.wv-ig__connect {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  height: 28px;
+  padding: 0 11px;
+  border: none;
+  border-radius: 8px;
+  background: var(--ink-900);
+  color: #fff;
+  cursor: pointer;
+  font-family: var(--font-ui);
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.wv-ig__connect:hover { filter: brightness(1.15); }
+.wv-ig__meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex-shrink: 0;
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--trust-600);
+  white-space: nowrap;
 }
 .wv-ig__photo {
   position: relative;
@@ -390,27 +525,44 @@
   min-height: 420px;
 }
 
+/* segmented control — sunken track, white active pill (bauhly-v3 .tabs/.tab) */
 .wv-tabs {
   display: flex;
-  gap: 22px;
-  border-bottom: 1px solid var(--border);
-  margin-bottom: 18px;
+  gap: 2px;
+  width: 100%;
+  padding: 2px;
+  margin-bottom: 20px;
+  background: var(--surface-sunken);
+  border-radius: 12px;
+  overflow-x: auto;
+  scrollbar-width: none;
 }
+.wv-tabs::-webkit-scrollbar { display: none; }
 .wv-tab {
+  flex: 1;
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 30px;
+  padding: 0 12px;
   border: none;
+  border-radius: 10px;
   background: none;
   cursor: pointer;
-  padding: 0 0 10px;
+  white-space: nowrap;
   font-family: var(--font-ui);
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--ink-600);
-  border-bottom: 2px solid transparent;
-  margin-bottom: -1px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ink-500);
+  transition: color 0.12s ease, background 0.12s ease, box-shadow 0.12s ease;
 }
-.wv-tab.is-active {
-  color: var(--signal-500);
-  border-bottom-color: var(--signal-500);
+.wv-tab:hover { color: var(--ink-900); }
+.wv-tab.is-on {
+  color: var(--ink-900);
+  font-weight: 700;
+  background: var(--surface);
+  box-shadow: 0 1px 3px rgba(22, 22, 26, 0.14), 0 0 0 1px rgba(22, 22, 26, 0.07);
 }
 
 /* Slide list (default Slides tab) */
@@ -908,6 +1060,36 @@
 
 .wv-muted { color: var(--ink-quiet); font-weight: 500; }
 
+/* "Words on this slide" label + its section (Content tab) */
+.wv-sec {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.wv-sec__label {
+  font-family: var(--font-ui);
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ink-700);
+}
+
+/* remove the current slide — a quiet, destructive text action under the editor */
+.wv-remove {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: none;
+  background: none;
+  padding: 4px 2px;
+  cursor: pointer;
+  font-family: var(--font-ui);
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--ink-quiet);
+}
+.wv-remove:hover { color: var(--negative); }
+
 .wv-field {
   border: 1px solid var(--border);
   border-radius: 12px;
@@ -956,10 +1138,18 @@
   border-top: 1px solid var(--border);
 }
 
-@media (max-width: 860px) {
+@media (max-width: 980px) {
   .wv-studio {
     grid-template-columns: 1fr;
   }
+  /* slide rail lies down as a horizontal strip above the preview */
+  .wv-slides {
+    flex-direction: row;
+    overflow-x: auto;
+    padding-bottom: 4px;
+  }
+  .wv-slide { flex: 0 0 84px; }
+  .wv-slide__addlabel { display: none; }
   .wv-ig { max-width: 360px; }
   .wv-day { max-width: none; }
 }

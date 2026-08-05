@@ -24,7 +24,7 @@ const SLIDE_ROLES = {
   Story: ['Hook', 'Beat', 'CTA'],
   Post: ['Hook', 'CTA'],
 };
-const TABS = ['Slides', 'Caption', 'Why this post', 'Notes'];
+const TABS = ['Content', 'Image', 'Caption', 'Why this post'];
 
 const TEXT_SUGGESTIONS = [
   { id: 'sharpen', label: 'Sharpen the opening', hint: 'Cut to the point sooner.', icon: 'sparkles' },
@@ -180,7 +180,7 @@ export default function WeekView({ route: initialRoute, onBack, onRegenerate, ge
   const [capturing, setCapturing] = useState(false);
   const [route, setRoute] = useState(initialRoute);
   const [selected, setSelected] = useState(0);
-  const [tab, setTab] = useState('Slides');
+  const [tab, setTab] = useState('Content');
   const [slideIdx, setSlideIdx] = useState(0);
   const [detailOpen, setDetailOpen] = useState(false); // false = slides list (default)
   const [mode, setMode] = useState('text'); // 'text' | 'image'
@@ -241,7 +241,7 @@ export default function WeekView({ route: initialRoute, onBack, onRegenerate, ge
   function selectDay(i) {
     setSelected(i);
     setSlideIdx(0);
-    setTab('Slides');
+    setTab('Content');
     setDetailOpen(false);
     setMode('text');
     setPickerOpen(false);
@@ -578,6 +578,31 @@ export default function WeekView({ route: initialRoute, onBack, onRegenerate, ge
           </div>
 
           <div className="wv-studio">
+            <div className="wv-slides" role="tablist" aria-label="Slides">
+              {slides.map((s, i) => (
+                <button
+                  key={`${s.role}-${i}`}
+                  type="button"
+                  role="tab"
+                  aria-selected={i === safeIdx}
+                  className={`wv-slide${i === safeIdx ? ' is-on' : ''}`}
+                  onClick={() => { setSlideIdx(i); setPickerOpen(false); }}
+                >
+                  <span className="wv-slide__thumb">
+                    {s.image?.thumb
+                      ? <img src={s.image.thumb} alt="" />
+                      : <Glyph name="image" size={18} />}
+                    <span className="wv-slide__num">{i + 1}</span>
+                    {s.title && <span className="wv-slide__cap">{s.title}</span>}
+                  </span>
+                </button>
+              ))}
+              <button type="button" className="wv-slide wv-slide--add" onClick={addSlide} aria-label="Add slide">
+                <span className="wv-slide__thumb wv-slide__thumb--add"><Glyph name="plus" size={18} /></span>
+                <span className="wv-slide__addlabel">Add slide</span>
+              </button>
+            </div>
+
             <article className="wv-ig">
               <header className="wv-ig__head">
                 <span className="wv-ig__avatar">
@@ -586,6 +611,18 @@ export default function WeekView({ route: initialRoute, onBack, onRegenerate, ge
                     : <Glyph name="user" size={15} />}
                 </span>
                 <span className="wv-ig__user">{handle}</span>
+                <span className="wv-ig__format">
+                  <Glyph name={FORMAT_ICON[day.format] || 'image'} size={12} />{day.format}
+                </span>
+                {metaStatus.connected ? (
+                  <span className="wv-ig__meta is-on">
+                    <Glyph name="check" size={12} />{metaStatus.igUsername ? `@${metaStatus.igUsername}` : 'Connected'}
+                  </span>
+                ) : (
+                  <button type="button" className="wv-ig__connect" onClick={() => setConnectOpen(true)}>
+                    <Glyph name="instagram" size={13} />Connect to Meta
+                  </button>
+                )}
               </header>
               <div className="wv-ig__photo">
                 {activeSlide?.image?.url ? (
@@ -644,328 +681,185 @@ export default function WeekView({ route: initialRoute, onBack, onRegenerate, ge
             </article>
 
             <div className="wv-detail">
-              <div className="wv-tabs">
-                {TABS.map((t) => {
-                  const label = t === 'Slides' && slides.length ? `Slides (${slides.length})` : t;
-                  return (
-                    <button
-                      key={t}
-                      type="button"
-                      className={`wv-tab${tab === t ? ' is-active' : ''}`}
-                      onClick={() => { setTab(t); setPickerOpen(false); if (t === 'Slides') setDetailOpen(false); setMenuIdx(null); }}
-                    >
-                      {label}
-                    </button>
-                  );
-                })}
+              <div className="wv-tabs" role="tablist" aria-label="Post detail">
+                {TABS.map((t) => (
+                  <button
+                    key={t}
+                    type="button"
+                    role="tab"
+                    aria-selected={tab === t}
+                    className={`wv-tab${tab === t ? ' is-on' : ''}`}
+                    onClick={() => { setTab(t); setPickerOpen(false); }}
+                  >
+                    {t}
+                  </button>
+                ))}
               </div>
 
-              {tab === 'Slides' && !detailOpen && (
-                <div className="wv-list">
-                  {slides.map((s, i) => (
-                    <div
-                      key={`${s.role}-${i}`}
-                      className={`wv-row${i === safeIdx ? ' is-active' : ''}`}
-                      onClick={() => setSlideIdx(i)}
-                    >
-                      <button
-                        type="button"
-                        className="wv-row__thumb"
-                        aria-label={`Edit image for slide ${i + 1}`}
-                        onClick={(e) => { e.stopPropagation(); openDetail(i, 'image'); }}
-                      >
-                        {s.image?.thumb
-                          ? <img src={s.image.thumb} alt="" />
-                          : <Glyph name="image" size={18} />}
-                        <span className="wv-row__badge">{i + 1}</span>
-                        {i === safeIdx && (
-                          <span className="wv-row__upload"><Glyph name="upload" size={16} /></span>
-                        )}
-                      </button>
-
-                      <div className="wv-row__body">
-                        <span className="wv-row__role">{s.role}</span>
-                        {listDraft?.i === i ? (
-                          <input
-                            className="wv-row__input"
-                            autoFocus
-                            value={listDraft.text}
-                            onClick={(e) => e.stopPropagation()}
-                            onChange={(e) => setListDraft({ i, text: e.target.value })}
-                            onBlur={() => {
-                              patchSlideAt(i, { title: listDraft.text });
-                              setListDraft(null);
-                            }}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter') {
-                                e.preventDefault();
-                                patchSlideAt(i, { title: listDraft.text });
-                                setListDraft(null);
-                              }
-                              if (e.key === 'Escape') setListDraft(null);
-                            }}
-                          />
-                        ) : (
-                          <button
-                            type="button"
-                            className="wv-row__title"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setSlideIdx(i);
-                              setListDraft({ i, text: s.title || '' });
-                            }}
-                            onDoubleClick={(e) => {
-                              e.stopPropagation();
-                              openDetail(i, 'text');
-                            }}
-                          >
-                            {s.title || <span className="wv-muted">Add text…</span>}
+              {tab === 'Content' && (
+                <div className="wv-pane">
+                  <div className="wv-sec">
+                    <span className="wv-sec__label">Words on this slide</span>
+                    <div className="wv-textcard">
+                      {editing ? (
+                        <textarea
+                          ref={textRef}
+                          className="wv-textcard__input"
+                          rows={3}
+                          value={draftText}
+                          onChange={(e) => setDraftText(e.target.value)}
+                          onBlur={() => applyText(draftText)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' && !e.shiftKey) {
+                              e.preventDefault();
+                              applyText(draftText);
+                            }
+                            if (e.key === 'Escape') {
+                              setDraftText(activeSlide?.title || '');
+                              setEditing(false);
+                            }
+                          }}
+                        />
+                      ) : (
+                        <button type="button" className="wv-textcard__body" onClick={() => setEditing(true)}>
+                          {activeSlide?.title || <span className="wv-muted">Add on-slide text…</span>}
+                        </button>
+                      )}
+                      <div className="wv-textcard__actions">
+                        <button type="button" className="wv-iconbtn" aria-label="Edit text" onClick={() => setEditing(true)}>
+                          <Glyph name="pencil" size={14} />
+                        </button>
+                        {activeSlide?.title && (
+                          <button type="button" className="wv-iconbtn" aria-label="Clear text" onClick={clearText}>
+                            <Glyph name="x" size={14} />
                           </button>
                         )}
                       </div>
-
-                      <div className="wv-row__menu">
-                        <button
-                          type="button"
-                          className="wv-iconbtn"
-                          aria-label="Slide options"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setMenuIdx(menuIdx === i ? null : i);
-                          }}
-                        >
-                          <Glyph name="more-horizontal" size={16} />
-                        </button>
-                        {menuIdx === i && (
-                          <div className="wv-menu" role="menu">
-                            <button type="button" role="menuitem" onClick={(e) => { e.stopPropagation(); openDetail(i, 'text'); }}>
-                              Edit text
-                            </button>
-                            <button type="button" role="menuitem" onClick={(e) => { e.stopPropagation(); openDetail(i, 'image'); }}>
-                              Change image
-                            </button>
-                            {slides.length > 1 && (
-                              <button type="button" role="menuitem" className="is-danger" onClick={(e) => { e.stopPropagation(); removeSlide(i); }}>
-                                Remove slide
-                              </button>
-                            )}
-                          </div>
-                        )}
-                      </div>
                     </div>
-                  ))}
+                  </div>
 
-                  <button type="button" className="wv-add" onClick={addSlide}>
-                    <Glyph name="plus" size={18} />
-                    Add slide
-                  </button>
+                  <div className="wv-suggest">
+                    <span className="wv-suggest__label">Suggested edits</span>
+                    <div className="wv-suggest__row">
+                      {TEXT_SUGGESTIONS.map((s) => (
+                        <button
+                          key={s.id}
+                          type="button"
+                          className="wv-suggest__chip"
+                          onClick={() => applyText(rewriteText(activeSlide?.title, s.id))}
+                        >
+                          <Glyph name={s.icon} size={14} />
+                          <span>
+                            <b>{s.label}</b>
+                            <small>{s.hint}</small>
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <form className="wv-ask" onSubmit={onAskSubmit}>
+                    <input
+                      value={ask}
+                      onChange={(e) => setAsk(e.target.value)}
+                      placeholder="Change these words — e.g. 'add another line'"
+                    />
+                    <button type="submit" className="wv-ask__go" aria-label="Apply" disabled={!ask.trim()}>
+                      <Glyph name="arrow-up" size={16} />
+                    </button>
+                  </form>
+
+                  {slides.length > 1 && (
+                    <button type="button" className="wv-remove" onClick={() => removeSlide(safeIdx)}>
+                      <Glyph name="trash-2" size={14} />Remove this slide
+                    </button>
+                  )}
                 </div>
               )}
 
-              {tab === 'Slides' && detailOpen && (
-                <div className="wv-editor">
-                  <div className="wv-thumbs" role="tablist" aria-label="Slides">
-                    {slides.map((s, i) => (
-                      <button
-                        key={`${s.role}-${i}`}
-                        type="button"
-                        role="tab"
-                        aria-selected={i === safeIdx}
-                        className={`wv-thumb${i === safeIdx ? ' is-active' : ''}`}
-                        onClick={() => { setSlideIdx(i); setPickerOpen(false); }}
-                      >
-                        <span className="wv-thumb__n">{i + 1}</span>
-                        <span className="wv-thumb__img">
-                          {s.image?.thumb
-                            ? <img src={s.image.thumb} alt="" />
-                            : <Glyph name="image" size={16} />}
-                          {i === safeIdx && mode === 'image' && (
-                            <span className="wv-thumb__badge"><Glyph name="upload" size={12} /></span>
-                          )}
-                        </span>
-                      </button>
-                    ))}
-                  </div>
+              {tab === 'Image' && (
+                <div className="wv-pane">
+                  <p className="wv-imgstatus">
+                    {hasOwnImage
+                      ? 'This slide uses one of your pictures.'
+                      : activeSlide?.standing
+                        ? 'No picture of yours on this slide yet — Bauhly is standing in.'
+                        : 'No picture on this slide yet.'}
+                  </p>
 
-                  <div className="wv-pane">
-                    <div className="wv-pane__top">
-                      <div className="wv-mode" role="tablist" aria-label="Edit mode">
-                        <button
-                          type="button"
-                          className={`wv-mode__btn${mode === 'text' ? ' is-active' : ''}`}
-                          onClick={() => { setMode('text'); setPickerOpen(false); }}
-                        >
-                          <Glyph name="pencil" size={14} />Text
-                        </button>
-                        <button
-                          type="button"
-                          className={`wv-mode__btn${mode === 'image' ? ' is-active' : ''}`}
-                          onClick={() => setMode('image')}
-                        >
-                          <Glyph name="image" size={14} />Image
-                        </button>
-                      </div>
-                      <button type="button" className="wv-close" aria-label="Close slide details" onClick={closeDetail}>
-                        <Glyph name="x" size={18} />
-                      </button>
+                  {activeSlide?.image?.url && (
+                    <div className="wv-imgprev">
+                      <img src={activeSlide.image.url} alt="" />
                     </div>
+                  )}
 
-                    {mode === 'text' ? (
-                      <>
-                        <div className="wv-textcard">
-                          {editing ? (
-                            <textarea
-                              ref={textRef}
-                              className="wv-textcard__input"
-                              rows={3}
-                              value={draftText}
-                              onChange={(e) => setDraftText(e.target.value)}
-                              onBlur={() => applyText(draftText)}
-                              onKeyDown={(e) => {
-                                if (e.key === 'Enter' && !e.shiftKey) {
-                                  e.preventDefault();
-                                  applyText(draftText);
-                                }
-                                if (e.key === 'Escape') {
-                                  setDraftText(activeSlide?.title || '');
-                                  setEditing(false);
-                                }
-                              }}
-                            />
-                          ) : (
-                            <button type="button" className="wv-textcard__body" onClick={() => setEditing(true)}>
-                              {activeSlide?.title || <span className="wv-muted">Add on-slide text…</span>}
-                            </button>
-                          )}
-                          <div className="wv-textcard__actions">
-                            <button type="button" className="wv-iconbtn" aria-label="Edit text" onClick={() => setEditing(true)}>
-                              <Glyph name="pencil" size={14} />
-                            </button>
-                            {activeSlide?.title && (
-                              <button type="button" className="wv-iconbtn" aria-label="Clear text" onClick={clearText}>
-                                <Glyph name="x" size={14} />
-                              </button>
-                            )}
-                          </div>
-                        </div>
-
-                        <div className="wv-suggest">
-                          <span className="wv-suggest__label">Suggested edits</span>
-                          <div className="wv-suggest__row">
-                            {TEXT_SUGGESTIONS.map((s) => (
-                              <button
-                                key={s.id}
-                                type="button"
-                                className="wv-suggest__chip"
-                                onClick={() => applyText(rewriteText(activeSlide?.title, s.id))}
-                              >
-                                <Glyph name={s.icon} size={14} />
-                                <span>
-                                  <b>{s.label}</b>
-                                  <small>{s.hint}</small>
-                                </span>
-                              </button>
-                            ))}
-                          </div>
-                        </div>
-
-                        <form className="wv-ask" onSubmit={onAskSubmit}>
-                          <input
-                            value={ask}
-                            onChange={(e) => setAsk(e.target.value)}
-                            placeholder="Change these words — e.g. 'add another line'"
-                          />
-                          <button type="submit" className="wv-ask__go" aria-label="Apply" disabled={!ask.trim()}>
-                            <Glyph name="arrow-up" size={16} />
-                          </button>
-                        </form>
-                      </>
-                    ) : (
-                      <>
-                        <p className="wv-imgstatus">
-                          {hasOwnImage
-                            ? 'This slide uses one of your pictures.'
-                            : activeSlide?.standing
-                              ? 'No picture of yours on this slide yet — Bauhly is standing in.'
-                              : 'No picture on this slide yet.'}
-                        </p>
-
-                        {activeSlide?.image?.url && (
-                          <div className="wv-imgprev">
-                            <img src={activeSlide.image.url} alt="" />
-                          </div>
-                        )}
-
-                        <div className="wv-imgactions">
-                          <label className={`wv-imgbtn wv-imgbtn--dark${uploading ? ' is-busy' : ''}`}>
-                            <Glyph name="upload" size={18} />
-                            <span>
-                              <b>{uploading ? 'Uploading…' : 'Upload an image'}</b>
-                              <small>From your files</small>
-                            </span>
-                            <input
-                              ref={fileRef}
-                              type="file"
-                              accept="image/*"
-                              hidden
-                              disabled={uploading}
-                              onChange={(e) => {
-                                onUploadFiles(e.target.files || []);
-                                e.target.value = '';
-                              }}
-                            />
-                          </label>
-                          <button
-                            type="button"
-                            className="wv-imgbtn"
-                            onClick={() => (activeSlide?.standing ? claimStandingImage() : setPickerOpen((o) => !o))}
-                          >
-                            <Glyph name="sparkles" size={18} />
-                            <span>
-                              <b>{activeSlide?.standing ? 'Keep this one' : 'Make one for this slide'}</b>
-                              <small>{activeSlide?.standing ? 'Use the standing image' : 'From your projects'}</small>
-                            </span>
-                          </button>
-                        </div>
-
-                        {(pickerOpen || (!activeSlide?.standing && !hasOwnImage)) && allImages.length > 0 && (
-                          <div className="wv-picker">
-                            <span className="wv-suggest__label">From your projects</span>
-                            <div className="wv-picker__grid">
-                              {allImages.slice(0, 24).map((img) => (
-                                <button
-                                  key={img.key}
-                                  type="button"
-                                  className={`wv-picker__cell${activeSlide?.assetKey === img.key ? ' is-active' : ''}`}
-                                  onClick={() => pickProjectImage(img)}
-                                  title={img.projectName}
-                                >
-                                  <img src={img.thumb} alt="" />
-                                </button>
-                              ))}
-                            </div>
-                          </div>
-                        )}
-
-                        {!allImages.length && !hasOwnImage && (
-                          <p className="wv-muted" style={{ marginTop: 8 }}>
-                            Add photos in Projects, then pick them here — or upload above.
-                          </p>
-                        )}
-
-                        <form className="wv-ask" onSubmit={(e) => { e.preventDefault(); setPickerOpen(true); setAsk(''); }}>
-                          <input
-                            value={ask}
-                            onChange={(e) => setAsk(e.target.value)}
-                            placeholder="Ask about the picture — e.g. 'pick a brighter photo'"
-                          />
-                          <button type="submit" className="wv-ask__go" aria-label="Open library">
-                            <Glyph name="arrow-up" size={16} />
-                          </button>
-                        </form>
-                      </>
-                    )}
+                  <div className="wv-imgactions">
+                    <label className={`wv-imgbtn wv-imgbtn--dark${uploading ? ' is-busy' : ''}`}>
+                      <Glyph name="upload" size={18} />
+                      <span>
+                        <b>{uploading ? 'Uploading…' : 'Upload an image'}</b>
+                        <small>From your files</small>
+                      </span>
+                      <input
+                        ref={fileRef}
+                        type="file"
+                        accept="image/*"
+                        hidden
+                        disabled={uploading}
+                        onChange={(e) => {
+                          onUploadFiles(e.target.files || []);
+                          e.target.value = '';
+                        }}
+                      />
+                    </label>
+                    <button
+                      type="button"
+                      className="wv-imgbtn"
+                      onClick={() => (activeSlide?.standing ? claimStandingImage() : setPickerOpen((o) => !o))}
+                    >
+                      <Glyph name="sparkles" size={18} />
+                      <span>
+                        <b>{activeSlide?.standing ? 'Keep this one' : 'Make one for this slide'}</b>
+                        <small>{activeSlide?.standing ? 'Use the standing image' : 'From your projects'}</small>
+                      </span>
+                    </button>
                   </div>
+
+                  {(pickerOpen || (!activeSlide?.standing && !hasOwnImage)) && allImages.length > 0 && (
+                    <div className="wv-picker">
+                      <span className="wv-suggest__label">From your projects</span>
+                      <div className="wv-picker__grid">
+                        {allImages.slice(0, 24).map((img) => (
+                          <button
+                            key={img.key}
+                            type="button"
+                            className={`wv-picker__cell${activeSlide?.assetKey === img.key ? ' is-active' : ''}`}
+                            onClick={() => pickProjectImage(img)}
+                            title={img.projectName}
+                          >
+                            <img src={img.thumb} alt="" />
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {!allImages.length && !hasOwnImage && (
+                    <p className="wv-muted" style={{ marginTop: 8 }}>
+                      Add photos in Projects, then pick them here — or upload above.
+                    </p>
+                  )}
+
+                  <form className="wv-ask" onSubmit={(e) => { e.preventDefault(); setPickerOpen(true); setAsk(''); }}>
+                    <input
+                      value={ask}
+                      onChange={(e) => setAsk(e.target.value)}
+                      placeholder="Ask about the picture — e.g. 'pick a brighter photo'"
+                    />
+                    <button type="submit" className="wv-ask__go" aria-label="Open library">
+                      <Glyph name="arrow-up" size={16} />
+                    </button>
+                  </form>
                 </div>
               )}
 
@@ -1006,15 +900,12 @@ export default function WeekView({ route: initialRoute, onBack, onRegenerate, ge
                       <p>{day.direction}</p>
                     </div>
                   )}
-                </div>
-              )}
-
-              {tab === 'Notes' && (
-                <div>
-                  <div className="wv-field">
-                    <div className="wv-field__label"><Glyph name="clipboard-list" size={13} />Production notes</div>
-                    <p>{day.content?.notes || day.content?.plan || '—'}</p>
-                  </div>
+                  {(day.content?.notes || day.content?.plan) && (
+                    <div className="wv-field">
+                      <div className="wv-field__label"><Glyph name="clipboard-list" size={13} />Production notes</div>
+                      <p>{day.content?.notes || day.content?.plan}</p>
+                    </div>
+                  )}
                   {day.content?.prompts?.length > 0 && (
                     <div className="wv-field">
                       <div className="wv-field__label"><Glyph name="sparkles" size={13} />Prompts</div>
