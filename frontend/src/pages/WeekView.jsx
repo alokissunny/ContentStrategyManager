@@ -862,53 +862,77 @@ export default function WeekView({ route: initialRoute, onBack, onRegenerate, ge
                       </div>
                     </div>
                   )}
-                  <p className="wv-imgstatus">
-                    {hasOwnImage
-                      ? 'This slide uses one of your pictures.'
-                      : activeSlide?.standing
-                        ? 'No picture of yours on this slide yet — Bauhly is standing in.'
-                        : 'No picture on this slide yet.'}
-                  </p>
-
-                  {activeSlide?.image?.url && (
-                    <div className="wv-imgprev">
-                      <img src={activeSlide.image.url} alt="" />
+                  {hasOwnImage ? (
+                    <>
+                      <div className="wv-imgprev">
+                        <img src={activeSlide.image.url} alt="" />
+                      </div>
+                      <div className="wv-imgacts">
+                        <label className={`wv-run wv-run--primary${uploading ? ' is-busy' : ''}`}>
+                          <Glyph name="upload" size={16} />
+                          {uploading ? 'Uploading…' : 'Replace image'}
+                          <input
+                            ref={fileRef}
+                            type="file"
+                            accept="image/*"
+                            hidden
+                            disabled={uploading}
+                            onChange={(e) => { onUploadFiles(e.target.files || []); e.target.value = ''; }}
+                          />
+                        </label>
+                        <button type="button" className="wv-run wv-run--ghost" onClick={() => patchActiveSlide({ assetKey: '' })}>
+                          <Glyph name="trash-2" size={16} />Remove image
+                        </button>
+                      </div>
+                    </>
+                  ) : (
+                    <div className="wv-empty">
+                      <div className="wv-empty__visual">
+                        {isHook ? (
+                          <HookMedia slide={activeSlide} layoutId={hookLayout} contentType={day.contentType || day.format} />
+                        ) : activeSlide?.image?.url ? (
+                          <img src={activeSlide.image.url} alt="" />
+                        ) : (
+                          <div className="wv-empty__ph"><Glyph name="image" size={30} /></div>
+                        )}
+                      </div>
+                      <h3 className="wv-empty__title">
+                        {isHook ? layoutById(hookLayout).name : 'No picture on this slide yet'}
+                      </h3>
+                      <ul className="wv-empty__points">
+                        {(isHook
+                          ? [
+                              layoutById(hookLayout).when,
+                              layoutById(hookLayout).shots === 0
+                                ? 'Words only — no photograph needed'
+                                : 'Uses one of your photographs',
+                            ]
+                          : ['Add a picture and Bauhly builds the slide around it.']
+                        ).map((t) => (
+                          <li key={t}><Glyph name="check" size={14} />{t}</li>
+                        ))}
+                      </ul>
+                      <div className="wv-empty__acts">
+                        <label className={`wv-run wv-run--primary${uploading ? ' is-busy' : ''}`}>
+                          <Glyph name="upload" size={16} />
+                          {uploading ? 'Uploading…' : 'Upload image'}
+                          <input
+                            ref={fileRef}
+                            type="file"
+                            accept="image/*"
+                            hidden
+                            disabled={uploading}
+                            onChange={(e) => { onUploadFiles(e.target.files || []); e.target.value = ''; }}
+                          />
+                        </label>
+                        <button type="button" className="wv-run wv-run--ghost" onClick={() => navigate('/dashboard/visual-brand')}>
+                          <Glyph name="palette" size={16} />Visual Brand
+                        </button>
+                      </div>
                     </div>
                   )}
 
-                  <div className="wv-imgactions">
-                    <label className={`wv-imgbtn wv-imgbtn--dark${uploading ? ' is-busy' : ''}`}>
-                      <Glyph name="upload" size={18} />
-                      <span>
-                        <b>{uploading ? 'Uploading…' : 'Upload an image'}</b>
-                        <small>From your files</small>
-                      </span>
-                      <input
-                        ref={fileRef}
-                        type="file"
-                        accept="image/*"
-                        hidden
-                        disabled={uploading}
-                        onChange={(e) => {
-                          onUploadFiles(e.target.files || []);
-                          e.target.value = '';
-                        }}
-                      />
-                    </label>
-                    <button
-                      type="button"
-                      className="wv-imgbtn"
-                      onClick={() => (activeSlide?.standing ? claimStandingImage() : setPickerOpen((o) => !o))}
-                    >
-                      <Glyph name="sparkles" size={18} />
-                      <span>
-                        <b>{activeSlide?.standing ? 'Keep this one' : 'Make one for this slide'}</b>
-                        <small>{activeSlide?.standing ? 'Use the standing image' : 'From your projects'}</small>
-                      </span>
-                    </button>
-                  </div>
-
-                  {(pickerOpen || (!activeSlide?.standing && !hasOwnImage)) && allImages.length > 0 && (
+                  {allImages.length > 0 && (
                     <div className="wv-picker">
                       <span className="wv-suggest__label">From your projects</span>
                       <div className="wv-picker__grid">
@@ -932,17 +956,6 @@ export default function WeekView({ route: initialRoute, onBack, onRegenerate, ge
                       Add photos in Projects, then pick them here — or upload above.
                     </p>
                   )}
-
-                  <form className="wv-ask" onSubmit={(e) => { e.preventDefault(); setPickerOpen(true); setAsk(''); }}>
-                    <input
-                      value={ask}
-                      onChange={(e) => setAsk(e.target.value)}
-                      placeholder="Ask about the picture — e.g. 'pick a brighter photo'"
-                    />
-                    <button type="submit" className="wv-ask__go" aria-label="Open library">
-                      <Glyph name="arrow-up" size={16} />
-                    </button>
-                  </form>
                 </div>
               )}
 
