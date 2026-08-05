@@ -9,6 +9,7 @@ const NAV_ITEMS = [
   { to: '/dashboard', label: 'Your plans', icon: 'route', exact: true },
   { to: '/dashboard/projects', label: 'Projects', icon: 'folder' },
   { to: '/dashboard/brand-dna', label: 'Brand profile', icon: 'fingerprint' },
+  { to: '/dashboard/visual-brand', label: 'Visual Brand', icon: 'palette' },
   { to: '/dashboard/competitor-overview', label: 'Competitor overview', icon: 'trending-up' },
   { to: '/dashboard/settings', label: 'Settings', icon: 'settings' },
 ];

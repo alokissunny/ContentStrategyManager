@@ -1,0 +1,1197 @@
+/*
+ * Visual Brand — the reference library on Brand profile.
+ *
+ * Prefix `vb-`. Everything is a token; the only colours used are the neutral
+ * ink ramp plus the two states this page has an opinion about: covered
+ * (--positive) and missing (--warning). The accent is spent on nothing here —
+ * a page of pictures is loud enough, and the signal budget goes to the state
+ * strip at the top, which is the one thing to read.
+ */
+
+.vb { display: flex; flex-direction: column; gap: var(--sp-8); max-width: 1000px; }
+
+/* ── the state strip ─────────────────────────────────────────────────────── */
+.vb-sum { display: flex; flex-direction: column; gap: var(--sp-4); }
+.vb-sum__head { display: flex; flex-direction: column; gap: var(--sp-1); }
+.vb-sum__line {
+  margin: 0;
+  font-size: var(--text-md);
+  color: var(--ink-800);
+  letter-spacing: -0.01em;
+}
+
+.vb-dims {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(184px, 1fr));
+  gap: var(--sp-3);
+}
+
+.vb-dim {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  padding: var(--sp-4);
+  text-align: left;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  cursor: pointer;
+  transition: box-shadow var(--dur-fast) var(--ease-out),
+              transform var(--dur-fast) var(--ease-out),
+              border-color var(--dur-fast) var(--ease-out);
+}
+.vb-dim:hover { transform: translateY(-1px); box-shadow: var(--shadow-sm); }
+.vb-dim.is-active { border-color: var(--ink-900); }
+
+.vb-dim__top { display: flex; align-items: center; gap: var(--sp-2); }
+.vb-dim__ico {
+  display: grid;
+  place-items: center;
+  width: 30px; height: 30px;
+  flex-shrink: 0;
+  border-radius: var(--r-sm);
+  background: var(--surface-sunken);
+  color: var(--ink-700);
+}
+.vb-dim.is-ready .vb-dim__ico { background: var(--positive-soft); color: var(--positive); }
+.vb-dim.is-none .vb-dim__ico { background: var(--warning-soft); color: var(--warning); }
+
+.vb-dim__label {
+  font-size: var(--text-base);
+  font-weight: 650;
+  color: var(--ink-900);
+  letter-spacing: -0.01em;
+  line-height: 1.25;
+}
+.vb-dim__tick {
+  display: grid; place-items: center;
+  width: 18px; height: 18px;
+  margin-left: auto;
+  flex-shrink: 0;
+  border-radius: var(--r-full);
+  background: var(--positive);
+  color: #fff;
+}
+.vb-dim__teaches {
+  font-size: var(--text-sm);
+  color: var(--ink-600);
+  line-height: 1.45;
+}
+.vb-dim__state {
+  margin-top: auto;
+  padding-top: var(--sp-2);
+  border-top: 1px solid var(--border);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  color: var(--ink-500);
+}
+.vb-dim.is-none .vb-dim__state { color: var(--warning); }
+.vb-dim.is-ready .vb-dim__state { color: var(--positive); }
+/* `optional` keeps the neutral ink and the neutral ground: an empty Mood is not
+   a gap, and amber would be the page inventing a job (see coverageOf) */
+
+/* ── what Bauhly can make (phase 2) ───────────────────────────────────────
+ * A list, not a grid of cards: these are things the studio can already have,
+ * so the row's job is to be scanned and left alone. The cards upstairs carry
+ * state; these carry names. */
+.vb-uses {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  /* TWO COLUMNS, NOT THREE (measured). At three the description clipped
+     mid-word — "The finished room, given t…" — which is a line that costs a
+     row of space and teaches nothing. */
+  grid-template-columns: repeat(auto-fit, minmax(390px, 1fr));
+  gap: var(--sp-2) var(--sp-7);
+}
+.vb-use {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: var(--sp-2) 0;
+  border-bottom: 1px solid var(--border);
+}
+.vb-use__body { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.vb-use__label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--text-sm);
+  font-weight: 650;
+  color: var(--ink-900);
+}
+/* the tick that says "Bauhly can do this" belongs to the label, not to a
+   status column: a column of identical ticks is a column of noise */
+.vb-use__label::before {
+  content: '';
+  width: 5px; height: 5px;
+  flex-shrink: 0;
+  border-radius: var(--r-full);
+  background: var(--positive);
+}
+.vb-use__what {
+  font-size: var(--text-sm);
+  color: var(--ink-500);
+  line-height: 1.4;
+}
+.vb-use__shots { display: flex; gap: 3px; margin-left: auto; flex-shrink: 0; }
+.vb-use__shots img {
+  width: 26px; height: 32px;
+  object-fit: cover;
+  border-radius: 5px;
+  border: 1px solid var(--border);
+}
+.vb-use__add {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  margin-left: auto;
+  padding: 0;
+  font-size: var(--text-xs);
+  font-weight: 600;
+  color: var(--ink-400);
+  background: none;
+  border: 0;
+  cursor: pointer;
+  /* ON HOVER, NOT AT REST (measured: four identical grey "Show Bauhly how"
+     down one screen). These rows are the good news — things Bauhly can already
+     make — and their job is to be read and left alone. The invitation is there
+     when the eye is on the row, and for the keyboard it appears on focus. */
+  opacity: 0;
+  transition: opacity var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
+}
+/* the shots take the auto margin when they are there, so the button sits
+   beside them rather than pushing them off the row */
+.vb-use__shots + .vb-use__add { margin-left: var(--sp-2); }
+.vb-use:hover .vb-use__add,
+.vb-use__add:focus-visible { opacity: 1; color: var(--ink-900); }
+
+/* ── the gaps ────────────────────────────────────────────────────────────── */
+.vb-gaps {
+  padding: var(--sp-5) var(--sp-6);
+  background: var(--surface-sunken);
+  border-radius: var(--r-lg);
+}
+.vb-gaps__title {
+  margin: 0 0 var(--sp-4);
+  font-family: var(--font-display);
+  font-size: var(--text-lg);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  color: var(--ink-900);
+}
+.vb-gaps__list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--sp-3); }
+
+.vb-gap {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-4);
+  padding: var(--sp-4);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+}
+/* arrived here from a slide that named this gap — the row says "this one" */
+.vb-gap.is-focus { border-color: var(--ink-900); box-shadow: var(--shadow-sm); }
+.vb-gap__body { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.vb-gap__label { font-size: var(--text-base); font-weight: 650; color: var(--ink-900); }
+.vb-gap__why { margin: 0; font-size: var(--text-sm); color: var(--ink-600); line-height: 1.45; }
+.vb-gap__unlocks {
+  /* the list runs to several lines once it names eight posts — the lock sits
+     on the FIRST line rather than floating at the block's vertical centre */
+  display: flex; align-items: flex-start; gap: 6px;
+  margin: 2px 0 0;
+  font-size: var(--text-xs);
+  font-weight: 600;
+  color: var(--ink-500);
+  line-height: 1.5;
+}
+.vb-gap__unlocks svg { flex-shrink: 0; margin-top: 3px; }
+.vb-gap > .btn { flex-shrink: 0; margin-left: auto; }
+
+/* ── the library ─────────────────────────────────────────────────────────── */
+.vb-lib { display: flex; flex-direction: column; gap: var(--sp-4); }
+.vb-lib__head { display: flex; flex-direction: column; gap: var(--sp-3); }
+.vb-lib__title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--text-lg);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  color: var(--ink-900);
+}
+
+.vb-filters { display: flex; flex-wrap: wrap; gap: var(--sp-2); }
+.vb-filter {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 5px 12px;
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--ink-600);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-full);
+  cursor: pointer;
+  transition: color var(--dur-fast) var(--ease-out),
+              border-color var(--dur-fast) var(--ease-out);
+}
+.vb-filter:hover { color: var(--ink-900); border-color: var(--border-strong); }
+.vb-filter.is-on { color: var(--paper); background: var(--ink-900); border-color: var(--ink-900); }
+.vb-filter__n { font-family: var(--font-mono); font-size: var(--text-xs); opacity: 0.65; }
+
+.vb-refs {
+  list-style: none; margin: 0; padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(196px, 1fr));
+  gap: var(--sp-4);
+}
+.vb-refs__none {
+  margin: 0;
+  font-size: var(--text-base);
+  color: var(--ink-500);
+}
+
+.vb-ref {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  overflow: hidden;
+}
+.vb-ref__shot {
+  position: relative;
+  display: block;
+  aspect-ratio: 4 / 5;
+  background: var(--surface-sunken);
+}
+.vb-ref__shot img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.vb-ref__kind {
+  position: absolute;
+  left: var(--sp-2); bottom: var(--sp-2);
+  padding: 2px 8px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--ink-900);
+  background: rgba(255, 255, 255, 0.92);
+  border-radius: var(--r-full);
+}
+/* a picture chosen FOR something reads in ink, not as a filing label */
+.vb-ref__kind.is-use { background: var(--ink-900); color: var(--paper); }
+.vb-ref__body { display: flex; flex-direction: column; gap: 2px; padding: var(--sp-3); min-width: 0; }
+.vb-ref__title {
+  font-size: var(--text-sm);
+  font-weight: 650;
+  color: var(--ink-900);
+  line-height: 1.35;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+.vb-ref__note {
+  text-align: left;
+  padding: 0;
+  font-size: var(--text-sm);
+  color: var(--ink-600);
+  background: none;
+  border: 0;
+  cursor: text;
+  line-height: 1.4;
+}
+.vb-ref__note.is-empty { color: var(--ink-400); }
+.vb-ref__note:hover { color: var(--ink-900); }
+.vb-ref__input {
+  width: 100%;
+  padding: 0;
+  font: inherit;
+  font-size: var(--text-sm);
+  color: var(--ink-900);
+  background: none;
+  border: 0;
+  border-bottom: 1px solid var(--border-strong);
+  outline: none;
+}
+.vb-ref__src { font-size: var(--text-sm); color: var(--ink-500); }
+.vb-ref__x {
+  position: absolute;
+  top: var(--sp-2); right: var(--sp-2);
+  width: 30px; height: 30px;
+  background: rgba(255, 255, 255, 0.92);
+  opacity: 0;
+  transition: opacity var(--dur-fast) var(--ease-out);
+}
+.vb-ref:hover .vb-ref__x,
+.vb-ref__x:focus-visible { opacity: 1; }
+
+.vb-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--ink-500);
+  line-height: 1.5;
+}
+.vb-note svg { flex-shrink: 0; margin-top: 3px; }
+
+@media (max-width: 700px) {
+  /* one column, and the invitation wraps under the row rather than squeezing
+     the name off the screen (measured: 406px of content in a 375px viewport) */
+  .vb-uses { grid-template-columns: 1fr; }
+  .vb-use { flex-wrap: wrap; }
+  .vb-use__body { flex: 1 1 100%; }
+  .vb-gap { flex-direction: column; align-items: flex-start; gap: var(--sp-3); }
+  .vb-gap > .btn { margin-left: 0; }
+  .vb-refs { grid-template-columns: repeat(auto-fill, minmax(148px, 1fr)); gap: var(--sp-3); }
+  /* neither the remove control nor the invitation can depend on hover on a
+     touch screen */
+  .vb-ref__x,
+  .vb-use__add { opacity: 1; }
+}
+
+/* ══ THE LAYOUT SYSTEM ════════════════════════════════════════════════════
+ * Prefix `ls-` for the section, `lp` for a drawn preview. Built to the Layout
+ * System reference in Bauhly's own values: no indigo footer, no grey troughs,
+ * the accent spent only on the one state that carries meaning. */
+.ls { display: flex; flex-direction: column; gap: var(--sp-4); }
+
+.ls__head { display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--sp-4); }
+.ls__intro { display: flex; flex-direction: column; gap: 2px; max-width: 46ch; }
+.ls__title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--text-lg);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  color: var(--ink-900);
+}
+.ls__lead { margin: 0; font-size: var(--text-sm); color: var(--ink-600); line-height: 1.45; }
+
+/* the counts, on the baseline of the lead — the reference puts them in a row
+   beside the title, divided by hairlines */
+.ls__stats { display: flex; align-items: center; gap: var(--sp-5); }
+.ls__stat { display: flex; flex-direction: column; gap: 1px; padding-left: var(--sp-5); border-left: 1px solid var(--border); }
+.ls__stat:first-child { padding-left: 0; border-left: 0; }
+.ls__stat b {
+  font-family: var(--font-mono);
+  font-size: var(--text-lg);
+  font-weight: 600;
+  color: var(--ink-900);
+  line-height: 1.1;
+}
+.ls__stat span { font-size: var(--text-xs); font-weight: 600; color: var(--ink-500); }
+
+.ls__filters { display: flex; flex-wrap: wrap; gap: var(--sp-2); }
+
+.ls-grid {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  /* three across at a desktop width, like the reference — at 210px they came
+     four to a row and the drawing inside got too small to read as a
+     composition (measured) */
+  grid-template-columns: repeat(auto-fill, minmax(248px, 1fr));
+  gap: var(--sp-4);
+}
+
+.ls-card {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--sp-3);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  transition: border-color var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out);
+}
+.ls-card:hover { border-color: var(--border-strong); box-shadow: var(--shadow-sm); }
+/* the frame is the post's own canvas — cream, the way a slide is */
+.ls-card__frame {
+  display: block;
+  container-type: inline-size;
+  aspect-ratio: 4 / 5;
+  margin-bottom: var(--sp-3);
+  overflow: hidden;
+  border-radius: var(--r-sm);
+  background: #f5f0e8;
+}
+/* a rule between the slide and what it is called: the preview is a picture of
+   a post and the lines under it are a label for it, and without an edge the
+   two ran together as one block (Leon, Aug 4) */
+.ls-card__meta {
+  padding-top: var(--sp-3);
+  border-top: 1px solid var(--border);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink-400);
+}
+.ls-card__name { font-size: var(--text-base); font-weight: 650; color: var(--ink-900); letter-spacing: -0.01em; }
+.ls-card__when { font-size: var(--text-sm); color: var(--ink-600); line-height: 1.45; }
+/* the state row and the dimmed frame that went with it are gone (Leon, Aug 4)
+   — see the note on `LayoutCard`. Every layout in the gallery now reads the
+   same, because every layout IS available; what is missing to run one is a
+   fact about a slide, and the slide says it. */
+
+.ls__more { align-self: center; }
+.ls__foot {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  margin: 0;
+  padding: var(--sp-3) var(--sp-4);
+  font-size: var(--text-sm);
+  color: var(--ink-600);
+  line-height: 1.5;
+  background: var(--surface-sunken);
+  border-radius: var(--r-md);
+}
+.ls__foot svg { flex-shrink: 0; margin-top: 3px; color: var(--action-accent); }
+
+/* ── the previews ─────────────────────────────────────────────────────────
+ * Worked examples rather than wireframes: a real photograph, a real headline
+ * in the display face, real supporting text. EVERY SIZE IS IN `cqw`, so the
+ * slide keeps its proportions at any card width and nothing is tuned per
+ * breakpoint — the frame is the container (see `.ls-card__frame`). */
+.lp {
+  position: relative;
+  display: flex;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  color: var(--ink-900);
+  text-align: left;
+}
+.lp__ph { position: relative; display: block; overflow: hidden; background: var(--ink-100); }
+.lp__ph img { width: 100%; height: 100%; object-fit: cover; display: block; }
+
+/* the words, in the studio's own two faces */
+.lp__words { display: flex; flex-direction: column; gap: 2.2cqw; min-width: 0; }
+.lp__eyebrow {
+  font-family: var(--font-ui);
+  font-size: 3.1cqw;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-500);
+}
+.lp__h {
+  font-family: var(--font-display);
+  font-size: 8.2cqw;
+  font-weight: 500;
+  line-height: 1.12;
+  letter-spacing: -0.02em;
+  color: var(--ink-900);
+  text-wrap: balance;
+}
+.lp__b {
+  font-family: var(--font-ui);
+  font-size: 3.9cqw;
+  line-height: 1.45;
+  color: var(--ink-600);
+}
+
+/* ON A PHOTOGRAPH the type is white and the picture carries a wash under it,
+   which is how the product's own post art has always handled it */
+.lp__scrim {
+  position: absolute; inset: 40% 0 0;
+  background: linear-gradient(180deg, transparent, rgba(20, 18, 16, 0.62));
+}
+.lp__words.is-on-photo { position: absolute; left: 7%; right: 7%; bottom: 7%; }
+.lp__words.is-on-photo .lp__h { color: #fff; }
+.lp__words.is-on-photo .lp__eyebrow { color: rgba(255, 255, 255, 0.82); }
+.lp__words.is-on-photo .lp__b { color: rgba(255, 255, 255, 0.86); }
+
+/* full bleed */
+.lp--bleed .lp__ph { position: absolute; inset: 0; }
+
+.lp--gen { position: relative; flex-direction: column; justify-content: center; }
+.lp--gen .lp__words { padding: 11%; }
+.lp--gen .lp__h { font-size: 9cqw; }
+
+/* image only: the picture fills the frame and nothing is drawn on it */
+.lp--plain .lp__ph { position: absolute; inset: 0; }
+.lp--bleed.is-top .lp__scrim { inset: 0 0 45%; background: linear-gradient(0deg, transparent, rgba(20, 18, 16, 0.58)); }
+.lp--bleed.is-top .lp__words.is-on-photo { top: 7%; bottom: auto; }
+
+/* split: words one side, picture the other */
+.lp--split { align-items: stretch; background: var(--surface); }
+.lp--split .lp__words { flex: 1 1 0; justify-content: center; padding: 8%; }
+.lp--split .lp__ph { flex: 0 0 44%; }
+.lp--split .lp__h { font-size: 7cqw; }
+.lp--split.is-flip { flex-direction: row-reverse; }
+
+/* poster: the studio's canvas and nothing else */
+.lp--poster { background: #f5f0e8; }
+.lp--poster .lp__words { justify-content: center; padding: 11%; gap: 3cqw; }
+.lp--poster .lp__h { font-size: 9.5cqw; }
+
+/* picture over words */
+.lp--stack { flex-direction: column; background: var(--surface); }
+.lp--stack .lp__ph { flex: 1 1 62%; }
+.lp--stack .lp__words { flex: 0 0 auto; padding: 7% 7% 8%; }
+.lp--stack .lp__h { font-size: 6.6cqw; }
+
+/* numbered steps */
+.lp--steps { background: var(--surface); }
+.lp--steps .lp__words { flex: 1 1 0; justify-content: center; padding: 8% 6%; gap: 4cqw; }
+.lp--steps .lp__ph { flex: 0 0 36%; }
+.lp--steps .lp__h { font-size: 6.4cqw; }
+.lp__steps { display: flex; flex-direction: column; gap: 2.6cqw; }
+.lp__step {
+  display: flex;
+  gap: 2.4cqw;
+  font-family: var(--font-ui);
+  font-size: 3.5cqw;
+  line-height: 1.35;
+  color: var(--ink-700);
+}
+.lp__step i {
+  flex: 0 0 auto;
+  font-family: var(--font-mono);
+  font-style: normal;
+  font-size: 3.1cqw;
+  font-weight: 600;
+  color: var(--action-accent-text, var(--action-accent));
+}
+
+/* the mark that points at a detail, and the note it points at */
+.lp__pin {
+  position: absolute; top: 34%; left: 30%;
+  width: 4.4cqw; height: 4.4cqw;
+  border-radius: var(--r-full);
+  background: var(--action-accent);
+  box-shadow: 0 0 0 1.4cqw rgba(255, 82, 39, 0.24);
+}
+.lp__note {
+  position: absolute; left: 7%; right: 7%; bottom: 7%;
+  display: flex; flex-direction: column; gap: 1.6cqw;
+  padding: 4.4cqw;
+  border-radius: 2cqw;
+  background: rgba(255, 255, 255, 0.94);
+}
+.lp__note .lp__b { font-size: 3.6cqw; color: var(--ink-800); }
+
+/* two states of one room */
+.lp--duo { flex-direction: column; background: var(--surface); }
+.lp--duo .lp__half { position: relative; display: flex; flex: 1 1 0; min-height: 0; }
+.lp--duo { display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr auto; gap: 1.6cqw; padding: 1.6cqw; }
+.lp--duo .lp__ph { width: 100%; }
+.lp--duo .lp__half em {
+  position: absolute; left: 5%; bottom: 5%;
+  padding: 1cqw 2.4cqw;
+  font-family: var(--font-ui);
+  font-style: normal;
+  font-size: 2.9cqw;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-900);
+  background: rgba(255, 255, 255, 0.92);
+  border-radius: var(--r-full);
+}
+.lp__words.is-foot { grid-column: 1 / -1; padding: 2.6cqw 2cqw 1.4cqw; }
+.lp__words.is-foot .lp__h { font-size: 5.4cqw; }
+
+/* four rooms */
+.lp--grid4 { flex-direction: column; padding: 1.6cqw; background: var(--surface); }
+.lp__cells { display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; gap: 1.6cqw; flex: 1 1 auto; min-height: 0; }
+.lp--grid4 .lp__ph { width: 100%; height: 100%; }
+
+/* a line worth setting large */
+.lp--quote { flex-direction: column; justify-content: center; padding: 10%; background: #f5f0e8; }
+.lp__mark {
+  font-family: var(--font-display);
+  font-size: 16cqw;
+  line-height: 0.6;
+  color: var(--ink-300, var(--ink-400));
+}
+.lp--quote .lp__words { gap: 3cqw; margin-top: 2cqw; }
+.lp--quote .lp__h { font-size: 7.4cqw; }
+.lp--quote .lp__b { font-size: 3.4cqw; color: var(--ink-500); }
+
+/* the crop is the composition */
+.lp--crop .lp__ph img { transform: scale(1.7); transform-origin: 42% 48%; }
+.lp__cropbox {
+  position: absolute; inset: 16% 12%;
+  border: 0.8cqw solid rgba(255, 255, 255, 0.9);
+  border-radius: 1cqw;
+}
+
+/* the palette of a project */
+.lp--swatch { flex-direction: column; background: var(--surface); }
+.lp--swatch .lp__ph { flex: 1 1 58%; }
+.lp--swatch .lp__words { flex: 0 0 auto; padding: 6% 7% 7%; gap: 1.8cqw; }
+.lp--swatch .lp__h { font-size: 6.2cqw; }
+.lp--swatch .lp__b { font-family: var(--font-mono); font-size: 3.2cqw; letter-spacing: 0.02em; }
+
+@media (max-width: 700px) {
+  .ls-grid { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: var(--sp-3); }
+  .ls-card__when { display: none; }
+}
+
+/* a cover puts its line at the top; a closing frame puts it at the foot */
+.lp--bleed.is-top .lp__over { top: 11%; bottom: auto; }
+.lp--bleed.is-top .lp__img::after { inset: 0 0 55%; background: linear-gradient(0deg, transparent, color-mix(in srgb, var(--ink-900) 34%, transparent)); }
+/* the crop IS the composition, so it is what the preview draws */
+.lp__crop {
+  position: absolute;
+  inset: 24% 20%;
+  border: 2px solid color-mix(in srgb, #fff 92%, transparent);
+  border-radius: 2px;
+  box-shadow: 0 0 0 200px color-mix(in srgb, var(--ink-900) 22%, transparent);
+}
+.lp__mark.is-on-photo { color: color-mix(in srgb, #fff 88%, transparent); font-size: 26px; }
+
+/* ── the layout system's own head ─────────────────────────────────────────
+ * The counts went (they summarised the grid under them), and so did the rule
+ * and the button's caption: two blocks of text side by side, competing. The
+ * rule describes the tab, so it is in the page head; the scoping is stated in
+ * the intake panel where it applies. What is left is the control, alone. */
+.ls__head { display: flex; justify-content: flex-end; }
+.ls__add { cursor: pointer; }
+
+/* a category that has references of its own carries a mark on its chip */
+.ls-ref {
+  width: 5px; height: 5px;
+  margin-left: 2px;
+  border-radius: var(--r-full);
+  background: var(--action-accent);
+}
+.vb-filter.is-on .ls-ref { background: var(--paper); }
+
+/* ── what a category has been taught ──────────────────────────────────────
+ * Shown when one category is open: the references filed under it, with the
+ * palette each one contributed. This is the scoping made visible — these
+ * pictures shape these layouts and no others. */
+.ls-taught {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  padding: var(--sp-3) var(--sp-4);
+  background: var(--surface-sunken);
+  border-radius: var(--r-md);
+}
+.ls-taught__label {
+  display: flex; align-items: center; gap: 6px;
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--ink-700);
+}
+.ls-taught__row { display: flex; flex-wrap: wrap; gap: var(--sp-2); }
+.ls-taught__ref { display: flex; flex-direction: column; gap: 3px; }
+.ls-taught__ref img {
+  width: 54px; height: 68px;
+  object-fit: cover;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--border);
+  display: block;
+}
+.ls-taught__ref em { display: flex; gap: 2px; }
+.ls-taught__ref em i { width: 100%; height: 4px; border-radius: 1px; }
+
+/* ── taking a reference in ────────────────────────────────────────────────
+ * Two faces: filed (Bauhly worked the category out) or asking (it could not).
+ * Both end in one press. */
+.ri { width: min(760px, 94vw); max-height: 92vh; display: flex; flex-direction: column; }
+.ri__bar {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: var(--sp-3);
+  padding: var(--sp-4) var(--sp-4) var(--sp-3);
+  border-bottom: 1px solid var(--border);
+}
+.ri__body {
+  display: grid;
+  grid-template-columns: minmax(0, 200px) minmax(0, 1fr);
+  gap: var(--sp-5);
+  padding: var(--sp-5) var(--sp-4);
+  overflow-y: auto;
+}
+.ri__shot {
+  display: block;
+  aspect-ratio: 4 / 5;
+  overflow: hidden;
+  border-radius: var(--r-md);
+  background: var(--surface-sunken);
+}
+.ri__shot img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.ri__side { display: flex; flex-direction: column; gap: var(--sp-5); min-width: 0; }
+.ri__reading { display: flex; align-items: center; gap: 7px; margin: 0; font-size: var(--text-sm); color: var(--ink-500); }
+.ri__reading svg { color: var(--action-accent); }
+
+.ri__block { display: flex; flex-direction: column; gap: var(--sp-2); }
+.ri__filed { display: flex; align-items: center; gap: var(--sp-3); }
+.ri__filed b { font-size: var(--text-md); font-weight: 650; color: var(--ink-900); letter-spacing: -0.01em; }
+.ri__change {
+  padding: 0;
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--ink-500);
+  background: none;
+  border: 0;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+.ri__change:hover { color: var(--ink-900); }
+.ri__basis { font-size: var(--text-sm); color: var(--ink-500); line-height: 1.45; }
+.ri__chips { display: flex; flex-wrap: wrap; gap: var(--sp-2); margin-top: 2px; }
+
+.ri__trait { display: flex; align-items: center; gap: var(--sp-3); }
+.ri__traitlabel { flex: 0 0 132px; font-size: var(--text-sm); color: var(--ink-500); }
+.ri__traitval { font-size: var(--text-sm); font-weight: 600; color: var(--ink-900); }
+.ri__pal { display: flex; gap: 4px; }
+.ri__pal i { width: 26px; height: 26px; border-radius: var(--r-sm); border: 1px solid var(--border); }
+.ri__pending {
+  display: flex; align-items: flex-start; gap: 7px;
+  margin: var(--sp-2) 0 0;
+  font-size: var(--text-xs);
+  color: var(--ink-500);
+  line-height: 1.5;
+}
+.ri__pending svg { flex-shrink: 0; margin-top: 2px; }
+
+.ri__acts {
+  display: flex; align-items: center; gap: var(--sp-4);
+  padding: var(--sp-3) var(--sp-4) var(--sp-4);
+  border-top: 1px solid var(--border);
+}
+.ri__scope { font-size: var(--text-xs); color: var(--ink-500); line-height: 1.45; }
+.ri__acts .btn { margin-left: auto; flex-shrink: 0; }
+
+@media (max-width: 640px) {
+  .ri__body { grid-template-columns: 1fr; }
+  .ri__shot { max-width: 200px; }
+  .ri__acts { flex-direction: column; align-items: stretch; }
+  .ri__acts .btn { margin-left: 0; }
+}
+
+/* the head's phone rule lives HERE, after the base one — written in the
+   earlier media block it loses, because source order beats a media query
+   (third time on this page). On a phone the control aligns with everything
+   else on the page rather than hanging off the right. */
+@media (max-width: 700px) {
+  .ls__head { justify-content: flex-start; }
+}
+
+/* the Visual Style read-out was replaced by the editor below (Leon, Aug 4) */
+
+/* ══ VISUAL STYLE — THE EDITOR ════════════════════════════════════════════
+ * Five sections, each a panel with its own header, state line and controls.
+ * They were a single column of headings before and read as one page of
+ * nothing in particular; the separation is the point of this pass. */
+.vs-editor { display: flex; flex-direction: column; gap: var(--sp-7); }
+
+.vs-sec {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+  padding: var(--sp-6);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+}
+.vs-sec__head { display: flex; align-items: flex-start; gap: var(--sp-4); }
+.vs-sec__title { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.vs-sec__title h2 {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--text-lg);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  color: var(--ink-900);
+}
+.vs-sec__title p { margin: 0; font-size: var(--text-sm); color: var(--ink-600); line-height: 1.45; }
+.vs-sec__head > .btn { flex-shrink: 0; margin-left: auto; }
+
+/* WHERE THIS SECTION STANDS — read, or taken over. Every panel says which,
+   because a palette with no source is a palette somebody chose. */
+.vs-sec__state {
+  display: flex; align-items: center; gap: 6px;
+  padding: 7px var(--sp-3);
+  font-size: var(--text-xs);
+  color: var(--ink-600);
+  background: var(--surface-sunken);
+  border-radius: var(--r-sm);
+}
+.vs-sec__state svg { flex-shrink: 0; }
+.vs-sec__body { display: flex; flex-direction: column; gap: var(--sp-4); }
+.vs-sec__foot { display: flex; align-items: center; flex-wrap: wrap; gap: var(--sp-3); }
+.vs-sec__note { font-size: var(--text-xs); color: var(--ink-500); line-height: 1.5; }
+.vs-sec__label { font-size: var(--text-xs); font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-500); }
+
+/* ── colours ─────────────────────────────────────────────────────────────
+ * Three roles, each SHOWN doing its job. The preview is the explanation and
+ * the swatch is the only control — a hex field, a role dropdown and a drag
+ * handle per colour was a palette manager, not a visual identity. */
+.vs-roles {
+  list-style: none; margin: 0; padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: var(--sp-3);
+}
+.vs-role {
+  display: flex; flex-direction: column;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  overflow: hidden;
+}
+/* the little slide where the colour is doing its work */
+.vs-role__demo {
+  position: relative;
+  display: flex; flex-direction: column; justify-content: center; gap: 5px;
+  aspect-ratio: 4 / 3;
+  padding: var(--sp-4);
+}
+.vs-role__demo b {
+  font-family: var(--font-display);
+  font-size: var(--text-md);
+  font-weight: 500;
+  line-height: 1.15;
+  letter-spacing: -0.02em;
+}
+.vs-role__demo i { font-family: var(--font-ui); font-size: var(--text-xs); font-style: normal; opacity: 0.72; line-height: 1.4; }
+/* the accent's own props: a numeral chip and a rule */
+.vs-role__demo em {
+  display: grid; place-items: center;
+  width: 26px; height: 26px;
+  margin-bottom: 2px;
+  border-radius: var(--r-sm);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 700;
+  color: #fff;
+}
+.vs-role__demo u { display: block; width: 38%; height: 3px; margin-top: 4px; border-radius: 2px; }
+
+.vs-role__pick {
+  display: flex; align-items: center; gap: var(--sp-3);
+  padding: var(--sp-3);
+  border-top: 1px solid var(--border);
+  cursor: pointer;
+}
+.vs-role__chip {
+  position: relative;
+  width: 34px; height: 34px;
+  flex-shrink: 0;
+  border-radius: var(--r-sm);
+  border: 1px solid color-mix(in srgb, var(--ink-900) 12%, transparent);
+  overflow: hidden;
+}
+.vs-role__chip input { position: absolute; inset: -8px; width: 200%; height: 200%; border: 0; padding: 0; opacity: 0; cursor: pointer; }
+.vs-role__meta { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.vs-role__meta b { font-size: var(--text-sm); font-weight: 650; color: var(--ink-900); }
+.vs-role__meta span { font-size: var(--text-xs); color: var(--ink-500); line-height: 1.35; }
+
+/* ── typography: two specimens, nothing to set per role ────────────────── */
+.vs-faces { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.vs-face { display: flex; flex-direction: column; gap: 6px; padding: var(--sp-4) 0; border-bottom: 1px solid var(--border); }
+.vs-face:last-child { border-bottom: 0; padding-bottom: 0; }
+.vs-face__spec { display: block; color: var(--ink-900); }
+.vs-face__spec.is-heading { font-size: var(--text-2xl); font-weight: 500; line-height: 1.1; letter-spacing: -0.025em; text-wrap: balance; }
+.vs-face__spec.is-body { font-size: var(--text-base); line-height: 1.55; color: var(--ink-700); max-width: 62ch; }
+.vs-face__meta { font-size: var(--text-xs); color: var(--ink-500); }
+.vs-face__meta b { font-weight: 650; color: var(--ink-700); }
+
+/* ── backgrounds ─────────────────────────────────────────────────────────
+ * A gallery you choose from: the studio's canvas, then their own uploads, then
+ * the way to add one. The TILE is the control — pressing it makes that
+ * background the default — and the chosen one is ringed and says so.
+ */
+.vs-grounds {
+  list-style: none; margin: 0; padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: var(--sp-3);
+}
+.vs-ground { position: relative; display: flex; }
+.vs-ground__hit {
+  flex: 1;
+  display: flex; flex-direction: column; gap: 3px;
+  padding: var(--sp-3);
+  text-align: left;
+  font: inherit;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  cursor: pointer;
+  transition: border-color 0.14s ease, box-shadow 0.14s ease;
+}
+.vs-ground__hit:hover { border-color: var(--border-strong); }
+/* THE CHOSEN ONE, UNMISTAKABLY. A ring in the product's accent and a word —
+   a border alone reads as hover on a page that has several bordered cards. */
+.vs-ground__hit.is-on {
+  border-color: var(--action-accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--action-accent) 26%, transparent);
+}
+.vs-ground b {
+  display: flex; align-items: center; gap: var(--sp-2);
+  font-size: var(--text-sm); font-weight: 650; color: var(--ink-900);
+}
+.vs-ground__badge {
+  padding: 1px 7px;
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #fff;
+  background: var(--action-accent);
+  border-radius: var(--r-full);
+}
+.vs-ground__hit > span:last-of-type { font-size: var(--text-xs); color: var(--ink-500); line-height: 1.45; }
+.vs-ground__fill {
+  height: 78px;
+  margin-bottom: var(--sp-2);
+  border-radius: var(--r-sm);
+  border: 1px solid var(--border);
+  background-size: cover;
+  background-position: center;
+}
+.vs-ground__x { position: absolute; top: var(--sp-2); right: var(--sp-2); width: 30px; height: 30px; background: rgba(255,255,255,0.92); }
+.vs-ground--add { border-style: dashed; border: 1px dashed var(--border); border-radius: var(--r-md); }
+.vs-ground__add {
+  flex: 1;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px;
+  min-height: 118px;
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--ink-500);
+  cursor: pointer;
+}
+.vs-ground--add:hover { border-color: var(--border-strong); }
+.vs-ground--add:hover .vs-ground__add { color: var(--ink-900); }
+
+/* the chosen background, in use, directly under the gallery — choosing and
+   understanding in one movement */
+.vs-ontop {
+  margin-top: var(--sp-4);
+  padding-top: var(--sp-4);
+  border-top: 1px solid var(--border);
+}
+.vs-ontop__label {
+  display: flex; align-items: center; gap: 6px;
+  margin-bottom: var(--sp-3);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  color: var(--ink-500);
+}
+.vs-ontop__label svg { color: var(--ink-quiet); }
+.vs-ontop__slides { list-style: none; margin: 0; padding: 0; display: flex; gap: var(--sp-3); }
+.vs-ontop__slides > li { flex: 0 0 152px; }
+
+/* ── the whole system, on five real slides ──────────────────────────────
+ * The last thing on the page, and the only place the palette and the faces are
+ * seen doing the actual job. `Preview` is imported from the Layout System, not
+ * copied, and the strip feeds it the studio's three colours through the same
+ * tokens the component already reads — so a swatch change lands here.
+ */
+.vs-live {
+  list-style: none; margin: 0; padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: var(--sp-4);
+}
+.vs-live__item { display: flex; flex-direction: column; gap: var(--sp-2); min-width: 0; }
+.vs-live__frame {
+  container-type: inline-size;
+  position: relative;
+  display: block;
+  aspect-ratio: 4 / 5;
+  overflow: hidden;
+  border-radius: var(--r-md);
+  border: 1px solid var(--border);
+  background: var(--surface);
+}
+/* THE GROUND A TYPE-ONLY SLIDE IS DRAWN ON is the studio's — their Neutral, or
+   the background they chose — never the product's canvas. Both preview
+   surfaces read the same two variables (`groundVars`) so they cannot disagree
+   about how a background will look in use. */
+.vs-live .lp--poster,
+.vs-live .lp--quote,
+.vs-ontop .lp--poster,
+.vs-ontop .lp--quote {
+  background-color: var(--vs-ground);
+  background-image: var(--vs-ground-img, none);
+  background-size: cover;
+  background-position: center;
+}
+/* ON A PHOTOGRAPH, type lifts off it: a wash under the words and white type.
+   Automatic — a studio uploading a background is not also choosing a wash. */
+.vs-live.has-ground .lp--poster::before,
+.vs-live.has-ground .lp--quote::before,
+.vs-ontop__slides.has-ground .lp--poster::before,
+.vs-ontop__slides.has-ground .lp--quote::before {
+  content: '';
+  position: absolute; inset: 0;
+  background: rgba(20, 18, 16, 0.52);
+}
+.vs-live.has-ground .lp--poster > *,
+.vs-live.has-ground .lp--quote > *,
+.vs-ontop__slides.has-ground .lp--poster > *,
+.vs-ontop__slides.has-ground .lp--quote > * { position: relative; }
+.vs-live.has-ground .lp--poster .lp__h,
+.vs-live.has-ground .lp--quote .lp__h,
+.vs-live.has-ground .lp--poster .lp__b,
+.vs-live.has-ground .lp--quote .lp__b,
+.vs-live.has-ground .lp__mark,
+.vs-ontop__slides.has-ground .lp__h,
+.vs-ontop__slides.has-ground .lp__b,
+.vs-ontop__slides.has-ground .lp__mark { color: #fff; }
+.vs-live.has-ground .lp--poster .lp__eyebrow,
+.vs-ontop__slides.has-ground .lp__eyebrow { color: rgba(255, 255, 255, 0.82); }
+.vs-live__meta { display: flex; flex-direction: column; gap: 1px; font-size: var(--text-xs); color: var(--ink-500); }
+.vs-live__meta b {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-400);
+}
+
+/* ── logo ────────────────────────────────────────────────────────────────── */
+.vs-logo { display: flex; flex-wrap: wrap; gap: var(--sp-4); align-items: flex-start; }
+.vs-logo__slot {
+  display: grid; place-items: center;
+  width: 132px; height: 92px;
+  flex-shrink: 0;
+  border-radius: var(--r-md);
+  border: 1px dashed var(--border-strong);
+  background: var(--surface-sunken);
+  overflow: hidden;
+}
+.vs-logo__slot img { max-width: 80%; max-height: 70%; object-fit: contain; }
+.vs-logo__none { font-size: var(--text-xs); color: var(--ink-400); }
+.vs-logo__ctrls { display: flex; flex-direction: column; gap: var(--sp-3); min-width: 0; }
+.vs-logo__row { display: flex; flex-wrap: wrap; gap: var(--sp-2); }
+.vs-logo__row .btn { cursor: pointer; }
+
+@media (max-width: 700px) {
+  .vs-sec { padding: var(--sp-4); }
+  .vs-live { grid-template-columns: repeat(auto-fit, minmax(132px, 1fr)); }
+  .vs-ontop__slides > li { flex: 1 1 0; }
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════════
+ * PORTED PRIMITIVES
+ *
+ * The Visual Brand feature was lifted from bauhly-v3, whose base.css/app.css
+ * carried a handful of shared primitives the live app does not have yet. They
+ * are bundled here, verbatim from the reference, so the feature is
+ * self-contained — the design tokens they read (--r-sm, --surface-sunken, …)
+ * already resolve in the live tokens.css.
+ * ═══════════════════════════════════════════════════════════════════════════ */
+
+/* the page wrapper — matches the app's other pages' width and gutter */
+.vb-page {
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: clamp(24px, 6vw, 48px) clamp(16px, 5vw, 48px);
+}
+
+/* ── TABS ─── the selected tab is ink on a soft-lifted white segment ── */
+.tabs {
+  display: flex;
+  gap: 2px;
+  width: 100%;
+  padding: 2px;
+  background: var(--surface-sunken);
+  border: none;
+  border-radius: calc(var(--r-sm) + 2px);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.tabs::-webkit-scrollbar { display: none; }
+.tab {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  justify-content: center;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 28px;
+  padding: 0 var(--sp-3);
+  white-space: nowrap;
+  border: none;
+  border-radius: var(--r-sm);
+  background: none;
+  cursor: pointer;
+  font-family: var(--font-ui);
+  font-size: var(--text-xs);
+  font-weight: 500;
+  color: var(--ink-500);
+  transition: color var(--dur-fast), background var(--dur-fast), box-shadow var(--dur-fast);
+}
+.tab:hover { color: var(--ink-900); }
+.tab.is-on {
+  color: var(--ink-900);
+  font-weight: 700;
+  background: var(--surface);
+  box-shadow: 0 1px 3px rgba(22, 22, 26, 0.14), 0 0 0 1px rgba(22, 22, 26, 0.07);
+}
+.tab:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
+.tabs--sm .tab { height: 24px; padding: 0 var(--sp-2); }
+.tabs--center { justify-content: center; }
+/* hugging: as wide as its words, segments still equal */
+.tabs--hug {
+  display: inline-grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  width: max-content;
+  max-width: 100%;
+}
+/* the Visual Brand's own tab row sits under the page head, left-aligned */
+.bp-tabs { margin-bottom: var(--sp-6); }
+
+/* ── ICON BUTTON ─── a bare 24px glyph target ── */
+.icobtn {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--ink-500);
+  cursor: pointer;
+  transition: color var(--dur-fast) var(--ease-out);
+}
+.icobtn:hover { color: var(--ink-900); background: transparent; }
+.icobtn:focus-visible { outline: 2px solid var(--signal-400); outline-offset: 2px; }
+
+/* ── FONTS FIELD ─── the one file a studio hands over, under Typography ── */
+.bp-fonts { display: flex; flex-direction: column; gap: var(--sp-3); }
+.bp-fonts__list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.bp-fonts__list li {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border);
+}
+.bp-fonts__list li:last-child { border-bottom: 0; }
+.bp-fonts__specimen {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--text-lg);
+  color: var(--ink-900);
+}
+.bp-fonts__add { align-self: flex-start; }
+.bp-fonts.is-compact { gap: var(--sp-2); padding-top: var(--sp-4); border-top: 1px solid var(--border); }
+.bp-fonts.is-compact .bp-fonts__specimen { font-size: var(--text-base); }
