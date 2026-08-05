@@ -174,6 +174,7 @@ async function markDayPublished(req, res) {
         role: String(s.role || ''),
         title: String(s.title || ''),
         assetKey: String(s.assetKey || ''),
+        layout: String(s.layout || ''),
       }));
       cur.onScreenText = cur.slides.map((s) => s.title).filter(Boolean);
     }
