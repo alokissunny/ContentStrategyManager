@@ -516,6 +516,155 @@
 }
 .wv-ig__dot.is-active { background: #fff; }
 
+/* ── Hook slide compositions (from the layout system) ─────────────────────── */
+.wv-hook { position: absolute; inset: 0; }
+.wv-hook__bg { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.wv-hook__empty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background: linear-gradient(160deg, #f3f1ec 0%, #e8e4dc 100%);
+  color: var(--ink-quiet);
+  font-size: 13px;
+  font-weight: 600;
+}
+.wv-hook__eyebrow {
+  display: inline-block;
+  margin-bottom: 6px;
+  font-family: var(--font-ui);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.wv-hook__head {
+  margin: 0;
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 19px;
+  line-height: 1.2;
+  text-wrap: balance;
+}
+/* full-bleed — line on the photo, bottom-left */
+.wv-hook--bleed .wv-hook__scrim {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(to top, rgba(18, 18, 22, 0.62) 0%, rgba(18, 18, 22, 0.14) 42%, rgba(18, 18, 22, 0) 68%);
+}
+.wv-hook--bleed .wv-hook__words {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: 16px;
+}
+.wv-hook__words.is-on-photo { color: #fff; }
+.wv-hook__words.is-on-photo .wv-hook__eyebrow { opacity: 0.9; }
+/* split — words beside the picture */
+.wv-hook--split { display: grid; grid-template-columns: 1fr 1fr; }
+.wv-hook--split .wv-hook__words {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 16px;
+  background: var(--surface);
+  color: var(--ink-900);
+}
+.wv-hook--split .wv-hook__eyebrow { color: var(--signal-500); }
+.wv-hook--split .wv-hook__photo { position: relative; overflow: hidden; }
+.wv-hook--split .wv-hook__photo img { width: 100%; height: 100%; object-fit: cover; }
+/* statement — the words on a ground, no photo */
+.wv-hook--poster {
+  display: grid;
+  place-items: center;
+  padding: 26px 22px;
+  background: var(--ink-900);
+}
+.wv-hook--poster .wv-hook__words { text-align: center; color: #fff; }
+.wv-hook--poster .wv-hook__head { font-size: 22px; }
+
+/* ── Hook layout picker (Content tab) ─────────────────────────────────────── */
+.wv-layouts { display: flex; flex-wrap: wrap; gap: 8px; }
+.wv-layout {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  width: 88px;
+  padding: 8px;
+  border: 1.5px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  cursor: pointer;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.wv-layout:hover { border-color: var(--border-strong); }
+.wv-layout.is-on {
+  border-color: var(--signal-500);
+  box-shadow: 0 0 0 3px var(--signal-50);
+}
+.wv-layout__name {
+  font-family: var(--font-ui);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.2;
+  color: var(--ink-700);
+  text-align: center;
+}
+.wv-layout__shape {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 4 / 5;
+  border-radius: 6px;
+  overflow: hidden;
+  background: var(--surface-sunken);
+}
+.wv-layout__shape--bleed { background: linear-gradient(160deg, #e7e3db, #d8d3c9); }
+.wv-layout__shape--bleed::after {
+  content: '';
+  position: absolute;
+  left: 6px;
+  right: 6px;
+  bottom: 6px;
+  height: 5px;
+  border-radius: 2px;
+  background: rgba(22, 22, 26, 0.55);
+}
+.wv-layout__shape--split::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 50%;
+  background: var(--surface);
+  border-right: 1px solid var(--border);
+}
+.wv-layout__shape--split::after {
+  content: '';
+  position: absolute;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  width: 50%;
+  background: linear-gradient(160deg, #e7e3db, #d8d3c9);
+}
+.wv-layout__shape--poster { background: var(--ink-900); }
+.wv-layout__shape--poster::after {
+  content: '';
+  position: absolute;
+  left: 22%;
+  right: 22%;
+  top: 46%;
+  height: 5px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.85);
+}
+
 /* Detail panel */
 .wv-detail {
   background: var(--surface);

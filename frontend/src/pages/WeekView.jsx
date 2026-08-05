@@ -15,7 +15,14 @@ import { markDayPublished, updateDayContent, generateRoute } from '../api/routes
 import { getMetaStatus, publishDayToMeta } from '../api/meta';
 import { useProjects, uploadFiles } from '../lib/projectsStore';
 import { CaptureChat } from './Projects';
+import { LAYOUTS } from '../lib/visualbrand';
 import './weekView.css';
+
+// Hook-family layouts from the Visual Brand layout system (H1 full-bleed,
+// H2 split, H3 statement). The Hook slide is composed with one of these.
+const HOOK_LAYOUTS = LAYOUTS.filter((l) => l.group === 'hook');
+const DEFAULT_HOOK_LAYOUT = 'H1';
+const layoutById = (id) => HOOK_LAYOUTS.find((l) => l.id === id) || HOOK_LAYOUTS[0];
 
 const FORMAT_ICON = { Reel: 'play', Carousel: 'copy', Post: 'image', Story: 'book-open' };
 const SLIDE_ROLES = {
@@ -68,6 +75,7 @@ function deriveSlides(day) {
       role: s.role || roles[Math.min(i, roles.length - 1)],
       title: s.title || '',
       assetKey: s.assetKey || '',
+      layout: s.layout || '',
     }));
   }
   const texts = (day.content?.onScreenText || []).filter(Boolean);
@@ -153,6 +161,7 @@ function slidesPayload(slides) {
     role: s.role || '',
     title: s.title || '',
     assetKey: s.assetKey || '',
+    layout: s.layout || '',
   }));
 }
 
@@ -172,6 +181,53 @@ function buildMarkdown(route) {
     lines.push('', '---', '');
   });
   return lines.join('\n');
+}
+
+// Compose the Hook slide the way its chosen layout says to — full-bleed (line
+// on the photo), split (words beside the photo) or statement (words on a
+// ground, no photo). Mirrors the Visual Brand layout previews (LayoutSystem).
+function HookMedia({ slide, layoutId, contentType }) {
+  const shape = layoutById(layoutId).shape; // 'bleed' | 'split' | 'poster'
+  const head = slide?.title || 'Your hook line';
+  const eyebrow = contentType || '';
+  const img = slide?.image?.url || null;
+
+  if (shape === 'poster') {
+    return (
+      <div className="wv-hook wv-hook--poster">
+        <div className="wv-hook__words">
+          {eyebrow && <span className="wv-hook__eyebrow">{eyebrow}</span>}
+          <p className="wv-hook__head">{head}</p>
+        </div>
+      </div>
+    );
+  }
+  if (shape === 'split') {
+    return (
+      <div className="wv-hook wv-hook--split">
+        <div className="wv-hook__words">
+          {eyebrow && <span className="wv-hook__eyebrow">{eyebrow}</span>}
+          <p className="wv-hook__head">{head}</p>
+        </div>
+        <div className="wv-hook__photo">
+          {img ? <img src={img} alt="" /> : <div className="wv-hook__empty"><Glyph name="image" size={22} /></div>}
+        </div>
+      </div>
+    );
+  }
+  // bleed (default) — the line sits on the photograph, bottom-left
+  return (
+    <div className="wv-hook wv-hook--bleed">
+      {img
+        ? <img className="wv-hook__bg" src={img} alt="" />
+        : <div className="wv-hook__empty"><Glyph name="image" size={28} /><span>Needs image</span></div>}
+      <span className="wv-hook__scrim" />
+      <div className="wv-hook__words is-on-photo">
+        {eyebrow && <span className="wv-hook__eyebrow">{eyebrow}</span>}
+        <p className="wv-hook__head">{head}</p>
+      </div>
+    </div>
+  );
 }
 
 export default function WeekView({ route: initialRoute, onBack, onRegenerate, generating }) {
@@ -469,6 +525,8 @@ export default function WeekView({ route: initialRoute, onBack, onRegenerate, ge
     : '';
 
   const hasOwnImage = Boolean(activeSlide?.assetKey && !activeSlide?.standing && activeSlide?.image);
+  const isHook = activeSlide?.role === 'Hook';
+  const hookLayout = activeSlide?.layout || DEFAULT_HOOK_LAYOUT;
 
   return (
     <div className="wv">
@@ -625,22 +683,28 @@ export default function WeekView({ route: initialRoute, onBack, onRegenerate, ge
                 )}
               </header>
               <div className="wv-ig__photo">
-                {activeSlide?.image?.url ? (
-                  <img src={activeSlide.image.url} alt="" />
+                {isHook ? (
+                  <HookMedia slide={activeSlide} layoutId={hookLayout} contentType={day.contentType || day.format} />
                 ) : (
-                  <div className="wv-ig__empty">
-                    <Glyph name="image" size={28} />
-                    <span>Needs image</span>
-                  </div>
+                  <>
+                    {activeSlide?.image?.url ? (
+                      <img src={activeSlide.image.url} alt="" />
+                    ) : (
+                      <div className="wv-ig__empty">
+                        <Glyph name="image" size={28} />
+                        <span>Needs image</span>
+                      </div>
+                    )}
+                    {(activeSlide?.title || day.title) && (
+                      <div className="wv-ig__overlay">
+                        <span className="wv-ig__badge">{day.contentType || day.format}</span>
+                        <p className="wv-ig__hook">{activeSlide?.title || day.title}</p>
+                      </div>
+                    )}
+                  </>
                 )}
                 {slides.length > 1 && (
                   <span className="wv-ig__count">{safeIdx + 1}/{slides.length}</span>
-                )}
-                {(activeSlide?.title || day.title) && (
-                  <div className="wv-ig__overlay">
-                    <span className="wv-ig__badge">{day.contentType || day.format}</span>
-                    <p className="wv-ig__hook">{activeSlide?.title || day.title}</p>
-                  </div>
                 )}
                 {slides.length > 1 && (
                   <div className="wv-ig__dots" aria-hidden="true">
@@ -698,6 +762,25 @@ export default function WeekView({ route: initialRoute, onBack, onRegenerate, ge
 
               {tab === 'Content' && (
                 <div className="wv-pane">
+                  {isHook && (
+                    <div className="wv-sec">
+                      <span className="wv-sec__label">Hook layout</span>
+                      <div className="wv-layouts">
+                        {HOOK_LAYOUTS.map((l) => (
+                          <button
+                            key={l.id}
+                            type="button"
+                            className={`wv-layout${hookLayout === l.id ? ' is-on' : ''}`}
+                            onClick={() => patchActiveSlide({ layout: l.id })}
+                            title={l.when}
+                          >
+                            <span className={`wv-layout__shape wv-layout__shape--${l.shape}`} aria-hidden="true" />
+                            <span className="wv-layout__name">{l.name}</span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                   <div className="wv-sec">
                     <span className="wv-sec__label">Words on this slide</span>
                     <div className="wv-textcard">

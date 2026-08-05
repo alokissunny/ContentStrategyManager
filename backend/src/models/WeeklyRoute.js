@@ -23,6 +23,9 @@ const daySchema = new mongoose.Schema(
             role: { type: String, default: '' },
             title: { type: String, default: '' },
             assetKey: { type: String, default: '' },
+            // Layout id from the Visual Brand layout system (e.g. a hook layout
+            // 'H1'/'H2'/'H3'). Empty = the slide's default composition.
+            layout: { type: String, default: '' },
           },
         ],
         default: [],
