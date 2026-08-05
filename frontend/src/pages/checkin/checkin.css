@@ -1851,3 +1851,48 @@ body.is-immersive .app__main {
   text-transform: uppercase;
   color: var(--ink-quiet);
 }
+
+
+/* ── Capture idea overlay ──────────────────────────────────────────────────
+ * The conversational capture (CaptureChat) is portalled to <body> and covers
+ * the app so the one question on screen has the studio's full attention — the
+ * same immersive focus the check-in gets, reached from a button rather than a
+ * route. The .ck surface inside keeps its own sizing and internal scroll. */
+.cap-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  background: var(--surface);
+  overflow-y: auto;
+  padding: var(--sp-6) var(--sp-6) 0;
+}
+@media (min-width: 801px) {
+  .cap-overlay { padding: var(--sp-8) var(--sp-8) 0; }
+}
+
+
+/* ── Capture: the real project list at the "which project?" step ──────────
+ * Each of the studio's own projects as a card to file into — a cover, the
+ * name, and how much is already on file — plus a New project card. Replaces
+ * the earlier "last working in / Another project" teaser. */
+.ck-card--project,
+.ck-card--new {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  column-gap: var(--sp-3);
+  align-items: center;
+}
+.ck-card__cover {
+  width: 40px;
+  height: 40px;
+  flex-shrink: 0;
+  border-radius: var(--r-sm);
+  overflow: hidden;
+  background: var(--surface-sunken);
+  display: grid;
+  place-items: center;
+}
+.ck-card__cover img { width: 100%; height: 100%; object-fit: cover; }
+.ck-card__cover .pjcard__art { width: 100%; height: 100%; }
+.ck-card__cover--new { background: var(--signal-50); color: var(--signal-600); }
+.ck-card__body { display: flex; flex-direction: column; gap: 4px; min-width: 0; }

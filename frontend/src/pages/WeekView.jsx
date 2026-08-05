@@ -7,13 +7,14 @@
  */
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import Glyph from '../components/Glyph';
 import YourAnalysisModal from '../components/YourAnalysisModal';
 import ConnectMetaModal from '../components/ConnectMetaModal';
-import { markDayPublished, updateDayContent } from '../api/routes';
+import { markDayPublished, updateDayContent, generateRoute } from '../api/routes';
 import { getMetaStatus, publishDayToMeta } from '../api/meta';
 import { useProjects, uploadFiles } from '../lib/projectsStore';
-import { CaptureModal } from './Projects';
+import { CaptureChat } from './Projects';
 import './weekView.css';
 
 const FORMAT_ICON = { Reel: 'play', Carousel: 'copy', Post: 'image', Story: 'book-open' };
@@ -174,6 +175,7 @@ function buildMarkdown(route) {
 }
 
 export default function WeekView({ route: initialRoute, onBack, onRegenerate, generating }) {
+  const navigate = useNavigate();
   const projects = useProjects();
   const [capturing, setCapturing] = useState(false);
   const [route, setRoute] = useState(initialRoute);
@@ -195,6 +197,8 @@ export default function WeekView({ route: initialRoute, onBack, onRegenerate, ge
   const [metaStatus, setMetaStatus] = useState({ connected: false, configured: false });
   const [publishing, setPublishing] = useState(false);
   const [publishMsg, setPublishMsg] = useState('');
+  const [rebuilding, setRebuilding] = useState(false);
+  const [rebuildMsg, setRebuildMsg] = useState('');
   const [localMedia, setLocalMedia] = useState({});
   const fileRef = useRef(null);
   const textRef = useRef(null);
@@ -428,6 +432,36 @@ export default function WeekView({ route: initialRoute, onBack, onRegenerate, ge
     URL.revokeObjectURL(url);
   }
 
+  // Rebuild the running week directly from the latest signals — Brand DNA, the
+  // studio's Capture Idea notes, the content-pillar (D/C/T) gap, project assets
+  // and competitor cohort insights. This regenerates server-side and replaces
+  // the current week's plan, so it's guarded by a confirm (any manual edits to
+  // the current plan are overwritten). Unlike "Plan again", it skips the
+  // check-in conversation and rebuilds in place.
+  async function handleRebuild() {
+    if (rebuilding || generating) return;
+    const ok = window.confirm(
+      "Rebuild this week's plan from your latest signals — your Brand DNA, Capture Idea notes, the content-pillar gap, project assets and competitor insights?\n\nThis replaces the current plan and any edits you've made to it."
+    );
+    if (!ok) return;
+    setRebuilding(true);
+    setRebuildMsg('');
+    try {
+      const fresh = await generateRoute();
+      if (fresh) {
+        setRoute(fresh);
+        setSelected(0);
+        setSlideIdx(0);
+        setDetailOpen(false);
+        setEditing(false);
+      }
+    } catch {
+      setRebuildMsg('Could not rebuild the plan. Try again in a moment.');
+    } finally {
+      setRebuilding(false);
+    }
+  }
+
   const formatMeta = day
     ? `${day.contentType || 'Post'} | ${day.format}${
         slides.length > 1 ? ` (${slides.length} slides)` : ''
@@ -448,10 +482,11 @@ export default function WeekView({ route: initialRoute, onBack, onRegenerate, ge
       </div>
 
       {capturing && (
-        <CaptureModal
-          projects={projects}
+        <CaptureChat
           defaultProjectId={projects[0]?.id}
-          onClose={() => setCapturing(false)}
+          exitLabel="Back to plan"
+          onExit={() => setCapturing(false)}
+          onViewProject={() => { setCapturing(false); navigate('/dashboard/projects'); }}
         />
       )}
 
@@ -462,6 +497,8 @@ export default function WeekView({ route: initialRoute, onBack, onRegenerate, ge
             <Glyph name="calendar" size={14} />{route.weekLabel}
           </span>
           {saving && <span className="wv-head__chip">Saving…</span>}
+          {rebuilding && <span className="wv-head__chip">Rebuilding from your signals…</span>}
+          {rebuildMsg && <span className="wv-head__chip" style={{ color: 'var(--negative)' }}>{rebuildMsg}</span>}
         </div>
         <div className="wv-actions">
           <button type="button" className="wv-btn" onClick={() => setAnalysisOpen(true)}>
@@ -470,8 +507,17 @@ export default function WeekView({ route: initialRoute, onBack, onRegenerate, ge
           <button type="button" className="wv-btn" onClick={handleExport}>
             <Glyph name="download" size={15} />Export
           </button>
-          <button type="button" className="wv-btn" onClick={onRegenerate} disabled={generating}>
+          <button type="button" className="wv-btn" onClick={onRegenerate} disabled={generating || rebuilding}>
             <Glyph name="refresh-cw" size={15} />{generating ? 'Planning…' : 'Plan again'}
+          </button>
+          <button
+            type="button"
+            className="wv-btn wv-btn--rebuild"
+            onClick={handleRebuild}
+            disabled={rebuilding || generating}
+            title="Regenerate this week from your Brand DNA, Capture Idea notes, content-pillar gap, project assets and competitor insights."
+          >
+            <Glyph name="sparkles" size={15} />{rebuilding ? 'Rebuilding…' : 'Rebuild plan'}
           </button>
         </div>
       </div>

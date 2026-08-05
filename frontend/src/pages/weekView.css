@@ -977,3 +977,14 @@
     grid-template-columns: 1fr;
   }
 }
+
+/* Rebuild plan — the primary "regenerate this week from all five signals"
+   action, so it carries the brand accent rather than the neutral chrome of the
+   other top-bar buttons. */
+.wv-btn--rebuild {
+  border-color: var(--signal-500);
+  background: var(--signal-500);
+  color: #fff;
+}
+.wv-btn--rebuild:hover { filter: brightness(1.08); }
+.wv-btn--rebuild svg { color: currentColor; }

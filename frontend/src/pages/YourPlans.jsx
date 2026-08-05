@@ -15,7 +15,9 @@
 import React, { useEffect, useState } from 'react';
 import Icon from '../brand/Icon';
 import { getCurrentRoute, getRoutes, generateRoute } from '../api/routes';
+import { useNavigate } from 'react-router-dom';
 import { useProjects, createProject } from '../lib/projectsStore';
+import { CaptureChat } from './Projects';
 import { useAuth } from '../context/AuthContext';
 import WeekView from './WeekView';
 import PlanLoom from './PlanLoom';
@@ -98,6 +100,8 @@ export default function YourPlans() {
   const [error, setError] = useState('');
   const [view, setView] = useState('list');        // 'list' | 'checkin' | 'gen' | 'week'
   const [selected, setSelected] = useState(null);  // the route open in WeekView
+  const [capturing, setCapturing] = useState(false); // the Capture idea flow
+  const navigate = useNavigate();
   const projects = useProjects();
   const { user } = useAuth();
 
@@ -242,10 +246,12 @@ export default function YourPlans() {
       <div className="ph__head">
         <div className="ph__headrow">
           <h1 className="ph__title">Your plans</h1>
-          <button className="btn btn--primary btn--sm ph__new" onClick={() => setView('checkin')}>
-            <Icon name="sparkle" size={15} />
-            Create a new plan
-          </button>
+          <div className="ph__headacts">
+            <button className="btn btn--primary btn--sm ph__new" onClick={() => setCapturing(true)}>
+              <Icon name="plus" size={15} strokeWidth={2.5} />
+              Capture idea
+            </button>
+          </div>
         </div>
         <p className="ph__sub">
           {current
@@ -273,6 +279,15 @@ export default function YourPlans() {
           </section>
         ))}
       </div>
+
+      {capturing && (
+        <CaptureChat
+          defaultProjectId={projects[0]?.id}
+          exitLabel="Back to plans"
+          onExit={() => setCapturing(false)}
+          onViewProject={() => { setCapturing(false); navigate('/dashboard/projects'); }}
+        />
+      )}
     </div>
   );
 }
