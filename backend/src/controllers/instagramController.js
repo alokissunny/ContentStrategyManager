@@ -14,6 +14,11 @@ const { generateAndSaveRoute } = require('./routeController');
 // activatedAt — still order by when they were last analyzed.
 const CURRENT_SORT = { activatedAt: -1, fetchedAt: -1 };
 
+// How long a scrape + analysis stays fresh. Within this window we reuse the
+// stored snapshot and report instead of re-running the (slow, paid) Apify
+// scrape and LLM analysis.
+const ANALYSIS_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+
 function extractUsername(input) {
   return (input || '')
     .replace(/^https?:\/\/(www\.)?instagram\.com\//i, '')
@@ -27,6 +32,33 @@ async function fetchInstagram(req, res) {
   const username = extractUsername(req.body.username);
   if (!username) {
     return res.status(400).json({ message: 'Instagram username or profile URL is required' });
+  }
+
+  // Reuse a recent analysis. If this handle was both scraped and analysed within
+  // the last 30 days, skip the scrape + LLM analysis and return the stored
+  // snapshot and report. We still bump activatedAt so the handle becomes current.
+  const cutoff = new Date(Date.now() - ANALYSIS_TTL_MS);
+  const existing = await InstagramProfile.findOne({ user: req.user._id, username });
+  if (existing && existing.fetchedAt && existing.fetchedAt > cutoff) {
+    const recentReport = await BrandAnalysisReport.findOne({
+      user: req.user._id,
+      instagramUsername: username,
+      createdAt: { $gt: cutoff },
+    }).sort({ createdAt: -1 });
+    if (recentReport) {
+      existing.activatedAt = new Date();
+      await existing.save();
+      const report = {
+        id: recentReport._id,
+        createdAt: recentReport.createdAt,
+        downloadUrl: await getPresignedDownloadUrl(recentReport.s3Key),
+        // Kept for the onboarding confirmation conversation.
+        whoYouHelp: recentReport.whoYouHelp,
+        whatYouOffer: recentReport.whatYouOffer,
+        howYouSound: recentReport.howYouSound,
+      };
+      return res.json({ profile: existing, report, reportError: null, cached: true });
+    }
   }
 
   const [profile, posts] = await Promise.all([scrapeProfile(username), scrapePosts(username)]);

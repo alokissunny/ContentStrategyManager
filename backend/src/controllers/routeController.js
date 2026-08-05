@@ -35,8 +35,13 @@ async function loadBrandDna(userId, username) {
 }
 
 // Studio projects → compact inventory the planner can ground posts and slides in.
-async function loadProjectAssets(userId) {
-  const projects = await Project.find({ user: userId }).sort({ updatedAt: -1 }).limit(12);
+// Scoped to the handle the plan is for, so each account grounds on its own
+// projects. Legacy projects (unassigned to a handle) are still included until
+// they're adopted into an account on the next Projects page load.
+async function loadProjectAssets(userId, username) {
+  const filter = { user: userId };
+  if (username) filter.instagramUsername = { $in: [username, null, ''] };
+  const projects = await Project.find(filter).sort({ updatedAt: -1 }).limit(12);
   return projects.map((p) => {
     const notes = [];
     const assets = [];
@@ -69,7 +74,7 @@ async function generateAndSaveRoute(userId, profile) {
     return null;
   });
 
-  const projects = await loadProjectAssets(userId).catch((err) => {
+  const projects = await loadProjectAssets(userId, profile.username).catch((err) => {
     console.error(`[route] could not load projects for plan:`, err.message);
     return [];
   });
