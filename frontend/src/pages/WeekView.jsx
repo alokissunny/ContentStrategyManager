@@ -15,7 +15,8 @@ import { markDayPublished, updateDayContent, generateRoute } from '../api/routes
 import { getMetaStatus, publishDayToMeta } from '../api/meta';
 import { useProjects, uploadFiles } from '../lib/projectsStore';
 import { CaptureChat } from './Projects';
-import { LAYOUTS } from '../lib/visualbrand';
+import { LAYOUTS, styleOf, rolesOf, groundOf } from '../lib/visualbrand';
+import { useStore } from '../lib/store';
 import './weekView.css';
 
 // Hook-family layouts from the Visual Brand layout system (H1 full-bleed,
@@ -23,6 +24,30 @@ import './weekView.css';
 const HOOK_LAYOUTS = LAYOUTS.filter((l) => l.group === 'hook');
 const DEFAULT_HOOK_LAYOUT = 'H1';
 const layoutById = (id) => HOOK_LAYOUTS.find((l) => l.id === id) || HOOK_LAYOUTS[0];
+
+// "Bricolage Grotesque for headlines, Inter for body text." → "Bricolage Grotesque"
+function firstFont(fontsStr) {
+  const first = String(fontsStr || '').split(',')[0] || '';
+  return first.replace(/\s+for\s+.*$/i, '').trim();
+}
+
+// The palette / type the studio set on the Visual Brand page, as CSS variables
+// the post compositions read (accent, primary type, neutral ground, headline
+// face). Falls back to the product defaults when a brand hasn't been set.
+function brandStyleVars(store) {
+  const style = styleOf(store?.brandStyle);
+  const roles = rolesOf(style, null);
+  const ground = groundOf(style);
+  const head = firstFont(store?.brand?.fonts);
+  const vars = {
+    '--wv-accent': roles.accent,
+    '--wv-primary': roles.primary,
+    '--wv-neutral': roles.neutral,
+  };
+  if (ground.own && ground.url) vars['--wv-ground-img'] = `url(${ground.url})`;
+  if (head) vars['--wv-post-font'] = `'${head}', var(--font-display)`;
+  return vars;
+}
 
 const FORMAT_ICON = { Reel: 'play', Carousel: 'copy', Post: 'image', Story: 'book-open' };
 const SLIDE_ROLES = {
@@ -266,6 +291,9 @@ export default function WeekView({ route: initialRoute, onBack, onRegenerate, ge
   }, []);
 
   const allImages = useMemo(() => collectProjectImages(projects), [projects]);
+  // Palette + type set on the Visual Brand page, reflected in the post preview.
+  const vbStore = useStore();
+  const igVars = useMemo(() => brandStyleVars(vbStore), [vbStore]);
   const days = route?.days || [];
   const day = days[selected] || days[0];
 
@@ -661,7 +689,7 @@ export default function WeekView({ route: initialRoute, onBack, onRegenerate, ge
               </button>
             </div>
 
-            <article className="wv-ig">
+            <article className="wv-ig" style={igVars}>
               <header className="wv-ig__head">
                 <span className="wv-ig__avatar">
                   {allImages[0]?.thumb
