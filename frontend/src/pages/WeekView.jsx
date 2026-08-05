@@ -762,25 +762,6 @@ export default function WeekView({ route: initialRoute, onBack, onRegenerate, ge
 
               {tab === 'Content' && (
                 <div className="wv-pane">
-                  {isHook && (
-                    <div className="wv-sec">
-                      <span className="wv-sec__label">Hook layout</span>
-                      <div className="wv-layouts">
-                        {HOOK_LAYOUTS.map((l) => (
-                          <button
-                            key={l.id}
-                            type="button"
-                            className={`wv-layout${hookLayout === l.id ? ' is-on' : ''}`}
-                            onClick={() => patchActiveSlide({ layout: l.id })}
-                            title={l.when}
-                          >
-                            <span className={`wv-layout__shape wv-layout__shape--${l.shape}`} aria-hidden="true" />
-                            <span className="wv-layout__name">{l.name}</span>
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  )}
                   <div className="wv-sec">
                     <span className="wv-sec__label">Words on this slide</span>
                     <div className="wv-textcard">
@@ -862,6 +843,25 @@ export default function WeekView({ route: initialRoute, onBack, onRegenerate, ge
 
               {tab === 'Image' && (
                 <div className="wv-pane">
+                  {isHook && (
+                    <div className="wv-sec">
+                      <span className="wv-sec__label">Which layout should this slide take?</span>
+                      <div className="wv-layouts">
+                        {HOOK_LAYOUTS.map((l) => (
+                          <button
+                            key={l.id}
+                            type="button"
+                            className={`wv-layout${hookLayout === l.id ? ' is-on' : ''}`}
+                            onClick={() => patchActiveSlide({ layout: l.id })}
+                            title={l.when}
+                          >
+                            <span className={`wv-layout__shape wv-layout__shape--${l.shape}`} aria-hidden="true" />
+                            <span className="wv-layout__name">{l.name}</span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                   <p className="wv-imgstatus">
                     {hasOwnImage
                       ? 'This slide uses one of your pictures.'
