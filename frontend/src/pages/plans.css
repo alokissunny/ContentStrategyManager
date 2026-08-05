@@ -286,3 +286,71 @@
   transition: background var(--dur-fast), color var(--dur-fast);
 }
 .nw-row__del:hover { background: var(--surface); color: var(--negative); }
+
+/* ── monthly plans: eyebrow, week date chip, focus pill, locked rows ──────── */
+.ph__eyebrow {
+  display: block;
+  margin-bottom: 6px;
+  font-family: var(--font-ui);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-quiet);
+}
+/* the date chip replaces the pillar icon square on a week row */
+.ph-week__date {
+  flex-shrink: 0;
+  width: 46px;
+  height: 46px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  border-radius: 12px;
+  background: var(--surface-sunken);
+}
+.ph-week__date b {
+  font-family: var(--font-ui);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--ink-quiet);
+}
+.ph-week__date i {
+  font-family: var(--font-display);
+  font-style: normal;
+  font-size: 18px;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--ink-900);
+}
+/* the focus tag — a pillar-coloured pill (pillar gap analysis) */
+.ph-focus {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 9px;
+  border-radius: 999px;
+  background: var(--pt);
+  color: var(--pc);
+  font-family: var(--font-ui);
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.ph-focus svg { flex-shrink: 0; }
+/* next-month weeks: scheduled, not yet written — locked and non-clickable */
+.ph-row.is-locked {
+  cursor: default;
+  opacity: 0.72;
+}
+.ph-row.is-locked:hover { background: transparent; border-color: transparent; }
+.ph-week__lock {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+  color: var(--ink-600);
+}

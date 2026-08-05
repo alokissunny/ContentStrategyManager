@@ -68,27 +68,74 @@ const toPlan = (r) => ({
   createdAt: r.generatedAt || r.createdAt || r.updatedAt,
 });
 
-function PlanRow({ plan, live, onOpen }) {
-  const focus = PILLARS[plan.focus];
+const MONTH_ABBR = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const fmtDay = (d) => (d ? `${MONTH_ABBR[d.getMonth()]} ${d.getDate()}` : '');
+
+/* A plan is a month of 4 weeks. Group the routes by their month, ordered so the
+ * running month leads, the (locked) next month follows, and past months trail. */
+function monthlyGroups(routes) {
+  const by = new Map();
+  (routes || []).forEach((r) => {
+    const key = r.monthKey || bucketOf(r.weekOf).key;
+    if (!by.has(key)) {
+      const start = new Date(r.startsAt || r.weekOf);
+      by.set(key, { key, name: r.monthName || bucketOf(r.weekOf).label, weeks: [], start });
+    }
+    const g = by.get(key);
+    g.weeks.push(r);
+    const s = new Date(r.startsAt || r.weekOf);
+    if (s < g.start) g.start = s;
+  });
+  const groups = [...by.values()];
+  groups.forEach((g) => {
+    g.weeks.sort((a, b) => (a.weekIndex ?? 0) - (b.weekIndex ?? 0)
+      || new Date(a.startsAt || a.weekOf) - new Date(b.startsAt || b.weekOf));
+    g.draft = g.weeks.every((w) => w.draft);
+  });
+  const written = groups.filter((g) => !g.draft).sort((a, b) => b.start - a.start);
+  const drafts = groups.filter((g) => g.draft).sort((a, b) => a.start - b.start);
+  const sections = [];
+  if (written[0]) sections.push({ kind: 'running', label: 'Running now', group: written[0] });
+  drafts.forEach((g) => sections.push({ kind: 'coming', label: 'Coming up', group: g }));
+  written.slice(1).forEach((g) => sections.push({ kind: 'already', label: 'Already run', group: g }));
+  return sections;
+}
+
+/* One week within a month. Next-month weeks have no strategy yet: they are
+ * locked and non-clickable, and say when Bauhly will write them. */
+function WeekRow({ week, onOpen }) {
+  const focus = PILLARS[week.focus?.pillar];
+  const locked = !!week.draft;
+  const start = (week.startsAt || week.weekOf) ? new Date(week.startsAt || week.weekOf) : null;
+  const ready = week.readyAt ? new Date(week.readyAt) : null;
   return (
-    <button className={`ph-row ${live ? 'is-live' : ''}`} onClick={onOpen}>
-      <span className="ph-row__mark" style={focus ? { '--pc': focus.strong, '--pt': focus.tint } : undefined}>
-        <Icon name={focus?.icon || 'route'} size={17} strokeWidth={2} />
+    <button
+      type="button"
+      className={`ph-row ph-week${locked ? ' is-locked' : ''}`}
+      disabled={locked}
+      onClick={locked ? undefined : onOpen}
+    >
+      <span className="ph-week__date">
+        <b>{start ? MONTH_ABBR[start.getMonth()].toUpperCase() : ''}</b>
+        <i>{start ? start.getDate() : ''}</i>
       </span>
       <span className="ph-row__body">
         <span className="ph-row__line">
-          <b className="ph-row__range">{plan.range}</b>
-          {live
-            ? <span className="ph-card__live">Running now</span>
-            : <span className="ph-card__period">Week</span>}
+          <b className="ph-row__range">Week {(week.weekIndex ?? 0) + 1}</b>
+          {focus && (
+            <span className="ph-focus" style={{ '--pc': focus.strong, '--pt': focus.tint }}>
+              <Icon name={focus.icon} size={12} strokeWidth={2} />
+              {focus.outcome}
+            </span>
+          )}
         </span>
         <span className="ph-row__meta">
-          {focus && <span className="ph-row__aim" style={{ '--pc': focus.strong }}>{focus.outcome}</span>}
-          <span>{plan.total} {plan.total === 1 ? 'post' : 'posts'}</span>
-          <span className="ph-row__ago">{agoOf(plan.createdAt)}</span>
+          {locked
+            ? <span className="ph-week__lock">Bauhly finishes writing it on {fmtDay(ready)}</span>
+            : <span>{week.weekLabel}</span>}
         </span>
       </span>
-      <Icon name="arrow-right" size={15} strokeWidth={2} />
+      {!locked && <Icon name="arrow-right" size={15} strokeWidth={2} />}
     </button>
   );
 }
@@ -226,19 +273,8 @@ export default function YourPlans() {
     );
   }
 
-  // ── the list: running now + the archive by month/year ──
-  const currentId = current?._id;
-  const past = routes
-    .filter((r) => r._id !== currentId)
-    .map(toPlan)
-    .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
-  const groups = past.reduce((acc, p) => {
-    const b = bucketOf(p.createdAt);
-    const last = acc[acc.length - 1];
-    if (last && last.key === b.key) last.items.push(p);
-    else acc.push({ ...b, items: [p] });
-    return acc;
-  }, []);
+  // ── the list: a month of weeks, grouped Running now / Coming up / Already run ──
+  const sections = monthlyGroups(routes);
 
   const open = (route) => { setSelected(route); setView('week'); };
 
@@ -265,22 +301,20 @@ export default function YourPlans() {
       <NeedsAWord />
 
       <div className="ph__list">
-        {current && (
-          <section className="ph__group">
-            <h2 className="ph__grouphead">Running now</h2>
-            <div className="ph__groupbox">
-              <PlanRow plan={toPlan(current)} live onOpen={() => open(current)} />
-            </div>
-          </section>
-        )}
-        {groups.map((g) => (
-          <section className="ph__group" key={g.key}>
-            <h2 className="ph__grouphead">{g.label}</h2>
-            <div className="ph__groupbox">
-              {g.items.map((p) => <PlanRow key={p.id} plan={p} onOpen={() => open(p.route)} />)}
-            </div>
-          </section>
-        ))}
+        {sections.map((sec, i) => {
+          const showEyebrow = i === 0 || sections[i - 1].kind !== sec.kind;
+          return (
+            <section className="ph__group" key={sec.group.key}>
+              {showEyebrow && <span className="ph__eyebrow">{sec.label}</span>}
+              <h2 className="ph__grouphead">{sec.group.name}</h2>
+              <div className="ph__groupbox">
+                {sec.group.weeks.map((w) => (
+                  <WeekRow key={w._id} week={w} onOpen={() => open(w)} />
+                ))}
+              </div>
+            </section>
+          );
+        })}
       </div>
 
       {capturing && (

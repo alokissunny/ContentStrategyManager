@@ -62,6 +62,20 @@ const weeklyRouteSchema = new mongoose.Schema(
     weekOf: { type: Date, required: true },
     weekLabel: { type: String, default: '' },
     model: { type: String, default: '' },
+    // ── Monthly plan grouping ──────────────────────────────────────────────
+    // A plan is a month of 4 weeks that share one focus. These stamp which
+    // month/week a route is, so the queue can group by month and lock the ones
+    // Bauhly hasn't written yet.
+    monthKey: { type: String, default: '' },   // e.g. "Aug 2026" — the group key
+    monthName: { type: String, default: '' },  // e.g. "August"
+    monthIndex: { type: Number, default: 0 },   // 0 = this month's run, 1 = next
+    weekIndex: { type: Number, default: 0 },    // 0..3 within the month
+    startsAt: { type: Date, default: null },     // the Monday this week starts
+    // When Bauhly "finishes writing" this week. A draft with readyAt in the
+    // future is locked/disabled in the UI ("finishes writing it on <date>").
+    readyAt: { type: Date, default: null },
+    // A placeholder week: scheduled but no strategy written yet (next month).
+    draft: { type: Boolean, default: false },
     // Weekly focus narrative (the "This week's focus" card).
     focus: {
       pillar: { type: String, enum: ['discovery', 'credibility', 'trust'], default: 'trust' },

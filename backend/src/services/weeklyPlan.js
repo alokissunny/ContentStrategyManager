@@ -302,10 +302,14 @@ function normalizeSlides(rawSlides, onScreenText, format, title, cta) {
  * @param {object[]} [projects]  Project names + notes + image assetKeys from the studio.
  * @returns {Promise<{ weekOf, weekLabel, model, focus, funnel, days }>}
  */
-async function generateWeeklyPlan(profile, brandDna, competitorInsights = null, projects = []) {
+async function generateWeeklyPlan(profile, brandDna, competitorInsights = null, projects = [], options = {}) {
   const model = process.env.ANTHROPIC_MODEL || 'claude-sonnet-5';
-  const { funnel, focusPillar, confidence, seed } = buildFunnelWithScores(profile);
-  const { weekOf, weekLabel, monday } = weekRange();
+  const { funnel, focusPillar: gapPillar, confidence, seed } = buildFunnelWithScores(profile);
+  // A month's four weeks share one focus (the month's pillar-gap pillar), so the
+  // caller can override the per-week gap pillar. Defaults to the gap pillar.
+  const focusPillar = options.focusPillar || gapPillar;
+  // Anchor to a specific week when generating a month of consecutive weeks.
+  const { weekOf, weekLabel, monday } = weekRange(options.weekDate);
 
   const dayAllocation = allocateDays(funnel);
   const focusSummary = {
