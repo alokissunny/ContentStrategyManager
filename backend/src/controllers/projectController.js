@@ -1,6 +1,6 @@
 const crypto = require('crypto');
 const Project = require('../models/Project');
-const InstagramProfile = require('../models/InstagramProfile');
+const { currentUsername } = require('../utils/currentProfile');
 const {
   isS3Configured,
   getPresignedUploadUrl,
@@ -89,17 +89,8 @@ async function signUploads(req, res) {
 }
 
 // ── projects ─────────────────────────────────────────────────────────────
-// The handle projects belong to = the user's *current* Instagram account (the
-// one most recently activated/switched in the header). Mirrors instagram
-// controller's CURRENT_SORT so "current" means the same thing everywhere.
-async function currentUsername(userId) {
-  const profile = await InstagramProfile.findOne({ user: userId })
-    .sort({ activatedAt: -1, fetchedAt: -1 })
-    .select('username')
-    .lean();
-  return profile?.username || null;
-}
-
+// Projects belong to the user's current Instagram account (see
+// utils/currentProfile), so they switch together with the header account.
 async function listProjects(req, res) {
   const username = await currentUsername(req.user._id);
   const filter = { user: req.user._id };

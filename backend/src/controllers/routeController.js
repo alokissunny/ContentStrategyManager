@@ -1,9 +1,9 @@
 const WeeklyRoute = require('../models/WeeklyRoute');
-const InstagramProfile = require('../models/InstagramProfile');
 const BrandAnalysisReport = require('../models/BrandAnalysisReport');
 const Project = require('../models/Project');
 const { generateWeeklyPlan } = require('../services/weeklyPlan');
 const { loadCompetitorOverviewForUser } = require('./competitorController');
+const { currentProfile } = require('../utils/currentProfile');
 
 // Competitor context for the weekly plan: the competitor cohort (Business Type +
 // Location) an operator assigned to this Instagram handle in the back office,
@@ -100,12 +100,6 @@ async function generateAndSaveRoute(userId, profile) {
   );
 
   return route;
-}
-
-// The handle the app is currently showing — most recently activated (analyzed
-// or switched to in the header), with fetchedAt as a legacy-row tiebreaker.
-async function currentProfile(userId) {
-  return InstagramProfile.findOne({ user: userId }).sort({ activatedAt: -1, fetchedAt: -1 });
 }
 
 // A handle analyzed this recently is assumed to still be running its background

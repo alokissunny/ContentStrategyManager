@@ -1,6 +1,7 @@
 const BrandAnalysisReport = require('../models/BrandAnalysisReport');
 const { getPresignedDownloadUrl, getObjectText, uploadMarkdown } = require('../services/s3Client');
 const { mergeConfirmedSummary, BRAND_DNA_FIELDS, parseBrandDna, mergeBrandDna } = require('../services/brandAnalysis');
+const { currentUsername } = require('../utils/currentProfile');
 
 function buildBrandDnaSections(report, parsedFromMarkdown) {
   const sections = BRAND_DNA_FIELDS.map(({ key, label, description, inferred }) => ({
@@ -60,7 +61,13 @@ async function confirmReport(req, res) {
 }
 
 async function getLatestBrandDna(req, res) {
-  const report = await BrandAnalysisReport.findOne({ user: req.user._id })
+  // The Brand Profile follows the header account switcher: show the latest
+  // report for the *current* handle, not just the newest report across accounts.
+  const username = await currentUsername(req.user._id);
+  const filter = { user: req.user._id };
+  if (username) filter.instagramUsername = username;
+
+  const report = await BrandAnalysisReport.findOne(filter)
     .sort({ createdAt: -1 })
     .select(['_id', 's3Key', ...BRAND_DNA_FIELDS.map(({ key }) => key)].join(' '))
     .lean();
