@@ -1,0 +1,636 @@
+{
+  "info": {
+    "name": "Bauhly App API",
+    "description": "Full API collection for the Bauhly (IgSignal) backend. Base URL and JWT token are collection variables. Log in via Auth > Demo Login (or Login/Register) to auto-populate {{token}}; all protected requests inherit Bearer {{token}}.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [{ "key": "token", "value": "{{token}}", "type": "string" }]
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:5002", "type": "string" },
+    { "key": "token", "value": "", "type": "string" },
+    { "key": "signalId", "value": "", "type": "string" },
+    { "key": "routeId", "value": "", "type": "string" },
+    { "key": "projectId", "value": "", "type": "string" },
+    { "key": "captureId", "value": "", "type": "string" },
+    { "key": "reportId", "value": "", "type": "string" },
+    { "key": "username", "value": "", "type": "string" },
+    { "key": "testEmail", "value": "test@bauhly.com", "type": "string" },
+    { "key": "testPassword", "value": "test-password-1234", "type": "string" }
+  ],
+  "item": [
+    {
+      "name": "Health",
+      "item": [
+        {
+          "name": "GET Health",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/api/health", "host": ["{{baseUrl}}"], "path": ["api", "health"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Auth",
+      "item": [
+        {
+          "name": "Register",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const b = pm.response.json();",
+                  "if (b && b.token) { pm.collectionVariables.set('token', b.token); }"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Alok\",\n  \"email\": \"alok@example.com\",\n  \"password\": \"password123\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/api/auth/register", "host": ["{{baseUrl}}"], "path": ["api", "auth", "register"] }
+          }
+        },
+        {
+          "name": "Login",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const b = pm.response.json();",
+                  "if (b && b.token) { pm.collectionVariables.set('token', b.token); }"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"alok@example.com\",\n  \"password\": \"password123\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/api/auth/login", "host": ["{{baseUrl}}"], "path": ["api", "auth", "login"] }
+          }
+        },
+        {
+          "name": "Test Login",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', function () { pm.response.to.have.status(200); });",
+                  "const b = pm.response.json();",
+                  "pm.test('Returns a JWT', function () { pm.expect(b.token).to.be.a('string').and.not.empty; });",
+                  "if (b && b.token) { pm.collectionVariables.set('token', b.token); }",
+                  "if (b && b.user) { console.log('Logged in as', b.user.email); }"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{testEmail}}\",\n  \"password\": \"{{testPassword}}\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/api/auth/login", "host": ["{{baseUrl}}"], "path": ["api", "auth", "login"] },
+            "description": "Login as the seeded test user (npm run seed:test). Saves {{token}} for protected requests."
+          }
+        },
+        {
+          "name": "Demo Login",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', function () { pm.response.to.have.status(200); });",
+                  "const b = pm.response.json();",
+                  "pm.test('Returns a JWT', function () { pm.expect(b.token).to.be.a('string').and.not.empty; });",
+                  "if (b && b.token) { pm.collectionVariables.set('token', b.token); }"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{}" },
+            "url": { "raw": "{{baseUrl}}/api/auth/demo-login", "host": ["{{baseUrl}}"], "path": ["api", "auth", "demo-login"] }
+          }
+        },
+        {
+          "name": "Google Auth",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const b = pm.response.json();",
+                  "if (b && b.token) { pm.collectionVariables.set('token', b.token); }"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"credential\": \"GOOGLE_ID_TOKEN_JWT\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/api/auth/google", "host": ["{{baseUrl}}"], "path": ["api", "auth", "google"] }
+          }
+        },
+        {
+          "name": "Get Me",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/api/auth/me", "host": ["{{baseUrl}}"], "path": ["api", "auth", "me"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Signals",
+      "item": [
+        {
+          "name": "List Signals",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/signals?category=",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "signals"],
+              "query": [{ "key": "category", "value": "", "description": "Optional filter" }]
+            }
+          }
+        },
+        {
+          "name": "Create Signal",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const b = pm.response.json();",
+                  "if (b && (b._id || b.id)) { pm.collectionVariables.set('signalId', b._id || b.id); }"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"category\": \"engagement\",\n  \"title\": \"Reels outperforming carousels\",\n  \"description\": \"Reels are getting 2x saves this week\",\n  \"source\": \"instagram\",\n  \"score\": 87\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/api/signals", "host": ["{{baseUrl}}"], "path": ["api", "signals"] }
+          }
+        },
+        {
+          "name": "Update Signal",
+          "request": {
+            "method": "PUT",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"score\": 92,\n  \"title\": \"Reels still winning\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/api/signals/{{signalId}}", "host": ["{{baseUrl}}"], "path": ["api", "signals", "{{signalId}}"] }
+          }
+        },
+        {
+          "name": "Delete Signal",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/api/signals/{{signalId}}", "host": ["{{baseUrl}}"], "path": ["api", "signals", "{{signalId}}"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Routes (Weekly Plans)",
+      "item": [
+        {
+          "name": "Get Current Route",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const b = pm.response.json();",
+                  "const r = b && (b.route || b);",
+                  "if (r && (r._id || r.id)) { pm.collectionVariables.set('routeId', r._id || r.id); }"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/api/routes/current", "host": ["{{baseUrl}}"], "path": ["api", "routes", "current"] }
+          }
+        },
+        {
+          "name": "List Routes",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/api/routes", "host": ["{{baseUrl}}"], "path": ["api", "routes"] }
+          }
+        },
+        {
+          "name": "Generate Route",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{}" },
+            "url": { "raw": "{{baseUrl}}/api/routes/generate", "host": ["{{baseUrl}}"], "path": ["api", "routes", "generate"] }
+          }
+        },
+        {
+          "name": "Replan Week",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{}" },
+            "url": { "raw": "{{baseUrl}}/api/routes/{{routeId}}/replan", "host": ["{{baseUrl}}"], "path": ["api", "routes", "{{routeId}}", "replan"] }
+          }
+        },
+        {
+          "name": "Mark Day Published / Update Day",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"published\": true\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/routes/{{routeId}}/day/0",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "routes", "{{routeId}}", "day", "0"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Projects",
+      "item": [
+        {
+          "name": "Sign Uploads",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"files\": [\n    { \"contentType\": \"image/jpeg\" },\n    { \"contentType\": \"video/mp4\" }\n  ]\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/api/projects/uploads/sign", "host": ["{{baseUrl}}"], "path": ["api", "projects", "uploads", "sign"] }
+          }
+        },
+        {
+          "name": "List Projects",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/api/projects", "host": ["{{baseUrl}}"], "path": ["api", "projects"] }
+          }
+        },
+        {
+          "name": "Create Project",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const b = pm.response.json();",
+                  "const p = b && (b.project || b);",
+                  "if (p && (p.id || p._id)) { pm.collectionVariables.set('projectId', p.id || p._id); }"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Spring Launch\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/api/projects", "host": ["{{baseUrl}}"], "path": ["api", "projects"] }
+          }
+        },
+        {
+          "name": "Rename Project",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"name\": \"Spring Launch 2026\"\n}" },
+            "url": { "raw": "{{baseUrl}}/api/projects/{{projectId}}", "host": ["{{baseUrl}}"], "path": ["api", "projects", "{{projectId}}"] }
+          }
+        },
+        {
+          "name": "Delete Project",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/api/projects/{{projectId}}", "host": ["{{baseUrl}}"], "path": ["api", "projects", "{{projectId}}"] }
+          }
+        },
+        {
+          "name": "Add Capture",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const b = pm.response.json();",
+                  "const c = b && (b.capture || b);",
+                  "if (c && (c.id || c._id)) { pm.collectionVariables.set('captureId', c.id || c._id); }"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"type\": \"note\",\n  \"text\": \"Idea: behind-the-scenes of the studio\",\n  \"attachments\": []\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/api/projects/{{projectId}}/captures", "host": ["{{baseUrl}}"], "path": ["api", "projects", "{{projectId}}", "captures"] }
+          }
+        },
+        {
+          "name": "Update Capture",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"text\": \"Updated note text\"\n}" },
+            "url": {
+              "raw": "{{baseUrl}}/api/projects/{{projectId}}/captures/{{captureId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "projects", "{{projectId}}", "captures", "{{captureId}}"]
+            }
+          }
+        },
+        {
+          "name": "Delete Capture",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/projects/{{projectId}}/captures/{{captureId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "projects", "{{projectId}}", "captures", "{{captureId}}"]
+            }
+          }
+        },
+        {
+          "name": "Move Capture",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"toProjectId\": \"DESTINATION_PROJECT_ID\"\n}" },
+            "url": {
+              "raw": "{{baseUrl}}/api/projects/{{projectId}}/captures/{{captureId}}/move",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "projects", "{{projectId}}", "captures", "{{captureId}}", "move"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Instagram",
+      "item": [
+        {
+          "name": "Fetch Instagram",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"username\": \"nike\"\n}" },
+            "url": { "raw": "{{baseUrl}}/api/instagram/fetch", "host": ["{{baseUrl}}"], "path": ["api", "instagram", "fetch"] }
+          }
+        },
+        {
+          "name": "Get Instagram Profile",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/instagram?username={{username}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "instagram"],
+              "query": [{ "key": "username", "value": "{{username}}", "description": "Optional; defaults to current account" }]
+            }
+          }
+        },
+        {
+          "name": "Activate Instagram",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"username\": \"nike\"\n}" },
+            "url": { "raw": "{{baseUrl}}/api/instagram/activate", "host": ["{{baseUrl}}"], "path": ["api", "instagram", "activate"] }
+          }
+        },
+        {
+          "name": "Get Authority Funnel",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/instagram/authority?username={{username}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "instagram", "authority"],
+              "query": [{ "key": "username", "value": "{{username}}" }]
+            }
+          }
+        },
+        {
+          "name": "Get Analysis Overview",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/instagram/analysis-overview?username={{username}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "instagram", "analysis-overview"],
+              "query": [{ "key": "username", "value": "{{username}}" }]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Competitors",
+      "item": [
+        {
+          "name": "Get Competitor Overview",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/api/competitors/overview", "host": ["{{baseUrl}}"], "path": ["api", "competitors", "overview"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Analysis (Reports & Brand DNA)",
+      "item": [
+        {
+          "name": "List Reports",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const b = pm.response.json();",
+                  "const r = b && b.reports && b.reports[0];",
+                  "if (r && (r._id || r.id)) { pm.collectionVariables.set('reportId', r._id || r.id); }"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/api/analysis/reports", "host": ["{{baseUrl}}"], "path": ["api", "analysis", "reports"] }
+          }
+        },
+        {
+          "name": "Get Latest Brand DNA",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/api/analysis/reports/latest/brand-dna", "host": ["{{baseUrl}}"], "path": ["api", "analysis", "reports", "latest", "brand-dna"] }
+          }
+        },
+        {
+          "name": "Get Report Download URL",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/api/analysis/reports/{{reportId}}/download", "host": ["{{baseUrl}}"], "path": ["api", "analysis", "reports", "{{reportId}}", "download"] }
+          }
+        },
+        {
+          "name": "Confirm Report",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"whoYouHelp\": \"Independent creators\",\n  \"whatYouOffer\": \"Weekly content planning\",\n  \"howYouSound\": \"Warm and direct\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/api/analysis/reports/{{reportId}}", "host": ["{{baseUrl}}"], "path": ["api", "analysis", "reports", "{{reportId}}"] }
+          }
+        },
+        {
+          "name": "Update Brand DNA",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"sections\": {\n    \"whoYouHelp\": \"Independent creators\",\n    \"whatYouOffer\": \"Weekly content planning\",\n    \"howYouSound\": \"Warm and direct\"\n  }\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/api/analysis/reports/{{reportId}}/brand-dna", "host": ["{{baseUrl}}"], "path": ["api", "analysis", "reports", "{{reportId}}", "brand-dna"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Meta (Publishing)",
+      "item": [
+        {
+          "name": "Get Status",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/api/meta/status", "host": ["{{baseUrl}}"], "path": ["api", "meta", "status"] }
+          }
+        },
+        {
+          "name": "Start Connect (OAuth URL)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{}" },
+            "url": { "raw": "{{baseUrl}}/api/meta/connect", "host": ["{{baseUrl}}"], "path": ["api", "meta", "connect"] }
+          }
+        },
+        {
+          "name": "Complete Connect (OAuth callback)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"code\": \"OAUTH_CODE_FROM_REDIRECT\"\n}" },
+            "url": { "raw": "{{baseUrl}}/api/meta/connect/complete", "host": ["{{baseUrl}}"], "path": ["api", "meta", "connect", "complete"] }
+          }
+        },
+        {
+          "name": "Disconnect",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/api/meta/connect", "host": ["{{baseUrl}}"], "path": ["api", "meta", "connect"] }
+          }
+        },
+        {
+          "name": "Publish Day",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"imageUrls\": [\"https://example.com/image1.jpg\"]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/meta/publish/{{routeId}}/day/0",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "meta", "publish", "{{routeId}}", "day", "0"]
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

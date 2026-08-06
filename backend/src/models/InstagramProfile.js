@@ -27,6 +27,18 @@ const instagramProfileSchema = new mongoose.Schema(
     isVerified: { type: Boolean, default: false },
     externalUrl: { type: String, default: '' },
     posts: [postSchema],
+    // Account-level Graph insights when the handle is Meta-connected (null for Apify scrapes).
+    insights: {
+      fetchedAt: { type: Date, default: null },
+      source: { type: String, default: '' },
+      impressions: { type: Number, default: null },
+      reach: { type: Number, default: null },
+      profileViews: { type: Number, default: null },
+      views: { type: Number, default: null },
+      totalInteractions: { type: Number, default: null },
+    },
+    // Where the last snapshot came from: 'apify' | 'graph'.
+    dataSource: { type: String, default: 'apify' },
     fetchedAt: { type: Date, default: Date.now },
     // When this handle was last made the *current* one (via analyze or an
     // explicit switch in the header). The app's "current profile" is the handle

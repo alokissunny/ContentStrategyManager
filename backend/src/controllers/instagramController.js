@@ -2,6 +2,7 @@ const InstagramProfile = require('../models/InstagramProfile');
 const BrandAnalysisReport = require('../models/BrandAnalysisReport');
 const WeeklyRoute = require('../models/WeeklyRoute');
 const { scrapeProfile, scrapePosts } = require('../services/instagramScraper');
+const { findMetaConnectionForUsername, fetchViaGraph } = require('../services/graphInstagram');
 const { generateBrandAnalysis } = require('../services/brandAnalysis');
 const { uploadMarkdown, getPresignedDownloadUrl } = require('../services/s3Client');
 const { computeAuthorityFunnel } = require('../services/authorityFunnel');
@@ -14,9 +15,10 @@ const { generateAndSaveRoute } = require('./routeController');
 // activatedAt — still order by when they were last analyzed.
 const CURRENT_SORT = { activatedAt: -1, fetchedAt: -1 };
 
-// How long a scrape + analysis stays fresh. Within this window we reuse the
-// stored snapshot and report instead of re-running the (slow, paid) Apify
-// scrape and LLM analysis.
+// How long an Apify scrape + analysis stays fresh. Within this window we reuse
+// the stored snapshot and report instead of re-running the (slow, paid) scrape
+// and LLM analysis. Meta-connected handles skip this — Graph is free for us and
+// we always refresh so insights stay current.
 const ANALYSIS_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
 function extractUsername(input) {
@@ -34,44 +36,90 @@ async function fetchInstagram(req, res) {
     return res.status(400).json({ message: 'Instagram username or profile URL is required' });
   }
 
-  // Reuse a recent analysis. If this handle was both scraped and analysed within
-  // the last 30 days, skip the scrape + LLM analysis and return the stored
-  // snapshot and report. We still bump activatedAt so the handle becomes current.
-  const cutoff = new Date(Date.now() - ANALYSIS_TTL_MS);
-  const existing = await InstagramProfile.findOne({ user: req.user._id, username });
-  if (existing && existing.fetchedAt && existing.fetchedAt > cutoff) {
-    const recentReport = await BrandAnalysisReport.findOne({
-      user: req.user._id,
-      instagramUsername: username,
-      createdAt: { $gt: cutoff },
-    }).sort({ createdAt: -1 });
-    if (recentReport) {
-      existing.activatedAt = new Date();
-      await existing.save();
-      const report = {
-        id: recentReport._id,
-        createdAt: recentReport.createdAt,
-        downloadUrl: await getPresignedDownloadUrl(recentReport.s3Key),
-        // Kept for the onboarding confirmation conversation.
-        whoYouHelp: recentReport.whoYouHelp,
-        whatYouOffer: recentReport.whatYouOffer,
-        howYouSound: recentReport.howYouSound,
-      };
-      return res.json({ profile: existing, report, reportError: null, cached: true });
+  // Meta-connected Professional accounts use Graph (not Apify) and always
+  // refresh — the 30-day cache only applies to public Apify scrapes.
+  const metaConn = await findMetaConnectionForUsername(req.user._id, username);
+  const useGraph = Boolean(metaConn);
+
+  if (!useGraph) {
+    // Reuse a recent Apify analysis. If this handle was both scraped and
+    // analysed within the last 30 days, skip the scrape + LLM and return the
+    // stored snapshot. We still bump activatedAt so the handle becomes current.
+    const cutoff = new Date(Date.now() - ANALYSIS_TTL_MS);
+    const existing = await InstagramProfile.findOne({ user: req.user._id, username });
+    if (existing && existing.fetchedAt && existing.fetchedAt > cutoff) {
+      const recentReport = await BrandAnalysisReport.findOne({
+        user: req.user._id,
+        instagramUsername: username,
+        createdAt: { $gt: cutoff },
+      }).sort({ createdAt: -1 });
+      if (recentReport) {
+        existing.activatedAt = new Date();
+        await existing.save();
+        const report = {
+          id: recentReport._id,
+          createdAt: recentReport.createdAt,
+          downloadUrl: await getPresignedDownloadUrl(recentReport.s3Key),
+          // Kept for the onboarding confirmation conversation.
+          whoYouHelp: recentReport.whoYouHelp,
+          whatYouOffer: recentReport.whatYouOffer,
+          howYouSound: recentReport.howYouSound,
+        };
+        return res.json({ profile: existing, report, reportError: null, cached: true });
+      }
     }
   }
 
-  const [profile, posts] = await Promise.all([scrapeProfile(username), scrapePosts(username)]);
+  let profile;
+  let posts;
+  let insights = null;
+  let dataSource = 'apify';
+
+  if (useGraph) {
+    try {
+      console.log(`[instagram] @${username}: Meta connected — fetching via Graph API (skipping Apify + 30-day cache)`);
+      const graph = await fetchViaGraph(req.user._id, username);
+      profile = graph.profile;
+      posts = graph.posts;
+      insights = graph.insights;
+      dataSource = 'graph';
+    } catch (err) {
+      console.error(`[instagram] Graph fetch failed for @${username}, falling back to Apify:`, err.message);
+      // Fall through to Apify so analyze still completes if the token is stale.
+    }
+  }
 
   if (!profile) {
-    return res.status(404).json({ message: 'Could not read this Instagram profile. It may be private or the username may be wrong.' });
+    const [scrapedProfile, scrapedPosts] = await Promise.all([
+      scrapeProfile(username),
+      scrapePosts(username),
+    ]);
+    profile = scrapedProfile;
+    posts = scrapedPosts;
+    insights = null;
+    dataSource = 'apify';
+  }
+
+  if (!profile) {
+    return res.status(404).json({
+      message: 'Could not read this Instagram profile. It may be private or the username may be wrong.',
+    });
   }
 
   // One snapshot per handle. Adding another account creates a new row;
   // re-analyzing an existing handle updates that row and makes it current.
   const snapshot = await InstagramProfile.findOneAndUpdate(
     { user: req.user._id, username },
-    { ...profile, user: req.user._id, username, posts, fetchedAt: new Date(), activatedAt: new Date() },
+    {
+      ...profile,
+      user: req.user._id,
+      username,
+      posts,
+      dataSource,
+      insights: dataSource === 'graph' ? insights || null : null,
+      fetchedAt: new Date(),
+      activatedAt: new Date(),
+    },
     { new: true, upsert: true }
   );
 
@@ -117,7 +165,7 @@ async function fetchInstagram(req, res) {
     console.error(`[instagram] background plan refresh failed for @${username}:`, err.message);
   });
 
-  res.json({ profile: snapshot, report, reportError });
+  res.json({ profile: snapshot, report, reportError, source: dataSource });
 }
 
 async function getInstagramProfile(req, res) {

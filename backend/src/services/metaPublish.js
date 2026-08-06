@@ -71,6 +71,7 @@ async function startConnect(req, res) {
   const DEFAULT_SCOPES = [
     'instagram_basic',
     'instagram_content_publish',
+    'instagram_manage_insights',
     'pages_show_list',
     'pages_read_engagement',
     'business_management',
@@ -203,6 +204,7 @@ async function completeConnect(req, res) {
         scopes: [
           'instagram_basic',
           'instagram_content_publish',
+          'instagram_manage_insights',
           'pages_show_list',
           'pages_read_engagement',
           'business_management',
