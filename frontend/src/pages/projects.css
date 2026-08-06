@@ -360,6 +360,60 @@
   border: 1px dashed var(--border-strong);
   border-radius: var(--r-lg);
 }
+.pd__empty--busy {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  min-height: 180px;
+  color: var(--ink-700);
+}
+.pd__empty--busy b {
+  font-size: var(--text-base);
+  font-weight: 650;
+  color: var(--ink-900);
+}
+.pd__empty--busy span:last-child {
+  font-size: var(--text-xs);
+  color: var(--ink-500);
+  max-width: 28ch;
+  line-height: 1.4;
+}
+.pd__upload {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 16px;
+  margin-bottom: 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: var(--surface-sunken);
+}
+.pd__upload-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.pd__upload-copy b {
+  font-size: var(--text-sm);
+  font-weight: 650;
+  color: var(--ink-900);
+}
+.pd__upload-copy span {
+  font-size: var(--text-xs);
+  color: var(--ink-500);
+  line-height: 1.4;
+}
+.pd__upload-err {
+  margin: 0 0 12px;
+  padding: 10px 14px;
+  border-radius: var(--r-md);
+  background: color-mix(in srgb, var(--danger, #c44) 12%, transparent);
+  color: var(--danger, #a33);
+  font-size: var(--text-sm);
+}
 
 /* ── week groups ── */
 /* A week of captures is a container with hairlines between its entries (Leon,
@@ -485,6 +539,11 @@
   border-top-color: var(--signal-500);
   border-radius: 50%;
   animation: pj-spin 0.7s linear infinite;
+}
+.pj-spin--lg {
+  width: 28px;
+  height: 28px;
+  border-width: 2.5px;
 }
 @keyframes pj-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .pj-spin { animation-duration: 1.6s; } }
@@ -1343,7 +1402,7 @@
  * for anything — an empty grid teaches nothing. */
 
 /* direct "Add files" on a project — a file-only capture, no note required */
-.pd__addfiles { cursor: pointer; }
+.pd__addfiles { cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
 .pd__addfiles.is-busy { opacity: 0.65; pointer-events: none; }
 .pd__emptylink {
   cursor: pointer;

@@ -50,6 +50,13 @@ function ensureLoaded() {
   return loading;
 }
 
+/** Force a fresh fetch — used when opening Your plans so wordless photos show up. */
+export async function refreshProjects() {
+  loaded = true;
+  loading = load().catch((err) => { loaded = false; throw err; });
+  return loading;
+}
+
 export function useProjects() {
   const projects = useSyncExternalStore(subscribe, () => cache);
   useEffect(() => { ensureLoaded(); }, []);

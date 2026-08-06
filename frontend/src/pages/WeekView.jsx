@@ -11,11 +11,12 @@ import { useNavigate } from 'react-router-dom';
 import Glyph from '../components/Glyph';
 import YourAnalysisModal from '../components/YourAnalysisModal';
 import ConnectMetaModal from '../components/ConnectMetaModal';
-import { markDayPublished, updateDayContent, generateRoute } from '../api/routes';
+import { markDayPublished, updateDayContent, replanWeek } from '../api/routes';
 import { getMetaStatus, publishDayToMeta } from '../api/meta';
 import { useProjects, uploadFiles } from '../lib/projectsStore';
 import { CaptureChat } from './Projects';
-import { LAYOUTS, styleOf, rolesOf, groundOf } from '../lib/visualbrand';
+import { LAYOUTS, styleOf, rolesOf, groundOf, layoutsOf, groupForRole } from '../lib/visualbrand';
+import { Preview } from './visualbrand/LayoutSystem';
 import { useStore } from '../lib/store';
 import './weekView.css';
 
@@ -24,6 +25,195 @@ import './weekView.css';
 const HOOK_LAYOUTS = LAYOUTS.filter((l) => l.group === 'hook');
 const DEFAULT_HOOK_LAYOUT = 'H1';
 const layoutById = (id) => HOOK_LAYOUTS.find((l) => l.id === id) || HOOK_LAYOUTS[0];
+
+// ── Which layouts an empty slide can take (bauhly-v3 YourWeek `layoutsFor`) ──
+// The carousel offers the shapes that work without a photograph: layouts that
+// need none (`shots === 0` — statements, quotes, type), whatever Bauhly BUILDS
+// rather than arranges (`teach`, e.g. the annotated photo), and the two that
+// belong everywhere — "Image only" and "Create image". The slide's own category
+// comes first, the rest after, and the two "any" layouts last.
+function layoutsForSlide(role, refs, assets) {
+  const group = groupForRole(role);
+  const all = layoutsOf(refs, assets);
+  // `teach` layouts have no honest default, so they appear only once a
+  // reference of that kind has been filed under this category.
+  const taught = (l) =>
+    !l.teach || refs.some((r) => r.kind === 'layout' && r.layoutGroup === l.group);
+  const any = all.filter((l) => l.group === 'any');
+  // A HOOK SLIDE SHOWS ITS OWN FAMILY, as it did before this carousel existed:
+  // the opening frame is the one everyone sees, so all three hook shapes
+  // (H1 full-bleed, H2 split, H3 statement) are offered — not the photo-free
+  // set the other roles fall back to. The "Create image" / "Image only" pair
+  // still stands at the end, since it belongs on every slide.
+  if (group === 'hook') {
+    const hooks = all.filter((l) => l.group === 'hook' && taught(l));
+    return [...hooks, ...any];
+  }
+  const usable = all.filter((l) => (l.shots === 0 || l.teach) && taught(l));
+  const own = usable.filter((l) => l.group === group);
+  const rest = usable.filter((l) => l.group !== group && l.group !== 'any');
+  return [...own, ...rest, ...any];
+}
+
+// The grey band under the carousel says what the chosen layout is — and each
+// answer is short. "Create image" is an invitation; an annotated photo lists
+// what it will and will not touch; everything else describes the shape.
+function layoutPoints(l) {
+  if (!l) return ['Add a picture and Bauhly builds the slide around it.'];
+  if (l.shape === 'gen') {
+    return [
+      'Made from your colours, type and references',
+      'Nothing is drawn until you ask for it',
+      'You see it before it replaces this slide',
+    ];
+  }
+  if (l.shape === 'annotate') {
+    return [
+      'Follows the annotation style in your references',
+      'Your photograph is left exactly as it is',
+      'Only the marks and the words are made',
+      'You review it before it replaces this slide',
+    ];
+  }
+  return [
+    l.when,
+    l.shots === 0
+      ? 'Words only — no photograph needed'
+      : `Uses ${l.shots} of your photograph${l.shots === 1 ? '' : 's'}`,
+    l.ready
+      ? 'Bauhly has the references this layout is built from'
+      : `Still needs references for ${(l.missing?.label || 'this layout').toLowerCase()}`,
+  ];
+}
+
+// ── Conversation seeds for the Create image flow (bauhly-v3 `subjectOf`) ──
+const SUBJECT_STRIP = /^(the|a|an|your|our|my|this|that|these|those|five|four|three|two|one|\d+)\s+/i;
+const IMPERATIVE = /^(save|add|follow|book|tap|swipe|download|read|try|get|see|learn|share|comment|message|dm|subscribe|send|call|visit|click|check|watch|where|how|why|what|when|who)\b/i;
+function subjectOf(words) {
+  const line = String(words || '').trim().replace(/[.!?…]+$/, '');
+  if (!line || IMPERATIVE.test(line)) return '';
+  const first = line.split(/[—:;]|\.\s/)[0].trim();
+  let out = first;
+  for (let i = 0; i < 2; i += 1) out = out.replace(SUBJECT_STRIP, '');
+  const forPart = out.match(/\bfor\s+(.+)$/i);
+  if (forPart) out = forPart[1];
+  out = out.trim();
+  const wordCount = out.split(/\s+/).filter(Boolean).length;
+  if (wordCount < 2 || wordCount > 5) return '';
+  return out.charAt(0).toLowerCase() + out.slice(1);
+}
+function seedsFor(words, role, projectName) {
+  const subject = subjectOf(words);
+  if (!subject) {
+    return [
+      'Design a minimalist cover',
+      'Create a background inspired by this project',
+      projectName
+        ? `Create a material-focused visual from ${projectName}`
+        : 'Create a material-focused visual',
+    ];
+  }
+  return [
+    `Show ${subject} in a real room`,
+    `Compare the right and wrong ${subject}`,
+    `Make a simple diagram of ${subject}`,
+    role === 'Hook' || role === 'Cover'
+      ? `Design a minimalist cover about ${subject}`
+      : `Illustrate ${subject} as an educational visual`,
+  ];
+}
+
+// ── The Create image conversation (bauhly-v3 YourWeek `CreateView`) ──
+// Built to read as a chat, because that is what it is: one message from Bauhly,
+// a few ways in, a box. It is honest about the build — there is no image model
+// wired here yet, so it says what it will make and that the picture itself
+// waits for a model. Nothing of the studio's is sent anywhere.
+function CreateImageChat({ role, projectName, words, onBack }) {
+  const [ask, setAsk] = useState('');
+  const [thread, setThread] = useState([]);
+  const send = (text) => {
+    const line = String(text || '').trim();
+    if (!line) return;
+    setThread((t) => [
+      ...t,
+      { who: 'you', text: line },
+      {
+        who: 'bauhly',
+        text: 'Good — I’ll work that up in your studio’s style, so it sits with the rest of your posts.',
+        note: 'The picture itself is made once an image model is connected to this build. Nothing has been made yet, and nothing of yours has been sent anywhere.',
+      },
+    ]);
+    setAsk('');
+  };
+
+  return (
+    <div className="wv-conv">
+      <div className="wv-conv__bar">
+        <button type="button" className="wv-conv__back" onClick={onBack}>
+          <Glyph name="arrow-left" size={15} strokeWidth={2.5} />
+          Back to layouts
+        </button>
+      </div>
+
+      <div className="wv-conv__body">
+        <div className="wv-conv__scroll">
+          <div className="wv-conv__msg">
+            <span className="wv-conv__who"><Glyph name="sparkles" size={14} strokeWidth={2.25} /></span>
+            <p>
+              Describe the image you’d like to create. I’ll keep it consistent with your
+              Visual Brand.
+            </p>
+          </div>
+
+          {thread.map((m, i) => (
+            m.who === 'you' ? (
+              <p className="wv-conv__you" key={i}>{m.text}</p>
+            ) : (
+              <div className="wv-conv__msg" key={i}>
+                <span className="wv-conv__who"><Glyph name="sparkles" size={14} strokeWidth={2.25} /></span>
+                <div>
+                  <p>{m.text}</p>
+                  <p className="wv-conv__note">{m.note}</p>
+                </div>
+              </div>
+            )
+          ))}
+        </div>
+
+        {thread.length === 0 && (
+          <div className="wv-conv__seeds">
+            {seedsFor(words, role, projectName).map((t) => (
+              <button type="button" key={t} className="wv-conv__seed" onClick={() => send(t)}>{t}</button>
+            ))}
+          </div>
+        )}
+
+        <div className="wv-conv__ask">
+          <textarea
+            className="wv-conv__input"
+            rows={1}
+            value={ask}
+            placeholder="Describe the picture you want…"
+            aria-label="Describe the picture you want"
+            onChange={(e) => setAsk(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(ask); }
+            }}
+          />
+          <button
+            type="button"
+            className="wv-conv__send"
+            disabled={!ask.trim()}
+            onClick={() => send(ask)}
+            aria-label="Send"
+          >
+            <Glyph name="arrow-up-right" size={16} strokeWidth={2.5} />
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 // "Bricolage Grotesque for headlines, Inter for body text." → "Bricolage Grotesque"
 function firstFont(fontsStr) {
@@ -57,6 +247,30 @@ const SLIDE_ROLES = {
   Post: ['Hook', 'CTA'],
 };
 const TABS = ['Content', 'Image', 'Caption', 'Why this post'];
+
+function fmtTokens(n) {
+  if (n == null) return '—';
+  if (n >= 1000) return `${(n / 1000).toFixed(n >= 10000 ? 0 : 1)}k`;
+  return String(n);
+}
+
+function fmtCost(usd) {
+  if (usd == null || Number.isNaN(Number(usd))) return '—';
+  const n = Number(usd);
+  if (n < 0.01) return `$${n.toFixed(4)}`;
+  return `$${n.toFixed(2)}`;
+}
+
+function weekUsageOf(route) {
+  const u = route?.usage;
+  if (!u) return null;
+  const inputTokens = Number(u.inputTokens) || 0;
+  const outputTokens = Number(u.outputTokens) || 0;
+  const totalTokens = Number(u.totalTokens) || inputTokens + outputTokens;
+  const estimatedCostUsd = Number(u.estimatedCostUsd) || 0;
+  if (!totalTokens && !estimatedCostUsd) return null;
+  return { totalTokens, estimatedCostUsd, inputTokens, outputTokens };
+}
 
 const TEXT_SUGGESTIONS = [
   { id: 'sharpen', label: 'Sharpen the opening', hint: 'Cut to the point sooner.', icon: 'sparkles' },
@@ -255,7 +469,7 @@ function HookMedia({ slide, layoutId, contentType }) {
   );
 }
 
-export default function WeekView({ route: initialRoute, onBack, onRegenerate, generating }) {
+export default function WeekView({ route: initialRoute, onBack }) {
   const navigate = useNavigate();
   const projects = useProjects();
   const [capturing, setCapturing] = useState(false);
@@ -278,9 +492,10 @@ export default function WeekView({ route: initialRoute, onBack, onRegenerate, ge
   const [metaStatus, setMetaStatus] = useState({ connected: false, configured: false });
   const [publishing, setPublishing] = useState(false);
   const [publishMsg, setPublishMsg] = useState('');
-  const [rebuilding, setRebuilding] = useState(false);
-  const [rebuildMsg, setRebuildMsg] = useState('');
+  const [replanning, setReplanning] = useState(false);
+  const [replanMsg, setReplanMsg] = useState('');
   const [localMedia, setLocalMedia] = useState({});
+  const [creating, setCreating] = useState(false);
   const fileRef = useRef(null);
   const textRef = useRef(null);
 
@@ -316,6 +531,7 @@ export default function WeekView({ route: initialRoute, onBack, onRegenerate, ge
     setDraftText(activeSlide?.title || '');
     setEditing(false);
     setAsk('');
+    setCreating(false);
   }, [selected, safeIdx, activeSlide?.title]);
 
   useEffect(() => {
@@ -516,22 +732,19 @@ export default function WeekView({ route: initialRoute, onBack, onRegenerate, ge
     URL.revokeObjectURL(url);
   }
 
-  // Rebuild the running week directly from the latest signals — Brand DNA, the
-  // studio's Capture Idea notes, the content-pillar (D/C/T) gap, project assets
-  // and competitor cohort insights. This regenerates server-side and replaces
-  // the current week's plan, so it's guarded by a confirm (any manual edits to
-  // the current plan are overwritten). Unlike "Plan again", it skips the
-  // check-in conversation and rebuilds in place.
-  async function handleRebuild() {
-    if (rebuilding || generating) return;
+  // Replan only this week from the latest signals — Brand DNA, Capture Idea
+  // notes, content-pillar gap, project assets, and competitor cohort — keeping
+  // the same calendar week and month focus. Sibling weeks are left alone.
+  async function handleReplanWeek() {
+    if (replanning || !route?._id) return;
     const ok = window.confirm(
-      "Rebuild this week's plan from your latest signals — your Brand DNA, Capture Idea notes, the content-pillar gap, project assets and competitor insights?\n\nThis replaces the current plan and any edits you've made to it."
+      "Replan this week from your latest Brand DNA, Capture Idea notes, content-pillar gap, project assets and competitor insights?\n\nThis replaces this week's plan and any edits you've made to it. Other weeks stay as they are."
     );
     if (!ok) return;
-    setRebuilding(true);
-    setRebuildMsg('');
+    setReplanning(true);
+    setReplanMsg('');
     try {
-      const fresh = await generateRoute();
+      const fresh = await replanWeek(route._id);
       if (fresh) {
         setRoute(fresh);
         setSelected(0);
@@ -539,10 +752,10 @@ export default function WeekView({ route: initialRoute, onBack, onRegenerate, ge
         setDetailOpen(false);
         setEditing(false);
       }
-    } catch {
-      setRebuildMsg('Could not rebuild the plan. Try again in a moment.');
+    } catch (err) {
+      setReplanMsg(err?.response?.data?.message || 'Could not replan this week. Try again in a moment.');
     } finally {
-      setRebuilding(false);
+      setReplanning(false);
     }
   }
 
@@ -555,6 +768,29 @@ export default function WeekView({ route: initialRoute, onBack, onRegenerate, ge
   const hasOwnImage = Boolean(activeSlide?.assetKey && !activeSlide?.standing && activeSlide?.image);
   const isHook = activeSlide?.role === 'Hook';
   const hookLayout = activeSlide?.layout || DEFAULT_HOOK_LAYOUT;
+  const weekUsage = weekUsageOf(route);
+
+  // The layouts this empty slide can take — its own category first, then the
+  // "Image only" / "Create image" pair — and a sliding window of three with an
+  // arrow at each end (bauhly-v3 YourWeek `EmptySlide`).
+  const slideRoleName = activeSlide?.role || 'Hook';
+  const slideLayouts = useMemo(
+    () => layoutsForSlide(slideRoleName, vbStore?.visualRefs || [], { photos: allImages.length }),
+    [slideRoleName, vbStore, allImages.length],
+  );
+  const chosenLayout = slideLayouts.find((l) => l.id === activeSlide?.layout) || slideLayouts[0] || null;
+  const chosenLayoutIdx = Math.max(0, slideLayouts.findIndex((l) => l.id === chosenLayout?.id));
+  const LAY_PER_PAGE = 3;
+  const layWinStart = Math.min(
+    Math.max(0, chosenLayoutIdx - 1),
+    Math.max(0, slideLayouts.length - LAY_PER_PAGE),
+  );
+  const shownLayouts = slideLayouts.slice(layWinStart, layWinStart + LAY_PER_PAGE);
+  const stepLayout = (d) => {
+    const next = Math.min(slideLayouts.length - 1, Math.max(0, chosenLayoutIdx + d));
+    const l = slideLayouts[next];
+    if (l) patchActiveSlide({ layout: l.id });
+  };
 
   return (
     <div className="wv">
@@ -583,8 +819,8 @@ export default function WeekView({ route: initialRoute, onBack, onRegenerate, ge
             <Glyph name="calendar" size={14} />{route.weekLabel}
           </span>
           {saving && <span className="wv-head__chip">Saving…</span>}
-          {rebuilding && <span className="wv-head__chip">Rebuilding from your signals…</span>}
-          {rebuildMsg && <span className="wv-head__chip" style={{ color: 'var(--negative)' }}>{rebuildMsg}</span>}
+          {replanning && <span className="wv-head__chip">Replanning this week…</span>}
+          {replanMsg && <span className="wv-head__chip" style={{ color: 'var(--negative)' }}>{replanMsg}</span>}
         </div>
         <div className="wv-actions">
           <button type="button" className="wv-btn" onClick={() => setAnalysisOpen(true)}>
@@ -593,18 +829,27 @@ export default function WeekView({ route: initialRoute, onBack, onRegenerate, ge
           <button type="button" className="wv-btn" onClick={handleExport}>
             <Glyph name="download" size={15} />Export
           </button>
-          <button type="button" className="wv-btn" onClick={onRegenerate} disabled={generating || rebuilding}>
-            <Glyph name="refresh-cw" size={15} />{generating ? 'Planning…' : 'Plan again'}
-          </button>
-          <button
-            type="button"
-            className="wv-btn wv-btn--rebuild"
-            onClick={handleRebuild}
-            disabled={rebuilding || generating}
-            title="Regenerate this week from your Brand DNA, Capture Idea notes, content-pillar gap, project assets and competitor insights."
-          >
-            <Glyph name="sparkles" size={15} />{rebuilding ? 'Rebuilding…' : 'Rebuild plan'}
-          </button>
+          <div className="wv-replan">
+            <button
+              type="button"
+              className="wv-btn wv-btn--replan"
+              onClick={handleReplanWeek}
+              disabled={replanning}
+              title="Regenerate only this week from your Brand DNA, Capture Idea notes, content-pillar gap, project assets and competitor insights."
+            >
+              <Glyph name="refresh-cw" size={15} />{replanning ? 'Replanning…' : 'Replan this week'}
+            </button>
+            {weekUsage && (
+              <p
+                className="wv-replan__usage"
+                title={`Last plan for this week · ${weekUsage.inputTokens.toLocaleString()} in / ${weekUsage.outputTokens.toLocaleString()} out`}
+              >
+                <span>{fmtTokens(weekUsage.totalTokens)} tokens</span>
+                <span aria-hidden="true">·</span>
+                <span>~{fmtCost(weekUsage.estimatedCostUsd)} est.</span>
+              </p>
+            )}
+          </div>
         </div>
       </div>
 
@@ -679,6 +924,7 @@ export default function WeekView({ route: initialRoute, onBack, onRegenerate, ge
                       ? <img src={s.image.thumb} alt="" />
                       : <Glyph name="image" size={18} />}
                     <span className="wv-slide__num">{i + 1}</span>
+                    {s.role && <span className="wv-slide__role">{s.role}</span>}
                     {s.title && <span className="wv-slide__cap">{s.title}</span>}
                   </span>
                 </button>
@@ -871,96 +1117,129 @@ export default function WeekView({ route: initialRoute, onBack, onRegenerate, ge
 
               {tab === 'Image' && (
                 <div className="wv-pane">
-                  {isHook && (
-                    <div className="wv-sec">
-                      <span className="wv-sec__label">Which layout should this slide take?</span>
-                      <div className="wv-layouts">
-                        {HOOK_LAYOUTS.map((l) => (
-                          <button
-                            key={l.id}
-                            type="button"
-                            className={`wv-layout${hookLayout === l.id ? ' is-on' : ''}`}
-                            onClick={() => patchActiveSlide({ layout: l.id })}
-                            title={l.when}
-                          >
-                            <span className={`wv-layout__shape wv-layout__shape--${l.shape}`} aria-hidden="true" />
-                            <span className="wv-layout__name">{l.name}</span>
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  )}
+                  {/* one hidden file input, shared by Upload / Replace / Create */}
+                  <input
+                    ref={fileRef}
+                    type="file"
+                    accept="image/*"
+                    hidden
+                    disabled={uploading}
+                    onChange={(e) => { onUploadFiles(e.target.files || []); e.target.value = ''; }}
+                  />
+
                   {hasOwnImage ? (
                     <>
                       <div className="wv-imgprev">
                         <img src={activeSlide.image.url} alt="" />
                       </div>
                       <div className="wv-imgacts">
-                        <label className={`wv-run wv-run--primary${uploading ? ' is-busy' : ''}`}>
+                        <button
+                          type="button"
+                          className={`wv-run wv-run--primary${uploading ? ' is-busy' : ''}`}
+                          disabled={uploading}
+                          onClick={() => fileRef.current?.click()}
+                        >
                           <Glyph name="upload" size={16} />
                           {uploading ? 'Uploading…' : 'Replace image'}
-                          <input
-                            ref={fileRef}
-                            type="file"
-                            accept="image/*"
-                            hidden
-                            disabled={uploading}
-                            onChange={(e) => { onUploadFiles(e.target.files || []); e.target.value = ''; }}
-                          />
-                        </label>
+                        </button>
                         <button type="button" className="wv-run wv-run--ghost" onClick={() => patchActiveSlide({ assetKey: '' })}>
                           <Glyph name="trash-2" size={16} />Remove image
                         </button>
                       </div>
                     </>
+                  ) : creating ? (
+                    <CreateImageChat
+                      role={slideRoleName}
+                      projectName={projects[0]?.name}
+                      words={activeSlide?.title}
+                      onBack={() => setCreating(false)}
+                    />
                   ) : (
-                    <div className="wv-empty">
-                      <div className="wv-empty__visual">
-                        {isHook ? (
-                          <HookMedia slide={activeSlide} layoutId={hookLayout} contentType={day.contentType || day.format} />
-                        ) : activeSlide?.image?.url ? (
-                          <img src={activeSlide.image.url} alt="" />
-                        ) : (
-                          <div className="wv-empty__ph"><Glyph name="image" size={30} /></div>
-                        )}
-                      </div>
-                      <h3 className="wv-empty__title">
-                        {isHook ? layoutById(hookLayout).name : 'No picture on this slide yet'}
-                      </h3>
-                      <ul className="wv-empty__points">
-                        {(isHook
-                          ? [
-                              layoutById(hookLayout).when,
-                              layoutById(hookLayout).shots === 0
-                                ? 'Words only — no photograph needed'
-                                : 'Uses one of your photographs',
-                            ]
-                          : ['Add a picture and Bauhly builds the slide around it.']
-                        ).map((t) => (
-                          <li key={t}><Glyph name="check" size={14} />{t}</li>
-                        ))}
-                      </ul>
-                      <div className="wv-empty__acts">
-                        <label className={`wv-run wv-run--primary${uploading ? ' is-busy' : ''}`}>
-                          <Glyph name="upload" size={16} />
-                          {uploading ? 'Uploading…' : 'Upload image'}
-                          <input
-                            ref={fileRef}
-                            type="file"
-                            accept="image/*"
-                            hidden
-                            disabled={uploading}
-                            onChange={(e) => { onUploadFiles(e.target.files || []); e.target.value = ''; }}
-                          />
-                        </label>
-                        <button type="button" className="wv-run wv-run--ghost" onClick={() => navigate('/dashboard/visual-brand')}>
-                          <Glyph name="palette" size={16} />Visual Brand
+                    <div className="wv-vis">
+                      <span className="wv-sec__label">Which layout should this slide take?</span>
+
+                      {/* the sliding window: three layout cards, an arrow at each end */}
+                      <div className="wv-actsrow">
+                        <button
+                          type="button"
+                          className="wv-actsrow__arrow"
+                          onClick={() => stepLayout(-1)}
+                          disabled={chosenLayoutIdx <= 0}
+                          aria-label="Previous layout"
+                        >
+                          <Glyph name="chevron-left" size={15} strokeWidth={2.5} />
                         </button>
+                        <div className="wv-acts" role="radiogroup" aria-label="Which layout should this slide take?">
+                          {shownLayouts.map((l) => (
+                            <button
+                              key={l.id}
+                              type="button"
+                              role="radio"
+                              aria-checked={chosenLayout?.id === l.id}
+                              className={`wv-act wv-act--layout${chosenLayout?.id === l.id ? ' is-on' : ''}`}
+                              onClick={() => patchActiveSlide({ layout: l.id })}
+                              title={l.when}
+                            >
+                              <span className="wv-act__shot"><Preview l={l} /></span>
+                              <b>{l.name}</b>
+                            </button>
+                          ))}
+                        </div>
+                        <button
+                          type="button"
+                          className="wv-actsrow__arrow"
+                          onClick={() => stepLayout(1)}
+                          disabled={chosenLayoutIdx >= slideLayouts.length - 1}
+                          aria-label="Next layout"
+                        >
+                          <Glyph name="chevron-right" size={15} strokeWidth={2.5} />
+                        </button>
+                      </div>
+
+                      {/* the chosen layout, in its own band: what it is and one way on */}
+                      <div className="wv-sel">
+                        <div className="wv-empty wv-empty--band">
+                          <div className="wv-lay__big">
+                            {chosenLayout ? <Preview l={chosenLayout} /> : <div className="wv-empty__ph"><Glyph name="image" size={30} /></div>}
+                          </div>
+                          <h3 className="wv-empty__title">
+                            {chosenLayout ? chosenLayout.name : 'No picture on this slide yet'}
+                          </h3>
+                          <ul className="wv-empty__points">
+                            {layoutPoints(chosenLayout).map((t) => (
+                              <li key={t}><Glyph name="check" size={14} />{t}</li>
+                            ))}
+                          </ul>
+                          {chosenLayout?.shape === 'gen' ? (
+                            /* Create image has one way on — a conversation about a
+                               picture that does not exist yet, no door out beside it */
+                            <div className="wv-empty__acts">
+                              <button type="button" className="wv-run wv-run--primary" onClick={() => setCreating(true)}>
+                                <Glyph name="sparkles" size={16} />Start creating
+                              </button>
+                            </div>
+                          ) : (
+                            <div className="wv-empty__acts">
+                              <button
+                                type="button"
+                                className={`wv-run wv-run--primary${uploading ? ' is-busy' : ''}`}
+                                disabled={uploading}
+                                onClick={() => fileRef.current?.click()}
+                              >
+                                <Glyph name={chosenLayout?.shape === 'annotate' ? 'sparkles' : 'upload'} size={16} />
+                                {uploading ? 'Uploading…' : chosenLayout?.shape === 'annotate' ? 'Create' : 'Upload image'}
+                              </button>
+                              <button type="button" className="wv-run wv-run--ghost" onClick={() => navigate('/dashboard/visual-brand')}>
+                                <Glyph name="palette" size={16} />Visual Brand
+                              </button>
+                            </div>
+                          )}
+                        </div>
                       </div>
                     </div>
                   )}
 
-                  {allImages.length > 0 && (
+                  {!creating && allImages.length > 0 && (
                     <div className="wv-picker">
                       <span className="wv-suggest__label">From your projects</span>
                       <div className="wv-picker__grid">
@@ -979,7 +1258,7 @@ export default function WeekView({ route: initialRoute, onBack, onRegenerate, ge
                     </div>
                   )}
 
-                  {!allImages.length && !hasOwnImage && (
+                  {!creating && !allImages.length && !hasOwnImage && (
                     <p className="wv-muted" style={{ marginTop: 8 }}>
                       Add photos in Projects, then pick them here — or upload above.
                     </p>

@@ -24,6 +24,24 @@ function extractJson(text) {
 const PILLAR_LABEL = { discovery: 'Discovery', credibility: 'Credibility', trust: 'Trust' };
 const GOAL_TAG = { discovery: 'Get noticed', credibility: 'Show expertise', trust: 'Build confidence' };
 
+// USD per million tokens — approximate list prices for cost display in the app.
+// Override via ANTHROPIC_INPUT_USD_PER_MTOK / ANTHROPIC_OUTPUT_USD_PER_MTOK if needed.
+function ratesForModel(model = '') {
+  const m = String(model).toLowerCase();
+  const envIn = Number(process.env.ANTHROPIC_INPUT_USD_PER_MTOK);
+  const envOut = Number(process.env.ANTHROPIC_OUTPUT_USD_PER_MTOK);
+  if (Number.isFinite(envIn) && Number.isFinite(envOut)) return { in: envIn, out: envOut };
+  if (m.includes('opus')) return { in: 15, out: 75 };
+  if (m.includes('haiku')) return { in: 0.8, out: 4 };
+  return { in: 3, out: 15 }; // sonnet family default
+}
+
+function estimatePlanCostUsd(model, inputTokens, outputTokens) {
+  const { in: inRate, out: outRate } = ratesForModel(model);
+  const usd = (inputTokens / 1e6) * inRate + (outputTokens / 1e6) * outRate;
+  return Math.round(usd * 1e6) / 1e6; // micro-dollar precision
+}
+
 // Content-pillar priority: Discovery > Credibility > Trust. When two pillars are
 // both gaps, the higher-priority one always earns more days. Used to weight the
 // day split so the week leans hardest on the highest-priority gap.
@@ -335,9 +353,10 @@ async function generateWeeklyPlan(profile, brandDna, competitorInsights = null, 
   const snapshot = buildSnapshot(profile, brandDna);
   // Replacements use a function so `$` sequences in the data (prices, `$&`…)
   // are inserted literally rather than treated as replacement patterns.
+  // Compact JSON (no pretty-print) keeps the prompt smaller without changing content.
   const prompt = loadPrompt()
-    .replace('{{FOCUS_JSON}}', () => JSON.stringify(focusSummary, null, 2))
-    .replace('{{SNAPSHOT_JSON}}', () => JSON.stringify(snapshot, null, 2))
+    .replace('{{FOCUS_JSON}}', () => JSON.stringify(focusSummary))
+    .replace('{{SNAPSHOT_JSON}}', () => JSON.stringify(snapshot))
     .replace('{{COMPETITOR_INSIGHTS}}', () => renderCompetitorInsights(competitorInsights))
     .replace('{{PROJECT_ASSETS}}', () => renderProjectAssets(projects));
 
@@ -357,6 +376,16 @@ async function generateWeeklyPlan(profile, brandDna, competitorInsights = null, 
     messages: [{ role: 'user', content: prompt }],
   });
   const fullText = response.content.filter((b) => b.type === 'text').map((b) => b.text).join('\n');
+
+  const inputTokens = Number(response.usage?.input_tokens) || 0;
+  const outputTokens = Number(response.usage?.output_tokens) || 0;
+  const usage = {
+    inputTokens,
+    outputTokens,
+    totalTokens: inputTokens + outputTokens,
+    estimatedCostUsd: estimatePlanCostUsd(model, inputTokens, outputTokens),
+    model,
+  };
 
   let parsed;
   try {
@@ -430,10 +459,11 @@ async function generateWeeklyPlan(profile, brandDna, competitorInsights = null, 
   const matches = Object.keys(dayAllocation).every((p) => (actual[p] || 0) === dayAllocation[p]);
   console.log(
     `[weeklyPlan] @${snapshot.username}: ${days.length} days generated · ` +
-      `pillar mix ${JSON.stringify(actual)} (target ${JSON.stringify(dayAllocation)})${matches ? '' : ' — MISMATCH'}`
+      `pillar mix ${JSON.stringify(actual)} (target ${JSON.stringify(dayAllocation)})${matches ? '' : ' — MISMATCH'} · ` +
+      `${usage.totalTokens} tokens (~$${usage.estimatedCostUsd.toFixed(4)})`
   );
 
-  return { weekOf, weekLabel, model, focus, funnel, days, dayAllocation };
+  return { weekOf, weekLabel, model, focus, funnel, days, dayAllocation, usage };
 }
 
-module.exports = { generateWeeklyPlan, buildFunnelWithScores, weekRange, allocateDays, normalizeSlides };
+module.exports = { generateWeeklyPlan, buildFunnelWithScores, weekRange, allocateDays, normalizeSlides, estimatePlanCostUsd };

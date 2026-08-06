@@ -5,6 +5,7 @@ const {
   getCurrentRoute,
   getRoutes,
   generateRoute,
+  replanWeek,
   markDayPublished,
 } = require('../controllers/routeController');
 
@@ -14,6 +15,7 @@ router.use(protect);
 router.get('/current', asyncHandler(getCurrentRoute));
 router.get('/', asyncHandler(getRoutes));
 router.post('/generate', asyncHandler(generateRoute));
+router.post('/:id/replan', asyncHandler(replanWeek));
 router.patch('/:id/day/:index', asyncHandler(markDayPublished));
 
 module.exports = router;

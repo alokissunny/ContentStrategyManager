@@ -1,15 +1,17 @@
 const WeeklyRoute = require('../models/WeeklyRoute');
 const BrandAnalysisReport = require('../models/BrandAnalysisReport');
 const Project = require('../models/Project');
+const InstagramProfile = require('../models/InstagramProfile');
 const { generateWeeklyPlan } = require('../services/weeklyPlan');
 const { loadCompetitorOverviewForUser } = require('./competitorController');
 const { currentProfile } = require('../utils/currentProfile');
 
 // ── Monthly plan config ──────────────────────────────────────────────────────
-// A plan is a month of 4 weeks. The current month is written; the next month is
-// scheduled as placeholders and stays locked until Bauhly "writes" it (the next
-// plan run). A week becomes readable PREP_DAYS before it starts.
-const WEEKS_PER_MONTH = 4;
+// Current calendar month: write only the weeks still ahead (up to 4). Start of
+// the month → ~4 weeks; mid-month → fewer. Next calendar month is scheduled as
+// locked placeholders (no LLM) and stays non-clickable until a later plan run.
+const MAX_WEEKS_PER_MONTH = 4;
+const NEXT_MONTH_STUBS = 4;
 const PREP_DAYS = 5;
 const PILLAR_ROTATION = ['discovery', 'credibility', 'trust'];
 const MONTH_ABBR = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -31,6 +33,27 @@ const nextPillar = (pillar) => {
   const i = PILLAR_ROTATION.indexOf(pillar);
   return PILLAR_ROTATION[(i + 1) % PILLAR_ROTATION.length];
 };
+
+/**
+ * Mondays still left to plan this calendar month, starting from this week's
+ * Monday. Count scales with how far through the month we are:
+ *   days 1–7 → 4 weeks · 8–14 → 3 · 15–21 → 2 · 22+ → 1
+ */
+function remainingWeekStarts(from = new Date()) {
+  const start = mondayOf(from);
+  const weekOfMonth = Math.ceil(from.getDate() / 7); // 1..5
+  const count = Math.max(1, Math.min(MAX_WEEKS_PER_MONTH, 5 - weekOfMonth));
+  return Array.from({ length: count }, (_, i) => addDays(start, 7 * i));
+}
+
+/** First Monday of the next calendar month after `from`. */
+function firstMondayOfNextMonth(from = new Date()) {
+  const first = new Date(from.getFullYear(), from.getMonth() + 1, 1);
+  first.setHours(0, 0, 0, 0);
+  const mon = mondayOf(first);
+  // If the 1st isn't Monday, mondayOf lands in the previous month — step forward.
+  return mon.getMonth() === first.getMonth() ? mon : addDays(mon, 7);
+}
 
 // Competitor context for the weekly plan: the competitor cohort (Business Type +
 // Location) an operator assigned to this Instagram handle in the back office,
@@ -91,6 +114,7 @@ async function loadProjectAssets(userId, username) {
 
 // Persist one week (upsert by handle+weekOf), stamped with month/schedule meta.
 async function saveWeek(userId, username, plan, meta) {
+  const usage = plan.usage || {};
   return WeeklyRoute.findOneAndUpdate(
     { user: userId, instagramUsername: username, weekOf: plan.weekOf },
     {
@@ -103,36 +127,102 @@ async function saveWeek(userId, username, plan, meta) {
       funnel: plan.funnel || [],
       days: plan.days || [],
       generatedAt: new Date(),
+      usage: {
+        inputTokens: Number(usage.inputTokens) || 0,
+        outputTokens: Number(usage.outputTokens) || 0,
+        totalTokens: Number(usage.totalTokens) || 0,
+        estimatedCostUsd: Number(usage.estimatedCostUsd) || 0,
+        model: usage.model || plan.model || '',
+      },
       ...meta,
     },
     { new: true, upsert: true }
   );
 }
 
-// Generate a MONTH (4 weeks sharing one pillar-gap focus) and schedule the next
-// month as locked placeholders — no strategy written for it yet. A regen
-// replaces this month + the scheduled next month; weeks that have already
-// started are kept as the studio's archive. Shared by the manual endpoint and
-// the auto-refresh after analysis.
+/**
+ * Write the remaining weeks of this month (after week 0) in parallel, then
+ * schedule next-month locked stubs. Fire-and-forget from the HTTP path so the
+ * studio can open week 0 without waiting on the whole month.
+ */
+async function finishMonthInBackground(userId, profile, ctx) {
+  const {
+    brandDna,
+    competitorInsights,
+    projects,
+    weekStarts,
+    monthFocus,
+    month1Start,
+  } = ctx;
+  const username = profile.username;
+
+  const weekMeta = (w, weekDate, draft) => ({
+    // Stamp from the week's own start date so Aug/Sep never share a monthKey.
+    monthKey: monthLabelOf(weekDate),
+    monthName: monthNameOf(weekDate),
+    monthIndex: draft ? 1 : 0,
+    weekIndex: w,
+    startsAt: weekDate,
+    readyAt: addDays(weekDate, -PREP_DAYS),
+    draft,
+  });
+
+  // Parallel LLM for weeks 1..n — same quality as sequential, much less wall time.
+  if (weekStarts.length > 1) {
+    await Promise.all(
+      weekStarts.slice(1).map(async (weekDate, i) => {
+        const w = i + 1;
+        try {
+          const plan = await generateWeeklyPlan(profile, brandDna, competitorInsights, projects, {
+            weekDate,
+            focusPillar: monthFocus,
+          });
+          await saveWeek(userId, username, plan, weekMeta(w, weekDate, false));
+        } catch (err) {
+          console.error(`[route] month0 week ${w} generation failed for @${username}:`, err.message);
+        }
+      }),
+    );
+  }
+
+  // Next calendar month: locked placeholders only — never LLM-written here.
+  const nextFocus = nextPillar(monthFocus);
+  const fmt = (dt) => dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  await Promise.all(
+    Array.from({ length: NEXT_MONTH_STUBS }, async (_, w) => {
+      const weekDate = addDays(month1Start, 7 * w);
+      const sunday = addDays(weekDate, 6);
+      await saveWeek(userId, username, {
+        weekOf: weekDate,
+        weekLabel: `${fmt(weekDate)} – ${fmt(sunday)}`,
+        model: '',
+        focus: { pillar: nextFocus, headline: '' },
+        funnel: [],
+        days: [],
+      }, weekMeta(w, weekDate, true));
+    }),
+  );
+}
+
+// Generate the rest of this calendar month (dynamic week count) and schedule the
+// next month as locked placeholders. Returns week 0 as soon as it's saved so
+// the UI can open it while the remaining weeks finish in the background.
 async function generateAndSaveRoute(userId, profile) {
-  const brandDna = await loadBrandDna(userId, profile.username);
+  const [brandDna, competitorInsights, projects] = await Promise.all([
+    loadBrandDna(userId, profile.username),
+    loadCohortCompetitorInsights(userId, profile.username).catch((err) => {
+      console.error(`[route] could not load cohort competitor insights for @${profile.username}:`, err.message);
+      return null;
+    }),
+    loadProjectAssets(userId, profile.username).catch((err) => {
+      console.error(`[route] could not load projects for plan:`, err.message);
+      return [];
+    }),
+  ]);
 
-  // Reference the assigned competitor cohort's analysis when one exists.
-  // Best-effort — a plan can always be built from the account's own data.
-  const competitorInsights = await loadCohortCompetitorInsights(userId, profile.username).catch((err) => {
-    console.error(`[route] could not load cohort competitor insights for @${profile.username}:`, err.message);
-    return null;
-  });
-
-  const projects = await loadProjectAssets(userId, profile.username).catch((err) => {
-    console.error(`[route] could not load projects for plan:`, err.message);
-    return [];
-  });
-
-  const month0Start = mondayOf();                          // this week's Monday
-  const month1Start = addDays(month0Start, 7 * WEEKS_PER_MONTH);
-  const month0Key = monthLabelOf(month0Start);
-  const month0Name = monthNameOf(month0Start);
+  const weekStarts = remainingWeekStarts();
+  const month0Start = weekStarts[0];
+  const month1Start = firstMondayOfNextMonth(new Date());
 
   // Write week 0 BEFORE clearing the old plan: if the model call fails here, the
   // studio keeps their existing plan rather than losing it to a failed regen.
@@ -145,7 +235,7 @@ async function generateAndSaveRoute(userId, profile) {
     console.error(`[route] month0 week 0 generation failed for @${profile.username}:`, err.message);
     return WeeklyRoute.findOne({
       user: userId, instagramUsername: profile.username, draft: false,
-    }).sort({ weekOf: -1 });
+    }).sort({ weekOf: -1 }).then((route) => ({ route, expectedWeeks: 0 }));
   }
   const monthFocus = week0Plan.focus?.pillar || 'trust';
 
@@ -157,50 +247,29 @@ async function generateAndSaveRoute(userId, profile) {
     $or: [{ draft: true }, { weekOf: { $gte: month0Start } }],
   });
 
-  // ── Current month: 4 written weeks, one shared focus (week 0's gap pillar) ──
-  const weekMeta = (w, weekDate, draft) => ({
-    monthKey: draft ? monthLabelOf(month1Start) : month0Key,
-    monthName: draft ? monthNameOf(month1Start) : month0Name,
-    monthIndex: draft ? 1 : 0,
-    weekIndex: w,
-    startsAt: weekDate,
-    readyAt: addDays(weekDate, -PREP_DAYS),
-    draft,
+  const firstWeek = await saveWeek(userId, profile.username, week0Plan, {
+    monthKey: monthLabelOf(month0Start),
+    monthName: monthNameOf(month0Start),
+    monthIndex: 0,
+    weekIndex: 0,
+    startsAt: month0Start,
+    readyAt: addDays(month0Start, -PREP_DAYS),
+    draft: false,
   });
-  const firstWeek = await saveWeek(userId, profile.username, week0Plan, weekMeta(0, month0Start, false));
-  for (let w = 1; w < WEEKS_PER_MONTH; w += 1) {
-    const weekDate = addDays(month0Start, 7 * w);
-    try {
-      const plan = await generateWeeklyPlan(profile, brandDna, competitorInsights, projects, {
-        weekDate,
-        focusPillar: monthFocus,   // the rest of the month reuse week 0's focus
-      });
-      await saveWeek(userId, profile.username, plan, weekMeta(w, weekDate, false));
-    } catch (err) {
-      console.error(`[route] month0 week ${w} generation failed for @${profile.username}:`, err.message);
-    }
-  }
 
-  // ── Next month: 4 locked placeholders — scheduled, no strategy written ──
-  const nextFocus = nextPillar(monthFocus);
-  const fmt = (dt) => dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-  for (let w = 0; w < WEEKS_PER_MONTH; w += 1) {
-    const weekDate = addDays(month1Start, 7 * w);
-    const sunday = addDays(weekDate, 6);
-    await saveWeek(userId, profile.username, {
-      weekOf: weekDate,
-      weekLabel: `${fmt(weekDate)} – ${fmt(sunday)}`,
-      model: '',
-      focus: { pillar: nextFocus, headline: '' },
-      funnel: [],
-      days: [],
-    }, weekMeta(w, weekDate, true));
-  }
+  // Rest of the month + next-month stubs continue without blocking the response.
+  finishMonthInBackground(userId, profile, {
+    brandDna,
+    competitorInsights,
+    projects,
+    weekStarts,
+    monthFocus,
+    month1Start,
+  }).catch((err) => {
+    console.error(`[route] background month finish failed for @${profile.username}:`, err.message);
+  });
 
-  // The endpoint/UI opens the current running week.
-  return firstWeek || WeeklyRoute.findOne({
-    user: userId, instagramUsername: profile.username, draft: false,
-  }).sort({ weekOf: -1 });
+  return { route: firstWeek, expectedWeeks: weekStarts.length };
 }
 
 // A handle analyzed this recently is assumed to still be running its background
@@ -260,7 +329,79 @@ async function generateRoute(req, res) {
       message: 'No Instagram profile found. Connect and analyze a handle before generating a plan.',
     });
   }
-  const route = await generateAndSaveRoute(req.user._id, profile);
+  // Returns as soon as week 0 is ready; remaining weeks fill in the background.
+  const { route, expectedWeeks } = await generateAndSaveRoute(req.user._id, profile);
+  res.json({
+    route,
+    expectedWeeks: expectedWeeks || null,
+    filling: Boolean(expectedWeeks && expectedWeeks > 1),
+  });
+}
+
+// Replan a single existing week in place — same Brand DNA, projects, competitor
+// cohort, and month focus pillar — without regenerating sibling weeks or
+// kicking off a fresh check-in / full-month run.
+async function replanWeek(req, res) {
+  const existing = await WeeklyRoute.findOne({ _id: req.params.id, user: req.user._id });
+  if (!existing) return res.status(404).json({ message: 'Route not found' });
+  if (existing.draft) {
+    return res.status(400).json({ message: 'This week is still a placeholder — it can’t be replanned yet.' });
+  }
+
+  const username = existing.instagramUsername;
+  if (!username) {
+    return res.status(400).json({ message: 'This plan isn’t tied to an Instagram account.' });
+  }
+
+  const active = await currentProfile(req.user._id);
+  if (!active || active.username !== username) {
+    return res.status(400).json({
+      message: `This plan belongs to @${username}. Switch to that account to replan it.`,
+    });
+  }
+
+  // Prefer the stamped handle’s profile snapshot so the week is grounded in the
+  // same account’s posts / analysis that produced the original plan.
+  const profile =
+    (await InstagramProfile.findOne({ user: req.user._id, username })) || active;
+
+  const [brandDna, competitorInsights, projects] = await Promise.all([
+    loadBrandDna(req.user._id, username),
+    loadCohortCompetitorInsights(req.user._id, username).catch((err) => {
+      console.error(`[route] replan: cohort insights failed for @${username}:`, err.message);
+      return null;
+    }),
+    loadProjectAssets(req.user._id, username).catch((err) => {
+      console.error(`[route] replan: projects failed for @${username}:`, err.message);
+      return [];
+    }),
+  ]);
+
+  const weekDate = existing.weekOf || existing.startsAt || mondayOf();
+  const focusPillar = existing.focus?.pillar || undefined;
+
+  let plan;
+  try {
+    plan = await generateWeeklyPlan(profile, brandDna, competitorInsights, projects, {
+      weekDate,
+      focusPillar,
+    });
+  } catch (err) {
+    console.error(`[route] replan failed for @${username} week ${weekDate}:`, err.message);
+    return res.status(502).json({ message: 'Could not replan this week. Please try again in a moment.' });
+  }
+
+  // Keep month/schedule stamps; only replace the written week content.
+  const route = await saveWeek(req.user._id, username, plan, {
+    monthKey: existing.monthKey || monthLabelOf(weekDate),
+    monthName: existing.monthName || monthNameOf(weekDate),
+    monthIndex: existing.monthIndex ?? 0,
+    weekIndex: existing.weekIndex ?? 0,
+    startsAt: existing.startsAt || weekDate,
+    readyAt: existing.readyAt || addDays(weekDate, -PREP_DAYS),
+    draft: false,
+  });
+
   res.json({ route });
 }
 
@@ -308,4 +449,13 @@ async function markDayPublished(req, res) {
   res.json({ route });
 }
 
-module.exports = { generateAndSaveRoute, getCurrentRoute, getRoutes, generateRoute, markDayPublished };
+module.exports = {
+  generateAndSaveRoute,
+  getCurrentRoute,
+  getRoutes,
+  generateRoute,
+  replanWeek,
+  markDayPublished,
+  remainingWeekStarts,
+  firstMondayOfNextMonth,
+};

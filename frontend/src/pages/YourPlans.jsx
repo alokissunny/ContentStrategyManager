@@ -12,11 +12,11 @@
  * Switching accounts in the header reloads; both endpoints follow the active handle.
  */
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import Icon from '../brand/Icon';
 import { getCurrentRoute, getRoutes, generateRoute } from '../api/routes';
 import { useNavigate } from 'react-router-dom';
-import { useProjects, createProject } from '../lib/projectsStore';
+import { useProjects, createProject, refreshProjects } from '../lib/projectsStore';
 import { CaptureChat } from './Projects';
 import { useAuth } from '../context/AuthContext';
 import WeekView from './WeekView';
@@ -35,63 +35,63 @@ const PILLARS = {
 
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July',
   'August', 'September', 'October', 'November', 'December'];
-
-/* "2 weeks ago" reads as a memory; "Jun 29" reads as a filing cabinet. */
-function agoOf(iso, now = Date.now()) {
-  const then = Date.parse(iso);
-  if (Number.isNaN(then)) return '';
-  const days = Math.round((now - then) / 86400000);
-  if (days <= 0) return 'today';
-  if (days === 1) return 'yesterday';
-  if (days < 7) return `${days} days ago`;
-  const weeks = Math.round(days / 7);
-  if (weeks < 5) return weeks === 1 ? 'a week ago' : `${weeks} weeks ago`;
-  const months = Math.round(days / 30);
-  return months <= 1 ? 'a month ago' : `${months} months ago`;
-}
-
-/* Months for this year, the year alone for anything older. */
-function bucketOf(iso, now = new Date()) {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return { key: 'x', label: 'Earlier' };
-  if (d.getFullYear() !== now.getFullYear()) return { key: String(d.getFullYear()), label: String(d.getFullYear()) };
-  return { key: `${d.getFullYear()}-${d.getMonth()}`, label: `${MONTHS[d.getMonth()]} ${d.getFullYear()}` };
-}
-
-/* one route → the shape a row needs */
-const toPlan = (r) => ({
-  id: r._id,
-  route: r,
-  range: r.weekLabel,
-  focus: r.focus?.pillar,
-  total: (r.days || []).length,
-  createdAt: r.generatedAt || r.createdAt || r.updatedAt,
-});
-
 const MONTH_ABBR = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const fmtDay = (d) => (d ? `${MONTH_ABBR[d.getMonth()]} ${d.getDate()}` : '');
 
-/* A plan is a month of 4 weeks. Group the routes by their month, ordered so the
- * running month leads, the (locked) next month follows, and past months trail. */
+/* Sum LLM usage across written weeks in a month group. */
+function monthUsageOf(weeks) {
+  const written = (weeks || []).filter((w) => !w.draft && w.usage);
+  if (!written.length) return null;
+  const inputTokens = written.reduce((n, w) => n + (Number(w.usage?.inputTokens) || 0), 0);
+  const outputTokens = written.reduce((n, w) => n + (Number(w.usage?.outputTokens) || 0), 0);
+  const estimatedCostUsd = written.reduce((n, w) => n + (Number(w.usage?.estimatedCostUsd) || 0), 0);
+  const totalTokens = inputTokens + outputTokens;
+  if (!totalTokens && !estimatedCostUsd) return null;
+  return { inputTokens, outputTokens, totalTokens, estimatedCostUsd, weekCount: written.length };
+}
+
+function fmtTokens(n) {
+  if (n == null) return '—';
+  if (n >= 1000) return `${(n / 1000).toFixed(n >= 10000 ? 0 : 1)}k`;
+  return String(n);
+}
+
+function fmtCost(usd) {
+  if (usd == null || Number.isNaN(usd)) return '—';
+  if (usd < 0.01) return `$${usd.toFixed(4)}`;
+  return `$${usd.toFixed(2)}`;
+}
+/* Group weeks by the calendar month they start in, then sort by date.
+ * (Never by weekIndex alone — that interleaved Aug week 2 with Sep week 2
+ * when both months shared a stale monthKey.) */
 function monthlyGroups(routes) {
   const by = new Map();
   (routes || []).forEach((r) => {
-    const key = r.monthKey || bucketOf(r.weekOf).key;
+    const start = new Date(r.startsAt || r.weekOf);
+    if (Number.isNaN(start.getTime())) return;
+    const key = `${start.getFullYear()}-${start.getMonth()}`;
+    const name = start.getFullYear() === new Date().getFullYear()
+      ? MONTHS[start.getMonth()]
+      : `${MONTHS[start.getMonth()]} ${start.getFullYear()}`;
     if (!by.has(key)) {
-      const start = new Date(r.startsAt || r.weekOf);
-      by.set(key, { key, name: r.monthName || bucketOf(r.weekOf).label, weeks: [], start });
+      by.set(key, { key, name, weeks: [], start });
     }
     const g = by.get(key);
     g.weeks.push(r);
-    const s = new Date(r.startsAt || r.weekOf);
-    if (s < g.start) g.start = s;
+    if (start < g.start) g.start = start;
   });
+
   const groups = [...by.values()];
   groups.forEach((g) => {
-    g.weeks.sort((a, b) => (a.weekIndex ?? 0) - (b.weekIndex ?? 0)
-      || new Date(a.startsAt || a.weekOf) - new Date(b.startsAt || b.weekOf));
-    g.draft = g.weeks.every((w) => w.draft);
+    g.weeks.sort(
+      (a, b) =>
+        new Date(a.startsAt || a.weekOf) - new Date(b.startsAt || b.weekOf),
+    );
+    // Coming up = locked placeholders only. A mix of written + draft weeks in
+    // the same calendar month stays under Running / Already run.
+    g.draft = g.weeks.length > 0 && g.weeks.every((w) => w.draft);
   });
+
   const written = groups.filter((g) => !g.draft).sort((a, b) => b.start - a.start);
   const drafts = groups.filter((g) => g.draft).sort((a, b) => a.start - b.start);
   const sections = [];
@@ -108,11 +108,13 @@ function WeekRow({ week, onOpen }) {
   const locked = !!week.draft;
   const start = (week.startsAt || week.weekOf) ? new Date(week.startsAt || week.weekOf) : null;
   const ready = week.readyAt ? new Date(week.readyAt) : null;
+  const readySoon = !locked && ready && ready.getTime() > Date.now();
   return (
     <button
       type="button"
       className={`ph-row ph-week${locked ? ' is-locked' : ''}`}
       disabled={locked}
+      aria-disabled={locked}
       onClick={locked ? undefined : onOpen}
     >
       <span className="ph-week__date">
@@ -131,8 +133,14 @@ function WeekRow({ week, onOpen }) {
         </span>
         <span className="ph-row__meta">
           {locked
-            ? <span className="ph-week__lock">Bauhly finishes writing it on {fmtDay(ready)}</span>
-            : <span>{week.weekLabel}</span>}
+            ? (
+              <span className="ph-week__lock">
+                Bauhly finishes writing it on {fmtDay(ready)}
+              </span>
+            )
+            : readySoon
+              ? <span>You can read this now · {week.weekLabel}</span>
+              : <span>{week.weekLabel}</span>}
         </span>
       </span>
       {!locked && <Icon name="arrow-right" size={15} strokeWidth={2} />}
@@ -149,6 +157,10 @@ export default function YourPlans() {
   const [view, setView] = useState('list');        // 'list' | 'checkin' | 'gen' | 'week'
   const [selected, setSelected] = useState(null);  // the route open in WeekView
   const [capturing, setCapturing] = useState(false); // the Capture idea flow
+  const [replanning, setReplanning] = useState(false);
+  // Week 0 returns before the rest of the month finishes — poll until stubs land.
+  const [monthFilling, setMonthFilling] = useState(false);
+  const fillWatchRef = useRef(null);
   const navigate = useNavigate();
   const projects = useProjects();
   const { user } = useAuth();
@@ -164,9 +176,108 @@ export default function YourPlans() {
     return { current: cur.route || null, routes: all };
   }
 
+  function stopMonthFillWatch() {
+    if (fillWatchRef.current) {
+      clearInterval(fillWatchRef.current);
+      fillWatchRef.current = null;
+    }
+    setMonthFilling(false);
+  }
+
+  // Poll until the running month has the expected written weeks (and preferably
+  // next-month stubs), so the list fills without a tab switch.
+  function startMonthFillWatch(expectedWeeks = null) {
+    stopMonthFillWatch();
+    setMonthFilling(true);
+    let tries = 0;
+    const target = Number(expectedWeeks) || 0;
+    fillWatchRef.current = setInterval(async () => {
+      tries += 1;
+      try {
+        const { routes: all } = await reload();
+        const written = (all || []).filter((r) => !r.draft);
+        const drafts = (all || []).filter((r) => r.draft);
+        const now = new Date();
+        const monthWritten = written.filter((r) => {
+          const d = new Date(r.startsAt || r.weekOf);
+          return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
+        });
+        const haveEnough = target > 0
+          ? monthWritten.length >= target
+          : drafts.length > 0;
+        // Stubs are written after the parallel weeks — either signal means done.
+        if ((haveEnough && drafts.length > 0) || (haveEnough && tries >= 8) || tries >= 48) {
+          stopMonthFillWatch();
+        }
+      } catch {
+        if (tries >= 48) stopMonthFillWatch();
+      }
+    }, 2500);
+  }
+
   useEffect(() => {
     reload().finally(() => setLoading(false));
+    // Fresh projects so wordless photo questions show up on this page.
+    refreshProjects().catch(() => {});
+    return () => stopMonthFillWatch();
   }, []);
+
+  // Refresh when the user comes back to this tab (covers the "switch and return" case).
+  useEffect(() => {
+    function onVisible() {
+      if (document.visibilityState === 'visible') reload().catch(() => {});
+    }
+    document.addEventListener('visibilitychange', onVisible);
+    window.addEventListener('focus', onVisible);
+    return () => {
+      document.removeEventListener('visibilitychange', onVisible);
+      window.removeEventListener('focus', onVisible);
+    };
+  }, []);
+
+  // If the list already looks mid-fill (written weeks, no stubs yet), keep polling.
+  useEffect(() => {
+    if (loading || monthFilling || fillWatchRef.current) return;
+    const written = (routes || []).filter((r) => !r.draft);
+    const drafts = (routes || []).filter((r) => r.draft);
+    if (!written.length || drafts.length) return;
+    const newest = written
+      .map((r) => Date.parse(r.generatedAt || r.updatedAt || 0))
+      .filter((t) => !Number.isNaN(t))
+      .sort((a, b) => b - a)[0];
+    if (newest && Date.now() - newest < 3 * 60 * 1000) {
+      startMonthFillWatch();
+    }
+  }, [loading, routes, monthFilling]);
+
+  // Re-run the current month's plan (same path as check-in generate).
+  async function onReplanMonth() {
+    if (replanning) return;
+    const ok = window.confirm(
+      'Replan this month? Bauhly will rewrite the remaining weeks from your latest Brand DNA and replace the current month’s plan.',
+    );
+    if (!ok) return;
+    setError('');
+    setReplanning(true);
+    setView('gen');
+    const startedAt = Date.now();
+    try {
+      const data = await generateRoute();
+      const route = data.route || data;
+      const hold = Math.max(0, 1800 - (Date.now() - startedAt));
+      setTimeout(async () => {
+        await reload();
+        setSelected(route);
+        setView('week');
+        setReplanning(false);
+        startMonthFillWatch(data.expectedWeeks);
+      }, hold);
+    } catch (err) {
+      setError(err.response?.data?.message || "We couldn't replan this month. Please try again.");
+      setView('list');
+      setReplanning(false);
+    }
+  }
 
   // The check-in ends here: create the project the studio named (if any), then
   // run the real generation behind the RouteLoom wait. The backend plans from
@@ -179,12 +290,15 @@ export default function YourPlans() {
       if (pending?.newProject) {
         try { await createProject(pending.newProject); } catch { /* non-fatal */ }
       }
-      const route = await generateRoute();
-      const hold = Math.max(0, 2600 - (Date.now() - startedAt));
+      // Backend returns as soon as week 0 is ready; later weeks fill in behind.
+      const data = await generateRoute();
+      const route = data.route || data;
+      const hold = Math.max(0, 1800 - (Date.now() - startedAt));
       setTimeout(async () => {
         await reload();
         setSelected(route);
         setView('week');
+        startMonthFillWatch(data.expectedWeeks);
       }, hold);
     } catch (err) {
       setError(err.response?.data?.message || "We couldn't build a plan just now. Please try again.");
@@ -226,9 +340,11 @@ export default function YourPlans() {
     return (
       <WeekView
         route={selected}
-        onBack={() => setView('list')}
-        onRegenerate={() => setView('checkin')}
-        generating={false}
+        onBack={() => {
+          setView('list');
+          // Background weeks may have finished while this one was open.
+          reload().catch(() => {});
+        }}
       />
     );
   }
@@ -240,15 +356,18 @@ export default function YourPlans() {
   // ── a plan building in the background after a fresh (re)connect ──
   if (preparing && !current && routes.length === 0) {
     return (
-      <div className="empty">
-        <div className="empty__card">
-          <span className="empty__ico"><Icon name="route" size={30} strokeWidth={1.7} /></span>
-          <h1 className="empty__title">We're building your first plan</h1>
-          <p className="empty__note">One week you didn't have to invent.</p>
-          <p className="empty__sub">
-            We're reading your account and drafting a week of posts aimed at the stage that moves
-            your enquiries most. This takes a moment — check back shortly.
-          </p>
+      <div className="ph">
+        <NeedsAWord />
+        <div className="empty">
+          <div className="empty__card">
+            <span className="empty__ico"><Icon name="route" size={30} strokeWidth={1.7} /></span>
+            <h1 className="empty__title">We're building your first plan</h1>
+            <p className="empty__note">One week you didn't have to invent.</p>
+            <p className="empty__sub">
+              We're reading your account and drafting a week of posts aimed at the stage that moves
+              your enquiries most. This takes a moment — check back shortly.
+            </p>
+          </div>
         </div>
       </div>
     );
@@ -257,17 +376,20 @@ export default function YourPlans() {
   // ── nothing yet — the branded invitation ──
   if (!current && routes.length === 0) {
     return (
-      <div className="empty">
-        <div className="empty__card">
-          <span className="empty__ico"><Icon name="route" size={30} strokeWidth={1.7} /></span>
-          <h1 className="empty__title">You don't have a plan yet</h1>
-          <p className="empty__note">Every Monday, one week you didn't have to invent.</p>
-          <p className="empty__sub">
-            A week of posts built from your own work and aimed at the stage that moves your
-            enquiries most — each with a reason behind it.
-          </p>
-          {error && <p className="ph__sub" style={{ color: 'var(--negative)' }}>{error}</p>}
-          <button className="btn btn--primary" onClick={() => setView('checkin')}>Let's plan your week</button>
+      <div className="ph">
+        <NeedsAWord />
+        <div className="empty">
+          <div className="empty__card">
+            <span className="empty__ico"><Icon name="route" size={30} strokeWidth={1.7} /></span>
+            <h1 className="empty__title">You don't have a plan yet</h1>
+            <p className="empty__note">Every Monday, one week you didn't have to invent.</p>
+            <p className="empty__sub">
+              A week of posts built from your own work and aimed at the stage that moves your
+              enquiries most — each with a reason behind it.
+            </p>
+            {error && <p className="ph__sub" style={{ color: 'var(--negative)' }}>{error}</p>}
+            <button className="btn btn--primary" onClick={() => setView('checkin')}>Let's plan your week</button>
+          </div>
         </div>
       </div>
     );
@@ -292,7 +414,7 @@ export default function YourPlans() {
         </div>
         <p className="ph__sub">
           {current
-            ? 'One plan is running. Open it to work on it, or start the next one.'
+            ? 'This month’s weeks are ready to open. Next month is scheduled — Bauhly writes it when it’s time.'
             : "Nothing is running right now. Start one whenever you're ready."}
         </p>
         {error && <p className="ph__sub" style={{ color: 'var(--negative)' }}>{error}</p>}
@@ -303,10 +425,38 @@ export default function YourPlans() {
       <div className="ph__list">
         {sections.map((sec, i) => {
           const showEyebrow = i === 0 || sections[i - 1].kind !== sec.kind;
+          const usage = monthUsageOf(sec.group.weeks);
+          const canReplan = sec.kind === 'running' && !sec.group.draft;
           return (
             <section className="ph__group" key={sec.group.key}>
               {showEyebrow && <span className="ph__eyebrow">{sec.label}</span>}
-              <h2 className="ph__grouphead">{sec.group.name}</h2>
+              <div className="ph__groupheadrow">
+                <h2 className="ph__grouphead">{sec.group.name}</h2>
+                {canReplan && (
+                  <button
+                    type="button"
+                    className="btn btn--ghost btn--sm ph__replan"
+                    disabled={replanning}
+                    onClick={onReplanMonth}
+                  >
+                    <Icon name="refresh" size={14} strokeWidth={2.25} />
+                    {replanning ? 'Replanning…' : 'Replan month'}
+                  </button>
+                )}
+              </div>
+              {monthFilling && canReplan && (
+                <p className="ph__usage ph__usage--filling">Writing the rest of this month…</p>
+              )}
+              {usage && (
+                <p className="ph__usage" title="Estimated from Anthropic token usage for written weeks in this month">
+                  <span>{fmtTokens(usage.totalTokens)} tokens</span>
+                  <span aria-hidden="true">·</span>
+                  <span>~{fmtCost(usage.estimatedCostUsd)} est.</span>
+                  <span aria-hidden="true">·</span>
+                  <span>{usage.weekCount} {usage.weekCount === 1 ? 'week' : 'weeks'}</span>
+                  {monthFilling ? <span className="ph__usage-live"> · updating</span> : null}
+                </p>
+              )}
               <div className="ph__groupbox">
                 {sec.group.weeks.map((w) => (
                   <WeekRow key={w._id} week={w} onOpen={() => open(w)} />

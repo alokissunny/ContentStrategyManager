@@ -89,6 +89,14 @@ const weeklyRouteSchema = new mongoose.Schema(
     funnel: [funnelStageSchema],
     days: [daySchema],
     generatedAt: { type: Date, default: Date.now },
+    // LLM usage for this week's generation (for cost / token display on Your plans).
+    usage: {
+      inputTokens: { type: Number, default: 0 },
+      outputTokens: { type: Number, default: 0 },
+      totalTokens: { type: Number, default: 0 },
+      estimatedCostUsd: { type: Number, default: 0 },
+      model: { type: String, default: '' },
+    },
   },
   { timestamps: true }
 );

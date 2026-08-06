@@ -823,6 +823,8 @@ function ProjectDetail({ project, projects, onBack }) {
   const [editing, setEditing] = useState(false);
   const [capturing, setCapturing] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [uploadLabel, setUploadLabel] = useState('');
+  const [uploadError, setUploadError] = useState('');
   const others = projects.filter((p) => p.id !== project.id);
   const groups = groupByWeek(project.captures);
   const openEntry = open && project.captures.find((e) => e.id === open);
@@ -832,62 +834,91 @@ function ProjectDetail({ project, projects, onBack }) {
   async function addFiles(files) {
     const list = [...files].filter((f) => f.type.startsWith('image/') || f.type.startsWith('video/'));
     if (!list.length) return;
+    setUploadError('');
     setUploading(true);
+    setUploadLabel(
+      list.length === 1 ? 'Uploading 1 file…' : `Uploading ${list.length} files…`,
+    );
     try {
       const added = await uploadFiles(list);
+      setUploadLabel('Saving to project…');
       const type = added.some((a) => a.type === 'video') ? 'video' : 'photo';
       await addEntry(project.id, { type, text: '', attachments: added });
+    } catch (err) {
+      setUploadError(err?.response?.data?.message || err?.message || 'Upload failed. Please try again.');
     } finally {
       setUploading(false);
+      setUploadLabel('');
     }
   }
+
+  const fileInput = (id) => (
+    <input
+      id={id}
+      type="file"
+      accept="image/*,video/*"
+      multiple
+      hidden
+      disabled={uploading}
+      onChange={(e) => { addFiles(e.target.files || []); e.target.value = ''; }}
+    />
+  );
 
   return (
     <div className="pj pj--detail">
       <div className="pd">
         <div className="pd__bar">
-          <button className="pd__back" onClick={onBack}>
+          <button className="pd__back" onClick={onBack} disabled={uploading}>
             <Icon name="arrow-left" size={17} strokeWidth={2.25} />
             Projects
           </button>
           <div className="pd__titles"><h1>{project.name}</h1></div>
           <div className="pd__actions">
-            <button className="btn btn--tertiary btn--sm pd__edit" onClick={() => setEditing(true)}>
+            <button className="btn btn--tertiary btn--sm pd__edit" onClick={() => setEditing(true)} disabled={uploading}>
               <Icon name="edit" size={15} strokeWidth={2} /> Edit
             </button>
             <label className={`btn btn--tertiary btn--sm pd__addfiles${uploading ? ' is-busy' : ''}`}>
-              <Icon name="image" size={15} strokeWidth={2} /> {uploading ? 'Adding…' : 'Add files'}
-              <input
-                type="file"
-                accept="image/*,video/*"
-                multiple
-                hidden
-                disabled={uploading}
-                onChange={(e) => { addFiles(e.target.files || []); e.target.value = ''; }}
-              />
+              {uploading ? <span className="pj-spin" aria-hidden="true" /> : <Icon name="image" size={15} strokeWidth={2} />}
+              {uploading ? 'Uploading…' : 'Add files'}
+              {fileInput('pd-add-files')}
             </label>
-            <button className="btn btn--primary btn--sm" onClick={() => setCapturing(true)}>
+            <button className="btn btn--primary btn--sm" onClick={() => setCapturing(true)} disabled={uploading}>
               <Icon name="plus" size={15} strokeWidth={2.5} /> Capture idea
             </button>
           </div>
         </div>
 
-        {project.captures.length === 0 && (
+        {uploadError && (
+          <p className="pd__upload-err" role="alert">{uploadError}</p>
+        )}
+
+        {uploading && project.captures.length > 0 && (
+          <div className="pd__upload" role="status" aria-live="polite" aria-busy="true">
+            <span className="pj-spin pj-spin--lg" aria-hidden="true" />
+            <div className="pd__upload-copy">
+              <b>{uploadLabel || 'Uploading…'}</b>
+              <span>Large photos and clips can take a minute — keep this tab open.</span>
+            </div>
+          </div>
+        )}
+
+        {project.captures.length === 0 && !uploading && (
           <p className="pd__empty">
             Nothing here yet — tap <b>Capture idea</b> to write something down, or{' '}
-            <label className="pd__emptylink">
+            <label className="pd__emptylink" htmlFor="pd-add-files-empty">
               <b>Add files</b>
-              <input
-                type="file"
-                accept="image/*,video/*"
-                multiple
-                hidden
-                disabled={uploading}
-                onChange={(e) => { addFiles(e.target.files || []); e.target.value = ''; }}
-              />
+              {fileInput('pd-add-files-empty')}
             </label>{' '}
             to drop in photos or clips.
           </p>
+        )}
+
+        {project.captures.length === 0 && uploading && (
+          <div className="pd__empty pd__empty--busy" role="status" aria-live="polite" aria-busy="true">
+            <span className="pj-spin pj-spin--lg" aria-hidden="true" />
+            <b>{uploadLabel || 'Uploading…'}</b>
+            <span>Large photos and clips can take a minute — keep this tab open.</span>
+          </div>
         )}
 
         {groups.map((g) => (

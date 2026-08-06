@@ -307,6 +307,29 @@
   font-weight: 700;
 }
 .wv-slide.is-on .wv-slide__num { background: var(--signal-500); }
+.wv-slide__role {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  max-width: calc(100% - 36px);
+  padding: 3px 7px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.92);
+  color: var(--ink-900);
+  font-family: var(--font-ui);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  box-shadow: 0 1px 2px rgba(22, 22, 26, 0.12);
+}
+.wv-slide.is-on .wv-slide__role {
+  background: #fff;
+  color: var(--signal-700, var(--signal-500));
+}
 .wv-slide__cap {
   position: absolute;
   left: 0;
@@ -588,83 +611,269 @@
 .wv-hook--poster .wv-hook__eyebrow { color: var(--wv-accent, inherit); }
 .wv-hook--poster .wv-hook__head { font-size: 22px; }
 
-/* ── Hook layout picker (Content tab) ─────────────────────────────────────── */
-.wv-layouts { display: flex; flex-wrap: wrap; gap: 8px; }
-.wv-layout {
+/* ── Image tab · the layout picker (bauhly-v3 YourWeek `EmptySlide`) ────────
+ * "Which layout should this slide take?" — a single horizontal row of three
+ * layout cards with an arrow at each end, and a grey band under it saying what
+ * the chosen one is and the one way on. The empty slide asks "what shape should
+ * it take"; a slide with a picture asks a different question, so this stands
+ * only where the frame is empty. */
+.wv-vis { display: flex; flex-direction: column; gap: var(--sp-4); }
+
+/* the sliding window: three cards, the chosen one inside them, arrows step one */
+.wv-actsrow { position: relative; display: flex; align-items: stretch; margin: 6px 0 0; }
+.wv-acts { display: flex; flex: 1 1 auto; gap: 6px; min-width: 0; }
+.wv-act {
+  flex: 1 1 0;
+  min-width: 0;
   display: flex;
   flex-direction: column;
-  align-items: center;
-  gap: 6px;
-  width: 88px;
-  padding: 8px;
-  border: 1.5px solid var(--border);
-  border-radius: 12px;
-  background: var(--surface);
-  cursor: pointer;
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
-}
-.wv-layout:hover { border-color: var(--border-strong); }
-.wv-layout.is-on {
-  border-color: var(--signal-500);
-  box-shadow: 0 0 0 3px var(--signal-50);
-}
-.wv-layout__name {
+  align-items: flex-start;
+  justify-content: center;
+  gap: 5px;
+  padding: 5px;
   font-family: var(--font-ui);
+  text-align: left;
+  color: var(--ink-700);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  cursor: pointer;
+  transition: border-color 0.14s ease, color 0.14s ease, background 0.14s ease;
+}
+/* one line, always — a wrapping name would set the height of the row */
+.wv-act b {
+  display: block;
+  width: 100%;
+  padding: 0 3px 2px;
   font-size: 11px;
   font-weight: 600;
-  line-height: 1.2;
-  color: var(--ink-700);
-  text-align: center;
+  line-height: 1.35;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
-.wv-layout__shape {
+.wv-act:hover { border-color: var(--border-strong); color: var(--ink-900); }
+.wv-act.is-on {
+  color: var(--action-primary-ink);
+  background: var(--action-primary);
+  border-color: var(--action-primary);
+}
+.wv-act.is-on b { font-weight: 650; }
+/* a layout can be SHOWN, so the card carries a real Preview at the post's 4:5 */
+.wv-act__shot {
+  container-type: inline-size;
   position: relative;
+  display: block;
   width: 100%;
   aspect-ratio: 4 / 5;
-  border-radius: 6px;
   overflow: hidden;
+  border-radius: calc(var(--r-sm) - 4px);
   background: var(--surface-sunken);
 }
-.wv-layout__shape--bleed { background: linear-gradient(160deg, #e7e3db, #d8d3c9); }
-.wv-layout__shape--bleed::after {
-  content: '';
+/* on the chosen one the card goes ink; the layout inside it keeps its ground */
+.wv-act--layout.is-on .wv-act__shot { background: var(--surface); }
+
+/* the arrows sit over the ends of the row, small and round on a wash */
+.wv-actsrow__arrow {
   position: absolute;
-  left: 6px;
-  right: 6px;
-  bottom: 6px;
-  height: 5px;
-  border-radius: 2px;
-  background: rgba(22, 22, 26, 0.55);
+  top: 50%;
+  z-index: 2;
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  margin-top: -13px;
+  padding: 0;
+  color: var(--ink-800);
+  background: rgba(255, 255, 255, 0.92);
+  border: 0;
+  border-radius: var(--r-full);
+  box-shadow: 0 1px 4px rgba(22, 22, 26, 0.18), 0 0 0 1px rgba(22, 22, 26, 0.06);
+  cursor: pointer;
 }
-.wv-layout__shape--split::before {
-  content: '';
-  position: absolute;
-  left: 0;
-  top: 0;
-  bottom: 0;
-  width: 50%;
+.wv-actsrow__arrow:first-child { left: -6px; }
+.wv-actsrow__arrow:last-child { right: -6px; }
+.wv-actsrow__arrow:hover:not(:disabled) { background: #fff; }
+/* not dimmed, gone — a ghost control over the corner of a card is just clutter */
+.wv-actsrow__arrow:disabled { display: none; }
+
+/* the chosen action, in its own grey band, run to both edges of the tab */
+.wv-sel {
+  margin: var(--sp-4) 0 0;
+  padding: var(--sp-5);
+  background: var(--surface-sunken);
+  border-radius: var(--r-lg);
+}
+/* inside the band the card carries no ground of its own — the band is it */
+.wv-empty--band { background: none; border: 0; padding: 0; }
+/* the chosen layout, at the size the band's example is drawn at */
+.wv-lay__big {
+  container-type: inline-size;
+  position: relative;
+  width: 100%;
+  max-width: 200px;
+  margin: 0 auto;
+  aspect-ratio: 4 / 5;
+  overflow: hidden;
+  border-radius: var(--r-md);
+  border: 1px solid var(--border);
   background: var(--surface);
-  border-right: 1px solid var(--border);
 }
-.wv-layout__shape--split::after {
-  content: '';
-  position: absolute;
-  right: 0;
-  top: 0;
-  bottom: 0;
-  width: 50%;
-  background: linear-gradient(160deg, #e7e3db, #d8d3c9);
+.wv-lay__big .lp__ph img { object-fit: cover; object-position: center; }
+
+/* ── the layout previews, drawn (copied from LayoutSystem's visualbrand.css) ──
+ * Worked examples rather than wireframes, every size in `cqw` so the slide keeps
+ * its proportions at any card width. Duplicated here because visualbrand.css
+ * only loads on the Visual Brand route, and the picker draws these off it. */
+.lp {
+  position: relative;
+  display: flex;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  color: var(--ink-900);
+  text-align: left;
 }
-.wv-layout__shape--poster { background: var(--ink-900); }
-.wv-layout__shape--poster::after {
-  content: '';
-  position: absolute;
-  left: 22%;
-  right: 22%;
-  top: 46%;
-  height: 5px;
-  border-radius: 2px;
-  background: rgba(255, 255, 255, 0.85);
+.lp__ph { position: relative; display: block; overflow: hidden; background: var(--ink-100); }
+.lp__ph img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.lp__words { display: flex; flex-direction: column; gap: 2.2cqw; min-width: 0; }
+.lp__eyebrow {
+  font-family: var(--font-ui);
+  font-size: 3.1cqw;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-500);
 }
+.lp__h {
+  font-family: var(--font-display);
+  font-size: 8.2cqw;
+  font-weight: 500;
+  line-height: 1.12;
+  letter-spacing: -0.02em;
+  color: var(--ink-900);
+  text-wrap: balance;
+}
+.lp__b {
+  font-family: var(--font-ui);
+  font-size: 3.9cqw;
+  line-height: 1.45;
+  color: var(--ink-600);
+}
+.lp__scrim {
+  position: absolute; inset: 40% 0 0;
+  background: linear-gradient(180deg, transparent, rgba(20, 18, 16, 0.62));
+}
+.lp__words.is-on-photo { position: absolute; left: 7%; right: 7%; bottom: 7%; }
+.lp__words.is-on-photo .lp__h { color: #fff; }
+.lp__words.is-on-photo .lp__eyebrow { color: rgba(255, 255, 255, 0.82); }
+.lp__words.is-on-photo .lp__b { color: rgba(255, 255, 255, 0.86); }
+.lp--bleed .lp__ph { position: absolute; inset: 0; }
+/* the "Create image" card — a mark on the ground, not a layout: an ink circle
+   with a white sparkle, centred on a sunken frame (bauhly-v3 yourweek.css) */
+.lp--gen { position: relative; flex-direction: column; align-items: center; justify-content: center; background: var(--surface-sunken); }
+.lp--gen .lp__words { padding: 11%; }
+.lp--gen .lp__h { font-size: 9cqw; }
+.lp__gen {
+  display: grid; place-items: center;
+  width: 34cqw; height: 34cqw;
+  border-radius: var(--r-full);
+  color: var(--action-primary-ink);
+  background: var(--action-primary);
+}
+.lp--plain .lp__ph { position: absolute; inset: 0; }
+.lp--bleed.is-top .lp__scrim { inset: 0 0 45%; background: linear-gradient(0deg, transparent, rgba(20, 18, 16, 0.58)); }
+.lp--bleed.is-top .lp__words.is-on-photo { top: 7%; bottom: auto; }
+.lp--split { align-items: stretch; background: var(--surface); }
+.lp--split .lp__words { flex: 1 1 0; justify-content: center; padding: 8%; }
+.lp--split .lp__ph { flex: 0 0 44%; }
+.lp--split .lp__h { font-size: 7cqw; }
+.lp--split.is-flip { flex-direction: row-reverse; }
+.lp--poster { background: #f5f0e8; }
+.lp--poster .lp__words { justify-content: center; padding: 11%; gap: 3cqw; }
+.lp--poster .lp__h { font-size: 9.5cqw; }
+.lp--stack { flex-direction: column; background: var(--surface); }
+.lp--stack .lp__ph { flex: 1 1 62%; }
+.lp--stack .lp__words { flex: 0 0 auto; padding: 7% 7% 8%; }
+.lp--stack .lp__h { font-size: 6.6cqw; }
+.lp--steps { background: var(--surface); }
+.lp--steps .lp__words { flex: 1 1 0; justify-content: center; padding: 8% 6%; gap: 4cqw; }
+.lp--steps .lp__ph { flex: 0 0 36%; }
+.lp--steps .lp__h { font-size: 6.4cqw; }
+.lp__steps { display: flex; flex-direction: column; gap: 2.6cqw; }
+.lp__step {
+  display: flex;
+  gap: 2.4cqw;
+  font-family: var(--font-ui);
+  font-size: 3.5cqw;
+  line-height: 1.35;
+  color: var(--ink-700);
+}
+.lp__step i {
+  flex: 0 0 auto;
+  font-family: var(--font-mono);
+  font-style: normal;
+  font-size: 3.1cqw;
+  font-weight: 600;
+  color: var(--action-accent-text, var(--action-accent));
+}
+.lp__pin {
+  position: absolute; top: 34%; left: 30%;
+  width: 4.4cqw; height: 4.4cqw;
+  border-radius: var(--r-full);
+  background: var(--action-accent);
+  box-shadow: 0 0 0 1.4cqw rgba(255, 82, 39, 0.24);
+}
+.lp__note {
+  position: absolute; left: 7%; right: 7%; bottom: 7%;
+  display: flex; flex-direction: column; gap: 1.6cqw;
+  padding: 4.4cqw;
+  border-radius: 2cqw;
+  background: rgba(255, 255, 255, 0.94);
+}
+.lp__note .lp__b { font-size: 3.6cqw; color: var(--ink-800); }
+.lp--duo { background: var(--surface); display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr auto; gap: 1.6cqw; padding: 1.6cqw; }
+.lp--duo .lp__half { position: relative; display: flex; flex: 1 1 0; min-height: 0; }
+.lp--duo .lp__ph { width: 100%; }
+.lp--duo .lp__half em {
+  position: absolute; left: 5%; bottom: 5%;
+  padding: 1cqw 2.4cqw;
+  font-family: var(--font-ui);
+  font-style: normal;
+  font-size: 2.9cqw;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-900);
+  background: rgba(255, 255, 255, 0.92);
+  border-radius: var(--r-full);
+}
+.lp__words.is-foot { grid-column: 1 / -1; padding: 2.6cqw 2cqw 1.4cqw; }
+.lp__words.is-foot .lp__h { font-size: 5.4cqw; }
+.lp--grid4 { flex-direction: column; padding: 1.6cqw; background: var(--surface); }
+.lp__cells { display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; gap: 1.6cqw; flex: 1 1 auto; min-height: 0; }
+.lp--grid4 .lp__ph { width: 100%; height: 100%; }
+.lp--quote { flex-direction: column; justify-content: center; padding: 10%; background: #f5f0e8; }
+.lp__mark {
+  font-family: var(--font-display);
+  font-size: 16cqw;
+  line-height: 0.6;
+  color: var(--ink-300, var(--ink-400));
+}
+.lp--quote .lp__words { gap: 3cqw; margin-top: 2cqw; }
+.lp--quote .lp__h { font-size: 7.4cqw; }
+.lp--quote .lp__b { font-size: 3.4cqw; color: var(--ink-500); }
+.lp--crop .lp__ph img { transform: scale(1.7); transform-origin: 42% 48%; }
+.lp__cropbox {
+  position: absolute; inset: 16% 12%;
+  border: 0.8cqw solid rgba(255, 255, 255, 0.9);
+  border-radius: 1cqw;
+}
+.lp--swatch { flex-direction: column; background: var(--surface); }
+.lp--swatch .lp__ph { flex: 1 1 58%; }
+.lp--swatch .lp__words { flex: 0 0 auto; padding: 6% 7% 7%; gap: 1.8cqw; }
+.lp--swatch .lp__h { font-size: 6.2cqw; }
+.lp--swatch .lp__b { font-family: var(--font-mono); font-size: 3.2cqw; letter-spacing: 0.02em; }
 
 /* ── Image tab · the "Upload image" band (bauhly-v3 EmptyState) ────────────── */
 .wv-empty {
@@ -763,6 +972,136 @@
   color: var(--ink-900);
 }
 .wv-run--ghost:hover { background: var(--surface-sunken); }
+.wv-empty--band .wv-run { width: 100%; }
+.wv-empty--band .wv-empty__acts { width: 100%; flex-direction: column; }
+
+/* ── Create image · the conversation (bauhly-v3 YourWeek `CreateView`) ──────
+ * Built to read as a chat, because that is what it is: one message from Bauhly,
+ * a few ways in, a box. Its own white surface with a soft lift, taking the
+ * whole area under the tabs — describing a picture is a different job from
+ * choosing a shape, so the row of layouts goes while it is open. */
+.wv-conv { display: flex; flex-direction: column; min-height: 0; }
+.wv-conv__bar { display: flex; margin-bottom: var(--sp-3); }
+.wv-conv__back {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px 5px 6px;
+  font-family: var(--font-ui);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  color: var(--ink-600);
+  background: none;
+  border: 0;
+  border-radius: var(--r-sm);
+  cursor: pointer;
+}
+.wv-conv__back:hover { color: var(--ink-900); background: var(--surface-sunken); }
+.wv-conv__body {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-6);
+  padding: var(--sp-7) var(--sp-6) var(--sp-5);
+  background: var(--surface);
+  border-radius: var(--r-lg);
+  box-shadow: 0 10px 30px -18px rgba(20, 20, 25, 0.28), 0 0 0 1px var(--border);
+}
+.wv-conv__scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-5);
+  overflow-y: auto;
+  scrollbar-width: none;
+}
+.wv-conv__scroll::-webkit-scrollbar { width: 0; display: none; }
+.wv-conv__msg { display: flex; gap: var(--sp-3); align-items: flex-start; }
+.wv-conv__who {
+  flex: 0 0 auto;
+  display: grid; place-items: center;
+  width: 26px; height: 26px;
+  border-radius: var(--r-full);
+  color: var(--action-primary-ink);
+  background: var(--action-primary);
+}
+.wv-conv__msg p {
+  margin: 0;
+  font-size: var(--text-sm);
+  line-height: 1.6;
+  color: var(--ink-900);
+  max-width: 46ch;
+}
+.wv-conv__msg > div { display: flex; flex-direction: column; gap: 6px; }
+.wv-conv__note { font-size: var(--text-xs) !important; line-height: 1.55 !important; color: var(--ink-500) !important; }
+.wv-conv__you {
+  align-self: flex-end;
+  max-width: 80%;
+  margin: 0;
+  padding: 10px var(--sp-4);
+  font-size: var(--text-sm);
+  line-height: 1.55;
+  color: var(--ink-900);
+  background: var(--surface-sunken);
+  border-radius: var(--r-lg);
+}
+.wv-conv__seeds { display: flex; flex-direction: column; gap: 8px; align-items: flex-start; flex: 0 0 auto; }
+.wv-conv__seed {
+  max-width: 100%;
+  text-align: left;
+  padding: 10px var(--sp-4);
+  font-family: var(--font-ui);
+  font-size: var(--text-sm);
+  color: var(--ink-700);
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: var(--r-full);
+  cursor: pointer;
+  transition: border-color 0.14s ease, color 0.14s ease, background 0.14s ease;
+}
+.wv-conv__seed:hover { border-color: var(--border-strong); color: var(--ink-900); background: var(--surface-sunken); }
+.wv-conv__ask {
+  position: relative;
+  flex: 0 0 auto;
+  margin-top: auto;
+  display: flex;
+  align-items: flex-end;
+  padding: 10px 52px 10px var(--sp-4);
+  background: var(--surface);
+  border: 1px solid var(--ink-300);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-xs);
+}
+.wv-conv__ask:focus-within { border-color: var(--ink-900); box-shadow: var(--shadow-sm); }
+.wv-conv__input {
+  flex: 1 1 auto;
+  min-width: 0;
+  max-height: 120px;
+  padding: 4px 0;
+  font-family: var(--font-ui);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+  color: var(--ink-900);
+  background: none;
+  border: 0;
+  resize: none;
+  outline: none;
+}
+.wv-conv__send {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  display: grid; place-items: center;
+  width: 34px; height: 34px;
+  border: 0;
+  border-radius: calc(var(--r-lg) - 8px);
+  background: var(--action-primary);
+  color: var(--action-primary-ink);
+  cursor: pointer;
+}
+.wv-conv__send:disabled { background: var(--ink-200); color: #fff; cursor: default; }
 
 /* Detail panel */
 .wv-detail {
@@ -1416,13 +1755,29 @@
   }
 }
 
-/* Rebuild plan — the primary "regenerate this week from all five signals"
-   action, so it carries the brand accent rather than the neutral chrome of the
-   other top-bar buttons. */
-.wv-btn--rebuild {
+/* Replan this week — regenerate only the open week from current signals. */
+.wv-replan {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.wv-replan__usage {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  font-family: var(--font-ui);
+  font-size: 12px;
+  color: var(--ink-500);
+  line-height: 1.3;
+}
+.wv-btn--replan {
   border-color: var(--signal-500);
   background: var(--signal-500);
   color: #fff;
 }
-.wv-btn--rebuild:hover { filter: brightness(1.08); }
-.wv-btn--rebuild svg { color: currentColor; }
+.wv-btn--replan:hover { filter: brightness(1.08); }
+.wv-btn--replan:disabled { filter: none; opacity: 0.7; }
+.wv-btn--replan svg { color: currentColor; }

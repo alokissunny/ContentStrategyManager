@@ -12,9 +12,16 @@ export function getRoutes() {
   return client.get('/routes').then((res) => res.data.routes || []);
 }
 
-// (Re)generate this week's plan from the latest Instagram analysis.
+// (Re)generate this month's plan from the latest Instagram analysis.
+// → { route, expectedWeeks, filling } — `route` is week 0; later weeks fill in behind.
 export function generateRoute() {
-  return client.post('/routes/generate').then((res) => res.data.route);
+  return client.post('/routes/generate').then((res) => res.data);
+}
+
+// Replan one existing week in place (Brand DNA + projects + cohort + that week's pillar).
+// → { route }
+export function replanWeek(routeId) {
+  return client.post(`/routes/${routeId}/replan`).then((res) => res.data.route);
 }
 
 // Toggle (or set) a day's published state.
