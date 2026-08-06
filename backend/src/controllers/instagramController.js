@@ -161,7 +161,7 @@ async function fetchInstagram(req, res) {
   // account's Brand DNA + history and, when an operator has assigned a
   // competitor cohort, that cohort's saved analysis. Fire-and-forget, since
   // planning takes a while and the analyze request shouldn't wait.
-  generateAndSaveRoute(req.user._id, snapshot).catch((err) => {
+  generateAndSaveRoute(req.user._id, snapshot, `analyze-${dataSource}`).catch((err) => {
     console.error(`[instagram] background plan refresh failed for @${username}:`, err.message);
   });
 

@@ -13,15 +13,16 @@ export function getRoutes() {
 }
 
 // (Re)generate this month's plan from the latest Instagram analysis.
-// → { route, expectedWeeks, filling } — `route` is week 0; later weeks fill in behind.
-export function generateRoute() {
-  return client.post('/routes/generate').then((res) => res.data);
+// → { route, expectedWeeks, filling, dataSource, fetchedAt }
+// Optional `trigger` is logged on the server (e.g. replan-month, checkin).
+export function generateRoute(trigger = 'generate') {
+  return client.post('/routes/generate', { trigger }).then((res) => res.data);
 }
 
 // Replan one existing week in place (Brand DNA + projects + cohort + that week's pillar).
 // → { route }
-export function replanWeek(routeId) {
-  return client.post(`/routes/${routeId}/replan`).then((res) => res.data.route);
+export function replanWeek(routeId, trigger = 'replan-week') {
+  return client.post(`/routes/${routeId}/replan`, { trigger }).then((res) => res.data.route);
 }
 
 // Toggle (or set) a day's published state.

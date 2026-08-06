@@ -5,6 +5,7 @@ const InstagramProfile = require('../models/InstagramProfile');
 const { generateWeeklyPlan } = require('../services/weeklyPlan');
 const { loadCompetitorOverviewForUser } = require('./competitorController');
 const { currentProfile } = require('../utils/currentProfile');
+const { findMetaConnectionForUsername } = require('../services/graphInstagram');
 
 // ── Monthly plan config ──────────────────────────────────────────────────────
 // Current calendar month: write only the weeks still ahead (up to 4). Start of
@@ -33,6 +34,67 @@ const nextPillar = (pillar) => {
   const i = PILLAR_ROTATION.indexOf(pillar);
   return PILLAR_ROTATION[(i + 1) % PILLAR_ROTATION.length];
 };
+
+/** Human age of a Date for plan-source logs. */
+function ageLabel(date) {
+  if (!date) return 'unknown age';
+  const ms = Date.now() - new Date(date).getTime();
+  if (ms < 0) return 'just now';
+  const mins = Math.floor(ms / 60000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 48) return `${hrs}h ago`;
+  return `${Math.floor(hrs / 24)}d ago`;
+}
+
+/**
+ * Trace where Instagram inputs for a plan come from. Planning always reads the
+ * saved InstagramProfile snapshot (it does not live-call Apify/Graph) — so we
+ * log the snapshot's origin (`dataSource`) plus whether Meta is connected now.
+ */
+async function logPlanInstagramSource(userId, profile, trigger = 'generate') {
+  const username = profile?.username || '?';
+  const origin = profile?.dataSource || 'unknown';
+  const posts = Array.isArray(profile?.posts) ? profile.posts.length : 0;
+  const hasInsights = Boolean(
+    profile?.insights &&
+      (profile.insights.reach != null ||
+        profile.insights.impressions != null ||
+        profile.insights.profileViews != null ||
+        profile.insights.views != null),
+  );
+  let metaConnected = false;
+  try {
+    metaConnected = Boolean(await findMetaConnectionForUsername(userId, username));
+  } catch (err) {
+    console.warn(`[route] could not check Meta connection for @${username}:`, err.message);
+  }
+
+  // origin = where the saved snapshot was last built; live = Meta link right now.
+  const sourceNote =
+    origin === 'graph'
+      ? 'SAVED snapshot originally from Meta Graph API'
+      : origin === 'apify'
+        ? 'SAVED snapshot originally from Apify scrape'
+        : 'SAVED snapshot (origin unknown — analyze before this field existed)';
+
+  console.log(
+    `[route] ${trigger} @${username} · Instagram input: ${sourceNote}` +
+      ` · fetched ${ageLabel(profile?.fetchedAt)}` +
+      ` · posts=${posts}` +
+      ` · graphInsights=${hasInsights ? 'yes' : 'no'}` +
+      ` · metaConnectedNow=${metaConnected ? 'yes' : 'no'}` +
+      ` · dataSource=${origin}`,
+  );
+
+  if (metaConnected && origin !== 'graph') {
+    console.log(
+      `[route] ${trigger} @${username} · note: Meta is connected but this plan uses an older ` +
+        `${origin === 'apify' ? 'Apify' : 'unknown'} snapshot — re-analyze the handle to refresh via Graph`,
+    );
+  }
+}
 
 /**
  * Mondays still left to plan this calendar month, starting from this week's
@@ -207,7 +269,9 @@ async function finishMonthInBackground(userId, profile, ctx) {
 // Generate the rest of this calendar month (dynamic week count) and schedule the
 // next month as locked placeholders. Returns week 0 as soon as it's saved so
 // the UI can open it while the remaining weeks finish in the background.
-async function generateAndSaveRoute(userId, profile) {
+async function generateAndSaveRoute(userId, profile, trigger = 'generate') {
+  await logPlanInstagramSource(userId, profile, trigger);
+
   const [brandDna, competitorInsights, projects] = await Promise.all([
     loadBrandDna(userId, profile.username),
     loadCohortCompetitorInsights(userId, profile.username).catch((err) => {
@@ -219,6 +283,12 @@ async function generateAndSaveRoute(userId, profile) {
       return [];
     }),
   ]);
+
+  console.log(
+    `[route] ${trigger} @${profile.username} · context: brandDna=${brandDna ? 'yes' : 'no'}` +
+      ` · cohort=${competitorInsights ? 'yes' : 'no'}` +
+      ` · projects=${(projects || []).length}`,
+  );
 
   const weekStarts = remainingWeekStarts();
   const month0Start = weekStarts[0];
@@ -329,12 +399,16 @@ async function generateRoute(req, res) {
       message: 'No Instagram profile found. Connect and analyze a handle before generating a plan.',
     });
   }
+  const trigger = String(req.body?.trigger || req.query?.trigger || 'generate').slice(0, 64);
+  console.log(`[route] POST /routes/generate trigger=${trigger} user=${req.user._id} @${profile.username}`);
   // Returns as soon as week 0 is ready; remaining weeks fill in the background.
-  const { route, expectedWeeks } = await generateAndSaveRoute(req.user._id, profile);
+  const { route, expectedWeeks } = await generateAndSaveRoute(req.user._id, profile, trigger);
   res.json({
     route,
     expectedWeeks: expectedWeeks || null,
     filling: Boolean(expectedWeeks && expectedWeeks > 1),
+    dataSource: profile.dataSource || 'unknown',
+    fetchedAt: profile.fetchedAt || null,
   });
 }
 
@@ -365,6 +439,10 @@ async function replanWeek(req, res) {
   const profile =
     (await InstagramProfile.findOne({ user: req.user._id, username })) || active;
 
+  const trigger = String(req.body?.trigger || req.query?.trigger || 'replan-week').slice(0, 64);
+  console.log(`[route] POST /routes/${existing._id}/replan trigger=${trigger} @${username}`);
+  await logPlanInstagramSource(req.user._id, profile, trigger);
+
   const [brandDna, competitorInsights, projects] = await Promise.all([
     loadBrandDna(req.user._id, username),
     loadCohortCompetitorInsights(req.user._id, username).catch((err) => {
@@ -376,6 +454,12 @@ async function replanWeek(req, res) {
       return [];
     }),
   ]);
+
+  console.log(
+    `[route] ${trigger} @${username} · context: brandDna=${brandDna ? 'yes' : 'no'}` +
+      ` · cohort=${competitorInsights ? 'yes' : 'no'}` +
+      ` · projects=${(projects || []).length}`,
+  );
 
   const weekDate = existing.weekOf || existing.startsAt || mondayOf();
   const focusPillar = existing.focus?.pillar || undefined;

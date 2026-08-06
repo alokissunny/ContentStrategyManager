@@ -262,7 +262,7 @@ export default function YourPlans() {
     setView('gen');
     const startedAt = Date.now();
     try {
-      const data = await generateRoute();
+      const data = await generateRoute('replan-month');
       const route = data.route || data;
       const hold = Math.max(0, 1800 - (Date.now() - startedAt));
       setTimeout(async () => {
@@ -291,7 +291,7 @@ export default function YourPlans() {
         try { await createProject(pending.newProject); } catch { /* non-fatal */ }
       }
       // Backend returns as soon as week 0 is ready; later weeks fill in behind.
-      const data = await generateRoute();
+      const data = await generateRoute('checkin');
       const route = data.route || data;
       const hold = Math.max(0, 1800 - (Date.now() - startedAt));
       setTimeout(async () => {

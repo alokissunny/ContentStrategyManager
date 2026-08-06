@@ -744,7 +744,7 @@ export default function WeekView({ route: initialRoute, onBack }) {
     setReplanning(true);
     setReplanMsg('');
     try {
-      const fresh = await replanWeek(route._id);
+      const fresh = await replanWeek(route._id, 'replan-week');
       if (fresh) {
         setRoute(fresh);
         setSelected(0);
