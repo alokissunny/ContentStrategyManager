@@ -156,8 +156,24 @@ async function fetchViaGraph(userId, username) {
   return { profile, posts, insights, source: 'graph' };
 }
 
+/** Fresh profile_picture_url only — used to repair a broken header avatar. */
+async function fetchGraphProfilePicUrl(userId, username) {
+  const conn = await findMetaConnectionForUsername(userId, username);
+  if (!conn) return '';
+  try {
+    const raw = await graphGet(conn.igUserId, conn.accessToken, {
+      fields: 'profile_picture_url',
+    });
+    return raw.profile_picture_url || '';
+  } catch (err) {
+    console.warn(`[graphInstagram] profile pic refresh failed for @${username}:`, err.message);
+    return '';
+  }
+}
+
 module.exports = {
   findMetaConnectionForUsername,
   fetchViaGraph,
   fetchAccountInsights,
+  fetchGraphProfilePicUrl,
 };

@@ -27,12 +27,22 @@ function handleInitials(username = '') {
 }
 
 function Avatar({ profile, size = 34 }) {
+  const [broken, setBroken] = useState(false);
   const base = {
     width: size, height: size, borderRadius: '50%', flexShrink: 0,
     objectFit: 'cover',
   };
-  if (profile?.profilePicUrl) {
-    return <img src={profile.profilePicUrl} alt="" referrerPolicy="no-referrer" style={{ ...base, border: `1px solid ${LS_BORDER}` }} />;
+  const showImg = profile?.profilePicUrl && !broken;
+  if (showImg) {
+    return (
+      <img
+        src={profile.profilePicUrl}
+        alt=""
+        referrerPolicy="no-referrer"
+        onError={() => setBroken(true)}
+        style={{ ...base, border: `1px solid ${LS_BORDER}` }}
+      />
+    );
   }
   return (
     <div

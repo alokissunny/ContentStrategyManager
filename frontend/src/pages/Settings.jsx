@@ -145,7 +145,23 @@ export default function Settings() {
               >
                 <span className={`set-row__ico ${p.profilePicUrl ? '' : 'set-row__ico--avatar'}`}>
                   {p.profilePicUrl
-                    ? <img src={p.profilePicUrl} alt="" referrerPolicy="no-referrer" style={{ width: '100%', height: '100%', borderRadius: 'inherit', objectFit: 'cover' }} />
+                    ? (
+                      <img
+                        src={p.profilePicUrl}
+                        alt=""
+                        referrerPolicy="no-referrer"
+                        style={{ width: '100%', height: '100%', borderRadius: 'inherit', objectFit: 'cover' }}
+                        onError={(e) => {
+                          e.currentTarget.style.display = 'none';
+                          const parent = e.currentTarget.parentElement;
+                          if (parent && !parent.dataset.fallback) {
+                            parent.dataset.fallback = '1';
+                            parent.classList.add('set-row__ico--avatar');
+                            parent.textContent = handleInitials(p.username);
+                          }
+                        }}
+                      />
+                    )
                     : handleInitials(p.username)}
                 </span>
                 <span className="set-row__main">

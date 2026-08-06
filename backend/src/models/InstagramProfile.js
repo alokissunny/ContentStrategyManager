@@ -24,6 +24,8 @@ const instagramProfileSchema = new mongoose.Schema(
     followingCount: { type: Number, default: 0 },
     postsCount: { type: Number, default: 0 },
     profilePicUrl: { type: String, default: '' },
+    // Durable S3 key for the avatar — Graph/Instagram CDN URLs expire; we re-sign this on read.
+    profilePicKey: { type: String, default: '' },
     isVerified: { type: Boolean, default: false },
     externalUrl: { type: String, default: '' },
     posts: [postSchema],

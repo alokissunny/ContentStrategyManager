@@ -2,9 +2,10 @@ const InstagramProfile = require('../models/InstagramProfile');
 const BrandAnalysisReport = require('../models/BrandAnalysisReport');
 const WeeklyRoute = require('../models/WeeklyRoute');
 const { scrapeProfile, scrapePosts } = require('../services/instagramScraper');
-const { findMetaConnectionForUsername, fetchViaGraph } = require('../services/graphInstagram');
+const { findMetaConnectionForUsername, fetchViaGraph, fetchGraphProfilePicUrl } = require('../services/graphInstagram');
 const { generateBrandAnalysis } = require('../services/brandAnalysis');
-const { uploadMarkdown, getPresignedDownloadUrl } = require('../services/s3Client');
+const { uploadMarkdown, getPresignedDownloadUrl, getPresignedMediaUrl, isS3Configured } = require('../services/s3Client');
+const { cacheProfilePicture } = require('../services/profileAvatar');
 const { computeAuthorityFunnel } = require('../services/authorityFunnel');
 const { buildAnalysisOverview } = require('../services/analysisOverview');
 const { loadCompetitorOverviewForUser } = require('./competitorController');
@@ -28,6 +29,24 @@ function extractUsername(input) {
     .replace(/[/?].*$/, '')
     .trim()
     .toLowerCase();
+}
+
+/** Attach a fresh signed avatar URL when we have a durable S3 key. */
+async function withFreshAvatar(doc) {
+  if (!doc) return doc;
+  const plain = typeof doc.toObject === 'function' ? doc.toObject() : { ...doc };
+  if (plain.profilePicKey && isS3Configured()) {
+    try {
+      plain.profilePicUrl = await getPresignedMediaUrl(plain.profilePicKey);
+    } catch (err) {
+      console.warn(`[avatar] could not sign @${plain.username}:`, err.message);
+    }
+  }
+  return plain;
+}
+
+async function withFreshAvatars(docs) {
+  return Promise.all((docs || []).map((d) => withFreshAvatar(d)));
 }
 
 async function fetchInstagram(req, res) {
@@ -106,6 +125,12 @@ async function fetchInstagram(req, res) {
     });
   }
 
+  // Graph/Instagram CDN avatar URLs expire — cache into S3 so the header doesn't break.
+  let profilePicKey = '';
+  if (profile.profilePicUrl) {
+    profilePicKey = await cacheProfilePicture(req.user._id, username, profile.profilePicUrl);
+  }
+
   // One snapshot per handle. Adding another account creates a new row;
   // re-analyzing an existing handle updates that row and makes it current.
   const snapshot = await InstagramProfile.findOneAndUpdate(
@@ -117,6 +142,7 @@ async function fetchInstagram(req, res) {
       posts,
       dataSource,
       insights: dataSource === 'graph' ? insights || null : null,
+      ...(profilePicKey ? { profilePicKey } : {}),
       fetchedAt: new Date(),
       activatedAt: new Date(),
     },
@@ -165,14 +191,42 @@ async function fetchInstagram(req, res) {
     console.error(`[instagram] background plan refresh failed for @${username}:`, err.message);
   });
 
-  res.json({ profile: snapshot, report, reportError, source: dataSource });
+  res.json({
+    profile: await withFreshAvatar(snapshot),
+    report,
+    reportError,
+    source: dataSource,
+  });
 }
 
 async function getInstagramProfile(req, res) {
   const profiles = await InstagramProfile.find({ user: req.user._id }).sort(CURRENT_SORT);
+
+  // Opportunistically cache any avatar we still only have as a CDN URL (legacy
+  // rows + expired Graph links after a re-fetch will pick this up).
+  await Promise.all(
+    profiles.map(async (p) => {
+      if (p.profilePicKey) return;
+      let url = p.profilePicUrl || '';
+      // Meta CDN URLs expire — pull a fresh one when Insights are connected.
+      if (!url || /fbcdn|cdninstagram|scontent/.test(url)) {
+        const fresh = await fetchGraphProfilePicUrl(req.user._id, p.username);
+        if (fresh) url = fresh;
+      }
+      if (!url) return;
+      const key = await cacheProfilePicture(req.user._id, p.username, url);
+      if (key) {
+        p.profilePicKey = key;
+        p.profilePicUrl = url;
+        await p.save();
+      }
+    }),
+  );
+
+  const hydrated = await withFreshAvatars(profiles);
   // `profile` (the current handle) is kept for backward compatibility; `profiles`
   // lists every handle connected to this account, current one first.
-  res.json({ profile: profiles[0] || null, profiles });
+  res.json({ profile: hydrated[0] || null, profiles: hydrated });
 }
 
 // Make an already-connected handle the current one, so plans, brand profile and
@@ -191,7 +245,8 @@ async function activateInstagram(req, res) {
     return res.status(404).json({ message: 'That Instagram account is not connected to your workspace.' });
   }
   const profiles = await InstagramProfile.find({ user: req.user._id }).sort(CURRENT_SORT);
-  res.json({ profile, profiles });
+  const hydrated = await withFreshAvatars(profiles);
+  res.json({ profile: await withFreshAvatar(profile), profiles: hydrated });
 }
 
 // Authority funnel (Discovery / Credibility / Trust) for the most recently

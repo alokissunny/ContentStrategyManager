@@ -88,6 +88,20 @@ async function uploadMarkdown(key, content) {
   return key;
 }
 
+/** Upload raw bytes (e.g. a profile avatar fetched from Instagram/Graph). */
+async function uploadBytes(key, body, contentType = 'application/octet-stream') {
+  const s3 = getS3Client();
+  await s3.send(
+    new PutObjectCommand({
+      Bucket: process.env.S3_BUCKET_NAME,
+      Key: key,
+      Body: body,
+      ContentType: contentType,
+    })
+  );
+  return key;
+}
+
 async function getPresignedDownloadUrl(key) {
   const s3 = getS3Client();
   const expiresIn = Number(process.env.S3_REPORT_PRESIGN_EXPIRY_SECONDS) || 3600;
@@ -103,6 +117,7 @@ async function getObjectText(key) {
 
 module.exports = {
   uploadMarkdown,
+  uploadBytes,
   getPresignedDownloadUrl,
   getObjectText,
   isS3Configured,
