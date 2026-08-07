@@ -27,6 +27,20 @@ export function moveCapture(projectId, captureId, toProjectId) {
   return client.post(`/projects/${projectId}/captures/${captureId}/move`, { toProjectId }).then((r) => r.data);
 }
 
+// AI asset analysis — vision-model metadata stored on each image attachment.
+// analyzeProject runs every image asset (pass { force: true } to re-run ones
+// already analysed); analyzeAsset runs (or re-runs) a single asset.
+export function analyzeProject(projectId, { force = false } = {}) {
+  return client
+    .post(`/projects/${projectId}/analyze`, { force })
+    .then((r) => ({ project: r.data.project, analyzed: r.data.analyzed, usage: r.data.usage }));
+}
+export function analyzeAsset(projectId, captureId, attachmentId) {
+  return client
+    .post(`/projects/${projectId}/captures/${captureId}/attachments/${attachmentId}/analyze`)
+    .then((r) => r.data.project);
+}
+
 // Presign a batch of uploads, then PUT each file straight to S3. Returns
 // attachment descriptors { type, key } for the capture, plus a local objectURL
 // for instant preview before the server round-trip.

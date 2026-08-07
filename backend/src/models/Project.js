@@ -1,11 +1,37 @@
 const mongoose = require('mongoose');
 
+// AI-derived metadata for one asset — filled in on demand when the user runs
+// "Analyze with AI". `status` tracks the run so the UI can show a spinner /
+// error and re-analysis. The descriptive fields are best-effort: the model may
+// leave some empty, so nothing here is required.
+const analysisSchema = new mongoose.Schema(
+  {
+    status: { type: String, enum: ['pending', 'done', 'error'], default: 'pending' },
+    summary: { type: String, default: '' }, // one-line caption
+    description: { type: String, default: '' }, // a fuller paragraph
+    tags: { type: [String], default: [] }, // keywords for search / planning
+    colors: { type: [String], default: [] }, // dominant colours (names or hex)
+    mood: { type: String, default: '' }, // overall feeling / tone
+    subjects: { type: [String], default: [] }, // main objects / people / scene
+    text: { type: String, default: '' }, // any legible text in the image
+    model: { type: String, default: '' }, // which model produced this
+    inputTokens: { type: Number, default: 0 }, // vision-request input tokens (image + prompt)
+    outputTokens: { type: Number, default: 0 }, // response tokens
+    costUsd: { type: Number, default: 0 }, // approximate USD cost of this analysis
+    error: { type: String, default: '' }, // message when status === 'error'
+    analyzedAt: { type: Date, default: null },
+  },
+  { _id: false }
+);
+
 // One media file on a capture. Stored as an S3 object key; the API serves a
-// short-lived presigned URL for it, never the key's public address.
+// short-lived presigned URL for it, never the key's public address. `analysis`
+// holds the AI-derived metadata once it has been run for this asset.
 const attachmentSchema = new mongoose.Schema(
   {
     type: { type: String, enum: ['image', 'video'], required: true },
     key: { type: String, required: true }, // S3 object key
+    analysis: { type: analysisSchema, default: null },
   },
   { _id: true }
 );

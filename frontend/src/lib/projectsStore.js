@@ -103,6 +103,16 @@ export async function moveEntry(fromId, toId, entryId) {
   upsert(from);
   upsert(to);
 }
+// AI analysis — the server returns the whole project with each analysed
+// attachment's `analysis` populated, so we just reconcile the cache to it.
+export async function analyzeProjectAssets(projectId, opts) {
+  const { project, analyzed, usage } = await api.analyzeProject(projectId, opts);
+  upsert(project);
+  return { analyzed, usage };
+}
+export async function analyzeAsset(projectId, captureId, attachmentId) {
+  upsert(await api.analyzeAsset(projectId, captureId, attachmentId));
+}
 
 /* ── read helpers (pure) ────────────────────────────────────────────────── */
 export function coverOf(p) {

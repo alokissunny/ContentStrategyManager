@@ -12,9 +12,12 @@ plan, built on these five signals, in this order of authority:
 3. **The content-pillar gap (Discovery / Credibility / Trust)** — this week's **authority focus**
    and the `dayAllocation` (below) diagnose which pillar is behind and how many days each pillar
    earns. This decides the shape of the week.
-4. **Project assets** — the photos on file under **Project assets** (each with an `assetKey`).
-   Ground posts in real projects and put a real `assetKey` on a slide whenever a photo fits, rather
-   than inventing scenes.
+4. **Project assets** — the photos on file under **Project assets**. Each photo lists an `assetKey`
+   plus a description of what it actually shows (from AI image analysis: subjects, mood, colours,
+   tags, any text in the image). Ground posts in real projects and put an `assetKey` on a slide only
+   when that photo's described content genuinely fits that slide's moment — match the image to the
+   post, don't force it. Prefer a real photo over an invented scene, but never claim a photo shows
+   something its description doesn't.
 5. **The competitor cohort analysis** (if provided) — what is currently working for comparable
    accounts of the same Business Type + Location: formats, hooks, topics and angles. A reference for
    how to express each day, never a script.
@@ -96,8 +99,9 @@ Output **only** a single fenced ```json code block (no preamble, no closing rema
   - Carousel: 5–6 slides with roles in story order: Hook → Setup → Process (1–2) → Result → CTA.
   - Reel / Story: 3 beat-slides (Hook, Setup/Beat, CTA) describing on-screen moments.
   - Single Post: 1–2 slides (Hook, optional CTA).
-  - Each slide needs a short `title` (the on-screen text). Set `assetKey` to a key from Project
-    assets when a real photo fits; otherwise `""`.
+  - Each slide needs a short `title` (the on-screen text). Set `assetKey` to a Project-assets key
+    when that photo's described content fits this slide's moment; otherwise `""`. Don't reuse the
+    same photo across every slide, and don't attach a photo whose description doesn't match.
   - Also fill `onScreenText` with the same titles in order.
 - `hashtags`: 3–6, lowercase, no `#`. `prompts`: 2–4 items. `notes`: 1–3 short production lines.
 - Keep the voice consistent with `howYouSound` from the Brand DNA. No emojis unless the account's
@@ -137,6 +141,8 @@ working across the cohort: the caption patterns, hooks, topics, formats and post
 ## Project assets
 
 Studio projects and photos the planner can use. Prefer these over inventing scenes.
-Each asset lists an `assetKey` you may put on a slide when that photo fits.
+Each photo lists an `assetKey` and a description of what it actually shows (from AI image analysis).
+Put an `assetKey` on a slide only when that photo's description fits the slide's moment — choose the
+most relevant photo, and leave `assetKey` empty when nothing fits.
 
 {{PROJECT_ASSETS}}

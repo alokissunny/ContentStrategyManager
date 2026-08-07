@@ -115,11 +115,21 @@ async function getObjectText(key) {
   return result.Body.transformToString();
 }
 
+// Fetch the raw bytes of a stored object (e.g. an image to send to a vision
+// model). Returns the buffer plus the object's stored Content-Type.
+async function getObjectBytes(key) {
+  const s3 = getS3Client();
+  const result = await s3.send(new GetObjectCommand({ Bucket: process.env.S3_BUCKET_NAME, Key: key }));
+  const bytes = await result.Body.transformToByteArray();
+  return { buffer: Buffer.from(bytes), contentType: result.ContentType || 'application/octet-stream' };
+}
+
 module.exports = {
   uploadMarkdown,
   uploadBytes,
   getPresignedDownloadUrl,
   getObjectText,
+  getObjectBytes,
   isS3Configured,
   getPresignedUploadUrl,
   getPresignedMediaUrl,

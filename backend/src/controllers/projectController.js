@@ -7,10 +7,31 @@ const {
   getPresignedMediaUrl,
   deleteObjects,
 } = require('../services/s3Client');
+const { analyzeImageAsset } = require('../services/imageAnalysis');
 
 // ── serialization ─────────────────────────────────────────────────────────
 // The DB stores S3 object keys; the client receives short-lived presigned read
 // URLs (and the key, so it can echo an existing attachment back on an edit).
+
+function serializeAnalysis(an) {
+  if (!an) return null;
+  return {
+    status: an.status,
+    summary: an.summary || '',
+    description: an.description || '',
+    tags: an.tags || [],
+    colors: an.colors || [],
+    mood: an.mood || '',
+    subjects: an.subjects || [],
+    text: an.text || '',
+    model: an.model || '',
+    inputTokens: an.inputTokens || 0,
+    outputTokens: an.outputTokens || 0,
+    costUsd: an.costUsd || 0,
+    error: an.error || '',
+    analyzedAt: an.analyzedAt || null,
+  };
+}
 
 async function serializeAttachment(a) {
   let url = '';
@@ -21,7 +42,7 @@ async function serializeAttachment(a) {
       console.error('[projects] could not presign', a.key, err.message);
     }
   }
-  return { id: a._id.toString(), type: a.type, key: a.key, url, thumbnailUrl: url };
+  return { id: a._id.toString(), type: a.type, key: a.key, url, thumbnailUrl: url, analysis: serializeAnalysis(a.analysis) };
 }
 
 async function serializeCapture(c) {
@@ -162,7 +183,10 @@ async function updateCapture(req, res) {
     const nextKeys = new Set(next.map((a) => a.key));
     // objects dropped from the note are removed from the bucket too
     await deleteObjects(captureKeys(capture).filter((k) => !nextKeys.has(k)));
-    capture.attachments = next;
+    // carry any existing AI analysis across the edit — a re-uploaded client
+    // payload only carries { type, key }, so re-key it from what we hold
+    const priorAnalysis = new Map((capture.attachments || []).map((a) => [a.key, a.analysis]));
+    capture.attachments = next.map((a) => (priorAnalysis.get(a.key) ? { ...a, analysis: priorAnalysis.get(a.key) } : a));
   }
   await project.save();
   res.json({ project: await serializeProject(project) });
@@ -196,6 +220,91 @@ async function moveCapture(req, res) {
   res.json({ from: await serializeProject(from), to: await serializeProject(to) });
 }
 
+// ── AI asset analysis ──────────────────────────────────────────────────────
+// Run one image asset through the vision model and store the result on the
+// attachment. Mutates `attachment.analysis` in place and returns nothing; the
+// caller saves the project. Errors are captured onto the analysis record so a
+// bulk run over many assets never fails as a whole because one image was bad.
+async function runAssetAnalysis(attachment) {
+  if (attachment.type !== 'image') {
+    attachment.analysis = { status: 'error', error: 'Only images can be analysed', analyzedAt: new Date() };
+    return;
+  }
+  try {
+    const result = await analyzeImageAsset(attachment.key, { type: attachment.type });
+    attachment.analysis = { status: 'done', ...result, error: '', analyzedAt: new Date() };
+  } catch (err) {
+    console.error('[projects] analysis failed for', attachment.key, err.message);
+    attachment.analysis = {
+      status: 'error',
+      error: err.message || 'Analysis failed',
+      analyzedAt: new Date(),
+    };
+  }
+}
+
+// POST /projects/:id/captures/:captureId/attachments/:attachmentId/analyze
+// Analyse a single asset (re-runs even if already analysed).
+async function analyzeAsset(req, res) {
+  if (!process.env.ANTHROPIC_API_KEY) {
+    return res.status(503).json({ message: 'AI analysis is not configured (set ANTHROPIC_API_KEY).' });
+  }
+  const project = await Project.findOne({ _id: req.params.id, user: req.user._id });
+  if (!project) return res.status(404).json({ message: 'Project not found' });
+  const capture = project.captures.id(req.params.captureId);
+  if (!capture) return res.status(404).json({ message: 'Capture not found' });
+  const attachment = capture.attachments.id(req.params.attachmentId);
+  if (!attachment) return res.status(404).json({ message: 'Asset not found' });
+
+  await runAssetAnalysis(attachment);
+  await project.save();
+  res.json({ project: await serializeProject(project) });
+}
+
+// POST /projects/:id/analyze — analyse every image asset in the project.
+// By default only assets without a completed analysis are (re)run; pass
+// { force: true } to re-analyse all of them. Video assets are skipped.
+async function analyzeProject(req, res) {
+  if (!process.env.ANTHROPIC_API_KEY) {
+    return res.status(503).json({ message: 'AI analysis is not configured (set ANTHROPIC_API_KEY).' });
+  }
+  const project = await Project.findOne({ _id: req.params.id, user: req.user._id });
+  if (!project) return res.status(404).json({ message: 'Project not found' });
+
+  const force = Boolean(req.body && req.body.force);
+  const targets = [];
+  for (const capture of project.captures) {
+    for (const a of capture.attachments || []) {
+      if (a.type !== 'image') continue;
+      if (!force && a.analysis && a.analysis.status === 'done') continue;
+      targets.push(a);
+    }
+  }
+
+  // Run sequentially to stay gentle on the vision API's rate limits; errors are
+  // recorded per-asset by runAssetAnalysis, so one bad image won't abort the run.
+  for (const a of targets) {
+    // eslint-disable-next-line no-await-in-loop
+    await runAssetAnalysis(a);
+  }
+  await project.save();
+
+  // Totals for this run — what the studio just spent analysing these assets.
+  const usage = targets.reduce(
+    (acc, a) => {
+      if (a.analysis?.status === 'done') {
+        acc.inputTokens += a.analysis.inputTokens || 0;
+        acc.outputTokens += a.analysis.outputTokens || 0;
+        acc.costUsd += a.analysis.costUsd || 0;
+      }
+      return acc;
+    },
+    { inputTokens: 0, outputTokens: 0, costUsd: 0 }
+  );
+
+  res.json({ project: await serializeProject(project), analyzed: targets.length, usage });
+}
+
 module.exports = {
   signUploads,
   listProjects,
@@ -206,4 +315,6 @@ module.exports = {
   updateCapture,
   deleteCapture,
   moveCapture,
+  analyzeAsset,
+  analyzeProject,
 };

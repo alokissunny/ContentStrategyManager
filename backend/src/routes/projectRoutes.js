@@ -11,6 +11,8 @@ const {
   updateCapture,
   deleteCapture,
   moveCapture,
+  analyzeAsset,
+  analyzeProject,
 } = require('../controllers/projectController');
 
 const router = express.Router();
@@ -28,5 +30,9 @@ router.post('/:id/captures', asyncHandler(addCapture));
 router.patch('/:id/captures/:captureId', asyncHandler(updateCapture));
 router.delete('/:id/captures/:captureId', asyncHandler(deleteCapture));
 router.post('/:id/captures/:captureId/move', asyncHandler(moveCapture));
+
+// AI analysis — one asset, or every image asset in the project.
+router.post('/:id/analyze', asyncHandler(analyzeProject));
+router.post('/:id/captures/:captureId/attachments/:attachmentId/analyze', asyncHandler(analyzeAsset));
 
 module.exports = router;

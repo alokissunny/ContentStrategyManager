@@ -20,6 +20,7 @@ import ScrollJump from './checkin/ScrollJump';
 import {
   useProjects, useProjectsHydrated, createProject, renameProject, deleteProject,
   addEntry, updateEntry, deleteEntry, moveEntry,
+  analyzeProjectAssets, analyzeAsset,
   coverOf, groupByWeek, fmtWhen, uploadFiles,
 } from '../lib/projectsStore';
 import './projects.css';
@@ -39,6 +40,105 @@ function MediaStrip({ attachments, max = 4 }) {
         </span>
       ))}
       {extra > 0 && <span className="ms__thumb ms__more">+{extra}</span>}
+    </div>
+  );
+}
+
+/* ── AI analysis — the metadata Bauhly reads off one asset ──────────────── */
+const isHex = (c) => /^#?[0-9a-fA-F]{3,8}$/.test((c || '').trim());
+
+// Compact token count (1,240 → "1.2k") and a cost that never rounds a real
+// spend down to "$0.00" — tiny per-asset costs show more decimals instead.
+function fmtTokens(n) {
+  if (!n) return '0';
+  if (n < 1000) return String(n);
+  return `${(n / 1000).toFixed(1)}k`;
+}
+function fmtUsd(n) {
+  const v = Number(n) || 0;
+  if (v === 0) return '$0.00';
+  if (v < 0.01) return `$${v.toFixed(4)}`;
+  return `$${v.toFixed(2)}`;
+}
+function Chips({ items }) {
+  return (
+    <div className="aa__chips">
+      {items.map((t, i) => <span className="aa__chip" key={i}>{t}</span>)}
+    </div>
+  );
+}
+
+/* The analysis of a single asset, shown when its "i" is tapped. Handles the
+ * three states an asset can be in: never analysed, in flight, done/errored. */
+function AssetAnalysis({ analysis, busy, onAnalyze, onClose }) {
+  const a = analysis;
+  const done = a && a.status === 'done';
+  return (
+    <div className="aa" role="dialog" aria-modal="true" aria-label="Asset analysis">
+      <div className="aa__scrim" onClick={onClose} />
+      <div className="aa__card">
+        <header className="aa__head">
+          <span className="aa__title"><Icon name="sparkle" size={15} /> AI analysis</span>
+          <button className="np__close" onClick={onClose} aria-label="Close"><Icon name="x" size={15} strokeWidth={2.25} /></button>
+        </header>
+
+        <div className="aa__body">
+          {busy && (
+            <div className="aa__state"><span className="pj-spin pj-spin--lg" aria-hidden="true" /><span>Analysing this asset…</span></div>
+          )}
+          {!busy && !a && (
+            <div className="aa__state aa__state--empty">
+              <p>This asset hasn’t been analysed yet.</p>
+              <button className="btn btn--primary btn--sm" onClick={onAnalyze}><Icon name="sparkle" size={15} /> Analyse now</button>
+            </div>
+          )}
+          {!busy && a && a.status === 'error' && (
+            <div className="aa__state aa__state--err">
+              <p>{a.error || 'Analysis failed.'}</p>
+              <button className="btn btn--tertiary btn--sm" onClick={onAnalyze}>Try again</button>
+            </div>
+          )}
+          {!busy && done && (
+            <>
+              {a.summary && <p className="aa__summary">{a.summary}</p>}
+              {a.description && <p className="aa__desc">{a.description}</p>}
+              {a.mood && <div className="aa__row"><span className="aa__label">Mood</span><span>{a.mood}</span></div>}
+              {a.subjects?.length > 0 && <div className="aa__row aa__row--col"><span className="aa__label">Subjects</span><Chips items={a.subjects} /></div>}
+              {a.tags?.length > 0 && <div className="aa__row aa__row--col"><span className="aa__label">Tags</span><Chips items={a.tags} /></div>}
+              {a.colors?.length > 0 && (
+                <div className="aa__row aa__row--col">
+                  <span className="aa__label">Colours</span>
+                  <div className="aa__chips">
+                    {a.colors.map((c, i) => (
+                      <span className="aa__chip aa__chip--color" key={i}>
+                        {isHex(c) && <span className="aa__swatch" style={{ background: c.startsWith('#') ? c : `#${c}` }} />}
+                        {c}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {a.text && <div className="aa__row aa__row--col"><span className="aa__label">Text in image</span><span className="aa__text">“{a.text}”</span></div>}
+              {(a.inputTokens > 0 || a.outputTokens > 0) && (
+                <div className="aa__row aa__usage">
+                  <span className="aa__label">Cost</span>
+                  <span className="aa__usageval">
+                    <b>~{fmtUsd(a.costUsd)}</b>
+                    <span className="aa__usagesub">
+                      {fmtTokens((a.inputTokens || 0) + (a.outputTokens || 0))} tokens
+                      {' · '}{fmtTokens(a.inputTokens)} in / {fmtTokens(a.outputTokens)} out
+                      {a.model ? ` · ${a.model}` : ''}
+                    </span>
+                  </span>
+                </div>
+              )}
+              <div className="aa__foot">
+                <button className="btn btn--quiet btn--sm" onClick={onAnalyze}><Icon name="refresh" size={14} /> Re-analyse</button>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
@@ -117,6 +217,8 @@ function EntryCard({ entry, others, onOpen, onMove, onDelete }) {
 /* ── the full entry, in a side panel with a lightbox ───────────────────── */
 export function EntryPanel({ project, entry, week, onClose }) {
   const [light, setLight] = useState(null); // index into attachments, or null
+  const [analysisFor, setAnalysisFor] = useState(null); // index whose analysis is open
+  const [analyzingId, setAnalyzingId] = useState(null); // attachment id in flight
   const atts = entry.attachments || [];
 
   useEffect(() => {
@@ -141,6 +243,16 @@ export function EntryPanel({ project, entry, week, onClose }) {
     }
   };
   const current = light !== null ? atts[light] : null;
+  const analysisAtt = analysisFor !== null ? atts[analysisFor] : null;
+
+  const runAnalysis = async (att) => {
+    setAnalyzingId(att.id);
+    try {
+      await analyzeAsset(project.id, entry.id, att.id);
+    } finally {
+      setAnalyzingId(null);
+    }
+  };
 
   return (
     <>
@@ -167,14 +279,29 @@ export function EntryPanel({ project, entry, week, onClose }) {
           />
 
           <div className="np__grid">
-            {atts.map((a, i) => (
-              <button className="np__cell" key={a.id} onClick={() => setLight(i)} aria-label={`Open ${a.type} ${i + 1} of ${atts.length}`}>
-                <span className="np__cellmedia">
-                  <img src={a.thumbnailUrl} alt="" loading="lazy" onError={(e) => { e.target.style.visibility = 'hidden'; }} />
-                  {a.type === 'video' && <span className="ms__play"><Icon name="play" size={18} /></span>}
-                </span>
-              </button>
-            ))}
+            {atts.map((a, i) => {
+              const state = a.analysis?.status; // undefined | 'done' | 'error' | 'pending'
+              return (
+                <div className="np__cell" key={a.id}>
+                  <button className="np__cellopen" onClick={() => setLight(i)} aria-label={`Open ${a.type} ${i + 1} of ${atts.length}`}>
+                    <span className="np__cellmedia">
+                      <img src={a.thumbnailUrl} alt="" loading="lazy" onError={(e) => { e.target.style.visibility = 'hidden'; }} />
+                      {a.type === 'video' && <span className="ms__play"><Icon name="play" size={18} /></span>}
+                    </span>
+                  </button>
+                  {a.type === 'image' && (
+                    <button
+                      className={`np__info${state === 'done' ? ' is-done' : ''}${state === 'error' ? ' is-err' : ''}`}
+                      onClick={(e) => { e.stopPropagation(); setAnalysisFor(i); }}
+                      aria-label={state === 'done' ? 'Show AI analysis' : 'Analyse this asset'}
+                      title={state === 'done' ? 'AI analysis' : 'Analyse with AI'}
+                    >
+                      <Icon name="info" size={15} />
+                    </button>
+                  )}
+                </div>
+              );
+            })}
             <label className={`np__add ${uploading ? 'is-busy' : ''}`} aria-busy={uploading}>
               {uploading ? <span className="pj-spin" /> : <Icon name="plus" size={20} strokeWidth={2.5} />}
               <span>{uploading ? 'Uploading…' : 'Add'}</span>
@@ -204,6 +331,15 @@ export function EntryPanel({ project, entry, week, onClose }) {
             <button className="lb__nav lb__nav--next" onClick={() => setLight((i) => (i + 1) % atts.length)} aria-label="Next"><Icon name="arrow-right" size={22} /></button>
           )}
         </div>
+      )}
+
+      {analysisAtt && (
+        <AssetAnalysis
+          analysis={analysisAtt.analysis}
+          busy={analyzingId === analysisAtt.id}
+          onAnalyze={() => runAnalysis(analysisAtt)}
+          onClose={() => setAnalysisFor(null)}
+        />
       )}
     </>
   );
@@ -825,9 +961,36 @@ function ProjectDetail({ project, projects, onBack }) {
   const [uploading, setUploading] = useState(false);
   const [uploadLabel, setUploadLabel] = useState('');
   const [uploadError, setUploadError] = useState('');
+  const [analyzing, setAnalyzing] = useState(false);
+  const [analyzeMsg, setAnalyzeMsg] = useState('');
   const others = projects.filter((p) => p.id !== project.id);
   const groups = groupByWeek(project.captures);
   const openEntry = open && project.captures.find((e) => e.id === open);
+
+  // How many image assets exist, and how many still lack an analysis — drives
+  // the "Analyze with AI" button label and whether it's worth showing.
+  const imageAtts = project.captures.flatMap((c) => (c.attachments || []).filter((a) => a.type === 'image'));
+  const unanalyzed = imageAtts.filter((a) => a.analysis?.status !== 'done').length;
+
+  async function runProjectAnalysis() {
+    if (analyzing || imageAtts.length === 0) return;
+    setAnalyzeMsg('');
+    setAnalyzing(true);
+    try {
+      const { analyzed, usage } = await analyzeProjectAssets(project.id);
+      const n = analyzed ?? unanalyzed;
+      const tokens = (usage?.inputTokens || 0) + (usage?.outputTokens || 0);
+      const cost = usage?.costUsd || 0;
+      const spend = tokens
+        ? ` — ${fmtTokens(tokens)} tokens, ~${fmtUsd(cost)}.`
+        : '.';
+      setAnalyzeMsg(`Analysed ${n} ${n === 1 ? 'asset' : 'assets'}${spend} Tap the ⓘ on any image to see its analysis.`);
+    } catch (err) {
+      setAnalyzeMsg(err?.response?.data?.message || err?.message || 'Analysis failed. Please try again.');
+    } finally {
+      setAnalyzing(false);
+    }
+  }
 
   // Add photos/clips straight to the project — no note required. The capture is
   // filed with the files and empty text (the backend allows a file-only capture).
@@ -877,6 +1040,17 @@ function ProjectDetail({ project, projects, onBack }) {
             <button className="btn btn--tertiary btn--sm pd__edit" onClick={() => setEditing(true)} disabled={uploading}>
               <Icon name="edit" size={15} strokeWidth={2} /> Edit
             </button>
+            {imageAtts.length > 0 && (
+              <button
+                className={`btn btn--tertiary btn--sm pd__analyze${analyzing ? ' is-busy' : ''}`}
+                onClick={runProjectAnalysis}
+                disabled={uploading || analyzing}
+                title="Run AI analysis on every image in this project"
+              >
+                {analyzing ? <span className="pj-spin" aria-hidden="true" /> : <Icon name="sparkle" size={15} strokeWidth={2} />}
+                {analyzing ? 'Analysing…' : unanalyzed > 0 ? `Analyse ${unanalyzed} with AI` : 'Re-analyse with AI'}
+              </button>
+            )}
             <label className={`btn btn--tertiary btn--sm pd__addfiles${uploading ? ' is-busy' : ''}`}>
               {uploading ? <span className="pj-spin" aria-hidden="true" /> : <Icon name="image" size={15} strokeWidth={2} />}
               {uploading ? 'Uploading…' : 'Add files'}
@@ -890,6 +1064,19 @@ function ProjectDetail({ project, projects, onBack }) {
 
         {uploadError && (
           <p className="pd__upload-err" role="alert">{uploadError}</p>
+        )}
+
+        {(analyzing || analyzeMsg) && (
+          <div className="pd__analyze-note" role="status" aria-live="polite" aria-busy={analyzing}>
+            {analyzing ? (
+              <>
+                <span className="pj-spin" aria-hidden="true" />
+                <span>Analysing images with AI — this can take a moment per asset.</span>
+              </>
+            ) : (
+              <><Icon name="sparkle" size={15} /> <span>{analyzeMsg}</span></>
+            )}
+          </div>
         )}
 
         {uploading && project.captures.length > 0 && (

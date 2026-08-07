@@ -3,6 +3,7 @@ const BrandAnalysisReport = require('../models/BrandAnalysisReport');
 const Project = require('../models/Project');
 const InstagramProfile = require('../models/InstagramProfile');
 const { generateWeeklyPlan } = require('../services/weeklyPlan');
+const { analyzeImageAsset } = require('../services/imageAnalysis');
 const { loadCompetitorOverviewForUser } = require('./competitorController');
 const { currentProfile } = require('../utils/currentProfile');
 const { findMetaConnectionForUsername } = require('../services/graphInstagram');
@@ -150,10 +151,56 @@ async function loadBrandDna(userId, username) {
 // Scoped to the handle the plan is for, so each account grounds on its own
 // projects. Legacy projects (unassigned to a handle) are still included until
 // they're adopted into an account on the next Projects page load.
+// Cap auto-analysis per plan run so a large library doesn't blow up latency/cost
+// on a single generation; the rest get analysed on later runs (or on demand).
+const MAX_AUTO_ANALYZE = Number(process.env.PLAN_AUTO_ANALYZE_LIMIT) || 16;
+
+// Make sure the project images the planner sees actually carry vision context.
+// Any image that has never been analysed is run through the vision model and the
+// result is saved back onto the Project — so the planner (and the post UI) can
+// match a relevant photo instead of guessing. Bounded and best-effort: one bad
+// image or a missing API key never blocks plan generation.
+async function ensureProjectImagesAnalyzed(projects) {
+  if (!process.env.ANTHROPIC_API_KEY) return;
+  let budget = MAX_AUTO_ANALYZE;
+  for (const p of projects) {
+    if (budget <= 0) break;
+    let dirty = false;
+    for (const c of p.captures || []) {
+      for (const a of c.attachments || []) {
+        if (budget <= 0) break;
+        if (a.type !== 'image' || !a.key) continue;
+        if (a.analysis && a.analysis.status === 'done') continue;
+        budget -= 1;
+        try {
+          // eslint-disable-next-line no-await-in-loop
+          const result = await analyzeImageAsset(a.key, { type: a.type });
+          a.analysis = { status: 'done', ...result, error: '', analyzedAt: new Date() };
+          dirty = true;
+        } catch (err) {
+          console.error('[route] auto-analyse failed for', a.key, err.message);
+          a.analysis = { status: 'error', error: err.message || 'Analysis failed', analyzedAt: new Date() };
+          dirty = true;
+        }
+      }
+    }
+    if (dirty) {
+      try {
+        // eslint-disable-next-line no-await-in-loop
+        await p.save();
+      } catch (err) {
+        console.error('[route] could not persist auto-analysis for project', p._id?.toString(), err.message);
+      }
+    }
+  }
+}
+
 async function loadProjectAssets(userId, username) {
   const filter = { user: userId };
   if (username) filter.instagramUsername = { $in: [username, null, ''] };
   const projects = await Project.find(filter).sort({ updatedAt: -1 }).limit(12);
+  // Fill in any missing image analysis before reading the assets back.
+  await ensureProjectImagesAnalyzed(projects);
   return projects.map((p) => {
     const notes = [];
     const assets = [];
@@ -161,7 +208,24 @@ async function loadProjectAssets(userId, username) {
       if (c.text?.trim()) notes.push(c.text.trim().slice(0, 280));
       for (const a of c.attachments || []) {
         if (a.type === 'image' && a.key) {
-          assets.push({ key: a.key, note: (c.text || '').trim().slice(0, 120) });
+          // Fold in the AI image-analysis metadata (see imageAnalysis service) so
+          // the planner can pick a genuinely relevant photo per post, not just a
+          // random key. Only surface a completed analysis; keep it compact.
+          const an = a.analysis && a.analysis.status === 'done' ? a.analysis : null;
+          assets.push({
+            key: a.key,
+            note: (c.text || '').trim().slice(0, 120),
+            vision: an
+              ? {
+                  summary: an.summary || '',
+                  subjects: (an.subjects || []).slice(0, 8),
+                  tags: (an.tags || []).slice(0, 10),
+                  colors: (an.colors || []).slice(0, 6),
+                  mood: an.mood || '',
+                  text: (an.text || '').slice(0, 120),
+                }
+              : null,
+          });
         }
       }
     }
@@ -215,6 +279,7 @@ async function finishMonthInBackground(userId, profile, ctx) {
     weekStarts,
     monthFocus,
     month1Start,
+    usedAssetKeys,
   } = ctx;
   const username = profile.username;
 
@@ -238,6 +303,7 @@ async function finishMonthInBackground(userId, profile, ctx) {
           const plan = await generateWeeklyPlan(profile, brandDna, competitorInsights, projects, {
             weekDate,
             focusPillar: monthFocus,
+            usedAssetKeys, // shared across the month so no photo repeats between weeks
           });
           await saveWeek(userId, username, plan, weekMeta(w, weekDate, false));
         } catch (err) {
@@ -294,12 +360,19 @@ async function generateAndSaveRoute(userId, profile, trigger = 'generate') {
   const month0Start = weekStarts[0];
   const month1Start = firstMondayOfNextMonth(new Date());
 
+  // One shared image-claim set for the whole month: an image assigned to any
+  // slide on any day of any week can't be assigned again — no photo repeats
+  // within a post or across the monthly plan. Week 0 claims first, then the
+  // background weeks claim what's left.
+  const usedAssetKeys = new Set();
+
   // Write week 0 BEFORE clearing the old plan: if the model call fails here, the
   // studio keeps their existing plan rather than losing it to a failed regen.
   let week0Plan;
   try {
     week0Plan = await generateWeeklyPlan(profile, brandDna, competitorInsights, projects, {
       weekDate: month0Start,
+      usedAssetKeys,
     });
   } catch (err) {
     console.error(`[route] month0 week 0 generation failed for @${profile.username}:`, err.message);
@@ -335,6 +408,7 @@ async function generateAndSaveRoute(userId, profile, trigger = 'generate') {
     weekStarts,
     monthFocus,
     month1Start,
+    usedAssetKeys,
   }).catch((err) => {
     console.error(`[route] background month finish failed for @${profile.username}:`, err.message);
   });
@@ -464,11 +538,33 @@ async function replanWeek(req, res) {
   const weekDate = existing.weekOf || existing.startsAt || mondayOf();
   const focusPillar = existing.focus?.pillar || undefined;
 
+  // Seed the image-claim set with photos the *other* weeks of this month already
+  // use, so a replanned week doesn't reuse an image that's live elsewhere in the
+  // monthly plan. The week being replanned is excluded (its own images are freed).
+  const usedAssetKeys = new Set();
+  if (existing.monthKey) {
+    const siblings = await WeeklyRoute.find({
+      user: req.user._id,
+      instagramUsername: username,
+      monthKey: existing.monthKey,
+      draft: false,
+      _id: { $ne: existing._id },
+    });
+    for (const s of siblings) {
+      for (const d of s.days || []) {
+        for (const sl of d.content?.slides || []) {
+          if (sl.assetKey) usedAssetKeys.add(sl.assetKey);
+        }
+      }
+    }
+  }
+
   let plan;
   try {
     plan = await generateWeeklyPlan(profile, brandDna, competitorInsights, projects, {
       weekDate,
       focusPillar,
+      usedAssetKeys,
     });
   } catch (err) {
     console.error(`[route] replan failed for @${username} week ${weekDate}:`, err.message);

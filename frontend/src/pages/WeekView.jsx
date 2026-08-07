@@ -286,6 +286,25 @@ function dayDateLabel(day) {
   return `${day.day}, ${day.dateLabel}`;
 }
 
+// The searchable text that describes what an image shows — its AI analysis
+// (summary, subjects, tags, mood, in-image text) plus the capture note. This is
+// what lets a standing-in image be chosen by relevance instead of at random.
+function imageKeywords(analysis, note) {
+  const a = analysis && analysis.status === 'done' ? analysis : null;
+  return [
+    a?.summary,
+    a?.description,
+    ...(a?.subjects || []),
+    ...(a?.tags || []),
+    a?.mood,
+    a?.text,
+    note,
+  ]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase();
+}
+
 function collectProjectImages(projects) {
   const images = [];
   for (const p of projects || []) {
@@ -298,12 +317,34 @@ function collectProjectImages(projects) {
             thumb: a.thumbnailUrl || a.url,
             projectName: p.name,
             note: e.text || '',
+            analyzed: a.analysis?.status === 'done',
+            keywords: imageKeywords(a.analysis, e.text),
           });
         }
       }
     }
   }
   return images;
+}
+
+// Stopword-filtered word set for scoring image relevance against slide text.
+const STOP = new Set('the a an and or of to for with in on at from your our this that these those is are be as by it its into out up over under about you we they them their his her out post reel story slide day week content'.split(' '));
+function keywordSet(text) {
+  return new Set(
+    String(text || '')
+      .toLowerCase()
+      .replace(/[^a-z0-9\s]/g, ' ')
+      .split(/\s+/)
+      .filter((w) => w.length >= 3 && !STOP.has(w))
+  );
+}
+// Overlap score between a slide's text and an image's description keywords.
+function relevanceScore(slideWords, image) {
+  if (!image.keywords) return 0;
+  const imgWords = keywordSet(image.keywords);
+  let hits = 0;
+  slideWords.forEach((w) => { if (imgWords.has(w)) hits += 1; });
+  return hits;
 }
 
 function deriveSlides(day) {
@@ -339,35 +380,33 @@ function deriveSlides(day) {
   return base;
 }
 
-/** Resolve slides to images. Explicit assetKey = owned; auto-fill = standing-in. */
-function bindSlidesToAssets(slides, dayIndex, allImages, localMedia) {
+// Pass 1 — bind each slide's explicit (owned) assetKey to its image and claim
+// that key in the shared `used` set, so a later standing-in fill (this day or
+// another day of the week) never grabs a photo that a real post owns.
+function bindOwnedSlides(slides, allImages, localMedia, used) {
   const byKey = new Map(allImages.map((img) => [img.key, img]));
   Object.entries(localMedia || {}).forEach(([key, url]) => {
-    if (!byKey.has(key)) byKey.set(key, { key, url, thumb: url, projectName: 'Uploaded', note: '' });
+    if (!byKey.has(key)) byKey.set(key, { key, url, thumb: url, projectName: 'Uploaded', note: '', keywords: '' });
   });
-
-  const used = new Set();
-  const bound = slides.map((s) => {
+  return slides.map((s) => {
     if (!s.assetKey) return { ...s, image: null, standing: false };
     const hit = byKey.get(s.assetKey) || null;
+    // A duplicate owned key (already claimed elsewhere) is dropped to a standing
+    // slot so the image isn't shown twice.
+    if (hit && used.has(hit.key)) return { ...s, assetKey: '', image: null, standing: false };
     if (hit) used.add(hit.key);
     return { ...s, image: hit, standing: false };
   });
-
-  const pool = allImages.filter((img) => !used.has(img.key));
-  let cursor = (dayIndex * 3) % Math.max(pool.length, 1);
-  return bound.map((s) => {
-    if (s.image || !pool.length) return s;
-    const img = pool[cursor % pool.length];
-    cursor += 1;
-    return { ...s, image: img, standing: true };
-  });
 }
+
 
 function dayAssetStatus(slides, published) {
   if (published) return { label: 'Published', kind: 'done', icon: 'check-circle-2' };
-  const missing = slides.some((s) => !s.assetKey || s.standing);
-  if (missing) return { label: 'Needs image', kind: 'need', icon: 'alert-circle' };
+  // A post is ready once it has at least one assigned image (its lead frame).
+  // Text-only slides no longer count as "missing" — images are deliberately not
+  // reused to fill every slide, so an imageless slide is expected, not a gap.
+  const hasImage = slides.some((s) => s.assetKey && s.image);
+  if (!hasImage) return { label: 'Needs image', kind: 'need', icon: 'alert-circle' };
   return { label: 'Ready', kind: 'ready', icon: 'check' };
 }
 
@@ -512,14 +551,18 @@ export default function WeekView({ route: initialRoute, onBack }) {
   const days = route?.days || [];
   const day = days[selected] || days[0];
 
-  const enrichedDays = useMemo(
-    () =>
-      days.map((d, i) => {
-        const slides = bindSlidesToAssets(deriveSlides(d), i, allImages, localMedia);
-        return { ...d, slides, status: dayAssetStatus(slides, d.published) };
-      }),
-    [days, allImages, localMedia],
-  );
+  const enrichedDays = useMemo(() => {
+    // Render only the images the plan actually assigns (persisted assetKeys). The
+    // planner assigns each project photo at most once across the whole month, so
+    // there's nothing to invent here — a slide with no assigned photo simply
+    // shows no image rather than borrowing (and repeating) one. The shared `used`
+    // set additionally drops any duplicate key within the visible week.
+    const used = new Set();
+    return days.map((d) => {
+      const slides = bindOwnedSlides(deriveSlides(d), allImages, localMedia, used);
+      return { ...d, slides, status: dayAssetStatus(slides, d.published) };
+    });
+  }, [days, allImages, localMedia]);
 
   const enriched = enrichedDays[selected] || enrichedDays[0];
   const slides = enriched?.slides || [];
@@ -774,6 +817,18 @@ export default function WeekView({ route: initialRoute, onBack }) {
   // "Image only" / "Create image" pair — and a sliding window of three with an
   // arrow at each end (bauhly-v3 YourWeek `EmptySlide`).
   const slideRoleName = activeSlide?.role || 'Hook';
+  // The project picker, ranked by how well each photo's described content
+  // matches the current slide + day — so the most relevant photos come first
+  // instead of raw upload order.
+  const pickerImages = useMemo(() => {
+    if (!allImages.length) return [];
+    const dayText = [day?.title, day?.direction, day?.content?.caption, day?.contentType].filter(Boolean).join(' ');
+    const words = keywordSet(`${activeSlide?.title || ''} ${dayText}`);
+    return allImages
+      .map((img) => ({ img, score: relevanceScore(words, img) }))
+      .sort((a, b) => b.score - a.score)
+      .map((x) => x.img);
+  }, [allImages, activeSlide?.title, day]);
   const slideLayouts = useMemo(
     () => layoutsForSlide(slideRoleName, vbStore?.visualRefs || [], { photos: allImages.length }),
     [slideRoleName, vbStore, allImages.length],
@@ -1243,7 +1298,7 @@ export default function WeekView({ route: initialRoute, onBack }) {
                     <div className="wv-picker">
                       <span className="wv-suggest__label">From your projects</span>
                       <div className="wv-picker__grid">
-                        {allImages.slice(0, 24).map((img) => (
+                        {pickerImages.slice(0, 24).map((img) => (
                           <button
                             key={img.key}
                             type="button"

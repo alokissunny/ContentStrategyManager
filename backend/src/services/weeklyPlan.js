@@ -238,8 +238,65 @@ function renderCompetitorInsights(cohortInsights) {
   return lines.join('\n');
 }
 
-// Project inventory for the planner: names, notes, and image keys it can assign
-// to slides. Kept compact so the prompt stays within context.
+// One line describing what a photo actually shows, drawn from its AI image
+// analysis (summary/subjects/tags/mood/colours/any legible text). This is what
+// lets the planner put a *relevant* photo on a slide rather than a random key.
+function describeAsset(a) {
+  const v = a.vision;
+  if (!v) {
+    // Not analysed yet — fall back to the capture note, and flag it so the
+    // planner treats the assignment as a guess rather than a described match.
+    return a.note ? `${a.note} (not yet analysed)` : 'not analysed yet';
+  }
+  const bits = [];
+  if (v.summary) bits.push(v.summary);
+  if (v.subjects?.length) bits.push(`shows: ${v.subjects.join(', ')}`);
+  if (v.mood) bits.push(`mood: ${v.mood}`);
+  if (v.colors?.length) bits.push(`colours: ${v.colors.join(', ')}`);
+  if (v.tags?.length) bits.push(`tags: ${v.tags.join(', ')}`);
+  if (v.text) bits.push(`text in image: "${v.text}"`);
+  if (a.note) bits.push(`studio note: ${a.note}`);
+  return bits.join(' · ') || (a.note || 'no description');
+}
+
+// Searchable keyword text for one asset — its AI analysis plus the capture note.
+// Used to rank an unassigned photo against a post when auto-filling images.
+function assetKeywords(a) {
+  const v = a.vision;
+  return [
+    v?.summary,
+    ...(v?.subjects || []),
+    ...(v?.tags || []),
+    v?.mood,
+    v?.text,
+    a.note,
+  ]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase();
+}
+
+const FILL_STOP = new Set('the a an and or of to for with in on at from your our this that these those is are be as by it its into out up over under about you we they them their post reel story slide day week content'.split(' '));
+function fillKeywordSet(text) {
+  return new Set(
+    String(text || '')
+      .toLowerCase()
+      .replace(/[^a-z0-9\s]/g, ' ')
+      .split(/\s+/)
+      .filter((w) => w.length >= 3 && !FILL_STOP.has(w))
+  );
+}
+function scoreAssetForWords(words, kw) {
+  if (!kw) return 0;
+  const set = fillKeywordSet(kw);
+  let hits = 0;
+  words.forEach((w) => { if (set.has(w)) hits += 1; });
+  return hits;
+}
+
+// Project inventory for the planner: names, notes, and image assets — each with
+// a content description from AI analysis — that it can assign to slides. Kept
+// compact so the prompt stays within context.
 function renderProjectAssets(projects) {
   if (!projects?.length) {
     return 'No project assets on file yet. Keep posts specific to the niche but do not invent named projects or claim photos exist.';
@@ -251,11 +308,8 @@ function renderProjectAssets(projects) {
       p.notes.forEach((n) => lines.push(`- ${n}`));
     }
     if (p.assets?.length) {
-      lines.push('Photos (use assetKey on matching slides):');
-      p.assets.forEach((a) => {
-        const note = a.note ? ` — ${a.note}` : '';
-        lines.push(`- assetKey: ${a.key}${note}`);
-      });
+      lines.push('Photos — put an assetKey on a slide only when the photo genuinely fits that slide:');
+      p.assets.forEach((a) => lines.push(`- assetKey: ${a.key} — ${describeAsset(a)}`));
     } else {
       lines.push('Photos: none yet');
     }
@@ -271,13 +325,18 @@ const SLIDE_ROLES = {
   Post: ['Hook', 'CTA'],
 };
 
-function normalizeSlides(rawSlides, onScreenText, format, title, cta) {
+function normalizeSlides(rawSlides, onScreenText, format, title, cta, validKeys = null, usedKeys = null) {
   const roles = SLIDE_ROLES[format] || SLIDE_ROLES.Post;
+  // Only keep an assetKey the model returns if it's a real project asset. The
+  // model sometimes echoes a placeholder, a partial key, or a key from another
+  // project — dropping unknown keys is what stops an irrelevant/nonexistent
+  // photo from riding through to the post. Null = no project context to check.
+  const keepKey = (k) => (validKeys ? (validKeys.has(k) ? k : '') : k);
   let slides = Array.isArray(rawSlides)
     ? rawSlides.map((s) => ({
         role: String(s.role || '').trim(),
         title: String(s.title || '').trim(),
-        assetKey: String(s.assetKey || '').trim(),
+        assetKey: keepKey(String(s.assetKey || '').trim()),
       })).filter((s) => s.title || s.role)
     : [];
 
@@ -304,11 +363,23 @@ function normalizeSlides(rawSlides, onScreenText, format, title, cta) {
     }
   }
 
-  return slides.map((s, i) => ({
-    role: s.role || roles[Math.min(i, roles.length - 1)],
-    title: s.title || '',
-    assetKey: s.assetKey || '',
-  }));
+  // Each image is used at most once. `usedKeys` is shared across a post's slides
+  // and (when the caller threads one set through the whole month) across every
+  // post in the plan — so no photo repeats within a post or across posts. A key
+  // that's already been claimed is blanked so its slide falls back to no photo.
+  const seen = usedKeys || new Set();
+  return slides.map((s, i) => {
+    let assetKey = s.assetKey || '';
+    if (assetKey) {
+      if (seen.has(assetKey)) assetKey = '';
+      else seen.add(assetKey);
+    }
+    return {
+      role: s.role || roles[Math.min(i, roles.length - 1)],
+      title: s.title || '',
+      assetKey,
+    };
+  });
 }
 
 /**
@@ -362,9 +433,13 @@ async function generateWeeklyPlan(profile, brandDna, competitorInsights = null, 
 
   const insightNote = competitorInsights ? 'with competitor insights' : 'no competitor insights';
   const assetCount = projects.reduce((n, p) => n + (p.assets?.length || 0), 0);
+  const analyzedCount = projects.reduce(
+    (n, p) => n + (p.assets || []).filter((a) => a.vision).length,
+    0
+  );
   console.log(
     `[weeklyPlan] Generating plan for @${snapshot.username} (focus: ${focusPillar}, ${insightNote}, ` +
-      `${projects.length} projects / ${assetCount} photos) with ${model}`
+      `${projects.length} projects / ${assetCount} photos, ${analyzedCount} with vision analysis) with ${model}`
   );
 
   const client = getAnthropicClient();
@@ -420,13 +495,25 @@ async function generateWeeklyPlan(profile, brandDna, competitorInsights = null, 
     observation: focusOut.observation || seed.observation,
   };
 
+  // Every real project image key — assetKeys the model returns are validated
+  // against this so a hallucinated or mismatched key can't reach a slide.
+  const validKeys = new Set(
+    projects.flatMap((p) => (p.assets || []).map((a) => a.key)).filter(Boolean)
+  );
+
+  // One shared claim-set for the whole plan run: an image assigned to any slide
+  // on any day can't be assigned again. When the caller (a month generation)
+  // passes options.usedAssetKeys, the same set spans every week, so no photo
+  // repeats across the whole monthly plan. Otherwise it's scoped to this week.
+  const usedAssetKeys = options.usedAssetKeys || new Set();
+
   const days = (parsed.days || []).slice(0, 7).map((d, i) => {
     const pillar = ['discovery', 'credibility', 'trust'].includes(d.pillar) ? d.pillar : focusPillar;
     const date = new Date(monday);
     date.setDate(monday.getDate() + i);
     const c = d.content || {};
     const format = ['Reel', 'Carousel', 'Post', 'Story'].includes(d.format) ? d.format : 'Post';
-    const slides = normalizeSlides(c.slides, c.onScreenText, format, d.title, c.cta);
+    const slides = normalizeSlides(c.slides, c.onScreenText, format, d.title, c.cta, validKeys, usedAssetKeys);
     const onScreenText = Array.isArray(c.onScreenText) && c.onScreenText.length
       ? c.onScreenText
       : slides.map((s) => s.title).filter(Boolean);
@@ -454,6 +541,34 @@ async function generateWeeklyPlan(profile, brandDna, competitorInsights = null, 
       },
     };
   });
+
+  // Auto-fill: give any post the model left imageless a single relevant, still
+  // unused photo — spread one per post, drawn from the same month-wide claim-set
+  // so no image ever repeats within a post or across the plan. When the photos
+  // run out, the post simply stays without an image (never a repeat). Persisting
+  // the key here means the frontend renders it directly and never has to invent
+  // a placeholder that could collide across weeks.
+  const assetPool = projects.flatMap((p) =>
+    (p.assets || []).map((a) => ({ key: a.key, kw: assetKeywords(a) }))
+  );
+  for (const d of days) {
+    const slides = d.content.slides || [];
+    if (slides.some((s) => s.assetKey)) continue; // post already has an image
+    const available = assetPool.filter((a) => !usedAssetKeys.has(a.key));
+    if (!available.length) continue; // no photos left — leave imageless
+    const words = fillKeywordSet(`${d.title} ${d.direction} ${d.content.caption} ${slides[0]?.title || ''}`);
+    let best = available[0];
+    let bestScore = scoreAssetForWords(words, best.kw);
+    for (const a of available) {
+      const sc = scoreAssetForWords(words, a.kw);
+      if (sc > bestScore) { best = a; bestScore = sc; }
+    }
+    // Put it on the post's first slide (its lead frame).
+    if (slides[0]) {
+      slides[0].assetKey = best.key;
+      usedAssetKeys.add(best.key);
+    }
+  }
 
   const actual = days.reduce((acc, d) => ({ ...acc, [d.pillar]: (acc[d.pillar] || 0) + 1 }), {});
   const matches = Object.keys(dayAllocation).every((p) => (actual[p] || 0) === dayAllocation[p]);
