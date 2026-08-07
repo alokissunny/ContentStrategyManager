@@ -1,0 +1,799 @@
+/* ── Library Settings ──────────────────────────────────────────────────────
+ *
+ * The page that edits the Visual Library's own look. It borrows the library's
+ * artwork CSS wholesale (`visuallibrary.css` is imported alongside this file) so
+ * the previews are the real thing rather than a picture of it, and everything
+ * else is the app's own card, button and menu material.
+ *
+ * NO PURPLE. The reference's Save changes, Reset typography and info panel are
+ * indigo; that colour was rejected for this product and the primary action is an
+ * ink fill (design system §1). The levels here are: Save = primary, Reset =
+ * tertiary, Edit font = quiet. */
+
+/* NO MAX-WIDTH (Leon, Aug 7). The page carried `max-width: 980px` while the
+   Visual Library fills the shell's own column, so stepping between them moved
+   every left edge on the screen. One column, both pages. */
+.ls { display: flex; flex-direction: column; gap: var(--sp-5); }
+
+
+/* ── the navigation row ───────────────────────────────────────────────────
+ * Back on the left, Reset on the right, one row at every width. `flex-wrap` is
+ * deliberately absent: a secondary action that wraps under a back link stops
+ * reading as secondary. Under 560 it becomes the app's smallest button instead
+ * of moving. */
+.ls-topbar { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3); }
+/* THE BACK CONTROL IS A `.btn` NOW (Leon, Aug 7). It was `.pd__back`, which
+   carries its own height and padding — so the row held one control at the
+   app's button geometry and two that were not. Every state (hover, focus,
+   disabled, active) comes from base.css for all three. */
+.ls-back { flex: 0 0 auto; }
+.ls-back svg { margin-right: -2px; }
+/* Back · Reset · Save — one row at every width. On a phone Reset is the app's
+   own icon button and Save is its primary, so the row is a label, an icon and
+   a button rather than three labels that cannot fit. */
+.ls-topbar__acts { display: flex; align-items: center; gap: var(--sp-2); flex: 0 0 auto; }
+.ls-head { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--sp-5); flex-wrap: wrap; }
+.ls-head__title {
+  margin: 0 0 6px;
+  font-family: var(--font-display, var(--font-ui));
+  font-size: var(--text-2xl);
+  font-weight: 700;
+  color: var(--ink-900);
+}
+.ls-head__lead { margin: 0; font-size: var(--text-sm); line-height: 1.55; color: var(--ink-500); max-width: 54ch; }
+.ls-head__acts { display: flex; align-items: center; gap: var(--sp-2); flex: 0 0 auto; }
+
+/* ── a section ── */
+.ls-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+  padding: var(--sp-6);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: var(--surface);
+}
+.ls-card__head { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--sp-4); flex-wrap: wrap; }
+.ls-card__title { margin: 0 0 4px; font-size: var(--text-lg); font-weight: 700; color: var(--ink-900); }
+.ls-card__lead { margin: 0; font-size: var(--text-sm); color: var(--ink-500); max-width: 60ch; }
+.ls-sub { margin: var(--sp-2) 0 0; font-size: var(--text-sm); font-weight: 700; color: var(--ink-900); }
+.ls-note { margin: 0; font-size: var(--text-xs); color: var(--ink-500); }
+
+/* ── live preview: four 4:5 posts, no rail ────────────────────────────────
+ * A fixed four across on a desktop and two on a narrow window — they are a
+ * specimen, not a list, so they never scroll sideways and nothing is hidden
+ * behind an arrow. */
+.ls-prevs { display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--sp-4); }
+.ls-prev { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.ls-prev__label {
+  font-family: var(--font-ui);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-quiet);
+}
+/* the artwork's own container query root, exactly as the library does it */
+.ls-prev { container-type: inline-size; }
+
+/* the dots belong to the phone's carousel; on a desktop all four are on screen
+   at once and a position indicator would be indicating nothing */
+.ls-dots { display: none; }
+
+/* ── palette + type, side by side and equal ───────────────────────────────
+ * `1fr 1fr` and `align-items: stretch`, so neither section can read as the
+ * senior one: a studio's colours and their type are the same size of decision. */
+.ls-pair { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-5); align-items: stretch; }
+.ls-pair > .ls-card { min-width: 0; }
+
+/* the three colours */
+.ls-roles { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--sp-3); }
+.ls-role { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.ls-role b { font-size: var(--text-sm); font-weight: 600; color: var(--ink-900); }
+.ls-role em { font-style: normal; font-family: var(--font-mono); font-size: 11px; color: var(--ink-quiet); }
+.ls-swatchwrap { position: relative; display: block; }
+.ls-swatch {
+  display: block;
+  width: 100%;
+  height: 72px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  cursor: pointer;
+  transition: transform var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out);
+}
+.ls-swatch:hover { transform: translateY(-1px); box-shadow: var(--shadow-sm); }
+.ls-swatch:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+
+/* the picker, anchored under the swatch it belongs to. No grid of suggestions:
+   a spectrum and a hex, both live (see the note in LibrarySettings.jsx). */
+.ls-scrim { position: fixed; inset: 0; z-index: 40; }
+.pe-menu.ls-picker {
+  position: absolute;
+  left: 0;
+  top: calc(100% + 6px);
+  z-index: 41;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: max(100%, 180px);
+  padding: 6px;
+}
+/* the native control, stripped of its chrome so it reads as a spectrum block */
+.ls-picker__field {
+  display: block;
+  width: 100%;
+  height: 84px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: none;
+  cursor: pointer;
+}
+.ls-picker__field::-webkit-color-swatch-wrapper { padding: 0; }
+.ls-picker__field::-webkit-color-swatch { border: 0; border-radius: calc(var(--r-sm) - 1px); }
+.ls-picker__field::-moz-color-swatch { border: 0; border-radius: calc(var(--r-sm) - 1px); }
+.ls-picker__field:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.ls-picker__hex {
+  width: 100%;
+  min-height: 34px;
+  padding: 0 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  color: var(--ink-900);
+}
+.ls-picker__hex:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
+
+/* ── typography: two dropdowns ────────────────────────────────────────────
+ * A label and a field, twice. Everything the section used to spread across the
+ * card — the chips, the specimens, the upload slots, the reset, the paragraph —
+ * is inside the menus now (see `FontField`). */
+.ls-types { display: flex; flex-direction: column; gap: var(--sp-4); }
+.ls-type { display: flex; flex-direction: column; gap: 6px; }
+.ls-type__label { font-size: 11px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: var(--ink-quiet); }
+.ls-type__wrap { position: relative; display: block; }
+.ls-type__btn {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  width: 100%;
+  min-height: 44px;
+  padding: 0 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  font-size: var(--text-base);
+  color: var(--ink-900);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color var(--dur-fast) var(--ease-out);
+}
+.ls-type__btn:hover { border-color: var(--ink-400); }
+.ls-type__btn:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.ls-type__btn > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ls-type__btn svg { flex-shrink: 0; color: var(--ink-500); }
+
+.pe-menu.ls-fontmenu { position: absolute; left: 0; right: 0; top: calc(100% + 6px); z-index: 41; padding: 4px; }
+/* the option and its remove share a row, so the ✕ never covers the name */
+.ls-fontmenu__row { display: flex; align-items: stretch; gap: 2px; }
+.ls-fontmenu__opt {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-2);
+  flex: 1;
+  min-width: 0;
+  min-height: 40px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: none;
+  font-size: var(--text-base);
+  color: var(--ink-900);
+  text-align: left;
+  cursor: pointer;
+}
+.ls-fontmenu__opt:hover { background: var(--ink-100); }
+.ls-fontmenu__opt.is-on { color: var(--signal-700); }
+.ls-fontmenu__opt svg { flex-shrink: 0; color: var(--signal-600); }
+.ls-fontmenu__opt:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
+.ls-fontmenu__x {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 32px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: none;
+  color: var(--ink-500);
+  cursor: pointer;
+}
+.ls-fontmenu__x:hover { background: var(--ink-100); color: var(--negative, #b3261e); }
+.ls-fontmenu__x:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
+.ls-fontmenu__add {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 0 10px;
+  border-radius: var(--r-sm);
+  font-size: var(--text-base);
+  font-weight: 600;
+  color: var(--ink-700);
+  cursor: pointer;
+}
+.ls-fontmenu__add:hover { background: var(--ink-100); color: var(--ink-900); }
+.ls-fontmenu__add svg { flex-shrink: 0; }
+
+.ls-role__use { font-size: 11px; line-height: 1.4; color: var(--ink-quiet); }
+
+/* a secondary action with its own sentence, because two words cannot say what
+   it will do. Used by Image References' "Read colours from these". */
+.ls-reset { display: flex; align-items: baseline; gap: var(--sp-3); flex-wrap: wrap; padding-top: var(--sp-2); }
+.ls-reset > span { font-size: var(--text-xs); line-height: 1.5; color: var(--ink-500); max-width: 62ch; }
+
+/* ── the toast ────────────────────────────────────────────────────────────
+ * THE APP ALREADY HAD THE RIGHT BOX (Leon, Aug 7). This one sat centred and
+ * 680px wide — a bar across the bottom of the screen — while every other
+ * notification in Bauhly (`.toast`, app.css) is a narrow note in the bottom-left
+ * corner, offset past the sidebar. It is the same box now: same corner, same
+ * offset, same ~300px, so two different notices cannot read as two different
+ * products. The message wraps, and the action sits under it rather than
+ * squeezing the sentence into one line.
+ *
+ * It clears `.toast`'s own height, because both live in that corner and this
+ * page can raise one of each. */
+.ls-toast {
+  position: fixed;
+  left: calc(var(--sidebar-w, 0px) + var(--sp-4));
+  /* LOW IN THE CORNER (Leon, Aug 7). It sat 78px up to clear the app's own
+     `.toast`, which left it floating mid-air with a band of nothing beneath —
+     and the two are never raised together on this page anyway (this one is the
+     page's, that one is a receipt for something Bauhly wrote). It sits on the
+     edge, where a status line sits, exactly like `.toast` does. */
+  bottom: var(--sp-4);
+  z-index: 70;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  width: max-content;
+  max-width: min(86vw, 280px);
+  padding: 11px 32px 11px 14px;
+  border-radius: var(--r-md);
+  background: var(--ink-900);
+  color: #fff;
+  box-shadow: var(--shadow-lift);
+  animation: ls-toast-in var(--dur-base) var(--ease-out);
+}
+@keyframes ls-toast-in { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+/* TWO ROWS, DECLARED RATHER THAN WRAPPED (Leon, Aug 7). `flex-wrap` with a
+   100% basis on the action looked equivalent and was not: `max-width:
+   max-content` feeds back into the hypothetical size the wrap is decided from,
+   so the button kept its place on row one and squeezed the sentence into a
+   65px column. The icon and the message are their own row; the action is the
+   next one, indented past the icon. */
+.ls-toast__row { display: flex; align-items: flex-start; gap: 10px; width: 100%; }
+.ls-toast svg { color: rgba(255, 255, 255, 0.72); flex-shrink: 0; margin-top: 2px; }
+.ls-toast .btn--primary { margin-left: 27px; }
+.ls-toast.is-busy svg { animation: ls-spin 900ms linear infinite; }
+@keyframes ls-spin { to { transform: rotate(360deg); } }
+/* `flex: 1 1 0` + `min-width: 0` — the message takes the first row and wraps
+   inside it, which is what pushes the action onto its own row */
+.ls-toast__text { flex: 1 1 0; min-width: 0; font-size: var(--text-sm); line-height: 1.45; color: rgba(255, 255, 255, 0.86); }
+.ls-toast__text b { color: #fff; font-weight: 600; display: block; }
+.ls-toast .btn--primary { background: #fff; color: var(--ink-900); flex: 0 0 auto; }
+.ls-toast .btn--primary:hover { background: rgba(255, 255, 255, 0.88); }
+/* out of the flow, so a wrapping sentence never has to make room for it */
+.ls-toast__x {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: none;
+  color: rgba(255, 255, 255, 0.66);
+  cursor: pointer;
+}
+.ls-toast__x:hover { background: rgba(255, 255, 255, 0.12); color: #fff; }
+
+/* ── leaving with unsaved changes ── */
+.ls-dialog__scrim { position: fixed; inset: 0; z-index: 80; background: rgba(20, 20, 25, 0.4); animation: np-fade var(--dur-fast) var(--ease-out); }
+.ls-dialog {
+  position: fixed;
+  left: 50%;
+  top: 50%;
+  z-index: 81;
+  transform: translate(-50%, -50%);
+  width: min(420px, calc(100vw - 2 * var(--sp-5)));
+  padding: var(--sp-6);
+  border-radius: var(--r-lg);
+  background: var(--surface);
+  box-shadow: var(--shadow-lift);
+  animation: cap-in var(--dur-fast) var(--ease-out);
+}
+.ls-dialog h2 { margin: 0 0 8px; font-size: var(--text-lg); font-weight: 700; color: var(--ink-900); }
+.ls-dialog p { margin: 0 0 var(--sp-5); font-size: var(--text-sm); line-height: 1.55; color: var(--ink-600); }
+.ls-dialog__acts { display: flex; justify-content: flex-end; gap: var(--sp-2); }
+
+/* ── Image References: the pictures, and nothing written under them ──────
+ * `ls-refs`, not `ls-mood` — the section is one concept now (see the note in
+ * LibrarySettings.jsx). `ls-refs` was checked as unused before taking it;
+ * a page prefix is a claim on the whole app (TECH_DEBT 32). */
+.ls-refs {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: var(--sp-3);
+}
+.ls-refs__item { position: relative; aspect-ratio: 4 / 5; border-radius: var(--r-md); overflow: hidden; background: var(--surface-sunken); }
+.ls-refs__item img { width: 100%; height: 100%; object-fit: cover; display: block; }
+/* the per-tile ✕ is gone at every width — Delete lives in the viewer, where
+   the studio can see what they are about to delete (Leon, Aug 7) */
+/* the big dashed "Add reference" tile is gone (Leon, Aug 7): the section head
+   already carries the button, and a second one the size of a photograph made
+   an empty grid look like a broken one. */
+
+.ls-refs__acts { display: flex; align-items: center; gap: var(--sp-2); flex: 0 0 auto; }
+.ls-refs__acts .is-hidden { display: none; }
+
+/* ── what saving did ───────────────────────────────────────────────────── */
+.ls-status {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  margin: 0;
+  padding: var(--sp-3) var(--sp-4);
+  border-radius: var(--r-md);
+  background: var(--surface-sunken);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+  color: var(--ink-700);
+  animation: cap-in var(--dur-fast) var(--ease-out);
+}
+.ls-status svg { color: var(--ink-500); flex-shrink: 0; }
+.ls-status.is-done { background: var(--positive-soft); color: var(--positive); }
+.ls-status.is-done svg { color: var(--positive); }
+
+@media (max-width: 1000px) {
+  .ls-pair { grid-template-columns: 1fr; }
+}
+@media (max-width: 900px) {
+  .ls-prevs { grid-template-columns: repeat(2, 1fr); }
+}
+
+/* ── THE PHONE: THE PREVIEW IS A CAROUSEL, EDGE TO EDGE ────────────────────
+ *
+ * Four 4:5 posts stacked one under another is four screens of scrolling before
+ * the first control. On a phone they are ONE preview at a time, swiped.
+ *
+ * Two things it must not do, and how:
+ *
+ * 1 · It must not sit in a box. The card's border, background and padding come
+ *     off, so the rail is the content rather than something inside a container
+ *     inside the page.
+ * 2 · It must not be cut by the page's own gutter. Same trick as `.yw-days` in
+ *     yourweek.css: the rail is pulled out by the shell's mobile padding
+ *     (`--sp-4`) and puts that padding back on ITSELF, so it runs to both edges
+ *     of the glass while the first slide still lines up with the heading above
+ *     it. `scroll-padding` makes snapping land on that same line.
+ *
+ * The slide is 78% wide, so the next one is visible at the edge — enough to say
+ * "there is more" without cropping anything that matters. */
+@media (max-width: 800px) {
+  .ls-card--preview {
+    padding: 0;
+    border: 0;
+    background: none;
+    gap: var(--sp-3);
+  }
+  .ls-prevs {
+    display: flex;
+    grid-template-columns: none;
+    gap: var(--sp-3);
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    -webkit-overflow-scrolling: touch;
+    scroll-snap-type: x mandatory;
+    scroll-padding-left: var(--sp-4);
+    scrollbar-width: none;
+    padding: 0 var(--sp-4);
+    margin: 0 calc(-1 * var(--sp-4));
+  }
+  .ls-prevs::-webkit-scrollbar { display: none; }
+  .ls-prev { flex: 0 0 78%; scroll-snap-align: start; }
+
+  .ls-dots { display: flex; justify-content: center; gap: 7px; }
+  .ls-dot {
+    width: 7px;
+    height: 7px;
+    padding: 0;
+    border: 0;
+    border-radius: var(--r-full);
+    background: var(--ink-200, var(--border-strong));
+    cursor: pointer;
+    transition: background var(--dur-fast) var(--ease-out), width var(--dur-fast) var(--ease-out);
+  }
+  .ls-dot.is-on { width: 18px; background: var(--ink-900); }
+  .ls-dot:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 3px; }
+
+  /* the note uses the width it has, with the app's own side margins */
+  /* on a phone it uses the width it has with the app's own side margins, and
+     clears the tab bar and the floating capture button — and nothing more */
+  .ls-toast {
+    left: var(--sp-4);
+    right: var(--sp-4);
+    width: auto;
+    max-width: none;
+    bottom: calc(96px + env(safe-area-inset-bottom));
+  }
+}
+
+@media (max-width: 560px) {
+  .ls-card { padding: var(--sp-4); }
+  .ls-card--preview { padding: 0; }
+  /* the row is kept; the action shrinks instead of wrapping under Back */
+  /* nothing to shrink here any more — under 800 Reset is already the icon
+     button and Save is the app's own `btn--sm` */
+}
+
+/* a reference Bauhly has not read yet says so on the picture — see the note in
+   LibrarySettings.jsx. Only the waiting ones are marked. */
+.ls-refs__pending {
+  position: absolute;
+  left: 8px;
+  bottom: 8px;
+  padding: 3px 8px;
+  border-radius: var(--r-full);
+  background: rgba(27, 16, 13, 0.82);
+  color: #fff;
+  font-family: var(--font-ui);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+}
+.ls-refs__item.is-pending img { opacity: 0.72; }
+
+/* ── the phone's reference grid ────────────────────────────────────────────
+ *
+ * A DENSE SHEET OF PHOTOGRAPHS, NOT A LIST OF CARDS (Leon, Aug 7). At 375 the
+ * desktop grid gives one 4:5 card per row inside a bordered section — a studio
+ * with twelve references scrolls a screen and a half to see four of them. The
+ * phone gets what a photo library gets: square thumbnails, three across, a
+ * hairline between them, running to both edges of the glass.
+ *
+ * Same bleed as the Live preview carousel and `.yw-days`: pulled out by the
+ * shell's `--sp-4` gutter. The section keeps its padding for the words above;
+ * only the grid escapes it, so the copy still lines up with the rest of the
+ * page while the pictures do not have to.
+ */
+@media (max-width: 800px) {
+  /* THE BLEED HAS TO CLEAR TWO PADDINGS, NOT ONE (Leon, Aug 7 — measured).
+     The grid sits inside the section card AND inside the shell's own gutter, so
+     pulling out by `--sp-4` alone left it starting at 17px instead of 0. The
+     variable holds both, and it changes at 560 because the card's padding does.
+     Do NOT put `overflow: hidden` on the card to tidy this — it clips the very
+     bleed this creates. */
+  .ls-card { --ls-bleed: calc(var(--sp-6) + var(--sp-4)); }
+  /* NO BOX AROUND A SHEET OF PHOTOGRAPHS (Leon, Aug 7). The section keeps its
+     padding for the words; its border and background come off, so the grid runs
+     to the glass with nothing drawn around it — the same treatment the Live
+     preview carousel gets, and for the same reason. Its 1px border was the last
+     thing holding the grid a pixel off each edge. */
+  .ls-card--refs {
+    border: 0;
+    background: none;
+    padding-left: 0;
+    padding-right: 0;
+    --ls-bleed: var(--sp-4);
+  }
+  .ls-refs {
+    grid-template-columns: repeat(3, 1fr);
+    gap: 2px;
+    margin-left: calc(-1 * var(--ls-bleed));
+    margin-right: calc(-1 * var(--ls-bleed));
+  }
+  .ls-refs__item {
+    /* square, so the sheet reads as a grid rather than as rows of portraits */
+    aspect-ratio: 1 / 1;
+    border-radius: 0;
+  }
+
+  /* THE ROW'S THREE CONTROLS ARE ONE HEIGHT (Leon, Aug 7 — measured). The app
+     grows `.btn--sm` to 42px at touch widths, but `.btn--icon.btn--sm` carries a
+     fixed 30×30 — so Reset sat 12px shorter than the two buttons beside it, and
+     under the app's own touch minimum. It takes the row's height here. */
+  .ls-topbar .btn--icon.btn--sm { width: 42px; height: 42px; }
+}
+
+/* AFTER the 800 block, not up with the other 560 rules (Leon, Aug 7 — measured).
+   Media queries carry no extra specificity, so at equal specificity SOURCE ORDER
+   decides: written above, the 800 rule's 40px won at 375 too and the grid bled
+   40px out of a 32px inset, starting at -8. Below 560 the card's padding drops
+   from `--sp-6` to `--sp-4`, so the bleed has to drop with it. */
+@media (max-width: 560px) {
+  .ls-card { --ls-bleed: calc(var(--sp-4) + var(--sp-4)); }
+  /* the refs card has no horizontal padding at any phone width, so its bleed is
+     the shell's gutter alone */
+  .ls-card--refs { --ls-bleed: var(--sp-4); }
+
+  /* the badge shrinks to fit a third of a phone */
+  .ls-refs__pending {
+    left: 4px;
+    bottom: 4px;
+    padding: 2px 5px;
+    font-size: 9px;
+  }
+}
+
+/* the whole tile is the button that opens the picture */
+.ls-refs__open {
+  display: block;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+}
+.ls-refs__open img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.ls-refs__open:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -3px; }
+.ls-refs__item:hover .ls-refs__open img { opacity: 0.88; }
+
+/* ── one reference, full screen ───────────────────────────────────────────
+ * The picture as large as the screen allows, its name and state under it, and
+ * the only two actions there are. The bar is the app's own quiet buttons on a
+ * dark ground, so it reads as the same product with the lights off. */
+.ls-view {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  display: grid;
+  grid-template-rows: 1fr auto;
+  place-items: center;
+  padding: var(--sp-5);
+  gap: var(--sp-4);
+  /* 0.93 let the page's own copy read straight through it (measured) */
+  background: rgba(14, 14, 18, 0.975);
+  animation: np-fade var(--dur-fast) var(--ease-out);
+}
+/* the ground is itself the way out, behind everything else */
+.ls-view__scrim { position: absolute; inset: 0; border: 0; background: none; cursor: zoom-out; }
+.ls-view__img {
+  position: relative;
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  border-radius: var(--r-md);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.5);
+}
+.ls-view__bar {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-4);
+  flex-wrap: wrap;
+  width: min(100%, 640px);
+}
+.ls-view__name {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  min-width: 0;
+  font-size: var(--text-sm);
+  color: rgba(255, 255, 255, 0.82);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ls-view__name em {
+  flex: 0 0 auto;
+  font-style: normal;
+  padding: 2px 7px;
+  border-radius: var(--r-full);
+  background: rgba(255, 255, 255, 0.16);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  color: #fff;
+}
+.ls-view__acts { display: flex; align-items: center; gap: var(--sp-2); flex: 0 0 auto; }
+.btn.ls-view__btn { color: rgba(255, 255, 255, 0.86); background: rgba(255, 255, 255, 0.1); }
+.btn.ls-view__btn:hover { color: #fff; background: rgba(255, 255, 255, 0.2); }
+.btn.ls-view__del { color: #ff9a8f; }
+.btn.ls-view__del:hover { color: #fff; background: var(--negative); }
+.ls-view__x {
+  position: absolute;
+  top: var(--sp-4);
+  right: var(--sp-4);
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  border: 0;
+  border-radius: var(--r-full);
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+  cursor: pointer;
+}
+.ls-view__x:hover { background: rgba(255, 255, 255, 0.24); }
+.ls-view__x:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+
+/* the app's destructive treatment — negative text, negative-soft on hover.
+   There is no filled red button anywhere in this product.
+
+   `.btn.` ON PURPOSE (Leon, Aug 7). `.btn--quiet` sets `color` at the same
+   specificity, and which of the two wins is then decided by which stylesheet the
+   bundler happened to put last — measured: the quiet grey won and the button was
+   not red at all. Qualifying with `.btn` settles it by specificity instead of by
+   build order. Same lesson as the `.ls-card` collision (TECH_DEBT 32). */
+.btn.ls-dialog__danger {
+  color: var(--negative);
+  /* A LIGHT BORDER, SO IT READS AS A BUTTON (Leon, Aug 7). Bare negative text
+     beside an ink-filled primary read as a link rather than the other option.
+     A hairline gives it the same footprint as its neighbour — same height, same
+     padding, same radius — while the grey edge and the coloured word keep it
+     plainly secondary and plainly destructive. */
+  border: 1px solid var(--border);
+}
+.btn.ls-dialog__danger:hover { background: var(--negative-soft); border-color: var(--negative); color: var(--negative); }
+
+/* ── THE PANEL SURFACE (Leon, Aug 7 — decision 519) ───────────────────────
+ * Sections are surfaces, not fenced boxes: the 1px rectangle comes off and the
+ * card floats on `--shadow-panel`. Radius is unchanged — the shape was never
+ * the problem, the outline was. */
+.ls-card {
+  border: 0;
+  box-shadow: var(--shadow-panel);
+}
+/* ── THE TWO SECTIONS WITH NO BOX ─────────────────────────────────────────
+ * They carry no surface, so they must carry no padding either: a card with a
+ * visible edge is inset from that edge, but one WITHOUT an edge inset by the
+ * same amount simply starts 24px further in than everything around it. Measured
+ * — the Live preview's labels sat indented from every other section's edge.
+ * Vertical spacing is untouched; only the horizontal inset goes. */
+.ls-card--preview,
+.ls-card--refs {
+  box-shadow: none;
+  padding-left: 0;
+  padding-right: 0;
+}
+@media (max-width: 800px) {
+  .ls-card--preview,
+  .ls-card--refs { box-shadow: none; }
+}
+
+
+/* the analysis state, beside the action it belongs to */
+.ls-refs__status {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 26px;
+  padding: 0 10px;
+  border-radius: var(--r-full);
+  background: var(--positive-soft, var(--surface-sunken));
+  font-family: var(--font-ui);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  color: var(--positive, var(--ink-600));
+  white-space: nowrap;
+}
+.ls-refs__status svg { flex-shrink: 0; }
+@media (max-width: 560px) {
+  /* on a phone the row is the title, the state and the button — the state
+     drops its word rather than pushing the button onto a second line */
+  .ls-refs__status { padding: 0 8px; font-size: 11px; }
+}
+
+/* ══ VISUAL MOOD, EMPTY (Leon, Aug 7 — decision 554, widened in 557) ═════
+ *
+ * The app's own `EmptyState`, unchanged: same card, same ground, same radius,
+ * same display title, same single primary action. What is different is only
+ * what stands where the round icon usually stands — six photographs saying
+ * what a mood image can be, because that was three paragraphs of prose.
+ *
+ * `EmptyState` is built for a whole page (a viewport-tall grid), so inside a
+ * settings section it keeps the card and drops the stage — the same adjustment
+ * the Image tab makes in yourweek.css.
+ *
+ * IT IS THE WIDTH OF THE SECTION (557). The card carries the component's own
+ * 520px cap, and the section is a centred flex column — so the grey sat as a
+ * narrow box in the middle of a 774px column, boxed in by nothing but a
+ * max-width written for a page-wide stage. It stretches. The padding is the
+ * only thing holding the content off the edge, and it is the page's own. */
+.ls-card--refs .empty { display: block; min-height: 0; animation: none; }
+.ls-card--refs .empty__card {
+  max-width: none;
+  width: 100%;
+  align-self: stretch;
+  padding: var(--sp-8) var(--sp-7);
+}
+
+/* ── THE EXAMPLES ARE PHOTOGRAPHS, UNDER ONE WASH (557) ──────────────────
+ * A row of six, wrapping only when there is genuinely no room. Each is a
+ * picture of a thing a studio saves — a room, materials, a floor, light, a
+ * niche, a detail — never of a layout.
+ *
+ * THE WASH IS WHAT MAKES THEM EXAMPLES. Unwashed, six photographs at the top
+ * of an empty state become the thing you look at, and one of them always wins.
+ * Every tile takes the same overlay and the same reduced saturation, so the row
+ * reads as one quiet band and no picture in it can dominate. Same treatment on
+ * all six — there is no per-tile styling here at all, which is the point. */
+.ls-moodex {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--sp-3);
+  margin-bottom: var(--sp-6);
+}
+.ls-moodex__t {
+  position: relative;
+  width: 72px;
+  aspect-ratio: 4 / 5;
+  border-radius: var(--r-sm);
+  overflow: hidden;
+  background: var(--surface-sunken);
+}
+.ls-moodex__t img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  /* restrained, not grey: the colour is still there, it simply stops
+     competing with the title under it */
+  filter: saturate(0.62) contrast(0.95) brightness(1.03);
+}
+/* the neutral wash, identical on every tile. Measured up and down: at 42% the
+   row went pale enough that a room stopped reading as a room, which loses the
+   only thing the pictures are here to do. 30% still flattens the differences
+   between them without erasing what each one is. */
+.ls-moodex__t::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: color-mix(in srgb, var(--surface-brand) 30%, transparent);
+}
+
+/* the one line under the button — quiet, and not the serif hand: `empty__note`
+   is the brand's annotation voice and sits ABOVE the action, which is not what
+   this sentence is for */
+.ls-moodhelp {
+  max-width: 44ch;
+  margin: var(--sp-5) auto 0;
+  font-size: var(--text-xs);
+  line-height: 1.55;
+  color: var(--ink-500);
+}
+
+/* ── THE GRID, ONCE THERE IS ONE (554) ───────────────────────────────────
+   Apple Photos, not a settings table: the pictures at a size worth looking at,
+   with room between them and nothing drawn on top. */
+.ls-refs { gap: var(--sp-4); }
+
+/* ── OUTER MARGINS ─────────────────────────────────────────────────────────
+ * Same as the Visual Library: in bauhly-v3 these margins came from the shell's
+ * `.app__main`; the live DashboardLayout adds none, so the page carries the box
+ * itself (`padding: sp-8 sp-9; max-width: 1240px; margin: 0 auto`). */
+.ls {
+  padding: var(--sp-8) var(--sp-9);
+  max-width: 1240px;
+  margin: 0 auto;
+}
+@media (max-width: 1100px) {
+  .ls { padding: var(--sp-6); }
+}
+@media (max-width: 720px) {
+  .ls { padding: var(--sp-5) var(--sp-4); max-width: none; }
+}

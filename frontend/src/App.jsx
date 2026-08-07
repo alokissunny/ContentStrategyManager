@@ -6,7 +6,8 @@ import Onboarding from './pages/Onboarding';
 import YourPlans from './pages/YourPlans';
 import Projects from './pages/Projects';
 import BrandDna from './pages/BrandDna';
-import VisualBrand from './pages/visualbrand/VisualBrandPage';
+import VisualLibrary from './pages/visuallibrary/VisualLibrary';
+import LibrarySettings from './pages/visuallibrary/LibrarySettings';
 import CompetitorOverview from './pages/CompetitorOverview';
 import Settings from './pages/Settings';
 import MetaCallback from './pages/MetaCallback';
@@ -25,7 +26,12 @@ export default function App() {
         <Route path="/dashboard/content-route" element={<Navigate to="/dashboard" replace />} />
         <Route path="/dashboard/projects" element={<Projects />} />
         <Route path="/dashboard/brand-dna" element={<BrandDna />} />
-        <Route path="/dashboard/visual-brand" element={<VisualBrand />} />
+        {/* Visual Brand is removed — its palette/type editing lives in Library
+            Settings now (the Visual Library's own settings). The old URL stays
+            as a redirect so bookmarks and any lingering links still land. */}
+        <Route path="/dashboard/visual-brand" element={<Navigate to="/dashboard/visual-library" replace />} />
+        <Route path="/dashboard/visual-library" element={<VisualLibrary />} />
+        <Route path="/dashboard/library-settings" element={<LibrarySettings />} />
         <Route path="/dashboard/competitor-overview" element={<CompetitorOverview />} />
         <Route path="/dashboard/settings" element={<Settings />} />
         <Route path="/dashboard/meta/callback" element={<MetaCallback />} />

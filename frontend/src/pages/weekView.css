@@ -454,6 +454,18 @@
   background:
     linear-gradient(160deg, #f3f1ec 0%, #e8e4dc 100%);
   overflow: hidden;
+  /* the composition inside is drawn in `cqw` units (LayoutArt), so the frame is
+     its query root — same as the Visual Library card frame */
+  container-type: inline-size;
+}
+/* the post preview is the chosen Visual Library layout, drawn to fill the 4:5
+   frame; it brings its own ground, so it drops its card border and radius */
+.wv-ig__lay { position: absolute; inset: 0; }
+.wv-ig__lay .vl-a {
+  width: 100%;
+  height: 100%;
+  border: 0;
+  border-radius: 0;
 }
 .wv-ig__photo img {
   width: 100%;
@@ -672,6 +684,19 @@
 }
 /* on the chosen one the card goes ink; the layout inside it keeps its ground */
 .wv-act--layout.is-on .wv-act__shot { background: var(--surface); }
+
+/* The layout picker now draws the Visual Library's own `.vl-a` compositions
+   (LayoutArt Preview), the same renderer the Visual Library uses — so an image
+   tab layout IS the library layout for that category. The `.wv-act__shot` /
+   `.wv-lay__big` wrappers already provide the 4:5 frame and the container the
+   `cqw` sizing needs, so the artwork fills them and drops its own border. */
+.wv-act__shot .vl-a,
+.wv-lay__big .vl-a {
+  width: 100%;
+  height: 100%;
+  border: 0;
+  border-radius: 0;
+}
 
 /* the arrows sit over the ends of the row, small and round on a wash */
 .wv-actsrow__arrow {

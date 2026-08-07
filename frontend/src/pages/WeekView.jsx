@@ -16,59 +16,48 @@ import { getMetaStatus, publishDayToMeta } from '../api/meta';
 import { createImage } from '../api/images';
 import { useProjects, uploadFiles } from '../lib/projectsStore';
 import { CaptureChat } from './Projects';
-import { LAYOUTS, styleOf, rolesOf, groundOf, layoutsOf, groupForRole } from '../lib/visualbrand';
-import { Preview } from './visualbrand/LayoutSystem';
+import { styleOf, rolesOf, groundOf } from '../lib/visualbrand';
+import { LAYOUTS as LIB_LAYOUTS, SPECIALS, catForRole, shotsOf, needsOf } from '../data/layouts';
+import { paintOf } from '../lib/identity';
+import { Preview } from './visuallibrary/LayoutArt';
 import { useStore } from '../lib/store';
 import './weekView.css';
 
-// Hook-family layouts from the Visual Brand layout system (H1 full-bleed,
-// H2 split, H3 statement). The Hook slide is composed with one of these.
-const HOOK_LAYOUTS = LAYOUTS.filter((l) => l.group === 'hook');
-const DEFAULT_HOOK_LAYOUT = 'H1';
-const layoutById = (id) => HOOK_LAYOUTS.find((l) => l.id === id) || HOOK_LAYOUTS[0];
-
-// ── Which layouts an empty slide can take (bauhly-v3 YourWeek `layoutsFor`) ──
-// The carousel offers the shapes that work without a photograph: layouts that
-// need none (`shots === 0` — statements, quotes, type), whatever Bauhly BUILDS
-// rather than arranges (`teach`, e.g. the annotated photo), and the two that
-// belong everywhere — "Image only" and "Create image". The slide's own category
-// comes first, the rest after, and the two "any" layouts last.
-function layoutsForSlide(role, refs, assets) {
-  const group = groupForRole(role);
-  const all = layoutsOf(refs, assets);
-  // `teach` layouts have no honest default, so they appear only once a
-  // reference of that kind has been filed under this category.
-  const taught = (l) =>
-    !l.teach || refs.some((r) => r.kind === 'layout' && r.layoutGroup === l.group);
-  const any = all.filter((l) => l.group === 'any');
-  // A HOOK SLIDE SHOWS ITS OWN FAMILY, as it did before this carousel existed:
-  // the opening frame is the one everyone sees, so all three hook shapes
-  // (H1 full-bleed, H2 split, H3 statement) are offered — not the photo-free
-  // set the other roles fall back to. The "Create image" / "Image only" pair
-  // still stands at the end, since it belongs on every slide.
-  if (group === 'hook') {
-    const hooks = all.filter((l) => l.group === 'hook' && taught(l));
-    return [...hooks, ...any];
-  }
-  const usable = all.filter((l) => (l.shots === 0 || l.teach) && taught(l));
-  const own = usable.filter((l) => l.group === group);
-  const rest = usable.filter((l) => l.group !== group && l.group !== 'any');
-  return [...own, ...rest, ...any];
+// ── Which layouts a slide can take — drawn straight from the Visual Library ──
+// A slide's narrative role maps to ONE library category (`catForRole`): a Hook
+// slide offers the Hook layouts, a CTA slide the CTA layouts, Setup/Process the
+// Educational ones, and so on. The set is the studio's OWN — the library's
+// layouts they have not turned off or removed there, plus any they added — so
+// what the Visual Library shows is exactly what this picker offers. "Create
+// image" (the GEN special) stands last, on every slide.
+const ALL_LIB = [...LIB_LAYOUTS];
+function layoutsForSlide(role, store) {
+  const off = store?.layoutsOff || {};
+  const gone = store?.layoutsGone || {};
+  const added = store?.addedLayouts || [];
+  const cat = catForRole(role);
+  const own = [...added, ...ALL_LIB].filter((l) => !gone[l.id] && !off[l.id] && l.cat === cat);
+  return [...own, ...SPECIALS];
 }
+// "Create image" (GEN) and the annotated photo are the two the picker treats
+// specially — one opens the generation chat, the other changes the upload's
+// wording — so they are named off the library layout's own fields.
+const isGen = (l) => l?.special === 'gen';
+const isAnnotate = (l) => l?.kind === 'annotate' || l?.kind === 'annotate-multi';
 
 // The grey band under the carousel says what the chosen layout is — and each
 // answer is short. "Create image" is an invitation; an annotated photo lists
 // what it will and will not touch; everything else describes the shape.
 function layoutPoints(l) {
   if (!l) return ['Add a picture and Bauhly builds the slide around it.'];
-  if (l.shape === 'gen') {
+  if (isGen(l)) {
     return [
       'Made from your colours, type and references',
       'Nothing is drawn until you ask for it',
       'You see it before it replaces this slide',
     ];
   }
-  if (l.shape === 'annotate') {
+  if (isAnnotate(l)) {
     return [
       'Follows the annotation style in your references',
       'Your photograph is left exactly as it is',
@@ -76,14 +65,15 @@ function layoutPoints(l) {
       'You review it before it replaces this slide',
     ];
   }
+  const shots = shotsOf(l);
   return [
     l.when,
-    l.shots === 0
+    shots === 0
       ? 'Words only — no photograph needed'
-      : `Uses ${l.shots} of your photograph${l.shots === 1 ? '' : 's'}`,
-    l.ready
-      ? 'Bauhly has the references this layout is built from'
-      : `Still needs references for ${(l.missing?.label || 'this layout').toLowerCase()}`,
+      : `Uses ${shots} of your photograph${shots === 1 ? '' : 's'}`,
+    needsOf(l).includes('layout')
+      ? 'Type sits on the picture — drawn from your Library references'
+      : 'Drawn in your palette and type',
   ];
 }
 
@@ -490,49 +480,47 @@ function buildMarkdown(route) {
   return lines.join('\n');
 }
 
-// Compose the Hook slide the way its chosen layout says to — full-bleed (line
-// on the photo), split (words beside the photo) or statement (words on a
-// ground, no photo). Mirrors the Visual Brand layout previews (LayoutSystem).
-function HookMedia({ slide, layoutId, contentType }) {
-  const shape = layoutById(layoutId).shape; // 'bleed' | 'split' | 'poster'
-  const head = slide?.title || 'Your hook line';
-  const eyebrow = contentType || '';
-  const img = slide?.image?.url || null;
+// Put the slide's own words (and content type) into the chosen library layout's
+// text, so the post preview draws the EXACT composition the studio picked —
+// same renderer, same shape as the Image-tab card — with this slide's line in
+// it rather than the layout's specimen copy. A live slide carries one line
+// (`title`), so it fills the composition's PRIMARY text slot; the layout keeps
+// its own supporting copy for the parts a one-line slide cannot fill.
+function fillLayout(layout, slide, contentType) {
+  if (!layout) return layout;
+  const line = (slide?.title || '').trim();
+  const art = { ...(layout.art || {}) };
+  if (line) {
+    if ('head' in art) art.head = line;
+    else if ('big' in art) art.body = line; // a number layout — the line captions it
+    else if ('a' in art) art.a = line; // a comparison — best effort with one line
+    else art.body = line;
+    // an accent word would split the studio's line in two
+    if ('accent' in art) delete art.accent;
+  }
+  // the eyebrow is the post's content type, but only where the layout shows one
+  if (contentType && 'eyebrow' in art) art.eyebrow = contentType;
+  return { ...layout, art };
+}
 
-  if (shape === 'poster') {
-    return (
-      <div className="wv-hook wv-hook--poster">
-        <div className="wv-hook__words">
-          {eyebrow && <span className="wv-hook__eyebrow">{eyebrow}</span>}
-          <p className="wv-hook__head">{head}</p>
-        </div>
-      </div>
-    );
+// The post preview IS the chosen Visual Library layout — LayoutArt's own
+// `Preview`, the same renderer the Image-tab cards and the Visual Library use.
+// The slide's photograph fills the composition's picture slots (mood on); with
+// none, the picture regions draw as the empty ground the layout has before a
+// photo exists, exactly as the library shows them.
+function SlideMedia({ slide, layout, contentType }) {
+  if (!layout) {
+    return <div className="wv-ig__empty"><Glyph name="image" size={28} /><span>Needs image</span></div>;
   }
-  if (shape === 'split') {
-    return (
-      <div className="wv-hook wv-hook--split">
-        <div className="wv-hook__words">
-          {eyebrow && <span className="wv-hook__eyebrow">{eyebrow}</span>}
-          <p className="wv-hook__head">{head}</p>
-        </div>
-        <div className="wv-hook__photo">
-          {img ? <img src={img} alt="" /> : <div className="wv-hook__empty"><Glyph name="image" size={22} /></div>}
-        </div>
-      </div>
-    );
-  }
-  // bleed (default) — the line sits on the photograph, bottom-left
+  const photo = slide?.image?.url || null;
+  const shots = shotsOf(layout);
+  const filled = fillLayout(layout, slide, contentType);
+  const withPhoto = photo && shots > 0
+    ? { ...filled, imgs: Array.from({ length: shots }, () => photo) }
+    : filled;
   return (
-    <div className="wv-hook wv-hook--bleed">
-      {img
-        ? <img className="wv-hook__bg" src={img} alt="" />
-        : <div className="wv-hook__empty"><Glyph name="image" size={28} /><span>Needs image</span></div>}
-      <span className="wv-hook__scrim" />
-      <div className="wv-hook__words is-on-photo">
-        {eyebrow && <span className="wv-hook__eyebrow">{eyebrow}</span>}
-        <p className="wv-hook__head">{head}</p>
-      </div>
+    <div className="wv-ig__lay">
+      <Preview l={withPhoto} mood={Boolean(photo && shots > 0)} />
     </div>
   );
 }
@@ -848,8 +836,6 @@ export default function WeekView({ route: initialRoute, onBack }) {
     : '';
 
   const hasOwnImage = Boolean(activeSlide?.assetKey && !activeSlide?.standing && activeSlide?.image);
-  const isHook = activeSlide?.role === 'Hook';
-  const hookLayout = activeSlide?.layout || DEFAULT_HOOK_LAYOUT;
   const weekUsage = weekUsageOf(route);
 
   // The layouts this empty slide can take — its own category first, then the
@@ -869,9 +855,12 @@ export default function WeekView({ route: initialRoute, onBack }) {
       .map((x) => x.img);
   }, [allImages, activeSlide?.title, day]);
   const slideLayouts = useMemo(
-    () => layoutsForSlide(slideRoleName, vbStore?.visualRefs || [], { photos: allImages.length }),
-    [slideRoleName, vbStore, allImages.length],
+    () => layoutsForSlide(slideRoleName, vbStore),
+    [slideRoleName, vbStore],
   );
+  // the studio's palette + faces, so the previews here read exactly as they do
+  // in the Visual Library (empty object = the library's shipped defaults)
+  const libPaint = useMemo(() => paintOf(vbStore?.libraryEdits), [vbStore?.libraryEdits]);
   const chosenLayout = slideLayouts.find((l) => l.id === activeSlide?.layout) || slideLayouts[0] || null;
   const chosenLayoutIdx = Math.max(0, slideLayouts.findIndex((l) => l.id === chosenLayout?.id));
   const LAY_PER_PAGE = 3;
@@ -887,7 +876,7 @@ export default function WeekView({ route: initialRoute, onBack }) {
   };
 
   return (
-    <div className="wv">
+    <div className="wv" style={libPaint}>
       <div className="wv-topbar">
         <button type="button" className="wv-back" onClick={onBack}>
           <Glyph name="arrow-left" size={15} />Your plans
@@ -1051,26 +1040,14 @@ export default function WeekView({ route: initialRoute, onBack }) {
                 )}
               </header>
               <div className="wv-ig__photo">
-                {isHook ? (
-                  <HookMedia slide={activeSlide} layoutId={hookLayout} contentType={day.contentType || day.format} />
-                ) : (
-                  <>
-                    {activeSlide?.image?.url ? (
-                      <img src={activeSlide.image.url} alt="" />
-                    ) : (
-                      <div className="wv-ig__empty">
-                        <Glyph name="image" size={28} />
-                        <span>Needs image</span>
-                      </div>
-                    )}
-                    {(activeSlide?.title || day.title) && (
-                      <div className="wv-ig__overlay">
-                        <span className="wv-ig__badge">{day.contentType || day.format}</span>
-                        <p className="wv-ig__hook">{activeSlide?.title || day.title}</p>
-                      </div>
-                    )}
-                  </>
-                )}
+                {/* the post preview composes through the layout chosen in the
+                    Image tab — for every slide, so the layout picker actually
+                    changes what the post looks like */}
+                <SlideMedia
+                  slide={activeSlide}
+                  layout={chosenLayout}
+                  contentType={day.contentType || day.format}
+                />
                 {slides.length > 1 && (
                   <span className="wv-ig__count">{safeIdx + 1}/{slides.length}</span>
                 )}
@@ -1281,7 +1258,7 @@ export default function WeekView({ route: initialRoute, onBack }) {
                               onClick={() => patchActiveSlide({ layout: l.id })}
                               title={l.when}
                             >
-                              <span className="wv-act__shot"><Preview l={l} /></span>
+                              <span className="wv-act__shot"><Preview l={l} mood={false} /></span>
                               <b>{l.name}</b>
                             </button>
                           ))}
@@ -1301,7 +1278,7 @@ export default function WeekView({ route: initialRoute, onBack }) {
                       <div className="wv-sel">
                         <div className="wv-empty wv-empty--band">
                           <div className="wv-lay__big">
-                            {chosenLayout ? <Preview l={chosenLayout} /> : <div className="wv-empty__ph"><Glyph name="image" size={30} /></div>}
+                            {chosenLayout ? <Preview l={chosenLayout} mood={false} /> : <div className="wv-empty__ph"><Glyph name="image" size={30} /></div>}
                           </div>
                           <h3 className="wv-empty__title">
                             {chosenLayout ? chosenLayout.name : 'No picture on this slide yet'}
@@ -1311,7 +1288,7 @@ export default function WeekView({ route: initialRoute, onBack }) {
                               <li key={t}><Glyph name="check" size={14} />{t}</li>
                             ))}
                           </ul>
-                          {chosenLayout?.shape === 'gen' ? (
+                          {isGen(chosenLayout) ? (
                             /* Create image has one way on — a conversation about a
                                picture that does not exist yet, no door out beside it */
                             <div className="wv-empty__acts">
@@ -1327,11 +1304,11 @@ export default function WeekView({ route: initialRoute, onBack }) {
                                 disabled={uploading}
                                 onClick={() => fileRef.current?.click()}
                               >
-                                <Glyph name={chosenLayout?.shape === 'annotate' ? 'sparkles' : 'upload'} size={16} />
-                                {uploading ? 'Uploading…' : chosenLayout?.shape === 'annotate' ? 'Create' : 'Upload image'}
+                                <Glyph name={isAnnotate(chosenLayout) ? 'sparkles' : 'upload'} size={16} />
+                                {uploading ? 'Uploading…' : isAnnotate(chosenLayout) ? 'Create' : 'Upload image'}
                               </button>
-                              <button type="button" className="wv-run wv-run--ghost" onClick={() => navigate('/dashboard/visual-brand')}>
-                                <Glyph name="palette" size={16} />Visual Brand
+                              <button type="button" className="wv-run wv-run--ghost" onClick={() => navigate('/dashboard/visual-library')}>
+                                <Glyph name="layout-grid" size={16} />Visual Library
                               </button>
                             </div>
                           )}

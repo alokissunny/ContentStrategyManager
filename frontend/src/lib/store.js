@@ -26,6 +26,19 @@ const DEFAULTS = {
   /* seeded on read from lib/projects.js, never persisted */
   projects: null,
   projectsSeedV: 0,
+
+  /* ── the Visual Library's state (ported from bauhly-v3) ──────────────────
+   * The library keeps only its EXCEPTIONS, so a new layout is in use by default
+   * and the shipped set needs nothing stored. `off` and `gone` are keyed by
+   * layout id; `addedLayouts` is the studio's own compositions (their `imgs`
+   * are object URLs and die with the session); `refAnalysis` is what Bauhly
+   * read off each added picture; `libraryEdits` is the palette/type override
+   * (empty object = the CSS defaults). See pages/visuallibrary/. */
+  layoutsOff: {},   // { [layoutId]: true }
+  layoutsGone: {},  // { [layoutId]: true }
+  addedLayouts: [], // [{ id, cat, name, kind, tone, levels, imgs, art, own, fromRef, addedAt }]
+  refAnalysis: {},  // { [refId]: { colours, shape, ground, at } }
+  libraryEdits: { palette: {}, type: {} },
 };
 
 let state = load();
@@ -45,6 +58,12 @@ function load() {
       if (Array.isArray(st.grounds)) st.grounds = st.grounds.filter((g) => !String(g?.url || '').startsWith('blob:'));
       if (st.logo && String(st.logo.url || '').startsWith('blob:')) st.logo = { ...st.logo, url: null };
       s.brandStyle = st;
+    }
+    /* a layout the studio added carries an object URL for its picture, which is
+       a dead `blob:` once read back from storage — drop it, the same way added
+       references are dropped above. Added layouts last the session. */
+    if (Array.isArray(s.addedLayouts)) {
+      s.addedLayouts = s.addedLayouts.filter((l) => !l?.imgs?.some((u) => String(u || '').startsWith('blob:')));
     }
     return s;
   } catch {

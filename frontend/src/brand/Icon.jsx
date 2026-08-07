@@ -16,6 +16,7 @@ const PATHS = {
   'arrow-down': <path d="M12 5v14m-6-6 6 6 6-6" />,
   'chevron-down': <path d="m6 9 6 6 6-6" />,
   'chevron-right': <path d="m9 6 6 6-6 6" />,
+  'chevron-left': <path d="m15 6-6 6 6 6" />,
   download: <path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14" />,
   /* the same shape as download, the arrow the other way — one gesture, two directions */
   upload: <path d="M12 21V9m0 0 4 4m-4-4-4 4M5 3h14" />,

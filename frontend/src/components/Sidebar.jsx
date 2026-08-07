@@ -10,7 +10,7 @@ import { LS_SURFACE, LS_BORDER, LS_INK, LS_T2, LS_SIGNAL, LS_SIGNAL_TEXT, LS_SOF
 const NAV_ITEMS = [
   { to: '/dashboard', label: 'Your plans', icon: 'route', exact: true },
   { to: '/dashboard/projects', label: 'Projects', icon: 'folder' },
-  { to: '/dashboard/visual-brand', label: 'Visual Brand', icon: 'palette' },
+  { to: '/dashboard/visual-library', label: 'Visual Library', icon: 'layout-grid' },
   { to: '/dashboard/competitor-overview', label: 'Competitor overview', icon: 'trending-up' },
 ];
 

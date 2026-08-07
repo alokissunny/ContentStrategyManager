@@ -1,0 +1,1264 @@
+/* ── The Brand Visual Library ──────────────────────────────────────────────
+ * A library of parts, in the product's own material: the same tokens, the same
+ * card shape, the same chips. Nothing here is a new visual language — see
+ * docs/13-DESIGN-SYSTEM.md.
+ *
+ * ONE SIZE SYSTEM, NOT FOUR (Leon, Aug 6). This page had grown four button
+ * heights on one screen — 44px head actions, 34px chips, a 28px pill on every
+ * card and a 26px ⋯ — and none of the last three used the sizes the rest of the
+ * app already has. Every control here is now `.btn` at `--sm` or `--xs`, or the
+ * `.vb-filter` chip the sibling Visual Brand page uses, and the two 999px pills
+ * are gone: a rounded action is a marketing shape, and this is the workspace. */
+
+.vl { display: flex; flex-direction: column; gap: var(--sp-4); }
+
+/* ── ROW ONE: the title, and Library settings on its line ── */
+.vl-head { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3); flex-wrap: wrap; }
+.vl-head__acts { display: flex; align-items: center; gap: var(--sp-2); flex: 0 0 auto; }
+.vl-head__title {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  margin: 0;
+  font-family: var(--font-display, var(--font-ui));
+  font-size: var(--text-2xl, 28px);
+  font-weight: 700;
+  color: var(--ink-900);
+}
+.vl-head__settings { flex: 0 0 auto; }
+.vl-head__lead { margin: -8px 0 var(--sp-2); font-size: var(--text-sm); line-height: 1.55; color: var(--ink-500); }
+
+/* ── ROW TWO: the theme, and the mood-visual switch ── */
+.vl-controls { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; }
+/* on = the product's own selection treatment (design system §1): accent tint
+   ground, accent word. Off = a plain tertiary button, like its neighbours. */
+.btn.vl-mood[aria-pressed='true'] {
+  background: var(--signal-50);
+  border-color: var(--signal-100);
+  color: var(--signal-800);
+}
+.btn.vl-mood[aria-pressed='true']:hover { background: var(--signal-100); border-color: var(--signal-400); }
+
+/* ── the Filter button, and what it says when it is doing something ─────────
+ * Four options behind one door. The button is the same tertiary `--sm` as the
+ * theme and the mood switch beside it; the only thing that marks it as active is
+ * the accent-tinted count, because a filtered library must never look like the
+ * whole library. */
+.vl-filter__n {
+  display: grid;
+  place-items: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: var(--r-full);
+  background: var(--signal-500);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  color: #fff;
+}
+.vl-filter.is-on { border-color: var(--ink-900); }
+
+.vl-applied {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+  margin: 0;
+  font-size: var(--text-xs);
+  color: var(--ink-500);
+}
+.vl-applied__clear {
+  border: 0;
+  background: none;
+  padding: 0;
+  font: inherit;
+  font-weight: 700;
+  color: var(--signal-700);
+  text-decoration: underline;
+  cursor: pointer;
+}
+.vl-applied__clear:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+
+.vl-none { margin: var(--sp-6) 0; font-size: var(--text-base); color: var(--ink-600); }
+.vl-none__link { border: 0; background: none; padding: 0; font: inherit; font-weight: 600; color: var(--signal-700); text-decoration: underline; cursor: pointer; }
+.vl-none__link:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+
+/* ── a category row ── */
+.vl-row { display: flex; flex-direction: column; gap: var(--sp-3); padding-top: var(--sp-5); border-top: 1px solid var(--border); }
+.vl-row__head { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--sp-4); }
+.vl-row__title { margin: 0 0 2px; font-size: var(--text-lg, 19px); font-weight: 700; color: var(--ink-900); }
+.vl-row__title span { color: var(--ink-400); font-weight: 600; }
+.vl-row__lead { margin: 0; font-size: var(--text-xs); color: var(--ink-500); }
+
+.vl-rail__wrap { position: relative; min-width: 0; }
+.vl-rail {
+  list-style: none;
+  margin: 0;
+  padding: 0 0 2px;
+  display: flex;
+  gap: var(--sp-4);
+  overflow-x: auto;
+  scroll-snap-type: x proximity;
+  scrollbar-width: none;
+}
+.vl-rail::-webkit-scrollbar { display: none; }
+/* an opened category is the same rail, wrapped — not a different page */
+.vl-rail.is-open { flex-wrap: wrap; overflow: visible; }
+.vl-rail__go {
+  position: absolute;
+  right: -6px;
+  top: 38%;
+  z-index: 2;
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  background: var(--surface);
+  color: var(--ink-800);
+  box-shadow: 0 6px 18px -8px rgba(22, 22, 26, 0.35);
+  cursor: pointer;
+  transition: color var(--dur-fast) var(--ease-out), background var(--dur-fast) var(--ease-out);
+}
+.vl-rail__go.is-back { right: auto; left: -6px; }
+.vl-rail__go:hover { color: var(--ink-900); background: var(--ink-100); }
+.vl-rail__go:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+
+/* ── a card ── */
+.vl-card { position: relative; flex: 0 0 232px; scroll-snap-align: start; display: flex; flex-direction: column; gap: 10px; }
+/* THE CONTAINER IS THE FRAME, NOT THE ARTWORK (Leon, Aug 6, measured).
+ * With `container-type` on the artwork itself, the artwork's OWN `cqw` values
+ * had no container to resolve against and fell back to the viewport — a
+ * comparison layout set at 6.4cqw drew at 90px in a 232px card. An element
+ * cannot query itself, so the query root is the frame around it. */
+.vl-card__frame { container-type: inline-size; position: relative; }
+.vl-card.is-off .vl-a { opacity: 0.42; filter: grayscale(1); }
+/* out of the middle of the artwork (Leon, Aug 6) — it obscured the very thing
+   the studio was deciding about */
+.vl-card__offmark {
+  position: absolute;
+  left: 8px;
+  top: 8px;
+  padding: 4px 9px;
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  font-family: var(--font-ui);
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--ink-700);
+  box-shadow: 0 2px 8px rgba(22, 22, 26, 0.16);
+}
+.vl-card__foot { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-2); }
+.vl-card__id { min-width: 0; }
+.vl-card__id b { display: block; font-size: var(--text-sm); font-weight: 700; color: var(--ink-900); }
+.vl-card__use { flex: 0 0 auto; }
+
+/* ── the drawn layout ──────────────────────────────────────────────────────
+ *
+ * The frame is a CONTAINER and every size inside it is a share of its width
+ * (`cqw`), so one piece of markup reads at any card size and a four-step list
+ * can no longer run out of its own frame. */
+.vl-a {
+  position: relative;
+  display: flex;
+  aspect-ratio: 4 / 5;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg, 16px);
+  background: var(--surface-sunken);
+  font-family: var(--font-display, var(--font-ui));
+  color: var(--a-fg);
+  text-align: left;
+}
+
+
+/* ══ THE PALETTES ═══════════════════════════════════════════════════
+ *
+ * A THEME IS A PALETTE (Leon, Aug 6 — replaces the Aug 4 rule). The theme used
+ * to own a set of layouts: each layout declared one, so choosing Bold showed you
+ * twenty and Editorial a different twenty-two, and "Quiet" was defined as
+ * *photography first, small type* — a promise about STRUCTURE. Switching theme
+ * therefore rebuilt the page instead of recolouring it, and a studio who wanted
+ * the framed-plate composition had to take the paper palette to get it.
+ *
+ * Everything below this line is colour. Not one geometry rule — no padding, no
+ * size, no ratio, no order — appears in a theme block, and there is no
+ * `.vl--bold .vl-a--frame`-style selector anywhere: if a theme could restyle a
+ * composition, switching would move things again. Each theme paints four roles
+ * and the compositions read them:
+ *
+ *   --a-fg       the primary word
+ *   --a-mute     the secondary word
+ *   --a-eyebrow  the label above the line
+ *   --a-mark     THE ACCENT AS INK — the numeral, the list numbers, the accent
+ *                word. It is read, so it is contrast-checked per theme
+ *   --a-deco     THE ACCENT AS A SHAPE — the divider, the comparison rule, the
+ *                pin, the quote glyph, the edge on a caption bar. Nothing here
+ *                is read, so it can be the raw accent at full strength
+ *   --a-edge     the hairline round the frame
+ *   --a-hatch    the empty-photograph ground, for mood visuals off
+ *
+ * `--a-mark` and `--a-deco` split for a reason (Leon, Aug 6). With one variable
+ * doing both jobs, a theme whose accent is too light to read — Fresh's acid lime
+ * is 1.4:1 on off-white — had to demote the accent to a dark olive EVERYWHERE,
+ * so a lime theme showed no lime on 37 of its 62 layouts. Text keeps the safe
+ * value; the shapes get the real colour. Every theme declares both, so this is
+ * one rule applied four times, not a special case for Fresh.
+ */
+
+/* ── THE PALETTE ──────────────────────────────────────────────────────────
+ *
+ * ONE PALETTE, NOT THREE (Leon, Aug 7). This block used to hold Editorial, Bold,
+ * Quiet and Fresh, selected by a class on the page root. A studio has one visual
+ * identity; offering three was asking them to pick a mood for their brand every
+ * time they opened the page. What is left is the product's default identity —
+ * warm paper, a red-black, editorial red — and the three values a studio can
+ * actually change (background, text, accent), which arrive as custom properties
+ * from Library Settings and override the defaults below.
+ *
+ * Everything else is DERIVED: the muted step, the eyebrow, the wash, the hatch,
+ * the accent-ground ink. A palette a studio edits six greys of is not a palette.
+ * Measured on the defaults: text 17:1 on the paper, muted 9:1, eyebrow 6:1, the
+ * red as ink 5.5:1, the red-black on the accent ground 5.9:1. */
+/* ── AND `.yw`, OR THE PLAN HAS NO IDENTITY AT ALL (Leon, Aug 7 — 530) ────
+ * These defaults were scoped to the Visual Library and the settings preview.
+ * The weekly plan renders the SAME artwork (decision 517) and has neither
+ * class — so inside Plans `--t-ground-bg` resolved to nothing, `.vl-a` painted
+ * no ground, and every slide showed whatever happened to be behind it: the
+ * thumbnail's grey `#f6f6f8` in the rail and the post's cream `#f5f0e8` in the
+ * preview. That is the whole of the "thumbnail colours do not match" bug —
+ * measured, not guessed.
+ *
+ * They cannot go on `.vl-a` itself: `paintOf` sets the studio's overrides on an
+ * ANCESTOR, and a value defined on the element beats one inherited into it, so
+ * a local default would make the identity unoverridable. They belong on
+ * whatever hosts the artwork, and `.yw` carries `paintOf` inline — which wins
+ * over this rule for the roles the studio has actually set. */
+.vl,
+.ls-prevs,
+.yw,
+.wv {
+  --t-ground-bg: #f4f2ee;
+  --t-ground-fg: #1b100d;
+  --t-accent-bg: var(--signal-500);
+
+  /* derived from the three above */
+  --t-ground-mute: color-mix(in srgb, var(--t-ground-fg) 74%, transparent);
+  --t-ground-eyebrow: color-mix(in srgb, var(--t-ground-fg) 62%, transparent);
+  --t-ground-mark: color-mix(in srgb, var(--t-accent-bg) 82%, var(--t-ground-fg));
+  --t-ground-deco: var(--t-accent-bg);
+  --t-ground-edge: color-mix(in srgb, var(--t-ground-fg) 10%, transparent);
+  --t-ground-hatch: color-mix(in srgb, var(--t-ground-fg) 7%, transparent);
+  --t-ground-hatch-bg: color-mix(in srgb, var(--t-ground-fg) 7%, transparent);
+
+  --t-accent-fg: var(--t-ground-fg);
+  --t-accent-mute: color-mix(in srgb, var(--t-ground-fg) 86%, transparent);
+  --t-accent-eyebrow: color-mix(in srgb, var(--t-ground-fg) 74%, transparent);
+  --t-accent-mark: var(--t-ground-fg);
+  --t-accent-deco: var(--t-ground-fg);
+  --t-accent-hatch: color-mix(in srgb, var(--t-ground-fg) 14%, transparent);
+  --t-accent-hatch-bg: color-mix(in srgb, var(--t-ground-fg) 16%, transparent);
+
+  --t-photo-fg: #fff;
+  --t-photo-mute: rgba(255, 255, 255, 0.88);
+  --t-photo-eyebrow: rgba(255, 255, 255, 0.84);
+  --t-photo-mark: color-mix(in srgb, var(--t-accent-bg) 78%, #fff);
+  --t-photo-deco: var(--t-accent-bg);
+  --t-photo-wash: color-mix(in srgb, var(--t-ground-fg) 82%, transparent);
+}
+
+/* the roles a layout stands on */
+.vl-a--ground {
+  background: var(--t-ground-bg);
+  border-color: var(--t-ground-edge);
+  --a-fg: var(--t-ground-fg); --a-mute: var(--t-ground-mute);
+  --a-eyebrow: var(--t-ground-eyebrow); --a-mark: var(--t-ground-mark); --a-deco: var(--t-ground-deco);
+  --a-hatch: var(--t-ground-hatch); --a-hatch-bg: var(--t-ground-hatch-bg);
+}
+.vl-a--accent {
+  background: var(--t-accent-bg);
+  border-color: transparent;
+  --a-fg: var(--t-accent-fg); --a-mute: var(--t-accent-mute);
+  --a-eyebrow: var(--t-accent-eyebrow); --a-mark: var(--t-accent-mark); --a-deco: var(--t-accent-deco);
+  --a-hatch: var(--t-accent-hatch); --a-hatch-bg: var(--t-accent-hatch-bg);
+}
+/* the photograph is the ground, and the words on it are white over a wash —
+   the one part of the palette that is legibility rather than identity */
+.vl-a--photo {
+  background: var(--t-ground-bg);
+  border-color: transparent;
+  --a-fg: var(--t-photo-fg); --a-mute: var(--t-photo-mute);
+  --a-eyebrow: var(--t-photo-eyebrow); --a-mark: var(--t-photo-mark); --a-deco: var(--t-photo-deco);
+  --a-hatch: var(--t-ground-hatch); --a-hatch-bg: var(--t-ground-hatch-bg);
+}
+
+/* ── the type ramp, shared by every composition ── */
+.vl-w { display: flex; flex-direction: column; gap: 2.2cqw; min-width: 0; }
+.vl-w__eyebrow {
+  font-family: var(--t-detail-face, var(--font-ui));
+  font-size: 3.1cqw;
+  font-weight: var(--t-detail-weight, 700);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--a-eyebrow);
+}
+/* THE THREE TYPE SLOTS (Leon, Aug 7). Headline, Body and Detail are the three
+   levels every composition already draws, so a face chosen in Library Settings
+   has somewhere to land. The fallback goes at the POINT OF USE, never on
+   `.vl-a` — a declaration on the element beats the value inherited from the
+   settings preview's container, which is how the specimen once changed weight
+   and the preview beside it did not. */
+.vl-w__h {
+  display: block;
+  font-family: var(--t-headline-face, var(--font-display, var(--font-ui)));
+  font-size: 7.4cqw;
+  font-weight: var(--t-headline-weight, 700);
+  line-height: 1.14;
+  letter-spacing: -0.02em;
+  text-wrap: balance;
+  color: var(--a-fg);
+}
+.vl-w__h em { font-style: normal; color: var(--a-mark); }
+.vl-w__b {
+  font-family: var(--font-ui);
+  font-family: var(--t-body-face, var(--font-ui));
+  font-size: 3.8cqw;
+  font-weight: var(--t-body-weight, 400);
+  line-height: 1.45;
+  color: var(--a-mute);
+}
+
+/* ── the photograph ────────────────────────────────────────────────────────
+ * NOTHING IS DRAWN AROUND IT (Leon, Aug 6). The pictures had collected an edge
+ * treatment each — an accent keyline on the framed plate, a drop shadow on the
+ * overlapping pair, rounded corners on the grid cells, the halves and the
+ * swatch plate. Six different ways of ending a photograph in one library, and
+ * every one of them a frame the studio did not ask for. A photograph ends where
+ * it ends; the composition around it is what does the work. */
+.vl-ph { position: relative; display: block; overflow: hidden; background: var(--a-hatch-bg); }
+.vl-ph img { display: block; width: 100%; height: 100%; object-fit: cover; }
+/* mood visuals off: the ground the photograph would sit on — hatched, so an
+   unphotographed slide can never be mistaken for a photographed one */
+.vl-ph.is-empty {
+  background:
+    repeating-linear-gradient(135deg, transparent 0 7px, var(--a-hatch) 7px 14px),
+    var(--a-hatch-bg);
+}
+.vl-ph.is-fill { position: absolute; inset: 0; }
+
+/* words on a photograph: white type over a wash, the way the product's own post
+   art has always handled it */
+/* THE WASH IS SIZED FOR A PALE PHOTOGRAPH (Leon, Aug 6, measured in the
+   browser). At 0.66 the body line under a headline sat on plaster lit by a
+   window and read at roughly 2.5:1 — this studio's photography is warm, high-key
+   and almost white, which is exactly the case a scrim tuned on a dark picture
+   fails. 0.80 at the foot clears AA for both the headline and the line under it
+   on the palest still in the set. */
+.vl-wash { position: absolute; inset: 30% 0 0; background: linear-gradient(180deg, transparent, var(--t-photo-wash)); }
+.vl-w.is-on-photo { position: absolute; left: 7%; right: 7%; bottom: 7%; }
+.vl-w.is-on-photo .vl-w__h { color: var(--a-fg); }
+.vl-w.is-on-photo .vl-w__eyebrow { color: var(--a-eyebrow); }
+.vl-w.is-on-photo .vl-w__b { color: var(--a-mute); }
+.vl-w.is-on-photo .vl-w__h em { color: var(--a-mark); }
+
+/* ══ THE COMPOSITIONS ═══════════════════════════════════════════════════ */
+
+/* a line, alone on the ground */
+.vl-a--statement, .vl-a--prose, .vl-a--quote, .vl-a--title-sub, .vl-a--index, .vl-a--stat {
+  flex-direction: column;
+  justify-content: center;
+  padding: 10%;
+}
+.vl-a--statement .vl-w__h { font-size: 9.2cqw; }
+.vl-a--prose .vl-w__h { font-size: 6.6cqw; }
+.vl-a--prose .vl-w { gap: 3.2cqw; }
+
+/* the display line and its supporting line, with a rule between them */
+.vl-a--title-sub { justify-content: flex-end; gap: 2.6cqw; }
+.vl-a--title-sub .vl-w__h { font-size: 8cqw; }
+.vl-rule { display: block; width: 22%; height: 0.9cqw; background: var(--a-deco); margin: 1.6cqw 0; }
+
+/* a numeral, then the line, then the note */
+.vl-a--index { justify-content: flex-start; gap: 2.4cqw; }
+.vl-num {
+  font-family: var(--font-display, var(--font-ui));
+  font-size: 18cqw;
+  font-weight: 700;
+  line-height: 0.9;
+  letter-spacing: -0.04em;
+  color: var(--a-mark);
+}
+.vl-a--index .vl-w__h { margin-top: auto; font-size: 7cqw; }
+
+/* one number doing the work */
+.vl-big {
+  display: block;
+  font-family: var(--font-display, var(--font-ui));
+  font-size: 24cqw;
+  font-weight: 800;
+  line-height: 0.92;
+  letter-spacing: -0.04em;
+  color: var(--a-fg);
+}
+.vl-w.is-on-photo .vl-big { color: var(--a-fg); }
+.vl-a--stat .vl-w__b { margin-top: 3cqw; }
+
+/* a line worth setting large */
+.vl-a--quote .vl-w__h { font-size: 7cqw; font-weight: 600; }
+.vl-mark {
+  display: block;
+  font-family: var(--font-display, var(--font-ui));
+  font-size: 16cqw;
+  line-height: 0.7;
+  color: var(--a-deco);
+}
+.vl-a--quote .vl-w__b { margin-top: 3cqw; font-size: 3.4cqw; }
+
+/* a point, then the steps under it */
+.vl-a--steps { flex-direction: column; justify-content: center; gap: 4cqw; padding: 9%; }
+.vl-a--steps .vl-w__h { font-size: 6.4cqw; }
+.vl-list { display: flex; flex-direction: column; gap: 2.6cqw; }
+.vl-list__row {
+  display: grid;
+  grid-template-columns: 6cqw 1fr;
+  gap: 2cqw;
+  font-family: var(--font-ui);
+  font-size: 3.6cqw;
+  line-height: 1.35;
+  color: var(--a-mute);
+}
+.vl-list__row i {
+  font-family: var(--font-mono);
+  font-style: normal;
+  font-size: 3.2cqw;
+  font-weight: 600;
+  color: var(--a-mark);
+}
+
+/* two ways of doing one thing */
+.vl-a--compare {
+  align-items: center;
+  justify-content: center;
+  gap: 4cqw;
+  padding: 9%;
+  font-family: var(--font-display, var(--font-ui));
+  font-size: 6.4cqw;
+  font-weight: 700;
+  text-align: center;
+  color: var(--a-fg);
+}
+.vl-a--compare > span { flex: 1 1 0; }
+.vl-vs { display: block; width: 0.5cqw; height: 26cqw; background: var(--a-deco); border-radius: 1cqw; }
+
+/* ── the picture-led compositions ── */
+
+/* the whole frame is the photograph */
+.vl-a--bleed, .vl-a--quote-photo, .vl-a--stat-photo, .vl-a--annotate, .vl-a--caption { border-color: transparent; }
+.vl-a--quote-photo .vl-w__h { color: var(--a-fg); }
+.vl-a--quote-photo .vl-w__b, .vl-a--stat-photo .vl-w__b { color: var(--a-mute); }
+.vl-a--quote-photo .vl-mark { color: var(--a-deco); }
+.vl-a--stat-photo .vl-big { font-size: 20cqw; }
+
+/* the picture, and one bar of paper carrying the line */
+.vl-bar {
+  position: absolute;
+  left: 0; right: 0; bottom: 0;
+  padding: 6% 7%;
+  background: var(--t-ground-bg);
+  color: var(--t-ground-fg);
+  border-top: 0.9cqw solid var(--t-ground-deco);
+}
+.vl-bar .vl-w__h { color: var(--t-ground-fg); }
+.vl-bar .vl-w__b { color: var(--t-ground-mute); }
+.vl-bar .vl-w__h { font-size: 5.6cqw; }
+.vl-bar .vl-w__b { font-size: 3.4cqw; }
+
+/* the picture above, the words under it */
+.vl-a--hero { flex-direction: column; }
+.vl-a--hero .vl-ph { flex: 1 1 60%; min-height: 0; }
+.vl-a--hero .vl-w { flex: 0 0 auto; padding: 7% 7% 8%; }
+.vl-a--hero .vl-w__h { font-size: 6.2cqw; }
+
+/* half words, half picture — and its mirror */
+.vl-a--split { align-items: stretch; }
+.vl-a--split .vl-w { flex: 1 1 0; justify-content: center; padding: 9%; }
+.vl-a--split .vl-ph { flex: 0 0 46%; }
+.vl-a--split .vl-w__h { font-size: 6.4cqw; }
+
+/* the plate, set inside the page with a margin all round */
+.vl-a--frame { flex-direction: column; padding: 8% 8% 7%; gap: 4cqw; }
+.vl-a--frame .vl-ph { flex: 1 1 auto; min-height: 0; }
+.vl-a--frame .vl-w { flex: 0 0 auto; }
+.vl-a--frame .vl-w__h { font-size: 5.6cqw; }
+.vl-a--frame .vl-w__b { font-size: 3.4cqw; }
+
+/* the picture runs off the right edge; the words stand in what is left */
+.vl-a--edge { align-items: center; }
+.vl-a--edge .vl-w { flex: 0 0 52%; padding: 0 5% 0 9%; }
+.vl-a--edge .vl-w__h { font-size: 6.8cqw; }
+/* the picture is centred on the frame's vertical axis (Leon, Aug 6): at a fixed
+   `top` it sat high, and against a type block that is itself vertically centred
+   the offset read as a slip rather than a placement */
+.vl-a--edge .vl-ph {
+  position: absolute;
+  right: -8%;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 56%;
+  height: 62%;
+}
+
+/* two states of one room */
+.vl-a--duo { display: grid; gap: 1.6cqw; padding: 1.6cqw; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr auto; }
+.vl-half { position: relative; display: flex; min-height: 0; min-width: 0; }
+.vl-half .vl-ph { width: 100%; }
+.vl-half em {
+  position: absolute; left: 5%; bottom: 5%;
+  padding: 0.9cqw 2.2cqw;
+  border-radius: var(--r-sm);
+  font-family: var(--font-ui);
+  font-style: normal;
+  font-size: 2.9cqw;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--t-ground-fg);
+  background: var(--t-ground-bg);
+  white-space: nowrap;
+  /* IT WAS NEVER CLIPPED (Leon, Aug 6 — measured: 69px wide, 38px of clearance,
+     no overflow). It was INVISIBLE. The chip is painted in the theme's paper
+     ground, and it was sitting on a sunlit wall of almost exactly that colour,
+     so its left half dissolved into the photograph and "AFTER" read as "ER".
+     An opaque chip is not a legible chip on an unknown picture; it needs an
+     edge. One soft shadow, on every label that sits on a photograph. */
+  box-shadow: 0 0.3cqw 1.4cqw rgba(20, 18, 16, 0.28);
+}
+.vl-foot {
+  grid-column: 1 / -1;
+  padding: 2.4cqw 2cqw 1.2cqw;
+  font-family: var(--font-display, var(--font-ui));
+  font-size: 5cqw;
+  font-weight: 700;
+  line-height: 1.15;
+  letter-spacing: -0.01em;
+  color: var(--a-fg);
+}
+
+/* four rooms, one way of working — and the three-up collage */
+.vl-a--grid4, .vl-a--collage { display: grid; grid-template-rows: 1fr auto; gap: 1.6cqw; padding: 1.6cqw; }
+.vl-cells { display: grid; gap: 1.6cqw; min-height: 0; }
+.vl-a--grid4 .vl-cells { grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; }
+.vl-a--collage .vl-cells { grid-template-columns: 1fr 1fr; grid-template-rows: 1.4fr 1fr; }
+.vl-a--collage .vl-ph.is-lead { grid-column: 1 / -1; }
+.vl-cells .vl-ph { min-height: 0; }
+
+/* two pictures that overlap — a pair, not a comparison */
+.vl-a--overlap { flex-direction: column; justify-content: flex-end; padding: 8%; }
+.vl-a--overlap .vl-ph { position: absolute; }
+.vl-a--overlap .vl-ph.is-back { left: 8%; top: 9%; width: 52%; height: 40%; }
+.vl-a--overlap .vl-ph.is-front { right: 8%; top: 26%; width: 48%; height: 36%; }
+.vl-a--overlap .vl-w { position: relative; z-index: 1; }
+.vl-a--overlap .vl-w__h { font-size: 6cqw; }
+
+/* a mark on the photograph, and the note it points at */
+.vl-pin {
+  position: absolute; top: 33%; left: 29%;
+  width: 4.2cqw; height: 4.2cqw;
+  border-radius: var(--r-full);
+  background: var(--a-deco);
+  box-shadow: 0 0 0 1.4cqw color-mix(in srgb, var(--a-deco) 30%, transparent);
+}
+.vl-note {
+  position: absolute; left: 7%; right: 7%; bottom: 7%;
+  padding: 4.4cqw;
+  border-radius: 2cqw;
+  background: var(--t-ground-bg);
+}
+.vl-note .vl-w__eyebrow { color: var(--t-ground-eyebrow); }
+.vl-note .vl-w__b { font-size: 3.6cqw; color: var(--t-ground-fg); }
+
+/* the palette, under the room it came out of */
+.vl-a--swatches { flex-direction: column; padding: 8%; gap: 3.2cqw; }
+.vl-a--swatches .vl-ph { flex: 1 1 auto; min-height: 0; }
+.vl-swatches { display: flex; gap: 1.6cqw; flex: 0 0 auto; }
+/* THE CHIPS CARRY NO THEME COLOUR (Leon, Aug 6). Their background is set inline
+   from the photograph's own pixels — see `SwatchRow` — and the only colour this
+   stylesheet gives them is the empty ground for when there is no photograph to
+   read, which is the same hatch every other unphotographed slot uses. */
+.vl-swatches i { display: block; flex: 1 1 0; height: 5cqw; }
+.vl-swatches i.is-empty {
+  background:
+    repeating-linear-gradient(135deg, transparent 0 7px, var(--a-hatch) 7px 14px),
+    var(--a-hatch-bg);
+}
+.vl-a--swatches .vl-w__h { font-size: 5.4cqw; }
+.vl-a--swatches .vl-w__b { font-size: 3.2cqw; }
+
+/* ── the theme picker and the card's own menu ── */
+/* the theme picker was removed from this page (Leon, Aug 6) — the identity is
+   chosen in Library Settings and nowhere else. The wrapper stays because Filter
+   still uses it. */
+.vl-themewrap { position: relative; display: inline-flex; }
+.vl-card__menuwrap { position: absolute; top: 8px; right: 8px; }
+.vl-card__dots { background: rgba(255, 255, 255, 0.9); box-shadow: 0 1px 3px rgba(22, 22, 26, 0.16); }
+.vl-card__dots:hover { background: #fff; }
+/* ── THE DISMISS LAYER MUST SIT UNDER THE MENU ─────────────────────────────
+ *
+ * THE BUG THAT MADE THE THEME PICKER DEAD (Leon, Aug 6 — found with
+ * `elementFromPoint`). `.vl-menu` asked for `z-index: 31`, and it never got it:
+ * `.pe-menu` in projects.css sets `z-index: 21` at the SAME specificity and
+ * loads later in the bundle, so it won. The scrim at 30 was therefore painted
+ * ABOVE the menu, and every real click on a theme or filter option hit the
+ * scrim — whose only job is to close the menu. The menu closed, nothing was
+ * selected, and the theme never changed.
+ *
+ * It passed every test I wrote because those tests called `element.click()`,
+ * which dispatches straight to the node and skips hit-testing entirely. A menu
+ * is only proven by asking the document what is actually on top of the pixel.
+ *
+ * Two classes, so this can never silently lose to `.pe-menu` again, and the
+ * pair is ordered the way the app's own menus are (`.pe-menu__scrim` 20 under
+ * `.pe-menu` 21). */
+.vl-scrim { position: fixed; inset: 0; z-index: 40; }
+.pe-menu.vl-menu { position: absolute; right: 0; top: calc(100% + 6px); z-index: 41; min-width: 220px; }
+.vl-menu { position: absolute; right: 0; top: calc(100% + 6px); min-width: 220px; }
+
+/* ── the Filter and Theme dropdowns ────────────────────────────────────────
+ *
+ * THEY ARE `.pe-menu`, AND NOTHING ELSE (Leon, Aug 6). The filter menu had been
+ * given its own row height, padding, type size, weight and gap — 34px rows at
+ * `--text-sm` — on the argument that a filter is pressed in pairs while you look
+ * at the page behind it. That is a fair argument and it still made this page's
+ * dropdowns a different component from every other dropdown in the product:
+ * 34px rows here, 44px in Projects and Your week, two type sizes, two icon
+ * sizes. Consistency beats the argument. Both menus now take the shell's own
+ * geometry — 44px rows, `10px 12px`, `--text-base`, `--r-sm`, 12px gap, the same
+ * hover — and add only two things:
+ *
+ *   · a tick column, so the selected item is marked the way the app marks one
+ *     and the labels do not shuffle sideways when it appears
+ *   · the count beside a facet, in the `.pe-menu__label` family
+ *
+ * The selected row uses the product's documented SELECTION treatment (design
+ * system §1): accent tint ground, `--signal-800` word. It is not a button level
+ * and it is not a hover.
+ */
+/* THE MENU IS NOT `display: contents` (Leon, Aug 7). A scripted edit merged its
+   selector onto the slot's rule, so the dropdown itself lost its box: it
+   measured 0×0, could not be clicked, and its rows escaped into the wrapper and
+   stretched it to 919px. `contents` belongs to the SLOT — a grouping span that
+   must not become a row — and to nothing else. */
+.pe-menu.vl-menu--filter { left: 0; right: auto; }
+.pe-menu.vl-menu--filter .vl-menu__slot { display: contents; }
+.pe-menu.vl-menu--filter button[disabled] { color: var(--ink-400); background: none; cursor: default; pointer-events: none; }
+.vl-menu button.is-on { background: var(--signal-50); color: var(--signal-800); }
+.vl-menu button.is-on svg { color: var(--signal-800); }
+.vl-menu__tick { display: grid; place-items: center; width: 17px; flex: 0 0 17px; }
+.vl-menu__n { font-size: var(--text-xs); color: var(--ink-quiet); flex-shrink: 0; }
+
+/* ══ THE COMPOSITIONS ADDED Aug 6 ═════════════════════════════════════════
+ *
+ * Twenty-one shapes, and the rule they were held to is the one at the top of
+ * `data/layouts.js`: a layout earns its place by its COMPOSITION, its HIERARCHY
+ * or its IMAGE TREATMENT. So what varies below is where the type sits, how the
+ * levels relate to each other, and what the pictures do — never a re-spacing of
+ * something that already exists.
+ *
+ * Every colour here is a theme role (`--a-fg`, `--a-mute`, `--a-eyebrow`,
+ * `--a-mark`, `--a-deco`, `--a-hatch`). There is not one literal in this block,
+ * so all twenty-one repaint with the theme like everything above them. */
+
+/* the line at the centre of both axes, a caption pinned to the foot */
+.vl-a--centered { flex-direction: column; align-items: center; justify-content: center; padding: 11%; text-align: center; }
+.vl-a--centered .vl-w__h { font-size: 8.6cqw; }
+.vl-a--centered .vl-w__b { position: absolute; left: 11%; right: 11%; bottom: 7%; font-size: 3.4cqw; }
+
+/* title in one corner, copy in the opposite one — a diagonal read */
+.vl-a--corner { flex-direction: column; justify-content: space-between; padding: 9%; }
+.vl-a--corner .vl-w__h { font-size: 8cqw; max-width: 86%; }
+.vl-a--corner .vl-w__b { align-self: flex-end; width: 62%; text-align: right; }
+
+/* title left, supporting text against the opposite margin */
+.vl-a--split-type { flex-direction: column; justify-content: center; gap: 5cqw; padding: 9%; }
+.vl-a--split-type .vl-w__h { font-size: 8cqw; width: 78%; }
+.vl-a--split-type .vl-w__b { align-self: flex-end; width: 56%; text-align: right; }
+
+/* the smallest type in the set, in the largest field */
+.vl-a--airy { flex-direction: column; justify-content: flex-end; padding: 10%; }
+.vl-a--airy .vl-w { gap: 1.6cqw; width: 74%; }
+.vl-a--airy .vl-w__b { font-size: 3.6cqw; }
+.vl-dot { position: absolute; top: 11%; left: 10%; width: 3.4cqw; height: 3.4cqw; border-radius: var(--r-full); background: var(--a-deco); }
+
+/* a title over two columns of body */
+.vl-a--columns { flex-direction: column; justify-content: center; gap: 2.4cqw; padding: 9%; }
+.vl-a--columns .vl-w__h { font-size: 6.4cqw; margin-bottom: 1cqw; }
+.vl-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 4cqw; }
+.vl-cols .vl-w__b { font-size: 3.2cqw; }
+
+/* ── a panel inset on the ground, sitting on an accent block ──────────────
+ *
+ * NOT A COLOURED RULE DOWN THE LEFT (Leon, Aug 7). That treatment — a tinted
+ * panel with a vertical accent bar on its leading edge — is the house style of
+ * half the products a designer has open, and it read as borrowed rather than
+ * as ours.
+ *
+ * What replaced it is the design system's own move: a **solid accent block,
+ * offset behind the panel**, so the two shapes read as stacked planes. Geometric
+ * colour blocking and floating surfaces are the language this product already
+ * speaks (design system §1 — soft neo-brutalism × editorial premium); a hairline
+ * rule is not. The accent is spent on a shape rather than on a line, which is
+ * also more of it at the sizes these cards are read at.
+ *
+ * The block is a pseudo-element on the panel, so the markup is unchanged and no
+ * layout has to know it exists. */
+.vl-a--callout { align-items: center; justify-content: center; padding: 8%; }
+.vl-panelwrap { position: relative; display: block; width: 88%; }
+/* the plane behind: same shape, pushed down and right, in the accent */
+.vl-panel__block {
+  position: absolute;
+  left: 3.4cqw; right: -3.4cqw;
+  top: 3.4cqw; bottom: -3.4cqw;
+  border-radius: 2.4cqw;
+  background: var(--a-deco);
+}
+.vl-panel {
+  position: relative;
+  display: flex; flex-direction: column; gap: 2.4cqw;
+  width: 100%; padding: 7%;
+  border-radius: 2.4cqw;
+  /* opaque, so the plane reads as BEHIND it rather than through it */
+  background: var(--t-ground-bg, #f4f2ee);
+  box-shadow: inset 0 0 0 0.35cqw var(--a-hatch);
+}
+.vl-a--callout .vl-w__h { font-size: 6cqw; }
+.vl-a--callout .vl-w__b { font-size: 3.4cqw; }
+
+/* the quote, and a second voice beside it */
+.vl-a--quote-note { flex-direction: column; justify-content: center; padding: 9%; }
+.vl-a--quote-note .vl-mark { font-size: 13cqw; }
+.vl-a--quote-note .vl-w__h { font-size: 6.6cqw; font-weight: 600; width: 88%; }
+.vl-a--quote-note .vl-w__b { margin-top: 4cqw; padding-left: 5cqw; border-left: 0.5cqw solid var(--a-deco); font-size: 3.3cqw; width: 74%; align-self: flex-end; }
+
+/* the numeral hangs in the margin, the paragraph runs beside it */
+.vl-a--stat-copy { align-items: flex-start; gap: 4cqw; padding: 10% 9%; }
+.vl-a--stat-copy .vl-big { flex: 0 0 auto; font-size: 30cqw; line-height: 0.78; }
+.vl-a--stat-copy .vl-w { flex: 1 1 0; gap: 2cqw; padding-top: 3cqw; }
+.vl-a--stat-copy .vl-w__b { font-size: 3.3cqw; }
+
+/* dated rows, joined by a line */
+.vl-a--timeline { flex-direction: column; justify-content: center; gap: 4cqw; padding: 9%; }
+.vl-a--timeline .vl-w__h { font-size: 6.4cqw; }
+.vl-time { position: relative; display: flex; flex-direction: column; gap: 3.4cqw; padding-left: 5cqw; }
+.vl-time::before { content: ''; position: absolute; left: 1.5cqw; top: 1.6cqw; bottom: 1.6cqw; width: 0.4cqw; background: var(--a-deco); opacity: 0.5; }
+.vl-time__row { position: relative; font-family: var(--font-ui); font-size: 3.4cqw; color: var(--a-mute); }
+.vl-time__row i { position: absolute; left: -4.4cqw; top: 1.1cqw; width: 2.6cqw; height: 2.6cqw; border-radius: var(--r-full); background: var(--a-deco); }
+
+/* two headed columns, each carrying its own list */
+.vl-a--compare-cols { align-items: stretch; gap: 4cqw; padding: 9%; }
+.vl-col { flex: 1 1 0; display: flex; flex-direction: column; gap: 2.4cqw; }
+.vl-col + .vl-col { padding-left: 4cqw; border-left: 0.4cqw solid var(--a-deco); }
+.vl-col b { font-family: var(--font-display, var(--font-ui)); font-size: 5cqw; font-weight: 700; color: var(--a-fg); }
+.vl-col em { font-style: normal; font-family: var(--font-ui); font-size: 3.2cqw; line-height: 1.35; color: var(--a-mute); }
+
+/* the magazine spread */
+.vl-a--magazine { flex-direction: column; gap: 3cqw; padding: 8%; }
+.vl-a--magazine .vl-w__h { font-size: 6.6cqw; }
+.vl-mag { display: grid; grid-template-columns: 1.15fr 1fr; gap: 4cqw; flex: 1 1 auto; min-height: 0; }
+.vl-mag .vl-ph { min-height: 0; }
+.vl-mag .vl-w__b { font-size: 3.2cqw; }
+
+/* six pictures at mixed sizes — a board */
+.vl-a--moodboard { flex-direction: column; justify-content: flex-end; padding: 8%; }
+.vl-board { position: absolute; inset: 0; }
+.vl-board .vl-ph { position: absolute; }
+.vl-board .is-p0 { left: 6%; top: 7%; width: 38%; height: 26%; }
+.vl-board .is-p1 { left: 47%; top: 4%; width: 30%; height: 20%; }
+.vl-board .is-p2 { left: 79%; top: 12%; width: 17%; height: 30%; }
+.vl-board .is-p3 { left: 8%; top: 36%; width: 26%; height: 22%; }
+.vl-board .is-p4 { left: 37%; top: 27%; width: 34%; height: 24%; }
+.vl-board .is-p5 { left: 63%; top: 46%; width: 30%; height: 20%; }
+.vl-a--moodboard .vl-w { position: relative; z-index: 1; }
+.vl-a--moodboard .vl-w__h { font-size: 6cqw; }
+
+/* nine cells: pictures, one filled block, one of type */
+.vl-a--modular { display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: repeat(3, 1fr); gap: 1.6cqw; padding: 1.6cqw; }
+.vl-a--modular .vl-ph { min-height: 0; min-width: 0; }
+.vl-block { background: var(--a-deco); }
+.vl-a--modular .vl-w__h { display: grid; place-items: center; font-size: 5.4cqw; text-align: center; }
+
+/* OFF BALANCE, THIRD ATTEMPT — and the last (Leon, Aug 6).
+ *
+ * Attempt one ran the picture to the top edge but kept a left margin, so it was
+ * neither bled nor inset. Attempt two bled it off the left and hung the type on
+ * the right, which fixed the edge but left two left-aligned masses stacked down
+ * one side and nothing holding the frame together.
+ *
+ * What was missing was an ANCHOR. Asymmetry only reads as a decision when
+ * something in the composition is unarguably placed, and here that is the type:
+ * it is centred on the frame's own vertical axis, in the lower half, and it is
+ * the only thing in the layout that is centred on anything. The picture is then
+ * free to be plainly off-centre — a block bleeding off the TOP-RIGHT corner,
+ * past two edges at once, which no other layout in the set does — and the
+ * emptiness collects in one place, the top-left, instead of being spread thinly
+ * around everything.
+ *
+ * Read: mass top-right, void top-left, anchor bottom-centre. */
+.vl-a--asym { padding: 0; }
+.vl-a--asym .vl-ph { position: absolute; right: 0; top: 0; width: 64%; height: 50%; }
+.vl-a--asym .vl-w {
+  position: absolute;
+  left: 9%; right: 9%; bottom: 12%;
+  align-items: center;
+  gap: 2.6cqw;
+  text-align: center;
+}
+.vl-a--asym .vl-w__h { font-size: 7cqw; }
+.vl-a--asym .vl-w__b { font-size: 3.4cqw; }
+
+/* three pictures in a band, type above and below */
+.vl-a--strip { flex-direction: column; justify-content: center; gap: 4cqw; padding: 9% 8%; }
+.vl-a--strip .vl-w__h { font-size: 6cqw; }
+.vl-band { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1.6cqw; height: 30cqw; }
+.vl-band .vl-ph { min-width: 0; }
+.vl-a--strip .vl-w__b { font-size: 3.2cqw; }
+
+/* the picture is the slide; the words are a footnote on it */
+.vl-foot-note {
+  position: absolute; left: 7%; bottom: 7%;
+  font-family: var(--font-ui);
+  font-size: 3cqw;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--a-fg);
+}
+
+/* ── the type leads and the picture carries the foot ──────────────────────
+ *
+ * THE PICTURE WAS A THUMBNAIL (Leon, Aug 7). 46% wide and 26cqw tall, tucked
+ * into the bottom-right corner — too small to read as a photograph and too
+ * small to do any work, so it was decoration in a library whose rule is that
+ * nothing decorative gets a place.
+ *
+ * The layout keeps its idea — the words lead, the picture supports — and the
+ * picture becomes a full-width BAND across the foot instead. It is the same
+ * hierarchy, at a size where the photograph is actually legible, and it is
+ * still unmistakably not a picture layout: the type owns the top two thirds and
+ * the band never competes for the headline's space.
+ *
+ * The band runs edge to edge, so the padding comes off the container and onto
+ * the words. */
+.vl-a--text-first { flex-direction: column; justify-content: space-between; padding: 0; }
+.vl-a--text-first .vl-w { gap: 2.4cqw; padding: 9% 9% 0; }
+.vl-a--text-first .vl-w__h { font-size: 7.4cqw; }
+.vl-a--text-first .vl-w__b { font-size: 3.6cqw; }
+.vl-a--text-first .vl-ph { width: 100%; height: 38cqw; flex-shrink: 0; }
+
+/* several marks, and the legend that names them */
+.vl-a--annotate-multi .vl-pin.is-p0 { top: 26%; left: 24%; }
+.vl-a--annotate-multi .vl-pin.is-p1 { top: 44%; left: 58%; }
+.vl-a--annotate-multi .vl-pin.is-p2 { top: 62%; left: 34%; }
+.vl-legend {
+  position: absolute; left: 6%; right: 6%; bottom: 6%;
+  display: flex; flex-direction: column; gap: 1.6cqw;
+  padding: 4cqw;
+  border-radius: 2cqw;
+  background: var(--t-ground-bg);
+}
+.vl-legend .vl-w__eyebrow { color: var(--t-ground-eyebrow); }
+.vl-legend__row { display: flex; gap: 2.4cqw; font-family: var(--font-ui); font-size: 3.2cqw; color: var(--t-ground-fg); }
+.vl-legend__row i { font-style: normal; font-family: var(--font-mono); color: var(--t-ground-mark); }
+
+/* one frame, two pictures, divided on the diagonal.
+ *
+ * THE LABELS SIT ON THE DIAGONAL, NOT IN THE CORNERS (Leon, Aug 6). They were
+ * pinned to the top-left and bottom-right at 8% — which put the second one in
+ * the corner the diagonal runs THROUGH, so it sat half on each picture with its
+ * lower edge crowding the frame. They are inset from the split now, each well
+ * inside its own triangle, and both share one distance from the edge so the pair
+ * reads as a pair. `10%` on the cross axis is measured to clear the badge's own
+ * height at every card width the rail uses. */
+.vl-a--diagonal .vl-ph { position: absolute; inset: 0; }
+/* THE CLIP IS THE PHOTOGRAPH'S, NOT THE BADGE'S (Leon, Aug 7 — measured).
+   This was `.vl-a--diagonal .is-b`, and `.is-b` is carried by TWO elements: the
+   second photograph and the "After" badge's box. So the badge was being cut on
+   the same diagonal as the picture — it lost its own top-left corner, at every
+   width, which is why moving it never fixed it. Measured after: the badge's
+   only clipping ancestor is the artwork frame, 28px clear on the right and
+   42px on the bottom. Scoped to `.vl-ph`. */
+.vl-a--diagonal .vl-ph.is-b { clip-path: polygon(100% 0, 100% 100%, 0 100%); }
+.vl-a--diagonal .vl-half { position: absolute; background: none; }
+.vl-a--diagonal .vl-half.is-a { left: 9%; top: 11%; }
+.vl-a--diagonal .vl-half.is-b { right: 9%; bottom: 11%; }
+.vl-a--diagonal .vl-half em { position: static; }
+
+/* samples as overlapping cards */
+.vl-a--material-stack { flex-direction: column; justify-content: flex-end; gap: 4cqw; padding: 8%; }
+.vl-stack { position: absolute; left: 8%; right: 8%; top: 8%; height: 52%; }
+.vl-stack__card { position: absolute; width: 44%; height: 78%; }
+.vl-stack__card .vl-ph { width: 100%; height: 100%; }
+.vl-stack__card em {
+  position: absolute; left: 0; bottom: -5cqw;
+  font-style: normal; font-family: var(--font-ui);
+  font-size: 2.8cqw; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--a-eyebrow);
+}
+.vl-stack__card.is-c0 { left: 0; top: 8%; }
+.vl-stack__card.is-c1 { left: 26%; top: 0; }
+.vl-stack__card.is-c2 { left: 52%; top: 14%; }
+.vl-a--material-stack .vl-w__h { position: relative; z-index: 1; font-size: 6cqw; }
+
+/* ── a process shown rather than listed ───────────────────────────────────
+ *
+ * IT WAS UNREADABLE AT CARD SIZE (Leon, Aug 7). 16cqw thumbnails 11cqw tall
+ * with 3.4cqw labels — three rows of stamp-sized pictures under text you had to
+ * lean in for. A layout whose whole job is "here is the process, at a glance"
+ * cannot be the one you have to squint at.
+ *
+ * Every element grew and the hierarchy is now legible in one pass: the pictures
+ * are half again as wide and nearly twice as tall, the step labels are body
+ * size rather than caption size, and each row carries its own number so the
+ * sequence is read rather than inferred. The headline gives up a little size to
+ * pay for it — it is the one thing on this layout that was never the problem. */
+.vl-a--step-photo { flex-direction: column; justify-content: center; gap: 4cqw; padding: 8% 7%; }
+.vl-a--step-photo .vl-w__h { font-size: 5.4cqw; }
+.vl-steps { display: flex; flex-direction: column; gap: 3.2cqw; }
+.vl-steps__row { display: grid; grid-template-columns: 24cqw 1fr; align-items: center; gap: 4cqw; }
+.vl-steps__row .vl-ph { height: 19cqw; border-radius: 1.2cqw; }
+.vl-steps__row em {
+  font-style: normal; font-family: var(--font-ui);
+  font-size: 4.4cqw; font-weight: 600; line-height: 1.2; color: var(--a-fg);
+}
+/* the number, so the order is read rather than assumed */
+.vl-steps__row em::before {
+  content: counter(vl-step) ' · ';
+  counter-increment: vl-step;
+  color: var(--a-deco);
+  font-weight: 700;
+}
+.vl-a--step-photo .vl-steps { counter-reset: vl-step; }
+
+/* ── the claim, and the sentence that earns it ─────────────────────────────
+ *
+ * Both bottom-anchored, so the subtitle grows UPWARD. That is the whole reason
+ * one layout can carry a four-word subtitle and a thirty-word one: the statement
+ * never has to shrink, the gap between the two levels never changes, and the
+ * space that absorbs the difference is the empty ground above — which is where a
+ * hook wants space anyway. Neither of these is `statement` (the claim alone, no
+ * second level) or `title-sub` (an eyebrow, a rule, and a subtitle of the same
+ * measure as its title). */
+.vl-a--hook-sub { flex-direction: column; justify-content: flex-end; gap: 4cqw; padding: 10% 9% 11%; }
+.vl-a--hook-sub .vl-w__h { font-size: 9cqw; }
+.vl-a--hook-sub .vl-w__b { font-size: 3.6cqw; width: 88%; }
+
+/* the horizon: type on the ground, picture filling the foot, subtitle on it */
+.vl-a--hook-band { flex-direction: column; justify-content: flex-start; padding: 0; }
+.vl-a--hook-band .vl-w__h { padding: 11% 9% 0; font-size: 8.6cqw; }
+.vl-bandwrap { position: relative; margin-top: auto; width: 100%; height: 38%; overflow: hidden; }
+.vl-a--hook-band .vl-wash { inset: 0; background: linear-gradient(180deg, transparent, var(--t-photo-wash)); }
+.vl-a--hook-band .vl-w__b {
+  position: absolute; left: 9%; right: 9%; bottom: 8%;
+  font-size: 3.8cqw;
+  color: var(--t-photo-mute);
+}
+
+/* ── the head's icon button ────────────────────────────────────────────────
+ * The ⋯ is `.btn--icon.btn--sm`, the icon-button the rest of the app uses —
+ * 30×30, `--r-icon-btn`, no padding, centred glyph. Nothing here changes its
+ * shape; the only addition is room for its dot to sit outside the box. */
+.vl-iconbtn { position: relative; overflow: visible; flex: 0 0 auto; }
+.vl-iconbtn[aria-pressed='true'] {
+  background: var(--signal-50);
+  border-color: var(--signal-100);
+  color: var(--signal-800);
+}
+.vl-iconbtn[aria-pressed='true']:hover { background: var(--signal-100); border-color: var(--signal-400); }
+
+/* ══ THE PHONE'S ⋯ MENU ═══════════════════════════════════════════════════
+ *
+ * The bottom sheet is gone (Leon, Aug 6): it worked, and it was a surface this
+ * product does not otherwise have, so one screen size had a component to itself.
+ * The ⋯ now opens `.pe-menu` — the same shell as every other dropdown here — and
+ * stays compact by drilling down rather than by being its own kind of thing. */
+.btn.vl-more { display: none; }
+.vl-more__dot {
+  position: absolute;
+  top: -3px; right: -3px;
+  width: 10px; height: 10px;
+  border-radius: var(--r-full);
+  background: var(--signal-500);
+  box-shadow: 0 0 0 2px var(--canvas);
+}
+.vl-morewrap { position: relative; display: inline-flex; }
+.pe-menu.vl-menu--more { left: auto; right: 0; min-width: 244px; }
+
+/* ── the phone's section page ──────────────────────────────────────────────
+ * One category, opened from "View all": a vertical list, because a horizontal
+ * rail inside a vertical page is two scroll directions fighting for one thumb. */
+.vl-back { align-self: flex-start; margin-left: calc(var(--sp-3) * -1); }
+.vl--section .vl-head__title span { color: var(--ink-400); font-weight: 600; }
+/* ONE CATEGORY, SEEN WHOLE ────────────────────────────────────────────────
+ *
+ * `auto-fill`, not `auto-fit` (Leon, Aug 6). `auto-fit` collapses the empty
+ * tracks and stretches the cards into the space, which on a wide window gives
+ * four enormous posts; `auto-fill` keeps the track count honest, so a card grows
+ * only until the next column fits — measured, at most about 280px against the
+ * rail's 232 — and the row still ends flush, with no gap hanging off the right.
+ * The card, the gaps and the alignment are the rail's own; only the container
+ * changes. */
+.vl-grid {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(232px, 1fr));
+  gap: var(--sp-5) var(--sp-4);
+  animation: vl-swap var(--dur-base) var(--ease-out);
+}
+.vl-grid .vl-card { flex: 1 1 auto; }
+/* the rail fades back in the same way, so the swap reads as one movement in
+   both directions rather than a rebuild */
+.vl-rail__wrap { animation: vl-swap var(--dur-base) var(--ease-out); }
+@keyframes vl-swap {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* ── the category row: groups left, Filter pinned right ───────────────────
+ * The chips scroll INSIDE their own track and Filter sits outside it, so a
+ * narrow window can never push the button off the screen — which is the whole
+ * reason these are one row and not two. `min-width: 0` on the track is what lets
+ * a grid/flex child actually shrink instead of forcing its parent wider. */
+.vl-catrow { display: flex; align-items: center; gap: var(--sp-3); min-width: 0; }
+.vl-catrow > .vl-cats { flex: 1 1 auto; min-width: 0; }
+.vl-catrow > .vl-themewrap { flex: 0 0 auto; }
+/* Filter now sits at the right edge, so its menu opens leftwards from the
+   button rather than off the side of the page */
+.vl-catrow .pe-menu.vl-menu--filter { left: auto; right: 0; }
+
+/* ── the category chips ────────────────────────────────────────────────────
+ * They do not WRAP — a second line of chips pushes the whole library down the
+ * page — so the row scrolls sideways instead, and only when the window is too
+ * narrow to hold all seven. On anything wider there is nothing to scroll and no
+ * scrollbar to see. */
+.vl-cats {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: var(--sp-2);
+  overflow-x: auto;
+  scrollbar-width: none;
+  padding-bottom: 2px;
+  margin-bottom: calc(var(--sp-1) * -1);
+}
+.vl-cats::-webkit-scrollbar { display: none; }
+.vl-cats .vl-chip { flex: 0 0 auto; }
+
+/* ── THE CATEGORY CHIP (Leon, Aug 7 — restored) ───────────────────────────
+ *
+ * A REGRESSION I CAUSED, and worth recording so it is not repeated: these
+ * chips were `.vb-filter`, defined in `visualbrand.css`. Decision 511 deleted
+ * that stylesheet with the Visual Brand entity, and nothing referenced the
+ * class from anywhere the sweep looked — so the chips silently became plain
+ * unstyled text. Deleting a page's stylesheet needs a sweep of its CLASS NAMES,
+ * not only of its imports and components.
+ *
+ * They are `vl-chip` now, owned by the page that uses them (TECH_DEBT 32 —
+ * a prefix is a claim, and `vl-` is this page's). The treatment is the
+ * product's tab language: a quiet pill on a transparent row, and the chosen one
+ * is a neutral surface with a soft shadow — never an accent fill. */
+.vl-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: var(--r-full);
+  background: transparent;
+  font-family: var(--font-ui);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--ink-500);
+  white-space: nowrap;
+  cursor: pointer;
+  transition: color var(--dur-fast) var(--ease-out), background var(--dur-fast) var(--ease-out);
+}
+.vl-chip:hover { color: var(--ink-900); background: var(--ink-100); }
+/* A CHIP IS NOT A TAB (Leon, Aug 7). These select — several at once — so they
+   must not borrow the tab's "one of these is the current view" treatment. A
+   chosen chip is a filled ink pill: unmistakable, countable at a glance, and
+   plainly a different kind of control from the row of tabs elsewhere. */
+.vl-chip.is-on {
+  color: var(--action-primary-ink, #fff);
+  font-weight: 650;
+  background: var(--ink-900);
+  box-shadow: none;
+}
+.vl-chip.is-on:hover { background: var(--ink-800, var(--ink-900)); color: var(--action-primary-ink, #fff); }
+.vl-chip:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+/* the count reads as a fact about the chip, not as part of its name */
+.vl-chip__n { font-weight: 600; color: var(--ink-quiet); font-variant-numeric: tabular-nums; }
+.vl-chip.is-on .vl-chip__n { color: rgba(255, 255, 255, 0.62); }
+.vl-cats .vl-chip[disabled] { color: var(--ink-300, var(--ink-400)); background: none; cursor: default; pointer-events: none; }
+
+/* ── the section head's "View all" ── */
+.vl-row__all {
+  display: none;
+  align-items: center;
+  gap: 2px;
+  flex: 0 0 auto;
+  border: 0;
+  background: none;
+  padding: 4px 0 4px var(--sp-2);
+  font-family: var(--font-ui);
+  font-size: var(--text-sm);
+  font-weight: 700;
+  color: var(--signal-700);
+  cursor: pointer;
+}
+.vl-row__all:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+
+
+
+/* ══ THE PHONE ════════════════════════════════════════════════════════════
+ *
+ * THIS BLOCK IS LAST IN THE FILE ON PURPOSE (Leon, Aug 6, after it silently
+ * stopped working). Every rule in it is a plain single-class `display`, and the
+ * rules it overrides — `.vl-cats`, `.btn.vl-more`, `.vl-row__all` — are the same
+ * specificity, so whichever comes later in the file wins. Sitting mid-file, the
+ * media query matched and did nothing. Anything added to this stylesheet goes
+ * ABOVE this block.
+ *
+ * (Leon, Aug 6.) The toolbar does not exist below 720px. Its four controls were
+ * labelled, then icons, then a sheet, and what they are now is one ⋯ in the
+ * title row with a `.pe-menu` behind it — the same dropdown component as
+ * everywhere else in the app.
+ *
+ * The category chips go too, and so does expand-all: the phone reaches a
+ * category through ⋯, and opens one with "View all", which is a better answer
+ * than expanding every section inside a page that already scrolls.
+ *
+ * Nothing about the layouts changes. This block hides page chrome and swaps two
+ * controls; it does not touch a single composition. */
+@media (max-width: 720px) {
+  .vl-card { flex: 0 0 68vw; }
+
+  .vl-head { flex-wrap: nowrap; align-items: center; gap: var(--sp-3); }
+  .vl-head__title { min-width: 0; font-size: var(--text-xl); }
+  .vl-head__lead { margin-top: 0; }
+
+  /* the phone keeps neither: the ⋯ menu carries the categories and the filters */
+  .vl-catrow,
+  .btn.vl-head__settings { display: none; }
+
+  .btn.vl-more { display: inline-flex; }
+  .vl-row__all { display: inline-flex; }
+
+  /* one column: a section page on a phone is a list, not a grid */
+  .vl-grid { grid-template-columns: 1fr; }
+  .vl-grid .vl-card { flex: 1 1 auto; }
+}
+
+
+/* ── adding layouts to one category ───────────────────────────────────────
+ * The control sits in the category's own header row beside View all, so which
+ * category it will affect is never a guess. */
+.vl-row__acts { display: flex; align-items: center; gap: var(--sp-2); flex: 0 0 auto; }
+.vl-row__add { flex: 0 0 auto; }
+
+.vl-add__scrim { position: fixed; inset: 0; z-index: 80; background: rgba(20, 20, 25, 0.4); }
+.vl-add {
+  position: fixed;
+  left: 50%;
+  top: 50%;
+  z-index: 81;
+  transform: translate(-50%, -50%);
+  width: min(520px, calc(100vw - 2 * var(--sp-5)));
+  max-height: calc(100vh - 2 * var(--sp-5));
+  overflow-y: auto;
+  padding: var(--sp-6);
+  border-radius: var(--r-lg);
+  background: var(--surface);
+  box-shadow: var(--shadow-lift);
+}
+.vl-add h2 { margin: 0 0 8px; font-size: var(--text-lg); font-weight: 700; color: var(--ink-900); }
+.vl-add p { margin: 0 0 var(--sp-4); font-size: var(--text-sm); line-height: 1.55; color: var(--ink-600); }
+.vl-add__note { font-size: var(--text-xs) !important; color: var(--ink-500) !important; }
+.vl-add__acts { display: flex; justify-content: flex-end; gap: var(--sp-2); }
+.vl-add__pics {
+  list-style: none;
+  margin: 0 0 var(--sp-4);
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+  gap: var(--sp-3);
+}
+.vl-add__pics li { position: relative; aspect-ratio: 4 / 5; border-radius: var(--r-md); overflow: hidden; background: var(--surface-sunken); }
+.vl-add__pics img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.vl-add__pics li > button {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border: 0;
+  border-radius: var(--r-full);
+  background: rgba(255, 255, 255, 0.92);
+  color: var(--ink-800);
+  cursor: pointer;
+}
+.vl-add__pick { overflow: visible !important; background: none !important; }
+.vl-add__pick label {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  height: 100%;
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--r-md);
+  font-family: var(--font-ui);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  color: var(--ink-600);
+  cursor: pointer;
+  transition: border-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
+}
+.vl-add__pick label:hover { border-color: var(--ink-400); color: var(--ink-900); }
+
+/* ── THE PANEL SURFACE (Leon, Aug 7 — decision 519) ───────────────────────
+ * The artwork was fenced by a 1px `--border`, which in a rail of twelve reads
+ * as twelve boxes rather than twelve posts. The outline comes off; what is left
+ * is the post's own ground, floating on the panel shadow. The 4:5 frame and the
+ * radius are unchanged. */
+.vl-a {
+  border: 0;
+  box-shadow: var(--shadow-panel);
+}
+
+/* ── OUTER MARGINS ─────────────────────────────────────────────────────────
+ * In bauhly-v3 the page's margins come from the shell's `.app__main`
+ * (`padding: sp-8 sp-9; max-width: 1240px; margin: 0 auto`). The live app's
+ * DashboardLayout wraps the outlet in a bare, padding-less div, so the page has
+ * to carry that box itself — replicated here so this page's margins, gutter and
+ * centred column match the reference. Scoped to the page roots, so no other
+ * live page is affected. */
+.vl,
+.vl--section {
+  padding: var(--sp-8) var(--sp-9);
+  max-width: 1240px;
+  margin: 0 auto;
+}
+@media (max-width: 1100px) {
+  .vl,
+  .vl--section { padding: var(--sp-6); }
+}
+@media (max-width: 720px) {
+  .vl,
+  .vl--section { padding: var(--sp-5) var(--sp-4); max-width: none; }
+}
