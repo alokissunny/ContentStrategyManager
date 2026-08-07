@@ -10,6 +10,7 @@ const instagramRoutes = require('./routes/instagramRoutes');
 const competitorRoutes = require('./routes/competitorRoutes');
 const analysisRoutes = require('./routes/analysisRoutes');
 const metaRoutes = require('./routes/metaRoutes');
+const imageRoutes = require('./routes/imageRoutes');
 const { notFound, errorHandler } = require('./middleware/errorHandler');
 
 const app = express();
@@ -28,6 +29,7 @@ app.use('/api/instagram', instagramRoutes);
 app.use('/api/competitors', competitorRoutes);
 app.use('/api/analysis', analysisRoutes);
 app.use('/api/meta', metaRoutes);
+app.use('/api/images', imageRoutes);
 
 app.use(notFound);
 app.use(errorHandler);

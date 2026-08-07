@@ -1036,6 +1036,15 @@
 }
 .wv-conv__msg > div { display: flex; flex-direction: column; gap: 6px; }
 .wv-conv__note { font-size: var(--text-xs) !important; line-height: 1.55 !important; color: var(--ink-500) !important; }
+.wv-conv__img {
+  margin-top: 4px;
+  width: 100%;
+  max-width: 320px;
+  border-radius: var(--r-lg);
+  border: 1px solid var(--line-200, rgba(0, 0, 0, 0.08));
+}
+.wv-conv__pending { color: var(--ink-500) !important; animation: wv-conv-pulse 1.4s ease-in-out infinite; }
+@keyframes wv-conv-pulse { 0%, 100% { opacity: 0.55; } 50% { opacity: 1; } }
 .wv-conv__you {
   align-self: flex-end;
   max-width: 80%;

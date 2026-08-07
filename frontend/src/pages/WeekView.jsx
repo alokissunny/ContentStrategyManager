@@ -13,6 +13,7 @@ import YourAnalysisModal from '../components/YourAnalysisModal';
 import ConnectMetaModal from '../components/ConnectMetaModal';
 import { markDayPublished, updateDayContent, replanWeek } from '../api/routes';
 import { getMetaStatus, publishDayToMeta } from '../api/meta';
+import { createImage } from '../api/images';
 import { useProjects, uploadFiles } from '../lib/projectsStore';
 import { CaptureChat } from './Projects';
 import { LAYOUTS, styleOf, rolesOf, groundOf, layoutsOf, groupForRole } from '../lib/visualbrand';
@@ -125,26 +126,52 @@ function seedsFor(words, role, projectName) {
 
 // ── The Create image conversation (bauhly-v3 YourWeek `CreateView`) ──
 // Built to read as a chat, because that is what it is: one message from Bauhly,
-// a few ways in, a box. It is honest about the build — there is no image model
-// wired here yet, so it says what it will make and that the picture itself
-// waits for a model. Nothing of the studio's is sent anywhere.
-function CreateImageChat({ role, projectName, words, onBack }) {
+// a few ways in, a box. The picture is real: the ask (composed with the
+// studio's Visual Brand) goes to the backend, which renders it with Gemini
+// "nano banana" and stores it. On success `onCreated(key, url)` puts the image
+// on the slide, exactly like an upload.
+function CreateImageChat({ role, projectName, words, brand, onBack, onCreated }) {
   const [ask, setAsk] = useState('');
   const [thread, setThread] = useState([]);
-  const send = (text) => {
+  const [busy, setBusy] = useState(false);
+
+  async function send(text) {
     const line = String(text || '').trim();
-    if (!line) return;
+    if (!line || busy) return;
+    setAsk('');
+    setBusy(true);
     setThread((t) => [
       ...t,
       { who: 'you', text: line },
-      {
-        who: 'bauhly',
-        text: 'Good — I’ll work that up in your studio’s style, so it sits with the rest of your posts.',
-        note: 'The picture itself is made once an image model is connected to this build. Nothing has been made yet, and nothing of yours has been sent anywhere.',
-      },
+      { who: 'bauhly', pending: true, text: 'Working that up in your studio’s style…' },
     ]);
-    setAsk('');
-  };
+
+    try {
+      const { key, url } = await createImage({ prompt: line, brand });
+      setThread((t) => {
+        const next = [...t];
+        next[next.length - 1] = {
+          who: 'bauhly',
+          text: 'Here it is — made from your colours and type. Placing it on this slide.',
+          image: url,
+        };
+        return next;
+      });
+      onCreated?.(key, url);
+    } catch (err) {
+      const message =
+        err?.response?.data?.message ||
+        err?.message ||
+        'That didn’t work. Try again in a moment.';
+      setThread((t) => {
+        const next = [...t];
+        next[next.length - 1] = { who: 'bauhly', text: 'I couldn’t make that one.', note: message };
+        return next;
+      });
+    } finally {
+      setBusy(false);
+    }
+  }
 
   return (
     <div className="wv-conv">
@@ -172,8 +199,9 @@ function CreateImageChat({ role, projectName, words, onBack }) {
               <div className="wv-conv__msg" key={i}>
                 <span className="wv-conv__who"><Glyph name="sparkles" size={14} strokeWidth={2.25} /></span>
                 <div>
-                  <p>{m.text}</p>
-                  <p className="wv-conv__note">{m.note}</p>
+                  <p className={m.pending ? 'wv-conv__pending' : undefined}>{m.text}</p>
+                  {m.image && <img className="wv-conv__img" src={m.image} alt="" />}
+                  {m.note && <p className="wv-conv__note">{m.note}</p>}
                 </div>
               </div>
             )
@@ -183,7 +211,7 @@ function CreateImageChat({ role, projectName, words, onBack }) {
         {thread.length === 0 && (
           <div className="wv-conv__seeds">
             {seedsFor(words, role, projectName).map((t) => (
-              <button type="button" key={t} className="wv-conv__seed" onClick={() => send(t)}>{t}</button>
+              <button type="button" key={t} className="wv-conv__seed" disabled={busy} onClick={() => send(t)}>{t}</button>
             ))}
           </div>
         )}
@@ -193,6 +221,7 @@ function CreateImageChat({ role, projectName, words, onBack }) {
             className="wv-conv__input"
             rows={1}
             value={ask}
+            disabled={busy}
             placeholder="Describe the picture you want…"
             aria-label="Describe the picture you want"
             onChange={(e) => setAsk(e.target.value)}
@@ -203,7 +232,7 @@ function CreateImageChat({ role, projectName, words, onBack }) {
           <button
             type="button"
             className="wv-conv__send"
-            disabled={!ask.trim()}
+            disabled={!ask.trim() || busy}
             onClick={() => send(ask)}
             aria-label="Send"
           >
@@ -708,6 +737,16 @@ export default function WeekView({ route: initialRoute, onBack }) {
     setPickerOpen(false);
   }
 
+  // A freshly generated image — same path as an upload: give it an instant
+  // local URL and persist its S3 key onto the slide, then leave the chat.
+  function onImageCreated(key, url) {
+    if (!key) return;
+    setLocalMedia((m) => ({ ...m, [key]: url }));
+    patchActiveSlide({ assetKey: key });
+    setCreating(false);
+    setPickerOpen(false);
+  }
+
   function claimStandingImage() {
     if (activeSlide?.image?.key) {
       patchActiveSlide({ assetKey: activeSlide.image.key });
@@ -1207,7 +1246,14 @@ export default function WeekView({ route: initialRoute, onBack }) {
                       role={slideRoleName}
                       projectName={projects[0]?.name}
                       words={activeSlide?.title}
+                      brand={{
+                        accent: igVars['--wv-accent'],
+                        primary: igVars['--wv-primary'],
+                        neutral: igVars['--wv-neutral'],
+                        font: firstFont(vbStore?.brand?.fonts),
+                      }}
                       onBack={() => setCreating(false)}
+                      onCreated={onImageCreated}
                     />
                   ) : (
                     <div className="wv-vis">

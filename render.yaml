@@ -64,6 +64,17 @@ services:
         sync: false
       - key: S3_REPORT_PRESIGN_EXPIRY_SECONDS
         value: "3600"
+      # Image generation (WeekView "Create image" — Gemini "nano banana").
+      - key: GEMINI_IMAGE_MODEL
+        value: gemini-2.5-flash-image
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GOOGLE_GENAI_USE_VERTEXAI
+        sync: false
+      - key: GOOGLE_CLOUD_PROJECT
+        sync: false
+      - key: GOOGLE_CLOUD_LOCATION
+        sync: false
 
   - type: web
     name: igsignal-web
