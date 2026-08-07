@@ -558,9 +558,35 @@ export async function getAnalysisReportMarkdown(filters: FilterState): Promise<s
     businessCategory: filters.businessCategory,
     period: filters.period,
   }
-  const { USE_MOCKS, api } = await import('../api')
-  if (!USE_MOCKS) return api.getText('/analysis/markdown', scope)
+  const { USE_MOCKS, api, ApiError } = await import('../api')
+  if (!USE_MOCKS) {
+    try {
+      return await api.getText('/analysis/markdown', scope)
+    } catch (err) {
+      // No backend-rendered report is stored for this cohort — e.g. a run that
+      // predates stored markdown, or one whose markdown was never persisted. The
+      // Overview still has that run's dashboard, so render a concise report from
+      // it (as mock mode does) instead of failing the download. Only surface the
+      // "run analysis first" 404 when there is genuinely no analysis to report.
+      if (err instanceof ApiError && err.status === 404) {
+        const dashboard = await getDashboard(filters)
+        if (hasReportableContent(dashboard)) return dashboardToMarkdown(dashboard, filters)
+      }
+      throw err
+    }
+  }
   return dashboardToMarkdown(await getDashboard(filters), filters)
+}
+
+/** True when a dashboard carries real analysis output worth downloading. */
+function hasReportableContent(data: DashboardData): boolean {
+  return (
+    (data.summary?.postsAnalyzed ?? 0) > 0 ||
+    (data.summary?.accountsAnalyzed ?? 0) > 0 ||
+    (data.findings?.length ?? 0) > 0 ||
+    (data.hooks?.length ?? 0) > 0 ||
+    (data.topics?.length ?? 0) > 0
+  )
 }
 
 /** Compact Markdown rendering used only in mock mode (see above). */
