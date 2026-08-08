@@ -204,6 +204,27 @@ export async function listCompetitors(q: CompetitorQuery): Promise<CompetitorLis
 }
 
 /**
+ * Every competitor id matching the Accounts-tab filters (no pagination).
+ * Used by Select all so bulk scrape / enrichment cover the full filtered set.
+ */
+export async function listCompetitorIds(q: Pick<
+  CompetitorQuery,
+  'search' | 'country' | 'followerRange' | 'businessCategory'
+>): Promise<string[]> {
+  if (USE_MOCKS) {
+    await delay()
+    return accounts.filter((a) => matches(a, { ...defaultCompetitorQuery, ...q })).map((a) => a.id)
+  }
+  const data = await api.get<{ ids: string[] }>('/competitors/ids', {
+    search: q.search,
+    country: q.country,
+    followerRange: q.followerRange,
+    businessCategory: q.businessCategory,
+  })
+  return data.ids ?? []
+}
+
+/**
  * Countries present on competitor account metadata (location + enrichment).
  * Overview Location filter is built from this list (+ Global).
  */

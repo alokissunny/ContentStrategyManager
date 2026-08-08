@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import {
   getCompetitorLocations,
@@ -105,6 +106,7 @@ export function CompetitorTable({
   selected,
   onToggleSelect,
   onToggleSelectAll,
+  selectAllPending = false,
   activeId,
   onSelectRow,
   onShowRawJson,
@@ -115,6 +117,7 @@ export function CompetitorTable({
   selected: Set<string>
   onToggleSelect: (id: string) => void
   onToggleSelectAll: () => void
+  selectAllPending?: boolean
   activeId: string | null
   onSelectRow: (id: string) => void
   onShowRawJson: (row: { id: string; username: string }) => void
@@ -128,7 +131,13 @@ export function CompetitorTable({
     })
   const sortIndicator = (col: CompetitorQuery['sort']) =>
     query.sort === col ? (query.sortDir === 'desc' ? ' ↓' : ' ↑') : ''
-  const allOnPageSelected = result.rows.length > 0 && result.rows.every((r) => selected.has(r.id))
+  // Select all covers every account matching filters (all pages), not just this page.
+  const allMatchingSelected = result.total > 0 && selected.size === result.total
+  const someSelected = selected.size > 0 && !allMatchingSelected
+  const selectAllRef = useRef<HTMLInputElement>(null)
+  useEffect(() => {
+    if (selectAllRef.current) selectAllRef.current.indeterminate = someSelected
+  }, [someSelected])
 
   return (
     <>
@@ -138,9 +147,11 @@ export function CompetitorTable({
             <tr>
               <th scope="col">
                 <input
+                  ref={selectAllRef}
                   type="checkbox"
-                  aria-label="Select all on page"
-                  checked={allOnPageSelected}
+                  aria-label="Select all matching competitors"
+                  checked={allMatchingSelected}
+                  disabled={selectAllPending || result.total === 0}
                   onChange={onToggleSelectAll}
                 />
               </th>

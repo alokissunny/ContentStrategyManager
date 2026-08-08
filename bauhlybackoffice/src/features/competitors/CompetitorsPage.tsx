@@ -1,9 +1,10 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   defaultCompetitorQuery,
   enrichCompetitorAccounts,
   getCompetitorDetail,
+  listCompetitorIds,
   listCompetitors,
   scrapeCompetitorPosts,
   updateCompetitorBusinessCategory,
@@ -38,7 +39,13 @@ export function CompetitorsPage({ businessCategory = 'all' }: CompetitorsPagePro
   const [rawJsonFor, setRawJsonFor] = useState<{ id: string; username: string } | null>(null)
   const [scrapeNotice, setScrapeNotice] = useState<string | null>(null)
   const [enrichNotice, setEnrichNotice] = useState<string | null>(null)
+  const [selectAllPending, setSelectAllPending] = useState(false)
   const queryClient = useQueryClient()
+
+  // Drop selection when filters change so bulk actions never span a stale set.
+  useEffect(() => {
+    setSelected(new Set())
+  }, [listQuery.search, listQuery.country, listQuery.followerRange, listQuery.businessCategory])
 
   const list = useQuery({
     queryKey: ['competitors', listQuery],
@@ -126,7 +133,7 @@ export function CompetitorsPage({ businessCategory = 'all' }: CompetitorsPagePro
     },
   })
 
-  const busy = scrapePosts.isPending || enrichAccounts.isPending
+  const scraping = scrapePosts.isPending || enrichAccounts.isPending
 
   const toggleSelect = (id: string) =>
     setSelected((prev) => {
@@ -136,14 +143,26 @@ export function CompetitorsPage({ businessCategory = 'all' }: CompetitorsPagePro
       return next
     })
 
-  const toggleSelectAll = () => {
-    const rows = list.data?.rows ?? []
-    setSelected((prev) => {
-      const allSelected = rows.every((r) => prev.has(r.id))
-      const next = new Set(prev)
-      rows.forEach((r) => (allSelected ? next.delete(r.id) : next.add(r.id)))
-      return next
-    })
+  /**
+   * Select every account matching the current filters (all pages), not just
+   * the visible page — so Scrape posts / Run enrichment cover the full set.
+   * Backend still skips accounts scraped/enriched within 30 days.
+   */
+  const toggleSelectAll = async () => {
+    const total = list.data?.total ?? 0
+    if (total > 0 && selected.size === total) {
+      setSelected(new Set())
+      return
+    }
+    setSelectAllPending(true)
+    try {
+      const ids = await listCompetitorIds(listQuery)
+      setSelected(new Set(ids))
+    } catch (err) {
+      setScrapeNotice(err instanceof Error ? err.message : 'Failed to select all competitors.')
+    } finally {
+      setSelectAllPending(false)
+    }
   }
 
   if (list.isError) {
@@ -187,7 +206,7 @@ export function CompetitorsPage({ businessCategory = 'all' }: CompetitorsPagePro
           </div>
         )}
 
-        <div className={`panel${busy ? ' panel--scraping' : ''}`}>
+        <div className={`panel${scraping ? ' panel--scraping' : ''}`}>
           {scrapePosts.isPending && (
             <div className="scrape-overlay" role="status" aria-live="polite" aria-label="Scraping posts">
               <div className="scrape-overlay-card">
@@ -215,7 +234,7 @@ export function CompetitorsPage({ businessCategory = 'all' }: CompetitorsPagePro
               </div>
             </div>
           )}
-          {scrapeNotice && !busy && (
+          {scrapeNotice && !scraping && (
             <div className="bulk-bar bulk-bar--notice" role="status">
               <span>{scrapeNotice}</span>
               <button type="button" className="btn-secondary" onClick={() => setScrapeNotice(null)}>
@@ -223,7 +242,7 @@ export function CompetitorsPage({ businessCategory = 'all' }: CompetitorsPagePro
               </button>
             </div>
           )}
-          {enrichNotice && !busy && (
+          {enrichNotice && !scraping && (
             <div className="bulk-bar bulk-bar--notice" role="status">
               <span>{enrichNotice}</span>
               <button type="button" className="btn-secondary" onClick={() => setEnrichNotice(null)}>
@@ -237,7 +256,7 @@ export function CompetitorsPage({ businessCategory = 'all' }: CompetitorsPagePro
               <button
                 type="button"
                 className="btn-primary"
-                disabled={busy}
+                disabled={scraping || selectAllPending}
                 onClick={() => scrapePosts.mutate([...selected])}
               >
                 {scrapePosts.isPending ? 'Scraping…' : 'Scrape posts'}
@@ -245,7 +264,7 @@ export function CompetitorsPage({ businessCategory = 'all' }: CompetitorsPagePro
               <button
                 type="button"
                 className="btn-secondary"
-                disabled={busy}
+                disabled={scraping || selectAllPending}
                 onClick={() => enrichAccounts.mutate([...selected])}
               >
                 {enrichAccounts.isPending ? 'Enriching…' : 'Run enrichment'}
@@ -253,7 +272,7 @@ export function CompetitorsPage({ businessCategory = 'all' }: CompetitorsPagePro
               <button
                 type="button"
                 className="btn-danger"
-                disabled={busy}
+                disabled={scraping || selectAllPending}
                 onClick={() => setDeleting([...selected])}
               >
                 Delete
@@ -276,6 +295,7 @@ export function CompetitorsPage({ businessCategory = 'all' }: CompetitorsPagePro
               selected={selected}
               onToggleSelect={toggleSelect}
               onToggleSelectAll={toggleSelectAll}
+              selectAllPending={selectAllPending}
               activeId={activeId}
               onSelectRow={(id) => setActiveId(activeId === id ? null : id)}
               onShowRawJson={setRawJsonFor}

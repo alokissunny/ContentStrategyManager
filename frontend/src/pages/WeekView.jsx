@@ -1198,27 +1198,7 @@ export default function WeekView({ route: initialRoute, onBack }) {
                     onChange={(e) => { onUploadFiles(e.target.files || []); e.target.value = ''; }}
                   />
 
-                  {hasOwnImage ? (
-                    <>
-                      <div className="wv-imgprev">
-                        <img src={activeSlide.image.url} alt="" />
-                      </div>
-                      <div className="wv-imgacts">
-                        <button
-                          type="button"
-                          className={`wv-run wv-run--primary${uploading ? ' is-busy' : ''}`}
-                          disabled={uploading}
-                          onClick={() => fileRef.current?.click()}
-                        >
-                          <Glyph name="upload" size={16} />
-                          {uploading ? 'Uploading…' : 'Replace image'}
-                        </button>
-                        <button type="button" className="wv-run wv-run--ghost" onClick={() => patchActiveSlide({ assetKey: '' })}>
-                          <Glyph name="trash-2" size={16} />Remove image
-                        </button>
-                      </div>
-                    </>
-                  ) : creating ? (
+                  {creating ? (
                     <CreateImageChat
                       role={slideRoleName}
                       projectName={projects[0]?.name}
@@ -1277,8 +1257,14 @@ export default function WeekView({ route: initialRoute, onBack }) {
                       {/* the chosen layout, in its own band: what it is and one way on */}
                       <div className="wv-sel">
                         <div className="wv-empty wv-empty--band">
+                          {/* the chosen layout with THIS slide's image in its
+                              placeholder — the same composition as the post
+                              preview, so picking a layout or an image is seen
+                              here immediately */}
                           <div className="wv-lay__big">
-                            {chosenLayout ? <Preview l={chosenLayout} mood={false} /> : <div className="wv-empty__ph"><Glyph name="image" size={30} /></div>}
+                            {chosenLayout
+                              ? <SlideMedia slide={activeSlide} layout={chosenLayout} contentType={day.contentType || day.format} />
+                              : <div className="wv-empty__ph"><Glyph name="image" size={30} /></div>}
                           </div>
                           <h3 className="wv-empty__title">
                             {chosenLayout ? chosenLayout.name : 'No picture on this slide yet'}
@@ -1305,11 +1291,21 @@ export default function WeekView({ route: initialRoute, onBack }) {
                                 onClick={() => fileRef.current?.click()}
                               >
                                 <Glyph name={isAnnotate(chosenLayout) ? 'sparkles' : 'upload'} size={16} />
-                                {uploading ? 'Uploading…' : isAnnotate(chosenLayout) ? 'Create' : 'Upload image'}
+                                {uploading
+                                  ? 'Uploading…'
+                                  : hasOwnImage
+                                    ? 'Replace image'
+                                    : isAnnotate(chosenLayout) ? 'Create' : 'Upload image'}
                               </button>
-                              <button type="button" className="wv-run wv-run--ghost" onClick={() => navigate('/dashboard/visual-library')}>
-                                <Glyph name="layout-grid" size={16} />Visual Library
-                              </button>
+                              {hasOwnImage ? (
+                                <button type="button" className="wv-run wv-run--ghost" onClick={() => patchActiveSlide({ assetKey: '' })}>
+                                  <Glyph name="trash-2" size={16} />Remove image
+                                </button>
+                              ) : (
+                                <button type="button" className="wv-run wv-run--ghost" onClick={() => navigate('/dashboard/visual-library')}>
+                                  <Glyph name="layout-grid" size={16} />Visual Library
+                                </button>
+                              )}
                             </div>
                           )}
                         </div>

@@ -176,6 +176,18 @@ export async function listCompetitors(input: Partial<CompetitorQuery>) {
 }
 
 /**
+ * All account ids matching the Accounts-tab filters (no pagination). Used by
+ * Select all so scrape / enrichment act on the full filtered register, not
+ * only the current page.
+ */
+export async function listCompetitorIds(input: Partial<CompetitorQuery>): Promise<string[]> {
+  const q: CompetitorQuery = { ...defaultQuery, ...input }
+  const filter = buildFilter(q)
+  const docs = await CompetitorAccount.find(filter).select('_id').lean()
+  return docs.map((d) => String(d._id))
+}
+
+/**
  * Distinct country labels from live account metadata (location.country and
  * enrichment.country). When `requirePosts` is set, only countries that have at
  * least one in-window post are returned — so Overview cannot offer a filter

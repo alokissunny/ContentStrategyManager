@@ -10,7 +10,13 @@ import {
   PostMetricSnapshot,
   RawPostPayload,
 } from '../models/snapshots.ts'
-import { countMatchingCompetitors, listCompetitorLocations, listCompetitors, serializeAccount } from '../services/competitorQuery.ts'
+import {
+  countMatchingCompetitors,
+  listCompetitorIds,
+  listCompetitorLocations,
+  listCompetitors,
+  serializeAccount,
+} from '../services/competitorQuery.ts'
 import { accountActivity, followerChangePct, followerSeries, periodDays } from '../services/metrics.ts'
 import {
   collectAccount,
@@ -87,6 +93,25 @@ competitorRoutes.get(
     res.json(
       await countMatchingCompetitors({ location, followerRangeLabel, businessCategory, windowDays }),
     )
+  }),
+)
+
+/**
+ * Ids for every account matching the Accounts-tab list filters (unpaginated).
+ * Powers Select all → scrape posts / run enrichment across the full register.
+ */
+competitorRoutes.get(
+  '/competitors/ids',
+  asyncHandler(async (req, res) => {
+    const q = req.query
+    const ids = await listCompetitorIds({
+      search: String(q.search ?? ''),
+      country: String(q.country ?? 'all'),
+      followerRange: String(q.followerRange ?? 'all'),
+      businessCategory: String(q.businessCategory ?? 'all'),
+      status: String(q.status ?? 'tracked'),
+    })
+    res.json({ ids })
   }),
 )
 
