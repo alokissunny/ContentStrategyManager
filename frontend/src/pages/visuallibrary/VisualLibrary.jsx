@@ -277,7 +277,7 @@ function AddToCategory({ cat, existing, onClose, onDone }) {
   );
 }
 
-function Row({ cat, layouts, off, mood, onToggle, onEdit, onRemove, grid, onOpen, onAdd }) {
+function Row({ cat, layouts, off, mood, onToggle, onEdit, onRemove, onOpen, onAdd }) {
   const rail = useRef(null);
   const [ends, setEnds] = useState({ left: false, right: false });
 
@@ -295,7 +295,7 @@ function Row({ cat, layouts, off, mood, onToggle, onEdit, onRemove, grid, onOpen
     const ro = new ResizeObserver(read);
     ro.observe(el);
     return () => { el.removeEventListener('scroll', read); ro.disconnect(); };
-  }, [layouts.length, grid]);
+  }, [layouts.length]);
 
   const step = (dir) => {
     const el = rail.current;
@@ -328,26 +328,10 @@ function Row({ cat, layouts, off, mood, onToggle, onEdit, onRemove, grid, onOpen
           </button>
         </div>
       </header>
-      {/* A CHOSEN CATEGORY IS A GRID, NOT A LONGER RAIL (Leon, Aug 6). The rail
-        * is right for an overview — six groups, a few of each, scan across. It
-        * is wrong once you have said which group you want: then you want to SEE
-        * them, all at once, laid out. Same card, same spacing, same alignment;
-        * only the container changes, and it fades in so the swap is legible. */}
-      {grid ? (
-        <ul className="vl-grid">
-          {layouts.map((l) => (
-            <Card
-              key={l.id}
-              l={l}
-              on={!off[l.id]}
-              mood={mood}
-              onToggle={() => onToggle(l.id)}
-              onEdit={() => onEdit(l)}
-              onRemove={() => onRemove(l)}
-            />
-          ))}
-        </ul>
-      ) : (
+      {/* SAME RAIL WHEN FILTERED (Aug 9). Choosing Hook used to swap this for a
+        * stretching grid — cards grew, and horizontal scroll disappeared. The
+        * overview and a filtered category are the same carousel: fixed 232px
+        * cards, arrows when there is overflow. */}
       <div className="vl-rail__wrap">
         <ul className="vl-rail" ref={rail}>
           {layouts.map((l) => (
@@ -373,7 +357,6 @@ function Row({ cat, layouts, off, mood, onToggle, onEdit, onRemove, grid, onOpen
           </button>
         )}
       </div>
-      )}
     </section>
   );
 }
@@ -450,12 +433,10 @@ export default function VisualLibrary() {
     if (next.has(id)) next.delete(id); else next.add(id);
     return next;
   });
-  /* PRESSING A CATEGORY OPENS IT, AND THAT IS THE ONLY EXPANDING THERE IS
-     (Leon, Aug 6). A global expand-all lived here for a day: one button that
-     opened every section at once, which is a lot of page for a control nobody
-     asked to press twice. The chip already says which group you want — so it
-     shows that group as a grid, and pressing it again puts the overview back.
-     One control, one meaning, and nothing extra in the toolbar. */
+  /* PRESSING A CATEGORY FILTERS TO THAT GROUP (Aug 9). The chip used to swap
+     the rail for a stretching grid — cards grew and horizontal scroll was lost.
+     Filtering only narrows which layouts appear; each group stays a fixed-size
+     carousel, same as "All layouts". */
   /* THE PHONE'S SECTION PAGE (Leon, Aug 6). "View all" opens one category as a
      page of its own — a vertical list, no rail — and Back returns to exactly the
      row the studio left, at the scroll position they left it at. The filters and
@@ -890,9 +871,6 @@ export default function VisualLibrary() {
             onRemove={remove}
             onOpen={openSection}
             onAdd={setAdding}
-            /* a chosen category draws as a grid rather than a rail — see the
-               note on `pickCat`. With several chosen, each is its own grid. */
-            grid={!allOn}
           />
         ))
       )}

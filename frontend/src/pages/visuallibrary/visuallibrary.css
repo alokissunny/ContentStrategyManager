@@ -999,25 +999,20 @@
  * rail inside a vertical page is two scroll directions fighting for one thumb. */
 .vl-back { align-self: flex-start; margin-left: calc(var(--sp-3) * -1); }
 .vl--section .vl-head__title span { color: var(--ink-400); font-weight: 600; }
-/* ONE CATEGORY, SEEN WHOLE ────────────────────────────────────────────────
+/* ONE CATEGORY, SEEN WHOLE (phone "View all") ──────────────────────────────
  *
- * `auto-fill`, not `auto-fit` (Leon, Aug 6). `auto-fit` collapses the empty
- * tracks and stretches the cards into the space, which on a wide window gives
- * four enormous posts; `auto-fill` keeps the track count honest, so a card grows
- * only until the next column fits — measured, at most about 280px against the
- * rail's 232 — and the row still ends flush, with no gap hanging off the right.
- * The card, the gaps and the alignment are the rail's own; only the container
- * changes. */
+ * Fixed 232px tracks — not `minmax(232px, 1fr)`, which stretched cards on a
+ * wide window and made filtered layouts look larger than the overview rail. */
 .vl-grid {
   list-style: none;
   margin: 0;
   padding: 0;
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(232px, 1fr));
+  grid-template-columns: repeat(auto-fill, 232px);
   gap: var(--sp-5) var(--sp-4);
   animation: vl-swap var(--dur-base) var(--ease-out);
 }
-.vl-grid .vl-card { flex: 1 1 auto; }
+.vl-grid .vl-card { flex: 0 0 232px; width: 232px; }
 /* the rail fades back in the same way, so the swap reads as one movement in
    both directions rather than a rebuild */
 .vl-rail__wrap { animation: vl-swap var(--dur-base) var(--ease-out); }

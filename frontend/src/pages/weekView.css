@@ -51,12 +51,19 @@
 }
 .wv-capture:hover { filter: brightness(1.15); }
 
+/* ── ONE STABLE LINE ON DESKTOP (no reflow flicker) ───────────────────────
+ * The header must not wrap the actions to a second line: a transient status
+ * chip ("Saving…" flashes on every layout/text change) used to widen the meta
+ * block enough to push the actions down for a frame, shifting everything below.
+ * So the actions are a fixed, non-shrinking block on the right and the meta
+ * takes what's left and shrinks — its title truncates and the chips clip rather
+ * than growing the header. Below 720px the header stacks as before. */
 .wv-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   margin-bottom: 20px;
 }
 
@@ -64,7 +71,10 @@
   display: flex;
   align-items: center;
   gap: 14px;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .wv-head__title {
@@ -73,12 +83,17 @@
   font-size: 26px;
   color: var(--ink-900);
   margin: 0;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .wv-head__chip {
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  flex: 0 0 auto;
   font-size: 12.5px;
   color: var(--ink-600);
 }
@@ -86,6 +101,14 @@
 .wv-actions {
   display: flex;
   gap: 10px;
+  flex: 0 0 auto;
+}
+
+@media (max-width: 720px) {
+  /* a phone stacks: let it wrap again and give the title its room back */
+  .wv-head { flex-wrap: wrap; }
+  .wv-head__meta { flex-wrap: wrap; overflow: visible; }
+  .wv-head__title { white-space: normal; overflow: visible; }
 }
 
 .wv-btn {

@@ -867,16 +867,25 @@ export default function WeekView({ route: initialRoute, onBack }) {
     ? { ...l, imgs: Array.from({ length: shotsOf(l) }, () => activePhoto) }
     : l);
   const LAY_PER_PAGE = 3;
-  const layWinStart = Math.min(
-    Math.max(0, chosenLayoutIdx - 1),
-    Math.max(0, slideLayouts.length - LAY_PER_PAGE),
-  );
+  const maxWinStart = Math.max(0, slideLayouts.length - LAY_PER_PAGE);
+  // ── THE WINDOW IS ITS OWN STATE, NOT THE SELECTION'S ──────────────────────
+  // Deriving the window from the chosen layout re-centred the carousel on every
+  // pick — so clicking a card slid the whole row and swapped the three
+  // compositions in view, which reads as flicker. Now the arrows scroll the
+  // window and a click only selects; the window follows the selection ONLY when
+  // the pick lands outside it (e.g. switching slides), so browsing never
+  // reshuffles what you are looking at.
+  const [layWinStart, setLayWinStart] = useState(0);
+  useEffect(() => {
+    setLayWinStart((s) => {
+      let n = Math.min(s, maxWinStart);
+      if (chosenLayoutIdx < n) n = chosenLayoutIdx;
+      else if (chosenLayoutIdx > n + LAY_PER_PAGE - 1) n = chosenLayoutIdx - LAY_PER_PAGE + 1;
+      return Math.max(0, Math.min(n, maxWinStart));
+    });
+  }, [chosenLayoutIdx, maxWinStart]);
   const shownLayouts = slideLayouts.slice(layWinStart, layWinStart + LAY_PER_PAGE);
-  const stepLayout = (d) => {
-    const next = Math.min(slideLayouts.length - 1, Math.max(0, chosenLayoutIdx + d));
-    const l = slideLayouts[next];
-    if (l) patchActiveSlide({ layout: l.id });
-  };
+  const stepLayout = (d) => setLayWinStart((s) => Math.max(0, Math.min(s + d, maxWinStart)));
 
   return (
     <div className="wv" style={libPaint}>
@@ -1146,8 +1155,8 @@ export default function WeekView({ route: initialRoute, onBack }) {
                             type="button"
                             className="wv-actsrow__arrow"
                             onClick={() => stepLayout(-1)}
-                            disabled={chosenLayoutIdx <= 0}
-                            aria-label="Previous layout"
+                            disabled={layWinStart <= 0}
+                            aria-label="Previous layouts"
                           >
                             <Glyph name="chevron-left" size={15} strokeWidth={2.5} />
                           </button>
@@ -1175,8 +1184,8 @@ export default function WeekView({ route: initialRoute, onBack }) {
                             type="button"
                             className="wv-actsrow__arrow"
                             onClick={() => stepLayout(1)}
-                            disabled={chosenLayoutIdx >= slideLayouts.length - 1}
-                            aria-label="Next layout"
+                            disabled={layWinStart >= maxWinStart}
+                            aria-label="Next layouts"
                           >
                             <Glyph name="chevron-right" size={15} strokeWidth={2.5} />
                           </button>
