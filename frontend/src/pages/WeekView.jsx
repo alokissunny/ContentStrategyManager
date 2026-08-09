@@ -17,7 +17,7 @@ import { createImage } from '../api/images';
 import { useProjects, uploadFiles } from '../lib/projectsStore';
 import { CaptureChat } from './Projects';
 import { styleOf, rolesOf, groundOf } from '../lib/visualbrand';
-import { LAYOUTS as LIB_LAYOUTS, SPECIALS, catForRole, shotsOf, needsOf } from '../data/layouts';
+import { LAYOUTS as LIB_LAYOUTS, CATEGORIES, catForRole, shotsOf } from '../data/layouts';
 import { paintOf } from '../lib/identity';
 import { Preview } from './visuallibrary/LayoutArt';
 import { useStore } from '../lib/store';
@@ -28,54 +28,20 @@ import './weekView.css';
 // slide offers the Hook layouts, a CTA slide the CTA layouts, Setup/Process the
 // Educational ones, and so on. The set is the studio's OWN — the library's
 // layouts they have not turned off or removed there, plus any they added — so
-// what the Visual Library shows is exactly what this picker offers. "Create
-// image" (the GEN special) stands last, on every slide.
+// what the Visual Library shows is exactly what this picker offers. Generating
+// a picture is its own control ("Generate image") beside the carousel, not a
+// card in it, so the carousel is only ever real layouts.
 const ALL_LIB = [...LIB_LAYOUTS];
 function layoutsForSlide(role, store) {
   const off = store?.layoutsOff || {};
   const gone = store?.layoutsGone || {};
   const added = store?.addedLayouts || [];
   const cat = catForRole(role);
-  const own = [...added, ...ALL_LIB].filter((l) => !gone[l.id] && !off[l.id] && l.cat === cat);
-  return [...own, ...SPECIALS];
+  return [...added, ...ALL_LIB].filter((l) => !gone[l.id] && !off[l.id] && l.cat === cat);
 }
-// "Create image" (GEN) and the annotated photo are the two the picker treats
-// specially — one opens the generation chat, the other changes the upload's
-// wording — so they are named off the library layout's own fields.
-const isGen = (l) => l?.special === 'gen';
-const isAnnotate = (l) => l?.kind === 'annotate' || l?.kind === 'annotate-multi';
-
-// The grey band under the carousel says what the chosen layout is — and each
-// answer is short. "Create image" is an invitation; an annotated photo lists
-// what it will and will not touch; everything else describes the shape.
-function layoutPoints(l) {
-  if (!l) return ['Add a picture and Bauhly builds the slide around it.'];
-  if (isGen(l)) {
-    return [
-      'Made from your colours, type and references',
-      'Nothing is drawn until you ask for it',
-      'You see it before it replaces this slide',
-    ];
-  }
-  if (isAnnotate(l)) {
-    return [
-      'Follows the annotation style in your references',
-      'Your photograph is left exactly as it is',
-      'Only the marks and the words are made',
-      'You review it before it replaces this slide',
-    ];
-  }
-  const shots = shotsOf(l);
-  return [
-    l.when,
-    shots === 0
-      ? 'Words only — no photograph needed'
-      : `Uses ${shots} of your photograph${shots === 1 ? '' : 's'}`,
-    needsOf(l).includes('layout')
-      ? 'Type sits on the picture — drawn from your Library references'
-      : 'Drawn in your palette and type',
-  ];
-}
+// the category a layout belongs to, in the studio's words — the small note under
+// each card's name
+const catLabelOf = (id) => (CATEGORIES.find((c) => c.id === id)?.label || '').toLowerCase();
 
 // ── Conversation seeds for the Create image flow (bauhly-v3 `subjectOf`) ──
 const SUBJECT_STRIP = /^(the|a|an|your|our|my|this|that|these|those|five|four|three|two|one|\d+)\s+/i;
@@ -265,7 +231,10 @@ const SLIDE_ROLES = {
   Story: ['Hook', 'Beat', 'CTA'],
   Post: ['Hook', 'CTA'],
 };
-const TABS = ['Content', 'Image', 'Caption', 'Why this post'];
+// Content and Image were two tabs over one slide — the words on it and the shape
+// they go in — but nobody writes a line without looking at where it lands, so
+// they are one pane now (bauhly-v3 decision 559).
+const TABS = ['Content & Visual', 'Caption', 'Why this post'];
 
 function fmtTokens(n) {
   if (n == null) return '—';
@@ -559,7 +528,7 @@ export default function WeekView({ route: initialRoute, onBack }) {
   const [capturing, setCapturing] = useState(false);
   const [route, setRoute] = useState(initialRoute);
   const [selected, setSelected] = useState(0);
-  const [tab, setTab] = useState('Content');
+  const [tab, setTab] = useState('Content & Visual');
   const [slideIdx, setSlideIdx] = useState(0);
   const [detailOpen, setDetailOpen] = useState(false); // false = slides list (default)
   const [mode, setMode] = useState('text'); // 'text' | 'image'
@@ -629,7 +598,7 @@ export default function WeekView({ route: initialRoute, onBack }) {
   function selectDay(i) {
     setSelected(i);
     setSlideIdx(0);
-    setTab('Content');
+    setTab('Content & Visual');
     setDetailOpen(false);
     setMode('text');
     setPickerOpen(false);
@@ -891,6 +860,12 @@ export default function WeekView({ route: initialRoute, onBack }) {
   const libPaint = useMemo(() => paintOf(vbStore?.libraryEdits), [vbStore?.libraryEdits]);
   const chosenLayout = slideLayouts.find((l) => l.id === activeSlide?.layout) || slideLayouts[0] || null;
   const chosenLayoutIdx = Math.max(0, slideLayouts.findIndex((l) => l.id === chosenLayout?.id));
+  // this slide's picture, if it has one — swapped into the layout cards so a
+  // chosen shape shows the studio's own photo, not a specimen (bauhly-v3 §542)
+  const activePhoto = activeSlide?.image?.url || null;
+  const cardLayout = (l) => (activePhoto && shotsOf(l) > 0
+    ? { ...l, imgs: Array.from({ length: shotsOf(l) }, () => activePhoto) }
+    : l);
   const LAY_PER_PAGE = 3;
   const layWinStart = Math.min(
     Math.max(0, chosenLayoutIdx - 1),
@@ -1133,90 +1108,9 @@ export default function WeekView({ route: initialRoute, onBack }) {
                 ))}
               </div>
 
-              {tab === 'Content' && (
+              {tab === 'Content & Visual' && (
                 <div className="wv-pane">
-                  <div className="wv-sec">
-                    <span className="wv-sec__label">Words on this slide</span>
-                    <div className="wv-textcard">
-                      {editing ? (
-                        <textarea
-                          ref={textRef}
-                          className="wv-textcard__input"
-                          rows={3}
-                          value={draftText}
-                          onChange={(e) => setDraftText(e.target.value)}
-                          onBlur={() => applyText(draftText)}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter' && !e.shiftKey) {
-                              e.preventDefault();
-                              applyText(draftText);
-                            }
-                            if (e.key === 'Escape') {
-                              setDraftText(activeSlide?.title || '');
-                              setEditing(false);
-                            }
-                          }}
-                        />
-                      ) : (
-                        <button type="button" className="wv-textcard__body" onClick={() => setEditing(true)}>
-                          {activeSlide?.title || <span className="wv-muted">Add on-slide text…</span>}
-                        </button>
-                      )}
-                      <div className="wv-textcard__actions">
-                        <button type="button" className="wv-iconbtn" aria-label="Edit text" onClick={() => setEditing(true)}>
-                          <Glyph name="pencil" size={14} />
-                        </button>
-                        {activeSlide?.title && (
-                          <button type="button" className="wv-iconbtn" aria-label="Clear text" onClick={clearText}>
-                            <Glyph name="x" size={14} />
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="wv-suggest">
-                    <span className="wv-suggest__label">Suggested edits</span>
-                    <div className="wv-suggest__row">
-                      {TEXT_SUGGESTIONS.map((s) => (
-                        <button
-                          key={s.id}
-                          type="button"
-                          className="wv-suggest__chip"
-                          onClick={() => applyText(rewriteText(activeSlide?.title, s.id))}
-                        >
-                          <Glyph name={s.icon} size={14} />
-                          <span>
-                            <b>{s.label}</b>
-                            <small>{s.hint}</small>
-                          </span>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  <form className="wv-ask" onSubmit={onAskSubmit}>
-                    <input
-                      value={ask}
-                      onChange={(e) => setAsk(e.target.value)}
-                      placeholder="Change these words — e.g. 'add another line'"
-                    />
-                    <button type="submit" className="wv-ask__go" aria-label="Apply" disabled={!ask.trim()}>
-                      <Glyph name="arrow-up" size={16} />
-                    </button>
-                  </form>
-
-                  {slides.length > 1 && (
-                    <button type="button" className="wv-remove" onClick={() => removeSlide(safeIdx)}>
-                      <Glyph name="trash-2" size={14} />Remove this slide
-                    </button>
-                  )}
-                </div>
-              )}
-
-              {tab === 'Image' && (
-                <div className="wv-pane">
-                  {/* one hidden file input, shared by Upload / Replace / Create */}
+                  {/* one hidden file input, shared by Upload / Replace */}
                   <input
                     ref={fileRef}
                     type="file"
@@ -1241,129 +1135,177 @@ export default function WeekView({ route: initialRoute, onBack }) {
                       onCreated={onImageCreated}
                     />
                   ) : (
-                    <div className="wv-vis">
-                      <span className="wv-sec__label">Which layout should this slide take?</span>
+                    <>
+                      {/* ── THE VISUAL: which layout, and its picture ────────── */}
+                      <div className="wv-vis">
+                        <span className="wv-sec__label">Which layout should this slide take?</span>
 
-                      {/* the sliding window: three layout cards, an arrow at each end */}
-                      <div className="wv-actsrow">
-                        <button
-                          type="button"
-                          className="wv-actsrow__arrow"
-                          onClick={() => stepLayout(-1)}
-                          disabled={chosenLayoutIdx <= 0}
-                          aria-label="Previous layout"
-                        >
-                          <Glyph name="chevron-left" size={15} strokeWidth={2.5} />
-                        </button>
-                        <div className="wv-acts" role="radiogroup" aria-label="Which layout should this slide take?">
-                          {shownLayouts.map((l) => (
+                        {/* the sliding window: three layout cards, an arrow at each end */}
+                        <div className="wv-actsrow">
+                          <button
+                            type="button"
+                            className="wv-actsrow__arrow"
+                            onClick={() => stepLayout(-1)}
+                            disabled={chosenLayoutIdx <= 0}
+                            aria-label="Previous layout"
+                          >
+                            <Glyph name="chevron-left" size={15} strokeWidth={2.5} />
+                          </button>
+                          <div className="wv-acts" role="radiogroup" aria-label="Which layout should this slide take?">
+                            {shownLayouts.map((l) => (
+                              <button
+                                key={l.id}
+                                type="button"
+                                role="radio"
+                                aria-checked={chosenLayout?.id === l.id}
+                                className={`wv-act wv-act--layout${chosenLayout?.id === l.id ? ' is-on' : ''}`}
+                                onClick={() => patchActiveSlide({ layout: l.id })}
+                                title={l.when}
+                              >
+                                {/* the card shows this slide's own picture once it
+                                    has one; the words stay the layout's specimen so
+                                    the card still reads as a picture OF a layout */}
+                                <span className="wv-act__shot"><Preview l={cardLayout(l)} mood={Boolean(activePhoto)} /></span>
+                                <b>{l.name}</b>
+                                <em className="wv-act__cat">{catLabelOf(l.cat)}</em>
+                              </button>
+                            ))}
+                          </div>
+                          <button
+                            type="button"
+                            className="wv-actsrow__arrow"
+                            onClick={() => stepLayout(1)}
+                            disabled={chosenLayoutIdx >= slideLayouts.length - 1}
+                            aria-label="Next layout"
+                          >
+                            <Glyph name="chevron-right" size={15} strokeWidth={2.5} />
+                          </button>
+                        </div>
+
+                        {/* the picture: bring your own, or have Bauhly make one */}
+                        <div className="wv-visacts">
+                          <button
+                            type="button"
+                            className={`wv-visbtn${uploading ? ' is-busy' : ''}`}
+                            disabled={uploading}
+                            onClick={() => fileRef.current?.click()}
+                          >
+                            <Glyph name="upload" size={16} />
+                            {uploading ? 'Uploading…' : hasOwnImage ? 'Replace image' : 'Upload image'}
+                          </button>
+                          <button type="button" className="wv-visbtn" onClick={() => setCreating(true)}>
+                            <Glyph name="sparkles" size={16} />Generate image
+                          </button>
+                        </div>
+                        {hasOwnImage && (
+                          <button type="button" className="wv-remove" onClick={() => patchActiveSlide({ assetKey: '' })}>
+                            <Glyph name="trash-2" size={14} />Remove image
+                          </button>
+                        )}
+
+                        {allImages.length > 0 && (
+                          <div className="wv-picker">
+                            <span className="wv-suggest__label">From your projects</span>
+                            <div className="wv-picker__grid">
+                              {pickerImages.slice(0, 24).map((img) => (
+                                <button
+                                  key={img.key}
+                                  type="button"
+                                  className={`wv-picker__cell${activeSlide?.assetKey === img.key ? ' is-active' : ''}`}
+                                  onClick={() => pickProjectImage(img)}
+                                  title={img.projectName}
+                                >
+                                  <img src={img.thumb} alt="" />
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                        {!allImages.length && !hasOwnImage && (
+                          <p className="wv-muted" style={{ marginTop: 8 }}>
+                            Add photos in Projects, then pick them here — or upload above.
+                          </p>
+                        )}
+                      </div>
+
+                      {/* ── THE WORDS on this slide ──────────────────────────── */}
+                      <div className="wv-sec">
+                        <span className="wv-sec__label">Words on this slide</span>
+                        <div className="wv-textcard">
+                          {editing ? (
+                            <textarea
+                              ref={textRef}
+                              className="wv-textcard__input"
+                              rows={3}
+                              value={draftText}
+                              onChange={(e) => setDraftText(e.target.value)}
+                              onBlur={() => applyText(draftText)}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter' && !e.shiftKey) {
+                                  e.preventDefault();
+                                  applyText(draftText);
+                                }
+                                if (e.key === 'Escape') {
+                                  setDraftText(activeSlide?.title || '');
+                                  setEditing(false);
+                                }
+                              }}
+                            />
+                          ) : (
+                            <button type="button" className="wv-textcard__body" onClick={() => setEditing(true)}>
+                              {activeSlide?.title || <span className="wv-muted">Add on-slide text…</span>}
+                            </button>
+                          )}
+                          <div className="wv-textcard__actions">
+                            <button type="button" className="wv-iconbtn" aria-label="Edit text" onClick={() => setEditing(true)}>
+                              <Glyph name="pencil" size={14} />
+                            </button>
+                            {activeSlide?.title && (
+                              <button type="button" className="wv-iconbtn" aria-label="Clear text" onClick={clearText}>
+                                <Glyph name="x" size={14} />
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="wv-suggest">
+                        <span className="wv-suggest__label">Suggested edits</span>
+                        <div className="wv-suggest__row">
+                          {TEXT_SUGGESTIONS.map((s) => (
                             <button
-                              key={l.id}
+                              key={s.id}
                               type="button"
-                              role="radio"
-                              aria-checked={chosenLayout?.id === l.id}
-                              className={`wv-act wv-act--layout${chosenLayout?.id === l.id ? ' is-on' : ''}`}
-                              onClick={() => patchActiveSlide({ layout: l.id })}
-                              title={l.when}
+                              className="wv-suggest__chip"
+                              onClick={() => applyText(rewriteText(activeSlide?.title, s.id))}
                             >
-                              <span className="wv-act__shot"><Preview l={l} mood={false} /></span>
-                              <b>{l.name}</b>
+                              <Glyph name={s.icon} size={14} />
+                              <span>
+                                <b>{s.label}</b>
+                                <small>{s.hint}</small>
+                              </span>
                             </button>
                           ))}
                         </div>
-                        <button
-                          type="button"
-                          className="wv-actsrow__arrow"
-                          onClick={() => stepLayout(1)}
-                          disabled={chosenLayoutIdx >= slideLayouts.length - 1}
-                          aria-label="Next layout"
-                        >
-                          <Glyph name="chevron-right" size={15} strokeWidth={2.5} />
+                      </div>
+
+                      <form className="wv-ask" onSubmit={onAskSubmit}>
+                        <input
+                          value={ask}
+                          onChange={(e) => setAsk(e.target.value)}
+                          placeholder="Change these words — e.g. 'add another line'"
+                        />
+                        <button type="submit" className="wv-ask__go" aria-label="Apply" disabled={!ask.trim()}>
+                          <Glyph name="arrow-up" size={16} />
                         </button>
-                      </div>
+                      </form>
 
-                      {/* the chosen layout, in its own band: what it is and one way on */}
-                      <div className="wv-sel">
-                        <div className="wv-empty wv-empty--band">
-                          {/* the chosen layout with THIS slide's image in its
-                              placeholder — the same composition as the post
-                              preview, so picking a layout or an image is seen
-                              here immediately */}
-                          <div className="wv-lay__big">
-                            {chosenLayout
-                              ? <SlideMedia slide={activeSlide} layout={chosenLayout} contentType={day.contentType || day.format} />
-                              : <div className="wv-empty__ph"><Glyph name="image" size={30} /></div>}
-                          </div>
-                          <h3 className="wv-empty__title">
-                            {chosenLayout ? chosenLayout.name : 'No picture on this slide yet'}
-                          </h3>
-                          <ul className="wv-empty__points">
-                            {layoutPoints(chosenLayout).map((t) => (
-                              <li key={t}><Glyph name="check" size={14} />{t}</li>
-                            ))}
-                          </ul>
-                          {isGen(chosenLayout) ? (
-                            /* Create image has one way on — a conversation about a
-                               picture that does not exist yet, no door out beside it */
-                            <div className="wv-empty__acts">
-                              <button type="button" className="wv-run wv-run--primary" onClick={() => setCreating(true)}>
-                                <Glyph name="sparkles" size={16} />Start creating
-                              </button>
-                            </div>
-                          ) : (
-                            <div className="wv-empty__acts">
-                              <button
-                                type="button"
-                                className={`wv-run wv-run--primary${uploading ? ' is-busy' : ''}`}
-                                disabled={uploading}
-                                onClick={() => fileRef.current?.click()}
-                              >
-                                <Glyph name={isAnnotate(chosenLayout) ? 'sparkles' : 'upload'} size={16} />
-                                {uploading
-                                  ? 'Uploading…'
-                                  : hasOwnImage
-                                    ? 'Replace image'
-                                    : isAnnotate(chosenLayout) ? 'Create' : 'Upload image'}
-                              </button>
-                              {hasOwnImage ? (
-                                <button type="button" className="wv-run wv-run--ghost" onClick={() => patchActiveSlide({ assetKey: '' })}>
-                                  <Glyph name="trash-2" size={16} />Remove image
-                                </button>
-                              ) : (
-                                <button type="button" className="wv-run wv-run--ghost" onClick={() => navigate('/dashboard/visual-library')}>
-                                  <Glyph name="layout-grid" size={16} />Visual Library
-                                </button>
-                              )}
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  )}
-
-                  {!creating && allImages.length > 0 && (
-                    <div className="wv-picker">
-                      <span className="wv-suggest__label">From your projects</span>
-                      <div className="wv-picker__grid">
-                        {pickerImages.slice(0, 24).map((img) => (
-                          <button
-                            key={img.key}
-                            type="button"
-                            className={`wv-picker__cell${activeSlide?.assetKey === img.key ? ' is-active' : ''}`}
-                            onClick={() => pickProjectImage(img)}
-                            title={img.projectName}
-                          >
-                            <img src={img.thumb} alt="" />
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {!creating && !allImages.length && !hasOwnImage && (
-                    <p className="wv-muted" style={{ marginTop: 8 }}>
-                      Add photos in Projects, then pick them here — or upload above.
-                    </p>
+                      {slides.length > 1 && (
+                        <button type="button" className="wv-remove" onClick={() => removeSlide(safeIdx)}>
+                          <Glyph name="trash-2" size={14} />Remove this slide
+                        </button>
+                      )}
+                    </>
                   )}
                 </div>
               )}
