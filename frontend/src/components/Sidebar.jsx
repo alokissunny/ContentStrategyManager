@@ -3,7 +3,7 @@ import { Link, useLocation } from 'react-router-dom';
 import Glyph from './Glyph';
 import UserMenu from './UserMenu';
 import { useIsMobile } from '../hooks/useMediaQuery';
-import { LS_SURFACE, LS_BORDER, LS_INK, LS_T2, LS_SIGNAL, LS_SIGNAL_TEXT, LS_SOFT, LS_INK_MENU, LS_HOVER, LS_FONT, LS_DISPLAY } from '../theme';
+import { LS_SURFACE, LS_BORDER, LS_INK, LS_T2, LS_SIGNAL, LS_NAV_ACTIVE, LS_NAV_ACTIVE_TEXT, LS_INK_MENU, LS_HOVER, LS_FONT, LS_DISPLAY } from '../theme';
 
 // Settings and Business memory (the brand profile) live in the user menu at the
 // bottom of the sidebar (see UserMenu), not in the main nav.
@@ -71,9 +71,10 @@ export default function Sidebar({ open = false, onClose }) {
           {NAV_ITEMS.map((item) => {
             const active = item.exact ? pathname === item.to : pathname.startsWith(item.to);
             const hot = !active && hovered === item.to;
-            // color follows the label (icons render with currentColor): accent-as-text
-            // when selected, ink-800 at rest, ink-900 on hover — per bauhly-v3 .sb__link
-            const tone = active ? LS_SIGNAL_TEXT : hot ? LS_INK : LS_INK_MENU;
+            // color follows the label (icons render with currentColor): the acid-lime
+            // ink when selected, ink-800 at rest, ink-900 on hover — per bauhly-v3
+            // .sb__link.is-active (--experiment-500 ground, --experiment-ink word)
+            const tone = active ? LS_NAV_ACTIVE_TEXT : hot ? LS_INK : LS_INK_MENU;
             return (
               <Link
                 key={item.to}
@@ -84,8 +85,8 @@ export default function Sidebar({ open = false, onClose }) {
                 style={{
                   display: 'flex', alignItems: 'center', gap: 12, padding: '9px 12px', borderRadius: 10,
                   textDecoration: 'none', fontFamily: LS_FONT, fontSize: 13,
-                  fontWeight: active ? 600 : 500, color: tone,
-                  background: active ? LS_SOFT : hot ? LS_HOVER : 'transparent',
+                  fontWeight: active ? 650 : 500, color: tone,
+                  background: active ? LS_NAV_ACTIVE : hot ? LS_HOVER : 'transparent',
                   transition: 'background 140ms ease, color 140ms ease',
                 }}
               >
