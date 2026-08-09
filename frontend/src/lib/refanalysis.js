@@ -39,6 +39,10 @@ export function analyseRef(ref) {
   return new Promise((resolve) => {
     if (!ref?.url) { resolve(null); return; }
     const img = new Image();
+    /* a mood image lives in S3 and is read back through a presigned URL — so the
+       canvas can only sample it cross-origin, which needs CORS + this flag. A
+       same-origin `blob:` (a just-added file) ignores it. */
+    img.crossOrigin = 'anonymous';
     img.onload = () => {
       const { colours, dark } = paletteOf(img, 5);
       resolve({

@@ -111,6 +111,9 @@ function useImagePalette(src, want) {
     if (cached) { setPalette(cached); return undefined; }
     let alive = true;
     const img = new Image();
+    /* the swatch reader samples pixels on a canvas; a cross-origin (S3) source
+       needs CORS + this flag, and a same-origin asset ignores it */
+    img.crossOrigin = 'anonymous';
     img.onload = () => {
       const ramp = rampOf(img, want);
       PALETTES.set(src, ramp);

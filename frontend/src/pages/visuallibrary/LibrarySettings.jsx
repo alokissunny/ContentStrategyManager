@@ -58,6 +58,7 @@ import {
   facesWith, registerFont,
 } from '../../lib/identity.js';
 import { analyseNew, pendingOf, forgetRef, paletteFromAnalysis } from '../../lib/refanalysis.js';
+import { uploadMoodImages, listMoodImages, deleteMoodImage } from '../../api/visualBrand.js';
 import EmptyState from '../../components/ui/EmptyState.jsx';
 import './visuallibrary.css';
 import './librarysettings.css';
@@ -407,29 +408,72 @@ export default function LibrarySettings() {
   /* the preview reads the DRAFT — that is the whole point of a draft */
   const previewVars = paintOf(draft);
 
-  /* ── references ── */
+  /* ── references (Visual Mood) ───────────────────────────────────────────────
+     Stored in S3 through the backend (see api/visualBrand): a picture uploads on
+     add and its record is deleted on remove, so the mood board survives a reload
+     rather than dying with the session's object URLs. `setRefs` keeps the local
+     draft and the store in step, so a mood change never reads as an unsaved
+     palette edit. `refsRef` gives the async handlers the latest list without a
+     stale closure. */
   const refs = draft.refs;
+  const refsRef = useRef(draft.refs);
+  useEffect(() => { refsRef.current = draft.refs; }, [draft.refs]);
+  const setRefs = (next) => {
+    refsRef.current = next;
+    setDraft((d) => ({ ...d, refs: next }));
+    setState({ visualRefs: next });
+  };
   /* the ones Bauhly has never read — the only ones any analysis will touch */
   const pendingRefs = pendingOf(refs, draft.analysis);
-  const addRef = (f) => {
+
+  /* load the saved mood images once, with fresh presigned URLs. Ids are the S3
+     key, so a reading kept per id (refAnalysis) still lines up after a reload. */
+  useEffect(() => {
+    let alive = true;
+    listMoodImages()
+      .then((imgs) => {
+        if (!alive) return;
+        const loaded = imgs
+          .filter((m) => m.url)
+          .map((m) => ({ id: m.key, key: m.key, kind: 'reference', url: m.url, title: m.title || '', source: 'added', addedAt: m.addedAt || Date.now() }));
+        setRefs(loaded);
+      })
+      .catch(() => { /* offline / no S3 — keep whatever the store had */ });
+    return () => { alive = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const addRef = async (f) => {
     if (!f) return;
-    setDraft((d) => ({
-      ...d,
-      refs: [
-        { id: `ref-${Date.now()}`, kind: 'reference', url: URL.createObjectURL(f), title: f.name, source: 'added', addedAt: Date.now() },
-        ...d.refs,
-      ],
-    }));
+    const localUrl = URL.createObjectURL(f);
+    const tmpId = `tmp-${Date.now()}`;
+    /* show it straight away, marked uploading */
+    setRefs([
+      { id: tmpId, kind: 'reference', url: localUrl, title: f.name, source: 'added', addedAt: Date.now(), uploading: true },
+      ...refsRef.current,
+    ]);
+    try {
+      const [saved] = await uploadMoodImages([f]);
+      if (!saved) throw new Error('no result');
+      /* keep the local object URL for this session — same-origin, instant, and
+         safe for the palette reader; the S3 key is what makes it persist */
+      const finalRef = { id: saved.key, key: saved.key, kind: 'reference', url: localUrl, title: saved.title || f.name, source: 'added', addedAt: saved.addedAt || Date.now() };
+      setRefs(refsRef.current.map((r) => (r.id === tmpId ? finalRef : r)));
+    } catch (err) {
+      setRefs(refsRef.current.filter((r) => r.id !== tmpId));
+      setToast({ kind: 'note', text: 'Bauhly could not save that image. Please try again.' });
+    }
   };
   /* A REMOVED PICTURE TAKES ITS OWN READING WITH IT, AND NOTHING ELSE'S
      (Leon, Aug 7). `forgetRef` drops that one record; every other picture keeps
      what was read off it, so the palette shifts by exactly the one reference
-     that left rather than being recomputed from scratch. */
-  const dropRef = (id) => setDraft((d) => ({
-    ...d,
-    refs: d.refs.filter((r) => r.id !== id),
-    analysis: forgetRef(d.analysis, id),
-  }));
+     that left. The picture also leaves S3. */
+  const dropRef = (id) => {
+    const gone = refsRef.current.find((r) => r.id === id);
+    setRefs(refsRef.current.filter((r) => r.id !== id));
+    setDraft((d) => ({ ...d, analysis: forgetRef(d.analysis, id) }));
+    if (gone && gone.key) deleteMoodImage(gone.key).catch(() => {});
+  };
 
   /* ── THE VIEWER REPLACED SELECT MODE (Leon, Aug 7) ──────────────────────
    *
@@ -444,15 +488,26 @@ export default function LibrarySettings() {
    * reference goes back to "Not read yet". Keeping the old record against a new
    * picture would be the product claiming to have read something it has not. */
   const [viewing, setViewing] = useState(null);
-  const replaceRef = (id, f) => {
+  const replaceRef = async (id, f) => {
     if (!f) return;
-    setDraft((d) => ({
-      ...d,
-      refs: d.refs.map((r) => (r.id === id
-        ? { ...r, url: URL.createObjectURL(f), title: f.name, addedAt: Date.now() }
-        : r)),
-      analysis: forgetRef(d.analysis, id),
-    }));
+    const old = refsRef.current.find((r) => r.id === id);
+    const localUrl = URL.createObjectURL(f);
+    /* show the new picture in the slot straight away; its reading is dropped */
+    setRefs(refsRef.current.map((r) => (r.id === id
+      ? { ...r, url: localUrl, title: f.name, addedAt: Date.now(), uploading: true }
+      : r)));
+    setDraft((d) => ({ ...d, analysis: forgetRef(d.analysis, id) }));
+    try {
+      const [saved] = await uploadMoodImages([f]);
+      if (!saved) throw new Error('no result');
+      setRefs(refsRef.current.map((r) => (r.id === id
+        ? { id: saved.key, key: saved.key, kind: 'reference', url: localUrl, title: saved.title || f.name, source: 'added', addedAt: saved.addedAt || Date.now() }
+        : r)));
+      setViewing((v) => (v === id ? saved.key : v));
+      if (old && old.key && old.key !== saved.key) deleteMoodImage(old.key).catch(() => {});
+    } catch (err) {
+      setToast({ kind: 'note', text: 'Bauhly could not save that image. Please try again.' });
+    }
   };
   /* the viewer follows the draft, so a replaced picture updates in place and a
      deleted one closes it */

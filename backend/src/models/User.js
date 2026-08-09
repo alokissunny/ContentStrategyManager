@@ -16,6 +16,22 @@ const userSchema = new mongoose.Schema(
       audience: { type: String, trim: true, default: '' },
       positioning: { type: String, trim: true, default: '' },
     },
+    // The studio's visual brand. `moodImages` are the reference pictures added on
+    // the Library Settings page ("Visual Mood") — the DB keeps only the S3 object
+    // key; the bytes live in S3 and the client is handed short-lived presigned
+    // read URLs (see visualBrandController).
+    visualBrand: {
+      moodImages: {
+        type: [
+          {
+            key: { type: String, required: true },
+            title: { type: String, trim: true, default: '' },
+            addedAt: { type: Number, default: () => Date.now() },
+          },
+        ],
+        default: [],
+      },
+    },
   },
   { timestamps: true }
 );
