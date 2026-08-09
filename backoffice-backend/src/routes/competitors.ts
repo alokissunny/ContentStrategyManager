@@ -148,8 +148,9 @@ competitorRoutes.get(
 )
 
 /*
- * Update editable account fields. Today: business category (who they are
- * commercially). Competitive `role` stays on the add flow for now.
+ * Update editable account fields: business category and/or country.
+ * Country writes to profile location and enrichment so list filters and the
+ * Enrichment panel stay aligned; empty / "Unassigned" clears both.
  */
 competitorRoutes.patch(
   '/competitors/:id',
@@ -159,16 +160,33 @@ competitorRoutes.patch(
     }
     const body = z
       .object({
-        businessCategory: z.enum(['interior-designer', 'bauhly-competitor', 'other']),
+        businessCategory: z.enum(['interior-designer', 'bauhly-competitor', 'other']).optional(),
+        country: z.string().nullable().optional(),
       })
       .safeParse(req.body)
     if (!body.success) {
-      return res.status(400).json({ message: 'Invalid business category.' })
+      return res.status(400).json({ message: 'Invalid update.' })
+    }
+    if (body.data.businessCategory === undefined && body.data.country === undefined) {
+      return res.status(400).json({ message: 'Nothing to update.' })
+    }
+
+    const $set: Record<string, unknown> = {}
+    if (body.data.businessCategory !== undefined) {
+      $set.businessCategory = body.data.businessCategory
+    }
+    if (body.data.country !== undefined) {
+      const raw = body.data.country?.trim() || ''
+      const normalized =
+        !raw || raw.toLowerCase() === 'unassigned' || /^unknown$/i.test(raw) ? null : raw
+      $set['location.country'] = normalized
+      $set['enrichment.country'] = normalized
+      $set['enrichment.countryConfidence'] = normalized ? 'Manual' : null
     }
 
     const account = await CompetitorAccount.findByIdAndUpdate(
       req.params.id,
-      { $set: { businessCategory: body.data.businessCategory } },
+      { $set },
       { new: true, runValidators: true },
     )
     if (!account) return res.status(404).json({ message: 'Competitor not found' })

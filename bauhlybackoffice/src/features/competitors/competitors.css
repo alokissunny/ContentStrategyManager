@@ -353,6 +353,22 @@
   min-width: 140px;
 }
 
+a.comp-ident--link {
+  color: inherit;
+  text-decoration: none;
+  border-radius: var(--r-sm, 6px);
+  outline-offset: 2px;
+}
+
+a.comp-ident--link:hover .comp-name,
+a.comp-ident--link:hover .comp-handle {
+  text-decoration: underline;
+}
+
+a.comp-ident--link:focus-visible {
+  outline: 2px solid var(--accent, #2563eb);
+}
+
 .comp-avatar {
   width: 30px;
   height: 30px;

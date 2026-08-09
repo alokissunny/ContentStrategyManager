@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { defaultFilters, filterOptions, type FilterState } from '../../services/intelligence/filters'
+import { UNASSIGNED_LOCATION } from '../../services/intelligence/filterScope'
 import {
   getCompetitorFilterCount,
   getCompetitorLocations,
@@ -113,7 +114,7 @@ export function FilterBar({ filters, onChange, hideFollowerRange = false }: Filt
   const customRangeLabel =
     customMin && customMax && min >= 0 && max > min ? `${compact(min)} – ${compact(max)}` : null
 
-  const locationOptions = ['Global', ...(locations.data ?? [])]
+  const locationOptions = ['Global', UNASSIGNED_LOCATION, ...(locations.data ?? [])]
   const matching = matchCount.data?.matching
   const total = matchCount.data?.total
 

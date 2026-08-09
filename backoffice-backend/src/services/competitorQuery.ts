@@ -5,6 +5,7 @@ import {
   accountCountryOf,
   businessCategoryMatches,
   followerInRange,
+  isUnassignedLocationFilter,
   locationMatches,
   parseFollowerRange as parseOverviewFollowerRange,
 } from './filterScope.ts'
@@ -84,23 +85,45 @@ function buildFilter(q: CompetitorQuery): Record<string, unknown> {
     and.push({ $or: [{ username: rx }, { displayName: rx }, { website: rx }] })
   }
   if (q.country && q.country !== 'all') {
-    // Match the effective country the Accounts table and Overview show:
-    // location.country when present, else enrichment.country. Case-insensitive
-    // and whitespace-tolerant, mirroring accountCountryOf + locationMatches so a
-    // country offered in the dropdown always resolves to its accounts.
-    const rx = new RegExp(`^\\s*${q.country.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*$`, 'i')
-    const missingLocation = {
-      $or: [
-        { 'location.country': { $in: [null, ''] } },
-        { 'location.country': { $exists: false } },
-      ],
+    if (isUnassignedLocationFilter(q.country)) {
+      // Effective country empty: no profile country, and enrichment empty/unknown
+      // (same rules as accountCountryOf).
+      const emptyOrMissing = (field: string) => ({
+        $or: [
+          { [field]: { $exists: false } },
+          { [field]: null },
+          { [field]: '' },
+          { [field]: /^\s*$/ },
+        ],
+      })
+      and.push({
+        $and: [
+          emptyOrMissing('location.country'),
+          {
+            $or: [emptyOrMissing('enrichment.country'), { 'enrichment.country': /^unknown$/i }],
+          },
+        ],
+      })
+    } else {
+      // Match the effective country the Accounts table and Overview show:
+      // location.country when present, else enrichment.country. Case-insensitive
+      // and whitespace-tolerant, mirroring accountCountryOf + locationMatches so a
+      // country offered in the dropdown always resolves to its accounts.
+      const rx = new RegExp(`^\\s*${q.country.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*$`, 'i')
+      const missingLocation = {
+        $or: [
+          { 'location.country': { $in: [null, ''] } },
+          { 'location.country': { $exists: false } },
+          { 'location.country': /^\s*$/ },
+        ],
+      }
+      and.push({
+        $or: [
+          { 'location.country': rx },
+          { $and: [missingLocation, { 'enrichment.country': rx }] },
+        ],
+      })
     }
-    and.push({
-      $or: [
-        { 'location.country': rx },
-        { $and: [missingLocation, { 'enrichment.country': rx }] },
-      ],
-    })
   }
   // Legacy rows are backfilled to 'interior-designer' in listCompetitors, so a
   // plain equality filter is sufficient here (mirrors businessCategoryMatches).

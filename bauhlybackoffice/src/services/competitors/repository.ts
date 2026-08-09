@@ -4,6 +4,7 @@ import { mockCompetitors, mockFollowerChange, mockGroups, mockSuggestions } from
 import { periodMeta, type ComparisonPeriod } from '../period'
 import { ApiError, USE_MOCKS, api } from '../api'
 import { z } from 'zod'
+import { isUnassignedLocationFilter } from '../intelligence/filterScope'
 
 /*
  * Competitor repository — the single seam between the UI and its data.
@@ -91,12 +92,17 @@ function matches(account: CompetitorAccount, q: CompetitorQuery): boolean {
   if (q.country !== 'all') {
     // Effective country: location.country, else enrichment country — matched
     // case-insensitively, mirroring the Overview and the backend list filter.
-    const effective = (
-      account.location.country?.trim() ||
-      account.enrichment?.country?.trim() ||
+    const fromLocation = account.location.country?.trim() || ''
+    const fromEnrichment = account.enrichment?.country?.trim() || ''
+    const effective =
+      fromLocation ||
+      (fromEnrichment && !/^unknown$/i.test(fromEnrichment) ? fromEnrichment : '') ||
       ''
-    ).toLowerCase()
-    if (effective !== q.country.trim().toLowerCase()) return false
+    if (isUnassignedLocationFilter(q.country)) {
+      if (effective) return false
+    } else if (effective.toLowerCase() !== q.country.trim().toLowerCase()) {
+      return false
+    }
   }
   if (q.businessCategory !== 'all') {
     const cat = account.businessCategory ?? 'interior-designer'
@@ -282,8 +288,17 @@ export async function getCompetitorFilterCount(filters: {
   for (const a of accounts) {
     if (a.approvalStatus === 'deleted') continue
     if (filters.location !== 'Global') {
-      const country = a.location.country ?? a.enrichment?.country
-      if (!country || country.toLowerCase() !== filters.location.toLowerCase()) continue
+      const fromLocation = a.location.country?.trim() || ''
+      const fromEnrichment = a.enrichment?.country?.trim() || ''
+      const country =
+        fromLocation ||
+        (fromEnrichment && !/^unknown$/i.test(fromEnrichment) ? fromEnrichment : '') ||
+        ''
+      if (isUnassignedLocationFilter(filters.location)) {
+        if (country) continue
+      } else if (!country || country.toLowerCase() !== filters.location.toLowerCase()) {
+        continue
+      }
     }
     if (range) {
       const [min, max] = range
@@ -540,6 +555,36 @@ export async function updateCompetitorBusinessCategory(
   const account = accounts.find((a) => a.id === id)
   if (!account) throw new Error('Competitor not found')
   account.businessCategory = category
+  return account
+}
+
+/**
+ * Set country on an existing competitor. Empty / Unassigned clears location and
+ * enrichment country so the account appears under the Unassigned location filter.
+ */
+export async function updateCompetitorCountry(
+  id: string,
+  country: string | null,
+): Promise<CompetitorAccount> {
+  const raw = country?.trim() || ''
+  const normalized =
+    !raw || isUnassignedLocationFilter(raw) || /^unknown$/i.test(raw) ? null : raw
+  if (!USE_MOCKS) {
+    return competitorAccount.parse(
+      await api.patch<unknown>(`/competitors/${id}`, { country: normalized }),
+    )
+  }
+  await delay()
+  const account = accounts.find((a) => a.id === id)
+  if (!account) throw new Error('Competitor not found')
+  account.location = { ...account.location, country: normalized }
+  if (account.enrichment) {
+    account.enrichment = {
+      ...account.enrichment,
+      country: normalized,
+      countryConfidence: normalized ? 'Manual' : null,
+    }
+  }
   return account
 }
 

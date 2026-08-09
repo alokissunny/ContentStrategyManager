@@ -5,6 +5,7 @@ import {
   type CompetitorListResult,
   type CompetitorQuery,
 } from '../../services/competitors/repository'
+import { UNASSIGNED_LOCATION } from '../../services/intelligence/filterScope'
 import { PeriodFilter } from '../../components/PeriodFilter'
 
 /* Table + filter row + pagination for the competitor list. */
@@ -38,8 +39,12 @@ export function CompetitorFilterRow({
     queryFn: getCompetitorLocations,
     staleTime: 60_000,
   })
-  const countryOptions = ['all', ...(locations.data ?? [])]
-  if (query.country !== 'all' && !countryOptions.includes(query.country)) {
+  const countryOptions = ['all', UNASSIGNED_LOCATION, ...(locations.data ?? [])]
+  if (
+    query.country !== 'all' &&
+    query.country !== UNASSIGNED_LOCATION &&
+    !countryOptions.includes(query.country)
+  ) {
     countryOptions.push(query.country)
   }
 

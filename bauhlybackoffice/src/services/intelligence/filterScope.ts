@@ -38,8 +38,16 @@ export function followerInRange(
   return true
 }
 
+/** Sentinel for Location filters: accounts with no effective country. */
+export const UNASSIGNED_LOCATION = 'Unassigned'
+
+export function isUnassignedLocationFilter(locationFilter: string | null | undefined): boolean {
+  return locationFilter?.trim().toLowerCase() === 'unassigned'
+}
+
 export function locationMatches(accountCountry: string | null | undefined, locationFilter: string): boolean {
   if (!locationFilter || locationFilter === 'Global') return true
+  if (isUnassignedLocationFilter(locationFilter)) return !accountCountry?.trim()
   if (!accountCountry) return false
   return accountCountry.trim().toLowerCase() === locationFilter.trim().toLowerCase()
 }

@@ -8,6 +8,7 @@ import {
   listCompetitors,
   scrapeCompetitorPosts,
   updateCompetitorBusinessCategory,
+  updateCompetitorCountry,
   type CompetitorQuery,
 } from '../../services/competitors/repository'
 import type { BusinessCategory } from '../../types'
@@ -56,7 +57,31 @@ export function CompetitorsPage({ businessCategory = 'all' }: CompetitorsPagePro
     queryKey: ['competitor-detail', activeId, query.period],
     queryFn: () => (activeId ? getCompetitorDetail(activeId, query.period) : null),
     enabled: activeId != null,
+    // Keep the panel mounted while refetching the same account (e.g. after
+    // country / category edits). Do not reuse another account's detail.
+    placeholderData: (prev) =>
+      prev && activeId && prev.account.id === activeId ? prev : undefined,
   })
+
+  const activeRow = list.data?.rows.find((r) => r.id === activeId) ?? null
+  /** Show the rail as soon as a row is clicked — don't wait on the detail fetch. */
+  const displayDetail =
+    detail.data && detail.data.account.id === activeId
+      ? detail.data
+      : activeRow
+        ? {
+            account: activeRow,
+            followerChange: activeRow.followerChange30d,
+            postsCollected: 0,
+            postsPerWeek: 0,
+            medianEngagementRate: 0,
+            authorityMix: [],
+            topFormats: [],
+            topTopics: [],
+            lastCollectionAt: activeRow.lastSuccessfulCollectionAt,
+            followerSeries: [],
+          }
+        : null
 
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: ['competitors'] })
@@ -100,6 +125,12 @@ export function CompetitorsPage({ businessCategory = 'all' }: CompetitorsPagePro
   const updateCategory = useMutation({
     mutationFn: ({ id, businessCategory }: { id: string; businessCategory: BusinessCategory }) =>
       updateCompetitorBusinessCategory(id, businessCategory),
+    onSuccess: () => invalidate(),
+  })
+
+  const updateCountry = useMutation({
+    mutationFn: ({ id, country }: { id: string; country: string | null }) =>
+      updateCompetitorCountry(id, country),
     onSuccess: () => invalidate(),
   })
 
@@ -180,7 +211,7 @@ export function CompetitorsPage({ businessCategory = 'all' }: CompetitorsPagePro
   return (
     <>
       <CompetitorFilterRow query={query} onChange={setQuery} />
-      <div className={`comp-layout${detail.data ? ' comp-layout--detail' : ''}`}>
+      <div className={`comp-layout${activeId ? ' comp-layout--detail' : ''}`}>
         <div className="comp-main">
 
         {stats && (
@@ -304,17 +335,30 @@ export function CompetitorsPage({ businessCategory = 'all' }: CompetitorsPagePro
         </div>
       </div>
 
-      {detail.data && (
+      {activeId && displayDetail && (
         <CompetitorDetailPanel
-          detail={detail.data}
+          detail={displayDetail}
           period={query.period}
           onClose={() => setActiveId(null)}
           categorySaving={updateCategory.isPending}
+          countrySaving={updateCountry.isPending}
           onBusinessCategoryChange={(businessCategory) => {
             if (!activeId) return
             updateCategory.mutate({ id: activeId, businessCategory })
           }}
+          onCountryChange={(country) => {
+            if (!activeId) return
+            updateCountry.mutate({ id: activeId, country })
+          }}
         />
+      )}
+      {activeId && !displayDetail && (
+        <aside className="cust-detail" aria-busy="true" aria-label="Loading competitor details">
+          <div className="dashboard-loading" role="status">
+            <div className="skeleton-card" />
+            <div className="skeleton-card" />
+          </div>
+        </aside>
       )}
 
       {rawJsonFor && (

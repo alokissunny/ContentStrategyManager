@@ -1,4 +1,7 @@
+import { useEffect, useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import type { CompetitorDetail as Detail } from '../../services/competitors/repository'
+import { getCompetitorLocations } from '../../services/competitors/repository'
 import { CloseIcon } from '../../components/icons'
 import { Delta, Sparkline } from '../intelligence/bits'
 import { periodMeta, type ComparisonPeriod } from '../../services/period'
@@ -7,6 +10,10 @@ import {
   BUSINESS_CATEGORY_OPTIONS,
   type BusinessCategory,
 } from '../../types'
+import {
+  isUnassignedLocationFilter,
+  UNASSIGNED_LOCATION,
+} from '../../services/intelligence/filterScope'
 
 /*
  * Competitor detail panel. Shows what the strategist needs to compare this
@@ -14,26 +21,103 @@ import {
  * output, and what the account actually posts.
  */
 
+/** Profile country first, else enrichment (skipping Unknown) — same as list filters. */
+function effectiveCountry(account: Detail['account']): string {
+  const fromLocation = account.location.country?.trim() || ''
+  if (fromLocation) return fromLocation
+  const fromEnrichment = account.enrichment?.country?.trim() || ''
+  if (fromEnrichment && !/^unknown$/i.test(fromEnrichment)) return fromEnrichment
+  return UNASSIGNED_LOCATION
+}
+
+function CountryField({
+  value,
+  disabled,
+  onChange,
+}: {
+  value: string
+  disabled?: boolean
+  onChange: (country: string | null) => void
+}) {
+  const locations = useQuery({
+    queryKey: ['competitor-locations'],
+    queryFn: getCompetitorLocations,
+    staleTime: 60_000,
+  })
+  const saved = value === UNASSIGNED_LOCATION ? '' : value
+  const [draft, setDraft] = useState(saved)
+  useEffect(() => {
+    setDraft(saved)
+  }, [saved])
+
+  const commit = () => {
+    const next = draft.trim()
+    const normalized = !next || isUnassignedLocationFilter(next) ? null : next
+    const current = saved.trim() ? saved.trim() : null
+    if (normalized === current) return
+    onChange(normalized)
+  }
+
+  return (
+    <div className="form-field" style={{ marginTop: 0 }}>
+      <label htmlFor="detail-country" className="visually-hidden">
+        Country
+      </label>
+      <input
+        id="detail-country"
+        list="detail-country-suggestions"
+        value={draft}
+        disabled={disabled}
+        placeholder="Unassigned"
+        autoComplete="off"
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') {
+            e.currentTarget.blur()
+          }
+        }}
+      />
+      <datalist id="detail-country-suggestions">
+        {(locations.data ?? []).map((c) => (
+          <option key={c} value={c} />
+        ))}
+      </datalist>
+    </div>
+  )
+}
+
 export function CompetitorDetailPanel({
   detail,
   period,
   onClose,
   onBusinessCategoryChange,
+  onCountryChange,
   categorySaving,
+  countrySaving,
 }: {
   detail: Detail
   period: ComparisonPeriod
   onClose: () => void
   onBusinessCategoryChange: (category: BusinessCategory) => void
+  onCountryChange: (country: string | null) => void
   categorySaving?: boolean
+  countrySaving?: boolean
 }) {
   const { account } = detail
   const windowLabel = periodMeta(period).current.toLowerCase()
+  const country = effectiveCountry(account)
 
   return (
     <aside className="cust-detail" aria-label={`${account.displayName ?? account.username} details`}>
       <header className="cust-detail-head">
-        <div className="comp-ident">
+        <a
+          className="comp-ident comp-ident--link"
+          href={`https://www.instagram.com/${encodeURIComponent(account.username)}/`}
+          target="_blank"
+          rel="noopener noreferrer"
+          aria-label={`Open @${account.username} on Instagram`}
+        >
           <span className="comp-avatar" aria-hidden="true">
             {(account.displayName ?? account.username)
               .split(/\s+/)
@@ -46,7 +130,7 @@ export function CompetitorDetailPanel({
             <span className="comp-name">{account.displayName}</span>
             <span className="comp-handle">@{account.username}</span>
           </div>
-        </div>
+        </a>
         <button
           type="button"
           className="icon-button"
@@ -58,7 +142,9 @@ export function CompetitorDetailPanel({
       </header>
 
       <p className="comp-detail-meta">
-        {[account.location.city, account.location.country].filter(Boolean).join(', ')}
+        {[account.location.city, country !== UNASSIGNED_LOCATION ? country : null]
+          .filter(Boolean)
+          .join(', ') || 'No location set'}
         {account.specialization ? ` · ${account.specialization}` : ''}
       </p>
 
@@ -81,6 +167,11 @@ export function CompetitorDetailPanel({
             ))}
           </select>
         </div>
+      </section>
+
+      <section className="cust-detail-section">
+        <h3 className="rail-title">Country</h3>
+        <CountryField value={country} disabled={countrySaving} onChange={onCountryChange} />
       </section>
 
       <section className="cust-detail-section">
@@ -167,15 +258,6 @@ export function CompetitorDetailPanel({
         <section className="cust-detail-section">
           <h3 className="rail-title">Enrichment</h3>
           <dl className="cust-journey">
-            <div className="cust-journey-row">
-              <dt>Country</dt>
-              <dd>
-                {account.enrichment.country ?? 'Unknown'}
-                {account.enrichment.countryConfidence
-                  ? ` (${account.enrichment.countryConfidence})`
-                  : ''}
-              </dd>
-            </div>
             <div className="cust-journey-row">
               <dt>Account type</dt>
               <dd>{account.enrichment.accountType ?? 'Unknown'}</dd>
