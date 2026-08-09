@@ -336,6 +336,7 @@ function normalizeSlides(rawSlides, onScreenText, format, title, cta, validKeys 
     ? rawSlides.map((s) => ({
         role: String(s.role || '').trim(),
         title: String(s.title || '').trim(),
+        subtitle: String(s.subtitle || '').trim(),
         assetKey: keepKey(String(s.assetKey || '').trim()),
       })).filter((s) => s.title || s.role)
     : [];
@@ -377,6 +378,7 @@ function normalizeSlides(rawSlides, onScreenText, format, title, cta, validKeys 
     return {
       role: s.role || roles[Math.min(i, roles.length - 1)],
       title: s.title || '',
+      subtitle: s.subtitle || '',
       assetKey,
     };
   });

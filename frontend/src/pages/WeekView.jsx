@@ -373,6 +373,9 @@ function deriveSlides(day) {
     return existing.map((s, i) => ({
       role: s.role || roles[Math.min(i, roles.length - 1)],
       title: s.title || '',
+      // the supporting line, written while the plan is built (see the strategy
+      // generator). Fills the layout's body slot instead of specimen copy.
+      subtitle: s.subtitle || s.body || '',
       assetKey: s.assetKey || '',
       layout: s.layout || '',
     }));
@@ -485,21 +488,46 @@ function buildMarkdown(route) {
 // same renderer, same shape as the Image-tab card — with this slide's line in
 // it rather than the layout's specimen copy. A live slide carries one line
 // (`title`), so it fills the composition's PRIMARY text slot; the layout keeps
-// its own supporting copy for the parts a one-line slide cannot fill.
+// NEVER the layout's own specimen copy. The preview must show only words the
+// studio actually has, so the composition is rebuilt from the slide: its line
+// (`title`) fills the headline, its supporting line (`subtitle`, written while
+// the plan is built) fills the body, and the post's content type fills the
+// eyebrow. Every other slot keeps the layout's STRUCTURE (a list stays a list,
+// a number slot stays a number slot) but is emptied of invented words — an
+// empty slot is honest; "Almost nobody wants the six weeks in between" is not.
 function fillLayout(layout, slide, contentType) {
   if (!layout) return layout;
-  const line = (slide?.title || '').trim();
-  const art = { ...(layout.art || {}) };
-  if (line) {
-    if ('head' in art) art.head = line;
-    else if ('big' in art) art.body = line; // a number layout — the line captions it
-    else if ('a' in art) art.a = line; // a comparison — best effort with one line
-    else art.body = line;
-    // an accent word would split the studio's line in two
-    if ('accent' in art) delete art.accent;
+  const title = (slide?.title || '').trim();
+  const sub = (slide?.subtitle || slide?.body || '').trim();
+  const src = layout.art || {};
+  const has = (k) => k in src;
+  const art = {};
+
+  // the headline lands in a real text slot, never in a number/label/list slot
+  if (has('head')) {
+    art.head = title;
+    if (has('body')) art.body = sub;
+  } else if (has('body')) {
+    art.body = title; // stat / airy / caption — the prose slot carries the line
+  } else if (has('a')) {
+    art.a = title;
+  } else {
+    art.head = title;
   }
-  // the eyebrow is the post's content type, but only where the layout shows one
-  if (contentType && 'eyebrow' in art) art.eyebrow = contentType;
+
+  // real facts about the post, where the layout has a place for them
+  if (has('eyebrow')) art.eyebrow = contentType || '';
+  if (has('bodyB')) art.bodyB = '';
+
+  // structure without specimen words — blanked, not faked
+  if (has('accent')) art.accent = '';
+  if (has('big')) art.big = '';
+  if (has('b')) art.b = '';
+  if (has('items')) art.items = [];
+  if (has('itemsA')) art.itemsA = [];
+  if (has('itemsB')) art.itemsB = [];
+  if (has('labels')) art.labels = [];
+
   return { ...layout, art };
 }
 

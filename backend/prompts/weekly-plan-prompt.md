@@ -57,11 +57,11 @@ Output **only** a single fenced ```json code block (no preamble, no closing rema
       "direction": "One sentence telling them what to make that day.",
       "content": {
         "slides": [
-          { "role": "Hook", "title": "Short on-slide headline", "assetKey": "optional S3 key from project assets" },
-          { "role": "Setup", "title": "…", "assetKey": "" },
-          { "role": "Process", "title": "…", "assetKey": "" },
-          { "role": "Result", "title": "…", "assetKey": "" },
-          { "role": "CTA", "title": "…", "assetKey": "" }
+          { "role": "Hook", "title": "Short on-slide headline", "subtitle": "One supporting line under the headline", "assetKey": "optional S3 key from project assets" },
+          { "role": "Setup", "title": "…", "subtitle": "…", "assetKey": "" },
+          { "role": "Process", "title": "…", "subtitle": "…", "assetKey": "" },
+          { "role": "Result", "title": "…", "subtitle": "…", "assetKey": "" },
+          { "role": "CTA", "title": "…", "subtitle": "…", "assetKey": "" }
         ],
         "onScreenText": ["Same titles as slides, in order — kept for compatibility"],
         "caption": "A ready-to-post caption in the brand's voice (2–4 short paragraphs).",
@@ -99,9 +99,14 @@ Output **only** a single fenced ```json code block (no preamble, no closing rema
   - Carousel: 5–6 slides with roles in story order: Hook → Setup → Process (1–2) → Result → CTA.
   - Reel / Story: 3 beat-slides (Hook, Setup/Beat, CTA) describing on-screen moments.
   - Single Post: 1–2 slides (Hook, optional CTA).
-  - Each slide needs a short `title` (the on-screen text). Set `assetKey` to a Project-assets key
-    when that photo's described content fits this slide's moment; otherwise `""`. Don't reuse the
-    same photo across every slide, and don't attach a photo whose description doesn't match.
+  - Each slide needs a short `title` (the on-screen headline) AND a short `subtitle` — the real
+    supporting line that sits under the headline on the slide (the layouts show both). Write the
+    subtitle in the brand's voice, specific to this slide's moment; keep it to one sentence. It is
+    on-slide copy, not the caption — never leave it as a placeholder, and only use `""` when the
+    slide is deliberately a single line.
+  - Set `assetKey` to a Project-assets key when that photo's described content fits this slide's
+    moment; otherwise `""`. Don't reuse the same photo across every slide, and don't attach a photo
+    whose description doesn't match.
   - Also fill `onScreenText` with the same titles in order.
 - `hashtags`: 3–6, lowercase, no `#`. `prompts`: 2–4 items. `notes`: 1–3 short production lines.
 - Keep the voice consistent with `howYouSound` from the Brand DNA. No emojis unless the account's

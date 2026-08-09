@@ -22,6 +22,11 @@ const daySchema = new mongoose.Schema(
           {
             role: { type: String, default: '' },
             title: { type: String, default: '' },
+            // The supporting line under the title — the second piece of on-slide
+            // copy the layout can show (e.g. a subtitle beneath a hook). Real
+            // words written with the plan, so a layout's body slot is never a
+            // placeholder. Empty is fine — the slide is then title-only.
+            subtitle: { type: String, default: '' },
             assetKey: { type: String, default: '' },
             // Layout id from the Visual Brand layout system (e.g. a hook layout
             // 'H1'/'H2'/'H3'). Empty = the slide's default composition.
