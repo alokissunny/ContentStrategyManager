@@ -464,6 +464,30 @@ function buildMarkdown(route) {
 // eyebrow. Every other slot keeps the layout's STRUCTURE (a list stays a list,
 // a number slot stays a number slot) but is emptied of invented words — an
 // empty slot is honest; "Almost nobody wants the six weeks in between" is not.
+// A two-tone "statement" layout draws its headline in the brand colour with the
+// last beat set apart in the accent ink (LayoutArt `Words`: `<em>{accent}</em>`).
+// A live slide carries one line, so to keep that treatment we split the line —
+// its emphatic tail becomes the accent, the rest stays the head — the same
+// "one line, one accent word" shape the layout was designed around. A short
+// leading function word rides along with the tail so the accent never reads as a
+// dangling article ("Your Portfolio." not "Portfolio.").
+const ACCENT_LEAD = new Set([
+  'a', 'an', 'the', 'your', 'our', 'my', 'their', 'his', 'her', 'its',
+  'to', 'of', 'in', 'on', 'for', 'and', 'at', 'by', 'with', 'no', 'not', 'so',
+]);
+function splitStatement(text) {
+  const words = String(text || '').trim().split(/\s+/).filter(Boolean);
+  // too short to split without leaving an empty head — keep it whole, no accent
+  if (words.length < 3) return { head: String(text || '').trim(), accent: '' };
+  let take = 1;
+  const prev = words[words.length - 2].replace(/[^a-z']/gi, '').toLowerCase();
+  if (ACCENT_LEAD.has(prev)) take = 2;
+  return {
+    head: words.slice(0, words.length - take).join(' '),
+    accent: words.slice(words.length - take).join(' '),
+  };
+}
+
 function fillLayout(layout, slide, contentType) {
   if (!layout) return layout;
   const title = (slide?.title || '').trim();
@@ -473,8 +497,16 @@ function fillLayout(layout, slide, contentType) {
   const art = {};
 
   // the headline lands in a real text slot, never in a number/label/list slot
+  let accentText = '';
   if (has('head')) {
-    art.head = title;
+    if (has('accent') && title) {
+      // two-tone statement — keep the accent-ink tail the layout is built around
+      const parts = splitStatement(title);
+      art.head = parts.head;
+      accentText = parts.accent;
+    } else {
+      art.head = title;
+    }
     if (has('body')) art.body = sub;
   } else if (has('body')) {
     art.body = title; // stat / airy / caption — the prose slot carries the line
@@ -488,8 +520,9 @@ function fillLayout(layout, slide, contentType) {
   if (has('eyebrow')) art.eyebrow = contentType || '';
   if (has('bodyB')) art.bodyB = '';
 
-  // structure without specimen words — blanked, not faked
-  if (has('accent')) art.accent = '';
+  // the accent carries the statement's tail (drawn in the accent ink), or stays
+  // blank when the line was too short to split — never the layout's specimen word
+  if (has('accent')) art.accent = accentText;
   if (has('big')) art.big = '';
   if (has('b')) art.b = '';
   if (has('items')) art.items = [];
