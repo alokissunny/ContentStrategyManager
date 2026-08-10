@@ -145,10 +145,12 @@ function CohortEditor({
   customerId,
   handle,
   cohort,
+  includeAdmins,
 }: {
   customerId: string
   handle: string
   cohort: Pick<CustomerCohort, 'businessCategory' | 'location'> | null
+  includeAdmins: boolean
 }) {
   const queryClient = useQueryClient()
   const [businessCategory, setBusinessCategory] = useState(
@@ -166,11 +168,15 @@ function CohortEditor({
 
   const mutation = useMutation({
     mutationFn: () =>
-      updateCustomerCohort(customerId, {
-        businessCategory,
-        location,
-        instagramUsername: handle,
-      }),
+      updateCustomerCohort(
+        customerId,
+        {
+          businessCategory,
+          location,
+          instagramUsername: handle,
+        },
+        { includeAdmins },
+      ),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['customer-detail', customerId] })
       queryClient.invalidateQueries({ queryKey: ['customers'] })
@@ -269,8 +275,9 @@ export function CustomersPage() {
   })
 
   const detail = useQuery({
-    queryKey: ['customer-detail', selectedId],
-    queryFn: () => (selectedId ? getCustomerDetail(selectedId) : null),
+    queryKey: ['customer-detail', selectedId, query.includeAdmins],
+    queryFn: () =>
+      selectedId ? getCustomerDetail(selectedId, { includeAdmins: query.includeAdmins }) : null,
     enabled: selectedId != null,
   })
 
@@ -355,6 +362,16 @@ export function CustomersPage() {
             value={query.search}
             onChange={(e) => setQuery({ ...query, search: e.target.value, page: 1 })}
           />
+          <label className="cust-admin-toggle">
+            <input
+              type="checkbox"
+              checked={query.includeAdmins}
+              onChange={(e) =>
+                setQuery({ ...query, includeAdmins: e.target.checked, page: 1 })
+              }
+            />
+            <span>Include admins</span>
+          </label>
         </div>
 
         <div className="panel">
@@ -509,6 +526,7 @@ export function CustomersPage() {
                 customerId={selectedId}
                 handle={activeProfile.username}
                 cohort={activeProfile.cohort ?? null}
+                includeAdmins={query.includeAdmins}
               />
             )}
 

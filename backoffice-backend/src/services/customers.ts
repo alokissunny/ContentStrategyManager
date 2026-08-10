@@ -7,6 +7,8 @@ export interface CustomerListQuery {
   search?: string
   page?: number
   pageSize?: number
+  /** Opt-in: include backoffice admin accounts, which are hidden by default. */
+  includeAdmins?: boolean
 }
 
 export interface CustomerInstagramAccount {
@@ -206,13 +208,16 @@ function normalizeHandle(input: string): string {
     .toLowerCase()
 }
 
-/** Signed-up Bauhly customers (excludes backoffice admins). */
+/**
+ * Signed-up Bauhly customers. Backoffice admins are excluded by default;
+ * pass `includeAdmins` to surface them alongside customers.
+ */
 export async function listCustomers(input: CustomerListQuery = {}) {
   const pageSize = Math.min(Math.max(Number(input.pageSize) || 20, 1), 100)
   const page = Math.max(Number(input.page) || 1, 1)
   const search = (input.search ?? '').trim()
 
-  const filter: Record<string, unknown> = { role: { $ne: 'admin' } }
+  const filter: Record<string, unknown> = input.includeAdmins ? {} : { role: { $ne: 'admin' } }
   if (search) {
     const rx = new RegExp(search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i')
     filter.$or = [{ name: rx }, { email: rx }]
@@ -322,13 +327,16 @@ export async function listCustomers(input: CustomerListQuery = {}) {
   }
 }
 
-export async function getCustomerDetail(id: string): Promise<CustomerDetail | null> {
+export async function getCustomerDetail(
+  id: string,
+  options: { includeAdmins?: boolean } = {},
+): Promise<CustomerDetail | null> {
   if (!mongoose.isValidObjectId(id)) return null
 
   const user = (await User.findById(id)
     .select('name email role createdAt business')
     .lean()) as LeanUser | null
-  if (!user || user.role === 'admin') return null
+  if (!user || (user.role === 'admin' && !options.includeAdmins)) return null
 
   const [profiles, routes, cohorts] = await Promise.all([
     InstagramProfile.find({ user: user._id })
@@ -410,11 +418,12 @@ export async function getCustomerDetail(id: string): Promise<CustomerDetail | nu
 export async function setCustomerCohort(
   id: string,
   input: { businessCategory: string; location: string; instagramUsername: string },
+  options: { includeAdmins?: boolean } = {},
 ): Promise<CustomerCohortAssignment | null> {
   if (!mongoose.isValidObjectId(id)) return null
 
   const user = (await User.findById(id).select('role').lean()) as LeanUser | null
-  if (!user || user.role === 'admin') return null
+  if (!user || (user.role === 'admin' && !options.includeAdmins)) return null
 
   const username = normalizeHandle(input.instagramUsername)
   if (!username) return null

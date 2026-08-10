@@ -13,10 +13,15 @@ customerRoutes.get(
         search: z.string().optional(),
         page: z.coerce.number().optional(),
         pageSize: z.coerce.number().optional(),
+        includeAdmins: z.enum(['1', 'true']).optional(),
       })
       .safeParse(req.query)
 
-    const result = await listCustomers(q.success ? q.data : {})
+    const data = q.success ? q.data : {}
+    const result = await listCustomers({
+      ...data,
+      includeAdmins: Boolean(data.includeAdmins),
+    })
     res.json(result)
   }),
 )
@@ -24,7 +29,8 @@ customerRoutes.get(
 customerRoutes.get(
   '/customers/:id',
   asyncHandler(async (req, res) => {
-    const detail = await getCustomerDetail(String(req.params.id))
+    const includeAdmins = req.query.includeAdmins === '1' || req.query.includeAdmins === 'true'
+    const detail = await getCustomerDetail(String(req.params.id), { includeAdmins })
     if (!detail) return res.status(404).json({ message: 'Customer not found' })
     res.json(detail)
   }),
@@ -47,7 +53,8 @@ customerRoutes.patch(
       })
     }
 
-    const cohort = await setCustomerCohort(String(req.params.id), body.data)
+    const includeAdmins = req.query.includeAdmins === '1' || req.query.includeAdmins === 'true'
+    const cohort = await setCustomerCohort(String(req.params.id), body.data, { includeAdmins })
     if (!cohort) {
       return res.status(404).json({
         message: 'Customer or Instagram account not found',

@@ -123,12 +123,15 @@ export interface CustomerQuery {
   search: string
   page: number
   pageSize: number
+  /** Surface backoffice admin accounts, which are hidden by default. */
+  includeAdmins: boolean
 }
 
 export const defaultCustomerQuery: CustomerQuery = {
   search: '',
   page: 1,
   pageSize: 20,
+  includeAdmins: false,
 }
 
 const delay = (ms = 200) => new Promise((r) => setTimeout(r, ms))
@@ -141,6 +144,7 @@ export async function listCustomers(q: CustomerQuery): Promise<CustomerListResul
         search: q.search || undefined,
         page: q.page,
         pageSize: q.pageSize,
+        includeAdmins: q.includeAdmins ? '1' : undefined,
       }),
     )
   }
@@ -154,10 +158,17 @@ export async function listCustomers(q: CustomerQuery): Promise<CustomerListResul
   }
 }
 
-export async function getCustomerDetail(id: string): Promise<CustomerDetail | null> {
+export async function getCustomerDetail(
+  id: string,
+  options: { includeAdmins?: boolean } = {},
+): Promise<CustomerDetail | null> {
   if (!USE_MOCKS) {
     try {
-      return customerDetail.parse(await api.get<unknown>(`/customers/${id}`))
+      return customerDetail.parse(
+        await api.get<unknown>(`/customers/${id}`, {
+          includeAdmins: options.includeAdmins ? '1' : undefined,
+        }),
+      )
     } catch (err) {
       if (err instanceof ApiError && err.status === 404) return null
       throw err
@@ -171,9 +182,13 @@ export async function getCustomerDetail(id: string): Promise<CustomerDetail | nu
 export async function updateCustomerCohort(
   id: string,
   input: { businessCategory: string; location: string; instagramUsername: string },
+  options: { includeAdmins?: boolean } = {},
 ): Promise<CustomerCohort> {
   if (!USE_MOCKS) {
-    return customerCohort.parse(await api.patch<unknown>(`/customers/${id}/cohort`, input))
+    const suffix = options.includeAdmins ? '?includeAdmins=1' : ''
+    return customerCohort.parse(
+      await api.patch<unknown>(`/customers/${id}/cohort${suffix}`, input),
+    )
   }
   await delay()
   return input

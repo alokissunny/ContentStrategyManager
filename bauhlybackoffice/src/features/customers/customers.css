@@ -937,3 +937,19 @@
 .cust-trend-delta--positive { color: var(--positive); }
 .cust-trend-delta--negative { color: var(--negative); }
 .cust-trend-delta--neutral { color: var(--ink-500); }
+
+/* "Include admins" opt-in — surfaces backoffice admin accounts in the list. */
+.cust-admin-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  font-size: var(--text-sm);
+  color: var(--ink-600);
+  white-space: nowrap;
+  cursor: pointer;
+  user-select: none;
+}
+
+.cust-admin-toggle input {
+  cursor: pointer;
+}
