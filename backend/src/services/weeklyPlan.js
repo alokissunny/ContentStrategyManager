@@ -384,6 +384,53 @@ function normalizeSlides(rawSlides, onScreenText, format, title, cta, validKeys 
   });
 }
 
+// Full record of everything that reaches the content-strategy model, so you can
+// see exactly which context went into a plan (and confirm edited Brand DNA is in
+// it). Always logs a compact one-liner. Set LOG_PLAN_CONTEXT=1 for the full JSON
+// blocks — the exact substitutions the prompt received — and LOG_PLAN_PROMPT=1
+// for the entire rendered prompt string.
+function logPlanContext({ snapshot, focusSummary, competitorInsights, projects, prompt, model }) {
+  const dna = snapshot.brandDna || null;
+  const dnaKeys = dna ? Object.keys(dna) : [];
+  const filled = dnaKeys.filter((k) => String(dna[k] || '').trim().length > 0);
+  const empty = dnaKeys.filter((k) => !String(dna[k] || '').trim().length);
+  const assetCount = projects.reduce((n, p) => n + (p.assets?.length || 0), 0);
+  const funnelBrief = (focusSummary.funnel || [])
+    .map((f) => `${f.pillar}:${f.verdict}`)
+    .join(' ');
+
+  console.log(
+    `[planCtx] @${snapshot.username} · model=${model} · focus=${focusSummary.pillar}\n` +
+      `  brandDna: ${
+        dna
+          ? `${filled.length}/${dnaKeys.length} fields set [${filled.join(', ') || 'none'}]` +
+            (empty.length ? ` · empty: [${empty.join(', ')}]` : '')
+          : 'NONE — no Brand DNA report loaded for this handle'
+      }\n` +
+      `  funnel: ${funnelBrief}\n` +
+      `  competitorInsights: ${competitorInsights ? 'yes' : 'no'} · projects: ${projects.length} · photos: ${assetCount}\n` +
+      `  history: ${JSON.stringify(snapshot.history)} · recentCaptions: ${(snapshot.recentCaptions || []).length}`
+  );
+
+  if (process.env.LOG_PLAN_CONTEXT === '1') {
+    console.log('[planCtx] brandDna (as sent to model):', JSON.stringify(dna, null, 2));
+    console.log('[planCtx] focus + funnel (as sent):', JSON.stringify(focusSummary, null, 2));
+    console.log('[planCtx] full snapshot (as sent):', JSON.stringify(snapshot, null, 2));
+    console.log('[planCtx] competitorInsights (as sent):', JSON.stringify(competitorInsights, null, 2));
+    console.log(
+      '[planCtx] projects (names + asset counts):',
+      JSON.stringify(
+        projects.map((p) => ({ name: p.name, notes: p.notes, assets: (p.assets || []).length })),
+        null,
+        2
+      )
+    );
+  }
+  if (process.env.LOG_PLAN_PROMPT === '1') {
+    console.log(`[planCtx] FULL PROMPT for @${snapshot.username} ↓↓↓\n${prompt}\n[planCtx] FULL PROMPT ↑↑↑`);
+  }
+}
+
 /**
  * Generate a full weekly content plan for a profile.
  * @param {object} profile
@@ -432,6 +479,9 @@ async function generateWeeklyPlan(profile, brandDna, competitorInsights = null, 
     .replace('{{SNAPSHOT_JSON}}', () => JSON.stringify(snapshot))
     .replace('{{COMPETITOR_INSIGHTS}}', () => renderCompetitorInsights(competitorInsights))
     .replace('{{PROJECT_ASSETS}}', () => renderProjectAssets(projects));
+
+  // Log exactly what context reached the model for this plan (see logPlanContext).
+  logPlanContext({ snapshot, focusSummary, competitorInsights, projects, prompt, model });
 
   const insightNote = competitorInsights ? 'with competitor insights' : 'no competitor insights';
   const assetCount = projects.reduce((n, p) => n + (p.assets?.length || 0), 0);

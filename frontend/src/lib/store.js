@@ -12,7 +12,23 @@
 
 import { useSyncExternalStore } from 'react';
 
-const KEY = 'bauhly.visualbrand';
+// Base key for the (client-only) Visual Brand / Library state. The real store
+// is PER INSTAGRAM ACCOUNT: each handle keeps its own blob under
+// `bauhly.visualbrand::<handle>`, so switching the account in the header shows
+// that account's own library edits, layouts and mood — the same account-scoping
+// as projects and plans. `bauhly.currentHandle` remembers which handle is live
+// so the right namespace loads synchronously on the next page load (the header
+// switch does a full reload). See syncHandle() and AccountSwitcher.
+const BASE_KEY = 'bauhly.visualbrand';
+const HANDLE_KEY = 'bauhly.currentHandle';
+
+function normHandle(h) {
+  return (h ? String(h).trim().toLowerCase() : '') || null;
+}
+
+function keyFor(handle) {
+  return handle ? `${BASE_KEY}::${handle}` : BASE_KEY;
+}
 
 const DEFAULTS = {
   /* references added on purpose — the studio's own photographs are read from
@@ -41,12 +57,35 @@ const DEFAULTS = {
   libraryEdits: { palette: {}, type: {} },
 };
 
-let state = load();
+let activeHandle = (() => {
+  try {
+    return normHandle(localStorage.getItem(HANDLE_KEY));
+  } catch {
+    return null;
+  }
+})();
+let state = load(activeHandle);
 const listeners = new Set();
 
-function load() {
+function load(handle) {
   try {
-    const s = { ...DEFAULTS, ...JSON.parse(localStorage.getItem(KEY) || '{}') };
+    let raw = localStorage.getItem(keyFor(handle));
+    // One-time migration: before scoping, everything lived under the bare
+    // BASE_KEY (a single account's worth). The first handle to load adopts that
+    // blob, and BASE_KEY is retired so other accounts start clean.
+    if (raw == null && handle) {
+      const legacy = localStorage.getItem(BASE_KEY);
+      if (legacy != null) {
+        raw = legacy;
+        try {
+          localStorage.setItem(keyFor(handle), legacy);
+          localStorage.removeItem(BASE_KEY);
+        } catch {
+          /* private mode etc. */
+        }
+      }
+    }
+    const s = { ...DEFAULTS, ...JSON.parse(raw || '{}') };
     /* an object URL dies with the document that made it — a blob: URL read back
        from localStorage is a picture that cannot be shown, so drop it. Added
        references last the session; the library says so out loud. */
@@ -73,10 +112,27 @@ function load() {
 
 function persist() {
   try {
-    localStorage.setItem(KEY, JSON.stringify(state));
+    localStorage.setItem(keyFor(activeHandle), JSON.stringify(state));
   } catch {
     /* private mode etc. — state stays in memory */
   }
+}
+
+// Point the store at a given Instagram handle's namespace and reload its state.
+// Called from the header account switcher: on every dashboard load (so the live
+// handle's data shows) and just before a switch reloads the page (so the new
+// account's namespace is already selected when the store re-initialises).
+export function syncHandle(handle) {
+  const next = normHandle(handle);
+  if (!next || next === activeHandle) return;
+  activeHandle = next;
+  try {
+    localStorage.setItem(HANDLE_KEY, next);
+  } catch {
+    /* private mode etc. */
+  }
+  state = load(next);
+  listeners.forEach((fn) => fn());
 }
 
 export function setState(patch) {

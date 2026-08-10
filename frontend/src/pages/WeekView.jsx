@@ -860,6 +860,13 @@ export default function WeekView({ route: initialRoute, onBack }) {
   const libPaint = useMemo(() => paintOf(vbStore?.libraryEdits), [vbStore?.libraryEdits]);
   const chosenLayout = slideLayouts.find((l) => l.id === activeSlide?.layout) || slideLayouts[0] || null;
   const chosenLayoutIdx = Math.max(0, slideLayouts.findIndex((l) => l.id === chosenLayout?.id));
+  // Each rail slide resolved to its OWN chosen layout — the same composition the
+  // big preview draws for that slide — so the vertical rail and the IG preview
+  // always show the same picture for a given slide (never out of sync).
+  const slideThumbLayout = (s) => {
+    const opts = layoutsForSlide(s.role || 'Hook', vbStore);
+    return opts.find((l) => l.id === s.layout) || opts[0] || null;
+  };
   // this slide's picture, if it has one — swapped into the layout cards so a
   // chosen shape shows the studio's own photo, not a specimen (bauhly-v3 §542)
   const activePhoto = activeSlide?.image?.url || null;
@@ -1015,12 +1022,13 @@ export default function WeekView({ route: initialRoute, onBack }) {
                   onClick={() => { setSlideIdx(i); setPickerOpen(false); }}
                 >
                   <span className="wv-slide__thumb">
-                    {s.image?.thumb
-                      ? <img src={s.image.thumb} alt="" />
-                      : <Glyph name="image" size={18} />}
+                    <SlideMedia
+                      slide={s}
+                      layout={slideThumbLayout(s)}
+                      contentType={day.contentType || day.format}
+                    />
                     <span className="wv-slide__num">{i + 1}</span>
                     {s.role && <span className="wv-slide__role">{s.role}</span>}
-                    {s.title && <span className="wv-slide__cap">{s.title}</span>}
                   </span>
                 </button>
               ))}

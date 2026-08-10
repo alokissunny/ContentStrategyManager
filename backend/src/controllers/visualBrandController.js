@@ -1,5 +1,6 @@
 const crypto = require('crypto');
 const User = require('../models/User');
+const { currentUsername } = require('../utils/currentProfile');
 const {
   isS3Configured,
   getPresignedUploadUrl,
@@ -16,11 +17,11 @@ const EXT = {
   'image/gif': 'gif', 'image/heic': 'heic', 'image/avif': 'avif',
 };
 
-// Everything a user's mood images live under. A client-supplied key is only ever
-// trusted if it sits under THIS user's prefix — so no request can attach or
-// delete another studio's object.
-function moodPrefix(userId) {
-  return `visualbrand/${userId}/mood/`;
+// Everything a handle's mood images live under. A client-supplied key is only
+// ever trusted if it sits under THIS user + THIS handle's prefix — so no request
+// can attach or delete another studio's (or another account's) object.
+function moodPrefix(userId, handle) {
+  return `visualbrand/${userId}/${handle}/mood/`;
 }
 
 async function withUrl(m) {
@@ -40,6 +41,8 @@ async function signMoodUploads(req, res) {
   if (!isS3Configured()) {
     return res.status(503).json({ message: 'Media storage is not configured (set S3_BUCKET_NAME).' });
   }
+  const handle = await currentUsername(req.user._id);
+  if (!handle) return res.status(400).json({ message: 'Connect an Instagram account first' });
   const files = Array.isArray(req.body.files) ? req.body.files : [];
   if (!files.length) return res.status(400).json({ message: 'No files to sign' });
   if (files.length > 20) return res.status(400).json({ message: 'Too many files in one request' });
@@ -47,7 +50,7 @@ async function signMoodUploads(req, res) {
   const uploads = await Promise.all(
     files.map(async ({ contentType }) => {
       const ext = EXT[contentType] || 'bin';
-      const key = `${moodPrefix(req.user._id)}${crypto.randomUUID()}.${ext}`;
+      const key = `${moodPrefix(req.user._id, handle)}${crypto.randomUUID()}.${ext}`;
       const uploadUrl = await getPresignedUploadUrl(key, contentType);
       return { key, uploadUrl };
     })
@@ -56,10 +59,14 @@ async function signMoodUploads(req, res) {
 }
 
 // GET /visual-brand/mood → { moodImages: [{ key, title, addedAt, url }] }
+// Only the mood added under the currently active handle, so the page switches
+// with the account chosen in the header.
 async function listMoodImages(req, res) {
+  const handle = await currentUsername(req.user._id);
   const user = await User.findById(req.user._id).select('visualBrand').lean();
   const imgs = (user && user.visualBrand && user.visualBrand.moodImages) || [];
-  const moodImages = await Promise.all(imgs.map(withUrl));
+  const mine = handle ? imgs.filter((m) => (m.handle || '') === handle) : [];
+  const moodImages = await Promise.all(mine.map(withUrl));
   res.json({ moodImages });
 }
 
@@ -67,15 +74,18 @@ async function listMoodImages(req, res) {
 // Body: { images: [{ key, title }] } — keys the client has just PUT to S3.
 // → { moodImages: [...the full set, with presigned urls] }
 async function addMoodImages(req, res) {
+  const handle = await currentUsername(req.user._id);
+  if (!handle) return res.status(400).json({ message: 'Connect an Instagram account first' });
   const incoming = Array.isArray(req.body.images) ? req.body.images : [];
-  const prefix = moodPrefix(req.user._id);
+  const prefix = moodPrefix(req.user._id, handle);
   const clean = incoming
     .map((m) => ({
       key: String((m && m.key) || '').trim(),
       title: String((m && m.title) || '').trim(),
+      handle,
       addedAt: Date.now(),
     }))
-    // never trust a client key that is not under this user's own prefix
+    // never trust a client key that is not under this user + handle's own prefix
     .filter((m) => m.key.startsWith(prefix));
   if (!clean.length) return res.status(400).json({ message: 'No valid images to add' });
 
@@ -91,15 +101,18 @@ async function addMoodImages(req, res) {
   });
   await user.save();
 
-  const moodImages = await Promise.all(user.visualBrand.moodImages.map(withUrl));
+  // return only this handle's mood, matching listMoodImages
+  const mine = (user.visualBrand.moodImages || []).filter((m) => (m.handle || '') === handle);
+  const moodImages = await Promise.all(mine.map(withUrl));
   res.json({ moodImages });
 }
 
 // DELETE /visual-brand/mood/:key  (key is URL-encoded)
 // Drops the record and best-effort deletes the object from S3.
 async function deleteMoodImage(req, res) {
+  const handle = await currentUsername(req.user._id);
   const key = decodeURIComponent(req.params.key || '');
-  if (!key.startsWith(moodPrefix(req.user._id))) {
+  if (!handle || !key.startsWith(moodPrefix(req.user._id, handle))) {
     return res.status(400).json({ message: 'Invalid key' });
   }
   const user = await User.findById(req.user._id);

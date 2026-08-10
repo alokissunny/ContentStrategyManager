@@ -19,13 +19,16 @@ const userSchema = new mongoose.Schema(
     // The studio's visual brand. `moodImages` are the reference pictures added on
     // the Library Settings page ("Visual Mood") — the DB keeps only the S3 object
     // key; the bytes live in S3 and the client is handed short-lived presigned
-    // read URLs (see visualBrandController).
+    // read URLs (see visualBrandController). Each image is tagged with the
+    // Instagram `handle` it was added under, so switching accounts in the header
+    // shows that account's own mood — the same account-scoping as projects/plans.
     visualBrand: {
       moodImages: {
         type: [
           {
             key: { type: String, required: true },
             title: { type: String, trim: true, default: '' },
+            handle: { type: String, trim: true, lowercase: true, default: '' },
             addedAt: { type: Number, default: () => Date.now() },
           },
         ],

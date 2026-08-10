@@ -14,6 +14,7 @@ import { Link } from 'react-router-dom';
 import Glyph from './Glyph';
 import { listInstagramProfiles, activateInstagramProfile } from '../api/instagram';
 import { getMetaStatus } from '../api/meta';
+import { syncHandle } from '../lib/store';
 import { LS_SURFACE, LS_BORDER, LS_INK, LS_T2, LS_MUTED, LS_SIGNAL, LS_SOFT, LS_SOFT_BORDER, LS_HOVER, LS_FONT } from '../theme';
 
 // Tokens not exposed on the LS_* palette but part of the shared design system.
@@ -65,7 +66,13 @@ export default function AccountSwitcher() {
 
   useEffect(() => {
     listInstagramProfiles()
-      .then((data) => setProfiles(data.profiles || []))
+      .then((data) => {
+        const list = data.profiles || [];
+        setProfiles(list);
+        // Point the per-account client store (Visual Library / Library Settings)
+        // at the current handle so it shows this account's own data.
+        if (list[0]) syncHandle(list[0].username);
+      })
       .catch(() => setProfiles([]));
     getMetaStatus().then(setMeta).catch(() => setMeta(null));
   }, []);
@@ -99,6 +106,10 @@ export default function AccountSwitcher() {
     if (username === current.username || switching) return;
     setSwitching(username);
     try {
+      // Select the target account's store namespace *before* the reload, so the
+      // Visual Library / Library Settings pages come back on the new account's
+      // own data with no cross-account flash.
+      syncHandle(username);
       await activateInstagramProfile(username);
       // The current handle drives plans, brand profile and analysis app-wide;
       // a full reload is the simplest way to refresh every page's data.

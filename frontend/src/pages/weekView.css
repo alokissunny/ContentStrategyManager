@@ -304,6 +304,10 @@
   color: var(--ink-quiet);
   display: grid;
   place-items: center;
+  /* the composition inside is drawn in `cqw` units (LayoutArt), so the thumb is
+     its query root — same as the IG preview frame and the layout-picker cards.
+     This makes each rail thumb the SAME composed slide the big preview shows. */
+  container-type: inline-size;
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 .wv-slide__thumb img { width: 100%; height: 100%; object-fit: cover; }
