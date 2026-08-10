@@ -8,6 +8,11 @@ const { getSignedUrl } = require('@aws-sdk/s3-request-presigner');
 
 let client;
 
+// Immutable caching for project media. Object keys are content-addressed UUIDs
+// (projects/<userId>/<uuid>.<ext>) that are never overwritten, so the bytes at a
+// key never change — safe to cache "forever" at the CDN edge and in the browser.
+const MEDIA_CACHE_CONTROL = 'public, max-age=31536000, immutable';
+
 function getS3Client() {
   if (!process.env.S3_BUCKET_NAME) {
     throw new Error('S3_BUCKET_NAME is not set. Add it (and AWS credentials) to backend/.env to enable report storage.');
@@ -38,6 +43,37 @@ function mediaExpiry() {
   return Number(process.env.S3_PRESIGN_EXPIRY_SECONDS) || 3600;
 }
 
+// ── CDN delivery ────────────────────────────────────────────────────────────
+// When MEDIA_CDN_BASE_URL is set (e.g. https://d111.cloudfront.net or a custom
+// CloudFront domain in front of the bucket), media is served from stable,
+// cacheable public URLs instead of rotating short-lived presigned S3 URLs.
+// Access then relies on the unguessable UUID object keys rather than an expiring
+// signature — see backend/aws/CLOUDFRONT_CDN.md for the full setup.
+function mediaCdnBaseUrl() {
+  return (process.env.MEDIA_CDN_BASE_URL || '').trim().replace(/\/+$/, '');
+}
+function isCdnConfigured() {
+  return Boolean(mediaCdnBaseUrl());
+}
+
+// The public CDN URL for a stored key, or '' when no CDN is configured. Keys are
+// path-like (projects/<uuid>/<uuid>.jpg) and only contain URL-safe characters,
+// so each path segment is encoded without touching the slashes.
+function publicMediaUrl(key) {
+  const base = mediaCdnBaseUrl();
+  if (!base || !key) return '';
+  const path = String(key).split('/').map(encodeURIComponent).join('/');
+  return `${base}/${path}`;
+}
+
+// The URL the client should load a media object from: the CDN URL when a CDN is
+// configured (stable + cacheable), otherwise a short-lived presigned S3 URL.
+async function getMediaUrl(key) {
+  if (!key) return '';
+  if (isCdnConfigured()) return publicMediaUrl(key);
+  return getPresignedMediaUrl(key);
+}
+
 // A presigned PUT the browser uploads a file straight to — the media never
 // passes through this server. The client MUST send the same Content-Type.
 async function getPresignedUploadUrl(key, contentType) {
@@ -46,6 +82,10 @@ async function getPresignedUploadUrl(key, contentType) {
     Bucket: process.env.S3_BUCKET_NAME,
     Key: key,
     ContentType: contentType || 'application/octet-stream',
+    // Store an immutable cache header so the CDN edge and the browser cache the
+    // object long-term. It's a signed header, so the browser MUST echo the same
+    // value on the PUT — the /sign endpoint returns it for the client to send.
+    CacheControl: MEDIA_CACHE_CONTROL,
   });
   return getSignedUrl(s3, command, { expiresIn: mediaExpiry() });
 }
@@ -133,5 +173,9 @@ module.exports = {
   isS3Configured,
   getPresignedUploadUrl,
   getPresignedMediaUrl,
+  getMediaUrl,
+  publicMediaUrl,
+  isCdnConfigured,
+  MEDIA_CACHE_CONTROL,
   deleteObjects,
 };

@@ -47,6 +47,13 @@ any existing rules) → Save.
 Add your deployed frontend origin to `AllowedOrigins` (in the JSON, or via
 `CLIENT_URL` / `MEDIA_CORS_ORIGINS` when using the script).
 
+## Serving media through a CDN (CloudFront)
+
+By default the API hands the browser short-lived **presigned** S3 read URLs,
+which a CDN can't cache. To serve project media from **stable, long-cached**
+CloudFront URLs instead, set `MEDIA_CDN_BASE_URL` and follow
+[`CLOUDFRONT_CDN.md`](./CLOUDFRONT_CDN.md). It's opt-in — unset, nothing changes.
+
 ## Note on checksums
 
 Recent AWS SDK versions add a default CRC32 checksum to `PutObject`, which put

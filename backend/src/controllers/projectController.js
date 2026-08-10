@@ -4,7 +4,8 @@ const { currentUsername } = require('../utils/currentProfile');
 const {
   isS3Configured,
   getPresignedUploadUrl,
-  getPresignedMediaUrl,
+  getMediaUrl,
+  MEDIA_CACHE_CONTROL,
   deleteObjects,
 } = require('../services/s3Client');
 const { analyzeImageAsset } = require('../services/imageAnalysis');
@@ -34,12 +35,15 @@ function serializeAnalysis(an) {
 }
 
 async function serializeAttachment(a) {
+  // The client loads media from getMediaUrl: a stable, cacheable CDN URL when a
+  // CDN is configured (MEDIA_CDN_BASE_URL), otherwise a short-lived presigned
+  // S3 URL. Either way the DB only ever stores the object key.
   let url = '';
   if (a.key && isS3Configured()) {
     try {
-      url = await getPresignedMediaUrl(a.key);
+      url = await getMediaUrl(a.key);
     } catch (err) {
-      console.error('[projects] could not presign', a.key, err.message);
+      console.error('[projects] could not resolve media url for', a.key, err.message);
     }
   }
   return { id: a._id.toString(), type: a.type, key: a.key, url, thumbnailUrl: url, analysis: serializeAnalysis(a.analysis) };
@@ -103,7 +107,9 @@ async function signUploads(req, res) {
       const ext = EXT[contentType] || 'bin';
       const key = `${prefixOf(req.user._id)}${crypto.randomUUID()}.${ext}`;
       const uploadUrl = await getPresignedUploadUrl(key, contentType);
-      return { key, uploadUrl };
+      // The presigned PUT signs an immutable Cache-Control header, so the browser
+      // must echo this exact value on the upload (see api/projects.uploadFiles).
+      return { key, uploadUrl, cacheControl: MEDIA_CACHE_CONTROL };
     })
   );
   res.json({ uploads });

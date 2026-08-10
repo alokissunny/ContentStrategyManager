@@ -64,6 +64,12 @@ services:
         sync: false
       - key: S3_REPORT_PRESIGN_EXPIRY_SECONDS
         value: "3600"
+      # CloudFront CDN base URL for project media (e.g. https://d111abcdef8.cloudfront.net
+      # or a custom domain). When set, media is served from stable, cacheable CDN
+      # URLs instead of presigned S3 URLs. Leave unset to keep presigned behaviour.
+      # Setup: backend/aws/CLOUDFRONT_CDN.md
+      - key: MEDIA_CDN_BASE_URL
+        sync: false
       # Image generation (WeekView "Create image" — Gemini "nano banana").
       - key: GEMINI_IMAGE_MODEL
         value: gemini-2.5-flash-image

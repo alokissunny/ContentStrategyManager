@@ -52,15 +52,21 @@ export async function uploadFiles(files) {
   });
   const uploads = data.uploads || [];
   await Promise.all(
-    arr.map((f, i) =>
-      fetch(uploads[i].uploadUrl, {
+    arr.map((f, i) => {
+      // Both headers are part of the presigned PUT's signature, so they must be
+      // sent exactly as the server signed them: Content-Type matches the file,
+      // and Cache-Control (immutable) is echoed back from the /sign response so
+      // the CDN + browser cache the object long-term.
+      const headers = { 'Content-Type': f.type || 'application/octet-stream' };
+      if (uploads[i].cacheControl) headers['Cache-Control'] = uploads[i].cacheControl;
+      return fetch(uploads[i].uploadUrl, {
         method: 'PUT',
-        headers: { 'Content-Type': f.type || 'application/octet-stream' },
+        headers,
         body: f,
       }).then((res) => {
         if (!res.ok) throw new Error(`Upload failed (${res.status})`);
-      })
-    )
+      });
+    })
   );
   return arr.map((f, i) => {
     const preview = URL.createObjectURL(f);
