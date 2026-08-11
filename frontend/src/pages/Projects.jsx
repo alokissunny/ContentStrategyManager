@@ -25,6 +25,29 @@ import {
 } from '../lib/projectsStore';
 import { listGeneratedImages, deleteGeneratedImage } from '../api/images';
 import './projects.css';
+
+/* The generated-image list is fetched from the server, which takes a moment —
+ * long enough that the "Generated" folder used to pop in a second after the page.
+ * We cache the last list in localStorage (per Instagram handle, matching the
+ * server's account scoping) so the card renders INSTANTLY from cache on mount,
+ * then reconciles when the network list arrives. */
+const GEN_CACHE_KEY = 'bauhly.genimages';
+function genCacheKey() {
+  try {
+    const h = (localStorage.getItem('bauhly.currentHandle') || '').trim().toLowerCase();
+    return h ? `${GEN_CACHE_KEY}::${h}` : GEN_CACHE_KEY;
+  } catch { return GEN_CACHE_KEY; }
+}
+function readGenCache() {
+  try {
+    const raw = localStorage.getItem(genCacheKey());
+    const list = raw ? JSON.parse(raw) : [];
+    return Array.isArray(list) ? list : [];
+  } catch { return []; }
+}
+function writeGenCache(list) {
+  try { localStorage.setItem(genCacheKey(), JSON.stringify(list || [])); } catch { /* quota/private mode — cache is best-effort */ }
+}
 import './yourweek.css'; /* the shared .empty brand-moment styles */
 import './checkin/checkin.css'; /* the conversation surface, shared with the check-in */
 
@@ -1244,20 +1267,21 @@ export default function Projects() {
   const [creating, setCreating] = useState(false);
   const [menuId, setMenuId] = useState(null);
   const [editId, setEditId] = useState(null);
-  const [genImages, setGenImages] = useState([]);
+  // Seed from cache so the "Generated" folder is on screen from the first paint.
+  const [genImages, setGenImages] = useState(readGenCache);
   const [genLoaded, setGenLoaded] = useState(false);
   const [showGen, setShowGen] = useState(false);
 
   useEffect(() => {
     let alive = true;
     listGeneratedImages()
-      .then((imgs) => { if (alive) { setGenImages(imgs); setGenLoaded(true); } })
-      .catch(() => { if (alive) setGenLoaded(true); });
+      .then((imgs) => { if (alive) { setGenImages(imgs); writeGenCache(imgs); setGenLoaded(true); } })
+      .catch(() => { if (alive) setGenLoaded(true); }); // keep the cached list on a failed refresh
     return () => { alive = false; };
   }, []);
 
   const removeGenerated = async (key) => {
-    setGenImages((list) => list.filter((g) => g.key !== key)); // optimistic
+    setGenImages((list) => { const next = list.filter((g) => g.key !== key); writeGenCache(next); return next; }); // optimistic
     try { await deleteGeneratedImage(key); } catch { /* the next load reconciles */ }
   };
 

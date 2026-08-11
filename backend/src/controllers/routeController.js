@@ -99,14 +99,30 @@ async function logPlanInstagramSource(userId, profile, trigger = 'generate') {
 
 /**
  * Mondays still left to plan this calendar month, starting from this week's
- * Monday. Count scales with how far through the month we are:
- *   days 1–7 → 4 weeks · 8–14 → 3 · 15–21 → 2 · 22+ → 1
+ * Monday. A week belongs to the month of its Monday, so we take THIS week's
+ * Monday plus every later Monday that still falls in `from`'s month — capped at
+ * MAX_WEEKS_PER_MONTH. This always reaches the last week of the month (the old
+ * `5 - weekOfMonth` heuristic trimmed weeks off the END, so mid-month runs
+ * silently dropped the final week).
  */
 function remainingWeekStarts(from = new Date()) {
   const start = mondayOf(from);
-  const weekOfMonth = Math.ceil(from.getDate() / 7); // 1..5
-  const count = Math.max(1, Math.min(MAX_WEEKS_PER_MONTH, 5 - weekOfMonth));
-  return Array.from({ length: count }, (_, i) => addDays(start, 7 * i));
+  const month = from.getMonth();
+  const year = from.getFullYear();
+  const starts = [];
+  let d = new Date(start);
+  while (starts.length < MAX_WEEKS_PER_MONTH) {
+    // Always include the current week (its Monday can sit in the previous month
+    // early in the month); after that, only Mondays still inside this month.
+    const inThisMonth = d.getMonth() === month && d.getFullYear() === year;
+    if (starts.length === 0 || inThisMonth) {
+      starts.push(new Date(d));
+      d = addDays(d, 7);
+    } else {
+      break;
+    }
+  }
+  return starts;
 }
 
 /** First Monday of the next calendar month after `from`. */
