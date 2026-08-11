@@ -12,6 +12,7 @@ const analysisRoutes = require('./routes/analysisRoutes');
 const metaRoutes = require('./routes/metaRoutes');
 const imageRoutes = require('./routes/imageRoutes');
 const visualBrandRoutes = require('./routes/visualBrandRoutes');
+const mediaRoutes = require('./routes/mediaRoutes');
 const { notFound, errorHandler } = require('./middleware/errorHandler');
 
 const app = express();
@@ -32,6 +33,7 @@ app.use('/api/analysis', analysisRoutes);
 app.use('/api/meta', metaRoutes);
 app.use('/api/images', imageRoutes);
 app.use('/api/visual-brand', visualBrandRoutes);
+app.use('/api/media', mediaRoutes);
 
 app.use(notFound);
 app.use(errorHandler);

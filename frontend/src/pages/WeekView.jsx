@@ -13,8 +13,10 @@ import YourAnalysisModal from '../components/YourAnalysisModal';
 import ConnectMetaModal from '../components/ConnectMetaModal';
 import { markDayPublished, updateDayContent, replanWeek } from '../api/routes';
 import { getMetaStatus, publishDayToMeta } from '../api/meta';
+import { mediaProxyUrl } from '../api/media';
 import { createImage, listGeneratedImages } from '../api/images';
 import { useProjects, uploadFiles } from '../lib/projectsStore';
+import { toSvg } from 'html-to-image';
 import { CaptureChat } from './Projects';
 import { styleOf, rolesOf, groundOf } from '../lib/visualbrand';
 import { LAYOUTS as LIB_LAYOUTS, CATEGORIES, catForRole, shotsOf } from '../data/layouts';
@@ -696,6 +698,60 @@ function fillLayout(layout, slide, contentType) {
   return { ...layout, art };
 }
 
+// Rasterise one composed slide node to a JPEG blob at its rendered size.
+//
+// html-to-image's own toBlob/toCanvas rasterise by loading the serialised SVG
+// into an <img> and drawing it to a canvas, and that image-load step can hang
+// indefinitely in some engines (WebKit especially) — which would freeze the
+// Publish button forever. So we use html-to-image only for the reliable part
+// (serialising the DOM + inlining computed styles, fonts and images into an SVG
+// data URL via toSvg) and do the raster ourselves with a plain onload handler
+// and an explicit timeout. Instagram feed images must be JPEG, so we encode
+// JPEG on a white ground (the composition is opaque, so nothing shows through).
+//
+// Font embedding is OFF (`skipFonts`): the brand fonts are served from
+// cross-origin CDNs (Fontshare, Google Fonts) whose stylesheets the browser
+// won't let us read (`cssRules` SecurityError / CORS), so html-to-image can't
+// inline them anyway — and attempting it only throws console errors. Every
+// font stack in the compositions ends in `system-ui, sans-serif`, so the export
+// falls back to a clean system sans-serif rather than a serif default.
+function rasterizeSlide(node, { timeoutMs = 20000 } = {}) {
+  const w = node.offsetWidth;
+  const h = node.offsetHeight;
+  if (!w || !h) return Promise.reject(new Error('Slide has no size to render.'));
+  return toSvg(node, { cacheBust: true, skipFonts: true }).then(
+    (dataUrl) =>
+      new Promise((resolve, reject) => {
+        const img = new Image();
+        const timer = setTimeout(() => reject(new Error('Rendering the slide timed out.')), timeoutMs);
+        img.onload = () => {
+          clearTimeout(timer);
+          try {
+            const canvas = document.createElement('canvas');
+            canvas.width = w;
+            canvas.height = h;
+            const ctx = canvas.getContext('2d');
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(0, 0, w, h);
+            ctx.drawImage(img, 0, 0, w, h);
+            canvas.toBlob(
+              (blob) => (blob ? resolve(blob) : reject(new Error('Could not encode the slide image.'))),
+              'image/jpeg',
+              0.95
+            );
+          } catch (err) {
+            reject(err);
+          }
+        };
+        img.onerror = () => {
+          clearTimeout(timer);
+          reject(new Error('Could not render the slide image.'));
+        };
+        img.src = dataUrl;
+      })
+  );
+}
+
 // The post preview IS the chosen Visual Library layout — LayoutArt's own
 // `Preview`, the same renderer the Image-tab cards and the Visual Library use.
 // The slide's photograph fills the composition's picture slots (mood on); with
@@ -748,6 +804,11 @@ export default function WeekView({ route: initialRoute, onBack }) {
   const [creating, setCreating] = useState(false);
   const fileRef = useRef(null);
   const textRef = useRef(null);
+  // Off-screen, full-resolution renders of each slide's composition — the whole
+  // layout (ground + words + photo), not the bare photo. Publishing rasterises
+  // these to PNGs so Instagram receives the actual designed post, not the raw
+  // project images. Indexed by slide position.
+  const exportRefs = useRef([]);
 
   useEffect(() => {
     getMetaStatus()
@@ -1001,19 +1062,45 @@ export default function WeekView({ route: initialRoute, onBack }) {
 
     setPublishing(true);
     try {
-      // Publish the images actually shown for the day — owned photos and the
-      // "standing-in" ones the app auto-filled (both are the user's project
-      // media, keyed by S3 key). The backend re-presigns each key server-side.
-      const imageKeys = slides.map((s) => s.assetKey || s.image?.key).filter(Boolean);
+      // Publish the composed post — the full layout for each slide (ground +
+      // on-screen words + photo), exactly as the preview shows it. Each slide's
+      // composition is rendered off-screen at Instagram resolution (1080×1350,
+      // 4:5) and rasterised to a JPEG; posting the bare project photos would drop
+      // all the text and layout. The rendered JPEGs are uploaded to the user's
+      // own media prefix, then the backend re-presigns each key server-side.
+      setPublishMsg('Rendering slides…');
+      const nodes = exportRefs.current.slice(0, slides.length).filter(Boolean);
+      if (!nodes.length) throw new Error('Nothing to render for this post yet.');
+      const blobs = [];
+      for (const node of nodes) {
+        // First pass primes html-to-image's image/font embedding; the second
+        // renders reliably once those resources are cached.
+        await rasterizeSlide(node).catch(() => null);
+        const blob = await rasterizeSlide(node);
+        if (blob) blobs.push(blob);
+      }
+      if (!blobs.length) throw new Error('Could not render the slides to publish.');
+
+      setPublishMsg('Uploading…');
+      const files = blobs.map((b, i) => new File([b], `slide-${i + 1}.jpg`, { type: 'image/jpeg' }));
+      const uploaded = await uploadFiles(files);
+      const imageKeys = uploaded.map((u) => u.key).filter(Boolean);
+      if (!imageKeys.length) throw new Error('Could not prepare the rendered slides for publishing.');
+
+      setPublishMsg('Posting to Instagram…');
       const result = await publishDayToMeta(route._id, selected, { imageKeys });
       if (result.route) setRoute(result.route);
       setPublishMsg(result.live ? 'Posted to Instagram' : (result.message || 'Published'));
     } catch (err) {
+      // Surface the real cause: server error body, thrown message, then a
+      // generic fallback. Log the raw error + any server payload so a failed
+      // publish can be diagnosed from the console.
+      console.error('[publish] failed:', err, err.response?.status, err.response?.data);
       if (err.response?.data?.code === 'META_NOT_CONNECTED') {
         setMetaStatus((s) => ({ ...s, connected: false }));
         setConnectOpen(true);
       } else {
-        setPublishMsg(err.response?.data?.message || 'Could not publish just now');
+        setPublishMsg(err.response?.data?.message || err.message || 'Could not publish just now');
       }
     } finally {
       setPublishing(false);
@@ -1340,6 +1427,44 @@ export default function WeekView({ route: initialRoute, onBack }) {
                 {publishMsg && <span className="wv-publish__msg">{publishMsg}</span>}
               </div>
             </article>
+
+            {/* Off-screen export stage — one full-resolution (1080px-wide, 4:5)
+                render of each slide's composition, the source for the PNGs sent
+                to Instagram on publish. Kept in the DOM (not display:none, which
+                collapses the container query and blanks the render) but pushed
+                far off-screen. Brand vars come from igVars, same as the live
+                preview, so colours and type match exactly. */}
+            <div
+              aria-hidden="true"
+              className="wv-ig"
+              style={{ ...igVars, position: 'fixed', left: '-100000px', top: 0, width: 1080, pointerEvents: 'none' }}
+            >
+              {slides.map((s, i) => {
+                // The renderer must FETCH each photo to inline it, so the export
+                // loads photos through the CORS-enabled media proxy rather than
+                // the CDN (which sends no CORS headers). The visible preview above
+                // keeps the CDN URL. Photos with no stored key (e.g. a just-picked
+                // local blob) are already same-origin, so leave them as-is.
+                const key = s.assetKey || s.image?.key;
+                const exportSlide = key && s.image
+                  ? { ...s, image: { ...s.image, url: mediaProxyUrl(key) } }
+                  : s;
+                return (
+                  <div
+                    key={i}
+                    ref={(el) => { exportRefs.current[i] = el; }}
+                    className="wv-ig__photo"
+                    style={{ width: 1080 }}
+                  >
+                    <SlideMedia
+                      slide={exportSlide}
+                      layout={slideThumbLayout(s)}
+                      contentType={day.contentType || day.format}
+                    />
+                  </div>
+                );
+              })}
+            </div>
 
             <div className="wv-detail">
               <div className="wv-tabs" role="tablist" aria-label="Post detail">
