@@ -13,7 +13,7 @@ import YourAnalysisModal from '../components/YourAnalysisModal';
 import ConnectMetaModal from '../components/ConnectMetaModal';
 import { markDayPublished, updateDayContent, replanWeek } from '../api/routes';
 import { getMetaStatus, publishDayToMeta } from '../api/meta';
-import { createImage } from '../api/images';
+import { createImage, listGeneratedImages } from '../api/images';
 import { useProjects, uploadFiles } from '../lib/projectsStore';
 import { CaptureChat } from './Projects';
 import { styleOf, rolesOf, groundOf } from '../lib/visualbrand';
@@ -59,25 +59,113 @@ function subjectOf(words) {
   if (wordCount < 2 || wordCount > 5) return '';
   return out.charAt(0).toLowerCase() + out.slice(1);
 }
-function seedsFor(words, role, projectName) {
-  const subject = subjectOf(words);
-  if (!subject) {
+// A topic phrase for the post, kept short — the plan's day title/direction, not
+// the whole caption.
+function shortTopic(topic) {
+  const t = String(topic || '').trim().replace(/[.!?…]+$/, '');
+  if (!t) return '';
+  const clip = t.split(/[—:;\n]/)[0].trim();
+  const w = clip.split(/\s+/);
+  return (w.length > 12 ? w.slice(0, 12).join(' ') : clip).toLowerCase();
+}
+
+// The account's Visual Mood, distilled to a short style note the renderer can
+// honour. There is no vision model here (see lib/refanalysis.js) — the only
+// things actually read off the mood board are each picture's light/dark ground
+// and its palette, so that is all we claim: the dominant lighting/feel, never a
+// guessed "vibe". Returns '' when the studio has set no mood images, so a blank
+// mood board simply adds nothing to the prompt.
+function moodOf(store) {
+  const refs = store?.visualRefs || [];
+  if (!refs.length) return '';
+  const analysis = store?.refAnalysis || {};
+  const grounds = refs.map((r) => analysis[r.id]?.ground).filter(Boolean);
+  const dark = grounds.filter((g) => g === 'dark').length;
+  const light = grounds.filter((g) => g === 'light').length;
+  const n = refs.length;
+  const board = `consistent with the studio's mood board of ${n} reference image${n === 1 ? '' : 's'}`;
+  if (!grounds.length) return board;
+  const tone =
+    dark > light
+      ? 'dark, moody, low-key natural lighting'
+      : 'bright, light and airy with soft natural lighting';
+  return `${tone}, ${board}`;
+}
+
+// Turn the REAL slide + strategy into a few image directions. Each is a short
+// LABEL — the one-liner the studio taps — paired with the full PROMPT that goes
+// to the renderer. The prompt is written from the post's own topic, this
+// slide's words and its role in the carousel, so the picture belongs to THIS
+// post instead of being one of four fixed phrases. Palette, type and Visual
+// Mood are added by the caller/back end, so they are not repeated here.
+function seedsFor({ words, subtitle, role, topic, contentType, projectName, basePrompt } = {}) {
+  const concept = String(words || '').trim().replace(/[.!?…]+$/, '');
+  const topicText = shortTopic(topic);
+  const subject =
+    subjectOf(words) || subjectOf(subtitle) || topicText || (projectName ? projectName.toLowerCase() : '');
+  const post = `${(contentType || 'social').toLowerCase()} post`;
+  const about = topicText ? ` about ${topicText}` : subject ? ` about ${subject}` : '';
+  const carrying = concept ? ` The slide reads "${concept}".` : '';
+  const room = subject || topicText || 'this post';
+
+  const photo = {
+    key: 'photo',
+    label: subject ? `A real-world photo of ${subject}` : 'A real-world photo for this post',
+    prompt:
+      `A photorealistic, editorial photograph showing ${room} in a real, believable setting. ` +
+      `One clear focal subject, natural light, shallow depth of field, and calm negative space where a short caption could sit. ` +
+      `It should read as a real moment for a ${post}${projectName ? ` for ${projectName}` : ''}, not a generic stock shot.${carrying}`,
+  };
+  const compare = {
+    key: 'compare',
+    label: subject ? `Right vs wrong: ${subject}` : 'A right-vs-wrong comparison',
+    prompt:
+      `A clean split-frame image contrasting the wrong way and the right way of ${room}. ` +
+      `Two balanced halves, clearly distinct through composition, colour and lighting alone (no text or labels), so the difference is obvious at a glance on a phone.${carrying}`,
+  };
+  const diagram = {
+    key: 'diagram',
+    label: `A simple diagram of ${subject || topicText || 'this idea'}`,
+    prompt:
+      `A simple, minimal explanatory illustration of ${room}. ` +
+      `Flat vector style, a few clean shapes and icons (no words or labels), lots of whitespace and no clutter — the kind of visual that makes one idea instantly clear.${carrying}`,
+  };
+  const cover = {
+    key: 'cover',
+    label: `A minimalist cover for this ${(contentType || 'post').toLowerCase()}`,
+    prompt:
+      `A minimalist, premium cover image for a ${post}${about}. ` +
+      `Lots of calm negative space, one quiet focal element, refined and aspirational. ` +
+      `Leave clear room at the top for a short headline${concept ? ` like "${concept}"` : ''}.`,
+  };
+
+  const byRole = {
+    Hook: [cover, photo, diagram],
+    Cover: [cover, photo, diagram],
+    Setup: [photo, diagram, compare],
+    Process: [diagram, compare, photo],
+    Result: [photo, compare, cover],
+    CTA: [cover, photo],
+  };
+  const list = byRole[role] || [photo, compare, diagram, cover];
+
+  // If the strategy wrote a rich base prompt for this slide, lead with it and
+  // mark it Recommended — it was built while planning the post, already carries
+  // the full context, and the studio only sees a one-liner while the whole base
+  // (plus brand + Visual Mood, added later) is what actually sends.
+  const base = String(basePrompt || '').trim();
+  if (base) {
     return [
-      'Design a minimalist cover',
-      'Create a background inspired by this project',
-      projectName
-        ? `Create a material-focused visual from ${projectName}`
-        : 'Create a material-focused visual',
+      {
+        key: 'base',
+        label: `This post's planned image${subject ? ` — ${subject}` : ''}`,
+        prompt: base,
+        recommended: true,
+      },
+      ...list,
     ];
   }
-  return [
-    `Show ${subject} in a real room`,
-    `Compare the right and wrong ${subject}`,
-    `Make a simple diagram of ${subject}`,
-    role === 'Hook' || role === 'Cover'
-      ? `Design a minimalist cover about ${subject}`
-      : `Illustrate ${subject} as an educational visual`,
-  ];
+  return list;
 }
 
 // ── The Create image conversation (bauhly-v3 YourWeek `CreateView`) ──
@@ -86,34 +174,61 @@ function seedsFor(words, role, projectName) {
 // studio's Visual Brand) goes to the backend, which renders it with Gemini
 // "nano banana" and stores it. On success `onCreated(key, url)` puts the image
 // on the slide, exactly like an upload.
-function CreateImageChat({ role, projectName, words, brand, onBack, onCreated }) {
+function CreateImageChat({ role, projectName, words, subtitle, topic, contentType, basePrompt, brand, onBack, onCreated }) {
   const [ask, setAsk] = useState('');
   const [thread, setThread] = useState([]);
   const [busy, setBusy] = useState(false);
+  const [debugOpen, setDebugOpen] = useState({}); // message index → show full prompt
 
-  async function send(text) {
-    const line = String(text || '').trim();
-    if (!line || busy) return;
+  const seeds = useMemo(
+    () => seedsFor({ words, subtitle, role, topic, contentType, projectName, basePrompt }),
+    [words, subtitle, role, topic, contentType, projectName, basePrompt],
+  );
+
+  // A free-typed ask is the studio's own words; we send them as written and only
+  // add a light one-line note of what post this is for, so a plain "a kitchen"
+  // still lands in this post's world. The seed buttons pass their full detailed
+  // prompt instead (see `label`/`prompt`), while the studio only sees the label.
+  function promptForTyped(line) {
+    const t = shortTopic(topic);
+    const ctx = [
+      contentType ? `${contentType} post` : '',
+      t ? `about ${t}` : '',
+      projectName ? `for ${projectName}` : '',
+    ]
+      .filter(Boolean)
+      .join(' ');
+    return ctx ? `${line}\n\n(For a ${ctx}.)` : line;
+  }
+
+  // `text` may be a plain string (typed ask) or a seed's detailed prompt. The
+  // second arg is what to show in the thread — the studio sees their own words
+  // or the seed's one-liner, never the long behind-the-scenes prompt.
+  async function send(text, shown) {
+    const prompt = String(text || '').trim();
+    if (!prompt || busy) return;
     setAsk('');
     setBusy(true);
     setThread((t) => [
       ...t,
-      { who: 'you', text: line },
+      { who: 'you', text: shown || prompt },
       { who: 'bauhly', pending: true, text: 'Working that up in your studio’s style…' },
     ]);
 
     try {
-      const { key, url } = await createImage({ prompt: line, brand });
+      const { key, url, finalPrompt, model, addedAt } = await createImage({ prompt, brand });
       setThread((t) => {
         const next = [...t];
         next[next.length - 1] = {
           who: 'bauhly',
           text: 'Here it is — made from your colours and type. Placing it on this slide.',
           image: url,
+          // the exact composed text the renderer saw (ask + brand + mood + tail)
+          debugPrompt: finalPrompt || prompt,
         };
         return next;
       });
-      onCreated?.(key, url);
+      onCreated?.(key, url, { prompt: finalPrompt || prompt, model, addedAt });
     } catch (err) {
       const message =
         err?.response?.data?.message ||
@@ -121,7 +236,15 @@ function CreateImageChat({ role, projectName, words, brand, onBack, onCreated })
         'That didn’t work. Try again in a moment.';
       setThread((t) => {
         const next = [...t];
-        next[next.length - 1] = { who: 'bauhly', text: 'I couldn’t make that one.', note: message };
+        next[next.length - 1] = {
+          who: 'bauhly',
+          text: 'I couldn’t make that one.',
+          note: message,
+          // no server response, so this is what the client SENT — the brand
+          // palette/type/mood tail is added server-side and so isn't shown here
+          debugPrompt: prompt,
+          debugPartial: true,
+        };
         return next;
       });
     } finally {
@@ -158,6 +281,29 @@ function CreateImageChat({ role, projectName, words, brand, onBack, onCreated })
                   <p className={m.pending ? 'wv-conv__pending' : undefined}>{m.text}</p>
                   {m.image && <img className="wv-conv__img" src={m.image} alt="" />}
                   {m.note && <p className="wv-conv__note">{m.note}</p>}
+                  {m.debugPrompt && (
+                    <div className="wv-conv__dbg">
+                      <button
+                        type="button"
+                        className="wv-conv__dbgbtn"
+                        aria-expanded={Boolean(debugOpen[i])}
+                        onClick={() => setDebugOpen((o) => ({ ...o, [i]: !o[i] }))}
+                      >
+                        <Glyph name="bug" size={12} strokeWidth={2} />
+                        {debugOpen[i] ? 'Hide prompt' : 'Debug: full prompt'}
+                      </button>
+                      {debugOpen[i] && (
+                        <>
+                          {m.debugPartial && (
+                            <p className="wv-conv__dbgnote">
+                              What was sent — brand palette, type &amp; Visual Mood are appended on the server.
+                            </p>
+                          )}
+                          <pre className="wv-conv__dbgpre">{m.debugPrompt}</pre>
+                        </>
+                      )}
+                    </div>
+                  )}
                 </div>
               </div>
             )
@@ -166,8 +312,18 @@ function CreateImageChat({ role, projectName, words, brand, onBack, onCreated })
 
         {thread.length === 0 && (
           <div className="wv-conv__seeds">
-            {seedsFor(words, role, projectName).map((t) => (
-              <button type="button" key={t} className="wv-conv__seed" disabled={busy} onClick={() => send(t)}>{t}</button>
+            {seeds.map((s) => (
+              <button
+                type="button"
+                key={s.key}
+                className={`wv-conv__seed${s.recommended ? ' is-recommended' : ''}`}
+                disabled={busy}
+                onClick={() => send(s.prompt, s.label)}
+                title={s.label}
+              >
+                <span className="wv-conv__seedtxt">{s.label}</span>
+                {s.recommended && <span className="wv-conv__seedtag">Recommended</span>}
+              </button>
             ))}
           </div>
         )}
@@ -182,14 +338,14 @@ function CreateImageChat({ role, projectName, words, brand, onBack, onCreated })
             aria-label="Describe the picture you want"
             onChange={(e) => setAsk(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(ask); }
+              if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(promptForTyped(ask.trim()), ask.trim()); }
             }}
           />
           <button
             type="button"
             className="wv-conv__send"
             disabled={!ask.trim() || busy}
-            onClick={() => send(ask)}
+            onClick={() => send(promptForTyped(ask.trim()), ask.trim())}
             aria-label="Send"
           >
             <Glyph name="arrow-up-right" size={16} strokeWidth={2.5} />
@@ -345,6 +501,9 @@ function deriveSlides(day) {
       // the supporting line, written while the plan is built (see the strategy
       // generator). Fills the layout's body slot instead of specimen copy.
       subtitle: s.subtitle || s.body || '',
+      // The context-rich base image prompt written while the plan was built.
+      // The brand palette/type and Visual Mood are layered on at generation.
+      imagePrompt: s.imagePrompt || '',
       assetKey: s.assetKey || '',
       layout: s.layout || '',
     }));
@@ -429,6 +588,10 @@ function slidesPayload(slides) {
   return slides.map((s) => ({
     role: s.role || '',
     title: s.title || '',
+    // Carry the plan-written copy and base image prompt through an edit so a
+    // layout/title/image change never wipes them (the server keeps both too).
+    subtitle: s.subtitle || '',
+    imagePrompt: s.imagePrompt || '',
     assetKey: s.assetKey || '',
     layout: s.layout || '',
   }));
@@ -581,6 +744,7 @@ export default function WeekView({ route: initialRoute, onBack }) {
   const [replanning, setReplanning] = useState(false);
   const [replanMsg, setReplanMsg] = useState('');
   const [localMedia, setLocalMedia] = useState({});
+  const [genImages, setGenImages] = useState([]); // the studio's generated-image library
   const [creating, setCreating] = useState(false);
   const fileRef = useRef(null);
   const textRef = useRef(null);
@@ -591,7 +755,35 @@ export default function WeekView({ route: initialRoute, onBack }) {
       .catch(() => setMetaStatus({ connected: false, configured: false }));
   }, []);
 
-  const allImages = useMemo(() => collectProjectImages(projects), [projects]);
+  // Load the persisted generated images so a slide that points at one still
+  // resolves after a tab switch / reload (they aren't project captures, so they
+  // don't come through `collectProjectImages`).
+  useEffect(() => {
+    let alive = true;
+    listGeneratedImages()
+      .then((imgs) => { if (alive) setGenImages(imgs); })
+      .catch(() => { /* leave empty — a fresh session simply has none yet */ });
+    return () => { alive = false; };
+  }, []);
+
+  const allImages = useMemo(() => {
+    const fromProjects = collectProjectImages(projects);
+    // Generated images join the same resolution pool, shaped like the rest, so
+    // `bindOwnedSlides` can bind a slide's assetKey to one after a reload.
+    const generated = genImages
+      .filter((g) => g.url)
+      .map((g) => ({
+        key: g.key,
+        url: g.url,
+        thumb: g.url,
+        projectName: 'Generated',
+        note: '',
+        analyzed: false,
+        keywords: String(g.prompt || '').toLowerCase(),
+        generated: true,
+      }));
+    return [...fromProjects, ...generated];
+  }, [projects, genImages]);
   // Palette + type set on the Visual Brand page, reflected in the post preview.
   const vbStore = useStore();
   const igVars = useMemo(() => brandStyleVars(vbStore), [vbStore]);
@@ -757,9 +949,16 @@ export default function WeekView({ route: initialRoute, onBack }) {
 
   // A freshly generated image — same path as an upload: give it an instant
   // local URL and persist its S3 key onto the slide, then leave the chat.
-  function onImageCreated(key, url) {
+  function onImageCreated(key, url, meta = {}) {
     if (!key) return;
     setLocalMedia((m) => ({ ...m, [key]: url }));
+    // Add it to the generated-image library in state too, so it resolves even
+    // after this pane remounts (the server already persisted it on create).
+    setGenImages((list) =>
+      list.some((g) => g.key === key)
+        ? list
+        : [{ key, url, prompt: meta.prompt || '', model: meta.model || '', addedAt: meta.addedAt || Date.now() }, ...list],
+    );
     patchActiveSlide({ assetKey: key });
     setCreating(false);
     setPickerOpen(false);
@@ -1175,11 +1374,16 @@ export default function WeekView({ route: initialRoute, onBack }) {
                       role={slideRoleName}
                       projectName={projects[0]?.name}
                       words={activeSlide?.title}
+                      subtitle={activeSlide?.subtitle}
+                      topic={day?.title || day?.direction}
+                      contentType={day?.contentType || day?.format}
+                      basePrompt={activeSlide?.imagePrompt}
                       brand={{
                         accent: igVars['--wv-accent'],
                         primary: igVars['--wv-primary'],
                         neutral: igVars['--wv-neutral'],
                         font: firstFont(vbStore?.brand?.fonts),
+                        mood: moodOf(vbStore),
                       }}
                       onBack={() => setCreating(false)}
                       onCreated={onImageCreated}

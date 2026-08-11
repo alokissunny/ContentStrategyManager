@@ -27,6 +27,13 @@ const daySchema = new mongoose.Schema(
             // words written with the plan, so a layout's body slot is never a
             // placeholder. Empty is fine — the slide is then title-only.
             subtitle: { type: String, default: '' },
+            // A rich, self-contained BASE image prompt for this slide, written
+            // while the plan is built so it already carries the post's topic,
+            // this slide's role and message, subject, setting and composition.
+            // The studio's live Visual Brand (palette, type) and Visual Mood are
+            // layered on at generation time (see WeekView CreateImageChat) — this
+            // is only the context-heavy base, never the brand/mood.
+            imagePrompt: { type: String, default: '' },
             assetKey: { type: String, default: '' },
             // Layout id from the Visual Brand layout system (e.g. a hook layout
             // 'H1'/'H2'/'H3'). Empty = the slide's default composition.

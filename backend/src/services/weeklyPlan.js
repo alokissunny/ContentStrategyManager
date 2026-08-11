@@ -325,7 +325,50 @@ const SLIDE_ROLES = {
   Post: ['Hook', 'CTA'],
 };
 
-function normalizeSlides(rawSlides, onScreenText, format, title, cta, validKeys = null, usedKeys = null) {
+// What each slide role wants the picture to DO — so the base prompt frames the
+// scene for that beat rather than describing the same thing five times.
+const ROLE_INTENT = {
+  Hook: 'a scroll-stopping, editorial cover image',
+  Cover: 'a scroll-stopping, editorial cover image',
+  Setup: 'an establishing scene that sets the context',
+  Beat: 'a single clear, in-the-moment scene',
+  Process: 'the work happening — a hands-on, in-progress scene',
+  Result: 'the finished result / outcome, shown with pride',
+  CTA: 'a calm, minimal closing frame',
+};
+
+// A rich, self-contained BASE image prompt for a slide, composed from the real
+// strategy context. Used as a fallback whenever the model didn't write its own
+// `imagePrompt` (it often omits it, e.g. for Reels), so EVERY slide ends up with
+// a context-heavy base the studio can generate from — the "recommended" pick in
+// WeekView. Deliberately free of palette/type/mood and of any in-image text;
+// those are layered on at generation time.
+function buildBaseImagePrompt(slide, ctx = {}) {
+  const clean = (v) => String(v || '').trim().replace(/[.!?…]+$/, '');
+  const role = String(slide.role || '').trim();
+  const line = clean(slide.title);
+  const sub = String(slide.subtitle || '').trim();
+  const type = String(ctx.contentType || ctx.format || 'social').trim();
+  // Prefer the day's `direction` (a real sentence) over its `title` (often just a
+  // category like "Launch Announcement"), then the slide's own line.
+  const topic = clean(ctx.direction) || clean(ctx.dayTitle) || line;
+  const intent = ROLE_INTENT[role] || 'a clear, editorial image';
+  // Drop "about <topic>" when the topic just echoes the content type, so it
+  // doesn't read "a Launch Announcement post about Launch Announcement".
+  const about = topic && topic.toLowerCase() !== type.toLowerCase() ? ` about ${topic}` : '';
+  return [
+    `Create ${intent} for a ${type} post${about}.`,
+    line ? `The moment on this slide: "${line}".` : '',
+    sub ? `Supporting idea: ${sub}.` : '',
+    'Show a real, concrete scene with one clear focal subject, natural light and depth of field — photorealistic and premium.',
+    'Compose with generous, uncluttered negative space where a short headline is added on top later.',
+    'Do not render any text, letters, numbers or labels in the image.',
+  ]
+    .filter(Boolean)
+    .join(' ');
+}
+
+function normalizeSlides(rawSlides, onScreenText, format, title, cta, validKeys = null, usedKeys = null, ctx = {}) {
   const roles = SLIDE_ROLES[format] || SLIDE_ROLES.Post;
   // Only keep an assetKey the model returns if it's a real project asset. The
   // model sometimes echoes a placeholder, a partial key, or a key from another
@@ -337,6 +380,7 @@ function normalizeSlides(rawSlides, onScreenText, format, title, cta, validKeys 
         role: String(s.role || '').trim(),
         title: String(s.title || '').trim(),
         subtitle: String(s.subtitle || '').trim(),
+        imagePrompt: String(s.imagePrompt || '').trim(),
         assetKey: keepKey(String(s.assetKey || '').trim()),
       })).filter((s) => s.title || s.role)
     : [];
@@ -375,10 +419,15 @@ function normalizeSlides(rawSlides, onScreenText, format, title, cta, validKeys 
       if (seen.has(assetKey)) assetKey = '';
       else seen.add(assetKey);
     }
+    const role = s.role || roles[Math.min(i, roles.length - 1)];
+    const withRole = { ...s, role };
     return {
-      role: s.role || roles[Math.min(i, roles.length - 1)],
+      role,
       title: s.title || '',
       subtitle: s.subtitle || '',
+      // Always end up with a base prompt: the model's own when it wrote one,
+      // otherwise a context-rich one synthesised from this slide + the day.
+      imagePrompt: s.imagePrompt || buildBaseImagePrompt(withRole, { ...ctx, dayTitle: title, format }),
       assetKey,
     };
   });
@@ -565,7 +614,10 @@ async function generateWeeklyPlan(profile, brandDna, competitorInsights = null, 
     date.setDate(monday.getDate() + i);
     const c = d.content || {};
     const format = ['Reel', 'Carousel', 'Post', 'Story'].includes(d.format) ? d.format : 'Post';
-    const slides = normalizeSlides(c.slides, c.onScreenText, format, d.title, c.cta, validKeys, usedAssetKeys);
+    const slides = normalizeSlides(c.slides, c.onScreenText, format, d.title, c.cta, validKeys, usedAssetKeys, {
+      direction: d.direction || '',
+      contentType: d.contentType || '',
+    });
     const onScreenText = Array.isArray(c.onScreenText) && c.onScreenText.length
       ? c.onScreenText
       : slides.map((s) => s.title).filter(Boolean);

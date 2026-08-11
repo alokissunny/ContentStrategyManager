@@ -35,6 +35,25 @@ const userSchema = new mongoose.Schema(
         default: [],
       },
     },
+    // Pictures the studio generated in WeekView's "Create image" flow. The DB keeps
+    // only the S3 object key (bytes live in S3, handed back as short-lived
+    // presigned URLs) plus the prompt/model for reference. Tagged with the
+    // Instagram `handle` it was made under, so — like mood images and plans — the
+    // "Generated" asset folder switches with the account in the header. Persisting
+    // these is what lets a generated image survive a tab switch / reload (its
+    // slide's assetKey resolves against this list, not just session state).
+    generatedImages: {
+      type: [
+        {
+          key: { type: String, required: true },
+          prompt: { type: String, default: '' },
+          model: { type: String, default: '' },
+          handle: { type: String, trim: true, lowercase: true, default: '' },
+          addedAt: { type: Number, default: () => Date.now() },
+        },
+      ],
+      default: [],
+    },
   },
   { timestamps: true }
 );

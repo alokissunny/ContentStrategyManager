@@ -7,5 +7,16 @@ import client from './client';
 export function createImage({ prompt, brand } = {}) {
   return client
     .post('/images/create', { prompt, brand })
-    .then((r) => r.data); // { key, url, mimeType, model }
+    .then((r) => r.data); // { key, url, mimeType, model, finalPrompt }
+}
+
+// The studio's generated-image library (the "Generated" asset folder). Scoped
+// to the active Instagram handle on the server. Each item: { key, prompt,
+// model, addedAt, url } — url is a short-lived presigned read URL.
+export function listGeneratedImages() {
+  return client.get('/images/generated').then((r) => r.data.images || []);
+}
+
+export function deleteGeneratedImage(key) {
+  return client.delete(`/images/generated/${encodeURIComponent(key)}`).then((r) => r.data.key);
 }

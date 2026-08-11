@@ -605,12 +605,22 @@ async function markDayPublished(req, res) {
     const incoming = req.body.content;
     const cur = day.content || {};
     if (Array.isArray(incoming.slides)) {
-      cur.slides = incoming.slides.map((s) => ({
-        role: String(s.role || ''),
-        title: String(s.title || ''),
-        assetKey: String(s.assetKey || ''),
-        layout: String(s.layout || ''),
-      }));
+      // Preserve the plan-written supporting line and the context-rich base
+      // image prompt across edits — a layout/title/image change must not wipe
+      // them. Fall back to the existing slide at the same position when the
+      // client omits either field.
+      const prevSlides = Array.isArray(cur.slides) ? cur.slides : [];
+      cur.slides = incoming.slides.map((s, i) => {
+        const prev = prevSlides[i] || {};
+        return {
+          role: String(s.role || ''),
+          title: String(s.title || ''),
+          subtitle: String(s.subtitle ?? prev.subtitle ?? ''),
+          imagePrompt: String(s.imagePrompt ?? prev.imagePrompt ?? ''),
+          assetKey: String(s.assetKey || ''),
+          layout: String(s.layout || ''),
+        };
+      });
       cur.onScreenText = cur.slides.map((s) => s.title).filter(Boolean);
     }
     if (incoming.caption !== undefined) cur.caption = String(incoming.caption);

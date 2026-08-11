@@ -23,6 +23,7 @@ import {
   analyzeProjectAssets, analyzeAsset,
   coverOf, groupByWeek, fmtWhen, uploadFiles,
 } from '../lib/projectsStore';
+import { listGeneratedImages, deleteGeneratedImage } from '../api/images';
 import './projects.css';
 import './yourweek.css'; /* the shared .empty brand-moment styles */
 import './checkin/checkin.css'; /* the conversation surface, shared with the check-in */
@@ -1153,6 +1154,89 @@ function ProjectDetail({ project, projects, onBack }) {
 }
 
 /* ── page ──────────────────────────────────────────────────────────────── */
+/* ── The "Generated" asset folder ──────────────────────────────────────────
+ * Images the studio made in WeekView's Create-image flow, kept server-side and
+ * account-scoped. Not a project (no notes/analysis) — a flat library the studio
+ * can revisit, reuse and prune. A full-page grid + lightbox, matching the
+ * project detail view's chrome. */
+function GeneratedFolderView({ images, loading, onBack, onDelete }) {
+  const [light, setLight] = useState(null); // index into images, or null
+  const current = light != null ? images[light] : null;
+
+  useEffect(() => {
+    if (current == null) return undefined;
+    const onKey = (e) => {
+      if (e.key === 'Escape') setLight(null);
+      if (e.key === 'ArrowLeft') setLight((i) => (i - 1 + images.length) % images.length);
+      if (e.key === 'ArrowRight') setLight((i) => (i + 1) % images.length);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [current, images.length]);
+
+  return (
+    <div className="pj">
+      <div className="pj-head">
+        <button className="btn btn--ghost btn--sm" onClick={onBack}>
+          <Icon name="arrow-left" size={15} strokeWidth={2.5} /> Projects
+        </button>
+        <h1 className="pj-head__title">Generated images</h1>
+      </div>
+
+      {!loading && images.length === 0 && (
+        <div className="empty">
+          <div className="empty__card">
+            <span className="empty__ico"><Icon name="sparkle" size={30} strokeWidth={1.7} /></span>
+            <h1 className="empty__title">Nothing generated yet</h1>
+            <p className="empty__sub">
+              Images you create with “Generate image” on a post are saved here for later.
+            </p>
+          </div>
+        </div>
+      )}
+
+      <div className="np__grid">
+        {images.map((g, i) => (
+          <div className="np__cell" key={g.key}>
+            <button className="np__cellopen" onClick={() => setLight(i)} aria-label={`Open generated image ${i + 1} of ${images.length}`}>
+              <span className="np__cellmedia">
+                <img src={g.url} alt="" loading="lazy" onError={(e) => { e.target.style.visibility = 'hidden'; }} />
+              </span>
+            </button>
+            <button
+              className="np__info is-err"
+              onClick={(e) => { e.stopPropagation(); onDelete(g.key); }}
+              aria-label="Delete generated image"
+              title="Delete"
+            >
+              <Icon name="trash" size={14} strokeWidth={2} />
+            </button>
+          </div>
+        ))}
+      </div>
+
+      {current && (
+        <div className="lb" role="dialog" aria-modal="true" aria-label="Media viewer">
+          <div className="lb__scrim" onClick={() => setLight(null)} />
+          <div className="lb__bar lb__bar--top">
+            <span className="lb__count">{light + 1} / {images.length}</span>
+            <button className="lb__close" onClick={() => setLight(null)} aria-label="Close"><Icon name="x" size={20} strokeWidth={2.25} /></button>
+          </div>
+          {images.length > 1 && (
+            <button className="lb__nav lb__nav--prev" onClick={() => setLight((i) => (i - 1 + images.length) % images.length)} aria-label="Previous"><Icon name="arrow-left" size={22} /></button>
+          )}
+          <figure className="lb__stage">
+            <img src={current.url} alt="" />
+          </figure>
+          {images.length > 1 && (
+            <button className="lb__nav lb__nav--next" onClick={() => setLight((i) => (i + 1) % images.length)} aria-label="Next"><Icon name="arrow-right" size={22} /></button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function Projects() {
   const projects = useProjects();
   const hydrated = useProjectsHydrated();
@@ -1160,10 +1244,36 @@ export default function Projects() {
   const [creating, setCreating] = useState(false);
   const [menuId, setMenuId] = useState(null);
   const [editId, setEditId] = useState(null);
+  const [genImages, setGenImages] = useState([]);
+  const [genLoaded, setGenLoaded] = useState(false);
+  const [showGen, setShowGen] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    listGeneratedImages()
+      .then((imgs) => { if (alive) { setGenImages(imgs); setGenLoaded(true); } })
+      .catch(() => { if (alive) setGenLoaded(true); });
+    return () => { alive = false; };
+  }, []);
+
+  const removeGenerated = async (key) => {
+    setGenImages((list) => list.filter((g) => g.key !== key)); // optimistic
+    try { await deleteGeneratedImage(key); } catch { /* the next load reconciles */ }
+  };
 
   const openProject = projects.find((p) => p.id === openId);
   if (openId && openProject) {
     return <ProjectDetail project={openProject} projects={projects} onBack={() => setOpenId(null)} />;
+  }
+  if (showGen) {
+    return (
+      <GeneratedFolderView
+        images={genImages}
+        loading={!genLoaded}
+        onBack={() => setShowGen(false)}
+        onDelete={removeGenerated}
+      />
+    );
   }
 
   return (
@@ -1193,6 +1303,23 @@ export default function Projects() {
       )}
 
       <div className="pj-list">
+        {genImages.length > 0 && (
+          <div className="pjcard pjcard--generated">
+            <button className="pjcard__open" onClick={() => setShowGen(true)}>
+              <span className="pjcard__cover">
+                {genImages[0]?.url
+                  ? <img src={genImages[0].url} alt="" onError={(e) => { e.target.style.display = 'none'; }} />
+                  : <span className="pjcard__art" aria-hidden="true" />}
+              </span>
+              <span className="pjcard__body">
+                <b className="pjcard__name"><Icon name="sparkle" size={14} strokeWidth={2} /> Generated</b>
+                <span className="pjcard__meta">
+                  <span className="pjcard__count">{genImages.length} {genImages.length === 1 ? 'image' : 'images'}</span>
+                </span>
+              </span>
+            </button>
+          </div>
+        )}
         {projects.map((p) => {
           const cover = coverOf(p);
           const n = (p.captures || []).length;
