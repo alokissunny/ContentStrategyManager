@@ -19,6 +19,18 @@ const { GoogleGenAI } = require('@google/genai');
 // "nano banana". Overridable so the GA id can be swapped without a code change.
 const DEFAULT_MODEL = process.env.GEMINI_IMAGE_MODEL || 'gemini-2.5-flash-image';
 
+// Optional output aspect ratio. OFF by default: the Gemini *Developer API*
+// (GEMINI_API_KEY path) does not accept `imageConfig.aspectRatio` for
+// gemini-2.5-flash-image — it stalls the request for minutes before the socket
+// is terminated (measured 2026-08-12), so sending it by default would tax every
+// render. It is not needed for the band guard anyway: the band came from the
+// prompt telling the model to leave empty negative space (fixed in
+// imageController GUARDRAILS), and the square output is cover-cropped into the
+// 4:5 frame by the layout. Set GEMINI_IMAGE_ASPECT (e.g. "4:5") to opt in — only
+// worthwhile on the Vertex path, where the field may be honoured; a value the
+// backend rejects still falls back to an unconstrained render (see below).
+const DEFAULT_ASPECT = process.env.GEMINI_IMAGE_ASPECT || '';
+
 let client;
 
 function usingVertex() {
@@ -83,19 +95,42 @@ function responseText(response) {
 /**
  * Generate a single image from a prompt.
  * @param {string} prompt fully-composed instruction (subject + brand style).
+ * @param {{ aspectRatio?: string }} [opts] optional output shape (e.g. "4:5").
+ *   Off unless set here or via GEMINI_IMAGE_ASPECT — see DEFAULT_ASPECT. A value
+ *   the backend rejects falls back to an unconstrained render, never a failure.
  * @returns {Promise<{ buffer: Buffer, mimeType: string, model: string }>}
  */
-async function generateImage(prompt) {
+async function generateImage(prompt, opts = {}) {
   const text = String(prompt || '').trim();
   if (!text) throw new Error('A prompt is required to generate an image.');
 
   const ai = getClient();
   const model = DEFAULT_MODEL;
+  const aspectRatio = opts.aspectRatio || DEFAULT_ASPECT;
 
-  const response = await ai.models.generateContent({
-    model,
-    contents: text,
-  });
+  // A hard request timeout is itself a guard rail: a render that stalls (e.g. an
+  // unsupported config that hangs the socket) fails fast instead of holding the
+  // studio's request open for minutes. Overridable; default 90s.
+  const timeout = Number(process.env.GEMINI_IMAGE_TIMEOUT_MS) || 90000;
+  const baseConfig = { httpOptions: { timeout } };
+
+  const request = { model, contents: text, config: baseConfig };
+  if (aspectRatio) request.config = { ...baseConfig, imageConfig: { aspectRatio } };
+
+  let response;
+  try {
+    response = await ai.models.generateContent(request);
+  } catch (err) {
+    // A model or SDK build that rejects the aspect-ratio config must not fail
+    // the whole render — retry once without it. The prompt-level band guard
+    // (imageController GUARDRAILS) still applies either way.
+    if (aspectRatio) {
+      console.warn('[image] aspect-ratio config rejected, retrying unconstrained:', err?.message || err);
+      response = await ai.models.generateContent({ model, contents: text, config: baseConfig });
+    } else {
+      throw err;
+    }
+  }
 
   const image = firstImagePart(response);
   if (!image) {

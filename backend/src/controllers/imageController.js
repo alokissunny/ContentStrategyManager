@@ -22,11 +22,22 @@ const MIME_EXT = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp'
 // (the prompts deliberately leave negative space for it), so a model that also
 // renders its own — usually garbled — lettering fights that. Kept as one place
 // so the guardrails can't drift between the seed, base and typed-ask paths.
+//
+// THE BAND GUARD (2026-08-12). The earlier "leave clean, uncluttered negative
+// space" line told the model to add empty space, which it rendered as a literal
+// flat-colour panel down one side — a vertical band the layout then draws copy
+// over. Negative space is now defined as part of the PHOTOGRAPHED SCENE (a wall,
+// a table, sky), never an empty panel, and full-bleed edge-to-edge framing is
+// required outright. Paired with an explicit output aspect ratio (see
+// geminiImage.generateImage) so the model composes for the portrait frame
+// instead of padding a square to fit it.
 const GUARDRAILS = [
   'Produce a single, polished social-media image with a cohesive brand identity.',
-  'Do NOT render any text, letters, words, numbers, captions, labels, watermarks, logos, or signatures anywhere in the image — the copy is added afterwards, so leave clean, uncluttered negative space for it.',
-  'Avoid distorted anatomy (extra or missing fingers/limbs), warped faces, and unreadable/melted geometry.',
-  'No collages, no split screens unless explicitly asked, no borders or frames, and nothing not-safe-for-work.',
+  'Do NOT render any text, letters, words, numbers, captions, labels, watermarks, logos, or signatures anywhere in the image — the copy is added afterwards.',
+  'Leave a calm, uncluttered area for that copy, but it MUST be part of the photographed scene (a plain wall, tabletop, sky or floor) — never a solid-colour block or empty panel.',
+  'Fill the ENTIRE frame edge to edge (full bleed). Do NOT add solid-colour bands, stripes, margins, borders, frames, panels, gutters, letterboxing or pillarboxing on any side; every edge of the image must be part of the scene.',
+  'One continuous scene only — no collages, no split screens, no side-by-side panels unless explicitly asked.',
+  'Avoid distorted anatomy (extra or missing fingers/limbs), warped faces, and unreadable/melted geometry, and nothing not-safe-for-work.',
 ].join(' ');
 
 // Compose the studio's plain-language request with its Visual Brand so the
