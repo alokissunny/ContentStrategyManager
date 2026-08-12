@@ -318,6 +318,15 @@
   line-height: 1.14;
   letter-spacing: -0.02em;
   text-wrap: balance;
+  /* On-slide words are the studio's own text and can be a long unbroken string.
+     Without this, that string's min-content width forces its flex/grid track
+     wider than its share — in a grid layout (e.g. `modular`) it starves the
+     other column to zero and the composition collapses. `anywhere` lets the word
+     break between characters, which also shrinks the min-content contribution,
+     so the tracks keep their intended sizes. `min-width:0` is the matching
+     escape for the item itself. */
+  min-width: 0;
+  overflow-wrap: anywhere;
   color: var(--a-fg);
 }
 .vl-w__h em { font-style: normal; color: var(--a-mark); }
@@ -327,6 +336,8 @@
   font-size: calc(3.8cqw * var(--vl-fit, 1));
   font-weight: var(--t-body-weight, 400);
   line-height: 1.45;
+  min-width: 0;
+  overflow-wrap: anywhere;
   color: var(--a-mute);
 }
 
@@ -784,7 +795,9 @@
 
 /* nine cells: pictures, one filled block, one of type */
 .vl-a--modular { display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: repeat(3, 1fr); gap: 1.6cqw; padding: 1.6cqw; }
-.vl-a--modular .vl-ph { min-height: 0; min-width: 0; }
+/* every cell — image, block AND the type cell — must be free to shrink to its
+   grid track, or one long word forces its column wide and starves the other */
+.vl-a--modular > * { min-height: 0; min-width: 0; overflow: hidden; }
 .vl-block { background: var(--a-deco); }
 .vl-a--modular .vl-w__h { display: grid; place-items: center; font-size: calc(5.4cqw * var(--vl-fit, 1)); text-align: center; }
 
