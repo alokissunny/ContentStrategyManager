@@ -562,6 +562,13 @@ function dayAssetStatus(slides, published) {
   return { label: 'Ready', kind: 'ready', icon: 'check' };
 }
 
+// The words fill the composition's headline slot, which is sized for a display
+// line — the renderer shrinks the type as the line grows (LayoutArt `fitScale`),
+// but a paragraph would still shrink past readable, so the input is capped. 180
+// characters is a headline and a supporting line, not an essay.
+const MAX_SLIDE_TEXT = 180;
+const capText = (t) => String(t || '').slice(0, MAX_SLIDE_TEXT);
+
 function rewriteText(current, kind, custom) {
   const text = String(current || '').trim();
   if (kind === 'sharpen') {
@@ -970,8 +977,9 @@ export default function WeekView({ route: initialRoute, onBack }) {
   }
 
   function applyText(nextTitle) {
-    setDraftText(nextTitle);
-    patchActiveSlide({ title: nextTitle });
+    const capped = capText(nextTitle);
+    setDraftText(capped);
+    patchActiveSlide({ title: capped });
     setEditing(false);
   }
 
@@ -1616,8 +1624,9 @@ export default function WeekView({ route: initialRoute, onBack }) {
                               ref={textRef}
                               className="wv-textcard__input"
                               rows={3}
+                              maxLength={MAX_SLIDE_TEXT}
                               value={draftText}
-                              onChange={(e) => setDraftText(e.target.value)}
+                              onChange={(e) => setDraftText(capText(e.target.value))}
                               onBlur={() => applyText(draftText)}
                               onKeyDown={(e) => {
                                 if (e.key === 'Enter' && !e.shiftKey) {
@@ -1636,6 +1645,13 @@ export default function WeekView({ route: initialRoute, onBack }) {
                             </button>
                           )}
                           <div className="wv-textcard__actions">
+                            {editing && (
+                              <span
+                                className={`wv-textcard__count${draftText.length >= MAX_SLIDE_TEXT ? ' is-max' : ''}`}
+                              >
+                                {draftText.length}/{MAX_SLIDE_TEXT}
+                              </span>
+                            )}
                             <button type="button" className="wv-iconbtn" aria-label="Edit text" onClick={() => setEditing(true)}>
                               <Glyph name="pencil" size={14} />
                             </button>

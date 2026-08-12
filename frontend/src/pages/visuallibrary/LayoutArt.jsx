@@ -163,11 +163,42 @@ function Words({ art = {}, className = '' }) {
   );
 }
 
+/* WORDS SHRINK AS THEY GROW (measured on the studio's own long lines). The type
+ * is sized in `cqw` for a specimen-length line, so a slide whose studio words run
+ * to a paragraph overflows the frame — which clips (`.vl-a { overflow:hidden }`),
+ * the layout lying about what it holds. The fit is a deterministic function of
+ * length, not a measured pass: font AREA scales with the square of font-size and
+ * text area grows about linearly with character count, so size ∝ 1/√length keeps
+ * a longer line inside the same box. It is floored so the type never vanishes —
+ * the character cap on the input is the backstop for the pathological case — and
+ * because it is pure arithmetic it produces the SAME result in the 232px rail
+ * thumbnail, the live preview and the 1080px export that publishing rasterises.
+ * Read as `--vl-fit` by every headline/body rule in `visuallibrary.css`. */
+function fitScale(art = {}) {
+  const len =
+    (art.head || '').length +
+    (art.accent || '').length +
+    (art.body || '').length +
+    (art.bodyB || '').length;
+  const BASE = 46; // characters that fit at full size before shrinking begins
+  if (len <= BASE) return 1;
+  return Math.max(0.46, Math.round(Math.sqrt(BASE / len) * 100) / 100);
+}
+
 /* ── the layout itself, drawn ──────────────────────────────────────────────
  * One shape per `kind`. They share the frame, the type ramp and the way words
  * sit on a photograph, so the set reads as one family rather than a folder of
- * exports. */
+ * exports. The fit multiplier is set on a `display:contents` wrapper so it
+ * inherits into every composition's word rules without touching each `case`. */
 export function Preview({ l, mood = true }) {
+  return (
+    <span style={{ display: 'contents', '--vl-fit': fitScale(l.art) }}>
+      {renderLayout(l, mood)}
+    </span>
+  );
+}
+
+function renderLayout(l, mood) {
   const a = l.art || {};
   const img = (i = 0, cls) => <Ph src={l.imgs[i]} on={mood} className={cls} />;
   const cls = `vl-a vl-a--${l.kind} vl-a--${l.tone}`;

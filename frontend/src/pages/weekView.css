@@ -1629,9 +1629,20 @@
 }
 .wv-textcard__actions {
   display: flex;
+  align-items: center;
   gap: 4px;
   flex-shrink: 0;
 }
+/* the character budget for on-slide words — the renderer shrinks the type to
+   fit, this caps it before it shrinks past readable */
+.wv-textcard__count {
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-quiet);
+  padding-right: 2px;
+  white-space: nowrap;
+}
+.wv-textcard__count.is-max { color: var(--danger, #c0392b); }
 .wv-iconbtn {
   width: 32px;
   height: 32px;

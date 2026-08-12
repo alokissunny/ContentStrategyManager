@@ -313,7 +313,7 @@
 .vl-w__h {
   display: block;
   font-family: var(--t-headline-face, var(--font-display, var(--font-ui)));
-  font-size: 7.4cqw;
+  font-size: calc(7.4cqw * var(--vl-fit, 1));
   font-weight: var(--t-headline-weight, 700);
   line-height: 1.14;
   letter-spacing: -0.02em;
@@ -324,7 +324,7 @@
 .vl-w__b {
   font-family: var(--font-ui);
   font-family: var(--t-body-face, var(--font-ui));
-  font-size: 3.8cqw;
+  font-size: calc(3.8cqw * var(--vl-fit, 1));
   font-weight: var(--t-body-weight, 400);
   line-height: 1.45;
   color: var(--a-mute);
@@ -371,13 +371,13 @@
   justify-content: center;
   padding: 10%;
 }
-.vl-a--statement .vl-w__h { font-size: 9.2cqw; }
-.vl-a--prose .vl-w__h { font-size: 6.6cqw; }
+.vl-a--statement .vl-w__h { font-size: calc(9.2cqw * var(--vl-fit, 1)); }
+.vl-a--prose .vl-w__h { font-size: calc(6.6cqw * var(--vl-fit, 1)); }
 .vl-a--prose .vl-w { gap: 3.2cqw; }
 
 /* the display line and its supporting line, with a rule between them */
 .vl-a--title-sub { justify-content: flex-end; gap: 2.6cqw; }
-.vl-a--title-sub .vl-w__h { font-size: 8cqw; }
+.vl-a--title-sub .vl-w__h { font-size: calc(8cqw * var(--vl-fit, 1)); }
 .vl-rule { display: block; width: 22%; height: 0.9cqw; background: var(--a-deco); margin: 1.6cqw 0; }
 
 /* a numeral, then the line, then the note */
@@ -390,7 +390,7 @@
   letter-spacing: -0.04em;
   color: var(--a-mark);
 }
-.vl-a--index .vl-w__h { margin-top: auto; font-size: 7cqw; }
+.vl-a--index .vl-w__h { margin-top: auto; font-size: calc(7cqw * var(--vl-fit, 1)); }
 
 /* one number doing the work */
 .vl-big {
@@ -406,7 +406,7 @@
 .vl-a--stat .vl-w__b { margin-top: 3cqw; }
 
 /* a line worth setting large */
-.vl-a--quote .vl-w__h { font-size: 7cqw; font-weight: 600; }
+.vl-a--quote .vl-w__h { font-size: calc(7cqw * var(--vl-fit, 1)); font-weight: 600; }
 .vl-mark {
   display: block;
   font-family: var(--font-display, var(--font-ui));
@@ -414,11 +414,11 @@
   line-height: 0.7;
   color: var(--a-deco);
 }
-.vl-a--quote .vl-w__b { margin-top: 3cqw; font-size: 3.4cqw; }
+.vl-a--quote .vl-w__b { margin-top: 3cqw; font-size: calc(3.4cqw * var(--vl-fit, 1)); }
 
 /* a point, then the steps under it */
 .vl-a--steps { flex-direction: column; justify-content: center; gap: 4cqw; padding: 9%; }
-.vl-a--steps .vl-w__h { font-size: 6.4cqw; }
+.vl-a--steps .vl-w__h { font-size: calc(6.4cqw * var(--vl-fit, 1)); }
 .vl-list { display: flex; flex-direction: column; gap: 2.6cqw; }
 .vl-list__row {
   display: grid;
@@ -472,32 +472,32 @@
 }
 .vl-bar .vl-w__h { color: var(--t-ground-fg); }
 .vl-bar .vl-w__b { color: var(--t-ground-mute); }
-.vl-bar .vl-w__h { font-size: 5.6cqw; }
-.vl-bar .vl-w__b { font-size: 3.4cqw; }
+.vl-bar .vl-w__h { font-size: calc(5.6cqw * var(--vl-fit, 1)); }
+.vl-bar .vl-w__b { font-size: calc(3.4cqw * var(--vl-fit, 1)); }
 
 /* the picture above, the words under it */
 .vl-a--hero { flex-direction: column; }
 .vl-a--hero .vl-ph { flex: 1 1 60%; min-height: 0; }
 .vl-a--hero .vl-w { flex: 0 0 auto; padding: 7% 7% 8%; }
-.vl-a--hero .vl-w__h { font-size: 6.2cqw; }
+.vl-a--hero .vl-w__h { font-size: calc(6.2cqw * var(--vl-fit, 1)); }
 
 /* half words, half picture — and its mirror */
 .vl-a--split { align-items: stretch; }
 .vl-a--split .vl-w { flex: 1 1 0; justify-content: center; padding: 9%; }
 .vl-a--split .vl-ph { flex: 0 0 46%; }
-.vl-a--split .vl-w__h { font-size: 6.4cqw; }
+.vl-a--split .vl-w__h { font-size: calc(6.4cqw * var(--vl-fit, 1)); }
 
 /* the plate, set inside the page with a margin all round */
 .vl-a--frame { flex-direction: column; padding: 8% 8% 7%; gap: 4cqw; }
 .vl-a--frame .vl-ph { flex: 1 1 auto; min-height: 0; }
 .vl-a--frame .vl-w { flex: 0 0 auto; }
-.vl-a--frame .vl-w__h { font-size: 5.6cqw; }
-.vl-a--frame .vl-w__b { font-size: 3.4cqw; }
+.vl-a--frame .vl-w__h { font-size: calc(5.6cqw * var(--vl-fit, 1)); }
+.vl-a--frame .vl-w__b { font-size: calc(3.4cqw * var(--vl-fit, 1)); }
 
 /* the picture runs off the right edge; the words stand in what is left */
 .vl-a--edge { align-items: center; }
 .vl-a--edge .vl-w { flex: 0 0 52%; padding: 0 5% 0 9%; }
-.vl-a--edge .vl-w__h { font-size: 6.8cqw; }
+.vl-a--edge .vl-w__h { font-size: calc(6.8cqw * var(--vl-fit, 1)); }
 /* the picture is centred on the frame's vertical axis (Leon, Aug 6): at a fixed
    `top` it sat high, and against a type block that is itself vertically centred
    the offset read as a slip rather than a placement */
@@ -560,7 +560,7 @@
 .vl-a--overlap .vl-ph.is-back { left: 8%; top: 9%; width: 52%; height: 40%; }
 .vl-a--overlap .vl-ph.is-front { right: 8%; top: 26%; width: 48%; height: 36%; }
 .vl-a--overlap .vl-w { position: relative; z-index: 1; }
-.vl-a--overlap .vl-w__h { font-size: 6cqw; }
+.vl-a--overlap .vl-w__h { font-size: calc(6cqw * var(--vl-fit, 1)); }
 
 /* a mark on the photograph, and the note it points at */
 .vl-pin {
@@ -577,7 +577,7 @@
   background: var(--t-ground-bg);
 }
 .vl-note .vl-w__eyebrow { color: var(--t-ground-eyebrow); }
-.vl-note .vl-w__b { font-size: 3.6cqw; color: var(--t-ground-fg); }
+.vl-note .vl-w__b { font-size: calc(3.6cqw * var(--vl-fit, 1)); color: var(--t-ground-fg); }
 
 /* the palette, under the room it came out of */
 .vl-a--swatches { flex-direction: column; padding: 8%; gap: 3.2cqw; }
@@ -593,8 +593,8 @@
     repeating-linear-gradient(135deg, transparent 0 7px, var(--a-hatch) 7px 14px),
     var(--a-hatch-bg);
 }
-.vl-a--swatches .vl-w__h { font-size: 5.4cqw; }
-.vl-a--swatches .vl-w__b { font-size: 3.2cqw; }
+.vl-a--swatches .vl-w__h { font-size: calc(5.4cqw * var(--vl-fit, 1)); }
+.vl-a--swatches .vl-w__b { font-size: calc(3.2cqw * var(--vl-fit, 1)); }
 
 /* ── the theme picker and the card's own menu ── */
 /* the theme picker was removed from this page (Leon, Aug 6) — the identity is
@@ -672,30 +672,30 @@
 
 /* the line at the centre of both axes, a caption pinned to the foot */
 .vl-a--centered { flex-direction: column; align-items: center; justify-content: center; padding: 11%; text-align: center; }
-.vl-a--centered .vl-w__h { font-size: 8.6cqw; }
-.vl-a--centered .vl-w__b { position: absolute; left: 11%; right: 11%; bottom: 7%; font-size: 3.4cqw; }
+.vl-a--centered .vl-w__h { font-size: calc(8.6cqw * var(--vl-fit, 1)); }
+.vl-a--centered .vl-w__b { position: absolute; left: 11%; right: 11%; bottom: 7%; font-size: calc(3.4cqw * var(--vl-fit, 1)); }
 
 /* title in one corner, copy in the opposite one — a diagonal read */
 .vl-a--corner { flex-direction: column; justify-content: space-between; padding: 9%; }
-.vl-a--corner .vl-w__h { font-size: 8cqw; max-width: 86%; }
+.vl-a--corner .vl-w__h { font-size: calc(8cqw * var(--vl-fit, 1)); max-width: 86%; }
 .vl-a--corner .vl-w__b { align-self: flex-end; width: 62%; text-align: right; }
 
 /* title left, supporting text against the opposite margin */
 .vl-a--split-type { flex-direction: column; justify-content: center; gap: 5cqw; padding: 9%; }
-.vl-a--split-type .vl-w__h { font-size: 8cqw; width: 78%; }
+.vl-a--split-type .vl-w__h { font-size: calc(8cqw * var(--vl-fit, 1)); width: 78%; }
 .vl-a--split-type .vl-w__b { align-self: flex-end; width: 56%; text-align: right; }
 
 /* the smallest type in the set, in the largest field */
 .vl-a--airy { flex-direction: column; justify-content: flex-end; padding: 10%; }
 .vl-a--airy .vl-w { gap: 1.6cqw; width: 74%; }
-.vl-a--airy .vl-w__b { font-size: 3.6cqw; }
+.vl-a--airy .vl-w__b { font-size: calc(3.6cqw * var(--vl-fit, 1)); }
 .vl-dot { position: absolute; top: 11%; left: 10%; width: 3.4cqw; height: 3.4cqw; border-radius: var(--r-full); background: var(--a-deco); }
 
 /* a title over two columns of body */
 .vl-a--columns { flex-direction: column; justify-content: center; gap: 2.4cqw; padding: 9%; }
-.vl-a--columns .vl-w__h { font-size: 6.4cqw; margin-bottom: 1cqw; }
+.vl-a--columns .vl-w__h { font-size: calc(6.4cqw * var(--vl-fit, 1)); margin-bottom: 1cqw; }
 .vl-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 4cqw; }
-.vl-cols .vl-w__b { font-size: 3.2cqw; }
+.vl-cols .vl-w__b { font-size: calc(3.2cqw * var(--vl-fit, 1)); }
 
 /* ── a panel inset on the ground, sitting on an accent block ──────────────
  *
@@ -732,24 +732,24 @@
   background: var(--t-ground-bg, #f4f2ee);
   box-shadow: inset 0 0 0 0.35cqw var(--a-hatch);
 }
-.vl-a--callout .vl-w__h { font-size: 6cqw; }
-.vl-a--callout .vl-w__b { font-size: 3.4cqw; }
+.vl-a--callout .vl-w__h { font-size: calc(6cqw * var(--vl-fit, 1)); }
+.vl-a--callout .vl-w__b { font-size: calc(3.4cqw * var(--vl-fit, 1)); }
 
 /* the quote, and a second voice beside it */
 .vl-a--quote-note { flex-direction: column; justify-content: center; padding: 9%; }
 .vl-a--quote-note .vl-mark { font-size: 13cqw; }
-.vl-a--quote-note .vl-w__h { font-size: 6.6cqw; font-weight: 600; width: 88%; }
-.vl-a--quote-note .vl-w__b { margin-top: 4cqw; padding-left: 5cqw; border-left: 0.5cqw solid var(--a-deco); font-size: 3.3cqw; width: 74%; align-self: flex-end; }
+.vl-a--quote-note .vl-w__h { font-size: calc(6.6cqw * var(--vl-fit, 1)); font-weight: 600; width: 88%; }
+.vl-a--quote-note .vl-w__b { margin-top: 4cqw; padding-left: 5cqw; border-left: 0.5cqw solid var(--a-deco); font-size: calc(3.3cqw * var(--vl-fit, 1)); width: 74%; align-self: flex-end; }
 
 /* the numeral hangs in the margin, the paragraph runs beside it */
 .vl-a--stat-copy { align-items: flex-start; gap: 4cqw; padding: 10% 9%; }
 .vl-a--stat-copy .vl-big { flex: 0 0 auto; font-size: 30cqw; line-height: 0.78; }
 .vl-a--stat-copy .vl-w { flex: 1 1 0; gap: 2cqw; padding-top: 3cqw; }
-.vl-a--stat-copy .vl-w__b { font-size: 3.3cqw; }
+.vl-a--stat-copy .vl-w__b { font-size: calc(3.3cqw * var(--vl-fit, 1)); }
 
 /* dated rows, joined by a line */
 .vl-a--timeline { flex-direction: column; justify-content: center; gap: 4cqw; padding: 9%; }
-.vl-a--timeline .vl-w__h { font-size: 6.4cqw; }
+.vl-a--timeline .vl-w__h { font-size: calc(6.4cqw * var(--vl-fit, 1)); }
 .vl-time { position: relative; display: flex; flex-direction: column; gap: 3.4cqw; padding-left: 5cqw; }
 .vl-time::before { content: ''; position: absolute; left: 1.5cqw; top: 1.6cqw; bottom: 1.6cqw; width: 0.4cqw; background: var(--a-deco); opacity: 0.5; }
 .vl-time__row { position: relative; font-family: var(--font-ui); font-size: 3.4cqw; color: var(--a-mute); }
@@ -764,10 +764,10 @@
 
 /* the magazine spread */
 .vl-a--magazine { flex-direction: column; gap: 3cqw; padding: 8%; }
-.vl-a--magazine .vl-w__h { font-size: 6.6cqw; }
+.vl-a--magazine .vl-w__h { font-size: calc(6.6cqw * var(--vl-fit, 1)); }
 .vl-mag { display: grid; grid-template-columns: 1.15fr 1fr; gap: 4cqw; flex: 1 1 auto; min-height: 0; }
 .vl-mag .vl-ph { min-height: 0; }
-.vl-mag .vl-w__b { font-size: 3.2cqw; }
+.vl-mag .vl-w__b { font-size: calc(3.2cqw * var(--vl-fit, 1)); }
 
 /* six pictures at mixed sizes — a board */
 .vl-a--moodboard { flex-direction: column; justify-content: flex-end; padding: 8%; }
@@ -780,13 +780,13 @@
 .vl-board .is-p4 { left: 37%; top: 27%; width: 34%; height: 24%; }
 .vl-board .is-p5 { left: 63%; top: 46%; width: 30%; height: 20%; }
 .vl-a--moodboard .vl-w { position: relative; z-index: 1; }
-.vl-a--moodboard .vl-w__h { font-size: 6cqw; }
+.vl-a--moodboard .vl-w__h { font-size: calc(6cqw * var(--vl-fit, 1)); }
 
 /* nine cells: pictures, one filled block, one of type */
 .vl-a--modular { display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: repeat(3, 1fr); gap: 1.6cqw; padding: 1.6cqw; }
 .vl-a--modular .vl-ph { min-height: 0; min-width: 0; }
 .vl-block { background: var(--a-deco); }
-.vl-a--modular .vl-w__h { display: grid; place-items: center; font-size: 5.4cqw; text-align: center; }
+.vl-a--modular .vl-w__h { display: grid; place-items: center; font-size: calc(5.4cqw * var(--vl-fit, 1)); text-align: center; }
 
 /* OFF BALANCE, THIRD ATTEMPT — and the last (Leon, Aug 6).
  *
@@ -814,15 +814,15 @@
   gap: 2.6cqw;
   text-align: center;
 }
-.vl-a--asym .vl-w__h { font-size: 7cqw; }
-.vl-a--asym .vl-w__b { font-size: 3.4cqw; }
+.vl-a--asym .vl-w__h { font-size: calc(7cqw * var(--vl-fit, 1)); }
+.vl-a--asym .vl-w__b { font-size: calc(3.4cqw * var(--vl-fit, 1)); }
 
 /* three pictures in a band, type above and below */
 .vl-a--strip { flex-direction: column; justify-content: center; gap: 4cqw; padding: 9% 8%; }
-.vl-a--strip .vl-w__h { font-size: 6cqw; }
+.vl-a--strip .vl-w__h { font-size: calc(6cqw * var(--vl-fit, 1)); }
 .vl-band { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1.6cqw; height: 30cqw; }
 .vl-band .vl-ph { min-width: 0; }
-.vl-a--strip .vl-w__b { font-size: 3.2cqw; }
+.vl-a--strip .vl-w__b { font-size: calc(3.2cqw * var(--vl-fit, 1)); }
 
 /* the picture is the slide; the words are a footnote on it */
 .vl-foot-note {
@@ -852,8 +852,8 @@
  * the words. */
 .vl-a--text-first { flex-direction: column; justify-content: space-between; padding: 0; }
 .vl-a--text-first .vl-w { gap: 2.4cqw; padding: 9% 9% 0; }
-.vl-a--text-first .vl-w__h { font-size: 7.4cqw; }
-.vl-a--text-first .vl-w__b { font-size: 3.6cqw; }
+.vl-a--text-first .vl-w__h { font-size: calc(7.4cqw * var(--vl-fit, 1)); }
+.vl-a--text-first .vl-w__b { font-size: calc(3.6cqw * var(--vl-fit, 1)); }
 .vl-a--text-first .vl-ph { width: 100%; height: 38cqw; flex-shrink: 0; }
 
 /* several marks, and the legend that names them */
@@ -908,7 +908,7 @@
 .vl-stack__card.is-c0 { left: 0; top: 8%; }
 .vl-stack__card.is-c1 { left: 26%; top: 0; }
 .vl-stack__card.is-c2 { left: 52%; top: 14%; }
-.vl-a--material-stack .vl-w__h { position: relative; z-index: 1; font-size: 6cqw; }
+.vl-a--material-stack .vl-w__h { position: relative; z-index: 1; font-size: calc(6cqw * var(--vl-fit, 1)); }
 
 /* ── a process shown rather than listed ───────────────────────────────────
  *
@@ -923,7 +923,7 @@
  * sequence is read rather than inferred. The headline gives up a little size to
  * pay for it — it is the one thing on this layout that was never the problem. */
 .vl-a--step-photo { flex-direction: column; justify-content: center; gap: 4cqw; padding: 8% 7%; }
-.vl-a--step-photo .vl-w__h { font-size: 5.4cqw; }
+.vl-a--step-photo .vl-w__h { font-size: calc(5.4cqw * var(--vl-fit, 1)); }
 .vl-steps { display: flex; flex-direction: column; gap: 3.2cqw; }
 .vl-steps__row { display: grid; grid-template-columns: 24cqw 1fr; align-items: center; gap: 4cqw; }
 .vl-steps__row .vl-ph { height: 19cqw; border-radius: 1.2cqw; }
@@ -950,12 +950,12 @@
  * second level) or `title-sub` (an eyebrow, a rule, and a subtitle of the same
  * measure as its title). */
 .vl-a--hook-sub { flex-direction: column; justify-content: flex-end; gap: 4cqw; padding: 10% 9% 11%; }
-.vl-a--hook-sub .vl-w__h { font-size: 9cqw; }
-.vl-a--hook-sub .vl-w__b { font-size: 3.6cqw; width: 88%; }
+.vl-a--hook-sub .vl-w__h { font-size: calc(9cqw * var(--vl-fit, 1)); }
+.vl-a--hook-sub .vl-w__b { font-size: calc(3.6cqw * var(--vl-fit, 1)); width: 88%; }
 
 /* the horizon: type on the ground, picture filling the foot, subtitle on it */
 .vl-a--hook-band { flex-direction: column; justify-content: flex-start; padding: 0; }
-.vl-a--hook-band .vl-w__h { padding: 11% 9% 0; font-size: 8.6cqw; }
+.vl-a--hook-band .vl-w__h { padding: 11% 9% 0; font-size: calc(8.6cqw * var(--vl-fit, 1)); }
 .vl-bandwrap { position: relative; margin-top: auto; width: 100%; height: 38%; overflow: hidden; }
 .vl-a--hook-band .vl-wash { inset: 0; background: linear-gradient(180deg, transparent, var(--t-photo-wash)); }
 .vl-a--hook-band .vl-w__b {
