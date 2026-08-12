@@ -131,9 +131,55 @@ async function deleteMoodImage(req, res) {
   res.json({ key, removed: before - ((user.visualBrand && user.visualBrand.moodImages) || []).length });
 }
 
+// ── Library Settings (palette, type, layout toggles, palette readings) ──────
+// Persisted server-side, one blob per handle, so the same account sees the same
+// library on any origin. The blob is opaque to the server — it stores and scopes
+// what the client sends; the client owns the shape (see lib/store.js SYNC_KEYS).
+
+const MAX_SETTINGS_BYTES = 512 * 1024; // a guard against a runaway client blob
+
+// GET /visual-brand/settings → { settings: <data>|null, updatedAt }
+// Only the blob saved under the currently active handle.
+async function getSettings(req, res) {
+  const handle = await currentUsername(req.user._id);
+  if (!handle) return res.json({ settings: null, updatedAt: 0 });
+  const user = await User.findById(req.user._id).select('visualBrand.settings').lean();
+  const all = (user && user.visualBrand && user.visualBrand.settings) || [];
+  const mine = all.find((x) => (x.handle || '') === handle);
+  res.json({ settings: mine ? mine.data : null, updatedAt: mine ? mine.updatedAt || 0 : 0 });
+}
+
+// PUT /visual-brand/settings  Body: { data: {...} }
+// Upserts this handle's settings blob. Last write wins (per handle).
+async function saveSettings(req, res) {
+  const handle = await currentUsername(req.user._id);
+  if (!handle) return res.status(400).json({ message: 'Connect an Instagram account first' });
+  const data = req.body && typeof req.body.data === 'object' && req.body.data !== null ? req.body.data : {};
+  if (Buffer.byteLength(JSON.stringify(data)) > MAX_SETTINGS_BYTES) {
+    return res.status(413).json({ message: 'Settings blob too large' });
+  }
+  const user = await User.findById(req.user._id);
+  if (!user.visualBrand) user.visualBrand = {};
+  if (!Array.isArray(user.visualBrand.settings)) user.visualBrand.settings = [];
+  const now = Date.now();
+  const row = user.visualBrand.settings.find((x) => (x.handle || '') === handle);
+  if (row) {
+    row.data = data;
+    row.updatedAt = now;
+  } else {
+    user.visualBrand.settings.push({ handle, data, updatedAt: now });
+  }
+  // Mixed-typed subfields don't dirty-track on their own
+  user.markModified('visualBrand.settings');
+  await user.save();
+  res.json({ ok: true, updatedAt: now });
+}
+
 module.exports = {
   signMoodUploads,
   listMoodImages,
   addMoodImages,
   deleteMoodImage,
+  getSettings,
+  saveSettings,
 };

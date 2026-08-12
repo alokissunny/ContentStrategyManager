@@ -11,6 +11,7 @@
  */
 
 import { useSyncExternalStore } from 'react';
+import { getBrandSettings, saveBrandSettings } from '../api/visualBrand.js';
 
 // Base key for the (client-only) Visual Brand / Library state. The real store
 // is PER INSTAGRAM ACCOUNT: each handle keeps its own blob under
@@ -118,26 +119,111 @@ function persist() {
   }
 }
 
+/* ── server sync ────────────────────────────────────────────────────────────
+ * localStorage is per ORIGIN, so the same account saw different library
+ * settings on localhost and on prod, and a cleared cache lost them. These fields
+ * are mirrored to the backend (per handle) so the library follows the account,
+ * not the browser. Local-first: the store still initialises synchronously from
+ * localStorage, then hydrates over it from the server; edits push back debounced.
+ *
+ * Session-only fields are intentionally NOT synced: `visualRefs` / `addedLayouts`
+ * carry object-URL (`blob:`) pictures that are meaningless on another origin (the
+ * mood board is rebuilt from the S3 endpoint on load), and `projects` is seeded
+ * from local data every load. What remains is the durable, portable settings:
+ * the applied palette/type/fonts, which layouts are on, the per-picture palette
+ * readings (keyed by S3 key, so they line up anywhere), and the brand style. */
+const SYNC_KEYS = ['libraryEdits', 'layoutsOff', 'layoutsGone', 'refAnalysis', 'brandStyle', 'brand'];
+
+// Any `blob:` URL is origin-local; never send a dead reference to the server.
+function stripBlobUrls(value) {
+  if (Array.isArray(value)) return value.map(stripBlobUrls);
+  if (value && typeof value === 'object') {
+    const out = {};
+    for (const [k, v] of Object.entries(value)) {
+      out[k] = typeof v === 'string' && v.startsWith('blob:') ? null : stripBlobUrls(v);
+    }
+    return out;
+  }
+  return value;
+}
+
+function syncPayload(s) {
+  const out = {};
+  SYNC_KEYS.forEach((k) => { if (k in s) out[k] = stripBlobUrls(s[k]); });
+  return out;
+}
+
+let pushTimer = null;
+let lastPushedSig = null;
+
+// Pull this account's saved settings and merge them over the local state. The
+// server is authoritative for the synced fields on load; a switch/reload is the
+// only time this runs, so it never clobbers a mid-session edit. Guarded against a
+// handle switch landing mid-flight.
+async function hydrate(handle) {
+  const h = normHandle(handle);
+  if (!h) return;
+  let remote;
+  try {
+    remote = await getBrandSettings();
+  } catch {
+    return; /* offline or signed out — local-first stands */
+  }
+  if (!remote || typeof remote !== 'object') return;
+  if (normHandle(activeHandle) !== h) return; // account changed while we waited
+  const merged = { ...state };
+  SYNC_KEYS.forEach((k) => { if (k in remote) merged[k] = remote[k]; });
+  state = merged;
+  // don't echo the just-hydrated blob straight back to the server
+  lastPushedSig = JSON.stringify(syncPayload(state));
+  persist();
+  listeners.forEach((fn) => fn());
+}
+
+// Debounced write-back of the synced fields. Coalesces a burst of edits into one
+// request and skips a no-op (same blob as last pushed). No account → nothing to
+// scope to, so it holds until one is connected.
+function schedulePush() {
+  if (!activeHandle) return;
+  if (pushTimer) clearTimeout(pushTimer);
+  pushTimer = setTimeout(() => {
+    pushTimer = null;
+    const payload = syncPayload(state);
+    const sig = JSON.stringify(payload);
+    if (sig === lastPushedSig) return;
+    lastPushedSig = sig;
+    saveBrandSettings(payload).catch(() => { lastPushedSig = null; /* let the next edit retry */ });
+  }, 800);
+}
+
 // Point the store at a given Instagram handle's namespace and reload its state.
 // Called from the header account switcher: on every dashboard load (so the live
 // handle's data shows) and just before a switch reloads the page (so the new
 // account's namespace is already selected when the store re-initialises).
 export function syncHandle(handle) {
   const next = normHandle(handle);
-  if (!next || next === activeHandle) return;
-  activeHandle = next;
-  try {
-    localStorage.setItem(HANDLE_KEY, next);
-  } catch {
-    /* private mode etc. */
+  if (!next) return;
+  if (next !== activeHandle) {
+    activeHandle = next;
+    try {
+      localStorage.setItem(HANDLE_KEY, next);
+    } catch {
+      /* private mode etc. */
+    }
+    state = load(next);
+    lastPushedSig = null;
+    listeners.forEach((fn) => fn());
   }
-  state = load(next);
-  listeners.forEach((fn) => fn());
+  // Always pull the server's copy for this handle — even when the handle is
+  // unchanged (a fresh dashboard load re-selects the same account), so a setting
+  // saved on another origin shows up here.
+  hydrate(next);
 }
 
 export function setState(patch) {
   state = { ...state, ...patch };
   persist();
+  schedulePush();
   listeners.forEach((fn) => fn());
 }
 
@@ -154,3 +240,9 @@ export function useStore() {
     () => state,
   );
 }
+
+// Local-first: the store is already live from localStorage above; now pull the
+// server's copy for the remembered handle so a direct page load (not via the
+// account switcher) also picks up settings saved on another origin. A no-op when
+// signed out or no handle is remembered yet — the switcher hydrates then.
+if (activeHandle) hydrate(activeHandle);

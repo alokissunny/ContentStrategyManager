@@ -6,6 +6,8 @@ const {
   listMoodImages,
   addMoodImages,
   deleteMoodImage,
+  getSettings,
+  saveSettings,
 } = require('../controllers/visualBrandController');
 
 const router = express.Router();
@@ -17,5 +19,9 @@ router.post('/mood/sign', asyncHandler(signMoodUploads));
 router.get('/mood', asyncHandler(listMoodImages));
 router.post('/mood', asyncHandler(addMoodImages));
 router.delete('/mood/:key', asyncHandler(deleteMoodImage));
+
+// Library Settings (palette, type, layout toggles) — per-handle, synced blob
+router.get('/settings', asyncHandler(getSettings));
+router.put('/settings', asyncHandler(saveSettings));
 
 module.exports = router;

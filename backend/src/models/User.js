@@ -34,6 +34,24 @@ const userSchema = new mongoose.Schema(
         ],
         default: [],
       },
+      // The Library Settings the studio applies — palette, type/fonts, which
+      // layouts are on, and the palette readings from each mood image. These
+      // used to live only in the browser's localStorage, so the same account saw
+      // different settings on different origins (localhost vs prod) and nothing
+      // survived a cleared cache. Now they persist server-side, one blob per
+      // Instagram `handle` (same account-scoping as moodImages), so the library
+      // follows the account, not the browser. `data` is an opaque client blob
+      // (the store's synced fields); the server only scopes and stores it.
+      settings: {
+        type: [
+          {
+            handle: { type: String, trim: true, lowercase: true, default: '' },
+            data: { type: mongoose.Schema.Types.Mixed, default: {} },
+            updatedAt: { type: Number, default: () => Date.now() },
+          },
+        ],
+        default: [],
+      },
     },
     // Pictures the studio generated in WeekView's "Create image" flow. The DB keeps
     // only the S3 object key (bytes live in S3, handed back as short-lived

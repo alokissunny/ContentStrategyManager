@@ -39,3 +39,18 @@ export function listMoodImages() {
 export function deleteMoodImage(key) {
   return client.delete(`/visual-brand/mood/${encodeURIComponent(key)}`).then((r) => r.data);
 }
+
+// ── Library Settings (palette, type, layout toggles) ────────────────────────
+// One synced blob per Instagram account, so the library follows the account and
+// not the browser origin. The server scopes by the active handle from the
+// session; the client owns the blob's shape (see lib/store.js).
+
+// The saved settings blob for the active account, or null if none saved yet.
+export function getBrandSettings() {
+  return client.get('/visual-brand/settings').then((r) => r.data.settings ?? null);
+}
+
+// Upsert the active account's settings blob.
+export function saveBrandSettings(data) {
+  return client.put('/visual-brand/settings', { data }).then((r) => r.data);
+}
