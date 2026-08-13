@@ -787,14 +787,26 @@ export default function WeekView({ route: initialRoute, onBack }) {
   const [capturing, setCapturing] = useState(false);
   const [route, setRoute] = useState(initialRoute);
   const [selected, setSelected] = useState(0);
-  const [tab, setTab] = useState('Content & Visual');
   const [slideIdx, setSlideIdx] = useState(0);
-  const [detailOpen, setDetailOpen] = useState(false); // false = slides list (default)
-  const [mode, setMode] = useState('text'); // 'text' | 'image'
+  // The post is the interface (bauhly-v3 §652): the studio acts on the preview's
+  // own zones. `zone` is the one open editor — the picture ('visual') or the
+  // words ('caption') — and it is a single value, so the two can never both be
+  // open. `whyOpen` reveals the strategy beside the post.
+  const [zone, setZone] = useState(null); // 'visual' | 'caption' | null
+  const [whyOpen, setWhyOpen] = useState(false);
+  // Day-to-day slide transition (bauhly-v3 §730/§786): the arriving post's
+  // direction — 1 = came from the right (moving forward), -1 = from the left,
+  // 0 = at rest. The class comes off once the card has arrived.
+  const [enter, setEnter] = useState(0);
+  // When a day ARROW is pressed the arrows leave first (they sit where the cards
+  // are about to move), then the cards slide — see `goFromArrow` (bauhly-v3
+  // §725, ARROW_OUT). `navOut` fades them out and keeps them gone until the move
+  // has finished.
+  const [navOut, setNavOut] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false); // header ⋯ menu
   const [editing, setEditing] = useState(false);
   const [draftText, setDraftText] = useState('');
-  const [listDraft, setListDraft] = useState(null); // { i, text } inline list edit
-  const [menuIdx, setMenuIdx] = useState(null);
+  const [capDraft, setCapDraft] = useState(''); // caption editor draft
   const [ask, setAsk] = useState('');
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -891,37 +903,137 @@ export default function WeekView({ route: initialRoute, onBack }) {
   function selectDay(i) {
     setSelected(i);
     setSlideIdx(0);
-    setTab('Content & Visual');
-    setDetailOpen(false);
-    setMode('text');
+    setZone(null);
+    setWhyOpen(false);
     setPickerOpen(false);
-    setMenuIdx(null);
-    setListDraft(null);
+    setCreating(false);
   }
 
-  function closeDetail() {
-    setDetailOpen(false);
+  // Change day with the reference's slide transition: a ghost copy of the post
+  // slides out and fades while the real (new) post slides in and rises from the
+  // opposite side (bauhly-v3 §730/§736/§786). The ghost is a plain DOM clone,
+  // positioned where the original stands inside the clipping stage, and removed
+  // once its animation ends. The move is skipped — the day simply changes —
+  // when an editor or the strategy panel is open (their heights differ from the
+  // arriving card) or the studio has asked for no motion.
+  function animateToDay(nextIdx, dirIn) {
+    const next = Math.max(0, Math.min(days.length - 1, nextIdx));
+    if (next === selected) return;
+    const dir = dirIn || (next > selected ? 1 : -1);
+    const reduced = typeof window !== 'undefined' && window.matchMedia
+      ? window.matchMedia('(prefers-reduced-motion: reduce)').matches
+      : false;
+    const wrap = document.querySelector('.wv-postwrap');
+    // the ghost lives in the post-width clip box, so it is clipped at the post's
+    // own edges as it leaves — not left lingering in the page's wide margins
+    const host = wrap?.closest('.wv-postclip');
+    if (!wrap || !host || reduced || zone || whyOpen) { selectDay(next); return; }
+
+    const r = wrap.getBoundingClientRect();
+    const h = host.getBoundingClientRect();
+    const ghost = wrap.cloneNode(true);
+    // a copy taken mid-arrival must not carry the arrival's class or inline
+    // transform, or it would compose with the departure and fly twice as far
+    ghost.classList.remove('is-in-r', 'is-in-l');
+    ghost.style.translate = '';
+    ghost.style.scale = '';
+    ghost.classList.add('wv-postwrap--ghost', dir > 0 ? 'is-out-l' : 'is-out-r');
+    ghost.style.left = `${Math.round(r.left - h.left)}px`;
+    ghost.style.top = `${Math.round(r.top - h.top)}px`;
+    ghost.style.width = `${Math.round(r.width)}px`;
+    ghost.setAttribute('aria-hidden', 'true');
+    host.appendChild(ghost);
+    // removed after its LAST animation ends — movement 760ms, dissolve 700ms
+    window.setTimeout(() => { ghost.remove(); }, 920);
+
+    setEnter(dir);
+    selectDay(next);
+  }
+
+  // Pressed from an arrow that sits where the cards are about to move: the arrow
+  // leaves first (140ms fade), then after ARROW_OUT the cards slide, then the
+  // arrows come back once the move has stopped (bauhly-v3 §725). Day CARDS call
+  // animateToDay directly — nothing overlaps the motion there.
+  const ARROW_OUT = 160;
+  function goFromArrow(nextIdx, dir) {
+    if (navOut) return;
+    const reduced = typeof window !== 'undefined' && window.matchMedia
+      ? window.matchMedia('(prefers-reduced-motion: reduce)').matches
+      : false;
+    if (reduced || zone || whyOpen) { animateToDay(nextIdx, dir); return; }
+    setNavOut(true);
+    window.setTimeout(() => animateToDay(nextIdx, dir), ARROW_OUT);
+    window.setTimeout(() => setNavOut(false), ARROW_OUT + 840);
+  }
+  function prevDay() { if (selected > 0) goFromArrow(selected - 1, -1); }
+  function nextDay() { if (selected < days.length - 1) goFromArrow(selected + 1, 1); }
+
+  // The carousel's own arrows (the INNER pair, on the picture): step through the
+  // slides, and at the last slide the forward arrow leaves the post for the next
+  // day (bauhly-v3 §672/§692 — here as a click, where the reference took a
+  // second swipe). The OUTER pair (`.wv-daynav`) always moves the whole day.
+  function prevSlide() { if (safeIdx > 0) setSlideIdx(safeIdx - 1); }
+  function nextSlideOrDay() {
+    if (safeIdx < slides.length - 1) setSlideIdx(safeIdx + 1);
+    else if (selected < days.length - 1) nextDay();
+  }
+
+  // the arriving card's class comes off once it has arrived, so a card simply
+  // sitting there carries no animation state
+  useEffect(() => {
+    if (!enter) return undefined;
+    const t = window.setTimeout(() => setEnter(0), 820);
+    return () => window.clearTimeout(t);
+  }, [enter, selected]);
+
+  // Open one of the post's editors. Opening the picture closes the words, and
+  // vice-versa — a single value can only name one zone. Opening the caption
+  // seeds its draft from the day's current caption.
+  function openZone(next) {
+    setZone((cur) => {
+      const target = cur === next ? null : next;
+      if (target === 'caption') setCapDraft(day?.content?.caption || '');
+      if (target !== 'visual') { setEditing(false); setCreating(false); setPickerOpen(false); }
+      return target;
+    });
+  }
+
+  function closeZone() {
+    setZone(null);
     setEditing(false);
     setPickerOpen(false);
+    setCreating(false);
     setAsk('');
   }
 
   useEffect(() => {
-    if (!detailOpen) return undefined;
+    if (!zone) return undefined;
     function onKey(e) {
-      if (e.key === 'Escape') closeDetail();
+      if (e.key === 'Escape') closeZone();
     }
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [detailOpen]);
+  }, [zone]);
 
-  function openDetail(i, nextMode = 'text') {
-    setSlideIdx(i);
-    setMode(nextMode);
-    setDetailOpen(true);
-    setPickerOpen(false);
-    setMenuIdx(null);
-    setListDraft(null);
+  // Persist the caption for the open day — optimistic, then reconciled with the
+  // server's copy. Backend whitelists `content.caption` (routeController §642).
+  async function saveCaption(text) {
+    if (!route?._id) return;
+    const clean = String(text || '');
+    setRoute((prev) => {
+      const daysCopy = [...(prev.days || [])];
+      const d = { ...daysCopy[selected] };
+      d.content = { ...(d.content || {}), caption: clean };
+      daysCopy[selected] = d;
+      return { ...prev, days: daysCopy };
+    });
+    setZone(null);
+    setSaving(true);
+    try {
+      const updated = await updateDayContent(route._id, selected, { caption: clean });
+      setRoute(updated);
+    } catch { /* keep local until retry */ }
+    finally { setSaving(false); }
   }
 
   async function persistSlides(nextSlides) {
@@ -1153,12 +1265,6 @@ export default function WeekView({ route: initialRoute, onBack }) {
     }
   }
 
-  const formatMeta = day
-    ? `${day.contentType || 'Post'} | ${day.format}${
-        slides.length > 1 ? ` (${slides.length} slides)` : ''
-      }`
-    : '';
-
   const hasOwnImage = Boolean(activeSlide?.assetKey && !activeSlide?.standing && activeSlide?.image);
   const weekUsage = weekUsageOf(route);
 
@@ -1223,13 +1329,60 @@ export default function WeekView({ route: initialRoute, onBack }) {
 
   return (
     <div className="wv" style={libPaint}>
-      <div className="wv-topbar">
+      {/* ── the way back, and the plan's actions ─────────────────────────── */}
+      <div className="wv-top">
         <button type="button" className="wv-back" onClick={onBack}>
           <Glyph name="arrow-left" size={15} />Your plans
         </button>
-        <button type="button" className="wv-capture" onClick={() => setCapturing(true)}>
-          <Glyph name="plus" size={15} strokeWidth={2.5} />Capture idea
-        </button>
+        <div className="wv-top__actions">
+          <button type="button" className="wv-abtn" onClick={() => setAnalysisOpen(true)}>
+            <Glyph name="bar-chart-2" size={15} />Your analysis
+          </button>
+          <button type="button" className="wv-abtn" onClick={handleExport}>
+            <Glyph name="download" size={15} />Export
+          </button>
+          <div className="wv-more">
+            <button
+              type="button"
+              className="wv-abtn wv-abtn--icon"
+              aria-label="More actions"
+              aria-expanded={moreOpen}
+              onClick={() => setMoreOpen((v) => !v)}
+            >
+              <Glyph name="more-horizontal" size={18} />
+            </button>
+            {moreOpen && (
+              <>
+                <div className="wv-more__scrim" onClick={() => setMoreOpen(false)} />
+                <div className="wv-more__menu" role="menu">
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className="wv-more__item"
+                    onClick={() => { setMoreOpen(false); setCapturing(true); }}
+                  >
+                    <Glyph name="plus" size={15} />Capture idea
+                  </button>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className="wv-more__item"
+                    onClick={() => { setMoreOpen(false); handleReplanWeek(); }}
+                    disabled={replanning}
+                    title="Regenerate only this week from your Brand DNA, Capture Idea notes, content-pillar gap, project assets and competitor insights."
+                  >
+                    <Glyph name="refresh-cw" size={15} />{replanning ? 'Replanning…' : 'Replan this week'}
+                  </button>
+                  {weekUsage && (
+                    <p className="wv-more__usage">
+                      {fmtTokens(weekUsage.totalTokens)} tokens · ~{fmtCost(weekUsage.estimatedCostUsd)} est.
+                    </p>
+                  )}
+                </div>
+              </>
+            )}
+          </div>
+        </div>
       </div>
 
       {capturing && (
@@ -1241,44 +1394,18 @@ export default function WeekView({ route: initialRoute, onBack }) {
         />
       )}
 
+      {/* ── the plan's dates, and the week's focus ───────────────────────── */}
       <div className="wv-head">
-        <div className="wv-head__meta">
-          <h1 className="wv-head__title">{route.focus?.headline || 'Your week'}</h1>
-          <span className="wv-head__chip">
-            <Glyph name="calendar" size={14} />{route.weekLabel}
-          </span>
+        <h1 className="wv-head__title">{route.weekLabel || route.focus?.headline || 'Your week'}</h1>
+        <div className="wv-head__side">
           {saving && <span className="wv-head__chip">Saving…</span>}
           {replanning && <span className="wv-head__chip">Replanning this week…</span>}
-          {replanMsg && <span className="wv-head__chip" style={{ color: 'var(--negative)' }}>{replanMsg}</span>}
-        </div>
-        <div className="wv-actions">
-          <button type="button" className="wv-btn" onClick={() => setAnalysisOpen(true)}>
-            <Glyph name="bar-chart-2" size={15} />Your analysis
-          </button>
-          <button type="button" className="wv-btn" onClick={handleExport}>
-            <Glyph name="download" size={15} />Export
-          </button>
-          <div className="wv-replan">
-            <button
-              type="button"
-              className="wv-btn wv-btn--replan"
-              onClick={handleReplanWeek}
-              disabled={replanning}
-              title="Regenerate only this week from your Brand DNA, Capture Idea notes, content-pillar gap, project assets and competitor insights."
-            >
-              <Glyph name="refresh-cw" size={15} />{replanning ? 'Replanning…' : 'Replan this week'}
-            </button>
-            {weekUsage && (
-              <p
-                className="wv-replan__usage"
-                title={`Last plan for this week · ${weekUsage.inputTokens.toLocaleString()} in / ${weekUsage.outputTokens.toLocaleString()} out`}
-              >
-                <span>{fmtTokens(weekUsage.totalTokens)} tokens</span>
-                <span aria-hidden="true">·</span>
-                <span>~{fmtCost(weekUsage.estimatedCostUsd)} est.</span>
-              </p>
-            )}
-          </div>
+          {replanMsg && <span className="wv-head__chip is-warn">{replanMsg}</span>}
+          {route.focus?.headline && route.weekLabel && (
+            <span className="wv-wknav wv-wknav--plain">
+              <span className="wv-wknav__dates">{route.focus.headline}</span>
+            </span>
+          )}
         </div>
       </div>
 
@@ -1301,95 +1428,93 @@ export default function WeekView({ route: initialRoute, onBack }) {
         />
       )}
 
-      <div className="wv-rail">
-        {enrichedDays.map((d, i) => {
-          const active = i === selected;
-          const st = d.status;
-          return (
-            <button
-              key={`${d.day}-${i}`}
-              type="button"
-              className={`wv-day${active ? ' is-active' : ''}`}
-              onClick={() => selectDay(i)}
-            >
-              <div className="wv-day__top">
-                <span className="wv-day__label">
-                  {shortDay(d.day)} {String(d.dateLabel || '').replace(/^[A-Za-z]+\s/, '') || ''}
+      {/* ── the week, as a calendar: seven cards, lime for the one you are on
+           (bauhly-v3 §682) ─────────────────────────────────────────────── */}
+      <div className="wv-cal">
+        <div className="wv-cal__grid" role="tablist" aria-label="This week's posts">
+          {enrichedDays.map((d, i) => {
+            const active = i === selected;
+            const done = d.published;
+            return (
+              <button
+                key={`${d.day}-${i}`}
+                type="button"
+                role="tab"
+                aria-selected={active}
+                aria-current={active ? 'true' : undefined}
+                className={`wv-day${active ? ' is-on' : ''}${done ? ' is-ready' : ''}`}
+                onClick={() => animateToDay(i)}
+              >
+                <span className="wv-day__when">
+                  <b>{shortDay(d.day)}</b>
+                  <i>{String(d.dateLabel || '').replace(/^[A-Za-z]+\s*/, '')}</i>
                 </span>
-              </div>
-              <span className="wv-day__type">{d.contentType || d.format}</span>
-              <span className="wv-day__icon">
-                <Glyph name={FORMAT_ICON[d.format] || 'image'} size={16} />
-              </span>
-              <span className={`wv-day__status is-${st.kind}`}>
-                <Glyph name={st.icon} size={12} />
-                {st.label}
-              </span>
-            </button>
-          );
-        })}
+                <span className="wv-day__kind">
+                  <Glyph name={FORMAT_ICON[d.format] || 'image'} size={15} className="wv-day__glyph" />
+                  <span className="wv-day__word">{String(d.format || '').replace(/ series$/, '')}</span>
+                </span>
+                {done && (
+                  <span className="wv-day__ready is-done" aria-hidden="true">
+                    <Glyph name="check" size={13} strokeWidth={3} />
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </div>
       </div>
 
       {day && (
-        <>
-          <div className="wv-dayhead">
-            <h2 className="wv-dayhead__date">{dayDateLabel(day)}</h2>
-            <span className="wv-dayhead__meta">{formatMeta}</span>
-          </div>
-
-          <div className="wv-studio">
-            <div className="wv-slides" role="tablist" aria-label="Slides">
-              {slides.map((s, i) => (
-                <button
-                  key={`${s.role}-${i}`}
-                  type="button"
-                  role="tab"
-                  aria-selected={i === safeIdx}
-                  className={`wv-slide${i === safeIdx ? ' is-on' : ''}`}
-                  onClick={() => { setSlideIdx(i); setPickerOpen(false); }}
-                >
-                  <span className="wv-slide__thumb">
-                    <SlideMedia
-                      slide={s}
-                      layout={slideThumbLayout(s)}
-                      contentType={day.contentType || day.format}
-                    />
-                    <span className="wv-slide__num">{i + 1}</span>
-                    {s.role && <span className="wv-slide__role">{s.role}</span>}
-                  </span>
+        <div className={`wv-stage${enter ? ' is-moving' : ''}`}>
+          {/* ── the post is the interface: a true preview you act on in place
+               (bauhly-v3 §652). `.wv-postclip` is a box the WIDTH of the post that
+               clips horizontally during a move, so the sliding cards leave and
+               arrive off its edges instead of lingering in the page's margins.
+               `.wv-postwrap` is the unit the transition slides — see
+               `animateToDay`. The OUTER day arrows live inside it, tucked half
+               behind the post and anchored to the picture's centre (§710/§725) */}
+          <div className="wv-postclip">
+          <div className={`wv-postwrap${enter === 1 ? ' is-in-r' : ''}${enter === -1 ? ' is-in-l' : ''}`}>
+          <button
+            type="button"
+            className={`wv-daynav wv-daynav--prev${navOut ? ' is-out' : ''}`}
+            onClick={prevDay}
+            disabled={selected <= 0}
+            aria-label="Previous day"
+          >
+            <Glyph name="chevron-left" size={22} strokeWidth={2.5} />
+          </button>
+          <button
+            type="button"
+            className={`wv-daynav wv-daynav--next${navOut ? ' is-out' : ''}`}
+            onClick={nextDay}
+            disabled={selected >= days.length - 1}
+            aria-label="Next day"
+          >
+            <Glyph name="chevron-right" size={22} strokeWidth={2.5} />
+          </button>
+          <article className="wv-ig" style={igVars}>
+            <header className="wv-ig__head">
+              <span className="wv-ig__avatar">
+                {allImages[0]?.thumb
+                  ? <img src={allImages[0].thumb} alt="" />
+                  : <Glyph name="user" size={15} />}
+              </span>
+              <span className="wv-ig__user">{handle}</span>
+              {metaStatus.connected ? (
+                <span className="wv-ig__meta is-on">
+                  <Glyph name="check" size={12} />{metaStatus.igUsername ? `@${metaStatus.igUsername}` : 'Connected'}
+                </span>
+              ) : (
+                <button type="button" className="wv-ig__connect" onClick={() => setConnectOpen(true)}>
+                  <Glyph name="instagram" size={13} />Connect to Meta
                 </button>
-              ))}
-              <button type="button" className="wv-slide wv-slide--add" onClick={addSlide} aria-label="Add slide">
-                <span className="wv-slide__thumb wv-slide__thumb--add"><Glyph name="plus" size={18} /></span>
-                <span className="wv-slide__addlabel">Add slide</span>
-              </button>
-            </div>
+              )}
+            </header>
 
-            <article className="wv-ig" style={igVars}>
-              <header className="wv-ig__head">
-                <span className="wv-ig__avatar">
-                  {allImages[0]?.thumb
-                    ? <img src={allImages[0].thumb} alt="" />
-                    : <Glyph name="user" size={15} />}
-                </span>
-                <span className="wv-ig__user">{handle}</span>
-                <span className="wv-ig__format">
-                  <Glyph name={FORMAT_ICON[day.format] || 'image'} size={12} />{day.format}
-                </span>
-                {metaStatus.connected ? (
-                  <span className="wv-ig__meta is-on">
-                    <Glyph name="check" size={12} />{metaStatus.igUsername ? `@${metaStatus.igUsername}` : 'Connected'}
-                  </span>
-                ) : (
-                  <button type="button" className="wv-ig__connect" onClick={() => setConnectOpen(true)}>
-                    <Glyph name="instagram" size={13} />Connect to Meta
-                  </button>
-                )}
-              </header>
+            {/* the picture — its own zone, edited from the corner */}
+            <div className={`wv-ig__zone wv-ig__zone--visual${zone === 'visual' ? ' is-sel' : ''}`}>
               <div className="wv-ig__photo">
-                {/* the post preview composes through the layout chosen in the
-                    Image tab — for every slide, so the layout picker actually
-                    changes what the post looks like */}
                 <SlideMedia
                   slide={activeSlide}
                   layout={chosenLayout}
@@ -1398,381 +1523,411 @@ export default function WeekView({ route: initialRoute, onBack }) {
                 {slides.length > 1 && (
                   <span className="wv-ig__count">{safeIdx + 1}/{slides.length}</span>
                 )}
-                {slides.length > 1 && (
-                  <div className="wv-ig__dots" aria-hidden="true">
-                    {slides.map((_, i) => (
-                      <button
-                        key={i}
-                        type="button"
-                        className={`wv-ig__dot${i === safeIdx ? ' is-active' : ''}`}
-                        onClick={() => setSlideIdx(i)}
-                      />
-                    ))}
-                  </div>
-                )}
               </div>
-              <div className="wv-ig__caption">
-                <b>{handle}</b>{' '}
-                {(day.content?.caption || day.direction || '').slice(0, 220)}
-                {(day.content?.caption || '').length > 220 ? '…' : ''}
-              </div>
-              <div className="wv-ig__publish">
+              {/* the carousel's own arrows — step through slides; the last one
+                  hands the post over to the next day (see nextSlideOrDay) */}
+              {slides.length > 1 && safeIdx > 0 && (
                 <button
                   type="button"
-                  className={`wv-publish${day.published ? ' is-done' : ''}`}
-                  onClick={handlePublish}
-                  disabled={publishing}
+                  className="wv-igm__nav wv-igm__nav--l"
+                  onClick={(e) => { e.stopPropagation(); prevSlide(); }}
+                  aria-label="Previous slide"
                 >
-                  <Glyph name={day.published ? 'check-circle-2' : 'send'} size={15} />
-                  {publishing ? 'Publishing…' : day.published ? 'Published' : 'Publish'}
+                  <Glyph name="chevron-left" size={18} strokeWidth={2.5} />
                 </button>
-                {metaStatus.connected && metaStatus.igUsername && !day.published && (
-                  <span className="wv-publish__hint">to @{metaStatus.igUsername}</span>
-                )}
-                {!metaStatus.connected && !day.published && (
-                  <span className="wv-publish__hint">Connect Meta to post</span>
-                )}
-                {publishMsg && <span className="wv-publish__msg">{publishMsg}</span>}
-              </div>
-            </article>
-
-            {/* Off-screen export stage — one full-resolution (1080px-wide, 4:5)
-                render of each slide's composition, the source for the PNGs sent
-                to Instagram on publish. Kept in the DOM (not display:none, which
-                collapses the container query and blanks the render) but pushed
-                far off-screen. Brand vars come from igVars, same as the live
-                preview, so colours and type match exactly. */}
-            <div
-              aria-hidden="true"
-              className="wv-ig"
-              style={{ ...igVars, position: 'fixed', left: '-100000px', top: 0, width: 1080, pointerEvents: 'none' }}
-            >
-              {slides.map((s, i) => {
-                // The renderer must FETCH each photo to inline it, so the export
-                // loads photos through the CORS-enabled media proxy rather than
-                // the CDN (which sends no CORS headers). The visible preview above
-                // keeps the CDN URL. Photos with no stored key (e.g. a just-picked
-                // local blob) are already same-origin, so leave them as-is.
-                const key = s.assetKey || s.image?.key;
-                const exportSlide = key && s.image
-                  ? { ...s, image: { ...s.image, url: mediaProxyUrl(key) } }
-                  : s;
-                return (
-                  <div
-                    key={i}
-                    ref={(el) => { exportRefs.current[i] = el; }}
-                    className="wv-ig__photo"
-                    style={{ width: 1080 }}
-                  >
-                    <SlideMedia
-                      slide={exportSlide}
-                      layout={slideThumbLayout(s)}
-                      contentType={day.contentType || day.format}
-                    />
-                  </div>
-                );
-              })}
+              )}
+              {slides.length > 1 && (safeIdx < slides.length - 1 || selected < days.length - 1) && (
+                <button
+                  type="button"
+                  className="wv-igm__nav wv-igm__nav--r"
+                  onClick={(e) => { e.stopPropagation(); nextSlideOrDay(); }}
+                  aria-label={safeIdx < slides.length - 1 ? 'Next slide' : 'Next day'}
+                >
+                  <Glyph name="chevron-right" size={18} strokeWidth={2.5} />
+                </button>
+              )}
+              <span className="wv-ig__veil" aria-hidden="true" />
+              <button
+                type="button"
+                className="wv-ig__zonebtn"
+                aria-label={zone === 'visual' ? 'Done editing image' : 'Edit this image'}
+                onClick={() => openZone('visual')}
+              >
+                <Glyph name={zone === 'visual' ? 'x' : 'pencil'} size={16} />
+              </button>
             </div>
 
-            <div className="wv-detail">
-              <div className="wv-tabs" role="tablist" aria-label="Post detail">
-                {TABS.map((t) => (
+            {/* the carousel's own indicators — under the media, always (§951) */}
+            {slides.length > 1 && (
+              <div className="wv-ig__dotrow" role="tablist" aria-label="Slides">
+                {slides.map((_, i) => (
                   <button
-                    key={t}
+                    key={i}
                     type="button"
                     role="tab"
-                    aria-selected={tab === t}
-                    className={`wv-tab${tab === t ? ' is-on' : ''}`}
-                    onClick={() => { setTab(t); setPickerOpen(false); }}
-                  >
-                    {t}
-                  </button>
+                    aria-selected={i === safeIdx}
+                    className={`wv-ig__dot${i === safeIdx ? ' is-active' : ''}`}
+                    onClick={() => setSlideIdx(i)}
+                    aria-label={`Slide ${i + 1}`}
+                  />
                 ))}
               </div>
+            )}
 
-              {tab === 'Content & Visual' && (
-                <div className="wv-pane">
-                  {/* one hidden file input, shared by Upload / Replace */}
-                  <input
-                    ref={fileRef}
-                    type="file"
-                    accept="image/*"
-                    hidden
-                    disabled={uploading}
-                    onChange={(e) => { onUploadFiles(e.target.files || []); e.target.value = ''; }}
+            {/* the picture's editor — opened from the corner, under the media so
+                the change reads as it is made (bauhly-v3 §808) */}
+            {zone === 'visual' && (
+              <div className="wv-ig__edit">
+                <input
+                  ref={fileRef}
+                  type="file"
+                  accept="image/*"
+                  hidden
+                  disabled={uploading}
+                  onChange={(e) => { onUploadFiles(e.target.files || []); e.target.value = ''; }}
+                />
+
+                {creating ? (
+                  <CreateImageChat
+                    role={slideRoleName}
+                    projectName={projects[0]?.name}
+                    words={activeSlide?.title}
+                    subtitle={activeSlide?.subtitle}
+                    topic={day?.title || day?.direction}
+                    contentType={day?.contentType || day?.format}
+                    basePrompt={activeSlide?.imagePrompt}
+                    brand={{
+                      accent: igVars['--wv-accent'],
+                      primary: igVars['--wv-primary'],
+                      neutral: igVars['--wv-neutral'],
+                      font: firstFont(vbStore?.brand?.fonts),
+                      mood: moodOf(vbStore),
+                    }}
+                    onBack={() => setCreating(false)}
+                    onCreated={onImageCreated}
                   />
-
-                  {creating ? (
-                    <CreateImageChat
-                      role={slideRoleName}
-                      projectName={projects[0]?.name}
-                      words={activeSlide?.title}
-                      subtitle={activeSlide?.subtitle}
-                      topic={day?.title || day?.direction}
-                      contentType={day?.contentType || day?.format}
-                      basePrompt={activeSlide?.imagePrompt}
-                      brand={{
-                        accent: igVars['--wv-accent'],
-                        primary: igVars['--wv-primary'],
-                        neutral: igVars['--wv-neutral'],
-                        font: firstFont(vbStore?.brand?.fonts),
-                        mood: moodOf(vbStore),
-                      }}
-                      onBack={() => setCreating(false)}
-                      onCreated={onImageCreated}
-                    />
-                  ) : (
-                    <>
-                      {/* ── THE VISUAL: which layout, and its picture ────────── */}
-                      <div className="wv-vis">
-                        <span className="wv-sec__label">Which layout should this slide take?</span>
-
-                        {/* the sliding window: three layout cards, an arrow at each end */}
-                        <div className="wv-actsrow">
-                          <button
-                            type="button"
-                            className="wv-actsrow__arrow"
-                            onClick={() => stepLayout(-1)}
-                            disabled={layWinStart <= 0}
-                            aria-label="Previous layouts"
-                          >
-                            <Glyph name="chevron-left" size={15} strokeWidth={2.5} />
-                          </button>
-                          <div className="wv-acts" role="radiogroup" aria-label="Which layout should this slide take?">
-                            {shownLayouts.map((l) => (
-                              <button
-                                key={l.id}
-                                type="button"
-                                role="radio"
-                                aria-checked={chosenLayout?.id === l.id}
-                                className={`wv-act wv-act--layout${chosenLayout?.id === l.id ? ' is-on' : ''}`}
-                                onClick={() => patchActiveSlide({ layout: l.id })}
-                                title={l.when}
-                              >
-                                {/* the card shows this slide's own picture once it
-                                    has one; the words stay the layout's specimen so
-                                    the card still reads as a picture OF a layout */}
-                                <span className="wv-act__shot"><Preview l={cardLayout(l)} mood={Boolean(activePhoto)} /></span>
-                                <b>{l.name}</b>
-                                <em className="wv-act__cat">{catLabelOf(l.cat)}</em>
-                              </button>
-                            ))}
-                          </div>
-                          <button
-                            type="button"
-                            className="wv-actsrow__arrow"
-                            onClick={() => stepLayout(1)}
-                            disabled={layWinStart >= maxWinStart}
-                            aria-label="Next layouts"
-                          >
-                            <Glyph name="chevron-right" size={15} strokeWidth={2.5} />
-                          </button>
-                        </div>
-
-                        {/* the picture: bring your own, or have Bauhly make one */}
-                        <div className="wv-visacts">
-                          <button
-                            type="button"
-                            className={`wv-visbtn${uploading ? ' is-busy' : ''}`}
-                            disabled={uploading}
-                            onClick={() => fileRef.current?.click()}
-                          >
-                            <Glyph name="upload" size={16} />
-                            {uploading ? 'Uploading…' : hasOwnImage ? 'Replace image' : 'Upload image'}
-                          </button>
-                          <button type="button" className="wv-visbtn" onClick={() => setCreating(true)}>
-                            <Glyph name="sparkles" size={16} />Generate image
-                          </button>
-                        </div>
-                        {hasOwnImage && (
-                          <button type="button" className="wv-remove" onClick={() => patchActiveSlide({ assetKey: '' })}>
-                            <Glyph name="trash-2" size={14} />Remove image
-                          </button>
-                        )}
-
-                        {allImages.length > 0 && (
-                          <div className="wv-picker">
-                            <span className="wv-suggest__label">From your projects</span>
-                            <div className="wv-picker__grid">
-                              {pickerImages.slice(0, 24).map((img) => (
-                                <button
-                                  key={img.key}
-                                  type="button"
-                                  className={`wv-picker__cell${activeSlide?.assetKey === img.key ? ' is-active' : ''}`}
-                                  onClick={() => pickProjectImage(img)}
-                                  title={img.projectName}
-                                >
-                                  <img src={img.thumb} alt="" />
-                                </button>
-                              ))}
-                            </div>
-                          </div>
-                        )}
-                        {!allImages.length && !hasOwnImage && (
-                          <p className="wv-muted" style={{ marginTop: 8 }}>
-                            Add photos in Projects, then pick them here — or upload above.
-                          </p>
-                        )}
-                      </div>
-
-                      {/* ── THE WORDS on this slide ──────────────────────────── */}
-                      <div className="wv-sec">
-                        <span className="wv-sec__label">Words on this slide</span>
-                        <div className="wv-textcard">
-                          {editing ? (
-                            <textarea
-                              ref={textRef}
-                              className="wv-textcard__input"
-                              rows={3}
-                              maxLength={MAX_SLIDE_TEXT}
-                              value={draftText}
-                              onChange={(e) => setDraftText(capText(e.target.value))}
-                              onBlur={() => applyText(draftText)}
-                              onKeyDown={(e) => {
-                                if (e.key === 'Enter' && !e.shiftKey) {
-                                  e.preventDefault();
-                                  applyText(draftText);
-                                }
-                                if (e.key === 'Escape') {
-                                  setDraftText(activeSlide?.title || '');
-                                  setEditing(false);
-                                }
-                              }}
-                            />
-                          ) : (
-                            <button type="button" className="wv-textcard__body" onClick={() => setEditing(true)}>
-                              {activeSlide?.title || <span className="wv-muted">Add on-slide text…</span>}
-                            </button>
-                          )}
-                          <div className="wv-textcard__actions">
-                            {editing && (
-                              <span
-                                className={`wv-textcard__count${draftText.length >= MAX_SLIDE_TEXT ? ' is-max' : ''}`}
-                              >
-                                {draftText.length}/{MAX_SLIDE_TEXT}
-                              </span>
-                            )}
-                            <button type="button" className="wv-iconbtn" aria-label="Edit text" onClick={() => setEditing(true)}>
-                              <Glyph name="pencil" size={14} />
-                            </button>
-                            {activeSlide?.title && (
-                              <button type="button" className="wv-iconbtn" aria-label="Clear text" onClick={clearText}>
-                                <Glyph name="x" size={14} />
-                              </button>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-
-                      <div className="wv-suggest">
-                        <span className="wv-suggest__label">Suggested edits</span>
-                        <div className="wv-suggest__row">
-                          {TEXT_SUGGESTIONS.map((s) => (
+                ) : (
+                  <>
+                    <div className="wv-vis">
+                      <span className="wv-sec__label">Which layout should this slide take?</span>
+                      <div className="wv-actsrow">
+                        <button
+                          type="button"
+                          className="wv-actsrow__arrow"
+                          onClick={() => stepLayout(-1)}
+                          disabled={layWinStart <= 0}
+                          aria-label="Previous layouts"
+                        >
+                          <Glyph name="chevron-left" size={15} strokeWidth={2.5} />
+                        </button>
+                        <div className="wv-acts" role="radiogroup" aria-label="Which layout should this slide take?">
+                          {shownLayouts.map((l) => (
                             <button
-                              key={s.id}
+                              key={l.id}
                               type="button"
-                              className="wv-suggest__chip"
-                              onClick={() => applyText(rewriteText(activeSlide?.title, s.id))}
+                              role="radio"
+                              aria-checked={chosenLayout?.id === l.id}
+                              className={`wv-act wv-act--layout${chosenLayout?.id === l.id ? ' is-on' : ''}`}
+                              onClick={() => patchActiveSlide({ layout: l.id })}
+                              title={l.when}
                             >
-                              <Glyph name={s.icon} size={14} />
-                              <span>
-                                <b>{s.label}</b>
-                                <small>{s.hint}</small>
-                              </span>
+                              <span className="wv-act__shot"><Preview l={cardLayout(l)} mood={Boolean(activePhoto)} /></span>
+                              <b>{l.name}</b>
+                              <em className="wv-act__cat">{catLabelOf(l.cat)}</em>
                             </button>
                           ))}
                         </div>
+                        <button
+                          type="button"
+                          className="wv-actsrow__arrow"
+                          onClick={() => stepLayout(1)}
+                          disabled={layWinStart >= maxWinStart}
+                          aria-label="Next layouts"
+                        >
+                          <Glyph name="chevron-right" size={15} strokeWidth={2.5} />
+                        </button>
                       </div>
 
-                      <form className="wv-ask" onSubmit={onAskSubmit}>
-                        <input
-                          value={ask}
-                          onChange={(e) => setAsk(e.target.value)}
-                          placeholder="Change these words — e.g. 'add another line'"
-                        />
-                        <button type="submit" className="wv-ask__go" aria-label="Apply" disabled={!ask.trim()}>
-                          <Glyph name="arrow-up" size={16} />
+                      <div className="wv-visacts">
+                        <button
+                          type="button"
+                          className={`wv-visbtn${uploading ? ' is-busy' : ''}`}
+                          disabled={uploading}
+                          onClick={() => fileRef.current?.click()}
+                        >
+                          <Glyph name="upload" size={16} />
+                          {uploading ? 'Uploading…' : hasOwnImage ? 'Replace image' : 'Upload image'}
                         </button>
-                      </form>
+                        <button type="button" className="wv-visbtn" onClick={() => setCreating(true)}>
+                          <Glyph name="sparkles" size={16} />Generate image
+                        </button>
+                      </div>
+                      {hasOwnImage && (
+                        <button type="button" className="wv-remove" onClick={() => patchActiveSlide({ assetKey: '' })}>
+                          <Glyph name="trash-2" size={14} />Remove image
+                        </button>
+                      )}
 
+                      {allImages.length > 0 && (
+                        <div className="wv-picker">
+                          <span className="wv-suggest__label">From your projects</span>
+                          <div className="wv-picker__grid">
+                            {pickerImages.slice(0, 24).map((img) => (
+                              <button
+                                key={img.key}
+                                type="button"
+                                className={`wv-picker__cell${activeSlide?.assetKey === img.key ? ' is-active' : ''}`}
+                                onClick={() => pickProjectImage(img)}
+                                title={img.projectName}
+                              >
+                                <img src={img.thumb} alt="" />
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      {!allImages.length && !hasOwnImage && (
+                        <p className="wv-muted" style={{ marginTop: 8 }}>
+                          Add photos in Projects, then pick them here — or upload above.
+                        </p>
+                      )}
+                    </div>
+
+                    <div className="wv-sec">
+                      <span className="wv-sec__label">Words on this slide</span>
+                      <div className="wv-textcard">
+                        {editing ? (
+                          <textarea
+                            ref={textRef}
+                            className="wv-textcard__input"
+                            rows={3}
+                            maxLength={MAX_SLIDE_TEXT}
+                            value={draftText}
+                            onChange={(e) => setDraftText(capText(e.target.value))}
+                            onBlur={() => applyText(draftText)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter' && !e.shiftKey) {
+                                e.preventDefault();
+                                applyText(draftText);
+                              }
+                              if (e.key === 'Escape') {
+                                setDraftText(activeSlide?.title || '');
+                                setEditing(false);
+                              }
+                            }}
+                          />
+                        ) : (
+                          <button type="button" className="wv-textcard__body" onClick={() => setEditing(true)}>
+                            {activeSlide?.title || <span className="wv-muted">Add on-slide text…</span>}
+                          </button>
+                        )}
+                        <div className="wv-textcard__actions">
+                          {editing && (
+                            <span
+                              className={`wv-textcard__count${draftText.length >= MAX_SLIDE_TEXT ? ' is-max' : ''}`}
+                            >
+                              {draftText.length}/{MAX_SLIDE_TEXT}
+                            </span>
+                          )}
+                          <button type="button" className="wv-iconbtn" aria-label="Edit text" onClick={() => setEditing(true)}>
+                            <Glyph name="pencil" size={14} />
+                          </button>
+                          {activeSlide?.title && (
+                            <button type="button" className="wv-iconbtn" aria-label="Clear text" onClick={clearText}>
+                              <Glyph name="x" size={14} />
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="wv-suggest">
+                      <span className="wv-suggest__label">Suggested edits</span>
+                      <div className="wv-suggest__row">
+                        {TEXT_SUGGESTIONS.map((s) => (
+                          <button
+                            key={s.id}
+                            type="button"
+                            className="wv-suggest__chip"
+                            onClick={() => applyText(rewriteText(activeSlide?.title, s.id))}
+                          >
+                            <Glyph name={s.icon} size={14} />
+                            <span>
+                              <b>{s.label}</b>
+                              <small>{s.hint}</small>
+                            </span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    <form className="wv-ask" onSubmit={onAskSubmit}>
+                      <input
+                        value={ask}
+                        onChange={(e) => setAsk(e.target.value)}
+                        placeholder="Change these words — e.g. 'add another line'"
+                      />
+                      <button type="submit" className="wv-ask__go" aria-label="Apply" disabled={!ask.trim()}>
+                        <Glyph name="arrow-up" size={16} />
+                      </button>
+                    </form>
+
+                    <div className="wv-editfoot">
+                      <button type="button" className="wv-editadd" onClick={addSlide}>
+                        <Glyph name="plus" size={15} />Add slide
+                      </button>
                       {slides.length > 1 && (
                         <button type="button" className="wv-remove" onClick={() => removeSlide(safeIdx)}>
                           <Glyph name="trash-2" size={14} />Remove this slide
                         </button>
                       )}
-                    </>
-                  )}
-                </div>
-              )}
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
 
-              {tab === 'Caption' && (
-                <div>
-                  <div className="wv-field">
-                    <div className="wv-field__label"><Glyph name="message-square" size={13} />Caption</div>
-                    <p>{day.content?.caption || '—'}</p>
+            {/* the words — the caption's own zone, edited where it is read (§652) */}
+            {zone === 'caption' ? (
+              <div className="wv-ig__caption wv-ig__zone wv-ig__zone--caption is-editing">
+                <div className="wv-caped">
+                  <div className="wv-caped__head">
+                    <span className="wv-caped__title">Caption</span>
+                    <div className="wv-caped__acts">
+                      <button type="button" className="wv-caped__cancel" onClick={closeZone}>Cancel</button>
+                      <button type="button" className="wv-caped__save" onClick={() => saveCaption(capDraft)}>Save</button>
+                    </div>
                   </div>
-                  {day.content?.cta && (
-                    <div className="wv-field">
-                      <div className="wv-field__label"><Glyph name="arrow-up-right" size={13} />Call to action</div>
-                      <p>{day.content.cta}</p>
-                    </div>
-                  )}
-                  {day.content?.hashtags?.length > 0 && (
-                    <div className="wv-field">
-                      <div className="wv-field__label"><Glyph name="hash" size={13} />Hashtags</div>
-                      <div className="wv-tags">
-                        {day.content.hashtags.map((h) => (
-                          <span key={h} className="wv-tag">#{h}</span>
-                        ))}
-                      </div>
-                    </div>
-                  )}
+                  <textarea
+                    className="wv-caped__input"
+                    rows={6}
+                    value={capDraft}
+                    onChange={(e) => setCapDraft(e.target.value)}
+                    placeholder="Write the caption…"
+                    autoFocus
+                  />
                 </div>
-              )}
-
-              {tab === 'Why this post' && (
-                <div>
-                  <div className="wv-field">
-                    <div className="wv-field__label"><Glyph name="target" size={13} />Why this post</div>
-                    <p>{day.content?.strategy || '—'}</p>
-                  </div>
-                  {day.direction && (
-                    <div className="wv-field">
-                      <div className="wv-field__label"><Glyph name="route" size={13} />Direction</div>
-                      <p>{day.direction}</p>
-                    </div>
-                  )}
-                  {(day.content?.notes || day.content?.plan) && (
-                    <div className="wv-field">
-                      <div className="wv-field__label"><Glyph name="clipboard-list" size={13} />Production notes</div>
-                      <p>{day.content?.notes || day.content?.plan}</p>
-                    </div>
-                  )}
-                  {day.content?.prompts?.length > 0 && (
-                    <div className="wv-field">
-                      <div className="wv-field__label"><Glyph name="sparkles" size={13} />Prompts</div>
-                      {day.content.prompts.map((p, i) => (
-                        <p key={i}>{i + 1}. {p}</p>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
-
-              <div className="wv-detail__foot">
+              </div>
+            ) : (
+              <div className="wv-ig__caption wv-ig__zone wv-ig__zone--caption">
+                <p className="wv-ig__captiontext">
+                  <b>{handle}</b>{' '}
+                  {day.content?.caption || day.direction || <span className="wv-muted">Add a caption…</span>}
+                </p>
+                <span className="wv-ig__veil" aria-hidden="true" />
                 <button
                   type="button"
-                  className={`wv-btn${day.published ? ' wv-btn--ok' : ' wv-btn--signal'}`}
-                  onClick={handlePublish}
-                  disabled={publishing}
+                  className="wv-ig__zonebtn"
+                  aria-label="Edit the caption"
+                  onClick={() => openZone('caption')}
                 >
-                  <Glyph name={day.published ? 'check-circle-2' : 'send'} size={15} />
-                  {publishing ? 'Publishing…' : day.published ? 'Published' : 'Publish'}
+                  <Glyph name="pencil" size={16} />
                 </button>
               </div>
+            )}
+
+            <div className="wv-ig__publish">
+              <button
+                type="button"
+                className={`wv-publish${day.published ? ' is-done' : ''}`}
+                onClick={handlePublish}
+                disabled={publishing}
+              >
+                <Glyph name={day.published ? 'check-circle-2' : 'send'} size={15} />
+                {publishing ? 'Publishing…' : day.published ? 'Published' : 'Publish'}
+              </button>
+              {metaStatus.connected && metaStatus.igUsername && !day.published && (
+                <span className="wv-publish__hint">to @{metaStatus.igUsername}</span>
+              )}
+              {!metaStatus.connected && !day.published && (
+                <span className="wv-publish__hint">Connect Meta to post</span>
+              )}
+              {publishMsg && <span className="wv-publish__msg">{publishMsg}</span>}
             </div>
+          </article>
           </div>
-        </>
+          </div>
+
+          {/* why this post exists — the strategy, beside the preview, on demand */}
+          <aside className={`wv-why${whyOpen ? ' is-open' : ''}`}>
+            <button
+              type="button"
+              className="wv-why__toggle"
+              aria-expanded={whyOpen}
+              onClick={() => setWhyOpen((v) => !v)}
+            >
+              <Glyph name={whyOpen ? 'x' : 'help-circle'} size={15} />
+              {whyOpen ? 'Close' : 'Why this?'}
+            </button>
+            {whyOpen && (
+              <div className="wv-why__panel">
+                <h3 className="wv-why__head">Why this post</h3>
+                {day.content?.strategy && (
+                  <div className="wv-why__sec">
+                    <span className="wv-why__label"><Glyph name="target" size={13} />Focus</span>
+                    <p>{day.content.strategy}</p>
+                  </div>
+                )}
+                {day.direction && (
+                  <div className="wv-why__sec">
+                    <span className="wv-why__label"><Glyph name="route" size={13} />Direction</span>
+                    <p>{day.direction}</p>
+                  </div>
+                )}
+                {(day.content?.notes || day.content?.plan) && (
+                  <div className="wv-why__sec">
+                    <span className="wv-why__label"><Glyph name="clipboard-list" size={13} />Production notes</span>
+                    <p>{day.content?.notes || day.content?.plan}</p>
+                  </div>
+                )}
+                {day.content?.prompts?.length > 0 && (
+                  <div className="wv-why__sec">
+                    <span className="wv-why__label"><Glyph name="sparkles" size={13} />Prompts</span>
+                    {day.content.prompts.map((p, i) => (
+                      <p key={i}>{i + 1}. {p}</p>
+                    ))}
+                  </div>
+                )}
+                {!day.content?.strategy && !day.direction && !day.content?.notes && !day.content?.plan && (
+                  <p className="wv-muted">No strategy notes for this post yet.</p>
+                )}
+              </div>
+            )}
+          </aside>
+
+          {/* Off-screen export stage — one full-resolution (1080px-wide, 4:5)
+              render of each slide's composition, the source for the PNGs sent to
+              Instagram on publish. Kept in the DOM (not display:none, which
+              collapses the container query and blanks the render) but pushed far
+              off-screen. Brand vars come from igVars, same as the live preview,
+              so colours and type match exactly. */}
+          <div
+            aria-hidden="true"
+            className="wv-ig"
+            style={{ ...igVars, position: 'fixed', left: '-100000px', top: 0, width: 1080, pointerEvents: 'none' }}
+          >
+            {slides.map((s, i) => {
+              const key = s.assetKey || s.image?.key;
+              const exportSlide = key && s.image
+                ? { ...s, image: { ...s.image, url: mediaProxyUrl(key) } }
+                : s;
+              return (
+                <div
+                  key={i}
+                  ref={(el) => { exportRefs.current[i] = el; }}
+                  className="wv-ig__photo"
+                  style={{ width: 1080 }}
+                >
+                  <SlideMedia
+                    slide={exportSlide}
+                    layout={slideThumbLayout(s)}
+                    contentType={day.contentType || day.format}
+                  />
+                </div>
+              );
+            })}
+          </div>
+        </div>
       )}
     </div>
   );

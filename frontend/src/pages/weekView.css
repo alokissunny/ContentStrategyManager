@@ -1950,3 +1950,578 @@
 .wv-btn--replan:hover { filter: brightness(1.08); }
 .wv-btn--replan:disabled { filter: none; opacity: 0.7; }
 .wv-btn--replan svg { color: currentColor; }
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * NEW UI — preview-first weekly plan (ported from bauhly-v3 YourWeek).
+ * A date-range header, a seven-card calendar in the product's acid lime, and a
+ * centred Instagram preview the studio acts on in place: the picture and the
+ * caption are zones with their own Edit control, the strategy sits beside it
+ * behind a "Why this?" toggle. Rules below are appended last, so where a class
+ * name is shared with the older studio they win. (bauhly-v3 §652/§682/§808)
+ * ════════════════════════════════════════════════════════════════════════ */
+
+/* ── top bar: the way back + the plan's actions ─────────────────────────── */
+.wv-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 18px;
+}
+.wv-top__actions { display: flex; align-items: center; gap: 8px; }
+.wv-abtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 40px;
+  padding: 0 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md, 14px);
+  background: var(--surface);
+  cursor: pointer;
+  font-family: var(--font-ui);
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--ink-900);
+  white-space: nowrap;
+  transition: background var(--dur-fast, 140ms) var(--ease-out, ease),
+    border-color var(--dur-fast, 140ms) var(--ease-out, ease);
+}
+.wv-abtn:hover { background: var(--surface-sunken); border-color: var(--border-strong, #d0d0d8); }
+.wv-abtn svg { color: var(--ink-500); }
+.wv-abtn--icon { width: 40px; padding: 0; justify-content: center; }
+.wv-abtn--icon svg { color: var(--ink-700); }
+
+/* the ⋯ menu — replan + capture, out of the top row's way */
+.wv-more { position: relative; }
+.wv-more__scrim { position: fixed; inset: 0; z-index: 40; }
+.wv-more__menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 41;
+  min-width: 220px;
+  padding: 6px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  box-shadow: 0 18px 40px -16px rgba(22, 22, 26, 0.4);
+}
+.wv-more__item {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  padding: 9px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  cursor: pointer;
+  font-family: var(--font-ui);
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--ink-900);
+  text-align: left;
+}
+.wv-more__item:hover { background: var(--surface-sunken); }
+.wv-more__item:disabled { opacity: 0.55; cursor: default; }
+.wv-more__item svg { color: var(--ink-500); flex-shrink: 0; }
+.wv-more__usage {
+  margin: 4px 10px 2px;
+  font-family: var(--font-ui);
+  font-size: 11.5px;
+  color: var(--ink-quiet);
+}
+
+/* ── header: the plan's dates, and the week's focus ─────────────────────── */
+.wv-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 22px;
+  border: 0;
+  padding: 0;
+}
+.wv-head__title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--text-2xl, 2rem);
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  color: var(--ink-900);
+  max-width: none;
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
+}
+.wv-head__side { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.wv-head__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border-radius: 999px;
+  background: var(--surface-sunken);
+  font-family: var(--font-ui);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink-600);
+}
+.wv-head__chip.is-warn { color: var(--negative, #c0392b); }
+
+/* the week/focus pill — the library's carousel control, widened (§701) */
+.wv-wknav {
+  display: inline-flex;
+  align-items: center;
+  height: 36px;
+  padding: 0 14px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  box-shadow: 0 6px 18px -8px rgba(22, 22, 26, 0.35);
+}
+.wv-wknav__dates {
+  font-family: var(--font-ui);
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--ink-800);
+}
+
+/* ── the week, as a calendar (§682) ─────────────────────────────────────── */
+.wv-cal { position: relative; display: block; margin-bottom: 26px; }
+.wv-cal__grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 12px;
+}
+.wv-day {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+  min-width: 0;
+  min-height: 104px;
+  padding: 16px;
+  border: 0;
+  border-radius: var(--r-md, 14px);
+  background: var(--surface-sunken);
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--dur-fast, 140ms) var(--ease-out, ease),
+    transform var(--dur-fast, 140ms) var(--ease-out, ease);
+}
+.wv-day:hover { background: var(--ink-100); border-color: transparent; }
+.wv-day:active { transform: scale(0.99); }
+.wv-day.is-on,
+.wv-day.is-on:hover {
+  background: var(--experiment-500);
+  color: var(--experiment-ink);
+}
+.wv-day__when { display: flex; align-items: baseline; gap: 7px; min-width: 0; font-family: var(--font-ui); }
+.wv-day__when b { font-size: 15px; font-weight: 700; letter-spacing: -0.01em; color: var(--ink-900); }
+.wv-day__when i { font-style: normal; font-size: 14px; font-weight: 600; color: var(--ink-quiet); }
+.wv-day.is-on .wv-day__when b { color: var(--experiment-ink); }
+.wv-day.is-on .wv-day__when i { color: color-mix(in srgb, var(--experiment-ink) 62%, transparent); }
+.wv-day__kind {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  font-family: var(--font-ui);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ink-500);
+}
+.wv-day__word { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wv-day__glyph { display: none; flex-shrink: 0; }
+.wv-day.is-on .wv-day__kind { color: color-mix(in srgb, var(--experiment-ink) 78%, transparent); }
+.wv-day__ready {
+  position: absolute;
+  top: -9px;
+  right: -9px;
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 999px;
+  background: var(--experiment-500);
+  color: var(--experiment-ink);
+  box-shadow: 0 0 0 3px var(--canvas, #fff);
+}
+.wv-day__ready.is-done { background: var(--ink-200); color: var(--ink-500); }
+
+/* ── the stage: a centred preview, arrows and strategy beside it ────────── */
+.wv-stage {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 14px;
+}
+/* a box the width of the post. `overflow: clip` only while a move runs (the day
+   arrows tuck 40px outside it and must show at rest) — so the sliding cards are
+   clipped at the POST's edges, not left visible in the page's wide margins,
+   which is what made the incoming card linger to one side (bauhly-v3: "the row
+   clips horizontally"). `clip` (not `hidden`) never creates a scroll container. */
+.wv-stage > .wv-postclip { flex: 0 0 auto; width: min(100%, 420px); position: relative; }
+.wv-stage.is-moving > .wv-postclip { overflow: clip; }
+.wv-postclip > .wv-postwrap { width: 100%; }
+.wv-postwrap {
+  position: relative;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  --wv-head-h: 55px;   /* card top border (1) + account row (54) */
+  --wv-media-w: 418px; /* the 4:5 picture's width at the desktop card size */
+}
+.wv-postwrap > .wv-ig { width: 100%; }
+
+/* ── THE OUTER PAIR: the days are a stack, and these are its edges (§710/§725)
+   A 56px D-shaped disc that moves the whole day. It lives inside the wrap and is
+   anchored to the PICTURE's own centre — not the whole card — so it sits level
+   with the carousel's own arrows however tall the post is. The post carries its
+   own surface and a higher stacking order, so it paints over the disc's flat
+   inner edge: the illusion of the next card behind this one. */
+.wv-postwrap > .wv-ig { position: relative; z-index: 1; }
+.wv-daynav {
+  position: absolute;
+  /* the account row + half the 4:5 picture (0.625 of its width) = the media's
+     vertical middle, the same point the inner arrows sit on (§725) */
+  top: calc(var(--wv-head-h, 55px) + 0.625 * var(--wv-media-w, 418px));
+  transform: translateY(-50%);
+  z-index: 0;
+  display: grid;
+  place-items: center;
+  width: 56px;
+  height: 56px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-full, 999px);
+  background: var(--surface);
+  color: var(--ink-800);
+  cursor: pointer;
+  box-shadow: 0 6px 18px -8px rgba(22, 22, 26, 0.35);
+  /* opacity is here so the arrows FADE when they leave (is-out / is-moving)
+     instead of snapping — the reference's whole "controls clear first" beat */
+  transition: color var(--dur-fast, 140ms) var(--ease-out, ease),
+    background var(--dur-fast, 140ms) var(--ease-out, ease),
+    opacity var(--dur-base, 240ms) var(--ease-out, ease);
+}
+/* off the post, not on it: -40 leaves the centre 12px clear, ~16px still behind
+   the post; the inner side is squared so the post's edge is the only line. The
+   glyph is centred in what is SHOWING (16px in from the post) via padding, not a
+   nudge on the SVG — the icon is wrapped in a span, so a margin on the svg would
+   not move the centred item (§734/§738). */
+.wv-daynav--prev { left: -40px; border-radius: var(--r-full, 999px) 0 0 var(--r-full, 999px); padding-right: 16px; }
+.wv-daynav--next { right: -40px; border-radius: 0 var(--r-full, 999px) var(--r-full, 999px) 0; padding-left: 16px; }
+.wv-daynav:hover:not(:disabled) { background: var(--ink-100); color: var(--ink-900); }
+.wv-daynav:disabled { opacity: 0; cursor: default; pointer-events: none; }
+/* pressed → gone in 140ms, before anything begins to move (§725) */
+.wv-daynav.is-out { opacity: 0; pointer-events: none; transition-duration: var(--dur-fast, 140ms); }
+
+/* ── THE INNER PAIR: the carousel's own arrows (§672) ─────────────────────
+   A white disc on the picture, the mark Instagram uses, above the zone's veil
+   so it never dims under its own hover. */
+.wv-igm__nav {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 4;
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.94);
+  color: var(--ink-900);
+  cursor: pointer;
+  box-shadow: 0 1px 3px rgba(20, 20, 25, 0.18);
+  transition: transform var(--dur-fast, 140ms) var(--ease-out, ease),
+    border-color var(--dur-fast, 140ms) var(--ease-out, ease),
+    background var(--dur-fast, 140ms) var(--ease-out, ease);
+}
+.wv-igm__nav:hover { background: #fff; border-color: var(--ink-500); transform: translateY(-50%) scale(1.08); }
+.wv-igm__nav--l { left: 10px; }
+.wv-igm__nav--r { right: 10px; }
+
+/* ── the preview's zones: a picture and a caption you act on in place ────── */
+.wv-ig__zone { position: relative; }
+.wv-ig__veil {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: rgba(22, 22, 26, 0);
+  transition: background var(--dur-fast, 140ms) var(--ease-out, ease);
+}
+.wv-ig__zone:hover .wv-ig__veil { background: rgba(22, 22, 26, 0.06); }
+.wv-ig__zone--visual:hover .wv-ig__veil { background: rgba(22, 22, 26, 0.14); }
+.wv-ig__zonebtn {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 3;
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--ink-800);
+  cursor: pointer;
+  box-shadow: 0 6px 18px -8px rgba(22, 22, 26, 0.4);
+  opacity: 0;
+  transition: opacity var(--dur-fast, 140ms) var(--ease-out, ease);
+}
+.wv-ig__zone:hover .wv-ig__zonebtn,
+.wv-ig__zone.is-sel .wv-ig__zonebtn { opacity: 1; }
+.wv-ig__zonebtn:hover { color: var(--ink-900); background: var(--ink-100); }
+.wv-ig__zone--caption .wv-ig__zonebtn { top: 10px; }
+@media (hover: none) {
+  .wv-ig__zonebtn { opacity: 1; }
+  .wv-ig__zone:hover .wv-ig__veil,
+  .wv-ig__zone--visual:hover .wv-ig__veil { background: rgba(22, 22, 26, 0); }
+}
+
+/* the carousel's dots, under the media (dark, on the card's white) */
+.wv-ig__dotrow {
+  display: flex;
+  justify-content: center;
+  gap: 6px;
+  padding: 12px 0 2px;
+}
+.wv-ig__dotrow .wv-ig__dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  border: 0;
+  padding: 0;
+  background: var(--ink-200);
+  cursor: pointer;
+}
+.wv-ig__dotrow .wv-ig__dot.is-active { background: var(--ink-800); }
+
+/* the picture's editor, opened from the corner (§808) */
+.wv-ig__edit {
+  padding: 16px 14px;
+  border-top: 1px solid var(--border);
+  background: var(--surface-sunken);
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.wv-editfoot { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.wv-editadd {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 34px;
+  padding: 0 12px;
+  border: 1px dashed var(--border-strong, #cfcfd6);
+  border-radius: 10px;
+  background: transparent;
+  cursor: pointer;
+  font-family: var(--font-ui);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink-700);
+}
+.wv-editadd:hover { border-color: var(--ink-600); color: var(--ink-900); }
+
+/* the caption, read here and edited here (§652) */
+.wv-ig__caption {
+  position: relative;
+  padding: 14px 14px 16px;
+  border-top: 1px solid var(--border);
+}
+.wv-ig__captiontext {
+  margin: 0;
+  font-family: var(--font-ui);
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--ink-900);
+  white-space: pre-wrap;
+}
+.wv-ig__captiontext b { font-weight: 700; }
+.wv-ig__caption.is-editing { padding: 12px; }
+.wv-caped { display: flex; flex-direction: column; gap: 10px; }
+.wv-caped__head { display: flex; align-items: center; justify-content: space-between; }
+.wv-caped__title { font-family: var(--font-ui); font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--ink-500); }
+.wv-caped__acts { display: flex; gap: 8px; }
+.wv-caped__cancel, .wv-caped__save {
+  height: 30px;
+  padding: 0 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  cursor: pointer;
+  font-family: var(--font-ui);
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--ink-800);
+}
+.wv-caped__save { border-color: var(--ink-900); background: var(--ink-900); color: #fff; }
+.wv-caped__save:hover { filter: brightness(1.15); }
+.wv-caped__input {
+  width: 100%;
+  resize: vertical;
+  min-height: 120px;
+  padding: 11px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  font-family: var(--font-ui);
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--ink-900);
+}
+.wv-caped__input:focus { outline: 2px solid var(--focus-ring); outline-offset: 1px; border-color: transparent; }
+
+/* ── why this post — the strategy, beside the preview ───────────────────── */
+.wv-why { flex: 0 0 auto; width: auto; }
+.wv-why.is-open { width: 320px; max-width: 40vw; }
+.wv-why__toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 36px;
+  padding: 0 14px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  cursor: pointer;
+  font-family: var(--font-ui);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink-900);
+  white-space: nowrap;
+  box-shadow: 0 6px 18px -8px rgba(22, 22, 26, 0.35);
+}
+.wv-why__toggle svg { color: var(--ink-600); flex-shrink: 0; }
+.wv-why__toggle:hover { background: var(--surface-sunken); }
+.wv-why__panel {
+  margin-top: 12px;
+  padding: 18px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md, 14px);
+  background: var(--surface);
+}
+.wv-why__head {
+  margin: 0 0 14px;
+  font-family: var(--font-display);
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--ink-900);
+}
+.wv-why__sec { margin-bottom: 16px; }
+.wv-why__sec:last-child { margin-bottom: 0; }
+.wv-why__label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 5px;
+  font-family: var(--font-ui);
+  font-size: 11.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--ink-500);
+}
+.wv-why__label svg { color: var(--ink-400); }
+.wv-why__sec p { margin: 0 0 4px; font-family: var(--font-ui); font-size: 13.5px; line-height: 1.55; color: var(--ink-800); }
+
+/* ── the phone: the strip stacks, the stage drops the side strategy ─────── */
+@media (max-width: 900px) {
+  .wv-stage { flex-wrap: wrap; }
+  .wv-daynav { display: none; }
+  .wv-stage > .wv-postclip { width: min(100%, 460px); }
+  .wv-why { width: 100%; order: 3; display: flex; flex-direction: column; align-items: center; }
+  .wv-why.is-open { width: 100%; max-width: 100%; }
+  .wv-why__panel { width: min(100%, 460px); }
+}
+@media (max-width: 640px) {
+  .wv-cal__grid { grid-template-columns: repeat(7, minmax(64px, 1fr)); gap: 8px; overflow-x: auto; }
+  .wv-day { min-height: 92px; padding: 12px; gap: 12px; scroll-snap-align: start; }
+  .wv-day__word { display: none; }
+  .wv-day__glyph { display: block; }
+  .wv-day__kind { color: var(--ink-400); }
+  .wv-head__title { font-size: 1.6rem; }
+}
+
+/* ══ DAY-TO-DAY TRANSITION (bauhly-v3 §730/§736/§786) ═══════════════════════
+ * Two sizes, two positions and an order — no dissolve where the card stands,
+ * no perspective, nothing bouncing. The leaving post is a ghost copy that
+ * slides its own width to one side, shrinks a touch and fades out on its own
+ * near-linear curve; the arriving post slides in from the opposite side and
+ * rises from 0.8 to full on a lazier curve, so it reads as following rather
+ * than crossing. Travel uses `transform`/`translate`, size uses `scale`, so the
+ * two tracks compose without a corner to jump at. The stage clips horizontally
+ * only while a move runs, so neither card reaches the page's edges.
+ * ════════════════════════════════════════════════════════════════════════ */
+.wv-stage.is-moving .wv-daynav { opacity: 0; pointer-events: none; }
+
+.wv-postwrap--ghost {
+  position: absolute;
+  z-index: 2;
+  pointer-events: none;
+  /* promote both cards to their own compositor layer so the slide/scale runs on
+     the GPU, independent of the preview's own paint — this is what keeps the
+     motion from stuttering as the arriving day re-renders */
+  will-change: transform, opacity;
+}
+.wv-postwrap.is-in-r,
+.wv-postwrap.is-in-l { will-change: translate, scale; }
+.wv-postwrap--ghost.is-out-l {
+  animation:
+    wv-card-out-l 760ms cubic-bezier(0.42, 0, 0.12, 1) both,
+    wv-card-gone 700ms cubic-bezier(0.35, 0.05, 0.6, 1) both;
+}
+.wv-postwrap--ghost.is-out-r {
+  animation:
+    wv-card-out-r 760ms cubic-bezier(0.42, 0, 0.12, 1) both,
+    wv-card-gone 700ms cubic-bezier(0.35, 0.05, 0.6, 1) both;
+}
+.wv-postwrap.is-in-r {
+  animation:
+    wv-card-in-r 760ms cubic-bezier(0.42, 0, 0.12, 1) both,
+    wv-card-rise 760ms cubic-bezier(0.66, 0, 0.2, 1) both;
+}
+.wv-postwrap.is-in-l {
+  animation:
+    wv-card-in-l 760ms cubic-bezier(0.42, 0, 0.12, 1) both,
+    wv-card-rise 760ms cubic-bezier(0.66, 0, 0.2, 1) both;
+}
+@keyframes wv-card-out-l {
+  from { transform: translateX(0) scale(1); }
+  to { transform: translateX(-100%) scale(0.94); }
+}
+@keyframes wv-card-out-r {
+  from { transform: translateX(0) scale(1); }
+  to { transform: translateX(100%) scale(0.94); }
+}
+@keyframes wv-card-in-r {
+  from { translate: 100% 0; }
+  to { translate: 0 0; }
+}
+@keyframes wv-card-in-l {
+  from { translate: -100% 0; }
+  to { translate: 0 0; }
+}
+@keyframes wv-card-rise {
+  from { scale: 0.8; }
+  to { scale: 1; }
+}
+@keyframes wv-card-gone {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+/* the studio asked for no motion: the day simply changes */
+@media (prefers-reduced-motion: reduce) {
+  .wv-postwrap--ghost { display: none; }
+  .wv-postwrap.is-in-r,
+  .wv-postwrap.is-in-l { animation: none; }
+}
