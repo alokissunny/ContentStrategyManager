@@ -68,7 +68,9 @@ import './visuallibrary.css';
 
 import { Preview, Ph } from './LayoutArt.jsx';
 
-function Card({ l, on, mood, onToggle, onEdit, onRemove }) {
+/* `look` is pick-mode: the card is something to see, not to manage. The ⋯, the
+ * in-use toggle and the off mark all go; the drawing and the name stay. */
+function Card({ l, on, mood, onToggle, onEdit, onRemove, look = false }) {
   const [menu, setMenu] = useState(false);
   return (
     <li className={`vl-card ${on ? '' : 'is-off'}`}>
@@ -76,7 +78,7 @@ function Card({ l, on, mood, onToggle, onEdit, onRemove }) {
         <Preview l={l} mood={mood} />
         {/* out of the middle of the artwork and into the corner (Leon, Aug 6):
             it used to sit over the composition you were deciding about */}
-        {!on && <span className="vl-card__offmark">Not in use</span>}
+        {!on && !look && <span className="vl-card__offmark">Not in use</span>}
       </div>
       {/* THE HOUSEKEEPING IS IN THE CORNER (Leon, Aug 4). Changing a layout and
         * taking it out of the library are rarer than turning it off, and both
@@ -88,6 +90,7 @@ function Card({ l, on, mood, onToggle, onEdit, onRemove }) {
         * `position: fixed` scrim inside one resolves against the frame instead of
         * the window — the same trap `position: fixed` inside an animated ancestor
         * sets (CLAUDE.md §4). Outside it, the scrim covers the page again. */}
+      {!look && (
       <span className="vl-card__menuwrap">
           <button
             className="btn btn--icon btn--sm vl-card__dots"
@@ -114,6 +117,7 @@ function Card({ l, on, mood, onToggle, onEdit, onRemove }) {
             </>
           )}
       </span>
+      )}
       <div className="vl-card__foot">
         {/* THE METADATA LINE WENT (Leon, Aug 6). "4:5 · 1 photo · 2 type levels"
           * was three facts under every card, none of which a studio chooses on:
@@ -126,6 +130,7 @@ function Card({ l, on, mood, onToggle, onEdit, onRemove }) {
         </div>
         {/* THE ONE CONTROL (Leon, Aug 4). Not a menu and not a delete: a layout is
           * in use or it is not, and either way it stays on the page. */}
+        {!look && (
         <button
           className={`btn btn--xs ${on ? 'btn--tertiary' : 'btn--quiet'} vl-card__use`}
           onClick={onToggle}
@@ -136,6 +141,7 @@ function Card({ l, on, mood, onToggle, onEdit, onRemove }) {
           <Icon name={on ? 'check' : 'plus'} size={13} strokeWidth={2.5} />
           {on ? 'In use' : 'Use'}
         </button>
+        )}
       </div>
     </li>
   );
@@ -277,7 +283,7 @@ function AddToCategory({ cat, existing, onClose, onDone }) {
   );
 }
 
-function Row({ cat, layouts, off, mood, onToggle, onEdit, onRemove, onOpen, onAdd }) {
+function Row({ cat, layouts, off, mood, onToggle, onEdit, onRemove, onOpen, onAdd, pick = null }) {
   const rail = useRef(null);
   const [ends, setEnds] = useState({ left: false, right: false });
 
@@ -316,16 +322,30 @@ function Row({ cat, layouts, off, mood, onToggle, onEdit, onRemove, onOpen, onAd
           * gets a door instead: this opens the section as its own page, and it
           * does not exist above 720px, where the rail is the right answer. */}
         <div className="vl-row__acts">
-          {/* every category can be added to, and the control sits ON the
-              category so there is never a question which one it will affect */}
-          <button className="btn btn--tertiary btn--sm vl-row__add" onClick={() => onAdd(cat.id)}>
-            <Icon name="plus" size={15} strokeWidth={2.5} />
-            Add
-          </button>
-          <button className="vl-row__all" onClick={() => onOpen(cat.id)}>
-            View all
-            <Icon name="chevron-right" size={15} strokeWidth={2.5} />
-          </button>
+          {pick ? (
+            <button
+              className={`btn btn--tertiary btn--sm vl-row__pick ${pick.current === cat.id ? 'is-picked' : ''}`}
+              onClick={() => pick.onPick(cat.id)}
+              aria-pressed={pick.current === cat.id}
+              aria-label={`Show the ${cat.label} layouts in this post's carousel`}
+            >
+              {pick.current === cat.id && <Icon name="check" size={15} strokeWidth={2.5} />}
+              {pick.current === cat.id ? 'Selected' : 'Select category'}
+            </button>
+          ) : (
+            <>
+              {/* every category can be added to, and the control sits ON the
+                  category so there is never a question which one it will affect */}
+              <button className="btn btn--tertiary btn--sm vl-row__add" onClick={() => onAdd(cat.id)}>
+                <Icon name="plus" size={15} strokeWidth={2.5} />
+                Add
+              </button>
+              <button className="vl-row__all" onClick={() => onOpen(cat.id)}>
+                View all
+                <Icon name="chevron-right" size={15} strokeWidth={2.5} />
+              </button>
+            </>
+          )}
         </div>
       </header>
       {/* SAME RAIL WHEN FILTERED (Aug 9). Choosing Hook used to swap this for a
@@ -343,6 +363,7 @@ function Row({ cat, layouts, off, mood, onToggle, onEdit, onRemove, onOpen, onAd
               onToggle={() => onToggle(l.id)}
               onEdit={() => onEdit(l)}
               onRemove={() => onRemove(l)}
+              look={!!pick}
             />
           ))}
         </ul>
@@ -372,7 +393,10 @@ const FACETS = [
   { id: 'off', pair: 'use', group: 'In your plan', label: 'Not in use', test: (l, off) => !!off[l.id] },
 ];
 
-export default function VisualLibrary() {
+/* pick = { current, onPick(catId), onClose } — Browse layouts opens this page
+ * over the post to choose which category fills the carousel. Everything pick
+ * changes is a subtraction: no settings, filter, add, or per-card controls. */
+export default function VisualLibrary({ pick = null } = {}) {
   const s = useStore();
   /* which layouts the studio has turned off — the store keeps the exceptions,
      so a new layout added to the set is in use by default */
@@ -411,7 +435,11 @@ export default function VisualLibrary() {
    * a picture for this slot" — and the plan passes `true` once the studio
    * uploads one. Only the LIBRARY is unconditionally off, because nothing in
    * the library is ever the studio's own picture. */
-  const mood = false;
+  /* the library page itself stays empty-ground (mood off). Browse layouts
+     turns it on by default so a studio choosing a category can see how a
+     photograph sits in each shape — same switch, same store key as the
+     reference (layoutMoodOn). */
+  const mood = pick ? s.layoutMoodOn !== false : false;
 
   /* the category is a filter like any other now — it lives in the Filter menu
      with the rest of them (Leon, Aug 6) */
@@ -513,8 +541,14 @@ export default function VisualLibrary() {
     [all, cats, allOn, facets, off],
   );
 
+  /* Browse layouts shows every in-use layout, grouped — filters and off
+     layouts are library management, not the answer to "which category". */
+  const pickShown = useMemo(
+    () => (pick ? all.filter((l) => !off[l.id]) : shown),
+    [pick, all, off, shown],
+  );
   /* the rows on the page: all of them, or only the chosen ones */
-  const shownCats = allOn ? CATEGORIES : CATEGORIES.filter((c) => cats.has(c.id));
+  const shownCats = pick ? CATEGORIES : (allOn ? CATEGORIES : CATEGORIES.filter((c) => cats.has(c.id)));
 
   /* WHAT LIBRARY SETTINGS SAVED (Leon, Aug 6). The palettes and the two faces
      live in CSS as the product's defaults; a studio's overrides arrive as custom
@@ -525,7 +559,7 @@ export default function VisualLibrary() {
   const paint = paintOf(edits);
 
   /* one category, as its own page — phone only, reached from "View all" */
-  if (openCat) {
+  if (openCat && !pick) {
     const c = CATEGORIES.find((x) => x.id === openCat) || CATEGORIES[0];
     const list = shown.filter((l) => l.cat === c.id);
     return (
@@ -556,9 +590,40 @@ export default function VisualLibrary() {
   }
 
   return (
-    <div className="vl" style={paint}>
+    <div className={`vl ${pick ? 'vl--pick' : ''}`} style={paint}>
+      {pick && (
+        <div className="vl-pickhead">
+          <div className="vl-head">
+            <h1 className="vl-head__title">Choose layout category</h1>
+            <button
+              className="icobtn vl-pickhead__x"
+              onClick={pick.onClose}
+              aria-label="Close"
+              title="Close"
+            >
+              <Icon name="x" size={17} strokeWidth={2} />
+            </button>
+          </div>
+          <div className="vl-pickhead__row">
+            <p className="vl-head__lead">Choose a category for this post.</p>
+            <span className="vl-mood">
+              <span className="vl-mood__label" id="vl-mood-lp">Visual mood</span>
+              <button
+                className={`set-switch ${mood ? 'is-on' : ''}`}
+                role="switch"
+                aria-checked={mood}
+                aria-labelledby="vl-mood-lp"
+                title={mood ? 'Layouts are showing photographs' : 'Layouts are showing empty picture areas'}
+                onClick={() => setState({ layoutMoodOn: !mood })}
+              >
+                <i aria-hidden="true" />
+              </button>
+            </span>
+          </div>
+        </div>
+      )}
       {/* ROW ONE — the title and the way into the library's own settings */}
-      <header className="vl-head">
+      <header className="vl-head" hidden={!!pick} aria-hidden={!!pick}>
         {/* the count beside the title went (Leon, Aug 6): every category chip
             below already carries its own, and "All Layouts 62" says the total in
             the one place a studio is about to act on it */}
@@ -714,7 +779,7 @@ export default function VisualLibrary() {
         </span>
         </span>
       </header>
-      <p className="vl-head__lead">
+      <p className="vl-head__lead" hidden={!!pick}>
         We built these layouts using your visual identity.<br />
         Browse, keep what you like, and turn off what you don’t.
       </p>
@@ -733,7 +798,7 @@ export default function VisualLibrary() {
         * while Filter sits outside it: a studio with seven categories on a narrow
         * window can still reach the filters, which is exactly what a chip row
         * that pushed the button off-screen would have taken away. */}
-      <div className="vl-catrow">
+      <div className="vl-catrow" hidden={!!pick}>
       <div className="vl-cats" role="group" aria-label="Layout categories">
         <button
           aria-pressed={allOn}
@@ -835,7 +900,7 @@ export default function VisualLibrary() {
         * the Filter button says how many are on; this says which — and it is the
         * only trace of a filter left on the page once the menu closes, so a
         * library showing 18 of its 22 layouts is never quietly doing so. */}
-      {nFacets > 0 && (
+      {nFacets > 0 && !pick && (
         <p className="vl-applied">
           Showing {shown.length} of {all.length} —{' '}
           {[
@@ -850,7 +915,7 @@ export default function VisualLibrary() {
       )}
 
 
-      {shown.length === 0 ? (
+      {pickShown.length === 0 ? (
         <p className="vl-none">
           No layouts match that.
           {' '}
@@ -859,11 +924,11 @@ export default function VisualLibrary() {
           </button>
         </p>
       ) : (
-        shownCats.map((c) => (
+        shownCats.filter((c) => pickShown.some((l) => l.cat === c.id)).map((c) => (
           <Row
             key={c.id}
             cat={c}
-            layouts={shown.filter((l) => l.cat === c.id)}
+            layouts={pickShown.filter((l) => l.cat === c.id)}
             off={off}
             mood={mood}
             onToggle={toggle}
@@ -871,11 +936,12 @@ export default function VisualLibrary() {
             onRemove={remove}
             onOpen={openSection}
             onAdd={setAdding}
+            pick={pick}
           />
         ))
       )}
 
-      {adding && (
+      {adding && !pick && (
         <AddToCategory
           cat={CATEGORIES.find((c) => c.id === adding)}
           existing={all}

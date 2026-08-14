@@ -1270,3 +1270,131 @@
   .vl,
   .vl--section { padding: var(--sp-5) var(--sp-4); max-width: none; }
 }
+
+/* `hidden` must beat author display:flex on the page header / chip row */
+.vl [hidden] { display: none !important; }
+
+/* ── pick mode: Browse layouts opens this page over the post (825) ──────── */
+.vl--pick {
+  padding: 0;
+  max-width: none;
+  margin: 0;
+  gap: var(--sp-4);
+}
+.vl--pick .vl-head__title {
+  font-family: var(--font-ui);
+  font-size: var(--text-lg);
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+.vl--pick .vl-head__lead { margin-top: 0; }
+.vl--pick .vl-pickhead {
+  position: sticky;
+  /* match the negative top margin so the painted box sticks at the
+     scrollport, not that margin's worth below it (bauhly-v3 §938) */
+  top: calc(var(--sp-7) * -1);
+  z-index: 40;
+  isolation: isolate;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  margin: calc(var(--sp-7) * -1) calc(var(--sp-9) * -1) var(--sp-2);
+  padding: var(--sp-6) var(--sp-9) var(--sp-3);
+  background: var(--surface);
+  box-shadow: 0 1px 0 var(--border);
+}
+/* sticky measures the margin box, so a band above the ground stays inside
+   the scroller and cards slide through it. Extend the header's own ground
+   upward; the scroller clips anything past the sheet (bauhly-v3 §938/§940). */
+.vl--pick .vl-pickhead::before {
+  content: '';
+  position: absolute;
+  bottom: 100%;
+  left: 0;
+  right: 0;
+  height: 64px;
+  background: var(--surface);
+  pointer-events: none;
+}
+.vl--pick .vl-pickhead .vl-head { align-items: center; }
+.vl-pickhead__x {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  flex: 0 0 auto;
+  margin-right: -8px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--ink-500);
+  cursor: pointer;
+}
+.vl-pickhead__x:hover { color: var(--ink-900); }
+.vl-pickhead__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-4);
+}
+.vl-pickhead__row .vl-head__lead { margin: 0; min-width: 0; }
+.vl-mood { display: inline-flex; align-items: center; gap: var(--sp-2); flex: 0 0 auto; }
+.vl-mood__label {
+  font-family: var(--font-ui);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--ink-600);
+}
+.vl--pick .vl-mood__label { display: inline; }
+.vl--pick .vl-pickhead + .vl-row,
+.vl--pick .vl-row:first-of-type { border-top: 0; padding-top: 0; }
+.vl--pick .vl-card { cursor: default; }
+.vl--pick .vl-card:hover .vl-card__frame { box-shadow: 0 0 0 1px var(--border); transform: none; }
+.vl--pick .vl-row__title {
+  font-family: var(--font-ui);
+  font-size: var(--text-base);
+  font-weight: 700;
+}
+.vl-row__pick { flex: 0 0 auto; }
+.vl-row__pick.is-picked,
+.vl-row__pick.is-picked:hover {
+  background: var(--action-primary);
+  border-color: var(--action-primary);
+  color: var(--action-primary-ink, #fff);
+}
+.vl-row__pick.is-picked svg { color: currentColor; }
+.set-switch {
+  position: relative;
+  width: 44px;
+  height: 26px;
+  flex-shrink: 0;
+  border-radius: var(--r-full);
+  border: 1px solid var(--border-strong);
+  background: var(--surface-sunken);
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out);
+}
+.set-switch i {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--surface);
+  box-shadow: var(--shadow-xs);
+  transition: transform var(--dur-fast) var(--ease-out);
+}
+.set-switch.is-on {
+  background: var(--signal-500);
+  border-color: var(--signal-500);
+}
+.set-switch.is-on i { transform: translateX(18px); }
+@media (max-width: 720px) {
+  .vl--pick .vl-pickhead {
+    top: calc(var(--sp-4) * -1);
+    margin: calc(var(--sp-4) * -1) calc(var(--sp-4) * -1) var(--sp-2);
+    padding: var(--sp-5) var(--sp-4) var(--sp-3);
+  }
+  .vl-pickhead__row { gap: var(--sp-3); }
+}
