@@ -127,9 +127,10 @@ export default function AccountSwitcher() {
         aria-haspopup="menu"
         aria-expanded={open}
         style={{
-          display: 'flex', alignItems: 'center', gap: 8, padding: '5px 6px 5px 14px',
+          display: 'flex', alignItems: 'center', gap: 8, padding: '5px 6px 5px 10px',
           borderRadius: 999, border: 'none', background: open ? SUNKEN : 'transparent', cursor: 'pointer',
           fontFamily: LS_FONT, fontSize: 14, fontWeight: 600, color: LS_INK, transition: 'background 140ms ease',
+          minWidth: 0, maxWidth: '100%',
         }}
         onMouseEnter={(e) => { if (!open) e.currentTarget.style.background = SUNKEN; }}
         onMouseLeave={(e) => { if (!open) e.currentTarget.style.background = 'transparent'; }}
@@ -138,7 +139,9 @@ export default function AccountSwitcher() {
           @{current.username}
         </span>
         <Glyph name="chevron-down" size={16} color={LS_T2} style={{ transform: open ? 'rotate(180deg)' : 'none', transition: 'transform 160ms ease' }} />
-        <Avatar profile={current} size={34} />
+        <span className="acctsw__pic">
+          <Avatar profile={current} size={34} />
+        </span>
       </button>
 
       {open && (

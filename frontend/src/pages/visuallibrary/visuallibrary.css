@@ -1249,26 +1249,11 @@
   box-shadow: var(--shadow-panel);
 }
 
-/* ── OUTER MARGINS ─────────────────────────────────────────────────────────
- * In bauhly-v3 the page's margins come from the shell's `.app__main`
- * (`padding: sp-8 sp-9; max-width: 1240px; margin: 0 auto`). The live app's
- * DashboardLayout wraps the outlet in a bare, padding-less div, so the page has
- * to carry that box itself — replicated here so this page's margins, gutter and
- * centred column match the reference. Scoped to the page roots, so no other
- * live page is affected. */
+/* page gutters come from the shell's `.app__main` */
 .vl,
 .vl--section {
-  padding: var(--sp-8) var(--sp-9);
   max-width: 1240px;
   margin: 0 auto;
-}
-@media (max-width: 1100px) {
-  .vl,
-  .vl--section { padding: var(--sp-6); }
-}
-@media (max-width: 720px) {
-  .vl,
-  .vl--section { padding: var(--sp-5) var(--sp-4); max-width: none; }
 }
 
 /* `hidden` must beat author display:flex on the page header / chip row */

@@ -105,7 +105,7 @@ export default function Settings() {
   const signOut = () => { logout(); navigate('/'); };
 
   return (
-    <div style={{ maxWidth: 760, margin: '0 auto', padding: 'clamp(24px, 6vw, 48px) clamp(16px, 5vw, 48px)' }}>
+    <div style={{ maxWidth: 760, margin: '0 auto' }}>
       <div className="page-head">
         <div>
           <span className="eyebrow">Settings</span>

@@ -1,59 +1,59 @@
-import React, { useState } from 'react';
-import { Outlet, useLocation } from 'react-router-dom';
-import Sidebar from './Sidebar';
+import React from 'react';
+import { Outlet, useLocation, NavLink, Link } from 'react-router-dom';
+import Sidebar, { NAV_ITEMS } from './Sidebar';
 import UserMenu from './UserMenu';
 import AccountSwitcher from './AccountSwitcher';
 import Glyph from './Glyph';
-import { useIsMobile } from '../hooks/useMediaQuery';
-import { LS_BG, LS_SURFACE, LS_BORDER, LS_INK, LS_SIGNAL, LS_FONT, LS_DISPLAY } from '../theme';
+import { Logo } from '../brand/Logo';
+import { useScrollHide } from '../hooks/useScrollHide';
 
 export default function DashboardLayout({ children }) {
-  const isMobile = useIsMobile();
   const { pathname } = useLocation();
-  // Onboarding (including connecting/changing an Instagram account) is a focused,
-  // full-screen flow — hide the app nav so nothing distracts from it.
+  // Onboarding is a focused, full-screen flow — hide the app chrome so nothing
+  // distracts from it, and skip `.app` so it keeps the marketing typefaces.
   const hideNav = pathname.startsWith('/onboarding');
-  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const navHidden = useScrollHide();
   const content = children ?? <Outlet />;
 
+  if (hideNav) {
+    return <div style={{ minHeight: '100vh', background: 'var(--canvas)' }}>{content}</div>;
+  }
+
   return (
-    <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', minHeight: '100vh', background: LS_BG }}>
-      {isMobile && !hideNav && (
-        <div
-          style={{
-            position: 'sticky', top: 0, zIndex: 30, display: 'flex', alignItems: 'center', gap: 10,
-            height: 56, padding: '0 12px', background: LS_SURFACE, borderBottom: `1px solid ${LS_BORDER}`,
-          }}
-        >
-          <button
-            onClick={() => setSidebarOpen(true)}
-            aria-label="Open menu"
-            style={{ border: 'none', background: 'none', cursor: 'pointer', padding: 6, display: 'flex' }}
-          >
-            <Glyph name="menu" size={22} color={LS_INK} />
-          </button>
-          <span style={{ fontFamily: LS_DISPLAY, fontWeight: 700, fontSize: 18, letterSpacing: '-0.02em', color: LS_INK }}>
-            Bauhly<span style={{ color: LS_SIGNAL }}>.</span>
+    <div className="app">
+      {/* One header, every width: mark left, account right. The sidebar's only
+        * job is navigation. On tablet and phone the user menu joins this bar
+        * so Settings stays reachable when the sidebar is a rail or gone. */}
+      <header className="apptop">
+        <Logo size={22} as={Link} to="/dashboard" />
+        <div className="apptop__end">
+          <AccountSwitcher />
+          <span className="apptop__user">
+            <UserMenu compact />
           </span>
-          <div style={{ flex: 1, display: 'flex', justifyContent: 'flex-end' }}>
-            <AccountSwitcher />
-          </div>
-          <UserMenu compact />
         </div>
-      )}
-      {!hideNav && <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />}
-      <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
-        {!isMobile && !hideNav && (
-          <div
-            style={{
-              position: 'sticky', top: 0, zIndex: 30, display: 'flex', alignItems: 'center', justifyContent: 'flex-end',
-              height: 64, padding: '0 clamp(16px, 5vw, 48px)', background: LS_SURFACE, borderBottom: `1px solid ${LS_BORDER}`,
-            }}
+      </header>
+      <nav
+        className="mtabs"
+        aria-label="Main"
+        style={{ transform: `translateY(${navHidden * 175}%)`, opacity: 1 - navHidden }}
+      >
+        {NAV_ITEMS.map((n) => (
+          <NavLink
+            key={n.to}
+            to={n.to}
+            end={n.exact}
+            className={({ isActive }) => (isActive ? 'is-active' : undefined)}
           >
-            <AccountSwitcher />
-          </div>
-        )}
-        <div style={{ flex: 1, minWidth: 0 }}>{content}</div>
+            <Glyph name={n.icon} size={20} strokeWidth={1.6} />
+            {n.label.replace('Your plans', 'Plans')}
+          </NavLink>
+        ))}
+      </nav>
+
+      <div className="app__body">
+        <Sidebar />
+        <main className="app__main">{content}</main>
       </div>
     </div>
   );

@@ -405,7 +405,7 @@ export default function CompetitorOverview() {
     return () => { cancelled = true; };
   }, []);
 
-  const wrap = { ...LSC, padding: 'clamp(24px, 6vw, 48px) clamp(16px, 5vw, 48px)', maxWidth: 1160 };
+  const wrap = { ...LSC, maxWidth: 1160 };
   const header = (right) => (
     <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
       <div>

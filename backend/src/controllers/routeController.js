@@ -28,6 +28,36 @@ function mondayOf(from = new Date()) {
   d.setDate(d.getDate() - ((d.getDay() + 6) % 7));
   return d;
 }
+
+// Store weekOf as UTC midnight of the local calendar day so IST-stamped and
+// UTC-stamped Mondays of the same date compare equal.
+function asUtcDay(date) {
+  const d = new Date(date);
+  return new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+}
+
+// A ± window around that calendar day. An IST midnight (UTC previous evening)
+// and a UTC midnight of the same Monday both land inside it.
+function weekLookupWindow(date) {
+  const mid = asUtcDay(date);
+  return {
+    start: new Date(mid.getTime() - 18 * 60 * 60 * 1000),
+    end: new Date(mid.getTime() + 30 * 60 * 60 * 1000),
+  };
+}
+
+// 0-based index of this Monday among Mondays that fall in its calendar month
+// (1 Aug Sat → first Monday is the 3rd, so 10 Aug is week 1 → "Week 2").
+function weekIndexInMonth(weekDate) {
+  const monthStart = new Date(weekDate.getFullYear(), weekDate.getMonth(), 1);
+  monthStart.setHours(0, 0, 0, 0);
+  let first = mondayOf(monthStart);
+  if (first < monthStart) first = addDays(first, 7);
+  const week = mondayOf(weekDate);
+  const diff = Math.round((week.getTime() - first.getTime()) / (7 * 24 * 60 * 60 * 1000));
+  return Math.max(0, diff);
+}
+
 const monthLabelOf = (date) => `${MONTH_ABBR[date.getMonth()]} ${date.getFullYear()}`;
 const monthNameOf = (date) => MONTH_NAMES[date.getMonth()];
 // Next pillar after `pillar` in the rotation — the next month's focus.
@@ -254,32 +284,41 @@ async function loadProjectAssets(userId, username) {
   });
 }
 
-// Persist one week (upsert by handle+weekOf), stamped with month/schedule meta.
+// Persist one week. Match the same calendar Monday even when an older row was
+// stamped in a different timezone (exact Date equality would insert a duplicate).
 async function saveWeek(userId, username, plan, meta) {
   const usage = plan.usage || {};
-  return WeeklyRoute.findOneAndUpdate(
-    { user: userId, instagramUsername: username, weekOf: plan.weekOf },
-    {
-      user: userId,
-      instagramUsername: username,
-      weekOf: plan.weekOf,
-      weekLabel: plan.weekLabel,
-      model: plan.model || '',
-      focus: plan.focus,
-      funnel: plan.funnel || [],
-      days: plan.days || [],
-      generatedAt: new Date(),
-      usage: {
-        inputTokens: Number(usage.inputTokens) || 0,
-        outputTokens: Number(usage.outputTokens) || 0,
-        totalTokens: Number(usage.totalTokens) || 0,
-        estimatedCostUsd: Number(usage.estimatedCostUsd) || 0,
-        model: usage.model || plan.model || '',
-      },
-      ...meta,
+  const weekOf = asUtcDay(plan.weekOf);
+  const { start, end } = weekLookupWindow(plan.weekOf);
+  const payload = {
+    user: userId,
+    instagramUsername: username,
+    weekOf,
+    weekLabel: plan.weekLabel,
+    model: plan.model || '',
+    focus: plan.focus,
+    funnel: plan.funnel || [],
+    days: plan.days || [],
+    generatedAt: new Date(),
+    usage: {
+      inputTokens: Number(usage.inputTokens) || 0,
+      outputTokens: Number(usage.outputTokens) || 0,
+      totalTokens: Number(usage.totalTokens) || 0,
+      estimatedCostUsd: Number(usage.estimatedCostUsd) || 0,
+      model: usage.model || plan.model || '',
     },
-    { new: true, upsert: true }
-  );
+    ...meta,
+    startsAt: meta?.startsAt ? asUtcDay(meta.startsAt) : weekOf,
+  };
+  const existing = await WeeklyRoute.findOne({
+    user: userId,
+    instagramUsername: username,
+    weekOf: { $gte: start, $lt: end },
+  }).sort({ generatedAt: -1 });
+  if (existing) {
+    return WeeklyRoute.findByIdAndUpdate(existing._id, payload, { new: true });
+  }
+  return WeeklyRoute.create(payload);
 }
 
 /**
@@ -299,12 +338,12 @@ async function finishMonthInBackground(userId, profile, ctx) {
   } = ctx;
   const username = profile.username;
 
-  const weekMeta = (w, weekDate, draft) => ({
+  const weekMeta = (weekDate, draft) => ({
     // Stamp from the week's own start date so Aug/Sep never share a monthKey.
     monthKey: monthLabelOf(weekDate),
     monthName: monthNameOf(weekDate),
     monthIndex: draft ? 1 : 0,
-    weekIndex: w,
+    weekIndex: weekIndexInMonth(weekDate),
     startsAt: weekDate,
     readyAt: addDays(weekDate, -PREP_DAYS),
     draft,
@@ -321,7 +360,7 @@ async function finishMonthInBackground(userId, profile, ctx) {
             focusPillar: monthFocus,
             usedAssetKeys, // shared across the month so no photo repeats between weeks
           });
-          await saveWeek(userId, username, plan, weekMeta(w, weekDate, false));
+          await saveWeek(userId, username, plan, weekMeta(weekDate, false));
         } catch (err) {
           console.error(`[route] month0 week ${w} generation failed for @${username}:`, err.message);
         }
@@ -343,7 +382,7 @@ async function finishMonthInBackground(userId, profile, ctx) {
         focus: { pillar: nextFocus, headline: '' },
         funnel: [],
         days: [],
-      }, weekMeta(w, weekDate, true));
+      }, weekMeta(weekDate, true));
     }),
   );
 }
@@ -398,19 +437,26 @@ async function generateAndSaveRoute(userId, profile, trigger = 'generate') {
   }
   const monthFocus = week0Plan.focus?.pillar || 'trust';
 
-  // Safe to replace now: drop the scheduled next month and this month onward;
-  // weeks that have already started stay as the archive.
+  // Safe to replace now: drop next-month stubs and every week from this Monday
+  // onward. A timezone-shifted stamp for "this week" can sit a few hours before
+  // local midnight, so the cutoff is the lookup window — not exact equality —
+  // or Replan month inserts a second row for the same Monday.
+  const cutoff = weekLookupWindow(month0Start).start;
   await WeeklyRoute.deleteMany({
     user: userId,
     instagramUsername: profile.username,
-    $or: [{ draft: true }, { weekOf: { $gte: month0Start } }],
+    $or: [
+      { draft: true },
+      { weekOf: { $gte: cutoff } },
+      { startsAt: { $gte: cutoff } },
+    ],
   });
 
   const firstWeek = await saveWeek(userId, profile.username, week0Plan, {
     monthKey: monthLabelOf(month0Start),
     monthName: monthNameOf(month0Start),
     monthIndex: 0,
-    weekIndex: 0,
+    weekIndex: weekIndexInMonth(month0Start),
     startsAt: month0Start,
     readyAt: addDays(month0Start, -PREP_DAYS),
     draft: false,

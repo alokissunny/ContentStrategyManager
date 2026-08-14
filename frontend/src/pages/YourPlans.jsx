@@ -63,7 +63,17 @@ function fmtCost(usd) {
 }
 /* Group weeks by the calendar month they start in, then sort by date.
  * (Never by weekIndex alone — that interleaved Aug week 2 with Sep week 2
- * when both months shared a stale monthKey.) */
+ * when both months shared a stale monthKey.)
+ * Same calendar Monday twice (a replanned week whose old row wasn't deleted)
+ * keeps the newest write. */
+function mondayKey(date) {
+  const d = new Date(date);
+  if (Number.isNaN(d.getTime())) return '';
+  d.setHours(12, 0, 0, 0);
+  d.setDate(d.getDate() - ((d.getDay() + 6) % 7));
+  return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+}
+
 function monthlyGroups(routes) {
   const by = new Map();
   (routes || []).forEach((r) => {
@@ -83,7 +93,15 @@ function monthlyGroups(routes) {
 
   const groups = [...by.values()];
   groups.forEach((g) => {
-    g.weeks.sort(
+    const newestByMonday = new Map();
+    g.weeks.forEach((w) => {
+      const k = mondayKey(w.startsAt || w.weekOf) || String(w._id);
+      const prev = newestByMonday.get(k);
+      const t = Date.parse(w.generatedAt || w.updatedAt || 0);
+      const pt = prev ? Date.parse(prev.generatedAt || prev.updatedAt || 0) : -1;
+      if (!prev || t >= pt) newestByMonday.set(k, w);
+    });
+    g.weeks = [...newestByMonday.values()].sort(
       (a, b) =>
         new Date(a.startsAt || a.weekOf) - new Date(b.startsAt || b.weekOf),
     );
@@ -116,7 +134,7 @@ function isNowWeek(start, locked) {
  * second line — the shape from bauhly-v3's PlanHistory row. Next-month weeks
  * have no strategy yet: they are locked, non-clickable, and say when Bauhly
  * will write them. */
-function WeekRow({ week, onOpen }) {
+function WeekRow({ week, index, onOpen }) {
   const focus = PILLARS[week.focus?.pillar];
   const locked = !!week.draft;
   const start = (week.startsAt || week.weekOf) ? new Date(week.startsAt || week.weekOf) : null;
@@ -141,7 +159,7 @@ function WeekRow({ week, onOpen }) {
       </span>
       <span className="ph-row__body">
         <span className="ph-row__line">
-          <b className="ph-row__range">Week {(week.weekIndex ?? 0) + 1}</b>
+          <b className="ph-row__range">Week {(index ?? week.weekIndex ?? 0) + 1}</b>
           {focus && (
             <span className="ph-row__aim ph-badge" style={{ '--pc': focus.strong, '--pt': focus.tint }}>
               <Icon name={focus.icon} size={12} strokeWidth={2.25} />
@@ -486,8 +504,8 @@ export default function YourPlans() {
                   </p>
                 )}
                 <div className="ph__groupbox">
-                  {sec.group.weeks.map((w) => (
-                    <WeekRow key={w._id} week={w} onOpen={() => open(w)} />
+                  {sec.group.weeks.map((w, i) => (
+                    <WeekRow key={w._id} week={w} index={i} onOpen={() => open(w)} />
                   ))}
                 </div>
               </div>

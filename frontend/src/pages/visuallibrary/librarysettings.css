@@ -270,6 +270,9 @@
   box-shadow: var(--shadow-lift);
   animation: ls-toast-in var(--dur-base) var(--ease-out);
 }
+@media (max-width: 800px) {
+  .ls-toast { bottom: calc(66px + env(safe-area-inset-bottom) + var(--sp-4)); }
+}
 @keyframes ls-toast-in { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
 /* TWO ROWS, DECLARED RATHER THAN WRAPPED (Leon, Aug 7). `flex-wrap` with a
    100% basis on the action looked equivalent and was not: `max-width:
@@ -782,18 +785,8 @@
    with room between them and nothing drawn on top. */
 .ls-refs { gap: var(--sp-4); }
 
-/* ── OUTER MARGINS ─────────────────────────────────────────────────────────
- * Same as the Visual Library: in bauhly-v3 these margins came from the shell's
- * `.app__main`; the live DashboardLayout adds none, so the page carries the box
- * itself (`padding: sp-8 sp-9; max-width: 1240px; margin: 0 auto`). */
+/* page gutters come from the shell's `.app__main` */
 .ls {
-  padding: var(--sp-8) var(--sp-9);
   max-width: 1240px;
   margin: 0 auto;
-}
-@media (max-width: 1100px) {
-  .ls { padding: var(--sp-6); }
-}
-@media (max-width: 720px) {
-  .ls { padding: var(--sp-5) var(--sp-4); max-width: none; }
 }

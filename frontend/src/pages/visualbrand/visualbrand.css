@@ -1094,7 +1094,6 @@
 .vb-page {
   max-width: 1080px;
   margin: 0 auto;
-  padding: clamp(24px, 6vw, 48px) clamp(16px, 5vw, 48px);
 }
 
 /* ── TABS ─── the selected tab is ink on a soft-lifted white segment ── */

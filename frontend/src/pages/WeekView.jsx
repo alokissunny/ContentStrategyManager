@@ -1043,6 +1043,10 @@ export default function WeekView({ route: initialRoute, onBack }) {
   // has finished.
   const [navOut, setNavOut] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false); // header ⋯ menu
+  const calGridRef = useRef(null);
+  const [calMore, setCalMore] = useState(false);
+  const [calPrev, setCalPrev] = useState(false);
+  const calPlacedFor = useRef(null);
   const [wordDraft, setWordDraft] = useState(null); // role-keyed draft until Apply
   const [capDraft, setCapDraft] = useState(''); // caption editor draft
   const [saving, setSaving] = useState(false);
@@ -1129,6 +1133,32 @@ export default function WeekView({ route: initialRoute, onBack }) {
       return { ...d, slides, status: dayAssetStatus(slides, d.published) };
     });
   }, [days, allImages, localMedia]);
+
+  useEffect(() => {
+    const el = calGridRef.current;
+    if (!el) return undefined;
+    const read = () => {
+      setCalMore(el.scrollWidth - el.clientWidth - el.scrollLeft > 4);
+      setCalPrev(el.scrollLeft > 4);
+    };
+    read();
+    el.addEventListener('scroll', read, { passive: true });
+    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(read) : null;
+    ro?.observe(el);
+    return () => { el.removeEventListener('scroll', read); ro?.disconnect(); };
+  }, [enrichedDays.length]);
+
+  useEffect(() => {
+    const g = calGridRef.current;
+    const card = g?.children[selected];
+    if (!g || !card || g.scrollWidth <= g.clientWidth) return;
+    if (calPlacedFor.current === selected) return;
+    calPlacedFor.current = selected;
+    const left = card.offsetLeft;
+    const right = left + card.offsetWidth;
+    if (left < g.scrollLeft) g.scrollTo({ left: Math.max(0, left - 8), behavior: 'smooth' });
+    else if (right > g.scrollLeft + g.clientWidth) g.scrollTo({ left: right - g.clientWidth + 8, behavior: 'smooth' });
+  }, [selected, calMore]);
 
   const enriched = enrichedDays[selected] || enrichedDays[0];
   const slides = enriched?.slides || [];
@@ -1758,11 +1788,25 @@ export default function WeekView({ route: initialRoute, onBack }) {
           <Glyph name="arrow-left" size={15} />Your plans
         </button>
         <div className="wv-top__actions">
-          <button type="button" className="wv-abtn" onClick={() => setAnalysisOpen(true)}>
-            <Glyph name="bar-chart-2" size={15} />Your analysis
+          <button
+            type="button"
+            className="wv-abtn"
+            onClick={() => setAnalysisOpen(true)}
+            aria-label="Your analysis"
+            title="Your analysis"
+          >
+            <Glyph name="bar-chart-2" size={15} />
+            <span className="wv-abtn__t">Your analysis</span>
           </button>
-          <button type="button" className="wv-abtn" onClick={handleExport}>
-            <Glyph name="download" size={15} />Export
+          <button
+            type="button"
+            className="wv-abtn"
+            onClick={handleExport}
+            aria-label="Export"
+            title="Export"
+          >
+            <Glyph name="download" size={15} />
+            <span className="wv-abtn__t">Export</span>
           </button>
           <div className="wv-more">
             <button
@@ -1969,8 +2013,8 @@ export default function WeekView({ route: initialRoute, onBack }) {
 
       {/* ── the week, as a calendar: seven cards, lime for the one you are on
            (bauhly-v3 §682) ─────────────────────────────────────────────── */}
-      <div className="wv-cal">
-        <div className="wv-cal__grid" role="tablist" aria-label="This week's posts">
+      <div className={`wv-cal${calMore ? ' has-more' : ''}${calPrev ? ' has-prev' : ''}`}>
+        <div className="wv-cal__grid" ref={calGridRef} role="tablist" aria-label="This week's posts">
           {enrichedDays.map((d, i) => {
             const active = i === selected;
             const done = d.published;

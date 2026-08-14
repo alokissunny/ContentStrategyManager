@@ -51,6 +51,7 @@ export function Logo({ size = 26, color, to = '/', as: As = 'a' }) {
   return (
     <As
       href={As === 'a' ? to : undefined}
+      to={As === 'a' ? undefined : to}
       style={{ display: 'inline-flex', alignItems: 'center', gap: 10, textDecoration: 'none', whiteSpace: 'nowrap' }}
       aria-label="Bauhly home"
     >

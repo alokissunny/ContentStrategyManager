@@ -115,7 +115,7 @@ export default function BrandDna() {
   const completedCount = sections.filter((s) => s.value.trim().length > 0).length;
 
   return (
-    <div style={{ ...LSC, padding: 'clamp(24px, 6vw, 48px) clamp(16px, 5vw, 48px)', maxWidth: 760 }}>
+    <div style={{ ...LSC, maxWidth: 760 }}>
         <h1 style={{ fontFamily: LS_DISPLAY, fontWeight: 700, fontSize: 30, color: LS_INK, margin: '0 0 8px' }}>Business memory</h1>
         <p style={{ fontFamily: LS_FONT, fontSize: 14, color: LS_T2, margin: '0 0 8px' }}>
           What Bauhly inferred about your business from your Instagram. Edit anything that’s off — the sharper this is, the better your weekly route.

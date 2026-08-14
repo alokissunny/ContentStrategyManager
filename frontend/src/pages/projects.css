@@ -11,10 +11,6 @@
   flex-direction: column;
   gap: var(--sp-4);
   min-height: 60vh;
-  /* the page's own gutters — this app gives each page its padding (there is no
-     shared .app__main wrapper like the design repo), so the content clears the
-     sidebar and the top edge instead of sitting flush against them */
-  padding: clamp(20px, 4vw, 40px) clamp(16px, 4vw, 48px);
 }
 .pj-head { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--sp-4); }
 .pj-head__title {

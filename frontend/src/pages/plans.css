@@ -13,7 +13,6 @@
   width: 100%;
   max-width: var(--container);
   margin: 0 auto;
-  padding: clamp(20px, 5vw, 40px) clamp(16px, 5vw, 48px);
   animation: fade-in var(--dur-base) var(--ease-out);
 }
 
