@@ -1,8 +1,10 @@
 /* ── Your Plans — the list you land on ────────────────────────────────────
- * A record and a starting point, not a dashboard. Ported from the bauhly-v3
- * design system (planhistory.css). Every value from tokens; the only colour is
- * the pillar's, and only on the goal chip. The .empty brand-moment styles come
- * from yourweek.css. */
+ * A record and a starting point, not a dashboard. A faithful port of the
+ * bauhly-v3 design system (planhistory.css): the date mark on the left, the
+ * "Week N" title with the pillar-coloured aim badge, and the state said in
+ * words on the row's second line. Every value from tokens; the only colour is
+ * the pillar's (on the aim badge) and the review violet (on a ready week).
+ * The .empty brand-moment styles come from yourweek.css. */
 
 .ph {
   display: flex;
@@ -14,8 +16,16 @@
   padding: clamp(20px, 5vw, 40px) clamp(16px, 5vw, 48px);
   animation: fade-in var(--dur-base) var(--ease-out);
 }
-.ph__head { display: flex; flex-direction: column; gap: 6px; }
-.ph__headrow { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3); }
+
+/* ── the head: title + the page's one action, then the arrangement sentence ── */
+.ph__head { display: flex; flex-direction: column; margin-bottom: var(--sp-5); }
+.ph__headrow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-4);
+}
+.ph__headrow .btn { flex-shrink: 0; }
 .ph__title {
   margin: 0;
   font-family: var(--font-display);
@@ -24,25 +34,29 @@
   letter-spacing: -0.01em;
   color: var(--ink-900);
 }
-.ph__sub { margin: 0; max-width: 52ch; font-size: var(--text-sm); line-height: 1.55; color: var(--ink-600); }
-.ph__new { flex-shrink: 0; }
-
-.ph__list { display: flex; flex-direction: column; gap: var(--sp-5); }
-.ph__group { display: flex; flex-direction: column; }
-.ph__groupbox {
-  display: flex;
-  flex-direction: column;
-  border: 1px solid var(--border);
-  border-radius: var(--r-lg);
-  background: var(--surface);
-  overflow: hidden;
+.ph__sub {
+  margin: var(--sp-3) 0 0;
+  max-width: 66ch;
+  font-size: var(--text-base);
+  line-height: 1.6;
+  color: var(--ink-600);
 }
-.ph__groupbox .ph-row + .ph-row { border-top: 1px solid var(--border); }
-.ph__groupbox .ph-row { border-radius: 0; border-left: 0; border-right: 0; border-bottom: 0; }
-.ph__groupbox .ph-row:hover { background: var(--surface-sunken); }
-.ph__groupbox .ph-row:first-child { border-top: 0; }
+.ph__new { flex-shrink: 0; }
+/* the two header actions — Capture idea beside anything else */
+.ph__headacts { display: flex; align-items: center; gap: var(--sp-2); flex-shrink: 0; }
+
+/* ── the list ────────────────────────────────────────────────────────────
+ * Two levels: an uppercase group label (Running now / Coming up / Already run),
+ * then the month named in the display face, its weeks in a bordered box under
+ * it. One shape for every group on the page. */
+.ph__list { display: flex; flex-direction: column; gap: var(--sp-4); }
+.ph__group { display: flex; flex-direction: column; }
+.ph__group + .ph__group { margin-top: var(--sp-6); }
 .ph__grouphead {
-  margin: 0;
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-3);
+  margin: 0 0 var(--sp-3);
   font-family: var(--font-ui);
   font-size: var(--text-xs);
   font-weight: 700;
@@ -50,62 +64,104 @@
   text-transform: uppercase;
   color: var(--ink-quiet);
 }
-.ph__groupheadrow {
+
+/* the month a run of weeks belongs to — a quieter heading than the group's
+   own, because it sits inside it */
+.ph__month { margin-bottom: 0; }
+.ph__month + .ph__month { margin-top: var(--sp-5); }
+.ph__monthhead {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: var(--sp-3);
-  margin: 0 0 6px;
-  min-height: 28px;
+  margin: 0 2px 6px;
+  font-family: var(--font-display);
+  font-size: var(--text-md);
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--ink-900);
 }
-.ph__replan {
-  flex-shrink: 0;
-}
-.ph__usage {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px;
-  margin: -2px 0 8px;
+.ph__monthhead span {
   font-family: var(--font-ui);
-  font-size: 12px;
-  color: var(--ink-500);
+  font-size: var(--text-xs);
+  font-weight: 500;
+  color: var(--ink-quiet);
 }
-.ph__usage--filling {
-  color: var(--ink-600);
-  font-weight: 600;
+
+.ph__groupbox {
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: var(--surface);
+  overflow: hidden;
 }
-.ph__usage-live {
-  color: var(--signal-600, var(--ink-600));
-  font-weight: 600;
+.ph__groupbox .ph-row + .ph-row { border-top: 1px solid var(--border); }
+.ph__groupbox .ph-row {
+  border-radius: 0;
+  border-left: 0;
+  border-right: 0;
+  border-bottom: 0;
 }
+.ph__groupbox .ph-row:hover { background: var(--surface-sunken); }
+.ph__groupbox .ph-row:first-child { border-top: 0; }
+.ph__groupbox > .ph-row:last-child { border-bottom: none; }
+
+/* ── a row: the date, the week, the aim, the state ── */
 .ph-row {
   display: flex;
   align-items: center;
-  gap: var(--sp-3);
+  gap: var(--sp-4);
   width: 100%;
-  padding: 16px var(--sp-4);
+  padding: var(--sp-3) var(--sp-4);
   border: 1px solid transparent;
   border-radius: var(--r-lg);
   background: transparent;
   text-align: left;
+  line-height: 1.35;
   cursor: pointer;
   transition: background var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out);
 }
 .ph-row:hover { background: var(--surface); border-color: var(--border); }
 .ph-row.is-live { border-color: var(--signal-400); }
-.ph-row__mark {
-  display: grid;
-  place-items: center;
+.ph-row > * { align-self: center; }
+
+/* the date mark: two lines, the product's own rectangle, no colour spent */
+.ph-row__mark--date {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0;
   width: 42px;
   height: 42px;
   flex-shrink: 0;
-  border-radius: var(--r-md);
-  background: var(--pt, var(--surface-sunken));
-  color: var(--pc, var(--ink-500));
+  border-radius: var(--r-sm);
+  background: var(--surface-sunken);
+  color: var(--ink-700);
 }
-.ph-row__body { display: flex; flex-direction: column; gap: 6px; min-width: 0; flex: 1; }
-.ph-row__line { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.ph-row__mark--date b { font-size: 10px; font-weight: 700; letter-spacing: 0.04em; color: var(--ink-quiet); }
+.ph-row__mark--date span { font-size: var(--text-base); font-weight: 700; line-height: 1.1; color: var(--ink-900); }
+
+.ph-row__body {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 0;
+  min-width: 0;
+  flex: 1;
+}
+.ph-row__body > :last-child { margin-bottom: 0; }
+/* the aim sits with the dates, so the line wraps as a pair rather than pushing
+   the badge onto its own row */
+.ph-row__line {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+  min-width: 0;
+  margin: 0;
+}
 .ph-row__range {
   min-width: 0;
   font-size: var(--text-base);
@@ -116,36 +172,99 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
+/* the running plan is the only one that carries a title's weight */
+.ph-row.is-live .ph-row__range { font-size: var(--text-lg); }
+
 .ph-row__meta {
   display: block;
+  margin: 2px 0 0;
+  row-gap: 2px;
   font-size: var(--text-xs);
   color: var(--ink-500);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
-.ph-row__aim { color: var(--pc); font-weight: 600; }
 .ph-row__meta > span + span::before { content: ' · '; color: var(--ink-300); }
+/* AN EMPTY LINE IS A GAP: it only takes room when it has words */
+.ph-row__meta:empty { display: none; }
+
 .ph-row__from { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 22ch; }
-.ph-row__ago { color: var(--ink-quiet); }
 .ph-row > svg { flex-shrink: 0; color: var(--ink-quiet); }
-.ph-card__period,
-.ph-card__live {
+
+/* the aim is a mark, not a heading: a small pillar-coloured pill under the dates */
+.ph-row__aim.ph-badge {
   flex-shrink: 0;
-  padding: 2px 8px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 20px;
+  padding: 0 8px;
   border-radius: var(--r-full);
+  background: var(--pt, var(--surface-sunken));
+  color: var(--pc, var(--ink-700));
   font-size: 11px;
-  font-weight: 700;
+  font-weight: 600;
+  white-space: nowrap;
 }
-.ph-card__period { border: 1px solid var(--border); background: var(--surface-sunken); color: var(--ink-600); }
-.ph-card__live { background: var(--signal-100); color: var(--signal-800); }
+.ph-row__aim.ph-badge svg { width: 11px; height: 11px; }
+
+/* ── THE STATE, IN WORDS ────────────────────────────────────────────────────
+ * A line at the row's end, not a pill: ink on the review colour when it is
+ * theirs to read, the accent when it is the week they are in, and the quietest
+ * thing on the row while Bauhly is still writing it. */
+.ph-row__when {
+  order: -1;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: var(--text-xs);
+  font-weight: 600;
+  color: var(--ink-quiet);
+  white-space: normal;
+}
+.ph-row__when svg { flex-shrink: 0; }
+.ph-row__when.is-ready { color: var(--review, #6d3fc4); font-weight: 700; }
+.ph-row__when.is-now { color: var(--action-accent-text); font-weight: 700; }
+
+/* ── THE WEEK YOU ARE IN ─────────────────────────────────────────────────────
+ * The row that contains today carries a solid, accent-filled date mark — the
+ * colour rule's "what is chosen right now". */
+.ph-row.is-now { background: var(--surface); }
+.ph-row.is-now .ph-row__mark--date { background: var(--action-accent); }
+.ph-row.is-now .ph-row__mark--date b { color: color-mix(in srgb, #fff 78%, transparent); }
+.ph-row.is-now .ph-row__mark--date span { color: #fff; }
+
+/* ── a locked week: scheduled, not yet written — non-clickable, dimmed ──────── */
+.ph-row:disabled { cursor: default; }
+.ph-row:disabled:hover { background: transparent; border-color: transparent; }
+.ph__groupbox .ph-row:disabled:hover { background: transparent; }
+.ph-row:disabled .ph-row__mark--date { opacity: 0.72; }
+
+/* ── live-only: month LLM usage, read under the month heading ── */
+.ph__usage {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: 0 2px 8px;
+  font-family: var(--font-ui);
+  font-size: 12px;
+  color: var(--ink-500);
+}
+.ph__usage--filling { color: var(--ink-600); font-weight: 600; }
+.ph__usage-live { color: var(--signal-600, var(--ink-600)); font-weight: 600; }
+
+/* ── live-only: replan the current month, inline on the month heading ── */
+.ph__replan { margin-left: auto; flex-shrink: 0; }
 
 @media (max-width: 640px) {
-  .ph-row__line { justify-content: space-between; width: 100%; }
-  .ph-row__range { flex: 1; }
-  .ph-row .ph-card__period,
-  .ph-row .ph-card__live { margin-left: auto; }
+  .ph-row { align-items: flex-start; }
+  .ph-row > * { align-self: flex-start; }
+  .ph-row__line { row-gap: 4px; }
   .ph__title { font-size: var(--text-xl); white-space: nowrap; }
+  .ph__monthhead { flex-wrap: wrap; row-gap: var(--sp-2); }
+}
+@media (max-width: 560px) {
+  .ph__headacts { width: 100%; }
+  .ph__headacts .btn { flex: 1; justify-content: center; }
 }
 
 /* ── the wait while a week is built (RouteLoom) ──────────────────────────── */
@@ -173,22 +292,11 @@
 .lm-dots i:nth-child(3) { animation-delay: 0.4s; }
 @media (prefers-reduced-motion: reduce) { .lm-dots i { animation: none; } }
 
-/* the two header actions — Capture idea (tertiary) beside Create a new plan */
-.ph__headacts { display: flex; align-items: center; gap: var(--sp-2); flex-shrink: 0; }
-@media (max-width: 560px) {
-  .ph__headacts { width: 100%; }
-  .ph__headacts .btn { flex: 1; justify-content: center; }
-}
-
 /* ── "Bauhly has a question about these photos" (NeedsAWord) ──────────────────
    Ported from bauhly-v3's Library group onto Your Plans: wordless captures the
    plan can't use until the studio adds a line. */
-.nw {
-  margin-bottom: 28px;
-}
-.nw__head {
-  margin-bottom: 14px;
-}
+.nw { margin-bottom: 28px; }
+.nw__head { margin-bottom: 14px; }
 .nw__title {
   display: flex;
   align-items: center;
@@ -228,15 +336,8 @@
   background: #f8f7fc;
   overflow: hidden;
 }
-.nw-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 0 12px 0 0;
-}
-.nw-row + .nw-row {
-  border-top: 1px solid color-mix(in srgb, #6d28d9 12%, transparent);
-}
+.nw-row { display: flex; align-items: center; gap: 8px; padding: 0 12px 0 0; }
+.nw-row + .nw-row { border-top: 1px solid color-mix(in srgb, #6d28d9 12%, transparent); }
 .nw-row__hit {
   flex: 1;
   min-width: 0;
@@ -277,12 +378,7 @@
   font-size: 11px;
   font-weight: 700;
 }
-.nw-row__body {
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
+.nw-row__body { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
 .nw-row__text {
   font-family: var(--font-ui);
   font-size: 16px;
@@ -315,71 +411,3 @@
   transition: background var(--dur-fast), color var(--dur-fast);
 }
 .nw-row__del:hover { background: var(--surface); color: var(--negative); }
-
-/* ── monthly plans: eyebrow, week date chip, focus pill, locked rows ──────── */
-.ph__eyebrow {
-  display: block;
-  margin-bottom: 6px;
-  font-family: var(--font-ui);
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--ink-quiet);
-}
-/* the date chip replaces the pillar icon square on a week row */
-.ph-week__date {
-  flex-shrink: 0;
-  width: 46px;
-  height: 46px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 1px;
-  border-radius: 12px;
-  background: var(--surface-sunken);
-}
-.ph-week__date b {
-  font-family: var(--font-ui);
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  color: var(--ink-quiet);
-}
-.ph-week__date i {
-  font-family: var(--font-display);
-  font-style: normal;
-  font-size: 18px;
-  font-weight: 700;
-  line-height: 1;
-  color: var(--ink-900);
-}
-/* the focus tag — a pillar-coloured pill (pillar gap analysis) */
-.ph-focus {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 2px 9px;
-  border-radius: 999px;
-  background: var(--pt);
-  color: var(--pc);
-  font-family: var(--font-ui);
-  font-size: 12px;
-  font-weight: 700;
-  white-space: nowrap;
-}
-.ph-focus svg { flex-shrink: 0; }
-/* next-month weeks: scheduled, not yet written — locked and non-clickable */
-.ph-row.is-locked {
-  cursor: default;
-  opacity: 0.72;
-}
-.ph-row.is-locked:hover { background: transparent; border-color: transparent; }
-.ph-week__lock {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-weight: 600;
-  color: var(--ink-600);
-}

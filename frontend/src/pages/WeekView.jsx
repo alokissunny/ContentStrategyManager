@@ -13,7 +13,7 @@ import Glyph from '../components/Glyph';
 import Icon from '../brand/Icon';
 import YourAnalysisModal from '../components/YourAnalysisModal';
 import ConnectMetaModal from '../components/ConnectMetaModal';
-import { markDayPublished, updateDayContent, replanWeek } from '../api/routes';
+import { markDayPublished, updateDayContent, replanWeek, scheduleDay, setDayTime } from '../api/routes';
 import { getMetaStatus, publishDayToMeta } from '../api/meta';
 import { mediaProxyUrl } from '../api/media';
 import { createImage, listGeneratedImages } from '../api/images';
@@ -393,6 +393,9 @@ function brandStyleVars(store) {
 }
 
 const FORMAT_ICON = { Reel: 'play', Carousel: 'copy', Post: 'image', Story: 'book-open' };
+// The glyph the post's own format tag wears — a moving waveform for a Reel, the
+// same marks the day cards use for the rest.
+const FORMAT_GLYPH = { Reel: 'activity', Carousel: 'copy', Post: 'image', Story: 'book-open' };
 const SLIDE_ROLES = {
   Carousel: ['Hook', 'Setup', 'Process', 'Process', 'Result', 'CTA'],
   Reel: ['Hook', 'Setup', 'CTA'],
@@ -430,6 +433,56 @@ function weekUsageOf(route) {
 
 function shortDay(day) {
   return String(day || '').slice(0, 3);
+}
+
+// The app's default publish time when neither the post nor the plan set one.
+const DEFAULT_TIME_24 = '09:00';
+
+// Parse any time string ("9:00 AM", "07:30", "7 pm", "14:05") into 24h parts.
+function parseClock(t) {
+  const m = String(t || '').match(/(\d{1,2})(?::(\d{2}))?\s*(am|pm)?/i);
+  if (!m) return { h: 9, min: 0 };
+  let h = Number(m[1]);
+  const min = Number(m[2] || 0);
+  const ap = (m[3] || '').toLowerCase();
+  if (ap === 'pm' && h < 12) h += 12;
+  if (ap === 'am' && h === 12) h = 0;
+  return { h: Math.min(23, Math.max(0, h)), min: Math.min(59, Math.max(0, min)) };
+}
+
+// Any time string → the 24h "HH:MM" a <input type="time"> expects.
+function to24h(t) {
+  const { h, min } = parseClock(t);
+  return `${String(h).padStart(2, '0')}:${String(min).padStart(2, '0')}`;
+}
+
+// Any time string → a spoken "7:30 AM" for reading on the post.
+function toSpoken(t) {
+  const { h, min } = parseClock(t);
+  const ap = h < 12 ? 'AM' : 'PM';
+  const h12 = h % 12 === 0 ? 12 : h % 12;
+  return `${h12}:${String(min).padStart(2, '0')} ${ap}`;
+}
+
+// The time this post goes out at: its own, else the plan's weekly preference,
+// else the app default. Returned as-stored (24h or freeform); read it through
+// toSpoken / to24h at the point of use.
+function slotTimeRaw(day, route) {
+  return (day?.time && String(day.time).trim())
+    || (route?.postAtPref && String(route.postAtPref).trim())
+    || DEFAULT_TIME_24;
+}
+
+// The moment this day's post is scheduled to go out — the week's start plus the
+// day's offset, stamped with the post's time. Best-effort; the "Scheduled for"
+// line reads day + time directly, so a rough Date never mislabels the slot.
+function slotDateOf(route, index, day) {
+  const base = route?.startsAt ? new Date(route.startsAt) : new Date();
+  const d = Number.isNaN(base.getTime()) ? new Date() : new Date(base);
+  d.setDate(d.getDate() + index);
+  const { h, min } = parseClock(slotTimeRaw(day, route));
+  d.setHours(h, min, 0, 0);
+  return d;
 }
 
 function dayDateLabel(day) {
@@ -1000,6 +1053,11 @@ export default function WeekView({ route: initialRoute, onBack }) {
   const [metaStatus, setMetaStatus] = useState({ connected: false, configured: false });
   const [publishing, setPublishing] = useState(false);
   const [publishMsg, setPublishMsg] = useState('');
+  const [scheduling, setScheduling] = useState(false);
+  const [askSchedule, setAskSchedule] = useState(false); // no-caption confirm
+  // the inline "Edit publish time" editor: null = closed, else { at, every }
+  const [timeDraft, setTimeDraft] = useState(null);
+  const [savingTime, setSavingTime] = useState(false);
   const [replanning, setReplanning] = useState(false);
   const [replanMsg, setReplanMsg] = useState('');
   const [localMedia, setLocalMedia] = useState({});
@@ -1077,9 +1135,16 @@ export default function WeekView({ route: initialRoute, onBack }) {
   const safeIdx = Math.min(slideIdx, Math.max(slides.length - 1, 0));
   const activeSlide = slides[safeIdx] || null;
   const handle = route?.instagramUsername || 'your.studio';
+  // A post is "scheduled" when it carries a slot and hasn't gone out yet. The
+  // slot only means anything with an account to publish to (bauhly-v3 §783).
+  const isScheduled = metaStatus.connected && !!day?.scheduledAt && !day?.published;
+  const slotTime = toSpoken(slotTimeRaw(day, route));
+  // the time is editable only while the decision is still open (bauhly-v3 §787)
+  const canEditTime = !isScheduled && !day?.published;
 
   useEffect(() => {
     setCreating(false);
+    setTimeDraft(null);
   }, [selected, safeIdx]);
 
   function selectDay(i) {
@@ -1213,6 +1278,7 @@ export default function WeekView({ route: initialRoute, onBack }) {
     function onKey(e) {
       // Escape steps back one level: generate → images → browse → editor → menu
       if (e.key !== 'Escape') return;
+      if (timeDraft) { setTimeDraft(null); return; }
       if (creating) { setCreating(false); return; }
       if (imgPick) { setImgPick(null); return; }
       if (askImgs) { setAskImgs(0); return; }
@@ -1224,7 +1290,7 @@ export default function WeekView({ route: initialRoute, onBack }) {
     }
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [zone, visEdit, libOpen, askCat, askImgs, imgPick, creating]);
+  }, [zone, visEdit, libOpen, askCat, askImgs, imgPick, creating, timeDraft]);
 
   // Persist the caption for the open day — optimistic, then reconciled with the
   // server's copy. Backend whitelists `content.caption` (routeController §642).
@@ -1377,6 +1443,81 @@ export default function WeekView({ route: initialRoute, onBack }) {
       setRoute(await markDayPublished(route._id, selected, true));
       setPublishMsg('Marked as published');
     } catch { /* ignore */ }
+  }
+
+  // ── Schedule this post (bauhly-v3 §739/§742). Pressing "Schedule" records the
+  // intent to publish at the day's slot; a post with no caption is a real thing
+  // to schedule (a photo can be the whole of it), so we ask once rather than
+  // block. "Unschedule" puts it back. Publishing itself stays a real action —
+  // see the "Publish now" affordance on a scheduled post.
+  async function doSchedule() {
+    if (!route || !day || scheduling) return;
+    setPublishMsg('');
+    setScheduling(true);
+    try {
+      const at = slotDateOf(route, selected, day).toISOString();
+      setRoute(await scheduleDay(route._id, selected, at));
+    } catch (err) {
+      setPublishMsg(err.response?.data?.message || 'Could not schedule just now');
+    } finally {
+      setScheduling(false);
+    }
+  }
+
+  function pressSchedule() {
+    if (!route || !day || scheduling) return;
+    if (!metaStatus.connected) { setConnectOpen(true); return; }
+    const caption = day.content?.caption?.trim();
+    if (!caption) { setAskSchedule(true); return; }
+    doSchedule();
+  }
+
+  async function unschedule() {
+    if (!route || !day || scheduling) return;
+    setPublishMsg('');
+    setScheduling(true);
+    try {
+      setRoute(await scheduleDay(route._id, selected, null));
+    } catch (err) {
+      setPublishMsg(err.response?.data?.message || 'Could not unschedule just now');
+    } finally {
+      setScheduling(false);
+    }
+  }
+
+  // ── Edit publish time (bauhly-v3 §790/§794). The time is edited in the post,
+  // on the slot's own surface. Opening it seeds the draft from the effective
+  // time and whether that time is the plan's weekly one.
+  function openTimeEditor() {
+    if (!day) return;
+    setPublishMsg('');
+    setTimeDraft({
+      at: to24h(slotTimeRaw(day, route)),
+      every: !day.time && !!route?.postAtPref,
+    });
+  }
+
+  // Done — three outcomes from two controls, the same rule the slot reads:
+  //   every week      → the plan's habit; this post drops its own time
+  //   this post only  → a time on this post
+  //   default (reset) → neither: clear the habit too, or the next post inherits
+  //                     the thing they just stepped out of
+  async function saveTime() {
+    if (!route || !day || !timeDraft || savingTime) return;
+    const { at, every } = timeDraft;
+    let payload;
+    if (every) payload = { postAtPref: at, time: '' };
+    else if (at === DEFAULT_TIME_24) payload = { postAtPref: '', time: '' };
+    else payload = { time: at };
+    setSavingTime(true);
+    try {
+      setRoute(await setDayTime(route._id, selected, payload));
+      setTimeDraft(null);
+    } catch (err) {
+      setPublishMsg(err.response?.data?.message || 'Could not save the time just now');
+    } finally {
+      setSavingTime(false);
+    }
   }
 
   async function handlePublish() {
@@ -1710,6 +1851,38 @@ export default function WeekView({ route: initialRoute, onBack }) {
         />
       )}
 
+      {/* ask once, only when it matters (bauhly-v3 §742): a post with no caption
+          is a real thing to schedule, so this is a question, not a block. */}
+      {askSchedule && (
+        <>
+          <div className="wv-schedask__scrim" onClick={() => setAskSchedule(false)} />
+          <div className="wv-schedask" role="dialog" aria-modal="true" aria-label="Schedule without a caption?">
+            <span className="wv-schedask__mark"><Glyph name="clock" size={20} strokeWidth={2} /></span>
+            <h2 className="wv-schedask__title">Schedule without a caption?</h2>
+            <p className="wv-schedask__body">
+              This post has no caption yet. A photo can be the whole of it — but if you
+              meant to write one, add it first.
+            </p>
+            <div className="wv-schedask__acts">
+              <button
+                type="button"
+                className="btn btn--primary btn--sm"
+                onClick={() => { setAskSchedule(false); doSchedule(); }}
+              >
+                Schedule anyway
+              </button>
+              <button
+                type="button"
+                className="btn btn--ghost btn--sm"
+                onClick={() => { setAskSchedule(false); openZone('caption'); }}
+              >
+                Add a caption first
+              </button>
+            </div>
+          </div>
+        </>
+      )}
+
       {libOpen && visEdit === 'layout' && (
         <LibraryPick
           current={layCat || appliedLayout?.cat || catForRole(slideRoleName)}
@@ -1801,6 +1974,11 @@ export default function WeekView({ route: initialRoute, onBack }) {
           {enrichedDays.map((d, i) => {
             const active = i === selected;
             const done = d.published;
+            // Two marks, not one (bauhly-v3 §761): a scheduled post is a
+            // decision about the future — the lime clock — while a published one
+            // is the past, in grey. The lime only means anything with an account.
+            const scheduled = metaStatus.connected && !!d.scheduledAt && !done;
+            const ready = done || scheduled;
             return (
               <button
                 key={`${d.day}-${i}`}
@@ -1808,7 +1986,7 @@ export default function WeekView({ route: initialRoute, onBack }) {
                 role="tab"
                 aria-selected={active}
                 aria-current={active ? 'true' : undefined}
-                className={`wv-day${active ? ' is-on' : ''}${done ? ' is-ready' : ''}`}
+                className={`wv-day${active ? ' is-on' : ''}${ready ? ' is-ready' : ''}`}
                 onClick={() => animateToDay(i)}
               >
                 <span className="wv-day__when">
@@ -1819,9 +1997,9 @@ export default function WeekView({ route: initialRoute, onBack }) {
                   <Glyph name={FORMAT_ICON[d.format] || 'image'} size={15} className="wv-day__glyph" />
                   <span className="wv-day__word">{String(d.format || '').replace(/ series$/, '')}</span>
                 </span>
-                {done && (
-                  <span className="wv-day__ready is-done" aria-hidden="true">
-                    <Glyph name="check" size={13} strokeWidth={3} />
+                {ready && (
+                  <span className={`wv-day__ready${done ? ' is-done' : ''}`} aria-hidden="true">
+                    <Glyph name={done ? 'check' : 'clock'} size={13} strokeWidth={done ? 3 : 2.25} />
                   </span>
                 )}
               </button>
@@ -1865,13 +2043,36 @@ export default function WeekView({ route: initialRoute, onBack }) {
                   : <Glyph name="user" size={15} />}
               </span>
               <span className="wv-ig__user">{handle}</span>
-              {metaStatus.connected ? (
-                <span className="wv-ig__meta is-on">
-                  <Glyph name="check" size={12} />{metaStatus.igUsername ? `@${metaStatus.igUsername}` : 'Connected'}
-                </span>
-              ) : (
+              {/* the corner says the next step, never a receipt (bauhly-v3
+                  §733/§739): Connect → Schedule → Unschedule, and Published once
+                  a post has gone out. One control in one place, so nothing on
+                  the header moves as the post's state changes. */}
+              {!metaStatus.connected ? (
                 <button type="button" className="wv-ig__connect" onClick={() => setConnectOpen(true)}>
                   <Glyph name="instagram" size={13} />Connect to Meta
+                </button>
+              ) : day.published ? (
+                <span className="wv-ig__go is-out" aria-label="Published">
+                  <Glyph name="check" size={14} strokeWidth={3} />Published
+                </span>
+              ) : isScheduled ? (
+                <button
+                  type="button"
+                  className="wv-ig__go is-on"
+                  onClick={unschedule}
+                  disabled={scheduling}
+                  title="Put this post back"
+                >
+                  <Glyph name="refresh-cw" size={14} />Unschedule
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  className="wv-ig__go"
+                  onClick={pressSchedule}
+                  disabled={scheduling}
+                >
+                  <Glyph name="clock" size={14} />Schedule
                 </button>
               )}
             </header>
@@ -1888,6 +2089,13 @@ export default function WeekView({ route: initialRoute, onBack }) {
                 />
                 {slides.length > 1 && (
                   <span className="wv-ig__count">{safeIdx + 1}/{slides.length}</span>
+                )}
+                {/* what kind of post this is, said on the post itself */}
+                {day.format && (
+                  <span className="wv-ig__tag">
+                    <Glyph name={FORMAT_GLYPH[day.format] || 'image'} size={12} strokeWidth={2.5} />
+                    {String(day.format).replace(/ series$/, '')}
+                  </span>
                 )}
               </div>
               {/* the carousel's own arrows — step through slides; the last one
@@ -2144,24 +2352,96 @@ export default function WeekView({ route: initialRoute, onBack }) {
               </div>
             )}
 
-            <div className="wv-ig__publish">
-              <button
-                type="button"
-                className={`wv-publish${day.published ? ' is-done' : ''}`}
-                onClick={handlePublish}
-                disabled={publishing}
-              >
-                <Glyph name={day.published ? 'check-circle-2' : 'send'} size={15} />
-                {publishing ? 'Publishing…' : day.published ? 'Published' : 'Publish'}
-              </button>
-              {metaStatus.connected && metaStatus.igUsername && !day.published && (
-                <span className="wv-publish__hint">to @{metaStatus.igUsername}</span>
-              )}
-              {!metaStatus.connected && !day.published && (
-                <span className="wv-publish__hint">Connect Meta to post</span>
-              )}
-              {publishMsg && <span className="wv-publish__msg">{publishMsg}</span>}
-            </div>
+            {/* when this goes out, and whose decision it is (bauhly-v3 §787/§794).
+                A published post states a fact; a scheduled one offers the way to
+                send it now (we have no background publisher); an unscheduled one
+                names its slot and points at Schedule. The time is edited here,
+                on the slot's own surface (§790). */}
+            {timeDraft ? (
+              <div className="wv-time">
+                <div className="wv-time__head">
+                  <span className="wv-time__title">Edit publish time</span>
+                  <button
+                    type="button"
+                    className="btn btn--primary btn--sm wv-time__done"
+                    onClick={saveTime}
+                    disabled={savingTime}
+                  >
+                    Done
+                  </button>
+                </div>
+                <label className="wv-time__field">
+                  <span className="wv-time__label">Change time</span>
+                  <input
+                    type="time"
+                    className="wv-time__input"
+                    value={timeDraft.at}
+                    onChange={(e) => setTimeDraft((d) => ({ ...d, at: e.target.value }))}
+                    autoFocus
+                  />
+                </label>
+                <div className="wv-time__every">
+                  <label className="wv-time__box">
+                    <input
+                      type="checkbox"
+                      checked={timeDraft.every}
+                      onChange={() => setTimeDraft((d) => ({ ...d, every: !d.every }))}
+                    />
+                    Use this time every week
+                  </label>
+                  {(timeDraft.at !== DEFAULT_TIME_24 || timeDraft.every) && (
+                    <button
+                      type="button"
+                      className="btn btn--quiet btn--sm wv-time__reset"
+                      onClick={() => setTimeDraft({ at: DEFAULT_TIME_24, every: false })}
+                    >
+                      <Glyph name="refresh-cw" size={14} />
+                      Use Bauhly time
+                    </button>
+                  )}
+                </div>
+              </div>
+            ) : (
+              <div className={`wv-ig__slot${day.published ? ' is-out' : ''}${!metaStatus.connected ? ' is-muted' : ''}`}>
+                <Glyph name={day.published ? 'check' : 'clock'} size={14} strokeWidth={2} />
+                <span className="wv-ig__slot-text">
+                  <span className="wv-ig__slot-when">
+                    {day.published ? 'Published' : isScheduled ? 'Scheduled for' : 'Publishing at'}
+                    {' '}
+                    <b>{shortDay(day.day)} · {slotTime}</b>
+                    {day.published && metaStatus.igUsername ? ` · @${metaStatus.igUsername}` : ''}
+                  </span>
+                  {isScheduled && (
+                    <span className="wv-ig__slot-why">
+                      Nothing goes out until you send it.{' '}
+                      <button
+                        type="button"
+                        className="wv-ig__pubnow"
+                        onClick={handlePublish}
+                        disabled={publishing}
+                      >
+                        {publishing ? 'Publishing…' : 'Publish now'}
+                      </button>
+                    </span>
+                  )}
+                  {!metaStatus.connected && !day.published && (
+                    <span className="wv-ig__slot-why">Connect Meta to schedule this post.</span>
+                  )}
+                </span>
+                {canEditTime && (
+                  <button
+                    type="button"
+                    className="wv-ig__zonebtn wv-ig__slot-edit"
+                    onClick={openTimeEditor}
+                    aria-label="Edit publish time"
+                    title="Edit publish time"
+                  >
+                    <Glyph name="pencil" size={16} />
+                  </button>
+                )}
+                {publishMsg && <span className="wv-publish__msg">{publishMsg}</span>}
+              </div>
+            )}
           </article>
           </div>
 

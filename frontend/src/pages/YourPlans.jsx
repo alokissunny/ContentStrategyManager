@@ -101,46 +101,73 @@ function monthlyGroups(routes) {
   return sections;
 }
 
-/* One week within a month. Next-month weeks have no strategy yet: they are
- * locked and non-clickable, and say when Bauhly will write them. */
+/* Does this week contain today? — the running week gets the accent date mark
+ * and a "This week" pulse, matching bauhly-v3's `is-now` row. */
+function isNowWeek(start, locked) {
+  if (locked || !start) return false;
+  const t = new Date(); t.setHours(0, 0, 0, 0);
+  const a = new Date(start); a.setHours(0, 0, 0, 0);
+  const b = new Date(a); b.setDate(b.getDate() + 6);
+  return t >= a && t <= b;
+}
+
+/* One week within a month. A row is the date mark on the left, "Week N" with
+ * the pillar-coloured aim badge, and the week's state said in words on the
+ * second line — the shape from bauhly-v3's PlanHistory row. Next-month weeks
+ * have no strategy yet: they are locked, non-clickable, and say when Bauhly
+ * will write them. */
 function WeekRow({ week, onOpen }) {
   const focus = PILLARS[week.focus?.pillar];
   const locked = !!week.draft;
   const start = (week.startsAt || week.weekOf) ? new Date(week.startsAt || week.weekOf) : null;
   const ready = week.readyAt ? new Date(week.readyAt) : null;
   const readySoon = !locked && ready && ready.getTime() > Date.now();
+  const now = isNowWeek(start, locked);
+  const cls = ['ph-row'];
+  if (locked) cls.push('ph-row--draft');
+  if (readySoon) cls.push('is-ready');
+  if (now) cls.push('is-now');
   return (
     <button
       type="button"
-      className={`ph-row ph-week${locked ? ' is-locked' : ''}`}
+      className={cls.join(' ')}
       disabled={locked}
       aria-disabled={locked}
       onClick={locked ? undefined : onOpen}
     >
-      <span className="ph-week__date">
+      <span className="ph-row__mark ph-row__mark--date">
         <b>{start ? MONTH_ABBR[start.getMonth()].toUpperCase() : ''}</b>
-        <i>{start ? start.getDate() : ''}</i>
+        <span>{start ? start.getDate() : ''}</span>
       </span>
       <span className="ph-row__body">
         <span className="ph-row__line">
           <b className="ph-row__range">Week {(week.weekIndex ?? 0) + 1}</b>
           {focus && (
-            <span className="ph-focus" style={{ '--pc': focus.strong, '--pt': focus.tint }}>
-              <Icon name={focus.icon} size={12} strokeWidth={2} />
+            <span className="ph-row__aim ph-badge" style={{ '--pc': focus.strong, '--pt': focus.tint }}>
+              <Icon name={focus.icon} size={12} strokeWidth={2.25} />
               {focus.outcome}
             </span>
           )}
         </span>
         <span className="ph-row__meta">
-          {locked
-            ? (
-              <span className="ph-week__lock">
-                Bauhly finishes writing it on {fmtDay(ready)}
-              </span>
-            )
-            : readySoon
-              ? <span>You can read this now · {week.weekLabel}</span>
-              : <span>{week.weekLabel}</span>}
+          {locked ? (
+            <span className="ph-row__when">
+              <Icon name="clock" size={12} strokeWidth={2.25} />
+              Bauhly finishes writing it on {fmtDay(ready)}
+            </span>
+          ) : now ? (
+            <span className="ph-row__when is-now">
+              <Icon name="pulse" size={12} strokeWidth={2.25} />
+              This week
+            </span>
+          ) : readySoon ? (
+            <span className="ph-row__when is-ready">
+              <Icon name="eye" size={12} strokeWidth={2.25} />
+              You can read this now
+            </span>
+          ) : (
+            <span className="ph-row__when">{week.weekLabel}</span>
+          )}
         </span>
       </span>
       {!locked && <Icon name="arrow-right" size={15} strokeWidth={2} />}
@@ -424,43 +451,45 @@ export default function YourPlans() {
 
       <div className="ph__list">
         {sections.map((sec, i) => {
-          const showEyebrow = i === 0 || sections[i - 1].kind !== sec.kind;
+          const showLabel = i === 0 || sections[i - 1].kind !== sec.kind;
           const usage = monthUsageOf(sec.group.weeks);
           const canReplan = sec.kind === 'running' && !sec.group.draft;
           return (
             <section className="ph__group" key={sec.group.key}>
-              {showEyebrow && <span className="ph__eyebrow">{sec.label}</span>}
-              <div className="ph__groupheadrow">
-                <h2 className="ph__grouphead">{sec.group.name}</h2>
-                {canReplan && (
-                  <button
-                    type="button"
-                    className="btn btn--ghost btn--sm ph__replan"
-                    disabled={replanning}
-                    onClick={onReplanMonth}
-                  >
-                    <Icon name="refresh" size={14} strokeWidth={2.25} />
-                    {replanning ? 'Replanning…' : 'Replan month'}
-                  </button>
+              {showLabel && <h2 className="ph__grouphead">{sec.label}</h2>}
+              <div className="ph__month">
+                <h3 className="ph__monthhead">
+                  {sec.group.name}
+                  {canReplan && (
+                    <button
+                      type="button"
+                      className="btn btn--ghost btn--sm ph__replan"
+                      disabled={replanning}
+                      onClick={onReplanMonth}
+                    >
+                      <Icon name="refresh" size={14} strokeWidth={2.25} />
+                      {replanning ? 'Replanning…' : 'Replan month'}
+                    </button>
+                  )}
+                </h3>
+                {monthFilling && canReplan && (
+                  <p className="ph__usage ph__usage--filling">Writing the rest of this month…</p>
                 )}
-              </div>
-              {monthFilling && canReplan && (
-                <p className="ph__usage ph__usage--filling">Writing the rest of this month…</p>
-              )}
-              {usage && (
-                <p className="ph__usage" title="Estimated from Anthropic token usage for written weeks in this month">
-                  <span>{fmtTokens(usage.totalTokens)} tokens</span>
-                  <span aria-hidden="true">·</span>
-                  <span>~{fmtCost(usage.estimatedCostUsd)} est.</span>
-                  <span aria-hidden="true">·</span>
-                  <span>{usage.weekCount} {usage.weekCount === 1 ? 'week' : 'weeks'}</span>
-                  {monthFilling ? <span className="ph__usage-live"> · updating</span> : null}
-                </p>
-              )}
-              <div className="ph__groupbox">
-                {sec.group.weeks.map((w) => (
-                  <WeekRow key={w._id} week={w} onOpen={() => open(w)} />
-                ))}
+                {usage && (
+                  <p className="ph__usage" title="Estimated from Anthropic token usage for written weeks in this month">
+                    <span>{fmtTokens(usage.totalTokens)} tokens</span>
+                    <span aria-hidden="true">·</span>
+                    <span>~{fmtCost(usage.estimatedCostUsd)} est.</span>
+                    <span aria-hidden="true">·</span>
+                    <span>{usage.weekCount} {usage.weekCount === 1 ? 'week' : 'weeks'}</span>
+                    {monthFilling ? <span className="ph__usage-live"> · updating</span> : null}
+                  </p>
+                )}
+                <div className="ph__groupbox">
+                  {sec.group.weeks.map((w) => (
+                    <WeekRow key={w._id} week={w} onOpen={() => open(w)} />
+                  ))}
+                </div>
               </div>
             </section>
           );

@@ -32,6 +32,26 @@ export function markDayPublished(routeId, index, published) {
     .then((res) => res.data.route);
 }
 
+// Schedule (or unschedule) a day's post. Pass an ISO string to set the slot,
+// or null to clear it.
+export function scheduleDay(routeId, index, scheduledAt) {
+  return client
+    .patch(`/routes/${routeId}/day/${index}`, { scheduledAt })
+    .then((res) => res.data.route);
+}
+
+// Set a day's publish time and/or the plan's weekly time preference. Pass
+// `time` (24h "HH:MM", '' to clear) for this post, and/or `postAtPref` for the
+// whole plan's "use this time every week".
+export function setDayTime(routeId, index, { time, postAtPref } = {}) {
+  const body = {};
+  if (time !== undefined) body.time = time;
+  if (postAtPref !== undefined) body.postAtPref = postAtPref;
+  return client
+    .patch(`/routes/${routeId}/day/${index}`, body)
+    .then((res) => res.data.route);
+}
+
 // Persist slide / caption / notes edits for one day.
 export function updateDayContent(routeId, index, content) {
   return client

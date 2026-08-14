@@ -3240,3 +3240,261 @@
   color: var(--ink-quiet);
   cursor: default;
 }
+
+/* ══ SCHEDULE (bauhly-v3 §733/§739/§761/§787) ═════════════════════════════
+ * The corner of the post header is the one control for a post's future:
+ * Connect → Schedule → Unschedule, and Published once it has gone out. It is
+ * the product's finished-thing lime — a state as much as an action — so it is a
+ * fill, never the ink of a primary button. Below the words, the slot line says
+ * when the post goes out and whose decision the time is. On the calendar, a
+ * scheduled day wears a lime clock; a published one, a grey tick. */
+.wv-ig__go {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  height: 28px;
+  padding: 0 12px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: var(--experiment-500);
+  color: var(--experiment-ink);
+  font-family: var(--font-ui);
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background var(--dur-fast, 140ms) var(--ease-out, ease);
+}
+.wv-ig__go:hover { background: #c7dd18; }
+.wv-ig__go:disabled { opacity: 0.6; cursor: default; }
+.wv-ig__go svg { flex-shrink: 0; }
+/* scheduled: the fill steps back to a tint with a lime edge — the state has
+   been reached but pressing it (Unschedule) puts the post back */
+.wv-ig__go.is-on {
+  background: rgba(210, 232, 35, 0.32);
+  border-color: var(--experiment-500);
+  color: var(--experiment-ink);
+}
+.wv-ig__go.is-on:hover { background: rgba(210, 232, 35, 0.5); }
+/* published is a STATE, and it is grey: a post that has gone out is neither
+   where you are nor what is ahead, so it stops asking for the lime */
+.wv-ig__go.is-out {
+  background: var(--surface-sunken);
+  border-color: transparent;
+  color: var(--ink-500);
+  cursor: default;
+}
+.wv-ig__go.is-out svg { color: var(--ink-quiet); }
+
+/* the post's own format tag, on the media — a frosted pill, top-right */
+.wv-ig__tag {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 9px 4px 8px;
+  border-radius: 999px;
+  background: rgba(24, 24, 28, 0.62);
+  color: #fff;
+  font-family: var(--font-ui);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  pointer-events: none;
+}
+.wv-ig__tag svg { flex-shrink: 0; }
+
+/* the slot line — when this post goes out, under the caption. A hairline above
+   ties it to the post; the clock is the row's own glyph. */
+.wv-ig__slot {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  width: 100%;
+  margin: 0;
+  padding: 12px 16px;
+  border-top: 1px solid var(--border);
+  font-family: var(--font-ui);
+  font-size: 13px;
+  color: var(--ink-500);
+}
+.wv-ig__slot > svg { flex-shrink: 0; margin-top: 2px; color: var(--ink-quiet); }
+.wv-ig__slot.is-out > svg { color: var(--positive, #16a34a); }
+.wv-ig__slot-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.wv-ig__slot-when { color: var(--ink-500); }
+.wv-ig__slot-when b { font-weight: 700; color: var(--ink-800); }
+.wv-ig__slot-why { font-size: 12px; color: var(--ink-quiet); }
+/* send it now — there is no background publisher, so a scheduled post keeps a
+   way to actually go out; it is an inline action, the quietest on the row */
+.wv-ig__pubnow {
+  border: 0;
+  background: none;
+  padding: 0;
+  font: inherit;
+  font-weight: 700;
+  color: var(--experiment-ink);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+.wv-ig__pubnow:hover { color: var(--ink-900); }
+.wv-ig__pubnow:disabled { color: var(--ink-quiet); text-decoration: none; cursor: default; }
+
+/* ── the no-caption question (bauhly-v3 §742) — a check, not a block ──────── */
+.wv-schedask__scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  background: rgba(18, 18, 22, 0.42);
+  backdrop-filter: blur(2px);
+  animation: fade-in var(--dur-fast, 140ms) var(--ease-out, ease);
+}
+.wv-schedask {
+  position: fixed;
+  z-index: 61;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: min(92vw, 420px);
+  padding: 28px;
+  border-radius: 20px;
+  background: var(--surface, #fff);
+  box-shadow: 0 24px 60px rgba(18, 18, 22, 0.28);
+  animation: rise-in var(--dur-base, 220ms) var(--ease-out, ease) both;
+}
+.wv-schedask__mark {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  margin-bottom: 16px;
+  border-radius: 14px;
+  background: rgba(210, 232, 35, 0.32);
+  color: var(--experiment-ink);
+}
+.wv-schedask__title {
+  margin: 0 0 8px;
+  font-family: var(--font-display, var(--font-ui));
+  font-size: 20px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: var(--ink-900);
+}
+.wv-schedask__body {
+  margin: 0 0 22px;
+  font-family: var(--font-ui);
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--ink-600);
+}
+.wv-schedask__acts { display: flex; flex-wrap: wrap; gap: 10px; }
+
+/* ══ EDIT PUBLISH TIME (bauhly-v3 §790/§794/§800) ═════════════════════════
+ * The time is edited on the post, in place of the slot line: a header with
+ * Done, one time field, and one row — keep this hour, or keep it every week,
+ * with the way back to Bauhly's own hour beside it. */
+.wv-ig__slot { position: relative; }
+/* the Edit pencil on the slot line — the same floating control the picture and
+   caption carry, revealed on hover, centred on the row */
+.wv-ig__slot-edit {
+  top: 50%;
+  right: 12px;
+  bottom: auto;
+  transform: translateY(-50%);
+  opacity: 0;
+}
+.wv-ig__slot:hover .wv-ig__slot-edit { opacity: 1; }
+@media (hover: none) { .wv-ig__slot-edit { opacity: 1; } }
+
+.wv-time {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin: 12px;
+  padding: 22px;
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  background: var(--surface);
+  animation: fade-in var(--dur-fast, 140ms) var(--ease-out, ease);
+}
+.wv-time__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.wv-time__title {
+  font-family: var(--font-display, var(--font-ui));
+  font-size: 19px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  color: var(--ink-900);
+}
+.wv-time__done { flex-shrink: 0; }
+.wv-time__field { display: flex; flex-direction: column; gap: 8px; }
+.wv-time__label {
+  font-family: var(--font-ui);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: var(--ink-600);
+}
+.wv-time__input {
+  width: 100%;
+  height: 58px;
+  padding: 0 16px;
+  border: 1.5px solid var(--border-strong, var(--border));
+  border-radius: 14px;
+  background: var(--surface);
+  font-family: var(--font-ui);
+  font-size: 22px;
+  font-weight: 600;
+  color: var(--ink-900);
+  cursor: text;
+}
+.wv-time__input:hover { border-color: var(--ink-400, var(--ink-500)); }
+.wv-time__input:focus,
+.wv-time__input:focus-visible {
+  outline: none;
+  border-color: var(--ink-900);
+  box-shadow: 0 0 0 1px var(--ink-900);
+}
+.wv-time__input::-webkit-calendar-picker-indicator { cursor: pointer; opacity: 0.65; }
+.wv-time__input::-webkit-calendar-picker-indicator:hover { opacity: 1; }
+
+.wv-time__every {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  /* it is a rule about the field above it, not a fourth section — pull it in */
+  margin-top: -4px;
+}
+.wv-time__box {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-family: var(--font-ui);
+  font-size: 15px;
+  color: var(--ink-800);
+  cursor: pointer;
+}
+.wv-time__box input {
+  width: 20px;
+  height: 20px;
+  margin: 0;
+  flex-shrink: 0;
+  accent-color: var(--ink-900);
+  cursor: pointer;
+}
+.wv-time__reset { flex-shrink: 0; }
+@media (max-width: 520px) {
+  .wv-time__every { flex-wrap: wrap; row-gap: 10px; }
+}

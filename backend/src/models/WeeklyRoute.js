@@ -14,6 +14,9 @@ const daySchema = new mongoose.Schema(
     title: { type: String, default: '' },
     direction: { type: String, default: '' },
     published: { type: Boolean, default: false },
+    // When the studio schedules this post to go out. Null = not scheduled.
+    // Cleared automatically once the post is published.
+    scheduledAt: { type: Date, default: null },
     content: {
       // Structured slides for carousels / multi-frame posts. Roles like Hook,
       // Setup, Process, Result, CTA. assetKey ties a slide to a project photo.
@@ -74,6 +77,9 @@ const weeklyRouteSchema = new mongoose.Schema(
     weekOf: { type: Date, required: true },
     weekLabel: { type: String, default: '' },
     model: { type: String, default: '' },
+    // The studio's preferred publish time for this plan's posts ("Use this time
+    // every week"), as a 24h "HH:MM" string. A day's own `time` overrides it.
+    postAtPref: { type: String, default: '' },
     // ── Monthly plan grouping ──────────────────────────────────────────────
     // A plan is a month of 4 weeks that share one focus. These stamp which
     // month/week a route is, so the queue can group by month and lock the ones

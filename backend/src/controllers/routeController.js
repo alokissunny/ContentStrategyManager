@@ -611,9 +611,43 @@ async function markDayPublished(req, res) {
 
   if (req.body.published !== undefined) {
     day.published = Boolean(req.body.published);
-  } else if (req.body.content === undefined && req.body.slides === undefined) {
+    // A post that has gone out is no longer "scheduled" — the schedule was its
+    // way of getting there, and it has arrived.
+    if (day.published) day.scheduledAt = null;
+  } else if (
+    req.body.content === undefined &&
+    req.body.slides === undefined &&
+    req.body.scheduledAt === undefined &&
+    req.body.time === undefined &&
+    req.body.postAtPref === undefined
+  ) {
     // Legacy toggle when the body is empty / only flipping publish.
     day.published = !day.published;
+  }
+
+  // The studio's chosen publish time for this post (a 24h "HH:MM" string, or ''
+  // to fall back to the plan's / default time).
+  if (req.body.time !== undefined) {
+    day.time = String(req.body.time || '');
+  }
+
+  // The plan's weekly posting-time preference ("Use this time every week").
+  // Lives on the route, not the day, so every post reads it unless it sets its
+  // own time.
+  if (req.body.postAtPref !== undefined) {
+    route.postAtPref = String(req.body.postAtPref || '');
+  }
+
+  // Schedule / unschedule this post. `null` (or empty) clears it; a valid date
+  // string sets it. Scheduling never touches `published` — a scheduled post is
+  // a decision about the future, not one that has happened.
+  if (req.body.scheduledAt !== undefined) {
+    if (req.body.scheduledAt === null || req.body.scheduledAt === '') {
+      day.scheduledAt = null;
+    } else {
+      const at = new Date(req.body.scheduledAt);
+      if (!Number.isNaN(at.getTime())) day.scheduledAt = at;
+    }
   }
 
   // Persist slide / caption edits from the studio editor.

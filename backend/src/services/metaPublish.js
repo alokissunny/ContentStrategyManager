@@ -330,6 +330,7 @@ async function publishDay(req, res) {
       const pub = await graphPost(`${igId}/media_publish`, { creation_id: creationId, access_token: token });
 
       day.published = true;
+      day.scheduledAt = null;
       conn.lastPublishAt = new Date();
       await conn.save();
       route.markModified('days');
@@ -345,6 +346,7 @@ async function publishDay(req, res) {
   // Connected but live Graph publish not enabled — mark as published locally and
   // tell the client publishing to IG will go live once media URLs are wired.
   day.published = true;
+  day.scheduledAt = null;
   route.markModified('days');
   await route.save();
   conn.lastPublishAt = new Date();
