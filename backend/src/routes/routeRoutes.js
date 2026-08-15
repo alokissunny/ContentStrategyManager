@@ -7,6 +7,7 @@ const {
   generateRoute,
   replanWeek,
   markDayPublished,
+  polishCaption,
 } = require('../controllers/routeController');
 
 const router = express.Router();
@@ -16,6 +17,7 @@ router.get('/current', asyncHandler(getCurrentRoute));
 router.get('/', asyncHandler(getRoutes));
 router.post('/generate', asyncHandler(generateRoute));
 router.post('/:id/replan', asyncHandler(replanWeek));
+router.post('/:id/day/:index/polish-caption', asyncHandler(polishCaption));
 router.patch('/:id/day/:index', asyncHandler(markDayPublished));
 
 module.exports = router;

@@ -58,3 +58,11 @@ export function updateDayContent(routeId, index, content) {
     .patch(`/routes/${routeId}/day/${index}`, { content })
     .then((res) => res.data.route);
 }
+
+// Rewrite a day's caption with Claude / OpenAI. Returns { caption } for the
+// draft — Done still persists it.
+export function polishCaption(routeId, index, { caption, instruction }) {
+  return client
+    .post(`/routes/${routeId}/day/${index}/polish-caption`, { caption, instruction })
+    .then((res) => res.data);
+}

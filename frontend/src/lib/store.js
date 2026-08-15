@@ -56,6 +56,10 @@ const DEFAULTS = {
   addedLayouts: [], // [{ id, cat, name, kind, tone, levels, imgs, art, own, fromRef, addedAt }]
   refAnalysis: {},  // { [refId]: { colours, shape, ground, at } }
   libraryEdits: { palette: {}, type: {} },
+  /* ON by default on the Visual Library (bauhly 857): this page shows how the
+     studio's direction reads across layouts. Off still draws empty picture
+     regions. The plan's picker shares the same key. */
+  layoutMoodOn: true,
 };
 
 let activeHandle = (() => {
@@ -132,7 +136,7 @@ function persist() {
  * from local data every load. What remains is the durable, portable settings:
  * the applied palette/type/fonts, which layouts are on, the per-picture palette
  * readings (keyed by S3 key, so they line up anywhere), and the brand style. */
-const SYNC_KEYS = ['libraryEdits', 'layoutsOff', 'layoutsGone', 'refAnalysis', 'brandStyle', 'brand'];
+const SYNC_KEYS = ['libraryEdits', 'layoutsOff', 'layoutsGone', 'refAnalysis', 'brandStyle', 'brand', 'layoutMoodOn'];
 
 // Any `blob:` URL is origin-local; never send a dead reference to the server.
 function stripBlobUrls(value) {

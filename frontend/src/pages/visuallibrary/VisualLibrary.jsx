@@ -34,12 +34,12 @@
  * ── MOOD VISUALS (Leon, Aug 6) ───────────────────────────────────────────
  *
  * A switch on how every layout is DRAWN, not a filter on which ones exist: with
- * it on, the compositions carry the studio's photography; with it off, every
- * picture is drawn as the empty ground it would be before a photograph exists.
- * Both are true views of the same library, and the second is what a slide
- * genuinely looks like the moment before the studio shoots it. It is deliberately
- * NOT the same control as "with images" below — that one is about whether a
- * layout has a place for a photograph at all.
+ * it on, the compositions carry one of the studio's Visual Mood photographs;
+ * with it off, every picture is drawn as the empty ground it would be before a
+ * photograph exists. Both are true views of the same library, and the second is
+ * what a slide genuinely looks like the moment before the studio shoots it. It
+ * is deliberately NOT the same control as "with images" below — that one is
+ * about whether a layout has a place for a photograph at all.
  *
  * ── THE FACETS (Leon, Aug 6, reversing part of decision 447) ─────────────
  *
@@ -62,11 +62,30 @@ import { LAYOUTS, CATEGORIES, hasImage } from '../../data/layouts.js';
 import { analyseNew } from '../../lib/refanalysis.js';
 import { candidatesFor, buildLayouts } from '../../lib/addlayouts.js';
 import { paintOf } from '../../lib/identity.js';
+import { listMoodImages } from '../../api/visualBrand.js';
 import './visuallibrary.css';
 
 
 
 import { Preview, Ph } from './LayoutArt.jsx';
+
+function MoodSwitch({ id, mood }) {
+  return (
+    <span className="vl-mood">
+      <span className="vl-mood__label" id={id}>Visual mood</span>
+      <button
+        className={`set-switch ${mood ? 'is-on' : ''}`}
+        role="switch"
+        aria-checked={mood}
+        aria-labelledby={id}
+        title={mood ? 'Layouts are showing photographs' : 'Layouts are showing empty picture areas'}
+        onClick={() => setState({ layoutMoodOn: !mood })}
+      >
+        <i aria-hidden="true" />
+      </button>
+    </span>
+  );
+}
 
 /* `look` is pick-mode: the card is something to see, not to manage. The ⋯, the
  * in-use toggle and the off mark all go; the drawing and the name stay. */
@@ -417,29 +436,60 @@ export default function VisualLibrary({ pick = null } = {}) {
      Library Settings, and it arrives here as custom properties. This page reads
      the identity; it never sets it. */
 
-  /* ── NO SYSTEM PHOTOGRAPHY IN THE LIBRARY (Leon, Aug 7 — decision 548) ──
-   *
-   * This was the "Mood visuals" toggle, then a switch in Library Settings, then
-   * hard-coded ON when the switch was removed (511). ON was the wrong constant:
-   * it filled every picture region with one of the product's own stills, so a
-   * studio browsing forty-five layouts saw forty-five compositions apparently
-   * already containing photographs that are not theirs.
-   *
-   * OFF is what a layout actually is — a SHAPE. Every composition still draws
-   * in full; the picture region is the empty ground it will be until the studio
-   * puts something in it, which is the same thing the plan's layout cards show
-   * (546) and the same thing the post preview shows (521). One answer to "what
-   * does a layout look like before I have a photograph" in all three places.
-   *
-   * `mood` stays as the prop the compositions read — it is what says "there is
-   * a picture for this slot" — and the plan passes `true` once the studio
-   * uploads one. Only the LIBRARY is unconditionally off, because nothing in
-   * the library is ever the studio's own picture. */
-  /* the library page itself stays empty-ground (mood off). Browse layouts
-     turns it on by default so a studio choosing a category can see how a
-     photograph sits in each shape — same switch, same store key as the
-     reference (layoutMoodOn). */
-  const mood = pick ? s.layoutMoodOn !== false : false;
+  /* ── MOOD VISUALS (Leon, Aug 9 — 857) ───────────────────────────────────
+   * On by default on this page: the job is showing how the studio's direction
+   * reads across the layout system. Off still draws empty picture regions.
+   * Browse layouts uses the same switch and the same store key. */
+  const mood = s.layoutMoodOn !== false;
+
+  /* One uploaded Visual Mood image fills every photo slot. The library is not
+     a gallery of the product's stills — when the studio has a reference, that
+     one picture is what every composition holds. */
+  useEffect(() => {
+    let alive = true;
+    listMoodImages()
+      .then((imgs) => {
+        if (!alive) return;
+        const loaded = (imgs || [])
+          .filter((m) => m.url)
+          .map((m) => ({
+            id: m.key,
+            key: m.key,
+            kind: 'reference',
+            url: m.url,
+            title: m.title || '',
+            source: 'added',
+            addedAt: m.addedAt || Date.now(),
+          }));
+        setState({ visualRefs: loaded });
+      })
+      .catch(() => { /* offline / no S3 — keep whatever the store had */ });
+    return () => { alive = false; };
+  }, []);
+
+  const moodUrl = useMemo(() => {
+    const all = (s.visualRefs || []).filter((r) => r?.url);
+    const lead = all.find((r) => r.id === s.moodDefault) || all[0] || null;
+    return lead?.url || null;
+  }, [s.visualRefs, s.moodDefault]);
+
+  const moodDress = useMemo(() => (l) => {
+    if (!mood) return l;
+    const imgs = (l.imgs || []).map(() => moodUrl || null);
+    return { ...l, imgs };
+  }, [mood, moodUrl]);
+
+  const [phone, setPhone] = useState(
+    () => typeof window !== 'undefined' && window.matchMedia('(max-width: 720px)').matches,
+  );
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined;
+    const mq = window.matchMedia('(max-width: 720px)');
+    const read = () => setPhone(mq.matches);
+    read();
+    mq.addEventListener('change', read);
+    return () => mq.removeEventListener('change', read);
+  }, []);
 
   /* the category is a filter like any other now — it lives in the Filter menu
      with the rest of them (Leon, Aug 6) */
@@ -576,7 +626,7 @@ export default function VisualLibrary({ pick = null } = {}) {
           {list.map((l) => (
             <Card
               key={l.id}
-              l={l}
+              l={moodDress(l)}
               on={!off[l.id]}
               mood={mood}
               onToggle={() => toggle(l.id)}
@@ -606,19 +656,7 @@ export default function VisualLibrary({ pick = null } = {}) {
           </div>
           <div className="vl-pickhead__row">
             <p className="vl-head__lead">Choose a category for this post.</p>
-            <span className="vl-mood">
-              <span className="vl-mood__label" id="vl-mood-lp">Visual mood</span>
-              <button
-                className={`set-switch ${mood ? 'is-on' : ''}`}
-                role="switch"
-                aria-checked={mood}
-                aria-labelledby="vl-mood-lp"
-                title={mood ? 'Layouts are showing photographs' : 'Layouts are showing empty picture areas'}
-                onClick={() => setState({ layoutMoodOn: !mood })}
-              >
-                <i aria-hidden="true" />
-              </button>
-            </span>
+            <MoodSwitch id="vl-mood-lp" mood={mood} />
           </div>
         </div>
       )}
@@ -632,13 +670,14 @@ export default function VisualLibrary({ pick = null } = {}) {
           * `title` are on all of them at every width: an icon with no accessible
           * name is a button nobody can read, on a screen reader or a phone. */}
         <span className="vl-head__acts">
+        {!phone && <MoodSwitch id="vl-mood-l" mood={mood} />}
         <Link
           to="/dashboard/library-settings"
           className="btn btn--tertiary btn--sm vl-ctl vl-head__settings"
           aria-label="Library settings"
           title="Library settings"
         >
-          <Icon name="settings" size={15} strokeWidth={2} />
+          <Icon name="sun" size={15} strokeWidth={2} />
           <span className="vl-ctl__label">Library settings</span>
         </Link>
         {/* THE MENU LIVES BESIDE ITS BUTTON (Leon, Aug 6). It was rendered at
@@ -676,6 +715,15 @@ export default function VisualLibrary({ pick = null } = {}) {
               <span className="pe-menu vl-menu vl-menu--more" role="menu">
                 {pane === null && (
                   <>
+                    {phone && (
+                      <>
+                        <span className="pe-menu__row vl-menu__mood">
+                          <Icon name="image" size={17} strokeWidth={2} />
+                          <MoodSwitch id="vl-mood-m" mood={mood} />
+                        </span>
+                        <span className="pe-menu__sep" />
+                      </>
+                    )}
                     <button role="menuitem" onClick={() => setPane('filter')}>
                       <Icon name="filter" size={17} strokeWidth={2} />
                       <span className="pe-menu__grow">Filter</span>
@@ -928,7 +976,7 @@ export default function VisualLibrary({ pick = null } = {}) {
           <Row
             key={c.id}
             cat={c}
-            layouts={pickShown.filter((l) => l.cat === c.id)}
+            layouts={pickShown.filter((l) => l.cat === c.id).map(moodDress)}
             off={off}
             mood={mood}
             onToggle={toggle}

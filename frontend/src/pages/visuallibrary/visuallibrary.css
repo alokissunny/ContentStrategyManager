@@ -14,7 +14,7 @@
 
 /* ── ROW ONE: the title, and Library settings on its line ── */
 .vl-head { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3); flex-wrap: wrap; }
-.vl-head__acts { display: flex; align-items: center; gap: var(--sp-2); flex: 0 0 auto; }
+.vl-head__acts { display: flex; align-items: center; gap: var(--sp-4); flex: 0 0 auto; }
 .vl-head__title {
   display: flex;
   align-items: center;
@@ -25,7 +25,19 @@
   font-weight: 700;
   color: var(--ink-900);
 }
-.vl-head__settings { flex: 0 0 auto; }
+.vl-head__settings { flex: 0 0 auto; border-radius: var(--r-full); }
+/* ── THE VISUAL MOOD SWITCH (Leon, Aug 9 — decision 855) ─────────────────
+   The product's own `.set-switch`, with the label pattern the settings rows
+   use, sitting in the head's action row beside Library settings. */
+.vl-mood { display: inline-flex; align-items: center; gap: var(--sp-2); flex: 0 0 auto; }
+.vl-mood__label {
+  font-family: var(--font-ui);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--ink-600);
+}
+@media (max-width: 900px) { .vl-mood__label { display: none; } }
+.vl--pick .vl-mood__label { display: inline; }
 .vl-head__lead { margin: -8px 0 var(--sp-2); font-size: var(--text-sm); line-height: 1.55; color: var(--ink-500); }
 
 /* ── ROW TWO: the theme, and the mood-visual switch ── */
@@ -1157,9 +1169,11 @@
   .vl-head__title { min-width: 0; font-size: var(--text-xl); }
   .vl-head__lead { margin-top: 0; }
 
-  /* the phone keeps neither: the ⋯ menu carries the categories and the filters */
+  /* the phone keeps neither: the ⋯ menu carries the categories, the filters
+     and the Visual mood switch */
   .vl-catrow,
-  .btn.vl-head__settings { display: none; }
+  .btn.vl-head__settings,
+  .vl-head__acts .vl-mood { display: none; }
 
   .btn.vl-more { display: inline-flex; }
   .vl-row__all { display: inline-flex; }
@@ -1375,6 +1389,53 @@
   border-color: var(--signal-500);
 }
 .set-switch.is-on i { transform: translateX(18px); }
+
+/* ── THE SWITCH'S ROW IN THE ⋯ MENU (phone) ────────────────────────────
+   pe-menu styles every button as a 44px row; a switch is a button, so it
+   keeps its own 44×26 here. The header hides this control below 720px. */
+.pe-menu .pe-menu__row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 44px;
+  padding: 10px 12px;
+  font-size: var(--text-base);
+  color: var(--ink-900);
+}
+.pe-menu .pe-menu__row > svg { color: var(--ink-500); flex-shrink: 0; }
+.pe-menu .vl-menu__mood .set-switch {
+  flex: 0 0 auto;
+  width: 44px;
+  height: 26px;
+  min-height: 0;
+  padding: 0;
+  border-radius: var(--r-full);
+}
+.pe-menu .vl-menu__mood .set-switch:hover {
+  background: var(--surface-sunken);
+}
+.pe-menu .vl-menu__mood .set-switch.is-on:hover {
+  background: var(--signal-500);
+  border-color: var(--signal-500);
+}
+.pe-menu .pe-menu__row.vl-menu__mood { min-height: 44px; height: auto; }
+.vl-menu__mood .vl-mood {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.vl-menu__mood .vl-mood__label {
+  display: block;
+  font-size: var(--text-base);
+  font-weight: 400;
+  color: var(--ink-900);
+  text-transform: none;
+  letter-spacing: 0;
+  white-space: nowrap;
+}
 @media (max-width: 720px) {
   .vl--pick .vl-pickhead {
     top: calc(var(--sp-4) * -1);

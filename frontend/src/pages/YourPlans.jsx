@@ -61,11 +61,34 @@ function fmtCost(usd) {
   if (usd < 0.01) return `$${usd.toFixed(4)}`;
   return `$${usd.toFixed(2)}`;
 }
-/* Group weeks by the calendar month they start in, then sort by date.
- * (Never by weekIndex alone — that interleaved Aug week 2 with Sep week 2
- * when both months shared a stale monthKey.)
- * Same calendar Monday twice (a replanned week whose old row wasn't deleted)
- * keeps the newest write. */
+/* Written weeks in the same month as `week`, oldest first — the WeekView
+ * navigator pages through these. Drafts (next-month placeholders) stay out. */
+function monthWeeksOf(routes, week) {
+  if (!week) return [];
+  const key = week.monthKey;
+  const list = (routes || []).filter((r) => {
+    if (r.draft) return false;
+    if (!(r.days || []).length) return false;
+    if (key) return r.monthKey === key;
+    const a = new Date(week.startsAt || week.weekOf);
+    const b = new Date(r.startsAt || r.weekOf);
+    return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth();
+  });
+  const newestByMonday = new Map();
+  list.forEach((w) => {
+    const k = mondayKey(w.startsAt || w.weekOf) || String(w._id);
+    const prev = newestByMonday.get(k);
+    const t = Date.parse(w.generatedAt || w.updatedAt || 0);
+    const pt = prev ? Date.parse(prev.generatedAt || prev.updatedAt || 0) : -1;
+    if (!prev || t >= pt) newestByMonday.set(k, w);
+  });
+  return [...newestByMonday.values()].sort((a, b) => {
+    const d = (a.weekIndex ?? 0) - (b.weekIndex ?? 0);
+    if (d) return d;
+    return new Date(a.startsAt || a.weekOf) - new Date(b.startsAt || b.weekOf);
+  });
+}
+
 function mondayKey(date) {
   const d = new Date(date);
   if (Number.isNaN(d.getTime())) return '';
@@ -75,6 +98,11 @@ function mondayKey(date) {
 }
 
 function monthlyGroups(routes) {
+  /* Group weeks by the calendar month they start in, then sort by date.
+   * (Never by weekIndex alone — that interleaved Aug week 2 with Sep week 2
+   * when both months shared a stale monthKey.)
+   * Same calendar Monday twice (a replanned week whose old row wasn't deleted)
+   * keeps the newest write. */
   const by = new Map();
   (routes || []).forEach((r) => {
     const start = new Date(r.startsAt || r.weekOf);
@@ -385,6 +413,8 @@ export default function YourPlans() {
     return (
       <WeekView
         route={selected}
+        monthWeeks={monthWeeksOf(routes, selected)}
+        onOpenWeek={(week) => setSelected(week)}
         onBack={() => {
           setView('list');
           // Background weeks may have finished while this one was open.

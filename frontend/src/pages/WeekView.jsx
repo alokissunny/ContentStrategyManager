@@ -6,7 +6,7 @@
  * the list. Edits persist via PATCH /routes/:id/day/:index.
  */
 
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import Glyph from '../components/Glyph';
@@ -29,6 +29,7 @@ import VisualLibrary from './visuallibrary/VisualLibrary';
 import ImagePicker from './weekview/ImagePicker';
 import RoleField from './weekview/RoleField';
 import WordsPolish from './weekview/WordsPolish';
+import CaptionPolish from './weekview/CaptionPolish';
 import { useBodyScrollLock } from './visualbrand/useBodyScrollLock';
 import { useStore } from '../lib/store';
 import './weekView.css';
@@ -1005,7 +1006,37 @@ function AddImagesDialog({ count, onAdd, onSkip, onClose }) {
   );
 }
 
-export default function WeekView({ route: initialRoute, onBack }) {
+function WeekNav({ weekIdx, weekCount, onPick }) {
+  if (weekCount <= 1) return null;
+  return (
+    <div className="wv-wknav">
+      <button
+        type="button"
+        className="wv-wknav__arrow"
+        onClick={() => onPick(weekIdx - 1)}
+        disabled={weekIdx <= 0}
+        aria-label="Previous week"
+      >
+        <Icon name="chevron-left" size={18} strokeWidth={2.5} />
+      </button>
+      <span className="wv-wknav__now">
+        <b>Week {weekIdx + 1}</b>
+        <span className="wv-wknav__of"> of {weekCount}</span>
+      </span>
+      <button
+        type="button"
+        className="wv-wknav__arrow"
+        onClick={() => onPick(weekIdx + 1)}
+        disabled={weekIdx >= weekCount - 1}
+        aria-label="Next week"
+      >
+        <Icon name="chevron-right" size={18} strokeWidth={2.5} />
+      </button>
+    </div>
+  );
+}
+
+export default function WeekView({ route: initialRoute, onBack, monthWeeks = [], onOpenWeek }) {
   const navigate = useNavigate();
   const projects = useProjects();
   const [capturing, setCapturing] = useState(false);
@@ -1049,6 +1080,8 @@ export default function WeekView({ route: initialRoute, onBack }) {
   const calPlacedFor = useRef(null);
   const [wordDraft, setWordDraft] = useState(null); // role-keyed draft until Apply
   const [capDraft, setCapDraft] = useState(''); // caption editor draft
+  const [capBusy, setCapBusy] = useState(false);
+  const capTaRef = useRef(null);
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -1072,6 +1105,26 @@ export default function WeekView({ route: initialRoute, onBack }) {
   // these to PNGs so Instagram receives the actual designed post, not the raw
   // project images. Indexed by slide position.
   const exportRefs = useRef([]);
+
+  const weekId = initialRoute?._id;
+  useEffect(() => {
+    setRoute(initialRoute);
+    setSelected(0);
+    setSlideIdx(0);
+    setZone(null);
+    setVisEdit(null);
+    setWhyOpen(false);
+    setWordDraft(null);
+    setCapDraft('');
+    setLayPick(null);
+    setLayCat(null);
+    setImgPick(null);
+    setTimeDraft(null);
+    setEnter(0);
+    setMoreOpen(false);
+    // Reset editors when the open week changes; initialRoute is read for that id only.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [weekId]);
 
   useEffect(() => {
     getMetaStatus()
@@ -1291,6 +1344,7 @@ export default function WeekView({ route: initialRoute, onBack }) {
     setCreating(false);
     setImgPick(null);
     setAskImgs(0);
+    setCapBusy(false);
   }
 
   useEffect(() => {
@@ -1303,6 +1357,14 @@ export default function WeekView({ route: initialRoute, onBack }) {
     }
     if (visEdit !== 'words') setWordDraft(null);
   }, [visEdit]);
+
+  useLayoutEffect(() => {
+    if (zone !== 'caption') return;
+    const el = capTaRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = `${Math.max(120, el.scrollHeight)}px`;
+  }, [capDraft, zone]);
 
   useEffect(() => {
     function onKey(e) {
@@ -1861,16 +1923,23 @@ export default function WeekView({ route: initialRoute, onBack }) {
         />
       )}
 
-      {/* ── the plan's dates, and the week's focus ───────────────────────── */}
+      {/* ── the plan's dates, and which week of the month ────────────────── */}
       <div className="wv-head">
         <h1 className="wv-head__title">{route.weekLabel || route.focus?.headline || 'Your week'}</h1>
         <div className="wv-head__side">
           {saving && <span className="wv-head__chip">Saving…</span>}
           {replanning && <span className="wv-head__chip">Replanning this week…</span>}
           {replanMsg && <span className="wv-head__chip is-warn">{replanMsg}</span>}
-          {route.focus?.headline && route.weekLabel && (
-            <span className="wv-wknav wv-wknav--plain">
-              <span className="wv-wknav__dates">{route.focus.headline}</span>
+          {monthWeeks.length > 1 && (
+            <span className="wv-head__week">
+              <WeekNav
+                weekIdx={Math.max(0, monthWeeks.findIndex((w) => String(w._id) === String(route._id)))}
+                weekCount={monthWeeks.length}
+                onPick={(i) => {
+                  const next = monthWeeks[Math.max(0, Math.min(monthWeeks.length - 1, i))];
+                  if (next && String(next._id) !== String(route._id)) onOpenWeek?.(next);
+                }}
+              />
             </span>
           )}
         </div>
@@ -2362,19 +2431,31 @@ export default function WeekView({ route: initialRoute, onBack }) {
               <div className="wv-ig__caption wv-ig__zone wv-ig__zone--caption is-editing">
                 <div className="wv-caped">
                   <div className="wv-caped__head">
-                    <span className="wv-caped__title">Caption</span>
-                    <div className="wv-caped__acts">
-                      <button type="button" className="wv-caped__cancel" onClick={closeZone}>Cancel</button>
-                      <button type="button" className="wv-caped__save" onClick={() => saveCaption(capDraft)}>Save</button>
-                    </div>
+                    <span className="wv-caped__title">Edit caption</span>
+                    <button
+                      type="button"
+                      className="btn btn--primary btn--sm wv-caped__done"
+                      onClick={() => saveCaption(capDraft)}
+                      disabled={capBusy}
+                    >
+                      Done
+                    </button>
                   </div>
                   <textarea
+                    ref={capTaRef}
                     className="wv-caped__input"
-                    rows={6}
                     value={capDraft}
                     onChange={(e) => setCapDraft(e.target.value)}
                     placeholder="Write the caption…"
+                    aria-label="Caption"
                     autoFocus
+                  />
+                  <CaptionPolish
+                    routeId={route?._id}
+                    dayIndex={selected}
+                    caption={capDraft}
+                    onCaption={setCapDraft}
+                    onBusy={setCapBusy}
                   />
                 </div>
               </div>

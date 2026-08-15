@@ -4,6 +4,7 @@ const Project = require('../models/Project');
 const InstagramProfile = require('../models/InstagramProfile');
 const { generateWeeklyPlan } = require('../services/weeklyPlan');
 const { analyzeImageAsset } = require('../services/imageAnalysis');
+const { rewriteCaption } = require('../services/captionPolish');
 const { loadCompetitorOverviewForUser } = require('./competitorController');
 const { currentProfile } = require('../utils/currentProfile');
 const { findMetaConnectionForUsername } = require('../services/graphInstagram');
@@ -735,6 +736,52 @@ async function markDayPublished(req, res) {
   res.json({ route });
 }
 
+// POST /routes/:id/day/:index/polish-caption
+// Rewrite the day's caption with Claude (preferred) or OpenAI. Returns the
+// draft only — the studio still has to press Done to persist it.
+async function polishCaption(req, res) {
+  const index = Number(req.params.index);
+  const route = await WeeklyRoute.findOne({ _id: req.params.id, user: req.user._id });
+  if (!route) return res.status(404).json({ message: 'Route not found' });
+  if (!route.days[index]) return res.status(404).json({ message: 'Day not found' });
+
+  const day = route.days[index];
+  const instruction = String(req.body?.instruction || '').trim();
+  const caption = req.body?.caption !== undefined
+    ? String(req.body.caption)
+    : String(day.content?.caption || '');
+
+  const dna = await loadBrandDna(req.user._id, route.instagramUsername);
+  try {
+    const result = await rewriteCaption({
+      caption,
+      instruction,
+      context: {
+        handle: route.instagramUsername,
+        pillar: day.pillar,
+        format: day.format,
+        focus: route.focus?.headline,
+        direction: day.direction,
+        strategy: day.content?.strategy,
+        voice: dna?.howYouSound,
+      },
+    });
+    if (result.unchanged) {
+      return res.json({
+        caption: result.caption,
+        unchanged: true,
+        message: 'That would leave the caption exactly as it is.',
+        model: result.model,
+      });
+    }
+    return res.json({ caption: result.caption, model: result.model });
+  } catch (err) {
+    const status = err.status || 502;
+    console.error('[route] caption polish failed:', err.message);
+    return res.status(status).json({ message: err.message || 'Could not rewrite the caption.' });
+  }
+}
+
 module.exports = {
   generateAndSaveRoute,
   getCurrentRoute,
@@ -742,6 +789,7 @@ module.exports = {
   generateRoute,
   replanWeek,
   markDayPublished,
+  polishCaption,
   remainingWeekStarts,
   firstMondayOfNextMonth,
 };
