@@ -31,6 +31,7 @@ import RoleField from './weekview/RoleField';
 import WordsPolish from './weekview/WordsPolish';
 import CaptionPolish from './weekview/CaptionPolish';
 import { useBodyScrollLock } from './visualbrand/useBodyScrollLock';
+import useMediaQuery from '../hooks/useMediaQuery';
 import { useStore } from '../lib/store';
 import './weekView.css';
 
@@ -463,6 +464,15 @@ function toSpoken(t) {
   const ap = h < 12 ? 'AM' : 'PM';
   const h12 = h % 12 === 0 ? 12 : h % 12;
   return `${h12}:${String(min).padStart(2, '0')} ${ap}`;
+}
+
+// The editor field shows a padded 12-hour clock ("09:30 AM") so the value
+// matches the reference UI regardless of the browser's native time format.
+function toClockField(t) {
+  const { h, min } = parseClock(t);
+  const ap = h < 12 ? 'AM' : 'PM';
+  const h12 = h % 12 === 0 ? 12 : h % 12;
+  return `${String(h12).padStart(2, '0')}:${String(min).padStart(2, '0')} ${ap}`;
 }
 
 // The time this post goes out at: its own, else the plan's weekly preference,
@@ -1439,6 +1449,40 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
     return () => document.removeEventListener('mousedown', away);
   }, [zone]);
 
+  // Same leave-without-commit for the time editor: the draft lives in
+  // `timeDraft` and goes with a press anywhere else. Apply changes is the
+  // only write. Skip the close while the native picker still has focus —
+  // some browsers draw that popup outside `.wv-time`.
+  useEffect(() => {
+    if (!timeDraft) return undefined;
+    const away = (e) => {
+      if (e.target.closest('.wv-time')) return;
+      if (e.target.closest('.wv-ig__slot-edit') || e.target.closest('.wv-ig__zonebtn')) return;
+      if (e.target.closest('.wv-confirm') || e.target.closest('.wv-confirm__scrim')) return;
+      if (e.target.closest('.wv-schedask') || e.target.closest('.wv-schedask__scrim')) return;
+      if (document.activeElement?.classList?.contains('wv-time__native')) return;
+      setTimeDraft(null);
+    };
+    document.addEventListener('mousedown', away);
+    return () => document.removeEventListener('mousedown', away);
+  }, [timeDraft]);
+
+  // Layout picks are a draft until Apply changes — press elsewhere to abandon.
+  useEffect(() => {
+    if (zone !== 'visual' || visEdit !== 'layout') return undefined;
+    const away = (e) => {
+      if (e.target.closest('.wv-layed')) return;
+      if (e.target.closest('.wv-vlib') || e.target.closest('.wv-vlib__scrim')) return;
+      if (e.target.closest('.wv-confirm') || e.target.closest('.wv-confirm__scrim')) return;
+      if (e.target.closest('.wv-ig__zonebtn') || e.target.closest('.wv-ig__menu')
+        || e.target.closest('.wv-ig__menuscrim')) return;
+      setVisEdit(null);
+      setLayPick(null);
+    };
+    document.addEventListener('mousedown', away);
+    return () => document.removeEventListener('mousedown', away);
+  }, [zone, visEdit]);
+
   useEffect(() => {
     if (visEdit !== 'layout') {
       setLayPick(null);
@@ -1892,6 +1936,16 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
     setVisEdit(null);
   }
 
+  function applyLayout() {
+    if (!draftId || layoutUnchanged) return;
+    const need = shotsOf(chosenLayout);
+    patchActiveSlide({ layout: draftId });
+    setLayPick(null);
+    setVisEdit(null);
+    setZone(null);
+    if (need) setAskImgs(need);
+  }
+
   function openImagePicker() {
     const n = Math.max(1, shotsOf(chosenLayout));
     const saved = keysOf(activeSlide).map((k) => urlForKey(k, activeSlide, localMedia));
@@ -1953,6 +2007,27 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
   }, [chosenLayoutIdx, maxWinStart]);
   const shownLayouts = slideLayouts.slice(layWinStart, layWinStart + LAY_PER_PAGE);
   const stepLayout = (d) => setLayWinStart((s) => Math.max(0, Math.min(s + d, maxWinStart)));
+  const isDesktop = useMediaQuery('(min-width: 961px)');
+  const layoutEditing = zone === 'visual' && visEdit === 'layout';
+  const pickerLayouts = isDesktop ? slideLayouts : shownLayouts;
+
+  const layoutPickerCards = (list) => list.map((l) => (
+    <button
+      key={l.id}
+      type="button"
+      role="radio"
+      aria-checked={draftId === l.id}
+      aria-label={l.name || l.id}
+      className={`wv-act wv-act--layout${draftId === l.id ? ' is-on' : ''}`}
+      onClick={() => setLayPick(l.id)}
+      title={l.name}
+    >
+      <span className="wv-act__shot">
+        <Preview mood={false} l={l} />
+      </span>
+      {l.id === appliedId && <span className="wv-act__now">Current</span>}
+    </button>
+  ));
 
   return (
     <div className="wv" style={libPaint}>
@@ -2138,7 +2213,7 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
       {askImgs > 0 && (
         <AddImagesDialog
           count={askImgs}
-          onSkip={() => { setAskImgs(0); closeZone(); }}
+          onSkip={() => setAskImgs(0)}
           onAdd={() => { setAskImgs(0); openImagePicker(); }}
           onClose={() => setAskImgs(0)}
         />
@@ -2260,7 +2335,7 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
           >
             <Glyph name="chevron-right" size={22} strokeWidth={2.5} />
           </button>
-          <article className="wv-ig" style={igVars}>
+          <article className={`wv-ig${timeDraft ? ' is-timeedit' : ''}${layoutEditing ? ' is-layoutedit' : ''}`} style={igVars}>
             <header className="wv-ig__head">
               <span className="wv-ig__avatar">{handleInitials(handle)}</span>
               <span className="wv-ig__user">{handle}</span>
@@ -2379,6 +2454,8 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
                 />
                 <div className="wv-ig__menu" role="menu" aria-label="Edit this slide">
                   <button type="button" role="menuitem" className="wv-ig__menuitem" onClick={() => {
+                    setTimeDraft(null);
+                    if (zone === 'caption') closeZone();
                     setLayPick(appliedId);
                     setLayCat(null);
                     setVisEdit('layout');
@@ -2421,117 +2498,21 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
               </div>
             )}
 
-            {/* the picked editor — one job at a time, under the media so the
-                change reads as it is made (bauhly-v3 §808). Layout keeps a back
-                arrow to the menu; Edit text confirms with Apply. */}
-            {zone === 'visual' && visEdit && (
-              <div className={`wv-ig__edit${visEdit === 'words' ? ' wv-ig__edit--words' : ''}`}>
+            {/* the picked editor — Edit text stays under the media; Choose layout
+                moves to the right column on desktop (reference UI). */}
+            {zone === 'visual' && visEdit === 'words' && (
+              <div className="wv-ig__edit wv-ig__edit--words">
                 <div className="wv-edit__head">
-                  {visEdit === 'layout' && (
-                    <button type="button" className="wv-edit__back" onClick={() => setVisEdit(null)} aria-label="Back to menu">
-                      <Glyph name="arrow-left" size={16} />
-                    </button>
-                  )}
-                  <span className="wv-edit__title">
-                    {visEdit === 'layout' ? 'Choose layout' : 'Edit text'}
-                    {visEdit === 'layout' && layoutCatLabel && (
-                      <em className="wv-edit__cat">{layoutCatLabel}</em>
-                    )}
-                  </span>
-                  {visEdit === 'words' && (
-                    <button
-                      type="button"
-                      className="btn btn--primary btn--sm wv-edit__apply"
-                      onClick={applyWords}
-                    >
-                      Apply
-                    </button>
-                  )}
-                  {visEdit === 'layout' && (
-                    <button
-                      type="button"
-                      className="btn btn--tertiary btn--sm wv-edit__browse"
-                      onClick={() => setLibOpen(true)}
-                      aria-label="Browse layouts"
-                      title="Browse layouts"
-                    >
-                      <Glyph name="search" size={15} strokeWidth={2} />
-                      <span className="wv-edit__browselabel">Browse layouts</span>
-                    </button>
-                  )}
+                  <span className="wv-edit__title">Edit text</span>
+                  <button
+                    type="button"
+                    className="btn btn--primary btn--sm wv-edit__apply"
+                    onClick={applyWords}
+                  >
+                    Apply
+                  </button>
                 </div>
-
-                {/* ── Choose layout: this slide's category, one shape chosen ── */}
-                {visEdit === 'layout' && (
-                  <div className="wv-vis">
-                    <div className="wv-actsrow">
-                      <button
-                        type="button"
-                        className="wv-actsrow__arrow"
-                        onClick={() => stepLayout(-1)}
-                        disabled={layWinStart <= 0}
-                        aria-label="Previous layouts"
-                      >
-                        <Glyph name="chevron-left" size={15} strokeWidth={2.5} />
-                      </button>
-                      <div className="wv-acts" role="radiogroup" aria-label="Which layout should this slide take?">
-                        {shownLayouts.map((l) => {
-                          const dressed = withSlidePhoto(l, activeSlide, localMedia);
-                          return (
-                          <button
-                            key={l.id}
-                            type="button"
-                            role="radio"
-                            aria-checked={draftId === l.id}
-                            aria-label={l.name || l.id}
-                            className={`wv-act wv-act--layout${draftId === l.id ? ' is-on' : ''}`}
-                            onClick={() => setLayPick(l.id)}
-                            title={l.name}
-                          >
-                            <span className="wv-act__shot">
-                              <Preview
-                                mood={(dressed?.imgs || []).some(Boolean)}
-                                l={dressed}
-                              />
-                            </span>
-                            {l.id === appliedId && <span className="wv-act__now">Current</span>}
-                          </button>
-                          );
-                        })}
-                      </div>
-                      <button
-                        type="button"
-                        className="wv-actsrow__arrow"
-                        onClick={() => stepLayout(1)}
-                        disabled={layWinStart >= maxWinStart}
-                        aria-label="Next layouts"
-                      >
-                        <Glyph name="chevron-right" size={15} strokeWidth={2.5} />
-                      </button>
-                    </div>
-                    <button
-                      type="button"
-                      className="btn btn--primary wv-lay__apply"
-                      disabled={layoutUnchanged}
-                      title={layoutUnchanged ? 'This is the layout the post already has' : undefined}
-                      onClick={() => {
-                        if (!draftId || layoutUnchanged) return;
-                        const need = shotsOf(chosenLayout);
-                        patchActiveSlide({ layout: draftId });
-                        // text-only: done. picture places: the layout is already
-                        // on the post; ask whether to fill them now (§928)
-                        if (!need) { setVisEdit(null); return; }
-                        setAskImgs(need);
-                      }}
-                    >
-                      <Glyph name="check" size={16} strokeWidth={2.5} />
-                      Apply layout
-                    </button>
-                  </div>
-                )}
-
-                {/* ── Edit text: one field per layout role, live on the post ── */}
-                {visEdit === 'words' && wordDraft && (
+                {wordDraft && (
                   <div className="wv-words">
                     {wordRoles.map((r, n) => (
                       <RoleField
@@ -2556,6 +2537,68 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
               </div>
             )}
             </div>
+
+            {layoutEditing && (
+              <div className="wv-layed" onClick={(e) => e.stopPropagation()}>
+                <div className="wv-layed__head">
+                  <button
+                    type="button"
+                    className="wv-layed__back"
+                    onClick={() => closeZone()}
+                    aria-label="Back"
+                  >
+                    <Glyph name="arrow-left" size={16} />
+                  </button>
+                  <span className="wv-layed__title">
+                    Choose layout
+                    {layoutCatLabel && <em className="wv-layed__cat">{layoutCatLabel}</em>}
+                  </span>
+                  <button
+                    type="button"
+                    className="btn btn--primary btn--sm wv-layed__apply"
+                    onClick={applyLayout}
+                    disabled={layoutUnchanged}
+                    title={layoutUnchanged ? 'This is the layout the post already has' : undefined}
+                  >
+                    <Glyph name="check" size={16} strokeWidth={2.5} />
+                    Apply changes
+                  </button>
+                </div>
+                <div className="wv-layed__picker">
+                  <div className="wv-actsrow">
+                    <button
+                      type="button"
+                      className="wv-actsrow__arrow wv-layed__arrow"
+                      onClick={() => stepLayout(-1)}
+                      disabled={layWinStart <= 0}
+                      aria-label="Previous layouts"
+                    >
+                      <Glyph name="chevron-left" size={15} strokeWidth={2.5} />
+                    </button>
+                    <div className="wv-acts wv-layed__grid" role="radiogroup" aria-label="Which layout should this slide take?">
+                      {layoutPickerCards(pickerLayouts)}
+                    </div>
+                    <button
+                      type="button"
+                      className="wv-actsrow__arrow wv-layed__arrow"
+                      onClick={() => stepLayout(1)}
+                      disabled={layWinStart >= maxWinStart}
+                      aria-label="Next layouts"
+                    >
+                      <Glyph name="chevron-right" size={15} strokeWidth={2.5} />
+                    </button>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  className="btn btn--tertiary btn--sm wv-layed__browse"
+                  onClick={() => setLibOpen(true)}
+                >
+                  <Glyph name="search" size={15} strokeWidth={2} />
+                  Browse layouts
+                </button>
+              </div>
+            )}
 
             {/* caption / why — right column on desktop */}
             <div className={`wv-ig__panel${sideTab === 'why' ? ' is-why' : ' is-cap'}${zone === 'caption' ? ' is-cappedit' : ''}`}>
@@ -2672,27 +2715,42 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
                 names its slot and points at Schedule. The time is edited here,
                 on the slot's own surface (§790). */}
             {timeDraft ? (
-              <div className="wv-time">
+              <div className="wv-time" onClick={(e) => e.stopPropagation()}>
                 <div className="wv-time__head">
+                  <button
+                    type="button"
+                    className="wv-time__back"
+                    onClick={() => setTimeDraft(null)}
+                    aria-label="Back"
+                  >
+                    <Glyph name="arrow-left" size={16} />
+                  </button>
                   <span className="wv-time__title">Edit publish time</span>
                   <button
                     type="button"
-                    className="btn btn--primary btn--sm wv-time__done"
+                    className="btn btn--primary btn--sm wv-time__apply"
                     onClick={saveTime}
                     disabled={savingTime}
                   >
-                    Done
+                    Apply changes
                   </button>
                 </div>
                 <label className="wv-time__field">
                   <span className="wv-time__label">Change time</span>
-                  <input
-                    type="time"
-                    className="wv-time__input"
-                    value={timeDraft.at}
-                    onChange={(e) => setTimeDraft((d) => ({ ...d, at: e.target.value }))}
-                    autoFocus
-                  />
+                  <span className="wv-time__control">
+                    <span className="wv-time__value">{toClockField(timeDraft.at)}</span>
+                    <span className="wv-time__clock" aria-hidden="true">
+                      <Glyph name="clock" size={16} strokeWidth={2} />
+                    </span>
+                    <input
+                      type="time"
+                      className="wv-time__native"
+                      value={timeDraft.at}
+                      onChange={(e) => setTimeDraft((d) => ({ ...d, at: e.target.value }))}
+                      aria-label="Publish time"
+                      autoFocus
+                    />
+                  </span>
                 </label>
                 <div className="wv-time__every">
                   <label className="wv-time__box">
@@ -2703,16 +2761,14 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
                     />
                     Use this time every week
                   </label>
-                  {(timeDraft.at !== DEFAULT_TIME_24 || timeDraft.every) && (
-                    <button
-                      type="button"
-                      className="btn btn--quiet btn--sm wv-time__reset"
-                      onClick={() => setTimeDraft({ at: DEFAULT_TIME_24, every: false })}
-                    >
-                      <Glyph name="refresh-cw" size={14} />
-                      Use Bauhly time
-                    </button>
-                  )}
+                  <button
+                    type="button"
+                    className="btn btn--quiet btn--sm wv-time__reset"
+                    onClick={() => setTimeDraft({ at: DEFAULT_TIME_24, every: false })}
+                  >
+                    <Glyph name="refresh-cw" size={14} />
+                    Use Bauhly time
+                  </button>
                 </div>
               </div>
             ) : (

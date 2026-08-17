@@ -3757,90 +3757,227 @@
 }
 @media (hover: none) { .wv-ig__slot-edit { opacity: 1; transform: translateY(-50%); } }
 
+/* editing time takes the caption's place: the rest of the right column
+   (or, on a phone, the stack under the picture) is this one bordered box */
+.wv-ig.is-timeedit .wv-ig__panel { display: none; }
+
+/* Choose layout on desktop replaces the caption panel with this bordered box */
+.wv-ig.is-layoutedit .wv-ig__panel,
+.wv-ig.is-layoutedit .wv-ig__slot,
+.wv-ig.is-layoutedit .wv-time { display: none; }
+
+.wv-layed {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  padding: var(--sp-4);
+  margin: var(--sp-3) 14px 16px;
+  border-radius: var(--r-md);
+  background: var(--surface);
+  animation: fade-in var(--dur-fast, 140ms) var(--ease-out, ease);
+  cursor: default;
+  flex: 0 0 auto;
+}
+.wv-layed::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 6;
+  border-radius: inherit;
+  box-shadow: inset 0 0 0 2px var(--ink-900);
+  pointer-events: none;
+}
+.wv-layed__head {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+}
+.wv-layed__back {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  margin-left: -6px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--ink-800);
+  cursor: pointer;
+  transition: color var(--dur-fast, 140ms) var(--ease-out, ease),
+    background var(--dur-fast, 140ms) var(--ease-out, ease);
+}
+.wv-layed__back:hover { color: var(--ink-900); background: var(--ink-100); }
+.wv-layed__title {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  font-family: var(--font-ui);
+  font-size: var(--text-base);
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--ink-900);
+}
+.wv-layed__cat {
+  font-style: normal;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ink-600);
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--surface-sunken);
+}
+.btn.wv-layed__apply {
+  margin-left: auto;
+  flex-shrink: 0;
+  border-radius: 999px;
+}
+.wv-layed__picker { position: relative; min-width: 0; }
+.wv-layed__picker .wv-actsrow { margin: 0; }
+.wv-layed__browse {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  height: 40px;
+  margin-top: 2px;
+  border-radius: var(--r-md);
+  font-size: var(--text-sm);
+  flex-shrink: 0;
+}
+
 .wv-time {
   display: flex;
   flex-direction: column;
-  gap: 16px;
-  margin: 12px;
-  padding: 22px;
-  border: 1px solid var(--border);
-  border-radius: 18px;
+  gap: var(--sp-4);
+  padding: var(--sp-5);
+  margin: var(--sp-3) 14px 16px;
+  border-radius: var(--r-md);
   background: var(--surface);
+  box-shadow: inset 0 0 0 2px var(--ink-900);
   animation: fade-in var(--dur-fast, 140ms) var(--ease-out, ease);
+  cursor: default;
 }
 .wv-time__head {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 12px;
+  gap: var(--sp-3);
 }
+.wv-time__back {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  margin-left: -6px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--ink-800);
+  cursor: pointer;
+  transition: color var(--dur-fast, 140ms) var(--ease-out, ease),
+    background var(--dur-fast, 140ms) var(--ease-out, ease);
+}
+.wv-time__back:hover { color: var(--ink-900); background: var(--ink-100); }
 .wv-time__title {
-  font-family: var(--font-display, var(--font-ui));
-  font-size: 19px;
-  font-weight: 800;
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  font-family: var(--font-ui);
+  font-size: var(--text-base);
+  font-weight: 700;
   letter-spacing: -0.01em;
   color: var(--ink-900);
 }
-.wv-time__done { flex-shrink: 0; }
-.wv-time__field { display: flex; flex-direction: column; gap: 8px; }
+.btn.wv-time__apply {
+  margin-left: auto;
+  flex-shrink: 0;
+  border-radius: 999px;
+}
+.wv-time__field { display: flex; flex-direction: column; gap: 6px; }
 .wv-time__label {
   font-family: var(--font-ui);
-  font-size: 13px;
+  font-size: var(--text-xs);
   font-weight: 600;
-  letter-spacing: 0.01em;
   color: var(--ink-600);
 }
-.wv-time__input {
-  width: 100%;
-  height: 58px;
+.wv-time__control {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 46px;
   padding: 0 16px;
-  border: 1.5px solid var(--border-strong, var(--border));
-  border-radius: 14px;
+  border: 1px solid transparent;
+  border-radius: var(--r-md);
+  background: var(--surface-sunken);
+}
+.wv-time__control:focus-within {
   background: var(--surface);
-  font-family: var(--font-ui);
-  font-size: 22px;
-  font-weight: 600;
-  color: var(--ink-900);
-  cursor: text;
-}
-.wv-time__input:hover { border-color: var(--ink-400, var(--ink-500)); }
-.wv-time__input:focus,
-.wv-time__input:focus-visible {
-  outline: none;
   border-color: var(--ink-900);
-  box-shadow: 0 0 0 1px var(--ink-900);
 }
-.wv-time__input::-webkit-calendar-picker-indicator { cursor: pointer; opacity: 0.65; }
-.wv-time__input::-webkit-calendar-picker-indicator:hover { opacity: 1; }
-
+.wv-time__value {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--font-ui);
+  font-size: var(--text-base);
+  font-weight: 500;
+  color: var(--ink-900);
+  pointer-events: none;
+}
+.wv-time__clock {
+  display: inline-flex;
+  flex-shrink: 0;
+  color: var(--ink-900);
+  pointer-events: none;
+}
+.wv-time__native {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  opacity: 0;
+  cursor: pointer;
+  background: transparent;
+}
 .wv-time__every {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  /* it is a rule about the field above it, not a fourth section — pull it in */
-  margin-top: -4px;
+  gap: var(--sp-3);
+  margin-top: calc(var(--sp-2) - var(--sp-4));
 }
 .wv-time__box {
   display: inline-flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   font-family: var(--font-ui);
-  font-size: 15px;
-  color: var(--ink-800);
+  font-size: var(--text-sm);
+  color: var(--ink-600);
   cursor: pointer;
 }
 .wv-time__box input {
-  width: 20px;
-  height: 20px;
+  width: 16px;
+  height: 16px;
   margin: 0;
   flex-shrink: 0;
   accent-color: var(--ink-900);
   cursor: pointer;
 }
-.wv-time__reset { flex-shrink: 0; }
-@media (max-width: 520px) {
-  .wv-time__every { flex-wrap: wrap; row-gap: 10px; }
+.wv-time__reset {
+  flex-shrink: 0;
+  color: var(--ink-600);
+}
+@media (max-width: 767px) {
+  .wv-time__every { gap: var(--sp-2); flex-wrap: nowrap; }
+  .wv-time__box { white-space: nowrap; }
+  .btn.wv-time__reset { padding-inline: 0; }
 }
 
 /* ══ DESKTOP SPLIT (reference: bauhly-v3 YourWeek + plan screenshot) ══════
@@ -3920,7 +4057,7 @@
 
   .wv-postwrap > .wv-ig {
     display: grid;
-    grid-template-columns: minmax(300px, 0.92fr) minmax(320px, 1.08fr);
+    grid-template-columns: minmax(320px, 1.25fr) minmax(280px, 1fr);
     grid-template-rows: auto 1fr auto;
     align-items: stretch;
     min-height: 520px;
@@ -3948,9 +4085,58 @@
     overflow: auto;
   }
   .wv-ig__slot,
-  .wv-time {
+  .wv-time,
+  .wv-layed {
     grid-column: 2;
     grid-row: 3;
+  }
+  .wv-ig.is-timeedit .wv-time {
+    grid-row: 2 / -1;
+    min-height: 0;
+    margin: 8px 20px 16px;
+  }
+  .wv-ig.is-layoutedit .wv-ig__dotrow { display: none; }
+  .wv-ig.is-layoutedit .wv-layed {
+    grid-row: 2 / -1;
+    align-self: stretch;
+    min-height: 0;
+    width: auto;
+    margin: 0 16px 16px;
+    padding: 16px;
+    gap: 12px;
+  }
+  .wv-layed__arrow { display: none; }
+  .wv-layed__picker {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-width: thin;
+  }
+  .wv-layed__picker .wv-actsrow {
+    display: block;
+    margin: 0;
+  }
+  .wv-layed__grid {
+    display: grid !important;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 10px;
+  }
+  .wv-layed__grid .wv-act--layout {
+    flex: none;
+    width: 100%;
+  }
+  .wv-layed__grid .wv-act__shot {
+    width: 100%;
+    height: auto;
+    aspect-ratio: 4 / 5;
+    max-height: none;
+  }
+  .wv-layed__grid .wv-act__now {
+    left: 5px;
+    top: 5px;
+    padding: 2px 7px;
+    font-size: 10px;
   }
 
   .wv-ig__tabrow {
