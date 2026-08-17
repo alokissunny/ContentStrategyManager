@@ -395,19 +395,19 @@
 .wv-ig {
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 14px;
+  border-radius: 20px;
   overflow: hidden;
-  box-shadow: 0 1px 2px rgba(22, 22, 26, 0.04);
+  box-shadow: 0 22px 48px -20px rgba(20, 20, 25, 0.18), 0 1px 2px rgba(22, 22, 26, 0.04);
 }
 .wv-ig__head {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 12px 14px;
+  padding: 14px 18px;
 }
 .wv-ig__avatar {
-  width: 30px;
-  height: 30px;
+  width: 32px;
+  height: 32px;
   border-radius: 50%;
   background: var(--ink-900);
   display: grid;
@@ -415,7 +415,10 @@
   color: #fff;
   overflow: hidden;
   flex-shrink: 0;
-  box-shadow: 0 0 0 2px var(--surface), 0 0 0 3.5px var(--signal-400, #ff7a45);
+  font-family: var(--font-ui);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
 }
 .wv-ig__avatar img {
   width: 100%;
@@ -2026,6 +2029,14 @@
   gap: 12px;
   margin-bottom: 18px;
 }
+.wv-top .wv-back {
+  border: 0;
+  background: transparent;
+  padding: 0 10px 0 8px;
+  margin-left: -8px;
+  color: var(--ink-700);
+}
+.wv-top .wv-back:hover { background: var(--ink-100); color: var(--ink-900); }
 .wv-top__actions { display: flex; align-items: center; gap: 8px; }
 .wv-abtn {
   display: inline-flex;
@@ -2186,16 +2197,16 @@
   position: relative;
   display: flex;
   flex-direction: column;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 18px;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
   min-width: 0;
-  min-height: 104px;
-  padding: 16px;
+  min-height: 96px;
+  padding: 16px 12px;
   border: 0;
-  border-radius: var(--r-md, 14px);
+  border-radius: 16px;
   background: var(--surface-sunken);
-  text-align: left;
+  text-align: center;
   cursor: pointer;
   transition: background var(--dur-fast, 140ms) var(--ease-out, ease),
     transform var(--dur-fast, 140ms) var(--ease-out, ease);
@@ -2207,7 +2218,7 @@
   background: var(--experiment-500);
   color: var(--experiment-ink);
 }
-.wv-day__when { display: flex; align-items: baseline; gap: 7px; min-width: 0; font-family: var(--font-ui); }
+.wv-day__when { display: flex; align-items: baseline; justify-content: center; gap: 7px; min-width: 0; font-family: var(--font-ui); }
 .wv-day__when b { font-size: 15px; font-weight: 700; letter-spacing: -0.01em; color: var(--ink-900); }
 .wv-day__when i { font-style: normal; font-size: 14px; font-weight: 600; color: var(--ink-quiet); }
 .wv-day.is-on .wv-day__when b { color: var(--experiment-ink); }
@@ -2215,6 +2226,7 @@
 .wv-day__kind {
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: 6px;
   min-width: 0;
   font-family: var(--font-ui);
@@ -2334,55 +2346,114 @@
 .wv-igm__nav--l { left: 10px; }
 .wv-igm__nav--r { right: 10px; }
 
-/* ── the preview's zones: a picture and a caption you act on in place ────── */
+/* ── the preview's zones: a picture and a caption you act on in place ──────
+ * Overlay from bauhly-v3 §652/§659/§699: the post is never dimmed. Hovering
+ * the picture brings the Edit control in the corner (and an inset hairline);
+ * hovering the control itself inks it — white pencil on ink-900. */
 .wv-ig__zone { position: relative; }
 .wv-ig__veil {
   position: absolute;
   inset: 0;
+  z-index: 4;
+  border-radius: inherit;
+  background: rgba(20, 20, 25, 0.22);
+  opacity: 0;
   pointer-events: none;
-  background: rgba(22, 22, 26, 0);
-  transition: background var(--dur-fast, 140ms) var(--ease-out, ease);
+  transition: opacity var(--dur-base, 240ms) var(--ease-out, ease),
+    background var(--dur-base, 240ms) var(--ease-out, ease);
 }
-.wv-ig__zone:hover .wv-ig__veil { background: rgba(22, 22, 26, 0.06); }
-.wv-ig__zone--visual:hover .wv-ig__veil { background: rgba(22, 22, 26, 0.14); }
+/* veil is only the WHITE stand-back, never a hover wash (§699/§655) */
+.wv-ig__zone > .wv-ig__veil { display: none; }
+.wv-ig__zone.is-back > .wv-ig__veil { display: block; opacity: 1; background: rgba(255, 255, 255, 0.5); }
 .wv-ig__zonebtn {
   position: absolute;
-  top: 12px;
-  right: 12px;
-  z-index: 3;
+  top: var(--sp-4, 16px);
+  right: var(--sp-4, 16px);
+  z-index: 5;
   display: grid;
   place-items: center;
-  width: 34px;
-  height: 34px;
-  border: 1px solid var(--border);
-  border-radius: 999px;
+  width: 40px;
+  height: 40px;
+  border: 0;
+  border-radius: var(--r-md, 14px);
   background: var(--surface);
-  color: var(--ink-800);
+  color: var(--ink-900);
   cursor: pointer;
-  box-shadow: 0 6px 18px -8px rgba(22, 22, 26, 0.4);
+  box-shadow: var(--shadow-sm, 0 1px 3px rgba(22, 22, 26, 0.06), 0 5px 16px rgba(22, 22, 26, 0.05));
   opacity: 0;
-  transition: opacity var(--dur-fast, 140ms) var(--ease-out, ease);
+  transform: translateY(-4px) scale(0.96);
+  pointer-events: none;
+  transition:
+    opacity var(--dur-base, 240ms) var(--ease-out, ease),
+    transform var(--dur-base, 240ms) var(--ease-out, ease),
+    background var(--dur-fast, 140ms) var(--ease-out, ease),
+    color var(--dur-fast, 140ms) var(--ease-out, ease);
 }
-.wv-ig__zone:hover .wv-ig__zonebtn,
-.wv-ig__zone.is-sel .wv-ig__zonebtn { opacity: 1; }
-.wv-ig__zonebtn:hover { color: var(--ink-900); background: var(--ink-100); }
+.wv-ig__zonebtn svg,
+.wv-ig__zonebtn span { color: inherit; }
+.wv-ig__zonebtn:hover {
+  background: var(--ink-900);
+  color: var(--surface, #fff);
+}
+@media (hover: hover) {
+  .wv-ig__zone:hover > .wv-ig__zonebtn {
+    opacity: 1;
+    transform: none;
+    pointer-events: auto;
+  }
+  .wv-ig__zone--visual:hover {
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ink-900) 45%, transparent);
+  }
+  .wv-ig__zone--visual.is-sel:hover {
+    box-shadow: inset 0 0 0 2px var(--ink-900);
+  }
+  /* navigating the carousel is not editing — stand the overlay down (§672) */
+  .wv-ig__zone--visual:has(.wv-igm__nav:hover) > .wv-ig__zonebtn {
+    opacity: 0;
+    pointer-events: none;
+  }
+}
+.wv-ig__zone.is-sel { z-index: 7; box-shadow: inset 0 0 0 2px var(--ink-900); }
+.wv-ig__zone--visual.is-sel > .wv-ig__zonebtn {
+  opacity: 1;
+  transform: none;
+  pointer-events: auto;
+  background: var(--ink-900);
+  color: var(--surface, #fff);
+}
 .wv-ig__zone--caption .wv-ig__zonebtn { top: 10px; }
 @media (hover: none) {
-  .wv-ig__zonebtn { opacity: 1; }
-  .wv-ig__zone:hover .wv-ig__veil,
-  .wv-ig__zone--visual:hover .wv-ig__veil { background: rgba(22, 22, 26, 0); }
+  .wv-ig__zonebtn {
+    opacity: 1;
+    transform: none;
+    pointer-events: auto;
+  }
+}
+/* a phone (and a narrow window) has no hover to reveal the control — it stays
+   out and tappable, even when the device still reports hover:hover (Chrome's
+   device toolbar). Same breakpoint as the stacked post card. */
+@media (max-width: 960px) {
+  .wv-ig__zone--visual { cursor: pointer; }
+  .wv-ig__zonebtn {
+    opacity: 1;
+    transform: none;
+    pointer-events: auto;
+    touch-action: manipulation;
+  }
+  .wv-ig__count,
+  .wv-ig__tag { right: 56px; }
 }
 
 /* ── THE EDIT MENU (bauhly-v3 §818/§989) ──────────────────────────────────
    Anchored under the pencil, top-right of the picture: shape, pictures, words.
    One card, one row per job — the same dropdown look the rest of the app uses. */
 /* a press anywhere off the menu closes it — the app's own dropdown behaviour */
-.wv-ig__menuscrim { position: fixed; inset: 0; z-index: 4; }
+.wv-ig__menuscrim { position: fixed; inset: 0; z-index: 7; }
 .wv-ig__menu {
   position: absolute;
-  top: 54px;
-  right: 12px;
-  z-index: 5;
+  top: calc(var(--sp-4, 16px) + 40px + var(--sp-2, 8px));
+  right: var(--sp-4, 16px);
+  z-index: 8;
   min-width: 224px;
   padding: 6px;
   border: 1px solid var(--border);
@@ -2539,29 +2610,56 @@
 }
 .wv-ig__captiontext b { font-weight: 700; }
 .wv-ig__caption.is-editing {
-  padding: 16px 14px 14px;
+  z-index: 7;
+  cursor: default;
+  padding: var(--sp-5);
+  margin: var(--sp-3) 14px 16px;
+  border-top: 0;
+  border-radius: var(--r-md);
+  box-shadow: inset 0 0 0 2px var(--ink-900);
   background: var(--surface);
 }
 .wv-caped { display: flex; flex-direction: column; gap: var(--sp-4); }
 .wv-caped__head {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: var(--sp-3);
 }
+.wv-caped__back {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  margin-left: -6px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--ink-800);
+  cursor: pointer;
+  transition: color var(--dur-fast, 140ms) var(--ease-out, ease),
+    background var(--dur-fast, 140ms) var(--ease-out, ease);
+}
+.wv-caped__back:hover { color: var(--ink-900); background: var(--ink-100); }
 .wv-caped__title {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  min-width: 0;
   font-family: var(--font-ui);
   font-size: var(--text-base);
   font-weight: 700;
   letter-spacing: -0.01em;
   color: var(--ink-900);
 }
-.wv-caped__done { margin-left: auto; border-radius: 999px; }
+.wv-caped__head .wv-ig__caprev { margin: 0; }
+.wv-caped__apply { margin-left: auto; flex-shrink: 0; }
 .wv-caped__input {
   width: 100%;
   resize: none;
-  overflow: hidden;
+  overflow-y: auto;
   min-height: 120px;
+  max-height: 240px;
   padding: 0;
   border: 0;
   background: none;
@@ -2574,6 +2672,11 @@
 }
 .wv-caped__input:focus,
 .wv-caped__input:focus-visible { outline: none; box-shadow: none; }
+@media (max-width: 767px) {
+  .wv-caped__head { flex-wrap: wrap; row-gap: var(--sp-2); }
+  .wv-caped__title { flex: 0 1 auto; }
+  .wv-caped__flag { order: 3; flex: 1 0 100%; }
+}
 
 /* ── why this post — the strategy, beside the preview ───────────────────── */
 .wv-why { flex: 0 0 auto; width: auto; }
@@ -3640,13 +3743,19 @@
    caption carry, revealed on hover, centred on the row */
 .wv-ig__slot-edit {
   top: 50%;
-  right: 12px;
+  right: var(--sp-3, 12px);
   bottom: auto;
-  transform: translateY(-50%);
+  transform: translateY(-50%) scale(0.96);
   opacity: 0;
 }
-.wv-ig__slot:hover .wv-ig__slot-edit { opacity: 1; }
-@media (hover: none) { .wv-ig__slot-edit { opacity: 1; } }
+@media (hover: hover) {
+  .wv-ig__slot:hover > .wv-ig__slot-edit {
+    opacity: 1;
+    transform: translateY(-50%);
+    pointer-events: auto;
+  }
+}
+@media (hover: none) { .wv-ig__slot-edit { opacity: 1; transform: translateY(-50%); } }
 
 .wv-time {
   display: flex;
@@ -3733,3 +3842,165 @@
 @media (max-width: 520px) {
   .wv-time__every { flex-wrap: wrap; row-gap: 10px; }
 }
+
+/* ══ DESKTOP SPLIT (reference: bauhly-v3 YourWeek + plan screenshot) ══════
+ * One wide card: the composition on the left, account / Caption·Why / words /
+ * best time on the right. Phone keeps the stacked Instagram card and the
+ * "Why this?" aside. */
+.wv-ig__tabrow,
+.wv-ig__whyblock { display: none; }
+.wv-ig__caprev {
+  display: inline-flex;
+  align-items: center;
+  margin: 0 0 10px;
+  padding: 4px 11px;
+  border-radius: 999px;
+  background: var(--negative-soft);
+  color: var(--negative);
+  font-family: var(--font-ui);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+.wv-ig__seg {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px;
+  border-radius: 999px;
+  background: var(--surface-sunken);
+}
+.wv-ig__segbtn {
+  height: 32px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  cursor: pointer;
+  font-family: var(--font-ui);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink-500);
+  white-space: nowrap;
+}
+.wv-ig__segbtn.is-on {
+  background: var(--ink-900);
+  color: #fff;
+  font-weight: 700;
+}
+.wv-ig__tabedit {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  margin-left: auto;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--ink-800);
+  cursor: pointer;
+}
+.wv-ig__tabedit:hover { background: var(--ink-100); color: var(--ink-900); }
+.wv-ig__whybody { display: flex; flex-direction: column; gap: 16px; padding: 4px 18px 18px; }
+.wv-ig__whybody .wv-why__sec { margin-bottom: 0; }
+.wv-why__panel .wv-ig__whybody { padding: 0; }
+
+@media (min-width: 961px) {
+  .wv { max-width: none; }
+  .wv-stage {
+    display: block;
+    justify-content: stretch;
+  }
+  .wv-stage > .wv-postwrap {
+    flex: none;
+    width: 100%;
+    max-width: none;
+  }
+  .wv-daynav { display: none; }
+  .wv-why { display: none; }
+
+  .wv-postwrap > .wv-ig {
+    display: grid;
+    grid-template-columns: minmax(300px, 0.92fr) minmax(320px, 1.08fr);
+    grid-template-rows: auto 1fr auto;
+    align-items: stretch;
+    min-height: 520px;
+  }
+  .wv-ig__media {
+    grid-column: 1;
+    grid-row: 1 / -1;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    background: #f3f1ec;
+    border-right: 1px solid var(--border);
+  }
+  .wv-ig__head {
+    grid-column: 2;
+    grid-row: 1;
+    padding: 16px 20px 8px;
+  }
+  .wv-ig__panel {
+    grid-column: 2;
+    grid-row: 2;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: auto;
+  }
+  .wv-ig__slot,
+  .wv-time {
+    grid-column: 2;
+    grid-row: 3;
+  }
+
+  .wv-ig__tabrow {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 4px 20px 12px;
+  }
+  .wv-ig__panel.is-cap .wv-ig__whyblock { display: none; }
+  .wv-ig__panel.is-why .wv-ig__capblock { display: none; }
+  .wv-ig__panel.is-why .wv-ig__whyblock { display: block; }
+
+  .wv-ig__zone--visual {
+    flex: 0 0 auto;
+    display: block;
+  }
+  .wv-ig__photo {
+    width: 100%;
+    aspect-ratio: 4 / 5;
+  }
+  .wv-ig__count,
+  .wv-ig__tag { display: none; }
+  .wv-ig__dotrow { padding: 14px 0 16px; background: #f3f1ec; }
+  .wv-ig__edit { border-top: 1px solid var(--border); }
+
+  .wv-ig__caption { border-top: 0; padding: 4px 20px 16px; }
+  .wv-ig__caption.is-editing {
+    padding: var(--sp-5);
+    margin: 0 20px 16px;
+  }
+  .wv-ig__panel.is-cappedit .wv-ig__tabrow { display: none; }
+  .wv-ig__zone--caption .wv-ig__zonebtn,
+  .wv-ig__zone--caption .wv-ig__veil { display: none; }
+  .wv-ig__zone--caption:hover .wv-ig__veil { background: none; }
+  .wv-ig__captiontext {
+    font-size: 14px;
+    line-height: 1.6;
+  }
+
+  .wv-ig__go,
+  .wv-ig__connect {
+    height: 36px;
+    padding: 0 16px;
+    border-radius: 10px;
+    font-size: 13.5px;
+  }
+  .wv-ig__slot {
+    padding: 14px 20px 16px;
+  }
+  .wv-ig__slot-edit { opacity: 1; }
+  .wv-ig__user { font-size: 14px; }
+}
+

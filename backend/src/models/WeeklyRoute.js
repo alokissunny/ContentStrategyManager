@@ -38,6 +38,11 @@ const daySchema = new mongoose.Schema(
             // is only the context-heavy base, never the brand/mood.
             imagePrompt: { type: String, default: '' },
             assetKey: { type: String, default: '' },
+            // Extra photographs for multi-slot layouts (collage, grid, duo…).
+            // Index-aligned with the composition's picture places; empty string
+            // is an unfilled place. `assetKey` stays the lead (slot 0) so
+            // older clients and the planner keep working.
+            assetKeys: { type: [String], default: [] },
             // Layout id from the Visual Brand layout system (e.g. a hook layout
             // 'H1'/'H2'/'H3'). Empty = the slide's default composition.
             layout: { type: String, default: '' },

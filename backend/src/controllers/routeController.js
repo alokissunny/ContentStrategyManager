@@ -715,6 +715,9 @@ async function markDayPublished(req, res) {
           subtitle: String(s.subtitle ?? prev.subtitle ?? ''),
           imagePrompt: String(s.imagePrompt ?? prev.imagePrompt ?? ''),
           assetKey: String(s.assetKey || ''),
+          assetKeys: Array.isArray(s.assetKeys)
+            ? s.assetKeys.map((k) => String(k || ''))
+            : (Array.isArray(prev.assetKeys) ? prev.assetKeys.map((k) => String(k || '')) : []),
           layout: String(s.layout || ''),
         };
       });

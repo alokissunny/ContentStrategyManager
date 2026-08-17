@@ -1,9 +1,9 @@
 /*
  * WeekView — complete content for one plan's seven-day route.
  *
- * Day rail → IG preview + Slides list (default) / Caption / Why / Notes.
- * Opening a slide shows the Text | Image detail editor; × closes back to
- * the list. Edits persist via PATCH /routes/:id/day/:index.
+ * Desktop: date header → seven-day calendar → a wide two-column post card
+ * (composition left, Caption / Why this post right). Phone: stacked Instagram
+ * card with a "Why this?" aside. Edits persist via PATCH /routes/:id/day/:index.
  */
 
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
@@ -566,6 +566,7 @@ function deriveSlides(day) {
       // The brand palette/type and Visual Mood are layered on at generation.
       imagePrompt: s.imagePrompt || '',
       assetKey: s.assetKey || '',
+      assetKeys: Array.isArray(s.assetKeys) ? s.assetKeys.map((k) => k || '') : [],
       layout: s.layout || '',
     }));
   }
@@ -594,19 +595,32 @@ function deriveSlides(day) {
 // Pass 1 — bind each slide's explicit (owned) assetKey to its image and claim
 // that key in the shared `used` set, so a later standing-in fill (this day or
 // another day of the week) never grabs a photo that a real post owns.
+function keysOf(slide) {
+  if (Array.isArray(slide?.assetKeys) && slide.assetKeys.length) return slide.assetKeys;
+  return slide?.assetKey ? [slide.assetKey] : [];
+}
+
+function urlForKey(key, slide, localMedia) {
+  if (!key) return null;
+  if (slide?.image?.key === key) return slide.image.url || slide.image.thumb || null;
+  if (localMedia?.[key]) return localMedia[key];
+  return mediaProxyUrl(key);
+}
+
 function bindOwnedSlides(slides, allImages, localMedia, used) {
   const byKey = new Map(allImages.map((img) => [img.key, img]));
   Object.entries(localMedia || {}).forEach(([key, url]) => {
     if (!byKey.has(key)) byKey.set(key, { key, url, thumb: url, projectName: 'Uploaded', note: '', keywords: '' });
   });
   return slides.map((s) => {
-    if (!s.assetKey) return { ...s, image: null, standing: false };
-    const hit = byKey.get(s.assetKey) || null;
-    // An explicit assignment always shows. `used` only stops later auto-fill
-    // from borrowing the same file — it must not hide a photo the studio (or
-    // the planner) put on this slide.
-    if (hit) used.add(hit.key);
-    return { ...s, image: hit, standing: false };
+    const keys = keysOf(s).filter(Boolean);
+    if (!keys.length) return { ...s, image: null, standing: false };
+    keys.forEach((k) => {
+      const hit = byKey.get(k);
+      if (hit) used.add(hit.key);
+      else used.add(k);
+    });
+    return { ...s, image: byKey.get(keys[0]) || null, standing: false };
   });
 }
 
@@ -620,10 +634,15 @@ function photoUrl(slide, localMedia) {
 
 function withSlidePhoto(layout, slide, localMedia) {
   if (!layout) return layout;
-  const photo = photoUrl(slide, localMedia);
   const shots = shotsOf(layout);
-  if (!photo || shots < 1) return layout;
-  return { ...layout, imgs: Array.from({ length: shots }, () => photo) };
+  if (shots < 1) return layout;
+  const urls = keysOf(slide).map((k) => urlForKey(k, slide, localMedia));
+  if (!urls.some(Boolean)) {
+    const photo = photoUrl(slide, localMedia);
+    if (!photo) return layout;
+    return { ...layout, imgs: [photo, ...Array.from({ length: shots - 1 }, () => null)] };
+  }
+  return { ...layout, imgs: Array.from({ length: shots }, (_, i) => urls[i] || null) };
 }
 
 
@@ -632,7 +651,7 @@ function dayAssetStatus(slides, published) {
   // A post is ready once it has at least one assigned image (its lead frame).
   // Text-only slides no longer count as "missing" — images are deliberately not
   // reused to fill every slide, so an imageless slide is expected, not a gap.
-  const hasImage = slides.some((s) => s.assetKey && s.image);
+  const hasImage = slides.some((s) => (s.assetKey || keysOf(s).some(Boolean)) && (s.image || keysOf(s).some(Boolean)));
   if (!hasImage) return { label: 'Needs image', kind: 'need', icon: 'alert-circle' };
   return { label: 'Ready', kind: 'ready', icon: 'check' };
 }
@@ -661,6 +680,7 @@ function slidesPayload(slides) {
     subtitle: s.subtitle || '',
     imagePrompt: s.imagePrompt || '',
     assetKey: s.assetKey || '',
+    assetKeys: Array.isArray(s.assetKeys) ? s.assetKeys.map((k) => k || '') : [],
     layout: s.layout || '',
   }));
 }
@@ -872,11 +892,11 @@ function SlideMedia({ slide, layout, contentType, localMedia, parts }) {
   if (!layout) {
     return <div className="wv-ig__empty"><Glyph name="image" size={28} /><span>Needs image</span></div>;
   }
-  const photo = photoUrl(slide, localMedia);
   const filled = withSlidePhoto(fillLayout(layout, slide, contentType, parts), slide, localMedia);
+  const anyPhoto = (filled?.imgs || []).some(Boolean);
   return (
     <div className="wv-ig__lay">
-      <Preview l={filled} mood={Boolean(photo && shotsOf(layout) > 0)} />
+      <Preview l={filled} mood={anyPhoto} />
     </div>
   );
 }
@@ -1036,6 +1056,47 @@ function WeekNav({ weekIdx, weekCount, onPick }) {
   );
 }
 
+function handleInitials(username = '') {
+  return (String(username).replace(/[^a-z0-9]/gi, '').slice(0, 2) || 'IG').toUpperCase();
+}
+
+/* Why this post — the strategy, used in the desktop side panel and the phone aside. */
+function WhyBody({ day }) {
+  if (!day) return <p className="wv-muted">No strategy notes for this post yet.</p>;
+  const empty = !day.content?.strategy && !day.direction && !day.content?.notes && !day.content?.plan;
+  return (
+    <div className="wv-ig__whybody">
+      {day.content?.strategy && (
+        <div className="wv-why__sec">
+          <span className="wv-why__label"><Glyph name="target" size={13} />Focus</span>
+          <p>{day.content.strategy}</p>
+        </div>
+      )}
+      {day.direction && (
+        <div className="wv-why__sec">
+          <span className="wv-why__label"><Glyph name="route" size={13} />Direction</span>
+          <p>{day.direction}</p>
+        </div>
+      )}
+      {(day.content?.notes || day.content?.plan) && (
+        <div className="wv-why__sec">
+          <span className="wv-why__label"><Glyph name="clipboard-list" size={13} />Production notes</span>
+          <p>{day.content?.notes || day.content?.plan}</p>
+        </div>
+      )}
+      {day.content?.prompts?.length > 0 && (
+        <div className="wv-why__sec">
+          <span className="wv-why__label"><Glyph name="sparkles" size={13} />Prompts</span>
+          {day.content.prompts.map((p, i) => (
+            <p key={i}>{i + 1}. {p}</p>
+          ))}
+        </div>
+      )}
+      {empty && <p className="wv-muted">No strategy notes for this post yet.</p>}
+    </div>
+  );
+}
+
 export default function WeekView({ route: initialRoute, onBack, monthWeeks = [], onOpenWeek }) {
   const navigate = useNavigate();
   const projects = useProjects();
@@ -1064,6 +1125,9 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
   // Select images sheet (bauhly-v3 §821/§890): draft slots until Apply.
   const [imgPick, setImgPick] = useState(null); // { slots: (string|null)[], at: number } | null
   const [whyOpen, setWhyOpen] = useState(false);
+  // Desktop side panel: Caption | Why this post (bauhly-v3 desktop split).
+  const [sideTab, setSideTab] = useState('caption'); // 'caption' | 'why'
+  const [capReviewed, setCapReviewed] = useState(() => new Set());
   // Day-to-day slide transition (bauhly-v3 §730/§786): the arriving post's
   // direction — 1 = came from the right (moving forward), -1 = from the left,
   // 0 = at rest. The class comes off once the card has arrived.
@@ -1114,6 +1178,8 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
     setZone(null);
     setVisEdit(null);
     setWhyOpen(false);
+    setSideTab('caption');
+    setCapReviewed(new Set());
     setWordDraft(null);
     setCapDraft('');
     setLayPick(null);
@@ -1224,6 +1290,8 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
   const slotTime = toSpoken(slotTimeRaw(day, route));
   // the time is editable only while the decision is still open (bauhly-v3 §787)
   const canEditTime = !isScheduled && !day?.published;
+  const captionText = String(day?.content?.caption || '').trim();
+  const capNeedsReview = Boolean(captionText) && !isScheduled && !day?.published && !capReviewed.has(selected);
 
   useEffect(() => {
     setCreating(false);
@@ -1236,6 +1304,7 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
     setZone(null);
     setVisEdit(null);
     setWhyOpen(false);
+    setSideTab('caption');
     setPickerOpen(false);
     setCreating(false);
     setImgPick(null);
@@ -1324,6 +1393,8 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
   // seeds its draft from the day's current caption.
   function openZone(next) {
     setVisEdit(null); // the visual zone always opens on its MENU, not an editor
+    if (next === 'caption') setSideTab('caption');
+    if (next) setTimeDraft(null);
     setZone((cur) => {
       const target = cur === next ? null : next;
       if (target === 'caption') setCapDraft(day?.content?.caption || '');
@@ -1347,6 +1418,27 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
     setCapBusy(false);
   }
 
+  // Press anywhere outside the caption editor and it closes without saving —
+  // the same rule as bauhly-v3 §665. Done (Apply changes) is the only commit;
+  // the draft lives in `capDraft` and goes with the close. Mousedown, not click,
+  // so a press on another edit control can switch editors in one gesture (§849).
+  useEffect(() => {
+    if (zone !== 'caption') return undefined;
+    const away = (e) => {
+      if (e.target.closest('.wv-ig__zone--caption.is-editing')) return;
+      if (e.target.closest('.wv-ig__edit') || e.target.closest('.wv-ig__menu')
+        || e.target.closest('.wv-ig__menuscrim')) return;
+      if (e.target.closest('.wv-vlib') || e.target.closest('.wv-vlib__scrim')) return;
+      if (e.target.closest('.wv-confirm') || e.target.closest('.wv-confirm__scrim')) return;
+      if (e.target.closest('.wv-imgs') || e.target.closest('.wv-imgs__chat')) return;
+      if (e.target.closest('.wv-schedask') || e.target.closest('.wv-schedask__scrim')) return;
+      if (e.target.closest('.wv-ig__zonebtn') || e.target.closest('.wv-ig__tabedit')) return;
+      closeZone();
+    };
+    document.addEventListener('mousedown', away);
+    return () => document.removeEventListener('mousedown', away);
+  }, [zone]);
+
   useEffect(() => {
     if (visEdit !== 'layout') {
       setLayPick(null);
@@ -1363,7 +1455,7 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
     const el = capTaRef.current;
     if (!el) return;
     el.style.height = 'auto';
-    el.style.height = `${Math.max(120, el.scrollHeight)}px`;
+    el.style.height = `${Math.min(240, Math.max(120, el.scrollHeight))}px`;
   }, [capDraft, zone]);
 
   useEffect(() => {
@@ -1397,6 +1489,11 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
       return { ...prev, days: daysCopy };
     });
     setZone(null);
+    setCapReviewed((s) => {
+      const next = new Set(s);
+      next.add(selected);
+      return next;
+    });
     setSaving(true);
     try {
       const updated = await updateDayContent(route._id, selected, { caption: clean });
@@ -1515,14 +1612,17 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
       setCreating(false);
       return;
     }
-    patchActiveSlide({ assetKey: key });
+    patchActiveSlide({ assetKey: key, assetKeys: [key, ...keysOf(activeSlide).slice(1)] });
     setCreating(false);
     setPickerOpen(false);
   }
 
   function claimStandingImage() {
     if (activeSlide?.image?.key) {
-      patchActiveSlide({ assetKey: activeSlide.image.key });
+      patchActiveSlide({
+        assetKey: activeSlide.image.key,
+        assetKeys: [activeSlide.image.key, ...keysOf(activeSlide).slice(1)],
+      });
     } else {
       setPickerOpen(true);
     }
@@ -1583,6 +1683,7 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
   function openTimeEditor() {
     if (!day) return;
     setPublishMsg('');
+    closeZone();
     setTimeDraft({
       at: to24h(slotTimeRaw(day, route)),
       every: !day.time && !!route?.postAtPref,
@@ -1793,6 +1894,13 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
 
   function openImagePicker() {
     const n = Math.max(1, shotsOf(chosenLayout));
+    const saved = keysOf(activeSlide).map((k) => urlForKey(k, activeSlide, localMedia));
+    const fromSaved = Array.from({ length: n }, (_, i) => saved[i] || null);
+    if (fromSaved.some(Boolean)) {
+      const empty = fromSaved.findIndex((u) => !u);
+      setImgPick({ slots: fromSaved, at: empty >= 0 ? empty : 0 });
+      return;
+    }
     const urls = pickerImages.map((i) => i.url).filter(Boolean);
     const current = activeSlide?.image?.url || null;
     const ranked = current ? [current, ...urls.filter((u) => u !== current)] : urls;
@@ -1804,14 +1912,18 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
 
   function applyImgPick() {
     if (!imgPick) return;
-    const url = imgPick.slots.find(Boolean);
-    if (!url) { setImgPick(null); return; }
-    const img = imagePool.find((i) => i.url === url || i.thumb === url);
-    const key = img?.key || Object.entries(localMedia).find(([, u]) => u === url)?.[0];
-    if (key) {
-      setLocalMedia((m) => ({ ...m, [key]: url }));
-      patchActiveSlide({ assetKey: key });
-    }
+    const slots = imgPick.slots || [];
+    if (!slots.some(Boolean)) { setImgPick(null); return; }
+    const keyOf = (url) => {
+      if (!url) return '';
+      const img = imagePool.find((i) => i.url === url || i.thumb === url);
+      return img?.key || Object.entries(localMedia).find(([, u]) => u === url)?.[0] || '';
+    };
+    const keys = slots.map(keyOf);
+    const extra = {};
+    slots.forEach((url, i) => { if (url && keys[i]) extra[keys[i]] = url; });
+    if (Object.keys(extra).length) setLocalMedia((m) => ({ ...m, ...extra }));
+    patchActiveSlide({ assetKey: keys.find(Boolean) || '', assetKeys: keys });
     setImgPick(null);
   }
   // Each rail slide resolved to its OWN chosen layout — the same composition the
@@ -2150,11 +2262,7 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
           </button>
           <article className="wv-ig" style={igVars}>
             <header className="wv-ig__head">
-              <span className="wv-ig__avatar">
-                {allImages[0]?.thumb
-                  ? <img src={allImages[0].thumb} alt="" />
-                  : <Glyph name="user" size={15} />}
-              </span>
+              <span className="wv-ig__avatar">{handleInitials(handle)}</span>
               <span className="wv-ig__user">{handle}</span>
               {/* the corner says the next step, never a receipt (bauhly-v3
                   §733/§739): Connect → Schedule → Unschedule, and Published once
@@ -2190,8 +2298,19 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
               )}
             </header>
 
-            {/* the picture — its own zone, edited from the corner */}
-            <div className={`wv-ig__zone wv-ig__zone--visual${zone === 'visual' ? ' is-sel' : ''}`}>
+            {/* the picture — left column on desktop, full width on a phone */}
+            <div className="wv-ig__media">
+            <div
+              className={`wv-ig__zone wv-ig__zone--visual${zone === 'visual' ? ' is-sel' : ''}${zone && zone !== 'visual' ? ' is-back' : ''}`}
+              onClick={(e) => {
+                // Phone: the picture itself is the way in — there is no hover to
+                // reveal the corner control (bauhly-v3 §690). Desktop keeps the
+                // press on the Edit button only.
+                if (e.target.closest('button, a, [role="button"], input, label')) return;
+                if (typeof window !== 'undefined' && window.matchMedia('(min-width: 961px)').matches) return;
+                openZone('visual');
+              }}
+            >
               <div className="wv-ig__photo">
                 <SlideMedia
                   slide={activeSlide}
@@ -2241,15 +2360,23 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
                 type="button"
                 className="wv-ig__zonebtn"
                 aria-label={zone === 'visual' ? 'Done editing image' : 'Edit this image'}
-                onClick={() => openZone('visual')}
+                onPointerDown={(e) => e.stopPropagation()}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  openZone('visual');
+                }}
               >
-                <Glyph name={zone === 'visual' ? 'x' : 'pencil'} size={16} />
+                <Glyph name={zone === 'visual' ? 'x' : 'pencil'} size={17} strokeWidth={2} />
               </button>
               {/* the edit menu — shape, pictures, words (bauhly-v3 §818/§989).
                   Anchored under the pencil; picking a row opens that editor. */}
               {zone === 'visual' && !visEdit && !imgPick && (
                 <>
-                <div className="wv-ig__menuscrim" onClick={closeZone} aria-hidden="true" />
+                <div
+                  className="wv-ig__menuscrim"
+                  onPointerDown={(e) => { e.preventDefault(); e.stopPropagation(); closeZone(); }}
+                  aria-hidden="true"
+                />
                 <div className="wv-ig__menu" role="menu" aria-label="Edit this slide">
                   <button type="button" role="menuitem" className="wv-ig__menuitem" onClick={() => {
                     setLayPick(appliedId);
@@ -2348,7 +2475,9 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
                         <Glyph name="chevron-left" size={15} strokeWidth={2.5} />
                       </button>
                       <div className="wv-acts" role="radiogroup" aria-label="Which layout should this slide take?">
-                        {shownLayouts.map((l) => (
+                        {shownLayouts.map((l) => {
+                          const dressed = withSlidePhoto(l, activeSlide, localMedia);
+                          return (
                           <button
                             key={l.id}
                             type="button"
@@ -2361,13 +2490,14 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
                           >
                             <span className="wv-act__shot">
                               <Preview
-                                mood={Boolean(photoUrl(activeSlide, localMedia))}
-                                l={withSlidePhoto(l, activeSlide, localMedia)}
+                                mood={(dressed?.imgs || []).some(Boolean)}
+                                l={dressed}
                               />
                             </span>
                             {l.id === appliedId && <span className="wv-act__now">Current</span>}
                           </button>
-                        ))}
+                          );
+                        })}
                       </div>
                       <button
                         type="button"
@@ -2425,20 +2555,71 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
                 )}
               </div>
             )}
+            </div>
 
+            {/* caption / why — right column on desktop */}
+            <div className={`wv-ig__panel${sideTab === 'why' ? ' is-why' : ' is-cap'}${zone === 'caption' ? ' is-cappedit' : ''}`}>
+            <div className="wv-ig__tabrow">
+              <div className="wv-ig__seg" role="tablist" aria-label="Post details">
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={sideTab === 'caption'}
+                  className={`wv-ig__segbtn${sideTab === 'caption' ? ' is-on' : ''}`}
+                  onClick={() => setSideTab('caption')}
+                >
+                  Caption
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={sideTab === 'why'}
+                  className={`wv-ig__segbtn${sideTab === 'why' ? ' is-on' : ''}`}
+                  onClick={() => { setSideTab('why'); if (zone === 'caption') closeZone(); }}
+                >
+                  Why this post
+                </button>
+              </div>
+              {sideTab === 'caption' && zone !== 'caption' && !isScheduled && !day.published && (
+                <button
+                  type="button"
+                  className="wv-ig__tabedit"
+                  aria-label="Edit the caption"
+                  onClick={() => openZone('caption')}
+                >
+                  <Glyph name="pencil" size={15} />
+                </button>
+              )}
+            </div>
+
+            <div className="wv-ig__capblock">
             {/* the words — the caption's own zone, edited where it is read (§652) */}
             {zone === 'caption' ? (
-              <div className="wv-ig__caption wv-ig__zone wv-ig__zone--caption is-editing">
+              <div
+                className="wv-ig__caption wv-ig__zone wv-ig__zone--caption is-editing"
+                onClick={(e) => e.stopPropagation()}
+              >
                 <div className="wv-caped">
                   <div className="wv-caped__head">
-                    <span className="wv-caped__title">Edit caption</span>
                     <button
                       type="button"
-                      className="btn btn--primary btn--sm wv-caped__done"
+                      className="wv-caped__back"
+                      onClick={closeZone}
+                      aria-label="Back"
+                    >
+                      <Glyph name="arrow-left" size={16} />
+                    </button>
+                    <span className="wv-caped__title">Edit caption</span>
+                    {capNeedsReview && (
+                      <span className="wv-ig__caprev wv-caped__flag">Caption needs review</span>
+                    )}
+                    <button
+                      type="button"
+                      className="btn btn--primary btn--sm wv-caped__apply"
                       onClick={() => saveCaption(capDraft)}
                       disabled={capBusy}
                     >
-                      Done
+                      Apply changes
                     </button>
                   </div>
                   <textarea
@@ -2461,6 +2642,9 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
               </div>
             ) : (
               <div className="wv-ig__caption wv-ig__zone wv-ig__zone--caption">
+                {capNeedsReview && (
+                  <span className="wv-ig__caprev">Caption needs review</span>
+                )}
                 <p className="wv-ig__captiontext">
                   <b>{handle}</b>{' '}
                   {day.content?.caption || day.direction || <span className="wv-muted">Add a caption…</span>}
@@ -2476,6 +2660,11 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
                 </button>
               </div>
             )}
+            </div>
+            <div className="wv-ig__whyblock">
+              <WhyBody day={day} />
+            </div>
+            </div>
 
             {/* when this goes out, and whose decision it is (bauhly-v3 §787/§794).
                 A published post states a fact; a scheduled one offers the way to
@@ -2531,9 +2720,9 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
                 <Glyph name={day.published ? 'check' : 'clock'} size={14} strokeWidth={2} />
                 <span className="wv-ig__slot-text">
                   <span className="wv-ig__slot-when">
-                    {day.published ? 'Published' : isScheduled ? 'Scheduled for' : 'Publishing at'}
+                    {day.published ? 'Published' : isScheduled ? 'Scheduled for' : 'Best time'}
                     {' '}
-                    <b>{shortDay(day.day)} · {slotTime}</b>
+                    <b>{shortDay(day.day)} {slotTime}</b>
                     {day.published && metaStatus.igUsername ? ` · @${metaStatus.igUsername}` : ''}
                   </span>
                   {isScheduled && (
@@ -2548,6 +2737,9 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
                         {publishing ? 'Publishing…' : 'Publish now'}
                       </button>
                     </span>
+                  )}
+                  {!isScheduled && !day.published && metaStatus.connected && (
+                    <span className="wv-ig__slot-why">Based on when your audience is most active.</span>
                   )}
                   {!metaStatus.connected && !day.published && (
                     <span className="wv-ig__slot-why">Connect Meta to schedule this post.</span>
@@ -2584,35 +2776,7 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
             {whyOpen && (
               <div className="wv-why__panel">
                 <h3 className="wv-why__head">Why this post</h3>
-                {day.content?.strategy && (
-                  <div className="wv-why__sec">
-                    <span className="wv-why__label"><Glyph name="target" size={13} />Focus</span>
-                    <p>{day.content.strategy}</p>
-                  </div>
-                )}
-                {day.direction && (
-                  <div className="wv-why__sec">
-                    <span className="wv-why__label"><Glyph name="route" size={13} />Direction</span>
-                    <p>{day.direction}</p>
-                  </div>
-                )}
-                {(day.content?.notes || day.content?.plan) && (
-                  <div className="wv-why__sec">
-                    <span className="wv-why__label"><Glyph name="clipboard-list" size={13} />Production notes</span>
-                    <p>{day.content?.notes || day.content?.plan}</p>
-                  </div>
-                )}
-                {day.content?.prompts?.length > 0 && (
-                  <div className="wv-why__sec">
-                    <span className="wv-why__label"><Glyph name="sparkles" size={13} />Prompts</span>
-                    {day.content.prompts.map((p, i) => (
-                      <p key={i}>{i + 1}. {p}</p>
-                    ))}
-                  </div>
-                )}
-                {!day.content?.strategy && !day.direction && !day.content?.notes && !day.content?.plan && (
-                  <p className="wv-muted">No strategy notes for this post yet.</p>
-                )}
+                <WhyBody day={day} />
               </div>
             )}
           </aside>
