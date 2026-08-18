@@ -1,4 +1,4 @@
-const { getObjectBytes } = require('../services/s3Client');
+const { getObjectBytes, mediaCdnBaseUrl } = require('../services/s3Client');
 
 // Only ever serve project media: the immutable, content-addressed objects under
 // projects/<userId>/<uuid>.<ext>. The pattern also blocks path traversal and any
@@ -41,4 +41,8 @@ async function proxyMedia(req, res) {
   }
 }
 
-module.exports = { proxyMedia };
+function cdnBase(req, res) {
+  return res.json({ base: mediaCdnBaseUrl() || '' });
+}
+
+module.exports = { proxyMedia, cdnBase };

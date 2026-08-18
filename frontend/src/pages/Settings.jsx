@@ -14,6 +14,9 @@ import Icon from '../brand/Icon';
 import { useAuth } from '../context/AuthContext';
 import { listInstagramProfiles, activateInstagramProfile } from '../api/instagram';
 import { getMetaStatus, startMetaConnect, disconnectMeta } from '../api/meta';
+import { syncHandle } from '../lib/store';
+import { resetProjects } from '../lib/projectsStore';
+import { useAiDebug, setAiDebugEnabled, clearAiDebugEntries } from '../lib/aiDebug';
 import './settings.css';
 
 /* which formats Bauhly may use — held as EXCLUSIONS so a format added later is
@@ -47,6 +50,7 @@ export default function Settings() {
   const [dropped, setDropped] = useState(loadDropped);
   const [meta, setMeta] = useState({ connected: false, configured: false });
   const [metaBusy, setMetaBusy] = useState(false);
+  const debug = useAiDebug();
 
   useEffect(() => {
     listInstagramProfiles()
@@ -86,6 +90,8 @@ export default function Settings() {
     if (current && current.username === username) return;
     setSwitching(username);
     try {
+      syncHandle(username);
+      resetProjects();
       await activateInstagramProfile(username);
       window.location.reload();
     } catch (err) {
@@ -280,6 +286,42 @@ export default function Settings() {
         {dropped.length === FORMATS.length && (
           <p className="set-empty">Every format is off — Bauhly has nothing to plan with. Turn at least one back on.</p>
         )}
+      </section>
+
+      {/* ── Debug ── */}
+      <section className="card set-card">
+        <h2>Debug mode</h2>
+        <p className="set-card__sub">
+          When on, Bauhly records final prompts sent in AI calls and shows them in a collapsible side panel.
+        </p>
+        <div className="set-row">
+          <span className="set-row__ico"><Icon name="bug" size={19} /></span>
+          <span className="set-row__main">
+            <b className="set-row__title">AI prompt debug panel</b>
+            <span className="set-row__sub">
+              {debug.enabled
+                ? `On · ${debug.entries.length} prompt${debug.entries.length === 1 ? '' : 's'} logged`
+                : 'Off'}
+            </span>
+          </span>
+          <span className="set-row__acts">
+            {debug.enabled && (
+              <button type="button" className="btn btn--ghost btn--sm" onClick={clearAiDebugEntries}>
+                <Icon name="x" size={14} />
+                Clear log
+              </button>
+            )}
+            <button
+              className={`set-switch ${debug.enabled ? 'is-on' : ''}`}
+              role="switch"
+              aria-checked={debug.enabled}
+              aria-label={`${debug.enabled ? 'Disable' : 'Enable'} debug mode`}
+              onClick={() => setAiDebugEnabled(!debug.enabled)}
+            >
+              <i aria-hidden="true" />
+            </button>
+          </span>
+        </div>
       </section>
 
       {/* ── You ── */}

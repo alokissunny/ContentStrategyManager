@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { isAiDebugEnabled } from '../lib/aiDebug';
 
 function resolveBaseURL() {
   const configured = import.meta.env.VITE_API_URL?.trim();
@@ -14,6 +15,7 @@ const client = axios.create({
 client.interceptors.request.use((config) => {
   const token = localStorage.getItem('widesignals_token');
   if (token) config.headers.Authorization = `Bearer ${token}`;
+  if (isAiDebugEnabled()) config.headers['x-debug-prompts'] = '1';
   return config;
 });
 

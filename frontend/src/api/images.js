@@ -1,4 +1,5 @@
 import client from './client';
+import { addAiDebugEntry } from '../lib/aiDebug';
 
 // Create an image from a prompt (WeekView "Create image"). The server renders
 // it with Gemini "nano banana", stores the bytes on S3, and returns the object
@@ -7,7 +8,15 @@ import client from './client';
 export function createImage({ prompt, brand } = {}) {
   return client
     .post('/images/create', { prompt, brand })
-    .then((r) => r.data); // { key, url, mimeType, model, finalPrompt }
+    .then((r) => {
+      const data = r.data || {};
+      addAiDebugEntry({
+        source: 'Create image',
+        model: data.model,
+        prompt: data.finalPrompt || prompt,
+      });
+      return data;
+    }); // { key, url, mimeType, model, finalPrompt }
 }
 
 // The studio's generated-image library (the "Generated" asset folder). Scoped

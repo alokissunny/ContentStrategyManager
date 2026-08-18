@@ -105,7 +105,7 @@ export default function RoleField({ role, value, onChange, autoFocus = false, fa
       <div className="wv-role__box">
         <div
           ref={box}
-          className="wv-role__in"
+          className={`wv-role__in${role.key === 'head' ? ' is-head' : ''}`}
           contentEditable
           suppressContentEditableWarning
           role="textbox"

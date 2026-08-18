@@ -4,6 +4,7 @@ import Sidebar, { NAV_ITEMS } from './Sidebar';
 import UserMenu from './UserMenu';
 import AccountSwitcher from './AccountSwitcher';
 import Glyph from './Glyph';
+import AiDebugPanel from './AiDebugPanel';
 import { Logo } from '../brand/Logo';
 import { useScrollHide } from '../hooks/useScrollHide';
 
@@ -55,6 +56,7 @@ export default function DashboardLayout({ children }) {
         <Sidebar />
         <main className="app__main">{content}</main>
       </div>
+      <AiDebugPanel />
     </div>
   );
 }

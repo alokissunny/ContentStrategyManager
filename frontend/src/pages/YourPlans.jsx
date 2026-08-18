@@ -412,6 +412,7 @@ export default function YourPlans() {
   if (view === 'week' && selected) {
     return (
       <WeekView
+        key={`${selected.instagramUsername || ''}-${selected._id || ''}`}
         route={selected}
         monthWeeks={monthWeeksOf(routes, selected)}
         onOpenWeek={(week) => setSelected(week)}

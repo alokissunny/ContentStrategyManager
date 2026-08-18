@@ -16,6 +16,10 @@ const { findMetaConnectionForUsername } = require('../services/graphInstagram');
 const MAX_WEEKS_PER_MONTH = 4;
 const NEXT_MONTH_STUBS = 4;
 const PREP_DAYS = 5;
+
+function wantsPromptDebug(req) {
+  return String(req.get('x-debug-prompts') || '').trim() === '1';
+}
 const PILLAR_ROTATION = ['discovery', 'credibility', 'trust'];
 const MONTH_ABBR = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June', 'July',
@@ -244,7 +248,9 @@ async function ensureProjectImagesAnalyzed(projects) {
 
 async function loadProjectAssets(userId, username) {
   const filter = { user: userId };
-  if (username) filter.instagramUsername = { $in: [username, null, ''] };
+  // Strict handle match — unscoped / other-account projects must not be planned
+  // onto this week, or a switch in the header would keep showing those photos.
+  if (username) filter.instagramUsername = username;
   const projects = await Project.find(filter).sort({ updatedAt: -1 }).limit(12);
   // Fill in any missing image analysis before reading the assets back.
   await ensureProjectImagesAnalyzed(projects);
@@ -434,7 +440,7 @@ async function generateAndSaveRoute(userId, profile, trigger = 'generate') {
     console.error(`[route] month0 week 0 generation failed for @${profile.username}:`, err.message);
     return WeeklyRoute.findOne({
       user: userId, instagramUsername: profile.username, draft: false,
-    }).sort({ weekOf: -1 }).then((route) => ({ route, expectedWeeks: 0 }));
+    }).sort({ weekOf: -1 }).then((route) => ({ route, expectedWeeks: 0, debug: null }));
   }
   const monthFocus = week0Plan.focus?.pillar || 'trust';
 
@@ -476,7 +482,11 @@ async function generateAndSaveRoute(userId, profile, trigger = 'generate') {
     console.error(`[route] background month finish failed for @${profile.username}:`, err.message);
   });
 
-  return { route: firstWeek, expectedWeeks: weekStarts.length };
+  return {
+    route: firstWeek,
+    expectedWeeks: weekStarts.length,
+    debug: week0Plan?.debug || null,
+  };
 }
 
 // A handle analyzed this recently is assumed to still be running its background
@@ -539,14 +549,16 @@ async function generateRoute(req, res) {
   const trigger = String(req.body?.trigger || req.query?.trigger || 'generate').slice(0, 64);
   console.log(`[route] POST /routes/generate trigger=${trigger} user=${req.user._id} @${profile.username}`);
   // Returns as soon as week 0 is ready; remaining weeks fill in the background.
-  const { route, expectedWeeks } = await generateAndSaveRoute(req.user._id, profile, trigger);
-  res.json({
+  const { route, expectedWeeks, debug } = await generateAndSaveRoute(req.user._id, profile, trigger);
+  const out = {
     route,
     expectedWeeks: expectedWeeks || null,
     filling: Boolean(expectedWeeks && expectedWeeks > 1),
     dataSource: profile.dataSource || 'unknown',
     fetchedAt: profile.fetchedAt || null,
-  });
+  };
+  if (wantsPromptDebug(req) && (debug?.agents?.length || debug?.finalPrompt)) out.debug = debug;
+  res.json(out);
 }
 
 // Replan a single existing week in place — same Brand DNA, projects, competitor
@@ -645,7 +657,11 @@ async function replanWeek(req, res) {
     draft: false,
   });
 
-  res.json({ route });
+  const out = { route };
+  if (wantsPromptDebug(req) && (plan?.debug?.agents?.length || plan?.debug?.finalPrompt)) {
+    out.debug = plan.debug;
+  }
+  res.json(out);
 }
 
 async function markDayPublished(req, res) {
@@ -750,6 +766,7 @@ async function polishCaption(req, res) {
 
   const day = route.days[index];
   const instruction = String(req.body?.instruction || '').trim();
+  const kind = req.body?.kind === 'words' ? 'words' : 'caption';
   const caption = req.body?.caption !== undefined
     ? String(req.body.caption)
     : String(day.content?.caption || '');
@@ -759,6 +776,7 @@ async function polishCaption(req, res) {
     const result = await rewriteCaption({
       caption,
       instruction,
+      kind,
       context: {
         handle: route.instagramUsername,
         pillar: day.pillar,
@@ -767,17 +785,30 @@ async function polishCaption(req, res) {
         direction: day.direction,
         strategy: day.content?.strategy,
         voice: dna?.howYouSound,
+        role: req.body?.role ? String(req.body.role) : undefined,
+        fills: Array.isArray(req.body?.fills) ? req.body.fills : undefined,
       },
     });
     if (result.unchanged) {
       return res.json({
         caption: result.caption,
         unchanged: true,
-        message: 'That would leave the caption exactly as it is.',
+        message: kind === 'words'
+          ? 'That would leave the text exactly as it is.'
+          : 'That would leave the caption exactly as it is.',
         model: result.model,
+        ...(wantsPromptDebug(req) ? {
+          debug: { finalPrompt: result.finalPrompt, systemPrompt: result.systemPrompt, model: result.model },
+        } : {}),
       });
     }
-    return res.json({ caption: result.caption, model: result.model });
+    return res.json({
+      caption: result.caption,
+      model: result.model,
+      ...(wantsPromptDebug(req) ? {
+        debug: { finalPrompt: result.finalPrompt, systemPrompt: result.systemPrompt, model: result.model },
+      } : {}),
+    });
   } catch (err) {
     const status = err.status || 502;
     console.error('[route] caption polish failed:', err.message);

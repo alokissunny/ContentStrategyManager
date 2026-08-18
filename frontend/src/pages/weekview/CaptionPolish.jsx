@@ -74,6 +74,7 @@ export default function CaptionPolish({
   const [ask, setAsk] = useState('');
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
+  const [focused, setFocused] = useState(false);
 
   const run = async (instruction) => {
     const next = String(instruction || '').trim();
@@ -103,30 +104,33 @@ export default function CaptionPolish({
   };
 
   const can = Boolean(String(caption || '').trim()) && !busy;
+  const showMake = (focused || ask.trim()) && Boolean(String(caption || '').trim());
 
   return (
     <div className="wv-polish wv-capask">
-      <div className="wv-make">
-        <span className="wv-make__label">Make it:</span>
-        <MakeRow>
-          {MAKE_IT.map((m) => (
-            <button
-              key={m.id}
-              type="button"
-              className="wv-make__chip"
-              disabled={!can}
-              title={can ? m.instruction : 'Write a caption first'}
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={() => run(m.instruction)}
-            >
-              <Icon name={m.icon} size={14} strokeWidth={2} />
-              {m.label}
-            </button>
-          ))}
-        </MakeRow>
-        {note ? <p className="wv-make__note">{note}</p> : null}
-        {busy ? <p className="wv-make__note">Rewriting…</p> : null}
-      </div>
+      {showMake && (
+        <div className="wv-make is-arriving">
+          <span className="wv-make__label">Make it:</span>
+          <MakeRow>
+            {MAKE_IT.map((m) => (
+              <button
+                key={m.id}
+                type="button"
+                className="wv-make__chip"
+                disabled={!can}
+                title={can ? m.instruction : 'Write a caption first'}
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => run(m.instruction)}
+              >
+                <Icon name={m.icon} size={14} strokeWidth={2} />
+                {m.label}
+              </button>
+            ))}
+          </MakeRow>
+        </div>
+      )}
+      {note ? <p className="wv-make__note">{note}</p> : null}
+      {busy ? <p className="wv-make__note">Rewriting…</p> : null}
       <div className="wv-polish__row">
         <input
           className="wv-polish__input"
@@ -134,6 +138,8 @@ export default function CaptionPolish({
           placeholder={POLISH_PLACEHOLDER}
           aria-label="What should change about this caption?"
           disabled={busy}
+          onFocus={() => setFocused(true)}
+          onBlur={() => setTimeout(() => setFocused(false), 120)}
           onChange={(e) => { setAsk(e.target.value); setNote(''); }}
           onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); commit(); } }}
         />

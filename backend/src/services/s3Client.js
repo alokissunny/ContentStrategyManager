@@ -175,6 +175,7 @@ module.exports = {
   getPresignedMediaUrl,
   getMediaUrl,
   publicMediaUrl,
+  mediaCdnBaseUrl,
   isCdnConfigured,
   MEDIA_CACHE_CONTROL,
   deleteObjects,

@@ -132,9 +132,10 @@ async function listGeneratedImages(req, res) {
   const handle = (await currentUsername(req.user._id)) || '';
   const user = await User.findById(req.user._id).select('generatedImages').lean();
   const all = (user && user.generatedImages) || [];
-  // When a handle is active, show that handle's images; legacy records saved
-  // before scoping (handle === '') are shown to everyone rather than orphaned.
-  const mine = handle ? all.filter((g) => !g.handle || g.handle === handle) : all;
+  // Strict handle match. Legacy rows saved before scoping (empty handle) used
+  // to be listed on every account — that is the previous-account photo leak
+  // after a header switch. They stay on file; they just no longer cross handles.
+  const mine = handle ? all.filter((g) => g.handle === handle) : all;
   const images = await Promise.all(
     mine.map(async (g) => ({
       key: g.key,

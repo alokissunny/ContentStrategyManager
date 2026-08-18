@@ -15,7 +15,7 @@ import YourAnalysisModal from '../components/YourAnalysisModal';
 import ConnectMetaModal from '../components/ConnectMetaModal';
 import { markDayPublished, updateDayContent, replanWeek, scheduleDay, setDayTime } from '../api/routes';
 import { getMetaStatus, publishDayToMeta } from '../api/meta';
-import { mediaProxyUrl } from '../api/media';
+import { mediaProxyUrl, toDisplayUrl, isProxyUrl, rememberCdnBase, onCdnBase, getCdnBase } from '../api/media';
 import { createImage, listGeneratedImages } from '../api/images';
 import { useProjects, uploadFiles } from '../lib/projectsStore';
 import { toSvg } from 'html-to-image';
@@ -27,6 +27,7 @@ import { rolesOf as textRolesOf, plainOf, parseMarked, isListRole, listIndexOf }
 import { Preview } from './visuallibrary/LayoutArt';
 import VisualLibrary from './visuallibrary/VisualLibrary';
 import ImagePicker from './weekview/ImagePicker';
+import { PhotoEditor, SlotPack } from './weekview/PhotoEditor';
 import RoleField from './weekview/RoleField';
 import WordsPolish from './weekview/WordsPolish';
 import CaptionPolish from './weekview/CaptionPolish';
@@ -610,11 +611,21 @@ function keysOf(slide) {
   return slide?.assetKey ? [slide.assetKey] : [];
 }
 
-function urlForKey(key, slide, localMedia) {
+function urlForKey(key, slide, localMedia, mediaByKey, preferProxy = false) {
   if (!key) return null;
-  if (slide?.image?.key === key) return slide.image.url || slide.image.thumb || null;
-  if (localMedia?.[key]) return localMedia[key];
-  return mediaProxyUrl(key);
+  // Only paint a key this account actually owns (project pool, a just-uploaded
+  // local preview, or a slide image bindOwnedSlides already resolved). A bare
+  // assetKey must not become a CDN/proxy URL — S3 keys are per-user, not per
+  // Instagram handle, so a leftover key from a previous account would still load.
+  const local = localMedia?.[key];
+  const pooled = mediaByKey?.get(key);
+  const fromSlide = slide?.image?.key === key
+    ? (slide.image.url || slide.image.thumb || null)
+    : null;
+  const known = local || pooled || fromSlide || null;
+  if (!known) return null;
+  if (preferProxy) return mediaProxyUrl(key);
+  return toDisplayUrl(known, key) || null;
 }
 
 function bindOwnedSlides(slides, allImages, localMedia, used) {
@@ -634,24 +645,19 @@ function bindOwnedSlides(slides, allImages, localMedia, used) {
   });
 }
 
-function photoUrl(slide, localMedia) {
-  return slide?.image?.url
-    || slide?.image?.thumb
-    || (slide?.assetKey && localMedia?.[slide.assetKey])
-    || (slide?.assetKey ? mediaProxyUrl(slide.assetKey) : null)
-    || null;
+function photoUrl(slide, localMedia, mediaByKey) {
+  const key = slide?.assetKey || slide?.image?.key;
+  return urlForKey(key, slide, localMedia, mediaByKey) || null;
 }
 
-function withSlidePhoto(layout, slide, localMedia) {
+function withSlidePhoto(layout, slide, localMedia, mediaByKey, preferProxy = false) {
   if (!layout) return layout;
   const shots = shotsOf(layout);
-  if (shots < 1) return layout;
-  const urls = keysOf(slide).map((k) => urlForKey(k, slide, localMedia));
-  if (!urls.some(Boolean)) {
-    const photo = photoUrl(slide, localMedia);
-    if (!photo) return layout;
-    return { ...layout, imgs: [photo, ...Array.from({ length: shots - 1 }, () => null)] };
-  }
+  // Always replace the library's specimen stills. Returning the layout as-is
+  // when a slide has no owned photo would keep the canal-house placeholders —
+  // which read as another account's pictures after a handle switch.
+  if (shots < 1) return { ...layout, imgs: [] };
+  const urls = keysOf(slide).map((k) => urlForKey(k, slide, localMedia, mediaByKey, preferProxy));
   return { ...layout, imgs: Array.from({ length: shots }, (_, i) => urls[i] || null) };
 }
 
@@ -661,7 +667,7 @@ function dayAssetStatus(slides, published) {
   // A post is ready once it has at least one assigned image (its lead frame).
   // Text-only slides no longer count as "missing" — images are deliberately not
   // reused to fill every slide, so an imageless slide is expected, not a gap.
-  const hasImage = slides.some((s) => (s.assetKey || keysOf(s).some(Boolean)) && (s.image || keysOf(s).some(Boolean)));
+  const hasImage = slides.some((s) => Boolean(s.image));
   if (!hasImage) return { label: 'Needs image', kind: 'need', icon: 'alert-circle' };
   return { label: 'Ready', kind: 'ready', icon: 'check' };
 }
@@ -898,11 +904,17 @@ function rasterizeSlide(node, { timeoutMs = 20000 } = {}) {
 // The slide's photograph fills the composition's picture slots (mood on); with
 // none, the picture regions draw as the empty ground the layout has before a
 // photo exists, exactly as the library shows them.
-function SlideMedia({ slide, layout, contentType, localMedia, parts }) {
+function SlideMedia({ slide, layout, contentType, localMedia, parts, mediaByKey, preferProxy = false }) {
   if (!layout) {
     return <div className="wv-ig__empty"><Glyph name="image" size={28} /><span>Needs image</span></div>;
   }
-  const filled = withSlidePhoto(fillLayout(layout, slide, contentType, parts), slide, localMedia);
+  const filled = withSlidePhoto(
+    fillLayout(layout, slide, contentType, parts),
+    slide,
+    localMedia,
+    mediaByKey,
+    preferProxy,
+  );
   const anyPhoto = (filled?.imgs || []).some(Boolean);
   return (
     <div className="wv-ig__lay">
@@ -1120,9 +1132,15 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
   // open. `whyOpen` reveals the strategy beside the post.
   const [zone, setZone] = useState(null); // 'visual' | 'caption' | null
   // Which editor the visual zone's menu opened (bauhly-v3 §818/§989): the pencil
-  // shows a menu — Choose layout / Select images / Edit text — and picking one
-  // sets this. null = the menu itself is showing.
+  // shows a menu — Choose layout / Edit image / Select images / Edit text —
+  // and picking one sets this. null = the menu itself is showing.
   const [visEdit, setVisEdit] = useState(null); // 'layout' | 'images' | 'words' | null
+  // Edit image (bauhly-v3 §961/§965/§982): the still-photo studio. `adjustFor`
+  // is the picture being cropped; `editSlot` is the measured layout region it
+  // will occupy. More than one picture place opens the set first (`packOpen`).
+  const [adjustFor, setAdjustFor] = useState(null); // { src, slotIndex } | null
+  const [editSlot, setEditSlot] = useState(null);
+  const [packOpen, setPackOpen] = useState(false);
   // Browse layouts / Apply layout (bauhly-v3 §809/§823/§825): picking a card
   // is a draft until Apply; Browse layouts points the row at another category.
   const [layPick, setLayPick] = useState(null);
@@ -1155,6 +1173,7 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
   const [wordDraft, setWordDraft] = useState(null); // role-keyed draft until Apply
   const [capDraft, setCapDraft] = useState(''); // caption editor draft
   const [capBusy, setCapBusy] = useState(false);
+  const [wordsBusy, setWordsBusy] = useState(false);
   const capTaRef = useRef(null);
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -1171,8 +1190,10 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
   const [savingTime, setSavingTime] = useState(false);
   const [replanning, setReplanning] = useState(false);
   const [replanMsg, setReplanMsg] = useState('');
-  const [localMedia, setLocalMedia] = useState({});
+  const [cdnBase, setCdnBase] = useState(() => getCdnBase());
   const [genImages, setGenImages] = useState([]); // the studio's generated-image library
+  // Fresh uploads / edits, keyed by object key, until the project list refreshes.
+  const [localMedia, setLocalMedia] = useState({});
   const [creating, setCreating] = useState(false);
   // Off-screen, full-resolution renders of each slide's composition — the whole
   // layout (ground + words + photo), not the bare photo. Publishing rasterises
@@ -1195,12 +1216,16 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
     setLayPick(null);
     setLayCat(null);
     setImgPick(null);
+    setAdjustFor(null);
+    setEditSlot(null);
+    setPackOpen(false);
     setTimeDraft(null);
     setEnter(0);
     setMoreOpen(false);
-    // Reset editors when the open week changes; initialRoute is read for that id only.
+    setLocalMedia({});
+    // Reset editors when the open week (or Instagram handle) changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [weekId]);
+  }, [weekId, initialRoute?.instagramUsername]);
 
   useEffect(() => {
     getMetaStatus()
@@ -1208,16 +1233,20 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
       .catch(() => setMetaStatus({ connected: false, configured: false }));
   }, []);
 
+  useEffect(() => onCdnBase(setCdnBase), []);
+
   // Load the persisted generated images so a slide that points at one still
   // resolves after a tab switch / reload (they aren't project captures, so they
-  // don't come through `collectProjectImages`).
+  // don't come through `collectProjectImages`). Refetch when the handle changes
+  // so a previous account's library cannot linger if this view stays mounted.
   useEffect(() => {
     let alive = true;
+    setGenImages([]);
     listGeneratedImages()
       .then((imgs) => { if (alive) setGenImages(imgs); })
       .catch(() => { /* leave empty — a fresh session simply has none yet */ });
     return () => { alive = false; };
-  }, []);
+  }, [initialRoute?.instagramUsername]);
 
   const allImages = useMemo(() => {
     const fromProjects = collectProjectImages(projects);
@@ -1237,6 +1266,20 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
       }));
     return [...fromProjects, ...generated];
   }, [projects, genImages]);
+  const mediaByKey = useMemo(() => {
+    const map = new Map();
+    allImages.forEach((img) => {
+      if (!img?.key || !img.url) return;
+      rememberCdnBase(img.url);
+      if (!isProxyUrl(img.url)) map.set(img.key, img.url);
+    });
+    Object.entries(localMedia || {}).forEach(([key, url]) => {
+      if (!key || !url || isProxyUrl(url)) return;
+      rememberCdnBase(url);
+      map.set(key, url);
+    });
+    return map;
+  }, [allImages, localMedia, cdnBase]);
   // Uploads land in `localMedia` before the project list refreshes, so the
   // Select images sheet can show them in the same visit.
   const imagePool = useMemo(() => {
@@ -1306,6 +1349,9 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
   useEffect(() => {
     setCreating(false);
     setTimeDraft(null);
+    setAdjustFor(null);
+    setEditSlot(null);
+    setPackOpen(false);
   }, [selected, safeIdx]);
 
   function selectDay(i) {
@@ -1426,6 +1472,7 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
     setImgPick(null);
     setAskImgs(0);
     setCapBusy(false);
+    setWordsBusy(false);
   }
 
   // Press anywhere outside the caption editor and it closes without saving —
@@ -1483,6 +1530,19 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
     return () => document.removeEventListener('mousedown', away);
   }, [zone, visEdit]);
 
+  // Edit text is the same draft rule: leave without Apply and the words go back.
+  useEffect(() => {
+    if (zone !== 'visual' || visEdit !== 'words') return undefined;
+    const away = (e) => {
+      if (e.target.closest('.wv-worded')) return;
+      if (e.target.closest('.wv-ig__zonebtn') || e.target.closest('.wv-ig__menu')
+        || e.target.closest('.wv-ig__menuscrim')) return;
+      setVisEdit(null);
+    };
+    document.addEventListener('mousedown', away);
+    return () => document.removeEventListener('mousedown', away);
+  }, [zone, visEdit]);
+
   useEffect(() => {
     if (visEdit !== 'layout') {
       setLayPick(null);
@@ -1507,6 +1567,8 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
       // Escape steps back one level: generate → images → browse → editor → menu
       if (e.key !== 'Escape') return;
       if (timeDraft) { setTimeDraft(null); return; }
+      if (adjustFor) { setAdjustFor(null); setEditSlot(null); return; }
+      if (packOpen) { setPackOpen(false); return; }
       if (creating) { setCreating(false); return; }
       if (imgPick) { setImgPick(null); return; }
       if (askImgs) { setAskImgs(0); return; }
@@ -1518,7 +1580,7 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
     }
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [zone, visEdit, libOpen, askCat, askImgs, imgPick, creating, timeDraft]);
+  }, [zone, visEdit, libOpen, askCat, askImgs, imgPick, creating, timeDraft, adjustFor, packOpen]);
 
   // Persist the caption for the open day — optimistic, then reconciled with the
   // server's copy. Backend whitelists `content.caption` (routeController §642).
@@ -1909,6 +1971,13 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
   const primaryWordKey = wordRoles.find((r) => r.key === 'head')?.key
     || wordRoles.find((r) => r.key === 'body')?.key
     || wordRoles[0]?.key;
+  const wordsSeed = visEdit === 'words'
+    ? seedWordDraft(chosenLayout, activeSlide, day?.contentType || day?.format)
+    : null;
+  const wordsUnchanged = Boolean(wordDraft && wordsSeed
+    && Object.keys({ ...wordsSeed, ...wordDraft }).every(
+      (k) => plainOf(wordDraft[k] || '') === plainOf(wordsSeed[k] || ''),
+    ));
 
   useEffect(() => {
     if (visEdit !== 'words') return;
@@ -1934,6 +2003,7 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
     if (hasHead && hasBody) patch.subtitle = capText(plainOf(wordDraft?.body || ''));
     patchActiveSlide(patch);
     setVisEdit(null);
+    setZone(null);
   }
 
   function applyLayout() {
@@ -1948,7 +2018,7 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
 
   function openImagePicker() {
     const n = Math.max(1, shotsOf(chosenLayout));
-    const saved = keysOf(activeSlide).map((k) => urlForKey(k, activeSlide, localMedia));
+    const saved = keysOf(activeSlide).map((k) => urlForKey(k, activeSlide, localMedia, mediaByKey));
     const fromSaved = Array.from({ length: n }, (_, i) => saved[i] || null);
     if (fromSaved.some(Boolean)) {
       const empty = fromSaved.findIndex((u) => !u);
@@ -1980,6 +2050,107 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
     patchActiveSlide({ assetKey: keys.find(Boolean) || '', assetKeys: keys });
     setImgPick(null);
   }
+
+  const slideKind = day?.contentType || day?.format;
+  const dressedLayout = withSlidePhoto(
+    fillLayout(chosenLayout, activeSlide, slideKind),
+    activeSlide,
+    localMedia,
+    mediaByKey,
+  );
+  const hasEditImage = (dressedLayout?.imgs || []).some(Boolean) || Boolean(photoUrl(activeSlide, localMedia, mediaByKey));
+  const slotPackItems = (dressedLayout?.imgs || [])
+    .map((url, i) => (url ? { i, url } : null))
+    .filter(Boolean);
+
+  function measureSlot(n = 0) {
+    const ph = document.querySelectorAll('.wv-ig__media .vl-ph');
+    const el = ph[n] || ph[0];
+    if (!el) return null;
+    const r = el.getBoundingClientRect();
+    if (!(r.width > 4 && r.height > 4)) return null;
+    return {
+      ratio: r.width / r.height,
+      radius: window.getComputedStyle(el).borderRadius,
+      name: chosenLayout?.name || null,
+    };
+  }
+
+  function editorSrc(slotIndex = 0) {
+    const keys = keysOf(activeSlide);
+    const key = keys[slotIndex] || (slotIndex === 0 ? (activeSlide?.assetKey || activeSlide?.image?.key || '') : '');
+    if (key && localMedia?.[key]) return localMedia[key];
+    if (key && mediaByKey?.has(key)) return mediaProxyUrl(key);
+    return (dressedLayout?.imgs || [])[slotIndex] || null;
+  }
+
+  function writeSlotKey(key, slotIndex) {
+    const base = deriveSlides(day);
+    const slide = base[safeIdx] || {};
+    const keys = [...keysOf(slide)];
+    while (keys.length <= slotIndex) keys.push('');
+    keys[slotIndex] = key;
+    const next = base.map((s, i) => (
+      i === safeIdx ? { ...s, assetKey: keys.find(Boolean) || key, assetKeys: keys } : s
+    ));
+    replaceSlides(next);
+  }
+
+  async function commitEditedUrl(url, slotIndex = 0) {
+    const localKey = `edit-${Date.now()}-${slotIndex}`;
+    rememberImage(localKey, url, { skipGen: true });
+    writeSlotKey(localKey, slotIndex);
+    try {
+      const blob = await fetch(url).then((r) => r.blob());
+      const file = new File([blob], 'edited.jpg', { type: blob.type || 'image/jpeg' });
+      const added = await uploadFiles([file]);
+      const first = added[0];
+      if (!first?.key) return;
+      rememberImage(first.key, first.url || url, { skipGen: true });
+      writeSlotKey(first.key, slotIndex);
+    } catch { /* keep the local preview */ }
+  }
+
+  async function replaceEditedFile(file, slotIndex = 0) {
+    if (!file) return;
+    const preview = URL.createObjectURL(file);
+    const localKey = `edit-${Date.now()}-${slotIndex}`;
+    rememberImage(localKey, preview, { skipGen: true });
+    writeSlotKey(localKey, slotIndex);
+    try {
+      const added = await uploadFiles([file]);
+      const first = added[0];
+      if (!first?.key) return;
+      rememberImage(first.key, first.url || preview, { skipGen: true });
+      writeSlotKey(first.key, slotIndex);
+    } catch { /* keep the local preview */ }
+  }
+
+  function openAdjust() {
+    const n = shotsOf(chosenLayout || {});
+    setVisEdit(null);
+    setZone(null);
+    if (n > 1 && slotPackItems.length > 0) {
+      setPackOpen(true);
+      return;
+    }
+    const i = slotPackItems[0]?.i || 0;
+    const src = editorSrc(i);
+    if (!src) return;
+    setEditSlot(measureSlot(i));
+    setAdjustFor({ src, slotIndex: i });
+  }
+
+  function downloadSrc(src, name = 'bauhly-photo.jpg') {
+    if (!src) return;
+    const el = document.createElement('a');
+    el.href = src;
+    el.download = name;
+    document.body.appendChild(el);
+    el.click();
+    el.remove();
+  }
+
   // Each rail slide resolved to its OWN chosen layout — the same composition the
   // big preview draws for that slide — so the vertical rail and the IG preview
   // always show the same picture for a given slide (never out of sync).
@@ -2009,6 +2180,7 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
   const stepLayout = (d) => setLayWinStart((s) => Math.max(0, Math.min(s + d, maxWinStart)));
   const isDesktop = useMediaQuery('(min-width: 961px)');
   const layoutEditing = zone === 'visual' && visEdit === 'layout';
+  const wordsEditing = zone === 'visual' && visEdit === 'words';
   const pickerLayouts = isDesktop ? slideLayouts : shownLayouts;
 
   const layoutPickerCards = (list) => list.map((l) => (
@@ -2239,6 +2411,40 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
         />
       )}
 
+      {packOpen && slotPackItems.length > 0 && createPortal(
+        <SlotPack
+          items={slotPackItems}
+          onPick={(i, url) => {
+            setEditSlot(measureSlot(i));
+            setAdjustFor({ src: editorSrc(i) || url, slotIndex: i });
+          }}
+          onClose={() => setPackOpen(false)}
+        />,
+        document.body,
+      )}
+
+      {adjustFor?.src && createPortal(
+        <PhotoEditor
+          src={adjustFor.src}
+          slot={editSlot}
+          onCancel={() => { setAdjustFor(null); setEditSlot(null); }}
+          onDone={(url) => {
+            const slotIndex = adjustFor.slotIndex || 0;
+            commitEditedUrl(url, slotIndex);
+            setAdjustFor(null);
+            setEditSlot(null);
+          }}
+          onReplace={(file) => {
+            const slotIndex = adjustFor.slotIndex || 0;
+            replaceEditedFile(file, slotIndex);
+            setAdjustFor(null);
+            setEditSlot(null);
+          }}
+          onDownload={() => downloadSrc(adjustFor.src)}
+        />,
+        document.body,
+      )}
+
       {creating && imgPick && createPortal(
         <>
           <div className="wv-imgs__chatscrim" onClick={() => setCreating(false)} />
@@ -2335,7 +2541,7 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
           >
             <Glyph name="chevron-right" size={22} strokeWidth={2.5} />
           </button>
-          <article className={`wv-ig${timeDraft ? ' is-timeedit' : ''}${layoutEditing ? ' is-layoutedit' : ''}`} style={igVars}>
+          <article className={`wv-ig${timeDraft ? ' is-timeedit' : ''}${layoutEditing ? ' is-layoutedit' : ''}${wordsEditing ? ' is-wordsedit' : ''}`} style={igVars}>
             <header className="wv-ig__head">
               <span className="wv-ig__avatar">{handleInitials(handle)}</span>
               <span className="wv-ig__user">{handle}</span>
@@ -2392,6 +2598,7 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
                   layout={chosenLayout}
                   contentType={day.contentType || day.format}
                   localMedia={localMedia}
+                  mediaByKey={mediaByKey}
                   parts={visEdit === 'words' ? wordDraft : null}
                 />
                 {slides.length > 1 && (
@@ -2443,8 +2650,8 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
               >
                 <Glyph name={zone === 'visual' ? 'x' : 'pencil'} size={17} strokeWidth={2} />
               </button>
-              {/* the edit menu — shape, pictures, words (bauhly-v3 §818/§989).
-                  Anchored under the pencil; picking a row opens that editor. */}
+              {/* the edit menu — shape, this picture, pictures, words
+                  (bauhly-v3 §818/§989/§993). Anchored under the pencil. */}
               {zone === 'visual' && !visEdit && !imgPick && (
                 <>
                 <div
@@ -2460,12 +2667,18 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
                     setLayCat(null);
                     setVisEdit('layout');
                   }}>
-                    <Glyph name="layout-grid" size={18} strokeWidth={2} />
+                    <Icon name="dashboard" size={17} strokeWidth={2} />
                     <span>Choose layout</span>
                   </button>
+                  {hasEditImage && (
+                    <button type="button" role="menuitem" className="wv-ig__menuitem" onClick={openAdjust}>
+                      <Icon name="crop" size={17} strokeWidth={2} />
+                      <span>Edit image</span>
+                    </button>
+                  )}
                   {chosenLayout && shotsOf(chosenLayout) > 0 && (
                     <button type="button" role="menuitem" className="wv-ig__menuitem" onClick={openImagePicker}>
-                      <Glyph name="image" size={18} strokeWidth={2} />
+                      <Icon name="image" size={17} strokeWidth={2} />
                       <span>Select images</span>
                     </button>
                   )}
@@ -2473,7 +2686,7 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
                     setWordDraft(seedWordDraft(chosenLayout, activeSlide, day?.contentType || day?.format));
                     setVisEdit('words');
                   }}>
-                    <Glyph name="pencil" size={18} strokeWidth={2} />
+                    <Icon name="edit" size={17} strokeWidth={2} />
                     <span>Edit text</span>
                   </button>
                 </div>
@@ -2498,45 +2711,61 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
               </div>
             )}
 
-            {/* the picked editor — Edit text stays under the media; Choose layout
-                moves to the right column on desktop (reference UI). */}
-            {zone === 'visual' && visEdit === 'words' && (
-              <div className="wv-ig__edit wv-ig__edit--words">
-                <div className="wv-edit__head">
-                  <span className="wv-edit__title">Edit text</span>
+            </div>
+
+            {wordsEditing && (
+              <div className="wv-worded" onClick={(e) => e.stopPropagation()}>
+                <div className="wv-worded__head">
                   <button
                     type="button"
-                    className="btn btn--primary btn--sm wv-edit__apply"
-                    onClick={applyWords}
+                    className="wv-worded__back"
+                    onClick={() => closeZone()}
+                    aria-label="Back"
                   >
-                    Apply
+                    <Glyph name="arrow-left" size={16} />
+                  </button>
+                  <span className="wv-worded__title">Edit text</span>
+                  <button
+                    type="button"
+                    className="btn btn--primary btn--sm wv-worded__apply"
+                    onClick={applyWords}
+                    disabled={wordsUnchanged || wordsBusy}
+                  >
+                    Apply changes
                   </button>
                 </div>
                 {wordDraft && (
-                  <div className="wv-words">
-                    {wordRoles.map((r, n) => (
-                      <RoleField
-                        key={`${chosenLayout?.id}-${r.key}`}
-                        role={r}
-                        faceName={faceLabelFor(r.slot, vbStore)}
-                        value={wordDraft[r.key] || ''}
-                        autoFocus={n === 0}
-                        onChange={(next) => setWordDraft((d) => ({ ...(d || {}), [r.key]: next }))}
+                  <>
+                    <div className="wv-worded__fields">
+                      {wordRoles.map((r, n) => (
+                        <RoleField
+                          key={`${chosenLayout?.id}-${r.key}`}
+                          role={r}
+                          faceName={faceLabelFor(r.slot, vbStore)}
+                          value={wordDraft[r.key] || ''}
+                          autoFocus={n === 0}
+                          onChange={(next) => setWordDraft((d) => ({ ...(d || {}), [r.key]: next }))}
+                        />
+                      ))}
+                    </div>
+                    <div className="wv-worded__foot">
+                      <WordsPolish
+                        routeId={route?._id}
+                        dayIndex={selected}
+                        caption={plainOf(wordDraft[primaryWordKey] || '')}
+                        fills={wordFills}
+                        role={wordRoles.find((r) => r.key === primaryWordKey)?.label}
+                        onBusy={setWordsBusy}
+                        onCaption={(next) => {
+                          if (!primaryWordKey) return;
+                          setWordDraft((d) => ({ ...(d || {}), [primaryWordKey]: capText(next) }));
+                        }}
                       />
-                    ))}
-                    <WordsPolish
-                      caption={plainOf(wordDraft[primaryWordKey] || '')}
-                      fills={wordFills}
-                      onCaption={(next) => {
-                        if (!primaryWordKey) return;
-                        setWordDraft((d) => ({ ...(d || {}), [primaryWordKey]: capText(next) }));
-                      }}
-                    />
-                  </div>
+                    </div>
+                  </>
                 )}
               </div>
             )}
-            </div>
 
             {layoutEditing && (
               <div className="wv-layed" onClick={(e) => e.stopPropagation()}>
@@ -2848,27 +3077,23 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
             className="wv-ig"
             style={{ ...igVars, position: 'fixed', left: '-100000px', top: 0, width: 1080, pointerEvents: 'none' }}
           >
-            {slides.map((s, i) => {
-              const key = s.assetKey || s.image?.key;
-              const exportSlide = key && s.image
-                ? { ...s, image: { ...s.image, url: mediaProxyUrl(key) } }
-                : s;
-              return (
-                <div
-                  key={i}
-                  ref={(el) => { exportRefs.current[i] = el; }}
-                  className="wv-ig__photo"
-                  style={{ width: 1080 }}
-                >
-                  <SlideMedia
-                    slide={exportSlide}
-                    layout={slideThumbLayout(s)}
-                    contentType={day.contentType || day.format}
-                    localMedia={localMedia}
-                  />
-                </div>
-              );
-            })}
+            {slides.map((s, i) => (
+              <div
+                key={i}
+                ref={(el) => { exportRefs.current[i] = el; }}
+                className="wv-ig__photo"
+                style={{ width: 1080 }}
+              >
+                <SlideMedia
+                  slide={s}
+                  layout={slideThumbLayout(s)}
+                  contentType={day.contentType || day.format}
+                  localMedia={localMedia}
+                  mediaByKey={mediaByKey}
+                  preferProxy
+                />
+              </div>
+            ))}
           </div>
         </div>
       )}

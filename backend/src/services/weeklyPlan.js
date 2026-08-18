@@ -489,6 +489,169 @@ function logPlanContext({ snapshot, focusSummary, competitorInsights, projects, 
  * @param {object[]} [projects]  Project names + notes + image assetKeys from the studio.
  * @returns {Promise<{ weekOf, weekLabel, model, focus, funnel, days }>}
  */
+function multiAgentEnabled() {
+  const v = String(process.env.PLAN_MULTI_AGENT ?? '1').trim().toLowerCase();
+  return !(v === '0' || v === 'false' || v === 'off' || v === 'no');
+}
+
+function assembleDays({
+  rawDays,
+  focusPillar,
+  monday,
+  projects,
+  usedAssetKeys,
+}) {
+  const validKeys = new Set(
+    projects.flatMap((p) => (p.assets || []).map((a) => a.key)).filter(Boolean)
+  );
+
+  const days = (rawDays || []).slice(0, 7).map((d, i) => {
+    const pillar = ['discovery', 'credibility', 'trust'].includes(d.pillar) ? d.pillar : focusPillar;
+    const date = new Date(monday);
+    date.setDate(monday.getDate() + i);
+    const c = d.content || {};
+    const format = ['Reel', 'Carousel', 'Post', 'Story'].includes(d.format) ? d.format : 'Post';
+    const slides = normalizeSlides(c.slides, c.onScreenText, format, d.title, c.cta, validKeys, usedAssetKeys, {
+      direction: d.direction || '',
+      contentType: d.contentType || '',
+    });
+    const onScreenText = Array.isArray(c.onScreenText) && c.onScreenText.length
+      ? c.onScreenText
+      : slides.map((s) => s.title).filter(Boolean);
+    return {
+      day: d.day || DAY_NAMES[i],
+      dateLabel: date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+      time: d.time || '',
+      format,
+      contentType: d.contentType || '',
+      pillar,
+      goalTag: d.goalTag || GOAL_TAG[pillar],
+      title: d.title || '',
+      direction: d.direction || '',
+      published: false,
+      content: {
+        slides,
+        onScreenText,
+        caption: c.caption || '',
+        cta: c.cta || '',
+        hashtags: Array.isArray(c.hashtags) ? c.hashtags.map((h) => String(h).replace(/^#/, '')) : [],
+        strategy: c.strategy || '',
+        prompts: Array.isArray(c.prompts) ? c.prompts : [],
+        plan: c.plan || '',
+        notes: c.notes || '',
+      },
+    };
+  });
+
+  // Auto-fill imageless posts from the shared claim-set (month-wide when passed).
+  const assetPool = projects.flatMap((p) =>
+    (p.assets || []).map((a) => ({ key: a.key, kw: assetKeywords(a) }))
+  );
+  for (const d of days) {
+    const slides = d.content.slides || [];
+    if (slides.some((s) => s.assetKey)) continue;
+    const available = assetPool.filter((a) => !usedAssetKeys.has(a.key));
+    if (!available.length) continue;
+    const words = fillKeywordSet(`${d.title} ${d.direction} ${d.content.caption} ${slides[0]?.title || ''}`);
+    let best = available[0];
+    let bestScore = scoreAssetForWords(words, best.kw);
+    for (const a of available) {
+      const sc = scoreAssetForWords(words, a.kw);
+      if (sc > bestScore) { best = a; bestScore = sc; }
+    }
+    if (slides[0]) {
+      slides[0].assetKey = best.key;
+      usedAssetKeys.add(best.key);
+    }
+  }
+
+  return days;
+}
+
+async function generateSingleAgentPlan({
+  model,
+  snapshot,
+  focusSummary,
+  competitorInsights,
+  projects,
+  prompt,
+}) {
+  const client = getAnthropicClient();
+  const planMaxTokens = () => {
+    const n = Number(process.env.WEEKLY_PLAN_MAX_TOKENS);
+    return Number.isFinite(n) && n > 0 ? n : 32000;
+  };
+  const planRetryMaxTokens = () => {
+    const n = Number(process.env.WEEKLY_PLAN_MAX_TOKENS_RETRY);
+    return Number.isFinite(n) && n > 0 ? n : 64000;
+  };
+
+  async function callPlanModel(maxTokens) {
+    return client.messages.create({
+      model,
+      max_tokens: maxTokens,
+      messages: [{ role: 'user', content: prompt }],
+    });
+  }
+
+  let maxTokens = planMaxTokens();
+  let response = await callPlanModel(maxTokens);
+  let fullText = response.content.filter((b) => b.type === 'text').map((b) => b.text).join('\n');
+
+  if (response.stop_reason === 'max_tokens') {
+    const retryMax = planRetryMaxTokens();
+    if (retryMax > maxTokens) {
+      console.warn(
+        `[weeklyPlan] @${snapshot.username} hit max_tokens=${maxTokens} (${fullText.length} chars) — retrying with ${retryMax}`,
+      );
+      maxTokens = retryMax;
+      response = await callPlanModel(maxTokens);
+      fullText = response.content.filter((b) => b.type === 'text').map((b) => b.text).join('\n');
+    }
+  }
+
+  const inputTokens = Number(response.usage?.input_tokens) || 0;
+  const outputTokens = Number(response.usage?.output_tokens) || 0;
+  const usage = {
+    inputTokens,
+    outputTokens,
+    totalTokens: inputTokens + outputTokens,
+    estimatedCostUsd: estimatePlanCostUsd(model, inputTokens, outputTokens),
+    model,
+  };
+
+  let parsed;
+  try {
+    parsed = extractJson(fullText);
+  } catch (err) {
+    const pos = Number((err.message.match(/position (\d+)/) || [])[1]);
+    const around = Number.isFinite(pos) ? fullText.slice(Math.max(0, pos - 160), pos + 160) : fullText.slice(-320);
+    console.error(
+      `[weeklyPlan] Could not parse plan JSON for @${snapshot.username} ` +
+        `(stop_reason=${response.stop_reason}, max_tokens=${maxTokens}, chars=${fullText.length}): ${err.message}\n...${around}...`
+    );
+    if (response.stop_reason === 'max_tokens') {
+      throw new Error(
+        'Weekly plan generation ran out of output space (response truncated). Try again — if it keeps failing, raise WEEKLY_PLAN_MAX_TOKENS in backend/.env.',
+      );
+    }
+    throw new Error(`Weekly plan generation returned unparseable JSON (stop_reason=${response.stop_reason})`);
+  }
+
+  return {
+    focusOut: parsed.focus || {},
+    rawDays: parsed.days || [],
+    usage,
+    model,
+    debug: {
+      mode: 'single',
+      model,
+      finalPrompt: prompt,
+      agents: [{ source: 'Weekly plan (single)', model, prompt }],
+    },
+  };
+}
+
 async function generateWeeklyPlan(profile, brandDna, competitorInsights = null, projects = [], options = {}) {
   const model = process.env.ANTHROPIC_MODEL || 'claude-sonnet-5';
   const { funnel, focusPillar: gapPillar, confidence, seed } = buildFunnelWithScores(profile);
@@ -538,47 +701,36 @@ async function generateWeeklyPlan(profile, brandDna, competitorInsights = null, 
     (n, p) => n + (p.assets || []).filter((a) => a.vision).length,
     0
   );
+  const useMulti = multiAgentEnabled();
   console.log(
-    `[weeklyPlan] Generating plan for @${snapshot.username} (focus: ${focusPillar}, ${insightNote}, ` +
+    `[weeklyPlan] Generating plan for @${snapshot.username} (mode=${useMulti ? 'multi-agent' : 'single'}, ` +
+      `focus: ${focusPillar}, ${insightNote}, ` +
       `${projects.length} projects / ${assetCount} photos, ${analyzedCount} with vision analysis) with ${model}`
   );
 
-  const client = getAnthropicClient();
-  const response = await client.messages.create({
-    model,
-    // A 7-day plan with full per-day content is long; give it room so the JSON
-    // is never cut off mid-array (a truncated block can't be parsed).
-    max_tokens: 16000,
-    messages: [{ role: 'user', content: prompt }],
-  });
-  const fullText = response.content.filter((b) => b.type === 'text').map((b) => b.text).join('\n');
-
-  const inputTokens = Number(response.usage?.input_tokens) || 0;
-  const outputTokens = Number(response.usage?.output_tokens) || 0;
-  const usage = {
-    inputTokens,
-    outputTokens,
-    totalTokens: inputTokens + outputTokens,
-    estimatedCostUsd: estimatePlanCostUsd(model, inputTokens, outputTokens),
-    model,
-  };
-
-  let parsed;
-  try {
-    parsed = extractJson(fullText);
-  } catch (err) {
-    // Surface why it failed — truncation (stop_reason "max_tokens") vs malformed
-    // output — instead of a bare JSON error.
-    const pos = Number((err.message.match(/position (\d+)/) || [])[1]);
-    const around = Number.isFinite(pos) ? fullText.slice(Math.max(0, pos - 160), pos + 160) : fullText.slice(-320);
-    console.error(
-      `[weeklyPlan] Could not parse plan JSON for @${snapshot.username} ` +
-        `(stop_reason=${response.stop_reason}, chars=${fullText.length}): ${err.message}\n...${around}...`
-    );
-    throw new Error(`Weekly plan generation returned unparseable JSON (stop_reason=${response.stop_reason})`);
+  let generated;
+  if (useMulti) {
+    // Lazy require avoids a circular init with planOrchestrator → weeklyPlan helpers.
+    const { runMultiAgentPlan } = require('./planOrchestrator');
+    generated = await runMultiAgentPlan({
+      profile,
+      brandDna,
+      competitorInsights,
+      projects,
+      focusSummary,
+    });
+  } else {
+    generated = await generateSingleAgentPlan({
+      model,
+      snapshot,
+      focusSummary,
+      competitorInsights,
+      projects,
+      prompt,
+    });
   }
 
-  const focusOut = parsed.focus || {};
+  const focusOut = generated.focusOut || {};
   // Fallbacks reference the chosen (priority-based) focus pillar, which can
   // differ from the funnel's own seed focus.
   const focusRow = funnel.find((f) => f.pillar === focusPillar);
@@ -596,84 +748,21 @@ async function generateWeeklyPlan(profile, brandDna, competitorInsights = null, 
     observation: focusOut.observation || seed.observation,
   };
 
-  // Every real project image key — assetKeys the model returns are validated
-  // against this so a hallucinated or mismatched key can't reach a slide.
-  const validKeys = new Set(
-    projects.flatMap((p) => (p.assets || []).map((a) => a.key)).filter(Boolean)
-  );
-
   // One shared claim-set for the whole plan run: an image assigned to any slide
   // on any day can't be assigned again. When the caller (a month generation)
   // passes options.usedAssetKeys, the same set spans every week, so no photo
   // repeats across the whole monthly plan. Otherwise it's scoped to this week.
   const usedAssetKeys = options.usedAssetKeys || new Set();
-
-  const days = (parsed.days || []).slice(0, 7).map((d, i) => {
-    const pillar = ['discovery', 'credibility', 'trust'].includes(d.pillar) ? d.pillar : focusPillar;
-    const date = new Date(monday);
-    date.setDate(monday.getDate() + i);
-    const c = d.content || {};
-    const format = ['Reel', 'Carousel', 'Post', 'Story'].includes(d.format) ? d.format : 'Post';
-    const slides = normalizeSlides(c.slides, c.onScreenText, format, d.title, c.cta, validKeys, usedAssetKeys, {
-      direction: d.direction || '',
-      contentType: d.contentType || '',
-    });
-    const onScreenText = Array.isArray(c.onScreenText) && c.onScreenText.length
-      ? c.onScreenText
-      : slides.map((s) => s.title).filter(Boolean);
-    return {
-      day: d.day || DAY_NAMES[i],
-      dateLabel: date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
-      time: d.time || '',
-      format,
-      contentType: d.contentType || '',
-      pillar,
-      goalTag: d.goalTag || GOAL_TAG[pillar],
-      title: d.title || '',
-      direction: d.direction || '',
-      published: false,
-      content: {
-        slides,
-        onScreenText,
-        caption: c.caption || '',
-        cta: c.cta || '',
-        hashtags: Array.isArray(c.hashtags) ? c.hashtags.map((h) => String(h).replace(/^#/, '')) : [],
-        strategy: c.strategy || '',
-        prompts: Array.isArray(c.prompts) ? c.prompts : [],
-        plan: c.plan || '',
-        notes: c.notes || '',
-      },
-    };
+  const days = assembleDays({
+    rawDays: generated.rawDays,
+    focusPillar,
+    monday,
+    projects,
+    usedAssetKeys,
   });
 
-  // Auto-fill: give any post the model left imageless a single relevant, still
-  // unused photo — spread one per post, drawn from the same month-wide claim-set
-  // so no image ever repeats within a post or across the plan. When the photos
-  // run out, the post simply stays without an image (never a repeat). Persisting
-  // the key here means the frontend renders it directly and never has to invent
-  // a placeholder that could collide across weeks.
-  const assetPool = projects.flatMap((p) =>
-    (p.assets || []).map((a) => ({ key: a.key, kw: assetKeywords(a) }))
-  );
-  for (const d of days) {
-    const slides = d.content.slides || [];
-    if (slides.some((s) => s.assetKey)) continue; // post already has an image
-    const available = assetPool.filter((a) => !usedAssetKeys.has(a.key));
-    if (!available.length) continue; // no photos left — leave imageless
-    const words = fillKeywordSet(`${d.title} ${d.direction} ${d.content.caption} ${slides[0]?.title || ''}`);
-    let best = available[0];
-    let bestScore = scoreAssetForWords(words, best.kw);
-    for (const a of available) {
-      const sc = scoreAssetForWords(words, a.kw);
-      if (sc > bestScore) { best = a; bestScore = sc; }
-    }
-    // Put it on the post's first slide (its lead frame).
-    if (slides[0]) {
-      slides[0].assetKey = best.key;
-      usedAssetKeys.add(best.key);
-    }
-  }
-
+  const usage = generated.usage;
+  const planModel = generated.model || model;
   const actual = days.reduce((acc, d) => ({ ...acc, [d.pillar]: (acc[d.pillar] || 0) + 1 }), {});
   const matches = Object.keys(dayAllocation).every((p) => (actual[p] || 0) === dayAllocation[p]);
   console.log(
@@ -682,7 +771,28 @@ async function generateWeeklyPlan(profile, brandDna, competitorInsights = null, 
       `${usage.totalTokens} tokens (~$${usage.estimatedCostUsd.toFixed(4)})`
   );
 
-  return { weekOf, weekLabel, model, focus, funnel, days, dayAllocation, usage };
+  return {
+    weekOf,
+    weekLabel,
+    model: planModel,
+    focus,
+    funnel,
+    days,
+    dayAllocation,
+    usage,
+    debug: generated.debug || { mode: useMulti ? 'multi-agent' : 'single', model: planModel, finalPrompt: prompt },
+  };
 }
 
-module.exports = { generateWeeklyPlan, buildFunnelWithScores, weekRange, allocateDays, normalizeSlides, estimatePlanCostUsd };
+module.exports = {
+  generateWeeklyPlan,
+  buildFunnelWithScores,
+  weekRange,
+  allocateDays,
+  normalizeSlides,
+  estimatePlanCostUsd,
+  extractJson,
+  buildSnapshot,
+  renderCompetitorInsights,
+  renderProjectAssets,
+};

@@ -107,18 +107,13 @@ Output **only** a single fenced ```json code block (no preamble, no closing rema
   - Set `assetKey` to a Project-assets key when that photo's described content fits this slide's
     moment; otherwise `""`. Don't reuse the same photo across every slide, and don't attach a photo
     whose description doesn't match.
-  - **Each slide needs an `imagePrompt`** — a rich, self-contained **base prompt** for generating
-    this slide's image later. Pack it with context so it can stand on its own: the post's topic and
-    this slide's role in the story (Hook = a scroll-stopping cover; Setup = establishing context;
-    Process = the work happening; Result = the finished outcome; CTA = a clean closing frame), the
-    concrete subject and setting from the project, the composition and framing, the mood/energy, and
-    where to leave negative space for the on-slide headline. Write it as a single detailed paragraph
-    (roughly 40–80 words), specific to THIS post — not a generic template. **Describe only the scene
-    and composition. Do NOT specify colours, hex values, palette, fonts/typography, or a named art
-    style** — the studio's live Visual Brand (palette, type) and Visual Mood are layered on at
-    generation time, so keep this base free of them. **The image must contain NO text, words,
-    letters, numbers or labels** — the headline is composited on top afterwards, so ask for clean
-    negative space, never rendered copy.
+  - **Each slide needs an `imagePrompt`** — a self-contained **base prompt** for generating this
+    slide's image later. One sentence, **25–40 words max**: the concrete subject, setting, framing,
+    and where to leave negative space for the headline — specific to THIS slide, not a template.
+    **Describe only the scene and composition. Do NOT specify colours, hex values, palette,
+    fonts/typography, or a named art style** — the studio's live Visual Brand and Visual Mood are
+    layered on at generation time. **The image must contain NO text, words, letters, numbers or
+    labels** — the headline is composited on top afterwards.
   - Also fill `onScreenText` with the same titles in order.
 - `hashtags`: 3–6, lowercase, no `#`. `prompts`: 2–4 items. `notes`: 1–3 short production lines.
 - Keep the voice consistent with `howYouSound` from the Brand DNA. No emojis unless the account's

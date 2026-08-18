@@ -57,6 +57,15 @@ export async function refreshProjects() {
   return loading;
 }
 
+/** Drop the in-memory cache — used when the header switches Instagram account. */
+export function resetProjects() {
+  cache = [];
+  hydrated = false;
+  loaded = false;
+  loading = null;
+  emit();
+}
+
 export function useProjects() {
   const projects = useSyncExternalStore(subscribe, () => cache);
   useEffect(() => { ensureLoaded(); }, []);
