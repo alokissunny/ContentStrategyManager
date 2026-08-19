@@ -5,6 +5,7 @@ const mongoose = require('mongoose');
 const daySchema = new mongoose.Schema(
   {
     day: { type: String, required: true },
+    date: { type: String, default: '' }, // YYYY-MM-DD calendar date
     dateLabel: { type: String, default: '' },
     time: { type: String, default: '' },
     format: { type: String, enum: ['Reel', 'Carousel', 'Post', 'Story'], default: 'Post' },

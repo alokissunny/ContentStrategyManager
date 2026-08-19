@@ -2,6 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const getAnthropicClient = require('./anthropicClient');
 const { computeAuthorityFunnel } = require('./authorityFunnel');
+const { recentCapturesOf } = require('./planContext');
 
 const PROMPT_PATH = path.join(__dirname, '..', '..', 'prompts', 'weekly-plan-prompt.md');
 let promptTemplate;
@@ -83,6 +84,129 @@ function weekRange(date = new Date()) {
 }
 
 const DAY_NAMES = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+const WEEKDAY_PILLAR = {
+  Monday: 'discovery',
+  Tuesday: 'credibility',
+  Wednesday: 'trust',
+  Thursday: 'discovery',
+  Friday: 'credibility',
+  Saturday: 'trust',
+  Sunday: 'discovery',
+};
+
+function isoDate(date) {
+  const d = date instanceof Date ? date : new Date(date);
+  if (Number.isNaN(d.getTime())) return '';
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+function startOfLocalDay(date = new Date()) {
+  const d = new Date(date);
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
+
+function parseIsoDate(iso) {
+  const match = String(iso || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return null;
+  return new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+}
+
+function weekdayName(date) {
+  return DAY_NAMES[(date.getDay() + 6) % 7];
+}
+
+function dayHasContent(d) {
+  if (!d || typeof d !== 'object') return false;
+  if (String(d.title || '').trim() || String(d.direction || '').trim()) return true;
+  const c = d.content || {};
+  if (String(c.caption || '').trim() || String(c.strategy || '').trim()) return true;
+  const slides = Array.isArray(c.slides) ? c.slides : [];
+  return slides.some((s) => String(s?.title || '').trim());
+}
+
+function resolveDayDate(weekMonday, day) {
+  const fromIso = parseIsoDate(day?.date);
+  if (fromIso) return fromIso;
+  const label = String(day?.dateLabel || '').trim();
+  if (label && weekMonday) {
+    const year = new Date(weekMonday).getFullYear();
+    const parsed = new Date(`${label} ${year}`);
+    if (!Number.isNaN(parsed.getTime())) {
+      parsed.setHours(0, 0, 0, 0);
+      return parsed;
+    }
+  }
+  const idx = DAY_NAMES.indexOf(day?.day);
+  if (idx >= 0 && weekMonday) {
+    const d = new Date(weekMonday);
+    d.setHours(0, 0, 0, 0);
+    d.setDate(d.getDate() + idx);
+    return d;
+  }
+  return null;
+}
+
+/**
+ * Calendar-month occupancy: which dates already have a post, and the empty
+ * dates that new grounded content should fill next (earliest remaining first).
+ * Past days without a post are left empty — they are not fillable slots.
+ */
+function buildMonthCalendar({ monthDate = new Date(), routes = [], fromDate } = {}) {
+  const year = monthDate.getFullYear();
+  const month = monthDate.getMonth();
+  const last = new Date(year, month + 1, 0).getDate();
+  const today = startOfLocalDay(fromDate || new Date());
+  const occupiedByIso = new Map();
+  for (const route of routes || []) {
+    const monday = route.startsAt || route.weekOf;
+    for (const d of route.days || []) {
+      if (!dayHasContent(d)) continue;
+      const dt = resolveDayDate(monday, d);
+      if (!dt || dt.getMonth() !== month || dt.getFullYear() !== year) continue;
+      occupiedByIso.set(isoDate(dt), d.title || '');
+    }
+  }
+  const occupied = [];
+  const emptyDates = [];
+  for (let n = 1; n <= last; n += 1) {
+    const dt = new Date(year, month, n);
+    const iso = isoDate(dt);
+    const day = weekdayName(dt);
+    const slot = { date: iso, dayOfMonth: n, day, pillar: WEEKDAY_PILLAR[day] };
+    if (occupiedByIso.has(iso)) occupied.push({ ...slot, title: occupiedByIso.get(iso) });
+    else if (dt >= today) emptyDates.push(slot);
+  }
+  return {
+    month: monthDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' }),
+    today: isoDate(today),
+    occupied,
+    emptyDates,
+  };
+}
+
+function assignToEmptyDates(plannedDays, emptyDates) {
+  const slots = Array.isArray(emptyDates) ? emptyDates : [];
+  const planned = Array.isArray(plannedDays) ? plannedDays : [];
+  const n = Math.min(planned.length, slots.length);
+  return planned.slice(0, n).map((p, i) => {
+    const slot = slots[i] || {};
+    const lens = String(p.lens || p.pillar || '').toLowerCase();
+    const pillar = PILLAR_ORDER.includes(lens) ? lens : slot.pillar;
+    return {
+      source: p.source || '',
+      angle: p.angle || '',
+      // Dates from the next empty future slot; pillar from the brief's lens
+      // when the strategist named a genuine one, otherwise the weekday default.
+      ...slot,
+      pillar,
+      lens: pillar,
+    };
+  });
+}
 
 // Split the 7 days across Discovery / Credibility / Trust by content-pillar gap,
 // with a firm priority of Discovery > Credibility > Trust:
@@ -298,24 +422,26 @@ function scoreAssetForWords(words, kw) {
 // a content description from AI analysis — that it can assign to slides. Kept
 // compact so the prompt stays within context.
 function renderProjectAssets(projects) {
-  if (!projects?.length) {
+  const recent = recentCapturesOf(projects);
+  if (!recent.length) {
     return 'No project assets on file yet. Keep posts specific to the niche but do not invent named projects or claim photos exist.';
   }
-  const parts = projects.map((p) => {
-    const lines = [`### ${p.name}`];
-    if (p.notes?.length) {
-      lines.push('Notes:');
-      p.notes.forEach((n) => lines.push(`- ${n}`));
+  const lines = [
+    'Only the last 3 captures (newest first). Plan from the first one (`latest`).',
+    'Do not use older project archive.',
+  ];
+  recent.forEach((c, i) => {
+    const tag = i === 0 ? 'latest — plan from this' : 'context only';
+    lines.push(`### ${c.project} (${tag})`);
+    if (c.text) lines.push(`- ${c.text}`);
+    if (c.shown?.length) {
+      c.shown.forEach((s) => lines.push(`- photo: ${s}`));
     }
-    if (p.assets?.length) {
-      lines.push('Photos — put an assetKey on a slide only when the photo genuinely fits that slide:');
-      p.assets.forEach((a) => lines.push(`- assetKey: ${a.key} — ${describeAsset(a)}`));
-    } else {
-      lines.push('Photos: none yet');
-    }
-    return lines.join('\n');
+    (c.assets || []).forEach((a) => {
+      if (a?.key) lines.push(`- assetKey: ${a.key} — ${describeAsset(a)}`);
+    });
   });
-  return parts.join('\n\n');
+  return lines.join('\n');
 }
 
 const SLIDE_ROLES = {
@@ -469,7 +595,11 @@ function logPlanContext({ snapshot, focusSummary, competitorInsights, projects, 
     console.log(
       '[planCtx] projects (names + asset counts):',
       JSON.stringify(
-        projects.map((p) => ({ name: p.name, notes: p.notes, assets: (p.assets || []).length })),
+        projects.map((p) => ({
+          name: p.name,
+          notes: (p.notes || []).slice(0, 3).map((n) => (typeof n === 'string' ? n : n.text || '')),
+          assets: (p.assets || []).length,
+        })),
         null,
         2
       )
@@ -505,10 +635,17 @@ function assembleDays({
     projects.flatMap((p) => (p.assets || []).map((a) => a.key)).filter(Boolean)
   );
 
-  const days = (rawDays || []).slice(0, 7).map((d, i) => {
-    const pillar = ['discovery', 'credibility', 'trust'].includes(d.pillar) ? d.pillar : focusPillar;
-    const date = new Date(monday);
-    date.setDate(monday.getDate() + i);
+  const days = (rawDays || []).map((d, i) => {
+    const fromIso = parseIsoDate(d.date);
+    const weekdayIndex = DAY_NAMES.indexOf(d.day);
+    const date = fromIso || (() => {
+      const dt = new Date(monday);
+      dt.setDate(monday.getDate() + (weekdayIndex >= 0 ? weekdayIndex : i));
+      return dt;
+    })();
+    const pillar = ['discovery', 'credibility', 'trust'].includes(d.pillar)
+      ? d.pillar
+      : (WEEKDAY_PILLAR[weekdayName(date)] || focusPillar);
     const c = d.content || {};
     const format = ['Reel', 'Carousel', 'Post', 'Story'].includes(d.format) ? d.format : 'Post';
     const slides = normalizeSlides(c.slides, c.onScreenText, format, d.title, c.cta, validKeys, usedAssetKeys, {
@@ -519,7 +656,8 @@ function assembleDays({
       ? c.onScreenText
       : slides.map((s) => s.title).filter(Boolean);
     return {
-      day: d.day || DAY_NAMES[i],
+      day: d.day || weekdayName(date),
+      date: isoDate(date),
       dateLabel: date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
       time: d.time || '',
       format,
@@ -647,7 +785,8 @@ async function generateSingleAgentPlan({
       mode: 'single',
       model,
       finalPrompt: prompt,
-      agents: [{ source: 'Weekly plan (single)', model, prompt }],
+      output: fullText,
+      agents: [{ source: 'Weekly plan (single)', model, prompt, output: fullText }],
     },
   };
 }
@@ -662,14 +801,16 @@ async function generateWeeklyPlan(profile, brandDna, competitorInsights = null, 
   const { weekOf, weekLabel, monday } = weekRange(options.weekDate);
 
   const dayAllocation = allocateDays(funnel);
+  const monthCalendar = options.monthCalendar || buildMonthCalendar({
+    monthDate: options.weekDate || new Date(),
+    routes: options.existingRoutes || [],
+  });
   const focusSummary = {
     pillar: focusPillar,
     pillarLabel: PILLAR_LABEL[focusPillar],
     confidence,
     seedObservation: seed.observation,
     seedHeadline: seed.headline,
-    // Per-pillar verdict + the historical evidence behind it, so the planner
-    // grounds the week in the account's own history, not just its Brand DNA.
     funnel: funnel.map((f) => ({
       pillar: f.pillar,
       verdict: f.verdict,
@@ -677,9 +818,10 @@ async function generateWeeklyPlan(profile, brandDna, competitorInsights = null, 
       evidence: f.evidence,
       recommendation: f.recommendation,
     })),
-    // How many of the 7 days each pillar gets — weighted by the content-pillar
-    // gap with priority Discovery > Credibility > Trust.
     dayAllocation,
+    month: monthCalendar.month,
+    occupiedDayNumbers: monthCalendar.occupied.map((d) => d.dayOfMonth),
+    emptyDayNumbers: monthCalendar.emptyDates.map((d) => d.dayOfMonth),
   };
 
   const snapshot = buildSnapshot(profile, brandDna);
@@ -690,7 +832,8 @@ async function generateWeeklyPlan(profile, brandDna, competitorInsights = null, 
     .replace('{{FOCUS_JSON}}', () => JSON.stringify(focusSummary))
     .replace('{{SNAPSHOT_JSON}}', () => JSON.stringify(snapshot))
     .replace('{{COMPETITOR_INSIGHTS}}', () => renderCompetitorInsights(competitorInsights))
-    .replace('{{PROJECT_ASSETS}}', () => renderProjectAssets(projects));
+    .replace('{{PROJECT_ASSETS}}', () => renderProjectAssets(projects))
+    .replace('{{MONTH_CALENDAR_JSON}}', () => JSON.stringify(monthCalendar));
 
   // Log exactly what context reached the model for this plan (see logPlanContext).
   logPlanContext({ snapshot, focusSummary, competitorInsights, projects, prompt, model });
@@ -705,8 +848,31 @@ async function generateWeeklyPlan(profile, brandDna, competitorInsights = null, 
   console.log(
     `[weeklyPlan] Generating plan for @${snapshot.username} (mode=${useMulti ? 'multi-agent' : 'single'}, ` +
       `focus: ${focusPillar}, ${insightNote}, ` +
+      `${monthCalendar.occupied.length} occupied / ${monthCalendar.emptyDates.length} empty month days, ` +
       `${projects.length} projects / ${assetCount} photos, ${analyzedCount} with vision analysis) with ${model}`
   );
+
+  if (monthCalendar.emptyDates.length === 0) {
+    console.log(`[weeklyPlan] @${snapshot.username}: month is full — no empty days to fill`);
+    return {
+      weekOf,
+      weekLabel,
+      model,
+      focus: {
+        pillar: focusPillar,
+        headline: 'Month already filled',
+        hypothesis: '',
+        recommendation: `Every day in ${monthCalendar.month} already has content. Capture a new idea next month, or clear a day first.`,
+        whyMatters: '',
+        observation: '',
+      },
+      funnel,
+      days: [],
+      dayAllocation,
+      usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0, estimatedCostUsd: 0, model },
+      debug: { mode: 'skipped-full-month', model, finalPrompt: '', agents: [] },
+    };
+  }
 
   let generated;
   if (useMulti) {
@@ -718,6 +884,7 @@ async function generateWeeklyPlan(profile, brandDna, competitorInsights = null, 
       competitorInsights,
       projects,
       focusSummary,
+      monthCalendar,
     });
   } else {
     generated = await generateSingleAgentPlan({
@@ -753,8 +920,14 @@ async function generateWeeklyPlan(profile, brandDna, competitorInsights = null, 
   // passes options.usedAssetKeys, the same set spans every week, so no photo
   // repeats across the whole monthly plan. Otherwise it's scoped to this week.
   const usedAssetKeys = options.usedAssetKeys || new Set();
+  const rawDays = (generated.rawDays || [])
+    .slice(0, monthCalendar.emptyDates.length)
+    .map((d, i) => ({
+      ...d,
+      ...monthCalendar.emptyDates[i],
+    }));
   const days = assembleDays({
-    rawDays: generated.rawDays,
+    rawDays,
     focusPillar,
     monday,
     projects,
@@ -764,10 +937,9 @@ async function generateWeeklyPlan(profile, brandDna, competitorInsights = null, 
   const usage = generated.usage;
   const planModel = generated.model || model;
   const actual = days.reduce((acc, d) => ({ ...acc, [d.pillar]: (acc[d.pillar] || 0) + 1 }), {});
-  const matches = Object.keys(dayAllocation).every((p) => (actual[p] || 0) === dayAllocation[p]);
   console.log(
     `[weeklyPlan] @${snapshot.username}: ${days.length} days generated · ` +
-      `pillar mix ${JSON.stringify(actual)} (target ${JSON.stringify(dayAllocation)})${matches ? '' : ' — MISMATCH'} · ` +
+      `pillar mix ${JSON.stringify(actual)} (allocation hint ${JSON.stringify(dayAllocation)}) · ` +
       `${usage.totalTokens} tokens (~$${usage.estimatedCostUsd.toFixed(4)})`
   );
 
@@ -795,4 +967,9 @@ module.exports = {
   buildSnapshot,
   renderCompetitorInsights,
   renderProjectAssets,
+  buildMonthCalendar,
+  assignToEmptyDates,
+  dayHasContent,
+  isoDate,
+  parseIsoDate,
 };

@@ -17,6 +17,30 @@ export function deleteProject(id) {
 export function addCapture(projectId, capture) {
   return client.post(`/projects/${projectId}/captures`, capture).then((r) => r.data.project);
 }
+
+// Capture-time understanding — strategy-neutral extraction of what happened,
+// and at most one clarifying question if meaning is actually missing.
+export function understandCapture(payload) {
+  return client.post('/projects/captures/understand', payload).then((r) => r.data);
+}
+
+// Check-in understanding — whether the idea is clear enough to plan from,
+// which project (if any) already owns it, and whether a supporting asset is
+// worth asking for. Same "at most one question" rule as Capture.
+export function understandCheckin(payload) {
+  return client.post('/projects/checkin/understand', payload).then((r) => r.data);
+}
+
+// Voice-note → words. Body is the raw audio blob; the conversation keeps the
+// transcript, not the recording.
+export function transcribeCapture(blob) {
+  return client
+    .post('/projects/captures/transcribe', blob, {
+      headers: { 'Content-Type': blob.type || 'audio/webm' },
+      transformRequest: [(data) => data],
+    })
+    .then((r) => r.data);
+}
 export function updateCapture(projectId, captureId, patch) {
   return client.patch(`/projects/${projectId}/captures/${captureId}`, patch).then((r) => r.data.project);
 }

@@ -9,6 +9,13 @@ const {
   deleteObjects,
 } = require('../services/s3Client');
 const { analyzeImageAsset } = require('../services/imageAnalysis');
+const {
+  understandCapture,
+  sanitizeUnderstanding,
+  serializeUnderstanding,
+} = require('../services/captureUnderstand');
+const { understandCheckin } = require('../services/checkinUnderstand');
+const { transcribeAudio } = require('../services/transcribeAudio');
 
 // ── serialization ─────────────────────────────────────────────────────────
 // The DB stores S3 object keys; the client receives short-lived presigned read
@@ -55,6 +62,7 @@ async function serializeCapture(c) {
     type: c.type,
     text: c.text || '',
     createdAt: c.createdAt,
+    understanding: serializeUnderstanding(c.understanding),
     attachments: await Promise.all((c.attachments || []).map(serializeAttachment)),
   };
 }
@@ -171,8 +179,9 @@ async function addCapture(req, res) {
     return res.status(400).json({ message: 'A capture needs a note or a file' });
   }
   const type = ['note', 'photo', 'video'].includes(req.body.type) ? req.body.type : 'note';
+  const understanding = sanitizeUnderstanding(req.body.understanding);
 
-  project.captures.push({ type, text, attachments, createdAt: new Date() });
+  project.captures.push({ type, text, attachments, understanding, createdAt: new Date() });
   await project.save();
   res.status(201).json({ project: await serializeProject(project) });
 }
@@ -311,6 +320,130 @@ async function analyzeProject(req, res) {
   res.json({ project: await serializeProject(project), analyzed: targets.length, usage });
 }
 
+// ── Capture-time understanding ─────────────────────────────────────────────
+// POST /projects/captures/understand
+// Strategy-neutral: extract the five core signals and decide whether one
+// clarifying question would materially improve meaning. Never blocks filing
+// if the model is unavailable — the client stores the note as the user wrote it.
+async function understandDraft(req, res) {
+  const text = (req.body.text || '').trim();
+  const attachments = sanitizeAttachments(req.body.attachments, req.user._id);
+  const projectName = (req.body.projectName || '').trim();
+  const alreadyAsked = Boolean(req.body.alreadyAsked);
+  const askedQuestion = (req.body.askedQuestion || '').trim();
+  const askedAnswer = (req.body.askedAnswer || '').trim();
+
+  if (!text && attachments.length === 0) {
+    return res.status(400).json({ message: 'A capture needs a note or a file' });
+  }
+
+  try {
+    const result = await understandCapture({
+      text,
+      attachments,
+      projectName,
+      alreadyAsked,
+      askedQuestion,
+      askedAnswer,
+    });
+    res.json(result);
+  } catch (err) {
+    console.error('[projects] capture understand failed', err.message);
+    // Capture must never stall because the understander is down — store as-is.
+    res.json({
+      action: 'ready',
+      question: null,
+      understanding: {
+        happened: text,
+        intent: '',
+        difficulty: '',
+        actionTaken: '',
+        outcome: '',
+        summary: text,
+        presentSignals: text ? ['happened'] : [],
+        missingPiece: '',
+        askedQuestion: alreadyAsked ? askedQuestion : '',
+        askedAnswer: alreadyAsked ? askedAnswer : '',
+        model: '',
+        understoodAt: new Date(),
+      },
+    });
+  }
+}
+
+// POST /projects/checkin/understand
+// Planning-time: same five signals, plus whether one clarifying question is
+// needed, which project on file already owns this, and whether a supporting
+// asset is worth asking for. Never blocks the conversation if the model is down.
+async function understandCheckinDraft(req, res) {
+  const text = (req.body.text || '').trim();
+  const attachments = sanitizeAttachments(req.body.attachments, req.user._id);
+  const alreadyAsked = Boolean(req.body.alreadyAsked);
+  const askedQuestion = (req.body.askedQuestion || '').trim();
+  const askedAnswer = (req.body.askedAnswer || '').trim();
+  const projects = Array.isArray(req.body.projects)
+    ? req.body.projects
+      .filter((p) => p && (p.id || p._id) && p.name)
+      .map((p) => ({ id: String(p.id || p._id), name: String(p.name).trim() }))
+      .filter((p) => p.name)
+    : [];
+
+  if (!text && attachments.length === 0) {
+    return res.status(400).json({ message: 'A check-in turn needs a note or a file' });
+  }
+
+  try {
+    const result = await understandCheckin({
+      text,
+      attachments,
+      projects,
+      alreadyAsked,
+      askedQuestion,
+      askedAnswer,
+    });
+    res.json(result);
+  } catch (err) {
+    console.error('[projects] checkin understand failed', err.message);
+    res.json({
+      action: 'ready',
+      question: null,
+      ack: '',
+      matchedProjectId: null,
+      matchedProjectName: '',
+      askForAssets: attachments.length === 0,
+      understanding: {
+        happened: text,
+        intent: '',
+        difficulty: '',
+        actionTaken: '',
+        outcome: '',
+        summary: text,
+        presentSignals: text ? ['happened'] : [],
+        missingPiece: '',
+        askedQuestion: alreadyAsked ? askedQuestion : '',
+        askedAnswer: alreadyAsked ? askedAnswer : '',
+        model: '',
+        understoodAt: new Date(),
+      },
+    });
+  }
+}
+
+// POST /projects/captures/transcribe — raw audio body, words back.
+async function transcribeDraft(req, res) {
+  const buffer = Buffer.isBuffer(req.body) ? req.body : Buffer.from(req.body || []);
+  if (!buffer.length) {
+    return res.status(400).json({ message: 'No audio to transcribe' });
+  }
+  try {
+    const result = await transcribeAudio(buffer, req.headers['content-type']);
+    res.json(result);
+  } catch (err) {
+    const status = err.statusCode || 500;
+    res.status(status).json({ message: err.message || 'Transcription failed' });
+  }
+}
+
 module.exports = {
   signUploads,
   listProjects,
@@ -323,4 +456,7 @@ module.exports = {
   moveCapture,
   analyzeAsset,
   analyzeProject,
+  understandDraft,
+  understandCheckinDraft,
+  transcribeDraft,
 };

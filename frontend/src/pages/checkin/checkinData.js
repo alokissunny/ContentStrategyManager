@@ -378,8 +378,13 @@ export const CHECKIN = {
    * (see `FORMATS`). `formatPrefs` stays in the store for now — the route
    * generator still reads it — but nothing writes to it. */
 
-  /* typed-idea path (Path A from free text) */
+  /* typed-idea path — after understanding, only asked if the project is unknown */
   projectQuestion: 'Which project does this belong to?',
+  /* at most one clarifying question, same rule as Capture */
+  clarifySkip: "That's all I have",
+  clarifyPlaceholder: 'Answer in your own words…',
+  uploadOpening: 'Upload a file',
+  matchedProjectAck: "I'll file this under {name}.",
   projectNewChip: 'Something new',
   projectNewLine: 'A project that isn\'t on file yet.',
   /* the same shape as the filing question at the other end of the conversation:
@@ -445,10 +450,10 @@ export const CHECKIN = {
    * structure, not four times the certainty */
   periodAckMonth: 'A month, then — four weeks from what I know today. You\'ll probably want to replan the later ones once it\'s running.',
 
-  /* closing line before generation. The period decides the noun. */
-  ready: 'That\'s everything I need. Building your week now.',
-  readyTwo: 'That\'s everything I need. Building your two weeks now.',
-  readyMonth: 'That\'s everything I need. Building your month now.',
+  /* closing line before generation. Check-in always builds the rest of the month. */
+  ready: 'That\'s everything I need. Building your plan now.',
+  readyTwo: 'That\'s everything I need. Building your plan now.',
+  readyMonth: 'That\'s everything I need. Building your plan now.',
 
   /* ── the weekly review — opens the check-in when a previous route had
    * published posts. Outcome question verbatim from the moat playbook;

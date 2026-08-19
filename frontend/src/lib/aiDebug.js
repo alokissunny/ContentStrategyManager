@@ -70,16 +70,30 @@ export function clearAiDebugEntries() {
   setState({ entries: [] });
 }
 
+function asText(value) {
+  if (value == null) return '';
+  if (typeof value === 'string') return value;
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return String(value);
+  }
+}
+
 export function addAiDebugEntry(entry = {}) {
   if (!state.enabled) return;
-  const prompt = String(entry.prompt || '').trim();
-  if (!prompt) return;
+  const prompt = asText(entry.prompt).trim();
+  const output = asText(entry.output).trim();
+  const systemPrompt = asText(entry.systemPrompt).trim();
+  if (!prompt && !output) return;
   const item = {
     id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     at: Date.now(),
     source: String(entry.source || 'AI call'),
     model: String(entry.model || ''),
     prompt,
+    output,
+    systemPrompt,
     note: String(entry.note || ''),
   };
   const next = [item, ...state.entries].slice(0, MAX_ENTRIES);

@@ -292,7 +292,7 @@ export default function Settings() {
       <section className="card set-card">
         <h2>Debug mode</h2>
         <p className="set-card__sub">
-          When on, Bauhly records final prompts sent in AI calls and shows them in a collapsible side panel.
+          When on, Bauhly records prompts sent in AI calls and the model output for each, and shows them in a collapsible side panel.
         </p>
         <div className="set-row">
           <span className="set-row__ico"><Icon name="bug" size={19} /></span>

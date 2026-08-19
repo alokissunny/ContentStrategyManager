@@ -12,6 +12,7 @@
 
 import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { useNavigate } from 'react-router-dom';
 import Icon from '../brand/Icon';
 import { Mark } from '../brand/Logo';
 import { AutoTextarea, useBodyScrollLock } from './checkin/ui';
@@ -24,6 +25,7 @@ import {
   coverOf, groupByWeek, fmtWhen, uploadFiles,
 } from '../lib/projectsStore';
 import { listGeneratedImages, deleteGeneratedImage } from '../api/images';
+import { understandCapture, transcribeCapture } from '../api/projects';
 import './projects.css';
 
 /* The generated-image list is fetched from the server, which takes a moment —
@@ -470,10 +472,12 @@ function ProjectPickerModal({ projects, onClose, onPick, onNew }) {
  * The reference's CaptureChat, rewired to the live backend: uploads go
  * browser→S3 via `uploadFiles`, and a finished capture is filed with
  * `addEntry` / `createProject` (projectsStore) rather than a local commit.
- * One question at a time, on the check-in surface — write it, record it, or
- * upload it, then file it into a project. Rendered as a full-screen immersive
- * overlay so it reads the same wherever it is triggered from. */
-export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewProject, exitLabel = 'Back' }) {
+ *
+ * The conversation itself is no longer a fixed script. After the user speaks
+ * (or uploads), Capture-time understanding extracts what is actually known
+ * and asks at most one neutral clarifying question — only when meaning is
+ * missing. Strategy, Brand DNA, and format stay out of this conversation. */
+export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewProject, onCaptured, exitLabel = 'Back' }) {
   const projects = useProjects();
   const { messages, typing, push, say, after } = useConversation();
   const [step, setStep] = useState('boot');
@@ -481,11 +485,18 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
   const [optionsReady, setOptionsReady] = useState(false);
   const [saved, setSaved] = useState(null);
   const [creating, setCreating] = useState(false); // the new-project modal
-  const [busy, setBusy] = useState(false); // an upload or a save is in flight
+  const [busy, setBusy] = useState(false); // an upload, understand, or save is in flight
   const rec = useRecorder();
   const endRef = useRef(null);
   const threadRef = useRef(null);
-  const cap = useRef({ kind: null, text: '', attachments: [] });
+  const cap = useRef({
+    kind: null,
+    text: '',
+    attachments: [],
+    understanding: null,
+    askedQuestion: '',
+    askedAnswer: '',
+  });
   /* whether the field on screen came from a recording — only then is "record
    * again" a real answer */
   const fromVoice = useRef(false);
@@ -517,12 +528,59 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
 
   const userSays = (text) => push({ from: 'user', text });
 
+  const attachmentPayload = () =>
+    (cap.current.attachments || []).map((a) => ({ type: a.type, key: a.key }));
+
+  const runUnderstand = async ({ alreadyAsked = false, askedQuestion = '', askedAnswer = '' } = {}) => {
+    try {
+      return await understandCapture({
+        text: cap.current.text,
+        attachments: attachmentPayload(),
+        projectName: preset?.name || '',
+        alreadyAsked,
+        askedQuestion,
+        askedAnswer,
+      });
+    } catch {
+      return { action: 'ready', question: null, understanding: null };
+    }
+  };
+
+  const continueToFile = (result) => {
+    if (!cap.current.attachments.length) {
+      const summary = (result?.understanding?.summary || '').trim();
+      const ack = summary
+        ? (summary.length > 220 ? `${summary.slice(0, 217).trim()}…` : summary)
+        : 'I’ll keep that.';
+      const d = say([ack, 'If you have a photo or clip of this, add it — otherwise we can save it as it is.']);
+      after(d, () => setStep('media'));
+      return false;
+    }
+    if (preset) {
+      finish(preset.id);
+      return true;
+    }
+    const d = say('Which project is this for?');
+    after(d, () => setStep('project'));
+    return false;
+  };
+
+  const afterUnderstood = (result) => {
+    if (result?.understanding) cap.current.understanding = result.understanding;
+    if (result?.action === 'ask' && result.question) {
+      cap.current.askedQuestion = result.question;
+      const d = say(result.question);
+      after(d, () => setStep('clarify'));
+      return false;
+    }
+    return continueToFile(result);
+  };
+
   const chooseWrite = () => {
     setStep('boot');
     userSays('Write it down');
     cap.current.kind = 'note';
-    const d = say("Go ahead — what happened, or what's the idea?");
-    after(d, () => setStep('writing'));
+    setStep('writing');
   };
   const chooseRecord = () => {
     setStep('boot');
@@ -540,7 +598,7 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
     after(d, () => { rec.reset(); rec.start(); setStep('recording'); });
   };
 
-  const submitWriting = () => {
+  const submitWriting = async () => {
     const text = draft.trim();
     if (!text) return;
     fromVoice.current = false;
@@ -548,18 +606,82 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
     setStep('boot');
     userSays(text);
     cap.current.text = text;
-    askMedia();
+    setBusy(true);
+    try {
+      const finishing = afterUnderstood(await runUnderstand());
+      if (!finishing) setBusy(false);
+    } catch {
+      setBusy(false);
+    }
+  };
+
+  const submitClarify = async () => {
+    const text = draft.trim();
+    if (!text) return;
+    setDraft('');
+    setStep('boot');
+    userSays(text);
+    cap.current.askedAnswer = text;
+    cap.current.text = [cap.current.text, text].filter(Boolean).join('\n\n');
+    setBusy(true);
+    try {
+      const result = await runUnderstand({
+        alreadyAsked: true,
+        askedQuestion: cap.current.askedQuestion,
+        askedAnswer: text,
+      });
+      const finishing = afterUnderstood({ ...result, action: 'ready', question: null });
+      if (!finishing) setBusy(false);
+    } catch {
+      setBusy(false);
+    }
+  };
+
+  const skipClarify = async () => {
+    setDraft('');
+    setStep('boot');
+    userSays("That's all I have");
+    setBusy(true);
+    try {
+      const result = await runUnderstand({
+        alreadyAsked: true,
+        askedQuestion: cap.current.askedQuestion,
+        askedAnswer: '',
+      });
+      const finishing = afterUnderstood({ ...result, action: 'ready', question: null });
+      if (!finishing) setBusy(false);
+    } catch {
+      setBusy(false);
+    }
   };
 
   useEffect(() => {
     if (rec.status === 'done' && step === 'recording') {
-      /* The recording is the input, not the record. A real build transcribes and
-       * keeps the words; this build has no transcriber, so it opens the field
-       * empty rather than inventing words. */
       setStep('boot');
-      setDraft('');
-      const d = say(['Recorded — I keep the words, not the audio.', 'Check I got this right:']);
-      after(d, () => setStep('writing'));
+      const blob = rec.blob;
+      (async () => {
+        setBusy(true);
+        try {
+          if (blob) {
+            const { text } = await transcribeCapture(blob);
+            setDraft(text || '');
+            const d = text
+              ? say('Check I got this right:')
+              : say("I couldn't quite catch that — write it in, or record again.");
+            after(d, () => setStep('writing'));
+          } else {
+            setDraft('');
+            const d = say("Write in what you said — I keep the words, not the audio.");
+            after(d, () => setStep('writing'));
+          }
+        } catch {
+          setDraft('');
+          const d = say("I couldn't transcribe that — write it in, or record again.");
+          after(d, () => setStep('writing'));
+        } finally {
+          setBusy(false);
+        }
+      })();
     }
     if (rec.status === 'denied' && step === 'recording') {
       setStep('boot');
@@ -568,12 +690,7 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
       after(d, () => setStep('writing'));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rec.status]);
-
-  const askMedia = () => {
-    const d = say('Got it. Anything to show for it?');
-    after(d, () => setStep('media'));
-  };
+  }, [rec.status, rec.blob]);
 
   /* files added ALONGSIDE a written/recorded note — uploaded to S3, then shown */
   const addFiles = async (files) => {
@@ -595,8 +712,8 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
     }
   };
 
-  /* a file (or files) IS the capture — upload, then ask the one line that makes
-   * it usable next week */
+  /* a file (or files) IS the capture — upload, then understand. Ask what it's
+   * about only if the photos themselves aren't enough to preserve meaning. */
   const fromFiles = async (files, verb) => {
     const arr = [...files];
     if (!arr.length) return;
@@ -608,26 +725,13 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
       cap.current.kind = added.some((a) => a.type === 'video') ? 'video' : 'photo';
       cap.current.attachments = added;
       push({ from: 'user', media: added });
-      const d = say('What is this about? The more you tell me, the more your next plan can do with it.');
-      after(d, () => setStep('noting'));
+      const finishing = afterUnderstood(await runUnderstand());
+      if (!finishing) setBusy(false);
     } catch {
       const d = say("That upload didn't go through — want to try again?");
       after(d, () => setStep('how'));
-    } finally {
       setBusy(false);
     }
-  };
-
-  /* the note that belongs to the file just added; skipping keeps the file */
-  const submitNote = () => {
-    const text = draft.trim();
-    setDraft('');
-    setStep('boot');
-    if (text) { userSays(text); cap.current.text = text; }
-    else { userSays('Nothing to add'); }
-    if (preset) { finish(preset.id); return; }
-    const d = say('Which project is this for?');
-    after(d, () => setStep('project'));
   };
 
   const proceed = () => {
@@ -652,29 +756,34 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
   const finish = async (projectId, createName) => {
     const c = cap.current;
     const type = c.kind;
-    const text = c.kind === 'note' ? c.text : '';
+    const text = c.text || '';
     setBusy(true);
     try {
       let pid = projectId;
       let name = createName;
       if (createName) pid = await createProject(createName);
       else name = projects.find((p) => p.id === pid)?.name;
-      await addEntry(pid, { type, text, attachments: c.attachments });
+      await addEntry(pid, { type, text, attachments: c.attachments, understanding: c.understanding });
       const cover = c.attachments.find((a) => a.type === 'image')?.thumbnailUrl
         || c.attachments[0]?.thumbnailUrl || null;
       setSaved({ id: pid, name });
-      const d = say([{ kind: 'saved', project: { name, cover } }, "It's in your library — the next plan is written from it."]);
-      after(d, () => setStep('done'));
+      if (onCaptured) {
+        const d = say("It's in your library — building your plan now.");
+        after(d + 700, () => onCaptured({ projectId: pid, projectName: name }));
+      } else {
+        const d = say([{ kind: 'saved', project: { name, cover } }, "It's in your library — the next plan is written from it."]);
+        after(d, () => setStep('done'));
+      }
     } catch {
       const d = say('Something went wrong saving that — try again in a moment?');
-      after(d, () => setStep('media'));
+      after(d, () => setStep(c.attachments.length ? 'media' : 'project'));
     } finally {
       setBusy(false);
     }
   };
 
   const restart = () => {
-    cap.current = { kind: null, text: '', attachments: [] };
+    cap.current = { kind: null, text: '', attachments: [], understanding: null, askedQuestion: '', askedAnswer: '' };
     setSaved(null);
     setStep('boot');
     const d = say('What else have you got?');
@@ -696,21 +805,22 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
       case 'recording':
         return null;
       case 'writing':
+      case 'clarify':
       case 'noting': {
         const voiced = step === 'writing' && fromVoice.current;
-        const send = step === 'noting' ? submitNote : submitWriting;
-        const label = step === 'noting' ? 'Add it' : 'That’s it';
+        const send = step === 'clarify' ? submitClarify : submitWriting;
+        const label = step === 'clarify' ? 'Answer' : 'That’s it';
         return (
           <div className="cvtype">
             <AutoTextarea
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
-              minHeight={step === 'noting' ? 64 : 92}
+              minHeight={step === 'clarify' ? 64 : 92}
               autoFocus
-              placeholder={step === 'noting' ? 'e.g. Kitchen after the rewire — client picked the darker oak' : 'Say it however it comes out…'}
-              aria-label="Your note"
+              placeholder={step === 'clarify' ? 'Answer in your own words…' : 'Say it however it comes out…'}
+              aria-label={step === 'clarify' ? 'Your answer' : 'Your note'}
               onKeyDown={(e) => {
-                if (e.key === 'Enter' && (e.metaKey || step !== 'writing')) {
+                if (e.key === 'Enter' && (e.metaKey || step === 'clarify')) {
                   e.preventDefault();
                   send();
                 }
@@ -720,8 +830,8 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
               <button className="ck-chip ck-chip--primary cvtype__send" disabled={!draft.trim()} onClick={send}>
                 <Icon name="arrow-up-right" size={14} /> {label}
               </button>
-              {step === 'noting' && (
-                <button className="btn btn--quiet btn--sm" onClick={submitNote}>Nothing to add</button>
+              {step === 'clarify' && (
+                <button className="btn btn--quiet btn--sm" onClick={skipClarify}>That’s all I have</button>
               )}
               {voiced && (
                 <button className="btn btn--quiet btn--sm" onClick={recordAgain}>Record it again</button>
@@ -979,6 +1089,7 @@ export function CaptureModal({ project, projects, defaultProjectId, onClose }) {
 
 /* ── project detail ────────────────────────────────────────────────────── */
 function ProjectDetail({ project, projects, onBack }) {
+  const navigate = useNavigate();
   const [open, setOpen] = useState(null);   // entry id in the side panel
   const [editing, setEditing] = useState(false);
   const [capturing, setCapturing] = useState(false);
@@ -1169,6 +1280,10 @@ function ProjectDetail({ project, projects, onBack }) {
             exitLabel={`Back to ${project.name}`}
             onExit={() => setCapturing(false)}
             onViewProject={() => setCapturing(false)}
+            onCaptured={() => {
+              setCapturing(false);
+              navigate('/dashboard', { state: { generateAfterCapture: true } });
+            }}
           />
         )}
       </div>

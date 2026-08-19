@@ -5,16 +5,12 @@
  * asks, so for the whole conversation it doesn't know whether it is building a
  * week or a month (Leon, July 30).
  *
- * Bauhly interviews the user about THIS WEEK (never about their brand — it
- * already knows that), connects the answer to the week's authority goal, and
- * only then generates. Flow and copy follow Bauhly-Weekly-Checkin-
- * Strategist.md: one question at a time, three paths (an idea / pick from
- * previous work / Bauhly decides), always the asset question, and every
- * route ends up filed under a named project.
- *
- * The demo scripts the conversation: Checkin.jsx owns the flow, CHECKIN in
- * demo.js owns every word Bauhly says. Typed answers are always accepted —
- * the script acknowledges them and carries on.
+ * After the studio speaks, understanding decides the next turn — the same
+ * rule as Capture. At most one clarifying question, and only when the idea
+ * isn't clear enough to plan from. Project and asset questions are skipped
+ * when the turn already answered them. Strategy paths (pick a project / let
+ * Bauhly decide) stay as menus; the scripted "which project / any photo /
+ * anything else" chain is no longer automatic.
  */
 
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -25,15 +21,21 @@ import { RecordingSheet, useRecorder } from './recorder';
 import { CHECKIN, PILLARS } from './checkinData';
 import { useConversation } from './useConversation.js';
 import ScrollJump from './ScrollJump.jsx';
+import { understandCheckin, transcribeCapture, uploadFiles } from '../../api/projects';
 import './checkin.css';
 
 export default function Checkin({ projects, filingProjects, week, name, lastWeek, lastProjectId, hasPlanned, brandGaps = [], onFillGap, onGenerate, onCancel, cancelLabel = "Keep this week's route" }) {
   const { messages, typing, push, say, after } = useConversation();
   const [step, setStep] = useState('boot'); // which interactive block is live
-  const ctx = useRef({ path: null, projectId: null, projectName: null, custom: null, followup: 0 });
+  const ctx = useRef({
+    path: null, projectId: null, projectName: null, custom: null, followup: 0,
+    understanding: null, askedQuestion: '', askedAnswer: '',
+    attachments: [], askForAssets: null,
+  });
   const endRef = useRef(null);
   const threadRef = useRef(null);
   const [draft, setDraft] = useState('');
+  const [busy, setBusy] = useState(false);
 
   /* planning the week owns the screen, like onboarding and capture do. The nav
    * would invite the user to wander off mid-conversation and come back to a
@@ -128,19 +130,38 @@ export default function Checkin({ projects, filingProjects, week, name, lastWeek
     rec.start();
     setStep('recording');
   };
-  /* The demo has no transcriber, so the field opens EMPTY rather than inventing
-   * words the studio never said — the same honesty the capture flow keeps. */
+  /* Voice notes are transcribed the same way Capture does — the field opens
+   * with the words, not empty, so they can check them before sending. */
   useEffect(() => {
     if (step !== 'recording') return undefined;
-    if (rec.status === 'done') { toWriting([CHECKIN.recordKept, CHECKIN.recordCheck]); return undefined; }
     if (rec.status === 'denied') { toWriting(CHECKIN.recordDenied); return undefined; }
-    /* A browser that never answers the permission prompt leaves the hook idle
-     * forever, and the studio watching a 00:00 timer has no way to tell (Leon,
-     * July 31). If recording hasn't actually started, say so and move on. */
-    if (rec.status === 'idle') {
-      const t = setTimeout(() => toWriting(CHECKIN.recordDenied), 1500);
-      return () => clearTimeout(t);
-    }
+    if (rec.status !== 'done') return undefined;
+    setStep('boot');
+    const blob = rec.blob;
+    (async () => {
+      setBusy(true);
+      try {
+        if (blob) {
+          const { text } = await transcribeCapture(blob);
+          setDraft(text || '');
+          const d = text
+            ? say([CHECKIN.recordKept, CHECKIN.recordCheck])
+            : say("I couldn't quite catch that — write it in, or record again.");
+          after(d, () => {
+            keepField.current = true;
+            keepDraft.current = true;
+            setStep('opening');
+          });
+        } else {
+          toWriting(CHECKIN.recordDenied);
+        }
+      } catch {
+        const d = say("I couldn't transcribe that — write it in, or record again.");
+        after(d, () => { keepField.current = true; setStep('opening'); });
+      } finally {
+        setBusy(false);
+      }
+    })();
     return undefined;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rec.status, step]);
@@ -243,13 +264,155 @@ export default function Checkin({ projects, filingProjects, week, name, lastWeek
     const d = say(CHECKIN.newIdeaEscapeQ);
     after(d, askGap);
   };
-  const startFromIdea = (idea) => {
+
+  const projectPayload = () => (projects || []).map((p) => ({ id: p.id, name: p.name }));
+  const matchProjectInText = (text, list) => {
+    const t = String(text || '').toLowerCase();
+    if (!t) return null;
+    const hits = (list || []).filter((p) => {
+      const n = String(p.name || '').toLowerCase();
+      return n.length >= 3 && t.includes(n);
+    });
+    return hits.length === 1 ? hits[0] : null;
+  };
+  const attachmentPayload = () =>
+    (ctx.current.attachments || []).map((a) => ({ type: a.type, key: a.key }));
+
+  const runUnderstand = async ({ alreadyAsked = false, askedQuestion = '', askedAnswer = '' } = {}) => {
+    try {
+      return await understandCheckin({
+        text: ctx.current.custom || '',
+        attachments: attachmentPayload(),
+        projects: projectPayload(),
+        alreadyAsked,
+        askedQuestion,
+        askedAnswer,
+      });
+    } catch {
+      return {
+        action: 'ready',
+        question: null,
+        ack: '',
+        matchedProjectId: null,
+        matchedProjectName: '',
+        askForAssets: !(ctx.current.attachments || []).length,
+        understanding: null,
+      };
+    }
+  };
+
+  const applyMatch = (result) => {
+    if (ctx.current.projectId) return;
+    const id = result?.matchedProjectId;
+    const name = result?.matchedProjectName;
+    const p = (projects || []).find((x) => x.id === id)
+      || (projects || []).find((x) => name && x.name === name)
+      || matchProjectInText(ctx.current.custom, projects);
+    if (p) {
+      ctx.current.projectId = p.id;
+      ctx.current.projectName = p.name;
+    } else if (name) {
+      ctx.current.projectName = name;
+    }
+  };
+
+  /* After understanding: skip questions the turn already answered. */
+  const continueAfterIdea = (result) => {
+    applyMatch(result);
+    if (result?.askForAssets === false) ctx.current.askForAssets = false;
+    else if (result?.askForAssets === true) ctx.current.askForAssets = true;
+
+    const ack = (result?.ack || '').trim();
+    const named = ctx.current.projectName;
+    const preamble = ack
+      || (named ? CHECKIN.matchedProjectAck.replace('{name}', named) : '');
+
+    if (ctx.current.path === 'foundation' && !hasProjects) {
+      const d = say(preamble || CHECKIN.newIdeaAck);
+      after(d, askGap);
+      return;
+    }
+
+    if (ctx.current.projectId || ctx.current.projectName) {
+      afterProjectChosen(preamble);
+      return;
+    }
+    if (hasProjects) {
+      const d = say(preamble ? [preamble, CHECKIN.projectQuestion] : CHECKIN.projectQuestion);
+      after(d, () => setStep('projectAsk'));
+      return;
+    }
+    const d = say(preamble ? [preamble, CHECKIN.nameProjectQ] : CHECKIN.nameProjectQ);
+    after(d, () => setPickerOpen('new'));
+  };
+
+  const afterUnderstood = (result) => {
+    if (result?.understanding) ctx.current.understanding = result.understanding;
+    if (result?.action === 'ask' && result.question) {
+      ctx.current.askedQuestion = result.question;
+      const d = say(result.question);
+      after(d, () => setStep('clarify'));
+      return false;
+    }
+    continueAfterIdea(result);
+    return false;
+  };
+
+  const ingestIdea = async (text, { fromNewIdea = false } = {}) => {
     setStep('boot');
-    userSays(idea);
-    ctx.current.path = 'foundation';
-    ctx.current.custom = idea;
-    const d = say(CHECKIN.newIdeaAck);
-    after(d, askGap);
+    userSays(text);
+    ctx.current.path = fromNewIdea ? 'foundation' : 'custom';
+    ctx.current.custom = text;
+    setBusy(true);
+    try {
+      afterUnderstood(await runUnderstand());
+    } catch {
+      continueAfterIdea(null);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const submitClarify = async (answer) => {
+    const text = (typeof answer === 'string' ? answer : draft).trim();
+    if (!text) return;
+    setDraft('');
+    setStep('boot');
+    userSays(text);
+    ctx.current.askedAnswer = text;
+    ctx.current.custom = [ctx.current.custom, text].filter(Boolean).join('\n\n');
+    setBusy(true);
+    try {
+      const result = await runUnderstand({
+        alreadyAsked: true,
+        askedQuestion: ctx.current.askedQuestion,
+        askedAnswer: text,
+      });
+      afterUnderstood({ ...result, action: 'ready', question: null });
+    } catch {
+      continueAfterIdea(null);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const skipClarify = async () => {
+    setDraft('');
+    setStep('boot');
+    userSays(CHECKIN.clarifySkip);
+    setBusy(true);
+    try {
+      const result = await runUnderstand({
+        alreadyAsked: true,
+        askedQuestion: ctx.current.askedQuestion,
+        askedAnswer: '',
+      });
+      afterUnderstood({ ...result, action: 'ready', question: null });
+    } catch {
+      continueAfterIdea(null);
+    } finally {
+      setBusy(false);
+    }
   };
 
   /* ── path selection ── */
@@ -356,22 +519,32 @@ export default function Checkin({ projects, filingProjects, week, name, lastWeek
     after(d, afterProjectChosen);
   };
 
-  /* ── after a project is chosen: value-add questions only — Bauhly already
-   * knows the project, so it never re-runs discovery. A known project gets
-   * "what's changed / any new insight"; a brand-new idea skips to images. ── */
-  const afterProjectChosen = () => {
-    /* straight to the material question — see the note where `sinceQuestion`
-     * used to live in demo.js */
-    if (ctx.current.projectId) askAsset();
-    else askImage();
+  /* ── after a project is chosen: value-add questions only when they would
+   * change the plan. Understanding already skipped anything the studio answered. ── */
+  const afterProjectChosen = (preamble) => {
+    const hasFiles = ctx.current.hasUpload || (ctx.current.attachments || []).length > 0;
+    const skipAsset = ctx.current.askForAssets === false || hasFiles;
+    const lead = typeof preamble === 'string' && preamble.trim() ? preamble.trim() : '';
+    if (skipAsset) {
+      if (ctx.current.projectId) ctx.current.reuseImages = true;
+      const lines = [];
+      if (lead) lines.push(lead);
+      lines.push(CHECKIN.moreQ);
+      const d = say(lines);
+      after(d, () => setStep('more'));
+      return;
+    }
+    if (ctx.current.projectId) {
+      const d = say(lead ? [lead, CHECKIN.assetQuestion] : CHECKIN.assetQuestion);
+      after(d, () => setStep('asset'));
+    } else {
+      const d = say(lead ? [lead, CHECKIN.imageQuestionNew] : CHECKIN.imageQuestionNew);
+      after(d, () => setStep('image'));
+    }
   };
 
   /* ── the material step — what raw references exist to build the visuals from.
    * Grounds the week in real assets before the reuse/upload/none image ask. ── */
-  const askAsset = () => {
-    const d = say(CHECKIN.assetQuestion);
-    after(d, () => setStep('asset'));
-  };
   /* The only answer that lands here is "Nothing yet" — a file goes through
    * handleUpload, which asks what it is and then moves on.
    *
@@ -563,43 +736,60 @@ export default function Checkin({ projects, filingProjects, week, name, lastWeek
     } else if (step === 'moreNote') {
       answerMoreNote(text);
     } else if (step === 'newIdea') {
-      // a fresh account's first real input — build the foundation week from it
-      startFromIdea(text);
+      ingestIdea(text, { fromNewIdea: true });
     } else if (step === 'opening') {
       fromVoice.current = false;
-      setStep('boot');
-      userSays(text);
-      ctx.current.path = 'custom';
-      ctx.current.custom = text;
-      if (hasProjects) {
-        const d = say(CHECKIN.projectQuestion);
-        after(d, () => setStep('projectAsk'));
-      } else {
-        const d = say(CHECKIN.nameProjectQ);
-        after(d, () => setPickerOpen('new'));
-      }
+      ingestIdea(text);
+    } else if (step === 'clarify') {
+      submitClarify(text);
     } else if (step === 'gap') {
       answerGap(text);
     }
   };
 
-  /* photo upload — a real file, a scripted read; the upload becomes material,
-   * then we confirm how to generate */
-  const handleUpload = (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const url = URL.createObjectURL(file);
-    urls.current.push(url);
-    ctx.current.hasUpload = true;
-    setStep('boot');
-    push({ from: 'user', image: url });
-    /* A photo with nothing said about it is a photo (Leon, July 31). The line
-     * that says what it is — which room, what had just been decided — is what
-     * the week gets written from, and it only exists while the file is being
-     * added. Optional, but asked for. */
-    const d = say([CHECKIN.uploadAck, CHECKIN.uploadNoteQ]);
-    after(d, () => setStep('photoNote'));
+  /* photo upload — a real file to S3, then a note about what it is */
+  const handleUpload = async (e) => {
+    const files = [...(e.target.files || [])];
     e.target.value = '';
+    if (!files.length) return;
+    const preview = URL.createObjectURL(files[0]);
+    urls.current.push(preview);
+    setStep('boot');
+    setBusy(true);
+    try {
+      const added = await uploadFiles(files);
+      ctx.current.attachments = [...(ctx.current.attachments || []), ...added];
+      ctx.current.hasUpload = true;
+      push({ from: 'user', image: added[0]?.url || preview });
+      const d = say([CHECKIN.uploadAck, CHECKIN.uploadNoteQ]);
+      after(d, () => setStep('photoNote'));
+    } catch {
+      const d = say("That upload didn't go through — want to try again?");
+      after(d, () => setStep('more'));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const fromOpeningFiles = async (files) => {
+    const arr = [...files];
+    if (!arr.length) return;
+    setStep('boot');
+    userSays(CHECKIN.uploadOpening);
+    setBusy(true);
+    try {
+      const added = await uploadFiles(arr);
+      ctx.current.path = 'custom';
+      ctx.current.attachments = [...(ctx.current.attachments || []), ...added];
+      ctx.current.hasUpload = true;
+      push({ from: 'user', image: added[0]?.url });
+      afterUnderstood(await runUnderstand());
+    } catch {
+      const d = say("That upload didn't go through — want to try again?");
+      after(d, () => setStep('opening'));
+    } finally {
+      setBusy(false);
+    }
   };
 
   /* the note that belongs to the photo just uploaded; skipping keeps the photo */
@@ -666,32 +856,19 @@ export default function Checkin({ projects, filingProjects, week, name, lastWeek
     after(d, askPeriod);
   };
 
-  /* ── how far ahead ──
-   * Everything above decided WHAT the plan is about; this decides how much of
-   * it to build. Asked last, and only ever here: a plan's length is a choice
-   * per plan, not a setting, and putting it first would make the user commit
-   * to a month before they knew what the month was going to say. */
+  /* ── generate ──
+   * No "how far ahead" question. The planner fills the next empty future
+   * dates from what this check-in just filed — the conversation ends, then
+   * the month plan runs on its own. */
   const askPeriod = () => {
-    setStep('boot');
-    /* the question, then what the answer costs (Leon, July 30) — a month is planning
-     * made ahead of the evidence, and that is worth knowing BEFORE choosing it */
-    const d = say(withPending([CHECKIN.periodQ]));
-    after(d, () => setStep('period'));
-  };
-  const answerPeriod = (period) => {
-    setStep('boot');
-    ctx.current.period = period;
-    userSays({ month: CHECKIN.periodMonth, fortnight: CHECKIN.periodTwo }[period] || CHECKIN.periodWeek);
-    const ack = { month: CHECKIN.periodAckMonth, fortnight: CHECKIN.periodAckTwo };
-    const d = say(ack[period] || CHECKIN.periodAckWeek);
-    after(d, generate);
+    ctx.current.period = 'month';
+    generate();
   };
 
-  /* ── generate ── */
   const generate = () => {
     setStep('boot');
-    const done = { month: CHECKIN.readyMonth, fortnight: CHECKIN.readyTwo };
-    const d = say(done[ctx.current.period] || CHECKIN.ready);
+    ctx.current.period = ctx.current.period || 'month';
+    const d = say(CHECKIN.readyMonth);
     after(d + 700, () => {
       const c = ctx.current;
       onGenerate({
@@ -711,7 +888,11 @@ export default function Checkin({ projects, filingProjects, week, name, lastWeek
         hasUpload: !!c.hasUpload,
         reuseImages: !!c.reuseImages,
         skipImages: !!c.skipImages,
-        period: c.period || 'week',
+        period: c.period || 'month',
+        custom: c.custom || null,
+        notes: [...(c.uploadNote ? [c.uploadNote] : []), ...(c.notes || [])],
+        attachments: c.attachments || [],
+        understanding: c.understanding || null,
       });
     });
   };
@@ -722,16 +903,19 @@ export default function Checkin({ projects, filingProjects, week, name, lastWeek
    * finished (or refused) recording lands the studio in it, so `keepField` says
    * so across the step change rather than fighting this effect with a timer */
   const keepField = useRef(false);
+  const keepDraft = useRef(false);
   useEffect(() => {
     setFreeText(keepField.current);
     keepField.current = false;
-    setDraft('');
+    if (!keepDraft.current) setDraft('');
+    keepDraft.current = false;
   }, [step]);
   const placeholder =
     step === 'moreNote' ? CHECKIN.moreNotePlaceholder
     : step === 'photoNote' ? CHECKIN.uploadNotePlaceholder
     : step === 'newIdea' ? CHECKIN.newIdeaPlaceholder
     : step === 'gap' ? (brandGaps[0]?.placeholder || 'In your own words…')
+    : step === 'clarify' ? CHECKIN.clarifyPlaceholder
     : step === 'opening' ? CHECKIN.inputPlaceholder
     : 'Type your answer…';
   /* `alongside` is for a way past the question — it belongs beside the send
@@ -747,7 +931,7 @@ export default function Checkin({ projects, filingProjects, week, name, lastWeek
         placeholder={placeholder}
         aria-label="Your answer"
         onKeyDown={(e) => {
-          if (e.key === 'Enter' && e.metaKey) {
+          if (e.key === 'Enter' && (e.metaKey || step === 'clarify')) {
             e.preventDefault();
             submitDraft();
           }
@@ -799,6 +983,13 @@ export default function Checkin({ projects, filingProjects, week, name, lastWeek
           'That’s it',
           <button className="btn btn--quiet btn--sm" onClick={noIdea}>
             {CHECKIN.newIdeaEscape}
+          </button>,
+        );
+      case 'clarify':
+        return textField(
+          'Answer',
+          <button className="btn btn--quiet btn--sm" onClick={skipClarify}>
+            {CHECKIN.clarifySkip}
           </button>,
         );
       /* naming is not a wall (Leon, July 30): a blank field and one button meant a
@@ -910,20 +1101,6 @@ export default function Checkin({ projects, filingProjects, week, name, lastWeek
           'Save it',
           <button className="btn btn--quiet btn--sm" onClick={skipGap}>Skip for now</button>,
         );
-      /* how far ahead */
-      case 'period':
-        return (
-          <>
-            {/* three lengths, all equal (Leon, July 30). The week was primary; the
-              * line above already says what each one costs, and dressing one of them
-              * as the answer makes the other two look like mistakes. */}
-            <button className="ck-chip" onClick={() => answerPeriod('week')}>
-              {CHECKIN.periodWeek}
-            </button>
-            <button className="ck-chip" onClick={() => answerPeriod('fortnight')}>{CHECKIN.periodTwo}</button>
-            <button className="ck-chip" onClick={() => answerPeriod('month')}>{CHECKIN.periodMonth}</button>
-          </>
-        );
       case 'opening':
         /* the way past the field is the ANSWER it replaced (Leon, July 31), not
          * a door back to a list of one: "Back to the answers" led to a single
@@ -959,6 +1136,16 @@ export default function Checkin({ projects, filingProjects, week, name, lastWeek
               <Icon name="pulse" size={14} />
               {CHECKIN.recordChip}
             </button>
+            <label className="ck-chip">
+              <input
+                type="file"
+                accept="image/*,video/*"
+                hidden
+                onChange={(e) => { if (e.target.files?.length) fromOpeningFiles(e.target.files); e.target.value = ''; }}
+              />
+              <Icon name="attach" size={14} />
+              {CHECKIN.uploadOpening}
+            </label>
             {/* the fallback, and it looks like one: handing the week over is a
               * real answer, it is just never the better one. Bordered rather
               * than borderless — beside a filled primary a ghost read as barely
@@ -1303,7 +1490,7 @@ export default function Checkin({ projects, filingProjects, week, name, lastWeek
           )
         )}
 
-        {(typing || thinkingForOptions) && (
+        {(typing || thinkingForOptions || busy) && (
           <div className="ck-turn ck-turn--bauhly">
             <span className="ck-avatar" aria-hidden="true">
               <Mark size={15} />
@@ -1316,7 +1503,7 @@ export default function Checkin({ projects, filingProjects, week, name, lastWeek
 
         {/* the current step's choices live inside the conversation — a Bauhly
          * turn is followed by its cards/chips, so decisions stay in the thread */}
-        {actionsInThread && optionsReady && !typing && (
+        {actionsInThread && optionsReady && !typing && !busy && (
           <div className="ck-turn ck-turn--bauhly ck-turn--actions ck-turn--cont">
             <span className="ck-avatar ck-avatar--ghost" aria-hidden="true" />
             <div className={`ck-inline ${actionsAreCards ? 'ck-inline--cards' : ''}`}>{actions}</div>

@@ -14,6 +14,37 @@ function fmtTime(ms) {
   }
 }
 
+function formatBlock(text) {
+  const raw = String(text || '');
+  const t = raw.trim();
+  if (!t) return '';
+  try {
+    return JSON.stringify(JSON.parse(t), null, 2);
+  } catch {
+    const fenced = t.match(/```(?:json)?\s*([\s\S]*?)```/i);
+    if (fenced) {
+      try { return JSON.stringify(JSON.parse(fenced[1]), null, 2); } catch { /* fall through */ }
+    }
+    const start = t.indexOf('{');
+    const end = t.lastIndexOf('}');
+    if (start !== -1 && end > start) {
+      try { return JSON.stringify(JSON.parse(t.slice(start, end + 1)), null, 2); } catch { /* fall through */ }
+    }
+    return raw;
+  }
+}
+
+function DebugBlock({ label, text, open = true }) {
+  const body = formatBlock(text);
+  if (!body) return null;
+  return (
+    <details className="ai-debug__block" open={open}>
+      <summary className="ai-debug__block-sum">{label}</summary>
+      <pre className="ai-debug__pre">{body}</pre>
+    </details>
+  );
+}
+
 export default function AiDebugPanel() {
   const debug = useAiDebug();
   if (!debug.enabled) return null;
@@ -59,7 +90,11 @@ export default function AiDebugPanel() {
               </span>
             </summary>
             {e.note ? <p className="ai-debug__note">{e.note}</p> : null}
-            <pre className="ai-debug__pre">{e.prompt}</pre>
+            <DebugBlock label="System" text={e.systemPrompt} open={false} />
+            <DebugBlock label="Input" text={e.prompt} />
+            {e.output
+              ? <DebugBlock label="Output" text={e.output} />
+              : <p className="ai-debug__missing">No output recorded for this call.</p>}
           </details>
         ))}
       </div>

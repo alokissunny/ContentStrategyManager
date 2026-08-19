@@ -18,7 +18,12 @@ const { notFound, errorHandler } = require('./middleware/errorHandler');
 const app = express();
 
 app.use(cors({ origin: process.env.CLIENT_URL || '*' }));
-app.use(express.json());
+const jsonParser = express.json();
+app.use((req, res, next) => {
+  // Voice-note transcription sends a raw audio body, not JSON.
+  if (req.originalUrl.includes('/projects/captures/transcribe')) return next();
+  return jsonParser(req, res, next);
+});
 app.use(morgan('dev'));
 
 app.get('/api/health', (req, res) => res.json({ status: 'ok' }));

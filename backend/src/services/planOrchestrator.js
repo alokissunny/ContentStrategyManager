@@ -1,13 +1,8 @@
 const fs = require('fs');
 const path = require('path');
 const getAnthropicClient = require('./anthropicClient');
-const {
-  extractJson,
-  estimatePlanCostUsd,
-  buildSnapshot,
-  renderCompetitorInsights,
-  renderProjectAssets,
-} = require('./weeklyPlan');
+const { extractJson, estimatePlanCostUsd, assignToEmptyDates } = require('./weeklyPlan');
+const { compileStrategyContext, assetsForDay, json } = require('./planContext');
 
 const PROMPTS_DIR = path.join(__dirname, '..', '..', 'prompts');
 const cache = {};
@@ -36,17 +31,38 @@ function agentModel(kind) {
   return process.env.PLAN_AGENT_MODEL || process.env.ANTHROPIC_MODEL || 'claude-sonnet-5';
 }
 
+const GOAL_TAG = { discovery: 'Get noticed', credibility: 'Show expertise', trust: 'Build confidence' };
+const FORMATS = ['Reel', 'Carousel', 'Post', 'Story'];
+
+function formatFromLabel(label) {
+  const s = String(label || '');
+  if (/carousel/i.test(s)) return 'Carousel';
+  if (/reel/i.test(s)) return 'Reel';
+  if (/stor/i.test(s)) return 'Story';
+  if (/post|static|feed|photo/i.test(s)) return 'Post';
+  return '';
+}
+
+function preferFormat(index, competitorFormats) {
+  const cycle = [...new Set(
+    (competitorFormats || []).map(formatFromLabel).filter((f) => FORMATS.includes(f)),
+  )];
+  const list = cycle.length ? cycle : ['Carousel', 'Reel', 'Post'];
+  return list[index % list.length];
+}
+
 function maxTokensFor(kind) {
   if (kind === 'strategist') {
     const n = Number(process.env.PLAN_STRATEGIST_MAX_TOKENS);
-    return Number.isFinite(n) && n > 0 ? n : 4096;
-  }
-  if (kind === 'calendar') {
-    const n = Number(process.env.PLAN_CALENDAR_MAX_TOKENS);
     return Number.isFinite(n) && n > 0 ? n : 8192;
   }
   const n = Number(process.env.PLAN_DAY_MAX_TOKENS);
   return Number.isFinite(n) && n > 0 ? n : 8192;
+}
+
+function retryMaxTokens(current) {
+  const bumped = Math.min(Math.max(current, 1) * 2, 32000);
+  return bumped > current ? bumped : current;
 }
 
 function textOf(response) {
@@ -89,7 +105,7 @@ function mergeUsage(parts, model) {
 async function callAgent({ source, kind, prompt, validate }) {
   const model = agentModel(kind);
   const client = getAnthropicClient();
-  const maxTokens = maxTokensFor(kind);
+  let maxTokens = maxTokensFor(kind);
   const maxAttempts = 2;
   let lastErr;
 
@@ -105,7 +121,12 @@ async function callAgent({ source, kind, prompt, validate }) {
 
     if (response.stop_reason === 'max_tokens') {
       lastErr = new Error(`${source} response truncated (max_tokens=${maxTokens})`);
-      console.warn(`[planOrchestrator] ${source} attempt ${attempt}: truncated`);
+      const next = retryMaxTokens(maxTokens);
+      console.warn(
+        `[planOrchestrator] ${source} attempt ${attempt}: truncated at ${maxTokens}` +
+          (next > maxTokens ? ` — retrying with ${next}` : ''),
+      );
+      maxTokens = next;
       continue;
     }
 
@@ -120,7 +141,7 @@ async function callAgent({ source, kind, prompt, validate }) {
 
     try {
       if (typeof validate === 'function') validate(parsed);
-      return { parsed, usage, debugEntry };
+      return { parsed, usage, debugEntry: { ...debugEntry, output: fullText } };
     } catch (err) {
       lastErr = err;
       console.warn(`[planOrchestrator] ${source} attempt ${attempt}: validation failed — ${err.message}`);
@@ -130,61 +151,28 @@ async function callAgent({ source, kind, prompt, validate }) {
   throw new Error(`${source} failed after ${maxAttempts} attempts: ${lastErr?.message || 'unknown error'}`);
 }
 
-function countPillars(days) {
-  return (days || []).reduce((acc, d) => {
-    const p = d.pillar;
-    if (p) acc[p] = (acc[p] || 0) + 1;
-    return acc;
-  }, { discovery: 0, credibility: 0, trust: 0 });
-}
-
-function validateCalendar(parsed, dayAllocation) {
-  const days = parsed?.days;
-  if (!Array.isArray(days) || days.length !== 7) {
-    throw new Error(`calendar must have exactly 7 days (got ${days?.length ?? 0})`);
-  }
-  const actual = countPillars(days);
-  for (const pillar of ['discovery', 'credibility', 'trust']) {
-    if ((actual[pillar] || 0) !== (dayAllocation[pillar] || 0)) {
-      throw new Error(
-        `dayAllocation mismatch: want ${JSON.stringify(dayAllocation)}, got ${JSON.stringify(actual)}`,
-      );
-    }
-  }
-}
-
-function voiceFromDna(brandDna) {
-  if (!brandDna || typeof brandDna !== 'object') return {};
-  return {
-    howYouSound: brandDna.howYouSound || '',
-    whatYouOffer: brandDna.whatYouOffer || '',
-    whoYouHelp: brandDna.whoYouHelp || '',
-    position: brandDna.position || '',
-    neverDo: brandDna.neverDo || '',
-  };
-}
-
-function assetsBrief(projects, preferredKey) {
-  const rows = [];
-  for (const p of projects || []) {
-    for (const a of p.assets || []) {
-      if (!a?.key) continue;
-      rows.push({
-        key: a.key,
-        project: p.name,
-        note: a.note || '',
-        vision: a.vision || null,
-        preferred: preferredKey && a.key === preferredKey,
-      });
-    }
-  }
-  // Prefer listing the suggested key first; keep the list compact.
-  rows.sort((a, b) => Number(b.preferred) - Number(a.preferred));
-  return rows.slice(0, 12);
+function validateStrategist(parsed, emptyDates) {
+  if (!parsed?.focus || typeof parsed.focus !== 'object') throw new Error('missing focus');
+  const briefs = Array.isArray(parsed.briefs)
+    ? parsed.briefs
+    : (Array.isArray(parsed.plannedDays) ? parsed.plannedDays : null);
+  if (!Array.isArray(briefs)) throw new Error('missing briefs');
+  const max = Array.isArray(emptyDates) ? emptyDates.length : 31;
+  const lenses = ['discovery', 'credibility', 'trust'];
+  parsed.briefs = briefs.slice(0, max).map((b) => {
+    const lens = String(b.lens || b.pillar || '').toLowerCase();
+    return {
+      source: b.source || '',
+      angle: b.angle || '',
+      ...(lenses.includes(lens) ? { lens } : {}),
+    };
+  });
+  parsed.plannedDays = parsed.briefs;
 }
 
 /**
- * Multi-agent weekly plan: Strategist → Calendar → 7 parallel Day writers.
+ * Multi-agent plan: Strategist → parallel Day writers
+ * (only for empty month days the strategist grounded in notes/assets).
  * Returns the same shape fields weeklyPlan needs to assemble a route:
  *   { focusOut, rawDays, usage, model, debug }
  */
@@ -194,70 +182,124 @@ async function runMultiAgentPlan({
   competitorInsights,
   projects,
   focusSummary,
+  monthCalendar = { occupied: [], emptyDates: [] },
 }) {
-  const snapshot = buildSnapshot(profile, brandDna);
-  const competitorText = renderCompetitorInsights(competitorInsights);
-  const projectsText = renderProjectAssets(projects);
-  const focusJson = JSON.stringify(focusSummary);
-  const snapshotJson = JSON.stringify(snapshot);
+  const username = profile?.username || '?';
+  const ctx = compileStrategyContext({
+    brandDna,
+    competitorInsights,
+    projects,
+    focusSummary,
+    monthCalendar,
+  });
+  const emptyDates = Array.isArray(ctx.calendar.emptyDates) ? ctx.calendar.emptyDates : [];
   const debugAgents = [];
   const usages = [];
 
   console.log(
-    `[planOrchestrator] multi-agent plan for @${snapshot.username} · focus=${focusSummary.pillar}`,
+    `[planOrchestrator] multi-agent plan for @${username} · focus=${ctx.authority.priority}` +
+      ` · emptyMonthDays=${emptyDates.length}` +
+      ` · brand=${ctx.versions.brand} · competitor=${ctx.versions.competitor}`,
   );
 
   // ── 1. Strategist ────────────────────────────────────────────────────────
   const strategistPrompt = fillTemplate(loadPrompt('plan-strategist.md'), {
-    FOCUS_JSON: focusJson,
-    SNAPSHOT_JSON: snapshotJson,
-    COMPETITOR_INSIGHTS: competitorText,
-    PROJECT_ASSETS: projectsText,
+    LIMITS_JSON: json({
+      maxBriefs: emptyDates.length,
+      month: ctx.calendar.month,
+    }),
+    OCCUPIED_TOPICS_JSON: json(ctx.calendar.occupiedTopics || []),
+    AUTHORITY_JSON: json(ctx.authority),
+    BRAND_JSON: json({
+      audience: ctx.brand.audience,
+      position: ctx.brand.position,
+      offer: ctx.brand.offer,
+      voice: ctx.brand.voice,
+      guardrails: ctx.brand.guardrails,
+    }),
+    COMPETITOR_SIGNALS_JSON: json({
+      confidence: ctx.competitor.confidence,
+      signals: ctx.competitor.signals,
+    }),
+    PROJECT_TRUTH_JSON: json(ctx.projects),
   });
   const strategist = await callAgent({
     source: 'Strategist',
     kind: 'strategist',
     prompt: strategistPrompt,
-    validate: (p) => {
-      if (!p?.focus || typeof p.focus !== 'object') throw new Error('missing focus');
-    },
+    validate: (p) => validateStrategist(p, emptyDates),
   });
   debugAgents.push(strategist.debugEntry);
   usages.push(strategist.usage);
-  const strategistJson = JSON.stringify(strategist.parsed);
-
-  // ── 2. Calendar ──────────────────────────────────────────────────────────
-  const calendarPrompt = fillTemplate(loadPrompt('plan-calendar.md'), {
-    STRATEGIST_JSON: strategistJson,
-    FOCUS_JSON: focusJson,
-    SNAPSHOT_JSON: snapshotJson,
-    COMPETITOR_INSIGHTS: competitorText,
-    PROJECT_ASSETS: projectsText,
+  const briefs = Array.isArray(strategist.parsed.briefs)
+    ? strategist.parsed.briefs
+    : (strategist.parsed.plannedDays || []);
+  const plannedDays = assignToEmptyDates(briefs, emptyDates);
+  strategist.parsed.briefs = briefs;
+  strategist.parsed.plannedDays = plannedDays;
+  console.log(
+    `[planOrchestrator] @${username}: ${briefs.length} briefs → ${plannedDays.length} dated slots` +
+      (plannedDays[0]?.date ? ` starting ${plannedDays[0].date}` : ''),
+  );
+  const constraintsJson = json({
+    mustUseProjects: strategist.parsed.constraints?.mustUseProjects || [],
+    voiceNotes: strategist.parsed.constraints?.voiceNotes || [],
+    avoid: strategist.parsed.constraints?.avoid || [],
   });
-  const calendar = await callAgent({
-    source: 'Calendar',
-    kind: 'calendar',
-    prompt: calendarPrompt,
-    validate: (p) => validateCalendar(p, focusSummary.dayAllocation),
+  const lastThree = Array.isArray(ctx.projects?.lastThree) ? ctx.projects.lastThree : [];
+  const noteCount = lastThree.filter((c) => c.text).length;
+  const shownCount = lastThree.reduce((n, c) => n + (c.shown || []).length, 0);
+  const latest = ctx.projects?.latestCapture?.text
+    ? String(ctx.projects.latestCapture.text).slice(0, 80)
+    : '';
+  const whyEmpty = String(strategist.parsed.constraints?.insufficientContext || '').trim();
+
+  if (plannedDays.length === 0) {
+    console.log(
+      `[planOrchestrator] @${username}: strategist planned 0 days` +
+        ` · lastThree=${noteCount} shownPhotos=${shownCount}` +
+        (latest ? ` · latest=${JSON.stringify(latest)}` : '') +
+        (whyEmpty ? ` · insufficientContext=${JSON.stringify(whyEmpty)}` : '') +
+        ` — skipping day writers`,
+    );
+  }
+
+  const competitorJson = json({
+    confidence: ctx.competitor.confidence,
+    formats: ctx.competitor.formats,
+    hooks: ctx.competitor.hooks,
+    peakTimes: ctx.competitor.peakTimes,
+    signals: ctx.competitor.signals,
   });
-  debugAgents.push(calendar.debugEntry);
-  usages.push(calendar.usage);
+  const brandJson = json(ctx.brandVoice);
 
-  const calendarDays = calendar.parsed.days;
-  const voiceJson = JSON.stringify(voiceFromDna(brandDna));
-
-  // ── 3. Day writers (parallel) ────────────────────────────────────────────
+  // ── 2. Day writers (parallel) ────────────────────────────────────────────
   const dayResults = await Promise.all(
-    calendarDays.map(async (dayBrief, index) => {
-      const preferred = String(dayBrief.suggestedAssetKey || '').trim();
-      const dayAssets = assetsBrief(projects, preferred);
+    plannedDays.map(async (planned, index) => {
+      const brief = {
+        index,
+        date: planned.date,
+        dayOfMonth: planned.dayOfMonth,
+        day: planned.day,
+        pillar: planned.pillar,
+        lens: planned.lens || planned.pillar,
+        source: planned.source || '',
+        angle: planned.angle || '',
+        preferFormat: preferFormat(index, ctx.competitor.formats),
+      };
+      let dayAssets = assetsForDay(projects, brief);
+      if (dayAssets[0]?.key) {
+        brief.suggestedAssetKey = dayAssets[0].key;
+        dayAssets = dayAssets.map((a, i) => ({ ...a, preferred: i === 0 }));
+      }
       const dayPrompt = fillTemplate(loadPrompt('plan-day-writer.md'), {
-        DAY_JSON: JSON.stringify({ index, ...dayBrief }),
-        STRATEGIST_JSON: strategistJson,
-        VOICE_JSON: voiceJson,
-        DAY_ASSETS: JSON.stringify(dayAssets),
+        DAY_JSON: json(brief),
+        CONSTRAINTS_JSON: constraintsJson,
+        BRAND_JSON: brandJson,
+        COMPETITOR_JSON: competitorJson,
+        DAY_ASSETS: json(dayAssets),
       });
-      const source = `Day:${dayBrief.day || `D${index + 1}`}`;
+      const source = `Day:${brief.date || brief.day || `D${index + 1}`}`;
       const result = await callAgent({
         source,
         kind: 'day',
@@ -266,7 +308,7 @@ async function runMultiAgentPlan({
           if (!p?.content || typeof p.content !== 'object') throw new Error('missing content');
         },
       });
-      return { index, dayBrief, result };
+      return { index, dayBrief: brief, result };
     }),
   );
 
@@ -279,34 +321,39 @@ async function runMultiAgentPlan({
 
   const rawDays = dayResults
     .sort((a, b) => a.index - b.index)
-    .map(({ dayBrief, result }) => ({
-      day: dayBrief.day,
-      time: dayBrief.time,
-      format: dayBrief.format,
-      contentType: dayBrief.contentType,
-      pillar: dayBrief.pillar,
-      goalTag: dayBrief.goalTag,
-      title: dayBrief.title,
-      direction: dayBrief.direction,
-      // Prefer writer content; if lead slide has no assetKey, seed suggested one.
-      content: (() => {
-        const content = { ...(result.parsed.content || {}) };
-        const slides = Array.isArray(content.slides) ? content.slides.map((s) => ({ ...s })) : [];
-        const suggested = String(dayBrief.suggestedAssetKey || '').trim();
-        if (suggested && slides[0] && !slides[0].assetKey) {
-          slides[0] = { ...slides[0], assetKey: suggested };
-        }
-        content.slides = slides;
-        return content;
-      })(),
-    }));
+    .map(({ dayBrief, result }) => {
+      const parsed = result.parsed || {};
+      const content = { ...(parsed.content || {}) };
+      const slides = Array.isArray(content.slides) ? content.slides.map((s) => ({ ...s })) : [];
+      const suggested = String(dayBrief.suggestedAssetKey || '').trim();
+      if (suggested && slides[0] && !slides[0].assetKey) {
+        slides[0] = { ...slides[0], assetKey: suggested };
+      }
+      content.slides = slides;
+      const pillar = dayBrief.pillar;
+      const format = FORMATS.includes(parsed.format) ? parsed.format : dayBrief.preferFormat;
+      return {
+        day: dayBrief.day,
+        date: dayBrief.date,
+        dayOfMonth: dayBrief.dayOfMonth,
+        time: parsed.time || '',
+        format,
+        contentType: parsed.contentType || '',
+        pillar,
+        goalTag: GOAL_TAG[pillar] || '',
+        title: parsed.title || slides[0]?.title || '',
+        direction: parsed.direction || dayBrief.angle || '',
+        content,
+      };
+    });
 
   const model = agentModel('strategist');
   const usage = mergeUsage(usages, model);
 
   console.log(
-    `[planOrchestrator] @${snapshot.username}: strategist+calendar+${rawDays.length} days · ` +
-      `${usage.totalTokens} tokens (~$${usage.estimatedCostUsd.toFixed(4)})`,
+    `[planOrchestrator] @${username}: strategist+${rawDays.length} days · ` +
+      `${usage.totalTokens} tokens (~$${usage.estimatedCostUsd.toFixed(4)})` +
+      ` · prompts chars strategist=${strategistPrompt.length}`,
   );
 
   return {
@@ -324,6 +371,7 @@ async function runMultiAgentPlan({
         source: a.source,
         model: a.model,
         prompt: a.prompt,
+        output: a.output || '',
       })),
     },
   };

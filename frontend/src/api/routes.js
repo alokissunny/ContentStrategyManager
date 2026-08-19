@@ -12,16 +12,19 @@ function ingestPlanDebug(label, data = {}) {
         source: agent.source || `${label} · step ${agents.length - i}`,
         model: agent.model || debug.model,
         prompt: agent.prompt,
+        output: agent.output,
         note: debug.mode ? `mode: ${debug.mode}` : '',
       });
     });
     return;
   }
-  if (debug.finalPrompt) {
+  if (debug.finalPrompt || debug.output) {
     addAiDebugEntry({
       source: label,
       model: debug.model,
       prompt: debug.finalPrompt,
+      output: debug.output,
+      systemPrompt: debug.systemPrompt,
       note: debug.mode ? `mode: ${debug.mode}` : '',
     });
   }
@@ -37,6 +40,11 @@ export function getCurrentRoute() {
 // Every plan the user has — newest week first. Drives the Plans list history.
 export function getRoutes() {
   return client.get('/routes').then((res) => res.data.routes || []);
+}
+
+// Delete the running month's written weeks and next-month placeholders.
+export function clearCurrentMonth() {
+  return client.delete('/routes/current-month').then((res) => res.data);
 }
 
 // (Re)generate this month's plan from the latest Instagram analysis.
@@ -101,12 +109,13 @@ export function polishCaption(routeId, index, { caption, instruction, kind, role
     .post(`/routes/${routeId}/day/${index}/polish-caption`, { caption, instruction, kind, role, fills })
     .then((res) => {
       const data = res.data || {};
-      if (data.debug?.finalPrompt) {
+      if (data.debug) {
         addAiDebugEntry({
           source: kind === 'words' ? 'Polish words' : 'Polish caption',
           model: data.model || data.debug.model,
           prompt: data.debug.finalPrompt,
-          note: data.debug.systemPrompt ? 'System prompt attached on server.' : '',
+          output: data.debug.output || data.caption,
+          systemPrompt: data.debug.systemPrompt,
         });
       }
       return data;

@@ -8,7 +8,7 @@
  * server returns short-lived presigned read URLs on every attachment.
  *
  * Entry (capture) shape returned by the API:
- *   { id, type: 'note'|'photo'|'video', text, createdAt,
+ *   { id, type: 'note'|'photo'|'video', text, createdAt, understanding,
  *     attachments: [{ id, type: 'image'|'video', key, url, thumbnailUrl }] }
  */
 
@@ -91,10 +91,11 @@ export async function deleteProject(id) {
   await api.deleteProject(id);
   removeById(id);
 }
-export async function addEntry(projectId, { type, text, attachments }) {
+export async function addEntry(projectId, { type, text, attachments, understanding }) {
   upsert(await api.addCapture(projectId, {
     type,
     text,
+    understanding: understanding || undefined,
     attachments: (attachments || []).map((a) => ({ type: a.type, key: a.key })),
   }));
 }

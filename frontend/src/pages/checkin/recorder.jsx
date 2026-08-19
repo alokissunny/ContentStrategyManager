@@ -59,6 +59,7 @@ export function RecordingSheet({ rec, note, label = 'Recording' }) {
 export function useRecorder() {
   const [status, setStatus] = useState('idle'); // idle | recording | done | denied
   const [url, setUrl] = useState(null);
+  const [blob, setBlob] = useState(null);
   const [ms, setMs] = useState(0);
   const rec = useRef(null);
   const chunks = useRef([]);
@@ -72,8 +73,9 @@ export function useRecorder() {
       chunks.current = [];
       mr.ondataavailable = (e) => e.data.size && chunks.current.push(e.data);
       mr.onstop = () => {
-        const blob = new Blob(chunks.current, { type: mr.mimeType || 'audio/webm' });
-        setUrl(URL.createObjectURL(blob));
+        const recorded = new Blob(chunks.current, { type: mr.mimeType || 'audio/webm' });
+        setBlob(recorded);
+        setUrl(URL.createObjectURL(recorded));
         stream.getTracks().forEach((t) => t.stop());
         setStatus('done');
       };
@@ -97,8 +99,9 @@ export function useRecorder() {
     chunks.current = [];
     setMs(0);
     setUrl(null);
+    setBlob(null);
     setStatus('idle');
   };
   useEffect(() => () => clearInterval(timer.current), []);
-  return { status, url, ms, start, stop, reset };
+  return { status, url, blob, ms, start, stop, reset };
 }

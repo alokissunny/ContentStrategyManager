@@ -476,6 +476,95 @@ function toClockField(t) {
   return `${String(h12).padStart(2, '0')}:${String(min).padStart(2, '0')} ${ap}`;
 }
 
+const CLOCK_HOURS = Array.from({ length: 12 }, (_, i) => i + 1);
+const CLOCK_MINS = Array.from({ length: 60 }, (_, i) => i);
+const CLOCK_AP = ['AM', 'PM'];
+const pad2 = (n) => String(n).padStart(2, '0');
+function cycleFrom(list, start) {
+  const i = list.indexOf(start);
+  if (i <= 0) return list;
+  return list.slice(i).concat(list.slice(0, i));
+}
+function clockParts(t) {
+  const { h, min } = parseClock(t);
+  return { h12: h % 12 === 0 ? 12 : h % 12, min, ap: h < 12 ? 'AM' : 'PM' };
+}
+function joinClock(h12, min, ap) {
+  let h = h12 % 12;
+  if (ap === 'PM') h += 12;
+  return `${pad2(h)}:${pad2(min)}`;
+}
+
+/* 12-hour clock with Hours / Minutes / AM·PM columns (bauhly-v3 uses a native
+ * time input; Chrome draws this picker, other browsers do not — so we draw it). */
+function ClockField({ value, onChange, open, onToggle }) {
+  const { h12, min, ap } = clockParts(value);
+  return (
+    <div className={`wv-time__field${open ? ' is-open' : ''}`}>
+      <span className="wv-time__label">Change time</span>
+      <button
+        type="button"
+        className="wv-time__control"
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        aria-label="Publish time"
+        onClick={onToggle}
+      >
+        <span className="wv-time__value">{toClockField(value)}</span>
+        <span className="wv-time__clock" aria-hidden="true">
+          <Glyph name="clock" size={16} strokeWidth={2} />
+        </span>
+      </button>
+      {open && (
+        <div className="wv-time__pop" role="group" aria-label="Pick a time">
+          <div className="wv-time__col" role="listbox" aria-label="Hour">
+            {cycleFrom(CLOCK_HOURS, h12).map((h) => (
+              <button
+                key={h}
+                type="button"
+                role="option"
+                aria-selected={h === h12}
+                className={`wv-time__opt${h === h12 ? ' is-on' : ''}`}
+                onClick={() => onChange(joinClock(h, min, ap))}
+              >
+                {pad2(h)}
+              </button>
+            ))}
+          </div>
+          <div className="wv-time__col" role="listbox" aria-label="Minute">
+            {cycleFrom(CLOCK_MINS, min).map((m) => (
+              <button
+                key={m}
+                type="button"
+                role="option"
+                aria-selected={m === min}
+                className={`wv-time__opt${m === min ? ' is-on' : ''}`}
+                onClick={() => onChange(joinClock(h12, m, ap))}
+              >
+                {pad2(m)}
+              </button>
+            ))}
+          </div>
+          <div className="wv-time__col" role="listbox" aria-label="AM or PM">
+            {cycleFrom(CLOCK_AP, ap).map((p) => (
+              <button
+                key={p}
+                type="button"
+                role="option"
+                aria-selected={p === ap}
+                className={`wv-time__opt${p === ap ? ' is-on' : ''}`}
+                onClick={() => onChange(joinClock(h12, min, p))}
+              >
+                {p}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // The time this post goes out at: its own, else the plan's weekly preference,
 // else the app default. Returned as-stored (24h or freeform); read it through
 // toSpoken / to24h at the point of use.
@@ -1119,12 +1208,17 @@ function WhyBody({ day }) {
   );
 }
 
-export default function WeekView({ route: initialRoute, onBack, monthWeeks = [], onOpenWeek }) {
+export default function WeekView({ route: initialRoute, onBack, monthWeeks = [], onOpenWeek, initialDay = 0, onCaptured }) {
   const navigate = useNavigate();
   const projects = useProjects();
   const [capturing, setCapturing] = useState(false);
   const [route, setRoute] = useState(initialRoute);
-  const [selected, setSelected] = useState(0);
+  const [selected, setSelected] = useState(() => {
+    const n = (initialRoute?.days || []).length;
+    const i = Number(initialDay) || 0;
+    if (n <= 0) return 0;
+    return Math.max(0, Math.min(n - 1, i));
+  });
   const [slideIdx, setSlideIdx] = useState(0);
   // The post is the interface (bauhly-v3 §652): the studio acts on the preview's
   // own zones. `zone` is the one open editor — the picture ('visual') or the
@@ -1187,6 +1281,7 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
   const [askSchedule, setAskSchedule] = useState(false); // no-caption confirm
   // the inline "Edit publish time" editor: null = closed, else { at, every }
   const [timeDraft, setTimeDraft] = useState(null);
+  const [clockOpen, setClockOpen] = useState(false);
   const [savingTime, setSavingTime] = useState(false);
   const [replanning, setReplanning] = useState(false);
   const [replanMsg, setReplanMsg] = useState('');
@@ -1204,7 +1299,9 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
   const weekId = initialRoute?._id;
   useEffect(() => {
     setRoute(initialRoute);
-    setSelected(0);
+    const n = (initialRoute?.days || []).length;
+    const i = Number(initialDay) || 0;
+    setSelected(n <= 0 ? 0 : Math.max(0, Math.min(n - 1, i)));
     setSlideIdx(0);
     setZone(null);
     setVisEdit(null);
@@ -1343,12 +1440,18 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
   const slotTime = toSpoken(slotTimeRaw(day, route));
   // the time is editable only while the decision is still open (bauhly-v3 §787)
   const canEditTime = !isScheduled && !day?.published;
+  const timeSeedAt = to24h(slotTimeRaw(day, route));
+  const timeSeedEvery = !day?.time && !!route?.postAtPref;
+  const timeUnchanged = Boolean(timeDraft)
+    && timeDraft.at === timeSeedAt
+    && Boolean(timeDraft.every) === Boolean(timeSeedEvery);
   const captionText = String(day?.content?.caption || '').trim();
   const capNeedsReview = Boolean(captionText) && !isScheduled && !day?.published && !capReviewed.has(selected);
 
   useEffect(() => {
     setCreating(false);
     setTimeDraft(null);
+    setClockOpen(false);
     setAdjustFor(null);
     setEditSlot(null);
     setPackOpen(false);
@@ -1498,8 +1601,7 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
 
   // Same leave-without-commit for the time editor: the draft lives in
   // `timeDraft` and goes with a press anywhere else. Apply changes is the
-  // only write. Skip the close while the native picker still has focus —
-  // some browsers draw that popup outside `.wv-time`.
+  // only write.
   useEffect(() => {
     if (!timeDraft) return undefined;
     const away = (e) => {
@@ -1507,8 +1609,8 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
       if (e.target.closest('.wv-ig__slot-edit') || e.target.closest('.wv-ig__zonebtn')) return;
       if (e.target.closest('.wv-confirm') || e.target.closest('.wv-confirm__scrim')) return;
       if (e.target.closest('.wv-schedask') || e.target.closest('.wv-schedask__scrim')) return;
-      if (document.activeElement?.classList?.contains('wv-time__native')) return;
       setTimeDraft(null);
+      setClockOpen(false);
     };
     document.addEventListener('mousedown', away);
     return () => document.removeEventListener('mousedown', away);
@@ -1549,7 +1651,6 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
       setLayCat(null);
       setLibOpen(false);
       setAskCat(null);
-      setAskImgs(0);
     }
     if (visEdit !== 'words') setWordDraft(null);
   }, [visEdit]);
@@ -1566,7 +1667,7 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
     function onKey(e) {
       // Escape steps back one level: generate → images → browse → editor → menu
       if (e.key !== 'Escape') return;
-      if (timeDraft) { setTimeDraft(null); return; }
+      if (timeDraft) { setTimeDraft(null); setClockOpen(false); return; }
       if (adjustFor) { setAdjustFor(null); setEditSlot(null); return; }
       if (packOpen) { setPackOpen(false); return; }
       if (creating) { setCreating(false); return; }
@@ -1794,6 +1895,7 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
       at: to24h(slotTimeRaw(day, route)),
       every: !day.time && !!route?.postAtPref,
     });
+    setClockOpen(true);
   }
 
   // Done — three outcomes from two controls, the same rule the slot reads:
@@ -1802,7 +1904,7 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
   //   default (reset) → neither: clear the habit too, or the next post inherits
   //                     the thing they just stepped out of
   async function saveTime() {
-    if (!route || !day || !timeDraft || savingTime) return;
+    if (!route || !day || !timeDraft || savingTime || timeUnchanged) return;
     const { at, every } = timeDraft;
     let payload;
     if (every) payload = { postAtPref: at, time: '' };
@@ -1812,6 +1914,7 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
     try {
       setRoute(await setDayTime(route._id, selected, payload));
       setTimeDraft(null);
+      setClockOpen(false);
     } catch (err) {
       setPublishMsg(err.response?.data?.message || 'Could not save the time just now');
     } finally {
@@ -1895,13 +1998,12 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
     URL.revokeObjectURL(url);
   }
 
-  // Replan only this week from the latest signals — Brand DNA, Capture Idea
-  // notes, content-pillar gap, project assets, and competitor cohort — keeping
-  // the same calendar week and month focus. Sibling weeks are left alone.
+  // Add posts to the next empty days of this month from the latest signals.
+  // Existing days with content are left alone.
   async function handleReplanWeek() {
     if (replanning || !route?._id) return;
     const ok = window.confirm(
-      "Replan this week from your latest Brand DNA, Capture Idea notes, content-pillar gap, project assets and competitor insights?\n\nThis replaces this week's plan and any edits you've made to it. Other weeks stay as they are."
+      "Add posts to empty days this month from your latest Brand DNA, Capture Idea notes, project assets and competitor insights?\n\nDays that already have content stay as they are."
     );
     if (!ok) return;
     setReplanning(true);
@@ -2011,9 +2113,12 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
     const need = shotsOf(chosenLayout);
     patchActiveSlide({ layout: draftId });
     setLayPick(null);
+    if (need > 0) {
+      setAskImgs(need);
+      return;
+    }
     setVisEdit(null);
     setZone(null);
-    if (need) setAskImgs(need);
   }
 
   function openImagePicker() {
@@ -2257,9 +2362,9 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
                     className="wv-more__item"
                     onClick={() => { setMoreOpen(false); handleReplanWeek(); }}
                     disabled={replanning}
-                    title="Regenerate only this week from your Brand DNA, Capture Idea notes, content-pillar gap, project assets and competitor insights."
+                    title="Add posts to empty days this month from your Brand DNA, Capture Idea notes, project assets and competitor insights. Days that already have content stay as they are."
                   >
-                    <Glyph name="refresh-cw" size={15} />{replanning ? 'Replanning…' : 'Replan this week'}
+                    <Glyph name="refresh-cw" size={15} />{replanning ? 'Adding posts…' : 'Fill empty days'}
                   </button>
                   {weekUsage && (
                     <p className="wv-more__usage">
@@ -2279,6 +2384,10 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
           exitLabel="Back to plan"
           onExit={() => setCapturing(false)}
           onViewProject={() => { setCapturing(false); navigate('/dashboard/projects'); }}
+          onCaptured={() => {
+            setCapturing(false);
+            onCaptured?.();
+          }}
         />
       )}
 
@@ -2287,7 +2396,7 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
         <h1 className="wv-head__title">{route.weekLabel || route.focus?.headline || 'Your week'}</h1>
         <div className="wv-head__side">
           {saving && <span className="wv-head__chip">Saving…</span>}
-          {replanning && <span className="wv-head__chip">Replanning this week…</span>}
+          {replanning && <span className="wv-head__chip">Adding posts to empty days…</span>}
           {replanMsg && <span className="wv-head__chip is-warn">{replanMsg}</span>}
           {monthWeeks.length > 1 && (
             <span className="wv-head__week">
@@ -2385,9 +2494,9 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
       {askImgs > 0 && (
         <AddImagesDialog
           count={askImgs}
-          onSkip={() => setAskImgs(0)}
-          onAdd={() => { setAskImgs(0); openImagePicker(); }}
-          onClose={() => setAskImgs(0)}
+          onSkip={() => { setAskImgs(0); setVisEdit(null); setZone(null); }}
+          onAdd={() => { setAskImgs(0); setVisEdit(null); setZone(null); openImagePicker(); }}
+          onClose={() => { setAskImgs(0); setVisEdit(null); setZone(null); }}
         />
       )}
 
@@ -2949,7 +3058,7 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
                   <button
                     type="button"
                     className="wv-time__back"
-                    onClick={() => setTimeDraft(null)}
+                    onClick={() => { setTimeDraft(null); setClockOpen(false); }}
                     aria-label="Back"
                   >
                     <Glyph name="arrow-left" size={16} />
@@ -2959,28 +3068,17 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
                     type="button"
                     className="btn btn--primary btn--sm wv-time__apply"
                     onClick={saveTime}
-                    disabled={savingTime}
+                    disabled={savingTime || timeUnchanged}
                   >
                     Apply changes
                   </button>
                 </div>
-                <label className="wv-time__field">
-                  <span className="wv-time__label">Change time</span>
-                  <span className="wv-time__control">
-                    <span className="wv-time__value">{toClockField(timeDraft.at)}</span>
-                    <span className="wv-time__clock" aria-hidden="true">
-                      <Glyph name="clock" size={16} strokeWidth={2} />
-                    </span>
-                    <input
-                      type="time"
-                      className="wv-time__native"
-                      value={timeDraft.at}
-                      onChange={(e) => setTimeDraft((d) => ({ ...d, at: e.target.value }))}
-                      aria-label="Publish time"
-                      autoFocus
-                    />
-                  </span>
-                </label>
+                <ClockField
+                  value={timeDraft.at}
+                  open={clockOpen}
+                  onToggle={() => setClockOpen((v) => !v)}
+                  onChange={(at) => setTimeDraft((d) => ({ ...d, at }))}
+                />
                 <div className="wv-time__every">
                   <label className="wv-time__box">
                     <input
@@ -2990,14 +3088,16 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
                     />
                     Use this time every week
                   </label>
-                  <button
-                    type="button"
-                    className="btn btn--quiet btn--sm wv-time__reset"
-                    onClick={() => setTimeDraft({ at: DEFAULT_TIME_24, every: false })}
-                  >
-                    <Glyph name="refresh-cw" size={14} />
-                    Use Bauhly time
-                  </button>
+                  {(timeDraft.at !== DEFAULT_TIME_24 || timeDraft.every) && (
+                    <button
+                      type="button"
+                      className="btn btn--quiet btn--sm wv-time__reset"
+                      onClick={() => setTimeDraft({ at: DEFAULT_TIME_24, every: false })}
+                    >
+                      <Glyph name="refresh-cw" size={14} />
+                      Use Bauhly time
+                    </button>
+                  )}
                 </div>
               </div>
             ) : (

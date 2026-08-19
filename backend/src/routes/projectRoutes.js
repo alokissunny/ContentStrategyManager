@@ -13,6 +13,9 @@ const {
   moveCapture,
   analyzeAsset,
   analyzeProject,
+  understandDraft,
+  understandCheckinDraft,
+  transcribeDraft,
 } = require('../controllers/projectController');
 
 const router = express.Router();
@@ -20,6 +23,15 @@ const router = express.Router();
 router.use(protect);
 
 router.post('/uploads/sign', asyncHandler(signUploads));
+
+// Capture-time intelligence — before `/:id` so "captures" is not a project id.
+router.post('/captures/understand', asyncHandler(understandDraft));
+router.post('/checkin/understand', asyncHandler(understandCheckinDraft));
+router.post(
+  '/captures/transcribe',
+  express.raw({ type: () => true, limit: '12mb' }),
+  asyncHandler(transcribeDraft)
+);
 
 router.get('/', asyncHandler(listProjects));
 router.post('/', asyncHandler(createProject));
