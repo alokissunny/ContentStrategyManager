@@ -96,11 +96,30 @@ Return **only** a fenced ```json block:
 
 ---
 
-## Slide structure by format
+## Slide / scene structure
 
-- **Carousel (5–6):** Hook → Setup → Process/Detail (1–2) → Result/Moment → CTA
-- **Reel / Story (3):** Hook → Beat / Setup → CTA
-- **Post (1–2):** Hook → CTA (optional)
+Build the slide/scene structure from the story, not from a fixed length.
+
+**Flow:**
+Understand story → Extract meaningful narrative units → Remove redundancy → Merge naturally related units → Determine slide/scene count.
+
+A **narrative unit** is one distinct piece of information the audience needs to understand the story.
+
+Rules:
+
+* Let narrative units emerge from the actual story; do not force a preset structure.
+* Remove repeated or unnecessary units.
+* Merge units when they form one clear thought without losing reasoning or making the slide text-heavy.
+* Keep units separate when they introduce distinct ideas, need a visual/conceptual pause, require different assets, or become hard to scan when combined.
+* Preserve all meaningful reasoning and context.
+* Only determine slide/scene count after extraction, deduplication, and merging.
+
+**Principle:**
+Story complexity → Narrative units → Slide/scene count.
+
+Never start with a fixed number of slides and invent or stretch content to fill them.
+
+Format is packaging, not a quota. A carousel, reel, story, or single post can be as short or as long as the units require. Use `role` labels (Hook, Setup, Beat, Result, CTA) only when they fit a unit — do not invent slides to complete a Hook → Setup → Result → CTA sequence.
 
 Each slide needs `title` + `subtitle` (subtitle `""` only if deliberately
 single-line). `imagePrompt`: one sentence, **25–40 words max**. Scene + framing

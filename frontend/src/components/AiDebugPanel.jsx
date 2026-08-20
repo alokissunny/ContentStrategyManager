@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import Glyph from './Glyph';
 import {
   useAiDebug,
@@ -34,12 +34,57 @@ function formatBlock(text) {
   }
 }
 
-function DebugBlock({ label, text, open = true }) {
+async function copyText(text) {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.setAttribute('readonly', '');
+    ta.style.position = 'fixed';
+    ta.style.left = '-9999px';
+    document.body.appendChild(ta);
+    ta.select();
+    try {
+      return document.execCommand('copy');
+    } catch {
+      return false;
+    } finally {
+      document.body.removeChild(ta);
+    }
+  }
+}
+
+function DebugBlock({ label, text, open = true, copyable = false }) {
   const body = formatBlock(text);
+  const [copied, setCopied] = useState(false);
   if (!body) return null;
+
+  const onCopy = async (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const ok = await copyText(body);
+    if (!ok) return;
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1400);
+  };
+
   return (
     <details className="ai-debug__block" open={open}>
-      <summary className="ai-debug__block-sum">{label}</summary>
+      <summary className="ai-debug__block-sum">
+        <span>{label}</span>
+        {copyable ? (
+          <button
+            type="button"
+            className={`ai-debug__copy${copied ? ' is-copied' : ''}`}
+            onClick={onCopy}
+            onPointerDown={(e) => e.stopPropagation()}
+          >
+            {copied ? 'Copied' : 'Copy'}
+          </button>
+        ) : null}
+      </summary>
       <pre className="ai-debug__pre">{body}</pre>
     </details>
   );
@@ -91,9 +136,9 @@ export default function AiDebugPanel() {
             </summary>
             {e.note ? <p className="ai-debug__note">{e.note}</p> : null}
             <DebugBlock label="System" text={e.systemPrompt} open={false} />
-            <DebugBlock label="Input" text={e.prompt} />
+            <DebugBlock label="Input" text={e.prompt} copyable />
             {e.output
-              ? <DebugBlock label="Output" text={e.output} />
+              ? <DebugBlock label="Output" text={e.output} copyable />
               : <p className="ai-debug__missing">No output recorded for this call.</p>}
           </details>
         ))}

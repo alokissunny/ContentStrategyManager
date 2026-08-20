@@ -1,12 +1,12 @@
 /*
- * Check-in understanding — Planning time.
+ * Check-in understanding — same Capture Conversation rules as Projects.
  *
  * Reads the user's opening turn (and optional photos / a prior answer) and
- * decides whether Bauhly already understands the idea well enough to plan
- * from it, or whether one clarifying question would make the plan specific.
- * Also matches a project on file and whether a supporting asset is worth asking
- * for — so the conversation is not a fixed script of "which project / any
- * photo / anything else".
+ * decides whether the experience is already understandable, or whether one
+ * clarifying question would materially improve it. Project matching and
+ * whether a supporting asset is worth asking for stay as extras so the
+ * conversation is not a fixed script of "which project / any photo /
+ * anything else".
  */
 
 const fs = require('fs');
@@ -18,19 +18,24 @@ const {
   imageContentParts,
   extractParsed,
   str,
+  loadPrompt: loadCapturePrompt,
+  makeUnderstandDebug,
 } = require('./captureUnderstand');
 
-const PROMPT_PATH = path.join(__dirname, '..', '..', 'prompts', 'checkin-understand-prompt.md');
+const ADDENDUM_PATH = path.join(__dirname, '..', '..', 'prompts', 'checkin-understand-prompt.md');
 let systemPrompt;
 function loadPrompt() {
-  if (!systemPrompt) systemPrompt = fs.readFileSync(PROMPT_PATH, 'utf8');
+  if (!systemPrompt) {
+    const capture = loadCapturePrompt().replace(/\n---\n\n# Output\n[\s\S]*$/, '');
+    systemPrompt = `${capture}\n\n${fs.readFileSync(ADDENDUM_PATH, 'utf8')}`;
+  }
   return systemPrompt;
 }
 
 const TOOL_NAME = 'record_checkin_understanding';
 const UNDERSTAND_TOOL = {
   name: TOOL_NAME,
-  description: 'Record what this check-in turn is about, whether one clarifying question is needed, and which project (if any) already owns it.',
+  description: 'Record the strategy-neutral understanding of this check-in experience, whether one clarifying question is needed, and which project (if any) already owns it.',
   input_schema: {
     type: 'object',
     properties: {
@@ -95,7 +100,7 @@ function buildUserText({
   const images = (attachments || []).filter((a) => a.type === 'image');
   const videos = (attachments || []).filter((a) => a.type === 'video');
   const names = (projects || []).map((p) => str(p.name)).filter(Boolean);
-  const lines = ['Check-in — understand this turn so the conversation can skip what is already known.'];
+  const lines = ['Weekly check-in — understand this experience. Strategy is out of scope.'];
   lines.push('');
   lines.push('Projects on file (match only these names, or none):');
   lines.push(names.length ? names.map((n) => `- ${n}`).join('\n') : '(none yet)');
@@ -206,16 +211,28 @@ async function understandCheckin(input = {}) {
     Object.assign(fallback.understanding, emptyUnderstanding(text));
   }
 
-  if (!process.env.ANTHROPIC_API_KEY) return fallback;
+  const userText = buildUserText({
+    text, projects, attachments, alreadyAsked, askedQuestion, askedAnswer,
+  });
+  const systemPrompt = loadPrompt();
+
+  if (!process.env.ANTHROPIC_API_KEY) {
+    fallback.debug = makeUnderstandDebug({
+      source: 'Check-in conversation',
+      model: '',
+      systemPrompt,
+      prompt: userText,
+      result: fallback,
+      note: 'ANTHROPIC_API_KEY missing — model not called',
+    });
+    return fallback;
+  }
 
   const model = process.env.ANTHROPIC_CHECKIN_MODEL
     || process.env.ANTHROPIC_CAPTURE_MODEL
     || process.env.ANTHROPIC_MODEL
     || 'claude-sonnet-5';
   const imageParts = await imageContentParts(attachments);
-  const userText = buildUserText({
-    text, projects, attachments, alreadyAsked, askedQuestion, askedAnswer,
-  });
   const userContent = [
     ...imageParts,
     { type: 'text', text: userText },
@@ -225,7 +242,7 @@ async function understandCheckin(input = {}) {
   const request = (messages) => client.messages.create({
     model,
     max_tokens: 1024,
-    system: loadPrompt(),
+    system: systemPrompt,
     tools: [UNDERSTAND_TOOL],
     tool_choice: { type: 'tool', name: TOOL_NAME },
     messages,
@@ -252,6 +269,14 @@ async function understandCheckin(input = {}) {
     text, projects, attachments, alreadyAsked, askedQuestion, askedAnswer,
   });
   result.understanding.model = model;
+  result.debug = makeUnderstandDebug({
+    source: alreadyAsked ? 'Check-in conversation · clarify' : 'Check-in conversation',
+    model,
+    systemPrompt,
+    prompt: userText,
+    result,
+    parsed,
+  });
   if (result.action === 'ask') {
     console.log('[checkin] understand ask:', result.question);
   } else {

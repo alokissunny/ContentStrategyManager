@@ -17,6 +17,17 @@ const {
 const { understandCheckin } = require('../services/checkinUnderstand');
 const { transcribeAudio } = require('../services/transcribeAudio');
 
+function wantsPromptDebug(req) {
+  return String(req.get('x-debug-prompts') || '').trim() === '1';
+}
+
+function withOptionalDebug(result, req) {
+  if (!result || typeof result !== 'object') return result;
+  const { debug, ...rest } = result;
+  if (wantsPromptDebug(req) && debug) rest.debug = debug;
+  return rest;
+}
+
 // ── serialization ─────────────────────────────────────────────────────────
 // The DB stores S3 object keys; the client receives short-lived presigned read
 // URLs (and the key, so it can echo an existing attachment back on an edit).
@@ -346,7 +357,7 @@ async function understandDraft(req, res) {
       askedQuestion,
       askedAnswer,
     });
-    res.json(result);
+    res.json(withOptionalDebug(result, req));
   } catch (err) {
     console.error('[projects] capture understand failed', err.message);
     // Capture must never stall because the understander is down — store as-is.
@@ -372,9 +383,10 @@ async function understandDraft(req, res) {
 }
 
 // POST /projects/checkin/understand
-// Planning-time: same five signals, plus whether one clarifying question is
-// needed, which project on file already owns this, and whether a supporting
-// asset is worth asking for. Never blocks the conversation if the model is down.
+// Same Capture Conversation rules as Projects: five signals, at most one
+// clarifying question when meaning is missing. Also which project on file
+// already owns this, and whether a supporting asset is worth asking for.
+// Never blocks the conversation if the model is down.
 async function understandCheckinDraft(req, res) {
   const text = (req.body.text || '').trim();
   const attachments = sanitizeAttachments(req.body.attachments, req.user._id);
@@ -401,7 +413,7 @@ async function understandCheckinDraft(req, res) {
       askedQuestion,
       askedAnswer,
     });
-    res.json(result);
+    res.json(withOptionalDebug(result, req));
   } catch (err) {
     console.error('[projects] checkin understand failed', err.message);
     res.json({

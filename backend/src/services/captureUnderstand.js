@@ -242,19 +242,29 @@ async function understandCapture(input = {}) {
     throw err;
   }
 
+  const userText = buildUserText({
+    text, projectName, attachments, alreadyAsked, askedQuestion, askedAnswer,
+  });
+  const systemPrompt = loadPrompt();
+
   if (!process.env.ANTHROPIC_API_KEY) {
     const result = normalizeUnderstanding(
       { shouldAsk: false, summary: text, signals: { happened: text } },
       { text, alreadyAsked, askedQuestion, askedAnswer }
     );
+    result.debug = makeUnderstandDebug({
+      source: 'Capture conversation',
+      model: '',
+      systemPrompt,
+      prompt: userText,
+      result,
+      note: 'ANTHROPIC_API_KEY missing — model not called',
+    });
     return result;
   }
 
   const model = process.env.ANTHROPIC_CAPTURE_MODEL || process.env.ANTHROPIC_MODEL || 'claude-sonnet-5';
   const imageParts = await imageContentParts(attachments);
-  const userText = buildUserText({
-    text, projectName, attachments, alreadyAsked, askedQuestion, askedAnswer,
-  });
   const userContent = [
     ...imageParts,
     { type: 'text', text: userText },
@@ -264,7 +274,7 @@ async function understandCapture(input = {}) {
   const request = (messages) => client.messages.create({
     model,
     max_tokens: 1024,
-    system: loadPrompt(),
+    system: systemPrompt,
     tools: [UNDERSTAND_TOOL],
     tool_choice: { type: 'tool', name: TOOL_NAME },
     messages,
@@ -289,6 +299,14 @@ async function understandCapture(input = {}) {
 
   const result = normalizeUnderstanding(parsed, { text, alreadyAsked, askedQuestion, askedAnswer });
   result.understanding.model = model;
+  result.debug = makeUnderstandDebug({
+    source: alreadyAsked ? 'Capture conversation · clarify' : 'Capture conversation',
+    model,
+    systemPrompt,
+    prompt: userText,
+    result,
+    parsed,
+  });
   if (result.action === 'ask') {
     console.log('[capture] understand ask:', result.question);
   } else {
@@ -337,6 +355,29 @@ function serializeUnderstanding(u) {
   };
 }
 
+function makeUnderstandDebug({ source, model, systemPrompt, prompt, result, parsed, note }) {
+  const body = {
+    action: result.action,
+    question: result.question,
+    understanding: result.understanding,
+  };
+  if (Object.prototype.hasOwnProperty.call(result, 'ack')) {
+    body.ack = result.ack;
+    body.matchedProjectId = result.matchedProjectId;
+    body.matchedProjectName = result.matchedProjectName;
+    body.askForAssets = result.askForAssets;
+  }
+  if (parsed) body.tool = parsed;
+  return {
+    source,
+    model: model || '',
+    systemPrompt: systemPrompt || '',
+    finalPrompt: prompt || '',
+    output: JSON.stringify(body, null, 2),
+    note: note || '',
+  };
+}
+
 module.exports = {
   understandCapture,
   sanitizeUnderstanding,
@@ -346,4 +387,6 @@ module.exports = {
   imageContentParts,
   extractParsed,
   str,
+  loadPrompt,
+  makeUnderstandDebug,
 };

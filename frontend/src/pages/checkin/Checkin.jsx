@@ -6,11 +6,11 @@
  * week or a month (Leon, July 30).
  *
  * After the studio speaks, understanding decides the next turn — the same
- * rule as Capture. At most one clarifying question, and only when the idea
- * isn't clear enough to plan from. Project and asset questions are skipped
- * when the turn already answered them. Strategy paths (pick a project / let
- * Bauhly decide) stay as menus; the scripted "which project / any photo /
- * anything else" chain is no longer automatic.
+ * Capture Conversation rules as Projects. At most one clarifying question,
+ * and only when meaning is actually missing. Project and asset questions are
+ * skipped when the turn already answered them. Strategy paths (pick a project
+ * / let Bauhly decide) stay as menus; the scripted "which project / any photo
+ * / anything else" chain is no longer automatic.
  */
 
 import { useEffect, useMemo, useRef, useState } from 'react';

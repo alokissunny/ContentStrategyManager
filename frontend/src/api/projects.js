@@ -1,4 +1,18 @@
 import client from './client';
+import { addAiDebugEntry } from '../lib/aiDebug';
+
+function ingestUnderstandDebug(label, data = {}) {
+  const debug = data.debug;
+  if (!debug) return;
+  addAiDebugEntry({
+    source: debug.source || label,
+    model: debug.model,
+    prompt: debug.finalPrompt || debug.prompt,
+    output: debug.output,
+    systemPrompt: debug.systemPrompt,
+    note: debug.note || '',
+  });
+}
 
 // Projects — Bauhly's long-term memory, backed by the API (Mongo + S3 media).
 
@@ -21,14 +35,22 @@ export function addCapture(projectId, capture) {
 // Capture-time understanding — strategy-neutral extraction of what happened,
 // and at most one clarifying question if meaning is actually missing.
 export function understandCapture(payload) {
-  return client.post('/projects/captures/understand', payload).then((r) => r.data);
+  return client.post('/projects/captures/understand', payload).then((r) => {
+    const data = r.data || {};
+    ingestUnderstandDebug('Capture conversation', data);
+    return data;
+  });
 }
 
-// Check-in understanding — whether the idea is clear enough to plan from,
-// which project (if any) already owns it, and whether a supporting asset is
-// worth asking for. Same "at most one question" rule as Capture.
+// Check-in understanding — same Capture Conversation rules as Projects,
+// plus which project (if any) already owns it and whether a supporting
+// asset is worth asking for. Same "at most one question" rule.
 export function understandCheckin(payload) {
-  return client.post('/projects/checkin/understand', payload).then((r) => r.data);
+  return client.post('/projects/checkin/understand', payload).then((r) => {
+    const data = r.data || {};
+    ingestUnderstandDebug('Check-in conversation', data);
+    return data;
+  });
 }
 
 // Voice-note → words. Body is the raw audio blob; the conversation keeps the
