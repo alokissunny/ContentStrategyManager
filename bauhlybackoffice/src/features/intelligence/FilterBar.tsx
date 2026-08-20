@@ -211,11 +211,11 @@ export function FilterBar({ filters, onChange, hideFollowerRange = false }: Filt
         <FilterSelect
           label="Time Period"
           value={filters.period}
-          // Locked to the last-30-days default: other windows are shown but
-          // disabled until the register carries enough history to trust them.
+          // Last 30 days and All time are selectable; the intermediate windows
+          // stay disabled until the register carries enough history to trust them.
           options={filterOptions.period.map((p) => ({
             ...p,
-            disabled: p.value !== 'last-30',
+            disabled: p.value !== 'last-30' && p.value !== 'all',
           }))}
           onChange={(v) => set('period', v as FilterState['period'])}
         />

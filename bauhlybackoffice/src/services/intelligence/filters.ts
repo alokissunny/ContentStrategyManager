@@ -24,6 +24,7 @@ export type PeriodKey =
   | 'last-180'
   | 'last-365'
   | 'month-over-month'
+  | 'all'
 
 export type EvidenceThresholdKey =
   | 'all'
@@ -114,6 +115,7 @@ export const filterOptions = {
     { value: 'last-180', label: 'Last 6 months' },
     { value: 'last-365', label: 'Last 12 months' },
     { value: 'month-over-month', label: 'Month over month' },
+    { value: 'all', label: 'All time' },
   ] satisfies { value: PeriodKey; label: string }[],
   evidenceThreshold: [
     { value: 'all', label: 'All findings' },

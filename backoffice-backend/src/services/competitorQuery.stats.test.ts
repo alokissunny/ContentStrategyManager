@@ -57,6 +57,21 @@ describe('list stats', () => {
     expect(stats.collectedPosts).toBe(0)
   })
 
+  it('scopes the headline count to the business-type filter', async () => {
+    // The Accounts-tab cards must track the Business type filter, not the whole
+    // register — otherwise Total Competitors disagrees with the filtered rows.
+    await CompetitorAccount.create({ username: 'ix', businessCategory: 'interior-designer' })
+    await CompetitorAccount.create({ username: 'iy', businessCategory: 'interior-designer' })
+    await CompetitorAccount.create({ username: 'bz', businessCategory: 'bauhly-competitor' })
+
+    const all = await listCompetitors({})
+    expect(all.stats.total).toBe(3)
+
+    const bauhly = await listCompetitors({ businessCategory: 'bauhly-competitor' })
+    expect(bauhly.total).toBe(1)
+    expect(bauhly.stats.total).toBe(1)
+  })
+
   it('still lets you find deleted accounts explicitly', async () => {
     await CompetitorAccount.create({ username: 'gone', approvalStatus: 'deleted' })
 

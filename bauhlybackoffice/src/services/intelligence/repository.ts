@@ -90,6 +90,7 @@ function sampleScale(filters: FilterState): number {
   if (filters.period === 'last-90') scale *= 2.6
   else if (filters.period === 'last-180') scale *= 4.8
   else if (filters.period === 'last-365') scale *= 8.5
+  else if (filters.period === 'all') scale *= 11
   return scale
 }
 

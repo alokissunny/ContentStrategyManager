@@ -195,7 +195,7 @@ export async function listCompetitors(input: Partial<CompetitorQuery>) {
     rows = rows.slice((page - 1) * q.pageSize, page * q.pageSize)
   }
 
-  return { rows, total, page, pageCount, stats: await buildStats(days) }
+  return { rows, total, page, pageCount, stats: await buildStats(days, filter) }
 }
 
 /**
@@ -384,12 +384,14 @@ function buckets(days: number, points = 6): Date[] {
   return Array.from({ length: points }, (_, i) => new Date(end - step * (points - 1 - i)))
 }
 
-async function buildStats(days: number) {
+async function buildStats(days: number, filter: Record<string, unknown>) {
   const windowStart = new Date(Date.now() - days * 864e5)
 
-  // Deleted accounts have left the register: they must not inflate any headline
-  // count, and neither must the posts collected for them while they were here.
-  const live = await CompetitorAccount.find({ approvalStatus: { $ne: 'deleted' } }).select(
+  // Scope the headline counts to the same filter as the list, so the cards
+  // always reflect the active Business type / Location / Follower / Search
+  // filters and never disagree with the rows below them. `filter` already
+  // excludes deleted accounts (via its approvalStatus clause).
+  const live = await CompetitorAccount.find(filter).select(
     'approvalStatus dataQuality lastSuccessfulCollectionAt addedAt',
   )
   const liveIds = live.map((a) => a._id)

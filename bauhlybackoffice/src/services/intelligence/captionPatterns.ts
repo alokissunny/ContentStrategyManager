@@ -402,6 +402,7 @@ const WINDOWS: Record<FilterState['period'], { previous: string; current: string
   'last-180': { previous: 'Prior 6 months', current: 'Last 6 months' },
   'last-365': { previous: 'Prior 12 months', current: 'Last 12 months' },
   'month-over-month': { previous: 'Previous month', current: 'This month' },
+  all: { previous: 'Earlier history', current: 'All time' },
 }
 
 /** "12K – 18K" → its midpoint in followers, or null if not a custom label. */

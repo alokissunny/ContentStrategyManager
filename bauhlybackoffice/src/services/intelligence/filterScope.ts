@@ -9,6 +9,9 @@ export function periodToDays(period: PeriodKey | string): number {
       return 180
     case 'last-365':
       return 365
+    case 'all':
+      // No period cutoff: a decade-wide window covers the full captured history.
+      return 3650
     case 'previous-30':
     case 'month-over-month':
     case 'last-30':
