@@ -116,15 +116,27 @@ function weeksOverlappingMonth(routes, year, month) {
   );
 }
 
-/* Calendar date of day `index` in a week — Monday + offset, local noon so
- * an IST-stamped UTC midnight doesn't slip to the previous day. */
-function dayDateOf(week, index) {
+/* YYYY-MM-DD as a local calendar day (noon). `new Date("YYYY-MM-DD")` is UTC
+ * midnight and slips to the previous day west of UTC. */
+function parseIsoDay(iso) {
+  const match = String(iso || '').match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!match) return null;
+  return new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]), 12, 0, 0, 0);
+}
+
+/* The day's real calendar date. Plans often start mid-week (empty dates from
+ * today forward), so array index is not Monday + N. */
+function dayDateOf(week, day, index) {
+  const fromIso = parseIsoDay(day?.date);
+  if (fromIso) return fromIso;
   const base = week?.startsAt || week?.weekOf;
   if (!base) return null;
   const d = new Date(base);
   if (Number.isNaN(d.getTime())) return null;
   d.setHours(12, 0, 0, 0);
-  d.setDate(d.getDate() + (Number(index) || 0));
+  const weekday = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+  const byName = weekday.indexOf(day?.day);
+  d.setDate(d.getDate() + (byName >= 0 ? byName : (Number(index) || 0)));
   return d;
 }
 
@@ -142,7 +154,7 @@ function monthDaysOf(weeks) {
   (weeks || []).forEach((week) => {
     if (week.draft) return;
     (week.days || []).forEach((day, i) => {
-      rows.push({ week, day, dayIndex: i, date: dayDateOf(week, i) });
+      rows.push({ week, day, dayIndex: i, date: dayDateOf(week, day, i) });
     });
   });
   return rows.sort((a, b) => (a.date?.getTime() || 0) - (b.date?.getTime() || 0));
@@ -160,8 +172,51 @@ function addDaysLocal(date, n) {
   return d;
 }
 
-/* Monday-first month grid for `group`, with planned posts mapped onto dates.
- * Leading/trailing days from the neighbouring month fill complete weeks. */
+function startOfDay(date) {
+  const d = new Date(date);
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
+
+/* Lay posts onto calendar dates. The current month uses free days after today
+ * (never Monday + slot, never today or the past). Other months keep stored dates. */
+function postsByCalendarDay(dayRows, year, month) {
+  const byYmd = new Map();
+  const rows = (dayRows || []).filter((row) => {
+    const d = row?.day;
+    if (!d) return false;
+    return Boolean(String(d.title || '').trim() || String(d.format || '').trim());
+  });
+  const today = startOfDay(new Date());
+  const viewingCurrent = year === today.getFullYear() && month === today.getMonth();
+
+  if (!viewingCurrent) {
+    rows.forEach((row) => {
+      if (!row.date) return;
+      if (row.date.getMonth() !== month || row.date.getFullYear() !== year) return;
+      byYmd.set(ymdKey(row.date), row);
+    });
+    return byYmd;
+  }
+
+  const inThisMonth = rows.filter((row) => {
+    if (!row.date) return true;
+    return row.date.getMonth() === month && row.date.getFullYear() === year;
+  });
+  const lastDate = new Date(year, month + 1, 0).getDate();
+  let i = 0;
+  for (let n = 1; n <= lastDate && i < inThisMonth.length; n += 1) {
+    const dayStart = new Date(year, month, n);
+    if (dayStart <= today) continue;
+    const date = new Date(year, month, n, 12, 0, 0, 0);
+    byYmd.set(ymdKey(date), { ...inThisMonth[i], date });
+    i += 1;
+  }
+  return byYmd;
+}
+
+/* Monday-first month grid for `group`. Leading/trailing days from the
+ * neighbouring month fill complete weeks. */
 function calendarCellsOf(group, dayRows) {
   const anchor = group?.start ? new Date(group.start) : new Date();
   const year = anchor.getFullYear();
@@ -169,11 +224,7 @@ function calendarCellsOf(group, dayRows) {
   const first = new Date(year, month, 1, 12, 0, 0, 0);
   const lastDate = new Date(year, month + 1, 0).getDate();
   const lead = (first.getDay() + 6) % 7;
-  const byYmd = new Map();
-  (dayRows || []).forEach((row) => {
-    if (!row.date) return;
-    byYmd.set(ymdKey(row.date), row);
-  });
+  const byYmd = postsByCalendarDay(dayRows, year, month);
   const start = addDaysLocal(first, -lead);
   const total = Math.ceil((lead + lastDate) / 7) * 7;
   const cells = [];

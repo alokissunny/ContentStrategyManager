@@ -153,7 +153,8 @@ function resolveDayDate(weekMonday, day) {
 /**
  * Calendar-month occupancy: which dates already have a post, and the empty
  * dates that new grounded content should fill next (earliest remaining first).
- * Past days without a post are left empty — they are not fillable slots.
+ * Today and past days are not fillable — new posts go on free slots after today,
+ * never packed from Monday of the week.
  */
 function buildMonthCalendar({ monthDate = new Date(), routes = [], fromDate } = {}) {
   const year = monthDate.getFullYear();
@@ -178,7 +179,7 @@ function buildMonthCalendar({ monthDate = new Date(), routes = [], fromDate } = 
     const day = weekdayName(dt);
     const slot = { date: iso, dayOfMonth: n, day, pillar: WEEKDAY_PILLAR[day] };
     if (occupiedByIso.has(iso)) occupied.push({ ...slot, title: occupiedByIso.get(iso) });
-    else if (dt >= today) emptyDates.push(slot);
+    else if (dt > today) emptyDates.push(slot);
   }
   return {
     month: monthDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' }),
