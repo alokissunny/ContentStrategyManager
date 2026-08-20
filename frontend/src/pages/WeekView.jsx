@@ -15,7 +15,7 @@ import YourAnalysisModal from '../components/YourAnalysisModal';
 import ConnectMetaModal from '../components/ConnectMetaModal';
 import { markDayPublished, updateDayContent, replanWeek, scheduleDay, setDayTime } from '../api/routes';
 import { getMetaStatus, publishDayToMeta } from '../api/meta';
-import { mediaProxyUrl, toDisplayUrl, isProxyUrl, rememberCdnBase, onCdnBase, getCdnBase } from '../api/media';
+import { mediaProxyUrl, toDisplayUrl, isProxyUrl, rememberCdnBase, onCdnBase, getCdnBase, canvasSafeUrl, isProjectMediaKey } from '../api/media';
 import { createImage, listGeneratedImages } from '../api/images';
 import { useProjects, uploadFiles } from '../lib/projectsStore';
 import { toSvg } from 'html-to-image';
@@ -702,19 +702,26 @@ function keysOf(slide) {
 
 function urlForKey(key, slide, localMedia, mediaByKey, preferProxy = false) {
   if (!key) return null;
-  // Only paint a key this account actually owns (project pool, a just-uploaded
-  // local preview, or a slide image bindOwnedSlides already resolved). A bare
-  // assetKey must not become a CDN/proxy URL — S3 keys are per-user, not per
-  // Instagram handle, so a leftover key from a previous account would still load.
+  // Prefer a URL this session already has (project pool, a just-uploaded
+  // preview, or a slide image bindOwnedSlides already resolved). A leftover
+  // key from another Instagram handle must not invent a CDN URL from the
+  // pool — but a `projects/…` key already saved on THIS slide is the photo
+  // the studio applied (a crop, a replace). After a tab switch local blob
+  // previews are gone, so resolve that key through the CDN/proxy or the
+  // post comes back empty.
   const local = localMedia?.[key];
   const pooled = mediaByKey?.get(key);
   const fromSlide = slide?.image?.key === key
     ? (slide.image.url || slide.image.thumb || null)
     : null;
   const known = local || pooled || fromSlide || null;
-  if (!known) return null;
+  if (known) {
+    if (preferProxy && isProjectMediaKey(key)) return mediaProxyUrl(key);
+    return toDisplayUrl(known, key) || (isProjectMediaKey(key) ? mediaProxyUrl(key) : null);
+  }
+  if (!isProjectMediaKey(key)) return null;
   if (preferProxy) return mediaProxyUrl(key);
-  return toDisplayUrl(known, key) || null;
+  return toDisplayUrl('', key) || mediaProxyUrl(key) || null;
 }
 
 function bindOwnedSlides(slides, allImages, localMedia, used) {
@@ -730,7 +737,13 @@ function bindOwnedSlides(slides, allImages, localMedia, used) {
       if (hit) used.add(hit.key);
       else used.add(k);
     });
-    return { ...s, image: byKey.get(keys[0]) || null, standing: false };
+    const hit = byKey.get(keys[0]);
+    if (hit) return { ...s, image: hit, standing: false };
+    if (isProjectMediaKey(keys[0])) {
+      const url = toDisplayUrl('', keys[0]) || mediaProxyUrl(keys[0]);
+      return { ...s, image: { key: keys[0], url, thumb: url, projectName: '', note: '', keywords: '' }, standing: false };
+    }
+    return { ...s, image: null, standing: false };
   });
 }
 
@@ -776,18 +789,35 @@ function faceLabelFor(slotId, store) {
   return own ? own.name : (FACES.find((f) => f.id === chosen) || FACES[0]).label;
 }
 
-function slidesPayload(slides) {
-  return slides.map((s) => ({
-    role: s.role || '',
-    title: s.title || '',
-    // Carry the plan-written copy and base image prompt through an edit so a
-    // layout/title/image change never wipes them (the server keeps both too).
-    subtitle: s.subtitle || '',
-    imagePrompt: s.imagePrompt || '',
-    assetKey: s.assetKey || '',
-    assetKeys: Array.isArray(s.assetKeys) ? s.assetKeys.map((k) => k || '') : [],
-    layout: s.layout || '',
-  }));
+function durableMediaKey(key, fallback = '') {
+  if (isProjectMediaKey(key)) return String(key);
+  if (String(key || '').startsWith('edit-')) {
+    return isProjectMediaKey(fallback) ? String(fallback) : '';
+  }
+  return String(key || '');
+}
+
+function slidesPayload(slides, baseline = []) {
+  return slides.map((s, i) => {
+    const prev = baseline[i] || {};
+    const prevKeys = Array.isArray(prev.assetKeys) ? prev.assetKeys : [];
+    const nextKeys = Array.isArray(s.assetKeys) ? s.assetKeys : [];
+    const assetKeys = nextKeys.length
+      ? nextKeys.map((k, j) => durableMediaKey(k, prevKeys[j]))
+      : prevKeys.map((k) => durableMediaKey(k));
+    const assetKey = durableMediaKey(s.assetKey, prev.assetKey) || assetKeys.find(Boolean) || '';
+    return {
+      role: s.role || '',
+      title: s.title || '',
+      // Carry the plan-written copy and base image prompt through an edit so a
+      // layout/title/image change never wipes them (the server keeps both too).
+      subtitle: s.subtitle || '',
+      imagePrompt: s.imagePrompt || '',
+      assetKey,
+      assetKeys,
+      layout: s.layout || '',
+    };
+  });
 }
 
 function buildMarkdown(route) {
@@ -1208,7 +1238,7 @@ function WhyBody({ day }) {
   );
 }
 
-export default function WeekView({ route: initialRoute, onBack, monthWeeks = [], onOpenWeek, initialDay = 0, onCaptured }) {
+export default function WeekView({ route: initialRoute, onBack, monthWeeks = [], onOpenWeek, initialDay = 0, onCaptured, onRouteChange }) {
   const navigate = useNavigate();
   const projects = useProjects();
   const [capturing, setCapturing] = useState(false);
@@ -1295,6 +1325,10 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
   // these to PNGs so Instagram receives the actual designed post, not the raw
   // project images. Indexed by slide position.
   const exportRefs = useRef([]);
+  const routeRef = useRef(route);
+  const lastSavedByDayRef = useRef({});
+  const persistGenRef = useRef(0);
+  routeRef.current = route;
 
   const weekId = initialRoute?._id;
   useEffect(() => {
@@ -1320,6 +1354,10 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
     setEnter(0);
     setMoreOpen(false);
     setLocalMedia({});
+    lastSavedByDayRef.current = Object.fromEntries(
+      (initialRoute?.days || []).map((d, i) => [i, d.content?.slides || []]),
+    );
+    persistGenRef.current = 0;
     // Reset editors when the open week (or Instagram handle) changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [weekId, initialRoute?.instagramUsername]);
@@ -1709,25 +1747,45 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
     finally { setSaving(false); }
   }
 
-  async function persistSlides(nextSlides) {
+  async function persistSlides(nextSlides, dayIndex = selected) {
     if (!route?._id) return;
+    const gen = ++persistGenRef.current;
+    const payload = slidesPayload(nextSlides, lastSavedByDayRef.current[dayIndex] || []);
     setSaving(true);
     try {
-      const updated = await updateDayContent(route._id, selected, { slides: slidesPayload(nextSlides) });
+      const updated = await updateDayContent(route._id, dayIndex, { slides: payload });
+      if (gen !== persistGenRef.current) return;
+      const saved = updated?.days?.[dayIndex]?.content?.slides;
+      if (Array.isArray(saved)) lastSavedByDayRef.current[dayIndex] = saved;
       setRoute(updated);
+      onRouteChange?.(updated);
     } catch { /* keep local until retry */ }
-    finally { setSaving(false); }
+    finally {
+      if (gen === persistGenRef.current) setSaving(false);
+    }
   }
 
-  function replaceSlides(next) {
+  function replaceSlides(next, { persist = true, dayIndex = selected } = {}) {
     setRoute((prev) => {
       const daysCopy = [...(prev.days || [])];
-      const d = { ...daysCopy[selected] };
-      const content = { ...(d.content || {}), slides: slidesPayload(next), onScreenText: next.map((s) => s.title) };
-      daysCopy[selected] = { ...d, content };
+      const d = { ...daysCopy[dayIndex] };
+      const content = {
+        ...(d.content || {}),
+        slides: next.map((s) => ({
+          role: s.role || '',
+          title: s.title || '',
+          subtitle: s.subtitle || '',
+          imagePrompt: s.imagePrompt || '',
+          assetKey: s.assetKey || '',
+          assetKeys: Array.isArray(s.assetKeys) ? s.assetKeys.map((k) => k || '') : [],
+          layout: s.layout || '',
+        })),
+        onScreenText: next.map((s) => s.title),
+      };
+      daysCopy[dayIndex] = { ...d, content };
       return { ...prev, days: daysCopy };
     });
-    persistSlides(next);
+    if (persist) persistSlides(next, dayIndex);
   }
 
   function patchActiveSlide(patch) {
@@ -2184,27 +2242,49 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
   function editorSrc(slotIndex = 0) {
     const keys = keysOf(activeSlide);
     const key = keys[slotIndex] || (slotIndex === 0 ? (activeSlide?.assetKey || activeSlide?.image?.key || '') : '');
-    if (key && localMedia?.[key]) return localMedia[key];
+    if (key && localMedia?.[key]) return canvasSafeUrl(localMedia[key], key);
     if (key && mediaByKey?.has(key)) return mediaProxyUrl(key);
-    return (dressedLayout?.imgs || [])[slotIndex] || null;
+    return canvasSafeUrl((dressedLayout?.imgs || [])[slotIndex] || '', key) || null;
   }
 
-  function writeSlotKey(key, slotIndex) {
-    const base = deriveSlides(day);
-    const slide = base[safeIdx] || {};
+  function writeSlotKey(key, slotIndex, { persist = true, dayIndex = selected, slideAt = safeIdx } = {}) {
+    const prev = routeRef.current || {};
+    const daysCopy = [...(prev.days || [])];
+    const d = { ...(daysCopy[dayIndex] || {}) };
+    const base = deriveSlides(d);
+    const slide = base[slideAt] || {};
     const keys = [...keysOf(slide)];
     while (keys.length <= slotIndex) keys.push('');
     keys[slotIndex] = key;
     const next = base.map((s, i) => (
-      i === safeIdx ? { ...s, assetKey: keys.find(Boolean) || key, assetKeys: keys } : s
+      i === slideAt ? { ...s, assetKey: keys.find(Boolean) || key, assetKeys: keys } : s
     ));
-    replaceSlides(next);
+    const content = {
+      ...(d.content || {}),
+      slides: next.map((s) => ({
+        role: s.role || '',
+        title: s.title || '',
+        subtitle: s.subtitle || '',
+        imagePrompt: s.imagePrompt || '',
+        assetKey: s.assetKey || '',
+        assetKeys: Array.isArray(s.assetKeys) ? s.assetKeys.map((k) => k || '') : [],
+        layout: s.layout || '',
+      })),
+      onScreenText: next.map((s) => s.title),
+    };
+    daysCopy[dayIndex] = { ...d, content };
+    const nextRoute = { ...prev, days: daysCopy };
+    routeRef.current = nextRoute;
+    setRoute(nextRoute);
+    if (persist && isProjectMediaKey(key)) persistSlides(next, dayIndex);
   }
 
   async function commitEditedUrl(url, slotIndex = 0) {
+    const dayIndex = selected;
+    const slideAt = safeIdx;
     const localKey = `edit-${Date.now()}-${slotIndex}`;
     rememberImage(localKey, url, { skipGen: true });
-    writeSlotKey(localKey, slotIndex);
+    writeSlotKey(localKey, slotIndex, { persist: false, dayIndex, slideAt });
     try {
       const blob = await fetch(url).then((r) => r.blob());
       const file = new File([blob], 'edited.jpg', { type: blob.type || 'image/jpeg' });
@@ -2212,22 +2292,24 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
       const first = added[0];
       if (!first?.key) return;
       rememberImage(first.key, first.url || url, { skipGen: true });
-      writeSlotKey(first.key, slotIndex);
+      writeSlotKey(first.key, slotIndex, { persist: true, dayIndex, slideAt });
     } catch { /* keep the local preview */ }
   }
 
   async function replaceEditedFile(file, slotIndex = 0) {
     if (!file) return;
+    const dayIndex = selected;
+    const slideAt = safeIdx;
     const preview = URL.createObjectURL(file);
     const localKey = `edit-${Date.now()}-${slotIndex}`;
     rememberImage(localKey, preview, { skipGen: true });
-    writeSlotKey(localKey, slotIndex);
+    writeSlotKey(localKey, slotIndex, { persist: false, dayIndex, slideAt });
     try {
       const added = await uploadFiles([file]);
       const first = added[0];
       if (!first?.key) return;
       rememberImage(first.key, first.url || preview, { skipGen: true });
-      writeSlotKey(first.key, slotIndex);
+      writeSlotKey(first.key, slotIndex, { persist: true, dayIndex, slideAt });
     } catch { /* keep the local preview */ }
   }
 
@@ -2525,7 +2607,7 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
           items={slotPackItems}
           onPick={(i, url) => {
             setEditSlot(measureSlot(i));
-            setAdjustFor({ src: editorSrc(i) || url, slotIndex: i });
+            setAdjustFor({ src: editorSrc(i) || canvasSafeUrl(url), slotIndex: i });
           }}
           onClose={() => setPackOpen(false)}
         />,

@@ -19,6 +19,23 @@ export function isProxyUrl(url) {
   return /\/media\/proxy\?key=/.test(String(url || ''));
 }
 
+// Bytes the canvas 2d context can actually read. CDN <img> URLs display fine
+// but send no Access-Control-Allow-Origin — so crop/export with
+// `crossOrigin = 'anonymous'` fails, the canvas stays tainted, and toBlob
+// returns null. Blob/data URLs are already local; everything else with a
+// known S3 key goes through the same-origin (or CORS-enabled) proxy.
+export function canvasSafeUrl(url, key) {
+  const raw = String(url || '');
+  if (/^(blob:|data:)/i.test(raw)) return raw;
+  if (isProxyUrl(raw)) return raw;
+  const k = key || keyFromMediaUrl(raw);
+  return k ? mediaProxyUrl(k) : raw;
+}
+
+export function isProjectMediaKey(key) {
+  return /^projects\//.test(String(key || ''));
+}
+
 function trimBase(value) {
   return String(value || '').trim().replace(/\/+$/, '');
 }

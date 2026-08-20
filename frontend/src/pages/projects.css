@@ -1250,6 +1250,7 @@
   animation: np-fade var(--dur-fast) var(--ease-out);
 }
 .ed__bar {
+  position: relative; z-index: 2;
   display: flex; align-items: center; justify-content: space-between;
   padding: var(--sp-4) var(--sp-5);
   flex-shrink: 0;
@@ -1270,7 +1271,7 @@
   transition: background var(--dur-fast), color var(--dur-fast);
 }
 .ed__icon:hover { color: var(--ink-900); background: var(--ink-100); }
-.ed__stage { flex: 1; min-height: 0; display: grid; place-items: center; padding: var(--sp-4); overflow: hidden; }
+.ed__stage { flex: 1; min-height: 0; display: grid; place-items: center; padding: var(--sp-4); overflow: hidden; isolation: isolate; }
 .ed__imgwrap { position: relative; display: inline-block; max-width: 100%; max-height: 100%; line-height: 0; }
 .ed__imgwrap img { max-width: 100%; max-height: 58vh; display: block; border-radius: var(--r-md); }
 .ed__frame {

@@ -5,7 +5,20 @@
  */
 import React, { useEffect, useRef, useState } from 'react';
 import Icon from '../../brand/Icon';
+import { canvasSafeUrl } from '../../api/media';
 import { useBodyScrollLock } from '../visualbrand/useBodyScrollLock';
+
+function isInlineSrc(src) {
+  return /^(blob:|data:)/i.test(String(src || ''));
+}
+
+async function decodeImage(url) {
+  const img = new Image();
+  if (!isInlineSrc(url)) img.crossOrigin = 'anonymous';
+  img.src = url;
+  await img.decode();
+  return img;
+}
 
 const ED_ASPECTS = [['original', 'Original'], ['1', 'Square'], ['4:5', '4:5'], ['16:9', '16:9'], ['3:2', '3:2']];
 const ED_SLIDERS = [
@@ -60,12 +73,21 @@ export function PhotoEditor({ src, slot = null, onCancel, onDone, onReplace, onD
   };
 
   const apply = async () => {
+    if (busy) return;
     setBusy(true);
     try {
-      const img = new Image();
-      img.crossOrigin = 'anonymous';
-      img.src = src;
-      await img.decode();
+      const urls = [...new Set([canvasSafeUrl(src), src].filter(Boolean))];
+      let img;
+      let lastErr;
+      for (const url of urls) {
+        try {
+          img = await decodeImage(url);
+          break;
+        } catch (err) {
+          lastErr = err;
+        }
+      }
+      if (!img) throw lastErr || new Error('Could not load image');
       const nW = img.naturalWidth, nH = img.naturalHeight;
       const sw = Math.max(1, Math.round(frame.w * nW));
       const sh = Math.max(1, Math.round(frame.h * nH));
@@ -74,10 +96,12 @@ export function PhotoEditor({ src, slot = null, onCancel, onDone, onReplace, onD
       const ctx = canvas.getContext('2d');
       ctx.filter = filter;
       ctx.drawImage(img, frame.x * nW, frame.y * nH, frame.w * nW, frame.h * nH, 0, 0, sw, sh);
-      canvas.toBlob((b) => { onDone(URL.createObjectURL(b)); }, 'image/jpeg', 0.92);
+      const blob = await new Promise((resolve, reject) => {
+        canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('Could not export'))), 'image/jpeg', 0.92);
+      });
+      onDone(URL.createObjectURL(blob));
     } catch {
       setBusy(false);
-      onCancel();
     }
   };
 

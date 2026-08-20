@@ -576,6 +576,12 @@ export default function YourPlans() {
         monthWeeks={monthWeeksOf(routes, selected)}
         onOpenWeek={(week) => { setSelected(week); setSelectedDay(0); }}
         onCaptured={() => runGenerate('capture')}
+        onRouteChange={(route) => {
+          if (!route?._id) return;
+          setSelected((s) => (s?._id === route._id ? route : s));
+          setCurrent((c) => (c?._id === route._id ? route : c));
+          setRoutes((list) => list.map((r) => (r._id === route._id ? route : r)));
+        }}
         onBack={() => {
           setView('list');
           // Background weeks may have finished while this one was open.
