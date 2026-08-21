@@ -2,9 +2,9 @@
  * Capture conversation — Capture time only.
  *
  * Owns Capture Truth: extract strategy-neutral experience(s) from a note
- * (and optional photos), confirm splits, clarify only when meaning is missing,
- * then hand off ready captures. Strategy, Brand DNA, and competitor
- * intelligence are out of scope here.
+ * (and optional photos), split independent stories silently, clarify or deepen
+ * only when useful, then hand off ready captures. Never confirm splits with
+ * the user. Strategy, Brand DNA, and competitor intelligence are out of scope.
  */
 
 const fs = require('fs');
@@ -74,29 +74,51 @@ function parseJsonObject(raw) {
   throw lastErr || new Error('No JSON object in model response');
 }
 
+const CAPTURE_ITEM_SCHEMA = {
+  type: 'object',
+  properties: {
+    id: { type: 'string' },
+    status: { type: 'string', enum: ['ready', 'unresolved'] },
+    sourceRef: { type: 'string' },
+    originalCapture: { type: 'string' },
+    whatHappened: { type: 'string' },
+    intent: { type: 'string' },
+    tension: { type: 'string' },
+    action: { type: 'string' },
+    outcome: { type: 'string' },
+    distinctSignals: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          type: { type: 'string' },
+          summary: { type: 'string' },
+        },
+      },
+    },
+    relevantAssetContext: { type: 'array', items: { type: 'string' } },
+    visualAssetChoice: { type: 'string', enum: ['provided', 'generate', 'none'] },
+    captureSummary: { type: 'string' },
+    unresolvedGap: { type: 'string' },
+    knownLimitation: { type: 'string' },
+  },
+};
+
 const TOOL_NAME = 'record_capture_turn';
 const UNDERSTAND_TOOL = {
   name: TOOL_NAME,
-  description: 'Record this Capture Conversation turn: selection, clarification, or ready captures.',
+  description: 'Record this Capture Conversation turn: one question, or every independent ready Capture.',
   input_schema: {
     type: 'object',
     properties: {
-      status: { type: 'string', enum: ['needs_selection', 'needs_clarification', 'ready'] },
-      message: { type: 'string' },
+      status: { type: 'string', enum: ['needs_clarification', 'ready'] },
       question: { type: 'string' },
-      captureId: { type: 'string' },
       matchedProjectName: { type: 'string' },
-      candidates: {
+      captures: {
         type: 'array',
-        items: {
-          type: 'object',
-          properties: {
-            id: { type: 'string' },
-            summary: { type: 'string' },
-          },
-        },
+        description: 'Every independent Capture from the full conversation (1–10). Never merge independent observations, problems, discoveries, or ideas into one item. An information-rich note usually needs several.',
+        items: CAPTURE_ITEM_SCHEMA,
       },
-      captures: { type: 'array', items: { type: 'object' } },
     },
     required: ['status'],
   },
@@ -200,53 +222,26 @@ function mapCaptureRecord(raw, fallbackText) {
   };
 }
 
-function normalizeCandidates(raw) {
-  if (!Array.isArray(raw)) return [];
-  return raw.map((c, i) => ({
-    id: str(c?.id) || `c${i + 1}`,
-    summary: str(c?.summary),
-  })).filter((c) => c.summary).slice(0, 10);
-}
-
 function normalizeUnderstanding(parsed, { text, askedQuestion, askedAnswer }) {
   const status = str(parsed?.status).toLowerCase();
   const question = str(parsed?.question || parsed?.message);
 
-  if (status === 'needs_selection') {
-    const candidates = normalizeCandidates(parsed.candidates);
-    if (candidates.length > 1) {
-      return {
-        action: 'select',
-        question: null,
-        message: str(parsed.message) || 'Did we correctly identify the ideas you want to work with?',
-        candidates,
-        captureId: '',
-        understanding: null,
-        captures: [],
-      };
-    }
-  }
-
+  // Splits stay internal. A leftover needs_selection payload is never shown.
   if (status === 'needs_clarification' && question) {
     return {
       action: 'ask',
       question,
       message: question,
-      candidates: [],
-      captureId: str(parsed.captureId),
       understanding: null,
       captures: [],
     };
   }
 
-  // Legacy shouldAsk shape, in case a rerun still emits it.
   if (!status && (parsed?.shouldAsk || parsed?.meaningClear === false) && str(parsed?.question)) {
     return {
       action: 'ask',
       question: str(parsed.question),
       message: str(parsed.question),
-      candidates: [],
-      captureId: '',
       understanding: null,
       captures: [],
     };
@@ -264,20 +259,20 @@ function normalizeUnderstanding(parsed, { text, askedQuestion, askedAnswer }) {
     action: 'ready',
     question: null,
     message: '',
-    candidates: [],
-    captureId: '',
     matchedProjectName: str(parsed?.matchedProjectName),
     understanding,
     captures,
   };
 }
 
-function buildUserText({
-  text, projectName, attachments, turns, confirmedIds, projects,
-}) {
-  const images = (attachments || []).filter((a) => a.type === 'image');
-  const videos = (attachments || []).filter((a) => a.type === 'video');
-  const lines = ['Capture Conversation turn. Strategy is out of scope. Capture truth only.'];
+function fillPrompt(template, vars) {
+  return String(template || '').replace(/\{\{(\w+)\}\}/g, (_, key) => (
+    Object.prototype.hasOwnProperty.call(vars, key) ? String(vars[key] ?? '') : `{{${key}}}`
+  ));
+}
+
+function conversationBlock({ text, projectName, turns, projects }) {
+  const lines = [];
   if (projectName) lines.push(`Filing project (context only, not a prompt to steer): ${projectName}`);
   const names = (projects || []).map((p) => str(p.name)).filter(Boolean);
   if (names.length) {
@@ -285,30 +280,108 @@ function buildUserText({
     names.forEach((n) => lines.push(`- ${n}`));
   }
   const history = Array.isArray(turns) ? turns.filter((t) => str(t?.text)) : [];
+  const asked = history.filter((t) => String(t.role || '').toLowerCase() === 'assistant').length;
+  const longest = [str(text), ...history.filter((t) => String(t.role || '').toLowerCase() !== 'assistant').map((t) => str(t.text))]
+    .reduce((max, n) => Math.max(max, n.length), 0);
+  const rich = longest >= 1200;
+  if (asked) {
+    if (rich && asked < 3) {
+      lines.push(`Questions asked so far: ${asked} of 4. This is an information-rich input. Ask the next high-value question about a different independent idea. Do not complete yet.`);
+    } else if (asked >= 4) {
+      lines.push('Question budget reached (4). Complete now. Preserve remaining unknowns as knownLimitation.');
+    } else {
+      lines.push(`Questions asked so far: ${asked} of 4. Ask one more only if another independent idea still has an obvious unexplored thread; otherwise complete.`);
+    }
+  } else if (rich) {
+    lines.push('This is an information-rich input. After understanding the whole note, ask the first high-value question rather than completing immediately.');
+  }
   if (history.length) {
-    lines.push('');
-    lines.push('Conversation so far:');
     history.forEach((t) => {
       const who = String(t.role || '').toLowerCase() === 'assistant' ? 'Bauhly' : 'User';
       lines.push(`${who}: ${str(t.text)}`);
     });
   } else {
-    lines.push('');
-    lines.push('Latest user note:');
     lines.push(str(text) || '(no written note)');
   }
-  const confirmed = Array.isArray(confirmedIds) ? confirmedIds.map(str).filter(Boolean) : [];
-  if (confirmed.length) {
-    lines.push('');
-    lines.push(`User confirmed these ideas: ${confirmed.join(', ')}`);
-  }
-  lines.push('');
-  lines.push(`Attached assets: ${images.length} image(s), ${videos.length} video(s).`);
+  return lines.filter(Boolean).join('\n') || '(empty)';
+}
+
+function attachedAssetsBlock({ text, attachments, turns }) {
+  const images = (attachments || []).filter((a) => a.type === 'image');
+  const videos = (attachments || []).filter((a) => a.type === 'video');
+  const history = Array.isArray(turns) ? turns.filter((t) => str(t?.text)) : [];
+  const lines = [`${images.length} image(s), ${videos.length} video(s).`];
   if (videos.length && !str(text) && !history.length) {
     lines.push('Video is attached but cannot be watched here. Treat missing visual context as a possible reason to ask what the clip is about — only if the note does not already make the meaning clear.');
   }
   return lines.join('\n');
 }
+
+function assemblePrompt({
+  text, projectName, attachments, turns, projects, kind,
+}) {
+  const conversation = conversationBlock({ text, projectName, turns, projects });
+  const attachedAssets = attachedAssetsBlock({ text, attachments, turns });
+  let template = loadPrompt();
+  if (kind === 'checkin') {
+    const extras = fs.readFileSync(path.join(__dirname, '..', '..', 'prompts', 'checkin-understand-prompt.md'), 'utf8');
+    template = template.includes('## Conversation so far')
+      ? template.replace('## Conversation so far', `${extras}\n\n## Conversation so far`)
+      : `${template}\n\n${extras}`;
+  }
+  return fillPrompt(template, { conversation, attachedAssets });
+}
+
+function captureMaxTokens() {
+  const n = Number(process.env.CAPTURE_MAX_TOKENS);
+  return Number.isFinite(n) && n > 0 ? n : 16384;
+}
+
+function longestUserNote(text, turns) {
+  const notes = [str(text)];
+  (turns || []).forEach((t) => {
+    if (String(t?.role || '').toLowerCase() !== 'assistant') notes.push(str(t?.text));
+  });
+  return notes.reduce((max, n) => Math.max(max, n.length), 0);
+}
+
+function collapsedRichInput(parsed, text, turns) {
+  if (str(parsed?.status).toLowerCase() !== 'ready') return false;
+  const n = Array.isArray(parsed?.captures) ? parsed.captures.length : 0;
+  return n <= 1 && longestUserNote(text, turns) >= 1200;
+}
+
+function assistantQuestionCount(turns) {
+  return (turns || []).filter((t) => String(t?.role || '').toLowerCase() === 'assistant' && str(t?.text)).length;
+}
+
+function endedTooSoon(parsed, text, turns) {
+  if (str(parsed?.status).toLowerCase() !== 'ready') return false;
+  if (longestUserNote(text, turns) >= 1200 && assistantQuestionCount(turns) < 3) return true;
+  return false;
+}
+
+const USER_JSON_INSTRUCTION = [
+  'Return one JSON object with status needs_clarification or ready.',
+  'On an information-rich note with several independent ideas, ask 3–4 short follow-up questions (one per turn) across different ideas before ready.',
+  'If the user gave several independent observations, problems, discoveries, decisions, or ideas, ready.captures must contain all of them.',
+  'Never merge those into a single Capture summary of the whole message.',
+].join(' ');
+
+const CONTINUE_QUESTIONS_HINT = [
+  'Do not complete yet.',
+  'This information-rich input still has independent ideas that have not been followed up.',
+  'Return status needs_clarification with captures [] and ONE short contextual question about a different independent idea than the last question.',
+  'Do not mention story numbers or that you are splitting.',
+].join(' ');
+
+const SPLIT_RETRY_HINT = [
+  'The previous JSON collapsed an information-rich note into one Capture.',
+  'Re-read the entire conversation.',
+  'Return status ready with captures[] containing every independent observation, problem, discovery, decision, or idea.',
+  'Shared research, shared topic, or a later connecting conclusion does not make them one Capture.',
+  'originalCapture for each item must be only that item\'s source words, not the whole message.',
+].join(' ');
 
 async function imageContentParts(attachments) {
   if (!isS3Configured()) return [];
@@ -343,7 +416,6 @@ async function understandCapture(input = {}) {
   const askedAnswer = str(input.askedAnswer);
   const projectName = str(input.projectName);
   const turns = Array.isArray(input.turns) ? input.turns : [];
-  const confirmedIds = Array.isArray(input.confirmedIds) ? input.confirmedIds : [];
   const projects = Array.isArray(input.projects) ? input.projects : [];
   const kind = str(input.kind) || 'capture';
 
@@ -353,12 +425,10 @@ async function understandCapture(input = {}) {
     throw err;
   }
 
-  const userText = buildUserText({
-    text, projectName, attachments, turns, confirmedIds, projects,
+  const systemPrompt = assemblePrompt({
+    text, projectName, attachments, turns, projects, kind,
   });
-  const systemPrompt = kind === 'checkin'
-    ? `${loadPrompt()}\n\n${fs.readFileSync(path.join(__dirname, '..', '..', 'prompts', 'checkin-understand-prompt.md'), 'utf8')}`
-    : loadPrompt();
+  const userText = USER_JSON_INSTRUCTION;
   const debugSource = kind === 'checkin' ? 'Check-in conversation' : 'Capture conversation';
   const ctx = { text, askedQuestion, askedAnswer };
 
@@ -384,18 +454,28 @@ async function understandCapture(input = {}) {
     ...imageParts,
     { type: 'text', text: userText },
   ];
+  const callOpts = {
+    model,
+    system: systemPrompt,
+    userParts,
+    tool: UNDERSTAND_TOOL,
+    maxTokens: captureMaxTokens(),
+    retryHint: 'The previous JSON was invalid. Return only one JSON object with status needs_clarification or ready. If several independent stories exist, include all of them in captures.',
+  };
 
   let parsed;
   let rawOutput = '';
   let usedSystem = systemPrompt;
   try {
-    const done = await completeToolCall({
-      model,
-      system: systemPrompt,
-      userParts,
-      tool: UNDERSTAND_TOOL,
-      retryHint: 'The previous JSON was invalid. Return only one JSON object with status needs_selection, needs_clarification, or ready.',
-    });
+    let done = await completeToolCall(callOpts);
+    if (endedTooSoon(done.parsed, text, turns)) {
+      console.warn(`[${kind}] completed after ${assistantQuestionCount(turns)} question(s) on rich input — asking again`);
+      done = await completeToolCall({ ...callOpts, extraUserText: CONTINUE_QUESTIONS_HINT });
+    }
+    if (collapsedRichInput(done.parsed, text, turns)) {
+      console.warn(`[${kind}] collapsed rich input into ${done.parsed?.captures?.length || 0} capture(s) — retrying split`);
+      done = await completeToolCall({ ...callOpts, extraUserText: SPLIT_RETRY_HINT });
+    }
     parsed = done.parsed;
     rawOutput = done.output || '';
     if (done.system) usedSystem = done.system;
@@ -503,8 +583,6 @@ function makeUnderstandDebug({ source, model, systemPrompt, prompt, result, pars
     action: result.action,
     question: result.question,
     message: result.message,
-    candidates: result.candidates,
-    captureId: result.captureId,
     understanding: result.understanding,
     captures: result.captures,
   };

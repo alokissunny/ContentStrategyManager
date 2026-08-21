@@ -96,6 +96,7 @@ function briefFieldsOf(b) {
   const lens = String(b.lens || b.pillar || '').toLowerCase();
   return {
     source: b.source || '',
+    captureId: optionalText(b.captureId),
     angle: b.angle || '',
     verifiedTruth: stringList(b.verifiedTruth),
     uniqueJob: optionalText(b.uniqueJob),
@@ -201,14 +202,13 @@ async function callAgent({ source, kind, prompt, validate }) {
   throw new Error(`${source} failed after ${maxAttempts} attempts: ${lastErr?.message || 'unknown error'}`);
 }
 
-function validateStrategist(parsed, emptyDates) {
+function validateStrategist(parsed) {
   if (!parsed?.focus || typeof parsed.focus !== 'object') throw new Error('missing focus');
   const briefs = Array.isArray(parsed.briefs)
     ? parsed.briefs
     : (Array.isArray(parsed.plannedDays) ? parsed.plannedDays : null);
   if (!Array.isArray(briefs)) throw new Error('missing briefs');
-  const max = Array.isArray(emptyDates) ? emptyDates.length : 31;
-  parsed.briefs = briefs.slice(0, max).map(briefFieldsOf);
+  parsed.briefs = briefs.map(briefFieldsOf);
   parsed.plannedDays = parsed.briefs;
 }
 
@@ -241,14 +241,15 @@ async function runMultiAgentPlan({
   console.log(
     `[planOrchestrator] multi-agent plan for @${username} · focus=${ctx.authority.priority}` +
       ` · emptyMonthDays=${emptyDates.length}` +
+      ` · conversationCaptures=${(ctx.projects?.conversationCaptures || []).length}` +
       ` · brand=${ctx.versions.brand} · competitor=${ctx.versions.competitor}`,
   );
 
   // ── 1. Strategist ────────────────────────────────────────────────────────
   const strategistPrompt = fillTemplate(loadPrompt('plan-strategist.md'), {
     LIMITS_JSON: json({
-      maxBriefs: emptyDates.length,
       month: ctx.calendar.month,
+      planFrom: 'every conversationCaptures item; produce Discovery, Credibility, and Trust briefs per capture when genuinely supported',
     }),
     OCCUPIED_TOPICS_JSON: json(ctx.calendar.occupiedTopics || []),
     AUTHORITY_JSON: json(ctx.authority),
@@ -269,7 +270,7 @@ async function runMultiAgentPlan({
     source: 'Strategist',
     kind: 'strategist',
     prompt: strategistPrompt,
-    validate: (p) => validateStrategist(p, emptyDates),
+    validate: (p) => validateStrategist(p),
   });
   debugAgents.push(strategist.debugEntry);
   usages.push(strategist.usage);
@@ -294,19 +295,23 @@ async function runMultiAgentPlan({
     objective: optionalText(strategist.parsed.focus?.objective),
     headline: optionalText(strategist.parsed.focus?.headline),
   });
+  const conversationCaptures = Array.isArray(ctx.projects?.conversationCaptures)
+    ? ctx.projects.conversationCaptures : [];
   const lastThree = Array.isArray(ctx.projects?.lastThree) ? ctx.projects.lastThree : [];
   const noteCount = lastThree.filter((c) => c.text).length;
   const shownCount = lastThree.reduce((n, c) => n + (c.shown || []).length, 0);
-  const latest = ctx.projects?.latestCapture?.text
-    ? String(ctx.projects.latestCapture.text).slice(0, 80)
-    : '';
+  const latest = conversationCaptures[0]?.captureSummary
+    || conversationCaptures[0]?.whatHappened
+    || ctx.projects?.latestCapture?.text
+    || '';
   const whyEmpty = String(strategist.parsed.constraints?.insufficientContext || '').trim();
 
   if (plannedDays.length === 0) {
     console.log(
       `[planOrchestrator] @${username}: strategist planned 0 days` +
+        ` · conversationCaptures=${conversationCaptures.length}` +
         ` · lastThree=${noteCount} shownPhotos=${shownCount}` +
-        (latest ? ` · latest=${JSON.stringify(latest)}` : '') +
+        (latest ? ` · latest=${JSON.stringify(String(latest).slice(0, 80))}` : '') +
         (whyEmpty ? ` · insufficientContext=${JSON.stringify(whyEmpty)}` : '') +
         ` — skipping day writers`,
     );
@@ -323,6 +328,7 @@ async function runMultiAgentPlan({
         pillar: planned.pillar,
         lens: planned.lens || planned.pillar,
         source: planned.source || '',
+        captureId: planned.captureId || '',
         angle: planned.angle || '',
         verifiedTruth: planned.verifiedTruth || [],
         uniqueJob: planned.uniqueJob || '',

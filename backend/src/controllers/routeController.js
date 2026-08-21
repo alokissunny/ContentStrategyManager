@@ -302,11 +302,15 @@ async function loadProjectAssets(userId, username) {
         }
       }
       const note = captureNoteForPlan(c);
-      if (note || captureAssets.length) {
+      if (note || captureAssets.length || c.understanding) {
         notes.push({
+          id: c._id ? String(c._id) : '',
           text: note,
           createdAt: c.createdAt || null,
           assets: captureAssets,
+          understanding: c.understanding && typeof c.understanding.toObject === 'function'
+            ? c.understanding.toObject()
+            : (c.understanding || null),
         });
       }
     }
@@ -362,7 +366,7 @@ async function loadMonthRoutes(userId, username, monthDate) {
   const monthStart = new Date(year, month, 1);
   const monthEnd = new Date(year, month + 1, 1);
   const lookFrom = addDays(monthStart, -7);
-  const lookTo = addDays(monthEnd, 7);
+  const lookTo = addDays(monthEnd, 70);
   return WeeklyRoute.find({
     user: userId,
     instagramUsername: username,
@@ -406,6 +410,10 @@ function weekRangeLabel(monday) {
   return `${fmt(monday)} – ${fmt(sunday)}`;
 }
 
+function monthIndexOf(monday, now = new Date()) {
+  return (monday.getFullYear() - now.getFullYear()) * 12 + (monday.getMonth() - now.getMonth());
+}
+
 async function mergeNewDaysIntoWeeks(userId, username, plan, existingRoutes) {
   const buckets = new Map();
   const todayIso = isoDate(new Date());
@@ -445,7 +453,7 @@ async function mergeNewDaysIntoWeeks(userId, username, plan, existingRoutes) {
     saved.push(await saveWeek(userId, username, weekPlan, {
       monthKey: existing?.monthKey || monthLabelOf(monday),
       monthName: existing?.monthName || monthNameOf(monday),
-      monthIndex: existing?.monthIndex ?? 0,
+      monthIndex: existing?.monthIndex ?? Math.max(0, monthIndexOf(monday)),
       weekIndex: existing?.weekIndex ?? weekIndexInMonth(monday),
       startsAt: existing?.startsAt || monday,
       readyAt: existing?.readyAt || addDays(monday, -PREP_DAYS),
@@ -481,6 +489,15 @@ async function finishNextMonthStubs(userId, profile, { monthFocus, month1Start }
   await Promise.all(
     Array.from({ length: NEXT_MONTH_STUBS }, async (_, w) => {
       const weekDate = addDays(month1Start, 7 * w);
+      const { start, end } = weekLookupWindow(weekDate);
+      const existing = await WeeklyRoute.findOne({
+        user: userId,
+        instagramUsername: username,
+        weekOf: { $gte: start, $lt: end },
+      }).sort({ generatedAt: -1 });
+      if (existing && (existing.draft === false || (existing.days || []).some(dayHasContent))) {
+        return existing;
+      }
       const sunday = addDays(weekDate, 6);
       await saveWeek(userId, username, {
         weekOf: weekDate,
@@ -494,9 +511,9 @@ async function finishNextMonthStubs(userId, profile, { monthFocus, month1Start }
   );
 }
 
-// Fill the next empty calendar days of this month from studio notes/assets.
-// Does not replace days that already have content. Returns the first week
-// that received new posts (or the current written week if nothing was added).
+// Fill empty calendar days from today onward from studio notes/assets.
+// Extra posts continue into the next month. Does not replace days that already
+// have content. Returns the first week that received new posts.
 async function generateAndSaveRoute(userId, profile, trigger = 'generate') {
   await logPlanInstagramSource(userId, profile, trigger);
 

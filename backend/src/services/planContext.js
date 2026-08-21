@@ -152,12 +152,51 @@ function compileAuthority(focusSummary) {
   };
 }
 
-const RECENT_CAPTURES = 3;
+const RECENT_CAPTURES = 10;
+const SESSION_WINDOW_MS = 24 * 60 * 60 * 1000;
 
 function noteText(n) {
   if (!n) return '';
   if (typeof n === 'string') return n;
   return n.text || '';
+}
+
+function signalsOf(u) {
+  if (!Array.isArray(u?.distinctSignals)) return [];
+  return u.distinctSignals
+    .map((s) => ({
+      type: clip(s?.type, 24),
+      summary: clip(s?.summary, 220),
+    }))
+    .filter((s) => s.type || s.summary)
+    .slice(0, 8);
+}
+
+function asUnderstanding(u) {
+  if (!u || typeof u !== 'object') return {};
+  if (typeof u.toObject === 'function') return u.toObject();
+  return u;
+}
+
+function conversationCaptureOf(n) {
+  const u = asUnderstanding(n.understanding);
+  return {
+    id: n.id || '',
+    project: n.project,
+    originalCapture: clip(u.originalCapture || n.text, 1200),
+    whatHappened: clip(u.happened || u.whatHappened, 500),
+    intent: clip(u.intent, 320),
+    tension: clip(u.difficulty || u.tension, 320),
+    action: clip(u.actionTaken || u.action, 320),
+    outcome: clip(u.outcome, 320),
+    captureSummary: clip(u.summary || u.captureSummary, 500),
+    distinctSignals: signalsOf(u),
+    unresolvedGap: clip(u.missingPiece || u.unresolvedGap, 240),
+    knownLimitation: clip(u.knownLimitation, 240),
+    visualAssetChoice: clip(u.visualAssetChoice, 24),
+    status: clip(u.captureStatus || u.status, 24),
+    shown: n.shown || [],
+  };
 }
 
 /** Newest captures first, across every project — never the full archive. */
@@ -168,13 +207,15 @@ function recentCapturesOf(projects, limit = RECENT_CAPTURES) {
       const text = clip(noteText(n), 280);
       const assets = (n && n.assets) || [];
       const shown = assets.map((a) => assetOneLiner(a)).filter(Boolean);
-      if (!text && !shown.length) continue;
+      if (!text && !shown.length && !n.understanding) continue;
       all.push({
+        id: n.id || '',
         project: p.name,
         text,
         createdAt: n.createdAt || null,
         shown: shown.slice(0, 4),
         assets,
+        understanding: n.understanding || null,
       });
     }
   }
@@ -182,15 +223,31 @@ function recentCapturesOf(projects, limit = RECENT_CAPTURES) {
   return all.slice(0, limit);
 }
 
+function conversationSessionOf(rows) {
+  if (!rows.length) return [];
+  const newest = new Date(rows[0].createdAt || 0).getTime();
+  if (!newest) return rows.slice(0, 10);
+  return rows.filter((c) => {
+    const t = new Date(c.createdAt || 0).getTime();
+    return t && Math.abs(newest - t) <= SESSION_WINDOW_MS;
+  }).slice(0, 10);
+}
+
 function compileProjectTruth(projects) {
-  const lastThree = recentCapturesOf(projects).map((c, i) => ({
+  const recent = recentCapturesOf(projects, 10);
+  const session = conversationSessionOf(recent);
+  const conversationCaptures = (session.length ? session : recent.slice(0, 3))
+    .map(conversationCaptureOf)
+    .filter((c) => c.originalCapture || c.whatHappened || c.captureSummary);
+  const lastThree = recent.slice(0, 3).map((c, i) => ({
     project: c.project,
     text: c.text,
     shown: c.shown,
     planFromThis: i === 0,
   }));
   return {
-    latestCapture: lastThree[0] || null,
+    conversationCaptures,
+    latestCapture: conversationCaptures[0] || lastThree[0] || null,
     lastThree,
   };
 }

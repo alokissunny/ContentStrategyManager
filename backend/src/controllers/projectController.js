@@ -333,8 +333,8 @@ async function analyzeProject(req, res) {
 
 // ── Capture-time understanding ─────────────────────────────────────────────
 // POST /projects/captures/understand
-// Capture Conversation: confirm distinct ideas, clarify only when meaning is
-// missing, then hand off ready captures. Never blocks filing if the model is down.
+// Capture Conversation: split independent stories silently, clarify or deepen
+// only when useful, then hand off ready captures. Never blocks filing if the model is down.
 async function understandDraft(req, res) {
   const text = (req.body.text || '').trim();
   const attachments = sanitizeAttachments(req.body.attachments, req.user._id);

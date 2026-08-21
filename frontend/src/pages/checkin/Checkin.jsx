@@ -6,8 +6,8 @@
  * week or a month (Leon, July 30).
  *
  * After the studio speaks, understanding decides the next turn — the same
- * Capture Conversation agent as Projects: confirm distinct ideas, ask only
- * when meaning is missing, then file.
+ * Capture Conversation agent as Projects: split independent stories silently,
+ * ask only when meaning is missing or depth is worth it, then file.
  */
 
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -27,8 +27,8 @@ export default function Checkin({ projects, filingProjects, week, name, lastWeek
   const ctx = useRef({
     path: null, projectId: null, projectName: null, custom: null, followup: 0,
     understanding: null, askedQuestion: '', askedAnswer: '',
-    attachments: [], askForAssets: null,
-    turns: [], confirmedIds: [], candidates: [],
+    attachments: [], askForAssets: null, awaitingAssets: false,
+    turns: [],
   });
   const endRef = useRef(null);
   const threadRef = useRef(null);
@@ -286,7 +286,6 @@ export default function Checkin({ projects, filingProjects, week, name, lastWeek
         attachments: attachmentPayload(),
         projects: projectPayload(),
         turns,
-        confirmedIds: ctx.current.confirmedIds || [],
       });
     } catch {
       return {
@@ -350,21 +349,21 @@ export default function Checkin({ projects, filingProjects, week, name, lastWeek
   const afterUnderstood = (result) => {
     if (result?.understanding) ctx.current.understanding = result.understanding;
     if (Array.isArray(result?.captures) && result.captures.length) {
+      ctx.current.understandings = result.captures;
       ctx.current.understanding = result.captures[0];
-    }
-    if (result?.action === 'select' && (result.candidates || []).length) {
-      ctx.current.candidates = result.candidates;
-      const line = result.message || 'Did we correctly identify the ideas you want to work with?';
-      ctx.current.turns = [...(ctx.current.turns || []), { role: 'assistant', text: line }];
-      const d = say(line);
-      after(d, () => setStep('selectIdeas'));
-      return false;
     }
     if (result?.action === 'ask' && result.question) {
       ctx.current.askedQuestion = result.question;
       ctx.current.turns = [...(ctx.current.turns || []), { role: 'assistant', text: result.question }];
       const d = say(result.question);
-      after(d, () => setStep('clarify'));
+      const assetAsk = /\b(photo|photos|picture|pictures|image|images|visual|visuals|clip|clips|upload|generat)/i.test(result.question)
+        && !(ctx.current.attachments || []).length;
+      if (assetAsk) {
+        ctx.current.awaitingAssets = true;
+        after(d, () => setStep('captureAssets'));
+      } else {
+        after(d, () => setStep('clarify'));
+      }
       return false;
     }
     continueAfterIdea(result);
@@ -421,14 +420,16 @@ export default function Checkin({ projects, filingProjects, week, name, lastWeek
     }
   };
 
-  const confirmCandidates = async (ids, spoken) => {
+  const answerCaptureAssets = async (kind) => {
+    if (kind === 'upload') return;
     setStep('boot');
-    const line = spoken || (ids.length ? `Work with: ${ids.join(', ')}` : "It's one idea");
-    userSays(line);
-    ctx.current.confirmedIds = ids;
+    const spoken = kind === 'generate' ? 'Generate visuals' : 'No photos';
+    userSays(spoken);
+    ctx.current.awaitingAssets = false;
+    ctx.current.askForAssets = false;
     setBusy(true);
     try {
-      afterUnderstood(await runUnderstand({ extraTurn: { role: 'user', text: line } }));
+      afterUnderstood(await runUnderstand({ extraTurn: { role: 'user', text: spoken } }));
     } catch {
       continueAfterIdea(null);
     } finally {
@@ -777,16 +778,22 @@ export default function Checkin({ projects, filingProjects, week, name, lastWeek
     urls.current.push(preview);
     setStep('boot');
     setBusy(true);
+    const fromAssetAsk = ctx.current.awaitingAssets;
     try {
       const added = await uploadFiles(files);
       ctx.current.attachments = [...(ctx.current.attachments || []), ...added];
       ctx.current.hasUpload = true;
       push({ from: 'user', image: added[0]?.url || preview });
+      if (fromAssetAsk) {
+        ctx.current.awaitingAssets = false;
+        afterUnderstood(await runUnderstand({ extraTurn: { role: 'user', text: 'I uploaded photos of this.' } }));
+        return;
+      }
       const d = say([CHECKIN.uploadAck, CHECKIN.uploadNoteQ]);
       after(d, () => setStep('photoNote'));
     } catch {
       const d = say("That upload didn't go through — want to try again?");
-      after(d, () => setStep('more'));
+      after(d, () => setStep(fromAssetAsk ? 'captureAssets' : 'more'));
     } finally {
       setBusy(false);
     }
@@ -918,6 +925,7 @@ export default function Checkin({ projects, filingProjects, week, name, lastWeek
         notes: [...(c.uploadNote ? [c.uploadNote] : []), ...(c.notes || [])],
         attachments: c.attachments || [],
         understanding: c.understanding || null,
+        understandings: c.understandings || [],
       });
     });
   };
@@ -1017,29 +1025,23 @@ export default function Checkin({ projects, filingProjects, week, name, lastWeek
             {CHECKIN.clarifySkip}
           </button>,
         );
-      case 'selectIdeas': {
-        const all = ctx.current.candidates || [];
+      case 'captureAssets':
         return (
           <>
-            <button className="ck-chip ck-chip--primary" onClick={() => confirmCandidates(all.map((c) => c.id), 'Yes, those are the ideas')}>
-              Those are the ideas
+            <label className="ck-chip ck-chip--primary">
+              <input type="file" accept="image/*,video/*" hidden onChange={handleUpload} />
+              <Icon name="image" size={14} />
+              Upload a photo
+            </label>
+            <button className="ck-chip" onClick={() => answerCaptureAssets('generate')}>
+              <Icon name="sparkle" size={14} />
+              Generate visuals
             </button>
-            <button className="ck-chip" onClick={() => confirmCandidates([], "It's one idea")}>
-              It’s one idea
+            <button className="ck-chip ck-chip--ghost" onClick={() => answerCaptureAssets('none')}>
+              Nothing right now
             </button>
-            {all.map((c) => (
-              <button key={c.id} className="ck-chip" onClick={() => confirmCandidates([c.id], c.summary)}>
-                {c.summary}
-              </button>
-            ))}
           </>
         );
-      }
-      /* naming is not a wall (Leon, July 30): a blank field and one button meant a
-        * studio who hadn't decided on a name couldn't finish the check-in. Bauhly
-        * will name it from what the conversation was about, and if there are older
-        * projects on file, one of those can take it instead. */
-      /* the same shape as the photo's note: type it, or say there is nothing */
       case 'moreNote':
         return textField(
           'Add it',

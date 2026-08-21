@@ -12,6 +12,7 @@ Do not change:
 
 * pillar / lens
 * source
+* captureId
 * angle
 * verifiedTruth
 * uniqueJob
@@ -351,7 +352,7 @@ Output only the JSON block.
 
 ## Brief
 
-Locked strategist output: pillar, lens, source, angle, verifiedTruth, uniqueJob, centralFact, ownedTerritory, doNotRepeat, format, narrativeUnits, approvedGenerationRoute, knownLimitation, hashtags, recommendedTime.
+Locked strategist output: pillar, lens, source, captureId, angle, verifiedTruth, uniqueJob, centralFact, ownedTerritory, doNotRepeat, format, narrativeUnits, approvedGenerationRoute, knownLimitation, hashtags, recommendedTime.
 
 {{DAY_JSON}}
 

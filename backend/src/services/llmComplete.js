@@ -137,7 +137,8 @@ async function completeOpenAIJson({ model, system, userParts, tool, maxTokens, e
   });
   const text = response.choices?.[0]?.message?.content || '';
   if (!String(text).trim()) throw new Error('Empty model response');
-  return { parsed: parseToolArgs(text), model, output: text, system: sys };
+  const choice = response.choices?.[0] || {};
+  return { parsed: parseToolArgs(text), model, output: text, system: sys, finishReason: choice.finish_reason || '' };
 }
 
 function extractOpenAIToolInput(response, toolName) {
@@ -212,6 +213,7 @@ async function completeToolCall({
   tool,
   maxTokens = 8192,
   retryHint = '',
+  extraUserText = '',
 }) {
   const resolved = model || conversationModel();
   const name = tool.name;
@@ -219,15 +221,19 @@ async function completeToolCall({
   // gpt-5.6-terra (and similar reasoning models) cannot use function tools on
   // /v1/chat/completions. Ask for the same schema as JSON instead.
   if (isOpenAIModel(resolved)) {
+    const run = (tokens, extra) => completeOpenAIJson({
+      model: resolved, system, userParts, tool, maxTokens: tokens, extraUserText: extra,
+    });
     try {
-      return await completeOpenAIJson({
-        model: resolved, system, userParts, tool, maxTokens,
-      });
+      let done = await run(maxTokens, extraUserText);
+      if (done.finishReason === 'length') {
+        const next = Math.min(Math.max(maxTokens, 1) * 2, 64000);
+        if (next > maxTokens) done = await run(next, extraUserText);
+      }
+      return done;
     } catch (err) {
       if (!retryHint) throw err;
-      return completeOpenAIJson({
-        model: resolved, system, userParts, tool, maxTokens, extraUserText: retryHint,
-      });
+      return run(maxTokens, retryHint);
     }
   }
 

@@ -153,11 +153,17 @@ function resolveDayDate(weekMonday, day) {
 }
 
 /**
- * Calendar-month occupancy: which dates already have a post, and the empty
- * dates that new grounded content should fill next (earliest remaining first).
- * Today and past days are not fillable — new posts go on free slots after today,
- * never packed from Monday of the week.
+ * Fillable dates after today, skipping days that already have a post.
+ * Walks past the current month so extra briefs can land in the next month.
  */
+const FILL_HORIZON_DAYS = Number(process.env.PLAN_FILL_HORIZON_DAYS) || 90;
+
+function addDays(date, n) {
+  const d = new Date(date);
+  d.setDate(d.getDate() + n);
+  return d;
+}
+
 function buildMonthCalendar({ monthDate = new Date(), routes = [], fromDate } = {}) {
   const year = monthDate.getFullYear();
   const month = monthDate.getMonth();
@@ -169,19 +175,30 @@ function buildMonthCalendar({ monthDate = new Date(), routes = [], fromDate } = 
     for (const d of route.days || []) {
       if (!dayHasContent(d)) continue;
       const dt = resolveDayDate(monday, d);
-      if (!dt || dt.getMonth() !== month || dt.getFullYear() !== year) continue;
+      if (!dt) continue;
       occupiedByIso.set(isoDate(dt), d.title || '');
     }
   }
   const occupied = [];
-  const emptyDates = [];
   for (let n = 1; n <= last; n += 1) {
     const dt = new Date(year, month, n);
     const iso = isoDate(dt);
     const day = weekdayName(dt);
     const slot = { date: iso, dayOfMonth: n, day, pillar: WEEKDAY_PILLAR[day] };
     if (occupiedByIso.has(iso)) occupied.push({ ...slot, title: occupiedByIso.get(iso) });
-    else if (dt > today) emptyDates.push(slot);
+  }
+  const emptyDates = [];
+  for (let i = 1; i <= FILL_HORIZON_DAYS; i += 1) {
+    const dt = addDays(today, i);
+    const iso = isoDate(dt);
+    if (occupiedByIso.has(iso)) continue;
+    const day = weekdayName(dt);
+    emptyDates.push({
+      date: iso,
+      dayOfMonth: dt.getDate(),
+      day,
+      pillar: WEEKDAY_PILLAR[day],
+    });
   }
   return {
     month: monthDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' }),
@@ -201,6 +218,7 @@ function assignToEmptyDates(plannedDays, emptyDates) {
     const pillar = PILLAR_ORDER.includes(lens) ? lens : slot.pillar;
     return {
       source: p.source || '',
+      captureId: p.captureId || '',
       angle: p.angle || '',
       verifiedTruth: Array.isArray(p.verifiedTruth) ? p.verifiedTruth : [],
       uniqueJob: p.uniqueJob || '',
@@ -437,21 +455,31 @@ function scoreAssetForWords(words, kw) {
 // a content description from AI analysis — that it can assign to slides. Kept
 // compact so the prompt stays within context.
 function renderProjectAssets(projects) {
-  const recent = recentCapturesOf(projects);
+  const recent = recentCapturesOf(projects, 10);
   if (!recent.length) {
     return 'No project assets on file yet. Keep posts specific to the niche but do not invent named projects or claim photos exist.';
   }
   const lines = [
-    'Only the last 3 captures (newest first). Plan from the first one (`latest`).',
-    'Do not use older project archive.',
+    'Conversation captures (newest first). Plan from EVERY item — produce genuine Discovery, Credibility, and Trust posts for each capture when it supports them. Do not plan from only the first item. Do not use older project archive.',
   ];
   recent.forEach((c, i) => {
-    const tag = i === 0 ? 'latest — plan from this' : 'context only';
-    lines.push(`### ${c.project} (${tag})`);
-    if (c.text) lines.push(`- ${c.text}`);
-    if (c.shown?.length) {
-      c.shown.forEach((s) => lines.push(`- photo: ${s}`));
-    }
+    const u = c.understanding && typeof c.understanding === 'object' ? c.understanding : {};
+    lines.push(`### Capture ${c.id || i + 1} — ${c.project}`);
+    const summary = u.summary || u.captureSummary || c.text;
+    if (summary) lines.push(`- summary: ${summary}`);
+    const happened = u.happened || u.whatHappened;
+    if (happened) lines.push(`- whatHappened: ${happened}`);
+    if (u.intent) lines.push(`- intent: ${u.intent}`);
+    if (u.difficulty || u.tension) lines.push(`- tension: ${u.difficulty || u.tension}`);
+    if (u.actionTaken || u.action) lines.push(`- action: ${u.actionTaken || u.action}`);
+    if (u.outcome) lines.push(`- outcome: ${u.outcome}`);
+    const signals = Array.isArray(u.distinctSignals) ? u.distinctSignals : [];
+    signals.slice(0, 8).forEach((s) => {
+      const line = [s?.type, s?.summary].filter(Boolean).join(': ');
+      if (line) lines.push(`- signal: ${line}`);
+    });
+    if (u.knownLimitation) lines.push(`- do not invent: ${u.knownLimitation}`);
+    if (c.shown?.length) c.shown.forEach((s) => lines.push(`- photo: ${s}`));
     (c.assets || []).forEach((a) => {
       if (a?.key) lines.push(`- assetKey: ${a.key} — ${describeAsset(a)}`);
     });
@@ -869,7 +897,7 @@ async function generateWeeklyPlan(profile, brandDna, competitorInsights = null, 
   );
 
   if (monthCalendar.emptyDates.length === 0) {
-    console.log(`[weeklyPlan] @${snapshot.username}: month is full — no empty days to fill`);
+    console.log(`[weeklyPlan] @${snapshot.username}: no empty days in the fill horizon — nothing to fill`);
     return {
       weekOf,
       weekLabel,
@@ -878,7 +906,7 @@ async function generateWeeklyPlan(profile, brandDna, competitorInsights = null, 
         pillar: focusPillar,
         headline: 'Month already filled',
         hypothesis: '',
-        recommendation: `Every day in ${monthCalendar.month} already has content. Capture a new idea next month, or clear a day first.`,
+        recommendation: `No empty days left in the next few months. Clear a day first, or wait until a planned day is past.`,
         whyMatters: '',
         observation: '',
       },

@@ -1,6 +1,6 @@
 # Monthly Strategist
 
-Generate strategically resolved post briefs from truthful captures. Each brief is **one source + one genuine Discovery/Credibility/Trust angle**. Day writers turn briefs into posts.
+Generate strategically resolved post briefs from truthful captures. Each brief is **one source + one genuine Discovery/Credibility/Trust angle**. A capture may yield **more than one brief per lens** when it has enough distinct content. Day writers turn briefs into posts.
 
 Do **not** pick dates, write captions/final copy, or invent facts.
 
@@ -16,21 +16,25 @@ Later inputs may prioritize or frame truth, never rewrite it.
 
 ## Capture Strategy
 
-Plan from `latestCapture` first.
+Plan from `conversationCaptures`. These are Capture Conversation records — already strategy-neutral source truth.
 
-* Its note and described photos are verified source material; photo counts alone are not.
-* Use `lastThree` only when the latest capture has no usable material or its genuine opportunities are exhausted.
+* Do **not** plan from a single `latestCapture` while other conversation captures exist.
+* Plan from **every** item in `conversationCaptures`.
+* Verified source material for each item: `originalCapture`, `whatHappened`, `intent`, `tension`, `action`, `outcome`, `distinctSignals`, `captureSummary`, described photos (`shown`). Photo counts alone are not evidence.
+* Empty fields are unknown. Never invent facts, outcomes, decisions, motivations, expertise, or reactions to fill them.
+* Honour `knownLimitation` and `unresolvedGap` — never complete those gaps.
 * Never mix facts between captures.
-* Never infer missing facts, outcomes, decisions, motivations, expertise, or reactions.
-* Prefer recent captures, but do not force the latest capture into an unsuitable lens just to satisfy the Authority gap.
+* Use `lastThree` only when `conversationCaptures` is empty.
 
-For each usable capture:
+For **each** capture in `conversationCaptures`:
 
-1. Understand the verified facts and meaningful content signals.
-2. Test **Discovery, Credibility, and Trust independently**.
-3. Find the strongest truthful reading for each lens.
-4. Keep every genuinely supported and distinct angle, capped at `maxBriefs`.
-5. Reject unsupported or repetitive angles.
+1. Read its verified fields and `distinctSignals`.
+2. Test **Discovery, Credibility, and Trust independently** against that capture only.
+3. Produce a brief for every lens the capture genuinely supports. A capture with enough distinct content may produce **more than one brief per lens**.
+4. If a lens is not honestly supported, skip it — do not invent a D/C/T set.
+5. Keep every genuinely supported, distinct angle. Do not invent a second angle in the same lens by rewording the same idea.
+
+When several captures exist, cover D/C/T for each capture before adding extra same-lens angles. Rank by `Authority.priority`, then by how distinct and well-supported the angle is.
 
 A failed angle does not automatically make a lens unavailable: first check whether the **same verified facts can perform a genuinely different narrative job without adding facts**.
 
@@ -46,13 +50,13 @@ A failed angle does not automatically make a lens unavailable: first check wheth
 
 Use it to **rank valid opportunities**, never to force an unsupported lens.
 
-When several truthful angles exist, recommend the priority lens first while preserving other valid angles.
+When several truthful angles exist — including several in the same lens — recommend the priority lens first while preserving other valid, distinct angles.
 
 ---
 
 ## Sibling Differentiation
 
-Multiple briefs from the same capture must be genuinely different posts.
+Multiple briefs from the same capture must be genuinely different posts — including two briefs that share the same lens.
 
 Different wording is **not** differentiation.
 
@@ -65,7 +69,7 @@ Give siblings different:
 
 Do not use the same fact in the same narrative role across siblings unless required for comprehension.
 
-If two briefs would still feel like the same post after removing their lens labels, rewrite or remove the weaker one.
+Same-lens siblings are allowed only when each has its own distinct job. If two briefs would still feel like the same post after removing their lens labels, rewrite or remove the weaker one.
 
 ---
 
@@ -154,8 +158,9 @@ Return **only** a fenced ```json block:
   },
   "briefs": [
     {
-      "source": "specific capture note/photo — one phrase",
-      "verifiedTruth": ["facts this post may use"],
+      "source": "which conversation capture this post is from — id plus a short phrase",
+      "captureId": "id of the conversationCaptures item",
+      "verifiedTruth": ["facts this post may use — from that capture only"],
       "lens": "discovery | credibility | trust",
       "angle": "one genuine, distinct reading of the source",
       "uniqueJob": "what this post uniquely communicates versus sibling angles",
@@ -178,9 +183,12 @@ Keep output compact.
 Rules:
 
 * `verifiedTruth` is the Day Writer's factual boundary.
-* Generate every truthful, distinct angle up to `maxBriefs`.
+* Generate every truthful, distinct angle.
+* For each conversation capture, produce genuine Discovery, Credibility, and Trust briefs when the capture supports them.
 * Priority pillar ranks opportunities; it never changes truth.
-* Same capture + different lens must produce genuinely different posts.
+* Same capture may produce multiple briefs in the same lens when the source has enough distinct content.
+* Same capture + same or different lens must produce genuinely different posts.
+* Never mix one capture's facts into another capture's brief.
 * Do not create volume by relabelling the same idea.
 * Narrative determines format and structure.
 * Do not invent information to fill fields.
@@ -209,6 +217,6 @@ Output only the JSON block.
 
 {{COMPETITOR_SIGNALS_JSON}}
 
-## Last three captures (plan from `latestCapture` / `planFromThis`)
+## Conversation captures (plan from every item in `conversationCaptures`)
 
 {{PROJECT_TRUTH_JSON}}

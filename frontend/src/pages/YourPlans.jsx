@@ -521,13 +521,20 @@ export default function YourPlans() {
       const atts = pending?.attachments || [];
       if (projectId && (text || atts.length)) {
         try {
-          await addEntry(projectId, {
-            type: atts.some((a) => a.type === 'video') && !text ? 'video'
-              : atts.length && !text ? 'photo' : 'note',
-            text,
-            attachments: atts,
-            understanding: pending.understanding || undefined,
-          });
+          const rows = (pending.understandings && pending.understandings.length)
+            ? pending.understandings
+            : [pending.understanding];
+          for (const understanding of rows) {
+            const note = (understanding?.originalCapture || text || '').trim() || text;
+            // eslint-disable-next-line no-await-in-loop
+            await addEntry(projectId, {
+              type: atts.some((a) => a.type === 'video') && !note ? 'video'
+                : atts.length && !note ? 'photo' : 'note',
+              text: note,
+              attachments: atts,
+              understanding: understanding || undefined,
+            });
+          }
         } catch { /* plan still runs from whatever is already on file */ }
       }
       await runGenerate('checkin');
