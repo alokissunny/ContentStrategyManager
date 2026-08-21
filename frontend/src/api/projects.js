@@ -32,8 +32,8 @@ export function addCapture(projectId, capture) {
   return client.post(`/projects/${projectId}/captures`, capture).then((r) => r.data.project);
 }
 
-// Capture-time understanding — strategy-neutral extraction of what happened,
-// and at most one clarifying question if meaning is actually missing.
+// Capture conversation — strategy-neutral extraction, split confirmation,
+// and a clarification ladder when meaning is actually missing.
 export function understandCapture(payload) {
   return client.post('/projects/captures/understand', payload).then((r) => {
     const data = r.data || {};
@@ -42,9 +42,8 @@ export function understandCapture(payload) {
   });
 }
 
-// Check-in understanding — same Capture Conversation rules as Projects,
-// plus which project (if any) already owns it and whether a supporting
-// asset is worth asking for. Same "at most one question" rule.
+// Check-in conversation — same Capture Conversation agent as Projects,
+// plus which project (if any) already owns it.
 export function understandCheckin(payload) {
   return client.post('/projects/checkin/understand', payload).then((r) => {
     const data = r.data || {};

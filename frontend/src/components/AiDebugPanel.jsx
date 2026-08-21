@@ -20,20 +20,16 @@ function formatBlock(text) {
   const raw = String(text || '');
   const t = raw.trim();
   if (!t) return '';
-  try {
-    return JSON.stringify(JSON.parse(t), null, 2);
-  } catch {
-    const fenced = t.match(/```(?:json)?\s*([\s\S]*?)```/i);
-    if (fenced) {
-      try { return JSON.stringify(JSON.parse(fenced[1]), null, 2); } catch { /* fall through */ }
+  // Only pretty-print when the whole block is JSON. Do not slice `{...}` out of
+  // a markdown system prompt — that hides the real instructions.
+  if (t.startsWith('{') || t.startsWith('[')) {
+    try {
+      return JSON.stringify(JSON.parse(t), null, 2);
+    } catch {
+      /* fall through */
     }
-    const start = t.indexOf('{');
-    const end = t.lastIndexOf('}');
-    if (start !== -1 && end > start) {
-      try { return JSON.stringify(JSON.parse(t.slice(start, end + 1)), null, 2); } catch { /* fall through */ }
-    }
-    return raw;
   }
+  return raw;
 }
 
 async function copyText(text) {
@@ -125,7 +121,7 @@ function InputBlock({ draft, onDraftChange, onRerun, busy, disabled }) {
         onChange={(e) => onDraftChange(e.target.value)}
         onPointerDown={(e) => e.stopPropagation()}
         spellCheck={false}
-        rows={10}
+        rows={24}
       />
     </details>
   );
@@ -147,7 +143,8 @@ function DebugEntry({ entry }) {
     try {
       const data = await rerunPrompt({
         model: entry.model,
-        systemPrompt: entry.systemPrompt,
+        // Input already contains the full assembled prompt (system + user).
+        systemPrompt: '',
         prompt,
       });
       updateAiDebugEntry(entry.id, {
@@ -172,7 +169,7 @@ function DebugEntry({ entry }) {
         </span>
       </summary>
       {entry.note ? <p className="ai-debug__note">{entry.note}</p> : null}
-      <DebugBlock label="System" text={entry.systemPrompt} open={false} />
+      <DebugBlock label="System" text={entry.systemPrompt} open copyable />
       <InputBlock
         draft={draft}
         onDraftChange={setDraft}

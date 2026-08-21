@@ -1,22 +1,20 @@
 /*
- * Capture understanding — Capture time only.
+ * Capture conversation — Capture time only.
  *
- * Reads a spontaneous note (and optional photos) and decides whether Bauhly
- * already understands the experience well enough to store it, or whether one
- * neutral clarifying question would materially improve that understanding.
- * Strategy, Brand DNA, and competitor intelligence are out of scope here.
+ * Owns Capture Truth: extract strategy-neutral experience(s) from a note
+ * (and optional photos), confirm splits, clarify only when meaning is missing,
+ * then hand off ready captures. Strategy, Brand DNA, and competitor
+ * intelligence are out of scope here.
  */
 
 const fs = require('fs');
 const path = require('path');
-const getAnthropicClient = require('./anthropicClient');
 const { getObjectBytes, isS3Configured } = require('./s3Client');
+const { completeToolCall, conversationModel, hasConversationModel } = require('./llmComplete');
 
 const PROMPT_PATH = path.join(__dirname, '..', '..', 'prompts', 'capture-understand-prompt.md');
-let systemPrompt;
 function loadPrompt() {
-  if (!systemPrompt) systemPrompt = fs.readFileSync(PROMPT_PATH, 'utf8');
-  return systemPrompt;
+  return fs.readFileSync(PROMPT_PATH, 'utf8');
 }
 
 const SIGNAL_KEYS = ['happened', 'intent', 'difficulty', 'actionTaken', 'outcome'];
@@ -76,36 +74,31 @@ function parseJsonObject(raw) {
   throw lastErr || new Error('No JSON object in model response');
 }
 
-const TOOL_NAME = 'record_capture_understanding';
+const TOOL_NAME = 'record_capture_turn';
 const UNDERSTAND_TOOL = {
   name: TOOL_NAME,
-  description: 'Record the strategy-neutral understanding of this Capture, and whether one clarifying question is needed.',
+  description: 'Record this Capture Conversation turn: selection, clarification, or ready captures.',
   input_schema: {
     type: 'object',
     properties: {
-      signals: {
-        type: 'object',
-        properties: {
-          happened: { type: 'string' },
-          intent: { type: 'string' },
-          difficulty: { type: 'string' },
-          actionTaken: { type: 'string' },
-          outcome: { type: 'string' },
-        },
-        required: ['happened', 'intent', 'difficulty', 'actionTaken', 'outcome'],
-      },
-      presentSignals: {
-        type: 'array',
-        items: { type: 'string', enum: SIGNAL_KEYS },
-      },
-      meaningClear: { type: 'boolean' },
-      missingPiece: { type: 'string' },
-      shouldAsk: { type: 'boolean' },
+      status: { type: 'string', enum: ['needs_selection', 'needs_clarification', 'ready'] },
+      message: { type: 'string' },
       question: { type: 'string' },
-      askReason: { type: 'string' },
-      summary: { type: 'string' },
+      captureId: { type: 'string' },
+      matchedProjectName: { type: 'string' },
+      candidates: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            id: { type: 'string' },
+            summary: { type: 'string' },
+          },
+        },
+      },
+      captures: { type: 'array', items: { type: 'object' } },
     },
-    required: ['signals', 'presentSignals', 'meaningClear', 'shouldAsk', 'question', 'summary'],
+    required: ['status'],
   },
 };
 
@@ -137,68 +130,182 @@ function emptyUnderstanding(text) {
     missingPiece: '',
     askedQuestion: '',
     askedAnswer: '',
+    knownLimitation: '',
+    visualAssetChoice: '',
+    captureStatus: 'ready',
+    originalCapture: str(text),
+    distinctSignals: [],
     model: '',
     understoodAt: new Date(),
   };
 }
 
-function normalizeUnderstanding(parsed, { text, alreadyAsked, askedQuestion, askedAnswer }) {
-  const signals = parsed.signals && typeof parsed.signals === 'object' ? parsed.signals : parsed;
-  const present = Array.isArray(parsed.presentSignals)
-    ? parsed.presentSignals.map(str).filter((k) => SIGNAL_KEYS.includes(k))
-    : SIGNAL_KEYS.filter((k) => str(signals[k]));
+const SIGNAL_TYPE_TO_KEY = {
+  problem: 'difficulty',
+  decision: 'actionTaken',
+  lesson: 'outcome',
+  opinion: 'happened',
+  observation: 'happened',
+  discovery: 'outcome',
+  question: 'outcome',
+};
 
-  let shouldAsk = Boolean(parsed.shouldAsk) && !alreadyAsked;
-  let question = str(parsed.question);
-  // If the model marked meaning unclear and did write a question, ask it even
-  // when shouldAsk was omitted or inconsistent.
-  if (!alreadyAsked && parsed.meaningClear === false && question) shouldAsk = true;
-  if (shouldAsk && !question) shouldAsk = false;
-  if (alreadyAsked) {
-    shouldAsk = false;
-    question = '';
-  }
-
-  const summary = str(parsed.summary) || str(text);
-
+function mapCaptureRecord(raw, fallbackText) {
+  const c = raw && typeof raw === 'object' ? raw : {};
+  const happened = str(c.whatHappened || c.happened);
+  const intent = str(c.intent);
+  const difficulty = str(c.tension || c.difficulty);
+  const actionTaken = str(c.action || c.actionTaken);
+  const outcome = [str(c.outcome), str(c.openQuestion)].filter(Boolean).join(' ');
+  const summary = str(c.captureSummary || c.summary) || happened || str(fallbackText);
+  const distinct = Array.isArray(c.distinctSignals)
+    ? c.distinctSignals.map((s) => ({
+      type: str(s?.type).toLowerCase(),
+      summary: str(s?.summary),
+    })).filter((s) => s.type || s.summary).slice(0, 8)
+    : [];
+  const present = distinct
+    .map((s) => SIGNAL_TYPE_TO_KEY[s.type])
+    .filter((k) => SIGNAL_KEYS.includes(k));
+  const filled = SIGNAL_KEYS.filter((k) => str({ happened, intent, difficulty, actionTaken, outcome }[k]));
   return {
-    action: shouldAsk ? 'ask' : 'ready',
-    question: shouldAsk ? question : null,
-    understanding: {
-      happened: str(signals.happened),
-      intent: str(signals.intent),
-      difficulty: str(signals.difficulty),
-      actionTaken: str(signals.actionTaken),
-      outcome: str(signals.outcome),
-      summary,
-      presentSignals: present,
-      missingPiece: str(parsed.missingPiece),
-      askedQuestion: alreadyAsked ? str(askedQuestion) : (shouldAsk ? question : ''),
-      askedAnswer: alreadyAsked ? str(askedAnswer) : '',
-      model: '',
-      understoodAt: new Date(),
-    },
+    id: str(c.id),
+    happened,
+    intent,
+    difficulty,
+    actionTaken,
+    outcome,
+    summary,
+    presentSignals: [...new Set(present.length ? present : filled)],
+    missingPiece: str(c.unresolvedGap || c.missingPiece),
+    askedQuestion: '',
+    askedAnswer: '',
+    knownLimitation: str(c.knownLimitation),
+    visualAssetChoice: (() => {
+      const v = str(c.visualAssetChoice).toLowerCase();
+      if (v.startsWith('generate')) return 'generate';
+      if (v.startsWith('none')) return 'none';
+      if (v.startsWith('provided')) return 'provided';
+      return v;
+    })(),
+    captureStatus: /unresolved/i.test(str(c.status)) ? 'unresolved' : 'ready',
+    originalCapture: str(c.originalCapture) || str(fallbackText),
+    sourceRef: str(c.sourceRef),
+    distinctSignals: distinct,
+    relevantAssetContext: Array.isArray(c.relevantAssetContext)
+      ? c.relevantAssetContext.map(str).filter(Boolean)
+      : [],
+    model: '',
+    understoodAt: new Date(),
   };
 }
 
-function buildUserText({ text, projectName, attachments, alreadyAsked, askedQuestion, askedAnswer }) {
+function normalizeCandidates(raw) {
+  if (!Array.isArray(raw)) return [];
+  return raw.map((c, i) => ({
+    id: str(c?.id) || `c${i + 1}`,
+    summary: str(c?.summary),
+  })).filter((c) => c.summary).slice(0, 10);
+}
+
+function normalizeUnderstanding(parsed, { text, askedQuestion, askedAnswer }) {
+  const status = str(parsed?.status).toLowerCase();
+  const question = str(parsed?.question || parsed?.message);
+
+  if (status === 'needs_selection') {
+    const candidates = normalizeCandidates(parsed.candidates);
+    if (candidates.length > 1) {
+      return {
+        action: 'select',
+        question: null,
+        message: str(parsed.message) || 'Did we correctly identify the ideas you want to work with?',
+        candidates,
+        captureId: '',
+        understanding: null,
+        captures: [],
+      };
+    }
+  }
+
+  if (status === 'needs_clarification' && question) {
+    return {
+      action: 'ask',
+      question,
+      message: question,
+      candidates: [],
+      captureId: str(parsed.captureId),
+      understanding: null,
+      captures: [],
+    };
+  }
+
+  // Legacy shouldAsk shape, in case a rerun still emits it.
+  if (!status && (parsed?.shouldAsk || parsed?.meaningClear === false) && str(parsed?.question)) {
+    return {
+      action: 'ask',
+      question: str(parsed.question),
+      message: str(parsed.question),
+      candidates: [],
+      captureId: '',
+      understanding: null,
+      captures: [],
+    };
+  }
+
+  const rows = Array.isArray(parsed?.captures) ? parsed.captures : (parsed?.signals ? [parsed] : []);
+  const captures = (rows.length ? rows : [{ originalCapture: text, whatHappened: text, captureSummary: text }])
+    .map((row) => mapCaptureRecord(row, text))
+    .slice(0, 10);
+  const understanding = captures[0] || emptyUnderstanding(text);
+  if (askedQuestion) understanding.askedQuestion = str(askedQuestion);
+  if (askedAnswer) understanding.askedAnswer = str(askedAnswer);
+
+  return {
+    action: 'ready',
+    question: null,
+    message: '',
+    candidates: [],
+    captureId: '',
+    matchedProjectName: str(parsed?.matchedProjectName),
+    understanding,
+    captures,
+  };
+}
+
+function buildUserText({
+  text, projectName, attachments, turns, confirmedIds, projects,
+}) {
   const images = (attachments || []).filter((a) => a.type === 'image');
   const videos = (attachments || []).filter((a) => a.type === 'video');
-  const lines = ['New Capture — understand this experience. Strategy is out of scope.'];
-  if (projectName) lines.push(`Project (filing context only, not a prompt to steer): ${projectName}`);
-  lines.push('');
-  lines.push('User note:');
-  lines.push(str(text) || '(no written note)');
+  const lines = ['Capture Conversation turn. Strategy is out of scope. Capture truth only.'];
+  if (projectName) lines.push(`Filing project (context only, not a prompt to steer): ${projectName}`);
+  const names = (projects || []).map((p) => str(p.name)).filter(Boolean);
+  if (names.length) {
+    lines.push('Projects on file (match only these names, or none):');
+    names.forEach((n) => lines.push(`- ${n}`));
+  }
+  const history = Array.isArray(turns) ? turns.filter((t) => str(t?.text)) : [];
+  if (history.length) {
+    lines.push('');
+    lines.push('Conversation so far:');
+    history.forEach((t) => {
+      const who = String(t.role || '').toLowerCase() === 'assistant' ? 'Bauhly' : 'User';
+      lines.push(`${who}: ${str(t.text)}`);
+    });
+  } else {
+    lines.push('');
+    lines.push('Latest user note:');
+    lines.push(str(text) || '(no written note)');
+  }
+  const confirmed = Array.isArray(confirmedIds) ? confirmedIds.map(str).filter(Boolean) : [];
+  if (confirmed.length) {
+    lines.push('');
+    lines.push(`User confirmed these ideas: ${confirmed.join(', ')}`);
+  }
   lines.push('');
   lines.push(`Attached assets: ${images.length} image(s), ${videos.length} video(s).`);
-  if (videos.length && !str(text)) {
+  if (videos.length && !str(text) && !history.length) {
     lines.push('Video is attached but cannot be watched here. Treat missing visual context as a possible reason to ask what the clip is about — only if the note does not already make the meaning clear.');
-  }
-  if (alreadyAsked) {
-    lines.push('');
-    lines.push('A clarifying question was already asked. Do not ask another. Reassess and store.');
-    if (askedQuestion) lines.push(`Question asked: ${askedQuestion}`);
-    if (askedAnswer) lines.push(`User's answer: ${askedAnswer}`);
   }
   return lines.join('\n');
 }
@@ -215,7 +322,8 @@ async function imageContentParts(attachments) {
       if (!mediaType) continue;
       parts.push({
         type: 'image',
-        source: { type: 'base64', media_type: mediaType, data: buffer.toString('base64') },
+        mediaType,
+        data: buffer.toString('base64'),
       });
     } catch (err) {
       console.error('[capture] could not load image for understanding', a.key, err.message);
@@ -231,87 +339,100 @@ async function imageContentParts(attachments) {
 async function understandCapture(input = {}) {
   const text = str(input.text);
   const attachments = Array.isArray(input.attachments) ? input.attachments : [];
-  const alreadyAsked = Boolean(input.alreadyAsked);
   const askedQuestion = str(input.askedQuestion);
   const askedAnswer = str(input.askedAnswer);
   const projectName = str(input.projectName);
+  const turns = Array.isArray(input.turns) ? input.turns : [];
+  const confirmedIds = Array.isArray(input.confirmedIds) ? input.confirmedIds : [];
+  const projects = Array.isArray(input.projects) ? input.projects : [];
+  const kind = str(input.kind) || 'capture';
 
-  if (!text && attachments.length === 0) {
+  if (!text && attachments.length === 0 && turns.length === 0) {
     const err = new Error('A capture needs a note or a file');
     err.statusCode = 400;
     throw err;
   }
 
   const userText = buildUserText({
-    text, projectName, attachments, alreadyAsked, askedQuestion, askedAnswer,
+    text, projectName, attachments, turns, confirmedIds, projects,
   });
-  const systemPrompt = loadPrompt();
+  const systemPrompt = kind === 'checkin'
+    ? `${loadPrompt()}\n\n${fs.readFileSync(path.join(__dirname, '..', '..', 'prompts', 'checkin-understand-prompt.md'), 'utf8')}`
+    : loadPrompt();
+  const debugSource = kind === 'checkin' ? 'Check-in conversation' : 'Capture conversation';
+  const ctx = { text, askedQuestion, askedAnswer };
 
-  if (!process.env.ANTHROPIC_API_KEY) {
+  if (!hasConversationModel()) {
     const result = normalizeUnderstanding(
-      { shouldAsk: false, summary: text, signals: { happened: text } },
-      { text, alreadyAsked, askedQuestion, askedAnswer }
+      { status: 'ready', captures: [{ originalCapture: text, whatHappened: text, captureSummary: text }] },
+      ctx,
     );
     result.debug = makeUnderstandDebug({
-      source: 'Capture conversation',
+      source: debugSource,
       model: '',
       systemPrompt,
       prompt: userText,
       result,
-      note: 'ANTHROPIC_API_KEY missing — model not called',
+      note: 'OPENAI_API_KEY missing — model not called',
     });
     return result;
   }
 
-  const model = process.env.ANTHROPIC_CAPTURE_MODEL || process.env.ANTHROPIC_MODEL || 'claude-sonnet-5';
+  const model = conversationModel();
   const imageParts = await imageContentParts(attachments);
-  const userContent = [
+  const userParts = [
     ...imageParts,
     { type: 'text', text: userText },
   ];
 
-  const client = getAnthropicClient();
-  const request = (messages) => client.messages.create({
-    model,
-    max_tokens: 1024,
-    system: systemPrompt,
-    tools: [UNDERSTAND_TOOL],
-    tool_choice: { type: 'tool', name: TOOL_NAME },
-    messages,
-  });
-
-  let response = await request([{ role: 'user', content: userContent }]);
   let parsed;
+  let rawOutput = '';
+  let usedSystem = systemPrompt;
   try {
-    parsed = extractParsed(response);
+    const done = await completeToolCall({
+      model,
+      system: systemPrompt,
+      userParts,
+      tool: UNDERSTAND_TOOL,
+      retryHint: 'The previous JSON was invalid. Return only one JSON object with status needs_selection, needs_clarification, or ready.',
+    });
+    parsed = done.parsed;
+    rawOutput = done.output || '';
+    if (done.system) usedSystem = done.system;
   } catch (err) {
-    console.error('[capture] understand parse failed, retrying', err.message);
-    response = await request([
-      { role: 'user', content: userContent },
-      { role: 'assistant', content: response.content || [] },
-      {
-        role: 'user',
-        content: 'The previous tool call was invalid. Call record_capture_understanding again with complete fields. Empty strings for unknowns. shouldAsk must be true or false.',
-      },
-    ]);
-    parsed = extractParsed(response);
+    console.error(`[${kind}] understand failed`, err.message);
+    const result = normalizeUnderstanding(
+      { status: 'ready', captures: [{ originalCapture: text, whatHappened: text, captureSummary: text }] },
+      ctx,
+    );
+    result.debug = makeUnderstandDebug({
+      source: debugSource,
+      model,
+      systemPrompt: usedSystem,
+      prompt: userText,
+      result,
+      note: err.message,
+    });
+    return result;
   }
 
-  const result = normalizeUnderstanding(parsed, { text, alreadyAsked, askedQuestion, askedAnswer });
-  result.understanding.model = model;
+  const result = normalizeUnderstanding(parsed, ctx);
+  if (result.understanding) result.understanding.model = model;
+  (result.captures || []).forEach((c) => { c.model = model; });
   result.debug = makeUnderstandDebug({
-    source: alreadyAsked ? 'Capture conversation · clarify' : 'Capture conversation',
+    source: debugSource,
     model,
-    systemPrompt,
+    systemPrompt: usedSystem,
     prompt: userText,
     result,
     parsed,
+    rawOutput,
   });
-  if (result.action === 'ask') {
-    console.log('[capture] understand ask:', result.question);
-  } else {
-    console.log('[capture] understand ready; signals:', (result.understanding.presentSignals || []).join(','));
-  }
+  console.log(
+    `[${kind}] understand ${result.action}`
+    + (result.question ? `: ${result.question}` : '')
+    + (result.captures?.length ? `; captures=${result.captures.length}` : ''),
+  );
   return result;
 }
 
@@ -321,6 +442,12 @@ function sanitizeUnderstanding(raw) {
     ? raw.presentSignals.map(str).filter((k) => SIGNAL_KEYS.includes(k))
     : [];
   const understoodAt = raw.understoodAt ? new Date(raw.understoodAt) : new Date();
+  const distinct = Array.isArray(raw.distinctSignals)
+    ? raw.distinctSignals.map((s) => ({
+      type: str(s?.type),
+      summary: str(s?.summary),
+    })).filter((s) => s.type || s.summary)
+    : [];
   return {
     happened: str(raw.happened),
     intent: str(raw.intent),
@@ -332,6 +459,15 @@ function sanitizeUnderstanding(raw) {
     missingPiece: str(raw.missingPiece),
     askedQuestion: str(raw.askedQuestion),
     askedAnswer: str(raw.askedAnswer),
+    knownLimitation: str(raw.knownLimitation),
+    visualAssetChoice: str(raw.visualAssetChoice),
+    captureStatus: str(raw.captureStatus) || 'ready',
+    originalCapture: str(raw.originalCapture),
+    sourceRef: str(raw.sourceRef),
+    distinctSignals: distinct,
+    relevantAssetContext: Array.isArray(raw.relevantAssetContext)
+      ? raw.relevantAssetContext.map(str).filter(Boolean)
+      : [],
     model: str(raw.model),
     understoodAt: Number.isNaN(understoodAt.getTime()) ? new Date() : understoodAt,
   };
@@ -350,30 +486,39 @@ function serializeUnderstanding(u) {
     missingPiece: u.missingPiece || '',
     askedQuestion: u.askedQuestion || '',
     askedAnswer: u.askedAnswer || '',
+    knownLimitation: u.knownLimitation || '',
+    visualAssetChoice: u.visualAssetChoice || '',
+    captureStatus: u.captureStatus || '',
+    originalCapture: u.originalCapture || '',
+    sourceRef: u.sourceRef || '',
+    distinctSignals: u.distinctSignals || [],
+    relevantAssetContext: u.relevantAssetContext || [],
     model: u.model || '',
     understoodAt: u.understoodAt || null,
   };
 }
 
-function makeUnderstandDebug({ source, model, systemPrompt, prompt, result, parsed, note }) {
+function makeUnderstandDebug({ source, model, systemPrompt, prompt, result, parsed, note, rawOutput }) {
   const body = {
     action: result.action,
     question: result.question,
+    message: result.message,
+    candidates: result.candidates,
+    captureId: result.captureId,
     understanding: result.understanding,
+    captures: result.captures,
   };
-  if (Object.prototype.hasOwnProperty.call(result, 'ack')) {
-    body.ack = result.ack;
-    body.matchedProjectId = result.matchedProjectId;
-    body.matchedProjectName = result.matchedProjectName;
-    body.askForAssets = result.askForAssets;
-  }
   if (parsed) body.tool = parsed;
+  const output = String(rawOutput || '').trim() || JSON.stringify(body, null, 2);
+  const system = String(systemPrompt || '').trim();
+  const user = String(prompt || '').trim();
+  const assembled = [system, user].filter(Boolean).join('\n\n');
   return {
     source,
     model: model || '',
-    systemPrompt: systemPrompt || '',
-    finalPrompt: prompt || '',
-    output: JSON.stringify(body, null, 2),
+    systemPrompt: system,
+    finalPrompt: assembled,
+    output,
     note: note || '',
   };
 }

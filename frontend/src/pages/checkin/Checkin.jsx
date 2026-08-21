@@ -6,11 +6,8 @@
  * week or a month (Leon, July 30).
  *
  * After the studio speaks, understanding decides the next turn — the same
- * Capture Conversation rules as Projects. At most one clarifying question,
- * and only when meaning is actually missing. Project and asset questions are
- * skipped when the turn already answered them. Strategy paths (pick a project
- * / let Bauhly decide) stay as menus; the scripted "which project / any photo
- * / anything else" chain is no longer automatic.
+ * Capture Conversation agent as Projects: confirm distinct ideas, ask only
+ * when meaning is missing, then file.
  */
 
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -31,6 +28,7 @@ export default function Checkin({ projects, filingProjects, week, name, lastWeek
     path: null, projectId: null, projectName: null, custom: null, followup: 0,
     understanding: null, askedQuestion: '', askedAnswer: '',
     attachments: [], askForAssets: null,
+    turns: [], confirmedIds: [], candidates: [],
   });
   const endRef = useRef(null);
   const threadRef = useRef(null);
@@ -278,15 +276,17 @@ export default function Checkin({ projects, filingProjects, week, name, lastWeek
   const attachmentPayload = () =>
     (ctx.current.attachments || []).map((a) => ({ type: a.type, key: a.key }));
 
-  const runUnderstand = async ({ alreadyAsked = false, askedQuestion = '', askedAnswer = '' } = {}) => {
+  const runUnderstand = async ({ extraTurn } = {}) => {
+    const turns = [...(ctx.current.turns || [])];
+    if (extraTurn?.text) turns.push(extraTurn);
+    ctx.current.turns = turns;
     try {
       return await understandCheckin({
         text: ctx.current.custom || '',
         attachments: attachmentPayload(),
         projects: projectPayload(),
-        alreadyAsked,
-        askedQuestion,
-        askedAnswer,
+        turns,
+        confirmedIds: ctx.current.confirmedIds || [],
       });
     } catch {
       return {
@@ -297,6 +297,7 @@ export default function Checkin({ projects, filingProjects, week, name, lastWeek
         matchedProjectName: '',
         askForAssets: !(ctx.current.attachments || []).length,
         understanding: null,
+        captures: [],
       };
     }
   };
@@ -348,8 +349,20 @@ export default function Checkin({ projects, filingProjects, week, name, lastWeek
 
   const afterUnderstood = (result) => {
     if (result?.understanding) ctx.current.understanding = result.understanding;
+    if (Array.isArray(result?.captures) && result.captures.length) {
+      ctx.current.understanding = result.captures[0];
+    }
+    if (result?.action === 'select' && (result.candidates || []).length) {
+      ctx.current.candidates = result.candidates;
+      const line = result.message || 'Did we correctly identify the ideas you want to work with?';
+      ctx.current.turns = [...(ctx.current.turns || []), { role: 'assistant', text: line }];
+      const d = say(line);
+      after(d, () => setStep('selectIdeas'));
+      return false;
+    }
     if (result?.action === 'ask' && result.question) {
       ctx.current.askedQuestion = result.question;
+      ctx.current.turns = [...(ctx.current.turns || []), { role: 'assistant', text: result.question }];
       const d = say(result.question);
       after(d, () => setStep('clarify'));
       return false;
@@ -363,6 +376,7 @@ export default function Checkin({ projects, filingProjects, week, name, lastWeek
     userSays(text);
     ctx.current.path = fromNewIdea ? 'foundation' : 'custom';
     ctx.current.custom = text;
+    ctx.current.turns = [{ role: 'user', text }];
     setBusy(true);
     try {
       afterUnderstood(await runUnderstand());
@@ -383,12 +397,7 @@ export default function Checkin({ projects, filingProjects, week, name, lastWeek
     ctx.current.custom = [ctx.current.custom, text].filter(Boolean).join('\n\n');
     setBusy(true);
     try {
-      const result = await runUnderstand({
-        alreadyAsked: true,
-        askedQuestion: ctx.current.askedQuestion,
-        askedAnswer: text,
-      });
-      afterUnderstood({ ...result, action: 'ready', question: null });
+      afterUnderstood(await runUnderstand({ extraTurn: { role: 'user', text } }));
     } catch {
       continueAfterIdea(null);
     } finally {
@@ -402,12 +411,24 @@ export default function Checkin({ projects, filingProjects, week, name, lastWeek
     userSays(CHECKIN.clarifySkip);
     setBusy(true);
     try {
-      const result = await runUnderstand({
-        alreadyAsked: true,
-        askedQuestion: ctx.current.askedQuestion,
-        askedAnswer: '',
-      });
-      afterUnderstood({ ...result, action: 'ready', question: null });
+      afterUnderstood(await runUnderstand({
+        extraTurn: { role: 'user', text: "That's all I have — continue without guessing." },
+      }));
+    } catch {
+      continueAfterIdea(null);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const confirmCandidates = async (ids, spoken) => {
+    setStep('boot');
+    const line = spoken || (ids.length ? `Work with: ${ids.join(', ')}` : "It's one idea");
+    userSays(line);
+    ctx.current.confirmedIds = ids;
+    setBusy(true);
+    try {
+      afterUnderstood(await runUnderstand({ extraTurn: { role: 'user', text: line } }));
     } catch {
       continueAfterIdea(null);
     } finally {
@@ -782,6 +803,10 @@ export default function Checkin({ projects, filingProjects, week, name, lastWeek
       ctx.current.path = 'custom';
       ctx.current.attachments = [...(ctx.current.attachments || []), ...added];
       ctx.current.hasUpload = true;
+      ctx.current.custom = ctx.current.custom || CHECKIN.uploadOpening;
+      ctx.current.turns = ctx.current.turns?.length
+        ? ctx.current.turns
+        : [{ role: 'user', text: CHECKIN.uploadOpening }];
       push({ from: 'user', image: added[0]?.url });
       afterUnderstood(await runUnderstand());
     } catch {
@@ -992,6 +1017,24 @@ export default function Checkin({ projects, filingProjects, week, name, lastWeek
             {CHECKIN.clarifySkip}
           </button>,
         );
+      case 'selectIdeas': {
+        const all = ctx.current.candidates || [];
+        return (
+          <>
+            <button className="ck-chip ck-chip--primary" onClick={() => confirmCandidates(all.map((c) => c.id), 'Yes, those are the ideas')}>
+              Those are the ideas
+            </button>
+            <button className="ck-chip" onClick={() => confirmCandidates([], "It's one idea")}>
+              It’s one idea
+            </button>
+            {all.map((c) => (
+              <button key={c.id} className="ck-chip" onClick={() => confirmCandidates([c.id], c.summary)}>
+                {c.summary}
+              </button>
+            ))}
+          </>
+        );
+      }
       /* naming is not a wall (Leon, July 30): a blank field and one button meant a
         * studio who hadn't decided on a name couldn't finish the check-in. Bauhly
         * will name it from what the conversation was about, and if there are older

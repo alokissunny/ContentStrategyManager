@@ -85,7 +85,7 @@ export function addAiDebugEntry(entry = {}) {
   const prompt = asText(entry.prompt).trim();
   const output = asText(entry.output).trim();
   const systemPrompt = asText(entry.systemPrompt).trim();
-  if (!prompt && !output) return;
+  if (!prompt && !output && !String(entry.note || '').trim()) return;
   const item = {
     id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     at: Date.now(),

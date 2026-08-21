@@ -494,8 +494,12 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
     text: '',
     attachments: [],
     understanding: null,
+    understandings: [],
     askedQuestion: '',
     askedAnswer: '',
+    turns: [],
+    confirmedIds: [],
+    candidates: [],
   });
   /* whether the field on screen came from a recording — only then is "record
    * again" a real answer */
@@ -513,8 +517,8 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
 
   useEffect(() => {
     const d = say(preset
-      ? `Anything recent on ${preset.name}? A decision you made, something a client said, or where it's got to.`
-      : "Tell me something recent from the studio. A project you're on, one you've just finished, a decision you made, or something a client said.");
+      ? `Anything from ${preset.name}? Something that happened, an idea, something you noticed, or anything else that feels relevant.`
+      : 'What would you like to capture today? It could be something that happened at work, an idea, something you noticed, or anything else that feels relevant.');
     after(d, () => setStep('how'));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -531,28 +535,27 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
   const attachmentPayload = () =>
     (cap.current.attachments || []).map((a) => ({ type: a.type, key: a.key }));
 
-  const runUnderstand = async ({ alreadyAsked = false, askedQuestion = '', askedAnswer = '' } = {}) => {
+  const runUnderstand = async ({ extraTurn } = {}) => {
+    const turns = [...(cap.current.turns || [])];
+    if (extraTurn?.text) turns.push(extraTurn);
+    cap.current.turns = turns;
     try {
       return await understandCapture({
         text: cap.current.text,
         attachments: attachmentPayload(),
         projectName: preset?.name || '',
-        alreadyAsked,
-        askedQuestion,
-        askedAnswer,
+        turns,
+        confirmedIds: cap.current.confirmedIds || [],
       });
     } catch {
-      return { action: 'ready', question: null, understanding: null };
+      return { action: 'ready', question: null, understanding: null, captures: [] };
     }
   };
 
   const continueToFile = (result) => {
-    if (!cap.current.attachments.length) {
-      const summary = (result?.understanding?.summary || '').trim();
-      const ack = summary
-        ? (summary.length > 220 ? `${summary.slice(0, 217).trim()}…` : summary)
-        : 'I’ll keep that.';
-      const d = say([ack, 'If you have a photo or clip of this, add it — otherwise we can save it as it is.']);
+    const choice = String(result?.understanding?.visualAssetChoice || '').toLowerCase();
+    if (!cap.current.attachments.length && choice !== 'generate' && choice !== 'none') {
+      const d = say('Do you have a photo or clip of this, or would you rather generate visuals later?');
       after(d, () => setStep('media'));
       return false;
     }
@@ -567,8 +570,21 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
 
   const afterUnderstood = (result) => {
     if (result?.understanding) cap.current.understanding = result.understanding;
+    if (Array.isArray(result?.captures) && result.captures.length) {
+      cap.current.understandings = result.captures;
+      cap.current.understanding = result.captures[0];
+    }
+    if (result?.action === 'select' && (result.candidates || []).length) {
+      cap.current.candidates = result.candidates;
+      const line = result.message || 'Did we correctly identify the ideas you want to work with?';
+      cap.current.turns = [...(cap.current.turns || []), { role: 'assistant', text: line }];
+      const d = say(line);
+      after(d, () => setStep('select'));
+      return false;
+    }
     if (result?.action === 'ask' && result.question) {
       cap.current.askedQuestion = result.question;
+      cap.current.turns = [...(cap.current.turns || []), { role: 'assistant', text: result.question }];
       const d = say(result.question);
       after(d, () => setStep('clarify'));
       return false;
@@ -606,6 +622,7 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
     setStep('boot');
     userSays(text);
     cap.current.text = text;
+    cap.current.turns = [{ role: 'user', text }];
     setBusy(true);
     try {
       const finishing = afterUnderstood(await runUnderstand());
@@ -625,12 +642,7 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
     cap.current.text = [cap.current.text, text].filter(Boolean).join('\n\n');
     setBusy(true);
     try {
-      const result = await runUnderstand({
-        alreadyAsked: true,
-        askedQuestion: cap.current.askedQuestion,
-        askedAnswer: text,
-      });
-      const finishing = afterUnderstood({ ...result, action: 'ready', question: null });
+      const finishing = afterUnderstood(await runUnderstand({ extraTurn: { role: 'user', text } }));
       if (!finishing) setBusy(false);
     } catch {
       setBusy(false);
@@ -640,15 +652,28 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
   const skipClarify = async () => {
     setDraft('');
     setStep('boot');
-    userSays("That's all I have");
+    userSays("That's all I have — continue");
     setBusy(true);
     try {
-      const result = await runUnderstand({
-        alreadyAsked: true,
-        askedQuestion: cap.current.askedQuestion,
-        askedAnswer: '',
-      });
-      const finishing = afterUnderstood({ ...result, action: 'ready', question: null });
+      const finishing = afterUnderstood(await runUnderstand({
+        extraTurn: { role: 'user', text: "That's all I have — continue without guessing." },
+      }));
+      if (!finishing) setBusy(false);
+    } catch {
+      setBusy(false);
+    }
+  };
+
+  const confirmCandidates = async (ids, spoken) => {
+    setStep('boot');
+    const line = spoken || (ids.length
+      ? `Work with: ${ids.join(', ')}`
+      : "It's one idea");
+    userSays(line);
+    cap.current.confirmedIds = ids;
+    setBusy(true);
+    try {
+      const finishing = afterUnderstood(await runUnderstand({ extraTurn: { role: 'user', text: line } }));
       if (!finishing) setBusy(false);
     } catch {
       setBusy(false);
@@ -724,6 +749,7 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
       const added = await uploadFiles(arr);
       cap.current.kind = added.some((a) => a.type === 'video') ? 'video' : 'photo';
       cap.current.attachments = added;
+      if (!cap.current.turns?.length) cap.current.turns = [{ role: 'user', text: verb || 'Uploaded a file' }];
       push({ from: 'user', media: added });
       const finishing = afterUnderstood(await runUnderstand());
       if (!finishing) setBusy(false);
@@ -734,9 +760,16 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
     }
   };
 
-  const proceed = () => {
+  const proceed = (visualChoice = '') => {
     setStep('boot');
-    userSays(cap.current.attachments.length ? 'That’s everything' : 'Nothing right now');
+    const spoken = cap.current.attachments.length
+      ? 'That’s everything'
+      : (visualChoice === 'generate' ? 'Generate visuals later' : 'Nothing right now');
+    userSays(spoken);
+    const choice = visualChoice || (cap.current.attachments.length ? 'provided' : 'none');
+    const applyChoice = (u) => (u ? { ...u, visualAssetChoice: u.visualAssetChoice || choice } : u);
+    cap.current.understanding = applyChoice(cap.current.understanding);
+    cap.current.understandings = (cap.current.understandings || []).map(applyChoice);
     if (preset) { finish(preset.id); return; }
     const d = say('Which project is this for?');
     after(d, () => setStep('project'));
@@ -763,7 +796,14 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
       let name = createName;
       if (createName) pid = await createProject(createName);
       else name = projects.find((p) => p.id === pid)?.name;
-      await addEntry(pid, { type, text, attachments: c.attachments, understanding: c.understanding });
+      const rows = (c.understandings && c.understandings.length)
+        ? c.understandings
+        : [c.understanding];
+      for (const understanding of rows) {
+        const note = (understanding?.originalCapture || text || '').trim() || text;
+        // eslint-disable-next-line no-await-in-loop
+        await addEntry(pid, { type, text: note, attachments: c.attachments, understanding });
+      }
       const cover = c.attachments.find((a) => a.type === 'image')?.thumbnailUrl
         || c.attachments[0]?.thumbnailUrl || null;
       setSaved({ id: pid, name });
@@ -783,7 +823,7 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
   };
 
   const restart = () => {
-    cap.current = { kind: null, text: '', attachments: [], understanding: null, askedQuestion: '', askedAnswer: '' };
+    cap.current = { kind: null, text: '', attachments: [], understanding: null, understandings: [], askedQuestion: '', askedAnswer: '', turns: [], confirmedIds: [], candidates: [] };
     setSaved(null);
     setStep('boot');
     const d = say('What else have you got?');
@@ -840,6 +880,24 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
           </div>
         );
       }
+      case 'select': {
+        const all = cap.current.candidates || [];
+        return (
+          <>
+            <button className="ck-chip ck-chip--primary" onClick={() => confirmCandidates(all.map((c) => c.id), 'Yes, those are the ideas')}>
+              Those are the ideas
+            </button>
+            <button className="ck-chip" onClick={() => confirmCandidates([], "It's one idea")}>
+              It’s one idea
+            </button>
+            {all.map((c) => (
+              <button key={c.id} className="ck-chip" onClick={() => confirmCandidates([c.id], c.summary)}>
+                {c.summary}
+              </button>
+            ))}
+          </>
+        );
+      }
       case 'media':
         return (
           <>
@@ -848,10 +906,13 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
             </label>
             <button
               className={`ck-chip ${cap.current.attachments.length ? 'ck-chip--primary' : 'ck-chip--ghost'}`}
-              onClick={proceed}
+              onClick={() => proceed(cap.current.attachments.length ? 'provided' : 'none')}
             >
               {cap.current.attachments.length ? 'Save it' : 'Nothing right now'}
             </button>
+            {!cap.current.attachments.length && (
+              <button className="ck-chip" onClick={() => proceed('generate')}>Generate visuals later</button>
+            )}
           </>
         );
       /* the studio's real projects, listed to file this capture into — newest

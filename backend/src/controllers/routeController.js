@@ -216,6 +216,8 @@ function captureNoteForPlan(c) {
     if (u.difficulty) bits.push(`Tension: ${u.difficulty}`);
     if (u.actionTaken) bits.push(`Did: ${u.actionTaken}`);
     if (u.outcome) bits.push(`Came of it: ${u.outcome}`);
+    if (u.knownLimitation) bits.push(`Do not invent: ${u.knownLimitation}`);
+    if (u.visualAssetChoice) bits.push(`Visuals: ${u.visualAssetChoice}`);
     return bits.join(' · ').slice(0, 500);
   }
   const text = (c.text || '').trim();

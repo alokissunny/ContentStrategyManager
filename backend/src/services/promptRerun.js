@@ -2,20 +2,20 @@ const getAnthropicClient = require('./anthropicClient');
 const getOpenAIClient = require('./openaiClient');
 const captureUnderstand = require('./captureUnderstand');
 const checkinUnderstand = require('./checkinUnderstand');
+const {
+  usesCompletionTokens,
+  conversationModel,
+} = require('./llmComplete');
 
 const DEFAULT_MAX_TOKENS = 16384;
-
-function usesCompletionTokens(model) {
-  return /gpt-5|terra|o3|o4/i.test(String(model || ''));
-}
 
 function providerFor(model) {
   const m = String(model || '').toLowerCase();
   if (/gemini|imagen|flash-image|nano.?banana/.test(m)) return 'image';
   if (/gpt|o1|o3|o4|terra/.test(m)) return 'openai';
   if (/claude|sonnet|haiku|opus/.test(m)) return 'anthropic';
-  if (process.env.ANTHROPIC_API_KEY) return 'anthropic';
   if (process.env.OPENAI_API_KEY) return 'openai';
+  if (process.env.ANTHROPIC_API_KEY) return 'anthropic';
   return '';
 }
 
@@ -30,7 +30,7 @@ function maxTokens() {
   return Number.isFinite(n) && n > 0 ? n : DEFAULT_MAX_TOKENS;
 }
 
-function toolsFor(systemPrompt) {
+function anthropicToolsFor(systemPrompt) {
   const s = String(systemPrompt || '');
   if (s.includes(checkinUnderstand.TOOL_NAME)) {
     return {
@@ -44,6 +44,11 @@ function toolsFor(systemPrompt) {
       tool_choice: { type: 'tool', name: captureUnderstand.TOOL_NAME },
     };
   }
+  return {};
+}
+
+function openaiToolsFor() {
+  // gpt-5.6-terra cannot use function tools on chat.completions.
   return {};
 }
 
@@ -64,6 +69,29 @@ function outputOfAnthropic(response) {
   return texts.join('\n');
 }
 
+function outputOfOpenAI(response) {
+  const msg = response.choices?.[0]?.message || {};
+  const texts = String(msg.content || '').trim();
+  const calls = Array.isArray(msg.tool_calls) ? msg.tool_calls : [];
+  if (calls.length) {
+    const payload = calls.length === 1
+      ? safeJson(calls[0].function?.arguments)
+      : calls.map((c) => ({ name: c.function?.name, input: safeJson(c.function?.arguments) }));
+    const json = typeof payload === 'string' ? payload : JSON.stringify(payload, null, 2);
+    return texts ? `${texts}\n\n${json}` : json;
+  }
+  return texts;
+}
+
+function safeJson(raw) {
+  if (raw && typeof raw === 'object') return raw;
+  try {
+    return JSON.parse(String(raw || ''));
+  } catch {
+    return String(raw || '');
+  }
+}
+
 async function completeAnthropic({ model, systemPrompt, prompt }) {
   if (!process.env.ANTHROPIC_API_KEY) {
     fail('ANTHROPIC_API_KEY is not set.', 503);
@@ -73,7 +101,7 @@ async function completeAnthropic({ model, systemPrompt, prompt }) {
     model: resolved,
     max_tokens: maxTokens(),
     messages: [{ role: 'user', content: prompt }],
-    ...toolsFor(systemPrompt),
+    ...anthropicToolsFor(systemPrompt),
   };
   if (systemPrompt) params.system = systemPrompt;
   const response = await getAnthropicClient().messages.create(params);
@@ -84,7 +112,7 @@ async function completeOpenAI({ model, systemPrompt, prompt }) {
   if (!process.env.OPENAI_API_KEY) {
     fail('OPENAI_API_KEY is not set.', 503);
   }
-  const resolved = model || process.env.OPENAI_MODEL || process.env.COMPETITOR_MODEL || 'gpt-4.1-mini';
+  const resolved = model || conversationModel();
   const messages = [];
   if (systemPrompt) messages.push({ role: 'system', content: systemPrompt });
   messages.push({ role: 'user', content: prompt });
@@ -95,8 +123,9 @@ async function completeOpenAI({ model, systemPrompt, prompt }) {
     model: resolved,
     messages,
     ...tokenArg,
+    ...openaiToolsFor(systemPrompt),
   });
-  return { output: response.choices?.[0]?.message?.content || '', model: resolved };
+  return { output: outputOfOpenAI(response), model: resolved };
 }
 
 /**

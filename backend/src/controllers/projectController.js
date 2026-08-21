@@ -333,9 +333,8 @@ async function analyzeProject(req, res) {
 
 // ── Capture-time understanding ─────────────────────────────────────────────
 // POST /projects/captures/understand
-// Strategy-neutral: extract the five core signals and decide whether one
-// clarifying question would materially improve meaning. Never blocks filing
-// if the model is unavailable — the client stores the note as the user wrote it.
+// Capture Conversation: confirm distinct ideas, clarify only when meaning is
+// missing, then hand off ready captures. Never blocks filing if the model is down.
 async function understandDraft(req, res) {
   const text = (req.body.text || '').trim();
   const attachments = sanitizeAttachments(req.body.attachments, req.user._id);
@@ -343,8 +342,20 @@ async function understandDraft(req, res) {
   const alreadyAsked = Boolean(req.body.alreadyAsked);
   const askedQuestion = (req.body.askedQuestion || '').trim();
   const askedAnswer = (req.body.askedAnswer || '').trim();
+  const turns = Array.isArray(req.body.turns)
+    ? req.body.turns
+      .slice(-24)
+      .map((t) => ({
+        role: String(t?.role || '').toLowerCase() === 'assistant' ? 'assistant' : 'user',
+        text: String(t?.text || '').trim(),
+      }))
+      .filter((t) => t.text)
+    : [];
+  const confirmedIds = Array.isArray(req.body.confirmedIds)
+    ? req.body.confirmedIds.map((id) => String(id || '').trim()).filter(Boolean).slice(0, 10)
+    : [];
 
-  if (!text && attachments.length === 0) {
+  if (!text && attachments.length === 0 && turns.length === 0) {
     return res.status(400).json({ message: 'A capture needs a note or a file' });
   }
 
@@ -356,12 +367,14 @@ async function understandDraft(req, res) {
       alreadyAsked,
       askedQuestion,
       askedAnswer,
+      turns,
+      confirmedIds,
     });
     res.json(withOptionalDebug(result, req));
   } catch (err) {
     console.error('[projects] capture understand failed', err.message);
     // Capture must never stall because the understander is down — store as-is.
-    res.json({
+    const fallback = {
       action: 'ready',
       question: null,
       understanding: {
@@ -378,14 +391,23 @@ async function understandDraft(req, res) {
         model: '',
         understoodAt: new Date(),
       },
-    });
+    };
+    if (wantsPromptDebug(req)) {
+      fallback.debug = {
+        source: 'Capture conversation',
+        model: '',
+        systemPrompt: '',
+        finalPrompt: text,
+        output: '',
+        note: err.message,
+      };
+    }
+    res.json(fallback);
   }
 }
 
 // POST /projects/checkin/understand
-// Same Capture Conversation rules as Projects: five signals, at most one
-// clarifying question when meaning is missing. Also which project on file
-// already owns this, and whether a supporting asset is worth asking for.
+// Same Capture Conversation agent as Projects, plus matching a project on file.
 // Never blocks the conversation if the model is down.
 async function understandCheckinDraft(req, res) {
   const text = (req.body.text || '').trim();
@@ -393,6 +415,18 @@ async function understandCheckinDraft(req, res) {
   const alreadyAsked = Boolean(req.body.alreadyAsked);
   const askedQuestion = (req.body.askedQuestion || '').trim();
   const askedAnswer = (req.body.askedAnswer || '').trim();
+  const turns = Array.isArray(req.body.turns)
+    ? req.body.turns
+      .slice(-24)
+      .map((t) => ({
+        role: String(t?.role || '').toLowerCase() === 'assistant' ? 'assistant' : 'user',
+        text: String(t?.text || '').trim(),
+      }))
+      .filter((t) => t.text)
+    : [];
+  const confirmedIds = Array.isArray(req.body.confirmedIds)
+    ? req.body.confirmedIds.map((id) => String(id || '').trim()).filter(Boolean).slice(0, 10)
+    : [];
   const projects = Array.isArray(req.body.projects)
     ? req.body.projects
       .filter((p) => p && (p.id || p._id) && p.name)
@@ -400,7 +434,7 @@ async function understandCheckinDraft(req, res) {
       .filter((p) => p.name)
     : [];
 
-  if (!text && attachments.length === 0) {
+  if (!text && attachments.length === 0 && turns.length === 0) {
     return res.status(400).json({ message: 'A check-in turn needs a note or a file' });
   }
 
@@ -412,6 +446,8 @@ async function understandCheckinDraft(req, res) {
       alreadyAsked,
       askedQuestion,
       askedAnswer,
+      turns,
+      confirmedIds,
     });
     res.json(withOptionalDebug(result, req));
   } catch (err) {
@@ -437,6 +473,16 @@ async function understandCheckinDraft(req, res) {
         model: '',
         understoodAt: new Date(),
       },
+      ...(wantsPromptDebug(req) ? {
+        debug: {
+          source: 'Check-in conversation',
+          model: '',
+          systemPrompt: '',
+          finalPrompt: text,
+          output: '',
+          note: err.message,
+        },
+      } : {}),
     });
   }
 }
