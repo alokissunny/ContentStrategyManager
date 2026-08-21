@@ -87,28 +87,45 @@ function MoodSwitch({ id, mood }) {
   );
 }
 
-/* `look` is pick-mode: the card is something to see, not to manage. The ⋯, the
+/* `look` is pick-mode: the card is something to choose, not to manage. The ⋯, the
  * in-use toggle and the off mark all go; the drawing and the name stay. */
-function Card({ l, on, mood, onToggle, onEdit, onRemove, look = false }) {
+function Card({ l, on, mood, onToggle, onEdit, onRemove, look = false, chosen = false, onSelect = null }) {
   const [menu, setMenu] = useState(false);
-  return (
-    <li className={`vl-card ${on ? '' : 'is-off'}`}>
+  const body = (
+    <>
       <div className="vl-card__frame">
         <Preview l={l} mood={mood} />
-        {/* out of the middle of the artwork and into the corner (Leon, Aug 6):
-            it used to sit over the composition you were deciding about */}
         {!on && !look && <span className="vl-card__offmark">Not in use</span>}
+        {look && chosen && <span className="vl-card__offmark">Current</span>}
       </div>
-      {/* THE HOUSEKEEPING IS IN THE CORNER (Leon, Aug 4). Changing a layout and
-        * taking it out of the library are rarer than turning it off, and both
-        * act on the whole layout — so they sit in one menu on the frame rather
-        * than as controls competing with the one that matters.
-        *
-        * It is a SIBLING of the frame, not a child (Leon, Aug 6): the frame is a
-        * container-query root, which is also a CONTAINMENT root, and a
-        * `position: fixed` scrim inside one resolves against the frame instead of
-        * the window — the same trap `position: fixed` inside an animated ancestor
-        * sets (CLAUDE.md §4). Outside it, the scrim covers the page again. */}
+      <div className="vl-card__foot">
+        <div className="vl-card__id">
+          <b>{l.name}</b>
+        </div>
+        {!look && (
+        <button
+          className={`btn btn--xs ${on ? 'btn--tertiary' : 'btn--quiet'} vl-card__use`}
+          onClick={onToggle}
+          aria-pressed={on}
+          aria-label={on ? `Stop using ${l.name}` : `Use ${l.name}`}
+          title={on ? 'In use — press to turn off' : 'Off — press to use'}
+        >
+          <Icon name={on ? 'check' : 'plus'} size={13} strokeWidth={2.5} />
+          {on ? 'In use' : 'Use'}
+        </button>
+        )}
+      </div>
+    </>
+  );
+  return (
+    <li className={`vl-card ${on ? '' : 'is-off'}${look ? ' is-pick' : ''}${chosen ? ' is-chosen' : ''}`}>
+      {look && onSelect ? (
+        <button type="button" className="vl-card__choose" onClick={() => onSelect(l)} aria-label={`Use ${l.name}`}>
+          {body}
+        </button>
+      ) : (
+        body
+      )}
       {!look && (
       <span className="vl-card__menuwrap">
           <button
@@ -137,31 +154,6 @@ function Card({ l, on, mood, onToggle, onEdit, onRemove, look = false }) {
           )}
       </span>
       )}
-      <div className="vl-card__foot">
-        {/* THE METADATA LINE WENT (Leon, Aug 6). "4:5 · 1 photo · 2 type levels"
-          * was three facts under every card, none of which a studio chooses on:
-          * the ratio is the same on all 62, and the photograph count and the type
-          * levels are both plainly visible in the drawing directly above the
-          * words. Nothing replaces it — the name and the one control are what the
-          * card is for, and the filters are where those two facts do real work. */}
-        <div className="vl-card__id">
-          <b>{l.name}</b>
-        </div>
-        {/* THE ONE CONTROL (Leon, Aug 4). Not a menu and not a delete: a layout is
-          * in use or it is not, and either way it stays on the page. */}
-        {!look && (
-        <button
-          className={`btn btn--xs ${on ? 'btn--tertiary' : 'btn--quiet'} vl-card__use`}
-          onClick={onToggle}
-          aria-pressed={on}
-          aria-label={on ? `Stop using ${l.name}` : `Use ${l.name}`}
-          title={on ? 'In use — press to turn off' : 'Off — press to use'}
-        >
-          <Icon name={on ? 'check' : 'plus'} size={13} strokeWidth={2.5} />
-          {on ? 'In use' : 'Use'}
-        </button>
-        )}
-      </div>
     </li>
   );
 }
@@ -383,6 +375,8 @@ function Row({ cat, layouts, off, mood, onToggle, onEdit, onRemove, onOpen, onAd
               onEdit={() => onEdit(l)}
               onRemove={() => onRemove(l)}
               look={!!pick}
+              chosen={!!pick && pick.layoutId === l.id}
+              onSelect={pick?.onLayout}
             />
           ))}
         </ul>
@@ -412,9 +406,9 @@ const FACETS = [
   { id: 'off', pair: 'use', group: 'In your plan', label: 'Not in use', test: (l, off) => !!off[l.id] },
 ];
 
-/* pick = { current, onPick(catId), onClose } — Browse layouts opens this page
- * over the post to choose which category fills the carousel. Everything pick
- * changes is a subtraction: no settings, filter, add, or per-card controls. */
+/* pick = { current, layoutId, onPick(catId), onLayout(layout), onClose }
+ * Browse layouts opens this page over the post. Clicking a card selects that
+ * layout; if it is in another category, that category is applied with it. */
 export default function VisualLibrary({ pick = null } = {}) {
   const s = useStore();
   /* which layouts the studio has turned off — the store keeps the exceptions,
@@ -644,7 +638,7 @@ export default function VisualLibrary({ pick = null } = {}) {
       {pick && (
         <div className="vl-pickhead">
           <div className="vl-head">
-            <h1 className="vl-head__title">Choose layout category</h1>
+            <h1 className="vl-head__title">Choose a layout</h1>
             <button
               className="icobtn vl-pickhead__x"
               onClick={pick.onClose}
@@ -655,7 +649,7 @@ export default function VisualLibrary({ pick = null } = {}) {
             </button>
           </div>
           <div className="vl-pickhead__row">
-            <p className="vl-head__lead">Choose a category for this post.</p>
+            <p className="vl-head__lead">Pick any layout. A different category is applied automatically.</p>
             <MoodSwitch id="vl-mood-lp" mood={mood} />
           </div>
         </div>

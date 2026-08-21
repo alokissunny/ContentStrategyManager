@@ -138,8 +138,24 @@ const IMG = {
    list of eight arguments is a line nobody can read or safely edit */
 const L = (o) => ({ imgs: [], levels: 1, ...o });
 
+/* Default composition per library category. Used whenever a slide has no
+   layout of its own yet. Hook: headline top-left, supporting line bottom-right.
+   Educational: eyebrow + headline + supporting copy. */
+export const DEFAULT_LAYOUT_BY_CAT = {
+  hook: 'n-hook-corner',
+  edu: 'n-edu-columns',
+};
+export const DEFAULT_LAYOUT_ID = DEFAULT_LAYOUT_BY_CAT.hook;
+
 export const LAYOUTS = [
   /* ── Hook ── */
+  L({
+    /* reading flow: top-left to bottom-right, diagonally across an empty middle */
+    id: 'n-hook-corner', cat: 'hook', name: 'Corner to Corner',
+    when: 'The words hold one corner and the picture the other.',
+    kind: 'corner', tone: 'ground', levels: 2,
+    art: { head: 'Everyone wants the after.', body: 'Almost nobody wants the six weeks in between.' },
+  }),
   L({
     id: 'e-hook-statement', cat: 'hook', name: 'Bold Statement',
     when: 'One sentence has to land before anything else does.',
@@ -166,6 +182,18 @@ export const LAYOUTS = [
   }),
 
   /* ── Educational ── */
+  L({
+    /* hierarchy: a title over two columns of body — eyebrow, headline, supporting copy */
+    id: 'n-edu-columns', cat: 'edu', name: 'Two Columns',
+    when: 'Two ideas that have to be read side by side.',
+    kind: 'columns', tone: 'ground', levels: 3,
+    art: {
+      eyebrow: 'How we work',
+      head: 'Why the drawings come before the shopping.',
+      body: 'A room is a set of decisions that depend on each other. Move the door and the sofa moves; move the sofa and the light you were designing around stops working.',
+      bodyB: 'So the plan is finished before anything is bought. It is slower for three weeks and faster for the three months after that.',
+    },
+  }),
   L({
     id: 'e-edu-framework', cat: 'edu', name: 'Framework',
     when: 'A method with named steps, and no picture needed.',
@@ -292,13 +320,6 @@ export const LAYOUTS = [
      Each is listed with the thing that makes it its own layout. ═════════════ */
 
   /* ── Hook ── */
-  L({
-    /* reading flow: top-left to bottom-right, diagonally across an empty middle */
-    id: 'n-hook-corner', cat: 'hook', name: 'Corner to Corner',
-    when: 'The words hold one corner and the picture the other.',
-    kind: 'corner', tone: 'ground', levels: 2,
-    art: { head: 'Everyone wants the after.', body: 'Almost nobody wants the six weeks in between.' },
-  }),
   /* ── "IMAGE FIRST" IS GONE (Leon, Aug 7 — decision 555) ─────────────────
    * `min-caption`: a photograph filling the slide with "Prinsengracht, 08:40"
    * under it. Its own note called the words a footnote, and that is what it
@@ -348,19 +369,6 @@ export const LAYOUTS = [
   }),
 
   /* ── Educational ── */
-  L({
-    /* hierarchy: a title over two columns of body — the only multi-column text
-       block, and the most body copy any layout carries */
-    id: 'n-edu-columns', cat: 'edu', name: 'Two Columns',
-    when: 'Two ideas that have to be read side by side.',
-    kind: 'columns', tone: 'ground', levels: 3,
-    art: {
-      eyebrow: 'How we work',
-      head: 'Why the drawings come before the shopping.',
-      body: 'A room is a set of decisions that depend on each other. Move the door and the sofa moves; move the sofa and the light you were designing around stops working.',
-      bodyB: 'So the plan is finished before anything is bought. It is slower for three weeks and faster for the three months after that.',
-    },
-  }),
   L({
     /* composition: a panel inset on the ground — the only layout that puts a
        surface inside the frame rather than dividing it */

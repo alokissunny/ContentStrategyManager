@@ -1347,8 +1347,25 @@
 .vl--pick .vl-mood__label { display: inline; }
 .vl--pick .vl-pickhead + .vl-row,
 .vl--pick .vl-row:first-of-type { border-top: 0; padding-top: 0; }
-.vl--pick .vl-card { cursor: default; }
-.vl--pick .vl-card:hover .vl-card__frame { box-shadow: 0 0 0 1px var(--border); transform: none; }
+.vl--pick .vl-card { cursor: pointer; }
+.vl--pick .vl-card__choose {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  text-align: inherit;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+.vl--pick .vl-card:hover .vl-card__frame,
+.vl--pick .vl-card.is-chosen .vl-card__frame {
+  box-shadow: 0 0 0 2px var(--ink-900);
+  transform: none;
+}
 .vl--pick .vl-row__title {
   font-family: var(--font-ui);
   font-size: var(--text-base);

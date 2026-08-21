@@ -523,6 +523,7 @@ function normalizeSlides(rawSlides, onScreenText, format, title, cta, validKeys 
         subtitle: String(s.subtitle || '').trim(),
         imagePrompt: String(s.imagePrompt || '').trim(),
         assetKey: keepKey(String(s.assetKey || '').trim()),
+        layout: String(s.layout || '').trim(),
       })).filter((s) => s.title || s.role)
     : [];
 
@@ -570,6 +571,11 @@ function normalizeSlides(rawSlides, onScreenText, format, title, cta, validKeys 
       // otherwise a context-rich one synthesised from this slide + the day.
       imagePrompt: s.imagePrompt || buildBaseImagePrompt(withRole, { ...ctx, dayTitle: title, format }),
       assetKey,
+      layout: String(s.layout || '').trim() || (
+        /^(hook|cover|poll)$/i.test(role) ? 'n-hook-corner'
+          : /^(setup|process)$/i.test(role) ? 'n-edu-columns'
+            : ''
+      ),
     };
   });
 }

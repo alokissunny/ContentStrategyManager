@@ -21,7 +21,7 @@ import { useProjects, uploadFiles } from '../lib/projectsStore';
 import { toSvg } from 'html-to-image';
 import { CaptureChat } from './Projects';
 import { styleOf, rolesOf, groundOf } from '../lib/visualbrand';
-import { LAYOUTS as LIB_LAYOUTS, CATEGORIES, catForRole, shotsOf } from '../data/layouts';
+import { LAYOUTS as LIB_LAYOUTS, CATEGORIES, catForRole, shotsOf, DEFAULT_LAYOUT_BY_CAT } from '../data/layouts';
 import { paintOf, identityOf, TYPE_SLOTS, FACES } from '../lib/identity';
 import { rolesOf as textRolesOf, plainOf, parseMarked, isListRole, listIndexOf } from '../lib/slidetext';
 import { Preview } from './visuallibrary/LayoutArt';
@@ -50,12 +50,32 @@ function layoutsForSlide(role, store, catOverride) {
   const gone = store?.layoutsGone || {};
   const added = store?.addedLayouts || [];
   const cat = catOverride || catForRole(role);
-  return [...added, ...ALL_LIB].filter((l) => !gone[l.id] && !off[l.id] && l.cat === cat);
+  const list = [...added, ...ALL_LIB].filter((l) => !gone[l.id] && !off[l.id] && l.cat === cat);
+  const defId = DEFAULT_LAYOUT_BY_CAT[cat];
+  if (defId) {
+    const i = list.findIndex((l) => l.id === defId);
+    if (i > 0) {
+      const [def] = list.splice(i, 1);
+      list.unshift(def);
+    }
+  }
+  return list;
 }
 function findLayout(id, store) {
   if (!id) return null;
   const added = store?.addedLayouts || [];
   return [...added, ...ALL_LIB].find((l) => l.id === id) || null;
+}
+function fallbackLayout(store, role) {
+  const off = store?.layoutsOff || {};
+  const gone = store?.layoutsGone || {};
+  const cat = catForRole(role);
+  const defId = DEFAULT_LAYOUT_BY_CAT[cat];
+  if (defId) {
+    const preferred = findLayout(defId, store);
+    if (preferred && !off[preferred.id] && !gone[preferred.id]) return preferred;
+  }
+  return layoutsForSlide(role, store)[0] || null;
 }
 
 // ── Conversation seeds for the Create image flow (bauhly-v3 `subjectOf`) ──
@@ -846,8 +866,8 @@ function buildMarkdown(route) {
 // NEVER the layout's own specimen copy. The preview must show only words the
 // studio actually has, so the composition is rebuilt from the slide: its line
 // (`title`) fills the headline, its supporting line (`subtitle`, written while
-// the plan is built) fills the body, and the post's content type fills the
-// eyebrow. Every other slot keeps the layout's STRUCTURE (a list stays a list,
+// the plan is built) fills the body. The eyebrow stays empty unless the studio
+// writes one — never the day's contentType, which is a production label.
 // a number slot stays a number slot) but is emptied of invented words — an
 // empty slot is honest; "Almost nobody wants the six weeks in between" is not.
 // A two-tone "statement" layout draws its headline in the brand colour with the
@@ -902,8 +922,10 @@ function fillLayout(layout, slide, contentType, draft) {
     art.head = title;
   }
 
-  // real facts about the post, where the layout has a place for them
-  if (has('eyebrow')) art.eyebrow = contentType || '';
+  // The eyebrow is a line the studio writes — never the production contentType
+  // ("Text-led interview insights carousel"), which is a label for the plan,
+  // not copy for the slide.
+  if (has('eyebrow')) art.eyebrow = '';
   if (has('bodyB')) art.bodyB = '';
 
   // the accent carries the statement's tail (drawn in the accent ink), or stays
@@ -1045,7 +1067,7 @@ function SlideMedia({ slide, layout, contentType, localMedia, parts, mediaByKey,
 /* ── Browse layouts: the Visual Library itself, opened over the post ────
  * Not a second category browser — the real page, with everything that acts
  * on the library taken away, so the one action is choosing a category. */
-function LibraryPick({ current, onPick, onClose }) {
+function LibraryPick({ current, layoutId, onPick, onLayout, onClose }) {
   useBodyScrollLock();
   const [sel, setSel] = useState(current);
   useEffect(() => { setSel(current); }, [current]);
@@ -1060,9 +1082,17 @@ function LibraryPick({ current, onPick, onClose }) {
   return createPortal(
     <>
       <div className="wv-vlib__scrim" onClick={onClose} />
-      <div className="wv-vlib" role="dialog" aria-modal="true" aria-label="Choose layout category">
+      <div className="wv-vlib" role="dialog" aria-modal="true" aria-label="Choose a layout">
         <div className="wv-vlib__body">
-          <VisualLibrary pick={{ current: sel, onPick: setSel, onClose }} />
+          <VisualLibrary
+            pick={{
+              current: sel,
+              layoutId,
+              onPick: setSel,
+              onLayout: (l) => { onLayout(l); onClose(); },
+              onClose,
+            }}
+          />
         </div>
         <div className="wv-vlib__foot">
           <button type="button" className="btn btn--tertiary" onClick={onClose}>Cancel</button>
@@ -2087,9 +2117,7 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
   // "Image only" / "Create image" pair — and a sliding window of three with an
   // arrow at each end (bauhly-v3 YourWeek `EmptySlide`).
   const slideRoleName = activeSlide?.role || 'Hook';
-  // The project picker, ranked by how well each photo's described content
-  // matches the current slide + day — so the most relevant photos come first
-  // instead of raw upload order.
+  const layoutBrowseCat = layCat || catForRole(slideRoleName);
   const pickerImages = useMemo(() => {
     if (!allImages.length) return [];
     const dayText = [day?.title, day?.direction, day?.content?.caption, day?.contentType].filter(Boolean).join(' ');
@@ -2100,17 +2128,15 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
       .map((x) => x.img);
   }, [allImages, activeSlide?.title, day]);
   const slideLayouts = useMemo(() => {
-    const own = layoutsForSlide(slideRoleName, vbStore, visEdit === 'layout' ? layCat : null);
+    const own = layoutsForSlide(slideRoleName, vbStore, visEdit === 'layout' ? layoutBrowseCat : null);
     const applied = findLayout(activeSlide?.layout, vbStore);
     if (!applied) return own;
-    // browsing another category: the row is that set, and Current is simply
-    // absent if the post's shape is not in it (bauhly-v3 §823/§828)
-    if (visEdit === 'layout' && layCat && applied.cat !== layCat) return own;
+    if (visEdit === 'layout' && layoutBrowseCat && applied.cat !== layoutBrowseCat) return own;
     if (own.some((l) => l.id === applied.id)) {
       return [applied, ...own.filter((l) => l.id !== applied.id)];
     }
     return [applied, ...own];
-  }, [slideRoleName, vbStore, visEdit, layCat, activeSlide?.layout]);
+  }, [slideRoleName, vbStore, visEdit, layoutBrowseCat, activeSlide?.layout]);
   // the studio's palette + faces, so the previews here read exactly as they do
   // in the Visual Library (empty object = the library's shipped defaults)
   const libPaint = useMemo(() => paintOf(vbStore?.libraryEdits), [vbStore?.libraryEdits]);
@@ -2118,14 +2144,14 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
     () => layoutsForSlide(slideRoleName, vbStore),
     [slideRoleName, vbStore],
   );
-  const appliedLayout = findLayout(activeSlide?.layout, vbStore) || roleLayouts[0] || null;
+  const appliedLayout = findLayout(activeSlide?.layout, vbStore) || fallbackLayout(vbStore, slideRoleName) || roleLayouts[0] || null;
   const appliedId = appliedLayout?.id || null;
   const draftId = visEdit === 'layout' ? (layPick || appliedId) : appliedId;
   const chosenLayout = (visEdit === 'layout' && layPick
     ? findLayout(layPick, vbStore)
     : null) || appliedLayout;
   const chosenLayoutIdx = Math.max(0, slideLayouts.findIndex((l) => l.id === draftId));
-  const layoutCatLabel = (CATEGORIES.find((c) => c.id === (layCat || appliedLayout?.cat || slideLayouts[0]?.cat)) || {}).label || '';
+  const layoutCatLabel = (CATEGORIES.find((c) => c.id === layoutBrowseCat) || {}).label || '';
   const layoutUnchanged = Boolean(draftId) && draftId === appliedId;
   const wordRoles = visEdit === 'words' ? textRolesOf(chosenLayout) : [];
   const primaryWordKey = wordRoles.find((r) => r.key === 'head')?.key
@@ -2343,7 +2369,7 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
   // always show the same picture for a given slide (never out of sync).
   const slideThumbLayout = (s) => {
     const opts = layoutsForSlide(s.role || 'Hook', vbStore);
-    return opts.find((l) => l.id === s.layout) || opts[0] || null;
+    return opts.find((l) => l.id === s.layout) || fallbackLayout(vbStore, s.role || 'Hook') || opts[0] || null;
   };
   const LAY_PER_PAGE = 3;
   const maxWinStart = Math.max(0, slideLayouts.length - LAY_PER_PAGE);
@@ -2548,12 +2574,20 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
 
       {libOpen && visEdit === 'layout' && (
         <LibraryPick
-          current={layCat || appliedLayout?.cat || catForRole(slideRoleName)}
+          current={layoutBrowseCat}
+          layoutId={draftId}
           onPick={(id) => {
-            const now = layCat || appliedLayout?.cat || catForRole(slideRoleName);
             setLibOpen(false);
-            if (id === now) return;
-            setAskCat({ id, label: (CATEGORIES.find((c) => c.id === id) || {}).label || 'this set' });
+            if (id === layoutBrowseCat) return;
+            setLayCat(id);
+            setLayPick(null);
+            setLayWinStart(0);
+          }}
+          onLayout={(l) => {
+            if (!l?.id) return;
+            if (l.cat && l.cat !== layoutBrowseCat) setLayCat(l.cat);
+            setLayPick(l.id);
+            setLayWinStart(0);
           }}
           onClose={() => setLibOpen(false)}
         />
