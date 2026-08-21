@@ -100,6 +100,20 @@ export function addAiDebugEntry(entry = {}) {
   setState({ entries: next });
 }
 
+export function updateAiDebugEntry(id, patch = {}) {
+  if (!id) return;
+  const next = state.entries.map((item) => {
+    if (item.id !== id) return item;
+    const merged = { ...item };
+    if (patch.prompt !== undefined) merged.prompt = asText(patch.prompt);
+    if (patch.output !== undefined) merged.output = asText(patch.output);
+    if (patch.model !== undefined) merged.model = String(patch.model || '');
+    if (patch.note !== undefined) merged.note = String(patch.note || '');
+    return merged;
+  });
+  setState({ entries: next });
+}
+
 export function useAiDebug() {
   return useSyncExternalStore(
     (fn) => {

@@ -288,4 +288,8 @@ async function understandCheckin(input = {}) {
   return result;
 }
 
-module.exports = { understandCheckin };
+module.exports = {
+  understandCheckin,
+  UNDERSTAND_TOOL,
+  TOOL_NAME,
+};

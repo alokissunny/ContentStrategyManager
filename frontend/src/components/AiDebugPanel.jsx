@@ -4,7 +4,9 @@ import {
   useAiDebug,
   setAiDebugPanelOpen,
   clearAiDebugEntries,
+  updateAiDebugEntry,
 } from '../lib/aiDebug';
+import { rerunPrompt } from '../api/debug';
 
 function fmtTime(ms) {
   try {
@@ -56,36 +58,133 @@ async function copyText(text) {
   }
 }
 
-function DebugBlock({ label, text, open = true, copyable = false }) {
-  const body = formatBlock(text);
+function CopyButton({ text }) {
   const [copied, setCopied] = useState(false);
-  if (!body) return null;
-
   const onCopy = async (e) => {
     e.preventDefault();
     e.stopPropagation();
-    const ok = await copyText(body);
+    const ok = await copyText(text);
     if (!ok) return;
     setCopied(true);
     setTimeout(() => setCopied(false), 1400);
   };
+  return (
+    <button
+      type="button"
+      className={`ai-debug__copy${copied ? ' is-copied' : ''}`}
+      onClick={onCopy}
+      onPointerDown={(e) => e.stopPropagation()}
+    >
+      {copied ? 'Copied' : 'Copy'}
+    </button>
+  );
+}
+
+function DebugBlock({ label, text, open = true, copyable = false }) {
+  const body = formatBlock(text);
+  if (!body) return null;
 
   return (
     <details className="ai-debug__block" open={open}>
       <summary className="ai-debug__block-sum">
         <span>{label}</span>
-        {copyable ? (
-          <button
-            type="button"
-            className={`ai-debug__copy${copied ? ' is-copied' : ''}`}
-            onClick={onCopy}
-            onPointerDown={(e) => e.stopPropagation()}
-          >
-            {copied ? 'Copied' : 'Copy'}
-          </button>
-        ) : null}
+        {copyable ? <CopyButton text={body} /> : null}
       </summary>
       <pre className="ai-debug__pre">{body}</pre>
+    </details>
+  );
+}
+
+function InputBlock({ draft, onDraftChange, onRerun, busy, disabled }) {
+  const onRerunClick = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!busy && !disabled) onRerun();
+  };
+
+  return (
+    <details className="ai-debug__block" open>
+      <summary className="ai-debug__block-sum">
+        <span>Input</span>
+        <span className="ai-debug__block-acts">
+          <CopyButton text={draft} />
+          <button
+            type="button"
+            className="ai-debug__copy"
+            onClick={onRerunClick}
+            onPointerDown={(e) => e.stopPropagation()}
+            disabled={busy || disabled}
+          >
+            {busy ? 'Rerunning…' : 'Rerun'}
+          </button>
+        </span>
+      </summary>
+      <textarea
+        className="ai-debug__pre ai-debug__input"
+        value={draft}
+        onChange={(e) => onDraftChange(e.target.value)}
+        onPointerDown={(e) => e.stopPropagation()}
+        spellCheck={false}
+        rows={10}
+      />
+    </details>
+  );
+}
+
+function DebugEntry({ entry }) {
+  const [draft, setDraft] = useState(entry.prompt || '');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+
+  const onRerun = async () => {
+    const prompt = String(draft || '').trim();
+    if (!prompt) {
+      setError('Input is empty.');
+      return;
+    }
+    setBusy(true);
+    setError('');
+    try {
+      const data = await rerunPrompt({
+        model: entry.model,
+        systemPrompt: entry.systemPrompt,
+        prompt,
+      });
+      updateAiDebugEntry(entry.id, {
+        prompt,
+        output: data.output,
+        model: data.model || entry.model,
+      });
+    } catch (err) {
+      setError(err.response?.data?.message || err.message || 'Could not rerun this prompt.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <details className="ai-debug__item" open>
+      <summary className="ai-debug__sum">
+        <span>{entry.source}</span>
+        <span className="ai-debug__meta">
+          {entry.model ? `${entry.model} · ` : ''}
+          {fmtTime(entry.at)}
+        </span>
+      </summary>
+      {entry.note ? <p className="ai-debug__note">{entry.note}</p> : null}
+      <DebugBlock label="System" text={entry.systemPrompt} open={false} />
+      <InputBlock
+        draft={draft}
+        onDraftChange={setDraft}
+        onRerun={onRerun}
+        busy={busy}
+        disabled={!draft.trim()}
+      />
+      {error ? <p className="ai-debug__error">{error}</p> : null}
+      {busy ? <p className="ai-debug__missing">Rerunning with modified input…</p> : null}
+      {entry.output
+        ? <DebugBlock label="Output" text={entry.output} copyable />
+        : (!busy && <p className="ai-debug__missing">No output recorded for this call.</p>)}
     </details>
   );
 }
@@ -126,21 +225,7 @@ export default function AiDebugPanel() {
           <p className="ai-debug__empty">No AI prompts logged yet in this session.</p>
         )}
         {debug.entries.map((e) => (
-          <details key={e.id} className="ai-debug__item" open>
-            <summary className="ai-debug__sum">
-              <span>{e.source}</span>
-              <span className="ai-debug__meta">
-                {e.model ? `${e.model} · ` : ''}
-                {fmtTime(e.at)}
-              </span>
-            </summary>
-            {e.note ? <p className="ai-debug__note">{e.note}</p> : null}
-            <DebugBlock label="System" text={e.systemPrompt} open={false} />
-            <DebugBlock label="Input" text={e.prompt} copyable />
-            {e.output
-              ? <DebugBlock label="Output" text={e.output} copyable />
-              : <p className="ai-debug__missing">No output recorded for this call.</p>}
-          </details>
+          <DebugEntry key={e.id} entry={e} />
         ))}
       </div>
     </aside>

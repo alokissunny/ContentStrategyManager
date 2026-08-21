@@ -1,8 +1,8 @@
 const fs = require('fs');
 const path = require('path');
-const getAnthropicClient = require('./anthropicClient');
 const { extractJson, estimatePlanCostUsd, assignToEmptyDates } = require('./weeklyPlan');
 const { compileStrategyContext, assetsForDay, json } = require('./planContext');
+const { completeText, planTextModel } = require('./llmComplete');
 
 const PROMPTS_DIR = path.join(__dirname, '..', '..', 'prompts');
 const cache = {};
@@ -25,51 +25,106 @@ function fillTemplate(template, vars) {
 }
 
 function agentModel(kind) {
-  if (kind === 'day') {
-    return process.env.PLAN_DAY_MODEL || process.env.PLAN_AGENT_MODEL || process.env.ANTHROPIC_MODEL || 'claude-sonnet-5';
-  }
-  return process.env.PLAN_AGENT_MODEL || process.env.ANTHROPIC_MODEL || 'claude-sonnet-5';
+  return planTextModel(kind);
 }
 
 const GOAL_TAG = { discovery: 'Get noticed', credibility: 'Show expertise', trust: 'Build confidence' };
 const FORMATS = ['Reel', 'Carousel', 'Post', 'Story'];
+const WRITER_FORMATS = ['Reel', 'Carousel', 'Post', 'Story', 'Before/After', 'Annotated Visual'];
 
-function formatFromLabel(label) {
-  const s = String(label || '');
+function stringList(value) {
+  return Array.isArray(value) ? value.map((x) => String(x || '').trim()).filter(Boolean) : [];
+}
+
+function optionalText(value) {
+  return String(value || '').trim();
+}
+
+function optionalTextOrList(value) {
+  if (Array.isArray(value)) return stringList(value);
+  return optionalText(value);
+}
+
+function narrativeUnitsOf(brief) {
+  if (!Array.isArray(brief?.narrativeUnits)) return [];
+  return brief.narrativeUnits.map((u) => {
+    const unit = {
+      role: String(u?.role || '').trim(),
+      purpose: String(u?.purpose || '').trim(),
+      support: String(u?.support || '').trim(),
+    };
+    const placement = String(u?.placement || '').trim().toLowerCase();
+    if (['visual', 'caption', 'cta'].includes(placement)) unit.placement = placement;
+    return unit;
+  }).filter((u) => u.purpose || u.support || u.role);
+}
+
+function persistFormat(label) {
+  const s = String(label || '').trim();
+  if (/before/i.test(s)) return 'Carousel';
+  if (/annotat/i.test(s)) return 'Post';
+  if (FORMATS.includes(s)) return s;
   if (/carousel/i.test(s)) return 'Carousel';
   if (/reel/i.test(s)) return 'Reel';
   if (/stor/i.test(s)) return 'Story';
   if (/post|static|feed|photo/i.test(s)) return 'Post';
-  return '';
+  return 'Post';
 }
 
-function preferFormat(index, competitorFormats) {
-  const cycle = [...new Set(
-    (competitorFormats || []).map(formatFromLabel).filter((f) => FORMATS.includes(f)),
-  )];
-  const list = cycle.length ? cycle : ['Carousel', 'Reel', 'Post'];
-  return list[index % list.length];
+function lockedFormat(briefFormat) {
+  const s = String(briefFormat || '').trim();
+  if (WRITER_FORMATS.includes(s)) return s;
+  return persistFormat(s);
+}
+
+function generationSignalsOf(competitor) {
+  const signals = {};
+  const hook = optionalText((competitor?.hooks || [])[0]);
+  const framing = optionalText(
+    (competitor?.signals || []).find((s) => !/dominate packaging|hooks are common/i.test(String(s))),
+  );
+  const presentation = stringList(competitor?.formats).join(', ');
+  if (hook) signals.hookPattern = hook;
+  if (framing) signals.framingPattern = framing;
+  if (presentation) signals.presentationApproach = presentation;
+  if (competitor?.confidence) signals.confidence = competitor.confidence;
+  return signals;
+}
+
+function briefFieldsOf(b) {
+  const lenses = ['discovery', 'credibility', 'trust'];
+  const lens = String(b.lens || b.pillar || '').toLowerCase();
+  return {
+    source: b.source || '',
+    angle: b.angle || '',
+    verifiedTruth: stringList(b.verifiedTruth),
+    uniqueJob: optionalText(b.uniqueJob),
+    centralFact: optionalText(b.centralFact),
+    ownedTerritory: optionalText(b.ownedTerritory),
+    doNotRepeat: optionalTextOrList(b.doNotRepeat),
+    format: optionalText(b.format),
+    formatReason: optionalText(b.formatReason),
+    narrativeUnits: narrativeUnitsOf(b),
+    approvedGenerationRoute: optionalText(b.approvedGenerationRoute),
+    knownLimitation: optionalText(b.knownLimitation),
+    hashtags: stringList(b.hashtags),
+    recommendedTime: optionalText(b.recommendedTime),
+    ...(lenses.includes(lens) ? { lens } : {}),
+  };
 }
 
 function maxTokensFor(kind) {
   if (kind === 'strategist') {
     const n = Number(process.env.PLAN_STRATEGIST_MAX_TOKENS);
-    return Number.isFinite(n) && n > 0 ? n : 8192;
+    return Number.isFinite(n) && n > 0 ? n : 32000;
   }
   const n = Number(process.env.PLAN_DAY_MAX_TOKENS);
-  return Number.isFinite(n) && n > 0 ? n : 8192;
+  return Number.isFinite(n) && n > 0 ? n : 16384;
 }
 
 function retryMaxTokens(current) {
-  const bumped = Math.min(Math.max(current, 1) * 2, 32000);
+  const bumped = Math.min(Math.max(current, 1) * 2, 64000);
   return bumped > current ? bumped : current;
-}
-
-function textOf(response) {
-  return (response.content || [])
-    .filter((b) => b.type === 'text')
-    .map((b) => b.text)
-    .join('\n');
 }
 
 function usageOf(response, model) {
@@ -104,22 +159,17 @@ function mergeUsage(parts, model) {
 
 async function callAgent({ source, kind, prompt, validate }) {
   const model = agentModel(kind);
-  const client = getAnthropicClient();
   let maxTokens = maxTokensFor(kind);
   const maxAttempts = 2;
   let lastErr;
 
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
-    const response = await client.messages.create({
-      model,
-      max_tokens: maxTokens,
-      messages: [{ role: 'user', content: prompt }],
-    });
-    const fullText = textOf(response);
+    const response = await completeText({ model, prompt, maxTokens });
+    const fullText = response.text || '';
     const usage = usageOf(response, model);
     const debugEntry = { source, model, prompt, kind };
 
-    if (response.stop_reason === 'max_tokens') {
+    if (response.stopReason === 'max_tokens') {
       lastErr = new Error(`${source} response truncated (max_tokens=${maxTokens})`);
       const next = retryMaxTokens(maxTokens);
       console.warn(
@@ -158,15 +208,7 @@ function validateStrategist(parsed, emptyDates) {
     : (Array.isArray(parsed.plannedDays) ? parsed.plannedDays : null);
   if (!Array.isArray(briefs)) throw new Error('missing briefs');
   const max = Array.isArray(emptyDates) ? emptyDates.length : 31;
-  const lenses = ['discovery', 'credibility', 'trust'];
-  parsed.briefs = briefs.slice(0, max).map((b) => {
-    const lens = String(b.lens || b.pillar || '').toLowerCase();
-    return {
-      source: b.source || '',
-      angle: b.angle || '',
-      ...(lenses.includes(lens) ? { lens } : {}),
-    };
-  });
+  parsed.briefs = briefs.slice(0, max).map(briefFieldsOf);
   parsed.plannedDays = parsed.briefs;
 }
 
@@ -246,6 +288,12 @@ async function runMultiAgentPlan({
     voiceNotes: strategist.parsed.constraints?.voiceNotes || [],
     avoid: strategist.parsed.constraints?.avoid || [],
   });
+  const generationSignalsJson = json(generationSignalsOf(ctx.competitor));
+  const authorityFocusJson = json({
+    priority: ctx.authority.priority,
+    objective: optionalText(strategist.parsed.focus?.objective),
+    headline: optionalText(strategist.parsed.focus?.headline),
+  });
   const lastThree = Array.isArray(ctx.projects?.lastThree) ? ctx.projects.lastThree : [];
   const noteCount = lastThree.filter((c) => c.text).length;
   const shownCount = lastThree.reduce((n, c) => n + (c.shown || []).length, 0);
@@ -264,15 +312,6 @@ async function runMultiAgentPlan({
     );
   }
 
-  const competitorJson = json({
-    confidence: ctx.competitor.confidence,
-    formats: ctx.competitor.formats,
-    hooks: ctx.competitor.hooks,
-    peakTimes: ctx.competitor.peakTimes,
-    signals: ctx.competitor.signals,
-  });
-  const brandJson = json(ctx.brandVoice);
-
   // ── 2. Day writers (parallel) ────────────────────────────────────────────
   const dayResults = await Promise.all(
     plannedDays.map(async (planned, index) => {
@@ -285,58 +324,89 @@ async function runMultiAgentPlan({
         lens: planned.lens || planned.pillar,
         source: planned.source || '',
         angle: planned.angle || '',
-        preferFormat: preferFormat(index, ctx.competitor.formats),
+        verifiedTruth: planned.verifiedTruth || [],
+        uniqueJob: planned.uniqueJob || '',
+        centralFact: planned.centralFact || '',
+        ownedTerritory: planned.ownedTerritory || '',
+        doNotRepeat: planned.doNotRepeat || '',
+        format: lockedFormat(planned.format),
+        formatReason: planned.formatReason || '',
+        narrativeUnits: planned.narrativeUnits || [],
+        approvedGenerationRoute: planned.approvedGenerationRoute || '',
+        knownLimitation: planned.knownLimitation || '',
+        hashtags: planned.hashtags || [],
+        recommendedTime: planned.recommendedTime || '',
       };
-      let dayAssets = assetsForDay(projects, brief);
-      if (dayAssets[0]?.key) {
-        brief.suggestedAssetKey = dayAssets[0].key;
-        dayAssets = dayAssets.map((a, i) => ({ ...a, preferred: i === 0 }));
-      }
+      const dayAssets = (() => {
+        const rows = assetsForDay(projects, brief);
+        if (rows[0]?.key) return rows.map((a, i) => ({ ...a, preferred: i === 0 }));
+        return rows;
+      })();
       const dayPrompt = fillTemplate(loadPrompt('plan-day-writer.md'), {
         DAY_JSON: json(brief),
         CONSTRAINTS_JSON: constraintsJson,
-        BRAND_JSON: brandJson,
-        COMPETITOR_JSON: competitorJson,
         DAY_ASSETS: json(dayAssets),
+        GENERATION_SIGNALS_JSON: generationSignalsJson,
+        AUTHORITY_FOCUS_JSON: authorityFocusJson,
       });
       const source = `Day:${brief.date || brief.day || `D${index + 1}`}`;
-      const result = await callAgent({
-        source,
-        kind: 'day',
-        prompt: dayPrompt,
-        validate: (p) => {
-          if (!p?.content || typeof p.content !== 'object') throw new Error('missing content');
-        },
-      });
-      return { index, dayBrief: brief, result };
+      try {
+        const result = await callAgent({
+          source,
+          kind: 'day',
+          prompt: dayPrompt,
+          validate: (p) => {
+            if (p?.status === 'cannot_generate') return;
+            if (!p?.content || typeof p.content !== 'object') throw new Error('missing content');
+          },
+        });
+        return { index, dayBrief: brief, result };
+      } catch (err) {
+        console.warn(`[planOrchestrator] ${source} skipped — ${err.message}`);
+        return { index, dayBrief: brief, result: null, skipped: err.message };
+      }
     }),
   );
 
   dayResults
     .sort((a, b) => a.index - b.index)
     .forEach(({ result }) => {
+      if (!result) return;
       debugAgents.push(result.debugEntry);
       usages.push(result.usage);
     });
 
   const rawDays = dayResults
     .sort((a, b) => a.index - b.index)
-    .map(({ dayBrief, result }) => {
+    .map(({ dayBrief, result, skipped }) => {
+      if (!result) {
+        console.warn(`[planOrchestrator] @${username}: dropped ${dayBrief.date || dayBrief.day} (${skipped})`);
+        return null;
+      }
       const parsed = result.parsed || {};
+      if (parsed.status === 'cannot_generate') {
+        console.warn(
+          `[planOrchestrator] @${username}: cannot_generate ${dayBrief.date || dayBrief.day}` +
+            (parsed.conflict ? ` · conflict=${JSON.stringify(parsed.conflict)}` : '') +
+            (parsed.reason ? ` · ${parsed.reason}` : ''),
+        );
+        return null;
+      }
       const content = { ...(parsed.content || {}) };
       const slides = Array.isArray(content.slides) ? content.slides.map((s) => ({ ...s })) : [];
-      const suggested = String(dayBrief.suggestedAssetKey || '').trim();
-      if (suggested && slides[0] && !slides[0].assetKey) {
-        slides[0] = { ...slides[0], assetKey: suggested };
-      }
       content.slides = slides;
+      content.strategy = content.executionRationale || content.strategy || '';
+      content.prompts = Array.isArray(content.productionNeeds)
+        ? content.productionNeeds
+        : (Array.isArray(content.prompts) ? content.prompts : []);
+      content.hashtags = stringList(dayBrief.hashtags);
       const pillar = dayBrief.pillar;
-      const format = FORMATS.includes(parsed.format) ? parsed.format : dayBrief.preferFormat;
+      const format = persistFormat(parsed.format || dayBrief.format);
       return {
         day: dayBrief.day,
         date: dayBrief.date,
         dayOfMonth: dayBrief.dayOfMonth,
-        time: parsed.time || '',
+        time: optionalText(dayBrief.recommendedTime),
         format,
         contentType: parsed.contentType || '',
         pillar,
@@ -345,7 +415,8 @@ async function runMultiAgentPlan({
         direction: parsed.direction || dayBrief.angle || '',
         content,
       };
-    });
+    })
+    .filter(Boolean);
 
   const model = agentModel('strategist');
   const usage = mergeUsage(usages, model);

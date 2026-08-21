@@ -124,9 +124,9 @@ async function rewriteCaption({ caption, instruction, context, kind = 'caption' 
 
   const user = userPrompt({ caption, instruction: ask, context, kind: subject });
   const systemPrompt = subject === 'words' ? SYSTEM_WORDS : SYSTEM_CAPTION;
-  const { text, model } = hasAnthropic()
-    ? await completeAnthropic(user, subject)
-    : await completeOpenAI(user, subject);
+  const { text, model } = hasOpenAI()
+    ? await completeOpenAI(user, subject)
+    : await completeAnthropic(user, subject);
   const next = cleanCaption(text);
   if (!next) {
     const err = new Error('Nothing came back — try a more specific instruction.');

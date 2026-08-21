@@ -389,4 +389,6 @@ module.exports = {
   str,
   loadPrompt,
   makeUnderstandDebug,
+  UNDERSTAND_TOOL,
+  TOOL_NAME,
 };

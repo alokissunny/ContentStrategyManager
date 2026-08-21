@@ -1,8 +1,8 @@
 const fs = require('fs');
 const path = require('path');
-const getAnthropicClient = require('./anthropicClient');
 const { computeAuthorityFunnel } = require('./authorityFunnel');
 const { recentCapturesOf } = require('./planContext');
+const { completeText, planTextModel } = require('./llmComplete');
 
 const PROMPT_PATH = path.join(__dirname, '..', '..', 'prompts', 'weekly-plan-prompt.md');
 let promptTemplate;
@@ -29,9 +29,11 @@ const GOAL_TAG = { discovery: 'Get noticed', credibility: 'Show expertise', trus
 // Override via ANTHROPIC_INPUT_USD_PER_MTOK / ANTHROPIC_OUTPUT_USD_PER_MTOK if needed.
 function ratesForModel(model = '') {
   const m = String(model).toLowerCase();
-  const envIn = Number(process.env.ANTHROPIC_INPUT_USD_PER_MTOK);
-  const envOut = Number(process.env.ANTHROPIC_OUTPUT_USD_PER_MTOK);
+  const isOpenAI = /gpt|terra|o1|o3|o4/.test(m);
+  const envIn = Number(isOpenAI ? process.env.OPENAI_INPUT_USD_PER_MTOK : process.env.ANTHROPIC_INPUT_USD_PER_MTOK);
+  const envOut = Number(isOpenAI ? process.env.OPENAI_OUTPUT_USD_PER_MTOK : process.env.ANTHROPIC_OUTPUT_USD_PER_MTOK);
   if (Number.isFinite(envIn) && Number.isFinite(envOut)) return { in: envIn, out: envOut };
+  if (isOpenAI) return { in: 1.25, out: 10 };
   if (m.includes('opus')) return { in: 15, out: 75 };
   if (m.includes('haiku')) return { in: 0.8, out: 4 };
   return { in: 3, out: 15 }; // sonnet family default
@@ -200,6 +202,18 @@ function assignToEmptyDates(plannedDays, emptyDates) {
     return {
       source: p.source || '',
       angle: p.angle || '',
+      verifiedTruth: Array.isArray(p.verifiedTruth) ? p.verifiedTruth : [],
+      uniqueJob: p.uniqueJob || '',
+      centralFact: p.centralFact || '',
+      ownedTerritory: p.ownedTerritory || '',
+      doNotRepeat: p.doNotRepeat || '',
+      format: p.format || '',
+      formatReason: p.formatReason || '',
+      narrativeUnits: Array.isArray(p.narrativeUnits) ? p.narrativeUnits : [],
+      approvedGenerationRoute: p.approvedGenerationRoute || '',
+      knownLimitation: p.knownLimitation || '',
+      hashtags: Array.isArray(p.hashtags) ? p.hashtags : [],
+      recommendedTime: p.recommendedTime || '',
       // Dates from the next empty future slot; pillar from the brief's lens
       // when the strategist named a genuine one, otherwise the weekday default.
       ...slot,
@@ -674,8 +688,10 @@ function assembleDays({
         caption: c.caption || '',
         cta: c.cta || '',
         hashtags: Array.isArray(c.hashtags) ? c.hashtags.map((h) => String(h).replace(/^#/, '')) : [],
-        strategy: c.strategy || '',
-        prompts: Array.isArray(c.prompts) ? c.prompts : [],
+        strategy: c.executionRationale || c.strategy || '',
+        prompts: Array.isArray(c.productionNeeds)
+          ? c.productionNeeds
+          : (Array.isArray(c.prompts) ? c.prompts : []),
         plan: c.plan || '',
         notes: c.notes || '',
       },
@@ -683,12 +699,14 @@ function assembleDays({
   });
 
   // Auto-fill imageless posts from the shared claim-set (month-wide when passed).
+  // Skip days the writer already structured — empty assetKey is a valid text-led
+  // choice, not a missing attachment.
   const assetPool = projects.flatMap((p) =>
     (p.assets || []).map((a) => ({ key: a.key, kw: assetKeywords(a) }))
   );
   for (const d of days) {
     const slides = d.content.slides || [];
-    if (slides.some((s) => s.assetKey)) continue;
+    if (slides.length) continue;
     const available = assetPool.filter((a) => !usedAssetKeys.has(a.key));
     if (!available.length) continue;
     const words = fillKeywordSet(`${d.title} ${d.direction} ${d.content.caption} ${slides[0]?.title || ''}`);
@@ -715,7 +733,6 @@ async function generateSingleAgentPlan({
   projects,
   prompt,
 }) {
-  const client = getAnthropicClient();
   const planMaxTokens = () => {
     const n = Number(process.env.WEEKLY_PLAN_MAX_TOKENS);
     return Number.isFinite(n) && n > 0 ? n : 32000;
@@ -725,32 +742,24 @@ async function generateSingleAgentPlan({
     return Number.isFinite(n) && n > 0 ? n : 64000;
   };
 
-  async function callPlanModel(maxTokens) {
-    return client.messages.create({
-      model,
-      max_tokens: maxTokens,
-      messages: [{ role: 'user', content: prompt }],
-    });
-  }
-
   let maxTokens = planMaxTokens();
-  let response = await callPlanModel(maxTokens);
-  let fullText = response.content.filter((b) => b.type === 'text').map((b) => b.text).join('\n');
+  let result = await completeText({ model, prompt, maxTokens });
+  let fullText = result.text || '';
 
-  if (response.stop_reason === 'max_tokens') {
+  if (result.stopReason === 'max_tokens') {
     const retryMax = planRetryMaxTokens();
     if (retryMax > maxTokens) {
       console.warn(
         `[weeklyPlan] @${snapshot.username} hit max_tokens=${maxTokens} (${fullText.length} chars) — retrying with ${retryMax}`,
       );
       maxTokens = retryMax;
-      response = await callPlanModel(maxTokens);
-      fullText = response.content.filter((b) => b.type === 'text').map((b) => b.text).join('\n');
+      result = await completeText({ model, prompt, maxTokens });
+      fullText = result.text || '';
     }
   }
 
-  const inputTokens = Number(response.usage?.input_tokens) || 0;
-  const outputTokens = Number(response.usage?.output_tokens) || 0;
+  const inputTokens = Number(result.usage?.input_tokens) || 0;
+  const outputTokens = Number(result.usage?.output_tokens) || 0;
   const usage = {
     inputTokens,
     outputTokens,
@@ -767,14 +776,14 @@ async function generateSingleAgentPlan({
     const around = Number.isFinite(pos) ? fullText.slice(Math.max(0, pos - 160), pos + 160) : fullText.slice(-320);
     console.error(
       `[weeklyPlan] Could not parse plan JSON for @${snapshot.username} ` +
-        `(stop_reason=${response.stop_reason}, max_tokens=${maxTokens}, chars=${fullText.length}): ${err.message}\n...${around}...`
+        `(stop_reason=${result.stopReason}, max_tokens=${maxTokens}, chars=${fullText.length}): ${err.message}\n...${around}...`
     );
-    if (response.stop_reason === 'max_tokens') {
+    if (result.stopReason === 'max_tokens') {
       throw new Error(
         'Weekly plan generation ran out of output space (response truncated). Try again — if it keeps failing, raise WEEKLY_PLAN_MAX_TOKENS in backend/.env.',
       );
     }
-    throw new Error(`Weekly plan generation returned unparseable JSON (stop_reason=${response.stop_reason})`);
+    throw new Error(`Weekly plan generation returned unparseable JSON (stop_reason=${result.stopReason})`);
   }
 
   return {
@@ -793,7 +802,7 @@ async function generateSingleAgentPlan({
 }
 
 async function generateWeeklyPlan(profile, brandDna, competitorInsights = null, projects = [], options = {}) {
-  const model = process.env.ANTHROPIC_MODEL || 'claude-sonnet-5';
+  const model = planTextModel();
   const { funnel, focusPillar: gapPillar, confidence, seed } = buildFunnelWithScores(profile);
   // A month's four weeks share one focus (the month's pillar-gap pillar), so the
   // caller can override the per-week gap pillar. Defaults to the gap pillar.

@@ -313,6 +313,11 @@
   color: var(--ink-500);
   font-size: 11px;
 }
+.ai-debug__error {
+  margin: 0 10px 10px;
+  color: var(--danger, #b42318);
+  font-size: 11px;
+}
 .ai-debug__block {
   margin: 0 10px 10px;
 }
@@ -330,6 +335,11 @@
   color: var(--ink-500);
   padding: 2px 0 6px;
 }
+.ai-debug__block-acts {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
 .ai-debug__copy {
   flex: 0 0 auto;
   border: 1px solid var(--border-strong);
@@ -342,6 +352,10 @@
   letter-spacing: 0;
   text-transform: none;
   line-height: 1.3;
+}
+.ai-debug__copy:disabled {
+  opacity: 0.55;
+  cursor: default;
 }
 .ai-debug__copy.is-copied {
   border-color: var(--ink-900);
@@ -360,6 +374,14 @@
   font-size: 11px;
   line-height: 1.45;
   color: var(--ink-900);
+}
+textarea.ai-debug__input {
+  display: block;
+  width: 100%;
+  min-height: 160px;
+  resize: vertical;
+  font-family: inherit;
+  box-sizing: border-box;
 }
 
 /* ── This week's focus — the hero band ── */
