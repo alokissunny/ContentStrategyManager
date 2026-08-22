@@ -113,26 +113,63 @@ If confidence is low, reduce competitor influence.
 
 For each brief:
 
-**Understand Story → Extract Narrative Units → Remove Redundancy → Merge Related Units → Choose Format**
+**Understand Story → Extract Narrative Units → Close the Arc → Remove Redundancy → Merge Related Units → Choose Format**
 
 Never start from a fixed slide count.
 
-Narrative units are the meaningful pieces the audience needs to understand the idea.
+Narrative units are the meaningful pieces the audience needs to understand **and complete** the idea.
+
+### Completeness (required)
+
+Every brief that opens an idea must close it.
+
+Typical argument arc:
+
+**Premise → Problem → Tension → Escalation → Resolution / Payoff**
+
+Not every post needs every middle beat. Every post that opens a premise, problem, or tension **does** need a Resolution / Payoff.
+
+The last content unit (before an optional CTA) must **complete** the idea introduced at the start. It may not restate, intensify, or rephrase the same tension.
+
+Resolution / Payoff is not a new fact, invented outcome, lesson, or product pitch. It is the completed thought already implied by `verifiedTruth` + `angle` + `uniqueJob` — the distinction, reframe, or finished observation that makes the opening land.
+
+After extracting units, run this check:
+
+* What idea did the first unit open?
+* Does a later unit close that same idea?
+* If the final content unit still sounds like the problem, add a Resolution unit. Do not stop.
+
+Incomplete (reject): Premise ✓ Problem ✓ Tension ✓ Escalation ✓ Resolution ✗ — the last lines only intensify the same pressure.
+
+Complete: the final unit answers the opening idea. It does not need to be longer. Example: if the premise is that designers already know Instagram matters, do not end on “consistency is another job.” Close it: the hard part is not conviction — it is making content fit around the work they already do.
+
+`uniqueJob` must name the **completed** idea, not only the problem.
+
+Compactness and merging must never drop the close. Do not merge Resolution into Tension or Escalation. Two tension beats are not a finished narrative.
+
+### Carry the full arc into the post
+
+The Day Writer will only generate what these units specify. If Resolution is missing here, the final post will stop at the problem.
+
+Choose a format that can carry **every** unit — including Resolution — into the post itself.
+
+* If the complete arc has several units, prefer **Carousel** (text-led is fine) so the close is on-slide, not only in a caption.
+* Do not choose **Post** if that would park the Resolution off the visual and leave the idea unfinished.
 
 Choose format from:
 
-**Content Fit → Available Evidence/Assets → Authority Fit → Competitor Evidence**
+**Complete Narrative → Content Fit → Available Evidence/Assets → Authority Fit → Competitor Evidence**
 
 Possible formats:
 
-* **Post:** one core idea with a usable visual.
-* **Carousel:** explanation, progression, reasoning, comparison or multi-unit idea; may be text-led.
+* **Post:** one core idea with a usable visual — only when the whole idea, including its close, can live in that single frame plus caption without losing the payoff.
+* **Carousel:** explanation, progression, reasoning, comparison or multi-unit idea; may be text-led. Default when Premise → … → Resolution needs more than one beat.
 * **Reel:** motion, demonstration, personality or spatial experience genuinely adds value.
 * **Story:** lightweight sequential idea.
 * **Before/After:** only with real transformation evidence.
 * **Annotated Visual:** only when a real visual can carry the explanation.
 
-Do not choose format from the pillar alone.
+Do not choose format from the pillar alone. Do not cut units to fit a shorter format.
 
 ---
 
@@ -163,12 +200,12 @@ Return **only** a fenced ```json block:
       "verifiedTruth": ["facts this post may use — from that capture only"],
       "lens": "discovery | credibility | trust",
       "angle": "one genuine, distinct reading of the source",
-      "uniqueJob": "what this post uniquely communicates versus sibling angles",
+      "uniqueJob": "the completed idea this post uniquely communicates versus sibling angles — include the close, not only the problem",
       "format": "Post | Carousel | Reel | Story | Before/After | Annotated Visual",
       "formatReason": "short content/asset/authority reasoning",
       "narrativeUnits": [
         {
-          "role": "Hook | Setup | Beat | Result | CTA | other natural role",
+          "role": "Premise | Problem | Tension | Escalation | Resolution | Hook | Setup | Beat | Result | CTA | other natural role",
           "purpose": "what this unit must communicate",
           "support": "verified fact supporting it"
         }
@@ -191,7 +228,8 @@ Rules:
 * Never mix one capture's facts into another capture's brief.
 * Do not create volume by relabelling the same idea.
 * Narrative determines format and structure.
-* Do not invent information to fill fields.
+* `narrativeUnits` must be a complete arc. If a premise, problem, or tension is opened, include a Resolution (or Result / Payoff) that closes that same idea. CTA is optional and comes after the close, never instead of it.
+* Do not invent information to fill fields. Resolution reframes verified truth; it does not add outcomes, expertise, or lessons the capture does not support.
 * Do not copy an occupied title.
 * If no usable opportunity exists in the supplied captures, return `"briefs":[]` and explain why in `insufficientContext`.
 

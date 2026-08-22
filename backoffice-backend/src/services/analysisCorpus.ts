@@ -19,6 +19,23 @@ import {
 } from './filterScope.ts'
 import { median, since } from './metrics.ts'
 
+/**
+ * Minimum share of analyzed accounts that must independently use a pattern
+ * (hook / topic / hashtag) before it is surfaced as a recommendation.
+ *
+ * Counted per unique account, not per post, so a handful of very active
+ * competitors can no longer inflate a pattern by posting it repeatedly. At the
+ * default 0.05 a pattern needs ≈5 of every 100 analyzed accounts. There is no
+ * industry-standard cut-off here — tune this as the corpus grows.
+ */
+export const RECOMMENDATION_MIN_ACCOUNT_SHARE = 0.05
+
+/** True when `accountsUsing` clears the recommendation threshold for `totalAccounts`. */
+export function meetsAccountThreshold(accountsUsing: number, totalAccounts: number): boolean {
+  if (totalAccounts <= 0) return false
+  return accountsUsing / totalAccounts >= RECOMMENDATION_MIN_ACCOUNT_SHARE
+}
+
 /** Accounts per Claude map call — small enough for context, large enough to amortize. */
 export const ANALYSIS_BATCH_SIZE = 25
 /** Exemplar posts kept per account after local rollup. */
@@ -400,14 +417,16 @@ export async function buildAnalysisCorpus(
     sharePct,
     posts: count,
   }))
+  // Rank by unique accounts using the tag (not raw post volume) so a few very
+  // active posters can't push a niche tag to the top. Post count breaks ties.
   const topHashtags = [...corpusHashtagPosts.entries()]
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, TOP_HASHTAGS_CORPUS)
     .map(([tag, postCount]) => ({
       tag,
       posts: postCount,
       accounts: corpusHashtagAccounts.get(tag)?.size ?? 0,
     }))
+    .sort((a, b) => b.accounts - a.accounts || b.posts - a.posts)
+    .slice(0, TOP_HASHTAGS_CORPUS)
 
   const corpus: CorpusStats = {
     matchedAccountCount: filtered.length,

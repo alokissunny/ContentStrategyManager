@@ -62,7 +62,9 @@ Never invent:
 * expertise
 * lessons or conclusions
 
-If context is thin, stay concise.
+A locked Resolution / Payoff / Result is not an invented lesson. Render the close already specified in narrativeUnits. Do not add a new takeaway beyond that unit.
+
+If context is thin, stay concise — but do not drop a locked close to stay short.
 
 If knownLimitation exists, preserve that uncertainty. Never fill the gap with plausible details.
 
@@ -155,11 +157,14 @@ Format is locked.
 
 Follow narrativeUnits; do not redo narrative strategy.
 
+Carry every locked unit into the final post. A locked Resolution / Payoff / Result is the completed thought, not a new lesson — preserve it. Never end on another tension beat when a close was supplied.
+
 Do not:
 
 * target a fixed slide count
 * invent extra beats
-* drop units
+* drop units — especially the closing Resolution / Payoff / Result
+* replace the close with a restatement of the problem
 * stretch content
 * switch formats
 
@@ -218,6 +223,8 @@ If placement is absent:
 * Post → strongest/core unit becomes the visual; remaining units stay distinct in caption / CTA
 
 Do not invent new narrative information while mapping.
+
+If the locked units include a Resolution / Payoff / Result, it must appear in the generated post (a slide / scene for Carousel, Reel, or Story; the visual or a distinct caption beat for Post). Never omit it to keep the post shorter.
 
 ## Writing
 

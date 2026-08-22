@@ -6,6 +6,7 @@ import { env } from '../config/env.ts'
 import { getAnthropicClient } from './anthropicClient.ts'
 import {
   buildAnalysisCorpus,
+  meetsAccountThreshold,
   type CondensedAccount,
   type CorpusStats,
 } from './analysisCorpus.ts'
@@ -14,8 +15,10 @@ import {
   applyComputedHookMetrics,
   buildCaptionLookup,
   buildEngagementRateLookup,
+  buildPostAccountLookup,
   countExemplars,
   type ComputedHookMetric,
+  type DashboardHookRow,
 } from './hookMetrics.ts'
 import { attachHashtagExamples, attachTopicExamples } from './topicHashtagExamples.ts'
 import { periodToDays, type AnalysisFilterScope } from './filterScope.ts'
@@ -944,7 +947,7 @@ function normalizeDashboard(
     }
   })
 
-  const hooks = (Array.isArray(raw.hooks) ? raw.hooks : []).map((h) => {
+  const hooks: DashboardHookRow[] = (Array.isArray(raw.hooks) ? raw.hooks : []).map((h) => {
     const row = (h ?? {}) as Record<string, unknown>
     const trend = asStr(row.trend, 'flat')
     return {
@@ -989,9 +992,14 @@ function normalizeDashboard(
           .filter((e): e is { competitor: string; caption: string } => !!e)
           .slice(0, 4)
       : []
+    // Share of unique accounts posting the topic — the recommendation metric,
+    // so a few prolific accounts can't push a topic up on post volume alone.
+    const accountSharePct =
+      Math.round((accounts / Math.max(1, meta.accountsAnalyzed)) * 1000) / 10
     return {
       topic: asStr(row.topic, 'Topic'),
       sharePct,
+      accountSharePct,
       accounts,
       posts,
       changePp: asNum(row.changePp),
@@ -999,6 +1007,10 @@ function normalizeDashboard(
       exampleCaptions,
     }
   })
+    // Keep only topics shared by enough distinct accounts to recommend, ranked
+    // by unique-account reach (post count breaks ties).
+    .filter((t) => meetsAccountThreshold(t.accounts, meta.accountsAnalyzed))
+    .sort((a, b) => b.accounts - a.accounts || b.posts - a.posts)
 
   const hashtags = (Array.isArray(raw.hashtags) ? raw.hashtags : []).map((h) => {
     const row = (h ?? {}) as Record<string, unknown>
@@ -1025,6 +1037,12 @@ function normalizeDashboard(
       exampleCaptions,
     }
   })
+    // Rank and gate by distinct accounts using the tag (high performers + the
+    // rest of the group), not raw usage, and keep only tags that clear the
+    // recommendation threshold.
+    .map((h) => ({ ...h, accountsUsing: h.highPerformerAccounts + h.comparisonAccounts }))
+    .filter((h) => meetsAccountThreshold(h.accountsUsing, meta.accountsAnalyzed))
+    .sort((a, b) => b.accountsUsing - a.accountsUsing)
 
   const basisRaw = (raw.hashtagBasis ?? {}) as Record<string, unknown>
   const weekly = (Array.isArray(raw.weekly) ? raw.weekly : []).map((w) => {
@@ -1127,10 +1145,12 @@ function reducePayload(
     },
     corpus,
     /**
-     * Authoritative hook rates. Median ER is pooled across all classified
-     * posts for the hook: (likes + comments) / followers × 100.
+     * Hook rate hints. Median ER is pooled across all classified posts for the
+     * hook: (likes + comments) / followers × 100. The per-account `accounts` and
+     * `engagementRates` arrays are stripped here — they exist only so the server
+     * can union fragmented batch hooks; the LLM does not need them.
      */
-    hookMetrics,
+    hookMetrics: hookMetrics.map(({ accounts, engagementRates, ...rest }) => rest),
     batchMemos,
   }
 }
@@ -1300,11 +1320,12 @@ export function renderAnalysisMarkdown(
     L.push('_No hooks for this cohort._')
     L.push('')
   } else {
-    L.push('| Hook | Pillar | Use rate | Median ER | Trend |')
+    L.push('| Hook | Pillar | Accounts using | Median ER | Trend |')
     L.push('| --- | --- | --- | --- | --- |')
     for (const h of dashboard.hooks) {
+      const acct = h.accountCount == null ? '—' : ` (${h.accountCount})`
       L.push(
-        `| ${h.hookType} | ${pillarLabelOf(h.pillar)} | ${h.useRate}% | ${h.medianEngagement}% | ${h.trend} |`,
+        `| ${h.hookType} | ${pillarLabelOf(h.pillar)} | ${h.useRate}%${acct} | ${h.medianEngagement}% | ${h.trend} |`,
       )
     }
     L.push('')
@@ -1316,12 +1337,12 @@ export function renderAnalysisMarkdown(
     L.push('_No topics for this cohort._')
     L.push('')
   } else {
-    L.push('| Topic | Pillar | Share | Accounts | Posts | Change |')
+    L.push('| Topic | Pillar | Acct share | Accounts | Posts | Change |')
     L.push('| --- | --- | --- | --- | --- | --- |')
     for (const t of dashboard.topics) {
       const chg = t.changePp == null ? '—' : `${t.changePp > 0 ? '+' : ''}${t.changePp}pp`
       L.push(
-        `| ${t.topic} | ${pillarLabelOf(t.pillar)} | ${t.sharePct}% | ${t.accounts} | ${t.posts} | ${chg} |`,
+        `| ${t.topic} | ${pillarLabelOf(t.pillar)} | ${t.accountSharePct}% | ${t.accounts} | ${t.posts} | ${chg} |`,
       )
     }
     L.push('')
@@ -1426,10 +1447,20 @@ export async function runRegisterAnalysis(input: RunAnalysisInput = {}): Promise
 
     const erLookup = buildEngagementRateLookup(built.accounts)
     const captionLookup = buildCaptionLookup(built.accounts)
+    const postAccountLookup = buildPostAccountLookup(built.accounts)
     const totalExemplars = countExemplars(built.accounts)
-    const hookMetrics = aggregateHookMetrics(batchMemos, erLookup, totalExemplars, captionLookup)
+    // Use-rate is now share of unique accounts, so the denominator is accounts
+    // analyzed — not the pooled exemplar count.
+    const totalAccounts = built.accounts.length
+    const hookMetrics = aggregateHookMetrics(
+      batchMemos,
+      erLookup,
+      totalAccounts,
+      captionLookup,
+      postAccountLookup,
+    )
     console.log(
-      `[analysis] hookMetrics=${hookMetrics.length} exemplars=${totalExemplars} ` +
+      `[analysis] hookMetrics=${hookMetrics.length} accounts=${totalAccounts} exemplars=${totalExemplars} ` +
         `top=${hookMetrics
           .slice(0, 3)
           .map((h) => `${h.hookType}:${h.useRate}%/${h.medianEngagement}%`)
@@ -1469,7 +1500,7 @@ export async function runRegisterAnalysis(input: RunAnalysisInput = {}): Promise
     dashboard.summary.postsAnalyzed = built.corpus.totalPosts
     // Claude often returns useRate/medianEngagement as 0 — overwrite with
     // pooled post-level metrics from map classifications.
-    dashboard.hooks = applyComputedHookMetrics(dashboard.hooks, hookMetrics)
+    dashboard.hooks = applyComputedHookMetrics(dashboard.hooks, hookMetrics, totalAccounts)
     dashboard.sampleLabel =
       `${location} · ${followerRangeLabel} · ${businessCategory} · last ${windowDays} days · ` +
       `${built.corpus.accountsWithPosts} accounts / ${built.corpus.totalPosts} posts · ` +

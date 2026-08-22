@@ -266,8 +266,11 @@ export const mockMovements: PatternMovement[] = [
 export interface HookPerformanceRow {
   hookType: string
   structure: string
+  /** Share of unique competitor accounts opening with this hook (0–100). */
   useRate: number
   medianEngagement: number
+  /** Distinct accounts using the hook — the basis for `useRate`. Absent on older analyses. */
+  accountCount?: number
   trend: 'up' | 'down' | 'flat'
   pillar: 'discovery' | 'credibility' | 'trust'
   /**
@@ -411,6 +414,8 @@ export interface TopicRow {
   topic: string
   /** Share of relevant posts in the selected group. */
   sharePct: number
+  /** Share of unique accounts posting the topic — the recommendation metric. Absent on older analyses. */
+  accountSharePct?: number
   accounts: number
   posts: number
   changePp: number

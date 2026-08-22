@@ -482,8 +482,8 @@ export default function CompetitorOverview() {
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: 20, marginTop: 20, alignItems: 'start' }}>
         <ListPanel
           title="Most Frequently Used Hooks"
-          subtitle="How often each opener appears — not performance."
-          footNote="Use rate is the share of analyzed captions opening with this hook. The pillar badge is where top performers lean on it hardest versus the comparison group."
+          subtitle="How many competitor accounts open this way — not performance."
+          footNote="Use rate is the share of unique competitor accounts whose captions open with this hook — counted per account, so a few very active accounts can't inflate it. Only hooks used by at least 5% of accounts are shown."
           items={dashboard.hooks || []}
           limit={5}
           keyOf={(h) => h.hookType}
@@ -506,7 +506,8 @@ export default function CompetitorOverview() {
           renderDetail={(h) => (
             <>
               <EvidenceTiles items={[
-                { num: pct(h.useRate), lbl: 'of analyzed captions' },
+                { num: pct(h.useRate), lbl: 'of competitor accounts' },
+                ...(h.accountCount != null ? [{ num: num(h.accountCount), lbl: 'accounts using it' }] : []),
                 { num: pct(h.medianEngagement), lbl: 'median public ER' },
                 { num: cap(h.trend === 'up' ? 'increasing' : h.trend === 'down' ? 'decreasing' : 'stable'), lbl: 'frequency trend', tone: h.trend === 'up' ? 'up' : h.trend === 'down' ? 'down' : undefined },
                 { num: cap(h.pillar), lbl: 'authority pillar' },
@@ -519,24 +520,25 @@ export default function CompetitorOverview() {
 
         <ListPanel
           title="Topics"
-          subtitle="What competitors post about — ranked by share of posts."
-          footNote="Share of classified competitor posts mentioning the topic. The pillar badge is where top performers lean on it hardest versus the comparison group."
+          subtitle="What competitors post about — ranked by share of unique accounts."
+          footNote="Share of unique competitor accounts posting about the topic — counted per account, so a few very active accounts can't inflate it. Only topics covered by at least 5% of accounts are shown."
           items={dashboard.topics || []}
           limit={5}
           keyOf={(t) => t.topic}
           renderHead={(t, open) => {
-            const max = (dashboard.topics && dashboard.topics[0] && dashboard.topics[0].sharePct) || 1;
+            const shareOf = (x) => (x.accountSharePct != null ? x.accountSharePct : x.sharePct);
+            const max = (dashboard.topics && dashboard.topics[0] && shareOf(dashboard.topics[0])) || 1;
             return (
               <>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10, justifyContent: 'space-between' }}>
                   <span style={{ fontFamily: LS_FONT, fontWeight: 600, fontSize: 14, color: LS_INK }}>{t.topic}</span>
                   <span style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                    <span style={{ fontFamily: LS_DISPLAY, fontSize: 15, fontWeight: 700, color: LS_INK }}>{pct(t.sharePct)}</span>
+                    <span style={{ fontFamily: LS_DISPLAY, fontSize: 15, fontWeight: 700, color: LS_INK }}>{pct(shareOf(t))}</span>
                     <Chevron open={open} />
                   </span>
                 </div>
                 <div style={{ height: 6, background: LS_BORDER, borderRadius: 999, margin: '8px 0', overflow: 'hidden' }}>
-                  <div style={{ height: '100%', width: `${Math.round((t.sharePct / max) * 100)}%`, background: PILLAR_TINT[t.pillar]?.fg || LS_SIGNAL_TEXT, borderRadius: 999 }} />
+                  <div style={{ height: '100%', width: `${Math.round((shareOf(t) / max) * 100)}%`, background: PILLAR_TINT[t.pillar]?.fg || LS_SIGNAL_TEXT, borderRadius: 999 }} />
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
                   <span style={{ fontFamily: LS_FONT, fontSize: 12.5, color: LS_MUTED }}>{num(t.accounts)} accounts · {num(t.posts)} posts</span>
@@ -549,7 +551,8 @@ export default function CompetitorOverview() {
           renderDetail={(t) => (
             <>
               <EvidenceTiles items={[
-                { num: pct(t.sharePct), lbl: 'share of posts' },
+                { num: pct(t.accountSharePct != null ? t.accountSharePct : t.sharePct), lbl: 'share of accounts' },
+                { num: num(t.accounts), lbl: 'accounts posting it' },
                 { num: num(t.posts), lbl: 'matching posts' },
                 { num: t.changePp > 0 ? `+${t.changePp}pp` : `${t.changePp}pp`, lbl: 'vs prior window', tone: t.changePp > 0 ? 'up' : t.changePp < 0 ? 'down' : undefined },
                 { num: cap(t.pillar), lbl: 'authority pillar' },
@@ -563,8 +566,8 @@ export default function CompetitorOverview() {
 
         <ListPanel
           title="Most Frequently Used Hashtags"
-          subtitle="Ranked by how often competitors use them."
-          footNote="Counted from the captions of collected posts. The pillar badge is where top performers lean on the tag hardest versus the comparison group."
+          subtitle="Ranked by how many unique competitor accounts use them."
+          footNote="Counted by unique accounts using the tag, not raw post volume, so a few very active accounts can't inflate it. Only tags used by at least 5% of accounts are shown. The pillar badge is where top performers lean on the tag hardest versus the comparison group."
           items={dashboard.hashtags || []}
           limit={5}
           keyOf={(h) => h.tag}

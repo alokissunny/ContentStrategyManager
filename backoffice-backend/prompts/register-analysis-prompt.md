@@ -142,20 +142,33 @@ Return **only one JSON object** (no Markdown fences, no preamble). Shape:
 `currentValue` must come from corpus / memos. Set `previousValue` and
 `changePp` to `null` and `state` to `"inconclusive"` unless the input itself
 contains a clear prior comparison — never invent a previous window.
+- **Recommendation threshold (patterns are counted by _unique accounts_, not by
+  raw usage)** — a hook, topic or hashtag is only worth surfacing when **at least
+  ~5% of the analyzed accounts** use it independently. Rank hooks, topics and
+  hashtags by the number of **distinct accounts** using them (not post volume), so
+  a few very active competitors can't inflate a pattern. The server also enforces
+  this cut-off, so anything below it will be dropped — don't pad the lists with
+  patterns only one or two accounts use.
 - **hooks** — **at least 3 per pillar** (9–12 total) abstracted hook types (merge recurring memo hooks).
   **`useRate` and `medianEngagement` must come from `hookMetrics`** (server-
-  computed). Copy those numbers exactly — do not invent zeros.
-  - `useRate` = % of classified exemplars that use the hook
+  computed). Copy those numbers exactly — do not invent zeros. `hookMetrics` has
+  already been filtered to hooks that clear the account threshold.
+  - `useRate` = % of **unique accounts** that open with the hook (account-based,
+    not post-based)
   - `medianEngagement` = median of per-post ER across **all** posts using that
     hook (pooled from every competitor), where
     `ER = (likes + comments) / followers × 100`
-- **topics** — **at least 4 per pillar** (12–18 total). `sharePct` = share of analyzed posts about the
-  topic. **`posts` must be `round(sharePct/100 * corpus.totalPosts)`** (never
-  leave it 0 when sharePct > 0). `accounts` = distinct accounts posting it.
-- **hashtags** — prefer corpus `topHashtags`; classify type; **at least 3 per
-  pillar** (9–15 rows). Set `pillar` to the pillar whose top performers use the
-  tag most distinctively versus the comparison group (a distinctiveness marker,
-  never a causal claim).
+- **topics** — **at least 4 per pillar** (12–18 total), ranked by **distinct
+  accounts**. `accounts` = distinct accounts posting the topic (the primary
+  metric; must be ≥5% of `corpus.accountsWithPosts`). `sharePct` = share of
+  analyzed posts about the topic (secondary). **`posts` must be
+  `round(sharePct/100 * corpus.totalPosts)`** (never leave it 0 when sharePct > 0).
+- **hashtags** — prefer corpus `topHashtags` (already ranked by distinct
+  `accounts`); classify type; **at least 3 per pillar** (9–15 rows). Only include
+  tags used by ≥5% of accounts, i.e. `highPerformerAccounts + comparisonAccounts`
+  ≥ 5% of `corpus.accountsWithPosts`. Set `pillar` to the pillar whose top
+  performers use the tag most distinctively versus the comparison group (a
+  distinctiveness marker, never a causal claim).
 - **weekly** — emit a full **Mon–Sun (7 rows) for each pillar** (21 rows total),
   so a pillar filter still shows a complete week. Each row is that day's plan
   *if the account leads with that pillar*; use corpus `postingDays` for volume

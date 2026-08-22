@@ -103,7 +103,10 @@ function HookEvidence({ hook }: { hook: HookPerformanceRow }) {
           {
             icon: <PostsIcon className="cap-evidence-icon" />,
             num: `${hook.useRate}%`,
-            lbl: 'of analyzed captions',
+            lbl:
+              hook.accountCount != null
+                ? `of accounts (${hook.accountCount})`
+                : 'of competitor accounts',
           },
           {
             icon: <ZapIcon className="cap-evidence-icon" />,
@@ -187,7 +190,7 @@ export function HooksSection({
     <section className="panel" aria-labelledby="hooks-title">
       <div className="panel-head panel-head--stacked">
         <h2 id="hooks-title">Most Frequently Used Hooks</h2>
-        <p className="panel-subtitle">How often each opener appears — not performance.</p>
+        <p className="panel-subtitle">How many competitor accounts open this way — not performance.</p>
       </div>
       {hooks.length === 0 ? (
         <p className="panel-empty">No hook data under the current filters.</p>
@@ -212,9 +215,11 @@ export function HooksSection({
         </div>
       )}
       <p className="panel-foot-note">
-        Use rate is the share of analyzed captions opening with this hook. The pillar badge is where
-        top performers lean on it hardest versus the comparison group. Structures are abstracted;
-        competitor text is never copied. Click a row for supporting evidence.
+        Use rate is the share of unique competitor accounts whose captions open with this hook —
+        counted per account, so a few very active accounts can't inflate it. Only hooks used by at
+        least 5% of accounts are shown. The pillar badge is where top performers lean on it hardest
+        versus the comparison group. Structures are abstracted; competitor text is never copied.
+        Click a row for supporting evidence.
       </p>
     </section>
   )
@@ -238,13 +243,13 @@ function TopicEvidence({ topic }: { topic: TopicRow }) {
         items={[
           {
             icon: <PostsIcon className="cap-evidence-icon" />,
-            num: `${topic.sharePct}%`,
-            lbl: 'share of posts',
+            num: `${topic.accountSharePct ?? topic.sharePct}%`,
+            lbl: 'share of accounts',
           },
           {
             icon: <ZapIcon className="cap-evidence-icon" />,
-            num: topic.posts.toLocaleString('en-US'),
-            lbl: 'matching posts',
+            num: topic.accounts.toLocaleString('en-US'),
+            lbl: 'accounts posting it',
           },
           {
             icon: <TrendUpIcon className="cap-evidence-icon" />,
@@ -291,13 +296,13 @@ function TopicRowItem({
         <div className="topic-main">
           <div className="topic-head">
             <span className="topic-name">{topic.topic}</span>
-            <span className="topic-share">{topic.sharePct}%</span>
+            <span className="topic-share">{topic.accountSharePct ?? topic.sharePct}%</span>
             <span className={`cap-chevron${open ? ' cap-chevron--open' : ''}`} aria-hidden="true" />
           </div>
           <div className="topic-bar">
             <div
               className="topic-bar-fill topic-bar-fill--instagram"
-              style={{ width: `${Math.round((topic.sharePct / max) * 100)}%` }}
+              style={{ width: `${Math.round(((topic.accountSharePct ?? topic.sharePct) / max) * 100)}%` }}
             />
           </div>
           <div className="topic-foot">
@@ -324,7 +329,7 @@ export function TopicsSection({
   fullHref?: string
 }) {
   const rows = topics
-  const max = rows.length ? rows[0].sharePct : 1
+  const max = rows.length ? (rows[0].accountSharePct ?? rows[0].sharePct) : 1
   const shown = limit != null ? rows.slice(0, limit) : rows
   const hidden = rows.length - shown.length
   const [openTopic, setOpenTopic] = useState<string | null>(null)
@@ -333,7 +338,7 @@ export function TopicsSection({
     <section className="panel" aria-labelledby="topics-title">
       <div className="panel-head panel-head--stacked">
         <h2 id="topics-title">Topics</h2>
-        <p className="panel-subtitle">What competitors post about — ranked by share of posts.</p>
+        <p className="panel-subtitle">What competitors post about — ranked by share of unique accounts.</p>
       </div>
 
       {rows.length === 0 ? (
@@ -360,9 +365,10 @@ export function TopicsSection({
         </div>
       )}
       <p className="panel-foot-note">
-        Share of classified competitor posts mentioning the topic within the selected account group.
-        The pillar badge is where top performers lean on it hardest versus the comparison group.
-        Click a row for supporting evidence.
+        Share of unique competitor accounts posting about the topic within the selected account group
+        — counted per account, so a few very active accounts can't inflate it. Only topics covered by
+        at least 5% of accounts are shown. The pillar badge is where top performers lean on it hardest
+        versus the comparison group. Click a row for supporting evidence.
       </p>
     </section>
   )
@@ -485,7 +491,7 @@ export function HashtagsSection({
     <section className="panel" aria-labelledby="hashtags-title">
       <div className="panel-head panel-head--stacked">
         <h2 id="hashtags-title">Most Frequently Used Hashtags</h2>
-        <p className="panel-subtitle">Ranked by how often competitors use them.</p>
+        <p className="panel-subtitle">Ranked by how many unique competitor accounts use them.</p>
       </div>
       {hashtags.length === 0 ? (
         <p className="panel-empty">No hashtag data under the current filters.</p>
@@ -511,10 +517,11 @@ export function HashtagsSection({
         </div>
       )}
       <p className="panel-foot-note">
-        Counted from the captions of collected posts. The pillar badge is where top performers lean
-        on the tag hardest versus the comparison group. Instagram does not report reach by hashtag
-        for other accounts, so this shows who uses a tag — not what it earned them. Click a row for
-        supporting evidence.
+        Counted by unique accounts using the tag, not raw post volume, so a few very active accounts
+        can't inflate it. Only tags used by at least 5% of accounts are shown. The pillar badge is
+        where top performers lean on the tag hardest versus the comparison group. Instagram does not
+        report reach by hashtag for other accounts, so this shows who uses a tag — not what it earned
+        them. Click a row for supporting evidence.
       </p>
     </section>
   )
