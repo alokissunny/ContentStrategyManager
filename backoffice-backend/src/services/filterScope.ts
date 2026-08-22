@@ -1,7 +1,18 @@
 /** Shared filter-scope helpers for Overview analysis (backend). */
 
+/**
+ * Lookback used for the "All time" period. `since(days)` counts back from now,
+ * so this is just a floor old enough to sweep in every post these accounts have
+ * (10 years comfortably predates the oldest Instagram content we scrape). It is
+ * not a real 3650-day window — posts-per-week and window labels special-case it
+ * via `isAllTimePeriod`.
+ */
+export const ALL_TIME_WINDOW_DAYS = 3650
+
 export function periodToDays(period: string | undefined): number {
   switch (period) {
+    case 'all':
+      return ALL_TIME_WINDOW_DAYS
     case 'last-90':
       return 90
     case 'last-180':
@@ -14,6 +25,16 @@ export function periodToDays(period: string | undefined): number {
     default:
       return 30
   }
+}
+
+/** True when the scope covers the whole history rather than a fixed window. */
+export function isAllTimePeriod(period: string | undefined, windowDays?: number): boolean {
+  return period === 'all' || (windowDays != null && windowDays >= ALL_TIME_WINDOW_DAYS)
+}
+
+/** Human label for a scope's window — "all time" instead of "last 3650 days". */
+export function windowLabel(period: string | undefined, windowDays: number): string {
+  return isAllTimePeriod(period, windowDays) ? 'all time' : `last ${windowDays} days`
 }
 
 export function parseFollowerRange(label: string | undefined): { min: number; max: number | null } | null {

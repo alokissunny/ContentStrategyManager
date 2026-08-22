@@ -63,7 +63,7 @@ export const defaultFilters: FilterState = {
   businessCategory: 'interior-designer',
   pillar: 'all',
   dimension: 'format',
-  period: 'last-30',
+  period: 'all',
   evidenceThreshold: 'all',
   customerId: 'all',
 }

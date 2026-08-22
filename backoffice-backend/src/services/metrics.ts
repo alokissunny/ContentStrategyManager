@@ -1,5 +1,6 @@
 import type { Types } from 'mongoose'
 import { AccountSnapshot, Post, PostMetricSnapshot } from '../models/snapshots.ts'
+import { ALL_TIME_WINDOW_DAYS } from './filterScope.ts'
 
 /*
  * Derived metrics. Everything here is computed from append-only snapshots —
@@ -16,6 +17,7 @@ export const PERIOD_DAYS: Record<string, number> = {
   'last-365': 365,
   'previous-30': 30,
   'month-over-month': 30,
+  all: ALL_TIME_WINDOW_DAYS,
 }
 
 export function periodDays(period: string | undefined): number {

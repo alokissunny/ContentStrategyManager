@@ -65,14 +65,21 @@ function hookTokens(name: string): Set<string> {
       .filter((t) => t.length > 2 && !HOOK_STOPWORDS.has(t)),
   )
 }
+/**
+ * Overlap coefficient (shared tokens / smaller set), not Jaccard: we want
+ * "Direct question hook" and "Rhetorical question opener" to count as the same
+ * hook family because they share the token that carries the meaning
+ * ("question"), even though each also has a distinctive word. Jaccard would
+ * score that 0.33 and split them; the overlap coefficient scores it 0.5.
+ */
 function tokenSimilarity(a: Set<string>, b: Set<string>): number {
   if (a.size === 0 || b.size === 0) return 0
   let inter = 0
   for (const t of a) if (b.has(t)) inter++
-  return inter / (a.size + b.size - inter)
+  return inter / Math.min(a.size, b.size)
 }
-/** Two hook names are the "same" logical hook when they share a third of their meaningful tokens. */
-const HOOK_MERGE_SIMILARITY = 0.34
+/** Merge two hook names when they share at least half of the smaller name's meaningful tokens. */
+const HOOK_MERGE_SIMILARITY = 0.5
 
 function asStr(v: unknown, fallback = ''): string {
   if (typeof v === 'string' && v.trim()) return v.trim()

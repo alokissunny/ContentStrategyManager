@@ -7,6 +7,11 @@ import {
   updateAiDebugEntry,
 } from '../lib/aiDebug';
 import { rerunPrompt } from '../api/debug';
+import {
+  debugEntriesToFiles,
+  downloadFilesAsFolder,
+  folderStamp,
+} from '../lib/downloadFolder';
 
 function fmtTime(ms) {
   try {
@@ -186,6 +191,45 @@ function DebugEntry({ entry }) {
   );
 }
 
+function DownloadAllButton({ entries }) {
+  const [status, setStatus] = useState('');
+  const busy = status === 'saving';
+  const empty = !entries.length;
+
+  const onDownload = async () => {
+    if (busy || empty) return;
+    setStatus('saving');
+    try {
+      const result = await downloadFilesAsFolder(
+        debugEntriesToFiles(entries),
+        `ai-prompt-debug-${folderStamp()}`,
+      );
+      if (result === 'cancelled' || result === 'empty') {
+        setStatus('');
+        return;
+      }
+      setStatus('saved');
+      setTimeout(() => setStatus(''), 1600);
+    } catch {
+      setStatus('');
+    }
+  };
+
+  const label = busy ? 'Saving…' : status === 'saved' ? 'Saved' : 'Download';
+
+  return (
+    <button
+      type="button"
+      className="ai-debug__btn"
+      onClick={onDownload}
+      disabled={busy || empty}
+      title="Download every input and output into separate folders"
+    >
+      {label}
+    </button>
+  );
+}
+
 export default function AiDebugPanel() {
   const debug = useAiDebug();
   if (!debug.enabled) return null;
@@ -213,6 +257,7 @@ export default function AiDebugPanel() {
           AI Prompt Debug
         </div>
         <div className="ai-debug__acts">
+          <DownloadAllButton entries={debug.entries} />
           <button type="button" className="ai-debug__btn" onClick={clearAiDebugEntries}>Clear</button>
           <button type="button" className="ai-debug__btn" onClick={() => setAiDebugPanelOpen(false)}>Collapse</button>
         </div>

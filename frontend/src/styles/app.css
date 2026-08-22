@@ -271,6 +271,10 @@
   font-size: 12px;
   font-weight: 600;
 }
+.ai-debug__btn:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
 .ai-debug__body {
   overflow: auto;
   padding: 10px;

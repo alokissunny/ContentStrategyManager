@@ -21,7 +21,7 @@ import {
   type DashboardHookRow,
 } from './hookMetrics.ts'
 import { attachHashtagExamples, attachTopicExamples } from './topicHashtagExamples.ts'
-import { periodToDays, type AnalysisFilterScope } from './filterScope.ts'
+import { periodToDays, windowLabel, type AnalysisFilterScope } from './filterScope.ts'
 
 const PROMPT_DIR = join(dirname(fileURLToPath(import.meta.url)), '../../prompts')
 const DASHBOARD_PROMPT_PATH = join(PROMPT_DIR, 'register-analysis-prompt.md')
@@ -317,6 +317,7 @@ const CAPTION_WINDOWS: Record<string, { previous: string; current: string }> = {
   'last-180': { previous: 'Prior 6 months', current: 'Last 6 months' },
   'last-365': { previous: 'Prior 12 months', current: 'Last 12 months' },
   'month-over-month': { previous: 'Previous month', current: 'This month' },
+  all: { previous: 'Earlier posts', current: 'All time' },
 }
 
 function captionWindows(period: string | undefined, windowDays: number) {
@@ -1100,8 +1101,12 @@ function normalizeDashboard(
       meta.period,
       meta.batchMemos,
     ),
-    sampleLabel: `Last ${meta.windowDays} days · full register`,
+    sampleLabel: `${capitalize(windowLabel(meta.period, meta.windowDays))} · full register`,
   }
+}
+
+function capitalize(s: string): string {
+  return s.length > 0 ? s[0]!.toUpperCase() + s.slice(1) : s
 }
 
 function batchPayload(batchIndex: number, accounts: CondensedAccount[]) {
@@ -1262,7 +1267,7 @@ export function renderAnalysisMarkdown(
   L.push('')
   L.push(`**Cohort:** ${businessTypeLabel(meta.businessCategory)} · ${meta.location}  `)
   L.push(`**Follower range:** ${meta.followerRangeLabel}  `)
-  L.push(`**Window:** last ${meta.windowDays} days (${meta.period})  `)
+  L.push(`**Window:** ${windowLabel(meta.period, meta.windowDays)} (${meta.period})  `)
   L.push(`**Generated:** ${meta.finishedAt.toISOString()}  `)
   L.push(`**Model:** ${meta.model}`)
   L.push('')
@@ -1399,7 +1404,7 @@ export async function runRegisterAnalysis(input: RunAnalysisInput = {}): Promise
   const location = input.location ?? 'Global'
   const followerRangeLabel = input.followerRangeLabel ?? 'All sizes'
   const businessCategory = input.businessCategory ?? 'interior-designer'
-  const period = input.period ?? 'last-30'
+  const period = input.period ?? 'all'
   const windowDays = input.windowDays ?? periodToDays(period)
   const filterScope: AnalysisFilterScope = {
     location,
@@ -1422,7 +1427,7 @@ export async function runRegisterAnalysis(input: RunAnalysisInput = {}): Promise
   }
   if (built.corpus.accountsWithPosts === 0 || built.corpus.totalPosts === 0) {
     throw new AnalysisPreconditionError(
-      `${built.corpus.matchedAccountCount} account${built.corpus.matchedAccountCount === 1 ? '' : 's'} match ${location} · ${followerRangeLabel} · ${businessCategory}, but none have posts in the last ${windowDays} days. Select those accounts on Accounts and run Scrape posts, then try again.`,
+      `${built.corpus.matchedAccountCount} account${built.corpus.matchedAccountCount === 1 ? '' : 's'} match ${location} · ${followerRangeLabel} · ${businessCategory}, but none have posts in ${windowLabel(period, windowDays)}. Select those accounts on Accounts and run Scrape posts, then try again.`,
     )
   }
 
@@ -1502,7 +1507,7 @@ export async function runRegisterAnalysis(input: RunAnalysisInput = {}): Promise
     // pooled post-level metrics from map classifications.
     dashboard.hooks = applyComputedHookMetrics(dashboard.hooks, hookMetrics, totalAccounts)
     dashboard.sampleLabel =
-      `${location} · ${followerRangeLabel} · ${businessCategory} · last ${windowDays} days · ` +
+      `${location} · ${followerRangeLabel} · ${businessCategory} · ${windowLabel(period, windowDays)} · ` +
       `${built.corpus.accountsWithPosts} accounts / ${built.corpus.totalPosts} posts · ` +
       `${built.batches.length} map batch${built.batches.length === 1 ? '' : 'es'}`
 

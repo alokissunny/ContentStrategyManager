@@ -14,6 +14,7 @@ import {
   accountCountryOf,
   businessCategoryMatches,
   followerInRange,
+  isAllTimePeriod,
   locationMatches,
   parseFollowerRange,
 } from './filterScope.ts'
@@ -273,6 +274,9 @@ export async function buildAnalysisCorpus(
   const tierCounts = new Map<string, number>()
   const postsPerWeekValues: number[] = []
   const engagementRates: number[] = []
+  // All time uses a decade-wide floor to sweep in every post, so posts/week must
+  // be measured over each account's real posting span, not the nominal window.
+  const allTime = isAllTimePeriod(undefined, windowDays)
 
   for (const [accountId, accountPosts] of postsByAccount) {
     const account = byId.get(accountId)
@@ -328,7 +332,18 @@ export async function buildAnalysisCorpus(
     }
 
     const postsCollected = accountPosts.length
-    const postsPerWeek = Math.round((postsCollected / windowDays) * 7 * 10) / 10
+    // For a fixed window the denominator is the window; for all time it is the
+    // span from the account's earliest to latest in-corpus post (≥7 days so a
+    // single-post or same-week account doesn't report an implausible cadence).
+    let spanDays = windowDays
+    if (allTime) {
+      const times = accountPosts
+        .map((p) => (p.publishedAt instanceof Date ? p.publishedAt.getTime() : null))
+        .filter((t): t is number => t != null)
+      spanDays =
+        times.length >= 2 ? Math.max(7, Math.round((Math.max(...times) - Math.min(...times)) / 864e5)) : 7
+    }
+    const postsPerWeek = Math.round((postsCollected / spanDays) * 7 * 10) / 10
     postsPerWeekValues.push(postsPerWeek)
 
     const followers = account.latestFollowerCount ?? null

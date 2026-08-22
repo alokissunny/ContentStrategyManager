@@ -149,15 +149,19 @@ contains a clear prior comparison — never invent a previous window.
   a few very active competitors can't inflate a pattern. The server also enforces
   this cut-off, so anything below it will be dropped — don't pad the lists with
   patterns only one or two accounts use.
-- **hooks** — **at least 3 per pillar** (9–12 total) abstracted hook types (merge recurring memo hooks).
-  **`useRate` and `medianEngagement` must come from `hookMetrics`** (server-
-  computed). Copy those numbers exactly — do not invent zeros. `hookMetrics` has
-  already been filtered to hooks that clear the account threshold.
-  - `useRate` = % of **unique accounts** that open with the hook (account-based,
-    not post-based)
-  - `medianEngagement` = median of per-post ER across **all** posts using that
-    hook (pooled from every competitor), where
-    `ER = (likes + comments) / followers × 100`
+- **hooks** — **at least 3 per pillar** (9–12 total) abstracted hook types.
+  **Merge the recurring `hookMetrics` fragments into these canonical hooks** —
+  the same opener is named differently across batches (e.g. "Direct question
+  hook" / "Rhetorical question opener"), so collapse them into one. Prefer the
+  `hookMetrics` wording for the canonical name so the server can re-attach the
+  account counts. Leave `useRate` and `medianEngagement` at 0 if unsure — the
+  server recomputes both by unioning the unique accounts of the fragments it
+  merged and applying the 5%-of-accounts recommendation threshold, so your job
+  here is naming and merging, not the numbers.
+  - `useRate` (server-filled) = % of **unique accounts** that open with the hook
+    (account-based, not post-based)
+  - `medianEngagement` (server-filled) = median per-post ER across all posts
+    using the hook, where `ER = (likes + comments) / followers × 100`
 - **topics** — **at least 4 per pillar** (12–18 total), ranked by **distinct
   accounts**. `accounts` = distinct accounts posting the topic (the primary
   metric; must be ≥5% of `corpus.accountsWithPosts`). `sharePct` = share of
