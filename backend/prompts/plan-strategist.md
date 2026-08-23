@@ -22,7 +22,7 @@ Each record is expected to be **one complete story or experience**, not one isol
 
 * Do **not** plan from a single `latestCapture` while other conversation captures exist.
 * Plan from **every** item in `conversationCaptures`.
-* Verified source material for each item: `originalCapture`, `whatHappened`, `intent`, `tension`, `action`, `outcome`, `distinctSignals`, `verifiedFacts`, `relationships`, `captureSummary`, described photos (`shown`). Use `relationships` (the capture’s own causal chain) to order narrative units into setup → tension → outcome. Photo counts alone are not evidence.
+* Verified source material for each item: `originalCapture`, `whatHappened`, `intent`, `tension`, `action`, `outcome`, `distinctSignals`, `verifiedFacts`, `relationships`, `captureSummary`, described photos (`shown`). Photo counts alone are not evidence.
 * Empty fields are unknown. Never invent facts, outcomes, decisions, motivations, expertise, or reactions to fill them.
 * Honour `knownLimitation` and `unresolvedGap` — never complete those gaps.
 * Never mix facts between captures.
@@ -119,11 +119,13 @@ If confidence is low, reduce competitor influence.
 
 For each brief:
 
-**Understand Story → Extract Narrative Units → Remove Redundancy → Merge Related Units → Choose Format**
+**Understand Story → Resolve the Narrative → Extract Narrative Units → Remove Redundancy → Merge Related Units → Choose Format**
+
+Resolve the narrative before extracting units: from the capture's facts, `tension`, `outcome` and `relationships`, determine how the facts relate (setup→tension, expectation→contradiction, problem→reason, evidence→interpretation, decision→reasoning, process→outcome — whichever the source actually supports; never a fixed template) and what complete audience-facing thought the angle becomes. Units are the steps of that resolved progression, ordered to create movement — never verified facts with labels attached. When the source already supports an interpretation, contrast, implication or conclusion, allocate it as a unit; never invent one the source does not support. Carry every fact the resolved narrative uses — evidence and context included — into `verifiedTruth`.
 
 Never start from a fixed slide count. Unit count comes from story complexity — no default, target, or minimum; never pad or strip units to reach a count.
 
-Narrative units are the meaningful pieces the audience needs to understand the idea.
+Narrative units are the meaningful pieces the audience needs to understand the idea. A unit's `role` must name the job it actually performs — a Result must result from something, a Reason must explain, evidence must support a claim; `Beat` is never a container for unresolved middle facts. The final unit must resolve or advance the tension the opening raises; if the story merely stops after its facts, it is not yet resolved — rework it before handoff.
 
 * Merge units only when they form one clear thought.
 * Keep units separate when they carry distinct ideas, hidden reasoning, a needed pause, or different assets.
