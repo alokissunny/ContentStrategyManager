@@ -74,18 +74,32 @@ function parseJsonObject(raw) {
   throw lastErr || new Error('No JSON object in model response');
 }
 
+const RELATIONSHIP_SCHEMA = {
+  type: 'object',
+  properties: {
+    from: { type: 'string' },
+    relationship: { type: 'string' },
+    to: { type: 'string' },
+  },
+};
+
 const CAPTURE_ITEM_SCHEMA = {
   type: 'object',
   properties: {
     id: { type: 'string' },
+    captureId: { type: 'string' },
     status: { type: 'string', enum: ['ready', 'unresolved'] },
     sourceRef: { type: 'string' },
+    sourceStoryId: { type: 'string' },
+    segmentId: { type: 'string' },
+    relatedSegmentIds: { type: 'array', items: { type: 'string' } },
     originalCapture: { type: 'string' },
     whatHappened: { type: 'string' },
     intent: { type: 'string' },
     tension: { type: 'string' },
     action: { type: 'string' },
     outcome: { type: 'string' },
+    summary: { type: 'string' },
     distinctSignals: {
       type: 'array',
       items: {
@@ -96,6 +110,9 @@ const CAPTURE_ITEM_SCHEMA = {
         },
       },
     },
+    relationships: { type: 'array', items: RELATIONSHIP_SCHEMA },
+    verifiedFacts: { type: 'array', items: { type: 'string' } },
+    openQuestions: { type: 'array', items: { type: 'string' } },
     relevantAssetContext: { type: 'array', items: { type: 'string' } },
     visualAssetChoice: { type: 'string', enum: ['provided', 'generate', 'none'] },
     captureSummary: { type: 'string' },
@@ -107,16 +124,18 @@ const CAPTURE_ITEM_SCHEMA = {
 const TOOL_NAME = 'record_capture_turn';
 const UNDERSTAND_TOOL = {
   name: TOOL_NAME,
-  description: 'Record this Capture Conversation turn: one question, or every independent ready Capture.',
+  description: 'Record this Capture Conversation turn: one follow-up question, or every independently meaningful ready Capture.',
   input_schema: {
     type: 'object',
     properties: {
       status: { type: 'string', enum: ['needs_clarification', 'ready'] },
+      needsClarification: { type: 'boolean' },
       question: { type: 'string' },
+      questions: { type: 'array', items: { type: 'string' }, description: 'Unused. Ask exactly one question per turn via question.' },
       matchedProjectName: { type: 'string' },
       captures: {
         type: 'array',
-        description: 'Every independent Capture from the full conversation (1–10). Never merge independent observations, problems, discoveries, or ideas into one item. An information-rich note usually needs several.',
+        description: 'Every independently meaningful story from the full conversation (1–10). Not one Capture per sentence. Not one Capture that hides several stories in distinctSignals. Sibling Captures share sourceStoryId.',
         items: CAPTURE_ITEM_SCHEMA,
       },
     },
@@ -140,6 +159,33 @@ function str(v) {
   return v == null ? '' : String(v).trim();
 }
 
+function stringList(value, limit = 24) {
+  if (!Array.isArray(value)) return [];
+  return value.map(str).filter(Boolean).slice(0, limit);
+}
+
+function relationshipsOf(value) {
+  if (!Array.isArray(value)) return [];
+  return value.map((r) => ({
+    from: str(r?.from),
+    relationship: str(r?.relationship),
+    to: str(r?.to),
+  })).filter((r) => r.from || r.to || r.relationship).slice(0, 16);
+}
+
+function storyFieldsOf(c) {
+  const id = str(c?.id || c?.captureId);
+  return {
+    captureId: str(c?.captureId) || id,
+    sourceStoryId: str(c?.sourceStoryId),
+    segmentId: str(c?.segmentId),
+    relatedSegmentIds: stringList(c?.relatedSegmentIds, 12),
+    relationships: relationshipsOf(c?.relationships),
+    verifiedFacts: stringList(c?.verifiedFacts, 16),
+    openQuestions: stringList(c?.openQuestions, 8),
+  };
+}
+
 function emptyUnderstanding(text) {
   return {
     happened: str(text),
@@ -157,6 +203,13 @@ function emptyUnderstanding(text) {
     captureStatus: 'ready',
     originalCapture: str(text),
     distinctSignals: [],
+    captureId: '',
+    sourceStoryId: '',
+    segmentId: '',
+    relatedSegmentIds: [],
+    relationships: [],
+    verifiedFacts: [],
+    openQuestions: [],
     model: '',
     understoodAt: new Date(),
   };
@@ -184,14 +237,15 @@ function mapCaptureRecord(raw, fallbackText) {
     ? c.distinctSignals.map((s) => ({
       type: str(s?.type).toLowerCase(),
       summary: str(s?.summary),
-    })).filter((s) => s.type || s.summary).slice(0, 8)
+    })).filter((s) => s.type || s.summary).slice(0, 16)
     : [];
   const present = distinct
     .map((s) => SIGNAL_TYPE_TO_KEY[s.type])
     .filter((k) => SIGNAL_KEYS.includes(k));
   const filled = SIGNAL_KEYS.filter((k) => str({ happened, intent, difficulty, actionTaken, outcome }[k]));
   return {
-    id: str(c.id),
+    id: str(c.id || c.captureId),
+    ...storyFieldsOf(c),
     happened,
     intent,
     difficulty,
@@ -222,26 +276,35 @@ function mapCaptureRecord(raw, fallbackText) {
   };
 }
 
-function normalizeUnderstanding(parsed, { text, askedQuestion, askedAnswer }) {
-  const status = str(parsed?.status).toLowerCase();
-  const question = str(parsed?.question || parsed?.message);
+function questionsOf(parsed) {
+  const listed = stringList(parsed?.questions, 4);
+  if (listed.length) return listed;
+  const single = str(parsed?.question || parsed?.message);
+  return single ? [single] : [];
+}
 
-  // Splits stay internal. A leftover needs_selection payload is never shown.
-  if (status === 'needs_clarification' && question) {
+function formatAskMessage(questions) {
+  return questions[0] || '';
+}
+
+function wantsClarification(parsed) {
+  if (parsed?.needsClarification === true) return true;
+  const status = str(parsed?.status).toLowerCase();
+  if (status === 'needs_clarification') return true;
+  return Boolean(parsed?.shouldAsk || parsed?.meaningClear === false);
+}
+
+function normalizeUnderstanding(parsed, { text, askedQuestion, askedAnswer }) {
+  const questions = questionsOf(parsed);
+
+  // Splits stay internal. Ask every follow-up in one turn.
+  if (wantsClarification(parsed) && questions.length) {
+    const question = formatAskMessage(questions);
     return {
       action: 'ask',
       question,
+      questions,
       message: question,
-      understanding: null,
-      captures: [],
-    };
-  }
-
-  if (!status && (parsed?.shouldAsk || parsed?.meaningClear === false) && str(parsed?.question)) {
-    return {
-      action: 'ask',
-      question: str(parsed.question),
-      message: str(parsed.question),
       understanding: null,
       captures: [],
     };
@@ -284,16 +347,12 @@ function conversationBlock({ text, projectName, turns, projects }) {
   const longest = [str(text), ...history.filter((t) => String(t.role || '').toLowerCase() !== 'assistant').map((t) => str(t.text))]
     .reduce((max, n) => Math.max(max, n.length), 0);
   const rich = longest >= 1200;
-  if (asked) {
-    if (rich && asked < 3) {
-      lines.push(`Questions asked so far: ${asked} of 4. This is an information-rich input. Ask the next high-value question about a different independent idea. Do not complete yet.`);
-    } else if (asked >= 4) {
-      lines.push('Question budget reached (4). Complete now. Preserve remaining unknowns as knownLimitation.');
-    } else {
-      lines.push(`Questions asked so far: ${asked} of 4. Ask one more only if another independent idea still has an obvious unexplored thread; otherwise complete.`);
-    }
+  if (asked >= 4) {
+    lines.push('Question budget reached (4). Return final Captures now. Preserve remaining unknowns as knownLimitation.');
+  } else if (asked) {
+    lines.push(`Questions asked so far: ${asked} of 4. Ask exactly ONE next high-value question if a material unknown remains; otherwise return final Captures. Do not list multiple questions.`);
   } else if (rich) {
-    lines.push('This is an information-rich input. After understanding the whole note, ask the first high-value question rather than completing immediately.');
+    lines.push('This is an information-rich input. Run the clarification and enrichment pass. If a question could substantially strengthen the stories, ask exactly ONE high-value question this turn. Do not list multiple questions. Do not repeat information already in the source.');
   }
   if (history.length) {
     history.forEach((t) => {
@@ -356,30 +415,34 @@ function assistantQuestionCount(turns) {
 }
 
 function endedTooSoon(parsed, text, turns) {
-  if (str(parsed?.status).toLowerCase() !== 'ready') return false;
-  if (longestUserNote(text, turns) >= 1200 && assistantQuestionCount(turns) < 3) return true;
-  return false;
+  if (wantsClarification(parsed)) return false;
+  if (str(parsed?.status).toLowerCase() !== 'ready' && parsed?.needsClarification !== false) return false;
+  // First pass on a long note that skipped the enrichment check.
+  if (assistantQuestionCount(turns) > 0) return false;
+  return longestUserNote(text, turns) >= 1200;
 }
 
 const USER_JSON_INSTRUCTION = [
   'Return one JSON object with status needs_clarification or ready.',
-  'On an information-rich note with several independent ideas, ask 3–4 short follow-up questions (one per turn) across different ideas before ready.',
-  'If the user gave several independent observations, problems, discoveries, decisions, or ideas, ready.captures must contain all of them.',
-  'Never merge those into a single Capture summary of the whole message.',
+  'Clarification/enrichment check is mandatory. Do not set needsClarification false merely because a summary is possible.',
+  'If a question could substantially strengthen the stories, put exactly ONE question in question. Do not list multiple questions. Do not repeat known information.',
+  'Extract every independently meaningful story. A cause and its consequence may both be sibling Captures when each can stand alone.',
+  'Do not hide several usable stories inside distinctSignals. Do not turn supporting facts into standalone Captures.',
 ].join(' ');
 
 const CONTINUE_QUESTIONS_HINT = [
   'Do not complete yet.',
-  'This information-rich input still has independent ideas that have not been followed up.',
-  'Return status needs_clarification with captures [] and ONE short contextual question about a different independent idea than the last question.',
-  'Do not mention story numbers or that you are splitting.',
+  'A story being technically understandable is not enough. Run the high-value unknown test.',
+  'If the next answer would change or substantially strengthen what strategy can do with these stories, return needsClarification true with exactly ONE question and captures [].',
+  'Do not ask something already answered. Do not mention story numbers.',
 ].join(' ');
 
 const SPLIT_RETRY_HINT = [
-  'The previous JSON collapsed an information-rich note into one Capture.',
   'Re-read the entire conversation.',
-  'Return status ready with captures[] containing every independent observation, problem, discovery, decision, or idea.',
-  'Shared research, shared topic, or a later connecting conclusion does not make them one Capture.',
+  'The previous JSON likely under-split: several independently meaningful stories were hidden in one Capture or in distinctSignals.',
+  'Return every story that would still be meaningful if passed alone to the Strategy Agent.',
+  'Keep supporting facts together. Do not create one Capture per sentence.',
+  'Sibling Captures from the same source must share sourceStoryId and list relatedSegmentIds.',
   'originalCapture for each item must be only that item\'s source words, not the whole message.',
 ].join(' ');
 
@@ -545,6 +608,7 @@ function sanitizeUnderstanding(raw) {
     originalCapture: str(raw.originalCapture),
     sourceRef: str(raw.sourceRef),
     distinctSignals: distinct,
+    ...storyFieldsOf(raw),
     relevantAssetContext: Array.isArray(raw.relevantAssetContext)
       ? raw.relevantAssetContext.map(str).filter(Boolean)
       : [],
@@ -572,6 +636,13 @@ function serializeUnderstanding(u) {
     originalCapture: u.originalCapture || '',
     sourceRef: u.sourceRef || '',
     distinctSignals: u.distinctSignals || [],
+    captureId: u.captureId || u.id || '',
+    sourceStoryId: u.sourceStoryId || '',
+    segmentId: u.segmentId || '',
+    relatedSegmentIds: Array.isArray(u.relatedSegmentIds) ? u.relatedSegmentIds : [],
+    relationships: Array.isArray(u.relationships) ? u.relationships : [],
+    verifiedFacts: Array.isArray(u.verifiedFacts) ? u.verifiedFacts : [],
+    openQuestions: Array.isArray(u.openQuestions) ? u.openQuestions : [],
     relevantAssetContext: u.relevantAssetContext || [],
     model: u.model || '',
     understoodAt: u.understoodAt || null,

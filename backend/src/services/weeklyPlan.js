@@ -219,9 +219,12 @@ function assignToEmptyDates(plannedDays, emptyDates) {
     return {
       source: p.source || '',
       captureId: p.captureId || '',
+      sourceStoryId: p.sourceStoryId || '',
       angle: p.angle || '',
       verifiedTruth: Array.isArray(p.verifiedTruth) ? p.verifiedTruth : [],
       uniqueJob: p.uniqueJob || '',
+      audienceTension: p.audienceTension || '',
+      hookTerritory: p.hookTerritory || '',
       centralFact: p.centralFact || '',
       ownedTerritory: p.ownedTerritory || '',
       doNotRepeat: p.doNotRepeat || '',
@@ -473,11 +476,22 @@ function renderProjectAssets(projects) {
     if (u.difficulty || u.tension) lines.push(`- tension: ${u.difficulty || u.tension}`);
     if (u.actionTaken || u.action) lines.push(`- action: ${u.actionTaken || u.action}`);
     if (u.outcome) lines.push(`- outcome: ${u.outcome}`);
+    if (u.sourceStoryId) lines.push(`- sourceStoryId: ${u.sourceStoryId}`);
+    if (u.segmentId) lines.push(`- segmentId: ${u.segmentId}`);
+    const related = Array.isArray(u.relatedSegmentIds) ? u.relatedSegmentIds.filter(Boolean) : [];
+    if (related.length) lines.push(`- relatedSegmentIds: ${related.join(', ')}`);
     const signals = Array.isArray(u.distinctSignals) ? u.distinctSignals : [];
-    signals.slice(0, 8).forEach((s) => {
+    signals.slice(0, 16).forEach((s) => {
       const line = [s?.type, s?.summary].filter(Boolean).join(': ');
       if (line) lines.push(`- signal: ${line}`);
     });
+    const rels = Array.isArray(u.relationships) ? u.relationships : [];
+    rels.slice(0, 16).forEach((r) => {
+      const line = [r?.from, r?.relationship, r?.to].filter(Boolean).join(' → ');
+      if (line) lines.push(`- relationship: ${line}`);
+    });
+    const facts = Array.isArray(u.verifiedFacts) ? u.verifiedFacts : [];
+    facts.slice(0, 16).forEach((f) => { if (f) lines.push(`- verifiedFact: ${f}`); });
     if (u.knownLimitation) lines.push(`- do not invent: ${u.knownLimitation}`);
     if (c.shown?.length) c.shown.forEach((s) => lines.push(`- photo: ${s}`));
     (c.assets || []).forEach((a) => {

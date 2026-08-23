@@ -169,7 +169,7 @@ function signalsOf(u) {
       summary: clip(s?.summary, 220),
     }))
     .filter((s) => s.type || s.summary)
-    .slice(0, 8);
+    .slice(0, 16);
 }
 
 function asUnderstanding(u) {
@@ -178,10 +178,23 @@ function asUnderstanding(u) {
   return u;
 }
 
+function relationshipsOf(u) {
+  if (!Array.isArray(u?.relationships)) return [];
+  return u.relationships
+    .map((r) => ({
+      from: clip(r?.from, 220),
+      relationship: clip(r?.relationship, 48),
+      to: clip(r?.to, 220),
+    }))
+    .filter((r) => r.from || r.to || r.relationship)
+    .slice(0, 16);
+}
+
 function conversationCaptureOf(n) {
   const u = asUnderstanding(n.understanding);
   return {
     id: n.id || '',
+    captureId: clip(u.captureId || n.id, 48),
     project: n.project,
     originalCapture: clip(u.originalCapture || n.text, 1200),
     whatHappened: clip(u.happened || u.whatHappened, 500),
@@ -191,6 +204,18 @@ function conversationCaptureOf(n) {
     outcome: clip(u.outcome, 320),
     captureSummary: clip(u.summary || u.captureSummary, 500),
     distinctSignals: signalsOf(u),
+    sourceStoryId: clip(u.sourceStoryId, 64),
+    segmentId: clip(u.segmentId, 64),
+    relatedSegmentIds: Array.isArray(u.relatedSegmentIds)
+      ? u.relatedSegmentIds.map((id) => clip(id, 64)).filter(Boolean).slice(0, 12)
+      : [],
+    relationships: relationshipsOf(u),
+    verifiedFacts: Array.isArray(u.verifiedFacts)
+      ? u.verifiedFacts.map((f) => clip(f, 220)).filter(Boolean).slice(0, 16)
+      : [],
+    openQuestions: Array.isArray(u.openQuestions)
+      ? u.openQuestions.map((q) => clip(q, 180)).filter(Boolean).slice(0, 8)
+      : [],
     unresolvedGap: clip(u.missingPiece || u.unresolvedGap, 240),
     knownLimitation: clip(u.knownLimitation, 240),
     visualAssetChoice: clip(u.visualAssetChoice, 24),
