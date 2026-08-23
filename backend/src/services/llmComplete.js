@@ -17,6 +17,13 @@ function planTextModel(kind) {
       || process.env.COMPETITOR_MODEL
       || 'gpt-5.6-terra';
   }
+  if (kind === 'quality') {
+    return process.env.PLAN_QUALITY_MODEL
+      || process.env.PLAN_AGENT_MODEL
+      || process.env.OPENAI_MODEL
+      || process.env.COMPETITOR_MODEL
+      || 'gpt-5.6-terra';
+  }
   return process.env.PLAN_AGENT_MODEL
     || process.env.OPENAI_MODEL
     || process.env.COMPETITOR_MODEL

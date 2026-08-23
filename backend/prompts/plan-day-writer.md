@@ -724,3 +724,14 @@ Optional pre-resolved packaging guidance from competitor analysis. Do not consum
 Optional locked purpose / objective for understanding why the post exists. Do not create new strategy from it.
 
 {{AUTHORITY_FOCUS_JSON}}
+
+## Quality feedback
+
+Ignore this section on a first draft (`decision` absent or `"first_draft"`).
+
+When the Quality agent returned REVISE or REGENERATE, apply `revisionPriority` and `issues`. Stay inside locked truth and `narrativeUnits`. Do not invent facts. Do not change pillar, angle, format, or `verifiedTruth`.
+
+* **REVISE** — keep the core idea and repair the listed problems.
+* **REGENERATE** — rewrite the execution substantially. Same locked brief, different telling.
+
+{{QUALITY_FEEDBACK_JSON}}

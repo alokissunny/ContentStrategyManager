@@ -122,8 +122,22 @@ function maxTokensFor(kind) {
     const n = Number(process.env.PLAN_STRATEGIST_MAX_TOKENS);
     return Number.isFinite(n) && n > 0 ? n : 32000;
   }
+  if (kind === 'quality') {
+    const n = Number(process.env.PLAN_QUALITY_MAX_TOKENS);
+    return Number.isFinite(n) && n > 0 ? n : 8192;
+  }
   const n = Number(process.env.PLAN_DAY_MAX_TOKENS);
   return Number.isFinite(n) && n > 0 ? n : 16384;
+}
+
+function qualityAgentEnabled() {
+  const v = String(process.env.PLAN_QUALITY_AGENT ?? '1').trim().toLowerCase();
+  return !(v === '0' || v === 'false' || v === 'off' || v === 'no');
+}
+
+function qualityMaxRewrites() {
+  const n = Number(process.env.PLAN_QUALITY_MAX_REWRITES);
+  return Number.isFinite(n) && n >= 0 ? n : 1;
 }
 
 function retryMaxTokens(current) {
@@ -215,8 +229,79 @@ function validateStrategist(parsed) {
   parsed.plannedDays = parsed.briefs;
 }
 
+function validateQuality(parsed) {
+  const decision = String(parsed?.decision || '').toUpperCase();
+  if (!['APPROVE', 'REVISE', 'REGENERATE'].includes(decision)) {
+    throw new Error('missing quality decision');
+  }
+  parsed.decision = decision;
+  const score = Number(parsed.score);
+  parsed.score = Number.isFinite(score) ? score : 0;
+}
+
+function qualityFeedbackOf(review) {
+  if (!review) return { status: 'first_draft' };
+  return {
+    decision: review.decision,
+    score: review.score,
+    summary: optionalText(review.summary),
+    centralMessage: optionalText(review.centralMessage),
+    audienceTakeaway: optionalText(review.audienceTakeaway),
+    finalSlideResolution: review.checks?.finalSlideResolution || null,
+    issues: Array.isArray(review.issues) ? review.issues.slice(0, 8) : [],
+    revisionPriority: stringList(review.revisionPriority).slice(0, 8),
+  };
+}
+
+function validateDayWriter(parsed) {
+  if (parsed?.status === 'cannot_generate') return;
+  if (!parsed?.content || typeof parsed.content !== 'object') throw new Error('missing content');
+}
+
+async function writeDayPost({
+  source, brief, constraintsJson, dayAssets, generationSignalsJson, authorityFocusJson, qualityFeedback,
+}) {
+  const dayPrompt = fillTemplate(loadPrompt('plan-day-writer.md'), {
+    DAY_JSON: json(brief),
+    CONSTRAINTS_JSON: constraintsJson,
+    DAY_ASSETS: json(dayAssets),
+    GENERATION_SIGNALS_JSON: generationSignalsJson,
+    AUTHORITY_FOCUS_JSON: authorityFocusJson,
+    QUALITY_FEEDBACK_JSON: json(qualityFeedback || { status: 'first_draft' }),
+  });
+  return callAgent({
+    source,
+    kind: 'day',
+    prompt: dayPrompt,
+    validate: validateDayWriter,
+  });
+}
+
+async function reviewDayPost({ source, brief, post }) {
+  const prompt = fillTemplate(loadPrompt('plan-quality.md'), {
+    BRIEF_JSON: json({
+      pillar: brief.pillar,
+      lens: brief.lens,
+      format: brief.format,
+      angle: brief.angle,
+      uniqueJob: brief.uniqueJob,
+      verifiedTruth: brief.verifiedTruth,
+      narrativeUnits: brief.narrativeUnits,
+      audienceTension: brief.audienceTension,
+      hookTerritory: brief.hookTerritory,
+    }),
+    POST_JSON: json(post),
+  });
+  return callAgent({
+    source,
+    kind: 'quality',
+    prompt,
+    validate: validateQuality,
+  });
+}
+
 /**
- * Multi-agent plan: Strategist → parallel Day writers
+ * Multi-agent plan: Strategist → parallel Day writers → Quality gate
  * (only for empty month days the strategist grounded in notes/assets).
  * Returns the same shape fields weeklyPlan needs to assemble a route:
  *   { focusOut, rawDays, usage, model, debug }
@@ -320,7 +405,9 @@ async function runMultiAgentPlan({
     );
   }
 
-  // ── 2. Day writers (parallel) ────────────────────────────────────────────
+  // ── 2. Day writers + Quality gate (parallel per day) ─────────────────────
+  const gateOn = qualityAgentEnabled();
+  const maxRewrites = qualityMaxRewrites();
   const dayResults = await Promise.all(
     plannedDays.map(async (planned, index) => {
       const brief = {
@@ -354,38 +441,117 @@ async function runMultiAgentPlan({
         if (rows[0]?.key) return rows.map((a, i) => ({ ...a, preferred: i === 0 }));
         return rows;
       })();
-      const dayPrompt = fillTemplate(loadPrompt('plan-day-writer.md'), {
-        DAY_JSON: json(brief),
-        CONSTRAINTS_JSON: constraintsJson,
-        DAY_ASSETS: json(dayAssets),
-        GENERATION_SIGNALS_JSON: generationSignalsJson,
-        AUTHORITY_FOCUS_JSON: authorityFocusJson,
-      });
-      const source = `Day:${brief.date || brief.day || `D${index + 1}`}`;
+      const label = brief.date || brief.day || `D${index + 1}`;
+      const writerOpts = {
+        brief,
+        constraintsJson,
+        dayAssets,
+        generationSignalsJson,
+        authorityFocusJson,
+      };
+      const debugEntries = [];
+      const runUsages = [];
+      const collect = (agent) => {
+        if (!agent) return;
+        debugEntries.push(agent.debugEntry);
+        runUsages.push(agent.usage);
+      };
+
+      let writer;
       try {
-        const result = await callAgent({
-          source,
-          kind: 'day',
-          prompt: dayPrompt,
-          validate: (p) => {
-            if (p?.status === 'cannot_generate') return;
-            if (!p?.content || typeof p.content !== 'object') throw new Error('missing content');
-          },
+        writer = await writeDayPost({
+          ...writerOpts,
+          source: `Day:${label}`,
+          qualityFeedback: { status: 'first_draft' },
         });
-        return { index, dayBrief: brief, result };
+        collect(writer);
       } catch (err) {
-        console.warn(`[planOrchestrator] ${source} skipped — ${err.message}`);
-        return { index, dayBrief: brief, result: null, skipped: err.message };
+        console.warn(`[planOrchestrator] Day:${label} skipped — ${err.message}`);
+        return { index, dayBrief: brief, result: null, skipped: err.message, debugEntries, runUsages };
       }
+
+      if (writer.parsed?.status === 'cannot_generate') {
+        return { index, dayBrief: brief, result: writer, quality: null, debugEntries, runUsages };
+      }
+
+      if (!gateOn) {
+        return { index, dayBrief: brief, result: writer, quality: null, debugEntries, runUsages };
+      }
+
+      let review;
+      try {
+        review = await reviewDayPost({
+          source: `Quality:${label}`,
+          brief,
+          post: writer.parsed,
+        });
+        collect(review);
+      } catch (err) {
+        console.warn(`[planOrchestrator] Quality:${label} skipped — ${err.message}`);
+        return { index, dayBrief: brief, result: writer, quality: null, debugEntries, runUsages };
+      }
+
+      let rewrites = 0;
+      while (review.parsed.decision !== 'APPROVE' && rewrites < maxRewrites) {
+        rewrites += 1;
+        const pass = review.parsed.decision === 'REGENERATE' ? 'regen' : 'revise';
+        try {
+          writer = await writeDayPost({
+            ...writerOpts,
+            source: `Day:${label}:${pass}${rewrites}`,
+            qualityFeedback: qualityFeedbackOf(review.parsed),
+          });
+          collect(writer);
+        } catch (err) {
+          console.warn(`[planOrchestrator] Day:${label}:${pass}${rewrites} skipped — ${err.message}`);
+          break;
+        }
+        if (writer.parsed?.status === 'cannot_generate') {
+          return { index, dayBrief: brief, result: writer, quality: review.parsed, debugEntries, runUsages };
+        }
+        try {
+          review = await reviewDayPost({
+            source: `Quality:${label}:${pass}${rewrites}`,
+            brief,
+            post: writer.parsed,
+          });
+          collect(review);
+        } catch (err) {
+          console.warn(`[planOrchestrator] Quality:${label}:${pass}${rewrites} skipped — ${err.message}`);
+          break;
+        }
+      }
+
+      const decision = review?.parsed?.decision || '';
+      console.log(
+        `[planOrchestrator] Quality:${label} ${decision || 'n/a'}` +
+          (review?.parsed ? ` score=${review.parsed.score}` : '') +
+          (rewrites ? ` rewrites=${rewrites}` : ''),
+      );
+      if (decision === 'REGENERATE') {
+        return {
+          index,
+          dayBrief: brief,
+          result: null,
+          quality: review.parsed,
+          skipped: `quality ${decision} score=${review.parsed.score}`,
+          debugEntries,
+          runUsages,
+        };
+      }
+      return { index, dayBrief: brief, result: writer, quality: review?.parsed || null, debugEntries, runUsages };
     }),
   );
 
   dayResults
     .sort((a, b) => a.index - b.index)
-    .forEach(({ result }) => {
-      if (!result) return;
-      debugAgents.push(result.debugEntry);
-      usages.push(result.usage);
+    .forEach(({ debugEntries, runUsages, result }) => {
+      (debugEntries || (result ? [result.debugEntry] : [])).forEach((entry) => {
+        if (entry) debugAgents.push(entry);
+      });
+      (runUsages || (result?.usage ? [result.usage] : [])).forEach((u) => {
+        if (u) usages.push(u);
+      });
     });
 
   const rawDays = dayResults
@@ -434,8 +600,9 @@ async function runMultiAgentPlan({
   const usage = mergeUsage(usages, model);
 
   console.log(
-    `[planOrchestrator] @${username}: strategist+${rawDays.length} days · ` +
-      `${usage.totalTokens} tokens (~$${usage.estimatedCostUsd.toFixed(4)})` +
+    `[planOrchestrator] @${username}: strategist+${rawDays.length} days` +
+      (gateOn ? '+quality' : '') +
+      ` · ${usage.totalTokens} tokens (~$${usage.estimatedCostUsd.toFixed(4)})` +
       ` · prompts chars strategist=${strategistPrompt.length}`,
   );
 
