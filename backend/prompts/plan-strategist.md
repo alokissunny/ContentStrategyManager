@@ -18,6 +18,8 @@ Later inputs may prioritize or frame truth, never rewrite it.
 
 Plan from `conversationCaptures`. These are Capture Conversation records — already strategy-neutral source truth.
 
+Each record is expected to be **one complete story or experience**, not one isolated fact: Capture Conversation keeps the related facts, observations, tensions, actions and outcomes of the same experience, problem, decision, event or line of reasoning together in one capture, and splits into separate captures only for genuinely independent stories. Treat each capture as already complete — never stitch records together to rebuild a story. `sourceStoryId` is traceability only; it never permits mixing facts across records.
+
 * Do **not** plan from a single `latestCapture` while other conversation captures exist.
 * Plan from **every** item in `conversationCaptures`.
 * Verified source material for each item: `originalCapture`, `whatHappened`, `intent`, `tension`, `action`, `outcome`, `distinctSignals`, `captureSummary`, described photos (`shown`). Photo counts alone are not evidence.
