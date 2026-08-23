@@ -34,6 +34,16 @@ export function addCapture(projectId, capture) {
 
 // Capture conversation — strategy-neutral extraction, split confirmation,
 // and a clarification ladder when meaning is actually missing.
+/** Follow-up the user must answer in words — never a photo-chip step. */
+export function clarificationQuestion(result) {
+  const question = String(result?.question || result?.questions?.[0] || result?.message || '').trim();
+  if (!question) return '';
+  const asking = result?.action === 'ask'
+    || result?.needsClarification === true
+    || String(result?.status || '').toLowerCase() === 'needs_clarification';
+  return asking ? question : '';
+}
+
 export function understandCapture(payload) {
   return client.post('/projects/captures/understand', payload).then((r) => {
     const data = r.data || {};

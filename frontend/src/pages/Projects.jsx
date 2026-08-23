@@ -25,7 +25,7 @@ import {
   coverOf, groupByWeek, fmtWhen, uploadFiles,
 } from '../lib/projectsStore';
 import { listGeneratedImages, deleteGeneratedImage } from '../api/images';
-import { understandCapture, transcribeCapture } from '../api/projects';
+import { understandCapture, transcribeCapture, clarificationQuestion } from '../api/projects';
 import './projects.css';
 
 /* The generated-image list is fetched from the server, which takes a moment —
@@ -535,9 +535,6 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
   const attachmentPayload = () =>
     (cap.current.attachments || []).map((a) => ({ type: a.type, key: a.key }));
 
-  const isAssetQuestion = (q) =>
-    /\b(photo|photos|picture|pictures|image|images|visual|visuals|clip|clips|upload|generat)/i.test(String(q || ''));
-
   const runUnderstand = async ({ extraTurn } = {}) => {
     const turns = [...(cap.current.turns || [])];
     if (extraTurn?.text) turns.push(extraTurn);
@@ -576,16 +573,13 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
       cap.current.understandings = result.captures;
       cap.current.understanding = result.captures[0];
     }
-    if (result?.action === 'ask' && result.question) {
-      cap.current.askedQuestion = result.question;
-      cap.current.turns = [...(cap.current.turns || []), { role: 'assistant', text: result.question }];
-      const d = say(result.question);
-      if (isAssetQuestion(result.question) && !cap.current.attachments.length) {
-        cap.current.awaitingAssets = true;
-        after(d, () => setStep('media'));
-      } else {
-        after(d, () => setStep('clarify'));
-      }
+    const followUp = clarificationQuestion(result);
+    if (followUp) {
+      cap.current.askedQuestion = followUp;
+      cap.current.turns = [...(cap.current.turns || []), { role: 'assistant', text: followUp }];
+      cap.current.awaitingAssets = false;
+      setStep('clarify');
+      say(followUp);
       return false;
     }
     return continueToFile(result);

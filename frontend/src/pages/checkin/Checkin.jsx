@@ -18,7 +18,7 @@ import { RecordingSheet, useRecorder } from './recorder';
 import { CHECKIN, PILLARS } from './checkinData';
 import { useConversation } from './useConversation.js';
 import ScrollJump from './ScrollJump.jsx';
-import { understandCheckin, transcribeCapture, uploadFiles } from '../../api/projects';
+import { understandCheckin, transcribeCapture, uploadFiles, clarificationQuestion } from '../../api/projects';
 import './checkin.css';
 
 export default function Checkin({ projects, filingProjects, week, name, lastWeek, lastProjectId, hasPlanned, brandGaps = [], onFillGap, onGenerate, onCancel, cancelLabel = "Keep this week's route" }) {
@@ -352,18 +352,13 @@ export default function Checkin({ projects, filingProjects, week, name, lastWeek
       ctx.current.understandings = result.captures;
       ctx.current.understanding = result.captures[0];
     }
-    if (result?.action === 'ask' && result.question) {
-      ctx.current.askedQuestion = result.question;
-      ctx.current.turns = [...(ctx.current.turns || []), { role: 'assistant', text: result.question }];
-      const d = say(result.question);
-      const assetAsk = /\b(photo|photos|picture|pictures|image|images|visual|visuals|clip|clips|upload|generat)/i.test(result.question)
-        && !(ctx.current.attachments || []).length;
-      if (assetAsk) {
-        ctx.current.awaitingAssets = true;
-        after(d, () => setStep('captureAssets'));
-      } else {
-        after(d, () => setStep('clarify'));
-      }
+    const followUp = clarificationQuestion(result);
+    if (followUp) {
+      ctx.current.askedQuestion = followUp;
+      ctx.current.turns = [...(ctx.current.turns || []), { role: 'assistant', text: followUp }];
+      ctx.current.awaitingAssets = false;
+      setStep('clarify');
+      say(followUp);
       return false;
     }
     continueAfterIdea(result);
