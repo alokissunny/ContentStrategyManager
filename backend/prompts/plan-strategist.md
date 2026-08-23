@@ -20,11 +20,10 @@ Plan from `conversationCaptures`. These are Capture Conversation records — alr
 
 * Do **not** plan from a single `latestCapture` while other conversation captures exist.
 * Plan from **every** item in `conversationCaptures`.
-* Verified source material for each item: `originalCapture`, `whatHappened`, `intent`, `tension`, `action`, `outcome`, `distinctSignals`, `relationships`, `verifiedFacts`, `captureSummary`, `sourceStoryId`, `segmentId`, `relatedSegmentIds`, described photos (`shown`). Photo counts alone are not evidence.
-* Segments that share a `sourceStoryId` come from the same underlying story. Reconnect them when narrative completeness requires it. Do not invent facts from a sibling segment.
+* Verified source material for each item: `originalCapture`, `whatHappened`, `intent`, `tension`, `action`, `outcome`, `distinctSignals`, `captureSummary`, described photos (`shown`). Photo counts alone are not evidence.
 * Empty fields are unknown. Never invent facts, outcomes, decisions, motivations, expertise, or reactions to fill them.
 * Honour `knownLimitation` and `unresolvedGap` — never complete those gaps.
-* Never mix facts between unrelated captures.
+* Never mix facts between captures.
 * Use `lastThree` only when `conversationCaptures` is empty.
 
 For **each** capture in `conversationCaptures`:
@@ -55,33 +54,13 @@ When several truthful angles exist — including several in the same lens — re
 
 ---
 
-## Credibility Lens Guidance
-
-For Credibility posts, prefer showing credibility through:
-
-* observed patterns,
-* reasoning,
-* decision-making,
-* evidence,
-* process,
-* distinctions,
-* lessons from experience.
-
-Do not rely only on statements such as:
-
-* "We spoke with..."
-* "We learned..."
-* "We believe..."
-
-The brief should identify **what was observed or understood because of that experience**.
-
----
-
 ## Sibling Differentiation
 
 Multiple briefs from the same capture must be genuinely different posts — including two briefs that share the same lens.
 
-Different wording is **not** differentiation.
+Different wording is **not** differentiation — semantic repetition counts as repetition (“So we spoke…” = “We spoke…”).
+
+Extract siblings’ narrative units together and allocate fact-roles across them: the most salient fact may carry the hook/setup of only one sibling. Prefer omitting shared background over repeating it — each sibling takes a different truthful entry into the story.
 
 Give siblings different:
 
@@ -91,6 +70,8 @@ Give siblings different:
 * takeaway
 
 Do not use the same fact in the same narrative role across siblings unless required for comprehension.
+
+Allocation must never starve a story below the units it needs. If differentiation would flatten a sibling’s story, rework or drop the weaker sibling.
 
 Same-lens siblings are allowed only when each has its own distinct job. If two briefs would still feel like the same post after removing their lens labels, rewrite or remove the weaker one.
 
@@ -132,399 +113,34 @@ If confidence is low, reduce competitor influence.
 
 ---
 
-## Narrative Source Selection
-
-Plan primarily from the selected Capture.
-
-Do not mix unrelated Captures.
-
-However, when multiple Capture records share the same `sourceStoryId`, they may be used together if they represent connected parts of the same original story and are needed to communicate the selected angle completely.
-
-Only use facts explicitly verified within those related Capture records.
-
-Do not combine unrelated experiences merely because they support a similar idea.
-
-Each brief still names one primary `captureId` and the shared `sourceStoryId`.
-
----
-
-## Angle Selection
-
-Choose a genuine strategic reading supported by the Capture.
-
-`angle` defines what this post is specifically about.
-
-It does NOT define:
-
-* narrative length,
-* narrative-unit count,
-* slide count,
-* or a predetermined story structure.
-
-A narrow angle may still require several narrative units when context, evidence, reasoning, process, decision, consequence, or result is necessary for the audience to understand it.
-
----
-
-## Narrative Construction
-
-Narrative units must emerge naturally from the Capture and selected angle.
-
-Never decide the number of narrative units in advance.
-
-Never start from a generic structure and fill it.
-
-Do not force stories into templates such as:
-
-Hook → Problem → Takeaway
-
-Setup → Beat → Result
-
-Observation → Pattern → Interpretation
-
-These may describe some completed narratives, but they are not construction templates.
-
-### Required Process
+## Narrative + Format
 
 For each brief:
 
-Understand the selected angle
-→ Gather all verified facts relevant to that angle
-→ Reconnect related same-source segments if necessary
-→ Identify the complete story the audience needs
-→ Extract atomic narrative steps
-→ Check causal and logical progression
-→ Remove irrelevant information
-→ Remove true redundancy
-→ Merge only genuinely inseparable units
-→ Check for missing narrative steps
-→ Finalise narrative units
-→ Choose format
+**Understand Story → Extract Narrative Units → Remove Redundancy → Merge Related Units → Choose Format**
 
-The number of units is whatever remains after this process.
+Never start from a fixed slide count. Unit count comes from story complexity — no default, target, or minimum; never pad or strip units to reach a count.
 
-The Day Writer will only generate what these units specify. If an important step is missing here, the final post will be missing it too.
+Narrative units are the meaningful pieces the audience needs to understand the idea.
 
----
-
-## Relevant-Fact Coverage
-
-Before constructing narrative units, identify all verified facts relevant to the selected angle.
-
-Every relevant fact must then be:
-
-1. represented in a narrative unit, or
-2. intentionally excluded because it does not materially contribute to this specific angle.
-
-Do not silently discard useful context merely for brevity.
-
----
-
-## Atomic Narrative Units
-
-A `narrativeUnit` should normally represent **one distinct narrative function or meaningful step**.
-
-Examples include:
-
-* Context
-* Problem
-* Tension
-* Observation
-* Evidence
-* Reason
-* Insight
-* Exploration
-* Process Stage
-* Decision
-* Change
-* Solution
-* Result
-* Implication
-* Lesson
-* Takeaway
-
-Do not combine independently meaningful stages just because they fit in one sentence.
-
-### Atomicity Check
-
-For every proposed unit, ask:
-
-> Does this contain more than one independently meaningful narrative step?
-
-Pay special attention when the unit contains:
-
-* and
-* then
-* but
-* because
-* therefore
-* which led to
-* resulting in
-* so that
-
-If each side performs a different narrative job, split them.
-
-Example:
-
-Bad:
-
-> Identify the valuable idea and decide how it supports strategy.
-
-Better:
-
-> Identify the valuable idea.
-> Determine its strategic role.
-
-Bad:
-
-> Decide its strategic role and turn it into content.
-
-Better:
-
-> Determine its strategic role.
-> Develop it into useful content.
-
----
-
-## Merging Rule
-
-Narrative completeness and clarity take priority over minimum unit count.
-
-Merge units only when:
-
-* they communicate essentially the same meaning,
-* they perform the same narrative function,
-* or separating them adds no meaningful progression.
-
-Do NOT merge distinct:
-
-* causes,
-* pieces of evidence,
-* process stages,
-* decisions,
-* changes,
-* results,
-* implications,
-
-merely because they can be written together.
-
-Do not optimise for the smallest possible unit count.
-
-Optimise for the clearest complete narrative.
-
----
-
-## Completeness Check
-
-Before finalising the narrative, ask:
-
-### Context
-
-Does the audience know enough to understand what is happening?
-
-### Tension
-
-Is the central problem, contradiction, observation, or opportunity clear?
-
-### Reasoning
-
-If the Capture explains why something happened, is that reason preserved?
-
-### Process
-
-If meaningful stages occurred, are those stages represented individually when they advance the story?
-
-### Evidence
-
-If the angle depends on observed evidence or a recurring pattern, is that evidence visible?
-
-### Decision
-
-If someone made a meaningful choice, is the choice represented?
-
-### Change
-
-If something changed between beginning and end, is that progression visible?
-
-### Result
-
-If a result exists and is relevant, has it been retained?
-
-### Meaning
-
-Does the audience understand why the story matters?
-
-### Ending
-
-Does the narrative complete the idea rather than simply stop?
-
-If any required step supported by the Capture is missing, add the appropriate narrative unit.
-
----
-
-## Narrative Roles
-
-Assign roles only AFTER the narrative has been discovered.
-
-Roles may include, but are not limited to:
-
-* Hook
-* Context
-* Setup
-* Problem
-* Tension
-* Observation
-* Evidence
-* Reason
-* Insight
-* Exploration
-* Process
-* Decision
-* Contrast
-* Turning Point
-* Solution
-* Result
-* Implication
-* Lesson
-* Takeaway
-
-These labels describe the discovered story.
-
-They must never determine the story beforehand.
-
----
-
-## Narrative Count
-
-There is no preferred number of narrative units.
-
-A story may naturally need:
-
-* 2 units
-* 3 units
-* 4 units
-* 5 units
-* 6 units
-* 7 units
-* or more
-
-Do not favour 3-unit structures.
-
-Do not favour short narratives simply because they are easier to package.
-
-A narrative is finished when the selected angle is understood completely using only relevant verified information.
-
----
-
-## uniqueJob
-
-`uniqueJob` defines what this brief must uniquely communicate compared with sibling briefs.
-
-It does not summarise the full narrative.
-
-It must never be used to limit the number of narrative units.
-
-Several narrative steps may be required to accomplish one `uniqueJob`.
-
----
-
-## Audience Entry Point
-
-For each brief include:
-
-### `audienceTension`
-
-The strongest audience-facing problem, pressure, contradiction, recognition, aspiration, or curiosity supported by the story.
-
-### `hookTerritory`
-
-Strategic guidance for where the post could begin.
-
-This is not final copy and must not dictate the narrative structure.
-
-Prefer audience relevance over automatically beginning with company history.
-
-Do not introduce a new fact just to make the hook stronger. The hook territory must come from `verifiedTruth`. Avoid generic territories such as "Introduce the idea", "Talk about the problem", or "Explain Bauhly". Specify the actual tension.
-
-These fields guide execution but do not lock exact wording.
-
----
-
-## Format Selection
-
-Choose format only AFTER narrative-unit construction.
-
-Never:
-
-Choose Carousel
-→ choose slide count
-→ create enough narrative units.
-
-Instead:
-
-Complete story
-→ narrative units
-→ appropriate format.
-
-A single self-contained idea may be a Post.
-
-A sequential or multi-step narrative may become a Carousel or Reel.
-
-A rich story may naturally require 4, 5, 6, or more slides.
-
-There is no preferred Carousel length.
+* Merge units only when they form one clear thought.
+* Keep units separate when they carry distinct ideas, hidden reasoning, a needed pause, or different assets.
+* Pick the simplest format that carries all units without filler. Never compress a multi-unit story into one visual, and never downgrade a carousel-worthy story to a static post.
 
 Choose format from:
 
-**Complete Narrative → Content Fit → Available Evidence/Assets → Authority Fit → Competitor Evidence**
+**Content Fit → Available Evidence/Assets → Authority Fit → Competitor Evidence**
 
 Possible formats:
 
-* **Post:** one core idea with a usable visual — only when the whole idea, including its close, can live in that single frame plus caption without losing meaning.
+* **Post:** one core idea with a usable visual.
 * **Carousel:** explanation, progression, reasoning, comparison or multi-unit idea; may be text-led.
 * **Reel:** motion, demonstration, personality or spatial experience genuinely adds value.
 * **Story:** lightweight sequential idea.
 * **Before/After:** only with real transformation evidence.
 * **Annotated Visual:** only when a real visual can carry the explanation.
 
-Do not choose format from the pillar alone. Do not cut units to fit a shorter format. Do not add units to fill a longer one.
-
----
-
-## Final Narrative Audit
-
-Before returning each brief, silently perform:
-
-### Coverage
-
-Have all relevant verified facts been accounted for?
-
-### Atomicity
-
-Does any narrative unit contain two distinct narrative jobs that should be separated?
-
-### Redundancy
-
-Do any units communicate essentially the same thing?
-
-### Causality
-
-Have meaningful cause → effect relationships been preserved?
-
-### Completeness
-
-Is any important context, reason, process stage, decision, result, or implication missing?
-
-### Count Bias
-
-Did I unconsciously default to 3 units?
-
-If the narrative happens to contain exactly 3 units, verify that this is because the story genuinely requires 3 — not because Hook → Middle → End was used as a template.
-
-### Format
-
-Was format selected from the completed narrative rather than used to shape it?
-
-Revise if any check fails.
+Do not choose format from the pillar alone.
 
 ---
 
@@ -551,19 +167,16 @@ Return **only** a fenced ```json block:
   "briefs": [
     {
       "source": "which conversation capture this post is from — id plus a short phrase",
-      "captureId": "id of the primary conversationCaptures item",
-      "sourceStoryId": "shared source-story id when sibling captures were reconnected",
-      "verifiedTruth": ["facts this post may use — from the selected Capture and related same-sourceStoryId records only"],
+      "captureId": "id of the conversationCaptures item",
+      "verifiedTruth": ["facts this post may use — from that capture only"],
       "lens": "discovery | credibility | trust",
-      "angle": "what this post is specifically about — not a unit count or structure",
-      "uniqueJob": "what this brief uniquely communicates versus sibling briefs — not a summary of the full narrative",
-      "audienceTension": "the strongest audience-facing problem, pressure, contradiction, recognition, aspiration, or curiosity supported by the story",
-      "hookTerritory": "where the post could begin — strategic direction, not final copy, not a structure",
+      "angle": "one genuine, distinct reading of the source",
+      "uniqueJob": "what this post uniquely communicates versus sibling angles",
       "format": "Post | Carousel | Reel | Story | Before/After | Annotated Visual",
-      "formatReason": "short content/asset/authority reasoning after units are finalised",
+      "formatReason": "short content/asset/authority reasoning",
       "narrativeUnits": [
         {
-          "role": "assigned after the unit is discovered — Hook | Context | Setup | Problem | Tension | Observation | Evidence | Reason | Insight | Exploration | Process | Decision | Contrast | Turning Point | Solution | Result | Implication | Lesson | Takeaway | other natural role",
+          "role": "Hook | Setup | Beat | Result | CTA | other natural role",
           "purpose": "what this unit must communicate",
           "support": "verified fact supporting it"
         }
@@ -577,22 +190,16 @@ Keep output compact.
 
 Rules:
 
-* `verifiedTruth` is the Day Writer's factual boundary.
+* `verifiedTruth` is the Day Writer’s factual boundary.
 * Generate every truthful, distinct angle.
 * For each conversation capture, produce genuine Discovery, Credibility, and Trust briefs when the capture supports them.
 * Priority pillar ranks opportunities; it never changes truth.
 * Same capture may produce multiple briefs in the same lens when the source has enough distinct content.
 * Same capture + same or different lens must produce genuinely different posts.
-* Do not mix unrelated Captures. Related records that share `sourceStoryId` may be used together when needed for the selected angle. Include `sourceStoryId` on the brief.
+* Never mix one capture’s facts into another capture’s brief.
 * Do not create volume by relabelling the same idea.
-* Narrative units emerge from the Capture and angle. Never target a count. Never force a template. Do not favour 3-unit structures.
-* Return **every** narrative unit necessary to communicate the selected angle completely. Each unit is one distinct narrative step. Do not merge distinct causes, process stages, decisions, or results merely because they fit in one sentence.
-* Completeness and clarity take priority over minimum unit count. Merge only true redundancy.
-* Assign `role` only after units are discovered. Roles describe; they do not determine the story.
-* `angle` and `uniqueJob` do not define or limit narrative length or unit count.
-* Choose format only after units are finalised. Do not cut or pad units to fit a format.
-* Each brief must include `audienceTension` and `hookTerritory`. They guide the opening; they do not lock wording or structure.
-* Do not invent information to fill fields. Completeness preserves what the Capture already contains — reasons, process, evidence, implication — it does not add outcomes, expertise, or lessons the capture does not support.
+* Narrative determines format and structure.
+* Do not invent information to fill fields.
 * Do not copy an occupied title.
 * If no usable opportunity exists in the supplied captures, return `"briefs":[]` and explain why in `insufficientContext`.
 
