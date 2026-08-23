@@ -139,13 +139,22 @@ const IMG = {
 const L = (o) => ({ imgs: [], levels: 1, ...o });
 
 /* Default composition per library category. Used whenever a slide has no
-   layout of its own yet. Hook: headline top-left, supporting line bottom-right.
-   Educational: eyebrow + headline + supporting copy. */
+   layout of its own yet. Every default has a heading AND a supporting line so
+   a slide's subtitle is never dropped because the composition has no slot. */
 export const DEFAULT_LAYOUT_BY_CAT = {
-  hook: 'n-hook-corner',
-  edu: 'n-edu-columns',
+  hook: 'n-hook-sub',
+  edu: 'n-edu-callout',
+  results: 'n-res-quotenote',
+  cta: 'n-cta-centered',
+  story: 'n-story-magazine',
 };
 export const DEFAULT_LAYOUT_ID = DEFAULT_LAYOUT_BY_CAT.hook;
+
+/** True when the composition can draw both the headline and a supporting line. */
+export function layoutShowsAllCopy(layout) {
+  const art = layout?.art || {};
+  return typeof art.head === 'string' && typeof art.body === 'string';
+}
 
 export const LAYOUTS = [
   /* ── Hook ── */
@@ -596,9 +605,13 @@ export function needsOf(l) {
    own five groups (hook/educational/project/results/details) beside the
    library's six; one taxonomy now, and it is the one the studio browses. */
 const CAT_FOR_ROLE = {
-  Hook: 'hook', Cover: 'hook', Poll: 'hook',
-  Setup: 'edu', Process: 'edu',
-  Result: 'results',
+  Hook: 'hook', Cover: 'hook', Poll: 'hook', Premise: 'hook',
+  Setup: 'edu', Process: 'edu', Problem: 'edu', Tension: 'edu',
+  Observation: 'edu', Evidence: 'edu', Reason: 'edu', Insight: 'edu',
+  Context: 'edu', Exploration: 'edu', Decision: 'edu', Change: 'edu',
+  Contrast: 'edu', Beat: 'edu',
+  Result: 'results', Implication: 'results', Lesson: 'results',
+  Takeaway: 'results', Resolution: 'results', Solution: 'results',
   CTA: 'cta',
 };
 export const catForRole = (role) => CAT_FOR_ROLE[role] || 'hook';

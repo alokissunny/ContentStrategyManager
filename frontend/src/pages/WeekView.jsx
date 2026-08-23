@@ -21,7 +21,7 @@ import { useProjects, uploadFiles } from '../lib/projectsStore';
 import { toSvg } from 'html-to-image';
 import { CaptureChat } from './Projects';
 import { styleOf, rolesOf, groundOf } from '../lib/visualbrand';
-import { LAYOUTS as LIB_LAYOUTS, CATEGORIES, catForRole, shotsOf, DEFAULT_LAYOUT_BY_CAT } from '../data/layouts';
+import { LAYOUTS as LIB_LAYOUTS, CATEGORIES, catForRole, shotsOf, DEFAULT_LAYOUT_BY_CAT, layoutShowsAllCopy } from '../data/layouts';
 import { paintOf, identityOf, TYPE_SLOTS, FACES } from '../lib/identity';
 import { rolesOf as textRolesOf, plainOf, parseMarked, isListRole, listIndexOf } from '../lib/slidetext';
 import { Preview } from './visuallibrary/LayoutArt';
@@ -66,16 +66,35 @@ function findLayout(id, store) {
   const added = store?.addedLayouts || [];
   return [...added, ...ALL_LIB].find((l) => l.id === id) || null;
 }
-function fallbackLayout(store, role) {
+function slideNeedsSubtitle(slide) {
+  return Boolean(String(slide?.subtitle || slide?.body || '').trim());
+}
+
+function fallbackLayout(store, role, slide) {
   const off = store?.layoutsOff || {};
   const gone = store?.layoutsGone || {};
+  const list = layoutsForSlide(role, store);
+  const needSub = slideNeedsSubtitle(slide);
   const cat = catForRole(role);
   const defId = DEFAULT_LAYOUT_BY_CAT[cat];
   if (defId) {
     const preferred = findLayout(defId, store);
-    if (preferred && !off[preferred.id] && !gone[preferred.id]) return preferred;
+    if (preferred && !off[preferred.id] && !gone[preferred.id]
+      && (!needSub || layoutShowsAllCopy(preferred))) {
+      return preferred;
+    }
   }
-  return layoutsForSlide(role, store)[0] || null;
+  if (needSub) {
+    const withSub = list.find((l) => layoutShowsAllCopy(l));
+    if (withSub) return withSub;
+  }
+  return list[0] || null;
+}
+
+function layoutForSlide(slide, store, role) {
+  const stored = findLayout(slide?.layout, store);
+  if (stored && (!slideNeedsSubtitle(slide) || layoutShowsAllCopy(stored))) return stored;
+  return fallbackLayout(store, role, slide);
 }
 
 // ── Conversation seeds for the Create image flow (bauhly-v3 `subjectOf`) ──
@@ -2129,7 +2148,7 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
   }, [allImages, activeSlide?.title, day]);
   const slideLayouts = useMemo(() => {
     const own = layoutsForSlide(slideRoleName, vbStore, visEdit === 'layout' ? layoutBrowseCat : null);
-    const applied = findLayout(activeSlide?.layout, vbStore);
+    const applied = layoutForSlide(activeSlide, vbStore, slideRoleName);
     if (!applied) return own;
     if (visEdit === 'layout' && layoutBrowseCat && applied.cat !== layoutBrowseCat) return own;
     if (own.some((l) => l.id === applied.id)) {
@@ -2144,7 +2163,7 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
     () => layoutsForSlide(slideRoleName, vbStore),
     [slideRoleName, vbStore],
   );
-  const appliedLayout = findLayout(activeSlide?.layout, vbStore) || fallbackLayout(vbStore, slideRoleName) || roleLayouts[0] || null;
+  const appliedLayout = layoutForSlide(activeSlide, vbStore, slideRoleName) || roleLayouts[0] || null;
   const appliedId = appliedLayout?.id || null;
   const draftId = visEdit === 'layout' ? (layPick || appliedId) : appliedId;
   const chosenLayout = (visEdit === 'layout' && layPick
@@ -2368,8 +2387,8 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
   // big preview draws for that slide — so the vertical rail and the IG preview
   // always show the same picture for a given slide (never out of sync).
   const slideThumbLayout = (s) => {
-    const opts = layoutsForSlide(s.role || 'Hook', vbStore);
-    return opts.find((l) => l.id === s.layout) || fallbackLayout(vbStore, s.role || 'Hook') || opts[0] || null;
+    const role = s.role || 'Hook';
+    return layoutForSlide(s, vbStore, role) || layoutsForSlide(role, vbStore)[0] || null;
   };
   const LAY_PER_PAGE = 3;
   const maxWinStart = Math.max(0, slideLayouts.length - LAY_PER_PAGE);

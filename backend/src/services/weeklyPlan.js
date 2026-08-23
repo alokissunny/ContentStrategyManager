@@ -614,9 +614,11 @@ function normalizeSlides(rawSlides, onScreenText, format, title, cta, validKeys 
       imagePrompt: s.imagePrompt || buildBaseImagePrompt(withRole, { ...ctx, dayTitle: title, format }),
       assetKey,
       layout: String(s.layout || '').trim() || (
-        /^(hook|cover|poll)$/i.test(role) ? 'n-hook-corner'
-          : /^(setup|process)$/i.test(role) ? 'n-edu-columns'
-            : ''
+        /^(hook|cover|poll|premise)$/i.test(role) ? 'n-hook-sub'
+          : /^(setup|process|problem|tension|observation|evidence|reason|insight|context|exploration|decision|change|contrast|beat)$/i.test(role) ? 'n-edu-callout'
+            : /^(result|implication|lesson|takeaway|resolution|solution)$/i.test(role) ? 'n-res-quotenote'
+              : /^(cta)$/i.test(role) ? 'n-cta-centered'
+                : 'n-hook-sub'
       ),
     };
   });
