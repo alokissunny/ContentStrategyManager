@@ -10,7 +10,7 @@
 const fs = require('fs');
 const path = require('path');
 const { getObjectBytes, isS3Configured } = require('./s3Client');
-const { completeToolCall, conversationModel, hasConversationModel } = require('./llmComplete');
+const { completeToolCall, conversationModel, hasConversationModel, splitPromptTemplate } = require('./llmComplete');
 
 const PROMPT_PATH = path.join(__dirname, '..', '..', 'prompts', 'capture-understand-prompt.md');
 function loadPrompt() {
@@ -231,7 +231,7 @@ function mapCaptureRecord(raw, fallbackText) {
   const intent = str(c.intent);
   const difficulty = str(c.tension || c.difficulty);
   const actionTaken = str(c.action || c.actionTaken);
-  const outcome = [str(c.outcome), str(c.openQuestion)].filter(Boolean).join(' ');
+  const outcome = str(c.outcome);
   const summary = str(c.captureSummary || c.summary) || happened || str(fallbackText);
   const distinct = Array.isArray(c.distinctSignals)
     ? c.distinctSignals.map((s) => ({
@@ -381,14 +381,13 @@ function assemblePrompt({
 }) {
   const conversation = conversationBlock({ text, projectName, turns, projects });
   const attachedAssets = attachedAssetsBlock({ text, attachments, turns });
-  let template = loadPrompt();
+  const { system, userTemplate } = splitPromptTemplate(loadPrompt());
+  let user = fillPrompt(userTemplate, { conversation, attachedAssets });
   if (kind === 'checkin') {
     const extras = fs.readFileSync(path.join(__dirname, '..', '..', 'prompts', 'checkin-understand-prompt.md'), 'utf8');
-    template = template.includes('## Conversation so far')
-      ? template.replace('## Conversation so far', `${extras}\n\n## Conversation so far`)
-      : `${template}\n\n${extras}`;
+    user = `${String(extras).trim()}\n\n${user}`;
   }
-  return fillPrompt(template, { conversation, attachedAssets });
+  return { system, user };
 }
 
 function captureMaxTokens() {
@@ -488,10 +487,11 @@ async function understandCapture(input = {}) {
     throw err;
   }
 
-  const systemPrompt = assemblePrompt({
+  const assembled = assemblePrompt({
     text, projectName, attachments, turns, projects, kind,
   });
-  const userText = USER_JSON_INSTRUCTION;
+  const systemPrompt = assembled.system;
+  const userText = [assembled.user, USER_JSON_INSTRUCTION].filter(Boolean).join('\n\n');
   const debugSource = kind === 'checkin' ? 'Check-in conversation' : 'Capture conversation';
   const ctx = { text, askedQuestion, askedAnswer };
 
@@ -524,6 +524,7 @@ async function understandCapture(input = {}) {
     tool: UNDERSTAND_TOOL,
     maxTokens: captureMaxTokens(),
     retryHint: 'The previous JSON was invalid. Return only one JSON object with status needs_clarification or ready. If several independent stories exist, include all of them in captures.',
+    cacheKey: 'igsignal-conversation',
   };
 
   let parsed;
@@ -542,6 +543,11 @@ async function understandCapture(input = {}) {
     parsed = done.parsed;
     rawOutput = done.output || '';
     if (done.system) usedSystem = done.system;
+    const cached = Number(done.usage?.cached_tokens) || 0;
+    const input = Number(done.usage?.input_tokens) || 0;
+    if (cached) {
+      console.log(`[${kind}] cache hit ${cached}/${input} input tokens`);
+    }
   } catch (err) {
     console.error(`[${kind}] understand failed`, err.message);
     const result = normalizeUnderstanding(

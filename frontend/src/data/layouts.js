@@ -612,6 +612,9 @@ const CAT_FOR_ROLE = {
   Contrast: 'edu', Beat: 'edu',
   Result: 'results', Implication: 'results', Lesson: 'results',
   Takeaway: 'results', Resolution: 'results', Solution: 'results',
+  'Why it matters': 'edu',
+  WhyItMatters: 'edu',
+  Action: 'cta',
   CTA: 'cta',
 };
 export const catForRole = (role) => CAT_FOR_ROLE[role] || 'hook';

@@ -1,5 +1,6 @@
 const fs = require('fs');
 const path = require('path');
+const { flattenSlide, layoutForStructure } = require('./slideContent');
 const { computeAuthorityFunnel } = require('./authorityFunnel');
 const { recentCapturesOf } = require('./planContext');
 const { completeText, planTextModel, splitPromptTemplate } = require('./llmComplete');
@@ -58,6 +59,15 @@ function estimatePlanCostUsd(model, inputTokens, outputTokens, cachedTokens = 0)
 // day split so the week leans hardest on the highest-priority gap.
 const PILLAR_ORDER = ['discovery', 'credibility', 'trust'];
 const PRIORITY_WEIGHT = { discovery: 3, credibility: 2, trust: 1 };
+
+function normalizeLens(value) {
+  const raw = String(value || '').toLowerCase().trim();
+  if (PILLAR_ORDER.includes(raw)) return raw;
+  if (/discover/.test(raw)) return 'discovery';
+  if (/credib/.test(raw)) return 'credibility';
+  if (/\btrust\b/.test(raw) || raw === 'trust') return 'trust';
+  return '';
+}
 
 // A pillar is a "gap" (needs work this week) when it hasn't reached Strong.
 // Moderate/Strong pillars are already carrying their weight, so they only keep
@@ -222,8 +232,8 @@ function assignToEmptyDates(plannedDays, emptyDates) {
   const n = Math.min(planned.length, slots.length);
   return planned.slice(0, n).map((p, i) => {
     const slot = slots[i] || {};
-    const lens = String(p.lens || p.pillar || '').toLowerCase();
-    const pillar = PILLAR_ORDER.includes(lens) ? lens : slot.pillar;
+    const lens = normalizeLens(p.lens || p.pillar);
+    const pillar = lens || slot.pillar;
     return {
       source: p.source || '',
       captureId: p.captureId || '',
@@ -567,14 +577,15 @@ function normalizeSlides(rawSlides, onScreenText, format, title, cta, validKeys 
   // photo from riding through to the post. Null = no project context to check.
   const keepKey = (k) => (validKeys ? (validKeys.has(k) ? k : '') : k);
   let slides = Array.isArray(rawSlides)
-    ? rawSlides.map((s) => ({
-        role: String(s.role || '').trim(),
-        title: String(s.title || '').trim(),
-        subtitle: String(s.subtitle || '').trim(),
-        imagePrompt: String(s.imagePrompt || '').trim(),
-        assetKey: keepKey(String(s.assetKey || '').trim()),
-        layout: String(s.layout || '').trim(),
-      })).filter((s) => s.title || s.role)
+    ? rawSlides.map((s) => {
+      const flat = flattenSlide(s);
+      const layout = flat.layout || layoutForStructure(flat);
+      return {
+        ...flat,
+        layout,
+        assetKey: keepKey(flat.assetKey),
+      };
+    }).filter((s) => s.title || s.role || s.items.length || s.comparisonA || s.stat || s.quote)
     : [];
 
   if (!slides.length) {
@@ -613,21 +624,32 @@ function normalizeSlides(rawSlides, onScreenText, format, title, cta, validKeys 
     }
     const role = s.role || roles[Math.min(i, roles.length - 1)];
     const withRole = { ...s, role };
+    const layout = String(s.layout || '').trim() || layoutForStructure(withRole) || (
+      /^(hook|cover|poll|premise)$/i.test(role) ? 'n-hook-sub'
+        : /^(setup|process|problem|whymatters|tension|observation|evidence|reason|insight|context|exploration|decision|change|contrast|beat)$/i.test(role) ? 'n-edu-callout'
+          : /^(result|implication|lesson|takeaway|resolution|solution)$/i.test(role) ? 'n-res-quotenote'
+            : /^(cta|action)$/i.test(role) ? 'n-cta-centered'
+              : 'n-hook-sub'
+    );
     return {
       role,
+      structure: s.structure || '',
       title: s.title || '',
       subtitle: s.subtitle || '',
-      // Always end up with a base prompt: the model's own when it wrote one,
-      // otherwise a context-rich one synthesised from this slide + the day.
-      imagePrompt: s.imagePrompt || buildBaseImagePrompt(withRole, { ...ctx, dayTitle: title, format }),
+      body: s.body || '',
+      items: Array.isArray(s.items) ? s.items : [],
+      itemsA: Array.isArray(s.itemsA) ? s.itemsA : [],
+      itemsB: Array.isArray(s.itemsB) ? s.itemsB : [],
+      stat: s.stat || '',
+      quote: s.quote || '',
+      action: s.action || '',
+      comparisonA: s.comparisonA || '',
+      comparisonB: s.comparisonB || '',
+      labels: Array.isArray(s.labels) ? s.labels : [],
+      image: s.image || '',
+      imagePrompt: '',
       assetKey,
-      layout: String(s.layout || '').trim() || (
-        /^(hook|cover|poll|premise)$/i.test(role) ? 'n-hook-sub'
-          : /^(setup|process|problem|tension|observation|evidence|reason|insight|context|exploration|decision|change|contrast|beat)$/i.test(role) ? 'n-edu-callout'
-            : /^(result|implication|lesson|takeaway|resolution|solution)$/i.test(role) ? 'n-res-quotenote'
-              : /^(cta)$/i.test(role) ? 'n-cta-centered'
-                : 'n-hook-sub'
-      ),
+      layout,
     };
   });
 }
@@ -1050,6 +1072,7 @@ module.exports = {
   renderProjectAssets,
   buildMonthCalendar,
   assignToEmptyDates,
+  normalizeLens,
   dayHasContent,
   isoDate,
   parseIsoDate,

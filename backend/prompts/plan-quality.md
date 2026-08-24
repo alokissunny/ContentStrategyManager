@@ -304,6 +304,7 @@ Return `REVISE`.
 * describe another pain point
 * summarize facts without meaning
 * end because the carousel ran out of slides
+* leave the brand invisible after a problem-only story
 
 ---
 
@@ -1041,7 +1042,7 @@ Keep output compact.
 
 # FINAL APPROVAL TEST
 
-Before returning `APPROVE`, perform these five checks:
+Before returning `APPROVE`, perform these six checks:
 
 ### 1. Hook
 
@@ -1053,13 +1054,17 @@ Does every slide move the story forward?
 
 ### 3. Resolution
 
-Does the final slide clearly complete the thought?
+Does the final slide clearly complete the thought — not still sit on the problem?
 
-### 4. Value
+### 4. Brand
+
+Does the audience now know something about this brand (how it works, what it offers, or what it believes) connected to that problem?
+
+### 5. Value
 
 Does the audience gain something worth consuming?
 
-### 5. Publishability
+### 6. Publishability
 
 Would an expert Instagram strategist intentionally publish this exact version?
 

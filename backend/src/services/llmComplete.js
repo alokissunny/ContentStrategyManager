@@ -125,7 +125,9 @@ function jsonSchemaInstruction(tool) {
   ].join('\n');
 }
 
-async function completeOpenAIJson({ model, system, userParts, tool, maxTokens, extraUserText = '' }) {
+async function completeOpenAIJson({
+  model, system, userParts, tool, maxTokens, extraUserText = '', cacheKey = '',
+}) {
   const messages = [];
   const sys = [system, jsonSchemaInstruction(tool)].filter(Boolean).join('\n\n');
   if (sys) messages.push({ role: 'system', content: sys });
@@ -141,11 +143,24 @@ async function completeOpenAIJson({ model, system, userParts, tool, maxTokens, e
     model,
     messages,
     ...tokenArgFor(model, maxTokens),
+    ...(promptCacheEnabled() && cacheKey ? { prompt_cache_key: cacheKey } : {}),
   });
   const text = response.choices?.[0]?.message?.content || '';
   if (!String(text).trim()) throw new Error('Empty model response');
   const choice = response.choices?.[0] || {};
-  return { parsed: parseToolArgs(text), model, output: text, system: sys, finishReason: choice.finish_reason || '' };
+  const usage = response.usage || {};
+  return {
+    parsed: parseToolArgs(text),
+    model,
+    output: text,
+    system: sys,
+    finishReason: choice.finish_reason || '',
+    usage: {
+      input_tokens: Number(usage.prompt_tokens || usage.input_tokens) || 0,
+      output_tokens: Number(usage.completion_tokens || usage.output_tokens) || 0,
+      cached_tokens: cachedTokensOf(usage),
+    },
+  };
 }
 
 function extractOpenAIToolInput(response, toolName) {
@@ -265,6 +280,7 @@ async function completeToolCall({
   maxTokens = 8192,
   retryHint = '',
   extraUserText = '',
+  cacheKey = '',
 }) {
   const resolved = model || conversationModel();
   const name = tool.name;
@@ -273,7 +289,13 @@ async function completeToolCall({
   // /v1/chat/completions. Ask for the same schema as JSON instead.
   if (isOpenAIModel(resolved)) {
     const run = (tokens, extra) => completeOpenAIJson({
-      model: resolved, system, userParts, tool, maxTokens: tokens, extraUserText: extra,
+      model: resolved,
+      system,
+      userParts,
+      tool,
+      maxTokens: tokens,
+      extraUserText: extra,
+      cacheKey,
     });
     try {
       let done = await run(maxTokens, extraUserText);
@@ -290,17 +312,31 @@ async function completeToolCall({
 
   const client = getAnthropicClient();
   const userContent = toAnthropicUserContent(userParts);
+  const systemBlock = String(system || '').trim();
+  const systemArg = systemBlock
+    ? (promptCacheEnabled()
+      ? [{ type: 'text', text: systemBlock, cache_control: { type: 'ephemeral' } }]
+      : systemBlock)
+    : undefined;
   const request = (msgs) => client.messages.create({
     model: resolved,
     max_tokens: maxTokens,
-    system: system || undefined,
+    system: systemArg,
     tools: [tool],
     tool_choice: { type: 'tool', name },
     messages: msgs,
   });
   let response = await request([{ role: 'user', content: userContent }]);
   try {
-    return { parsed: extractAnthropicToolInput(response, name), model: resolved };
+    return {
+      parsed: extractAnthropicToolInput(response, name),
+      model: resolved,
+      usage: {
+        input_tokens: Number(response.usage?.input_tokens) || 0,
+        output_tokens: Number(response.usage?.output_tokens) || 0,
+        cached_tokens: cachedTokensOf(response.usage),
+      },
+    };
   } catch (err) {
     if (!retryHint) throw err;
     response = await request([
@@ -308,7 +344,15 @@ async function completeToolCall({
       { role: 'assistant', content: response.content || [] },
       { role: 'user', content: retryHint },
     ]);
-    return { parsed: extractAnthropicToolInput(response, name), model: resolved };
+    return {
+      parsed: extractAnthropicToolInput(response, name),
+      model: resolved,
+      usage: {
+        input_tokens: Number(response.usage?.input_tokens) || 0,
+        output_tokens: Number(response.usage?.output_tokens) || 0,
+        cached_tokens: cachedTokensOf(response.usage),
+      },
+    };
   }
 }
 

@@ -31,6 +31,18 @@ const daySchema = new mongoose.Schema(
             // words written with the plan, so a layout's body slot is never a
             // placeholder. Empty is fine — the slide is then title-only.
             subtitle: { type: String, default: '' },
+            body: { type: String, default: '' },
+            structure: { type: String, default: '' },
+            items: { type: [String], default: [] },
+            itemsA: { type: [String], default: [] },
+            itemsB: { type: [String], default: [] },
+            stat: { type: String, default: '' },
+            quote: { type: String, default: '' },
+            action: { type: String, default: '' },
+            comparisonA: { type: String, default: '' },
+            comparisonB: { type: String, default: '' },
+            labels: { type: [String], default: [] },
+            image: { type: String, default: '' },
             // A rich, self-contained BASE image prompt for this slide, written
             // while the plan is built so it already carries the post's topic,
             // this slide's role and message, subject, setting and composition.

@@ -1,6 +1,6 @@
 const fs = require('fs');
 const path = require('path');
-const { extractJson, estimatePlanCostUsd, assignToEmptyDates } = require('./weeklyPlan');
+const { extractJson, estimatePlanCostUsd, assignToEmptyDates, normalizeLens } = require('./weeklyPlan');
 const { compileStrategyContext, assetsForDay, json } = require('./planContext');
 const { completeText, planTextModel, splitPromptTemplate } = require('./llmComplete');
 
@@ -39,6 +39,15 @@ function agentModel(kind) {
 }
 
 const GOAL_TAG = { discovery: 'Get noticed', credibility: 'Show expertise', trust: 'Build confidence' };
+const PILLAR_JOB = {
+  discovery: 'Make the audience recognise the problem and care. Stay with tension, curiosity, and recognition. Do not teach the method, walk through how the brand works, or prove expertise as the body of this post. Brand may appear only as a recognisable stance, not a process.',
+  credibility: 'Show how this brand thinks and works. Reasoning, process, judgment, or first-hand experience — supported by the brief. Do not stop at naming the problem.',
+  trust: 'Reduce uncertainty. Care, reliability, transparency, guidance, or a supported outcome. Never invent proof. Do not leave this as a Discovery hook with no reliability landing.',
+};
+
+function lockedPillarOf(planned) {
+  return normalizeLens(planned?.lens || planned?.pillar) || '';
+}
 const FORMATS = ['Reel', 'Carousel', 'Post', 'Story'];
 const WRITER_FORMATS = ['Reel', 'Carousel', 'Post', 'Story', 'Before/After', 'Annotated Visual'];
 
@@ -102,8 +111,7 @@ function generationSignalsOf(competitor) {
 }
 
 function briefFieldsOf(b) {
-  const lenses = ['discovery', 'credibility', 'trust'];
-  const lens = String(b.lens || b.pillar || '').toLowerCase();
+  const lens = normalizeLens(b.lens || b.pillar);
   return {
     source: b.source || '',
     captureId: optionalText(b.captureId),
@@ -123,7 +131,7 @@ function briefFieldsOf(b) {
     knownLimitation: optionalText(b.knownLimitation),
     hashtags: stringList(b.hashtags),
     recommendedTime: optionalText(b.recommendedTime),
-    ...(lenses.includes(lens) ? { lens } : {}),
+    ...(lens ? { lens, pillar: lens } : {}),
   };
 }
 
@@ -255,6 +263,33 @@ function validateStrategist(parsed) {
   parsed.plannedDays = parsed.briefs;
 }
 
+function captureByBriefId(conversationCaptures, brief) {
+  const ids = [brief?.captureId, brief?.sourceStoryId]
+    .map((v) => String(v || '').trim())
+    .filter(Boolean);
+  const sourceToken = String(brief?.source || '').trim().split(/\s+/)[0];
+  if (sourceToken) ids.push(sourceToken);
+  if (!ids.length) return null;
+  return (conversationCaptures || []).find((c) => (
+    ids.includes(String(c.id || ''))
+    || ids.includes(String(c.captureId || ''))
+    || ids.includes(String(c.sourceStoryId || ''))
+  )) || null;
+}
+
+function enrichBriefsFromCaptures(briefs, conversationCaptures) {
+  return (briefs || []).map((b) => {
+    const src = captureByBriefId(conversationCaptures, b);
+    if (!src) return b;
+    return {
+      ...b,
+      captureId: b.captureId || src.id || src.captureId,
+      sourceStoryId: b.sourceStoryId || src.sourceStoryId,
+      knownLimitation: b.knownLimitation || src.knownLimitation,
+    };
+  });
+}
+
 function validateQuality(parsed) {
   const decision = String(parsed?.decision || '').toUpperCase();
   if (!['APPROVE', 'REVISE', 'REGENERATE'].includes(decision)) {
@@ -285,7 +320,7 @@ function validateDayWriter(parsed) {
 }
 
 async function writeDayPost({
-  source, brief, constraintsJson, dayAssets, generationSignalsJson, authorityFocusJson, qualityFeedback,
+  source, brief, constraintsJson, dayAssets, generationSignalsJson, authorityFocusJson, brandJson, qualityFeedback,
 }) {
   const assembled = assembleAgentPrompt('plan-day-writer.md', {
     DAY_JSON: json(brief),
@@ -293,6 +328,7 @@ async function writeDayPost({
     DAY_ASSETS: json(dayAssets),
     GENERATION_SIGNALS_JSON: generationSignalsJson,
     AUTHORITY_FOCUS_JSON: authorityFocusJson,
+    BRAND_JSON: brandJson || json({}),
     QUALITY_FEEDBACK_JSON: json(qualityFeedback || { status: 'first_draft' }),
   });
   return callAgent({
@@ -310,6 +346,7 @@ async function reviewDayPost({ source, brief, post }) {
     BRIEF_JSON: json({
       pillar: brief.pillar,
       lens: brief.lens,
+      pillarJob: brief.pillarJob,
       format: brief.format,
       angle: brief.angle,
       uniqueJob: brief.uniqueJob,
@@ -317,6 +354,11 @@ async function reviewDayPost({ source, brief, post }) {
       narrativeUnits: brief.narrativeUnits,
       audienceTension: brief.audienceTension,
       hookTerritory: brief.hookTerritory,
+      centralFact: brief.centralFact,
+      ownedTerritory: brief.ownedTerritory,
+      doNotRepeat: brief.doNotRepeat,
+      knownLimitation: brief.knownLimitation,
+      sourceStoryId: brief.sourceStoryId,
     }),
     POST_JSON: json(post),
   });
@@ -395,9 +437,12 @@ async function runMultiAgentPlan({
   });
   debugAgents.push(strategist.debugEntry);
   usages.push(strategist.usage);
-  const briefs = Array.isArray(strategist.parsed.briefs)
-    ? strategist.parsed.briefs
-    : (strategist.parsed.plannedDays || []);
+  const briefs = enrichBriefsFromCaptures(
+    Array.isArray(strategist.parsed.briefs)
+      ? strategist.parsed.briefs
+      : (strategist.parsed.plannedDays || []),
+    ctx.projects?.conversationCaptures,
+  );
   const plannedDays = assignToEmptyDates(briefs, emptyDates);
   strategist.parsed.briefs = briefs;
   strategist.parsed.plannedDays = plannedDays;
@@ -411,11 +456,7 @@ async function runMultiAgentPlan({
     avoid: strategist.parsed.constraints?.avoid || [],
   });
   const generationSignalsJson = json(generationSignalsOf(ctx.competitor));
-  const authorityFocusJson = json({
-    priority: ctx.authority.priority,
-    objective: optionalText(strategist.parsed.focus?.objective),
-    headline: optionalText(strategist.parsed.focus?.headline),
-  });
+  const brandJson = json(ctx.brandVoice || ctx.brand || {});
   const conversationCaptures = Array.isArray(ctx.projects?.conversationCaptures)
     ? ctx.projects.conversationCaptures : [];
   const lastThree = Array.isArray(ctx.projects?.lastThree) ? ctx.projects.lastThree : [];
@@ -444,13 +485,15 @@ async function runMultiAgentPlan({
   const gateOn = qualityAgentEnabled();
   const maxRewrites = qualityMaxRewrites();
   const writeOneDay = async (planned, index) => {
+      const pillar = lockedPillarOf(planned) || planned.pillar;
       const brief = {
         index,
         date: planned.date,
         dayOfMonth: planned.dayOfMonth,
         day: planned.day,
-        pillar: planned.pillar,
-        lens: planned.lens || planned.pillar,
+        pillar,
+        lens: pillar,
+        pillarJob: PILLAR_JOB[pillar] || '',
         source: planned.source || '',
         captureId: planned.captureId || '',
         sourceStoryId: planned.sourceStoryId || '',
@@ -481,7 +524,15 @@ async function runMultiAgentPlan({
         constraintsJson,
         dayAssets,
         generationSignalsJson,
-        authorityFocusJson,
+        authorityFocusJson: json({
+          lockedLens: pillar,
+          lockedPillar: pillar,
+          pillarJob: PILLAR_JOB[pillar] || '',
+          accountPriority: ctx.authority.priority,
+          objective: optionalText(strategist.parsed.focus?.objective),
+          headline: optionalText(strategist.parsed.focus?.headline),
+        }),
+        brandJson,
       };
       const debugEntries = [];
       const runUsages = [];

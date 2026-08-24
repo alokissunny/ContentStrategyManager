@@ -67,20 +67,38 @@ function findLayout(id, store) {
   return [...added, ...ALL_LIB].find((l) => l.id === id) || null;
 }
 function slideNeedsSubtitle(slide) {
-  return Boolean(String(slide?.subtitle || slide?.body || '').trim());
+  return Boolean(
+    String(slide?.subtitle || slide?.body || '').trim()
+    || (Array.isArray(slide?.items) && slide.items.some(Boolean))
+    || slide?.comparisonA
+    || slide?.stat
+    || slide?.quote,
+  );
+}
+
+function layoutMatchesStructure(layout, slide) {
+  const art = layout?.art || {};
+  if (Array.isArray(slide?.items) && slide.items.some(Boolean) && Array.isArray(art.items)) return true;
+  if (slide?.comparisonA && ('a' in art || Array.isArray(art.labels))) return true;
+  if (slide?.stat && ('big' in art)) return true;
+  if (slide?.quote && layout?.kind && /quote/.test(layout.kind)) return true;
+  return false;
 }
 
 function fallbackLayout(store, role, slide) {
   const off = store?.layoutsOff || {};
   const gone = store?.layoutsGone || {};
   const list = layoutsForSlide(role, store);
+  const usable = (l) => l && !off[l.id] && !gone[l.id];
+  const fromList = list.find((l) => usable(l) && layoutMatchesStructure(l, slide))
+    || ALL_LIB.find((l) => usable(l) && layoutMatchesStructure(l, slide));
+  if (fromList) return fromList;
   const needSub = slideNeedsSubtitle(slide);
   const cat = catForRole(role);
   const defId = DEFAULT_LAYOUT_BY_CAT[cat];
   if (defId) {
     const preferred = findLayout(defId, store);
-    if (preferred && !off[preferred.id] && !gone[preferred.id]
-      && (!needSub || layoutShowsAllCopy(preferred))) {
+    if (usable(preferred) && (!needSub || layoutShowsAllCopy(preferred) || layoutMatchesStructure(preferred, slide))) {
       return preferred;
     }
   }
@@ -93,7 +111,10 @@ function fallbackLayout(store, role, slide) {
 
 function layoutForSlide(slide, store, role) {
   const stored = findLayout(slide?.layout, store);
-  if (stored && (!slideNeedsSubtitle(slide) || layoutShowsAllCopy(stored))) return stored;
+  if (stored) {
+    if (layoutMatchesStructure(stored, slide)) return stored;
+    if (!slideNeedsSubtitle(slide) || layoutShowsAllCopy(stored)) return stored;
+  }
   return fallbackLayout(store, role, slide);
 }
 
@@ -691,22 +712,39 @@ function relevanceScore(slideWords, image) {
   return hits;
 }
 
+function slideRecord(s, extra = {}) {
+  return {
+    role: s.role || '',
+    structure: s.structure || '',
+    title: s.title || '',
+    subtitle: s.subtitle || s.body || '',
+    body: s.body || '',
+    items: Array.isArray(s.items) ? s.items.map((x) => x || '') : [],
+    itemsA: Array.isArray(s.itemsA) ? s.itemsA.map((x) => x || '') : [],
+    itemsB: Array.isArray(s.itemsB) ? s.itemsB.map((x) => x || '') : [],
+    stat: s.stat || '',
+    quote: s.quote || '',
+    action: s.action || '',
+    comparisonA: s.comparisonA || '',
+    comparisonB: s.comparisonB || '',
+    labels: Array.isArray(s.labels) ? s.labels.map((x) => x || '') : [],
+    image: s.image || '',
+    imagePrompt: s.imagePrompt || '',
+    assetKey: s.assetKey || '',
+    assetKeys: Array.isArray(s.assetKeys) ? s.assetKeys.map((k) => k || '') : [],
+    layout: s.layout || '',
+    ...extra,
+  };
+}
+
 function deriveSlides(day) {
   const roles = SLIDE_ROLES[day.format] || SLIDE_ROLES.Post;
   const existing = day.content?.slides;
   if (Array.isArray(existing) && existing.length) {
     return existing.map((s, i) => ({
+      ...slideRecord(s),
       role: s.role || roles[Math.min(i, roles.length - 1)],
-      title: s.title || '',
-      // the supporting line, written while the plan is built (see the strategy
-      // generator). Fills the layout's body slot instead of specimen copy.
       subtitle: s.subtitle || s.body || '',
-      // The context-rich base image prompt written while the plan was built.
-      // The brand palette/type and Visual Mood are layered on at generation.
-      imagePrompt: s.imagePrompt || '',
-      assetKey: s.assetKey || '',
-      assetKeys: Array.isArray(s.assetKeys) ? s.assetKeys.map((k) => k || '') : [],
-      layout: s.layout || '',
     }));
   }
   const texts = (day.content?.onScreenText || []).filter(Boolean);
@@ -846,14 +884,11 @@ function slidesPayload(slides, baseline = []) {
       : prevKeys.map((k) => durableMediaKey(k));
     const assetKey = durableMediaKey(s.assetKey, prev.assetKey) || assetKeys.find(Boolean) || '';
     return {
+      ...slideRecord(s, { assetKey, assetKeys }),
       role: s.role || '',
       title: s.title || '',
-      // Carry the plan-written copy and base image prompt through an edit so a
-      // layout/title/image change never wipes them (the server keeps both too).
       subtitle: s.subtitle || '',
       imagePrompt: s.imagePrompt || '',
-      assetKey,
-      assetKeys,
       layout: s.layout || '',
     };
   });
@@ -915,17 +950,18 @@ function splitStatement(text) {
 
 function fillLayout(layout, slide, contentType, draft) {
   if (!layout) return layout;
-  const title = (draft?.head != null ? plainOf(draft.head) : (slide?.title || '')).trim();
+  const title = (draft?.head != null ? plainOf(draft.head) : (slide?.title || slide?.quote || slide?.action || '')).trim();
   const sub = (draft?.body != null ? plainOf(draft.body) : (slide?.subtitle || slide?.body || '')).trim();
   const src = layout.art || {};
   const has = (k) => k in src;
   const art = {};
 
-  // the headline lands in a real text slot, never in a number/label/list slot
   let accentText = '';
-  if (has('head')) {
+  if (has('a') && (slide?.comparisonA || slide?.comparisonB)) {
+    art.a = String(slide.comparisonA || title).trim();
+    if (has('b')) art.b = String(slide.comparisonB || slide?.subtitle || '').trim();
+  } else if (has('head')) {
     if (has('accent') && title) {
-      // two-tone statement — keep the accent-ink tail the layout is built around
       const split = splitStatement(title);
       art.head = split.head;
       accentText = split.accent;
@@ -934,28 +970,33 @@ function fillLayout(layout, slide, contentType, draft) {
     }
     if (has('body')) art.body = sub;
   } else if (has('body')) {
-    art.body = title; // stat / airy / caption — the prose slot carries the line
+    art.body = title;
   } else if (has('a')) {
     art.a = title;
   } else {
     art.head = title;
   }
 
-  // The eyebrow is a line the studio writes — never the production contentType
-  // ("Text-led interview insights carousel"), which is a label for the plan,
-  // not copy for the slide.
   if (has('eyebrow')) art.eyebrow = '';
-  if (has('bodyB')) art.bodyB = '';
+  if (has('bodyB')) art.bodyB = slide?.body && slide.body !== sub ? slide.body : '';
 
-  // the accent carries the statement's tail (drawn in the accent ink), or stays
-  // blank when the line was too short to split — never the layout's specimen word
   if (has('accent')) art.accent = accentText;
-  if (has('big')) art.big = '';
-  if (has('b')) art.b = '';
-  if (has('items')) art.items = [];
-  if (has('itemsA')) art.itemsA = [];
-  if (has('itemsB')) art.itemsB = [];
-  if (has('labels')) art.labels = [];
+  if (has('big')) {
+    const n = String(slide?.stat || '').trim();
+    art.big = n || (!has('head') ? title : '');
+    if (has('body') && n) art.body = sub;
+  }
+  if (has('b') && !art.b) art.b = String(slide?.comparisonB || '').trim();
+  if (has('items')) {
+    art.items = Array.isArray(slide?.items) && slide.items.length ? slide.items.filter(Boolean) : [];
+  }
+  if (has('itemsA')) art.itemsA = Array.isArray(slide?.itemsA) ? slide.itemsA.filter(Boolean) : [];
+  if (has('itemsB')) art.itemsB = Array.isArray(slide?.itemsB) ? slide.itemsB.filter(Boolean) : [];
+  if (has('labels')) {
+    art.labels = Array.isArray(slide?.labels) && slide.labels.length
+      ? slide.labels.filter(Boolean)
+      : (Array.isArray(src.labels) ? src.labels : []);
+  }
 
   // Edit text draft overlays every role the layout actually has, so typing
   // updates the composition above before Apply writes it (bauhly-v3 §820).
@@ -1820,15 +1861,7 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
       const d = { ...daysCopy[dayIndex] };
       const content = {
         ...(d.content || {}),
-        slides: next.map((s) => ({
-          role: s.role || '',
-          title: s.title || '',
-          subtitle: s.subtitle || '',
-          imagePrompt: s.imagePrompt || '',
-          assetKey: s.assetKey || '',
-          assetKeys: Array.isArray(s.assetKeys) ? s.assetKeys.map((k) => k || '') : [],
-          layout: s.layout || '',
-        })),
+        slides: next.map((s) => slideRecord(s)),
         onScreenText: next.map((s) => s.title),
       };
       daysCopy[dayIndex] = { ...d, content };
@@ -2306,15 +2339,7 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
     ));
     const content = {
       ...(d.content || {}),
-      slides: next.map((s) => ({
-        role: s.role || '',
-        title: s.title || '',
-        subtitle: s.subtitle || '',
-        imagePrompt: s.imagePrompt || '',
-        assetKey: s.assetKey || '',
-        assetKeys: Array.isArray(s.assetKeys) ? s.assetKeys.map((k) => k || '') : [],
-        layout: s.layout || '',
-      })),
+      slides: next.map((s) => slideRecord(s)),
       onScreenText: next.map((s) => s.title),
     };
     daysCopy[dayIndex] = { ...d, content };

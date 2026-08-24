@@ -850,10 +850,23 @@ async function markDayPublished(req, res) {
       const prevSlides = Array.isArray(cur.slides) ? cur.slides : [];
       cur.slides = incoming.slides.map((s, i) => {
         const prev = prevSlides[i] || {};
+        const list = (v, fallback) => (Array.isArray(v) ? v.map((x) => String(x || '')) : fallback);
         return {
           role: String(s.role || ''),
           title: String(s.title || ''),
           subtitle: String(s.subtitle ?? prev.subtitle ?? ''),
+          body: String(s.body ?? prev.body ?? ''),
+          structure: String(s.structure ?? prev.structure ?? ''),
+          items: list(s.items, Array.isArray(prev.items) ? prev.items : []),
+          itemsA: list(s.itemsA, Array.isArray(prev.itemsA) ? prev.itemsA : []),
+          itemsB: list(s.itemsB, Array.isArray(prev.itemsB) ? prev.itemsB : []),
+          stat: String(s.stat ?? prev.stat ?? ''),
+          quote: String(s.quote ?? prev.quote ?? ''),
+          action: String(s.action ?? prev.action ?? ''),
+          comparisonA: String(s.comparisonA ?? prev.comparisonA ?? ''),
+          comparisonB: String(s.comparisonB ?? prev.comparisonB ?? ''),
+          labels: list(s.labels, Array.isArray(prev.labels) ? prev.labels : []),
+          image: String(s.image ?? prev.image ?? ''),
           imagePrompt: String(s.imagePrompt ?? prev.imagePrompt ?? ''),
           assetKey: String(s.assetKey || ''),
           assetKeys: Array.isArray(s.assetKeys)

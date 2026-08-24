@@ -166,7 +166,7 @@ function signalsOf(u) {
   return u.distinctSignals
     .map((s) => ({
       type: clip(s?.type, 24),
-      summary: clip(s?.summary, 220),
+      summary: clip(s?.summary, 320),
     }))
     .filter((s) => s.type || s.summary)
     .slice(0, 16);
@@ -192,17 +192,18 @@ function relationshipsOf(u) {
 
 function conversationCaptureOf(n) {
   const u = asUnderstanding(n.understanding);
+  const mongoId = clip(n.id, 48);
   return {
-    id: n.id || '',
-    captureId: clip(u.captureId || n.id, 48),
+    id: mongoId,
+    captureId: mongoId,
     project: n.project,
-    originalCapture: clip(u.originalCapture || n.text, 1200),
-    whatHappened: clip(u.happened || u.whatHappened, 500),
-    intent: clip(u.intent, 320),
-    tension: clip(u.difficulty || u.tension, 320),
-    action: clip(u.actionTaken || u.action, 320),
-    outcome: clip(u.outcome, 320),
-    captureSummary: clip(u.summary || u.captureSummary, 500),
+    originalCapture: clip(u.originalCapture || n.text, 8000),
+    whatHappened: clip(u.happened || u.whatHappened, 800),
+    intent: clip(u.intent, 400),
+    tension: clip(u.difficulty || u.tension, 400),
+    action: clip(u.actionTaken || u.action, 400),
+    outcome: clip(u.outcome, 400),
+    captureSummary: clip(u.summary || u.captureSummary, 800),
     distinctSignals: signalsOf(u),
     sourceStoryId: clip(u.sourceStoryId, 64),
     segmentId: clip(u.segmentId, 64),
@@ -211,14 +212,17 @@ function conversationCaptureOf(n) {
       : [],
     relationships: relationshipsOf(u),
     verifiedFacts: Array.isArray(u.verifiedFacts)
-      ? u.verifiedFacts.map((f) => clip(f, 220)).filter(Boolean).slice(0, 16)
+      ? u.verifiedFacts.map((f) => clip(f, 400)).filter(Boolean).slice(0, 24)
       : [],
     openQuestions: Array.isArray(u.openQuestions)
-      ? u.openQuestions.map((q) => clip(q, 180)).filter(Boolean).slice(0, 8)
+      ? u.openQuestions.map((q) => clip(q, 220)).filter(Boolean).slice(0, 8)
       : [],
-    unresolvedGap: clip(u.missingPiece || u.unresolvedGap, 240),
-    knownLimitation: clip(u.knownLimitation, 240),
+    unresolvedGap: clip(u.missingPiece || u.unresolvedGap, 320),
+    knownLimitation: clip(u.knownLimitation, 320),
     visualAssetChoice: clip(u.visualAssetChoice, 24),
+    relevantAssetContext: Array.isArray(u.relevantAssetContext)
+      ? u.relevantAssetContext.map((s) => clip(s, 220)).filter(Boolean).slice(0, 8)
+      : [],
     status: clip(u.captureStatus || u.status, 24),
     shown: n.shown || [],
   };
@@ -264,12 +268,16 @@ function compileProjectTruth(projects) {
   const conversationCaptures = (session.length ? session : recent.slice(0, 3))
     .map(conversationCaptureOf)
     .filter((c) => c.originalCapture || c.whatHappened || c.captureSummary);
-  const lastThree = recent.slice(0, 3).map((c, i) => ({
-    project: c.project,
-    text: c.text,
-    shown: c.shown,
-    planFromThis: i === 0,
-  }));
+  // lastThree is a fallback only. Sending it alongside conversationCaptures
+  // lets older notes compete with Capture Truth.
+  const lastThree = conversationCaptures.length
+    ? []
+    : recent.slice(0, 3).map((c, i) => ({
+      project: c.project,
+      text: c.text,
+      shown: c.shown,
+      planFromThis: i === 0,
+    }));
   return {
     conversationCaptures,
     latestCapture: conversationCaptures[0] || lastThree[0] || null,
@@ -346,22 +354,50 @@ function scoreAsset(queryWords, a) {
  * After a brief is assigned a date, retrieve a small set of matching photos —
  * not the whole library.
  */
+function captureAssetKeys(projects, captureId) {
+  const id = String(captureId || '').trim();
+  if (!id) return new Set();
+  const keys = new Set();
+  for (const p of projects || []) {
+    for (const n of p.notes || []) {
+      const match = n.id === id || String(n.understanding?.captureId || '') === id;
+      if (!match) continue;
+      (n.assets || []).forEach((a) => { if (a?.key) keys.add(a.key); });
+    }
+  }
+  return keys;
+}
+
 function assetsForDay(projects, dayBrief) {
   const preferred = String(dayBrief?.suggestedAssetKey || '').trim();
+  const fromCapture = captureAssetKeys(projects, dayBrief?.captureId);
   const query = wordsOf([dayBrief?.source, dayBrief?.angle, dayBrief?.title, dayBrief?.direction].filter(Boolean).join(' '));
   const rows = [];
+  const seen = new Set();
+  const push = (a, projectName) => {
+    if (!a?.key || seen.has(a.key)) return;
+    seen.add(a.key);
+    const captureHit = fromCapture.has(a.key);
+    rows.push({
+      key: a.key,
+      project: projectName,
+      summary: assetOneLiner(a),
+      subjects: (a.vision?.subjects || []).slice(0, 4),
+      preferred: Boolean((preferred && a.key === preferred) || captureHit),
+      score: scoreAsset(query, a)
+        + (preferred && a.key === preferred ? 10 : 0)
+        + (captureHit ? 8 : 0),
+    });
+  };
   for (const p of projects || []) {
-    for (const a of p.assets || []) {
-      if (!a?.key) continue;
-      rows.push({
-        key: a.key,
-        project: p.name,
-        summary: assetOneLiner(a),
-        subjects: (a.vision?.subjects || []).slice(0, 4),
-        preferred: preferred && a.key === preferred,
-        score: scoreAsset(query, a) + (preferred && a.key === preferred ? 10 : 0),
-      });
+    for (const n of p.notes || []) {
+      const match = dayBrief?.captureId
+        && (n.id === dayBrief.captureId || String(n.understanding?.captureId || '') === dayBrief.captureId);
+      if (match) (n.assets || []).forEach((a) => push(a, p.name));
     }
+  }
+  for (const p of projects || []) {
+    for (const a of p.assets || []) push(a, p.name);
   }
   rows.sort((a, b) => b.score - a.score || Number(b.preferred) - Number(a.preferred));
   return rows.slice(0, 6).map(({ key, project, summary, subjects, preferred }) => ({

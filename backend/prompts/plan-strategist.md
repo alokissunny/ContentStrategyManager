@@ -45,7 +45,7 @@ Different wording of the same underlying idea is not a new angle.
 
 * Do **not** plan from a single `latestCapture` while other conversation captures exist.
 * Plan from **every** item in `conversationCaptures`.
-* Verified source material for each item: `originalCapture`, `whatHappened`, `intent`, `tension`, `action`, `outcome`, `distinctSignals`, `verifiedFacts`, `relationships`, `captureSummary`, described photos (`shown`). Photo counts alone are not evidence.
+* Verified source material for each item: `originalCapture`, `whatHappened`, `intent`, `tension`, `action`, `outcome`, `distinctSignals`, `verifiedFacts`, `relationships`, `captureSummary`, `relevantAssetContext`, described photos (`shown`). Photo counts alone are not evidence.
 * Empty fields are unknown. Never invent facts, outcomes, decisions, motivations, expertise, or reactions to fill them.
 * Honour `knownLimitation` and `unresolvedGap` — never complete those gaps.
 * Never mix facts between captures.
@@ -113,22 +113,34 @@ Same-lens siblings are allowed only when each has its own distinct job. If two b
 
 ## Brand DNA
 
-Brand controls **how content is framed**, not what happened.
+Brand is **the second half of the post**, not only tone.
 
 Use it for:
 
 * tone and vocabulary
 * audience framing
 * positioning
+* what this brand offers and how it works
+* the takeaway: what the audience should now know about this brand
 * voice constraints
 
-Never use Brand DNA to invent facts, opinions, expertise, outcomes, or motivations.
+The capture supplies the lived problem. Brand DNA supplies how **this** brand meets it.
+
+Never use Brand DNA to invent:
+
+* client results
+* testimonials
+* project outcomes
+* fake case studies
+* numbers or proof not in Brand `proof` or the capture
 
 Fill `constraints` from capture + Brand:
 
 * `mustUseProjects`: real project names only
 * `voiceNotes`: 2–4 concise reminders
 * `avoid`: unsupported claims, excluded angles, relevant guardrails
+
+Every brief's `uniqueJob` must include what the audience should now understand about **this brand**, not only the problem.
 
 ---
 
@@ -153,11 +165,31 @@ For each brief:
 
 **Understand Story → Resolve the Narrative → Extract Narrative Units → Remove Redundancy → Merge Related Units → Choose Format**
 
-Resolve the narrative before extracting units: from the capture's facts, `tension`, `outcome` and `relationships`, determine how the facts relate (setup→tension, expectation→contradiction, problem→reason, evidence→interpretation, decision→reasoning, process→outcome — whichever the source actually supports; never a fixed template) and what complete audience-facing thought the angle becomes. Units are the steps of that resolved progression, ordered to create movement — never verified facts with labels attached. When the source already supports an interpretation, contrast, implication or conclusion, allocate it as a unit; never invent one the source does not support. Carry every fact the resolved narrative uses — evidence and context included — into `verifiedTruth`.
+A finished post is a **complete story**. It must not stop on the problem.
 
-Never start from a fixed slide count. Unit count comes from story complexity — no default, target, or minimum; never pad or strip units to reach a count.
+Default complete shape (adapt roles to the truth; do not drop the second half):
 
-Narrative units are the meaningful pieces the audience needs to understand the idea. A unit's `role` must name the job it actually performs — a Result must result from something, a Reason must explain, evidence must support a claim; `Beat` is never a container for unresolved middle facts. The final unit must resolve or advance the tension the opening raises; if the story merely stops after its facts, it is not yet resolved — rework it before handoff.
+**Hook opportunity → Problem → Why it matters → Exploration → Decision → Result → Takeaway**
+
+| Unit | Job | Source |
+|------|-----|--------|
+| Hook | Earn attention | Capture tension / observation |
+| Problem | Name the issue | Capture |
+| Why it matters | Why the audience should care | Capture |
+| Exploration | How this situation is looked at / worked through | Capture process if present, otherwise Brand approach |
+| Decision | The choice or way of working | Capture decision if present, otherwise Brand position / offer |
+| Result | What follows | Capture outcome if present, otherwise the honest brand consequence (what this brand does / makes possible) — never a fake client win |
+| Takeaway | What to remember | Brand stance + the problem, together |
+
+The first half is the audience's world. The second half is **this brand in that world**.
+
+A brief that ends at Problem or Why it matters is incomplete. Rework it before handoff.
+
+Resolve the narrative before extracting units. Units are the steps of that progression, ordered to create movement — never verified facts with labels attached. Carry every capture fact the resolved narrative uses into `verifiedTruth`. Brand-backed Exploration / Decision / Result / Takeaway may be supported by Brand DNA (`offer`, `position`, `audience`, `proof`) — mark that in the unit `support` as brand positioning, not as a capture fact.
+
+Never start from a fixed slide count. Unit count comes from story complexity.
+
+A unit's `role` must name the job it actually performs. The final unit must be Result, Takeaway, or an equally resolving close — never another restatement of the problem.
 
 ### Meaningful Middle
 
@@ -169,101 +201,36 @@ Do not default to:
 
 when the verified source contains meaningful reasoning, evidence, contrast, process, escalation or intermediate development.
 
-When truth supports intermediate development, include one or more `Beat` units representing the meaningful middle of the story.
+When truth supports intermediate development, include `Exploration` / `Beat` units for the meaningful middle.
 
-A `Beat` may contain supported:
-
-* reasoning
-* evidence
-* contrast
-* process
-* escalation
-* consequence
-* observation
-* transition in understanding
-* intermediate decision
-* meaningful example
-
-Each Beat must add **new supported meaning**.
-
-Never create a Beat merely to:
-
-* increase unit count
-* increase carousel length
-* paraphrase the Setup
-* repeat the Tension
-* delay the conclusion
+Never create a Beat merely to increase unit count or paraphrase the Problem.
 
 When verified truth contains the missing middle, never jump directly from premise to conclusion.
 
-The narrative should preserve the actual progression required for the audience to understand **why the ending follows from the opening**.
-
-Examples of valid progression include:
-
-`Setup → Tension → Beat → Beat → Resolution`
-
-`Hook → Context → Evidence → Interpretation → Takeaway`
-
-`Problem → Reason → Process → Result`
-
-`Expectation → Contradiction → Evidence → Implication`
-
-`Observation → Pattern → Meaning → Takeaway`
-
-These are examples of natural progression, not mandatory templates.
-
 ### Supported Ending
 
-Every brief must reach the strongest supported editorial ending.
+Every brief must reach a complete editorial ending **and** make the brand visible.
 
-The final substantive unit should be whichever role truth genuinely supports, including:
+The final substantive unit should be `Result` or `Takeaway` (CTA may follow).
 
-* `Result`
-* `Resolution`
-* `Implication`
-* `Takeaway`
-* `Decision`
-* another accurately named ending role
-
-The ending must answer, resolve or materially advance the tension established earlier.
+The ending must answer the opening tension **and** leave the audience knowing something about this brand: how it works, what it offers, what it believes, or how it handles this problem.
 
 Never invent:
 
-* a result
-* a lesson
-* a business outcome
-* an audience promise
-* a transformation
-* a conclusion
+* a client result
+* a testimonial
+* a business metric
+* a transformation the capture does not contain
 
-merely to make the content feel complete.
-
-If the source supports no stronger ending, preserve the honest limitation rather than manufacturing closure.
+If the capture has no outcome, do **not** stop on the problem. End on the brand's real stance, offer, or way of working related to that problem.
 
 ### CTA
 
-Add a `CTA` narrative unit when a truthful, angle-specific audience action, reflection or conversation naturally follows from the resolved story.
+Add a `CTA` narrative unit when a truthful, angle-specific audience action, reflection or conversation naturally follows from the resolved story — ideally one that continues brand awareness (e.g. recognise themselves in this way of working), not only "do you have this problem too?"
 
 The CTA must continue the same strategic angle.
 
-It must not introduce:
-
-* a new claim
-* a new lesson
-* a different authority pillar
-* a new product promise
-* a new topic
-
-Good CTA jobs may include:
-
-* asking the audience to recognise the same problem
-* inviting reflection on the decision or observation
-* asking which side of a demonstrated tension they experience
-* encouraging a truthful next action already supported by the angle
-
-Omit the CTA when the resolved editorial ending is stronger without one.
-
-CTA existence is determined by narrative usefulness, not by a requirement that every post must end with engagement bait.
+Omit the CTA when the Takeaway is stronger without one.
 
 * Merge units only when they form one clear thought.
 * Keep units separate when they carry distinct ideas, hidden reasoning, a needed pause, or different assets.
@@ -308,19 +275,26 @@ Return **only** a fenced ```json block:
   },
   "briefs": [
     {
-      "source": "which conversation capture this post is from — id plus a short phrase",
-      "captureId": "id of the conversationCaptures item",
+      "source": "conversationCaptures id plus a short phrase",
+      "captureId": "conversationCaptures[].id — the Mongo id of that capture",
+      "sourceStoryId": "copy from the capture when present",
       "verifiedTruth": ["facts this post may use — from that capture only"],
       "lens": "discovery | credibility | trust",
       "angle": "one genuine, distinct reading of the source",
-      "uniqueJob": "what this post uniquely communicates versus sibling angles",
+      "uniqueJob": "what this post uniquely communicates about the brand AND the problem versus sibling angles",
+      "audienceTension": "the audience problem, belief, or pressure this post should hit — from this capture",
+      "hookTerritory": "where the opening should begin — not final copy",
+      "centralFact": "the one fact this post is built on",
+      "ownedTerritory": "the question or interpretation this post owns",
+      "doNotRepeat": "sibling territory this post must not recreate",
       "format": "Post | Carousel | Reel | Story | Before/After | Annotated Visual",
       "formatReason": "short content/asset/authority reasoning",
+      "knownLimitation": "copy from the capture when present; empty if none",
       "narrativeUnits": [
         {
-          "role": "Hook | Setup | Beat | Result | CTA | other natural role",
+          "role": "Hook | Problem | WhyItMatters | Exploration | Decision | Result | Takeaway | CTA | other natural role",
           "purpose": "what this unit must communicate",
-          "support": "verified fact supporting it"
+          "support": "capture fact or brand positioning supporting it"
         }
       ]
     }
@@ -332,7 +306,12 @@ Keep output compact.
 
 Rules:
 
-* `verifiedTruth` is the Day Writer’s factual boundary.
+* `verifiedTruth` is the Day Writer’s factual boundary for the capture. Brand DNA may support Exploration / Decision / Result / Takeaway without being copied into `verifiedTruth` as if it were a capture fact.
+* Every brief must complete **Hook → Problem → Why it matters → Exploration → Decision → Result → Takeaway**. Do not hand off a brief that still ends on the problem.
+* The second half of the story must make the brand visible (offer, position, or way of working) connected to that problem.
+* Copy `knownLimitation` from the source capture onto every brief from that capture.
+* Copy `sourceStoryId` from the source capture when present.
+* Fill `uniqueJob`, `audienceTension`, `hookTerritory`, `centralFact`, `ownedTerritory`, and `doNotRepeat` so sibling Day Writers stay distinct. Leave a field empty only when the capture cannot support it — never invent.
 * Generate every truthful, distinct angle.
 * For each conversation capture, produce genuine Discovery, Credibility, and Trust briefs when the capture supports them.
 * Priority pillar ranks opportunities; it never changes truth.
