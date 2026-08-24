@@ -167,17 +167,55 @@ function extractAnthropicToolInput(response, toolName) {
 }
 
 /**
- * Provider-agnostic text completion for plan generation.
- * Returns { text, model, stopReason, usage: { input_tokens, output_tokens } }.
- * stopReason is 'max_tokens' when the output was truncated.
+ * Split a prompt template at the first {{TOKEN}} so the static prefix can be
+ * sent as `system` and cached across calls. Dynamic JSON stays in `user`.
  */
-async function completeText({ model, prompt, maxTokens }) {
+function splitPromptTemplate(template) {
+  const src = String(template || '');
+  const match = src.match(/\{\{[A-Z][A-Z0-9_]*\}\}/);
+  if (!match) return { system: '', userTemplate: src };
+  return {
+    system: src.slice(0, match.index).trim(),
+    userTemplate: src.slice(match.index).trim(),
+  };
+}
+
+function promptCacheEnabled() {
+  const v = String(process.env.PLAN_PROMPT_CACHE ?? '1').trim().toLowerCase();
+  return !(v === '0' || v === 'false' || v === 'off' || v === 'no');
+}
+
+function cachedTokensOf(usage) {
+  if (!usage || typeof usage !== 'object') return 0;
+  const details = usage.prompt_tokens_details || usage.input_tokens_details || {};
+  return Number(
+    details.cached_tokens
+    || usage.cache_read_input_tokens
+    || usage.cached_tokens
+    || 0,
+  ) || 0;
+}
+
+/**
+ * Provider-agnostic text completion for plan generation.
+ * Pass `system` (stable instructions) + `user` (per-call data) so OpenAI/Anthropic
+ * can cache the prefix. `prompt` remains a fallback for a single user blob.
+ * Returns { text, model, stopReason, usage: { input_tokens, output_tokens, cached_tokens } }.
+ */
+async function completeText({ model, prompt, system, user, maxTokens, cacheKey }) {
   const resolved = model || planTextModel();
+  const userContent = (user != null && String(user).length) ? String(user) : String(prompt || '');
+  const sys = String(system || '').trim();
+
   if (isOpenAIModel(resolved)) {
+    const messages = [];
+    if (sys) messages.push({ role: 'system', content: sys });
+    messages.push({ role: 'user', content: userContent });
     const response = await getOpenAIClient().chat.completions.create({
       model: resolved,
-      messages: [{ role: 'user', content: prompt }],
+      messages,
       ...tokenArgFor(resolved, maxTokens),
+      ...(promptCacheEnabled() && cacheKey ? { prompt_cache_key: cacheKey } : {}),
     });
     const choice = response.choices?.[0] || {};
     const usage = response.usage || {};
@@ -188,15 +226,20 @@ async function completeText({ model, prompt, maxTokens }) {
       usage: {
         input_tokens: Number(usage.prompt_tokens || usage.input_tokens) || 0,
         output_tokens: Number(usage.completion_tokens || usage.output_tokens) || 0,
+        cached_tokens: cachedTokensOf(usage),
       },
     };
   }
 
-  const response = await getAnthropicClient().messages.create({
+  const createArgs = {
     model: resolved,
     max_tokens: maxTokens,
-    messages: [{ role: 'user', content: prompt }],
-  });
+    messages: [{ role: 'user', content: userContent }],
+  };
+  if (sys) {
+    createArgs.system = [{ type: 'text', text: sys, cache_control: { type: 'ephemeral' } }];
+  }
+  const response = await getAnthropicClient().messages.create(createArgs);
   return {
     text: textOfAnthropic(response),
     model: resolved,
@@ -204,6 +247,7 @@ async function completeText({ model, prompt, maxTokens }) {
     usage: {
       input_tokens: Number(response.usage?.input_tokens) || 0,
       output_tokens: Number(response.usage?.output_tokens) || 0,
+      cached_tokens: cachedTokensOf(response.usage),
     },
   };
 }
@@ -274,6 +318,7 @@ module.exports = {
   conversationModel,
   hasConversationModel,
   planTextModel,
+  splitPromptTemplate,
   isOpenAIModel,
   usesCompletionTokens,
   openaiToolOf,

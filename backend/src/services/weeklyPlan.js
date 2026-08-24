@@ -2,7 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const { computeAuthorityFunnel } = require('./authorityFunnel');
 const { recentCapturesOf } = require('./planContext');
-const { completeText, planTextModel } = require('./llmComplete');
+const { completeText, planTextModel, splitPromptTemplate } = require('./llmComplete');
 
 const PROMPT_PATH = path.join(__dirname, '..', '..', 'prompts', 'weekly-plan-prompt.md');
 let promptTemplate;
@@ -32,17 +32,25 @@ function ratesForModel(model = '') {
   const isOpenAI = /gpt|terra|o1|o3|o4/.test(m);
   const envIn = Number(isOpenAI ? process.env.OPENAI_INPUT_USD_PER_MTOK : process.env.ANTHROPIC_INPUT_USD_PER_MTOK);
   const envOut = Number(isOpenAI ? process.env.OPENAI_OUTPUT_USD_PER_MTOK : process.env.ANTHROPIC_OUTPUT_USD_PER_MTOK);
-  if (Number.isFinite(envIn) && Number.isFinite(envOut)) return { in: envIn, out: envOut };
-  if (isOpenAI) return { in: 1.25, out: 10 };
-  if (m.includes('opus')) return { in: 15, out: 75 };
-  if (m.includes('haiku')) return { in: 0.8, out: 4 };
-  return { in: 3, out: 15 }; // sonnet family default
+  const envCached = Number(isOpenAI
+    ? process.env.OPENAI_CACHED_INPUT_USD_PER_MTOK
+    : process.env.ANTHROPIC_CACHED_INPUT_USD_PER_MTOK);
+  if (Number.isFinite(envIn) && Number.isFinite(envOut)) {
+    const cached = Number.isFinite(envCached) ? envCached : envIn * 0.1;
+    return { in: envIn, out: envOut, cached };
+  }
+  if (isOpenAI) return { in: 1.25, out: 10, cached: 0.125 };
+  if (m.includes('opus')) return { in: 15, out: 75, cached: 1.5 };
+  if (m.includes('haiku')) return { in: 0.8, out: 4, cached: 0.08 };
+  return { in: 3, out: 15, cached: 0.3 }; // sonnet family default
 }
 
-function estimatePlanCostUsd(model, inputTokens, outputTokens) {
-  const { in: inRate, out: outRate } = ratesForModel(model);
-  const usd = (inputTokens / 1e6) * inRate + (outputTokens / 1e6) * outRate;
-  return Math.round(usd * 1e6) / 1e6; // micro-dollar precision
+function estimatePlanCostUsd(model, inputTokens, outputTokens, cachedTokens = 0) {
+  const { in: inRate, out: outRate, cached: cachedRate } = ratesForModel(model);
+  const cached = Math.min(Math.max(Number(cachedTokens) || 0, 0), inputTokens);
+  const uncached = Math.max((Number(inputTokens) || 0) - cached, 0);
+  const usd = (uncached / 1e6) * inRate + (cached / 1e6) * cachedRate + ((Number(outputTokens) || 0) / 1e6) * outRate;
+  return Math.round(usd * 1e6) / 1e6;
 }
 
 // Content-pillar priority: Discovery > Credibility > Trust. When two pillars are
@@ -782,6 +790,8 @@ async function generateSingleAgentPlan({
   competitorInsights,
   projects,
   prompt,
+  system,
+  user,
 }) {
   const planMaxTokens = () => {
     const n = Number(process.env.WEEKLY_PLAN_MAX_TOKENS);
@@ -792,8 +802,15 @@ async function generateSingleAgentPlan({
     return Number.isFinite(n) && n > 0 ? n : 64000;
   };
 
+  const callOpts = {
+    model,
+    system: system || '',
+    user: user || prompt,
+    prompt: user || prompt,
+    cacheKey: 'igsignal-plan-weekly',
+  };
   let maxTokens = planMaxTokens();
-  let result = await completeText({ model, prompt, maxTokens });
+  let result = await completeText({ ...callOpts, maxTokens });
   let fullText = result.text || '';
 
   if (result.stopReason === 'max_tokens') {
@@ -803,18 +820,20 @@ async function generateSingleAgentPlan({
         `[weeklyPlan] @${snapshot.username} hit max_tokens=${maxTokens} (${fullText.length} chars) — retrying with ${retryMax}`,
       );
       maxTokens = retryMax;
-      result = await completeText({ model, prompt, maxTokens });
+      result = await completeText({ ...callOpts, maxTokens });
       fullText = result.text || '';
     }
   }
 
   const inputTokens = Number(result.usage?.input_tokens) || 0;
   const outputTokens = Number(result.usage?.output_tokens) || 0;
+  const cachedTokens = Number(result.usage?.cached_tokens) || 0;
   const usage = {
     inputTokens,
     outputTokens,
+    cachedTokens,
     totalTokens: inputTokens + outputTokens,
-    estimatedCostUsd: estimatePlanCostUsd(model, inputTokens, outputTokens),
+    estimatedCostUsd: estimatePlanCostUsd(model, inputTokens, outputTokens, cachedTokens),
     model,
   };
 
@@ -885,15 +904,15 @@ async function generateWeeklyPlan(profile, brandDna, competitorInsights = null, 
   };
 
   const snapshot = buildSnapshot(profile, brandDna);
-  // Replacements use a function so `$` sequences in the data (prices, `$&`…)
-  // are inserted literally rather than treated as replacement patterns.
-  // Compact JSON (no pretty-print) keeps the prompt smaller without changing content.
-  const prompt = loadPrompt()
+  const { system: planSystem, userTemplate } = splitPromptTemplate(loadPrompt());
+  const fillPlan = (t) => t
     .replace('{{FOCUS_JSON}}', () => JSON.stringify(focusSummary))
     .replace('{{SNAPSHOT_JSON}}', () => JSON.stringify(snapshot))
     .replace('{{COMPETITOR_INSIGHTS}}', () => renderCompetitorInsights(competitorInsights))
     .replace('{{PROJECT_ASSETS}}', () => renderProjectAssets(projects))
     .replace('{{MONTH_CALENDAR_JSON}}', () => JSON.stringify(monthCalendar));
+  const planUser = fillPlan(userTemplate || loadPrompt());
+  const prompt = [planSystem, planUser].filter(Boolean).join('\n\n');
 
   // Log exactly what context reached the model for this plan (see logPlanContext).
   logPlanContext({ snapshot, focusSummary, competitorInsights, projects, prompt, model });
@@ -954,6 +973,8 @@ async function generateWeeklyPlan(profile, brandDna, competitorInsights = null, 
       competitorInsights,
       projects,
       prompt,
+      system: planSystem,
+      user: planUser,
     });
   }
 

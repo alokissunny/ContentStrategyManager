@@ -2,7 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const { extractJson, estimatePlanCostUsd, assignToEmptyDates } = require('./weeklyPlan');
 const { compileStrategyContext, assetsForDay, json } = require('./planContext');
-const { completeText, planTextModel } = require('./llmComplete');
+const { completeText, planTextModel, splitPromptTemplate } = require('./llmComplete');
 
 const PROMPTS_DIR = path.join(__dirname, '..', '..', 'prompts');
 const cache = {};
@@ -18,10 +18,20 @@ function fillTemplate(template, vars) {
   let out = template;
   for (const [key, value] of Object.entries(vars)) {
     const token = `{{${key}}}`;
-    // Function replacement so `$` in content is literal.
     out = out.split(token).join(typeof value === 'function' ? value() : String(value ?? ''));
   }
   return out;
+}
+
+function assembleAgentPrompt(name, vars) {
+  const raw = loadPrompt(name);
+  const { system, userTemplate } = splitPromptTemplate(raw);
+  const user = fillTemplate(userTemplate || raw, vars);
+  return {
+    system,
+    user,
+    prompt: [system, user].filter(Boolean).join('\n\n'),
+  };
 }
 
 function agentModel(kind) {
@@ -148,11 +158,13 @@ function retryMaxTokens(current) {
 function usageOf(response, model) {
   const inputTokens = Number(response.usage?.input_tokens) || 0;
   const outputTokens = Number(response.usage?.output_tokens) || 0;
+  const cachedTokens = Number(response.usage?.cached_tokens) || 0;
   return {
     inputTokens,
     outputTokens,
+    cachedTokens,
     totalTokens: inputTokens + outputTokens,
-    estimatedCostUsd: estimatePlanCostUsd(model, inputTokens, outputTokens),
+    estimatedCostUsd: estimatePlanCostUsd(model, inputTokens, outputTokens, cachedTokens),
     model,
   };
 }
@@ -161,6 +173,7 @@ function mergeUsage(parts, model) {
   const usage = {
     inputTokens: 0,
     outputTokens: 0,
+    cachedTokens: 0,
     totalTokens: 0,
     estimatedCostUsd: 0,
     model,
@@ -168,6 +181,7 @@ function mergeUsage(parts, model) {
   for (const p of parts) {
     usage.inputTokens += p.inputTokens || 0;
     usage.outputTokens += p.outputTokens || 0;
+    usage.cachedTokens += p.cachedTokens || 0;
     usage.totalTokens += p.totalTokens || 0;
     usage.estimatedCostUsd += p.estimatedCostUsd || 0;
   }
@@ -175,17 +189,26 @@ function mergeUsage(parts, model) {
   return usage;
 }
 
-async function callAgent({ source, kind, prompt, validate }) {
+async function callAgent({ source, kind, prompt, system, user, validate }) {
   const model = agentModel(kind);
   let maxTokens = maxTokensFor(kind);
   const maxAttempts = 2;
   let lastErr;
+  const userContent = user || prompt || '';
+  const debugPrompt = [system, userContent].filter(Boolean).join('\n\n');
 
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
-    const response = await completeText({ model, prompt, maxTokens });
+    const response = await completeText({
+      model,
+      system,
+      user: userContent,
+      prompt: userContent,
+      maxTokens,
+      cacheKey: `igsignal-plan-${kind}`,
+    });
     const fullText = response.text || '';
     const usage = usageOf(response, model);
-    const debugEntry = { source, model, prompt, kind };
+    const debugEntry = { source, model, prompt: debugPrompt, kind };
 
     if (response.stopReason === 'max_tokens') {
       lastErr = new Error(`${source} response truncated (max_tokens=${maxTokens})`);
@@ -209,6 +232,9 @@ async function callAgent({ source, kind, prompt, validate }) {
 
     try {
       if (typeof validate === 'function') validate(parsed);
+      if (usage.cachedTokens) {
+        console.log(`[planOrchestrator] ${source} cache hit ${usage.cachedTokens}/${usage.inputTokens} input tokens`);
+      }
       return { parsed, usage, debugEntry: { ...debugEntry, output: fullText } };
     } catch (err) {
       lastErr = err;
@@ -261,7 +287,7 @@ function validateDayWriter(parsed) {
 async function writeDayPost({
   source, brief, constraintsJson, dayAssets, generationSignalsJson, authorityFocusJson, qualityFeedback,
 }) {
-  const dayPrompt = fillTemplate(loadPrompt('plan-day-writer.md'), {
+  const assembled = assembleAgentPrompt('plan-day-writer.md', {
     DAY_JSON: json(brief),
     CONSTRAINTS_JSON: constraintsJson,
     DAY_ASSETS: json(dayAssets),
@@ -272,13 +298,15 @@ async function writeDayPost({
   return callAgent({
     source,
     kind: 'day',
-    prompt: dayPrompt,
+    system: assembled.system,
+    user: assembled.user,
+    prompt: assembled.prompt,
     validate: validateDayWriter,
   });
 }
 
 async function reviewDayPost({ source, brief, post }) {
-  const prompt = fillTemplate(loadPrompt('plan-quality.md'), {
+  const assembled = assembleAgentPrompt('plan-quality.md', {
     BRIEF_JSON: json({
       pillar: brief.pillar,
       lens: brief.lens,
@@ -295,7 +323,9 @@ async function reviewDayPost({ source, brief, post }) {
   return callAgent({
     source,
     kind: 'quality',
-    prompt,
+    system: assembled.system,
+    user: assembled.user,
+    prompt: assembled.prompt,
     validate: validateQuality,
   });
 }
@@ -334,7 +364,7 @@ async function runMultiAgentPlan({
   );
 
   // ── 1. Strategist ────────────────────────────────────────────────────────
-  const strategistPrompt = fillTemplate(loadPrompt('plan-strategist.md'), {
+  const strategistAssembled = assembleAgentPrompt('plan-strategist.md', {
     LIMITS_JSON: json({
       month: ctx.calendar.month,
       planFrom: 'every conversationCaptures item; produce Discovery, Credibility, and Trust briefs per capture when genuinely supported',
@@ -354,9 +384,12 @@ async function runMultiAgentPlan({
     }),
     PROJECT_TRUTH_JSON: json(ctx.projects),
   });
+  const strategistPrompt = strategistAssembled.prompt;
   const strategist = await callAgent({
     source: 'Strategist',
     kind: 'strategist',
+    system: strategistAssembled.system,
+    user: strategistAssembled.user,
     prompt: strategistPrompt,
     validate: (p) => validateStrategist(p),
   });
@@ -405,11 +438,12 @@ async function runMultiAgentPlan({
     );
   }
 
-  // ── 2. Day writers + Quality gate (parallel per day) ─────────────────────
+  // ── 2. Day writers + Quality gate ────────────────────────────────────────
+  // First Day Writer primes the provider prompt cache; the rest run in parallel
+  // so they reuse the same system instructions at cached-input rates.
   const gateOn = qualityAgentEnabled();
   const maxRewrites = qualityMaxRewrites();
-  const dayResults = await Promise.all(
-    plannedDays.map(async (planned, index) => {
+  const writeOneDay = async (planned, index) => {
       const brief = {
         index,
         date: planned.date,
@@ -540,8 +574,16 @@ async function runMultiAgentPlan({
         };
       }
       return { index, dayBrief: brief, result: writer, quality: review?.parsed || null, debugEntries, runUsages };
-    }),
-  );
+  };
+
+  let dayResults = [];
+  if (plannedDays.length === 1) {
+    dayResults = [await writeOneDay(plannedDays[0], 0)];
+  } else if (plannedDays.length > 1) {
+    const first = await writeOneDay(plannedDays[0], 0);
+    const rest = await Promise.all(plannedDays.slice(1).map((p, i) => writeOneDay(p, i + 1)));
+    dayResults = [first, ...rest];
+  }
 
   dayResults
     .sort((a, b) => a.index - b.index)
@@ -602,7 +644,9 @@ async function runMultiAgentPlan({
   console.log(
     `[planOrchestrator] @${username}: strategist+${rawDays.length} days` +
       (gateOn ? '+quality' : '') +
-      ` · ${usage.totalTokens} tokens (~$${usage.estimatedCostUsd.toFixed(4)})` +
+      ` · ${usage.totalTokens} tokens` +
+      (usage.cachedTokens ? ` (${usage.cachedTokens} cached)` : '') +
+      ` (~$${usage.estimatedCostUsd.toFixed(4)})` +
       ` · prompts chars strategist=${strategistPrompt.length}`,
   );
 
