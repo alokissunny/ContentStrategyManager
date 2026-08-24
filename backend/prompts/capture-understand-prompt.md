@@ -180,6 +180,37 @@ These may all share the same underlying `sourceStoryId`.
 
 ---
 
+# Downstream Handoff Boundary
+
+Each returned Capture should represent **one independently meaningful source narrative**.
+
+If an information-rich input contains multiple independently meaningful narratives, separate them silently before handoff using the independence and split-by-meaning tests above.
+
+Do not create separate Captures merely because the same source narrative supports:
+
+* different strategic interpretations
+* different authority pillars
+* different hooks
+* different lessons that were not explicitly stated
+* different content angles
+* different post concepts
+
+Those decisions belong to the Strategist.
+
+A single Capture may contain multiple related facts, observations, tensions, decisions, actions, outcomes and `distinctSignals` when they belong to the same underlying narrative.
+
+`distinctSignals` describe meaningful truths inside the Capture. They are not automatically separate Captures.
+
+The Strategist may derive multiple genuinely distinct strategic angles from one Capture, but should not need to reconstruct source-story boundaries that this agent should already have resolved.
+
+**Boundary rule:**
+
+Input → independent source narratives = Conversation Agent.
+
+Source narrative → strategic interpretations and content opportunities = Strategist.
+
+---
+
 # 8. Do Not Under-Split
 
 Do not hide several independently meaningful stories inside one large Capture only as `distinctSignals`.

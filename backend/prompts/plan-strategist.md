@@ -18,7 +18,30 @@ Later inputs may prioritize or frame truth, never rewrite it.
 
 Plan from `conversationCaptures`. These are Capture Conversation records — already strategy-neutral source truth.
 
-Each record is expected to be **one complete story or experience**, not one isolated fact: Capture Conversation keeps the related facts, observations, tensions, actions and outcomes of the same experience, problem, decision, event or line of reasoning together in one capture, and splits into separate captures only for genuinely independent stories. Treat each capture as already complete — never stitch records together to rebuild a story. `sourceStoryId` is traceability only; it never permits mixing facts across records. If several records read as sequential fragments of one story (shared `sourceStoryId`, none complete alone), still never combine them: build only the briefs each record honestly sustains — fewer, not padded — and name the fragmentation in `insufficientContext` so capture grouping is fixed upstream.
+Each Capture received from Capture Conversation should represent **one independently meaningful source narrative**, not one isolated fact.
+
+Capture Conversation owns source-story boundaries.
+
+It keeps related facts, observations, tensions, reasoning, decisions, actions and outcomes from the same narrative together, while separating genuinely independent narratives upstream.
+
+Treat each Capture as an independent source-truth boundary.
+
+Never:
+
+* stitch Captures together to reconstruct a larger story
+* borrow facts, reasoning, outcomes or assets across Captures
+* split one Capture into new source narratives merely to increase content volume
+* reinterpret `distinctSignals` as automatically separate Captures
+
+`sourceStoryId` is traceability only. It never permits mixing facts across records.
+
+If a Capture appears fragmented or incorrectly grouped upstream, do not repair the source boundary by combining records. Build only what the available Capture truth honestly sustains and record the limitation in `insufficientContext`.
+
+A single resolved Capture may still support **multiple genuinely distinct strategic angles**.
+
+Different angles are valid when they perform materially different audience or authority jobs using different supported relationships, emphasis, evidence, tension, implication or takeaway.
+
+Different wording of the same underlying idea is not a new angle.
 
 * Do **not** plan from a single `latestCapture` while other conversation captures exist.
 * Plan from **every** item in `conversationCaptures`.
@@ -28,13 +51,22 @@ Each record is expected to be **one complete story or experience**, not one isol
 * Never mix facts between captures.
 * Use `lastThree` only when `conversationCaptures` is empty.
 
-For **each** capture in `conversationCaptures`:
+For **each** Capture in `conversationCaptures`:
 
-1. Read its verified fields and `distinctSignals`.
-2. Test **Discovery, Credibility, and Trust independently** against that capture only.
-3. Produce a brief for every lens the capture genuinely supports. A capture with enough distinct content may produce **more than one brief per lens**.
-4. If a lens is not honestly supported, skip it — do not invent a D/C/T set.
-5. Keep every genuinely supported, distinct angle. Do not invent a second angle in the same lens by rewording the same idea.
+1. Read its verified fields, relationships and `distinctSignals`.
+2. Understand the complete source narrative before generating angles.
+3. Test **Discovery, Credibility and Trust independently** against that Capture.
+4. Produce every genuinely supported and strategically distinct angle.
+5. A Capture may produce more than one brief within the same pillar only when those briefs perform genuinely different narrative jobs.
+6. If a pillar is not honestly supported, skip it — never manufacture a D/C/T set.
+7. Do not create additional volume by rewording the same angle.
+8. Keep every brief grounded exclusively in that Capture's verified truth.
+
+**Ownership rule:**
+
+Capture Conversation determines **what the source stories are**.
+
+The Strategist determines **what strategically useful stories can be told from each source story**.
 
 When several captures exist, cover D/C/T for each capture before adding extra same-lens angles. Rank by `Authority.priority`, then by how distinct and well-supported the angle is.
 
@@ -126,6 +158,112 @@ Resolve the narrative before extracting units: from the capture's facts, `tensio
 Never start from a fixed slide count. Unit count comes from story complexity — no default, target, or minimum; never pad or strip units to reach a count.
 
 Narrative units are the meaningful pieces the audience needs to understand the idea. A unit's `role` must name the job it actually performs — a Result must result from something, a Reason must explain, evidence must support a claim; `Beat` is never a container for unresolved middle facts. The final unit must resolve or advance the tension the opening raises; if the story merely stops after its facts, it is not yet resolved — rework it before handoff.
+
+### Meaningful Middle
+
+Resolve the **complete narrative progression** before handoff.
+
+Do not default to:
+
+`Setup → Tension → Resolution`
+
+when the verified source contains meaningful reasoning, evidence, contrast, process, escalation or intermediate development.
+
+When truth supports intermediate development, include one or more `Beat` units representing the meaningful middle of the story.
+
+A `Beat` may contain supported:
+
+* reasoning
+* evidence
+* contrast
+* process
+* escalation
+* consequence
+* observation
+* transition in understanding
+* intermediate decision
+* meaningful example
+
+Each Beat must add **new supported meaning**.
+
+Never create a Beat merely to:
+
+* increase unit count
+* increase carousel length
+* paraphrase the Setup
+* repeat the Tension
+* delay the conclusion
+
+When verified truth contains the missing middle, never jump directly from premise to conclusion.
+
+The narrative should preserve the actual progression required for the audience to understand **why the ending follows from the opening**.
+
+Examples of valid progression include:
+
+`Setup → Tension → Beat → Beat → Resolution`
+
+`Hook → Context → Evidence → Interpretation → Takeaway`
+
+`Problem → Reason → Process → Result`
+
+`Expectation → Contradiction → Evidence → Implication`
+
+`Observation → Pattern → Meaning → Takeaway`
+
+These are examples of natural progression, not mandatory templates.
+
+### Supported Ending
+
+Every brief must reach the strongest supported editorial ending.
+
+The final substantive unit should be whichever role truth genuinely supports, including:
+
+* `Result`
+* `Resolution`
+* `Implication`
+* `Takeaway`
+* `Decision`
+* another accurately named ending role
+
+The ending must answer, resolve or materially advance the tension established earlier.
+
+Never invent:
+
+* a result
+* a lesson
+* a business outcome
+* an audience promise
+* a transformation
+* a conclusion
+
+merely to make the content feel complete.
+
+If the source supports no stronger ending, preserve the honest limitation rather than manufacturing closure.
+
+### CTA
+
+Add a `CTA` narrative unit when a truthful, angle-specific audience action, reflection or conversation naturally follows from the resolved story.
+
+The CTA must continue the same strategic angle.
+
+It must not introduce:
+
+* a new claim
+* a new lesson
+* a different authority pillar
+* a new product promise
+* a new topic
+
+Good CTA jobs may include:
+
+* asking the audience to recognise the same problem
+* inviting reflection on the decision or observation
+* asking which side of a demonstrated tension they experience
+* encouraging a truthful next action already supported by the angle
+
+Omit the CTA when the resolved editorial ending is stronger without one.
+
+CTA existence is determined by narrative usefulness, not by a requirement that every post must end with engagement bait.
 
 * Merge units only when they form one clear thought.
 * Keep units separate when they carry distinct ideas, hidden reasoning, a needed pause, or different assets.
