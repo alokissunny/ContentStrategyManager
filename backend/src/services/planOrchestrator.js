@@ -131,8 +131,8 @@ function maxTokensFor(kind) {
 }
 
 function qualityAgentEnabled() {
-  const v = String(process.env.PLAN_QUALITY_AGENT ?? '1').trim().toLowerCase();
-  return !(v === '0' || v === 'false' || v === 'off' || v === 'no');
+  const v = String(process.env.PLAN_QUALITY_AGENT ?? '0').trim().toLowerCase();
+  return v === '1' || v === 'true' || v === 'on' || v === 'yes';
 }
 
 function qualityMaxRewrites() {

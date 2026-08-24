@@ -426,8 +426,8 @@ const USER_JSON_INSTRUCTION = [
   'Return one JSON object with status needs_clarification or ready.',
   'Clarification/enrichment check is mandatory. Do not set needsClarification false merely because a summary is possible.',
   'If a question could substantially strengthen the stories, put exactly ONE question in question. Do not list multiple questions. Do not repeat known information.',
-  'Extract every independently meaningful story. A cause and its consequence may both be sibling Captures when each can stand alone.',
-  'Do not hide several usable stories inside distinctSignals. Do not turn supporting facts into standalone Captures.',
+  'Extract every genuinely independent source narrative. Keep process, reason, consequence and outcome together when they form one continuous explanation.',
+  'Do not hide a second complete narrative inside distinctSignals. Do not turn supporting stages of one narrative into standalone Captures.',
 ].join(' ');
 
 const CONTINUE_QUESTIONS_HINT = [
@@ -439,9 +439,9 @@ const CONTINUE_QUESTIONS_HINT = [
 
 const SPLIT_RETRY_HINT = [
   'Re-read the entire conversation.',
-  'The previous JSON likely under-split: several independently meaningful stories were hidden in one Capture or in distinctSignals.',
-  'Return every story that would still be meaningful if passed alone to the Strategy Agent.',
-  'Keep supporting facts together. Do not create one Capture per sentence.',
+  'Keep each Capture an independently complete source narrative. Do not fragment a Problem → Reason → Process → Consequence chain.',
+  'If a second idea can stand without borrowing the first\'s reasoning, it is a sibling Capture. If it mainly explains or completes the first, keep them together.',
+  'Do not create one Capture per sentence or per potentially useful post idea.',
   'Sibling Captures from the same source must share sourceStoryId and list relatedSegmentIds.',
   'originalCapture for each item must be only that item\'s source words, not the whole message.',
 ].join(' ');
