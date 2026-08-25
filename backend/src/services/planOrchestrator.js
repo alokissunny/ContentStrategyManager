@@ -142,10 +142,10 @@ function maxTokensFor(kind) {
   }
   if (kind === 'quality') {
     const n = Number(process.env.PLAN_QUALITY_MAX_TOKENS);
-    return Number.isFinite(n) && n > 0 ? n : 8192;
+    return Number.isFinite(n) && n > 0 ? n : 3072;
   }
   const n = Number(process.env.PLAN_DAY_MAX_TOKENS);
-  return Number.isFinite(n) && n > 0 ? n : 16384;
+  return Number.isFinite(n) && n > 0 ? n : 8192;
 }
 
 function qualityAgentEnabled() {
@@ -213,6 +213,7 @@ async function callAgent({ source, kind, prompt, system, user, validate }) {
       prompt: userContent,
       maxTokens,
       cacheKey: `igsignal-plan-${kind}`,
+      kind,
     });
     const fullText = response.text || '';
     const usage = usageOf(response, model);
@@ -409,7 +410,7 @@ async function runMultiAgentPlan({
   const strategistAssembled = assembleAgentPrompt('plan-strategist.md', {
     LIMITS_JSON: json({
       month: ctx.calendar.month,
-      planFrom: 'every conversationCaptures item; produce Discovery, Credibility, and Trust briefs per capture when genuinely supported',
+      planFrom: 'latest chat session only — every conversationCaptures item from that sitting; produce Discovery, Credibility, and Trust briefs per capture when genuinely supported',
     }),
     OCCUPIED_TOPICS_JSON: json(ctx.calendar.occupiedTopics || []),
     AUTHORITY_JSON: json(ctx.authority),

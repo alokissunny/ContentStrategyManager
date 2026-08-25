@@ -2,7 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const { flattenSlide, layoutForStructure } = require('./slideContent');
 const { computeAuthorityFunnel } = require('./authorityFunnel');
-const { recentCapturesOf } = require('./planContext');
+const { recentCapturesOf, conversationSessionOf } = require('./planContext');
 const { completeText, planTextModel, splitPromptTemplate } = require('./llmComplete');
 
 const PROMPT_PATH = path.join(__dirname, '..', '..', 'prompts', 'weekly-plan-prompt.md');
@@ -476,12 +476,12 @@ function scoreAssetForWords(words, kw) {
 // a content description from AI analysis — that it can assign to slides. Kept
 // compact so the prompt stays within context.
 function renderProjectAssets(projects) {
-  const recent = recentCapturesOf(projects, 10);
+  const recent = conversationSessionOf(recentCapturesOf(projects, 10));
   if (!recent.length) {
     return 'No project assets on file yet. Keep posts specific to the niche but do not invent named projects or claim photos exist.';
   }
   const lines = [
-    'Conversation captures (newest first). Plan from EVERY item — produce genuine Discovery, Credibility, and Trust posts for each capture when it supports them. Do not plan from only the first item. Do not use older project archive.',
+    'Latest conversation session only (newest first). Plan from every item in this session — produce genuine Discovery, Credibility, and Trust posts for each capture when it supports them. Do not use older sessions or the project archive.',
   ];
   recent.forEach((c, i) => {
     const u = c.understanding && typeof c.understanding === 'object' ? c.understanding : {};
@@ -830,6 +830,7 @@ async function generateSingleAgentPlan({
     user: user || prompt,
     prompt: user || prompt,
     cacheKey: 'igsignal-plan-weekly',
+    kind: 'strategist',
   };
   let maxTokens = planMaxTokens();
   let result = await completeText({ ...callOpts, maxTokens });

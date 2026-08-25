@@ -117,16 +117,71 @@ function parseToolArgs(raw) {
 }
 
 function jsonSchemaInstruction(tool) {
-  const schema = JSON.stringify(tool?.input_schema || { type: 'object' }, null, 2);
+  const schema = JSON.stringify(tool?.input_schema || { type: 'object' });
   return [
     'Do not call tools. Return only a JSON object that matches this schema.',
-    'Use empty strings for unknowns. Booleans must be true or false.',
+    'Omit optional keys that are empty. Booleans must be true or false.',
     schema,
   ].join('\n');
 }
 
+const GPT_EFFORTS = ['none', 'minimal', 'low', 'medium', 'high'];
+const GPT_VERBOSITY = ['low', 'medium', 'high'];
+let gptExtraParamsOk = true;
+
+function envChoice(name, allowed, fallback) {
+  const v = String(process.env[name] || '').trim().toLowerCase();
+  return allowed.includes(v) ? v : fallback;
+}
+
+function gptParamsEnabled() {
+  const v = String(process.env.OPENAI_GPT_PARAMS ?? '1').trim().toLowerCase();
+  return !(v === '0' || v === 'false' || v === 'off' || v === 'no');
+}
+
+function reasoningEffortFor(kind) {
+  if (kind === 'quality') return envChoice('PLAN_QUALITY_REASONING_EFFORT', GPT_EFFORTS, 'low');
+  if (kind === 'conversation' || kind === 'capture') {
+    return envChoice('CAPTURE_REASONING_EFFORT', GPT_EFFORTS, 'medium');
+  }
+  if (kind === 'day') return envChoice('PLAN_DAY_REASONING_EFFORT', GPT_EFFORTS, 'medium');
+  return envChoice('PLAN_STRATEGIST_REASONING_EFFORT', GPT_EFFORTS, 'medium');
+}
+
+function verbosityFor() {
+  return envChoice('OPENAI_VERBOSITY', GPT_VERBOSITY, 'low');
+}
+
+function gptExtraParams(model, { kind, reasoningEffort, verbosity } = {}) {
+  if (!gptExtraParamsOk || !gptParamsEnabled() || !usesCompletionTokens(model)) return {};
+  return {
+    reasoning_effort: reasoningEffort || reasoningEffortFor(kind),
+    verbosity: verbosity || verbosityFor(),
+  };
+}
+
+function isUnknownParamError(err) {
+  const msg = String(err?.message || err || '').toLowerCase();
+  return /unknown parameter|unrecognized|unsupported_parameter|reasoning_effort|verbosity/.test(msg);
+}
+
+async function openaiChatCreate(body) {
+  try {
+    return await getOpenAIClient().chat.completions.create(body);
+  } catch (err) {
+    if (!gptExtraParamsOk || !isUnknownParamError(err)) throw err;
+    gptExtraParamsOk = false;
+    console.warn('[llmComplete] model rejected reasoning_effort/verbosity — continuing without them');
+    const next = { ...body };
+    delete next.reasoning_effort;
+    delete next.verbosity;
+    return getOpenAIClient().chat.completions.create(next);
+  }
+}
+
 async function completeOpenAIJson({
   model, system, userParts, tool, maxTokens, extraUserText = '', cacheKey = '',
+  kind = 'conversation', reasoningEffort, verbosity,
 }) {
   const messages = [];
   const sys = [system, jsonSchemaInstruction(tool)].filter(Boolean).join('\n\n');
@@ -139,10 +194,11 @@ async function completeOpenAIJson({
   } else {
     messages.push({ role: 'user', content });
   }
-  const response = await getOpenAIClient().chat.completions.create({
+  const response = await openaiChatCreate({
     model,
     messages,
     ...tokenArgFor(model, maxTokens),
+    ...gptExtraParams(model, { kind, reasoningEffort, verbosity }),
     ...(promptCacheEnabled() && cacheKey ? { prompt_cache_key: cacheKey } : {}),
   });
   const text = response.choices?.[0]?.message?.content || '';
@@ -217,7 +273,9 @@ function cachedTokensOf(usage) {
  * can cache the prefix. `prompt` remains a fallback for a single user blob.
  * Returns { text, model, stopReason, usage: { input_tokens, output_tokens, cached_tokens } }.
  */
-async function completeText({ model, prompt, system, user, maxTokens, cacheKey }) {
+async function completeText({
+  model, prompt, system, user, maxTokens, cacheKey, kind, reasoningEffort, verbosity,
+}) {
   const resolved = model || planTextModel();
   const userContent = (user != null && String(user).length) ? String(user) : String(prompt || '');
   const sys = String(system || '').trim();
@@ -226,10 +284,11 @@ async function completeText({ model, prompt, system, user, maxTokens, cacheKey }
     const messages = [];
     if (sys) messages.push({ role: 'system', content: sys });
     messages.push({ role: 'user', content: userContent });
-    const response = await getOpenAIClient().chat.completions.create({
+    const response = await openaiChatCreate({
       model: resolved,
       messages,
       ...tokenArgFor(resolved, maxTokens),
+      ...gptExtraParams(resolved, { kind, reasoningEffort, verbosity }),
       ...(promptCacheEnabled() && cacheKey ? { prompt_cache_key: cacheKey } : {}),
     });
     const choice = response.choices?.[0] || {};
@@ -281,6 +340,9 @@ async function completeToolCall({
   retryHint = '',
   extraUserText = '',
   cacheKey = '',
+  kind = 'conversation',
+  reasoningEffort,
+  verbosity,
 }) {
   const resolved = model || conversationModel();
   const name = tool.name;
@@ -296,6 +358,9 @@ async function completeToolCall({
       maxTokens: tokens,
       extraUserText: extra,
       cacheKey,
+      kind,
+      reasoningEffort,
+      verbosity,
     });
     try {
       let done = await run(maxTokens, extraUserText);

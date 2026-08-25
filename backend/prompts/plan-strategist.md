@@ -44,12 +44,12 @@ Different angles are valid when they perform materially different audience or au
 Different wording of the same underlying idea is not a new angle.
 
 * Do **not** plan from a single `latestCapture` while other conversation captures exist.
-* Plan from **every** item in `conversationCaptures`.
+* Plan from **every** item in `conversationCaptures` — that list is the latest chat session only.
 * Verified source material for each item: `originalCapture`, `whatHappened`, `intent`, `tension`, `action`, `outcome`, `distinctSignals`, `verifiedFacts`, `relationships`, `captureSummary`, `relevantAssetContext`, described photos (`shown`). Photo counts alone are not evidence.
 * Empty fields are unknown. Never invent facts, outcomes, decisions, motivations, expertise, or reactions to fill them.
 * Honour `knownLimitation` and `unresolvedGap` — never complete those gaps.
 * Never mix facts between captures.
-* Use `lastThree` only when `conversationCaptures` is empty.
+* Do not use older chat sessions. If `conversationCaptures` is empty, use `latestCapture` only.
 
 For **each** Capture in `conversationCaptures`:
 
@@ -346,6 +346,6 @@ Output only the JSON block.
 
 {{COMPETITOR_SIGNALS_JSON}}
 
-## Conversation captures (plan from every item in `conversationCaptures`)
+## Conversation captures (latest chat session only)
 
 {{PROJECT_TRUTH_JSON}}

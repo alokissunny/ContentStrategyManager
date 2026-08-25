@@ -803,14 +803,15 @@ Field rules:
 * **onScreenText** → primary lines actually appearing on the visual/scene, in order.
 * **image** → always `"placeholder"` when a picture slot is needed. Never invent a generated scene.
 * **structure / elements** → use a special form only when it naturally adds value. Default to Title, Subtitle, or Short_Statement. Do not map the catalog onto every slide.
+* Omit unused optional slide fields (empty subtitle, body, items, stat, quote, action, comparisonA, comparisonB, imagePrompt). Keep JSON compact.
 
 Output only the JSON block.
 
-## Brief
+## Brand
 
-Locked strategist output: pillar, lens, pillarJob, source, captureId, sourceStoryId, angle, verifiedTruth, uniqueJob, audienceTension, hookTerritory, centralFact, ownedTerritory, doNotRepeat, format, narrativeUnits, approvedGenerationRoute, knownLimitation, hashtags, recommendedTime.
+Who this brand helps, position, offer, proof, and voice. Use this to complete the story after the problem. Do not invent client results from it.
 
-{{DAY_JSON}}
+{{BRAND_JSON}}
 
 ## Constraints
 
@@ -818,17 +819,23 @@ mustUseProjects, voiceNotes, avoid. Guardrails only. Never use them to invent co
 
 {{CONSTRAINTS_JSON}}
 
-## Retrieved Assets
-
-Approved real project / content assets with asset keys. Use only these.
-
-{{DAY_ASSETS}}
-
 ## Generation Signals
 
 Optional pre-resolved packaging guidance from competitor analysis. Do not consume raw competitor strategy.
 
 {{GENERATION_SIGNALS_JSON}}
+
+## Brief
+
+Locked strategist output: pillar, lens, pillarJob, source, captureId, sourceStoryId, angle, verifiedTruth, uniqueJob, audienceTension, hookTerritory, centralFact, ownedTerritory, doNotRepeat, format, narrativeUnits, approvedGenerationRoute, knownLimitation, hashtags, recommendedTime.
+
+{{DAY_JSON}}
+
+## Retrieved Assets
+
+Approved real project / content assets with asset keys. Use only these.
+
+{{DAY_ASSETS}}
 
 ## Authority Focus
 
@@ -837,12 +844,6 @@ Optional pre-resolved packaging guidance from competitor analysis. Do not consum
 `accountPriority` is the month's ranking need. It explains why the plan exists. It must **not** change this post into a different Discovery / Credibility / Trust job.
 
 {{AUTHORITY_FOCUS_JSON}}
-
-## Brand
-
-Who this brand helps, position, offer, proof, and voice. Use this to complete the story after the problem. Do not invent client results from it.
-
-{{BRAND_JSON}}
 
 ## Quality feedback
 

@@ -153,7 +153,9 @@ function compileAuthority(focusSummary) {
 }
 
 const RECENT_CAPTURES = 10;
-const SESSION_WINDOW_MS = 24 * 60 * 60 * 1000;
+/** Idle gap that starts a new chat sitting. Captures saved closer than this
+ *  belong to the latest session (one check-in / capture conversation). */
+const SESSION_GAP_MS = 60 * 60 * 1000;
 
 function noteText(n) {
   if (!n) return '';
@@ -190,20 +192,36 @@ function relationshipsOf(u) {
     .slice(0, 16);
 }
 
+function omitEmpty(obj) {
+  const out = {};
+  for (const [k, v] of Object.entries(obj)) {
+    if (v == null || v === '') continue;
+    if (Array.isArray(v) && !v.length) continue;
+    out[k] = v;
+  }
+  return out;
+}
+
 function conversationCaptureOf(n) {
   const u = asUnderstanding(n.understanding);
   const mongoId = clip(n.id, 48);
-  return {
+  const whatHappened = clip(u.happened || u.whatHappened, 800);
+  const captureSummary = clip(u.summary || u.captureSummary, 800);
+  const verifiedFacts = Array.isArray(u.verifiedFacts)
+    ? u.verifiedFacts.map((f) => clip(f, 400)).filter(Boolean).slice(0, 24)
+    : [];
+  const structured = Boolean(whatHappened || captureSummary || verifiedFacts.length);
+  return omitEmpty({
     id: mongoId,
     captureId: mongoId,
     project: n.project,
-    originalCapture: clip(u.originalCapture || n.text, 8000),
-    whatHappened: clip(u.happened || u.whatHappened, 800),
+    originalCapture: clip(u.originalCapture || n.text, structured ? 2400 : 8000),
+    whatHappened,
     intent: clip(u.intent, 400),
     tension: clip(u.difficulty || u.tension, 400),
     action: clip(u.actionTaken || u.action, 400),
     outcome: clip(u.outcome, 400),
-    captureSummary: clip(u.summary || u.captureSummary, 800),
+    captureSummary,
     distinctSignals: signalsOf(u),
     sourceStoryId: clip(u.sourceStoryId, 64),
     segmentId: clip(u.segmentId, 64),
@@ -211,9 +229,7 @@ function conversationCaptureOf(n) {
       ? u.relatedSegmentIds.map((id) => clip(id, 64)).filter(Boolean).slice(0, 12)
       : [],
     relationships: relationshipsOf(u),
-    verifiedFacts: Array.isArray(u.verifiedFacts)
-      ? u.verifiedFacts.map((f) => clip(f, 400)).filter(Boolean).slice(0, 24)
-      : [],
+    verifiedFacts,
     openQuestions: Array.isArray(u.openQuestions)
       ? u.openQuestions.map((q) => clip(q, 220)).filter(Boolean).slice(0, 8)
       : [],
@@ -225,7 +241,7 @@ function conversationCaptureOf(n) {
       : [],
     status: clip(u.captureStatus || u.status, 24),
     shown: n.shown || [],
-  };
+  });
 }
 
 /** Newest captures first, across every project — never the full archive. */
@@ -252,37 +268,39 @@ function recentCapturesOf(projects, limit = RECENT_CAPTURES) {
   return all.slice(0, limit);
 }
 
+/** Latest chat sitting only: newest capture plus older ones until the gap
+ *  to the previous capture exceeds SESSION_GAP_MS. */
 function conversationSessionOf(rows) {
   if (!rows.length) return [];
-  const newest = new Date(rows[0].createdAt || 0).getTime();
-  if (!newest) return rows.slice(0, 10);
-  return rows.filter((c) => {
-    const t = new Date(c.createdAt || 0).getTime();
-    return t && Math.abs(newest - t) <= SESSION_WINDOW_MS;
-  }).slice(0, 10);
+  const newestAt = new Date(rows[0].createdAt || 0).getTime();
+  if (!newestAt) return rows.slice(0, 1);
+  const session = [rows[0]];
+  let prevAt = newestAt;
+  for (let i = 1; i < rows.length; i += 1) {
+    const t = new Date(rows[i].createdAt || 0).getTime();
+    if (!t || prevAt - t > SESSION_GAP_MS) break;
+    session.push(rows[i]);
+    prevAt = t;
+  }
+  return session;
 }
 
 function compileProjectTruth(projects) {
   const recent = recentCapturesOf(projects, 10);
   const session = conversationSessionOf(recent);
-  const conversationCaptures = (session.length ? session : recent.slice(0, 3))
+  const conversationCaptures = session
     .map(conversationCaptureOf)
     .filter((c) => c.originalCapture || c.whatHappened || c.captureSummary);
-  // lastThree is a fallback only. Sending it alongside conversationCaptures
-  // lets older notes compete with Capture Truth.
-  const lastThree = conversationCaptures.length
-    ? []
-    : recent.slice(0, 3).map((c, i) => ({
-      project: c.project,
-      text: c.text,
-      shown: c.shown,
-      planFromThis: i === 0,
-    }));
-  return {
-    conversationCaptures,
-    latestCapture: conversationCaptures[0] || lastThree[0] || null,
-    lastThree,
-  };
+  const out = { conversationCaptures };
+  if (!conversationCaptures.length && recent[0]) {
+    out.latestCapture = {
+      project: recent[0].project,
+      text: recent[0].text,
+      shown: recent[0].shown,
+      planFromThis: true,
+    };
+  }
+  return out;
 }
 
 function compileCalendarSlots(monthCalendar) {
@@ -437,6 +455,7 @@ module.exports = {
   compileStrategyContext,
   assetsForDay,
   recentCapturesOf,
+  conversationSessionOf,
   json,
   clip,
 };

@@ -392,7 +392,7 @@ function assemblePrompt({
 
 function captureMaxTokens() {
   const n = Number(process.env.CAPTURE_MAX_TOKENS);
-  return Number.isFinite(n) && n > 0 ? n : 16384;
+  return Number.isFinite(n) && n > 0 ? n : 8192;
 }
 
 function longestUserNote(text, turns) {

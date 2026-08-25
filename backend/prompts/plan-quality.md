@@ -924,41 +924,16 @@ Even if the post is otherwise excellent.
 
 Return **only** a fenced ```json block.
 
+Run every check in this prompt internally. Return only the fields below — do not emit per-check objects or a narrative map.
+
 ```json
 {
   "decision": "APPROVE | REVISE | REGENERATE",
   "score": 0,
-
-  "summary": "",
-
+  "summary": "one or two sentences",
   "centralMessage": "",
   "audienceTakeaway": "",
-
   "checks": {
-    "centralMessage": {
-      "pass": true,
-      "score": 0,
-      "reason": ""
-    },
-
-    "audienceValue": {
-      "pass": true,
-      "score": 0,
-      "reason": ""
-    },
-
-    "hook": {
-      "pass": true,
-      "score": 0,
-      "reason": ""
-    },
-
-    "narrativeProgression": {
-      "pass": true,
-      "score": 0,
-      "reason": ""
-    },
-
     "finalSlideResolution": {
       "pass": true,
       "score": 0,
@@ -967,61 +942,8 @@ Return **only** a fenced ```json block.
       "actualFinalSlideMeaning": "",
       "requiredConclusion": "",
       "reason": ""
-    },
-
-    "redundancy": {
-      "pass": true,
-      "score": 0,
-      "reason": ""
-    },
-
-    "instagramQuality": {
-      "pass": true,
-      "score": 0,
-      "reason": ""
-    },
-
-    "pillarExecution": {
-      "pass": true,
-      "score": 0,
-      "reason": ""
-    },
-
-    "caption": {
-      "pass": true,
-      "score": 0,
-      "reason": ""
-    },
-
-    "cta": {
-      "pass": true,
-      "score": 0,
-      "reason": ""
-    },
-
-    "formatFit": {
-      "pass": true,
-      "score": 0,
-      "reason": ""
-    },
-
-    "brandVoice": {
-      "pass": true,
-      "score": 0,
-      "reason": ""
     }
   },
-
-  "narrativeMap": [
-    {
-      "slide": 1,
-      "declaredRole": "",
-      "actualRole": "",
-      "meaning": "",
-      "advancesNarrative": true
-    }
-  ],
-
   "issues": [
     {
       "severity": "CRITICAL | MAJOR | MINOR",
@@ -1031,14 +953,11 @@ Return **only** a fenced ```json block.
       "revisionInstruction": ""
     }
   ],
-
-  "revisionPriority": [
-    ""
-  ]
+  "revisionPriority": []
 }
 ```
 
-Keep output compact.
+Omit empty issues. Keep reasons to one sentence. Do not include unused keys.
 
 # FINAL APPROVAL TEST
 
