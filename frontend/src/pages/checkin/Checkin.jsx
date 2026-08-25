@@ -26,7 +26,7 @@ export default function Checkin({ projects, filingProjects, week, name, lastWeek
   const [step, setStep] = useState('boot'); // which interactive block is live
   const ctx = useRef({
     path: null, projectId: null, projectName: null, custom: null, followup: 0,
-    understanding: null, askedQuestion: '', askedAnswer: '',
+    understanding: null, understandings: [], conversationSummary: '', askedQuestion: '', askedAnswer: '',
     attachments: [], askForAssets: null, awaitingAssets: false,
     turns: [],
   });
@@ -352,6 +352,7 @@ export default function Checkin({ projects, filingProjects, week, name, lastWeek
       ctx.current.understandings = result.captures;
       ctx.current.understanding = result.captures[0];
     }
+    if (result?.conversationSummary) ctx.current.conversationSummary = result.conversationSummary;
     const followUp = clarificationQuestion(result);
     if (followUp) {
       ctx.current.askedQuestion = followUp;
@@ -921,6 +922,7 @@ export default function Checkin({ projects, filingProjects, week, name, lastWeek
         attachments: c.attachments || [],
         understanding: c.understanding || null,
         understandings: c.understandings || [],
+        conversationSummary: c.conversationSummary || '',
       });
     });
   };

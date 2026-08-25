@@ -2729,6 +2729,7 @@
   color: var(--ink-500);
 }
 .wv-why__label svg { color: var(--ink-400); }
+.wv-why__pillar { font-weight: 700; color: var(--ink-900); }
 .wv-why__sec p { margin: 0 0 4px; font-family: var(--font-ui); font-size: 13.5px; line-height: 1.55; color: var(--ink-800); }
 
 /* ── the phone: the strip stacks, the stage drops the side strategy ─────── */

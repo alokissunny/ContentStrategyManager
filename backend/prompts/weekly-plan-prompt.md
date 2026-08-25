@@ -72,7 +72,7 @@ Output **only** a single fenced ```json code block (no preamble, no closing rema
         "caption": "A ready-to-post caption in the brand's voice (2–4 short paragraphs).",
         "cta": "One call-to-action line.",
         "hashtags": ["nichehashtag", "regionalhashtag"],
-        "strategy": "Why this post, this day — the strategic reasoning (2–3 sentences).",
+        "strategy": "Name this post's content pillar (Discovery, Credibility, or Trust) and why the execution does that job (2–3 sentences).",
         "prompts": ["A shot/idea prompt", "Another prompt"],
         "plan": "Practical shot/production notes for making it.",
         "notes": "Short production notes: which project photos to use, what still needs shooting."

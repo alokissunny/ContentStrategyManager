@@ -20,9 +20,9 @@ import { RecordingSheet, useRecorder } from './checkin/recorder';
 import ScrollJump from './checkin/ScrollJump';
 import {
   useProjects, useProjectsHydrated, createProject, renameProject, deleteProject,
-  addEntry, updateEntry, deleteEntry, moveEntry,
+  addEntry, addSession, updateEntry, deleteSession, moveSession,
   analyzeProjectAssets, analyzeAsset,
-  coverOf, groupByWeek, fmtWhen, uploadFiles,
+  coverOf, groupByWeek, groupCapturesIntoSessions, sessionCount, sessionDisplayText, fmtWhen, uploadFiles,
 } from '../lib/projectsStore';
 import { listGeneratedImages, deleteGeneratedImage } from '../api/images';
 import { understandCapture, transcribeCapture, clarificationQuestion } from '../api/projects';
@@ -175,6 +175,7 @@ function EntryCard({ entry, others, onOpen, onMove, onDelete }) {
   const [moveOpen, setMoveOpen] = useState(false);
   const closeMenu = () => { setMenu(false); setMoveOpen(false); };
   const video = entry.type === 'video' ? (entry.attachments || [])[0] : null;
+  const summary = sessionDisplayText(entry);
   const open = () => onOpen(entry);
   return (
     <div
@@ -195,7 +196,7 @@ function EntryCard({ entry, others, onOpen, onMove, onDelete }) {
         </div>
       </div>
 
-      {entry.text && <p className="pe__text">{entry.text}</p>}
+      {summary && <p className="pe__text">{summary}</p>}
 
       {video ? (
         <div className="pe__video" onClick={(e) => { e.stopPropagation(); onOpen(entry, 0); }}>
@@ -285,7 +286,7 @@ export function EntryPanel({ project, entry, week, onClose }) {
       <div className="np-scrim" onClick={onClose} />
       <aside className="np" role="dialog" aria-modal="true" aria-label="Note">
         <header className="np__bar">
-          <span className="np__title">About this note</span>
+          <span className="np__title">About this session</span>
           <div className="np__baracts">
             <button className="np__close" onClick={onClose} aria-label="Close"><Icon name="x" size={16} strokeWidth={2.25} /></button>
           </div>
@@ -298,10 +299,16 @@ export function EntryPanel({ project, entry, week, onClose }) {
 
           <textarea
             className="ctxf ctxf--panel"
-            defaultValue={entry.text || ''}
-            aria-label="Note"
-            placeholder="Write here — what happened, in your own words…"
-            onBlur={(e) => { if (e.target.value !== (entry.text || '')) updateEntry(project.id, entry.id, { text: e.target.value }); }}
+            defaultValue={sessionDisplayText(entry)}
+            aria-label="Session summary"
+            placeholder="Summary of this conversation…"
+            onBlur={(e) => {
+              const next = e.target.value;
+              const prev = sessionDisplayText(entry);
+              if (next !== prev) {
+                updateEntry(project.id, entry.id, { text: next, sessionSummary: next });
+              }
+            }}
           />
 
           <div className="np__grid">
@@ -496,6 +503,7 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
     attachments: [],
     understanding: null,
     understandings: [],
+    conversationSummary: '',
     askedQuestion: '',
     askedAnswer: '',
     turns: [],
@@ -573,6 +581,7 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
       cap.current.understandings = result.captures;
       cap.current.understanding = result.captures[0];
     }
+    if (result?.conversationSummary) cap.current.conversationSummary = result.conversationSummary;
     const followUp = clarificationQuestion(result);
     if (followUp) {
       cap.current.askedQuestion = followUp;
@@ -780,9 +789,8 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
     finish(null, name);
   };
 
-  /* file the capture through the real backend: make the project if it's new,
-   * then add the entry. `addEntry`/`createProject` update the store, so the
-   * saved card and the rest of the app see it straight away. */
+  /* file the conversation as one library session. `addSession`/`createProject`
+   * update the store, so the saved card and the rest of the app see it straight away. */
   const finish = async (projectId, createName) => {
     const c = cap.current;
     const type = c.kind;
@@ -796,11 +804,15 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
       const rows = (c.understandings && c.understandings.length)
         ? c.understandings
         : [c.understanding];
-      for (const understanding of rows) {
-        const note = (understanding?.originalCapture || text || '').trim() || text;
-        // eslint-disable-next-line no-await-in-loop
-        await addEntry(pid, { type, text: note, attachments: c.attachments, understanding });
-      }
+      await addSession(pid, {
+        type,
+        text,
+        attachments: c.attachments,
+        understanding: c.understanding,
+        understandings: rows,
+        conversationSummary: c.conversationSummary,
+        sessionKind: 'capture',
+      });
       const cover = c.attachments.find((a) => a.type === 'image')?.thumbnailUrl
         || c.attachments[0]?.thumbnailUrl || null;
       setSaved({ id: pid, name });
@@ -820,7 +832,7 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
   };
 
   const restart = () => {
-    cap.current = { kind: null, text: '', attachments: [], understanding: null, understandings: [], askedQuestion: '', askedAnswer: '', turns: [], awaitingAssets: false };
+    cap.current = { kind: null, text: '', attachments: [], understanding: null, understandings: [], conversationSummary: '', askedQuestion: '', askedAnswer: '', turns: [], awaitingAssets: false };
     setSaved(null);
     setStep('boot');
     const d = say('What else have you got?');
@@ -904,7 +916,7 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
           <div className="ck-cards">
             {projects.map((p) => {
               const cover = coverOf(p);
-              const n = p.captures?.length || 0;
+              const n = sessionCount(p);
               return (
                 <button key={p.id} className="ck-card ck-card--project" onClick={() => chooseProject(p)}>
                   <span className="ck-card__cover">
@@ -1141,8 +1153,9 @@ function ProjectDetail({ project, projects, onBack }) {
   const [analyzing, setAnalyzing] = useState(false);
   const [analyzeMsg, setAnalyzeMsg] = useState('');
   const others = projects.filter((p) => p.id !== project.id);
-  const groups = groupByWeek(project.captures);
-  const openEntry = open && project.captures.find((e) => e.id === open);
+  const sessions = groupCapturesIntoSessions(project.captures);
+  const groups = groupByWeek(sessions);
+  const openEntry = open && sessions.find((e) => e.id === open);
 
   // How many image assets exist, and how many still lack an analysis — drives
   // the "Analyze with AI" button label and whether it's worth showing.
@@ -1295,8 +1308,8 @@ function ProjectDetail({ project, projects, onBack }) {
                   entry={entry}
                   others={others}
                   onOpen={(e) => setOpen(e.id)}
-                  onMove={(id, target) => moveEntry(project.id, target, id)}
-                  onDelete={(id) => { deleteEntry(project.id, id); setOpen(null); }}
+                  onMove={(id, target) => moveSession(project.id, target, entry.memberIds || [id])}
+                  onDelete={(id) => { deleteSession(project.id, entry.memberIds || [id]); setOpen(null); }}
                 />
               ))}
             </div>
@@ -1305,6 +1318,7 @@ function ProjectDetail({ project, projects, onBack }) {
 
         {openEntry && (
           <EntryPanel
+            key={openEntry.id}
             project={project}
             entry={openEntry}
             week={groups.find((g) => g.entries.some((e) => e.id === openEntry.id))?.label}
@@ -1503,7 +1517,7 @@ export default function Projects() {
         )}
         {projects.map((p) => {
           const cover = coverOf(p);
-          const n = (p.captures || []).length;
+          const n = sessionCount(p);
           return (
             <div key={p.id} className="pjcard">
               <button className="pjcard__open" onClick={() => setOpenId(p.id)}>

@@ -51,6 +51,10 @@ One source may naturally produce 1, 2, 3, 4, or 5+ Captures.
 
 The number must emerge from the meaningful stories actually present.
 
+Those Captures belong to **one chat session**. Also return `conversationSummary`: a faithful summary of the **whole conversation** (every story, in the order the user told it — earliest first). The library shows that summary as one card. Per-Capture `captureSummary` stays story-specific for later planning.
+
+List `captures` in that same chronological order. Never reverse it (do not put the last thing said first).
+
 ---
 
 # Language
@@ -779,6 +783,7 @@ When clarification is unnecessary or already answered:
   "needsClarification": false,
   "questions": [],
   "question": "",
+  "conversationSummary": "faithful summary of the whole conversation, covering every story in order",
   "captures": [
     {
       "id": "c1",
@@ -822,6 +827,8 @@ When clarification is unnecessary or already answered:
 
 `id` and `captureId` must match. `summary` and `captureSummary` must match. Maximum **10 Captures**.
 
+`conversationSummary` is required when status is `ready`. It covers the whole chat session, not only the first Capture.
+
 `visualAssetChoice` is `provided`, `generate`, or `none`. Assets are optional.
 
 If an essential gap remains after clarification, that Capture's `status` is `unresolved` and `knownLimitation` / `unresolvedGap` record it. Never invent the missing information.
@@ -855,6 +862,10 @@ Source information relevant to this Capture, preserved faithfully.
 ## `summary`
 
 Concise factual description of the story. Do not write it as a hook or strategic angle.
+
+## `conversationSummary`
+
+Faithful summary of the **entire chat session** — every independently meaningful story, in the order they were told (earliest first), plus any clarification that changed the facts. Write in the user's terms. Do not write it as a hook, caption, or strategy. Do not reverse chronological order. This is the library card for this conversation. Distinct from each Capture's `captureSummary`.
 
 ## `distinctSignals`
 

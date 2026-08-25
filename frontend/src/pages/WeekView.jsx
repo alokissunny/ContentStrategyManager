@@ -1291,12 +1291,30 @@ function handleInitials(username = '') {
   return (String(username).replace(/[^a-z0-9]/gi, '').slice(0, 2) || 'IG').toUpperCase();
 }
 
+const PILLAR_WHY = {
+  discovery: { label: 'Discovery', job: 'Get noticed' },
+  credibility: { label: 'Credibility', job: 'Show expertise' },
+  trust: { label: 'Trust', job: 'Build confidence' },
+};
+
 /* Why this post — the strategy, used in the desktop side panel and the phone aside. */
 function WhyBody({ day }) {
   if (!day) return <p className="wv-muted">No strategy notes for this post yet.</p>;
-  const empty = !day.content?.strategy && !day.direction && !day.content?.notes && !day.content?.plan;
+  const pillarKey = ['discovery', 'credibility', 'trust'].includes(day.pillar) ? day.pillar : '';
+  const pillar = pillarKey ? PILLAR_WHY[pillarKey] : null;
+  const job = String(day.goalTag || pillar?.job || '').trim();
+  const empty = !pillar && !day.content?.strategy && !day.direction && !day.content?.notes && !day.content?.plan;
   return (
     <div className="wv-ig__whybody">
+      {pillar && (
+        <div className="wv-why__sec">
+          <span className="wv-why__label"><Icon name={pillarKey} size={13} />Content pillar</span>
+          <p>
+            <b className="wv-why__pillar">{pillar.label}</b>
+            {job ? ` · ${job}` : ''}
+          </p>
+        </div>
+      )}
       {day.content?.strategy && (
         <div className="wv-why__sec">
           <span className="wv-why__label"><Glyph name="target" size={13} />Focus</span>

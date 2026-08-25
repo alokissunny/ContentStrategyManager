@@ -258,6 +258,7 @@ function recentCapturesOf(projects, limit = RECENT_CAPTURES) {
         project: p.name,
         text,
         createdAt: n.createdAt || null,
+        sessionId: n.sessionId || '',
         shown: shown.slice(0, 4),
         assets,
         understanding: n.understanding || null,
@@ -268,10 +269,12 @@ function recentCapturesOf(projects, limit = RECENT_CAPTURES) {
   return all.slice(0, limit);
 }
 
-/** Latest chat sitting only: newest capture plus older ones until the gap
- *  to the previous capture exceeds SESSION_GAP_MS. */
+/** Latest chat sitting only. Prefer an explicit sessionId (one capture or
+ *  check-in conversation). Fall back to the idle-gap heuristic for older rows. */
 function conversationSessionOf(rows) {
   if (!rows.length) return [];
+  const sid = String(rows[0].sessionId || '').trim();
+  if (sid) return rows.filter((r) => String(r.sessionId || '').trim() === sid);
   const newestAt = new Date(rows[0].createdAt || 0).getTime();
   if (!newestAt) return rows.slice(0, 1);
   const session = [rows[0]];

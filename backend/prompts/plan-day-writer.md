@@ -797,7 +797,7 @@ Return only a fenced json block:
 Field rules:
 
 * **direction** → describe the locked angle, never create another one.
-* **executionRationale** → explain why the execution fits the already-decided pillar/angle. Do not strategize.
+* **executionRationale** → name the locked content pillar (Discovery, Credibility, or Trust) and explain why this execution does that pillar's job. Do not strategize or pick a different pillar.
 * **productionNeeds** → only genuine missing shots/assets that can still be produced; otherwise [].
 * **notes** → assets used, limitations, unresolved production gaps.
 * **onScreenText** → primary lines actually appearing on the visual/scene, in order.

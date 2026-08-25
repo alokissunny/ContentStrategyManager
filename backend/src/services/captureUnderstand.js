@@ -133,6 +133,10 @@ const UNDERSTAND_TOOL = {
       question: { type: 'string' },
       questions: { type: 'array', items: { type: 'string' }, description: 'Unused. Ask exactly one question per turn via question.' },
       matchedProjectName: { type: 'string' },
+      conversationSummary: {
+        type: 'string',
+        description: 'Faithful summary of the whole chat session covering every story. Library card for this conversation — not a hook, not one story only.',
+      },
       captures: {
         type: 'array',
         description: 'Every independently meaningful story from the full conversation (1–10). Not one Capture per sentence. Not one Capture that hides several stories in distinctSignals. Sibling Captures share sourceStoryId.',
@@ -265,7 +269,7 @@ function mapCaptureRecord(raw, fallbackText) {
       return v;
     })(),
     captureStatus: /unresolved/i.test(str(c.status)) ? 'unresolved' : 'ready',
-    originalCapture: str(c.originalCapture) || str(fallbackText),
+    originalCapture: str(c.originalCapture) || happened || summary,
     sourceRef: str(c.sourceRef),
     distinctSignals: distinct,
     relevantAssetContext: Array.isArray(c.relevantAssetContext)
@@ -294,6 +298,25 @@ function wantsClarification(parsed) {
   return Boolean(parsed?.shouldAsk || parsed?.meaningClear === false);
 }
 
+function storyOrderKey(c) {
+  return str(c?.segmentId || c?.captureId || c?.id);
+}
+
+function composeSessionSummary(captures, fallbackText) {
+  const rows = [...(Array.isArray(captures) ? captures : [])].sort((a, b) => {
+    const sa = storyOrderKey(a);
+    const sb = storyOrderKey(b);
+    if (sa && sb && sa !== sb) return sa.localeCompare(sb, undefined, { numeric: true });
+    return 0;
+  });
+  const parts = rows
+    .map((c) => str(c?.summary || c?.captureSummary))
+    .filter(Boolean);
+  const unique = [...new Set(parts)];
+  if (unique.length) return unique.join('\n\n');
+  return str(fallbackText);
+}
+
 function normalizeUnderstanding(parsed, { text, askedQuestion, askedAnswer }) {
   const questions = questionsOf(parsed);
 
@@ -307,22 +330,34 @@ function normalizeUnderstanding(parsed, { text, askedQuestion, askedAnswer }) {
       message: question,
       understanding: null,
       captures: [],
+      conversationSummary: '',
     };
   }
 
   const rows = Array.isArray(parsed?.captures) ? parsed.captures : (parsed?.signals ? [parsed] : []);
   const captures = (rows.length ? rows : [{ originalCapture: text, whatHappened: text, captureSummary: text }])
     .map((row) => mapCaptureRecord(row, text))
-    .slice(0, 10);
+    .slice(0, 10)
+    .sort((a, b) => {
+      const sa = storyOrderKey(a);
+      const sb = storyOrderKey(b);
+      if (sa && sb && sa !== sb) return sa.localeCompare(sb, undefined, { numeric: true });
+      return 0;
+    });
   const understanding = captures[0] || emptyUnderstanding(text);
   if (askedQuestion) understanding.askedQuestion = str(askedQuestion);
   if (askedAnswer) understanding.askedAnswer = str(askedAnswer);
+  if (captures.length === 1 && !str(captures[0].originalCapture)) {
+    captures[0].originalCapture = str(text);
+    understanding.originalCapture = str(text);
+  }
 
   return {
     action: 'ready',
     question: null,
     message: '',
     matchedProjectName: str(parsed?.matchedProjectName),
+    conversationSummary: str(parsed?.conversationSummary) || composeSessionSummary(captures, text),
     understanding,
     captures,
   };
@@ -426,6 +461,7 @@ const USER_JSON_INSTRUCTION = [
   'Clarification/enrichment check is mandatory. Do not set needsClarification false merely because a summary is possible.',
   'If a question could substantially strengthen the stories, put exactly ONE question in question. Do not list multiple questions. Do not repeat known information.',
   'Extract every genuinely independent source narrative. Keep process, reason, consequence and outcome together when they form one continuous explanation.',
+  'When status is ready, conversationSummary must summarise the whole chat session in the order the user told it (earliest point first, never newest first). Each captures[] item stays story-specific and must be listed in that same chronological order.',
   'Do not hide a second complete narrative inside distinctSignals. Do not turn supporting stages of one narrative into standalone Captures.',
 ].join(' ');
 
@@ -623,6 +659,16 @@ function sanitizeUnderstanding(raw) {
   };
 }
 
+function sanitizeStories(raw) {
+  if (!Array.isArray(raw)) return [];
+  return raw.map(sanitizeUnderstanding).filter(Boolean).slice(0, 10);
+}
+
+function serializeStories(raw) {
+  if (!Array.isArray(raw)) return [];
+  return raw.map(serializeUnderstanding).filter(Boolean);
+}
+
 function serializeUnderstanding(u) {
   if (!u) return null;
   return {
@@ -662,6 +708,7 @@ function makeUnderstandDebug({ source, model, systemPrompt, prompt, result, pars
     message: result.message,
     understanding: result.understanding,
     captures: result.captures,
+    conversationSummary: result.conversationSummary || '',
   };
   if (parsed) body.tool = parsed;
   const output = String(rawOutput || '').trim() || JSON.stringify(body, null, 2);
@@ -682,6 +729,9 @@ module.exports = {
   understandCapture,
   sanitizeUnderstanding,
   serializeUnderstanding,
+  sanitizeStories,
+  serializeStories,
+  composeSessionSummary,
   emptyUnderstanding,
   SIGNAL_KEYS,
   imageContentParts,

@@ -264,6 +264,19 @@ async function ensureProjectImagesAnalyzed(projects) {
   }
 }
 
+function asPlain(doc) {
+  if (!doc) return null;
+  if (typeof doc.toObject === 'function') return doc.toObject();
+  return doc;
+}
+
+function storiesOfCapture(c) {
+  const stories = Array.isArray(c.stories) ? c.stories.filter(Boolean) : [];
+  if (stories.length) return stories;
+  if (c.understanding) return [c.understanding];
+  return [null];
+}
+
 async function loadProjectAssets(userId, username) {
   const filter = { user: userId };
   // Strict handle match — unscoped / other-account projects must not be planned
@@ -285,7 +298,7 @@ async function loadProjectAssets(userId, username) {
           const an = a.analysis && a.analysis.status === 'done' ? a.analysis : null;
           const item = {
             key: a.key,
-            note: (c.understanding?.summary || c.text || '').trim().slice(0, 120),
+            note: (c.sessionSummary || c.understanding?.summary || c.text || '').trim().slice(0, 120),
             vision: an
               ? {
                   summary: an.summary || '',
@@ -301,18 +314,25 @@ async function loadProjectAssets(userId, username) {
           assets.push(item);
         }
       }
-      const note = captureNoteForPlan(c);
-      if (note || captureAssets.length || c.understanding) {
-        notes.push({
-          id: c._id ? String(c._id) : '',
-          text: note,
-          createdAt: c.createdAt || null,
-          assets: captureAssets,
-          understanding: c.understanding && typeof c.understanding.toObject === 'function'
-            ? c.understanding.toObject()
-            : (c.understanding || null),
+      const sessionId = String(c.sessionId || '').trim();
+      const storyRows = storiesOfCapture(c);
+      storyRows.forEach((story, idx) => {
+        const understanding = asPlain(story);
+        const note = captureNoteForPlan({
+          text: c.text,
+          understanding,
         });
-      }
+        if (note || captureAssets.length || understanding) {
+          notes.push({
+            id: understanding?.captureId || (c._id ? `${String(c._id)}:${idx}` : ''),
+            text: note,
+            createdAt: c.createdAt || null,
+            sessionId,
+            assets: captureAssets,
+            understanding,
+          });
+        }
+      });
     }
     return {
       id: p._id.toString(),

@@ -16,7 +16,10 @@ function isWordless(capture) {
   const atts = capture?.attachments || [];
   const hasMedia = atts.some((a) => a && (a.type === 'image' || a.type === 'video' || a.url || a.key));
   if (!hasMedia) return false;
-  return !String(capture.text || '').trim();
+  const words = String(
+    capture.sessionSummary || capture.text || capture.understanding?.summary || '',
+  ).trim();
+  return !words;
 }
 
 function wordlessCaptures(projects) {

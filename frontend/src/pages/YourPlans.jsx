@@ -14,7 +14,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import Icon from '../brand/Icon';
 import { getCurrentRoute, getRoutes, generateRoute, clearCurrentMonth } from '../api/routes';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { useProjects, createProject, refreshProjects, addEntry } from '../lib/projectsStore';
+import { useProjects, createProject, refreshProjects, addSession, sessionCount } from '../lib/projectsStore';
 import { CaptureChat } from './Projects';
 import { useAuth } from '../context/AuthContext';
 import WeekView from './WeekView';
@@ -521,20 +521,16 @@ export default function YourPlans() {
       const atts = pending?.attachments || [];
       if (projectId && (text || atts.length)) {
         try {
-          const rows = (pending.understandings && pending.understandings.length)
-            ? pending.understandings
-            : [pending.understanding];
-          for (const understanding of rows) {
-            const note = (understanding?.originalCapture || text || '').trim() || text;
-            // eslint-disable-next-line no-await-in-loop
-            await addEntry(projectId, {
-              type: atts.some((a) => a.type === 'video') && !note ? 'video'
-                : atts.length && !note ? 'photo' : 'note',
-              text: note,
-              attachments: atts,
-              understanding: understanding || undefined,
-            });
-          }
+          await addSession(projectId, {
+            type: atts.some((a) => a.type === 'video') && !text ? 'video'
+              : atts.length && !text ? 'photo' : 'note',
+            text,
+            attachments: atts,
+            understanding: pending.understanding,
+            understandings: pending.understandings,
+            conversationSummary: pending.conversationSummary,
+            sessionKind: 'checkin',
+          });
         } catch { /* plan still runs from whatever is already on file */ }
       }
       await runGenerate('checkin');
@@ -545,11 +541,14 @@ export default function YourPlans() {
   }
 
   // the projects the check-in offers, adapted to the shape its cards read
-  const ckProjects = (projects || []).map((p) => ({
-    ...p,
-    status: 'On file',
-    assets: [`${(p.captures || []).length} ${(p.captures || []).length === 1 ? 'item' : 'items'}`],
-  }));
+  const ckProjects = (projects || []).map((p) => {
+    const n = sessionCount(p);
+    return {
+      ...p,
+      status: 'On file',
+      assets: [`${n} ${n === 1 ? 'item' : 'items'}`],
+    };
+  });
 
   // ── the check-in conversation ──
   if (view === 'checkin') {

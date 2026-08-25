@@ -74,12 +74,21 @@ const understandingSchema = new mongoose.Schema(
 // One captured moment — a note, a photo set, or a clip. The visual `type` is
 // the primary kind; a note can still carry attachments. Text is the note (or a
 // photo's context). Mirrors the frontend capture model.
+//
+// A capture/check-in conversation is one session: `sessionSummary` is the
+// library card for the whole chat; `stories` holds every independently
+// meaningful narrative the planner still needs. `understanding` is the first
+// story, kept for older readers.
 const captureSchema = new mongoose.Schema(
   {
     type: { type: String, enum: ['note', 'photo', 'video'], default: 'note' },
     text: { type: String, default: '' },
     attachments: { type: [attachmentSchema], default: [] },
     understanding: { type: understandingSchema, default: null },
+    sessionId: { type: String, default: '' },
+    sessionKind: { type: String, default: '' },
+    sessionSummary: { type: String, default: '' },
+    stories: { type: [understandingSchema], default: [] },
     createdAt: { type: Date, default: Date.now },
   },
   { _id: true }

@@ -9,6 +9,7 @@
  *
  * Entry (capture) shape returned by the API:
  *   { id, type: 'note'|'photo'|'video', text, createdAt, understanding,
+ *     sessionId, sessionKind, sessionSummary, stories,
  *     attachments: [{ id, type: 'image'|'video', key, url, thumbnailUrl }] }
  */
 
@@ -91,27 +92,109 @@ export async function deleteProject(id) {
   await api.deleteProject(id);
   removeById(id);
 }
-export async function addEntry(projectId, { type, text, attachments, understanding }) {
+export async function addEntry(projectId, {
+  type, text, attachments, understanding, sessionId, sessionKind, sessionSummary, stories,
+}) {
   upsert(await api.addCapture(projectId, {
     type,
     text,
     understanding: understanding || undefined,
+    sessionId,
+    sessionKind,
+    sessionSummary,
+    stories,
     attachments: (attachments || []).map((a) => ({ type: a.type, key: a.key })),
   }));
 }
+
+function uniqueTexts(parts) {
+  return [...new Set((parts || []).map((s) => String(s || '').trim()).filter(Boolean))].join('\n\n');
+}
+
+function byChronological(a, b) {
+  const cmp = String(a.createdAt || '').localeCompare(String(b.createdAt || ''));
+  if (cmp) return cmp;
+  return String(a.id || '').localeCompare(String(b.id || ''));
+}
+
+function storiesInToldOrder(stories) {
+  return [...(stories || [])].sort((a, b) => {
+    const sa = String(a?.segmentId || a?.captureId || a?.id || '');
+    const sb = String(b?.segmentId || b?.captureId || b?.id || '');
+    if (sa && sb && sa !== sb) return sa.localeCompare(sb, undefined, { numeric: true });
+    return 0;
+  });
+}
+
+export function composeSessionSummary(stories, fallbackText) {
+  const ordered = storiesInToldOrder(stories);
+  const parts = [...new Set(ordered.map((s) => String(s?.summary || '').trim()).filter(Boolean))];
+  if (parts.length) return parts.join('\n\n');
+  return String(fallbackText || '').trim();
+}
+
+/** File one capture or check-in conversation as a single library session. */
+export async function addSession(projectId, {
+  type, text, attachments, understanding, understandings, conversationSummary, sessionKind,
+}) {
+  const stories = storiesInToldOrder(
+    (understandings && understandings.length)
+      ? understandings.filter(Boolean)
+      : (understanding ? [understanding] : []),
+  );
+  const sessionSummary = String(conversationSummary || '').trim()
+    || composeSessionSummary(stories, text);
+  return addEntry(projectId, {
+    type,
+    text: sessionSummary || text,
+    attachments,
+    understanding: stories[0],
+    stories,
+    sessionId: (typeof crypto !== 'undefined' && crypto.randomUUID)
+      ? crypto.randomUUID()
+      : `session-${Date.now()}`,
+    sessionKind: sessionKind || 'capture',
+    sessionSummary,
+  });
+}
+
 export async function updateEntry(projectId, entryId, patch) {
   const payload = {};
   if (patch.text !== undefined) payload.text = patch.text;
+  if (patch.sessionSummary !== undefined) payload.sessionSummary = patch.sessionSummary;
   if (patch.attachments !== undefined) payload.attachments = patch.attachments.map((a) => ({ type: a.type, key: a.key }));
   upsert(await api.updateCapture(projectId, entryId, payload));
 }
 export async function deleteEntry(projectId, entryId) {
   upsert(await api.deleteCapture(projectId, entryId));
 }
+export async function deleteSession(projectId, memberIds) {
+  const ids = [...new Set((memberIds || []).filter(Boolean))];
+  if (!ids.length) return;
+  let project;
+  for (const id of ids) {
+    // eslint-disable-next-line no-await-in-loop
+    project = await api.deleteCapture(projectId, id);
+  }
+  if (project) upsert(project);
+}
 export async function moveEntry(fromId, toId, entryId) {
   const { from, to } = await api.moveCapture(fromId, toId, entryId);
   upsert(from);
   upsert(to);
+}
+export async function moveSession(fromId, toId, memberIds) {
+  const ids = [...new Set((memberIds || []).filter(Boolean))];
+  let from;
+  let to;
+  for (const id of ids) {
+    // eslint-disable-next-line no-await-in-loop
+    const res = await api.moveCapture(fromId, toId, id);
+    from = res.from;
+    to = res.to;
+  }
+  if (from) upsert(from);
+  if (to) upsert(to);
 }
 // AI analysis — the server returns the whole project with each analysed
 // attachment's `analysis` populated, so we just reconcile the cache to it.
@@ -167,6 +250,99 @@ export function groupByWeek(entries) {
       label: weekLabel(key),
       entries: [...list].sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || '')),
     }));
+}
+
+export function sessionDisplayText(entry) {
+  const stories = Array.isArray(entry?.stories) ? entry.stories : [];
+  const fromStories = uniqueTexts(stories.map((s) => s?.summary));
+  if (fromStories.includes('\n\n')) return fromStories;
+  const summary = String(entry?.sessionSummary || '').trim();
+  if (summary) return summary;
+  if (fromStories) return fromStories;
+  const u = entry?.understanding;
+  if (u?.summary) return String(u.summary).trim();
+  return String(entry?.text || '').trim();
+}
+
+function mergeAttachments(members) {
+  const seen = new Set();
+  const out = [];
+  (members || []).forEach((c) => {
+    (c.attachments || []).forEach((a) => {
+      const k = a.key || a.id;
+      if (!k || seen.has(k)) return;
+      seen.add(k);
+      out.push(a);
+    });
+  });
+  return out;
+}
+
+function sessionFromMembers(members) {
+  const chrono = [...members].sort(byChronological);
+  const newest = chrono[chrono.length - 1] || chrono[0];
+  const stories = chrono.flatMap((c) => {
+    const rows = Array.isArray(c.stories) && c.stories.length
+      ? c.stories
+      : (c.understanding ? [c.understanding] : []);
+    return members.length === 1 ? storiesInToldOrder(rows) : rows;
+  });
+  // Prefer per-story summaries in told order over a stored blob that may be reversed.
+  const fromStories = uniqueTexts(stories.map((s) => s?.summary));
+  const sessionSummary = fromStories
+    || uniqueTexts(chrono.map((c) => c.sessionSummary))
+    || uniqueTexts(chrono.map((c) => c.text));
+  return {
+    ...newest,
+    memberIds: chrono.map((c) => c.id).filter(Boolean),
+    attachments: mergeAttachments(chrono),
+    stories,
+    sessionSummary,
+    text: sessionSummary,
+    createdAt: newest.createdAt,
+  };
+}
+
+/** One library card per capture/check-in conversation. New rows share sessionId;
+ *  older split saves (same second) are grouped by a short time burst. */
+export function groupCapturesIntoSessions(captures) {
+  const list = [...(captures || [])].sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
+  const used = new Set();
+  const sessions = [];
+  const bySessionId = new Map();
+  list.forEach((c) => {
+    const sid = String(c.sessionId || '').trim();
+    if (!sid) return;
+    if (!bySessionId.has(sid)) bySessionId.set(sid, []);
+    bySessionId.get(sid).push(c);
+  });
+  bySessionId.forEach((members) => {
+    members.forEach((c) => used.add(c.id));
+    sessions.push(sessionFromMembers(members));
+  });
+
+  const BURST_MS = 8000;
+  const rest = list.filter((c) => !used.has(c.id));
+  let burst = [];
+  rest.forEach((c) => {
+    if (!burst.length) {
+      burst = [c];
+      return;
+    }
+    const prev = new Date(burst[burst.length - 1].createdAt || 0).getTime();
+    const t = new Date(c.createdAt || 0).getTime();
+    if (prev && t && Math.abs(prev - t) <= BURST_MS) burst.push(c);
+    else {
+      sessions.push(sessionFromMembers(burst));
+      burst = [c];
+    }
+  });
+  if (burst.length) sessions.push(sessionFromMembers(burst));
+  return sessions.sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
+}
+
+export function sessionCount(project) {
+  return groupCapturesIntoSessions(project?.captures).length;
 }
 
 /* Today / Yesterday / Mon D, all with 24h HH:MM */

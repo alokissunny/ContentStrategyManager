@@ -9,11 +9,14 @@ const {
   deleteObjects,
 } = require('../services/s3Client');
 const { analyzeImageAsset } = require('../services/imageAnalysis');
-const {
-  understandCapture,
-  sanitizeUnderstanding,
-  serializeUnderstanding,
-} = require('../services/captureUnderstand');
+  const {
+    understandCapture,
+    sanitizeUnderstanding,
+    serializeUnderstanding,
+    sanitizeStories,
+    serializeStories,
+    composeSessionSummary,
+  } = require('../services/captureUnderstand');
 const { understandCheckin } = require('../services/checkinUnderstand');
 const { transcribeAudio } = require('../services/transcribeAudio');
 
@@ -68,12 +71,18 @@ async function serializeAttachment(a) {
 }
 
 async function serializeCapture(c) {
+  const stories = serializeStories(c.stories);
+  const understanding = serializeUnderstanding(c.understanding);
   return {
     id: c._id.toString(),
     type: c.type,
     text: c.text || '',
     createdAt: c.createdAt,
-    understanding: serializeUnderstanding(c.understanding),
+    sessionId: c.sessionId || '',
+    sessionKind: c.sessionKind || '',
+    sessionSummary: c.sessionSummary || '',
+    understanding,
+    stories: stories.length ? stories : (understanding ? [understanding] : []),
     attachments: await Promise.all((c.attachments || []).map(serializeAttachment)),
   };
 }
@@ -191,8 +200,24 @@ async function addCapture(req, res) {
   }
   const type = ['note', 'photo', 'video'].includes(req.body.type) ? req.body.type : 'note';
   const understanding = sanitizeUnderstanding(req.body.understanding);
+  const stories = sanitizeStories(req.body.stories);
+  const storyRows = stories.length ? stories : (understanding ? [understanding] : []);
+  const sessionKind = req.body.sessionKind === 'checkin' ? 'checkin' : (req.body.sessionKind === 'capture' ? 'capture' : '');
+  const sessionId = String(req.body.sessionId || '').trim() || crypto.randomUUID();
+  const sessionSummary = String(req.body.sessionSummary || '').trim()
+    || composeSessionSummary(storyRows, text);
 
-  project.captures.push({ type, text, attachments, understanding, createdAt: new Date() });
+  project.captures.push({
+    type,
+    text: sessionSummary || text,
+    attachments,
+    understanding: storyRows[0] || understanding,
+    stories: storyRows,
+    sessionId,
+    sessionKind,
+    sessionSummary,
+    createdAt: new Date(),
+  });
   await project.save();
   res.status(201).json({ project: await serializeProject(project) });
 }
@@ -204,6 +229,7 @@ async function updateCapture(req, res) {
   if (!capture) return res.status(404).json({ message: 'Capture not found' });
 
   if (req.body.text !== undefined) capture.text = String(req.body.text);
+  if (req.body.sessionSummary !== undefined) capture.sessionSummary = String(req.body.sessionSummary);
   if (req.body.attachments !== undefined) {
     const next = sanitizeAttachments(req.body.attachments, req.user._id);
     const nextKeys = new Set(next.map((a) => a.key));
@@ -377,6 +403,8 @@ async function understandDraft(req, res) {
     const fallback = {
       action: 'ready',
       question: null,
+      conversationSummary: text,
+      captures: [{ originalCapture: text, whatHappened: text, captureSummary: text, summary: text }],
       understanding: {
         happened: text,
         intent: '',
@@ -459,6 +487,8 @@ async function understandCheckinDraft(req, res) {
       matchedProjectId: null,
       matchedProjectName: '',
       askForAssets: attachments.length === 0,
+      conversationSummary: text,
+      captures: [{ originalCapture: text, whatHappened: text, captureSummary: text, summary: text }],
       understanding: {
         happened: text,
         intent: '',
