@@ -1,9 +1,9 @@
 const mongoose = require('mongoose');
 
-// AI-derived metadata for one asset — filled in on demand when the user runs
-// "Analyze with AI". `status` tracks the run so the UI can show a spinner /
-// error and re-analysis. The descriptive fields are best-effort: the model may
-// leave some empty, so nothing here is required.
+// AI-derived metadata for one asset — filled automatically when an image is
+// uploaded, and can be re-run from "Analyze with AI". `status` tracks the run
+// so the UI can show a spinner / error and re-analysis. The descriptive fields
+// are best-effort: the model may leave some empty, so nothing here is required.
 const analysisSchema = new mongoose.Schema(
   {
     status: { type: String, enum: ['pending', 'done', 'error'], default: 'pending' },
@@ -64,7 +64,9 @@ const understandingSchema = new mongoose.Schema(
     relationships: { type: [mongoose.Schema.Types.Mixed], default: [] },
     verifiedFacts: { type: [String], default: [] },
     openQuestions: { type: [String], default: [] },
+    observableDetails: { type: [String], default: [] },
     relevantAssetContext: { type: [String], default: [] },
+    visualLimitations: { type: [String], default: [] },
     model: { type: String, default: '' },
     understoodAt: { type: Date, default: null },
   },

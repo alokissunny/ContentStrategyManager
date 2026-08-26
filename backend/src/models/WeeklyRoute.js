@@ -59,6 +59,10 @@ const daySchema = new mongoose.Schema(
             // Layout id from the Visual Brand layout system (e.g. a hook layout
             // 'H1'/'H2'/'H3'). Empty = the slide's default composition.
             layout: { type: String, default: '' },
+            // Day Writer / Structure visual recommendation — shown in the
+            // studio as an empty image placeholder plus an info hint when no
+            // photograph is assigned yet.
+            visualNeed: { type: mongoose.Schema.Types.Mixed, default: null },
           },
         ],
         default: [],

@@ -22,34 +22,95 @@ function elementOf(elements, ...types) {
   return (elements || []).find((e) => want.has(normType(e?.type))) || null;
 }
 
+function asStoredText(value) {
+  if (value == null || value === '') return '';
+  if (Array.isArray(value)) {
+    return value.map((x) => asStoredText(x)).filter(Boolean).join('\n');
+  }
+  if (typeof value === 'object') {
+    return String(value.text || value.note || value.need || '').trim();
+  }
+  return String(value).trim();
+}
+
+function asStoredLines(value, limit = 16) {
+  if (!Array.isArray(value)) {
+    const one = asStoredText(value);
+    return one ? [one] : [];
+  }
+  return value.map((x) => asStoredText(x)).filter(Boolean).slice(0, limit);
+}
+
+function visualNeedOf(s) {
+  const visual = (s?.visualNeed && typeof s.visualNeed === 'object')
+    ? s.visualNeed
+    : (s?.visual && typeof s.visual === 'object' ? s.visual : {});
+  const priority = str(visual.priority).toLowerCase();
+  const type = str(visual.type);
+  const execution = str(visual.execution).toLowerCase();
+  const wants = (priority && priority !== 'none')
+    || (type && type.toLowerCase() !== 'none')
+    || /supplied|generated|graphic|unresolved/.test(execution)
+    || str(s?.image).toLowerCase() === 'placeholder';
+  if (!wants) return null;
+  return {
+    priority: priority && priority !== 'none' ? priority : 'recommended',
+    type: type && type.toLowerCase() !== 'none' ? type : '',
+    role: str(visual.role),
+    communicationFunction: str(visual.communicationFunction),
+    truthBoundary: str(visual.truthBoundary),
+    execution,
+    productionInstruction: str(visual.productionInstruction),
+  };
+}
+
 function flattenSlide(raw) {
   const s = raw && typeof raw === 'object' ? raw : {};
+  const visual = s.visual && typeof s.visual === 'object' ? s.visual : {};
   const elements = Array.isArray(s.elements) ? s.elements : [];
   const titleEl = elementOf(elements, 'title', 'short_statement', 'question');
-  const subEl = elementOf(elements, 'subtitle', 'supporting_text', 'caption_label');
-  const bodyEl = elementOf(elements, 'body', 'reason', 'rational');
-  const listEl = elementOf(elements, 'list', 'numbered_items', 'steps', 'options');
+  const subEl = elementOf(elements, 'subtitle', 'supporting_text', 'caption_label', 'label');
+  const bodyEl = elementOf(elements, 'body', 'reason', 'rational', 'reason_rationale', 'example');
+  const listEl = elementOf(
+    elements,
+    'list', 'numbered_items', 'steps', 'options', 'sequence', 'checklist',
+    'ranking', 'timeline', 'process_flow', 'framework', 'categories_groups', 'progression',
+    'hierarchy', 'diagram',
+  );
   const quoteEl = elementOf(elements, 'quote');
-  const statEl = elementOf(elements, 'number_stat', 'number', 'stat');
+  const statEl = elementOf(elements, 'number_stat', 'number', 'stat', 'data_chart');
   const actionEl = elementOf(elements, 'action');
-  const cmpEl = elementOf(elements, 'comparison');
+  const cmpEl = elementOf(
+    elements,
+    'comparison', 'pros_cons', 'do_dont', 'problem_solution', 'cause_effect',
+  );
   const baEl = elementOf(elements, 'before_after');
-  const imageEl = elementOf(elements, 'image', 'multiple_images');
+  const imageEl = elementOf(
+    elements,
+    'image', 'multiple_images', 'annotation', 'detail_closeup', 'screenshot',
+    'illustration', 'graphic_artwork', 'document_source', 'plan_drawing',
+    'product_object', 'people_context', 'environment_space', 'video_motion',
+    'screen_recording', 'animation', 'annotated_visual', 'multiple_visuals',
+  );
 
   const items = stringList(s.items).length
     ? stringList(s.items)
     : stringList(listEl?.items || listEl?.text);
   const itemsA = stringList(s.itemsA || cmpEl?.itemsA || cmpEl?.leftItems);
   const itemsB = stringList(s.itemsB || cmpEl?.itemsB || cmpEl?.rightItems);
-  const comparisonA = str(s.comparisonA || s.comparison?.a || cmpEl?.a || cmpEl?.left || baEl?.before || baEl?.a);
-  const comparisonB = str(s.comparisonB || s.comparison?.b || cmpEl?.b || cmpEl?.right || baEl?.after || baEl?.b);
-  const labels = stringList(s.labels || baEl?.labels || cmpEl?.labels);
-  const quote = str(s.quote || quoteEl?.text);
-  const stat = str(s.stat || statEl?.value || statEl?.text || statEl?.number);
-  const action = str(s.action || actionEl?.text);
-  const body = str(s.body || bodyEl?.text);
+  const comparisonA = str(
+    s.comparisonA || s.comparison?.a || cmpEl?.comparisonA || cmpEl?.a || cmpEl?.left || baEl?.before || baEl?.a,
+  );
+  const comparisonB = str(
+    s.comparisonB || s.comparison?.b || cmpEl?.comparisonB || cmpEl?.b || cmpEl?.right || baEl?.after || baEl?.b,
+  );
+  const labels = stringList(s.labels || baEl?.labels || cmpEl?.labels || subEl?.label);
+  const quote = str(s.quote || quoteEl?.text || quoteEl?.quote);
+  const stat = str(s.stat || statEl?.stat || statEl?.value || statEl?.text || statEl?.number);
+  const action = str(s.action || actionEl?.text || actionEl?.action);
+  const body = str(s.body || bodyEl?.text || bodyEl?.body);
   const title = str(s.title || titleEl?.text || quote || action || comparisonA);
-  const subtitle = str(s.subtitle || subEl?.text || statEl?.label);
+  const subtitle = str(s.subtitle || subEl?.text || statEl?.label || subEl?.label);
   const primary = str(
     s.structure
     || titleEl?.type
@@ -62,9 +123,12 @@ function flattenSlide(raw) {
     || (body && 'Body')
     || 'Title',
   );
+  const priority = str(visual.priority).toLowerCase();
   const wantsImage = Boolean(imageEl)
-    || /^(image|caption_label|multiple_images)$/i.test(primary)
-    || str(s.image).toLowerCase() === 'placeholder';
+    || /image|illustration|screenshot|document|drawing|artwork|product|people|environment|video|animation|annotated|multiple/i.test(primary)
+    || str(s.image).toLowerCase() === 'placeholder'
+    || (priority && priority !== 'none')
+    || /supplied|generated/.test(str(visual.execution).toLowerCase());
 
   return {
     role: str(s.role),
@@ -84,22 +148,24 @@ function flattenSlide(raw) {
       ? labels
       : (/before/i.test(primary) ? ['Before', 'After'] : []),
     image: wantsImage ? 'placeholder' : str(s.image),
-    imagePrompt: '',
-    assetKey: str(s.assetKey),
+    imagePrompt: str(s.imagePrompt || visual.imagePrompt),
+    assetKey: str(s.assetKey || visual.assetKey),
     layout: str(s.layout),
+    visual,
+    visualNeed: visualNeedOf({ ...s, visual, image: wantsImage ? 'placeholder' : str(s.image) }),
   };
 }
 
 function layoutForStructure(slide) {
   const s = `${slide.structure || ''}`.toLowerCase();
   const named = (re) => re.test(s);
-  const listIntent = named(/list|step|number|option|timeline/)
+  const listIntent = named(/list|step|number|option|timeline|sequence|checklist|ranking|process|framework|categor|progress|hierarch|diagram/)
     || (!s && slide.items.length >= 2);
   if (listIntent && slide.items.length >= 2) {
-    if (/step|timeline/.test(s)) return 'n-story-timeline';
+    if (/step|timeline|sequence|process|progress/.test(s)) return 'n-story-timeline';
     return 'e-edu-framework';
   }
-  if (slide.comparisonA && slide.comparisonB && (named(/compar|before|after/) || !s || (!slide.title && !slide.body))) {
+  if (slide.comparisonA && slide.comparisonB && (named(/compar|before|after|pros|dont|problem|cause/) || !s || (!slide.title && !slide.body))) {
     if (/before/.test(s)) return 'e-cmp-duo';
     if (slide.itemsA.length || slide.itemsB.length) return 'n-cmp-columns';
     return 'e-cmp-two';
@@ -119,5 +185,8 @@ function layoutForStructure(slide) {
 module.exports = {
   flattenSlide,
   layoutForStructure,
+  visualNeedOf,
   stringList,
+  asStoredText,
+  asStoredLines,
 };

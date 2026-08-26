@@ -465,7 +465,7 @@
 
 /* top: [icon] type ........ date ⋯  ·  duration below */
 .pe__top { display: flex; flex-direction: column; gap: 3px; }
-.pe__toprow { display: flex; align-items: center; gap: 8px; }
+.pe__toprow { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .pe__ico {
   width: 34px; height: 34px; border-radius: var(--r-sm);
   display: grid; place-items: center; flex-shrink: 0;
@@ -483,6 +483,44 @@
   display: grid; place-items: center; color: var(--ink-quiet);
 }
 .pe__more:hover { background: var(--surface-sunken); color: var(--ink-900); }
+.pe__regen {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 10px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--ink-800);
+  font-family: var(--font-ui);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.pe__regen:hover { background: var(--surface-sunken); border-color: var(--border-strong); }
+.pe__regen:disabled { opacity: 0.65; cursor: default; }
+.pe__regen svg { flex-shrink: 0; }
+.pe__addfiles {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 34px;
+  padding: 0 12px;
+  border-radius: var(--r-sm);
+  border: 1px dashed var(--border-strong);
+  background: var(--surface-sunken);
+  color: var(--ink-700);
+  font-family: var(--font-ui);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.pe__addfiles:hover { background: var(--surface); color: var(--ink-900); }
+.pe__addfiles:disabled { opacity: 0.65; cursor: default; }
+.pe__addfiles svg { flex-shrink: 0; color: var(--ink-500); }
 .pe__dur { padding-left: 42px; font-size: var(--text-xs); color: var(--ink-500); font-variant-numeric: tabular-nums; }
 /* one session summary — enough lines to read the conversation, then an ellipsis.
  * The full text is one tap away in the panel. */

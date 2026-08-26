@@ -206,22 +206,12 @@ async function loadBrandDna(userId, username) {
 // on a single generation; the rest get analysed on later runs (or on demand).
 const MAX_AUTO_ANALYZE = Number(process.env.PLAN_AUTO_ANALYZE_LIMIT) || 16;
 
-// Compact, strategy-neutral note for the planner. Prefer the Capture-time
-// understanding (what actually happened) over the raw typed line.
-function captureNoteForPlan(c) {
+// Source text the planner must see in full. Never truncate originalCapture —
+// a 280-char slice was dropping the rest of the story and letting later agents
+// fill the gap from Brand DNA or another project's photos.
+function captureSourceText(c) {
   const u = c.understanding;
-  if (u?.summary) {
-    const bits = [u.summary.trim()];
-    if (u.intent) bits.push(`Trying to: ${u.intent}`);
-    if (u.difficulty) bits.push(`Tension: ${u.difficulty}`);
-    if (u.actionTaken) bits.push(`Did: ${u.actionTaken}`);
-    if (u.outcome) bits.push(`Came of it: ${u.outcome}`);
-    if (u.knownLimitation) bits.push(`Do not invent: ${u.knownLimitation}`);
-    if (u.visualAssetChoice) bits.push(`Visuals: ${u.visualAssetChoice}`);
-    return bits.join(' · ').slice(0, 500);
-  }
-  const text = (c.text || '').trim();
-  return text ? text.slice(0, 280) : '';
+  return String(u?.originalCapture || c.text || c.sessionSummary || '').trim();
 }
 
 // Make sure the project images the planner sees actually carry vision context.
@@ -298,15 +288,16 @@ async function loadProjectAssets(userId, username) {
           const an = a.analysis && a.analysis.status === 'done' ? a.analysis : null;
           const item = {
             key: a.key,
-            note: (c.sessionSummary || c.understanding?.summary || c.text || '').trim().slice(0, 120),
+            note: '',
             vision: an
               ? {
                   summary: an.summary || '',
+                  description: an.description || '',
                   subjects: (an.subjects || []).slice(0, 8),
                   tags: (an.tags || []).slice(0, 10),
                   colors: (an.colors || []).slice(0, 6),
                   mood: an.mood || '',
-                  text: (an.text || '').slice(0, 120),
+                  text: an.text || '',
                 }
               : null,
           };
@@ -318,18 +309,22 @@ async function loadProjectAssets(userId, username) {
       const storyRows = storiesOfCapture(c);
       storyRows.forEach((story, idx) => {
         const understanding = asPlain(story);
-        const note = captureNoteForPlan({
+        const originalCapture = captureSourceText({
           text: c.text,
+          sessionSummary: c.sessionSummary,
           understanding,
         });
-        if (note || captureAssets.length || understanding) {
+        const filled = understanding
+          ? { ...understanding, originalCapture: understanding.originalCapture || originalCapture }
+          : (originalCapture ? { originalCapture } : null);
+        if (originalCapture || captureAssets.length || filled) {
           notes.push({
-            id: understanding?.captureId || (c._id ? `${String(c._id)}:${idx}` : ''),
-            text: note,
+            id: filled?.captureId || (c._id ? `${String(c._id)}:${idx}` : ''),
+            text: originalCapture,
             createdAt: c.createdAt || null,
             sessionId,
             assets: captureAssets,
-            understanding,
+            understanding: filled,
           });
         }
       });
@@ -375,9 +370,19 @@ async function saveWeek(userId, username, plan, meta) {
     weekOf: { $gte: start, $lt: end },
   }).sort({ generatedAt: -1 });
   if (existing) {
-    return WeeklyRoute.findByIdAndUpdate(existing._id, payload, { new: true });
+    try {
+      return await WeeklyRoute.findByIdAndUpdate(existing._id, payload, { new: true, runValidators: true });
+    } catch (err) {
+      console.error('[route] saveWeek update failed:', err.message);
+      throw err;
+    }
   }
-  return WeeklyRoute.create(payload);
+  try {
+    return await WeeklyRoute.create(payload);
+  } catch (err) {
+    console.error('[route] saveWeek create failed:', err.message);
+    throw err;
+  }
 }
 
 async function loadMonthRoutes(userId, username, monthDate) {
@@ -534,7 +539,7 @@ async function finishNextMonthStubs(userId, profile, { monthFocus, month1Start }
 // Fill empty calendar days from today onward from studio notes/assets.
 // Extra posts continue into the next month. Does not replace days that already
 // have content. Returns the first week that received new posts.
-async function generateAndSaveRoute(userId, profile, trigger = 'generate') {
+async function generateAndSaveRoute(userId, profile, trigger = 'generate', planSource = {}) {
   await logPlanInstagramSource(userId, profile, trigger);
 
   const [brandDna, competitorInsights, projects] = await Promise.all([
@@ -552,7 +557,8 @@ async function generateAndSaveRoute(userId, profile, trigger = 'generate') {
   console.log(
     `[route] ${trigger} @${profile.username} · context: brandDna=${brandDna ? 'yes' : 'no'}` +
       ` · cohort=${competitorInsights ? 'yes' : 'no'}` +
-      ` · projects=${(projects || []).length}`,
+      ` · projects=${(projects || []).length}` +
+      (planSource.sessionId ? ` · session=${planSource.sessionId}` : ''),
   );
 
   const monthDate = new Date();
@@ -575,6 +581,8 @@ async function generateAndSaveRoute(userId, profile, trigger = 'generate') {
       focusPillar: monthFocus,
       usedAssetKeys,
       monthCalendar,
+      sessionId: planSource.sessionId || '',
+      captureIds: planSource.captureIds || [],
     });
   } catch (err) {
     console.error(`[route] month fill failed for @${profile.username}:`, err.message);
@@ -713,9 +721,17 @@ async function generateRoute(req, res) {
     });
   }
   const trigger = String(req.body?.trigger || req.query?.trigger || 'generate').slice(0, 64);
-  console.log(`[route] POST /routes/generate trigger=${trigger} user=${req.user._id} @${profile.username}`);
+  const sessionId = String(req.body?.sessionId || '').trim();
+  const captureIds = Array.isArray(req.body?.captureIds)
+    ? req.body.captureIds.map((id) => String(id || '').trim()).filter(Boolean).slice(0, 24)
+    : [];
+  console.log(`[route] POST /routes/generate trigger=${trigger} user=${req.user._id} @${profile.username}` +
+    (sessionId ? ` session=${sessionId}` : ''));
   // Returns as soon as new empty-day posts are saved; next-month stubs fill in the background.
-  const { route, expectedWeeks, debug } = await generateAndSaveRoute(req.user._id, profile, trigger);
+  const { route, expectedWeeks, debug } = await generateAndSaveRoute(req.user._id, profile, trigger, {
+    sessionId,
+    captureIds,
+  });
   const out = {
     route,
     expectedWeeks: expectedWeeks || null,
@@ -893,6 +909,9 @@ async function markDayPublished(req, res) {
             ? s.assetKeys.map((k) => String(k || ''))
             : (Array.isArray(prev.assetKeys) ? prev.assetKeys.map((k) => String(k || '')) : []),
           layout: String(s.layout || ''),
+          visualNeed: (s.visualNeed && typeof s.visualNeed === 'object')
+            ? s.visualNeed
+            : (prev.visualNeed || null),
         };
       });
       cur.onScreenText = cur.slides.map((s) => s.title).filter(Boolean);

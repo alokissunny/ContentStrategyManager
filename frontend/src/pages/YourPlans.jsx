@@ -423,13 +423,13 @@ export default function YourPlans() {
   }, [loading, routes, monthFilling]);
 
   // Re-run the current month's plan (same path as check-in generate).
-  async function runGenerate(trigger) {
+  async function runGenerate(trigger, extras = {}) {
     setError('');
     setCapturing(false);
     setView('gen');
     const startedAt = Date.now();
     try {
-      const data = await generateRoute(trigger);
+      const data = await generateRoute(trigger, extras);
       const route = data.route || data;
       const hold = Math.max(0, 1800 - (Date.now() - startedAt));
       setTimeout(async () => {
@@ -450,8 +450,13 @@ export default function YourPlans() {
   useEffect(() => {
     if (!location.state?.generateAfterCapture || captureGenStarted.current) return;
     captureGenStarted.current = true;
+    const extras = {
+      sessionId: location.state.sessionId || '',
+      captureIds: location.state.captureIds || [],
+    };
+    const trigger = (extras.sessionId || extras.captureIds.length) ? 'regenerate-session' : 'capture';
     navigate('.', { replace: true, state: {} });
-    runGenerate('capture');
+    runGenerate(trigger, extras);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [location.state?.generateAfterCapture]);
 

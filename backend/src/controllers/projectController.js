@@ -218,6 +218,10 @@ async function addCapture(req, res) {
     sessionSummary,
     createdAt: new Date(),
   });
+  // Persist the files first so a slow vision call cannot lose the upload.
+  await project.save();
+  const created = project.captures[project.captures.length - 1];
+  await analyzeNewImageAttachments(created.attachments);
   await project.save();
   res.status(201).json({ project: await serializeProject(project) });
 }
@@ -239,6 +243,8 @@ async function updateCapture(req, res) {
     // payload only carries { type, key }, so re-key it from what we hold
     const priorAnalysis = new Map((capture.attachments || []).map((a) => [a.key, a.analysis]));
     capture.attachments = next.map((a) => (priorAnalysis.get(a.key) ? { ...a, analysis: priorAnalysis.get(a.key) } : a));
+    await project.save();
+    await analyzeNewImageAttachments(capture.attachments);
   }
   await project.save();
   res.json({ project: await serializeProject(project) });
@@ -292,6 +298,17 @@ async function runAssetAnalysis(attachment) {
       error: err.message || 'Analysis failed',
       analyzedAt: new Date(),
     };
+  }
+}
+
+/** Vision metadata for any image that does not already have a completed analysis. */
+async function analyzeNewImageAttachments(attachments) {
+  if (!process.env.ANTHROPIC_API_KEY) return;
+  for (const a of attachments || []) {
+    if (a.type !== 'image') continue;
+    if (a.analysis && a.analysis.status === 'done') continue;
+    // eslint-disable-next-line no-await-in-loop
+    await runAssetAnalysis(a);
   }
 }
 

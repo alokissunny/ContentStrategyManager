@@ -27,6 +27,12 @@ function clip(value, max) {
   return `${s.slice(0, Math.max(0, max - 1)).trim()}…`;
 }
 
+/** Source-truth text: keep the whole capture. Only cap pathological dumps. */
+const ORIGINAL_CAPTURE_MAX = 20000;
+function sourceText(value) {
+  return clip(value, ORIGINAL_CAPTURE_MAX);
+}
+
 function versionOf(prefix, payload) {
   const h = crypto.createHash('sha1').update(JSON.stringify(payload)).digest('hex').slice(0, 8);
   return `${prefix}-${h}`;
@@ -210,18 +216,18 @@ function conversationCaptureOf(n) {
   const verifiedFacts = Array.isArray(u.verifiedFacts)
     ? u.verifiedFacts.map((f) => clip(f, 400)).filter(Boolean).slice(0, 24)
     : [];
-  const structured = Boolean(whatHappened || captureSummary || verifiedFacts.length);
   return omitEmpty({
     id: mongoId,
     captureId: mongoId,
     project: n.project,
-    originalCapture: clip(u.originalCapture || n.text, structured ? 2400 : 8000),
+    originalCapture: sourceText(u.originalCapture || n.text),
     whatHappened,
     intent: clip(u.intent, 400),
     tension: clip(u.difficulty || u.tension, 400),
     action: clip(u.actionTaken || u.action, 400),
     outcome: clip(u.outcome, 400),
     captureSummary,
+    summary: captureSummary,
     distinctSignals: signalsOf(u),
     sourceStoryId: clip(u.sourceStoryId, 64),
     segmentId: clip(u.segmentId, 64),
@@ -235,21 +241,27 @@ function conversationCaptureOf(n) {
       : [],
     unresolvedGap: clip(u.missingPiece || u.unresolvedGap, 320),
     knownLimitation: clip(u.knownLimitation, 320),
-    visualAssetChoice: clip(u.visualAssetChoice, 24),
+    observableDetails: Array.isArray(u.observableDetails)
+      ? u.observableDetails.map((s) => clip(s, 220)).filter(Boolean).slice(0, 16)
+      : [],
+    visualLimitations: Array.isArray(u.visualLimitations)
+      ? u.visualLimitations.map((s) => clip(s, 220)).filter(Boolean).slice(0, 12)
+      : [],
     relevantAssetContext: Array.isArray(u.relevantAssetContext)
       ? u.relevantAssetContext.map((s) => clip(s, 220)).filter(Boolean).slice(0, 8)
       : [],
+    attachedAssets: attachedAssetsOf(n),
     status: clip(u.captureStatus || u.status, 24),
     shown: n.shown || [],
   });
 }
 
 /** Newest captures first, across every project — never the full archive. */
-function recentCapturesOf(projects, limit = RECENT_CAPTURES) {
+function allCaptureRows(projects) {
   const all = [];
   for (const p of projects || []) {
     for (const n of p.notes || []) {
-      const text = clip(noteText(n), 280);
+      const text = noteText(n);
       const assets = (n && n.assets) || [];
       const shown = assets.map((a) => assetOneLiner(a)).filter(Boolean);
       if (!text && !shown.length && !n.understanding) continue;
@@ -265,8 +277,50 @@ function recentCapturesOf(projects, limit = RECENT_CAPTURES) {
       });
     }
   }
-  all.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
-  return all.slice(0, limit);
+  return all;
+}
+
+function recentCapturesOf(projects, limit = RECENT_CAPTURES) {
+  return allCaptureRows(projects)
+    .sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0))
+    .slice(0, limit);
+}
+
+/** Pin planning to one conversation: explicit sessionId, else capture ids. */
+function capturesForSource(projects, source = {}) {
+  const all = allCaptureRows(projects);
+  const sid = String(source.sessionId || '').trim();
+  if (sid) {
+    const hit = all.filter((r) => String(r.sessionId || '').trim() === sid);
+    if (hit.length) {
+      return hit.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
+    }
+  }
+  const ids = new Set(
+    (Array.isArray(source.captureIds) ? source.captureIds : [])
+      .map((id) => String(id || '').trim())
+      .filter(Boolean),
+  );
+  if (ids.size) {
+    const hit = all.filter((r) => {
+      const id = String(r.id || '');
+      if (ids.has(id)) return true;
+      for (const want of ids) {
+        if (id === want || id.startsWith(`${want}:`)) return true;
+      }
+      return false;
+    });
+    if (hit.length) {
+      return hit.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
+    }
+  }
+  return null;
+}
+
+function sessionRowsOf(projects, source = {}) {
+  const pinned = capturesForSource(projects, source);
+  if (pinned && pinned.length) return pinned;
+  return conversationSessionOf(recentCapturesOf(projects, 10));
 }
 
 /** Latest chat sitting only. Prefer an explicit sessionId (one capture or
@@ -288,18 +342,21 @@ function conversationSessionOf(rows) {
   return session;
 }
 
-function compileProjectTruth(projects) {
-  const recent = recentCapturesOf(projects, 10);
-  const session = conversationSessionOf(recent);
+function compileProjectTruth(projects, source = {}) {
+  const session = sessionRowsOf(projects, source);
   const conversationCaptures = session
     .map(conversationCaptureOf)
     .filter((c) => c.originalCapture || c.whatHappened || c.captureSummary);
   const out = { conversationCaptures };
-  if (!conversationCaptures.length && recent[0]) {
+  if (source.sessionId || (source.captureIds && source.captureIds.length)) {
+    out.planFromSession = true;
+  }
+  if (!conversationCaptures.length && session[0]) {
     out.latestCapture = {
-      project: recent[0].project,
-      text: recent[0].text,
-      shown: recent[0].shown,
+      project: session[0].project,
+      text: session[0].text,
+      shown: session[0].shown,
+      attachedAssets: attachedAssetsOf(session[0]),
       planFromThis: true,
     };
   }
@@ -326,24 +383,94 @@ function compileCalendarSlots(monthCalendar) {
 }
 
 function assetOneLiner(a) {
-  const summary = clip(a?.vision?.summary, 80);
+  const summary = clip(a?.vision?.summary, 180);
   if (summary) return summary;
-  return clip(a?.note, 80);
+  return clip(a?.vision?.description || a?.note, 180);
 }
 
-function compileAssetIndex(projects) {
-  const rows = [];
-  for (const c of recentCapturesOf(projects)) {
-    for (const a of c.assets || []) {
-      if (!a?.key) continue;
-      rows.push({
-        key: a.key,
-        project: c.project,
-        summary: assetOneLiner(a),
-      });
-    }
+function assetContextRow(a) {
+  const v = a?.vision || {};
+  const photoNote = String(a?.note || '').trim();
+  return omitEmpty({
+    key: String(a?.key || '').trim(),
+    summary: sourceText(v.summary || v.description || photoNote),
+    subjects: (v.subjects || []).map((s) => clip(s, 40)).filter(Boolean).slice(0, 6),
+    tags: (v.tags || []).map((s) => clip(s, 28)).filter(Boolean).slice(0, 6),
+    mood: clip(v.mood, 48),
+    textInImage: sourceText(v.text),
+  });
+}
+
+function attachedAssetsOf(n) {
+  return (n?.assets || [])
+    .map(assetContextRow)
+    .filter((row) => row.key || row.summary || (row.subjects && row.subjects.length))
+    .slice(0, 8);
+}
+
+function sessionQueryWords(session) {
+  const text = (session || []).map((c) => {
+    const u = asUnderstanding(c.understanding);
+    return [
+      noteText(c),
+      u.happened || u.whatHappened,
+      u.summary || u.captureSummary,
+      u.intent,
+    ].filter(Boolean).join(' ');
+  }).join(' ');
+  return wordsOf(text);
+}
+
+/** Visual record for the Strategist: conversation attachments plus the same
+ *  project's library photos, including real keys so Strategy can allocate
+ *  relevant files onto briefs. Later agents decide whether they appear. */
+function compileAssetContext(projects, source = {}) {
+  const session = sessionRowsOf(projects, source);
+  const query = sessionQueryWords(session);
+  const sessionProjects = new Set(session.map((c) => c.project).filter(Boolean));
+  const conversationKeys = new Set();
+  const conversationAssets = session.map((c) => {
+    (c.assets || []).forEach((a) => { if (a?.key) conversationKeys.add(a.key); });
+    return omitEmpty({
+      captureId: clip(c.id, 48),
+      project: c.project,
+      assets: attachedAssetsOf(c),
+    });
+  }).filter((row) => (row.assets || []).length);
+
+  const projectAssets = [];
+  const sourceProjects = (projects || []).filter((p) => (
+    !sessionProjects.size || sessionProjects.has(p.name)
+  ));
+  for (const p of sourceProjects) {
+    const ranked = (p.assets || [])
+      .filter((a) => a && !conversationKeys.has(a.key))
+      .map((a) => ({ a, score: scoreAsset(query, a) }))
+      .sort((x, y) => y.score - x.score);
+    const assets = ranked
+      .map(({ a }) => assetContextRow(a))
+      .filter((row) => row.key || row.summary || (row.subjects && row.subjects.length))
+      .slice(0, 12);
+    if (assets.length) projectAssets.push({ project: p.name, assets });
   }
-  return rows.slice(0, 12);
+
+  return omitEmpty({ conversationAssets, projectAssets });
+}
+
+function compileAssetIndex(projects, assetContext) {
+  const ctx = assetContext || compileAssetContext(projects);
+  const rows = [];
+  (ctx.conversationAssets || []).forEach((c) => {
+    (c.assets || []).forEach((a) => {
+      if (a.summary) rows.push({ project: c.project, summary: a.summary, source: 'conversation' });
+    });
+  });
+  (ctx.projectAssets || []).forEach((p) => {
+    (p.assets || []).forEach((a) => {
+      if (a.summary) rows.push({ project: p.project, summary: a.summary, source: 'project' });
+    });
+  });
+  return rows.slice(0, 24);
 }
 
 const STOP = new Set('the a an and or of to for with in on at from your our this that these those is are be as by it its into out up over under about you we they them their post reel story slide day week content'.split(' '));
@@ -389,24 +516,172 @@ function captureAssetKeys(projects, captureId) {
   return keys;
 }
 
+function allocatedAssetsOf(value) {
+  const rows = Array.isArray(value) ? value : [];
+  const seen = new Set();
+  const out = [];
+  for (const row of rows) {
+    const key = String(row && typeof row === 'object' ? row.key : row || '').trim();
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    const source = String(row && typeof row === 'object' ? row.source : '').trim().toLowerCase();
+    out.push(omitEmpty({
+      key,
+      source: source === 'conversation' || source === 'project' ? source : '',
+      why: clip(row && typeof row === 'object' ? row.why : '', 160),
+    }));
+  }
+  return out.slice(0, 4);
+}
+
+function allocatedKeysOf(dayBrief) {
+  return allocatedAssetsOf([
+    ...(Array.isArray(dayBrief?.allocatedAssets) ? dayBrief.allocatedAssets : []),
+    ...(Array.isArray(dayBrief?.allocatedAssetKeys) ? dayBrief.allocatedAssetKeys : []),
+    dayBrief?.suggestedAssetKey,
+  ]).map((a) => a.key);
+}
+
+function knownAssetIndexOf(projects, assetContext) {
+  const keys = new Set();
+  const conversationKeys = new Set();
+  const conversationByCapture = new Map();
+  const summaries = new Map();
+  const remember = (key, summary) => {
+    if (!key) return;
+    keys.add(key);
+    if (summary && !summaries.has(key)) summaries.set(key, summary);
+  };
+  const addConversation = (captureId, key, summary) => {
+    remember(key, summary);
+    if (!key) return;
+    conversationKeys.add(key);
+    const id = String(captureId || '').trim();
+    if (!id) return;
+    const set = conversationByCapture.get(id) || new Set();
+    set.add(key);
+    conversationByCapture.set(id, set);
+  };
+
+  (assetContext?.conversationAssets || []).forEach((c) => {
+    (c.assets || []).forEach((a) => addConversation(c.captureId, a?.key, a?.summary));
+  });
+  (assetContext?.projectAssets || []).forEach((p) => {
+    (p.assets || []).forEach((a) => remember(a?.key, a?.summary));
+  });
+  for (const p of projects || []) {
+    (p.assets || []).forEach((a) => remember(a?.key, assetOneLiner(a)));
+    (p.notes || []).forEach((n) => {
+      (n.assets || []).forEach((a) => remember(a?.key, assetOneLiner(a)));
+    });
+  }
+  return { keys, conversationKeys, conversationByCapture, summaries };
+}
+
+function conversationKeysForBrief(known, brief, capture) {
+  const ids = [
+    brief?.captureId,
+    brief?.sourceStoryId,
+    capture?.id,
+    capture?.captureId,
+    capture?.sourceStoryId,
+  ].map((v) => String(v || '').trim()).filter(Boolean);
+  const set = new Set();
+  ids.forEach((id) => {
+    known.conversationByCapture.forEach((keys, captureId) => {
+      if (captureId === id || captureId.startsWith(`${id}:`) || id.startsWith(`${captureId}:`)) {
+        keys.forEach((key) => set.add(key));
+      }
+    });
+  });
+  return set;
+}
+
+function sanitizeAllocatedAssets(raw, brief, capture, known) {
+  if (!known) return allocatedAssetsOf(raw);
+  const allowedConversation = conversationKeysForBrief(known, brief, capture);
+  return allocatedAssetsOf(raw).filter((a) => {
+    if (!known.keys.has(a.key)) return false;
+    if (known.conversationKeys.has(a.key) && allowedConversation.size) {
+      return allowedConversation.has(a.key);
+    }
+    return true;
+  });
+}
+
+function applyAssetAllocation(brief, capture, known) {
+  let allocated = sanitizeAllocatedAssets(brief?.allocatedAssets, brief, capture, known);
+  if (!allocated.length && capture) {
+    allocated = sanitizeAllocatedAssets(
+      (capture.attachedAssets || []).map((a) => ({
+        key: a.key,
+        source: 'conversation',
+        why: a.summary || '',
+      })),
+      { ...brief, captureId: brief.captureId || capture.id || capture.captureId },
+      capture,
+      known,
+    );
+  }
+  const fromAllocated = allocated
+    .map((a) => a.why || known?.summaries?.get(a.key) || '')
+    .filter(Boolean);
+  return {
+    allocatedAssets: allocated,
+    suggestedAssetKey: allocated[0]?.key || '',
+    relevantAssetContext: (brief.relevantAssetContext && brief.relevantAssetContext.length)
+      ? brief.relevantAssetContext
+      : fromAllocated.slice(0, 8),
+  };
+}
+
+function projectNameForBrief(projects, dayBrief) {
+  const named = String(dayBrief?.project || '').trim();
+  if (named) return named;
+  const id = String(dayBrief?.captureId || '').trim();
+  if (!id) return '';
+  for (const p of projects || []) {
+    for (const n of p.notes || []) {
+      const match = n.id === id
+        || String(n.understanding?.captureId || '') === id
+        || (id && String(n.id || '').startsWith(`${id}:`));
+      if (match) return p.name;
+    }
+  }
+  return '';
+}
+
 function assetsForDay(projects, dayBrief) {
-  const preferred = String(dayBrief?.suggestedAssetKey || '').trim();
+  const allocated = allocatedKeysOf(dayBrief);
+  const allocatedSet = new Set(allocated);
+  const preferred = allocated[0] || String(dayBrief?.suggestedAssetKey || '').trim();
   const fromCapture = captureAssetKeys(projects, dayBrief?.captureId);
-  const query = wordsOf([dayBrief?.source, dayBrief?.angle, dayBrief?.title, dayBrief?.direction].filter(Boolean).join(' '));
+  const briefProject = projectNameForBrief(projects, dayBrief);
+  const query = wordsOf([
+    dayBrief?.source,
+    dayBrief?.angle,
+    dayBrief?.title,
+    dayBrief?.direction,
+    dayBrief?.project,
+    ...(Array.isArray(dayBrief?.allocatedAssets) ? dayBrief.allocatedAssets.map((a) => a?.why) : []),
+  ].filter(Boolean).join(' '));
   const rows = [];
   const seen = new Set();
   const push = (a, projectName) => {
     if (!a?.key || seen.has(a.key)) return;
     seen.add(a.key);
     const captureHit = fromCapture.has(a.key);
+    const allocatedHit = allocatedSet.has(a.key);
     rows.push({
       key: a.key,
       project: projectName,
       summary: assetOneLiner(a),
       subjects: (a.vision?.subjects || []).slice(0, 4),
-      preferred: Boolean((preferred && a.key === preferred) || captureHit),
+      preferred: Boolean(allocatedHit || (preferred && a.key === preferred) || captureHit),
+      allocated: allocatedHit,
       score: scoreAsset(query, a)
-        + (preferred && a.key === preferred ? 10 : 0)
+        + (allocatedHit ? 20 : 0)
+        + (preferred && a.key === preferred ? 5 : 0)
         + (captureHit ? 8 : 0),
     });
   };
@@ -418,11 +693,27 @@ function assetsForDay(projects, dayBrief) {
     }
   }
   for (const p of projects || []) {
+    if (briefProject && p.name !== briefProject) continue;
     for (const a of p.assets || []) push(a, p.name);
   }
   rows.sort((a, b) => b.score - a.score || Number(b.preferred) - Number(a.preferred));
-  return rows.slice(0, 6).map(({ key, project, summary, subjects, preferred }) => ({
-    key, project, summary, subjects, preferred: Boolean(preferred),
+  const picked = [];
+  const seenPick = new Set();
+  allocated.forEach((key) => {
+    const hit = rows.find((r) => r.key === key);
+    if (hit && !seenPick.has(key)) {
+      picked.push({ ...hit, preferred: true, allocated: true });
+      seenPick.add(key);
+    }
+  });
+  for (const r of rows) {
+    if (picked.length >= 6) break;
+    if (seenPick.has(r.key)) continue;
+    picked.push({ ...r, allocated: Boolean(r.allocated) });
+    seenPick.add(r.key);
+  }
+  return picked.map(({ key, project, summary, subjects, preferred, allocated }) => ({
+    key, project, summary, subjects, preferred: Boolean(preferred), allocated: Boolean(allocated),
   }));
 }
 
@@ -432,17 +723,22 @@ function compileStrategyContext({
   projects,
   focusSummary,
   monthCalendar,
+  sessionId = '',
+  captureIds = [],
 }) {
   const brand = compileBrandContext(brandDna);
   const competitor = compileCompetitorSignals(competitorInsights);
+  const planSource = { sessionId, captureIds };
+  const assetContext = compileAssetContext(projects, planSource);
   return {
     brand,
     brandVoice: compileBrandVoice(brandDna),
     competitor,
     authority: compileAuthority(focusSummary),
-    projects: compileProjectTruth(projects),
+    projects: compileProjectTruth(projects, planSource),
     calendar: compileCalendarSlots(monthCalendar),
-    assetIndex: compileAssetIndex(projects),
+    assetContext,
+    assetIndex: compileAssetIndex(projects, assetContext),
     versions: {
       brand: brand.version,
       competitor: competitor.version,
@@ -457,8 +753,13 @@ function json(value) {
 module.exports = {
   compileStrategyContext,
   assetsForDay,
+  allocatedAssetsOf,
+  applyAssetAllocation,
+  knownAssetIndexOf,
   recentCapturesOf,
   conversationSessionOf,
+  capturesForSource,
+  sessionRowsOf,
   json,
   clip,
 };

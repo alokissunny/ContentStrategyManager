@@ -1,8 +1,9 @@
 const fs = require('fs');
 const path = require('path');
 const { extractJson, estimatePlanCostUsd, assignToEmptyDates, normalizeLens } = require('./weeklyPlan');
-const { compileStrategyContext, assetsForDay, json } = require('./planContext');
+const { compileStrategyContext, assetsForDay, allocatedAssetsOf, applyAssetAllocation, knownAssetIndexOf, json } = require('./planContext');
 const { completeText, planTextModel, splitPromptTemplate } = require('./llmComplete');
+const { asStoredText, asStoredLines } = require('./slideContent');
 
 const PROMPTS_DIR = path.join(__dirname, '..', '..', 'prompts');
 const cache = {};
@@ -51,8 +52,78 @@ function lockedPillarOf(planned) {
 const FORMATS = ['Reel', 'Carousel', 'Post', 'Story'];
 const WRITER_FORMATS = ['Reel', 'Carousel', 'Post', 'Story', 'Before/After', 'Annotated Visual'];
 
+const AVAILABLE_ELEMENTS = {
+  text: ['Title', 'Subtitle', 'Body', 'Short_Statement', 'Question', 'Quote', 'Supporting_Text', 'Label'],
+  structured: [
+    'List', 'Numbered_Items', 'Steps', 'Sequence', 'Comparison', 'Before_After',
+    'Pros_Cons', 'Do_Dont', 'Problem_Solution', 'Cause_Effect', 'Options',
+    'Example', 'Reason_Rationale', 'Number_Stat', 'Data_Chart', 'Ranking', 'Checklist',
+    'Timeline', 'Process_Flow', 'Framework', 'Categories_Groups', 'Hierarchy',
+    'Diagram', 'Map_Spatial', 'Annotated_Visual', 'Multiple_Visuals', 'Progression',
+  ],
+  action: ['Action'],
+  visual: [
+    'Image', 'Multiple_Images', 'Detail_Closeup', 'Screenshot', 'Document_Source',
+    'Plan_Drawing', 'Illustration', 'Graphic_Artwork', 'Product_Object', 'People_Context',
+    'Environment_Space', 'Video_Motion', 'Screen_Recording', 'Animation', 'Caption_Label',
+    'Annotation',
+  ],
+};
+
+const VISUAL_PRIORITIES = ['required', 'recommended', 'optional', 'none'];
+const VISUAL_ROLES = ['evidence', 'explanation', 'recognition', 'demonstration', 'atmosphere', 'none'];
+const VISUAL_TYPES = new Set([...AVAILABLE_ELEMENTS.visual, 'none']);
+const SOURCE_VISUAL_TYPES = new Set([
+  'Image', 'Multiple_Images', 'Detail_Closeup', 'Screenshot', 'Document_Source',
+  'Plan_Drawing', 'Product_Object', 'People_Context', 'Environment_Space',
+  'Video_Motion', 'Screen_Recording', 'Annotated_Visual', 'Multiple_Visuals',
+]);
+
+const UI_SCHEMA = {
+  slideFields: [
+    'role', 'structure', 'title', 'subtitle', 'body', 'items', 'comparisonA', 'comparisonB',
+    'stat', 'quote', 'action', 'labels', 'image', 'imagePrompt', 'assetKey',
+  ],
+  visualFields: [
+    'priority', 'role', 'type', 'communicationFunction', 'truthBoundary',
+    'execution', 'productionInstruction', 'assetKey', 'imagePrompt',
+  ],
+  postFields: ['format', 'contentType', 'title', 'direction', 'caption', 'cta', 'hashtags', 'notes'],
+};
+
+const AVAILABLE_ELEMENT_SET = new Set([
+  ...AVAILABLE_ELEMENTS.text,
+  ...AVAILABLE_ELEMENTS.structured,
+  ...AVAILABLE_ELEMENTS.action,
+  ...AVAILABLE_ELEMENTS.visual,
+]);
+
+const PLATFORM_CONSTRAINTS = {
+  platform: 'instagram',
+  nativeBehaviors: [
+    'continue/swipe', 'read/learn-more', 'save', 'share', 'comment', 'reply',
+    'follow', 'visit', 'open-link', 'reflect/consider',
+  ],
+  actionExpressions: ['none', 'CTA-text', 'question', 'native-behavior', 'link-reference'],
+  formatRules: {
+    Post: 'One visual/post surface. Map the strongest core unit to the visual; supporting units go to caption or CTA.',
+    Carousel: 'Map complete narrative meaning across slides. Swipe is native. Count follows meaning, not a default length.',
+    Reel: 'Map units to scenes/beats. Motion may carry meaning. Do not drop meaningful units to keep the sequence short.',
+    Story: 'Lightweight sequential scenes/beats. Keep each scene one clear thought.',
+    'Before/After': 'Requires genuine supporting evidence of both states. Do not fake a transformation.',
+    'Annotated Visual': 'Requires a real visual that can carry supported factual annotations.',
+  },
+};
+
 function stringList(value) {
   return Array.isArray(value) ? value.map((x) => String(x || '').trim()).filter(Boolean) : [];
+}
+
+function hashtagList(value) {
+  const parts = Array.isArray(value)
+    ? value.flatMap((x) => (Array.isArray(x) ? x : String(x || '').split(/[\s,]+/)))
+    : String(value || '').split(/[\s,]+/);
+  return [...new Set(parts.map((h) => String(h || '').replace(/^#/, '').trim()).filter(Boolean))];
 }
 
 function optionalText(value) {
@@ -66,16 +137,52 @@ function optionalTextOrList(value) {
 
 function narrativeUnitsOf(brief) {
   if (!Array.isArray(brief?.narrativeUnits)) return [];
-  return brief.narrativeUnits.map((u) => {
+  return brief.narrativeUnits.map((u, i) => {
     const unit = {
+      id: String(u?.id || `u${i + 1}`).trim() || `u${i + 1}`,
+      index: Number(u?.index) > 0 ? Number(u.index) : i + 1,
       role: String(u?.role || '').trim(),
       purpose: String(u?.purpose || '').trim(),
       support: String(u?.support || '').trim(),
     };
     const placement = String(u?.placement || '').trim().toLowerCase();
     if (['visual', 'caption', 'cta'].includes(placement)) unit.placement = placement;
+    const rel = u?.relationship && typeof u.relationship === 'object' ? u.relationship : null;
+    if (rel) {
+      const type = optionalText(rel.type);
+      const connectsFrom = optionalText(rel.connectsFrom);
+      const connectsTo = optionalText(rel.connectsTo);
+      if (type && type !== 'none') {
+        unit.relationship = { type, connectsFrom, connectsTo };
+      }
+    }
     return unit;
   }).filter((u) => u.purpose || u.support || u.role);
+}
+
+function withUnitIds(units) {
+  return (Array.isArray(units) ? units : []).map((u, i) => ({
+    ...u,
+    id: String(u?.id || `u${i + 1}`).trim() || `u${i + 1}`,
+    index: Number(u?.index) > 0 ? Number(u.index) : i + 1,
+  }));
+}
+
+function platformConstraintsOf(format) {
+  const locked = lockedFormat(format);
+  return {
+    ...PLATFORM_CONSTRAINTS,
+    format: locked,
+    formatRule: PLATFORM_CONSTRAINTS.formatRules[locked] || PLATFORM_CONSTRAINTS.formatRules.Post,
+  };
+}
+
+function visualSlidesOf(structure) {
+  return (Array.isArray(structure?.slidesOrScenes) ? structure.slidesOrScenes : [])
+    .filter((s) => {
+      const placement = String(s?.placement || 'visual').trim().toLowerCase();
+      return placement === 'visual' || placement === '';
+    });
 }
 
 function persistFormat(label) {
@@ -116,8 +223,14 @@ function briefFieldsOf(b) {
     source: b.source || '',
     captureId: optionalText(b.captureId),
     sourceStoryId: optionalText(b.sourceStoryId),
+    project: optionalText(b.project),
+    originalCapture: optionalText(b.originalCapture),
     angle: b.angle || '',
     verifiedTruth: stringList(b.verifiedTruth),
+    observableDetails: stringList(b.observableDetails),
+    relevantAssetContext: stringList(b.relevantAssetContext),
+    allocatedAssets: allocatedAssetsOf(b.allocatedAssets || b.allocatedAssetKeys),
+    visualLimitations: stringList(b.visualLimitations),
     uniqueJob: optionalText(b.uniqueJob),
     audienceTension: optionalText(b.audienceTension),
     hookTerritory: optionalText(b.hookTerritory),
@@ -131,6 +244,7 @@ function briefFieldsOf(b) {
     knownLimitation: optionalText(b.knownLimitation),
     hashtags: stringList(b.hashtags),
     recommendedTime: optionalText(b.recommendedTime),
+    pillarJob: optionalText(b.pillarJob),
     ...(lens ? { lens, pillar: lens } : {}),
   };
 }
@@ -139,6 +253,10 @@ function maxTokensFor(kind) {
   if (kind === 'strategist') {
     const n = Number(process.env.PLAN_STRATEGIST_MAX_TOKENS);
     return Number.isFinite(n) && n > 0 ? n : 32000;
+  }
+  if (kind === 'structure') {
+    const n = Number(process.env.PLAN_STRUCTURE_MAX_TOKENS);
+    return Number.isFinite(n) && n > 0 ? n : 8192;
   }
   if (kind === 'quality') {
     const n = Number(process.env.PLAN_QUALITY_MAX_TOKENS);
@@ -278,16 +396,30 @@ function captureByBriefId(conversationCaptures, brief) {
   )) || null;
 }
 
-function enrichBriefsFromCaptures(briefs, conversationCaptures) {
+function enrichBriefsFromCaptures(briefs, conversationCaptures, ctx = {}) {
+  const known = knownAssetIndexOf(ctx.projectsList || ctx.projects, ctx.assetContext);
   return (briefs || []).map((b) => {
     const src = captureByBriefId(conversationCaptures, b);
-    if (!src) return b;
-    return {
+    const filled = src ? {
       ...b,
       captureId: b.captureId || src.id || src.captureId,
       sourceStoryId: b.sourceStoryId || src.sourceStoryId,
+      project: b.project || src.project,
+      originalCapture: b.originalCapture || src.originalCapture,
       knownLimitation: b.knownLimitation || src.knownLimitation,
-    };
+      observableDetails: (b.observableDetails && b.observableDetails.length)
+        ? b.observableDetails
+        : (src.observableDetails || []),
+      relevantAssetContext: (b.relevantAssetContext && b.relevantAssetContext.length)
+        ? b.relevantAssetContext
+        : (src.relevantAssetContext && src.relevantAssetContext.length
+          ? src.relevantAssetContext
+          : (src.attachedAssets || []).map((a) => a.summary).filter(Boolean)),
+      visualLimitations: (b.visualLimitations && b.visualLimitations.length)
+        ? b.visualLimitations
+        : (src.visualLimitations || []),
+    } : b;
+    return { ...filled, ...applyAssetAllocation(filled, src, known) };
   });
 }
 
@@ -312,24 +444,309 @@ function qualityFeedbackOf(review) {
     finalSlideResolution: review.checks?.finalSlideResolution || null,
     issues: Array.isArray(review.issues) ? review.issues.slice(0, 8) : [],
     revisionPriority: stringList(review.revisionPriority).slice(0, 8),
+    lockedStructure: 'Slide/scene count, unit mapping, primaryStructure, supportingElements, visual priority/role/type, and action are locked. Repair copy inside that structure. Do not add, remove, merge, or split slides, or silently drop visual requirements.',
   };
 }
 
 function validateDayWriter(parsed) {
-  if (parsed?.status === 'cannot_generate') return;
+  const status = String(parsed?.status || '').toLowerCase();
+  if (status === 'cannot_generate' || status === 'failed') {
+    parsed.status = 'failed';
+    parsed.failureReason = optionalText(parsed.failureReason || parsed.reason || parsed.conflict);
+    return;
+  }
   if (!parsed?.content || typeof parsed.content !== 'object') throw new Error('missing content');
+  parsed.status = status || 'ready';
+}
+
+function writerFailed(parsed) {
+  const status = String(parsed?.status || '').toLowerCase();
+  return status === 'failed' || status === 'cannot_generate';
+}
+
+function isSourceVisualType(type) {
+  return SOURCE_VISUAL_TYPES.has(String(type || '').trim());
+}
+
+function photoLayoutOf(s) {
+  const layout = optionalText(s.layout);
+  if (layout && layout !== 'e-hook-statement') return layout;
+  return 'n-hook-band';
+}
+
+function bindAllocatedAssets(slides, dayBrief) {
+  const allocated = allocatedAssetsOf(dayBrief?.allocatedAssets).map((a) => a.key).filter(Boolean);
+  if (!Array.isArray(slides) || !slides.length || !allocated.length) return slides;
+  const used = new Set();
+  const take = () => allocated.find((k) => k && !used.has(k)) || '';
+  const claim = (key) => { if (key) used.add(key); };
+  const withAsset = (s, key, type) => ({
+    ...s,
+    assetKey: key,
+    image: s.image || 'placeholder',
+    layout: photoLayoutOf(s),
+    visual: {
+      ...(s.visual || {}),
+      ...(type ? { type } : {}),
+      execution: 'supplied-asset',
+      assetKey: key,
+      priority: String(s?.visual?.priority || '').toLowerCase() || 'recommended',
+    },
+  });
+
+  const next = slides.map((s) => {
+    const existing = optionalText(s.assetKey) || optionalText(s.visual?.assetKey);
+    if (existing) {
+      claim(existing);
+      return { ...s, assetKey: existing, layout: photoLayoutOf(s) };
+    }
+    const priority = String(s?.visual?.priority || '').toLowerCase();
+    const type = optionalText(s?.visual?.type);
+    const wants = (priority && priority !== 'none') || isSourceVisualType(type);
+    if (!wants || !isSourceVisualType(type)) return s;
+    const key = take();
+    if (!key) return s;
+    claim(key);
+    return withAsset(s, key);
+  });
+
+  for (let i = 0; i < next.length && used.size < allocated.length; i += 1) {
+    const s = next[i];
+    if (optionalText(s.assetKey) || optionalText(s.visual?.assetKey)) continue;
+    const priority = String(s?.visual?.priority || '').toLowerCase();
+    if (!priority || priority === 'none') continue;
+    const key = take();
+    if (!key) break;
+    claim(key);
+    const type = isSourceVisualType(s.visual?.type) ? s.visual.type : 'Image';
+    next[i] = withAsset(s, key, type);
+  }
+  return next;
+}
+
+function normalizeWriterPost(parsed, dayBrief) {
+  const content = { ...(parsed?.content || {}) };
+  const slides = bindAllocatedAssets(Array.isArray(content.slides) ? content.slides.map((s) => {
+    const visual = s?.visual && typeof s.visual === 'object' ? s.visual : {};
+    const priority = String(visual.priority || '').toLowerCase();
+    const execution = String(visual.execution || '').toLowerCase();
+    const wantsVisual = (priority && priority !== 'none') || /supplied|generated/.test(execution);
+    return {
+      ...s,
+      image: wantsVisual ? (s.image || 'placeholder') : (s.image || ''),
+      assetKey: optionalText(s.assetKey) || optionalText(visual.assetKey),
+      imagePrompt: optionalText(s.imagePrompt) || optionalText(visual.imagePrompt),
+      visual,
+    };
+  }) : [], dayBrief);
+  content.slides = slides;
+  content.caption = optionalText(parsed.caption || content.caption);
+  content.cta = optionalText(parsed.cta || content.cta);
+  const writerTags = hashtagList(parsed.hashtags || content.hashtags);
+  const briefTags = hashtagList(dayBrief.hashtags);
+  content.hashtags = writerTags.length ? writerTags : briefTags;
+  content.executionRationale = optionalText(parsed.executionRationale || content.executionRationale);
+  content.strategy = content.executionRationale || content.strategy || '';
+  const needs = Array.isArray(parsed.productionNeeds)
+    ? parsed.productionNeeds
+    : (Array.isArray(content.productionNeeds) ? content.productionNeeds : []);
+  content.productionNeeds = asStoredLines(needs);
+  content.prompts = content.productionNeeds;
+  content.plan = asStoredText(parsed.plan != null ? parsed.plan : content.plan);
+  content.notes = asStoredText(parsed.notes != null ? parsed.notes : content.notes);
+  return content;
+}
+
+function approvedGenerationRouteOf() {
+  const v = String(process.env.PLAN_IMAGE_GENERATION ?? '1').trim().toLowerCase();
+  if (v === '0' || v === 'false' || v === 'off' || v === 'no') return 'assets-only';
+  if (process.env.GEMINI_API_KEY || process.env.GOOGLE_CLOUD_PROJECT) return 'generate';
+  return 'assets-only';
+}
+
+function visualPlanOf(visual) {
+  const raw = visual && typeof visual === 'object' ? visual : {};
+  const priority = VISUAL_PRIORITIES.includes(String(raw.priority || '').trim().toLowerCase())
+    ? String(raw.priority).trim().toLowerCase()
+    : (optionalText(raw.need) && optionalText(raw.need) !== 'none' ? 'recommended' : 'none');
+  const role = VISUAL_ROLES.includes(String(raw.role || '').trim().toLowerCase())
+    ? String(raw.role).trim().toLowerCase()
+    : 'none';
+  let type = normalizeStructureType(raw.type) || optionalText(raw.type) || 'none';
+  if (type && type !== 'none' && !VISUAL_TYPES.has(type)) type = 'Image';
+  if (priority === 'none') type = 'none';
+  return {
+    priority,
+    role: priority === 'none' ? 'none' : role,
+    type: priority === 'none' ? 'none' : type,
+    communicationFunction: optionalText(raw.communicationFunction),
+    truthBoundary: optionalText(raw.truthBoundary),
+    noneReason: optionalText(raw.noneReason),
+  };
+}
+
+const STRUCTURE_ALIASES = {
+  supporting_text: 'Supporting_Text',
+  numbered_items: 'Numbered_Items',
+  reason: 'Reason_Rationale',
+  rational: 'Reason_Rationale',
+  beforeafter: 'Before_After',
+  before_after: 'Before_After',
+  number: 'Number_Stat',
+  stat: 'Number_Stat',
+  caption_label: 'Caption_Label',
+  short_statement: 'Short_Statement',
+  multiple_images: 'Multiple_Images',
+  process_flow: 'Process_Flow',
+  categories_groups: 'Categories_Groups',
+  proscons: 'Pros_Cons',
+  do_dont: 'Do_Dont',
+  problem_solution: 'Problem_Solution',
+  cause_effect: 'Cause_Effect',
+  data_chart: 'Data_Chart',
+  hierarchy: 'Hierarchy',
+  diagram: 'Diagram',
+  map_spatial: 'Map_Spatial',
+  annotated_visual: 'Annotated_Visual',
+  multiple_visuals: 'Multiple_Visuals',
+  illustration: 'Illustration',
+  graphic_artwork: 'Graphic_Artwork',
+};
+
+function normalizeStructureType(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  if (AVAILABLE_ELEMENT_SET.has(raw)) return raw;
+  const compact = raw.toLowerCase().replace(/[\s/-]+/g, '_');
+  if (STRUCTURE_ALIASES[compact]) return STRUCTURE_ALIASES[compact];
+  for (const name of AVAILABLE_ELEMENT_SET) {
+    if (name.toLowerCase() === compact) return name;
+  }
+  return raw;
+}
+
+function validateContentStructure(parsed) {
+  const status = String(parsed?.status || '').trim().toLowerCase();
+  if (!['ready', 'unresolved'].includes(status)) throw new Error('missing structure status');
+  parsed.status = status;
+  parsed.format = lockedFormat(parsed.format);
+  parsed.structureReason = optionalText(parsed.structureReason);
+  parsed.captionUnits = stringList(parsed.captionUnits);
+  parsed.unmappedUnits = stringList(parsed.unmappedUnits);
+  parsed.ctaUnit = parsed.ctaUnit == null || parsed.ctaUnit === '' ? null : parsed.ctaUnit;
+  parsed.limitations = Array.isArray(parsed.limitations) ? parsed.limitations : [];
+  const slides = Array.isArray(parsed.slidesOrScenes) ? parsed.slidesOrScenes : [];
+  parsed.slidesOrScenes = slides.map((s, i) => {
+    const supporting = Array.isArray(s?.supportingElements) ? s.supportingElements : [];
+    const visual = s?.visual && typeof s.visual === 'object' ? s.visual : {};
+    const action = s?.action && typeof s.action === 'object' ? s.action : {};
+    const primary = normalizeStructureType(s?.primaryStructure);
+    return {
+      index: Number(s?.index) > 0 ? Number(s.index) : i + 1,
+      role: optionalText(s?.role) || 'other',
+      coversUnits: stringList(s?.coversUnits),
+      purpose: optionalText(s?.purpose),
+      placement: ['visual', 'caption', 'cta'].includes(String(s?.placement || '').trim().toLowerCase())
+        ? String(s.placement).trim().toLowerCase()
+        : 'visual',
+      informationShape: optionalText(s?.informationShape),
+      primaryStructure: primary,
+      supportingElements: supporting.map((el) => ({
+        type: normalizeStructureType(el?.type),
+        function: optionalText(el?.function),
+        supportReference: stringList(el?.supportReference).length
+          ? stringList(el.supportReference)
+          : (optionalText(el?.supportReference) ? [optionalText(el.supportReference)] : []),
+      })).filter((el) => el.type && AVAILABLE_ELEMENT_SET.has(el.type) && el.type !== primary),
+      selectionReason: optionalText(s?.selectionReason),
+      contentGuidance: optionalText(s?.contentGuidance),
+      visual: visualPlanOf(visual),
+      action: {
+        type: optionalText(action.type) || 'none',
+        expression: optionalText(action.expression) || 'none',
+      },
+    };
+  });
+  if (status === 'unresolved') return;
+  const visualSlides = visualSlidesOf(parsed);
+  if (!visualSlides.length) throw new Error('missing visual slidesOrScenes');
+  const missingPrimary = visualSlides.find((s) => !s.primaryStructure);
+  if (missingPrimary) throw new Error(`slide ${missingPrimary.index} missing primaryStructure`);
+  const unsupported = visualSlides.find((s) => !AVAILABLE_ELEMENT_SET.has(s.primaryStructure));
+  if (unsupported) throw new Error(`unsupported primaryStructure ${unsupported.primaryStructure}`);
+  if (parsed.unmappedUnits.length) throw new Error('ready structure has unmappedUnits');
+  parsed.totalSlidesOrScenes = visualSlides.length;
+  const suff = parsed.validation?.communicationSufficiency;
+  parsed.validation = {
+    status: optionalText(parsed.validation?.status) || 'pass',
+    correctionPasses: Number(parsed.validation?.correctionPasses) || 0,
+    monotonyReviewed: Boolean(parsed.validation?.monotonyReviewed),
+    communicationSufficiency: suff && typeof suff === 'object' ? {
+      narrativeComplete: Boolean(suff.narrativeComplete),
+      audienceValueClear: Boolean(suff.audienceValueClear),
+      choicesExplained: Boolean(suff.choicesExplained),
+      closurePresent: Boolean(suff.closurePresent),
+      visualsNecessary: Boolean(suff.visualsNecessary),
+    } : null,
+    problems: Array.isArray(parsed.validation?.problems) ? parsed.validation.problems : [],
+  };
+}
+
+async function writeContentStructure({ source, brief }) {
+  const assembled = assembleAgentPrompt('plan-content-structure.md', {
+    AVAILABLE_ELEMENTS_JSON: json(AVAILABLE_ELEMENTS),
+    STRATEGIST_BRIEF_JSON: json({
+      pillar: brief.pillar,
+      lens: brief.lens,
+      pillarJob: brief.pillarJob,
+      source: brief.source,
+      captureId: brief.captureId,
+      sourceStoryId: brief.sourceStoryId,
+      project: brief.project,
+      originalCapture: brief.originalCapture,
+      angle: brief.angle,
+      verifiedTruth: brief.verifiedTruth,
+      observableDetails: brief.observableDetails,
+      relevantAssetContext: brief.relevantAssetContext,
+      allocatedAssets: brief.allocatedAssets || [],
+      visualLimitations: brief.visualLimitations,
+      uniqueJob: brief.uniqueJob,
+      audienceTension: brief.audienceTension,
+      hookTerritory: brief.hookTerritory,
+      centralFact: brief.centralFact,
+      ownedTerritory: brief.ownedTerritory,
+      doNotRepeat: brief.doNotRepeat,
+      format: brief.format,
+      formatReason: brief.formatReason,
+      narrativeUnits: brief.narrativeUnits,
+      knownLimitation: brief.knownLimitation,
+    }),
+    PLATFORM_CONSTRAINTS_JSON: json(platformConstraintsOf(brief.format)),
+  });
+  return callAgent({
+    source,
+    kind: 'structure',
+    system: assembled.system,
+    user: assembled.user,
+    prompt: assembled.prompt,
+    validate: validateContentStructure,
+  });
 }
 
 async function writeDayPost({
   source, brief, constraintsJson, dayAssets, generationSignalsJson, authorityFocusJson, brandJson, qualityFeedback,
+  structureJson,
 }) {
   const assembled = assembleAgentPrompt('plan-day-writer.md', {
     DAY_JSON: json(brief),
+    STRUCTURE_JSON: structureJson || json({}),
     CONSTRAINTS_JSON: constraintsJson,
     DAY_ASSETS: json(dayAssets),
     GENERATION_SIGNALS_JSON: generationSignalsJson,
     AUTHORITY_FOCUS_JSON: authorityFocusJson,
     BRAND_JSON: brandJson || json({}),
+    PLATFORM_CONSTRAINTS_JSON: json(platformConstraintsOf(brief.format)),
+    UI_SCHEMA_JSON: json(UI_SCHEMA),
     QUALITY_FEEDBACK_JSON: json(qualityFeedback || { status: 'first_draft' }),
   });
   return callAgent({
@@ -342,7 +759,7 @@ async function writeDayPost({
   });
 }
 
-async function reviewDayPost({ source, brief, post }) {
+async function reviewDayPost({ source, brief, post, structure }) {
   const assembled = assembleAgentPrompt('plan-quality.md', {
     BRIEF_JSON: json({
       pillar: brief.pillar,
@@ -352,6 +769,9 @@ async function reviewDayPost({ source, brief, post }) {
       angle: brief.angle,
       uniqueJob: brief.uniqueJob,
       verifiedTruth: brief.verifiedTruth,
+      observableDetails: brief.observableDetails,
+      relevantAssetContext: brief.relevantAssetContext,
+      visualLimitations: brief.visualLimitations,
       narrativeUnits: brief.narrativeUnits,
       audienceTension: brief.audienceTension,
       hookTerritory: brief.hookTerritory,
@@ -361,6 +781,7 @@ async function reviewDayPost({ source, brief, post }) {
       knownLimitation: brief.knownLimitation,
       sourceStoryId: brief.sourceStoryId,
     }),
+    STRUCTURE_JSON: json(structure || {}),
     POST_JSON: json(post),
   });
   return callAgent({
@@ -374,7 +795,7 @@ async function reviewDayPost({ source, brief, post }) {
 }
 
 /**
- * Multi-agent plan: Strategist → parallel Day writers → Quality gate
+ * Multi-agent plan: Strategist → Content Structure → Day Writer → Quality gate
  * (only for empty month days the strategist grounded in notes/assets).
  * Returns the same shape fields weeklyPlan needs to assemble a route:
  *   { focusOut, rawDays, usage, model, debug }
@@ -386,6 +807,8 @@ async function runMultiAgentPlan({
   projects,
   focusSummary,
   monthCalendar = { occupied: [], emptyDates: [] },
+  sessionId = '',
+  captureIds = [],
 }) {
   const username = profile?.username || '?';
   const ctx = compileStrategyContext({
@@ -394,6 +817,8 @@ async function runMultiAgentPlan({
     projects,
     focusSummary,
     monthCalendar,
+    sessionId,
+    captureIds,
   });
   const emptyDates = Array.isArray(ctx.calendar.emptyDates) ? ctx.calendar.emptyDates : [];
   const debugAgents = [];
@@ -403,6 +828,9 @@ async function runMultiAgentPlan({
     `[planOrchestrator] multi-agent plan for @${username} · focus=${ctx.authority.priority}` +
       ` · emptyMonthDays=${emptyDates.length}` +
       ` · conversationCaptures=${(ctx.projects?.conversationCaptures || []).length}` +
+      ` · conversationAssets=${(ctx.assetContext?.conversationAssets || []).reduce((n, r) => n + (r.assets || []).length, 0)}` +
+      ` · projectAssets=${(ctx.assetContext?.projectAssets || []).reduce((n, r) => n + (r.assets || []).length, 0)}` +
+      (sessionId ? ` · session=${sessionId}` : '') +
       ` · brand=${ctx.versions.brand} · competitor=${ctx.versions.competitor}`,
   );
 
@@ -410,7 +838,10 @@ async function runMultiAgentPlan({
   const strategistAssembled = assembleAgentPrompt('plan-strategist.md', {
     LIMITS_JSON: json({
       month: ctx.calendar.month,
-      planFrom: 'latest chat session only — every conversationCaptures item from that sitting; produce Discovery, Credibility, and Trust briefs per capture when genuinely supported',
+      supportedFormats: WRITER_FORMATS,
+      planFrom: (sessionId || (captureIds && captureIds.length))
+        ? 'this conversation session only — conversationCaptures and attached/project visuals from that sitting; produce Discovery, Credibility, and Trust briefs per capture when genuinely supported'
+        : 'latest chat session only — every conversationCaptures item from that sitting, plus conversation-attached and same-project library visuals; produce Discovery, Credibility, and Trust briefs per capture when genuinely supported',
     }),
     OCCUPIED_TOPICS_JSON: json(ctx.calendar.occupiedTopics || []),
     AUTHORITY_JSON: json(ctx.authority),
@@ -426,6 +857,7 @@ async function runMultiAgentPlan({
       signals: ctx.competitor.signals,
     }),
     PROJECT_TRUTH_JSON: json(ctx.projects),
+    ASSET_CONTEXT_JSON: json(ctx.assetContext || { conversationAssets: [], projectAssets: [] }),
   });
   const strategistPrompt = strategistAssembled.prompt;
   const strategist = await callAgent({
@@ -443,13 +875,15 @@ async function runMultiAgentPlan({
       ? strategist.parsed.briefs
       : (strategist.parsed.plannedDays || []),
     ctx.projects?.conversationCaptures,
+    { projectsList: projects, assetContext: ctx.assetContext },
   );
   const plannedDays = assignToEmptyDates(briefs, emptyDates);
   strategist.parsed.briefs = briefs;
   strategist.parsed.plannedDays = plannedDays;
   console.log(
     `[planOrchestrator] @${username}: ${briefs.length} briefs → ${plannedDays.length} dated slots` +
-      (plannedDays[0]?.date ? ` starting ${plannedDays[0].date}` : ''),
+      (plannedDays[0]?.date ? ` starting ${plannedDays[0].date}` : '') +
+      ` · allocatedAssets=${briefs.reduce((n, b) => n + (b.allocatedAssets || []).length, 0)}`,
   );
   const constraintsJson = json({
     mustUseProjects: strategist.parsed.constraints?.mustUseProjects || [],
@@ -476,13 +910,13 @@ async function runMultiAgentPlan({
         ` · lastThree=${noteCount} shownPhotos=${shownCount}` +
         (latest ? ` · latest=${JSON.stringify(String(latest).slice(0, 80))}` : '') +
         (whyEmpty ? ` · insufficientContext=${JSON.stringify(whyEmpty)}` : '') +
-        ` — skipping day writers`,
+        ` — skipping content structure and day writers`,
     );
   }
 
-  // ── 2. Day writers + Quality gate ────────────────────────────────────────
-  // First Day Writer primes the provider prompt cache; the rest run in parallel
-  // so they reuse the same system instructions at cached-input rates.
+  // ── 2. Content Structure → Day writers + Quality gate ─────────────────────
+  // First brief primes the provider prompt cache for Structure then Day Writer;
+  // the rest run in parallel so they reuse the same system instructions.
   const gateOn = qualityAgentEnabled();
   const maxRewrites = qualityMaxRewrites();
   const writeOneDay = async (planned, index) => {
@@ -494,12 +928,19 @@ async function runMultiAgentPlan({
         day: planned.day,
         pillar,
         lens: pillar,
-        pillarJob: PILLAR_JOB[pillar] || '',
+        pillarJob: optionalText(planned.pillarJob) || PILLAR_JOB[pillar] || '',
         source: planned.source || '',
         captureId: planned.captureId || '',
         sourceStoryId: planned.sourceStoryId || '',
+        project: planned.project || '',
+        originalCapture: planned.originalCapture || '',
         angle: planned.angle || '',
         verifiedTruth: planned.verifiedTruth || [],
+        observableDetails: planned.observableDetails || [],
+        relevantAssetContext: planned.relevantAssetContext || [],
+        allocatedAssets: planned.allocatedAssets || [],
+        suggestedAssetKey: planned.suggestedAssetKey || planned.allocatedAssets?.[0]?.key || '',
+        visualLimitations: planned.visualLimitations || [],
         uniqueJob: planned.uniqueJob || '',
         audienceTension: planned.audienceTension || '',
         hookTerritory: planned.hookTerritory || '',
@@ -508,8 +949,8 @@ async function runMultiAgentPlan({
         doNotRepeat: planned.doNotRepeat || '',
         format: lockedFormat(planned.format),
         formatReason: planned.formatReason || '',
-        narrativeUnits: planned.narrativeUnits || [],
-        approvedGenerationRoute: planned.approvedGenerationRoute || '',
+        narrativeUnits: withUnitIds(planned.narrativeUnits || []),
+        approvedGenerationRoute: planned.approvedGenerationRoute || approvedGenerationRouteOf(),
         knownLimitation: planned.knownLimitation || '',
         hashtags: planned.hashtags || [],
         recommendedTime: planned.recommendedTime || '',
@@ -528,7 +969,7 @@ async function runMultiAgentPlan({
         authorityFocusJson: json({
           lockedLens: pillar,
           lockedPillar: pillar,
-          pillarJob: PILLAR_JOB[pillar] || '',
+          pillarJob: optionalText(planned.pillarJob) || PILLAR_JOB[pillar] || '',
           accountPriority: ctx.authority.priority,
           objective: optionalText(strategist.parsed.focus?.objective),
           headline: optionalText(strategist.parsed.focus?.headline),
@@ -543,6 +984,41 @@ async function runMultiAgentPlan({
         runUsages.push(agent.usage);
       };
 
+      let structure;
+      try {
+        structure = await writeContentStructure({
+          source: `Structure:${label}`,
+          brief,
+        });
+        collect(structure);
+      } catch (err) {
+        console.warn(`[planOrchestrator] Structure:${label} skipped — ${err.message}`);
+        return { index, dayBrief: brief, result: null, skipped: err.message, debugEntries, runUsages };
+      }
+
+      if (structure.parsed?.status === 'unresolved') {
+        const why = optionalText(structure.parsed.limitations?.[0])
+          || optionalText(structure.parsed.validation?.problems?.[0]?.detail)
+          || optionalText(structure.parsed.structureReason)
+          || 'unresolved structure';
+        console.warn(`[planOrchestrator] Structure:${label} unresolved — ${why}`);
+        return {
+          index,
+          dayBrief: brief,
+          result: null,
+          skipped: `structure unresolved: ${why}`,
+          debugEntries,
+          runUsages,
+        };
+      }
+
+      writerOpts.structureJson = json(structure.parsed);
+      const visualCount = visualSlidesOf(structure.parsed).length;
+      console.log(
+        `[planOrchestrator] Structure:${label} ${structure.parsed.format}` +
+          ` · ${visualCount} visual ${visualCount === 1 ? 'slide' : 'slides'}`,
+      );
+
       let writer;
       try {
         writer = await writeDayPost({
@@ -556,7 +1032,7 @@ async function runMultiAgentPlan({
         return { index, dayBrief: brief, result: null, skipped: err.message, debugEntries, runUsages };
       }
 
-      if (writer.parsed?.status === 'cannot_generate') {
+      if (writerFailed(writer.parsed)) {
         return { index, dayBrief: brief, result: writer, quality: null, debugEntries, runUsages };
       }
 
@@ -570,6 +1046,7 @@ async function runMultiAgentPlan({
           source: `Quality:${label}`,
           brief,
           post: writer.parsed,
+          structure: structure.parsed,
         });
         collect(review);
       } catch (err) {
@@ -592,7 +1069,7 @@ async function runMultiAgentPlan({
           console.warn(`[planOrchestrator] Day:${label}:${pass}${rewrites} skipped — ${err.message}`);
           break;
         }
-        if (writer.parsed?.status === 'cannot_generate') {
+        if (writerFailed(writer.parsed)) {
           return { index, dayBrief: brief, result: writer, quality: review.parsed, debugEntries, runUsages };
         }
         try {
@@ -600,6 +1077,7 @@ async function runMultiAgentPlan({
             source: `Quality:${label}:${pass}${rewrites}`,
             brief,
             post: writer.parsed,
+            structure: structure.parsed,
           });
           collect(review);
         } catch (err) {
@@ -656,34 +1134,40 @@ async function runMultiAgentPlan({
         return null;
       }
       const parsed = result.parsed || {};
-      if (parsed.status === 'cannot_generate') {
+      if (writerFailed(parsed)) {
         console.warn(
-          `[planOrchestrator] @${username}: cannot_generate ${dayBrief.date || dayBrief.day}` +
+          `[planOrchestrator] @${username}: failed ${dayBrief.date || dayBrief.day}` +
+            (parsed.failureReason ? ` · ${parsed.failureReason}` : '') +
             (parsed.conflict ? ` · conflict=${JSON.stringify(parsed.conflict)}` : '') +
             (parsed.reason ? ` · ${parsed.reason}` : ''),
         );
         return null;
       }
-      const content = { ...(parsed.content || {}) };
-      const slides = Array.isArray(content.slides) ? content.slides.map((s) => ({ ...s })) : [];
-      content.slides = slides;
-      content.strategy = content.executionRationale || content.strategy || '';
-      content.prompts = Array.isArray(content.productionNeeds)
-        ? content.productionNeeds
-        : (Array.isArray(content.prompts) ? content.prompts : []);
-      content.hashtags = stringList(dayBrief.hashtags);
+      const content = normalizeWriterPost(parsed, dayBrief);
+      const slides = content.slides;
+      const bound = slides.map((s) => s.assetKey).filter(Boolean);
+      const alloc = (dayBrief.allocatedAssets || []).map((a) => a.key).filter(Boolean);
+      if (alloc.length) {
+        console.log(
+          `[planOrchestrator] ${dayBrief.date || dayBrief.day}: allocated=${alloc.length} bound=${bound.length}` +
+            (bound.length ? ` keys=${bound.length}` : ' (no keys on slides)'),
+        );
+      }
       const pillar = dayBrief.pillar;
       const format = persistFormat(parsed.format || dayBrief.format);
+      const firstTitle = optionalText(parsed.title)
+        || optionalText(slides[0]?.title)
+        || optionalText(slides[0]?.elements?.[0]?.text);
       return {
         day: dayBrief.day,
         date: dayBrief.date,
         dayOfMonth: dayBrief.dayOfMonth,
-        time: optionalText(dayBrief.recommendedTime),
+        time: optionalText(parsed.time) || optionalText(dayBrief.recommendedTime),
         format,
         contentType: parsed.contentType || '',
         pillar,
         goalTag: GOAL_TAG[pillar] || '',
-        title: parsed.title || slides[0]?.title || '',
+        title: firstTitle,
         direction: parsed.direction || dayBrief.angle || '',
         content,
       };
@@ -694,7 +1178,7 @@ async function runMultiAgentPlan({
   const usage = mergeUsage(usages, model);
 
   console.log(
-    `[planOrchestrator] @${username}: strategist+${rawDays.length} days` +
+      `[planOrchestrator] @${username}: strategist+structure+${rawDays.length} days` +
       (gateOn ? '+quality' : '') +
       ` · ${usage.totalTokens} tokens` +
       (usage.cachedTokens ? ` (${usage.cachedTokens} cached)` : '') +

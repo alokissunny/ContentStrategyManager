@@ -50,8 +50,14 @@ export function clearCurrentMonth() {
 // (Re)generate this month's plan from the latest Instagram analysis.
 // → { route, expectedWeeks, filling, dataSource, fetchedAt }
 // Optional `trigger` is logged on the server (e.g. replan-month, checkin).
-export function generateRoute(trigger = 'generate') {
-  return client.post('/routes/generate', { trigger }).then((res) => {
+export function generateRoute(trigger = 'generate', extras = {}) {
+  const body = { trigger };
+  const sessionId = String(extras.sessionId || '').trim();
+  if (sessionId) body.sessionId = sessionId;
+  if (Array.isArray(extras.captureIds) && extras.captureIds.length) {
+    body.captureIds = extras.captureIds.map((id) => String(id || '').trim()).filter(Boolean);
+  }
+  return client.post('/routes/generate', body).then((res) => {
     const data = res.data || {};
     ingestPlanDebug(`Generate plan (${trigger})`, data);
     return data;

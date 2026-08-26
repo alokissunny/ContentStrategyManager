@@ -17,6 +17,13 @@ function planTextModel(kind) {
       || process.env.COMPETITOR_MODEL
       || 'gpt-5.6-terra';
   }
+  if (kind === 'structure') {
+    return process.env.PLAN_STRUCTURE_MODEL
+      || process.env.PLAN_AGENT_MODEL
+      || process.env.OPENAI_MODEL
+      || process.env.COMPETITOR_MODEL
+      || 'gpt-5.6-terra';
+  }
   if (kind === 'quality') {
     return process.env.PLAN_QUALITY_MODEL
       || process.env.PLAN_AGENT_MODEL
@@ -145,6 +152,7 @@ function reasoningEffortFor(kind) {
     return envChoice('CAPTURE_REASONING_EFFORT', GPT_EFFORTS, 'medium');
   }
   if (kind === 'day') return envChoice('PLAN_DAY_REASONING_EFFORT', GPT_EFFORTS, 'medium');
+  if (kind === 'structure') return envChoice('PLAN_STRUCTURE_REASONING_EFFORT', GPT_EFFORTS, 'medium');
   return envChoice('PLAN_STRATEGIST_REASONING_EFFORT', GPT_EFFORTS, 'medium');
 }
 

@@ -459,6 +459,20 @@ const FORMAT_ICON = { Reel: 'play', Carousel: 'copy', Post: 'image', Story: 'boo
 // The glyph the post's own format tag wears — a moving waveform for a Reel, the
 // same marks the day cards use for the rest.
 const FORMAT_GLYPH = { Reel: 'activity', Carousel: 'copy', Post: 'image', Story: 'book-open' };
+
+function hashtagsOf(day) {
+  const raw = day?.content?.hashtags;
+  const parts = Array.isArray(raw) ? raw : String(raw || '').split(/[\s,]+/);
+  return [...new Set(parts.map((h) => String(h || '').replace(/^#/, '').trim()).filter(Boolean))];
+}
+
+function formatHashtagLine(tags) {
+  return tags.map((t) => `#${t}`).join(' ');
+}
+
+function parseHashtagLine(text) {
+  return hashtagsOf({ content: { hashtags: String(text || '').split(/[\s,]+/) } });
+}
 const SLIDE_ROLES = {
   Carousel: ['Hook', 'Setup', 'Process', 'Process', 'Result', 'CTA'],
   Reel: ['Hook', 'Setup', 'CTA'],
@@ -712,6 +726,42 @@ function relevanceScore(slideWords, image) {
   return hits;
 }
 
+function visualNeedRecord(s) {
+  const src = (s?.visualNeed && typeof s.visualNeed === 'object' && !Array.isArray(s.visualNeed))
+    ? s.visualNeed
+    : (s?.visual && typeof s.visual === 'object' ? s.visual : {});
+  const priority = String(src.priority || '').trim().toLowerCase();
+  const type = String(src.type || '').trim();
+  const execution = String(src.execution || '').trim().toLowerCase();
+  const fromPlaceholder = typeof s?.image === 'string' && String(s.image).toLowerCase() === 'placeholder';
+  const wants = (priority && priority !== 'none')
+    || (type && type.toLowerCase() !== 'none')
+    || /supplied|generated|graphic|unresolved/.test(execution)
+    || fromPlaceholder;
+  if (!wants) return null;
+  return {
+    priority: priority && priority !== 'none' ? priority : 'recommended',
+    type: type && type.toLowerCase() !== 'none' ? type : '',
+    role: String(src.role || '').trim(),
+    communicationFunction: String(src.communicationFunction || '').trim(),
+    truthBoundary: String(src.truthBoundary || '').trim(),
+    execution,
+    productionInstruction: String(src.productionInstruction || '').trim(),
+  };
+}
+
+function visualKindLabel(value) {
+  const raw = String(value || '').trim();
+  if (!raw || /^none$/i.test(raw)) return '';
+  return raw
+    .replace(/[_-]+/g, ' ')
+    .replace(/\s*\/\s*/g, ' / ')
+    .replace(/([a-z])([A-Z])/g, '$1 $2')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
 function slideRecord(s, extra = {}) {
   return {
     role: s.role || '',
@@ -733,6 +783,7 @@ function slideRecord(s, extra = {}) {
     assetKey: s.assetKey || '',
     assetKeys: Array.isArray(s.assetKeys) ? s.assetKeys.map((k) => k || '') : [],
     layout: s.layout || '',
+    visualNeed: visualNeedRecord(s),
     ...extra,
   };
 }
@@ -905,6 +956,9 @@ function buildMarkdown(route) {
       slides.forEach((s, i) => lines.push(`  ${i + 1}. [${s.role || 'Slide'}] ${s.title || ''}`));
     }
     if (d.content?.caption) lines.push('', 'Caption:', d.content.caption);
+    if (d.content?.cta) lines.push('', 'CTA:', d.content.cta);
+    const tags = hashtagsOf(d);
+    if (tags.length) lines.push('', 'Hashtags:', formatHashtagLine(tags));
     if (d.content?.strategy) lines.push('', `Why: ${d.content.strategy}`);
     if (d.content?.notes || d.content?.plan) lines.push('', `Notes: ${d.content.notes || d.content.plan}`);
     lines.push('', '---', '');
@@ -1105,9 +1159,77 @@ function rasterizeSlide(node, { timeoutMs = 20000 } = {}) {
 // The slide's photograph fills the composition's picture slots (mood on); with
 // none, the picture regions draw as the empty ground the layout has before a
 // photo exists, exactly as the library shows them.
-function SlideMedia({ slide, layout, contentType, localMedia, parts, mediaByKey, preferProxy = false }) {
+function VisualNeedHint({ need }) {
+  const [open, setOpen] = useState(false);
+  const wrapRef = useRef(null);
+  const priority = String(need?.priority || 'recommended').toLowerCase();
+  const title = priority === 'required'
+    ? 'Required visual'
+    : priority === 'optional'
+      ? 'Optional visual'
+      : 'Recommended visual';
+  const kind = visualKindLabel(need?.type);
+  const role = visualKindLabel(need?.role);
+  const what = String(need?.communicationFunction || need?.productionInstruction || '').trim();
+  const boundary = String(need?.truthBoundary || '').trim();
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const onKey = (e) => { if (e.key === 'Escape') setOpen(false); };
+    const onDown = (e) => {
+      if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(false);
+    };
+    window.addEventListener('keydown', onKey);
+    document.addEventListener('pointerdown', onDown);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      document.removeEventListener('pointerdown', onDown);
+    };
+  }, [open]);
+
+  return (
+    <div className={`wv-vneed${open ? ' is-open' : ''}`} ref={wrapRef}>
+      <button
+        type="button"
+        className="wv-vneed__i"
+        aria-expanded={open}
+        aria-label={`${title}${kind ? `: ${kind}` : ''}`}
+        title={title}
+        onPointerDown={(e) => e.stopPropagation()}
+        onClick={(e) => {
+          e.stopPropagation();
+          setOpen((v) => !v);
+        }}
+      >
+        <Icon name="info" size={15} strokeWidth={2} />
+      </button>
+      {open && (
+        <div className="wv-vneed__tip" role="tooltip">
+          <strong className="wv-vneed__kicker">{title}</strong>
+          {(kind || role) && (
+            <span className="wv-vneed__kind">
+              {kind || 'Visual'}
+              {role ? ` · ${role}` : ''}
+            </span>
+          )}
+          <p>{what || 'This slide wants a visual. Add a photograph, graphic, or generated image that carries the point.'}</p>
+          {boundary ? <p className="wv-vneed__bound">{boundary}</p> : null}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SlideMedia({ slide, layout, contentType, localMedia, parts, mediaByKey, preferProxy = false, showVisualHint = false }) {
+  const need = showVisualHint ? visualNeedRecord(slide) : null;
   if (!layout) {
-    return <div className="wv-ig__empty"><Glyph name="image" size={28} /><span>Needs image</span></div>;
+    return (
+      <div className="wv-ig__empty">
+        <Glyph name="image" size={28} />
+        <span>Needs image</span>
+        {need && <VisualNeedHint need={need} />}
+      </div>
+    );
   }
   const filled = withSlidePhoto(
     fillLayout(layout, slide, contentType, parts),
@@ -1117,9 +1239,12 @@ function SlideMedia({ slide, layout, contentType, localMedia, parts, mediaByKey,
     preferProxy,
   );
   const anyPhoto = (filled?.imgs || []).some(Boolean);
+  const showHint = Boolean(need) && !anyPhoto;
+  const emptyPlaceholder = showHint && shotsOf(filled || layout) < 1;
   return (
-    <div className="wv-ig__lay">
+    <div className={`wv-ig__lay${emptyPlaceholder ? ' is-needvisual' : ''}`}>
       <Preview l={filled} mood={anyPhoto} />
+      {showHint && <VisualNeedHint need={need} />}
     </div>
   );
 }
@@ -1404,6 +1529,7 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
   const calPlacedFor = useRef(null);
   const [wordDraft, setWordDraft] = useState(null); // role-keyed draft until Apply
   const [capDraft, setCapDraft] = useState(''); // caption editor draft
+  const [tagDraft, setTagDraft] = useState(''); // hashtag editor draft
   const [capBusy, setCapBusy] = useState(false);
   const [wordsBusy, setWordsBusy] = useState(false);
   const capTaRef = useRef(null);
@@ -1592,6 +1718,8 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
     && timeDraft.at === timeSeedAt
     && Boolean(timeDraft.every) === Boolean(timeSeedEvery);
   const captionText = String(day?.content?.caption || '').trim();
+  const captionCta = String(day?.content?.cta || '').trim();
+  const captionTags = hashtagsOf(day);
   const capNeedsReview = Boolean(captionText) && !isScheduled && !day?.published && !capReviewed.has(selected);
 
   useEffect(() => {
@@ -1702,7 +1830,10 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
     if (next) setTimeDraft(null);
     setZone((cur) => {
       const target = cur === next ? null : next;
-      if (target === 'caption') setCapDraft(day?.content?.caption || '');
+      if (target === 'caption') {
+        setCapDraft(day?.content?.caption || '');
+        setTagDraft(formatHashtagLine(hashtagsOf(day)));
+      }
       if (target !== 'visual') {
         setCreating(false);
         setPickerOpen(false);
@@ -1834,10 +1965,11 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
   async function saveCaption(text) {
     if (!route?._id) return;
     const clean = String(text || '');
+    const tags = parseHashtagLine(tagDraft);
     setRoute((prev) => {
       const daysCopy = [...(prev.days || [])];
       const d = { ...daysCopy[selected] };
-      d.content = { ...(d.content || {}), caption: clean };
+      d.content = { ...(d.content || {}), caption: clean, hashtags: tags };
       daysCopy[selected] = d;
       return { ...prev, days: daysCopy };
     });
@@ -1849,7 +1981,7 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
     });
     setSaving(true);
     try {
-      const updated = await updateDayContent(route._id, selected, { caption: clean });
+      const updated = await updateDayContent(route._id, selected, { caption: clean, hashtags: tags });
       setRoute(updated);
     } catch { /* keep local until retry */ }
     finally { setSaving(false); }
@@ -2887,6 +3019,7 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
                   localMedia={localMedia}
                   mediaByKey={mediaByKey}
                   parts={visEdit === 'words' ? wordDraft : null}
+                  showVisualHint
                 />
                 {slides.length > 1 && (
                   <span className="wv-ig__count">{safeIdx + 1}/{slides.length}</span>
@@ -3190,6 +3323,17 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
                     aria-label="Caption"
                     autoFocus
                   />
+                  <label className="wv-caped__tagsfield">
+                    <span>Hashtags</span>
+                    <textarea
+                      className="wv-caped__input wv-caped__input--tags"
+                      value={tagDraft}
+                      onChange={(e) => setTagDraft(e.target.value)}
+                      placeholder="#mezzanine #duplex #interiordesign"
+                      aria-label="Hashtags"
+                      rows={2}
+                    />
+                  </label>
                   <CaptionPolish
                     routeId={route?._id}
                     dayIndex={selected}
@@ -3208,6 +3352,16 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
                   <b>{handle}</b>{' '}
                   {day.content?.caption || day.direction || <span className="wv-muted">Add a caption…</span>}
                 </p>
+                {captionCta && (
+                  <p className="wv-ig__cta">{captionCta}</p>
+                )}
+                {captionTags.length > 0 && (
+                  <p className="wv-ig__hashtags">
+                    {captionTags.map((t) => (
+                      <span key={t}>#{t}</span>
+                    ))}
+                  </p>
+                )}
                 <span className="wv-ig__veil" aria-hidden="true" />
                 <button
                   type="button"

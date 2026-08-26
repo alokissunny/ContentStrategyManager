@@ -113,8 +113,9 @@ const CAPTURE_ITEM_SCHEMA = {
     relationships: { type: 'array', items: RELATIONSHIP_SCHEMA },
     verifiedFacts: { type: 'array', items: { type: 'string' } },
     openQuestions: { type: 'array', items: { type: 'string' } },
+    observableDetails: { type: 'array', items: { type: 'string' } },
     relevantAssetContext: { type: 'array', items: { type: 'string' } },
-    visualAssetChoice: { type: 'string', enum: ['provided', 'generate', 'none'] },
+    visualLimitations: { type: 'array', items: { type: 'string' } },
     captureSummary: { type: 'string' },
     unresolvedGap: { type: 'string' },
     knownLimitation: { type: 'string' },
@@ -204,6 +205,8 @@ function emptyUnderstanding(text) {
     askedAnswer: '',
     knownLimitation: '',
     visualAssetChoice: '',
+    observableDetails: [],
+    visualLimitations: [],
     captureStatus: 'ready',
     originalCapture: str(text),
     distinctSignals: [],
@@ -222,11 +225,15 @@ function emptyUnderstanding(text) {
 const SIGNAL_TYPE_TO_KEY = {
   problem: 'difficulty',
   decision: 'actionTaken',
+  action: 'actionTaken',
   lesson: 'outcome',
+  result: 'outcome',
   opinion: 'happened',
   observation: 'happened',
   discovery: 'outcome',
   question: 'outcome',
+  limitation: 'difficulty',
+  other: 'happened',
 };
 
 function mapCaptureRecord(raw, fallbackText) {
@@ -261,13 +268,9 @@ function mapCaptureRecord(raw, fallbackText) {
     askedQuestion: '',
     askedAnswer: '',
     knownLimitation: str(c.knownLimitation),
-    visualAssetChoice: (() => {
-      const v = str(c.visualAssetChoice).toLowerCase();
-      if (v.startsWith('generate')) return 'generate';
-      if (v.startsWith('none')) return 'none';
-      if (v.startsWith('provided')) return 'provided';
-      return v;
-    })(),
+    visualAssetChoice: '',
+    observableDetails: stringList(c.observableDetails, 16),
+    visualLimitations: stringList(c.visualLimitations, 12),
     captureStatus: /unresolved/i.test(str(c.status)) ? 'unresolved' : 'ready',
     originalCapture: str(c.originalCapture) || happened || summary,
     sourceRef: str(c.sourceRef),
@@ -417,7 +420,7 @@ function assemblePrompt({
   const conversation = conversationBlock({ text, projectName, turns, projects });
   const attachedAssets = attachedAssetsBlock({ text, attachments, turns });
   const { system, userTemplate } = splitPromptTemplate(loadPrompt());
-  let user = fillPrompt(userTemplate, { conversation, attachedAssets });
+  let user = fillPrompt(userTemplate, { CONVERSATION: conversation, ATTACHED_ASSETS: attachedAssets });
   if (kind === 'checkin') {
     const extras = fs.readFileSync(path.join(__dirname, '..', '..', 'prompts', 'checkin-understand-prompt.md'), 'utf8');
     user = `${String(extras).trim()}\n\n${user}`;
@@ -462,6 +465,7 @@ const USER_JSON_INSTRUCTION = [
   'If a question could substantially strengthen the stories, put exactly ONE question in question. Do not list multiple questions. Do not repeat known information.',
   'Extract every genuinely independent source narrative. Keep process, reason, consequence and outcome together when they form one continuous explanation.',
   'When status is ready, conversationSummary must summarise the whole chat session in the order the user told it (earliest point first, never newest first). Each captures[] item stays story-specific and must be listed in that same chronological order.',
+  'Record observableDetails and visualLimitations when the source supports them. Do not recommend a visual treatment, select an asset, or decide whether a post needs a visual.',
   'Do not hide a second complete narrative inside distinctSignals. Do not turn supporting stages of one narrative into standalone Captures.',
 ].join(' ');
 
@@ -646,6 +650,12 @@ function sanitizeUnderstanding(raw) {
     askedAnswer: str(raw.askedAnswer),
     knownLimitation: str(raw.knownLimitation),
     visualAssetChoice: str(raw.visualAssetChoice),
+    observableDetails: Array.isArray(raw.observableDetails)
+      ? raw.observableDetails.map(str).filter(Boolean)
+      : [],
+    visualLimitations: Array.isArray(raw.visualLimitations)
+      ? raw.visualLimitations.map(str).filter(Boolean)
+      : [],
     captureStatus: str(raw.captureStatus) || 'ready',
     originalCapture: str(raw.originalCapture),
     sourceRef: str(raw.sourceRef),
@@ -684,6 +694,8 @@ function serializeUnderstanding(u) {
     askedAnswer: u.askedAnswer || '',
     knownLimitation: u.knownLimitation || '',
     visualAssetChoice: u.visualAssetChoice || '',
+    observableDetails: Array.isArray(u.observableDetails) ? u.observableDetails : [],
+    visualLimitations: Array.isArray(u.visualLimitations) ? u.visualLimitations : [],
     captureStatus: u.captureStatus || '',
     originalCapture: u.originalCapture || '',
     sourceRef: u.sourceRef || '',

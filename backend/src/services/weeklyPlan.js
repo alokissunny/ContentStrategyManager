@@ -1,8 +1,8 @@
 const fs = require('fs');
 const path = require('path');
-const { flattenSlide, layoutForStructure } = require('./slideContent');
+const { flattenSlide, layoutForStructure, asStoredText, asStoredLines } = require('./slideContent');
 const { computeAuthorityFunnel } = require('./authorityFunnel');
-const { recentCapturesOf, conversationSessionOf } = require('./planContext');
+const { sessionRowsOf } = require('./planContext');
 const { completeText, planTextModel, splitPromptTemplate } = require('./llmComplete');
 
 const PROMPT_PATH = path.join(__dirname, '..', '..', 'prompts', 'weekly-plan-prompt.md');
@@ -235,26 +235,7 @@ function assignToEmptyDates(plannedDays, emptyDates) {
     const lens = normalizeLens(p.lens || p.pillar);
     const pillar = lens || slot.pillar;
     return {
-      source: p.source || '',
-      captureId: p.captureId || '',
-      sourceStoryId: p.sourceStoryId || '',
-      angle: p.angle || '',
-      verifiedTruth: Array.isArray(p.verifiedTruth) ? p.verifiedTruth : [],
-      uniqueJob: p.uniqueJob || '',
-      audienceTension: p.audienceTension || '',
-      hookTerritory: p.hookTerritory || '',
-      centralFact: p.centralFact || '',
-      ownedTerritory: p.ownedTerritory || '',
-      doNotRepeat: p.doNotRepeat || '',
-      format: p.format || '',
-      formatReason: p.formatReason || '',
-      narrativeUnits: Array.isArray(p.narrativeUnits) ? p.narrativeUnits : [],
-      approvedGenerationRoute: p.approvedGenerationRoute || '',
-      knownLimitation: p.knownLimitation || '',
-      hashtags: Array.isArray(p.hashtags) ? p.hashtags : [],
-      recommendedTime: p.recommendedTime || '',
-      // Dates from the next empty future slot; pillar from the brief's lens
-      // when the strategist named a genuine one, otherwise the weekday default.
+      ...p,
       ...slot,
       pillar,
       lens: pillar,
@@ -475,8 +456,8 @@ function scoreAssetForWords(words, kw) {
 // Project inventory for the planner: names, notes, and image assets — each with
 // a content description from AI analysis — that it can assign to slides. Kept
 // compact so the prompt stays within context.
-function renderProjectAssets(projects) {
-  const recent = conversationSessionOf(recentCapturesOf(projects, 10));
+function renderProjectAssets(projects, source = {}) {
+  const recent = sessionRowsOf(projects, source);
   if (!recent.length) {
     return 'No project assets on file yet. Keep posts specific to the niche but do not invent named projects or claim photos exist.';
   }
@@ -626,7 +607,7 @@ function normalizeSlides(rawSlides, onScreenText, format, title, cta, validKeys 
     const withRole = { ...s, role };
     const layout = String(s.layout || '').trim() || layoutForStructure(withRole) || (
       /^(hook|cover|poll|premise)$/i.test(role) ? 'n-hook-sub'
-        : /^(setup|process|problem|whymatters|tension|observation|evidence|reason|insight|context|exploration|decision|change|contrast|beat)$/i.test(role) ? 'n-edu-callout'
+        : /^(setup|process|problem|whymatters|tension|observation|evidence|reason|insight|context|exploration|decision|change|contrast|beat|cause|example|brandrole)$/i.test(role) ? 'n-edu-callout'
           : /^(result|implication|lesson|takeaway|resolution|solution)$/i.test(role) ? 'n-res-quotenote'
             : /^(cta|action)$/i.test(role) ? 'n-cta-centered'
               : 'n-hook-sub'
@@ -647,9 +628,10 @@ function normalizeSlides(rawSlides, onScreenText, format, title, cta, validKeys 
       comparisonB: s.comparisonB || '',
       labels: Array.isArray(s.labels) ? s.labels : [],
       image: s.image || '',
-      imagePrompt: '',
+      imagePrompt: s.imagePrompt || (s.image === 'placeholder' ? buildBaseImagePrompt({ ...s, role }, ctx) : ''),
       assetKey,
       layout,
+      visualNeed: s.visualNeed || null,
     };
   });
 }
@@ -727,7 +709,10 @@ function assembleDays({
   usedAssetKeys,
 }) {
   const validKeys = new Set(
-    projects.flatMap((p) => (p.assets || []).map((a) => a.key)).filter(Boolean)
+    projects.flatMap((p) => [
+      ...(p.assets || []).map((a) => a.key),
+      ...(p.notes || []).flatMap((n) => (n.assets || []).map((a) => a.key)),
+    ]).filter(Boolean)
   );
 
   const days = (rawDays || []).map((d, i) => {
@@ -767,13 +752,15 @@ function assembleDays({
         onScreenText,
         caption: c.caption || '',
         cta: c.cta || '',
-        hashtags: Array.isArray(c.hashtags) ? c.hashtags.map((h) => String(h).replace(/^#/, '')) : [],
-        strategy: c.executionRationale || c.strategy || '',
-        prompts: Array.isArray(c.productionNeeds)
-          ? c.productionNeeds
-          : (Array.isArray(c.prompts) ? c.prompts : []),
-        plan: c.plan || '',
-        notes: c.notes || '',
+        hashtags: Array.isArray(c.hashtags) || typeof c.hashtags === 'string'
+          ? (Array.isArray(c.hashtags) ? c.hashtags : String(c.hashtags).split(/[\s,]+/))
+            .map((h) => String(h).replace(/^#/, '').trim())
+            .filter(Boolean)
+          : [],
+        strategy: asStoredText(c.executionRationale || c.strategy),
+        prompts: asStoredLines(c.productionNeeds || c.prompts),
+        plan: asStoredText(c.plan),
+        notes: asStoredText(c.notes),
       },
     };
   });
@@ -932,7 +919,10 @@ async function generateWeeklyPlan(profile, brandDna, competitorInsights = null, 
     .replace('{{FOCUS_JSON}}', () => JSON.stringify(focusSummary))
     .replace('{{SNAPSHOT_JSON}}', () => JSON.stringify(snapshot))
     .replace('{{COMPETITOR_INSIGHTS}}', () => renderCompetitorInsights(competitorInsights))
-    .replace('{{PROJECT_ASSETS}}', () => renderProjectAssets(projects))
+    .replace('{{PROJECT_ASSETS}}', () => renderProjectAssets(projects, {
+      sessionId: options.sessionId,
+      captureIds: options.captureIds,
+    }))
     .replace('{{MONTH_CALENDAR_JSON}}', () => JSON.stringify(monthCalendar));
   const planUser = fillPlan(userTemplate || loadPrompt());
   const prompt = [planSystem, planUser].filter(Boolean).join('\n\n');
@@ -948,10 +938,11 @@ async function generateWeeklyPlan(profile, brandDna, competitorInsights = null, 
   );
   const useMulti = multiAgentEnabled();
   console.log(
-    `[weeklyPlan] Generating plan for @${snapshot.username} (mode=${useMulti ? 'multi-agent' : 'single'}, ` +
+    `[weeklyPlan] Generating plan for @${snapshot.username} (mode=${useMulti ? 'multi-agent (strategist→structure→day)' : 'single'}, ` +
       `focus: ${focusPillar}, ${insightNote}, ` +
       `${monthCalendar.occupied.length} occupied / ${monthCalendar.emptyDates.length} empty month days, ` +
-      `${projects.length} projects / ${assetCount} photos, ${analyzedCount} with vision analysis) with ${model}`
+      `${projects.length} projects / ${assetCount} photos, ${analyzedCount} with vision analysis) with ${model}` +
+      (options.sessionId ? ` · session=${options.sessionId}` : ''),
   );
 
   if (monthCalendar.emptyDates.length === 0) {
@@ -987,6 +978,8 @@ async function generateWeeklyPlan(profile, brandDna, competitorInsights = null, 
       projects,
       focusSummary,
       monthCalendar,
+      sessionId: options.sessionId || '',
+      captureIds: options.captureIds || [],
     });
   } else {
     generated = await generateSingleAgentPlan({

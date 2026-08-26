@@ -170,13 +170,22 @@ function AssetAnalysis({ analysis, busy, onAnalyze, onClose }) {
 }
 
 /* ── one entry, as a card ──────────────────────────────────────────────── */
-function EntryCard({ entry, others, onOpen, onMove, onDelete }) {
+function EntryCard({ entry, others, regenerating, uploadingFiles, onOpen, onMove, onDelete, onRegenerate, onAddFiles }) {
   const [menu, setMenu] = useState(false);
   const [moveOpen, setMoveOpen] = useState(false);
+  const fileRef = useRef(null);
   const closeMenu = () => { setMenu(false); setMoveOpen(false); };
   const video = entry.type === 'video' ? (entry.attachments || [])[0] : null;
   const summary = sessionDisplayText(entry);
+  const atts = entry.attachments || [];
   const open = () => onOpen(entry);
+  const pickFiles = () => fileRef.current?.click();
+  const handleFiles = async (fileList) => {
+    const list = [...(fileList || [])].filter((f) => f.type.startsWith('image/') || f.type.startsWith('video/'));
+    if (!list.length || !onAddFiles) return;
+    closeMenu();
+    await onAddFiles(entry, list);
+  };
   return (
     <div
       className={`pe pe--${entry.type}`}
@@ -189,6 +198,19 @@ function EntryCard({ entry, others, onOpen, onMove, onDelete }) {
         <div className="pe__toprow">
           <span className="pe__date">{fmtWhen(entry.createdAt)}</span>
           <span className="pe__spacer" />
+          <button
+            type="button"
+            className="pe__regen"
+            disabled={regenerating}
+            aria-label="Regenerate plan from this conversation"
+            onClick={(e) => {
+              e.stopPropagation();
+              if (!regenerating) onRegenerate?.(entry);
+            }}
+          >
+            <Icon name="refresh" size={14} strokeWidth={2} />
+            <span>{regenerating ? 'Regenerating…' : 'Regenerate plan'}</span>
+          </button>
           <button className="pe__more" aria-label="More actions" aria-haspopup="menu" aria-expanded={menu}
             onClick={(e) => { e.stopPropagation(); setMenu((v) => !v); }}>
             <Icon name="more" size={18} />
@@ -203,9 +225,30 @@ function EntryCard({ entry, others, onOpen, onMove, onDelete }) {
           <img src={video.thumbnailUrl} alt="" loading="lazy" />
           <span className="ms__play"><Icon name="play" size={16} /></span>
         </div>
-      ) : (entry.attachments || []).length > 0 ? (
-        <MediaStrip attachments={entry.attachments} />
-      ) : null}
+      ) : atts.length > 0 ? (
+        <MediaStrip attachments={atts} />
+      ) : (
+        <button
+          type="button"
+          className="pe__addfiles"
+          disabled={uploadingFiles}
+          onClick={(e) => { e.stopPropagation(); pickFiles(); }}
+        >
+          <Icon name="image" size={15} strokeWidth={2} />
+          <span>{uploadingFiles ? 'Analysing…' : 'Add photos or clips'}</span>
+        </button>
+      )}
+
+      <input
+        ref={fileRef}
+        type="file"
+        accept="image/*,video/*"
+        multiple
+        hidden
+        disabled={uploadingFiles}
+        onClick={(e) => e.stopPropagation()}
+        onChange={(e) => { handleFiles(e.target.files); e.target.value = ''; }}
+      />
 
       {menu && (
         <>
@@ -213,6 +256,10 @@ function EntryCard({ entry, others, onOpen, onMove, onDelete }) {
           <div className="pe-menu" role="menu" onClick={(e) => e.stopPropagation()}>
             {!moveOpen ? (
               <>
+                <button role="menuitem" disabled={uploadingFiles} onClick={() => pickFiles()}>
+                  <Icon name="image" size={17} />
+                  <span className="pe-menu__grow">{uploadingFiles ? 'Analysing…' : 'Add files'}</span>
+                </button>
                 <button role="menuitem" onClick={() => setMoveOpen(true)}>
                   <Icon name="plan" size={17} />
                   <span className="pe-menu__grow">Move to project</span>
@@ -242,7 +289,7 @@ function EntryCard({ entry, others, onOpen, onMove, onDelete }) {
 }
 
 /* ── the full entry, in a side panel with a lightbox ───────────────────── */
-export function EntryPanel({ project, entry, week, onClose }) {
+export function EntryPanel({ project, entry, week, regenerating, onClose, onRegenerate }) {
   const [light, setLight] = useState(null); // index into attachments, or null
   const [analysisFor, setAnalysisFor] = useState(null); // index whose analysis is open
   const [analyzingId, setAnalyzingId] = useState(null); // attachment id in flight
@@ -264,7 +311,7 @@ export function EntryPanel({ project, entry, week, onClose }) {
     setUploading(true);
     try {
       const added = await uploadFiles(files);
-      updateEntry(project.id, entry.id, { attachments: [...atts, ...added] });
+      await updateEntry(project.id, entry.id, { attachments: [...atts, ...added] });
     } finally {
       setUploading(false);
     }
@@ -288,6 +335,15 @@ export function EntryPanel({ project, entry, week, onClose }) {
         <header className="np__bar">
           <span className="np__title">About this session</span>
           <div className="np__baracts">
+            <button
+              type="button"
+              className="btn btn--tertiary btn--sm"
+              disabled={regenerating}
+              onClick={() => onRegenerate?.(entry)}
+            >
+              <Icon name="refresh" size={14} strokeWidth={2} />
+              {regenerating ? 'Regenerating…' : 'Regenerate plan'}
+            </button>
             <button className="np__close" onClick={onClose} aria-label="Close"><Icon name="x" size={16} strokeWidth={2.25} /></button>
           </div>
         </header>
@@ -337,7 +393,7 @@ export function EntryPanel({ project, entry, week, onClose }) {
             })}
             <label className={`np__add ${uploading ? 'is-busy' : ''}`} aria-busy={uploading}>
               {uploading ? <span className="pj-spin" /> : <Icon name="plus" size={20} strokeWidth={2.5} />}
-              <span>{uploading ? 'Uploading…' : 'Add'}</span>
+              <span>{uploading ? 'Analysing…' : 'Add'}</span>
               <input type="file" accept="image/*,video/*" multiple hidden disabled={uploading}
                 onChange={(e) => { if (e.target.files?.length) addFiles(e.target.files); e.target.value = ''; }} />
             </label>
@@ -1134,7 +1190,9 @@ export function CaptureModal({ project, projects, defaultProjectId, onClose }) {
         <div className="fm__foot">
           <span className="fm__spacer" />
           <button className="fm__cancel" onClick={onClose}>Cancel</button>
-          <button className="fm__submit" disabled={busy || uploading || !canSave} onClick={save}>{busy ? 'Saving…' : 'Save'}</button>
+          <button className="fm__submit" disabled={busy || uploading || !canSave} onClick={save}>
+            {busy ? (atts.some((a) => a.type === 'image') ? 'Analysing…' : 'Saving…') : 'Save'}
+          </button>
         </div>
       </div>
     </>
@@ -1152,6 +1210,8 @@ function ProjectDetail({ project, projects, onBack }) {
   const [uploadError, setUploadError] = useState('');
   const [analyzing, setAnalyzing] = useState(false);
   const [analyzeMsg, setAnalyzeMsg] = useState('');
+  const [regenId, setRegenId] = useState('');
+  const [entryUploadId, setEntryUploadId] = useState('');
   const others = projects.filter((p) => p.id !== project.id);
   const sessions = groupCapturesIntoSessions(project.captures);
   const groups = groupByWeek(sessions);
@@ -1194,7 +1254,8 @@ function ProjectDetail({ project, projects, onBack }) {
     );
     try {
       const added = await uploadFiles(list);
-      setUploadLabel('Saving to project…');
+      const hasImages = added.some((a) => a.type === 'image');
+      setUploadLabel(hasImages ? 'Analysing photos…' : 'Saving to project…');
       const type = added.some((a) => a.type === 'video') ? 'video' : 'photo';
       await addEntry(project.id, { type, text: '', attachments: added });
     } catch (err) {
@@ -1203,6 +1264,36 @@ function ProjectDetail({ project, projects, onBack }) {
       setUploading(false);
       setUploadLabel('');
     }
+  }
+
+  async function addFilesToEntry(entry, files) {
+    const list = [...files].filter((f) => f.type.startsWith('image/') || f.type.startsWith('video/'));
+    if (!list.length) return;
+    setUploadError('');
+    setEntryUploadId(entry.id);
+    try {
+      const added = await uploadFiles(list);
+      const current = entry.attachments || [];
+      await updateEntry(project.id, entry.id, { attachments: [...current, ...added] });
+    } catch (err) {
+      setUploadError(err?.response?.data?.message || err?.message || 'Upload failed. Please try again.');
+    } finally {
+      setEntryUploadId('');
+    }
+  }
+
+  function regenerateFrom(entry) {
+    if (!entry || regenId) return;
+    setRegenId(entry.id);
+    navigate('/dashboard', {
+      state: {
+        generateAfterCapture: true,
+        sessionId: String(entry.sessionId || '').trim(),
+        captureIds: Array.isArray(entry.memberIds) && entry.memberIds.length
+          ? entry.memberIds
+          : (entry.id ? [entry.id] : []),
+      },
+    });
   }
 
   const fileInput = (id) => (
@@ -1307,9 +1398,13 @@ function ProjectDetail({ project, projects, onBack }) {
                   key={entry.id}
                   entry={entry}
                   others={others}
+                  regenerating={regenId === entry.id}
                   onOpen={(e) => setOpen(e.id)}
                   onMove={(id, target) => moveSession(project.id, target, entry.memberIds || [id])}
                   onDelete={(id) => { deleteSession(project.id, entry.memberIds || [id]); setOpen(null); }}
+                  onRegenerate={regenerateFrom}
+                  uploadingFiles={entryUploadId === entry.id}
+                  onAddFiles={addFilesToEntry}
                 />
               ))}
             </div>
@@ -1322,7 +1417,9 @@ function ProjectDetail({ project, projects, onBack }) {
             project={project}
             entry={openEntry}
             week={groups.find((g) => g.entries.some((e) => e.id === openEntry.id))?.label}
+            regenerating={regenId === openEntry.id}
             onClose={() => setOpen(null)}
+            onRegenerate={regenerateFrom}
           />
         )}
         {editing && (
