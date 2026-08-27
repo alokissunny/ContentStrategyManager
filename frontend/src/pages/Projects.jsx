@@ -538,9 +538,9 @@ function ProjectPickerModal({ projects, onClose, onPick, onNew }) {
  *
  * The conversation itself is no longer a fixed script. After the user speaks
  * (or uploads), Capture-time understanding extracts what is actually known,
- * splits independent stories silently, and asks at most one clarifying or
- * depth question when it would materially improve the source. Strategy, Brand
- * DNA, and format stay out of this conversation. */
+ * detects internal stories for clarification, preserves one unified Capture,
+ * and asks at most one clarifying or depth question when it would materially
+ * improve the source. Strategy, Brand DNA, and format stay out of this conversation. */
 export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewProject, onCaptured, exitLabel = 'Back' }) {
   const projects = useProjects();
   const { messages, typing, push, say, after } = useConversation();
@@ -568,6 +568,8 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
   /* whether the field on screen came from a recording — only then is "record
    * again" a real answer */
   const fromVoice = useRef(false);
+  /* after a take, land back on writing (opening note) or clarify */
+  const recordingReturn = useRef('writing');
 
   const preset = projects.find((p) => p.id === presetProjectId);
 
@@ -661,6 +663,15 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
     userSays('Record a voice note');
     cap.current.kind = 'note';
     fromVoice.current = true;
+    recordingReturn.current = 'writing';
+    const d = say("I'm listening — take your time.");
+    after(d, () => { rec.reset(); rec.start(); setStep('recording'); });
+  };
+  const recordClarify = () => {
+    setStep('boot');
+    userSays(fromVoice.current ? 'Record it again' : 'Record a voice note');
+    fromVoice.current = true;
+    recordingReturn.current = 'clarify';
     const d = say("I'm listening — take your time.");
     after(d, () => { rec.reset(); rec.start(); setStep('recording'); });
   };
@@ -693,6 +704,7 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
   const submitClarify = async () => {
     const text = draft.trim();
     if (!text) return;
+    fromVoice.current = false;
     setDraft('');
     setStep('boot');
     userSays(text);
@@ -708,13 +720,14 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
   };
 
   const skipClarify = async () => {
+    fromVoice.current = false;
     setDraft('');
     setStep('boot');
-    userSays("That's all I have — continue");
+    userSays('Skip this question');
     setBusy(true);
     try {
       const finishing = afterUnderstood(await runUnderstand({
-        extraTurn: { role: 'user', text: "That's all I have — continue without guessing." },
+        extraTurn: { role: 'user', text: 'Skip this question. Continue without guessing.' },
       }));
       if (!finishing) setBusy(false);
     } catch {
@@ -735,16 +748,16 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
             const d = text
               ? say('Check I got this right:')
               : say("I couldn't quite catch that — write it in, or record again.");
-            after(d, () => setStep('writing'));
+            after(d, () => setStep(recordingReturn.current || 'writing'));
           } else {
             setDraft('');
             const d = say("Write in what you said — I keep the words, not the audio.");
-            after(d, () => setStep('writing'));
+            after(d, () => setStep(recordingReturn.current || 'writing'));
           }
         } catch {
           setDraft('');
           const d = say("I couldn't transcribe that — write it in, or record again.");
-          after(d, () => setStep('writing'));
+          after(d, () => setStep(recordingReturn.current || 'writing'));
         } finally {
           setBusy(false);
         }
@@ -753,8 +766,9 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
     if (rec.status === 'denied' && step === 'recording') {
       setStep('boot');
       cap.current.kind = 'note';
-      const d = say("I can't reach the microphone — let's write it instead. What happened?");
-      after(d, () => setStep('writing'));
+      const back = recordingReturn.current || 'writing';
+      const d = say("I can't reach the microphone — let's write it instead.");
+      after(d, () => setStep(back));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rec.status, rec.blob]);
@@ -936,7 +950,12 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
                 <Icon name="arrow-up-right" size={14} /> {label}
               </button>
               {step === 'clarify' && (
-                <button className="btn btn--quiet btn--sm" onClick={skipClarify}>That’s all I have</button>
+                <>
+                  <button className="ck-chip" onClick={recordClarify}>
+                    <Icon name="pulse" size={14} /> {fromVoice.current ? 'Record it again' : 'Record a voice note'}
+                  </button>
+                  <button className="btn btn--quiet btn--sm" onClick={skipClarify}>Skip this question</button>
+                </>
               )}
               {voiced && (
                 <button className="btn btn--quiet btn--sm" onClick={recordAgain}>Record it again</button>

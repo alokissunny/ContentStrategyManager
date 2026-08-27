@@ -59,7 +59,7 @@ const AVAILABLE_ELEMENTS = {
     'Pros_Cons', 'Do_Dont', 'Problem_Solution', 'Cause_Effect', 'Options',
     'Example', 'Reason_Rationale', 'Number_Stat', 'Data_Chart', 'Ranking', 'Checklist',
     'Timeline', 'Process_Flow', 'Framework', 'Categories_Groups', 'Hierarchy',
-    'Diagram', 'Map_Spatial', 'Annotated_Visual', 'Multiple_Visuals', 'Progression',
+    'Diagram', 'Map_Spatial', 'Annotated_Visual', 'Multiple_Visuals', 'Progression', 'Testimonial',
   ],
   action: ['Action'],
   visual: [
@@ -71,7 +71,7 @@ const AVAILABLE_ELEMENTS = {
 };
 
 const VISUAL_PRIORITIES = ['required', 'recommended', 'optional', 'none'];
-const VISUAL_ROLES = ['evidence', 'explanation', 'recognition', 'demonstration', 'atmosphere', 'none'];
+const VISUAL_ROLES = ['evidence', 'explanation', 'recognition', 'demonstration', 'none'];
 const VISUAL_TYPES = new Set([...AVAILABLE_ELEMENTS.visual, 'none']);
 const SOURCE_VISUAL_TYPES = new Set([
   'Image', 'Multiple_Images', 'Detail_Closeup', 'Screenshot', 'Document_Source',
@@ -133,6 +133,15 @@ function optionalText(value) {
 function optionalTextOrList(value) {
   if (Array.isArray(value)) return stringList(value);
   return optionalText(value);
+}
+
+function sourceTraceOf(value) {
+  if (!Array.isArray(value)) return [];
+  return value.map((row) => ({
+    fact: optionalText(row?.fact),
+    sourceType: optionalText(row?.sourceType),
+    sourceReference: optionalText(row?.sourceReference),
+  })).filter((row) => row.fact).slice(0, 24);
 }
 
 function narrativeUnitsOf(brief) {
@@ -222,6 +231,9 @@ function briefFieldsOf(b) {
   return {
     source: b.source || '',
     captureId: optionalText(b.captureId),
+    sourceCaptureId: optionalText(b.sourceCaptureId) || optionalText(b.captureId),
+    sourceInternalStoryIds: stringList(b.sourceInternalStoryIds),
+    sourceTrace: sourceTraceOf(b.sourceTrace),
     sourceStoryId: optionalText(b.sourceStoryId),
     project: optionalText(b.project),
     originalCapture: optionalText(b.originalCapture),
@@ -256,14 +268,14 @@ function maxTokensFor(kind) {
   }
   if (kind === 'structure') {
     const n = Number(process.env.PLAN_STRUCTURE_MAX_TOKENS);
-    return Number.isFinite(n) && n > 0 ? n : 8192;
+    return Number.isFinite(n) && n > 0 ? n : 16384;
   }
   if (kind === 'quality') {
     const n = Number(process.env.PLAN_QUALITY_MAX_TOKENS);
     return Number.isFinite(n) && n > 0 ? n : 3072;
   }
   const n = Number(process.env.PLAN_DAY_MAX_TOKENS);
-  return Number.isFinite(n) && n > 0 ? n : 8192;
+  return Number.isFinite(n) && n > 0 ? n : 16384;
 }
 
 function qualityAgentEnabled() {
@@ -383,7 +395,7 @@ function validateStrategist(parsed) {
 }
 
 function captureByBriefId(conversationCaptures, brief) {
-  const ids = [brief?.captureId, brief?.sourceStoryId]
+  const ids = [brief?.captureId, brief?.sourceCaptureId, brief?.sourceStoryId]
     .map((v) => String(v || '').trim())
     .filter(Boolean);
   const sourceToken = String(brief?.source || '').trim().split(/\s+/)[0];
@@ -403,21 +415,20 @@ function enrichBriefsFromCaptures(briefs, conversationCaptures, ctx = {}) {
     const filled = src ? {
       ...b,
       captureId: b.captureId || src.id || src.captureId,
+      sourceCaptureId: b.sourceCaptureId || b.captureId || src.id || src.captureId,
+      sourceInternalStoryIds: (b.sourceInternalStoryIds && b.sourceInternalStoryIds.length)
+        ? b.sourceInternalStoryIds
+        : [],
+      originalCapture: b.originalCapture || src.originalCapture,
       sourceStoryId: b.sourceStoryId || src.sourceStoryId,
       project: b.project || src.project,
-      originalCapture: b.originalCapture || src.originalCapture,
       knownLimitation: b.knownLimitation || src.knownLimitation,
-      observableDetails: (b.observableDetails && b.observableDetails.length)
-        ? b.observableDetails
-        : (src.observableDetails || []),
       relevantAssetContext: (b.relevantAssetContext && b.relevantAssetContext.length)
         ? b.relevantAssetContext
-        : (src.relevantAssetContext && src.relevantAssetContext.length
-          ? src.relevantAssetContext
-          : (src.attachedAssets || []).map((a) => a.summary).filter(Boolean)),
+        : (src.assets || src.attachedAssets || []).map((a) => a.summary).filter(Boolean),
       visualLimitations: (b.visualLimitations && b.visualLimitations.length)
         ? b.visualLimitations
-        : (src.visualLimitations || []),
+        : (src.assets || []).flatMap((a) => a.limitations || []),
     } : b;
     return { ...filled, ...applyAssetAllocation(filled, src, known) };
   });
@@ -444,7 +455,7 @@ function qualityFeedbackOf(review) {
     finalSlideResolution: review.checks?.finalSlideResolution || null,
     issues: Array.isArray(review.issues) ? review.issues.slice(0, 8) : [],
     revisionPriority: stringList(review.revisionPriority).slice(0, 8),
-    lockedStructure: 'Slide/scene count, unit mapping, primaryStructure, supportingElements, visual priority/role/type, and action are locked. Repair copy inside that structure. Do not add, remove, merge, or split slides, or silently drop visual requirements.',
+    lockedStructure: 'Slide/scene count, unit mapping, primaryStructure, supporting elements, resolved visual after evidence fallback, and action are locked. Repair copy inside those structures. Do not add, remove, merge, or split slides, or silently drop visual requirements.',
   };
 }
 
@@ -474,6 +485,66 @@ function photoLayoutOf(s) {
   return 'n-hook-band';
 }
 
+function textLedResolution(resolution) {
+  const type = String(resolution?.type || '').trim().toLowerCase();
+  return ['text-only-fallback', 'request-missing-asset', 'reject-surface-or-narrative'].includes(type);
+}
+
+function textNeedOf(raw) {
+  const t = raw && typeof raw === 'object' ? raw : {};
+  const type = optionalText(t.type) || 'Title';
+  const none = type === 'None';
+  return {
+    required: none ? false : (t.required === false ? false : true),
+    type,
+    communicationFunction: optionalText(t.communicationFunction),
+  };
+}
+
+function visualNeedOf(raw) {
+  const t = raw && typeof raw === 'object' ? raw : {};
+  const priority = VISUAL_PRIORITIES.includes(String(t.priority || '').trim().toLowerCase())
+    ? String(t.priority).trim().toLowerCase()
+    : 'none';
+  const role = VISUAL_ROLES.includes(String(t.role || '').trim().toLowerCase())
+    ? String(t.role).trim().toLowerCase()
+    : 'none';
+  return {
+    priority,
+    role: priority === 'none' ? 'none' : role,
+    requiredEvidence: optionalText(t.requiredEvidence),
+    preferredType: optionalText(t.preferredType) || 'none',
+    truthBoundary: optionalText(t.truthBoundary),
+  };
+}
+
+const EVIDENCE_STATUSES = [
+  'available-exact', 'available-sufficient', 'available-partial', 'available-irrelevant',
+  'available-multiple', 'derivable', 'missing-generatable', 'missing-not-generatable', 'unknown',
+];
+const EVIDENCE_RESOLUTIONS = [
+  'no-adaptation', 'use-available-alternative', 'derive-from-existing',
+  'generate-conceptual-support', 'adapt-content-structure', 'text-only-fallback',
+  'reduce-visual-requirement', 'request-missing-asset', 'flag-limitation',
+  'reject-surface-or-narrative',
+];
+
+function evidenceAvailabilityOf(raw) {
+  const t = raw && typeof raw === 'object' ? raw : {};
+  const status = EVIDENCE_STATUSES.includes(String(t.status || '').trim())
+    ? String(t.status).trim()
+    : 'unknown';
+  return { status, reason: optionalText(t.reason) };
+}
+
+function evidenceResolutionOf(raw) {
+  const t = raw && typeof raw === 'object' ? raw : {};
+  const type = EVIDENCE_RESOLUTIONS.includes(String(t.type || '').trim())
+    ? String(t.type).trim()
+    : 'no-adaptation';
+  return { type, reason: optionalText(t.reason) };
+}
+
 function bindAllocatedAssets(slides, dayBrief) {
   const allocated = allocatedAssetsOf(dayBrief?.allocatedAssets).map((a) => a.key).filter(Boolean);
   if (!Array.isArray(slides) || !slides.length || !allocated.length) return slides;
@@ -493,8 +564,14 @@ function bindAllocatedAssets(slides, dayBrief) {
       priority: String(s?.visual?.priority || '').toLowerCase() || 'recommended',
     },
   });
+  const skipBind = (s) => {
+    const priority = String(s?.visual?.priority || '').toLowerCase();
+    if (priority === 'none') return true;
+    return textLedResolution(s?.evidenceResolution);
+  };
 
   const next = slides.map((s) => {
+    if (skipBind(s)) return s;
     const existing = optionalText(s.assetKey) || optionalText(s.visual?.assetKey);
     if (existing) {
       claim(existing);
@@ -512,6 +589,7 @@ function bindAllocatedAssets(slides, dayBrief) {
 
   for (let i = 0; i < next.length && used.size < allocated.length; i += 1) {
     const s = next[i];
+    if (skipBind(s)) continue;
     if (optionalText(s.assetKey) || optionalText(s.visual?.assetKey)) continue;
     const priority = String(s?.visual?.priority || '').toLowerCase();
     if (!priority || priority === 'none') continue;
@@ -530,12 +608,13 @@ function normalizeWriterPost(parsed, dayBrief) {
     const visual = s?.visual && typeof s.visual === 'object' ? s.visual : {};
     const priority = String(visual.priority || '').toLowerCase();
     const execution = String(visual.execution || '').toLowerCase();
-    const wantsVisual = (priority && priority !== 'none') || /supplied|generated/.test(execution);
+    const wantsVisual = !textLedResolution(s?.evidenceResolution)
+      && ((priority && priority !== 'none') || /supplied|generated/.test(execution));
     return {
       ...s,
       image: wantsVisual ? (s.image || 'placeholder') : (s.image || ''),
-      assetKey: optionalText(s.assetKey) || optionalText(visual.assetKey),
-      imagePrompt: optionalText(s.imagePrompt) || optionalText(visual.imagePrompt),
+      assetKey: wantsVisual ? (optionalText(s.assetKey) || optionalText(visual.assetKey)) : '',
+      imagePrompt: wantsVisual ? (optionalText(s.imagePrompt) || optionalText(visual.imagePrompt)) : '',
       visual,
     };
   }) : [], dayBrief);
@@ -564,11 +643,12 @@ function approvedGenerationRouteOf() {
   return 'assets-only';
 }
 
-function visualPlanOf(visual) {
+function visualPlanOf(visual, resolution) {
   const raw = visual && typeof visual === 'object' ? visual : {};
-  const priority = VISUAL_PRIORITIES.includes(String(raw.priority || '').trim().toLowerCase())
+  let priority = VISUAL_PRIORITIES.includes(String(raw.priority || '').trim().toLowerCase())
     ? String(raw.priority).trim().toLowerCase()
     : (optionalText(raw.need) && optionalText(raw.need) !== 'none' ? 'recommended' : 'none');
+  if (textLedResolution(resolution)) priority = 'none';
   const role = VISUAL_ROLES.includes(String(raw.role || '').trim().toLowerCase())
     ? String(raw.role).trim().toLowerCase()
     : 'none';
@@ -611,6 +691,7 @@ const STRUCTURE_ALIASES = {
   multiple_visuals: 'Multiple_Visuals',
   illustration: 'Illustration',
   graphic_artwork: 'Graphic_Artwork',
+  testimonial: 'Testimonial',
 };
 
 function normalizeStructureType(value) {
@@ -641,6 +722,7 @@ function validateContentStructure(parsed) {
     const visual = s?.visual && typeof s.visual === 'object' ? s.visual : {};
     const action = s?.action && typeof s.action === 'object' ? s.action : {};
     const primary = normalizeStructureType(s?.primaryStructure);
+    const evidenceResolution = evidenceResolutionOf(s?.evidenceResolution);
     return {
       index: Number(s?.index) > 0 ? Number(s.index) : i + 1,
       role: optionalText(s?.role) || 'other',
@@ -649,6 +731,10 @@ function validateContentStructure(parsed) {
       placement: ['visual', 'caption', 'cta'].includes(String(s?.placement || '').trim().toLowerCase())
         ? String(s.placement).trim().toLowerCase()
         : 'visual',
+      textNeed: textNeedOf(s?.textNeed),
+      visualNeed: visualNeedOf(s?.visualNeed || visual),
+      evidenceAvailability: evidenceAvailabilityOf(s?.evidenceAvailability),
+      evidenceResolution,
       informationShape: optionalText(s?.informationShape),
       primaryStructure: primary,
       supportingElements: supporting.map((el) => ({
@@ -660,7 +746,7 @@ function validateContentStructure(parsed) {
       })).filter((el) => el.type && AVAILABLE_ELEMENT_SET.has(el.type) && el.type !== primary),
       selectionReason: optionalText(s?.selectionReason),
       contentGuidance: optionalText(s?.contentGuidance),
-      visual: visualPlanOf(visual),
+      visual: visualPlanOf(visual, evidenceResolution),
       action: {
         type: optionalText(action.type) || 'none',
         expression: optionalText(action.expression) || 'none',
@@ -692,35 +778,44 @@ function validateContentStructure(parsed) {
   };
 }
 
+function strategyBriefPayload(brief) {
+  return {
+    date: brief.date,
+    day: brief.day,
+    pillar: brief.pillar,
+    lens: brief.lens,
+    pillarJob: brief.pillarJob,
+    source: brief.source,
+    captureId: brief.captureId,
+    sourceCaptureId: brief.sourceCaptureId || brief.captureId,
+    sourceInternalStoryIds: brief.sourceInternalStoryIds || [],
+    sourceTrace: brief.sourceTrace || [],
+    sourceStoryId: brief.sourceStoryId,
+    project: brief.project,
+    originalCapture: brief.originalCapture,
+    angle: brief.angle,
+    verifiedTruth: brief.verifiedTruth,
+    observableDetails: brief.observableDetails,
+    relevantAssetContext: brief.relevantAssetContext,
+    allocatedAssets: brief.allocatedAssets || [],
+    visualLimitations: brief.visualLimitations,
+    uniqueJob: brief.uniqueJob,
+    audienceTension: brief.audienceTension,
+    hookTerritory: brief.hookTerritory,
+    centralFact: brief.centralFact,
+    ownedTerritory: brief.ownedTerritory,
+    doNotRepeat: brief.doNotRepeat,
+    format: brief.format,
+    formatReason: brief.formatReason,
+    narrativeUnits: brief.narrativeUnits,
+    knownLimitation: brief.knownLimitation,
+  };
+}
+
 async function writeContentStructure({ source, brief }) {
   const assembled = assembleAgentPrompt('plan-content-structure.md', {
     AVAILABLE_ELEMENTS_JSON: json(AVAILABLE_ELEMENTS),
-    STRATEGIST_BRIEF_JSON: json({
-      pillar: brief.pillar,
-      lens: brief.lens,
-      pillarJob: brief.pillarJob,
-      source: brief.source,
-      captureId: brief.captureId,
-      sourceStoryId: brief.sourceStoryId,
-      project: brief.project,
-      originalCapture: brief.originalCapture,
-      angle: brief.angle,
-      verifiedTruth: brief.verifiedTruth,
-      observableDetails: brief.observableDetails,
-      relevantAssetContext: brief.relevantAssetContext,
-      allocatedAssets: brief.allocatedAssets || [],
-      visualLimitations: brief.visualLimitations,
-      uniqueJob: brief.uniqueJob,
-      audienceTension: brief.audienceTension,
-      hookTerritory: brief.hookTerritory,
-      centralFact: brief.centralFact,
-      ownedTerritory: brief.ownedTerritory,
-      doNotRepeat: brief.doNotRepeat,
-      format: brief.format,
-      formatReason: brief.formatReason,
-      narrativeUnits: brief.narrativeUnits,
-      knownLimitation: brief.knownLimitation,
-    }),
+    STRATEGIST_BRIEF_JSON: json(strategyBriefPayload(brief)),
     PLATFORM_CONSTRAINTS_JSON: json(platformConstraintsOf(brief.format)),
   });
   return callAgent({
@@ -828,7 +923,7 @@ async function runMultiAgentPlan({
     `[planOrchestrator] multi-agent plan for @${username} · focus=${ctx.authority.priority}` +
       ` · emptyMonthDays=${emptyDates.length}` +
       ` · conversationCaptures=${(ctx.projects?.conversationCaptures || []).length}` +
-      ` · conversationAssets=${(ctx.assetContext?.conversationAssets || []).reduce((n, r) => n + (r.assets || []).length, 0)}` +
+      ` · captureAssets=${(ctx.projects?.conversationCaptures || []).reduce((n, c) => n + (c.assets || []).length, 0)}` +
       ` · projectAssets=${(ctx.assetContext?.projectAssets || []).reduce((n, r) => n + (r.assets || []).length, 0)}` +
       (sessionId ? ` · session=${sessionId}` : '') +
       ` · brand=${ctx.versions.brand} · competitor=${ctx.versions.competitor}`,
@@ -838,10 +933,11 @@ async function runMultiAgentPlan({
   const strategistAssembled = assembleAgentPrompt('plan-strategist.md', {
     LIMITS_JSON: json({
       month: ctx.calendar.month,
+      maxBriefs: Math.max(emptyDates.length, 1),
       supportedFormats: WRITER_FORMATS,
       planFrom: (sessionId || (captureIds && captureIds.length))
-        ? 'this conversation session only — conversationCaptures and attached/project visuals from that sitting; produce Discovery, Credibility, and Trust briefs per capture when genuinely supported'
-        : 'latest chat session only — every conversationCaptures item from that sitting, plus conversation-attached and same-project library visuals; produce Discovery, Credibility, and Trust briefs per capture when genuinely supported',
+        ? 'this conversation session only — conversationCaptures and attached/project visuals from that sitting; decide whether internal stories become one post or several, capped by maxBriefs'
+        : 'latest chat session only — every conversationCaptures item from that sitting, plus conversation-attached and same-project library visuals; decide whether internal stories become one post or several, capped by maxBriefs',
     }),
     OCCUPIED_TOPICS_JSON: json(ctx.calendar.occupiedTopics || []),
     AUTHORITY_JSON: json(ctx.authority),
@@ -857,7 +953,7 @@ async function runMultiAgentPlan({
       signals: ctx.competitor.signals,
     }),
     PROJECT_TRUTH_JSON: json(ctx.projects),
-    ASSET_CONTEXT_JSON: json(ctx.assetContext || { conversationAssets: [], projectAssets: [] }),
+    ASSET_CONTEXT_JSON: json(ctx.assetContext || { projectAssets: [] }),
   });
   const strategistPrompt = strategistAssembled.prompt;
   const strategist = await callAgent({
@@ -898,7 +994,6 @@ async function runMultiAgentPlan({
   const noteCount = lastThree.filter((c) => c.text).length;
   const shownCount = lastThree.reduce((n, c) => n + (c.shown || []).length, 0);
   const latest = conversationCaptures[0]?.captureSummary
-    || conversationCaptures[0]?.whatHappened
     || ctx.projects?.latestCapture?.text
     || '';
   const whyEmpty = String(strategist.parsed.constraints?.insufficientContext || '').trim();
@@ -931,6 +1026,9 @@ async function runMultiAgentPlan({
         pillarJob: optionalText(planned.pillarJob) || PILLAR_JOB[pillar] || '',
         source: planned.source || '',
         captureId: planned.captureId || '',
+        sourceCaptureId: planned.sourceCaptureId || planned.captureId || '',
+        sourceInternalStoryIds: planned.sourceInternalStoryIds || [],
+        sourceTrace: planned.sourceTrace || [],
         sourceStoryId: planned.sourceStoryId || '',
         project: planned.project || '',
         originalCapture: planned.originalCapture || '',
@@ -993,7 +1091,7 @@ async function runMultiAgentPlan({
         collect(structure);
       } catch (err) {
         console.warn(`[planOrchestrator] Structure:${label} skipped — ${err.message}`);
-        return { index, dayBrief: brief, result: null, skipped: err.message, debugEntries, runUsages };
+        return { index, dayBrief: brief, result: null, skipped: err.message, debugEntries, runUsages, structure: null };
       }
 
       if (structure.parsed?.status === 'unresolved') {
@@ -1009,6 +1107,7 @@ async function runMultiAgentPlan({
           skipped: `structure unresolved: ${why}`,
           debugEntries,
           runUsages,
+          structure: structure.parsed,
         };
       }
 
@@ -1029,15 +1128,15 @@ async function runMultiAgentPlan({
         collect(writer);
       } catch (err) {
         console.warn(`[planOrchestrator] Day:${label} skipped — ${err.message}`);
-        return { index, dayBrief: brief, result: null, skipped: err.message, debugEntries, runUsages };
+        return { index, dayBrief: brief, result: null, skipped: err.message, debugEntries, runUsages, structure: structure.parsed };
       }
 
       if (writerFailed(writer.parsed)) {
-        return { index, dayBrief: brief, result: writer, quality: null, debugEntries, runUsages };
+        return { index, dayBrief: brief, result: writer, quality: null, debugEntries, runUsages, structure: structure.parsed };
       }
 
       if (!gateOn) {
-        return { index, dayBrief: brief, result: writer, quality: null, debugEntries, runUsages };
+        return { index, dayBrief: brief, result: writer, quality: null, debugEntries, runUsages, structure: structure.parsed };
       }
 
       let review;
@@ -1051,7 +1150,7 @@ async function runMultiAgentPlan({
         collect(review);
       } catch (err) {
         console.warn(`[planOrchestrator] Quality:${label} skipped — ${err.message}`);
-        return { index, dayBrief: brief, result: writer, quality: null, debugEntries, runUsages };
+        return { index, dayBrief: brief, result: writer, quality: null, debugEntries, runUsages, structure: structure.parsed };
       }
 
       let rewrites = 0;
@@ -1070,7 +1169,7 @@ async function runMultiAgentPlan({
           break;
         }
         if (writerFailed(writer.parsed)) {
-          return { index, dayBrief: brief, result: writer, quality: review.parsed, debugEntries, runUsages };
+          return { index, dayBrief: brief, result: writer, quality: review.parsed, debugEntries, runUsages, structure: structure.parsed };
         }
         try {
           review = await reviewDayPost({
@@ -1101,9 +1200,10 @@ async function runMultiAgentPlan({
           skipped: `quality ${decision} score=${review.parsed.score}`,
           debugEntries,
           runUsages,
+          structure: structure.parsed,
         };
       }
-      return { index, dayBrief: brief, result: writer, quality: review?.parsed || null, debugEntries, runUsages };
+      return { index, dayBrief: brief, result: writer, quality: review?.parsed || null, debugEntries, runUsages, structure: structure.parsed };
   };
 
   let dayResults = [];
@@ -1128,7 +1228,7 @@ async function runMultiAgentPlan({
 
   const rawDays = dayResults
     .sort((a, b) => a.index - b.index)
-    .map(({ dayBrief, result, skipped }) => {
+    .map(({ dayBrief, result, skipped, structure }) => {
       if (!result) {
         console.warn(`[planOrchestrator] @${username}: dropped ${dayBrief.date || dayBrief.day} (${skipped})`);
         return null;
@@ -1145,7 +1245,10 @@ async function runMultiAgentPlan({
       }
       const content = normalizeWriterPost(parsed, dayBrief);
       const slides = content.slides;
-      const bound = slides.map((s) => s.assetKey).filter(Boolean);
+      const bound = slides.flatMap((s) => [
+        s.assetKey,
+        s.visual?.assetKey,
+      ]).filter(Boolean);
       const alloc = (dayBrief.allocatedAssets || []).map((a) => a.key).filter(Boolean);
       if (alloc.length) {
         console.log(
@@ -1169,6 +1272,11 @@ async function runMultiAgentPlan({
         goalTag: GOAL_TAG[pillar] || '',
         title: firstTitle,
         direction: parsed.direction || dayBrief.angle || '',
+        agentTrace: {
+          strategyBrief: strategyBriefPayload(dayBrief),
+          structure: structure || null,
+          dayWriter: parsed,
+        },
         content,
       };
     })

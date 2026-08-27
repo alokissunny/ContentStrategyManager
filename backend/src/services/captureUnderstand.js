@@ -1,10 +1,11 @@
 /*
  * Capture conversation — Capture time only.
  *
- * Owns Capture Truth: extract strategy-neutral experience(s) from a note
- * (and optional photos), split independent stories silently, clarify or deepen
- * only when useful, then hand off ready captures. Never confirm splits with
- * the user. Strategy, Brand DNA, and competitor intelligence are out of scope.
+ * Owns Capture Truth: extract a strategy-neutral experience from a note
+ * (and optional photos), detect internal stories for clarification, preserve
+ * one unified Capture for strategy, then hand it off. Never split the source
+ * into content captures. Strategy, Brand DNA, and competitor intelligence
+ * are out of scope.
  */
 
 const fs = require('fs');
@@ -74,58 +75,75 @@ function parseJsonObject(raw) {
   throw lastErr || new Error('No JSON object in model response');
 }
 
-const RELATIONSHIP_SCHEMA = {
+const CLARIFICATION_SCHEMA = {
   type: 'object',
   properties: {
-    from: { type: 'string' },
+    question: { type: 'string' },
+    answer: { type: 'string' },
+  },
+};
+
+const VERIFIED_FACT_SCHEMA = {
+  type: 'object',
+  properties: {
+    id: { type: 'string' },
+    fact: { type: 'string' },
+    source: { type: 'string' },
+  },
+};
+
+const INTERNAL_STORY_SCHEMA = {
+  type: 'object',
+  properties: {
+    id: { type: 'string' },
+    storyId: { type: 'string' },
+    territory: { type: 'string' },
+    summary: { type: 'string' },
+    factIds: { type: 'array', items: { type: 'string' } },
+    status: { type: 'string' },
+  },
+};
+
+const STORY_RELATIONSHIP_SCHEMA = {
+  type: 'object',
+  properties: {
+    storyIds: { type: 'array', items: { type: 'string' } },
     relationship: { type: 'string' },
-    to: { type: 'string' },
+    summary: { type: 'string' },
+  },
+};
+
+const CAPTURE_ASSET_SCHEMA = {
+  type: 'object',
+  properties: {
+    key: { type: 'string' },
+    summary: { type: 'string' },
+    supportsFactIds: { type: 'array', items: { type: 'string' } },
+    limitations: { type: 'array', items: { type: 'string' } },
   },
 };
 
 const CAPTURE_ITEM_SCHEMA = {
   type: 'object',
   properties: {
-    id: { type: 'string' },
     captureId: { type: 'string' },
-    status: { type: 'string', enum: ['ready', 'unresolved'] },
-    sourceRef: { type: 'string' },
-    sourceStoryId: { type: 'string' },
-    segmentId: { type: 'string' },
-    relatedSegmentIds: { type: 'array', items: { type: 'string' } },
+    project: { type: 'string' },
     originalCapture: { type: 'string' },
-    whatHappened: { type: 'string' },
-    intent: { type: 'string' },
-    tension: { type: 'string' },
-    action: { type: 'string' },
-    outcome: { type: 'string' },
-    summary: { type: 'string' },
-    distinctSignals: {
-      type: 'array',
-      items: {
-        type: 'object',
-        properties: {
-          type: { type: 'string' },
-          summary: { type: 'string' },
-        },
-      },
-    },
-    relationships: { type: 'array', items: RELATIONSHIP_SCHEMA },
-    verifiedFacts: { type: 'array', items: { type: 'string' } },
-    openQuestions: { type: 'array', items: { type: 'string' } },
-    observableDetails: { type: 'array', items: { type: 'string' } },
-    relevantAssetContext: { type: 'array', items: { type: 'string' } },
-    visualLimitations: { type: 'array', items: { type: 'string' } },
+    clarifications: { type: 'array', items: CLARIFICATION_SCHEMA },
+    clarificationAnswers: { type: 'array', items: CLARIFICATION_SCHEMA },
     captureSummary: { type: 'string' },
-    unresolvedGap: { type: 'string' },
-    knownLimitation: { type: 'string' },
+    verifiedFacts: { type: 'array', items: VERIFIED_FACT_SCHEMA },
+    internalStories: { type: 'array', items: INTERNAL_STORY_SCHEMA },
+    storyRelationships: { type: 'array', items: STORY_RELATIONSHIP_SCHEMA },
+    assets: { type: 'array', items: CAPTURE_ASSET_SCHEMA },
+    status: { type: 'string', enum: ['ready', 'unresolved'] },
   },
 };
 
 const TOOL_NAME = 'record_capture_turn';
 const UNDERSTAND_TOOL = {
   name: TOOL_NAME,
-  description: 'Record this Capture Conversation turn: one follow-up question, or every independently meaningful ready Capture.',
+  description: 'Record this Capture Conversation turn: one follow-up question, or grounded Capture(s) for connected project stories.',
   input_schema: {
     type: 'object',
     properties: {
@@ -136,11 +154,11 @@ const UNDERSTAND_TOOL = {
       matchedProjectName: { type: 'string' },
       conversationSummary: {
         type: 'string',
-        description: 'Faithful summary of the whole chat session covering every story. Library card for this conversation — not a hook, not one story only.',
+        description: 'Optional library card for the whole chat. Prefer captureSummary on the capture; do not also emit summary/whatHappened/intent on the capture.',
       },
       captures: {
         type: 'array',
-        description: 'Every independently meaningful story from the full conversation (1–10). Not one Capture per sentence. Not one Capture that hides several stories in distinctSignals. Sibling Captures share sourceStoryId.',
+        description: 'One connected project story per item. Internal stories go in internalStories, not as extra captures. Separate top-level captures only for different projects or unrelated events.',
         items: CAPTURE_ITEM_SCHEMA,
       },
     },
@@ -178,16 +196,135 @@ function relationshipsOf(value) {
   })).filter((r) => r.from || r.to || r.relationship).slice(0, 16);
 }
 
+function clarificationAnswersOf(value) {
+  if (!Array.isArray(value)) return [];
+  return value.map((row) => ({
+    question: str(row?.question),
+    answer: str(row?.answer),
+  })).filter((row) => row.question || row.answer).slice(0, 8);
+}
+
+function clarificationsOf(c) {
+  const fromNew = clarificationAnswersOf(c?.clarifications);
+  if (fromNew.length) return fromNew;
+  const fromOld = clarificationAnswersOf(c?.clarificationAnswers);
+  if (fromOld.length) return fromOld;
+  const question = str(c?.askedQuestion);
+  const answer = str(c?.askedAnswer);
+  return (question || answer) ? [{ question, answer }] : [];
+}
+
+function factText(row) {
+  if (row && typeof row === 'object' && !Array.isArray(row)) return str(row.fact || row.summary);
+  return str(row);
+}
+
+function verifiedFactsOf(value) {
+  if (!Array.isArray(value)) return [];
+  return value.map((row, i) => {
+    const fact = factText(row);
+    if (!fact) return null;
+    if (row && typeof row === 'object' && !Array.isArray(row)) {
+      return {
+        id: str(row.id) || `f${i + 1}`,
+        fact,
+        source: str(row.source) || 'originalCapture',
+      };
+    }
+    return { id: `f${i + 1}`, fact, source: 'originalCapture' };
+  }).filter(Boolean).slice(0, 24);
+}
+
+function unifyFacts(list) {
+  const out = [];
+  const seen = new Set();
+  (list || []).forEach((c) => {
+    (c.verifiedFacts || []).forEach((f) => {
+      const fact = factText(f);
+      if (!fact || seen.has(fact)) return;
+      seen.add(fact);
+      out.push({
+        id: str(f && f.id) || `f${out.length + 1}`,
+        fact,
+        source: str(f && f.source) || 'originalCapture',
+      });
+    });
+  });
+  return out.slice(0, 24);
+}
+
+function internalStoriesOf(value) {
+  if (!Array.isArray(value)) return [];
+  return value.map((s, i) => {
+    const id = str(s?.id || s?.storyId) || `s${i + 1}`;
+    return {
+      id,
+      storyId: id,
+      territory: str(s?.territory),
+      summary: str(s?.summary),
+      factIds: stringList(s?.factIds, 16),
+      status: str(s?.status),
+    };
+  }).filter((s) => s.id || s.summary || s.territory).slice(0, 12);
+}
+
+function storyRelationshipsOf(value) {
+  if (!Array.isArray(value)) return [];
+  return value.map((r) => ({
+    storyIds: stringList(r?.storyIds, 12),
+    relationship: str(r?.relationship || r?.type),
+    summary: str(r?.summary),
+  })).filter((r) => r.storyIds.length || r.relationship || r.summary).slice(0, 16);
+}
+
+function storyRelationshipsFrom(c) {
+  const direct = storyRelationshipsOf(c?.storyRelationships);
+  if (direct.length) return direct;
+  const derived = [];
+  (c?.internalStories || []).forEach((s) => {
+    (s.relationships || []).forEach((r) => {
+      derived.push({
+        storyIds: [str(s.id || s.storyId), str(r.targetStoryId)].filter(Boolean),
+        relationship: str(r.type || r.relationship),
+        summary: '',
+      });
+    });
+  });
+  return storyRelationshipsOf(derived);
+}
+
+function captureAssetsOf(value) {
+  if (!Array.isArray(value)) return [];
+  return value.map((a) => ({
+    key: str(a?.key),
+    summary: str(a?.summary),
+    supportsFactIds: stringList(a?.supportsFactIds, 12),
+    limitations: stringList(a?.limitations, 8),
+  })).filter((a) => a.key || a.summary).slice(0, 8);
+}
+
+function possibleInterpretationsOf(value) {
+  if (!Array.isArray(value)) return [];
+  return value.map((row) => ({
+    interpretation: str(row?.interpretation),
+    basis: str(row?.basis),
+    confidence: str(row?.confidence),
+  })).filter((row) => row.interpretation).slice(0, 8);
+}
+
 function storyFieldsOf(c) {
   const id = str(c?.id || c?.captureId);
   return {
     captureId: str(c?.captureId) || id,
+    project: str(c?.project),
     sourceStoryId: str(c?.sourceStoryId),
     segmentId: str(c?.segmentId),
     relatedSegmentIds: stringList(c?.relatedSegmentIds, 12),
     relationships: relationshipsOf(c?.relationships),
-    verifiedFacts: stringList(c?.verifiedFacts, 16),
+    verifiedFacts: verifiedFactsOf(c?.verifiedFacts),
     openQuestions: stringList(c?.openQuestions, 8),
+    storyRelationships: storyRelationshipsFrom(c),
+    captureAssets: captureAssetsOf(c?.assets || c?.captureAssets),
   };
 }
 
@@ -217,42 +354,27 @@ function emptyUnderstanding(text) {
     relationships: [],
     verifiedFacts: [],
     openQuestions: [],
+    clarificationAnswers: [],
+    internalStories: [],
+    storyRelationships: [],
+    captureAssets: [],
+    possibleInterpretations: [],
     model: '',
     understoodAt: new Date(),
   };
 }
 
-const SIGNAL_TYPE_TO_KEY = {
-  problem: 'difficulty',
-  decision: 'actionTaken',
-  action: 'actionTaken',
-  lesson: 'outcome',
-  result: 'outcome',
-  opinion: 'happened',
-  observation: 'happened',
-  discovery: 'outcome',
-  question: 'outcome',
-  limitation: 'difficulty',
-  other: 'happened',
-};
-
 function mapCaptureRecord(raw, fallbackText) {
   const c = raw && typeof raw === 'object' ? raw : {};
-  const happened = str(c.whatHappened || c.happened);
+  const summary = str(c.captureSummary || c.summary);
+  const originalCapture = str(c.originalCapture) || str(fallbackText);
+  const happened = str(c.whatHappened || c.happened) || summary;
   const intent = str(c.intent);
   const difficulty = str(c.tension || c.difficulty);
   const actionTaken = str(c.action || c.actionTaken);
   const outcome = str(c.outcome);
-  const summary = str(c.captureSummary || c.summary) || happened || str(fallbackText);
-  const distinct = Array.isArray(c.distinctSignals)
-    ? c.distinctSignals.map((s) => ({
-      type: str(s?.type).toLowerCase(),
-      summary: str(s?.summary),
-    })).filter((s) => s.type || s.summary).slice(0, 16)
-    : [];
-  const present = distinct
-    .map((s) => SIGNAL_TYPE_TO_KEY[s.type])
-    .filter((k) => SIGNAL_KEYS.includes(k));
+  const internalStories = internalStoriesOf(c.internalStories);
+  const clarifications = clarificationsOf(c);
   const filled = SIGNAL_KEYS.filter((k) => str({ happened, intent, difficulty, actionTaken, outcome }[k]));
   return {
     id: str(c.id || c.captureId),
@@ -262,22 +384,24 @@ function mapCaptureRecord(raw, fallbackText) {
     difficulty,
     actionTaken,
     outcome,
-    summary,
-    presentSignals: [...new Set(present.length ? present : filled)],
+    summary: summary || happened || str(fallbackText),
+    presentSignals: [...new Set(filled)],
     missingPiece: str(c.unresolvedGap || c.missingPiece),
     askedQuestion: '',
     askedAnswer: '',
     knownLimitation: str(c.knownLimitation),
     visualAssetChoice: '',
-    observableDetails: stringList(c.observableDetails, 16),
-    visualLimitations: stringList(c.visualLimitations, 12),
+    observableDetails: [],
+    visualLimitations: [],
     captureStatus: /unresolved/i.test(str(c.status)) ? 'unresolved' : 'ready',
-    originalCapture: str(c.originalCapture) || happened || summary,
+    originalCapture: originalCapture || happened || summary,
     sourceRef: str(c.sourceRef),
-    distinctSignals: distinct,
-    relevantAssetContext: Array.isArray(c.relevantAssetContext)
-      ? c.relevantAssetContext.map(str).filter(Boolean)
-      : [],
+    distinctSignals: [],
+    clarificationAnswers: clarifications,
+    internalStories,
+    possibleInterpretations: [],
+    project: str(c.project),
+    relevantAssetContext: [],
     model: '',
     understoodAt: new Date(),
   };
@@ -305,6 +429,76 @@ function storyOrderKey(c) {
   return str(c?.segmentId || c?.captureId || c?.id);
 }
 
+function uniqueStrings(lists) {
+  const out = [];
+  const seen = new Set();
+  lists.flat().forEach((v) => {
+    const s = str(v);
+    if (!s || seen.has(s)) return;
+    seen.add(s);
+    out.push(s);
+  });
+  return out;
+}
+
+function unifyOriginalCapture(rows, text) {
+  const parts = uniqueStrings([text, ...rows.map((r) => r.originalCapture)]);
+  if (!parts.length) return '';
+  const longest = parts.reduce((a, b) => (a.length >= b.length ? a : b));
+  if (parts.every((p) => longest.includes(p))) return longest;
+  return parts.join('\n\n');
+}
+
+/** Conversation returns one Capture. If the model still emits siblings, fold them. */
+function unifyCaptures(rows, text) {
+  const list = Array.isArray(rows) ? rows.filter(Boolean) : [];
+  if (!list.length) return [];
+  const first = list[0];
+  const summaries = uniqueStrings(list.map((c) => c.summary || c.captureSummary));
+  const summary = summaries.join(' · ') || str(text);
+  return [{
+    ...first,
+    originalCapture: unifyOriginalCapture(list, text) || first.originalCapture,
+    happened: summary,
+    intent: '',
+    difficulty: '',
+    actionTaken: '',
+    outcome: '',
+    summary,
+    captureSummary: summary,
+    distinctSignals: [],
+    verifiedFacts: unifyFacts(list),
+    openQuestions: uniqueStrings(list.map((c) => c.openQuestions || [])),
+    observableDetails: [],
+    visualLimitations: [],
+    relevantAssetContext: [],
+    relatedSegmentIds: [],
+    clarificationAnswers: list.flatMap((c) => c.clarificationAnswers || [])
+      .filter((row, i, arr) => row && arr.findIndex((x) => x.question === row.question && x.answer === row.answer) === i)
+      .slice(0, 8),
+    internalStories: list.flatMap((c) => c.internalStories || []).slice(0, 12),
+    storyRelationships: list.flatMap((c) => c.storyRelationships || []).slice(0, 16),
+    captureAssets: list.flatMap((c) => c.captureAssets || []).slice(0, 8),
+    possibleInterpretations: [],
+  }];
+}
+
+function captureProjectKey(c) {
+  return str(c?.project).toLowerCase();
+}
+
+function clearlyDifferentProjects(rows) {
+  const names = [...new Set((rows || []).map(captureProjectKey).filter(Boolean))];
+  return names.length > 1;
+}
+
+function foldConnectedCaptures(rows, text) {
+  const list = Array.isArray(rows) ? rows.filter(Boolean) : [];
+  if (list.length <= 1) return list;
+  if (clearlyDifferentProjects(list)) return list.slice(0, 10);
+  return unifyCaptures(list, text);
+}
+
 function composeSessionSummary(captures, fallbackText) {
   const rows = [...(Array.isArray(captures) ? captures : [])].sort((a, b) => {
     const sa = storyOrderKey(a);
@@ -323,7 +517,7 @@ function composeSessionSummary(captures, fallbackText) {
 function normalizeUnderstanding(parsed, { text, askedQuestion, askedAnswer }) {
   const questions = questionsOf(parsed);
 
-  // Splits stay internal. Ask every follow-up in one turn.
+  // Internal stories stay inside one Capture. Ask every follow-up in one turn.
   if (wantsClarification(parsed) && questions.length) {
     const question = formatAskMessage(questions);
     return {
@@ -337,18 +531,28 @@ function normalizeUnderstanding(parsed, { text, askedQuestion, askedAnswer }) {
     };
   }
 
-  const rows = Array.isArray(parsed?.captures) ? parsed.captures : (parsed?.signals ? [parsed] : []);
-  const captures = (rows.length ? rows : [{ originalCapture: text, whatHappened: text, captureSummary: text }])
-    .map((row) => mapCaptureRecord(row, text))
-    .slice(0, 10)
-    .sort((a, b) => {
-      const sa = storyOrderKey(a);
-      const sb = storyOrderKey(b);
-      if (sa && sb && sa !== sb) return sa.localeCompare(sb, undefined, { numeric: true });
-      return 0;
-    });
+  const rows = Array.isArray(parsed?.captures)
+    ? parsed.captures
+    : (Array.isArray(parsed?.conversationCaptures)
+      ? parsed.conversationCaptures
+      : (parsed?.signals ? [parsed] : []));
+  const captures = foldConnectedCaptures(
+    (rows.length ? rows : [{ originalCapture: text, captureSummary: text }])
+      .map((row) => mapCaptureRecord(row, text)),
+    text,
+  );
   const understanding = captures[0] || emptyUnderstanding(text);
-  if (askedQuestion) understanding.askedQuestion = str(askedQuestion);
+  if (askedQuestion) {
+    understanding.askedQuestion = str(askedQuestion);
+    const extra = { question: str(askedQuestion), answer: str(askedAnswer) };
+    captures.forEach((c) => {
+      const answers = Array.isArray(c.clarificationAnswers) ? c.clarificationAnswers : [];
+      if (!answers.some((row) => row.question === extra.question)) {
+        c.clarificationAnswers = [...answers, extra];
+      }
+    });
+    understanding.clarificationAnswers = captures[0].clarificationAnswers;
+  }
   if (askedAnswer) understanding.askedAnswer = str(askedAnswer);
   if (captures.length === 1 && !str(captures[0].originalCapture)) {
     captures[0].originalCapture = str(text);
@@ -386,11 +590,11 @@ function conversationBlock({ text, projectName, turns, projects }) {
     .reduce((max, n) => Math.max(max, n.length), 0);
   const rich = longest >= 1200;
   if (asked >= 4) {
-    lines.push('Question budget reached (4). Return final Captures now. Preserve remaining unknowns as knownLimitation.');
+    lines.push('Question budget reached (4). Return grounded Capture(s) now. One connected project story per capture. Preserve remaining unknowns as knownLimitation.');
   } else if (asked) {
-    lines.push(`Questions asked so far: ${asked} of 4. Ask exactly ONE next high-value question if a material unknown remains; otherwise return final Captures. Do not list multiple questions.`);
+    lines.push(`Questions asked so far: ${asked} of 4. Ask exactly ONE next high-value question if a material unknown remains; otherwise return grounded Capture(s). Do not list multiple questions.`);
   } else if (rich) {
-    lines.push('This is an information-rich input. Run the clarification and enrichment pass. If a question could substantially strengthen the stories, ask exactly ONE high-value question this turn. Do not list multiple questions. Do not repeat information already in the source.');
+    lines.push('This is an information-rich input. Detect internal stories for clarification. If a question could substantially strengthen the Capture, ask exactly ONE high-value question this turn. Do not split one project story into multiple Captures. Do not list multiple questions. Do not repeat information already in the source.');
   }
   if (history.length) {
     history.forEach((t) => {
@@ -408,6 +612,11 @@ function attachedAssetsBlock({ text, attachments, turns }) {
   const videos = (attachments || []).filter((a) => a.type === 'video');
   const history = Array.isArray(turns) ? turns.filter((t) => str(t?.text)) : [];
   const lines = [`${images.length} image(s), ${videos.length} video(s).`];
+  (attachments || []).forEach((a) => {
+    if (!a?.key) return;
+    const summary = str(a.analysis?.summary || a.note);
+    lines.push(`- key: ${a.key}${summary ? ` — ${summary}` : ''}`);
+  });
   if (videos.length && !str(text) && !history.length) {
     lines.push('Video is attached but cannot be watched here. Treat missing visual context as a possible reason to ask what the clip is about — only if the note does not already make the meaning clear.');
   }
@@ -441,10 +650,13 @@ function longestUserNote(text, turns) {
   return notes.reduce((max, n) => Math.max(max, n.length), 0);
 }
 
-function collapsedRichInput(parsed, text, turns) {
+function splitIntoContentCaptures(parsed) {
   if (str(parsed?.status).toLowerCase() !== 'ready') return false;
-  const n = Array.isArray(parsed?.captures) ? parsed.captures.length : 0;
-  return n <= 1 && longestUserNote(text, turns) >= 1200;
+  const rows = Array.isArray(parsed?.captures)
+    ? parsed.captures
+    : (Array.isArray(parsed?.conversationCaptures) ? parsed.conversationCaptures : []);
+  if (rows.length <= 1) return false;
+  return !clearlyDifferentProjects(rows);
 }
 
 function assistantQuestionCount(turns) {
@@ -462,27 +674,28 @@ function endedTooSoon(parsed, text, turns) {
 const USER_JSON_INSTRUCTION = [
   'Return one JSON object with status needs_clarification or ready.',
   'Clarification/enrichment check is mandatory. Do not set needsClarification false merely because a summary is possible.',
-  'If a question could substantially strengthen the stories, put exactly ONE question in question. Do not list multiple questions. Do not repeat known information.',
-  'Extract every genuinely independent source narrative. Keep process, reason, consequence and outcome together when they form one continuous explanation.',
-  'When status is ready, conversationSummary must summarise the whole chat session in the order the user told it (earliest point first, never newest first). Each captures[] item stays story-specific and must be listed in that same chronological order.',
-  'Record observableDetails and visualLimitations when the source supports them. Do not recommend a visual treatment, select an asset, or decide whether a post needs a visual.',
-  'Do not hide a second complete narrative inside distinctSignals. Do not turn supporting stages of one narrative into standalone Captures.',
+  'If a question could substantially strengthen any internal story, put exactly ONE question in question. Do not list multiple questions. Do not repeat known information.',
+  'Detect internal stories for clarification and record them in internalStories with factIds. They are not capture boundaries and are not automatically posts.',
+  'One connected project story is one capture. Separate top-level captures only for different projects or unrelated events.',
+  'When status is ready, pass originalCapture, clarifications, one compact captureSummary, verifiedFacts as {id,fact,source}, internalStories, storyRelationships, and assets once.',
+  'Do not also return summary, whatHappened, intent, tension, action, outcome, distinctSignals, or copy facts into each internal story.',
+  'captureSummary is navigation only. Never put a fact in it that is not in originalCapture, a clarification, or an asset.',
+  'Only verifiedFacts that the user stated or an asset clearly shows.',
 ].join(' ');
 
 const CONTINUE_QUESTIONS_HINT = [
   'Do not complete yet.',
   'A story being technically understandable is not enough. Run the high-value unknown test.',
-  'If the next answer would change or substantially strengthen what strategy can do with these stories, return needsClarification true with exactly ONE question and captures [].',
+  'If the next answer would change or substantially strengthen what strategy can do with this Capture, return needsClarification true with exactly ONE question and captures [].',
   'Do not ask something already answered. Do not mention story numbers.',
 ].join(' ');
 
-const SPLIT_RETRY_HINT = [
+const UNIFY_RETRY_HINT = [
   'Re-read the entire conversation.',
-  'Keep each Capture an independently complete source narrative. Do not fragment a Problem → Reason → Process → Consequence chain.',
-  'If a second idea can stand without borrowing the first\'s reasoning, it is a sibling Capture. If it mainly explains or completes the first, keep them together.',
-  'Do not create one Capture per sentence or per potentially useful post idea.',
-  'Sibling Captures from the same source must share sourceStoryId and list relatedSegmentIds.',
-  'originalCapture for each item must be only that item\'s source words, not the whole message.',
+  'One connected project, experience or event is one capture.',
+  'Record internal stories in internalStories. They are not capture boundaries and are not automatically posts.',
+  'Separate top-level captures only for different projects or unrelated events.',
+  'originalCapture must be the complete source. Keep clarifications. Do not convert assumptions into verifiedFacts.',
 ].join(' ');
 
 async function imageContentParts(attachments) {
@@ -537,7 +750,7 @@ async function understandCapture(input = {}) {
 
   if (!hasConversationModel()) {
     const result = normalizeUnderstanding(
-      { status: 'ready', captures: [{ originalCapture: text, whatHappened: text, captureSummary: text }] },
+      { status: 'ready', captures: [{ originalCapture: text, captureSummary: text }] },
       ctx,
     );
     result.debug = makeUnderstandDebug({
@@ -563,7 +776,7 @@ async function understandCapture(input = {}) {
     userParts,
     tool: UNDERSTAND_TOOL,
     maxTokens: captureMaxTokens(),
-    retryHint: 'The previous JSON was invalid. Return only one JSON object with status needs_clarification or ready. If several independent stories exist, include all of them in captures.',
+    retryHint: 'The previous JSON was invalid. Return only one JSON object with status needs_clarification or ready. Internal stories belong in internalStories. Separate top-level captures only for different projects or unrelated events.',
     cacheKey: 'igsignal-conversation',
   };
 
@@ -576,9 +789,9 @@ async function understandCapture(input = {}) {
       console.warn(`[${kind}] completed after ${assistantQuestionCount(turns)} question(s) on rich input — asking again`);
       done = await completeToolCall({ ...callOpts, extraUserText: CONTINUE_QUESTIONS_HINT });
     }
-    if (collapsedRichInput(done.parsed, text, turns)) {
-      console.warn(`[${kind}] collapsed rich input into ${done.parsed?.captures?.length || 0} capture(s) — retrying split`);
-      done = await completeToolCall({ ...callOpts, extraUserText: SPLIT_RETRY_HINT });
+    if (splitIntoContentCaptures(done.parsed)) {
+      console.warn(`[${kind}] returned ${done.parsed?.captures?.length || 0} captures — retrying unified Capture`);
+      done = await completeToolCall({ ...callOpts, extraUserText: UNIFY_RETRY_HINT });
     }
     parsed = done.parsed;
     rawOutput = done.output || '';
@@ -591,7 +804,7 @@ async function understandCapture(input = {}) {
   } catch (err) {
     console.error(`[${kind}] understand failed`, err.message);
     const result = normalizeUnderstanding(
-      { status: 'ready', captures: [{ originalCapture: text, whatHappened: text, captureSummary: text }] },
+      { status: 'ready', captures: [{ originalCapture: text, captureSummary: text }] },
       ctx,
     );
     result.debug = makeUnderstandDebug({
@@ -661,9 +874,10 @@ function sanitizeUnderstanding(raw) {
     sourceRef: str(raw.sourceRef),
     distinctSignals: distinct,
     ...storyFieldsOf(raw),
-    relevantAssetContext: Array.isArray(raw.relevantAssetContext)
-      ? raw.relevantAssetContext.map(str).filter(Boolean)
-      : [],
+    relevantAssetContext: [],
+    clarificationAnswers: clarificationsOf(raw),
+    internalStories: internalStoriesOf(raw.internalStories),
+    possibleInterpretations: possibleInterpretationsOf(raw.possibleInterpretations),
     model: str(raw.model),
     understoodAt: Number.isNaN(understoodAt.getTime()) ? new Date() : understoodAt,
   };
@@ -701,6 +915,7 @@ function serializeUnderstanding(u) {
     sourceRef: u.sourceRef || '',
     distinctSignals: u.distinctSignals || [],
     captureId: u.captureId || u.id || '',
+    project: u.project || '',
     sourceStoryId: u.sourceStoryId || '',
     segmentId: u.segmentId || '',
     relatedSegmentIds: Array.isArray(u.relatedSegmentIds) ? u.relatedSegmentIds : [],
@@ -708,6 +923,11 @@ function serializeUnderstanding(u) {
     verifiedFacts: Array.isArray(u.verifiedFacts) ? u.verifiedFacts : [],
     openQuestions: Array.isArray(u.openQuestions) ? u.openQuestions : [],
     relevantAssetContext: u.relevantAssetContext || [],
+    clarificationAnswers: Array.isArray(u.clarificationAnswers) ? u.clarificationAnswers : [],
+    internalStories: Array.isArray(u.internalStories) ? u.internalStories : [],
+    storyRelationships: Array.isArray(u.storyRelationships) ? u.storyRelationships : [],
+    captureAssets: Array.isArray(u.captureAssets) ? u.captureAssets : [],
+    possibleInterpretations: Array.isArray(u.possibleInterpretations) ? u.possibleInterpretations : [],
     model: u.model || '',
     understoodAt: u.understoodAt || null,
   };

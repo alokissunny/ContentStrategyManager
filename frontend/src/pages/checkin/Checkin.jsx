@@ -109,21 +109,24 @@ export default function Checkin({ projects, filingProjects, week, name, lastWeek
   const userSays = (text) => push({ from: 'user', text });
 
   /* the field, opened as if the words had just been transcribed into it */
-  const toWriting = (line) => {
+  const toWriting = (line, returnStep) => {
     setStep('boot');
     setDraft('');
     const d = say(line);
-    after(d, () => { keepField.current = true; setStep('opening'); });
+    after(d, () => { keepField.current = true; setStep(returnStep || recordingReturn.current || 'opening'); });
   };
   /* whether the field on screen came from a recording — only then is "record it
    * again" a real answer */
   const fromVoice = useRef(false);
-  const startRecording = () => {
+  const recordingReturn = useRef('opening');
+  const startRecording = (returnStep = 'opening') => {
+    const back = typeof returnStep === 'string' ? returnStep : 'opening';
     userSays(CHECKIN.recordChip);
     fromVoice.current = true;
+    recordingReturn.current = back;
     /* a second attempt after a refusal leaves the hook's status unchanged, so
      * the effect below never fires — this is the same dead end, caught early */
-    if (rec.status === 'denied') { toWriting(CHECKIN.recordDenied); return; }
+    if (rec.status === 'denied') { toWriting(CHECKIN.recordDenied, back); return; }
     rec.reset();
     rec.start();
     setStep('recording');
@@ -132,10 +135,11 @@ export default function Checkin({ projects, filingProjects, week, name, lastWeek
    * with the words, not empty, so they can check them before sending. */
   useEffect(() => {
     if (step !== 'recording') return undefined;
-    if (rec.status === 'denied') { toWriting(CHECKIN.recordDenied); return undefined; }
+    if (rec.status === 'denied') { toWriting(CHECKIN.recordDenied, recordingReturn.current); return undefined; }
     if (rec.status !== 'done') return undefined;
     setStep('boot');
     const blob = rec.blob;
+    const back = recordingReturn.current || 'opening';
     (async () => {
       setBusy(true);
       try {
@@ -148,14 +152,14 @@ export default function Checkin({ projects, filingProjects, week, name, lastWeek
           after(d, () => {
             keepField.current = true;
             keepDraft.current = true;
-            setStep('opening');
+            setStep(back);
           });
         } else {
-          toWriting(CHECKIN.recordDenied);
+          toWriting(CHECKIN.recordDenied, back);
         }
       } catch {
         const d = say("I couldn't transcribe that — write it in, or record again.");
-        after(d, () => { keepField.current = true; setStep('opening'); });
+        after(d, () => { keepField.current = true; keepDraft.current = true; setStep(back); });
       } finally {
         setBusy(false);
       }
@@ -385,6 +389,7 @@ export default function Checkin({ projects, filingProjects, week, name, lastWeek
   const submitClarify = async (answer) => {
     const text = (typeof answer === 'string' ? answer : draft).trim();
     if (!text) return;
+    fromVoice.current = false;
     setDraft('');
     setStep('boot');
     userSays(text);
@@ -401,13 +406,14 @@ export default function Checkin({ projects, filingProjects, week, name, lastWeek
   };
 
   const skipClarify = async () => {
+    fromVoice.current = false;
     setDraft('');
     setStep('boot');
     userSays(CHECKIN.clarifySkip);
     setBusy(true);
     try {
       afterUnderstood(await runUnderstand({
-        extraTurn: { role: 'user', text: "That's all I have — continue without guessing." },
+        extraTurn: { role: 'user', text: 'Skip this question. Continue without guessing.' },
       }));
     } catch {
       continueAfterIdea(null);
@@ -1018,9 +1024,15 @@ export default function Checkin({ projects, filingProjects, week, name, lastWeek
       case 'clarify':
         return textField(
           'Answer',
-          <button className="btn btn--quiet btn--sm" onClick={skipClarify}>
-            {CHECKIN.clarifySkip}
-          </button>,
+          <>
+            <button className="ck-chip" onClick={() => startRecording('clarify')}>
+              <Icon name="pulse" size={14} />
+              {fromVoice.current ? CHECKIN.recordAgain : CHECKIN.recordChip}
+            </button>
+            <button className="btn btn--quiet btn--sm" onClick={skipClarify}>
+              {CHECKIN.clarifySkip}
+            </button>
+          </>,
         );
       case 'captureAssets':
         return (

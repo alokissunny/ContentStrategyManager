@@ -62,11 +62,16 @@ const understandingSchema = new mongoose.Schema(
     segmentId: { type: String, default: '' },
     relatedSegmentIds: { type: [String], default: [] },
     relationships: { type: [mongoose.Schema.Types.Mixed], default: [] },
-    verifiedFacts: { type: [String], default: [] },
+    verifiedFacts: { type: [mongoose.Schema.Types.Mixed], default: [] },
     openQuestions: { type: [String], default: [] },
     observableDetails: { type: [String], default: [] },
     relevantAssetContext: { type: [String], default: [] },
     visualLimitations: { type: [String], default: [] },
+    clarificationAnswers: { type: [mongoose.Schema.Types.Mixed], default: [] },
+    internalStories: { type: [mongoose.Schema.Types.Mixed], default: [] },
+    storyRelationships: { type: [mongoose.Schema.Types.Mixed], default: [] },
+    captureAssets: { type: [mongoose.Schema.Types.Mixed], default: [] },
+    possibleInterpretations: { type: [mongoose.Schema.Types.Mixed], default: [] },
     model: { type: String, default: '' },
     understoodAt: { type: Date, default: null },
   },
@@ -78,9 +83,8 @@ const understandingSchema = new mongoose.Schema(
 // photo's context). Mirrors the frontend capture model.
 //
 // A capture/check-in conversation is one session: `sessionSummary` is the
-// library card for the whole chat; `stories` holds every independently
-// meaningful narrative the planner still needs. `understanding` is the first
-// story, kept for older readers.
+// library card for the whole chat; `stories` holds the unified Capture (one
+// item). `understanding` is that same Capture, kept for older readers.
 const captureSchema = new mongoose.Schema(
   {
     type: { type: String, enum: ['note', 'photo', 'video'], default: 'note' },

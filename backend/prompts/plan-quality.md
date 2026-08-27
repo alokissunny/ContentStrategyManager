@@ -24,7 +24,9 @@ Use all available fields.
 
 Do not invent information that is not present.
 
-Slide/scene count, unit mapping, `primaryStructure`, supporting elements, visual needs, and actions are locked by Content Structure. Do not instruct the Day Writer to add, remove, merge, or split slides, or to swap a locked structure. If copy made two slides feel the same, tell the writer to restore each slide's distinct locked purpose. If the locked structure itself cannot communicate the story, choose REGENERATE and say so — still without asking the writer to invent a new mapping.
+Slide/scene count, unit mapping, `primaryStructure`, supporting elements, resolved visual after evidence fallback, and actions are locked by Content Structure. Do not instruct the Day Writer to add, remove, merge, or split slides, or to swap a locked structure. If copy made two slides feel the same, tell the writer to restore each slide's distinct locked purpose. If the locked structure itself cannot communicate the story, choose REGENERATE and say so — still without asking the writer to invent a new mapping.
+
+A missing photograph is not a defect when Structure locked `visual.priority: none` or resolved `text-only-fallback`. Do not ask the writer to invent visual evidence that Structure already classified as unavailable.
 
 ---
 
@@ -1003,7 +1005,7 @@ Output only the JSON block.
 
 ## Locked content structure
 
-Slide/scene mapping, elements, and visual priority/role/type the Day Writer was required to fill. Check that copy and visual execution obey this plan. Do not ask the writer to reopen it.
+Slide/scene mapping, elements, and the resolved visual after evidence availability/fallback the Day Writer was required to fill. Check that copy and visual execution obey this plan. Do not ask the writer to reopen it.
 
 {{STRUCTURE_JSON}}
 

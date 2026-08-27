@@ -76,6 +76,9 @@ const daySchema = new mongoose.Schema(
       plan: { type: String, default: '' },
       notes: { type: String, default: '' },
     },
+    // Parsed outputs from Strategist / Structure / Day Writer for this post.
+    // Shown in Week View when AI prompt debug is on. Not used for rendering.
+    agentTrace: { type: mongoose.Schema.Types.Mixed, default: null },
   },
   { _id: false }
 );

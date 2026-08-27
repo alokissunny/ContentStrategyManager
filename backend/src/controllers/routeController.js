@@ -267,6 +267,22 @@ function storiesOfCapture(c) {
   return [null];
 }
 
+function mergeStoriesForPlan(stories, originalCapture) {
+  const rows = (stories || []).map(asPlain).filter(Boolean);
+  if (!rows.length) return originalCapture ? { originalCapture } : null;
+  const first = { ...rows[0], originalCapture: rows[0].originalCapture || originalCapture };
+  if (rows.length === 1) return first;
+  first.internalStories = rows.flatMap((r) => r.internalStories || []).slice(0, 12);
+  first.verifiedFacts = rows.flatMap((r) => r.verifiedFacts || []).slice(0, 24);
+  first.clarificationAnswers = rows.flatMap((r) => r.clarificationAnswers || []).slice(0, 8);
+  first.storyRelationships = rows.flatMap((r) => r.storyRelationships || []).slice(0, 16);
+  first.captureAssets = rows.flatMap((r) => r.captureAssets || []).slice(0, 8);
+  if (!first.summary) {
+    first.summary = rows.map((r) => r.summary || r.captureSummary).filter(Boolean).join(' · ');
+  }
+  return first;
+}
+
 async function loadProjectAssets(userId, username) {
   const filter = { user: userId };
   // Strict handle match — unscoped / other-account projects must not be planned
@@ -307,27 +323,23 @@ async function loadProjectAssets(userId, username) {
       }
       const sessionId = String(c.sessionId || '').trim();
       const storyRows = storiesOfCapture(c);
-      storyRows.forEach((story, idx) => {
-        const understanding = asPlain(story);
-        const originalCapture = captureSourceText({
-          text: c.text,
-          sessionSummary: c.sessionSummary,
-          understanding,
-        });
-        const filled = understanding
-          ? { ...understanding, originalCapture: understanding.originalCapture || originalCapture }
-          : (originalCapture ? { originalCapture } : null);
-        if (originalCapture || captureAssets.length || filled) {
-          notes.push({
-            id: filled?.captureId || (c._id ? `${String(c._id)}:${idx}` : ''),
-            text: originalCapture,
-            createdAt: c.createdAt || null,
-            sessionId,
-            assets: captureAssets,
-            understanding: filled,
-          });
-        }
+      const primary = asPlain(storyRows[0]);
+      const originalCapture = captureSourceText({
+        text: c.text,
+        sessionSummary: c.sessionSummary,
+        understanding: primary,
       });
+      const filled = mergeStoriesForPlan(storyRows, originalCapture);
+      if (originalCapture || captureAssets.length || filled) {
+        notes.push({
+          id: filled?.captureId || (c._id ? String(c._id) : ''),
+          text: originalCapture,
+          createdAt: c.createdAt || null,
+          sessionId,
+          assets: captureAssets,
+          understanding: filled,
+        });
+      }
     }
     return {
       id: p._id.toString(),

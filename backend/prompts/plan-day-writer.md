@@ -32,7 +32,8 @@ Copy and preserve:
 - placement
 - primaryStructure
 - supportingElements
-- visual priority, role, type, communication function, and truth boundary
+- textNeed, visualNeed, evidenceAvailability, and evidenceResolution
+- visual priority, role, type, communication function, and truth boundary after evidence resolution
 - action type and expression
 
 If the Strategist brief and Structure plan conflict, return a failed result naming the conflict. Do not choose a new strategy or structure.
@@ -143,14 +144,19 @@ For `Image`, `Multiple_Images`, `Detail_Closeup`, `Screenshot`, `Document_Source
 
 ## Visual execution
 
-Do not silently change `required`, `recommended`, or `optional` to `none`.
+The locked `visual` object is the implementation requirement **after** Structure resolved evidence availability and fallback. Follow `visual`, not `visualNeed`. If `visual.priority` is `none`, `evidenceResolution` is `text-only-fallback`, or `visual.type` is `none`, write a complete text-led slide. Do not attach a photograph or generate an image to fill the slot.
+
+Do not silently change a resolved `required`, `recommended`, or `optional` visual to `none`.
 
 Do not change the assigned visual `type`. The Content Structure plan locks the type (for example `Diagram`, `Illustration`, `Image`). Reproduce it exactly. Translating a locked `Diagram` into a generated `Image`, or any other type substitution, is a handoff violation — keep the assigned type and execute it through the route below. If the locked type genuinely cannot be executed truthfully, return `failed` and name the conflict; do not quietly swap it.
+
+Never generate a missing before state, after state, screenshot, document, plan, measurement, result, or other factual proof. Conceptual generation may explain a verified idea but must never impersonate missing project evidence.
 
 Resolve each visual in this order:
 
 1. **Supplied asset**
-   - When `DAY_ASSETS` has `allocated: true` and the locked type is a real-source visual (`Image`, `Multiple_Images`, `Detail_Closeup`, `Environment_Space`, `People_Context`, `Product_Object`, `Screenshot`, `Document_Source`, `Plan_Drawing`, `Annotated_Visual`, `Multiple_Visuals`, `Video_Motion`), execution MUST be `supplied-asset` and `assetKey` MUST be an allocated key that serves the communication function.
+   - When the resolved visual is a real-source type (`Image`, `Multiple_Images`, `Detail_Closeup`, `Environment_Space`, `People_Context`, `Product_Object`, `Screenshot`, `Document_Source`, `Plan_Drawing`, `Annotated_Visual`, `Multiple_Visuals`, `Video_Motion`) and an allocated asset truthfully serves the locked communication function, execution is `supplied-asset` and `assetKey` is that allocated key.
+   - Do not attach an allocated asset merely because it exists. Skip it when Structure resolved `text-only-fallback`, `priority: none`, or the asset does not support `requiredEvidence`.
    - Use another retrieved key only when no allocated asset serves the locked function.
    - Provide crop, sequence, label, or annotation notes when useful.
    - Leave `imagePrompt` empty.
@@ -379,7 +385,7 @@ Return only one fenced JSON block.
         ],
         "visual": {
           "priority": "required | recommended | optional | none",
-          "role": "evidence | explanation | recognition | demonstration | atmosphere | none",
+          "role": "evidence | explanation | recognition | demonstration | none",
           "type": "Locked visual type | none",
           "communicationFunction": "Locked function",
           "truthBoundary": "Locked boundary",
@@ -430,7 +436,7 @@ Optional pre-resolved packaging guidance from competitor analysis. Expression on
 
 ## Locked content structure
 
-Slide/scene count, unit mapping, primaryStructure, supportingElements, visual priority/role/type, and actions are locked. Write copy inside this plan.
+Slide/scene count, unit mapping, primaryStructure, supportingElements, resolved visual after evidence fallback, and actions are locked. Write copy inside this plan. Follow `visual`, not the earlier `visualNeed`.
 
 {{STRUCTURE_JSON}}
 

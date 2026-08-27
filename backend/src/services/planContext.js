@@ -169,33 +169,10 @@ function noteText(n) {
   return n.text || '';
 }
 
-function signalsOf(u) {
-  if (!Array.isArray(u?.distinctSignals)) return [];
-  return u.distinctSignals
-    .map((s) => ({
-      type: clip(s?.type, 24),
-      summary: clip(s?.summary, 320),
-    }))
-    .filter((s) => s.type || s.summary)
-    .slice(0, 16);
-}
-
 function asUnderstanding(u) {
   if (!u || typeof u !== 'object') return {};
   if (typeof u.toObject === 'function') return u.toObject();
   return u;
-}
-
-function relationshipsOf(u) {
-  if (!Array.isArray(u?.relationships)) return [];
-  return u.relationships
-    .map((r) => ({
-      from: clip(r?.from, 220),
-      relationship: clip(r?.relationship, 48),
-      to: clip(r?.to, 220),
-    }))
-    .filter((r) => r.from || r.to || r.relationship)
-    .slice(0, 16);
 }
 
 function omitEmpty(obj) {
@@ -208,51 +185,144 @@ function omitEmpty(obj) {
   return out;
 }
 
+function navigationSummary(original, summary) {
+  const s = clip(summary, 400);
+  const o = String(original || '').trim();
+  if (!s) return '';
+  if (o && s === o) return '';
+  return s;
+}
+
+function verifiedFactsForPlan(u) {
+  const rows = Array.isArray(u?.verifiedFacts) ? u.verifiedFacts : [];
+  const lifted = [];
+  if (!rows.length) {
+    (u?.internalStories || []).forEach((s) => {
+      (s.facts || []).forEach((f) => lifted.push(f));
+    });
+  }
+  const source = rows.length ? rows : lifted;
+  return source.map((row, i) => {
+    if (row && typeof row === 'object' && !Array.isArray(row)) {
+      return omitEmpty({
+        id: clip(row.id, 16) || `f${i + 1}`,
+        fact: clip(row.fact || row.summary, 280),
+        source: clip(row.source, 24) || 'originalCapture',
+      });
+    }
+    const fact = clip(row, 280);
+    return fact ? { id: `f${i + 1}`, fact, source: 'originalCapture' } : null;
+  }).filter((row) => row && row.fact).slice(0, 24);
+}
+
+function clarificationsForPlan(u) {
+  const rows = Array.isArray(u?.clarifications) && u.clarifications.length
+    ? u.clarifications
+    : (Array.isArray(u?.clarificationAnswers) ? u.clarificationAnswers : []);
+  const fromAsked = (u?.askedQuestion || u?.askedAnswer)
+    ? [{ question: u.askedQuestion, answer: u.askedAnswer }]
+    : [];
+  const seen = new Set();
+  return [...rows, ...fromAsked]
+    .map((row) => omitEmpty({
+      question: clip(row?.question, 280),
+      answer: sourceText(row?.answer),
+    }))
+    .filter((row) => {
+      if (!row.question && !row.answer) return false;
+      const key = `${row.question}|${row.answer}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .slice(0, 8);
+}
+
+function internalStoriesForPlan(u) {
+  if (!Array.isArray(u?.internalStories)) return [];
+  return u.internalStories.map((s, i) => omitEmpty({
+    id: clip(s?.id || s?.storyId, 32) || `s${i + 1}`,
+    territory: clip(s?.territory, 80),
+    summary: clip(s?.summary, 280),
+    factIds: Array.isArray(s?.factIds)
+      ? s.factIds.map((id) => clip(id, 16)).filter(Boolean).slice(0, 16)
+      : [],
+    status: clip(s?.status, 32),
+  })).filter((s) => s.id || s.summary || s.territory).slice(0, 12);
+}
+
+function storyRelationshipsForPlan(u) {
+  const direct = Array.isArray(u?.storyRelationships) ? u.storyRelationships : [];
+  if (direct.length) {
+    return direct.map((r) => omitEmpty({
+      storyIds: Array.isArray(r?.storyIds)
+        ? r.storyIds.map((id) => clip(id, 32)).filter(Boolean).slice(0, 12)
+        : [],
+      relationship: clip(r?.relationship || r?.type, 64),
+      summary: clip(r?.summary, 280),
+    })).filter((r) => (r.storyIds && r.storyIds.length) || r.relationship || r.summary).slice(0, 16);
+  }
+  const derived = [];
+  (u?.internalStories || []).forEach((s) => {
+    (s.relationships || []).forEach((r) => {
+      derived.push(omitEmpty({
+        storyIds: [clip(s.id || s.storyId, 32), clip(r.targetStoryId, 32)].filter(Boolean),
+        relationship: clip(r.type || r.relationship, 64),
+      }));
+    });
+  });
+  return derived.filter((r) => r.storyIds && r.storyIds.length).slice(0, 16);
+}
+
+function compactCaptureAssets(n, u) {
+  const byKey = new Map();
+  const remember = (row) => {
+    const key = String(row?.key || '').trim();
+    if (!key && !row?.summary) return;
+    const prev = (key && byKey.get(key)) || {};
+    const merged = omitEmpty({
+      key: key || prev.key,
+      summary: sourceText(row.summary || prev.summary),
+      supportsFactIds: [
+        ...(Array.isArray(prev.supportsFactIds) ? prev.supportsFactIds : []),
+        ...(Array.isArray(row.supportsFactIds) ? row.supportsFactIds.map((id) => clip(id, 16)).filter(Boolean) : []),
+      ].filter((id, i, arr) => arr.indexOf(id) === i).slice(0, 12),
+      limitations: [
+        ...(Array.isArray(prev.limitations) ? prev.limitations : []),
+        ...(Array.isArray(row.limitations) ? row.limitations.map((s) => clip(s, 160)).filter(Boolean) : []),
+      ].filter((s, i, arr) => arr.indexOf(s) === i).slice(0, 6),
+    });
+    if (key) byKey.set(key, merged);
+  };
+  attachedAssetsOf(n).forEach((a) => remember({
+    key: a.key,
+    summary: a.summary,
+  }));
+  (u?.captureAssets || u?.assets || []).forEach((a) => remember({
+    key: a?.key,
+    summary: a?.summary,
+    supportsFactIds: a?.supportsFactIds,
+    limitations: a?.limitations,
+  }));
+  return [...byKey.values()].slice(0, 8);
+}
+
 function conversationCaptureOf(n) {
   const u = asUnderstanding(n.understanding);
   const mongoId = clip(n.id, 48);
-  const whatHappened = clip(u.happened || u.whatHappened, 800);
-  const captureSummary = clip(u.summary || u.captureSummary, 800);
-  const verifiedFacts = Array.isArray(u.verifiedFacts)
-    ? u.verifiedFacts.map((f) => clip(f, 400)).filter(Boolean).slice(0, 24)
-    : [];
+  const originalCapture = sourceText(u.originalCapture || n.text);
+  const captureSummary = navigationSummary(originalCapture, u.summary || u.captureSummary);
   return omitEmpty({
-    id: mongoId,
     captureId: mongoId,
     project: n.project,
-    originalCapture: sourceText(u.originalCapture || n.text),
-    whatHappened,
-    intent: clip(u.intent, 400),
-    tension: clip(u.difficulty || u.tension, 400),
-    action: clip(u.actionTaken || u.action, 400),
-    outcome: clip(u.outcome, 400),
+    originalCapture,
+    clarifications: clarificationsForPlan(u),
     captureSummary,
-    summary: captureSummary,
-    distinctSignals: signalsOf(u),
-    sourceStoryId: clip(u.sourceStoryId, 64),
-    segmentId: clip(u.segmentId, 64),
-    relatedSegmentIds: Array.isArray(u.relatedSegmentIds)
-      ? u.relatedSegmentIds.map((id) => clip(id, 64)).filter(Boolean).slice(0, 12)
-      : [],
-    relationships: relationshipsOf(u),
-    verifiedFacts,
-    openQuestions: Array.isArray(u.openQuestions)
-      ? u.openQuestions.map((q) => clip(q, 220)).filter(Boolean).slice(0, 8)
-      : [],
-    unresolvedGap: clip(u.missingPiece || u.unresolvedGap, 320),
-    knownLimitation: clip(u.knownLimitation, 320),
-    observableDetails: Array.isArray(u.observableDetails)
-      ? u.observableDetails.map((s) => clip(s, 220)).filter(Boolean).slice(0, 16)
-      : [],
-    visualLimitations: Array.isArray(u.visualLimitations)
-      ? u.visualLimitations.map((s) => clip(s, 220)).filter(Boolean).slice(0, 12)
-      : [],
-    relevantAssetContext: Array.isArray(u.relevantAssetContext)
-      ? u.relevantAssetContext.map((s) => clip(s, 220)).filter(Boolean).slice(0, 8)
-      : [],
-    attachedAssets: attachedAssetsOf(n),
-    status: clip(u.captureStatus || u.status, 24),
-    shown: n.shown || [],
+    verifiedFacts: verifiedFactsForPlan(u),
+    internalStories: internalStoriesForPlan(u),
+    storyRelationships: storyRelationshipsForPlan(u),
+    assets: compactCaptureAssets(n, u),
+    status: clip(u.captureStatus || u.status, 24) || 'ready',
   });
 }
 
@@ -346,7 +416,7 @@ function compileProjectTruth(projects, source = {}) {
   const session = sessionRowsOf(projects, source);
   const conversationCaptures = session
     .map(conversationCaptureOf)
-    .filter((c) => c.originalCapture || c.whatHappened || c.captureSummary);
+    .filter((c) => c.originalCapture || c.captureSummary);
   const out = { conversationCaptures };
   if (source.sessionId || (source.captureIds && source.captureIds.length)) {
     out.planFromSession = true;
@@ -413,30 +483,22 @@ function sessionQueryWords(session) {
     const u = asUnderstanding(c.understanding);
     return [
       noteText(c),
-      u.happened || u.whatHappened,
       u.summary || u.captureSummary,
-      u.intent,
     ].filter(Boolean).join(' ');
   }).join(' ');
   return wordsOf(text);
 }
 
-/** Visual record for the Strategist: conversation attachments plus the same
- *  project's library photos, including real keys so Strategy can allocate
- *  relevant files onto briefs. Later agents decide whether they appear. */
+/** Extra same-project library photos. Conversation attachments live on
+ *  each capture's `assets` — do not repeat them here. */
 function compileAssetContext(projects, source = {}) {
   const session = sessionRowsOf(projects, source);
   const query = sessionQueryWords(session);
   const sessionProjects = new Set(session.map((c) => c.project).filter(Boolean));
   const conversationKeys = new Set();
-  const conversationAssets = session.map((c) => {
+  session.forEach((c) => {
     (c.assets || []).forEach((a) => { if (a?.key) conversationKeys.add(a.key); });
-    return omitEmpty({
-      captureId: clip(c.id, 48),
-      project: c.project,
-      assets: attachedAssetsOf(c),
-    });
-  }).filter((row) => (row.assets || []).length);
+  });
 
   const projectAssets = [];
   const sourceProjects = (projects || []).filter((p) => (
@@ -454,17 +516,20 @@ function compileAssetContext(projects, source = {}) {
     if (assets.length) projectAssets.push({ project: p.name, assets });
   }
 
-  return omitEmpty({ conversationAssets, projectAssets });
+  return omitEmpty({ projectAssets });
 }
 
 function compileAssetIndex(projects, assetContext) {
   const ctx = assetContext || compileAssetContext(projects);
   const rows = [];
-  (ctx.conversationAssets || []).forEach((c) => {
-    (c.assets || []).forEach((a) => {
-      if (a.summary) rows.push({ project: c.project, summary: a.summary, source: 'conversation' });
+  for (const p of projects || []) {
+    (p.notes || []).forEach((n) => {
+      (n.assets || []).forEach((a) => {
+        const summary = assetOneLiner(a);
+        if (summary) rows.push({ project: p.name, summary, source: 'conversation' });
+      });
     });
-  });
+  }
   (ctx.projectAssets || []).forEach((p) => {
     (p.assets || []).forEach((a) => {
       if (a.summary) rows.push({ project: p.project, summary: a.summary, source: 'project' });
@@ -528,7 +593,19 @@ function allocatedAssetsOf(value) {
     out.push(omitEmpty({
       key,
       source: source === 'conversation' || source === 'project' ? source : '',
-      why: clip(row && typeof row === 'object' ? row.why : '', 160),
+      why: clip(row && typeof row === 'object' ? row.why : '', 160)
+        || clip(row && typeof row === 'object' ? row.communicationPotential : '', 160),
+      supportsUnitIds: Array.isArray(row?.supportsUnitIds)
+        ? row.supportsUnitIds.map((id) => String(id || '').trim()).filter(Boolean).slice(0, 8)
+        : [],
+      evidenceLevel: ['direct', 'partial', 'context'].includes(String(row?.evidenceLevel || '').trim().toLowerCase())
+        ? String(row.evidenceLevel).trim().toLowerCase()
+        : '',
+      visibleContent: clip(row && typeof row === 'object' ? row.visibleContent : '', 240),
+      communicationPotential: clip(row && typeof row === 'object' ? row.communicationPotential : '', 240),
+      limitations: Array.isArray(row?.limitations)
+        ? row.limitations.map((x) => clip(x, 160)).filter(Boolean).slice(0, 4)
+        : [],
     }));
   }
   return out.slice(0, 4);
@@ -563,16 +640,17 @@ function knownAssetIndexOf(projects, assetContext) {
     conversationByCapture.set(id, set);
   };
 
-  (assetContext?.conversationAssets || []).forEach((c) => {
-    (c.assets || []).forEach((a) => addConversation(c.captureId, a?.key, a?.summary));
-  });
   (assetContext?.projectAssets || []).forEach((p) => {
     (p.assets || []).forEach((a) => remember(a?.key, a?.summary));
   });
   for (const p of projects || []) {
     (p.assets || []).forEach((a) => remember(a?.key, assetOneLiner(a)));
     (p.notes || []).forEach((n) => {
-      (n.assets || []).forEach((a) => remember(a?.key, assetOneLiner(a)));
+      (n.assets || []).forEach((a) => addConversation(
+        n.id || n.understanding?.captureId,
+        a?.key,
+        assetOneLiner(a),
+      ));
     });
   }
   return { keys, conversationKeys, conversationByCapture, summaries };
@@ -600,9 +678,15 @@ function conversationKeysForBrief(known, brief, capture) {
 function sanitizeAllocatedAssets(raw, brief, capture, known) {
   if (!known) return allocatedAssetsOf(raw);
   const allowedConversation = conversationKeysForBrief(known, brief, capture);
+  const captureKeys = new Set(
+    (capture?.assets || capture?.attachedAssets || [])
+      .map((a) => String(a?.key || '').trim())
+      .filter(Boolean),
+  );
+  captureKeys.forEach((key) => allowedConversation.add(key));
   return allocatedAssetsOf(raw).filter((a) => {
-    if (!known.keys.has(a.key)) return false;
-    if (known.conversationKeys.has(a.key) && allowedConversation.size) {
+    if (!known.keys.has(a.key) && !captureKeys.has(a.key)) return false;
+    if ((known.conversationKeys.has(a.key) || captureKeys.has(a.key)) && allowedConversation.size) {
       return allowedConversation.has(a.key);
     }
     return true;
@@ -613,7 +697,7 @@ function applyAssetAllocation(brief, capture, known) {
   let allocated = sanitizeAllocatedAssets(brief?.allocatedAssets, brief, capture, known);
   if (!allocated.length && capture) {
     allocated = sanitizeAllocatedAssets(
-      (capture.attachedAssets || []).map((a) => ({
+      (capture.assets || capture.attachedAssets || []).map((a) => ({
         key: a.key,
         source: 'conversation',
         why: a.summary || '',

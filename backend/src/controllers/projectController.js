@@ -376,8 +376,8 @@ async function analyzeProject(req, res) {
 
 // ── Capture-time understanding ─────────────────────────────────────────────
 // POST /projects/captures/understand
-// Capture Conversation: split independent stories silently, clarify or deepen
-// only when useful, then hand off ready captures. Never blocks filing if the model is down.
+// Capture Conversation: detect internal stories for clarification, preserve
+// one unified Capture for strategy. Never blocks filing if the model is down.
 async function understandDraft(req, res) {
   const text = (req.body.text || '').trim();
   const attachments = sanitizeAttachments(req.body.attachments, req.user._id);
@@ -421,7 +421,7 @@ async function understandDraft(req, res) {
       action: 'ready',
       question: null,
       conversationSummary: text,
-      captures: [{ originalCapture: text, whatHappened: text, captureSummary: text, summary: text }],
+      captures: [{ originalCapture: text, captureSummary: text }],
       understanding: {
         happened: text,
         intent: '',
@@ -505,7 +505,7 @@ async function understandCheckinDraft(req, res) {
       matchedProjectName: '',
       askForAssets: attachments.length === 0,
       conversationSummary: text,
-      captures: [{ originalCapture: text, whatHappened: text, captureSummary: text, summary: text }],
+      captures: [{ originalCapture: text, captureSummary: text }],
       understanding: {
         happened: text,
         intent: '',

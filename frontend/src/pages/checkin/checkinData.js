@@ -381,7 +381,7 @@ export const CHECKIN = {
   /* typed-idea path — after understanding, only asked if the project is unknown */
   projectQuestion: 'Which project does this belong to?',
   /* at most one clarifying question, same rule as Capture */
-  clarifySkip: "That's all I have",
+  clarifySkip: 'Skip this question',
   clarifyPlaceholder: 'Answer in your own words…',
   uploadOpening: 'Upload a file',
   matchedProjectAck: "I'll file this under {name}.",

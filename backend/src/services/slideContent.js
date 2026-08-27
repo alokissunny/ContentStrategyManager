@@ -48,7 +48,9 @@ function visualNeedOf(s) {
   const priority = str(visual.priority).toLowerCase();
   const type = str(visual.type);
   const execution = str(visual.execution).toLowerCase();
+  const source = str(visual.source).toLowerCase();
   const wants = (priority && priority !== 'none')
+    || (source && source !== 'none')
     || (type && type.toLowerCase() !== 'none')
     || /supplied|generated|graphic|unresolved/.test(execution)
     || str(s?.image).toLowerCase() === 'placeholder';
@@ -77,7 +79,7 @@ function flattenSlide(raw) {
     'ranking', 'timeline', 'process_flow', 'framework', 'categories_groups', 'progression',
     'hierarchy', 'diagram',
   );
-  const quoteEl = elementOf(elements, 'quote');
+  const quoteEl = elementOf(elements, 'quote', 'testimonial');
   const statEl = elementOf(elements, 'number_stat', 'number', 'stat', 'data_chart');
   const actionEl = elementOf(elements, 'action');
   const cmpEl = elementOf(
@@ -124,10 +126,14 @@ function flattenSlide(raw) {
     || 'Title',
   );
   const priority = str(visual.priority).toLowerCase();
+  const source = str(visual.source).toLowerCase();
+  const assetKeys = stringList(visual.assetKeys || s.assetKeys);
+  const assetKey = str(s.assetKey || visual.assetKey || assetKeys[0]);
   const wantsImage = Boolean(imageEl)
     || /image|illustration|screenshot|document|drawing|artwork|product|people|environment|video|animation|annotated|multiple/i.test(primary)
     || str(s.image).toLowerCase() === 'placeholder'
     || (priority && priority !== 'none')
+    || (source && source !== 'none')
     || /supplied|generated/.test(str(visual.execution).toLowerCase());
 
   return {
@@ -149,10 +155,12 @@ function flattenSlide(raw) {
       : (/before/i.test(primary) ? ['Before', 'After'] : []),
     image: wantsImage ? 'placeholder' : str(s.image),
     imagePrompt: str(s.imagePrompt || visual.imagePrompt),
-    assetKey: str(s.assetKey || visual.assetKey),
+    assetKey,
+    assetKeys: assetKeys.length ? assetKeys : (assetKey ? [assetKey] : []),
     layout: str(s.layout),
     visual,
     visualNeed: visualNeedOf({ ...s, visual, image: wantsImage ? 'placeholder' : str(s.image) }),
+    textLayout: s.textLayout && typeof s.textLayout === 'object' ? s.textLayout : null,
   };
 }
 
@@ -173,7 +181,7 @@ function layoutForStructure(slide) {
   if (slide.stat && (named(/stat|number/) || !slide.title)) {
     return (slide.body || slide.subtitle) ? 'n-res-statcopy' : 'b-res-metric';
   }
-  if (slide.quote && named(/quote/)) return 'n-res-quotenote';
+  if (slide.quote && named(/quote|testimonial/)) return 'n-res-quotenote';
   if (slide.action && named(/action/)) return 'n-cta-centered';
   if (named(/short_statement|question/) && !slide.body && !slide.subtitle) return 'e-hook-statement';
   if (named(/image|caption|multiple/)) return 'n-hook-band';

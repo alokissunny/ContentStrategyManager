@@ -467,31 +467,25 @@ function renderProjectAssets(projects, source = {}) {
   recent.forEach((c, i) => {
     const u = c.understanding && typeof c.understanding === 'object' ? c.understanding : {};
     lines.push(`### Capture ${c.id || i + 1} — ${c.project}`);
-    const summary = u.summary || u.captureSummary || c.text;
-    if (summary) lines.push(`- summary: ${summary}`);
-    const happened = u.happened || u.whatHappened;
-    if (happened) lines.push(`- whatHappened: ${happened}`);
-    if (u.intent) lines.push(`- intent: ${u.intent}`);
-    if (u.difficulty || u.tension) lines.push(`- tension: ${u.difficulty || u.tension}`);
-    if (u.actionTaken || u.action) lines.push(`- action: ${u.actionTaken || u.action}`);
-    if (u.outcome) lines.push(`- outcome: ${u.outcome}`);
-    if (u.sourceStoryId) lines.push(`- sourceStoryId: ${u.sourceStoryId}`);
-    if (u.segmentId) lines.push(`- segmentId: ${u.segmentId}`);
-    const related = Array.isArray(u.relatedSegmentIds) ? u.relatedSegmentIds.filter(Boolean) : [];
-    if (related.length) lines.push(`- relatedSegmentIds: ${related.join(', ')}`);
-    const signals = Array.isArray(u.distinctSignals) ? u.distinctSignals : [];
-    signals.slice(0, 16).forEach((s) => {
-      const line = [s?.type, s?.summary].filter(Boolean).join(': ');
-      if (line) lines.push(`- signal: ${line}`);
-    });
-    const rels = Array.isArray(u.relationships) ? u.relationships : [];
-    rels.slice(0, 16).forEach((r) => {
-      const line = [r?.from, r?.relationship, r?.to].filter(Boolean).join(' → ');
-      if (line) lines.push(`- relationship: ${line}`);
+    const summary = u.summary || u.captureSummary;
+    if (summary && summary !== c.text) lines.push(`- captureSummary: ${summary}`);
+    const clarifications = Array.isArray(u.clarifications) && u.clarifications.length
+      ? u.clarifications
+      : (Array.isArray(u.clarificationAnswers) ? u.clarificationAnswers : []);
+    clarifications.slice(0, 8).forEach((row) => {
+      const line = [row?.question, row?.answer].filter(Boolean).join(' → ');
+      if (line) lines.push(`- clarification: ${line}`);
     });
     const facts = Array.isArray(u.verifiedFacts) ? u.verifiedFacts : [];
-    facts.slice(0, 16).forEach((f) => { if (f) lines.push(`- verifiedFact: ${f}`); });
-    if (u.knownLimitation) lines.push(`- do not invent: ${u.knownLimitation}`);
+    facts.slice(0, 16).forEach((f) => {
+      const fact = f && typeof f === 'object' ? f.fact : f;
+      if (fact) lines.push(`- verifiedFact: ${fact}`);
+    });
+    const stories = Array.isArray(u.internalStories) ? u.internalStories : [];
+    stories.slice(0, 8).forEach((s) => {
+      const line = [s?.id || s?.storyId, s?.territory, s?.summary].filter(Boolean).join(' · ');
+      if (line) lines.push(`- internalStory: ${line}`);
+    });
     if (c.shown?.length) c.shown.forEach((s) => lines.push(`- photo: ${s}`));
     (c.assets || []).forEach((a) => {
       if (a?.key) lines.push(`- assetKey: ${a.key} — ${describeAsset(a)}`);
@@ -630,6 +624,7 @@ function normalizeSlides(rawSlides, onScreenText, format, title, cta, validKeys 
       image: s.image || '',
       imagePrompt: s.imagePrompt || (s.image === 'placeholder' ? buildBaseImagePrompt({ ...s, role }, ctx) : ''),
       assetKey,
+      assetKeys: Array.isArray(s.assetKeys) ? s.assetKeys : (assetKey ? [assetKey] : []),
       layout,
       visualNeed: s.visualNeed || null,
     };
@@ -747,6 +742,7 @@ function assembleDays({
       title: d.title || '',
       direction: d.direction || '',
       published: false,
+      agentTrace: d.agentTrace || null,
       content: {
         slides,
         onScreenText,

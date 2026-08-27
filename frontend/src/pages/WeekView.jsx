@@ -2,7 +2,7 @@
  * WeekView — complete content for one plan's seven-day route.
  *
  * Desktop: date header → seven-day calendar → a wide two-column post card
- * (composition left, Caption / Why this post right). Phone: stacked Instagram
+ * (composition left, Caption / Why this post / Debug right). Phone: stacked Instagram
  * card with a "Why this?" aside. Edits persist via PATCH /routes/:id/day/:index.
  */
 
@@ -31,6 +31,8 @@ import { PhotoEditor, SlotPack } from './weekview/PhotoEditor';
 import RoleField from './weekview/RoleField';
 import WordsPolish from './weekview/WordsPolish';
 import CaptionPolish from './weekview/CaptionPolish';
+import PostAgentDebug from './weekview/PostAgentDebug';
+import { useAiDebug } from '../lib/aiDebug';
 import { useBodyScrollLock } from './visualbrand/useBodyScrollLock';
 import useMediaQuery from '../hooks/useMediaQuery';
 import { useStore } from '../lib/store';
@@ -482,7 +484,7 @@ const SLIDE_ROLES = {
 // Content and Image were two tabs over one slide — the words on it and the shape
 // they go in — but nobody writes a line without looking at where it lands, so
 // they are one pane now (bauhly-v3 decision 559).
-const TABS = ['Content & Visual', 'Caption', 'Why this post'];
+const BEST_FIT_LAYOUT = { id: 'best-fit', kind: 'bleed', tone: 'photo', art: { head: '', body: '' }, imgs: [null] };
 
 function fmtTokens(n) {
   if (n == null) return '—';
@@ -1154,11 +1156,6 @@ function rasterizeSlide(node, { timeoutMs = 20000 } = {}) {
   );
 }
 
-// The post preview IS the chosen Visual Library layout — LayoutArt's own
-// `Preview`, the same renderer the Image-tab cards and the Visual Library use.
-// The slide's photograph fills the composition's picture slots (mood on); with
-// none, the picture regions draw as the empty ground the layout has before a
-// photo exists, exactly as the library shows them.
 function VisualNeedHint({ need }) {
   const [open, setOpen] = useState(false);
   const wrapRef = useRef(null);
@@ -1220,31 +1217,74 @@ function VisualNeedHint({ need }) {
   );
 }
 
-function SlideMedia({ slide, layout, contentType, localMedia, parts, mediaByKey, preferProxy = false, showVisualHint = false }) {
+function slideCopy(slide, parts) {
+  const title = (parts?.head != null ? plainOf(parts.head) : (slide?.title || slide?.quote || slide?.action || '')).trim();
+  const sub = (parts?.body != null ? plainOf(parts.body) : (slide?.subtitle || '')).trim();
+  const body = String(slide?.body || '').trim();
+  const items = Array.isArray(slide?.items) ? slide.items.map((x) => String(x || '').trim()).filter(Boolean) : [];
+  const cmpA = String(slide?.comparisonA || '').trim();
+  const cmpB = String(slide?.comparisonB || '').trim();
+  const showCmp = Boolean(cmpA && cmpB) && cmpA !== title && cmpB !== sub;
+  return {
+    title,
+    sub,
+    body: body && body !== sub && body !== title ? body : '',
+    items,
+    cmpA: showCmp ? cmpA : '',
+    cmpB: showCmp ? cmpB : '',
+    stat: String(slide?.stat || '').trim(),
+    quote: String(slide?.quote || '').trim() && String(slide?.quote || '').trim() !== title
+      ? String(slide.quote).trim() : '',
+  };
+}
+
+function SlideBestFit({ slide, localMedia, mediaByKey, preferProxy = false, parts, showVisualHint = false }) {
+  const copy = slideCopy(slide, parts);
+  const key = slide?.assetKey || slide?.image?.key;
+  const src = urlForKey(key, slide, localMedia, mediaByKey, preferProxy)
+    || photoUrl(slide, localMedia, mediaByKey);
   const need = showVisualHint ? visualNeedRecord(slide) : null;
-  if (!layout) {
-    return (
-      <div className="wv-ig__empty">
-        <Glyph name="image" size={28} />
-        <span>Needs image</span>
-        {need && <VisualNeedHint need={need} />}
-      </div>
-    );
-  }
-  const filled = withSlidePhoto(
-    fillLayout(layout, slide, contentType, parts),
-    slide,
-    localMedia,
-    mediaByKey,
-    preferProxy,
-  );
-  const anyPhoto = (filled?.imgs || []).some(Boolean);
-  const showHint = Boolean(need) && !anyPhoto;
-  const emptyPlaceholder = showHint && shotsOf(filled || layout) < 1;
+  const showHint = Boolean(need) && !src;
   return (
-    <div className={`wv-ig__lay${emptyPlaceholder ? ' is-needvisual' : ''}`}>
-      <Preview l={filled} mood={anyPhoto} />
+    <div className={`wv-fit${src ? ' has-photo' : ''}${showHint ? ' is-needvisual' : ''}`}>
+      <div className="wv-fit__slot">
+        {src ? <img className="wv-fit__photo" src={src} alt="" /> : null}
+      </div>
+      <div className="wv-fit__copy">
+        {copy.stat ? <p className="wv-fit__stat">{copy.stat}</p> : null}
+        {copy.title ? <p className="wv-fit__title">{copy.title}</p> : null}
+        {copy.sub ? <p className="wv-fit__sub">{copy.sub}</p> : null}
+        {copy.body ? <p className="wv-fit__sub">{copy.body}</p> : null}
+        {copy.cmpA || copy.cmpB ? (
+          <p className="wv-fit__pair">
+            {copy.cmpA ? <span>{copy.cmpA}</span> : null}
+            {copy.cmpA && copy.cmpB ? <i className="wv-fit__rule" aria-hidden="true" /> : null}
+            {copy.cmpB ? <span>{copy.cmpB}</span> : null}
+          </p>
+        ) : null}
+        {copy.quote ? <p className="wv-fit__quote">{copy.quote}</p> : null}
+        {copy.items.length ? (
+          <ul className="wv-fit__list">
+            {copy.items.map((item) => <li key={item}>{item}</li>)}
+          </ul>
+        ) : null}
+      </div>
       {showHint && <VisualNeedHint need={need} />}
+    </div>
+  );
+}
+
+function SlideMedia({ slide, localMedia, parts, mediaByKey, preferProxy = false, showVisualHint = false }) {
+  return (
+    <div className="wv-ig__lay">
+      <SlideBestFit
+        slide={slide}
+        localMedia={localMedia}
+        mediaByKey={mediaByKey}
+        preferProxy={preferProxy}
+        parts={parts}
+        showVisualHint={showVisualHint}
+      />
     </div>
   );
 }
@@ -1510,8 +1550,9 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
   // Select images sheet (bauhly-v3 §821/§890): draft slots until Apply.
   const [imgPick, setImgPick] = useState(null); // { slots: (string|null)[], at: number } | null
   const [whyOpen, setWhyOpen] = useState(false);
-  // Desktop side panel: Caption | Why this post (bauhly-v3 desktop split).
-  const [sideTab, setSideTab] = useState('caption'); // 'caption' | 'why'
+  // Desktop side panel: Caption | Why this post | Debug (when AI debug is on).
+  const [sideTab, setSideTab] = useState('caption'); // 'caption' | 'why' | 'debug'
+  const aiDebug = useAiDebug();
   const [capReviewed, setCapReviewed] = useState(() => new Set());
   // Day-to-day slide transition (bauhly-v3 §730/§786): the arriving post's
   // direction — 1 = came from the right (moving forward), -1 = from the left,
@@ -1565,6 +1606,9 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
   routeRef.current = route;
 
   const weekId = initialRoute?._id;
+  useEffect(() => {
+    if (!aiDebug.enabled && sideTab === 'debug') setSideTab('caption');
+  }, [aiDebug.enabled, sideTab]);
   useEffect(() => {
     setRoute(initialRoute);
     const n = (initialRoute?.days || []).length;
@@ -1987,13 +2031,13 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
     finally { setSaving(false); }
   }
 
-  async function persistSlides(nextSlides, dayIndex = selected) {
+  async function persistSlides(nextSlides, dayIndex = selected, extra = {}) {
     if (!route?._id) return;
     const gen = ++persistGenRef.current;
     const payload = slidesPayload(nextSlides, lastSavedByDayRef.current[dayIndex] || []);
     setSaving(true);
     try {
-      const updated = await updateDayContent(route._id, dayIndex, { slides: payload });
+      const updated = await updateDayContent(route._id, dayIndex, { slides: payload, ...extra });
       if (gen !== persistGenRef.current) return;
       const saved = updated?.days?.[dayIndex]?.content?.slides;
       if (Array.isArray(saved)) lastSavedByDayRef.current[dayIndex] = saved;
@@ -2005,7 +2049,7 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
     }
   }
 
-  function replaceSlides(next, { persist = true, dayIndex = selected } = {}) {
+  function replaceSlides(next, { persist = true, dayIndex = selected, extra = {} } = {}) {
     setRoute((prev) => {
       const daysCopy = [...(prev.days || [])];
       const d = { ...daysCopy[dayIndex] };
@@ -2013,11 +2057,12 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
         ...(d.content || {}),
         slides: next.map((s) => slideRecord(s)),
         onScreenText: next.map((s) => s.title),
+        ...extra,
       };
       daysCopy[dayIndex] = { ...d, content };
       return { ...prev, days: daysCopy };
     });
-    if (persist) persistSlides(next, dayIndex);
+    if (persist) persistSlides(next, dayIndex, extra);
   }
 
   function patchActiveSlide(patch) {
@@ -2355,12 +2400,12 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
   const chosenLayoutIdx = Math.max(0, slideLayouts.findIndex((l) => l.id === draftId));
   const layoutCatLabel = (CATEGORIES.find((c) => c.id === layoutBrowseCat) || {}).label || '';
   const layoutUnchanged = Boolean(draftId) && draftId === appliedId;
-  const wordRoles = visEdit === 'words' ? textRolesOf(chosenLayout) : [];
+  const wordRoles = visEdit === 'words' ? textRolesOf(BEST_FIT_LAYOUT) : [];
   const primaryWordKey = wordRoles.find((r) => r.key === 'head')?.key
     || wordRoles.find((r) => r.key === 'body')?.key
     || wordRoles[0]?.key;
   const wordsSeed = visEdit === 'words'
-    ? seedWordDraft(chosenLayout, activeSlide, day?.contentType || day?.format)
+    ? seedWordDraft(BEST_FIT_LAYOUT, activeSlide, day?.contentType || day?.format)
     : null;
   const wordsUnchanged = Boolean(wordDraft && wordsSeed
     && Object.keys({ ...wordsSeed, ...wordDraft }).every(
@@ -2369,8 +2414,8 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
 
   useEffect(() => {
     if (visEdit !== 'words') return;
-    setWordDraft(seedWordDraft(chosenLayout, activeSlide, day?.contentType || day?.format));
-  }, [visEdit, selected, safeIdx, chosenLayout?.id]);
+    setWordDraft(seedWordDraft(BEST_FIT_LAYOUT, activeSlide, day?.contentType || day?.format));
+  }, [visEdit, selected, safeIdx]);
 
   const wordFills = useMemo(() => {
     const fromCap = String(day?.content?.caption || '')
@@ -2382,7 +2427,7 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
   }, [day?.content?.caption, slides, safeIdx]);
 
   function applyWords() {
-    const roles = textRolesOf(chosenLayout);
+    const roles = textRolesOf(BEST_FIT_LAYOUT);
     const hasHead = roles.some((r) => r.key === 'head');
     const hasBody = roles.some((r) => r.key === 'body');
     const primary = hasHead ? 'head' : (hasBody ? 'body' : roles[0]?.key);
@@ -2408,7 +2453,7 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
   }
 
   function openImagePicker() {
-    const n = Math.max(1, shotsOf(chosenLayout));
+    const n = 1;
     const saved = keysOf(activeSlide).map((k) => urlForKey(k, activeSlide, localMedia, mediaByKey));
     const fromSaved = Array.from({ length: n }, (_, i) => saved[i] || null);
     if (fromSaved.some(Boolean)) {
@@ -2442,28 +2487,21 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
     setImgPick(null);
   }
 
-  const slideKind = day?.contentType || day?.format;
-  const dressedLayout = withSlidePhoto(
-    fillLayout(chosenLayout, activeSlide, slideKind),
-    activeSlide,
-    localMedia,
-    mediaByKey,
-  );
-  const hasEditImage = (dressedLayout?.imgs || []).some(Boolean) || Boolean(photoUrl(activeSlide, localMedia, mediaByKey));
-  const slotPackItems = (dressedLayout?.imgs || [])
-    .map((url, i) => (url ? { i, url } : null))
-    .filter(Boolean);
+  const hasEditImage = Boolean(photoUrl(activeSlide, localMedia, mediaByKey));
+  const slotPackItems = hasEditImage
+    ? [{ i: 0, url: photoUrl(activeSlide, localMedia, mediaByKey) }]
+    : [];
 
-  function measureSlot(n = 0) {
-    const ph = document.querySelectorAll('.wv-ig__media .vl-ph');
-    const el = ph[n] || ph[0];
+  function measureSlot() {
+    const el = document.querySelector('.wv-ig__media .wv-fit__slot')
+      || document.querySelector('.wv-ig__media .wv-ig__photo');
     if (!el) return null;
     const r = el.getBoundingClientRect();
     if (!(r.width > 4 && r.height > 4)) return null;
     return {
       ratio: r.width / r.height,
       radius: window.getComputedStyle(el).borderRadius,
-      name: chosenLayout?.name || null,
+      name: 'Slide',
     };
   }
 
@@ -2472,7 +2510,7 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
     const key = keys[slotIndex] || (slotIndex === 0 ? (activeSlide?.assetKey || activeSlide?.image?.key || '') : '');
     if (key && localMedia?.[key]) return canvasSafeUrl(localMedia[key], key);
     if (key && mediaByKey?.has(key)) return mediaProxyUrl(key);
-    return canvasSafeUrl((dressedLayout?.imgs || [])[slotIndex] || '', key) || null;
+    return canvasSafeUrl(photoUrl(activeSlide, localMedia, mediaByKey) || '', key) || null;
   }
 
   function writeSlotKey(key, slotIndex, { persist = true, dayIndex = selected, slideAt = safeIdx } = {}) {
@@ -2534,18 +2572,12 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
   }
 
   function openAdjust() {
-    const n = shotsOf(chosenLayout || {});
     setVisEdit(null);
     setZone(null);
-    if (n > 1 && slotPackItems.length > 0) {
-      setPackOpen(true);
-      return;
-    }
-    const i = slotPackItems[0]?.i || 0;
-    const src = editorSrc(i);
+    const src = editorSrc(0);
     if (!src) return;
-    setEditSlot(measureSlot(i));
-    setAdjustFor({ src, slotIndex: i });
+    setEditSlot(measureSlot());
+    setAdjustFor({ src, slotIndex: 0 });
   }
 
   function downloadSrc(src, name = 'bauhly-photo.jpg') {
@@ -2812,7 +2844,7 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
 
       {imgPick && (
         <ImagePicker
-          layout={fillLayout(chosenLayout, activeSlide, day?.contentType || day?.format)}
+          layout={{ ...BEST_FIT_LAYOUT, imgs: imgPick.slots }}
           need={imgPick.slots.length}
           slots={imgPick.slots}
           at={imgPick.at}
@@ -3014,8 +3046,6 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
               <div className="wv-ig__photo">
                 <SlideMedia
                   slide={activeSlide}
-                  layout={chosenLayout}
-                  contentType={day.contentType || day.format}
                   localMedia={localMedia}
                   mediaByKey={mediaByKey}
                   parts={visEdit === 'words' ? wordDraft : null}
@@ -3080,30 +3110,18 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
                   aria-hidden="true"
                 />
                 <div className="wv-ig__menu" role="menu" aria-label="Edit this slide">
-                  <button type="button" role="menuitem" className="wv-ig__menuitem" onClick={() => {
-                    setTimeDraft(null);
-                    if (zone === 'caption') closeZone();
-                    setLayPick(appliedId);
-                    setLayCat(null);
-                    setVisEdit('layout');
-                  }}>
-                    <Icon name="dashboard" size={17} strokeWidth={2} />
-                    <span>Choose layout</span>
-                  </button>
                   {hasEditImage && (
                     <button type="button" role="menuitem" className="wv-ig__menuitem" onClick={openAdjust}>
                       <Icon name="crop" size={17} strokeWidth={2} />
                       <span>Edit image</span>
                     </button>
                   )}
-                  {chosenLayout && shotsOf(chosenLayout) > 0 && (
-                    <button type="button" role="menuitem" className="wv-ig__menuitem" onClick={openImagePicker}>
-                      <Icon name="image" size={17} strokeWidth={2} />
-                      <span>Select images</span>
-                    </button>
-                  )}
+                  <button type="button" role="menuitem" className="wv-ig__menuitem" onClick={openImagePicker}>
+                    <Icon name="image" size={17} strokeWidth={2} />
+                    <span>Select images</span>
+                  </button>
                   <button type="button" role="menuitem" className="wv-ig__menuitem" onClick={() => {
-                    setWordDraft(seedWordDraft(chosenLayout, activeSlide, day?.contentType || day?.format));
+                    setWordDraft(seedWordDraft(BEST_FIT_LAYOUT, activeSlide, day?.contentType || day?.format));
                     setVisEdit('words');
                   }}>
                     <Icon name="edit" size={17} strokeWidth={2} />
@@ -3250,7 +3268,7 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
             )}
 
             {/* caption / why — right column on desktop */}
-            <div className={`wv-ig__panel${sideTab === 'why' ? ' is-why' : ' is-cap'}${zone === 'caption' ? ' is-cappedit' : ''}`}>
+            <div className={`wv-ig__panel${sideTab === 'why' ? ' is-why' : sideTab === 'debug' ? ' is-debug' : ' is-cap'}${zone === 'caption' ? ' is-cappedit' : ''}`}>
             <div className="wv-ig__tabrow">
               <div className="wv-ig__seg" role="tablist" aria-label="Post details">
                 <button
@@ -3271,6 +3289,17 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
                 >
                   Why this post
                 </button>
+                {aiDebug.enabled && (
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={sideTab === 'debug'}
+                    className={`wv-ig__segbtn${sideTab === 'debug' ? ' is-on' : ''}`}
+                    onClick={() => { setSideTab('debug'); if (zone === 'caption') closeZone(); }}
+                  >
+                    Debug
+                  </button>
+                )}
               </div>
               {sideTab === 'caption' && zone !== 'caption' && !isScheduled && !day.published && (
                 <button
@@ -3377,6 +3406,11 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
             <div className="wv-ig__whyblock">
               <WhyBody day={day} />
             </div>
+            {aiDebug.enabled && (
+              <div className="wv-ig__debugblock">
+                <PostAgentDebug day={day} />
+              </div>
+            )}
             </div>
 
             {/* when this goes out, and whose decision it is (bauhly-v3 §787/§794).
@@ -3494,6 +3528,7 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
               <div className="wv-why__panel">
                 <h3 className="wv-why__head">Why this post</h3>
                 <WhyBody day={day} />
+                {aiDebug.enabled && <PostAgentDebug day={day} />}
               </div>
             )}
           </aside>
@@ -3518,8 +3553,6 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
               >
                 <SlideMedia
                   slide={s}
-                  layout={slideThumbLayout(s)}
-                  contentType={day.contentType || day.format}
                   localMedia={localMedia}
                   mediaByKey={mediaByKey}
                   preferProxy
