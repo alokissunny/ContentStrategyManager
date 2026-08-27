@@ -3,7 +3,9 @@ const path = require('path');
 const { extractJson, estimatePlanCostUsd, assignToEmptyDates, normalizeLens } = require('./weeklyPlan');
 const { compileStrategyContext, assetsForDay, allocatedAssetsOf, applyAssetAllocation, knownAssetIndexOf, json } = require('./planContext');
 const { completeText, planTextModel, splitPromptTemplate } = require('./llmComplete');
-const { asStoredText, asStoredLines } = require('./slideContent');
+const { asStoredText, asStoredLines, flattenSlide, layoutForStructure } = require('./slideContent');
+const { layoutById } = require('./layoutCatalog');
+const { extractLayoutHtml } = require('./layoutHtml');
 
 const PROMPTS_DIR = path.join(__dirname, '..', '..', 'prompts');
 const cache = {};
@@ -274,6 +276,10 @@ function maxTokensFor(kind) {
     const n = Number(process.env.PLAN_QUALITY_MAX_TOKENS);
     return Number.isFinite(n) && n > 0 ? n : 3072;
   }
+  if (kind === 'layout') {
+    const n = Number(process.env.PLAN_LAYOUT_MAX_TOKENS);
+    return Number.isFinite(n) && n > 0 ? n : 16384;
+  }
   const n = Number(process.env.PLAN_DAY_MAX_TOKENS);
   return Number.isFinite(n) && n > 0 ? n : 16384;
 }
@@ -286,6 +292,11 @@ function qualityAgentEnabled() {
 function qualityMaxRewrites() {
   const n = Number(process.env.PLAN_QUALITY_MAX_REWRITES);
   return Number.isFinite(n) && n >= 0 ? n : 1;
+}
+
+function layoutAgentEnabled() {
+  const v = String(process.env.PLAN_LAYOUT_AGENT ?? '1').trim().toLowerCase();
+  return !(v === '0' || v === 'false' || v === 'off' || v === 'no');
 }
 
 function retryMaxTokens(current) {
@@ -481,6 +492,7 @@ function isSourceVisualType(type) {
 
 function photoLayoutOf(s) {
   const layout = optionalText(s.layout);
+  if (layout && layoutById(layout)) return layout;
   if (layout && layout !== 'e-hook-statement') return layout;
   return 'n-hook-band';
 }
@@ -854,6 +866,239 @@ async function writeDayPost({
   });
 }
 
+function structureSlideOf(structure, index) {
+  const slides = Array.isArray(structure?.slidesOrScenes) ? structure.slidesOrScenes : [];
+  return slides.find((s) => Number(s?.index) === Number(index)) || slides[index - 1] || null;
+}
+
+function slideHasAsset(raw, flat, visual) {
+  const keys = [
+    optionalText(flat?.assetKey),
+    optionalText(visual?.assetKey),
+    optionalText(raw?.assetKey),
+    ...((Array.isArray(flat?.assetKeys) ? flat.assetKeys : []).map(optionalText)),
+    ...((Array.isArray(raw?.assetKeys) ? raw.assetKeys : []).map(optionalText)),
+    ...((Array.isArray(visual?.assetKeys) ? visual.assetKeys : []).map(optionalText)),
+  ];
+  if (keys.some(Boolean)) return true;
+  const image = raw?.image;
+  if (image && typeof image === 'object' && (optionalText(image.key) || optionalText(image.url))) return true;
+  return false;
+}
+
+function filledElementTypes(flat, visual) {
+  const types = [];
+  const add = (type) => {
+    const name = optionalText(type);
+    if (name && !types.includes(name)) types.push(name);
+  };
+  if (optionalText(flat.title)) add('Title');
+  if (optionalText(flat.subtitle)) add('Subtitle');
+  if (optionalText(flat.body)) add('Body');
+  if ((flat.items || []).length) add('List');
+  if (optionalText(flat.comparisonA) && optionalText(flat.comparisonB)) add('Comparison');
+  if (optionalText(flat.stat)) add('Number_Stat');
+  if (optionalText(flat.quote)) add('Quote');
+  if (optionalText(flat.action)) add('Action');
+  const priority = String(visual?.priority || '').toLowerCase();
+  const type = optionalText(visual?.type);
+  if (visual?.hasAsset || (priority && priority !== 'none')) add(type && type !== 'none' ? type : 'Image');
+  return types;
+}
+
+function layoutVisualOf(visual, hasAsset) {
+  const none = (value) => !optionalText(value) || optionalText(value).toLowerCase() === 'none';
+  if (hasAsset) {
+    return {
+      priority: none(visual?.priority) ? 'recommended' : optionalText(visual.priority),
+      role: none(visual?.role) ? 'recognition' : optionalText(visual.role),
+      type: none(visual?.type) ? 'Image' : optionalText(visual.type),
+      execution: optionalText(visual?.execution) || 'supplied-asset',
+      hasAsset: true,
+    };
+  }
+  return {
+    priority: optionalText(visual?.priority) || 'none',
+    role: optionalText(visual?.role) || 'none',
+    type: optionalText(visual?.type) || 'none',
+    execution: optionalText(visual?.execution),
+    hasAsset: false,
+  };
+}
+
+function layoutStructureOf(structure) {
+  const slides = Array.isArray(structure?.slidesOrScenes) ? structure.slidesOrScenes : [];
+  return {
+    format: optionalText(structure?.format),
+    slidesOrScenes: slides.map((s) => ({
+      index: s?.index,
+      role: optionalText(s?.role),
+      purpose: optionalText(s?.purpose),
+      placement: optionalText(s?.placement) || 'visual',
+      primaryStructure: optionalText(s?.primaryStructure),
+      supportingElements: (s?.supportingElements || []).map((el) => optionalText(el?.type || el)).filter(Boolean),
+    })),
+  };
+}
+
+function wordCount(value) {
+  return optionalText(value).split(/\s+/).filter(Boolean).length;
+}
+
+function copyMetricsOf(flat) {
+  return {
+    titleWords: wordCount(flat?.title),
+    titleChars: optionalText(flat?.title).length,
+    bodyChars: optionalText(flat?.body).length,
+  };
+}
+
+function compositionNoteOf(flat, visual) {
+  const titleWords = wordCount(flat?.title);
+  if (visual?.hasAsset && titleWords >= 12) {
+    return 'Long title on a photograph: bottom band + light type + scrim, or a split. Do not put dark type over the photo. Keep the room visible.';
+  }
+  if (visual?.hasAsset) {
+    return 'Photograph present: image-led. Light type on a scrim if overlaying, otherwise split the frame.';
+  }
+  return '';
+}
+
+function layoutInputOf(post, structure) {
+  const slides = Array.isArray(post?.content?.slides) ? post.content.slides : [];
+  return {
+    format: lockedFormat(post?.format),
+    slides: slides.map((raw, i) => {
+      const index = Number(raw?.index) > 0 ? Number(raw.index) : i + 1;
+      const structured = structureSlideOf(structure, index);
+      const flat = flattenSlide(raw);
+      const visual = layoutVisualOf(
+        raw?.visual && typeof raw.visual === 'object' ? raw.visual : (flat.visual || {}),
+        slideHasAsset(raw, flat, raw?.visual || flat.visual),
+      );
+      return {
+        index,
+        role: optionalText(flat.role || structured?.role) || 'other',
+        purpose: optionalText(structured?.purpose),
+        primaryStructure: optionalText(structured?.primaryStructure || flat.structure),
+        supportingElements: (structured?.supportingElements || []).map((el) => optionalText(el?.type)).filter(Boolean),
+        contentStructure: filledElementTypes(flat, visual),
+        filled: {
+          title: optionalText(flat.title),
+          subtitle: optionalText(flat.subtitle),
+          body: optionalText(flat.body),
+          items: Array.isArray(flat.items) ? flat.items : [],
+          itemsA: Array.isArray(flat.itemsA) ? flat.itemsA : [],
+          itemsB: Array.isArray(flat.itemsB) ? flat.itemsB : [],
+          comparisonA: optionalText(flat.comparisonA),
+          comparisonB: optionalText(flat.comparisonB),
+          stat: optionalText(flat.stat),
+          quote: optionalText(flat.quote),
+          action: optionalText(flat.action),
+        },
+        copyMetrics: copyMetricsOf(flat),
+        compositionNote: compositionNoteOf(flat, visual),
+        visual,
+        evidenceResolution: optionalText(raw?.evidenceResolution?.type || structured?.evidenceResolution?.type),
+      };
+    }),
+  };
+}
+
+function validateLayout(parsed, post) {
+  const status = String(parsed?.status || '').toLowerCase();
+  const incoming = Array.isArray(parsed?.slides) ? parsed.slides : [];
+  const hasHtml = incoming.some((s) => extractLayoutHtml(s?.html || s?.layoutHtml || ''));
+  if ((status === 'failed' || status === 'cannot_generate') && !hasHtml) {
+    parsed.status = 'failed';
+    parsed.failureReason = optionalText(parsed.failureReason || parsed.reason);
+    return;
+  }
+  if (!incoming.length) throw new Error('missing layout slides');
+  const expected = Array.isArray(post?.content?.slides) ? post.content.slides.length : parsed.slides.length;
+  if (parsed.slides.length !== expected) throw new Error(`layout slide count ${parsed.slides.length} != ${expected}`);
+  parsed.status = 'ready';
+  parsed.slides = parsed.slides.map((s, i) => {
+    const html = extractLayoutHtml(s?.html || s?.layoutHtml || '');
+    if (!html) throw new Error(`slide ${s?.index || i + 1} missing layout html`);
+    const hierarchy = s?.visualHierarchy && typeof s.visualHierarchy === 'object' ? s.visualHierarchy : {};
+    return {
+      index: Number(s?.index) > 0 ? Number(s.index) : i + 1,
+      role: optionalText(s?.role),
+      contentStructure: stringList(s?.contentStructure),
+      layoutIntent: optionalText(s?.layoutIntent),
+      visualHierarchy: {
+        primary: optionalText(hierarchy.primary),
+        secondary: stringList(hierarchy.secondary),
+        supporting: stringList(hierarchy.supporting),
+      },
+      arrangement: stringList(s?.arrangement),
+      html,
+      reason: optionalText(s?.reason),
+    };
+  });
+}
+
+function applyLayoutToContent(content, layoutParsed) {
+  const slides = Array.isArray(content?.slides) ? content.slides : [];
+  const plans = layoutParsed?.status === 'ready' ? (layoutParsed.slides || []) : [];
+  if (!slides.length || !plans.length) return content;
+  const byIndex = new Map(plans.map((s) => [Number(s.index), s]));
+  content.slides = slides.map((raw, i) => {
+    const index = Number(raw?.index) > 0 ? Number(raw.index) : i + 1;
+    const plan = byIndex.get(index);
+    const html = extractLayoutHtml(plan?.html);
+    if (!html) {
+      const flat = flattenSlide(raw);
+      return { ...raw, layout: optionalText(raw.layout) || layoutForStructure(flat) || '' };
+    }
+    return { ...raw, layout: 'dynamic', layoutHtml: html };
+  });
+  return content;
+}
+
+async function writeLayout({ source, structure, post }) {
+  const assembled = assembleAgentPrompt('plan-layout.md', {
+    STRUCTURE_JSON: json(layoutStructureOf(structure)),
+    POST_JSON: json(layoutInputOf(post, structure)),
+  });
+  return callAgent({
+    source,
+    kind: 'layout',
+    system: assembled.system,
+    user: assembled.user,
+    prompt: assembled.prompt,
+    validate: (parsed) => validateLayout(parsed, post),
+  });
+}
+
+function runLayoutForPost(opts) {
+  return writeLayout(opts);
+}
+
+async function attachLayout({ label, structure, writer, collect }) {
+  if (!layoutAgentEnabled() || !writer || writerFailed(writer.parsed)) return null;
+  try {
+    const layout = await writeLayout({
+      source: `Layout:${label}`,
+      structure,
+      post: writer.parsed,
+    });
+    collect(layout);
+    const htmlCount = (layout.parsed?.slides || []).filter((s) => s.html).length;
+    console.log(
+      `[planOrchestrator] Layout:${label}` +
+        (layout.parsed?.status === 'failed'
+          ? ` failed${layout.parsed.failureReason ? ` — ${layout.parsed.failureReason}` : ''}`
+          : ` · ${htmlCount} html ${htmlCount === 1 ? 'slide' : 'slides'}`),
+    );
+    return layout;
+  } catch (err) {
+    console.warn(`[planOrchestrator] Layout:${label} skipped — ${err.message}`);
+    return null;
+  }
+}
+
 async function reviewDayPost({ source, brief, post, structure }) {
   const assembled = assembleAgentPrompt('plan-quality.md', {
     BRIEF_JSON: json({
@@ -890,7 +1135,7 @@ async function reviewDayPost({ source, brief, post, structure }) {
 }
 
 /**
- * Multi-agent plan: Strategist → Content Structure → Day Writer → Quality gate
+ * Multi-agent plan: Strategist → Content Structure → Day Writer → Quality → Layout
  * (only for empty month days the strategist grounded in notes/assets).
  * Returns the same shape fields weeklyPlan needs to assemble a route:
  *   { focusOut, rawDays, usage, model, debug }
@@ -1009,11 +1254,12 @@ async function runMultiAgentPlan({
     );
   }
 
-  // ── 2. Content Structure → Day writers + Quality gate ─────────────────────
+  // ── 2. Content Structure → Day writers + Quality + Layout ─────────────────
   // First brief primes the provider prompt cache for Structure then Day Writer;
   // the rest run in parallel so they reuse the same system instructions.
   const gateOn = qualityAgentEnabled();
   const maxRewrites = qualityMaxRewrites();
+  const layoutOn = layoutAgentEnabled();
   const writeOneDay = async (planned, index) => {
       const pillar = lockedPillarOf(planned) || planned.pillar;
       const brief = {
@@ -1131,12 +1377,31 @@ async function runMultiAgentPlan({
         return { index, dayBrief: brief, result: null, skipped: err.message, debugEntries, runUsages, structure: structure.parsed };
       }
 
+      const finishDay = async (finalWriter, quality = null) => {
+        const layout = await attachLayout({
+          label,
+          structure: structure.parsed,
+          writer: finalWriter,
+          collect,
+        });
+        return {
+          index,
+          dayBrief: brief,
+          result: finalWriter,
+          quality,
+          layout: layout?.parsed || null,
+          debugEntries,
+          runUsages,
+          structure: structure.parsed,
+        };
+      };
+
       if (writerFailed(writer.parsed)) {
-        return { index, dayBrief: brief, result: writer, quality: null, debugEntries, runUsages, structure: structure.parsed };
+        return { index, dayBrief: brief, result: writer, quality: null, layout: null, debugEntries, runUsages, structure: structure.parsed };
       }
 
       if (!gateOn) {
-        return { index, dayBrief: brief, result: writer, quality: null, debugEntries, runUsages, structure: structure.parsed };
+        return finishDay(writer);
       }
 
       let review;
@@ -1150,7 +1415,7 @@ async function runMultiAgentPlan({
         collect(review);
       } catch (err) {
         console.warn(`[planOrchestrator] Quality:${label} skipped — ${err.message}`);
-        return { index, dayBrief: brief, result: writer, quality: null, debugEntries, runUsages, structure: structure.parsed };
+        return finishDay(writer);
       }
 
       let rewrites = 0;
@@ -1197,13 +1462,14 @@ async function runMultiAgentPlan({
           dayBrief: brief,
           result: null,
           quality: review.parsed,
+          layout: null,
           skipped: `quality ${decision} score=${review.parsed.score}`,
           debugEntries,
           runUsages,
           structure: structure.parsed,
         };
       }
-      return { index, dayBrief: brief, result: writer, quality: review?.parsed || null, debugEntries, runUsages, structure: structure.parsed };
+      return finishDay(writer, review?.parsed || null);
   };
 
   let dayResults = [];
@@ -1228,7 +1494,7 @@ async function runMultiAgentPlan({
 
   const rawDays = dayResults
     .sort((a, b) => a.index - b.index)
-    .map(({ dayBrief, result, skipped, structure }) => {
+    .map(({ dayBrief, result, skipped, structure, layout }) => {
       if (!result) {
         console.warn(`[planOrchestrator] @${username}: dropped ${dayBrief.date || dayBrief.day} (${skipped})`);
         return null;
@@ -1243,7 +1509,7 @@ async function runMultiAgentPlan({
         );
         return null;
       }
-      const content = normalizeWriterPost(parsed, dayBrief);
+      const content = applyLayoutToContent(normalizeWriterPost(parsed, dayBrief), layout);
       const slides = content.slides;
       const bound = slides.flatMap((s) => [
         s.assetKey,
@@ -1276,6 +1542,7 @@ async function runMultiAgentPlan({
           strategyBrief: strategyBriefPayload(dayBrief),
           structure: structure || null,
           dayWriter: parsed,
+          layout: layout || null,
         },
         content,
       };
@@ -1288,6 +1555,7 @@ async function runMultiAgentPlan({
   console.log(
       `[planOrchestrator] @${username}: strategist+structure+${rawDays.length} days` +
       (gateOn ? '+quality' : '') +
+      (layoutOn ? '+layout' : '') +
       ` · ${usage.totalTokens} tokens` +
       (usage.cachedTokens ? ` (${usage.cachedTokens} cached)` : '') +
       ` (~$${usage.estimatedCostUsd.toFixed(4)})` +
@@ -1315,4 +1583,4 @@ async function runMultiAgentPlan({
   };
 }
 
-module.exports = { runMultiAgentPlan };
+module.exports = { runMultiAgentPlan, runLayoutForPost, applyLayoutToContent };

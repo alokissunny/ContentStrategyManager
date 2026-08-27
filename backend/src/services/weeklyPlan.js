@@ -554,7 +554,7 @@ function normalizeSlides(rawSlides, onScreenText, format, title, cta, validKeys 
   let slides = Array.isArray(rawSlides)
     ? rawSlides.map((s) => {
       const flat = flattenSlide(s);
-      const layout = flat.layout || layoutForStructure(flat);
+      const layout = flat.layout || (flat.layoutHtml ? 'dynamic' : layoutForStructure(flat));
       return {
         ...flat,
         layout,
@@ -599,7 +599,9 @@ function normalizeSlides(rawSlides, onScreenText, format, title, cta, validKeys 
     }
     const role = s.role || roles[Math.min(i, roles.length - 1)];
     const withRole = { ...s, role };
-    const layout = String(s.layout || '').trim() || layoutForStructure(withRole) || (
+    const layout = String(s.layout || '').trim()
+      || (s.layoutHtml ? 'dynamic' : '')
+      || layoutForStructure(withRole) || (
       /^(hook|cover|poll|premise)$/i.test(role) ? 'n-hook-sub'
         : /^(setup|process|problem|whymatters|tension|observation|evidence|reason|insight|context|exploration|decision|change|contrast|beat|cause|example|brandrole)$/i.test(role) ? 'n-edu-callout'
           : /^(result|implication|lesson|takeaway|resolution|solution)$/i.test(role) ? 'n-res-quotenote'
@@ -626,6 +628,7 @@ function normalizeSlides(rawSlides, onScreenText, format, title, cta, validKeys 
       assetKey,
       assetKeys: Array.isArray(s.assetKeys) ? s.assetKeys : (assetKey ? [assetKey] : []),
       layout,
+      layoutHtml: s.layoutHtml || '',
       visualNeed: s.visualNeed || null,
     };
   });
@@ -934,7 +937,7 @@ async function generateWeeklyPlan(profile, brandDna, competitorInsights = null, 
   );
   const useMulti = multiAgentEnabled();
   console.log(
-    `[weeklyPlan] Generating plan for @${snapshot.username} (mode=${useMulti ? 'multi-agent (strategist→structure→day)' : 'single'}, ` +
+    `[weeklyPlan] Generating plan for @${snapshot.username} (mode=${useMulti ? 'multi-agent (strategist→structure→day→layout)' : 'single'}, ` +
       `focus: ${focusPillar}, ${insightNote}, ` +
       `${monthCalendar.occupied.length} occupied / ${monthCalendar.emptyDates.length} empty month days, ` +
       `${projects.length} projects / ${assetCount} photos, ${analyzedCount} with vision analysis) with ${model}` +

@@ -60,7 +60,9 @@ function traceForDay(day, entries) {
   const dayHit = lastMatching(entries, date ? `Day:${date}` : 'Day:');
   const dayWriter = stored.dayWriter
     || parseJson(dayHit?.output);
-  return { strategyBrief, structure, dayWriter };
+  const layout = stored.layout
+    || parseJson(lastMatching(entries, date ? `Layout:${date}` : 'Layout:')?.output);
+  return { strategyBrief, structure, dayWriter, layout };
 }
 
 async function copyText(text) {
@@ -128,16 +130,30 @@ function Block({ title, value, open = false }) {
   );
 }
 
-export default function PostAgentDebug({ day }) {
+export default function PostAgentDebug({ day, onRunLayout, layoutBusy = false, layoutErr = '' }) {
   const debug = useAiDebug();
   const trace = traceForDay(day, debug.entries);
-  const empty = !trace.strategyBrief && !trace.structure && !trace.dayWriter;
+  const empty = !trace.strategyBrief && !trace.structure && !trace.dayWriter && !trace.layout;
 
   return (
     <div className="wv-agentdbg">
       <p className="wv-agentdbg__lead">
-        Agent outputs for this post. Strategy decides the brief; Structure locks the slide map; Day Writer writes the copy.
+        Agent outputs for this post. Strategy decides the brief; Structure locks the slide map; Day Writer writes the copy; Layout composes the slide.
       </p>
+      {onRunLayout && (
+        <div className="wv-agentdbg__run">
+          <button
+            type="button"
+            className="btn btn--tertiary btn--sm"
+            disabled={layoutBusy}
+            onClick={onRunLayout}
+          >
+            {layoutBusy ? 'Laying out…' : 'Run layout agent'}
+          </button>
+          <span className="wv-agentdbg__runhint">This post only — does not regenerate the week.</span>
+        </div>
+      )}
+      {layoutErr ? <p className="wv-agentdbg__empty">{layoutErr}</p> : null}
       {empty && (
         <p className="wv-agentdbg__empty">
           No agent trace on this post yet. Generate or replan a week with debug mode on. Posts created before this will only show a trace if this session still has the prompt log.
@@ -146,6 +162,7 @@ export default function PostAgentDebug({ day }) {
       <Block title="Strategy brief" value={trace.strategyBrief} open />
       <Block title="Structure agent" value={trace.structure} />
       <Block title="Day Writer" value={trace.dayWriter} />
+      <Block title="Layout agent" value={trace.layout} />
     </div>
   );
 }

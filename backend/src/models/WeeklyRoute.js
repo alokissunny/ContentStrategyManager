@@ -56,9 +56,12 @@ const daySchema = new mongoose.Schema(
             // is an unfilled place. `assetKey` stays the lead (slot 0) so
             // older clients and the planner keep working.
             assetKeys: { type: [String], default: [] },
-            // Layout id from the Visual Brand layout system (e.g. a hook layout
-            // 'H1'/'H2'/'H3'). Empty = the slide's default composition.
+            // Layout id from the Layout Agent / Visual Brand layout system.
+            // Empty = Week View falls back to a default composition.
             layout: { type: String, default: '' },
+            // Dynamic HTML composition from the Layout Agent. Empty = Week View
+            // uses the default stacked preview.
+            layoutHtml: { type: String, default: '' },
             // Day Writer / Structure visual recommendation — shown in the
             // studio as an empty image placeholder plus an info hint when no
             // photograph is assigned yet.
@@ -76,8 +79,9 @@ const daySchema = new mongoose.Schema(
       plan: { type: String, default: '' },
       notes: { type: String, default: '' },
     },
-    // Parsed outputs from Strategist / Structure / Day Writer for this post.
-    // Shown in Week View when AI prompt debug is on. Not used for rendering.
+    // Parsed outputs from Strategist / Structure / Day Writer / Layout for this post.
+    // Shown in Week View when AI prompt debug is on. layoutHtml on each slide is
+    // what the preview renders; the trace is the agent's reasoning.
     agentTrace: { type: mongoose.Schema.Types.Mixed, default: null },
   },
   { _id: false }

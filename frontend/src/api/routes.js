@@ -127,3 +127,14 @@ export function polishCaption(routeId, index, { caption, instruction, kind, role
       return data;
     });
 }
+
+// Run the Layout agent on one post without regenerating the week.
+export function runDayLayout(routeId, index) {
+  return client
+    .post(`/routes/${routeId}/day/${index}/layout`, {}, { timeout: 120000 })
+    .then((res) => {
+      const data = res.data || {};
+      ingestPlanDebug('Layout agent (debug)', data);
+      return data;
+    });
+}

@@ -13,6 +13,12 @@ function stringList(value, limit = 8) {
   return value.map(str).filter(Boolean).slice(0, limit);
 }
 
+function asItems(value) {
+  if (Array.isArray(value)) return stringList(value);
+  const one = str(value);
+  return one ? [one] : [];
+}
+
 function normType(type) {
   return str(type).toLowerCase().replace(/[\s/-]+/g, '_');
 }
@@ -95,9 +101,11 @@ function flattenSlide(raw) {
     'screen_recording', 'animation', 'annotated_visual', 'multiple_visuals',
   );
 
-  const items = stringList(s.items).length
-    ? stringList(s.items)
-    : stringList(listEl?.items || listEl?.text);
+  const items = asItems(s.items).length
+    ? asItems(s.items)
+    : asItems(listEl?.items).length
+      ? asItems(listEl.items)
+      : asItems(listEl?.text);
   const itemsA = stringList(s.itemsA || cmpEl?.itemsA || cmpEl?.leftItems);
   const itemsB = stringList(s.itemsB || cmpEl?.itemsB || cmpEl?.rightItems);
   const comparisonA = str(
@@ -158,6 +166,7 @@ function flattenSlide(raw) {
     assetKey,
     assetKeys: assetKeys.length ? assetKeys : (assetKey ? [assetKey] : []),
     layout: str(s.layout),
+    layoutHtml: str(s.layoutHtml),
     visual,
     visualNeed: visualNeedOf({ ...s, visual, image: wantsImage ? 'placeholder' : str(s.image) }),
     textLayout: s.textLayout && typeof s.textLayout === 'object' ? s.textLayout : null,

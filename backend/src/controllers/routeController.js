@@ -5,6 +5,7 @@ const InstagramProfile = require('../models/InstagramProfile');
 const { generateWeeklyPlan, buildMonthCalendar, dayHasContent, isoDate, parseIsoDate } = require('../services/weeklyPlan');
 const { analyzeImageAsset } = require('../services/imageAnalysis');
 const { rewriteCaption } = require('../services/captionPolish');
+const { runLayoutForPost, applyLayoutToContent } = require('../services/planOrchestrator');
 const { loadCompetitorOverviewForUser } = require('./competitorController');
 const { currentProfile } = require('../utils/currentProfile');
 const { findMetaConnectionForUsername } = require('../services/graphInstagram');
@@ -921,6 +922,7 @@ async function markDayPublished(req, res) {
             ? s.assetKeys.map((k) => String(k || ''))
             : (Array.isArray(prev.assetKeys) ? prev.assetKeys.map((k) => String(k || '')) : []),
           layout: String(s.layout || ''),
+          layoutHtml: String(s.layoutHtml ?? prev.layoutHtml ?? ''),
           visualNeed: (s.visualNeed && typeof s.visualNeed === 'object')
             ? s.visualNeed
             : (prev.visualNeed || null),
@@ -1015,6 +1017,100 @@ async function polishCaption(req, res) {
   }
 }
 
+function plainOf(value) {
+  if (value == null) return value;
+  if (typeof value.toObject === 'function') return value.toObject();
+  try {
+    return JSON.parse(JSON.stringify(value));
+  } catch {
+    return value;
+  }
+}
+
+function layoutPostFromDay(day) {
+  const trace = day?.agentTrace && typeof day.agentTrace === 'object' ? day.agentTrace : {};
+  const writer = trace.dayWriter && typeof trace.dayWriter === 'object' ? trace.dayWriter : null;
+  const stored = Array.isArray(day?.content?.slides) ? day.content.slides.map((s) => plainOf(s)) : [];
+  if (writer?.content?.slides?.length) {
+    return {
+      ...plainOf(writer),
+      format: writer.format || day.format,
+      content: {
+        ...(writer.content || {}),
+        slides: stored.length ? stored : plainOf(writer.content.slides),
+      },
+    };
+  }
+  return {
+    format: day.format,
+    status: 'ready',
+    content: { slides: stored },
+  };
+}
+
+// POST /routes/:id/day/:index/layout
+// Run the Layout agent on this post only — no strategist / structure / writer.
+async function rerunDayLayout(req, res) {
+  const index = Number(req.params.index);
+  const route = await WeeklyRoute.findOne({ _id: req.params.id, user: req.user._id });
+  if (!route) return res.status(404).json({ message: 'Route not found' });
+  if (!route.days[index]) return res.status(404).json({ message: 'Day not found' });
+
+  const day = route.days[index];
+  const post = layoutPostFromDay(day);
+  if (!Array.isArray(post?.content?.slides) || !post.content.slides.length) {
+    return res.status(400).json({ message: 'This post has no slides to layout.' });
+  }
+
+  const trace = day.agentTrace && typeof day.agentTrace === 'object' ? day.agentTrace : {};
+  const structure = trace.structure || {};
+  const label = day.date || day.day || `D${index + 1}`;
+
+  try {
+    const result = await runLayoutForPost({
+      source: `Layout:${label}:debug`,
+      structure,
+      post,
+    });
+    if (result.parsed?.status === 'failed') {
+      return res.status(422).json({
+        message: result.parsed.failureReason || 'Layout agent could not compose this post.',
+        layout: result.parsed,
+      });
+    }
+
+    const current = plainOf(day.content) || {};
+    const next = applyLayoutToContent({ ...current, slides: post.content.slides }, result.parsed);
+    day.content = { ...current, ...next, slides: next.slides };
+    day.agentTrace = { ...trace, layout: result.parsed };
+    route.markModified('days');
+    await route.save();
+
+    const debugEntry = result.debugEntry || {};
+    console.log(`[route] Layout:${label}:debug · ${(result.parsed.slides || []).length} slides`);
+    return res.json({
+      route,
+      layout: result.parsed,
+      ...(wantsPromptDebug(req) ? {
+        debug: {
+          mode: 'layout-debug',
+          model: result.usage?.model || debugEntry.model,
+          agents: [{
+            source: debugEntry.source || `Layout:${label}:debug`,
+            model: debugEntry.model,
+            prompt: debugEntry.prompt,
+            output: debugEntry.output || '',
+          }],
+        },
+      } : {}),
+    });
+  } catch (err) {
+    const status = err.statusCode || err.status || 502;
+    console.error('[route] layout rerun failed:', err.message);
+    return res.status(status).json({ message: err.message || 'Could not run the layout agent.' });
+  }
+}
+
 module.exports = {
   generateAndSaveRoute,
   getCurrentRoute,
@@ -1023,6 +1119,7 @@ module.exports = {
   replanWeek,
   markDayPublished,
   polishCaption,
+  rerunDayLayout,
   clearCurrentMonth,
   remainingWeekStarts,
   firstMondayOfNextMonth,

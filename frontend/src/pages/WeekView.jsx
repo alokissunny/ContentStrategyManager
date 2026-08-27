@@ -13,7 +13,7 @@ import Glyph from '../components/Glyph';
 import Icon from '../brand/Icon';
 import YourAnalysisModal from '../components/YourAnalysisModal';
 import ConnectMetaModal from '../components/ConnectMetaModal';
-import { markDayPublished, updateDayContent, replanWeek, scheduleDay, setDayTime } from '../api/routes';
+import { markDayPublished, updateDayContent, replanWeek, scheduleDay, setDayTime, runDayLayout } from '../api/routes';
 import { getMetaStatus, publishDayToMeta } from '../api/meta';
 import { mediaProxyUrl, toDisplayUrl, isProxyUrl, rememberCdnBase, onCdnBase, getCdnBase, canvasSafeUrl, isProjectMediaKey } from '../api/media';
 import { createImage, listGeneratedImages } from '../api/images';
@@ -32,6 +32,7 @@ import RoleField from './weekview/RoleField';
 import WordsPolish from './weekview/WordsPolish';
 import CaptionPolish from './weekview/CaptionPolish';
 import PostAgentDebug from './weekview/PostAgentDebug';
+import DynamicLayout from './weekview/DynamicLayout';
 import { useAiDebug } from '../lib/aiDebug';
 import { useBodyScrollLock } from './visualbrand/useBodyScrollLock';
 import useMediaQuery from '../hooks/useMediaQuery';
@@ -785,8 +786,45 @@ function slideRecord(s, extra = {}) {
     assetKey: s.assetKey || '',
     assetKeys: Array.isArray(s.assetKeys) ? s.assetKeys.map((k) => k || '') : [],
     layout: s.layout || '',
+    layoutHtml: s.layoutHtml || '',
     visualNeed: visualNeedRecord(s),
     ...extra,
+  };
+}
+
+function writerSlideOf(day, index) {
+  const slides = day?.agentTrace?.dayWriter?.content?.slides;
+  if (!Array.isArray(slides)) return null;
+  return slides.find((s) => Number(s?.index) === index + 1) || slides[index] || null;
+}
+
+function elementOfTypes(elements, types) {
+  const want = new Set(types.map((t) => String(t).toLowerCase().replace(/[\s/-]+/g, '_')));
+  return (elements || []).find((e) => want.has(String(e?.type || '').toLowerCase().replace(/[\s/-]+/g, '_'))) || null;
+}
+
+function fillFromWriter(slide, raw) {
+  if (!raw || typeof raw !== 'object') return slide;
+  const els = Array.isArray(raw.elements) ? raw.elements : [];
+  const titleEl = elementOfTypes(els, ['title', 'short_statement', 'question']);
+  const subEl = elementOfTypes(els, ['subtitle', 'supporting_text', 'caption_label']);
+  const bodyEl = elementOfTypes(els, ['body']);
+  const cmpEl = elementOfTypes(els, ['comparison', 'pros_cons', 'do_dont', 'problem_solution', 'cause_effect']);
+  const diagramEl = elementOfTypes(els, ['diagram', 'graphic_artwork', 'list', 'numbered_items']);
+  const visual = raw.visual && typeof raw.visual === 'object' ? raw.visual : {};
+  const items = Array.isArray(slide.items) && slide.items.length
+    ? slide.items
+    : (diagramEl?.text ? [String(diagramEl.text).trim()] : []);
+  return {
+    ...slide,
+    title: slide.title || titleEl?.text || '',
+    subtitle: slide.subtitle || subEl?.text || '',
+    body: slide.body || bodyEl?.text || '',
+    comparisonA: slide.comparisonA || cmpEl?.comparisonA || '',
+    comparisonB: slide.comparisonB || cmpEl?.comparisonB || '',
+    items,
+    visual: slide.visual || visual,
+    visualNeed: slide.visualNeed || visualNeedRecord({ visual, visualNeed: raw.visualNeed }),
   };
 }
 
@@ -794,11 +832,11 @@ function deriveSlides(day) {
   const roles = SLIDE_ROLES[day.format] || SLIDE_ROLES.Post;
   const existing = day.content?.slides;
   if (Array.isArray(existing) && existing.length) {
-    return existing.map((s, i) => ({
+    return existing.map((s, i) => fillFromWriter({
       ...slideRecord(s),
       role: s.role || roles[Math.min(i, roles.length - 1)],
       subtitle: s.subtitle || s.body || '',
-    }));
+    }, writerSlideOf(day, i)));
   }
   const texts = (day.content?.onScreenText || []).filter(Boolean);
   if (texts.length) {
@@ -1217,6 +1255,21 @@ function VisualNeedHint({ need }) {
   );
 }
 
+function slideAllowsPhoto(slide) {
+  const v = (slide?.visualNeed && typeof slide.visualNeed === 'object')
+    ? slide.visualNeed
+    : (slide?.visual && typeof slide.visual === 'object' ? slide.visual : {});
+  const priority = String(v.priority || '').toLowerCase();
+  const type = String(v.type || '').toLowerCase();
+  const execution = String(v.execution || '').toLowerCase();
+  if (priority === 'none') return false;
+  if (/text-led|text-only/.test(execution)) return false;
+  if (/graphic_artwork|diagram|illustration|animation/.test(type) && !/supplied/.test(execution)) {
+    return false;
+  }
+  return Boolean(slide?.assetKey || (Array.isArray(slide?.assetKeys) && slide.assetKeys.some(Boolean)));
+}
+
 function slideCopy(slide, parts) {
   const title = (parts?.head != null ? plainOf(parts.head) : (slide?.title || slide?.quote || slide?.action || '')).trim();
   const sub = (parts?.body != null ? plainOf(parts.body) : (slide?.subtitle || '')).trim();
@@ -1224,7 +1277,7 @@ function slideCopy(slide, parts) {
   const items = Array.isArray(slide?.items) ? slide.items.map((x) => String(x || '').trim()).filter(Boolean) : [];
   const cmpA = String(slide?.comparisonA || '').trim();
   const cmpB = String(slide?.comparisonB || '').trim();
-  const showCmp = Boolean(cmpA && cmpB) && cmpA !== title && cmpB !== sub;
+  const showCmp = Boolean(cmpA || cmpB);
   return {
     title,
     sub,
@@ -1240,9 +1293,11 @@ function slideCopy(slide, parts) {
 
 function SlideBestFit({ slide, localMedia, mediaByKey, preferProxy = false, parts, showVisualHint = false }) {
   const copy = slideCopy(slide, parts);
-  const key = slide?.assetKey || slide?.image?.key;
-  const src = urlForKey(key, slide, localMedia, mediaByKey, preferProxy)
-    || photoUrl(slide, localMedia, mediaByKey);
+  const key = slideAllowsPhoto(slide) ? (slide?.assetKey || slide?.image?.key) : '';
+  const src = key
+    ? (urlForKey(key, slide, localMedia, mediaByKey, preferProxy)
+      || photoUrl(slide, localMedia, mediaByKey))
+    : null;
   const need = showVisualHint ? visualNeedRecord(slide) : null;
   const showHint = Boolean(need) && !src;
   return (
@@ -1275,6 +1330,40 @@ function SlideBestFit({ slide, localMedia, mediaByKey, preferProxy = false, part
 }
 
 function SlideMedia({ slide, localMedia, parts, mediaByKey, preferProxy = false, showVisualHint = false }) {
+  const copy = slideCopy(slide, parts);
+  const need = showVisualHint ? visualNeedRecord(slide) : null;
+  const allowPhoto = slideAllowsPhoto(slide);
+  const urls = allowPhoto
+    ? keysOf(slide).map((k) => urlForKey(k, slide, localMedia, mediaByKey, preferProxy))
+    : [];
+  if (allowPhoto && !urls[0]) {
+    const lead = photoUrl(slide, localMedia, mediaByKey);
+    if (lead) urls[0] = lead;
+  }
+  const src = urls[0] || null;
+  const showHint = Boolean(need) && !src;
+  if (slide?.layoutHtml) {
+    return (
+      <div className={`wv-ig__lay${showHint ? ' is-needvisual' : ''}`}>
+        <DynamicLayout
+          html={slide.layoutHtml}
+          copy={{
+            title: copy.title,
+            subtitle: copy.sub,
+            body: copy.body,
+            items: copy.items,
+            comparisonA: copy.cmpA,
+            comparisonB: copy.cmpB,
+            stat: copy.stat,
+            quote: copy.quote,
+            action: String(slide?.action || '').trim(),
+          }}
+          imageUrls={urls}
+        />
+        {showHint && <VisualNeedHint need={need} />}
+      </div>
+    );
+  }
   return (
     <div className="wv-ig__lay">
       <SlideBestFit
@@ -1553,6 +1642,8 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
   // Desktop side panel: Caption | Why this post | Debug (when AI debug is on).
   const [sideTab, setSideTab] = useState('caption'); // 'caption' | 'why' | 'debug'
   const aiDebug = useAiDebug();
+  const [layoutBusy, setLayoutBusy] = useState(false);
+  const [layoutErr, setLayoutErr] = useState('');
   const [capReviewed, setCapReviewed] = useState(() => new Set());
   // Day-to-day slide transition (bauhly-v3 §730/§786): the arriving post's
   // direction — 1 = came from the right (moving forward), -1 = from the left,
@@ -1609,6 +1700,7 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
   useEffect(() => {
     if (!aiDebug.enabled && sideTab === 'debug') setSideTab('caption');
   }, [aiDebug.enabled, sideTab]);
+  useEffect(() => { setLayoutErr(''); }, [selected]);
   useEffect(() => {
     setRoute(initialRoute);
     const n = (initialRoute?.days || []).length;
@@ -1913,7 +2005,7 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
       if (e.target.closest('.wv-confirm') || e.target.closest('.wv-confirm__scrim')) return;
       if (e.target.closest('.wv-imgs') || e.target.closest('.wv-imgs__chat')) return;
       if (e.target.closest('.wv-schedask') || e.target.closest('.wv-schedask__scrim')) return;
-      if (e.target.closest('.wv-ig__zonebtn') || e.target.closest('.wv-ig__tabedit')) return;
+      if (e.target.closest('.wv-ig__zonebtn') || e.target.closest('.wv-ig__tabedit') || e.target.closest('.wv-ig__layrun')) return;
       closeZone();
     };
     document.addEventListener('mousedown', away);
@@ -2358,6 +2450,23 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
     }
   }
 
+  async function handleRunLayout() {
+    if (layoutBusy || !route?._id) return;
+    setLayoutBusy(true);
+    setLayoutErr('');
+    try {
+      const data = await runDayLayout(route._id, selected);
+      if (data?.route) {
+        setRoute(data.route);
+        onRouteChange?.(data.route);
+      }
+    } catch (err) {
+      setLayoutErr(err.response?.data?.message || err.message || 'Layout agent failed.');
+    } finally {
+      setLayoutBusy(false);
+    }
+  }
+
   const weekUsage = weekUsageOf(route);
 
   // The layouts this empty slide can take — its own category first, then the
@@ -2442,7 +2551,7 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
   function applyLayout() {
     if (!draftId || layoutUnchanged) return;
     const need = shotsOf(chosenLayout);
-    patchActiveSlide({ layout: draftId });
+    patchActiveSlide({ layout: draftId, layoutHtml: '' });
     setLayPick(null);
     if (need > 0) {
       setAskImgs(need);
@@ -3043,7 +3152,7 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
                 openZone('visual');
               }}
             >
-              <div className="wv-ig__photo">
+              <div className={`wv-ig__photo${layoutBusy ? ' is-laying' : ''}`}>
                 <SlideMedia
                   slide={activeSlide}
                   localMedia={localMedia}
@@ -3060,6 +3169,22 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
                     <Glyph name={FORMAT_GLYPH[day.format] || 'image'} size={12} strokeWidth={2.5} />
                     {String(day.format).replace(/ series$/, '')}
                   </span>
+                )}
+                {aiDebug.enabled && (
+                  <button
+                    type="button"
+                    className={`wv-ig__layrun${layoutBusy ? ' is-busy' : ''}`}
+                    disabled={layoutBusy}
+                    onPointerDown={(e) => e.stopPropagation()}
+                    onClick={(e) => { e.stopPropagation(); handleRunLayout(); }}
+                    title="Run the layout agent on this post only"
+                  >
+                    <Glyph name="layout-template" size={13} strokeWidth={2} />
+                    {layoutBusy ? 'Laying out…' : 'Run layout agent'}
+                  </button>
+                )}
+                {aiDebug.enabled && layoutErr && (
+                  <span className="wv-ig__layerr">{layoutErr}</span>
                 )}
               </div>
               {/* the carousel's own arrows — step through slides; the last one
@@ -3408,7 +3533,12 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
             </div>
             {aiDebug.enabled && (
               <div className="wv-ig__debugblock">
-                <PostAgentDebug day={day} />
+                <PostAgentDebug
+                  day={day}
+                  onRunLayout={handleRunLayout}
+                  layoutBusy={layoutBusy}
+                  layoutErr={layoutErr}
+                />
               </div>
             )}
             </div>
@@ -3528,7 +3658,14 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
               <div className="wv-why__panel">
                 <h3 className="wv-why__head">Why this post</h3>
                 <WhyBody day={day} />
-                {aiDebug.enabled && <PostAgentDebug day={day} />}
+                {aiDebug.enabled && (
+                  <PostAgentDebug
+                    day={day}
+                    onRunLayout={handleRunLayout}
+                    layoutBusy={layoutBusy}
+                    layoutErr={layoutErr}
+                  />
+                )}
               </div>
             )}
           </aside>
