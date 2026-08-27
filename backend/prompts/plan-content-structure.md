@@ -70,7 +70,8 @@ If locked inputs conflict or lack required support, return `unresolved` and iden
 - supporting elements that perform distinct functions
 - placement on visual, caption, or CTA
 - resolved visual implementation requirement
-- action type and platform expression
+- action type, platform expression, and action placement
+- validation and no more than two correction passes
 - validation and no more than two correction passes
 
 ## Available structures
@@ -195,20 +196,39 @@ Determine whether the visual must:
 2. explain a relationship;
 3. make an abstract idea concrete;
 4. help the audience recognize a situation;
-5. demonstrate a process or interaction.
+5. demonstrate a process or interaction;
+6. establish the truthful situation, environment, stage, or circumstances surrounding a claim.
+
+Resolve direct evidence need and broader visual communication need separately.
+
+A narrative may require no visual proof while still materially benefiting from truthful visual context, explanation, recognition, or demonstration.
+
+Do not treat contextual communication as factual proof.
 
 Resolve:
 
 - `priority`: `required | recommended | optional | none`
-- `role`: `evidence | explanation | recognition | demonstration | none`
-- `requiredEvidence`: what must be visually communicated or supported
+- `role`: `evidence | explanation | recognition | demonstration | context | none`
+- `requiredEvidence`: what, if anything, must be visually proven or directly supported
+- `visualCommunicationNeed`: what visual information could materially communicate, explain, demonstrate, contextualize, or make the narrative recognizable
 - `preferredType`: the visual type naturally suited to that communication need
 - `truthBoundary`: what the visual must not imply
+
+Role meanings:
+
+- `evidence` — visually proves or directly supports the claim
+- `explanation` — makes a relationship, idea, or process legible
+- `recognition` — helps the audience identify with a situation ("that's my problem / that's my work")
+- `demonstration` — shows a process, interaction, or how something is done
+- `context` — visually establishes the truthful situation, environment, stage, or circumstances surrounding a narrative claim without being treated as direct proof of the claim itself
+- `none` — no visual communication role
+
+`recognition` is audience identification. `context` is project grounding. Do not use `context` as a dump role for leftover photographs. Atmosphere, mood, or decoration is not `context`.
 
 Priority meanings:
 
 - `required`: the meaning or locked format fails without visual information
-- `recommended`: text can communicate the meaning, but visual evidence or explanation materially improves understanding
+- `recommended`: text can communicate the meaning, but visual evidence, explanation, recognition, demonstration, or context materially improves understanding
 - `optional`: a visual may support communication but carries no required narrative meaning
 - `none`: no visual communication is needed
 
@@ -216,14 +236,14 @@ Atmosphere or decoration alone does not establish a visual communication require
 
 ## Step 5: Check visual evidence availability
 
-When visual evidence or visual explanation is required or recommended, determine whether the required evidence exists in the supplied assets.
+When visual evidence, explanation, recognition, demonstration, or context is required or recommended, determine whether the required visual communication exists in the supplied assets.
 
 Classify availability as:
 
 - `available-exact` — supplied evidence directly provides the required visual information
 - `available-sufficient` — supplied evidence truthfully communicates enough of the required meaning
 - `available-partial` — supplied evidence supports only part of the required meaning
-- `available-irrelevant` — assets exist but do not support the required meaning
+- `available-irrelevant` — assets exist but do not support the required meaning, including after a narrower-role test
 - `available-multiple` — multiple supplied assets are required to communicate the need
 - `derivable` — the need can be truthfully communicated by cropping, close-up, annotation, framing, or another treatment of existing source evidence
 - `missing-generatable` — no source evidence exists, but a clearly conceptual/non-evidentiary visual may safely communicate the idea
@@ -236,7 +256,19 @@ Do not treat the existence of an allocated asset as proof that it supports the r
 
 Do not infer visual facts that are not established by `relevantAssetContext`, `observableDetails`, `allocatedAssets`, or other verified visual support.
 
-Availability must be evaluated against the `requiredEvidence` identified in the previous step.
+An asset may be insufficient as direct evidence while still being sufficient as contextual visual communication.
+
+Before classifying an asset as `available-irrelevant` when a visual is being pursued, test whether it truthfully satisfies a narrower `context`, `recognition`, `explanation`, or `demonstration` role. Skip this test when visual priority is `none` and no visual is being pursued.
+
+Do not classify an asset as irrelevant solely because it cannot prove the complete textual claim.
+
+Never expand or change the narrative claim to make an asset appear more evidentiary than it is.
+
+If an asset cannot prove `requiredEvidence` but can truthfully serve `visualCommunicationNeed` under a narrower role, classify it as `available-partial` and resolve with `reduce-visual-requirement`. Do not invent a new availability status.
+
+Evaluating communication value is not a requirement to use the asset. After a fair evaluation, `priority: none` remains valid when the visual does not materially improve the narrative.
+
+Availability must be evaluated against `requiredEvidence` for proof, and against `visualCommunicationNeed` for broader visual communication.
 
 ## Step 6: Resolve unavailable evidence
 
@@ -250,7 +282,7 @@ Resolve using this order:
 4. `generate-conceptual-support` — generate a clearly conceptual visual when the required communication is explanatory rather than factual evidence.
 5. `adapt-content-structure` — change how the meaning is structurally communicated so unavailable evidence is no longer required.
 6. `text-only-fallback` — communicate the supported meaning through text when text can carry it truthfully.
-7. `reduce-visual-requirement` — narrow the visual's role to only what the available evidence genuinely supports.
+7. `reduce-visual-requirement` — narrow the visual's role to only what the available evidence genuinely supports, including reducing `evidence` to `context` when the asset can establish situation but cannot prove the claim.
 8. `request-missing-asset` — required factual evidence is missing but could be supplied by the user.
 9. `flag-limitation` — preserve the structure while explicitly recording what cannot be visually established.
 10. `reject-surface-or-narrative` — the communication depends on evidence that cannot be truthfully supplied or replaced.
@@ -273,7 +305,41 @@ Return `unresolved` only when the narrative cannot be truthfully communicated af
 
 Determine the final information structure only after text requirements, visual evidence requirements, evidence availability, and any required fallback have been resolved.
 
-Use the meaning's natural shape:
+Use the meaning's natural shape.
+
+Before selecting an information structure for multiple related details, resolve their collective meaning and relationship.
+
+Determine:
+
+1. What do these details collectively communicate in this specific narrative?
+2. What relationship exists between them?
+   - unordered related items
+   - ordered actions
+   - stages
+   - alternatives
+   - causes/effects
+   - evidence
+   - categories
+   - another supported relationship
+3. Is any order, progression, hierarchy, comparison, or causality explicitly supported?
+4. Which individual distinctions must remain visible for the meaning to remain useful?
+
+Select the information structure only after resolving these questions.
+
+Do not infer `Sequence`, `Steps`, `Progression`, `Comparison`, `Hierarchy`, or another relationship merely because multiple details appear together.
+
+If several distinct details collectively explain one larger idea but no order is supported:
+
+- preserve the collective meaning through `Title`, `Supporting_Text`, or another explanatory element;
+- preserve the distinct details through `List` or another truthful unordered structure.
+
+Do not collapse meaningful details into one generic statement.
+
+Do not output a bare list when understanding what the items collectively mean is necessary to communicate the narrative. Collective meaning plus unordered details is framing plus `List`, not `List` instead of framing.
+
+Example: remaining work named as final fittings, paint touch-ups, cleaning, and snagging is not a `Sequence`. Collective meaning is remaining work before handover. Relationship is distinct related tasks with no documented order. Structure is shared meaning plus unordered details — `Title` / `Supporting_Text` + `List`.
+
+Then match the resolved relationship:
 
 - one strong idea -> `Short_Statement`
 - opening tension -> `Question`
@@ -321,6 +387,8 @@ For example, if a factual Before/After relationship exists in the narrative but 
 
 Do not change the narrative meaning to fit available assets.
 
+After the information shape is selected, confirm or revise `textNeed` so it still names the communication functions the selected elements must perform. Do not leave `textNeed` as `Title + Body` when the resolved shape is `Title + List`. `textNeed` is a constraint on element selection, not a frozen pre-shape label.
+
 ## Step 8: Resolve audience action
 
 Use the Strategist's CTA unit when supplied. Do not invent a new strategic CTA.
@@ -333,7 +401,36 @@ Expressions:
 
 `none | CTA-text | question | native-behavior | link-reference`
 
-An action type does not imply a visual button. Use `Action` as an element only when explicit copy must communicate the action.
+An action type does not imply a visual button or dedicated CTA surface.
+
+After resolving the action type and expression, resolve its placement:
+
+`none | current-surface | dedicated-surface | caption`
+
+Use `dedicated-surface` only when the action is an important final narrative beat that needs its own surface to be clearly understood or acted on.
+
+Examples that may justify a dedicated surface when supported by the Strategist CTA:
+- download or get a resource
+- sign up or register
+- book or schedule
+- contact or enquire
+- request a quote or proposal
+- open or visit an important destination
+- a substantial audience question that functions as the final narrative beat
+
+Use `current-surface` when the action naturally completes an existing narrative surface and does not require separate emphasis.
+
+Use `caption` when the action requires explicit copy but does not need visual-surface space.
+
+Use `none` when the expression is `native-behavior` or `none`.
+
+Lightweight actions such as `continue/swipe` or `reflect/consider` do not justify a dedicated CTA surface by themselves.
+
+Do not create a dedicated CTA surface merely because an action exists.
+
+A dedicated CTA surface is mapped as its own visual slide or scene with `action.placement: dedicated-surface`. Do not leave it only in `ctaUnit` or as a caption-only row.
+
+Use `Action` as an element only when explicit copy must communicate the resolved action.
 
 ## Step 9: Select elements
 
@@ -343,6 +440,20 @@ For each slide or scene:
 2. Add supporting elements when they perform distinct functions not performed by the primary structure.
 3. Assign each element a communication function and truthful support reference.
 4. Remove elements that merely repeat another element.
+
+Every textual function required by `textNeed` must be represented by the selected final elements.
+
+Examples:
+
+- `Title + Body` requires both a Title function and a Body/explanatory function.
+- `Title + Subtitle` requires both Title and Subtitle functions.
+- `Question + Supporting_Text` requires both functions.
+
+A structured primary element may satisfy one of these functions only when its content explicitly performs that communication job. A `List` is not a Title. A `List` is not Body unless the locked `textNeed` was revised to an equivalent such as `Title + Supporting_Text` or the list items themselves are the explanatory function.
+
+Do not resolve a text requirement and then omit the element or equivalent function required to communicate it.
+
+Day Writer must not need to invent missing structural text roles.
 
 The resolved `visual` object is the implementation requirement after evidence availability and fallback, not the first place visual need is decided. If the resolution is `text-only-fallback` or visual priority is `none`, do not add a visual element.
 
@@ -354,7 +465,7 @@ Do not require a real-source visual merely because an allocated asset exists.
 
 When an allocated asset directly or sufficiently provides required evidence, prefer that evidence over generating a conceptual substitute.
 
-When an allocated asset does not support the required meaning, do not force it into the structure.
+When an allocated asset does not support `requiredEvidence` or `visualCommunicationNeed`, do not force it into the structure.
 
 Do not default to `Illustration`, `Graphic_Artwork`, or `Diagram` when real supplied evidence already communicates the required meaning more truthfully.
 
@@ -375,6 +486,7 @@ Valid supporting functions include:
 Examples:
 
 - recognisable tension -> `Question + Supporting_Text`
+- remaining unordered work with a shared meaning -> `Title + List`
 - real contrast -> `Comparison + Label`
 - supported process -> `Process_Flow + Caption_Label`
 - strong claim with conceptual explanation -> `Short_Statement + Illustration`
@@ -411,14 +523,27 @@ Check:
 - information structure was determined after evidence availability and fallback resolution
 - no structure depends on visual evidence classified as unavailable
 - every structure matches the information shape
+- when multiple details are grouped, their collective narrative meaning is explicit
+- the relationship represented by the selected structure is supported by the source
+- ordered structures are used only when order, progression, or stages are supported
+- `Comparison` is used only when a genuine comparison exists
+- `Hierarchy` is used only when a genuine hierarchy exists
+- grouped details preserve meaningful distinctions without becoming a bare extracted list
 - no Comparison is an alone-vs-together or idea-vs-explanation split
 - supporting elements complement rather than repeat
 - every element has truthful support
+- every text function required by `textNeed` is represented by the selected elements or by an explicitly equivalent function in the primary structure
 - visual recommendations respect truth boundaries
 - the final substantive beat resolves the opening
 - pillarJob, uniqueJob, and doNotRepeat are preserved
 - the structure is compatible with the locked format
 - every `communicationSufficiency` flag is true, or the post is returned `unresolved`
+- every action has an explicit placement
+- `native-behavior` and `none` expressions use `placement: none`
+- a dedicated CTA surface exists only when the action is important enough to require separate communication space
+- lightweight actions do not create unnecessary CTA surfaces
+- CTA placement does not replace or weaken the narrative resolution
+- any dedicated CTA surface is mapped by Content Structure before Day Writer
 
 ### Communication sufficiency check
 
@@ -430,7 +555,7 @@ Assess and record `communicationSufficiency`:
 - `audienceValueClear` — the audience gains recognition, insight, or usefulness, not only a report of facts.
 - `choicesExplained` — when the narrative names choices, decisions, or factors, the structure gives each one an explanatory element (its intended contribution), rather than a bare list.
 - `closurePresent` — the final surface resolves, reframes, or concludes the opening; it does not merely restate the problem.
-- `visualsNecessary` — every visual with priority other than `none` materially explains, evidences, or clarifies something; decorative visuals are set to `none`.
+- `visualsNecessary` — every visual with priority other than `none` materially explains, evidences, contextualizes, or clarifies something; decorative visuals are set to `none`.
 
 If any flag would be false, do not emit a shallow `pass`. Run a correction pass first:
 
@@ -481,8 +606,9 @@ Return only a fenced JSON block.
       },
       "visualNeed": {
         "priority": "required | recommended | optional | none",
-        "role": "evidence | explanation | recognition | demonstration | none",
-        "requiredEvidence": "What must be visually communicated or supported",
+        "role": "evidence | explanation | recognition | demonstration | context | none",
+        "requiredEvidence": "What, if anything, must be visually proven or directly supported",
+        "visualCommunicationNeed": "What visual information could materially communicate, explain, demonstrate, contextualize, or make the narrative recognizable",
         "preferredType": "Supported visual need | none",
         "truthBoundary": "What must not be implied"
       },
@@ -507,7 +633,7 @@ Return only a fenced JSON block.
       "contentGuidance": "Meaning the Day Writer must express; not final copy",
       "visual": {
         "priority": "required | recommended | optional | none",
-        "role": "evidence | explanation | recognition | demonstration | none",
+        "role": "evidence | explanation | recognition | demonstration | context | none",
         "type": "Supported visual type | none",
         "communicationFunction": "What the visual must communicate after evidence resolution",
         "truthBoundary": "What the visual must not imply",
@@ -515,7 +641,8 @@ Return only a fenced JSON block.
       },
       "action": {
         "type": "Supported action type",
-        "expression": "none | CTA-text | question | native-behavior | link-reference"
+        "expression": "none | CTA-text | question | native-behavior | link-reference",
+        "placement": "none | current-surface | dedicated-surface | caption"
       }
     }
   ],
@@ -541,9 +668,21 @@ Return only a fenced JSON block.
 
 `visual` is the resolved visual implementation requirement after evidence availability and fallback. `visualNeed` is the communication need decided before availability was checked.
 
+`visual.communicationFunction` carries the resolved visual communication need after evidence availability and fallback. Do not copy `requiredEvidence` into `communicationFunction` when the visual's role is `context`, `recognition`, `explanation`, or `demonstration` rather than proof.
+
 `totalSlidesOrScenes` equals visual surfaces only. `unmappedUnits` must be empty for `ready`. Do not repeat the primary structure inside supporting elements. Copy the locked `format`. Do not switch it. Use supplied unit `id` values in `coversUnits`.
 
 When `textNeed.type` is `None`, `textNeed.required` is false. Otherwise it is true.
+
+`action.placement` is locked by Content Structure.
+
+If `placement: dedicated-surface`, Content Structure must map that CTA as its own slide or scene.
+
+If `placement: current-surface`, the action belongs to the mapped narrative surface.
+
+If `placement: caption`, the action belongs only in the caption.
+
+If `placement: none`, Day Writer must not create explicit CTA copy or a CTA surface.
 
 ## Inputs
 

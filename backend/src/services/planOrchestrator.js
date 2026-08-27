@@ -73,7 +73,7 @@ const AVAILABLE_ELEMENTS = {
 };
 
 const VISUAL_PRIORITIES = ['required', 'recommended', 'optional', 'none'];
-const VISUAL_ROLES = ['evidence', 'explanation', 'recognition', 'demonstration', 'none'];
+const VISUAL_ROLES = ['evidence', 'explanation', 'recognition', 'demonstration', 'context', 'none'];
 const VISUAL_TYPES = new Set([...AVAILABLE_ELEMENTS.visual, 'none']);
 const SOURCE_VISUAL_TYPES = new Set([
   'Image', 'Multiple_Images', 'Detail_Closeup', 'Screenshot', 'Document_Source',
@@ -192,7 +192,8 @@ function visualSlidesOf(structure) {
   return (Array.isArray(structure?.slidesOrScenes) ? structure.slidesOrScenes : [])
     .filter((s) => {
       const placement = String(s?.placement || 'visual').trim().toLowerCase();
-      return placement === 'visual' || placement === '';
+      const actionPlacement = String(s?.action?.placement || '').trim().toLowerCase();
+      return placement === 'visual' || placement === '' || actionPlacement === 'dedicated-surface';
     });
 }
 
@@ -525,6 +526,7 @@ function visualNeedOf(raw) {
     priority,
     role: priority === 'none' ? 'none' : role,
     requiredEvidence: optionalText(t.requiredEvidence),
+    visualCommunicationNeed: optionalText(t.visualCommunicationNeed),
     preferredType: optionalText(t.preferredType) || 'none',
     truthBoundary: optionalText(t.truthBoundary),
   };
@@ -759,10 +761,15 @@ function validateContentStructure(parsed) {
       selectionReason: optionalText(s?.selectionReason),
       contentGuidance: optionalText(s?.contentGuidance),
       visual: visualPlanOf(visual, evidenceResolution),
-      action: {
-        type: optionalText(action.type) || 'none',
-        expression: optionalText(action.expression) || 'none',
-      },
+      action: (() => {
+        const type = optionalText(action.type) || 'none';
+        const expression = optionalText(action.expression) || 'none';
+        const rawPlacement = String(action.placement || '').trim().toLowerCase();
+        const allowed = ['none', 'current-surface', 'dedicated-surface', 'caption'];
+        let placement = allowed.includes(rawPlacement) ? rawPlacement : 'none';
+        if (expression === 'none' || expression === 'native-behavior') placement = 'none';
+        return { type, expression, placement };
+      })(),
     };
   });
   if (status === 'unresolved') return;

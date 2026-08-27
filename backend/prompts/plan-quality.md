@@ -28,6 +28,8 @@ Slide/scene count, unit mapping, `primaryStructure`, supporting elements, resolv
 
 A missing photograph is not a defect when Structure locked `visual.priority: none` or resolved `text-only-fallback`. Do not ask the writer to invent visual evidence that Structure already classified as unavailable.
 
+Do not instruct the Day Writer to invent a CTA when Content Structure locked `action.placement: none`, `action.expression: none` or `native-behavior`, or `ctaUnit: null` with no remaining slide action. Do not instruct the writer to put CTA copy in the caption when Structure placed it on a slide.
+
 ---
 
 # PRIMARY QUESTION
@@ -574,6 +576,8 @@ then revise.
 A CTA is optional.
 
 Do not penalize a strong post for having no CTA.
+
+If Structure locked no action or `placement: none`, an empty caption CTA is correct. Award the CTA score; do not treat absence as a defect. Do not ask the writer to add caption CTA copy that Structure placed on a slide.
 
 If one exists, check whether it naturally follows the content.
 
