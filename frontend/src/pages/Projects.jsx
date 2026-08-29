@@ -129,7 +129,12 @@ function AssetAnalysis({ analysis, busy, onAnalyze, onClose }) {
               {a.summary && <p className="aa__summary">{a.summary}</p>}
               {a.description && <p className="aa__desc">{a.description}</p>}
               {a.mood && <div className="aa__row"><span className="aa__label">Mood</span><span>{a.mood}</span></div>}
-              {a.subjects?.length > 0 && <div className="aa__row aa__row--col"><span className="aa__label">Subjects</span><Chips items={a.subjects} /></div>}
+              {a.subjects?.length > 0 && (
+                <div className="aa__row aa__row--col">
+                  <span className="aa__label">Subjects</span>
+                  <Chips items={a.subjects.map((s) => (typeof s === 'string' ? s : s?.name)).filter(Boolean)} />
+                </div>
+              )}
               {a.tags?.length > 0 && <div className="aa__row aa__row--col"><span className="aa__label">Tags</span><Chips items={a.tags} /></div>}
               {a.colors?.length > 0 && (
                 <div className="aa__row aa__row--col">
@@ -1246,7 +1251,9 @@ function ProjectDetail({ project, projects, onBack }) {
     setAnalyzeMsg('');
     setAnalyzing(true);
     try {
-      const { analyzed, usage } = await analyzeProjectAssets(project.id);
+      const { analyzed, usage } = await analyzeProjectAssets(project.id, {
+        force: unanalyzed === 0,
+      });
       const n = analyzed ?? unanalyzed;
       const tokens = (usage?.inputTokens || 0) + (usage?.outputTokens || 0);
       const cost = usage?.costUsd || 0;

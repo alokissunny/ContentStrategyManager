@@ -9,10 +9,30 @@ import client from './client';
 // in dev (Vite proxies /api) and CORS-allowed in prod, so the renderer can read
 // them. Use it ONLY where the bytes must be fetched cross-origin; keep the CDN
 // URL for plain display.
+export function splitMediaKeys(value) {
+  const raw = Array.isArray(value) ? value : [value];
+  const out = [];
+  const seen = new Set();
+  for (const item of raw) {
+    String(item || '').split(',').forEach((part) => {
+      const key = part.trim();
+      if (!key || seen.has(key)) return;
+      seen.add(key);
+      out.push(key);
+    });
+  }
+  return out;
+}
+
+export function isProjectMediaKey(key) {
+  return /^projects\/[a-f0-9]{24}\/[A-Za-z0-9._-]+\.(png|jpe?g|webp|gif)$/i.test(String(key || '').trim());
+}
+
 export function mediaProxyUrl(key) {
-  if (!key) return '';
+  const first = splitMediaKeys(key).find(isProjectMediaKey);
+  if (!first) return '';
   const base = (client.defaults.baseURL || '/api').replace(/\/$/, '');
-  return `${base}/media/proxy?key=${encodeURIComponent(key)}`;
+  return `${base}/media/proxy?key=${encodeURIComponent(first)}`;
 }
 
 export function isProxyUrl(url) {
@@ -32,9 +52,6 @@ export function canvasSafeUrl(url, key) {
   return k ? mediaProxyUrl(k) : raw;
 }
 
-export function isProjectMediaKey(key) {
-  return /^projects\//.test(String(key || ''));
-}
 
 function trimBase(value) {
   return String(value || '').trim().replace(/\/+$/, '');

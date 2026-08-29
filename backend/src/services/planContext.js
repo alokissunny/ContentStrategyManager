@@ -8,6 +8,7 @@
  */
 
 const crypto = require('crypto');
+const { subjectNames, subjectsForPlan } = require('./subjectBox');
 
 const memo = new Map();
 const MEMO_CAP = 40;
@@ -464,7 +465,7 @@ function assetContextRow(a) {
   return omitEmpty({
     key: String(a?.key || '').trim(),
     summary: sourceText(v.summary || v.description || photoNote),
-    subjects: (v.subjects || []).map((s) => clip(s, 40)).filter(Boolean).slice(0, 6),
+    subjects: subjectsForPlan(v.subjects, 6),
     tags: (v.tags || []).map((s) => clip(s, 28)).filter(Boolean).slice(0, 6),
     mood: clip(v.mood, 48),
     textInImage: sourceText(v.text),
@@ -553,7 +554,7 @@ function wordsOf(text) {
 function scoreAsset(queryWords, a) {
   const hay = [
     a?.vision?.summary,
-    ...(a?.vision?.subjects || []),
+    ...subjectNames(a?.vision?.subjects),
     ...(a?.vision?.tags || []),
     a?.note,
   ].filter(Boolean).join(' ').toLowerCase();
@@ -760,7 +761,7 @@ function assetsForDay(projects, dayBrief) {
       key: a.key,
       project: projectName,
       summary: assetOneLiner(a),
-      subjects: (a.vision?.subjects || []).slice(0, 4),
+      subjects: subjectsForPlan(a.vision?.subjects, 4),
       preferred: Boolean(allocatedHit || (preferred && a.key === preferred) || captureHit),
       allocated: allocatedHit,
       score: scoreAsset(query, a)

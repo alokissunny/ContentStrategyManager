@@ -494,9 +494,18 @@
   background: #f4f1ec;
   color: #1a1916;
   font-family: ui-sans-serif, system-ui, sans-serif;
-  container-type: size;
+  container-type: inline-size;
 }
 .wv-dynlay__canvas {
+  width: 100%;
+  height: 100%;
+  background: #f4f1ec;
+}
+.wv-dynlay img[data-slot="image"] {
+  background: #ddd8ce;
+}
+.wv-dynlay__canvas > .slide,
+.wv-dynlay__canvas > article {
   width: 100%;
   height: 100%;
 }
@@ -506,17 +515,60 @@
   box-sizing: border-box;
   overflow: hidden;
   position: relative;
-  container-type: size;
+  container-type: inline-size;
 }
 .wv-dynlay img {
   display: block;
+  min-width: 0;
+  min-height: 0;
+  max-width: 100%;
   object-fit: cover;
+}
+.wv-dynlay.is-annote-over .wv-dynlay__canvas [data-slot="annotation"] {
+  visibility: hidden;
 }
 .wv-dynlay img.is-empty,
 .wv-dynlay img:not([src]),
 .wv-dynlay img[src=""] {
-  background: #ddd8ce;
+  display: none !important;
 }
+
+.wv-annote-pin {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  pointer-events: none;
+}
+.wv-annote {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  pointer-events: none;
+  container-type: size;
+}
+.wv-annote__label {
+  position: absolute;
+  margin: 0;
+  color: #f7f4ef;
+  font-family: 'Instrument Serif', Georgia, serif;
+  font-style: italic;
+  font-weight: 400;
+  font-size: clamp(15px, 4.8cqi, 34px);
+  line-height: 1.05;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+  text-shadow:
+    0 1px 2px rgba(18, 16, 14, 0.9),
+    0 0 14px rgba(18, 16, 14, 0.55);
+}
+.wv-annote__arrow {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
 .wv-safe {
   box-sizing: border-box;
   width: 100%;
@@ -567,6 +619,7 @@
   text-wrap: balance;
 }
 .wv-safe__photo {
+  position: relative;
   flex: 1 1 auto;
   min-height: 0;
   overflow: hidden;
@@ -659,6 +712,7 @@
 }
 .wv-safe__bleedtitle {
   position: absolute;
+  z-index: 4;
   left: 7%;
   right: 7%;
   bottom: 8%;

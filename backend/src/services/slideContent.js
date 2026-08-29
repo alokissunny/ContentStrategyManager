@@ -4,6 +4,8 @@
  * instead of defaulting every slide to title + subtitle.
  */
 
+const { boxOf, regionFromBox } = require('./subjectBox');
+
 function str(v) {
   return v == null ? '' : String(v).trim();
 }
@@ -11,6 +13,23 @@ function str(v) {
 function stringList(value, limit = 8) {
   if (!Array.isArray(value)) return [];
   return value.map(str).filter(Boolean).slice(0, limit);
+}
+
+function mediaKeysOf(...values) {
+  const out = [];
+  const seen = new Set();
+  for (const value of values) {
+    const parts = Array.isArray(value) ? value : [value];
+    for (const part of parts) {
+      String(part || '').split(',').forEach((token) => {
+        const key = str(token);
+        if (!key || seen.has(key)) return;
+        seen.add(key);
+        out.push(key);
+      });
+    }
+  }
+  return out;
 }
 
 function asItems(value) {
@@ -45,6 +64,47 @@ function asStoredLines(value, limit = 16) {
     return one ? [one] : [];
   }
   return value.map((x) => asStoredText(x)).filter(Boolean).slice(0, limit);
+}
+
+const ANNOTATION_REGIONS = new Set([
+  'top-left', 'top', 'top-right', 'left', 'center', 'right',
+  'bottom-left', 'bottom', 'bottom-right',
+]);
+
+function annotationRegionOf(value) {
+  const raw = str(value).toLowerCase().replace(/[_]+/g, '-').replace(/\s+/g, '-');
+  if (ANNOTATION_REGIONS.has(raw)) return raw;
+  const compact = raw.replace(/-/g, '');
+  const aliases = {
+    topleft: 'top-left', upperleft: 'top-left',
+    topright: 'top-right', upperright: 'top-right',
+    bottomleft: 'bottom-left', lowerleft: 'bottom-left',
+    bottomright: 'bottom-right', lowerright: 'bottom-right',
+    middle: 'center', mid: 'center',
+  };
+  return aliases[compact] || '';
+}
+
+function annotationOf(raw, elements) {
+  const fromSlide = raw?.annotation && typeof raw.annotation === 'object' ? raw.annotation : null;
+  const el = elementOf(elements, 'annotation');
+  const text = str(
+    fromSlide?.text
+    || (typeof raw?.annotation === 'string' ? raw.annotation : '')
+    || el?.text
+    || el?.label,
+  );
+  if (!text) return null;
+  const targetBox = boxOf(fromSlide?.targetBox || el?.targetBox || el?.box);
+  const region = annotationRegionOf(fromSlide?.targetRegion || el?.targetRegion)
+    || regionFromBox(targetBox)
+    || 'center';
+  return {
+    text: text.slice(0, 48),
+    targetSubject: str(fromSlide?.targetSubject || el?.targetSubject || el?.target).slice(0, 80),
+    targetRegion: region,
+    ...(targetBox ? { targetBox } : {}),
+  };
 }
 
 function visualNeedOf(s) {
@@ -95,11 +155,12 @@ function flattenSlide(raw) {
   const baEl = elementOf(elements, 'before_after');
   const imageEl = elementOf(
     elements,
-    'image', 'multiple_images', 'annotation', 'detail_closeup', 'screenshot',
+    'image', 'multiple_images', 'detail_closeup', 'screenshot',
     'illustration', 'graphic_artwork', 'document_source', 'plan_drawing',
     'product_object', 'people_context', 'environment_space', 'video_motion',
     'screen_recording', 'animation', 'annotated_visual', 'multiple_visuals',
   );
+  const annotation = annotationOf(s, elements);
 
   const items = asItems(s.items).length
     ? asItems(s.items)
@@ -135,8 +196,8 @@ function flattenSlide(raw) {
   );
   const priority = str(visual.priority).toLowerCase();
   const source = str(visual.source).toLowerCase();
-  const assetKeys = stringList(visual.assetKeys || s.assetKeys);
-  const assetKey = str(s.assetKey || visual.assetKey || assetKeys[0]);
+  const assetKeys = mediaKeysOf(visual.assetKeys, s.assetKeys, visual.assetKey, s.assetKey);
+  const assetKey = assetKeys[0] || '';
   const wantsImage = Boolean(imageEl)
     || /image|illustration|screenshot|document|drawing|artwork|product|people|environment|video|animation|annotated|multiple/i.test(primary)
     || str(s.image).toLowerCase() === 'placeholder'
@@ -167,6 +228,7 @@ function flattenSlide(raw) {
     assetKeys: assetKeys.length ? assetKeys : (assetKey ? [assetKey] : []),
     layout: str(s.layout),
     layoutHtml: str(s.layoutHtml),
+    annotation,
     visual,
     visualNeed: visualNeedOf({ ...s, visual, image: wantsImage ? 'placeholder' : str(s.image) }),
     textLayout: s.textLayout && typeof s.textLayout === 'object' ? s.textLayout : null,
@@ -203,7 +265,9 @@ module.exports = {
   flattenSlide,
   layoutForStructure,
   visualNeedOf,
+  annotationOf,
   stringList,
+  mediaKeysOf,
   asStoredText,
   asStoredLines,
 };

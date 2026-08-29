@@ -8,6 +8,7 @@
 
 const getAnthropicClient = require('./anthropicClient');
 const { getObjectBytes } = require('./s3Client');
+const { normalizeSubjects } = require('./subjectBox');
 
 // Claude vision accepts these; HEIC and others are not supported, so we bail
 // out early with a clear message rather than sending bytes the API rejects.
@@ -31,9 +32,20 @@ const SYSTEM_PROMPT = `You are a visual analyst for a design studio's content li
   "tags": ["6-12 short lowercase keywords for search"],
   "colors": ["dominant colours, plain names or hex"],
   "mood": "a few words on the overall feeling / tone",
-  "subjects": ["the main objects, people or scene elements"],
+  "subjects": [
+    {
+      "name": "short name of one visible object, person, or scene element",
+      "box": { "x": 0, "y": 0, "w": 0, "h": 0 }
+    }
+  ],
   "text": "any legible text in the image, verbatim, or empty string if none"
-}`;
+}
+
+subjects: list the 3–8 most important things in the frame. Every subject MUST have a box.
+
+box is the tight axis-aligned bounding box of THAT subject as percentages of the full image (0–100). Origin is the top-left corner. x,y is the top-left of the box. w,h are width and height. Point at the object itself — not a nearby door, wall, empty space, or the person holding it unless the subject is the person.
+
+A specific object someone is installing or holding (pendant light, fitting, tool) is its own subject with its own box around that object.`;
 
 // Models sometimes put a raw newline or tab *inside* a JSON string value (e.g. a
 // multi-line description), which JSON.parse rejects ("Bad control character in
@@ -126,7 +138,7 @@ async function analyzeImageAsset(key, { type } = {}) {
   const client = getAnthropicClient();
   const response = await client.messages.create({
     model,
-    max_tokens: 1024,
+    max_tokens: 1536,
     system: SYSTEM_PROMPT,
     messages: [
       {
@@ -154,7 +166,7 @@ async function analyzeImageAsset(key, { type } = {}) {
     tags: asStringArray(parsed.tags),
     colors: asStringArray(parsed.colors),
     mood: String(parsed.mood || '').trim(),
-    subjects: asStringArray(parsed.subjects),
+    subjects: normalizeSubjects(parsed.subjects),
     text: String(parsed.text || '').trim(),
     model,
     inputTokens,

@@ -923,6 +923,16 @@ async function markDayPublished(req, res) {
             : (Array.isArray(prev.assetKeys) ? prev.assetKeys.map((k) => String(k || '')) : []),
           layout: String(s.layout || ''),
           layoutHtml: String(s.layoutHtml ?? prev.layoutHtml ?? ''),
+          annotation: (s.annotation && typeof s.annotation === 'object')
+            ? {
+              text: String(s.annotation.text ?? prev.annotation?.text ?? ''),
+              targetSubject: String(s.annotation.targetSubject ?? prev.annotation?.targetSubject ?? ''),
+              targetRegion: String(s.annotation.targetRegion ?? prev.annotation?.targetRegion ?? ''),
+              ...(s.annotation.targetBox && typeof s.annotation.targetBox === 'object'
+                ? { targetBox: s.annotation.targetBox }
+                : (prev.annotation?.targetBox ? { targetBox: prev.annotation.targetBox } : {})),
+            }
+            : (prev.annotation || { text: '', targetSubject: '', targetRegion: '' }),
           visualNeed: (s.visualNeed && typeof s.visualNeed === 'object')
             ? s.visualNeed
             : (prev.visualNeed || null),
@@ -1071,6 +1081,7 @@ async function rerunDayLayout(req, res) {
       source: `Layout:${label}:debug`,
       structure,
       post,
+      dayBrief: trace.strategyBrief || {},
     });
     if (result.parsed?.status === 'failed') {
       return res.status(422).json({
@@ -1098,6 +1109,7 @@ async function rerunDayLayout(req, res) {
           agents: [{
             source: debugEntry.source || `Layout:${label}:debug`,
             model: debugEntry.model,
+            provider: debugEntry.provider || '',
             prompt: debugEntry.prompt,
             output: debugEntry.output || '',
           }],

@@ -481,6 +481,7 @@ Valid supporting functions include:
 - qualifying a claim
 - making the brand connection explicit
 - explaining a visual
+- pointing out a relevant visible subject on the photograph
 - communicating a supported action
 
 Examples:
@@ -494,6 +495,39 @@ Examples:
 - real visual detail -> `Image + Annotation`
 - verified statistic -> `Number_Stat + Label`
 - genuine testimony -> `Testimonial + Supporting_Text`
+
+### On-image Annotation
+
+`Annotation` is a supporting visual element: a short on-photo label with a hand-drawn arrow pointing at a visible subject. It is not slide copy, not a caption, and not the `Annotated_Visual` information shape.
+
+`Annotated_Visual` is the primary structure when the whole surface is a labelled plan, diagram, or fully marked-up source visual. `Caption_Label` and `Label` sit in the layout, not on the photograph. Use `Annotation` only as a supporting element on a real photograph.
+
+After the visual is resolved, **expect Annotation** on a photograph slide. It is the default when a real photo is on the surface and a relevant subject is identifiable — not a rare extra.
+
+Add `Annotation` when **all** of these are true:
+
+1. The slide’s resolved `visual` is a real photograph (`Image`, `Detail_Closeup`, `Environment_Space`, `People_Context`, `Product_Object`, `Screenshot`, `Document_Source`, `Plan_Drawing`, `Multiple_Images`, or equivalent) with priority other than `none`, **or** `Image` / `Environment_Space` / `People_Context` / `Product_Object` is a selected element that will be a supplied photo.
+2. A nameable subject is visible in that photograph. Use `ALLOCATED_VISUALS_JSON` (`summary`, `subjects` — each subject may include a `box` `{x,y,w,h}` in percent of the photo), `relevantAssetContext`, `observableDetails`, or allocated `visibleContent` — not invention.
+3. That subject is relevant to this slide’s purpose or the post’s central fact: pointing at it makes the meaning visible (the stair/mezzanine, the pendant being fitted, the storage wall, the material the copy is about).
+
+A comparison, list, title, or question as `primaryStructure` does **not** block Annotation. The photo still gets the callout. The primary stays whatever carries the central meaning.
+
+Do **not** add `Annotation` when:
+
+- there is no photograph, visual priority is `none`, resolution is `text-only-fallback`, or the visual is a generated illustration/diagram/graphic rather than a real photo
+- the photo is only atmosphere or a whole room with no one detail carrying this slide’s meaning
+- no subject is established in the allocated visuals, asset context, or observable details
+- the label would only repeat the Title, Short_Statement, or Question
+- the slide is CTA-only with no photograph
+
+At most one `Annotation` per slide. Do not switch `informationShape` to `Annotated_Visual` merely because one callout is useful.
+
+When adding it, set:
+
+- `type`: `Annotation`
+- `function`: what is being pointed at and why that makes the slide's meaning visible
+- `targetSubject`: the visible thing in the frame (a few words, from verified support)
+- `supportReference`: the observable detail or asset description that establishes it
 
 There is no default Title + Body structure, but there is also no default standalone Short Statement. Choose according to the information shape and communication value.
 
@@ -531,6 +565,8 @@ Check:
 - grouped details preserve meaningful distinctions without becoming a bare extracted list
 - no Comparison is an alone-vs-together or idea-vs-explanation split
 - supporting elements complement rather than repeat
+- `Annotation` is present on a photograph slide when a relevant visible subject is identifiable from allocated visuals, and is omitted only when the image has no such subject
+- `Annotation` is used only on a real photograph
 - every element has truthful support
 - every text function required by `textNeed` is represented by the selected elements or by an explicitly equivalent function in the primary structure
 - visual recommendations respect truth boundaries
@@ -626,7 +662,8 @@ Return only a fenced JSON block.
         {
           "type": "Supported element",
           "function": "Distinct communication function",
-          "supportReference": ["Verified fact, unit support, or allowed brand position"]
+          "supportReference": ["Verified fact, unit support, or allowed brand position"],
+          "targetSubject": "Visible subject when type is Annotation; otherwise omit"
         }
       ],
       "selectionReason": "Why this combination is more effective than a generic standalone statement",
@@ -689,6 +726,7 @@ If `placement: none`, Day Writer must not create explicit CTA copy or a CTA surf
 The implementation supplies:
 
 - one Strategist brief
+- allocated visuals with `summary` and `subjects` (what each photograph actually shows)
 - complete supported `availableElements`
 - platform behaviours and format rules
 
@@ -701,6 +739,12 @@ The implementation must not narrow `availableElements` below the structures it e
 ### Strategist brief
 
 {{STRATEGIST_BRIEF_JSON}}
+
+### Allocated visuals
+
+Photographs available for this brief. `subjects` and `summary` are what is visible — use them to decide Annotation.
+
+{{ALLOCATED_VISUALS_JSON}}
 
 ### Platform constraints
 

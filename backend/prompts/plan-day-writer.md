@@ -126,6 +126,7 @@ Copy `primaryStructure` into `structure`. Fill `elements` with the primary type 
 - `Quote`: only verified sourced wording
 - `Supporting_Text`: context or interpretation that complements the primary
 - `Label`: concise category, side, stage, or source label
+- `Annotation`: a 1–4 word on-photo callout naming a visible subject. Not a sentence. Not the title. Fill `text` with the label, `targetSubject` with the thing in the frame, and `targetBox` with that subject's `{x,y,w,h}` from `DAY_ASSETS` (percent of the photograph, origin top-left). Also set `targetRegion` from the box (`top-left | top | top-right | left | center | right | bottom-left | bottom | bottom-right`). Layout draws the handwritten label and arrow on the photograph.
 
 ### Structured elements
 
@@ -140,7 +141,17 @@ Copy `primaryStructure` into `structure`. Fill `elements` with the primary type 
 
 ### Visual elements
 
-For `Image`, `Multiple_Images`, `Detail_Closeup`, `Screenshot`, `Document_Source`, `Plan_Drawing`, `Illustration`, `Graphic_Artwork`, `Product_Object`, `People_Context`, `Environment_Space`, `Video_Motion`, `Screen_Recording`, `Animation`, `Caption_Label`, or `Annotation`, preserve the locked communication function and truth boundary.
+For `Image`, `Multiple_Images`, `Detail_Closeup`, `Screenshot`, `Document_Source`, `Plan_Drawing`, `Illustration`, `Graphic_Artwork`, `Product_Object`, `People_Context`, `Environment_Space`, `Video_Motion`, `Screen_Recording`, `Animation`, or `Caption_Label`, preserve the locked communication function and truth boundary.
+
+When Structure locked `Annotation` as a supporting element, fill it.
+
+When Structure did **not** lock Annotation, still add one if this slide executes a **supplied photograph** (`visual.execution` is `supplied-asset`, or an allocated `assetKey` is assigned) and `DAY_ASSETS` names a subject that is relevant to this slide’s purpose. That is labelling a visible detail, not a new narrative beat.
+
+The label names a visible subject in the assigned photograph so the audience can see the detail the slide is about — the same job as a marker callout on a photo ("Accent light" with an arrow to the light). Use only subjects established by the asset `summary` / `subjects`, `observableDetails`, or `relevantAssetContext`. Do not invent a subject the photograph does not show. Do not reuse the title, hook, or caption as the annotation. If the locked `targetSubject` is supplied, keep it.
+
+`DAY_ASSETS` subjects are `{ name, box: { x, y, w, h } }` — percentages of the photograph, origin top-left. Copy the matching subject's `box` onto `targetBox`. Do not invent coordinates. Do not guess a region when a box exists. If no box is listed for that subject, set `targetRegion` from the asset description; if location is still unknown, use `center` and keep the label out of the lower third (where slide titles sit). Omit unused optional fields.
+
+Skip Annotation when the slide is text-led, the visual is a generated illustration/diagram, the photo is only atmosphere, or no relevant subject is in the asset description.
 
 ## Visual execution
 
@@ -159,7 +170,7 @@ Resolve each visual in this order:
    - Do not attach an allocated asset merely because it exists. Skip it when Structure resolved `text-only-fallback`, `priority: none`, or the asset does not truthfully serve the locked visual `communicationFunction` or `role`. An empty `requiredEvidence` does not mean the asset should be skipped when `role` is `context`, `recognition`, `explanation`, or `demonstration` and the asset serves `communicationFunction`.
    - Do not treat a context, recognition, explanation, or demonstration visual as factual proof of the claim. Copy must not say the photograph proves more than it shows.
    - Use another retrieved key only when no allocated asset serves the locked function.
-   - Provide crop, sequence, label, or annotation notes when useful.
+   - Provide crop, sequence, label, or annotation notes when useful. When an Annotation element is locked, `productionInstruction` must say the callout sits on the photograph (handwritten label + curved arrow to `targetSubject` in `targetRegion`), not in the type band.
    - Leave `imagePrompt` empty.
    - Leave `assetKey` empty only when the locked type is graphic-led (`Illustration`, `Graphic_Artwork`, `Diagram`, `Animation`) or text-led, or when no supplied asset can serve the communication function without inventing proof.
 
@@ -347,6 +358,7 @@ Before returning `status: "ready"`, validate:
 - no required field is empty (title, direction, caption, opening-slide hook copy, every mapped visual slide; post-level `cta` only when placement is `caption`)
 - every mapped slide or scene exists
 - every primary and supporting element is filled
+- a locked `Annotation` is a 1–4 word on-photo label with `targetSubject`, `targetBox` copied from `DAY_ASSETS` when present, and `targetRegion`, not a restatement of the title
 - every field performs its assigned function
 - no unit or supporting element is silently dropped
 - copy and visual are complementary rather than duplicative
@@ -393,7 +405,10 @@ Return only one fenced JSON block.
             "label": "",
             "body": "",
             "quote": "",
-            "action": ""
+            "action": "",
+            "targetSubject": "Visible subject when type is Annotation",
+            "targetRegion": "top-left | top | top-right | left | center | right | bottom-left | bottom | bottom-right",
+            "targetBox": { "x": 0, "y": 0, "w": 0, "h": 0 }
           }
         ],
         "visual": {

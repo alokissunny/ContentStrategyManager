@@ -2,10 +2,11 @@ const fs = require('fs');
 const path = require('path');
 const { extractJson, estimatePlanCostUsd, assignToEmptyDates, normalizeLens } = require('./weeklyPlan');
 const { compileStrategyContext, assetsForDay, allocatedAssetsOf, applyAssetAllocation, knownAssetIndexOf, json } = require('./planContext');
-const { completeText, planTextModel, splitPromptTemplate } = require('./llmComplete');
-const { asStoredText, asStoredLines, flattenSlide, layoutForStructure } = require('./slideContent');
+const { completeText, resolvePlanAgentLlm, splitPromptTemplate } = require('./llmComplete');
+const { asStoredText, asStoredLines, flattenSlide, layoutForStructure, mediaKeysOf } = require('./slideContent');
+const { boxOf, matchSubject, regionFromBox } = require('./subjectBox');
 const { layoutById } = require('./layoutCatalog');
-const { extractLayoutHtml } = require('./layoutHtml');
+const { extractLayoutHtml, hasImageSlot } = require('./layoutHtml');
 
 const PROMPTS_DIR = path.join(__dirname, '..', '..', 'prompts');
 const cache = {};
@@ -38,7 +39,7 @@ function assembleAgentPrompt(name, vars) {
 }
 
 function agentModel(kind) {
-  return planTextModel(kind);
+  return resolvePlanAgentLlm(kind).model;
 }
 
 const GOAL_TAG = { discovery: 'Get noticed', credibility: 'Show expertise', trust: 'Build confidence' };
@@ -84,7 +85,7 @@ const SOURCE_VISUAL_TYPES = new Set([
 const UI_SCHEMA = {
   slideFields: [
     'role', 'structure', 'title', 'subtitle', 'body', 'items', 'comparisonA', 'comparisonB',
-    'stat', 'quote', 'action', 'labels', 'image', 'imagePrompt', 'assetKey',
+    'stat', 'quote', 'action', 'labels', 'annotation', 'image', 'imagePrompt', 'assetKey',
   ],
   visualFields: [
     'priority', 'role', 'type', 'communicationFunction', 'truthBoundary',
@@ -340,7 +341,8 @@ function mergeUsage(parts, model) {
 }
 
 async function callAgent({ source, kind, prompt, system, user, validate }) {
-  const model = agentModel(kind);
+  const llm = resolvePlanAgentLlm(kind);
+  const model = llm.model;
   let maxTokens = maxTokensFor(kind);
   const maxAttempts = 2;
   let lastErr;
@@ -348,6 +350,9 @@ async function callAgent({ source, kind, prompt, system, user, validate }) {
   const debugPrompt = [system, userContent].filter(Boolean).join('\n\n');
 
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    if (attempt === 1) {
+      console.log(`[planOrchestrator] ${source} · ${llm.provider}/${model}`);
+    }
     const response = await completeText({
       model,
       system,
@@ -359,7 +364,7 @@ async function callAgent({ source, kind, prompt, system, user, validate }) {
     });
     const fullText = response.text || '';
     const usage = usageOf(response, model);
-    const debugEntry = { source, model, prompt: debugPrompt, kind };
+    const debugEntry = { source, model, provider: llm.provider, prompt: debugPrompt, kind };
 
     if (response.stopReason === 'max_tokens') {
       lastErr = new Error(`${source} response truncated (max_tokens=${maxTokens})`);
@@ -616,7 +621,26 @@ function bindAllocatedAssets(slides, dayBrief) {
   return next;
 }
 
-function normalizeWriterPost(parsed, dayBrief) {
+function attachAnnotationBox(annotation, slide, dayAssets) {
+  if (!annotation || !optionalText(annotation.text)) return annotation || null;
+  const existing = boxOf(annotation.targetBox);
+  if (existing) return { ...annotation, targetBox: existing };
+  const keys = mediaKeysOf(slide?.assetKey, slide?.visual?.assetKey, slide?.assetKeys, slide?.visual?.assetKeys);
+  const assets = Array.isArray(dayAssets) ? dayAssets : [];
+  const asset = assets.find((a) => keys.includes(a.key))
+    || assets.find((a) => a.preferred)
+    || assets[0];
+  const hit = matchSubject(asset?.subjects, annotation.targetSubject || annotation.text);
+  if (!hit?.box) return annotation;
+  const region = optionalText(annotation.targetRegion).toLowerCase();
+  return {
+    ...annotation,
+    targetBox: hit.box,
+    targetRegion: (region && region !== 'center') ? region : (regionFromBox(hit.box) || region || 'center'),
+  };
+}
+
+function normalizeWriterPost(parsed, dayBrief, dayAssets) {
   const content = { ...(parsed?.content || {}) };
   const slides = bindAllocatedAssets(Array.isArray(content.slides) ? content.slides.map((s) => {
     const visual = s?.visual && typeof s.visual === 'object' ? s.visual : {};
@@ -624,15 +648,20 @@ function normalizeWriterPost(parsed, dayBrief) {
     const execution = String(visual.execution || '').toLowerCase();
     const wantsVisual = !textLedResolution(s?.evidenceResolution)
       && ((priority && priority !== 'none') || /supplied|generated/.test(execution));
+    const flat = flattenSlide(s);
     return {
       ...s,
       image: wantsVisual ? (s.image || 'placeholder') : (s.image || ''),
       assetKey: wantsVisual ? (optionalText(s.assetKey) || optionalText(visual.assetKey)) : '',
       imagePrompt: wantsVisual ? (optionalText(s.imagePrompt) || optionalText(visual.imagePrompt)) : '',
+      annotation: flat.annotation || null,
       visual,
     };
   }) : [], dayBrief);
-  content.slides = slides;
+  content.slides = slides.map((s) => ({
+    ...s,
+    annotation: attachAnnotationBox(s.annotation, s, dayAssets),
+  }));
   content.caption = optionalText(parsed.caption || content.caption);
   content.cta = optionalText(parsed.cta || content.cta);
   const writerTags = hashtagList(parsed.hashtags || content.hashtags);
@@ -689,6 +718,7 @@ const STRUCTURE_ALIASES = {
   number: 'Number_Stat',
   stat: 'Number_Stat',
   caption_label: 'Caption_Label',
+  annotation: 'Annotation',
   short_statement: 'Short_Statement',
   multiple_images: 'Multiple_Images',
   process_flow: 'Process_Flow',
@@ -757,6 +787,7 @@ function validateContentStructure(parsed) {
         supportReference: stringList(el?.supportReference).length
           ? stringList(el.supportReference)
           : (optionalText(el?.supportReference) ? [optionalText(el.supportReference)] : []),
+        ...(optionalText(el?.targetSubject) ? { targetSubject: optionalText(el.targetSubject) } : {}),
       })).filter((el) => el.type && AVAILABLE_ELEMENT_SET.has(el.type) && el.type !== primary),
       selectionReason: optionalText(s?.selectionReason),
       contentGuidance: optionalText(s?.contentGuidance),
@@ -831,10 +862,12 @@ function strategyBriefPayload(brief) {
   };
 }
 
-async function writeContentStructure({ source, brief }) {
+async function writeContentStructure({ source, brief, dayAssets }) {
+  const visuals = Array.isArray(dayAssets) ? dayAssets.slice(0, 6) : [];
   const assembled = assembleAgentPrompt('plan-content-structure.md', {
     AVAILABLE_ELEMENTS_JSON: json(AVAILABLE_ELEMENTS),
     STRATEGIST_BRIEF_JSON: json(strategyBriefPayload(brief)),
+    ALLOCATED_VISUALS_JSON: json(visuals),
     PLATFORM_CONSTRAINTS_JSON: json(platformConstraintsOf(brief.format)),
   });
   return callAgent({
@@ -910,10 +943,25 @@ function filledElementTypes(flat, visual) {
   const priority = String(visual?.priority || '').toLowerCase();
   const type = optionalText(visual?.type);
   if (visual?.hasAsset || (priority && priority !== 'none')) add(type && type !== 'none' ? type : 'Image');
+  if (optionalText(flat?.annotation?.text || flat?.annotation)) add('Annotation');
   return types;
 }
 
-function layoutVisualOf(visual, hasAsset) {
+function photographHintOf(assetKey, dayBrief) {
+  const key = optionalText(assetKey);
+  if (!key) return null;
+  const asset = allocatedAssetsOf(dayBrief?.allocatedAssets).find((a) => optionalText(a?.key) === key) || {};
+  const hint = {
+    assigned: true,
+    visibleContent: optionalText(asset.visibleContent),
+    why: optionalText(asset.why),
+    evidenceLevel: optionalText(asset.evidenceLevel),
+  };
+  if (!hint.visibleContent && !hint.why && !hint.evidenceLevel) return { assigned: true };
+  return hint;
+}
+
+function layoutVisualOf(visual, hasAsset, assetKey, photograph) {
   const none = (value) => !optionalText(value) || optionalText(value).toLowerCase() === 'none';
   if (hasAsset) {
     return {
@@ -921,7 +969,10 @@ function layoutVisualOf(visual, hasAsset) {
       role: none(visual?.role) ? 'recognition' : optionalText(visual.role),
       type: none(visual?.type) ? 'Image' : optionalText(visual.type),
       execution: optionalText(visual?.execution) || 'supplied-asset',
+      productionInstruction: optionalText(visual?.productionInstruction),
       hasAsset: true,
+      assetKey: optionalText(assetKey) || optionalText(visual?.assetKey),
+      photograph: photograph || { assigned: true },
     };
   }
   return {
@@ -929,7 +980,9 @@ function layoutVisualOf(visual, hasAsset) {
     role: optionalText(visual?.role) || 'none',
     type: optionalText(visual?.type) || 'none',
     execution: optionalText(visual?.execution),
+    productionInstruction: optionalText(visual?.productionInstruction),
     hasAsset: false,
+    assetKey: '',
   };
 }
 
@@ -962,16 +1015,20 @@ function copyMetricsOf(flat) {
 
 function compositionNoteOf(flat, visual) {
   const titleWords = wordCount(flat?.title);
+  const hasAnnote = optionalText(flat?.annotation?.text || flat?.annotation);
+  if (visual?.hasAsset && hasAnnote) {
+    return 'Photograph with a subject callout: handwritten label + curved arrow on the photo, pointing at the named subject. Keep the label off the title band and off the subject.';
+  }
   if (visual?.hasAsset && titleWords >= 12) {
     return 'Long title on a photograph: bottom band + light type + scrim, or a split. Do not put dark type over the photo. Keep the room visible.';
   }
   if (visual?.hasAsset) {
-    return 'Photograph present: image-led. Light type on a scrim if overlaying, otherwise split the frame.';
+    return 'A real photograph will be injected into img[data-slot=image]. Include that img. Compose around the photo. Do not invent shapes, bars, or a black void instead of the photograph.';
   }
-  return '';
+  return 'No photograph. Text on #f4f1ec. Do not use a black ground.';
 }
 
-function layoutInputOf(post, structure) {
+function layoutInputOf(post, structure, dayBrief) {
   const slides = Array.isArray(post?.content?.slides) ? post.content.slides : [];
   return {
     format: lockedFormat(post?.format),
@@ -979,9 +1036,13 @@ function layoutInputOf(post, structure) {
       const index = Number(raw?.index) > 0 ? Number(raw.index) : i + 1;
       const structured = structureSlideOf(structure, index);
       const flat = flattenSlide(raw);
+      const hasAsset = slideHasAsset(raw, flat, raw?.visual || flat.visual);
+      const assetKey = optionalText(flat.assetKey) || optionalText(raw?.assetKey) || optionalText(raw?.visual?.assetKey);
       const visual = layoutVisualOf(
         raw?.visual && typeof raw.visual === 'object' ? raw.visual : (flat.visual || {}),
-        slideHasAsset(raw, flat, raw?.visual || flat.visual),
+        hasAsset,
+        assetKey,
+        hasAsset ? photographHintOf(assetKey, dayBrief) : null,
       );
       return {
         index,
@@ -1002,6 +1063,14 @@ function layoutInputOf(post, structure) {
           stat: optionalText(flat.stat),
           quote: optionalText(flat.quote),
           action: optionalText(flat.action),
+          annotation: flat.annotation && optionalText(flat.annotation.text)
+            ? {
+              text: optionalText(flat.annotation.text),
+              targetSubject: optionalText(flat.annotation.targetSubject),
+              targetRegion: optionalText(flat.annotation.targetRegion) || 'center',
+              ...(flat.annotation.targetBox ? { targetBox: flat.annotation.targetBox } : {}),
+            }
+            : null,
         },
         copyMetrics: copyMetricsOf(flat),
         compositionNote: compositionNoteOf(flat, visual),
@@ -1028,6 +1097,11 @@ function validateLayout(parsed, post) {
   parsed.slides = parsed.slides.map((s, i) => {
     const html = extractLayoutHtml(s?.html || s?.layoutHtml || '');
     if (!html) throw new Error(`slide ${s?.index || i + 1} missing layout html`);
+    const raw = Array.isArray(post?.content?.slides) ? (post.content.slides[i] || {}) : {};
+    const flat = flattenSlide(raw);
+    if (slideHasAsset(raw, flat, raw?.visual || flat.visual) && !hasImageSlot(html)) {
+      throw new Error(`slide ${s?.index || i + 1} missing img[data-slot=image] for assigned photograph`);
+    }
     const hierarchy = s?.visualHierarchy && typeof s.visualHierarchy === 'object' ? s.visualHierarchy : {};
     return {
       index: Number(s?.index) > 0 ? Number(s.index) : i + 1,
@@ -1064,10 +1138,10 @@ function applyLayoutToContent(content, layoutParsed) {
   return content;
 }
 
-async function writeLayout({ source, structure, post }) {
+async function writeLayout({ source, structure, post, dayBrief }) {
   const assembled = assembleAgentPrompt('plan-layout.md', {
     STRUCTURE_JSON: json(layoutStructureOf(structure)),
-    POST_JSON: json(layoutInputOf(post, structure)),
+    POST_JSON: json(layoutInputOf(post, structure, dayBrief)),
   });
   return callAgent({
     source,
@@ -1083,13 +1157,19 @@ function runLayoutForPost(opts) {
   return writeLayout(opts);
 }
 
-async function attachLayout({ label, structure, writer, collect }) {
+async function attachLayout({ label, structure, writer, collect, dayBrief, dayAssets }) {
   if (!layoutAgentEnabled() || !writer || writerFailed(writer.parsed)) return null;
   try {
+    const parsed = writer.parsed || {};
+    const post = {
+      ...parsed,
+      content: dayBrief ? normalizeWriterPost(parsed, dayBrief, dayAssets) : parsed.content,
+    };
     const layout = await writeLayout({
       source: `Layout:${label}`,
       structure,
-      post: writer.parsed,
+      post,
+      dayBrief,
     });
     collect(layout);
     const htmlCount = (layout.parsed?.slides || []).filter((s) => s.html).length;
@@ -1340,6 +1420,7 @@ async function runMultiAgentPlan({
         structure = await writeContentStructure({
           source: `Structure:${label}`,
           brief,
+          dayAssets,
         });
         collect(structure);
       } catch (err) {
@@ -1389,6 +1470,8 @@ async function runMultiAgentPlan({
           label,
           structure: structure.parsed,
           writer: finalWriter,
+          dayBrief: brief,
+          dayAssets,
           collect,
         });
         return {
@@ -1400,6 +1483,7 @@ async function runMultiAgentPlan({
           debugEntries,
           runUsages,
           structure: structure.parsed,
+          dayAssets,
         };
       };
 
@@ -1501,7 +1585,7 @@ async function runMultiAgentPlan({
 
   const rawDays = dayResults
     .sort((a, b) => a.index - b.index)
-    .map(({ dayBrief, result, skipped, structure, layout }) => {
+    .map(({ dayBrief, result, skipped, structure, layout, dayAssets }) => {
       if (!result) {
         console.warn(`[planOrchestrator] @${username}: dropped ${dayBrief.date || dayBrief.day} (${skipped})`);
         return null;
@@ -1516,7 +1600,7 @@ async function runMultiAgentPlan({
         );
         return null;
       }
-      const content = applyLayoutToContent(normalizeWriterPost(parsed, dayBrief), layout);
+      const content = applyLayoutToContent(normalizeWriterPost(parsed, dayBrief, dayAssets), layout);
       const slides = content.slides;
       const bound = slides.flatMap((s) => [
         s.assetKey,
@@ -1583,6 +1667,7 @@ async function runMultiAgentPlan({
       agents: debugAgents.map((a) => ({
         source: a.source,
         model: a.model,
+        provider: a.provider || '',
         prompt: a.prompt,
         output: a.output || '',
       })),

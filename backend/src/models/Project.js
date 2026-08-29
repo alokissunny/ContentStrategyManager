@@ -12,7 +12,7 @@ const analysisSchema = new mongoose.Schema(
     tags: { type: [String], default: [] }, // keywords for search / planning
     colors: { type: [String], default: [] }, // dominant colours (names or hex)
     mood: { type: String, default: '' }, // overall feeling / tone
-    subjects: { type: [String], default: [] }, // main objects / people / scene
+    subjects: { type: [mongoose.Schema.Types.Mixed], default: [] }, // { name, box:{x,y,w,h} } or legacy string
     text: { type: String, default: '' }, // any legible text in the image
     model: { type: String, default: '' }, // which model produced this
     inputTokens: { type: Number, default: 0 }, // vision-request input tokens (image + prompt)

@@ -15,7 +15,7 @@ import YourAnalysisModal from '../components/YourAnalysisModal';
 import ConnectMetaModal from '../components/ConnectMetaModal';
 import { markDayPublished, updateDayContent, replanWeek, scheduleDay, setDayTime, runDayLayout } from '../api/routes';
 import { getMetaStatus, publishDayToMeta } from '../api/meta';
-import { mediaProxyUrl, toDisplayUrl, isProxyUrl, rememberCdnBase, onCdnBase, getCdnBase, canvasSafeUrl, isProjectMediaKey } from '../api/media';
+import { mediaProxyUrl, toDisplayUrl, isProxyUrl, rememberCdnBase, onCdnBase, getCdnBase, canvasSafeUrl, isProjectMediaKey, splitMediaKeys } from '../api/media';
 import { createImage, listGeneratedImages } from '../api/images';
 import { useProjects, uploadFiles } from '../lib/projectsStore';
 import { toSvg } from 'html-to-image';
@@ -32,7 +32,9 @@ import RoleField from './weekview/RoleField';
 import WordsPolish from './weekview/WordsPolish';
 import CaptionPolish from './weekview/CaptionPolish';
 import PostAgentDebug from './weekview/PostAgentDebug';
-import DynamicLayout from './weekview/DynamicLayout';
+import DynamicLayout, { AnnotationOverlay } from './weekview/DynamicLayout';
+import { rewriteAnnotationText } from './weekview/layoutHtml';
+import { boxOf, normalizeSubjects } from './weekview/subjectBox';
 import { useAiDebug } from '../lib/aiDebug';
 import { useBodyScrollLock } from './visualbrand/useBodyScrollLock';
 import useMediaQuery from '../hooks/useMediaQuery';
@@ -676,7 +678,7 @@ function imageKeywords(analysis, note) {
   return [
     a?.summary,
     a?.description,
-    ...(a?.subjects || []),
+    ...(normalizeSubjects(a?.subjects).map((s) => s.name)),
     ...(a?.tags || []),
     a?.mood,
     a?.text,
@@ -701,6 +703,7 @@ function collectProjectImages(projects) {
             note: e.text || '',
             analyzed: a.analysis?.status === 'done',
             keywords: imageKeywords(a.analysis, e.text),
+            subjects: normalizeSubjects(a.analysis?.status === 'done' ? a.analysis.subjects : []),
           });
         }
       }
@@ -787,6 +790,14 @@ function slideRecord(s, extra = {}) {
     assetKeys: Array.isArray(s.assetKeys) ? s.assetKeys.map((k) => k || '') : [],
     layout: s.layout || '',
     layoutHtml: s.layoutHtml || '',
+    annotation: s.annotation && typeof s.annotation === 'object'
+      ? {
+        text: s.annotation.text || '',
+        targetSubject: s.annotation.targetSubject || '',
+        targetRegion: s.annotation.targetRegion || '',
+        ...(boxOf(s.annotation.targetBox) ? { targetBox: boxOf(s.annotation.targetBox) } : {}),
+      }
+      : (typeof s.annotation === 'string' ? { text: s.annotation, targetSubject: '', targetRegion: '' } : null),
     visualNeed: visualNeedRecord(s),
     ...extra,
   };
@@ -809,12 +820,19 @@ function fillFromWriter(slide, raw) {
   const titleEl = elementOfTypes(els, ['title', 'short_statement', 'question']);
   const subEl = elementOfTypes(els, ['subtitle', 'supporting_text', 'caption_label']);
   const bodyEl = elementOfTypes(els, ['body']);
+  const annEl = elementOfTypes(els, ['annotation']);
   const cmpEl = elementOfTypes(els, ['comparison', 'pros_cons', 'do_dont', 'problem_solution', 'cause_effect']);
   const diagramEl = elementOfTypes(els, ['diagram', 'graphic_artwork', 'list', 'numbered_items']);
   const visual = raw.visual && typeof raw.visual === 'object' ? raw.visual : {};
   const items = Array.isArray(slide.items) && slide.items.length
     ? slide.items
     : (diagramEl?.text ? [String(diagramEl.text).trim()] : []);
+  const annotationText = String(
+    slide.annotation?.text
+    || annEl?.text
+    || (typeof raw.annotation === 'string' ? raw.annotation : raw.annotation?.text)
+    || '',
+  ).trim();
   return {
     ...slide,
     title: slide.title || titleEl?.text || '',
@@ -825,6 +843,20 @@ function fillFromWriter(slide, raw) {
     items,
     visual: slide.visual || visual,
     visualNeed: slide.visualNeed || visualNeedRecord({ visual, visualNeed: raw.visualNeed }),
+    annotation: annotationText
+      ? {
+        text: annotationText,
+        targetSubject: String(
+          slide.annotation?.targetSubject || annEl?.targetSubject || raw.annotation?.targetSubject || '',
+        ).trim(),
+        targetRegion: String(
+          slide.annotation?.targetRegion || annEl?.targetRegion || raw.annotation?.targetRegion || '',
+        ).trim(),
+        ...((boxOf(slide.annotation?.targetBox) || boxOf(annEl?.targetBox) || boxOf(raw.annotation?.targetBox))
+          ? { targetBox: boxOf(slide.annotation?.targetBox) || boxOf(annEl?.targetBox) || boxOf(raw.annotation?.targetBox) }
+          : {}),
+      }
+      : null,
   };
 }
 
@@ -864,8 +896,18 @@ function deriveSlides(day) {
 // that key in the shared `used` set, so a later standing-in fill (this day or
 // another day of the week) never grabs a photo that a real post owns.
 function keysOf(slide) {
-  if (Array.isArray(slide?.assetKeys) && slide.assetKeys.length) return slide.assetKeys;
-  return slide?.assetKey ? [slide.assetKey] : [];
+  const listed = splitMediaKeys(slide?.assetKeys);
+  if (listed.length) return listed;
+  return splitMediaKeys(slide?.assetKey);
+}
+
+function subjectsForSlide(slide, subjectsByKey) {
+  if (!subjectsByKey) return [];
+  for (const key of keysOf(slide)) {
+    const list = subjectsByKey.get(key);
+    if (list?.length) return list;
+  }
+  return [];
 }
 
 function urlForKey(key, slide, localMedia, mediaByKey, preferProxy = false) {
@@ -947,7 +989,35 @@ function dayAssetStatus(slides, published) {
 // but a paragraph would still shrink past readable, so the input is capped. 180
 // characters is a headline and a supporting line, not an essay.
 const MAX_SLIDE_TEXT = 180;
+const MAX_ANNOTE_TEXT = 48;
+const ANNOTE_ROLE = {
+  key: 'annotation',
+  label: 'Annotation',
+  slot: 'annotation',
+  hint: 'The handwritten callout on the photograph.',
+};
 const capText = (t) => String(t || '').slice(0, MAX_SLIDE_TEXT);
+const capAnnote = (t) => String(t || '').trim().slice(0, MAX_ANNOTE_TEXT);
+
+function annotationTextOf(slide) {
+  const a = slide?.annotation;
+  if (!a) return '';
+  return String(typeof a === 'string' ? a : a.text || '').trim();
+}
+
+function slideHasPhoto(slide) {
+  return Boolean(
+    String(slide?.assetKey || '').trim()
+    || (Array.isArray(slide?.assetKeys) && slide.assetKeys.some((k) => String(k || '').trim()))
+    || String(slide?.image?.key || slide?.image?.url || '').trim(),
+  );
+}
+
+function wordRolesForSlide(slide) {
+  const roles = [...textRolesOf(BEST_FIT_LAYOUT)];
+  if (slideHasPhoto(slide) || annotationTextOf(slide)) roles.push(ANNOTE_ROLE);
+  return roles;
+}
 
 function faceLabelFor(slotId, store) {
   const slot = TYPE_SLOTS.find((x) => x.id === slotId) || TYPE_SLOTS[0];
@@ -1137,6 +1207,9 @@ function seedWordDraft(layout, slide, contentType) {
       out[r.key] = art[r.key] || '';
     }
   });
+  if (slideHasPhoto(slide) || annotationTextOf(slide)) {
+    out.annotation = annotationTextOf(slide);
+  }
   return out;
 }
 
@@ -1256,18 +1329,10 @@ function VisualNeedHint({ need }) {
 }
 
 function slideAllowsPhoto(slide) {
-  const v = (slide?.visualNeed && typeof slide.visualNeed === 'object')
-    ? slide.visualNeed
-    : (slide?.visual && typeof slide.visual === 'object' ? slide.visual : {});
-  const priority = String(v.priority || '').toLowerCase();
-  const type = String(v.type || '').toLowerCase();
-  const execution = String(v.execution || '').toLowerCase();
-  if (priority === 'none') return false;
-  if (/text-led|text-only/.test(execution)) return false;
-  if (/graphic_artwork|diagram|illustration|animation/.test(type) && !/supplied/.test(execution)) {
-    return false;
-  }
-  return Boolean(slide?.assetKey || (Array.isArray(slide?.assetKeys) && slide.assetKeys.some(Boolean)));
+  if (String(slide?.assetKey || '').trim()) return true;
+  if (Array.isArray(slide?.assetKeys) && slide.assetKeys.some((k) => String(k || '').trim())) return true;
+  if (String(slide?.image?.key || slide?.image?.url || '').trim()) return true;
+  return false;
 }
 
 function slideCopy(slide, parts) {
@@ -1288,10 +1353,18 @@ function slideCopy(slide, parts) {
     stat: String(slide?.stat || '').trim(),
     quote: String(slide?.quote || '').trim() && String(slide?.quote || '').trim() !== title
       ? String(slide.quote).trim() : '',
+    annotation: parts?.annotation != null
+      ? {
+        text: capAnnote(plainOf(parts.annotation)),
+        targetSubject: slide?.annotation?.targetSubject || '',
+        targetRegion: slide?.annotation?.targetRegion || 'center',
+        ...(boxOf(slide?.annotation?.targetBox) ? { targetBox: boxOf(slide.annotation.targetBox) } : {}),
+      }
+      : (slide?.annotation || null),
   };
 }
 
-function SlideBestFit({ slide, localMedia, mediaByKey, preferProxy = false, parts, showVisualHint = false }) {
+function SlideBestFit({ slide, localMedia, mediaByKey, preferProxy = false, parts, showVisualHint = false, subjects }) {
   const copy = slideCopy(slide, parts);
   const key = slideAllowsPhoto(slide) ? (slide?.assetKey || slide?.image?.key) : '';
   const src = key
@@ -1304,6 +1377,7 @@ function SlideBestFit({ slide, localMedia, mediaByKey, preferProxy = false, part
     <div className={`wv-fit${src ? ' has-photo' : ''}${showHint ? ' is-needvisual' : ''}`}>
       <div className="wv-fit__slot">
         {src ? <img className="wv-fit__photo" src={src} alt="" /> : null}
+        {src && copy.annotation ? <AnnotationOverlay annotation={copy.annotation} subjects={subjects} /> : null}
       </div>
       <div className="wv-fit__copy">
         {copy.stat ? <p className="wv-fit__stat">{copy.stat}</p> : null}
@@ -1329,24 +1403,29 @@ function SlideBestFit({ slide, localMedia, mediaByKey, preferProxy = false, part
   );
 }
 
-function SlideMedia({ slide, localMedia, parts, mediaByKey, preferProxy = false, showVisualHint = false }) {
+function SlideMedia({ slide, localMedia, parts, mediaByKey, preferProxy = false, showVisualHint = false, subjectsByKey }) {
   const copy = slideCopy(slide, parts);
   const need = showVisualHint ? visualNeedRecord(slide) : null;
   const allowPhoto = slideAllowsPhoto(slide);
   const urls = allowPhoto
-    ? keysOf(slide).map((k) => urlForKey(k, slide, localMedia, mediaByKey, preferProxy))
+    ? keysOf(slide).map((k) => urlForKey(k, slide, localMedia, mediaByKey, preferProxy)).filter(Boolean)
     : [];
   if (allowPhoto && !urls[0]) {
-    const lead = photoUrl(slide, localMedia, mediaByKey);
+    const lead = photoUrl(slide, localMedia, mediaByKey)
+      || slide?.image?.url
+      || slide?.image?.thumb
+      || '';
     if (lead) urls[0] = lead;
   }
   const src = urls[0] || null;
   const showHint = Boolean(need) && !src;
+  const subjects = subjectsForSlide(slide, subjectsByKey);
   if (slide?.layoutHtml) {
     return (
       <div className={`wv-ig__lay${showHint ? ' is-needvisual' : ''}`}>
         <DynamicLayout
           html={slide.layoutHtml}
+          subjects={subjects}
           copy={{
             title: copy.title,
             subtitle: copy.sub,
@@ -1357,6 +1436,7 @@ function SlideMedia({ slide, localMedia, parts, mediaByKey, preferProxy = false,
             stat: copy.stat,
             quote: copy.quote,
             action: String(slide?.action || '').trim(),
+            annotation: copy.annotation || slide?.annotation || null,
           }}
           imageUrls={urls}
         />
@@ -1373,6 +1453,7 @@ function SlideMedia({ slide, localMedia, parts, mediaByKey, preferProxy = false,
         preferProxy={preferProxy}
         parts={parts}
         showVisualHint={showVisualHint}
+        subjects={subjects}
       />
     </div>
   );
@@ -1785,6 +1866,14 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
     });
     return map;
   }, [allImages, localMedia, cdnBase]);
+  const subjectsByKey = useMemo(() => {
+    const map = new Map();
+    allImages.forEach((img) => {
+      if (!img?.key || !img.subjects?.length) return;
+      map.set(img.key, img.subjects);
+    });
+    return map;
+  }, [allImages]);
   // Uploads land in `localMedia` before the project list refreshes, so the
   // Select images sheet can show them in the same visit.
   const imagePool = useMemo(() => {
@@ -2509,7 +2598,7 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
   const chosenLayoutIdx = Math.max(0, slideLayouts.findIndex((l) => l.id === draftId));
   const layoutCatLabel = (CATEGORIES.find((c) => c.id === layoutBrowseCat) || {}).label || '';
   const layoutUnchanged = Boolean(draftId) && draftId === appliedId;
-  const wordRoles = visEdit === 'words' ? textRolesOf(BEST_FIT_LAYOUT) : [];
+  const wordRoles = visEdit === 'words' ? wordRolesForSlide(activeSlide) : [];
   const primaryWordKey = wordRoles.find((r) => r.key === 'head')?.key
     || wordRoles.find((r) => r.key === 'body')?.key
     || wordRoles[0]?.key;
@@ -2536,13 +2625,28 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
   }, [day?.content?.caption, slides, safeIdx]);
 
   function applyWords() {
-    const roles = textRolesOf(BEST_FIT_LAYOUT);
+    const roles = wordRolesForSlide(activeSlide);
     const hasHead = roles.some((r) => r.key === 'head');
     const hasBody = roles.some((r) => r.key === 'body');
     const primary = hasHead ? 'head' : (hasBody ? 'body' : roles[0]?.key);
     const title = capText(plainOf(wordDraft?.[primary] || ''));
     const patch = { title };
     if (hasHead && hasBody) patch.subtitle = capText(plainOf(wordDraft?.body || ''));
+    if (roles.some((r) => r.key === 'annotation')) {
+      const prev = activeSlide?.annotation && typeof activeSlide.annotation === 'object'
+        ? activeSlide.annotation
+        : {};
+      const text = capAnnote(plainOf(wordDraft?.annotation || ''));
+      patch.annotation = {
+        text,
+        targetSubject: prev.targetSubject || '',
+        targetRegion: prev.targetRegion || 'center',
+        ...(boxOf(prev.targetBox) ? { targetBox: boxOf(prev.targetBox) } : {}),
+      };
+      if (activeSlide?.layoutHtml) {
+        patch.layoutHtml = rewriteAnnotationText(activeSlide.layoutHtml, text);
+      }
+    }
     patchActiveSlide(patch);
     setVisEdit(null);
     setZone(null);
@@ -3157,6 +3261,7 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
                   slide={activeSlide}
                   localMedia={localMedia}
                   mediaByKey={mediaByKey}
+                  subjectsByKey={subjectsByKey}
                   parts={visEdit === 'words' ? wordDraft : null}
                   showVisualHint
                 />
@@ -3304,7 +3409,7 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
                         <RoleField
                           key={`${chosenLayout?.id}-${r.key}`}
                           role={r}
-                          faceName={faceLabelFor(r.slot, vbStore)}
+                          faceName={r.key === 'annotation' ? 'Instrument Serif' : faceLabelFor(r.slot, vbStore)}
                           value={wordDraft[r.key] || ''}
                           autoFocus={n === 0}
                           onChange={(next) => setWordDraft((d) => ({ ...(d || {}), [r.key]: next }))}
@@ -3692,6 +3797,7 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
                   slide={s}
                   localMedia={localMedia}
                   mediaByKey={mediaByKey}
+                  subjectsByKey={subjectsByKey}
                   preferProxy
                 />
               </div>

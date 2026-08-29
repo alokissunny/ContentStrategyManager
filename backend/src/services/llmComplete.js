@@ -1,47 +1,14 @@
 const getAnthropicClient = require('./anthropicClient');
 const getOpenAIClient = require('./openaiClient');
+const {
+  planTextModel,
+  providerOf,
+  isOpenAIModel,
+  resolvePlanAgentLlm,
+} = require('./planAgentLlm');
 
 function usesCompletionTokens(model) {
   return /gpt-5|terra|o3|o4/i.test(String(model || ''));
-}
-
-function isOpenAIModel(model) {
-  return /gpt|o1|o3|o4|terra/i.test(String(model || ''));
-}
-
-function planTextModel(kind) {
-  if (kind === 'day') {
-    return process.env.PLAN_DAY_MODEL
-      || process.env.PLAN_AGENT_MODEL
-      || process.env.OPENAI_MODEL
-      || process.env.COMPETITOR_MODEL
-      || 'gpt-5.6-terra';
-  }
-  if (kind === 'structure') {
-    return process.env.PLAN_STRUCTURE_MODEL
-      || process.env.PLAN_AGENT_MODEL
-      || process.env.OPENAI_MODEL
-      || process.env.COMPETITOR_MODEL
-      || 'gpt-5.6-terra';
-  }
-  if (kind === 'quality') {
-    return process.env.PLAN_QUALITY_MODEL
-      || process.env.PLAN_AGENT_MODEL
-      || process.env.OPENAI_MODEL
-      || process.env.COMPETITOR_MODEL
-      || 'gpt-5.6-terra';
-  }
-  if (kind === 'layout') {
-    return process.env.PLAN_LAYOUT_MODEL
-      || process.env.PLAN_AGENT_MODEL
-      || process.env.OPENAI_MODEL
-      || process.env.COMPETITOR_MODEL
-      || 'gpt-5.6-terra';
-  }
-  return process.env.PLAN_AGENT_MODEL
-    || process.env.OPENAI_MODEL
-    || process.env.COMPETITOR_MODEL
-    || 'gpt-5.6-terra';
 }
 
 function conversationModel() {
@@ -292,11 +259,12 @@ function cachedTokensOf(usage) {
 async function completeText({
   model, prompt, system, user, maxTokens, cacheKey, kind, reasoningEffort, verbosity,
 }) {
-  const resolved = model || planTextModel();
+  const resolved = model || planTextModel(kind);
   const userContent = (user != null && String(user).length) ? String(user) : String(prompt || '');
   const sys = String(system || '').trim();
+  const provider = providerOf(resolved);
 
-  if (isOpenAIModel(resolved)) {
+  if (provider === 'openai') {
     const messages = [];
     if (sys) messages.push({ role: 'system', content: sys });
     messages.push({ role: 'user', content: userContent });
@@ -319,6 +287,10 @@ async function completeText({
         cached_tokens: cachedTokensOf(usage),
       },
     };
+  }
+
+  if (provider !== 'anthropic') {
+    throw new Error(`Unknown LLM provider "${provider || 'none'}" for model ${resolved}`);
   }
 
   const createArgs = {
@@ -362,10 +334,11 @@ async function completeToolCall({
 }) {
   const resolved = model || conversationModel();
   const name = tool.name;
+  const provider = providerOf(resolved);
 
   // gpt-5.6-terra (and similar reasoning models) cannot use function tools on
   // /v1/chat/completions. Ask for the same schema as JSON instead.
-  if (isOpenAIModel(resolved)) {
+  if (provider === 'openai') {
     const run = (tokens, extra) => completeOpenAIJson({
       model: resolved,
       system,
@@ -389,6 +362,10 @@ async function completeToolCall({
       if (!retryHint) throw err;
       return run(maxTokens, retryHint);
     }
+  }
+
+  if (provider !== 'anthropic') {
+    throw new Error(`Unknown LLM provider "${provider || 'none'}" for model ${resolved}`);
   }
 
   const client = getAnthropicClient();
@@ -443,6 +420,8 @@ module.exports = {
   conversationModel,
   hasConversationModel,
   planTextModel,
+  resolvePlanAgentLlm,
+  providerOf,
   splitPromptTemplate,
   isOpenAIModel,
   usesCompletionTokens,

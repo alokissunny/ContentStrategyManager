@@ -62,6 +62,9 @@ const daySchema = new mongoose.Schema(
             // Dynamic HTML composition from the Layout Agent. Empty = Week View
             // uses the default stacked preview.
             layoutHtml: { type: String, default: '' },
+            // On-photo callout (handwritten label + arrow) when Structure
+            // locked Annotation on a photograph with a relevant subject.
+            annotation: { type: mongoose.Schema.Types.Mixed, default: null },
             // Day Writer / Structure visual recommendation — shown in the
             // studio as an empty image placeholder plus an info hint when no
             // photograph is assigned yet.

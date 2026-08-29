@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
-const { flattenSlide, layoutForStructure, asStoredText, asStoredLines } = require('./slideContent');
+const { flattenSlide, layoutForStructure, asStoredText, asStoredLines, mediaKeysOf } = require('./slideContent');
+const { boxOf } = require('./subjectBox');
 const { computeAuthorityFunnel } = require('./authorityFunnel');
 const { sessionRowsOf } = require('./planContext');
 const { completeText, planTextModel, splitPromptTemplate } = require('./llmComplete');
@@ -555,10 +556,12 @@ function normalizeSlides(rawSlides, onScreenText, format, title, cta, validKeys 
     ? rawSlides.map((s) => {
       const flat = flattenSlide(s);
       const layout = flat.layout || (flat.layoutHtml ? 'dynamic' : layoutForStructure(flat));
+      const keys = mediaKeysOf(flat.assetKeys, flat.assetKey).map(keepKey).filter(Boolean);
       return {
         ...flat,
         layout,
-        assetKey: keepKey(flat.assetKey),
+        assetKey: keys[0] || '',
+        assetKeys: keys,
       };
     }).filter((s) => s.title || s.role || s.items.length || s.comparisonA || s.stat || s.quote)
     : [];
@@ -592,11 +595,9 @@ function normalizeSlides(rawSlides, onScreenText, format, title, cta, validKeys 
   // that's already been claimed is blanked so its slide falls back to no photo.
   const seen = usedKeys || new Set();
   return slides.map((s, i) => {
-    let assetKey = s.assetKey || '';
-    if (assetKey) {
-      if (seen.has(assetKey)) assetKey = '';
-      else seen.add(assetKey);
-    }
+    const keys = mediaKeysOf(s.assetKeys, s.assetKey).filter((k) => k && !seen.has(k));
+    keys.forEach((k) => seen.add(k));
+    const assetKey = keys[0] || '';
     const role = s.role || roles[Math.min(i, roles.length - 1)];
     const withRole = { ...s, role };
     const layout = String(s.layout || '').trim()
@@ -626,9 +627,17 @@ function normalizeSlides(rawSlides, onScreenText, format, title, cta, validKeys 
       image: s.image || '',
       imagePrompt: s.imagePrompt || (s.image === 'placeholder' ? buildBaseImagePrompt({ ...s, role }, ctx) : ''),
       assetKey,
-      assetKeys: Array.isArray(s.assetKeys) ? s.assetKeys : (assetKey ? [assetKey] : []),
+      assetKeys: keys,
       layout,
       layoutHtml: s.layoutHtml || '',
+      annotation: s.annotation && s.annotation.text
+        ? {
+          text: String(s.annotation.text || '').trim(),
+          targetSubject: String(s.annotation.targetSubject || '').trim(),
+          targetRegion: String(s.annotation.targetRegion || '').trim() || 'center',
+          ...(boxOf(s.annotation.targetBox) ? { targetBox: boxOf(s.annotation.targetBox) } : {}),
+        }
+        : null,
       visualNeed: s.visualNeed || null,
     };
   });
