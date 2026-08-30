@@ -623,20 +623,23 @@ function bindAllocatedAssets(slides, dayBrief) {
 
 function attachAnnotationBox(annotation, slide, dayAssets) {
   if (!annotation || !optionalText(annotation.text)) return annotation || null;
-  const existing = boxOf(annotation.targetBox);
-  if (existing) return { ...annotation, targetBox: existing };
   const keys = mediaKeysOf(slide?.assetKey, slide?.visual?.assetKey, slide?.assetKeys, slide?.visual?.assetKeys);
   const assets = Array.isArray(dayAssets) ? dayAssets : [];
   const asset = assets.find((a) => keys.includes(a.key))
     || assets.find((a) => a.preferred)
     || assets[0];
-  const hit = matchSubject(asset?.subjects, annotation.targetSubject || annotation.text);
-  if (!hit?.box) return annotation;
+  const query = annotation.targetSubject || annotation.text;
+  const hit = matchSubject(asset?.subjects, query);
+  const existing = boxOf(annotation.targetBox);
+  const preferHit = hit?.box && (!existing || (hit.box.w * hit.box.h) < (existing.w * existing.h) * 0.7);
+  const box = preferHit ? hit.box : existing;
+  if (!box) return annotation;
   const region = optionalText(annotation.targetRegion).toLowerCase();
   return {
     ...annotation,
-    targetBox: hit.box,
-    targetRegion: (region && region !== 'center') ? region : (regionFromBox(hit.box) || region || 'center'),
+    targetBox: box,
+    ...(hit?.point ? { targetPoint: hit.point } : {}),
+    targetRegion: (region && region !== 'center') ? region : (regionFromBox(box) || region || 'center'),
   };
 }
 

@@ -396,7 +396,7 @@
 .ph__groupbox .ph-row:disabled:hover { background: transparent; }
 .ph-row:disabled .ph-row__mark--date { opacity: 0.72; }
 
-/* ── live-only: month LLM usage, read under the month heading ── */
+/* ── live-only: month fill status under the month heading ── */
 .ph__usage {
   display: flex;
   flex-wrap: wrap;
@@ -408,7 +408,6 @@
   color: var(--ink-500);
 }
 .ph__usage--filling { color: var(--ink-600); font-weight: 600; }
-.ph__usage-live { color: var(--signal-600, var(--ink-600)); font-weight: 600; }
 
 /* ── live-only: replan / clear the current month, inline on the month heading ── */
 .ph__monthacts {

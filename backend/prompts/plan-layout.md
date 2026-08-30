@@ -119,13 +119,24 @@ Never put `#1a1916` / black type on the photograph. Never cover more than ~40% o
 - Body: `clamp(14px, 3.4cqi, 28px)`
 - Do not inflate type to fill empty space. Whitespace is composition.
 
+**Composition quality — this is an Instagram feed post, not a slide in a deck.** The single most common failure is a strong headline or list stranded in one corner with a large empty void everywhere else. Do not ship that.
+
+- **Safe margins.** Every element stays within an **8% inset on all four edges**. The bottom is strictest: the feed UI (caption, icons, “more”) crowds the lower ~12%, so never put a title, list, comparison row, stat, quote, or rule flush to the bottom — leave at least 8% clear beneath the last block. Nothing touches an edge.
+- **Balance the frame.** The 4:5 rectangle must read as one composed image. Never cluster all the copy in one corner or along one edge with a big empty void elsewhere — a headline in the upper-left over an empty lower two-thirds is a **failed layout**. Choose one and commit: fill the frame with a balanced arrangement, or anchor a single content block and give it even side margins with deliberate, evenly-weighted whitespace. Whitespace is a shape you place on purpose, never a lopsided gap left over.
+- **Use the vertical.** On a text-led or list slide, center the content block in the frame (or seat it in a clear lower third) with balanced margins above and below — do not top-align it and abandon the bottom half. Space stacked blocks with one consistent rhythm.
+- **One focal point.** The eye lands in one place first (the photo, the number, the headline), then reads the rest. Do not give two blocks equal loud weight.
+- **One alignment edge.** Pick the 8% left margin and align every text block to it. Ragged, differently-indented blocks read as broken.
+
 **Forbidden** (this is a failed layout):
 
+- Content clustered in one corner or along one edge with a large empty void elsewhere — a lopsided, half-empty frame
+- Any element within 8% of an edge, and anything flush to the bottom (the feed UI sits there)
+- A text-led or list slide top-aligned with the lower half abandoned
 - Dark headline over a busy interior
 - One font-size that fills two-thirds of the frame
 - Type with padding under 5%
 - Photograph used only as wallpaper behind a poster
-- Black or near-black panels anywhere in the slide (`#000`, `#111`, `#1a1916`) — including comparison sides, spacers, and empty image cells. Text-led ground is `#f4f1ec`. Empty image slots are `#ddd8ce`, never a black void. Do not output a second `<img>` unless `visual` has more than one assigned photograph. One photo means one `img`. Comparison slots are type on cream, never a filled black rectangle.
+- Black or near-black panels anywhere in the slide (`#000`, `#111`, `#1a1916`) — including comparison sides, spacers, and empty image cells. Text-led ground is `#f4f1ec`. Empty image slots are `#ddd8ce`, never a black void. Do not output a second `<img>` unless `visual` has more than one assigned photograph. One photo means one `img`. Comparison slots are **ink `#1a1916` on cream `#f4f1ec`**. Never white type on a white or cream chip. Never a filled black rectangle.
 - Decorative geometry standing in for content: skewed or rotated rectangles, parallelograms, overlapping dummy cards, fake photo stacks, wireframe boxes, black strokes on empty panels
 - `transform: skew`, `rotate`, `perspective`, or 3D transforms on any content block
 - Inventing shapes, bars, or panels that are not a photograph slot or a type container
@@ -147,6 +158,54 @@ Hook + long question + photo — use this pattern (adapt copy, keep the structur
   <img data-slot="image" alt="">
   <div class="scrim" aria-hidden="true"></div>
   <h1 data-slot="title">Exact title</h1>
+</article>
+```
+
+**Never drop, shorten, hide, or clip a Day Writer element to make it fit.** Every filled element on the slide appears in full. You do not decide a slide is "too full" and omit the subtitle, the comparison, or an item — you compose a layout that holds all of it. Overlapping two blocks to save room, or letting one run under another, is a **failed layout**, not a way to fit more.
+
+Dense slide (photo + title + subtitle + comparison, or photo + copy + items) — do **not** stack these absolutely over the photo. A slide with a comparison, items, or a body paragraph *plus* a photo is a **reading layout**, not a bottom-band poster: give the photo a real slot at the top (or one side) and let the copy flow in its own space below (or beside) it, each block clear of the next. Use this pattern (adapt copy, keep the structure):
+
+```html
+<style>
+.slide{width:100%;height:100%;display:flex;flex-direction:column;overflow:hidden;container-type:size;background:#f4f1ec}
+.slide img{width:100%;flex:0 0 auto;max-height:50%;object-fit:cover;background:#ddd8ce}
+.slide .copy{padding:6% 7% 0}
+.slide h1{margin:0;color:#1a1916;font:650 clamp(17px,5.4cqi,44px)/1.15 ui-sans-serif,system-ui,sans-serif;text-wrap:balance}
+.slide .sub{margin:.5em 0 0;color:#5c5850;font:clamp(14px,3.4cqi,24px)/1.35 ui-sans-serif,system-ui,sans-serif}
+.slide .flow{display:flex;align-items:stretch;gap:4%;margin-top:auto;padding:5% 7% 7%}
+.slide .step{flex:1;min-width:0;color:#1a1916;font:clamp(12px,3cqi,20px)/1.3 ui-sans-serif,system-ui,sans-serif}
+</style>
+<article class="slide">
+  <img data-slot="image" alt="">
+  <div class="copy">
+    <h1 data-slot="title">Exact title</h1>
+    <p class="sub" data-slot="subtitle">Exact subtitle</p>
+  </div>
+  <div class="flow">
+    <div class="step" data-slot="comparisonA">Exact side A</div>
+    <span aria-hidden="true">→</span>
+    <div class="step" data-slot="comparisonB">Exact side B</div>
+  </div>
+</article>
+```
+
+List / enumeration slide (`items`) — compose it as an editorial list that **owns the frame**, vertically centred with even margins, never a cluster in the upper corner. Title at the top of the block, items spaced evenly down the frame with generous leading and a thin divider between them, all on one left margin. Use this pattern (adapt copy, keep the structure):
+
+```html
+<style>
+.slide{width:100%;height:100%;display:flex;flex-direction:column;justify-content:center;overflow:hidden;container-type:size;background:#f4f1ec;padding:9% 8%}
+.slide h1{margin:0 0 6%;color:#1a1916;font:650 clamp(20px,6.4cqi,52px)/1.1 ui-sans-serif,system-ui,sans-serif;text-wrap:balance}
+.slide ul{margin:0;padding:0;list-style:none;display:flex;flex-direction:column}
+.slide li{padding:4.5% 0;color:#1a1916;font:clamp(15px,4cqi,30px)/1.25 ui-sans-serif,system-ui,sans-serif;border-top:1px solid rgba(26,25,22,.16)}
+.slide li:first-child{border-top:0;padding-top:0}
+</style>
+<article class="slide">
+  <h1 data-slot="title">Exact title</h1>
+  <ul data-slot="items">
+    <li>Exact item one</li>
+    <li>Exact item two</li>
+    <li>Exact item three</li>
+  </ul>
 </article>
 ```
 
@@ -182,7 +241,7 @@ Use only the slots that this slide actually has. Put the Day Writer copy inside 
 
 ### On-photo Annotation
 
-When `filled.annotation.text` is present and `visual.hasAsset` is true, draw the callout **on the photograph**, not in the type band.
+When `filled.annotation.text` is present and `visual.hasAsset` is true, draw the callout **on the photograph**, not in the type band. If there is no photograph, omit `[data-slot="annotation"]` entirely — a white handwritten label on a cream or gray graphic is invisible.
 
 Look: a short handwritten label and a thin curved arrow, like a marker on a print. No box, pill, border, chip, or scrim behind the label. White / `#f7f4ef` only. Never dark ink on the photo.
 

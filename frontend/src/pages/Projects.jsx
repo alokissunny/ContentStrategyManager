@@ -132,7 +132,14 @@ function AssetAnalysis({ analysis, busy, onAnalyze, onClose }) {
               {a.subjects?.length > 0 && (
                 <div className="aa__row aa__row--col">
                   <span className="aa__label">Subjects</span>
-                  <Chips items={a.subjects.map((s) => (typeof s === 'string' ? s : s?.name)).filter(Boolean)} />
+                  <Chips items={a.subjects.map((s) => {
+                    if (typeof s === 'string') return s;
+                    const name = s?.name || '';
+                    const b = s?.box;
+                    if (!name) return '';
+                    if (!b || b.x == null || b.y == null) return name;
+                    return `${name}  ${b.x},${b.y}  ${b.w}×${b.h}`;
+                  }).filter(Boolean)} />
                 </div>
               )}
               {a.tags?.length > 0 && <div className="aa__row aa__row--col"><span className="aa__label">Tags</span><Chips items={a.tags} /></div>}

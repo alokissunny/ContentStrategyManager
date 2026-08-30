@@ -34,18 +34,28 @@ const SYSTEM_PROMPT = `You are a visual analyst for a design studio's content li
   "mood": "a few words on the overall feeling / tone",
   "subjects": [
     {
-      "name": "short name of one visible object, person, or scene element",
-      "box": { "x": 0, "y": 0, "w": 0, "h": 0 }
+      "name": "short name of one visible object or person — not an action",
+      "box": { "x": 0, "y": 0, "w": 0, "h": 0 },
+      "point": { "x": 0, "y": 0 }
     }
   ],
   "text": "any legible text in the image, verbatim, or empty string if none"
 }
 
-subjects: list the 3–8 most important things in the frame. Every subject MUST have a box.
+subjects: list the 3–8 most important things in the frame. Every subject MUST have a tight box and a point.
 
-box is the tight axis-aligned bounding box of THAT subject as percentages of the full image (0–100). Origin is the top-left corner. x,y is the top-left of the box. w,h are width and height. Point at the object itself — not a nearby door, wall, empty space, or the person holding it unless the subject is the person.
+box is the tight axis-aligned bounding box of THAT subject as percentages of the full image (0–100). Origin is the top-left corner. x,y is the top-left of the box. w,h are width and height.
 
-A specific object someone is installing or holding (pendant light, fitting, tool) is its own subject with its own box around that object.`;
+point is the exact spot an arrow should hit — the centre of the named thing.
+
+CRITICAL box rules:
+- HUG the named thing. Typical w and h are 6–18. A box covering more than ~25% of the image height is almost always too big.
+- Never wrap a person and the object they are handling in one subject. Split them: the person is one subject (body only); the object (pendant, fitting, tool) is another subject with a small box on that object only.
+- Name the object, not the action. Use "pendant light", not "pendant light being installed".
+- Do not include nearby doors, cabinets, empty space, or the installer in an object box.
+
+Bad: one tall box from ceiling to cabinets named "pendant being installed".
+Good: a small box on the gold cylinder (point on the fitting) plus a separate box on the person.`;
 
 // Models sometimes put a raw newline or tab *inside* a JSON string value (e.g. a
 // multi-line description), which JSON.parse rejects ("Bad control character in
@@ -145,7 +155,7 @@ async function analyzeImageAsset(key, { type } = {}) {
         role: 'user',
         content: [
           { type: 'image', source: { type: 'base64', media_type: mediaType, data: buffer.toString('base64') } },
-          { type: 'text', text: 'Analyse this image and respond with only the JSON object.' },
+          { type: 'text', text: 'Analyse this image. Keep every subject box tight on that one thing. Split people from objects they are installing or holding. Respond with only the JSON object.' },
         ],
       },
     ],

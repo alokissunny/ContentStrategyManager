@@ -255,6 +255,10 @@
   --t-ground-bg: #f4f2ee;
   --t-ground-fg: #1b100d;
   --t-accent-bg: var(--signal-500);
+  --t-headline-face: var(--font-display);
+  --t-body-face: var(--font-ui);
+  --t-detail-face: var(--font-ui);
+  --t-empty-bg: color-mix(in srgb, var(--t-ground-fg) 14%, var(--t-ground-bg));
 
   /* derived from the three above */
   --t-ground-mute: color-mix(in srgb, var(--t-ground-fg) 74%, transparent);

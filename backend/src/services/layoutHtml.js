@@ -24,7 +24,7 @@ function sanitizeLayoutCss(css) {
   s = s.replace(/background(?:-color)?\s*:\s*(?!none)([^;{}]*)/gi, (all, val) => {
     if (/gradient/i.test(val)) return all;
     if (/#(?:0{3,8}|111|1a1916)\b|\brgb\(\s*0\s*,\s*0\s*,\s*0\s*\)|\bblack\b/i.test(val)) {
-      return 'background:#f4f1ec';
+      return 'background:var(--t-ground-bg, #f4f1ec)';
     }
     return all;
   });

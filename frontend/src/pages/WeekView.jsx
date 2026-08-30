@@ -20,9 +20,9 @@ import { createImage, listGeneratedImages } from '../api/images';
 import { useProjects, uploadFiles } from '../lib/projectsStore';
 import { toSvg } from 'html-to-image';
 import { CaptureChat } from './Projects';
-import { styleOf, rolesOf, groundOf } from '../lib/visualbrand';
+import { styleOf, groundOf } from '../lib/visualbrand';
 import { LAYOUTS as LIB_LAYOUTS, CATEGORIES, catForRole, shotsOf, DEFAULT_LAYOUT_BY_CAT, layoutShowsAllCopy } from '../data/layouts';
-import { paintOf, identityOf, TYPE_SLOTS, FACES } from '../lib/identity';
+import { paintAll, identityOf, TYPE_SLOTS, FACES } from '../lib/identity';
 import { rolesOf as textRolesOf, plainOf, parseMarked, isListRole, listIndexOf } from '../lib/slidetext';
 import { Preview } from './visuallibrary/LayoutArt';
 import VisualLibrary from './visuallibrary/VisualLibrary';
@@ -436,27 +436,20 @@ function CreateImageChat({ role, projectName, words, subtitle, topic, contentTyp
   );
 }
 
-// "Bricolage Grotesque for headlines, Inter for body text." → "Bricolage Grotesque"
-function firstFont(fontsStr) {
-  const first = String(fontsStr || '').split(',')[0] || '';
-  return first.replace(/\s+for\s+.*$/i, '').trim();
-}
-
-// The palette / type the studio set on the Visual Brand page, as CSS variables
-// the post compositions read (accent, primary type, neutral ground, headline
-// face). Falls back to the product defaults when a brand hasn't been set.
+// Library Settings owns the three colours and the three faces. paintOf emits
+// the --t-* tokens DynamicLayout remaps onto; --wv-* is the older hook the
+// best-fit / hook compositions still read. Both come from libraryEdits first.
 function brandStyleVars(store) {
-  const style = styleOf(store?.brandStyle);
-  const roles = rolesOf(style, null);
-  const ground = groundOf(style);
-  const head = firstFont(store?.brand?.fonts);
+  const paint = paintAll(store?.libraryEdits);
+  const ground = groundOf(styleOf(store?.brandStyle));
   const vars = {
-    '--wv-accent': roles.accent,
-    '--wv-primary': roles.primary,
-    '--wv-neutral': roles.neutral,
+    ...paint,
+    '--wv-accent': paint['--t-accent-bg'],
+    '--wv-primary': paint['--t-ground-fg'],
+    '--wv-neutral': paint['--t-ground-bg'],
+    '--wv-post-font': paint['--t-headline-face'],
   };
   if (ground.own && ground.url) vars['--wv-ground-img'] = `url(${ground.url})`;
-  if (head) vars['--wv-post-font'] = `'${head}', var(--font-display)`;
   return vars;
 }
 
@@ -835,9 +828,9 @@ function fillFromWriter(slide, raw) {
   ).trim();
   return {
     ...slide,
-    title: slide.title || titleEl?.text || '',
-    subtitle: slide.subtitle || subEl?.text || '',
-    body: slide.body || bodyEl?.text || '',
+    title: String(titleEl?.text || slide.title || '').trim(),
+    subtitle: String(subEl?.text || slide.subtitle || '').trim(),
+    body: String(bodyEl?.text || slide.body || '').trim(),
     comparisonA: slide.comparisonA || cmpEl?.comparisonA || '',
     comparisonB: slide.comparisonB || cmpEl?.comparisonB || '',
     items,
@@ -898,7 +891,9 @@ function deriveSlides(day) {
 function keysOf(slide) {
   const listed = splitMediaKeys(slide?.assetKeys);
   if (listed.length) return listed;
-  return splitMediaKeys(slide?.assetKey);
+  const single = splitMediaKeys(slide?.assetKey);
+  if (single.length) return single;
+  return splitMediaKeys(slide?.visual?.assetKey || slide?.image?.key);
 }
 
 function subjectsForSlide(slide, subjectsByKey) {
@@ -993,8 +988,8 @@ const MAX_ANNOTE_TEXT = 48;
 const ANNOTE_ROLE = {
   key: 'annotation',
   label: 'Annotation',
-  slot: 'annotation',
-  hint: 'The handwritten callout on the photograph.',
+  slot: 'headline',
+  hint: 'The callout on the photograph — same heading face as the rest of the slide.',
 };
 const capText = (t) => String(t || '').slice(0, MAX_SLIDE_TEXT);
 const capAnnote = (t) => String(t || '').trim().slice(0, MAX_ANNOTE_TEXT);
@@ -1331,7 +1326,8 @@ function VisualNeedHint({ need }) {
 function slideAllowsPhoto(slide) {
   if (String(slide?.assetKey || '').trim()) return true;
   if (Array.isArray(slide?.assetKeys) && slide.assetKeys.some((k) => String(k || '').trim())) return true;
-  if (String(slide?.image?.key || slide?.image?.url || '').trim()) return true;
+  if (String(slide?.visual?.assetKey || '').trim()) return true;
+  if (String(slide?.image?.key || slide?.image?.url || slide?.image?.thumb || '').trim()) return true;
   return false;
 }
 
@@ -1403,7 +1399,7 @@ function SlideBestFit({ slide, localMedia, mediaByKey, preferProxy = false, part
   );
 }
 
-function SlideMedia({ slide, localMedia, parts, mediaByKey, preferProxy = false, showVisualHint = false, subjectsByKey }) {
+function SlideMedia({ slide, localMedia, parts, mediaByKey, preferProxy = false, showVisualHint = false, subjectsByKey, paint }) {
   const copy = slideCopy(slide, parts);
   const need = showVisualHint ? visualNeedRecord(slide) : null;
   const allowPhoto = slideAllowsPhoto(slide);
@@ -1422,7 +1418,7 @@ function SlideMedia({ slide, localMedia, parts, mediaByKey, preferProxy = false,
   const subjects = subjectsForSlide(slide, subjectsByKey);
   if (slide?.layoutHtml) {
     return (
-      <div className={`wv-ig__lay${showHint ? ' is-needvisual' : ''}`}>
+      <div className={`wv-ig__lay${showHint ? ' is-needvisual' : ''}`} style={paint}>
         <DynamicLayout
           html={slide.layoutHtml}
           subjects={subjects}
@@ -1439,13 +1435,14 @@ function SlideMedia({ slide, localMedia, parts, mediaByKey, preferProxy = false,
             annotation: copy.annotation || slide?.annotation || null,
           }}
           imageUrls={urls}
+          paint={paint}
         />
         {showHint && <VisualNeedHint need={need} />}
       </div>
     );
   }
   return (
-    <div className="wv-ig__lay">
+    <div className="wv-ig__lay" style={paint}>
       <SlideBestFit
         slide={slide}
         localMedia={localMedia}
@@ -2584,7 +2581,7 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
   }, [slideRoleName, vbStore, visEdit, layoutBrowseCat, activeSlide?.layout]);
   // the studio's palette + faces, so the previews here read exactly as they do
   // in the Visual Library (empty object = the library's shipped defaults)
-  const libPaint = useMemo(() => paintOf(vbStore?.libraryEdits), [vbStore?.libraryEdits]);
+  const libPaint = useMemo(() => paintAll(vbStore?.libraryEdits), [vbStore?.libraryEdits]);
   const roleLayouts = useMemo(
     () => layoutsForSlide(slideRoleName, vbStore),
     [slideRoleName, vbStore],
@@ -3125,7 +3122,7 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
                 accent: igVars['--wv-accent'],
                 primary: igVars['--wv-primary'],
                 neutral: igVars['--wv-neutral'],
-                font: firstFont(vbStore?.brand?.fonts),
+                font: faceLabelFor('headline', vbStore),
                 mood: moodOf(vbStore),
               }}
               backLabel="Back to photos"
@@ -3264,6 +3261,7 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
                   subjectsByKey={subjectsByKey}
                   parts={visEdit === 'words' ? wordDraft : null}
                   showVisualHint
+                  paint={igVars}
                 />
                 {slides.length > 1 && (
                   <span className="wv-ig__count">{safeIdx + 1}/{slides.length}</span>
@@ -3409,7 +3407,7 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
                         <RoleField
                           key={`${chosenLayout?.id}-${r.key}`}
                           role={r}
-                          faceName={r.key === 'annotation' ? 'Instrument Serif' : faceLabelFor(r.slot, vbStore)}
+                          faceName={faceLabelFor(r.slot, vbStore)}
                           value={wordDraft[r.key] || ''}
                           autoFocus={n === 0}
                           onChange={(next) => setWordDraft((d) => ({ ...(d || {}), [r.key]: next }))}
@@ -3783,7 +3781,7 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
               so colours and type match exactly. */}
           <div
             aria-hidden="true"
-            className="wv-ig"
+            className="wv-ig wv-ig--export"
             style={{ ...igVars, position: 'fixed', left: '-100000px', top: 0, width: 1080, pointerEvents: 'none' }}
           >
             {slides.map((s, i) => (
@@ -3799,6 +3797,7 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
                   mediaByKey={mediaByKey}
                   subjectsByKey={subjectsByKey}
                   preferProxy
+                  paint={igVars}
                 />
               </div>
             ))}

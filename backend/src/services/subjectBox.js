@@ -48,22 +48,91 @@ function boxOf(raw) {
   return box;
 }
 
+function pointOf(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  const x = clampPct(raw.x);
+  const y = clampPct(raw.y);
+  if (x == null || y == null) return null;
+  return { x, y };
+}
+
 function subjectNameOf(value) {
   if (typeof value === 'string') return value.trim();
   if (!value || typeof value !== 'object') return '';
   return String(value.name || value.label || value.subject || '').trim();
 }
 
+function areaOf(box) {
+  const hit = boxOf(box);
+  return hit ? hit.w * hit.h : Infinity;
+}
+
+function isOversize(box) {
+  const hit = boxOf(box);
+  if (!hit) return false;
+  return hit.h > 36 || hit.w > 40 || (hit.w * hit.h) > 900 || hit.h > hit.w * 2.1;
+}
+
+function isObjectName(text) {
+  return /pendant|fitting|fixture|lamp|sconce|canopy|light|switch|outlet|handle|tap|faucet|knob|hinge|rail|bracket/.test(
+    String(text || '').toLowerCase(),
+  );
+}
+
+function boxAround(point, w, h) {
+  const p = pointOf(point);
+  if (!p) return null;
+  const bw = Math.max(6, Math.min(18, w || 12));
+  const bh = Math.max(6, Math.min(22, h || 14));
+  return boxOf({
+    x: p.x - bw / 2,
+    y: p.y - bh / 2,
+    w: bw,
+    h: bh,
+  });
+}
+
+function aimPoint(box, name = '', query = '', point) {
+  const given = pointOf(point);
+  if (given) return given;
+  const hit = boxOf(box);
+  if (!hit) return null;
+  const text = `${name} ${query}`.toLowerCase();
+  if (isOversize(hit) && (isObjectName(text) || /install|ceiling|hang/.test(text))) {
+    const cx = hit.x + hit.w / 2;
+    const inward = cx < 45 ? hit.x + hit.w * 0.82 : (cx > 55 ? hit.x + hit.w * 0.18 : cx);
+    return {
+      x: clampPct(inward),
+      y: clampPct(hit.y + Math.min(10, hit.h * 0.16)),
+    };
+  }
+  if (isOversize(hit)) {
+    return {
+      x: clampPct(hit.x + hit.w / 2),
+      y: clampPct(hit.y + hit.h * 0.28),
+    };
+  }
+  return {
+    x: clampPct(hit.x + hit.w / 2),
+    y: clampPct(hit.y + hit.h / 2),
+  };
+}
+
+function refineSubject(item) {
+  const name = subjectNameOf(item);
+  if (!name) return null;
+  let box = typeof item === 'object' ? boxOf(item.box || item) : null;
+  let point = typeof item === 'object' ? pointOf(item.point) : null;
+  if (!point && box) point = aimPoint(box, name);
+  if (box && point && isOversize(box) && isObjectName(name)) {
+    box = boxAround(point, Math.min(box.w, 14), Math.min(box.h, 18)) || box;
+  }
+  if (!box) return { name };
+  return point ? { name, box, point } : { name, box };
+}
+
 function normalizeSubjects(list) {
-  return (Array.isArray(list) ? list : [])
-    .map((item) => {
-      const name = subjectNameOf(item);
-      if (!name) return null;
-      const box = typeof item === 'object' ? boxOf(item.box || item) : null;
-      return box ? { name, box } : { name };
-    })
-    .filter(Boolean)
-    .slice(0, 8);
+  return (Array.isArray(list) ? list : []).map(refineSubject).filter(Boolean).slice(0, 8);
 }
 
 function subjectNames(list) {
@@ -71,9 +140,12 @@ function subjectNames(list) {
 }
 
 function subjectsForPlan(list, limit = 6) {
-  return normalizeSubjects(list).slice(0, limit).map((s) => (
-    s.box ? { name: s.name, box: s.box } : { name: s.name }
-  ));
+  return normalizeSubjects(list).slice(0, limit).map((s) => {
+    const row = { name: s.name };
+    if (s.box) row.box = s.box;
+    if (s.point) row.point = s.point;
+    return row;
+  });
 }
 
 function tokensOf(text) {
@@ -84,30 +156,40 @@ function tokensOf(text) {
     .filter((w) => w.length >= 3);
 }
 
+function matchScore(subject, query, words) {
+  const name = subject.name.toLowerCase();
+  if (name === query) return 100;
+  if (name.includes(query) || (query.length >= 4 && query.includes(name))) return 70;
+  if (words.some((w) => name.includes(w))) return 40;
+  return 0;
+}
+
 function matchSubject(list, query) {
   const subjects = normalizeSubjects(list);
   if (!subjects.length) return null;
   const q = String(query || '').trim().toLowerCase();
-  if (!q) return subjects.find((s) => s.box) || subjects[0];
-  const exact = subjects.find((s) => s.name.toLowerCase() === q);
-  if (exact) return exact;
-  const contains = subjects.find((s) => {
-    const name = s.name.toLowerCase();
-    return name.includes(q) || q.includes(name);
-  });
-  if (contains) return contains;
+  if (!q) {
+    return subjects
+      .filter((s) => s.box)
+      .sort((a, b) => areaOf(a.box) - areaOf(b.box))[0] || subjects[0];
+  }
   const words = tokensOf(q);
-  return subjects.find((s) => {
-    const name = s.name.toLowerCase();
-    return words.some((w) => name.includes(w));
-  }) || null;
+  const ranked = subjects
+    .map((s) => ({ s, score: matchScore(s, q, words) }))
+    .filter((row) => row.score > 0)
+    .sort((a, b) => {
+      if (b.score !== a.score) return b.score - a.score;
+      return areaOf(a.s.box) - areaOf(b.s.box);
+    });
+  return ranked[0]?.s || null;
 }
 
 function regionFromBox(box) {
   const hit = boxOf(box);
   if (!hit) return '';
-  const cx = hit.x + hit.w / 2;
-  const cy = hit.y + hit.h / 2;
+  const aim = aimPoint(hit);
+  const cx = aim?.x ?? (hit.x + hit.w / 2);
+  const cy = aim?.y ?? (hit.y + hit.h / 2);
   const col = cx < 33 ? 'left' : cx > 66 ? 'right' : '';
   const row = cy < 33 ? 'top' : cy > 66 ? 'bottom' : '';
   if (row && col) return `${row}-${col}`;
@@ -116,6 +198,8 @@ function regionFromBox(box) {
 
 module.exports = {
   boxOf,
+  pointOf,
+  aimPoint,
   subjectNameOf,
   normalizeSubjects,
   subjectNames,

@@ -30,29 +30,6 @@ const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July',
   'August', 'September', 'October', 'November', 'December'];
 
-/* Sum LLM usage across written weeks in a month group. */
-function monthUsageOf(weeks) {
-  const written = (weeks || []).filter((w) => !w.draft && w.usage);
-  if (!written.length) return null;
-  const inputTokens = written.reduce((n, w) => n + (Number(w.usage?.inputTokens) || 0), 0);
-  const outputTokens = written.reduce((n, w) => n + (Number(w.usage?.outputTokens) || 0), 0);
-  const estimatedCostUsd = written.reduce((n, w) => n + (Number(w.usage?.estimatedCostUsd) || 0), 0);
-  const totalTokens = inputTokens + outputTokens;
-  if (!totalTokens && !estimatedCostUsd) return null;
-  return { inputTokens, outputTokens, totalTokens, estimatedCostUsd, weekCount: written.length };
-}
-
-function fmtTokens(n) {
-  if (n == null) return '—';
-  if (n >= 1000) return `${(n / 1000).toFixed(n >= 10000 ? 0 : 1)}k`;
-  return String(n);
-}
-
-function fmtCost(usd) {
-  if (usd == null || Number.isNaN(usd)) return '—';
-  if (usd < 0.01) return `$${usd.toFixed(4)}`;
-  return `$${usd.toFixed(2)}`;
-}
 /* Written weeks in the same month as `week`, oldest first — the WeekView
  * navigator pages through these. Drafts (next-month placeholders) stay out. */
 function monthWeeksOf(routes, week) {
@@ -659,12 +636,6 @@ export default function YourPlans() {
   const monthWeeks = weeksOverlappingMonth(routes, calCursor.year, calCursor.month);
   const writtenMonthWeeks = monthWeeks.filter((w) => !w.draft);
   const monthDays = monthDaysOf(writtenMonthWeeks);
-  const inMonthDayCount = monthDays.filter((row) => (
-    row.date
-    && row.date.getMonth() === calCursor.month
-    && row.date.getFullYear() === calCursor.year
-  )).length;
-  const usage = monthUsageOf(writtenMonthWeeks);
   const canReplan = isCurrentView && writtenMonthWeeks.length > 0;
   const monthLabel = `${MONTHS[calCursor.month]} ${calCursor.year}`;
   const calGroup = { start: new Date(calCursor.year, calCursor.month, 1, 12, 0, 0, 0) };
@@ -744,22 +715,6 @@ export default function YourPlans() {
             </h3>
             {monthFilling && isCurrentView && (
               <p className="ph__usage ph__usage--filling">Writing the rest of this month…</p>
-            )}
-            {usage && (
-              <p className="ph__usage" title="Estimated from Anthropic token usage for written weeks in this month">
-                <span>{fmtTokens(usage.totalTokens)} tokens</span>
-                <span aria-hidden="true">·</span>
-                <span>~{fmtCost(usage.estimatedCostUsd)} est.</span>
-                <span aria-hidden="true">·</span>
-                <span>{usage.weekCount} {usage.weekCount === 1 ? 'week' : 'weeks'}</span>
-                {inMonthDayCount > 0 && (
-                  <>
-                    <span aria-hidden="true">·</span>
-                    <span>{inMonthDayCount} {inMonthDayCount === 1 ? 'day' : 'days'}</span>
-                  </>
-                )}
-                {monthFilling && isCurrentView ? <span className="ph__usage-live"> · updating</span> : null}
-              </p>
             )}
             <MonthCalendar
               group={calGroup}

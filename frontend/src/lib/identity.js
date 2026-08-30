@@ -168,5 +168,23 @@ export function paintOf(edits) {
   return out;
 }
 
+/* WeekView and DynamicLayout cannot fall back to `--font-display` / `--font-ui`.
+   `.app` overwrites those to the product's system face, so a Library Settings
+   choice of Cabinet Grotesk would silently paint as ui-sans-serif. This always
+   emits the three colours and the three stacks the studio is actually seeing. */
+export function paintAll(edits) {
+  const ident = identityOf({ libraryEdits: edits });
+  const palette = { ...DEFAULT_PALETTE, ...ident.palette };
+  const fonts = ident.fonts;
+  return {
+    '--t-ground-bg': palette.ground,
+    '--t-ground-fg': palette.fg,
+    '--t-accent-bg': palette.accent,
+    '--t-headline-face': stackOf(ident.type?.headline?.face || 'display', fonts),
+    '--t-body-face': stackOf(ident.type?.body?.face || 'ui', fonts),
+    '--t-detail-face': stackOf(ident.type?.detail?.face || ident.type?.body?.face || 'ui', fonts),
+  };
+}
+
 /* the face a slot is showing, chosen or default */
 export const slotFace = (identity, slot) => identity.type?.[slot.id]?.face || slot.face;
