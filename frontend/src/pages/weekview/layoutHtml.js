@@ -101,13 +101,30 @@ function isImageSlot(attrs) {
   return /data-slot\s*=\s*(["']image["']|image)(?=[\s>/]|$)/i.test(String(attrs || ''));
 }
 
-function paintImg(attrs, src) {
-  const clean = String(attrs || '')
+const PLACEHOLDER_SRC = `data:image/svg+xml,${encodeURIComponent(
+  '<svg xmlns="http://www.w3.org/2000/svg" width="1080" height="1350" viewBox="0 0 1080 1350">'
+  + '<rect width="1080" height="1350" fill="#ddd8ce"/>'
+  + '<rect x="40" y="40" width="1000" height="1270" fill="none" stroke="#1a1916" stroke-opacity=".28" stroke-width="3" stroke-dasharray="24 16"/>'
+  + '</svg>',
+)}`;
+
+function withClass(attrs, name) {
+  const s = String(attrs || '');
+  if (new RegExp(`\\bclass\\s*=\\s*(["'])[^"']*\\b${name}\\b`).test(s)) return s;
+  if (/\bclass\s*=\s*"/i.test(s)) return s.replace(/\bclass\s*=\s*"/i, `class="${name} `);
+  if (/\bclass\s*=\s*'/i.test(s)) return s.replace(/\bclass\s*=\s*'/i, `class='${name} `);
+  return `${s} class="${name}"`.replace(/^\s+/, '');
+}
+
+function paintImg(attrs, src, extraClass = '') {
+  let clean = String(attrs || '')
     .replace(/\s*\/\s*$/, '')
     .replace(/\ssrc\s*=\s*("[^"]*"|'[^']*'|[^\s>/]+)/i, '')
     .replace(/\s+/g, ' ')
     .trim();
-  const alt = /\salt\s*=/.test(clean) ? '' : ' alt=""';
+  if (extraClass) clean = withClass(clean, extraClass);
+  const placeholder = extraClass === 'is-placeholder';
+  const alt = /\salt\s*=/.test(clean) ? '' : (placeholder ? ' alt="Photograph needed"' : ' alt=""');
   const slot = /data-slot\s*=/i.test(clean) ? '' : ' data-slot="image"';
   return `<img${clean ? ` ${clean}` : ''}${slot}${alt} src="${escAttr(src)}">`;
 }
@@ -119,7 +136,7 @@ function injectSrc(html, urls) {
     if (!isImageSlot(attrs)) return srcOf(attrs) ? full : '';
     const src = list[i] || srcOf(attrs);
     i += 1;
-    if (!src) return full;
+    if (!src || src === PLACEHOLDER_SRC) return paintImg(attrs, PLACEHOLDER_SRC, 'is-placeholder');
     return paintImg(attrs, src);
   });
 }
@@ -227,6 +244,10 @@ const PHOTO_VISIBLE_CSS = [
   '.slide img[data-slot="image"]{display:block!important;opacity:1!important;visibility:visible!important;object-fit:cover;z-index:0!important;background:var(--t-empty-bg, #ddd8ce)}',
 ].join('');
 
+const PLACEHOLDER_SLOT_CSS = [
+  '.slide img[data-slot="image"].is-placeholder{display:block!important;width:100%;min-height:42%;flex-shrink:0;align-self:stretch;object-fit:cover;background:var(--t-empty-bg,#ddd8ce)}',
+].join('');
+
 const COPY_ON_PHOTO_CSS = [
   '.slide .scrim{display:block!important;visibility:visible!important;opacity:1!important;z-index:1;pointer-events:none}',
   '.slide [data-slot="title"],.slide [data-slot="subtitle"],.slide [data-slot="body"],.slide [data-slot="items"],.slide [data-slot="quote"],.slide [data-slot="stat"],.slide [data-slot="action"]{z-index:2}',
@@ -234,9 +255,9 @@ const COPY_ON_PHOTO_CSS = [
 
 const INJECTED_COPY_CSS = [
   '.slide .scrim{position:absolute;inset:0;z-index:1;pointer-events:none;background:linear-gradient(to top,rgba(18,16,14,.78) 0%,rgba(18,16,14,.18) 42%,transparent 68%)}',
-  '.slide [data-slot="title"],.slide [data-slot="items"]{position:absolute;left:7%;right:7%;z-index:2;margin:0;color:var(--t-accent-bg, #ff5227);text-wrap:balance}',
-  '.slide [data-slot="title"]{bottom:8%;font:650 clamp(16px,4.6cqi,48px)/1.2 var(--t-headline-face, var(--font-display, ui-sans-serif, system-ui, sans-serif))}',
-  '.slide [data-slot="items"]{bottom:8%;padding:0;list-style:none;font:600 clamp(14px,3.4cqi,28px)/1.25 var(--t-body-face, var(--font-ui, ui-sans-serif, system-ui, sans-serif))}',
+  '.slide [data-slot="title"],.slide [data-slot="items"]{position:absolute;left:8%;right:8%;z-index:2;margin:0;color:var(--t-accent-bg, #ff5227);text-wrap:balance}',
+  '.slide [data-slot="title"]{bottom:14%;font:650 clamp(16px,4.6cqi,48px)/1.2 var(--t-headline-face, var(--font-display, ui-sans-serif, system-ui, sans-serif))}',
+  '.slide [data-slot="items"]{bottom:14%;padding:0;list-style:none;font:600 clamp(14px,3.4cqi,28px)/1.25 var(--t-body-face, var(--font-ui, ui-sans-serif, system-ui, sans-serif))}',
 ].join('');
 
 const ALWAYS_REPAIR_CSS = [
@@ -254,6 +275,32 @@ function hasComparisonSlot(html) {
   return /<[a-z][^>]*\bdata-slot\s*=\s*["'](comparisonA|comparisonB)["']/i.test(String(html || ''));
 }
 
+/* Full-bleed photo + overlay type (Pattern 1). Editorial / 50-50 splits size the
+   image in flex/grid flow — those must keep their HTML composition, not the
+   pinned caption overlay. */
+export function isBleedPhotoLayout(html) {
+  const src = String(html || '');
+  if (!hasImageSlot(src)) return false;
+  if (hasComparisonSlot(src)) return false;
+  const { css } = splitLayoutDocument(src);
+  const imgBodies = [];
+  String(css || '').replace(/([^{}]+)\{([^}]*)\}/g, (_, sel, body) => {
+    const s = String(sel || '');
+    if (!/\bimg\b|data-slot\s*=\s*["']image["']/.test(s)) return '';
+    if (/:(?:before|after)/i.test(s)) return '';
+    imgBodies.push(String(body || ''));
+    return '';
+  });
+  const imgCss = imgBodies.join(';');
+  if (!imgCss) return false;
+  const abs = /position\s*:\s*absolute/i.test(imgCss);
+  const fill = /inset\s*:\s*0/i.test(imgCss)
+    || ((/width\s*:\s*100%/i.test(imgCss) || /left\s*:\s*0/i.test(imgCss))
+      && (/height\s*:\s*100%/i.test(imgCss) || /bottom\s*:\s*0/i.test(imgCss) || /top\s*:\s*0/i.test(imgCss)));
+  const flexSlot = /flex\s*:/i.test(imgCss) || /max-height\s*:/i.test(imgCss);
+  return abs && fill && !flexSlot;
+}
+
 /* A slide with a comparison pair is a reading layout, never a bleed poster, so
    the layout agent must NOT overlap it with a title band. When it does anyway —
    cramming photo + title + subtitle + comparison and stacking them on top of
@@ -265,9 +312,9 @@ function hasComparisonSlot(html) {
 const COMPARISON_STACK_CSS = [
   // Column stack, top-aligned. Force justify-content and reset every child's
   // flex-grow so an agent wrapper with flex:1 or justify:space-between can't
-  // shove the copy to the bottom and leave a lopsided gap. Bottom 8% padding is
+  // shove the copy to the bottom and leave a lopsided gap. Bottom 14% padding is
   // the Instagram safe margin — nothing sits flush to the feed UI edge.
-  '.slide{display:flex!important;flex-direction:column!important;justify-content:flex-start!important;align-items:stretch!important;position:relative!important;padding:0 0 8%!important;gap:0!important;overflow:hidden;background:var(--t-ground-bg, #f4f2ee)!important}',
+  '.slide{display:flex!important;flex-direction:column!important;justify-content:flex-start!important;align-items:stretch!important;position:relative!important;padding:0 0 14%!important;gap:0!important;overflow:hidden;background:var(--t-ground-bg, #f4f2ee)!important}',
   '.slide .scrim{display:none!important}',
   '.slide>[data-slot="image"]{position:relative!important;inset:auto!important;left:auto!important;top:auto!important;right:auto!important;bottom:auto!important;width:100%!important;height:auto!important;flex:0 0 auto!important;max-height:46%!important;min-height:0!important;object-fit:cover!important;margin:0!important;z-index:0!important;opacity:1!important;visibility:visible!important}',
   // Direct children: kill flex-grow so a wrapper can't eat the column and open
@@ -283,12 +330,12 @@ const COMPARISON_STACK_CSS = [
   '.slide [data-slot="comparisonA"],.slide [data-slot="comparisonB"]{flex:1 1 0!important;min-width:0!important;position:static!important}',
 ].join('');
 
-/* The layout agent paints in brand-neutral tokens on purpose (plan-layout.md).
-   These hexes and the system face are the contract; this pass swaps them for
-   the Library Settings identity so a studio who changes Primary / Accent /
-   Neutral / faces sees every existing post update without regenerating. */
-function identityForceCss(hasPhoto) {
-  const ink = hasPhoto ? '' : [
+/* The layout agent emits composition only (plan-layout.md). Faces, colours, and
+   overlay scrims come from Library Settings. This pass still swaps leftover
+   agent hexes on older posts so a studio identity change updates every slide
+   without regenerating. */
+function identityForceCss() {
+  const ink = [
     '.slide,.slide [data-slot="title"],.slide [data-slot="subtitle"],.slide [data-slot="body"],.slide [data-slot="items"],.slide [data-slot="items"] li,.slide [data-slot="comparisonA"],.slide [data-slot="comparisonB"],.slide [data-slot="action"],.slide [data-slot="quote"],.slide h1,.slide h2,.slide p,.slide li{color:var(--t-ground-fg,#1b100d)!important;-webkit-text-fill-color:var(--t-ground-fg,#1b100d)!important}',
     '.slide [data-slot="stat"]{color:var(--t-accent-bg,#ff5227)!important;-webkit-text-fill-color:var(--t-accent-bg,#ff5227)!important}',
   ].join('');
@@ -360,10 +407,14 @@ function imageCount(html) {
   return (String(html || '').match(/<img\b/gi) || []).length;
 }
 
-function ensureImageSlot(html, src) {
-  if (!src) return html;
+function ensureImageSlot(html, src, { placeholder = false } = {}) {
+  const fill = src || (placeholder ? PLACEHOLDER_SRC : '');
+  if (!fill) return html;
   if (hasImageSlot(html)) return html;
-  const img = `<img data-slot="image" alt="" src="${escAttr(src)}">`;
+  const ph = Boolean(placeholder && !src);
+  const img = ph
+    ? `<img data-slot="image" class="is-placeholder" alt="Photograph needed" src="${escAttr(fill)}">`
+    : `<img data-slot="image" alt="" src="${escAttr(fill)}">`;
   let next = html.replace(
     /(<article\b[^>]*(?:class=["'][^"']*\bslide\b[^"']*["'][^>]*)?>)/i,
     `$1${img}`,
@@ -401,11 +452,12 @@ export function splitLayoutDocument(html) {
   return { css: styles.join('\n'), body: trim(body) };
 }
 
-export function prepareLayoutHtml(raw, { scope, imageUrls, copy } = {}) {
+export function prepareLayoutHtml(raw, { scope, imageUrls, copy, needsVisual = false } = {}) {
   let html = trim(raw);
   if (!html) return '';
   const urls = (Array.isArray(imageUrls) ? imageUrls : []).map(trim).filter(Boolean);
   const hasPhoto = urls.length > 0;
+  const wantSlot = Boolean(needsVisual) || hasImageSlot(html);
   html = html.replace(/<style\b[^>]*>([\s\S]*?)<\/style>/gi, (_, css) => `<style>${sanitizeLayoutCss(css, { hasPhoto })}</style>`);
   html = ensureCopySlots(html, copy);
   if (urls.length && copy?.annotation) {
@@ -414,20 +466,23 @@ export function prepareLayoutHtml(raw, { scope, imageUrls, copy } = {}) {
     html = dropAnnotation(html);
   }
   html = dropEmptyElements(html);
-  html = ensureImageSlot(html, urls[0] || '');
+  html = ensureImageSlot(html, urls[0] || '', { placeholder: wantSlot && !hasPhoto });
   const imgsBefore = imageCount(html);
   html = injectSrc(html, urls);
   html = dropEmptyImages(html);
   html = dropEmptyElements(html);
+  const bleed = isBleedPhotoLayout(html);
   html = appendCss(html, ALWAYS_REPAIR_CSS);
   if (hasPhoto) {
     html = ensureImageSlot(html, urls[0]);
     html = injectSrc(html, urls);
     html = appendCss(html, PHOTO_VISIBLE_CSS);
-    if (hasCopySlot(html)) html = appendCss(html, COPY_ON_PHOTO_CSS);
+    if (bleed && hasCopySlot(html)) html = appendCss(html, COPY_ON_PHOTO_CSS);
+  } else if (hasImageSlot(html)) {
+    html = appendCss(html, PLACEHOLDER_SLOT_CSS);
   }
   if (imgsBefore > 1 && imageCount(html) === 1) html = appendCss(html, SINGLE_PHOTO_CSS);
-  html = appendCss(html, identityForceCss(hasPhoto));
+  html = appendCss(html, identityForceCss());
   if (hasComparisonSlot(html)) html = appendCss(html, COMPARISON_STACK_CSS);
   html = paintIdentity(html);
   if (scope) {

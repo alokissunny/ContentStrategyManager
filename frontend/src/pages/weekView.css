@@ -512,6 +512,19 @@
   opacity: 1 !important;
   visibility: visible !important;
 }
+.wv-dynlay img[data-slot="image"].is-placeholder {
+  width: 100%;
+  min-height: 42%;
+  flex-shrink: 0;
+  align-self: stretch;
+  object-fit: cover;
+  background:
+    repeating-linear-gradient(135deg, transparent 0 7px, var(--t-ground-hatch, rgba(27, 16, 13, 0.08)) 7px 14px),
+    var(--t-empty-bg, #ddd8ce);
+  box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--t-ground-fg, #1b100d) 22%, transparent);
+  outline: 1.5px dashed color-mix(in srgb, var(--t-ground-fg, #1b100d) 32%, transparent);
+  outline-offset: -10px;
+}
 .wv-dynlay__canvas > .slide,
 .wv-dynlay__canvas > article {
   width: 100%;
@@ -526,11 +539,51 @@
   container-type: inline-size;
   font-family: var(--t-body-face);
 }
+.wv-dynlay .slide,
+.wv-dynlay .slide * {
+  box-sizing: border-box;
+}
 .wv-dynlay .slide :is(h1, h2, h3, [data-slot="title"], [data-slot="stat"], [data-slot="quote"]) {
   font-family: var(--t-headline-face) !important;
 }
 .wv-dynlay .slide :is(p, li, blockquote, [data-slot="subtitle"], [data-slot="body"], [data-slot="items"], [data-slot="action"], [data-slot="comparisonA"], [data-slot="comparisonB"]) {
   font-family: var(--t-body-face) !important;
+}
+.wv-dynlay .slide :is(h1, [data-slot="title"]) {
+  font-size: clamp(18px, 5cqi, 48px);
+  line-height: 1.15;
+  text-wrap: balance;
+}
+.wv-dynlay .slide [data-slot="subtitle"] {
+  font-size: clamp(14px, 3.4cqi, 26px);
+  line-height: 1.35;
+}
+.wv-dynlay .slide [data-slot="body"] {
+  font-size: clamp(14px, 3.4cqi, 26px);
+  line-height: 1.4;
+}
+.wv-dynlay .slide [data-slot="stat"] {
+  font-size: clamp(48px, 13cqi, 96px);
+  line-height: 0.95;
+  letter-spacing: -0.04em;
+}
+.wv-dynlay .slide [data-slot="quote"] {
+  font-size: clamp(18px, 5.2cqi, 40px);
+  line-height: 1.25;
+}
+.wv-dynlay .slide [data-slot="items"] li {
+  font-size: clamp(15px, 4cqi, 30px);
+  line-height: 1.25;
+  border-color: color-mix(in srgb, var(--t-ground-fg, #1b100d) 16%, transparent);
+}
+.wv-dynlay .slide [data-slot="action"] {
+  font-size: clamp(14px, 3.4cqi, 24px);
+  line-height: 1.3;
+}
+.wv-dynlay .slide [data-slot="comparisonA"],
+.wv-dynlay .slide [data-slot="comparisonB"] {
+  font-size: clamp(13px, 3.2cqi, 22px);
+  line-height: 1.3;
 }
 .wv-dynlay img {
   display: block;
@@ -570,9 +623,9 @@
 }
 .wv-copy-pin__words {
   position: absolute;
-  left: 7%;
-  right: 7%;
-  bottom: 8%;
+  left: 8%;
+  right: 8%;
+  bottom: 14%;
   /* Overlay caption text follows the studio's Accent colour (Library Settings),
      not a baked-in off-white. The scrim beneath it (built from --t-ground-fg)
      keeps it legible. */
@@ -779,6 +832,16 @@
   flex: 1 1 auto;
   min-height: 0;
   overflow: hidden;
+}
+.wv-safe__photo.is-placeholder {
+  flex: 0 0 48%;
+  min-height: 42%;
+  background:
+    repeating-linear-gradient(135deg, transparent 0 7px, var(--t-ground-hatch, rgba(27, 16, 13, 0.08)) 7px 14px),
+    var(--t-empty-bg, #ddd8ce);
+  box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--t-ground-fg, #1b100d) 22%, transparent);
+  outline: 1.5px dashed color-mix(in srgb, var(--t-ground-fg, #1b100d) 32%, transparent);
+  outline-offset: -10px;
 }
 .wv-safe__photo img {
   width: 100%;
@@ -1027,6 +1090,11 @@
   background:
     repeating-linear-gradient(135deg, transparent 0 7px, var(--t-ground-hatch, rgba(27, 16, 13, 0.08)) 7px 14px),
     var(--t-ground-bg, #f4f2ee);
+}
+.wv-ig__lay.is-needvisual .wv-dynlay img[data-slot="image"].is-placeholder {
+  background:
+    repeating-linear-gradient(135deg, transparent 0 7px, var(--t-ground-hatch, rgba(27, 16, 13, 0.08)) 7px 14px),
+    var(--t-empty-bg, #ddd8ce);
 }
 .wv-vneed {
   position: absolute;

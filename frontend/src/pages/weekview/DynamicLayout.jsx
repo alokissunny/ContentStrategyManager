@@ -1,5 +1,5 @@
 import { useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { prepareLayoutHtml, splitLayoutDocument } from './layoutHtml';
+import { prepareLayoutHtml, splitLayoutDocument, isBleedPhotoLayout } from './layoutHtml';
 import { boxOf, fmtBox, mapBoxToCover, mapPointToCover, normalizeSubjects, placeFromBox, resolveTargetBox } from './subjectBox';
 import { useAiDebug } from '../../lib/aiDebug';
 
@@ -259,7 +259,7 @@ function CopyBlock({ copy }) {
   );
 }
 
-function SafeLayout({ copy, imageUrls, subjects, paint }) {
+function SafeLayout({ copy, imageUrls, subjects, paint, needsVisual = false }) {
   const src = (Array.isArray(imageUrls) ? imageUrls : []).find(Boolean) || '';
   const title = trim(copy?.title);
   const hasCopy = Boolean(
@@ -299,6 +299,15 @@ function SafeLayout({ copy, imageUrls, subjects, paint }) {
           <img src={src} alt="" />
           {annote ? <AnnotationOverlay annotation={annote} subjects={subjects} paint={paint} /> : null}
         </div>
+        {hasCopy ? <CopyBlock copy={copy} /> : null}
+      </div>
+    );
+  }
+
+  if (needsVisual) {
+    return (
+      <div className="wv-safe wv-safe--stack">
+        <div className="wv-safe__photo is-placeholder" aria-hidden="true" />
         {hasCopy ? <CopyBlock copy={copy} /> : null}
       </div>
     );
@@ -351,7 +360,7 @@ function copyKey(copy) {
   ].join('\0');
 }
 
-export default function DynamicLayout({ html, copy, imageUrls, subjects, paint }) {
+export default function DynamicLayout({ html, copy, imageUrls, subjects, paint, needsVisual = false }) {
   const scope = `wv${useId().replace(/:/g, '')}`;
   const canvasRef = useRef(null);
   const shownFor = useRef('');
@@ -360,9 +369,9 @@ export default function DynamicLayout({ html, copy, imageUrls, subjects, paint }
   const urlKey = urls.filter(Boolean).join('|');
   const packedCopy = copyKey(copy);
   const markup = useMemo(
-    () => prepareLayoutHtml(html, { scope, imageUrls: urls, copy }),
+    () => prepareLayoutHtml(html, { scope, imageUrls: urls, copy, needsVisual }),
     // urls/copy are new objects each parent render; urlKey and packedCopy are the inputs.
-    [html, scope, urlKey, packedCopy],
+    [html, scope, urlKey, packedCopy, needsVisual],
   );
   const { css, body } = useMemo(() => splitLayoutDocument(markup), [markup]);
   const paintKey = `${html}\0${packedCopy}`;
@@ -370,6 +379,9 @@ export default function DynamicLayout({ html, copy, imageUrls, subjects, paint }
   const annote = annotationOf(copy?.annotation);
   const overlayCopy = Boolean(
     urls.some(Boolean)
+    && isBleedPhotoLayout(markup)
+    && !trim(copy?.comparisonA)
+    && !trim(copy?.comparisonB)
     && (trim(copy?.title) || trim(copy?.subtitle) || trim(copy?.body)
       || trim(copy?.quote) || trim(copy?.stat) || trim(copy?.action)
       || (Array.isArray(copy?.items) && copy.items.some(trim))),
@@ -399,7 +411,7 @@ export default function DynamicLayout({ html, copy, imageUrls, subjects, paint }
 
   return (
     <div className="wv-dynlay is-ready" style={paint}>
-      <SafeLayout copy={copy} imageUrls={urls} subjects={subjects} paint={paint} />
+      <SafeLayout copy={copy} imageUrls={urls} subjects={subjects} paint={paint} needsVisual={needsVisual} />
     </div>
   );
 }

@@ -1401,7 +1401,7 @@ function SlideBestFit({ slide, localMedia, mediaByKey, preferProxy = false, part
 
 function SlideMedia({ slide, localMedia, parts, mediaByKey, preferProxy = false, showVisualHint = false, subjectsByKey, paint }) {
   const copy = slideCopy(slide, parts);
-  const need = showVisualHint ? visualNeedRecord(slide) : null;
+  const need = visualNeedRecord(slide);
   const allowPhoto = slideAllowsPhoto(slide);
   const urls = allowPhoto
     ? keysOf(slide).map((k) => urlForKey(k, slide, localMedia, mediaByKey, preferProxy)).filter(Boolean)
@@ -1414,7 +1414,8 @@ function SlideMedia({ slide, localMedia, parts, mediaByKey, preferProxy = false,
     if (lead) urls[0] = lead;
   }
   const src = urls[0] || null;
-  const showHint = Boolean(need) && !src;
+  const missingVisual = Boolean(need) && !src;
+  const showHint = missingVisual && showVisualHint;
   const subjects = subjectsForSlide(slide, subjectsByKey);
   if (slide?.layoutHtml) {
     return (
@@ -1422,6 +1423,7 @@ function SlideMedia({ slide, localMedia, parts, mediaByKey, preferProxy = false,
         <DynamicLayout
           html={slide.layoutHtml}
           subjects={subjects}
+          needsVisual={missingVisual}
           copy={{
             title: copy.title,
             subtitle: copy.sub,

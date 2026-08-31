@@ -1020,15 +1020,15 @@ function compositionNoteOf(flat, visual) {
   const titleWords = wordCount(flat?.title);
   const hasAnnote = optionalText(flat?.annotation?.text || flat?.annotation);
   if (visual?.hasAsset && hasAnnote) {
-    return 'Photograph with a subject callout: handwritten label + curved arrow on the photo, pointing at the named subject. Keep the label off the title band and off the subject.';
+    return 'Photograph with a subject callout: annotation slot on the photo (label + curved SVG arrow). Keep the label in negative space, off the title band and off the subject. Do not specify colours or fonts.';
   }
   if (visual?.hasAsset && titleWords >= 12) {
-    return 'Long title on a photograph: bottom band + light type + scrim, or a split. Do not put dark type over the photo. Keep the room visible.';
+    return 'Long title on a photograph: bottom-band overlay (image fill, title at 14% from bottom) or a split. Keep the room visible. Do not specify colours or fonts.';
   }
   if (visual?.hasAsset) {
-    return 'A real photograph will be injected into img[data-slot=image]. Include that img. Compose around the photo. Do not invent shapes, bars, or a black void instead of the photograph.';
+    return 'A real photograph will be injected into img[data-slot=image]. Include that img. Compose around the photo with flex/grid or a bottom-band overlay. Do not invent shapes or omit the img. Do not specify colours or fonts.';
   }
-  return 'No photograph. Text on #f4f1ec. Do not use a black ground.';
+  return 'No photograph. Text-led composition. Do not invent a photograph slot. Do not specify colours or fonts.';
 }
 
 function layoutInputOf(post, structure, dayBrief) {
@@ -1106,13 +1106,16 @@ function validateLayout(parsed, post) {
       throw new Error(`slide ${s?.index || i + 1} missing img[data-slot=image] for assigned photograph`);
     }
     const hierarchy = s?.visualHierarchy && typeof s.visualHierarchy === 'object' ? s.visualHierarchy : {};
+    const primary = Array.isArray(hierarchy.primary)
+      ? stringList(hierarchy.primary)
+      : (optionalText(hierarchy.primary) ? [optionalText(hierarchy.primary)] : []);
     return {
       index: Number(s?.index) > 0 ? Number(s.index) : i + 1,
       role: optionalText(s?.role),
       contentStructure: stringList(s?.contentStructure),
       layoutIntent: optionalText(s?.layoutIntent),
       visualHierarchy: {
-        primary: optionalText(hierarchy.primary),
+        primary,
         secondary: stringList(hierarchy.secondary),
         supporting: stringList(hierarchy.supporting),
       },
