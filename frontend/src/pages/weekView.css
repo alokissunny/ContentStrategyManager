@@ -496,11 +496,6 @@
   font-family: var(--t-body-face, var(--font-ui, ui-sans-serif, system-ui, sans-serif));
   container-type: inline-size;
 }
-.wv-dynlay:not(.is-ready) .wv-dynlay__canvas,
-.wv-dynlay:not(.is-ready) .wv-annote-pin,
-.wv-dynlay:not(.is-ready) .wv-copy-pin {
-  visibility: hidden;
-}
 .wv-dynlay__canvas {
   width: 100%;
   height: 100%;
@@ -513,11 +508,6 @@
   visibility: visible !important;
 }
 .wv-dynlay img[data-slot="image"].is-placeholder {
-  width: 100%;
-  min-height: 42%;
-  flex-shrink: 0;
-  align-self: stretch;
-  object-fit: cover;
   background:
     repeating-linear-gradient(135deg, transparent 0 7px, var(--t-ground-hatch, rgba(27, 16, 13, 0.08)) 7px 14px),
     var(--t-empty-bg, #ddd8ce);

@@ -233,19 +233,13 @@ function dropEmptyElements(html) {
   return s;
 }
 
-const PHOTO_REPAIR_CSS = [
-  '.slide{display:flex;flex-direction:column;background:var(--t-ground-bg, #f4f1ec);background-image:none}',
-  '.slide>[data-slot="image"]:first-of-type{position:relative;inset:auto;flex:1 1 58%;align-self:stretch;width:100%;min-height:0;max-height:68%;object-fit:cover;background:var(--t-empty-bg, #ddd8ce);z-index:0;opacity:1}',
-  '.slide [data-slot]:not([data-slot="image"]):not([data-slot="annotation"]){position:relative;inset:auto;flex:0 0 auto;color:var(--t-ground-fg, #1a1916);z-index:2;box-sizing:border-box}',
-].join('');
-
 const PHOTO_VISIBLE_CSS = [
   '.slide{background-image:none!important}',
   '.slide img[data-slot="image"]{display:block!important;opacity:1!important;visibility:visible!important;object-fit:cover;z-index:0!important;background:var(--t-empty-bg, #ddd8ce)}',
 ].join('');
 
 const PLACEHOLDER_SLOT_CSS = [
-  '.slide img[data-slot="image"].is-placeholder{display:block!important;width:100%;min-height:42%;flex-shrink:0;align-self:stretch;object-fit:cover;background:var(--t-empty-bg,#ddd8ce)}',
+  '.slide img[data-slot="image"].is-placeholder{background:var(--t-empty-bg,#ddd8ce)}',
 ].join('');
 
 const COPY_ON_PHOTO_CSS = [
@@ -262,7 +256,7 @@ const INJECTED_COPY_CSS = [
 
 const ALWAYS_REPAIR_CSS = [
   '.slide{background:var(--t-ground-bg, #f4f1ec)}',
-  '.slide [data-slot="comparisonA"],.slide [data-slot="comparisonB"]{flex:0 0 auto;min-height:0;background:var(--t-ground-bg, #f4f1ec)!important;color:var(--t-ground-fg, #1a1916)!important}',
+  '.slide [data-slot="comparisonA"],.slide [data-slot="comparisonB"]{background:var(--t-ground-bg, #f4f1ec)!important;color:var(--t-ground-fg, #1a1916)!important}',
   '.slide [data-slot="comparisonA"] *,.slide [data-slot="comparisonB"] *{color:var(--t-ground-fg, #1a1916)!important;-webkit-text-fill-color:var(--t-ground-fg, #1a1916)!important;background:transparent!important}',
   '.slide :has(>[data-slot="comparisonA"]),.slide :has(>[data-slot="comparisonB"]){background:var(--t-ground-bg, #f4f1ec)!important;color:var(--t-ground-fg, #1a1916)!important}',
 ].join('');
@@ -300,35 +294,6 @@ export function isBleedPhotoLayout(html) {
   const flexSlot = /flex\s*:/i.test(imgCss) || /max-height\s*:/i.test(imgCss);
   return abs && fill && !flexSlot;
 }
-
-/* A slide with a comparison pair is a reading layout, never a bleed poster, so
-   the layout agent must NOT overlap it with a title band. When it does anyway —
-   cramming photo + title + subtitle + comparison and stacking them on top of
-   each other (an explicit "failed layout" per plan-layout.md) — we can't trust
-   its positioning. Force the whole slide into a clean vertical stack: photo on
-   top, copy below, comparison row last, every block in normal flow so nothing
-   can land on top of anything else. Applied only to comparison slides, so pure
-   bleed-title photos keep their absolute-over-image composition. */
-const COMPARISON_STACK_CSS = [
-  // Column stack, top-aligned. Force justify-content and reset every child's
-  // flex-grow so an agent wrapper with flex:1 or justify:space-between can't
-  // shove the copy to the bottom and leave a lopsided gap. Bottom 14% padding is
-  // the Instagram safe margin — nothing sits flush to the feed UI edge.
-  '.slide{display:flex!important;flex-direction:column!important;justify-content:flex-start!important;align-items:stretch!important;position:relative!important;padding:0 0 14%!important;gap:0!important;overflow:hidden;background:var(--t-ground-bg, #f4f2ee)!important}',
-  '.slide .scrim{display:none!important}',
-  '.slide>[data-slot="image"]{position:relative!important;inset:auto!important;left:auto!important;top:auto!important;right:auto!important;bottom:auto!important;width:100%!important;height:auto!important;flex:0 0 auto!important;max-height:46%!important;min-height:0!important;object-fit:cover!important;margin:0!important;z-index:0!important;opacity:1!important;visibility:visible!important}',
-  // Direct children: kill flex-grow so a wrapper can't eat the column and open
-  // a mid-gap. ALL descendants (except the photo/scrim/annotation): drop any
-  // absolute positioning — the agent may pin text inside a nested wrapper, and
-  // a direct-child reset would miss it, leaving copy stacked on the comparison.
-  '.slide>*:not([data-slot="image"]):not(.scrim){flex:0 0 auto!important;align-self:stretch!important}',
-  '.slide *:not([data-slot="image"]):not(.scrim):not([data-slot="annotation"]):not([data-slot="annotation"] *){position:static!important;inset:auto!important;left:auto!important;right:auto!important;top:auto!important;bottom:auto!important}',
-  '.slide [data-slot="title"]{margin:0 0 0!important;padding:0 8%!important}',
-  '.slide [data-slot="subtitle"],.slide [data-slot="body"]{margin:2.8% 0 0!important;padding:0 8%!important}',
-  '.slide [data-slot="items"]{margin:3.4% 0 0!important;padding:0 8%!important}',
-  '.slide :has(>[data-slot="comparisonA"]),.slide :has(>[data-slot="comparisonB"]){display:flex!important;align-items:stretch!important;gap:4%!important;margin:5.5% 0 0!important;padding:0 8%!important;position:static!important}',
-  '.slide [data-slot="comparisonA"],.slide [data-slot="comparisonB"]{flex:1 1 0!important;min-width:0!important;position:static!important}',
-].join('');
 
 /* The layout agent emits composition only (plan-layout.md). Faces, colours, and
    overlay scrims come from Library Settings. This pass still swaps leftover
@@ -407,25 +372,6 @@ function imageCount(html) {
   return (String(html || '').match(/<img\b/gi) || []).length;
 }
 
-function ensureImageSlot(html, src, { placeholder = false } = {}) {
-  const fill = src || (placeholder ? PLACEHOLDER_SRC : '');
-  if (!fill) return html;
-  if (hasImageSlot(html)) return html;
-  const ph = Boolean(placeholder && !src);
-  const img = ph
-    ? `<img data-slot="image" class="is-placeholder" alt="Photograph needed" src="${escAttr(fill)}">`
-    : `<img data-slot="image" alt="" src="${escAttr(fill)}">`;
-  let next = html.replace(
-    /(<article\b[^>]*(?:class=["'][^"']*\bslide\b[^"']*["'][^>]*)?>)/i,
-    `$1${img}`,
-  );
-  if (next === html) next = html.replace(/(<article\b[^>]*>)/i, `$1${img}`);
-  if (next === html) next = html.replace(/(<div\b[^>]*class=["'][^"']*\bslide\b[^"']*["'][^>]*>)/i, `$1${img}`);
-  if (next === html && /<\/article>/i.test(html)) next = html.replace(/<\/article>/i, `${img}</article>`);
-  if (next === html) next = `${html}${img}`;
-  return appendCss(next, PHOTO_REPAIR_CSS);
-}
-
 export function rewriteAnnotationText(html, text) {
   const next = trim(text);
   if (!html) return html;
@@ -452,12 +398,11 @@ export function splitLayoutDocument(html) {
   return { css: styles.join('\n'), body: trim(body) };
 }
 
-export function prepareLayoutHtml(raw, { scope, imageUrls, copy, needsVisual = false } = {}) {
+export function prepareLayoutHtml(raw, { scope, imageUrls, copy } = {}) {
   let html = trim(raw);
   if (!html) return '';
   const urls = (Array.isArray(imageUrls) ? imageUrls : []).map(trim).filter(Boolean);
   const hasPhoto = urls.length > 0;
-  const wantSlot = Boolean(needsVisual) || hasImageSlot(html);
   html = html.replace(/<style\b[^>]*>([\s\S]*?)<\/style>/gi, (_, css) => `<style>${sanitizeLayoutCss(css, { hasPhoto })}</style>`);
   html = ensureCopySlots(html, copy);
   if (urls.length && copy?.annotation) {
@@ -466,7 +411,6 @@ export function prepareLayoutHtml(raw, { scope, imageUrls, copy, needsVisual = f
     html = dropAnnotation(html);
   }
   html = dropEmptyElements(html);
-  html = ensureImageSlot(html, urls[0] || '', { placeholder: wantSlot && !hasPhoto });
   const imgsBefore = imageCount(html);
   html = injectSrc(html, urls);
   html = dropEmptyImages(html);
@@ -474,7 +418,6 @@ export function prepareLayoutHtml(raw, { scope, imageUrls, copy, needsVisual = f
   const bleed = isBleedPhotoLayout(html);
   html = appendCss(html, ALWAYS_REPAIR_CSS);
   if (hasPhoto) {
-    html = ensureImageSlot(html, urls[0]);
     html = injectSrc(html, urls);
     html = appendCss(html, PHOTO_VISIBLE_CSS);
     if (bleed && hasCopySlot(html)) html = appendCss(html, COPY_ON_PHOTO_CSS);
@@ -483,7 +426,6 @@ export function prepareLayoutHtml(raw, { scope, imageUrls, copy, needsVisual = f
   }
   if (imgsBefore > 1 && imageCount(html) === 1) html = appendCss(html, SINGLE_PHOTO_CSS);
   html = appendCss(html, identityForceCss());
-  if (hasComparisonSlot(html)) html = appendCss(html, COMPARISON_STACK_CSS);
   html = paintIdentity(html);
   if (scope) {
     html = html.replace(/<style\b[^>]*>([\s\S]*?)<\/style>/gi, (_, css) => `<style>${scopeCss(css, scope, { hasPhoto })}</style>`);

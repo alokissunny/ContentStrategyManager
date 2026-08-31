@@ -363,19 +363,15 @@ function copyKey(copy) {
 export default function DynamicLayout({ html, copy, imageUrls, subjects, paint, needsVisual = false }) {
   const scope = `wv${useId().replace(/:/g, '')}`;
   const canvasRef = useRef(null);
-  const shownFor = useRef('');
-  const [, bump] = useState(0);
   const urls = Array.isArray(imageUrls) ? imageUrls : [];
   const urlKey = urls.filter(Boolean).join('|');
   const packedCopy = copyKey(copy);
   const markup = useMemo(
-    () => prepareLayoutHtml(html, { scope, imageUrls: urls, copy, needsVisual }),
+    () => prepareLayoutHtml(html, { scope, imageUrls: urls, copy }),
     // urls/copy are new objects each parent render; urlKey and packedCopy are the inputs.
-    [html, scope, urlKey, packedCopy, needsVisual],
+    [html, scope, urlKey, packedCopy],
   );
   const { css, body } = useMemo(() => splitLayoutDocument(markup), [markup]);
-  const paintKey = `${html}\0${packedCopy}`;
-  const ready = shownFor.current === paintKey;
   const annote = annotationOf(copy?.annotation);
   const overlayCopy = Boolean(
     urls.some(Boolean)
@@ -387,18 +383,17 @@ export default function DynamicLayout({ html, copy, imageUrls, subjects, paint, 
       || (Array.isArray(copy?.items) && copy.items.some(trim))),
   );
 
+  // Force a layout pass so container-query type (cqi) is measured before paint.
+  // Do not hide the canvas: a hide/show flash is worse than this reflow.
   useLayoutEffect(() => {
-    const node = canvasRef.current;
-    if (node) void node.offsetWidth;
-    if (shownFor.current === paintKey) return undefined;
-    shownFor.current = paintKey;
-    bump((n) => n + 1);
-    return undefined;
-  }, [paintKey]);
+    if (canvasRef.current) void canvasRef.current.offsetWidth;
+  }, [markup]);
 
   if (markup && body) {
     return (
-      <div className={`wv-dynlay${annote && urls.some(Boolean) ? ' is-annote-over' : ''}${overlayCopy ? ' is-copy-over' : ''}${ready ? ' is-ready' : ''}`} style={paint}>
+      <div className={`wv-dynlay${annote && urls.some(Boolean) ? ' is-annote-over' : ''}${overlayCopy ? ' is-copy-over' : ''} is-ready`} style={paint}>
+        {/* Real <style> node, not innerHTML: browsers often apply innerHTML
+            stylesheets a frame late, so the slide paints unstyled then jumps. */}
         {css ? <style>{css}</style> : null}
         <div ref={canvasRef} className={`wv-dynlay__canvas ${scope}`} dangerouslySetInnerHTML={{ __html: body }} />
         {overlayCopy ? <CopyOnPhoto copy={copy} paint={paint} /> : null}

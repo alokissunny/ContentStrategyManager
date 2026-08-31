@@ -27,15 +27,20 @@ Do **not** return `failed` because visual priority, type, or evidence resolution
 - `contentStructure` includes Image because a photo is assigned, while `visual.type` is `none`
 - a text-led fallback on a slide that still has an asset
 
-If a photograph is assigned (`visual.hasAsset: true`), you **must** include `<img data-slot="image" alt="">` in the article. The app injects the real photograph into that tag. Compose around that photograph — bottom band, editorial stack, or 50/50 split. Read `visual.photograph.visibleContent` when present: crop and size the image so the subject stays in frame. The photograph is the visual, not an empty rectangle behind type.
+If `visual.includeImageSlot` is true (a photograph is assigned, **or** the slide still wants a visual and none is assigned yet), you **must** include `<img data-slot="image" alt="">` in the article. Leave `src` empty. The application injects the file, or paints a placeholder into that same tag. Compose around that slot — bottom band, editorial stack, or 50/50 split. Do not omit the img and hope the app will insert one.
 
-If `visual.hasAsset` is true, do **not**:
+If `visual.hasAsset` is true, read `visual.photograph.visibleContent` when present: crop and size the image so the subject stays in frame. The photograph is the visual, not an empty rectangle behind type.
+
+If `visual.includeImageSlot` is true, do **not**:
 
 - omit the `<img>`
-- replace the photograph with shapes, bars, skewed rectangles, wireframes, or a void
-- treat `visual.type: Illustration` as permission to invent geometry when `hasAsset` is true — the assigned photo is the visual
+- replace the slot with shapes, bars, skewed rectangles, wireframes, or a void
+- switch to a text-led composition because `hasAsset` is false — the empty img **is** the visual slot
+- treat `visual.type: Illustration` as permission to invent geometry — the image slot is the visual
 
-If there is no asset and `visual.priority` is `none`, compose text-led. Never invent a missing photograph.
+An empty `<img>` has no intrinsic size. Give the slot a real height with `flex-basis` or `%` height (for example `flex: 0 0 42%`), not `max-height` alone.
+
+If `visual.includeImageSlot` is false, compose text-led. Do not invent a photograph slot.
 
 Return `failed` only when there are no visual slides to compose.
 
@@ -68,10 +73,10 @@ Read **narrative role** + **content structure** together to determine Layout Int
 
 The photograph is the work. Copy orients it. Do not posterize the photo behind a giant headline.
 
-- If `visual.hasAsset` is true, the composition is **image-led**. The photograph must occupy a real slot (`<img data-slot="image">`). Copy orients it.
+- If `visual.includeImageSlot` is true, the composition is **image-led**. The slot (`<img data-slot="image">`) occupies a real height whether or not a file is assigned. Copy orients it.
 - A long title (12+ words or a question) never dominates a photograph. Put it in a bottom band or a split. The room must stay visible.
 - Hook + Title + Image: bottom-band overlay, or split (photo / type). Not a statement stretched across the picture.
-- `visual.priority: none` with no assigned photograph means text-led. Do not invent a photograph slot.
+- `visual.includeImageSlot: false` means text-led. Do not invent a photograph slot.
 - Quote / Number_Stat / Comparison / Before_After dominate when they are the primary structure.
 - CTA slides stay simple.
 - `Annotation` never dominates. The photograph and the pointed-at subject stay readable. The callout is a light mark on the photo, not a second headline.
@@ -124,10 +129,10 @@ The application supplies font-family, weight, and colour. You may set **size onl
 <img data-slot="image" alt="">
 ```
 
-- Empty `src` — the application injects the photo
-- Size with flex/grid, not fixed dimensions
+- Empty `src` — the application injects the photo, or a placeholder when none is assigned
+- Size with flex/grid, not fixed dimensions. Use `flex-basis` or height so an empty src still holds space
 - `object-fit:cover` for cropping
-- Let application CSS add borders, shadows, radius
+- Let application CSS add borders, shadows, radius, and the empty-slot fill
 - Do not output a second `<img>` unless `visual` has more than one assigned photograph
 
 ### No decorative elements
@@ -135,7 +140,7 @@ The application supplies font-family, weight, and colour. You may set **size onl
 - No pseudo-elements (`::before`, `::after`) except a functional `border-top` divider
 - No transforms (`skew`, `rotate`, `perspective`) or 3D
 - No opacity tricks, gradients, or scrims in HTML — the application paints overlay treatment on bleed slides
-- No wireframes, shapes, or placeholder graphics
+- No wireframes, shapes, or invented graphics. The empty `<img data-slot="image">` is the placeholder — do not draw a rectangle instead of it
 - Do not render logos, fake UI chrome, watermarks, or slide numbers
 - Do not put the caption, hashtags, or CTA from the post footer on the slide unless Structure locked an Action element
 
@@ -168,7 +173,7 @@ Absolute positioning is allowed **only** for:
 
 Never absolutely position body, comparison, items, quote, stat, or action. Never stack two text slots at the same coordinates.
 
-A slide with a comparison, items, or a body paragraph *plus* a photo is a **reading layout**, not a bottom-band poster: give the photo a real slot at the top and let the copy flow in its own space below, each block clear of the next.
+A slide with a comparison, items, or a body paragraph *plus* an image slot is a **reading layout**, not a bottom-band poster: give the img a real slot at the top and let the copy flow in its own space below, each block clear of the next. Same rule when the slot is still a placeholder.
 
 ### Markup contract
 
@@ -206,12 +211,12 @@ Adapt copy. Keep the structure. Do not specify colours or faces.
 
 ```html
 <style>
-.slide{width:100%;height:100%;overflow:hidden;display:flex;flex-direction:column;gap:1.2em;padding:10% 8% 14%;container-type:size}
+.slide{width:100%;height:100%;overflow:hidden;display:flex;flex-direction:column;container-type:size}
 .slide,.slide *{box-sizing:border-box}
-.slide img{width:100%;max-height:45%;object-fit:cover;flex:0 0 auto}
-.slide h1{margin:0}
-.slide .subtitle{margin:0}
-.slide .comparison{display:flex;gap:5%;margin-top:auto}
+.slide img{width:100%;flex:0 0 42%;max-height:45%;object-fit:cover;min-height:0}
+.slide h1{margin:0;padding:6% 8% 0}
+.slide .subtitle{margin:0.6em 0 0;padding:0 8%}
+.slide .comparison{display:flex;gap:5%;margin-top:auto;padding:0 8% 14%}
 .slide .comp-side{flex:1;min-width:0}
 </style>
 <article class="slide">
@@ -225,7 +230,7 @@ Adapt copy. Keep the structure. Do not specify colours or faces.
 </article>
 ```
 
-**Hierarchy:** Photo ~45%, then title, subtitle, comparison. Clear vertical flow. Never overlay comparison on the photo.
+**Hierarchy:** Image slot ~42% (photo or placeholder), then title, subtitle, comparison. Clear vertical flow. Never overlay comparison on the photo. Same when `hasAsset` is false — the empty img still holds that slot.
 
 ### Pattern 3 — Image dominant (photo top 50%, text below)
 
@@ -425,6 +430,7 @@ Each slide looks different. Each uses the Day Writer content without rewriting.
 - Inventing shapes, bars, or panels that are not a photograph slot or a type container
 - Overlapping text blocks
 - Omitting or rewriting Day Writer content
+- Omitting `img[data-slot=image]` when `visual.includeImageSlot` is true
 
 ## 7. User-requested alternatives — not this call
 
@@ -471,7 +477,7 @@ Roles, purposes, and intended text elements. Do not treat this as a visual lock.
 
 Filled copy and visual execution. Compose these elements. Do not rewrite them.
 
-If `visual.hasAsset` is true, include `<img data-slot="image">` and compose the slide around that photograph. Use `visual.photograph.visibleContent` to decide crop and what stays readable. The app injects the file. Do not invent a substitute graphic.
+If `visual.includeImageSlot` is true, include `<img data-slot="image">` (empty `src`) and compose the slide around that slot. When `visual.hasAsset` is true, use `visual.photograph.visibleContent` to decide crop and what stays readable. When `hasAsset` is false, still output the img — the app paints a placeholder into it. Do not omit the slot. Do not invent a substitute graphic.
 
 If a slide has `filled.annotation`, draw that callout on the photograph (`data-slot="annotation"`). Do not move it into the type band or drop it.
 

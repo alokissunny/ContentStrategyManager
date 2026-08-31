@@ -929,6 +929,22 @@ function slideHasAsset(raw, flat, visual) {
   return false;
 }
 
+function slideWantsVisual(raw, flat, visual) {
+  if (slideHasAsset(raw, flat, visual)) return true;
+  const v = visual && typeof visual === 'object' ? visual : {};
+  const priority = String(v.priority || '').trim().toLowerCase();
+  const type = String(v.type || '').trim().toLowerCase();
+  const execution = String(v.execution || '').trim().toLowerCase();
+  const source = String(v.source || '').trim().toLowerCase();
+  if (priority && priority !== 'none') return true;
+  if (type && type !== 'none') return true;
+  if (source && source !== 'none') return true;
+  if (/supplied|generated|graphic|unresolved/.test(execution)) return true;
+  if (String(flat?.image || '').toLowerCase() === 'placeholder') return true;
+  if (typeof raw?.image === 'string' && raw.image.toLowerCase() === 'placeholder') return true;
+  return false;
+}
+
 function filledElementTypes(flat, visual) {
   const types = [];
   const add = (type) => {
@@ -943,9 +959,8 @@ function filledElementTypes(flat, visual) {
   if (optionalText(flat.stat)) add('Number_Stat');
   if (optionalText(flat.quote)) add('Quote');
   if (optionalText(flat.action)) add('Action');
-  const priority = String(visual?.priority || '').toLowerCase();
   const type = optionalText(visual?.type);
-  if (visual?.hasAsset || (priority && priority !== 'none')) add(type && type !== 'none' ? type : 'Image');
+  if (visual?.hasAsset || visual?.includeImageSlot) add(type && type !== 'none' ? type : 'Image');
   if (optionalText(flat?.annotation?.text || flat?.annotation)) add('Annotation');
   return types;
 }
@@ -964,7 +979,7 @@ function photographHintOf(assetKey, dayBrief) {
   return hint;
 }
 
-function layoutVisualOf(visual, hasAsset, assetKey, photograph) {
+function layoutVisualOf(visual, hasAsset, assetKey, photograph, includeImageSlot) {
   const none = (value) => !optionalText(value) || optionalText(value).toLowerCase() === 'none';
   if (hasAsset) {
     return {
@@ -974,8 +989,21 @@ function layoutVisualOf(visual, hasAsset, assetKey, photograph) {
       execution: optionalText(visual?.execution) || 'supplied-asset',
       productionInstruction: optionalText(visual?.productionInstruction),
       hasAsset: true,
+      includeImageSlot: true,
       assetKey: optionalText(assetKey) || optionalText(visual?.assetKey),
       photograph: photograph || { assigned: true },
+    };
+  }
+  if (includeImageSlot) {
+    return {
+      priority: none(visual?.priority) ? 'recommended' : optionalText(visual.priority),
+      role: none(visual?.role) ? 'context' : optionalText(visual.role),
+      type: none(visual?.type) ? 'Image' : optionalText(visual.type),
+      execution: optionalText(visual?.execution),
+      productionInstruction: optionalText(visual?.productionInstruction),
+      hasAsset: false,
+      includeImageSlot: true,
+      assetKey: '',
     };
   }
   return {
@@ -985,6 +1013,7 @@ function layoutVisualOf(visual, hasAsset, assetKey, photograph) {
     execution: optionalText(visual?.execution),
     productionInstruction: optionalText(visual?.productionInstruction),
     hasAsset: false,
+    includeImageSlot: false,
     assetKey: '',
   };
 }
@@ -1022,11 +1051,20 @@ function compositionNoteOf(flat, visual) {
   if (visual?.hasAsset && hasAnnote) {
     return 'Photograph with a subject callout: annotation slot on the photo (label + curved SVG arrow). Keep the label in negative space, off the title band and off the subject. Do not specify colours or fonts.';
   }
+  if (visual?.includeImageSlot && hasAnnote) {
+    return 'Image slot (placeholder until a photograph is assigned) with a subject callout: include img[data-slot=image], size it with flex-basis, keep the annotation on that pane. Do not specify colours or fonts.';
+  }
   if (visual?.hasAsset && titleWords >= 12) {
     return 'Long title on a photograph: bottom-band overlay (image fill, title at 14% from bottom) or a split. Keep the room visible. Do not specify colours or fonts.';
   }
+  if (visual?.includeImageSlot && titleWords >= 12) {
+    return 'Long title on an image slot: bottom-band or split. No file is assigned yet — still include img[data-slot=image] and give it a real height with flex-basis. Do not switch to text-led. Do not specify colours or fonts.';
+  }
   if (visual?.hasAsset) {
     return 'A real photograph will be injected into img[data-slot=image]. Include that img. Compose around the photo with flex/grid or a bottom-band overlay. Do not invent shapes or omit the img. Do not specify colours or fonts.';
+  }
+  if (visual?.includeImageSlot) {
+    return 'No photograph is assigned yet. Still include img[data-slot=image] with empty src. Compose around that slot as the visual (editorial stack, split, or bottom-band). Size it with flex-basis or height so the empty tag holds space. The app paints a placeholder into it and must not insert the img for you. Do not omit the img or switch to text-led. Do not specify colours or fonts.';
   }
   return 'No photograph. Text-led composition. Do not invent a photograph slot. Do not specify colours or fonts.';
 }
@@ -1039,13 +1077,16 @@ function layoutInputOf(post, structure, dayBrief) {
       const index = Number(raw?.index) > 0 ? Number(raw.index) : i + 1;
       const structured = structureSlideOf(structure, index);
       const flat = flattenSlide(raw);
-      const hasAsset = slideHasAsset(raw, flat, raw?.visual || flat.visual);
+      const sourceVisual = raw?.visual && typeof raw.visual === 'object' ? raw.visual : (flat.visual || {});
+      const hasAsset = slideHasAsset(raw, flat, sourceVisual);
+      const includeImageSlot = slideWantsVisual(raw, flat, sourceVisual);
       const assetKey = optionalText(flat.assetKey) || optionalText(raw?.assetKey) || optionalText(raw?.visual?.assetKey);
       const visual = layoutVisualOf(
-        raw?.visual && typeof raw.visual === 'object' ? raw.visual : (flat.visual || {}),
+        sourceVisual,
         hasAsset,
         assetKey,
         hasAsset ? photographHintOf(assetKey, dayBrief) : null,
+        includeImageSlot,
       );
       return {
         index,
@@ -1102,8 +1143,8 @@ function validateLayout(parsed, post) {
     if (!html) throw new Error(`slide ${s?.index || i + 1} missing layout html`);
     const raw = Array.isArray(post?.content?.slides) ? (post.content.slides[i] || {}) : {};
     const flat = flattenSlide(raw);
-    if (slideHasAsset(raw, flat, raw?.visual || flat.visual) && !hasImageSlot(html)) {
-      throw new Error(`slide ${s?.index || i + 1} missing img[data-slot=image] for assigned photograph`);
+    if (slideWantsVisual(raw, flat, raw?.visual || flat.visual) && !hasImageSlot(html)) {
+      throw new Error(`slide ${s?.index || i + 1} missing img[data-slot=image]`);
     }
     const hierarchy = s?.visualHierarchy && typeof s.visualHierarchy === 'object' ? s.visualHierarchy : {};
     const primary = Array.isArray(hierarchy.primary)
