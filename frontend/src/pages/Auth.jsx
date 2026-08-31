@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, Navigate, useNavigate } from 'react-router-dom';
 import { GoogleLogin } from '@react-oauth/google';
 import Glyph from '../components/Glyph';
 import PanelMotif from '../components/PanelMotif';
@@ -70,9 +70,12 @@ export default function Auth() {
   const [loading, setLoading] = useState(false);
   const [demoLoading, setDemoLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
-  const { login: doLogin, register: doRegister, demoLogin: doDemoLogin, googleLogin: doGoogleLogin } = useAuth();
+  const { user, loading: authLoading, login: doLogin, register: doRegister, demoLogin: doDemoLogin, googleLogin: doGoogleLogin } = useAuth();
   const navigate = useNavigate();
   const isMobile = useIsMobile();
+
+  if (authLoading) return null;
+  if (user) return <Navigate to={postLoginPath()} replace />;
 
   async function handleSubmit(e) {
     e.preventDefault();

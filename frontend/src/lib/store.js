@@ -250,3 +250,23 @@ export function useStore() {
 // account switcher) also picks up settings saved on another origin. A no-op when
 // signed out or no handle is remembered yet — the switcher hydrates then.
 if (activeHandle) hydrate(activeHandle);
+
+// Account switch writes HANDLE_KEY then reloads that tab. Other tabs keep the
+// old handle in memory until they notice — reload dashboard tabs so plans,
+// projects and the header stay on the same account.
+if (typeof window !== 'undefined') {
+  window.addEventListener('storage', (event) => {
+    if (event.key !== HANDLE_KEY) return;
+    const next = normHandle(event.newValue);
+    if (!next || next === activeHandle) return;
+    const path = window.location.pathname || '';
+    if (path.startsWith('/dashboard') || path.startsWith('/onboarding')) {
+      window.location.reload();
+      return;
+    }
+    activeHandle = next;
+    state = load(next);
+    lastPushedSig = null;
+    listeners.forEach((fn) => fn());
+  });
+}
