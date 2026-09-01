@@ -2,6 +2,10 @@ function trim(value) {
   return String(value || '').trim();
 }
 
+// On-photo Annotation overlay is off. Drop callouts from layout HTML even if
+// an older post still has annotation copy. Flip with the backend flag later.
+const ANNOTATIONS_ENABLED = false;
+
 function escAttr(value) {
   return String(value || '')
     .replace(/&/g, '&amp;')
@@ -405,7 +409,7 @@ export function prepareLayoutHtml(raw, { scope, imageUrls, copy } = {}) {
   const hasPhoto = urls.length > 0;
   html = html.replace(/<style\b[^>]*>([\s\S]*?)<\/style>/gi, (_, css) => `<style>${sanitizeLayoutCss(css, { hasPhoto })}</style>`);
   html = ensureCopySlots(html, copy);
-  if (urls.length && copy?.annotation) {
+  if (ANNOTATIONS_ENABLED && urls.length && copy?.annotation) {
     html = rewriteAnnotationText(html, typeof copy.annotation === 'string' ? copy.annotation : copy.annotation.text);
   } else {
     html = dropAnnotation(html);

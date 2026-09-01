@@ -217,6 +217,20 @@
   font-size: 12px;
   font-weight: 600;
 }
+.ai-debug__elapsed {
+  font-size: 11px;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+  color: var(--signal-ink, #1b100d);
+  background: var(--signal-500, #ff5227);
+  border-radius: 999px;
+  padding: 2px 7px;
+  letter-spacing: 0.01em;
+}
+.ai-debug__peek .ai-debug__elapsed {
+  background: rgba(255,255,255,.16);
+  color: #fff;
+}
 .ai-debug__count {
   display: inline-grid;
   place-items: center;

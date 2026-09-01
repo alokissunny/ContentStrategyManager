@@ -1,6 +1,6 @@
 const fs = require('fs');
 const path = require('path');
-const { flattenSlide, layoutForStructure, asStoredText, asStoredLines, mediaKeysOf } = require('./slideContent');
+const { flattenSlide, layoutForStructure, asStoredText, asStoredLines, mediaKeysOf, ANNOTATIONS_ENABLED } = require('./slideContent');
 const { boxOf } = require('./subjectBox');
 const { computeAuthorityFunnel } = require('./authorityFunnel');
 const { sessionRowsOf } = require('./planContext');
@@ -630,7 +630,7 @@ function normalizeSlides(rawSlides, onScreenText, format, title, cta, validKeys 
       assetKeys: keys,
       layout,
       layoutHtml: s.layoutHtml || '',
-      annotation: s.annotation && s.annotation.text
+      annotation: ANNOTATIONS_ENABLED && s.annotation && s.annotation.text
         ? {
           text: String(s.annotation.text || '').trim(),
           targetSubject: String(s.annotation.targetSubject || '').trim(),
@@ -810,6 +810,7 @@ async function generateSingleAgentPlan({
   system,
   user,
 }) {
+  const started = Date.now();
   const planMaxTokens = () => {
     const n = Number(process.env.WEEKLY_PLAN_MAX_TOKENS);
     return Number.isFinite(n) && n > 0 ? n : 32000;
@@ -873,22 +874,25 @@ async function generateSingleAgentPlan({
     throw new Error(`Weekly plan generation returned unparseable JSON (stop_reason=${result.stopReason})`);
   }
 
+  const elapsedMs = Date.now() - started;
   return {
     focusOut: parsed.focus || {},
     rawDays: parsed.days || [],
-    usage,
+    usage: { ...usage, elapsedMs },
     model,
     debug: {
       mode: 'single',
       model,
+      elapsedMs,
       finalPrompt: prompt,
       output: fullText,
-      agents: [{ source: 'Weekly plan (single)', model, prompt, output: fullText }],
+      agents: [{ source: 'Weekly plan (single)', model, prompt, output: fullText, elapsedMs }],
     },
   };
 }
 
 async function generateWeeklyPlan(profile, brandDna, competitorInsights = null, projects = [], options = {}) {
+  const started = Date.now();
   const model = planTextModel();
   const { funnel, focusPillar: gapPillar, confidence, seed } = buildFunnelWithScores(profile);
   // A month's four weeks share one focus (the month's pillar-gap pillar), so the
@@ -1039,13 +1043,15 @@ async function generateWeeklyPlan(profile, brandDna, competitorInsights = null, 
     usedAssetKeys,
   });
 
-  const usage = generated.usage;
+  const elapsedMs = Date.now() - started;
+  const usage = { ...(generated.usage || {}), elapsedMs };
   const planModel = generated.model || model;
   const actual = days.reduce((acc, d) => ({ ...acc, [d.pillar]: (acc[d.pillar] || 0) + 1 }), {});
   console.log(
     `[weeklyPlan] @${snapshot.username}: ${days.length} days generated · ` +
       `pillar mix ${JSON.stringify(actual)} (allocation hint ${JSON.stringify(dayAllocation)}) · ` +
-      `${usage.totalTokens} tokens (~$${usage.estimatedCostUsd.toFixed(4)})`
+      `${usage.totalTokens} tokens (~$${usage.estimatedCostUsd.toFixed(4)}) · ` +
+      `${Math.round(elapsedMs / 100) / 10}s`
   );
 
   return {
@@ -1057,7 +1063,10 @@ async function generateWeeklyPlan(profile, brandDna, competitorInsights = null, 
     days,
     dayAllocation,
     usage,
-    debug: generated.debug || { mode: useMulti ? 'multi-agent' : 'single', model: planModel, finalPrompt: prompt },
+    debug: {
+      ...(generated.debug || { mode: useMulti ? 'multi-agent' : 'single', model: planModel, finalPrompt: prompt }),
+      elapsedMs,
+    },
   };
 }
 

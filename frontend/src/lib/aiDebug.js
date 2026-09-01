@@ -80,12 +80,27 @@ function asText(value) {
   }
 }
 
+export function fmtElapsed(ms) {
+  const n = Number(ms);
+  if (!Number.isFinite(n) || n <= 0) return '';
+  if (n < 1000) return `${Math.round(n)}ms`;
+  const sec = n / 1000;
+  if (sec < 60) return `${sec < 10 ? sec.toFixed(1) : Math.round(sec)}s`;
+  const m = Math.floor(sec / 60);
+  const s = Math.round(sec % 60);
+  if (m < 60) return s ? `${m}m ${s}s` : `${m}m`;
+  const h = Math.floor(m / 60);
+  const rm = m % 60;
+  return rm ? `${h}h ${rm}m` : `${h}h`;
+}
+
 export function addAiDebugEntry(entry = {}) {
   if (!state.enabled) return;
   const prompt = asText(entry.prompt).trim();
   const output = asText(entry.output).trim();
   const systemPrompt = asText(entry.systemPrompt).trim();
-  if (!prompt && !output && !String(entry.note || '').trim()) return;
+  const elapsedMs = Number(entry.elapsedMs) || 0;
+  if (!prompt && !output && !String(entry.note || '').trim() && !elapsedMs) return;
   const item = {
     id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     at: Date.now(),
@@ -95,6 +110,7 @@ export function addAiDebugEntry(entry = {}) {
     output,
     systemPrompt,
     note: String(entry.note || ''),
+    elapsedMs,
   };
   const next = [item, ...state.entries].slice(0, MAX_ENTRIES);
   setState({ entries: next });

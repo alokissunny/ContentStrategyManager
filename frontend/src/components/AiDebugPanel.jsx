@@ -5,6 +5,7 @@ import {
   setAiDebugPanelOpen,
   clearAiDebugEntries,
   updateAiDebugEntry,
+  fmtElapsed,
 } from '../lib/aiDebug';
 import { rerunPrompt } from '../api/debug';
 import {
@@ -12,6 +13,12 @@ import {
   downloadFilesAsFolder,
   folderStamp,
 } from '../lib/downloadFolder';
+
+function lastCompleteRun(entries) {
+  return (entries || []).find((e) => Number(e.elapsedMs) > 0 && /generate plan|replan week/i.test(String(e.source || '')))
+    || (entries || []).find((e) => Number(e.elapsedMs) > 0)
+    || null;
+}
 
 function fmtTime(ms) {
   try {
@@ -164,29 +171,36 @@ function DebugEntry({ entry }) {
     }
   };
 
+  const hasIo = Boolean(String(entry.prompt || '').trim() || String(entry.output || '').trim());
+
   return (
-    <details className="ai-debug__item" open>
+    <details className="ai-debug__item" open={hasIo}>
       <summary className="ai-debug__sum">
         <span>{entry.source}</span>
         <span className="ai-debug__meta">
+          {entry.elapsedMs ? `${fmtElapsed(entry.elapsedMs)} · ` : ''}
           {entry.model ? `${entry.model} · ` : ''}
           {fmtTime(entry.at)}
         </span>
       </summary>
       {entry.note ? <p className="ai-debug__note">{entry.note}</p> : null}
-      <DebugBlock label="System" text={entry.systemPrompt} open copyable />
-      <InputBlock
-        draft={draft}
-        onDraftChange={setDraft}
-        onRerun={onRerun}
-        busy={busy}
-        disabled={!draft.trim()}
-      />
-      {error ? <p className="ai-debug__error">{error}</p> : null}
-      {busy ? <p className="ai-debug__missing">Rerunning with modified input…</p> : null}
-      {entry.output
-        ? <DebugBlock label="Output" text={entry.output} copyable />
-        : (!busy && <p className="ai-debug__missing">No output recorded for this call.</p>)}
+      {hasIo ? (
+        <>
+          <DebugBlock label="System" text={entry.systemPrompt} open copyable />
+          <InputBlock
+            draft={draft}
+            onDraftChange={setDraft}
+            onRerun={onRerun}
+            busy={busy}
+            disabled={!draft.trim()}
+          />
+          {error ? <p className="ai-debug__error">{error}</p> : null}
+          {busy ? <p className="ai-debug__missing">Rerunning with modified input…</p> : null}
+          {entry.output
+            ? <DebugBlock label="Output" text={entry.output} copyable />
+            : (!busy && <p className="ai-debug__missing">No output recorded for this call.</p>)}
+        </>
+      ) : null}
     </details>
   );
 }
@@ -233,6 +247,8 @@ function DownloadAllButton({ entries }) {
 export default function AiDebugPanel() {
   const debug = useAiDebug();
   if (!debug.enabled) return null;
+  const complete = lastCompleteRun(debug.entries);
+  const completeLabel = complete?.elapsedMs ? fmtElapsed(complete.elapsedMs) : '';
 
   if (!debug.open) {
     return (
@@ -244,6 +260,7 @@ export default function AiDebugPanel() {
       >
         <Glyph name="bug" size={14} strokeWidth={2} />
         Prompts
+        {completeLabel ? <span className="ai-debug__elapsed">{completeLabel}</span> : null}
         {debug.entries.length ? <span className="ai-debug__count">{debug.entries.length}</span> : null}
       </button>
     );
@@ -255,6 +272,11 @@ export default function AiDebugPanel() {
         <div className="ai-debug__title">
           <Glyph name="bug" size={14} strokeWidth={2} />
           AI Prompt Debug
+          {completeLabel ? (
+            <span className="ai-debug__elapsed" title="Time for the last complete generation">
+              {completeLabel}
+            </span>
+          ) : null}
         </div>
         <div className="ai-debug__acts">
           <DownloadAllButton entries={debug.entries} />

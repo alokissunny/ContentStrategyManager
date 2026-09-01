@@ -3,6 +3,8 @@ import { prepareLayoutHtml, splitLayoutDocument, isBleedPhotoLayout } from './la
 import { boxOf, fmtBox, mapBoxToCover, mapPointToCover, normalizeSubjects, placeFromBox, resolveTargetBox } from './subjectBox';
 import { useAiDebug } from '../../lib/aiDebug';
 
+const ANNOTATIONS_ENABLED = false;
+
 function trim(value) {
   return String(value || '').trim();
 }
@@ -17,6 +19,7 @@ const ANNOTE_REGIONS = new Set([
 ]);
 
 function annotationOf(value) {
+  if (!ANNOTATIONS_ENABLED) return null;
   if (!value) return null;
   if (typeof value === 'string') {
     const text = trim(value);

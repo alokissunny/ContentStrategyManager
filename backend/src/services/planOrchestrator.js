@@ -3,7 +3,7 @@ const path = require('path');
 const { extractJson, estimatePlanCostUsd, assignToEmptyDates, normalizeLens } = require('./weeklyPlan');
 const { compileStrategyContext, assetsForDay, allocatedAssetsOf, applyAssetAllocation, knownAssetIndexOf, json } = require('./planContext');
 const { completeText, resolvePlanAgentLlm, splitPromptTemplate } = require('./llmComplete');
-const { asStoredText, asStoredLines, flattenSlide, layoutForStructure, mediaKeysOf } = require('./slideContent');
+const { ANNOTATIONS_ENABLED, asStoredText, asStoredLines, flattenSlide, layoutForStructure, mediaKeysOf } = require('./slideContent');
 const { boxOf, matchSubject, regionFromBox } = require('./subjectBox');
 const { layoutById } = require('./layoutCatalog');
 const { extractLayoutHtml, hasImageSlot } = require('./layoutHtml');
@@ -69,7 +69,7 @@ const AVAILABLE_ELEMENTS = {
     'Image', 'Multiple_Images', 'Detail_Closeup', 'Screenshot', 'Document_Source',
     'Plan_Drawing', 'Illustration', 'Graphic_Artwork', 'Product_Object', 'People_Context',
     'Environment_Space', 'Video_Motion', 'Screen_Recording', 'Animation', 'Caption_Label',
-    'Annotation',
+    ...(ANNOTATIONS_ENABLED ? ['Annotation'] : []),
   ],
 };
 
@@ -85,7 +85,9 @@ const SOURCE_VISUAL_TYPES = new Set([
 const UI_SCHEMA = {
   slideFields: [
     'role', 'structure', 'title', 'subtitle', 'body', 'items', 'comparisonA', 'comparisonB',
-    'stat', 'quote', 'action', 'labels', 'annotation', 'image', 'imagePrompt', 'assetKey',
+    'stat', 'quote', 'action', 'labels',
+    ...(ANNOTATIONS_ENABLED ? ['annotation'] : []),
+    'image', 'imagePrompt', 'assetKey',
   ],
   visualFields: [
     'priority', 'role', 'type', 'communicationFunction', 'truthBoundary',
@@ -348,6 +350,7 @@ async function callAgent({ source, kind, prompt, system, user, validate }) {
   let lastErr;
   const userContent = user || prompt || '';
   const debugPrompt = [system, userContent].filter(Boolean).join('\n\n');
+  const started = Date.now();
 
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     if (attempt === 1) {
@@ -391,7 +394,7 @@ async function callAgent({ source, kind, prompt, system, user, validate }) {
       if (usage.cachedTokens) {
         console.log(`[planOrchestrator] ${source} cache hit ${usage.cachedTokens}/${usage.inputTokens} input tokens`);
       }
-      return { parsed, usage, debugEntry: { ...debugEntry, output: fullText } };
+      return { parsed, usage, debugEntry: { ...debugEntry, output: fullText, elapsedMs: Date.now() - started } };
     } catch (err) {
       lastErr = err;
       console.warn(`[planOrchestrator] ${source} attempt ${attempt}: validation failed — ${err.message}`);
@@ -657,13 +660,13 @@ function normalizeWriterPost(parsed, dayBrief, dayAssets) {
       image: wantsVisual ? (s.image || 'placeholder') : (s.image || ''),
       assetKey: wantsVisual ? (optionalText(s.assetKey) || optionalText(visual.assetKey)) : '',
       imagePrompt: wantsVisual ? (optionalText(s.imagePrompt) || optionalText(visual.imagePrompt)) : '',
-      annotation: flat.annotation || null,
+      annotation: ANNOTATIONS_ENABLED ? (flat.annotation || null) : null,
       visual,
     };
   }) : [], dayBrief);
   content.slides = slides.map((s) => ({
     ...s,
-    annotation: attachAnnotationBox(s.annotation, s, dayAssets),
+    annotation: ANNOTATIONS_ENABLED ? attachAnnotationBox(s.annotation, s, dayAssets) : null,
   }));
   content.caption = optionalText(parsed.caption || content.caption);
   content.cta = optionalText(parsed.cta || content.cta);
@@ -768,7 +771,8 @@ function validateContentStructure(parsed) {
     const supporting = Array.isArray(s?.supportingElements) ? s.supportingElements : [];
     const visual = s?.visual && typeof s.visual === 'object' ? s.visual : {};
     const action = s?.action && typeof s.action === 'object' ? s.action : {};
-    const primary = normalizeStructureType(s?.primaryStructure);
+    let primary = normalizeStructureType(s?.primaryStructure);
+    if (!ANNOTATIONS_ENABLED && primary === 'Annotation') primary = 'Image';
     const evidenceResolution = evidenceResolutionOf(s?.evidenceResolution);
     return {
       index: Number(s?.index) > 0 ? Number(s.index) : i + 1,
@@ -790,8 +794,9 @@ function validateContentStructure(parsed) {
         supportReference: stringList(el?.supportReference).length
           ? stringList(el.supportReference)
           : (optionalText(el?.supportReference) ? [optionalText(el.supportReference)] : []),
-        ...(optionalText(el?.targetSubject) ? { targetSubject: optionalText(el.targetSubject) } : {}),
-      })).filter((el) => el.type && AVAILABLE_ELEMENT_SET.has(el.type) && el.type !== primary),
+        ...(ANNOTATIONS_ENABLED && optionalText(el?.targetSubject) ? { targetSubject: optionalText(el.targetSubject) } : {}),
+      })).filter((el) => el.type && AVAILABLE_ELEMENT_SET.has(el.type) && el.type !== primary
+        && (ANNOTATIONS_ENABLED || el.type !== 'Annotation')),
       selectionReason: optionalText(s?.selectionReason),
       contentGuidance: optionalText(s?.contentGuidance),
       visual: visualPlanOf(visual, evidenceResolution),
@@ -831,18 +836,58 @@ function validateContentStructure(parsed) {
   };
 }
 
+function mergeAllocatedVisuals(brief, dayAssets) {
+  const allocated = allocatedAssetsOf(brief?.allocatedAssets);
+  const extras = Array.isArray(dayAssets) ? dayAssets : [];
+  const byKey = new Map();
+  extras.forEach((row) => {
+    const key = optionalText(row?.key);
+    if (key) byKey.set(key, row);
+  });
+  const out = [];
+  const seen = new Set();
+  allocated.forEach((a, i) => {
+    const extra = byKey.get(a.key) || {};
+    seen.add(a.key);
+    out.push({
+      key: a.key,
+      project: optionalText(extra.project),
+      summary: optionalText(extra.summary) || optionalText(a.visibleContent),
+      subjects: Array.isArray(extra.subjects) ? extra.subjects : [],
+      allocated: true,
+      preferred: Boolean(extra.preferred) || i === 0,
+      source: optionalText(a.source),
+      evidenceLevel: optionalText(a.evidenceLevel),
+      visibleContent: optionalText(a.visibleContent) || optionalText(extra.summary),
+      communicationPotential: optionalText(a.communicationPotential),
+      limitations: Array.isArray(a.limitations) ? a.limitations : [],
+      why: optionalText(a.why),
+      supportsUnitIds: Array.isArray(a.supportsUnitIds) ? a.supportsUnitIds : [],
+    });
+  });
+  extras.forEach((extra) => {
+    const key = optionalText(extra?.key);
+    if (!key || seen.has(key)) return;
+    seen.add(key);
+    out.push({
+      key,
+      project: optionalText(extra.project),
+      summary: optionalText(extra.summary),
+      subjects: Array.isArray(extra.subjects) ? extra.subjects : [],
+      allocated: Boolean(extra.allocated),
+      preferred: Boolean(extra.preferred),
+    });
+  });
+  return out.slice(0, 6);
+}
+
 function strategyBriefPayload(brief) {
   return {
-    date: brief.date,
-    day: brief.day,
     pillar: brief.pillar,
     lens: brief.lens,
     pillarJob: brief.pillarJob,
     source: brief.source,
     captureId: brief.captureId,
-    sourceCaptureId: brief.sourceCaptureId || brief.captureId,
-    sourceInternalStoryIds: brief.sourceInternalStoryIds || [],
-    sourceTrace: brief.sourceTrace || [],
     sourceStoryId: brief.sourceStoryId,
     project: brief.project,
     originalCapture: brief.originalCapture,
@@ -850,7 +895,6 @@ function strategyBriefPayload(brief) {
     verifiedTruth: brief.verifiedTruth,
     observableDetails: brief.observableDetails,
     relevantAssetContext: brief.relevantAssetContext,
-    allocatedAssets: brief.allocatedAssets || [],
     visualLimitations: brief.visualLimitations,
     uniqueJob: brief.uniqueJob,
     audienceTension: brief.audienceTension,
@@ -861,12 +905,56 @@ function strategyBriefPayload(brief) {
     format: brief.format,
     formatReason: brief.formatReason,
     narrativeUnits: brief.narrativeUnits,
+    approvedGenerationRoute: brief.approvedGenerationRoute,
     knownLimitation: brief.knownLimitation,
   };
 }
 
+function writerBriefPayload(brief) {
+  return strategyBriefPayload(brief);
+}
+
+function qualityBriefPayload(brief, dayAssets) {
+  return {
+    ...writerBriefPayload(brief),
+    allocatedVisuals: mergeAllocatedVisuals(brief, dayAssets).map((a) => ({
+      key: a.key,
+      allocated: Boolean(a.allocated),
+      visibleContent: optionalText(a.visibleContent || a.summary),
+      why: optionalText(a.why),
+      evidenceLevel: optionalText(a.evidenceLevel),
+    })),
+  };
+}
+
+function writerStructureOf(structure) {
+  const slides = Array.isArray(structure?.slidesOrScenes) ? structure.slidesOrScenes : [];
+  return {
+    format: optionalText(structure?.format),
+    captionUnits: stringList(structure?.captionUnits),
+    ctaUnit: structure?.ctaUnit == null || structure?.ctaUnit === '' ? null : structure.ctaUnit,
+    slidesOrScenes: slides.map((s) => ({
+      index: s?.index,
+      role: optionalText(s?.role),
+      coversUnits: stringList(s?.coversUnits),
+      purpose: optionalText(s?.purpose),
+      placement: optionalText(s?.placement) || 'visual',
+      textNeed: s?.textNeed || null,
+      primaryStructure: optionalText(s?.primaryStructure),
+      supportingElements: (s?.supportingElements || []).map((el) => ({
+        type: optionalText(el?.type),
+        function: optionalText(el?.function),
+      })).filter((el) => el.type),
+      contentGuidance: optionalText(s?.contentGuidance),
+      visual: s?.visual || {},
+      action: s?.action || {},
+      evidenceResolution: optionalText(s?.evidenceResolution?.type || s?.evidenceResolution),
+    })),
+  };
+}
+
 async function writeContentStructure({ source, brief, dayAssets }) {
-  const visuals = Array.isArray(dayAssets) ? dayAssets.slice(0, 6) : [];
+  const visuals = mergeAllocatedVisuals(brief, dayAssets);
   const assembled = assembleAgentPrompt('plan-content-structure.md', {
     AVAILABLE_ELEMENTS_JSON: json(AVAILABLE_ELEMENTS),
     STRATEGIST_BRIEF_JSON: json(strategyBriefPayload(brief)),
@@ -888,10 +976,10 @@ async function writeDayPost({
   structureJson,
 }) {
   const assembled = assembleAgentPrompt('plan-day-writer.md', {
-    DAY_JSON: json(brief),
+    DAY_JSON: json(writerBriefPayload(brief)),
     STRUCTURE_JSON: structureJson || json({}),
     CONSTRAINTS_JSON: constraintsJson,
-    DAY_ASSETS: json(dayAssets),
+    DAY_ASSETS: json(mergeAllocatedVisuals(brief, dayAssets)),
     GENERATION_SIGNALS_JSON: generationSignalsJson,
     AUTHORITY_FOCUS_JSON: authorityFocusJson,
     BRAND_JSON: brandJson || json({}),
@@ -943,26 +1031,6 @@ function slideWantsVisual(raw, flat, visual) {
   if (String(flat?.image || '').toLowerCase() === 'placeholder') return true;
   if (typeof raw?.image === 'string' && raw.image.toLowerCase() === 'placeholder') return true;
   return false;
-}
-
-function filledElementTypes(flat, visual) {
-  const types = [];
-  const add = (type) => {
-    const name = optionalText(type);
-    if (name && !types.includes(name)) types.push(name);
-  };
-  if (optionalText(flat.title)) add('Title');
-  if (optionalText(flat.subtitle)) add('Subtitle');
-  if (optionalText(flat.body)) add('Body');
-  if ((flat.items || []).length) add('List');
-  if (optionalText(flat.comparisonA) && optionalText(flat.comparisonB)) add('Comparison');
-  if (optionalText(flat.stat)) add('Number_Stat');
-  if (optionalText(flat.quote)) add('Quote');
-  if (optionalText(flat.action)) add('Action');
-  const type = optionalText(visual?.type);
-  if (visual?.hasAsset || visual?.includeImageSlot) add(type && type !== 'none' ? type : 'Image');
-  if (optionalText(flat?.annotation?.text || flat?.annotation)) add('Annotation');
-  return types;
 }
 
 function photographHintOf(assetKey, dayBrief) {
@@ -1029,6 +1097,10 @@ function layoutStructureOf(structure) {
       placement: optionalText(s?.placement) || 'visual',
       primaryStructure: optionalText(s?.primaryStructure),
       supportingElements: (s?.supportingElements || []).map((el) => optionalText(el?.type || el)).filter(Boolean),
+      visual: {
+        priority: optionalText(s?.visual?.priority) || 'none',
+        type: optionalText(s?.visual?.type) || 'none',
+      },
     })),
   };
 }
@@ -1047,7 +1119,7 @@ function copyMetricsOf(flat) {
 
 function compositionNoteOf(flat, visual) {
   const titleWords = wordCount(flat?.title);
-  const hasAnnote = optionalText(flat?.annotation?.text || flat?.annotation);
+  const hasAnnote = ANNOTATIONS_ENABLED && optionalText(flat?.annotation?.text || flat?.annotation);
   if (visual?.hasAsset && hasAnnote) {
     return 'Photograph with a subject callout: annotation slot on the photo (label + curved SVG arrow). Keep the label in negative space, off the title band and off the subject. Do not specify colours or fonts.';
   }
@@ -1092,9 +1164,6 @@ function layoutInputOf(post, structure, dayBrief) {
         index,
         role: optionalText(flat.role || structured?.role) || 'other',
         purpose: optionalText(structured?.purpose),
-        primaryStructure: optionalText(structured?.primaryStructure || flat.structure),
-        supportingElements: (structured?.supportingElements || []).map((el) => optionalText(el?.type)).filter(Boolean),
-        contentStructure: filledElementTypes(flat, visual),
         filled: {
           title: optionalText(flat.title),
           subtitle: optionalText(flat.subtitle),
@@ -1107,14 +1176,16 @@ function layoutInputOf(post, structure, dayBrief) {
           stat: optionalText(flat.stat),
           quote: optionalText(flat.quote),
           action: optionalText(flat.action),
-          annotation: flat.annotation && optionalText(flat.annotation.text)
+          ...(ANNOTATIONS_ENABLED && flat.annotation && optionalText(flat.annotation.text)
             ? {
-              text: optionalText(flat.annotation.text),
-              targetSubject: optionalText(flat.annotation.targetSubject),
-              targetRegion: optionalText(flat.annotation.targetRegion) || 'center',
-              ...(flat.annotation.targetBox ? { targetBox: flat.annotation.targetBox } : {}),
+              annotation: {
+                text: optionalText(flat.annotation.text),
+                targetSubject: optionalText(flat.annotation.targetSubject),
+                targetRegion: optionalText(flat.annotation.targetRegion) || 'center',
+                ...(flat.annotation.targetBox ? { targetBox: flat.annotation.targetBox } : {}),
+              },
             }
-            : null,
+            : {}),
         },
         copyMetrics: copyMetricsOf(flat),
         compositionNote: compositionNoteOf(flat, visual),
@@ -1233,28 +1304,9 @@ async function attachLayout({ label, structure, writer, collect, dayBrief, dayAs
   }
 }
 
-async function reviewDayPost({ source, brief, post, structure }) {
+async function reviewDayPost({ source, brief, post, structure, dayAssets }) {
   const assembled = assembleAgentPrompt('plan-quality.md', {
-    BRIEF_JSON: json({
-      pillar: brief.pillar,
-      lens: brief.lens,
-      pillarJob: brief.pillarJob,
-      format: brief.format,
-      angle: brief.angle,
-      uniqueJob: brief.uniqueJob,
-      verifiedTruth: brief.verifiedTruth,
-      observableDetails: brief.observableDetails,
-      relevantAssetContext: brief.relevantAssetContext,
-      visualLimitations: brief.visualLimitations,
-      narrativeUnits: brief.narrativeUnits,
-      audienceTension: brief.audienceTension,
-      hookTerritory: brief.hookTerritory,
-      centralFact: brief.centralFact,
-      ownedTerritory: brief.ownedTerritory,
-      doNotRepeat: brief.doNotRepeat,
-      knownLimitation: brief.knownLimitation,
-      sourceStoryId: brief.sourceStoryId,
-    }),
+    BRIEF_JSON: json(qualityBriefPayload(brief, dayAssets)),
     STRUCTURE_JSON: json(structure || {}),
     POST_JSON: json(post),
   });
@@ -1284,6 +1336,7 @@ async function runMultiAgentPlan({
   sessionId = '',
   captureIds = [],
 }) {
+  const started = Date.now();
   const username = profile?.username || '?';
   const ctx = compileStrategyContext({
     brandDna,
@@ -1445,9 +1498,6 @@ async function runMultiAgentPlan({
         dayAssets,
         generationSignalsJson,
         authorityFocusJson: json({
-          lockedLens: pillar,
-          lockedPillar: pillar,
-          pillarJob: optionalText(planned.pillarJob) || PILLAR_JOB[pillar] || '',
           accountPriority: ctx.authority.priority,
           objective: optionalText(strategist.parsed.focus?.objective),
           headline: optionalText(strategist.parsed.focus?.headline),
@@ -1492,7 +1542,8 @@ async function runMultiAgentPlan({
         };
       }
 
-      writerOpts.structureJson = json(structure.parsed);
+      const lockedStructure = writerStructureOf(structure.parsed);
+      writerOpts.structureJson = json(lockedStructure);
       const visualCount = visualSlidesOf(structure.parsed).length;
       console.log(
         `[planOrchestrator] Structure:${label} ${structure.parsed.format}` +
@@ -1548,7 +1599,8 @@ async function runMultiAgentPlan({
           source: `Quality:${label}`,
           brief,
           post: writer.parsed,
-          structure: structure.parsed,
+          structure: lockedStructure,
+          dayAssets,
         });
         collect(review);
       } catch (err) {
@@ -1579,7 +1631,8 @@ async function runMultiAgentPlan({
             source: `Quality:${label}:${pass}${rewrites}`,
             brief,
             post: writer.parsed,
-            structure: structure.parsed,
+            structure: lockedStructure,
+            dayAssets,
           });
           collect(review);
         } catch (err) {
@@ -1689,6 +1742,8 @@ async function runMultiAgentPlan({
 
   const model = agentModel('strategist');
   const usage = mergeUsage(usages, model);
+  const elapsedMs = Date.now() - started;
+  usage.elapsedMs = elapsedMs;
 
   console.log(
       `[planOrchestrator] @${username}: strategist+structure+${rawDays.length} days` +
@@ -1697,6 +1752,7 @@ async function runMultiAgentPlan({
       ` · ${usage.totalTokens} tokens` +
       (usage.cachedTokens ? ` (${usage.cachedTokens} cached)` : '') +
       ` (~$${usage.estimatedCostUsd.toFixed(4)})` +
+      ` · ${Math.round(elapsedMs / 100) / 10}s` +
       ` · prompts chars strategist=${strategistPrompt.length}`,
   );
 
@@ -1709,6 +1765,7 @@ async function runMultiAgentPlan({
     debug: {
       mode: 'multi-agent',
       model,
+      elapsedMs,
       // Keep a lead prompt for older clients; full list lives in agents.
       finalPrompt: strategistPrompt,
       agents: debugAgents.map((a) => ({
@@ -1717,6 +1774,7 @@ async function runMultiAgentPlan({
         provider: a.provider || '',
         prompt: a.prompt,
         output: a.output || '',
+        elapsedMs: Number(a.elapsedMs) || 0,
       })),
     },
   };

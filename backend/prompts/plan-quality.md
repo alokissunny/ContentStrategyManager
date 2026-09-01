@@ -26,10 +26,6 @@ Do not invent information that is not present.
 
 Slide/scene count, unit mapping, `primaryStructure`, supporting elements, resolved visual after evidence fallback, and actions are locked by Content Structure. Do not instruct the Day Writer to add, remove, merge, or split slides, or to swap a locked structure. If copy made two slides feel the same, tell the writer to restore each slide's distinct locked purpose. If the locked structure itself cannot communicate the story, choose REGENERATE and say so — still without asking the writer to invent a new mapping.
 
-A locked `Annotation` is on-photo labelling of a visible subject, not extra slide copy. Do not tell the writer to merge it into the title or drop it. If the label restates the title or names something the photograph does not show, ask for a 1–4 word subject label with `targetSubject`, `targetBox` from the asset subjects when present, and `targetRegion`.
-
-A supplied photograph with a named, slide-relevant subject in the asset description should have an Annotation. If the writer omitted it, ask them to add a 1–4 word on-photo label. That is not a new structure or a new slide.
-
 A missing photograph is not a defect when Structure locked `visual.priority: none` or resolved `text-only-fallback`. Do not ask the writer to invent visual evidence that Structure already classified as unavailable.
 
 Do not instruct the Day Writer to invent a CTA when Content Structure locked `action.placement: none`, `action.expression: none` or `native-behavior`, or `ctaUnit: null` with no remaining slide action. Do not instruct the writer to put CTA copy in the caption when Structure placed it on a slide.
@@ -1013,7 +1009,7 @@ Output only the JSON block.
 
 ## Locked content structure
 
-Slide/scene mapping, elements, and the resolved visual after evidence availability/fallback the Day Writer was required to fill. Check that copy and visual execution obey this plan. Do not ask the writer to reopen it.
+Slide/scene mapping, locked elements, and the resolved `visual` the Day Writer was required to fill. Check that copy and visual execution obey this plan. Do not ask the writer to reopen mapping, `primaryStructure`, or `visual`. `allocatedVisuals` on the brief is the same catalog the writer received.
 
 {{STRUCTURE_JSON}}
 

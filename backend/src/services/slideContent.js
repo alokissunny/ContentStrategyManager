@@ -6,6 +6,10 @@
 
 const { boxOf, regionFromBox } = require('./subjectBox');
 
+// On-photo Annotation is off: structure must not lock it, and photographs
+// must not receive a callout overlay. Flip this to re-enable both paths.
+const ANNOTATIONS_ENABLED = false;
+
 function str(v) {
   return v == null ? '' : String(v).trim();
 }
@@ -86,6 +90,7 @@ function annotationRegionOf(value) {
 }
 
 function annotationOf(raw, elements) {
+  if (!ANNOTATIONS_ENABLED) return null;
   const fromSlide = raw?.annotation && typeof raw.annotation === 'object' ? raw.annotation : null;
   const el = elementOf(elements, 'annotation');
   const text = str(
@@ -262,6 +267,7 @@ function layoutForStructure(slide) {
 }
 
 module.exports = {
+  ANNOTATIONS_ENABLED,
   flattenSlide,
   layoutForStructure,
   visualNeedOf,

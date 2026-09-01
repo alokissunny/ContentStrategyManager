@@ -32,8 +32,9 @@ Copy and preserve:
 - placement
 - primaryStructure
 - supportingElements
-- textNeed, visualNeed, evidenceAvailability, and evidenceResolution
-- visual priority, role, type, communication function, and truth boundary after evidence resolution
+- textNeed
+- evidenceResolution
+- visual priority, role, type, communication function, and truth boundary (`visual` after evidence resolution — not `visualNeed`)
 - action type, expression, and placement
 
 If the Strategist brief and Structure plan conflict, return a failed result naming the conflict. Do not choose a new strategy or structure.
@@ -126,7 +127,8 @@ Copy `primaryStructure` into `structure`. Fill `elements` with the primary type 
 - `Quote`: only verified sourced wording
 - `Supporting_Text`: context or interpretation that complements the primary
 - `Label`: concise category, side, stage, or source label
-- `Annotation`: a 1–4 word on-photo callout naming a visible subject. Not a sentence. Not the title. Fill `text` with the label, `targetSubject` with the thing in the frame, and `targetBox` with that subject's `{x,y,w,h}` from `DAY_ASSETS` (percent of the photograph, origin top-left). Also set `targetRegion` from the box (`top-left | top | top-right | left | center | right | bottom-left | bottom | bottom-right`). Layout draws the handwritten label and arrow on the photograph.
+
+Do not fill `Annotation`. On-photo callouts are disabled. Do not add an annotation element, `annotation` object, `targetSubject`, `targetBox`, or `targetRegion`. Photographs stay unmarked.
 
 ### Structured elements
 
@@ -143,19 +145,11 @@ Copy `primaryStructure` into `structure`. Fill `elements` with the primary type 
 
 For `Image`, `Multiple_Images`, `Detail_Closeup`, `Screenshot`, `Document_Source`, `Plan_Drawing`, `Illustration`, `Graphic_Artwork`, `Product_Object`, `People_Context`, `Environment_Space`, `Video_Motion`, `Screen_Recording`, `Animation`, or `Caption_Label`, preserve the locked communication function and truth boundary.
 
-When Structure locked `Annotation` as a supporting element, fill it.
-
-When Structure did **not** lock Annotation, still add one if this slide executes a **supplied photograph** (`visual.execution` is `supplied-asset`, or an allocated `assetKey` is assigned) and `DAY_ASSETS` names a subject that is relevant to this slide’s purpose. That is labelling a visible detail, not a new narrative beat.
-
-The label names a visible subject in the assigned photograph so the audience can see the detail the slide is about — the same job as a marker callout on a photo ("Accent light" with an arrow to the light). Use only subjects established by the asset `summary` / `subjects`, `observableDetails`, or `relevantAssetContext`. Do not invent a subject the photograph does not show. Do not reuse the title, hook, or caption as the annotation. If the locked `targetSubject` is supplied, keep it.
-
-`DAY_ASSETS` subjects are `{ name, box: { x, y, w, h } }` — percentages of the photograph, origin top-left. Copy the matching subject's `box` onto `targetBox`. Do not invent coordinates. Do not guess a region when a box exists. If no box is listed for that subject, set `targetRegion` from the asset description; if location is still unknown, use `center` and keep the label out of the lower third (where slide titles sit). Omit unused optional fields.
-
-Skip Annotation when the slide is text-led, the visual is a generated illustration/diagram, the photo is only atmosphere, or no relevant subject is in the asset description.
+Do not add Annotation from a photograph or from `DAY_ASSETS` subjects. Leave `annotation` empty. If Structure locked Annotation, omit it — on-photo callouts are disabled.
 
 ## Visual execution
 
-The locked `visual` object is the implementation requirement **after** Structure resolved evidence availability and fallback. Follow `visual`, not `visualNeed`. If `visual.priority` is `none`, `evidenceResolution` is `text-only-fallback`, or `visual.type` is `none`, write a complete text-led slide. Do not attach a photograph or generate an image to fill the slot.
+The locked `visual` object is the implementation requirement after Structure resolved evidence. Follow it. If `visual.priority` is `none`, `evidenceResolution` is `text-only-fallback`, or `visual.type` is `none`, write a complete text-led slide. Do not attach a photograph or generate an image to fill the slot.
 
 Do not silently change a resolved `required`, `recommended`, or `optional` visual to `none`.
 
@@ -170,12 +164,13 @@ Resolve each visual in this order:
    - Do not attach an allocated asset merely because it exists. Skip it when Structure resolved `text-only-fallback`, `priority: none`, or the asset does not truthfully serve the locked visual `communicationFunction` or `role`. An empty `requiredEvidence` does not mean the asset should be skipped when `role` is `context`, `recognition`, `explanation`, or `demonstration` and the asset serves `communicationFunction`.
    - Do not treat a context, recognition, explanation, or demonstration visual as factual proof of the claim. Copy must not say the photograph proves more than it shows.
    - Use another retrieved key only when no allocated asset serves the locked function.
-   - Provide crop, sequence, label, or annotation notes when useful. When an Annotation element is locked, `productionInstruction` must say the callout sits on the photograph (handwritten label + curved arrow to `targetSubject` in `targetRegion`), not in the type band.
+   - Provide crop or sequence notes when useful. Do not request on-photo annotation callouts.
    - Leave `imagePrompt` empty.
    - Leave `assetKey` empty only when the locked type is graphic-led (`Illustration`, `Graphic_Artwork`, `Diagram`, `Animation`) or text-led, or when no supplied asset can serve the communication function without inventing proof.
 
 2. **Approved generation**
-   - When no suitable asset exists and generation is permitted, write a production-ready `imagePrompt`.
+   - When no suitable asset exists and `approvedGenerationRoute` is `generate`, write a production-ready `imagePrompt`.
+   - If the route is `assets-only`, do not write an imagePrompt. Use a supplied asset or follow the locked text-led / graphic execution.
    - Preserve the locked visual type, role, communication function, and truth boundary.
    - Never generate fake evidence.
 
@@ -358,7 +353,7 @@ Before returning `status: "ready"`, validate:
 - no required field is empty (title, direction, caption, opening-slide hook copy, every mapped visual slide; post-level `cta` only when placement is `caption`)
 - every mapped slide or scene exists
 - every primary and supporting element is filled
-- a locked `Annotation` is a 1–4 word on-photo label with `targetSubject`, `targetBox` copied from `DAY_ASSETS` when present, and `targetRegion`, not a restatement of the title
+- `annotation` is empty (on-photo callouts are disabled)
 - every field performs its assigned function
 - no unit or supporting element is silently dropped
 - copy and visual are complementary rather than duplicative
@@ -394,6 +389,17 @@ Return only one fenced JSON block.
         "index": 1,
         "role": "Locked role",
         "structure": "Locked primaryStructure",
+        "title": "Final title / hook / statement when locked",
+        "subtitle": "",
+        "body": "",
+        "items": [],
+        "comparisonA": "",
+        "comparisonB": "",
+        "stat": "",
+        "quote": "",
+        "action": "",
+        "assetKey": "",
+        "imagePrompt": "",
         "elements": [
           {
             "type": "Locked primary or supporting element",
@@ -405,10 +411,7 @@ Return only one fenced JSON block.
             "label": "",
             "body": "",
             "quote": "",
-            "action": "",
-            "targetSubject": "Visible subject when type is Annotation",
-            "targetRegion": "top-left | top | top-right | left | center | right | bottom-left | bottom | bottom-right",
-            "targetBox": { "x": 0, "y": 0, "w": 0, "h": 0 }
+            "action": ""
           }
         ],
         "visual": {
@@ -438,7 +441,7 @@ Return only one fenced JSON block.
 
 For `Post`, output exactly one visual slide entry. For Carousel, Reel, and Story, output exactly one entry per locked visual surface. Do not output caption-only units as slides.
 
-Omit unused optional element fields. Keep JSON compact.
+Omit unused optional element fields. Keep JSON compact. Fill locked `elements` and the matching UI fields (`title`, `subtitle`, `body`, `items`, `comparisonA`, `comparisonB`, `stat`, `quote`, `action`, `assetKey`, `imagePrompt`) so copy is not only inside `elements`.
 
 ## Brand
 
@@ -464,21 +467,21 @@ Optional pre-resolved packaging guidance from competitor analysis. Expression on
 
 ## Locked content structure
 
-Slide/scene count, unit mapping, primaryStructure, supportingElements, resolved visual after evidence fallback, and actions (type, expression, placement) are locked. Write copy inside this plan. Follow `visual`, not the earlier `visualNeed`. Follow action placement; do not move a CTA into the caption unless Structure placed it there.
+Slide/scene count, unit mapping, `primaryStructure`, `supportingElements`, resolved `visual`, and actions are locked. Write copy inside this plan. Follow `visual`, not a visual need. Follow action placement; do not move a CTA into the caption unless Structure placed it there.
 
 {{STRUCTURE_JSON}}
 
 ## Retrieved assets
 
-Approved real project / content assets with asset keys. Use only these.
+Approved real project / content assets with asset keys. Use only these. This is the only visual catalog — do not also look for `allocatedAssets` on the brief.
 
-Assets marked `allocated: true` were assigned to this brief by the Strategist. Put them on real-source visual slides. Do not skip them in favour of generation or a graphic when the photo can serve the locked function.
+Rows marked `allocated: true` were assigned to this brief by the Strategist. Put them on real-source visual slides when they serve the locked `visual` function. Do not skip them in favour of generation or a graphic when the photo can serve that function. `visibleContent` / `summary` / `subjects` describe what the photograph shows.
 
 {{DAY_ASSETS}}
 
 ## Authority focus
 
-`lockedLens` / `lockedPillar` / `pillarJob` are this post's Authority pillar. Obey them. Account priority must not change the locked job.
+Account-level packaging context only. The locked pillar is on the brief. Do not change the locked job.
 
 {{AUTHORITY_FOCUS_JSON}}
 

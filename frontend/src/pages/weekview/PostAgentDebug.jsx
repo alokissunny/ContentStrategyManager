@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useAiDebug } from '../../lib/aiDebug';
+import { useAiDebug, fmtElapsed } from '../../lib/aiDebug';
 
 function pretty(value) {
   if (value == null || value === '') return '';
@@ -130,13 +130,19 @@ function Block({ title, value, open = false }) {
   );
 }
 
-export default function PostAgentDebug({ day, onRunLayout, layoutBusy = false, layoutErr = '' }) {
+export default function PostAgentDebug({ day, onRunLayout, layoutBusy = false, layoutErr = '', elapsedMs = 0 }) {
   const debug = useAiDebug();
   const trace = traceForDay(day, debug.entries);
   const empty = !trace.strategyBrief && !trace.structure && !trace.dayWriter && !trace.layout;
+  const took = fmtElapsed(elapsedMs);
 
   return (
     <div className="wv-agentdbg">
+      {took ? (
+        <p className="wv-agentdbg__time">
+          Complete generation <strong>{took}</strong>
+        </p>
+      ) : null}
       <p className="wv-agentdbg__lead">
         Agent outputs for this post. Strategy decides the brief; Structure locks the slide map; Day Writer writes the copy; Layout composes the slide.
       </p>

@@ -372,6 +372,7 @@ async function saveWeek(userId, username, plan, meta) {
       outputTokens: Number(usage.outputTokens) || 0,
       totalTokens: Number(usage.totalTokens) || 0,
       estimatedCostUsd: Number(usage.estimatedCostUsd) || 0,
+      elapsedMs: Number(usage.elapsedMs) || 0,
       model: usage.model || plan.model || '',
     },
     ...meta,
@@ -1112,7 +1113,9 @@ async function rerunDayLayout(req, res) {
             provider: debugEntry.provider || '',
             prompt: debugEntry.prompt,
             output: debugEntry.output || '',
+            elapsedMs: Number(debugEntry.elapsedMs || result.usage?.elapsedMs) || 0,
           }],
+          elapsedMs: Number(debugEntry.elapsedMs || result.usage?.elapsedMs) || 0,
         },
       } : {}),
     });

@@ -4959,6 +4959,17 @@
   line-height: 1.45;
   color: var(--ink-500);
 }
+.wv-agentdbg__time {
+  margin: 0;
+  font-family: var(--font-ui);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink-900);
+  font-variant-numeric: tabular-nums;
+}
+.wv-agentdbg__time strong {
+  font-weight: 750;
+}
 .wv-agentdbg__run {
   display: flex;
   flex-wrap: wrap;

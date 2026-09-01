@@ -1,9 +1,10 @@
 import client from './client';
-import { addAiDebugEntry } from '../lib/aiDebug';
+import { addAiDebugEntry, fmtElapsed } from '../lib/aiDebug';
 
 function ingestPlanDebug(label, data = {}) {
   const debug = data.debug;
   if (!debug) return;
+  const elapsedMs = Number(debug.elapsedMs || data.usage?.elapsedMs) || 0;
   const agents = Array.isArray(debug.agents) ? debug.agents : null;
   if (agents?.length) {
     // Prepends reverse chronological; ingest bottom→top so Strategist stays first.
@@ -13,8 +14,19 @@ function ingestPlanDebug(label, data = {}) {
         model: agent.model || debug.model,
         prompt: agent.prompt,
         output: agent.output,
+        elapsedMs: Number(agent.elapsedMs) || 0,
         note: debug.mode ? `mode: ${debug.mode}` : '',
       });
+    });
+    addAiDebugEntry({
+      source: label,
+      model: debug.model,
+      elapsedMs,
+      note: [
+        debug.mode ? `mode: ${debug.mode}` : '',
+        elapsedMs ? `complete generation ${fmtElapsed(elapsedMs)}` : '',
+        `${agents.length} agent ${agents.length === 1 ? 'call' : 'calls'}`,
+      ].filter(Boolean).join(' · '),
     });
     return;
   }
@@ -25,6 +37,7 @@ function ingestPlanDebug(label, data = {}) {
       prompt: debug.finalPrompt,
       output: debug.output,
       systemPrompt: debug.systemPrompt,
+      elapsedMs,
       note: debug.mode ? `mode: ${debug.mode}` : '',
     });
   }

@@ -145,6 +145,7 @@ const weeklyRouteSchema = new mongoose.Schema(
       outputTokens: { type: Number, default: 0 },
       totalTokens: { type: Number, default: 0 },
       estimatedCostUsd: { type: Number, default: 0 },
+      elapsedMs: { type: Number, default: 0 },
       model: { type: String, default: '' },
     },
   },

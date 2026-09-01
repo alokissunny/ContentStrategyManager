@@ -35,7 +35,7 @@ import PostAgentDebug from './weekview/PostAgentDebug';
 import DynamicLayout, { AnnotationOverlay } from './weekview/DynamicLayout';
 import { rewriteAnnotationText } from './weekview/layoutHtml';
 import { boxOf, normalizeSubjects } from './weekview/subjectBox';
-import { useAiDebug } from '../lib/aiDebug';
+import { useAiDebug, fmtElapsed } from '../lib/aiDebug';
 import { useBodyScrollLock } from './visualbrand/useBodyScrollLock';
 import useMediaQuery from '../hooks/useMediaQuery';
 import { useStore } from '../lib/store';
@@ -502,8 +502,9 @@ function weekUsageOf(route) {
   const outputTokens = Number(u.outputTokens) || 0;
   const totalTokens = Number(u.totalTokens) || inputTokens + outputTokens;
   const estimatedCostUsd = Number(u.estimatedCostUsd) || 0;
-  if (!totalTokens && !estimatedCostUsd) return null;
-  return { totalTokens, estimatedCostUsd, inputTokens, outputTokens };
+  const elapsedMs = Number(u.elapsedMs) || 0;
+  if (!totalTokens && !estimatedCostUsd && !elapsedMs) return null;
+  return { totalTokens, estimatedCostUsd, inputTokens, outputTokens, elapsedMs };
 }
 
 function shortDay(day) {
@@ -985,6 +986,7 @@ function dayAssetStatus(slides, published) {
 // characters is a headline and a supporting line, not an essay.
 const MAX_SLIDE_TEXT = 180;
 const MAX_ANNOTE_TEXT = 48;
+const ANNOTATIONS_ENABLED = false;
 const ANNOTE_ROLE = {
   key: 'annotation',
   label: 'Annotation',
@@ -1010,7 +1012,7 @@ function slideHasPhoto(slide) {
 
 function wordRolesForSlide(slide) {
   const roles = [...textRolesOf(BEST_FIT_LAYOUT)];
-  if (slideHasPhoto(slide) || annotationTextOf(slide)) roles.push(ANNOTE_ROLE);
+  if (ANNOTATIONS_ENABLED && (slideHasPhoto(slide) || annotationTextOf(slide))) roles.push(ANNOTE_ROLE);
   return roles;
 }
 
@@ -1202,7 +1204,7 @@ function seedWordDraft(layout, slide, contentType) {
       out[r.key] = art[r.key] || '';
     }
   });
-  if (slideHasPhoto(slide) || annotationTextOf(slide)) {
+  if (ANNOTATIONS_ENABLED && (slideHasPhoto(slide) || annotationTextOf(slide))) {
     out.annotation = annotationTextOf(slide);
   }
   return out;
@@ -1349,14 +1351,16 @@ function slideCopy(slide, parts) {
     stat: String(slide?.stat || '').trim(),
     quote: String(slide?.quote || '').trim() && String(slide?.quote || '').trim() !== title
       ? String(slide.quote).trim() : '',
-    annotation: parts?.annotation != null
-      ? {
-        text: capAnnote(plainOf(parts.annotation)),
-        targetSubject: slide?.annotation?.targetSubject || '',
-        targetRegion: slide?.annotation?.targetRegion || 'center',
-        ...(boxOf(slide?.annotation?.targetBox) ? { targetBox: boxOf(slide.annotation.targetBox) } : {}),
-      }
-      : (slide?.annotation || null),
+    annotation: ANNOTATIONS_ENABLED
+      ? (parts?.annotation != null
+        ? {
+          text: capAnnote(plainOf(parts.annotation)),
+          targetSubject: slide?.annotation?.targetSubject || '',
+          targetRegion: slide?.annotation?.targetRegion || 'center',
+          ...(boxOf(slide?.annotation?.targetBox) ? { targetBox: boxOf(slide.annotation.targetBox) } : {}),
+        }
+        : (slide?.annotation || null))
+      : null,
   };
 }
 
@@ -1434,7 +1438,7 @@ function SlideMedia({ slide, localMedia, parts, mediaByKey, preferProxy = false,
             stat: copy.stat,
             quote: copy.quote,
             action: String(slide?.action || '').trim(),
-            annotation: copy.annotation || slide?.annotation || null,
+            annotation: ANNOTATIONS_ENABLED ? (copy.annotation || slide?.annotation || null) : null,
           }}
           imageUrls={urls}
           paint={paint}
@@ -2914,6 +2918,7 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
                   </button>
                   {weekUsage && (
                     <p className="wv-more__usage">
+                      {weekUsage.elapsedMs ? `${fmtElapsed(weekUsage.elapsedMs)} · ` : ''}
                       {fmtTokens(weekUsage.totalTokens)} tokens · ~{fmtCost(weekUsage.estimatedCostUsd)} est.
                     </p>
                   )}
@@ -3643,6 +3648,7 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
                   onRunLayout={handleRunLayout}
                   layoutBusy={layoutBusy}
                   layoutErr={layoutErr}
+                  elapsedMs={weekUsage?.elapsedMs}
                 />
               </div>
             )}
@@ -3769,6 +3775,7 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
                     onRunLayout={handleRunLayout}
                     layoutBusy={layoutBusy}
                     layoutErr={layoutErr}
+                    elapsedMs={weekUsage?.elapsedMs}
                   />
                 )}
               </div>

@@ -51,7 +51,8 @@ Do not change:
 - narrativeUnits and their intended meaning
 - knownLimitations
 - Strategist-supplied CTA meaning
-- allocatedAssets (available evidence — do not add, drop, or invent keys)
+- allocated visuals (available evidence in `ALLOCATED_VISUALS_JSON` — do not add, drop, or invent keys)
+- approvedGenerationRoute (whether conceptual generation is permitted)
 
 If locked inputs conflict or lack required support, return `unresolved` and identify the exact issue. Never repair a gap by inventing or reinterpreting information.
 
@@ -72,7 +73,6 @@ If locked inputs conflict or lack required support, return `unresolved` and iden
 - resolved visual implementation requirement
 - action type, platform expression, and action placement
 - validation and no more than two correction passes
-- validation and no more than two correction passes
 
 ## Available structures
 
@@ -90,7 +90,7 @@ If locked inputs conflict or lack required support, return `unresolved` and iden
 
 ### Visual
 
-`Image | Multiple_Images | Detail_Closeup | Screenshot | Document_Source | Plan_Drawing | Illustration | Graphic_Artwork | Product_Object | People_Context | Environment_Space | Video_Motion | Screen_Recording | Animation | Caption_Label | Annotation`
+`Image | Multiple_Images | Detail_Closeup | Screenshot | Document_Source | Plan_Drawing | Illustration | Graphic_Artwork | Product_Object | People_Context | Environment_Space | Video_Motion | Screen_Recording | Animation | Caption_Label`
 
 Use only values supplied in `availableElements`. The implementation vocabulary must contain every structure it expects the agent to select.
 
@@ -245,7 +245,7 @@ Classify availability as:
 - `available-partial` — supplied evidence supports only part of the required meaning
 - `available-irrelevant` — assets exist but do not support the required meaning, including after a narrower-role test
 - `available-multiple` — multiple supplied assets are required to communicate the need
-- `derivable` — the need can be truthfully communicated by cropping, close-up, annotation, framing, or another treatment of existing source evidence
+- `derivable` — the need can be truthfully communicated by cropping, close-up, framing, or another treatment of existing source evidence
 - `missing-generatable` — no source evidence exists, but a clearly conceptual/non-evidentiary visual may safely communicate the idea
 - `missing-not-generatable` — the missing visual would represent factual evidence and must not be fabricated
 - `unknown` — supplied information is insufficient to determine availability
@@ -254,7 +254,7 @@ When visual priority is `none` or `optional` and no visual is being pursued, set
 
 Do not treat the existence of an allocated asset as proof that it supports the required evidence.
 
-Do not infer visual facts that are not established by `relevantAssetContext`, `observableDetails`, `allocatedAssets`, or other verified visual support.
+Do not infer visual facts that are not established by `relevantAssetContext`, `observableDetails`, `ALLOCATED_VISUALS_JSON`, or other verified visual support.
 
 An asset may be insufficient as direct evidence while still being sufficient as contextual visual communication.
 
@@ -278,8 +278,8 @@ Resolve using this order:
 
 1. `no-adaptation` — required evidence is sufficiently available.
 2. `use-available-alternative` — another supplied asset truthfully communicates the same required meaning.
-3. `derive-from-existing` — cropping, close-up, annotation, framing, sequencing, or another treatment of supplied evidence can communicate the need without inventing information.
-4. `generate-conceptual-support` — generate a clearly conceptual visual when the required communication is explanatory rather than factual evidence.
+3. `derive-from-existing` — cropping, close-up, framing, sequencing, or another treatment of supplied evidence can communicate the need without inventing information.
+4. `generate-conceptual-support` — generate a clearly conceptual visual when the required communication is explanatory rather than factual evidence, **and** `approvedGenerationRoute` is `generate`. If the route is `assets-only`, skip this step.
 5. `adapt-content-structure` — change how the meaning is structurally communicated so unavailable evidence is no longer required.
 6. `text-only-fallback` — communicate the supported meaning through text when text can carry it truthfully.
 7. `reduce-visual-requirement` — narrow the visual's role to only what the available evidence genuinely supports, including reducing `evidence` to `context` when the asset can establish situation but cannot prove the claim.
@@ -492,42 +492,15 @@ Examples:
 - supported process -> `Process_Flow + Caption_Label`
 - strong claim with conceptual explanation -> `Short_Statement + Illustration`
 - distinct groups -> `Title + Categories_Groups`
-- real visual detail -> `Image + Annotation`
+- real visual detail -> `Image`
 - verified statistic -> `Number_Stat + Label`
 - genuine testimony -> `Testimonial + Supporting_Text`
 
-### On-image Annotation
+### On-image Annotation — disabled
 
-`Annotation` is a supporting visual element: a short on-photo label with a hand-drawn arrow pointing at a visible subject. It is not slide copy, not a caption, and not the `Annotated_Visual` information shape.
+Do **not** add `Annotation` as a supporting element. Do not lock on-photo callouts, labels-with-arrows, or `targetSubject` on photographs. Photograph slides use `Image` (or the matching visual type) without an Annotation overlay. `Caption_Label` and `Label` remain layout copy, not on-photo marks.
 
-`Annotated_Visual` is the primary structure when the whole surface is a labelled plan, diagram, or fully marked-up source visual. `Caption_Label` and `Label` sit in the layout, not on the photograph. Use `Annotation` only as a supporting element on a real photograph.
-
-After the visual is resolved, **expect Annotation** on a photograph slide. It is the default when a real photo is on the surface and a relevant subject is identifiable — not a rare extra.
-
-Add `Annotation` when **all** of these are true:
-
-1. The slide’s resolved `visual` is a real photograph (`Image`, `Detail_Closeup`, `Environment_Space`, `People_Context`, `Product_Object`, `Screenshot`, `Document_Source`, `Plan_Drawing`, `Multiple_Images`, or equivalent) with priority other than `none`, **or** `Image` / `Environment_Space` / `People_Context` / `Product_Object` is a selected element that will be a supplied photo.
-2. A nameable subject is visible in that photograph. Use `ALLOCATED_VISUALS_JSON` (`summary`, `subjects` — each subject may include a `box` `{x,y,w,h}` in percent of the photo), `relevantAssetContext`, `observableDetails`, or allocated `visibleContent` — not invention.
-3. That subject is relevant to this slide’s purpose or the post’s central fact: pointing at it makes the meaning visible (the stair/mezzanine, the pendant being fitted, the storage wall, the material the copy is about).
-
-A comparison, list, title, or question as `primaryStructure` does **not** block Annotation. The photo still gets the callout. The primary stays whatever carries the central meaning.
-
-Do **not** add `Annotation` when:
-
-- there is no photograph, visual priority is `none`, resolution is `text-only-fallback`, or the visual is a generated illustration/diagram/graphic rather than a real photo
-- the photo is only atmosphere or a whole room with no one detail carrying this slide’s meaning
-- no subject is established in the allocated visuals, asset context, or observable details
-- the label would only repeat the Title, Short_Statement, or Question
-- the slide is CTA-only with no photograph
-
-At most one `Annotation` per slide. Do not switch `informationShape` to `Annotated_Visual` merely because one callout is useful.
-
-When adding it, set:
-
-- `type`: `Annotation`
-- `function`: what is being pointed at and why that makes the slide's meaning visible
-- `targetSubject`: the visible thing in the frame (a few words, from verified support)
-- `supportReference`: the observable detail or asset description that establishes it
+`Annotated_Visual` is still valid as a **primary** information shape when the whole surface is a labelled plan, diagram, or fully marked-up source visual. That is not the same as an on-photo Annotation callout — do not add Annotation to emulate it.
 
 There is no default Title + Body structure, but there is also no default standalone Short Statement. Choose according to the information shape and communication value.
 
@@ -565,8 +538,7 @@ Check:
 - grouped details preserve meaningful distinctions without becoming a bare extracted list
 - no Comparison is an alone-vs-together or idea-vs-explanation split
 - supporting elements complement rather than repeat
-- `Annotation` is present on a photograph slide when a relevant visible subject is identifiable from allocated visuals, and is omitted only when the image has no such subject
-- `Annotation` is used only on a real photograph
+- `Annotation` is not used (on-photo callouts are disabled)
 - every element has truthful support
 - every text function required by `textNeed` is represented by the selected elements or by an explicitly equivalent function in the primary structure
 - visual recommendations respect truth boundaries
@@ -662,8 +634,7 @@ Return only a fenced JSON block.
         {
           "type": "Supported element",
           "function": "Distinct communication function",
-          "supportReference": ["Verified fact, unit support, or allowed brand position"],
-          "targetSubject": "Visible subject when type is Annotation; otherwise omit"
+          "supportReference": ["Verified fact, unit support, or allowed brand position"]
         }
       ],
       "selectionReason": "Why this combination is more effective than a generic standalone statement",
@@ -725,10 +696,13 @@ If `placement: none`, Day Writer must not create explicit CTA copy or a CTA surf
 
 The implementation supplies:
 
-- one Strategist brief
-- allocated visuals with `summary` and `subjects` (what each photograph actually shows)
+- one Strategist brief (strategy lock — not the visual catalog)
+- allocated visuals: one list with allocation metadata (`allocated`, `evidenceLevel`, `visibleContent`, `why`) plus `summary` and `subjects` (what each photograph actually shows)
 - complete supported `availableElements`
 - platform behaviours and format rules
+- `approvedGenerationRoute` on the brief (`generate` or `assets-only`)
+
+Do not also look for `allocatedAssets` on the brief. `ALLOCATED_VISUALS_JSON` is the visual catalog.
 
 The implementation must not narrow `availableElements` below the structures it expects this agent to consider.
 
@@ -742,7 +716,7 @@ The implementation must not narrow `availableElements` below the structures it e
 
 ### Allocated visuals
 
-Photographs available for this brief. `subjects` and `summary` are what is visible — use them to decide Annotation.
+Photographs available for this brief. This is the only visual catalog. Rows with `allocated: true` were assigned by the Strategist — treat them as the available evidence. `subjects` and `summary` / `visibleContent` are what is visible. Use them to ground visual type and truth, not to add Annotation. Do not invent keys.
 
 {{ALLOCATED_VISUALS_JSON}}
 
