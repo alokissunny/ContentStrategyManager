@@ -1031,10 +1031,15 @@ async function generateWeeklyPlan(profile, brandDna, competitorInsights = null, 
   const usedAssetKeys = options.usedAssetKeys || new Set();
   const rawDays = (generated.rawDays || [])
     .slice(0, monthCalendar.emptyDates.length)
-    .map((d, i) => ({
-      ...d,
-      ...monthCalendar.emptyDates[i],
-    }));
+    .map((d, i) => {
+      const slot = monthCalendar.emptyDates[i] || {};
+      return {
+        ...d,
+        date: slot.date || d.date,
+        dayOfMonth: slot.dayOfMonth || d.dayOfMonth,
+        day: slot.day || d.day,
+      };
+    });
   const days = assembleDays({
     rawDays,
     focusPillar,

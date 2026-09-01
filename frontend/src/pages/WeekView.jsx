@@ -1635,12 +1635,21 @@ const PILLAR_WHY = {
   trust: { label: 'Trust', job: 'Build confidence' },
 };
 
+function pillarKeyOf(day) {
+  const allowed = ['discovery', 'credibility', 'trust'];
+  const brief = day?.agentTrace?.strategyBrief;
+  const candidates = [brief?.lens, brief?.pillar, day?.lens, day?.pillar];
+  return candidates
+    .map((v) => String(v || '').toLowerCase().trim())
+    .find((v) => allowed.includes(v)) || '';
+}
+
 /* Why this post — the strategy, used in the desktop side panel and the phone aside. */
 function WhyBody({ day }) {
   if (!day) return <p className="wv-muted">No strategy notes for this post yet.</p>;
-  const pillarKey = ['discovery', 'credibility', 'trust'].includes(day.pillar) ? day.pillar : '';
+  const pillarKey = pillarKeyOf(day);
   const pillar = pillarKey ? PILLAR_WHY[pillarKey] : null;
-  const job = String(day.goalTag || pillar?.job || '').trim();
+  const job = String(pillar?.job || day.goalTag || '').trim();
   const empty = !pillar && !day.content?.strategy && !day.direction && !day.content?.notes && !day.content?.plan;
   return (
     <div className="wv-ig__whybody">
