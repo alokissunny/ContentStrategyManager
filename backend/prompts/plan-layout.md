@@ -141,6 +141,8 @@ The photograph is the work. Copy orients it. Do not posterize the photo behind a
 
 The application supplies font-family, weight, and colour. You control **relative size hierarchy** with `cqi` so the Layout hierarchy reads at phone size (~380px wide).
 
+Wrap the supporting punch of a title — the last sentence of a two-beat line, or the last emphatic beat of a single line — in `<em>`. Do not wrap the whole headline. The application paints `<em>` as the brand accent and the rest as primary. Do not set `color` on titles, body, or `<em>`.
+
 Baseline sizing:
 
 - Title ≤8 words: `clamp(20px, 7.2cqi, 72px)`

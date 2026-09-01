@@ -23,7 +23,7 @@ import { CaptureChat } from './Projects';
 import { styleOf, groundOf } from '../lib/visualbrand';
 import { LAYOUTS as LIB_LAYOUTS, CATEGORIES, catForRole, shotsOf, DEFAULT_LAYOUT_BY_CAT, layoutShowsAllCopy } from '../data/layouts';
 import { paintAll, identityOf, TYPE_SLOTS, FACES } from '../lib/identity';
-import { rolesOf as textRolesOf, plainOf, parseMarked, isListRole, listIndexOf } from '../lib/slidetext';
+import { rolesOf as textRolesOf, plainOf, parseMarked, isListRole, listIndexOf, emphasizeTitle } from '../lib/slidetext';
 import { Preview } from './visuallibrary/LayoutArt';
 import VisualLibrary from './visuallibrary/VisualLibrary';
 import ImagePicker from './weekview/ImagePicker';
@@ -1092,23 +1092,6 @@ function buildMarkdown(route) {
 // "one line, one accent word" shape the layout was designed around. A short
 // leading function word rides along with the tail so the accent never reads as a
 // dangling article ("Your Portfolio." not "Portfolio.").
-const ACCENT_LEAD = new Set([
-  'a', 'an', 'the', 'your', 'our', 'my', 'their', 'his', 'her', 'its',
-  'to', 'of', 'in', 'on', 'for', 'and', 'at', 'by', 'with', 'no', 'not', 'so',
-]);
-function splitStatement(text) {
-  const words = String(text || '').trim().split(/\s+/).filter(Boolean);
-  // too short to split without leaving an empty head — keep it whole, no accent
-  if (words.length < 3) return { head: String(text || '').trim(), accent: '' };
-  let take = 1;
-  const prev = words[words.length - 2].replace(/[^a-z']/gi, '').toLowerCase();
-  if (ACCENT_LEAD.has(prev)) take = 2;
-  return {
-    head: words.slice(0, words.length - take).join(' '),
-    accent: words.slice(words.length - take).join(' '),
-  };
-}
-
 function fillLayout(layout, slide, contentType, draft) {
   if (!layout) return layout;
   const title = (draft?.head != null ? plainOf(draft.head) : (slide?.title || slide?.quote || slide?.action || '')).trim();
@@ -1123,7 +1106,7 @@ function fillLayout(layout, slide, contentType, draft) {
     if (has('b')) art.b = String(slide.comparisonB || slide?.subtitle || '').trim();
   } else if (has('head')) {
     if (has('accent') && title) {
-      const split = splitStatement(title);
+      const split = emphasizeTitle(title);
       art.head = split.head;
       accentText = split.accent;
     } else {

@@ -2,6 +2,7 @@ import { useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { prepareLayoutHtml, splitLayoutDocument, isBleedPhotoLayout } from './layoutHtml';
 import { boxOf, fmtBox, mapBoxToCover, mapPointToCover, normalizeSubjects, placeFromBox, resolveTargetBox } from './subjectBox';
 import { useAiDebug } from '../../lib/aiDebug';
+import { plainOf, titleRuns } from '../../lib/slidetext';
 
 const ANNOTATIONS_ENABLED = false;
 
@@ -226,6 +227,23 @@ export function AnnotationOverlay({ annotation, markerId, subjects, img, paint }
   );
 }
 
+function TitleWithAccent({ text, className, style }) {
+  const runs = titleRuns(text);
+  if (!runs.some((r) => r.mark === 'accent')) {
+    return <h1 className={className} style={style}>{runs.map((r) => r.text).join('') || plainOf(text)}</h1>;
+  }
+  return (
+    <h1 className={className} style={style}>
+      {runs.map((r, i) => (
+        <span key={`${r.mark || 'fg'}-${i}`}>
+          {r.mark === 'accent' ? <em>{r.text}</em> : r.text}
+          {r.breakAfter ? <br /> : null}
+        </span>
+      ))}
+    </h1>
+  );
+}
+
 function CopyBlock({ copy }) {
   const title = trim(copy?.title);
   const subtitle = trim(copy?.subtitle);
@@ -242,7 +260,7 @@ function CopyBlock({ copy }) {
     <div className="wv-safe__copy">
       {stat ? <p className="wv-safe__stat">{stat}</p> : null}
       {quote ? <blockquote className="wv-safe__quote">{quote}</blockquote> : null}
-      {title ? <h1 className={`wv-safe__title${long ? ' is-long' : ''}`}>{title}</h1> : null}
+      {title ? <TitleWithAccent text={title} className={`wv-safe__title${long ? ' is-long' : ''}`} /> : null}
       {subtitle && subtitle !== title ? <p className="wv-safe__sub">{subtitle}</p> : null}
       {restBody ? <p className="wv-safe__body">{restBody}</p> : null}
       {items.length ? (
@@ -290,7 +308,10 @@ function SafeLayout({ copy, imageUrls, subjects, paint, needsVisual = false }) {
         <img className="wv-safe__bleedimg" src={src} alt="" />
         <div className="wv-safe__scrim" aria-hidden="true" />
         {annote ? <AnnotationOverlay annotation={annote} subjects={subjects} paint={paint} /> : null}
-        <h1 className={`wv-safe__bleedtitle${wordCount(title) >= 10 ? ' is-long' : ''}`}>{title}</h1>
+        <TitleWithAccent
+          text={title}
+          className={`wv-safe__bleedtitle${wordCount(title) >= 10 ? ' is-long' : ''}`}
+        />
       </div>
     );
   }
@@ -339,7 +360,13 @@ function CopyOnPhoto({ copy, paint }) {
       <div className="wv-copy-pin__words" style={head ? { fontFamily: head } : undefined}>
         {stat ? <p className="wv-copy-pin__stat" style={head ? { fontFamily: head } : undefined}>{stat}</p> : null}
         {quote ? <p className="wv-copy-pin__quote" style={head ? { fontFamily: head } : undefined}>{quote}</p> : null}
-        {title ? <h1 className={wordCount(title) >= 10 ? 'is-long' : ''} style={head ? { fontFamily: head } : undefined}>{title}</h1> : null}
+        {title ? (
+          <TitleWithAccent
+            text={title}
+            className={wordCount(title) >= 10 ? 'is-long' : ''}
+            style={head ? { fontFamily: head } : undefined}
+          />
+        ) : null}
         {sub && sub !== title ? <p style={body ? { fontFamily: body } : undefined}>{sub}</p> : null}
         {items.length ? (
           <ul>

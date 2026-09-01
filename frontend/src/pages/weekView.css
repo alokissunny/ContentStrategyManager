@@ -616,10 +616,9 @@
   left: 8%;
   right: 8%;
   bottom: 14%;
-  /* Overlay caption text follows the studio's Accent colour (Library Settings),
-     not a baked-in off-white. The scrim beneath it (built from --t-ground-fg)
-     keeps it legible. */
-  color: var(--t-accent-bg, #ff5227);
+  /* Primary type on a photo is white (readable on the scrim). Accent is only
+     the supporting punch — <em> inside the title, or the stat. */
+  color: var(--t-photo-fg, #fff);
   font-family: var(--t-headline-face) !important;
 }
 .wv-copy-pin__words h1 {
@@ -630,10 +629,16 @@
   line-height: 1.15;
   letter-spacing: -0.02em;
   text-wrap: balance;
+  color: var(--t-photo-fg, #fff);
 }
 .wv-copy-pin__words h1.is-long {
   font-size: clamp(16px, 4.4cqi, 36px);
   line-height: 1.2;
+}
+.wv-copy-pin__words h1 em,
+.wv-copy-pin__words em {
+  font-style: normal;
+  color: var(--t-accent-bg, #ff5227);
 }
 .wv-copy-pin__stat {
   margin: 0 0 0.35em;
@@ -641,19 +646,21 @@
   font-weight: 700;
   letter-spacing: -0.04em;
   line-height: 0.95;
+  color: var(--t-accent-bg, #ff5227);
 }
 .wv-copy-pin__quote {
   margin: 0 0 0.45em;
   font-size: clamp(16px, 4.6cqi, 36px);
   font-weight: 600;
   line-height: 1.2;
+  color: var(--t-photo-fg, #fff);
 }
 .wv-copy-pin__words p,
 .wv-copy-pin__words li {
   margin: 0.55em 0 0;
   font-size: clamp(13px, 3.1cqi, 22px);
   line-height: 1.35;
-  color: var(--t-accent-bg, #ff5227);
+  color: var(--t-photo-mute, rgba(255, 255, 255, 0.88));
   font-family: var(--t-body-face) !important;
 }
 .wv-copy-pin__words ul {
@@ -866,7 +873,7 @@
   font-weight: 700;
   letter-spacing: -0.04em;
   line-height: 0.95;
-  color: var(--t-ground-fg, #1a1916);
+  color: var(--t-accent-bg, #ff5227);
   font-family: var(--t-headline-face, var(--font-display, ui-sans-serif, system-ui, sans-serif));
 }
 .wv-safe__quote {
@@ -934,7 +941,7 @@
   right: 7%;
   bottom: 8%;
   margin: 0;
-  color: var(--t-accent-bg, #ff5227);
+  color: var(--t-photo-fg, #fff);
   font-size: clamp(20px, 6cqi, 52px);
   font-weight: 650;
   line-height: 1.16;
@@ -944,6 +951,11 @@
 }
 .wv-safe__bleedtitle.is-long {
   font-size: clamp(16px, 4.6cqi, 40px);
+}
+.wv-safe__bleedtitle em,
+.wv-safe__title em {
+  font-style: normal;
+  color: var(--t-accent-bg, #ff5227);
 }
 .wv-ig__lay .vl-a {
   width: 100%;

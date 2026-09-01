@@ -136,6 +136,66 @@ export const COLOUR_VAR = {
   ground: 'var(--t-ground-bg, var(--surface-sunken))',
 };
 
+const ACCENT_LEAD = new Set([
+  'a', 'an', 'the', 'your', 'our', 'my', 'their', 'his', 'her', 'its',
+  'to', 'of', 'in', 'on', 'for', 'and', 'at', 'by', 'with', 'no', 'not', 'so',
+]);
+
+/* Last beat of a one-line statement becomes the accent — “Your Portfolio.”
+   not a dangling “Portfolio.” A short function word rides with the tail. */
+export function splitStatement(text) {
+  const words = String(text || '').trim().split(/\s+/).filter(Boolean);
+  if (words.length < 3) return { head: String(text || '').trim(), accent: '' };
+  let take = 1;
+  const prev = words[words.length - 2].replace(/[^a-z']/gi, '').toLowerCase();
+  if (ACCENT_LEAD.has(prev)) take = 2;
+  return {
+    head: words.slice(0, words.length - take).join(' '),
+    accent: words.slice(words.length - take).join(' '),
+  };
+}
+
+/* Primary copy stays in the brand fg. Accent is only the supporting punch:
+   an explicit {{accent|…}} mark, the last sentence of a two-beat line, or
+   the last beat of a single sentence. */
+export function emphasizeTitle(text) {
+  const src = String(text || '').trim();
+  if (!src) return { head: '', accent: '', breakLine: false };
+  const marked = parseMarked(src);
+  if (marked.some((p) => p.mark === 'accent')) {
+    return {
+      head: marked.filter((p) => p.mark !== 'accent').map((p) => p.text).join('').trim(),
+      accent: marked.filter((p) => p.mark === 'accent').map((p) => p.text).join('').trim(),
+      breakLine: false,
+    };
+  }
+  const sentences = src.match(/[^.!?]+[.!?]+(?:\s+|$)|[^.!?]+$/g)
+    ?.map((s) => s.trim())
+    .filter(Boolean) || [src];
+  if (sentences.length >= 2) {
+    return {
+      head: sentences.slice(0, -1).join(' '),
+      accent: sentences[sentences.length - 1],
+      breakLine: true,
+    };
+  }
+  return { ...splitStatement(src), breakLine: false };
+}
+
+/* Ordered runs for rendering, so a mid-line {{accent|word}} keeps its place. */
+export function titleRuns(text) {
+  const src = String(text || '').trim();
+  if (!src) return [];
+  const marked = parseMarked(src);
+  if (marked.some((p) => p.mark === 'accent')) return marked.filter((p) => p.text);
+  const { head, accent, breakLine } = emphasizeTitle(src);
+  if (!accent) return head ? [{ text: head, mark: null }] : [];
+  const runs = [];
+  if (head) runs.push({ text: breakLine ? head : `${head} `, mark: null, breakAfter: breakLine });
+  runs.push({ text: accent, mark: 'accent' });
+  return runs;
+}
+
 /* ══ WHAT A LAYOUT CAN HOLD, AND FITTING COPY TO IT ══════════════════════
  * (Leon, Aug 9 — decision 878)
  *

@@ -1,3 +1,5 @@
+import { plainOf, titleRuns } from '../../lib/slidetext';
+
 function trim(value) {
   return String(value || '').trim();
 }
@@ -156,6 +158,27 @@ function innerText(html) {
   return trim(String(html || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' '));
 }
 
+function emphasizedHtml(text) {
+  const runs = titleRuns(text);
+  if (!runs.length) return escText(plainOf(text));
+  return runs.map((r) => {
+    const piece = r.mark === 'accent' ? `<em>${escText(r.text)}</em>` : escText(r.text);
+    return r.breakAfter ? `${piece}<br>` : piece;
+  }).join('');
+}
+
+function wrapTitleEmphasis(html) {
+  return String(html || '').replace(
+    /<([a-z][a-z0-9]*)(\b[^>]*data-slot\s*=\s*["']title["'][^>]*)>([\s\S]*?)<\/\1>/gi,
+    (full, tag, attrs, inner) => {
+      if (/<em\b/i.test(inner)) return full;
+      const text = innerText(inner);
+      if (!text) return full;
+      return `<${tag}${attrs}>${emphasizedHtml(text)}</${tag}>`;
+    },
+  );
+}
+
 const FILL_SLOTS = ['title', 'subtitle', 'body', 'stat', 'quote', 'action', 'comparisonA', 'comparisonB', 'items'];
 
 function itemsOf(copy) {
@@ -176,7 +199,8 @@ function fillEmptySlots(html, copy) {
       }
       const text = trim(copy[slot]);
       if (!text) return full;
-      return `<${tag}${attrs}>${escText(text)}</${tag}>`;
+      const body = slot === 'title' ? emphasizedHtml(text) : escText(text);
+      return `<${tag}${attrs}>${body}</${tag}>`;
     },
   );
 }
@@ -206,7 +230,7 @@ function ensureCopySlots(html, copy) {
   const items = itemsOf(copy);
   if (!title && !items.length) return next;
   let extra = /\bscrim\b/i.test(next) ? '' : '<div class="scrim" aria-hidden="true"></div>';
-  if (title) extra += `<h1 data-slot="title">${escText(title)}</h1>`;
+  if (title) extra += `<h1 data-slot="title">${emphasizedHtml(title)}</h1>`;
   if (items.length) extra += `<ul data-slot="items">${items.map((item) => `<li>${escText(item)}</li>`).join('')}</ul>`;
   if (/<\/article>/i.test(next)) next = next.replace(/<\/article>/i, `${extra}</article>`);
   else next = `${next}${extra}`;
@@ -253,7 +277,8 @@ const COPY_ON_PHOTO_CSS = [
 
 const INJECTED_COPY_CSS = [
   '.slide .scrim{position:absolute;inset:0;z-index:1;pointer-events:none;background:linear-gradient(to top,rgba(18,16,14,.78) 0%,rgba(18,16,14,.18) 42%,transparent 68%)}',
-  '.slide [data-slot="title"],.slide [data-slot="items"]{position:absolute;left:8%;right:8%;z-index:2;margin:0;color:var(--t-accent-bg, #ff5227);text-wrap:balance}',
+  '.slide [data-slot="title"],.slide [data-slot="items"]{position:absolute;left:8%;right:8%;z-index:2;margin:0;color:var(--t-ground-fg, #1a1916);text-wrap:balance}',
+  '.slide [data-slot="title"] em,.slide [data-slot="items"] em{font-style:normal;color:var(--t-accent-bg, #ff5227)}',
   '.slide [data-slot="title"]{bottom:14%;font:650 clamp(16px,4.6cqi,48px)/1.2 var(--t-headline-face, var(--font-display, ui-sans-serif, system-ui, sans-serif))}',
   '.slide [data-slot="items"]{bottom:14%;padding:0;list-style:none;font:600 clamp(14px,3.4cqi,28px)/1.25 var(--t-body-face, var(--font-ui, ui-sans-serif, system-ui, sans-serif))}',
 ].join('');
@@ -307,6 +332,7 @@ function identityForceCss() {
   const ink = [
     '.slide,.slide [data-slot="title"],.slide [data-slot="subtitle"],.slide [data-slot="body"],.slide [data-slot="items"],.slide [data-slot="items"] li,.slide [data-slot="comparisonA"],.slide [data-slot="comparisonB"],.slide [data-slot="action"],.slide [data-slot="quote"],.slide h1,.slide h2,.slide p,.slide li{color:var(--t-ground-fg,#1b100d)!important;-webkit-text-fill-color:var(--t-ground-fg,#1b100d)!important}',
     '.slide [data-slot="stat"]{color:var(--t-accent-bg,#ff5227)!important;-webkit-text-fill-color:var(--t-accent-bg,#ff5227)!important}',
+    '.slide em,.slide [data-mark="accent"]{color:var(--t-accent-bg,#ff5227)!important;-webkit-text-fill-color:var(--t-accent-bg,#ff5227)!important;font-style:normal}',
   ].join('');
   return [
     '.slide{background:var(--t-ground-bg,#f4f2ee)!important;font-family:var(--t-body-face)!important}',
@@ -409,6 +435,7 @@ export function prepareLayoutHtml(raw, { scope, imageUrls, copy } = {}) {
   const hasPhoto = urls.length > 0;
   html = html.replace(/<style\b[^>]*>([\s\S]*?)<\/style>/gi, (_, css) => `<style>${sanitizeLayoutCss(css, { hasPhoto })}</style>`);
   html = ensureCopySlots(html, copy);
+  html = wrapTitleEmphasis(html);
   if (ANNOTATIONS_ENABLED && urls.length && copy?.annotation) {
     html = rewriteAnnotationText(html, typeof copy.annotation === 'string' ? copy.annotation : copy.annotation.text);
   } else {
