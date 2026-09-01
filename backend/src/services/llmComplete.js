@@ -127,7 +127,7 @@ function reasoningEffortFor(kind) {
   }
   if (kind === 'day') return envChoice('PLAN_DAY_REASONING_EFFORT', GPT_EFFORTS, 'medium');
   if (kind === 'structure') return envChoice('PLAN_STRUCTURE_REASONING_EFFORT', GPT_EFFORTS, 'medium');
-  if (kind === 'layout') return envChoice('PLAN_LAYOUT_REASONING_EFFORT', GPT_EFFORTS, 'medium');
+  if (kind === 'layout') return envChoice('PLAN_LAYOUT_REASONING_EFFORT', GPT_EFFORTS, 'low');
   return envChoice('PLAN_STRATEGIST_REASONING_EFFORT', GPT_EFFORTS, 'medium');
 }
 
@@ -145,12 +145,31 @@ function gptExtraParams(model, { kind, reasoningEffort, verbosity } = {}) {
 
 function isUnknownParamError(err) {
   const msg = String(err?.message || err || '').toLowerCase();
-  return /unknown parameter|unrecognized|unsupported_parameter|reasoning_effort|verbosity/.test(msg);
+  return /unknown parameter|unrecognized|unsupported_parameter|reasoning_effort|verbosity|output_config/.test(msg);
 }
 
-async function openaiChatCreate(body) {
+function anthropicSupportsEffort(model) {
+  const m = String(model || '').toLowerCase();
+  if (!m || /haiku/.test(m)) return false;
+  return /claude|sonnet|opus|fable/.test(m);
+}
+
+function anthropicEffortOf(effort) {
+  if (effort === 'none' || effort === 'minimal' || effort === 'low') return 'low';
+  if (effort === 'high') return 'high';
+  return 'medium';
+}
+
+let anthropicEffortOk = true;
+
+function anthropicExtraParams(model, { kind, reasoningEffort } = {}) {
+  if (!anthropicEffortOk || !anthropicSupportsEffort(model)) return {};
+  return { output_config: { effort: anthropicEffortOf(reasoningEffort || reasoningEffortFor(kind)) } };
+}
+
+async function openaiChatCreate(body, requestOpts) {
   try {
-    return await getOpenAIClient().chat.completions.create(body);
+    return await getOpenAIClient().chat.completions.create(body, requestOpts);
   } catch (err) {
     if (!gptExtraParamsOk || !isUnknownParamError(err)) throw err;
     gptExtraParamsOk = false;
@@ -158,7 +177,20 @@ async function openaiChatCreate(body) {
     const next = { ...body };
     delete next.reasoning_effort;
     delete next.verbosity;
-    return getOpenAIClient().chat.completions.create(next);
+    return getOpenAIClient().chat.completions.create(next, requestOpts);
+  }
+}
+
+async function anthropicMessagesCreate(createArgs, requestOpts) {
+  try {
+    return await getAnthropicClient().messages.create(createArgs, requestOpts);
+  } catch (err) {
+    if (!anthropicEffortOk || !createArgs.output_config || !isUnknownParamError(err)) throw err;
+    anthropicEffortOk = false;
+    console.warn('[llmComplete] model rejected output_config.effort — continuing without it');
+    const next = { ...createArgs };
+    delete next.output_config;
+    return getAnthropicClient().messages.create(next, requestOpts);
   }
 }
 
@@ -257,12 +289,13 @@ function cachedTokensOf(usage) {
  * Returns { text, model, stopReason, usage: { input_tokens, output_tokens, cached_tokens } }.
  */
 async function completeText({
-  model, prompt, system, user, maxTokens, cacheKey, kind, reasoningEffort, verbosity,
+  model, prompt, system, user, maxTokens, cacheKey, kind, reasoningEffort, verbosity, timeoutMs,
 }) {
   const resolved = model || planTextModel(kind);
   const userContent = (user != null && String(user).length) ? String(user) : String(prompt || '');
   const sys = String(system || '').trim();
   const provider = providerOf(resolved);
+  const requestOpts = Number(timeoutMs) > 0 ? { timeout: Number(timeoutMs) } : undefined;
 
   if (provider === 'openai') {
     const messages = [];
@@ -274,7 +307,7 @@ async function completeText({
       ...tokenArgFor(resolved, maxTokens),
       ...gptExtraParams(resolved, { kind, reasoningEffort, verbosity }),
       ...(promptCacheEnabled() && cacheKey ? { prompt_cache_key: cacheKey } : {}),
-    });
+    }, requestOpts);
     const choice = response.choices?.[0] || {};
     const usage = response.usage || {};
     return {
@@ -297,11 +330,12 @@ async function completeText({
     model: resolved,
     max_tokens: maxTokens,
     messages: [{ role: 'user', content: userContent }],
+    ...anthropicExtraParams(resolved, { kind, reasoningEffort }),
   };
   if (sys) {
     createArgs.system = [{ type: 'text', text: sys, cache_control: { type: 'ephemeral' } }];
   }
-  const response = await getAnthropicClient().messages.create(createArgs);
+  const response = await anthropicMessagesCreate(createArgs, requestOpts);
   return {
     text: textOfAnthropic(response),
     model: resolved,

@@ -135,6 +135,10 @@ function optionalText(value) {
   return String(value || '').trim();
 }
 
+function unmarkedText(value) {
+  return optionalText(value).replace(/\{\{(?:fg|accent|ground)\|([^{}]*)\}\}/g, '$1');
+}
+
 function optionalTextOrList(value) {
   if (Array.isArray(value)) return stringList(value);
   return optionalText(value);
@@ -321,6 +325,10 @@ function layoutSlideConcurrency() {
   return envPositiveInt('PLAN_LAYOUT_SLIDE_CONCURRENCY', 4);
 }
 
+function layoutTimeoutMs() {
+  return envPositiveInt('PLAN_LAYOUT_TIMEOUT_MS', 60000);
+}
+
 const layoutWaiters = [];
 let layoutActive = 0;
 
@@ -422,6 +430,7 @@ async function callAgent({ source, kind, prompt, system, user, validate }) {
       maxTokens,
       cacheKey: `igsignal-plan-${kind}`,
       kind,
+      timeoutMs: kind === 'layout' ? layoutTimeoutMs() : 0,
     });
     const fullText = response.text || '';
     const usage = usageOf(response, model);
@@ -1193,14 +1202,14 @@ function layoutStructureOf(structure) {
 }
 
 function wordCount(value) {
-  return optionalText(value).split(/\s+/).filter(Boolean).length;
+  return unmarkedText(value).split(/\s+/).filter(Boolean).length;
 }
 
 function copyMetricsOf(flat) {
   return {
     titleWords: wordCount(flat?.title),
-    titleChars: optionalText(flat?.title).length,
-    bodyChars: optionalText(flat?.body).length,
+    titleChars: unmarkedText(flat?.title).length,
+    bodyChars: unmarkedText(flat?.body).length,
   };
 }
 

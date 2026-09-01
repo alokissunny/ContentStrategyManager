@@ -1,0 +1,4 @@
+{
+  "watch": ["src", "prompts", ".env"],
+  "ext": "js,json,md"
+}

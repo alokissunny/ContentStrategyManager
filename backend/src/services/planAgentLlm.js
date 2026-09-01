@@ -57,8 +57,11 @@ function namedProvider(value) {
   return PROVIDERS.includes(v) ? v : '';
 }
 
-function defaultModelFor(provider) {
+function defaultModelFor(provider, kind) {
   if (provider === 'anthropic') {
+    // Layout is constrained HTML, not strategy. Haiku is the speed default;
+    // do not inherit ANTHROPIC_MODEL (often Sonnet 5, adaptive thinking).
+    if (kind === 'layout') return 'claude-haiku-4-5';
     return envText('ANTHROPIC_MODEL') || 'claude-sonnet-5';
   }
   return envText('PLAN_AGENT_MODEL')
@@ -78,7 +81,7 @@ function resolvePlanAgentLlm(kind = 'strategist') {
   const provider = inferProvider(explicitModel)
     || explicitProvider
     || spec.defaultProvider;
-  const model = explicitModel || defaultModelFor(provider);
+  const model = explicitModel || defaultModelFor(provider, kind);
   return { kind: AGENTS[kind] ? kind : 'strategist', provider, model };
 }
 

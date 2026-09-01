@@ -23,7 +23,7 @@ import { CaptureChat } from './Projects';
 import { styleOf, groundOf } from '../lib/visualbrand';
 import { LAYOUTS as LIB_LAYOUTS, CATEGORIES, catForRole, shotsOf, DEFAULT_LAYOUT_BY_CAT, layoutShowsAllCopy } from '../data/layouts';
 import { paintAll, identityOf, TYPE_SLOTS, FACES } from '../lib/identity';
-import { rolesOf as textRolesOf, plainOf, parseMarked, isListRole, listIndexOf, emphasizeTitle } from '../lib/slidetext';
+import { rolesOf as textRolesOf, plainOf, parseMarked, isListRole, listIndexOf } from '../lib/slidetext';
 import { Preview } from './visuallibrary/LayoutArt';
 import VisualLibrary from './visuallibrary/VisualLibrary';
 import ImagePicker from './weekview/ImagePicker';
@@ -1094,7 +1094,8 @@ function buildMarkdown(route) {
 // dangling article ("Your Portfolio." not "Portfolio.").
 function fillLayout(layout, slide, contentType, draft) {
   if (!layout) return layout;
-  const title = (draft?.head != null ? plainOf(draft.head) : (slide?.title || slide?.quote || slide?.action || '')).trim();
+  const rawTitle = String(draft?.head != null ? draft.head : (slide?.title || slide?.quote || slide?.action || '')).trim();
+  const title = plainOf(rawTitle).trim();
   const sub = (draft?.body != null ? plainOf(draft.body) : (slide?.subtitle || slide?.body || '')).trim();
   const src = layout.art || {};
   const has = (k) => k in src;
@@ -1105,10 +1106,10 @@ function fillLayout(layout, slide, contentType, draft) {
     art.a = String(slide.comparisonA || title).trim();
     if (has('b')) art.b = String(slide.comparisonB || slide?.subtitle || '').trim();
   } else if (has('head')) {
-    if (has('accent') && title) {
-      const split = emphasizeTitle(title);
-      art.head = split.head;
-      accentText = split.accent;
+    if (has('accent')) {
+      const marked = parseMarked(rawTitle);
+      accentText = marked.filter((p) => p.mark === 'accent').map((p) => p.text).join('').trim();
+      art.head = marked.filter((p) => p.mark !== 'accent').map((p) => p.text).join('').trim() || title;
     } else {
       art.head = title;
     }
@@ -1317,8 +1318,8 @@ function slideAllowsPhoto(slide) {
 }
 
 function slideCopy(slide, parts) {
-  const title = (parts?.head != null ? plainOf(parts.head) : (slide?.title || slide?.quote || slide?.action || '')).trim();
-  const sub = (parts?.body != null ? plainOf(parts.body) : (slide?.subtitle || '')).trim();
+  const title = String(parts?.head != null ? parts.head : (slide?.title || slide?.quote || slide?.action || '')).trim();
+  const sub = String(parts?.body != null ? parts.body : (slide?.subtitle || '')).trim();
   const body = String(slide?.body || '').trim();
   const items = Array.isArray(slide?.items) ? slide.items.map((x) => String(x || '').trim()).filter(Boolean) : [];
   const cmpA = String(slide?.comparisonA || '').trim();
@@ -2624,9 +2625,9 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
     const hasHead = roles.some((r) => r.key === 'head');
     const hasBody = roles.some((r) => r.key === 'body');
     const primary = hasHead ? 'head' : (hasBody ? 'body' : roles[0]?.key);
-    const title = capText(plainOf(wordDraft?.[primary] || ''));
+    const title = capText(wordDraft?.[primary] || '');
     const patch = { title };
-    if (hasHead && hasBody) patch.subtitle = capText(plainOf(wordDraft?.body || ''));
+    if (hasHead && hasBody) patch.subtitle = capText(wordDraft?.body || '');
     if (roles.some((r) => r.key === 'annotation')) {
       const prev = activeSlide?.annotation && typeof activeSlide.annotation === 'object'
         ? activeSlide.annotation

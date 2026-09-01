@@ -5,6 +5,7 @@ import UserMenu from './UserMenu';
 import AccountSwitcher from './AccountSwitcher';
 import Glyph from './Glyph';
 import AiDebugPanel from './AiDebugPanel';
+import GenerationToast from './GenerationToast';
 import { Logo } from '../brand/Logo';
 import { useScrollHide } from '../hooks/useScrollHide';
 
@@ -57,6 +58,7 @@ export default function DashboardLayout({ children }) {
         <main className="app__main">{content}</main>
       </div>
       <AiDebugPanel />
+      <GenerationToast />
     </div>
   );
 }

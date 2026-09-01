@@ -447,6 +447,8 @@ Each slide should normally contain:
 
 Flag slides containing multiple unrelated thoughts.
 
+Day Writer marks a supporting punch with `{{accent|…}}`. Do not flag a title for lacking accent colour, and do not instruct splitting a sentence so the last clause becomes accent. If the punch is unclear, ask for a clearer phrase and let Day Writer re-mark it.
+
 ---
 
 # 10. CONTENT PILLAR EXECUTION

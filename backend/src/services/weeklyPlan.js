@@ -521,7 +521,7 @@ const ROLE_INTENT = {
 // WeekView. Deliberately free of palette/type/mood and of any in-image text;
 // those are layered on at generation time.
 function buildBaseImagePrompt(slide, ctx = {}) {
-  const clean = (v) => String(v || '').trim().replace(/[.!?…]+$/, '');
+  const clean = (v) => String(v || '').replace(/\{\{(?:fg|accent|ground)\|([^{}]*)\}\}/g, '$1').trim().replace(/[.!?…]+$/, '');
   const role = String(slide.role || '').trim();
   const line = clean(slide.title);
   const sub = String(slide.subtitle || '').trim();

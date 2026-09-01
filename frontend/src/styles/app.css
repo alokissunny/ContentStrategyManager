@@ -1697,6 +1697,53 @@ textarea.ai-debug__input {
   }
 }
 
+/* ── generation toast — bottom-left, past the sidebar, same box as library
+ * settings. Lives on the shell so a finished plan can land on any page. */
+.toast {
+  position: fixed;
+  left: calc(var(--sidebar-w, 0px) + var(--sp-4));
+  bottom: var(--sp-4);
+  z-index: 70;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  width: max-content;
+  max-width: min(86vw, 280px);
+  padding: 11px 32px 11px 14px;
+  border-radius: var(--r-md);
+  background: var(--ink-900);
+  color: #fff;
+  box-shadow: var(--shadow-lift);
+  animation: toast-in var(--dur-base) var(--ease-out);
+}
+@media (max-width: 800px) {
+  .toast { bottom: calc(66px + env(safe-area-inset-bottom) + var(--sp-4)); }
+}
+@keyframes toast-in { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+.toast__row { display: flex; align-items: flex-start; gap: 10px; width: 100%; }
+.toast svg { color: rgba(255, 255, 255, 0.72); flex-shrink: 0; margin-top: 2px; }
+.toast.is-busy svg { animation: lsSpin 900ms linear infinite; }
+.toast__text { flex: 1 1 0; min-width: 0; font-size: var(--text-sm); line-height: 1.45; color: rgba(255, 255, 255, 0.86); }
+.toast__text b { color: #fff; font-weight: 600; display: block; }
+.toast .btn--primary { margin-left: 27px; background: #fff; color: var(--ink-900); flex: 0 0 auto; }
+.toast .btn--primary:hover { background: rgba(255, 255, 255, 0.88); }
+.toast__x {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: none;
+  color: rgba(255, 255, 255, 0.66);
+  cursor: pointer;
+}
+.toast__x:hover { background: rgba(255, 255, 255, 0.12); color: #fff; }
+
 @media (max-width: 560px) {
   /* pillars stack as horizontal rows */
   .as {

@@ -1,4 +1,4 @@
-import { plainOf, titleRuns } from '../../lib/slidetext';
+import { hasMark, plainOf, titleRuns } from '../../lib/slidetext';
 
 function trim(value) {
   return String(value || '').trim();
@@ -167,14 +167,18 @@ function emphasizedHtml(text) {
   }).join('');
 }
 
-function wrapTitleEmphasis(html) {
+function wrapTitleEmphasis(html, copy) {
   return String(html || '').replace(
     /<([a-z][a-z0-9]*)(\b[^>]*data-slot\s*=\s*["']title["'][^>]*)>([\s\S]*?)<\/\1>/gi,
     (full, tag, attrs, inner) => {
+      const source = trim(copy?.title);
+      if (hasMark(source)) {
+        return `<${tag}${attrs}>${emphasizedHtml(source)}</${tag}>`;
+      }
       if (/<em\b/i.test(inner)) return full;
       const text = innerText(inner);
-      if (!text) return full;
-      return `<${tag}${attrs}>${emphasizedHtml(text)}</${tag}>`;
+      if (hasMark(text)) return `<${tag}${attrs}>${emphasizedHtml(text)}</${tag}>`;
+      return full;
     },
   );
 }
@@ -435,7 +439,7 @@ export function prepareLayoutHtml(raw, { scope, imageUrls, copy } = {}) {
   const hasPhoto = urls.length > 0;
   html = html.replace(/<style\b[^>]*>([\s\S]*?)<\/style>/gi, (_, css) => `<style>${sanitizeLayoutCss(css, { hasPhoto })}</style>`);
   html = ensureCopySlots(html, copy);
-  html = wrapTitleEmphasis(html);
+  html = wrapTitleEmphasis(html, copy);
   if (ANNOTATIONS_ENABLED && urls.length && copy?.annotation) {
     html = rewriteAnnotationText(html, typeof copy.annotation === 'string' ? copy.annotation : copy.annotation.text);
   } else {

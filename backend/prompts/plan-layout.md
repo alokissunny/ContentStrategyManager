@@ -141,7 +141,7 @@ The photograph is the work. Copy orients it. Do not posterize the photo behind a
 
 The application supplies font-family, weight, and colour. You control **relative size hierarchy** with `cqi` so the Layout hierarchy reads at phone size (~380px wide).
 
-Wrap the supporting punch of a title — the last sentence of a two-beat line, or the last emphatic beat of a single line — in `<em>`. Do not wrap the whole headline. The application paints `<em>` as the brand accent and the rest as primary. Do not set `color` on titles, body, or `<em>`.
+Wrap Day Writer accent marks as `<em>`. Filled copy may contain `{{accent|phrase}}`. Render unmarked words as plain text and the marked phrase as `<em>phrase</em>`. Do not copy the `{{accent|…}}` braces into the HTML. Do not wrap the whole headline. Do not invent `<em>` when there is no mark. Do not set `color` on titles, body, or `<em>`.
 
 Baseline sizing:
 
@@ -196,7 +196,7 @@ The application may apply Brand Kit weight and colour, but it must not be requir
 | `stat` | number/metric |
 | `action` | CTA button/link |
 
-**Do not invent slots. Do not duplicate slots. Do not omit Day Writer content.** Each `data-slot` is used at most once. Put the exact Day Writer copy inside the element.
+**Do not invent slots. Do not duplicate slots. Do not omit Day Writer content.** Each `data-slot` is used at most once. Put the exact Day Writer copy inside the element. If that copy contains `{{accent|phrase}}`, emit `<em>phrase</em>` and never the braces.
 
 The slot name is a rendering hook, **not** permission to redefine semantic structure. For example, if Content Structure locked `Cause_Effect` and the supplied copy is carried in existing generic fields, the Layout must still treat and compose those fields as Cause → Effect. It must not relabel the communication structure as `Comparison`.
 

@@ -12,9 +12,16 @@
 
 import React, { useEffect, useRef, useState } from 'react';
 import Icon from '../brand/Icon';
-import { getCurrentRoute, getRoutes, generateRoute, clearCurrentMonth } from '../api/routes';
+import { getCurrentRoute, getRoutes, clearCurrentMonth } from '../api/routes';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useProjects, createProject, refreshProjects, addSession, sessionCount } from '../lib/projectsStore';
+import {
+  consumePlanReady,
+  getPlanGeneration,
+  setPlanWatching,
+  startPlanGeneration,
+  usePlanGeneration,
+} from '../lib/planGeneration';
 import { CaptureChat } from './Projects';
 import { useAuth } from '../context/AuthContext';
 import WeekView from './WeekView';
@@ -297,7 +304,12 @@ export default function YourPlans() {
   const [preparing, setPreparing] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [view, setView] = useState(location.state?.generateAfterCapture ? 'gen' : 'list');        // 'list' | 'checkin' | 'gen' | 'week'
+  const gen = usePlanGeneration();
+  const [view, setView] = useState(() => {
+    if (getPlanGeneration().status === 'generating' || getPlanGeneration().status === 'ready') return 'gen';
+    if (location.state?.generateAfterCapture) return 'gen';
+    return 'list';
+  });        // 'list' | 'checkin' | 'gen' | 'week'
   const [selected, setSelected] = useState(null);  // the route open in WeekView
   const [selectedDay, setSelectedDay] = useState(0); // day index inside that week
   const [capturing, setCapturing] = useState(false); // the Capture idea flow
@@ -399,27 +411,51 @@ export default function YourPlans() {
     }
   }, [loading, routes, monthFilling]);
 
+  // PlanLoom is this page's wait; the store keeps the request alive if they leave.
+  useEffect(() => {
+    setPlanWatching(view === 'gen');
+    return () => setPlanWatching(false);
+  }, [view]);
+
+  useEffect(() => {
+    if (gen.status === 'generating') setView('gen');
+  }, [gen.status]);
+
+  useEffect(() => {
+    if (gen.status !== 'ready' || !gen.route) return undefined;
+    const route = gen.route;
+    const expectedWeeks = gen.expectedWeeks;
+    const hold = Math.max(0, 1800 - (Date.now() - gen.startedAt));
+    const t = setTimeout(async () => {
+      if (getPlanGeneration().status !== 'ready') return;
+      consumePlanReady();
+      await reload();
+      setSelected(route);
+      setSelectedDay(0);
+      setView('week');
+      setReplanning(false);
+      startMonthFillWatch(expectedWeeks);
+    }, hold);
+    return () => clearTimeout(t);
+  }, [gen.status, gen.route, gen.startedAt, gen.expectedWeeks]);
+
+  useEffect(() => {
+    if (gen.status !== 'error') return;
+    setError(gen.error);
+    setView('list');
+    setReplanning(false);
+  }, [gen.status, gen.error]);
+
   // Re-run the current month's plan (same path as check-in generate).
   async function runGenerate(trigger, extras = {}) {
     setError('');
     setCapturing(false);
     setView('gen');
-    const startedAt = Date.now();
+    setPlanWatching(true);
     try {
-      const data = await generateRoute(trigger, extras);
-      const route = data.route || data;
-      const hold = Math.max(0, 1800 - (Date.now() - startedAt));
-      setTimeout(async () => {
-        await reload();
-        setSelected(route);
-        setSelectedDay(0);
-        setView('week');
-        startMonthFillWatch(data.expectedWeeks);
-      }, hold);
-    } catch (err) {
-      setError(err.response?.data?.message || "We couldn't build a plan just now. Please try again.");
-      setView('list');
-      setReplanning(false);
+      await startPlanGeneration(trigger, extras);
+    } catch {
+      /* store holds the error; the effect above paints it */
     }
   }
 
@@ -438,32 +474,13 @@ export default function YourPlans() {
   }, [location.state?.generateAfterCapture]);
 
   async function onReplanMonth() {
-    if (replanning) return;
+    if (replanning || gen.status === 'generating') return;
     const ok = window.confirm(
       'Add posts to empty days this month from your latest Brand DNA and Capture Idea notes?\n\nDays that already have content stay as they are.',
     );
     if (!ok) return;
-    setError('');
     setReplanning(true);
-    setView('gen');
-    const startedAt = Date.now();
-    try {
-      const data = await generateRoute('replan-month');
-      const route = data.route || data;
-      const hold = Math.max(0, 1800 - (Date.now() - startedAt));
-      setTimeout(async () => {
-        await reload();
-        setSelected(route);
-        setSelectedDay(0);
-        setView('week');
-        setReplanning(false);
-        startMonthFillWatch(data.expectedWeeks);
-      }, hold);
-    } catch (err) {
-      setError(err.response?.data?.message || "We couldn't replan this month. Please try again.");
-      setView('list');
-      setReplanning(false);
-    }
+    await runGenerate('replan-month');
   }
 
   async function onClearMonth() {
@@ -695,7 +712,7 @@ export default function YourPlans() {
                   <button
                     type="button"
                     className="btn btn--ghost btn--sm ph__replan"
-                    disabled={replanning || clearing}
+                    disabled={replanning || clearing || gen.status === 'generating'}
                     onClick={onReplanMonth}
                   >
                     <Icon name="refresh" size={14} strokeWidth={2.25} />
@@ -704,7 +721,7 @@ export default function YourPlans() {
                   <button
                     type="button"
                     className="btn btn--ghost btn--sm ph__clear"
-                    disabled={replanning || clearing}
+                    disabled={replanning || clearing || gen.status === 'generating'}
                     onClick={onClearMonth}
                   >
                     <Icon name="trash" size={14} strokeWidth={2.25} />

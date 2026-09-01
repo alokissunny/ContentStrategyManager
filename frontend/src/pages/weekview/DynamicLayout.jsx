@@ -254,7 +254,7 @@ function CopyBlock({ copy }) {
   const stat = trim(copy?.stat);
   const quote = trim(copy?.quote);
   const action = trim(copy?.action);
-  const long = wordCount(title) >= 10;
+  const long = wordCount(plainOf(title)) >= 10;
   const restBody = body && body !== subtitle && body !== title ? body : '';
   return (
     <div className="wv-safe__copy">
@@ -310,7 +310,7 @@ function SafeLayout({ copy, imageUrls, subjects, paint, needsVisual = false }) {
         {annote ? <AnnotationOverlay annotation={annote} subjects={subjects} paint={paint} /> : null}
         <TitleWithAccent
           text={title}
-          className={`wv-safe__bleedtitle${wordCount(title) >= 10 ? ' is-long' : ''}`}
+          className={`wv-safe__bleedtitle${wordCount(plainOf(title)) >= 10 ? ' is-long' : ''}`}
         />
       </div>
     );
@@ -363,7 +363,7 @@ function CopyOnPhoto({ copy, paint }) {
         {title ? (
           <TitleWithAccent
             text={title}
-            className={wordCount(title) >= 10 ? 'is-long' : ''}
+            className={wordCount(plainOf(title)) >= 10 ? 'is-long' : ''}
             style={head ? { fontFamily: head } : undefined}
           />
         ) : null}

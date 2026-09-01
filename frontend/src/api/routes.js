@@ -70,7 +70,7 @@ export function generateRoute(trigger = 'generate', extras = {}) {
   if (Array.isArray(extras.captureIds) && extras.captureIds.length) {
     body.captureIds = extras.captureIds.map((id) => String(id || '').trim()).filter(Boolean);
   }
-  return client.post('/routes/generate', body).then((res) => {
+  return client.post('/routes/generate', body, { timeout: 10 * 60 * 1000 }).then((res) => {
     const data = res.data || {};
     ingestPlanDebug(`Generate plan (${trigger})`, data);
     return data;
