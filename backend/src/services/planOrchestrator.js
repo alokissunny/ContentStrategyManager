@@ -111,8 +111,8 @@ const PLATFORM_CONSTRAINTS = {
   ],
   actionExpressions: ['none', 'CTA-text', 'question', 'native-behavior', 'link-reference'],
   formatRules: {
-    Post: 'One visual/post surface. Map the strongest core unit to the visual; supporting units go to caption or CTA.',
-    Carousel: 'Map complete narrative meaning across slides. Swipe is native. Count follows meaning, not a default length.',
+    Post: 'One visual surface for one narrative unit. Distinct units are not caption leftovers. If two or more units need a visual beat, use Carousel.',
+    Carousel: 'One slide per distinct narrative unit. Swipe is native. Do not merge Problem, Decision, and Result onto one slide.',
     Reel: 'Map units to scenes/beats. Motion may carry meaning. Do not drop meaningful units to keep the sequence short.',
     Story: 'Lightweight sequential scenes/beats. Keep each scene one clear thought.',
     'Before/After': 'Requires genuine supporting evidence of both states. Do not fake a transformation.',
@@ -303,6 +303,64 @@ function layoutAgentEnabled() {
   return !(v === '0' || v === 'false' || v === 'off' || v === 'no');
 }
 
+function layoutSlideParallelEnabled() {
+  const v = String(process.env.PLAN_LAYOUT_SLIDE_PARALLEL ?? '1').trim().toLowerCase();
+  return !(v === '0' || v === 'false' || v === 'off' || v === 'no');
+}
+
+function envPositiveInt(name, fallback) {
+  const n = Number(process.env[name]);
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : fallback;
+}
+
+function dayConcurrency() {
+  return envPositiveInt('PLAN_DAY_CONCURRENCY', 8);
+}
+
+function layoutSlideConcurrency() {
+  return envPositiveInt('PLAN_LAYOUT_SLIDE_CONCURRENCY', 4);
+}
+
+const layoutWaiters = [];
+let layoutActive = 0;
+
+function withLayoutSlot(fn) {
+  const max = layoutSlideConcurrency();
+  return new Promise((resolve, reject) => {
+    const start = () => {
+      layoutActive += 1;
+      Promise.resolve()
+        .then(fn)
+        .then(resolve, reject)
+        .finally(() => {
+          layoutActive -= 1;
+          const next = layoutWaiters.shift();
+          if (next) next();
+        });
+    };
+    if (layoutActive < max) start();
+    else layoutWaiters.push(start);
+  });
+}
+
+async function mapPool(items, limit, mapper) {
+  const list = Array.isArray(items) ? items : [];
+  if (!list.length) return [];
+  const cap = Math.max(1, Math.min(Number(limit) || list.length, list.length));
+  const out = new Array(list.length);
+  let next = 0;
+  async function worker() {
+    for (;;) {
+      const i = next;
+      next += 1;
+      if (i >= list.length) return;
+      out[i] = await mapper(list[i], i);
+    }
+  }
+  await Promise.all(Array.from({ length: cap }, () => worker()));
+  return out;
+}
+
 function retryMaxTokens(current) {
   const bumped = Math.min(Math.max(current, 1) * 2, 64000);
   return bumped > current ? bumped : current;
@@ -391,10 +449,15 @@ async function callAgent({ source, kind, prompt, system, user, validate }) {
 
     try {
       if (typeof validate === 'function') validate(parsed);
+      const elapsedMs = Date.now() - started;
       if (usage.cachedTokens) {
         console.log(`[planOrchestrator] ${source} cache hit ${usage.cachedTokens}/${usage.inputTokens} input tokens`);
       }
-      return { parsed, usage, debugEntry: { ...debugEntry, output: fullText, elapsedMs: Date.now() - started } };
+      console.log(
+        `[planOrchestrator] ${source} done · ${Math.round(elapsedMs / 100) / 10}s` +
+          ` · ${usage.totalTokens} tok (${usage.outputTokens} out)`,
+      );
+      return { parsed, usage, debugEntry: { ...debugEntry, output: fullText, elapsedMs } };
     } catch (err) {
       lastErr = err;
       console.warn(`[planOrchestrator] ${source} attempt ${attempt}: validation failed — ${err.message}`);
@@ -756,7 +819,7 @@ function normalizeStructureType(value) {
   return raw;
 }
 
-function validateContentStructure(parsed) {
+function validateContentStructure(parsed, brief) {
   const status = String(parsed?.status || '').trim().toLowerCase();
   if (!['ready', 'unresolved'].includes(status)) throw new Error('missing structure status');
   parsed.status = status;
@@ -819,6 +882,10 @@ function validateContentStructure(parsed) {
   const unsupported = visualSlides.find((s) => !AVAILABLE_ELEMENT_SET.has(s.primaryStructure));
   if (unsupported) throw new Error(`unsupported primaryStructure ${unsupported.primaryStructure}`);
   if (parsed.unmappedUnits.length) throw new Error('ready structure has unmappedUnits');
+  assertUnitsNotCompressed(parsed, brief);
+  if (visualSlides.length > 1 && (parsed.format === 'Post' || parsed.format === 'Annotated Visual')) {
+    parsed.format = 'Carousel';
+  }
   parsed.totalSlidesOrScenes = visualSlides.length;
   const suff = parsed.validation?.communicationSufficiency;
   parsed.validation = {
@@ -834,6 +901,26 @@ function validateContentStructure(parsed) {
     } : null,
     problems: Array.isArray(parsed.validation?.problems) ? parsed.validation.problems : [],
   };
+}
+
+function assertUnitsNotCompressed(parsed, brief) {
+  const visual = visualSlidesOf(parsed);
+  const compressed = visual.find((s) => (s.coversUnits || []).length > 1);
+  if (compressed) {
+    throw new Error(`slide ${compressed.index} compressed units ${compressed.coversUnits.join(',')}`);
+  }
+  const units = Array.isArray(brief?.narrativeUnits) ? brief.narrativeUnits : [];
+  if (!units.length) return;
+  const captioned = new Set(stringList(parsed.captionUnits));
+  const ctaId = optionalText(parsed.ctaUnit);
+  units.forEach((u, i) => {
+    const id = optionalText(u?.id) || `u${i + 1}`;
+    const role = String(u?.role || '').trim().toLowerCase();
+    if (id === ctaId || role === 'cta') return;
+    if (captioned.has(id)) throw new Error(`unit ${id} parked in caption`);
+    const hits = visual.filter((s) => (s.coversUnits || []).includes(id));
+    if (!hits.length) throw new Error(`unit ${id} has no visual surface`);
+  });
 }
 
 function mergeAllocatedVisuals(brief, dayAssets) {
@@ -967,7 +1054,7 @@ async function writeContentStructure({ source, brief, dayAssets }) {
     system: assembled.system,
     user: assembled.user,
     prompt: assembled.prompt,
-    validate: validateContentStructure,
+    validate: (parsed) => validateContentStructure(parsed, brief),
   });
 }
 
@@ -1256,19 +1343,122 @@ function applyLayoutToContent(content, layoutParsed) {
   return content;
 }
 
+function layoutSlideIndexOf(raw, i) {
+  return Number(raw?.index) > 0 ? Number(raw.index) : i + 1;
+}
+
+function sliceLayoutStructure(structure, index) {
+  const full = layoutStructureOf(structure);
+  return {
+    ...full,
+    slidesOrScenes: (full.slidesOrScenes || []).filter((s) => Number(s.index) === Number(index)),
+  };
+}
+
+function layoutNeighborOf(row) {
+  return {
+    index: row.index,
+    role: row.role,
+    purpose: row.purpose,
+    includeImageSlot: Boolean(row.visual?.includeImageSlot),
+    titleWords: Number(row.copyMetrics?.titleWords) || 0,
+  };
+}
+
+function collectLayoutParts(layout, collect) {
+  if (!layout) return;
+  if (Array.isArray(layout.parts) && layout.parts.length) {
+    layout.parts.forEach(collect);
+    return;
+  }
+  collect(layout);
+}
+
+async function writeOneLayoutSlide({ source, structure, post, dayBrief, raw, index, neighbors, totalSlides }) {
+  const slicedPost = { ...post, content: { ...(post.content || {}), slides: [raw] } };
+  const assembled = assembleAgentPrompt('plan-layout.md', {
+    STRUCTURE_JSON: json(sliceLayoutStructure(structure, index)),
+    POST_JSON: json({
+      ...layoutInputOf(slicedPost, structure, dayBrief),
+      carousel: { totalSlides, thisIndex: index, neighbors },
+    }),
+  });
+  return withLayoutSlot(() => callAgent({
+    source: `${source}#${index}`,
+    kind: 'layout',
+    system: assembled.system,
+    user: assembled.user,
+    prompt: assembled.prompt,
+    validate: (parsed) => validateLayout(parsed, slicedPost),
+  }));
+}
+
 async function writeLayout({ source, structure, post, dayBrief }) {
+  const slides = Array.isArray(post?.content?.slides) ? post.content.slides : [];
+  if (layoutSlideParallelEnabled() && slides.length > 1) {
+    const fullInput = layoutInputOf(post, structure, dayBrief);
+    const parts = (await mapPool(slides, slides.length, async (raw, i) => {
+      const index = layoutSlideIndexOf(raw, i);
+      try {
+        return await writeOneLayoutSlide({
+          source,
+          structure,
+          post,
+          dayBrief,
+          raw,
+          index,
+          totalSlides: slides.length,
+          neighbors: (fullInput.slides || []).filter((s) => s.index !== index).map(layoutNeighborOf),
+        });
+      } catch (err) {
+        console.warn(`[planOrchestrator] ${source}#${index} skipped — ${err.message}`);
+        return null;
+      }
+    })).filter(Boolean);
+    const mergedSlides = parts
+      .filter((p) => p?.parsed?.status === 'ready')
+      .flatMap((p) => p.parsed?.slides || [])
+      .sort((a, b) => (Number(a.index) || 0) - (Number(b.index) || 0));
+    const model = parts[0]?.debugEntry?.model || agentModel('layout');
+    const usage = mergeUsage(parts.map((p) => p.usage).filter(Boolean), model);
+    const elapsedMs = Math.max(0, ...parts.map((p) => Number(p.debugEntry?.elapsedMs) || 0));
+    if (!mergedSlides.length) {
+      const failed = parts.find((p) => p?.parsed?.status === 'failed') || parts[0];
+      return failed ? { ...failed, parts, usage } : {
+        parsed: { status: 'failed', failureReason: 'all layout slides failed', slides: [] },
+        usage,
+        debugEntry: { source, model, kind: 'layout', prompt: '', output: '', elapsedMs },
+        parts,
+      };
+    }
+    return {
+      parsed: { status: 'ready', slides: mergedSlides },
+      usage,
+      debugEntry: {
+        source,
+        model,
+        provider: parts[0]?.debugEntry?.provider || '',
+        prompt: parts.map((p) => p.debugEntry?.prompt).filter(Boolean).join('\n\n---\n\n'),
+        output: parts.map((p) => p.debugEntry?.output).filter(Boolean).join('\n\n'),
+        kind: 'layout',
+        elapsedMs,
+      },
+      parts,
+    };
+  }
+
   const assembled = assembleAgentPrompt('plan-layout.md', {
     STRUCTURE_JSON: json(layoutStructureOf(structure)),
     POST_JSON: json(layoutInputOf(post, structure, dayBrief)),
   });
-  return callAgent({
+  return withLayoutSlot(() => callAgent({
     source,
     kind: 'layout',
     system: assembled.system,
     user: assembled.user,
     prompt: assembled.prompt,
     validate: (parsed) => validateLayout(parsed, post),
-  });
+  }));
 }
 
 function runLayoutForPost(opts) {
@@ -1289,7 +1479,7 @@ async function attachLayout({ label, structure, writer, collect, dayBrief, dayAs
       post,
       dayBrief,
     });
-    collect(layout);
+    collectLayoutParts(layout, collect);
     const htmlCount = (layout.parsed?.slides || []).filter((s) => s.html).length;
     console.log(
       `[planOrchestrator] Layout:${label}` +
@@ -1442,8 +1632,8 @@ async function runMultiAgentPlan({
   }
 
   // ── 2. Content Structure → Day writers + Quality + Layout ─────────────────
-  // First brief primes the provider prompt cache for Structure then Day Writer;
-  // the rest run in parallel so they reuse the same system instructions.
+  // All briefs run concurrently (capped by PLAN_DAY_CONCURRENCY). Within a day
+  // Structure → Writer → Layout stay sequential; carousel layouts fan out per slide.
   const gateOn = qualityAgentEnabled();
   const maxRewrites = qualityMaxRewrites();
   const layoutOn = layoutAgentEnabled();
@@ -1543,6 +1733,7 @@ async function runMultiAgentPlan({
       }
 
       const lockedStructure = writerStructureOf(structure.parsed);
+      if (structure.parsed.format) brief.format = lockedFormat(structure.parsed.format);
       writerOpts.structureJson = json(lockedStructure);
       const visualCount = visualSlidesOf(structure.parsed).length;
       console.log(
@@ -1663,14 +1854,7 @@ async function runMultiAgentPlan({
       return finishDay(writer, review?.parsed || null);
   };
 
-  let dayResults = [];
-  if (plannedDays.length === 1) {
-    dayResults = [await writeOneDay(plannedDays[0], 0)];
-  } else if (plannedDays.length > 1) {
-    const first = await writeOneDay(plannedDays[0], 0);
-    const rest = await Promise.all(plannedDays.slice(1).map((p, i) => writeOneDay(p, i + 1)));
-    dayResults = [first, ...rest];
-  }
+  const dayResults = await mapPool(plannedDays, dayConcurrency(), (p, i) => writeOneDay(p, i));
 
   dayResults
     .sort((a, b) => a.index - b.index)

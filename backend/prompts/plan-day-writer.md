@@ -25,7 +25,7 @@ Copy and preserve:
 - audienceTension
 - hookTerritory
 - centralFact, ownedTerritory, and doNotRepeat
-- format
+- format (follow `STRUCTURE_JSON.format`, including a Post→Carousel upgrade that preserved units)
 - knownLimitations
 - narrative-unit meaning
 - slide/scene count and mapping
@@ -37,7 +37,7 @@ Copy and preserve:
 - visual priority, role, type, communication function, and truth boundary (`visual` after evidence resolution — not `visualNeed`)
 - action type, expression, and placement
 
-If the Strategist brief and Structure plan conflict, return a failed result naming the conflict. Do not choose a new strategy or structure.
+If the Strategist brief and Structure plan conflict, return a failed result naming the conflict. Do not choose a new strategy or structure. A Structure `format` of `Carousel` after a Strategist `Post` is not a conflict when Structure mapped each narrative unit to its own slide.
 
 ## You control
 

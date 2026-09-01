@@ -480,6 +480,8 @@ This call is initial generation only. Do not return alternate layouts.
 
 Return only one fenced JSON block. One `slides` entry per visual Day Writer slide, same `index` and order.
 
+If `POST_JSON.carousel` is present, compose **only** slide `carousel.thisIndex`. `neighbors` is context so this composition stays distinct from adjacent slides. Return a `slides` array of length 1 for that index.
+
 `html` is a string: the `<style>` block plus the `<article class="slide">`. Escape it as JSON.
 
 `contentStructure` must reflect the **locked Content Structure**, not a simplified Writer/UI interpretation. `visualHierarchy` must match the actual prominence expressed in the HTML.

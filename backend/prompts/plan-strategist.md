@@ -202,8 +202,8 @@ Low-confidence competitor evidence should have correspondingly low influence.
 
 Choose format from narrative behaviour and truthful evidence:
 
-- `Post`: one dominant thought with supporting meaning suited to the caption
-- `Carousel`: progressive reasoning, multiple distinct points, comparison, sequence, or layered explanation
+- `Post`: **one** dominant thought — use only when a single narrative unit belongs on the visual and any remainder is caption/CTA, not another beat
+- `Carousel`: two or more distinct units (Problem → Decision → Result, comparison, sequence, or layered explanation). If you wrote three units, this is a Carousel, not a Post.
 - `Reel`: motion, demonstration, spoken delivery, or sequential performance materially helps
 - `Story`: lightweight, immediate, interactive, or conversational sequence
 - `Before/After`: verified evidence of both states exists
@@ -230,7 +230,7 @@ Possible flows include:
 
 Possible roles include Hook, Context, Problem, Cause, WhyItMatters, Observation, Evidence, Exploration, Example, Contrast, Process, Decision, Result, Implication, Takeaway, BrandRole, and CTA.
 
-Use only the units required to make the angle complete.
+Use only the units required to make the angle complete. Do not invent extra units, and do not collapse a Problem, Decision, and Result into one unit to justify a Post.
 
 Each unit must:
 
