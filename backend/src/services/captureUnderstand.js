@@ -12,6 +12,7 @@ const fs = require('fs');
 const path = require('path');
 const { getObjectBytes, isS3Configured } = require('./s3Client');
 const { completeToolCall, conversationModel, hasConversationModel, splitPromptTemplate } = require('./llmComplete');
+const { toVisionImage } = require('./visionImage');
 
 const PROMPT_PATH = path.join(__dirname, '..', '..', 'prompts', 'capture-understand-prompt.md');
 function loadPrompt() {
@@ -19,16 +20,6 @@ function loadPrompt() {
 }
 
 const SIGNAL_KEYS = ['happened', 'intent', 'difficulty', 'actionTaken', 'outcome'];
-
-const SUPPORTED_MEDIA_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
-function resolveMediaType(contentType, key) {
-  const ct = (contentType || '').toLowerCase().split(';')[0].trim();
-  if (SUPPORTED_MEDIA_TYPES.includes(ct)) return ct;
-  if (ct === 'image/jpg') return 'image/jpeg';
-  const ext = (key || '').toLowerCase().split('.').pop();
-  const byExt = { jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', gif: 'image/gif', webp: 'image/webp' };
-  return byExt[ext] || null;
-}
 
 function escapeControlCharsInStrings(s) {
   let out = '';
@@ -706,12 +697,11 @@ async function imageContentParts(attachments) {
     try {
       // eslint-disable-next-line no-await-in-loop
       const { buffer, contentType } = await getObjectBytes(a.key);
-      const mediaType = resolveMediaType(contentType, a.key);
-      if (!mediaType) continue;
+      const vision = await toVisionImage(buffer, contentType, a.key);
       parts.push({
         type: 'image',
-        mediaType,
-        data: buffer.toString('base64'),
+        mediaType: vision.mediaType,
+        data: vision.buffer.toString('base64'),
       });
     } catch (err) {
       console.error('[capture] could not load image for understanding', a.key, err.message);

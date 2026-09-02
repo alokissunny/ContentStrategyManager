@@ -6,26 +6,56 @@
  * plan can read it back.
  */
 
-const getAnthropicClient = require('./anthropicClient');
+const { jsonrepair } = require('jsonrepair');
+const { completeToolCall } = require('./llmComplete');
 const { getObjectBytes } = require('./s3Client');
 const { normalizeSubjects } = require('./subjectBox');
+const { toVisionImage } = require('./visionImage');
 
-// Claude vision accepts these; HEIC and others are not supported, so we bail
-// out early with a clear message rather than sending bytes the API rejects.
-const SUPPORTED_MEDIA_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+const ANALYSIS_TOOL = {
+  name: 'record_image_analysis',
+  description: 'Record what is actually visible in this photograph.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      summary: { type: 'string', description: 'One short sentence describing the image' },
+      description: { type: 'string', description: '2-4 sentences: what it is, the setting, materials/finishes, anything notable' },
+      tags: { type: 'array', items: { type: 'string' }, description: '6-12 short lowercase keywords for search' },
+      colors: { type: 'array', items: { type: 'string' }, description: 'Dominant colours, plain names or hex' },
+      mood: { type: 'string', description: 'A few words on the overall feeling / tone' },
+      subjects: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            name: { type: 'string', description: 'Short name of one visible object or person — not an action' },
+            box: {
+              type: 'object',
+              properties: {
+                x: { type: 'number' },
+                y: { type: 'number' },
+                w: { type: 'number' },
+                h: { type: 'number' },
+              },
+            },
+            point: {
+              type: 'object',
+              properties: {
+                x: { type: 'number' },
+                y: { type: 'number' },
+              },
+            },
+          },
+          required: ['name', 'box', 'point'],
+        },
+      },
+      text: { type: 'string', description: 'Any legible text in the image, verbatim, or empty string if none' },
+    },
+    required: ['summary', 'description', 'tags', 'colors', 'mood', 'subjects', 'text'],
+  },
+};
 
-// Map a stored Content-Type (or a file extension fallback) to a media type the
-// vision API understands.
-function resolveMediaType(contentType, key) {
-  const ct = (contentType || '').toLowerCase().split(';')[0].trim();
-  if (SUPPORTED_MEDIA_TYPES.includes(ct)) return ct;
-  if (ct === 'image/jpg') return 'image/jpeg';
-  const ext = (key || '').toLowerCase().split('.').pop();
-  const byExt = { jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', gif: 'image/gif', webp: 'image/webp' };
-  return byExt[ext] || null;
-}
-
-const SYSTEM_PROMPT = `You are a visual analyst for a design studio's content library. You look at one photo and describe what is actually visible — concretely and usefully, so the studio can find and reuse it later. Never invent details you cannot see. Respond with ONLY a JSON object, no prose or markdown fences, using exactly these keys:
+const SYSTEM_PROMPT = `You are a visual analyst for a design studio's content library. You look at one photo and describe what is actually visible — concretely and usefully, so the studio can find and reuse it later. Never invent details you cannot see. Call the record_image_analysis tool with exactly these keys:
 {
   "summary": "one short sentence describing the image",
   "description": "2-4 sentences with the useful detail: what it is, the setting, the materials/finishes, anything notable",
@@ -84,20 +114,54 @@ function escapeControlCharsInStrings(s) {
   return out;
 }
 
-// Pull the JSON object out of the model's reply, tolerating stray prose or a
-// ```json fence if the model adds one despite the instruction.
+function extractJsonObject(text) {
+  const src = String(text || '');
+  const start = src.indexOf('{');
+  if (start === -1) return '';
+  let depth = 0;
+  let inStr = false;
+  let escaped = false;
+  for (let i = start; i < src.length; i += 1) {
+    const ch = src[i];
+    if (escaped) { escaped = false; continue; }
+    if (ch === '\\' && inStr) { escaped = true; continue; }
+    if (ch === '"') { inStr = !inStr; continue; }
+    if (inStr) continue;
+    if (ch === '{') depth += 1;
+    else if (ch === '}') {
+      depth -= 1;
+      if (depth === 0) return src.slice(start, i + 1);
+    }
+  }
+  const end = src.lastIndexOf('}');
+  return end > start ? src.slice(start, end + 1) : src.slice(start);
+}
+
+function softenJson(s) {
+  return escapeControlCharsInStrings(s)
+    .replace(/,\s*,+/g, ',')
+    .replace(/,\s*([}\]])/g, '$1');
+}
+
+// Pull the JSON object out of the model's reply, tolerating stray prose, a
+// ```json fence, trailing/double commas, and truncated tails.
 function parseAnalysisJson(raw) {
-  const fenced = raw.match(/```(?:json)?\s*([\s\S]*?)```/i);
-  const candidate = fenced ? fenced[1] : raw;
-  const start = candidate.indexOf('{');
-  const end = candidate.lastIndexOf('}');
-  if (start === -1 || end === -1) throw new Error('No JSON object in model response');
-  const slice = candidate.slice(start, end + 1);
+  const fenced = String(raw || '').match(/```(?:json)?\s*([\s\S]*?)```/i);
+  const slice = extractJsonObject(fenced ? fenced[1] : raw);
+  if (!slice) throw new Error('No JSON object in model response');
+  const attempts = [slice, softenJson(slice)];
+  let lastErr;
+  for (const candidate of attempts) {
+    try {
+      return JSON.parse(candidate);
+    } catch (err) {
+      lastErr = err;
+    }
+  }
   try {
-    return JSON.parse(slice);
+    return JSON.parse(jsonrepair(softenJson(slice)));
   } catch (err) {
-    // Retry once after escaping raw control characters inside string literals.
-    return JSON.parse(escapeControlCharsInStrings(slice));
+    throw lastErr || err;
   }
 }
 
@@ -137,39 +201,29 @@ async function analyzeImageAsset(key, { type } = {}) {
   }
 
   const { buffer, contentType } = await getObjectBytes(key);
-  const mediaType = resolveMediaType(contentType, key);
-  if (!mediaType) {
-    const err = new Error('This image format can’t be analysed (try JPEG, PNG, GIF or WebP)');
-    err.code = 'UNSUPPORTED_TYPE';
-    throw err;
-  }
+  const vision = await toVisionImage(buffer, contentType, key);
 
   const model = process.env.ANTHROPIC_VISION_MODEL || process.env.ANTHROPIC_MODEL || 'claude-sonnet-5';
-  const client = getAnthropicClient();
-  const response = await client.messages.create({
+  const done = await completeToolCall({
     model,
-    max_tokens: 1536,
     system: SYSTEM_PROMPT,
-    messages: [
+    userParts: [
+      { type: 'image', mediaType: vision.mediaType, data: vision.buffer.toString('base64') },
       {
-        role: 'user',
-        content: [
-          { type: 'image', source: { type: 'base64', media_type: mediaType, data: buffer.toString('base64') } },
-          { type: 'text', text: 'Analyse this image. Keep every subject box tight on that one thing. Split people from objects they are installing or holding. Respond with only the JSON object.' },
-        ],
+        type: 'text',
+        text: 'Analyse this image. Keep every subject box tight on that one thing. Split people from objects they are installing or holding.',
       },
     ],
+    tool: ANALYSIS_TOOL,
+    maxTokens: 4096,
+    retryHint: 'Call record_image_analysis with valid JSON. No trailing commas. Escape quotes inside strings.',
   });
 
-  const raw = (response.content || [])
-    .filter((b) => b.type === 'text')
-    .map((b) => b.text)
-    .join('\n')
-    .trim();
-
-  const parsed = parseAnalysisJson(raw);
-  const inputTokens = response.usage?.input_tokens || 0;
-  const outputTokens = response.usage?.output_tokens || 0;
+  const parsed = done.parsed && typeof done.parsed === 'object'
+    ? done.parsed
+    : parseAnalysisJson(done.output || done.text || '');
+  const inputTokens = Number(done.usage?.input_tokens) || 0;
+  const outputTokens = Number(done.usage?.output_tokens) || 0;
   return {
     summary: String(parsed.summary || '').trim(),
     description: String(parsed.description || '').trim(),

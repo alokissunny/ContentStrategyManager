@@ -1,5 +1,5 @@
 import client from './client';
-import { addAiDebugEntry } from '../lib/aiDebug';
+import { filesForUpload } from '../lib/heicUpload';
 
 function ingestUnderstandDebug(label, data = {}) {
   const debug = data.debug;
@@ -100,7 +100,7 @@ export function analyzeAsset(projectId, captureId, attachmentId) {
 // attachment descriptors { type, key } for the capture, plus a local objectURL
 // for instant preview before the server round-trip.
 export async function uploadFiles(files) {
-  const arr = [...files];
+  const arr = await filesForUpload(files);
   if (!arr.length) return [];
   const { data } = await client.post('/projects/uploads/sign', {
     files: arr.map((f) => ({ contentType: f.type || 'application/octet-stream' })),

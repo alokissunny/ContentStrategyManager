@@ -116,7 +116,8 @@ function sanitizeAttachments(attachments, userId) {
 // ── uploads ────────────────────────────────────────────────────────────────
 const EXT = {
   'image/jpeg': 'jpg', 'image/jpg': 'jpg', 'image/png': 'png', 'image/webp': 'webp',
-  'image/gif': 'gif', 'image/heic': 'heic', 'video/mp4': 'mp4', 'video/quicktime': 'mov',
+  'image/gif': 'gif', 'image/heic': 'heic', 'image/heif': 'heif',
+  'video/mp4': 'mp4', 'video/quicktime': 'mov',
   'video/webm': 'webm',
 };
 
