@@ -22,7 +22,7 @@ import { toSvg } from 'html-to-image';
 import { CaptureChat } from './Projects';
 import { styleOf, groundOf } from '../lib/visualbrand';
 import { LAYOUTS as LIB_LAYOUTS, CATEGORIES, catForRole, shotsOf, DEFAULT_LAYOUT_BY_CAT, layoutShowsAllCopy } from '../data/layouts';
-import { paintAll, identityOf, TYPE_SLOTS, FACES } from '../lib/identity';
+import { paintAll, paintOf, identityOf, TYPE_SLOTS, FACES } from '../lib/identity';
 import { rolesOf as textRolesOf, plainOf, parseMarked, isListRole, listIndexOf } from '../lib/slidetext';
 import { Preview } from './visuallibrary/LayoutArt';
 import VisualLibrary from './visuallibrary/VisualLibrary';
@@ -1387,7 +1387,7 @@ function SlideBestFit({ slide, localMedia, mediaByKey, preferProxy = false, part
   );
 }
 
-function SlideMedia({ slide, localMedia, parts, mediaByKey, preferProxy = false, showVisualHint = false, subjectsByKey, paint }) {
+function SlideMedia({ slide, localMedia, parts, mediaByKey, preferProxy = false, showVisualHint = false, subjectsByKey, paint, themed = false }) {
   const copy = slideCopy(slide, parts);
   const need = visualNeedRecord(slide);
   const allowPhoto = slideAllowsPhoto(slide);
@@ -1412,6 +1412,7 @@ function SlideMedia({ slide, localMedia, parts, mediaByKey, preferProxy = false,
           html={slide.layoutHtml}
           subjects={subjects}
           needsVisual={missingVisual}
+          themed={themed}
           copy={{
             title: copy.title,
             subtitle: copy.sub,
@@ -1882,6 +1883,15 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
   // Palette + type set on the Visual Brand page, reflected in the post preview.
   const vbStore = useStore();
   const igVars = useMemo(() => brandStyleVars(vbStore), [vbStore]);
+  // A slide renders as the raw layout-agent output by default. Once the studio
+  // applies anything in Library visual settings, paintOf emits a token for it —
+  // that flips the agent slides to the brand (faces + palette). Untouched =
+  // raw. (SafeLayout / best-fit compositions are the studio's own art and stay
+  // branded regardless.)
+  const hasVisualEdits = useMemo(
+    () => Object.keys(paintOf(vbStore?.libraryEdits)).length > 0,
+    [vbStore?.libraryEdits],
+  );
   const days = route?.days || [];
   const day = days[selected] || days[0];
 
@@ -3262,6 +3272,7 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
                   parts={visEdit === 'words' ? wordDraft : null}
                   showVisualHint
                   paint={igVars}
+                  themed={hasVisualEdits}
                 />
                 {slides.length > 1 && (
                   <span className="wv-ig__count">{safeIdx + 1}/{slides.length}</span>
@@ -3800,6 +3811,7 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
                   subjectsByKey={subjectsByKey}
                   preferProxy
                   paint={igVars}
+                  themed={hasVisualEdits}
                 />
               </div>
             ))}

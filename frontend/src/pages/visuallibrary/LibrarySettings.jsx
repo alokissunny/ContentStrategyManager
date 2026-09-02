@@ -619,14 +619,16 @@ export default function LibrarySettings() {
     return () => window.clearTimeout(t);
   }, [toast]);
 
-  /* RESET IS AN EDIT LIKE ANY OTHER (Leon, Aug 7). It used to write to the store
-     on the spot, which was the one control on the page that ignored the rule the
-     rest of it follows. It returns the DRAFT to Bauhly's defaults; the library
-     changes when the studio applies. The studio's own font files are theirs and
-     are not a default to reset — they stay. */
+  /* RESET COMMITS ON THE SPOT (2026-09-02 — reverses the Aug-7 "reset is a draft"
+     rule, at the studio's request). Reset has to switch every surface — the
+     weekly-plan preview included — straight back to the raw layout-agent output,
+     with no separate Update Library. So it clears the draft AND writes the empty
+     palette/type through to the store in one call. Only palette and type are
+     reset; the studio's own font files and mood references are theirs and stay. */
   const resetAll = () => {
     setDraft((d) => ({ ...d, palette: {}, type: {} }));
-    setToast({ kind: 'note', text: 'Back to Bauhly’s defaults — apply to put them on your library.' });
+    setState({ libraryEdits: { palette: {}, type: {}, fonts: [...draft.fonts] } });
+    setToast({ kind: 'note', text: 'Back to Bauhly’s defaults — your layouts show the raw output again.' });
   };
 
   /* ── the phone's live preview is a carousel ──────────────────────────────

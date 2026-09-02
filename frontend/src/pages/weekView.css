@@ -550,6 +550,31 @@
   font-family: initial;
   text-wrap: initial;
 }
+
+/* Studio has applied Library visual settings → repaint the agent's slide with
+   their brand (faces + palette). Higher specificity than the raw reset above,
+   so it wins only when `.is-themed` is present; without it the slide stays raw
+   agent output. Tokens come from `--t-*` (paintAll on the container). */
+.wv-dynlay.is-themed,
+.wv-dynlay.is-themed .wv-dynlay__canvas {
+  background: var(--t-ground-bg, #f4f2ee);
+  color: var(--t-ground-fg, #1b100d);
+}
+.wv-dynlay.is-themed .slide,
+.wv-dynlay.is-themed .slide * {
+  font-family: var(--t-body-face, var(--font-ui, ui-sans-serif, system-ui, sans-serif));
+}
+.wv-dynlay.is-themed .slide :is(h1, h2, h3, [data-slot="title"], [data-slot="stat"], [data-slot="quote"]) {
+  font-family: var(--t-headline-face, var(--font-display, ui-sans-serif, system-ui, sans-serif));
+}
+.wv-dynlay.is-themed .slide {
+  background: var(--t-ground-bg, #f4f2ee);
+  color: var(--t-ground-fg, #1b100d);
+}
+.wv-dynlay.is-themed .slide em,
+.wv-dynlay.is-themed .slide [data-slot="stat"] {
+  color: var(--t-accent-bg, #ff5227);
+}
 .wv-dynlay img {
   display: block;
   min-width: 0;

@@ -390,7 +390,7 @@ function copyKey(copy) {
   ].join('\0');
 }
 
-export default function DynamicLayout({ html, copy, imageUrls, subjects, paint, needsVisual = false }) {
+export default function DynamicLayout({ html, copy, imageUrls, subjects, paint, needsVisual = false, themed = false }) {
   const scope = `wv${useId().replace(/:/g, '')}`;
   const canvasRef = useRef(null);
   const urls = Array.isArray(imageUrls) ? imageUrls : [];
@@ -409,10 +409,11 @@ export default function DynamicLayout({ html, copy, imageUrls, subjects, paint, 
   }, [markup]);
 
   if (markup && body) {
-    // Render the agent's composition verbatim — no copy/annotation overlays
-    // layered on top. The slide is exactly what the layout agent emitted.
+    // Render the agent's composition verbatim by default. When the studio has
+    // applied Library visual settings (`themed`), `is-themed` repaints the
+    // slide with their brand faces + palette instead.
     return (
-      <div className="wv-dynlay is-ready" style={paint}>
+      <div className={`wv-dynlay is-ready${themed ? ' is-themed' : ''}`} style={paint}>
         {/* Real <style> node, not innerHTML: browsers often apply innerHTML
             stylesheets a frame late, so the slide paints unstyled then jumps. */}
         {css ? <style>{css}</style> : null}
