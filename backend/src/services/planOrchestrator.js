@@ -1213,28 +1213,14 @@ function copyMetricsOf(flat) {
   };
 }
 
-function compositionNoteOf(flat, visual) {
-  const titleWords = wordCount(flat?.title);
-  const hasAnnote = ANNOTATIONS_ENABLED && optionalText(flat?.annotation?.text || flat?.annotation);
-  if (visual?.hasAsset && hasAnnote) {
-    return 'Photograph with a subject callout: annotation slot on the photo (label + curved SVG arrow). Keep the label in negative space, off the title band and off the subject. Do not specify colours or fonts.';
-  }
-  if (visual?.includeImageSlot && hasAnnote) {
-    return 'Image slot (placeholder until a photograph is assigned) with a subject callout: include img[data-slot=image], size it with flex-basis, keep the annotation on that pane. Do not specify colours or fonts.';
-  }
-  if (visual?.hasAsset && titleWords >= 12) {
-    return 'Long title on a photograph: bottom-band overlay (image fill, title at 14% from bottom) or a split. Keep the room visible. Do not specify colours or fonts.';
-  }
-  if (visual?.includeImageSlot && titleWords >= 12) {
-    return 'Long title on an image slot: bottom-band or split. No file is assigned yet — still include img[data-slot=image] and give it a real height with flex-basis. Do not switch to text-led. Do not specify colours or fonts.';
-  }
+function compositionNoteOf(_flat, visual) {
   if (visual?.hasAsset) {
-    return 'A real photograph will be injected into img[data-slot=image]. Include that img. Compose around the photo with flex/grid or a bottom-band overlay. Do not invent shapes or omit the img. Do not specify colours or fonts.';
+    return 'Include <img data-slot="image" alt=""> with empty src. Give it a real flex/grid area. Use visual.photograph.visibleContent when present so the subject stays in frame.';
   }
   if (visual?.includeImageSlot) {
-    return 'No photograph is assigned yet. Still include img[data-slot=image] with empty src. Compose around that slot as the visual (editorial stack, split, or bottom-band). Size it with flex-basis or height so the empty tag holds space. The app paints a placeholder into it and must not insert the img for you. Do not omit the img or switch to text-led. Do not specify colours or fonts.';
+    return 'Include <img data-slot="image" alt=""> with empty src. Give it a real flex/grid area. Do not invent graphics.';
   }
-  return 'No photograph. Text-led composition. Do not invent a photograph slot. Do not specify colours or fonts.';
+  return 'No image slot. Text-led composition only.';
 }
 
 function layoutInputOf(post, structure, dayBrief) {

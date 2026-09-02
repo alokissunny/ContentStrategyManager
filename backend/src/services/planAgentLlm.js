@@ -34,7 +34,7 @@ const AGENTS = {
     providerEnv: 'PLAN_QUALITY_PROVIDER',
   },
   layout: {
-    defaultProvider: 'anthropic',
+    defaultProvider: 'openai',
     modelEnv: 'PLAN_LAYOUT_MODEL',
     providerEnv: 'PLAN_LAYOUT_PROVIDER',
   },
