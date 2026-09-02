@@ -491,15 +491,21 @@
   position: absolute;
   inset: 0;
   overflow: hidden;
-  background: var(--t-ground-bg, #f4f1ec);
-  color: var(--t-ground-fg, #1a1916);
-  font-family: var(--t-body-face, var(--font-ui, ui-sans-serif, system-ui, sans-serif));
+  /* Render the agent's slide exactly as emitted — identical to the debug iframe
+     preview. The agent declares no base font/colour/background (composition
+     only), so fall back to the browser defaults instead of the brand theme.
+     Anything the agent DOES declare in its own scoped CSS still out-specifies
+     these and wins. */
+  background: #fff;
+  color: initial;
+  font-family: initial;
+  line-height: initial;
   container-type: inline-size;
 }
 .wv-dynlay__canvas {
   width: 100%;
   height: 100%;
-  background: var(--t-ground-bg, #f4f1ec);
+  background: #fff;
 }
 .wv-dynlay img[data-slot="image"] {
   display: block !important;
@@ -533,6 +539,16 @@
 .wv-dynlay .slide,
 .wv-dynlay .slide * {
   box-sizing: border-box;
+  /* Neutralise only the app's global typography that base.css imposes on the
+     agent's elements but the agent itself does not set: font-family (base.css
+     `h1..h4`/`body` → var(--font-*)) and text-wrap (base.css `h1` → balance).
+     Resetting these to browser defaults makes the slide render exactly like the
+     isolated debug iframe. Do NOT reset letter-spacing / line-height / font-size
+     / font-weight here — the agent declares those itself, and its scoped rules
+     (0,2,1) already out-specify base.css (0,0,1); resetting them at 0,2,0 would
+     instead clobber the agent's own values and change the wrap. */
+  font-family: initial;
+  text-wrap: initial;
 }
 .wv-dynlay img {
   display: block;
