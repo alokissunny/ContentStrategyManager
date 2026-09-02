@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useAiDebug, fmtElapsed } from '../../lib/aiDebug';
 
 function pretty(value) {
@@ -32,6 +33,96 @@ function parseJson(text) {
   } catch {
     return null;
   }
+}
+
+// Pull the raw slide HTML out of a Layout-agent response so we can preview it.
+// Accepts the parsed object ({ slides: [{ html }] } or { html }) or a raw
+// string of layout HTML. Returns the HTML exactly as the agent emitted it.
+function layoutSlidesHtml(value) {
+  if (!value) return [];
+  let obj = value;
+  if (typeof value === 'string') {
+    try {
+      obj = JSON.parse(value);
+    } catch {
+      obj = null;
+    }
+  }
+  const out = [];
+  const push = (h) => {
+    const s = String(h || '').trim();
+    if (s && /<article|<section|class=["'][^"']*\bslide\b|<style/i.test(s)) out.push(s);
+  };
+  if (obj && Array.isArray(obj.slides)) obj.slides.forEach((s) => push(s?.html));
+  else if (obj && typeof obj.html === 'string') push(obj.html);
+  else if (typeof value === 'string') push(value);
+  return out;
+}
+
+// Render one slide's HTML as-is in an isolated iframe. A minimal base only gives
+// html/body a height (so the slide's height:100% + container-query units work)
+// and marks empty image slots; nothing about the agent's own CSS is changed.
+// sandbox="" blocks scripts, so raw debug HTML renders without executing.
+function SlideFrame({ html, label }) {
+  const doc = '<!doctype html><html><head><meta charset="utf-8">'
+    + '<meta name="viewport" content="width=device-width,initial-scale=1">'
+    + '<style>html,body{margin:0;height:100%}'
+    + 'img[data-slot="image"]{background:repeating-linear-gradient(135deg,#e9e5dd 0 10px,#ddd8ce 10px 20px)}'
+    + `</style></head><body>${html}</body></html>`;
+  return (
+    <figure className="wv-layprev__frame">
+      <div className="wv-layprev__canvas">
+        <iframe title={label} sandbox="" srcDoc={doc} />
+      </div>
+      <figcaption className="wv-layprev__cap">{label}</figcaption>
+    </figure>
+  );
+}
+
+function LayoutPreview({ slides, onClose }) {
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+  return createPortal(
+    <div className="wv-layprev" role="dialog" aria-modal="true" aria-label="Layout preview" onClick={onClose}>
+      <div className="wv-layprev__panel" onClick={(e) => e.stopPropagation()}>
+        <div className="wv-layprev__head">
+          <strong>Layout preview</strong>
+          <span className="wv-layprev__count">{slides.length} slide{slides.length === 1 ? '' : 's'}</span>
+          <button type="button" className="wv-agentdbg__copy" onClick={onClose}>Close</button>
+        </div>
+        <div className="wv-layprev__grid">
+          {slides.map((h, i) => <SlideFrame key={i} html={h} label={`Slide ${i + 1}`} />)}
+        </div>
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
+function PreviewButton({ slides }) {
+  const [open, setOpen] = useState(false);
+  if (!slides.length) return null;
+  const onOpen = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setOpen(true);
+  };
+  return (
+    <>
+      <button
+        type="button"
+        className="wv-agentdbg__preview"
+        onClick={onOpen}
+        onPointerDown={(e) => e.stopPropagation()}
+      >
+        Preview
+      </button>
+      {open ? <LayoutPreview slides={slides} onClose={() => setOpen(false)} /> : null}
+    </>
+  );
 }
 
 function lastMatching(entries, prefix) {
@@ -119,11 +210,15 @@ function Block({ title, value, open = false }) {
       </details>
     );
   }
+  const slides = layoutSlidesHtml(value);
   return (
     <details className="wv-agentdbg__block" open={open}>
       <summary className="wv-agentdbg__sum">
         <span>{title}</span>
-        <CopyButton text={body} />
+        <span className="wv-agentdbg__acts">
+          <PreviewButton slides={slides} />
+          <CopyButton text={body} />
+        </span>
       </summary>
       <pre className="wv-agentdbg__pre">{body}</pre>
     </details>

@@ -1,5 +1,5 @@
 import { useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { prepareLayoutHtml, splitLayoutDocument, isBleedPhotoLayout } from './layoutHtml';
+import { prepareLayoutHtml, splitLayoutDocument } from './layoutHtml';
 import { boxOf, fmtBox, mapBoxToCover, mapPointToCover, normalizeSubjects, placeFromBox, resolveTargetBox } from './subjectBox';
 import { useAiDebug } from '../../lib/aiDebug';
 import { plainOf, titleRuns } from '../../lib/slidetext';
@@ -395,23 +395,12 @@ export default function DynamicLayout({ html, copy, imageUrls, subjects, paint, 
   const canvasRef = useRef(null);
   const urls = Array.isArray(imageUrls) ? imageUrls : [];
   const urlKey = urls.filter(Boolean).join('|');
-  const packedCopy = copyKey(copy);
   const markup = useMemo(
-    () => prepareLayoutHtml(html, { scope, imageUrls: urls, copy }),
-    // urls/copy are new objects each parent render; urlKey and packedCopy are the inputs.
-    [html, scope, urlKey, packedCopy],
+    () => prepareLayoutHtml(html, { scope, imageUrls: urls }),
+    // urls is a new array each parent render; urlKey is the input.
+    [html, scope, urlKey],
   );
   const { css, body } = useMemo(() => splitLayoutDocument(markup), [markup]);
-  const annote = annotationOf(copy?.annotation);
-  const overlayCopy = Boolean(
-    urls.some(Boolean)
-    && isBleedPhotoLayout(markup)
-    && !trim(copy?.comparisonA)
-    && !trim(copy?.comparisonB)
-    && (trim(copy?.title) || trim(copy?.subtitle) || trim(copy?.body)
-      || trim(copy?.quote) || trim(copy?.stat) || trim(copy?.action)
-      || (Array.isArray(copy?.items) && copy.items.some(trim))),
-  );
 
   // Force a layout pass so container-query type (cqi) is measured before paint.
   // Do not hide the canvas: a hide/show flash is worse than this reflow.
@@ -420,16 +409,14 @@ export default function DynamicLayout({ html, copy, imageUrls, subjects, paint, 
   }, [markup]);
 
   if (markup && body) {
+    // Render the agent's composition verbatim — no copy/annotation overlays
+    // layered on top. The slide is exactly what the layout agent emitted.
     return (
-      <div className={`wv-dynlay${annote && urls.some(Boolean) ? ' is-annote-over' : ''}${overlayCopy ? ' is-copy-over' : ''} is-ready`} style={paint}>
+      <div className="wv-dynlay is-ready" style={paint}>
         {/* Real <style> node, not innerHTML: browsers often apply innerHTML
             stylesheets a frame late, so the slide paints unstyled then jumps. */}
         {css ? <style>{css}</style> : null}
         <div ref={canvasRef} className={`wv-dynlay__canvas ${scope}`} dangerouslySetInnerHTML={{ __html: body }} />
-        {overlayCopy ? <CopyOnPhoto copy={copy} paint={paint} /> : null}
-        {urls.some(Boolean) && annote
-          ? <PhotoPinnedOverlay annotation={annote} subjects={subjects} canvasRef={canvasRef} paint={paint} />
-          : null}
       </div>
     );
   }
