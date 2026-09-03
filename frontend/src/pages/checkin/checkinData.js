@@ -70,6 +70,7 @@ export const CHECKIN = {
   recordAgain: 'Record it again',
   recordKept: 'Recorded — I keep the words, not the audio.',
   recordCheck: 'Check I got this right:',
+  recordMissed: 'I missed a word in there — fill it in if you can, then send.',
   recordDenied: 'I can\'t reach the microphone — write it instead.',
   recordNote: 'Your recording is only used to plan. It is never shared or posted.',
 
@@ -380,7 +381,7 @@ export const CHECKIN = {
 
   /* typed-idea path — after understanding, only asked if the project is unknown */
   projectQuestion: 'Which project does this belong to?',
-  /* at most one clarifying question, same rule as Capture */
+  /* at most four clarifying questions, and only when something non-obvious is missing */
   clarifySkip: 'Skip this question',
   clarifyPlaceholder: 'Answer in your own words…',
   uploadOpening: 'Upload a file',

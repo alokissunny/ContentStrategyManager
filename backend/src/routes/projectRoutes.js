@@ -16,6 +16,7 @@ const {
   understandDraft,
   understandCheckinDraft,
   transcribeDraft,
+  correctDraft,
 } = require('../controllers/projectController');
 
 const router = express.Router();
@@ -32,6 +33,7 @@ router.post(
   express.raw({ type: () => true, limit: '12mb' }),
   asyncHandler(transcribeDraft)
 );
+router.post('/captures/correct-transcript', asyncHandler(correctDraft));
 
 router.get('/', asyncHandler(listProjects));
 router.post('/', asyncHandler(createProject));

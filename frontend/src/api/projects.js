@@ -1,17 +1,38 @@
 import client from './client';
 import { filesForUpload } from '../lib/heicUpload';
+import { addAiDebugEntry } from '../lib/aiDebug';
 
-function ingestUnderstandDebug(label, data = {}) {
+function ingestAiDebug(label, data = {}) {
   const debug = data.debug;
   if (!debug) return;
-  addAiDebugEntry({
-    source: debug.source || label,
-    model: debug.model,
-    prompt: debug.finalPrompt || debug.prompt,
-    output: debug.output,
-    systemPrompt: debug.systemPrompt,
-    note: debug.note || '',
-  });
+  try {
+    const agents = Array.isArray(debug.agents) ? debug.agents : null;
+    if (agents?.length) {
+      [...agents].reverse().forEach((agent) => {
+        addAiDebugEntry({
+          source: agent.source || label,
+          model: agent.model || debug.model,
+          prompt: agent.finalPrompt || agent.prompt,
+          output: agent.output,
+          systemPrompt: agent.systemPrompt,
+          elapsedMs: Number(agent.elapsedMs) || 0,
+          note: agent.note || '',
+        });
+      });
+      return;
+    }
+    addAiDebugEntry({
+      source: debug.source || label,
+      model: debug.model,
+      prompt: debug.finalPrompt || debug.prompt,
+      output: debug.output,
+      systemPrompt: debug.systemPrompt,
+      elapsedMs: Number(debug.elapsedMs) || 0,
+      note: debug.note || '',
+    });
+  } catch {
+    /* the debug panel must never sink a capture turn */
+  }
 }
 
 // Projects — Bauhly's long-term memory, backed by the API (Mongo + S3 media).
@@ -35,19 +56,39 @@ export function addCapture(projectId, capture) {
 // Capture conversation — strategy-neutral extraction, split confirmation,
 // and a clarification ladder when meaning is actually missing.
 /** Follow-up the user must answer in words — never a photo-chip step. */
-export function clarificationQuestion(result) {
+export function assistantQuestionCount(turns) {
+  return (turns || []).filter((t) => String(t?.role || '').toLowerCase() === 'assistant' && String(t?.text || '').trim()).length;
+}
+
+export function clarificationQuestion(result, turns) {
+  const asked = assistantQuestionCount(turns);
+  if (asked >= 4) return '';
   const question = String(result?.question || result?.questions?.[0] || result?.message || '').trim();
   if (!question) return '';
-  const asking = result?.action === 'ask'
-    || result?.needsClarification === true
-    || String(result?.status || '').toLowerCase() === 'needs_clarification';
-  return asking ? question : '';
+  if (result?.action === 'ready'
+    && result?.needsClarification !== true
+    && String(result?.status || '').toLowerCase() !== 'needs_clarification') {
+    return '';
+  }
+  return question;
+}
+
+const TRANSCRIPT_GAP_RE = /\[(?:unclear|inaudible|unintelligible|\?+)\]|\(\s*(?:unclear|inaudible|\?+)\s*\)/i;
+
+export function hasTranscriptGap(text) {
+  return TRANSCRIPT_GAP_RE.test(String(text || ''));
+}
+
+/** If the model skipped a missed-word marker, still ask before filing. */
+export function transcriptGapQuestion(text, alreadyAsked) {
+  if (alreadyAsked || !hasTranscriptGap(text)) return '';
+  return 'I missed a word in what you said — what was it?';
 }
 
 export function understandCapture(payload) {
   return client.post('/projects/captures/understand', payload).then((r) => {
     const data = r.data || {};
-    ingestUnderstandDebug('Capture conversation', data);
+    ingestAiDebug('Capture conversation', data);
     return data;
   });
 }
@@ -57,20 +98,44 @@ export function understandCapture(payload) {
 export function understandCheckin(payload) {
   return client.post('/projects/checkin/understand', payload).then((r) => {
     const data = r.data || {};
-    ingestUnderstandDebug('Check-in conversation', data);
+    ingestAiDebug('Check-in conversation', data);
     return data;
   });
 }
 
 // Voice-note → words. Body is the raw audio blob; the conversation keeps the
 // transcript, not the recording.
-export function transcribeCapture(blob) {
+export function transcribeCapture(blob, { hint, keywords } = {}) {
+  const headers = { 'Content-Type': blob.type || 'audio/webm' };
+  const firstPass = String(hint || '').trim();
+  if (firstPass) headers['X-Transcript-Hint'] = encodeURIComponent(firstPass.slice(0, 1500));
+  const names = (keywords || []).map((k) => String(k || '').trim()).filter(Boolean);
+  if (names.length) headers['X-Transcript-Keywords'] = encodeURIComponent(names.slice(0, 24).join(','));
   return client
     .post('/projects/captures/transcribe', blob, {
-      headers: { 'Content-Type': blob.type || 'audio/webm' },
+      headers,
       transformRequest: [(data) => data],
     })
-    .then((r) => r.data);
+    .then((r) => {
+      const data = r.data || {};
+      ingestAiDebug('Voice transcription', data);
+      return data;
+    });
+}
+
+export function correctTranscriptLive(text, { keywords } = {}) {
+  const source = String(text || '').trim();
+  if (!source) return Promise.resolve({ text: '' });
+  return client
+    .post('/projects/captures/correct-transcript', {
+      text: source.slice(0, 8000),
+      keywords: (keywords || []).map((k) => String(k || '').trim()).filter(Boolean).slice(0, 24),
+    })
+    .then((r) => {
+      const data = r.data || {};
+      ingestAiDebug('Transcript correction (pause)', data);
+      return data;
+    });
 }
 export function updateCapture(projectId, captureId, patch) {
   return client.patch(`/projects/${projectId}/captures/${captureId}`, patch).then((r) => r.data.project);

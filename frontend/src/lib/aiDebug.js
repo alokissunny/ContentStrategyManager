@@ -34,7 +34,9 @@ let state = {
 const listeners = new Set();
 
 function emit() {
-  listeners.forEach((fn) => fn());
+  listeners.forEach((fn) => {
+    try { fn(); } catch { /* a debug-panel subscriber must not sink the turn */ }
+  });
 }
 
 function persist() {

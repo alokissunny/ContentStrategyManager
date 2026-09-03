@@ -16,7 +16,7 @@ import { useNavigate } from 'react-router-dom';
 import Icon from '../brand/Icon';
 import { Mark } from '../brand/Logo';
 import { AutoTextarea, useBodyScrollLock } from './checkin/ui';
-import { RecordingSheet, useRecorder } from './checkin/recorder';
+import { RecordingSheet, useRecorder, refreshDraftIfUnedited } from './checkin/recorder';
 import ScrollJump from './checkin/ScrollJump';
 import {
   useProjects, useProjectsHydrated, createProject, renameProject, deleteProject,
@@ -25,7 +25,7 @@ import {
   coverOf, groupByWeek, groupCapturesIntoSessions, sessionCount, sessionDisplayText, fmtWhen, uploadFiles,
 } from '../lib/projectsStore';
 import { listGeneratedImages, deleteGeneratedImage } from '../api/images';
-import { understandCapture, transcribeCapture, clarificationQuestion } from '../api/projects';
+import { understandCapture, transcribeCapture, clarificationQuestion, hasTranscriptGap, transcriptGapQuestion } from '../api/projects';
 import { previewUrl } from '../api/media';
 import './projects.css';
 
@@ -552,8 +552,8 @@ function ProjectPickerModal({ projects, onClose, onPick, onNew }) {
  * The conversation itself is no longer a fixed script. After the user speaks
  * (or uploads), Capture-time understanding extracts what is actually known,
  * detects internal stories for clarification, preserves one unified Capture,
- * and asks at most one clarifying or depth question when it would materially
- * improve the source. Strategy, Brand DNA, and format stay out of this conversation. */
+ * and asks at most four non-obvious questions that fill missing story pieces for the Strategist.
+ * Strategy, Brand DNA, and format stay out of this conversation. */
 export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewProject, onCaptured, exitLabel = 'Back' }) {
   const projects = useProjects();
   const { messages, typing, push, say, after } = useConversation();
@@ -563,7 +563,11 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
   const [saved, setSaved] = useState(null);
   const [creating, setCreating] = useState(false); // the new-project modal
   const [busy, setBusy] = useState(false); // an upload, understand, or save is in flight
-  const rec = useRecorder();
+  const [polishing, setPolishing] = useState(false);
+  const rec = useRecorder({
+    keywords: projects.map((p) => p.name).filter(Boolean),
+  });
+  const autoDraft = useRef('');
   const endRef = useRef(null);
   const threadRef = useRef(null);
   const cap = useRef({
@@ -625,7 +629,8 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
         projectName: preset?.name || '',
         turns,
       });
-    } catch {
+    } catch (err) {
+      console.warn('[capture] understand failed', err);
       return { action: 'ready', question: null, understanding: null, captures: [] };
     }
   };
@@ -653,7 +658,8 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
       cap.current.understanding = result.captures[0];
     }
     if (result?.conversationSummary) cap.current.conversationSummary = result.conversationSummary;
-    const followUp = clarificationQuestion(result);
+    const followUp = clarificationQuestion(result, cap.current.turns)
+      || transcriptGapQuestion(cap.current.text, cap.current.askedQuestion);
     if (followUp) {
       cap.current.askedQuestion = followUp;
       cap.current.turns = [...(cap.current.turns || []), { role: 'assistant', text: followUp }];
@@ -677,23 +683,35 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
     cap.current.kind = 'note';
     fromVoice.current = true;
     recordingReturn.current = 'writing';
-    const d = say("I'm listening — take your time.");
-    after(d, () => { rec.reset(); rec.start(); setStep('recording'); });
+    autoDraft.current = '';
+    setPolishing(false);
+    say("I'm listening — take your time.");
+    rec.reset();
+    rec.start();
+    setStep('recording');
   };
   const recordClarify = () => {
     setStep('boot');
     userSays(fromVoice.current ? 'Record it again' : 'Record a voice note');
     fromVoice.current = true;
     recordingReturn.current = 'clarify';
-    const d = say("I'm listening — take your time.");
-    after(d, () => { rec.reset(); rec.start(); setStep('recording'); });
+    autoDraft.current = '';
+    setPolishing(false);
+    say("I'm listening — take your time.");
+    rec.reset();
+    rec.start();
+    setStep('recording');
   };
   const recordAgain = () => {
     setDraft('');
+    autoDraft.current = '';
+    setPolishing(false);
     setStep('boot');
     userSays('Record it again');
-    const d = say("Go on then — I'm listening.");
-    after(d, () => { rec.reset(); rec.start(); setStep('recording'); });
+    say("Go on then — I'm listening.");
+    rec.reset();
+    rec.start();
+    setStep('recording');
   };
 
   const submitWriting = async () => {
@@ -740,7 +758,7 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
     setBusy(true);
     try {
       const finishing = afterUnderstood(await runUnderstand({
-        extraTurn: { role: 'user', text: 'Skip this question. Continue without guessing.' },
+        extraTurn: { role: 'user', text: 'Skip this question. Leave it unknown. Ask another only if a non-obvious gap remains and fewer than 4 questions have been asked; otherwise return ready.' },
       }));
       if (!finishing) setBusy(false);
     } catch {
@@ -750,28 +768,51 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
 
   useEffect(() => {
     if (rec.status === 'done' && step === 'recording') {
-      setStep('boot');
       const blob = rec.blob;
+      const live = (rec.getLiveText?.() || rec.liveText || '').trim();
+      autoDraft.current = live;
+      if (live) {
+        setDraft(live);
+        setPolishing(true);
+        setStep('boot');
+        const d = say(hasTranscriptGap(live)
+          ? 'I missed a word in there — fill it in if you can, then send.'
+          : 'Check I got this right:');
+        after(d, () => setStep(recordingReturn.current || 'writing'));
+      }
       (async () => {
-        setBusy(true);
+        if (!live) setBusy(true);
         try {
+          let text = live;
           if (blob) {
-            const { text } = await transcribeCapture(blob);
-            setDraft(text || '');
-            const d = text
-              ? say('Check I got this right:')
-              : say("I couldn't quite catch that — write it in, or record again.");
-            after(d, () => setStep(recordingReturn.current || 'writing'));
-          } else {
+            try {
+              const result = await transcribeCapture(blob, {
+                hint: live,
+                keywords: projects.map((p) => p.name).filter(Boolean),
+              });
+              text = result.text || live;
+            } catch {
+              text = live;
+            }
+          }
+          if (text) {
+            refreshDraftIfUnedited(setDraft, autoDraft, text);
+            if (!live) {
+              setStep('boot');
+              const d = say(hasTranscriptGap(text)
+                ? 'I missed a word in there — fill it in if you can, then send.'
+                : 'Check I got this right:');
+              after(d, () => setStep(recordingReturn.current || 'writing'));
+            }
+          } else if (!live) {
             setDraft('');
-            const d = say("Write in what you said — I keep the words, not the audio.");
+            const d = blob
+              ? say("I couldn't quite catch that — write it in, or record again.")
+              : say("Write in what you said — I keep the words, not the audio.");
             after(d, () => setStep(recordingReturn.current || 'writing'));
           }
-        } catch {
-          setDraft('');
-          const d = say("I couldn't transcribe that — write it in, or record again.");
-          after(d, () => setStep(recordingReturn.current || 'writing'));
         } finally {
+          setPolishing(false);
           setBusy(false);
         }
       })();
@@ -957,8 +998,15 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
                 }
               }}
             />
+            {polishing && (
+              <span className="cvtype__polish">Cleaning the words up…</span>
+            )}
             <div className="cvtype__acts">
-              <button className="ck-chip ck-chip--primary cvtype__send" disabled={!draft.trim()} onClick={send}>
+              <button
+                className="ck-chip ck-chip--primary cvtype__send"
+                disabled={!draft.trim() || (polishing && draft === autoDraft.current)}
+                onClick={send}
+              >
                 <Icon name="arrow-up-right" size={14} /> {label}
               </button>
               {step === 'clarify' && (

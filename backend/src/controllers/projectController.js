@@ -18,7 +18,7 @@ const { analyzeImageAsset } = require('../services/imageAnalysis');
     composeSessionSummary,
   } = require('../services/captureUnderstand');
 const { understandCheckin } = require('../services/checkinUnderstand');
-const { transcribeAudio } = require('../services/transcribeAudio');
+const { transcribeAudio, correctTranscript } = require('../services/transcribeAudio');
 
 function wantsPromptDebug(req) {
   return String(req.get('x-debug-prompts') || '').trim() === '1';
@@ -29,6 +29,22 @@ function withOptionalDebug(result, req) {
   const { debug, ...rest } = result;
   if (wantsPromptDebug(req) && debug) rest.debug = debug;
   return rest;
+}
+
+function headerText(value) {
+  if (!value) return '';
+  try {
+    return decodeURIComponent(String(Array.isArray(value) ? value[0] : value)).trim();
+  } catch {
+    return String(Array.isArray(value) ? value[0] : value).trim();
+  }
+}
+
+function headerList(value) {
+  return headerText(value)
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean);
 }
 
 // ── serialization ─────────────────────────────────────────────────────────
@@ -542,11 +558,32 @@ async function transcribeDraft(req, res) {
     return res.status(400).json({ message: 'No audio to transcribe' });
   }
   try {
-    const result = await transcribeAudio(buffer, req.headers['content-type']);
-    res.json(result);
+    const result = await transcribeAudio(buffer, req.headers['content-type'], {
+      hint: headerText(req.headers['x-transcript-hint']),
+      keywords: headerList(req.headers['x-transcript-keywords']),
+    });
+    res.json(withOptionalDebug(result, req));
   } catch (err) {
     const status = err.statusCode || 500;
     res.status(status).json({ message: err.message || 'Transcription failed' });
+  }
+}
+
+// POST /projects/captures/correct-transcript — live pause cleanup, words in / words out.
+async function correctDraft(req, res) {
+  const text = String(req.body?.text || '').trim();
+  if (!text) {
+    return res.status(400).json({ message: 'No transcript to correct' });
+  }
+  try {
+    const result = await correctTranscript(text.slice(0, 8000), {
+      keywords: Array.isArray(req.body?.keywords) ? req.body.keywords : [],
+      live: true,
+    });
+    res.json(withOptionalDebug({ text: result.text, debug: result.debug }, req));
+  } catch (err) {
+    const status = err.statusCode || 500;
+    res.status(status).json({ message: err.message || 'Correction failed' });
   }
 }
 
@@ -565,4 +602,5 @@ module.exports = {
   understandDraft,
   understandCheckinDraft,
   transcribeDraft,
+  correctDraft,
 };

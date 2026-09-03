@@ -6,19 +6,19 @@
  * week or a month (Leon, July 30).
  *
  * After the studio speaks, understanding decides the next turn — the same
- * Capture Conversation agent as Projects: split independent stories silently,
- * ask only when meaning is missing or depth is worth it, then file.
+ * Capture Conversation agent as Projects: detect internal stories, ask at most
+ * four non-obvious questions that fill missing pieces for the Strategist, then file.
  */
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import Icon from '../../brand/Icon';
 import { Mark } from '../../brand/Logo';
 import { AutoTextarea, useBodyScrollLock } from './ui';
-import { RecordingSheet, useRecorder } from './recorder';
+import { RecordingSheet, useRecorder, refreshDraftIfUnedited } from './recorder';
 import { CHECKIN, PILLARS } from './checkinData';
 import { useConversation } from './useConversation.js';
 import ScrollJump from './ScrollJump.jsx';
-import { understandCheckin, transcribeCapture, uploadFiles, clarificationQuestion } from '../../api/projects';
+import { understandCheckin, transcribeCapture, uploadFiles, clarificationQuestion, hasTranscriptGap, transcriptGapQuestion } from '../../api/projects';
 import './checkin.css';
 
 export default function Checkin({ projects, filingProjects, week, name, lastWeek, lastProjectId, hasPlanned, brandGaps = [], onFillGap, onGenerate, onCancel, cancelLabel = "Keep this week's route" }) {
@@ -34,6 +34,8 @@ export default function Checkin({ projects, filingProjects, week, name, lastWeek
   const threadRef = useRef(null);
   const [draft, setDraft] = useState('');
   const [busy, setBusy] = useState(false);
+  const [polishing, setPolishing] = useState(false);
+  const autoDraft = useRef('');
 
   /* planning the week owns the screen, like onboarding and capture do. The nav
    * would invite the user to wander off mid-conversation and come back to a
@@ -48,7 +50,9 @@ export default function Checkin({ projects, filingProjects, week, name, lastWeek
   /* the same recorder the capture conversation uses — talking about the week is
    * easier than typing about it, and this question is the one people have the
    * most to say to (Leon, July 31) */
-  const rec = useRecorder();
+  const rec = useRecorder({
+    keywords: (projects || []).map((p) => p.name).filter(Boolean),
+  });
   /* a short "thinking" beat before a step's option cards/chips appear, so the
    * reveal feels like Bauhly deciding rather than a form popping in */
   const [optionsReady, setOptionsReady] = useState(false);
@@ -129,6 +133,8 @@ export default function Checkin({ projects, filingProjects, week, name, lastWeek
     if (rec.status === 'denied') { toWriting(CHECKIN.recordDenied, back); return; }
     rec.reset();
     rec.start();
+    setPolishing(false);
+    autoDraft.current = '';
     setStep('recording');
   };
   /* Voice notes are transcribed the same way Capture does — the field opens
@@ -137,30 +143,60 @@ export default function Checkin({ projects, filingProjects, week, name, lastWeek
     if (step !== 'recording') return undefined;
     if (rec.status === 'denied') { toWriting(CHECKIN.recordDenied, recordingReturn.current); return undefined; }
     if (rec.status !== 'done') return undefined;
-    setStep('boot');
     const blob = rec.blob;
     const back = recordingReturn.current || 'opening';
+    const live = (rec.getLiveText?.() || rec.liveText || '').trim();
+    autoDraft.current = live;
+    const openField = (line) => {
+      keepField.current = true;
+      keepDraft.current = true;
+      setStep('boot');
+      const d = say(line);
+      after(d, () => {
+        keepField.current = true;
+        keepDraft.current = true;
+        setStep(back);
+      });
+    };
+    if (live) {
+      setDraft(live);
+      setPolishing(true);
+      openField([
+        CHECKIN.recordKept,
+        hasTranscriptGap(live) ? CHECKIN.recordMissed : CHECKIN.recordCheck,
+      ]);
+    }
     (async () => {
-      setBusy(true);
+      if (!live) setBusy(true);
       try {
+        let text = live;
         if (blob) {
-          const { text } = await transcribeCapture(blob);
-          setDraft(text || '');
-          const d = text
-            ? say([CHECKIN.recordKept, CHECKIN.recordCheck])
-            : say("I couldn't quite catch that — write it in, or record again.");
-          after(d, () => {
-            keepField.current = true;
-            keepDraft.current = true;
-            setStep(back);
-          });
-        } else {
+          try {
+            const result = await transcribeCapture(blob, {
+              hint: live,
+              keywords: (projects || []).map((p) => p.name).filter(Boolean),
+            });
+            text = result.text || live;
+          } catch {
+            text = live;
+          }
+        }
+        if (text) {
+          refreshDraftIfUnedited(setDraft, autoDraft, text);
+          if (!live) {
+            openField([
+              CHECKIN.recordKept,
+              hasTranscriptGap(text) ? CHECKIN.recordMissed : CHECKIN.recordCheck,
+            ]);
+          }
+        } else if (!live && blob) {
+          setDraft('');
+          openField("I couldn't quite catch that — write it in, or record again.");
+        } else if (!live) {
           toWriting(CHECKIN.recordDenied, back);
         }
-      } catch {
-        const d = say("I couldn't transcribe that — write it in, or record again.");
-        after(d, () => { keepField.current = true; keepDraft.current = true; setStep(back); });
       } finally {
+        setPolishing(false);
         setBusy(false);
       }
     })();
@@ -291,7 +327,8 @@ export default function Checkin({ projects, filingProjects, week, name, lastWeek
         projects: projectPayload(),
         turns,
       });
-    } catch {
+    } catch (err) {
+      console.warn('[checkin] understand failed', err);
       return {
         action: 'ready',
         question: null,
@@ -357,7 +394,8 @@ export default function Checkin({ projects, filingProjects, week, name, lastWeek
       ctx.current.understanding = result.captures[0];
     }
     if (result?.conversationSummary) ctx.current.conversationSummary = result.conversationSummary;
-    const followUp = clarificationQuestion(result);
+    const followUp = clarificationQuestion(result, ctx.current.turns)
+      || transcriptGapQuestion(ctx.current.custom || ctx.current.turns?.[0]?.text, ctx.current.askedQuestion);
     if (followUp) {
       ctx.current.askedQuestion = followUp;
       ctx.current.turns = [...(ctx.current.turns || []), { role: 'assistant', text: followUp }];
@@ -413,7 +451,7 @@ export default function Checkin({ projects, filingProjects, week, name, lastWeek
     setBusy(true);
     try {
       afterUnderstood(await runUnderstand({
-        extraTurn: { role: 'user', text: 'Skip this question. Continue without guessing.' },
+        extraTurn: { role: 'user', text: 'Skip this question. Leave it unknown. Ask another only if a non-obvious gap remains and fewer than 4 questions have been asked; otherwise return ready.' },
       }));
     } catch {
       continueAfterIdea(null);
@@ -973,8 +1011,15 @@ export default function Checkin({ projects, filingProjects, week, name, lastWeek
           }
         }}
       />
+      {polishing && fromVoice.current && (
+        <span className="cvtype__polish">Cleaning the words up…</span>
+      )}
       <div className="cvtype__acts">
-        <button className="ck-chip ck-chip--primary cvtype__send" disabled={!draft.trim()} onClick={submitDraft}>
+        <button
+          className="ck-chip ck-chip--primary cvtype__send"
+          disabled={!draft.trim() || (polishing && draft === autoDraft.current)}
+          onClick={submitDraft}
+        >
           <Icon name="arrow-up-right" size={14} /> {label}
         </button>
         {alongside}

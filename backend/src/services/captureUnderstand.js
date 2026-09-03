@@ -20,6 +20,7 @@ function loadPrompt() {
 }
 
 const SIGNAL_KEYS = ['happened', 'intent', 'difficulty', 'actionTaken', 'outcome'];
+const QUESTION_BUDGET = 4;
 
 function escapeControlCharsInStrings(s) {
   let out = '';
@@ -577,15 +578,15 @@ function conversationBlock({ text, projectName, turns, projects }) {
   }
   const history = Array.isArray(turns) ? turns.filter((t) => str(t?.text)) : [];
   const asked = history.filter((t) => String(t.role || '').toLowerCase() === 'assistant').length;
-  const longest = [str(text), ...history.filter((t) => String(t.role || '').toLowerCase() !== 'assistant').map((t) => str(t.text))]
-    .reduce((max, n) => Math.max(max, n.length), 0);
-  const rich = longest >= 1200;
-  if (asked >= 4) {
-    lines.push('Question budget reached (4). Return grounded Capture(s) now. One connected project story per capture. Preserve remaining unknowns as knownLimitation.');
-  } else if (asked) {
-    lines.push(`Questions asked so far: ${asked} of 4. Ask exactly ONE next high-value question if a material unknown remains; otherwise return grounded Capture(s). Do not list multiple questions.`);
-  } else if (rich) {
-    lines.push('This is an information-rich input. Detect internal stories for clarification. If a question could substantially strengthen the Capture, ask exactly ONE high-value question this turn. Do not split one project story into multiple Captures. Do not list multiple questions. Do not repeat information already in the source.');
+  const missedWord = sourceHasTranscriptGap(text, turns);
+  if (asked >= QUESTION_BUDGET) {
+    lines.push(`Question budget reached (${QUESTION_BUDGET}). Return grounded Capture(s) now. One connected project story per capture. Preserve remaining unknowns as knownLimitation.`);
+  } else if (missedWord && asked === 0) {
+    lines.push('The source still has a missed spoken word ([?], [unclear], [inaudible], or a similar marker). Ask exactly ONE question to recover that word or phrase before returning ready. This is not a project-filing question.');
+  } else if (asked === 0) {
+    lines.push(`Ask at most ${QUESTION_BUDGET} questions, one per turn. Ask exactly ONE question only if a non-obvious material gap remains for the Strategist (why, what is wrong now, what will change, constraints, outcome). Do not ask anything the source already said. If nothing non-obvious is missing, return ready. Do not ask about Instagram, posting, or which project to file.`);
+  } else {
+    lines.push(`Questions asked so far: ${asked} of ${QUESTION_BUDGET}. Ask exactly ONE more only if a non-obvious material gap remains; otherwise return grounded Capture(s). Do not re-ask what they already said. Do not list multiple questions.`);
   }
   if (history.length) {
     history.forEach((t) => {
@@ -633,14 +634,6 @@ function captureMaxTokens() {
   return Number.isFinite(n) && n > 0 ? n : 8192;
 }
 
-function longestUserNote(text, turns) {
-  const notes = [str(text)];
-  (turns || []).forEach((t) => {
-    if (String(t?.role || '').toLowerCase() !== 'assistant') notes.push(str(t?.text));
-  });
-  return notes.reduce((max, n) => Math.max(max, n.length), 0);
-}
-
 function splitIntoContentCaptures(parsed) {
   if (str(parsed?.status).toLowerCase() !== 'ready') return false;
   const rows = Array.isArray(parsed?.captures)
@@ -654,18 +647,47 @@ function assistantQuestionCount(turns) {
   return (turns || []).filter((t) => String(t?.role || '').toLowerCase() === 'assistant' && str(t?.text)).length;
 }
 
+const TRANSCRIPT_GAP_RE = /\[(?:unclear|inaudible|unintelligible|\?+)\]|\(\s*(?:unclear|inaudible|\?+)\s*\)/i;
+
+function hasTranscriptGap(...parts) {
+  return parts.some((part) => TRANSCRIPT_GAP_RE.test(str(part)));
+}
+
+function sourceHasTranscriptGap(text, turns) {
+  if (hasTranscriptGap(text)) return true;
+  return (turns || []).some((t) => {
+    if (String(t?.role || '').toLowerCase() === 'assistant') return false;
+    return hasTranscriptGap(t?.text);
+  });
+}
+
+function lastUserText(turns) {
+  for (let i = (turns || []).length - 1; i >= 0; i -= 1) {
+    if (String(turns[i]?.role || '').toLowerCase() !== 'assistant') return str(turns[i]?.text);
+  }
+  return '';
+}
+
+function userAskedToStop(turns) {
+  const text = lastUserText(turns);
+  if (/^skip this question/i.test(text)) return false;
+  return /\b(that's enough|thats enough|nothing else|no more questions|that's all|thats all|stop asking|continue without guessing)\b/i.test(text);
+}
+
 function endedTooSoon(parsed, text, turns) {
   if (wantsClarification(parsed)) return false;
   if (str(parsed?.status).toLowerCase() !== 'ready' && parsed?.needsClarification !== false) return false;
-  // First pass on a long note that skipped the enrichment check.
-  if (assistantQuestionCount(turns) > 0) return false;
-  return longestUserNote(text, turns) >= 1200;
+  if (userAskedToStop(turns)) return false;
+  const asked = assistantQuestionCount(turns);
+  if (asked >= QUESTION_BUDGET) return false;
+  return sourceHasTranscriptGap(text, turns) && asked === 0;
 }
 
 const USER_JSON_INSTRUCTION = [
   'Return one JSON object with status needs_clarification or ready.',
-  'Clarification/enrichment check is mandatory. Do not set needsClarification false merely because a summary is possible.',
-  'If a question could substantially strengthen any internal story, put exactly ONE question in question. Do not list multiple questions. Do not repeat known information.',
+  'At most 4 clarification questions. No minimum. Ask only non-obvious gaps for the Strategist (why, current problem, what will change, constraints, outcome).',
+  'Do not ask anything the source already said. Do not pad the quota with obvious questions.',
+  'Each turn: put exactly ONE question in question, or return ready. Do not list multiple questions.',
   'Detect internal stories for clarification and record them in internalStories with factIds. They are not capture boundaries and are not automatically posts.',
   'One connected project story is one capture. Separate top-level captures only for different projects or unrelated events.',
   'When status is ready, pass originalCapture, clarifications, one compact captureSummary, verifiedFacts as {id,fact,source}, internalStories, storyRelationships, and assets once.',
@@ -676,9 +698,18 @@ const USER_JSON_INSTRUCTION = [
 
 const CONTINUE_QUESTIONS_HINT = [
   'Do not complete yet.',
-  'A story being technically understandable is not enough. Run the high-value unknown test.',
-  'If the next answer would change or substantially strengthen what strategy can do with this Capture, return needsClarification true with exactly ONE question and captures [].',
-  'Do not ask something already answered. Do not mention story numbers.',
+  'Ask exactly ONE non-obvious question that fills a missing piece for the Strategist.',
+  'Do not re-ask what the source already said. Do not ask about Instagram, posting, or which project to file.',
+  'Return needsClarification true with exactly ONE question and captures [].',
+  'Do not mention story numbers.',
+].join(' ');
+
+const TRANSCRIPT_GAP_HINT = [
+  'Do not complete yet.',
+  'The user source still contains a missed-word marker such as [?], [unclear], or [inaudible].',
+  'Return needsClarification true with exactly ONE question that asks them to supply that missing word or phrase.',
+  'This is recovering what they said, not asking which project to file under.',
+  'captures must be [].',
 ].join(' ');
 
 const UNIFY_RETRY_HINT = [
@@ -776,8 +807,13 @@ async function understandCapture(input = {}) {
   try {
     let done = await completeToolCall(callOpts);
     if (endedTooSoon(done.parsed, text, turns)) {
-      console.warn(`[${kind}] completed after ${assistantQuestionCount(turns)} question(s) on rich input — asking again`);
-      done = await completeToolCall({ ...callOpts, extraUserText: CONTINUE_QUESTIONS_HINT });
+      const asked = assistantQuestionCount(turns);
+      const gap = sourceHasTranscriptGap(text, turns) && asked === 0;
+      console.warn(`[${kind}] completed after ${asked} question(s)${gap ? ' with a missed-word marker' : ''} — asking again`);
+      done = await completeToolCall({
+        ...callOpts,
+        extraUserText: gap ? TRANSCRIPT_GAP_HINT : CONTINUE_QUESTIONS_HINT,
+      });
     }
     if (splitIntoContentCaptures(done.parsed)) {
       console.warn(`[${kind}] returned ${done.parsed?.captures?.length || 0} captures — retrying unified Capture`);
