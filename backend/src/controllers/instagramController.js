@@ -199,34 +199,44 @@ async function fetchInstagram(req, res) {
   });
 }
 
-async function getInstagramProfile(req, res) {
-  const profiles = await InstagramProfile.find({ user: req.user._id }).sort(CURRENT_SORT);
+const avatarAttempted = new Set();
 
-  // Opportunistically cache any avatar we still only have as a CDN URL (legacy
-  // rows + expired Graph links after a re-fetch will pick this up).
-  await Promise.all(
-    profiles.map(async (p) => {
+function scheduleMissingAvatarCache(userId, profiles) {
+  const uid = String(userId);
+  setImmediate(() => {
+    Promise.all((profiles || []).map(async (p) => {
       if (p.profilePicKey) return;
+      const mark = `${uid}:${p.username}`;
+      if (avatarAttempted.has(mark)) return;
+      avatarAttempted.add(mark);
       let url = p.profilePicUrl || '';
-      // Meta CDN URLs expire — pull a fresh one when Insights are connected.
       if (!url || /fbcdn|cdninstagram|scontent/.test(url)) {
-        const fresh = await fetchGraphProfilePicUrl(req.user._id, p.username);
+        const fresh = await fetchGraphProfilePicUrl(uid, p.username);
         if (fresh) url = fresh;
       }
       if (!url) return;
-      const key = await cacheProfilePicture(req.user._id, p.username, url);
+      const key = await cacheProfilePicture(uid, p.username, url);
       if (key) {
         p.profilePicKey = key;
         p.profilePicUrl = url;
         await p.save();
       }
-    }),
-  );
+    })).catch((err) => {
+      console.warn('[avatar] background cache failed:', err.message);
+    });
+  });
+}
 
+async function getInstagramProfile(req, res) {
+  const profiles = await InstagramProfile.find({ user: req.user._id }).sort(CURRENT_SORT);
   const hydrated = await withFreshAvatars(profiles);
   // `profile` (the current handle) is kept for backward compatibility; `profiles`
   // lists every handle connected to this account, current one first.
   res.json({ profile: hydrated[0] || null, profiles: hydrated });
+  // Avatar downloads (Graph + Instagram CDN) used to run before this response
+  // and often sat on HTTP 403 for every handle without an S3 key — that hid the
+  // account switcher for 0.5–2s. Cache in the background instead.
+  scheduleMissingAvatarCache(req.user._id, profiles);
 }
 
 // Make an already-connected handle the current one, so plans, brand profile and

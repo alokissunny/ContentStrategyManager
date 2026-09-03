@@ -19,14 +19,49 @@ export function fetchInstagram(username) {
   return promise;
 }
 
+const PROFILES_CACHE_KEY = 'bauhly.igProfiles';
+const HANDLE_KEY = 'bauhly.currentHandle';
+let profilesInflight = null;
+
+export function readCachedProfiles() {
+  try {
+    const raw = sessionStorage.getItem(PROFILES_CACHE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed?.profiles) && parsed.profiles.length) return parsed.profiles;
+    }
+  } catch { /* private mode */ }
+  try {
+    const handle = String(localStorage.getItem(HANDLE_KEY) || '').trim().toLowerCase();
+    if (handle) return [{ username: handle }];
+  } catch { /* private mode */ }
+  return [];
+}
+
+function writeCachedProfiles(profiles) {
+  try {
+    sessionStorage.setItem(PROFILES_CACHE_KEY, JSON.stringify({ profiles, at: Date.now() }));
+  } catch { /* quota / private mode */ }
+}
+
 export function listInstagramProfiles() {
-  return client.get('/instagram').then((res) => res.data);
+  if (profilesInflight) return profilesInflight;
+  profilesInflight = client.get('/instagram').then((res) => {
+    writeCachedProfiles(res.data.profiles || []);
+    return res.data;
+  }).finally(() => {
+    profilesInflight = null;
+  });
+  return profilesInflight;
 }
 
 // Make an already-connected handle the current one across the app. Returns
 // { profile, profiles } with the now-current handle first.
 export function activateInstagramProfile(username) {
-  return client.post('/instagram/activate', { username }).then((res) => res.data);
+  return client.post('/instagram/activate', { username }).then((res) => {
+    writeCachedProfiles(res.data.profiles || []);
+    return res.data;
+  });
 }
 
 export function getAuthorityFunnel(username) {

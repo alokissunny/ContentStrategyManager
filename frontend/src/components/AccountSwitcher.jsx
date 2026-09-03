@@ -10,7 +10,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import Glyph from './Glyph';
-import { listInstagramProfiles, activateInstagramProfile } from '../api/instagram';
+import { listInstagramProfiles, readCachedProfiles, activateInstagramProfile } from '../api/instagram';
 import { getMetaStatus } from '../api/meta';
 import { syncHandle } from '../lib/store';
 import { resetProjects } from '../lib/projectsStore';
@@ -58,7 +58,7 @@ function Avatar({ profile, size = 34 }) {
 
 export default function AccountSwitcher({ variant = 'header' }) {
   const sidebar = variant === 'sidebar';
-  const [profiles, setProfiles] = useState([]);
+  const [profiles, setProfiles] = useState(readCachedProfiles);
   const [meta, setMeta] = useState(null);
   const [open, setOpen] = useState(false);
   const [switching, setSwitching] = useState('');
