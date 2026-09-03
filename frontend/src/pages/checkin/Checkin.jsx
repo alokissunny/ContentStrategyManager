@@ -14,7 +14,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import Icon from '../../brand/Icon';
 import { Mark } from '../../brand/Logo';
 import { AutoTextarea, useBodyScrollLock } from './ui';
-import { RecordingSheet, useRecorder, refreshDraftIfUnedited } from './recorder';
+import { RecordingSheet, useRecorder, refreshDraftIfUnedited, captureSttLanguages } from './recorder';
 import { CHECKIN, PILLARS } from './checkinData';
 import { useConversation } from './useConversation.js';
 import ScrollJump from './ScrollJump.jsx';
@@ -175,6 +175,7 @@ export default function Checkin({ projects, filingProjects, week, name, lastWeek
             const result = await transcribeCapture(blob, {
               hint: live,
               keywords: (projects || []).map((p) => p.name).filter(Boolean),
+              languages: captureSttLanguages(rec.speechLang),
             });
             text = result.text || live;
           } catch {

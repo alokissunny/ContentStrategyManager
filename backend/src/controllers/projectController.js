@@ -561,6 +561,7 @@ async function transcribeDraft(req, res) {
     const result = await transcribeAudio(buffer, req.headers['content-type'], {
       hint: headerText(req.headers['x-transcript-hint']),
       keywords: headerList(req.headers['x-transcript-keywords']),
+      languages: headerList(req.headers['x-transcript-languages']),
     });
     res.json(withOptionalDebug(result, req));
   } catch (err) {
@@ -578,6 +579,7 @@ async function correctDraft(req, res) {
   try {
     const result = await correctTranscript(text.slice(0, 8000), {
       keywords: Array.isArray(req.body?.keywords) ? req.body.keywords : [],
+      languages: Array.isArray(req.body?.languages) ? req.body.languages : [],
       live: true,
     });
     res.json(withOptionalDebug({ text: result.text, debug: result.debug }, req));

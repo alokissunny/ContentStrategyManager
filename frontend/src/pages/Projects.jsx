@@ -16,7 +16,7 @@ import { useNavigate } from 'react-router-dom';
 import Icon from '../brand/Icon';
 import { Mark } from '../brand/Logo';
 import { AutoTextarea, useBodyScrollLock } from './checkin/ui';
-import { RecordingSheet, useRecorder, refreshDraftIfUnedited } from './checkin/recorder';
+import { RecordingSheet, useRecorder, refreshDraftIfUnedited, captureSttLanguages } from './checkin/recorder';
 import ScrollJump from './checkin/ScrollJump';
 import {
   useProjects, useProjectsHydrated, createProject, renameProject, deleteProject,
@@ -789,6 +789,7 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
               const result = await transcribeCapture(blob, {
                 hint: live,
                 keywords: projects.map((p) => p.name).filter(Boolean),
+                languages: captureSttLanguages(rec.speechLang),
               });
               text = result.text || live;
             } catch {

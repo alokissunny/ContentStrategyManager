@@ -21,11 +21,9 @@ import { useProjects, uploadFiles } from '../lib/projectsStore';
 import { toSvg } from 'html-to-image';
 import { CaptureChat } from './Projects';
 import { styleOf, groundOf } from '../lib/visualbrand';
-import { LAYOUTS as LIB_LAYOUTS, CATEGORIES, catForRole, shotsOf, DEFAULT_LAYOUT_BY_CAT, layoutShowsAllCopy } from '../data/layouts';
+import { LAYOUTS as LIB_LAYOUTS, catForRole, shotsOf, DEFAULT_LAYOUT_BY_CAT, layoutShowsAllCopy } from '../data/layouts';
 import { paintAll, paintOf, identityOf, TYPE_SLOTS, FACES } from '../lib/identity';
 import { rolesOf as textRolesOf, plainOf, parseMarked, isListRole, listIndexOf } from '../lib/slidetext';
-import { Preview } from './visuallibrary/LayoutArt';
-import VisualLibrary from './visuallibrary/VisualLibrary';
 import ImagePicker from './weekview/ImagePicker';
 import { PhotoEditor, SlotPack } from './weekview/PhotoEditor';
 import RoleField from './weekview/RoleField';
@@ -35,6 +33,13 @@ import PostAgentDebug from './weekview/PostAgentDebug';
 import DynamicLayout, { AnnotationOverlay } from './weekview/DynamicLayout';
 import { rewriteAnnotationText } from './weekview/layoutHtml';
 import { boxOf, normalizeSubjects } from './weekview/subjectBox';
+import {
+  CHANGE_LAYOUTS,
+  findChangeLayout,
+  shotsForLayout,
+  LayoutSpecimen,
+  SlideCompose,
+} from './weekview/slideLayouts';
 import { useAiDebug, fmtElapsed } from '../lib/aiDebug';
 import { useBodyScrollLock } from './visualbrand/useBodyScrollLock';
 import useMediaQuery from '../hooks/useMediaQuery';
@@ -1348,51 +1353,25 @@ function slideCopy(slide, parts) {
   };
 }
 
-function SlideBestFit({ slide, localMedia, mediaByKey, preferProxy = false, parts, showVisualHint = false, subjects }) {
-  const copy = slideCopy(slide, parts);
-  const key = slideAllowsPhoto(slide) ? (slide?.assetKey || slide?.image?.key) : '';
-  const src = key
-    ? (urlForKey(key, slide, localMedia, mediaByKey, preferProxy)
-      || photoUrl(slide, localMedia, mediaByKey))
-    : null;
-  const need = showVisualHint ? visualNeedRecord(slide) : null;
-  const showHint = Boolean(need) && !src;
-  return (
-    <div className={`wv-fit${src ? ' has-photo' : ''}${showHint ? ' is-needvisual' : ''}`}>
-      <div className="wv-fit__slot">
-        {src ? <img className="wv-fit__photo" src={src} alt="" /> : null}
-        {src && copy.annotation ? <AnnotationOverlay annotation={copy.annotation} subjects={subjects} /> : null}
-      </div>
-      <div className="wv-fit__copy">
-        {copy.stat ? <p className="wv-fit__stat">{copy.stat}</p> : null}
-        {copy.title ? <p className="wv-fit__title">{copy.title}</p> : null}
-        {copy.sub ? <p className="wv-fit__sub">{copy.sub}</p> : null}
-        {copy.body ? <p className="wv-fit__sub">{copy.body}</p> : null}
-        {copy.cmpA || copy.cmpB ? (
-          <p className="wv-fit__pair">
-            {copy.cmpA ? <span>{copy.cmpA}</span> : null}
-            {copy.cmpA && copy.cmpB ? <i className="wv-fit__rule" aria-hidden="true" /> : null}
-            {copy.cmpB ? <span>{copy.cmpB}</span> : null}
-          </p>
-        ) : null}
-        {copy.quote ? <p className="wv-fit__quote">{copy.quote}</p> : null}
-        {copy.items.length ? (
-          <ul className="wv-fit__list">
-            {copy.items.map((item) => <li key={item}>{item}</li>)}
-          </ul>
-        ) : null}
-      </div>
-      {showHint && <VisualNeedHint need={need} />}
-    </div>
-  );
-}
-
-function SlideMedia({ slide, localMedia, parts, mediaByKey, preferProxy = false, showVisualHint = false, subjectsByKey, paint, themed = false }) {
+function SlideMedia({
+  slide,
+  localMedia,
+  parts,
+  mediaByKey,
+  preferProxy = false,
+  showVisualHint = false,
+  subjectsByKey,
+  paint,
+  themed = false,
+  layoutOverride = null,
+}) {
   const copy = slideCopy(slide, parts);
   const need = visualNeedRecord(slide);
-  const allowPhoto = slideAllowsPhoto(slide);
+  const changeLayout = layoutOverride || findChangeLayout(slide?.layout);
+  const wantShots = shotsForLayout(changeLayout);
+  const allowPhoto = wantShots > 0 || (!changeLayout && slideAllowsPhoto(slide));
   const urls = allowPhoto
-    ? keysOf(slide).map((k) => urlForKey(k, slide, localMedia, mediaByKey, preferProxy)).filter(Boolean)
+    ? keysOf(slide).map((k) => urlForKey(k, slide, localMedia, mediaByKey, preferProxy))
     : [];
   if (allowPhoto && !urls[0]) {
     const lead = photoUrl(slide, localMedia, mediaByKey)
@@ -1401,10 +1380,32 @@ function SlideMedia({ slide, localMedia, parts, mediaByKey, preferProxy = false,
       || '';
     if (lead) urls[0] = lead;
   }
+  while (wantShots > 0 && urls.length < wantShots) urls.push(null);
   const src = urls[0] || null;
   const missingVisual = Boolean(need) && !src;
   const showHint = missingVisual && showVisualHint;
   const subjects = subjectsForSlide(slide, subjectsByKey);
+
+  // A Change layout pick (or applied id) wins over generated layoutHtml so the
+  // studio can reshape a slide without waiting on the layout agent.
+  if (changeLayout) {
+    return (
+      <div className={`wv-ig__lay${showHint ? ' is-needvisual' : ''}`} style={paint}>
+        <SlideCompose
+          kind={changeLayout.kind}
+          copy={copy}
+          urls={urls}
+          slide={slide}
+          showVisualHint={showVisualHint}
+          need={need}
+          subjects={subjects}
+          AnnotationOverlay={AnnotationOverlay}
+        />
+        {showHint && <VisualNeedHint need={need} />}
+      </div>
+    );
+  }
+
   if (slide?.layoutHtml) {
     return (
       <div className={`wv-ig__lay${showHint ? ' is-needvisual' : ''}`} style={paint}>
@@ -1425,7 +1426,7 @@ function SlideMedia({ slide, localMedia, parts, mediaByKey, preferProxy = false,
             action: String(slide?.action || '').trim(),
             annotation: ANNOTATIONS_ENABLED ? (copy.annotation || slide?.annotation || null) : null,
           }}
-          imageUrls={urls}
+          imageUrls={urls.filter(Boolean)}
           paint={paint}
         />
         {showHint && <VisualNeedHint need={need} />}
@@ -1434,114 +1435,18 @@ function SlideMedia({ slide, localMedia, parts, mediaByKey, preferProxy = false,
   }
   return (
     <div className="wv-ig__lay" style={paint}>
-      <SlideBestFit
+      <SlideCompose
+        kind="best-fit"
+        copy={copy}
+        urls={urls}
         slide={slide}
-        localMedia={localMedia}
-        mediaByKey={mediaByKey}
-        preferProxy={preferProxy}
-        parts={parts}
         showVisualHint={showVisualHint}
+        need={need}
         subjects={subjects}
+        AnnotationOverlay={AnnotationOverlay}
       />
+      {showHint && <VisualNeedHint need={need} />}
     </div>
-  );
-}
-
-/* ── Browse layouts: the Visual Library itself, opened over the post ────
- * Not a second category browser — the real page, with everything that acts
- * on the library taken away, so the one action is choosing a category. */
-function LibraryPick({ current, layoutId, onPick, onLayout, onClose }) {
-  useBodyScrollLock();
-  const [sel, setSel] = useState(current);
-  useEffect(() => { setSel(current); }, [current]);
-  const cat = CATEGORIES.find((c) => c.id === sel) || null;
-
-  useEffect(() => {
-    const onKey = (e) => { if (e.key === 'Escape') onClose(); };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [onClose]);
-
-  return createPortal(
-    <>
-      <div className="wv-vlib__scrim" onClick={onClose} />
-      <div className="wv-vlib" role="dialog" aria-modal="true" aria-label="Choose a layout">
-        <div className="wv-vlib__body">
-          <VisualLibrary
-            pick={{
-              current: sel,
-              layoutId,
-              onPick: setSel,
-              onLayout: (l) => { onLayout(l); onClose(); },
-              onClose,
-            }}
-          />
-        </div>
-        <div className="wv-vlib__foot">
-          <button type="button" className="btn btn--tertiary" onClick={onClose}>Cancel</button>
-          <button
-            type="button"
-            className="btn btn--primary"
-            onClick={() => { if (cat) onPick(cat.id); onClose(); }}
-            disabled={!cat}
-          >
-            Use {cat ? cat.label : 'category'}
-          </button>
-        </div>
-      </div>
-    </>,
-    document.body,
-  );
-}
-
-/* ── Adapt this slide to a new category? (bauhly-v3 §901) ───────────────
- * Browse layouts choosing a different group is a rewrite of the row, so it
- * asks once before the carousel moves. Continue points the row at that set;
- * Cancel leaves the post as it was. */
-function AdaptCategoryDialog({ label, onContinue, onClose }) {
-  useBodyScrollLock();
-  useEffect(() => {
-    const onKey = (e) => { if (e.key === 'Escape') onClose(); };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [onClose]);
-
-  return createPortal(
-    <>
-      <div className="wv-confirm__scrim" onClick={onClose} />
-      <div className="wv-confirm" role="alertdialog" aria-modal="true" aria-labelledby="wv-cat-t">
-        <h2 id="wv-cat-t">Adapt this slide to a new category?</h2>
-        <p className="wv-cat__flow" aria-hidden="true">
-          <span className="wv-cat__step">
-            <Icon name="dashboard" size={15} strokeWidth={2} />
-            This slide
-          </span>
-          <Icon name="arrow-right" size={14} strokeWidth={2.5} className="wv-cat__arrow" />
-          <span className="wv-cat__step is-mid">
-            <Icon name="sparkle" size={15} strokeWidth={2} />
-            Bauhly adapts
-          </span>
-          <Icon name="arrow-right" size={14} strokeWidth={2.5} className="wv-cat__arrow" />
-          <span className="wv-cat__step">
-            <Icon name="check" size={15} strokeWidth={2.5} />
-            {label}
-          </span>
-        </p>
-        <p>
-          Changing category means Bauhly will rework this slide&rsquo;s text and
-          structure to fit the new layout style. This uses another generation.
-        </p>
-        <div className="wv-confirm__acts">
-          <button type="button" className="btn btn--primary btn--sm" onClick={onContinue}>
-            Continue
-          </button>
-          <button type="button" className="btn btn--tertiary btn--sm" onClick={onClose}>
-            Cancel
-          </button>
-        </div>
-      </div>
-    </>,
-    document.body,
   );
 }
 
@@ -1696,7 +1601,7 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
   // open. `whyOpen` reveals the strategy beside the post.
   const [zone, setZone] = useState(null); // 'visual' | 'caption' | null
   // Which editor the visual zone's menu opened (bauhly-v3 §818/§989): the pencil
-  // shows a menu — Choose layout / Edit image / Select images / Edit text —
+  // shows a menu — Change layout / Edit image / Select images / Edit text —
   // and picking one sets this. null = the menu itself is showing.
   const [visEdit, setVisEdit] = useState(null); // 'layout' | 'images' | 'words' | null
   // Edit image (bauhly-v3 §961/§965/§982): the still-photo studio. `adjustFor`
@@ -1705,12 +1610,9 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
   const [adjustFor, setAdjustFor] = useState(null); // { src, slotIndex } | null
   const [editSlot, setEditSlot] = useState(null);
   const [packOpen, setPackOpen] = useState(false);
-  // Browse layouts / Apply layout (bauhly-v3 §809/§823/§825): picking a card
-  // is a draft until Apply; Browse layouts points the row at another category.
+  // Change layout (bauhly-v3 §809/§823/§825): picking a card is a draft until
+  // Apply. The set is the four studio compositions, not the Visual Library.
   const [layPick, setLayPick] = useState(null);
-  const [layCat, setLayCat] = useState(null);
-  const [libOpen, setLibOpen] = useState(false);
-  const [askCat, setAskCat] = useState(null); // { id, label } | null
   // How many picture places the shape just applied has, while the studio
   // decides whether to fill them now (bauhly-v3 §928).
   const [askImgs, setAskImgs] = useState(0);
@@ -1793,7 +1695,6 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
     setWordDraft(null);
     setCapDraft('');
     setLayPick(null);
-    setLayCat(null);
     setImgPick(null);
     setAdjustFor(null);
     setEditSlot(null);
@@ -2154,12 +2055,7 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
   }, [zone, visEdit]);
 
   useEffect(() => {
-    if (visEdit !== 'layout') {
-      setLayPick(null);
-      setLayCat(null);
-      setLibOpen(false);
-      setAskCat(null);
-    }
+    if (visEdit !== 'layout') setLayPick(null);
     if (visEdit !== 'words') setWordDraft(null);
   }, [visEdit]);
 
@@ -2182,14 +2078,12 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
       if (imgPick) { setImgPick(null); return; }
       if (askImgs) { setAskImgs(0); return; }
       if (!zone) return;
-      if (askCat) { setAskCat(null); return; }
-      if (libOpen) { setLibOpen(false); return; }
       if (visEdit) setVisEdit(null);
       else closeZone();
     }
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [zone, visEdit, libOpen, askCat, askImgs, imgPick, creating, timeDraft, adjustFor, packOpen]);
+  }, [zone, visEdit, askImgs, imgPick, creating, timeDraft, adjustFor, packOpen]);
 
   // Persist the caption for the open day — optimistic, then reconciled with the
   // server's copy. Backend whitelists `content.caption` (routeController §642).
@@ -2564,11 +2458,7 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
 
   const weekUsage = weekUsageOf(route);
 
-  // The layouts this empty slide can take — its own category first, then the
-  // "Image only" / "Create image" pair — and a sliding window of three with an
-  // arrow at each end (bauhly-v3 YourWeek `EmptySlide`).
   const slideRoleName = activeSlide?.role || 'Hook';
-  const layoutBrowseCat = layCat || catForRole(slideRoleName);
   const pickerImages = useMemo(() => {
     if (!allImages.length) return [];
     const dayText = [day?.title, day?.direction, day?.content?.caption, day?.contentType].filter(Boolean).join(' ');
@@ -2578,31 +2468,17 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
       .sort((a, b) => b.score - a.score)
       .map((x) => x.img);
   }, [allImages, activeSlide?.title, day]);
-  const slideLayouts = useMemo(() => {
-    const own = layoutsForSlide(slideRoleName, vbStore, visEdit === 'layout' ? layoutBrowseCat : null);
-    const applied = layoutForSlide(activeSlide, vbStore, slideRoleName);
-    if (!applied) return own;
-    if (visEdit === 'layout' && layoutBrowseCat && applied.cat !== layoutBrowseCat) return own;
-    if (own.some((l) => l.id === applied.id)) {
-      return [applied, ...own.filter((l) => l.id !== applied.id)];
-    }
-    return [applied, ...own];
-  }, [slideRoleName, vbStore, visEdit, layoutBrowseCat, activeSlide?.layout]);
+  const slideLayouts = CHANGE_LAYOUTS;
   // the studio's palette + faces, so the previews here read exactly as they do
   // in the Visual Library (empty object = the library's shipped defaults)
   const libPaint = useMemo(() => paintAll(vbStore?.libraryEdits), [vbStore?.libraryEdits]);
-  const roleLayouts = useMemo(
-    () => layoutsForSlide(slideRoleName, vbStore),
-    [slideRoleName, vbStore],
-  );
-  const appliedLayout = layoutForSlide(activeSlide, vbStore, slideRoleName) || roleLayouts[0] || null;
-  const appliedId = appliedLayout?.id || null;
+  const appliedChange = findChangeLayout(activeSlide?.layout);
+  const appliedId = appliedChange?.id || null;
   const draftId = visEdit === 'layout' ? (layPick || appliedId) : appliedId;
   const chosenLayout = (visEdit === 'layout' && layPick
-    ? findLayout(layPick, vbStore)
-    : null) || appliedLayout;
+    ? findChangeLayout(layPick)
+    : null) || appliedChange;
   const chosenLayoutIdx = Math.max(0, slideLayouts.findIndex((l) => l.id === draftId));
-  const layoutCatLabel = (CATEGORIES.find((c) => c.id === layoutBrowseCat) || {}).label || '';
   const layoutUnchanged = Boolean(draftId) && draftId === appliedId;
   const wordRoles = visEdit === 'words' ? wordRolesForSlide(activeSlide) : [];
   const primaryWordKey = wordRoles.find((r) => r.key === 'head')?.key
@@ -2660,7 +2536,8 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
 
   function applyLayout() {
     if (!draftId || layoutUnchanged) return;
-    const need = shotsOf(chosenLayout);
+    const next = findChangeLayout(draftId);
+    const need = shotsForLayout(next);
     patchActiveSlide({ layout: draftId, layoutHtml: '' });
     setLayPick(null);
     if (need > 0) {
@@ -2672,7 +2549,7 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
   }
 
   function openImagePicker() {
-    const n = 1;
+    const n = Math.max(1, shotsForLayout(chosenLayout || findChangeLayout(activeSlide?.layout)) || 1);
     const saved = keysOf(activeSlide).map((k) => urlForKey(k, activeSlide, localMedia, mediaByKey));
     const fromSaved = Array.from({ length: n }, (_, i) => saved[i] || null);
     if (fromSaved.some(Boolean)) {
@@ -2853,8 +2730,9 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
       title={l.name}
     >
       <span className="wv-act__shot">
-        <Preview mood={false} l={l} />
+        <LayoutSpecimen layout={l} />
       </span>
+      <span className="wv-act__name">{l.name}</span>
       {l.id === appliedId && <span className="wv-act__now">Current</span>}
     </button>
   ));
@@ -3018,41 +2896,6 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
         </>
       )}
 
-      {libOpen && visEdit === 'layout' && (
-        <LibraryPick
-          current={layoutBrowseCat}
-          layoutId={draftId}
-          onPick={(id) => {
-            setLibOpen(false);
-            if (id === layoutBrowseCat) return;
-            setLayCat(id);
-            setLayPick(null);
-            setLayWinStart(0);
-          }}
-          onLayout={(l) => {
-            if (!l?.id) return;
-            if (l.cat && l.cat !== layoutBrowseCat) setLayCat(l.cat);
-            setLayPick(l.id);
-            setLayWinStart(0);
-          }}
-          onClose={() => setLibOpen(false)}
-        />
-      )}
-
-      {askCat && (
-        <AdaptCategoryDialog
-          label={askCat.label}
-          onContinue={() => {
-            const { id } = askCat;
-            setAskCat(null);
-            setLayCat(id);
-            setLayPick(null);
-            setLayWinStart(0);
-          }}
-          onClose={() => setAskCat(null)}
-        />
-      )}
-
       {askImgs > 0 && (
         <AddImagesDialog
           count={askImgs}
@@ -3064,7 +2907,30 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
 
       {imgPick && (
         <ImagePicker
-          layout={{ ...BEST_FIT_LAYOUT, imgs: imgPick.slots }}
+          layout={(() => {
+            const change = findChangeLayout(activeSlide?.layout);
+            if (!change) return { ...BEST_FIT_LAYOUT, imgs: imgPick.slots };
+            // Map onto LayoutArt kinds that expose .vl-ph slots for the picker.
+            if (change.kind === 'before-after') {
+              return {
+                id: change.id,
+                kind: 'duo',
+                tone: 'ground',
+                art: { head: '', labels: ['Before', 'After'] },
+                imgs: imgPick.slots,
+              };
+            }
+            if (change.kind === 'process') {
+              return { id: change.id, kind: 'centered', tone: 'ground', art: { head: '' }, imgs: [] };
+            }
+            return {
+              id: change.id,
+              kind: 'split',
+              tone: 'ground',
+              art: { head: '', body: '' },
+              imgs: imgPick.slots,
+            };
+          })()}
           need={imgPick.slots.length}
           slots={imgPick.slots}
           at={imgPick.at}
@@ -3273,6 +3139,7 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
                   showVisualHint
                   paint={igVars}
                   themed={hasVisualEdits}
+                  layoutOverride={visEdit === 'layout' ? (chosenLayout || null) : null}
                 />
                 {slides.length > 1 && (
                   <span className="wv-ig__count">{safeIdx + 1}/{slides.length}</span>
@@ -3349,6 +3216,13 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
                   aria-hidden="true"
                 />
                 <div className="wv-ig__menu" role="menu" aria-label="Edit this slide">
+                  <button type="button" role="menuitem" className="wv-ig__menuitem" onClick={() => {
+                    setLayPick(appliedId);
+                    setVisEdit('layout');
+                  }}>
+                    <Icon name="dashboard" size={17} strokeWidth={2} />
+                    <span>Change layout</span>
+                  </button>
                   {hasEditImage && (
                     <button type="button" role="menuitem" className="wv-ig__menuitem" onClick={openAdjust}>
                       <Icon name="crop" size={17} strokeWidth={2} />
@@ -3455,15 +3329,12 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
                   >
                     <Glyph name="arrow-left" size={16} />
                   </button>
-                  <span className="wv-layed__title">
-                    Choose layout
-                    {layoutCatLabel && <em className="wv-layed__cat">{layoutCatLabel}</em>}
-                  </span>
+                  <span className="wv-layed__title">Change layout</span>
                   <button
                     type="button"
                     className="btn btn--primary btn--sm wv-layed__apply"
                     onClick={applyLayout}
-                    disabled={layoutUnchanged}
+                    disabled={!draftId || layoutUnchanged}
                     title={layoutUnchanged ? 'This is the layout the post already has' : undefined}
                   >
                     <Glyph name="check" size={16} strokeWidth={2.5} />
@@ -3495,14 +3366,6 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
                     </button>
                   </div>
                 </div>
-                <button
-                  type="button"
-                  className="btn btn--tertiary btn--sm wv-layed__browse"
-                  onClick={() => setLibOpen(true)}
-                >
-                  <Glyph name="search" size={15} strokeWidth={2} />
-                  Browse layouts
-                </button>
               </div>
             )}
 

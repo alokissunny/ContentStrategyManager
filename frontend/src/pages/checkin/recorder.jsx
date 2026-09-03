@@ -72,7 +72,12 @@ function pickRecorderMime() {
 }
 
 function foldWords(text) {
-  return String(text || '').toLowerCase().replace(/[^a-z0-9]+/gi, ' ').replace(/\s+/g, ' ').trim();
+  return String(text || '')
+    .toLowerCase()
+    .normalize('NFKC')
+    .replace(/[^\p{L}\p{N}]+/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 function alreadyHeard(haystack, piece) {
@@ -88,6 +93,40 @@ function bestAlternative(result) {
     if ((result[i].confidence || 0) > (best.confidence || 0)) best = result[i];
   }
   return best?.transcript || '';
+}
+
+const SPEECH_LANG_KEY = 'bauhly.captureSpeechLang';
+export const CAPTURE_SPEECH_LANGS = [
+  { id: 'auto', label: 'Auto' },
+  { id: 'en', label: 'English' },
+  { id: 'es', label: 'Español' },
+  { id: 'hi', label: 'हिन्दी' },
+];
+
+export function captureSttLanguages(id) {
+  const all = ['en', 'es', 'hi'];
+  if (!id || id === 'auto') return all;
+  if (all.includes(id)) return [id, ...all.filter((code) => code !== id)];
+  return all;
+}
+
+function readSpeechLang() {
+  try {
+    const v = localStorage.getItem(SPEECH_LANG_KEY);
+    if (v === 'auto' || v === 'en' || v === 'es' || v === 'hi') return v;
+  } catch { /* */ }
+  return 'auto';
+}
+
+function liveSpeechBcp47(id) {
+  if (id === 'es') return 'es-ES';
+  if (id === 'hi') return 'hi-IN';
+  if (id === 'en') return 'en-US';
+  const nav = typeof navigator !== 'undefined' ? navigator.language : '';
+  if (/^hi/i.test(nav)) return 'hi-IN';
+  if (/^es/i.test(nav)) return 'es-ES';
+  if (/^en/i.test(nav)) return 'en-US';
+  return '';
 }
 
 /* The recorder, on its own screen (Leon, July 31).
@@ -128,6 +167,22 @@ export function RecordingSheet({ rec, note, label = 'Recording' }) {
           {rec.correcting && rec.status === 'recording' && (
             <span className="cvrec__polish">Cleaning the words up…</span>
           )}
+          {rec.status === 'recording' && (
+            <div className="cvrec__langs" role="radiogroup" aria-label="Spoken language">
+              {CAPTURE_SPEECH_LANGS.map((lang) => (
+                <button
+                  key={lang.id}
+                  type="button"
+                  role="radio"
+                  aria-checked={rec.speechLang === lang.id}
+                  className={`cvrec__lang${rec.speechLang === lang.id ? ' is-on' : ''}`}
+                  onClick={() => rec.setSpeechLang?.(lang.id)}
+                >
+                  {lang.label}
+                </button>
+              ))}
+            </div>
+          )}
           {finishing ? (
             <span className="cvrec__finishing">Writing it down…</span>
           ) : (
@@ -150,6 +205,7 @@ export function useRecorder(opts = {}) {
   const [liveText, setLiveText] = useState('');
   const [liveSupported, setLiveSupported] = useState(() => !!SpeechCtor());
   const [correcting, setCorrecting] = useState(false);
+  const [speechLang, setSpeechLangState] = useState(readSpeechLang);
   const rec = useRef(null);
   const speech = useRef(null);
   const chunks = useRef([]);
@@ -164,6 +220,8 @@ export function useRecorder(opts = {}) {
   const pauseInFlight = useRef(false);
   const keywordsRef = useRef(opts.keywords);
   keywordsRef.current = opts.keywords;
+  const speechLangRef = useRef(speechLang);
+  speechLangRef.current = speechLang;
 
   const setLive = (text) => {
     liveTextRef.current = text;
@@ -177,14 +235,18 @@ export function useRecorder(opts = {}) {
     }
   };
 
-  const releaseSpeech = () => {
-    listening.current = false;
-    clearPauseTimer();
+  const stopRecognitionOnly = () => {
     const recognition = speech.current;
     speech.current = null;
     if (!recognition) return;
     try { recognition.onresult = null; recognition.onerror = null; recognition.onend = null; } catch { /* */ }
     try { recognition.abort(); } catch { /* already stopped */ }
+  };
+
+  const releaseSpeech = () => {
+    listening.current = false;
+    clearPauseTimer();
+    stopRecognitionOnly();
   };
 
   const applyPauseClean = (snapshot, cleaned) => {
@@ -211,7 +273,10 @@ export function useRecorder(opts = {}) {
     lastSent.current = snapshot;
     setCorrecting(true);
     try {
-      const result = await correctTranscriptLive(snapshot, { keywords: keywordsRef.current });
+      const result = await correctTranscriptLive(snapshot, {
+        keywords: keywordsRef.current,
+        languages: captureSttLanguages(speechLangRef.current),
+      });
       applyPauseClean(snapshot, result?.text || '');
     } catch {
       /* keep the live words */
@@ -242,7 +307,8 @@ export function useRecorder(opts = {}) {
       recognition.continuous = true;
       recognition.interimResults = true;
       recognition.maxAlternatives = 3;
-      recognition.lang = (typeof navigator !== 'undefined' && navigator.language) || 'en-US';
+      const lang = liveSpeechBcp47(speechLangRef.current);
+      if (lang) recognition.lang = lang;
       recognition.onresult = (event) => {
         let interim = '';
         for (let i = event.resultIndex; i < event.results.length; i += 1) {
@@ -271,6 +337,16 @@ export function useRecorder(opts = {}) {
     } catch {
       setLiveSupported(false);
     }
+  };
+
+  const setSpeechLang = (id) => {
+    if (id !== 'auto' && id !== 'en' && id !== 'es' && id !== 'hi') return;
+    speechLangRef.current = id;
+    setSpeechLangState(id);
+    try { localStorage.setItem(SPEECH_LANG_KEY, id); } catch { /* */ }
+    if (!listening.current) return;
+    stopRecognitionOnly();
+    startLiveSpeech();
   };
 
   const start = async () => {
@@ -369,6 +445,8 @@ export function useRecorder(opts = {}) {
     liveText,
     liveSupported,
     correcting,
+    speechLang,
+    setSpeechLang,
     getLiveText: () => liveTextRef.current,
     start,
     stop,

@@ -13,9 +13,10 @@ const { completeText, conversationModel } = require('./llmComplete');
 
 const DEFAULT_PROMPT = [
   'A studio owner recording a voice note about their work, projects, clients,',
-  'materials, and Instagram content. Transcribe exactly what was said.',
-  'Keep names, places, materials, and product terms as spoken.',
-  'Use natural punctuation. Never invent words.',
+  'materials, and Instagram content. They may speak English, Spanish, Hindi,',
+  'or a mix (Hinglish, Spanglish). Transcribe in the language(s) spoken.',
+  'Do not translate. Keep names, places, materials, and product terms as spoken.',
+  'Use natural punctuation for that language. Never invent words.',
   'If a single word is unintelligible, write [?]. Never write [unclear], [inaudible], or any other commentary.',
 ].join(' ');
 
@@ -44,6 +45,27 @@ function parseLanguages() {
   const raw = process.env.OPENAI_TRANSCRIBE_LANGUAGES;
   if (!raw) return [];
   return raw.split(',').map((s) => s.trim()).filter(Boolean);
+}
+
+function normalizeLangCode(value) {
+  const v = String(value || '').trim().toLowerCase();
+  if (v.startsWith('en')) return 'en';
+  if (v.startsWith('es') || v.startsWith('spa')) return 'es';
+  if (v.startsWith('hi') || v.startsWith('hin')) return 'hi';
+  return '';
+}
+
+function resolveLanguages(override) {
+  const raw = Array.isArray(override) && override.length ? override : parseLanguages();
+  const seen = new Set();
+  const out = [];
+  for (const item of raw) {
+    const code = normalizeLangCode(item);
+    if (!code || seen.has(code)) continue;
+    seen.add(code);
+    out.push(code);
+  }
+  return out.length ? out : ['en', 'es', 'hi'];
 }
 
 function sanitizeKeyword(value) {
@@ -95,16 +117,24 @@ function correctModel() {
 
 const CORRECT_SYSTEM = [
   'Correct this voice-note transcript.',
+  'The speaker may use English, Spanish, Hindi, or a mix (Hinglish, Spanglish).',
+  'Keep the transcript in the language(s) spoken. Never translate into another language.',
+  'Preserve Devanagari for Hindi and Spanish accents and punctuation.',
   'Fix speech-to-text errors, names, punctuation, and obvious garble.',
   'Keep the speaker\'s words, order, and meaning. Do not add facts or filler.',
   'Do not invent names that are not in the hints. If a word is still unintelligible, keep [?].',
   'Return only the corrected transcript.',
 ].join(' ');
 
-function correctionUserText(source, { hint, keywords } = {}) {
+function correctionUserText(source, { hint, keywords, languages } = {}) {
   const names = sanitizeKeywords(keywords);
   const firstPass = clip(hint, 1500);
+  const langs = resolveLanguages(languages);
   const parts = [];
+  if (langs.length) {
+    const labels = { en: 'English', es: 'Spanish', hi: 'Hindi' };
+    parts.push(`Expected languages: ${langs.map((c) => labels[c] || c).join(', ')}`);
+  }
   if (names.length) parts.push(`Names that may appear: ${names.join(', ')}`);
   if (firstPass && firstPass !== source) parts.push(`Browser first-pass (may be wrong):\n${firstPass}`);
   parts.push(`Transcript:\n${source}`);
@@ -195,27 +225,26 @@ function fallbackModels(preferred) {
   return [...new Set([preferred, 'gpt-transcribe', 'gpt-4o-transcribe', 'whisper-1'])];
 }
 
-function paramsFor(model, { file, hint, keywords }) {
+function paramsFor(model, { file, hint, keywords, languages }) {
   const kind = modelKind(model);
   const prompt = buildPrompt({ hint, whisper: kind === 'whisper' });
-  const languages = parseLanguages();
+  const langs = resolveLanguages(languages);
   const names = sanitizeKeywords(keywords);
 
   if (kind === 'whisper') {
     const params = { file, model, prompt, temperature: 0 };
-    if (languages[0]) params.language = languages[0];
-    else params.language = 'en';
+    if (langs.length === 1) params.language = langs[0];
     return params;
   }
 
   const body = { file, model, prompt };
   if (kind === 'gpt-transcribe') {
     if (names.length) body.keywords = names;
-    if (languages.length) body.languages = languages;
+    if (langs.length) body.languages = langs;
     return body;
   }
 
-  if (languages[0]) body.language = languages[0];
+  if (langs.length === 1) body.language = langs[0];
   return body;
 }
 
@@ -265,6 +294,7 @@ async function transcribeAudio(buffer, contentType, options = {}) {
     file,
     hint: options.hint,
     keywords: options.keywords,
+    languages: options.languages,
   };
 
   const started = Date.now();

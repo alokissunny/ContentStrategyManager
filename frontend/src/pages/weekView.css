@@ -1021,6 +1021,11 @@
   letter-spacing: -0.03em;
   font-family: var(--t-headline-face, var(--wv-post-font, var(--font-display), sans-serif));
 }
+.wv-fit em {
+  font-style: italic;
+  font-weight: inherit;
+  color: var(--t-accent-bg, var(--signal-500, #ff5227));
+}
 .wv-fit__sub {
   margin: 0;
   font-size: clamp(14px, 3.9cqw, 22px);
@@ -1083,6 +1088,274 @@
   bottom: 12px;
   left: 12px;
 }
+
+/* ── Change layout compositions ─────────────────────────────────────────── */
+.wv-fit__ph {
+  display: block;
+  width: 100%;
+  height: 100%;
+  background: #d8d8d8;
+}
+.wv-fit__frame {
+  position: relative;
+  overflow: hidden;
+  min-height: 0;
+  background: #d8d8d8;
+}
+.wv-fit__frame .wv-fit__photo {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.wv-fit__label {
+  display: block;
+  font-size: clamp(10px, 2.8cqw, 14px);
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  color: color-mix(in srgb, var(--t-ground-fg, var(--ink-900)) 42%, transparent);
+  margin: 0 0 1.2cqw;
+}
+.wv-fit__kicker {
+  margin: 0 0 5cqw;
+  text-align: center;
+  font-size: clamp(13px, 3.6cqw, 18px);
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  color: var(--t-ground-fg, var(--ink-900));
+}
+
+.wv-fit--split,
+.wv-fit--quote {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4cqw;
+  padding: 6cqw;
+  justify-content: stretch;
+  align-items: stretch;
+}
+.wv-fit--split .wv-fit__copy,
+.wv-fit--quote .wv-fit__copy {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2.4cqw;
+  padding: 2cqw 2cqw 2cqw 1cqw;
+  min-height: 0;
+}
+.wv-fit--split .wv-fit__title {
+  font-size: clamp(16px, 5.2cqw, 28px);
+  line-height: 1.15;
+}
+.wv-fit--split .wv-fit__sub {
+  font-size: clamp(11px, 3cqw, 15px);
+  line-height: 1.35;
+  opacity: 0.92;
+}
+.wv-fit--quote .wv-fit__title {
+  font-size: clamp(18px, 6cqw, 32px);
+  line-height: 1.18;
+  letter-spacing: -0.035em;
+}
+.wv-fit--split .wv-fit__frame,
+.wv-fit--quote .wv-fit__frame {
+  border-radius: 0;
+  min-height: 100%;
+}
+
+.wv-fit--ba {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4cqw;
+  padding: 6cqw;
+  align-items: center;
+}
+.wv-fit--ba .wv-fit__copy {
+  position: relative;
+  z-index: 1;
+  padding: 2cqw;
+}
+.wv-fit--ba .wv-fit__title {
+  font-size: clamp(18px, 5.6cqw, 30px);
+  line-height: 1.15;
+}
+.wv-fit__stack {
+  display: flex;
+  flex-direction: column;
+  gap: 3.2cqw;
+  min-height: 0;
+}
+.wv-fit__ba {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.wv-fit__ba .wv-fit__frame {
+  aspect-ratio: 4 / 5;
+  width: 100%;
+}
+
+.wv-fit--process {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  padding: 10cqw 9cqw 12cqw;
+  text-align: center;
+  gap: 0;
+}
+.wv-fit__steps {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5.5cqw;
+  width: 100%;
+}
+.wv-fit__step {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1cqw;
+  max-width: 88%;
+}
+.wv-fit--process .wv-fit__label {
+  margin: 0;
+  color: color-mix(in srgb, var(--t-ground-fg, var(--ink-900)) 38%, transparent);
+}
+.wv-fit--process .wv-fit__title {
+  font-size: clamp(15px, 4.8cqw, 24px);
+  line-height: 1.22;
+  text-align: center;
+}
+
+/* picker specimens — grey wireframes matching the Change layout cards */
+.wv-spec {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  background: #fff;
+  color: #111;
+  box-sizing: border-box;
+  overflow: hidden;
+}
+.wv-spec--split,
+.wv-spec--quote {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6%;
+  padding: 8%;
+}
+.wv-spec__copy {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 5%;
+  min-width: 0;
+}
+.wv-spec__ph {
+  display: block;
+  background: #d4d4d4;
+  min-height: 0;
+  height: 100%;
+}
+.wv-spec__line {
+  display: block;
+  height: 7%;
+  min-height: 3px;
+  background: #1a1a1a;
+  width: 92%;
+  border-radius: 1px;
+}
+.wv-spec__line--short { width: 58%; }
+.wv-spec__line--body {
+  height: 4%;
+  min-height: 2px;
+  background: #bdbdbd;
+  margin-top: 2%;
+}
+.wv-spec__line--lg {
+  width: 78%;
+  height: 9%;
+  min-height: 4px;
+  background: #1a1a1a;
+}
+.wv-spec__line--sm {
+  width: 42%;
+  height: 5%;
+  min-height: 2px;
+  background: #1a1a1a;
+  margin: 0 auto 8%;
+}
+.wv-spec__line--xs {
+  width: 22%;
+  height: 4%;
+  min-height: 2px;
+  background: #c4c4c4;
+  margin: 0 auto 4%;
+}
+.wv-spec__line--md {
+  width: 72%;
+  height: 6%;
+  min-height: 3px;
+  background: #1a1a1a;
+  margin: 0 auto;
+}
+.wv-spec--ba {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6%;
+  padding: 8%;
+  align-items: center;
+}
+.wv-spec__stack {
+  display: flex;
+  flex-direction: column;
+  gap: 8%;
+  min-height: 0;
+  height: 100%;
+}
+.wv-spec__ba {
+  display: flex;
+  flex-direction: column;
+  gap: 4%;
+  flex: 1;
+  min-height: 0;
+}
+.wv-spec__ba em {
+  font-style: normal;
+  font-size: 7px;
+  line-height: 1;
+  color: #b0b0b0;
+}
+.wv-spec__ba .wv-spec__ph {
+  flex: 1;
+  min-height: 18px;
+}
+.wv-spec--process {
+  flex-direction: column;
+  justify-content: center;
+  padding: 10% 8%;
+  gap: 0;
+}
+.wv-spec__step {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin-top: 7%;
+}
+.wv-act__name {
+  display: block;
+  margin-top: 6px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--ink-700);
+  text-align: center;
+  line-height: 1.2;
+}
+
 /* Day Writer recommended a visual and no photograph is assigned: the layout
    itself becomes the empty image ground, so the missing picture is obvious. */
 .wv-ig__lay.is-needvisual .vl-a,
@@ -5221,7 +5494,7 @@
   }
   .wv-layed__grid {
     display: grid !important;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 10px;
   }
   .wv-layed__grid .wv-act--layout {

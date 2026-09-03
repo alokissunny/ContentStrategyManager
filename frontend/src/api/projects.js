@@ -105,12 +105,14 @@ export function understandCheckin(payload) {
 
 // Voice-note → words. Body is the raw audio blob; the conversation keeps the
 // transcript, not the recording.
-export function transcribeCapture(blob, { hint, keywords } = {}) {
+export function transcribeCapture(blob, { hint, keywords, languages } = {}) {
   const headers = { 'Content-Type': blob.type || 'audio/webm' };
   const firstPass = String(hint || '').trim();
   if (firstPass) headers['X-Transcript-Hint'] = encodeURIComponent(firstPass.slice(0, 1500));
   const names = (keywords || []).map((k) => String(k || '').trim()).filter(Boolean);
   if (names.length) headers['X-Transcript-Keywords'] = encodeURIComponent(names.slice(0, 24).join(','));
+  const langs = (languages || []).map((k) => String(k || '').trim()).filter(Boolean);
+  if (langs.length) headers['X-Transcript-Languages'] = encodeURIComponent(langs.slice(0, 8).join(','));
   return client
     .post('/projects/captures/transcribe', blob, {
       headers,
@@ -123,13 +125,14 @@ export function transcribeCapture(blob, { hint, keywords } = {}) {
     });
 }
 
-export function correctTranscriptLive(text, { keywords } = {}) {
+export function correctTranscriptLive(text, { keywords, languages } = {}) {
   const source = String(text || '').trim();
   if (!source) return Promise.resolve({ text: '' });
   return client
     .post('/projects/captures/correct-transcript', {
       text: source.slice(0, 8000),
       keywords: (keywords || []).map((k) => String(k || '').trim()).filter(Boolean).slice(0, 24),
+      languages: (languages || []).map((k) => String(k || '').trim()).filter(Boolean).slice(0, 8),
     })
     .then((r) => {
       const data = r.data || {};
