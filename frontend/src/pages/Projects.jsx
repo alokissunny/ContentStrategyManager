@@ -26,6 +26,7 @@ import {
 } from '../lib/projectsStore';
 import { listGeneratedImages, deleteGeneratedImage } from '../api/images';
 import { understandCapture, transcribeCapture, clarificationQuestion } from '../api/projects';
+import { previewUrl } from '../api/media';
 import './projects.css';
 
 /* The generated-image list is fetched from the server, which takes a moment —
@@ -61,7 +62,7 @@ function MediaStrip({ attachments, max = 4 }) {
     <div className="ms">
       {shown.map((a) => (
         <span className="ms__thumb" key={a.id}>
-          <img src={a.thumbnailUrl} alt="" loading="lazy" onError={(e) => { e.target.style.visibility = 'hidden'; }} />
+          <img src={previewUrl(a)} alt="" loading="lazy" onError={(e) => { e.target.style.visibility = 'hidden'; }} />
           {a.type === 'video' && <span className="ms__play"><Icon name="play" size={16} /></span>}
         </span>
       ))}
@@ -386,7 +387,7 @@ export function EntryPanel({ project, entry, week, regenerating, onClose, onRege
                 <div className="np__cell" key={a.id}>
                   <button className="np__cellopen" onClick={() => setLight(i)} aria-label={`Open ${a.type} ${i + 1} of ${atts.length}`}>
                     <span className="np__cellmedia">
-                      <img src={a.thumbnailUrl} alt="" loading="lazy" onError={(e) => { e.target.style.visibility = 'hidden'; }} />
+                      <img src={previewUrl(a)} alt="" loading="lazy" onError={(e) => { e.target.style.visibility = 'hidden'; }} />
                       {a.type === 'video' && <span className="ms__play"><Icon name="play" size={18} /></span>}
                     </span>
                   </button>
@@ -425,8 +426,8 @@ export function EntryPanel({ project, entry, week, regenerating, onClose, onRege
           )}
           <figure className="lb__stage">
             {current.type === 'image'
-              ? <img src={current.url} alt="" />
-              : <video src={current.url} poster={current.thumbnailUrl} controls autoPlay playsInline />}
+              ? <img src={previewUrl(current)} alt="" />
+              : <video src={current.url} poster={previewUrl(current)} controls autoPlay playsInline />}
           </figure>
           {atts.length > 1 && (
             <button className="lb__nav lb__nav--next" onClick={() => setLight((i) => (i + 1) % atts.length)} aria-label="Next"><Icon name="arrow-right" size={22} /></button>
@@ -895,8 +896,7 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
         conversationSummary: c.conversationSummary,
         sessionKind: 'capture',
       });
-      const cover = c.attachments.find((a) => a.type === 'image')?.thumbnailUrl
-        || c.attachments[0]?.thumbnailUrl || null;
+      const cover = previewUrl(c.attachments.find((a) => a.type === 'image') || c.attachments[0]) || null;
       setSaved({ id: pid, name });
       if (onCaptured) {
         const d = say("It's in your library — building your plan now.");
@@ -1064,7 +1064,7 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
                     <span className="cvmedia">
                       {m.media.map((a) => (
                         <span className="cvmedia__item" key={a.key || a.id}>
-                          {a.type === 'image' ? <img src={a.url} alt="" /> : <video src={a.url} muted />}
+                          {a.type === 'image' ? <img src={previewUrl(a)} alt="" /> : <video src={a.url} muted />}
                         </span>
                       ))}
                     </span>

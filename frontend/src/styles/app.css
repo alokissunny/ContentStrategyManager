@@ -43,9 +43,10 @@
   margin-left: auto;
   min-width: 0;
 }
-/* UserMenu lives in the sidebar on desktop; it joins the header from tablet
-   down, when the sidebar is a rail or gone. */
-.apptop__user { display: none; }
+/* Instagram switcher sits in the sidebar on desktop; it joins the header
+   from tablet down. The Bauhly user menu stays in the header at every width. */
+.apptop__acct { display: none; }
+.apptop__user { display: block; }
 .app__body {
   display: flex;
   flex: 1;
@@ -1587,6 +1588,7 @@ textarea.ai-debug__input {
   .sb__label { display: none; }
   .sb__section { display: none; }
   .sb__foot { display: none; }
+  .apptop__acct { display: block; }
   .apptop__user { display: block; }
   /* the user menu already sits here — a second avatar beside the handle is noise */
   .apptop .acctsw__pic { display: none; }
@@ -1623,6 +1625,7 @@ textarea.ai-debug__input {
     display: none;
   }
   .app { --sidebar-w: 0px; }
+  .apptop__acct { display: block; }
   .apptop__user { display: block; }
 
   /* A bottom bar, not a floating pill. Anchored to the edge so labels have

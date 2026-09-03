@@ -25,7 +25,11 @@ export function splitMediaKeys(value) {
 }
 
 export function isProjectMediaKey(key) {
-  return /^projects\/[a-f0-9]{24}\/[A-Za-z0-9._-]+\.(png|jpe?g|webp|gif)$/i.test(String(key || '').trim());
+  return /^projects\/[a-f0-9]{24}\/[A-Za-z0-9._-]+\.(png|jpe?g|webp|gif|hei[cf])$/i.test(String(key || '').trim());
+}
+
+export function isHeicKey(key) {
+  return /\.hei[cf]$/i.test(String(key || '').trim());
 }
 
 export function mediaProxyUrl(key) {
@@ -123,13 +127,25 @@ export function displayMediaUrl(key) {
 export function toDisplayUrl(url, key) {
   if (url && /^(blob:|data:)/i.test(url)) return url;
   const k = key || keyFromMediaUrl(url);
+  // Chrome and Firefox cannot paint HEIC. Serve a JPEG transcode through the API
+  // proxy instead of the raw CloudFront object.
+  if (isHeicKey(k)) return mediaProxyUrl(k);
   if (k && cachedCdnBase) return displayMediaUrl(k);
   if (url && !isProxyUrl(url)) {
     rememberCdnBase(url);
+    if (isHeicKey(k)) return mediaProxyUrl(k);
     if (k && cachedCdnBase) return displayMediaUrl(k);
     return url;
   }
   return displayMediaUrl(k);
+}
+
+/** Browser-safe preview for a project attachment (HEIC → JPEG proxy). */
+export function previewUrl(asset) {
+  if (!asset) return '';
+  const url = asset.thumbnailUrl || asset.url || '';
+  if (/^(blob:|data:)/i.test(url)) return url;
+  return toDisplayUrl(url, asset.key) || url;
 }
 
 export function loadCdnBase() {

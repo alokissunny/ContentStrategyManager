@@ -1,9 +1,10 @@
 const { getObjectBytes, mediaCdnBaseUrl } = require('../services/s3Client');
+const { toVisionImage } = require('../services/visionImage');
 
 // Only ever serve project media: the immutable, content-addressed objects under
 // projects/<userId>/<uuid>.<ext>. The pattern also blocks path traversal and any
 // attempt to read non-media keys (reports, markdown, etc.).
-const KEY_RE = /^projects\/[a-f0-9]{24}\/[A-Za-z0-9._-]+\.(png|jpe?g|webp|gif)$/i;
+const KEY_RE = /^projects\/[a-f0-9]{24}\/[A-Za-z0-9._-]+\.(png|jpe?g|webp|gif|hei[cf])$/i;
 
 /*
  * Same-origin media proxy — streams a stored image back through the API with the
@@ -28,13 +29,15 @@ async function proxyMedia(req, res) {
   }
   try {
     const { buffer, contentType } = await getObjectBytes(key);
+    const vision = await toVisionImage(buffer, contentType, key);
     // Let any origin fetch these bytes — they are already public via the CDN, and
     // the client needs to read them cross-origin to rasterise a post for publish.
+    // HEIC is transcoded to JPEG here so Chrome/Firefox can display iPhone photos.
     res.set('Access-Control-Allow-Origin', '*');
     res.set('Cross-Origin-Resource-Policy', 'cross-origin');
-    res.set('Cache-Control', 'private, max-age=300');
-    res.type(contentType);
-    return res.send(buffer);
+    res.set('Cache-Control', 'public, max-age=31536000, immutable');
+    res.type(vision.mediaType);
+    return res.send(vision.buffer);
   } catch (err) {
     console.error('[media] proxy failed for', key, err.message);
     return res.status(404).json({ message: 'Media not found' });

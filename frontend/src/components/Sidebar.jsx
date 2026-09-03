@@ -1,10 +1,10 @@
 import React from 'react';
 import { NavLink } from 'react-router-dom';
 import Glyph from './Glyph';
-import UserMenu from './UserMenu';
+import AccountSwitcher from './AccountSwitcher';
 
-// Settings, Business memory (the brand profile) and Competitor overview live in
-// the user menu at the bottom of the sidebar (see UserMenu), not in the main nav.
+// Settings, Business memory and Competitor overview live in the header user
+// menu. The sidebar footer is the Instagram account switcher.
 export const NAV_ITEMS = [
   { to: '/dashboard', label: 'Your plans', icon: 'route', exact: true },
   { to: '/dashboard/projects', label: 'Projects', icon: 'folder' },
@@ -30,7 +30,7 @@ export default function Sidebar() {
       </nav>
 
       <div className="sb__foot">
-        <UserMenu />
+        <AccountSwitcher variant="sidebar" />
       </div>
     </aside>
   );

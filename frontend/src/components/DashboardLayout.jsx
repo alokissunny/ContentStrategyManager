@@ -23,13 +23,15 @@ export default function DashboardLayout({ children }) {
 
   return (
     <div className="app">
-      {/* One header, every width: mark left, account right. The sidebar's only
-        * job is navigation. On tablet and phone the user menu joins this bar
-        * so Settings stays reachable when the sidebar is a rail or gone. */}
+      {/* Mark left. Bauhly user (Settings / sign out) right. The Instagram
+        * handle lives in the sidebar footer on desktop and joins this bar
+        * when the sidebar is a rail or gone. */}
       <header className="apptop">
         <Logo size={22} as={Link} to="/dashboard" />
         <div className="apptop__end">
-          <AccountSwitcher />
+          <span className="apptop__acct">
+            <AccountSwitcher />
+          </span>
           <span className="apptop__user">
             <UserMenu compact />
           </span>

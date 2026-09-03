@@ -1,12 +1,10 @@
 /*
- * Header account switcher — the current Instagram handle top-right, with a
- * dropdown to switch between connected accounts or add another. Switching
- * calls /instagram/activate, which re-points the app's "current" handle, then
- * reloads so every page picks up the new account.
+ * Instagram account switcher — the current handle, with a dropdown to switch
+ * between connected accounts or add another. Switching calls /instagram/activate,
+ * then reloads so every page picks up the new account.
  *
- * Look & feel matches the bauhly-v3 design system: ink-900 round avatars,
- * an r-lg card on shadow-md, signal-50/100/500 for the active account, and a
- * dashed "add" affordance — the same language as the sidebar user/status block.
+ * `variant="sidebar"` fills the sidebar footer (desktop). `variant="header"` is
+ * the compact pill used in the app header on tablet and phone.
  */
 
 import React, { useEffect, useRef, useState } from 'react';
@@ -58,7 +56,8 @@ function Avatar({ profile, size = 34 }) {
   );
 }
 
-export default function AccountSwitcher() {
+export default function AccountSwitcher({ variant = 'header' }) {
+  const sidebar = variant === 'sidebar';
   const [profiles, setProfiles] = useState([]);
   const [meta, setMeta] = useState(null);
   const [open, setOpen] = useState(false);
@@ -121,36 +120,69 @@ export default function AccountSwitcher() {
     }
   }
 
+  const insights = insightsConnected(current.username);
+
   return (
-    <div ref={ref} style={{ position: 'relative' }}>
+    <div ref={ref} className={sidebar ? 'acctsw acctsw--sidebar' : 'acctsw'} style={{ position: 'relative', width: sidebar ? '100%' : undefined }}>
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
         aria-haspopup="menu"
         aria-expanded={open}
-        style={{
+        style={sidebar ? {
+          display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px',
+          borderRadius: 8, border: `1px solid ${LS_BORDER}`, background: open ? SUNKEN : 'none', cursor: 'pointer',
+          fontFamily: LS_FONT, textAlign: 'left', width: '100%', minWidth: 0,
+        } : {
           display: 'flex', alignItems: 'center', gap: 8, padding: '5px 6px 5px 10px',
           borderRadius: 999, border: 'none', background: open ? SUNKEN : 'transparent', cursor: 'pointer',
           fontFamily: LS_FONT, fontSize: 14, fontWeight: 600, color: LS_INK, transition: 'background 140ms ease',
           minWidth: 0, maxWidth: '100%',
         }}
         onMouseEnter={(e) => { if (!open) e.currentTarget.style.background = SUNKEN; }}
-        onMouseLeave={(e) => { if (!open) e.currentTarget.style.background = 'transparent'; }}
+        onMouseLeave={(e) => { if (!open) e.currentTarget.style.background = sidebar ? 'none' : 'transparent'; }}
       >
-        <span style={{ maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-          @{current.username}
-        </span>
-        <Glyph name="chevron-down" size={16} color={LS_T2} style={{ transform: open ? 'rotate(180deg)' : 'none', transition: 'transform 160ms ease' }} />
-        <span className="acctsw__pic">
-          <Avatar profile={current} size={34} />
-        </span>
+        {sidebar ? (
+          <>
+            <Avatar profile={current} size={32} />
+            <span style={{ flex: 1, minWidth: 0 }}>
+              <span style={{
+                display: 'block', fontSize: 13, fontWeight: 600, color: LS_INK,
+                overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+              }}>
+                @{current.username}
+              </span>
+              <span style={{
+                display: 'block', fontSize: 11, marginTop: 1,
+                color: insights ? POSITIVE : LS_MUTED,
+                overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+              }}>
+                {insights ? 'Insights connected' : 'Switch account'}
+              </span>
+            </span>
+            <Glyph name={open ? 'chevron-up' : 'chevron-down'} size={16} color={LS_T2} />
+          </>
+        ) : (
+          <>
+            <span style={{ maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              @{current.username}
+            </span>
+            <Glyph name="chevron-down" size={16} color={LS_T2} style={{ transform: open ? 'rotate(180deg)' : 'none', transition: 'transform 160ms ease' }} />
+            <span className="acctsw__pic">
+              <Avatar profile={current} size={34} />
+            </span>
+          </>
+        )}
       </button>
 
       {open && (
         <div
           role="menu"
           style={{
-            position: 'absolute', top: 'calc(100% + 10px)', right: 0, minWidth: 300,
+            position: 'absolute',
+            ...(sidebar
+              ? { bottom: 'calc(100% + 8px)', left: 0, minWidth: 280 }
+              : { top: 'calc(100% + 10px)', right: 0, minWidth: 300 }),
             background: LS_SURFACE, border: `1px solid ${LS_BORDER}`, borderRadius: 18,
             boxShadow: SHADOW_MD, padding: 8, zIndex: 60,
           }}

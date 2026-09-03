@@ -16,6 +16,7 @@
 import { useEffect } from 'react';
 import { useSyncExternalStore } from 'react';
 import * as api from '../api/projects';
+import { previewUrl } from '../api/media';
 
 export { uploadFiles } from '../api/projects';
 
@@ -211,7 +212,7 @@ export async function analyzeAsset(projectId, captureId, attachmentId) {
 export function coverOf(p) {
   for (const e of p.captures || []) {
     const im = (e.attachments || []).find((a) => a.type === 'image');
-    if (im) return im.thumbnailUrl;
+    if (im) return previewUrl(im);
   }
   return null;
 }
