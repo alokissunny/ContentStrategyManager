@@ -26,6 +26,36 @@ function hasImageSlot(html) {
   return /<img\b[^>]*data-slot\s*=\s*["']image["']/i.test(String(html || ''));
 }
 
+function collectLayoutStyleBlocks(htmls) {
+  const blocks = [];
+  const seen = new Set();
+  (Array.isArray(htmls) ? htmls : []).forEach((html) => {
+    String(html || '').replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, (block) => {
+      const key = block.replace(/\s+/g, ' ').trim();
+      if (!key || seen.has(key)) return block;
+      seen.add(key);
+      blocks.push(block);
+      return block;
+    });
+  });
+  return blocks;
+}
+
+// Agent sometimes emits one shared <style> on slide 1 only. Each slide is stored
+// and rendered alone — copy every style block onto slides that have none.
+function shareLayoutStyles(htmls) {
+  const list = (Array.isArray(htmls) ? htmls : []).map((h) => String(h || ''));
+  const blocks = collectLayoutStyleBlocks(list);
+  if (!blocks.length) return list;
+  const head = blocks.join('');
+  return list.map((html) => {
+    const raw = String(html || '').trim();
+    if (!raw) return html;
+    if (/<style\b/i.test(raw)) return html;
+    return `${head}${raw}`;
+  });
+}
+
 function extractLayoutHtml(raw) {
   let s = String(raw || '').trim();
   if (!s) return '';
@@ -48,6 +78,8 @@ module.exports = {
   MAX_LAYOUT_HTML,
   extractLayoutHtml,
   hasImageSlot,
+  shareLayoutStyles,
+  collectLayoutStyleBlocks,
   stripDanger,
   sanitizeLayoutCss,
 };

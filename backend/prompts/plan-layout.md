@@ -48,6 +48,26 @@ Each slide must:
 - Show every supplied element in full without overlap or clipping.
 - Keep at least 8% side inset and 14% bottom safety space.
 
+### No clipped text (hard rule)
+
+`overflow: hidden` on `.slide` is only to clip the frame — it must never cut through letters.
+
+Every supplied text slot (title, subtitle, body, items, quote, stat, comparison, action) must be **fully visible** inside the slide, including the last line and descenders, above the 14% bottom safety zone.
+
+If image + copy compete for height:
+
+1. Shrink the **image** slot first (lower `%` / flex basis), never the readable copy.
+2. Then reduce title `font-size` (especially long questions or 12+ word titles).
+3. Tighten gaps only after that.
+
+Do **not**:
+
+- Give the image a fixed height so large that subtitle/body is pushed into the clipped edge
+- Stack a tall image above a long title and assume it will fit
+- Rely on overflow to “hide” overflowed copy
+
+Image-above-copy layouts: size the image so the full text block still fits with padding. Prefer `flex` with the image as a bounded flex child (`flex: 0 0 28%`–`40%` max when copy is long) and the copy area as `flex: 1; min-height: 0` only if copy itself scrolls — copy must not scroll or clip; if it would, shrink the image further.
+
 Use a layout appropriate to the supplied content:
 
 - short hook: bold statement or image-led opening
@@ -122,7 +142,7 @@ Use only slots represented by supplied content:
 | Stat | element with `data-slot="stat"` |
 | Comparison | `data-slot="comparisonA"` and `data-slot="comparisonB"` |
 | Action | element with `data-slot="action"` |
-
+ 
 Use each supplied slot once. Never duplicate a slot to fill space.
 
 ## Final check
@@ -133,7 +153,10 @@ Before returning `ready`, confirm:
 - no supplied element is missing or duplicated
 - no new information or visual meaning was added
 - the image slot matches `visual.includeImageSlot`
-- nothing overlaps, clips, or enters the safety area
+- **no text is clipped** — every line of every text slot is fully readable inside the frame
+- nothing overlaps or enters the 8% side / 14% bottom safety area
+- if the slide has an image and a long title or subtitle, the image height leaves enough room for that copy
+- each slide’s `html` includes its own `<style>` block **and** `<article>` (do not put shared CSS only on slide 1)
 - the slide has clear hierarchy and balanced composition
 
 Return `failed` only when the slide cannot be composed without inventing, omitting, or guessing content.

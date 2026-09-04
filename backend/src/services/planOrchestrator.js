@@ -6,7 +6,7 @@ const { completeText, resolvePlanAgentLlm, splitPromptTemplate } = require('./ll
 const { ANNOTATIONS_ENABLED, asStoredText, asStoredLines, flattenSlide, layoutForStructure, mediaKeysOf } = require('./slideContent');
 const { boxOf, matchSubject, regionFromBox } = require('./subjectBox');
 const { layoutById } = require('./layoutCatalog');
-const { extractLayoutHtml, hasImageSlot } = require('./layoutHtml');
+const { extractLayoutHtml, hasImageSlot, shareLayoutStyles } = require('./layoutHtml');
 
 const PROMPTS_DIR = path.join(__dirname, '..', '..', 'prompts');
 const cache = {};
@@ -1318,6 +1318,10 @@ function validateLayout(parsed, post) {
       reason: optionalText(s?.reason),
     };
   });
+  // Agent often puts one shared <style> on slide 1 only — each slide is stored
+  // and previewed alone, so copy style blocks onto slides that lack them.
+  const sharedHtml = shareLayoutStyles(parsed.slides.map((s) => s.html));
+  parsed.slides = parsed.slides.map((s, i) => ({ ...s, html: sharedHtml[i] || s.html }));
 }
 
 function applyLayoutToContent(content, layoutParsed) {
@@ -1325,10 +1329,14 @@ function applyLayoutToContent(content, layoutParsed) {
   const plans = layoutParsed?.status === 'ready' ? (layoutParsed.slides || []) : [];
   if (!slides.length || !plans.length) return content;
   const byIndex = new Map(plans.map((s) => [Number(s.index), s]));
-  content.slides = slides.map((raw, i) => {
+  const extracted = slides.map((raw, i) => {
     const index = Number(raw?.index) > 0 ? Number(raw.index) : i + 1;
     const plan = byIndex.get(index);
-    const html = extractLayoutHtml(plan?.html);
+    return extractLayoutHtml(plan?.html);
+  });
+  const shared = shareLayoutStyles(extracted);
+  content.slides = slides.map((raw, i) => {
+    const html = shared[i] || '';
     if (!html) {
       const flat = flattenSlide(raw);
       return { ...raw, layout: optionalText(raw.layout) || layoutForStructure(flat) || '' };

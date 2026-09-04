@@ -28,13 +28,6 @@ function isImageSlot(attrs) {
   return /data-slot\s*=\s*(["']image["']|image)(?=[\s>/]|$)/i.test(String(attrs || ''));
 }
 
-const PLACEHOLDER_SRC = `data:image/svg+xml,${encodeURIComponent(
-  '<svg xmlns="http://www.w3.org/2000/svg" width="1080" height="1350" viewBox="0 0 1080 1350">'
-  + '<rect width="1080" height="1350" fill="#ddd8ce"/>'
-  + '<rect x="40" y="40" width="1000" height="1270" fill="none" stroke="#1a1916" stroke-opacity=".28" stroke-width="3" stroke-dasharray="24 16"/>'
-  + '</svg>',
-)}`;
-
 function withClass(attrs, name) {
   const s = String(attrs || '');
   if (new RegExp(`\\bclass\\s*=\\s*(["'])[^"']*\\b${name}\\b`).test(s)) return s;
@@ -53,12 +46,15 @@ function paintImg(attrs, src, extraClass = '') {
   const placeholder = extraClass === 'is-placeholder';
   const alt = /\salt\s*=/.test(clean) ? '' : (placeholder ? ' alt="Photograph needed"' : ' alt=""');
   const slot = /data-slot\s*=/i.test(clean) ? '' : ' data-slot="image"';
-  return `<img${clean ? ` ${clean}` : ''}${slot}${alt} src="${escAttr(src)}">`;
+  // Empty slots stay src-less so sizing comes only from the agent's CSS
+  // (flex / % / cqi). A bitmap src — even 1×1 — changes intrinsic size and
+  // collapses or blows out the composition.
+  const srcAttr = src ? ` src="${escAttr(src)}"` : '';
+  return `<img${clean ? ` ${clean}` : ''}${slot}${alt}${srcAttr}>`;
 }
 
-// The only rewrite we apply to the agent's markup: wire real image URLs into the
-// image slots (and drop truly empty images). Empty slots fall back to a neutral
-// placeholder so the composition still holds its space.
+// Wire real photograph URLs into image slots. Empty slots keep no src and get
+// `is-placeholder` so CSS can paint a hatch — agent flex/cqh sizing stays intact.
 function injectSrc(html, urls) {
   const list = (Array.isArray(urls) ? urls : []).map(trim).filter(Boolean);
   let i = 0;
@@ -66,7 +62,7 @@ function injectSrc(html, urls) {
     if (!isImageSlot(attrs)) return srcOf(attrs) ? full : '';
     const src = list[i] || srcOf(attrs);
     i += 1;
-    if (!src || src === PLACEHOLDER_SRC) return paintImg(attrs, PLACEHOLDER_SRC, 'is-placeholder');
+    if (!src) return paintImg(attrs, '', 'is-placeholder');
     return paintImg(attrs, src);
   });
 }
@@ -116,6 +112,46 @@ export function splitLayoutDocument(html) {
     return '';
   });
   return { css: styles.join('\n'), body: trim(body) };
+}
+
+// The layout agent sometimes emits one shared <style> on slide 1 and bare
+// <article> on later slides. Each slide is rendered alone, so borrow every
+// <style> block from the carousel onto slides that have none.
+export function collectLayoutStyleBlocks(htmls) {
+  const blocks = [];
+  const seen = new Set();
+  (Array.isArray(htmls) ? htmls : []).forEach((html) => {
+    String(html || '').replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, (block) => {
+      const key = block.replace(/\s+/g, ' ').trim();
+      if (!key || seen.has(key)) return block;
+      seen.add(key);
+      blocks.push(block);
+      return block;
+    });
+  });
+  return blocks;
+}
+
+export function withSharedLayoutStyles(html, carouselHtmls) {
+  const raw = trim(html);
+  if (!raw) return '';
+  if (/<style\b/i.test(raw)) return raw;
+  const blocks = collectLayoutStyleBlocks(carouselHtmls);
+  if (!blocks.length) return raw;
+  return `${blocks.join('')}${raw}`;
+}
+
+export function shareLayoutStyles(htmls) {
+  const list = (Array.isArray(htmls) ? htmls : []).map((h) => String(h || ''));
+  const blocks = collectLayoutStyleBlocks(list);
+  if (!blocks.length) return list;
+  const head = blocks.join('');
+  return list.map((html) => {
+    const raw = trim(html);
+    if (!raw) return html;
+    if (/<style\b/i.test(raw)) return html;
+    return `${head}${raw}`;
+  });
 }
 
 // Render the layout agent's output as-is. We only inject real image URLs and

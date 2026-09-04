@@ -500,7 +500,6 @@
   color: initial;
   font-family: initial;
   line-height: initial;
-  container-type: inline-size;
 }
 .wv-dynlay__canvas {
   width: 100%;
@@ -509,17 +508,22 @@
 }
 .wv-dynlay img[data-slot="image"] {
   display: block !important;
+  max-width: none;
   background: var(--t-empty-bg, #ddd8ce);
   opacity: 1 !important;
   visibility: visible !important;
 }
-.wv-dynlay img[data-slot="image"].is-placeholder {
+.wv-dynlay img[data-slot="image"].is-placeholder,
+.wv-dynlay img[data-slot="image"]:not([src]),
+.wv-dynlay img[data-slot="image"][src=""] {
   background:
-    repeating-linear-gradient(135deg, transparent 0 7px, var(--t-ground-hatch, rgba(27, 16, 13, 0.08)) 7px 14px),
+    repeating-linear-gradient(135deg, transparent 0 7px, var(--t-ground-hatch, rgba(27, 16, 13, 0.12)) 7px 14px),
     var(--t-empty-bg, #ddd8ce);
   box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--t-ground-fg, #1b100d) 22%, transparent);
-  outline: 1.5px dashed color-mix(in srgb, var(--t-ground-fg, #1b100d) 32%, transparent);
-  outline-offset: -10px;
+  /* Suppress the browser broken-image icon — size still comes from agent CSS. */
+  color: transparent;
+  font-size: 0;
+  -moz-force-broken-image-icon: 0;
 }
 .wv-dynlay__canvas > .slide,
 .wv-dynlay__canvas > article {
@@ -527,14 +531,14 @@
   height: 100%;
 }
 /* Structural only. Typography (faces, sizes, line-height) is left entirely to
-   the layout agent's own CSS so its output renders as-is. */
+   the layout agent's own CSS so its output renders as-is.
+   Do NOT force container-type here — the agent sets `size` when it needs cqh. */
 .wv-dynlay .slide {
   width: 100%;
   height: 100%;
   box-sizing: border-box;
   overflow: hidden;
   position: relative;
-  container-type: inline-size;
 }
 .wv-dynlay .slide,
 .wv-dynlay .slide * {
@@ -575,11 +579,15 @@
 .wv-dynlay.is-themed .slide [data-slot="stat"] {
   color: var(--t-accent-bg, #ff5227);
 }
-.wv-dynlay img {
-  display: block;
+/* Sizing comes from the layout agent. Real photos may shrink in flex/grid;
+   empty placeholder slots must NOT get min-height:0 or they collapse. */
+.wv-dynlay img[data-slot="image"]:not(.is-placeholder) {
   min-width: 0;
   min-height: 0;
-  max-width: 100%;
+  object-fit: cover;
+}
+.wv-dynlay img {
+  display: block;
   object-fit: cover;
 }
 .wv-dynlay.is-annote-over .wv-dynlay__canvas [data-slot="annotation"] {
@@ -1441,11 +1449,8 @@
   object-fit: cover;
   display: block;
 }
-.wv-ig__photo .wv-dynlay img {
-  width: auto;
-  height: auto;
-  max-width: 100%;
-}
+/* Do not override width/height on agent images — that fights flex/cqh sizing
+   and lets intrinsic photo/placeholder dimensions blow out the composition. */
 .wv-ig__empty {
   position: absolute;
   inset: 0;
@@ -5392,6 +5397,8 @@
   background: #fff;
 }
 .wv-layprev__canvas iframe {
+  position: absolute;
+  inset: 0;
   display: block;
   width: 100%;
   height: 100%;

@@ -31,7 +31,7 @@ import WordsPolish from './weekview/WordsPolish';
 import CaptionPolish from './weekview/CaptionPolish';
 import PostAgentDebug from './weekview/PostAgentDebug';
 import DynamicLayout, { AnnotationOverlay } from './weekview/DynamicLayout';
-import { rewriteAnnotationText } from './weekview/layoutHtml';
+import { rewriteAnnotationText, withSharedLayoutStyles } from './weekview/layoutHtml';
 import { boxOf, normalizeSubjects } from './weekview/subjectBox';
 import {
   CHANGE_LAYOUTS,
@@ -1364,6 +1364,7 @@ function SlideMedia({
   paint,
   themed = false,
   layoutOverride = null,
+  carouselLayoutHtmls = null,
 }) {
   const copy = slideCopy(slide, parts);
   const need = visualNeedRecord(slide);
@@ -1385,6 +1386,12 @@ function SlideMedia({
   const missingVisual = Boolean(need) && !src;
   const showHint = missingVisual && showVisualHint;
   const subjects = subjectsForSlide(slide, subjectsByKey);
+  const layoutHtml = withSharedLayoutStyles(
+    slide?.layoutHtml,
+    Array.isArray(carouselLayoutHtmls) && carouselLayoutHtmls.length
+      ? carouselLayoutHtmls
+      : [slide?.layoutHtml],
+  );
 
   // A Change layout pick (or applied id) wins over generated layoutHtml so the
   // studio can reshape a slide without waiting on the layout agent.
@@ -1406,11 +1413,11 @@ function SlideMedia({
     );
   }
 
-  if (slide?.layoutHtml) {
+  if (layoutHtml) {
     return (
       <div className={`wv-ig__lay${showHint ? ' is-needvisual' : ''}`} style={paint}>
         <DynamicLayout
-          html={slide.layoutHtml}
+          html={layoutHtml}
           subjects={subjects}
           needsVisual={missingVisual}
           themed={themed}
@@ -3140,6 +3147,7 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
                   paint={igVars}
                   themed={hasVisualEdits}
                   layoutOverride={visEdit === 'layout' ? (chosenLayout || null) : null}
+                  carouselLayoutHtmls={slides.map((s) => s?.layoutHtml || '')}
                 />
                 {slides.length > 1 && (
                   <span className="wv-ig__count">{safeIdx + 1}/{slides.length}</span>
@@ -3675,6 +3683,7 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
                   preferProxy
                   paint={igVars}
                   themed={hasVisualEdits}
+                  carouselLayoutHtmls={slides.map((x) => x?.layoutHtml || '')}
                 />
               </div>
             ))}

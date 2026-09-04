@@ -1,6 +1,7 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useAiDebug, fmtElapsed } from '../../lib/aiDebug';
+import { prepareLayoutHtml, shareLayoutStyles } from './layoutHtml';
 
 function pretty(value) {
   if (value == null || value === '') return '';
@@ -37,7 +38,7 @@ function parseJson(text) {
 
 // Pull the raw slide HTML out of a Layout-agent response so we can preview it.
 // Accepts the parsed object ({ slides: [{ html }] } or { html }) or a raw
-// string of layout HTML. Returns the HTML exactly as the agent emitted it.
+// string of layout HTML.
 function layoutSlidesHtml(value) {
   if (!value) return [];
   let obj = value;
@@ -59,20 +60,55 @@ function layoutSlidesHtml(value) {
   return out;
 }
 
-// Render one slide's HTML as-is in an isolated iframe. A minimal base only gives
-// html/body a height (so the slide's height:100% + container-query units work)
-// and marks empty image slots; nothing about the agent's own CSS is changed.
-// sandbox="" blocks scripts, so raw debug HTML renders without executing.
+// Same empty-slot treatment as Week View: keep agent CSS/structure, mark empty
+// image slots as placeholders without injecting a bitmap src (intrinsic size
+// was collapsing / blowing out the agent's flex and cqi sizing).
+function previewSlidesHtml(value) {
+  const raw = layoutSlidesHtml(value);
+  return shareLayoutStyles(raw).map((html) => prepareLayoutHtml(html, { imageUrls: [] }) || html);
+}
+
+// Shell around the agent's markup. Only establishes a real 4:5 viewport so
+// height:100% / container-type:size / cqi/cqh work. Hatch is CSS-only.
+const PREVIEW_SHELL_CSS = [
+  'html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#fff}',
+  'body>.slide,body>article{width:100%;height:100%;box-sizing:border-box}',
+  'img,svg{max-width:none}',
+  'img[data-slot="image"]{display:block;object-fit:cover;',
+  'background:repeating-linear-gradient(135deg,transparent 0 7px,rgba(27,16,13,.12) 7px 14px),#ddd8ce;',
+  'color:transparent;font-size:0;-moz-force-broken-image-icon:0}',
+].join('');
+
+// Write the agent's HTML into an iframe document (not srcDoc) so markup is not
+// attribute-escaped, and size the frame to the canvas so % / container queries
+// resolve. allow-same-origin is required for document.write; scripts stay blocked.
 function SlideFrame({ html, label }) {
-  const doc = '<!doctype html><html><head><meta charset="utf-8">'
-    + '<meta name="viewport" content="width=device-width,initial-scale=1">'
-    + '<style>html,body{margin:0;height:100%}'
-    + 'img[data-slot="image"]{background:repeating-linear-gradient(135deg,#e9e5dd 0 10px,#ddd8ce 10px 20px)}'
-    + `</style></head><body>${html}</body></html>`;
+  const ref = useRef(null);
+
+  useEffect(() => {
+    const frame = ref.current;
+    if (!frame) return undefined;
+    const doc = frame.contentDocument;
+    if (!doc) return undefined;
+    const page = '<!doctype html><html><head><meta charset="utf-8">'
+      + '<meta name="viewport" content="width=device-width,initial-scale=1">'
+      + `<style>${PREVIEW_SHELL_CSS}</style></head><body>${html}</body></html>`;
+    doc.open();
+    doc.write(page);
+    doc.close();
+    // Force a layout pass so container-query units measure against the frame.
+    void doc.documentElement.offsetWidth;
+    return undefined;
+  }, [html]);
+
   return (
     <figure className="wv-layprev__frame">
       <div className="wv-layprev__canvas">
-        <iframe title={label} sandbox="" srcDoc={doc} />
+        <iframe
+          ref={ref}
+          title={label}
+          sandbox="allow-same-origin"
+        />
       </div>
       <figcaption className="wv-layprev__cap">{label}</figcaption>
     </figure>
@@ -210,7 +246,7 @@ function Block({ title, value, open = false }) {
       </details>
     );
   }
-  const slides = layoutSlidesHtml(value);
+  const slides = previewSlidesHtml(value);
   return (
     <details className="wv-agentdbg__block" open={open}>
       <summary className="wv-agentdbg__sum">
