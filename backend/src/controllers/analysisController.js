@@ -1,6 +1,12 @@
 const BrandAnalysisReport = require('../models/BrandAnalysisReport');
 const { getPresignedDownloadUrl, getObjectText, uploadMarkdown } = require('../services/s3Client');
-const { mergeConfirmedSummary, BRAND_DNA_FIELDS, parseBrandDna, mergeBrandDna } = require('../services/brandAnalysis');
+const {
+  mergeConfirmedSummary,
+  BRAND_DNA_FIELDS,
+  parseBrandDna,
+  mergeBrandDna,
+  reviseBrandDnaFromNote,
+} = require('../services/brandAnalysis');
 const { currentUsername } = require('../utils/currentProfile');
 
 function buildBrandDnaSections(report, parsedFromMarkdown) {
@@ -13,6 +19,14 @@ function buildBrandDnaSections(report, parsedFromMarkdown) {
   }));
   const completedCount = sections.filter((s) => s.value.trim().length > 0).length;
   return { sections, completedCount, totalSections: sections.length };
+}
+
+function fieldsFromReport(report, fallback = {}) {
+  const fields = {};
+  for (const { key } of BRAND_DNA_FIELDS) {
+    fields[key] = String(report[key] || fallback[key] || '').trim();
+  }
+  return fields;
 }
 
 /** True when Mongo already has at least one Brand Profile field — no S3 round-trip needed. */
@@ -132,4 +146,53 @@ async function updateBrandDna(req, res) {
   }
 }
 
-module.exports = { listReports, getReportDownloadUrl, confirmReport, getLatestBrandDna, updateBrandDna };
+/** Natural-language update: merge a studio note into the right Brand DNA fields. */
+async function reviseBrandDna(req, res) {
+  const note = String(req.body.note || '').trim();
+  if (!note) {
+    return res.status(400).json({ message: 'Write something Bauhly should know.' });
+  }
+  if (note.length > 4000) {
+    return res.status(400).json({ message: 'That note is too long — keep it under a few paragraphs.' });
+  }
+
+  const report = await BrandAnalysisReport.findOne({ _id: req.params.id, user: req.user._id });
+  if (!report) {
+    return res.status(404).json({ message: 'Report not found' });
+  }
+
+  const current = fieldsFromReport(report);
+  let fields;
+  try {
+    fields = await reviseBrandDnaFromNote(current, note);
+  } catch (err) {
+    console.error('[brandDna] revise failed:', err.message);
+    return res.status(502).json({
+      message: err.message || 'Could not update business memory just now.',
+    });
+  }
+
+  for (const { key } of BRAND_DNA_FIELDS) {
+    report[key] = fields[key] || '';
+  }
+  await report.save();
+
+  res.json({ reportId: report._id, ...buildBrandDnaSections(report, fields) });
+
+  if (report.s3Key) {
+    getObjectText(report.s3Key)
+      .then((existingMarkdown) =>
+        uploadMarkdown(report.s3Key, mergeBrandDna(existingMarkdown, fields)),
+      )
+      .catch((err) => console.warn('[brandDna] S3 sync failed:', err.message));
+  }
+}
+
+module.exports = {
+  listReports,
+  getReportDownloadUrl,
+  confirmReport,
+  getLatestBrandDna,
+  updateBrandDna,
+  reviseBrandDna,
+};

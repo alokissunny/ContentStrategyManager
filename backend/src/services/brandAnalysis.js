@@ -144,10 +144,71 @@ function mergeBrandDna(markdown, fields) {
   return `${base}\n\n${lines.join('\n')}\n`;
 }
 
+/**
+ * Merge a free-text studio note into Brand DNA fields via the model.
+ * Only changes fields the note actually updates; keeps the rest intact.
+ */
+async function reviseBrandDnaFromNote(currentFields, note) {
+  const model = process.env.ANTHROPIC_MODEL || 'claude-sonnet-5';
+  const keys = BRAND_DNA_FIELDS.map(({ key }) => key);
+  const labels = Object.fromEntries(BRAND_DNA_FIELDS.map(({ key, label }) => [key, label]));
+
+  const prompt = [
+    'You update a studio\'s Business memory (Brand DNA) from a short note the studio just wrote.',
+    'Return ONLY a JSON object with these exact keys (strings). No markdown fences, no commentary.',
+    `Keys: ${keys.join(', ')}`,
+    `Labels: ${JSON.stringify(labels)}`,
+    '',
+    'Rules:',
+    '- Keep every field that the note does not change, copying the current value verbatim.',
+    '- Update or rewrite only the fields the note clearly affects.',
+    '- If the note adds new context, weave it into the right field(s) in clear prose (1–3 sentences each).',
+    '- Never invent unrelated claims. Prefer the studio\'s wording.',
+    '- Empty string is allowed when a field is truly unknown and the note does not fill it.',
+    '',
+    `Current memory: ${JSON.stringify(currentFields || {}, null, 2)}`,
+    `Studio note: ${JSON.stringify(String(note || '').trim())}`,
+  ].join('\n');
+
+  const client = getAnthropicClient();
+  const response = await client.messages.create({
+    model,
+    max_tokens: 2048,
+    messages: [{ role: 'user', content: prompt }],
+  });
+
+  const text = response.content
+    .filter((block) => block.type === 'text')
+    .map((block) => block.text)
+    .join('\n')
+    .trim();
+
+  const jsonMatch = text.match(/\{[\s\S]*\}/);
+  if (!jsonMatch) {
+    throw new Error('Could not update business memory from that note.');
+  }
+
+  let parsed;
+  try {
+    parsed = JSON.parse(jsonMatch[0]);
+  } catch {
+    throw new Error('Could not update business memory from that note.');
+  }
+
+  const next = {};
+  for (const { key } of BRAND_DNA_FIELDS) {
+    const incoming = parsed[key];
+    if (typeof incoming === 'string') next[key] = incoming.trim();
+    else next[key] = String(currentFields?.[key] || '').trim();
+  }
+  return next;
+}
+
 module.exports = {
   generateBrandAnalysis,
   mergeConfirmedSummary,
   BRAND_DNA_FIELDS,
   parseBrandDna,
   mergeBrandDna,
+  reviseBrandDnaFromNote,
 };

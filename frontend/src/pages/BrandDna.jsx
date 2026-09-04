@@ -1,68 +1,63 @@
-import React, { useEffect, useState } from 'react';
-import Glyph from '../components/Glyph';
-import { getBrandDna, updateBrandDna } from '../api/brandDna';
-import { LS_SURFACE, LS_BORDER, LS_INK, LS_T2, LS_MUTED, LS_SIGNAL, LS_SOFT, LS_FONT, LS_DISPLAY, LSC } from '../theme';
+/*
+ * Business memory — readable knowledge card + one composer to add/update.
+ * Replaces per-field textareas: studios write a note; Bauhly merges it into
+ * the right Brand DNA sections.
+ */
 
-function InferredBadge() {
-  return (
-    <span style={{
-      fontFamily: LS_FONT, fontSize: 10, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase',
-      color: LS_MUTED, background: '#EFEFF2', borderRadius: 999, padding: '3px 9px', whiteSpace: 'nowrap',
-    }}>
-      Inferred from your page
-    </span>
-  );
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
+import Glyph from '../components/Glyph';
+import { getBrandDna, reviseBrandDna } from '../api/brandDna';
+import './brandDna.css';
+
+/** Friendly groupings over the stored Brand DNA keys (screenshot layout). */
+const MEMORY_GROUPS = [
+  {
+    id: 'about',
+    title: 'About the business',
+    keys: ['whatYouOffer', 'proof'],
+    empty: 'What you offer, and what you can point to as proof.',
+  },
+  {
+    id: 'customers',
+    title: 'Customers & communication',
+    keys: ['whoYouHelp', 'firstProblem', 'howYouSound'],
+    empty: 'Who it’s for, the first problem you speak to, and how you sound.',
+  },
+  {
+    id: 'focus',
+    title: 'Current focus',
+    keys: ['position'],
+    empty: 'The one-line answer to why you — not the next account.',
+  },
+  {
+    id: 'context',
+    title: 'Important context',
+    keys: ['neverDo', 'visualStyle'],
+    empty: 'What never belongs in the plan, and your visual language.',
+  },
+];
+
+function valueMap(sections) {
+  const map = {};
+  for (const s of sections || []) map[s.key] = String(s.value || '').trim();
+  return map;
 }
 
-function BrandDnaField({ label, description, inferred, value, onChange }) {
-  const [focused, setFocused] = useState(false);
-  return (
-    <div style={{ background: LS_SURFACE, border: `1px solid ${LS_BORDER}`, borderRadius: 14, padding: '18px 22px' }}>
-      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 16, marginBottom: 10, flexWrap: 'wrap' }}>
-        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 10 }}>
-          <span style={{ fontFamily: LS_FONT, fontSize: 16, fontWeight: 700, color: LS_INK }}>{label}</span>
-          {inferred && <InferredBadge />}
-        </span>
-        <span style={{ fontFamily: LS_FONT, fontSize: 13, color: LS_MUTED, textAlign: 'right' }}>{description}</span>
-      </div>
-      <div style={{ position: 'relative' }}>
-        <textarea
-          value={value}
-          rows={2}
-          placeholder="Not set yet — add a sentence or two."
-          onFocus={() => setFocused(true)}
-          onBlur={() => setFocused(false)}
-          onChange={(e) => onChange(e.target.value)}
-          style={{
-            width: '100%', resize: 'vertical', fontFamily: LS_FONT, fontSize: 16, lineHeight: 1.55, color: LS_INK,
-            background: focused ? LS_SURFACE : 'transparent', border: `1px solid ${focused ? LS_SIGNAL : 'transparent'}`,
-            borderRadius: 9, padding: '7px 34px 7px 9px', margin: '0 -9px', outline: 'none',
-            boxShadow: focused ? `0 0 0 3px ${LS_SOFT}` : 'none',
-          }}
-        />
-        {!focused && <Glyph name="pencil" size={14} color={LS_MUTED} style={{ position: 'absolute', right: 2, top: 10, pointerEvents: 'none' }} />}
-      </div>
-    </div>
-  );
+function proseFor(map, keys) {
+  return keys
+    .map((k) => map[k])
+    .filter(Boolean)
+    .join(' ');
 }
 
 function BrandDnaSkeleton() {
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 14, marginTop: 24 }} aria-busy="true" aria-label="Loading business memory">
+    <div className="bm-card" aria-busy="true" aria-label="Loading business memory">
       {Array.from({ length: 4 }, (_, i) => (
-        <div
-          key={i}
-          style={{
-            height: 96,
-            borderRadius: 14,
-            border: `1px solid ${LS_BORDER}`,
-            background: `linear-gradient(90deg, ${LS_BORDER} 25%, ${LS_SURFACE} 50%, ${LS_BORDER} 75%)`,
-            backgroundSize: '200% 100%',
-            animation: 'brandDnaShimmer 1.2s ease-in-out infinite',
-          }}
-        />
+        <div key={i} className="bm-skel-block" />
       ))}
-      <style>{`@keyframes brandDnaShimmer { 0% { background-position: 200% 0 } 100% { background-position: -200% 0 } }`}</style>
+      <div className="bm-skel-composer" />
     </div>
   );
 }
@@ -71,9 +66,12 @@ export default function BrandDna() {
   const [reportId, setReportId] = useState(null);
   const [sections, setSections] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [saved, setSaved] = useState(false);
   const [notFound, setNotFound] = useState(false);
+  const [note, setNote] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const [flash, setFlash] = useState('');
+  const inputRef = useRef(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -81,7 +79,7 @@ export default function BrandDna() {
       .then((data) => {
         if (cancelled) return;
         setReportId(data.reportId);
-        setSections(data.sections);
+        setSections(data.sections || []);
       })
       .catch((err) => {
         if (cancelled) return;
@@ -95,75 +93,104 @@ export default function BrandDna() {
     };
   }, []);
 
-  const setValue = (key, value) => {
-    setSaved(false);
-    setSections((prev) => prev.map((s) => (s.key === key ? { ...s, value } : s)));
-  };
+  const map = useMemo(() => valueMap(sections), [sections]);
+  const groups = useMemo(
+    () =>
+      MEMORY_GROUPS.map((g) => ({
+        ...g,
+        text: proseFor(map, g.keys),
+      })),
+    [map],
+  );
 
-  async function handleSave() {
-    setSaving(true);
+  async function submitNote(e) {
+    e?.preventDefault?.();
+    const text = note.trim();
+    if (!text || !reportId || busy) return;
+    setBusy(true);
+    setError('');
+    setFlash('');
     try {
-      const sectionsMap = Object.fromEntries(sections.map((s) => [s.key, s.value]));
-      const data = await updateBrandDna(reportId, sectionsMap);
-      setSections(data.sections);
-      setSaved(true);
+      const data = await reviseBrandDna(reportId, text);
+      setSections(data.sections || []);
+      setNote('');
+      setFlash('Updated.');
+      inputRef.current?.focus();
+    } catch (err) {
+      setError(err.response?.data?.message || err.message || 'Could not update just now.');
     } finally {
-      setSaving(false);
+      setBusy(false);
     }
   }
 
-  const completedCount = sections.filter((s) => s.value.trim().length > 0).length;
+  function onKeyDown(e) {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      submitNote();
+    }
+  }
 
   return (
-    <div style={{ ...LSC, maxWidth: 760 }}>
-        <h1 style={{ fontFamily: LS_DISPLAY, fontWeight: 700, fontSize: 30, color: LS_INK, margin: '0 0 8px' }}>Business memory</h1>
-        <p style={{ fontFamily: LS_FONT, fontSize: 14, color: LS_T2, margin: '0 0 8px' }}>
-          What Bauhly inferred about your business from your Instagram. Edit anything that’s off — the sharper this is, the better your weekly route.
-        </p>
+    <div className="bm">
+      <Link className="bm-back" to="/dashboard/settings">← Settings</Link>
+      <h1 className="bm-title">Business memory</h1>
+      <p className="bm-sub">
+        What Bauhly understands about your business. Every plan and every caption is written
+        from this, and it keeps up to date on its own as you capture notes on your projects.
+      </p>
 
-        {loading ? (
-          <BrandDnaSkeleton />
-        ) : notFound ? (
-          <div style={{ border: `1px dashed ${LS_BORDER}`, borderRadius: 12, padding: '40px 24px', textAlign: 'center', marginTop: 24 }}>
-            <p style={{ fontFamily: LS_FONT, fontSize: 14, color: LS_T2, margin: 0 }}>
-              No business memory yet. Connect your Instagram from onboarding to generate one from your page.
-            </p>
-          </div>
-        ) : (
-          <>
-            <p style={{ fontFamily: LS_FONT, fontSize: 12.5, fontWeight: 700, letterSpacing: '0.04em', color: LS_SIGNAL, margin: '0 0 24px' }}>
-              {completedCount} of {sections.length} fields filled
-            </p>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-              {sections.map((s) => (
-                <BrandDnaField
-                  key={s.key}
-                  label={s.label}
-                  description={s.description}
-                  inferred={s.inferred}
-                  value={s.value}
-                  onChange={(v) => setValue(s.key, v)}
-                />
-              ))}
-            </div>
-            <div style={{ marginTop: 24, display: 'flex', alignItems: 'center', gap: 14 }}>
-              <button
-                onClick={handleSave}
-                disabled={saving}
-                style={{
-                  height: 44, padding: '0 24px', borderRadius: 9, border: 'none', cursor: saving ? 'default' : 'pointer',
-                  opacity: saving ? 0.6 : 1, fontFamily: LS_FONT, fontSize: 13, fontWeight: 700, letterSpacing: '0.05em',
-                  textTransform: 'uppercase', background: LS_SIGNAL, color: '#fff',
-                }}
-              >
-                {saving ? 'Saving…' : 'Save changes'}
-              </button>
-              {saved && !saving && (
-                <span style={{ fontFamily: LS_FONT, fontSize: 13, color: LS_T2 }}>Saved to your business memory.</span>
+      {loading ? (
+        <BrandDnaSkeleton />
+      ) : notFound ? (
+        <div className="bm-card bm-card--empty">
+          <p className="bm-empty">
+            No business memory yet. Connect your Instagram from onboarding to generate one from your page.
+          </p>
+        </div>
+      ) : (
+        <div className="bm-card">
+          {groups.map((g) => (
+            <section className="bm-block" key={g.id}>
+              <h2 className="bm-block__title">{g.title}</h2>
+              {g.text ? (
+                <p className="bm-block__body">{g.text}</p>
+              ) : (
+                <p className="bm-block__body is-empty">{g.empty}</p>
               )}
-            </div>
-          </>
-        )}
-      </div>
+            </section>
+          ))}
+
+          <form className="bm-composer" onSubmit={submitNote}>
+            <input
+              ref={inputRef}
+              type="text"
+              className="bm-composer__input"
+              value={note}
+              disabled={busy}
+              onChange={(e) => setNote(e.target.value)}
+              onKeyDown={onKeyDown}
+              placeholder="Add or update what Bauhly should know…"
+              aria-label="Add or update business memory"
+              autoComplete="off"
+            />
+            <button
+              type="submit"
+              className="bm-composer__send"
+              disabled={busy || !note.trim()}
+              aria-label={busy ? 'Updating' : 'Send'}
+              title="Update memory"
+            >
+              <Glyph name={busy ? 'loader' : 'arrow-up'} size={18} strokeWidth={2.25} />
+            </button>
+          </form>
+
+          {(error || flash) && (
+            <p className={`bm-status${error ? ' is-err' : ''}`} role="status">
+              {error || flash}
+            </p>
+          )}
+        </div>
+      )}
+    </div>
   );
 }
