@@ -22,7 +22,8 @@ import {
   useProjects, useProjectsHydrated, createProject, renameProject, deleteProject,
   addEntry, addSession, updateEntry, deleteSession, moveSession,
   analyzeProjectAssets, analyzeAsset,
-  coverOf, groupByWeek, groupCapturesIntoSessions, sessionCount, sessionDisplayText, fmtWhen, uploadFiles,
+  coverOf, groupByWeek, groupCapturesIntoSessions, sessionCount, sessionDisplayText,
+  sessionConversationTurns, storiesFromConversationTurns, fmtWhen, uploadFiles,
 } from '../lib/projectsStore';
 import { listGeneratedImages, deleteGeneratedImage } from '../api/images';
 import { understandCapture, transcribeCapture, clarificationQuestion, hasTranscriptGap, transcriptGapQuestion } from '../api/projects';
@@ -182,7 +183,231 @@ function AssetAnalysis({ analysis, busy, onAnalyze, onClose }) {
   );
 }
 
-/* ── one entry, as a card ──────────────────────────────────────────────── */
+/* ── conversation thread in the session panel ───────────────────────────── */
+function isSkipResponse(text) {
+  const t = String(text || '').trim().toLowerCase();
+  if (!t) return false;
+  return t === 'skip this question'
+    || t.startsWith('skip this question.')
+    || t.startsWith('skip this question. leave it unknown');
+}
+
+function displayTurnText(text) {
+  if (isSkipResponse(text)) return 'Skipped — left unknown';
+  return text;
+}
+
+function SessionConversation({
+  turns,
+  summary,
+  editable,
+  canEditResponses,
+  summaryStale,
+  summarizing,
+  onSummaryBlur,
+  onSaveTurn,
+  onRegenerateSummary,
+}) {
+  const [editingIdx, setEditingIdx] = useState(null);
+  const [draft, setDraft] = useState('');
+  const [wasSkip, setWasSkip] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [polishing, setPolishing] = useState(false);
+  const autoDraft = useRef('');
+  const rec = useRecorder();
+  const recording = editingIdx !== null && (rec.status === 'recording' || rec.status === 'done');
+
+  useEffect(() => {
+    if (editingIdx === null) return undefined;
+    if (rec.status !== 'done') return undefined;
+    const blob = rec.blob;
+    const live = String(rec.liveText || '').trim();
+    (async () => {
+      setPolishing(true);
+      try {
+        let text = live;
+        if (blob) {
+          try {
+            const result = await transcribeCapture(blob, {
+              hint: live,
+              languages: captureSttLanguages(rec.speechLang),
+            });
+            text = result.text || live;
+          } catch {
+            text = live;
+          }
+        }
+        if (text) refreshDraftIfUnedited(setDraft, autoDraft, text);
+      } finally {
+        setPolishing(false);
+        rec.reset();
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rec.status, rec.blob]);
+
+  const startEdit = (i, text) => {
+    const skipped = isSkipResponse(text);
+    setEditingIdx(i);
+    setDraft(skipped ? '' : text);
+    setWasSkip(skipped);
+    autoDraft.current = '';
+    setPolishing(false);
+    rec.reset();
+  };
+
+  const cancelEdit = () => {
+    setEditingIdx(null);
+    setDraft('');
+    setWasSkip(false);
+    autoDraft.current = '';
+    setPolishing(false);
+    if (rec.status === 'recording') rec.stop();
+    rec.reset();
+  };
+
+  const saveEdit = async () => {
+    const next = draft.trim();
+    if (!next || editingIdx === null || !onSaveTurn) return;
+    setSaving(true);
+    try {
+      await onSaveTurn(editingIdx, next);
+      cancelEdit();
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const startVoice = () => {
+    autoDraft.current = '';
+    setPolishing(false);
+    rec.reset();
+    rec.start();
+  };
+
+  const hasTurns = turns.length > 0;
+  return (
+    <div className="sc">
+      {hasTurns ? (
+        <div className="sc__thread" aria-label="Conversation">
+          {turns.map((t, i) => {
+            const isUser = t.role !== 'assistant';
+            const isEditing = canEditResponses && isUser && editingIdx === i;
+            const skipped = isUser && isSkipResponse(t.text);
+            return (
+              <div
+                key={`${t.role}-${i}`}
+                className={`sc__turn sc__turn--${isUser ? 'user' : 'bauhly'}${isEditing ? ' is-editing' : ''}`}
+              >
+                {!isUser && (
+                  <span className="sc__who" aria-hidden="true">
+                    <Mark size={12} />
+                  </span>
+                )}
+                {isEditing ? (
+                  <div className="sc__edit">
+                    {wasSkip && (
+                      <span className="sc__edit-hint">Last response was skipped — add an answer if you have one.</span>
+                    )}
+                    <AutoTextarea
+                      className="ctxf ctxf--panel sc__edit-field"
+                      value={draft}
+                      onChange={(e) => setDraft(e.target.value)}
+                      aria-label="Edit response"
+                      placeholder={wasSkip ? 'Type your answer…' : 'Your answer…'}
+                      minHeight={72}
+                      autoFocus
+                    />
+                    {polishing && <span className="sc__edit-note">Cleaning the words up…</span>}
+                    <div className="sc__edit-acts">
+                      <button
+                        type="button"
+                        className="btn btn--primary btn--sm"
+                        disabled={!draft.trim() || saving || polishing}
+                        onClick={saveEdit}
+                      >
+                        {saving ? 'Saving…' : 'Save'}
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn--tertiary btn--sm"
+                        disabled={saving || polishing || recording}
+                        onClick={startVoice}
+                      >
+                        <Icon name="pulse" size={14} /> Record
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn--quiet btn--sm"
+                        disabled={saving}
+                        onClick={cancelEdit}
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className={`sc__bubble${isUser ? ' sc__bubble--user' : ''}`}>
+                    <p className={`sc__text${skipped ? ' sc__text--skip' : ''}`}>{displayTurnText(t.text)}</p>
+                    {canEditResponses && isUser && (
+                      <button
+                        type="button"
+                        className="sc__edit-btn"
+                        onClick={() => startEdit(i, t.text)}
+                      >
+                        <Icon name="edit" size={13} strokeWidth={2} /> Edit
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      ) : null}
+
+      {(summary || editable) && (
+        <div className={`sc__summary${hasTurns ? ' sc__summary--after' : ''}`}>
+          <div className="sc__summary-head">
+            {hasTurns && <span className="sc__summary-label">Summary</span>}
+            {summaryStale && (
+              <button
+                type="button"
+                className="btn btn--tertiary btn--sm sc__regen-summary"
+                disabled={summarizing || editingIdx !== null}
+                onClick={onRegenerateSummary}
+              >
+                <Icon name="refresh" size={13} strokeWidth={2} />
+                {summarizing ? 'Updating summary…' : 'Regenerate summary'}
+              </button>
+            )}
+          </div>
+          {editable ? (
+            <textarea
+              className="ctxf ctxf--panel"
+              key={summary}
+              defaultValue={summary}
+              aria-label="Session summary"
+              placeholder="Summary of this conversation…"
+              onBlur={onSummaryBlur}
+            />
+          ) : (
+            summary ? <p className="sc__summary-text">{summary}</p> : null
+          )}
+        </div>
+      )}
+
+      {recording && (
+        <RecordingSheet
+          rec={rec}
+          note="Speak your answer — stop when you're done."
+          label="Edit response"
+        />
+      )}
+    </div>
+  );
+}
+
 function EntryCard({ entry, others, regenerating, uploadingFiles, onOpen, onMove, onDelete, onRegenerate, onAddFiles }) {
   const [menu, setMenu] = useState(false);
   const [moveOpen, setMoveOpen] = useState(false);
@@ -306,7 +531,16 @@ export function EntryPanel({ project, entry, week, regenerating, onClose, onRege
   const [light, setLight] = useState(null); // index into attachments, or null
   const [analysisFor, setAnalysisFor] = useState(null); // index whose analysis is open
   const [analyzingId, setAnalyzingId] = useState(null); // attachment id in flight
+  const [summaryStale, setSummaryStale] = useState(false);
+  const [summarizing, setSummarizing] = useState(false);
   const atts = entry.attachments || [];
+  const turns = sessionConversationTurns(entry);
+  const summary = sessionDisplayText(entry);
+  const captureId = entry.id;
+
+  useEffect(() => {
+    setSummaryStale(false);
+  }, [captureId]);
 
   useEffect(() => {
     if (light === null) return undefined;
@@ -324,7 +558,7 @@ export function EntryPanel({ project, entry, week, regenerating, onClose, onRege
     setUploading(true);
     try {
       const added = await uploadFiles(files);
-      await updateEntry(project.id, entry.id, { attachments: [...atts, ...added] });
+      await updateEntry(project.id, captureId, { attachments: [...atts, ...added] });
     } finally {
       setUploading(false);
     }
@@ -335,9 +569,61 @@ export function EntryPanel({ project, entry, week, regenerating, onClose, onRege
   const runAnalysis = async (att) => {
     setAnalyzingId(att.id);
     try {
-      await analyzeAsset(project.id, entry.id, att.id);
+      await analyzeAsset(project.id, captureId, att.id);
     } finally {
       setAnalyzingId(null);
+    }
+  };
+
+  const saveTurn = async (idx, text) => {
+    const nextTurns = turns.map((t, i) => (i === idx ? { ...t, text } : t));
+    const stories = storiesFromConversationTurns(
+      Array.isArray(entry.stories) && entry.stories.length
+        ? entry.stories
+        : (entry.understanding ? [entry.understanding] : []),
+      nextTurns,
+    );
+    await updateEntry(project.id, captureId, {
+      conversationTurns: nextTurns,
+      stories,
+      understanding: stories[0],
+    });
+    setSummaryStale(true);
+  };
+
+  const regenerateSummary = async () => {
+    setSummarizing(true);
+    try {
+      const sourceText = turns.find((t) => t.role === 'user')?.text
+        || String(entry.understanding?.originalCapture || entry.text || '').trim();
+      const result = await understandCapture({
+        text: sourceText,
+        turns,
+        projectName: project.name || '',
+        forceReady: true,
+        attachments: (atts || []).map((a) => ({ type: a.type, key: a.key })).filter((a) => a.key),
+      });
+      const nextSummary = String(result?.conversationSummary || '').trim();
+      const nextStories = (Array.isArray(result?.captures) && result.captures.length)
+        ? result.captures
+        : (result?.understanding ? [result.understanding] : null);
+      const stories = nextStories
+        ? storiesFromConversationTurns(nextStories, turns)
+        : storiesFromConversationTurns(
+          Array.isArray(entry.stories) && entry.stories.length
+            ? entry.stories
+            : (entry.understanding ? [entry.understanding] : []),
+          turns,
+        );
+      await updateEntry(project.id, captureId, {
+        ...(nextSummary ? { text: nextSummary, sessionSummary: nextSummary } : {}),
+        conversationTurns: turns,
+        stories,
+        understanding: stories[0],
+      });
+      setSummaryStale(false);
+    } finally {
+      setSummarizing(false);
     }
   };
 
@@ -366,16 +652,21 @@ export function EntryPanel({ project, entry, week, regenerating, onClose, onRege
             <span>{week ? `${week} · ` : ''}{fmtWhen(entry.createdAt)}</span>
           </div>
 
-          <textarea
-            className="ctxf ctxf--panel"
-            defaultValue={sessionDisplayText(entry)}
-            aria-label="Session summary"
-            placeholder="Summary of this conversation…"
-            onBlur={(e) => {
+          <SessionConversation
+            turns={turns}
+            summary={summary}
+            editable
+            canEditResponses={turns.some((t) => t.role === 'user')}
+            summaryStale={summaryStale}
+            summarizing={summarizing}
+            onSaveTurn={saveTurn}
+            onRegenerateSummary={regenerateSummary}
+            onSummaryBlur={(e) => {
               const next = e.target.value;
-              const prev = sessionDisplayText(entry);
+              const prev = summary;
               if (next !== prev) {
-                updateEntry(project.id, entry.id, { text: next, sessionSummary: next });
+                updateEntry(project.id, captureId, { text: next, sessionSummary: next });
+                setSummaryStale(false);
               }
             }}
           />
@@ -936,6 +1227,7 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
         understanding: c.understanding,
         understandings: rows,
         conversationSummary: c.conversationSummary,
+        conversationTurns: c.turns,
         sessionKind: 'capture',
       });
       const cover = previewUrl(c.attachments.find((a) => a.type === 'image') || c.attachments[0]) || null;

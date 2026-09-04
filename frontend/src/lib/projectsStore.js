@@ -9,7 +9,7 @@
  *
  * Entry (capture) shape returned by the API:
  *   { id, type: 'note'|'photo'|'video', text, createdAt, understanding,
- *     sessionId, sessionKind, sessionSummary, stories,
+ *     sessionId, sessionKind, sessionSummary, conversationTurns, stories,
  *     attachments: [{ id, type: 'image'|'video', key, url, thumbnailUrl }] }
  */
 
@@ -94,7 +94,7 @@ export async function deleteProject(id) {
   removeById(id);
 }
 export async function addEntry(projectId, {
-  type, text, attachments, understanding, sessionId, sessionKind, sessionSummary, stories,
+  type, text, attachments, understanding, sessionId, sessionKind, sessionSummary, conversationTurns, stories,
 }) {
   upsert(await api.addCapture(projectId, {
     type,
@@ -103,6 +103,7 @@ export async function addEntry(projectId, {
     sessionId,
     sessionKind,
     sessionSummary,
+    conversationTurns,
     stories,
     attachments: (attachments || []).map((a) => ({ type: a.type, key: a.key })),
   }));
@@ -134,9 +135,90 @@ export function composeSessionSummary(stories, fallbackText) {
   return String(fallbackText || '').trim();
 }
 
+function sanitizeTurns(raw) {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((t) => {
+      const text = String(t?.text || '').trim();
+      if (!text) return null;
+      const role = String(t?.role || '').toLowerCase() === 'assistant' ? 'assistant' : 'user';
+      return { role, text };
+    })
+    .filter(Boolean);
+}
+
+/** Rebuild the chat from originalCapture + clarification Q&A when turns were not stored. */
+function turnsFromStories(stories) {
+  const turns = [];
+  (stories || []).forEach((s) => {
+    if (!s) return;
+    const original = String(s.originalCapture || '').trim();
+    if (original) turns.push({ role: 'user', text: original });
+    const clarifs = Array.isArray(s.clarificationAnswers) && s.clarificationAnswers.length
+      ? s.clarificationAnswers
+      : ((s.askedQuestion || s.askedAnswer)
+        ? [{ question: s.askedQuestion, answer: s.askedAnswer }]
+        : []);
+    clarifs.forEach((row) => {
+      const q = String(row?.question || '').trim();
+      const a = String(row?.answer || '').trim();
+      if (q) turns.push({ role: 'assistant', text: q });
+      if (a) turns.push({ role: 'user', text: a });
+    });
+  });
+  return turns;
+}
+
+/** Sync story originalCapture + clarificationAnswers from the edited chat turns. */
+export function storiesFromConversationTurns(stories, turns) {
+  const list = sanitizeTurns(turns);
+  let original = '';
+  const clarifs = [];
+  let i = 0;
+  while (i < list.length && list[i].role === 'user') {
+    original = original ? `${original}\n\n${list[i].text}` : list[i].text;
+    i += 1;
+  }
+  while (i < list.length) {
+    if (list[i].role === 'assistant') {
+      const question = list[i].text;
+      i += 1;
+      const answer = (i < list.length && list[i].role === 'user') ? list[i].text : '';
+      if (i < list.length && list[i].role === 'user') i += 1;
+      clarifs.push({ question, answer });
+    } else {
+      if (!original) original = list[i].text;
+      i += 1;
+    }
+  }
+  const base = (Array.isArray(stories) && stories[0])
+    ? stories[0]
+    : {};
+  const updated = {
+    ...base,
+    originalCapture: original || String(base.originalCapture || '').trim(),
+    clarificationAnswers: clarifs,
+    askedQuestion: clarifs.length ? clarifs[clarifs.length - 1].question : String(base.askedQuestion || ''),
+    askedAnswer: clarifs.length ? clarifs[clarifs.length - 1].answer : String(base.askedAnswer || ''),
+  };
+  return [updated];
+}
+
+/** Full conversation for a library session — stored turns, or reconstructed. */
+export function sessionConversationTurns(entry) {
+  const stored = sanitizeTurns(entry?.conversationTurns);
+  if (stored.length) return stored;
+  const stories = Array.isArray(entry?.stories) && entry.stories.length
+    ? entry.stories
+    : (entry?.understanding ? [entry.understanding] : []);
+  const turns = turnsFromStories(stories);
+  if (turns.length) return turns;
+  return [];
+}
+
 /** File one capture or check-in conversation as a single library session. */
 export async function addSession(projectId, {
-  type, text, attachments, understanding, understandings, conversationSummary, sessionKind,
+  type, text, attachments, understanding, understandings, conversationSummary, conversationTurns, sessionKind,
 }) {
   const stories = storiesInToldOrder(
     (understandings && understandings.length)
@@ -145,6 +227,7 @@ export async function addSession(projectId, {
   );
   const sessionSummary = String(conversationSummary || '').trim()
     || composeSessionSummary(stories, text);
+  const turns = sanitizeTurns(conversationTurns);
   return addEntry(projectId, {
     type,
     text: sessionSummary || text,
@@ -156,6 +239,7 @@ export async function addSession(projectId, {
       : `session-${Date.now()}`,
     sessionKind: sessionKind || 'capture',
     sessionSummary,
+    conversationTurns: turns.length ? turns : turnsFromStories(stories),
   });
 }
 
@@ -163,6 +247,9 @@ export async function updateEntry(projectId, entryId, patch) {
   const payload = {};
   if (patch.text !== undefined) payload.text = patch.text;
   if (patch.sessionSummary !== undefined) payload.sessionSummary = patch.sessionSummary;
+  if (patch.conversationTurns !== undefined) payload.conversationTurns = patch.conversationTurns;
+  if (patch.stories !== undefined) payload.stories = patch.stories;
+  if (patch.understanding !== undefined) payload.understanding = patch.understanding;
   if (patch.attachments !== undefined) payload.attachments = patch.attachments.map((a) => ({ type: a.type, key: a.key }));
   upsert(await api.updateCapture(projectId, entryId, payload));
 }
@@ -293,6 +380,11 @@ function sessionFromMembers(members) {
   const sessionSummary = fromStories
     || uniqueTexts(chrono.map((c) => c.sessionSummary))
     || uniqueTexts(chrono.map((c) => c.text));
+  const conversationTurns = (() => {
+    const fromMembers = chrono.flatMap((c) => sanitizeTurns(c.conversationTurns));
+    if (fromMembers.length) return fromMembers;
+    return turnsFromStories(stories);
+  })();
   return {
     ...newest,
     memberIds: chrono.map((c) => c.id).filter(Boolean),
@@ -300,6 +392,7 @@ function sessionFromMembers(members) {
     stories,
     sessionSummary,
     text: sessionSummary,
+    conversationTurns,
     createdAt: newest.createdAt,
   };
 }

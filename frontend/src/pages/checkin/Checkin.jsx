@@ -968,6 +968,7 @@ export default function Checkin({ projects, filingProjects, week, name, lastWeek
         understanding: c.understanding || null,
         understandings: c.understandings || [],
         conversationSummary: c.conversationSummary || '',
+        conversationTurns: c.turns || [],
       });
     });
   };

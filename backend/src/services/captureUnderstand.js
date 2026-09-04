@@ -720,6 +720,12 @@ const UNIFY_RETRY_HINT = [
   'originalCapture must be the complete source. Keep clarifications. Do not convert assumptions into verifiedFacts.',
 ].join(' ');
 
+const FORCE_READY_HINT = [
+  'This conversation is already filed. Do not ask any clarification questions.',
+  'Return status ready with updated conversationSummary and Capture(s) that reflect the full conversation above,',
+  'including every clarification answer. Preserve unknowns only where the user still left them unanswered.',
+].join(' ');
+
 async function imageContentParts(attachments) {
   if (!isS3Configured()) return [];
   const images = (attachments || []).filter((a) => a && a.type === 'image' && a.key).slice(0, 2);
@@ -754,6 +760,7 @@ async function understandCapture(input = {}) {
   const turns = Array.isArray(input.turns) ? input.turns : [];
   const projects = Array.isArray(input.projects) ? input.projects : [];
   const kind = str(input.kind) || 'capture';
+  const forceReady = Boolean(input.forceReady);
 
   if (!text && attachments.length === 0 && turns.length === 0) {
     const err = new Error('A capture needs a note or a file');
@@ -765,7 +772,11 @@ async function understandCapture(input = {}) {
     text, projectName, attachments, turns, projects, kind,
   });
   const systemPrompt = assembled.system;
-  const userText = [assembled.user, USER_JSON_INSTRUCTION].filter(Boolean).join('\n\n');
+  const userText = [
+    assembled.user,
+    forceReady ? FORCE_READY_HINT : '',
+    USER_JSON_INSTRUCTION,
+  ].filter(Boolean).join('\n\n');
   const debugSource = kind === 'checkin' ? 'Check-in conversation' : 'Capture conversation';
   const ctx = { text, askedQuestion, askedAnswer };
 
@@ -819,6 +830,10 @@ async function understandCapture(input = {}) {
       console.warn(`[${kind}] returned ${done.parsed?.captures?.length || 0} captures — retrying unified Capture`);
       done = await completeToolCall({ ...callOpts, extraUserText: UNIFY_RETRY_HINT });
     }
+    if (forceReady && wantsClarification(done.parsed) && questionsOf(done.parsed).length) {
+      console.warn(`[${kind}] asked again during resummarize — forcing ready`);
+      done = await completeToolCall({ ...callOpts, extraUserText: FORCE_READY_HINT });
+    }
     parsed = done.parsed;
     rawOutput = done.output || '';
     if (done.system) usedSystem = done.system;
@@ -844,7 +859,18 @@ async function understandCapture(input = {}) {
     return result;
   }
 
-  const result = normalizeUnderstanding(parsed, ctx);
+  let result = normalizeUnderstanding(parsed, ctx);
+  if (forceReady && result.action === 'ask') {
+    // Resummarize must never reopen the ladder — fall back to a ready capture from the source text.
+    result = normalizeUnderstanding(
+      {
+        status: 'ready',
+        conversationSummary: text,
+        captures: [{ originalCapture: text, captureSummary: text }],
+      },
+      ctx,
+    );
+  }
   if (result.understanding) result.understanding.model = model;
   (result.captures || []).forEach((c) => { c.model = model; });
   result.debug = makeUnderstandDebug({

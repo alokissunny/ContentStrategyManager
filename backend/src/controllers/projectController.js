@@ -86,6 +86,19 @@ async function serializeAttachment(a) {
   return { id: a._id.toString(), type: a.type, key: a.key, url, thumbnailUrl: url, analysis: serializeAnalysis(a.analysis) };
 }
 
+function sanitizeConversationTurns(raw) {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((t) => {
+      const text = String(t?.text || '').trim();
+      if (!text) return null;
+      const role = String(t?.role || '').toLowerCase() === 'assistant' ? 'assistant' : 'user';
+      return { role, text };
+    })
+    .filter(Boolean)
+    .slice(0, 40);
+}
+
 async function serializeCapture(c) {
   const stories = serializeStories(c.stories);
   const understanding = serializeUnderstanding(c.understanding);
@@ -97,6 +110,7 @@ async function serializeCapture(c) {
     sessionId: c.sessionId || '',
     sessionKind: c.sessionKind || '',
     sessionSummary: c.sessionSummary || '',
+    conversationTurns: sanitizeConversationTurns(c.conversationTurns),
     understanding,
     stories: stories.length ? stories : (understanding ? [understanding] : []),
     attachments: await Promise.all((c.attachments || []).map(serializeAttachment)),
@@ -223,6 +237,7 @@ async function addCapture(req, res) {
   const sessionId = String(req.body.sessionId || '').trim() || crypto.randomUUID();
   const sessionSummary = String(req.body.sessionSummary || '').trim()
     || composeSessionSummary(storyRows, text);
+  const conversationTurns = sanitizeConversationTurns(req.body.conversationTurns);
 
   project.captures.push({
     type,
@@ -233,6 +248,7 @@ async function addCapture(req, res) {
     sessionId,
     sessionKind,
     sessionSummary,
+    conversationTurns,
     createdAt: new Date(),
   });
   // Persist the files first so a slow vision call cannot lose the upload.
@@ -251,6 +267,18 @@ async function updateCapture(req, res) {
 
   if (req.body.text !== undefined) capture.text = String(req.body.text);
   if (req.body.sessionSummary !== undefined) capture.sessionSummary = String(req.body.sessionSummary);
+  if (req.body.conversationTurns !== undefined) {
+    capture.conversationTurns = sanitizeConversationTurns(req.body.conversationTurns);
+  }
+  if (req.body.stories !== undefined || req.body.understanding !== undefined) {
+    const understanding = sanitizeUnderstanding(req.body.understanding);
+    const stories = sanitizeStories(req.body.stories);
+    const storyRows = stories.length ? stories : (understanding ? [understanding] : []);
+    if (storyRows.length) {
+      capture.stories = storyRows;
+      capture.understanding = storyRows[0];
+    }
+  }
   if (req.body.attachments !== undefined) {
     const next = sanitizeAttachments(req.body.attachments, req.user._id);
     const nextKeys = new Set(next.map((a) => a.key));
@@ -414,6 +442,7 @@ async function understandDraft(req, res) {
   const confirmedIds = Array.isArray(req.body.confirmedIds)
     ? req.body.confirmedIds.map((id) => String(id || '').trim()).filter(Boolean).slice(0, 10)
     : [];
+  const forceReady = Boolean(req.body.forceReady);
 
   if (!text && attachments.length === 0 && turns.length === 0) {
     return res.status(400).json({ message: 'A capture needs a note or a file' });
@@ -429,6 +458,7 @@ async function understandDraft(req, res) {
       askedAnswer,
       turns,
       confirmedIds,
+      forceReady,
     });
     res.json(withOptionalDebug(result, req));
   } catch (err) {

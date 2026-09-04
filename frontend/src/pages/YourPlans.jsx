@@ -528,6 +528,7 @@ export default function YourPlans() {
             understanding: pending.understanding,
             understandings: pending.understandings,
             conversationSummary: pending.conversationSummary,
+            conversationTurns: pending.conversationTurns,
             sessionKind: 'checkin',
           });
         } catch { /* plan still runs from whatever is already on file */ }
