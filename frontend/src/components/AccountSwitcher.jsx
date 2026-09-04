@@ -11,7 +11,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import Glyph from './Glyph';
 import { listInstagramProfiles, readCachedProfiles, activateInstagramProfile } from '../api/instagram';
-import { getMetaStatus } from '../api/meta';
+import { getMetaStatus, isMetaConnectedFor } from '../api/meta';
 import { syncHandle } from '../lib/store';
 import { resetProjects } from '../lib/projectsStore';
 import { LS_SURFACE, LS_BORDER, LS_INK, LS_T2, LS_MUTED, LS_SIGNAL, LS_SOFT, LS_SOFT_BORDER, LS_HOVER, LS_FONT } from '../theme';
@@ -97,10 +97,8 @@ export default function AccountSwitcher({ variant = 'header' }) {
   const current = profiles[0];
   if (!current) return null;
 
-  // Insights are a single Meta connection today; show the green "connected"
-  // state only on the handle it actually belongs to.
-  const insightsConnected = (username) =>
-    !!(meta?.connected && meta.igUsername && meta.igUsername.toLowerCase() === username.toLowerCase());
+  // Insights badge per handle — each Bauhly account can have its own Meta link.
+  const insightsConnected = (username) => isMetaConnectedFor(meta, username);
 
   async function switchTo(username) {
     if (username === current.username || switching) return;

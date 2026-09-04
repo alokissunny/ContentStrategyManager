@@ -13,7 +13,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import Icon from '../brand/Icon';
 import { useAuth } from '../context/AuthContext';
 import { listInstagramProfiles, activateInstagramProfile } from '../api/instagram';
-import { getMetaStatus, startMetaConnect, disconnectMeta } from '../api/meta';
+import { getMetaStatus, startMetaConnect, disconnectMeta, metaConnectionFor } from '../api/meta';
 import { syncHandle } from '../lib/store';
 import { resetProjects } from '../lib/projectsStore';
 import { useAiDebug, setAiDebugEnabled, clearAiDebugEntries } from '../lib/aiDebug';
@@ -39,6 +39,19 @@ function handleInitials(username = '') {
   return (username.replace(/[^a-z0-9]/gi, '').slice(0, 2) || 'IG').toUpperCase();
 }
 
+function metaConnections(meta) {
+  if (Array.isArray(meta?.connections)) return meta.connections;
+  if (meta?.connected && meta.igUsername) {
+    return [{
+      igUserId: meta.igUserId || meta.igUsername,
+      igUsername: meta.igUsername,
+      pageName: meta.pageName || null,
+      connectedAt: meta.connectedAt || null,
+    }];
+  }
+  return [];
+}
+
 export default function Settings() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
@@ -48,8 +61,9 @@ export default function Settings() {
   const [loading, setLoading] = useState(true);
   const [switching, setSwitching] = useState('');
   const [dropped, setDropped] = useState(loadDropped);
-  const [meta, setMeta] = useState({ connected: false, configured: false });
+  const [meta, setMeta] = useState({ connected: false, configured: false, connections: [] });
   const [metaBusy, setMetaBusy] = useState(false);
+  const [disconnectingId, setDisconnectingId] = useState('');
   const debug = useAiDebug();
 
   useEffect(() => {
@@ -59,7 +73,7 @@ export default function Settings() {
       .finally(() => setLoading(false));
     getMetaStatus()
       .then(setMeta)
-      .catch(() => setMeta({ connected: false, configured: false }));
+      .catch(() => setMeta({ connected: false, configured: false, connections: [] }));
   }, []);
 
   async function connectMeta() {
@@ -75,12 +89,16 @@ export default function Settings() {
     }
   }
 
-  async function disconnectMetaAccount() {
-    setMetaBusy(true);
+  async function disconnectMetaAccount(igUserId) {
+    if (!igUserId) return;
+    setDisconnectingId(igUserId);
     try {
-      setMeta(await disconnectMeta());
-    } catch { /* ignore */ }
-    finally { setMetaBusy(false); }
+      setMeta(await disconnectMeta(igUserId));
+    } catch (err) {
+      alert(err.response?.data?.message || 'Could not disconnect that account.');
+    } finally {
+      setDisconnectingId('');
+    }
   }
 
   // Make another connected handle current — same path as the header switcher.
@@ -109,6 +127,7 @@ export default function Settings() {
   };
 
   const signOut = () => { logout(); navigate('/'); };
+  const connections = metaConnections(meta);
 
   return (
     <div style={{ maxWidth: 760, margin: '0 auto' }}>
@@ -137,8 +156,8 @@ export default function Settings() {
           profiles.map((p, i) => {
             const isCurrent = i === 0;
             const busy = switching === p.username;
-            const insights = meta.connected && meta.igUsername
-              && meta.igUsername.toLowerCase() === p.username.toLowerCase();
+            const metaLink = metaConnectionFor(meta, p.username);
+            const insights = !!metaLink;
             return (
               <button
                 type="button"
@@ -176,10 +195,12 @@ export default function Settings() {
                     {busy
                       ? 'Switching…'
                       : insights
-                        ? 'Insights connected — saves, reach, shares and profile visits'
+                        ? (metaLink.pageName
+                          ? `Publishes via Meta · Page: ${metaLink.pageName}`
+                          : 'Meta connected — ready to publish')
                         : isCurrent
-                          ? 'Current account · public profile'
-                          : 'Tap to switch · public profile'}
+                          ? 'Current account · public profile · Meta not linked'
+                          : 'Tap to switch · public profile · Meta not linked'}
                   </span>
                 </span>
                 {isCurrent && (
@@ -200,7 +221,7 @@ export default function Settings() {
         </div>
 
         <p className="set-card__note">
-          Profile analysis reads public posts. Publishing to Instagram uses a separate Meta connection below.
+          Profile analysis reads public posts. Publishing uses the Meta link shown under each handle.
         </p>
       </section>
 
@@ -208,51 +229,137 @@ export default function Settings() {
       <section className="card set-card">
         <h2>Publish with Meta</h2>
         <p className="set-card__sub">
-          Connect an Instagram Professional account (Business or Creator) linked to a Facebook Page
-          so Bauhly can post carousels and Reels from your weekly plan.
+          Each Bauhly Instagram handle must match the Meta Instagram it publishes to.
+          The Facebook Page on the right is the Page Bauhly posts through for that handle.
         </p>
 
-        {meta.connected ? (
-          <div className="set-row is-active">
-            <span className="set-row__ico"><Icon name="instagram" size={20} /></span>
-            <span className="set-row__main">
-              <b className="set-row__title">
-                @{meta.igUsername || 'connected'}
-                <span className="set-row__badge">Connected</span>
-              </b>
-              <span className="set-row__sub">
-                {meta.pageName ? `Page: ${meta.pageName}` : 'Ready to publish from Your plans'}
-              </span>
-            </span>
-          </div>
-        ) : (
+        {profiles.length === 0 && connections.length === 0 ? (
           <p className="set-empty">
             Not connected yet. You’ll also be prompted when you hit Publish on a post.
           </p>
+        ) : (
+          <>
+            {profiles.map((p) => {
+              const link = metaConnectionFor(meta, p.username);
+              const id = link?.igUserId || link?.igUsername;
+              const busy = id && disconnectingId === id;
+              return (
+                <div className={`set-row ${link ? 'is-active' : ''}`} key={`meta-${p._id || p.username}`}>
+                  <span className="set-row__ico"><Icon name="instagram" size={20} /></span>
+                  <span className="set-row__main">
+                    <b className="set-row__title">
+                      @{p.username}
+                      {link
+                        ? <span className="set-row__badge">Linked</span>
+                        : <span className="set-row__badge set-row__badge--muted">Not linked</span>}
+                    </b>
+                    {link ? (
+                      <span className="set-row__sub set-linkmap">
+                        <span className="set-linkmap__pair">
+                          Bauhly <b>@{p.username}</b>
+                          <span className="set-linkmap__arrow" aria-hidden="true">→</span>
+                          Meta <b>@{link.igUsername || p.username}</b>
+                        </span>
+                        <span className="set-linkmap__page">
+                          {link.pageName
+                            ? <>Facebook Page: <b>{link.pageName}</b></>
+                            : 'Facebook Page linked'}
+                        </span>
+                      </span>
+                    ) : (
+                      <span className="set-row__sub">
+                        Connect Meta with the Facebook login that owns @{p.username}&rsquo;s Page.
+                      </span>
+                    )}
+                  </span>
+                  <span className="set-row__acts">
+                    {link ? (
+                      <button
+                        type="button"
+                        className="btn btn--ghost btn--sm"
+                        disabled={busy || metaBusy}
+                        onClick={() => disconnectMetaAccount(id)}
+                        title={`Disconnect Meta for @${p.username}`}
+                      >
+                        <Icon name="x" size={14} />
+                        {busy ? 'Disconnecting…' : 'Disconnect'}
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        className="btn btn--ghost btn--sm"
+                        disabled={metaBusy}
+                        onClick={connectMeta}
+                      >
+                        <Icon name="instagram" size={14} />
+                        {metaBusy ? 'Connecting…' : 'Connect'}
+                      </button>
+                    )}
+                  </span>
+                </div>
+              );
+            })}
+
+            {/* Meta IGs that don't match any Bauhly handle — shown so they can be removed */}
+            {connections
+              .filter((c) => {
+                const ig = String(c.igUsername || '').toLowerCase();
+                return ig && !profiles.some((p) => String(p.username || '').toLowerCase() === ig);
+              })
+              .map((c) => {
+                const id = c.igUserId || c.igUsername;
+                const busy = disconnectingId === id;
+                return (
+                  <div className="set-row" key={`orphan-${id}`}>
+                    <span className="set-row__ico"><Icon name="info" size={20} /></span>
+                    <span className="set-row__main">
+                      <b className="set-row__title">
+                        @{c.igUsername}
+                        <span className="set-row__badge set-row__badge--warn">No Bauhly account</span>
+                      </b>
+                      <span className="set-row__sub set-linkmap">
+                        <span className="set-linkmap__pair">
+                          Meta <b>@{c.igUsername}</b> is connected, but you have no matching Bauhly Instagram handle.
+                        </span>
+                        <span className="set-linkmap__page">
+                          {c.pageName
+                            ? <>Facebook Page: <b>{c.pageName}</b></>
+                            : 'Orphan Meta connection'}
+                        </span>
+                      </span>
+                    </span>
+                    <span className="set-row__acts">
+                      <button
+                        type="button"
+                        className="btn btn--ghost btn--sm"
+                        disabled={busy || metaBusy}
+                        onClick={() => disconnectMetaAccount(id)}
+                        title={`Disconnect @${c.igUsername}`}
+                      >
+                        <Icon name="x" size={14} />
+                        {busy ? 'Disconnecting…' : 'Disconnect'}
+                      </button>
+                    </span>
+                  </div>
+                );
+              })}
+          </>
         )}
 
         <div className="set-foot">
-          {meta.connected ? (
-            <button
-              type="button"
-              className="btn btn--ghost btn--sm"
-              disabled={metaBusy}
-              onClick={disconnectMetaAccount}
-            >
-              <Icon name="x" size={14} />
-              Disconnect Meta
-            </button>
-          ) : (
-            <button
-              type="button"
-              className="btn btn--ghost btn--sm"
-              disabled={metaBusy}
-              onClick={connectMeta}
-            >
-              <Icon name="instagram" size={14} />
-              {metaBusy ? 'Connecting…' : 'Connect with Meta'}
-            </button>
-          )}
+          <button
+            type="button"
+            className="btn btn--ghost btn--sm"
+            disabled={metaBusy}
+            onClick={connectMeta}
+          >
+            <Icon name="instagram" size={14} />
+            {metaBusy
+              ? 'Connecting…'
+              : connections.length
+                ? 'Connect another Meta account'
+                : 'Connect with Meta'}
+          </button>
         </div>
       </section>
 

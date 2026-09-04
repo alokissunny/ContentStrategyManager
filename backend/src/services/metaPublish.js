@@ -6,6 +6,10 @@
  *  2. Meta App + OAuth (Facebook Login for Business) — start when META_APP_ID set
  *  3. Graph Content Publishing API (image/carousel/reel containers)
  *  4. Token refresh, media hosting, error taxonomy
+ *
+ * A Bauhly user may connect several Instagram Professional accounts (one Meta
+ * connection per IG). Publish / insights resolve by matching igUsername to the
+ * plan or profile handle.
  */
 
 const crypto = require('crypto');
@@ -30,28 +34,60 @@ function metaConfigured() {
   return Boolean(process.env.META_APP_ID && process.env.META_APP_SECRET && process.env.META_REDIRECT_URI);
 }
 
-function publicStatus(doc) {
-  if (!doc || doc.status !== 'connected') {
-    return {
-      connected: false,
-      configured: metaConfigured(),
-      igUsername: null,
-      pageName: null,
-      connectedAt: null,
-    };
-  }
+function normalizeHandle(username) {
+  return String(username || '').replace(/^@/, '').trim().toLowerCase();
+}
+
+function connectionPublic(doc) {
   return {
-    connected: true,
-    configured: metaConfigured(),
+    igUserId: doc.igUserId || null,
     igUsername: doc.igUsername || null,
     pageName: doc.pageName || null,
-    connectedAt: doc.connectedAt,
+    connectedAt: doc.connectedAt || null,
   };
 }
 
+/** Status payload: all connected accounts + legacy single-account fields. */
+function buildStatus(docs) {
+  const list = (docs || []).filter((d) => d && d.status === 'connected' && d.igUserId);
+  const connections = list.map(connectionPublic);
+  const primary = connections[0] || null;
+  return {
+    configured: metaConfigured(),
+    connected: connections.length > 0,
+    connections,
+    // Legacy single-connection fields (first connected account).
+    igUsername: primary?.igUsername || null,
+    pageName: primary?.pageName || null,
+    connectedAt: primary?.connectedAt || null,
+  };
+}
+
+let indexesReady = false;
+async function ensureIndexes() {
+  if (indexesReady) return;
+  indexesReady = true;
+  try {
+    // Legacy schema had unique { user: 1 }; multi-account needs that gone.
+    await MetaConnection.collection.dropIndex('user_1');
+  } catch (_) {
+    /* already dropped or never existed */
+  }
+  try {
+    await MetaConnection.syncIndexes();
+  } catch (err) {
+    console.warn('[meta] syncIndexes:', err.message);
+  }
+}
+
+async function listConnected(userId) {
+  return MetaConnection.find({ user: userId, status: 'connected' }).sort({ connectedAt: -1 });
+}
+
 async function getStatus(req, res) {
-  const doc = await MetaConnection.findOne({ user: req.user._id });
-  res.json(publicStatus(doc));
+  await ensureIndexes();
+  const docs = await listConnected(req.user._id);
+  res.json(buildStatus(docs));
 }
 
 /** Kick off Facebook Login for Business → Instagram Professional. */
@@ -106,10 +142,11 @@ async function startConnect(req, res) {
 }
 
 /**
- * OAuth callback: exchange code → long-lived user token → Page token → IG business account.
- * Persists MetaConnection. Called from the frontend redirect handler with ?code=&state=.
+ * OAuth callback: exchange code → long-lived user token → Page token → IG business account(s).
+ * Upserts one MetaConnection per Instagram Professional account found on the user's Pages.
  */
 async function completeConnect(req, res) {
+  await ensureIndexes();
   if (!metaConfigured()) {
     return res.status(503).json({ message: 'Meta publishing is not configured.', configured: false });
   }
@@ -174,12 +211,11 @@ async function completeConnect(req, res) {
       });
     }
 
-    // 4. Use the first Page that actually has an IG *business* account linked —
-    // not just pages[0], so users who manage several Pages still connect.
-    const page = pages.find((p) => p.instagram_business_account?.id);
-    if (!page) {
+    // 4. Upsert every Page that has an IG *business* account — one Meta connection
+    // per Professional IG so multi-Page Facebook logins attach all of them.
+    const igPages = pages.filter((p) => p.instagram_business_account?.id);
+    if (!igPages.length) {
       const names = pages.map((p) => p.name).filter(Boolean).join(', ');
-      // If the IG is only a *consumer* connection, say so specifically.
       const consumerOnly = pages.some((p) => p.connected_instagram_account?.id);
       console.warn(`[meta] no instagram_business_account on ${pages.length} page(s): ${names} (consumerLink=${consumerOnly})`);
       return res.status(400).json({
@@ -188,49 +224,75 @@ async function completeConnect(req, res) {
           : `Facebook returned your Page(s) [${names}] but none has an Instagram Professional account linked for the API. Grant the app access to the correct Page during connect, and confirm the Instagram is linked to that exact Page.`,
       });
     }
-    const ig = page.instagram_business_account;
 
     const expiresIn = Number(llJson.expires_in) || 60 * 24 * 3600;
-    const doc = await MetaConnection.findOneAndUpdate(
-      { user: req.user._id },
-      {
-        user: req.user._id,
-        igUserId: ig.id,
-        igUsername: ig.username || '',
-        pageId: page.id,
-        pageName: page.name || '',
-        accessToken: page.access_token,
-        tokenExpiresAt: new Date(Date.now() + expiresIn * 1000),
-        scopes: [
-          'instagram_basic',
-          'instagram_content_publish',
-          'instagram_manage_insights',
-          'pages_show_list',
-          'pages_read_engagement',
-          'business_management',
-        ],
-        status: 'connected',
-        connectedAt: new Date(),
-      },
-      { upsert: true, new: true }
-    );
+    const scopes = [
+      'instagram_basic',
+      'instagram_content_publish',
+      'instagram_manage_insights',
+      'pages_show_list',
+      'pages_read_engagement',
+      'business_management',
+    ];
+    const now = new Date();
 
-    res.json(publicStatus(doc));
+    for (const page of igPages) {
+      const ig = page.instagram_business_account;
+      await MetaConnection.findOneAndUpdate(
+        { user: req.user._id, igUserId: String(ig.id) },
+        {
+          user: req.user._id,
+          igUserId: String(ig.id),
+          igUsername: normalizeHandle(ig.username),
+          pageId: page.id,
+          pageName: page.name || '',
+          accessToken: page.access_token,
+          tokenExpiresAt: new Date(Date.now() + expiresIn * 1000),
+          scopes,
+          status: 'connected',
+          connectedAt: now,
+        },
+        { upsert: true, new: true }
+      );
+    }
+
+    const docs = await listConnected(req.user._id);
+    console.log(
+      `[meta] connected ${igPages.length} IG account(s):`,
+      igPages.map((p) => p.instagram_business_account?.username).join(', ')
+    );
+    res.json(buildStatus(docs));
   } catch (err) {
     console.error('[meta] connect failed:', err.message);
     res.status(502).json({ message: err.message || 'Could not complete Meta connection' });
   }
 }
 
+/**
+ * Disconnect one Instagram Meta connection (by igUserId), or all if none given
+ * (legacy). Returns the updated status payload.
+ */
 async function disconnect(req, res) {
-  await MetaConnection.deleteOne({ user: req.user._id });
-  res.json({ connected: false, configured: metaConfigured() });
+  await ensureIndexes();
+  const igUserId = String(req.params.igUserId || req.query.igUserId || '').trim();
+  const igUsername = normalizeHandle(req.query.igUsername || '');
+
+  if (igUserId) {
+    await MetaConnection.deleteOne({ user: req.user._id, igUserId });
+  } else if (igUsername) {
+    await MetaConnection.deleteOne({ user: req.user._id, igUsername });
+  } else {
+    // Legacy global disconnect — remove every Meta row for this user.
+    await MetaConnection.deleteMany({ user: req.user._id });
+  }
+
+  const docs = await listConnected(req.user._id);
+  res.json(buildStatus(docs));
 }
 
 /**
  * Publish one planned day to Instagram via Content Publishing API.
- * Phase 1: requires connection; marks the day published after a successful
- * Graph call (or returns 501 with a clear message until media upload is wired).
+ * Uses the Meta connection whose IG username matches the plan's handle.
  */
 async function publishDay(req, res) {
   const route = await WeeklyRoute.findOne({ _id: req.params.id, user: req.user._id });
@@ -240,12 +302,26 @@ async function publishDay(req, res) {
   const day = route.days[index];
   if (!day) return res.status(404).json({ message: 'Day not found' });
 
-  const conn = await MetaConnection.findOne({ user: req.user._id, status: 'connected' }).select('+accessToken');
+  const handle = normalizeHandle(route.instagramUsername);
+  let conn;
+  if (handle) {
+    conn = await MetaConnection.findOne({
+      user: req.user._id,
+      status: 'connected',
+      igUsername: handle,
+    }).select('+accessToken');
+  } else {
+    conn = await MetaConnection.findOne({ user: req.user._id, status: 'connected' }).select('+accessToken');
+  }
+
   if (!conn?.accessToken || !conn.igUserId) {
     return res.status(403).json({
       code: 'META_NOT_CONNECTED',
-      message: 'Connect your Instagram Professional account with Meta to publish from Bauhly.',
+      message: handle
+        ? `Connect @${handle} with Meta to publish this plan. Each Instagram account needs its own Meta connection.`
+        : 'Connect your Instagram Professional account with Meta to publish from Bauhly.',
       connected: false,
+      igUsername: handle || null,
     });
   }
 
@@ -368,4 +444,6 @@ module.exports = {
   disconnect,
   publishDay,
   metaConfigured,
+  buildStatus,
+  normalizeHandle,
 };

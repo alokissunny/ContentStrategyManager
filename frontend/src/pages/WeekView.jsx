@@ -14,7 +14,7 @@ import Icon from '../brand/Icon';
 import YourAnalysisModal from '../components/YourAnalysisModal';
 import ConnectMetaModal from '../components/ConnectMetaModal';
 import { markDayPublished, updateDayContent, replanWeek, scheduleDay, setDayTime, runDayLayout } from '../api/routes';
-import { getMetaStatus, publishDayToMeta } from '../api/meta';
+import { getMetaStatus, publishDayToMeta, isMetaConnectedFor, metaConnectionFor } from '../api/meta';
 import { mediaProxyUrl, toDisplayUrl, isProxyUrl, rememberCdnBase, onCdnBase, getCdnBase, canvasSafeUrl, isProjectMediaKey, splitMediaKeys } from '../api/media';
 import { createImage, listGeneratedImages } from '../api/images';
 import { useProjects, uploadFiles } from '../lib/projectsStore';
@@ -1216,41 +1216,71 @@ function seedWordDraft(layout, slide, contentType) {
 // inline them anyway — and attempting it only throws console errors. Every
 // font stack in the compositions ends in `system-ui, sans-serif`, so the export
 // falls back to a clean system sans-serif rather than a serif default.
+// Tiny transparent GIF — used so empty image slots don't throw during
+// html-to-image serialisation (src-less <img> fires an error event and aborts publish).
+const EXPORT_IMG_PLACEHOLDER =
+  'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
+
 function rasterizeSlide(node, { timeoutMs = 20000 } = {}) {
   const w = node.offsetWidth;
   const h = node.offsetHeight;
   if (!w || !h) return Promise.reject(new Error('Slide has no size to render.'));
-  return toSvg(node, { cacheBust: true, skipFonts: true }).then(
-    (dataUrl) =>
-      new Promise((resolve, reject) => {
-        const img = new Image();
-        const timer = setTimeout(() => reject(new Error('Rendering the slide timed out.')), timeoutMs);
-        img.onload = () => {
-          clearTimeout(timer);
-          try {
-            const canvas = document.createElement('canvas');
-            canvas.width = w;
-            canvas.height = h;
-            const ctx = canvas.getContext('2d');
-            ctx.fillStyle = '#ffffff';
-            ctx.fillRect(0, 0, w, h);
-            ctx.drawImage(img, 0, 0, w, h);
-            canvas.toBlob(
-              (blob) => (blob ? resolve(blob) : reject(new Error('Could not encode the slide image.'))),
-              'image/jpeg',
-              0.95
-            );
-          } catch (err) {
-            reject(err);
-          }
-        };
-        img.onerror = () => {
-          clearTimeout(timer);
-          reject(new Error('Could not render the slide image.'));
-        };
-        img.src = dataUrl;
-      })
-  );
+
+  // Empty / broken image slots must not abort export. Give them a loadable
+  // data-URI for the duration of the snapshot, then restore.
+  const restored = [];
+  node.querySelectorAll('img').forEach((img) => {
+    const src = img.getAttribute('src');
+    if (!src || img.classList.contains('is-placeholder')) {
+      restored.push([img, src]);
+      img.setAttribute('src', EXPORT_IMG_PLACEHOLDER);
+    }
+  });
+
+  const restoreImgs = () => {
+    restored.forEach(([img, prev]) => {
+      if (prev == null || prev === '') img.removeAttribute('src');
+      else img.setAttribute('src', prev);
+    });
+  };
+
+  return toSvg(node, {
+    cacheBust: true,
+    skipFonts: true,
+    imagePlaceholder: EXPORT_IMG_PLACEHOLDER,
+  })
+    .finally(restoreImgs)
+    .then(
+      (dataUrl) =>
+        new Promise((resolve, reject) => {
+          const img = new Image();
+          const timer = setTimeout(() => reject(new Error('Rendering the slide timed out.')), timeoutMs);
+          img.onload = () => {
+            clearTimeout(timer);
+            try {
+              const canvas = document.createElement('canvas');
+              canvas.width = w;
+              canvas.height = h;
+              const ctx = canvas.getContext('2d');
+              ctx.fillStyle = '#ffffff';
+              ctx.fillRect(0, 0, w, h);
+              ctx.drawImage(img, 0, 0, w, h);
+              canvas.toBlob(
+                (blob) => (blob ? resolve(blob) : reject(new Error('Could not encode the slide image.'))),
+                'image/jpeg',
+                0.95
+              );
+            } catch (err) {
+              reject(err);
+            }
+          };
+          img.onerror = () => {
+            clearTimeout(timer);
+            reject(new Error('Could not render the slide image.'));
+          };
+          img.src = dataUrl;
+        })
+    );
 }
 
 function VisualNeedHint({ need }) {
@@ -1845,9 +1875,12 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
   const safeIdx = Math.min(slideIdx, Math.max(slides.length - 1, 0));
   const activeSlide = slides[safeIdx] || null;
   const handle = route?.instagramUsername || 'your.studio';
+  // Publish/schedule only when Meta is linked for *this* plan's Instagram handle.
+  const metaForHandle = metaConnectionFor(metaStatus, handle);
+  const metaConnected = isMetaConnectedFor(metaStatus, handle);
   // A post is "scheduled" when it carries a slot and hasn't gone out yet. The
   // slot only means anything with an account to publish to (bauhly-v3 §783).
-  const isScheduled = metaStatus.connected && !!day?.scheduledAt && !day?.published;
+  const isScheduled = metaConnected && !!day?.scheduledAt && !day?.published;
   const slotTime = toSpoken(slotTimeRaw(day, route));
   // the time is editable only while the decision is still open (bauhly-v3 §787)
   const canEditTime = !isScheduled && !day?.published;
@@ -2288,7 +2321,7 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
 
   function pressSchedule() {
     if (!route || !day || scheduling) return;
-    if (!metaStatus.connected) { setConnectOpen(true); return; }
+    if (!metaConnected) { setConnectOpen(true); return; }
     const caption = day.content?.caption?.trim();
     if (!caption) { setAskSchedule(true); return; }
     doSchedule();
@@ -2358,7 +2391,7 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
       return;
     }
 
-    if (!metaStatus.connected) {
+    if (!metaConnected) {
       setConnectOpen(true);
       return;
     }
@@ -2400,10 +2433,17 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
       // publish can be diagnosed from the console.
       console.error('[publish] failed:', err, err.response?.status, err.response?.data);
       if (err.response?.data?.code === 'META_NOT_CONNECTED') {
-        setMetaStatus((s) => ({ ...s, connected: false }));
         setConnectOpen(true);
       } else {
-        setPublishMsg(err.response?.data?.message || err.message || 'Could not publish just now');
+        const fromEvent = err && typeof err === 'object' && err.type === 'error'
+          ? 'A slide image failed to load while rendering. Check empty image slots, then try again.'
+          : '';
+        setPublishMsg(
+          err.response?.data?.message
+            || err.message
+            || fromEvent
+            || 'Could not publish just now'
+        );
       }
     } finally {
       setPublishing(false);
@@ -3027,7 +3067,7 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
             // Two marks, not one (bauhly-v3 §761): a scheduled post is a
             // decision about the future — the lime clock — while a published one
             // is the past, in grey. The lime only means anything with an account.
-            const scheduled = metaStatus.connected && !!d.scheduledAt && !done;
+            const scheduled = metaConnected && !!d.scheduledAt && !done;
             const ready = done || scheduled;
             return (
               <button
@@ -3093,7 +3133,7 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
                   §733/§739): Connect → Schedule → Unschedule, and Published once
                   a post has gone out. One control in one place, so nothing on
                   the header moves as the post's state changes. */}
-              {!metaStatus.connected ? (
+              {!metaConnected ? (
                 <button type="button" className="wv-ig__connect" onClick={() => setConnectOpen(true)}>
                   <Glyph name="instagram" size={13} />Connect to Meta
                 </button>
@@ -3583,14 +3623,14 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
                 </div>
               </div>
             ) : (
-              <div className={`wv-ig__slot${day.published ? ' is-out' : ''}${!metaStatus.connected ? ' is-muted' : ''}`}>
+              <div className={`wv-ig__slot${day.published ? ' is-out' : ''}${!metaConnected ? ' is-muted' : ''}`}>
                 <Glyph name={day.published ? 'check' : 'clock'} size={14} strokeWidth={2} />
                 <span className="wv-ig__slot-text">
                   <span className="wv-ig__slot-when">
                     {day.published ? 'Published' : isScheduled ? 'Scheduled for' : 'Best time'}
                     {' '}
                     <b>{shortDay(day.day)} {slotTime}</b>
-                    {day.published && metaStatus.igUsername ? ` · @${metaStatus.igUsername}` : ''}
+                    {day.published && metaForHandle?.igUsername ? ` · @${metaForHandle.igUsername}` : ''}
                   </span>
                   {isScheduled && (
                     <span className="wv-ig__slot-why">
@@ -3605,10 +3645,10 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
                       </button>
                     </span>
                   )}
-                  {!isScheduled && !day.published && metaStatus.connected && (
+                  {!isScheduled && !day.published && metaConnected && (
                     <span className="wv-ig__slot-why">Based on when your audience is most active.</span>
                   )}
-                  {!metaStatus.connected && !day.published && (
+                  {!metaConnected && !day.published && (
                     <span className="wv-ig__slot-why">Connect Meta to schedule this post.</span>
                   )}
                 </span>

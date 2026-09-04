@@ -72,7 +72,8 @@ export default function ConnectMetaModal({ configured, onClose, onConnected, onM
             Connect Meta to publish
           </h2>
           <p style={{ fontFamily: LS_FONT, fontSize: 14.5, lineHeight: 1.55, color: LS_T2, margin: 0 }}>
-            Bauhly can post this carousel straight to Instagram once you connect your Professional account through Meta.
+            Bauhly posts to the Instagram Professional account that matches this plan&rsquo;s handle.
+            Connect that account through Meta (use the Facebook login that owns its Page).
           </p>
 
           <ul style={{ listStyle: 'none', margin: '20px 0 0', padding: 0, display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -104,6 +105,20 @@ export default function ConnectMetaModal({ configured, onClose, onConnected, onM
               Meta App credentials aren’t on this server yet. You can still track posts as published for now.
             </p>
           )}
+
+          <p style={{
+            marginTop: 14, fontFamily: LS_FONT, fontSize: 12, lineHeight: 1.45, color: LS_MUTED,
+            wordBreak: 'break-all',
+          }}>
+            If Meta says “URL Blocked”, whitelist this exact redirect under{' '}
+            <strong>Facebook Login for Business → Settings → Valid OAuth Redirect URIs</strong>:
+            <br />
+            <code style={{ fontSize: 11, color: LS_INK }}>
+              {typeof window !== 'undefined'
+                ? `${window.location.origin}/dashboard/meta/callback`
+                : '/dashboard/meta/callback'}
+            </code>
+          </p>
         </div>
 
         <div style={{

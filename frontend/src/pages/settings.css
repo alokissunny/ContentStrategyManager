@@ -122,8 +122,35 @@
   font-size: 11px;
   font-weight: 700;
 }
+.set-row__badge--muted {
+  background: var(--surface-sunken);
+  color: var(--ink-500);
+}
+.set-row__badge--warn {
+  background: var(--negative-soft, #feefec);
+  color: var(--negative, #d92d20);
+}
 .set-row__sub { font-size: var(--text-sm); line-height: 1.5; color: var(--ink-500); }
 .set-row__sub.is-good { color: var(--trust-600); }
+.set-linkmap {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.set-linkmap__pair {
+  color: var(--ink-700);
+}
+.set-linkmap__pair b { color: var(--ink-900); font-weight: 700; }
+.set-linkmap__arrow {
+  display: inline-block;
+  margin: 0 6px;
+  color: var(--ink-quiet);
+  font-weight: 600;
+}
+.set-linkmap__page {
+  color: var(--ink-500);
+}
+.set-linkmap__page b { color: var(--ink-800); font-weight: 600; }
 .set-row__acts { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; justify-content: flex-end; }
 .set-row__x {
   display: grid;
