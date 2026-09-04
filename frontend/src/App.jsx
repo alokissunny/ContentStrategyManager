@@ -12,6 +12,8 @@ import CompetitorOverview from './pages/CompetitorOverview';
 import Settings from './pages/Settings';
 import MetaCallback from './pages/MetaCallback';
 import Privacy from './pages/Privacy';
+import Terms from './pages/Terms';
+import DataDeletion from './pages/DataDeletion';
 import ProtectedLayout from './components/ProtectedLayout';
 
 export default function App() {
@@ -19,6 +21,8 @@ export default function App() {
     <Routes>
       <Route path="/" element={<Landing />} />
       <Route path="/privacy" element={<Privacy />} />
+      <Route path="/terms" element={<Terms />} />
+      <Route path="/data-deletion" element={<DataDeletion />} />
       <Route path="/auth" element={<Auth />} />
       <Route element={<ProtectedLayout />}>
         <Route path="/onboarding" element={<Onboarding />} />

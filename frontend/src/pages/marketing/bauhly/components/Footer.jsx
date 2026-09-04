@@ -22,6 +22,8 @@ export default function Footer() {
           <a href="#problem">The problem</a>
           <a href="#questions">Questions</a>
           <a href="/privacy">Privacy</a>
+          <a href="/terms">Terms</a>
+          <a href="/data-deletion">Data deletion</a>
           <a href="mailto:hello@bauhly.com">hello@bauhly.com</a>
         </div>
       </div>

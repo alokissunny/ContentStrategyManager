@@ -1,59 +1,13 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
+import { LEGAL_CSS } from './legalCss';
 
 const updated = '4 September 2026';
 
 export default function Privacy() {
   return (
     <main className="legal">
-      <style>{`
-        .legal {
-          min-height: 100vh;
-          background: #f7f5f1;
-          color: #1a1916;
-          font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
-          line-height: 1.55;
-        }
-        .legal__wrap {
-          max-width: 720px;
-          margin: 0 auto;
-          padding: 48px 24px 80px;
-        }
-        .legal__back {
-          display: inline-block;
-          margin-bottom: 28px;
-          color: #5c5850;
-          text-decoration: none;
-          font-size: 14px;
-        }
-        .legal__back:hover { color: #1a1916; }
-        .legal h1 {
-          margin: 0 0 8px;
-          font-size: clamp(28px, 5vw, 40px);
-          line-height: 1.15;
-          letter-spacing: -0.03em;
-        }
-        .legal__meta {
-          margin: 0 0 36px;
-          color: #74736d;
-          font-size: 14px;
-        }
-        .legal h2 {
-          margin: 32px 0 10px;
-          font-size: 18px;
-          letter-spacing: -0.02em;
-        }
-        .legal p, .legal li {
-          margin: 0 0 12px;
-          font-size: 15px;
-          color: #2e2c28;
-        }
-        .legal ul {
-          margin: 0 0 12px;
-          padding-left: 1.2em;
-        }
-        .legal a { color: #1a1916; }
-      `}</style>
+      <style>{LEGAL_CSS}</style>
       <div className="legal__wrap">
         <Link className="legal__back" to="/">← Bauhly</Link>
         <h1>Privacy Policy</h1>
@@ -134,7 +88,9 @@ export default function Privacy() {
         <p>
           We retain account and content data while your account is active and as
           needed to provide the Service. You may request deletion of your account
-          data by emailing <a href="mailto:hello@bauhly.com">hello@bauhly.com</a>.
+          data by emailing <a href="mailto:hello@bauhly.com">hello@bauhly.com</a>
+          {' '}or following the instructions on our{' '}
+          <Link to="/data-deletion">Data deletion</Link> page.
           We may retain limited records as required for legal, security, or
           operational purposes.
         </p>
@@ -177,6 +133,9 @@ export default function Privacy() {
         <p>
           Questions about this Privacy Policy:{' '}
           <a href="mailto:hello@bauhly.com">hello@bauhly.com</a>
+        </p>
+        <p>
+          See also our <Link to="/terms">Terms of Service</Link>.
         </p>
       </div>
     </main>
