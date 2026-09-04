@@ -21,6 +21,7 @@ export default function Footer() {
           <span className="foot-h">Company</span>
           <a href="#problem">The problem</a>
           <a href="#questions">Questions</a>
+          <a href="/privacy">Privacy</a>
           <a href="mailto:hello@bauhly.com">hello@bauhly.com</a>
         </div>
       </div>

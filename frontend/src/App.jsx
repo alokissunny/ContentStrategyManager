@@ -11,12 +11,14 @@ import LibrarySettings from './pages/visuallibrary/LibrarySettings';
 import CompetitorOverview from './pages/CompetitorOverview';
 import Settings from './pages/Settings';
 import MetaCallback from './pages/MetaCallback';
+import Privacy from './pages/Privacy';
 import ProtectedLayout from './components/ProtectedLayout';
 
 export default function App() {
   return (
     <Routes>
       <Route path="/" element={<Landing />} />
+      <Route path="/privacy" element={<Privacy />} />
       <Route path="/auth" element={<Auth />} />
       <Route element={<ProtectedLayout />}>
         <Route path="/onboarding" element={<Onboarding />} />
