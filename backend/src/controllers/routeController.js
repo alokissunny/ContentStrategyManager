@@ -597,6 +597,7 @@ async function generateAndSaveRoute(userId, profile, trigger = 'generate', planS
       monthCalendar,
       sessionId: planSource.sessionId || '',
       captureIds: planSource.captureIds || [],
+      userId,
     });
   } catch (err) {
     console.error(`[route] month fill failed for @${profile.username}:`, err.message);
@@ -821,6 +822,7 @@ async function replanWeek(req, res) {
       focusPillar,
       usedAssetKeys,
       monthCalendar,
+      userId: req.user._id,
     });
   } catch (err) {
     console.error(`[route] replan failed for @${username}:`, err.message);

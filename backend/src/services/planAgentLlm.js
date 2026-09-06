@@ -38,6 +38,11 @@ const AGENTS = {
     modelEnv: 'PLAN_LAYOUT_MODEL',
     providerEnv: 'PLAN_LAYOUT_PROVIDER',
   },
+  visual: {
+    defaultProvider: 'openai',
+    modelEnv: 'PLAN_VISUAL_MODEL',
+    providerEnv: 'PLAN_VISUAL_PROVIDER',
+  },
 };
 
 function envText(name) {

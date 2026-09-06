@@ -290,7 +290,7 @@ Resolve using this order:
 1. `no-adaptation` — required evidence is sufficiently available.
 2. `use-available-alternative` — another supplied asset truthfully communicates the same required meaning.
 3. `derive-from-existing` — cropping, close-up, framing, sequencing, or another treatment of supplied evidence can communicate the need without inventing information.
-4. `generate-conceptual-support` — generate a clearly conceptual visual when the required communication is explanatory rather than factual evidence, **and** `approvedGenerationRoute` is `generate`. If the route is `assets-only`, skip this step.
+4. `generate-conceptual-support` — generate a clearly conceptual visual when the required communication is explanatory rather than factual evidence, **and** `approvedGenerationRoute` is `generate`. If the route is `assets-only`, skip this step. The Visual Generator agent executes this resolution after Day Writer when no supplied asset is bound.
 5. `adapt-content-structure` — change how the meaning is structurally communicated so unavailable evidence is no longer required.
 6. `text-only-fallback` — communicate the supported meaning through text when text can carry it truthfully.
 7. `reduce-visual-requirement` — narrow the visual's role to only what the available evidence genuinely supports, including reducing `evidence` to `context` when the asset can establish situation but cannot prove the claim.

@@ -508,7 +508,6 @@
 }
 .wv-dynlay img[data-slot="image"] {
   display: block !important;
-  max-width: none;
   background: var(--t-empty-bg, #ddd8ce);
   opacity: 1 !important;
   visibility: visible !important;
@@ -579,12 +578,23 @@
 .wv-dynlay.is-themed .slide [data-slot="stat"] {
   color: var(--t-accent-bg, #ff5227);
 }
-/* Sizing comes from the layout agent. Real photos may shrink in flex/grid;
-   empty placeholder slots must NOT get min-height:0 or they collapse. */
+/* Empty slots keep agent flex/cqh sizing. A real bitmap has an intrinsic
+   size; without these constraints a 4:5 photo at width 100% / height auto
+   fills the whole slide and overflow:hidden clips the copy beneath.
+   overflow:hidden also zeroes the flex automatic minimum (CSS Flexbox §4.5). */
 .wv-dynlay img[data-slot="image"]:not(.is-placeholder) {
   min-width: 0;
   min-height: 0;
+  max-width: 100%;
+  max-height: 100%;
+  overflow: hidden;
   object-fit: cover;
+  flex-shrink: 1;
+}
+.wv-dynlay .slide:has(> img[data-slot="image"]:not(.is-placeholder)),
+.wv-dynlay .slide :has(> img[data-slot="image"]:not(.is-placeholder)) {
+  min-width: 0;
+  min-height: 0;
 }
 .wv-dynlay img {
   display: block;

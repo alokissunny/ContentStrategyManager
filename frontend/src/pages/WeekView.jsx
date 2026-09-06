@@ -1767,7 +1767,7 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
       .then((imgs) => { if (alive) setGenImages(imgs); })
       .catch(() => { /* leave empty — a fresh session simply has none yet */ });
     return () => { alive = false; };
-  }, [initialRoute?.instagramUsername]);
+  }, [initialRoute?.instagramUsername, weekId]);
 
   const allImages = useMemo(() => {
     const fromProjects = collectProjectImages(projects);

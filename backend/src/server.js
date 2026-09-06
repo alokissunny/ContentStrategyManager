@@ -14,6 +14,7 @@ connectDB()
       `strategist=${process.env.PLAN_STRATEGIST_REASONING_EFFORT || 'medium'}`,
       `structure=${process.env.PLAN_STRUCTURE_REASONING_EFFORT || 'medium'}`,
       `day=${process.env.PLAN_DAY_REASONING_EFFORT || 'medium'}`,
+      `visual=${process.env.PLAN_VISUAL_REASONING_EFFORT || 'low'}`,
     ].join(' ');
     app.listen(PORT, () => {
       console.log(`Server running on port ${PORT} · layout=${layout.provider}/${layout.model} · effort ${effort}`);

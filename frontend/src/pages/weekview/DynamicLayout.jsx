@@ -408,6 +408,64 @@ export default function DynamicLayout({ html, copy, imageUrls, subjects, paint, 
     if (canvasRef.current) void canvasRef.current.offsetWidth;
   }, [markup]);
 
+  // When a real photo is injected, its intrinsic ratio can still push in-flow
+  // copy past the 4:5 frame (debug preview has no src, so it never hits this).
+  // Shrink only the image, and only when text is actually clipped.
+  useLayoutEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return undefined;
+    const slide = canvas.querySelector('.slide, article');
+    const img = canvas.querySelector('img[data-slot="image"]:not(.is-placeholder)');
+    if (!slide || !img) return undefined;
+
+    const clippedBy = () => {
+      const frame = slide.getBoundingClientRect();
+      if (!frame.height) return 0;
+      const slots = slide.querySelectorAll([
+        '[data-slot="title"]',
+        '[data-slot="subtitle"]',
+        '[data-slot="body"]',
+        '[data-slot="items"]',
+        '[data-slot="quote"]',
+        '[data-slot="stat"]',
+        '[data-slot="action"]',
+        '[data-slot="comparisonA"]',
+        '[data-slot="comparisonB"]',
+        'h1',
+        'blockquote',
+        'ul',
+        'ol',
+      ].join(','));
+      let extra = 0;
+      slots.forEach((el) => {
+        if (!String(el.textContent || '').trim()) return;
+        const box = el.getBoundingClientRect();
+        extra = Math.max(extra, box.bottom - frame.bottom, frame.top - box.top);
+      });
+      return extra;
+    };
+
+    const fit = () => {
+      const extra = clippedBy();
+      if (extra <= 2) return;
+      const photo = img.getBoundingClientRect();
+      const next = Math.max(64, photo.height - extra - 12);
+      if (Math.abs(photo.height - next) < 1) return;
+      img.style.maxHeight = `${next}px`;
+      img.style.minHeight = '0';
+      img.style.overflow = 'hidden';
+    };
+
+    fit();
+    img.addEventListener('load', fit);
+    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(fit) : null;
+    ro?.observe(slide);
+    return () => {
+      img.removeEventListener('load', fit);
+      ro?.disconnect();
+    };
+  }, [markup]);
+
   if (markup && body) {
     // Render the agent's composition verbatim by default. When the studio has
     // applied Library visual settings (`themed`), `is-themed` repaints the

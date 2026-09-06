@@ -950,7 +950,7 @@ async function generateWeeklyPlan(profile, brandDna, competitorInsights = null, 
   );
   const useMulti = multiAgentEnabled();
   console.log(
-    `[weeklyPlan] Generating plan for @${snapshot.username} (mode=${useMulti ? 'multi-agent (strategist→structure→day→layout)' : 'single'}, ` +
+    `[weeklyPlan] Generating plan for @${snapshot.username} (mode=${useMulti ? 'multi-agent (strategist→structure→day→visual→layout)' : 'single'}, ` +
       `focus: ${focusPillar}, ${insightNote}, ` +
       `${monthCalendar.occupied.length} occupied / ${monthCalendar.emptyDates.length} empty month days, ` +
       `${projects.length} projects / ${assetCount} photos, ${analyzedCount} with vision analysis) with ${model}` +
@@ -992,6 +992,7 @@ async function generateWeeklyPlan(profile, brandDna, competitorInsights = null, 
       monthCalendar,
       sessionId: options.sessionId || '',
       captureIds: options.captureIds || [],
+      userId: options.userId || '',
     });
   } else {
     generated = await generateSingleAgentPlan({
