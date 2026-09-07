@@ -734,3 +734,9 @@ Photographs available for this brief. This is the only visual catalog. Rows with
 ### Platform constraints
 
 {{PLATFORM_CONSTRAINTS_JSON}}
+
+### Brand (complete Business memory)
+
+Audience, first problem, offer, position, proof, voice, visual style, and never-do. Use this when choosing BrandRole units, CTA expression, and who the structure must speak to. Do not invent facts from it. Do not ignore a filled `voice` or `audience`.
+
+{{BRAND_JSON}}

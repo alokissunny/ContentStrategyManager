@@ -1,8 +1,9 @@
 /*
- * Strategy Context Compiler — shrinks raw Brand DNA, competitor dashboards,
- * and project libraries into the compact slices each plan agent actually uses.
+ * Strategy Context Compiler — packs Brand DNA, competitor dashboards, and
+ * project libraries into the slices each plan agent uses.
  *
- * Compilation is deterministic (no extra LLM). Version ids are content hashes
+ * Business memory is passed in full (no field clipping). Other context is
+ * compiled deterministically (no extra LLM). Version ids are content hashes
  * so logs can show when a summary would have been reused. The compact JSON is
  * always included in the request (stateless models cannot look up a version).
  */
@@ -39,49 +40,47 @@ function versionOf(prefix, payload) {
   return `${prefix}-${h}`;
 }
 
+function brandText(value) {
+  return value == null ? '' : String(value).replace(/\s+/g, ' ').trim();
+}
+
 function splitGuardrails(neverDo) {
   const raw = String(neverDo || '')
     .split(/[\n.;]+/)
-    .map((s) => clip(s, 90))
-    .filter(Boolean)
-    .slice(0, 4);
+    .map((s) => s.replace(/\s+/g, ' ').trim())
+    .filter(Boolean);
   const always = ['No invented proof or results'];
   const extra = raw.filter((g) => !/invent/i.test(g));
-  return [...always, ...extra].slice(0, 5);
+  return [...always, ...extra];
 }
 
-function compileBrandContext(brandDna) {
+/** Full Business memory — never clip. Every later agent reads this same object. */
+function compileBrandMemory(brandDna) {
   const dna = brandDna && typeof brandDna === 'object' ? brandDna : {};
   const source = {
-    whoYouHelp: clip(dna.whoYouHelp, 140),
-    position: clip(dna.position, 140),
-    whatYouOffer: clip(dna.whatYouOffer, 140),
-    howYouSound: clip(dna.howYouSound, 160),
-    neverDo: clip(dna.neverDo, 240),
+    offer: brandText(dna.whatYouOffer),
+    audience: brandText(dna.whoYouHelp),
+    firstProblem: brandText(dna.firstProblem),
+    position: brandText(dna.position),
+    proof: brandText(dna.proof),
+    voice: brandText(dna.howYouSound),
+    visualStyle: brandText(dna.visualStyle),
+    neverDo: brandText(dna.neverDo),
   };
   const key = versionOf('brand', source);
   return memoGet(key, () => ({
     version: key,
-    audience: source.whoYouHelp,
-    position: source.position,
-    offer: source.whatYouOffer,
-    voice: source.howYouSound,
+    ...source,
     guardrails: splitGuardrails(source.neverDo),
   }));
 }
 
-/** Day writer needs more voice than the strategist, still not visualStyle. */
+function compileBrandContext(brandDna) {
+  return compileBrandMemory(brandDna);
+}
+
 function compileBrandVoice(brandDna) {
-  const dna = brandDna && typeof brandDna === 'object' ? brandDna : {};
-  return {
-    audience: clip(dna.whoYouHelp, 160),
-    position: clip(dna.position, 160),
-    offer: clip(dna.whatYouOffer, 160),
-    voice: clip(dna.howYouSound, 220),
-    firstProblem: clip(dna.firstProblem, 140),
-    proof: clip(dna.proof, 140),
-    neverDo: clip(dna.neverDo, 200),
-  };
+  return compileBrandMemory(brandDna);
 }
 
 function competitorConfidence(dashboard) {
@@ -811,13 +810,13 @@ function compileStrategyContext({
   sessionId = '',
   captureIds = [],
 }) {
-  const brand = compileBrandContext(brandDna);
+  const brand = compileBrandMemory(brandDna);
   const competitor = compileCompetitorSignals(competitorInsights);
   const planSource = { sessionId, captureIds };
   const assetContext = compileAssetContext(projects, planSource);
   return {
     brand,
-    brandVoice: compileBrandVoice(brandDna),
+    brandVoice: brand,
     competitor,
     authority: compileAuthority(focusSummary),
     projects: compileProjectTruth(projects, planSource),
@@ -847,4 +846,5 @@ module.exports = {
   sessionRowsOf,
   json,
   clip,
+  compileBrandMemory,
 };

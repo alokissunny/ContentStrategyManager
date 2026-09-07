@@ -109,8 +109,8 @@ Writer slides that still need a visual, with the locked Structure recommendation
 
 {{STRATEGIST_BRIEF_JSON}}
 
-### Brand
+### Brand (complete Business memory)
 
-Style hints only. Do not invent a new visual language.
+Style and mood from `visualStyle` and `voice`. Use the full fields. Do not invent a new visual language. Do not ignore a filled `visualStyle`.
 
 {{BRAND_JSON}}

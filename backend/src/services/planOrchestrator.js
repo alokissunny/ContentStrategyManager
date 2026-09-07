@@ -1092,13 +1092,14 @@ function writerStructureOf(structure) {
   };
 }
 
-async function writeContentStructure({ source, brief, dayAssets }) {
+async function writeContentStructure({ source, brief, dayAssets, brandJson }) {
   const visuals = mergeAllocatedVisuals(brief, dayAssets);
   const assembled = assembleAgentPrompt('plan-content-structure.md', {
     AVAILABLE_ELEMENTS_JSON: json(AVAILABLE_ELEMENTS),
     STRATEGIST_BRIEF_JSON: json(strategyBriefPayload(brief)),
     ALLOCATED_VISUALS_JSON: json(visuals),
     PLATFORM_CONSTRAINTS_JSON: json(platformConstraintsOf(brief.format)),
+    BRAND_JSON: brandJson || json({}),
   });
   return callAgent({
     source,
@@ -1738,11 +1739,12 @@ async function attachGeneratedVisuals({
   return agent;
 }
 
-async function reviewDayPost({ source, brief, post, structure, dayAssets }) {
+async function reviewDayPost({ source, brief, post, structure, dayAssets, brandJson }) {
   const assembled = assembleAgentPrompt('plan-quality.md', {
     BRIEF_JSON: json(qualityBriefPayload(brief, dayAssets)),
     STRUCTURE_JSON: json(structure || {}),
     POST_JSON: json(post),
+    BRAND_JSON: brandJson || json({}),
   });
   return callAgent({
     source,
@@ -1786,6 +1788,9 @@ async function runMultiAgentPlan({
   const debugAgents = [];
   const usages = [];
 
+  const brandFilled = ['offer', 'audience', 'firstProblem', 'position', 'proof', 'voice', 'visualStyle', 'neverDo']
+    .filter((k) => String(ctx.brand?.[k] || '').trim())
+    .map((k) => `${k}:${String(ctx.brand[k]).length}`);
   console.log(
     `[planOrchestrator] multi-agent plan for @${username} · focus=${ctx.authority.priority}` +
       ` · emptyMonthDays=${emptyDates.length}` +
@@ -1793,7 +1798,9 @@ async function runMultiAgentPlan({
       ` · captureAssets=${(ctx.projects?.conversationCaptures || []).reduce((n, c) => n + (c.assets || []).length, 0)}` +
       ` · projectAssets=${(ctx.assetContext?.projectAssets || []).reduce((n, r) => n + (r.assets || []).length, 0)}` +
       (sessionId ? ` · session=${sessionId}` : '') +
-      ` · brand=${ctx.versions.brand} · competitor=${ctx.versions.competitor}`,
+      ` · brand=${ctx.versions.brand}` +
+      (brandFilled.length ? ` [${brandFilled.join(' ')}]` : ' [empty]') +
+      ` · competitor=${ctx.versions.competitor}`,
   );
 
   // ── 1. Strategist ────────────────────────────────────────────────────────
@@ -1808,13 +1815,7 @@ async function runMultiAgentPlan({
     }),
     OCCUPIED_TOPICS_JSON: json(ctx.calendar.occupiedTopics || []),
     AUTHORITY_JSON: json(ctx.authority),
-    BRAND_JSON: json({
-      audience: ctx.brand.audience,
-      position: ctx.brand.position,
-      offer: ctx.brand.offer,
-      voice: ctx.brand.voice,
-      guardrails: ctx.brand.guardrails,
-    }),
+    BRAND_JSON: json(ctx.brand),
     COMPETITOR_SIGNALS_JSON: json({
       confidence: ctx.competitor.confidence,
       signals: ctx.competitor.signals,
@@ -1854,10 +1855,11 @@ async function runMultiAgentPlan({
     avoid: strategist.parsed.constraints?.avoid || [],
   });
   const generationSignalsJson = json(generationSignalsOf(ctx.competitor));
-  const brandJson = json(ctx.brandVoice || ctx.brand || {});
+  const brandMemory = ctx.brand || {};
+  const brandJson = json(brandMemory);
   const visualBrand = {
-    ...(ctx.brandVoice || {}),
-    mood: optionalText(brandDna?.visualStyle),
+    ...brandMemory,
+    mood: optionalText(brandMemory.visualStyle),
   };
   const conversationCaptures = Array.isArray(ctx.projects?.conversationCaptures)
     ? ctx.projects.conversationCaptures : [];
@@ -1957,6 +1959,7 @@ async function runMultiAgentPlan({
           source: `Structure:${label}`,
           brief,
           dayAssets,
+          brandJson,
         });
         collect(structure);
       } catch (err) {
@@ -2052,6 +2055,7 @@ async function runMultiAgentPlan({
           post: writer.parsed,
           structure: lockedStructure,
           dayAssets,
+          brandJson,
         });
         collect(review);
       } catch (err) {
@@ -2084,6 +2088,7 @@ async function runMultiAgentPlan({
             post: writer.parsed,
             structure: lockedStructure,
             dayAssets,
+            brandJson,
           });
           collect(review);
         } catch (err) {

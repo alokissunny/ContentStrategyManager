@@ -187,6 +187,18 @@ async function loadBrandDna(userId, username) {
     createdAt: -1,
   });
   if (!report) return null;
+  if (report.brandDnaClearedAt) {
+    return {
+      whatYouOffer: '',
+      whoYouHelp: '',
+      firstProblem: '',
+      position: '',
+      proof: '',
+      howYouSound: '',
+      visualStyle: '',
+      neverDo: '',
+    };
+  }
   return {
     whatYouOffer: report.whatYouOffer || '',
     whoYouHelp: report.whoYouHelp || '',

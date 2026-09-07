@@ -133,7 +133,7 @@ Output **only** a single fenced ```json code block (no preamble, no closing rema
     labels** — the headline is composited on top afterwards.
   - Also fill `onScreenText` with the same titles in order.
 - `hashtags`: 3–6, lowercase, no `#`. `prompts`: 2–4 items. `notes`: 1–3 short production lines.
-- Keep the voice consistent with `howYouSound` from the Brand DNA. No emojis unless the account's
+- Keep the voice consistent with the full `howYouSound` field in Brand DNA — every caption, hook and on-screen line. Do not summarise or ignore it. No emojis unless the account's
   own captions use them.
 - Output only the json block — no text before or after it.
 

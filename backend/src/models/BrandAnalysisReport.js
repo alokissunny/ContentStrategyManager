@@ -16,6 +16,7 @@ const brandAnalysisReportSchema = new mongoose.Schema(
     visualStyle: { type: String, default: '' },
     neverDo: { type: String, default: '' },
     confirmedAt: { type: Date, default: null },
+    brandDnaClearedAt: { type: Date, default: null },
     // Link to the detailed competitor-analysis Markdown (stored in S3).
     competitorAnalysisS3Key: { type: String, default: '' },
     competitorAnalysisAt: { type: Date, default: null },

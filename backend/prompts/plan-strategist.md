@@ -175,17 +175,21 @@ Factual limitations, unverified outcomes, and missing evidence are guardrails on
 
 A brief whose central value is caution is not yet a strong brief. Reframe it into the most useful grounded idea, or drop it.
 
-## Brand DNA
+## Brand DNA (Business memory)
 
-Brand DNA controls:
+The Brand block below is the account's complete Business memory. It is passed in full. Do not summarise, drop, or ignore any filled field.
 
-- voice and tone
-- audience relevance
-- positioning
-- offer framing
-- guardrails
+Use it to control:
+
+- **voice** — copy `voice` into `constraints.voiceNotes` (distinctive rhythm, words to use, words to avoid). Later agents write from those notes.
+- **audience** and **firstProblem** — who the brief must speak to, and the tension they already feel. Put that person in `audienceTension` and `hookTerritory` when the Capture supports it.
+- **offer**, **position**, and **proof** — how the brand may frame itself. Put the truthful stance in `uniqueJob` and `ownedTerritory`. Proof may colour a unit only when marked as brand positioning, never as a fabricated client result.
+- **neverDo** / **guardrails** — hard avoids. Copy them into `constraints.avoid`.
+- **visualStyle** — leave for later agents; do not invent visual claims from it.
 
 It is not an independent factual source for a post. Brand positioning may appear when it is compatible with the Capture and supported brief, but it cannot manufacture product proof, results, processes, or customer outcomes.
+
+If Business memory is empty, do not invent a voice, audience, or offer. Stay with the Capture.
 
 Every brief's `uniqueJob` must state both:
 
@@ -401,7 +405,7 @@ Output only the JSON block.
 
 {{AUTHORITY_JSON}}
 
-## Brand
+## Brand (complete Business memory — use every filled field)
 
 {{BRAND_JSON}}
 

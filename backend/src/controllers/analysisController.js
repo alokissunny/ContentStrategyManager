@@ -29,8 +29,9 @@ function fieldsFromReport(report, fallback = {}) {
   return fields;
 }
 
-/** True when Mongo already has at least one Brand Profile field — no S3 round-trip needed. */
+/** True when Mongo already has Brand Profile fields, or they were cleared on purpose. */
 function hasStoredBrandDna(report) {
+  if (report.brandDnaClearedAt) return true;
   return BRAND_DNA_FIELDS.some(({ key }) => String(report[key] || '').trim().length > 0);
 }
 
@@ -83,7 +84,7 @@ async function getLatestBrandDna(req, res) {
 
   const report = await BrandAnalysisReport.findOne(filter)
     .sort({ createdAt: -1 })
-    .select(['_id', 's3Key', ...BRAND_DNA_FIELDS.map(({ key }) => key)].join(' '))
+    .select(['_id', 's3Key', 'brandDnaClearedAt', ...BRAND_DNA_FIELDS.map(({ key }) => key)].join(' '))
     .lean();
 
   if (!report) {
@@ -130,6 +131,8 @@ async function updateBrandDna(req, res) {
     fields[key] = req.body.sections?.[key] ?? report[key] ?? '';
     report[key] = fields[key];
   });
+  const cleared = BRAND_DNA_FIELDS.every(({ key }) => !String(fields[key] || '').trim());
+  report.brandDnaClearedAt = cleared ? new Date() : null;
 
   await report.save();
 
@@ -175,6 +178,8 @@ async function reviseBrandDna(req, res) {
   for (const { key } of BRAND_DNA_FIELDS) {
     report[key] = fields[key] || '';
   }
+  const revisedEmpty = BRAND_DNA_FIELDS.every(({ key }) => !String(fields[key] || '').trim());
+  report.brandDnaClearedAt = revisedEmpty ? (report.brandDnaClearedAt || new Date()) : null;
   await report.save();
 
   res.json({ reportId: report._id, ...buildBrandDnaSections(report, fields) });

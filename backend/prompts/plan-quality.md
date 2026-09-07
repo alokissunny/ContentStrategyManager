@@ -677,6 +677,20 @@ Flag only when they materially reduce quality.
 
 ---
 
+# 16b. BRAND VOICE
+
+`BRAND_JSON` is the account's complete Business memory. Score and gate against it.
+
+If `voice` is filled, the hook, slides, caption, and CTA must sound like that voice — rhythm, formality, and wording habits. Revise when the copy is a generic studio template that any competing account could publish.
+
+If `audience` or `firstProblem` is filled, the post must speak to that person (when the Capture supports it), not to a crowd.
+
+If `neverDo` is filled, fail or revise any line that violates it.
+
+Do not invent a voice when memory is empty. Do not treat a missing offer as permission to sell a generic service.
+
+---
+
 # 17. CLARITY
 
 Every slide should make sense to someone seeing the post for the first time.
@@ -1018,3 +1032,9 @@ Slide/scene mapping, locked elements, and the resolved `visual` the Day Writer w
 ## Day Writer output
 
 {{POST_JSON}}
+
+## Brand (complete Business memory)
+
+Voice, audience, first problem, offer, position, proof, visual style, and never-do. Use this for the Brand voice / humanness score and for voice-mismatch revises. Do not invent facts from it.
+
+{{BRAND_JSON}}
