@@ -4,6 +4,8 @@
       "ID": "bauhly-project-media",
       "AllowedOrigins": [
         "http://localhost:5173",
+        "https://www.bauhly.com",
+        "https://bauhly.com",
         "https://igsignal-web.onrender.com"
       ],
       "AllowedMethods": ["PUT", "GET", "HEAD"],

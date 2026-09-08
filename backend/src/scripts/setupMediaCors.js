@@ -21,11 +21,22 @@ const {
 const RULE_ID = 'bauhly-project-media'; // our marker, so re-runs update in place
 
 function originsFromEnv() {
-  const set = new Set(['http://localhost:5173']); // dev
-  const client = (process.env.CLIENT_URL || '').trim().replace(/\/$/, '');
-  if (client) set.add(client);
-  const extra = (process.env.MEDIA_CORS_ORIGINS || '').split(',').map((s) => s.trim()).filter(Boolean);
-  extra.forEach((o) => set.add(o.replace(/\/$/, '')));
+  const set = new Set([
+    'http://localhost:5173',
+    'https://www.bauhly.com',
+    'https://bauhly.com',
+    'https://igsignal-web.onrender.com',
+  ]);
+  const extra = [
+    process.env.CLIENT_URL,
+    process.env.CORS_ORIGINS,
+    process.env.MEDIA_CORS_ORIGINS,
+  ]
+    .filter(Boolean)
+    .flatMap((s) => String(s).split(','))
+    .map((s) => s.trim().replace(/\/$/, ''))
+    .filter(Boolean);
+  extra.forEach((o) => set.add(o));
   return [...set];
 }
 

@@ -18,7 +18,33 @@ const { notFound, errorHandler } = require('./middleware/errorHandler');
 
 const app = express();
 
-app.use(cors({ origin: process.env.CLIENT_URL || '*' }));
+/** Browser origins allowed to call this API. CLIENT_URL / CORS_ORIGINS may be comma-separated. */
+function allowedOrigins() {
+  const fromEnv = [process.env.CLIENT_URL, process.env.CORS_ORIGINS]
+    .filter(Boolean)
+    .flatMap((s) => String(s).split(','))
+    .map((s) => s.trim().replace(/\/$/, ''))
+    .filter(Boolean);
+  return new Set([
+    'http://localhost:5173',
+    'https://www.bauhly.com',
+    'https://bauhly.com',
+    'https://igsignal-web.onrender.com',
+    ...fromEnv,
+  ]);
+}
+
+app.use(cors({
+  origin(origin, callback) {
+    if (!origin) return callback(null, true);
+    if (allowedOrigins().has(origin)) return callback(null, true);
+    if (process.env.NODE_ENV !== 'production' && /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)) {
+      return callback(null, true);
+    }
+    return callback(null, false);
+  },
+  credentials: true,
+}));
 const jsonParser = express.json();
 const debugJsonParser = express.json({ limit: '4mb' });
 app.use((req, res, next) => {
