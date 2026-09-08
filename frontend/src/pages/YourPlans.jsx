@@ -24,6 +24,7 @@ import {
 } from '../lib/planGeneration';
 import { CaptureChat } from './Projects';
 import { useAuth } from '../context/AuthContext';
+import { getBrandDna, reviseBrandDna } from '../api/brandDna';
 import WeekView from './WeekView';
 import PlanLoom from './PlanLoom';
 import Checkin from './checkin/Checkin';
@@ -325,6 +326,8 @@ export default function YourPlans() {
   const captureGenStarted = useRef(false);
   const projects = useProjects();
   const { user } = useAuth();
+  const [brandGaps, setBrandGaps] = useState([]);
+  const [brandReportId, setBrandReportId] = useState(null);
 
   async function reload() {
     const [cur, all] = await Promise.all([
@@ -410,6 +413,28 @@ export default function YourPlans() {
       startMonthFillWatch();
     }
   }, [loading, routes, monthFilling]);
+
+  useEffect(() => {
+    if (view !== 'checkin') return undefined;
+    let cancelled = false;
+    getBrandDna()
+      .then((data) => {
+        if (cancelled) return;
+        setBrandReportId(data.reportId || null);
+        const rows = Array.isArray(data.gaps) ? data.gaps : [];
+        setBrandGaps(rows.map((g) => ({
+          key: g.key,
+          question: g.question || g.missing || '',
+          placeholder: g.prompt || 'In your own words…',
+        })));
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setBrandGaps([]);
+        setBrandReportId(null);
+      });
+    return () => { cancelled = true; };
+  }, [view]);
 
   // PlanLoom is this page's wait; the store keeps the request alive if they leave.
   useEffect(() => {
@@ -562,7 +587,15 @@ export default function YourPlans() {
         lastWeek={null}
         lastProjectId={ckProjects[0]?.id || null}
         hasPlanned={Boolean(current) || routes.length > 0}
-        brandGaps={[]}
+        brandGaps={brandGaps}
+        onFillGap={async (key, text) => {
+          if (!brandReportId || !text) return;
+          try {
+            await reviseBrandDna(brandReportId, text);
+          } catch {
+            /* plan still runs; memory can be filled on the Business memory page */
+          }
+        }}
         onGenerate={onCheckinGenerate}
         onCancel={() => setView('list')}
         cancelLabel={current ? "Keep this week's plan" : 'Not now'}

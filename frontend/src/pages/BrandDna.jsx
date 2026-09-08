@@ -8,7 +8,8 @@ import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 're
 import { createPortal } from 'react-dom';
 import { Link } from 'react-router-dom';
 import Glyph from '../components/Glyph';
-import { getBrandDna, reviseBrandDna, updateBrandDna } from '../api/brandDna';
+import { fillBrandDnaGaps, getBrandDna, getBrandDnaRaw, reviseBrandDna, updateBrandDna } from '../api/brandDna';
+import { useAiDebug } from '../lib/aiDebug';
 import './brandDna.css';
 
 /** Friendly groupings over the stored Brand DNA keys (screenshot layout). */
@@ -50,6 +51,17 @@ const MEMORY_KEYS = [
   'neverDo',
 ];
 
+const DNA_LABELS = {
+  whatYouOffer: 'What you offer',
+  whoYouHelp: "Who it's for",
+  firstProblem: 'Their first problem',
+  position: 'Your position',
+  proof: 'Your proof',
+  howYouSound: 'Your voice',
+  visualStyle: 'Visual language',
+  neverDo: 'Never do',
+};
+
 const DOCUMENT_ITEMS = [
   {
     title: 'What you offer',
@@ -69,43 +81,6 @@ const DOCUMENT_ITEMS = [
   },
 ];
 
-const GENERIC_MEMORY = [
-  /we'll sharpen as you post/i,
-  /core product or service/i,
-  /clear, consistent, and recognizable/i,
-];
-
-const GAPS = [
-  {
-    key: 'whatYouOffer',
-    missing: 'what you offer',
-    why: 'Without a clear offer, posts describe the work instead of selling it.',
-    improves: 'Plans will name the service and the outcome, not a generic pitch.',
-    prompt: 'We offer…',
-  },
-  {
-    key: 'whoYouHelp',
-    missing: 'who you want to attract',
-    why: 'Hooks need a specific person. A vague audience reads as advertising.',
-    improves: 'Captions will speak to that person — their situation, not a crowd.',
-    prompt: 'We want to attract…',
-  },
-  {
-    key: 'firstProblem',
-    missing: 'the first problem you speak to',
-    why: 'Discovery posts need a tension. Without it, the week opens soft.',
-    improves: 'The opening slide can start on a real tension instead of a slogan.',
-    prompt: 'The first problem we speak to is…',
-  },
-  {
-    key: 'howYouSound',
-    missing: 'how you want to sound',
-    why: 'Tone drifts the moment you ask Bauhly to change direction.',
-    improves: 'Every caption will keep the voice you set, including a new direction.',
-    prompt: 'We want to sound…',
-  },
-];
-
 function valueMap(sections) {
   const map = {};
   for (const s of sections || []) map[s.key] = String(s.value || '').trim();
@@ -117,13 +92,6 @@ function proseFor(map, keys) {
     .map((k) => map[k])
     .filter(Boolean)
     .join(' ');
-}
-
-function isUnclear(value) {
-  const t = String(value || '').trim();
-  if (!t) return true;
-  if (t.length < 24) return true;
-  return GENERIC_MEMORY.some((re) => re.test(t));
 }
 
 function emptyFields() {
@@ -212,30 +180,343 @@ function GapWarning({ gaps, onAnswer, onDismiss }) {
         </button>
       </div>
       <p className="bm-warn__lead">
-        A few important things are still unclear. Answering them here is enough —
-        we do not ask this during onboarding on purpose.
+        {gaps.length > 1
+          ? 'A few important things are still unclear. Answer these here — we do not ask this during onboarding on purpose.'
+          : 'One important thing is still unclear. Answer it here — we do not ask this during onboarding on purpose.'}
       </p>
       <ul className="bm-warn__list">
         {gaps.map((g) => (
           <li key={g.key}>
             <strong>Missing: {g.missing}.</strong>
-            {' '}{g.why}{' '}
-            <em>{g.improves}</em>
-            {onAnswer ? (
-              <button type="button" className="bm-warn__ask" onClick={() => onAnswer(g)}>
-                Answer this
-              </button>
-            ) : null}
+            {g.why ? <> {g.why}</> : null}
+            {g.improves ? <em>{g.improves}</em> : null}
           </li>
         ))}
       </ul>
+      {onAnswer ? (
+        <div className="bm-warn__acts">
+          <button type="button" className="btn btn--primary btn--sm" onClick={onAnswer}>
+            Answer this
+          </button>
+        </div>
+      ) : null}
     </aside>
   );
 }
 
+function GapInterview({ gaps, busy, error, onClose, onSave }) {
+  const [index, setIndex] = useState(0);
+  const [draft, setDraft] = useState('');
+  const [answers, setAnswers] = useState({});
+  const answersRef = useRef({});
+  const inputRef = useRef(null);
+  const gap = gaps[index] || null;
+  const last = index >= gaps.length - 1;
+  const total = gaps.length;
+  answersRef.current = answers;
+
+  useEffect(() => {
+    if (!gap) return;
+    setDraft(answersRef.current[gap.key] || '');
+    window.setTimeout(() => inputRef.current?.focus(), 40);
+  }, [index, gap?.key]);
+
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.key === 'Escape' && !busy) onClose();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [busy, onClose]);
+
+  if (!gap) return null;
+
+  const canSave = Boolean(draft.trim()) || Object.keys(answers).some((k) => k !== gap.key && answers[k]);
+
+  function withDraft(map) {
+    const next = { ...map };
+    const text = draft.trim();
+    if (text) next[gap.key] = text;
+    else delete next[gap.key];
+    return next;
+  }
+
+  function payloadFrom(map) {
+    return gaps
+      .map((g) => ({
+        key: g.key,
+        question: g.question || g.missing || '',
+        answer: String(map[g.key] || '').trim(),
+      }))
+      .filter((row) => row.answer);
+  }
+
+  function skip() {
+    if (busy) return;
+    const next = { ...answers };
+    delete next[gap.key];
+    if (last) {
+      const rows = payloadFrom(next);
+      if (!rows.length) {
+        onClose();
+        return;
+      }
+      onSave(rows);
+      return;
+    }
+    setAnswers(next);
+    setIndex((i) => i + 1);
+  }
+
+  function continueOrSave() {
+    if (busy) return;
+    const next = withDraft(answers);
+    if (last) {
+      const rows = payloadFrom(next);
+      if (!rows.length) {
+        onClose();
+        return;
+      }
+      onSave(rows);
+      return;
+    }
+    setAnswers(next);
+    setIndex((i) => i + 1);
+  }
+
+  return createPortal(
+    <>
+      <div className="bm-dialog__scrim" onClick={busy ? undefined : onClose} />
+      <div
+        className="bm-dialog bm-dialog--interview"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="bm-interview-t"
+      >
+        <p className="bm-interview__step">Question {index + 1} of {total}</p>
+        <h2 id="bm-interview-t">{gap.question || `What is ${gap.missing}?`}</h2>
+        {gap.why ? <p className="bm-interview__why">{gap.why}</p> : null}
+        <textarea
+          ref={inputRef}
+          className="bm-interview__input"
+          value={draft}
+          disabled={busy}
+          rows={4}
+          onChange={(e) => setDraft(e.target.value)}
+          placeholder={gap.prompt || 'In your own words…'}
+          aria-label={gap.question || gap.missing}
+        />
+        {error ? <p className="bm-interview__err" role="alert">{error}</p> : null}
+        <div className="bm-dialog__acts">
+          <button type="button" className="btn btn--tertiary btn--sm" onClick={skip} disabled={busy}>
+            Skip
+          </button>
+          <button type="button" className="btn btn--primary btn--sm" onClick={continueOrSave} disabled={busy}>
+            {busy ? 'Updating…' : last ? (canSave ? 'Update memory' : 'Done') : 'Continue'}
+          </button>
+        </div>
+      </div>
+    </>,
+    document.body,
+  );
+}
+
+function formatWhen(value) {
+  if (!value) return '';
+  try {
+    return new Date(value).toLocaleString();
+  } catch {
+    return String(value);
+  }
+}
+
+async function copyText(text) {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.setAttribute('readonly', '');
+    ta.style.position = 'fixed';
+    ta.style.left = '-9999px';
+    document.body.appendChild(ta);
+    ta.select();
+    try {
+      return document.execCommand('copy');
+    } catch {
+      return false;
+    } finally {
+      document.body.removeChild(ta);
+    }
+  }
+}
+
+function RawInspect({ reportId, onClose }) {
+  const [data, setData] = useState(null);
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [copied, setCopied] = useState(false);
+  const [tab, setTab] = useState('dna');
+
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setError('');
+    getBrandDnaRaw(reportId)
+      .then((raw) => {
+        if (!cancelled) setData(raw);
+      })
+      .catch((err) => {
+        if (!cancelled) setError(err.response?.data?.message || err.message || 'Could not load saved DNA.');
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [reportId]);
+
+  const dna = data?.brandDna || {};
+  const memoryBlocks = MEMORY_GROUPS.map((g) => ({
+    ...g,
+    text: proseFor(dna, g.keys),
+  }));
+
+  async function copyJson() {
+    if (!data) return;
+    const ok = await copyText(JSON.stringify(data, null, 2));
+    if (!ok) return;
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 1400);
+  }
+
+  return createPortal(
+    <>
+      <div className="bm-dialog__scrim" onClick={onClose} />
+      <div
+        className="bm-dialog bm-dialog--raw"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="bm-raw-t"
+      >
+        <div className="bm-raw__head">
+          <div>
+            <p className="bm-raw__kicker">Debug</p>
+            <h2 id="bm-raw-t">Saved Brand DNA</h2>
+            <p className="bm-raw__meta">
+              {[
+                data?.instagramUsername ? `@${data.instagramUsername}` : '',
+                data?.updatedAt ? `updated ${formatWhen(data.updatedAt)}` : '',
+              ].filter(Boolean).join(' · ') || (loading ? 'Loading stored fields…' : '')}
+            </p>
+          </div>
+          <div className="bm-raw__acts">
+            <button type="button" className="btn btn--tertiary btn--sm" onClick={copyJson} disabled={!data}>
+              {copied ? 'Copied' : 'Copy JSON'}
+            </button>
+            <button type="button" className="btn btn--tertiary btn--sm" onClick={onClose}>
+              Close
+            </button>
+          </div>
+        </div>
+
+        {error ? (
+          <p className="bm-raw__err" role="alert">{error}</p>
+        ) : null}
+
+        {data ? (
+          <div className="bm-raw__tabs" role="tablist" aria-label="Saved memory views">
+            {[
+              ['dna', 'Brand DNA'],
+              ['memory', 'Business memory'],
+              ['file', 'Saved file'],
+            ].map(([id, label]) => (
+              <button
+                key={id}
+                type="button"
+                role="tab"
+                aria-selected={tab === id}
+                className={`bm-raw__tab${tab === id ? ' is-on' : ''}`}
+                onClick={() => setTab(id)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        ) : null}
+
+        <div className="bm-raw__body">
+          {loading ? (
+            <p className="bm-raw__meta">Loading stored fields…</p>
+          ) : data && tab === 'dna' ? (
+            <section className="bm-raw__block">
+              {MEMORY_KEYS.map((key) => {
+                const value = String(dna[key] || '').trim();
+                return (
+                  <div className="bm-raw__field" key={key}>
+                    <p className="bm-raw__key">
+                      {DNA_LABELS[key] || key}
+                      <code>{key}</code>
+                    </p>
+                    <p className={`bm-raw__val${value ? '' : ' is-empty'}`}>
+                      {value || '(empty)'}
+                    </p>
+                  </div>
+                );
+              })}
+            </section>
+          ) : data && tab === 'memory' ? (
+            <section className="bm-raw__block">
+              {memoryBlocks.map((g) => (
+                <div className="bm-raw__field" key={g.id}>
+                  <p className="bm-raw__key">{g.title}</p>
+                  <p className={`bm-raw__val${g.text ? '' : ' is-empty'}`}>
+                    {g.text || '(empty)'}
+                  </p>
+                </div>
+              ))}
+            </section>
+          ) : data ? (
+            <>
+              <section className="bm-raw__block">
+                <h3>Gaps</h3>
+                <pre className="bm-raw__pre">
+                  {JSON.stringify(data.memoryGaps || [], null, 2)}
+                </pre>
+              </section>
+              <section className="bm-raw__block">
+                <h3>Analysis markdown</h3>
+                <p className="bm-raw__meta">
+                  {[data.reportId, data.s3Key].filter(Boolean).join(' · ')}
+                </p>
+                {data.markdown ? (
+                  <pre className="bm-raw__pre bm-raw__pre--tall">{data.markdown}</pre>
+                ) : (
+                  <p className="bm-raw__val is-empty">No analysis file on S3.</p>
+                )}
+              </section>
+            </>
+          ) : null}
+        </div>
+      </div>
+    </>,
+    document.body,
+  );
+}
+
 export default function BrandDna() {
+  const debug = useAiDebug();
   const [reportId, setReportId] = useState(null);
   const [sections, setSections] = useState([]);
+  const [gaps, setGaps] = useState([]);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
   const [note, setNote] = useState('');
@@ -245,6 +526,10 @@ export default function BrandDna() {
   const [flash, setFlash] = useState('');
   const [confirming, setConfirming] = useState(false);
   const [hideGaps, setHideGaps] = useState(false);
+  const [interviewing, setInterviewing] = useState(false);
+  const [interviewBusy, setInterviewBusy] = useState(false);
+  const [interviewError, setInterviewError] = useState('');
+  const [inspecting, setInspecting] = useState(false);
   const inputRef = useRef(null);
   const COMPOSER_MIN = 72;
   const COMPOSER_MAX = 180;
@@ -263,6 +548,7 @@ export default function BrandDna() {
         if (cancelled) return;
         setReportId(data.reportId);
         setSections(data.sections || []);
+        setGaps(Array.isArray(data.gaps) ? data.gaps : []);
       })
       .catch((err) => {
         if (cancelled) return;
@@ -286,10 +572,7 @@ export default function BrandDna() {
     [map],
   );
   const hasMemory = groups.some((g) => g.text);
-  const gaps = useMemo(
-    () => (notFound ? [] : GAPS.filter((g) => isUnclear(map[g.key]))),
-    [map, notFound],
-  );
+  const visibleGaps = notFound ? [] : gaps;
 
   async function clearMemory() {
     if (!reportId || clearing) return;
@@ -299,6 +582,7 @@ export default function BrandDna() {
     try {
       const data = await updateBrandDna(reportId, emptyFields());
       setSections(data.sections || []);
+      setGaps(Array.isArray(data.gaps) ? data.gaps : []);
       setNote('');
       setHideGaps(false);
       setConfirming(false);
@@ -310,9 +594,24 @@ export default function BrandDna() {
     }
   }
 
-  function answerGap(gap) {
-    setNote((prev) => (prev.trim() ? prev : gap.prompt));
-    window.setTimeout(() => inputRef.current?.focus(), 40);
+  async function saveGapAnswers(answers) {
+    if (!reportId || interviewBusy) return;
+    setInterviewBusy(true);
+    setInterviewError('');
+    setError('');
+    setFlash('');
+    try {
+      const data = await fillBrandDnaGaps(reportId, answers);
+      setSections(data.sections || []);
+      setGaps(Array.isArray(data.gaps) ? data.gaps : []);
+      setHideGaps(false);
+      setInterviewing(false);
+      setFlash('Updated.');
+    } catch (err) {
+      setInterviewError(err.response?.data?.message || err.message || 'Could not update just now.');
+    } finally {
+      setInterviewBusy(false);
+    }
   }
 
   async function submitNote(e) {
@@ -325,6 +624,8 @@ export default function BrandDna() {
     try {
       const data = await reviseBrandDna(reportId, text);
       setSections(data.sections || []);
+      setGaps(Array.isArray(data.gaps) ? data.gaps : []);
+      setHideGaps(false);
       setNote('');
       setFlash('Updated.');
       inputRef.current?.focus();
@@ -385,16 +686,37 @@ export default function BrandDna() {
             is written from this.
           </p>
         </div>
-        {hasMemory && (
-          <button
-            type="button"
-            className="btn btn--tertiary bm-clear-btn"
-            onClick={() => setConfirming(true)}
-          >
-            Clear memory
-          </button>
-        )}
+        {(debug.enabled && reportId) || hasMemory ? (
+          <div className="bm-head__acts">
+            {debug.enabled && reportId ? (
+              <button
+                type="button"
+                className="btn btn--tertiary bm-clear-btn"
+                onClick={() => setInspecting(true)}
+              >
+                Raw DNA
+              </button>
+            ) : null}
+            {hasMemory ? (
+              <button
+                type="button"
+                className="btn btn--tertiary bm-clear-btn"
+                onClick={() => setConfirming(true)}
+              >
+                Clear memory
+              </button>
+            ) : null}
+          </div>
+        ) : null}
       </div>
+
+      {!loading && !hideGaps && visibleGaps.length > 0 && (
+        <GapWarning
+          gaps={visibleGaps}
+          onAnswer={reportId ? () => { setInterviewError(''); setInterviewing(true); } : null}
+          onDismiss={() => setHideGaps(true)}
+        />
+      )}
 
       {loading ? (
         <BrandDnaSkeleton />
@@ -404,29 +726,20 @@ export default function BrandDna() {
           {status}
         </EmptyMemory>
       ) : (
-        <>
-          {!hideGaps && gaps.length > 0 && (
-            <GapWarning
-              gaps={gaps}
-              onAnswer={answerGap}
-              onDismiss={() => setHideGaps(true)}
-            />
-          )}
-          <div className="bm-card">
-            {groups.map((g) => (
-              <section className="bm-block" key={g.id}>
-                <h2 className="bm-block__title">{g.title}</h2>
-                {g.text ? (
-                  <p className="bm-block__body">{g.text}</p>
-                ) : (
-                  <p className="bm-block__body is-empty">{g.empty}</p>
-                )}
-              </section>
-            ))}
-            {composer}
-            {status}
-          </div>
-        </>
+        <div className="bm-card">
+          {groups.map((g) => (
+            <section className="bm-block" key={g.id}>
+              <h2 className="bm-block__title">{g.title}</h2>
+              {g.text ? (
+                <p className="bm-block__body">{g.text}</p>
+              ) : (
+                <p className="bm-block__body is-empty">{g.empty}</p>
+              )}
+            </section>
+          ))}
+          {composer}
+          {status}
+        </div>
       )}
 
       {confirming && (
@@ -434,6 +747,21 @@ export default function BrandDna() {
           busy={clearing}
           onCancel={() => setConfirming(false)}
           onClear={clearMemory}
+        />
+      )}
+      {interviewing && visibleGaps.length > 0 && (
+        <GapInterview
+          gaps={visibleGaps}
+          busy={interviewBusy}
+          error={interviewError}
+          onClose={() => { if (!interviewBusy) { setInterviewing(false); setInterviewError(''); } }}
+          onSave={saveGapAnswers}
+        />
+      )}
+      {inspecting && reportId && (
+        <RawInspect
+          reportId={reportId}
+          onClose={() => setInspecting(false)}
         />
       )}
     </div>

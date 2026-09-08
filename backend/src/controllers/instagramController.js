@@ -3,7 +3,7 @@ const BrandAnalysisReport = require('../models/BrandAnalysisReport');
 const WeeklyRoute = require('../models/WeeklyRoute');
 const { scrapeProfile, scrapePosts } = require('../services/instagramScraper');
 const { findMetaConnectionForUsername, fetchViaGraph, fetchGraphProfilePicUrl } = require('../services/graphInstagram');
-const { generateBrandAnalysis } = require('../services/brandAnalysis');
+const { generateBrandAnalysis, assessBrandDnaGaps } = require('../services/brandAnalysis');
 const { uploadMarkdown, getPresignedDownloadUrl, getPresignedMediaUrl, isS3Configured } = require('../services/s3Client');
 const { cacheProfilePicture } = require('../services/profileAvatar');
 const { computeAuthorityFunnel } = require('../services/authorityFunnel');
@@ -155,11 +155,7 @@ async function fetchInstagram(req, res) {
     const { markdown, brandProfile, model } = await generateBrandAnalysis(snapshot);
     const s3Key = `reports/${req.user._id}/${username}-${Date.now()}.md`;
     await uploadMarkdown(s3Key, markdown);
-    const reportDoc = await BrandAnalysisReport.create({
-      user: req.user._id,
-      instagramUsername: username,
-      s3Key,
-      model,
+    const profileFields = {
       whatYouOffer: brandProfile?.whatYouOffer || '',
       whoYouHelp: brandProfile?.whoYouHelp || '',
       firstProblem: brandProfile?.firstProblem || '',
@@ -168,6 +164,21 @@ async function fetchInstagram(req, res) {
       howYouSound: brandProfile?.howYouSound || '',
       visualStyle: brandProfile?.visualStyle || '',
       neverDo: brandProfile?.neverDo || '',
+    };
+    let memoryGaps = [];
+    try {
+      memoryGaps = await assessBrandDnaGaps(profileFields);
+    } catch (err) {
+      console.warn('[brandDna] gap assessment after analyze failed:', err.message);
+    }
+    const reportDoc = await BrandAnalysisReport.create({
+      user: req.user._id,
+      instagramUsername: username,
+      s3Key,
+      model,
+      ...profileFields,
+      memoryGaps,
+      memoryGapsAssessedAt: new Date(),
     });
     report = {
       id: reportDoc._id,

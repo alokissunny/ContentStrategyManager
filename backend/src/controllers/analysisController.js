@@ -6,8 +6,39 @@ const {
   parseBrandDna,
   mergeBrandDna,
   reviseBrandDnaFromNote,
+  fillBrandDnaFromAnswers,
+  assessBrandDnaGaps,
 } = require('../services/brandAnalysis');
 const { currentUsername } = require('../utils/currentProfile');
+
+function serializeGaps(gaps) {
+  return (Array.isArray(gaps) ? gaps : [])
+    .map((g) => ({
+      key: g.key || '',
+      missing: g.missing || '',
+      why: g.why || '',
+      improves: g.improves || '',
+      prompt: g.prompt || '',
+      question: g.question || '',
+    }))
+    .filter((g) => g.key && g.missing && (g.question || g.why));
+}
+
+function brandDnaPayload(report, parsedFromMarkdown, gaps) {
+  return {
+    reportId: report._id,
+    ...buildBrandDnaSections(report, parsedFromMarkdown),
+    gaps: serializeGaps(gaps !== undefined ? gaps : report.memoryGaps),
+  };
+}
+
+async function refreshMemoryGaps(report, fields) {
+  const allEmpty = BRAND_DNA_FIELDS.every(({ key }) => !String(fields[key] || '').trim());
+  const gaps = allEmpty ? [] : await assessBrandDnaGaps(fields);
+  report.memoryGaps = gaps;
+  report.memoryGapsAssessedAt = new Date();
+  return gaps;
+}
 
 function buildBrandDnaSections(report, parsedFromMarkdown) {
   const sections = BRAND_DNA_FIELDS.map(({ key, label, description, inferred }) => ({
@@ -84,7 +115,7 @@ async function getLatestBrandDna(req, res) {
 
   const report = await BrandAnalysisReport.findOne(filter)
     .sort({ createdAt: -1 })
-    .select(['_id', 's3Key', 'brandDnaClearedAt', ...BRAND_DNA_FIELDS.map(({ key }) => key)].join(' '))
+    .select(['_id', 's3Key', 'brandDnaClearedAt', 'memoryGaps', 'memoryGapsAssessedAt', ...BRAND_DNA_FIELDS.map(({ key }) => key)].join(' '))
     .lean();
 
   if (!report) {
@@ -117,7 +148,18 @@ async function getLatestBrandDna(req, res) {
     }
   }
 
-  res.json({ reportId: report._id, ...buildBrandDnaSections(report, parsed) });
+  let gaps = serializeGaps(report.memoryGaps);
+  if (!report.memoryGapsAssessedAt) {
+    const fields = fieldsFromReport(report, parsed);
+    const allEmpty = BRAND_DNA_FIELDS.every(({ key }) => !String(fields[key] || '').trim());
+    gaps = allEmpty ? [] : await assessBrandDnaGaps(fields);
+    BrandAnalysisReport.updateOne(
+      { _id: report._id },
+      { $set: { memoryGaps: gaps, memoryGapsAssessedAt: new Date() } },
+    ).catch((err) => console.warn('[brandDna] gap persist failed:', err.message));
+  }
+
+  res.json(brandDnaPayload(report, parsed, gaps));
 }
 
 async function updateBrandDna(req, res) {
@@ -133,12 +175,12 @@ async function updateBrandDna(req, res) {
   });
   const cleared = BRAND_DNA_FIELDS.every(({ key }) => !String(fields[key] || '').trim());
   report.brandDnaClearedAt = cleared ? new Date() : null;
-
+  await refreshMemoryGaps(report, fields);
   await report.save();
 
   // Respond from Mongo first — S3 markdown sync is best-effort and must not
   // block Save on the Brand profile page.
-  res.json({ reportId: report._id, ...buildBrandDnaSections(report, fields) });
+  res.json(brandDnaPayload(report, fields, report.memoryGaps));
 
   if (report.s3Key) {
     getObjectText(report.s3Key)
@@ -180,9 +222,10 @@ async function reviseBrandDna(req, res) {
   }
   const revisedEmpty = BRAND_DNA_FIELDS.every(({ key }) => !String(fields[key] || '').trim());
   report.brandDnaClearedAt = revisedEmpty ? (report.brandDnaClearedAt || new Date()) : null;
+  await refreshMemoryGaps(report, fields);
   await report.save();
 
-  res.json({ reportId: report._id, ...buildBrandDnaSections(report, fields) });
+  res.json(brandDnaPayload(report, fields, report.memoryGaps));
 
   if (report.s3Key) {
     getObjectText(report.s3Key)
@@ -193,6 +236,87 @@ async function reviseBrandDna(req, res) {
   }
 }
 
+/** Structured gap interview: merge answers into Brand DNA, then reassess gaps. */
+async function fillBrandDnaGaps(req, res) {
+  const answers = Array.isArray(req.body.answers) ? req.body.answers : [];
+  const filled = answers
+    .map((row) => ({
+      key: String(row?.key || '').trim(),
+      question: String(row?.question || '').trim(),
+      answer: String(row?.answer || '').trim(),
+    }))
+    .filter((row) => row.key && row.answer);
+  if (!filled.length) {
+    return res.status(400).json({ message: 'Answer at least one question.' });
+  }
+
+  const report = await BrandAnalysisReport.findOne({ _id: req.params.id, user: req.user._id });
+  if (!report) {
+    return res.status(404).json({ message: 'Report not found' });
+  }
+
+  const current = fieldsFromReport(report);
+  let fields;
+  try {
+    fields = await fillBrandDnaFromAnswers(current, filled);
+  } catch (err) {
+    console.error('[brandDna] fill gaps failed:', err.message);
+    return res.status(502).json({
+      message: err.message || 'Could not update business memory just now.',
+    });
+  }
+
+  for (const { key } of BRAND_DNA_FIELDS) {
+    report[key] = fields[key] || '';
+  }
+  report.brandDnaClearedAt = null;
+  await refreshMemoryGaps(report, fields);
+  await report.save();
+
+  res.json(brandDnaPayload(report, fields, report.memoryGaps));
+
+  if (report.s3Key) {
+    getObjectText(report.s3Key)
+      .then((existingMarkdown) =>
+        uploadMarkdown(report.s3Key, mergeBrandDna(existingMarkdown, fields)),
+      )
+      .catch((err) => console.warn('[brandDna] S3 sync failed:', err.message));
+  }
+}
+
+/** Full stored snapshot for debug — Mongo Brand DNA plus the S3 analysis file. */
+async function getBrandDnaRaw(req, res) {
+  const report = await BrandAnalysisReport.findOne({ _id: req.params.id, user: req.user._id }).lean();
+  if (!report) {
+    return res.status(404).json({ message: 'Report not found' });
+  }
+
+  const brandDna = fieldsFromReport(report);
+  let markdown = '';
+  if (report.s3Key) {
+    try {
+      markdown = await getObjectText(report.s3Key);
+    } catch (err) {
+      console.warn('[brandDna] raw S3 read failed:', err.message);
+    }
+  }
+
+  res.json({
+    reportId: report._id,
+    instagramUsername: report.instagramUsername || '',
+    s3Key: report.s3Key || '',
+    model: report.model || '',
+    confirmedAt: report.confirmedAt || null,
+    brandDnaClearedAt: report.brandDnaClearedAt || null,
+    memoryGapsAssessedAt: report.memoryGapsAssessedAt || null,
+    createdAt: report.createdAt || null,
+    updatedAt: report.updatedAt || null,
+    brandDna,
+    memoryGaps: serializeGaps(report.memoryGaps),
+    markdown,
+  });
+}
+
 module.exports = {
   listReports,
   getReportDownloadUrl,
@@ -200,4 +324,6 @@ module.exports = {
   getLatestBrandDna,
   updateBrandDna,
   reviseBrandDna,
+  fillBrandDnaGaps,
+  getBrandDnaRaw,
 };

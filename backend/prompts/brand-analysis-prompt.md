@@ -55,8 +55,9 @@ After the three tables, add one more section:
 
 ## 4. Brand Profile
 
-A single fenced ```json code block with exactly these eight keys, each a short, confident sentence
-(one to two sentences) grounded in the snapshot:
+A single fenced ```json code block with exactly these eight keys. Each value is a
+short sentence (one to two) grounded in the snapshot, or `""` when the snapshot
+does not support it:
 - `whatYouOffer` — the product or service this account exists to sell. e.g. "An interior design
   studio: full residential projects, renovations, and styling for boutique spaces."
 - `whoYouHelp` — the specific person the content should reach. e.g. "Homeowners 35–60 planning a
@@ -74,8 +75,9 @@ A single fenced ```json code block with exactly these eight keys, each a short, 
 - `neverDo` — topics, tones and tactics to avoid. e.g. "Trend-chasing, discount language, generic
   inspo reposts, design snobbery."
 
-Base every field on the same evidence used in the tables above. If a field can't be grounded in the
-snapshot, write a specific, plausible fallback in the same style rather than leaving it blank.
+Base every field on the same evidence used in the tables above. If a field cannot
+be grounded in the snapshot, set it to an empty string. Do not invent a plausible
+fallback, a slogan, or a guessed customer problem.
 
 ### Rules
 - Base every "Finding" strictly on the bio, captions, and post data provided below. Do not invent
