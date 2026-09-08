@@ -23,7 +23,7 @@ import {
   addEntry, addSession, updateEntry, deleteSession, moveSession,
   analyzeProjectAssets, analyzeAsset,
   coverOf, groupByWeek, groupCapturesIntoSessions, sessionCount, sessionDisplayText,
-  sessionConversationTurns, storiesFromConversationTurns, fmtWhen, uploadFiles,
+  sessionDisplayTitle, sessionConversationTurns, storiesFromConversationTurns, fmtWhen, uploadFiles,
 } from '../lib/projectsStore';
 import { listGeneratedImages, deleteGeneratedImage } from '../api/images';
 import { understandCapture, transcribeCapture, clarificationQuestion, hasTranscriptGap, transcriptGapQuestion } from '../api/projects';
@@ -199,12 +199,14 @@ function displayTurnText(text) {
 
 function SessionConversation({
   turns,
+  title,
   summary,
   editable,
   canEditResponses,
   summaryStale,
   summarizing,
   onSummaryBlur,
+  onTitleBlur,
   onSaveTurn,
   onRegenerateSummary,
 }) {
@@ -366,8 +368,22 @@ function SessionConversation({
         </div>
       ) : null}
 
-      {(summary || editable) && (
+      {(title || summary || editable) && (
         <div className={`sc__summary${hasTurns ? ' sc__summary--after' : ''}`}>
+          {(title || editable) && (
+            editable ? (
+              <input
+                className="sc__title-field"
+                key={`title-${title}`}
+                defaultValue={title}
+                aria-label="Session title"
+                placeholder="Title for this conversation…"
+                onBlur={onTitleBlur}
+              />
+            ) : (
+              title ? <h3 className="sc__title">{title}</h3> : null
+            )
+          )}
           <div className="sc__summary-head">
             {hasTurns && <span className="sc__summary-label">Summary</span>}
             {summaryStale && (
@@ -415,6 +431,7 @@ function EntryCard({ entry, others, regenerating, uploadingFiles, onOpen, onMove
   const closeMenu = () => { setMenu(false); setMoveOpen(false); };
   const video = entry.type === 'video' ? (entry.attachments || [])[0] : null;
   const summary = sessionDisplayText(entry);
+  const title = sessionDisplayTitle(entry);
   const atts = entry.attachments || [];
   const open = () => onOpen(entry);
   const pickFiles = () => fileRef.current?.click();
@@ -456,6 +473,7 @@ function EntryCard({ entry, others, regenerating, uploadingFiles, onOpen, onMove
         </div>
       </div>
 
+      {title && <h3 className="pe__title">{title}</h3>}
       {summary && <p className="pe__text">{summary}</p>}
 
       {video ? (
@@ -536,6 +554,7 @@ export function EntryPanel({ project, entry, week, regenerating, onClose, onRege
   const atts = entry.attachments || [];
   const turns = sessionConversationTurns(entry);
   const summary = sessionDisplayText(entry);
+  const title = sessionDisplayTitle(entry);
   const captureId = entry.id;
 
   useEffect(() => {
@@ -604,6 +623,7 @@ export function EntryPanel({ project, entry, week, regenerating, onClose, onRege
         attachments: (atts || []).map((a) => ({ type: a.type, key: a.key })).filter((a) => a.key),
       });
       const nextSummary = String(result?.conversationSummary || '').trim();
+      const nextTitle = String(result?.conversationTitle || '').trim();
       const nextStories = (Array.isArray(result?.captures) && result.captures.length)
         ? result.captures
         : (result?.understanding ? [result.understanding] : null);
@@ -617,6 +637,7 @@ export function EntryPanel({ project, entry, week, regenerating, onClose, onRege
         );
       await updateEntry(project.id, captureId, {
         ...(nextSummary ? { text: nextSummary, sessionSummary: nextSummary } : {}),
+        ...(nextTitle ? { sessionTitle: nextTitle } : {}),
         conversationTurns: turns,
         stories,
         understanding: stories[0],
@@ -654,6 +675,7 @@ export function EntryPanel({ project, entry, week, regenerating, onClose, onRege
 
           <SessionConversation
             turns={turns}
+            title={title}
             summary={summary}
             editable
             canEditResponses={turns.some((t) => t.role === 'user')}
@@ -661,6 +683,13 @@ export function EntryPanel({ project, entry, week, regenerating, onClose, onRege
             summarizing={summarizing}
             onSaveTurn={saveTurn}
             onRegenerateSummary={regenerateSummary}
+            onTitleBlur={(e) => {
+              const next = e.target.value.trim();
+              const prev = title;
+              if (next !== prev) {
+                updateEntry(project.id, captureId, { sessionTitle: next });
+              }
+            }}
             onSummaryBlur={(e) => {
               const next = e.target.value;
               const prev = summary;
@@ -868,6 +897,7 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
     understanding: null,
     understandings: [],
     conversationSummary: '',
+    conversationTitle: '',
     askedQuestion: '',
     askedAnswer: '',
     turns: [],
@@ -949,6 +979,7 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
       cap.current.understanding = result.captures[0];
     }
     if (result?.conversationSummary) cap.current.conversationSummary = result.conversationSummary;
+    if (result?.conversationTitle) cap.current.conversationTitle = result.conversationTitle;
     const followUp = clarificationQuestion(result, cap.current.turns)
       || transcriptGapQuestion(cap.current.text, cap.current.askedQuestion);
     if (followUp) {
@@ -1227,6 +1258,7 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
         understanding: c.understanding,
         understandings: rows,
         conversationSummary: c.conversationSummary,
+        conversationTitle: c.conversationTitle,
         conversationTurns: c.turns,
         sessionKind: 'capture',
       });
@@ -1248,7 +1280,7 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
   };
 
   const restart = () => {
-    cap.current = { kind: null, text: '', attachments: [], understanding: null, understandings: [], conversationSummary: '', askedQuestion: '', askedAnswer: '', turns: [], awaitingAssets: false };
+    cap.current = { kind: null, text: '', attachments: [], understanding: null, understandings: [], conversationSummary: '', conversationTitle: '', askedQuestion: '', askedAnswer: '', turns: [], awaitingAssets: false };
     setSaved(null);
     setStep('boot');
     const d = say('What else have you got?');

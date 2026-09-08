@@ -9,7 +9,7 @@
  *
  * Entry (capture) shape returned by the API:
  *   { id, type: 'note'|'photo'|'video', text, createdAt, understanding,
- *     sessionId, sessionKind, sessionSummary, conversationTurns, stories,
+ *     sessionId, sessionKind, sessionTitle, sessionSummary, conversationTurns, stories,
  *     attachments: [{ id, type: 'image'|'video', key, url, thumbnailUrl }] }
  */
 
@@ -94,7 +94,7 @@ export async function deleteProject(id) {
   removeById(id);
 }
 export async function addEntry(projectId, {
-  type, text, attachments, understanding, sessionId, sessionKind, sessionSummary, conversationTurns, stories,
+  type, text, attachments, understanding, sessionId, sessionKind, sessionTitle, sessionSummary, conversationTurns, stories,
 }) {
   upsert(await api.addCapture(projectId, {
     type,
@@ -102,6 +102,7 @@ export async function addEntry(projectId, {
     understanding: understanding || undefined,
     sessionId,
     sessionKind,
+    sessionTitle,
     sessionSummary,
     conversationTurns,
     stories,
@@ -133,6 +134,64 @@ export function composeSessionSummary(stories, fallbackText) {
   const parts = [...new Set(ordered.map((s) => String(s?.summary || '').trim()).filter(Boolean))];
   if (parts.length) return parts.join('\n\n');
   return String(fallbackText || '').trim();
+}
+
+const TITLE_MAX = 72;
+
+function titleCasePhrase(s) {
+  const t = String(s || '').trim().replace(/\s+/g, ' ');
+  if (!t) return '';
+  return t.charAt(0).toUpperCase() + t.slice(1);
+}
+
+function clipTitle(s, max = TITLE_MAX) {
+  const t = String(s || '').trim().replace(/\s+/g, ' ');
+  if (!t) return '';
+  const trimmed = t.replace(/[.,;:]+$/, '');
+  if (trimmed.length <= max) return trimmed;
+  const cut = trimmed.slice(0, max - 1);
+  const at = cut.lastIndexOf(' ');
+  return `${(at > 24 ? cut.slice(0, at) : cut).replace(/[.,;:]+$/, '')}…`;
+}
+
+function joinTitleParts(parts) {
+  const items = [...new Set((parts || []).map((p) => String(p || '').trim().replace(/\s+/g, ' ')).filter(Boolean))];
+  if (!items.length) return '';
+  const titled = items.map((s, i) => (i === 0 ? titleCasePhrase(s) : s.charAt(0).toLowerCase() + s.slice(1)));
+  if (titled.length === 1) return titled[0];
+  if (titled.length === 2) return `${titled[0]} & ${titled[1]}`;
+  return `${titled.slice(0, -1).join(', ')} & ${titled[titled.length - 1]}`;
+}
+
+function labelFromParagraph(p) {
+  const text = String(p || '').trim();
+  if (!text) return '';
+  const first = (text.split(/(?<=[.!?])\s+/)[0] || text).trim();
+  const theNoun = first.match(/^The\s+([^.!?]{3,40}?)\s+(?:is|are|was|were|has|have|feels|looks|currently)\b/i);
+  if (theNoun) return clipTitle(theNoun[1], 36);
+  const adding = text.match(/\bAdding\s+(?:a|an|the)\s+([^.]{4,48}?)(?:\s+there|\s+would|\.|$)/i);
+  if (adding) return clipTitle(adding[1], 36);
+  return clipTitle(first, 36);
+}
+
+export function composeSessionTitle({ title, stories, summary, fallbackText } = {}) {
+  const explicit = clipTitle(title);
+  if (explicit && explicit.split(/\s+/).length <= 12) return explicit;
+  const body = String(summary || fallbackText || '').trim();
+  const paras = body.split(/\n\n+/).map((p) => p.trim()).filter(Boolean);
+  if (paras.length >= 2) {
+    const fromParas = joinTitleParts(paras.map(labelFromParagraph));
+    if (fromParas) return fromParas;
+  }
+  const territories = [];
+  (Array.isArray(stories) ? stories : []).forEach((s) => {
+    (s?.internalStories || []).forEach((row) => {
+      if (row?.territory) territories.push(row.territory);
+    });
+  });
+  const fromTerritories = joinTitleParts(territories);
+  if (fromTerritories) return clipTitle(fromTerritories);
+  return clipTitle((body.split(/(?<=[.!?])\s+/)[0] || body));
 }
 
 function sanitizeTurns(raw) {
@@ -218,7 +277,7 @@ export function sessionConversationTurns(entry) {
 
 /** File one capture or check-in conversation as a single library session. */
 export async function addSession(projectId, {
-  type, text, attachments, understanding, understandings, conversationSummary, conversationTurns, sessionKind,
+  type, text, attachments, understanding, understandings, conversationTitle, conversationSummary, conversationTurns, sessionKind,
 }) {
   const stories = storiesInToldOrder(
     (understandings && understandings.length)
@@ -227,6 +286,8 @@ export async function addSession(projectId, {
   );
   const sessionSummary = String(conversationSummary || '').trim()
     || composeSessionSummary(stories, text);
+  const sessionTitle = String(conversationTitle || '').trim()
+    || composeSessionTitle({ title: conversationTitle, stories, summary: sessionSummary, fallbackText: text });
   const turns = sanitizeTurns(conversationTurns);
   return addEntry(projectId, {
     type,
@@ -238,6 +299,7 @@ export async function addSession(projectId, {
       ? crypto.randomUUID()
       : `session-${Date.now()}`,
     sessionKind: sessionKind || 'capture',
+    sessionTitle,
     sessionSummary,
     conversationTurns: turns.length ? turns : turnsFromStories(stories),
   });
@@ -246,6 +308,7 @@ export async function addSession(projectId, {
 export async function updateEntry(projectId, entryId, patch) {
   const payload = {};
   if (patch.text !== undefined) payload.text = patch.text;
+  if (patch.sessionTitle !== undefined) payload.sessionTitle = patch.sessionTitle;
   if (patch.sessionSummary !== undefined) payload.sessionSummary = patch.sessionSummary;
   if (patch.conversationTurns !== undefined) payload.conversationTurns = patch.conversationTurns;
   if (patch.stories !== undefined) payload.stories = patch.stories;
@@ -352,6 +415,21 @@ export function sessionDisplayText(entry) {
   return String(entry?.text || '').trim();
 }
 
+export function sessionDisplayTitle(entry) {
+  const summary = sessionDisplayText(entry);
+  const stories = Array.isArray(entry?.stories) && entry.stories.length
+    ? entry.stories
+    : (entry?.understanding ? [entry.understanding] : []);
+  const title = composeSessionTitle({
+    title: entry?.sessionTitle,
+    stories,
+    summary,
+    fallbackText: entry?.text,
+  });
+  if (!title || title === summary) return '';
+  return title;
+}
+
 function mergeAttachments(members) {
   const seen = new Set();
   const out = [];
@@ -380,6 +458,8 @@ function sessionFromMembers(members) {
   const sessionSummary = fromStories
     || uniqueTexts(chrono.map((c) => c.sessionSummary))
     || uniqueTexts(chrono.map((c) => c.text));
+  const sessionTitle = uniqueTexts(chrono.map((c) => c.sessionTitle)).split('\n\n')[0]
+    || composeSessionTitle({ stories, summary: sessionSummary });
   const conversationTurns = (() => {
     const fromMembers = chrono.flatMap((c) => sanitizeTurns(c.conversationTurns));
     if (fromMembers.length) return fromMembers;
@@ -390,6 +470,7 @@ function sessionFromMembers(members) {
     memberIds: chrono.map((c) => c.id).filter(Boolean),
     attachments: mergeAttachments(chrono),
     stories,
+    sessionTitle,
     sessionSummary,
     text: sessionSummary,
     conversationTurns,

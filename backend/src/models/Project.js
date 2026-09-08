@@ -82,9 +82,10 @@ const understandingSchema = new mongoose.Schema(
 // the primary kind; a note can still carry attachments. Text is the note (or a
 // photo's context). Mirrors the frontend capture model.
 //
-// A capture/check-in conversation is one session: `sessionSummary` is the
-// library card for the whole chat; `stories` holds the unified Capture (one
-// item). `understanding` is that same Capture, kept for older readers.
+// A capture/check-in conversation is one session: `sessionTitle` is the
+// library-card heading, `sessionSummary` is the body; `stories` holds the
+// unified Capture (one item). `understanding` is that same Capture, kept for
+// older readers.
 // `conversationTurns` is the raw Q&A thread (user notes + clarification
 // questions/answers) so the library can show the chat, not only the summary.
 const conversationTurnSchema = new mongoose.Schema(
@@ -103,6 +104,7 @@ const captureSchema = new mongoose.Schema(
     understanding: { type: understandingSchema, default: null },
     sessionId: { type: String, default: '' },
     sessionKind: { type: String, default: '' },
+    sessionTitle: { type: String, default: '' },
     sessionSummary: { type: String, default: '' },
     conversationTurns: { type: [conversationTurnSchema], default: [] },
     stories: { type: [understandingSchema], default: [] },

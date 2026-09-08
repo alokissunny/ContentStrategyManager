@@ -144,9 +144,13 @@ const UNDERSTAND_TOOL = {
       question: { type: 'string' },
       questions: { type: 'array', items: { type: 'string' }, description: 'Unused. Ask exactly one question per turn via question.' },
       matchedProjectName: { type: 'string' },
+      conversationTitle: {
+        type: 'string',
+        description: 'Short library-card heading, 4–8 words, naming the topics or places. Not a sentence. Same language as the user.',
+      },
       conversationSummary: {
         type: 'string',
-        description: 'Optional library card for the whole chat. Prefer captureSummary on the capture; do not also emit summary/whatHappened/intent on the capture.',
+        description: 'Optional library card body for the whole chat. Prefer captureSummary on the capture; do not also emit summary/whatHappened/intent on the capture.',
       },
       captures: {
         type: 'array',
@@ -506,6 +510,64 @@ function composeSessionSummary(captures, fallbackText) {
   return str(fallbackText);
 }
 
+const TITLE_MAX = 72;
+
+function titleCasePhrase(s) {
+  const t = str(s).replace(/\s+/g, ' ');
+  if (!t) return '';
+  return t.charAt(0).toUpperCase() + t.slice(1);
+}
+
+function clipTitle(s, max = TITLE_MAX) {
+  const t = str(s).replace(/\s+/g, ' ');
+  if (!t) return '';
+  const trimmed = t.replace(/[.,;:]+$/, '');
+  if (trimmed.length <= max) return trimmed;
+  const cut = trimmed.slice(0, max - 1);
+  const at = cut.lastIndexOf(' ');
+  return `${(at > 24 ? cut.slice(0, at) : cut).replace(/[.,;:]+$/, '')}…`;
+}
+
+function joinTitleParts(parts) {
+  const items = [...new Set((parts || []).map((p) => str(p).replace(/\s+/g, ' ')).filter(Boolean))];
+  if (!items.length) return '';
+  const titled = items.map((s, i) => (i === 0 ? titleCasePhrase(s) : s.charAt(0).toLowerCase() + s.slice(1)));
+  if (titled.length === 1) return titled[0];
+  if (titled.length === 2) return `${titled[0]} & ${titled[1]}`;
+  return `${titled.slice(0, -1).join(', ')} & ${titled[titled.length - 1]}`;
+}
+
+function labelFromParagraph(p) {
+  const text = str(p);
+  if (!text) return '';
+  const first = (text.split(/(?<=[.!?])\s+/)[0] || text).trim();
+  const theNoun = first.match(/^The\s+([^.!?]{3,40}?)\s+(?:is|are|was|were|has|have|feels|looks|currently)\b/i);
+  if (theNoun) return clipTitle(theNoun[1], 36);
+  const adding = text.match(/\bAdding\s+(?:a|an|the)\s+([^.]{4,48}?)(?:\s+there|\s+would|\.|$)/i);
+  if (adding) return clipTitle(adding[1], 36);
+  return clipTitle(first, 36);
+}
+
+function composeSessionTitle({ title, stories, summary, fallbackText } = {}) {
+  const explicit = clipTitle(title);
+  if (explicit && explicit.split(/\s+/).length <= 12) return explicit;
+  const body = str(summary || fallbackText);
+  const paras = body.split(/\n\n+/).map((p) => p.trim()).filter(Boolean);
+  if (paras.length >= 2) {
+    const fromParas = joinTitleParts(paras.map(labelFromParagraph));
+    if (fromParas) return fromParas;
+  }
+  const territories = [];
+  (Array.isArray(stories) ? stories : []).forEach((s) => {
+    (s?.internalStories || []).forEach((row) => {
+      if (row?.territory) territories.push(row.territory);
+    });
+  });
+  const fromTerritories = joinTitleParts(territories);
+  if (fromTerritories) return clipTitle(fromTerritories);
+  return clipTitle((body.split(/(?<=[.!?])\s+/)[0] || body));
+}
+
 function normalizeUnderstanding(parsed, { text, askedQuestion, askedAnswer }) {
   const questions = questionsOf(parsed);
 
@@ -520,6 +582,7 @@ function normalizeUnderstanding(parsed, { text, askedQuestion, askedAnswer }) {
       understanding: null,
       captures: [],
       conversationSummary: '',
+      conversationTitle: '',
     };
   }
 
@@ -557,6 +620,12 @@ function normalizeUnderstanding(parsed, { text, askedQuestion, askedAnswer }) {
     message: '',
     matchedProjectName: str(parsed?.matchedProjectName),
     conversationSummary: str(parsed?.conversationSummary) || composeSessionSummary(captures, text),
+    conversationTitle: composeSessionTitle({
+      title: parsed?.conversationTitle,
+      stories: captures,
+      summary: str(parsed?.conversationSummary) || composeSessionSummary(captures, text),
+      fallbackText: text,
+    }),
     understanding,
     captures,
   };
@@ -690,7 +759,7 @@ const USER_JSON_INSTRUCTION = [
   'Each turn: put exactly ONE question in question, or return ready. Do not list multiple questions.',
   'Detect internal stories for clarification and record them in internalStories with factIds. They are not capture boundaries and are not automatically posts.',
   'One connected project story is one capture. Separate top-level captures only for different projects or unrelated events.',
-  'When status is ready, pass originalCapture, clarifications, one compact captureSummary, verifiedFacts as {id,fact,source}, internalStories, storyRelationships, and assets once.',
+  'When status is ready, pass a short conversationTitle (4–8 words, not a sentence), originalCapture, clarifications, one compact captureSummary, verifiedFacts as {id,fact,source}, internalStories, storyRelationships, and assets once.',
   'Do not also return summary, whatHappened, intent, tension, action, outcome, distinctSignals, or copy facts into each internal story.',
   'captureSummary is navigation only. Never put a fact in it that is not in originalCapture, a clarification, or an asset.',
   'Only verifiedFacts that the user stated or an asset clearly shows.',
@@ -722,7 +791,7 @@ const UNIFY_RETRY_HINT = [
 
 const FORCE_READY_HINT = [
   'This conversation is already filed. Do not ask any clarification questions.',
-  'Return status ready with updated conversationSummary and Capture(s) that reflect the full conversation above,',
+  'Return status ready with updated conversationTitle, conversationSummary and Capture(s) that reflect the full conversation above,',
   'including every clarification answer. Preserve unknowns only where the user still left them unanswered.',
 ].join(' ');
 
@@ -865,6 +934,7 @@ async function understandCapture(input = {}) {
     result = normalizeUnderstanding(
       {
         status: 'ready',
+        conversationTitle: clipTitle(text),
         conversationSummary: text,
         captures: [{ originalCapture: text, captureSummary: text }],
       },
@@ -993,6 +1063,7 @@ function makeUnderstandDebug({ source, model, systemPrompt, prompt, result, pars
     understanding: result.understanding,
     captures: result.captures,
     conversationSummary: result.conversationSummary || '',
+    conversationTitle: result.conversationTitle || '',
   };
   if (parsed) body.tool = parsed;
   const output = String(rawOutput || '').trim() || JSON.stringify(body, null, 2);
@@ -1016,6 +1087,7 @@ module.exports = {
   sanitizeStories,
   serializeStories,
   composeSessionSummary,
+  composeSessionTitle,
   emptyUnderstanding,
   SIGNAL_KEYS,
   imageContentParts,

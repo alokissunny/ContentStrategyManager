@@ -159,6 +159,8 @@ Return only one JSON object. Omit optional keys that are empty.
 
 `captures` is the top-level capture list (one connected project story per item). Do not name it `conversationCaptures`.
 
+On a ready response, also pass `conversationTitle`: a short library-card heading for the whole chat (4–8 words, not a sentence). Same language as the user. Name the topics or places; do not restate the summary.
+
 ### Clarification response
 
 ```json
@@ -176,6 +178,7 @@ Return only one JSON object. Omit optional keys that are empty.
   "status": "ready",
   "needsClarification": false,
   "matchedProjectName": "Exact listed project name when clearly matched",
+  "conversationTitle": "Cabinet, staircase art & bathroom",
   "captures": [
     {
       "captureId": "c1",

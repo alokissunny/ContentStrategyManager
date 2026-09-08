@@ -9,14 +9,15 @@ const {
   deleteObjects,
 } = require('../services/s3Client');
 const { analyzeImageAsset } = require('../services/imageAnalysis');
-  const {
-    understandCapture,
-    sanitizeUnderstanding,
-    serializeUnderstanding,
-    sanitizeStories,
-    serializeStories,
-    composeSessionSummary,
-  } = require('../services/captureUnderstand');
+const {
+  understandCapture,
+  sanitizeUnderstanding,
+  serializeUnderstanding,
+  sanitizeStories,
+  serializeStories,
+  composeSessionSummary,
+  composeSessionTitle,
+} = require('../services/captureUnderstand');
 const { understandCheckin } = require('../services/checkinUnderstand');
 const { transcribeAudio, correctTranscript } = require('../services/transcribeAudio');
 
@@ -102,6 +103,7 @@ function sanitizeConversationTurns(raw) {
 async function serializeCapture(c) {
   const stories = serializeStories(c.stories);
   const understanding = serializeUnderstanding(c.understanding);
+  const storyRows = stories.length ? stories : (understanding ? [understanding] : []);
   return {
     id: c._id.toString(),
     type: c.type,
@@ -109,10 +111,16 @@ async function serializeCapture(c) {
     createdAt: c.createdAt,
     sessionId: c.sessionId || '',
     sessionKind: c.sessionKind || '',
+    sessionTitle: composeSessionTitle({
+      title: c.sessionTitle,
+      stories: storyRows,
+      summary: c.sessionSummary,
+      fallbackText: c.text,
+    }),
     sessionSummary: c.sessionSummary || '',
     conversationTurns: sanitizeConversationTurns(c.conversationTurns),
     understanding,
-    stories: stories.length ? stories : (understanding ? [understanding] : []),
+    stories: storyRows,
     attachments: await Promise.all((c.attachments || []).map(serializeAttachment)),
   };
 }
@@ -237,6 +245,13 @@ async function addCapture(req, res) {
   const sessionId = String(req.body.sessionId || '').trim() || crypto.randomUUID();
   const sessionSummary = String(req.body.sessionSummary || '').trim()
     || composeSessionSummary(storyRows, text);
+  const sessionTitle = String(req.body.sessionTitle || '').trim()
+    || composeSessionTitle({
+      title: req.body.sessionTitle,
+      stories: storyRows,
+      summary: sessionSummary,
+      fallbackText: text,
+    });
   const conversationTurns = sanitizeConversationTurns(req.body.conversationTurns);
 
   project.captures.push({
@@ -247,6 +262,7 @@ async function addCapture(req, res) {
     stories: storyRows,
     sessionId,
     sessionKind,
+    sessionTitle,
     sessionSummary,
     conversationTurns,
     createdAt: new Date(),
@@ -266,6 +282,7 @@ async function updateCapture(req, res) {
   if (!capture) return res.status(404).json({ message: 'Capture not found' });
 
   if (req.body.text !== undefined) capture.text = String(req.body.text);
+  if (req.body.sessionTitle !== undefined) capture.sessionTitle = String(req.body.sessionTitle).trim();
   if (req.body.sessionSummary !== undefined) capture.sessionSummary = String(req.body.sessionSummary);
   if (req.body.conversationTurns !== undefined) {
     capture.conversationTurns = sanitizeConversationTurns(req.body.conversationTurns);
@@ -290,6 +307,13 @@ async function updateCapture(req, res) {
     capture.attachments = next.map((a) => (priorAnalysis.get(a.key) ? { ...a, analysis: priorAnalysis.get(a.key) } : a));
     await project.save();
     await analyzeNewImageAttachments(capture.attachments);
+  }
+  if (!String(capture.sessionTitle || '').trim()) {
+    capture.sessionTitle = composeSessionTitle({
+      stories: capture.stories,
+      summary: capture.sessionSummary,
+      fallbackText: capture.text,
+    });
   }
   await project.save();
   res.json({ project: await serializeProject(project) });
@@ -467,6 +491,7 @@ async function understandDraft(req, res) {
     const fallback = {
       action: 'ready',
       question: null,
+      conversationTitle: composeSessionTitle({ fallbackText: text }),
       conversationSummary: text,
       captures: [{ originalCapture: text, captureSummary: text }],
       understanding: {
@@ -551,6 +576,7 @@ async function understandCheckinDraft(req, res) {
       matchedProjectId: null,
       matchedProjectName: '',
       askForAssets: attachments.length === 0,
+      conversationTitle: composeSessionTitle({ fallbackText: text }),
       conversationSummary: text,
       captures: [{ originalCapture: text, captureSummary: text }],
       understanding: {

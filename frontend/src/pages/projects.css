@@ -585,6 +585,15 @@
 .pe__addfiles:disabled { opacity: 0.65; cursor: default; }
 .pe__addfiles svg { flex-shrink: 0; color: var(--ink-500); }
 .pe__dur { padding-left: 42px; font-size: var(--text-xs); color: var(--ink-500); font-variant-numeric: tabular-nums; }
+.pe__title {
+  margin: 0;
+  font-family: var(--font-ui);
+  font-size: var(--text-base);
+  font-weight: 650;
+  line-height: 1.35;
+  color: var(--ink-900);
+  overflow-wrap: anywhere;
+}
 /* one session summary — enough lines to read the conversation, then an ellipsis.
  * The full thread is one tap away in the panel. */
 .pe__text {
@@ -698,6 +707,31 @@
   padding-top: 12px;
   border-top: 1px solid var(--border);
 }
+.sc__title {
+  margin: 0 0 8px;
+  font-family: var(--font-ui);
+  font-size: var(--text-base);
+  font-weight: 650;
+  line-height: 1.35;
+  color: var(--ink-900);
+  overflow-wrap: anywhere;
+}
+.sc__title-field {
+  display: block;
+  width: 100%;
+  margin: 0 0 10px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  font-family: var(--font-ui);
+  font-size: var(--text-base);
+  font-weight: 650;
+  line-height: 1.35;
+  color: var(--ink-900);
+  overflow-wrap: anywhere;
+}
+.sc__title-field:focus, .sc__title-field:focus-visible { outline: none; }
+.sc__title-field::placeholder { color: var(--ink-quiet); font-weight: 500; }
 .sc__summary-head {
   display: flex;
   align-items: center;
