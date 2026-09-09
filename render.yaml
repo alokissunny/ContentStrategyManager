@@ -47,10 +47,10 @@ services:
       # Meta AFTER clicking Reset (the one in chat/screenshots is compromised).
       - key: META_APP_SECRET
         sync: false
-      # Must exactly match a Valid OAuth Redirect URI in the Meta app. This is the
-      # frontend (igsignal-web) callback route.
+      # Must exactly match a Valid OAuth Redirect URI in the Meta app.
+      # Production custom domain (also whitelist https://www.bauhly.com/… there).
       - key: META_REDIRECT_URI
-        value: https://igsignal-web.onrender.com/dashboard/meta/callback
+        value: https://bauhly.com/dashboard/meta/callback
       # 1 enables live Graph publishing; needs public HTTPS image URLs (see notes).
       - key: META_PUBLISH_LIVE
         value: "0"

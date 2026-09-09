@@ -34,12 +34,17 @@ export function metaConnectionFor(status, username) {
   return null;
 }
 
+function metaCallbackUri() {
+  if (typeof window === 'undefined') return undefined;
+  return `${window.location.origin}/dashboard/meta/callback`;
+}
+
 export function startMetaConnect() {
-  return client.post('/meta/connect').then((r) => r.data);
+  return client.post('/meta/connect', { redirectUri: metaCallbackUri() }).then((r) => r.data);
 }
 
 export function completeMetaConnect(code, state) {
-  return client.post('/meta/connect/complete', { code, state }).then((r) => r.data);
+  return client.post('/meta/connect/complete', { code, state, redirectUri: metaCallbackUri() }).then((r) => r.data);
 }
 
 /** Disconnect one Meta IG account. Pass igUserId from status.connections[]. */

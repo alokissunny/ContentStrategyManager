@@ -1,6 +1,7 @@
 /*
  * Meta OAuth redirect target — completes Connect with Meta after Facebook Login.
- * META_REDIRECT_URI should point here, e.g. http://localhost:5173/dashboard/meta/callback
+ * OAuth callback. Production: https://bauhly.com/dashboard/meta/callback
+ * (also whitelist https://www.bauhly.com/dashboard/meta/callback in the Meta app).
  */
 
 import React, { useEffect, useState } from 'react';

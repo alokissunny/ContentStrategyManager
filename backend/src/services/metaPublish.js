@@ -16,8 +16,45 @@ const crypto = require('crypto');
 const MetaConnection = require('../models/MetaConnection');
 const WeeklyRoute = require('../models/WeeklyRoute');
 const { getPresignedMediaUrl } = require('./s3Client');
+const { allowedOrigins } = require('../config/origins');
 
 const GRAPH = 'https://graph.facebook.com/v21.0';
+const META_CALLBACK_PATH = '/dashboard/meta/callback';
+const DEFAULT_META_REDIRECT_URI = `https://bauhly.com${META_CALLBACK_PATH}`;
+
+function envRedirectUri() {
+  const fromEnv = String(process.env.META_REDIRECT_URI || '').trim();
+  return fromEnv || DEFAULT_META_REDIRECT_URI;
+}
+
+/**
+ * Facebook requires redirect_uri to match the live frontend origin character-
+ * for-character. Prefer the browser origin (or an explicit callback URL) over
+ * a stale META_REDIRECT_URI such as the old igsignal-web.onrender.com host.
+ */
+function resolveRedirectUri(req) {
+  const candidates = [
+    req.body?.redirectUri,
+    req.headers.origin ? `${String(req.headers.origin).replace(/\/$/, '')}${META_CALLBACK_PATH}` : '',
+    envRedirectUri(),
+    DEFAULT_META_REDIRECT_URI,
+  ];
+  const allowed = allowedOrigins();
+  for (const raw of candidates) {
+    const value = String(raw || '').trim();
+    if (!value) continue;
+    try {
+      const parsed = new URL(value);
+      if (parsed.pathname !== META_CALLBACK_PATH) continue;
+      if (parsed.search || parsed.hash) continue;
+      if (!allowed.has(parsed.origin)) continue;
+      return `${parsed.origin}${META_CALLBACK_PATH}`;
+    } catch (_) {
+      /* skip invalid */
+    }
+  }
+  return DEFAULT_META_REDIRECT_URI;
+}
 
 // POST to the Graph API as form-encoded (its expected content type) and throw
 // the Graph error message on failure so callers can surface it.
@@ -31,7 +68,7 @@ async function graphPost(path, params) {
 }
 
 function metaConfigured() {
-  return Boolean(process.env.META_APP_ID && process.env.META_APP_SECRET && process.env.META_REDIRECT_URI);
+  return Boolean(process.env.META_APP_ID && process.env.META_APP_SECRET);
 }
 
 function normalizeHandle(username) {
@@ -95,7 +132,7 @@ async function startConnect(req, res) {
   if (!metaConfigured()) {
     return res.status(503).json({
       message:
-        'Meta publishing is not configured yet. Add META_APP_ID, META_APP_SECRET, and META_REDIRECT_URI to enable Connect with Meta.',
+        'Meta publishing is not configured yet. Add META_APP_ID and META_APP_SECRET to enable Connect with Meta.',
       configured: false,
     });
   }
@@ -118,9 +155,10 @@ async function startConnect(req, res) {
       : DEFAULT_SCOPES
   ).join(',');
 
+  const redirectUri = resolveRedirectUri(req);
   const url = new URL('https://www.facebook.com/v21.0/dialog/oauth');
   url.searchParams.set('client_id', process.env.META_APP_ID);
-  url.searchParams.set('redirect_uri', process.env.META_REDIRECT_URI);
+  url.searchParams.set('redirect_uri', redirectUri);
   url.searchParams.set('state', state);
   // Facebook Login *for Business* bundles permissions into a Configuration and
   // expects `config_id`; classic Facebook Login uses `scope`. When
@@ -136,9 +174,9 @@ async function startConnect(req, res) {
   // Log the exact redirect_uri so a "URL Blocked" error is easy to fix: this
   // string must be whitelisted verbatim in the Meta app's Valid OAuth Redirect
   // URIs (Facebook Login → Settings), character-for-character.
-  console.log(`[meta] OAuth redirect_uri = ${process.env.META_REDIRECT_URI}`);
+  console.log(`[meta] OAuth redirect_uri = ${redirectUri}`);
 
-  res.json({ url: url.toString(), state, redirectUri: process.env.META_REDIRECT_URI });
+  res.json({ url: url.toString(), state, redirectUri });
 }
 
 /**
@@ -157,9 +195,10 @@ async function completeConnect(req, res) {
   try {
     // 1. Short-lived user token
     const tokenUrl = new URL(`${GRAPH}/oauth/access_token`);
+    const redirectUri = resolveRedirectUri(req);
     tokenUrl.searchParams.set('client_id', process.env.META_APP_ID);
     tokenUrl.searchParams.set('client_secret', process.env.META_APP_SECRET);
-    tokenUrl.searchParams.set('redirect_uri', process.env.META_REDIRECT_URI);
+    tokenUrl.searchParams.set('redirect_uri', redirectUri);
     tokenUrl.searchParams.set('code', code);
     const tokenRes = await fetch(tokenUrl);
     const tokenJson = await tokenRes.json();
@@ -446,4 +485,5 @@ module.exports = {
   metaConfigured,
   buildStatus,
   normalizeHandle,
+  resolveRedirectUri,
 };
