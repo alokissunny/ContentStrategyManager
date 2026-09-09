@@ -14,6 +14,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import Icon from '../brand/Icon';
 import { getCurrentRoute, getRoutes, clearCurrentMonth } from '../api/routes';
 import { useNavigate, useLocation } from 'react-router-dom';
+import { peekMetaOAuthResult, takeMetaOAuthResult } from '../api/meta';
 import { useProjects, createProject, refreshProjects, addSession, sessionCount } from '../lib/projectsStore';
 import {
   consumePlanReady,
@@ -385,6 +386,23 @@ export default function YourPlans() {
     refreshProjects().catch(() => {});
     return () => stopMonthFillWatch();
   }, []);
+
+  // After Connect with Meta, reopen the week we left so a handle mismatch is obvious.
+  useEffect(() => {
+    if (loading) return;
+    const result = peekMetaOAuthResult();
+    if (!result?.weekId) {
+      if (location.state?.metaOAuth) navigate('/dashboard', { replace: true, state: {} });
+      return;
+    }
+    if (location.state?.metaOAuth) navigate('/dashboard', { replace: true, state: {} });
+    const week = (routes || []).find((r) => String(r._id) === String(result.weekId));
+    if (!week) return;
+    setSelected(week);
+    setSelectedDay(Number(result.day) || 0);
+    setView('week');
+    takeMetaOAuthResult();
+  }, [loading, location.state, routes, navigate]);
 
   // Refresh when the user comes back to this tab (covers the "switch and return" case).
   useEffect(() => {

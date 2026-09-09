@@ -1,13 +1,18 @@
 /*
  * Meta OAuth redirect target — completes Connect with Meta after Facebook Login.
- * OAuth callback. Production: https://bauhly.com/dashboard/meta/callback
+ * Production: https://bauhly.com/dashboard/meta/callback
  * (also whitelist https://www.bauhly.com/dashboard/meta/callback in the Meta app).
  */
 
 import React, { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import Glyph from '../components/Glyph';
-import { completeMetaConnect } from '../api/meta';
+import {
+  completeMetaConnect,
+  isMetaConnectedFor,
+  storeMetaOAuthResult,
+  takeMetaOAuthReturn,
+} from '../api/meta';
 import { LS_SURFACE, LS_BORDER, LS_INK, LS_T2, LS_SIGNAL, LS_FONT, LS_DISPLAY, LSC } from '../theme';
 
 export default function MetaCallback() {
@@ -33,12 +38,29 @@ export default function MetaCallback() {
       return;
     }
 
+    const usedKey = `meta_oauth_code_${code}`;
+    if (sessionStorage.getItem(usedKey)) return;
+    sessionStorage.setItem(usedKey, '1');
+
     completeMetaConnect(code, state)
-      .then(() => {
+      .then((status) => {
         sessionStorage.removeItem('meta_oauth_state');
-        navigate('/dashboard', { replace: true, state: { metaConnected: true } });
+        const ret = takeMetaOAuthReturn() || {};
+        const expectedHandle = ret.expectedHandle || '';
+        const matched = expectedHandle
+          ? isMetaConnectedFor(status, expectedHandle)
+          : Boolean((status.connections || []).length || status.connected);
+        storeMetaOAuthResult({
+          matched,
+          expectedHandle,
+          connections: status.connections || [],
+          weekId: ret.weekId || null,
+          day: ret.day || 0,
+        });
+        navigate('/dashboard', { replace: true, state: { metaOAuth: true } });
       })
       .catch((e) => {
+        sessionStorage.removeItem(usedKey);
         setError(e.response?.data?.message || 'Could not finish connecting Meta.');
       });
   }, [params, navigate]);

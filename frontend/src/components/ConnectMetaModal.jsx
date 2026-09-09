@@ -16,14 +16,25 @@ const REQUIREMENTS = [
   'Permission for Bauhly to publish on your behalf',
 ];
 
-export default function ConnectMetaModal({ configured, onClose, onConnected, onMarkManually }) {
+export default function ConnectMetaModal({
+  configured,
+  expectedHandle,
+  otherConnections = [],
+  onClose,
+  onConnected,
+  onMarkManually,
+  onRememberReturn,
+}) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const handle = String(expectedHandle || '').replace(/^@/, '').trim();
+  const others = (otherConnections || []).filter((c) => c?.igUsername);
 
   async function handleConnect() {
     setBusy(true);
     setError('');
     try {
+      onRememberReturn?.();
       const { url, state } = await startMetaConnect();
       if (state) sessionStorage.setItem('meta_oauth_state', state);
       if (url) {
@@ -69,12 +80,23 @@ export default function ConnectMetaModal({ configured, onClose, onConnected, onM
           <h2 style={{
             fontFamily: LS_DISPLAY, fontWeight: 700, fontSize: 22, color: LS_INK, margin: '0 0 8px',
           }}>
-            Connect Meta to publish
+            {handle ? `Connect @${handle}` : 'Connect Meta to publish'}
           </h2>
           <p style={{ fontFamily: LS_FONT, fontSize: 14.5, lineHeight: 1.55, color: LS_T2, margin: 0 }}>
-            Bauhly posts to the Instagram Professional account that matches this plan&rsquo;s handle.
-            Connect that account through Meta (use the Facebook login that owns its Page).
+            {handle
+              ? <>This plan publishes as <strong>@{handle}</strong>. During Facebook login, grant the Page linked to that Instagram — you can tick more than one Page.</>
+              : <>Bauhly posts to the Instagram Professional account that matches this plan&rsquo;s handle. Connect that account through Meta (use the Facebook login that owns its Page).</>}
           </p>
+          {others.length > 0 && (
+            <p style={{
+              marginTop: 14, fontFamily: LS_FONT, fontSize: 13.5, lineHeight: 1.5, color: LS_INK,
+              background: LS_SOFT, borderRadius: 10, padding: '10px 12px',
+            }}>
+              Meta connected {others.map((c) => `@${c.igUsername}`).join(', ')}
+              {others[0]?.pageName ? ` (Page: ${others[0].pageName})` : ''}, which is a different account.
+              Reconnect and select @{handle || 'this plan'}&rsquo;s Page.
+            </p>
+          )}
 
           <ul style={{ listStyle: 'none', margin: '20px 0 0', padding: 0, display: 'flex', flexDirection: 'column', gap: 10 }}>
             {REQUIREMENTS.map((r) => (

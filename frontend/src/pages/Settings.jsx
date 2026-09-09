@@ -13,7 +13,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import Icon from '../brand/Icon';
 import { useAuth } from '../context/AuthContext';
 import { listInstagramProfiles, activateInstagramProfile } from '../api/instagram';
-import { getMetaStatus, startMetaConnect, disconnectMeta, metaConnectionFor } from '../api/meta';
+import { getMetaStatus, startMetaConnect, disconnectMeta, metaConnectionFor, rememberMetaOAuthReturn } from '../api/meta';
 import { syncHandle } from '../lib/store';
 import { resetProjects } from '../lib/projectsStore';
 import { useAiDebug, setAiDebugEnabled, clearAiDebugEntries } from '../lib/aiDebug';
@@ -80,6 +80,7 @@ export default function Settings() {
     setMetaBusy(true);
     try {
       const { url, state } = await startMetaConnect();
+      rememberMetaOAuthReturn({ expectedHandle: profiles[0]?.username || '' });
       if (state) sessionStorage.setItem('meta_oauth_state', state);
       if (url) window.location.href = url;
     } catch (err) {

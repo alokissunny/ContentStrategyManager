@@ -4,34 +4,82 @@ export function getMetaStatus() {
   return client.get('/meta/status').then((r) => r.data);
 }
 
-/** True when Meta is connected for this Instagram handle (case-insensitive). */
-export function isMetaConnectedFor(status, username) {
-  const handle = String(username || '').replace(/^@/, '').trim().toLowerCase();
-  if (!status || !handle) return false;
-  const list = status.connections;
-  if (Array.isArray(list) && list.length) {
-    return list.some((c) => String(c.igUsername || '').toLowerCase() === handle);
+export function metaConnectionsList(status) {
+  if (Array.isArray(status?.connections) && status.connections.length) return status.connections;
+  if (status?.connected && status.igUsername) {
+    return [{
+      igUserId: status.igUserId || null,
+      igUsername: status.igUsername,
+      pageName: status.pageName || null,
+      connectedAt: status.connectedAt || null,
+    }];
   }
-  // Legacy single-connection shape from older backends.
-  return !!(status.connected && String(status.igUsername || '').toLowerCase() === handle);
+  return [];
 }
 
 export function metaConnectionFor(status, username) {
   const handle = String(username || '').replace(/^@/, '').trim().toLowerCase();
   if (!status || !handle) return null;
-  const list = status.connections;
-  if (Array.isArray(list) && list.length) {
-    return list.find((c) => String(c.igUsername || '').toLowerCase() === handle) || null;
+  return metaConnectionsList(status).find(
+    (c) => String(c.igUsername || '').toLowerCase() === handle,
+  ) || null;
+}
+
+export function isMetaConnectedFor(status, username) {
+  return Boolean(metaConnectionFor(status, username));
+}
+
+/** Meta IGs linked on this user that do not match `username`. */
+export function otherMetaConnections(status, username) {
+  const handle = String(username || '').replace(/^@/, '').trim().toLowerCase();
+  return metaConnectionsList(status).filter(
+    (c) => String(c.igUsername || '').toLowerCase() && String(c.igUsername || '').toLowerCase() !== handle,
+  );
+}
+
+const OAUTH_RETURN_KEY = 'meta_oauth_return';
+const OAUTH_RESULT_KEY = 'meta_oauth_result';
+
+/** Remember which plan/handle Connect was started from so the callback can return. */
+export function rememberMetaOAuthReturn(payload) {
+  try {
+    sessionStorage.setItem(OAUTH_RETURN_KEY, JSON.stringify(payload || {}));
+  } catch { /* ignore quota / private mode */ }
+}
+
+export function takeMetaOAuthReturn() {
+  try {
+    const raw = sessionStorage.getItem(OAUTH_RETURN_KEY);
+    sessionStorage.removeItem(OAUTH_RETURN_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
   }
-  if (status.connected && String(status.igUsername || '').toLowerCase() === handle) {
-    return {
-      igUserId: status.igUserId || null,
-      igUsername: status.igUsername,
-      pageName: status.pageName || null,
-      connectedAt: status.connectedAt || null,
-    };
+}
+
+export function storeMetaOAuthResult(payload) {
+  try {
+    sessionStorage.setItem(OAUTH_RESULT_KEY, JSON.stringify(payload || {}));
+  } catch { /* ignore */ }
+}
+
+export function peekMetaOAuthResult() {
+  try {
+    const raw = sessionStorage.getItem(OAUTH_RESULT_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
   }
-  return null;
+}
+
+export function takeMetaOAuthResult() {
+  try {
+    const raw = sessionStorage.getItem(OAUTH_RESULT_KEY);
+    sessionStorage.removeItem(OAUTH_RESULT_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
 }
 
 function metaCallbackUri() {

@@ -14,7 +14,7 @@ import Icon from '../brand/Icon';
 import YourAnalysisModal from '../components/YourAnalysisModal';
 import ConnectMetaModal from '../components/ConnectMetaModal';
 import { markDayPublished, updateDayContent, replanWeek, scheduleDay, setDayTime, runDayLayout } from '../api/routes';
-import { getMetaStatus, publishDayToMeta, isMetaConnectedFor, metaConnectionFor } from '../api/meta';
+import { getMetaStatus, publishDayToMeta, isMetaConnectedFor, metaConnectionFor, otherMetaConnections, rememberMetaOAuthReturn } from '../api/meta';
 import { mediaProxyUrl, toDisplayUrl, isProxyUrl, rememberCdnBase, onCdnBase, getCdnBase, canvasSafeUrl, isProjectMediaKey, splitMediaKeys } from '../api/media';
 import { createImage, listGeneratedImages } from '../api/images';
 import { useProjects, uploadFiles } from '../lib/projectsStore';
@@ -1711,6 +1711,7 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
   const routeRef = useRef(route);
   const lastSavedByDayRef = useRef({});
   const persistGenRef = useRef(0);
+  const mismatchPrompted = useRef(false);
   routeRef.current = route;
 
   const weekId = initialRoute?._id;
@@ -1878,6 +1879,14 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
   // Publish/schedule only when Meta is linked for *this* plan's Instagram handle.
   const metaForHandle = metaConnectionFor(metaStatus, handle);
   const metaConnected = isMetaConnectedFor(metaStatus, handle);
+  const otherMeta = otherMetaConnections(metaStatus, handle);
+
+  useEffect(() => {
+    if (mismatchPrompted.current || metaConnected) return;
+    if (!otherMeta.length) return;
+    mismatchPrompted.current = true;
+    setConnectOpen(true);
+  }, [metaStatus, handle, metaConnected, otherMeta.length]);
   // A post is "scheduled" when it carries a slot and hasn't gone out yet. The
   // slot only means anything with an account to publish to (bauhly-v3 §783).
   const isScheduled = metaConnected && !!day?.scheduledAt && !day?.published;
@@ -2902,6 +2911,13 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
       {connectOpen && (
         <ConnectMetaModal
           configured={metaStatus.configured}
+          expectedHandle={handle}
+          otherConnections={otherMeta}
+          onRememberReturn={() => rememberMetaOAuthReturn({
+            expectedHandle: handle,
+            weekId: route?._id || null,
+            day: selected,
+          })}
           onClose={() => setConnectOpen(false)}
           onMarkManually={markPublishedManually}
           onConnected={(status) => {
