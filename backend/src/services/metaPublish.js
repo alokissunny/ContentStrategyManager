@@ -1,15 +1,10 @@
 /*
- * Meta Instagram publishing — connection status + OAuth scaffolding + publish stub.
+ * Instagram publishing via Instagram API with Instagram Login
+ * (Business Login for Instagram — no Facebook Page).
  *
- * Phases (see team plan):
- *  1. UX: Publish CTA + connect prompt (this file + FE) ✓
- *  2. Meta App + OAuth (Facebook Login for Business) — start when META_APP_ID set
- *  3. Graph Content Publishing API (image/carousel/reel containers)
- *  4. Token refresh, media hosting, error taxonomy
- *
- * A Bauhly user may connect several Instagram Professional accounts (one Meta
- * connection per IG). Publish / insights resolve by matching igUsername to the
- * plan or profile handle.
+ * Connect: instagram.com/oauth/authorize → api.instagram.com token →
+ * graph.instagram.com long-lived token + /me.
+ * Publish: graph.instagram.com /{ig-user-id}/media + /media_publish.
  */
 
 const crypto = require('crypto');
@@ -18,9 +13,50 @@ const WeeklyRoute = require('../models/WeeklyRoute');
 const { getPresignedMediaUrl } = require('./s3Client');
 const { allowedOrigins } = require('../config/origins');
 
-const GRAPH = 'https://graph.facebook.com/v21.0';
+const IG_GRAPH = 'https://graph.instagram.com/v21.0';
 const META_CALLBACK_PATH = '/dashboard/meta/callback';
-const DEFAULT_META_REDIRECT_URI = `https://bauhly.com${META_CALLBACK_PATH}`;
+const DEFAULT_META_REDIRECT_URI = `https://www.bauhly.com${META_CALLBACK_PATH}`;
+const DEFAULT_IG_SCOPES = [
+  'instagram_business_basic',
+  'instagram_business_content_publish',
+];
+
+function instagramAppId() {
+  return String(process.env.INSTAGRAM_APP_ID || '').trim();
+}
+
+function instagramAppSecret() {
+  return String(process.env.INSTAGRAM_APP_SECRET || '').trim();
+}
+
+function igGraphBase(conn) {
+  if (conn?.authType === 'instagram_login') return IG_GRAPH;
+  // Legacy Facebook Login rows store a Page token and pageId.
+  if (conn?.authType === 'facebook_login' || conn?.pageId) {
+    return 'https://graph.facebook.com/v21.0';
+  }
+  return IG_GRAPH;
+}
+
+function oauthScopes() {
+  const raw = String(process.env.INSTAGRAM_SCOPES || process.env.META_SCOPES || '').trim();
+  const list = raw
+    ? raw.split(',').map((s) => s.trim()).filter(Boolean)
+    : DEFAULT_IG_SCOPES;
+  const facebookLogin = list.some(
+    (s) =>
+      s.startsWith('pages_') ||
+      s === 'business_management' ||
+      s === 'instagram_basic' ||
+      s === 'instagram_content_publish' ||
+      s === 'instagram_manage_insights',
+  );
+  if (facebookLogin) {
+    console.warn('[meta] ignoring Facebook Login scopes; using Instagram Login defaults');
+    return DEFAULT_IG_SCOPES;
+  }
+  return list.length ? list : DEFAULT_IG_SCOPES;
+}
 
 function envRedirectUri() {
   const fromEnv = String(process.env.META_REDIRECT_URI || '').trim();
@@ -28,7 +64,7 @@ function envRedirectUri() {
 }
 
 /**
- * Facebook requires redirect_uri to match the live frontend origin character-
+ * Instagram requires redirect_uri to match the live frontend origin character-
  * for-character. Prefer the browser origin (or an explicit callback URL) over
  * a stale META_REDIRECT_URI such as the old igsignal-web.onrender.com host.
  */
@@ -58,8 +94,8 @@ function resolveRedirectUri(req) {
 
 // POST to the Graph API as form-encoded (its expected content type) and throw
 // the Graph error message on failure so callers can surface it.
-async function graphPost(path, params) {
-  const res = await fetch(`${GRAPH}/${path}`, { method: 'POST', body: new URLSearchParams(params) });
+async function graphPost(path, params, base = IG_GRAPH) {
+  const res = await fetch(`${base}/${path}`, { method: 'POST', body: new URLSearchParams(params) });
   const json = await res.json().catch(() => ({}));
   if (!res.ok || json.error) {
     throw new Error(json.error?.message || `Graph POST ${path} failed (${res.status})`);
@@ -68,7 +104,7 @@ async function graphPost(path, params) {
 }
 
 function metaConfigured() {
-  return Boolean(process.env.META_APP_ID && process.env.META_APP_SECRET);
+  return Boolean(instagramAppId() && instagramAppSecret());
 }
 
 function normalizeHandle(username) {
@@ -127,183 +163,136 @@ async function getStatus(req, res) {
   res.json(buildStatus(docs));
 }
 
-/** Kick off Facebook Login for Business → Instagram Professional. */
+/** Kick off Business Login for Instagram → Instagram Professional. */
 async function startConnect(req, res) {
   if (!metaConfigured()) {
     return res.status(503).json({
       message:
-        'Meta publishing is not configured yet. Add META_APP_ID and META_APP_SECRET to enable Connect with Meta.',
+        'Instagram publishing is not configured yet. Add INSTAGRAM_APP_ID and INSTAGRAM_APP_SECRET to enable Connect Instagram.',
       configured: false,
     });
   }
 
   const state = crypto.randomBytes(16).toString('hex');
-  // Short-lived CSRF cookie via response — client stores state in sessionStorage.
-  // META_SCOPES overrides the default set (comma-separated) — handy for dropping
-  // a permission that isn't approved yet so connecting still works during setup.
-  const DEFAULT_SCOPES = [
-    'instagram_basic',
-    'instagram_content_publish',
-    'instagram_manage_insights',
-    'pages_show_list',
-    'pages_read_engagement',
-    'business_management',
-  ];
-  const scopes = (
-    process.env.META_SCOPES
-      ? process.env.META_SCOPES.split(',').map((s) => s.trim()).filter(Boolean)
-      : DEFAULT_SCOPES
-  ).join(',');
+  const scopes = oauthScopes().join(',');
 
   const redirectUri = resolveRedirectUri(req);
-  const url = new URL('https://www.facebook.com/v21.0/dialog/oauth');
-  url.searchParams.set('client_id', process.env.META_APP_ID);
+  const url = new URL('https://www.instagram.com/oauth/authorize');
+  url.searchParams.set('client_id', instagramAppId());
   url.searchParams.set('redirect_uri', redirectUri);
-  url.searchParams.set('state', state);
-  // Facebook Login *for Business* bundles permissions into a Configuration and
-  // expects `config_id`; classic Facebook Login uses `scope`. When
-  // META_LOGIN_CONFIG_ID is set we use the Configuration (the permissions come
-  // from it); otherwise we request the scopes directly.
-  if (process.env.META_LOGIN_CONFIG_ID) {
-    url.searchParams.set('config_id', process.env.META_LOGIN_CONFIG_ID);
-  } else {
-    url.searchParams.set('scope', scopes);
-  }
   url.searchParams.set('response_type', 'code');
+  url.searchParams.set('scope', scopes);
+  url.searchParams.set('state', state);
+  url.searchParams.set('force_reauth', 'true');
 
-  // Log the exact redirect_uri so a "URL Blocked" error is easy to fix: this
-  // string must be whitelisted verbatim in the Meta app's Valid OAuth Redirect
-  // URIs (Facebook Login → Settings), character-for-character.
-  console.log(`[meta] OAuth redirect_uri = ${redirectUri}`);
+  console.log(`[meta] Instagram OAuth redirect_uri = ${redirectUri}`);
 
   res.json({ url: url.toString(), state, redirectUri });
 }
 
+async function parseIgTokenPayload(json) {
+  if (Array.isArray(json?.data) && json.data[0]) return json.data[0];
+  return json || {};
+}
+
 /**
- * OAuth callback: exchange code → long-lived user token → Page token → IG business account(s).
- * Upserts one MetaConnection per Instagram Professional account found on the user's Pages.
+ * OAuth callback: code → short-lived IG user token → long-lived token → /me.
+ * Upserts one MetaConnection for the Instagram Professional account that logged in.
  */
 async function completeConnect(req, res) {
   await ensureIndexes();
   if (!metaConfigured()) {
-    return res.status(503).json({ message: 'Meta publishing is not configured.', configured: false });
+    return res.status(503).json({ message: 'Instagram publishing is not configured.', configured: false });
   }
 
   const { code } = req.body;
   if (!code) return res.status(400).json({ message: 'Missing OAuth code' });
 
+  const redirectUri = resolveRedirectUri(req);
+
   try {
-    // 1. Short-lived user token
-    const tokenUrl = new URL(`${GRAPH}/oauth/access_token`);
-    const redirectUri = resolveRedirectUri(req);
-    tokenUrl.searchParams.set('client_id', process.env.META_APP_ID);
-    tokenUrl.searchParams.set('client_secret', process.env.META_APP_SECRET);
-    tokenUrl.searchParams.set('redirect_uri', redirectUri);
-    tokenUrl.searchParams.set('code', code);
-    const tokenRes = await fetch(tokenUrl);
-    const tokenJson = await tokenRes.json();
-    if (!tokenRes.ok || !tokenJson.access_token) {
-      throw new Error(tokenJson.error?.message || 'Token exchange failed');
-    }
-
-    // 2. Long-lived user token
-    const llUrl = new URL(`${GRAPH}/oauth/access_token`);
-    llUrl.searchParams.set('grant_type', 'fb_exchange_token');
-    llUrl.searchParams.set('client_id', process.env.META_APP_ID);
-    llUrl.searchParams.set('client_secret', process.env.META_APP_SECRET);
-    llUrl.searchParams.set('fb_exchange_token', tokenJson.access_token);
-    const llRes = await fetch(llUrl);
-    const llJson = await llRes.json();
-    const userToken = llJson.access_token || tokenJson.access_token;
-
-    // 3. Pages the user manages, with any linked IG account in one call. We ask
-    // for both edges: `instagram_business_account` (the API-publishable link) and
-    // `connected_instagram_account` (a consumer-level link that does NOT allow
-    // publishing) — so we can tell the two apart when diagnosing.
-    const pagesRes = await fetch(
-      `${GRAPH}/me/accounts?fields=id,name,access_token,instagram_business_account{id,username},connected_instagram_account{id,username}&access_token=${encodeURIComponent(userToken)}`
-    );
-    const pagesJson = await pagesRes.json();
-    if (pagesJson.error) {
-      console.error('[meta] /me/accounts error:', JSON.stringify(pagesJson.error));
-      return res.status(502).json({
-        message: pagesJson.error.message || 'Could not read your Facebook Pages from Meta.',
-      });
-    }
-    const pages = pagesJson.data || [];
-    // Full dump so we can see exactly what Meta returned for this token.
-    console.log(
-      '[meta] pages returned:',
-      JSON.stringify(
-        pages.map((p) => ({
-          name: p.name,
-          id: p.id,
-          instagram_business_account: p.instagram_business_account || null,
-          connected_instagram_account: p.connected_instagram_account || null,
-        }))
-      )
-    );
-    if (!pages.length) {
-      return res.status(400).json({
-        message:
-          'Facebook returned no Pages for your account. During "Connect with Meta", make sure you grant the app access to the Page that is linked to your Instagram, then try again.',
-      });
-    }
-
-    // 4. Upsert every Page that has an IG *business* account — one Meta connection
-    // per Professional IG so multi-Page Facebook logins attach all of them.
-    const igPages = pages.filter((p) => p.instagram_business_account?.id);
-    if (!igPages.length) {
-      const names = pages.map((p) => p.name).filter(Boolean).join(', ');
-      const consumerOnly = pages.some((p) => p.connected_instagram_account?.id);
-      console.warn(`[meta] no instagram_business_account on ${pages.length} page(s): ${names} (consumerLink=${consumerOnly})`);
-      return res.status(400).json({
-        message: consumerOnly
-          ? 'Your Instagram is connected to the Page but not as a business account the API can publish to. In Meta Business Suite → Settings → Instagram accounts, make sure the account is added as a business asset under the same portfolio as the Page, then reconnect.'
-          : `Facebook returned your Page(s) [${names}] but none has an Instagram Professional account linked for the API. Grant the app access to the correct Page during connect, and confirm the Instagram is linked to that exact Page.`,
-      });
-    }
-
-    const expiresIn = Number(llJson.expires_in) || 60 * 24 * 3600;
-    const scopes = [
-      'instagram_basic',
-      'instagram_content_publish',
-      'instagram_manage_insights',
-      'pages_show_list',
-      'pages_read_engagement',
-      'business_management',
-    ];
-    const now = new Date();
-
-    for (const page of igPages) {
-      const ig = page.instagram_business_account;
-      await MetaConnection.findOneAndUpdate(
-        { user: req.user._id, igUserId: String(ig.id) },
-        {
-          user: req.user._id,
-          igUserId: String(ig.id),
-          igUsername: normalizeHandle(ig.username),
-          pageId: page.id,
-          pageName: page.name || '',
-          accessToken: page.access_token,
-          tokenExpiresAt: new Date(Date.now() + expiresIn * 1000),
-          scopes,
-          status: 'connected',
-          connectedAt: now,
-        },
-        { upsert: true, new: true }
+    const shortRes = await fetch('https://api.instagram.com/oauth/access_token', {
+      method: 'POST',
+      body: new URLSearchParams({
+        client_id: instagramAppId(),
+        client_secret: instagramAppSecret(),
+        grant_type: 'authorization_code',
+        redirect_uri: redirectUri,
+        code,
+      }),
+    });
+    const shortJson = await shortRes.json().catch(() => ({}));
+    const short = parseIgTokenPayload(shortJson);
+    if (!short.access_token) {
+      console.error('[meta] IG token exchange failed:', JSON.stringify(shortJson));
+      throw new Error(
+        shortJson.error_message || shortJson.error?.message || 'Instagram token exchange failed',
       );
     }
 
-    const docs = await listConnected(req.user._id);
-    console.log(
-      `[meta] connected ${igPages.length} IG account(s):`,
-      igPages.map((p) => p.instagram_business_account?.username).join(', ')
+    const llUrl = new URL('https://graph.instagram.com/access_token');
+    llUrl.searchParams.set('grant_type', 'ig_exchange_token');
+    llUrl.searchParams.set('client_secret', instagramAppSecret());
+    llUrl.searchParams.set('access_token', short.access_token);
+    const llRes = await fetch(llUrl);
+    const llJson = await llRes.json().catch(() => ({}));
+    if (llJson.error && !llJson.access_token) {
+      console.warn('[meta] IG long-lived token exchange:', JSON.stringify(llJson.error));
+    }
+    const userToken = llJson.access_token || short.access_token;
+    const expiresIn = Number(llJson.expires_in) || (llJson.access_token ? 60 * 24 * 3600 : 3600);
+
+    const meUrl = new URL(`${IG_GRAPH}/me`);
+    meUrl.searchParams.set('fields', 'user_id,username,name,account_type');
+    meUrl.searchParams.set('access_token', userToken);
+    const meRes = await fetch(meUrl);
+    const me = await meRes.json().catch(() => ({}));
+    if (me.error || !(me.user_id || me.id)) {
+      console.error('[meta] IG /me failed:', JSON.stringify(me));
+      throw new Error(me.error?.message || 'Could not read the Instagram Professional account.');
+    }
+
+    const accountType = String(me.account_type || '').toUpperCase();
+    if (accountType && accountType !== 'BUSINESS' && accountType !== 'MEDIA_CREATOR') {
+      return res.status(400).json({
+        message:
+          'That Instagram account is not Professional (Business or Creator). Switch it in Instagram settings, then connect again.',
+      });
+    }
+
+    const igUserId = String(me.user_id || me.id);
+    const igUsername = normalizeHandle(me.username);
+    const granted = Array.isArray(short.permissions)
+      ? short.permissions.map(String).filter(Boolean)
+      : String(short.permissions || '')
+          .split(/[,\s]+/)
+          .map((s) => s.trim())
+          .filter(Boolean);
+
+    await MetaConnection.findOneAndUpdate(
+      { user: req.user._id, igUserId },
+      {
+        user: req.user._id,
+        igUserId,
+        igUsername,
+        pageId: '',
+        pageName: '',
+        authType: 'instagram_login',
+        accessToken: userToken,
+        tokenExpiresAt: new Date(Date.now() + expiresIn * 1000),
+        scopes: granted.length ? granted : DEFAULT_IG_SCOPES,
+        status: 'connected',
+        connectedAt: new Date(),
+      },
+      { upsert: true, new: true },
     );
+
+    const docs = await listConnected(req.user._id);
+    console.log(`[meta] connected Instagram @${igUsername || igUserId} (${igUserId})`);
     res.json(buildStatus(docs));
   } catch (err) {
     console.error('[meta] connect failed:', err.message);
-    res.status(502).json({ message: err.message || 'Could not complete Meta connection' });
+    res.status(502).json({ message: err.message || 'Could not complete Instagram connection' });
   }
 }
 
@@ -357,8 +346,8 @@ async function publishDay(req, res) {
     return res.status(403).json({
       code: 'META_NOT_CONNECTED',
       message: handle
-        ? `Connect @${handle} with Meta to publish this plan. Each Instagram account needs its own Meta connection.`
-        : 'Connect your Instagram Professional account with Meta to publish from Bauhly.',
+        ? `Connect Instagram @${handle} to publish this plan. Each Instagram account needs its own connection.`
+        : 'Connect your Instagram Professional account to publish from Bauhly.',
       connected: false,
       igUsername: handle || null,
     });
@@ -379,6 +368,7 @@ async function publishDay(req, res) {
     try {
       const igId = conn.igUserId;
       const token = conn.accessToken;
+      const graph = igGraphBase(conn);
 
       // Caption = body + CTA + hashtags, in the brand's own text.
       const captionParts = [day.content?.caption, day.content?.cta].filter(Boolean);
@@ -421,28 +411,44 @@ async function publishDay(req, res) {
       // publish it. Reels/video aren't supported here yet — images only.
       let creationId;
       if (imageUrls.length === 1) {
-        const c = await graphPost(`${igId}/media`, { image_url: imageUrls[0], caption, access_token: token });
+        const c = await graphPost(
+          `${igId}/media`,
+          { image_url: imageUrls[0], caption, access_token: token },
+          graph,
+        );
         creationId = c.id;
       } else {
         const children = [];
         for (const url of imageUrls.slice(0, 10)) {
-          const child = await graphPost(`${igId}/media`, {
-            image_url: url,
-            is_carousel_item: 'true',
-            access_token: token,
-          });
+          const child = await graphPost(
+            `${igId}/media`,
+            {
+              image_url: url,
+              is_carousel_item: 'true',
+              access_token: token,
+            },
+            graph,
+          );
           children.push(child.id);
         }
-        const parent = await graphPost(`${igId}/media`, {
-          media_type: 'CAROUSEL',
-          children: children.join(','),
-          caption,
-          access_token: token,
-        });
+        const parent = await graphPost(
+          `${igId}/media`,
+          {
+            media_type: 'CAROUSEL',
+            children: children.join(','),
+            caption,
+            access_token: token,
+          },
+          graph,
+        );
         creationId = parent.id;
       }
 
-      const pub = await graphPost(`${igId}/media_publish`, { creation_id: creationId, access_token: token });
+      const pub = await graphPost(
+        `${igId}/media_publish`,
+        { creation_id: creationId, access_token: token },
+        graph,
+      );
 
       day.published = true;
       day.scheduledAt = null;

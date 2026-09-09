@@ -12,7 +12,7 @@ import {
 
 const REQUIREMENTS = [
   'An Instagram Professional account (Business or Creator)',
-  'A Facebook Page linked to that Instagram account',
+  'You sign in with that Instagram account (no Facebook Page)',
   'Permission for Bauhly to publish on your behalf',
 ];
 
@@ -41,11 +41,11 @@ export default function ConnectMetaModal({
         window.location.href = url;
         return;
       }
-      setError('Meta connect did not return a login URL.');
+      setError('Instagram connect did not return a login URL.');
     } catch (err) {
       setError(
         err.response?.data?.message ||
-          'Meta publishing is not available yet. You can still mark posts as published manually.'
+          'Instagram publishing is not available yet. You can still mark posts as published manually.'
       );
     } finally {
       setBusy(false);
@@ -56,7 +56,7 @@ export default function ConnectMetaModal({
     <div
       role="dialog"
       aria-modal="true"
-      aria-label="Connect Meta to publish"
+      aria-label="Connect Instagram to publish"
       onClick={onClose}
       style={{
         position: 'fixed', inset: 0, zIndex: 110, display: 'grid', placeItems: 'center',
@@ -80,21 +80,20 @@ export default function ConnectMetaModal({
           <h2 style={{
             fontFamily: LS_DISPLAY, fontWeight: 700, fontSize: 22, color: LS_INK, margin: '0 0 8px',
           }}>
-            {handle ? `Connect @${handle}` : 'Connect Meta to publish'}
+            {handle ? `Connect @${handle}` : 'Connect Instagram to publish'}
           </h2>
           <p style={{ fontFamily: LS_FONT, fontSize: 14.5, lineHeight: 1.55, color: LS_T2, margin: 0 }}>
             {handle
-              ? <>This plan publishes as <strong>@{handle}</strong>. During Facebook login, grant the Page linked to that Instagram — you can tick more than one Page.</>
-              : <>Bauhly posts to the Instagram Professional account that matches this plan&rsquo;s handle. Connect that account through Meta (use the Facebook login that owns its Page).</>}
+              ? <>This plan publishes as <strong>@{handle}</strong>. Sign in with that Instagram Professional account — not a different one, and not Facebook.</>
+              : <>Bauhly posts to the Instagram Professional account that matches this plan&rsquo;s handle. Connect by signing in with Instagram.</>}
           </p>
           {others.length > 0 && (
             <p style={{
               marginTop: 14, fontFamily: LS_FONT, fontSize: 13.5, lineHeight: 1.5, color: LS_INK,
               background: LS_SOFT, borderRadius: 10, padding: '10px 12px',
             }}>
-              Meta connected {others.map((c) => `@${c.igUsername}`).join(', ')}
-              {others[0]?.pageName ? ` (Page: ${others[0].pageName})` : ''}, which is a different account.
-              Reconnect and select @{handle || 'this plan'}&rsquo;s Page.
+              Connected {others.map((c) => `@${c.igUsername}`).join(', ')}, which is a different account.
+              Reconnect and sign in as @{handle || 'this plan'}.
             </p>
           )}
 
@@ -124,7 +123,7 @@ export default function ConnectMetaModal({
             <p style={{
               marginTop: 16, fontFamily: LS_FONT, fontSize: 13, lineHeight: 1.5, color: LS_MUTED,
             }}>
-              Meta App credentials aren’t on this server yet. You can still track posts as published for now.
+              Instagram app credentials aren’t on this server yet. You can still track posts as published for now.
             </p>
           )}
 
@@ -132,8 +131,8 @@ export default function ConnectMetaModal({
             marginTop: 14, fontFamily: LS_FONT, fontSize: 12, lineHeight: 1.45, color: LS_MUTED,
             wordBreak: 'break-all',
           }}>
-            If Meta says “URL Blocked”, whitelist this exact redirect under{' '}
-            <strong>Facebook Login for Business → Settings → Valid OAuth Redirect URIs</strong>:
+            If Instagram says “URL Blocked”, add this exact redirect under{' '}
+            <strong>Instagram → API setup with Instagram login → Business login settings → OAuth redirect URIs</strong>:
             <br />
             <code style={{ fontSize: 11, color: LS_INK }}>
               {typeof window !== 'undefined'
@@ -158,7 +157,7 @@ export default function ConnectMetaModal({
             }}
           >
             <Glyph name="link" size={16} color="#fff" />
-            {busy ? 'Connecting…' : 'Connect with Meta'}
+            {busy ? 'Connecting…' : 'Connect Instagram'}
           </button>
           {onMarkManually && (
             <button

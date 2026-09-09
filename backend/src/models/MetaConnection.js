@@ -1,16 +1,21 @@
 const mongoose = require('mongoose');
 
-// Meta / Instagram Professional connection for Content Publishing API.
-// One row per Instagram Professional account linked to a Bauhly user — so a
-// login with several app handles can each have its own Meta Page token.
-// Tokens are long-lived Page tokens; never expose them to the client.
+// Instagram Professional connection for Content Publishing API.
+// One row per Instagram Professional account linked to a Bauhly user.
+// Instagram Login stores a long-lived IG user token; legacy Facebook Login
+// rows store a Page token. Never expose tokens to the client.
 const metaConnectionSchema = new mongoose.Schema(
   {
     user: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
     // Instagram Business / Creator user id (Graph).
     igUserId: { type: String, default: '', required: true },
     igUsername: { type: String, default: '', trim: true, lowercase: true },
-    // Facebook Page that owns the IG account.
+    // How this row was authorized. Legacy Facebook Login rows may omit this.
+    authType: {
+      type: String,
+      enum: ['instagram_login', 'facebook_login'],
+    },
+    // Facebook Page that owns the IG account (Facebook Login only).
     pageId: { type: String, default: '' },
     pageName: { type: String, default: '' },
     // Encrypted-at-rest later; stored server-side only.

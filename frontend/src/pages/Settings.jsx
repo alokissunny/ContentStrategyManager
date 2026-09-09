@@ -84,7 +84,7 @@ export default function Settings() {
       if (state) sessionStorage.setItem('meta_oauth_state', state);
       if (url) window.location.href = url;
     } catch (err) {
-      alert(err.response?.data?.message || 'Meta connect is not available yet.');
+      alert(err.response?.data?.message || 'Instagram connect is not available yet.');
     } finally {
       setMetaBusy(false);
     }
@@ -198,7 +198,7 @@ export default function Settings() {
                       : insights
                         ? (metaLink.pageName
                           ? `Publishes via Meta · Page: ${metaLink.pageName}`
-                          : 'Meta connected — ready to publish')
+                          : 'Instagram connected — ready to publish')
                         : isCurrent
                           ? 'Current account · public profile · Meta not linked'
                           : 'Tap to switch · public profile · Meta not linked'}
@@ -222,16 +222,16 @@ export default function Settings() {
         </div>
 
         <p className="set-card__note">
-          Profile analysis reads public posts. Publishing uses the Meta link shown under each handle.
+          Profile analysis reads public posts. Publishing uses the Instagram connection shown under each handle.
         </p>
       </section>
 
       {/* ── Meta publishing ── */}
       <section className="card set-card">
-        <h2>Publish with Meta</h2>
+        <h2>Publish to Instagram</h2>
         <p className="set-card__sub">
-          Each Bauhly Instagram handle must match the Meta Instagram it publishes to.
-          The Facebook Page on the right is the Page Bauhly posts through for that handle.
+          Each Bauhly handle must match the Instagram Professional account you connect.
+          Sign in with Instagram — no Facebook Page required.
         </p>
 
         {profiles.length === 0 && connections.length === 0 ? (
@@ -264,12 +264,12 @@ export default function Settings() {
                         <span className="set-linkmap__page">
                           {link.pageName
                             ? <>Facebook Page: <b>{link.pageName}</b></>
-                            : 'Facebook Page linked'}
+                            : 'Connected with Instagram Login'}
                         </span>
                       </span>
                     ) : (
                       <span className="set-row__sub">
-                        Connect Meta with the Facebook login that owns @{p.username}&rsquo;s Page.
+                        Connect Instagram and sign in as @{p.username}.
                       </span>
                     )}
                   </span>
@@ -280,7 +280,7 @@ export default function Settings() {
                         className="btn btn--ghost btn--sm"
                         disabled={busy || metaBusy}
                         onClick={() => disconnectMetaAccount(id)}
-                        title={`Disconnect Meta for @${p.username}`}
+                        title={`Disconnect Instagram for @${p.username}`}
                       >
                         <Icon name="x" size={14} />
                         {busy ? 'Disconnecting…' : 'Disconnect'}
@@ -325,7 +325,7 @@ export default function Settings() {
                         <span className="set-linkmap__page">
                           {c.pageName
                             ? <>Facebook Page: <b>{c.pageName}</b></>
-                            : 'Orphan Meta connection'}
+                            : 'Connected Instagram with no matching Bauhly handle'}
                         </span>
                       </span>
                     </span>
@@ -358,8 +358,8 @@ export default function Settings() {
             {metaBusy
               ? 'Connecting…'
               : connections.length
-                ? 'Connect another Meta account'
-                : 'Connect with Meta'}
+                ? 'Connect another Instagram'
+                : 'Connect Instagram'}
           </button>
         </div>
       </section>

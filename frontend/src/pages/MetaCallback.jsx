@@ -1,7 +1,7 @@
 /*
- * Meta OAuth redirect target — completes Connect with Meta after Facebook Login.
+ * Instagram Login OAuth redirect target — completes Connect Instagram.
  * Production: https://bauhly.com/dashboard/meta/callback
- * (also whitelist https://www.bauhly.com/dashboard/meta/callback in the Meta app).
+ * (also whitelist https://www.bauhly.com/dashboard/meta/callback in Instagram Business login settings).
  */
 
 import React, { useEffect, useState } from 'react';
@@ -29,7 +29,7 @@ export default function MetaCallback() {
       return;
     }
     if (!code) {
-      setError('Missing authorization code from Meta.');
+      setError('Missing authorization code from Instagram.');
       return;
     }
     const expected = sessionStorage.getItem('meta_oauth_state');
@@ -61,7 +61,7 @@ export default function MetaCallback() {
       })
       .catch((e) => {
         sessionStorage.removeItem(usedKey);
-        setError(e.response?.data?.message || 'Could not finish connecting Meta.');
+        setError(e.response?.data?.message || 'Could not finish connecting Instagram.');
       });
   }, [params, navigate]);
 
@@ -92,7 +92,7 @@ export default function MetaCallback() {
           <>
             <Glyph name="loader" size={28} color={LS_SIGNAL} />
             <h1 style={{ fontFamily: LS_DISPLAY, fontSize: 22, color: LS_INK, margin: '12px 0 8px' }}>
-              Connecting Meta…
+              Connecting Instagram…
             </h1>
             <p style={{ fontFamily: LS_FONT, fontSize: 14, color: LS_T2, margin: 0 }}>
               Finishing Instagram Professional setup.

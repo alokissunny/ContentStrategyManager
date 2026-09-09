@@ -6,11 +6,18 @@
 
 const MetaConnection = require('../models/MetaConnection');
 
-const GRAPH = 'https://graph.facebook.com/v21.0';
+const IG_GRAPH = 'https://graph.instagram.com/v21.0';
+const FB_GRAPH = 'https://graph.facebook.com/v21.0';
 const DEFAULT_MEDIA_LIMIT = Number(process.env.INSTAGRAM_POSTS_LIMIT) || 12;
 
-async function graphGet(path, accessToken, params = {}) {
-  const url = new URL(`${GRAPH}/${path}`);
+function graphHost(conn) {
+  if (conn?.authType === 'instagram_login') return IG_GRAPH;
+  if (conn?.authType === 'facebook_login' || conn?.pageId) return FB_GRAPH;
+  return IG_GRAPH;
+}
+
+async function graphGet(path, accessToken, params = {}, base = IG_GRAPH) {
+  const url = new URL(`${base}/${path}`);
   Object.entries(params).forEach(([k, v]) => {
     if (v !== undefined && v !== null && v !== '') url.searchParams.set(k, String(v));
   });
@@ -48,7 +55,7 @@ function mapMediaType(mediaType) {
 }
 
 function normalizeGraphProfile(raw) {
-  if (!raw?.id) return null;
+  if (!(raw?.id || raw?.user_id)) return null;
   return {
     username: String(raw.username || '').toLowerCase(),
     fullName: raw.name || '',
@@ -79,7 +86,7 @@ function normalizeGraphMedia(item) {
  * Pull a few day-level account insight metrics. Soft-fails to null when the
  * token lacks instagram_manage_insights or Meta returns an empty set.
  */
-async function fetchAccountInsights(igUserId, accessToken) {
+async function fetchAccountInsights(igUserId, accessToken, host = IG_GRAPH) {
   // Metric names differ by API version; try the classic set first, then a
   // newer views-based set used by some IG Graph apps.
   const attempts = [
@@ -89,7 +96,7 @@ async function fetchAccountInsights(igUserId, accessToken) {
 
   for (const params of attempts) {
     try {
-      const json = await graphGet(`${igUserId}/insights`, accessToken, params);
+      const json = await graphGet(`${igUserId}/insights`, accessToken, params, host);
       const byName = {};
       for (const row of json.data || []) {
         const values = row.values || [];
@@ -131,17 +138,18 @@ async function fetchViaGraph(userId, username) {
 
   const igId = conn.igUserId;
   const token = conn.accessToken;
+  const host = graphHost(conn);
   const limit = DEFAULT_MEDIA_LIMIT;
 
   const [profileRaw, mediaJson, insights] = await Promise.all([
     graphGet(igId, token, {
       fields: 'id,username,name,biography,followers_count,follows_count,media_count,profile_picture_url,website',
-    }),
+    }, host),
     graphGet(`${igId}/media`, token, {
       fields: 'id,caption,media_type,media_url,permalink,timestamp,like_count,comments_count,thumbnail_url',
       limit,
-    }),
-    fetchAccountInsights(igId, token),
+    }, host),
+    fetchAccountInsights(igId, token, host),
   ]);
 
   const profile = normalizeGraphProfile(profileRaw);
@@ -163,7 +171,7 @@ async function fetchGraphProfilePicUrl(userId, username) {
   try {
     const raw = await graphGet(conn.igUserId, conn.accessToken, {
       fields: 'profile_picture_url',
-    });
+    }, graphHost(conn));
     return raw.profile_picture_url || '';
   } catch (err) {
     console.warn(`[graphInstagram] profile pic refresh failed for @${username}:`, err.message);

@@ -3151,7 +3151,7 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
                   the header moves as the post's state changes. */}
               {!metaConnected ? (
                 <button type="button" className="wv-ig__connect" onClick={() => setConnectOpen(true)}>
-                  <Glyph name="instagram" size={13} />Connect to Meta
+                  <Glyph name="instagram" size={13} />Connect Instagram
                 </button>
               ) : day.published ? (
                 <span className="wv-ig__go is-out" aria-label="Published">
