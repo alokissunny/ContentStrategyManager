@@ -94,11 +94,33 @@ function resolveRedirectUri(req) {
 
 // POST to the Graph API as form-encoded (its expected content type) and throw
 // the Graph error message on failure so callers can surface it.
+function graphErrorMessage(json, fallback) {
+  const err = json?.error || {};
+  const msg = String(err.message || fallback || 'Instagram request failed');
+  const code = Number(err.code);
+  const sub = Number(err.error_subcode);
+  if (code === 4 || sub === 2207051 || /application request limit reached/i.test(msg)) {
+    return 'Instagram paused publishing for this app (too many API requests). Wait about an hour, then publish once. Do not keep clicking Publish now.';
+  }
+  if (code === 17 || /user request limit reached/i.test(msg)) {
+    return 'This Instagram account hit its API limit. Wait and try again later.';
+  }
+  return msg;
+}
+
+function isRateLimitError(err) {
+  return /paused publishing|request limit|API limit/i.test(String(err?.message || ''));
+}
+
+function isMediaNotReadyError(err) {
+  return /media id is not available/i.test(String(err?.message || ''));
+}
+
 async function graphPost(path, params, base = IG_GRAPH) {
   const res = await fetch(`${base}/${path}`, { method: 'POST', body: new URLSearchParams(params) });
   const json = await res.json().catch(() => ({}));
   if (!res.ok || json.error) {
-    throw new Error(json.error?.message || `Graph POST ${path} failed (${res.status})`);
+    throw new Error(graphErrorMessage(json, `Graph POST ${path} failed (${res.status})`));
   }
   return json;
 }
@@ -111,7 +133,7 @@ async function graphGet(path, params, base = IG_GRAPH) {
   const res = await fetch(url);
   const json = await res.json().catch(() => ({}));
   if (!res.ok || json.error) {
-    throw new Error(json.error?.message || `Graph GET ${path} failed (${res.status})`);
+    throw new Error(graphErrorMessage(json, `Graph GET ${path} failed (${res.status})`));
   }
   return json;
 }
@@ -123,10 +145,12 @@ function sleep(ms) {
 /**
  * Instagram accepts POST /media immediately, but media_publish fails with
  * "Media ID is not available" until the container status_code is FINISHED.
+ * Poll slowly — Development-mode apps hit Graph rate limits quickly.
  */
 async function waitForContainer(containerId, token, base) {
+  await sleep(4000);
   const deadline = Date.now() + 90_000;
-  let delay = 2000;
+  let delay = 5000;
   while (Date.now() < deadline) {
     const json = await graphGet(
       containerId,
@@ -144,9 +168,31 @@ async function waitForContainer(containerId, token, base) {
       );
     }
     await sleep(delay);
-    delay = Math.min(delay + 1000, 8000);
+    delay = Math.min(delay + 2000, 10000);
   }
   throw new Error('Instagram is still processing this post. Wait a moment and try Publish again.');
+}
+
+async function findRecentPublishedMedia(igId, token, graph, caption) {
+  try {
+    const json = await graphGet(
+      `${igId}/media`,
+      { fields: 'id,timestamp,caption', limit: '5', access_token: token },
+      graph,
+    );
+    const needle = String(caption || '').replace(/\s+/g, ' ').trim().slice(0, 32).toLowerCase();
+    const now = Date.now();
+    for (const item of json.data || []) {
+      const ts = item.timestamp ? Date.parse(item.timestamp) : 0;
+      if (!ts || now - ts > 5 * 60 * 1000) continue;
+      const hay = String(item.caption || '').replace(/\s+/g, ' ').trim().toLowerCase();
+      if (needle && hay.startsWith(needle.slice(0, 20))) return item;
+      if (now - ts < 2 * 60 * 1000) return item;
+    }
+  } catch (err) {
+    console.warn('[meta] recent media check failed:', err.message);
+  }
+  return null;
 }
 
 async function publishContainer(igId, creationId, token, graph) {
@@ -159,9 +205,9 @@ async function publishContainer(igId, creationId, token, graph) {
         graph,
       );
     } catch (err) {
-      const msg = String(err.message || '');
-      if (attempt < 3 && /media id is not available/i.test(msg)) {
-        console.warn(`[meta] media_publish retry ${attempt}: ${msg}`);
+      if (isRateLimitError(err)) throw err;
+      if (attempt < 3 && isMediaNotReadyError(err)) {
+        console.warn(`[meta] media_publish retry ${attempt}: ${err.message}`);
         await sleep(4000 * attempt);
         continue;
       }
@@ -468,6 +514,18 @@ async function publishDay(req, res) {
       if (tags.length) captionParts.push(tags.join(' '));
       const caption = captionParts.join('\n\n');
 
+      const already = await findRecentPublishedMedia(igId, token, graph, caption);
+      if (already?.id) {
+        day.published = true;
+        day.scheduledAt = null;
+        conn.lastPublishAt = new Date();
+        await conn.save();
+        route.markModified('days');
+        await route.save();
+        console.log(`[meta] day ${index} already on Instagram as ${already.id}`);
+        return res.json({ route, published: true, live: true, igMediaId: already.id });
+      }
+
       // Public, Graph-fetchable image URLs. Preference order:
       //   1. explicit public URL(s) in the request (testing / overrides)
       //   2. project-media keys the client resolved for the day's slides —
@@ -550,6 +608,33 @@ async function publishDay(req, res) {
       return res.json({ route, published: true, live: true, igMediaId: pub.id });
     } catch (err) {
       console.error('[meta] publish failed:', err.message);
+      try {
+        const igId = conn.igUserId;
+        const token = conn.accessToken;
+        const graph = igGraphBase(conn);
+        const captionParts = [day.content?.caption, day.content?.cta].filter(Boolean);
+        const tags = (day.content?.hashtags || []).map((h) => `#${String(h).replace(/^#/, '')}`);
+        if (tags.length) captionParts.push(tags.join(' '));
+        const recent = await findRecentPublishedMedia(igId, token, graph, captionParts.join('\n\n'));
+        if (recent?.id) {
+          day.published = true;
+          day.scheduledAt = null;
+          conn.lastPublishAt = new Date();
+          await conn.save();
+          route.markModified('days');
+          await route.save();
+          console.log(`[meta] publish error after Instagram accepted media ${recent.id}: ${err.message}`);
+          return res.json({
+            route,
+            published: true,
+            live: true,
+            igMediaId: recent.id,
+            message: 'Posted to Instagram. Instagram returned a limit error after the post went out.',
+          });
+        }
+      } catch (checkErr) {
+        console.warn('[meta] publish recovery failed:', checkErr.message);
+      }
       return res.status(502).json({ message: err.message || 'Instagram publish failed' });
     }
   }
