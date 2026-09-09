@@ -190,9 +190,26 @@ async function startConnect(req, res) {
   res.json({ url: url.toString(), state, redirectUri });
 }
 
-async function parseIgTokenPayload(json) {
-  if (Array.isArray(json?.data) && json.data[0]) return json.data[0];
-  return json || {};
+/**
+ * Instagram returns either `{ access_token, user_id, permissions }` or
+ * `{ data: [{ access_token, user_id, permissions }] }`. Prefer a real token
+ * object — `data` is sometimes a permissions list, not the token row.
+ */
+function parseIgTokenPayload(json) {
+  if (!json || typeof json !== 'object') return {};
+  if (json.access_token) return json;
+  if (Array.isArray(json.data)) {
+    const row = json.data.find((item) => item && typeof item === 'object' && item.access_token);
+    if (row) return row;
+  } else if (json.data && typeof json.data === 'object' && json.data.access_token) {
+    return json.data;
+  }
+  return json;
+}
+
+function tokenPayloadKeys(json) {
+  if (!json || typeof json !== 'object') return [];
+  return Object.keys(json);
 }
 
 /**
@@ -205,7 +222,8 @@ async function completeConnect(req, res) {
     return res.status(503).json({ message: 'Instagram publishing is not configured.', configured: false });
   }
 
-  const { code } = req.body;
+  const { code: rawCode } = req.body;
+  const code = String(rawCode || '').replace(/#_+$/, '').trim();
   if (!code) return res.status(400).json({ message: 'Missing OAuth code' });
 
   const redirectUri = resolveRedirectUri(req);
@@ -224,7 +242,12 @@ async function completeConnect(req, res) {
     const shortJson = await shortRes.json().catch(() => ({}));
     const short = parseIgTokenPayload(shortJson);
     if (!short.access_token) {
-      console.error('[meta] IG token exchange failed:', JSON.stringify(shortJson));
+      console.error(
+        '[meta] IG token exchange failed:',
+        shortJson.error_message || shortJson.error?.message || 'no access_token',
+        'keys=',
+        tokenPayloadKeys(shortJson).join(','),
+      );
       throw new Error(
         shortJson.error_message || shortJson.error?.message || 'Instagram token exchange failed',
       );
