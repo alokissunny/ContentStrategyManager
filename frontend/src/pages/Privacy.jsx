@@ -22,7 +22,7 @@ export default function Privacy() {
         <h2>Who we are</h2>
         <p>
           Bauhly helps interior design studios plan and publish Instagram content.
-          Contact: <a href="mailto:hello@bauhly.com">hello@bauhly.com</a>
+          Contact: <a href="mailto:bauhly@gmail.com">bauhly@gmail.com</a>
         </p>
 
         <h2>Information we collect</h2>
@@ -88,7 +88,7 @@ export default function Privacy() {
         <p>
           We retain account and content data while your account is active and as
           needed to provide the Service. You may request deletion of your account
-          data by emailing <a href="mailto:hello@bauhly.com">hello@bauhly.com</a>
+          data by emailing <a href="mailto:bauhly@gmail.com">bauhly@gmail.com</a>
           {' '}or following the instructions on our{' '}
           <Link to="/data-deletion">Data deletion</Link> page.
           We may retain limited records as required for legal, security, or
@@ -112,7 +112,7 @@ export default function Privacy() {
         <ul>
           <li>Access or update account information in the Service</li>
           <li>Disconnect Instagram / Meta access</li>
-          <li>Request account or data deletion via hello@bauhly.com</li>
+          <li>Request account or data deletion via bauhly@gmail.com</li>
         </ul>
 
         <h2>International users</h2>
@@ -132,7 +132,7 @@ export default function Privacy() {
         <h2>Contact</h2>
         <p>
           Questions about this Privacy Policy:{' '}
-          <a href="mailto:hello@bauhly.com">hello@bauhly.com</a>
+          <a href="mailto:bauhly@gmail.com">bauhly@gmail.com</a>
         </p>
         <p>
           See also our <Link to="/terms">Terms of Service</Link>.

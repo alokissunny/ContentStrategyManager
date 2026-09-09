@@ -21,7 +21,7 @@ export default function DataDeletion() {
         <h2>How to request deletion</h2>
         <ol>
           <li>
-            Email <a href="mailto:hello@bauhly.com">hello@bauhly.com</a> from the
+            Email <a href="mailto:bauhly@gmail.com">bauhly@gmail.com</a> from the
             address on your Bauhly account.
           </li>
           <li>
@@ -67,7 +67,7 @@ export default function DataDeletion() {
         <h2>Contact</h2>
         <p>
           Data deletion questions:{' '}
-          <a href="mailto:hello@bauhly.com">hello@bauhly.com</a>
+          <a href="mailto:bauhly@gmail.com">bauhly@gmail.com</a>
         </p>
         <p>
           See also our <Link to="/privacy">Privacy Policy</Link> and{' '}

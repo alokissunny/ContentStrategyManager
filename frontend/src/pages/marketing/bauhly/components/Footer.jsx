@@ -24,7 +24,7 @@ export default function Footer() {
           <a href="/privacy">Privacy</a>
           <a href="/terms">Terms</a>
           <a href="/data-deletion">Data deletion</a>
-          <a href="mailto:hello@bauhly.com">hello@bauhly.com</a>
+          <a href="mailto:bauhly@gmail.com">bauhly@gmail.com</a>
         </div>
       </div>
       <div className="container foot-base">

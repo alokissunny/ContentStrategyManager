@@ -108,7 +108,7 @@ export default function Terms() {
 
         <h2>Contact</h2>
         <p>
-          Questions: <a href="mailto:hello@bauhly.com">hello@bauhly.com</a>
+          Questions: <a href="mailto:bauhly@gmail.com">bauhly@gmail.com</a>
         </p>
         <p>
           Also see our <Link to="/privacy">Privacy Policy</Link> and{' '}
