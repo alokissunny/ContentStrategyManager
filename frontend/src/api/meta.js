@@ -104,5 +104,7 @@ export function disconnectMeta(igUserId) {
 }
 
 export function publishDayToMeta(routeId, dayIndex, body = {}) {
-  return client.post(`/meta/publish/${routeId}/day/${dayIndex}`, body).then((r) => r.data);
+  return client
+    .post(`/meta/publish/${routeId}/day/${dayIndex}`, body, { timeout: 120000 })
+    .then((r) => r.data);
 }

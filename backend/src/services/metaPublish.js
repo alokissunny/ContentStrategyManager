@@ -103,6 +103,73 @@ async function graphPost(path, params, base = IG_GRAPH) {
   return json;
 }
 
+async function graphGet(path, params, base = IG_GRAPH) {
+  const url = new URL(`${base}/${path}`);
+  Object.entries(params).forEach(([k, v]) => {
+    if (v !== undefined && v !== null && v !== '') url.searchParams.set(k, String(v));
+  });
+  const res = await fetch(url);
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok || json.error) {
+    throw new Error(json.error?.message || `Graph GET ${path} failed (${res.status})`);
+  }
+  return json;
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Instagram accepts POST /media immediately, but media_publish fails with
+ * "Media ID is not available" until the container status_code is FINISHED.
+ */
+async function waitForContainer(containerId, token, base) {
+  const deadline = Date.now() + 90_000;
+  let delay = 2000;
+  while (Date.now() < deadline) {
+    const json = await graphGet(
+      containerId,
+      { fields: 'status_code,status', access_token: token },
+      base,
+    );
+    const code = String(json.status_code || '').toUpperCase();
+    if (code === 'FINISHED') {
+      await sleep(2000);
+      return json;
+    }
+    if (code === 'ERROR' || code === 'EXPIRED') {
+      throw new Error(
+        json.status || `Instagram could not process this image (${code.toLowerCase()}). Try another photo.`,
+      );
+    }
+    await sleep(delay);
+    delay = Math.min(delay + 1000, 8000);
+  }
+  throw new Error('Instagram is still processing this post. Wait a moment and try Publish again.');
+}
+
+async function publishContainer(igId, creationId, token, graph) {
+  await waitForContainer(creationId, token, graph);
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    try {
+      return await graphPost(
+        `${igId}/media_publish`,
+        { creation_id: creationId, access_token: token },
+        graph,
+      );
+    } catch (err) {
+      const msg = String(err.message || '');
+      if (attempt < 3 && /media id is not available/i.test(msg)) {
+        console.warn(`[meta] media_publish retry ${attempt}: ${msg}`);
+        await sleep(4000 * attempt);
+        continue;
+      }
+      throw err;
+    }
+  }
+}
+
 function metaConfigured() {
   return Boolean(instagramAppId() && instagramAppSecret());
 }
@@ -432,8 +499,9 @@ async function publishDay(req, res) {
         });
       }
 
-      // Create a media container (single image or a carousel of up to 10), then
-      // publish it. Reels/video aren't supported here yet — images only.
+      // Create a media container (single image or a carousel of up to 10), wait
+      // until Instagram finishes processing it, then publish. Reels/video aren't
+      // supported here yet — images only.
       let creationId;
       if (imageUrls.length === 1) {
         const c = await graphPost(
@@ -454,6 +522,7 @@ async function publishDay(req, res) {
             },
             graph,
           );
+          await waitForContainer(child.id, token, graph);
           children.push(child.id);
         }
         const parent = await graphPost(
@@ -469,11 +538,7 @@ async function publishDay(req, res) {
         creationId = parent.id;
       }
 
-      const pub = await graphPost(
-        `${igId}/media_publish`,
-        { creation_id: creationId, access_token: token },
-        graph,
-      );
+      const pub = await publishContainer(igId, creationId, token, graph);
 
       day.published = true;
       day.scheduledAt = null;
