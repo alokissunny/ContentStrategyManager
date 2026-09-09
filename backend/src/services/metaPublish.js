@@ -184,6 +184,8 @@ async function startConnect(req, res) {
   url.searchParams.set('scope', scopes);
   url.searchParams.set('state', state);
   url.searchParams.set('force_reauth', 'true');
+  // Hide “Log in with Facebook” so the user picks an Instagram account, not a Page.
+  url.searchParams.set('enable_fb_login', '0');
 
   console.log(`[meta] Instagram OAuth redirect_uri = ${redirectUri}`);
 

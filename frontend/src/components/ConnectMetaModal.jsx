@@ -84,8 +84,8 @@ export default function ConnectMetaModal({
           </h2>
           <p style={{ fontFamily: LS_FONT, fontSize: 14.5, lineHeight: 1.55, color: LS_T2, margin: 0 }}>
             {handle
-              ? <>This plan publishes as <strong>@{handle}</strong>. Sign in with that Instagram Professional account — not a different one, and not Facebook.</>
-              : <>Bauhly posts to the Instagram Professional account that matches this plan&rsquo;s handle. Connect by signing in with Instagram.</>}
+              ? <>This plan publishes as <strong>@{handle}</strong>. Instagram will ask you to sign in — pick that account in Instagram&rsquo;s switcher (not Facebook, and not a different handle you manage).</>
+              : <>Bauhly posts as the Instagram Professional account you sign in with. If you manage several, choose the right one on Instagram&rsquo;s login screen, then connect again for each extra handle.</>}
           </p>
           {others.length > 0 && (
             <p style={{
