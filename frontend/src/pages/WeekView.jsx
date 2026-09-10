@@ -790,6 +790,16 @@ function slideRecord(s, extra = {}) {
     assetKeys: Array.isArray(s.assetKeys) ? s.assetKeys.map((k) => k || '') : [],
     layout: s.layout || '',
     layoutHtml: s.layoutHtml || '',
+    layoutOptions: Array.isArray(s.layoutOptions)
+      ? s.layoutOptions
+        .map((o, i) => ({
+          rank: Number(o?.rank) > 0 ? Number(o.rank) : i + 1,
+          label: o?.label || '',
+          reason: o?.reason || '',
+          html: o?.html || '',
+        }))
+        .filter((o) => o.html)
+      : [],
     annotation: s.annotation && typeof s.annotation === 'object'
       ? {
         text: s.annotation.text || '',
@@ -1660,6 +1670,10 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
   // Change layout (bauhly-v3 §809/§823/§825): picking a card is a draft until
   // Apply. The set is the four studio compositions, not the Visual Library.
   const [layPick, setLayPick] = useState(null);
+  // When the layout agent has produced ranked options for this slide, the
+  // Change layout picker shows those instead of the presets; this holds the
+  // index of the option being drafted (null = the applied one).
+  const [layOpt, setLayOpt] = useState(null);
   // How many picture places the shape just applied has, while the studio
   // decides whether to fill them now (bauhly-v3 §928).
   const [askImgs, setAskImgs] = useState(0);
@@ -2098,6 +2112,7 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
         || e.target.closest('.wv-ig__menuscrim')) return;
       setVisEdit(null);
       setLayPick(null);
+      setLayOpt(null);
     };
     document.addEventListener('mousedown', away);
     return () => document.removeEventListener('mousedown', away);
@@ -2117,9 +2132,12 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
   }, [zone, visEdit]);
 
   useEffect(() => {
-    if (visEdit !== 'layout') setLayPick(null);
+    if (visEdit !== 'layout') { setLayPick(null); setLayOpt(null); }
     if (visEdit !== 'words') setWordDraft(null);
   }, [visEdit]);
+
+  // Switching slides resets which agent option is being drafted.
+  useEffect(() => { setLayOpt(null); }, [selected, safeIdx]);
 
   useLayoutEffect(() => {
     if (zone !== 'caption') return;
@@ -2561,6 +2579,30 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
     : null) || appliedChange;
   const chosenLayoutIdx = Math.max(0, slideLayouts.findIndex((l) => l.id === draftId));
   const layoutUnchanged = Boolean(draftId) && draftId === appliedId;
+  // Ranked layout options the agent generated for this slide, best-first. When
+  // present they replace the fixed wireframe presets in the Change layout
+  // picker; picking one applies its HTML as the slide's layoutHtml.
+  const layoutOpts = useMemo(() => {
+    const list = Array.isArray(activeSlide?.layoutOptions) ? activeSlide.layoutOptions : [];
+    return list
+      .filter((o) => o && o.html)
+      .slice()
+      .sort((a, b) => (Number(a.rank) || 0) - (Number(b.rank) || 0));
+  }, [activeSlide?.layoutOptions]);
+  const hasLayoutOpts = layoutOpts.length > 0;
+  const appliedOptIdx = hasLayoutOpts
+    ? layoutOpts.findIndex((o) => o.html === activeSlide?.layoutHtml)
+    : -1;
+  const draftOptIdx = visEdit === 'layout'
+    ? (layOpt != null ? layOpt : (appliedOptIdx >= 0 ? appliedOptIdx : 0))
+    : appliedOptIdx;
+  const draftOpt = hasLayoutOpts ? (layoutOpts[draftOptIdx] || null) : null;
+  const optUnchanged = hasLayoutOpts && draftOptIdx === appliedOptIdx;
+  // The composition the big preview should draw while editing layout: the
+  // drafted agent option (before Apply) wins over the slide's stored html.
+  const previewSlide = (visEdit === 'layout' && draftOpt)
+    ? { ...activeSlide, layout: 'dynamic', layoutHtml: draftOpt.html }
+    : activeSlide;
   const wordRoles = visEdit === 'words' ? wordRolesForSlide(activeSlide) : [];
   const primaryWordKey = wordRoles.find((r) => r.key === 'head')?.key
     || wordRoles.find((r) => r.key === 'body')?.key
@@ -2616,6 +2658,15 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
   }
 
   function applyLayout() {
+    // Agent options mode: apply the drafted option's HTML directly.
+    if (hasLayoutOpts) {
+      if (!draftOpt || optUnchanged) return;
+      patchActiveSlide({ layout: 'dynamic', layoutHtml: draftOpt.html });
+      setLayOpt(null);
+      setVisEdit(null);
+      setZone(null);
+      return;
+    }
     if (!draftId || layoutUnchanged) return;
     const next = findChangeLayout(draftId);
     const need = shotsForLayout(next);
@@ -2817,6 +2868,43 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
       {l.id === appliedId && <span className="wv-act__now">Current</span>}
     </button>
   ));
+
+  // Agent-generated options, ranked best-first — each card is a real 4:5
+  // preview of that composition (same renderer as the big preview), so the
+  // picker shows the actual layouts the agent proposed, not wireframes.
+  const layoutOptionCards = () => layoutOpts.map((opt, i) => {
+    const on = draftOptIdx === i;
+    const label = opt.label || `Option ${i + 1}`;
+    const optSlide = { ...activeSlide, layout: 'dynamic', layoutHtml: opt.html };
+    return (
+      <button
+        key={`opt:${i}`}
+        type="button"
+        role="radio"
+        aria-checked={on}
+        aria-label={label}
+        className={`wv-act wv-act--layout wv-act--opt${on ? ' is-on' : ''}`}
+        onClick={() => setLayOpt(i)}
+        title={opt.reason || label}
+      >
+        <span className="wv-act__shot">
+          <SlideMedia
+            slide={optSlide}
+            localMedia={localMedia}
+            mediaByKey={mediaByKey}
+            subjectsByKey={subjectsByKey}
+            paint={igVars}
+            themed={hasVisualEdits}
+          />
+          <span className={`wv-act__rank${i === 0 ? ' is-best' : ''}`}>
+            {i === 0 ? 'Best' : `#${i + 1}`}
+          </span>
+        </span>
+        <span className="wv-act__name">{label}</span>
+        {i === appliedOptIdx && <span className="wv-act__now">Current</span>}
+      </button>
+    );
+  });
 
   return (
     <div className="wv" style={libPaint}>
@@ -3223,7 +3311,7 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
             >
               <div className={`wv-ig__photo${layoutBusy ? ' is-laying' : ''}`}>
                 <SlideMedia
-                  slide={activeSlide}
+                  slide={previewSlide}
                   localMedia={localMedia}
                   mediaByKey={mediaByKey}
                   subjectsByKey={subjectsByKey}
@@ -3231,7 +3319,7 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
                   showVisualHint
                   paint={igVars}
                   themed={hasVisualEdits}
-                  layoutOverride={visEdit === 'layout' ? (chosenLayout || null) : null}
+                  layoutOverride={(visEdit === 'layout' && !hasLayoutOpts) ? (chosenLayout || null) : null}
                   carouselLayoutHtmls={slides.map((s) => s?.layoutHtml || '')}
                 />
                 {slides.length > 1 && (
@@ -3422,42 +3510,59 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
                   >
                     <Glyph name="arrow-left" size={16} />
                   </button>
-                  <span className="wv-layed__title">Change layout</span>
+                  <span className="wv-layed__title">
+                    Change layout
+                    {hasLayoutOpts && (
+                      <span className="wv-layed__hint">{layoutOpts.length} options from the layout agent, ranked</span>
+                    )}
+                  </span>
                   <button
                     type="button"
                     className="btn btn--primary btn--sm wv-layed__apply"
                     onClick={applyLayout}
-                    disabled={!draftId || layoutUnchanged}
-                    title={layoutUnchanged ? 'This is the layout the post already has' : undefined}
+                    disabled={hasLayoutOpts ? (!draftOpt || optUnchanged) : (!draftId || layoutUnchanged)}
+                    title={(hasLayoutOpts ? optUnchanged : layoutUnchanged)
+                      ? 'This is the layout the post already has'
+                      : undefined}
                   >
                     <Glyph name="check" size={16} strokeWidth={2.5} />
                     Apply changes
                   </button>
                 </div>
                 <div className="wv-layed__picker">
-                  <div className="wv-actsrow">
-                    <button
-                      type="button"
-                      className="wv-actsrow__arrow wv-layed__arrow"
-                      onClick={() => stepLayout(-1)}
-                      disabled={layWinStart <= 0}
-                      aria-label="Previous layouts"
+                  {hasLayoutOpts ? (
+                    <div
+                      className="wv-acts wv-layed__grid wv-layed__grid--opts"
+                      role="radiogroup"
+                      aria-label="Which layout option should this slide use?"
                     >
-                      <Glyph name="chevron-left" size={15} strokeWidth={2.5} />
-                    </button>
-                    <div className="wv-acts wv-layed__grid" role="radiogroup" aria-label="Which layout should this slide take?">
-                      {layoutPickerCards(pickerLayouts)}
+                      {layoutOptionCards()}
                     </div>
-                    <button
-                      type="button"
-                      className="wv-actsrow__arrow wv-layed__arrow"
-                      onClick={() => stepLayout(1)}
-                      disabled={layWinStart >= maxWinStart}
-                      aria-label="Next layouts"
-                    >
-                      <Glyph name="chevron-right" size={15} strokeWidth={2.5} />
-                    </button>
-                  </div>
+                  ) : (
+                    <div className="wv-actsrow">
+                      <button
+                        type="button"
+                        className="wv-actsrow__arrow wv-layed__arrow"
+                        onClick={() => stepLayout(-1)}
+                        disabled={layWinStart <= 0}
+                        aria-label="Previous layouts"
+                      >
+                        <Glyph name="chevron-left" size={15} strokeWidth={2.5} />
+                      </button>
+                      <div className="wv-acts wv-layed__grid" role="radiogroup" aria-label="Which layout should this slide take?">
+                        {layoutPickerCards(pickerLayouts)}
+                      </div>
+                      <button
+                        type="button"
+                        className="wv-actsrow__arrow wv-layed__arrow"
+                        onClick={() => stepLayout(1)}
+                        disabled={layWinStart >= maxWinStart}
+                        aria-label="Next layouts"
+                      >
+                        <Glyph name="chevron-right" size={15} strokeWidth={2.5} />
+                      </button>
+                    </div>
+                  )}
                 </div>
               </div>
             )}

@@ -1391,10 +1391,34 @@ function layoutInputOf(post, structure, dayBrief) {
   };
 }
 
+const MAX_LAYOUT_OPTIONS = 4;
+
+// A slide entry from the layout agent may carry several ranked composition
+// options (new shape) or a single `html` (legacy). Normalise to a ranked list
+// of extracted, valid-HTML options, best-first, renumbered 1..n.
+function rawLayoutOptions(s) {
+  const list = Array.isArray(s?.options) && s.options.length
+    ? s.options
+    : [{ rank: 1, label: '', reason: optionalText(s?.reason), html: s?.html || s?.layoutHtml }];
+  const out = [];
+  list.forEach((o, i) => {
+    const html = extractLayoutHtml(o?.html || o?.layoutHtml || '');
+    if (!html) return;
+    out.push({
+      rank: Number(o?.rank) > 0 ? Number(o.rank) : i + 1,
+      label: optionalText(o?.label),
+      reason: optionalText(o?.reason),
+      html,
+    });
+  });
+  out.sort((a, b) => a.rank - b.rank);
+  return out.slice(0, MAX_LAYOUT_OPTIONS);
+}
+
 function validateLayout(parsed, post) {
   const status = String(parsed?.status || '').toLowerCase();
   const incoming = Array.isArray(parsed?.slides) ? parsed.slides : [];
-  const hasHtml = incoming.some((s) => extractLayoutHtml(s?.html || s?.layoutHtml || ''));
+  const hasHtml = incoming.some((s) => rawLayoutOptions(s).length);
   if ((status === 'failed' || status === 'cannot_generate') && !hasHtml) {
     parsed.status = 'failed';
     parsed.failureReason = optionalText(parsed.failureReason || parsed.reason);
@@ -1405,12 +1429,19 @@ function validateLayout(parsed, post) {
   if (parsed.slides.length !== expected) throw new Error(`layout slide count ${parsed.slides.length} != ${expected}`);
   parsed.status = 'ready';
   parsed.slides = parsed.slides.map((s, i) => {
-    const html = extractLayoutHtml(s?.html || s?.layoutHtml || '');
-    if (!html) throw new Error(`slide ${s?.index || i + 1} missing layout html`);
     const raw = Array.isArray(post?.content?.slides) ? (post.content.slides[i] || {}) : {};
     const flat = flattenSlide(raw);
-    if (slideWantsVisual(raw, flat, raw?.visual || flat.visual) && !hasImageSlot(html)) {
-      throw new Error(`slide ${s?.index || i + 1} missing img[data-slot=image]`);
+    const wantsVisual = slideWantsVisual(raw, flat, raw?.visual || flat.visual);
+    // Keep only options that carry the required image slot — a broken variant
+    // is dropped rather than failing the whole slide, as long as one survives.
+    const options = rawLayoutOptions(s)
+      .filter((o) => !wantsVisual || hasImageSlot(o.html))
+      .map((o, idx) => ({ ...o, rank: idx + 1 }));
+    if (!options.length) {
+      const had = rawLayoutOptions(s).length;
+      throw new Error(had
+        ? `slide ${s?.index || i + 1} missing img[data-slot=image]`
+        : `slide ${s?.index || i + 1} missing layout html`);
     }
     const hierarchy = s?.visualHierarchy && typeof s.visualHierarchy === 'object' ? s.visualHierarchy : {};
     const primary = Array.isArray(hierarchy.primary)
@@ -1427,14 +1458,24 @@ function validateLayout(parsed, post) {
         supporting: stringList(hierarchy.supporting),
       },
       arrangement: stringList(s?.arrangement),
-      html,
-      reason: optionalText(s?.reason),
+      options,
+      // The top-ranked option is the applied composition; keep `html`/`reason`
+      // at the top level for backward compatibility with existing consumers.
+      html: options[0].html,
+      reason: options[0].reason,
     };
   });
-  // Agent often puts one shared <style> on slide 1 only — each slide is stored
-  // and previewed alone, so copy style blocks onto slides that lack them.
-  const sharedHtml = shareLayoutStyles(parsed.slides.map((s) => s.html));
-  parsed.slides = parsed.slides.map((s, i) => ({ ...s, html: sharedHtml[i] || s.html }));
+  // Agent often puts one shared <style> on slide 1 (or option 1) only — each
+  // slide/option is stored and previewed alone, so copy style blocks onto any
+  // that lack them. One pass over every option keeps them all self-contained.
+  const flatHtml = [];
+  parsed.slides.forEach((s) => s.options.forEach((o) => flatHtml.push(o.html)));
+  const sharedHtml = shareLayoutStyles(flatHtml);
+  let k = 0;
+  parsed.slides = parsed.slides.map((s) => {
+    const options = s.options.map((o) => ({ ...o, html: sharedHtml[k++] || o.html }));
+    return { ...s, options, html: options[0].html };
+  });
 }
 
 function applyLayoutToContent(content, layoutParsed) {
@@ -1442,19 +1483,28 @@ function applyLayoutToContent(content, layoutParsed) {
   const plans = layoutParsed?.status === 'ready' ? (layoutParsed.slides || []) : [];
   if (!slides.length || !plans.length) return content;
   const byIndex = new Map(plans.map((s) => [Number(s.index), s]));
-  const extracted = slides.map((raw, i) => {
+  content.slides = slides.map((raw, i) => {
     const index = Number(raw?.index) > 0 ? Number(raw.index) : i + 1;
     const plan = byIndex.get(index);
-    return extractLayoutHtml(plan?.html);
-  });
-  const shared = shareLayoutStyles(extracted);
-  content.slides = slides.map((raw, i) => {
-    const html = shared[i] || '';
+    // Options are already extracted, ranked, and style-shared by validateLayout.
+    const options = (Array.isArray(plan?.options) ? plan.options : [])
+      .map((o, idx) => ({
+        rank: Number(o?.rank) > 0 ? Number(o.rank) : idx + 1,
+        label: optionalText(o?.label),
+        reason: optionalText(o?.reason),
+        html: extractLayoutHtml(o?.html),
+      }))
+      .filter((o) => o.html);
+    const html = options[0]?.html || extractLayoutHtml(plan?.html) || '';
     if (!html) {
       const flat = flattenSlide(raw);
-      return { ...raw, layout: optionalText(raw.layout) || layoutForStructure(flat) || '' };
+      return {
+        ...raw,
+        layout: optionalText(raw.layout) || layoutForStructure(flat) || '',
+        layoutOptions: [],
+      };
     }
-    return { ...raw, layout: 'dynamic', layoutHtml: html };
+    return { ...raw, layout: 'dynamic', layoutHtml: html, layoutOptions: options };
   });
   return content;
 }

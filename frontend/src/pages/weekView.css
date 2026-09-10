@@ -4898,7 +4898,8 @@
 .wv-layed__title {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  flex-wrap: wrap;
+  gap: 2px 8px;
   min-width: 0;
   font-family: var(--font-ui);
   font-size: var(--text-base);
@@ -4933,6 +4934,47 @@
   border-radius: var(--r-md);
   font-size: var(--text-sm);
   flex-shrink: 0;
+}
+
+/* ── Layout-agent options ─────────────────────────────────────────────────
+   When the layout agent has proposed ranked options for the slide, the picker
+   shows real 4:5 previews of each composition (same renderer as the big
+   preview) in place of the wireframe presets — four across, two per row when
+   narrow, each tagged with its rank (the top one marked "Best"). */
+.wv-layed__hint {
+  flex-basis: 100%;
+  order: 3;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0;
+  color: var(--ink-500);
+}
+.wv-layed__grid--opts {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+.wv-act--opt { flex: none; }
+.wv-act__rank {
+  position: absolute;
+  right: 6px;
+  top: 6px;
+  z-index: 3;
+  padding: 2px 7px;
+  border-radius: var(--r-full);
+  background: color-mix(in srgb, var(--ink-900) 78%, transparent);
+  font-family: var(--font-ui);
+  font-size: 10.5px;
+  font-weight: 700;
+  color: var(--surface);
+  pointer-events: none;
+}
+.wv-act__rank.is-best {
+  background: var(--action-primary);
+  color: var(--action-primary-ink);
+}
+@media (max-width: 960px) {
+  .wv-layed__grid--opts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
 /* Edit text — same chrome as Choose layout / Edit caption (back, title, Apply) */

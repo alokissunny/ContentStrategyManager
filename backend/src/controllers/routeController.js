@@ -968,6 +968,19 @@ async function markDayPublished(req, res) {
             : (Array.isArray(prev.assetKeys) ? prev.assetKeys.map((k) => String(k || '')) : []),
           layout: String(s.layout || ''),
           layoutHtml: String(s.layoutHtml ?? prev.layoutHtml ?? ''),
+          layoutOptions: (() => {
+            const opts = Array.isArray(s.layoutOptions)
+              ? s.layoutOptions
+              : (Array.isArray(prev.layoutOptions) ? prev.layoutOptions : []);
+            return opts
+              .map((o, i) => ({
+                rank: Number(o?.rank) > 0 ? Number(o.rank) : i + 1,
+                label: String(o?.label || ''),
+                reason: String(o?.reason || ''),
+                html: String(o?.html || ''),
+              }))
+              .filter((o) => o.html);
+          })(),
           annotation: (s.annotation && typeof s.annotation === 'object')
             ? {
               text: String(s.annotation.text ?? prev.annotation?.text ?? ''),

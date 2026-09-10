@@ -72,8 +72,14 @@ const daySchema = new mongoose.Schema(
             // Empty = Week View falls back to a default composition.
             layout: { type: String, default: '' },
             // Dynamic HTML composition from the Layout Agent. Empty = Week View
-            // uses the default stacked preview.
+            // uses the default stacked preview. This is the currently-applied
+            // option (the top-ranked one unless the studio picked another).
             layoutHtml: { type: String, default: '' },
+            // Ranked alternative compositions the Layout Agent generated for
+            // this slide, best-first: [{ rank, label, reason, html }]. Surfaced
+            // in Week View's Change layout picker; `layoutHtml` mirrors the
+            // chosen one. Empty = only the single applied composition exists.
+            layoutOptions: { type: [mongoose.Schema.Types.Mixed], default: [] },
             // On-photo callout (handwritten label + arrow) when Structure
             // locked Annotation on a photograph with a relevant subject.
             annotation: { type: mongoose.Schema.Types.Mixed, default: null },

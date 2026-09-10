@@ -79,6 +79,12 @@ Use a layout appropriate to the supplied content:
 
 Across a carousel, keep the visual system coherent. Vary composition only when the content benefits from it; do not force every slide to look different.
 
+## Multiple options per slide
+
+For each supplied slide, produce **four genuinely different layout options** for the same locked content — not four coats of paint on one idea. Vary the real composition: focal point, reading order, image placement and crop, grouping, alignment, and vertical rhythm. Every option must satisfy every composition, image, and no-clipped-text rule above; a weaker but different idea is still an option, but a broken one is not — drop it and keep only valid options (never fewer than one).
+
+**Rank the options** best-first (`rank: 1` is your strongest recommendation). Rank on: clarity of the focal point and reading order, how well the arrangement fits this slide's role and content, balance and use of whitespace, and safety-zone/no-clip compliance. Give each option a short human `label` (2–4 words, e.g. "Image-led hook", "Stacked statement", "Split with photo") and a one-line `reason` for its rank.
+
 ## Image rules
 
 When `visual.includeImageSlot` is true, include exactly:
@@ -101,7 +107,7 @@ When `visual.includeImageSlot` is false, create a text-led slide and do not add 
 
 ## HTML and CSS rules
 
-Return one `<style>` block and one `<article class="slide">` per slide.
+Return one `<style>` block and one `<article class="slide">` per layout option.
 
 Base requirements:
 
@@ -147,7 +153,7 @@ Use each supplied slot once. Never duplicate a slot to fill space.
 
 ## Final check
 
-Before returning `ready`, confirm:
+Before returning `ready`, confirm for **every option**:
 
 - all visible text matches the input exactly
 - no supplied element is missing or duplicated
@@ -156,8 +162,10 @@ Before returning `ready`, confirm:
 - **no text is clipped** — every line of every text slot is fully readable inside the frame
 - nothing overlaps or enters the 8% side / 14% bottom safety area
 - if the slide has an image and a long title or subtitle, the image height leaves enough room for that copy
-- each slide’s `html` includes its own `<style>` block **and** `<article>` (do not put shared CSS only on slide 1)
-- the slide has clear hierarchy and balanced composition
+- each option’s `html` is fully self-contained: it includes its own `<style>` block **and** `<article>` (do not put shared CSS only on slide 1 or only on option 1)
+- the option has clear hierarchy and balanced composition
+
+Also confirm the options for a slide are meaningfully distinct compositions and are ranked best-first.
 
 Return `failed` only when the slide cannot be composed without inventing, omitting, or guessing content.
 
@@ -167,13 +175,22 @@ Return only one fenced JSON block.
 
 If `POST_JSON.carousel.thisIndex` is present, compose only that slide and return one entry. Otherwise, return one entry for each supplied slide in the same order.
 
+Each slide entry carries an `options` array of four ranked layout options (fewer only if some cannot be validly composed). List them best-first.
+
 ```json
 {
   "status": "ready | failed",
   "slides": [
     {
       "index": 1,
-      "html": "<style>...</style><article class=\"slide\">...</article>"
+      "options": [
+        {
+          "rank": 1,
+          "label": "Short human name (2–4 words)",
+          "reason": "One line on why this ranks here",
+          "html": "<style>...</style><article class=\"slide\">...</article>"
+        }
+      ]
     }
   ],
   "failureReason": "Include only when status is failed"

@@ -630,6 +630,7 @@ function normalizeSlides(rawSlides, onScreenText, format, title, cta, validKeys 
       assetKeys: keys,
       layout,
       layoutHtml: s.layoutHtml || '',
+      layoutOptions: Array.isArray(s.layoutOptions) ? s.layoutOptions : [],
       annotation: ANNOTATIONS_ENABLED && s.annotation && s.annotation.text
         ? {
           text: String(s.annotation.text || '').trim(),

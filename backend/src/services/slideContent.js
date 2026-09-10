@@ -233,6 +233,16 @@ function flattenSlide(raw) {
     assetKeys: assetKeys.length ? assetKeys : (assetKey ? [assetKey] : []),
     layout: str(s.layout),
     layoutHtml: str(s.layoutHtml),
+    layoutOptions: Array.isArray(s.layoutOptions)
+      ? s.layoutOptions
+        .map((o, i) => ({
+          rank: Number(o?.rank) > 0 ? Number(o.rank) : i + 1,
+          label: str(o?.label),
+          reason: str(o?.reason),
+          html: str(o?.html),
+        }))
+        .filter((o) => o.html)
+      : [],
     annotation,
     visual,
     visualNeed: visualNeedOf({ ...s, visual, image: wantsImage ? 'placeholder' : str(s.image) }),
