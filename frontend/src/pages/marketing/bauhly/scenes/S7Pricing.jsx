@@ -44,7 +44,7 @@ const guarantee = ['No awkward questions', 'No hidden terms', 'Cancel anytime']
 
 export default function S7Pricing() {
   const nav = useNavigate()
-  const goSignup = () => nav('/auth', { state: { mode: 'signup' } })
+  const goLogin = () => nav('/auth')
 
   return (
     <section className="block b7" id="pricing">
@@ -97,7 +97,7 @@ export default function S7Pricing() {
 
               <button
                 className={`cta price-cta ${t.featured ? 'cta-primary' : 'cta-ink'}`}
-                onClick={goSignup}
+                onClick={goLogin}
               >
                 {t.cta}
               </button>

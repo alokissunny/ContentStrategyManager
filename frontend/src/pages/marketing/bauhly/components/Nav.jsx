@@ -14,8 +14,7 @@ export default function Nav() {
   const [hidden, setHidden] = useState(false)
   const [open, setOpen] = useState(false)
 
-  const goLogin = () => nav('/auth', { state: { mode: 'signin' } })
-  const goSignup = () => nav('/auth', { state: { mode: 'signup' } })
+  const goLogin = () => nav('/auth')
 
   useEffect(() => {
     let last = window.scrollY
@@ -43,11 +42,8 @@ export default function Nav() {
       </div>
 
       <div className="nav-actions">
-        <button className="nav-login" onClick={goLogin}>
+        <button className="cta cta-ink nav-cta" onClick={goLogin}>
           Log in
-        </button>
-        <button className="cta cta-ink nav-cta" onClick={goSignup}>
-          Sign up
         </button>
       </div>
 
@@ -71,22 +67,13 @@ export default function Nav() {
           ))}
           <div className="nav-panel-actions">
             <button
-              className="nav-login"
+              className="cta cta-ink nav-cta"
               onClick={() => {
                 setOpen(false)
                 goLogin()
               }}
             >
               Log in
-            </button>
-            <button
-              className="cta cta-ink nav-cta"
-              onClick={() => {
-                setOpen(false)
-                goSignup()
-              }}
-            >
-              Sign up
             </button>
           </div>
         </div>

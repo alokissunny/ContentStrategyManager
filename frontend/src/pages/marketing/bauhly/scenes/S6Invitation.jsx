@@ -18,7 +18,7 @@ export default function S6Invitation() {
           you&rsquo;re not convinced, we&rsquo;ll give a month back.
         </motion.p>
         <motion.div {...popDelayed(0.16)}>
-          <button className="cta cta-ink" onClick={() => nav('/auth', { state: { mode: 'signup' } })}>
+          <button className="cta cta-ink" onClick={() => nav('/auth')}>
             Analyze my profile
           </button>
         </motion.div>

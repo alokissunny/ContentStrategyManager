@@ -167,7 +167,7 @@ export default function S1Hero() {
           <motion.div className="h1s-ctas" {...heroPop(0.2)}>
             <button
               className="cta cta-ink h1s-main-cta"
-              onClick={() => nav('/auth', { state: { mode: 'signup' } })}
+              onClick={() => nav('/auth')}
             >
               Analyse my profile →
             </button>

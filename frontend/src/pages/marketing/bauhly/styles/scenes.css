@@ -171,15 +171,14 @@
 
 .bauhly-landing .nav-panel-actions {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: 1fr;
   gap: 12px;
   margin-top: 8px;
   padding-top: 12px;
   border-top: 1px solid color-mix(in srgb, var(--ink) 10%, transparent);
 }
 
-/* Log in becomes a ghost pill matching Sign up's height — balanced halves,
-   filled Sign up still reads as primary */
+/* Mobile menu login CTA matches the desktop filled button. */
 .bauhly-landing .nav-panel-actions .nav-login {
   display: flex;
   align-items: center;
