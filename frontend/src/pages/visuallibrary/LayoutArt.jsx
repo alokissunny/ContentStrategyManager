@@ -19,8 +19,11 @@
  * as the empty ground they are before a photograph exists.
  */
 
-import { useEffect, useState } from 'react';
+import { Children, cloneElement, useEffect, useState } from 'react';
 import { paletteOf } from '../../lib/slidestyle.js';
+import { useStore } from '../../lib/store.js';
+import { logoPositionOf, markForTone } from '../../lib/identity.js';
+import { BrandMark } from './BrandMark.jsx';
 import './visuallibrary.css';
 
 /* ── the swatch row, read off the photograph ───────────────────────────────
@@ -190,10 +193,17 @@ function fitScale(art = {}) {
  * sit on a photograph, so the set reads as one family rather than a folder of
  * exports. The fit multiplier is set on a `display:contents` wrapper so it
  * inherits into every composition's word rules without touching each `case`. */
-export function Preview({ l, mood = true }) {
+export function Preview({ l, mood = true, logos, logoPosition }) {
+  const store = useStore();
+  const slots = logos || store.brandLogos;
+  const position = logoPosition || logoPositionOf(store.libraryEdits);
+  const mark = markForTone(slots, l.tone);
+  const art = renderLayout(l, mood);
   return (
     <span style={{ display: 'contents', '--vl-fit': fitScale(l.art) }}>
-      {renderLayout(l, mood)}
+      {mark?.url
+        ? cloneElement(art, {}, [...Children.toArray(art.props.children), <BrandMark key="mark" mark={mark} position={position} />])
+        : art}
     </span>
   );
 }

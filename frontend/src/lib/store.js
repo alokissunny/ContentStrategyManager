@@ -11,7 +11,7 @@
  */
 
 import { useSyncExternalStore } from 'react';
-import { getBrandSettings, saveBrandSettings } from '../api/visualBrand.js';
+import { getBrandSettings, saveBrandSettings, listLogos } from '../api/visualBrand.js';
 
 // Base key for the (client-only) Visual Brand / Library state. The real store
 // is PER INSTAGRAM ACCOUNT: each handle keeps its own blob under
@@ -56,6 +56,9 @@ const DEFAULTS = {
   addedLayouts: [], // [{ id, cat, name, kind, tone, levels, imgs, art, own, fromRef, addedAt }]
   refAnalysis: {},  // { [refId]: { colours, shape, ground, at } }
   libraryEdits: { palette: {}, type: {} },
+  /* the four logo files from Library Settings, keyed by slot. URLs are
+     presigned and die; keys persist on the server. Loaded on hydrate. */
+  brandLogos: {},
   /* ON by default on the Visual Library (bauhly 857): this page shows how the
      studio's direction reads across layouts. Off still draws empty picture
      regions. The plan's picker shares the same key. */
@@ -102,6 +105,14 @@ function load(handle) {
       if (Array.isArray(st.grounds)) st.grounds = st.grounds.filter((g) => !String(g?.url || '').startsWith('blob:'));
       if (st.logo && String(st.logo.url || '').startsWith('blob:')) st.logo = { ...st.logo, url: null };
       s.brandStyle = st;
+    }
+    if (s.brandLogos && typeof s.brandLogos === 'object') {
+      const next = {};
+      Object.entries(s.brandLogos).forEach(([slot, v]) => {
+        if (!v || typeof v !== 'object' || !v.key) return;
+        next[slot] = String(v.url || '').startsWith('blob:') ? { ...v, url: null } : v;
+      });
+      s.brandLogos = next;
     }
     /* a layout the studio added carries an object URL for its picture, which is
        a dead `blob:` once read back from storage — drop it, the same way added
@@ -172,16 +183,30 @@ async function hydrate(handle) {
   if (!h) return;
   const gen = syncWriteGen;
   let remote;
+  let logos = null;
   try {
     remote = await getBrandSettings(h);
   } catch {
     return; /* offline or signed out — local-first stands */
   }
-  if (!remote || typeof remote !== 'object') return;
+  try {
+    logos = await listLogos();
+  } catch {
+    logos = null;
+  }
   if (normHandle(activeHandle) !== h) return; // account changed while we waited
   if (syncWriteGen !== gen) return; // this handle was written while we waited
+  if (!remote || typeof remote !== 'object') {
+    if (logos) {
+      state = { ...state, brandLogos: logos };
+      persist();
+      listeners.forEach((fn) => fn());
+    }
+    return;
+  }
   const merged = { ...state };
   SYNC_KEYS.forEach((k) => { if (k in remote) merged[k] = remote[k]; });
+  if (logos) merged.brandLogos = logos;
   state = merged;
   // don't echo the just-hydrated blob straight back to the server
   lastPushedSig = JSON.stringify(syncPayload(state));

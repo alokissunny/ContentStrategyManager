@@ -34,6 +34,22 @@ const userSchema = new mongoose.Schema(
         ],
         default: [],
       },
+      // The four logo files from Library Settings (full / full inverted /
+      // symbol / symbol inverted). Same pattern as moodImages: S3 holds the
+      // bytes, Mongo keeps the key, tagged with the Instagram handle so the
+      // marks switch with the account. One file per slot per handle.
+      logos: {
+        type: [
+          {
+            key: { type: String, required: true },
+            slot: { type: String, required: true, enum: ['full', 'fullInverted', 'symbol', 'symbolInverted'] },
+            title: { type: String, trim: true, default: '' },
+            handle: { type: String, trim: true, lowercase: true, default: '' },
+            addedAt: { type: Number, default: () => Date.now() },
+          },
+        ],
+        default: [],
+      },
       // The Library Settings the studio applies — palette, type/fonts, which
       // layouts are on, and the palette readings from each mood image. These
       // used to live only in the browser's localStorage, so the same account saw

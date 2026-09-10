@@ -217,6 +217,22 @@
   text-align: left;
 }
 
+/* the studio's mark, sitting in the corner they chose in Library Settings */
+.vl-brandmark {
+  position: absolute;
+  z-index: 4;
+  width: 16cqw;
+  height: auto;
+  max-height: 7.5cqw;
+  object-fit: contain;
+  pointer-events: none;
+}
+.vl-brandmark.is-symbol { width: 8.5cqw; max-height: 8.5cqw; }
+.vl-brandmark.is-tl { top: 5.5%; left: 5.5%; }
+.vl-brandmark.is-tr { top: 5.5%; right: 5.5%; }
+.vl-brandmark.is-bl { bottom: 5.5%; left: 5.5%; }
+.vl-brandmark.is-br { bottom: 5.5%; right: 5.5%; }
+
 
 /* ══ THE PALETTES ═══════════════════════════════════════════════════
  *

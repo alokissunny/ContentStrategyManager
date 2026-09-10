@@ -40,6 +40,48 @@ export function deleteMoodImage(key) {
   return client.delete(`/visual-brand/mood/${encodeURIComponent(key)}`).then((r) => r.data);
 }
 
+// ── Logos (Library Settings) ────────────────────────────────────────────────
+// Four named slots. The bytes go to S3 the same way mood images do; the API
+// keeps the object key per slot and hands back a short-lived presigned `url`.
+
+function packLogos(list) {
+  const out = {};
+  (list || []).forEach((m) => {
+    if (!m || !m.slot) return;
+    out[m.slot] = { key: m.key, url: m.url || null, title: m.title || '', addedAt: m.addedAt || 0 };
+  });
+  return out;
+}
+
+export async function uploadLogo(slot, file) {
+  if (!file || !file.type || !String(file.type).startsWith('image/')) return null;
+  const { data } = await client.post('/visual-brand/logos/sign', {
+    files: [{ contentType: file.type || 'application/octet-stream' }],
+  });
+  const upload = (data.uploads || [])[0];
+  if (!upload) throw new Error('no upload');
+  const put = await fetch(upload.uploadUrl, {
+    method: 'PUT',
+    headers: { 'Content-Type': file.type || 'application/octet-stream' },
+    body: file,
+  });
+  if (!put.ok) throw new Error(`Upload failed (${put.status})`);
+  const { data: saved } = await client.post('/visual-brand/logos', {
+    slot,
+    key: upload.key,
+    title: file.name,
+  });
+  return packLogos(saved.logos);
+}
+
+export function listLogos() {
+  return client.get('/visual-brand/logos').then((r) => packLogos(r.data.logos));
+}
+
+export function deleteLogo(slot) {
+  return client.delete(`/visual-brand/logos/${encodeURIComponent(slot)}`).then((r) => r.data);
+}
+
 // ── Library Settings (palette, type, layout toggles) ────────────────────────
 // One synced blob per Instagram account, so the library follows the account and
 // not the browser origin. The server scopes by the active handle from the

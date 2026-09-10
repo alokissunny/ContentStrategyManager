@@ -902,3 +902,228 @@
   max-width: 1240px;
   margin: 0 auto;
 }
+
+/* ── Logos ────────────────────────────────────────────────────────────────
+ * Four named slots and a corner picker, on one row while there is room. The
+ * empty tiles carry a washed example so the four jobs are readable before
+ * anything is uploaded; a filled tile is just the file, with a ⋯ for replace
+ * and remove. */
+.ls-logos {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--sp-6);
+  flex-wrap: wrap;
+}
+.ls-logos__slots {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-3);
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.ls-logo {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex: 1 1 120px;
+  max-width: 156px;
+  min-width: 0;
+}
+.ls-logo__tile {
+  position: relative;
+  aspect-ratio: 1;
+  border-radius: var(--r-lg);
+  border: 1px solid var(--border);
+  background: var(--surface);
+}
+.ls-logo__tile:has(.ls-logo__menu) { z-index: 6; }
+.ls-logo__tile.is-inverted { background: var(--ink-100); }
+.ls-logo__tile.is-filled { background: #fff; }
+.ls-logo__tile.is-busy { opacity: 0.72; }
+.ls-logo__img {
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  max-width: 70%;
+  max-height: 56%;
+  object-fit: contain;
+}
+.ls-logo__ex {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  z-index: 1;
+  padding: 3px 7px;
+  border-radius: var(--r-full);
+  background: rgba(255, 255, 255, 0.82);
+  font-family: var(--font-ui);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-400);
+}
+.ls-logo__ghost {
+  position: absolute;
+  inset: 0 12px 40px;
+  display: grid;
+  place-items: center;
+  font-family: var(--font-display, var(--font-ui));
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  color: color-mix(in srgb, var(--ink-900) 32%, transparent);
+  pointer-events: none;
+}
+.ls-logo__ghost.is-mark { font-size: 36px; letter-spacing: -0.04em; }
+.ls-logo__add {
+  position: absolute;
+  left: 50%;
+  bottom: 12px;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 28px;
+  padding: 0 11px;
+  transform: translateX(-50%);
+  border: 1px solid var(--border);
+  border-radius: var(--r-full);
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(22, 22, 26, 0.06);
+  font-family: var(--font-ui);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink-800);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.ls-logo__add:hover { border-color: var(--ink-400); color: var(--ink-900); }
+.ls-logo__add:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.ls-logo__add svg { flex-shrink: 0; }
+.ls-logo__label {
+  font-size: var(--text-xs);
+  color: var(--ink-500);
+}
+.ls-logo__morewrap { position: absolute; top: 8px; right: 8px; z-index: 2; }
+.ls-logo__more {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: var(--r-full);
+  background: none;
+  color: var(--ink-500);
+  cursor: pointer;
+}
+.ls-logo__more:hover { background: var(--ink-100); color: var(--ink-900); }
+.ls-logo__more:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.pe-menu.ls-logo__menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  left: auto;
+  z-index: 41;
+  display: flex;
+  flex-direction: column;
+  min-width: 148px;
+  padding: 4px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-lift);
+}
+.ls-logo__opt,
+.ls-logo__menu button {
+  display: flex;
+  align-items: center;
+  min-height: 40px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: none;
+  font-size: var(--text-sm);
+  font-weight: 500;
+  color: var(--ink-900);
+  text-align: left;
+  cursor: pointer;
+}
+.ls-logo__opt:hover,
+.ls-logo__menu button:hover { background: var(--ink-100); }
+.ls-logo__menu .pe-menu__del { color: var(--negative); }
+.ls-logo__menu .pe-menu__del:hover { background: var(--negative-soft); }
+
+.ls-logos__pos {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  flex: 0 0 auto;
+  padding-left: var(--sp-6);
+  border-left: 1px solid var(--border);
+}
+.ls-logos__poslabel {
+  font-size: var(--text-sm);
+  font-weight: 700;
+  color: var(--ink-900);
+}
+.ls-logos__posrow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-3);
+}
+.ls-logopos {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+}
+.ls-logopos__card {
+  position: relative;
+  width: 76px;
+  height: 54px;
+  border: 1.5px solid var(--border);
+  border-radius: 14px;
+  background: var(--surface);
+  transition: border-color var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out);
+}
+.ls-logopos.is-on .ls-logopos__card {
+  border-color: var(--ink-900);
+  box-shadow: 0 0 0 1px var(--ink-900);
+}
+.ls-logopos:hover .ls-logopos__card { border-color: var(--ink-400); }
+.ls-logopos.is-on:hover .ls-logopos__card { border-color: var(--ink-900); }
+.ls-logopos:focus-visible .ls-logopos__card { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.ls-logopos__card i {
+  position: absolute;
+  width: 11px;
+  height: 11px;
+  border-radius: 3px;
+  background: var(--ink-900);
+}
+.ls-logopos__card.is-top-left i { top: 8px; left: 8px; }
+.ls-logopos__card.is-top-right i { top: 8px; right: 8px; }
+.ls-logopos__card.is-bottom-left i { bottom: 8px; left: 8px; }
+.ls-logopos__card.is-bottom-right i { bottom: 8px; right: 8px; }
+.ls-logopos__name {
+  font-size: var(--text-xs);
+  color: var(--ink-500);
+}
+
+@media (max-width: 1100px) {
+  .ls-logos__pos {
+    width: 100%;
+    padding-left: 0;
+    padding-top: var(--sp-4);
+    border-left: 0;
+    border-top: 1px solid var(--border);
+  }
+}
+@media (max-width: 560px) {
+  .ls-logos__slots { display: grid; grid-template-columns: 1fr 1fr; width: 100%; }
+  .ls-logo { width: auto; max-width: none; flex: none; }
+}

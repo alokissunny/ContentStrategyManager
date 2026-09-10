@@ -487,6 +487,7 @@
   container-type: inline-size;
 }
 .wv-ig__lay { position: absolute; inset: 0; }
+.wv-ig__lay .vl-brandmark { z-index: 8; }
 .wv-dynlay {
   position: absolute;
   inset: 0;

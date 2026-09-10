@@ -28,12 +28,17 @@ export function isProjectMediaKey(key) {
   return /^projects\/[a-f0-9]{24}\/[A-Za-z0-9._-]+\.(png|jpe?g|webp|gif|hei[cf])$/i.test(String(key || '').trim());
 }
 
+export function isLogoMediaKey(key) {
+  return /^visualbrand\/[a-f0-9]{24}\/[a-z0-9._-]+\/logos\/[A-Za-z0-9._-]+\.(png|jpe?g|webp|gif|svg)$/i.test(String(key || '').trim());
+}
+
 export function isHeicKey(key) {
   return /\.hei[cf]$/i.test(String(key || '').trim());
 }
 
 export function mediaProxyUrl(key) {
-  const first = splitMediaKeys(key).find(isProjectMediaKey);
+  const raw = String(key || '').trim();
+  const first = isLogoMediaKey(raw) ? raw : splitMediaKeys(key).find(isProjectMediaKey);
   if (!first) return '';
   const base = (client.defaults.baseURL || '/api').replace(/\/$/, '');
   return `${base}/media/proxy?key=${encodeURIComponent(first)}`;
@@ -109,7 +114,8 @@ export function keyFromMediaUrl(url) {
     const u = new URL(raw, typeof window !== 'undefined' ? window.location.origin : 'http://local');
     if (isProxyUrl(raw)) return u.searchParams.get('key') || '';
     const path = decodeURIComponent(u.pathname.replace(/^\/+/, ''));
-    return /^projects\//.test(path) ? path : '';
+    if (/^projects\//.test(path) || /^visualbrand\//.test(path)) return path;
+    return '';
   } catch {
     return '';
   }

@@ -4,7 +4,8 @@ const { toVisionImage } = require('../services/visionImage');
 // Only ever serve project media: the immutable, content-addressed objects under
 // projects/<userId>/<uuid>.<ext>. The pattern also blocks path traversal and any
 // attempt to read non-media keys (reports, markdown, etc.).
-const KEY_RE = /^projects\/[a-f0-9]{24}\/[A-Za-z0-9._-]+\.(png|jpe?g|webp|gif|hei[cf])$/i;
+const PROJECT_KEY_RE = /^projects\/[a-f0-9]{24}\/[A-Za-z0-9._-]+\.(png|jpe?g|webp|gif|hei[cf])$/i;
+const LOGO_KEY_RE = /^visualbrand\/[a-f0-9]{24}\/[a-z0-9._-]+\/logos\/[A-Za-z0-9._-]+\.(png|jpe?g|webp|gif|svg)$/i;
 
 /*
  * Same-origin media proxy — streams a stored image back through the API with the
@@ -20,15 +21,26 @@ const KEY_RE = /^projects\/[a-f0-9]{24}\/[A-Za-z0-9._-]+\.(png|jpe?g|webp|gif|he
  *
  * Authless by design: the object key is an unguessable capability, exactly like
  * the public CDN URL these same objects already have — so this grants no access
- * the CDN doesn't. The key pattern restricts it to project media only.
+ * the CDN doesn't. The key pattern restricts it to project photos and the
+ * studio's own logo files (Library Settings), never reports or other prefixes.
  */
 async function proxyMedia(req, res) {
   const key = String(req.query.key || '');
-  if (!KEY_RE.test(key)) {
+  const isLogo = LOGO_KEY_RE.test(key);
+  if (!PROJECT_KEY_RE.test(key) && !isLogo) {
     return res.status(400).json({ message: 'Invalid media key' });
   }
   try {
     const { buffer, contentType } = await getObjectBytes(key);
+    // Logos are not vision inputs — stream the stored bytes (including SVG)
+    // so publish can inline them onto the slide canvas.
+    if (isLogo) {
+      res.set('Access-Control-Allow-Origin', '*');
+      res.set('Cross-Origin-Resource-Policy', 'cross-origin');
+      res.set('Cache-Control', 'private, max-age=300');
+      res.type(contentType || (/\.svg$/i.test(key) ? 'image/svg+xml' : 'image/png'));
+      return res.send(buffer);
+    }
     const vision = await toVisionImage(buffer, contentType, key);
     // Let any origin fetch these bytes — they are already public via the CDN, and
     // the client needs to read them cross-origin to rasterise a post for publish.

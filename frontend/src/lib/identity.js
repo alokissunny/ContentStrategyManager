@@ -79,6 +79,47 @@ export const COLOUR_ROLES = [
 export const DEFAULT_PALETTE = { ground: '#f4f2ee', fg: '#1b100d', accent: '#ff5227' };
 export const THEME_CAP = 6;
 
+/* ── LOGOS (Library Settings, Sep 2026) ────────────────────────────────────
+ * Four named files plus a corner. The files live in S3 (see api/visualBrand);
+ * the corner is part of the identity blob so it applies with Update Library
+ * the same way a colour does. `markForTone` is how a layout picks which file
+ * to draw: inverted marks on dark/photo grounds, the wordmark before the
+ * symbol, and nothing when the studio has not added one yet. */
+export const LOGO_SLOTS = [
+  { id: 'full', label: 'Full', inverted: false, kind: 'wordmark' },
+  { id: 'fullInverted', label: 'Full inverted', inverted: true, kind: 'wordmark' },
+  { id: 'symbol', label: 'Symbol', inverted: false, kind: 'mark' },
+  { id: 'symbolInverted', label: 'Symbol inverted', inverted: true, kind: 'mark' },
+];
+export const LOGO_POSITIONS = [
+  { id: 'top-left', label: 'Top left' },
+  { id: 'top-right', label: 'Top right' },
+  { id: 'bottom-left', label: 'Bottom left' },
+  { id: 'bottom-right', label: 'Bottom right' },
+];
+export const DEFAULT_LOGO_POSITION = 'top-left';
+
+export function logoPositionOf(edits) {
+  const e = asObject(edits);
+  const fromFlat = typeof e.logoPosition === 'string' ? e.logoPosition : '';
+  const fromObj = typeof asObject(e.logo).position === 'string' ? e.logo.position : '';
+  const wanted = fromFlat || fromObj;
+  return LOGO_POSITIONS.some((p) => p.id === wanted) ? wanted : DEFAULT_LOGO_POSITION;
+}
+
+/* slots is `{ [slotId]: { url, key, title } }`. Returns the record a layout of
+   this tone should draw, or null. */
+export function markForTone(slots, tone) {
+  const map = slots && typeof slots === 'object' && !Array.isArray(slots) ? slots : {};
+  const pick = (id) => {
+    const v = map[id];
+    return v && typeof v === 'object' && v.url ? { ...v, slot: id } : null;
+  };
+  const invert = tone === 'accent' || tone === 'photo';
+  if (invert) return pick('fullInverted') || pick('symbolInverted') || pick('full') || pick('symbol');
+  return pick('full') || pick('symbol') || pick('fullInverted') || pick('symbolInverted');
+}
+
 /* ── READING A STORE THAT MAY BE OLDER THAN THIS FILE ─────────────────────
  *
  * (Leon, Aug 7 — after the page crashed for anyone with a session from before
@@ -204,6 +245,7 @@ export function migrateIdentity(edits) {
     palette: { ...active.palette },
     type,
     fonts: asArray(e.fonts),
+    logoPosition: logoPositionOf(e),
   };
 }
 
@@ -216,6 +258,7 @@ export function commitIdentity(edits) {
     palette: { ...ident.palette },
     type: { ...ident.type },
     fonts: ident.fonts.map((f) => ({ ...f })),
+    logoPosition: ident.logoPosition,
   };
 }
 
@@ -231,6 +274,7 @@ export const identityOf = (store) => {
     /* only a real list of `{ id, name, url }` — a stale object shape reads as
        "no fonts of their own", which is true and does not throw */
     fonts: asArray(e.fonts).filter((f) => f && typeof f === 'object' && f.id && f.name && f.url),
+    logoPosition: logoPositionOf(e),
     /* THERE IS NO `systemImages` HERE ANY MORE (Leon, Aug 7). It was the old
        `layoutMood` key, surfaced as a switch in Library Settings; the switch is
        removed and the library no longer reads it. The key may still sit in an

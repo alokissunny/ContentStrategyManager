@@ -22,7 +22,7 @@ import { toSvg } from 'html-to-image';
 import { CaptureChat } from './Projects';
 import { styleOf, groundOf } from '../lib/visualbrand';
 import { LAYOUTS as LIB_LAYOUTS, catForRole, shotsOf, DEFAULT_LAYOUT_BY_CAT, layoutShowsAllCopy } from '../data/layouts';
-import { paintAll, paintOf, identityOf, TYPE_SLOTS, FACES } from '../lib/identity';
+import { paintAll, paintOf, identityOf, TYPE_SLOTS, FACES, logoPositionOf, markForTone } from '../lib/identity';
 import { rolesOf as textRolesOf, plainOf, parseMarked, isListRole, listIndexOf } from '../lib/slidetext';
 import ImagePicker from './weekview/ImagePicker';
 import { PhotoEditor, SlotPack } from './weekview/PhotoEditor';
@@ -31,6 +31,7 @@ import WordsPolish from './weekview/WordsPolish';
 import CaptionPolish from './weekview/CaptionPolish';
 import PostAgentDebug from './weekview/PostAgentDebug';
 import DynamicLayout, { AnnotationOverlay } from './weekview/DynamicLayout';
+import { BrandMark } from './visuallibrary/BrandMark';
 import { rewriteAnnotationText, withSharedLayoutStyles } from './weekview/layoutHtml';
 import { boxOf, normalizeSubjects } from './weekview/subjectBox';
 import {
@@ -1396,6 +1397,7 @@ function SlideMedia({
   layoutOverride = null,
   carouselLayoutHtmls = null,
 }) {
+  const store = useStore();
   const copy = slideCopy(slide, parts);
   const need = visualNeedRecord(slide);
   const changeLayout = layoutOverride || findChangeLayout(slide?.layout);
@@ -1422,6 +1424,11 @@ function SlideMedia({
       ? carouselLayoutHtmls
       : [slide?.layoutHtml],
   );
+  const mark = markForTone(store.brandLogos, src ? 'photo' : 'ground');
+  const logo = mark?.key
+    ? { ...mark, url: canvasSafeUrl(mark.url, mark.key) || mark.url }
+    : mark;
+  const logoPosition = logoPositionOf(store.libraryEdits);
 
   // A Change layout pick (or applied id) wins over generated layoutHtml so the
   // studio can reshape a slide without waiting on the layout agent.
@@ -1439,6 +1446,7 @@ function SlideMedia({
           AnnotationOverlay={AnnotationOverlay}
         />
         {showHint && <VisualNeedHint need={need} />}
+        <BrandMark mark={logo} position={logoPosition} />
       </div>
     );
   }
@@ -1467,6 +1475,7 @@ function SlideMedia({
           paint={paint}
         />
         {showHint && <VisualNeedHint need={need} />}
+        <BrandMark mark={logo} position={logoPosition} />
       </div>
     );
   }
@@ -1483,6 +1492,7 @@ function SlideMedia({
         AnnotationOverlay={AnnotationOverlay}
       />
       {showHint && <VisualNeedHint need={need} />}
+      <BrandMark mark={logo} position={logoPosition} />
     </div>
   );
 }

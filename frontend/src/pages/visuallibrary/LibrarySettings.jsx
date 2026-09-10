@@ -55,9 +55,11 @@ import { LAYOUTS } from '../../data/layouts.js';
 import {
   TYPE_SLOTS, COLOUR_ROLES, DEFAULT_PALETTE, THEME_CAP, identityOf, paintOf, slotFace,
   facesWith, registerFont, newThemeId, nextThemeName, activeThemeOf, commitIdentity,
+  LOGO_SLOTS, LOGO_POSITIONS, markForTone,
 } from '../../lib/identity.js';
 import { analyseNew, pendingOf, forgetRef, paletteFromAnalysis } from '../../lib/refanalysis.js';
-import { uploadMoodImages, listMoodImages, deleteMoodImage } from '../../api/visualBrand.js';
+import { uploadMoodImages, listMoodImages, deleteMoodImage, uploadLogo, listLogos, deleteLogo } from '../../api/visualBrand.js';
+import { BrandMark } from './BrandMark.jsx';
 import EmptyState from '../../components/ui/EmptyState.jsx';
 import './visuallibrary.css';
 import './librarysettings.css';
@@ -197,7 +199,8 @@ function FontField({ slot, current, faces, canAdd, onPick, onDrop, onAdd }) {
 /* ── one of the four previews ──────────────────────────────────────────────
  * Real library compositions in the library's own CSS, so the page shows what the
  * library draws rather than a drawing of it. */
-function Preview({ eyebrow, kind, tone, art }) {
+function Preview({ eyebrow, kind, tone, art, logos, logoPosition }) {
+  const mark = markForTone(logos, tone);
   return (
     <div className="ls-prev">
       <span className="ls-prev__label">{eyebrow}</span>
@@ -225,7 +228,73 @@ function Preview({ eyebrow, kind, tone, art }) {
             </span>
           </span>
         )}
+        <BrandMark mark={mark} position={logoPosition} />
       </span>
+    </div>
+  );
+}
+
+function LogoSlot({ slot, file, busy, onAdd, onReplace, onRemove }) {
+  const [menu, setMenu] = useState(false);
+  const filled = Boolean(file?.url);
+  return (
+    <div className="ls-logo">
+      <div className={`ls-logo__tile${slot.inverted ? ' is-inverted' : ''}${filled ? ' is-filled' : ''}${busy ? ' is-busy' : ''}`}>
+        {filled ? (
+          <img className="ls-logo__img" src={file.url} alt="" />
+        ) : (
+          <>
+            <span className="ls-logo__ex">Example</span>
+            <span className={`ls-logo__ghost${slot.kind === 'mark' ? ' is-mark' : ''}`} aria-hidden="true">
+              {slot.kind === 'mark' ? 'B.' : 'Bauhly'}
+            </span>
+            <label className="ls-logo__add">
+              <Icon name="plus" size={13} strokeWidth={2.5} />
+              Add image
+              <input
+                type="file"
+                accept="image/png,image/svg+xml,image/webp,image/jpeg,image/*"
+                hidden
+                onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; onAdd(f); }}
+              />
+            </label>
+          </>
+        )}
+        {filled && (
+          <span className="ls-logo__morewrap">
+            <button
+              type="button"
+              className="ls-logo__more"
+              aria-haspopup="menu"
+              aria-expanded={menu}
+              aria-label={`${slot.label} options`}
+              onClick={() => setMenu((v) => !v)}
+            >
+              <Icon name="more" size={16} strokeWidth={2} />
+            </button>
+            {menu && (
+              <>
+                <span className="ls-scrim" onClick={() => setMenu(false)} />
+                <span className="pe-menu ls-logo__menu" role="menu">
+                  <label className="ls-logo__opt" role="menuitem">
+                    Replace
+                    <input
+                      type="file"
+                      accept="image/png,image/svg+xml,image/webp,image/jpeg,image/*"
+                      hidden
+                      onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; setMenu(false); onReplace(f); }}
+                    />
+                  </label>
+                  <button type="button" className="pe-menu__del" role="menuitem" onClick={() => { setMenu(false); onRemove(); }}>
+                    Remove
+                  </button>
+                </span>
+              </>
+            )}
+          </span>
+        )}
+      </div>
+      <span className="ls-logo__label">{slot.label}</span>
     </div>
   );
 }
@@ -309,6 +378,8 @@ export default function LibrarySettings() {
     refs: [...(s.visualRefs || [])],
     /* what has already been read off each picture — see lib/refanalysis.js */
     analysis: { ...(s.refAnalysis || {}) },
+    logos: { ...(s.brandLogos || {}) },
+    logoPosition: saved.logoPosition,
   }));
   const [editingId, setEditingId] = useState(() => saved.activeThemeId);
   const [picking, setPicking] = useState(null);
@@ -324,6 +395,7 @@ export default function LibrarySettings() {
     fonts: (draftIdent.fonts || []).map((f) => ({ id: f.id, name: f.name })),
     refIds: (draft.refs || []).map((r) => r.id || r.key).filter(Boolean),
     analysis: draft.analysis || {},
+    logoPosition: draft.logoPosition,
   });
   const savedSig = JSON.stringify({
     themes: saved.themes,
@@ -332,6 +404,7 @@ export default function LibrarySettings() {
     fonts: (saved.fonts || []).map((f) => ({ id: f.id, name: f.name })),
     refIds: (s.visualRefs || []).map((r) => r.id || r.key).filter(Boolean),
     analysis: s.refAnalysis || {},
+    logoPosition: saved.logoPosition,
   });
   const dirty = draftSig !== savedSig;
 
@@ -406,6 +479,8 @@ export default function LibrarySettings() {
       fonts: [...(saved.fonts || [])],
       refs: [...(s.visualRefs || [])],
       analysis: { ...(s.refAnalysis || {}) },
+      logos: { ...(s.brandLogos || {}) },
+      logoPosition: saved.logoPosition,
     });
     nav(to);
   };
@@ -471,6 +546,40 @@ export default function LibrarySettings() {
      shows its own colours while you work. The library keeps the default until
      Update Library. */
   const previewVars = paintOf({ ...draft, activeThemeId: editingId });
+  const setLogoPosition = (id) => setDraft((d) => ({ ...d, logoPosition: id }));
+  const [logoBusy, setLogoBusy] = useState(null);
+  const logosRef = useRef(draft.logos);
+  useEffect(() => { logosRef.current = draft.logos; }, [draft.logos]);
+  const setLogos = (next) => {
+    logosRef.current = next;
+    setDraft((d) => ({ ...d, logos: next }));
+    setState({ brandLogos: next });
+  };
+  const addLogo = async (slotId, f) => {
+    if (!f) return;
+    const localUrl = URL.createObjectURL(f);
+    const prev = logosRef.current[slotId];
+    setLogos({ ...logosRef.current, [slotId]: { ...(prev || {}), url: localUrl, title: f.name, uploading: true } });
+    setLogoBusy(slotId);
+    try {
+      const next = await uploadLogo(slotId, f);
+      setLogos({ ...next, [slotId]: { ...(next[slotId] || {}), url: localUrl } });
+    } catch (err) {
+      const revert = { ...logosRef.current };
+      if (prev) revert[slotId] = prev;
+      else delete revert[slotId];
+      setLogos(revert);
+      setToast({ kind: 'note', text: 'Bauhly could not save that logo. Please try again.' });
+    } finally {
+      setLogoBusy(null);
+    }
+  };
+  const dropLogo = (slotId) => {
+    const next = { ...logosRef.current };
+    delete next[slotId];
+    setLogos(next);
+    deleteLogo(slotId).catch(() => {});
+  };
 
   /* ── references (Visual Mood) ───────────────────────────────────────────────
      Stored in S3 through the backend (see api/visualBrand): a picture uploads on
@@ -503,6 +612,12 @@ export default function LibrarySettings() {
         setRefs(loaded);
       })
       .catch(() => { /* offline / no S3 — keep whatever the store had */ });
+    listLogos()
+      .then((slots) => {
+        if (!alive) return;
+        setLogos(slots);
+      })
+      .catch(() => { /* same — keep whatever the store had */ });
     return () => { alive = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -676,6 +791,7 @@ export default function LibrarySettings() {
       activeThemeId: libraryEdits.activeThemeId,
       type: { ...libraryEdits.type },
       fonts: [...libraryEdits.fonts],
+      logoPosition: libraryEdits.logoPosition,
     }));
     setConfirming(false);
     /* NO TOAST ON A PHONE (Leon, Aug 7). The phone pressed a button labelled
@@ -708,7 +824,7 @@ export default function LibrarySettings() {
     setEditingId('theme-1');
     const themes = [{ id: 'theme-1', name: 'Theme 1', palette: {} }];
     setDraft((d) => ({ ...d, themes, activeThemeId: 'theme-1', type: {} }));
-    setState({ libraryEdits: { themes, activeThemeId: 'theme-1', palette: {}, type: {}, fonts: [...draft.fonts] } });
+    setState({ libraryEdits: { themes, activeThemeId: 'theme-1', palette: {}, type: {}, fonts: [...draft.fonts], logoPosition: draft.logoPosition } });
     setToast({ kind: 'note', text: 'Back to Bauhly’s defaults — your layouts show the raw output again.' });
   };
 
@@ -801,7 +917,9 @@ export default function LibrarySettings() {
           </div>
         </div>
         <div className="ls-prevs" style={previewVars} ref={railRef}>
-          {PREVIEWS.map((p) => <Preview key={p.eyebrow} {...p} />)}
+          {PREVIEWS.map((p) => (
+            <Preview key={p.eyebrow} {...p} logos={draft.logos} logoPosition={draft.logoPosition} />
+          ))}
         </div>
         <div className="ls-dots" role="tablist" aria-label="Live preview">
           {PREVIEWS.map((p, i) => (
@@ -956,6 +1074,58 @@ export default function LibrarySettings() {
           </div>
         </section>
       </div>
+
+      {/* ── LOGOS ──────────────────────────────────────────────────────────
+        * Four named files and a corner. The files write through the moment they
+        * land (they are pictures, like Visual Mood); the corner waits for
+        * Update Library, because moving a mark is a layout decision the preview
+        * should show before the library takes it. */}
+      <section className="ls-card">
+        <div className="ls-card__head">
+          <div>
+            <h2 className="ls-card__title">Logos</h2>
+            <p className="ls-card__lead">Add your logos and choose how they’re used.</p>
+          </div>
+        </div>
+        <div className="ls-logos">
+          <div className="ls-logos__slots">
+            {LOGO_SLOTS.map((slot) => (
+              <LogoSlot
+                key={slot.id}
+                slot={slot}
+                file={draft.logos[slot.id]}
+                busy={logoBusy === slot.id}
+                onAdd={(f) => addLogo(slot.id, f)}
+                onReplace={(f) => addLogo(slot.id, f)}
+                onRemove={() => dropLogo(slot.id)}
+              />
+            ))}
+          </div>
+          <div className="ls-logos__pos">
+            <span className="ls-logos__poslabel">Logo position</span>
+            <div className="ls-logos__posrow" role="radiogroup" aria-label="Logo position">
+              {LOGO_POSITIONS.map((p) => {
+                const on = draft.logoPosition === p.id;
+                return (
+                  <button
+                    key={p.id}
+                    type="button"
+                    className={`ls-logopos ${on ? 'is-on' : ''}`}
+                    role="radio"
+                    aria-checked={on}
+                    onClick={() => setLogoPosition(p.id)}
+                  >
+                    <span className={`ls-logopos__card is-${p.id}`} aria-hidden="true">
+                      <i />
+                    </span>
+                    <span className="ls-logopos__name">{p.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      </section>
 
       {/* ── IMAGE REFERENCES ──────────────────────────────────────────────
         *
@@ -1187,8 +1357,8 @@ export default function LibrarySettings() {
             <h2 id="ls-apply">Update this account's library?</h2>
             <p>
               {accountHandle
-                ? `These colours, typography, and image references will be applied to @${accountHandle}'s layouts only. Your other Instagram accounts stay as they are.`
-                : `These colours, typography, and image references will be applied to this Instagram account's layouts only.`}
+                ? `These colours, typography, logos, and image references will be applied to @${accountHandle}'s layouts only. Your other Instagram accounts stay as they are.`
+                : `These colours, typography, logos, and image references will be applied to this Instagram account's layouts only.`}
             </p>
             <div className="ls-dialog__acts">
               <button className="btn btn--tertiary btn--sm" onClick={() => setConfirming(false)}>Cancel</button>
