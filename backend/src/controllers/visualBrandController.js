@@ -1,6 +1,23 @@
 const crypto = require('crypto');
 const User = require('../models/User');
+const InstagramProfile = require('../models/InstagramProfile');
 const { currentUsername } = require('../utils/currentProfile');
+
+function normHandle(value) {
+  return String(value || '').replace(/^@/, '').trim().toLowerCase() || null;
+}
+
+/* a handle this user actually owns — never another studio's, and never a
+   guess. Falls back to the currently activated account when none is given. */
+async function ownedHandle(userId, requested) {
+  const want = normHandle(requested);
+  if (want) {
+    const profile = await InstagramProfile.findOne({ user: userId, username: want }).select('username').lean();
+    if (profile?.username) return profile.username;
+    return null;
+  }
+  return currentUsername(userId);
+}
 const {
   isS3Configured,
   getPresignedUploadUrl,
@@ -141,18 +158,22 @@ const MAX_SETTINGS_BYTES = 512 * 1024; // a guard against a runaway client blob
 // GET /visual-brand/settings → { settings: <data>|null, updatedAt }
 // Only the blob saved under the currently active handle.
 async function getSettings(req, res) {
-  const handle = await currentUsername(req.user._id);
+  const handle = await ownedHandle(req.user._id, req.query.handle);
   if (!handle) return res.json({ settings: null, updatedAt: 0 });
   const user = await User.findById(req.user._id).select('visualBrand.settings').lean();
   const all = (user && user.visualBrand && user.visualBrand.settings) || [];
   const mine = all.find((x) => (x.handle || '') === handle);
-  res.json({ settings: mine ? mine.data : null, updatedAt: mine ? mine.updatedAt || 0 : 0 });
+  res.json({ settings: mine ? mine.data : null, updatedAt: mine ? mine.updatedAt || 0 : 0, handle });
 }
 
 // PUT /visual-brand/settings  Body: { data: {...} }
 // Upserts this handle's settings blob. Last write wins (per handle).
 async function saveSettings(req, res) {
-  const handle = await currentUsername(req.user._id);
+  const requested = req.body && req.body.handle;
+  const handle = await ownedHandle(req.user._id, requested);
+  if (!handle && normHandle(requested)) {
+    return res.status(403).json({ message: 'That Instagram account is not connected.' });
+  }
   if (!handle) return res.status(400).json({ message: 'Connect an Instagram account first' });
   const data = req.body && typeof req.body.data === 'object' && req.body.data !== null ? req.body.data : {};
   if (Buffer.byteLength(JSON.stringify(data)) > MAX_SETTINGS_BYTES) {
@@ -172,7 +193,7 @@ async function saveSettings(req, res) {
   // Mixed-typed subfields don't dirty-track on their own
   user.markModified('visualBrand.settings');
   await user.save();
-  res.json({ ok: true, updatedAt: now });
+  res.json({ ok: true, updatedAt: now, handle });
 }
 
 module.exports = {

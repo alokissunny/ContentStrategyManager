@@ -456,205 +456,297 @@ async function disconnect(req, res) {
   res.json(buildStatus(docs));
 }
 
+function httpError(status, message, extra = {}) {
+  const err = new Error(message);
+  err.status = status;
+  Object.assign(err, extra);
+  return err;
+}
+
+function ownedMediaKeys(userId, keys) {
+  const prefix = `projects/${userId}/`;
+  return (Array.isArray(keys) ? keys : []).filter((k) => typeof k === 'string' && k.startsWith(prefix));
+}
+
+function dayCaption(day) {
+  const captionParts = [day.content?.caption, day.content?.cta].filter(Boolean);
+  const tags = (day.content?.hashtags || []).map((h) => `#${String(h).replace(/^#/, '')}`);
+  if (tags.length) captionParts.push(tags.join(' '));
+  return captionParts.join('\n\n');
+}
+
+function clearScheduleFields(day) {
+  day.scheduledAt = null;
+  day.scheduleStatus = '';
+  day.scheduleError = '';
+  day.scheduleClaimedAt = null;
+}
+
+function markDayPosted(day, igMediaId) {
+  day.published = true;
+  if (igMediaId) day.igMediaId = String(igMediaId);
+  clearScheduleFields(day);
+}
+
+async function resolveConnection(userId, route) {
+  const handle = normalizeHandle(route.instagramUsername);
+  let conn;
+  if (handle) {
+    conn = await MetaConnection.findOne({
+      user: userId,
+      status: 'connected',
+      igUsername: handle,
+    }).select('+accessToken');
+  } else {
+    conn = await MetaConnection.findOne({ user: userId, status: 'connected' }).select('+accessToken');
+  }
+  return { conn, handle };
+}
+
+/**
+ * Instagram Login long-lived tokens last ~60 days. Refresh when expiry is
+ * missing or within 7 days. Facebook Login rows are left alone.
+ */
+async function refreshIgTokenIfNeeded(conn) {
+  if (!conn?.accessToken) return conn;
+  if (conn.authType === 'facebook_login' || conn.pageId) return conn;
+  const exp = conn.tokenExpiresAt ? new Date(conn.tokenExpiresAt).getTime() : 0;
+  const week = 7 * 24 * 3600 * 1000;
+  if (exp && exp - Date.now() > week) return conn;
+  try {
+    const json = await graphGet(
+      'refresh_access_token',
+      { grant_type: 'ig_refresh_token', access_token: conn.accessToken },
+      'https://graph.instagram.com',
+    );
+    if (json.access_token) {
+      conn.accessToken = json.access_token;
+      const expiresIn = Number(json.expires_in) || 60 * 24 * 3600;
+      conn.tokenExpiresAt = new Date(Date.now() + expiresIn * 1000);
+      conn.status = 'connected';
+      await conn.save();
+    }
+  } catch (err) {
+    console.warn('[meta] token refresh failed:', err.message);
+    if (!exp || exp <= Date.now()) {
+      conn.status = 'expired';
+      await conn.save();
+      throw httpError(403, 'Instagram connection expired. Reconnect Instagram, then try again.', {
+        code: 'META_NOT_CONNECTED',
+      });
+    }
+  }
+  return conn;
+}
+
+async function publishingQuotaRemaining(conn) {
+  try {
+    const json = await graphGet(
+      `${conn.igUserId}/content_publishing_limit`,
+      { fields: 'quota_usage,config', access_token: conn.accessToken },
+      igGraphBase(conn),
+    );
+    const row = (json.data && json.data[0]) || json;
+    const used = Number(row.quota_usage);
+    const total = Number(row.config?.quota_total) || 100;
+    if (Number.isNaN(used)) return total;
+    return Math.max(0, total - used);
+  } catch (err) {
+    console.warn('[meta] content_publishing_limit failed:', err.message);
+    return 1;
+  }
+}
+
+async function createAndPublishMedia({ igId, token, graph, caption, imageUrls }) {
+  let creationId;
+  if (imageUrls.length === 1) {
+    const c = await graphPost(
+      `${igId}/media`,
+      { image_url: imageUrls[0], caption, access_token: token },
+      graph,
+    );
+    creationId = c.id;
+  } else {
+    const children = [];
+    for (const url of imageUrls.slice(0, 10)) {
+      const child = await graphPost(
+        `${igId}/media`,
+        {
+          image_url: url,
+          is_carousel_item: 'true',
+          access_token: token,
+        },
+        graph,
+      );
+      await waitForContainer(child.id, token, graph);
+      children.push(child.id);
+    }
+    const parent = await graphPost(
+      `${igId}/media`,
+      {
+        media_type: 'CAROUSEL',
+        children: children.join(','),
+        caption,
+        access_token: token,
+      },
+      graph,
+    );
+    creationId = parent.id;
+  }
+  return publishContainer(igId, creationId, token, graph);
+}
+
 /**
  * Publish one planned day to Instagram via Content Publishing API.
- * Uses the Meta connection whose IG username matches the plan's handle.
+ * Used by the HTTP handler and the daily scheduled-publish job.
+ */
+async function publishDayToInstagram({ userId, route, dayIndex, imageKeys, imageUrls }) {
+  const day = route.days[dayIndex];
+  if (!day) throw httpError(404, 'Day not found');
+
+  const { conn, handle } = await resolveConnection(userId, route);
+  if (!conn?.accessToken || !conn.igUserId) {
+    throw httpError(
+      403,
+      handle
+        ? `Connect Instagram @${handle} to publish this plan. Each Instagram account needs its own connection.`
+        : 'Connect your Instagram Professional account to publish from Bauhly.',
+      { code: 'META_NOT_CONNECTED', connected: false, igUsername: handle || null },
+    );
+  }
+
+  const slides = day.content?.slides || [];
+  const storedKeys = Array.isArray(day.publishImageKeys) ? day.publishImageKeys : [];
+  const requestedKeys = Array.isArray(imageKeys) ? imageKeys : [];
+  const hasUrls = Array.isArray(imageUrls) && imageUrls.some(Boolean);
+  const hasMedia = slides.some((s) => s.assetKey) || day.content?.onScreenText?.length
+    || storedKeys.length || requestedKeys.length || hasUrls;
+  if (!hasMedia && !day.content?.caption) {
+    throw httpError(400, 'This post needs a caption or at least one slide before publishing.');
+  }
+
+  await refreshIgTokenIfNeeded(conn);
+
+  if (process.env.META_PUBLISH_LIVE !== '1') {
+    markDayPosted(day);
+    conn.lastPublishAt = new Date();
+    await conn.save();
+    route.markModified('days');
+    await route.save();
+    return {
+      route,
+      published: true,
+      live: false,
+      message:
+        'Marked published. Live Instagram posting turns on when META_PUBLISH_LIVE=1 and slide images have public URLs.',
+    };
+  }
+
+  const caption = dayCaption(day);
+  const igId = conn.igUserId;
+  const token = conn.accessToken;
+  const graph = igGraphBase(conn);
+
+  try {
+    const already = await findRecentPublishedMedia(igId, token, graph, caption);
+    if (already?.id) {
+      markDayPosted(day, already.id);
+      conn.lastPublishAt = new Date();
+      await conn.save();
+      route.markModified('days');
+      await route.save();
+      console.log(`[meta] day ${dayIndex} already on Instagram as ${already.id}`);
+      return { route, published: true, live: true, igMediaId: already.id };
+    }
+
+    // Public, Graph-fetchable image URLs. Preference order:
+    //   1. explicit public URL(s) (testing / overrides)
+    //   2. project-media keys the client resolved (or stored at Schedule time)
+    //   3. the assetKeys stored on the slides themselves
+    let urls = [];
+    if (hasUrls) {
+      urls = imageUrls.filter(Boolean);
+    } else {
+      const requested = requestedKeys.length
+        ? requestedKeys
+        : (storedKeys.length ? storedKeys : slides.map((s) => s.assetKey));
+      const keys = ownedMediaKeys(userId, requested);
+      urls = await Promise.all(keys.map((k) => getPresignedMediaUrl(k)));
+    }
+    if (!urls.length) {
+      throw httpError(
+        400,
+        'This post has no image to publish yet. Attach a project photo to a slide (or pass an imageUrl), then publish.',
+      );
+    }
+
+    const pub = await createAndPublishMedia({ igId, token, graph, caption, imageUrls: urls });
+    markDayPosted(day, pub.id);
+    conn.lastPublishAt = new Date();
+    await conn.save();
+    route.markModified('days');
+    await route.save();
+    console.log(`[meta] published day ${dayIndex} to @${conn.igUsername || igId} as media ${pub.id}`);
+    return { route, published: true, live: true, igMediaId: pub.id };
+  } catch (err) {
+    if (err.status && err.status < 500) throw err;
+    console.error('[meta] publish failed:', err.message);
+    try {
+      const recent = await findRecentPublishedMedia(igId, token, graph, caption);
+      if (recent?.id) {
+        markDayPosted(day, recent.id);
+        conn.lastPublishAt = new Date();
+        await conn.save();
+        route.markModified('days');
+        await route.save();
+        console.log(`[meta] publish error after Instagram accepted media ${recent.id}: ${err.message}`);
+        return {
+          route,
+          published: true,
+          live: true,
+          igMediaId: recent.id,
+          message: 'Posted to Instagram. Instagram returned a limit error after the post went out.',
+        };
+      }
+    } catch (checkErr) {
+      console.warn('[meta] publish recovery failed:', checkErr.message);
+    }
+    throw httpError(502, err.message || 'Instagram publish failed');
+  }
+}
+
+/**
+ * HTTP: publish one planned day. Uses the Meta connection whose IG username
+ * matches the plan's handle.
  */
 async function publishDay(req, res) {
   const route = await WeeklyRoute.findOne({ _id: req.params.id, user: req.user._id });
   if (!route) return res.status(404).json({ message: 'Route not found' });
 
   const index = Number(req.params.index);
-  const day = route.days[index];
-  if (!day) return res.status(404).json({ message: 'Day not found' });
+  if (!route.days[index]) return res.status(404).json({ message: 'Day not found' });
 
-  const handle = normalizeHandle(route.instagramUsername);
-  let conn;
-  if (handle) {
-    conn = await MetaConnection.findOne({
-      user: req.user._id,
-      status: 'connected',
-      igUsername: handle,
-    }).select('+accessToken');
-  } else {
-    conn = await MetaConnection.findOne({ user: req.user._id, status: 'connected' }).select('+accessToken');
-  }
+  const imageUrls = Array.isArray(req.body.imageUrls) && req.body.imageUrls.length
+    ? req.body.imageUrls
+    : (req.body.imageUrl ? [req.body.imageUrl] : undefined);
 
-  if (!conn?.accessToken || !conn.igUserId) {
-    return res.status(403).json({
-      code: 'META_NOT_CONNECTED',
-      message: handle
-        ? `Connect Instagram @${handle} to publish this plan. Each Instagram account needs its own connection.`
-        : 'Connect your Instagram Professional account to publish from Bauhly.',
-      connected: false,
-      igUsername: handle || null,
+  try {
+    const result = await publishDayToInstagram({
+      userId: req.user._id,
+      route,
+      dayIndex: index,
+      imageKeys: req.body.imageKeys,
+      imageUrls,
     });
+    return res.json(result);
+  } catch (err) {
+    const status = err.status || 502;
+    const body = { message: err.message || 'Instagram publish failed' };
+    if (err.code) body.code = err.code;
+    if (err.connected === false) body.connected = false;
+    if (err.igUsername !== undefined) body.igUsername = err.igUsername;
+    return res.status(status).json(body);
   }
-
-  const slides = day.content?.slides || [];
-  const hasMedia = slides.some((s) => s.assetKey) || day.content?.onScreenText?.length;
-  if (!hasMedia && !day.content?.caption) {
-    return res.status(400).json({
-      message: 'This post needs a caption or at least one slide before publishing.',
-    });
-  }
-
-  // Phase 3: create media containers + publish.
-  // Until public HTTPS media URLs are ready for Graph, we record intent and mark published
-  // only when META_PUBLISH_LIVE=1 and a container flow succeeds.
-  if (process.env.META_PUBLISH_LIVE === '1') {
-    try {
-      const igId = conn.igUserId;
-      const token = conn.accessToken;
-      const graph = igGraphBase(conn);
-
-      // Caption = body + CTA + hashtags, in the brand's own text.
-      const captionParts = [day.content?.caption, day.content?.cta].filter(Boolean);
-      const tags = (day.content?.hashtags || []).map((h) => `#${String(h).replace(/^#/, '')}`);
-      if (tags.length) captionParts.push(tags.join(' '));
-      const caption = captionParts.join('\n\n');
-
-      const already = await findRecentPublishedMedia(igId, token, graph, caption);
-      if (already?.id) {
-        day.published = true;
-        day.scheduledAt = null;
-        conn.lastPublishAt = new Date();
-        await conn.save();
-        route.markModified('days');
-        await route.save();
-        console.log(`[meta] day ${index} already on Instagram as ${already.id}`);
-        return res.json({ route, published: true, live: true, igMediaId: already.id });
-      }
-
-      // Public, Graph-fetchable image URLs. Preference order:
-      //   1. explicit public URL(s) in the request (testing / overrides)
-      //   2. project-media keys the client resolved for the day's slides —
-      //      this includes "standing-in" photos shown in the preview that were
-      //      never written to a slide's assetKey
-      //   3. the assetKeys stored on the slides themselves
-      // Presigned S3 GET URLs are private-by-default but fetchable by
-      // Instagram's servers while valid.
-      let imageUrls = [];
-      if (Array.isArray(req.body.imageUrls) && req.body.imageUrls.length) {
-        imageUrls = req.body.imageUrls.filter(Boolean);
-      } else if (req.body.imageUrl) {
-        imageUrls = [req.body.imageUrl];
-      } else {
-        const requested =
-          Array.isArray(req.body.imageKeys) && req.body.imageKeys.length
-            ? req.body.imageKeys
-            : slides.map((s) => s.assetKey);
-        // Only ever presign this user's own media (keys live under
-        // projects/<userId>/) — never presign a key the client made up.
-        const prefix = `projects/${req.user._id}/`;
-        const keys = requested.filter((k) => typeof k === 'string' && k.startsWith(prefix));
-        imageUrls = await Promise.all(keys.map((k) => getPresignedMediaUrl(k)));
-      }
-      if (!imageUrls.length) {
-        return res.status(400).json({
-          message:
-            'This post has no image to publish yet. Attach a project photo to a slide (or pass an imageUrl), then publish.',
-        });
-      }
-
-      // Create a media container (single image or a carousel of up to 10), wait
-      // until Instagram finishes processing it, then publish. Reels/video aren't
-      // supported here yet — images only.
-      let creationId;
-      if (imageUrls.length === 1) {
-        const c = await graphPost(
-          `${igId}/media`,
-          { image_url: imageUrls[0], caption, access_token: token },
-          graph,
-        );
-        creationId = c.id;
-      } else {
-        const children = [];
-        for (const url of imageUrls.slice(0, 10)) {
-          const child = await graphPost(
-            `${igId}/media`,
-            {
-              image_url: url,
-              is_carousel_item: 'true',
-              access_token: token,
-            },
-            graph,
-          );
-          await waitForContainer(child.id, token, graph);
-          children.push(child.id);
-        }
-        const parent = await graphPost(
-          `${igId}/media`,
-          {
-            media_type: 'CAROUSEL',
-            children: children.join(','),
-            caption,
-            access_token: token,
-          },
-          graph,
-        );
-        creationId = parent.id;
-      }
-
-      const pub = await publishContainer(igId, creationId, token, graph);
-
-      day.published = true;
-      day.scheduledAt = null;
-      conn.lastPublishAt = new Date();
-      await conn.save();
-      route.markModified('days');
-      await route.save();
-      console.log(`[meta] published day ${index} to @${conn.igUsername || igId} as media ${pub.id}`);
-      return res.json({ route, published: true, live: true, igMediaId: pub.id });
-    } catch (err) {
-      console.error('[meta] publish failed:', err.message);
-      try {
-        const igId = conn.igUserId;
-        const token = conn.accessToken;
-        const graph = igGraphBase(conn);
-        const captionParts = [day.content?.caption, day.content?.cta].filter(Boolean);
-        const tags = (day.content?.hashtags || []).map((h) => `#${String(h).replace(/^#/, '')}`);
-        if (tags.length) captionParts.push(tags.join(' '));
-        const recent = await findRecentPublishedMedia(igId, token, graph, captionParts.join('\n\n'));
-        if (recent?.id) {
-          day.published = true;
-          day.scheduledAt = null;
-          conn.lastPublishAt = new Date();
-          await conn.save();
-          route.markModified('days');
-          await route.save();
-          console.log(`[meta] publish error after Instagram accepted media ${recent.id}: ${err.message}`);
-          return res.json({
-            route,
-            published: true,
-            live: true,
-            igMediaId: recent.id,
-            message: 'Posted to Instagram. Instagram returned a limit error after the post went out.',
-          });
-        }
-      } catch (checkErr) {
-        console.warn('[meta] publish recovery failed:', checkErr.message);
-      }
-      return res.status(502).json({ message: err.message || 'Instagram publish failed' });
-    }
-  }
-
-  // Connected but live Graph publish not enabled — mark as published locally and
-  // tell the client publishing to IG will go live once media URLs are wired.
-  day.published = true;
-  day.scheduledAt = null;
-  route.markModified('days');
-  await route.save();
-  conn.lastPublishAt = new Date();
-  await conn.save();
-
-  res.json({
-    route,
-    published: true,
-    live: false,
-    message:
-      'Marked published. Live Instagram posting turns on when META_PUBLISH_LIVE=1 and slide images have public URLs.',
-  });
 }
 
 module.exports = {
@@ -663,6 +755,12 @@ module.exports = {
   completeConnect,
   disconnect,
   publishDay,
+  publishDayToInstagram,
+  resolveConnection,
+  refreshIgTokenIfNeeded,
+  publishingQuotaRemaining,
+  ownedMediaKeys,
+  clearScheduleFields,
   metaConfigured,
   buildStatus,
   normalizeHandle,

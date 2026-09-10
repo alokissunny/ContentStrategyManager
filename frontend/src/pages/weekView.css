@@ -4750,12 +4750,13 @@
 .wv-ig__slot-when { color: var(--ink-500); }
 .wv-ig__slot-when b { font-weight: 700; color: var(--ink-800); }
 .wv-ig__slot-why { font-size: 12px; color: var(--ink-quiet); }
-/* send it now — there is no background publisher, so a scheduled post keeps a
-   way to actually go out; it is an inline action, the quietest on the row */
+.wv-ig__slot-why.is-fail { color: var(--negative, #dc2626); }
+/* send it now — or retry after a failed daily run; inline on the slot row */
 .wv-ig__pubnow {
   border: 0;
   background: none;
   padding: 0;
+  margin-right: 8px;
   font: inherit;
   font-weight: 700;
   color: var(--experiment-ink);

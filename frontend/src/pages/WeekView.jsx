@@ -13,7 +13,7 @@ import Glyph from '../components/Glyph';
 import Icon from '../brand/Icon';
 import YourAnalysisModal from '../components/YourAnalysisModal';
 import ConnectMetaModal from '../components/ConnectMetaModal';
-import { markDayPublished, updateDayContent, replanWeek, scheduleDay, setDayTime, runDayLayout } from '../api/routes';
+import { markDayPublished, updateDayContent, replanWeek, scheduleDay, retryScheduledDay, setDayTime, runDayLayout } from '../api/routes';
 import { getMetaStatus, publishDayToMeta, isMetaConnectedFor, metaConnectionFor, otherMetaConnections, rememberMetaOAuthReturn } from '../api/meta';
 import { mediaProxyUrl, toDisplayUrl, isProxyUrl, rememberCdnBase, onCdnBase, getCdnBase, canvasSafeUrl, isProjectMediaKey, splitMediaKeys } from '../api/media';
 import { createImage, listGeneratedImages } from '../api/images';
@@ -1890,6 +1890,9 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
   // A post is "scheduled" when it carries a slot and hasn't gone out yet. The
   // slot only means anything with an account to publish to (bauhly-v3 §783).
   const isScheduled = metaConnected && !!day?.scheduledAt && !day?.published;
+  const scheduleStatus = String(day?.scheduleStatus || '');
+  const isPublishingSlot = isScheduled && scheduleStatus === 'publishing';
+  const scheduleFailed = isScheduled && scheduleStatus === 'failed';
   const slotTime = toSpoken(slotTimeRaw(day, route));
   // the time is editable only while the decision is still open (bauhly-v3 §787)
   const canEditTime = !isScheduled && !day?.published;
@@ -2309,20 +2312,40 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
     } catch { /* ignore */ }
   }
 
-  // ── Schedule this post (bauhly-v3 §739/§742). Pressing "Schedule" records the
-  // intent to publish at the day's slot; a post with no caption is a real thing
-  // to schedule (a photo can be the whole of it), so we ask once rather than
-  // block. "Unschedule" puts it back. Publishing itself stays a real action —
-  // see the "Publish now" affordance on a scheduled post.
+  // ── Schedule this post. Pressing "Schedule" renders the slides, uploads
+  // them, and records the slot. The daily job posts after that time; "Publish
+  // now" sends immediately. "Unschedule" puts it back.
+  async function renderPublishKeys() {
+    setPublishMsg('Rendering slides…');
+    const nodes = exportRefs.current.slice(0, slides.length).filter(Boolean);
+    if (!nodes.length) throw new Error('Nothing to render for this post yet.');
+    const blobs = [];
+    for (const node of nodes) {
+      await rasterizeSlide(node).catch(() => null);
+      const blob = await rasterizeSlide(node);
+      if (blob) blobs.push(blob);
+    }
+    if (!blobs.length) throw new Error('Could not render the slides to publish.');
+    setPublishMsg('Uploading…');
+    const files = blobs.map((b, i) => new File([b], `slide-${i + 1}.jpg`, { type: 'image/jpeg' }));
+    const uploaded = await uploadFiles(files);
+    const imageKeys = uploaded.map((u) => u.key).filter(Boolean);
+    if (!imageKeys.length) throw new Error('Could not prepare the rendered slides for publishing.');
+    return imageKeys;
+  }
+
   async function doSchedule() {
     if (!route || !day || scheduling) return;
     setPublishMsg('');
     setScheduling(true);
     try {
-      const at = slotDateOf(route, selected, day).toISOString();
-      setRoute(await scheduleDay(route._id, selected, at));
+      const at = slotDateOf(route, selected, day);
+      const imageKeys = await renderPublishKeys();
+      setPublishMsg('Scheduling…');
+      setRoute(await scheduleDay(route._id, selected, at.toISOString(), { publishImageKeys: imageKeys }));
+      setPublishMsg('');
     } catch (err) {
-      setPublishMsg(err.response?.data?.message || 'Could not schedule just now');
+      setPublishMsg(err.response?.data?.message || err.message || 'Could not schedule just now');
     } finally {
       setScheduling(false);
     }
@@ -2337,13 +2360,26 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
   }
 
   async function unschedule() {
-    if (!route || !day || scheduling) return;
+    if (!route || !day || scheduling || isPublishingSlot) return;
     setPublishMsg('');
     setScheduling(true);
     try {
       setRoute(await scheduleDay(route._id, selected, null));
     } catch (err) {
       setPublishMsg(err.response?.data?.message || 'Could not unschedule just now');
+    } finally {
+      setScheduling(false);
+    }
+  }
+
+  async function retrySchedule() {
+    if (!route || !day || scheduling) return;
+    setPublishMsg('');
+    setScheduling(true);
+    try {
+      setRoute(await retryScheduledDay(route._id, selected));
+    } catch (err) {
+      setPublishMsg(err.response?.data?.message || 'Could not retry just now');
     } finally {
       setScheduling(false);
     }
@@ -2407,31 +2443,10 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
 
     setPublishing(true);
     try {
-      // Publish the composed post — the full layout for each slide (ground +
-      // on-screen words + photo), exactly as the preview shows it. Each slide's
-      // composition is rendered off-screen at Instagram resolution (1080×1350,
-      // 4:5) and rasterised to a JPEG; posting the bare project photos would drop
-      // all the text and layout. The rendered JPEGs are uploaded to the user's
-      // own media prefix, then the backend re-presigns each key server-side.
-      setPublishMsg('Rendering slides…');
-      const nodes = exportRefs.current.slice(0, slides.length).filter(Boolean);
-      if (!nodes.length) throw new Error('Nothing to render for this post yet.');
-      const blobs = [];
-      for (const node of nodes) {
-        // First pass primes html-to-image's image/font embedding; the second
-        // renders reliably once those resources are cached.
-        await rasterizeSlide(node).catch(() => null);
-        const blob = await rasterizeSlide(node);
-        if (blob) blobs.push(blob);
+      let imageKeys = Array.isArray(day.publishImageKeys) ? day.publishImageKeys.filter(Boolean) : [];
+      if (!imageKeys.length) {
+        imageKeys = await renderPublishKeys();
       }
-      if (!blobs.length) throw new Error('Could not render the slides to publish.');
-
-      setPublishMsg('Uploading…');
-      const files = blobs.map((b, i) => new File([b], `slide-${i + 1}.jpg`, { type: 'image/jpeg' }));
-      const uploaded = await uploadFiles(files);
-      const imageKeys = uploaded.map((u) => u.key).filter(Boolean);
-      if (!imageKeys.length) throw new Error('Could not prepare the rendered slides for publishing.');
-
       setPublishMsg('Posting to Instagram…');
       const result = await publishDayToMeta(route._id, selected, { imageKeys });
       if (result.route) setRoute(result.route);
@@ -3157,6 +3172,10 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
                 <span className="wv-ig__go is-out" aria-label="Published">
                   <Glyph name="check" size={14} strokeWidth={3} />Published
                 </span>
+              ) : isPublishingSlot ? (
+                <span className="wv-ig__go is-on" aria-label="Publishing">
+                  <Glyph name="clock" size={14} />Publishing…
+                </span>
               ) : isScheduled ? (
                 <button
                   type="button"
@@ -3174,7 +3193,7 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
                   onClick={pressSchedule}
                   disabled={scheduling}
                 >
-                  <Glyph name="clock" size={14} />Schedule
+                  <Glyph name="clock" size={14} />{scheduling ? 'Scheduling…' : 'Schedule'}
                 </button>
               )}
             </header>
@@ -3585,11 +3604,8 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
             )}
             </div>
 
-            {/* when this goes out, and whose decision it is (bauhly-v3 §787/§794).
-                A published post states a fact; a scheduled one offers the way to
-                send it now (we have no background publisher); an unscheduled one
-                names its slot and points at Schedule. The time is edited here,
-                on the slot's own surface (§790). */}
+            {/* when this goes out. A scheduled post waits for the next daily
+                run after its slot; Publish now sends it immediately. */}
             {timeDraft ? (
               <div className="wv-time" onClick={(e) => e.stopPropagation()}>
                 <div className="wv-time__head">
@@ -3649,16 +3665,33 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
                     {day.published && metaForHandle?.igUsername ? ` · @${metaForHandle.igUsername}` : ''}
                   </span>
                   {isScheduled && (
-                    <span className="wv-ig__slot-why">
-                      Nothing goes out until you send it.{' '}
-                      <button
-                        type="button"
-                        className="wv-ig__pubnow"
-                        onClick={handlePublish}
-                        disabled={publishing}
-                      >
-                        {publishing ? 'Publishing…' : 'Publish now'}
-                      </button>
+                    <span className={`wv-ig__slot-why${scheduleFailed ? ' is-fail' : ''}`}>
+                      {isPublishingSlot
+                        ? 'Posting to Instagram…'
+                        : scheduleFailed
+                          ? (day.scheduleError || 'The last daily publish did not go through.')
+                          : `Goes out after ${slotTime} on the next daily publish. You can send it now.`}
+                      {' '}
+                      {scheduleFailed && (
+                        <button
+                          type="button"
+                          className="wv-ig__pubnow"
+                          onClick={retrySchedule}
+                          disabled={scheduling || publishing}
+                        >
+                          Retry
+                        </button>
+                      )}
+                      {!isPublishingSlot && (
+                        <button
+                          type="button"
+                          className="wv-ig__pubnow"
+                          onClick={handlePublish}
+                          disabled={publishing}
+                        >
+                          {publishing ? 'Publishing…' : 'Publish now'}
+                        </button>
+                      )}
                     </span>
                   )}
                   {!isScheduled && !day.published && metaConnected && (

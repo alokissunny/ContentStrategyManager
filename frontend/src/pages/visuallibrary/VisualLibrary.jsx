@@ -61,7 +61,7 @@ import { useStore, setState } from '../../lib/store.js';
 import { LAYOUTS, CATEGORIES, hasImage } from '../../data/layouts.js';
 import { analyseNew } from '../../lib/refanalysis.js';
 import { candidatesFor, buildLayouts } from '../../lib/addlayouts.js';
-import { paintOf } from '../../lib/identity.js';
+import { paintOf, themesOf, activeThemeIdOf, withActiveTheme } from '../../lib/identity.js';
 import { listMoodImages } from '../../api/visualBrand.js';
 import './visuallibrary.css';
 
@@ -83,6 +83,58 @@ function MoodSwitch({ id, mood }) {
       >
         <i aria-hidden="true" />
       </button>
+    </span>
+  );
+}
+
+function ThemeSwitch({ themes, activeId, onPick }) {
+  const [open, setOpen] = useState(false);
+  const current = themes.find((t) => t.id === activeId) || themes[0];
+  if (themes.length < 2 || !current) return null;
+  return (
+    <span className="vl-theme">
+      <button
+        type="button"
+        className="btn btn--tertiary btn--sm vl-ctl"
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        aria-label={`Default colour theme — ${current.name}`}
+        title="Default colour theme"
+        onClick={() => setOpen((v) => !v)}
+      >
+        <span className="vl-theme__dots" aria-hidden="true">
+          <i style={{ background: current.palette.fg || '#1b100d' }} />
+          <i style={{ background: current.palette.accent || '#ff5227' }} />
+          <i style={{ background: current.palette.ground || '#f4f2ee' }} />
+        </span>
+        <span className="vl-ctl__label">{current.name}</span>
+        <Icon name="chevron-down" size={14} strokeWidth={2.25} />
+      </button>
+      {open && (
+        <>
+          <span className="vl-scrim" onClick={() => setOpen(false)} />
+          <span className="pe-menu vl-theme__menu" role="listbox" aria-label="Default colour theme">
+            {themes.map((t) => (
+              <button
+                key={t.id}
+                type="button"
+                role="option"
+                aria-selected={t.id === current.id}
+                className={t.id === current.id ? 'is-on' : ''}
+                onClick={() => { onPick(t.id); setOpen(false); }}
+              >
+                <span className="vl-theme__dots" aria-hidden="true">
+                  <i style={{ background: t.palette.fg || '#1b100d' }} />
+                  <i style={{ background: t.palette.accent || '#ff5227' }} />
+                  <i style={{ background: t.palette.ground || '#f4f2ee' }} />
+                </span>
+                <span className="pe-menu__grow">{t.name}</span>
+                {t.id === current.id && <span className="vl-theme__mark">Default</span>}
+              </button>
+            ))}
+          </span>
+        </>
+      )}
     </span>
   );
 }
@@ -601,6 +653,9 @@ export default function VisualLibrary({ pick = null } = {}) {
      nothing, which is how "reset to defaults" is a delete. */
   const edits = s.libraryEdits || {};
   const paint = paintOf(edits);
+  const themes = themesOf(edits);
+  const activeThemeId = activeThemeIdOf(edits);
+  const pickTheme = (id) => setState({ libraryEdits: withActiveTheme(edits, id) });
 
   /* one category, as its own page — phone only, reached from "View all" */
   if (openCat && !pick) {
@@ -664,6 +719,7 @@ export default function VisualLibrary({ pick = null } = {}) {
           * `title` are on all of them at every width: an icon with no accessible
           * name is a button nobody can read, on a screen reader or a phone. */}
         <span className="vl-head__acts">
+        {!phone && <ThemeSwitch themes={themes} activeId={activeThemeId} onPick={pickTheme} />}
         {!phone && <MoodSwitch id="vl-mood-l" mood={mood} />}
         <Link
           to="/dashboard/library-settings"
@@ -718,6 +774,13 @@ export default function VisualLibrary({ pick = null } = {}) {
                         <span className="pe-menu__sep" />
                       </>
                     )}
+                    {themes.length > 1 && (
+                      <button role="menuitem" onClick={() => setPane('theme')}>
+                        <span className="pe-menu__grow">Default theme</span>
+                        <span className="vl-menu__n">{themes.find((t) => t.id === activeThemeId)?.name || 'Theme'}</span>
+                        <Icon name="chevron-right" size={16} strokeWidth={2} />
+                      </button>
+                    )}
                     <button role="menuitem" onClick={() => setPane('filter')}>
                       <Icon name="filter" size={17} strokeWidth={2} />
                       <span className="pe-menu__grow">Filter</span>
@@ -737,6 +800,33 @@ export default function VisualLibrary({ pick = null } = {}) {
                       <Icon name="settings" size={17} strokeWidth={2} />
                       <span className="pe-menu__grow">Library settings</span>
                     </Link>
+                  </>
+                )}
+
+                {pane === 'theme' && (
+                  <>
+                    <button role="menuitem" className="pe-menu__back" onClick={() => setPane(null)}>
+                      <Icon name="chevron-left" size={17} strokeWidth={2} />
+                      <span className="pe-menu__grow">Default theme</span>
+                    </button>
+                    <span className="pe-menu__sep" />
+                    {themes.map((t) => (
+                      <button
+                        key={t.id}
+                        role="menuitemradio"
+                        aria-checked={t.id === activeThemeId}
+                        className={t.id === activeThemeId ? 'is-on' : ''}
+                        onClick={() => { pickTheme(t.id); setSheet(false); setPane(null); }}
+                      >
+                        <span className="vl-theme__dots" aria-hidden="true">
+                          <i style={{ background: t.palette.fg || '#1b100d' }} />
+                          <i style={{ background: t.palette.accent || '#ff5227' }} />
+                          <i style={{ background: t.palette.ground || '#f4f2ee' }} />
+                        </span>
+                        <span className="pe-menu__grow">{t.name}</span>
+                        {t.id === activeThemeId && <span className="vl-theme__mark">Default</span>}
+                      </button>
+                    ))}
                   </>
                 )}
 

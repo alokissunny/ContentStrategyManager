@@ -53,7 +53,10 @@ services:
         value: https://bauhly.com/dashboard/meta/callback
       # 1 enables live Graph publishing; needs public HTTPS image URLs (see notes).
       - key: META_PUBLISH_LIVE
-        value: "0"
+        value: "1"
+      # Shared secret for POST /api/internal/publish-due (daily scheduled-publish cron).
+      - key: SCHEDULE_CRON_SECRET
+        generateValue: true
       # Legacy Facebook Login for Business (unused by Connect Instagram).
       - key: META_APP_ID
         value: "965034379672554"
@@ -86,6 +89,70 @@ services:
         sync: false
       - key: GOOGLE_CLOUD_LOCATION
         sync: false
+
+  # Once a day (08:00 UTC): publish scheduled posts whose slot has passed.
+  - type: cron
+    name: igsignal-publish-due
+    runtime: node
+    region: oregon
+    plan: starter
+    schedule: "0 8 * * *"
+    rootDir: backend
+    buildCommand: npm install
+    startCommand: node src/scripts/publishDue.js
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: API_BASE_URL
+        fromService:
+          type: web
+          name: igsignal-api
+          envVarKey: RENDER_EXTERNAL_URL
+      - key: SCHEDULE_CRON_SECRET
+        fromService:
+          type: web
+          name: igsignal-api
+          envVarKey: SCHEDULE_CRON_SECRET
+      - key: MONGO_URI
+        fromService:
+          type: web
+          name: igsignal-api
+          envVarKey: MONGO_URI
+      - key: META_PUBLISH_LIVE
+        fromService:
+          type: web
+          name: igsignal-api
+          envVarKey: META_PUBLISH_LIVE
+      - key: INSTAGRAM_APP_ID
+        fromService:
+          type: web
+          name: igsignal-api
+          envVarKey: INSTAGRAM_APP_ID
+      - key: INSTAGRAM_APP_SECRET
+        fromService:
+          type: web
+          name: igsignal-api
+          envVarKey: INSTAGRAM_APP_SECRET
+      - key: AWS_REGION
+        fromService:
+          type: web
+          name: igsignal-api
+          envVarKey: AWS_REGION
+      - key: AWS_ACCESS_KEY_ID
+        fromService:
+          type: web
+          name: igsignal-api
+          envVarKey: AWS_ACCESS_KEY_ID
+      - key: AWS_SECRET_ACCESS_KEY
+        fromService:
+          type: web
+          name: igsignal-api
+          envVarKey: AWS_SECRET_ACCESS_KEY
+      - key: S3_BUCKET_NAME
+        fromService:
+          type: web
+          name: igsignal-api
+          envVarKey: S3_BUCKET_NAME
 
   - type: web
     name: igsignal-web

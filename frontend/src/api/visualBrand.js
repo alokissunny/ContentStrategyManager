@@ -45,12 +45,13 @@ export function deleteMoodImage(key) {
 // not the browser origin. The server scopes by the active handle from the
 // session; the client owns the blob's shape (see lib/store.js).
 
-// The saved settings blob for the active account, or null if none saved yet.
-export function getBrandSettings() {
-  return client.get('/visual-brand/settings').then((r) => r.data.settings ?? null);
+// The saved settings blob for one Instagram handle, or null if none saved yet.
+export function getBrandSettings(handle) {
+  return client.get('/visual-brand/settings', { params: handle ? { handle } : {} }).then((r) => r.data.settings ?? null);
 }
 
-// Upsert the active account's settings blob.
-export function saveBrandSettings(data) {
-  return client.put('/visual-brand/settings', { data }).then((r) => r.data);
+// Upsert one Instagram handle's settings blob. The handle is required so a
+// write cannot land on a different connected account.
+export function saveBrandSettings(data, handle) {
+  return client.put('/visual-brand/settings', { data, handle }).then((r) => r.data);
 }

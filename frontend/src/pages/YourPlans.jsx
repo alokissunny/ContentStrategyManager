@@ -14,7 +14,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import Icon from '../brand/Icon';
 import { getCurrentRoute, getRoutes, clearCurrentMonth } from '../api/routes';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { peekMetaOAuthResult, takeMetaOAuthResult } from '../api/meta';
+import { peekMetaOAuthResult, takeMetaOAuthResult, getMetaStatus, isMetaConnectedFor } from '../api/meta';
 import { useProjects, createProject, refreshProjects, addSession, sessionCount } from '../lib/projectsStore';
 import {
   consumePlanReady,
@@ -225,7 +225,7 @@ function calendarCellsOf(group, dayRows) {
   return cells;
 }
 
-function MonthCalendar({ group, days, onOpen }) {
+function MonthCalendar({ group, days, onOpen, metaConnected }) {
   const cells = calendarCellsOf(group, days);
   return (
     <div className="ph-cal">
@@ -238,7 +238,7 @@ function MonthCalendar({ group, days, onOpen }) {
           const day = row?.day;
           const now = isNowDay(cell.date);
           const done = !!day?.published;
-          const scheduled = !done && !!day?.scheduledAt;
+          const scheduled = !done && !!day?.scheduledAt && metaConnected;
           const format = String(day?.format || '').replace(/ series$/, '');
           const title = (day?.title || day?.contentType || '').trim();
           const clickable = Boolean(row);
@@ -329,15 +329,18 @@ export default function YourPlans() {
   const { user } = useAuth();
   const [brandGaps, setBrandGaps] = useState([]);
   const [brandReportId, setBrandReportId] = useState(null);
+  const [metaStatus, setMetaStatus] = useState(null);
 
   async function reload() {
-    const [cur, all] = await Promise.all([
+    const [cur, all, meta] = await Promise.all([
       getCurrentRoute().catch(() => ({ route: null, preparing: false })),
       getRoutes().catch(() => []),
+      getMetaStatus().catch(() => null),
     ]);
     setCurrent(cur.route || null);
     setPreparing(Boolean(cur.preparing));
     setRoutes(all);
+    setMetaStatus(meta);
     return { current: cur.route || null, routes: all };
   }
 
@@ -709,6 +712,8 @@ export default function YourPlans() {
   const canReplan = isCurrentView && writtenMonthWeeks.length > 0;
   const monthLabel = `${MONTHS[calCursor.month]} ${calCursor.year}`;
   const calGroup = { start: new Date(calCursor.year, calCursor.month, 1, 12, 0, 0, 0) };
+  const calendarHandle = current?.instagramUsername || routes[0]?.instagramUsername;
+  const calendarMetaConnected = isMetaConnectedFor(metaStatus, calendarHandle);
 
   const shiftMonth = (delta) => {
     setCalCursor((c) => {
@@ -790,6 +795,7 @@ export default function YourPlans() {
               group={calGroup}
               days={monthDays}
               onOpen={open}
+              metaConnected={calendarMetaConnected}
             />
           </div>
         </section>

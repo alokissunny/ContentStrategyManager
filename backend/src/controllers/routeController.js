@@ -9,6 +9,7 @@ const { runLayoutForPost, applyLayoutToContent } = require('../services/planOrch
 const { loadCompetitorOverviewForUser } = require('./competitorController');
 const { currentProfile } = require('../utils/currentProfile');
 const { findMetaConnectionForUsername } = require('../services/graphInstagram');
+const { ownedMediaKeys, clearScheduleFields } = require('../services/metaPublish');
 
 // ── Monthly plan config ──────────────────────────────────────────────────────
 // Current calendar month: write only the weeks still ahead (up to 4). Start of
@@ -865,16 +866,19 @@ async function markDayPublished(req, res) {
     day.published = Boolean(req.body.published);
     // A post that has gone out is no longer "scheduled" — the schedule was its
     // way of getting there, and it has arrived.
-    if (day.published) day.scheduledAt = null;
+    if (day.published) clearScheduleFields(day);
   } else if (
     req.body.content === undefined &&
     req.body.slides === undefined &&
     req.body.scheduledAt === undefined &&
     req.body.time === undefined &&
-    req.body.postAtPref === undefined
+    req.body.postAtPref === undefined &&
+    req.body.publishImageKeys === undefined &&
+    req.body.scheduleStatus === undefined
   ) {
     // Legacy toggle when the body is empty / only flipping publish.
     day.published = !day.published;
+    if (day.published) clearScheduleFields(day);
   }
 
   // The studio's chosen publish time for this post (a 24h "HH:MM" string, or ''
@@ -895,11 +899,37 @@ async function markDayPublished(req, res) {
   // a decision about the future, not one that has happened.
   if (req.body.scheduledAt !== undefined) {
     if (req.body.scheduledAt === null || req.body.scheduledAt === '') {
-      day.scheduledAt = null;
+      clearScheduleFields(day);
+      day.publishImageKeys = [];
     } else {
       const at = new Date(req.body.scheduledAt);
-      if (!Number.isNaN(at.getTime())) day.scheduledAt = at;
+      if (Number.isNaN(at.getTime())) {
+        return res.status(400).json({ message: 'That publish time is not a valid date.' });
+      }
+      const keys = ownedMediaKeys(req.user._id, req.body.publishImageKeys);
+      if (!keys.length) {
+        return res.status(400).json({
+          message: 'Render the slides before scheduling so the daily job has something to post.',
+        });
+      }
+      day.scheduledAt = at;
+      day.publishImageKeys = keys;
+      day.scheduleStatus = 'ready';
+      day.scheduleError = '';
+      day.scheduleClaimedAt = null;
     }
+  }
+
+  if (req.body.scheduleStatus !== undefined && req.body.scheduledAt === undefined) {
+    const next = String(req.body.scheduleStatus || '');
+    if (!['', 'ready', 'failed'].includes(next)) {
+      return res.status(400).json({ message: 'That schedule status cannot be set from the studio.' });
+    }
+    if (!day.scheduledAt || day.published) {
+      return res.status(400).json({ message: 'This post is not waiting to go out.' });
+    }
+    day.scheduleStatus = next;
+    if (next === 'ready') day.scheduleError = '';
   }
 
   // Persist slide / caption edits from the studio editor.

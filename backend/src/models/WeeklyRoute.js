@@ -18,6 +18,18 @@ const daySchema = new mongoose.Schema(
     // When the studio schedules this post to go out. Null = not scheduled.
     // Cleared automatically once the post is published.
     scheduledAt: { type: Date, default: null },
+    // Rendered JPEG keys (projects/<userId>/…) captured at Schedule time so the
+    // daily job can publish without a browser. Cleared on unschedule.
+    publishImageKeys: { type: [String], default: [] },
+    // ready = waiting for the daily job; publishing = claimed; failed = last run errored.
+    scheduleStatus: {
+      type: String,
+      enum: ['', 'ready', 'publishing', 'failed'],
+      default: '',
+    },
+    scheduleError: { type: String, default: '' },
+    scheduleClaimedAt: { type: Date, default: null },
+    igMediaId: { type: String, default: '' },
     content: {
       // Structured slides for carousels / multi-frame posts. Roles like Hook,
       // Setup, Process, Result, CTA. assetKey ties a slide to a project photo.

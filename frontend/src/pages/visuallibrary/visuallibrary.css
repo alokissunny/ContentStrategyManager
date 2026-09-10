@@ -26,6 +26,38 @@
   color: var(--ink-900);
 }
 .vl-head__settings { flex: 0 0 auto; border-radius: var(--r-full); }
+.vl-theme { position: relative; display: inline-flex; flex: 0 0 auto; }
+.vl-theme__dots {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+}
+.vl-theme__dots i {
+  display: block;
+  width: 10px;
+  height: 10px;
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  border-radius: var(--r-full);
+}
+.vl-theme__dots i + i { margin-left: -3px; }
+.pe-menu.vl-theme__menu { position: absolute; right: 0; top: calc(100% + 6px); z-index: 41; min-width: 180px; }
+.pe-menu.vl-theme__menu button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+}
+.pe-menu.vl-theme__menu button.is-on { color: var(--signal-700); }
+.vl-theme__mark {
+  flex: 0 0 auto;
+  padding: 1px 7px;
+  border-radius: var(--r-full);
+  background: var(--ink-100);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--ink-700);
+}
 /* ── THE VISUAL MOOD SWITCH (Leon, Aug 9 — decision 855) ─────────────────
    The product's own `.set-switch`, with the label pattern the settings rows
    use, sitting in the head's action row beside Library settings. */

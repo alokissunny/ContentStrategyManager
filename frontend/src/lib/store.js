@@ -159,6 +159,9 @@ function syncPayload(s) {
 
 let pushTimer = null;
 let lastPushedSig = null;
+/* hydrate is async; a local write to a synced field (Update Library) must not
+   be overwritten by a slower GET that left before the write. */
+let syncWriteGen = 0;
 
 // Pull this account's saved settings and merge them over the local state. The
 // server is authoritative for the synced fields on load; a switch/reload is the
@@ -167,14 +170,16 @@ let lastPushedSig = null;
 async function hydrate(handle) {
   const h = normHandle(handle);
   if (!h) return;
+  const gen = syncWriteGen;
   let remote;
   try {
-    remote = await getBrandSettings();
+    remote = await getBrandSettings(h);
   } catch {
     return; /* offline or signed out — local-first stands */
   }
   if (!remote || typeof remote !== 'object') return;
   if (normHandle(activeHandle) !== h) return; // account changed while we waited
+  if (syncWriteGen !== gen) return; // this handle was written while we waited
   const merged = { ...state };
   SYNC_KEYS.forEach((k) => { if (k in remote) merged[k] = remote[k]; });
   state = merged;
@@ -196,7 +201,7 @@ function schedulePush() {
     const sig = JSON.stringify(payload);
     if (sig === lastPushedSig) return;
     lastPushedSig = sig;
-    saveBrandSettings(payload).catch(() => { lastPushedSig = null; /* let the next edit retry */ });
+    saveBrandSettings(payload, activeHandle).catch(() => { lastPushedSig = null; /* let the next edit retry */ });
   }, 800);
 }
 
@@ -225,6 +230,7 @@ export function syncHandle(handle) {
 }
 
 export function setState(patch) {
+  if (SYNC_KEYS.some((k) => k in patch)) syncWriteGen += 1;
   state = { ...state, ...patch };
   persist();
   schedulePush();
@@ -233,6 +239,10 @@ export function setState(patch) {
 
 export function getState() {
   return state;
+}
+
+export function getActiveHandle() {
+  return activeHandle;
 }
 
 export function useStore() {

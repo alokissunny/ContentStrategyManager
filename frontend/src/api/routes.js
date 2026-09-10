@@ -95,10 +95,20 @@ export function markDayPublished(routeId, index, published) {
 }
 
 // Schedule (or unschedule) a day's post. Pass an ISO string to set the slot,
-// or null to clear it.
-export function scheduleDay(routeId, index, scheduledAt) {
+// or null to clear it. Scheduling also stores rendered JPEG keys so the daily
+// job can post without a browser.
+export function scheduleDay(routeId, index, scheduledAt, extras = {}) {
+  const body = { scheduledAt };
+  if (extras.publishImageKeys !== undefined) body.publishImageKeys = extras.publishImageKeys;
   return client
-    .patch(`/routes/${routeId}/day/${index}`, { scheduledAt })
+    .patch(`/routes/${routeId}/day/${index}`, body)
+    .then((res) => res.data.route);
+}
+
+// Re-queue a failed scheduled post for the next daily run.
+export function retryScheduledDay(routeId, index) {
+  return client
+    .patch(`/routes/${routeId}/day/${index}`, { scheduleStatus: 'ready' })
     .then((res) => res.data.route);
 }
 

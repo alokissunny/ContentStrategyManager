@@ -7,13 +7,12 @@
  * and the pictures the studio has given it. This is the one place all three are
  * edited, and it is ONE page — no tabs, no second editor, no wizard.
  *
- * ── NO THEMES (Leon, Aug 7) ───────────────────────────────────────────────
+ * ── THEMES ARE NAMED PALETTES (Sep 2026) ──────────────────────────────────
  *
- * There were four palettes with names, then three, then one. A studio has ONE
- * visual identity; a product that offers a menu of them is asking them to pick a
- * mood for their brand every time they open a page. So the palette is three
- * colours they set directly — background, text, accent — everything else in the
- * system derives from those, and the word "theme" appears nowhere in the UI.
+ * A theme is three colours — primary, accent, neutral — and a name. A studio
+ * may keep more than one and switch which one is active. Typography and mood
+ * images stay shared; only the three colours change with the theme. The active
+ * theme is what the library, the preview and the weekly plan paint.
  *
  * ── WHY SAVING IS EXPLICIT HERE, AND ONLY HERE ────────────────────────────
  *
@@ -51,11 +50,11 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import Icon from '../../brand/Icon.jsx';
-import { useStore, setState } from '../../lib/store.js';
+import { useStore, setState, getActiveHandle } from '../../lib/store.js';
 import { LAYOUTS } from '../../data/layouts.js';
 import {
-  TYPE_SLOTS, COLOUR_ROLES, DEFAULT_PALETTE, identityOf, paintOf, slotFace,
-  facesWith, registerFont,
+  TYPE_SLOTS, COLOUR_ROLES, DEFAULT_PALETTE, THEME_CAP, identityOf, paintOf, slotFace,
+  facesWith, registerFont, newThemeId, nextThemeName, activeThemeOf, commitIdentity,
 } from '../../lib/identity.js';
 import { analyseNew, pendingOf, forgetRef, paletteFromAnalysis } from '../../lib/refanalysis.js';
 import { uploadMoodImages, listMoodImages, deleteMoodImage } from '../../api/visualBrand.js';
@@ -295,6 +294,7 @@ function MoodExamples() {
 export default function LibrarySettings() {
   const s = useStore();
   const nav = useNavigate();
+  const accountHandle = getActiveHandle();
   const saved = useMemo(() => identityOf(s), [s]);
 
   /* THE REFERENCES ARE PART OF THE DRAFT (Leon, Aug 7). They used to write
@@ -302,26 +302,38 @@ export default function LibrarySettings() {
      every other edit on the page waited for Save. One page, one rule: nothing
      here is real until Save changes. */
   const [draft, setDraft] = useState(() => ({
-    palette: { ...saved.palette },
+    themes: saved.themes.map((t) => ({ ...t, palette: { ...t.palette } })),
+    activeThemeId: saved.activeThemeId,
     type: JSON.parse(JSON.stringify(saved.type || {})),
     fonts: [...(saved.fonts || [])],
     refs: [...(s.visualRefs || [])],
     /* what has already been read off each picture — see lib/refanalysis.js */
     analysis: { ...(s.refAnalysis || {}) },
   }));
+  const [editingId, setEditingId] = useState(() => saved.activeThemeId);
   const [picking, setPicking] = useState(null);
   const [toast, setToast] = useState(null);
   const [confirming, setConfirming] = useState(false);
   const [leaving, setLeaving] = useState(null); // where the studio tried to go
 
-  const draftSig = JSON.stringify(draft);
-  const dirty = draftSig !== JSON.stringify({
-    palette: saved.palette,
+  const draftIdent = identityOf({ libraryEdits: draft });
+  const draftSig = JSON.stringify({
+    themes: draftIdent.themes,
+    activeThemeId: draftIdent.activeThemeId,
+    type: draftIdent.type,
+    fonts: (draftIdent.fonts || []).map((f) => ({ id: f.id, name: f.name })),
+    refIds: (draft.refs || []).map((r) => r.id || r.key).filter(Boolean),
+    analysis: draft.analysis || {},
+  });
+  const savedSig = JSON.stringify({
+    themes: saved.themes,
+    activeThemeId: saved.activeThemeId,
     type: saved.type,
-    fonts: saved.fonts || [],
-    refs: s.visualRefs || [],
+    fonts: (saved.fonts || []).map((f) => ({ id: f.id, name: f.name })),
+    refIds: (s.visualRefs || []).map((r) => r.id || r.key).filter(Boolean),
     analysis: s.refAnalysis || {},
   });
+  const dirty = draftSig !== savedSig;
 
   /* THE PENDING NOTE COMES BACK (Leon, Aug 7). It is dismissible, because a note
      that cannot be closed is a banner. But dismissing it must not be a way to
@@ -386,8 +398,10 @@ export default function LibrarySettings() {
   const discard = () => {
     const to = leaving;
     setLeaving(null);
+    setEditingId(saved.activeThemeId);
     setDraft({
-      palette: { ...saved.palette },
+      themes: saved.themes.map((t) => ({ ...t, palette: { ...t.palette } })),
+      activeThemeId: saved.activeThemeId,
       type: { ...saved.type },
       fonts: [...(saved.fonts || [])],
       refs: [...(s.visualRefs || [])],
@@ -396,17 +410,67 @@ export default function LibrarySettings() {
     nav(to);
   };
 
-  /* ── the palette ── */
-  const roleValue = (role) => draft.palette[role] || DEFAULT_PALETTE[role];
-  const setRole = (role, hex) => setDraft((d) => ({ ...d, palette: { ...d.palette, [role]: hex } }));
+  /* ── the palette (the theme being edited — not necessarily the default) ── */
+  const editingTheme = draft.themes.find((t) => t.id === editingId) || activeThemeOf(draft);
+  const roleValue = (role) => editingTheme.palette[role] || DEFAULT_PALETTE[role];
+  const setRole = (role, hex) => setDraft((d) => ({
+    ...d,
+    themes: d.themes.map((t) => (
+      t.id === editingId ? { ...t, palette: { ...t.palette, [role]: hex } } : t
+    )),
+  }));
+  const setDefaultTheme = (id) => {
+    if (!draft.themes.some((t) => t.id === id)) return;
+    setPicking(null);
+    setEditingId(id);
+    const next = { ...draft, activeThemeId: id };
+    setDraft(next);
+    /* write through immediately so Visual Library paints this theme now.
+       Set default used to live only in the draft, so the library kept the
+       previous default until Update Library — and selecting a theme never
+       changed the default at all. */
+    setState({ libraryEdits: commitIdentity(next) });
+  };
+  const selectTheme = setDefaultTheme;
+  const renameTheme = (id, name) => setDraft((d) => ({
+    ...d,
+    themes: d.themes.map((t) => (t.id === id ? { ...t, name } : t)),
+  }));
+  const addTheme = () => {
+    if (draft.themes.length >= THEME_CAP) {
+      setToast({ kind: 'note', text: `There is room for ${THEME_CAP} themes — remove one to add another.` });
+      return;
+    }
+    const id = newThemeId();
+    const next = { id, name: nextThemeName(draft.themes), palette: { ...editingTheme.palette } };
+    setPicking(null);
+    setEditingId(id);
+    setDraft((d) => ({ ...d, themes: [...d.themes, next] }));
+  };
+  const dropTheme = (id) => {
+    if (draft.themes.length <= 1) return;
+    setPicking(null);
+    setDraft((d) => {
+      const themes = d.themes.filter((t) => t.id !== id);
+      const activeThemeId = d.activeThemeId === id ? themes[0].id : d.activeThemeId;
+      return { ...d, themes, activeThemeId };
+    });
+    setEditingId((cur) => {
+      if (cur !== id) return cur;
+      const next = draft.themes.find((t) => t.id !== id);
+      return next?.id || draft.activeThemeId;
+    });
+  };
 
   /* ── type: three slots, each a face and a weight, edited in place ── */
   const setSlot = (slotId, patch) => setDraft((d) => ({
     ...d, type: { ...d.type, [slotId]: { ...(d.type[slotId] || {}), ...patch } },
   }));
 
-  /* the preview reads the DRAFT — that is the whole point of a draft */
-  const previewVars = paintOf(draft);
+  /* the preview follows the theme being edited, so a non-default theme still
+     shows its own colours while you work. The library keeps the default until
+     Update Library. */
+  const previewVars = paintOf({ ...draft, activeThemeId: editingId });
 
   /* ── references (Visual Mood) ───────────────────────────────────────────────
      Stored in S3 through the backend (see api/visualBrand): a picture uploads on
@@ -576,11 +640,14 @@ export default function LibrarySettings() {
       return;
     }
     setDraft((d) => {
-      const next = paletteFromAnalysis(analysis, d.palette.accent || DEFAULT_PALETTE.accent);
+      const current = activeThemeOf(d).palette;
+      const next = paletteFromAnalysis(analysis, current.accent || DEFAULT_PALETTE.accent);
+      if (!next) return { ...d, analysis };
+      const palette = { ...next, accent: next.accent || current.accent || DEFAULT_PALETTE.accent };
       return {
         ...d,
         analysis,
-        palette: next ? { ...next, accent: next.accent || d.palette.accent || DEFAULT_PALETTE.accent } : d.palette,
+        themes: d.themes.map((t) => (t.id === editingId ? { ...t, palette } : t)),
       };
     });
     const kept = Object.keys(draft.analysis).length;
@@ -594,13 +661,22 @@ export default function LibrarySettings() {
 
   /* the one commit on this page: exactly what is on screen, to every layout */
   const applyToLibrary = () => {
+    const libraryEdits = commitIdentity({ ...draft, activeThemeId: editingId });
+    const applied = activeThemeOf(libraryEdits);
     setState({
-      libraryEdits: { palette: { ...draft.palette }, type: { ...draft.type }, fonts: [...draft.fonts] },
+      libraryEdits,
       visualRefs: [...draft.refs],
       /* what has been read off each picture travels with the pictures, so the
          next visit knows which ones are already done */
       refAnalysis: { ...draft.analysis },
     });
+    setDraft((d) => ({
+      ...d,
+      themes: libraryEdits.themes.map((t) => ({ ...t, palette: { ...t.palette } })),
+      activeThemeId: libraryEdits.activeThemeId,
+      type: { ...libraryEdits.type },
+      fonts: [...libraryEdits.fonts],
+    }));
     setConfirming(false);
     /* NO TOAST ON A PHONE (Leon, Aug 7). The phone pressed a button labelled
        Update Library and watched it go disabled — that IS the confirmation, and
@@ -609,7 +685,9 @@ export default function LibrarySettings() {
     if (phone) return;
     setToast({
       kind: 'done',
-      text: `Updated. All ${LAYOUTS.length} layouts now use these colours, faces and references.`,
+      text: accountHandle
+        ? `Updated @${accountHandle}'s library. All ${LAYOUTS.length} layouts now use ${applied.name}.`
+        : `Updated this account's library. All ${LAYOUTS.length} layouts now use ${applied.name}.`,
     });
   };
 
@@ -626,8 +704,11 @@ export default function LibrarySettings() {
      palette/type through to the store in one call. Only palette and type are
      reset; the studio's own font files and mood references are theirs and stay. */
   const resetAll = () => {
-    setDraft((d) => ({ ...d, palette: {}, type: {} }));
-    setState({ libraryEdits: { palette: {}, type: {}, fonts: [...draft.fonts] } });
+    setPicking(null);
+    setEditingId('theme-1');
+    const themes = [{ id: 'theme-1', name: 'Theme 1', palette: {} }];
+    setDraft((d) => ({ ...d, themes, activeThemeId: 'theme-1', type: {} }));
+    setState({ libraryEdits: { themes, activeThemeId: 'theme-1', palette: {}, type: {}, fonts: [...draft.fonts] } });
     setToast({ kind: 'note', text: 'Back to Bauhly’s defaults — your layouts show the raw output again.' });
   };
 
@@ -741,10 +822,87 @@ export default function LibrarySettings() {
         <section className="ls-card">
           <div className="ls-card__head">
             <div>
-              <h2 className="ls-card__title">Colour palette</h2>
-              <p className="ls-card__lead">Three colours. Everything else derives from them.</p>
+              <h2 className="ls-card__title">Theme settings</h2>
+              <p className="ls-card__lead">
+                Edit colour themes and choose which one is the default across your content.
+              </p>
             </div>
+            <button
+              type="button"
+              className="btn btn--tertiary btn--sm ls-themeadd"
+              onClick={addTheme}
+              disabled={draft.themes.length >= THEME_CAP}
+              title={draft.themes.length >= THEME_CAP ? `There is room for ${THEME_CAP} themes` : undefined}
+            >
+              <Icon name="plus" size={15} strokeWidth={2.5} />
+              Add theme
+            </button>
           </div>
+          {draft.themes.length > 1 && (
+            <div className="ls-themes" role="tablist" aria-label="Colour themes">
+              {draft.themes.map((t) => {
+                const on = t.id === editingId;
+                const isDefault = t.id === draft.activeThemeId;
+                const fg = t.palette.fg || DEFAULT_PALETTE.fg;
+                const accent = t.palette.accent || DEFAULT_PALETTE.accent;
+                const ground = t.palette.ground || DEFAULT_PALETTE.ground;
+                return (
+                  <span key={t.id} className={`ls-theme ${on ? 'is-on' : ''} ${isDefault ? 'is-default' : ''}`}>
+                    <span className="ls-theme__dots" aria-hidden="true">
+                      <i style={{ background: fg }} />
+                      <i style={{ background: accent }} />
+                      <i style={{ background: ground }} />
+                    </span>
+                    {on ? (
+                      <input
+                        className="ls-theme__name"
+                        value={t.name}
+                        aria-label="Theme name"
+                        role="tab"
+                        aria-selected="true"
+                        onChange={(e) => renameTheme(t.id, e.target.value)}
+                        onBlur={() => {
+                          const trimmed = t.name.trim();
+                          if (!trimmed) renameTheme(t.id, nextThemeName(draft.themes.filter((x) => x.id !== t.id)));
+                          else if (trimmed !== t.name) renameTheme(t.id, trimmed);
+                        }}
+                      />
+                    ) : (
+                      <button
+                        type="button"
+                        className="ls-theme__hit"
+                        role="tab"
+                        aria-selected="false"
+                        onClick={() => selectTheme(t.id)}
+                      >
+                        {t.name}
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      className={`ls-theme__default ${isDefault ? 'is-on' : ''}`}
+                      aria-pressed={isDefault}
+                      disabled={isDefault}
+                      aria-label={isDefault ? `${t.name} is the default theme` : `Set ${t.name} as the default theme`}
+                      onClick={() => setDefaultTheme(t.id)}
+                    >
+                      {isDefault ? 'Default' : 'Set default'}
+                    </button>
+                    {on && (
+                      <button
+                        type="button"
+                        className="ls-theme__x"
+                        aria-label={`Remove ${t.name}`}
+                        onClick={() => dropTheme(t.id)}
+                      >
+                        <Icon name="x" size={12} strokeWidth={2.5} />
+                      </button>
+                    )}
+                  </span>
+                );
+              })}
+            </div>
+          )}
           <div className="ls-roles">
             {COLOUR_ROLES.map((r) => (
               <div className="ls-role" key={r.id}>
@@ -1026,10 +1184,11 @@ export default function LibrarySettings() {
         <>
           <div className="ls-dialog__scrim" onClick={() => setConfirming(false)} />
           <div className="ls-dialog" role="alertdialog" aria-modal="true" aria-labelledby="ls-apply">
-            <h2 id="ls-apply">Update all library layouts?</h2>
+            <h2 id="ls-apply">Update this account's library?</h2>
             <p>
-              Your latest colours, typography, and image references will be applied across
-              all {LAYOUTS.length} layouts.
+              {accountHandle
+                ? `These colours, typography, and image references will be applied to @${accountHandle}'s layouts only. Your other Instagram accounts stay as they are.`
+                : `These colours, typography, and image references will be applied to this Instagram account's layouts only.`}
             </p>
             <div className="ls-dialog__acts">
               <button className="btn btn--tertiary btn--sm" onClick={() => setConfirming(false)}>Cancel</button>

@@ -86,6 +86,118 @@
 .ls-pair { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-5); align-items: stretch; }
 .ls-pair > .ls-card { min-width: 0; }
 
+/* named colour themes — hidden while there is only one, so the card still
+   reads as three swatches until a second theme exists */
+.ls-themeadd { flex: 0 0 auto; border-radius: var(--r-full); }
+.ls-themes {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.ls-theme {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  padding: 0 10px 0 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-full);
+  background: var(--surface);
+}
+.ls-theme.is-on {
+  border-color: var(--ink-900);
+  background: var(--ink-900);
+  color: #fff;
+}
+.ls-theme__default {
+  flex: 0 0 auto;
+  min-height: 22px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: var(--r-full);
+  background: var(--ink-100);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--ink-700);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.ls-theme__default:hover { background: var(--ink-200, var(--ink-100)); color: var(--ink-900); }
+.ls-theme__default.is-on {
+  background: var(--ink-900);
+  color: #fff;
+  cursor: default;
+}
+.ls-theme.is-on .ls-theme__default {
+  background: rgba(255, 255, 255, 0.16);
+  color: #fff;
+}
+.ls-theme.is-on .ls-theme__default:hover { background: rgba(255, 255, 255, 0.24); }
+.ls-theme.is-on .ls-theme__default.is-on {
+  background: #fff;
+  color: var(--ink-900);
+}
+.ls-theme__default:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
+.ls-theme__default:disabled { cursor: default; }
+.ls-theme__dots {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+}
+.ls-theme__dots i {
+  display: block;
+  width: 10px;
+  height: 10px;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: var(--r-full);
+}
+.ls-theme__dots i + i { margin-left: -3px; }
+.ls-theme.is-on .ls-theme__dots i { border-color: rgba(255, 255, 255, 0.28); }
+.ls-theme__hit {
+  min-width: 0;
+  max-width: 14ch;
+  padding: 0;
+  border: 0;
+  background: none;
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: inherit;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.ls-theme__hit:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.ls-theme__name {
+  min-width: 6ch;
+  max-width: 14ch;
+  padding: 0;
+  border: 0;
+  background: none;
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: inherit;
+}
+.ls-theme__name:focus-visible { outline: none; box-shadow: 0 1px 0 currentColor; }
+.ls-theme__x {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 22px;
+  height: 22px;
+  margin-right: -4px;
+  border: 0;
+  border-radius: var(--r-full);
+  background: none;
+  color: inherit;
+  cursor: pointer;
+}
+.ls-theme__x:hover { background: rgba(255, 255, 255, 0.14); }
+.ls-theme__x:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
+
 /* the three colours */
 .ls-roles { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--sp-3); }
 .ls-role { display: flex; flex-direction: column; gap: 6px; min-width: 0; }

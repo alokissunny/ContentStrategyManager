@@ -8,7 +8,8 @@
     "start": "node src/server.js",
     "dev": "nodemon src/server.js",
     "seed:admin": "node src/scripts/seedAdmin.js",
-    "seed:test": "node src/scripts/seedTestUser.js"
+    "seed:test": "node src/scripts/seedTestUser.js",
+    "publish:due": "node src/scripts/publishDue.js"
   },
   "engines": {
     "node": ">=20"
