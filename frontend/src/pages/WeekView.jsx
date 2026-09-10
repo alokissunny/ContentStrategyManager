@@ -32,7 +32,7 @@ import CaptionPolish from './weekview/CaptionPolish';
 import PostAgentDebug from './weekview/PostAgentDebug';
 import DynamicLayout, { AnnotationOverlay } from './weekview/DynamicLayout';
 import { BrandMark } from './visuallibrary/BrandMark';
-import { rewriteAnnotationText, withSharedLayoutStyles } from './weekview/layoutHtml';
+import { rewriteAnnotationText, rewriteLayoutText, withSharedLayoutStyles } from './weekview/layoutHtml';
 import { boxOf, normalizeSubjects } from './weekview/subjectBox';
 import {
   CHANGE_LAYOUTS,
@@ -2598,11 +2598,29 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
     : appliedOptIdx;
   const draftOpt = hasLayoutOpts ? (layoutOpts[draftOptIdx] || null) : null;
   const optUnchanged = hasLayoutOpts && draftOptIdx === appliedOptIdx;
-  // The composition the big preview should draw while editing layout: the
-  // drafted agent option (before Apply) wins over the slide's stored html.
-  const previewSlide = (visEdit === 'layout' && draftOpt)
-    ? { ...activeSlide, layout: 'dynamic', layoutHtml: draftOpt.html }
-    : activeSlide;
+  // The composition the big preview should draw while editing: the drafted
+  // agent option (Change layout) or the drafted words (Edit text) win over the
+  // slide's stored html, so both editors preview live before Apply.
+  const previewSlide = useMemo(() => {
+    if (visEdit === 'layout' && draftOpt) {
+      return { ...activeSlide, layout: 'dynamic', layoutHtml: draftOpt.html };
+    }
+    if (visEdit === 'words' && activeSlide?.layoutHtml && wordDraft) {
+      const roles = wordRolesForSlide(activeSlide);
+      const hasHead = roles.some((r) => r.key === 'head');
+      const hasBody = roles.some((r) => r.key === 'body');
+      const primary = hasHead ? 'head' : (hasBody ? 'body' : roles[0]?.key);
+      let html = rewriteLayoutText(activeSlide.layoutHtml, {
+        title: wordDraft[primary] || '',
+        subtitle: (hasHead && hasBody) ? (wordDraft.body || '') : undefined,
+      });
+      if (roles.some((r) => r.key === 'annotation')) {
+        html = rewriteAnnotationText(html, plainOf(wordDraft.annotation || ''));
+      }
+      return { ...activeSlide, layoutHtml: html };
+    }
+    return activeSlide;
+  }, [visEdit, draftOpt, activeSlide, wordDraft]);
   const wordRoles = visEdit === 'words' ? wordRolesForSlide(activeSlide) : [];
   const primaryWordKey = wordRoles.find((r) => r.key === 'head')?.key
     || wordRoles.find((r) => r.key === 'body')?.key
@@ -2633,25 +2651,45 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
     const roles = wordRolesForSlide(activeSlide);
     const hasHead = roles.some((r) => r.key === 'head');
     const hasBody = roles.some((r) => r.key === 'body');
+    const hasAnnote = roles.some((r) => r.key === 'annotation');
     const primary = hasHead ? 'head' : (hasBody ? 'body' : roles[0]?.key);
     const title = capText(wordDraft?.[primary] || '');
     const patch = { title };
-    if (hasHead && hasBody) patch.subtitle = capText(wordDraft?.body || '');
-    if (roles.some((r) => r.key === 'annotation')) {
+    const subtitle = (hasHead && hasBody) ? capText(wordDraft?.body || '') : undefined;
+    if (subtitle !== undefined) patch.subtitle = subtitle;
+
+    let annotationText;
+    if (hasAnnote) {
       const prev = activeSlide?.annotation && typeof activeSlide.annotation === 'object'
         ? activeSlide.annotation
         : {};
-      const text = capAnnote(plainOf(wordDraft?.annotation || ''));
+      annotationText = capAnnote(plainOf(wordDraft?.annotation || ''));
       patch.annotation = {
-        text,
+        text: annotationText,
         targetSubject: prev.targetSubject || '',
         targetRegion: prev.targetRegion || 'center',
         ...(boxOf(prev.targetBox) ? { targetBox: boxOf(prev.targetBox) } : {}),
       };
-      if (activeSlide?.layoutHtml) {
-        patch.layoutHtml = rewriteAnnotationText(activeSlide.layoutHtml, text);
-      }
     }
+
+    // The words are baked into the agent HTML, so patching title/subtitle alone
+    // changes nothing on screen. Rewrite the applied composition AND every
+    // ranked layout option, so the preview, the export, and the Change layout
+    // option previews all show the edited copy.
+    const applyToHtml = (html) => {
+      if (!html) return html;
+      let h = rewriteLayoutText(html, { title, subtitle });
+      if (annotationText != null) h = rewriteAnnotationText(h, annotationText);
+      return h;
+    };
+    if (activeSlide?.layoutHtml) patch.layoutHtml = applyToHtml(activeSlide.layoutHtml);
+    if (Array.isArray(activeSlide?.layoutOptions) && activeSlide.layoutOptions.length) {
+      patch.layoutOptions = activeSlide.layoutOptions.map((o) => ({
+        ...o,
+        html: applyToHtml(o?.html || ''),
+      }));
+    }
+
     patchActiveSlide(patch);
     setVisEdit(null);
     setZone(null);

@@ -1,3 +1,5 @@
+import { parseMarked, plainOf } from '../../lib/slidetext';
+
 function trim(value) {
   return String(value || '').trim();
 }
@@ -86,6 +88,49 @@ function scopeCss(css, scope) {
     }).join(',');
     return `${close}${prefixed}{`;
   });
+}
+
+// Rebuild a title slot's inner HTML from a marked value: {{accent|…}} runs
+// become <em>…</em> — the exact treatment the layout agent emits — and every
+// other run is escaped text.
+function markedToInner(value) {
+  return parseMarked(value)
+    .filter((r) => r && r.text)
+    .map((r) => (r.mark === 'accent' ? `<em>${escText(r.text)}</em>` : escText(r.text)))
+    .join('');
+}
+
+function replaceSlotInner(html, slot, inner) {
+  const re = new RegExp(
+    `(<([a-z][a-z0-9]*)\\b[^>]*\\bdata-slot\\s*=\\s*["']${slot}["'][^>]*>)([\\s\\S]*?)(<\\/\\2>)`,
+    'i',
+  );
+  let found = false;
+  const out = String(html || '').replace(re, (_all, open, _tag, _inner, close) => {
+    found = true;
+    return `${open}${inner}${close}`;
+  });
+  return { html: out, found };
+}
+
+// Edit text on a layout-agent slide: the words are baked into the slide's HTML,
+// so patching slide.title/subtitle alone never shows. Rewrite the matching
+// slots in place. Title keeps its {{accent|…}} → <em> treatment; the subtitle
+// line targets the `subtitle` slot, falling back to `body` when the agent used
+// that instead. Only the fields that were edited (non-null) are touched.
+export function rewriteLayoutText(html, { title, subtitle } = {}) {
+  let out = String(html || '');
+  if (!out) return out;
+  if (title != null) {
+    out = replaceSlotInner(out, 'title', markedToInner(title)).html;
+  }
+  if (subtitle != null) {
+    const inner = escText(plainOf(subtitle));
+    let r = replaceSlotInner(out, 'subtitle', inner);
+    if (!r.found) r = replaceSlotInner(out, 'body', inner);
+    out = r.html;
+  }
+  return out;
 }
 
 export function rewriteAnnotationText(html, text) {
