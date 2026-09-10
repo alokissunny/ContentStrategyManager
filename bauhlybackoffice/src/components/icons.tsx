@@ -55,6 +55,13 @@ export const CustomersIcon = (p: IconProps) => (
   </Icon>
 )
 
+export const EarlyAccessIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <rect x="3" y="4.5" width="14" height="11" rx="2" />
+    <path d="M3.5 6.5 10 11l6.5-4.5" />
+  </Icon>
+)
+
 export const MonthlyReviewIcon = (p: IconProps) => (
   <Icon {...p}>
     <rect x="3" y="4" width="14" height="13" rx="2.5" />

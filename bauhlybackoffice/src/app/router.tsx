@@ -8,6 +8,7 @@ import {
   HashtagsFullPage,
   HooksFullPage,
   CustomersPage,
+  EarlyAccessPage,
 } from '../features/pages'
 import { RequireAuth } from './auth'
 import { AppShell } from './shell/AppShell'
@@ -32,6 +33,7 @@ export const router = createBrowserRouter([
       { path: 'competitors-hooks', element: <HooksFullPage /> },
       { path: 'competitors', element: <CompetitorsSection /> },
       { path: 'customers', element: <CustomersPage /> },
+      { path: 'early-access', element: <EarlyAccessPage /> },
       {
         path: '*',
         element: (

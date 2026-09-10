@@ -1,9 +1,10 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Link, Navigate, useNavigate } from 'react-router-dom';
 import Glyph from '../components/Glyph';
 import PanelMotif from '../components/PanelMotif';
 import { useAuth } from '../context/AuthContext';
 import { useIsMobile } from '../hooks/useMediaQuery';
+import { requestEarlyAccess } from '../api/earlyAccess';
 import { LS_BG, LS_SURFACE, LS_BORDER, LS_INK, LS_T2, LS_MUTED, LS_SIGNAL, LS_SOFT, LS_FONT, LS_DISPLAY } from '../theme';
 
 function Wordmark() {
@@ -45,11 +46,150 @@ function TextInput({ icon, ...props }) {
   );
 }
 
+function EarlyAccessModal({ onClose }) {
+  const [name, setName] = useState('');
+  const [handle, setHandle] = useState('');
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [done, setDone] = useState(false);
+  const [already, setAlready] = useState(false);
+
+  useEffect(() => {
+    function onKey(e) {
+      if (e.key === 'Escape') onClose();
+    }
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    setError('');
+    setLoading(true);
+    try {
+      const result = await requestEarlyAccess({ name, instagramHandle: handle });
+      setAlready(Boolean(result?.alreadyRequested));
+      setDone(true);
+    } catch (err) {
+      setError(err.response?.data?.message || 'Something went wrong. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="early-access-title"
+      onClick={onClose}
+      style={{
+        position: 'fixed', inset: 0, zIndex: 110, display: 'grid', placeItems: 'center',
+        padding: 'clamp(12px, 4vw, 40px)', background: 'rgba(16,18,23,0.56)', backdropFilter: 'blur(3px)',
+      }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          width: 'min(400px, 100%)', background: LS_SURFACE, borderRadius: 18,
+          boxShadow: '0 24px 60px rgba(16,18,23,0.24)', overflow: 'hidden',
+        }}
+      >
+        <div style={{ padding: '26px 26px 24px' }}>
+          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, marginBottom: 8 }}>
+            <h2
+              id="early-access-title"
+              style={{ fontFamily: LS_DISPLAY, fontWeight: 700, fontSize: 22, letterSpacing: '-0.02em', color: LS_INK, margin: 0 }}
+            >
+              Request early access
+            </h2>
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label="Close"
+              style={{
+                border: 'none', background: 'transparent', cursor: 'pointer', padding: 4,
+                display: 'inline-flex', color: LS_MUTED, flexShrink: 0,
+              }}
+            >
+              <Glyph name="x" size={18} color={LS_MUTED} />
+            </button>
+          </div>
+
+          {done ? (
+            <>
+              <p style={{ fontFamily: LS_FONT, fontSize: 14.5, lineHeight: 1.55, color: LS_T2, margin: '8px 0 22px' }}>
+                {already
+                  ? 'You are already on the list. We will be in touch.'
+                  : 'Request received. We will be in touch.'}
+              </p>
+              <button
+                type="button"
+                onClick={onClose}
+                style={{
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', width: '100%', height: 46,
+                  border: 'none', borderRadius: 10, background: LS_SIGNAL, color: '#fff', cursor: 'pointer',
+                  fontFamily: LS_FONT, fontSize: 13.5, fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase',
+                }}
+              >
+                Close
+              </button>
+            </>
+          ) : (
+            <>
+              <p style={{ fontFamily: LS_FONT, fontSize: 14.5, lineHeight: 1.55, color: LS_T2, margin: '0 0 20px' }}>
+                Tell us your name and Instagram handle. We&rsquo;ll be in touch.
+              </p>
+              <form onSubmit={handleSubmit}>
+                <TextInput
+                  icon="user"
+                  type="text"
+                  placeholder="Your name"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  autoComplete="name"
+                  required
+                  maxLength={80}
+                  autoFocus
+                />
+                <TextInput
+                  icon="instagram"
+                  type="text"
+                  placeholder="@yourstudio"
+                  value={handle}
+                  onChange={(e) => setHandle(e.target.value)}
+                  autoComplete="username"
+                  required
+                  maxLength={32}
+                />
+                {error && <p style={{ fontFamily: LS_FONT, fontSize: 13, color: '#B91C1C', margin: '0 0 14px' }}>{error}</p>}
+                <button
+                  type="submit"
+                  disabled={loading}
+                  style={{
+                    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 9, width: '100%', height: 46,
+                    border: 'none', borderRadius: 10, background: LS_SIGNAL, color: '#fff', cursor: loading ? 'default' : 'pointer',
+                    fontFamily: LS_FONT, fontSize: 13.5, fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase',
+                    opacity: loading ? 0.7 : 1,
+                  }}
+                >
+                  {loading ? 'Sending…' : 'Send request'}
+                </button>
+              </form>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function Auth() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [earlyAccessOpen, setEarlyAccessOpen] = useState(false);
   const { user, loading: authLoading, login: doLogin } = useAuth();
   const navigate = useNavigate();
   const isMobile = useIsMobile();
@@ -128,9 +268,29 @@ export default function Auth() {
                 {loading ? 'Please wait…' : 'Log in'} <Glyph name="arrow-right" size={16} color="#fff" />
               </button>
             </form>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, margin: '22px 0' }}>
+              <span style={{ flex: 1, height: 1, background: LS_BORDER }} />
+              <span style={{ fontFamily: LS_FONT, fontSize: 12, fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: LS_MUTED }}>or</span>
+              <span style={{ flex: 1, height: 1, background: LS_BORDER }} />
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setEarlyAccessOpen(true)}
+              style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 9, width: '100%', height: 48,
+                border: `1px solid ${LS_BORDER}`, borderRadius: 10, background: LS_SURFACE, color: LS_INK, cursor: 'pointer',
+                fontFamily: LS_FONT, fontSize: 13.5, fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase',
+              }}
+            >
+              Request early access
+            </button>
           </div>
         </div>
       </div>
+
+      {earlyAccessOpen && <EarlyAccessModal onClose={() => setEarlyAccessOpen(false)} />}
     </div>
   );
 }

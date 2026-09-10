@@ -16,6 +16,7 @@ import { env } from '../config/env.ts'
 import { CompetitorAccount } from '../models/CompetitorAccount.ts'
 import { AccountSnapshot, Post, PostMetricSnapshot } from '../models/snapshots.ts'
 import { User } from '../middleware/auth.ts'
+import { EarlyAccessRequest } from '../models/earlyAccess.ts'
 
 const DEV_ADMIN = { email: 'admin@bauhly.dev', password: 'backoffice-dev-1234' }
 
@@ -37,6 +38,11 @@ async function seed() {
     password: await bcrypt.hash(DEV_ADMIN.password, 10),
     role: 'admin',
   })
+
+  await EarlyAccessRequest.create([
+    { name: 'Maya Atelier', instagramHandle: 'maya.atelier', createdAt: daysAgo(2) },
+    { name: 'Casa Norte', instagramHandle: 'casanorte', createdAt: daysAgo(5) },
+  ])
 
   for (const s of SEED) {
     const account = await CompetitorAccount.create({

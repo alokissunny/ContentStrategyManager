@@ -1,0 +1,28 @@
+.ea-stats {
+  width: min(320px, 100%);
+  min-width: 0;
+}
+
+.ea-handle {
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--ink-800);
+  text-decoration: none;
+}
+
+.ea-handle:hover {
+  text-decoration: underline;
+}
+
+.ea-date {
+  display: block;
+  font-size: var(--text-sm);
+  white-space: nowrap;
+}
+
+.ea-time {
+  display: block;
+  font-size: var(--text-xs);
+  color: var(--ink-500);
+  margin-top: 2px;
+}

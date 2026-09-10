@@ -14,6 +14,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
  */
 
 const { AccountSnapshot, Post, PostMetricSnapshot, CollectionRun, RawPostPayload } = await import('./snapshots.ts')
+const { EarlyAccessRequest } = await import('./earlyAccess.ts')
 
 let mongo: MongoMemoryServer
 
@@ -38,6 +39,10 @@ describe('collection names', () => {
     expect(PostMetricSnapshot.collection.collectionName).toBe('postmetricsnapshots')
     expect(CollectionRun.collection.collectionName).toBe('collectionruns')
     expect(RawPostPayload.collection.collectionName).toBe('rawpostpayloads')
+  })
+
+  it('reads early-access requests from the customer app collection', () => {
+    expect(EarlyAccessRequest.collection.collectionName).toBe('earlyaccessrequests')
   })
 
   it('writes many posts even when the customer app\'s unique index exists', async () => {

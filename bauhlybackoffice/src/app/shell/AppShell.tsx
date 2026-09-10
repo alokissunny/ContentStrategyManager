@@ -7,18 +7,20 @@ import {
   CloseIcon,
   CompetitorsIcon,
   CustomersIcon,
+  EarlyAccessIcon,
   LogoutIcon,
   MenuIcon,
 } from '../../components/icons'
 import { PageActionsProvider, PageActionsSlot, PageCenterSlot } from './pageActions'
 import './shell.css'
 
-// Competitors + Customers are live. Remaining sections stay under src/features
-// until wired (Signals, Intelligence, Integrations).
+// Competitors, Customers, and Early access are live. Remaining sections stay
+// under src/features until wired (Signals, Intelligence, Integrations).
 const primaryNav = [
   // The competitors section spans two tab URLs, so it stays active on both.
   { to: '/', label: 'Competitors', icon: CompetitorsIcon, alsoActiveOn: ['/competitors'] as string[] },
   { to: '/customers', label: 'Customers', icon: CustomersIcon },
+  { to: '/early-access', label: 'Early access', icon: EarlyAccessIcon },
 ]
 
 const operationsNav: { to: string; label: string; icon: typeof CompetitorsIcon }[] = []
@@ -33,11 +35,17 @@ const CUSTOMERS_TITLE = {
   subtitle: 'Bauhly signups and the weekly plans presented to each user',
 }
 
+const EARLY_ACCESS_TITLE = {
+  title: 'Early access',
+  subtitle: 'Waitlist requests from the login page',
+}
+
 const titles: Record<string, { title: string; subtitle: string }> = {
   '/': COMPETITORS_TITLE,
   '/competitors-overview': COMPETITORS_TITLE,
   '/competitors': COMPETITORS_TITLE,
   '/customers': CUSTOMERS_TITLE,
+  '/early-access': EARLY_ACCESS_TITLE,
 }
 
 export function AppShell() {
