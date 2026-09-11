@@ -13,9 +13,9 @@ import Glyph from '../components/Glyph';
 import Icon from '../brand/Icon';
 import YourAnalysisModal from '../components/YourAnalysisModal';
 import ConnectMetaModal from '../components/ConnectMetaModal';
-import { markDayPublished, updateDayContent, replanWeek, scheduleDay, retryScheduledDay, setDayTime, runDayLayout } from '../api/routes';
+import { markDayPublished, updateDayContent, replanWeek, scheduleDay, retryScheduledDay, setDayTime, runDayLayout, runDayCover } from '../api/routes';
 import { getMetaStatus, publishDayToMeta, isMetaConnectedFor, metaConnectionFor, otherMetaConnections, rememberMetaOAuthReturn } from '../api/meta';
-import { mediaProxyUrl, toDisplayUrl, isProxyUrl, rememberCdnBase, onCdnBase, getCdnBase, canvasSafeUrl, isProjectMediaKey, splitMediaKeys } from '../api/media';
+import { mediaProxyUrl, videoProxyUrl, toDisplayUrl, isProxyUrl, rememberCdnBase, onCdnBase, getCdnBase, canvasSafeUrl, isProjectMediaKey, splitMediaKeys } from '../api/media';
 import { createImage, listGeneratedImages } from '../api/images';
 import { useProjects, uploadFiles } from '../lib/projectsStore';
 import { toSvg } from 'html-to-image';
@@ -29,6 +29,7 @@ import { PhotoEditor, SlotPack } from './weekview/PhotoEditor';
 import RoleField from './weekview/RoleField';
 import WordsPolish from './weekview/WordsPolish';
 import CaptionPolish from './weekview/CaptionPolish';
+import { useFeatureFlags } from '../lib/featureFlags';
 import PostAgentDebug from './weekview/PostAgentDebug';
 import DynamicLayout, { AnnotationOverlay } from './weekview/DynamicLayout';
 import { BrandMark } from './visuallibrary/BrandMark';
@@ -1640,6 +1641,72 @@ function WhyBody({ day }) {
   );
 }
 
+/* Video cover — the animated hook clip from the Carousel Cover agent. Shown in
+   the side panel; Apply swaps it in for the static hook slide. */
+function VideoCoverPanel({ busy, error, url, spec, isApplied, hasApplied, onApply, onRemove, onRegenerate }) {
+  const headline = Array.isArray(spec?.headline?.lines)
+    ? spec.headline.lines.map((l) => l.text).filter(Boolean).join(' ')
+    : '';
+  if (busy) {
+    return (
+      <div className="wv-vcover wv-vcover--busy">
+        <span className="wv-vcover__spinner" aria-hidden="true" />
+        <p className="wv-vcover__status">Creating your animated hook…</p>
+        <p className="wv-vcover__hint">Passing the strategy brief and content structure to the cover agent, then rendering the video. This takes a few seconds.</p>
+      </div>
+    );
+  }
+  if (error) {
+    return (
+      <div className="wv-vcover wv-vcover--error">
+        <p className="wv-vcover__status">Couldn’t create the video cover.</p>
+        <p className="wv-vcover__hint">{error}</p>
+        <button type="button" className="btn btn--sm" onClick={onRegenerate}>Try again</button>
+      </div>
+    );
+  }
+  if (!url) {
+    return (
+      <div className="wv-vcover">
+        <p className="wv-vcover__hint">No video cover yet. Open the hook slide’s edit menu and choose <b>Video cover</b> to generate an animated hook from this post’s strategy and structure.</p>
+      </div>
+    );
+  }
+  return (
+    <div className="wv-vcover">
+      <div className="wv-vcover__stage">
+        <video
+          className="wv-vcover__video"
+          src={url}
+          controls
+          autoPlay
+          loop
+          muted
+          playsInline
+        />
+      </div>
+      {headline && <p className="wv-vcover__cap">{headline}</p>}
+      <div className="wv-vcover__actions">
+        {isApplied ? (
+          <>
+            <span className="wv-vcover__applied"><Glyph name="check" size={14} /> Applied to the hook</span>
+            <button type="button" className="btn btn--sm wv-vcover__ghost" onClick={onRemove}>Remove</button>
+            <button type="button" className="btn btn--sm" onClick={onRegenerate}>Regenerate</button>
+          </>
+        ) : (
+          <>
+            <button type="button" className="btn btn--primary btn--sm" onClick={onApply}>Apply to hook</button>
+            <button type="button" className="btn btn--sm" onClick={onRegenerate}>Regenerate</button>
+            {hasApplied && (
+              <button type="button" className="btn btn--sm wv-vcover__ghost" onClick={onRemove}>Remove current</button>
+            )}
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function WeekView({ route: initialRoute, onBack, monthWeeks = [], onOpenWeek, initialDay = 0, onCaptured, onRouteChange }) {
   const navigate = useNavigate();
   const projects = useProjects();
@@ -1680,11 +1747,17 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
   // Select images sheet (bauhly-v3 §821/§890): draft slots until Apply.
   const [imgPick, setImgPick] = useState(null); // { slots: (string|null)[], at: number } | null
   const [whyOpen, setWhyOpen] = useState(false);
-  // Desktop side panel: Caption | Why this post | Debug (when AI debug is on).
-  const [sideTab, setSideTab] = useState('caption'); // 'caption' | 'why' | 'debug'
+  // Desktop side panel: Caption | Why this post | Video cover | Debug.
+  const [sideTab, setSideTab] = useState('caption'); // 'caption' | 'why' | 'video' | 'debug'
   const aiDebug = useAiDebug();
+  const videoCoverOn = useFeatureFlags().videoCover;
   const [layoutBusy, setLayoutBusy] = useState(false);
   const [layoutErr, setLayoutErr] = useState('');
+  // Animated Carousel Cover agent — a freshly rendered clip for the current day,
+  // held until the studio applies it to the hook slide. { spec, url, key }.
+  const [coverBusy, setCoverBusy] = useState(false);
+  const [coverErr, setCoverErr] = useState('');
+  const [coverResult, setCoverResult] = useState(null);
   const [capReviewed, setCapReviewed] = useState(() => new Set());
   // Day-to-day slide transition (bauhly-v3 §730/§786): the arriving post's
   // direction — 1 = came from the right (moving forward), -1 = from the left,
@@ -1741,7 +1814,8 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
   const weekId = initialRoute?._id;
   useEffect(() => {
     if (!aiDebug.enabled && sideTab === 'debug') setSideTab('caption');
-  }, [aiDebug.enabled, sideTab]);
+    if (!videoCoverOn && sideTab === 'video') setSideTab('caption');
+  }, [aiDebug.enabled, videoCoverOn, sideTab]);
   useEffect(() => { setLayoutErr(''); }, [selected]);
   useEffect(() => {
     setRoute(initialRoute);
@@ -1899,6 +1973,12 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
   const slides = enriched?.slides || [];
   const safeIdx = Math.min(slideIdx, Math.max(slides.length - 1, 0));
   const activeSlide = slides[safeIdx] || null;
+  // Video cover: the last clip the agent rendered for this day (agentTrace.cover)
+  // and the one currently applied to the hook (day.content.coverVideo).
+  const existingCover = day?.agentTrace?.cover || null;
+  const existingCoverUrl = existingCover?.videoKey ? videoProxyUrl(existingCover.videoKey) : '';
+  const appliedCoverKey = day?.content?.coverVideo?.key || '';
+  const appliedCoverUrl = appliedCoverKey ? videoProxyUrl(appliedCoverKey) : '';
   const handle = route?.instagramUsername || 'your.studio';
   // Publish/schedule only when Meta is linked for *this* plan's Instagram handle.
   const metaForHandle = metaConnectionFor(metaStatus, handle);
@@ -1950,6 +2030,8 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
     setCreating(false);
     setImgPick(null);
     setAskImgs(0);
+    setCoverResult(null);
+    setCoverErr('');
   }
 
   // Change day with the reference's slide transition: a ghost copy of the post
@@ -2553,6 +2635,94 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
     } finally {
       setLayoutBusy(false);
     }
+  }
+
+  // The studio's active Visual Library settings, resolved to concrete palette +
+  // font names, so the rendered cover matches the brand (not a fixed template).
+  function coverVisualPayload() {
+    try {
+      const ident = identityOf(vbStore);
+      const pal = ident?.palette || {};
+      const faceLabel = (slot, dflt) => {
+        const id = ident?.type?.[slot]?.face || dflt;
+        return (FACES.find((f) => f.id === id) || {}).label || '';
+      };
+      const style = styleOf(vbStore?.brandStyle) || {};
+      const mood = typeof style.mood === 'string' ? style.mood : (style.mood?.label || style.mood?.name || '');
+      const payload = {
+        palette: { bg: pal.ground || '', ink: pal.fg || '', accent: pal.accent || '' },
+        fonts: { headline: faceLabel('headline', 'display'), body: faceLabel('body', 'ui') },
+        mood: String(mood || ''),
+      };
+      const hasAny = payload.palette.bg || payload.palette.accent || payload.fonts.headline;
+      return hasAny ? payload : null;
+    } catch {
+      return null;
+    }
+  }
+
+  // Animated Carousel Cover — runs the cover agent (strategy brief + content
+  // structure) and renders a hook video. The clip is shown in the side panel;
+  // it only replaces the static hook slide once the studio applies it.
+  async function handleMakeCover() {
+    if (coverBusy || !route?._id) return;
+    closeZone();
+    setSideTab('video');
+    setCoverBusy(true);
+    setCoverErr('');
+    setCoverResult(null);
+    try {
+      const data = await runDayCover(route._id, selected, coverVisualPayload());
+      const c = data?.cover || {};
+      const url = (c.videoKey ? videoProxyUrl(c.videoKey) : '') || c.videoUrl || '';
+      setCoverResult({ spec: c.spec || null, url, key: c.videoKey || '' });
+      if (data?.route) { setRoute(data.route); onRouteChange?.(data.route); }
+    } catch (err) {
+      setCoverErr(err.response?.data?.message || err.message || 'Could not create the video cover.');
+    } finally {
+      setCoverBusy(false);
+    }
+  }
+
+  // Apply the rendered clip to the hook (slide 1) — persisted as day.content
+  // .coverVideo so the preview plays it in place of the static cover.
+  function handleApplyCover() {
+    const key = coverResult?.key || existingCover?.videoKey || '';
+    const url = coverResult?.url || existingCoverUrl || '';
+    if (!key && !url) return;
+    persistDayExtra({ coverVideo: { key } });
+    setRoute((prev) => {
+      if (!prev?.days) return prev;
+      const days = [...prev.days];
+      const d = { ...days[selected] };
+      d.content = { ...(d.content || {}), coverVideo: { key } };
+      days[selected] = d;
+      return { ...prev, days };
+    });
+    setSlideIdx(0);
+    closeZone();
+  }
+
+  // Remove an applied video cover — the hook goes back to its static slide.
+  function handleRemoveCover() {
+    persistDayExtra({ coverVideo: null });
+    setRoute((prev) => {
+      if (!prev?.days) return prev;
+      const days = [...prev.days];
+      const d = { ...days[selected] };
+      d.content = { ...(d.content || {}), coverVideo: null };
+      days[selected] = d;
+      return { ...prev, days };
+    });
+  }
+
+  async function persistDayExtra(content) {
+    if (!route?._id) return;
+    try {
+      const updated = await updateDayContent(route._id, selected, content);
+      setRoute(updated);
+      onRouteChange?.(updated);
+    } catch { /* keep local until retry */ }
   }
 
   const weekUsage = weekUsageOf(route);
@@ -3360,6 +3530,17 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
                   layoutOverride={(visEdit === 'layout' && !hasLayoutOpts) ? (chosenLayout || null) : null}
                   carouselLayoutHtmls={slides.map((s) => s?.layoutHtml || '')}
                 />
+                {safeIdx === 0 && videoCoverOn && appliedCoverUrl && (
+                  <video
+                    className="wv-ig__covervideo"
+                    src={appliedCoverUrl}
+                    autoPlay
+                    loop
+                    muted
+                    playsInline
+                    aria-label="Animated hook cover"
+                  />
+                )}
                 {slides.length > 1 && (
                   <span className="wv-ig__count">{safeIdx + 1}/{slides.length}</span>
                 )}
@@ -3459,6 +3640,18 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
                     <Icon name="edit" size={17} strokeWidth={2} />
                     <span>Edit text</span>
                   </button>
+                  {safeIdx === 0 && videoCoverOn && (
+                    <button
+                      type="button"
+                      role="menuitem"
+                      className="wv-ig__menuitem"
+                      onClick={handleMakeCover}
+                      disabled={coverBusy}
+                    >
+                      <Icon name="play" size={17} strokeWidth={2} />
+                      <span>{coverBusy ? 'Creating cover…' : 'Video cover'}</span>
+                    </button>
+                  )}
                 </div>
                 </>
               )}
@@ -3606,7 +3799,7 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
             )}
 
             {/* caption / why — right column on desktop */}
-            <div className={`wv-ig__panel${sideTab === 'why' ? ' is-why' : sideTab === 'debug' ? ' is-debug' : ' is-cap'}${zone === 'caption' ? ' is-cappedit' : ''}`}>
+            <div className={`wv-ig__panel${sideTab === 'why' ? ' is-why' : sideTab === 'debug' ? ' is-debug' : sideTab === 'video' ? ' is-video' : ' is-cap'}${zone === 'caption' ? ' is-cappedit' : ''}`}>
             <div className="wv-ig__tabrow">
               <div className="wv-ig__seg" role="tablist" aria-label="Post details">
                 <button
@@ -3627,6 +3820,17 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
                 >
                   Why this post
                 </button>
+                {videoCoverOn && (coverBusy || coverResult || existingCover || appliedCoverKey) && (
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={sideTab === 'video'}
+                    className={`wv-ig__segbtn${sideTab === 'video' ? ' is-on' : ''}`}
+                    onClick={() => { setSideTab('video'); if (zone === 'caption') closeZone(); }}
+                  >
+                    Video cover
+                  </button>
+                )}
                 {aiDebug.enabled && (
                   <button
                     type="button"
@@ -3755,6 +3959,21 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
                 />
               </div>
             )}
+            <div className="wv-ig__videoblock">
+              <VideoCoverPanel
+                busy={coverBusy}
+                error={coverErr}
+                url={coverResult?.url || existingCoverUrl}
+                spec={coverResult?.spec || existingCover?.spec || null}
+                isApplied={Boolean(appliedCoverKey) && (
+                  appliedCoverKey === (coverResult?.key || existingCover?.videoKey)
+                )}
+                hasApplied={Boolean(appliedCoverKey)}
+                onApply={handleApplyCover}
+                onRemove={handleRemoveCover}
+                onRegenerate={handleMakeCover}
+              />
+            </div>
             </div>
 
             {/* when this goes out. A scheduled post waits for the next daily

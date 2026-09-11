@@ -99,6 +99,10 @@ const daySchema = new mongoose.Schema(
       prompts: { type: [String], default: [] },
       plan: { type: String, default: '' },
       notes: { type: String, default: '' },
+      // Applied Animated Carousel Cover: { key } of the rendered MP4 in S3.
+      // When set, Week View plays it in place of the static hook (slide 1).
+      // The full spec + render metadata live on agentTrace.cover.
+      coverVideo: { type: mongoose.Schema.Types.Mixed, default: null },
     },
     // Parsed outputs from Strategist / Structure / Day Writer / Layout for this post.
     // Shown in Week View when AI prompt debug is on. layoutHtml on each slide is

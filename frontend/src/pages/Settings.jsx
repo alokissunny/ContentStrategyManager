@@ -17,6 +17,7 @@ import { getMetaStatus, startMetaConnect, disconnectMeta, metaConnectionFor, rem
 import { syncHandle } from '../lib/store';
 import { resetProjects } from '../lib/projectsStore';
 import { useAiDebug, setAiDebugEnabled, clearAiDebugEntries } from '../lib/aiDebug';
+import { useFeatureFlags, setVideoCoverEnabled } from '../lib/featureFlags';
 import './settings.css';
 
 /* which formats Bauhly may use — held as EXCLUSIONS so a format added later is
@@ -65,6 +66,7 @@ export default function Settings() {
   const [metaBusy, setMetaBusy] = useState(false);
   const [disconnectingId, setDisconnectingId] = useState('');
   const debug = useAiDebug();
+  const flags = useFeatureFlags();
 
   useEffect(() => {
     listInstagramProfiles()
@@ -394,6 +396,34 @@ export default function Settings() {
         {dropped.length === FORMATS.length && (
           <p className="set-empty">Every format is off — Bauhly has nothing to plan with. Turn at least one back on.</p>
         )}
+      </section>
+
+      {/* ── Experimental features ── */}
+      <section className="card set-card">
+        <h2>Experimental features</h2>
+        <p className="set-card__sub">Early features you can try. Off by default.</p>
+        <div className="set-row">
+          <span className="set-row__ico"><Icon name="play" size={19} /></span>
+          <span className="set-row__main">
+            <b className="set-row__title">Animated video cover</b>
+            <span className="set-row__sub">
+              {flags.videoCover
+                ? 'On · a “Video cover” option appears on each post’s hook slide'
+                : 'Off · generate an animated hook video from a post’s strategy and structure'}
+            </span>
+          </span>
+          <span className="set-row__acts">
+            <button
+              className={`set-switch ${flags.videoCover ? 'is-on' : ''}`}
+              role="switch"
+              aria-checked={flags.videoCover}
+              aria-label={`${flags.videoCover ? 'Disable' : 'Enable'} animated video cover`}
+              onClick={() => setVideoCoverEnabled(!flags.videoCover)}
+            >
+              <i aria-hidden="true" />
+            </button>
+          </span>
+        </div>
       </section>
 
       {/* ── Debug ── */}

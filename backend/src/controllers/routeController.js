@@ -6,6 +6,8 @@ const { generateWeeklyPlan, buildMonthCalendar, dayHasContent, isoDate, parseIso
 const { analyzeImageAsset } = require('../services/imageAnalysis');
 const { rewriteCaption } = require('../services/captionPolish');
 const { runLayoutForPost, applyLayoutToContent } = require('../services/planOrchestrator');
+const { generateCoverSpec, renderCoverVideo } = require('../services/carouselCoverAgent');
+const { isS3Configured, uploadBytes, getMediaUrl } = require('../services/s3Client');
 const { loadCompetitorOverviewForUser } = require('./competitorController');
 const { currentProfile } = require('../utils/currentProfile');
 const { findMetaConnectionForUsername } = require('../services/graphInstagram');
@@ -1006,6 +1008,12 @@ async function markDayPublished(req, res) {
     if (Array.isArray(incoming.hashtags)) {
       cur.hashtags = incoming.hashtags.map((h) => String(h).replace(/^#/, ''));
     }
+    // Apply / clear the animated video cover on the hook slide.
+    if (incoming.coverVideo !== undefined) {
+      cur.coverVideo = incoming.coverVideo && incoming.coverVideo.key
+        ? { key: String(incoming.coverVideo.key), updatedAt: new Date().toISOString() }
+        : null;
+    }
     day.content = cur;
   }
 
@@ -1083,6 +1091,10 @@ async function polishCaption(req, res) {
     console.error('[route] caption polish failed:', err.message);
     return res.status(status).json({ message: err.message || 'Could not rewrite the caption.' });
   }
+}
+
+function optionalText(value) {
+  return typeof value === 'string' ? value.trim() : '';
 }
 
 function plainOf(value) {
@@ -1183,6 +1195,104 @@ async function rerunDayLayout(req, res) {
   }
 }
 
+// POST /routes/:id/day/:index/cover
+// Run the Animated Carousel Cover agent on this post's hook: strategy brief +
+// content structure → cover spec → rendered MP4. Stored on agentTrace.cover; the
+// slide itself is only replaced when the user applies it from the UI.
+const fs = require('fs');
+const os = require('os');
+const crypto = require('crypto');
+const path = require('path');
+
+async function renderDayCover(req, res) {
+  const index = Number(req.params.index);
+  const route = await WeeklyRoute.findOne({ _id: req.params.id, user: req.user._id });
+  if (!route) return res.status(404).json({ message: 'Route not found' });
+  if (!route.days[index]) return res.status(404).json({ message: 'Day not found' });
+
+  const day = route.days[index];
+  const trace = day.agentTrace && typeof day.agentTrace === 'object' ? plainOf(day.agentTrace) : {};
+  const structure = trace.structure || {};
+  const brief = trace.strategyBrief || {};
+  const label = day.date || day.day || `D${index + 1}`;
+  if (!structure || !Array.isArray(structure.slidesOrScenes) || !structure.slidesOrScenes.length) {
+    return res.status(400).json({ message: 'This post has no content structure to build a cover from.' });
+  }
+
+  let username = null;
+  try { username = (await currentProfile(req.user._id))?.username || null; } catch { /* optional */ }
+  const dna = username ? await loadBrandDna(req.user._id, username).catch(() => null) : null;
+  const brand = dna ? {
+    offer: dna.whatYouOffer,
+    voice: dna.howYouSound,
+    visualStyle: dna.visualStyle,
+  } : {};
+
+  // Resolved Visual Library settings the client sends (palette, fonts, mood).
+  // Authoritative — the agent's palette/font guesses are overridden with these.
+  const visual = req.body && typeof req.body.visual === 'object' ? req.body.visual : null;
+
+  // The hook slide's own photo, if any — offered to the agent, which decides
+  // whether a full-bleed photo cover beats a type-led one. URL resolved here so
+  // the headless renderer can fetch it; the agent never sees the URL.
+  const hookSlide = (Array.isArray(day.content?.slides) ? day.content.slides : [])[0] || {};
+  const hookImageKey = optionalText(hookSlide.assetKey)
+    || (Array.isArray(hookSlide.assetKeys) ? hookSlide.assetKeys.find(Boolean) : '')
+    || '';
+  let image = null;
+  if (hookImageKey) {
+    try {
+      const url = await getMediaUrl(hookImageKey);
+      if (url) {
+        image = {
+          url,
+          description: optionalText(hookSlide.imagePrompt)
+            || optionalText(hookSlide.visualNeed?.visualCommunicationNeed)
+            || optionalText(hookSlide.title)
+            || 'the post’s hook photo',
+        };
+      }
+    } catch (err) {
+      console.warn(`[route] Cover:${label} could not resolve hook image — ${err.message}`);
+    }
+  }
+
+  const started = Date.now();
+  const outPath = path.join(os.tmpdir(), `cover-${crypto.randomUUID()}.mp4`);
+  try {
+    const { spec, model, usage } = await generateCoverSpec({ brief, structure, brand, visual, image });
+    await renderCoverVideo({ spec, outPath, timeoutMs: 180000 });
+    const buffer = fs.readFileSync(outPath);
+
+    let videoKey = '';
+    let videoUrl = '';
+    if (isS3Configured()) {
+      videoKey = `projects/${req.user._id}/cover-${crypto.randomUUID()}.mp4`;
+      await uploadBytes(videoKey, buffer, 'video/mp4');
+    } else {
+      // dev fallback: inline the clip so the panel can still play it
+      videoUrl = `data:video/mp4;base64,${buffer.toString('base64')}`;
+    }
+
+    const cover = { spec, videoKey, model, updatedAt: new Date().toISOString() };
+    day.agentTrace = { ...trace, cover };
+    route.markModified('days');
+    await route.save();
+
+    console.log(
+      `[route] Cover:${label} · ${Math.round((Date.now() - started) / 100) / 10}s` +
+        ` · ${videoKey ? `s3 ${videoKey}` : 'inline'} · ${usage?.total_tokens || usage?.output_tokens || '?'} tok`,
+    );
+    return res.json({ route, cover: { spec, videoKey, videoUrl } });
+  } catch (err) {
+    const status = err.statusCode || err.status || 502;
+    console.error(`[route] cover render failed for ${label}:`, err.message);
+    return res.status(status).json({ message: err.message || 'Could not create the video cover.' });
+  } finally {
+    try { fs.unlinkSync(outPath); } catch { /* ignore */ }
+  }
+}
+
 module.exports = {
   generateAndSaveRoute,
   getCurrentRoute,
@@ -1192,6 +1302,7 @@ module.exports = {
   markDayPublished,
   polishCaption,
   rerunDayLayout,
+  renderDayCover,
   clearCurrentMonth,
   remainingWeekStarts,
   firstMondayOfNextMonth,

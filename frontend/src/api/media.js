@@ -48,6 +48,16 @@ export function isProxyUrl(url) {
   return /\/media\/proxy\?key=/.test(String(url || ''));
 }
 
+// Proxy URL for a stored video cover (mp4/webm/mov). Same endpoint as
+// mediaProxyUrl but not gated to image extensions, so an .mp4 project key
+// resolves instead of being dropped.
+export function videoProxyUrl(key) {
+  const raw = String(key || '').trim();
+  if (!/^projects\/[a-f0-9]{24}\/[A-Za-z0-9._-]+\.(mp4|webm|mov)$/i.test(raw)) return '';
+  const base = (client.defaults.baseURL || '/api').replace(/\/$/, '');
+  return `${base}/media/proxy?key=${encodeURIComponent(raw)}`;
+}
+
 // Bytes the canvas 2d context can actually read. CDN <img> URLs display fine
 // but send no Access-Control-Allow-Origin — so crop/export with
 // `crossOrigin = 'anonymous'` fails, the canvas stays tainted, and toBlob

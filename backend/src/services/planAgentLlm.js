@@ -43,6 +43,11 @@ const AGENTS = {
     modelEnv: 'PLAN_VISUAL_MODEL',
     providerEnv: 'PLAN_VISUAL_PROVIDER',
   },
+  cover: {
+    defaultProvider: 'openai',
+    modelEnv: 'PLAN_COVER_MODEL',
+    providerEnv: 'PLAN_COVER_PROVIDER',
+  },
 };
 
 function envText(name) {

@@ -161,3 +161,12 @@ export function runDayLayout(routeId, index) {
       return data;
     });
 }
+
+// Run the Animated Carousel Cover agent on one post's hook. Returns
+// { route, cover: { spec, videoKey, videoUrl } }. Rendering is CPU-heavy
+// (headless Chromium), so give it a long timeout.
+export function runDayCover(routeId, index, visual) {
+  return client
+    .post(`/routes/${routeId}/day/${index}/cover`, visual ? { visual } : {}, { timeout: 240000 })
+    .then((res) => res.data || {});
+}
