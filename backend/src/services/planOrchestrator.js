@@ -553,7 +553,11 @@ async function callAgent({ source, kind, prompt, system, user, validate, parse }
         `[planOrchestrator] ${source} done · ${Math.round(elapsedMs / 100) / 10}s` +
           ` · ${usage.totalTokens} tok (${usage.outputTokens} out)`,
       );
-      return { parsed, usage, debugEntry: { ...debugEntry, output: fullText, elapsedMs } };
+      return {
+        parsed,
+        usage,
+        debugEntry: { ...debugEntry, output: fullText, elapsedMs, usage },
+      };
     } catch (err) {
       lastErr = err;
       console.warn(
@@ -2024,7 +2028,7 @@ async function writeLayout({ source, structure, post, dayBrief }) {
       return failed ? { ...failed, parts, usage } : {
         parsed: { status: 'failed', failureReason: 'all layout slides failed', slides: [] },
         usage,
-        debugEntry: { source, model, kind: 'layout', prompt: '', output: '', elapsedMs },
+        debugEntry: { source, model, kind: 'layout', prompt: '', output: '', elapsedMs, usage },
         parts,
       };
     }
@@ -2039,6 +2043,7 @@ async function writeLayout({ source, structure, post, dayBrief }) {
         output: parts.map((p) => p.debugEntry?.output).filter(Boolean).join('\n\n'),
         kind: 'layout',
         elapsedMs,
+        usage,
       },
       parts,
     };
@@ -2133,16 +2138,26 @@ async function writeCarousel({ source, structure, post, dayBrief, brand, dayWrit
       `postSlides=${postSlideCount} inputSlides=${carouselInput.slides.length} ` +
       `hasStructure=${Boolean(structure && Array.isArray(structure.slidesOrScenes) && structure.slidesOrScenes.length)}`,
   );
+  if (!carouselInput.slides.length) {
+    throw new Error(
+      `${source}: no slides to send to carousel agent ` +
+        `(structureSlides=${structureSlides} postSlides=${postSlideCount})`,
+    );
+  }
   const assembled = assembleAgentPrompt('plan-carousel.md', {
     CONTENT_STRUCTURE_JSON: json(carouselInput),
     DAY_WRITER_OUTPUT: optionalPromptJson(dayWriterOutput),
     BRAND_STYLE: optionalPromptJson(brandStyleOf(brand)),
     BRAND_JSON: optionalPromptJson(brandMemoryOf(brand)),
-    // Legacy camelCase aliases (older prompt cache / local edits).
     contentStructure: json(carouselInput),
     dayWriterOutput: optionalPromptJson(dayWriterOutput),
     brandStyle: optionalPromptJson(brandStyleOf(brand)),
   });
+  const userHead = String(assembled.user || '').slice(0, 180).replace(/\s+/g, ' ');
+  console.log(`[planOrchestrator] ${source} userHead · ${userHead}`);
+  if (!/\{\s*"/.test(assembled.user || '') && !/slides/i.test(assembled.user || '')) {
+    throw new Error(`${source}: content structure missing from assembled user prompt`);
+  }
   return withLayoutSlot(() => callAgent({
     source,
     kind: 'carousel',
@@ -2843,6 +2858,7 @@ async function runMultiAgentPlan({
       mode: 'multi-agent',
       model,
       elapsedMs,
+      usage,
       // Keep a lead prompt for older clients; full list lives in agents.
       finalPrompt: strategistPrompt,
       agents: debugAgents.map((a) => ({
@@ -2852,6 +2868,11 @@ async function runMultiAgentPlan({
         prompt: a.prompt,
         output: a.output || '',
         elapsedMs: Number(a.elapsedMs) || 0,
+        usage: a.usage || null,
+        inputTokens: Number(a.usage?.inputTokens) || 0,
+        outputTokens: Number(a.usage?.outputTokens) || 0,
+        totalTokens: Number(a.usage?.totalTokens) || 0,
+        estimatedCostUsd: Number(a.usage?.estimatedCostUsd) || 0,
       })),
     },
   };

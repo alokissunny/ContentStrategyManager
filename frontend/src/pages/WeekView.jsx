@@ -1503,6 +1503,11 @@ function carouselDocumentOf(day) {
     || t.carousel?.parsed?.html
     || '';
   const raw = String(html || '').trim();
+  if (!raw) return '';
+  // Stale runs from the template-split bug stored apology shells — do not paint them.
+  if (/content structure (was )?not included|awaiting content|role not supplied/i.test(raw)) {
+    return '';
+  }
   return (/<!doctype html/i.test(raw) || /<html[\s>]/i.test(raw)) ? raw : '';
 }
 
@@ -1939,7 +1944,10 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
     if (!aiDebug.enabled && sideTab === 'debug') setSideTab('caption');
     if (!videoCoverOn && sideTab === 'video') setSideTab('caption');
   }, [aiDebug.enabled, videoCoverOn, sideTab]);
-  useEffect(() => { setLayoutErr(''); }, [selected]);
+  useEffect(() => {
+    setLayoutBusy(false);
+    setLayoutErr('');
+  }, [selected]);
   useEffect(() => {
     setRoute(initialRoute);
     const n = (initialRoute?.days || []).length;
@@ -2762,7 +2770,12 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
         onRouteChange?.(data.route);
       }
     } catch (err) {
-      setLayoutErr(err.response?.data?.message || err.message || 'Carousel agent failed.');
+      const timedOut = err?.code === 'ECONNABORTED' || /timeout/i.test(String(err?.message || ''));
+      setLayoutErr(
+        timedOut
+          ? 'Carousel agent timed out. Try again — a server restart mid-run can leave this stuck.'
+          : (err.response?.data?.message || err.message || 'Carousel agent failed.'),
+      );
     } finally {
       setLayoutBusy(false);
     }
@@ -4175,6 +4188,8 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
                   layoutBusy={layoutBusy}
                   layoutErr={layoutErr}
                   elapsedMs={weekUsage?.elapsedMs}
+                  estimatedCostUsd={weekUsage?.estimatedCostUsd}
+                  totalTokens={weekUsage?.totalTokens}
                 />
               </div>
             )}
@@ -4331,6 +4346,8 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
                     layoutBusy={layoutBusy}
                     layoutErr={layoutErr}
                     elapsedMs={weekUsage?.elapsedMs}
+                    estimatedCostUsd={weekUsage?.estimatedCostUsd}
+                    totalTokens={weekUsage?.totalTokens}
                   />
                 )}
               </div>

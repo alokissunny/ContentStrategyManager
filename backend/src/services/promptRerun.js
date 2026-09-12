@@ -6,6 +6,7 @@ const {
   usesCompletionTokens,
   conversationModel,
 } = require('./llmComplete');
+const { estimatePlanCostUsd } = require('./weeklyPlan');
 
 const DEFAULT_MAX_TOKENS = 16384;
 
@@ -92,6 +93,36 @@ function safeJson(raw) {
   }
 }
 
+function usageFromAnthropic(response, model) {
+  const u = response.usage || {};
+  const inputTokens = Number(u.input_tokens) || 0;
+  const outputTokens = Number(u.output_tokens) || 0;
+  const cachedTokens = Number(u.cache_read_input_tokens) || 0;
+  return {
+    inputTokens,
+    outputTokens,
+    cachedTokens,
+    totalTokens: inputTokens + outputTokens,
+    estimatedCostUsd: estimatePlanCostUsd(model, inputTokens, outputTokens, cachedTokens),
+    model,
+  };
+}
+
+function usageFromOpenAI(response, model) {
+  const u = response.usage || {};
+  const inputTokens = Number(u.prompt_tokens) || 0;
+  const outputTokens = Number(u.completion_tokens) || 0;
+  const cachedTokens = Number(u.prompt_tokens_details?.cached_tokens) || 0;
+  return {
+    inputTokens,
+    outputTokens,
+    cachedTokens,
+    totalTokens: inputTokens + outputTokens,
+    estimatedCostUsd: estimatePlanCostUsd(model, inputTokens, outputTokens, cachedTokens),
+    model,
+  };
+}
+
 async function completeAnthropic({ model, systemPrompt, prompt }) {
   if (!process.env.ANTHROPIC_API_KEY) {
     fail('ANTHROPIC_API_KEY is not set.', 503);
@@ -105,7 +136,11 @@ async function completeAnthropic({ model, systemPrompt, prompt }) {
   };
   if (systemPrompt) params.system = systemPrompt;
   const response = await getAnthropicClient().messages.create(params);
-  return { output: outputOfAnthropic(response), model: resolved };
+  return {
+    output: outputOfAnthropic(response),
+    model: resolved,
+    usage: usageFromAnthropic(response, resolved),
+  };
 }
 
 async function completeOpenAI({ model, systemPrompt, prompt }) {
@@ -125,7 +160,11 @@ async function completeOpenAI({ model, systemPrompt, prompt }) {
     ...tokenArg,
     ...openaiToolsFor(systemPrompt),
   });
-  return { output: outputOfOpenAI(response), model: resolved };
+  return {
+    output: outputOfOpenAI(response),
+    model: resolved,
+    usage: usageFromOpenAI(response, resolved),
+  };
 }
 
 /**

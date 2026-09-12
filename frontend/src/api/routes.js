@@ -1,14 +1,38 @@
 import client from './client';
-import { addAiDebugEntry, fmtElapsed } from '../lib/aiDebug';
+import { addAiDebugEntry, fmtElapsed, fmtCost } from '../lib/aiDebug';
+
+function usageFrom(agent = {}, fallback = {}) {
+  const u = agent.usage && typeof agent.usage === 'object' ? agent.usage : agent;
+  const fb = fallback.usage && typeof fallback.usage === 'object' ? fallback.usage : fallback;
+  return {
+    inputTokens: Number(u.inputTokens ?? fb.inputTokens) || 0,
+    outputTokens: Number(u.outputTokens ?? fb.outputTokens) || 0,
+    totalTokens: Number(u.totalTokens ?? fb.totalTokens) || 0,
+    estimatedCostUsd: Number(u.estimatedCostUsd ?? fb.estimatedCostUsd) || 0,
+  };
+}
 
 function ingestPlanDebug(label, data = {}) {
   const debug = data.debug;
   if (!debug) return;
-  const elapsedMs = Number(debug.elapsedMs || data.usage?.elapsedMs) || 0;
+  const elapsedMs = Number(debug.elapsedMs || data.usage?.elapsedMs || data.route?.usage?.elapsedMs) || 0;
   const agents = Array.isArray(debug.agents) ? debug.agents : null;
+  let genUsage = usageFrom(debug.usage || data.usage || data.route?.usage || {});
+  if (agents?.length && !genUsage.estimatedCostUsd && !genUsage.totalTokens) {
+    genUsage = agents.reduce((acc, agent) => {
+      const u = usageFrom(agent);
+      return {
+        inputTokens: acc.inputTokens + u.inputTokens,
+        outputTokens: acc.outputTokens + u.outputTokens,
+        totalTokens: acc.totalTokens + u.totalTokens,
+        estimatedCostUsd: Math.round((acc.estimatedCostUsd + u.estimatedCostUsd) * 1e6) / 1e6,
+      };
+    }, { inputTokens: 0, outputTokens: 0, totalTokens: 0, estimatedCostUsd: 0 });
+  }
   if (agents?.length) {
     // Prepends reverse chronological; ingest bottom→top so Strategist stays first.
     [...agents].reverse().forEach((agent, i) => {
+      const usage = usageFrom(agent);
       addAiDebugEntry({
         source: agent.source || `${label} · step ${agents.length - i}`,
         model: agent.model || debug.model,
@@ -16,15 +40,19 @@ function ingestPlanDebug(label, data = {}) {
         output: agent.output,
         elapsedMs: Number(agent.elapsedMs) || 0,
         note: debug.mode ? `mode: ${debug.mode}` : '',
+        ...usage,
       });
     });
+    const costLabel = fmtCost(genUsage.estimatedCostUsd);
     addAiDebugEntry({
       source: label,
       model: debug.model,
       elapsedMs,
+      ...genUsage,
       note: [
         debug.mode ? `mode: ${debug.mode}` : '',
         elapsedMs ? `complete generation ${fmtElapsed(elapsedMs)}` : '',
+        costLabel ? `~${costLabel} est.` : '',
         `${agents.length} agent ${agents.length === 1 ? 'call' : 'calls'}`,
       ].filter(Boolean).join(' · '),
     });
@@ -39,6 +67,7 @@ function ingestPlanDebug(label, data = {}) {
       systemPrompt: debug.systemPrompt,
       elapsedMs,
       note: debug.mode ? `mode: ${debug.mode}` : '',
+      ...genUsage,
     });
   }
 }

@@ -888,9 +888,21 @@ async function generateSingleAgentPlan({
       mode: 'single',
       model,
       elapsedMs,
+      usage: { ...usage, elapsedMs },
       finalPrompt: prompt,
       output: fullText,
-      agents: [{ source: 'Weekly plan (single)', model, prompt, output: fullText, elapsedMs }],
+      agents: [{
+        source: 'Weekly plan (single)',
+        model,
+        prompt,
+        output: fullText,
+        elapsedMs,
+        usage: { ...usage, elapsedMs },
+        inputTokens: usage.inputTokens || 0,
+        outputTokens: usage.outputTokens || 0,
+        totalTokens: usage.totalTokens || 0,
+        estimatedCostUsd: usage.estimatedCostUsd || 0,
+      }],
     },
   };
 }

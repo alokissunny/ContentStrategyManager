@@ -6,6 +6,8 @@ import {
   clearAiDebugEntries,
   updateAiDebugEntry,
   fmtElapsed,
+  fmtCost,
+  fmtTokens,
 } from '../lib/aiDebug';
 import { rerunPrompt } from '../api/debug';
 import {
@@ -18,6 +20,22 @@ function lastCompleteRun(entries) {
   return (entries || []).find((e) => Number(e.elapsedMs) > 0 && /generate plan|replan week/i.test(String(e.source || '')))
     || (entries || []).find((e) => Number(e.elapsedMs) > 0)
     || null;
+}
+
+function entryCostLabel(entry) {
+  return fmtCost(entry?.estimatedCostUsd);
+}
+
+function entryMeta(entry) {
+  const parts = [];
+  if (entry.elapsedMs) parts.push(fmtElapsed(entry.elapsedMs));
+  const cost = entryCostLabel(entry);
+  if (cost) parts.push(`~${cost}`);
+  const tokens = fmtTokens(entry.totalTokens);
+  if (tokens) parts.push(`${tokens} tok`);
+  if (entry.model) parts.push(entry.model);
+  parts.push(fmtTime(entry.at));
+  return parts.join(' · ');
 }
 
 function fmtTime(ms) {
@@ -163,6 +181,11 @@ function DebugEntry({ entry }) {
         prompt,
         output: data.output,
         model: data.model || entry.model,
+        usage: data.usage,
+        estimatedCostUsd: data.usage?.estimatedCostUsd,
+        inputTokens: data.usage?.inputTokens,
+        outputTokens: data.usage?.outputTokens,
+        totalTokens: data.usage?.totalTokens,
       });
     } catch (err) {
       setError(err.response?.data?.message || err.message || 'Could not rerun this prompt.');
@@ -177,11 +200,7 @@ function DebugEntry({ entry }) {
     <details className="ai-debug__item" open={hasIo}>
       <summary className="ai-debug__sum">
         <span>{entry.source}</span>
-        <span className="ai-debug__meta">
-          {entry.elapsedMs ? `${fmtElapsed(entry.elapsedMs)} · ` : ''}
-          {entry.model ? `${entry.model} · ` : ''}
-          {fmtTime(entry.at)}
-        </span>
+        <span className="ai-debug__meta">{entryMeta(entry)}</span>
       </summary>
       {entry.note ? <p className="ai-debug__note">{entry.note}</p> : null}
       {hasIo ? (
@@ -248,7 +267,11 @@ export default function AiDebugPanel() {
   const debug = useAiDebug();
   if (!debug.enabled) return null;
   const complete = lastCompleteRun(debug.entries);
-  const completeLabel = complete?.elapsedMs ? fmtElapsed(complete.elapsedMs) : '';
+  const completeParts = [];
+  if (complete?.elapsedMs) completeParts.push(fmtElapsed(complete.elapsedMs));
+  const completeCost = entryCostLabel(complete);
+  if (completeCost) completeParts.push(`~${completeCost}`);
+  const completeLabel = completeParts.join(' · ');
 
   if (!debug.open) {
     return (
@@ -273,7 +296,7 @@ export default function AiDebugPanel() {
           <Glyph name="bug" size={14} strokeWidth={2} />
           AI Prompt Debug
           {completeLabel ? (
-            <span className="ai-debug__elapsed" title="Time for the last complete generation">
+            <span className="ai-debug__elapsed" title="Time and estimated cost for the last complete generation">
               {completeLabel}
             </span>
           ) : null}

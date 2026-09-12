@@ -2,6 +2,16 @@ import client from './client';
 import { filesForUpload } from '../lib/heicUpload';
 import { addAiDebugEntry } from '../lib/aiDebug';
 
+function usageOf(raw = {}) {
+  const u = raw.usage && typeof raw.usage === 'object' ? raw.usage : raw;
+  return {
+    inputTokens: Number(u.inputTokens) || 0,
+    outputTokens: Number(u.outputTokens) || 0,
+    totalTokens: Number(u.totalTokens) || 0,
+    estimatedCostUsd: Number(u.estimatedCostUsd) || 0,
+  };
+}
+
 function ingestAiDebug(label, data = {}) {
   const debug = data.debug;
   if (!debug) return;
@@ -17,6 +27,7 @@ function ingestAiDebug(label, data = {}) {
           systemPrompt: agent.systemPrompt,
           elapsedMs: Number(agent.elapsedMs) || 0,
           note: agent.note || '',
+          ...usageOf(agent),
         });
       });
       return;
@@ -29,6 +40,7 @@ function ingestAiDebug(label, data = {}) {
       systemPrompt: debug.systemPrompt,
       elapsedMs: Number(debug.elapsedMs) || 0,
       note: debug.note || '',
+      ...usageOf(debug),
     });
   } catch {
     /* the debug panel must never sink a capture turn */

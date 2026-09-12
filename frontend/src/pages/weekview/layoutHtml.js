@@ -491,7 +491,14 @@ function activateCarouselDirection(doc, direction) {
       || trim(sec.getAttribute('data-direction')).toLowerCase();
     const on = aliases.includes(id);
     if (on) {
-      sec.style.removeProperty('display');
+      // Force the target theme visible with !important: the agent's document
+      // hides non-default `section[data-direction]` via its own CSS (only the
+      // loaded theme shows), so merely clearing the inline display leaves the
+      // section at the stylesheet's `display:none` and its slide measures as
+      // zero-size — the crop then falls back to the preview chrome.
+      sec.style.setProperty('display', 'block', 'important');
+      sec.style.setProperty('visibility', 'visible', 'important');
+      sec.style.setProperty('opacity', '1', 'important');
       sec.removeAttribute('hidden');
       sec.classList.add('is-on', 'is-active', 'is-selected');
     } else {

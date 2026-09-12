@@ -96,13 +96,46 @@ export function fmtElapsed(ms) {
   return rm ? `${h}h ${rm}m` : `${h}h`;
 }
 
+export function fmtCost(usd) {
+  const n = Number(usd);
+  if (!Number.isFinite(n) || n <= 0) return '';
+  if (n < 0.01) return `$${n.toFixed(4)}`;
+  if (n < 1) return `$${n.toFixed(3)}`;
+  return `$${n.toFixed(2)}`;
+}
+
+export function fmtTokens(n) {
+  const v = Number(n);
+  if (!Number.isFinite(v) || v <= 0) return '';
+  if (v >= 1000) return `${(v / 1000).toFixed(v >= 10000 ? 0 : 1)}k`;
+  return String(Math.round(v));
+}
+
+function usageFields(entry = {}) {
+  const u = entry.usage && typeof entry.usage === 'object' ? entry.usage : entry;
+  const inputTokens = Number(u.inputTokens) || 0;
+  const outputTokens = Number(u.outputTokens) || 0;
+  const totalTokens = Number(u.totalTokens) || (inputTokens + outputTokens);
+  const estimatedCostUsd = Number(u.estimatedCostUsd) || 0;
+  if (!totalTokens && !estimatedCostUsd) {
+    return {
+      inputTokens: 0,
+      outputTokens: 0,
+      totalTokens: 0,
+      estimatedCostUsd: 0,
+    };
+  }
+  return { inputTokens, outputTokens, totalTokens, estimatedCostUsd };
+}
+
 export function addAiDebugEntry(entry = {}) {
   if (!state.enabled) return;
   const prompt = asText(entry.prompt).trim();
   const output = asText(entry.output).trim();
   const systemPrompt = asText(entry.systemPrompt).trim();
   const elapsedMs = Number(entry.elapsedMs) || 0;
-  if (!prompt && !output && !String(entry.note || '').trim() && !elapsedMs) return;
+  const usage = usageFields(entry);
+  if (!prompt && !output && !String(entry.note || '').trim() && !elapsedMs && !usage.estimatedCostUsd) return;
   const item = {
     id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     at: Date.now(),
@@ -113,6 +146,7 @@ export function addAiDebugEntry(entry = {}) {
     systemPrompt,
     note: String(entry.note || ''),
     elapsedMs,
+    ...usage,
   };
   const next = [item, ...state.entries].slice(0, MAX_ENTRIES);
   setState({ entries: next });
@@ -127,6 +161,16 @@ export function updateAiDebugEntry(id, patch = {}) {
     if (patch.output !== undefined) merged.output = asText(patch.output);
     if (patch.model !== undefined) merged.model = String(patch.model || '');
     if (patch.note !== undefined) merged.note = String(patch.note || '');
+    if (patch.elapsedMs !== undefined) merged.elapsedMs = Number(patch.elapsedMs) || 0;
+    if (
+      patch.usage !== undefined
+      || patch.estimatedCostUsd !== undefined
+      || patch.inputTokens !== undefined
+      || patch.outputTokens !== undefined
+      || patch.totalTokens !== undefined
+    ) {
+      Object.assign(merged, usageFields({ ...merged, ...patch, usage: patch.usage || patch }));
+    }
     return merged;
   });
   setState({ entries: next });

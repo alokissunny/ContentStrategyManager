@@ -1160,18 +1160,28 @@ async function rerunDayLayout(req, res) {
     return res.status(400).json({ message: 'This post has no slides to layout.' });
   }
 
-  const structure = trace.structure || {};
+  const structure = plainOf(trace.structure) || {};
   const label = day.date || day.day || `D${index + 1}`;
   const dna = await loadBrandDna(req.user._id, route.instagramUsername).catch(() => null);
   const brand = compileBrandMemory(dna);
+  const dayWriterOutput = plainOf(trace.dayWriter)
+    || (Array.isArray(post.content?.slides) ? { content: { slides: post.content.slides } } : '');
+
+  if (!Array.isArray(structure.slidesOrScenes) || !structure.slidesOrScenes.length) {
+    console.warn(
+      `[route] Carousel:${label}:debug — agentTrace.structure has no slidesOrScenes; ` +
+        `falling back to post.content.slides (${post.content.slides.length})`,
+    );
+  }
 
   try {
     const result = await runLayoutForPost({
       source: `Carousel:${label}:debug`,
       structure,
       post,
-      dayBrief: trace.strategyBrief || {},
+      dayBrief: plainOf(trace.strategyBrief) || {},
       brand,
+      dayWriterOutput,
     });
     if (result.parsed?.status === 'failed') {
       return res.status(422).json({
@@ -1197,6 +1207,7 @@ async function rerunDayLayout(req, res) {
         debug: {
           mode: 'carousel-debug',
           model: result.usage?.model || debugEntry.model,
+          usage: result.usage || debugEntry.usage || null,
           agents: [{
             source: debugEntry.source || `Carousel:${label}:debug`,
             model: debugEntry.model,
@@ -1204,6 +1215,11 @@ async function rerunDayLayout(req, res) {
             prompt: debugEntry.prompt,
             output: debugEntry.output || '',
             elapsedMs: Number(debugEntry.elapsedMs || result.usage?.elapsedMs) || 0,
+            usage: result.usage || debugEntry.usage || null,
+            inputTokens: Number(result.usage?.inputTokens || debugEntry.usage?.inputTokens) || 0,
+            outputTokens: Number(result.usage?.outputTokens || debugEntry.usage?.outputTokens) || 0,
+            totalTokens: Number(result.usage?.totalTokens || debugEntry.usage?.totalTokens) || 0,
+            estimatedCostUsd: Number(result.usage?.estimatedCostUsd || debugEntry.usage?.estimatedCostUsd) || 0,
           }],
           elapsedMs: Number(debugEntry.elapsedMs || result.usage?.elapsedMs) || 0,
         },

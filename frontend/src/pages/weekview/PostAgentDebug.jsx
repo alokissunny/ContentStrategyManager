@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { useAiDebug, fmtElapsed } from '../../lib/aiDebug';
+import { useAiDebug, fmtElapsed, fmtCost, fmtTokens } from '../../lib/aiDebug';
 import { prepareLayoutHtml, shareLayoutStyles } from './layoutHtml';
 
 function pretty(value) {
@@ -68,13 +68,24 @@ function carouselDocumentHtml(value) {
   if (!value) return '';
   if (typeof value === 'string') {
     const t = value.trim();
-    if (/<html[\s>]/i.test(t) || /<!doctype html/i.test(t)) return t;
+    if (/<html[\s>]/i.test(t) || /<!doctype html/i.test(t)) {
+      if (/content structure (was )?not included|awaiting content|role not supplied/i.test(t)) return '';
+      return t;
+    }
     const parsed = parseJson(t);
     const html = parsed?.html || parsed?.parsed?.html;
-    return (typeof html === 'string' && /<html[\s>]/i.test(html)) ? html : '';
+    if (typeof html === 'string' && /<html[\s>]/i.test(html)) {
+      if (/content structure (was )?not included|awaiting content|role not supplied/i.test(html)) return '';
+      return html;
+    }
+    return '';
   }
   const html = value.html || value.parsed?.html;
-  return (typeof html === 'string' && /<html[\s>]/i.test(html)) ? html : '';
+  if (typeof html === 'string' && /<html[\s>]/i.test(html)) {
+    if (/content structure (was )?not included|awaiting content|role not supplied/i.test(html)) return '';
+    return html;
+  }
+  return '';
 }
 
 // Same empty-slot treatment as Week View: keep agent CSS/structure, mark empty
@@ -213,6 +224,13 @@ function lastMatching(entries, prefix) {
   return hits[0] || null;
 }
 
+function costOf(entry) {
+  const cost = fmtCost(entry?.estimatedCostUsd);
+  const tokens = fmtTokens(entry?.totalTokens);
+  const time = fmtElapsed(entry?.elapsedMs);
+  return [time, cost ? `~${cost}` : '', tokens ? `${tokens} tok` : ''].filter(Boolean).join(' · ');
+}
+
 function briefFromStrategistLog(entries, date) {
   const entry = (entries || []).find((e) => /^Strategist/i.test(String(e.source || '')));
   const parsed = parseJson(entry?.output);
@@ -227,18 +245,33 @@ function briefFromStrategistLog(entries, date) {
 function traceForDay(day, entries) {
   const stored = day?.agentTrace && typeof day.agentTrace === 'object' ? day.agentTrace : {};
   const date = String(day?.date || '').trim();
+  const strategyEntry = (entries || []).find((e) => /^Strategist/i.test(String(e.source || '')));
+  const structureEntry = lastMatching(entries, date ? `Structure:${date}` : 'Structure:');
+  const dayHit = lastMatching(entries, date ? `Day:${date}` : 'Day:');
+  const layoutEntry = lastMatching(entries, date ? `Carousel:${date}` : 'Carousel:')
+    || lastMatching(entries, date ? `Layout:${date}` : 'Layout:')
+    || lastMatching(entries, 'Carousel agent');
   const strategyBrief = stored.strategyBrief
     || briefFromStrategistLog(entries, date);
   const structure = stored.structure
-    || parseJson(lastMatching(entries, date ? `Structure:${date}` : 'Structure:')?.output);
-  const dayHit = lastMatching(entries, date ? `Day:${date}` : 'Day:');
+    || parseJson(structureEntry?.output);
   const dayWriter = stored.dayWriter
     || parseJson(dayHit?.output);
   const layout = stored.layout
     || stored.carousel
-    || parseJson(lastMatching(entries, date ? `Carousel:${date}` : 'Carousel:')?.output)
-    || parseJson(lastMatching(entries, date ? `Layout:${date}` : 'Layout:')?.output);
-  return { strategyBrief, structure, dayWriter, layout };
+    || parseJson(layoutEntry?.output);
+  return {
+    strategyBrief,
+    structure,
+    dayWriter,
+    layout,
+    costs: {
+      strategy: costOf(strategyEntry),
+      structure: costOf(structureEntry),
+      dayWriter: costOf(dayHit),
+      layout: costOf(layoutEntry),
+    },
+  };
 }
 
 async function copyText(text) {
@@ -285,12 +318,15 @@ function CopyButton({ text }) {
   );
 }
 
-function Block({ title, value, open = false }) {
+function Block({ title, value, open = false, cost = '' }) {
   const body = pretty(value);
   if (!body) {
     return (
       <details className="wv-agentdbg__block">
-        <summary className="wv-agentdbg__sum">{title}</summary>
+        <summary className="wv-agentdbg__sum">
+          <span>{title}</span>
+          {cost ? <span className="wv-agentdbg__cost">{cost}</span> : null}
+        </summary>
         <p className="wv-agentdbg__empty">Not recorded for this post.</p>
       </details>
     );
@@ -302,6 +338,7 @@ function Block({ title, value, open = false }) {
       <summary className="wv-agentdbg__sum">
         <span>{title}</span>
         <span className="wv-agentdbg__acts">
+          {cost ? <span className="wv-agentdbg__cost">{cost}</span> : null}
           <PreviewButton slides={slides} documentHtml={documentHtml} />
           <CopyButton text={body} />
         </span>
@@ -311,22 +348,40 @@ function Block({ title, value, open = false }) {
   );
 }
 
-export default function PostAgentDebug({ day, onRunLayout, layoutBusy = false, layoutErr = '', elapsedMs = 0 }) {
+export default function PostAgentDebug({
+  day,
+  onRunLayout,
+  layoutBusy = false,
+  layoutErr = '',
+  elapsedMs = 0,
+  estimatedCostUsd = 0,
+  totalTokens = 0,
+}) {
   const debug = useAiDebug();
   const trace = traceForDay(day, debug.entries);
   const empty = !trace.strategyBrief && !trace.structure && !trace.dayWriter && !trace.layout;
   const took = fmtElapsed(elapsedMs);
+  const cost = fmtCost(estimatedCostUsd);
+  const tokens = fmtTokens(totalTokens);
+  const genMeta = [took, cost ? `~${cost} est.` : '', tokens ? `${tokens} tokens` : ''].filter(Boolean).join(' · ');
+  const staleShell = /content structure (was )?not included|awaiting content|role not supplied/i
+    .test(String(trace.layout?.html || trace.carousel?.html || day?.content?.carouselHtml || ''));
 
   return (
     <div className="wv-agentdbg">
-      {took ? (
+      {genMeta ? (
         <p className="wv-agentdbg__time">
-          Complete generation <strong>{took}</strong>
+          Complete generation <strong>{genMeta}</strong>
         </p>
       ) : null}
       <p className="wv-agentdbg__lead">
         Agent outputs for this post. Strategy decides the brief; Structure locks the slide map; Carousel composes three HTML layout directions. Day Writer, Visual, and Layout are skipped.
       </p>
+      {staleShell ? (
+        <p className="wv-agentdbg__empty">
+          Stored carousel HTML is an empty shell from a bad run (structure never reached the model). Click <strong>Run carousel agent</strong> to rebuild — do not trust the old Preview.
+        </p>
+      ) : null}
       {onRunLayout && (
         <div className="wv-agentdbg__run">
           <button
@@ -337,7 +392,7 @@ export default function PostAgentDebug({ day, onRunLayout, layoutBusy = false, l
           >
             {layoutBusy ? 'Composing…' : 'Run carousel agent'}
           </button>
-          <span className="wv-agentdbg__runhint">This post only — does not regenerate the week.</span>
+          <span className="wv-agentdbg__runhint">This post only — does not regenerate the week. Takes 1–3 minutes.</span>
         </div>
       )}
       {layoutErr ? <p className="wv-agentdbg__empty">{layoutErr}</p> : null}
@@ -346,10 +401,10 @@ export default function PostAgentDebug({ day, onRunLayout, layoutBusy = false, l
           No agent trace on this post yet. Generate or replan a week with debug mode on. Posts created before this will only show a trace if this session still has the prompt log.
         </p>
       )}
-      <Block title="Strategy brief" value={trace.strategyBrief} open />
-      <Block title="Structure agent" value={trace.structure} />
-      <Block title="Slide content" value={trace.dayWriter} />
-      <Block title="Carousel agent" value={trace.layout} />
+      <Block title="Strategy brief" value={trace.strategyBrief} open cost={trace.costs?.strategy} />
+      <Block title="Structure agent" value={trace.structure} cost={trace.costs?.structure} />
+      <Block title="Slide content" value={trace.dayWriter} cost={trace.costs?.dayWriter} />
+      <Block title="Carousel agent" value={trace.layout} cost={trace.costs?.layout} />
     </div>
   );
 }
