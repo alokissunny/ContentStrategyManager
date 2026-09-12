@@ -12,7 +12,7 @@ const DEFAULT_MAX_TOKENS = 16384;
 function providerFor(model) {
   const m = String(model || '').toLowerCase();
   if (/gemini|imagen|flash-image|nano.?banana/.test(m)) return 'image';
-  if (/gpt|o1|o3|o4|terra/.test(m)) return 'openai';
+  if (/gpt|o1|o3|o4|terra|astra/.test(m)) return 'openai';
   if (/claude|sonnet|haiku|opus/.test(m)) return 'anthropic';
   if (process.env.OPENAI_API_KEY) return 'openai';
   if (process.env.ANTHROPIC_API_KEY) return 'anthropic';

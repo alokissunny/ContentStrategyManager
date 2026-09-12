@@ -89,11 +89,11 @@ export default function ConnectMetaModal({
           </p>
           {others.length > 0 && (
             <p style={{
-              marginTop: 14, fontFamily: LS_FONT, fontSize: 13.5, lineHeight: 1.5, color: LS_INK,
+              marginTop: 14, fontFamily: LS_FONT, fontSize: 13.5, lineHeight: 1.5, color: LS_T2,
               background: LS_SOFT, borderRadius: 10, padding: '10px 12px',
             }}>
-              Connected {others.map((c) => `@${c.igUsername}`).join(', ')}, which is a different account.
-              Reconnect and sign in as @{handle || 'this plan'}.
+              {others.map((c) => `@${c.igUsername}`).join(', ')} {others.length === 1 ? 'is' : 'are'} already linked
+              {handle ? <> — that stays as-is. Sign in as <strong>@{handle}</strong> to connect this plan.</> : '.'}
             </p>
           )}
 

@@ -31,7 +31,7 @@ const GOAL_TAG = { discovery: 'Get noticed', credibility: 'Show expertise', trus
 // Override via ANTHROPIC_INPUT_USD_PER_MTOK / ANTHROPIC_OUTPUT_USD_PER_MTOK if needed.
 function ratesForModel(model = '') {
   const m = String(model).toLowerCase();
-  const isOpenAI = /gpt|terra|o1|o3|o4/.test(m);
+  const isOpenAI = /gpt|terra|astra|o1|o3|o4/.test(m);
   const envIn = Number(isOpenAI ? process.env.OPENAI_INPUT_USD_PER_MTOK : process.env.ANTHROPIC_INPUT_USD_PER_MTOK);
   const envOut = Number(isOpenAI ? process.env.OPENAI_OUTPUT_USD_PER_MTOK : process.env.ANTHROPIC_OUTPUT_USD_PER_MTOK);
   const envCached = Number(isOpenAI
@@ -41,6 +41,7 @@ function ratesForModel(model = '') {
     const cached = Number.isFinite(envCached) ? envCached : envIn * 0.1;
     return { in: envIn, out: envOut, cached };
   }
+  if (/astra|gpt-6/.test(m)) return { in: 10, out: 50, cached: 1 };
   if (isOpenAI) return { in: 1.25, out: 10, cached: 0.125 };
   if (m.includes('opus')) return { in: 15, out: 75, cached: 1.5 };
   if (m.includes('haiku')) return { in: 0.8, out: 4, cached: 0.08 };
@@ -630,6 +631,7 @@ function normalizeSlides(rawSlides, onScreenText, format, title, cta, validKeys 
       assetKeys: keys,
       layout,
       layoutHtml: s.layoutHtml || '',
+      layoutTheme: s.layoutTheme || '',
       layoutOptions: Array.isArray(s.layoutOptions) ? s.layoutOptions : [],
       annotation: ANNOTATIONS_ENABLED && s.annotation && s.annotation.text
         ? {
@@ -770,6 +772,7 @@ function assembleDays({
         prompts: asStoredLines(c.productionNeeds || c.prompts),
         plan: asStoredText(c.plan),
         notes: asStoredText(c.notes),
+        carouselHtml: c.carouselHtml || '',
       },
     };
   });
@@ -951,7 +954,7 @@ async function generateWeeklyPlan(profile, brandDna, competitorInsights = null, 
   );
   const useMulti = multiAgentEnabled();
   console.log(
-    `[weeklyPlan] Generating plan for @${snapshot.username} (mode=${useMulti ? 'multi-agent (strategist→structure→day→visual→layout)' : 'single'}, ` +
+    `[weeklyPlan] Generating plan for @${snapshot.username} (mode=${useMulti ? 'multi-agent (strategist→structure→carousel)' : 'single'}, ` +
       `focus: ${focusPillar}, ${insightNote}, ` +
       `${monthCalendar.occupied.length} occupied / ${monthCalendar.emptyDates.length} empty month days, ` +
       `${projects.length} projects / ${assetCount} photos, ${analyzedCount} with vision analysis) with ${model}` +
@@ -1070,6 +1073,7 @@ async function generateWeeklyPlan(profile, brandDna, competitorInsights = null, 
     days,
     dayAllocation,
     usage,
+    constraints: generated.constraints || {},
     debug: {
       ...(generated.debug || { mode: useMulti ? 'multi-agent' : 'single', model: planModel, finalPrompt: prompt }),
       elapsedMs,

@@ -10,7 +10,7 @@ Do not write, rewrite, summarise, improve, remove, or invent content.
 
 ## Inputs
 
-`POST_JSON` contains the exact slide content and image decision. It is the content source of truth.
+`POST_JSON` contains the exact slide content and image decision, projected from Content Structure. It is the content source of truth.
 
 `STRUCTURE_JSON` explains the intended relationship between the supplied elements. Use it only to choose a suitable arrangement.
 
@@ -203,8 +203,8 @@ Use this only to understand how the supplied elements relate. Do not create cont
 
 {{STRUCTURE_JSON}}
 
-## Day Writer post
+## Slide content
 
-Use this as the exact source for all visible content and image decisions.
+Use this as the exact source for all visible content and image decisions. Copy is taken from Content Structure (`purpose`, `contentGuidance`, and locked elements). There is no Day Writer pass.
 
 {{POST_JSON}}

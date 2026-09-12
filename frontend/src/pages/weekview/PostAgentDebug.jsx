@@ -54,10 +54,27 @@ function layoutSlidesHtml(value) {
     const s = String(h || '').trim();
     if (s && /<article|<section|class=["'][^"']*\bslide\b|<style/i.test(s)) out.push(s);
   };
-  if (obj && Array.isArray(obj.slides)) obj.slides.forEach((s) => push(s?.html));
-  else if (obj && typeof obj.html === 'string') push(obj.html);
+  if (obj && Array.isArray(obj.slides)) {
+    obj.slides.forEach((s) => {
+      if (Array.isArray(s?.options) && s.options.length) s.options.forEach((o) => push(o?.html));
+      else push(s?.html);
+    });
+  } else if (obj && typeof obj.html === 'string') push(obj.html);
   else if (typeof value === 'string') push(value);
   return out;
+}
+
+function carouselDocumentHtml(value) {
+  if (!value) return '';
+  if (typeof value === 'string') {
+    const t = value.trim();
+    if (/<html[\s>]/i.test(t) || /<!doctype html/i.test(t)) return t;
+    const parsed = parseJson(t);
+    const html = parsed?.html || parsed?.parsed?.html;
+    return (typeof html === 'string' && /<html[\s>]/i.test(html)) ? html : '';
+  }
+  const html = value.html || value.parsed?.html;
+  return (typeof html === 'string' && /<html[\s>]/i.test(html)) ? html : '';
 }
 
 // Same empty-slot treatment as Week View: keep agent CSS/structure, mark empty
@@ -115,7 +132,29 @@ function SlideFrame({ html, label }) {
   );
 }
 
-function LayoutPreview({ slides, onClose }) {
+function DocumentFrame({ html }) {
+  const ref = useRef(null);
+  useEffect(() => {
+    const frame = ref.current;
+    if (!frame) return undefined;
+    const doc = frame.contentDocument;
+    if (!doc) return undefined;
+    doc.open();
+    doc.write(html);
+    doc.close();
+    return undefined;
+  }, [html]);
+  return (
+    <iframe
+      ref={ref}
+      title="Carousel preview"
+      className="wv-layprev__doc"
+      sandbox="allow-same-origin allow-scripts"
+    />
+  );
+}
+
+function LayoutPreview({ slides, documentHtml = '', onClose }) {
   useEffect(() => {
     const onKey = (e) => { if (e.key === 'Escape') onClose(); };
     window.addEventListener('keydown', onKey);
@@ -125,22 +164,30 @@ function LayoutPreview({ slides, onClose }) {
     <div className="wv-layprev" role="dialog" aria-modal="true" aria-label="Layout preview" onClick={onClose}>
       <div className="wv-layprev__panel" onClick={(e) => e.stopPropagation()}>
         <div className="wv-layprev__head">
-          <strong>Layout preview</strong>
-          <span className="wv-layprev__count">{slides.length} slide{slides.length === 1 ? '' : 's'}</span>
+          <strong>Carousel preview</strong>
+          <span className="wv-layprev__count">
+            {documentHtml ? 'Full document' : `${slides.length} slide${slides.length === 1 ? '' : 's'}`}
+          </span>
           <button type="button" className="wv-agentdbg__copy" onClick={onClose}>Close</button>
         </div>
-        <div className="wv-layprev__grid">
-          {slides.map((h, i) => <SlideFrame key={i} html={h} label={`Slide ${i + 1}`} />)}
-        </div>
+        {documentHtml ? (
+          <div className="wv-layprev__docwrap">
+            <DocumentFrame html={documentHtml} />
+          </div>
+        ) : (
+          <div className="wv-layprev__grid">
+            {slides.map((h, i) => <SlideFrame key={i} html={h} label={`Slide ${i + 1}`} />)}
+          </div>
+        )}
       </div>
     </div>,
     document.body,
   );
 }
 
-function PreviewButton({ slides }) {
+function PreviewButton({ slides, documentHtml = '' }) {
   const [open, setOpen] = useState(false);
-  if (!slides.length) return null;
+  if (!documentHtml && !slides.length) return null;
   const onOpen = (e) => {
     e.preventDefault();
     e.stopPropagation();
@@ -156,7 +203,7 @@ function PreviewButton({ slides }) {
       >
         Preview
       </button>
-      {open ? <LayoutPreview slides={slides} onClose={() => setOpen(false)} /> : null}
+      {open ? <LayoutPreview slides={slides} documentHtml={documentHtml} onClose={() => setOpen(false)} /> : null}
     </>
   );
 }
@@ -188,6 +235,8 @@ function traceForDay(day, entries) {
   const dayWriter = stored.dayWriter
     || parseJson(dayHit?.output);
   const layout = stored.layout
+    || stored.carousel
+    || parseJson(lastMatching(entries, date ? `Carousel:${date}` : 'Carousel:')?.output)
     || parseJson(lastMatching(entries, date ? `Layout:${date}` : 'Layout:')?.output);
   return { strategyBrief, structure, dayWriter, layout };
 }
@@ -247,12 +296,13 @@ function Block({ title, value, open = false }) {
     );
   }
   const slides = previewSlidesHtml(value);
+  const documentHtml = carouselDocumentHtml(value);
   return (
     <details className="wv-agentdbg__block" open={open}>
       <summary className="wv-agentdbg__sum">
         <span>{title}</span>
         <span className="wv-agentdbg__acts">
-          <PreviewButton slides={slides} />
+          <PreviewButton slides={slides} documentHtml={documentHtml} />
           <CopyButton text={body} />
         </span>
       </summary>
@@ -275,7 +325,7 @@ export default function PostAgentDebug({ day, onRunLayout, layoutBusy = false, l
         </p>
       ) : null}
       <p className="wv-agentdbg__lead">
-        Agent outputs for this post. Strategy decides the brief; Structure locks the slide map; Day Writer writes the copy; Layout composes the slide.
+        Agent outputs for this post. Strategy decides the brief; Structure locks the slide map; Carousel composes three HTML layout directions. Day Writer, Visual, and Layout are skipped.
       </p>
       {onRunLayout && (
         <div className="wv-agentdbg__run">
@@ -285,7 +335,7 @@ export default function PostAgentDebug({ day, onRunLayout, layoutBusy = false, l
             disabled={layoutBusy}
             onClick={onRunLayout}
           >
-            {layoutBusy ? 'Laying out…' : 'Run layout agent'}
+            {layoutBusy ? 'Composing…' : 'Run carousel agent'}
           </button>
           <span className="wv-agentdbg__runhint">This post only — does not regenerate the week.</span>
         </div>
@@ -298,8 +348,8 @@ export default function PostAgentDebug({ day, onRunLayout, layoutBusy = false, l
       )}
       <Block title="Strategy brief" value={trace.strategyBrief} open />
       <Block title="Structure agent" value={trace.structure} />
-      <Block title="Day Writer" value={trace.dayWriter} />
-      <Block title="Layout agent" value={trace.layout} />
+      <Block title="Slide content" value={trace.dayWriter} />
+      <Block title="Carousel agent" value={trace.layout} />
     </div>
   );
 }

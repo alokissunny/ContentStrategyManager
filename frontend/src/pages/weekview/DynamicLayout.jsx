@@ -1,5 +1,17 @@
 import { useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { prepareLayoutHtml, splitLayoutDocument } from './layoutHtml';
+import {
+  prepareLayoutHtml,
+  buildSlideFrameDocument,
+  applyThemeToCarouselDocument,
+  isCarouselDocument,
+  cropIframeToCarouselSlide,
+  paintCarouselSlideImages,
+  paintSlideCopy,
+  freezeSlideGeometry,
+  isSlideFrozen,
+  CAROUSEL_LAYOUT_WIDTH,
+} from './layoutHtml';
+import { iframeSafeUrl } from '../../api/media';
 import { boxOf, fmtBox, mapBoxToCover, mapPointToCover, normalizeSubjects, placeFromBox, resolveTargetBox } from './subjectBox';
 import { useAiDebug } from '../../lib/aiDebug';
 import { plainOf, titleRuns } from '../../lib/slidetext';
@@ -390,37 +402,151 @@ function copyKey(copy) {
   ].join('\0');
 }
 
-export default function DynamicLayout({ html, copy, imageUrls, subjects, paint, needsVisual = false, themed = false }) {
-  const scope = `wv${useId().replace(/:/g, '')}`;
+export default function DynamicLayout({
+  html,
+  documentHtml = '',
+  slideIndex = 1,
+  direction = 'warm-editorial',
+  copy,
+  imageUrls,
+  subjects,
+  paint,
+  needsVisual = false,
+  themed = false,
+  copyDraft = null,
+  frameRef = null,
+}) {
   const canvasRef = useRef(null);
-  const urls = Array.isArray(imageUrls) ? imageUrls : [];
+  const copyRef = useRef(copyDraft);
+  copyRef.current = copyDraft;
+  const urls = (Array.isArray(imageUrls) ? imageUrls : []).map(iframeSafeUrl).filter(Boolean);
   const urlKey = urls.filter(Boolean).join('|');
+  const useDocument = isCarouselDocument(documentHtml);
+  const editingCopy = Boolean(copyDraft);
+  const draftTitle = copyDraft?.title;
+  const draftSubtitle = copyDraft?.subtitle;
   const markup = useMemo(
-    () => prepareLayoutHtml(html, { scope, imageUrls: urls }),
-    // urls is a new array each parent render; urlKey is the input.
-    [html, scope, urlKey],
+    () => (useDocument ? '' : prepareLayoutHtml(html, { imageUrls: urls })),
+    [html, urlKey, useDocument],
   );
-  const { css, body } = useMemo(() => splitLayoutDocument(markup), [markup]);
+  const paintKey = JSON.stringify(paint && typeof paint === 'object' ? paint : null);
+  const page = useMemo(() => {
+    const nextPaint = paintKey ? JSON.parse(paintKey) : null;
+    if (useDocument) return applyThemeToCarouselDocument(documentHtml, { themed, paint: nextPaint });
+    if (!markup) return '';
+    return buildSlideFrameDocument(markup, { themed, paint: nextPaint });
+  }, [useDocument, documentHtml, markup, themed, paintKey]);
 
-  // Force a layout pass so container-query type (cqi) is measured before paint.
-  // Do not hide the canvas: a hide/show flash is worse than this reflow.
   useLayoutEffect(() => {
-    if (canvasRef.current) void canvasRef.current.offsetWidth;
-  }, [markup]);
+    if (frameRef) frameRef.current = canvasRef.current;
+  });
+
+  const applyDraftCopy = (frame) => {
+    const draft = copyRef.current;
+    if (!frame || !draft) return;
+    freezeSlideGeometry(frame, { direction, index: slideIndex });
+    paintSlideCopy(frame, {
+      direction,
+      index: slideIndex,
+      title: draft.title,
+      subtitle: draft.subtitle,
+    });
+  };
+
+  useLayoutEffect(() => {
+    const frame = canvasRef.current;
+    if (!frame || !page) return undefined;
+    const doc = frame.contentDocument;
+    if (!doc) return undefined;
+    if (useDocument) {
+      frame.style.width = `${CAROUSEL_LAYOUT_WIDTH}px`;
+      frame.style.height = '2400px';
+      frame.style.maxWidth = 'none';
+      frame.style.transform = 'none';
+    } else {
+      frame.style.width = '';
+      frame.style.height = '';
+      frame.style.maxWidth = '';
+      frame.style.transform = '';
+    }
+    doc.open();
+    doc.write(page);
+    doc.close();
+    if (typeof window !== 'undefined' && doc.head && !doc.querySelector('base')) {
+      const base = doc.createElement('base');
+      base.setAttribute('href', `${window.location.origin}/`);
+      doc.head.insertBefore(base, doc.head.firstChild);
+    }
+    void doc.documentElement.offsetWidth;
+
+    if (!useDocument) {
+      if (copyRef.current) {
+        const later = window.requestAnimationFrame(() => applyDraftCopy(frame));
+        return () => window.cancelAnimationFrame(later);
+      }
+      return undefined;
+    }
+
+    let cancelled = false;
+    const crop = (lockCopy) => {
+      if (cancelled) return;
+      paintCarouselSlideImages(frame, { direction, index: slideIndex, imageUrls: urls });
+      cropIframeToCarouselSlide(frame, { direction, index: slideIndex });
+      if (copyRef.current && (lockCopy || isSlideFrozen(frame, { direction, index: slideIndex }))) {
+        applyDraftCopy(frame);
+      }
+    };
+    const host = frame.parentElement;
+    const ro = typeof ResizeObserver !== 'undefined' && host
+      ? new ResizeObserver(() => crop(false))
+      : null;
+    ro?.observe(host);
+    const fonts = doc.fonts?.ready;
+    requestAnimationFrame(() => {
+      crop(false);
+      doc.querySelectorAll('img').forEach((img) => {
+        if (img.complete) return;
+        img.addEventListener('load', () => crop(true), { once: true });
+        img.addEventListener('error', () => crop(true), { once: true });
+      });
+    });
+    if (fonts) fonts.then(() => { if (!cancelled) requestAnimationFrame(() => crop(true)); });
+    const later = window.setTimeout(() => crop(true), 250);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(later);
+      ro?.disconnect();
+    };
+  }, [page, useDocument, direction, slideIndex, urlKey, editingCopy]);
+
+  useLayoutEffect(() => {
+    if (!editingCopy) return undefined;
+    const frame = canvasRef.current;
+    if (!frame || !isSlideFrozen(frame, { direction, index: slideIndex })) return undefined;
+    paintSlideCopy(frame, {
+      direction,
+      index: slideIndex,
+      title: draftTitle,
+      subtitle: draftSubtitle,
+    });
+    return undefined;
+  }, [editingCopy, direction, slideIndex, draftTitle, draftSubtitle]);
 
   // When a real photo is injected, its intrinsic ratio can still push in-flow
   // copy past the 4:5 frame (debug preview has no src, so it never hits this).
   // Shrink only the image, and only when text is actually clipped.
   useLayoutEffect(() => {
-    const canvas = canvasRef.current;
+    if (useDocument || editingCopy) return undefined;
+    const frame = canvasRef.current;
+    const canvas = frame?.contentDocument?.body;
     if (!canvas) return undefined;
     const slide = canvas.querySelector('.slide, article');
     const img = canvas.querySelector('img[data-slot="image"]:not(.is-placeholder)');
     if (!slide || !img) return undefined;
 
     const clippedBy = () => {
-      const frame = slide.getBoundingClientRect();
-      if (!frame.height) return 0;
+      const box = slide.getBoundingClientRect();
+      if (!box.height) return 0;
       const slots = slide.querySelectorAll([
         '[data-slot="title"]',
         '[data-slot="subtitle"]',
@@ -439,8 +565,8 @@ export default function DynamicLayout({ html, copy, imageUrls, subjects, paint, 
       let extra = 0;
       slots.forEach((el) => {
         if (!String(el.textContent || '').trim()) return;
-        const box = el.getBoundingClientRect();
-        extra = Math.max(extra, box.bottom - frame.bottom, frame.top - box.top);
+        const slot = el.getBoundingClientRect();
+        extra = Math.max(extra, slot.bottom - box.bottom, box.top - slot.top);
       });
       return extra;
     };
@@ -464,18 +590,17 @@ export default function DynamicLayout({ html, copy, imageUrls, subjects, paint, 
       img.removeEventListener('load', fit);
       ro?.disconnect();
     };
-  }, [markup]);
+  }, [page, useDocument, editingCopy]);
 
-  if (markup && body) {
-    // Render the agent's composition verbatim by default. When the studio has
-    // applied Library visual settings (`themed`), `is-themed` repaints the
-    // slide with their brand faces + palette instead.
+  if (page) {
     return (
-      <div className={`wv-dynlay is-ready${themed ? ' is-themed' : ''}`} style={paint}>
-        {/* Real <style> node, not innerHTML: browsers often apply innerHTML
-            stylesheets a frame late, so the slide paints unstyled then jumps. */}
-        {css ? <style>{css}</style> : null}
-        <div ref={canvasRef} className={`wv-dynlay__canvas ${scope}`} dangerouslySetInnerHTML={{ __html: body }} />
+      <div className={`wv-dynlay is-ready${themed && !useDocument ? ' is-themed' : ''}${useDocument ? ' is-crop' : ''}`} style={paint}>
+        <iframe
+          ref={canvasRef}
+          className="wv-dynlay__frame"
+          title="Slide layout"
+          sandbox={useDocument ? 'allow-same-origin allow-scripts' : 'allow-same-origin'}
+        />
       </div>
     );
   }

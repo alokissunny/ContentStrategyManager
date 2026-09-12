@@ -7,7 +7,7 @@
  *   3. Shared fallbacks: PLAN_AGENT_MODEL (OpenAI) or ANTHROPIC_MODEL (Claude)
  *
  * Provider is inferred from the model id when omitted
- * (gpt* / terra / o1–o4 → openai; claude / sonnet / haiku / opus → anthropic).
+ * (gpt* / terra / astra / o1–o4 → openai; claude / sonnet / haiku / opus → anthropic).
  */
 
 const PROVIDERS = ['openai', 'anthropic'];
@@ -38,6 +38,12 @@ const AGENTS = {
     modelEnv: 'PLAN_LAYOUT_MODEL',
     providerEnv: 'PLAN_LAYOUT_PROVIDER',
   },
+  carousel: {
+    defaultProvider: 'openai',
+    modelEnv: 'PLAN_CAROUSEL_MODEL',
+    providerEnv: 'PLAN_CAROUSEL_PROVIDER',
+    defaultModel: 'gpt-6-astra',
+  },
   visual: {
     defaultProvider: 'openai',
     modelEnv: 'PLAN_VISUAL_MODEL',
@@ -58,7 +64,7 @@ function inferProvider(model) {
   const m = String(model || '').toLowerCase();
   if (!m) return '';
   if (/claude|sonnet|haiku|opus/.test(m)) return 'anthropic';
-  if (/gpt|o1|o3|o4|terra/.test(m)) return 'openai';
+  if (/gpt|o1|o3|o4|terra|astra/.test(m)) return 'openai';
   return '';
 }
 
@@ -71,7 +77,7 @@ function defaultModelFor(provider, kind) {
   if (provider === 'anthropic') {
     // Layout is constrained HTML, not strategy. Haiku is the speed default;
     // do not inherit ANTHROPIC_MODEL (often Sonnet 5, adaptive thinking).
-    if (kind === 'layout') return 'claude-haiku-4-5';
+    if (kind === 'layout' || kind === 'carousel') return 'claude-haiku-4-5';
     return envText('ANTHROPIC_MODEL') || 'claude-sonnet-5';
   }
   return envText('PLAN_AGENT_MODEL')
@@ -91,7 +97,7 @@ function resolvePlanAgentLlm(kind = 'strategist') {
   const provider = inferProvider(explicitModel)
     || explicitProvider
     || spec.defaultProvider;
-  const model = explicitModel || defaultModelFor(provider, kind);
+  const model = explicitModel || spec.defaultModel || defaultModelFor(provider, kind);
   return { kind: AGENTS[kind] ? kind : 'strategist', provider, model };
 }
 

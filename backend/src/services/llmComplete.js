@@ -8,7 +8,7 @@ const {
 } = require('./planAgentLlm');
 
 function usesCompletionTokens(model) {
-  return /gpt-5|terra|o3|o4/i.test(String(model || ''));
+  return /gpt-5|gpt-6|terra|astra|o3|o4/i.test(String(model || ''));
 }
 
 function conversationModel() {
@@ -106,7 +106,7 @@ function jsonSchemaInstruction(tool) {
   ].join('\n');
 }
 
-const GPT_EFFORTS = ['none', 'minimal', 'low', 'medium', 'high'];
+const GPT_EFFORTS = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'];
 const GPT_VERBOSITY = ['low', 'medium', 'high'];
 let gptExtraParamsOk = true;
 
@@ -128,11 +128,21 @@ function reasoningEffortFor(kind) {
   if (kind === 'day') return envChoice('PLAN_DAY_REASONING_EFFORT', GPT_EFFORTS, 'medium');
   if (kind === 'structure') return envChoice('PLAN_STRUCTURE_REASONING_EFFORT', GPT_EFFORTS, 'medium');
   if (kind === 'layout') return envChoice('PLAN_LAYOUT_REASONING_EFFORT', GPT_EFFORTS, 'low');
+  // Keep carousel at 'low': 'medium' pushed gpt-6-astra past the 180s timeout on
+  // this 5-theme build. The earlier "terse stub" symptom was really an EMPTY
+  // contentStructure (see carouselInputOf's post-slide fallback), not low
+  // reasoning. Override with PLAN_CAROUSEL_REASONING_EFFORT if a model needs more.
+  if (kind === 'carousel') return envChoice('PLAN_CAROUSEL_REASONING_EFFORT', GPT_EFFORTS, 'low');
   if (kind === 'visual') return envChoice('PLAN_VISUAL_REASONING_EFFORT', GPT_EFFORTS, 'low');
   return envChoice('PLAN_STRATEGIST_REASONING_EFFORT', GPT_EFFORTS, 'medium');
 }
 
-function verbosityFor() {
+function verbosityFor(kind) {
+  // The HTML generators must emit a large document; a GPT-5/6 reasoning model
+  // reads verbosity:'low' as "be terse" and can return a near-empty response
+  // (observed: gpt-6-astra returning ~718 chars, no slides). Default them high.
+  if (kind === 'carousel') return envChoice('PLAN_CAROUSEL_VERBOSITY', GPT_VERBOSITY, 'high');
+  if (kind === 'layout') return envChoice('PLAN_LAYOUT_VERBOSITY', GPT_VERBOSITY, 'high');
   return envChoice('OPENAI_VERBOSITY', GPT_VERBOSITY, 'low');
 }
 
@@ -140,7 +150,7 @@ function gptExtraParams(model, { kind, reasoningEffort, verbosity } = {}) {
   if (!gptExtraParamsOk || !gptParamsEnabled() || !usesCompletionTokens(model)) return {};
   return {
     reasoning_effort: reasoningEffort || reasoningEffortFor(kind),
-    verbosity: verbosity || verbosityFor(),
+    verbosity: verbosity || verbosityFor(kind),
   };
 }
 
@@ -254,12 +264,14 @@ function extractAnthropicToolInput(response, toolName) {
 }
 
 /**
- * Split a prompt template at the first {{TOKEN}} so the static prefix can be
- * sent as `system` and cached across calls. Dynamic JSON stays in `user`.
+ * Split a prompt template at the first {{token}} placeholder so the static
+ * prefix can be sent as `system` and cached across calls. Dynamic JSON stays
+ * in `user`. Matches camelCase and ALL_CAPS identifiers; skips marks like
+ * `{{accent|phrase}}` (pipe is not allowed in the token name).
  */
 function splitPromptTemplate(template) {
   const src = String(template || '');
-  const match = src.match(/\{\{[A-Z][A-Z0-9_]*\}\}/);
+  const match = src.match(/\{\{[A-Za-z][A-Za-z0-9_]*\}\}/);
   if (!match) return { system: '', userTemplate: src };
   return {
     system: src.slice(0, match.index).trim(),

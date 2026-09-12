@@ -28,6 +28,27 @@ export function isProjectMediaKey(key) {
   return /^projects\/[a-f0-9]{24}\/[A-Za-z0-9._-]+\.(png|jpe?g|webp|gif|hei[cf])$/i.test(String(key || '').trim());
 }
 
+const PROJECT_MEDIA_IN_TEXT = /projects\/[a-f0-9]{24}\/[A-Za-z0-9._-]+\.(?:png|jpe?g|webp|gif|hei[cf])/gi;
+
+export function projectKeysInText(...values) {
+  const out = [];
+  const seen = new Set();
+  for (const value of values) {
+    if (value == null || value === '') continue;
+    const text = typeof value === 'string'
+      ? value
+      : (Array.isArray(value) ? value.join(' ') : JSON.stringify(value));
+    const re = new RegExp(PROJECT_MEDIA_IN_TEXT.source, 'gi');
+    let m;
+    while ((m = re.exec(text))) {
+      if (seen.has(m[0])) continue;
+      seen.add(m[0]);
+      out.push(m[0]);
+    }
+  }
+  return out;
+}
+
 export function isLogoMediaKey(key) {
   return /^visualbrand\/[a-f0-9]{24}\/[a-z0-9._-]+\/logos\/[A-Za-z0-9._-]+\.(png|jpe?g|webp|gif|svg)$/i.test(String(key || '').trim());
 }
@@ -137,6 +158,18 @@ export function displayMediaUrl(key) {
   return `${cachedCdnBase}/${path}`;
 }
 
+export function iframeSafeUrl(url) {
+  const raw = String(url || '').trim();
+  if (!raw) return '';
+  if (/^(https?:|blob:|data:)/i.test(raw)) return raw;
+  if (typeof window === 'undefined' || !window.location?.origin) return raw;
+  try {
+    return new URL(raw, window.location.origin).href;
+  } catch {
+    return raw;
+  }
+}
+
 // Prefer a CloudFront URL for <img> display. Blob/data URLs stay as-is (in-progress
 // edits). Proxy URLs are rewritten once the CDN base is known — they are never
 // returned for display.
@@ -153,7 +186,7 @@ export function toDisplayUrl(url, key) {
     if (k && cachedCdnBase) return displayMediaUrl(k);
     return url;
   }
-  return displayMediaUrl(k);
+  return displayMediaUrl(k) || iframeSafeUrl(mediaProxyUrl(k));
 }
 
 /** Browser-safe preview for a project attachment (HEIC → JPEG proxy). */

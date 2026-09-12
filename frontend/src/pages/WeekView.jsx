@@ -15,7 +15,7 @@ import YourAnalysisModal from '../components/YourAnalysisModal';
 import ConnectMetaModal from '../components/ConnectMetaModal';
 import { markDayPublished, updateDayContent, replanWeek, scheduleDay, retryScheduledDay, setDayTime, runDayLayout, runDayCover } from '../api/routes';
 import { getMetaStatus, publishDayToMeta, isMetaConnectedFor, metaConnectionFor, otherMetaConnections, rememberMetaOAuthReturn } from '../api/meta';
-import { mediaProxyUrl, videoProxyUrl, toDisplayUrl, isProxyUrl, rememberCdnBase, onCdnBase, getCdnBase, canvasSafeUrl, isProjectMediaKey, splitMediaKeys } from '../api/media';
+import { mediaProxyUrl, videoProxyUrl, toDisplayUrl, isProxyUrl, rememberCdnBase, onCdnBase, getCdnBase, canvasSafeUrl, isProjectMediaKey, splitMediaKeys, iframeSafeUrl, projectKeysInText } from '../api/media';
 import { createImage, listGeneratedImages } from '../api/images';
 import { useProjects, uploadFiles } from '../lib/projectsStore';
 import { toSvg } from 'html-to-image';
@@ -33,7 +33,7 @@ import { useFeatureFlags } from '../lib/featureFlags';
 import PostAgentDebug from './weekview/PostAgentDebug';
 import DynamicLayout, { AnnotationOverlay } from './weekview/DynamicLayout';
 import { BrandMark } from './visuallibrary/BrandMark';
-import { rewriteAnnotationText, rewriteLayoutText, withSharedLayoutStyles } from './weekview/layoutHtml';
+import { rewriteAnnotationText, rewriteLayoutText, rewriteCarouselDocumentText, slotPlain, slideSlotPlain, withSharedLayoutStyles, layoutDirectionOf, themeIdOf, optionForTheme, THEME_ORDER, bakeFrozenGeometry, findCarouselSlide } from './weekview/layoutHtml';
 import { boxOf, normalizeSubjects } from './weekview/subjectBox';
 import {
   CHANGE_LAYOUTS,
@@ -692,22 +692,26 @@ function imageKeywords(analysis, note) {
 
 function collectProjectImages(projects) {
   const images = [];
+  const push = (a, projectName, note) => {
+    if (!a || (a.type && a.type !== 'image')) return;
+    if (!(a.url || a.thumbnailUrl || a.key)) return;
+    images.push({
+      key: a.key,
+      url: a.url || a.thumbnailUrl,
+      thumb: a.thumbnailUrl || a.url,
+      projectName,
+      note: note || '',
+      analyzed: a.analysis?.status === 'done',
+      keywords: imageKeywords(a.analysis, note),
+      subjects: normalizeSubjects(a.analysis?.status === 'done' ? a.analysis.subjects : []),
+    });
+  };
   for (const p of projects || []) {
     for (const e of p.captures || []) {
-      for (const a of e.attachments || []) {
-        if (a.type === 'image' && (a.url || a.thumbnailUrl)) {
-          images.push({
-            key: a.key,
-            url: a.url || a.thumbnailUrl,
-            thumb: a.thumbnailUrl || a.url,
-            projectName: p.name,
-            note: e.text || '',
-            analyzed: a.analysis?.status === 'done',
-            keywords: imageKeywords(a.analysis, e.text),
-            subjects: normalizeSubjects(a.analysis?.status === 'done' ? a.analysis.subjects : []),
-          });
-        }
-      }
+      for (const a of e.attachments || []) push(a, p.name, e.text || '');
+    }
+    for (const n of p.notes || []) {
+      for (const a of n.assets || n.attachments || []) push(a, p.name, n.text || n.understanding?.summary || '');
     }
   }
   return images;
@@ -771,6 +775,7 @@ function visualKindLabel(value) {
 
 function slideRecord(s, extra = {}) {
   return {
+    index: Number(s.index) > 0 ? Number(s.index) : (Number(extra.index) > 0 ? Number(extra.index) : 0),
     role: s.role || '',
     structure: s.structure || '',
     title: s.title || '',
@@ -787,16 +792,19 @@ function slideRecord(s, extra = {}) {
     labels: Array.isArray(s.labels) ? s.labels.map((x) => x || '') : [],
     image: s.image || '',
     imagePrompt: s.imagePrompt || '',
-    assetKey: s.assetKey || '',
+    assetKey: s.assetKey || s.visual?.assetKey || '',
     assetKeys: Array.isArray(s.assetKeys) ? s.assetKeys.map((k) => k || '') : [],
+    visual: s.visual && typeof s.visual === 'object' ? s.visual : null,
     layout: s.layout || '',
     layoutHtml: s.layoutHtml || '',
+    layoutTheme: s.layoutTheme || '',
     layoutOptions: Array.isArray(s.layoutOptions)
       ? s.layoutOptions
         .map((o, i) => ({
           rank: Number(o?.rank) > 0 ? Number(o.rank) : i + 1,
           label: o?.label || '',
           reason: o?.reason || '',
+          direction: o?.direction || '',
           html: o?.html || '',
         }))
         .filter((o) => o.html)
@@ -854,6 +862,10 @@ function fillFromWriter(slide, raw) {
     items,
     visual: slide.visual || visual,
     visualNeed: slide.visualNeed || visualNeedRecord({ visual, visualNeed: raw.visualNeed }),
+    assetKey: slide.assetKey || raw.assetKey || visual.assetKey || '',
+    assetKeys: (Array.isArray(slide.assetKeys) && slide.assetKeys.some(Boolean))
+      ? slide.assetKeys
+      : splitMediaKeys(raw.assetKeys || visual.assetKeys || raw.assetKey || visual.assetKey),
     annotation: annotationText
       ? {
         text: annotationText,
@@ -876,7 +888,7 @@ function deriveSlides(day) {
   const existing = day.content?.slides;
   if (Array.isArray(existing) && existing.length) {
     return existing.map((s, i) => fillFromWriter({
-      ...slideRecord(s),
+      ...slideRecord(s, { index: i + 1 }),
       role: s.role || roles[Math.min(i, roles.length - 1)],
       subtitle: s.subtitle || s.body || '',
     }, writerSlideOf(day, i)));
@@ -903,9 +915,78 @@ function deriveSlides(day) {
   return base;
 }
 
+function structureSlideOfDay(day, index) {
+  const slides = day?.agentTrace?.structure?.slidesOrScenes;
+  if (!Array.isArray(slides)) return null;
+  const n = Number(index);
+  return slides.find((s) => Number(s?.index) === n) || slides[n - 1] || null;
+}
+
+function mentionedKeysOf(slide, day) {
+  const structured = structureSlideOfDay(day, slide?.index);
+  return projectKeysInText(
+    slide?.assetKey,
+    slide?.visual?.assetKey,
+    slide?.evidenceAvailability?.reason,
+    structured?.visual?.assetKey,
+    structured?.evidenceAvailability?.reason,
+    structured?.evidenceAvailability,
+  );
+}
+
 // Pass 1 — bind each slide's explicit (owned) assetKey to its image and claim
 // that key in the shared `used` set, so a later standing-in fill (this day or
 // another day of the week) never grabs a photo that a real post owns.
+function allocatedKeysOfDay(day) {
+  const brief = day?.agentTrace?.strategyBrief || {};
+  const fromBrief = (Array.isArray(brief.allocatedAssets) ? brief.allocatedAssets : [])
+    .map((a) => String(a?.key || a || '').trim())
+    .filter(Boolean);
+  const fromStruct = [];
+  const slides = day?.agentTrace?.structure?.slidesOrScenes;
+  if (Array.isArray(slides)) {
+    slides.forEach((s) => {
+      splitMediaKeys(s?.visual?.assetKey).forEach((k) => fromStruct.push(k));
+      projectKeysInText(s?.evidenceAvailability?.reason, s?.evidenceAvailability).forEach((k) => {
+        fromStruct.push(k);
+      });
+    });
+  }
+  return [...new Set([...fromBrief, ...fromStruct].filter(isProjectMediaKey))];
+}
+
+function withAllocatedSlideKeys(slides, day) {
+  const allocated = allocatedKeysOfDay(day);
+  const used = new Set((slides || []).flatMap((s) => keysOf(s)).filter(Boolean));
+  const next = (slides || []).map((s) => {
+    if (keysOf(s).some(Boolean)) return s;
+    const named = mentionedKeysOf(s, day).find((k) => k && !used.has(k)) || mentionedKeysOf(s, day)[0];
+    if (!named) return s;
+    used.add(named);
+    return {
+      ...s,
+      assetKey: named,
+      assetKeys: [named],
+      visual: { ...(s.visual || {}), assetKey: named },
+    };
+  });
+  if (!allocated.length) return next;
+  let n = 0;
+  return next.map((s) => {
+    if (keysOf(s).some(Boolean)) return s;
+    const pri = String(s?.visualNeed?.priority || s?.visual?.priority || '').toLowerCase();
+    const type = String(s?.visualNeed?.type || s?.visual?.type || '').toLowerCase();
+    const wants = (pri && pri !== 'none') || (type && type !== 'none') || String(s?.image || '') === 'placeholder';
+    if (!wants) return s;
+    while (n < allocated.length && used.has(allocated[n])) n += 1;
+    const key = allocated[n];
+    if (!key) return s;
+    used.add(key);
+    n += 1;
+    return { ...s, assetKey: key, assetKeys: [key] };
+  });
+}
+
 function keysOf(slide) {
   const listed = splitMediaKeys(slide?.assetKeys);
   if (listed.length) return listed;
@@ -923,6 +1004,12 @@ function subjectsForSlide(slide, subjectsByKey) {
   return [];
 }
 
+function mediaUrlOf(value) {
+  if (!value) return '';
+  if (typeof value === 'string') return value;
+  return String(value.url || value.thumb || '').trim();
+}
+
 function urlForKey(key, slide, localMedia, mediaByKey, preferProxy = false) {
   if (!key) return null;
   // Prefer a URL this session already has (project pool, a just-uploaded
@@ -932,12 +1019,9 @@ function urlForKey(key, slide, localMedia, mediaByKey, preferProxy = false) {
   // the studio applied (a crop, a replace). After a tab switch local blob
   // previews are gone, so resolve that key through the CDN/proxy or the
   // post comes back empty.
-  const local = localMedia?.[key];
-  const pooled = mediaByKey?.get(key);
-  const fromSlide = slide?.image?.key === key
-    ? (slide.image.url || slide.image.thumb || null)
-    : null;
-  const known = local || pooled || fromSlide || null;
+  const known = mediaUrlOf(localMedia?.[key])
+    || mediaUrlOf(mediaByKey?.get(key))
+    || (slide?.image?.key === key ? mediaUrlOf(slide.image) : '');
   if (known) {
     if (preferProxy && isProjectMediaKey(key)) return mediaProxyUrl(key);
     return toDisplayUrl(known, key) || (isProjectMediaKey(key) ? mediaProxyUrl(key) : null);
@@ -1190,15 +1274,30 @@ function fillLayout(layout, slide, contentType, draft) {
 
 // Seed Edit text from what the preview is already drawing, so the fields and
 // the composition are the same words (bauhly-v3 §879).
-function seedWordDraft(layout, slide, contentType) {
+function visibleSlot(html, slide, slot, visual) {
+  const index = Number(slide?.index) > 0 ? Number(slide.index) : 1;
+  const direction = visual?.direction || layoutDirectionOf(slide);
+  return slideSlotPlain(visual?.documentHtml || '', { direction, index, slot })
+    || slideSlotPlain(html, { direction, index, slot })
+    || slotPlain(html, slot);
+}
+
+function seedWordDraft(layout, slide, contentType, visual) {
   const filled = fillLayout(layout, slide, contentType);
   const art = filled?.art || {};
+  const baked = slide?.layoutHtml || '';
   const out = {};
   textRolesOf(layout).forEach((r) => {
     if (r.key === 'head') {
-      out.head = (slide?.title || '').trim() || [art.head, art.accent].filter(Boolean).join(' ');
+      out.head = visibleSlot(baked, slide, 'title', visual)
+        || (slide?.title || '').trim()
+        || [art.head, art.accent].filter(Boolean).join(' ');
     } else if (r.key === 'body') {
-      out.body = (slide?.subtitle || '').trim() || art.body || '';
+      out.body = visibleSlot(baked, slide, 'subtitle', visual)
+        || visibleSlot(baked, slide, 'supporting-text', visual)
+        || visibleSlot(baked, slide, 'body', visual)
+        || (slide?.subtitle || '').trim()
+        || art.body || '';
     } else if (isListRole(r.key)) {
       out[r.key] = art.items?.[listIndexOf(r.key)] || '';
     } else {
@@ -1395,6 +1494,18 @@ function slideCopy(slide, parts) {
   };
 }
 
+function carouselDocumentOf(day) {
+  const t = day?.agentTrace && typeof day.agentTrace === 'object' ? day.agentTrace : {};
+  const html = day?.content?.carouselHtml
+    || t.layout?.html
+    || t.carousel?.html
+    || t.layout?.parsed?.html
+    || t.carousel?.parsed?.html
+    || '';
+  const raw = String(html || '').trim();
+  return (/<!doctype html/i.test(raw) || /<html[\s>]/i.test(raw)) ? raw : '';
+}
+
 function SlideMedia({
   slide,
   localMedia,
@@ -1407,13 +1518,20 @@ function SlideMedia({
   themed = false,
   layoutOverride = null,
   carouselLayoutHtmls = null,
+  documentHtml = '',
+  slideIndex = 1,
+  direction: directionProp = '',
+  copyDraft = null,
+  frameRef = null,
 }) {
   const store = useStore();
   const copy = slideCopy(slide, parts);
   const need = visualNeedRecord(slide);
   const changeLayout = layoutOverride || findChangeLayout(slide?.layout);
   const wantShots = shotsForLayout(changeLayout);
-  const allowPhoto = wantShots > 0 || (!changeLayout && slideAllowsPhoto(slide));
+  const allowPhoto = wantShots > 0
+    || (!changeLayout && slideAllowsPhoto(slide))
+    || Boolean(slide?.image && typeof slide.image === 'object' && (slide.image.url || slide.image.thumb));
   const urls = allowPhoto
     ? keysOf(slide).map((k) => urlForKey(k, slide, localMedia, mediaByKey, preferProxy))
     : [];
@@ -1467,6 +1585,11 @@ function SlideMedia({
       <div className={`wv-ig__lay${showHint ? ' is-needvisual' : ''}`} style={paint}>
         <DynamicLayout
           html={layoutHtml}
+          documentHtml={documentHtml}
+          slideIndex={Number(slide?.index) > 0 ? Number(slide.index) : slideIndex}
+          direction={directionProp || layoutDirectionOf(slide)}
+          copyDraft={copyDraft}
+          frameRef={frameRef}
           subjects={subjects}
           needsVisual={missingVisual}
           themed={themed}
@@ -1482,7 +1605,7 @@ function SlideMedia({
             action: String(slide?.action || '').trim(),
             annotation: ANNOTATIONS_ENABLED ? (copy.annotation || slide?.annotation || null) : null,
           }}
-          imageUrls={urls.filter(Boolean)}
+          imageUrls={urls.map(iframeSafeUrl).filter(Boolean)}
           paint={paint}
         />
         {showHint && <VisualNeedHint need={need} />}
@@ -1725,9 +1848,10 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
   // open. `whyOpen` reveals the strategy beside the post.
   const [zone, setZone] = useState(null); // 'visual' | 'caption' | null
   // Which editor the visual zone's menu opened (bauhly-v3 §818/§989): the pencil
-  // shows a menu — Change layout / Edit image / Select images / Edit text —
+  // shows a menu — Change theme / Change layout / Edit image / Select images / Edit text —
   // and picking one sets this. null = the menu itself is showing.
-  const [visEdit, setVisEdit] = useState(null); // 'layout' | 'images' | 'words' | null
+  const [visEdit, setVisEdit] = useState(null); // 'theme' | 'layout' | 'images' | 'words' | null
+  const layoutFrameRef = useRef(null);
   // Edit image (bauhly-v3 §961/§965/§982): the still-photo studio. `adjustFor`
   // is the picture being cropped; `editSlot` is the measured layout region it
   // will occupy. More than one picture place opens the set first (`packOpen`).
@@ -1808,7 +1932,6 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
   const routeRef = useRef(route);
   const lastSavedByDayRef = useRef({});
   const persistGenRef = useRef(0);
-  const mismatchPrompted = useRef(false);
   routeRef.current = route;
 
   const weekId = initialRoute?._id;
@@ -1938,7 +2061,12 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
     // borrowing one from another post.
     const used = new Set();
     return days.map((d) => {
-      const slides = bindOwnedSlides(deriveSlides(d), allImages, localMedia, used);
+      const slides = bindOwnedSlides(
+        withAllocatedSlideKeys(deriveSlides(d), d),
+        allImages,
+        localMedia,
+        used,
+      );
       return { ...d, slides, status: dayAssetStatus(slides, d.published) };
     });
   }, [days, allImages, localMedia]);
@@ -1984,13 +2112,6 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
   const metaForHandle = metaConnectionFor(metaStatus, handle);
   const metaConnected = isMetaConnectedFor(metaStatus, handle);
   const otherMeta = otherMetaConnections(metaStatus, handle);
-
-  useEffect(() => {
-    if (mismatchPrompted.current || metaConnected) return;
-    if (!otherMeta.length) return;
-    mismatchPrompted.current = true;
-    setConnectOpen(true);
-  }, [metaStatus, handle, metaConnected, otherMeta.length]);
   // A post is "scheduled" when it carries a slot and hasn't gone out yet. The
   // slot only means anything with an account to publish to (bauhly-v3 §783).
   const isScheduled = metaConnected && !!day?.scheduledAt && !day?.published;
@@ -2183,9 +2304,9 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
     return () => document.removeEventListener('mousedown', away);
   }, [timeDraft]);
 
-  // Layout picks are a draft until Apply changes — press elsewhere to abandon.
+  // Layout / theme picks are a draft until Apply changes — press elsewhere to abandon.
   useEffect(() => {
-    if (zone !== 'visual' || visEdit !== 'layout') return undefined;
+    if (zone !== 'visual' || (visEdit !== 'layout' && visEdit !== 'theme')) return undefined;
     const away = (e) => {
       if (e.target.closest('.wv-layed')) return;
       if (e.target.closest('.wv-vlib') || e.target.closest('.wv-vlib__scrim')) return;
@@ -2214,7 +2335,7 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
   }, [zone, visEdit]);
 
   useEffect(() => {
-    if (visEdit !== 'layout') { setLayPick(null); setLayOpt(null); }
+    if (visEdit !== 'layout' && visEdit !== 'theme') { setLayPick(null); setLayOpt(null); }
     if (visEdit !== 'words') setWordDraft(null);
   }, [visEdit]);
 
@@ -2302,6 +2423,16 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
         onScreenText: next.map((s) => s.title),
         ...extra,
       };
+      if (extra.carouselHtml) {
+        const trace = { ...(d.agentTrace || {}) };
+        if (trace.layout && typeof trace.layout === 'object') {
+          trace.layout = { ...trace.layout, html: extra.carouselHtml };
+        }
+        if (trace.carousel && typeof trace.carousel === 'object') {
+          trace.carousel = { ...trace.carousel, html: extra.carouselHtml };
+        }
+        d.agentTrace = trace;
+      }
       daysCopy[dayIndex] = { ...d, content };
       return { ...prev, days: daysCopy };
     });
@@ -2631,7 +2762,7 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
         onRouteChange?.(data.route);
       }
     } catch (err) {
-      setLayoutErr(err.response?.data?.message || err.message || 'Layout agent failed.');
+      setLayoutErr(err.response?.data?.message || err.message || 'Carousel agent failed.');
     } finally {
       setLayoutBusy(false);
     }
@@ -2763,40 +2894,39 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
   const appliedOptIdx = hasLayoutOpts
     ? layoutOpts.findIndex((o) => o.html === activeSlide?.layoutHtml)
     : -1;
-  const draftOptIdx = visEdit === 'layout'
+  const draftOptIdx = (visEdit === 'layout' || visEdit === 'theme')
     ? (layOpt != null ? layOpt : (appliedOptIdx >= 0 ? appliedOptIdx : 0))
     : appliedOptIdx;
   const draftOpt = hasLayoutOpts ? (layoutOpts[draftOptIdx] || null) : null;
   const optUnchanged = hasLayoutOpts && draftOptIdx === appliedOptIdx;
-  // The composition the big preview should draw while editing: the drafted
-  // agent option (Change layout) or the drafted words (Edit text) win over the
-  // slide's stored html, so both editors preview live before Apply.
+  const draftTheme = themeIdOf(draftOpt);
+  const themeUnchanged = Boolean(draftTheme) && slides.every(
+    (s) => layoutDirectionOf(s) === draftTheme,
+  );
+  // The composition the big preview should draw while editing: drafted
+  // Change layout / Change theme options win over the stored html. Edit text
+  // paints words in the iframe without rewriting the composition.
   const previewSlide = useMemo(() => {
-    if (visEdit === 'layout' && draftOpt) {
-      return { ...activeSlide, layout: 'dynamic', layoutHtml: draftOpt.html };
-    }
-    if (visEdit === 'words' && activeSlide?.layoutHtml && wordDraft) {
-      const roles = wordRolesForSlide(activeSlide);
-      const hasHead = roles.some((r) => r.key === 'head');
-      const hasBody = roles.some((r) => r.key === 'body');
-      const primary = hasHead ? 'head' : (hasBody ? 'body' : roles[0]?.key);
-      let html = rewriteLayoutText(activeSlide.layoutHtml, {
-        title: wordDraft[primary] || '',
-        subtitle: (hasHead && hasBody) ? (wordDraft.body || '') : undefined,
-      });
-      if (roles.some((r) => r.key === 'annotation')) {
-        html = rewriteAnnotationText(html, plainOf(wordDraft.annotation || ''));
-      }
-      return { ...activeSlide, layoutHtml: html };
+    if ((visEdit === 'layout' || visEdit === 'theme') && draftOpt) {
+      return {
+        ...activeSlide,
+        layout: 'dynamic',
+        layoutHtml: draftOpt.html,
+        layoutTheme: themeIdOf(draftOpt) || THEME_ORDER[draftOptIdx] || '',
+      };
     }
     return activeSlide;
-  }, [visEdit, draftOpt, activeSlide, wordDraft]);
+  }, [visEdit, draftOpt, activeSlide, draftOptIdx]);
   const wordRoles = visEdit === 'words' ? wordRolesForSlide(activeSlide) : [];
   const primaryWordKey = wordRoles.find((r) => r.key === 'head')?.key
     || wordRoles.find((r) => r.key === 'body')?.key
     || wordRoles[0]?.key;
+  const wordVisual = {
+    documentHtml: carouselDocumentOf(day),
+    direction: layoutDirectionOf(activeSlide),
+  };
   const wordsSeed = visEdit === 'words'
-    ? seedWordDraft(BEST_FIT_LAYOUT, activeSlide, day?.contentType || day?.format)
+    ? seedWordDraft(BEST_FIT_LAYOUT, activeSlide, day?.contentType || day?.format, wordVisual)
     : null;
   const wordsUnchanged = Boolean(wordDraft && wordsSeed
     && Object.keys({ ...wordsSeed, ...wordDraft }).every(
@@ -2805,7 +2935,10 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
 
   useEffect(() => {
     if (visEdit !== 'words') return;
-    setWordDraft(seedWordDraft(BEST_FIT_LAYOUT, activeSlide, day?.contentType || day?.format));
+    setWordDraft(seedWordDraft(BEST_FIT_LAYOUT, activeSlide, day?.contentType || day?.format, {
+      documentHtml: carouselDocumentOf(day),
+      direction: layoutDirectionOf(activeSlide),
+    }));
   }, [visEdit, selected, safeIdx]);
 
   const wordFills = useMemo(() => {
@@ -2860,7 +2993,22 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
       }));
     }
 
-    patchActiveSlide(patch);
+    const index = Number(activeSlide?.index) > 0 ? Number(activeSlide.index) : safeIdx + 1;
+    const direction = layoutDirectionOf(activeSlide);
+    const doc = carouselDocumentOf(day);
+    let carouselHtml = doc
+      ? rewriteCarouselDocumentText(doc, { index, title, subtitle })
+      : '';
+    const live = findCarouselSlide(layoutFrameRef.current?.contentDocument, direction, index);
+    if (live) {
+      if (carouselHtml) carouselHtml = bakeFrozenGeometry(carouselHtml, live, { direction, index });
+      if (patch.layoutHtml) patch.layoutHtml = bakeFrozenGeometry(patch.layoutHtml, live, { direction, index });
+    }
+
+    const base = deriveSlides(day);
+    const next = base.map((s, i) => (i === safeIdx ? { ...s, ...patch } : s));
+    const extra = carouselHtml ? { carouselHtml } : {};
+    replaceSlides(next, { extra });
     setVisEdit(null);
     setZone(null);
   }
@@ -2884,6 +3032,39 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
       setAskImgs(need);
       return;
     }
+    setVisEdit(null);
+    setZone(null);
+  }
+
+  function applyThemeToAll(optIdx = draftOptIdx) {
+    const picked = layoutOpts[optIdx];
+    if (!picked) return false;
+    const theme = themeIdOf(picked) || THEME_ORDER[optIdx] || '';
+    const base = deriveSlides(day);
+    let changed = 0;
+    const next = base.map((s) => {
+      const opts = Array.isArray(s.layoutOptions)
+        ? s.layoutOptions.filter((o) => o && o.html).slice()
+          .sort((a, b) => (Number(a.rank) || 0) - (Number(b.rank) || 0))
+        : [];
+      const opt = (theme && optionForTheme(s, theme)) || opts[optIdx] || null;
+      if (!opt?.html) return s;
+      changed += 1;
+      return {
+        ...s,
+        layout: 'dynamic',
+        layoutHtml: opt.html,
+        layoutTheme: theme || themeIdOf(opt) || '',
+      };
+    });
+    if (!changed) return false;
+    replaceSlides(next);
+    return true;
+  }
+
+  function applyTheme() {
+    applyThemeToAll(draftOptIdx);
+    setLayOpt(null);
     setVisEdit(null);
     setZone(null);
   }
@@ -3055,6 +3236,8 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
   const stepLayout = (d) => setLayWinStart((s) => Math.max(0, Math.min(s + d, maxWinStart)));
   const isDesktop = useMediaQuery('(min-width: 961px)');
   const layoutEditing = zone === 'visual' && visEdit === 'layout';
+  const themeEditing = zone === 'visual' && visEdit === 'theme';
+  const compositionEditing = layoutEditing || themeEditing;
   const wordsEditing = zone === 'visual' && visEdit === 'words';
   const pickerLayouts = isDesktop ? slideLayouts : shownLayouts;
 
@@ -3080,7 +3263,7 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
   // Agent-generated options, ranked best-first — each card is a real 4:5
   // preview of that composition (same renderer as the big preview), so the
   // picker shows the actual layouts the agent proposed, not wireframes.
-  const layoutOptionCards = () => layoutOpts.map((opt, i) => {
+  const layoutOptionCards = (hideRank = false) => layoutOpts.map((opt, i) => {
     const on = draftOptIdx === i;
     const label = opt.label || `Option ${i + 1}`;
     const optSlide = { ...activeSlide, layout: 'dynamic', layoutHtml: opt.html };
@@ -3103,10 +3286,15 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
             subjectsByKey={subjectsByKey}
             paint={igVars}
             themed={hasVisualEdits}
+            documentHtml={carouselDocumentOf(day)}
+            slideIndex={safeIdx + 1}
+            direction={themeIdOf(opt) || layoutDirectionOf(optSlide)}
           />
-          <span className={`wv-act__rank${i === 0 ? ' is-best' : ''}`}>
-            {i === 0 ? 'Best' : `#${i + 1}`}
-          </span>
+          {!hideRank && (
+            <span className={`wv-act__rank${i === 0 ? ' is-best' : ''}`}>
+              {i === 0 ? 'Best' : `#${i + 1}`}
+            </span>
+          )}
         </span>
         <span className="wv-act__name">{label}</span>
         {i === appliedOptIdx && <span className="wv-act__now">Current</span>}
@@ -3462,7 +3650,7 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
           >
             <Glyph name="chevron-right" size={22} strokeWidth={2.5} />
           </button>
-          <article className={`wv-ig${timeDraft ? ' is-timeedit' : ''}${layoutEditing ? ' is-layoutedit' : ''}${wordsEditing ? ' is-wordsedit' : ''}`} style={igVars}>
+          <article className={`wv-ig${timeDraft ? ' is-timeedit' : ''}${compositionEditing ? ' is-layoutedit' : ''}${wordsEditing ? ' is-wordsedit' : ''}`} style={igVars}>
             <header className="wv-ig__head">
               <span className="wv-ig__avatar">{handleInitials(handle)}</span>
               <span className="wv-ig__user">{handle}</span>
@@ -3529,6 +3717,15 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
                   themed={hasVisualEdits}
                   layoutOverride={(visEdit === 'layout' && !hasLayoutOpts) ? (chosenLayout || null) : null}
                   carouselLayoutHtmls={slides.map((s) => s?.layoutHtml || '')}
+                  documentHtml={carouselDocumentOf(day)}
+                  copyDraft={visEdit === 'words' && wordDraft
+                    ? { title: wordDraft.head, subtitle: wordDraft.body }
+                    : null}
+                  frameRef={layoutFrameRef}
+                  slideIndex={safeIdx + 1}
+                  direction={visEdit === 'theme'
+                    ? (themeIdOf(draftOpt) || THEME_ORDER[draftOptIdx] || layoutDirectionOf(previewSlide))
+                    : layoutDirectionOf(previewSlide)}
                 />
                 {safeIdx === 0 && videoCoverOn && appliedCoverUrl && (
                   <video
@@ -3591,9 +3788,11 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
                 </button>
               )}
               <span className="wv-ig__veil" aria-hidden="true" />
-              {visEdit === 'layout' && layPick && layPick !== appliedId && (
-                <span className="wv-ig__previewtag">Preview only · Apply layout to keep</span>
-              )}
+              {(visEdit === 'layout' && layPick && layPick !== appliedId) || (visEdit === 'theme' && draftOpt && !themeUnchanged) ? (
+                <span className="wv-ig__previewtag">
+                  {visEdit === 'theme' ? 'Preview only · Apply theme to keep' : 'Preview only · Apply layout to keep'}
+                </span>
+              ) : null}
               <button
                 type="button"
                 className="wv-ig__zonebtn"
@@ -3616,6 +3815,15 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
                   aria-hidden="true"
                 />
                 <div className="wv-ig__menu" role="menu" aria-label="Edit this slide">
+                  {hasLayoutOpts && (
+                    <button type="button" role="menuitem" className="wv-ig__menuitem" onClick={() => {
+                      setLayOpt(appliedOptIdx >= 0 ? appliedOptIdx : 0);
+                      setVisEdit('theme');
+                    }}>
+                      <Icon name="swatch" size={17} strokeWidth={2} />
+                      <span>Change theme</span>
+                    </button>
+                  )}
                   <button type="button" role="menuitem" className="wv-ig__menuitem" onClick={() => {
                     setLayPick(appliedId);
                     setVisEdit('layout');
@@ -3634,7 +3842,10 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
                     <span>Select images</span>
                   </button>
                   <button type="button" role="menuitem" className="wv-ig__menuitem" onClick={() => {
-                    setWordDraft(seedWordDraft(BEST_FIT_LAYOUT, activeSlide, day?.contentType || day?.format));
+                    setWordDraft(seedWordDraft(BEST_FIT_LAYOUT, activeSlide, day?.contentType || day?.format, {
+                      documentHtml: carouselDocumentOf(day),
+                      direction: layoutDirectionOf(activeSlide),
+                    }));
                     setVisEdit('words');
                   }}>
                     <Icon name="edit" size={17} strokeWidth={2} />
@@ -3730,7 +3941,7 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
               </div>
             )}
 
-            {layoutEditing && (
+            {compositionEditing && (
               <div className="wv-layed" onClick={(e) => e.stopPropagation()}>
                 <div className="wv-layed__head">
                   <button
@@ -3742,32 +3953,40 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
                     <Glyph name="arrow-left" size={16} />
                   </button>
                   <span className="wv-layed__title">
-                    Change layout
-                    {hasLayoutOpts && (
+                    {themeEditing ? 'Change theme' : 'Change layout'}
+                    {themeEditing ? (
+                      <span className="wv-layed__hint">Applies to every slide in this carousel</span>
+                    ) : hasLayoutOpts ? (
                       <span className="wv-layed__hint">{layoutOpts.length} options from the layout agent, ranked</span>
-                    )}
+                    ) : null}
                   </span>
                   <button
                     type="button"
                     className="btn btn--primary btn--sm wv-layed__apply"
-                    onClick={applyLayout}
-                    disabled={hasLayoutOpts ? (!draftOpt || optUnchanged) : (!draftId || layoutUnchanged)}
-                    title={(hasLayoutOpts ? optUnchanged : layoutUnchanged)
-                      ? 'This is the layout the post already has'
-                      : undefined}
+                    onClick={themeEditing ? applyTheme : applyLayout}
+                    disabled={themeEditing
+                      ? (!draftOpt || themeUnchanged)
+                      : (hasLayoutOpts ? (!draftOpt || optUnchanged) : (!draftId || layoutUnchanged))}
+                    title={themeEditing
+                      ? (themeUnchanged ? 'This theme is already on every slide' : 'Apply this theme to every slide')
+                      : ((hasLayoutOpts ? optUnchanged : layoutUnchanged)
+                        ? 'This is the layout the post already has'
+                        : undefined)}
                   >
                     <Glyph name="check" size={16} strokeWidth={2.5} />
-                    Apply changes
+                    {themeEditing ? 'Apply theme' : 'Apply changes'}
                   </button>
                 </div>
                 <div className="wv-layed__picker">
-                  {hasLayoutOpts ? (
+                  {themeEditing || hasLayoutOpts ? (
                     <div
                       className="wv-acts wv-layed__grid wv-layed__grid--opts"
                       role="radiogroup"
-                      aria-label="Which layout option should this slide use?"
+                      aria-label={themeEditing
+                        ? 'Which carousel theme should this post use?'
+                        : 'Which layout option should this slide use?'}
                     >
-                      {layoutOptionCards()}
+                      {layoutOptionCards(themeEditing)}
                     </div>
                   ) : (
                     <div className="wv-actsrow">
@@ -4145,6 +4364,8 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
                   paint={igVars}
                   themed={hasVisualEdits}
                   carouselLayoutHtmls={slides.map((x) => x?.layoutHtml || '')}
+                  documentHtml={carouselDocumentOf(day)}
+                  slideIndex={i + 1}
                 />
               </div>
             ))}

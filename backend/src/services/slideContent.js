@@ -36,6 +36,27 @@ function mediaKeysOf(...values) {
   return out;
 }
 
+const PROJECT_MEDIA_IN_TEXT = /projects\/[a-f0-9]{24}\/[A-Za-z0-9._-]+\.(?:png|jpe?g|webp|gif|hei[cf])/gi;
+
+function projectMediaKeysIn(...values) {
+  const out = [];
+  const seen = new Set();
+  for (const value of values) {
+    if (value == null || value === '') continue;
+    const text = typeof value === 'string'
+      ? value
+      : (Array.isArray(value) ? value.join(' ') : JSON.stringify(value));
+    const re = new RegExp(PROJECT_MEDIA_IN_TEXT.source, 'gi');
+    let m;
+    while ((m = re.exec(text))) {
+      if (seen.has(m[0])) continue;
+      seen.add(m[0]);
+      out.push(m[0]);
+    }
+  }
+  return out;
+}
+
 function asItems(value) {
   if (Array.isArray(value)) return stringList(value);
   const one = str(value);
@@ -233,12 +254,14 @@ function flattenSlide(raw) {
     assetKeys: assetKeys.length ? assetKeys : (assetKey ? [assetKey] : []),
     layout: str(s.layout),
     layoutHtml: str(s.layoutHtml),
+    layoutTheme: str(s.layoutTheme),
     layoutOptions: Array.isArray(s.layoutOptions)
       ? s.layoutOptions
         .map((o, i) => ({
           rank: Number(o?.rank) > 0 ? Number(o.rank) : i + 1,
           label: str(o?.label),
           reason: str(o?.reason),
+          direction: str(o?.direction),
           html: str(o?.html),
         }))
         .filter((o) => o.html)
@@ -284,6 +307,7 @@ module.exports = {
   annotationOf,
   stringList,
   mediaKeysOf,
+  projectMediaKeysIn,
   asStoredText,
   asStoredLines,
 };

@@ -175,6 +175,18 @@ Factual limitations, unverified outcomes, and missing evidence are guardrails on
 
 A brief whose central value is caution is not yet a strong brief. Reframe it into the most useful grounded idea, or drop it.
 
+## When a capture is enough
+
+Plan from `conversationCaptures`. Return `"briefs": []` only when every capture is empty of a named situation — no project, place, person, problem, decision, observation, or work in progress.
+
+A live job is enough. A capture that names what is underway (for example a villa in New York, a kitchen, a client situation) is a usable Discovery opportunity even when process, client quotes, design decisions, and outcomes are missing. Record those absences in `knownLimitation` and `visualLimitations`. Do not refuse the brief.
+
+Do not require a complete case study. Do not require a documented problem, decision, or result before returning at least one brief. Brand DNA may frame audience and stance; it must not invent project facts.
+
+An attached photo with a missing or thin `summary` is still the visual record for that capture. Allocate its `key` with `evidenceLevel: context` and `visibleContent` from the description that exists, or `"photograph attached to this capture"` when none does. Do not treat a missing photo description as no opportunity.
+
+Do not refuse because competitor intelligence, project-library photos, or Brand DNA proof fields are thin. The Capture is the story.
+
 ## Brand DNA (Business memory)
 
 The Brand block below is the account's complete Business memory. It is passed in full. Do not summarise, drop, or ignore any filled field.
@@ -389,7 +401,7 @@ Rules:
 - Sibling briefs from one Capture must copy the same `captureId`. Each brief is a content opportunity, not a new source file.
 - Do not invent information to fill fields.
 - Do not copy an occupied title.
-- Respect `maxBriefs`. If no usable opportunity exists, return `"briefs": []` and explain the exact reason in `constraints.insufficientContext`.
+- Respect `maxBriefs`. Return `"briefs": []` only when no capture names a usable situation. Explain that reason in `constraints.insufficientContext`. A live named job with missing process or outcome is not insufficient context.
 
 Output only the JSON block.
 

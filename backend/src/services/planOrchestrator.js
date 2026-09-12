@@ -3,11 +3,12 @@ const path = require('path');
 const { extractJson, estimatePlanCostUsd, assignToEmptyDates, normalizeLens } = require('./weeklyPlan');
 const { compileStrategyContext, assetsForDay, allocatedAssetsOf, applyAssetAllocation, knownAssetIndexOf, json } = require('./planContext');
 const { completeText, resolvePlanAgentLlm, splitPromptTemplate } = require('./llmComplete');
-const { ANNOTATIONS_ENABLED, asStoredText, asStoredLines, flattenSlide, layoutForStructure, mediaKeysOf } = require('./slideContent');
+const { ANNOTATIONS_ENABLED, asStoredText, asStoredLines, flattenSlide, layoutForStructure, mediaKeysOf, projectMediaKeysIn } = require('./slideContent');
 const { boxOf, matchSubject, regionFromBox } = require('./subjectBox');
 const { layoutById } = require('./layoutCatalog');
-const { extractLayoutHtml, hasImageSlot, shareLayoutStyles } = require('./layoutHtml');
+const { extractLayoutHtml, extractHtmlDocument, parseCarouselDocument, hasImageSlot, shareLayoutStyles } = require('./layoutHtml');
 const { canStoreGeneratedImage, renderAndStoreGeneratedImage } = require('./generatedImage');
+const { publicMediaUrl, isCdnConfigured } = require('./s3Client');
 
 const PROMPTS_DIR = path.join(__dirname, '..', '..', 'prompts');
 const cache = {};
@@ -31,11 +32,12 @@ function fillTemplate(template, vars) {
 function assembleAgentPrompt(name, vars) {
   const raw = loadPrompt(name);
   const { system, userTemplate } = splitPromptTemplate(raw);
-  const user = fillTemplate(userTemplate || raw, vars);
+  const filledSystem = fillTemplate(system, vars);
+  const filledUser = fillTemplate(userTemplate || raw, vars);
   return {
-    system,
-    user,
-    prompt: [system, user].filter(Boolean).join('\n\n'),
+    system: filledSystem,
+    user: filledUser,
+    prompt: [filledSystem, filledUser].filter(Boolean).join('\n\n'),
   };
 }
 
@@ -296,6 +298,10 @@ function maxTokensFor(kind) {
     const n = Number(process.env.PLAN_LAYOUT_MAX_TOKENS);
     return Number.isFinite(n) && n > 0 ? n : 16384;
   }
+  if (kind === 'carousel') {
+    const n = Number(process.env.PLAN_CAROUSEL_MAX_TOKENS);
+    return Number.isFinite(n) && n > 0 ? n : 32768;
+  }
   if (kind === 'visual') {
     const n = Number(process.env.PLAN_VISUAL_MAX_TOKENS);
     return Number.isFinite(n) && n > 0 ? n : 4096;
@@ -304,9 +310,22 @@ function maxTokensFor(kind) {
   return Number.isFinite(n) && n > 0 ? n : 16384;
 }
 
-function qualityAgentEnabled() {
-  const v = String(process.env.PLAN_QUALITY_AGENT ?? '0').trim().toLowerCase();
+function envFlagOn(name, fallback) {
+  const v = String(process.env[name] ?? fallback).trim().toLowerCase();
   return v === '1' || v === 'true' || v === 'on' || v === 'yes';
+}
+
+function envFlagOff(name, fallback) {
+  const v = String(process.env[name] ?? fallback).trim().toLowerCase();
+  return v === '0' || v === 'false' || v === 'off' || v === 'no';
+}
+
+function qualityAgentEnabled() {
+  return envFlagOn('PLAN_QUALITY_AGENT', '0');
+}
+
+function dayAgentEnabled() {
+  return envFlagOn('PLAN_DAY_AGENT', '0');
 }
 
 function qualityMaxRewrites() {
@@ -315,18 +334,19 @@ function qualityMaxRewrites() {
 }
 
 function layoutAgentEnabled() {
-  const v = String(process.env.PLAN_LAYOUT_AGENT ?? '1').trim().toLowerCase();
-  return !(v === '0' || v === 'false' || v === 'off' || v === 'no');
+  return envFlagOn('PLAN_LAYOUT_AGENT', '0');
+}
+
+function carouselAgentEnabled() {
+  return !envFlagOff('PLAN_CAROUSEL_AGENT', '1');
 }
 
 function visualAgentEnabled() {
-  const v = String(process.env.PLAN_VISUAL_AGENT ?? '1').trim().toLowerCase();
-  return !(v === '0' || v === 'false' || v === 'off' || v === 'no');
+  return envFlagOn('PLAN_VISUAL_AGENT', '0');
 }
 
 function layoutSlideParallelEnabled() {
-  const v = String(process.env.PLAN_LAYOUT_SLIDE_PARALLEL ?? '1').trim().toLowerCase();
-  return !(v === '0' || v === 'false' || v === 'off' || v === 'no');
+  return !envFlagOff('PLAN_LAYOUT_SLIDE_PARALLEL', '1');
 }
 
 function envPositiveInt(name, fallback) {
@@ -348,6 +368,10 @@ function visualConcurrency() {
 
 function layoutTimeoutMs() {
   return envPositiveInt('PLAN_LAYOUT_TIMEOUT_MS', 60000);
+}
+
+function carouselTimeoutMs() {
+  return envPositiveInt('PLAN_CAROUSEL_TIMEOUT_MS', 150000);
 }
 
 const layoutWaiters = [];
@@ -451,14 +475,16 @@ function mergeUsage(parts, model) {
   return usage;
 }
 
-async function callAgent({ source, kind, prompt, system, user, validate }) {
+async function callAgent({ source, kind, prompt, system, user, validate, parse }) {
   const llm = resolvePlanAgentLlm(kind);
   const model = llm.model;
   let maxTokens = maxTokensFor(kind);
-  const maxAttempts = 2;
+  const asHtml = parse === 'html';
+  const maxAttempts = asHtml ? 3 : 2;
   let lastErr;
-  const userContent = user || prompt || '';
-  const debugPrompt = [system, userContent].filter(Boolean).join('\n\n');
+  const baseUser = user || prompt || '';
+  let userContent = baseUser;
+  const debugPrompt = [system, baseUser].filter(Boolean).join('\n\n');
   const started = Date.now();
 
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
@@ -473,7 +499,8 @@ async function callAgent({ source, kind, prompt, system, user, validate }) {
       maxTokens,
       cacheKey: `igsignal-plan-${kind}`,
       kind,
-      timeoutMs: kind === 'layout' ? layoutTimeoutMs() : 0,
+      timeoutMs: kind === 'layout' ? layoutTimeoutMs()
+        : (kind === 'carousel' ? carouselTimeoutMs() : 0),
     });
     const fullText = response.text || '';
     const usage = usageOf(response, model);
@@ -492,10 +519,27 @@ async function callAgent({ source, kind, prompt, system, user, validate }) {
 
     let parsed;
     try {
-      parsed = extractJson(fullText);
+      if (asHtml) {
+        const html = extractHtmlDocument(fullText);
+        if (!html || !/<article|<html|<section/i.test(html)) {
+          throw new Error('missing carousel html');
+        }
+        parsed = { status: 'ready', html };
+      } else {
+        parsed = extractJson(fullText);
+      }
     } catch (err) {
       lastErr = err;
-      console.warn(`[planOrchestrator] ${source} attempt ${attempt}: JSON parse failed — ${err.message}`);
+      console.warn(
+        `[planOrchestrator] ${source} attempt ${attempt}: ` +
+          `${asHtml ? 'HTML' : 'JSON'} parse failed — ${err.message}`,
+      );
+      if (asHtml && attempt < maxAttempts) {
+        userContent = `${baseUser}\n\n---\nPrevious attempt was not a usable HTML document (${err.message}). ` +
+          'Return ONLY a complete HTML document with five theme sections ' +
+          '(`<section data-direction="warm-editorial">` …) each containing ' +
+          '`<article class="slide" data-index="N">` for every slide. Do not nest other sections inside a theme section.';
+      }
       continue;
     }
 
@@ -512,7 +556,18 @@ async function callAgent({ source, kind, prompt, system, user, validate }) {
       return { parsed, usage, debugEntry: { ...debugEntry, output: fullText, elapsedMs } };
     } catch (err) {
       lastErr = err;
-      console.warn(`[planOrchestrator] ${source} attempt ${attempt}: validation failed — ${err.message}`);
+      console.warn(
+        `[planOrchestrator] ${source} attempt ${attempt}: validation failed — ${err.message} ` +
+          `(out=${usage.outputTokens} tok, stop=${response.stopReason || 'stop'}, chars=${fullText.length})`,
+      );
+      if (asHtml && attempt < maxAttempts) {
+        userContent = `${baseUser}\n\n---\nPrevious attempt failed validation: ${err.message}. ` +
+          'Return ONLY a complete HTML document. Required markers: ' +
+          '`<section data-direction="warm-editorial|architectural-minimal|quiet-luxury|natural-tactile|contemporary-gallery">` ' +
+          'wrapping `<article class="slide" data-index="1..N">` for every slide. ' +
+          'Put data-direction on the theme section only (not on buttons alone). ' +
+          'Do not nest <section> inside a theme section — use <div> for preview chrome.';
+      }
     }
   }
 
@@ -682,9 +737,25 @@ function evidenceResolutionOf(raw) {
   return { type, reason: optionalText(t.reason) };
 }
 
+function mentionedAssetKeyOf(s, allocated) {
+  const named = projectMediaKeysIn(
+    s?.assetKey,
+    s?.visual?.assetKey,
+    s?.evidenceAvailability?.reason,
+    s?.visualNeed?.reason,
+    s?.evidenceAvailability,
+  );
+  if (allocated.length) {
+    return named.find((k) => allocated.includes(k))
+      || allocated.find((k) => named.includes(k))
+      || '';
+  }
+  return named[0] || '';
+}
+
 function bindAllocatedAssets(slides, dayBrief) {
   const allocated = allocatedAssetsOf(dayBrief?.allocatedAssets).map((a) => a.key).filter(Boolean);
-  if (!Array.isArray(slides) || !slides.length || !allocated.length) return slides;
+  if (!Array.isArray(slides) || !slides.length) return slides;
   const used = new Set();
   const take = () => allocated.find((k) => k && !used.has(k)) || '';
   const claim = (key) => { if (key) used.add(key); };
@@ -709,15 +780,22 @@ function bindAllocatedAssets(slides, dayBrief) {
 
   const next = slides.map((s) => {
     if (skipBind(s)) return s;
-    const existing = optionalText(s.assetKey) || optionalText(s.visual?.assetKey);
+    const existing = optionalText(s.assetKey) || optionalText(s.visual?.assetKey)
+      || projectMediaKeysIn(s?.assetKey, s?.visual?.assetKey)[0]
+      || '';
     if (existing) {
       claim(existing);
       return { ...s, assetKey: existing, layout: photoLayoutOf(s) };
     }
+    const named = mentionedAssetKeyOf(s, allocated);
+    if (named) {
+      claim(named);
+      return withAsset(s, named);
+    }
     const priority = String(s?.visual?.priority || '').toLowerCase();
     const type = optionalText(s?.visual?.type);
     const wants = (priority && priority !== 'none') || isSourceVisualType(type);
-    if (!wants || !isSourceVisualType(type)) return s;
+    if (!wants || !isSourceVisualType(type) || !allocated.length) return s;
     const key = take();
     if (!key) return s;
     claim(key);
@@ -807,7 +885,7 @@ function approvedGenerationRouteOf() {
   return 'assets-only';
 }
 
-function visualPlanOf(visual, resolution) {
+function visualPlanOf(visual, resolution, evidence) {
   const raw = visual && typeof visual === 'object' ? visual : {};
   let priority = VISUAL_PRIORITIES.includes(String(raw.priority || '').trim().toLowerCase())
     ? String(raw.priority).trim().toLowerCase()
@@ -819,6 +897,9 @@ function visualPlanOf(visual, resolution) {
   let type = normalizeStructureType(raw.type) || optionalText(raw.type) || 'none';
   if (type && type !== 'none' && !VISUAL_TYPES.has(type)) type = 'Image';
   if (priority === 'none') type = 'none';
+  const assetKey = optionalText(raw.assetKey)
+    || projectMediaKeysIn(raw.assetKey, evidence?.reason, evidence, raw)[0]
+    || '';
   return {
     priority,
     role: priority === 'none' ? 'none' : role,
@@ -826,6 +907,7 @@ function visualPlanOf(visual, resolution) {
     communicationFunction: optionalText(raw.communicationFunction),
     truthBoundary: optionalText(raw.truthBoundary),
     noneReason: optionalText(raw.noneReason),
+    ...(assetKey && priority !== 'none' ? { assetKey } : {}),
   };
 }
 
@@ -888,6 +970,7 @@ function validateContentStructure(parsed, brief) {
     const action = s?.action && typeof s.action === 'object' ? s.action : {};
     let primary = normalizeStructureType(s?.primaryStructure);
     if (!ANNOTATIONS_ENABLED && primary === 'Annotation') primary = 'Image';
+    const evidenceAvailability = evidenceAvailabilityOf(s?.evidenceAvailability);
     const evidenceResolution = evidenceResolutionOf(s?.evidenceResolution);
     return {
       index: Number(s?.index) > 0 ? Number(s.index) : i + 1,
@@ -899,7 +982,7 @@ function validateContentStructure(parsed, brief) {
         : 'visual',
       textNeed: textNeedOf(s?.textNeed),
       visualNeed: visualNeedOf(s?.visualNeed || visual),
-      evidenceAvailability: evidenceAvailabilityOf(s?.evidenceAvailability),
+      evidenceAvailability,
       evidenceResolution,
       informationShape: optionalText(s?.informationShape),
       primaryStructure: primary,
@@ -914,7 +997,7 @@ function validateContentStructure(parsed, brief) {
         && (ANNOTATIONS_ENABLED || el.type !== 'Annotation')),
       selectionReason: optionalText(s?.selectionReason),
       contentGuidance: optionalText(s?.contentGuidance),
-      visual: visualPlanOf(visual, evidenceResolution),
+      visual: visualPlanOf(visual, evidenceResolution, evidenceAvailability),
       action: (() => {
         const type = optionalText(action.type) || 'none';
         const expression = optionalText(action.expression) || 'none';
@@ -1092,6 +1175,215 @@ function writerStructureOf(structure) {
   };
 }
 
+const TITLE_ELEMENT_TYPES = new Set(['Title', 'Short_Statement', 'Question']);
+const SUBTITLE_ELEMENT_TYPES = new Set(['Subtitle', 'Supporting_Text', 'Label', 'Caption_Label']);
+const BODY_ELEMENT_TYPES = new Set(['Body', 'Reason_Rationale', 'Example']);
+const LIST_ELEMENT_TYPES = new Set([
+  'List', 'Numbered_Items', 'Steps', 'Sequence', 'Checklist', 'Ranking',
+  'Timeline', 'Process_Flow', 'Framework', 'Categories_Groups', 'Progression',
+  'Options', 'Hierarchy', 'Diagram',
+]);
+const COMPARE_ELEMENT_TYPES = new Set([
+  'Comparison', 'Pros_Cons', 'Do_Dont', 'Problem_Solution', 'Cause_Effect', 'Before_After',
+]);
+const QUOTE_ELEMENT_TYPES = new Set(['Quote', 'Testimonial']);
+const STAT_ELEMENT_TYPES = new Set(['Number_Stat', 'Data_Chart']);
+
+function elementCopy(el, fallback = '') {
+  const refs = stringList(el?.supportReference);
+  if (refs.length) return refs.join(' · ');
+  return optionalText(el?.function) || fallback;
+}
+
+function listCopy(el, fallback = '') {
+  const refs = stringList(el?.supportReference);
+  if (refs.length) return refs;
+  const one = optionalText(el?.function) || fallback;
+  return one ? [one] : [];
+}
+
+function comparisonCopy(el, fallbackA = '', fallbackB = '') {
+  const refs = stringList(el?.supportReference);
+  if (refs.length >= 2) return { a: refs[0], b: refs[1] };
+  if (refs.length === 1) return { a: refs[0], b: fallbackB };
+  const raw = optionalText(el?.function) || fallbackA;
+  const parts = raw.split(/\s+(?:vs\.?|versus|→|->|\/)\s+/i).map((p) => p.trim()).filter(Boolean);
+  if (parts.length >= 2) return { a: parts[0], b: parts[1] };
+  return { a: fallbackA || raw, b: fallbackB };
+}
+
+function assignElementCopy(slide, type, el, fallback) {
+  const kind = normalizeStructureType(type);
+  if (!kind) return;
+  if (TITLE_ELEMENT_TYPES.has(kind)) {
+    if (!slide.title) slide.title = elementCopy(el, fallback);
+    return;
+  }
+  if (SUBTITLE_ELEMENT_TYPES.has(kind)) {
+    if (!slide.subtitle) slide.subtitle = elementCopy(el, fallback);
+    return;
+  }
+  if (BODY_ELEMENT_TYPES.has(kind)) {
+    if (!slide.body) slide.body = elementCopy(el, fallback);
+    return;
+  }
+  if (LIST_ELEMENT_TYPES.has(kind)) {
+    if (!slide.items.length) slide.items = listCopy(el, fallback);
+    return;
+  }
+  if (COMPARE_ELEMENT_TYPES.has(kind)) {
+    if (!slide.comparisonA && !slide.comparisonB) {
+      const sides = comparisonCopy(el, fallback, '');
+      slide.comparisonA = sides.a;
+      slide.comparisonB = sides.b;
+    }
+    return;
+  }
+  if (QUOTE_ELEMENT_TYPES.has(kind)) {
+    if (!slide.quote) slide.quote = elementCopy(el, fallback);
+    return;
+  }
+  if (STAT_ELEMENT_TYPES.has(kind)) {
+    if (!slide.stat) slide.stat = elementCopy(el, fallback);
+    return;
+  }
+  if (kind === 'Action' && !slide.action) slide.action = elementCopy(el, fallback);
+}
+
+function slideFromStructure(s) {
+  const primary = normalizeStructureType(s?.primaryStructure);
+  const purpose = optionalText(s?.purpose);
+  const guidance = optionalText(s?.contentGuidance);
+  const comm = optionalText(s?.textNeed?.communicationFunction);
+  const supporting = Array.isArray(s?.supportingElements) ? s.supportingElements : [];
+  const hasBodySupport = supporting.some((el) => BODY_ELEMENT_TYPES.has(normalizeStructureType(el?.type)));
+  const primaryFallback = TITLE_ELEMENT_TYPES.has(primary) && hasBodySupport
+    ? (purpose || guidance || comm)
+    : (guidance || purpose || comm);
+  const slide = {
+    index: Number(s?.index) > 0 ? Number(s.index) : 0,
+    role: optionalText(s?.role) || 'other',
+    structure: primary,
+    purpose,
+    placement: optionalText(s?.placement) || 'visual',
+    title: '',
+    subtitle: '',
+    body: '',
+    items: [],
+    itemsA: [],
+    itemsB: [],
+    comparisonA: '',
+    comparisonB: '',
+    stat: '',
+    quote: '',
+    action: '',
+    visual: s?.visual && typeof s.visual === 'object' ? { ...s.visual } : {},
+    evidenceAvailability: s?.evidenceAvailability || null,
+    evidenceResolution: s?.evidenceResolution || null,
+    contentGuidance: guidance,
+    elements: [],
+  };
+
+  const primaryEl = {
+    type: primary,
+    text: primaryFallback,
+    function: comm,
+    supportReference: stringList(s?.textNeed?.supportReference),
+  };
+  assignElementCopy(slide, primary, primaryEl, primaryFallback);
+  slide.elements.push({
+    type: primary,
+    text: primaryFallback,
+    function: comm,
+  });
+  supporting.forEach((el) => {
+    const type = normalizeStructureType(el?.type);
+    if (!type) return;
+    const text = elementCopy(el);
+    assignElementCopy(slide, type, el, text);
+    slide.elements.push({
+      type,
+      text,
+      function: optionalText(el?.function),
+      ...(stringList(el?.supportReference).length ? { supportReference: stringList(el.supportReference) } : {}),
+    });
+  });
+
+  if (!slide.title && !slide.body && !slide.items.length && !slide.comparisonA && !slide.quote && !slide.stat) {
+    if (LIST_ELEMENT_TYPES.has(primary)) slide.items = primaryFallback ? [primaryFallback] : [];
+    else if (BODY_ELEMENT_TYPES.has(primary)) slide.body = primaryFallback;
+    else slide.title = primaryFallback;
+  }
+
+  if (hasBodySupport && guidance) slide.body = guidance;
+
+  const act = s?.action && typeof s.action === 'object' ? s.action : {};
+  const actionPlacement = String(act.placement || '').trim().toLowerCase();
+  const actionExpression = String(act.expression || '').trim().toLowerCase();
+  if (['current-surface', 'dedicated-surface'].includes(actionPlacement)
+    && actionExpression === 'cta-text'
+    && !slide.action) {
+    slide.action = optionalText(act.type) || primaryFallback;
+  }
+  if (/before/i.test(primary) && !slide.labels) {
+    slide.labels = ['Before', 'After'];
+  }
+  return slide;
+}
+
+function captionFromStructure(structure, dayBrief) {
+  const units = Array.isArray(dayBrief?.narrativeUnits) ? dayBrief.narrativeUnits : [];
+  const captionIds = new Set(stringList(structure?.captionUnits));
+  const fromUnits = units
+    .filter((u) => captionIds.has(optionalText(u?.id)))
+    .map((u) => optionalText(u?.purpose) || optionalText(u?.support))
+    .filter(Boolean);
+  if (fromUnits.length) return fromUnits.join('\n');
+  return optionalText(dayBrief?.hookTerritory)
+    || optionalText(dayBrief?.uniqueJob)
+    || optionalText(dayBrief?.angle);
+}
+
+function ctaFromStructure(structure) {
+  const slides = Array.isArray(structure?.slidesOrScenes) ? structure.slidesOrScenes : [];
+  const hit = slides.find((s) => {
+    const placement = String(s?.action?.placement || '').trim().toLowerCase();
+    const expression = String(s?.action?.expression || '').trim().toLowerCase();
+    return placement === 'caption' && expression === 'cta-text';
+  });
+  if (!hit) return '';
+  return optionalText(hit.action?.type) || optionalText(hit.contentGuidance);
+}
+
+function postFromStructure(structure, dayBrief) {
+  const slides = visualSlidesOf(structure).map((s, i) => {
+    const slide = slideFromStructure(s);
+    if (!slide.index) slide.index = i + 1;
+    return slide;
+  });
+  const caption = captionFromStructure(structure, dayBrief);
+  const cta = ctaFromStructure(structure);
+  const hashtags = hashtagList(dayBrief?.hashtags);
+  const title = optionalText(slides[0]?.title)
+    || optionalText(dayBrief?.angle)
+    || optionalText(dayBrief?.uniqueJob);
+  return {
+    status: 'ready',
+    format: lockedFormat(structure?.format || dayBrief?.format),
+    title,
+    direction: optionalText(dayBrief?.angle),
+    caption,
+    cta,
+    hashtags,
+    content: {
+      slides,
+      caption,
+      cta,
+      hashtags,
+    },
+  };
+}
+
 async function writeContentStructure({ source, brief, dayAssets, brandJson }) {
   const visuals = mergeAllocatedVisuals(brief, dayAssets);
   const assembled = assembleAgentPrompt('plan-content-structure.md', {
@@ -1150,6 +1442,11 @@ function slideHasAsset(raw, flat, visual) {
     ...((Array.isArray(flat?.assetKeys) ? flat.assetKeys : []).map(optionalText)),
     ...((Array.isArray(raw?.assetKeys) ? raw.assetKeys : []).map(optionalText)),
     ...((Array.isArray(visual?.assetKeys) ? visual.assetKeys : []).map(optionalText)),
+    ...projectMediaKeysIn(
+      raw?.evidenceAvailability?.reason,
+      raw?.evidenceAvailability,
+      visual,
+    ),
   ];
   if (keys.some(Boolean)) return true;
   const image = raw?.image;
@@ -1242,17 +1539,28 @@ function visualCandidatesOf(structure, writerParsed, generationRoute) {
   }).filter(Boolean);
 }
 
+function photographSrcOf(key) {
+  const k = optionalText(key);
+  if (!k) return '';
+  try {
+    if (isCdnConfigured()) return publicMediaUrl(k) || '';
+  } catch { /* ignore */ }
+  return '';
+}
+
 function photographHintOf(assetKey, dayBrief) {
   const key = optionalText(assetKey);
   if (!key) return null;
   const asset = allocatedAssetsOf(dayBrief?.allocatedAssets).find((a) => optionalText(a?.key) === key) || {};
+  const src = photographSrcOf(key);
   const hint = {
     assigned: true,
     visibleContent: optionalText(asset.visibleContent),
     why: optionalText(asset.why),
     evidenceLevel: optionalText(asset.evidenceLevel),
+    ...(src ? { src } : {}),
   };
-  if (!hint.visibleContent && !hint.why && !hint.evidenceLevel) return { assigned: true };
+  if (!hint.visibleContent && !hint.why && !hint.evidenceLevel && !src) return { assigned: true };
   return hint;
 }
 
@@ -1269,6 +1577,7 @@ function layoutVisualOf(visual, hasAsset, assetKey, photograph, includeImageSlot
       includeImageSlot: true,
       assetKey: optionalText(assetKey) || optionalText(visual?.assetKey),
       photograph: photograph || { assigned: true },
+      ...(optionalText(photograph?.src) ? { src: optionalText(photograph.src) } : {}),
     };
   }
   if (includeImageSlot) {
@@ -1305,10 +1614,16 @@ function layoutStructureOf(structure) {
       purpose: optionalText(s?.purpose),
       placement: optionalText(s?.placement) || 'visual',
       primaryStructure: optionalText(s?.primaryStructure),
-      supportingElements: (s?.supportingElements || []).map((el) => optionalText(el?.type || el)).filter(Boolean),
+      supportingElements: (s?.supportingElements || []).map((el) => ({
+        type: optionalText(el?.type || el),
+        function: optionalText(el?.function),
+      })).filter((el) => el.type),
+      contentGuidance: optionalText(s?.contentGuidance),
+      textNeed: s?.textNeed || null,
       visual: {
         priority: optionalText(s?.visual?.priority) || 'none',
         type: optionalText(s?.visual?.type) || 'none',
+        communicationFunction: optionalText(s?.visual?.communicationFunction),
       },
     })),
   };
@@ -1345,9 +1660,17 @@ function layoutInputOf(post, structure, dayBrief) {
       const structured = structureSlideOf(structure, index);
       const flat = flattenSlide(raw);
       const sourceVisual = raw?.visual && typeof raw.visual === 'object' ? raw.visual : (flat.visual || {});
-      const hasAsset = slideHasAsset(raw, flat, sourceVisual);
       const includeImageSlot = slideWantsVisual(raw, flat, sourceVisual);
-      const assetKey = optionalText(flat.assetKey) || optionalText(raw?.assetKey) || optionalText(raw?.visual?.assetKey);
+      const assetKey = optionalText(flat.assetKey)
+        || optionalText(raw?.assetKey)
+        || optionalText(raw?.visual?.assetKey)
+        || mentionedAssetKeyOf({
+          assetKey: raw?.assetKey,
+          visual: sourceVisual,
+          evidenceAvailability: raw?.evidenceAvailability || structured?.evidenceAvailability,
+          visualNeed: raw?.visualNeed || structured?.visualNeed,
+        }, allocatedAssetsOf(dayBrief?.allocatedAssets).map((a) => a.key).filter(Boolean));
+      const hasAsset = Boolean(assetKey) || slideHasAsset(raw, flat, sourceVisual);
       const visual = layoutVisualOf(
         sourceVisual,
         hasAsset,
@@ -1359,6 +1682,7 @@ function layoutInputOf(post, structure, dayBrief) {
         index,
         role: optionalText(flat.role || structured?.role) || 'other',
         purpose: optionalText(structured?.purpose),
+        primaryStructure: optionalText(flat.structure || structured?.primaryStructure),
         filled: {
           title: optionalText(flat.title),
           subtitle: optionalText(flat.subtitle),
@@ -1386,6 +1710,105 @@ function layoutInputOf(post, structure, dayBrief) {
         compositionNote: compositionNoteOf(flat, visual),
         visual,
         evidenceResolution: optionalText(raw?.evidenceResolution?.type || structured?.evidenceResolution?.type),
+      };
+    }),
+  };
+}
+
+function carouselInputOf(structure, post, dayBrief) {
+  const postSlides = Array.isArray(post?.content?.slides) ? post.content.slides : [];
+  let visual = visualSlidesOf(structure);
+  // Layout reruns / partial traces may lack slidesOrScenes — build from the post.
+  if (!visual.length && postSlides.length) {
+    visual = postSlides.map((raw, i) => {
+      const flat = flattenSlide(raw);
+      return {
+        index: Number(raw?.index) > 0 ? Number(raw.index) : i + 1,
+        role: optionalText(raw?.role) || 'other',
+        purpose: optionalText(raw?.purpose) || optionalText(flat.title),
+        placement: 'visual',
+        primaryStructure: optionalText(raw?.primaryStructure),
+        supportingElements: Array.isArray(raw?.supportingElements) ? raw.supportingElements : [],
+        contentGuidance: optionalText(raw?.contentGuidance)
+          || [flat.title, flat.subtitle, flat.body].filter(Boolean).join(' — '),
+        textNeed: raw?.textNeed || null,
+        informationShape: optionalText(raw?.informationShape),
+        action: raw?.action || {},
+        visualNeed: raw?.visualNeed || null,
+        evidenceAvailability: raw?.evidenceAvailability || null,
+        evidenceResolution: raw?.evidenceResolution || null,
+        visual: (raw?.visual && typeof raw.visual === 'object') ? raw.visual : {},
+      };
+    });
+  }
+  const allocated = allocatedAssetsOf(dayBrief?.allocatedAssets);
+  const allocatedKeys = allocated.map((a) => a.key).filter(Boolean);
+  return {
+    format: lockedFormat(structure?.format || post?.format),
+    allocatedVisuals: allocated.map((a) => ({
+      key: a.key,
+      visibleContent: optionalText(a.visibleContent),
+      why: optionalText(a.why),
+      evidenceLevel: optionalText(a.evidenceLevel),
+      supportsUnitIds: Array.isArray(a.supportsUnitIds) ? a.supportsUnitIds : [],
+    })),
+    slides: visual.map((s, i) => {
+      const index = Number(s?.index) > 0 ? Number(s.index) : i + 1;
+      const raw = postSlides.find((p) => (
+        (Number(p?.index) > 0 ? Number(p.index) : 0) === index
+      )) || postSlides[i] || {};
+      const flat = flattenSlide(raw);
+      const sourceVisual = (raw?.visual && typeof raw.visual === 'object')
+        ? raw.visual
+        : (s?.visual && typeof s.visual === 'object' ? s.visual : {});
+      const mentioned = mentionedAssetKeyOf({
+        assetKey: raw?.assetKey || s?.visual?.assetKey,
+        visual: sourceVisual,
+        evidenceAvailability: s?.evidenceAvailability || raw?.evidenceAvailability,
+        visualNeed: s?.visualNeed,
+      }, allocatedKeys);
+      const assetKey = optionalText(flat.assetKey)
+        || optionalText(raw?.assetKey)
+        || optionalText(raw?.visual?.assetKey)
+        || optionalText(s?.visual?.assetKey)
+        || mentioned;
+      const hasAsset = Boolean(assetKey) || slideHasAsset(raw, flat, sourceVisual);
+      const includeImageSlot = hasAsset
+        || slideWantsVisual(raw, flat, sourceVisual)
+        || slideWantsVisual(s, flattenSlide(s), sourceVisual);
+      return {
+        index,
+        role: optionalText(s?.role) || optionalText(raw?.role) || 'other',
+        purpose: optionalText(s?.purpose) || optionalText(raw?.purpose),
+        placement: optionalText(s?.placement) || 'visual',
+        primaryStructure: optionalText(s?.primaryStructure),
+        supportingElements: (s?.supportingElements || []).map((el) => ({
+          type: optionalText(el?.type || el),
+          function: optionalText(el?.function),
+          supportReference: stringList(el?.supportReference),
+        })).filter((el) => el.type),
+        contentGuidance: optionalText(s?.contentGuidance)
+          || [flat.title, flat.subtitle, flat.body].filter(Boolean).join(' — '),
+        textNeed: s?.textNeed || null,
+        informationShape: optionalText(s?.informationShape),
+        action: s?.action || {},
+        visualNeed: s?.visualNeed || null,
+        evidenceAvailability: s?.evidenceAvailability || null,
+        evidenceResolution: s?.evidenceResolution || raw?.evidenceResolution || null,
+        visual: layoutVisualOf(
+          sourceVisual,
+          hasAsset,
+          assetKey,
+          hasAsset ? photographHintOf(assetKey, dayBrief) : null,
+          includeImageSlot,
+        ),
+        // Pass drafted copy so the carousel agent is never structure-blind.
+        draftCopy: {
+          title: optionalText(flat.title),
+          subtitle: optionalText(flat.subtitle),
+          body: optionalText(flat.body),
+          items: Array.isArray(flat.items) ? flat.items : [],
+        },
       };
     }),
   };
@@ -1493,6 +1916,7 @@ function applyLayoutToContent(content, layoutParsed) {
         label: optionalText(o?.label),
         reason: optionalText(o?.reason),
         html: extractLayoutHtml(o?.html),
+        direction: optionalText(o?.direction),
       }))
       .filter((o) => o.html);
     const html = options[0]?.html || extractLayoutHtml(plan?.html) || '';
@@ -1504,8 +1928,15 @@ function applyLayoutToContent(content, layoutParsed) {
         layoutOptions: [],
       };
     }
-    return { ...raw, layout: 'dynamic', layoutHtml: html, layoutOptions: options };
+    return {
+      ...raw,
+      layout: 'dynamic',
+      layoutHtml: html,
+      layoutOptions: options,
+      layoutTheme: options[0]?.direction || '',
+    };
   });
+  if (layoutParsed?.html) content.carouselHtml = layoutParsed.html;
   return content;
 }
 
@@ -1627,8 +2058,131 @@ async function writeLayout({ source, structure, post, dayBrief }) {
   }));
 }
 
+function brandStyleOf(brand) {
+  const b = brand && typeof brand === 'object' ? brand : {};
+  const visualStyle = optionalText(b.visualStyle || b.mood);
+  const palette = b.palette && typeof b.palette === 'object' ? b.palette : null;
+  const fonts = b.fonts && typeof b.fonts === 'object' ? b.fonts : null;
+  if (!visualStyle && !palette && !fonts) return '';
+  return { ...(visualStyle ? { visualStyle } : {}), ...(palette ? { palette } : {}), ...(fonts ? { fonts } : {}) };
+}
+
+function brandMemoryOf(brand) {
+  const b = brand && typeof brand === 'object' ? brand : {};
+  const memory = {
+    offer: optionalText(b.offer),
+    audience: optionalText(b.audience),
+    firstProblem: optionalText(b.firstProblem),
+    position: optionalText(b.position),
+    proof: optionalText(b.proof),
+    voice: optionalText(b.voice),
+    visualStyle: optionalText(b.visualStyle || b.mood),
+    neverDo: optionalText(b.neverDo),
+    guardrails: Array.isArray(b.guardrails) ? b.guardrails.map(optionalText).filter(Boolean) : [],
+  };
+  const filled = ['offer', 'audience', 'firstProblem', 'position', 'proof', 'voice', 'visualStyle', 'neverDo']
+    .some((k) => memory[k]) || memory.guardrails.length > 0;
+  return filled ? memory : '';
+}
+
+function optionalPromptJson(value) {
+  if (value == null || value === '') return 'None supplied.';
+  if (typeof value === 'string') {
+    const t = value.trim();
+    return t || 'None supplied.';
+  }
+  return json(value);
+}
+
+function validateCarousel(parsed, post) {
+  const expected = Array.isArray(post?.content?.slides) ? post.content.slides.length : 0;
+  const raw = String(parsed?.html || '');
+  if (/content structure (was )?not included|awaiting content|role not supplied/i.test(raw)) {
+    throw new Error('carousel html is an empty shell (structure missing from model input)');
+  }
+  const doc = parseCarouselDocument(raw, expected);
+  if (!doc.html || !doc.slides.length) {
+    const articles = (raw.match(/<article\b/gi) || []).length;
+    const slideClass = (raw.match(/class=["'][^"']*\bslide\b/gi) || []).length;
+    const dirs = [...raw.matchAll(/\bdata-direction=["']([^"']+)["']/gi)].map((m) => m[1]);
+    const uniqDirs = [...new Set(dirs)].slice(0, 8).join(',') || 'none';
+    throw new Error(
+      `carousel html missing slides (chars=${raw.length} articles=${articles} ` +
+        `slideClass=${slideClass} directions=${uniqDirs} expected=${expected || 'any'})`,
+    );
+  }
+  if (expected && doc.slides.length !== expected) {
+    throw new Error(`carousel slide count ${doc.slides.length} != ${expected}`);
+  }
+  parsed.status = 'ready';
+  parsed.html = doc.html;
+  parsed.slides = doc.slides;
+}
+
 function runLayoutForPost(opts) {
+  if (carouselAgentEnabled()) return writeCarousel(opts);
   return writeLayout(opts);
+}
+
+async function writeCarousel({ source, structure, post, dayBrief, brand, dayWriterOutput }) {
+  const carouselInput = carouselInputOf(structure, post, dayBrief);
+  const structureSlides = visualSlidesOf(structure).length;
+  const postSlideCount = Array.isArray(post?.content?.slides) ? post.content.slides.length : 0;
+  console.log(
+    `[planOrchestrator] ${source} input · structureSlides=${structureSlides} ` +
+      `postSlides=${postSlideCount} inputSlides=${carouselInput.slides.length} ` +
+      `hasStructure=${Boolean(structure && Array.isArray(structure.slidesOrScenes) && structure.slidesOrScenes.length)}`,
+  );
+  const assembled = assembleAgentPrompt('plan-carousel.md', {
+    CONTENT_STRUCTURE_JSON: json(carouselInput),
+    DAY_WRITER_OUTPUT: optionalPromptJson(dayWriterOutput),
+    BRAND_STYLE: optionalPromptJson(brandStyleOf(brand)),
+    BRAND_JSON: optionalPromptJson(brandMemoryOf(brand)),
+    // Legacy camelCase aliases (older prompt cache / local edits).
+    contentStructure: json(carouselInput),
+    dayWriterOutput: optionalPromptJson(dayWriterOutput),
+    brandStyle: optionalPromptJson(brandStyleOf(brand)),
+  });
+  return withLayoutSlot(() => callAgent({
+    source,
+    kind: 'carousel',
+    system: assembled.system,
+    user: assembled.user,
+    prompt: assembled.prompt,
+    parse: 'html',
+    validate: (parsed) => validateCarousel(parsed, post),
+  }));
+}
+
+async function attachCarousel({ label, structure, writer, collect, dayBrief, dayAssets, brand }) {
+  if (!carouselAgentEnabled() || !writer || writerFailed(writer.parsed)) return null;
+  try {
+    const parsed = writer.parsed || {};
+    const post = {
+      ...parsed,
+      content: dayBrief ? normalizeWriterPost(parsed, dayBrief, dayAssets) : parsed.content,
+    };
+    const carousel = await writeCarousel({
+      source: `Carousel:${label}`,
+      structure,
+      post,
+      dayBrief,
+      brand,
+      dayWriterOutput: dayAgentEnabled() ? parsed : '',
+    });
+    collectLayoutParts(carousel, collect);
+    const htmlCount = (carousel.parsed?.slides || []).filter((s) => s.html).length;
+    console.log(
+      `[planOrchestrator] Carousel:${label}` +
+        (carousel.parsed?.status === 'failed'
+          ? ` failed${carousel.parsed.failureReason ? ` — ${carousel.parsed.failureReason}` : ''}`
+          : ` · ${htmlCount} html ${htmlCount === 1 ? 'slide' : 'slides'}`),
+    );
+    return carousel;
+  } catch (err) {
+    console.warn(`[planOrchestrator] Carousel:${label} skipped — ${err.message}`);
+    return null;
+  }
 }
 
 async function attachLayout({ label, structure, writer, collect, dayBrief, dayAssets }) {
@@ -1807,8 +2361,8 @@ async function reviewDayPost({ source, brief, post, structure, dayAssets, brandJ
 }
 
 /**
- * Multi-agent plan: Strategist → Content Structure → Day Writer → Quality → Visual → Layout
- * (only for empty month days the strategist grounded in notes/assets).
+ * Multi-agent plan: Strategist → Content Structure → Carousel
+ * (Day Writer, Quality, Visual, and Layout are off by default).
  * Returns the same shape fields weeklyPlan needs to assemble a route:
  *   { focusOut, rawDays, usage, model, debug }
  */
@@ -1928,16 +2482,18 @@ async function runMultiAgentPlan({
         ` · lastThree=${noteCount} shownPhotos=${shownCount}` +
         (latest ? ` · latest=${JSON.stringify(String(latest).slice(0, 80))}` : '') +
         (whyEmpty ? ` · insufficientContext=${JSON.stringify(whyEmpty)}` : '') +
-        ` — skipping content structure and day writers`,
+        ` — skipping content structure and downstream writers`,
     );
   }
 
-  // ── 2. Content Structure → Day writers + Quality + Visual + Layout ────────
-  // All briefs run concurrently (capped by PLAN_DAY_CONCURRENCY). Within a day
-  // Structure → Writer → Visual → Layout stay sequential; carousel layouts fan out per slide.
-  const gateOn = qualityAgentEnabled();
+  // ── 2. Content Structure → Carousel ─────────────────────────────────────
+  // Day Writer, Visual, and Layout are off by default. Carousel composes one
+  // HTML document (three layout directions) from Content Structure.
+  const dayOn = dayAgentEnabled();
+  const gateOn = dayOn && qualityAgentEnabled();
   const maxRewrites = qualityMaxRewrites();
   const layoutOn = layoutAgentEnabled();
+  const carouselOn = carouselAgentEnabled();
   const writeOneDay = async (planned, index) => {
       const pillar = lockedPillarOf(planned) || planned.pillar;
       const brief = {
@@ -1983,7 +2539,7 @@ async function runMultiAgentPlan({
         return rows;
       })();
       const label = brief.date || brief.day || `D${index + 1}`;
-      const writerOpts = {
+      const writerOpts = dayOn ? {
         brief,
         constraintsJson,
         dayAssets,
@@ -1994,7 +2550,7 @@ async function runMultiAgentPlan({
           headline: optionalText(strategist.parsed.focus?.headline),
         }),
         brandJson,
-      };
+      } : null;
       const debugEntries = [];
       const runUsages = [];
       const collect = (agent) => {
@@ -2036,45 +2592,44 @@ async function runMultiAgentPlan({
 
       const lockedStructure = writerStructureOf(structure.parsed);
       if (structure.parsed.format) brief.format = lockedFormat(structure.parsed.format);
-      writerOpts.structureJson = json(lockedStructure);
+      if (writerOpts) writerOpts.structureJson = json(lockedStructure);
       const visualCount = visualSlidesOf(structure.parsed).length;
       console.log(
         `[planOrchestrator] Structure:${label} ${structure.parsed.format}` +
           ` · ${visualCount} visual ${visualCount === 1 ? 'slide' : 'slides'}`,
       );
 
-      let writer;
-      try {
-        writer = await writeDayPost({
-          ...writerOpts,
-          source: `Day:${label}`,
-          qualityFeedback: { status: 'first_draft' },
-        });
-        collect(writer);
-      } catch (err) {
-        console.warn(`[planOrchestrator] Day:${label} skipped — ${err.message}`);
-        return { index, dayBrief: brief, result: null, skipped: err.message, debugEntries, runUsages, structure: structure.parsed };
-      }
-
       const finishDay = async (finalWriter, quality = null) => {
-        const visual = await attachGeneratedVisuals({
-          label,
-          structure: structure.parsed,
-          writer: finalWriter,
-          brief,
-          collect,
-          userId,
-          username,
-          brand: visualBrand,
-        });
-        const layout = await attachLayout({
-          label,
-          structure: structure.parsed,
-          writer: finalWriter,
-          dayBrief: brief,
-          dayAssets,
-          collect,
-        });
+        const visual = visualAgentEnabled()
+          ? await attachGeneratedVisuals({
+            label,
+            structure: structure.parsed,
+            writer: finalWriter,
+            brief,
+            collect,
+            userId,
+            username,
+            brand: visualBrand,
+          })
+          : null;
+        const layout = carouselAgentEnabled()
+          ? await attachCarousel({
+            label,
+            structure: structure.parsed,
+            writer: finalWriter,
+            dayBrief: brief,
+            dayAssets,
+            brand: visualBrand,
+            collect,
+          })
+          : await attachLayout({
+            label,
+            structure: structure.parsed,
+            writer: finalWriter,
+            dayBrief: brief,
+            dayAssets,
+            collect,
+          });
         return {
           index,
           dayBrief: brief,
@@ -2088,6 +2643,24 @@ async function runMultiAgentPlan({
           dayAssets,
         };
       };
+
+      if (!dayOn) {
+        const writer = { parsed: postFromStructure(structure.parsed, brief) };
+        return finishDay(writer);
+      }
+
+      let writer;
+      try {
+        writer = await writeDayPost({
+          ...writerOpts,
+          source: `Day:${label}`,
+          qualityFeedback: { status: 'first_draft' },
+        });
+        collect(writer);
+      } catch (err) {
+        console.warn(`[planOrchestrator] Day:${label} skipped — ${err.message}`);
+        return { index, dayBrief: brief, result: null, skipped: err.message, debugEntries, runUsages, structure: structure.parsed };
+      }
 
       if (writerFailed(writer.parsed)) {
         return { index, dayBrief: brief, result: writer, quality: null, layout: null, debugEntries, runUsages, structure: structure.parsed };
@@ -2234,6 +2807,7 @@ async function runMultiAgentPlan({
           dayWriter: parsed,
           visual: visual || null,
           layout: layout || null,
+          carousel: carouselOn ? (layout || null) : null,
         },
         content,
       };
@@ -2247,8 +2821,10 @@ async function runMultiAgentPlan({
 
   console.log(
       `[planOrchestrator] @${username}: strategist+structure+${rawDays.length} days` +
+      (dayOn ? '+day' : '') +
       (gateOn ? '+quality' : '') +
       (visualAgentEnabled() ? '+visual' : '') +
+      (carouselOn ? '+carousel' : '') +
       (layoutOn ? '+layout' : '') +
       ` · ${usage.totalTokens} tokens` +
       (usage.cachedTokens ? ` (${usage.cachedTokens} cached)` : '') +
@@ -2281,4 +2857,4 @@ async function runMultiAgentPlan({
   };
 }
 
-module.exports = { runMultiAgentPlan, runLayoutForPost, applyLayoutToContent };
+module.exports = { runMultiAgentPlan, runLayoutForPost, applyLayoutToContent, normalizeWriterPost };

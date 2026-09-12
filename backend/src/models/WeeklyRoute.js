@@ -80,6 +80,8 @@ const daySchema = new mongoose.Schema(
             // in Week View's Change layout picker; `layoutHtml` mirrors the
             // chosen one. Empty = only the single applied composition exists.
             layoutOptions: { type: [mongoose.Schema.Types.Mixed], default: [] },
+            // Carousel-agent theme currently applied (warm-editorial, architectural-minimal, …).
+            layoutTheme: { type: String, default: '' },
             // On-photo callout (handwritten label + arrow) when Structure
             // locked Annotation on a photograph with a relevant subject.
             annotation: { type: mongoose.Schema.Types.Mixed, default: null },
@@ -99,6 +101,9 @@ const daySchema = new mongoose.Schema(
       prompts: { type: [String], default: [] },
       plan: { type: String, default: '' },
       notes: { type: String, default: '' },
+      // Full carousel-agent HTML document. Week View crops one slide from this
+      // so the Instagram preview matches the debug iframe.
+      carouselHtml: { type: String, default: '' },
       // Applied Animated Carousel Cover: { key } of the rendered MP4 in S3.
       // When set, Week View plays it in place of the static hook (slide 1).
       // The full spec + render metadata live on agentTrace.cover.

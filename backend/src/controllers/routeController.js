@@ -5,7 +5,8 @@ const InstagramProfile = require('../models/InstagramProfile');
 const { generateWeeklyPlan, buildMonthCalendar, dayHasContent, isoDate, parseIsoDate } = require('../services/weeklyPlan');
 const { analyzeImageAsset } = require('../services/imageAnalysis');
 const { rewriteCaption } = require('../services/captionPolish');
-const { runLayoutForPost, applyLayoutToContent } = require('../services/planOrchestrator');
+const { runLayoutForPost, applyLayoutToContent, normalizeWriterPost } = require('../services/planOrchestrator');
+const { compileBrandMemory } = require('../services/planContext');
 const { generateCoverSpec, renderCoverVideo } = require('../services/carouselCoverAgent');
 const { isS3Configured, uploadBytes, getMediaUrl } = require('../services/s3Client');
 const { loadCompetitorOverviewForUser } = require('./competitorController');
@@ -635,11 +636,16 @@ async function generateAndSaveRoute(userId, profile, trigger = 'generate', planS
     new Date(b.weekOf || b.startsAt) - new Date(a.weekOf || a.startsAt)
   ))[0] || null;
   const route = savedWeeks[0] || fallbackWeek;
+  const emptyReason = (!(plan.days || []).length)
+    ? (String(plan.constraints?.insufficientContext || '').trim()
+      || 'No posts could be built from this conversation.')
+    : '';
 
   return {
     route,
     expectedWeeks: Math.max(savedWeeks.length, 1),
     debug: plan?.debug || null,
+    emptyReason,
   };
 }
 
@@ -758,10 +764,15 @@ async function generateRoute(req, res) {
   console.log(`[route] POST /routes/generate trigger=${trigger} user=${req.user._id} @${profile.username}` +
     (sessionId ? ` session=${sessionId}` : ''));
   // Returns as soon as new empty-day posts are saved; next-month stubs fill in the background.
-  const { route, expectedWeeks, debug } = await generateAndSaveRoute(req.user._id, profile, trigger, {
+  const { route, expectedWeeks, debug, emptyReason } = await generateAndSaveRoute(req.user._id, profile, trigger, {
     sessionId,
     captureIds,
   });
+  if (emptyReason) {
+    const out = { message: emptyReason };
+    if (wantsPromptDebug(req) && (debug?.agents?.length || debug?.finalPrompt)) out.debug = debug;
+    return res.status(422).json(out);
+  }
   const out = {
     route,
     expectedWeeks: expectedWeeks || null,
@@ -970,6 +981,7 @@ async function markDayPublished(req, res) {
             : (Array.isArray(prev.assetKeys) ? prev.assetKeys.map((k) => String(k || '')) : []),
           layout: String(s.layout || ''),
           layoutHtml: String(s.layoutHtml ?? prev.layoutHtml ?? ''),
+          layoutTheme: String(s.layoutTheme ?? prev.layoutTheme ?? ''),
           layoutOptions: (() => {
             const opts = Array.isArray(s.layoutOptions)
               ? s.layoutOptions
@@ -979,6 +991,7 @@ async function markDayPublished(req, res) {
                 rank: Number(o?.rank) > 0 ? Number(o.rank) : i + 1,
                 label: String(o?.label || ''),
                 reason: String(o?.reason || ''),
+                direction: String(o?.direction || ''),
                 html: String(o?.html || ''),
               }))
               .filter((o) => o.html);
@@ -1005,6 +1018,7 @@ async function markDayPublished(req, res) {
     if (incoming.strategy !== undefined) cur.strategy = String(incoming.strategy);
     if (incoming.notes !== undefined) cur.notes = String(incoming.notes);
     if (incoming.plan !== undefined) cur.plan = String(incoming.plan);
+    if (incoming.carouselHtml !== undefined) cur.carouselHtml = String(incoming.carouselHtml || '');
     if (Array.isArray(incoming.hashtags)) {
       cur.hashtags = incoming.hashtags.map((h) => String(h).replace(/^#/, ''));
     }
@@ -1129,7 +1143,7 @@ function layoutPostFromDay(day) {
 }
 
 // POST /routes/:id/day/:index/layout
-// Run the Layout agent on this post only — no strategist / structure / writer.
+// Run the Carousel agent on this post only — no strategist / structure / writer.
 async function rerunDayLayout(req, res) {
   const index = Number(req.params.index);
   const route = await WeeklyRoute.findOne({ _id: req.params.id, user: req.user._id });
@@ -1138,24 +1152,30 @@ async function rerunDayLayout(req, res) {
 
   const day = route.days[index];
   const post = layoutPostFromDay(day);
+  const trace = day.agentTrace && typeof day.agentTrace === 'object' ? day.agentTrace : {};
+  if (trace.strategyBrief) {
+    post.content = normalizeWriterPost(post, trace.strategyBrief, []);
+  }
   if (!Array.isArray(post?.content?.slides) || !post.content.slides.length) {
     return res.status(400).json({ message: 'This post has no slides to layout.' });
   }
 
-  const trace = day.agentTrace && typeof day.agentTrace === 'object' ? day.agentTrace : {};
   const structure = trace.structure || {};
   const label = day.date || day.day || `D${index + 1}`;
+  const dna = await loadBrandDna(req.user._id, route.instagramUsername).catch(() => null);
+  const brand = compileBrandMemory(dna);
 
   try {
     const result = await runLayoutForPost({
-      source: `Layout:${label}:debug`,
+      source: `Carousel:${label}:debug`,
       structure,
       post,
       dayBrief: trace.strategyBrief || {},
+      brand,
     });
     if (result.parsed?.status === 'failed') {
       return res.status(422).json({
-        message: result.parsed.failureReason || 'Layout agent could not compose this post.',
+        message: result.parsed.failureReason || 'Carousel agent could not compose this post.',
         layout: result.parsed,
       });
     }
@@ -1163,21 +1183,22 @@ async function rerunDayLayout(req, res) {
     const current = plainOf(day.content) || {};
     const next = applyLayoutToContent({ ...current, slides: post.content.slides }, result.parsed);
     day.content = { ...current, ...next, slides: next.slides };
-    day.agentTrace = { ...trace, layout: result.parsed };
+    day.agentTrace = { ...trace, layout: result.parsed, carousel: result.parsed };
     route.markModified('days');
     await route.save();
 
     const debugEntry = result.debugEntry || {};
-    console.log(`[route] Layout:${label}:debug · ${(result.parsed.slides || []).length} slides`);
+    console.log(`[route] Carousel:${label}:debug · ${(result.parsed.slides || []).length} slides`);
     return res.json({
       route,
       layout: result.parsed,
+      carousel: result.parsed,
       ...(wantsPromptDebug(req) ? {
         debug: {
-          mode: 'layout-debug',
+          mode: 'carousel-debug',
           model: result.usage?.model || debugEntry.model,
           agents: [{
-            source: debugEntry.source || `Layout:${label}:debug`,
+            source: debugEntry.source || `Carousel:${label}:debug`,
             model: debugEntry.model,
             provider: debugEntry.provider || '',
             prompt: debugEntry.prompt,
@@ -1191,7 +1212,7 @@ async function rerunDayLayout(req, res) {
   } catch (err) {
     const status = err.statusCode || err.status || 502;
     console.error('[route] layout rerun failed:', err.message);
-    return res.status(status).json({ message: err.message || 'Could not run the layout agent.' });
+    return res.status(status).json({ message: err.message || 'Could not run the carousel agent.' });
   }
 }
 
