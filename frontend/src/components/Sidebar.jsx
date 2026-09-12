@@ -6,7 +6,7 @@ import AccountSwitcher from './AccountSwitcher';
 // Settings, Business memory and Competitor overview live in the header user
 // menu. The sidebar footer is the Instagram account switcher.
 export const NAV_ITEMS = [
-  { to: '/dashboard', label: 'Your plans', icon: 'route', exact: true },
+  { to: '/dashboard', label: 'Calendar', icon: 'calendar', exact: true },
   { to: '/dashboard/projects', label: 'Projects', icon: 'folder' },
   { to: '/dashboard/visual-library', label: 'Visual Library', icon: 'layout-grid' },
 ];

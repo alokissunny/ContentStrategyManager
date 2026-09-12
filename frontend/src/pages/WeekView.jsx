@@ -1835,7 +1835,7 @@ function VideoCoverPanel({ busy, error, url, spec, isApplied, hasApplied, onAppl
   );
 }
 
-export default function WeekView({ route: initialRoute, onBack, monthWeeks = [], onOpenWeek, initialDay = 0, onCaptured, onRouteChange }) {
+export default function WeekView({ route: initialRoute, onBack, monthWeeks = [], onOpenWeek, initialDay = 0, onCaptured, onRouteChange, backLabel = 'Calendar', modeSwitch = false }) {
   const navigate = useNavigate();
   const projects = useProjects();
   const [capturing, setCapturing] = useState(false);
@@ -3319,9 +3319,20 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
     <div className="wv" style={libPaint}>
       {/* ── the way back, and the plan's actions ─────────────────────────── */}
       <div className="wv-top">
-        <button type="button" className="wv-back" onClick={onBack}>
-          <Glyph name="arrow-left" size={15} />Your plans
-        </button>
+        {modeSwitch ? (
+          <div className="cal-mode" role="tablist" aria-label="Calendar view">
+            <button type="button" role="tab" aria-selected={false} className="cal-mode__btn" onClick={onBack}>
+              Monthly
+            </button>
+            <button type="button" role="tab" aria-selected={true} className="cal-mode__btn is-on">
+              Weekly
+            </button>
+          </div>
+        ) : (
+          <button type="button" className="wv-back" onClick={onBack}>
+            <Glyph name="arrow-left" size={15} />{backLabel}
+          </button>
+        )}
         <div className="wv-top__actions">
           <button
             type="button"

@@ -1,4 +1,4 @@
-/* ── Your Plans — the list you land on ────────────────────────────────────
+/* ── Calendar — the list you land on ──────────────────────────────────────
  * A record and a starting point, not a dashboard. A faithful port of the
  * bauhly-v3 design system (planhistory.css): the date mark on the left, the
  * "Week N" title with the pillar-coloured aim badge, and the state said in
@@ -9,15 +9,15 @@
 .ph {
   display: flex;
   flex-direction: column;
-  gap: var(--sp-5);
+  gap: var(--sp-4);
   width: 100%;
-  max-width: var(--container);
+  max-width: min(1120px, 100%);
   margin: 0 auto;
   animation: fade-in var(--dur-base) var(--ease-out);
 }
 
 /* ── the head: title + the page's one action, then the arrangement sentence ── */
-.ph__head { display: flex; flex-direction: column; margin-bottom: var(--sp-5); }
+.ph__head { display: flex; flex-direction: column; margin-bottom: var(--sp-2); }
 .ph__headrow {
   display: flex;
   align-items: center;
@@ -28,9 +28,10 @@
 .ph__title {
   margin: 0;
   font-family: var(--font-display);
-  font-size: var(--text-2xl);
+  font-size: clamp(28px, 3.2vw, 36px);
   font-weight: 800;
-  letter-spacing: -0.01em;
+  letter-spacing: -0.03em;
+  line-height: 1.1;
   color: var(--ink-900);
 }
 .ph__sub {
@@ -40,9 +41,146 @@
   line-height: 1.6;
   color: var(--ink-600);
 }
-.ph__new { flex-shrink: 0; }
+.ph__new {
+  flex-shrink: 0;
+  height: 40px;
+  padding: 0 16px;
+  border-radius: 999px;
+  font-weight: 700;
+}
 /* the two header actions — Capture idea beside anything else */
 .ph__headacts { display: flex; align-items: center; gap: var(--sp-2); flex-shrink: 0; }
+
+/* ── Calendar toolbar: month nav · Monthly/Weekly · more ─────────────────── */
+.ph__toolbar {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: var(--sp-3);
+  margin: 0 0 var(--sp-5);
+}
+.ph__toolbar > :first-child { justify-self: start; }
+.ph__toolbar > :last-child { justify-self: end; }
+
+.ph__monthnav--pill {
+  height: 40px;
+  padding: 0 6px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  box-shadow: 0 1px 0 rgba(22, 22, 26, 0.03);
+}
+.ph__monthnav--pill .ph__monthnav-btn {
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  color: var(--ink-600);
+}
+.ph__monthnav--pill .ph__monthnav-btn:hover {
+  background: var(--surface-sunken);
+  color: var(--ink-900);
+}
+.ph__monthnav--pill .ph__monthnav-label {
+  min-width: 14ch;
+  padding: 0 6px;
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.cal-mode {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px;
+  border-radius: 999px;
+  background: var(--surface-sunken);
+}
+.cal-mode__btn {
+  height: 32px;
+  padding: 0 18px;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  cursor: pointer;
+  font-family: var(--font-ui);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ink-500);
+  white-space: nowrap;
+  transition: color 0.12s ease, background 0.12s ease, box-shadow 0.12s ease;
+}
+.cal-mode__btn:hover { color: var(--ink-900); }
+.cal-mode__btn.is-on {
+  color: var(--ink-900);
+  font-weight: 700;
+  background: var(--surface);
+  box-shadow: 0 1px 2px rgba(22, 22, 26, 0.08), 0 0 0 1px rgba(22, 22, 26, 0.04);
+}
+
+.ph__more {
+  position: relative;
+  justify-self: end;
+}
+.ph__more-btn {
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+}
+.ph__more-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 20;
+  min-width: 180px;
+  padding: 6px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  box-shadow: 0 8px 24px rgba(22, 22, 26, 0.12);
+}
+.ph__more-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  height: 36px;
+  padding: 0 10px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  cursor: pointer;
+  font-family: var(--font-ui);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink-900);
+  text-align: left;
+}
+.ph__more-item:hover:not(:disabled) { background: var(--surface-sunken); }
+.ph__more-item:disabled { opacity: 0.55; cursor: default; }
+.ph__more-item--danger { color: var(--negative); }
+.ph__more-item--danger:hover:not(:disabled) {
+  background: var(--negative-soft);
+}
+
+@media (max-width: 640px) {
+  .ph__toolbar {
+    grid-template-columns: 1fr auto;
+    row-gap: var(--sp-2);
+  }
+  .ph__toolbar .cal-mode {
+    grid-column: 1 / -1;
+    justify-self: center;
+    order: 3;
+  }
+  .ph__monthnav--pill { width: 100%; justify-content: space-between; }
+  .ph__monthnav--pill .ph__monthnav-label { min-width: 0; flex: 1; }
+}
 
 /* ── the list ────────────────────────────────────────────────────────────
  * One month calendar. The heading is the month name with prev/next arrows. */
@@ -123,141 +261,181 @@
 .ph__groupbox .ph-row:first-child { border-top: 0; }
 .ph__groupbox > .ph-row:last-child { border-bottom: none; }
 
-/* ── running month as a Monday-first calendar ───────────────────────────── */
+/* ── running month as a Monday-first calendar ─────────────────────────────
+ * Soft rounded day cards with gaps — matches the Calendar illustration. */
 .ph-cal {
-  border: 1px solid var(--border);
-  border-radius: var(--r-lg);
-  background: var(--surface);
-  overflow: hidden;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  overflow: visible;
 }
 .ph-cal__weekdays {
   display: grid;
   grid-template-columns: repeat(7, minmax(0, 1fr));
-  border-bottom: 1px solid var(--border);
-  background: var(--surface-sunken);
+  gap: 10px;
+  margin-bottom: 10px;
+  border-bottom: 0;
+  background: transparent;
 }
-.ph-cal__weekdays span {
-  padding: 10px 6px;
+.ph-cal__weekday {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 0 10px 4px;
+  min-width: 0;
+}
+.ph-cal__weekday-name {
   font-family: var(--font-ui);
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.04em;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  text-transform: none;
+  color: var(--ink-700);
+  text-align: left;
+}
+.ph-cal__postday {
+  font-family: var(--font-ui);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--ink-quiet);
-  text-align: center;
+  line-height: 1.2;
 }
 .ph-cal__grid {
   display: grid;
   grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 10px;
 }
 .ph-cal__cell {
   position: relative;
   display: flex;
   flex-direction: column;
   align-items: flex-start;
+  justify-content: space-between;
   gap: 8px;
   min-width: 0;
-  min-height: 118px;
-  padding: 10px;
+  min-height: 112px;
+  aspect-ratio: 1 / 1.05;
+  padding: 12px 12px 14px;
   border: 0;
-  border-right: 1px solid var(--border);
-  border-bottom: 1px solid var(--border);
-  border-radius: 0;
-  background: var(--surface);
+  border-radius: 18px;
+  background: var(--surface-sunken);
   text-align: left;
   color: inherit;
   font: inherit;
   cursor: default;
-  transition: background var(--dur-fast) var(--ease-out);
+  transition: background var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out);
 }
-.ph-cal__cell:nth-child(7n) { border-right: 0; }
-.ph-cal__grid > .ph-cal__cell:nth-last-child(-n+7) { border-bottom: 0; }
 .ph-cal__cell.is-post { cursor: pointer; }
-.ph-cal__cell.is-post:hover { background: var(--surface-sunken); }
-.ph-cal__cell.is-out { background: var(--surface-sunken); }
-.ph-cal__cell.is-out.is-post:hover { background: var(--ink-100); }
+.ph-cal__cell.is-post:hover { background: var(--ink-100); }
+.ph-cal__cell.is-out {
+  background: color-mix(in srgb, var(--surface-sunken) 70%, var(--canvas));
+}
+.ph-cal__cell.is-out.is-post:hover {
+  background: color-mix(in srgb, var(--ink-100) 80%, var(--canvas));
+}
 .ph-cal__cell.is-now {
-  background: color-mix(in srgb, var(--action-accent) 7%, var(--surface));
+  background: var(--ink-900);
+  color: #fff;
 }
 .ph-cal__cell.is-now:hover {
-  background: color-mix(in srgb, var(--action-accent) 12%, var(--surface));
+  background: var(--ink-800);
 }
 .ph-cal__num {
-  display: inline-grid;
-  place-items: center;
-  min-width: 26px;
-  height: 26px;
-  padding: 0 6px;
-  border-radius: 999px;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  min-width: 0;
+  height: auto;
+  padding: 0;
+  border-radius: 0;
   font-family: var(--font-ui);
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 700;
-  line-height: 1;
+  line-height: 1.2;
   color: var(--ink-900);
 }
-.ph-cal__cell.is-out .ph-cal__num { color: var(--ink-quiet); }
+.ph-cal__today {
+  font-weight: 600;
+  opacity: 0.92;
+}
+.ph-cal__cell.is-out .ph-cal__num { color: var(--ink-400); }
 .ph-cal__cell.is-now .ph-cal__num {
-  background: var(--action-accent);
+  background: transparent;
   color: #fff;
 }
 .ph-cal__mark {
   position: absolute;
-  top: 12px;
-  right: 8px;
-  color: var(--ink-quiet);
+  top: 10px;
+  right: 10px;
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  background: var(--experiment-500);
+  color: var(--experiment-ink);
 }
-.ph-cal__mark.is-clock { color: var(--action-accent-text); }
-.ph-cal__body {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  min-width: 0;
-  width: 100%;
+.ph-cal__mark.is-clock {
+  background: color-mix(in srgb, var(--experiment-500) 55%, #fff);
+  color: var(--experiment-ink);
+}
+.ph-cal__cell.is-now .ph-cal__mark {
+  background: var(--experiment-500);
+  color: var(--experiment-ink);
 }
 .ph-cal__fmt {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
+  display: block;
+  margin-top: auto;
   min-width: 0;
-  font-family: var(--font-ui);
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--ink-600);
-}
-.ph-cal__fmt svg { width: 11px; height: 11px; flex-shrink: 0; }
-.ph-cal__fmtword {
+  max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-.ph-cal__title {
-  display: -webkit-box;
-  -webkit-line-clamp: 3;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
   font-family: var(--font-ui);
-  font-size: 12px;
-  font-weight: 600;
-  line-height: 1.3;
-  color: var(--ink-900);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.2;
+  color: var(--ink-600);
 }
+.ph-cal__cell.is-out .ph-cal__fmt { color: var(--ink-400); }
+.ph-cal__cell.is-now .ph-cal__fmt { color: rgba(255, 255, 255, 0.88); }
 
+@media (max-width: 900px) {
+  .ph-cal__weekdays,
+  .ph-cal__grid { gap: 8px; }
+  .ph-cal__cell {
+    min-height: 96px;
+    aspect-ratio: auto;
+    border-radius: 14px;
+    padding: 10px;
+  }
+}
 @media (max-width: 720px) {
-  .ph-cal__cell { min-height: 92px; padding: 8px 6px; gap: 6px; }
-  .ph-cal__title { -webkit-line-clamp: 2; font-size: 11px; }
+  .ph-cal__weekday { padding: 0 4px 2px; }
+  .ph-cal__weekday-name { font-size: 12px; }
+  .ph-cal__postday { font-size: 9px; letter-spacing: 0.04em; }
+  .ph-cal__cell { min-height: 84px; padding: 8px; gap: 6px; border-radius: 12px; }
+  .ph-cal__fmt { font-size: 12px; }
 }
 @media (max-width: 560px) {
-  .ph-cal__weekdays span { padding: 8px 2px; font-size: 10px; }
+  .ph-cal__weekdays,
+  .ph-cal__grid { gap: 5px; }
+  .ph-cal__weekday { padding: 0 2px; align-items: center; }
+  .ph-cal__weekday-name { font-size: 11px; }
+  .ph-cal__postday { display: none; }
   .ph-cal__cell {
-    min-height: 72px;
-    padding: 8px 4px 10px;
-    align-items: center;
-    gap: 6px;
+    min-height: 64px;
+    padding: 6px;
+    align-items: flex-start;
   }
-  .ph-cal__fmtword,
-  .ph-cal__title { display: none; }
-  .ph-cal__fmt svg { width: 14px; height: 14px; }
-  .ph-cal__mark { top: 6px; right: 4px; }
+  .ph-cal__num { font-size: 12px; }
+  .ph-cal__today { display: none; }
+  .ph-cal__fmt { font-size: 10px; }
+  .ph-cal__mark { top: 5px; right: 5px; width: 14px; height: 14px; }
+  .ph-cal__mark svg { width: 8px; height: 8px; }
 }
 
 /* ── a row: the date, the week, the aim, the state ── */
@@ -429,7 +607,7 @@
   .ph-row { align-items: flex-start; }
   .ph-row > * { align-self: flex-start; }
   .ph-row__line { row-gap: 4px; }
-  .ph__title { font-size: var(--text-xl); white-space: nowrap; }
+  .ph__title { font-size: 28px; }
   .ph__monthhead { flex-wrap: wrap; row-gap: var(--sp-2); }
   .ph__monthnav { width: 100%; justify-content: space-between; }
   .ph__monthnav-label { min-width: 0; flex: 1; }

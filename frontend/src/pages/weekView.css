@@ -30,6 +30,37 @@
   color: var(--ink-900);
 }
 
+/* Monthly / Weekly switch — shared with Calendar (plans.css .cal-mode) */
+.cal-mode {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px;
+  border-radius: 999px;
+  background: var(--surface-sunken);
+}
+.cal-mode__btn {
+  height: 32px;
+  padding: 0 18px;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  cursor: pointer;
+  font-family: var(--font-ui);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ink-500);
+  white-space: nowrap;
+  transition: color 0.12s ease, background 0.12s ease, box-shadow 0.12s ease;
+}
+.cal-mode__btn:hover { color: var(--ink-900); }
+.cal-mode__btn.is-on {
+  color: var(--ink-900);
+  font-weight: 700;
+  background: var(--surface);
+  box-shadow: 0 1px 2px rgba(22, 22, 26, 0.08), 0 0 0 1px rgba(22, 22, 26, 0.04);
+}
+
 /* Capture idea — the loudest control on the page: it is the only contribution
    the plan needs from the studio, so it takes the ink-as-primary treatment. */
 .wv-capture {

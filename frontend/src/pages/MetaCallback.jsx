@@ -85,7 +85,7 @@ export default function MetaCallback() {
                 background: LS_SIGNAL, color: '#fff', fontFamily: LS_FONT, fontWeight: 700, cursor: 'pointer',
               }}
             >
-              Back to plans
+              Back to calendar
             </button>
           </>
         ) : (

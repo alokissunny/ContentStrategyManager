@@ -1,9 +1,10 @@
 /*
- * Your Plans — the page you land on.
+ * Calendar — the page you land on.
  *
- * A month calendar of planned posts. You land on this month and can move
- * between months. Opening a day shows its seven-day route (WeekView).
- * "Capture idea" runs generation behind the RouteLoom stage (PlanLoom).
+ * A month calendar of planned posts, with Monthly and Weekly views. You land
+ * on this month and can move between months. Opening a day (or the Weekly tab)
+ * shows its seven-day route (WeekView). "Capture idea" runs generation behind
+ * the RouteLoom stage (PlanLoom).
  *
  * Backend-wired: GET /routes/current (running plan for the active Instagram handle),
  * GET /routes (that handle's history), POST /routes/generate (build the next one).
@@ -33,8 +34,9 @@ import NeedsAWord from '../components/NeedsAWord';
 import './plans.css';
 import './yourweek.css'; /* the shared .empty brand-moment styles */
 
-const FORMAT_ICON = { Reel: 'play', Carousel: 'copy', Post: 'image', Story: 'bookmark' };
 const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+/* Illustration marks Mon / Wed / Fri as the studio's usual post cadence. */
+const DEFAULT_POST_WEEKDAYS = new Set([0, 2, 4]);
 
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July',
   'August', 'September', 'October', 'November', 'December'];
@@ -227,10 +229,22 @@ function calendarCellsOf(group, dayRows) {
 
 function MonthCalendar({ group, days, onOpen, metaConnected }) {
   const cells = calendarCellsOf(group, days);
+  const postWeekdays = new Set();
+  cells.forEach((cell) => {
+    if (!cell.inMonth || !cell.post) return;
+    postWeekdays.add((cell.date.getDay() + 6) % 7);
+  });
+  const markedWeekdays = postWeekdays.size > 0 ? postWeekdays : DEFAULT_POST_WEEKDAYS;
+
   return (
     <div className="ph-cal">
       <div className="ph-cal__weekdays" aria-hidden="true">
-        {WEEKDAYS.map((d) => <span key={d}>{d}</span>)}
+        {WEEKDAYS.map((d, i) => (
+          <span key={d} className="ph-cal__weekday">
+            <span className="ph-cal__weekday-name">{d}</span>
+            {markedWeekdays.has(i) && <span className="ph-cal__postday">Post day</span>}
+          </span>
+        ))}
       </div>
       <div className="ph-cal__grid">
         {cells.map((cell) => {
@@ -247,25 +261,20 @@ function MonthCalendar({ group, days, onOpen, metaConnected }) {
           if (now) cls.push('is-now');
           if (done) cls.push('is-done');
           if (clickable) cls.push('is-post');
-          const label = `${cell.date.getDate()} ${MONTHS[cell.date.getMonth()]}${title ? `, ${title}` : format ? `, ${format}` : ''}`;
+          const label = `${cell.date.getDate()} ${MONTHS[cell.date.getMonth()]}${now ? ' Today' : ''}${title ? `, ${title}` : format ? `, ${format}` : ''}`;
           const inner = (
             <>
-              <span className="ph-cal__num">{cell.date.getDate()}</span>
+              <span className="ph-cal__num">
+                {cell.date.getDate()}
+                {now ? <span className="ph-cal__today"> Today</span> : null}
+              </span>
               {(done || scheduled) && (
-                <span className={`ph-cal__mark${scheduled ? ' is-clock' : ''}`} aria-hidden="true">
-                  <Icon name={done ? 'check' : 'clock'} size={11} strokeWidth={done ? 2.5 : 2.25} />
+                <span className={`ph-cal__mark${scheduled ? ' is-clock' : ' is-done'}`} aria-hidden="true">
+                  <Icon name={done ? 'check' : 'clock'} size={10} strokeWidth={done ? 2.75 : 2.25} />
                 </span>
               )}
               {clickable && (
-                <span className="ph-cal__body">
-                  {format && (
-                    <span className="ph-cal__fmt">
-                      <Icon name={FORMAT_ICON[format] || 'image'} size={11} strokeWidth={2.25} />
-                      <span className="ph-cal__fmtword">{format}</span>
-                    </span>
-                  )}
-                  {title ? <span className="ph-cal__title">{title}</span> : null}
-                </span>
+                <span className="ph-cal__fmt">{format || 'Post'}</span>
               )}
             </>
           );
@@ -294,6 +303,93 @@ function MonthCalendar({ group, days, onOpen, metaConnected }) {
           );
         })}
       </div>
+    </div>
+  );
+}
+
+function CalModeTabs({ value, onChange }) {
+  return (
+    <div className="cal-mode" role="tablist" aria-label="Calendar view">
+      <button
+        type="button"
+        role="tab"
+        aria-selected={value === 'monthly'}
+        className={`cal-mode__btn${value === 'monthly' ? ' is-on' : ''}`}
+        onClick={() => onChange('monthly')}
+      >
+        Monthly
+      </button>
+      <button
+        type="button"
+        role="tab"
+        aria-selected={value === 'weekly'}
+        className={`cal-mode__btn${value === 'weekly' ? ' is-on' : ''}`}
+        onClick={() => onChange('weekly')}
+      >
+        Weekly
+      </button>
+    </div>
+  );
+}
+
+function MonthMoreMenu({ canReplan, replanning, clearing, genBusy, onReplan, onClear }) {
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef(null);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    function onDoc(e) {
+      if (rootRef.current && !rootRef.current.contains(e.target)) setOpen(false);
+    }
+    function onKey(e) {
+      if (e.key === 'Escape') setOpen(false);
+    }
+    document.addEventListener('mousedown', onDoc);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDoc);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [open]);
+
+  if (!canReplan) return <span className="ph__toolbar-end" aria-hidden="true" />;
+
+  return (
+    <div className="ph__more" ref={rootRef}>
+      <button
+        type="button"
+        className="btn btn--ghost btn--sm ph__more-btn"
+        aria-label="More options"
+        aria-expanded={open}
+        aria-haspopup="menu"
+        onClick={() => setOpen((v) => !v)}
+      >
+        <Icon name="more" size={18} strokeWidth={2.25} />
+      </button>
+      {open && (
+        <div className="ph__more-menu" role="menu">
+          <button
+            type="button"
+            role="menuitem"
+            className="ph__more-item"
+            disabled={replanning || clearing || genBusy}
+            onClick={() => { setOpen(false); onReplan(); }}
+          >
+            <Icon name="refresh" size={14} strokeWidth={2.25} />
+            {replanning ? 'Adding posts…' : 'Fill empty days'}
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            className="ph__more-item ph__more-item--danger"
+            disabled={replanning || clearing || genBusy}
+            onClick={() => { setOpen(false); onClear(); }}
+          >
+            <Icon name="trash" size={14} strokeWidth={2.25} />
+            {clearing ? 'Clearing…' : 'Clear plan'}
+          </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -627,7 +723,7 @@ export default function YourPlans() {
   // ── the generation wait ──
   if (view === 'gen') return <PlanLoom />;
 
-  // ── an opened plan ──
+  // ── an opened week (Weekly tab) ──
   if (view === 'week' && selected) {
     return (
       <WeekView
@@ -635,6 +731,7 @@ export default function YourPlans() {
         route={selected}
         initialDay={selectedDay}
         monthWeeks={monthWeeksOf(routes, selected)}
+        modeSwitch
         onOpenWeek={(week) => { setSelected(week); setSelectedDay(0); }}
         onCaptured={() => runGenerate('capture')}
         onRouteChange={(route) => {
@@ -653,7 +750,7 @@ export default function YourPlans() {
   }
 
   if (loading) {
-    return <div className="ph"><p className="ph__sub">Loading your plans…</p></div>;
+    return <div className="ph"><p className="ph__sub">Loading your calendar…</p></div>;
   }
 
   // ── a plan building in the background after a fresh (re)connect ──
@@ -722,11 +819,20 @@ export default function YourPlans() {
     });
   };
 
+  const openWeekly = () => {
+    const week = selected
+      || current
+      || writtenMonthWeeks[0]
+      || (routes || []).find((r) => !r.draft && (r.days || []).length);
+    if (!week) return;
+    open(week, selected && selected._id === week._id ? selectedDay : 0);
+  };
+
   return (
     <div className="ph">
       <div className="ph__head">
         <div className="ph__headrow">
-          <h1 className="ph__title">Your plans</h1>
+          <h1 className="ph__title">Calendar</h1>
           <div className="ph__headacts">
             <button className="btn btn--primary btn--sm ph__new" onClick={() => setCapturing(true)}>
               <Icon name="plus" size={15} strokeWidth={2.5} />
@@ -734,60 +840,50 @@ export default function YourPlans() {
             </button>
           </div>
         </div>
-        <p className="ph__sub">
-          Open a day to work on that post. Use the arrows to look at other months.
-        </p>
         {error && <p className="ph__sub" style={{ color: 'var(--negative)' }}>{error}</p>}
       </div>
 
       <NeedsAWord />
 
+      <div className="ph__toolbar">
+        <span className="ph__monthnav ph__monthnav--pill">
+          <button
+            type="button"
+            className="btn btn--ghost btn--sm ph__monthnav-btn"
+            onClick={() => shiftMonth(-1)}
+            aria-label="Previous month"
+          >
+            <Icon name="chevron-left" size={16} strokeWidth={2.25} />
+          </button>
+          <span className="ph__monthnav-label">{monthLabel}</span>
+          <button
+            type="button"
+            className="btn btn--ghost btn--sm ph__monthnav-btn"
+            onClick={() => shiftMonth(1)}
+            aria-label="Next month"
+          >
+            <Icon name="chevron-right" size={16} strokeWidth={2.25} />
+          </button>
+        </span>
+
+        <CalModeTabs
+          value="monthly"
+          onChange={(mode) => { if (mode === 'weekly') openWeekly(); }}
+        />
+
+        <MonthMoreMenu
+          canReplan={canReplan}
+          replanning={replanning}
+          clearing={clearing}
+          genBusy={gen.status === 'generating'}
+          onReplan={onReplanMonth}
+          onClear={onClearMonth}
+        />
+      </div>
+
       <div className="ph__list">
         <section className="ph__group">
           <div className="ph__month">
-            <h3 className="ph__monthhead">
-              <span className="ph__monthnav">
-                <button
-                  type="button"
-                  className="btn btn--ghost btn--sm ph__monthnav-btn"
-                  onClick={() => shiftMonth(-1)}
-                  aria-label="Previous month"
-                >
-                  <Icon name="chevron-left" size={16} strokeWidth={2.25} />
-                </button>
-                <span className="ph__monthnav-label">{monthLabel}</span>
-                <button
-                  type="button"
-                  className="btn btn--ghost btn--sm ph__monthnav-btn"
-                  onClick={() => shiftMonth(1)}
-                  aria-label="Next month"
-                >
-                  <Icon name="chevron-right" size={16} strokeWidth={2.25} />
-                </button>
-              </span>
-              {canReplan && (
-                <span className="ph__monthacts">
-                  <button
-                    type="button"
-                    className="btn btn--ghost btn--sm ph__replan"
-                    disabled={replanning || clearing || gen.status === 'generating'}
-                    onClick={onReplanMonth}
-                  >
-                    <Icon name="refresh" size={14} strokeWidth={2.25} />
-                    {replanning ? 'Adding posts…' : 'Fill empty days'}
-                  </button>
-                  <button
-                    type="button"
-                    className="btn btn--ghost btn--sm ph__clear"
-                    disabled={replanning || clearing || gen.status === 'generating'}
-                    onClick={onClearMonth}
-                  >
-                    <Icon name="trash" size={14} strokeWidth={2.25} />
-                    {clearing ? 'Clearing…' : 'Clear plan'}
-                  </button>
-                </span>
-              )}
-            </h3>
             {monthFilling && isCurrentView && (
               <p className="ph__usage ph__usage--filling">Writing the rest of this month…</p>
             )}
@@ -804,7 +900,7 @@ export default function YourPlans() {
       {capturing && (
         <CaptureChat
           defaultProjectId={projects[0]?.id}
-          exitLabel="Back to plans"
+          exitLabel="Back to calendar"
           onExit={() => setCapturing(false)}
           onViewProject={() => { setCapturing(false); navigate('/dashboard/projects'); }}
           onCaptured={() => runGenerate('capture')}

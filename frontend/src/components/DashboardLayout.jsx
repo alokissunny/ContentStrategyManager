@@ -50,7 +50,7 @@ export default function DashboardLayout({ children }) {
             className={({ isActive }) => (isActive ? 'is-active' : undefined)}
           >
             <Glyph name={n.icon} size={20} strokeWidth={1.6} />
-            {n.label.replace('Your plans', 'Plans')}
+            {n.label}
           </NavLink>
         ))}
       </nav>
