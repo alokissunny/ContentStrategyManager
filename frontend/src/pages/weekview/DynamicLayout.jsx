@@ -406,7 +406,7 @@ export default function DynamicLayout({
   html,
   documentHtml = '',
   slideIndex = 1,
-  direction = 'warm-editorial',
+  direction = 'architectural-minimal',
   copy,
   imageUrls,
   subjects,

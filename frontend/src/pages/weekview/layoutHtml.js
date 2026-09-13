@@ -406,8 +406,11 @@ const THEME_CATALOG = [
 
 const THEME_IDS = new Set(THEME_CATALOG.map((t) => t.id));
 
+// Offered themes, in rank order. Architectural Minimal is the default (first).
+// warm-editorial was removed as a theme; it stays parseable via THEME_CATALOG so
+// carousels generated before the removal still render, but it is never offered
+// or defaulted to any more.
 export const THEME_ORDER = [
-  'warm-editorial',
   'architectural-minimal',
   'quiet-luxury',
   'natural-tactile',
@@ -549,6 +552,22 @@ export function cropIframeToCarouselSlide(frame, { direction, index }) {
 
   const slide = findCarouselSlide(doc, dir, index);
   if (!slide) return false;
+
+  // Some agent compositions lay the whole slide out with position:absolute
+  // children. With no in-flow content, `.slide{height:100%}` on an indefinite
+  // parent collapses to 0 height — the slide measures empty and the crop below
+  // bails, leaving the raw document (theme buttons + draft label) on screen.
+  // Give a collapsed slide an explicit 4:5 box so the absolute children have a
+  // sized canvas to position against. Flow-based slides (non-zero height) are
+  // left exactly as the agent sized them.
+  let probe = slide.getBoundingClientRect();
+  if (!probe.height || probe.height < 10 || !probe.width || probe.width < 10) {
+    slide.style.boxSizing = 'border-box';
+    slide.style.width = `${CAROUSEL_LAYOUT_WIDTH}px`;
+    slide.style.height = `${Math.round(CAROUSEL_LAYOUT_WIDTH * 1.25)}px`;
+    void doc.documentElement.offsetWidth;
+    probe = slide.getBoundingClientRect();
+  }
 
   const bottom = slide.getBoundingClientRect().bottom;
   frame.style.height = `${Math.max(Math.ceil(bottom + 48), 800)}px`;

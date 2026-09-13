@@ -18,6 +18,7 @@ import { syncHandle } from '../lib/store';
 import { resetProjects } from '../lib/projectsStore';
 import { useAiDebug, setAiDebugEnabled, clearAiDebugEntries } from '../lib/aiDebug';
 import { useFeatureFlags, setVideoCoverEnabled } from '../lib/featureFlags';
+import { getCarouselModel, updateCarouselModel } from '../api/settings';
 import './settings.css';
 
 /* which formats Bauhly may use — held as EXCLUSIONS so a format added later is
@@ -67,6 +68,9 @@ export default function Settings() {
   const [disconnectingId, setDisconnectingId] = useState('');
   const debug = useAiDebug();
   const flags = useFeatureFlags();
+  const [carousel, setCarousel] = useState(null);
+  const [carouselBusy, setCarouselBusy] = useState('');
+  const [carouselErr, setCarouselErr] = useState('');
 
   useEffect(() => {
     listInstagramProfiles()
@@ -76,7 +80,23 @@ export default function Settings() {
     getMetaStatus()
       .then(setMeta)
       .catch(() => setMeta({ connected: false, configured: false, connections: [] }));
+    getCarouselModel()
+      .then(setCarousel)
+      .catch(() => setCarousel(null));
   }, []);
+
+  async function pickCarousel(patch) {
+    if (!isAdmin || carouselBusy) return;
+    setCarouselBusy(JSON.stringify(patch));
+    setCarouselErr('');
+    try {
+      setCarousel(await updateCarouselModel(patch));
+    } catch (err) {
+      setCarouselErr(err.response?.data?.message || 'Could not update the carousel model.');
+    } finally {
+      setCarouselBusy('');
+    }
+  }
 
   async function connectMeta() {
     setMetaBusy(true);
@@ -396,6 +416,81 @@ export default function Settings() {
         {dropped.length === FORMATS.length && (
           <p className="set-empty">Every format is off — Bauhly has nothing to plan with. Turn at least one back on.</p>
         )}
+      </section>
+
+      {/* ── Carousel model ── */}
+      <section className="card set-card">
+        <h2>Carousel model</h2>
+        <p className="set-card__sub">
+          Which model designs your carousel slides, and how hard it thinks. Applies from your next
+          carousel — including when you press <b>Run layout agent</b> on a post.
+          {!isAdmin && ' Only an admin can change this.'}
+        </p>
+
+        {!carousel ? (
+          <p className="set-empty">Loading…</p>
+        ) : (() => {
+          const selected = carousel.modelOptions.find((m) => m.id === carousel.model);
+          const reasoningApplies = selected ? selected.reasoning !== false : true;
+          const TIER_LABEL = { cheapest: 'Cheapest', priciest: 'Priciest' };
+          return (
+          <>
+            <span className="set-seg__label">Model</span>
+            <div className="set-seg" role="group" aria-label="Carousel model">
+              {carousel.modelOptions.map((m) => {
+                const on = m.id === carousel.model;
+                return (
+                  <button
+                    type="button"
+                    key={m.id}
+                    className={`set-seg__btn ${on ? 'is-on' : ''}`}
+                    aria-pressed={on}
+                    disabled={!isAdmin || Boolean(carouselBusy)}
+                    onClick={() => pickCarousel({ model: m.id })}
+                  >
+                    {m.label}
+                    <span className="set-seg__tag">
+                      {m.provider === 'anthropic' ? 'Anthropic' : 'OpenAI'}
+                      {TIER_LABEL[m.tier] ? ` · ${TIER_LABEL[m.tier]}` : ''}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+
+            <span className="set-seg__label">Reasoning</span>
+            <div className="set-seg set-seg--sub" role="group" aria-label="Reasoning level">
+              {carousel.reasoningOptions.map((r) => {
+                const on = reasoningApplies && r.id === carousel.reasoningEffort;
+                return (
+                  <button
+                    type="button"
+                    key={r.id}
+                    className={`set-seg__btn ${on ? 'is-on' : ''}`}
+                    aria-pressed={on}
+                    disabled={!isAdmin || Boolean(carouselBusy) || !reasoningApplies}
+                    onClick={() => pickCarousel({ reasoningEffort: r.id })}
+                  >
+                    {r.label}
+                  </button>
+                );
+              })}
+            </div>
+            {!reasoningApplies && (
+              <p className="set-card__note">
+                {selected?.label || 'This model'} runs at a fixed speed — the reasoning level doesn’t apply to it.
+              </p>
+            )}
+
+            {carouselErr && <p className="set-err">{carouselErr}</p>}
+            <p className="set-card__note">
+              Higher reasoning improves composition but costs more and is slower — most of the extra cost is
+              reasoning tokens. To cut cost: pick a cheaper model (Haiku is cheapest) or lower the reasoning
+              level. GPT-6 Astra is the default.
+            </p>
+          </>
+          );
+        })()}
       </section>
 
       {/* ── Experimental features ── */}

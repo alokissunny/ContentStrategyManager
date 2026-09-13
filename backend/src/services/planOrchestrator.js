@@ -2,7 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const { extractJson, estimatePlanCostUsd, assignToEmptyDates, normalizeLens } = require('./weeklyPlan');
 const { compileStrategyContext, assetsForDay, allocatedAssetsOf, applyAssetAllocation, knownAssetIndexOf, json } = require('./planContext');
-const { completeText, resolvePlanAgentLlm, splitPromptTemplate } = require('./llmComplete');
+const { completeText, resolvePlanAgentLlm, splitPromptTemplate, reasoningEffortFor } = require('./llmComplete');
 const { ANNOTATIONS_ENABLED, asStoredText, asStoredLines, flattenSlide, layoutForStructure, mediaKeysOf, projectMediaKeysIn } = require('./slideContent');
 const { boxOf, matchSubject, regionFromBox } = require('./subjectBox');
 const { layoutById } = require('./layoutCatalog');
@@ -370,8 +370,28 @@ function layoutTimeoutMs() {
   return envPositiveInt('PLAN_LAYOUT_TIMEOUT_MS', 60000);
 }
 
+// The carousel HTML is a big generation, and a reasoning model makes it far
+// slower: Claude at 'high' effort routinely runs 2–5 minutes on a full post
+// (most of the time is thinking). Sizing the timeout for the fast GPT default
+// aborted those runs mid-generation, which surfaced in the UI as "no
+// generation". Scale the budget to the chosen provider and reasoning effort so a
+// deliberately slow model is given room to finish. Env override still wins.
 function carouselTimeoutMs() {
-  return envPositiveInt('PLAN_CAROUSEL_TIMEOUT_MS', 150000);
+  const override = envPositiveInt('PLAN_CAROUSEL_TIMEOUT_MS', 0);
+  if (override) return override;
+  let provider = 'openai';
+  let effort = 'low';
+  try {
+    provider = resolvePlanAgentLlm('carousel').provider || 'openai';
+    effort = reasoningEffortFor('carousel');
+  } catch { /* fall back to defaults below */ }
+  if (provider === 'anthropic') {
+    // Opus at high effort is the slowest path — give it a wide budget.
+    if (effort === 'high') return 480000;
+    if (effort === 'medium') return 300000;
+    return 180000;
+  }
+  return effort === 'high' ? 240000 : 150000;
 }
 
 const layoutWaiters = [];
@@ -536,8 +556,8 @@ async function callAgent({ source, kind, prompt, system, user, validate, parse }
       );
       if (asHtml && attempt < maxAttempts) {
         userContent = `${baseUser}\n\n---\nPrevious attempt was not a usable HTML document (${err.message}). ` +
-          'Return ONLY a complete HTML document with five theme sections ' +
-          '(`<section data-direction="warm-editorial">` …) each containing ' +
+          'Return ONLY a complete HTML document with four theme sections ' +
+          '(`<section data-direction="architectural-minimal">` …) each containing ' +
           '`<article class="slide" data-index="N">` for every slide. Do not nest other sections inside a theme section.';
       }
       continue;
@@ -567,7 +587,7 @@ async function callAgent({ source, kind, prompt, system, user, validate, parse }
       if (asHtml && attempt < maxAttempts) {
         userContent = `${baseUser}\n\n---\nPrevious attempt failed validation: ${err.message}. ` +
           'Return ONLY a complete HTML document. Required markers: ' +
-          '`<section data-direction="warm-editorial|architectural-minimal|quiet-luxury|natural-tactile|contemporary-gallery">` ' +
+          '`<section data-direction="architectural-minimal|quiet-luxury|natural-tactile|contemporary-gallery">` ' +
           'wrapping `<article class="slide" data-index="1..N">` for every slide. ' +
           'Put data-direction on the theme section only (not on buttons alone). ' +
           'Do not nest <section> inside a theme section — use <div> for preview chrome.';

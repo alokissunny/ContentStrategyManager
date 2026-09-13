@@ -6,6 +6,7 @@ const {
   isOpenAIModel,
   resolvePlanAgentLlm,
 } = require('./planAgentLlm');
+const { getRuntimeSetting, KEYS } = require('./runtimeSettings');
 
 function usesCompletionTokens(model) {
   return /gpt-5|gpt-6|terra|astra|o3|o4/i.test(String(model || ''));
@@ -132,7 +133,12 @@ function reasoningEffortFor(kind) {
   // this 5-theme build. The earlier "terse stub" symptom was really an EMPTY
   // contentStructure (see carouselInputOf's post-slide fallback), not low
   // reasoning. Override with PLAN_CAROUSEL_REASONING_EFFORT if a model needs more.
-  if (kind === 'carousel') return envChoice('PLAN_CAROUSEL_REASONING_EFFORT', GPT_EFFORTS, 'low');
+  if (kind === 'carousel') {
+    // A reasoning level chosen at runtime through Settings wins over env.
+    const chosen = String(getRuntimeSetting(KEYS.carouselReasoningEffort) || '').trim().toLowerCase();
+    if (GPT_EFFORTS.includes(chosen)) return chosen;
+    return envChoice('PLAN_CAROUSEL_REASONING_EFFORT', GPT_EFFORTS, 'low');
+  }
   if (kind === 'visual') return envChoice('PLAN_VISUAL_REASONING_EFFORT', GPT_EFFORTS, 'low');
   return envChoice('PLAN_STRATEGIST_REASONING_EFFORT', GPT_EFFORTS, 'medium');
 }
@@ -473,4 +479,5 @@ module.exports = {
   isOpenAIModel,
   usesCompletionTokens,
   openaiToolOf,
+  reasoningEffortFor,
 };

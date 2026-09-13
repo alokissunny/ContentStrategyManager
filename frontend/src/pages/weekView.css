@@ -564,10 +564,8 @@
 .wv-dynlay img[data-slot="image"].is-placeholder,
 .wv-dynlay img[data-slot="image"]:not([src]),
 .wv-dynlay img[data-slot="image"][src=""] {
-  background:
-    repeating-linear-gradient(135deg, transparent 0 7px, var(--t-ground-hatch, rgba(27, 16, 13, 0.12)) 7px 14px),
-    var(--t-empty-bg, #ddd8ce);
-  box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--t-ground-fg, #1b100d) 22%, transparent);
+  /* No photograph yet: a plain shaded block — no hatch lines, no border. */
+  background: var(--t-empty-bg, #ddd8ce);
   /* Suppress the browser broken-image icon — size still comes from agent CSS. */
   color: transparent;
   font-size: 0;
@@ -649,6 +647,21 @@
   display: block;
   object-fit: cover;
 }
+/* Safety net against truncated copy. Some agent split-layouts place the image
+   slot so it overlaps the copy column; rendered as-is that hides the right edge
+   of longer lines and they read as cut off (see the narrow-hall slide). Lift
+   every text slot above the photo so the full line always stays visible instead
+   of disappearing behind it. No-truncation wins over exact stacking fidelity. */
+.wv-dynlay .slide :is(
+  [data-slot="title"], [data-slot="subtitle"], [data-slot="supporting-text"],
+  [data-slot="body"], [data-slot="items"], [data-slot="quote"],
+  [data-slot="stat"], [data-slot="comparisonA"], [data-slot="comparisonB"],
+  [data-slot="action"], [data-slot="label"]
+) {
+  position: relative;
+  z-index: 20;
+}
+.wv-dynlay .slide img[data-slot="image"] { z-index: 1; }
 .wv-dynlay.is-annote-over .wv-dynlay__canvas [data-slot="annotation"] {
   visibility: hidden;
 }
@@ -900,12 +913,8 @@
 .wv-safe__photo.is-placeholder {
   flex: 0 0 48%;
   min-height: 42%;
-  background:
-    repeating-linear-gradient(135deg, transparent 0 7px, var(--t-ground-hatch, rgba(27, 16, 13, 0.08)) 7px 14px),
-    var(--t-empty-bg, #ddd8ce);
-  box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--t-ground-fg, #1b100d) 22%, transparent);
-  outline: 1.5px dashed color-mix(in srgb, var(--t-ground-fg, #1b100d) 32%, transparent);
-  outline-offset: -10px;
+  /* No photograph yet: a plain shaded block — no hatch lines, no dashed border. */
+  background: var(--t-empty-bg, #ddd8ce);
 }
 .wv-safe__photo img {
   width: 100%;
@@ -1429,14 +1438,10 @@
 .wv-ig__lay.is-needvisual .vl-a.vl-a--ground,
 .wv-ig__lay.is-needvisual .vl-a.vl-a--accent,
 .wv-ig__lay.is-needvisual .vl-a.vl-a--photo {
-  background:
-    repeating-linear-gradient(135deg, transparent 0 7px, var(--t-ground-hatch, rgba(27, 16, 13, 0.08)) 7px 14px),
-    var(--t-ground-bg, #f4f2ee);
+  background: var(--t-ground-bg, #f4f2ee);
 }
 .wv-ig__lay.is-needvisual .wv-dynlay img[data-slot="image"].is-placeholder {
-  background:
-    repeating-linear-gradient(135deg, transparent 0 7px, var(--t-ground-hatch, rgba(27, 16, 13, 0.08)) 7px 14px),
-    var(--t-empty-bg, #ddd8ce);
+  background: var(--t-empty-bg, #ddd8ce);
 }
 .wv-vneed {
   position: absolute;

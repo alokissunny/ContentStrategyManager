@@ -213,3 +213,33 @@
   border-color: var(--signal-500);
 }
 .set-switch.is-on i { transform: translateX(18px); }
+
+/* segmented chooser — carousel model + reasoning level. A row of pills where
+ * one is selected; the whole group is dimmed and inert for non-admins. */
+.set-seg { display: flex; flex-wrap: wrap; gap: var(--sp-2); padding-top: var(--sp-3); }
+.set-seg--sub { padding-top: var(--sp-2); }
+.set-seg__btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border-radius: var(--r-full);
+  border: 1px solid var(--border-strong);
+  background: var(--surface);
+  color: var(--ink-700);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  cursor: pointer;
+  transition: background var(--dur-fast), border-color var(--dur-fast), color var(--dur-fast);
+}
+.set-seg__btn:hover:not(:disabled) { border-color: var(--ink-400); }
+.set-seg__btn.is-on {
+  background: var(--signal-500);
+  border-color: var(--signal-500);
+  color: var(--signal-900, #10221a);
+}
+.set-seg__btn:disabled { cursor: default; opacity: 0.65; }
+.set-seg__tag { font-size: 11px; font-weight: 700; color: var(--ink-quiet); }
+.set-seg__btn.is-on .set-seg__tag { color: inherit; opacity: 0.75; }
+.set-seg__label { display: block; font-size: var(--text-sm); font-weight: 700; color: var(--ink-800); padding-top: var(--sp-4); }
+.set-err { font-size: var(--text-sm); color: var(--negative); padding-top: var(--sp-3); margin: 0; }

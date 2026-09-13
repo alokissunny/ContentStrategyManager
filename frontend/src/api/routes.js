@@ -180,10 +180,13 @@ export function polishCaption(routeId, index, { caption, instruction, kind, role
     });
 }
 
-// Run the Carousel agent on one post without regenerating the week.
+// Run the Carousel agent on one post without regenerating the week. A
+// high-reasoning model (e.g. Claude at high effort) can take several minutes, so
+// this must outlast the backend's carousel timeout (up to 5 min) — otherwise the
+// client aborts a run that is still generating and it looks like nothing ran.
 export function runDayLayout(routeId, index) {
   return client
-    .post(`/routes/${routeId}/day/${index}/layout`, {}, { timeout: 240000 })
+    .post(`/routes/${routeId}/day/${index}/layout`, {}, { timeout: 540000 })
     .then((res) => {
       const data = res.data || {};
       ingestPlanDebug('Carousel agent (debug)', data);

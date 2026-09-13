@@ -161,7 +161,7 @@ Read each slide’s `visual`, `visualNeed`, `evidenceAvailability`, and `evidenc
 ```
 
 - If `visual.hasAsset` is true or `visual.assetKey` / `visual.photograph.src` is supplied, this is a **real project photograph**. Put the raw URL only on the `<img src="">` when `visual.photograph.src` is present. Never put Markdown link syntax inside `src`. Crop with `object-fit: cover`. Size the slot for that theme’s image role. Do **not** replace it with a grey “IMAGE PLACEHOLDER” box, illustration, or invented graphic.
-- If `visual.includeImageSlot` is true but `visual.hasAsset` is false, keep the empty `<img data-slot="image">` and you may add a short label of the intended visual next to it — never present that label as project evidence.
+- If `visual.includeImageSlot` is true but `visual.hasAsset` is false, keep the empty `<img data-slot="image">` with no `src`. The application fills an empty slot with a plain shaded block — do not add a label, grey box, outline, or hatch of your own.
 - Preserve `data-asset-key` whenever a key is supplied.
 - When an **illustration**, conceptual support, diagram, or graphic artwork is suggested and no photograph is assigned, do **not** draw SVG, CSS shapes, icons, charts, or invented graphics. Create the same empty image placeholder instead:
 
@@ -169,47 +169,32 @@ Read each slide’s `visual`, `visualNeed`, `evidenceAvailability`, and `evidenc
 <img data-slot="image" alt="">
 ```
 
-  You may label it “IMAGE PLACEHOLDER” or briefly name the intended visual (e.g. “Conceptual illustration”) next to the slot — never present that label as project evidence. Prefer `data-slot="image"` over `data-slot="illustration"`; the app treats both as media slots to fill later.
+  Leave it as the bare empty slot — do not label it “IMAGE PLACEHOLDER”, draw a box, or add an outline. Prefer `data-slot="image"` over `data-slot="illustration"`; the app treats both as media slots and fills them later with a plain shaded block.
 - If `visual.includeImageSlot` is false, or the decision is `none` / `text-only-fallback`, keep the slide text-only. Do not add an image to fill space.
 - Never generate imagery, draw illustrations, or substitute unrelated stock photos.
 - Never create CSS diagrams, arrow systems, mirror symbols, plan-like graphics, icon rows, or pseudo-architectural drawings unless those are explicitly supplied as editable source material. If the structure requests a conceptual support visual, reserve a media slot; do not fabricate the visual.
-- Use honest labels for visuals:
-  - "Current bathroom context"
-  - "Project photograph"
-  - "Planned direction"
-  - "Design intent"
-  - "Conceptual visual placeholder"
-  - "Material direction"
-- Avoid proof labels unless verified:
-  - "Final result"
-  - "Before and after"
-  - "Transformation"
-  - "Completed look"
-  - "After"
+- Do **not** print any context, caption, kicker, eyebrow, or descriptive label on top of, above, or beside a photograph or image slot — for example "Current hall context", "Current bathroom context", "Project photograph", "Planned direction", "Design intent", "Material direction". The image speaks for itself; let the slide's title and supporting text carry all wording. This applies to real photographs, filled slots, and empty image slots alike — an empty slot is a plain shaded block with no label.
+- Never add proof or outcome labels — "Final result", "Before and after", "Transformation", "Completed look", "After" — unless the outcome is verified.
 
 Size each image according to the visual’s communication role and the theme. A context photograph may anchor the setting; Contemporary Gallery should give photography the largest field.
 
-## Create five ranked themes
+## Create four ranked themes
 
-Create these five themes across the entire carousel, in this order. **Warm Editorial is the default** (first, selected on load). **Architectural Minimal is the second option.**
+Create these four themes across the entire carousel, in this order. **Architectural Minimal is the default** (first, selected on load).
 
-1. **Warm Editorial** (`warm-editorial`) — default
-   The strongest all-round choice. Refined but approachable, with a good balance of project images and design storytelling.
-   Design: serif headlines, warm cream or paper grounds, generous margins, clear hierarchy. Images and copy share the canvas; neither dominates. Approachable, editorial, residential.
-
-2. **Architectural Minimal** (`architectural-minimal`) — second
+1. **Architectural Minimal** (`architectural-minimal`) — default
    Clean, precise and professional. Particularly effective for explaining layouts, spatial decisions and practical solutions.
    Design: tight grids, thin rules, cool white or pale grey grounds, structured grouping, type as a drawing tool. Asymmetric divisions. Best for plans, sequences, and spatial explanations.
 
-3. **Quiet Luxury** (`quiet-luxury`)
+2. **Quiet Luxury** (`quiet-luxury`)
    Elegant typography and restrained colours suit premium residential and hospitality studios.
    Design: refined serif, champagne / stone / ink palette, sparse type, generous negative space, few competing elements. Quiet, expensive, unhurried.
 
-4. **Natural & Tactile** (`natural-tactile`)
+3. **Natural & Tactile** (`natural-tactile`)
    Warm and inviting. Complements studios whose work features wood, stone, earthy colours and natural materials.
    Design: earthy grounds (clay, sand, olive, timber), softer type, tactile paper-like fields. Material-forward photographs. Inviting rather than clinical.
 
-5. **Contemporary Gallery** (`contemporary-gallery`)
+4. **Contemporary Gallery** (`contemporary-gallery`)
    Gives project photography the spotlight. A strong choice for contemporary interiors and art-led studios.
    Design: photography-first. Large image fields, minimal captions, museum-like labelling, high-contrast type used as a label rather than a story. Let the picture carry the slide.
 
@@ -227,6 +212,19 @@ Within each theme, adapt the composition to each slide’s information shape:
 
 Maintain a recognisable visual family within a theme without repeating the same layout on every slide.
 
+### Consistent aesthetic across every slide and every theme
+
+Within a theme, every slide must belong to one coherent, deliberately designed system — not a set of unrelated layouts. Hold these constant across all slides of a theme:
+
+- the same type family and a shared, consistent type scale — the title size, supporting-text size, and any label size are the same on every slide unless the content genuinely forces a step change
+- the same ground / paper colour, the same accent, and the same way the accent is used (one highlighted word or number per slide, treated identically)
+- the same safe margins, corner treatment, hairline/rule style, and grid rhythm
+- the same image treatment (crop, framing, proportion role) for the same kind of slide
+
+Composition may vary slide to slide to fit each information shape, but the finish, spacing discipline, colour, and type must read as one designed carousel. A viewer should immediately see that the slides belong together.
+
+Every one of the five themes must be equally polished on every slide — no theme, and no slide within a theme, may look like a rough draft next to the others. Each theme is a complete, finished aesthetic; only the design language (type, colour, image emphasis, composition) changes between themes, never the level of care or consistency.
+
 ## HTML requirements
 
 - Use a 4:5 aspect ratio, designed for 1080 × 1350 output.
@@ -234,12 +232,19 @@ Maintain a recognisable visual family within a theme without repeating the same 
 - Keep text selectable and editable.
 - Use `data-slot` attributes such as `title`, `subtitle`, `supporting-text`, and `image`.
 - Do not invent decorative SVG, canvas drawings, icon rows, or CSS “illustration” graphics to stand in for a missing image.
+- Never place a slide number, counter, page indicator, or pagination inside an `article.slide` canvas — no "01 / 04", "1 of 4", "Slide 1", progress dots, or fractions. The application renders its own carousel counter as chrome; the canvas must stay clean of it.
+- Do not draw a border, frame, outline, ruled box, or dashed/dotted line around the whole slide canvas or around the image slot. Thin rules (Architectural Minimal) may only be short internal dividers between content — never a frame enclosing the slide or the photograph.
+- When an image slot has no assigned photograph, leave it as a plain empty `<img data-slot="image">`. The application fills an empty slot with a plain shaded block, so do not add a dashed/dotted outline, hatch or cross-hatch pattern, grey "IMAGE PLACEHOLDER" box, or any placeholder border of your own.
 - Scope styles to prevent collisions.
 - Style each `article.slide` as a complete 4:5 composition on its own. Required layout rules (flex/grid, placeholder size, type scale) must target the article and its descendants, not preview chrome such as the preview grid or theme buttons.
 - Use responsive sizing that preserves the slide composition (`%`, `em`, or container query units on `.slide`). Do not size the canvas with page `vw`/`vh`.
+- Every `article.slide` must hold its own height even when its parent's height is auto. Build the main composition with normal flow (flex/grid/block) so the content gives the slide height, and set `aspect-ratio: 4 / 5` on `.slide` as a safeguard. Use `position: absolute` only for a full-bleed image or a single deliberate overlay — never lay the whole slide out with absolutely-positioned children, because an article with no in-flow content collapses to zero height and renders blank.
 - Maintain approximately 7–8% safe margins.
 - Keep text readable at mobile preview size.
 - Never solve overflow by clipping text or shrinking it excessively.
+- Copy and the image must occupy separate, non-overlapping regions. Give the copy its own column or band and give the image its own; the photograph must never cover, sit on top of, or clip any part of a text line. In a side-by-side split, the copy column must be wide enough that every line fits inside it — the image starts only where the copy ends, with a gap between them. Do not position the image absolutely over the copy, and do not let long lines run underneath it.
+- The only time copy may sit over the image is a deliberate full-bleed layout where the photograph spans the whole canvas and the copy has a legibility scrim behind it; even then every line must be fully visible, never cut at the image edge.
+- If copy and image compete for space, shrink the image first (and the type scale next) until **every line of every text slot** is fully visible with margins — never truncate, ellipsize, or hide copy to make the image bigger.
 - Avoid external dependencies.
 
 ## Preview
@@ -247,11 +252,11 @@ Maintain a recognisable visual family within a theme without repeating the same 
 Return one complete, self-contained HTML document.
 
 Include:
-- Five labelled theme buttons, in rank order: Warm Editorial, Architectural Minimal, Quiet Luxury, Natural & Tactile, Contemporary Gallery.
-- Warm Editorial selected on load.
+- Four labelled theme buttons, in rank order: Architectural Minimal, Quiet Luxury, Natural & Tactile, Contemporary Gallery.
+- Architectural Minimal selected on load.
 - All slides for the selected theme, displayed in order.
 - A responsive two-column preview that becomes one column on narrow screens.
-- Slide numbers and roles outside the slide canvases.
+- Slide numbers and roles, if shown at all, appear only in the preview chrome outside the `.slide` canvases — never inside a canvas.
 - A brief draft-copy label outside the canvases when final copy was not supplied.
 
 Use lightweight JavaScript only for switching themes. Do not add editing controls, export controls, or unrelated interface elements.
@@ -259,8 +264,12 @@ Use lightweight JavaScript only for switching themes. Do not add editing control
 ## Final check
 
 Before returning the HTML, confirm:
-- Every slide has five genuinely different layouts, one per theme.
-- Warm Editorial is the default selected theme.
+- Every slide has four genuinely different layouts, one per theme.
+- Within each theme, all slides share one consistent aesthetic — the same type scale, ground colour, accent use, margins, and image treatment — and every theme is equally finished across every slide.
+- No slide number, counter, page indicator, fraction, or progress dots appear inside any `article.slide` canvas.
+- No context, caption, kicker, or eyebrow label is printed on top of, above, or beside any photograph or image slot.
+- No border, frame, outline, or dashed/dotted line encloses the slide canvas or the image slot; an empty image slot is a bare `<img data-slot="image">` with no placeholder box, outline, or hatch.
+- Architectural Minimal is the default selected theme.
 - All required content remains present.
 - Copy is consistent across themes and matches Brand DNA `voice` when you drafted it.
 - The carousel has one clear interior design insight, not a loose collection of statements.
@@ -275,6 +284,7 @@ Before returning the HTML, confirm:
 - Text-only slides remain text-only.
 - No unsupported claims or CTAs were introduced.
 - No text overlaps, clips, or leaves the safe area.
+- The image never covers, sits on top of, or clips any text line; every line of every text slot is fully visible with margins. In split layouts the copy column is wide enough that no line runs under the image.
 - The final slide closes the supplied narrative.
 
 Return only the HTML document.
@@ -283,7 +293,6 @@ Return only the HTML document.
 
 Wrap each theme in a section the application can parse. Use these `data-direction` values exactly:
 
-`<section data-direction="warm-editorial">`
 `<section data-direction="architectural-minimal">`
 `<section data-direction="quiet-luxury">`
 `<section data-direction="natural-tactile">`

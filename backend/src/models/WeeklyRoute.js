@@ -80,7 +80,7 @@ const daySchema = new mongoose.Schema(
             // in Week View's Change layout picker; `layoutHtml` mirrors the
             // chosen one. Empty = only the single applied composition exists.
             layoutOptions: { type: [mongoose.Schema.Types.Mixed], default: [] },
-            // Carousel-agent theme currently applied (warm-editorial, architectural-minimal, …).
+            // Carousel-agent theme currently applied (architectural-minimal, quiet-luxury, …).
             layoutTheme: { type: String, default: '' },
             // On-photo callout (handwritten label + arrow) when Structure
             // locked Annotation on a photograph with a relevant subject.

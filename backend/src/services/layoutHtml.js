@@ -84,7 +84,6 @@ function extractHtmlDocument(text) {
 }
 
 const CAROUSEL_THEMES = [
-  { id: 'warm-editorial', label: 'Warm Editorial' },
   { id: 'architectural-minimal', label: 'Architectural Minimal' },
   { id: 'quiet-luxury', label: 'Quiet Luxury' },
   { id: 'natural-tactile', label: 'Natural & Tactile' },
@@ -225,8 +224,8 @@ function sectionForDirection(html, id) {
 
 function packSlidesByTheme(all, expected) {
   const byDirection = {};
-  const pack = expected > 0 && all.length >= expected * 5
-    ? CAROUSEL_THEMES.slice(0, 5)
+  const pack = expected > 0 && all.length >= expected * 4
+    ? CAROUSEL_THEMES.slice(0, 4)
     : (expected > 0 && all.length >= expected * 3
       ? CAROUSEL_THEMES.filter((d) => ['editorial', 'architectural', 'bold-minimal'].includes(d.id))
       : CAROUSEL_THEMES.slice(0, 1));
@@ -283,7 +282,7 @@ function parseCarouselDocument(html, expectedCount) {
       const article = list.find((a) => Number(htmlAttr(a, 'data-index')) === i) || list[i - 1];
       if (!article) return;
       // Keep the direction section around the canvas so selectors like
-      // `section[data-direction="warm-editorial"] .slide` still match when this
+      // `section[data-direction="architectural-minimal"] .slide` still match when this
       // fragment is rendered alone in Week View.
       // Prefer the canvas over shared CSS when the combined fragment would exceed
       // MAX_LAYOUT_HTML (slice-from-start used to cut off </article> and drop the slide).

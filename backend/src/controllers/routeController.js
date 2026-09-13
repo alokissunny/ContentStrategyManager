@@ -1121,20 +1121,49 @@ function plainOf(value) {
   }
 }
 
+// Copy/asset fields a user can edit in Week View. On a standalone carousel
+// rerun we overlay these from the stored (possibly edited) slides onto the rich
+// Day Writer slides, so edits survive without losing the structural fields the
+// carousel agent needs.
+const EDITABLE_SLIDE_FIELDS = [
+  'title', 'subtitle', 'body', 'items', 'itemsA', 'itemsB',
+  'comparisonA', 'comparisonB', 'stat', 'quote', 'action', 'labels',
+  'image', 'assetKey', 'assetKeys', 'imagePrompt', 'annotation',
+];
+
+// The post fed to the carousel agent on a standalone rerun. This MUST match what
+// the full plan feeds (attachCarousel uses the rich Day Writer output), or the
+// agent composes from a thinner input and the layout comes out worse. Earlier
+// this handed back the layout-baked stored slides, which drop index / elements /
+// contentGuidance and carry stale layoutHtml/layoutOptions — the delta behind
+// "standalone looks bad, full replan looks good". Now: start from the rich Day
+// Writer slides and overlay only the user-edited copy/asset fields from storage.
 function layoutPostFromDay(day) {
   const trace = day?.agentTrace && typeof day.agentTrace === 'object' ? day.agentTrace : {};
   const writer = trace.dayWriter && typeof trace.dayWriter === 'object' ? trace.dayWriter : null;
   const stored = Array.isArray(day?.content?.slides) ? day.content.slides.map((s) => plainOf(s)) : [];
+
   if (writer?.content?.slides?.length) {
+    const rich = plainOf(writer.content.slides);
+    const merged = rich.map((slide, i) => {
+      const edited = stored.find((s) => (
+        Number(s?.index) > 0 && Number(s.index) === Number(slide?.index)
+      )) || stored[i] || {};
+      const overlay = {};
+      for (const key of EDITABLE_SLIDE_FIELDS) {
+        if (edited[key] !== undefined && edited[key] !== null && edited[key] !== '') {
+          overlay[key] = edited[key];
+        }
+      }
+      return { ...slide, ...overlay };
+    });
     return {
       ...plainOf(writer),
       format: writer.format || day.format,
-      content: {
-        ...(writer.content || {}),
-        slides: stored.length ? stored : plainOf(writer.content.slides),
-      },
+      content: { ...(writer.content || {}), slides: merged },
     };
   }
+
   return {
     format: day.format,
     status: 'ready',
@@ -1198,7 +1227,22 @@ async function rerunDayLayout(req, res) {
     await route.save();
 
     const debugEntry = result.debugEntry || {};
-    console.log(`[route] Carousel:${label}:debug · ${(result.parsed.slides || []).length} slides`);
+    // Always log the standalone rerun's input + output (like the full plan's
+    // per-agent trace), so a bad standalone layout can be diagnosed from server
+    // logs even without the client debug panel. Truncated to keep logs readable;
+    // the full prompt/output still ride the response debug below.
+    const head = (s, n = 600) => {
+      const str = String(s || '');
+      return str.length > n ? `${str.slice(0, n)}… [+${str.length - n} chars]` : str;
+    };
+    console.log(
+      `[route] Carousel:${label}:debug INPUT · ${debugEntry.provider || ''}/${debugEntry.model || ''}`
+        + ` · promptChars=${String(debugEntry.prompt || '').length}\n${head(debugEntry.prompt)}`,
+    );
+    console.log(
+      `[route] Carousel:${label}:debug OUTPUT · outChars=${String(debugEntry.output || '').length}`
+        + ` · slides=${(result.parsed.slides || []).length}\n${head(debugEntry.output)}`,
+    );
     return res.json({
       route,
       layout: result.parsed,

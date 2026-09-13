@@ -10,6 +10,8 @@
  * (gpt* / terra / astra / o1–o4 → openai; claude / sonnet / haiku / opus → anthropic).
  */
 
+const { getRuntimeSetting, KEYS } = require('./runtimeSettings');
+
 const PROVIDERS = ['openai', 'anthropic'];
 
 const AGENTS = {
@@ -90,9 +92,19 @@ function providerOf(model, explicit) {
   return namedProvider(explicit) || inferProvider(model) || '';
 }
 
+// A model chosen at runtime through Settings wins over env and the AGENTS table.
+// Only the carousel agent is switchable from the UI today.
+function runtimeModelFor(kind) {
+  if (kind === 'carousel') {
+    const value = getRuntimeSetting(KEYS.carouselModel);
+    return typeof value === 'string' ? value.trim() : '';
+  }
+  return '';
+}
+
 function resolvePlanAgentLlm(kind = 'strategist') {
   const spec = AGENTS[kind] || AGENTS.strategist;
-  const explicitModel = envText(spec.modelEnv);
+  const explicitModel = runtimeModelFor(kind) || envText(spec.modelEnv);
   const explicitProvider = namedProvider(envText(spec.providerEnv));
   const provider = inferProvider(explicitModel)
     || explicitProvider

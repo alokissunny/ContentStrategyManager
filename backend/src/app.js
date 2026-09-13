@@ -16,6 +16,7 @@ const visualBrandRoutes = require('./routes/visualBrandRoutes');
 const mediaRoutes = require('./routes/mediaRoutes');
 const debugRoutes = require('./routes/debugRoutes');
 const internalRoutes = require('./routes/internalRoutes');
+const settingsRoutes = require('./routes/settingsRoutes');
 const { notFound, errorHandler } = require('./middleware/errorHandler');
 const { allowedOrigins } = require('./config/origins');
 
@@ -60,6 +61,7 @@ app.use('/api/visual-brand', visualBrandRoutes);
 app.use('/api/media', mediaRoutes);
 app.use('/api/debug', debugRoutes);
 app.use('/api/internal', internalRoutes);
+app.use('/api/settings', settingsRoutes);
 
 app.use(notFound);
 app.use(errorHandler);
