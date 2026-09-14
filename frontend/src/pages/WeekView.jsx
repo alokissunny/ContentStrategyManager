@@ -2933,6 +2933,10 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
   // Ranked layout options the agent generated for this slide, best-first. When
   // present they replace the fixed wireframe presets in the Change layout
   // picker; picking one applies its HTML as the slide's layoutHtml.
+  // The options stored for this slide, best-first. This includes the persistent
+  // "Original" option (rank 0, the parent composition) plus the generated
+  // variations, so the studio can always switch back to the original after
+  // applying a change.
   const layoutOpts = useMemo(() => {
     const list = Array.isArray(activeSlide?.layoutOptions) ? activeSlide.layoutOptions : [];
     return list
@@ -2949,10 +2953,14 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
     () => new Set(layoutOpts.map((o) => themeDirectionOf(o)).filter(Boolean)).size > 1,
     [layoutOpts],
   );
-  // A fresh (single-theme) carousel gives each slide exactly one composition, so
-  // opening Change layout should generate the four variations on demand. Legacy
-  // multi-theme carousels already carry several per-slide options — leave those.
-  const needsLayoutVars = layoutOpts.length < 2;
+  // Number of generated (non-original) variations already stored — a fresh
+  // single-theme carousel has just its one composition, so opening Change layout
+  // should generate the variations on demand; once they exist, don't regenerate.
+  const generatedCount = useMemo(
+    () => layoutOpts.filter((o) => !o.original).length,
+    [layoutOpts],
+  );
+  const needsLayoutVars = generatedCount < 2;
   const appliedOptIdx = hasLayoutOpts
     ? layoutOpts.findIndex((o) => o.html === activeSlide?.layoutHtml)
     : -1;
@@ -3344,7 +3352,12 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
   // picker shows the actual layouts the agent proposed, not wireframes.
   const layoutOptionCards = (hideRank = false) => layoutOpts.map((opt, i) => {
     const on = draftOptIdx === i;
-    const label = opt.label || `Option ${i + 1}`;
+    const isOriginal = Boolean(opt.original);
+    const hasOriginal = Boolean(layoutOpts[0]?.original);
+    // Rank position among the generated variations (the "Original" card carries no
+    // rank), best-first.
+    const genPos = hasOriginal ? i - 1 : i;
+    const label = opt.label || (isOriginal ? 'Original' : `Option ${i + 1}`);
     const optSlide = { ...activeSlide, layout: 'dynamic', layoutHtml: opt.html };
     // A themed option (from the carousel document) renders by cropping that
     // document; a standalone variation renders from its own html, so the
@@ -3374,11 +3387,13 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
             slideIndex={safeIdx + 1}
             direction={optDir || layoutDirectionOf(optSlide)}
           />
-          {!hideRank && (
-            <span className={`wv-act__rank${i === 0 ? ' is-best' : ''}`}>
-              {i === 0 ? 'Best' : `#${i + 1}`}
+          {!hideRank && (isOriginal ? (
+            <span className="wv-act__rank">Original</span>
+          ) : (
+            <span className={`wv-act__rank${genPos === 0 ? ' is-best' : ''}`}>
+              {genPos === 0 ? 'Best' : `#${genPos + 1}`}
             </span>
-          )}
+          ))}
         </span>
         <span className="wv-act__name">{label}</span>
         {i === appliedOptIdx && <span className="wv-act__now">Current</span>}
@@ -4060,7 +4075,7 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
                       <span className="wv-layed__hint">Generating four layouts for this slide…</span>
                     ) : hasLayoutOpts && !needsLayoutVars ? (
                       <span className="wv-layed__hint">
-                        {layoutOpts.length} layouts from the layout agent, ranked
+                        Original + {generatedCount} ranked alternatives
                         <button
                           type="button"
                           className="wv-layed__regen"

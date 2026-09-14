@@ -201,7 +201,11 @@ export function runDayLayout(routeId, index) {
 export function runSlideLayoutVariations(routeId, index, slideIndex) {
   return client
     .post(`/routes/${routeId}/day/${index}/slide/${slideIndex}/layout-variations`, {}, { timeout: 240000 })
-    .then((res) => res.data || {});
+    .then((res) => {
+      const data = res.data || {};
+      ingestPlanDebug('Layout variations (debug)', data);
+      return data;
+    });
 }
 
 // Run the Animated Carousel Cover agent on one post's hook. Returns

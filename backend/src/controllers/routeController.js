@@ -1347,6 +1347,19 @@ async function rerunSlideLayoutVariations(req, res) {
       });
     }
 
+    // Keep the parent (original) composition as a persistent first option so the
+    // studio can always switch back to it after applying a variation. Its rank 0
+    // sorts it ahead of the generated options.
+    const originalOption = currentHtml ? {
+      rank: 0,
+      label: 'Original',
+      reason: 'The layout this slide started with',
+      html: currentHtml,
+      direction: String(storedTarget?.layoutTheme || ''),
+      original: true,
+    } : null;
+    const storedOptions = originalOption ? [originalOption, ...options] : options;
+
     // Store the variations on this slide only; leave every other slide, and this
     // slide's applied layoutHtml, exactly as they were. If the slide had no
     // composition yet, seed it with the best-ranked variation.
@@ -1360,7 +1373,7 @@ async function rerunSlideLayoutVariations(req, res) {
         ...prev,
         layout: 'dynamic',
         layoutHtml: String(prev.layoutHtml || '') || options[0].html,
-        layoutOptions: options,
+        layoutOptions: storedOptions,
       };
       day.content = { ...(plainOf(day.content) || {}), slides };
       route.markModified('days');
@@ -1379,7 +1392,31 @@ async function rerunSlideLayoutVariations(req, res) {
         + ` · sizes=[${options.map((o) => sig(o.html)).join(',')}]`
         + ` · outChars=${String(debugEntry.output || '').length}`,
     );
-    return res.json({ route, options });
+    return res.json({
+      route,
+      options: storedOptions,
+      ...(wantsPromptDebug(req) ? {
+        debug: {
+          mode: 'layout-variations-debug',
+          model: result.usage?.model || debugEntry.model,
+          usage: result.usage || debugEntry.usage || null,
+          agents: [{
+            source: debugEntry.source || `LayoutVariations:${label}#${slideIndex}`,
+            model: debugEntry.model,
+            provider: debugEntry.provider || '',
+            prompt: debugEntry.prompt,
+            output: debugEntry.output || '',
+            elapsedMs: Number(debugEntry.elapsedMs || result.usage?.elapsedMs) || 0,
+            usage: result.usage || debugEntry.usage || null,
+            inputTokens: Number(result.usage?.inputTokens || debugEntry.usage?.inputTokens) || 0,
+            outputTokens: Number(result.usage?.outputTokens || debugEntry.usage?.outputTokens) || 0,
+            totalTokens: Number(result.usage?.totalTokens || debugEntry.usage?.totalTokens) || 0,
+            estimatedCostUsd: Number(result.usage?.estimatedCostUsd || debugEntry.usage?.estimatedCostUsd) || 0,
+          }],
+          elapsedMs: Number(debugEntry.elapsedMs || result.usage?.elapsedMs) || 0,
+        },
+      } : {}),
+    });
   } catch (err) {
     const status = err.statusCode || err.status || 502;
     console.error(`[route] layout variations failed for ${label}#${slideIndex}:`, err.message);
