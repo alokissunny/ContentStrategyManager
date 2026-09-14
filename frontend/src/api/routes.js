@@ -194,6 +194,16 @@ export function runDayLayout(routeId, index) {
     });
 }
 
+// Run the on-demand Layout Variation agent for ONE slide (Week View · Change
+// layout). Composes four fresh layouts of that slide in its current theme and
+// stores them on the slide's layoutOptions. slideIndex is the slide's 1-based
+// data-index. Returns { route, options }.
+export function runSlideLayoutVariations(routeId, index, slideIndex) {
+  return client
+    .post(`/routes/${routeId}/day/${index}/slide/${slideIndex}/layout-variations`, {}, { timeout: 240000 })
+    .then((res) => res.data || {});
+}
+
 // Run the Animated Carousel Cover agent on one post's hook. Returns
 // { route, cover: { spec, videoKey, videoUrl } }. Rendering is CPU-heavy
 // (headless Chromium), so give it a long timeout.

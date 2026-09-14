@@ -5,7 +5,8 @@ const InstagramProfile = require('../models/InstagramProfile');
 const { generateWeeklyPlan, buildMonthCalendar, dayHasContent, isoDate, parseIsoDate } = require('../services/weeklyPlan');
 const { analyzeImageAsset } = require('../services/imageAnalysis');
 const { rewriteCaption } = require('../services/captionPolish');
-const { runLayoutForPost, applyLayoutToContent, normalizeWriterPost } = require('../services/planOrchestrator');
+const { runLayoutForPost, writeLayoutVariations, applyLayoutToContent, normalizeWriterPost } = require('../services/planOrchestrator');
+const { copyFromLayoutHtml, injectImageIntoSlots } = require('../services/layoutHtml');
 const { compileBrandMemory } = require('../services/planContext');
 const { generateCoverSpec, renderCoverVideo } = require('../services/carouselCoverAgent');
 const { isS3Configured, uploadBytes, getMediaUrl } = require('../services/s3Client');
@@ -1276,6 +1277,116 @@ async function rerunDayLayout(req, res) {
   }
 }
 
+// POST /routes/:id/day/:index/slide/:slideIndex/layout-variations
+// Run the on-demand Layout Variation agent on ONE slide (Week View · Change
+// layout). Composes four fresh layouts of that slide in its current theme,
+// storing them on the slide's layoutOptions. Cheap by design — one slide, no
+// whole-carousel regeneration. The applied composition is left untouched; the
+// studio picks a variation from the returned options and applies it in the UI.
+async function rerunSlideLayoutVariations(req, res) {
+  const index = Number(req.params.index);
+  const slideParam = Number(req.params.slideIndex);
+  const route = await WeeklyRoute.findOne({ _id: req.params.id, user: req.user._id });
+  if (!route) return res.status(404).json({ message: 'Route not found' });
+  if (!route.days[index]) return res.status(404).json({ message: 'Day not found' });
+
+  const day = route.days[index];
+  const trace = day.agentTrace && typeof day.agentTrace === 'object' ? day.agentTrace : {};
+
+  // Input is ONLY the parent slide as it exists on the post — the exact slide the
+  // studio is looking at, with its real copy and image. No Content Structure, no
+  // Day Writer output. That metadata (purpose, role, evidence) was surfacing as
+  // "random text" in the variations; the parent slide is the sole source now.
+  const stored = Array.isArray(day?.content?.slides) ? day.content.slides.map((s) => plainOf(s)) : [];
+  if (!stored.length) {
+    return res.status(400).json({ message: 'This post has no slides to lay out.' });
+  }
+
+  // slideIndex is the slide's 1-based data-index; fall back to array position.
+  const slideIndex = Number.isFinite(slideParam) && slideParam > 0 ? slideParam : 1;
+  const targetIdx = stored.findIndex((s, i) => (
+    (Number(s?.index) > 0 ? Number(s.index) : i + 1) === slideIndex
+  ));
+  if (targetIdx < 0) {
+    return res.status(404).json({ message: 'Slide not found on this post.' });
+  }
+  const storedTarget = stored[targetIdx] || {};
+  // The currently applied composition — the visual reference the variations keep.
+  const currentHtml = String(storedTarget?.layoutHtml || '');
+  const post = { format: day.format, status: 'ready', content: { slides: [storedTarget] } };
+
+  const label = day.date || day.day || `D${index + 1}`;
+  const dna = await loadBrandDna(req.user._id, route.instagramUsername).catch(() => null);
+  const brand = compileBrandMemory(dna);
+
+  try {
+    const result = await writeLayoutVariations({
+      source: `LayoutVariations:${label}#${slideIndex}`,
+      post,
+      index: slideIndex,
+      brand,
+      currentHtml,
+    });
+    // The real photograph is baked into the parent slide's layoutHtml, not its
+    // asset fields — inject it into every variation's image slot so the picture
+    // appears (the agent is not trusted to copy a long URL).
+    const bakedImage = copyFromLayoutHtml(currentHtml)?.image || null;
+    const planSlide = (result.parsed?.slides || [])[0];
+    const options = (Array.isArray(planSlide?.options) ? planSlide.options : [])
+      .map((o, i) => ({
+        rank: Number(o?.rank) > 0 ? Number(o.rank) : i + 1,
+        label: String(o?.label || ''),
+        reason: String(o?.reason || ''),
+        html: injectImageIntoSlots(String(o?.html || ''), bakedImage),
+        direction: String(o?.direction || ''),
+      }))
+      .filter((o) => o.html);
+    if (result.parsed?.status === 'failed' || !options.length) {
+      return res.status(422).json({
+        message: result.parsed?.failureReason || 'Layout agent could not compose this slide.',
+      });
+    }
+
+    // Store the variations on this slide only; leave every other slide, and this
+    // slide's applied layoutHtml, exactly as they were. If the slide had no
+    // composition yet, seed it with the best-ranked variation.
+    const slides = Array.isArray(day.content?.slides) ? day.content.slides.map((s) => plainOf(s)) : [];
+    const writeIdx = slides.findIndex((s, i) => (
+      (Number(s?.index) > 0 ? Number(s.index) : i + 1) === slideIndex
+    ));
+    if (writeIdx >= 0) {
+      const prev = slides[writeIdx] || {};
+      slides[writeIdx] = {
+        ...prev,
+        layout: 'dynamic',
+        layoutHtml: String(prev.layoutHtml || '') || options[0].html,
+        layoutOptions: options,
+      };
+      day.content = { ...(plainOf(day.content) || {}), slides };
+      route.markModified('days');
+      await route.save();
+    }
+
+    const debugEntry = result.debugEntry || {};
+    // Log each option's html size + a cheap signature so identical-looking
+    // variations can be diagnosed as a model problem (same html) vs a render
+    // problem (distinct html here but same on screen).
+    const sig = (s) => String(s || '').replace(/\s+/g, '').length;
+    const distinct = new Set(options.map((o) => sig(o.html))).size;
+    console.log(
+      `[route] LayoutVariations:${label}#${slideIndex} · ${options.length} options`
+        + ` · distinctSizes=${distinct}/${options.length}`
+        + ` · sizes=[${options.map((o) => sig(o.html)).join(',')}]`
+        + ` · outChars=${String(debugEntry.output || '').length}`,
+    );
+    return res.json({ route, options });
+  } catch (err) {
+    const status = err.statusCode || err.status || 502;
+    console.error(`[route] layout variations failed for ${label}#${slideIndex}:`, err.message);
+    return res.status(status).json({ message: err.message || 'Could not run the layout agent.' });
+  }
+}
+
 // POST /routes/:id/day/:index/cover
 // Run the Animated Carousel Cover agent on this post's hook: strategy brief +
 // content structure → cover spec → rendered MP4. Stored on agentTrace.cover; the
@@ -1383,6 +1494,7 @@ module.exports = {
   markDayPublished,
   polishCaption,
   rerunDayLayout,
+  rerunSlideLayoutVariations,
   renderDayCover,
   clearCurrentMonth,
   remainingWeekStarts,

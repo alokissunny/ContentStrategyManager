@@ -9,6 +9,7 @@ const {
   markDayPublished,
   polishCaption,
   rerunDayLayout,
+  rerunSlideLayoutVariations,
   renderDayCover,
   clearCurrentMonth,
 } = require('../controllers/routeController');
@@ -22,6 +23,7 @@ router.post('/generate', asyncHandler(generateRoute));
 router.delete('/current-month', asyncHandler(clearCurrentMonth));
 router.post('/:id/replan', asyncHandler(replanWeek));
 router.post('/:id/day/:index/layout', asyncHandler(rerunDayLayout));
+router.post('/:id/day/:index/slide/:slideIndex/layout-variations', asyncHandler(rerunSlideLayoutVariations));
 router.post('/:id/day/:index/cover', asyncHandler(renderDayCover));
 router.post('/:id/day/:index/polish-caption', asyncHandler(polishCaption));
 router.patch('/:id/day/:index', asyncHandler(markDayPublished));

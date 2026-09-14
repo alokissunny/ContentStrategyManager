@@ -454,6 +454,27 @@ export function themeIdOf(opt) {
   return canonThemeId(opt?.direction) || canonThemeId(opt?.label);
 }
 
+// The carousel theme an option belongs to, from its `direction` ONLY (never the
+// label). On-demand Change-layout variations carry an empty direction and a
+// composition-name label ("Centered Verdict"); those are standalone fragments,
+// not document themes, so they must not be mistaken for a theme via the label.
+export function themeDirectionOf(opt) {
+  return canonThemeId(opt?.direction);
+}
+
+// True when a slide renders by cropping the carousel document (a themed carousel
+// slide). False when it renders from its own layoutHtml — an on-demand layout
+// variation, which is a standalone <style>+<article> fragment not in the
+// document. The distinction is the presence of a real theme direction.
+export function slideIsThemed(slide) {
+  if (canonThemeId(slide?.layoutTheme)) return true;
+  const opts = Array.isArray(slide?.layoutOptions) ? slide.layoutOptions : [];
+  const applied = opts.find((o) => o.html && o.html === slide?.layoutHtml);
+  if (applied) return Boolean(canonThemeId(applied.direction));
+  if (opts.length) return opts.some((o) => canonThemeId(o.direction));
+  return true;
+}
+
 export function optionForTheme(slide, theme) {
   const want = canonThemeId(theme) || trim(theme).toLowerCase();
   if (!want) return null;

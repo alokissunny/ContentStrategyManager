@@ -6,7 +6,7 @@ const { completeText, resolvePlanAgentLlm, splitPromptTemplate, reasoningEffortF
 const { ANNOTATIONS_ENABLED, asStoredText, asStoredLines, flattenSlide, layoutForStructure, mediaKeysOf, projectMediaKeysIn } = require('./slideContent');
 const { boxOf, matchSubject, regionFromBox } = require('./subjectBox');
 const { layoutById } = require('./layoutCatalog');
-const { extractLayoutHtml, extractHtmlDocument, parseCarouselDocument, hasImageSlot, shareLayoutStyles } = require('./layoutHtml');
+const { extractLayoutHtml, extractHtmlDocument, parseCarouselDocument, hasImageSlot, shareLayoutStyles, copyFromLayoutHtml } = require('./layoutHtml');
 const { canStoreGeneratedImage, renderAndStoreGeneratedImage } = require('./generatedImage');
 const { publicMediaUrl, isCdnConfigured } = require('./s3Client');
 
@@ -298,6 +298,10 @@ function maxTokensFor(kind) {
     const n = Number(process.env.PLAN_LAYOUT_MAX_TOKENS);
     return Number.isFinite(n) && n > 0 ? n : 16384;
   }
+  if (kind === 'layoutVariations') {
+    const n = Number(process.env.PLAN_LAYOUT_VARIATIONS_MAX_TOKENS);
+    return Number.isFinite(n) && n > 0 ? n : 16384;
+  }
   if (kind === 'carousel') {
     const n = Number(process.env.PLAN_CAROUSEL_MAX_TOKENS);
     return Number.isFinite(n) && n > 0 ? n : 32768;
@@ -368,6 +372,13 @@ function visualConcurrency() {
 
 function layoutTimeoutMs() {
   return envPositiveInt('PLAN_LAYOUT_TIMEOUT_MS', 60000);
+}
+
+// One slide × four compositions is a larger single generation than one layout
+// option, but far smaller than a full multi-theme carousel — give it its own
+// budget so an on-demand Change-layout request never inherits the carousel's.
+function layoutVariationsTimeoutMs() {
+  return envPositiveInt('PLAN_LAYOUT_VARIATIONS_TIMEOUT_MS', 120000);
 }
 
 // The carousel HTML is a big generation, and a reasoning model makes it far
@@ -520,7 +531,8 @@ async function callAgent({ source, kind, prompt, system, user, validate, parse }
       cacheKey: `igsignal-plan-${kind}`,
       kind,
       timeoutMs: kind === 'layout' ? layoutTimeoutMs()
-        : (kind === 'carousel' ? carouselTimeoutMs() : 0),
+        : (kind === 'carousel' ? carouselTimeoutMs()
+          : (kind === 'layoutVariations' ? layoutVariationsTimeoutMs() : 0)),
     });
     const fullText = response.text || '';
     const usage = usageOf(response, model);
@@ -556,9 +568,9 @@ async function callAgent({ source, kind, prompt, system, user, validate, parse }
       );
       if (asHtml && attempt < maxAttempts) {
         userContent = `${baseUser}\n\n---\nPrevious attempt was not a usable HTML document (${err.message}). ` +
-          'Return ONLY a complete HTML document with four theme sections ' +
-          '(`<section data-direction="architectural-minimal">` …) each containing ' +
-          '`<article class="slide" data-index="N">` for every slide. Do not nest other sections inside a theme section.';
+          'Return ONLY a complete HTML document with one theme section ' +
+          '(`<section data-direction="architectural-minimal">`) containing ' +
+          '`<article class="slide" data-index="N">` for every slide. Do not nest other sections inside it.';
       }
       continue;
     }
@@ -586,11 +598,11 @@ async function callAgent({ source, kind, prompt, system, user, validate, parse }
       );
       if (asHtml && attempt < maxAttempts) {
         userContent = `${baseUser}\n\n---\nPrevious attempt failed validation: ${err.message}. ` +
-          'Return ONLY a complete HTML document. Required markers: ' +
-          '`<section data-direction="architectural-minimal|quiet-luxury|natural-tactile|contemporary-gallery">` ' +
+          'Return ONLY a complete HTML document. Required markers: one ' +
+          '`<section data-direction="architectural-minimal">` ' +
           'wrapping `<article class="slide" data-index="1..N">` for every slide. ' +
-          'Put data-direction on the theme section only (not on buttons alone). ' +
-          'Do not nest <section> inside a theme section — use <div> for preview chrome.';
+          'Emit exactly one theme section; put data-direction on it (not on buttons alone). ' +
+          'Do not nest <section> inside the theme section — use <div> for preview chrome.';
       }
     }
   }
@@ -1862,7 +1874,7 @@ function rawLayoutOptions(s) {
   return out.slice(0, MAX_LAYOUT_OPTIONS);
 }
 
-function validateLayout(parsed, post) {
+function validateLayout(parsed, post, { shareAcrossOptions = true } = {}) {
   const status = String(parsed?.status || '').toLowerCase();
   const incoming = Array.isArray(parsed?.slides) ? parsed.slides : [];
   const hasHtml = incoming.some((s) => rawLayoutOptions(s).length);
@@ -1915,14 +1927,22 @@ function validateLayout(parsed, post) {
   // Agent often puts one shared <style> on slide 1 (or option 1) only — each
   // slide/option is stored and previewed alone, so copy style blocks onto any
   // that lack them. One pass over every option keeps them all self-contained.
-  const flatHtml = [];
-  parsed.slides.forEach((s) => s.options.forEach((o) => flatHtml.push(o.html)));
-  const sharedHtml = shareLayoutStyles(flatHtml);
-  let k = 0;
-  parsed.slides = parsed.slides.map((s) => {
-    const options = s.options.map((o) => ({ ...o, html: sharedHtml[k++] || o.html }));
-    return { ...s, options, html: options[0].html };
-  });
+  //
+  // NOT for layout VARIATIONS of a single slide: those are four alternative
+  // compositions that intentionally carry different CSS. Prepending option 1's
+  // style to the others (when the model leans on a shared block) would make all
+  // four render identically — exactly the bug we are avoiding — so skip sharing
+  // and let each variation stand on its own <style>.
+  if (shareAcrossOptions) {
+    const flatHtml = [];
+    parsed.slides.forEach((s) => s.options.forEach((o) => flatHtml.push(o.html)));
+    const sharedHtml = shareLayoutStyles(flatHtml);
+    let k = 0;
+    parsed.slides = parsed.slides.map((s) => {
+      const options = s.options.map((o) => ({ ...o, html: sharedHtml[k++] || o.html }));
+      return { ...s, options, html: options[0].html };
+    });
+  }
 }
 
 function applyLayoutToContent(content, layoutParsed) {
@@ -2080,6 +2100,116 @@ async function writeLayout({ source, structure, post, dayBrief }) {
     user: assembled.user,
     prompt: assembled.prompt,
     validate: (parsed) => validateLayout(parsed, post),
+  }));
+}
+
+// The ONLY input the layout-variation agent gets: the parent slide's own visible
+// copy and its image decision — nothing from Content Structure (no purpose,
+// role, unit id, evidence type, or contentGuidance).
+//
+// IMPORTANT: the parent slide's REAL copy lives baked in its applied layoutHtml
+// (the carousel agent bakes words into the composition). The slide's title /
+// subtitle FIELDS often hold structure purpose + metadata ("Name the
+// constrained hall situation…", "u1 support · verifiedTruth") — NOT copy. So the
+// copy source is `currentHtml` (read back per data-slot); the flattened fields
+// are used only as a fallback when there is no current composition.
+function parentSlideCopyInput(slide, currentHtml) {
+  const flat = flattenSlide(slide);
+  const sourceVisual = slide?.visual && typeof slide.visual === 'object' ? slide.visual : (flat.visual || {});
+  const fromHtml = copyFromLayoutHtml(currentHtml);
+
+  // Copy: from the baked layoutHtml when present (the real words), else the
+  // flattened fields as a fallback.
+  const filled = fromHtml
+    ? fromHtml.filled
+    : {
+      title: optionalText(flat.title),
+      subtitle: optionalText(flat.subtitle),
+      body: optionalText(flat.body),
+      items: Array.isArray(flat.items) ? flat.items : [],
+      comparisonA: optionalText(flat.comparisonA),
+      comparisonB: optionalText(flat.comparisonB),
+      stat: optionalText(flat.stat),
+      quote: optionalText(flat.quote),
+      action: optionalText(flat.action),
+    };
+
+  // Image: the real photograph is baked into the layoutHtml's <img> (the slide's
+  // asset fields are usually empty). Prefer that; fall back to the slide fields.
+  const bakedImg = fromHtml?.image;
+  const bakedSrc = optionalText(bakedImg?.src);
+  const bakedKey = optionalText(bakedImg?.assetKey);
+  const fieldKey = optionalText(flat.assetKey) || optionalText(slide?.assetKey) || optionalText(slide?.visual?.assetKey);
+  const assetKey = bakedKey || fieldKey;
+  const hasImage = Boolean(bakedImg?.present) || Boolean(bakedSrc) || Boolean(assetKey)
+    || slideWantsVisual(slide, flat, sourceVisual);
+  let visual;
+  let compositionNote;
+  if (hasImage) {
+    visual = {
+      priority: 'recommended',
+      role: optionalText(sourceVisual?.role) || 'context',
+      type: 'Image',
+      hasAsset: true,
+      includeImageSlot: true,
+      assetKey,
+      photograph: { assigned: true, ...(bakedSrc ? { src: bakedSrc } : {}) },
+      ...(bakedSrc ? { src: bakedSrc } : {}),
+      ...(bakedImg?.alt ? { alt: optionalText(bakedImg.alt) } : {}),
+    };
+    compositionNote = 'This slide HAS a photograph. Include exactly one '
+      + '<img data-slot="image" alt=""> and give it a real, prominent flex/grid area in every '
+      + 'variation. The application injects the exact photo file, so leave src empty — never omit '
+      + 'the image slot and never replace it with a placeholder box.';
+  } else {
+    visual = layoutVisualOf(sourceVisual, false, '', null, false);
+    compositionNote = 'No image slot. Text-led composition only.';
+  }
+
+  return {
+    index: Number(slide?.index) > 0 ? Number(slide.index) : 1,
+    filled,
+    ...(fromHtml?.fullText ? { fullText: fromHtml.fullText } : {}),
+    compositionNote,
+    visual,
+  };
+}
+
+// On-demand layout variations for ONE slide (Week View · Change layout). The
+// agent is fed ONLY the parent slide's copy + image decision (parentSlideCopyInput)
+// and the slide's current composition as a visual reference — never the Content
+// Structure. It keeps the slide's theme and only re-composes it: no new facts,
+// no whole-carousel cost. Returns the same { parsed:{ slides:[{options}] } }
+// shape as writeLayout, so the same validation/consumers apply.
+async function writeLayoutVariations({
+  source, post, index, brand, currentHtml,
+}) {
+  const allSlides = Array.isArray(post?.content?.slides) ? post.content.slides : [];
+  const target = (Number(index) > 0
+    ? allSlides.find((s, i) => (Number(s?.index) > 0 ? Number(s.index) : i + 1) === Number(index))
+    : allSlides[0]) || allSlides[0];
+  if (!target) throw new Error(`${source}: no slide to compose`);
+  const slideInput = parentSlideCopyInput(target, currentHtml);
+  // If the parent slide carries a photograph, mark the validation slide so
+  // validateLayout enforces an image slot on every option (drops any that omit
+  // it) — the real src is injected server-side after generation.
+  const validationSlide = slideInput.visual?.includeImageSlot
+    ? { ...target, visual: { ...(target?.visual || {}), priority: 'recommended', type: 'Image', includeImageSlot: true } }
+    : target;
+  const slicedPost = { ...post, content: { ...(post.content || {}), slides: [validationSlide] } };
+  const assembled = assembleAgentPrompt('plan-layout-variations.md', {
+    POST_JSON: json({ format: lockedFormat(post?.format), slides: [slideInput] }),
+    CURRENT_LAYOUT_HTML: optionalText(currentHtml) || 'None supplied.',
+    BRAND_STYLE: optionalPromptJson(brandStyleOf(brand)),
+    BRAND_JSON: optionalPromptJson(brandMemoryOf(brand)),
+  });
+  return withLayoutSlot(() => callAgent({
+    source,
+    kind: 'layoutVariations',
+    system: assembled.system,
+    user: assembled.user,
+    prompt: assembled.prompt,
+    validate: (parsed) => validateLayout(parsed, slicedPost, { shareAcrossOptions: false }),
   }));
 }
 
@@ -2898,4 +3028,10 @@ async function runMultiAgentPlan({
   };
 }
 
-module.exports = { runMultiAgentPlan, runLayoutForPost, applyLayoutToContent, normalizeWriterPost };
+module.exports = {
+  runMultiAgentPlan,
+  runLayoutForPost,
+  writeLayoutVariations,
+  applyLayoutToContent,
+  normalizeWriterPost,
+};

@@ -13,7 +13,7 @@ import Glyph from '../components/Glyph';
 import Icon from '../brand/Icon';
 import YourAnalysisModal from '../components/YourAnalysisModal';
 import ConnectMetaModal from '../components/ConnectMetaModal';
-import { markDayPublished, updateDayContent, replanWeek, scheduleDay, retryScheduledDay, setDayTime, runDayLayout, runDayCover } from '../api/routes';
+import { markDayPublished, updateDayContent, replanWeek, scheduleDay, retryScheduledDay, setDayTime, runDayLayout, runSlideLayoutVariations, runDayCover } from '../api/routes';
 import { getMetaStatus, publishDayToMeta, isMetaConnectedFor, metaConnectionFor, otherMetaConnections, rememberMetaOAuthReturn } from '../api/meta';
 import { mediaProxyUrl, videoProxyUrl, toDisplayUrl, isProxyUrl, rememberCdnBase, onCdnBase, getCdnBase, canvasSafeUrl, isProjectMediaKey, splitMediaKeys, iframeSafeUrl, projectKeysInText } from '../api/media';
 import { createImage, listGeneratedImages } from '../api/images';
@@ -33,7 +33,7 @@ import { useFeatureFlags } from '../lib/featureFlags';
 import PostAgentDebug from './weekview/PostAgentDebug';
 import DynamicLayout, { AnnotationOverlay } from './weekview/DynamicLayout';
 import { BrandMark } from './visuallibrary/BrandMark';
-import { rewriteAnnotationText, rewriteLayoutText, rewriteCarouselDocumentText, slotPlain, slideSlotPlain, withSharedLayoutStyles, layoutDirectionOf, themeIdOf, optionForTheme, THEME_ORDER, bakeFrozenGeometry, findCarouselSlide } from './weekview/layoutHtml';
+import { rewriteAnnotationText, rewriteLayoutText, rewriteCarouselDocumentText, slotPlain, slideSlotPlain, withSharedLayoutStyles, layoutDirectionOf, themeIdOf, themeDirectionOf, slideIsThemed, optionForTheme, THEME_ORDER, bakeFrozenGeometry, findCarouselSlide } from './weekview/layoutHtml';
 import { boxOf, normalizeSubjects } from './weekview/subjectBox';
 import {
   CHANGE_LAYOUTS,
@@ -1882,6 +1882,11 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
   const videoCoverOn = useFeatureFlags().videoCover;
   const [layoutBusy, setLayoutBusy] = useState(false);
   const [layoutErr, setLayoutErr] = useState('');
+  // On-demand Change-layout variations for the current slide. The layout agent
+  // composes four fresh layouts of just this slide when Change layout is opened
+  // and the slide has none yet — instead of the carousel pre-generating them.
+  const [layVarBusy, setLayVarBusy] = useState(false);
+  const [layVarErr, setLayVarErr] = useState('');
   // Animated Carousel Cover agent — a freshly rendered clip for the current day,
   // held until the studio applies it to the hook slide. { spec, url, key }.
   const [coverBusy, setCoverBusy] = useState(false);
@@ -2781,6 +2786,38 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
     }
   }
 
+  // Change layout: generate four fresh layouts of THIS slide on demand. Runs the
+  // layout agent on one slide (cheap) rather than pre-generating variations for
+  // the whole carousel. Stores the results on the slide's layoutOptions.
+  //
+  // Never regenerate when this slide already has generated variations — that is
+  // wasted spend. Auto-open passes no `force`, so it no-ops once variations
+  // exist; only the explicit Regenerate / Try-again buttons pass force:true.
+  async function generateLayoutVariations(force = false) {
+    if (layVarBusy || !route?._id) return;
+    if (!force && !needsLayoutVars) return;
+    const slideIndex = Number(activeSlide?.index) > 0 ? Number(activeSlide.index) : safeIdx + 1;
+    setLayVarBusy(true);
+    setLayVarErr('');
+    try {
+      const data = await runSlideLayoutVariations(route._id, selected, slideIndex);
+      if (data?.route) {
+        setRoute(data.route);
+        onRouteChange?.(data.route);
+      }
+      setLayOpt(0);
+    } catch (err) {
+      const timedOut = err?.code === 'ECONNABORTED' || /timeout/i.test(String(err?.message || ''));
+      setLayVarErr(
+        timedOut
+          ? 'Layout agent timed out. Try again in a moment.'
+          : (err.response?.data?.message || err.message || 'Could not generate layouts for this slide.'),
+      );
+    } finally {
+      setLayVarBusy(false);
+    }
+  }
+
   // The studio's active Visual Library settings, resolved to concrete palette +
   // font names, so the rendered cover matches the brand (not a fixed template).
   function coverVisualPayload() {
@@ -2904,6 +2941,18 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
       .sort((a, b) => (Number(a.rank) || 0) - (Number(b.rank) || 0));
   }, [activeSlide?.layoutOptions]);
   const hasLayoutOpts = layoutOpts.length > 0;
+  // "Change theme" only makes sense when the options carry more than one distinct
+  // carousel theme (legacy multi-theme carousels). New carousels are a single
+  // theme and on-demand Change-layout variations are compositions, not themes —
+  // in both cases there is nothing to switch between, so the picker stays hidden.
+  const hasThemeOpts = useMemo(
+    () => new Set(layoutOpts.map((o) => themeDirectionOf(o)).filter(Boolean)).size > 1,
+    [layoutOpts],
+  );
+  // A fresh (single-theme) carousel gives each slide exactly one composition, so
+  // opening Change layout should generate the four variations on demand. Legacy
+  // multi-theme carousels already carry several per-slide options — leave those.
+  const needsLayoutVars = layoutOpts.length < 2;
   const appliedOptIdx = hasLayoutOpts
     ? layoutOpts.findIndex((o) => o.html === activeSlide?.layoutHtml)
     : -1;
@@ -2925,11 +2974,22 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
         ...activeSlide,
         layout: 'dynamic',
         layoutHtml: draftOpt.html,
-        layoutTheme: themeIdOf(draftOpt) || THEME_ORDER[draftOptIdx] || '',
+        // Theme options carry a real direction; standalone variations carry
+        // none (their label is a composition name, not a theme).
+        layoutTheme: visEdit === 'theme'
+          ? (themeDirectionOf(draftOpt) || THEME_ORDER[draftOptIdx] || '')
+          : themeDirectionOf(draftOpt),
       };
     }
     return activeSlide;
   }, [visEdit, draftOpt, activeSlide, draftOptIdx]);
+  // Whether the big preview should crop the carousel document (themed slide) or
+  // render the slide's own layoutHtml (a standalone on-demand variation).
+  const previewUsesDoc = visEdit === 'theme'
+    ? true
+    : (visEdit === 'layout' && draftOpt)
+      ? Boolean(themeDirectionOf(draftOpt))
+      : slideIsThemed(previewSlide);
   const wordRoles = visEdit === 'words' ? wordRolesForSlide(activeSlide) : [];
   const primaryWordKey = wordRoles.find((r) => r.key === 'head')?.key
     || wordRoles.find((r) => r.key === 'body')?.key
@@ -3027,10 +3087,16 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
   }
 
   function applyLayout() {
-    // Agent options mode: apply the drafted option's HTML directly.
+    // Agent options mode: apply the drafted option's HTML directly. Set
+    // layoutTheme from the option's direction (empty for a standalone variation)
+    // so the render path uses this html instead of the carousel document.
     if (hasLayoutOpts) {
       if (!draftOpt || optUnchanged) return;
-      patchActiveSlide({ layout: 'dynamic', layoutHtml: draftOpt.html });
+      patchActiveSlide({
+        layout: 'dynamic',
+        layoutHtml: draftOpt.html,
+        layoutTheme: themeDirectionOf(draftOpt) || '',
+      });
       setLayOpt(null);
       setVisEdit(null);
       setZone(null);
@@ -3280,6 +3346,11 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
     const on = draftOptIdx === i;
     const label = opt.label || `Option ${i + 1}`;
     const optSlide = { ...activeSlide, layout: 'dynamic', layoutHtml: opt.html };
+    // A themed option (from the carousel document) renders by cropping that
+    // document; a standalone variation renders from its own html, so the
+    // document must NOT be passed or it would override opt.html — the reason all
+    // four variations used to render identically.
+    const optDir = themeDirectionOf(opt);
     return (
       <button
         key={`opt:${i}`}
@@ -3299,9 +3370,9 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
             subjectsByKey={subjectsByKey}
             paint={igVars}
             themed={hasVisualEdits}
-            documentHtml={carouselDocumentOf(day)}
+            documentHtml={optDir ? carouselDocumentOf(day) : ''}
             slideIndex={safeIdx + 1}
-            direction={themeIdOf(opt) || layoutDirectionOf(optSlide)}
+            direction={optDir || layoutDirectionOf(optSlide)}
           />
           {!hideRank && (
             <span className={`wv-act__rank${i === 0 ? ' is-best' : ''}`}>
@@ -3741,7 +3812,7 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
                   themed={hasVisualEdits}
                   layoutOverride={(visEdit === 'layout' && !hasLayoutOpts) ? (chosenLayout || null) : null}
                   carouselLayoutHtmls={slides.map((s) => s?.layoutHtml || '')}
-                  documentHtml={carouselDocumentOf(day)}
+                  documentHtml={previewUsesDoc ? carouselDocumentOf(day) : ''}
                   copyDraft={visEdit === 'words' && wordDraft
                     ? { title: wordDraft.head, subtitle: wordDraft.body }
                     : null}
@@ -3839,7 +3910,7 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
                   aria-hidden="true"
                 />
                 <div className="wv-ig__menu" role="menu" aria-label="Edit this slide">
-                  {hasLayoutOpts && (
+                  {hasThemeOpts && (
                     <button type="button" role="menuitem" className="wv-ig__menuitem" onClick={() => {
                       setLayOpt(appliedOptIdx >= 0 ? appliedOptIdx : 0);
                       setVisEdit('theme');
@@ -3850,7 +3921,12 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
                   )}
                   <button type="button" role="menuitem" className="wv-ig__menuitem" onClick={() => {
                     setLayPick(appliedId);
+                    setLayVarErr('');
+                    setLayOpt(null);
                     setVisEdit('layout');
+                    // Only the carousel's single composition so far — generate the
+                    // four Change-layout variations for this slide on demand.
+                    if (needsLayoutVars) generateLayoutVariations();
                   }}>
                     <Icon name="dashboard" size={17} strokeWidth={2} />
                     <span>Change layout</span>
@@ -3980,29 +4056,60 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
                     {themeEditing ? 'Change theme' : 'Change layout'}
                     {themeEditing ? (
                       <span className="wv-layed__hint">Applies to every slide in this carousel</span>
-                    ) : hasLayoutOpts ? (
-                      <span className="wv-layed__hint">{layoutOpts.length} options from the layout agent, ranked</span>
+                    ) : layVarBusy ? (
+                      <span className="wv-layed__hint">Generating four layouts for this slide…</span>
+                    ) : hasLayoutOpts && !needsLayoutVars ? (
+                      <span className="wv-layed__hint">
+                        {layoutOpts.length} layouts from the layout agent, ranked
+                        <button
+                          type="button"
+                          className="wv-layed__regen"
+                          onClick={() => generateLayoutVariations(true)}
+                        >
+                          Regenerate
+                        </button>
+                      </span>
                     ) : null}
                   </span>
-                  <button
-                    type="button"
-                    className="btn btn--primary btn--sm wv-layed__apply"
-                    onClick={themeEditing ? applyTheme : applyLayout}
-                    disabled={themeEditing
-                      ? (!draftOpt || themeUnchanged)
-                      : (hasLayoutOpts ? (!draftOpt || optUnchanged) : (!draftId || layoutUnchanged))}
-                    title={themeEditing
-                      ? (themeUnchanged ? 'This theme is already on every slide' : 'Apply this theme to every slide')
-                      : ((hasLayoutOpts ? optUnchanged : layoutUnchanged)
-                        ? 'This is the layout the post already has'
-                        : undefined)}
-                  >
-                    <Glyph name="check" size={16} strokeWidth={2.5} />
-                    {themeEditing ? 'Apply theme' : 'Apply changes'}
-                  </button>
+                  {!themeEditing && (layVarBusy || (layVarErr && needsLayoutVars)) ? (
+                    <span className="wv-layed__apply" aria-hidden="true" />
+                  ) : (
+                    <button
+                      type="button"
+                      className="btn btn--primary btn--sm wv-layed__apply"
+                      onClick={themeEditing ? applyTheme : applyLayout}
+                      disabled={themeEditing
+                        ? (!draftOpt || themeUnchanged)
+                        : (hasLayoutOpts ? (!draftOpt || optUnchanged) : (!draftId || layoutUnchanged))}
+                      title={themeEditing
+                        ? (themeUnchanged ? 'This theme is already on every slide' : 'Apply this theme to every slide')
+                        : ((hasLayoutOpts ? optUnchanged : layoutUnchanged)
+                          ? 'This is the layout the post already has'
+                          : undefined)}
+                    >
+                      <Glyph name="check" size={16} strokeWidth={2.5} />
+                      {themeEditing ? 'Apply theme' : 'Apply changes'}
+                    </button>
+                  )}
                 </div>
                 <div className="wv-layed__picker">
-                  {themeEditing || hasLayoutOpts ? (
+                  {!themeEditing && layVarBusy ? (
+                    <div className="wv-layed__loading" role="status" aria-live="polite">
+                      <span className="wv-spin" aria-hidden="true" />
+                      <span>Generating four layout variations of this slide…</span>
+                    </div>
+                  ) : !themeEditing && layVarErr && needsLayoutVars ? (
+                    <div className="wv-layed__loading wv-layed__loading--err" role="alert">
+                      <span>{layVarErr}</span>
+                      <button
+                        type="button"
+                        className="btn btn--primary btn--sm"
+                        onClick={() => generateLayoutVariations(true)}
+                      >
+                        Try again
+                      </button>
+                    </div>
+                  ) : themeEditing || hasLayoutOpts ? (
                     <div
                       className="wv-acts wv-layed__grid wv-layed__grid--opts"
                       role="radiogroup"
@@ -4392,7 +4499,7 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
                   paint={igVars}
                   themed={hasVisualEdits}
                   carouselLayoutHtmls={slides.map((x) => x?.layoutHtml || '')}
-                  documentHtml={carouselDocumentOf(day)}
+                  documentHtml={slideIsThemed(s) ? carouselDocumentOf(day) : ''}
                   slideIndex={i + 1}
                 />
               </div>

@@ -129,6 +129,7 @@ function reasoningEffortFor(kind) {
   if (kind === 'day') return envChoice('PLAN_DAY_REASONING_EFFORT', GPT_EFFORTS, 'medium');
   if (kind === 'structure') return envChoice('PLAN_STRUCTURE_REASONING_EFFORT', GPT_EFFORTS, 'medium');
   if (kind === 'layout') return envChoice('PLAN_LAYOUT_REASONING_EFFORT', GPT_EFFORTS, 'low');
+  if (kind === 'layoutVariations') return envChoice('PLAN_LAYOUT_VARIATIONS_REASONING_EFFORT', GPT_EFFORTS, 'low');
   // Keep carousel at 'low': 'medium' pushed gpt-6-astra past the 180s timeout on
   // this 5-theme build. The earlier "terse stub" symptom was really an EMPTY
   // contentStructure (see carouselInputOf's post-slide fallback), not low
@@ -149,6 +150,7 @@ function verbosityFor(kind) {
   // (observed: gpt-6-astra returning ~718 chars, no slides). Default them high.
   if (kind === 'carousel') return envChoice('PLAN_CAROUSEL_VERBOSITY', GPT_VERBOSITY, 'high');
   if (kind === 'layout') return envChoice('PLAN_LAYOUT_VERBOSITY', GPT_VERBOSITY, 'high');
+  if (kind === 'layoutVariations') return envChoice('PLAN_LAYOUT_VARIATIONS_VERBOSITY', GPT_VERBOSITY, 'high');
   return envChoice('OPENAI_VERBOSITY', GPT_VERBOSITY, 'low');
 }
 

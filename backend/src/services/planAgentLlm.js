@@ -40,6 +40,14 @@ const AGENTS = {
     modelEnv: 'PLAN_LAYOUT_MODEL',
     providerEnv: 'PLAN_LAYOUT_PROVIDER',
   },
+  // On-demand per-slide layout variations (Change layout). Cheap by design — it
+  // composes one slide, not a whole multi-theme carousel.
+  layoutVariations: {
+    defaultProvider: 'openai',
+    modelEnv: 'PLAN_LAYOUT_VARIATIONS_MODEL',
+    providerEnv: 'PLAN_LAYOUT_VARIATIONS_PROVIDER',
+    defaultModel: 'gpt-5.6-terra',
+  },
   carousel: {
     defaultProvider: 'openai',
     modelEnv: 'PLAN_CAROUSEL_MODEL',
@@ -79,7 +87,7 @@ function defaultModelFor(provider, kind) {
   if (provider === 'anthropic') {
     // Layout is constrained HTML, not strategy. Haiku is the speed default;
     // do not inherit ANTHROPIC_MODEL (often Sonnet 5, adaptive thinking).
-    if (kind === 'layout' || kind === 'carousel') return 'claude-haiku-4-5';
+    if (kind === 'layout' || kind === 'carousel' || kind === 'layoutVariations') return 'claude-haiku-4-5';
     return envText('ANTHROPIC_MODEL') || 'claude-sonnet-5';
   }
   return envText('PLAN_AGENT_MODEL')

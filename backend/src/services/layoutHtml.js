@@ -142,6 +142,126 @@ function htmlAttr(tag, name) {
   return m ? m[1].trim() : '';
 }
 
+function stripTagsToText(html) {
+  return String(html || '')
+    .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&#39;|&rsquo;|&lsquo;/gi, "'")
+    .replace(/&quot;|&ldquo;|&rdquo;/gi, '"')
+    .replace(/\s+/g, ' ')
+    .replace(/\s+([.,;:!?%])/g, '$1')
+    .trim();
+}
+
+// Read the plain text of a data-slot element (first match), tags stripped.
+function slotText(html, slot) {
+  const re = new RegExp(
+    `<([a-z][a-z0-9]*)\\b[^>]*\\bdata-slot\\s*=\\s*["']${slot}["'][^>]*>([\\s\\S]*?)<\\/\\1>`,
+    'i',
+  );
+  const m = String(html || '').match(re);
+  return m ? stripTagsToText(m[2]) : '';
+}
+
+function slotTextAll(html, slot) {
+  const re = new RegExp(
+    `<([a-z][a-z0-9]*)\\b[^>]*\\bdata-slot\\s*=\\s*["']${slot}["'][^>]*>([\\s\\S]*?)<\\/\\1>`,
+    'ig',
+  );
+  return [...String(html || '').matchAll(re)].map((m) => stripTagsToText(m[2])).filter(Boolean);
+}
+
+// Plain text of body/supporting-text PARAGRAPHS only (never lists) — a list
+// carrying data-slot="supporting-text" must become `items`, not `body`.
+function bodyParagraphs(html) {
+  return [...String(html || '').matchAll(
+    /<p\b[^>]*\bdata-slot\s*=\s*["'](?:body|supporting-text)["'][^>]*>([\s\S]*?)<\/p>/gi,
+  )].map((m) => stripTagsToText(m[1])).filter(Boolean);
+}
+
+// Every <li> in the article, in order — the list items the carousel bakes as
+// <ul data-slot="supporting-text"><li>…</li></ul> (plain <li>, no per-item slot).
+function listItems(html) {
+  return [...String(html || '').matchAll(/<li\b[^>]*>([\s\S]*?)<\/li>/gi)]
+    .map((m) => stripTagsToText(m[1])).filter(Boolean);
+}
+
+// The real photograph baked into the layout: its src, asset key and alt live on
+// the <img data-slot="image">, NOT on the slide's asset fields (which are often
+// empty / "placeholder"). Read them back so variations keep the same picture.
+function imageFromLayoutHtml(html) {
+  const tag = (String(html || '').match(
+    /<img\b[^>]*\bdata-slot\s*=\s*["'](?:image|illustration)["'][^>]*>/i,
+  ) || [])[0] || (String(html || '').match(/<img\b[^>]*>/i) || [])[0];
+  if (!tag) return null;
+  const src = htmlAttr(tag, 'src');
+  const assetKey = htmlAttr(tag, 'data-asset-key');
+  const alt = htmlAttr(tag, 'alt');
+  if (!src && !assetKey) return { src: '', assetKey: '', alt, present: true };
+  return { src, assetKey, alt, present: true };
+}
+
+// The parent slide's REAL copy AND image live baked into its applied layoutHtml
+// (the carousel agent bakes words + the photo into the composition; the slide's
+// title/subtitle FIELDS often hold structure purpose + metadata like "u1 support
+// · verifiedTruth", and its asset fields are empty). Read them back out so the
+// layout-variation agent re-composes the same real words and keeps the picture.
+function copyFromLayoutHtml(html) {
+  const s = String(html || '');
+  if (!s) return null;
+  const title = slotText(s, 'title');
+  const subtitle = slotText(s, 'subtitle');
+  const paras = bodyParagraphs(s);
+  const body = paras.join('\n');
+  const items = listItems(s);
+  const stat = slotText(s, 'stat');
+  const quote = slotText(s, 'quote');
+  const action = slotText(s, 'action');
+  const image = imageFromLayoutHtml(s);
+  const fullText = stripTagsToText(
+    (s.match(/<article\b[^>]*>[\s\S]*?<\/article>/i) || [s])[0],
+  );
+  const filled = {};
+  if (title) filled.title = title;
+  if (subtitle) filled.subtitle = subtitle;
+  if (body) filled.body = body;
+  if (items.length) filled.items = items;
+  if (stat) filled.stat = stat;
+  if (quote) filled.quote = quote;
+  if (action) filled.action = action;
+  const hasAny = Object.keys(filled).length > 0 || Boolean(fullText);
+  return hasAny ? { filled, image, fullText } : null;
+}
+
+// Force the real photograph into every image slot of a generated variation —
+// the agent is told a photo exists but is not trusted to copy a long URL. Sets
+// src + data-asset-key on each <img data-slot="image">; leaves text-only slides
+// (no image) untouched.
+function injectImageIntoSlots(html, image) {
+  const src = optionalTextLocal(image?.src);
+  const assetKey = optionalTextLocal(image?.assetKey);
+  if (!src && !assetKey) return String(html || '');
+  return String(html || '').replace(/<img\b([^>]*?)\/?>/gi, (full, attrs) => {
+    if (!/\bdata-slot\s*=\s*["'](?:image|illustration)["']/i.test(attrs)) return full;
+    let clean = String(attrs)
+      .replace(/\s+src\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/i, '')
+      .replace(/\s+data-asset-key\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/i, '')
+      .trim();
+    const keyAttr = assetKey ? ` data-asset-key="${assetKey.replace(/"/g, '&quot;')}"` : '';
+    const srcAttr = src ? ` src="${src.replace(/"/g, '&quot;')}"` : '';
+    return `<img ${clean}${keyAttr}${srcAttr}>`;
+  });
+}
+
+function optionalTextLocal(v) {
+  const t = String(v == null ? '' : v).trim();
+  return t && t.toLowerCase() !== 'none' ? t : '';
+}
+
 function articleBlocks(html) {
   return [...String(html || '').matchAll(/<article\b[^>]*>[\s\S]*?<\/article>/gi)].map((m) => m[0]);
 }
@@ -322,4 +442,6 @@ module.exports = {
   collectLayoutStyleBlocks,
   stripDanger,
   sanitizeLayoutCss,
+  copyFromLayoutHtml,
+  injectImageIntoSlots,
 };
