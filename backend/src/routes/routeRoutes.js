@@ -4,6 +4,9 @@ const { protect } = require('../middleware/auth');
 const {
   getCurrentRoute,
   getRoutes,
+  getRouteById,
+  getRouteOptions,
+  getDayDebug,
   generateRoute,
   replanWeek,
   markDayPublished,
@@ -19,6 +22,9 @@ const router = express.Router();
 router.use(protect);
 router.get('/current', asyncHandler(getCurrentRoute));
 router.get('/', asyncHandler(getRoutes));
+router.get('/:id', asyncHandler(getRouteById));
+router.get('/:id/options', asyncHandler(getRouteOptions));
+router.get('/:id/day/:index/debug', asyncHandler(getDayDebug));
 router.post('/generate', asyncHandler(generateRoute));
 router.delete('/current-month', asyncHandler(clearCurrentMonth));
 router.post('/:id/replan', asyncHandler(replanWeek));

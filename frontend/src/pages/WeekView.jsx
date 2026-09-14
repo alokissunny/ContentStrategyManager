@@ -13,7 +13,7 @@ import Glyph from '../components/Glyph';
 import Icon from '../brand/Icon';
 import YourAnalysisModal from '../components/YourAnalysisModal';
 import ConnectMetaModal from '../components/ConnectMetaModal';
-import { markDayPublished, updateDayContent, replanWeek, scheduleDay, retryScheduledDay, setDayTime, runDayLayout, runSlideLayoutVariations, runDayCover } from '../api/routes';
+import { markDayPublished, updateDayContent, replanWeek, scheduleDay, retryScheduledDay, setDayTime, runDayLayout, runSlideLayoutVariations, runDayCover, getRouteOptions, getDayDebug } from '../api/routes';
 import { getMetaStatus, publishDayToMeta, isMetaConnectedFor, metaConnectionFor, otherMetaConnections, rememberMetaOAuthReturn } from '../api/meta';
 import { mediaProxyUrl, videoProxyUrl, toDisplayUrl, isProxyUrl, rememberCdnBase, onCdnBase, getCdnBase, canvasSafeUrl, isProjectMediaKey, splitMediaKeys, iframeSafeUrl, projectKeysInText } from '../api/media';
 import { createImage, listGeneratedImages } from '../api/images';
@@ -1887,6 +1887,8 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
   // and the slide has none yet — instead of the carousel pre-generating them.
   const [layVarBusy, setLayVarBusy] = useState(false);
   const [layVarErr, setLayVarErr] = useState('');
+  const [optionsBusy, setOptionsBusy] = useState(false); // loading the week's stored layoutOptions
+  const optionsLoadedRef = useRef(null);
   // Animated Carousel Cover agent — a freshly rendered clip for the current day,
   // held until the studio applies it to the hook slide. { spec, url, key }.
   const [coverBusy, setCoverBusy] = useState(false);
@@ -1982,6 +1984,32 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
     // Reset editors when the open week (or Instagram handle) changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [weekId, initialRoute?.instagramUsername]);
+
+  // The debug trace (agentTrace.layout/.carousel, ~2.2MB) is NOT in the render
+  // payload — it is fetched per-day, on demand, only when the Debug panel is open
+  // for the visible day. Keeps a normal week open from ever pulling the trace.
+  const debugFetchedRef = useRef(new Set());
+  useEffect(() => {
+    if (!aiDebug.enabled || sideTab !== 'debug' || !weekId) return;
+    const key = `${weekId}#${selected}`;
+    if (debugFetchedRef.current.has(key)) return;
+    const cur = routeRef.current?.days?.[selected];
+    if (cur?.agentTrace && (cur.agentTrace.layout || cur.agentTrace.carousel)) {
+      debugFetchedRef.current.add(key);
+      return;
+    }
+    debugFetchedRef.current.add(key);
+    getDayDebug(weekId, selected).then((trace) => {
+      if (!trace || (!trace.layout && !trace.carousel)) return;
+      setRoute((prev) => {
+        if (!prev || prev._id !== weekId) return prev;
+        const days = (prev.days || []).map((d, i) => (
+          i === selected ? { ...d, agentTrace: { ...(d.agentTrace || {}), ...trace } } : d
+        ));
+        return { ...prev, days };
+      });
+    }).catch(() => {});
+  }, [aiDebug.enabled, sideTab, weekId, selected]);
 
   useEffect(() => {
     getMetaStatus()
@@ -2786,6 +2814,38 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
     }
   }
 
+  // Load the week's stored layoutOptions (kept out of the render payload) and
+  // merge them into the in-memory route, once per week. Runs when Change layout
+  // first opens so the picker shows the persisted variations without a fetch per
+  // slide and without regenerating.
+  async function ensureRouteOptions() {
+    if (optionsLoadedRef.current === weekId || !weekId) return;
+    optionsLoadedRef.current = weekId;
+    setOptionsBusy(true);
+    try {
+      const days = await getRouteOptions(weekId);
+      setRoute((prev) => {
+        if (!prev || prev._id !== weekId) return prev;
+        const nextDays = (prev.days || []).map((d, di) => {
+          const dayOpts = days[di];
+          if (!Array.isArray(dayOpts) || !Array.isArray(d.content?.slides)) return d;
+          const byIndex = new Map(dayOpts.map((o) => [Number(o.index), o.layoutOptions]));
+          const slides = d.content.slides.map((s, si) => {
+            const idx = Number(s?.index) > 0 ? Number(s.index) : si + 1;
+            const opts = byIndex.get(idx);
+            return Array.isArray(opts) ? { ...s, layoutOptions: opts } : s;
+          });
+          return { ...d, content: { ...d.content, slides } };
+        });
+        return { ...prev, days: nextDays };
+      });
+    } catch {
+      optionsLoadedRef.current = null; // allow a retry
+    } finally {
+      setOptionsBusy(false);
+    }
+  }
+
   // Change layout: generate four fresh layouts of THIS slide on demand. Runs the
   // layout agent on one slide (cheap) rather than pre-generating variations for
   // the whole carousel. Stores the results on the slide's layoutOptions.
@@ -2801,9 +2861,25 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
     setLayVarErr('');
     try {
       const data = await runSlideLayoutVariations(route._id, selected, slideIndex);
-      if (data?.route) {
-        setRoute(data.route);
-        onRouteChange?.(data.route);
+      const opts = Array.isArray(data?.options) ? data.options : [];
+      if (opts.length) {
+        // Merge the new options into the active slide locally — the endpoint no
+        // longer returns the heavy full route.
+        setRoute((prev) => {
+          if (!prev) return prev;
+          const days = [...(prev.days || [])];
+          const d = { ...days[selected] };
+          const content = { ...(d.content || {}) };
+          content.slides = (content.slides || []).map((s, i) => {
+            const si = Number(s?.index) > 0 ? Number(s.index) : i + 1;
+            return si === slideIndex
+              ? { ...s, layout: 'dynamic', layoutHtml: String(s.layoutHtml || '') || opts[0].html, layoutOptions: opts }
+              : s;
+          });
+          d.content = content;
+          days[selected] = d;
+          return { ...prev, days };
+        });
       }
       setLayOpt(0);
     } catch (err) {
@@ -2961,6 +3037,15 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
     [layoutOpts],
   );
   const needsLayoutVars = generatedCount < 2;
+  // Once the stored options are loaded (ensureRouteOptions), generate this
+  // slide's variations only if it still has none (a fresh single-theme carousel).
+  // Never regenerates an existing set — it sees the persisted options first.
+  useEffect(() => {
+    if (visEdit !== 'layout' || optionsBusy || layVarBusy) return;
+    if (optionsLoadedRef.current !== weekId) return;
+    if (needsLayoutVars) generateLayoutVariations();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visEdit, optionsBusy, weekId, needsLayoutVars, safeIdx]);
   const appliedOptIdx = hasLayoutOpts
     ? layoutOpts.findIndex((o) => o.html === activeSlide?.layoutHtml)
     : -1;
@@ -3939,9 +4024,10 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
                     setLayVarErr('');
                     setLayOpt(null);
                     setVisEdit('layout');
-                    // Only the carousel's single composition so far — generate the
-                    // four Change-layout variations for this slide on demand.
-                    if (needsLayoutVars) generateLayoutVariations();
+                    // layoutOptions are NOT in the week's render payload (too
+                    // heavy) — load the stored ones now. An effect generates the
+                    // variations only if none exist once they're loaded.
+                    ensureRouteOptions();
                   }}>
                     <Icon name="dashboard" size={17} strokeWidth={2} />
                     <span>Change layout</span>
@@ -4071,6 +4157,8 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
                     {themeEditing ? 'Change theme' : 'Change layout'}
                     {themeEditing ? (
                       <span className="wv-layed__hint">Applies to every slide in this carousel</span>
+                    ) : optionsBusy ? (
+                      <span className="wv-layed__hint">Loading layouts…</span>
                     ) : layVarBusy ? (
                       <span className="wv-layed__hint">Generating four layouts for this slide…</span>
                     ) : hasLayoutOpts && !needsLayoutVars ? (
@@ -4108,10 +4196,10 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
                   )}
                 </div>
                 <div className="wv-layed__picker">
-                  {!themeEditing && layVarBusy ? (
+                  {!themeEditing && (optionsBusy || layVarBusy) ? (
                     <div className="wv-layed__loading" role="status" aria-live="polite">
                       <span className="wv-spin" aria-hidden="true" />
-                      <span>Generating four layout variations of this slide…</span>
+                      <span>{optionsBusy ? 'Loading this slide’s layouts…' : 'Generating four layout variations of this slide…'}</span>
                     </div>
                   ) : !themeEditing && layVarErr && needsLayoutVars ? (
                     <div className="wv-layed__loading wv-layed__loading--err" role="alert">

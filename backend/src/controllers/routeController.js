@@ -664,26 +664,29 @@ async function getCurrentRoute(req, res) {
   // The running week: the newest WRITTEN (non-draft) week that has already
   // started, falling back to the earliest upcoming written week. Never a draft —
   // a locked next-month placeholder is not "current".
+  // Only day-level metadata is needed here (existence, focus, handle, calendar
+  // labels). Project out day content + trace — same speedup as getRoutes;
+  // WeekView fetches the full route on open.
   const thisMonday = mondayOf();
   let route = await WeeklyRoute.findOne({
     user: req.user._id,
     instagramUsername: profile.username,
     draft: false,
     weekOf: { $lte: thisMonday },
-  }).sort({ weekOf: -1 });
+  }).sort({ weekOf: -1 }).select('-days.content -days.agentTrace').lean();
   if (!route) {
     route = await WeeklyRoute.findOne({
       user: req.user._id,
       instagramUsername: profile.username,
       draft: false,
-    }).sort({ weekOf: 1 });
+    }).sort({ weekOf: 1 }).select('-days.content -days.agentTrace').lean();
   }
 
   // No plan yet for a handle that was just analyzed → the chain is still running.
   const preparing =
     !route && Date.now() - new Date(profile.fetchedAt).getTime() < REGENERATING_WINDOW_MS;
 
-  res.json({ route, preparing, username: profile.username });
+  res.json({ route: route || null, preparing, username: profile.username });
 }
 
 async function getRoutes(req, res) {
@@ -692,12 +695,60 @@ async function getRoutes(req, res) {
   const profile = await currentProfile(req.user._id);
   if (!profile) return res.json({ routes: [], username: null });
 
+  // The Calendar list only needs day-level metadata (date, format, title,
+  // contentType, status). `days.content` (slides + baked layoutHtml /
+  // layoutOptions / carouselHtml) is the dominant cost — projecting it out at
+  // the DB level cut this query ~800ms → ~210ms (measured, Atlas). WeekView
+  // fetches the full route on open (GET /routes/:id). agentTrace is excluded too
+  // (also unused by the calendar).
   const routes = await WeeklyRoute.find({
     user: req.user._id,
     instagramUsername: profile.username,
-  }).sort({ weekOf: -1 });
+  }).sort({ weekOf: -1 }).select('-days.content -days.agentTrace').lean();
 
   res.json({ routes, username: profile.username });
+}
+
+// GET /routes/:id — the RENDER payload for WeekView: day content WITHOUT the
+// two heavy, view-specific blobs. `agentTrace` (debug-only) and
+// `content.slides.layoutOptions` (the "Original + N" Change-layout variations)
+// are projected out at the DB level — on Atlas M0 a full route is 3.4MB/~54s,
+// content-only 1.06MB/~11s, and this render payload ~347KB/~3.8s. Change layout
+// fetches a slide's options on demand (GET …/options); the Debug panel fetches a
+// day's trace on demand (GET …/debug).
+async function getRouteById(req, res) {
+  const route = await WeeklyRoute.findOne({
+    _id: req.params.id,
+    user: req.user._id,
+  }).select('-days.agentTrace -days.content.slides.layoutOptions').lean();
+  if (!route) return res.status(404).json({ message: 'Route not found' });
+  res.json({ route });
+}
+
+// GET /routes/:id/options — every slide's stored layoutOptions for the week,
+// fetched once when Change layout first opens (so the picker shows the persisted
+// "Original + variations" instead of regenerating). Kept off the week-open path
+// because layoutOptions is the bulk of a route's content.
+async function getRouteOptions(req, res) {
+  const route = await WeeklyRoute.findOne({ _id: req.params.id, user: req.user._id })
+    .select('days.content.slides.index days.content.slides.layoutOptions').lean();
+  if (!route) return res.status(404).json({ message: 'Route not found' });
+  const days = (route.days || []).map((d) => (d.content?.slides || []).map((s, i) => ({
+    index: Number(s?.index) > 0 ? Number(s.index) : i + 1,
+    layoutOptions: Array.isArray(s?.layoutOptions) ? s.layoutOptions : [],
+  })));
+  res.json({ days });
+}
+
+// GET /routes/:id/day/:index/debug — the raw agent trace for ONE day (the layout
+// / carousel HTML the Debug Preview renders). Fetched only when the panel needs
+// it, so a normal week open never carries the ~2.2MB trace.
+async function getDayDebug(req, res) {
+  const index = Number(req.params.index);
+  const route = await WeeklyRoute.findOne({ _id: req.params.id, user: req.user._id })
+    .select('days.agentTrace').lean();
+  if (!route || !route.days?.[index]) return res.status(404).json({ message: 'Not found' });
+  res.json({ agentTrace: route.days[index].agentTrace || {} });
 }
 
 // Drop the running month's written weeks and next-month placeholders for this
@@ -1392,9 +1443,12 @@ async function rerunSlideLayoutVariations(req, res) {
         + ` · sizes=[${options.map((o) => sig(o.html)).join(',')}]`
         + ` · outChars=${String(debugEntry.output || '').length}`,
     );
+    // Return only the options (not the full ~MB route) — the client merges them
+    // into the active slide. Returning the whole route here re-transferred the
+    // heavy content and defeated the fast-open work.
     return res.json({
-      route,
       options: storedOptions,
+      slideIndex,
       ...(wantsPromptDebug(req) ? {
         debug: {
           mode: 'layout-variations-debug',
@@ -1526,6 +1580,9 @@ module.exports = {
   generateAndSaveRoute,
   getCurrentRoute,
   getRoutes,
+  getRouteById,
+  getRouteOptions,
+  getDayDebug,
   generateRoute,
   replanWeek,
   markDayPublished,

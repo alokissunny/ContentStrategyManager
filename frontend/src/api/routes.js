@@ -198,6 +198,25 @@ export function runDayLayout(routeId, index) {
 // layout). Composes four fresh layouts of that slide in its current theme and
 // stores them on the slide's layoutOptions. slideIndex is the slide's 1-based
 // data-index. Returns { route, options }.
+// The RENDER payload for one week: day content WITHOUT agentTrace or
+// layoutOptions (those are fetched on demand). Small + fast even on Atlas M0.
+export function getRouteById(routeId) {
+  return client.get(`/routes/${routeId}`).then((res) => res.data?.route || null);
+}
+
+// Every slide's stored layout options for the week (the "Original + variations"),
+// fetched once when Change layout first opens so the picker shows the persisted
+// set without regenerating. Returns { days: [[{ index, layoutOptions }]] }.
+export function getRouteOptions(routeId) {
+  return client.get(`/routes/${routeId}/options`).then((res) => (Array.isArray(res.data?.days) ? res.data.days : []));
+}
+
+// One day's raw agent trace (layout/carousel HTML), fetched only when the Debug
+// Preview needs it — a normal week open never carries the ~2.2MB trace.
+export function getDayDebug(routeId, index) {
+  return client.get(`/routes/${routeId}/day/${index}/debug`).then((res) => res.data?.agentTrace || {});
+}
+
 export function runSlideLayoutVariations(routeId, index, slideIndex) {
   return client
     .post(`/routes/${routeId}/day/${index}/slide/${slideIndex}/layout-variations`, {}, { timeout: 240000 })

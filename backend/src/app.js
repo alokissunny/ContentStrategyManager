@@ -1,5 +1,6 @@
 const express = require('express');
 const cors = require('cors');
+const compression = require('compression');
 const morgan = require('morgan');
 
 const authRoutes = require('./routes/authRoutes');
@@ -21,6 +22,10 @@ const { notFound, errorHandler } = require('./middleware/errorHandler');
 const { allowedOrigins } = require('./config/origins');
 
 const app = express();
+
+// gzip JSON responses — route payloads (calendar list, week content, options)
+// are highly compressible text, so this cuts the browser transfer several-fold.
+app.use(compression());
 
 app.use(cors({
   origin(origin, callback) {

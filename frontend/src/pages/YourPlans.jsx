@@ -11,9 +11,9 @@
  * Switching accounts in the header reloads; both endpoints follow the active handle.
  */
 
-import React, { useEffect, useRef, useState } from 'react';
+import React, { Suspense, useEffect, useRef, useState } from 'react';
 import Icon from '../brand/Icon';
-import { getCurrentRoute, getRoutes, clearCurrentMonth } from '../api/routes';
+import { getCurrentRoute, getRoutes, getRouteById, clearCurrentMonth } from '../api/routes';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { peekMetaOAuthResult, takeMetaOAuthResult, getMetaStatus, isMetaConnectedFor } from '../api/meta';
 import { useProjects, createProject, refreshProjects, addSession, sessionCount } from '../lib/projectsStore';
@@ -24,12 +24,15 @@ import {
   startPlanGeneration,
   usePlanGeneration,
 } from '../lib/planGeneration';
-import { CaptureChat } from './Projects';
 import { useAuth } from '../context/AuthContext';
 import { getBrandDna, reviseBrandDna } from '../api/brandDna';
-import WeekView from './WeekView';
-import PlanLoom from './PlanLoom';
-import Checkin from './checkin/Checkin';
+// Code-split the heavy views so the Calendar (month grid) does not download
+// WeekView (~the largest component) or the capture/generate flows until they are
+// actually opened.
+const WeekView = React.lazy(() => import('./WeekView'));
+const PlanLoom = React.lazy(() => import('./PlanLoom'));
+const Checkin = React.lazy(() => import('./checkin/Checkin'));
+const CaptureChat = React.lazy(() => import('./Projects').then((m) => ({ default: m.CaptureChat })));
 import NeedsAWord from '../components/NeedsAWord';
 import './plans.css';
 import './yourweek.css'; /* the shared .empty brand-moment styles */
@@ -410,6 +413,17 @@ export default function YourPlans() {
   });        // 'list' | 'checkin' | 'gen' | 'week'
   const [selected, setSelected] = useState(null);  // the route open in WeekView
   const [selectedDay, setSelectedDay] = useState(0); // day index inside that week
+  const [opening, setOpening] = useState(false);   // fetching one week's full content
+  // Cache of full route content (by id), warmed in the background so opening a
+  // week is instant. `null` marks an in-flight prefetch.
+  const fullCacheRef = useRef(new Map());
+  const prefetchWeek = (id) => {
+    if (!id || fullCacheRef.current.has(id)) return;
+    fullCacheRef.current.set(id, null);
+    getRouteById(id)
+      .then((full) => { if (full?._id === id) fullCacheRef.current.set(id, full); else fullCacheRef.current.delete(id); })
+      .catch(() => fullCacheRef.current.delete(id));
+  };
   const [capturing, setCapturing] = useState(false); // the Capture idea flow
   const [replanning, setReplanning] = useState(false);
   const [clearing, setClearing] = useState(false);
@@ -486,6 +500,30 @@ export default function YourPlans() {
     return () => stopMonthFillWatch();
   }, []);
 
+  // Warm the full content of the visible month's weeks in the background once the
+  // calendar has painted, so opening a day is instant (no round trip). The list
+  // itself stays light; this fetches each week's content off the critical path.
+  const monthWeekIds = weeksOverlappingMonth(routes, calCursor.year, calCursor.month)
+    .filter((w) => !w.draft && w._id)
+    .map((w) => String(w._id))
+    .join(',');
+  useEffect(() => {
+    if (loading || view !== 'list' || !monthWeekIds) return undefined;
+    const ids = monthWeekIds.split(',');
+    const run = () => ids.forEach(prefetchWeek);
+    const ric = typeof window.requestIdleCallback === 'function'
+      ? window.requestIdleCallback(run, { timeout: 1500 })
+      : setTimeout(run, 300);
+    return () => {
+      if (typeof window.cancelIdleCallback === 'function' && typeof ric === 'number') {
+        try { window.cancelIdleCallback(ric); } catch { /* ignore */ }
+      } else {
+        clearTimeout(ric);
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading, view, monthWeekIds]);
+
   // After Connect with Meta, reopen the week we left so a handle mismatch is obvious.
   useEffect(() => {
     if (loading) return;
@@ -497,9 +535,7 @@ export default function YourPlans() {
     if (location.state?.metaOAuth) navigate('/dashboard', { replace: true, state: {} });
     const week = (routes || []).find((r) => String(r._id) === String(result.weekId));
     if (!week) return;
-    setSelected(week);
-    setSelectedDay(Number(result.day) || 0);
-    setView('week');
+    open(week, Number(result.day) || 0);
     takeMetaOAuthResult();
   }, [loading, location.state, routes, navigate]);
 
@@ -572,9 +608,7 @@ export default function YourPlans() {
       if (getPlanGeneration().status !== 'ready') return;
       consumePlanReady();
       await reload();
-      setSelected(route);
-      setSelectedDay(0);
-      setView('week');
+      await open(route, 0);
       setReplanning(false);
       startMonthFillWatch(expectedWeeks);
     }, hold);
@@ -696,6 +730,7 @@ export default function YourPlans() {
   // ── the check-in conversation ──
   if (view === 'checkin') {
     return (
+      <Suspense fallback={<div className="ph"><p className="ph__sub">Loading…</p></div>}>
       <Checkin
         projects={ckProjects}
         filingProjects={ckProjects}
@@ -717,25 +752,34 @@ export default function YourPlans() {
         onCancel={() => setView('list')}
         cancelLabel={current ? "Keep this week's plan" : 'Not now'}
       />
+      </Suspense>
     );
   }
 
   // ── the generation wait ──
-  if (view === 'gen') return <PlanLoom />;
+  if (view === 'gen') {
+    return (
+      <Suspense fallback={<div className="ph"><p className="ph__sub">Loading…</p></div>}>
+        <PlanLoom />
+      </Suspense>
+    );
+  }
 
   // ── an opened week (Weekly tab) ──
   if (view === 'week' && selected) {
     return (
+      <Suspense fallback={<div className="ph"><p className="ph__sub">Opening…</p></div>}>
       <WeekView
         key={`${selected.instagramUsername || ''}-${selected._id || ''}-${selectedDay}`}
         route={selected}
         initialDay={selectedDay}
         monthWeeks={monthWeeksOf(routes, selected)}
         modeSwitch
-        onOpenWeek={(week) => { setSelected(week); setSelectedDay(0); }}
+        onOpenWeek={(week) => open(week, 0)}
         onCaptured={() => runGenerate('capture')}
         onRouteChange={(route) => {
           if (!route?._id) return;
+          fullCacheRef.current.set(String(route._id), route);
           setSelected((s) => (s?._id === route._id ? route : s));
           setCurrent((c) => (c?._id === route._id ? route : c));
           setRoutes((list) => list.map((r) => (r._id === route._id ? route : r)));
@@ -746,11 +790,17 @@ export default function YourPlans() {
           reload().catch(() => {});
         }}
       />
+      </Suspense>
     );
   }
 
   if (loading) {
     return <div className="ph"><p className="ph__sub">Loading your calendar…</p></div>;
+  }
+
+  // Fetching one week's full content before showing WeekView.
+  if (opening) {
+    return <div className="ph"><p className="ph__sub">Opening…</p></div>;
   }
 
   // ── a plan building in the background after a fresh (re)connect ──
@@ -795,11 +845,34 @@ export default function YourPlans() {
     );
   }
 
-  const open = (route, dayIndex = 0) => {
-    setSelected(route);
+  // The Calendar list carries no day content (projected out for speed). Opening a
+  // week fetches just that route's full content; routes that already have content
+  // (e.g. a freshly generated one) pass through without a round-trip.
+  // A function declaration (hoisted) so effects defined earlier — and the
+  // generation-ready handler that runs while the component has early-returned on
+  // the "gen"/"week" views — can call it without a TDZ error.
+  async function open(route, dayIndex = 0) {
+    const hasContent = (route?.days || []).some(
+      (d) => d?.content && (Array.isArray(d.content.slides) || d.content.caption),
+    );
+    const id = route?._id;
+    const cached = id && fullCacheRef.current.get(id);
+    if (hasContent || cached) {
+      // Instant path: the route already carries content, or a background
+      // prefetch already warmed it.
+      setSelected(cached || route);
+    } else if (id) {
+      setOpening(true);
+      const full = await getRouteById(id).catch(() => null);
+      setOpening(false);
+      if (full?._id === id) fullCacheRef.current.set(id, full);
+      setSelected(full || route);
+    } else {
+      setSelected(route);
+    }
     setSelectedDay(dayIndex);
     setView('week');
-  };
+  }
 
   const now = new Date();
   const isCurrentView = calCursor.year === now.getFullYear() && calCursor.month === now.getMonth();
@@ -898,13 +971,15 @@ export default function YourPlans() {
       </div>
 
       {capturing && (
-        <CaptureChat
-          defaultProjectId={projects[0]?.id}
-          exitLabel="Back to calendar"
-          onExit={() => setCapturing(false)}
-          onViewProject={() => { setCapturing(false); navigate('/dashboard/projects'); }}
-          onCaptured={() => runGenerate('capture')}
-        />
+        <Suspense fallback={null}>
+          <CaptureChat
+            defaultProjectId={projects[0]?.id}
+            exitLabel="Back to calendar"
+            onExit={() => setCapturing(false)}
+            onViewProject={() => { setCapturing(false); navigate('/dashboard/projects'); }}
+            onCaptured={() => runGenerate('capture')}
+          />
+        </Suspense>
       )}
     </div>
   );
