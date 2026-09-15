@@ -1,5 +1,6 @@
 import client from './client';
 import { addAiDebugEntry, fmtElapsed, fmtCost } from '../lib/aiDebug';
+import { getActiveHandle } from '../lib/store';
 
 function usageFrom(agent = {}, fallback = {}) {
   const u = agent.usage && typeof agent.usage === 'object' ? agent.usage : agent;
@@ -77,12 +78,27 @@ function ingestPlanDebug(label, data = {}) {
 // `preparing` (true while the background chain is still building the first plan)
 // so the Calendar can paint immediately.
 // → { posts, preparing, username }
+//
+// Concurrent callers share one request. React StrictMode runs mount effects
+// twice in dev, and the account-switch remount can re-trigger a load, so without
+// this the Calendar fires GET /posts twice; the in-flight promise coalesces them.
+// Keyed by the active handle so a soft account switch never shares the previous
+// account's in-flight request with the newly-remounted page.
+let postsInflight = null;
+let postsInflightHandle = null;
 export function getPosts() {
-  return client.get('/posts').then((res) => ({
-    posts: res.data.posts || [],
-    preparing: Boolean(res.data.preparing),
-    username: res.data.username || null,
-  }));
+  const handle = getActiveHandle();
+  if (postsInflight && postsInflightHandle === handle) return postsInflight;
+  postsInflightHandle = handle;
+  const p = client.get('/posts')
+    .then((res) => ({
+      posts: res.data.posts || [],
+      preparing: Boolean(res.data.preparing),
+      username: res.data.username || null,
+    }))
+    .finally(() => { if (postsInflight === p) postsInflight = null; });
+  postsInflight = p;
+  return p;
 }
 
 // The full render payload for one post (content minus agentTrace and the heavy
