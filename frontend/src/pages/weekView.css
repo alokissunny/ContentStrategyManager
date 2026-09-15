@@ -519,6 +519,20 @@
 }
 .wv-ig__lay { position: absolute; inset: 0; }
 .wv-ig__lay .vl-brandmark { z-index: 8; }
+.wv-ig__lay--blank {
+  display: grid;
+  place-items: center;
+  background: #fff;
+}
+.wv-ig__blankhint {
+  font-family: var(--font-ui);
+  font-size: var(--text-sm, 13px);
+  font-weight: 500;
+  color: var(--ink-400);
+  letter-spacing: 0.01em;
+  user-select: none;
+  pointer-events: none;
+}
 .wv-dynlay {
   position: absolute;
   inset: 0;
@@ -1089,6 +1103,27 @@
   min-height: 0;
 }
 .wv-fit.has-photo .wv-fit__copy { padding-top: 28cqw; }
+/* Add-elements ground layouts — title (or title+line) on an empty page */
+.wv-fit--statement {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  background: #fff;
+  color: var(--ink-900);
+}
+.wv-fit--statement .wv-fit__copy {
+  padding: 14cqw 10cqw 16cqw;
+}
+.wv-fit--statement .wv-fit__stat {
+  margin: 0 0 2cqw;
+  font-size: clamp(40px, 16cqw, 96px);
+  font-weight: 700;
+  line-height: 0.95;
+  letter-spacing: -0.04em;
+  font-family: var(--t-headline-face, var(--wv-post-font, var(--font-display), sans-serif));
+}
 .wv-fit__title {
   margin: 0;
   font-size: clamp(22px, 7.4cqw, 44px);
@@ -1096,6 +1131,39 @@
   line-height: 1.12;
   letter-spacing: -0.03em;
   font-family: var(--t-headline-face, var(--wv-post-font, var(--font-display), sans-serif));
+}
+/* Composable Add-elements slide: elements flow top-down and sit centred, each
+   separated so a number, heading, subtitle, body and quote read as distinct
+   pieces the studio placed. */
+.wv-fit--stack {
+  justify-content: center;
+}
+.wv-fit--stack .wv-fit__copy {
+  display: flex;
+  flex-direction: column;
+  gap: 4cqw;
+  padding: 12cqw 10cqw;
+}
+.wv-fit--stack .wv-fit__stat {
+  font-size: clamp(40px, 16cqw, 96px);
+  line-height: 0.95;
+  margin: 0;
+}
+.wv-fit--stack .wv-fit__quote {
+  border-left: 0.9cqw solid var(--t-accent-bg, var(--signal-500, #ff5227));
+  padding-left: 4cqw;
+}
+.wv-fit__body {
+  margin: 0;
+  font-size: clamp(13px, 3.6cqw, 20px);
+  font-weight: 400;
+  line-height: 1.45;
+  opacity: 0.85;
+}
+.wv-fit__stackhint {
+  font-size: clamp(14px, 4cqw, 22px);
+  font-weight: 500;
+  opacity: 0.4;
 }
 .wv-fit em {
   font-style: italic;
@@ -3450,14 +3518,19 @@
 
 /* ── THE EDIT MENU (bauhly-v3 §818/§989) ──────────────────────────────────
    Anchored under the pencil, top-right of the picture: shape, pictures, words.
-   One card, one row per job — the same dropdown look the rest of the app uses. */
+   One card, one row per job — the same dropdown look the rest of the app uses.
+   Flyouts are absolutely positioned to the RIGHT of the menu so the menu itself
+   never shifts when a submenu opens. */
 /* a press anywhere off the menu closes it — the app's own dropdown behaviour */
 .wv-ig__menuscrim { position: fixed; inset: 0; z-index: 7; }
-.wv-ig__menu {
+.wv-ig__menuwrap {
   position: absolute;
   top: calc(var(--sp-4, 16px) + 40px + var(--sp-2, 8px));
   right: var(--sp-4, 16px);
   z-index: 8;
+}
+.wv-ig__menu {
+  position: relative;
   min-width: 224px;
   padding: 6px;
   border: 1px solid var(--border);
@@ -3488,8 +3561,182 @@
   color: var(--ink-900);
   text-align: left;
 }
+.wv-ig__menugrow { flex: 1; min-width: 0; }
 .wv-ig__menuitem svg { color: var(--ink-500); flex-shrink: 0; }
 .wv-ig__menuitem:hover { background: var(--surface-sunken); }
+.wv-ig__menuitem--sub.is-open,
+.wv-ig__menuitem--sub.is-open:hover {
+  background: color-mix(in srgb, var(--blue-500) 12%, transparent);
+  color: var(--blue-500);
+}
+.wv-ig__menuitem--sub.is-open svg { color: var(--blue-500); }
+
+/* Flyout to the RIGHT of the pinned menu. Absolute so wrap size (and menu
+   position) stay fixed. ::before bridges the 8px gap for the pointer. */
+.wv-ig__menuflyout {
+  position: absolute;
+  top: 0;
+  left: calc(100% + 8px);
+  width: min(300px, calc(100vw - 48px));
+  padding: 10px 8px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md, 14px);
+  background: var(--surface);
+  box-shadow: 0 18px 44px -14px rgba(22, 22, 26, 0.4);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  animation: wv-fly-in var(--dur-fast, 140ms) var(--ease-out, ease);
+}
+.wv-ig__menuflyout--addslide {
+  top: auto;
+  bottom: 0;
+  width: min(280px, calc(100vw - 48px));
+}
+.wv-ig__menuflyout::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -10px;
+  width: 10px;
+}
+@keyframes wv-fly-in {
+  from { opacity: 0; transform: translateX(-6px) scale(0.98); }
+  to { opacity: 1; transform: none; }
+}
+.wv-ig__flyhead {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 10px 10px;
+}
+.wv-ig__flyhead--back {
+  flex-direction: row;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 4px 10px;
+}
+.wv-ig__flyhead strong {
+  font-family: var(--font-ui);
+  font-size: var(--text-base, 15px);
+  font-weight: 700;
+  color: var(--ink-900);
+}
+.wv-ig__flyhead span {
+  font-family: var(--font-ui);
+  font-size: var(--text-sm, 13px);
+  font-weight: 500;
+  color: var(--ink-500);
+}
+.wv-ig__flyback {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--ink-700);
+  cursor: pointer;
+}
+.wv-ig__flyback:hover { background: var(--surface-sunken); }
+.wv-ig__flyback svg { color: inherit; }
+.wv-ig__flylist {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.wv-ig__flyitem {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 52px;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+  font-family: var(--font-ui);
+  color: var(--ink-900);
+}
+.wv-ig__flyitem:hover { background: var(--surface-sunken); }
+.wv-ig__flyitem > svg { color: var(--ink-500); flex-shrink: 0; }
+.wv-ig__flycopy {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.wv-ig__flylabel {
+  font-size: var(--text-base, 15px);
+  font-weight: 600;
+  color: var(--ink-900);
+}
+.wv-ig__flydesc {
+  font-size: var(--text-sm, 13px);
+  font-weight: 450;
+  color: var(--ink-500);
+  line-height: 1.3;
+}
+.wv-ig__flyadd {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+  border-radius: 8px;
+  background: var(--surface-sunken);
+  color: var(--ink-700);
+}
+.wv-ig__flyadd svg { color: inherit; }
+.wv-ig__flyitem:hover .wv-ig__flyadd {
+  background: color-mix(in srgb, var(--blue-500) 14%, transparent);
+  color: var(--blue-500);
+}
+.wv-ig__flynote {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 6px 4px 2px;
+  padding: 8px 8px 4px;
+  border-top: 1px solid var(--border);
+  font-family: var(--font-ui);
+  font-size: 12px;
+  line-height: 1.4;
+  font-weight: 450;
+  color: var(--ink-500);
+}
+.wv-ig__flynote svg {
+  flex-shrink: 0;
+  margin-top: 1px;
+  color: var(--ink-400, var(--ink-500));
+}
+
+@media (max-width: 560px) {
+  .wv-ig__menuflyout,
+  .wv-ig__menuflyout--addslide {
+    top: calc(100% + 8px);
+    bottom: auto;
+    left: auto;
+    right: 0;
+    width: min(300px, calc(100vw - 32px));
+  }
+  .wv-ig__menuflyout::before {
+    top: -10px;
+    bottom: auto;
+    left: 0;
+    right: 0;
+    width: auto;
+    height: 10px;
+  }
+}
 
 /* ── the editor's header: back to the menu, and the job's name ── */
 .wv-edit__head {

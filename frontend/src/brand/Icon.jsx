@@ -180,6 +180,59 @@ const PATHS = {
   sparkle: (
     <path d="M12 3.5c.7 4.4 2.6 6.4 7 7-4.4.7-6.3 2.7-7 7-.7-4.3-2.6-6.3-7-7 4.4-.6 6.3-2.6 7-7Z" />
   ),
+  /* text & structure — used by Add elements */
+  type: (
+    <>
+      <path d="M5 6.5h14" />
+      <path d="M12 6.5v11" />
+      <path d="M9 17.5h6" />
+    </>
+  ),
+  'text-sub': (
+    <>
+      <path d="M5 7h14" />
+      <path d="M5 12h10" />
+      <path d="M5 17h12" />
+    </>
+  ),
+  'text-body': (
+    <>
+      <path d="M5 6h14" />
+      <path d="M5 10h14" />
+      <path d="M5 14h14" />
+      <path d="M5 18h10" />
+    </>
+  ),
+  chart: (
+    <>
+      <path d="M4 19.5h16" />
+      <path d="M7 16V11" />
+      <path d="M12 16V7" />
+      <path d="M17 16v-5" />
+    </>
+  ),
+  quote: (
+    <>
+      <path d="M9.5 10.5H7A2 2 0 0 0 5 12.5V14a1.5 1.5 0 0 0 1.5 1.5H9v2.5" />
+      <path d="M18.5 10.5H16A2 2 0 0 0 14 12.5V14a1.5 1.5 0 0 0 1.5 1.5H18v2.5" />
+    </>
+  ),
+  /* slide actions — blank / duplicate */
+  'file-plus': (
+    <>
+      <path d="M13.5 3.5H8A2.5 2.5 0 0 0 5.5 6v12A2.5 2.5 0 0 0 8 20.5h8A2.5 2.5 0 0 0 18.5 18V8.5L13.5 3.5Z" />
+      <path d="M13.5 3.5V8.5h5" />
+      <path d="M12 12.5v5M9.5 15h5" />
+    </>
+  ),
+  'files-plus': (
+    <>
+      <path d="M15 5.5H9A2 2 0 0 0 7 7.5v10A2 2 0 0 0 9 19.5h7A2 2 0 0 0 18 17.5V8.5L15 5.5Z" />
+      <path d="M15 5.5V8.5h3" />
+      <path d="M5.5 8.5v9A3 3 0 0 0 8.5 20.5H14" />
+      <path d="M12.5 12v4.5M10.25 14.25h4.5" />
+    </>
+  ),
   instagram: (
     <>
       <rect x="3.5" y="3.5" width="17" height="17" rx="4.5" />

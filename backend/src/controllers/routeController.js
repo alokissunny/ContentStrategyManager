@@ -1015,31 +1015,36 @@ async function markDayPublished(req, res) {
       cur.slides = incoming.slides.map((s, i) => {
         const prev = prevSlides[i] || {};
         const list = (v, fallback) => (Array.isArray(v) ? v.map((x) => String(x || '')) : fallback);
+        const blank = Boolean(s.blank) || String(s.layout || '') === 'blank';
+        const manual = !blank && (Boolean(s.manual) || String(s.layout || '').startsWith('el-'));
         return {
           role: String(s.role || ''),
           title: String(s.title || ''),
-          subtitle: String(s.subtitle ?? prev.subtitle ?? ''),
-          body: String(s.body ?? prev.body ?? ''),
-          structure: String(s.structure ?? prev.structure ?? ''),
-          items: list(s.items, Array.isArray(prev.items) ? prev.items : []),
-          itemsA: list(s.itemsA, Array.isArray(prev.itemsA) ? prev.itemsA : []),
-          itemsB: list(s.itemsB, Array.isArray(prev.itemsB) ? prev.itemsB : []),
-          stat: String(s.stat ?? prev.stat ?? ''),
-          quote: String(s.quote ?? prev.quote ?? ''),
-          action: String(s.action ?? prev.action ?? ''),
-          comparisonA: String(s.comparisonA ?? prev.comparisonA ?? ''),
-          comparisonB: String(s.comparisonB ?? prev.comparisonB ?? ''),
-          labels: list(s.labels, Array.isArray(prev.labels) ? prev.labels : []),
-          image: String(s.image ?? prev.image ?? ''),
-          imagePrompt: String(s.imagePrompt ?? prev.imagePrompt ?? ''),
+          subtitle: (blank || manual) ? String(s.subtitle || '') : String(s.subtitle ?? prev.subtitle ?? ''),
+          body: (blank || manual) ? String(s.body || '') : String(s.body ?? prev.body ?? ''),
+          structure: blank ? String(s.structure || '') : String(s.structure ?? prev.structure ?? ''),
+          items: blank ? list(s.items, []) : list(s.items, Array.isArray(prev.items) ? prev.items : []),
+          itemsA: blank ? list(s.itemsA, []) : list(s.itemsA, Array.isArray(prev.itemsA) ? prev.itemsA : []),
+          itemsB: blank ? list(s.itemsB, []) : list(s.itemsB, Array.isArray(prev.itemsB) ? prev.itemsB : []),
+          stat: (blank || manual) ? String(s.stat || '') : String(s.stat ?? prev.stat ?? ''),
+          quote: (blank || manual) ? String(s.quote || '') : String(s.quote ?? prev.quote ?? ''),
+          action: blank ? String(s.action || '') : String(s.action ?? prev.action ?? ''),
+          comparisonA: blank ? String(s.comparisonA || '') : String(s.comparisonA ?? prev.comparisonA ?? ''),
+          comparisonB: blank ? String(s.comparisonB || '') : String(s.comparisonB ?? prev.comparisonB ?? ''),
+          labels: blank ? list(s.labels, []) : list(s.labels, Array.isArray(prev.labels) ? prev.labels : []),
+          image: (blank || manual) ? String(s.image || '') : String(s.image ?? prev.image ?? ''),
+          imagePrompt: blank ? String(s.imagePrompt || '') : String(s.imagePrompt ?? prev.imagePrompt ?? ''),
           assetKey: String(s.assetKey || ''),
           assetKeys: Array.isArray(s.assetKeys)
             ? s.assetKeys.map((k) => String(k || ''))
-            : (Array.isArray(prev.assetKeys) ? prev.assetKeys.map((k) => String(k || '')) : []),
-          layout: String(s.layout || ''),
-          layoutHtml: String(s.layoutHtml ?? prev.layoutHtml ?? ''),
-          layoutTheme: String(s.layoutTheme ?? prev.layoutTheme ?? ''),
+            : ((blank || manual) ? [] : (Array.isArray(prev.assetKeys) ? prev.assetKeys.map((k) => String(k || '')) : [])),
+          layout: blank ? 'blank' : String(s.layout || ''),
+          layoutHtml: (blank || manual) ? String(s.layoutHtml || '') : String(s.layoutHtml ?? prev.layoutHtml ?? ''),
+          layoutTheme: (blank || manual) ? String(s.layoutTheme || '') : String(s.layoutTheme ?? prev.layoutTheme ?? ''),
+          blank,
+          manual,
           layoutOptions: (() => {
+            if (blank || manual) return [];
             const opts = Array.isArray(s.layoutOptions)
               ? s.layoutOptions
               : (Array.isArray(prev.layoutOptions) ? prev.layoutOptions : []);
@@ -1053,19 +1058,23 @@ async function markDayPublished(req, res) {
               }))
               .filter((o) => o.html);
           })(),
-          annotation: (s.annotation && typeof s.annotation === 'object')
-            ? {
-              text: String(s.annotation.text ?? prev.annotation?.text ?? ''),
-              targetSubject: String(s.annotation.targetSubject ?? prev.annotation?.targetSubject ?? ''),
-              targetRegion: String(s.annotation.targetRegion ?? prev.annotation?.targetRegion ?? ''),
-              ...(s.annotation.targetBox && typeof s.annotation.targetBox === 'object'
-                ? { targetBox: s.annotation.targetBox }
-                : (prev.annotation?.targetBox ? { targetBox: prev.annotation.targetBox } : {})),
-            }
-            : (prev.annotation || { text: '', targetSubject: '', targetRegion: '' }),
-          visualNeed: (s.visualNeed && typeof s.visualNeed === 'object')
-            ? s.visualNeed
-            : (prev.visualNeed || null),
+          annotation: blank
+            ? { text: '', targetSubject: '', targetRegion: '' }
+            : ((s.annotation && typeof s.annotation === 'object')
+              ? {
+                text: String(s.annotation.text ?? prev.annotation?.text ?? ''),
+                targetSubject: String(s.annotation.targetSubject ?? prev.annotation?.targetSubject ?? ''),
+                targetRegion: String(s.annotation.targetRegion ?? prev.annotation?.targetRegion ?? ''),
+                ...(s.annotation.targetBox && typeof s.annotation.targetBox === 'object'
+                  ? { targetBox: s.annotation.targetBox }
+                  : (prev.annotation?.targetBox ? { targetBox: prev.annotation.targetBox } : {})),
+              }
+              : (prev.annotation || { text: '', targetSubject: '', targetRegion: '' })),
+          visualNeed: blank
+            ? null
+            : ((s.visualNeed && typeof s.visualNeed === 'object')
+              ? s.visualNeed
+              : (prev.visualNeed || null)),
         };
       });
       cur.onScreenText = cur.slides.map((s) => s.title).filter(Boolean);

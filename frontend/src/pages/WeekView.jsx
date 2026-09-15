@@ -484,6 +484,184 @@ const SLIDE_ROLES = {
   Story: ['Hook', 'Beat', 'CTA'],
   Post: ['Hook', 'CTA'],
 };
+
+// Add elements flyout — structure types a slide can take on. `cats` is the
+// Visual Library categories that can carry the element; null means every role.
+const ADD_ELEMENTS = [
+  {
+    id: 'title',
+    label: 'Title',
+    field: 'title',
+    icon: 'type',
+    desc: 'Main hook or headline.',
+    placeholder: 'Your headline',
+    cats: null,
+  },
+  {
+    id: 'subtitle',
+    label: 'Subtitle',
+    field: 'subtitle',
+    icon: 'text-sub',
+    desc: 'Add a short supporting line.',
+    placeholder: 'Supporting line',
+    cats: null,
+  },
+  {
+    id: 'body',
+    label: 'Body',
+    field: 'body',
+    icon: 'text-body',
+    desc: 'Add brief supporting text.',
+    placeholder: 'Supporting text',
+    cats: null,
+  },
+  {
+    id: 'data',
+    label: 'Data',
+    field: 'stat',
+    icon: 'chart',
+    desc: 'Add a key stat or number.',
+    placeholder: '42%',
+    cats: ['hook', 'edu', 'story', 'results'],
+  },
+  {
+    id: 'quote',
+    label: 'Quote',
+    field: 'quote',
+    icon: 'quote',
+    desc: 'Add a quote as the hook.',
+    placeholder: 'A memorable quote',
+    cats: ['hook', 'results', 'story'],
+  },
+];
+
+function addElementsForRole(role) {
+  const cat = catForRole(role);
+  return ADD_ELEMENTS.filter((el) => !el.cats || el.cats.includes(cat));
+}
+
+// Layouts used when the studio adds structure via Add elements — ground only,
+// no photograph slots. Title is head-only so Edit text does not invent a Body.
+const ELEMENT_LAYOUTS = {
+  'el-title': {
+    id: 'el-title',
+    name: 'Title',
+    kind: 'statement',
+    tone: 'ground',
+    art: { head: '' },
+    imgs: [],
+  },
+  'el-subtitle-only': {
+    id: 'el-subtitle-only',
+    name: 'Subtitle',
+    kind: 'body-block',
+    bodySlot: 'subtitle',
+    tone: 'ground',
+    art: { body: '' },
+    imgs: [],
+  },
+  'el-body-only': {
+    id: 'el-body-only',
+    name: 'Body',
+    kind: 'body-block',
+    bodySlot: 'body',
+    tone: 'ground',
+    art: { body: '' },
+    imgs: [],
+  },
+  'el-subtitle': {
+    id: 'el-subtitle',
+    name: 'Title & subtitle',
+    kind: 'title-sub',
+    bodySlot: 'subtitle',
+    tone: 'ground',
+    art: { head: '', body: '' },
+    imgs: [],
+  },
+  'el-title-body': {
+    id: 'el-title-body',
+    name: 'Title & body',
+    kind: 'title-body',
+    bodySlot: 'body',
+    tone: 'ground',
+    art: { head: '', body: '' },
+    imgs: [],
+  },
+  'el-data': {
+    id: 'el-data',
+    name: 'Data',
+    kind: 'stat-only',
+    tone: 'ground',
+    art: { big: '', body: '' },
+    imgs: [],
+  },
+  'el-quote': {
+    id: 'el-quote',
+    name: 'Quote',
+    kind: 'statement',
+    tone: 'ground',
+    art: { head: '' },
+    imgs: [],
+  },
+};
+
+// The composable Add-elements slide (Canva-style): ONE manual slide that can
+// carry any combination of Title, Subtitle, Body, Data (a number) and Quote,
+// each an independently edited element. `slide.layout === 'el-stack'` marks it,
+// and the live art is built from whichever fields the slide actually has — so
+// the preview draws only the elements present, and Edit text offers a field for
+// each. `role` is the typography role (lib/slidetext) each field is set in.
+const ELEMENT_STACK_FIELDS = [
+  { role: 'big', field: 'stat' },
+  { role: 'head', field: 'title' },
+  { role: 'subtitle', field: 'subtitle' },
+  { role: 'body', field: 'body' },
+  { role: 'quote', field: 'quote' },
+];
+const STACK_ROLE_TO_FIELD = Object.fromEntries(ELEMENT_STACK_FIELDS.map((e) => [e.role, e.field]));
+const STACK_FIELD_TO_ROLE = Object.fromEntries(ELEMENT_STACK_FIELDS.map((e) => [e.field, e.role]));
+
+function stackArt(slide) {
+  const art = {};
+  ELEMENT_STACK_FIELDS.forEach(({ role, field }) => {
+    const v = String(slide?.[field] || '').trim();
+    if (v) art[role] = v;
+  });
+  return art;
+}
+
+function elementStackLayout(slide) {
+  return { id: 'el-stack', name: 'Slide', kind: 'stack', tone: 'ground', art: stackArt(slide), imgs: [] };
+}
+
+// A static marker so id-only checks (isManualSlide, slideRecord) recognise the
+// composable slide; the drawable art comes from elementStackLayout(slide).
+const ELEMENT_STACK_STUB = { id: 'el-stack', name: 'Slide', kind: 'stack', tone: 'ground', art: {}, imgs: [] };
+
+function findElementLayout(id) {
+  if (!id) return null;
+  if (id === 'el-stack') return ELEMENT_STACK_STUB;
+  return ELEMENT_LAYOUTS[id] || null;
+}
+
+function isManualSlide(slide) {
+  return Boolean(slide?.manual) || Boolean(findElementLayout(slide?.layout));
+}
+
+// Every studio-built element slide is now the composable stack; the per-combo
+// ELEMENT_LAYOUTS ids stay recognised (findElementLayout) so slides saved before
+// this change still render, but any edit migrates them onto el-stack.
+function elementLayoutForSlide() {
+  return 'el-stack';
+}
+
+function composeLayoutOf(slide, layoutOverride = null) {
+  if (layoutOverride) return layoutOverride;
+  const changeLayout = findChangeLayout(slide?.layout);
+  if (changeLayout) return changeLayout;
+  if (slide?.layout === 'el-stack') return elementStackLayout(slide);
+  return findElementLayout(slide?.layout) || null;
+}
 // Content and Image were two tabs over one slide — the words on it and the shape
 // they go in — but nobody writes a line without looking at where it lands, so
 // they are one pane now (bauhly-v3 decision 559).
@@ -818,8 +996,38 @@ function slideRecord(s, extra = {}) {
       }
       : (typeof s.annotation === 'string' ? { text: s.annotation, targetSubject: '', targetRegion: '' } : null),
     visualNeed: visualNeedRecord(s),
+    // Studio-added empty page — must not inherit writer copy or the carousel doc.
+    blank: Boolean(s.blank) || s.layout === 'blank',
+    // Studio-built via Add elements — skip Day Writer backfill on derive.
+    manual: Boolean(s.manual) || Boolean(findElementLayout(s.layout)),
     ...extra,
   };
+}
+
+function isBlankSlide(slide) {
+  return Boolean(slide?.blank) || slide?.layout === 'blank';
+}
+
+function makeBlankSlide(role) {
+  return slideRecord({
+    role: role || 'Slide',
+    title: '',
+    subtitle: '',
+    body: '',
+    items: [],
+    stat: '',
+    quote: '',
+    action: '',
+    assetKey: '',
+    assetKeys: [],
+    layout: 'blank',
+    layoutHtml: '',
+    layoutTheme: '',
+    layoutOptions: [],
+    annotation: null,
+    visual: null,
+    blank: true,
+  });
 }
 
 function writerSlideOf(day, index) {
@@ -887,11 +1095,29 @@ function deriveSlides(day) {
   const roles = SLIDE_ROLES[day.format] || SLIDE_ROLES.Post;
   const existing = day.content?.slides;
   if (Array.isArray(existing) && existing.length) {
-    return existing.map((s, i) => fillFromWriter({
-      ...slideRecord(s, { index: i + 1 }),
-      role: s.role || roles[Math.min(i, roles.length - 1)],
-      subtitle: s.subtitle || s.body || '',
-    }, writerSlideOf(day, i)));
+    return existing.map((s, i) => {
+      const base = {
+        ...slideRecord(s, { index: i + 1 }),
+        role: s.role || roles[Math.min(i, roles.length - 1)],
+        subtitle: s.subtitle || s.body || '',
+      };
+      // Blank / Add-elements pages stay as the studio left them — do not
+      // backfill from Day Writer by index (that reintroduces body + images).
+      if (isBlankSlide(base) || isManualSlide(base)) {
+        if (isBlankSlide(base)) {
+          return {
+            ...base,
+            blank: true,
+            layout: 'blank',
+            layoutHtml: '',
+            layoutTheme: '',
+            layoutOptions: [],
+          };
+        }
+        return { ...base, manual: true };
+      }
+      return fillFromWriter(base, writerSlideOf(day, i));
+    });
   }
   const texts = (day.content?.onScreenText || []).filter(Boolean);
   if (texts.length) {
@@ -959,6 +1185,7 @@ function withAllocatedSlideKeys(slides, day) {
   const allocated = allocatedKeysOfDay(day);
   const used = new Set((slides || []).flatMap((s) => keysOf(s)).filter(Boolean));
   const next = (slides || []).map((s) => {
+    if (isBlankSlide(s) || isManualSlide(s)) return s;
     if (keysOf(s).some(Boolean)) return s;
     const named = mentionedKeysOf(s, day).find((k) => k && !used.has(k)) || mentionedKeysOf(s, day)[0];
     if (!named) return s;
@@ -1112,7 +1339,8 @@ function slideHasPhoto(slide) {
 }
 
 function wordRolesForSlide(slide) {
-  const roles = [...textRolesOf(BEST_FIT_LAYOUT)];
+  const layout = composeLayoutOf(slide) || BEST_FIT_LAYOUT;
+  const roles = [...textRolesOf(layout)];
   if (ANNOTATIONS_ENABLED && (slideHasPhoto(slide) || annotationTextOf(slide))) roles.push(ANNOTE_ROLE);
   return roles;
 }
@@ -1149,6 +1377,8 @@ function slidesPayload(slides, baseline = []) {
       subtitle: s.subtitle || '',
       imagePrompt: s.imagePrompt || '',
       layout: s.layout || '',
+      blank: Boolean(s.blank) || s.layout === 'blank',
+      manual: Boolean(s.manual) || Boolean(findElementLayout(s.layout)),
     };
   });
 }
@@ -1286,18 +1516,33 @@ function seedWordDraft(layout, slide, contentType, visual) {
   const filled = fillLayout(layout, slide, contentType);
   const art = filled?.art || {};
   const baked = slide?.layoutHtml || '';
+  const stack = slide?.layout === 'el-stack';
   const out = {};
   textRolesOf(layout).forEach((r) => {
+    if (stack) {
+      // Composable slide has no baked html — seed each role straight from its
+      // field, keeping marks so accent emphasis survives a round-trip.
+      const field = STACK_ROLE_TO_FIELD[r.key];
+      out[r.key] = field ? String(slide?.[field] || '').trim() : (art[r.key] || '');
+      return;
+    }
     if (r.key === 'head') {
       out.head = visibleSlot(baked, slide, 'title', visual)
         || (slide?.title || '').trim()
         || [art.head, art.accent].filter(Boolean).join(' ');
     } else if (r.key === 'body') {
-      out.body = visibleSlot(baked, slide, 'subtitle', visual)
-        || visibleSlot(baked, slide, 'supporting-text', visual)
-        || visibleSlot(baked, slide, 'body', visual)
-        || (slide?.subtitle || '').trim()
-        || art.body || '';
+      const elLay = findElementLayout(slide?.layout);
+      if (elLay?.bodySlot === 'body') {
+        out.body = visibleSlot(baked, slide, 'body', visual)
+          || (slide?.body || '').trim()
+          || art.body || '';
+      } else {
+        out.body = visibleSlot(baked, slide, 'subtitle', visual)
+          || visibleSlot(baked, slide, 'supporting-text', visual)
+          || visibleSlot(baked, slide, 'body', visual)
+          || (slide?.subtitle || '').trim()
+          || art.body || '';
+      }
     } else if (isListRole(r.key)) {
       out[r.key] = art.items?.[listIndexOf(r.key)] || '';
     } else {
@@ -1464,6 +1709,70 @@ function slideAllowsPhoto(slide) {
 }
 
 function slideCopy(slide, parts) {
+  const elLay = findElementLayout(slide?.layout);
+  // Composable stack: each element maps 1:1 to a slide field. `parts` (the live
+  // Edit-text draft, keyed by typography role) wins so typing updates the
+  // preview before Apply; marks are kept so accent emphasis renders.
+  if (slide?.layout === 'el-stack') {
+    const pick = (role, field) => String(
+      parts?.[role] != null ? parts[role] : (slide?.[field] || ''),
+    ).trim();
+    return {
+      title: pick('head', 'title'),
+      sub: pick('subtitle', 'subtitle'),
+      body: pick('body', 'body'),
+      items: [],
+      cmpA: '',
+      cmpB: '',
+      stat: pick('big', 'stat'),
+      quote: pick('quote', 'quote'),
+      annotation: null,
+    };
+  }
+  if (elLay?.kind === 'body-block') {
+    const draftLine = parts?.body != null ? plainOf(parts.body) : '';
+    if (elLay.bodySlot === 'body') {
+      const body = draftLine || String(slide?.body || '').trim();
+      return {
+        title: '',
+        sub: '',
+        body,
+        items: [],
+        cmpA: '',
+        cmpB: '',
+        stat: '',
+        quote: '',
+        annotation: null,
+      };
+    }
+    const sub = draftLine || String(slide?.subtitle || '').trim();
+    return {
+      title: '',
+      sub,
+      body: '',
+      items: [],
+      cmpA: '',
+      cmpB: '',
+      stat: '',
+      quote: '',
+      annotation: null,
+    };
+  }
+  if (elLay?.kind === 'title-body') {
+    const title = String(parts?.head != null ? parts.head : (slide?.title || '')).trim();
+    const body = String(parts?.body != null ? plainOf(parts.body) : (slide?.body || '')).trim();
+    return {
+      title,
+      sub: '',
+      body,
+      items: [],
+      cmpA: '',
+      cmpB: '',
+      stat: String(slide?.stat || '').trim(),
+      quote: '',
+      annotation: null,
+    };
+  }
   const title = String(parts?.head != null ? parts.head : (slide?.title || slide?.quote || slide?.action || '')).trim();
   const sub = String(parts?.body != null ? parts.body : (slide?.subtitle || '')).trim();
   const body = String(slide?.body || '').trim();
@@ -1532,7 +1841,7 @@ function SlideMedia({
   const store = useStore();
   const copy = slideCopy(slide, parts);
   const need = visualNeedRecord(slide);
-  const changeLayout = layoutOverride || findChangeLayout(slide?.layout);
+  const changeLayout = composeLayoutOf(slide, layoutOverride);
   const wantShots = shotsForLayout(changeLayout);
   const allowPhoto = wantShots > 0
     || (!changeLayout && slideAllowsPhoto(slide))
@@ -1566,6 +1875,13 @@ function SlideMedia({
 
   // A Change layout pick (or applied id) wins over generated layoutHtml so the
   // studio can reshape a slide without waiting on the layout agent.
+  if (isBlankSlide(slide)) {
+    return (
+      <div className="wv-ig__lay wv-ig__lay--blank" style={paint} aria-label="Empty slide">
+        <span className="wv-ig__blankhint">Empty slide</span>
+      </div>
+    );
+  }
   if (changeLayout) {
     return (
       <div className={`wv-ig__lay${showHint ? ' is-needvisual' : ''}`} style={paint}>
@@ -1853,9 +2169,11 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
   // open. `whyOpen` reveals the strategy beside the post.
   const [zone, setZone] = useState(null); // 'visual' | 'caption' | null
   // Which editor the visual zone's menu opened (bauhly-v3 §818/§989): the pencil
-  // shows a menu — Change theme / Change layout / Edit image / Select images / Edit text —
-  // and picking one sets this. null = the menu itself is showing.
+  // shows a menu — Add elements / Change theme / Change layout / … — and picking
+  // one sets this. null = the menu itself is showing.
   const [visEdit, setVisEdit] = useState(null); // 'theme' | 'layout' | 'images' | 'words' | null
+  // Nested flyout inside the visual-zone menu.
+  const [menuPane, setMenuPane] = useState(null); // 'elements' | 'add-slide' | null
   const layoutFrameRef = useRef(null);
   // Edit image (bauhly-v3 §961/§965/§982): the still-photo studio. `adjustFor`
   // is the picture being cropped; `editSlot` is the measured layout region it
@@ -1910,6 +2228,7 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
   const [calPrev, setCalPrev] = useState(false);
   const calPlacedFor = useRef(null);
   const [wordDraft, setWordDraft] = useState(null); // role-keyed draft until Apply
+  const [wordFocus, setWordFocus] = useState(null); // role key to focus when Edit text opens
   const [capDraft, setCapDraft] = useState(''); // caption editor draft
   const [tagDraft, setTagDraft] = useState(''); // hashtag editor draft
   const [capBusy, setCapBusy] = useState(false);
@@ -2278,6 +2597,7 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
   // seeds its draft from the day's current caption.
   function openZone(next) {
     setVisEdit(null); // the visual zone always opens on its MENU, not an editor
+    setMenuPane(null);
     if (next === 'caption') setSideTab('caption');
     if (next) setTimeDraft(null);
     setZone((cur) => {
@@ -2299,6 +2619,7 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
   function closeZone() {
     setZone(null);
     setVisEdit(null);
+    setMenuPane(null);
     setPickerOpen(false);
     setCreating(false);
     setImgPick(null);
@@ -2315,7 +2636,7 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
     if (zone !== 'caption') return undefined;
     const away = (e) => {
       if (e.target.closest('.wv-ig__zone--caption.is-editing')) return;
-      if (e.target.closest('.wv-ig__edit') || e.target.closest('.wv-ig__menu')
+      if (e.target.closest('.wv-ig__edit') || e.target.closest('.wv-ig__menuwrap')
         || e.target.closest('.wv-ig__menuscrim')) return;
       if (e.target.closest('.wv-vlib') || e.target.closest('.wv-vlib__scrim')) return;
       if (e.target.closest('.wv-confirm') || e.target.closest('.wv-confirm__scrim')) return;
@@ -2352,7 +2673,7 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
       if (e.target.closest('.wv-layed')) return;
       if (e.target.closest('.wv-vlib') || e.target.closest('.wv-vlib__scrim')) return;
       if (e.target.closest('.wv-confirm') || e.target.closest('.wv-confirm__scrim')) return;
-      if (e.target.closest('.wv-ig__zonebtn') || e.target.closest('.wv-ig__menu')
+      if (e.target.closest('.wv-ig__zonebtn') || e.target.closest('.wv-ig__menuwrap')
         || e.target.closest('.wv-ig__menuscrim')) return;
       setVisEdit(null);
       setLayPick(null);
@@ -2367,7 +2688,7 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
     if (zone !== 'visual' || visEdit !== 'words') return undefined;
     const away = (e) => {
       if (e.target.closest('.wv-worded')) return;
-      if (e.target.closest('.wv-ig__zonebtn') || e.target.closest('.wv-ig__menu')
+      if (e.target.closest('.wv-ig__zonebtn') || e.target.closest('.wv-ig__menuwrap')
         || e.target.closest('.wv-ig__menuscrim')) return;
       setVisEdit(null);
     };
@@ -2377,7 +2698,7 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
 
   useEffect(() => {
     if (visEdit !== 'layout' && visEdit !== 'theme') { setLayPick(null); setLayOpt(null); }
-    if (visEdit !== 'words') setWordDraft(null);
+    if (visEdit !== 'words') { setWordDraft(null); setWordFocus(null); }
   }, [visEdit]);
 
   // Switching slides resets which agent option is being drafted.
@@ -2402,12 +2723,13 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
       if (imgPick) { setImgPick(null); return; }
       if (askImgs) { setAskImgs(0); return; }
       if (!zone) return;
+      if (menuPane) { setMenuPane(null); return; }
       if (visEdit) setVisEdit(null);
       else closeZone();
     }
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [zone, visEdit, askImgs, imgPick, creating, timeDraft, adjustFor, packOpen]);
+  }, [zone, visEdit, menuPane, askImgs, imgPick, creating, timeDraft, adjustFor, packOpen]);
 
   // Persist the caption for the open day — optimistic, then reconciled with the
   // server's copy. Backend whitelists `content.caption` (routeController §642).
@@ -2495,10 +2817,22 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
   function addSlide() {
     const roles = SLIDE_ROLES[day.format] || SLIDE_ROLES.Post;
     const base = deriveSlides(day);
-    const role = roles[Math.min(base.length, roles.length - 1)] || 'Slide';
-    const next = [...base, { role, title: '', assetKey: '' }];
+    const insertAt = Math.min(safeIdx + 1, base.length);
+    const role = roles[Math.min(insertAt, roles.length - 1)] || 'Slide';
+    const next = [...base.slice(0, insertAt), makeBlankSlide(role), ...base.slice(insertAt)];
     replaceSlides(next);
-    setSlideIdx(next.length - 1);
+    setSlideIdx(insertAt);
+  }
+
+  function duplicateSlide() {
+    const base = deriveSlides(day);
+    const src = base[safeIdx];
+    if (!src) return;
+    const copy = JSON.parse(JSON.stringify(src));
+    const insertAt = safeIdx + 1;
+    const next = [...base.slice(0, insertAt), copy, ...base.slice(insertAt)];
+    replaceSlides(next);
+    setSlideIdx(insertAt);
   }
 
   function removeSlide(index) {
@@ -2507,6 +2841,68 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
     const next = base.filter((_, i) => i !== index);
     replaceSlides(next);
     setSlideIdx((cur) => Math.min(cur, next.length - 1));
+  }
+
+  // Add a structure element to the open slide. Empty fields get a short
+  // placeholder. Title uses a head-only ground layout (no body field, no photo)
+  // when building from a blank / Add-elements slide.
+  function addSlideElement(el) {
+    if (!el?.field) return;
+    const role = activeSlide?.role || 'Hook';
+    const cur = String(activeSlide?.[el.field] || '').trim();
+    const adding = !cur;
+    const wasBlank = isBlankSlide(activeSlide);
+    const studioBuilt = wasBlank || isManualSlide(activeSlide);
+    const patch = {};
+    if (adding) patch[el.field] = el.placeholder;
+
+    if (studioBuilt) {
+      patch.manual = true;
+      patch.blank = false;
+      patch.layoutHtml = '';
+      patch.layoutTheme = '';
+      patch.layoutOptions = [];
+
+      // Starting from empty: only the element being added — never invent body/image.
+      if (wasBlank) {
+        patch.title = el.field === 'title' ? (patch.title || el.placeholder) : '';
+        patch.subtitle = el.field === 'subtitle' ? (patch.subtitle || el.placeholder) : '';
+        patch.body = el.field === 'body' ? (patch.body || el.placeholder) : '';
+        patch.stat = el.field === 'stat' ? (patch.stat || el.placeholder) : '';
+        patch.quote = el.field === 'quote' ? (patch.quote || el.placeholder) : '';
+        patch.assetKey = '';
+        patch.assetKeys = [];
+        patch.image = '';
+        patch.visual = null;
+      }
+
+      const nextSlide = { ...activeSlide, ...patch, role };
+      patch.layout = elementLayoutForSlide(nextSlide);
+
+      // Element layouts are ground-only — strip photographs so Add title cannot
+      // pull in a background from allocation / prior carousel art.
+      const lay = findElementLayout(patch.layout);
+      if (lay && shotsForLayout(lay) === 0) {
+        patch.assetKey = '';
+        patch.assetKeys = [];
+        patch.image = '';
+      }
+    }
+
+    const patched = { ...activeSlide, ...patch, role };
+    if (Object.keys(patch).length) patchActiveSlide(patch);
+    setMenuPane(null);
+
+    // Every element is a text field the studio then edits — open Edit text on
+    // the one just added and focus its field, so adding an element flows
+    // straight into writing it (Canva-style).
+    const wordLay = composeLayoutOf(patched) || BEST_FIT_LAYOUT;
+    setWordDraft(seedWordDraft(wordLay, patched, day?.contentType || day?.format, {
+      documentHtml: isManualSlide(patched) || isBlankSlide(patched) ? '' : carouselDocumentOf(day),
+      direction: isManualSlide(patched) ? '' : layoutDirectionOf(patched),
+    }));
+    setWordFocus(STACK_FIELD_TO_ROLE[el.field] || null);
+    setVisEdit('words');
   }
 
   function rememberImage(key, url, meta = {}) {
@@ -3078,21 +3474,23 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
   }, [visEdit, draftOpt, activeSlide, draftOptIdx]);
   // Whether the big preview should crop the carousel document (themed slide) or
   // render the slide's own layoutHtml (a standalone on-demand variation).
-  const previewUsesDoc = visEdit === 'theme'
-    ? true
-    : (visEdit === 'layout' && draftOpt)
-      ? Boolean(themeDirectionOf(draftOpt))
-      : slideIsThemed(previewSlide);
+  const previewUsesDoc = isBlankSlide(previewSlide)
+    ? false
+    : visEdit === 'theme'
+      ? true
+      : (visEdit === 'layout' && draftOpt)
+        ? Boolean(themeDirectionOf(draftOpt))
+        : slideIsThemed(previewSlide);
   const wordRoles = visEdit === 'words' ? wordRolesForSlide(activeSlide) : [];
   const primaryWordKey = wordRoles.find((r) => r.key === 'head')?.key
     || wordRoles.find((r) => r.key === 'body')?.key
     || wordRoles[0]?.key;
   const wordVisual = {
-    documentHtml: carouselDocumentOf(day),
+    documentHtml: isManualSlide(activeSlide) || isBlankSlide(activeSlide) ? '' : carouselDocumentOf(day),
     direction: layoutDirectionOf(activeSlide),
   };
   const wordsSeed = visEdit === 'words'
-    ? seedWordDraft(BEST_FIT_LAYOUT, activeSlide, day?.contentType || day?.format, wordVisual)
+    ? seedWordDraft(composeLayoutOf(activeSlide) || BEST_FIT_LAYOUT, activeSlide, day?.contentType || day?.format, wordVisual)
     : null;
   const wordsUnchanged = Boolean(wordDraft && wordsSeed
     && Object.keys({ ...wordsSeed, ...wordDraft }).every(
@@ -3101,8 +3499,8 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
 
   useEffect(() => {
     if (visEdit !== 'words') return;
-    setWordDraft(seedWordDraft(BEST_FIT_LAYOUT, activeSlide, day?.contentType || day?.format, {
-      documentHtml: carouselDocumentOf(day),
+    setWordDraft(seedWordDraft(composeLayoutOf(activeSlide) || BEST_FIT_LAYOUT, activeSlide, day?.contentType || day?.format, {
+      documentHtml: isManualSlide(activeSlide) || isBlankSlide(activeSlide) ? '' : carouselDocumentOf(day),
       direction: layoutDirectionOf(activeSlide),
     }));
   }, [visEdit, selected, safeIdx]);
@@ -3121,11 +3519,37 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
     const hasHead = roles.some((r) => r.key === 'head');
     const hasBody = roles.some((r) => r.key === 'body');
     const hasAnnote = roles.some((r) => r.key === 'annotation');
-    const primary = hasHead ? 'head' : (hasBody ? 'body' : roles[0]?.key);
-    const title = capText(wordDraft?.[primary] || '');
-    const patch = { title };
-    const subtitle = (hasHead && hasBody) ? capText(wordDraft?.body || '') : undefined;
-    if (subtitle !== undefined) patch.subtitle = subtitle;
+    const elLay = findElementLayout(activeSlide?.layout);
+    const isStack = activeSlide?.layout === 'el-stack';
+    let patch = {};
+    if (isStack) {
+      // Each role writes straight to its field. A role only exists while its
+      // element does, so this preserves every element on the slide and edits
+      // each independently; a role emptied to nothing drops that element.
+      const roleKeys = new Set(roles.map((r) => r.key));
+      ELEMENT_STACK_FIELDS.forEach(({ role, field }) => {
+        if (roleKeys.has(role)) patch[field] = capText(wordDraft?.[role] || '');
+      });
+    } else if (elLay) {
+      if (hasHead) patch.title = capText(wordDraft?.head || '');
+      if (hasBody) {
+        const line = capText(wordDraft?.body || '');
+        if (elLay.bodySlot === 'body') patch.body = line;
+        else patch.subtitle = line;
+      }
+      if (elLay.kind === 'body-block') {
+        patch.title = '';
+        if (elLay.bodySlot === 'body') patch.subtitle = '';
+        else patch.body = '';
+      }
+    } else {
+      const primary = hasHead ? 'head' : (hasBody ? 'body' : roles[0]?.key);
+      patch.title = capText(wordDraft?.[primary] || '');
+      const subtitle = (hasHead && hasBody) ? capText(wordDraft?.body || '') : undefined;
+      if (subtitle !== undefined) patch.subtitle = subtitle;
+    }
+    const title = patch.title ?? '';
+    const subtitle = patch.subtitle;
 
     let annotationText;
     if (hasAnnote) {
@@ -3159,11 +3583,18 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
       }));
     }
 
+    if (isManualSlide(activeSlide)) {
+      patch.manual = true;
+      patch.layout = elementLayoutForSlide({ ...activeSlide, ...patch });
+    }
+
     const index = Number(activeSlide?.index) > 0 ? Number(activeSlide.index) : safeIdx + 1;
     const direction = layoutDirectionOf(activeSlide);
-    const doc = carouselDocumentOf(day);
+    // A studio-built element slide is its own composition — it must never write
+    // its words back into the shared carousel document at its index.
+    const doc = isManualSlide(activeSlide) ? '' : carouselDocumentOf(day);
     let carouselHtml = doc
-      ? rewriteCarouselDocumentText(doc, { index, title, subtitle })
+      ? rewriteCarouselDocumentText(doc, { index, title, subtitle: subtitle ?? '' })
       : '';
     const live = findCarouselSlide(layoutFrameRef.current?.contentDocument, direction, index);
     if (live) {
@@ -3186,6 +3617,7 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
     if (hasLayoutOpts) {
       if (!draftOpt || optUnchanged) return;
       patchActiveSlide({
+        blank: false,
         layout: 'dynamic',
         layoutHtml: draftOpt.html,
         layoutTheme: themeDirectionOf(draftOpt) || '',
@@ -3198,7 +3630,7 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
     if (!draftId || layoutUnchanged) return;
     const next = findChangeLayout(draftId);
     const need = shotsForLayout(next);
-    patchActiveSlide({ layout: draftId, layoutHtml: '' });
+    patchActiveSlide({ blank: false, layout: draftId, layoutHtml: '' });
     setLayPick(null);
     if (need > 0) {
       setAskImgs(need);
@@ -4000,7 +4432,7 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
               >
                 <Glyph name={zone === 'visual' ? 'x' : 'pencil'} size={17} strokeWidth={2} />
               </button>
-              {/* the edit menu — shape, this picture, pictures, words
+              {/* the edit menu — Add elements, shape, this picture, pictures, words
                   (bauhly-v3 §818/§989/§993). Anchored under the pencil. */}
               {zone === 'visual' && !visEdit && !imgPick && (
                 <>
@@ -4009,46 +4441,97 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
                   onPointerDown={(e) => { e.preventDefault(); e.stopPropagation(); closeZone(); }}
                   aria-hidden="true"
                 />
-                <div className="wv-ig__menu" role="menu" aria-label="Edit this slide">
+                <div className="wv-ig__menuwrap">
+                <div
+                  className="wv-ig__menu"
+                  role="menu"
+                  aria-label="Edit this slide"
+                >
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className={`wv-ig__menuitem wv-ig__menuitem--sub${menuPane === 'elements' ? ' is-open' : ''}`}
+                    aria-haspopup="menu"
+                    aria-expanded={menuPane === 'elements'}
+                    onMouseEnter={() => setMenuPane('elements')}
+                    onClick={() => setMenuPane((p) => (p === 'elements' ? null : 'elements'))}
+                  >
+                    <Icon name="sparkle" size={17} strokeWidth={2} />
+                    <span className="wv-ig__menugrow">Add elements</span>
+                    <Icon name="chevron-right" size={16} strokeWidth={2} />
+                  </button>
                   {hasThemeOpts && (
-                    <button type="button" role="menuitem" className="wv-ig__menuitem" onClick={() => {
-                      setLayOpt(appliedOptIdx >= 0 ? appliedOptIdx : 0);
-                      setVisEdit('theme');
-                    }}>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      className="wv-ig__menuitem"
+                      onMouseEnter={() => setMenuPane(null)}
+                      onClick={() => {
+                        setMenuPane(null);
+                        setLayOpt(appliedOptIdx >= 0 ? appliedOptIdx : 0);
+                        setVisEdit('theme');
+                      }}
+                    >
                       <Icon name="swatch" size={17} strokeWidth={2} />
                       <span>Change theme</span>
                     </button>
                   )}
-                  <button type="button" role="menuitem" className="wv-ig__menuitem" onClick={() => {
-                    setLayPick(appliedId);
-                    setLayVarErr('');
-                    setLayOpt(null);
-                    setVisEdit('layout');
-                    // layoutOptions are NOT in the week's render payload (too
-                    // heavy) — load the stored ones now. An effect generates the
-                    // variations only if none exist once they're loaded.
-                    ensureRouteOptions();
-                  }}>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className="wv-ig__menuitem"
+                    onMouseEnter={() => setMenuPane(null)}
+                    onClick={() => {
+                      setMenuPane(null);
+                      setLayPick(appliedId);
+                      setLayVarErr('');
+                      setLayOpt(null);
+                      setVisEdit('layout');
+                      // layoutOptions are NOT in the week's render payload (too
+                      // heavy) — load the stored ones now. An effect generates the
+                      // variations only if none exist once they're loaded.
+                      ensureRouteOptions();
+                    }}
+                  >
                     <Icon name="dashboard" size={17} strokeWidth={2} />
                     <span>Change layout</span>
                   </button>
                   {hasEditImage && (
-                    <button type="button" role="menuitem" className="wv-ig__menuitem" onClick={openAdjust}>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      className="wv-ig__menuitem"
+                      onMouseEnter={() => setMenuPane(null)}
+                      onClick={openAdjust}
+                    >
                       <Icon name="crop" size={17} strokeWidth={2} />
                       <span>Edit image</span>
                     </button>
                   )}
-                  <button type="button" role="menuitem" className="wv-ig__menuitem" onClick={openImagePicker}>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className="wv-ig__menuitem"
+                    onMouseEnter={() => setMenuPane(null)}
+                    onClick={openImagePicker}
+                  >
                     <Icon name="image" size={17} strokeWidth={2} />
                     <span>Select images</span>
                   </button>
-                  <button type="button" role="menuitem" className="wv-ig__menuitem" onClick={() => {
-                    setWordDraft(seedWordDraft(BEST_FIT_LAYOUT, activeSlide, day?.contentType || day?.format, {
-                      documentHtml: carouselDocumentOf(day),
-                      direction: layoutDirectionOf(activeSlide),
-                    }));
-                    setVisEdit('words');
-                  }}>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className="wv-ig__menuitem"
+                    onMouseEnter={() => setMenuPane(null)}
+                    onClick={() => {
+                      setMenuPane(null);
+                      setWordDraft(seedWordDraft(composeLayoutOf(activeSlide) || BEST_FIT_LAYOUT, activeSlide, day?.contentType || day?.format, {
+                        documentHtml: isManualSlide(activeSlide) || isBlankSlide(activeSlide) ? '' : carouselDocumentOf(day),
+                        direction: layoutDirectionOf(activeSlide),
+                      }));
+                      setVisEdit('words');
+                    }}
+                  >
                     <Icon name="edit" size={17} strokeWidth={2} />
                     <span>Edit text</span>
                   </button>
@@ -4057,6 +4540,7 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
                       type="button"
                       role="menuitem"
                       className="wv-ig__menuitem"
+                      onMouseEnter={() => setMenuPane(null)}
                       onClick={handleMakeCover}
                       disabled={coverBusy}
                     >
@@ -4064,6 +4548,114 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
                       <span>{coverBusy ? 'Creating cover…' : 'Video cover'}</span>
                     </button>
                   )}
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className={`wv-ig__menuitem wv-ig__menuitem--sub${menuPane === 'add-slide' ? ' is-open' : ''}`}
+                    aria-haspopup="menu"
+                    aria-expanded={menuPane === 'add-slide'}
+                    onMouseEnter={() => setMenuPane('add-slide')}
+                    onClick={() => setMenuPane((p) => (p === 'add-slide' ? null : 'add-slide'))}
+                  >
+                    <Icon name="plus" size={17} strokeWidth={2} />
+                    <span className="wv-ig__menugrow">Add slide</span>
+                    <Icon name="chevron-right" size={16} strokeWidth={2} />
+                  </button>
+                </div>
+                {menuPane === 'elements' && (
+                  <div
+                    className="wv-ig__menuflyout"
+                    role="menu"
+                    aria-label="Add elements"
+                    onMouseEnter={() => setMenuPane('elements')}
+                  >
+                    <div className="wv-ig__flyhead">
+                      <strong>Add elements</strong>
+                      <span>{slideRoleName} slide</span>
+                    </div>
+                    <div className="wv-ig__flylist">
+                      {addElementsForRole(slideRoleName).map((el) => (
+                        <button
+                          key={el.id}
+                          type="button"
+                          role="menuitem"
+                          className="wv-ig__flyitem"
+                          onClick={() => addSlideElement(el)}
+                        >
+                          <Icon name={el.icon} size={18} strokeWidth={2} />
+                          <span className="wv-ig__flycopy">
+                            <span className="wv-ig__flylabel">{el.label}</span>
+                            <span className="wv-ig__flydesc">{el.desc}</span>
+                          </span>
+                          <span className="wv-ig__flyadd" aria-hidden="true">
+                            <Icon name="plus" size={16} strokeWidth={2.2} />
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                    <p className="wv-ig__flynote">
+                      <Icon name="info" size={14} strokeWidth={2} />
+                      <span>
+                        Only elements compatible with a {String(slideRoleName).toLowerCase()} slide
+                        and your content are shown.
+                      </span>
+                    </p>
+                  </div>
+                )}
+                {menuPane === 'add-slide' && (
+                  <div
+                    className="wv-ig__menuflyout wv-ig__menuflyout--addslide"
+                    role="menu"
+                    aria-label="Add slide"
+                    onMouseEnter={() => setMenuPane('add-slide')}
+                  >
+                    <div className="wv-ig__flyhead wv-ig__flyhead--back">
+                      <button
+                        type="button"
+                        className="wv-ig__flyback"
+                        aria-label="Back"
+                        onClick={() => setMenuPane(null)}
+                      >
+                        <Icon name="chevron-left" size={18} strokeWidth={2} />
+                      </button>
+                      <strong>Add slide</strong>
+                    </div>
+                    <div className="wv-ig__flylist">
+                      <button
+                        type="button"
+                        role="menuitem"
+                        className="wv-ig__flyitem"
+                        onClick={() => {
+                          addSlide();
+                          setMenuPane(null);
+                          closeZone();
+                        }}
+                      >
+                        <Icon name="file-plus" size={18} strokeWidth={2} />
+                        <span className="wv-ig__flycopy">
+                          <span className="wv-ig__flylabel">Add blank slide</span>
+                          <span className="wv-ig__flydesc">Add a new empty slide</span>
+                        </span>
+                      </button>
+                      <button
+                        type="button"
+                        role="menuitem"
+                        className="wv-ig__flyitem"
+                        onClick={() => {
+                          duplicateSlide();
+                          setMenuPane(null);
+                          closeZone();
+                        }}
+                      >
+                        <Icon name="files-plus" size={18} strokeWidth={2} />
+                        <span className="wv-ig__flycopy">
+                          <span className="wv-ig__flylabel">Duplicate slide</span>
+                          <span className="wv-ig__flydesc">Create a copy of this slide</span>
+                        </span>
+                      </button>
+                    </div>
+                  </div>
+                )}
                 </div>
                 </>
               )}
@@ -4118,7 +4710,7 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
                           role={r}
                           faceName={faceLabelFor(r.slot, vbStore)}
                           value={wordDraft[r.key] || ''}
-                          autoFocus={n === 0}
+                          autoFocus={wordFocus ? r.key === wordFocus : n === 0}
                           onChange={(next) => setWordDraft((d) => ({ ...(d || {}), [r.key]: next }))}
                         />
                       ))}

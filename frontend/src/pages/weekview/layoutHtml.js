@@ -467,6 +467,9 @@ export function themeDirectionOf(opt) {
 // variation, which is a standalone <style>+<article> fragment not in the
 // document. The distinction is the presence of a real theme direction.
 export function slideIsThemed(slide) {
+  // Empty studio-added pages never crop the carousel document.
+  if (slide?.blank || slide?.layout === 'blank') return false;
+  if (slide?.manual || String(slide?.layout || '').startsWith('el-')) return false;
   if (canonThemeId(slide?.layoutTheme)) return true;
   const opts = Array.isArray(slide?.layoutOptions) ? slide.layoutOptions : [];
   const applied = opts.find((o) => o.html && o.html === slide?.layoutHtml);

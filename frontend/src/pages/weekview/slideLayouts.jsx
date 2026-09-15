@@ -250,6 +250,85 @@ export function SlideCompose({
     );
   }
 
+  /* Add-elements: title only — no body, no photograph */
+  if (kind === 'statement') {
+    const line = copy.title || copy.quote || '';
+    return (
+      <div className="wv-fit wv-fit--statement">
+        <div className="wv-fit__copy">
+          <MarkedLine className="wv-fit__title" text={line} />
+        </div>
+      </div>
+    );
+  }
+
+  /* Add-elements: subtitle only, or body only — one text block, no headline */
+  if (kind === 'body-block') {
+    const line = copy.body || copy.sub;
+    return (
+      <div className="wv-fit wv-fit--statement">
+        <div className="wv-fit__copy">
+          <MarkedLine className="wv-fit__sub" text={line} />
+        </div>
+      </div>
+    );
+  }
+
+  /* Add-elements: title + subtitle (supporting line) */
+  if (kind === 'title-sub') {
+    return (
+      <div className="wv-fit wv-fit--statement">
+        <div className="wv-fit__copy">
+          <MarkedLine className="wv-fit__title" text={copy.title} />
+          <MarkedLine className="wv-fit__sub" text={copy.sub} />
+        </div>
+      </div>
+    );
+  }
+
+  /* Add-elements: title + body copy (body field, not subtitle) */
+  if (kind === 'title-body') {
+    return (
+      <div className="wv-fit wv-fit--statement">
+        <div className="wv-fit__copy">
+          <MarkedLine className="wv-fit__title" text={copy.title} />
+          <MarkedLine className="wv-fit__sub" text={copy.body} />
+        </div>
+      </div>
+    );
+  }
+
+  /* Add-elements: a composable stack — any combination of number, heading,
+     subtitle, body and quote, each an element the studio added and edits on its
+     own, drawn top-down in role order. Only elements that carry text show. */
+  if (kind === 'stack') {
+    const hasAny = copy.stat || copy.title || copy.sub || copy.body || copy.quote;
+    return (
+      <div className="wv-fit wv-fit--statement wv-fit--stack">
+        <div className="wv-fit__copy">
+          {copy.stat ? <MarkedLine className="wv-fit__stat" text={copy.stat} /> : null}
+          {copy.title ? <MarkedLine className="wv-fit__title" text={copy.title} /> : null}
+          {copy.sub ? <MarkedLine className="wv-fit__sub" text={copy.sub} /> : null}
+          {copy.body ? <MarkedLine className="wv-fit__body" text={copy.body} /> : null}
+          {copy.quote ? <MarkedLine className="wv-fit__quote" text={copy.quote} /> : null}
+          {!hasAny ? <span className="wv-fit__stackhint" aria-hidden="true">Add an element</span> : null}
+        </div>
+      </div>
+    );
+  }
+
+  /* Add-elements: key number */
+  if (kind === 'stat-only') {
+    return (
+      <div className="wv-fit wv-fit--statement">
+        <div className="wv-fit__copy">
+          <MarkedLine className="wv-fit__stat" text={copy.stat} />
+          <MarkedLine className="wv-fit__sub" text={copy.sub || copy.body || copy.title} />
+        </div>
+      </div>
+    );
+  }
+
   /* best-fit — stacked copy, optional full-bleed photo */
   return (
     <div className={`wv-fit${src ? ' has-photo' : ''}${showHint ? ' is-needvisual' : ''}`}>

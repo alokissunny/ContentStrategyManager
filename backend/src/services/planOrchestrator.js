@@ -1852,26 +1852,82 @@ async function writeLayout({ source, structure, post, dayBrief }) {
 // constrained hall situation…", "u1 support · verifiedTruth") — NOT copy. So the
 // copy source is `currentHtml` (read back per data-slot); the flattened fields
 // are used only as a fallback when there is no current composition.
+function mergeFilledCopy(fromHtml, flat) {
+  const filled = { ...(fromHtml?.filled || {}) };
+  const take = (key, value) => {
+    const next = optionalText(value);
+    if (!next) return;
+    if (!optionalText(filled[key])) filled[key] = next;
+  };
+  const takeList = (key, value) => {
+    const list = Array.isArray(value) ? value.map(optionalText).filter(Boolean) : [];
+    if (!list.length) return;
+    const cur = Array.isArray(filled[key]) ? filled[key].map(optionalText).filter(Boolean) : [];
+    if (!cur.length) filled[key] = list;
+    else {
+      const seen = new Set(cur.map((x) => x.toLowerCase()));
+      list.forEach((x) => { if (!seen.has(x.toLowerCase())) cur.push(x); });
+      filled[key] = cur;
+    }
+  };
+  take('title', flat.title);
+  take('subtitle', flat.subtitle);
+  take('body', flat.body);
+  take('stat', flat.stat);
+  take('quote', flat.quote);
+  take('action', flat.action);
+  take('comparisonA', flat.comparisonA);
+  take('comparisonB', flat.comparisonB);
+  takeList('items', flat.items);
+  takeList('itemsA', flat.itemsA);
+  takeList('itemsB', flat.itemsB);
+  takeList('labels', flat.labels);
+  if (optionalText(flat.stat) && Array.isArray(filled.stats) && filled.stats.length) {
+    const seen = new Set(filled.stats.map((x) => String(x).toLowerCase()));
+    if (!seen.has(String(flat.stat).toLowerCase())) filled.stats = [...filled.stats, flat.stat];
+  }
+  return filled;
+}
+
+function requiredCopyOf(filled) {
+  const out = [];
+  const seen = new Set();
+  const push = (v) => {
+    const t = optionalText(v);
+    if (!t) return;
+    const key = t.toLowerCase();
+    if (seen.has(key)) return;
+    seen.add(key);
+    out.push(t);
+  };
+  [
+    filled?.title, filled?.subtitle, filled?.body, filled?.quote, filled?.action,
+    filled?.stat, filled?.comparisonA, filled?.comparisonB,
+  ].forEach(push);
+  (Array.isArray(filled?.stats) ? filled.stats : []).forEach(push);
+  (Array.isArray(filled?.items) ? filled.items : []).forEach(push);
+  (Array.isArray(filled?.itemsA) ? filled.itemsA : []).forEach(push);
+  (Array.isArray(filled?.itemsB) ? filled.itemsB : []).forEach(push);
+  (Array.isArray(filled?.labels) ? filled.labels : []).forEach(push);
+  // Unslotted metric/label lines recovered from the parent HTML (e.g. dual
+  // "5.4 inches" / "7.6 inches" blocks) — these are what variations drop most.
+  (Array.isArray(filled?.extras) ? filled.extras : []).forEach(push);
+  return out;
+}
+
 function parentSlideCopyInput(slide, currentHtml) {
   const flat = flattenSlide(slide);
   const sourceVisual = slide?.visual && typeof slide.visual === 'object' ? slide.visual : (flat.visual || {});
   const fromHtml = copyFromLayoutHtml(currentHtml);
 
-  // Copy: from the baked layoutHtml when present (the real words), else the
-  // flattened fields as a fallback.
-  const filled = fromHtml
-    ? fromHtml.filled
-    : {
-      title: optionalText(flat.title),
-      subtitle: optionalText(flat.subtitle),
-      body: optionalText(flat.body),
-      items: Array.isArray(flat.items) ? flat.items : [],
-      comparisonA: optionalText(flat.comparisonA),
-      comparisonB: optionalText(flat.comparisonB),
-      stat: optionalText(flat.stat),
-      quote: optionalText(flat.quote),
-      action: optionalText(flat.action),
-    };
+  // Prefer baked layoutHtml copy (the real on-slide words), then merge any
+  // structured slide fields the HTML extractor missed — dual stats, comparison
+  // columns, and unslotted metric labels must not disappear in variations.
+  const filled = mergeFilledCopy(fromHtml, flat);
+  Object.keys(filled).forEach((k) => {
+    if (Array.isArray(filled[k]) && !filled[k].length) delete filled[k];
+    if (!Array.isArray(filled[k]) && !optionalText(filled[k])) delete filled[k];
+  });
 
   // Image: the real photograph is baked into the layoutHtml's <img> (the slide's
   // asset fields are usually empty). Prefer that; fall back to the slide fields.
@@ -1905,9 +1961,11 @@ function parentSlideCopyInput(slide, currentHtml) {
     compositionNote = 'No image slot. Text-led composition only.';
   }
 
+  const requiredCopy = requiredCopyOf(filled);
   return {
     index: Number(slide?.index) > 0 ? Number(slide.index) : 1,
     filled,
+    ...(requiredCopy.length ? { requiredCopy } : {}),
     ...(fromHtml?.fullText ? { fullText: fromHtml.fullText } : {}),
     compositionNote,
     visual,

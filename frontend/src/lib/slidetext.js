@@ -48,7 +48,13 @@ export const TEXT_ROLES = [
   { key: 'eyebrow', label: 'Eyebrow', slot: 'detail', hint: 'The small line above.' },
   { key: 'big', label: 'Number', slot: 'headline', hint: 'The figure the slide is about.' },
   { key: 'head', label: 'Heading', slot: 'headline', hint: 'The line the slide is about.' },
+  /* subtitle and quote are their own roles so an Add-elements slide can carry a
+     supporting line and a quotation as independently edited fields, stacked in
+     this drawing order. Library layouts never author these keys as strings, so
+     rolesOf() only surfaces them on the composable el-stack slide. */
+  { key: 'subtitle', label: 'Subtitle', slot: 'body', hint: 'A short supporting line.' },
   { key: 'body', label: 'Body', slot: 'body', hint: 'Everything under it.' },
+  { key: 'quote', label: 'Quote', slot: 'headline', hint: 'A quotation, set apart.' },
   { key: 'detail', label: 'Detail', slot: 'detail', hint: 'The note at the foot.' },
 ];
 
@@ -183,7 +189,7 @@ export function titleRuns(text) {
 const ROOM = 1.25;
 /* a floor, so a layout whose example is two words does not reject every real
    sentence a studio has ever written */
-const FLOOR = { head: 42, big: 6, eyebrow: 26, body: 90, detail: 64 };
+const FLOOR = { head: 42, big: 6, eyebrow: 26, subtitle: 60, body: 90, quote: 90, detail: 64 };
 /* a list entry is a label, not a sentence — the floor is the shortest thing
    that can still be a step ("Discover") plus room to say it differently */
 const LIST_FLOOR = 22;
