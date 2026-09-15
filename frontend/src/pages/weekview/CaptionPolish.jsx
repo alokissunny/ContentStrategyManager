@@ -5,7 +5,7 @@
  */
 import React, { useEffect, useRef, useState } from 'react';
 import Icon from '../../brand/Icon';
-import { polishCaption } from '../../api/routes';
+import { polishCaption } from '../../api/posts';
 import { POLISH_PLACEHOLDER } from '../../lib/polish';
 
 const MAKE_IT = [
@@ -83,7 +83,7 @@ export default function CaptionPolish({
     onBusy?.(true);
     setNote('');
     try {
-      const result = await polishCaption(routeId, dayIndex, { caption, instruction: next });
+      const result = await polishCaption(routeId, { caption, instruction: next });
       if (result.unchanged) {
         setNote(result.message || 'That would leave the caption exactly as it is.');
       } else if (result.caption != null) {

@@ -5,7 +5,7 @@
  */
 
 import { useSyncExternalStore } from 'react';
-import { generateRoute } from '../api/routes';
+import { generatePlan } from '../api/posts';
 
 const listeners = new Set();
 
@@ -21,8 +21,8 @@ function subscribe(listener) {
 const IDLE = {
   status: 'idle', // idle | generating | ready | error
   trigger: '',
-  route: null,
-  expectedWeeks: null,
+  posts: [],
+  count: null,
   error: '',
   startedAt: 0,
   watching: false,
@@ -74,8 +74,8 @@ export function consumePlanReady() {
   set({
     status: 'idle',
     trigger: '',
-    route: null,
-    expectedWeeks: null,
+    posts: [],
+    count: null,
     toast: snapshot.toast?.kind === 'done' ? null : snapshot.toast,
   });
   return taken;
@@ -87,21 +87,21 @@ export async function startPlanGeneration(trigger, extras = {}) {
   set({
     status: 'generating',
     trigger,
-    route: null,
-    expectedWeeks: null,
+    posts: [],
+    count: null,
     error: '',
     startedAt,
     toast: snapshot.watching ? null : busyToast(),
   });
   inFlight = (async () => {
     try {
-      const data = await generateRoute(trigger, extras);
-      const route = data.route || data;
+      const data = await generatePlan(trigger, extras);
+      const posts = Array.isArray(data.posts) ? data.posts : [];
       const watching = snapshot.watching;
       set({
         status: 'ready',
-        route,
-        expectedWeeks: data.expectedWeeks || null,
+        posts,
+        count: Number(data.count) || posts.length || null,
         error: '',
         toast: watching ? null : doneToast(),
       });

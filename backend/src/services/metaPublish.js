@@ -9,7 +9,7 @@
 
 const crypto = require('crypto');
 const MetaConnection = require('../models/MetaConnection');
-const WeeklyRoute = require('../models/WeeklyRoute');
+const PlannedPost = require('../models/PlannedPost');
 const { getPresignedMediaUrl } = require('./s3Client');
 const { allowedOrigins } = require('../config/origins');
 
@@ -597,14 +597,13 @@ async function createAndPublishMedia({ igId, token, graph, caption, imageUrls })
 }
 
 /**
- * Publish one planned day to Instagram via Content Publishing API.
+ * Publish one planned post to Instagram via Content Publishing API.
  * Used by the HTTP handler and the daily scheduled-publish job.
  */
-async function publishDayToInstagram({ userId, route, dayIndex, imageKeys, imageUrls }) {
-  const day = route.days[dayIndex];
-  if (!day) throw httpError(404, 'Day not found');
+async function publishPostToInstagram({ userId, post, imageKeys, imageUrls }) {
+  if (!post) throw httpError(404, 'Post not found');
 
-  const { conn, handle } = await resolveConnection(userId, route);
+  const { conn, handle } = await resolveConnection(userId, post);
   if (!conn?.accessToken || !conn.igUserId) {
     throw httpError(
       403,
@@ -615,26 +614,25 @@ async function publishDayToInstagram({ userId, route, dayIndex, imageKeys, image
     );
   }
 
-  const slides = day.content?.slides || [];
-  const storedKeys = Array.isArray(day.publishImageKeys) ? day.publishImageKeys : [];
+  const slides = post.content?.slides || [];
+  const storedKeys = Array.isArray(post.publishImageKeys) ? post.publishImageKeys : [];
   const requestedKeys = Array.isArray(imageKeys) ? imageKeys : [];
   const hasUrls = Array.isArray(imageUrls) && imageUrls.some(Boolean);
-  const hasMedia = slides.some((s) => s.assetKey) || day.content?.onScreenText?.length
+  const hasMedia = slides.some((s) => s.assetKey) || post.content?.onScreenText?.length
     || storedKeys.length || requestedKeys.length || hasUrls;
-  if (!hasMedia && !day.content?.caption) {
+  if (!hasMedia && !post.content?.caption) {
     throw httpError(400, 'This post needs a caption or at least one slide before publishing.');
   }
 
   await refreshIgTokenIfNeeded(conn);
 
   if (process.env.META_PUBLISH_LIVE !== '1') {
-    markDayPosted(day);
+    markDayPosted(post);
     conn.lastPublishAt = new Date();
     await conn.save();
-    route.markModified('days');
-    await route.save();
+    await post.save();
     return {
-      route,
+      post,
       published: true,
       live: false,
       message:
@@ -642,7 +640,7 @@ async function publishDayToInstagram({ userId, route, dayIndex, imageKeys, image
     };
   }
 
-  const caption = dayCaption(day);
+  const caption = dayCaption(post);
   const igId = conn.igUserId;
   const token = conn.accessToken;
   const graph = igGraphBase(conn);
@@ -650,13 +648,12 @@ async function publishDayToInstagram({ userId, route, dayIndex, imageKeys, image
   try {
     const already = await findRecentPublishedMedia(igId, token, graph, caption);
     if (already?.id) {
-      markDayPosted(day, already.id);
+      markDayPosted(post, already.id);
       conn.lastPublishAt = new Date();
       await conn.save();
-      route.markModified('days');
-      await route.save();
-      console.log(`[meta] day ${dayIndex} already on Instagram as ${already.id}`);
-      return { route, published: true, live: true, igMediaId: already.id };
+      await post.save();
+      console.log(`[meta] post ${post._id} already on Instagram as ${already.id}`);
+      return { post, published: true, live: true, igMediaId: already.id };
     }
 
     // Public, Graph-fetchable image URLs. Preference order:
@@ -681,27 +678,25 @@ async function publishDayToInstagram({ userId, route, dayIndex, imageKeys, image
     }
 
     const pub = await createAndPublishMedia({ igId, token, graph, caption, imageUrls: urls });
-    markDayPosted(day, pub.id);
+    markDayPosted(post, pub.id);
     conn.lastPublishAt = new Date();
     await conn.save();
-    route.markModified('days');
-    await route.save();
-    console.log(`[meta] published day ${dayIndex} to @${conn.igUsername || igId} as media ${pub.id}`);
-    return { route, published: true, live: true, igMediaId: pub.id };
+    await post.save();
+    console.log(`[meta] published post ${post._id} to @${conn.igUsername || igId} as media ${pub.id}`);
+    return { post, published: true, live: true, igMediaId: pub.id };
   } catch (err) {
     if (err.status && err.status < 500) throw err;
     console.error('[meta] publish failed:', err.message);
     try {
       const recent = await findRecentPublishedMedia(igId, token, graph, caption);
       if (recent?.id) {
-        markDayPosted(day, recent.id);
+        markDayPosted(post, recent.id);
         conn.lastPublishAt = new Date();
         await conn.save();
-        route.markModified('days');
-        await route.save();
+        await post.save();
         console.log(`[meta] publish error after Instagram accepted media ${recent.id}: ${err.message}`);
         return {
-          route,
+          post,
           published: true,
           live: true,
           igMediaId: recent.id,
@@ -716,25 +711,21 @@ async function publishDayToInstagram({ userId, route, dayIndex, imageKeys, image
 }
 
 /**
- * HTTP: publish one planned day. Uses the Meta connection whose IG username
- * matches the plan's handle.
+ * HTTP: publish one planned post. Uses the Meta connection whose IG username
+ * matches the post's handle.
  */
-async function publishDay(req, res) {
-  const route = await WeeklyRoute.findOne({ _id: req.params.id, user: req.user._id });
-  if (!route) return res.status(404).json({ message: 'Route not found' });
-
-  const index = Number(req.params.index);
-  if (!route.days[index]) return res.status(404).json({ message: 'Day not found' });
+async function publishPost(req, res) {
+  const post = await PlannedPost.findOne({ _id: req.params.id, user: req.user._id });
+  if (!post) return res.status(404).json({ message: 'Post not found' });
 
   const imageUrls = Array.isArray(req.body.imageUrls) && req.body.imageUrls.length
     ? req.body.imageUrls
     : (req.body.imageUrl ? [req.body.imageUrl] : undefined);
 
   try {
-    const result = await publishDayToInstagram({
+    const result = await publishPostToInstagram({
       userId: req.user._id,
-      route,
-      dayIndex: index,
+      post,
       imageKeys: req.body.imageKeys,
       imageUrls,
     });
@@ -754,8 +745,8 @@ module.exports = {
   startConnect,
   completeConnect,
   disconnect,
-  publishDay,
-  publishDayToInstagram,
+  publishPost,
+  publishPostToInstagram,
   resolveConnection,
   refreshIgTokenIfNeeded,
   publishingQuotaRemaining,

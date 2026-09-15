@@ -15,7 +15,7 @@
 
 import React, { Suspense, useEffect, useRef, useState } from 'react';
 import Icon from '../brand/Icon';
-import { getRoutes, getRouteById, clearCurrentMonth } from '../api/routes';
+import { getPosts, getPost, clearUpcoming } from '../api/posts';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { peekMetaOAuthResult, takeMetaOAuthResult, getMetaStatus, isMetaConnectedFor } from '../api/meta';
 import { useProjects, createProject, ensureProjects, addSession, sessionCount } from '../lib/projectsStore';
@@ -45,6 +45,24 @@ const DEFAULT_POST_WEEKDAYS = new Set([0, 2, 4]);
 
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July',
   'August', 'September', 'October', 'November', 'December'];
+
+/* Each PlannedPost is its own document now (no week container). The Calendar's
+ * grid + editor were built around a week `route` with a `days[]` array, so we
+ * wrap a post into a synthetic one-day "route": the post is both the route and
+ * its single day. `weekOf`/`startsAt` = the post's own date so the existing
+ * date helpers place it correctly. The day index is always 0. */
+function postToRoute(post) {
+  if (!post) return post;
+  return {
+    ...post,
+    _id: post._id,
+    weekOf: post.date,
+    startsAt: post.date,
+    instagramUsername: post.instagramUsername,
+    generatedAt: post.generatedAt || post.updatedAt,
+    days: [post],
+  };
+}
 
 /* Monday of the week containing `from` — mirrors backend routeController.mondayOf. */
 function mondayOf(from = new Date()) {
@@ -191,8 +209,10 @@ function startOfDay(date) {
   return d;
 }
 
-/* Lay posts onto calendar dates. The current month uses free days after today
- * (never Monday + slot, never today or the past). Other months keep stored dates. */
+/* Lay posts onto calendar dates. Each post already owns a real date (its slot),
+ * so every month simply places posts on their stored date — no redistribution.
+ * (The old week model had to spread a week's days across free future days;
+ * post-centric plans don't.) */
 function postsByCalendarDay(dayRows, year, month) {
   const byYmd = new Map();
   const rows = (dayRows || []).filter((row) => {
@@ -200,31 +220,11 @@ function postsByCalendarDay(dayRows, year, month) {
     if (!d) return false;
     return Boolean(String(d.title || '').trim() || String(d.format || '').trim());
   });
-  const today = startOfDay(new Date());
-  const viewingCurrent = year === today.getFullYear() && month === today.getMonth();
-
-  if (!viewingCurrent) {
-    rows.forEach((row) => {
-      if (!row.date) return;
-      if (row.date.getMonth() !== month || row.date.getFullYear() !== year) return;
-      byYmd.set(ymdKey(row.date), row);
-    });
-    return byYmd;
-  }
-
-  const inThisMonth = rows.filter((row) => {
-    if (!row.date) return true;
-    return row.date.getMonth() === month && row.date.getFullYear() === year;
+  rows.forEach((row) => {
+    if (!row.date) return;
+    if (row.date.getMonth() !== month || row.date.getFullYear() !== year) return;
+    byYmd.set(ymdKey(row.date), row);
   });
-  const lastDate = new Date(year, month + 1, 0).getDate();
-  let i = 0;
-  for (let n = 1; n <= lastDate && i < inThisMonth.length; n += 1) {
-    const dayStart = new Date(year, month, n);
-    if (dayStart <= today) continue;
-    const date = new Date(year, month, n, 12, 0, 0, 0);
-    byYmd.set(ymdKey(date), { ...inThisMonth[i], date });
-    i += 1;
-  }
   return byYmd;
 }
 
@@ -444,8 +444,8 @@ export default function YourPlans() {
   const prefetchWeek = (id) => {
     if (!id || fullCacheRef.current.has(id)) return;
     fullCacheRef.current.set(id, null);
-    getRouteById(id)
-      .then((full) => { if (full?._id === id) fullCacheRef.current.set(id, full); else fullCacheRef.current.delete(id); })
+    getPost(id)
+      .then((full) => { if (full?._id === id) fullCacheRef.current.set(id, postToRoute(full)); else fullCacheRef.current.delete(id); })
       .catch(() => fullCacheRef.current.delete(id));
   };
   const [capturing, setCapturing] = useState(false); // the Capture idea flow
@@ -466,10 +466,12 @@ export default function YourPlans() {
   const [metaStatus, setMetaStatus] = useState(null);
 
   async function reload() {
-    // One list call paints the calendar; current week + preparing are derived
-    // from it (preparing is included on GET /routes). Meta + projects load after.
-    const data = await getRoutes().catch(() => ({ routes: [], preparing: false }));
-    const all = data.routes || [];
+    // One list call paints the calendar; the "current" post + preparing are
+    // derived from it (preparing is included on GET /posts). Each post is wrapped
+    // as a synthetic one-day route so the calendar/editor keep working. Meta +
+    // projects load after.
+    const data = await getPosts().catch(() => ({ posts: [], preparing: false }));
+    const all = (data.posts || []).map(postToRoute);
     setRoutes(all);
     setCurrent(pickCurrentRoute(all));
     setPreparing(Boolean(data.preparing));
@@ -484,35 +486,11 @@ export default function YourPlans() {
     setMonthFilling(false);
   }
 
-  // Poll until the running month has the expected written weeks (and preferably
-  // next-month stubs), so the list fills without a tab switch.
-  function startMonthFillWatch(expectedWeeks = null) {
+  // Post-centric generation writes all its posts in one pass (no background
+  // next-month stubs to wait for), so there is nothing to poll — one reload
+  // after generation is enough. Kept as a no-op so call sites stay simple.
+  function startMonthFillWatch() {
     stopMonthFillWatch();
-    setMonthFilling(true);
-    let tries = 0;
-    const target = Number(expectedWeeks) || 0;
-    fillWatchRef.current = setInterval(async () => {
-      tries += 1;
-      try {
-        const { routes: all } = await reload();
-        const written = (all || []).filter((r) => !r.draft);
-        const drafts = (all || []).filter((r) => r.draft);
-        const now = new Date();
-        const monthWritten = written.filter((r) => {
-          const d = new Date(r.startsAt || r.weekOf);
-          return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
-        });
-        const haveEnough = target > 0
-          ? monthWritten.length >= target
-          : drafts.length > 0;
-        // Stubs are written after the parallel weeks — either signal means done.
-        if ((haveEnough && drafts.length > 0) || (haveEnough && tries >= 8) || tries >= 48) {
-          stopMonthFillWatch();
-        }
-      } catch {
-        if (tries >= 48) stopMonthFillWatch();
-      }
-    }, 2500);
   }
 
   useEffect(() => {
@@ -621,20 +599,20 @@ export default function YourPlans() {
   }, [gen.status]);
 
   useEffect(() => {
-    if (gen.status !== 'ready' || !gen.route) return undefined;
-    const route = gen.route;
-    const expectedWeeks = gen.expectedWeeks;
+    if (gen.status !== 'ready') return undefined;
     const hold = Math.max(0, 1800 - (Date.now() - gen.startedAt));
     const t = setTimeout(async () => {
       if (getPlanGeneration().status !== 'ready') return;
       consumePlanReady();
       await reload();
-      await open(route, 0);
+      // Post-centric: generation drops new posts onto empty calendar slots.
+      // Land back on the calendar so they're all visible, rather than opening
+      // one week.
+      setView('list');
       setReplanning(false);
-      startMonthFillWatch(expectedWeeks);
     }, hold);
     return () => clearTimeout(t);
-  }, [gen.status, gen.route, gen.startedAt, gen.expectedWeeks]);
+  }, [gen.status, gen.startedAt]);
 
   useEffect(() => {
     if (gen.status !== 'error') return;
@@ -683,14 +661,14 @@ export default function YourPlans() {
   async function onClearMonth() {
     if (clearing || replanning) return;
     const ok = window.confirm(
-      'Clear this month’s plan? The posts on this calendar will be deleted, along with next month’s scheduled weeks. Past months stay. This cannot be undone.',
+      'Clear upcoming posts? Every unpublished post from today onward will be deleted. Past and already-published posts stay. This cannot be undone.',
     );
     if (!ok) return;
     setError('');
     setClearing(true);
     stopMonthFillWatch();
     try {
-      await clearCurrentMonth();
+      await clearUpcoming();
       await reload();
       setSelected(null);
       setSelectedDay(0);
@@ -794,9 +772,8 @@ export default function YourPlans() {
         key={`${selected.instagramUsername || ''}-${selected._id || ''}-${selectedDay}`}
         route={selected}
         initialDay={selectedDay}
-        monthWeeks={monthWeeksOf(routes, selected)}
+        monthWeeks={[]}
         modeSwitch
-        onOpenWeek={(week) => open(week, 0)}
         onCaptured={() => runGenerate('capture')}
         onRouteChange={(route) => {
           if (!route?._id) return;
@@ -872,35 +849,53 @@ export default function YourPlans() {
   // A function declaration (hoisted) so effects defined earlier — and the
   // generation-ready handler that runs while the component has early-returned on
   // the "gen"/"week" views — can call it without a TDZ error.
-  async function open(route, dayIndex = 0) {
-    const hasContent = (route?.days || []).some(
-      (d) => d?.content && (Array.isArray(d.content.slides) || d.content.caption),
-    );
-    const id = route?._id;
-    const cached = id && fullCacheRef.current.get(id);
-    if (hasContent || cached) {
-      // Instant path: the route already carries content, or a background
-      // prefetch already warmed it.
-      setSelected(cached || route);
-    } else if (id) {
-      setOpening(true);
-      const full = await getRouteById(id).catch(() => null);
-      setOpening(false);
-      if (full?._id === id) fullCacheRef.current.set(id, full);
-      setSelected(full || route);
-    } else {
-      setSelected(route);
-    }
-    setSelectedDay(dayIndex);
+  // Open the Weekly view for a post: show its WHOLE calendar week (Mon–Sun) as
+  // the day rail, with the clicked post auto-selected. Each day is an
+  // independent post, so we gather the week's posts from the loaded list and
+  // fetch their full content (using the prefetch cache when warm).
+  async function open(clicked, _dayIndex = 0) {
+    const clickedPost = clicked?.days?.[0] || clicked;
+    const clickedId = clickedPost?._id;
+    const base = parseIsoDay(clickedPost?.date) || new Date();
+    const mon = startOfDay(mondayOf(base));
+    const sun = startOfDay(addDaysLocal(mon, 6));
+
+    const weekRoutes = (routes || [])
+      .filter((r) => {
+        const d = parseIsoDay(r.days?.[0]?.date);
+        return d && startOfDay(d) >= mon && startOfDay(d) <= sun;
+      })
+      .sort((a, b) => (parseIsoDay(a.days?.[0]?.date)?.getTime() || 0) - (parseIsoDay(b.days?.[0]?.date)?.getTime() || 0));
+    const list = weekRoutes.length ? weekRoutes : [clicked].filter(Boolean);
+
+    setOpening(true);
+    const fullPosts = await Promise.all(list.map(async (r) => {
+      const cached = fullCacheRef.current.get(r._id);
+      if (cached?.days?.[0]?.content) return cached.days[0];
+      const p = await getPost(r._id).catch(() => null);
+      if (p) fullCacheRef.current.set(r._id, postToRoute(p));
+      return p || r.days?.[0] || r;
+    }));
+    setOpening(false);
+
+    const days = fullPosts.filter(Boolean);
+    const idx = Math.max(0, days.findIndex((p) => String(p._id) === String(clickedId)));
+    const weekRoute = {
+      _id: `week-${clickedPost?.instagramUsername || ''}-${mondayKey(mon)}`,
+      instagramUsername: clickedPost?.instagramUsername,
+      days,
+    };
+    setSelected(weekRoute);
+    setSelectedDay(idx);
     setView('week');
   }
 
   const now = new Date();
   const isCurrentView = calCursor.year === now.getFullYear() && calCursor.month === now.getMonth();
-  const monthWeeks = weeksOverlappingMonth(routes, calCursor.year, calCursor.month);
-  const writtenMonthWeeks = monthWeeks.filter((w) => !w.draft);
-  const monthDays = monthDaysOf(writtenMonthWeeks);
-  const canReplan = isCurrentView && writtenMonthWeeks.length > 0;
+  // Every post is a synthetic one-day route; monthDaysOf turns each into a
+  // calendar day-row on its own date (the grid filters to the visible month).
+  const monthDays = monthDaysOf(routes);
+  const canReplan = isCurrentView && routes.length > 0;
   const monthLabel = `${MONTHS[calCursor.month]} ${calCursor.year}`;
   const calGroup = { start: new Date(calCursor.year, calCursor.month, 1, 12, 0, 0, 0) };
   const calendarHandle = current?.instagramUsername || routes[0]?.instagramUsername;
@@ -913,13 +908,11 @@ export default function YourPlans() {
     });
   };
 
+  // The "Weekly" tab now just opens a post — the current/first upcoming one.
   const openWeekly = () => {
-    const week = selected
-      || current
-      || writtenMonthWeeks[0]
-      || (routes || []).find((r) => !r.draft && (r.days || []).length);
-    if (!week) return;
-    open(week, selected && selected._id === week._id ? selectedDay : 0);
+    const post = selected || current || routes[0];
+    if (!post) return;
+    open(post, 0);
   };
 
   return (
@@ -964,7 +957,7 @@ export default function YourPlans() {
           value="monthly"
           onChange={(mode) => { if (mode === 'weekly') openWeekly(); }}
           onPrefetchWeekly={() => {
-            const week = selected || current || writtenMonthWeeks[0];
+            const week = selected || current || routes[0];
             if (week?._id) prefetchWeek(week._id);
           }}
         />

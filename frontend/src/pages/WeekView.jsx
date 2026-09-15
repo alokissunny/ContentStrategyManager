@@ -13,8 +13,29 @@ import Glyph from '../components/Glyph';
 import Icon from '../brand/Icon';
 import YourAnalysisModal from '../components/YourAnalysisModal';
 import ConnectMetaModal from '../components/ConnectMetaModal';
-import { markDayPublished, updateDayContent, replanWeek, scheduleDay, retryScheduledDay, setDayTime, runDayLayout, runSlideLayoutVariations, runDayCover, getRouteOptions, getDayDebug } from '../api/routes';
-import { getMetaStatus, publishDayToMeta, isMetaConnectedFor, metaConnectionFor, otherMetaConnections, rememberMetaOAuthReturn } from '../api/meta';
+import {
+  getPost,
+  generatePlan,
+  markPublished,
+  updatePostContent,
+  schedulePost,
+  retryScheduled,
+  setPostTime,
+  runPostLayout,
+  runSlideLayoutVariations as apiRunSlideLayoutVariations,
+  runPostCover,
+  getPostOptions,
+  getPostDebug,
+} from '../api/posts';
+import { getMetaStatus, publishPostToMeta, isMetaConnectedFor, metaConnectionFor, otherMetaConnections, rememberMetaOAuthReturn } from '../api/meta';
+
+// WeekView edits a WEEK of PlannedPosts (one per day). Its engine still works on
+// a `route` with a `days[]` array — YourPlans builds that array from the week's
+// posts — but each day is now an independent document with its own `_id`. The
+// per-day adapters that bridge the editor to the post-centric API are defined
+// INSIDE the component (below), because they key each call to
+// `days[index]._id` and merge the single-post response back into the current
+// week route (via routeRef), preserving the other days.
 import { mediaProxyUrl, videoProxyUrl, toDisplayUrl, isProxyUrl, rememberCdnBase, onCdnBase, getCdnBase, canvasSafeUrl, isProjectMediaKey, splitMediaKeys, iframeSafeUrl, projectKeysInText } from '../api/media';
 import { createImage, listGeneratedImages } from '../api/images';
 import { useProjects, uploadFiles } from '../lib/projectsStore';
@@ -1383,8 +1404,26 @@ function slidesPayload(slides, baseline = []) {
   });
 }
 
+// The page heading for a single post: a concise date (the single-post
+// equivalent of the old week's date-range label), e.g. "Wednesday, September
+// 16". Parses the date-only part locally so it never drifts a day across
+// timezones. The post's editorial title/hook lives in the preview, not here.
+function postHeading(day) {
+  if (!day) return 'Your post';
+  const m = String(day.date || '').match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (m) {
+    const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+    if (!Number.isNaN(d.getTime())) {
+      return d.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
+    }
+  }
+  return day.dateLabel || day.day || 'Your post';
+}
+
 function buildMarkdown(route) {
-  const lines = [`# Your week — ${route.weekLabel}`, `Focus: ${route.focus?.headline || ''}`, ''];
+  const first = (route.days || [])[0] || {};
+  const heading = first.title || first.dateLabel || first.day || 'Your post';
+  const lines = [`# ${heading}`, ''];
   (route.days || []).forEach((d) => {
     lines.push(`## ${d.day}${d.dateLabel ? ` (${d.dateLabel})` : ''} · ${d.format} · ${d.contentType}`);
     if (d.title) lines.push(`Title: ${d.title}`);
@@ -2265,6 +2304,31 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
   const persistGenRef = useRef(0);
   routeRef.current = route;
 
+  // ── Per-day API adapters ────────────────────────────────────────────────
+  // Bridge the editor's (routeId, dayIndex, …) calls to the post-centric API.
+  // Each day is its own PlannedPost, so the real id is days[index]._id (the
+  // passed routeId — the synthetic week id — is ignored). Responses are single
+  // posts; mergePost splices the updated post back into the current week route
+  // so the other days survive.
+  const postIdAt = (i) => routeRef.current?.days?.[i]?._id;
+  const mergePost = (updated) => {
+    const cur = routeRef.current;
+    if (!cur || !updated?._id) return cur;
+    return { ...cur, days: (cur.days || []).map((d) => (String(d._id) === String(updated._id) ? updated : d)) };
+  };
+  const updateDayContent = (_id, i, content) => updatePostContent(postIdAt(i), content).then(mergePost);
+  const markDayPublished = (_id, i, published) => markPublished(postIdAt(i), published).then(mergePost);
+  const scheduleDay = (_id, i, scheduledAt, extras) => schedulePost(postIdAt(i), scheduledAt, extras).then(mergePost);
+  const retryScheduledDay = (_id, i) => retryScheduled(postIdAt(i)).then(mergePost);
+  const setDayTime = (_id, i, { time } = {}) => setPostTime(postIdAt(i), time || '').then(mergePost);
+  const runDayLayout = (_id, i) => runPostLayout(postIdAt(i)).then((d) => ({ ...d, route: mergePost(d.post) }));
+  const runDayCover = (_id, i, visual) => runPostCover(postIdAt(i), visual).then((d) => ({ ...d, route: mergePost(d.post) }));
+  const runSlideLayoutVariations = (_id, i, slideIndex) => apiRunSlideLayoutVariations(postIdAt(i), slideIndex);
+  // Options are per-post; fetch each day's, index-aligned with route.days.
+  const getRouteOptions = () => Promise.all((routeRef.current?.days || []).map((d) => getPostOptions(d._id)));
+  const getDayDebug = (_id, i) => getPostDebug(postIdAt(i));
+  const publishDayToMeta = (_id, i, body) => publishPostToMeta(postIdAt(i), body).then((r) => ({ ...r, route: mergePost(r.post) }));
+
   const weekId = initialRoute?._id;
   useEffect(() => {
     if (!aiDebug.enabled && sideTab === 'debug') setSideTab('caption');
@@ -3084,11 +3148,10 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
   //                     the thing they just stepped out of
   async function saveTime() {
     if (!route || !day || !timeDraft || savingTime || timeUnchanged) return;
-    const { at, every } = timeDraft;
-    let payload;
-    if (every) payload = { postAtPref: at, time: '' };
-    else if (at === DEFAULT_TIME_24) payload = { postAtPref: '', time: '' };
-    else payload = { time: at };
+    // The cross-post "use this time every week" preference is gone with the
+    // week model — a time is set per post now. Default time clears it.
+    const { at } = timeDraft;
+    const payload = at === DEFAULT_TIME_24 ? { time: '' } : { time: at };
     setSavingTime(true);
     try {
       setRoute(await setDayTime(route._id, selected, payload));
@@ -3158,7 +3221,7 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `your-week-${(route.weekLabel || 'plan').replace(/\s+/g, '-')}.md`;
+    a.download = `post-${((day?.title || day?.dateLabel || day?.day || 'post')).replace(/\s+/g, '-')}.md`;
     a.click();
     URL.revokeObjectURL(url);
   }
@@ -3174,15 +3237,16 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
     setReplanning(true);
     setReplanMsg('');
     try {
-      const fresh = await replanWeek(route._id, 'replan-week');
-      if (fresh) {
-        setRoute(fresh);
-        setSelected(0);
-        setSlideIdx(0);
-        setVisEdit(null);
-      }
+      // Fill empty calendar slots with fresh posts. This is a calendar-level
+      // action (it creates OTHER posts, not this one), so we just report how
+      // many landed — the new posts appear on the calendar. This post is left
+      // exactly as it is.
+      const data = await generatePlan('fill-empty-slots');
+      const added = Number(data?.count) || (Array.isArray(data?.posts) ? data.posts.length : 0);
+      setReplanMsg(added ? `Added ${added} post${added === 1 ? '' : 's'} to empty days.` : 'No empty days to fill.');
+      onCaptured?.();
     } catch (err) {
-      setReplanMsg(err?.response?.data?.message || 'Could not replan this week. Try again in a moment.');
+      setReplanMsg(err?.response?.data?.message || 'Could not add posts just now. Try again in a moment.');
     } finally {
       setReplanning(false);
     }
@@ -4017,7 +4081,7 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
 
       {/* ── the plan's dates, and which week of the month ────────────────── */}
       <div className="wv-head">
-        <h1 className="wv-head__title">{route.weekLabel || route.focus?.headline || 'Your week'}</h1>
+        <h1 className="wv-head__title">{postHeading(day)}</h1>
         <div className="wv-head__side">
           {saving && <span className="wv-head__chip">Saving…</span>}
           {replanning && <span className="wv-head__chip">Adding posts to empty days…</span>}
@@ -4051,7 +4115,7 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
           otherConnections={otherMeta}
           onRememberReturn={() => rememberMetaOAuthReturn({
             expectedHandle: handle,
-            weekId: route?._id || null,
+            weekId: route?.days?.[selected]?._id || route?._id || null,
             day: selected,
           })}
           onClose={() => setConnectOpen(false)}

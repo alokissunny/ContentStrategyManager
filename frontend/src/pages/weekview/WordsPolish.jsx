@@ -6,7 +6,7 @@
  */
 import React, { useEffect, useRef, useState } from 'react';
 import Icon from '../../brand/Icon';
-import { polishCaption } from '../../api/routes';
+import { polishCaption } from '../../api/posts';
 import { POLISH_PLACEHOLDER_WORDS } from '../../lib/polish';
 
 const MAKE_IT = [
@@ -86,7 +86,7 @@ export default function WordsPolish({
     onBusy?.(true);
     setNote('');
     try {
-      const result = await polishCaption(routeId, dayIndex, {
+      const result = await polishCaption(routeId, {
         caption,
         instruction: next,
         kind: 'words',

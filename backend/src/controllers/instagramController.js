@@ -1,6 +1,5 @@
 const InstagramProfile = require('../models/InstagramProfile');
 const BrandAnalysisReport = require('../models/BrandAnalysisReport');
-const WeeklyRoute = require('../models/WeeklyRoute');
 const { scrapeProfile, scrapePosts } = require('../services/instagramScraper');
 const { findMetaConnectionForUsername, fetchViaGraph, fetchGraphProfilePicUrl } = require('../services/graphInstagram');
 const { generateBrandAnalysis, assessBrandDnaGaps } = require('../services/brandAnalysis');
@@ -9,7 +8,7 @@ const { cacheProfilePicture } = require('../services/profileAvatar');
 const { computeAuthorityFunnel } = require('../services/authorityFunnel');
 const { buildAnalysisOverview } = require('../services/analysisOverview');
 const { loadCompetitorOverviewForUser } = require('./competitorController');
-const { generateAndSaveRoute } = require('./routeController');
+const { generateAndSavePosts } = require('./postController');
 
 // The "current" handle is the one most recently activated (analyzed or switched
 // to in the header). fetchedAt is the tiebreaker so legacy rows — which predate
@@ -198,7 +197,7 @@ async function fetchInstagram(req, res) {
   // account's Brand DNA + history and, when an operator has assigned a
   // competitor cohort, that cohort's saved analysis. Fire-and-forget, since
   // planning takes a while and the analyze request shouldn't wait.
-  generateAndSaveRoute(req.user._id, snapshot, `analyze-${dataSource}`).catch((err) => {
+  generateAndSavePosts(req.user._id, snapshot, `analyze-${dataSource}`).catch((err) => {
     console.error(`[instagram] background plan refresh failed for @${username}:`, err.message);
   });
 
@@ -310,13 +309,15 @@ async function getAnalysisOverview(req, res) {
     return res.status(404).json({ message: 'No Instagram analysis yet. Connect a handle first.' });
   }
 
-  const [brandDna, cohortOverview, weeklyRoute] = await Promise.all([
+  const [brandDna, cohortOverview] = await Promise.all([
     loadBrandDna(req.user._id, profile.username),
     loadCompetitorOverviewForUser(req.user._id, profile.username),
-    WeeklyRoute.findOne({ user: req.user._id, instagramUsername: profile.username }).sort({ weekOf: -1 }),
   ]);
 
-  const overview = buildAnalysisOverview(profile, brandDna, cohortOverview, weeklyRoute);
+  // The analysis overview's funnel/week are recomputed from the profile; the old
+  // per-week plan focus is no longer persisted (posts carry no week focus), so
+  // there is nothing to overlay here.
+  const overview = buildAnalysisOverview(profile, brandDna, cohortOverview, null);
   res.json(overview);
 }
 

@@ -1,11 +1,15 @@
 /*
- * Daily scheduled-publish job. Finds days whose scheduledAt has passed,
+ * Daily scheduled-publish job. Finds posts whose scheduledAt has passed,
  * claims them, and publishes through the existing immediate Graph flow.
+ *
+ * Now that each post is its own PlannedPost document, claiming is a single
+ * atomic findOneAndUpdate on the document — no positional `days.${index}` array
+ * paths, and no scanning sibling days inside a week.
  */
 const crypto = require('crypto');
-const WeeklyRoute = require('../models/WeeklyRoute');
+const PlannedPost = require('../models/PlannedPost');
 const {
-  publishDayToInstagram,
+  publishPostToInstagram,
   resolveConnection,
   refreshIgTokenIfNeeded,
   publishingQuotaRemaining,
@@ -31,141 +35,120 @@ function cronAuthorized(req) {
   }
 }
 
+// Posts due to go out: unpublished, scheduled in the past, with rendered images,
+// and either waiting or a stale claim we can retake.
 function dueQuery(now) {
+  const stale = new Date(now.getTime() - STALE_MS);
   return {
-    days: {
-      $elemMatch: {
-        published: { $ne: true },
-        scheduledAt: { $ne: null, $lte: now },
-        'publishImageKeys.0': { $exists: true },
-        scheduleStatus: { $in: ['', 'ready', 'failed', 'publishing'] },
-      },
-    },
+    published: { $ne: true },
+    scheduledAt: { $ne: null, $lte: now },
+    'publishImageKeys.0': { $exists: true },
+    $or: [
+      { scheduleStatus: { $in: ['', 'ready', 'failed'] } },
+      { scheduleStatus: { $exists: false } },
+      { scheduleStatus: 'publishing', scheduleClaimedAt: { $lte: stale } },
+      { scheduleStatus: 'publishing', scheduleClaimedAt: { $exists: false } },
+    ],
   };
 }
 
-function isDueDay(day, now) {
-  if (!day || day.published) return false;
-  if (!day.scheduledAt || new Date(day.scheduledAt).getTime() > now.getTime()) return false;
-  const keys = Array.isArray(day.publishImageKeys) ? day.publishImageKeys.filter(Boolean) : [];
-  if (!keys.length) return false;
-  const status = String(day.scheduleStatus || '');
-  if (status === 'publishing') {
-    const claimed = day.scheduleClaimedAt ? new Date(day.scheduleClaimedAt).getTime() : 0;
-    return !claimed || now.getTime() - claimed >= STALE_MS;
-  }
-  return status === '' || status === 'ready' || status === 'failed';
-}
-
-async function claimDay(routeId, index, now) {
+// Atomically claim one post for publishing. Returns the claimed document, or
+// null if another worker got there first.
+async function claimPost(postId, now) {
   const stale = new Date(now.getTime() - STALE_MS);
-  return WeeklyRoute.findOneAndUpdate(
+  return PlannedPost.findOneAndUpdate(
     {
-      _id: routeId,
-      [`days.${index}.published`]: { $ne: true },
-      [`days.${index}.scheduledAt`]: { $lte: now },
-      [`days.${index}.publishImageKeys.0`]: { $exists: true },
+      _id: postId,
+      published: { $ne: true },
+      scheduledAt: { $lte: now },
+      'publishImageKeys.0': { $exists: true },
       $or: [
-        { [`days.${index}.scheduleStatus`]: { $in: ['', 'ready', 'failed'] } },
-        { [`days.${index}.scheduleStatus`]: { $exists: false } },
-        { [`days.${index}.scheduleStatus`]: 'publishing', [`days.${index}.scheduleClaimedAt`]: { $lte: stale } },
-        { [`days.${index}.scheduleStatus`]: 'publishing', [`days.${index}.scheduleClaimedAt`]: { $exists: false } },
+        { scheduleStatus: { $in: ['', 'ready', 'failed'] } },
+        { scheduleStatus: { $exists: false } },
+        { scheduleStatus: 'publishing', scheduleClaimedAt: { $lte: stale } },
+        { scheduleStatus: 'publishing', scheduleClaimedAt: { $exists: false } },
       ],
     },
     {
-      $set: {
-        [`days.${index}.scheduleStatus`]: 'publishing',
-        [`days.${index}.scheduleClaimedAt`]: now,
-        [`days.${index}.scheduleError`]: '',
-      },
+      $set: { scheduleStatus: 'publishing', scheduleClaimedAt: now, scheduleError: '' },
     },
     { new: true },
   );
 }
 
-async function markDayFailed(routeId, index, message) {
-  await WeeklyRoute.updateOne(
-    { _id: routeId },
+async function markPostFailed(postId, message) {
+  await PlannedPost.updateOne(
+    { _id: postId },
     {
       $set: {
-        [`days.${index}.scheduleStatus`]: 'failed',
-        [`days.${index}.scheduleError`]: String(message || 'Instagram publish failed').slice(0, 500),
+        scheduleStatus: 'failed',
+        scheduleError: String(message || 'Instagram publish failed').slice(0, 500),
       },
     },
   );
 }
 
-async function releaseClaim(routeId, index) {
-  await WeeklyRoute.updateOne(
-    { _id: routeId, [`days.${index}.scheduleStatus`]: 'publishing' },
-    {
-      $set: {
-        [`days.${index}.scheduleStatus`]: 'ready',
-        [`days.${index}.scheduleError`]: '',
-        [`days.${index}.scheduleClaimedAt`]: null,
-      },
-    },
+async function releaseClaim(postId) {
+  await PlannedPost.updateOne(
+    { _id: postId, scheduleStatus: 'publishing' },
+    { $set: { scheduleStatus: 'ready', scheduleError: '', scheduleClaimedAt: null } },
   );
 }
 
 async function runPublishDue() {
   const now = new Date();
-  const routes = await WeeklyRoute.find(dueQuery(now));
+  const due = await PlannedPost.find(dueQuery(now)).select('_id user instagramUsername scheduleStatus');
   const summary = { scanned: 0, published: 0, failed: 0, skipped: 0, live: 0 };
 
-  for (const found of routes) {
-    for (let i = 0; i < (found.days || []).length; i += 1) {
-      if (!isDueDay(found.days[i], now)) continue;
-      summary.scanned += 1;
+  for (const found of due) {
+    summary.scanned += 1;
 
-      let conn;
-      try {
-        const resolved = await resolveConnection(found.user, found);
-        conn = resolved.conn;
-        if (!conn?.accessToken || !conn.igUserId) {
-          await markDayFailed(found._id, i, resolved.handle
-            ? `Connect Instagram @${resolved.handle} to publish this plan.`
-            : 'Connect Instagram to publish this plan.');
-          summary.failed += 1;
-          continue;
-        }
-        await refreshIgTokenIfNeeded(conn);
-        const remaining = await publishingQuotaRemaining(conn);
-        if (remaining <= 0) {
-          console.warn(`[schedule] skip day ${i} on ${found._id}: Instagram 24h publish quota reached`);
-          if (String(found.days[i].scheduleStatus) === 'publishing') {
-            await releaseClaim(found._id, i);
-          }
-          summary.skipped += 1;
-          continue;
-        }
-      } catch (err) {
-        await markDayFailed(found._id, i, err.message);
+    let conn;
+    try {
+      const resolved = await resolveConnection(found.user, found);
+      conn = resolved.conn;
+      if (!conn?.accessToken || !conn.igUserId) {
+        await markPostFailed(found._id, resolved.handle
+          ? `Connect Instagram @${resolved.handle} to publish this plan.`
+          : 'Connect Instagram to publish this plan.');
         summary.failed += 1;
         continue;
       }
-
-      const claimed = await claimDay(found._id, i, now);
-      if (!claimed) {
+      await refreshIgTokenIfNeeded(conn);
+      const remaining = await publishingQuotaRemaining(conn);
+      if (remaining <= 0) {
+        console.warn(`[schedule] skip post ${found._id}: Instagram 24h publish quota reached`);
+        if (String(found.scheduleStatus) === 'publishing') {
+          await releaseClaim(found._id);
+        }
         summary.skipped += 1;
         continue;
       }
+    } catch (err) {
+      await markPostFailed(found._id, err.message);
+      summary.failed += 1;
+      continue;
+    }
 
-      try {
-        const result = await publishDayToInstagram({
-          userId: claimed.user,
-          route: claimed,
-          dayIndex: i,
-          imageKeys: claimed.days[i].publishImageKeys,
-        });
-        if (result.published) summary.published += 1;
-        if (result.live) summary.live += 1;
-        console.log(`[schedule] published ${claimed._id} day ${i}${result.live ? ' live' : ' locally'}`);
-      } catch (err) {
-        console.error(`[schedule] ${claimed._id} day ${i} failed:`, err.message);
-        await markDayFailed(claimed._id, i, err.message);
-        summary.failed += 1;
-      }
+    const claimed = await claimPost(found._id, now);
+    if (!claimed) {
+      summary.skipped += 1;
+      continue;
+    }
+
+    try {
+      const result = await publishPostToInstagram({
+        userId: claimed.user,
+        post: claimed,
+        imageKeys: claimed.publishImageKeys,
+      });
+      if (result.published) summary.published += 1;
+      if (result.live) summary.live += 1;
+      console.log(`[schedule] published post ${claimed._id}${result.live ? ' live' : ' locally'}`);
+    } catch (err) {
+      console.error(`[schedule] post ${claimed._id} failed:`, err.message);
+      await markPostFailed(claimed._id, err.message);
+      summary.failed += 1;
     }
   }
 

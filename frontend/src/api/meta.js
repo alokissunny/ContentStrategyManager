@@ -126,8 +126,8 @@ export function disconnectMeta(igUserId) {
   });
 }
 
-export function publishDayToMeta(routeId, dayIndex, body = {}) {
+export function publishPostToMeta(postId, body = {}) {
   return client
-    .post(`/meta/publish/${routeId}/day/${dayIndex}`, body, { timeout: 120000 })
+    .post(`/meta/publish/${postId}`, body, { timeout: 120000 })
     .then((r) => r.data);
 }

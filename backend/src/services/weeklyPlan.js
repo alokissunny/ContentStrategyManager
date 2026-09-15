@@ -228,6 +228,37 @@ function buildMonthCalendar({ monthDate = new Date(), routes = [], fromDate } = 
   };
 }
 
+// Post-centric variant of buildMonthCalendar. Instead of deriving occupancy
+// from week routes, take an explicit set of occupied ISO dates (the dates that
+// already hold a PlannedPost) and compute the empty calendar slots across the
+// fill horizon. Returns the same { month, today, occupied, emptyDates } shape
+// generateWeeklyPlan consumes, so the planner is unchanged — only the source of
+// "what's already taken" moved from weeks to individual posts.
+function buildEmptySlots({ fromDate = new Date(), occupiedDates = [] } = {}) {
+  const today = startOfLocalDay(fromDate);
+  const occupiedByIso = new Set(
+    (occupiedDates || [])
+      .map((d) => (d instanceof Date ? isoDate(d) : String(d || '')))
+      .filter(Boolean),
+  );
+  const occupied = [];
+  const emptyDates = [];
+  for (let i = 1; i <= FILL_HORIZON_DAYS; i += 1) {
+    const dt = addDays(today, i);
+    const iso = isoDate(dt);
+    const day = weekdayName(dt);
+    const slot = { date: iso, dayOfMonth: dt.getDate(), day, pillar: WEEKDAY_PILLAR[day] };
+    if (occupiedByIso.has(iso)) occupied.push(slot);
+    else emptyDates.push(slot);
+  }
+  return {
+    month: today.toLocaleDateString('en-US', { month: 'long', year: 'numeric' }),
+    today: isoDate(today),
+    occupied,
+    emptyDates,
+  };
+}
+
 function assignToEmptyDates(plannedDays, emptyDates) {
   const slots = Array.isArray(emptyDates) ? emptyDates : [];
   const planned = Array.isArray(plannedDays) ? plannedDays : [];
@@ -1105,6 +1136,7 @@ module.exports = {
   renderCompetitorInsights,
   renderProjectAssets,
   buildMonthCalendar,
+  buildEmptySlots,
   assignToEmptyDates,
   normalizeLens,
   dayHasContent,

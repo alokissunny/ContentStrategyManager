@@ -6,7 +6,7 @@ const {
   startConnect,
   completeConnect,
   disconnect,
-  publishDay,
+  publishPost,
 } = require('../services/metaPublish');
 
 const router = express.Router();
@@ -21,7 +21,7 @@ router.delete('/connect/:igUserId', asyncHandler(disconnect));
 // Legacy: disconnect every Meta connection for this user
 router.delete('/connect', asyncHandler(disconnect));
 
-// Publish a planned day to Instagram (requires Meta connection).
-router.post('/publish/:id/day/:index', asyncHandler(publishDay));
+// Publish a planned post to Instagram (requires Meta connection).
+router.post('/publish/:id', asyncHandler(publishPost));
 
 module.exports = router;
