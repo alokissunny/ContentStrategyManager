@@ -6,17 +6,19 @@
  * shows its seven-day route (WeekView). "Capture idea" runs generation behind
  * the RouteLoom stage (PlanLoom).
  *
- * Backend-wired: GET /routes/current (running plan for the active Instagram handle),
- * GET /routes (that handle's history), POST /routes/generate (build the next one).
- * Switching accounts in the header reloads; both endpoints follow the active handle.
+ * Backend-wired: GET /routes (plan history + preparing for the active Instagram
+ * handle). Current week is derived client-side. Meta status and a lite projects
+ * list load after first paint. Opening a day fetches GET /routes/:id (or a
+ * hover prefetch). POST /routes/generate builds the next plan.
+ * Switching accounts in the header reloads; list endpoints follow the active handle.
  */
 
 import React, { Suspense, useEffect, useRef, useState } from 'react';
 import Icon from '../brand/Icon';
-import { getCurrentRoute, getRoutes, getRouteById, clearCurrentMonth } from '../api/routes';
+import { getRoutes, getRouteById, clearCurrentMonth } from '../api/routes';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { peekMetaOAuthResult, takeMetaOAuthResult, getMetaStatus, isMetaConnectedFor } from '../api/meta';
-import { useProjects, createProject, refreshProjects, addSession, sessionCount } from '../lib/projectsStore';
+import { useProjects, createProject, ensureProjects, addSession, sessionCount } from '../lib/projectsStore';
 import {
   consumePlanReady,
   getPlanGeneration,
@@ -43,6 +45,26 @@ const DEFAULT_POST_WEEKDAYS = new Set([0, 2, 4]);
 
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July',
   'August', 'September', 'October', 'November', 'December'];
+
+/* Monday of the week containing `from` — mirrors backend routeController.mondayOf. */
+function mondayOf(from = new Date()) {
+  const d = new Date(from);
+  d.setHours(0, 0, 0, 0);
+  d.setDate(d.getDate() - ((d.getDay() + 6) % 7));
+  return d;
+}
+
+/* Running week from the light /routes list (same rules as GET /routes/current). */
+function pickCurrentRoute(routes) {
+  const written = (routes || []).filter((r) => !r.draft);
+  if (!written.length) return null;
+  const thisMonday = mondayOf();
+  const started = written
+    .filter((r) => new Date(r.weekOf) <= thisMonday)
+    .sort((a, b) => new Date(b.weekOf) - new Date(a.weekOf));
+  if (started.length) return started[0];
+  return [...written].sort((a, b) => new Date(a.weekOf) - new Date(b.weekOf))[0];
+}
 
 /* Written weeks in the same month as `week`, oldest first — the WeekView
  * navigator pages through these. Drafts (next-month placeholders) stay out. */
@@ -230,7 +252,7 @@ function calendarCellsOf(group, dayRows) {
   return cells;
 }
 
-function MonthCalendar({ group, days, onOpen, metaConnected }) {
+function MonthCalendar({ group, days, onOpen, onPrefetch, metaConnected }) {
   const cells = calendarCellsOf(group, days);
   const postWeekdays = new Set();
   cells.forEach((cell) => {
@@ -288,6 +310,7 @@ function MonthCalendar({ group, days, onOpen, metaConnected }) {
                 type="button"
                 className={cls.join(' ')}
                 onClick={() => onOpen(row.week, row.dayIndex)}
+                onPointerEnter={() => onPrefetch?.(row.week?._id)}
                 aria-label={label}
                 aria-current={now ? 'date' : undefined}
               >
@@ -310,7 +333,7 @@ function MonthCalendar({ group, days, onOpen, metaConnected }) {
   );
 }
 
-function CalModeTabs({ value, onChange }) {
+function CalModeTabs({ value, onChange, onPrefetchWeekly }) {
   return (
     <div className="cal-mode" role="tablist" aria-label="Calendar view">
       <button
@@ -328,6 +351,7 @@ function CalModeTabs({ value, onChange }) {
         aria-selected={value === 'weekly'}
         className={`cal-mode__btn${value === 'weekly' ? ' is-on' : ''}`}
         onClick={() => onChange('weekly')}
+        onPointerEnter={() => onPrefetchWeekly?.()}
       >
         Weekly
       </button>
@@ -435,23 +459,21 @@ export default function YourPlans() {
   const [monthFilling, setMonthFilling] = useState(false);
   const fillWatchRef = useRef(null);
   const captureGenStarted = useRef(false);
-  const projects = useProjects();
+  const projects = useProjects({ autoLoad: false });
   const { user } = useAuth();
   const [brandGaps, setBrandGaps] = useState([]);
   const [brandReportId, setBrandReportId] = useState(null);
   const [metaStatus, setMetaStatus] = useState(null);
 
   async function reload() {
-    const [cur, all, meta] = await Promise.all([
-      getCurrentRoute().catch(() => ({ route: null, preparing: false })),
-      getRoutes().catch(() => []),
-      getMetaStatus().catch(() => null),
-    ]);
-    setCurrent(cur.route || null);
-    setPreparing(Boolean(cur.preparing));
+    // One list call paints the calendar; current week + preparing are derived
+    // from it (preparing is included on GET /routes). Meta + projects load after.
+    const data = await getRoutes().catch(() => ({ routes: [], preparing: false }));
+    const all = data.routes || [];
     setRoutes(all);
-    setMetaStatus(meta);
-    return { current: cur.route || null, routes: all };
+    setCurrent(pickCurrentRoute(all));
+    setPreparing(Boolean(data.preparing));
+    return { current: pickCurrentRoute(all), routes: all };
   }
 
   function stopMonthFillWatch() {
@@ -495,34 +517,33 @@ export default function YourPlans() {
 
   useEffect(() => {
     reload().finally(() => setLoading(false));
-    // Fresh projects so wordless photo questions show up on this page.
-    refreshProjects().catch(() => {});
     return () => stopMonthFillWatch();
   }, []);
 
-  // Warm the full content of the visible month's weeks in the background once the
-  // calendar has painted, so opening a day is instant (no round trip). The list
-  // itself stays light; this fetches each week's content off the critical path.
-  const monthWeekIds = weeksOverlappingMonth(routes, calCursor.year, calCursor.month)
-    .filter((w) => !w.draft && w._id)
-    .map((w) => String(w._id))
-    .join(',');
+  // After the grid can paint: meta (schedule badges) + lite projects (NeedsAWord).
+  // Skips a forced /projects refresh when the store is already hydrated.
   useEffect(() => {
-    if (loading || view !== 'list' || !monthWeekIds) return undefined;
-    const ids = monthWeekIds.split(',');
-    const run = () => ids.forEach(prefetchWeek);
+    if (loading) return undefined;
+    let cancelled = false;
+    const run = () => {
+      if (cancelled) return;
+      getMetaStatus().then((meta) => { if (!cancelled) setMetaStatus(meta); }).catch(() => {});
+      ensureProjects({ lite: true }).catch(() => {});
+    };
     const ric = typeof window.requestIdleCallback === 'function'
-      ? window.requestIdleCallback(run, { timeout: 1500 })
-      : setTimeout(run, 300);
+      ? window.requestIdleCallback(run, { timeout: 2000 })
+      : setTimeout(run, 0);
     return () => {
+      cancelled = true;
       if (typeof window.cancelIdleCallback === 'function' && typeof ric === 'number') {
         try { window.cancelIdleCallback(ric); } catch { /* ignore */ }
       } else {
         clearTimeout(ric);
       }
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loading, view, monthWeekIds]);
+  }, [loading]);
+
+  // Full week bodies load on hover/intent (or on open) — not on every Calendar visit.
 
   // After Connect with Meta, reopen the week we left so a handle mismatch is obvious.
   useEffect(() => {
@@ -838,7 +859,7 @@ export default function YourPlans() {
               enquiries most — each with a reason behind it.
             </p>
             {error && <p className="ph__sub" style={{ color: 'var(--negative)' }}>{error}</p>}
-            <button className="btn btn--primary" onClick={() => setView('checkin')}>Let's plan your week</button>
+            <button className="btn btn--primary" onClick={() => { ensureProjects(); setView('checkin'); }}>Let's plan your week</button>
           </div>
         </div>
       </div>
@@ -907,7 +928,7 @@ export default function YourPlans() {
         <div className="ph__headrow">
           <h1 className="ph__title">Calendar</h1>
           <div className="ph__headacts">
-            <button className="btn btn--primary btn--sm ph__new" onClick={() => setCapturing(true)}>
+            <button className="btn btn--primary btn--sm ph__new" onClick={() => { ensureProjects(); setCapturing(true); }}>
               <Icon name="plus" size={15} strokeWidth={2.5} />
               Capture idea
             </button>
@@ -942,6 +963,10 @@ export default function YourPlans() {
         <CalModeTabs
           value="monthly"
           onChange={(mode) => { if (mode === 'weekly') openWeekly(); }}
+          onPrefetchWeekly={() => {
+            const week = selected || current || writtenMonthWeeks[0];
+            if (week?._id) prefetchWeek(week._id);
+          }}
         />
 
         <MonthMoreMenu
@@ -964,6 +989,7 @@ export default function YourPlans() {
               group={calGroup}
               days={monthDays}
               onOpen={open}
+              onPrefetch={prefetchWeek}
               metaConnected={calendarMetaConnected}
             />
           </div>

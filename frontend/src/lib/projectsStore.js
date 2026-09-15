@@ -25,6 +25,8 @@ let cache = [];
 let hydrated = false; // has the first fetch resolved? (avoids an empty flash)
 let loaded = false;
 let loading = null;
+/** 'lite' | 'full' — lite is enough for Calendar's NeedsAWord banner. */
+let detail = null;
 const listeners = new Set();
 
 function emit() { listeners.forEach((l) => l()); }
@@ -40,22 +42,36 @@ function upsert(project) {
 }
 function removeById(id) { cache = cache.filter((p) => p.id !== id); emit(); }
 
-async function load() {
-  const projects = await api.listProjects();
+async function load(mode = 'full') {
+  const projects = await api.listProjects({ lite: mode === 'lite' });
   hydrated = true;
+  detail = mode;
   setAll(projects);
 }
-function ensureLoaded() {
-  if (loaded) return loading;
+
+/**
+ * Hydrate the store if needed. `lite` skips understanding / conversation /
+ * analysis payloads — enough for Calendar's wordless-photo banner.
+ * Full detail always wins; a later full request upgrades a lite cache.
+ */
+export function ensureProjects({ lite = false } = {}) {
+  const want = lite ? 'lite' : 'full';
+  if (loaded && detail === 'full') return loading || Promise.resolve(cache);
+  if (loaded && want === 'lite' && detail) return loading || Promise.resolve(cache);
+  if (loaded && want === 'full' && detail === 'lite') {
+    loading = load('full').catch((err) => { loaded = false; detail = null; throw err; });
+    return loading;
+  }
+  if (loaded && loading) return loading;
   loaded = true;
-  loading = load().catch((err) => { loaded = false; throw err; });
+  loading = load(want).catch((err) => { loaded = false; detail = null; throw err; });
   return loading;
 }
 
-/** Force a fresh fetch — used when opening Your plans so wordless photos show up. */
+/** Force a fresh full fetch — mutations / account switch recovery. */
 export async function refreshProjects() {
   loaded = true;
-  loading = load().catch((err) => { loaded = false; throw err; });
+  loading = load('full').catch((err) => { loaded = false; detail = null; throw err; });
   return loading;
 }
 
@@ -65,12 +81,15 @@ export function resetProjects() {
   hydrated = false;
   loaded = false;
   loading = null;
+  detail = null;
   emit();
 }
 
-export function useProjects() {
+export function useProjects({ autoLoad = true, lite = false } = {}) {
   const projects = useSyncExternalStore(subscribe, () => cache);
-  useEffect(() => { ensureLoaded(); }, []);
+  useEffect(() => {
+    if (autoLoad) ensureProjects({ lite });
+  }, [autoLoad, lite]);
   return projects;
 }
 

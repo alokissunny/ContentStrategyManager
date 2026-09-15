@@ -693,7 +693,7 @@ async function getRoutes(req, res) {
   // Same handle scoping as getCurrentRoute — switching accounts in the header
   // must only show that account's archive, not every plan for the user.
   const profile = await currentProfile(req.user._id);
-  if (!profile) return res.json({ routes: [], username: null });
+  if (!profile) return res.json({ routes: [], username: null, preparing: false });
 
   // The Calendar list only needs day-level metadata (date, format, title,
   // contentType, status). `days.content` (slides + baked layoutHtml /
@@ -706,7 +706,12 @@ async function getRoutes(req, res) {
     instagramUsername: profile.username,
   }).sort({ weekOf: -1 }).select('-days.content -days.agentTrace').lean();
 
-  res.json({ routes, username: profile.username });
+  // Fold preparing into this list response so Calendar can skip GET /routes/current.
+  const hasWritten = routes.some((r) => !r.draft);
+  const preparing =
+    !hasWritten && Date.now() - new Date(profile.fetchedAt).getTime() < REGENERATING_WINDOW_MS;
+
+  res.json({ routes, username: profile.username, preparing });
 }
 
 // GET /routes/:id — the RENDER payload for WeekView: day content WITHOUT the

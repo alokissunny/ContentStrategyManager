@@ -25,16 +25,6 @@ const AGENTS = {
     modelEnv: 'PLAN_STRUCTURE_MODEL',
     providerEnv: 'PLAN_STRUCTURE_PROVIDER',
   },
-  day: {
-    defaultProvider: 'openai',
-    modelEnv: 'PLAN_DAY_MODEL',
-    providerEnv: 'PLAN_DAY_PROVIDER',
-  },
-  quality: {
-    defaultProvider: 'openai',
-    modelEnv: 'PLAN_QUALITY_MODEL',
-    providerEnv: 'PLAN_QUALITY_PROVIDER',
-  },
   layout: {
     defaultProvider: 'openai',
     modelEnv: 'PLAN_LAYOUT_MODEL',
@@ -53,11 +43,6 @@ const AGENTS = {
     modelEnv: 'PLAN_CAROUSEL_MODEL',
     providerEnv: 'PLAN_CAROUSEL_PROVIDER',
     defaultModel: 'gpt-6-astra',
-  },
-  visual: {
-    defaultProvider: 'openai',
-    modelEnv: 'PLAN_VISUAL_MODEL',
-    providerEnv: 'PLAN_VISUAL_PROVIDER',
   },
   cover: {
     defaultProvider: 'openai',

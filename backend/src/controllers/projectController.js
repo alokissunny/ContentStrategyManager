@@ -72,7 +72,7 @@ function serializeAnalysis(an) {
   };
 }
 
-async function serializeAttachment(a) {
+async function serializeAttachment(a, { lite = false } = {}) {
   // The client loads media from getMediaUrl: a stable, cacheable CDN URL when a
   // CDN is configured (MEDIA_CDN_BASE_URL), otherwise a short-lived presigned
   // S3 URL. Either way the DB only ever stores the object key.
@@ -84,7 +84,9 @@ async function serializeAttachment(a) {
       console.error('[projects] could not resolve media url for', a.key, err.message);
     }
   }
-  return { id: a._id.toString(), type: a.type, key: a.key, url, thumbnailUrl: url, analysis: serializeAnalysis(a.analysis) };
+  const out = { id: a._id.toString(), type: a.type, key: a.key, url, thumbnailUrl: url };
+  if (!lite) out.analysis = serializeAnalysis(a.analysis);
+  return out;
 }
 
 function sanitizeConversationTurns(raw) {
@@ -100,10 +102,27 @@ function sanitizeConversationTurns(raw) {
     .slice(0, 40);
 }
 
-async function serializeCapture(c) {
-  const stories = serializeStories(c.stories);
-  const understanding = serializeUnderstanding(c.understanding);
+async function serializeCapture(c, { lite = false } = {}) {
+  const stories = lite ? [] : serializeStories(c.stories);
+  const understanding = lite ? null : serializeUnderstanding(c.understanding);
   const storyRows = stories.length ? stories : (understanding ? [understanding] : []);
+  const attachments = await Promise.all(
+    (c.attachments || []).map((a) => serializeAttachment(a, { lite })),
+  );
+  // Calendar's NeedsAWord only needs ids, text/summary, and attachment urls.
+  if (lite) {
+    return {
+      id: c._id.toString(),
+      type: c.type,
+      text: c.text || '',
+      createdAt: c.createdAt,
+      sessionId: c.sessionId || '',
+      sessionKind: c.sessionKind || '',
+      sessionTitle: c.sessionTitle || '',
+      sessionSummary: c.sessionSummary || '',
+      attachments,
+    };
+  }
   return {
     id: c._id.toString(),
     type: c.type,
@@ -121,15 +140,15 @@ async function serializeCapture(c) {
     conversationTurns: sanitizeConversationTurns(c.conversationTurns),
     understanding,
     stories: storyRows,
-    attachments: await Promise.all((c.attachments || []).map(serializeAttachment)),
+    attachments,
   };
 }
 
-async function serializeProject(p) {
+async function serializeProject(p, { lite = false } = {}) {
   return {
     id: p._id.toString(),
     name: p.name,
-    captures: await Promise.all((p.captures || []).map(serializeCapture)),
+    captures: await Promise.all((p.captures || []).map((c) => serializeCapture(c, { lite }))),
     createdAt: p.createdAt,
     updatedAt: p.updatedAt,
   };
@@ -186,6 +205,7 @@ async function signUploads(req, res) {
 // Projects belong to the user's current Instagram account (see
 // utils/currentProfile), so they switch together with the header account.
 async function listProjects(req, res) {
+  const lite = ['1', 'true'].includes(String(req.query.lite || '').toLowerCase());
   const username = await currentUsername(req.user._id);
   const filter = { user: req.user._id };
   if (username) {
@@ -198,7 +218,7 @@ async function listProjects(req, res) {
     filter.instagramUsername = username;
   }
   const projects = await Project.find(filter).sort({ updatedAt: -1 });
-  res.json({ projects: await Promise.all(projects.map(serializeProject)) });
+  res.json({ projects: await Promise.all(projects.map((p) => serializeProject(p, { lite }))) });
 }
 
 async function createProject(req, res) {

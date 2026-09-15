@@ -8,7 +8,7 @@
 
 import React, { useMemo, useState } from 'react';
 import Icon from '../brand/Icon';
-import { useProjects, useProjectsHydrated, deleteEntry } from '../lib/projectsStore';
+import { useProjects, useProjectsHydrated, deleteEntry, ensureProjects } from '../lib/projectsStore';
 import { EntryPanel } from '../pages/Projects';
 
 /* Media with no usable note — empty / whitespace-only text. */
@@ -44,7 +44,7 @@ function fallbackLabel(capture) {
 }
 
 export default function NeedsAWord() {
-  const projects = useProjects();
+  const projects = useProjects({ autoLoad: false });
   const hydrated = useProjectsHydrated();
   const items = useMemo(() => wordlessCaptures(projects), [projects]);
   const [open, setOpen] = useState(null); // { project, entry }
@@ -75,7 +75,10 @@ export default function NeedsAWord() {
               <button
                 type="button"
                 className="nw-row__hit"
-                onClick={() => setOpen({ project, entry: capture })}
+                onClick={() => {
+                  ensureProjects().catch(() => {});
+                  setOpen({ project, entry: capture });
+                }}
                 aria-label={fallbackLabel(capture)}
               >
                 <span className="nw-row__thumb">

@@ -122,11 +122,9 @@ function gptParamsEnabled() {
 }
 
 function reasoningEffortFor(kind) {
-  if (kind === 'quality') return envChoice('PLAN_QUALITY_REASONING_EFFORT', GPT_EFFORTS, 'low');
   if (kind === 'conversation' || kind === 'capture') {
     return envChoice('CAPTURE_REASONING_EFFORT', GPT_EFFORTS, 'medium');
   }
-  if (kind === 'day') return envChoice('PLAN_DAY_REASONING_EFFORT', GPT_EFFORTS, 'medium');
   if (kind === 'structure') return envChoice('PLAN_STRUCTURE_REASONING_EFFORT', GPT_EFFORTS, 'medium');
   if (kind === 'layout') return envChoice('PLAN_LAYOUT_REASONING_EFFORT', GPT_EFFORTS, 'low');
   if (kind === 'layoutVariations') return envChoice('PLAN_LAYOUT_VARIATIONS_REASONING_EFFORT', GPT_EFFORTS, 'low');
@@ -140,7 +138,6 @@ function reasoningEffortFor(kind) {
     if (GPT_EFFORTS.includes(chosen)) return chosen;
     return envChoice('PLAN_CAROUSEL_REASONING_EFFORT', GPT_EFFORTS, 'low');
   }
-  if (kind === 'visual') return envChoice('PLAN_VISUAL_REASONING_EFFORT', GPT_EFFORTS, 'low');
   return envChoice('PLAN_STRATEGIST_REASONING_EFFORT', GPT_EFFORTS, 'medium');
 }
 

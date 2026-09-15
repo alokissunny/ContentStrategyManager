@@ -79,9 +79,15 @@ export function getCurrentRoute() {
   return client.get('/routes/current').then((res) => res.data);
 }
 
-// Every plan the user has — newest week first. Drives the Plans list history.
+// Every plan for the active handle — newest week first. Also returns `preparing`
+// so Calendar can skip a separate GET /routes/current on first paint.
+// → { routes, preparing, username }
 export function getRoutes() {
-  return client.get('/routes').then((res) => res.data.routes || []);
+  return client.get('/routes').then((res) => ({
+    routes: res.data.routes || [],
+    preparing: Boolean(res.data.preparing),
+    username: res.data.username || null,
+  }));
 }
 
 // Delete the running month's written weeks and next-month placeholders.

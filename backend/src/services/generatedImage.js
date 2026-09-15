@@ -1,6 +1,7 @@
 /*
  * Shared image-generation helpers used by WeekView "Create image" and by the
- * plan Visual Generator agent. Guardrails live here so the two paths cannot drift.
+ * Standalone image generation for studio / library tools.
+ * Guardrails live here so callers share one storage path.
  */
 
 const crypto = require('crypto');

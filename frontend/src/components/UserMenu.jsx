@@ -74,10 +74,11 @@ export default function UserMenu({ compact = false }) {
     navigate(path);
   }
 
-  // Settings, Business memory (the brand profile) and Competitor overview live
+  // Settings, Visual Library, Business memory and Competitor overview live
   // here in the account menu rather than the main nav.
   const LINKS = [
     { label: 'Settings', icon: 'settings', to: '/dashboard/settings' },
+    { label: 'Visual Library', icon: 'layout-grid', to: '/dashboard/visual-library' },
     { label: 'Business memory', icon: 'file-text', to: '/dashboard/brand-dna' },
     { label: 'Competitor overview', icon: 'trending-up', to: '/dashboard/competitor-overview' },
   ];

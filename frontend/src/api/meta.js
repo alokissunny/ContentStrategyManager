@@ -1,7 +1,24 @@
 import client from './client';
 
-export function getMetaStatus() {
-  return client.get('/meta/status').then((r) => r.data);
+let cachedStatus = null;
+let inflight = null;
+
+export function clearMetaStatusCache() {
+  cachedStatus = null;
+  inflight = null;
+}
+
+/** Meta IG connection status. Shared in-memory cache so Calendar + sidebar share one fetch. */
+export function getMetaStatus({ force = false } = {}) {
+  if (!force && cachedStatus) return Promise.resolve(cachedStatus);
+  if (!force && inflight) return inflight;
+  inflight = client.get('/meta/status')
+    .then((r) => {
+      cachedStatus = r.data;
+      return cachedStatus;
+    })
+    .finally(() => { inflight = null; });
+  return inflight;
 }
 
 export function metaConnectionsList(status) {
@@ -92,15 +109,21 @@ export function startMetaConnect() {
 }
 
 export function completeMetaConnect(code, state) {
-  return client.post('/meta/connect/complete', { code, state, redirectUri: metaCallbackUri() }).then((r) => r.data);
+  return client.post('/meta/connect/complete', { code, state, redirectUri: metaCallbackUri() }).then((r) => {
+    cachedStatus = r.data;
+    return r.data;
+  });
 }
 
 /** Disconnect one Meta IG account. Pass igUserId from status.connections[]. */
 export function disconnectMeta(igUserId) {
-  if (igUserId) {
-    return client.delete(`/meta/connect/${encodeURIComponent(igUserId)}`).then((r) => r.data);
-  }
-  return client.delete('/meta/connect').then((r) => r.data);
+  const req = igUserId
+    ? client.delete(`/meta/connect/${encodeURIComponent(igUserId)}`)
+    : client.delete('/meta/connect');
+  return req.then((r) => {
+    cachedStatus = r.data;
+    return r.data;
+  });
 }
 
 export function publishDayToMeta(routeId, dayIndex, body = {}) {

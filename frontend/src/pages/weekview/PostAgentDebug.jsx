@@ -375,7 +375,7 @@ export default function PostAgentDebug({
         </p>
       ) : null}
       <p className="wv-agentdbg__lead">
-        Agent outputs for this post. Strategy decides the brief; Structure locks the slide map; Carousel composes three HTML layout directions. Day Writer, Visual, and Layout are skipped.
+        Agent outputs for this post. Strategy decides the brief; Structure locks the slide map; Carousel composes HTML layout directions. Slide content is derived from Structure.
       </p>
       {staleShell ? (
         <p className="wv-agentdbg__empty">

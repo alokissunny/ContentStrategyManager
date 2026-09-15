@@ -49,8 +49,10 @@ function ingestAiDebug(label, data = {}) {
 
 // Projects — Bauhly's long-term memory, backed by the API (Mongo + S3 media).
 
-export function listProjects() {
-  return client.get('/projects').then((r) => r.data.projects || []);
+export function listProjects({ lite = false } = {}) {
+  return client
+    .get('/projects', { params: lite ? { lite: '1' } : undefined })
+    .then((r) => r.data.projects || []);
 }
 export function createProject(name) {
   return client.post('/projects', { name }).then((r) => r.data.project);
