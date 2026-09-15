@@ -1,7 +1,9 @@
 /*
  * Instagram account switcher — the current handle, with a dropdown to switch
  * between connected accounts or add another. Switching calls /instagram/activate,
- * then reloads so every page picks up the new account.
+ * then does a SOFT switch: it updates the reactive active handle (lib/store),
+ * which remounts the routed page (DashboardLayout keys content on the handle) so
+ * every page re-fetches for the new account — no full browser reload.
  *
  * `variant="sidebar"` fills the sidebar footer (desktop). `variant="header"` is
  * the compact pill used in the app header on tablet and phone.
@@ -104,16 +106,23 @@ export default function AccountSwitcher({ variant = 'header' }) {
     if (username === current.username || switching) return;
     setSwitching(username);
     try {
-      // Select the target account's store namespace *before* the reload, so the
-      // Visual Library / Library Settings pages come back on the new account's
-      // own data with no cross-account flash.
-      syncHandle(username);
+      // Soft switch — no full page reload. Order matters:
+      //  1. clear the (account-scoped) projects store so nothing stale lingers,
+      //  2. tell the backend this handle is now current (bumps activatedAt) so
+      //     "current profile" endpoints return it, THEN
+      //  3. syncHandle → points the client store namespace at the new handle and
+      //     notifies useActiveHandle subscribers, which remounts the routed page
+      //     (DashboardLayout keys content on the handle) so every page re-fetches
+      //     for the new account. Activating first avoids the remounted page
+      //     fetching the OLD current mid-switch.
       resetProjects();
-      await activateInstagramProfile(username);
-      // The current handle drives plans, brand profile and analysis app-wide;
-      // a full reload is the simplest way to refresh every page's data.
-      window.location.reload();
+      const data = await activateInstagramProfile(username);
+      if (data?.profiles?.length) setProfiles(data.profiles); // new current first → switcher updates
+      syncHandle(username);
+      setOpen(false);
     } catch {
+      /* leave the current account selected; the switch simply didn't take */
+    } finally {
       setSwitching('');
     }
   }

@@ -8,9 +8,15 @@ import AiDebugPanel from './AiDebugPanel';
 import GenerationToast from './GenerationToast';
 import { Logo } from '../brand/Logo';
 import { useScrollHide } from '../hooks/useScrollHide';
+import { useActiveHandle } from '../lib/store';
 
 export default function DashboardLayout({ children }) {
   const { pathname } = useLocation();
+  // The active Instagram handle scopes almost every page's data. Switching it
+  // (AccountSwitcher) re-keys the routed content below, remounting the current
+  // page so its mount fetches re-run for the new account — a React remount, not
+  // a full browser reload (no JS re-download, no asset waterfall).
+  const activeHandle = useActiveHandle();
   // Onboarding is a focused, full-screen flow — hide the app chrome so nothing
   // distracts from it, and skip `.app` so it keeps the marketing typefaces.
   const hideNav = pathname.startsWith('/onboarding');
@@ -57,7 +63,9 @@ export default function DashboardLayout({ children }) {
 
       <div className="app__body">
         <Sidebar />
-        <main className="app__main">{content}</main>
+        <main className="app__main">
+          <React.Fragment key={activeHandle || 'no-account'}>{content}</React.Fragment>
+        </main>
       </div>
       <AiDebugPanel />
       <GenerationToast />

@@ -270,6 +270,22 @@ export function getActiveHandle() {
   return activeHandle;
 }
 
+// Reactive current handle. The account switcher calls syncHandle() on a switch,
+// which notifies these listeners; a component reading this re-renders with the
+// new handle. Used to remount handle-scoped pages on a soft (no-reload) switch.
+// activeHandle is a stable primitive, so unrelated store edits (setState on the
+// visual-brand blob) don't trigger a re-render here.
+export function useActiveHandle() {
+  return useSyncExternalStore(
+    (fn) => {
+      listeners.add(fn);
+      return () => listeners.delete(fn);
+    },
+    () => activeHandle,
+    () => activeHandle,
+  );
+}
+
 export function useStore() {
   return useSyncExternalStore(
     (fn) => {
