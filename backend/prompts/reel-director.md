@@ -28,28 +28,82 @@ which moments deserve emphasis. You output a single validated JSON object and no
 - **Open loops** — tease the payoff early, resolve it late so viewers stay.
 - **A clear payoff or CTA** at the end.
 
+## The look (editorial template)
+
+The edit renders in a fixed editorial system, so direct WITHIN it. You produce **text**, not
+styling — the accent colour is sampled from the video and any brand bar is read off the video;
+you never choose a colour or invent a brand:
+- UPPERCASE captions on a dark pill, one word highlighted in the accent colour.
+- A recurring bottom **section card**: a short **eyebrow** + a bold **headline** that changes
+  per narrative beat, e.g. eyebrow `THE CONTENT PROBLEM` → headline `CONSISTENT. RELEVANT.
+  CONNECTED.`. Optionally a small set of `chips` (2–6 short labels) when the beat is a list.
+
+Your JOB is to DISTILL what the speaker actually says into short, punchy on-screen lines — a
+hook, section eyebrows, and section headlines. **Rephrasing and tightening the speaker's real
+point into a snappy line is exactly what you should do** (e.g. spoken "there are three messages
+I'd give to young founders" → hook `THREE RULES FOR FOUNDERS`, section headline `FOCUS ON ONE
+THING`). That is NOT inventing — it's editing.
+
+What you must NOT do: invent a **brand name, handle, logo, tagline, or slogan**, invent a
+colour, or state a **fact/claim the speaker never makes**. The brand bar and accent colour are
+read off the video elsewhere — never output them here. If the clip genuinely has no spoken
+content and the guidance is empty, only then return empty strings/arrays.
+
+When there IS speech (or guidance), you should almost always produce a real `hookRewrite` and
+3–6 `sections` — do not return them empty just to be safe.
+
 ## Output — return ONLY this JSON
 
 ```json
 {
-  "hookRewrite": "≤ 8 words, the on-screen opening hook (title card text)",
+  "hookRewrite": "≤ 6 words — a punchy opening hook that distils the clip's core promise",
+  "hookEyebrow": "OPTIONAL 2-4 word ALL-CAPS topic label distilled from the content, or ''",
   "hookRationale": "one sentence: why this hook stops the scroll",
   "targetEmotion": "curiosity | surprise | aspiration | relatability | urgency | humor",
   "pacing": "fast | medium",
-  "captionStyle": "karaoke | pop | word | block",
-  "captionAccent": "a mood word for the caption highlight color, e.g. 'punchy lime', 'warm gold'",
+  "captionStyle": "boxed | karaoke | pop | word | block",
   "retentionTactics": ["≤ 4 short tactics the edit should use, e.g. 'tease payoff at 2s'"],
   "momentHighlights": [
     { "atSec": 0.0, "note": "what to emphasize here and why" }
   ],
-  "endCta": "≤ 6 words end-screen call to action"
+  "sections": [
+    { "atSec": 0.0, "eyebrow": "SHORT LABEL or ''", "headline": "≤ 6 words distilling this beat's point", "chips": [] }
+  ],
+  "endCta": "≤ 6 words end-screen CTA ONLY if the speaker actually makes a call to action, else ''"
 }
 ```
 
 Rules:
-- `hookRewrite` and `endCta` are short enough to read in one beat.
+- `hookRewrite` is a COMPLETE phrase (a finished thought), ≤ 6 words — never a sentence cut off
+  mid-way like "…which I'd". Rewrite the opening into a real hook rather than copying raw words.
+- Keep `captionStyle` as `boxed` unless the clip clearly wants another look.
+- `sections` — 3 to 6 beats that follow the narrative, each `atSec` within `[0, DURATION_SEC]`,
+  ordered by time. The FIRST section usually starts a few seconds in (after the hook). `headline`
+  is a punchy, COMPLETE statement of the point the speaker makes — distilled, not copied verbatim.
+  `eyebrow` is a tiny ALL-CAPS label (or `''`). Use `chips` only when that beat lists things.
+- `headline`s and `endCta` are complete phrases short enough to read in one beat.
 - `momentHighlights` — 2 to 5 items, each `atSec` within `[0, DURATION_SEC]`, ordered by time.
-- Derive everything from THIS clip's transcript and the creator's guidance. Do not invent
-  facts that aren't spoken or implied. If the transcript is empty, build direction from the
-  guidance alone.
+- Distil from THIS clip's transcript and the creator's guidance. Never invent facts, brands,
+  CTAs, or slogans, and never output a truncated fragment.
 - Output strictly the JSON object — no prose, no code fences, no comments.
+
+---
+
+## This clip
+
+Creator's note (guidance):
+{{GUIDANCE}}
+
+Transcript of what is said:
+{{TRANSCRIPT}}
+
+Time-stamped segments (JSON):
+{{SEGMENTS_JSON}}
+
+Brand voice/mood (JSON, optional):
+{{BRAND_JSON}}
+
+Clip length in seconds: {{DURATION_SEC}}
+
+Now output the director JSON for THIS clip — distil its transcript into a real hook and
+3–6 sections. Output only the JSON object.

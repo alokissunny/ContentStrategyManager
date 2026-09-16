@@ -17,16 +17,17 @@ import { Link } from 'react-router-dom';
 import Icon from '../../brand/Icon';
 import { useFeatureFlags } from '../../lib/featureFlags';
 import { uploadReelClip, editReel, isSupportedVideo } from '../../api/reels';
+import { sampleVideoFrames } from '../../lib/reelFrames';
 import './reelEditor.css';
 
 const MAX_DURATION_SEC = 60;
 const DURATION_TOLERANCE = 1.5; // allow slightly-over clips
 const SUGGESTIONS = ['Make it punchy', 'Educational tone', 'Storytime', 'Add a strong CTA'];
 const AGENT_STEPS = [
-  'Transcribing & timing captions',
+  'Watching the video & transcribing',
   'Directing the hook & pacing',
   'Styling captions',
-  'Placing on-screen animations',
+  'Placing animations & pointers',
 ];
 
 // Inline safety sizing — applied regardless of whether the stylesheet loaded.
@@ -116,11 +117,44 @@ function AnimationLayer({ animations, time, duration }) {
           );
         }
         if (time < a.start || time > a.end) return null;
-        if (a.type === 'zoom') return null; // handled on the video wrapper
+        if (a.type === 'zoom' || a.type === 'title') return null; // title → TitleCard; zoom → video wrapper
+        const opacity = animOpacity(a, time);
+        const x = a.position?.x ?? 50;
+        const y = a.position?.y ?? 50;
+
+        // Context-anchored pointers — positioned on a real on-screen subject.
+        if (a.type === 'spotlight') {
+          return (
+            <div
+              key={i}
+              className="rl-anim rl-anim--spotlight"
+              style={{ opacity, background: `radial-gradient(circle at ${x}% ${y}%, rgba(0,0,0,0) 0, rgba(0,0,0,0) 10%, rgba(0,0,0,0.55) 24%)` }}
+            />
+          );
+        }
+        if (a.type === 'pointer') {
+          return (
+            <div key={i} className="rl-anim rl-anim--pointer" style={{ left: `${x}%`, top: `${y}%`, opacity }}>
+              <span className="rl-ring" />
+              <span className="rl-ring rl-ring--2" />
+              <span className="rl-dot" />
+            </div>
+          );
+        }
+        if (a.type === 'label') {
+          return (
+            <div key={i} className="rl-anim rl-anim--labelwrap" style={{ left: `${x}%`, top: `${y}%`, opacity }}>
+              <span className="rl-label__pill" style={{ transform: `translate(-50%, calc(-100% - 20px)) ${motionTransform(a, time)}` }}>{a.text}</span>
+              <span className="rl-label__leader" />
+              <span className="rl-label__dot" />
+            </div>
+          );
+        }
+
         const style = {
-          left: `${a.position.x}%`,
-          top: `${a.position.y}%`,
-          opacity: animOpacity(a, time),
+          left: `${x}%`,
+          top: `${y}%`,
+          opacity,
           transform: `translate(-50%, -50%) ${motionTransform(a, time)}`,
         };
         const cls = `rl-anim rl-anim--${a.type}${a.emphasis ? ' is-emph' : ''}`;
@@ -138,6 +172,64 @@ function zoomScale(animations, time) {
   const mid = (z.start + z.end) / 2;
   const half = Math.max(0.1, (z.end - z.start) / 2);
   return 1 + (1 - Math.min(1, Math.abs(time - mid) / half)) * 0.12;
+}
+
+// ── editorial "founder POV" frame ─────────────────────────────────────────────
+// Persistent top brand bar: brand name (left) + tag (right).
+function BrandBar({ brand }) {
+  if (!brand?.name) return null;
+  return (
+    <div className="rl-brandbar">
+      <span className="rl-brandbar__logo"><i className="rl-dotmark" />{brand.name}</span>
+      {brand.tag && <span className="rl-brandbar__tag">{brand.tag}</span>}
+    </div>
+  );
+}
+
+// Big opening title card (eyebrow + hook, last word in the accent + underline tick).
+const TITLE_END = 2.8;
+function TitleCard({ strategy, time }) {
+  if (!strategy?.hook || time > TITLE_END) return null;
+  const words = String(strategy.hook).toUpperCase().split(/\s+/).filter(Boolean);
+  // A real hook is short; anything longer isn't a crafted title — don't render it.
+  if (words.length < 2 || words.length > 9) return null;
+  const opacity = Math.min(1, (TITLE_END - time) / 0.4);
+  const cut = words.length > 2 ? words.length - 2 : Math.max(1, words.length - 1);
+  const head = words.slice(0, cut).join(' ');
+  const tail = words.slice(cut).join(' ');
+  return (
+    <div className="rl-title" style={{ opacity }}>
+      {strategy.hookEyebrow && <span className="rl-title__eyebrow">{strategy.hookEyebrow}</span>}
+      <span className="rl-title__head">
+        {head} {tail && <span className="rl-accent">{tail}</span>}
+      </span>
+      <span className="rl-title__rule" />
+    </div>
+  );
+}
+
+// Recurring bottom "section card": eyebrow + headline (or chip grid) + progress fill.
+function SectionCard({ sections, time }) {
+  if (!sections?.length) return null;
+  const s = sections.find((x) => time >= x.start && time < x.end);
+  if (!s) return null;
+  const pct = Math.min(100, Math.max(0, ((time - s.start) / Math.max(0.5, s.end - s.start)) * 100));
+  const lit = Math.ceil((pct / 100) * (s.chips?.length || 0));
+  return (
+    <div className="rl-section">
+      {s.eyebrow && <span className="rl-section__eyebrow">{s.eyebrow}</span>}
+      {s.chips?.length ? (
+        <div className="rl-section__chips">
+          {s.chips.map((c, i) => (
+            <span key={i} className={`rl-chip ${i < lit ? 'is-lit' : ''}`}>{c}</span>
+          ))}
+        </div>
+      ) : (
+        <b className="rl-section__headline">{s.headline}</b>
+      )}
+      <span className="rl-section__bar"><i style={{ width: `${pct}%` }} /></span>
+    </div>
+  );
 }
 
 function PreviewStage({ videoUrl, spec, children }) {
@@ -168,10 +260,15 @@ function PreviewStage({ videoUrl, spec, children }) {
     if (v.paused) { v.play(); setPlaying(true); } else { v.pause(); setPlaying(false); }
   };
 
+  // Accent is set ONLY when it was derived from the video; otherwise the CSS
+  // neutral fallbacks apply (no hardcoded brand colour).
+  const accent = spec?.brand?.accent || spec?.strategy?.accent || '';
+  const screenStyle = accent ? { ...SCREEN_STYLE, '--reel-accent': accent } : SCREEN_STYLE;
+
   return (
     <div className="reel-stage">
       <div className="reel-phone" style={PHONE_STYLE}>
-        <div className="reel-phone__screen" style={SCREEN_STYLE} onClick={toggle} role="presentation">
+        <div className="reel-phone__screen" style={screenStyle} onClick={toggle} role="presentation">
           <video
             ref={videoRef}
             src={videoUrl}
@@ -183,9 +280,13 @@ function PreviewStage({ videoUrl, spec, children }) {
             onTimeUpdate={(e) => setTime(e.currentTarget.currentTime)}
             onEnded={() => setPlaying(false)}
           />
+          {spec?.grade && <div className="rl-grade" />}
           <div className="rl-overlay">
+            <BrandBar brand={spec?.brand} />
             <AnimationLayer animations={animations} time={time} duration={duration} />
+            <SectionCard sections={spec?.sections} time={time} />
             <CaptionLayer captions={spec?.captions} time={time} />
+            <TitleCard strategy={spec?.strategy} time={time} />
           </div>
           {!playing && (
             <button type="button" className="rl-play" aria-label="Play preview" onClick={(e) => { e.stopPropagation(); toggle(); }}>
@@ -272,9 +373,20 @@ export default function ReelEditor() {
     try {
       setPhase('uploading');
       setProgress(0);
-      const { key } = await uploadReelClip(file, setProgress);
+      // Sample frames locally (for the vision agent) + derive the clip's accent
+      // colour, and upload in parallel.
+      const [{ key }, sampled] = await Promise.all([
+        uploadReelClip(file, setProgress),
+        sampleVideoFrames(meta.url, { count: 5 }),
+      ]);
       setPhase('editing');
-      const data = await editReel({ key, durationSec: meta.duration, guidance: guidance.trim() });
+      const data = await editReel({
+        key,
+        durationSec: meta.duration,
+        guidance: guidance.trim(),
+        frames: sampled.frames,
+        accentColor: sampled.accentColor,
+      });
       setResult(data);
       setPhase('done');
     } catch (err) {

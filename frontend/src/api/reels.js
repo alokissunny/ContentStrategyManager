@@ -32,6 +32,7 @@ function ingestDebug(debug) {
         systemPrompt: a.systemPrompt,
         elapsedMs: Number(a.elapsedMs) || 0,
         note: a.note || '',
+        usage: a.usage || {}, // { inputTokens, outputTokens, totalTokens, estimatedCostUsd }
       });
     });
   } catch {
@@ -69,9 +70,12 @@ export async function uploadReelClip(file, onProgress) {
   return { key };
 }
 
-// Run the multi-agent edit. Returns { spec, transcript, direction, notes }.
-export async function editReel({ key, durationSec, guidance, brand } = {}) {
-  const { data } = await client.post('/reels/edit', { key, durationSec, guidance, brand });
+// Run the multi-agent edit. `frames` are base64 JPEGs sampled from the clip so
+// the vision agent can anchor pointers to what's on screen; `accentColor` is the
+// clip's own dominant colour (derived from its pixels, never hardcoded).
+// Returns { spec, transcript, direction, visualContext, notes }.
+export async function editReel({ key, durationSec, guidance, brand, frames, accentColor } = {}) {
+  const { data } = await client.post('/reels/edit', { key, durationSec, guidance, brand, frames, accentColor });
   ingestDebug(data.debug);
   return data;
 }

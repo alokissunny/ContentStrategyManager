@@ -22,13 +22,33 @@ You output a single validated JSON object and nothing else.
 
 ```json
 {
-  "style": "karaoke | pop | word | block",
+  "style": "boxed | karaoke | pop | word | block",
   "position": "bottom | center | top",
   "cues": [
     { "i": 0, "emphasis": ["≤ 2 words copied EXACTLY from this cue's text"], "punch": false }
   ]
 }
 ```
+
+`boxed` is the editorial default: the whole phrase shows in UPPERCASE on a dark pill and the
+`emphasis` word is coloured in the accent — so pick the ONE word per cue that carries the point.
+
+Output strictly the JSON object — no prose, no code fences, no comments.
+
+---
+
+## This clip
+
+Director brief (JSON):
+{{DIRECTION_JSON}}
+
+Caption cues to style (JSON) — one per line, refer to each by its `i`:
+{{CUES_JSON}}
+
+Creator's note:
+{{GUIDANCE}}
+
+Now output the caption-styling JSON with one entry per cue above.
 
 Rules:
 - Include one entry per input cue, same `i` values.

@@ -42,12 +42,16 @@ app.use(cors({
 }));
 const jsonParser = express.json();
 const debugJsonParser = express.json({ limit: '4mb' });
+// The Reel editor's /edit sends a few sampled video frames (base64 JPEG) so the
+// vision agent can see the clip — larger than the default 100kb JSON limit.
+const reelJsonParser = express.json({ limit: '8mb' });
 app.use((req, res, next) => {
   // Voice-note transcription sends a raw audio body, not JSON.
   if (req.originalUrl.includes('/projects/captures/transcribe')) return next();
   // Prompt-debug reruns send the full captured Input, which can exceed the
   // default 100kb JSON limit (weekly-plan prompts especially).
   if (req.originalUrl.includes('/debug/rerun-prompt')) return debugJsonParser(req, res, next);
+  if (req.originalUrl.includes('/reels/edit')) return reelJsonParser(req, res, next);
   return jsonParser(req, res, next);
 });
 app.use(morgan('dev'));

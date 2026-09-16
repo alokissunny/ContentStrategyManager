@@ -41,9 +41,29 @@ async function signUpload(req, res) {
 }
 
 // POST /api/reels/edit  { key, durationSec, guidance, brand } → { spec, transcript, debug, notes }
+// Frames sampled on the client (canvas → JPEG) so the vision agent can see the
+// video without an ffmpeg step. Bounded hard so the request stays small.
+function sanitizeFrames(raw) {
+  if (!Array.isArray(raw)) return [];
+  const ok = { 'image/jpeg': 1, 'image/png': 1, 'image/webp': 1 };
+  return raw
+    .filter((f) => f && typeof f.data === 'string' && f.data.length && f.data.length < 400000)
+    .slice(0, 8)
+    .map((f) => ({
+      t: Number(f.t) || 0,
+      mediaType: ok[f.mediaType] ? f.mediaType : 'image/jpeg',
+      data: f.data,
+    }));
+}
+
+const HEX_RE = /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/;
+
 async function editReel(req, res) {
-  const { key, durationSec, guidance = '', brand = null } = req.body || {};
+  const { key, durationSec, guidance = '', brand = null, accentColor = '' } = req.body || {};
   const clean = String(key || '').trim();
+  const frames = sanitizeFrames(req.body?.frames);
+  // Accent is sampled from the video on the client; only accept a valid hex.
+  const accent = HEX_RE.test(String(accentColor || '').trim()) ? String(accentColor).trim() : '';
 
   if (!VIDEO_KEY_RE.test(clean) || !clean.startsWith(prefixOf(req.user._id))) {
     return res.status(400).json({ message: 'Upload a clip first, then generate the edit.' });
@@ -71,6 +91,8 @@ async function editReel(req, res) {
     guidance: String(guidance || '').slice(0, 2000),
     brand: brand && typeof brand === 'object' ? brand : null,
     durationSec: dur,
+    frames,
+    accentColor: accent,
   });
 
   res.json({ key: clean, ...result });

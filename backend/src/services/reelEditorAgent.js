@@ -21,9 +21,9 @@ const fs = require('fs');
 const path = require('path');
 const { toFile } = require('openai');
 const getOpenAIClient = require('./openaiClient');
-const { completeText, splitPromptTemplate } = require('./llmComplete');
+const { completeText, completeToolCall, splitPromptTemplate } = require('./llmComplete');
 const { resolvePlanAgentLlm } = require('./planAgentLlm');
-const { extractJson } = require('./weeklyPlan');
+const { extractJson, estimatePlanCostUsd } = require('./weeklyPlan');
 
 const PROMPTS_DIR = path.join(__dirname, '..', '..', 'prompts');
 const PROMPT_FILES = {
@@ -65,6 +65,37 @@ function round2(n) {
   return Math.round((Number(n) || 0) * 100) / 100;
 }
 
+// Words a complete on-screen phrase should never END on — a hook/headline that
+// stops here is a truncated sentence fragment ("…which I'd", "…to", "…all"), not
+// a finished statement, so we reject it rather than show something that reads cut.
+const DANGLING_WORDS = new Set([
+  'a', 'an', 'the', 'and', 'or', 'but', 'to', 'of', 'for', 'with', 'which', 'that', 'than',
+  'i', 'id', 'im', 'is', 'are', 'was', 'were', 'be', 'been', 'in', 'on', 'at', 'by', 'my',
+  'your', 'our', 'their', 'his', 'her', 'its', 'so', 'if', 'as', 'it', 'this', 'these', 'those',
+  'we', 'you', 'they', 'he', 'she', 'from', 'into', 'about', 'all', 'some', 'any', 'who', 'what',
+  'when', 'where', 'how', 'will', 'would', 'can', 'could', 'should', 'may', 'might', 'do', 'does',
+]);
+function endsIncomplete(text) {
+  const words = String(text || '').trim().toLowerCase().replace(/[^a-z0-9'\s]/g, '').split(/\s+/).filter(Boolean);
+  const last = words[words.length - 1];
+  return !last || DANGLING_WORDS.has(last.replace(/'/g, ''));
+}
+// Trim to a length on a WORD boundary (never mid-word). Used for tiny eyebrows.
+function clampWords(text, maxChars) {
+  let t = str(text, maxChars + 24);
+  if (t.length > maxChars) t = t.slice(0, maxChars).replace(/\s+\S*$/, '');
+  return t.trim();
+}
+// A finished, on-screen-ready short phrase — or '' when it's a fragment or a
+// run-on. We do NOT truncate: an over-long line is an echoed sentence, not a
+// crafted title/headline, so it's dropped rather than shown cut off.
+function completePhrase(text, maxChars) {
+  const raw = String(text || '').replace(/\s+/g, ' ').trim();
+  if (!raw || raw.length > maxChars) return '';
+  if (raw.split(/\s+/).filter(Boolean).length < 2) return '';
+  return endsIncomplete(raw) ? '' : raw;
+}
+
 // Best-effort JSON recovery for the small ways an LLM breaks strict JSON.
 function parseJson(text) {
   try {
@@ -90,6 +121,21 @@ function parseJson(text) {
   }
 }
 
+// Normalise a provider usage object ({input_tokens,output_tokens,cached_tokens})
+// into the camelCase shape the debug panel reads, with an estimated USD cost.
+function normalizeUsage(model, usage) {
+  const u = usage && typeof usage === 'object' ? usage : {};
+  const inputTokens = Number(u.input_tokens ?? u.inputTokens) || 0;
+  const outputTokens = Number(u.output_tokens ?? u.outputTokens) || 0;
+  const cachedTokens = Number(u.cached_tokens ?? u.cachedTokens) || 0;
+  return {
+    inputTokens,
+    outputTokens,
+    totalTokens: inputTokens + outputTokens,
+    estimatedCostUsd: estimatePlanCostUsd(model, inputTokens, outputTokens, cachedTokens),
+  };
+}
+
 function debugEntry({ source, model, system, user, output, startedAt, note, usage }) {
   return {
     source,
@@ -99,7 +145,7 @@ function debugEntry({ source, model, system, user, output, startedAt, note, usag
     output: typeof output === 'string' ? output : json(output),
     elapsedMs: Date.now() - startedAt,
     note: note || '',
-    usage: usage || {},
+    usage: normalizeUsage(model, usage),
   };
 }
 
@@ -146,6 +192,118 @@ async function transcribeWords(buffer, contentType) {
   }
 }
 
+// ── Step 1b: Scene vision agent — SEES the video so pointers can be anchored ────
+// Frames are sampled on the client (canvas) and sent as base64 JPEG. For each
+// frame the model returns a short scene description + the concrete subjects a
+// viewer's eye should be drawn to, with their centre as x/y percentages. The
+// animation agent then anchors pointers/spotlights/labels to those positions.
+function reelVisionModel() {
+  return process.env.PLAN_REEL_VISION_MODEL
+    || process.env.ANTHROPIC_VISION_MODEL
+    || process.env.ANTHROPIC_MODEL
+    || 'claude-sonnet-5';
+}
+
+const REEL_VISION_TOOL = {
+  name: 'record_reel_frames',
+  description: 'Describe what is visible in each sampled video frame and where the key subjects are.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      brand: {
+        type: 'object',
+        description: 'Brand/creator identity you can LITERALLY read on screen — never guessed.',
+        properties: {
+          name: { type: 'string', description: 'A logo, watermark, @handle or brand name visible in the frames, verbatim. Empty string if none is clearly visible.' },
+          tag: { type: 'string', description: 'A short label/tagline shown on screen near the brand (e.g. a category tag). Empty string if none.' },
+        },
+      },
+      frames: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            t: { type: 'number', description: 'timestamp in seconds of this frame (copy from its label)' },
+            scene: { type: 'string', description: 'one short phrase: what is happening / shown' },
+            subjects: {
+              type: 'array',
+              description: 'up to 3 concrete on-screen things worth pointing at, most important first',
+              items: {
+                type: 'object',
+                properties: {
+                  label: { type: 'string', description: '1-3 words naming a concrete visible thing (object, hand, product, face, on-screen text)' },
+                  x: { type: 'number', description: 'horizontal centre 0-100 (left→right)' },
+                  y: { type: 'number', description: 'vertical centre 0-100 (top→bottom)' },
+                },
+                required: ['label', 'x', 'y'],
+              },
+            },
+          },
+          required: ['t', 'scene', 'subjects'],
+        },
+      },
+    },
+    required: ['frames'],
+  },
+};
+
+const VISION_SYSTEM = [
+  'You are a scene analyst for short-form vertical video. You are given frames sampled in order from ONE clip, each labelled with its timestamp.',
+  'For each frame: describe the scene in a short phrase, and list up to 3 concrete subjects a viewer should look at (objects, hands, products, faces, on-screen text) with their CENTRE as x/y percentages of the frame (x left→right, y top→bottom).',
+  'Also report `brand`: any logo, watermark, @handle or brand name you can LITERALLY read on screen, plus a short on-screen tag/label if one is shown. If nothing brand-like is visible, return empty strings — NEVER guess or invent a brand.',
+  'Only list things clearly visible. The x/y must match where the thing actually is in that frame. Do not invent subjects. Call record_reel_frames with one entry per frame.',
+].join(' ');
+
+async function analyzeReelFrames({ frames, guidance }, debug) {
+  const list = (Array.isArray(frames) ? frames : []).filter((f) => f && typeof f.data === 'string' && f.data.length);
+  if (!list.length) return { context: [], brand: { name: '', tag: '' }, note: '' };
+  const startedAt = Date.now();
+  const model = reelVisionModel();
+  const parts = [{
+    type: 'text',
+    text: `${guidance ? `The creator's note: ${str(guidance, 400)}. ` : ''}${list.length} frames follow, in playback order.`,
+  }];
+  list.slice(0, 8).forEach((f) => {
+    parts.push({ type: 'text', text: `Frame at ${round2(f.t)}s:` });
+    parts.push({ type: 'image', mediaType: f.mediaType || 'image/jpeg', data: f.data });
+  });
+  try {
+    const done = await completeToolCall({
+      model,
+      system: VISION_SYSTEM,
+      userParts: parts,
+      tool: REEL_VISION_TOOL,
+      maxTokens: 1800,
+      kind: 'reelVision',
+      retryHint: 'Call record_reel_frames with valid JSON — one entry per frame, x/y between 0 and 100.',
+    });
+    const parsed = done.parsed && typeof done.parsed === 'object'
+      ? done.parsed
+      : parseJson(done.output || done.text || '');
+    const context = (Array.isArray(parsed?.frames) ? parsed.frames : [])
+      .map((fr) => ({
+        t: num(fr.t, 0, 0, 600),
+        scene: str(fr.scene, 120),
+        subjects: (Array.isArray(fr.subjects) ? fr.subjects : [])
+          .map((s) => ({ label: str(s.label, 40), x: num(s.x, 50, 0, 100), y: num(s.y, 50, 0, 100) }))
+          .filter((s) => s.label)
+          .slice(0, 3),
+      }))
+      .filter((fr) => fr.scene || fr.subjects.length)
+      .sort((a, b) => a.t - b.t);
+    const brand = {
+      name: str(parsed?.brand?.name, 40),
+      tag: str(parsed?.brand?.tag, 40).toUpperCase(),
+    };
+    debug.push(debugEntry({ source: 'Reel vision', model, system: VISION_SYSTEM, user: `[${list.length} frames] ${str(guidance, 200)}`, output: parsed, startedAt, usage: done.usage }));
+    return { context, brand, note: '' };
+  } catch (err) {
+    console.warn('[reelEditor] vision agent failed —', err.message);
+    debug.push(debugEntry({ source: 'Reel vision', model, system: VISION_SYSTEM, user: `[${list.length} frames]`, output: '', startedAt, note: `Skipped pointers: ${err.message}` }));
+    return { context: [], brand: { name: '', tag: '' }, note: 'Could not analyse the video frames — context-anchored pointers were skipped.' };
+  }
+}
+
 // ── Caption cues: cut from word timings (timing is authoritative, not the LLM) ──
 function chunkWordsToCues(words, { maxWords = 4, maxDur = 1.8, maxChars = 28 } = {}) {
   const cues = [];
@@ -184,45 +342,62 @@ function guidanceCues(guidance, durationSec) {
 
 // ── Step 2: Director agent ──────────────────────────────────────────────────
 const EMOTIONS = ['curiosity', 'surprise', 'aspiration', 'relatability', 'urgency', 'humor'];
-const CAPTION_STYLES = ['karaoke', 'pop', 'word', 'block'];
+// 'boxed' is the editorial look: UPPERCASE on a dark pill with a single accent
+// word. It's a rendering style — no invented text/brand.
+const CAPTION_STYLES = ['boxed', 'karaoke', 'pop', 'word', 'block'];
 const CAPTION_POS = ['bottom', 'center', 'top'];
 
-function heuristicDirection(guidance, transcriptText, durationSec) {
-  const source = str(transcriptText || guidance, 300);
-  const firstWords = source.split(' ').slice(0, 7).join(' ');
+// Without a real director we CANNOT craft short, complete, non-redundant title
+// or section text — echoing raw transcript just duplicates the live captions and
+// reads truncated. So the fallback is captions-only: no title, no section cards.
+function heuristicDirection(durationSec) {
   return {
-    hookRewrite: firstWords || 'Watch till the end',
-    hookRationale: 'Opens on the core promise so the scroll stops.',
+    hookRewrite: '',
+    hookEyebrow: '',
+    hookRationale: '',
     targetEmotion: 'curiosity',
     pacing: durationSec <= 30 ? 'fast' : 'medium',
-    captionStyle: 'karaoke',
-    captionAccent: 'punchy lime',
-    retentionTactics: ['Hook in the first 2s', 'Keep captions moving', 'Payoff at the end'],
-    momentHighlights: [{ atSec: round2(durationSec / 2), note: 'Emphasize the key point' }],
-    endCta: str(guidance ? 'Follow for more' : 'Save this', 40) || 'Follow for more',
+    captionStyle: 'boxed',
+    retentionTactics: [],
+    momentHighlights: [],
+    sections: [],
+    endCta: '',
     _heuristic: true,
   };
 }
 
-function normalizeDirection(raw, { guidance, transcriptText, durationSec }) {
+function normalizeDirection(raw, { durationSec }) {
   const d = raw && typeof raw === 'object' ? raw : {};
   const highlights = (Array.isArray(d.momentHighlights) ? d.momentHighlights : [])
     .map((h) => ({ atSec: num(h.atSec, 0, 0, durationSec), note: str(h.note, 160) }))
     .filter((h) => h.note)
     .sort((a, b) => a.atSec - b.atSec)
     .slice(0, 5);
-  const fallback = heuristicDirection(guidance, transcriptText, durationSec);
+  // Section headlines/CTAs/hooks must be COMPLETE statements — drop fragments so
+  // nothing renders cut off ("…which I'd") or as a dupe of the live caption.
+  const sections = (Array.isArray(d.sections) ? d.sections : [])
+    .map((s) => ({
+      atSec: num(s.atSec, 0, 0, durationSec),
+      eyebrow: clampWords(str(s.eyebrow, 40).toUpperCase(), 28),
+      headline: completePhrase(s.headline, 58),
+      chips: (Array.isArray(s.chips) ? s.chips : []).map((c) => str(c, 24)).filter(Boolean).slice(0, 6),
+    }))
+    .filter((s) => s.headline || s.chips.length)
+    .sort((a, b) => a.atSec - b.atSec)
+    .slice(0, 6);
+  const fallback = heuristicDirection(durationSec);
   return {
-    hookRewrite: str(d.hookRewrite, 60) || fallback.hookRewrite,
-    hookRationale: str(d.hookRationale, 200) || fallback.hookRationale,
+    hookRewrite: completePhrase(d.hookRewrite, 48),
+    hookEyebrow: clampWords(str(d.hookEyebrow, 40).toUpperCase(), 28),
+    hookRationale: str(d.hookRationale, 200),
     targetEmotion: EMOTIONS.includes(d.targetEmotion) ? d.targetEmotion : fallback.targetEmotion,
     pacing: d.pacing === 'medium' ? 'medium' : 'fast',
     captionStyle: CAPTION_STYLES.includes(d.captionStyle) ? d.captionStyle : fallback.captionStyle,
-    captionAccent: str(d.captionAccent, 40) || fallback.captionAccent,
     retentionTactics: (Array.isArray(d.retentionTactics) ? d.retentionTactics : [])
       .map((t) => str(t, 80)).filter(Boolean).slice(0, 4),
-    momentHighlights: highlights.length ? highlights : fallback.momentHighlights,
-    endCta: str(d.endCta, 40) || fallback.endCta,
+    momentHighlights: highlights,
+    sections,
+    endCta: completePhrase(d.endCta, 34),
   };
 }
 
@@ -242,13 +417,13 @@ async function runDirectorAgent({ guidance, transcript, brand, durationSec }, de
       model: llm.model, system, user, maxTokens: 1200,
       cacheKey: 'igsignal-reel-director', kind: 'reelDirector',
     });
-    const direction = normalizeDirection(parseJson(res.text), { guidance, transcriptText: transcript.text, durationSec });
+    const direction = normalizeDirection(parseJson(res.text), { durationSec });
     debug.push(debugEntry({ source: 'Reel director', model: llm.model, system, user, output: res.text, startedAt, usage: res.usage }));
     return direction;
   } catch (err) {
     console.warn('[reelEditor] director agent failed —', err.message);
-    debug.push(debugEntry({ source: 'Reel director', model: llm.model, system, user, output: '', startedAt, note: `Fell back to heuristic: ${err.message}` }));
-    return heuristicDirection(guidance, transcript.text, durationSec);
+    debug.push(debugEntry({ source: 'Reel director', model: llm.model, system, user, output: '', startedAt, note: `Fell back to heuristic (captions only): ${err.message}` }));
+    return heuristicDirection(durationSec);
   }
 }
 
@@ -307,7 +482,11 @@ async function runCaptionAgent({ cues, direction, guidance }, debug) {
 }
 
 // ── Step 4: Animation agent ───────────────────────────────────────────────────
-const ANIM_TYPES = ['title', 'callout', 'emoji', 'progress', 'zoom', 'lower-third', 'cta'];
+// title/callout/emoji/progress/zoom/lower-third/cta are the base beats; pointer/
+// spotlight/label are context-anchored — their position is a real on-screen point
+// from the vision agent.
+const ANIM_TYPES = ['title', 'callout', 'emoji', 'progress', 'zoom', 'lower-third', 'cta', 'pointer', 'spotlight', 'label'];
+const POINTER_TYPES = new Set(['pointer', 'spotlight', 'label']);
 const MOTIONS = ['pop', 'slide-up', 'fade', 'bounce', 'shake'];
 
 function normalizeAnimation(a, durationSec) {
@@ -316,12 +495,15 @@ function normalizeAnimation(a, durationSec) {
   let end = num(a.end, start + 1.5, 0, durationSec);
   if (end <= start) end = Math.min(durationSec, start + 1.2);
   const pos = a.position && typeof a.position === 'object' ? a.position : {};
-  const carriesText = ['title', 'callout', 'cta', 'lower-third'].includes(a.type);
+  const carriesText = ['title', 'callout', 'cta', 'lower-third', 'label'].includes(a.type);
+  const text = carriesText ? str(a.text, 60) : '';
+  // A text card with no text is a blank pill — drop it rather than render nothing.
+  if (carriesText && !text) return null;
   return {
     type: a.type,
     start: round2(start),
     end: round2(end),
-    text: carriesText ? str(a.text, 60) : '',
+    text,
     emoji: a.type === 'emoji' ? str(a.emoji, 8) : '',
     position: { x: num(pos.x, 50, 0, 100), y: num(pos.y, a.type === 'title' ? 22 : 50, 0, 100) },
     motion: MOTIONS.includes(a.motion) ? a.motion : 'pop',
@@ -346,13 +528,14 @@ function heuristicAnimations(direction, durationSec) {
   return out.map((a) => normalizeAnimation(a, durationSec)).filter(Boolean);
 }
 
-async function runAnimationAgent({ direction, transcript, guidance, durationSec }, debug) {
+async function runAnimationAgent({ direction, transcript, visual, guidance, durationSec }, debug) {
   const startedAt = Date.now();
   const llm = resolvePlanAgentLlm('reelAnimations');
   const { system, userTemplate } = splitPromptTemplate(loadPrompt('reelAnimations'));
   const user = fillTemplate(userTemplate, {
     DIRECTION_JSON: json(direction),
     SEGMENTS_JSON: json((transcript.segments || []).slice(0, 40)),
+    VISUAL_CONTEXT_JSON: json((visual || []).slice(0, 8)),
     GUIDANCE: str(guidance, 600),
     DURATION_SEC: round2(durationSec),
   });
@@ -364,12 +547,15 @@ async function runAnimationAgent({ direction, transcript, guidance, durationSec 
     const parsed = parseJson(res.text);
     let animations = (Array.isArray(parsed?.animations) ? parsed.animations : [])
       .map((a) => normalizeAnimation(a, durationSec)).filter(Boolean).slice(0, 14);
-    // Guarantee the two structural beats exist even if the model dropped them.
-    if (!animations.some((a) => a.type === 'title')) {
-      animations.unshift(normalizeAnimation({ type: 'title', start: 0, end: Math.min(2.6, durationSec), text: direction.hookRewrite, position: { x: 50, y: 20 }, motion: 'pop', emphasis: true }, durationSec));
+    // Guarantee the structural beats — but ONLY when we actually have their text
+    // (derived from the clip). No text → no card (never a blank pill).
+    if (direction.hookRewrite && !animations.some((a) => a.type === 'title')) {
+      const t = normalizeAnimation({ type: 'title', start: 0, end: Math.min(2.6, durationSec), text: direction.hookRewrite, position: { x: 50, y: 20 }, motion: 'pop', emphasis: true }, durationSec);
+      if (t) animations.unshift(t);
     }
-    if (!animations.some((a) => a.type === 'cta')) {
-      animations.push(normalizeAnimation({ type: 'cta', start: Math.max(0, durationSec - 3), end: durationSec, text: direction.endCta, position: { x: 50, y: 78 }, motion: 'bounce', emphasis: true }, durationSec));
+    if (direction.endCta && !animations.some((a) => a.type === 'cta')) {
+      const c = normalizeAnimation({ type: 'cta', start: Math.max(0, durationSec - 3), end: durationSec, text: direction.endCta, position: { x: 50, y: 78 }, motion: 'bounce', emphasis: true }, durationSec);
+      if (c) animations.push(c);
     }
     animations = animations.sort((a, b) => a.start - b.start);
     debug.push(debugEntry({ source: 'Reel animations', model: llm.model, system, user, output: res.text, startedAt, usage: res.usage }));
@@ -386,15 +572,29 @@ async function runAnimationAgent({ direction, transcript, guidance, durationSec 
  * `spec` is what the frontend overlays on the <video>:
  *   { meta, strategy, captions:{style,position,cues[]}, animations[] }
  */
-async function runReelEditor({ buffer, contentType, guidance = '', brand = null, durationSec = 0 } = {}) {
+async function runReelEditor({ buffer, contentType, guidance = '', brand = null, durationSec = 0, frames = [], accentColor = '' } = {}) {
   const debug = [];
   const notes = [];
+  const editStart = Date.now();
   const dur = num(durationSec, 30, 1, 120);
+  // Accent is SAMPLED from the video (client-side dominant colour) — never a
+  // hardcoded brand colour. Empty when the clip has no strong colour.
+  const accent = /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(String(accentColor || '').trim())
+    ? String(accentColor).trim() : '';
 
-  const transcript = await transcribeWords(buffer, contentType);
+  // Transcription (needs the audio) and vision (needs the sampled frames) are
+  // independent — run them together up front.
+  const [transcript, vision] = await Promise.all([
+    transcribeWords(buffer, contentType),
+    analyzeReelFrames({ frames, guidance }, debug),
+  ]);
   if (transcript.note) notes.push(transcript.note);
+  if (vision.note) notes.push(vision.note);
 
   const direction = await runDirectorAgent({ guidance, transcript, brand, durationSec: dur }, debug);
+  if (direction._heuristic) {
+    notes.push('The director step was unavailable, so the opening title and section cards were skipped — live captions and animations still applied. See the debug panel for details.');
+  }
 
   // Caption timing is authoritative from Whisper; guidance is the fallback source.
   const rawCues = transcript.words.length
@@ -406,28 +606,75 @@ async function runReelEditor({ buffer, contentType, guidance = '', brand = null,
 
   const [captions, animations] = await Promise.all([
     runCaptionAgent({ cues: rawCues, direction, guidance }, debug),
-    runAnimationAgent({ direction, transcript, guidance, durationSec: dur }, debug),
+    runAnimationAgent({ direction, transcript, visual: vision.context, guidance, durationSec: dur }, debug),
   ]);
 
+  // Bottom "section card" timeline — each section shows from its atSec until the
+  // next one (last runs to the end). The first starts after the opening title so
+  // the two never stack on top of each other.
+  const sectionsIn = direction.sections || [];
+  const introEnd = direction.hookRewrite ? 3 : 0;
+  const sections = sectionsIn.map((s, i) => ({
+    start: round2(i === 0 ? Math.max(s.atSec, introEnd) : s.atSec),
+    end: round2(i + 1 < sectionsIn.length ? sectionsIn[i + 1].atSec : dur),
+    eyebrow: s.eyebrow,
+    headline: s.headline,
+    chips: s.chips || [],
+  })).filter((s) => s.end > s.start + 0.4);
+
+  // Brand bar ONLY when a brand was actually read off the video frames — never
+  // invented. No on-screen brand → no brand bar.
+  const detected = vision.brand || { name: '', tag: '' };
   const spec = {
     meta: { durationSec: round2(dur), width: 1080, height: 1920 },
+    template: 'founder-pov',
+    ...(detected.name ? { brand: { name: detected.name, tag: detected.tag || '', accent } } : {}),
     strategy: {
       hook: direction.hookRewrite,
+      hookEyebrow: direction.hookEyebrow,
       hookRationale: direction.hookRationale,
       targetEmotion: direction.targetEmotion,
       pacing: direction.pacing,
       retentionTactics: direction.retentionTactics,
       endCta: direction.endCta,
-      captionAccent: direction.captionAccent,
+      accent,
     },
     captions,
+    sections,
     animations,
   };
+
+  // Sum every agent's tokens/cost → the estimated cost of THIS edit.
+  const cost = debug.reduce((acc, d) => {
+    acc.inputTokens += d.usage?.inputTokens || 0;
+    acc.outputTokens += d.usage?.outputTokens || 0;
+    acc.totalTokens += d.usage?.totalTokens || 0;
+    acc.estimatedCostUsd += d.usage?.estimatedCostUsd || 0;
+    return acc;
+  }, { inputTokens: 0, outputTokens: 0, totalTokens: 0, estimatedCostUsd: 0 });
+  cost.estimatedCostUsd = Math.round(cost.estimatedCostUsd * 1e6) / 1e6;
+
+  // Summary line for the debug panel — carries the WHOLE edit's tokens + cost so
+  // the panel's cost pill (which reads the latest run) shows the edit's total.
+  const agentCount = debug.length;
+  const costText = cost.estimatedCostUsd > 0 ? `~$${cost.estimatedCostUsd.toFixed(4)}` : '$0';
+  debug.push({
+    source: 'Reel edit — estimated cost',
+    model: '',
+    systemPrompt: '',
+    finalPrompt: '',
+    output: '',
+    elapsedMs: Date.now() - editStart,
+    note: `Estimated cost ${costText} · ${cost.totalTokens} tokens across ${agentCount} agent${agentCount === 1 ? '' : 's'} (${cost.inputTokens} in / ${cost.outputTokens} out).`,
+    usage: cost,
+  });
 
   return {
     spec,
     transcript: { text: transcript.text, wordCount: transcript.words.length },
     direction,
+    visualContext: vision.context,
+    cost,
     debug: { source: 'Reel editor', agents: debug },
     notes,
   };
@@ -436,6 +683,7 @@ async function runReelEditor({ buffer, contentType, guidance = '', brand = null,
 module.exports = {
   runReelEditor,
   transcribeWords,
+  analyzeReelFrames,
   runDirectorAgent,
   runCaptionAgent,
   runAnimationAgent,

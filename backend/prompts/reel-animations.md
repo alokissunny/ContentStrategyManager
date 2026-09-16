@@ -16,11 +16,16 @@ You output a single validated JSON object and nothing else.
   `hookRewrite` and the end card from `endCta`.
 - `SEGMENTS_JSON` — time-stamped speech segments `[{ start, end, text }]` — anchor callouts to
   the moments they reinforce.
+- `VISUAL_CONTEXT_JSON` — what is actually ON SCREEN, from a vision pass over sampled frames:
+  `[{ t, scene, subjects: [{ label, x, y }] }]` where `t` is a timestamp (seconds) and each
+  subject's `x`/`y` is its centre as a percentage of the frame. This is how you place
+  **context-anchored pointers** on the real thing the viewer should look at. May be empty.
 - `GUIDANCE` — the creator's note.
 - `DURATION_SEC` — clip length in seconds. Every animation must fit inside `[0, DURATION_SEC]`.
 
 ## Animation types
 
+Base beats (screen-relative position):
 - `title` — big centered opening hook text (use `hookRewrite`). Usually `start` 0.
 - `callout` — a short pill/label that emphasizes a spoken point. Anchor to a segment time.
 - `emoji` — 1–3 emoji accent that pops on a beat.
@@ -29,16 +34,28 @@ You output a single validated JSON object and nothing else.
 - `lower-third` — a name/handle/context strip low on the frame.
 - `cta` — the end call-to-action card (use `endCta`). Usually in the last ~3s.
 
+Context-anchored pointers — **position is a real on-screen point from `VISUAL_CONTEXT_JSON`**:
+- `pointer` — a pulsing tap-ring that says "look here". `position` = a subject's `{x,y}`.
+- `spotlight` — dims everything except a circle around `position` to isolate one subject.
+- `label` — a small pill naming a subject, with a leader line down to `position`. Put the
+  subject's `label` in `text`.
+
+Use pointers to make the video **understandable**: when the clip shows a specific object, hand,
+product, or bit of text, drop a `pointer`, `spotlight`, or `label` on it at a `t` when it is on
+screen (match `start`/`end` to that subject's frame time). Only anchor to subjects that appear
+in `VISUAL_CONTEXT_JSON`; never guess a position. If `VISUAL_CONTEXT_JSON` is empty, emit no
+pointers/spotlights/labels.
+
 ## Output — return ONLY this JSON
 
 ```json
 {
   "animations": [
     {
-      "type": "title | callout | emoji | progress | zoom | lower-third | cta",
+      "type": "title | callout | emoji | progress | zoom | lower-third | cta | pointer | spotlight | label",
       "start": 0.0,
       "end": 2.4,
-      "text": "on-screen text (empty for emoji/progress/zoom)",
+      "text": "on-screen text (empty for emoji/progress/zoom/pointer/spotlight)",
       "emoji": "🔥",
       "position": { "x": 50, "y": 18 },
       "motion": "pop | slide-up | fade | bounce | shake",
@@ -49,11 +66,35 @@ You output a single validated JSON object and nothing else.
 ```
 
 Rules:
-- 5–10 animations total. Always include exactly one `title` (the hook) and one `cta` (the end).
+- 6–12 animations total. Always include exactly one `title` (the hook) and one `cta` (the end).
+  Add 2–4 context-anchored pointers/spotlights/labels when `VISUAL_CONTEXT_JSON` has subjects.
 - `position.x` / `position.y` are percentages `0–100` of the frame (x = left→right, y = top→bottom).
-  Keep text clear of captions (captions sit low/center) and of the top progress bar.
-- Times in seconds, `start < end`, both within `[0, DURATION_SEC]`. Space callouts across the
-  clip so there's always something happening, but never stack more than two at once.
-- `text` short enough to read in a beat (≤ 6 words). Only `callout`, `title`, `cta`, `lower-third`
-  carry text; `emoji` uses `emoji`; `progress`/`zoom` need neither.
+  For `pointer`/`spotlight`/`label`, copy `position` from a subject in `VISUAL_CONTEXT_JSON`.
+  Keep base-beat text clear of captions (captions sit low/center) and of the top progress bar.
+- Times in seconds, `start < end`, both within `[0, DURATION_SEC]`. Space animations across the
+  clip so there's always something happening, but never stack more than two at once. A pointer
+  should be on screen ~1–2s.
+- `text` short enough to read in a beat (≤ 6 words). Only `callout`, `title`, `cta`,
+  `lower-third`, and `label` carry text; `emoji` uses `emoji`; `progress`/`zoom`/`pointer`/
+  `spotlight` need neither.
 - Output strictly the JSON object — no prose, no code fences, no comments.
+
+---
+
+## This clip
+
+Director brief (JSON):
+{{DIRECTION_JSON}}
+
+Time-stamped speech segments (JSON):
+{{SEGMENTS_JSON}}
+
+On-screen visual context (JSON) — anchor pointers/spotlights/labels to these subjects:
+{{VISUAL_CONTEXT_JSON}}
+
+Creator's note:
+{{GUIDANCE}}
+
+Clip length in seconds: {{DURATION_SEC}}
+
+Now output the animations JSON for THIS clip.
