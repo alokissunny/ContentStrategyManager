@@ -526,7 +526,7 @@ export default function Settings() {
             <span className="set-row__sub">
               {flags.reelEditor
                 ? 'On · a “Reel editor” page appears in the sidebar'
-                : 'Off · upload a clip (≤60s) and let AI agents cut it into a viral reel with live captions and on-screen animations'}
+                : 'Off · upload a clip (≤3 min) and let AI agents cut it into a viral reel with live captions and on-screen animations'}
             </span>
           </span>
           <span className="set-row__acts">

@@ -1,0 +1,86 @@
+/* Reel Edit View — timeline editor. Namespaced .rle* so nothing leaks. */
+
+.rle { display: flex; flex-direction: column; gap: var(--sp-4); outline: none; }
+
+.rle__top { display: grid; grid-template-columns: minmax(0, 300px) minmax(0, 1fr); gap: var(--sp-4); align-items: start; }
+@media (max-width: 760px) { .rle__top { grid-template-columns: 1fr; } }
+
+.rle__stage { display: flex; flex-direction: column; align-items: center; gap: var(--sp-2); }
+.rle__time { font-size: var(--text-sm); color: var(--ink-500); font-variant-numeric: tabular-nums; }
+.rle__time b { color: var(--ink-900); }
+
+.rle__inspector {
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-md);
+  padding: var(--sp-4); min-height: 260px;
+}
+.rle__empty {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--sp-2);
+  height: 100%; min-height: 220px; text-align: center; color: var(--ink-400);
+}
+.rle__empty p { margin: 0; font-size: var(--text-sm); max-width: 34ch; }
+
+/* toolbar */
+.rle__toolbar {
+  display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+  padding: 8px; background: var(--surface-sunken); border-radius: var(--r-md);
+}
+.rle__sep { width: 1px; height: 20px; background: var(--border-strong); margin: 0 4px; }
+.rle__spacer { flex: 1; }
+
+/* timeline */
+.rle__timeline { border: 1px solid var(--border); border-radius: var(--r-md); overflow: hidden; background: var(--surface); }
+.rle__ruler {
+  position: relative; height: 24px; background: var(--surface-sunken);
+  border-bottom: 1px solid var(--border); cursor: pointer; user-select: none;
+}
+.rle__tick { position: absolute; top: 4px; transform: translateX(-50%); font-size: 10px; color: var(--ink-500); font-variant-numeric: tabular-nums; pointer-events: none; }
+.rle__tick:first-child { transform: none; }
+
+.rle__lanes { position: relative; }
+.rle__playhead { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--signal-500); z-index: 5; pointer-events: none; }
+.rle__playhead::before { content: ""; position: absolute; top: -6px; left: -4px; border: 5px solid transparent; border-top-color: var(--signal-500); }
+
+.rle__lane { position: relative; display: flex; align-items: stretch; height: 46px; border-bottom: 1px solid var(--border); }
+.rle__lane:last-child { border-bottom: none; }
+.rle__lane-label {
+  flex: none; width: 82px; display: flex; align-items: center; padding: 0 10px;
+  font-size: var(--text-xs); font-weight: 600; color: var(--ink-600);
+  background: var(--surface-sunken); border-right: 1px solid var(--border);
+}
+.rle__lane-track { position: relative; flex: 1; }
+
+.rle__block {
+  position: absolute; top: 6px; bottom: 6px; box-sizing: border-box;
+  display: flex; align-items: center; overflow: hidden;
+  border-radius: 6px; cursor: grab; min-width: 8px;
+  border: 1px solid rgba(0,0,0,0.12);
+  background: var(--ink-200); color: var(--ink-800);
+  font-size: 11px; font-weight: 600; padding: 0 4px;
+}
+.rle__block:active { cursor: grabbing; }
+.rle__lane--captions .rle__block { background: #dbeafe; border-color: #93c5fd; color: #1e3a8a; }
+.rle__lane--animations .rle__block { background: #fde3d3; border-color: #f8b48a; color: #9a3412; }
+.rle__lane--sections .rle__block { background: #e7e2d6; border-color: #c9bfa6; color: #4b4636; }
+.rle__block.is-sel { outline: 2px solid var(--signal-500); outline-offset: 0; z-index: 4; }
+.rle__block-txt { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; pointer-events: none; padding: 0 2px; }
+
+.rle__handle { flex: none; width: 6px; align-self: stretch; cursor: ew-resize; border-radius: 4px; }
+.rle__handle:hover { background: rgba(0,0,0,0.18); }
+
+/* inspector fields */
+.rle-insp { display: flex; flex-direction: column; gap: var(--sp-3); }
+.rle-insp__head { display: flex; align-items: center; justify-content: space-between; }
+.rle-insp__kind { font-size: var(--text-xs); font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: var(--signal-600); }
+
+.rle-field { display: flex; flex-direction: column; gap: 4px; }
+.rle-field__label { font-size: var(--text-xs); font-weight: 600; color: var(--ink-600); }
+.rle-field-row { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-3); }
+.rle-field input[type="text"], .rle-field input[type="number"], .rle-field textarea, .rle-field select {
+  width: 100%; box-sizing: border-box; padding: 7px 9px;
+  border: 1px solid var(--border); border-radius: var(--r-sm);
+  background: var(--surface); color: var(--ink-900); font: inherit; font-size: var(--text-sm);
+}
+.rle-field textarea { resize: vertical; line-height: 1.4; }
+.rle-field input:focus, .rle-field textarea:focus, .rle-field select:focus { outline: none; border-color: var(--ink-900); box-shadow: 0 0 0 3px var(--ink-100); }
+.rle-field input[type="range"] { width: 100%; accent-color: var(--signal-500); }
+.rle-field input[type="checkbox"] { width: 18px; height: 18px; accent-color: var(--signal-500); }

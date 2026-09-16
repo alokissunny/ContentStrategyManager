@@ -16,7 +16,7 @@ const { runReelEditor } = require('../services/reelEditorAgent');
 // Videos only, and only the browser-safe container types the app already
 // supports for project media (see projectController's EXT map + media proxy).
 const VIDEO_EXT = { 'video/mp4': 'mp4', 'video/quicktime': 'mov', 'video/webm': 'webm' };
-const MAX_DURATION_SEC = 65; // ~60s reel + a little tolerance
+const MAX_DURATION_SEC = 185; // ~3 min reel + a little tolerance
 // A user only ever gets keys under their own prefix — never trust a client key
 // pointing elsewhere (mirrors projectController.prefixOf).
 function prefixOf(userId) {
@@ -48,7 +48,7 @@ function sanitizeFrames(raw) {
   const ok = { 'image/jpeg': 1, 'image/png': 1, 'image/webp': 1 };
   return raw
     .filter((f) => f && typeof f.data === 'string' && f.data.length && f.data.length < 400000)
-    .slice(0, 8)
+    .slice(0, 10)
     .map((f) => ({
       t: Number(f.t) || 0,
       mediaType: ok[f.mediaType] ? f.mediaType : 'image/jpeg',
@@ -73,7 +73,7 @@ async function editReel(req, res) {
     return res.status(400).json({ message: 'Could not read the clip length. Re-upload the clip.' });
   }
   if (dur > MAX_DURATION_SEC) {
-    return res.status(400).json({ message: `Clip is too long (${Math.round(dur)}s). Reels must be 60 seconds or less.` });
+    return res.status(400).json({ message: `Clip is too long (${Math.round(dur)}s). Clips must be 3 minutes or less.` });
   }
 
   let bytes;

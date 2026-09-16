@@ -263,7 +263,7 @@ async function analyzeReelFrames({ frames, guidance }, debug) {
     type: 'text',
     text: `${guidance ? `The creator's note: ${str(guidance, 400)}. ` : ''}${list.length} frames follow, in playback order.`,
   }];
-  list.slice(0, 8).forEach((f) => {
+  list.slice(0, 10).forEach((f) => {
     parts.push({ type: 'text', text: `Frame at ${round2(f.t)}s:` });
     parts.push({ type: 'image', mediaType: f.mediaType || 'image/jpeg', data: f.data });
   });
@@ -323,7 +323,7 @@ function chunkWordsToCues(words, { maxWords = 4, maxDur = 1.8, maxChars = 28 } =
     }
   }
   flush();
-  return cues.slice(0, 120);
+  return cues.slice(0, 260); // enough for a full 3-minute clip
 }
 
 // Fallback captions from the creator's guidance when there's no speech to time.
@@ -468,7 +468,8 @@ async function runCaptionAgent({ cues, direction, guidance }, debug) {
   });
   try {
     const res = await completeText({
-      model: llm.model, system, user, maxTokens: 2000,
+      // Scale with cue count (long clips have many cues); each styled entry is small.
+      model: llm.model, system, user, maxTokens: Math.min(8000, 1500 + cues.length * 18),
       cacheKey: 'igsignal-reel-captions', kind: 'reelCaptions',
     });
     const styled = applyCaptionStyling(cues, parseJson(res.text), direction);
@@ -535,7 +536,7 @@ async function runAnimationAgent({ direction, transcript, visual, guidance, dura
   const user = fillTemplate(userTemplate, {
     DIRECTION_JSON: json(direction),
     SEGMENTS_JSON: json((transcript.segments || []).slice(0, 40)),
-    VISUAL_CONTEXT_JSON: json((visual || []).slice(0, 8)),
+    VISUAL_CONTEXT_JSON: json((visual || []).slice(0, 10)),
     GUIDANCE: str(guidance, 600),
     DURATION_SEC: round2(durationSec),
   });
@@ -576,7 +577,7 @@ async function runReelEditor({ buffer, contentType, guidance = '', brand = null,
   const debug = [];
   const notes = [];
   const editStart = Date.now();
-  const dur = num(durationSec, 30, 1, 120);
+  const dur = num(durationSec, 30, 1, 190);
   // Accent is SAMPLED from the video (client-side dominant colour) — never a
   // hardcoded brand colour. Empty when the clip has no strong colour.
   const accent = /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(String(accentColor || '').trim())

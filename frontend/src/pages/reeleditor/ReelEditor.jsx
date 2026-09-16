@@ -1,5 +1,5 @@
 /*
- * Reel Editor (experimental) — upload a clip (≤60s) + a note, and a multi-agent
+ * Reel Editor (experimental) — upload a clip (≤3 min) + a note, and a multi-agent
  * pipeline (director → caption stylist → motion graphics) returns a "reel spec"
  * we overlay LIVE on the <video> during playback: karaoke/pop captions and
  * on-screen animations, all driven by the video's currentTime. No server render
@@ -18,9 +18,10 @@ import Icon from '../../brand/Icon';
 import { useFeatureFlags } from '../../lib/featureFlags';
 import { uploadReelClip, editReel, isSupportedVideo } from '../../api/reels';
 import { sampleVideoFrames } from '../../lib/reelFrames';
+import ReelEditView from './ReelEditView';
 import './reelEditor.css';
 
-const MAX_DURATION_SEC = 60;
+const MAX_DURATION_SEC = 180;
 const DURATION_TOLERANCE = 1.5; // allow slightly-over clips
 const SUGGESTIONS = ['Make it punchy', 'Educational tone', 'Storytime', 'Add a strong CTA'];
 const AGENT_STEPS = [
@@ -49,8 +50,9 @@ function readVideoMeta(file) {
 }
 
 function fmtTime(s) {
-  const sec = Math.max(0, Math.floor(s || 0));
-  return `0:${String(sec).padStart(2, '0')}`;
+  const t = Math.max(0, Math.floor(s || 0));
+  const m = Math.floor(t / 60);
+  return `${m}:${String(t % 60).padStart(2, '0')}`;
 }
 
 // ── the live overlay ─────────────────────────────────────────────────────────
@@ -316,11 +318,24 @@ export default function ReelEditor() {
   const [progress, setProgress] = useState(0);
   const [editStep, setEditStep] = useState(0);
   const [result, setResult] = useState(null); // { spec, transcript, direction, notes }
+  const [editedSpec, setEditedSpec] = useState(null); // working copy for manual timeline edits
+  const [editMode, setEditMode] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const inputRef = useRef(null);
 
   // Revoke the local preview URL when the clip changes or the page unmounts.
   useEffect(() => () => { if (meta?.url) URL.revokeObjectURL(meta.url); }, [meta]);
+
+  // A fresh AI result seeds the editable working copy (deep clone so edits never
+  // mutate the original), and drops out of edit mode.
+  useEffect(() => {
+    if (result?.spec) {
+      setEditedSpec(typeof structuredClone === 'function' ? structuredClone(result.spec) : JSON.parse(JSON.stringify(result.spec)));
+    } else {
+      setEditedSpec(null);
+    }
+    setEditMode(false);
+  }, [result]);
 
   // Cosmetic: walk the agent-step list while the pipeline runs (it runs these
   // stages server-side in this order; the single request can't stream progress).
@@ -344,7 +359,7 @@ export default function ReelEditor() {
       const m = await readVideoMeta(f);
       if (m.duration > MAX_DURATION_SEC + DURATION_TOLERANCE) {
         URL.revokeObjectURL(m.url);
-        setError(`That clip is ${Math.round(m.duration)}s. Reels must be 60 seconds or less.`);
+        setError(`That clip is ${Math.round(m.duration)}s. Clips must be 3 minutes or less.`);
         return;
       }
       setMeta((prev) => { if (prev?.url) URL.revokeObjectURL(prev.url); return m; });
@@ -374,10 +389,12 @@ export default function ReelEditor() {
       setPhase('uploading');
       setProgress(0);
       // Sample frames locally (for the vision agent) + derive the clip's accent
-      // colour, and upload in parallel.
+      // colour, and upload in parallel. More frames for longer clips (~1 / 12s,
+      // capped at the backend's 8-frame limit) so vision covers the whole reel.
+      const frameCount = Math.max(5, Math.min(10, Math.round(meta.duration / 15)));
       const [{ key }, sampled] = await Promise.all([
         uploadReelClip(file, setProgress),
-        sampleVideoFrames(meta.url, { count: 5 }),
+        sampleVideoFrames(meta.url, { count: frameCount }),
       ]);
       setPhase('editing');
       const data = await editReel({
@@ -407,9 +424,10 @@ export default function ReelEditor() {
   };
 
   const strategy = result?.direction || result?.spec?.strategy;
+  // Prefer the manually-edited working copy so tweaks show in the live preview too.
   const previewSpec = useMemo(
-    () => result?.spec || (meta ? { meta: { durationSec: meta.duration }, captions: { cues: [] }, animations: [] } : null),
-    [result, meta],
+    () => editedSpec || result?.spec || (meta ? { meta: { durationSec: meta.duration }, captions: { cues: [] }, animations: [] } : null),
+    [editedSpec, result, meta],
   );
 
   if (!flags.reelEditor) {
@@ -438,15 +456,41 @@ export default function ReelEditor() {
           <span className="eyebrow">Experimental</span>
           <h1>Reel editor</h1>
         </div>
-        {meta && (
-          <button type="button" className="btn btn--ghost btn--sm" onClick={reset} disabled={busy}>
-            <Icon name="plus" size={14} /> New reel
-          </button>
-        )}
+        <div style={{ display: 'flex', gap: 8 }}>
+          {editMode ? (
+            <button type="button" className="btn btn--ghost btn--sm" onClick={() => setEditMode(false)}>
+              <Icon name="arrow-left" size={14} /> Exit edit mode
+            </button>
+          ) : (
+            <>
+              {editedSpec && (
+                <button type="button" className="btn btn--ghost btn--sm" onClick={() => setEditMode(true)} disabled={busy}>
+                  <Icon name="edit" size={14} /> Edit on timeline
+                </button>
+              )}
+              {meta && (
+                <button type="button" className="btn btn--ghost btn--sm" onClick={reset} disabled={busy}>
+                  <Icon name="plus" size={14} /> New reel
+                </button>
+              )}
+            </>
+          )}
+        </div>
       </div>
 
+      {editMode && editedSpec && meta ? (
+        <ReelEditView
+          videoUrl={meta.url}
+          spec={editedSpec}
+          onChange={setEditedSpec}
+          onExit={() => setEditMode(false)}
+        />
+      ) : (
+      <>
+      {/* eslint-disable-next-line react/jsx-no-useless-fragment */}
+
       <p className="reel-lead">
-        Upload a clip (up to 60s) and tell the agents what you&rsquo;re going for. A director, a
+        Upload a clip (up to 3 minutes) and tell the agents what you&rsquo;re going for. A director, a
         caption stylist, and a motion-graphics agent cut it into a viral-style reel with live
         captions and on-screen animations — previewed right here.
       </p>
@@ -467,7 +511,7 @@ export default function ReelEditor() {
             >
               <span className="reel-drop__ico"><Icon name="upload" size={24} /></span>
               <b>Drop a clip or click to upload</b>
-              <span>MP4, MOV or WebM · up to 60 seconds · vertical 9:16 works best</span>
+              <span>MP4, MOV or WebM · up to 3 minutes · vertical 9:16 works best</span>
               <input
                 ref={inputRef}
                 type="file"
@@ -579,6 +623,8 @@ export default function ReelEditor() {
           )}
         </div>
       </div>
+      </>
+      )}
     </div>
   );
 }
