@@ -1,6 +1,6 @@
 import React from 'react';
 import { Outlet, useLocation, NavLink, Link } from 'react-router-dom';
-import Sidebar, { NAV_ITEMS } from './Sidebar';
+import Sidebar, { useNavItems } from './Sidebar';
 import UserMenu from './UserMenu';
 import AccountSwitcher from './AccountSwitcher';
 import Glyph from './Glyph';
@@ -17,6 +17,7 @@ export default function DashboardLayout({ children }) {
   // page so its mount fetches re-run for the new account — a React remount, not
   // a full browser reload (no JS re-download, no asset waterfall).
   const activeHandle = useActiveHandle();
+  const navItems = useNavItems();
   // Onboarding is a focused, full-screen flow — hide the app chrome so nothing
   // distracts from it, and skip `.app` so it keeps the marketing typefaces.
   const hideNav = pathname.startsWith('/onboarding');
@@ -48,7 +49,7 @@ export default function DashboardLayout({ children }) {
         aria-label="Main"
         style={{ transform: `translateY(${navHidden * 175}%)`, opacity: 1 - navHidden }}
       >
-        {NAV_ITEMS.map((n) => (
+        {navItems.map((n) => (
           <NavLink
             key={n.to}
             to={n.to}

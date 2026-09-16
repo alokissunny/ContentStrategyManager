@@ -6,6 +6,7 @@ import { useSyncExternalStore } from 'react';
  */
 const KEYS = {
   videoCover: 'bauhly.ff.videoCover',
+  reelEditor: 'bauhly.ff.reelEditor',
 };
 
 function readBool(key, fallback = false) {
@@ -20,6 +21,7 @@ function readBool(key, fallback = false) {
 
 let state = {
   videoCover: readBool(KEYS.videoCover, false),
+  reelEditor: readBool(KEYS.reelEditor, false),
 };
 
 const listeners = new Set();
@@ -32,6 +34,7 @@ function setState(patch) {
   state = { ...state, ...patch };
   try {
     if ('videoCover' in patch) localStorage.setItem(KEYS.videoCover, state.videoCover ? '1' : '0');
+    if ('reelEditor' in patch) localStorage.setItem(KEYS.reelEditor, state.reelEditor ? '1' : '0');
   } catch {
     // best-effort local cache only
   }
@@ -44,6 +47,14 @@ export function isVideoCoverEnabled() {
 
 export function setVideoCoverEnabled(next) {
   setState({ videoCover: Boolean(next) });
+}
+
+export function isReelEditorEnabled() {
+  return Boolean(state.reelEditor);
+}
+
+export function setReelEditorEnabled(next) {
+  setState({ reelEditor: Boolean(next) });
 }
 
 export function useFeatureFlags() {

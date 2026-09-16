@@ -49,6 +49,26 @@ const AGENTS = {
     modelEnv: 'PLAN_COVER_MODEL',
     providerEnv: 'PLAN_COVER_PROVIDER',
   },
+  // Experimental Reel Editor — a three-agent short-form video edit pipeline
+  // (director → caption stylist → motion graphics). See services/reelEditorAgent.
+  reelDirector: {
+    defaultProvider: 'openai',
+    modelEnv: 'PLAN_REEL_DIRECTOR_MODEL',
+    providerEnv: 'PLAN_REEL_DIRECTOR_PROVIDER',
+    defaultModel: 'gpt-5.6-terra',
+  },
+  reelCaptions: {
+    defaultProvider: 'openai',
+    modelEnv: 'PLAN_REEL_CAPTIONS_MODEL',
+    providerEnv: 'PLAN_REEL_CAPTIONS_PROVIDER',
+    defaultModel: 'gpt-5.6-terra',
+  },
+  reelAnimations: {
+    defaultProvider: 'openai',
+    modelEnv: 'PLAN_REEL_ANIMATIONS_MODEL',
+    providerEnv: 'PLAN_REEL_ANIMATIONS_PROVIDER',
+    defaultModel: 'gpt-5.6-terra',
+  },
 };
 
 function envText(name) {

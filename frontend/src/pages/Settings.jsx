@@ -17,7 +17,7 @@ import { getMetaStatus, startMetaConnect, disconnectMeta, metaConnectionFor, rem
 import { syncHandle } from '../lib/store';
 import { resetProjects } from '../lib/projectsStore';
 import { useAiDebug, setAiDebugEnabled, clearAiDebugEntries } from '../lib/aiDebug';
-import { useFeatureFlags, setVideoCoverEnabled } from '../lib/featureFlags';
+import { useFeatureFlags, setVideoCoverEnabled, setReelEditorEnabled } from '../lib/featureFlags';
 import { getCarouselModel, updateCarouselModel } from '../api/settings';
 import './settings.css';
 
@@ -514,6 +514,28 @@ export default function Settings() {
               aria-checked={flags.videoCover}
               aria-label={`${flags.videoCover ? 'Disable' : 'Enable'} animated video cover`}
               onClick={() => setVideoCoverEnabled(!flags.videoCover)}
+            >
+              <i aria-hidden="true" />
+            </button>
+          </span>
+        </div>
+        <div className="set-row">
+          <span className="set-row__ico"><Icon name="film" size={19} /></span>
+          <span className="set-row__main">
+            <b className="set-row__title">Reel editor</b>
+            <span className="set-row__sub">
+              {flags.reelEditor
+                ? 'On · a “Reel editor” page appears in the sidebar'
+                : 'Off · upload a clip (≤60s) and let AI agents cut it into a viral reel with live captions and on-screen animations'}
+            </span>
+          </span>
+          <span className="set-row__acts">
+            <button
+              className={`set-switch ${flags.reelEditor ? 'is-on' : ''}`}
+              role="switch"
+              aria-checked={flags.reelEditor}
+              aria-label={`${flags.reelEditor ? 'Disable' : 'Enable'} reel editor`}
+              onClick={() => setReelEditorEnabled(!flags.reelEditor)}
             >
               <i aria-hidden="true" />
             </button>
