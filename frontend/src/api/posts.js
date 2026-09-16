@@ -160,6 +160,14 @@ export function setPostTime(id, time) {
   return client.patch(`/posts/${id}`, { time }).then((res) => res.data.post);
 }
 
+// "Save for review" — hold the post in the calendar as a draft (true), or
+// release that hold (false). Turning it on also clears any pending schedule.
+export function setPostReview(id, savedForReview) {
+  return client
+    .patch(`/posts/${id}`, { savedForReview: Boolean(savedForReview) })
+    .then((res) => res.data.post);
+}
+
 // Rewrite a post's caption/words. Returns { caption } for the draft — the studio
 // still has to press Done to persist it.
 export function polishCaption(id, { caption, instruction, kind, role, fills }) {

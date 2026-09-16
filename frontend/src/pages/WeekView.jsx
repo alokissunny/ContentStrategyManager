@@ -21,6 +21,7 @@ import {
   schedulePost,
   retryScheduled,
   setPostTime,
+  setPostReview,
   runPostLayout,
   runSlideLayoutVariations as apiRunSlideLayoutVariations,
   runPostCover,
@@ -2282,6 +2283,7 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
   const [publishing, setPublishing] = useState(false);
   const [publishMsg, setPublishMsg] = useState('');
   const [scheduling, setScheduling] = useState(false);
+  const [schedMenu, setSchedMenu] = useState(false); // schedule button dropdown
   const [askSchedule, setAskSchedule] = useState(false); // no-caption confirm
   // the inline "Edit publish time" editor: null = closed, else { at, every }
   const [timeDraft, setTimeDraft] = useState(null);
@@ -2321,6 +2323,7 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
   const scheduleDay = (_id, i, scheduledAt, extras) => schedulePost(postIdAt(i), scheduledAt, extras).then(mergePost);
   const retryScheduledDay = (_id, i) => retryScheduled(postIdAt(i)).then(mergePost);
   const setDayTime = (_id, i, { time } = {}) => setPostTime(postIdAt(i), time || '').then(mergePost);
+  const reviewDay = (_id, i, on) => setPostReview(postIdAt(i), on).then(mergePost);
   const runDayLayout = (_id, i) => runPostLayout(postIdAt(i)).then((d) => ({ ...d, route: mergePost(d.post) }));
   const runDayCover = (_id, i, visual) => runPostCover(postIdAt(i), visual).then((d) => ({ ...d, route: mergePost(d.post) }));
   const runSlideLayoutVariations = (_id, i, slideIndex) => apiRunSlideLayoutVariations(postIdAt(i), slideIndex);
@@ -2542,6 +2545,8 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
   const scheduleStatus = String(day?.scheduleStatus || '');
   const isPublishingSlot = isScheduled && scheduleStatus === 'publishing';
   const scheduleFailed = isScheduled && scheduleStatus === 'failed';
+  // "Save for review" — held in the calendar as a draft, not queued to publish.
+  const isReview = !!day?.savedForReview && !isScheduled && !day?.published;
   const slotTime = toSpoken(slotTimeRaw(day, route));
   // the time is editable only while the decision is still open (bauhly-v3 §787)
   const canEditTime = !isScheduled && !day?.published;
@@ -2780,6 +2785,7 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
     function onKey(e) {
       // Escape steps back one level: generate → images → browse → editor → menu
       if (e.key !== 'Escape') return;
+      if (schedMenu) { setSchedMenu(false); return; }
       if (timeDraft) { setTimeDraft(null); setClockOpen(false); return; }
       if (adjustFor) { setAdjustFor(null); setEditSlot(null); return; }
       if (packOpen) { setPackOpen(false); return; }
@@ -2793,7 +2799,21 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
     }
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [zone, visEdit, menuPane, askImgs, imgPick, creating, timeDraft, adjustFor, packOpen]);
+  }, [zone, visEdit, menuPane, askImgs, imgPick, creating, timeDraft, adjustFor, packOpen, schedMenu]);
+
+  // Close the schedule dropdown on any press outside it, and whenever the open
+  // day changes.
+  useEffect(() => {
+    if (!schedMenu) return undefined;
+    function onDown(e) {
+      if (e.target.closest?.('.wv-sched')) return;
+      setSchedMenu(false);
+    }
+    window.addEventListener('pointerdown', onDown, true);
+    return () => window.removeEventListener('pointerdown', onDown, true);
+  }, [schedMenu]);
+
+  useEffect(() => { setSchedMenu(false); }, [selected]);
 
   // Persist the caption for the open day — optimistic, then reconciled with the
   // server's copy. Backend whitelists `content.caption` (routeController §642).
@@ -3095,18 +3115,41 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
 
   function pressSchedule() {
     if (!route || !day || scheduling) return;
+    setSchedMenu(false);
     if (!metaConnected) { setConnectOpen(true); return; }
     const caption = day.content?.caption?.trim();
     if (!caption) { setAskSchedule(true); return; }
     doSchedule();
   }
 
-  async function unschedule() {
-    if (!route || !day || scheduling || isPublishingSlot) return;
+  // "Save for review" — keep the post in the calendar as a draft, held back
+  // from the publish queue. Reversible: Schedule or Unschedule clears the hold.
+  async function saveForReview() {
+    if (!route || !day || scheduling) return;
+    setSchedMenu(false);
     setPublishMsg('');
     setScheduling(true);
     try {
-      setRoute(await scheduleDay(route._id, selected, null));
+      setRoute(await reviewDay(route._id, selected, true));
+      setPublishMsg('Saved for review');
+    } catch (err) {
+      setPublishMsg(err.response?.data?.message || 'Could not save for review just now');
+    } finally {
+      setScheduling(false);
+    }
+  }
+
+  async function unschedule() {
+    if (!route || !day || scheduling || isPublishingSlot) return;
+    setSchedMenu(false);
+    setPublishMsg('');
+    setScheduling(true);
+    try {
+      // A review hold and a live slot are cleared the same way — back to a
+      // plain draft — so Unschedule handles both.
+      setRoute(day?.savedForReview
+        ? await reviewDay(route._id, selected, false)
+        : await scheduleDay(route._id, selected, null));
     } catch (err) {
       setPublishMsg(err.response?.data?.message || 'Could not unschedule just now');
     } finally {
@@ -3132,6 +3175,7 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
   // time and whether that time is the plan's weekly one.
   function openTimeEditor() {
     if (!day) return;
+    setSchedMenu(false);
     setPublishMsg('');
     closeZone();
     setTimeDraft({
@@ -4284,6 +4328,7 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
             // decision about the future — the lime clock — while a published one
             // is the past, in grey. The lime only means anything with an account.
             const scheduled = metaConnected && !!d.scheduledAt && !done;
+            const inReview = !!d.savedForReview && !scheduled && !done;
             const ready = done || scheduled;
             return (
               <button
@@ -4292,7 +4337,7 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
                 role="tab"
                 aria-selected={active}
                 aria-current={active ? 'true' : undefined}
-                className={`wv-day${active ? ' is-on' : ''}${ready ? ' is-ready' : ''}`}
+                className={`wv-day${active ? ' is-on' : ''}${ready ? ' is-ready' : ''}${inReview ? ' is-review' : ''}`}
                 onClick={() => animateToDay(i)}
               >
                 <span className="wv-day__when">
@@ -4306,6 +4351,11 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
                 {ready && (
                   <span className={`wv-day__ready${done ? ' is-done' : ''}`} aria-hidden="true">
                     <Glyph name={done ? 'check' : 'clock'} size={13} strokeWidth={done ? 3 : 2.25} />
+                  </span>
+                )}
+                {inReview && (
+                  <span className="wv-day__ready is-review" aria-hidden="true">
+                    <Glyph name="file-text" size={13} strokeWidth={2.25} />
                   </span>
                 )}
               </button>
@@ -4345,10 +4395,11 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
             <header className="wv-ig__head">
               <span className="wv-ig__avatar">{handleInitials(handle)}</span>
               <span className="wv-ig__user">{handle}</span>
-              {/* the corner says the next step, never a receipt (bauhly-v3
-                  §733/§739): Connect → Schedule → Unschedule, and Published once
-                  a post has gone out. One control in one place, so nothing on
-                  the header moves as the post's state changes. */}
+              {/* the corner is the one control for the post's future
+                  (bauhly-v3 §733/§739). Connect and the terminal states stay
+                  single pills; while the decision is open it is a split button —
+                  a primary action plus a menu of the rest (Schedule / Save for
+                  review / Change time / Unschedule). */}
               {!metaConnected ? (
                 <button type="button" className="wv-ig__connect" onClick={() => setConnectOpen(true)}>
                   <Glyph name="instagram" size={13} />Connect Instagram
@@ -4361,25 +4412,118 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
                 <span className="wv-ig__go is-on" aria-label="Publishing">
                   <Glyph name="clock" size={14} />Publishing…
                 </span>
-              ) : isScheduled ? (
-                <button
-                  type="button"
-                  className="wv-ig__go is-on"
-                  onClick={unschedule}
-                  disabled={scheduling}
-                  title="Put this post back"
-                >
-                  <Glyph name="refresh-cw" size={14} />Unschedule
-                </button>
               ) : (
-                <button
-                  type="button"
-                  className="wv-ig__go"
-                  onClick={pressSchedule}
-                  disabled={scheduling}
-                >
-                  <Glyph name="clock" size={14} />{scheduling ? 'Scheduling…' : 'Schedule'}
-                </button>
+                <div className={`wv-sched${schedMenu ? ' is-open' : ''}`}>
+                  <div className={`wv-sched__btn${isScheduled || isReview ? ' is-on' : ''}`}>
+                    <button
+                      type="button"
+                      className="wv-sched__main"
+                      onClick={isScheduled ? () => setSchedMenu((v) => !v) : pressSchedule}
+                      disabled={scheduling}
+                      title={isScheduled ? 'Scheduled — open options' : isReview ? 'Held for review — schedule it' : 'Schedule this post'}
+                    >
+                      <Glyph name={isScheduled ? 'calendar-check' : isReview ? 'file-text' : 'clock'} size={14} />
+                      {scheduling
+                        ? 'Working…'
+                        : isScheduled
+                          ? `Scheduled · ${timeSeedAt}`
+                          : isReview
+                            ? 'Saved for review'
+                            : `Schedule for ${timeSeedAt}`}
+                    </button>
+                    <button
+                      type="button"
+                      className="wv-sched__caret"
+                      onClick={() => setSchedMenu((v) => !v)}
+                      disabled={scheduling}
+                      aria-haspopup="menu"
+                      aria-expanded={schedMenu}
+                      aria-label="Scheduling options"
+                    >
+                      <Glyph name="chevron-down" size={16} strokeWidth={2.5} />
+                    </button>
+                  </div>
+                  {schedMenu && (
+                    <div className="wv-sched__menu" role="menu" aria-label="Scheduling options">
+                      {!isScheduled && (
+                        <button type="button" role="menuitem" className="wv-sched__item" onClick={pressSchedule}>
+                          <Glyph name="calendar" size={18} strokeWidth={2} />
+                          <span className="wv-sched__copy">
+                            <span className="wv-sched__label">Schedule</span>
+                            <span className="wv-sched__desc">Publish to Meta at a specific time</span>
+                          </span>
+                        </button>
+                      )}
+                      {isScheduled && (
+                        <button
+                          type="button"
+                          role="menuitem"
+                          className="wv-sched__item"
+                          onClick={() => { setSchedMenu(false); handlePublish(); }}
+                          disabled={publishing}
+                        >
+                          <Glyph name="send" size={18} strokeWidth={2} />
+                          <span className="wv-sched__copy">
+                            <span className="wv-sched__label">{publishing ? 'Publishing…' : 'Publish now'}</span>
+                            <span className="wv-sched__desc">Send it to Instagram right away</span>
+                          </span>
+                        </button>
+                      )}
+                      {isScheduled && scheduleFailed && (
+                        <button
+                          type="button"
+                          role="menuitem"
+                          className="wv-sched__item"
+                          onClick={() => { setSchedMenu(false); retrySchedule(); }}
+                        >
+                          <Glyph name="refresh-cw" size={18} strokeWidth={2} />
+                          <span className="wv-sched__copy">
+                            <span className="wv-sched__label">Retry publish</span>
+                            <span className="wv-sched__desc">Re-queue for the next daily run</span>
+                          </span>
+                        </button>
+                      )}
+                      {!isReview && (
+                        <button type="button" role="menuitem" className="wv-sched__item" onClick={saveForReview}>
+                          <Glyph name="file-text" size={18} strokeWidth={2} />
+                          <span className="wv-sched__copy">
+                            <span className="wv-sched__label">Save for review</span>
+                            <span className="wv-sched__desc">Keep in calendar, don&apos;t publish yet</span>
+                          </span>
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        role="menuitem"
+                        className="wv-sched__item"
+                        onClick={openTimeEditor}
+                        disabled={!canEditTime}
+                        title={canEditTime ? undefined : 'Unschedule first to change the time'}
+                      >
+                        <Glyph name="clock" size={18} strokeWidth={2} />
+                        <span className="wv-sched__copy">
+                          <span className="wv-sched__label">Change time</span>
+                          <span className="wv-sched__desc">Set a different date and time</span>
+                        </span>
+                      </button>
+                      {isScheduled && (
+                        <button
+                          type="button"
+                          role="menuitem"
+                          className="wv-sched__item wv-sched__item--danger"
+                          onClick={unschedule}
+                          disabled={scheduling || isPublishingSlot}
+                        >
+                          <Glyph name="trash-2" size={18} strokeWidth={2} />
+                          <span className="wv-sched__copy">
+                            <span className="wv-sched__label">Unschedule</span>
+                            <span className="wv-sched__desc">Remove from calendar</span>
+                          </span>
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
               )}
             </header>
 
@@ -5142,7 +5286,7 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
                 <Glyph name={day.published ? 'check' : 'clock'} size={14} strokeWidth={2} />
                 <span className="wv-ig__slot-text">
                   <span className="wv-ig__slot-when">
-                    {day.published ? 'Published' : isScheduled ? 'Scheduled for' : 'Best time'}
+                    {day.published ? 'Published' : isScheduled ? 'Scheduled for' : isReview ? 'In review for' : 'Best time'}
                     {' '}
                     <b>{shortDay(day.day)} {slotTime}</b>
                     {day.published && metaForHandle?.igUsername ? ` · @${metaForHandle.igUsername}` : ''}
@@ -5177,7 +5321,10 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
                       )}
                     </span>
                   )}
-                  {!isScheduled && !day.published && metaConnected && (
+                  {isReview && (
+                    <span className="wv-ig__slot-why">Held in the calendar for review — it won&apos;t publish until you schedule it.</span>
+                  )}
+                  {!isScheduled && !isReview && !day.published && metaConnected && (
                     <span className="wv-ig__slot-why">Based on when your audience is most active.</span>
                   )}
                   {!metaConnected && !day.published && (

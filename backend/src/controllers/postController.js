@@ -331,21 +331,33 @@ async function updatePost(req, res) {
 
   if (req.body.published !== undefined) {
     post.published = Boolean(req.body.published);
-    if (post.published) clearScheduleFields(post);
+    if (post.published) { clearScheduleFields(post); post.savedForReview = false; }
   } else if (
     req.body.content === undefined &&
     req.body.scheduledAt === undefined &&
     req.body.time === undefined &&
     req.body.publishImageKeys === undefined &&
-    req.body.scheduleStatus === undefined
+    req.body.scheduleStatus === undefined &&
+    req.body.savedForReview === undefined
   ) {
     // Legacy toggle when the body is empty / only flipping publish.
     post.published = !post.published;
-    if (post.published) clearScheduleFields(post);
+    if (post.published) { clearScheduleFields(post); post.savedForReview = false; }
   }
 
   if (req.body.time !== undefined) {
     post.time = String(req.body.time || '');
+  }
+
+  // "Save for review" — hold this post in the calendar as a draft, not queued
+  // to publish. It and a live schedule are mutually exclusive, so turning it on
+  // clears any pending slot; scheduling (below) turns it back off.
+  if (req.body.savedForReview !== undefined) {
+    post.savedForReview = Boolean(req.body.savedForReview);
+    if (post.savedForReview) {
+      clearScheduleFields(post);
+      post.publishImageKeys = [];
+    }
   }
 
   // Schedule / unschedule. null/'' clears; a valid date sets it. Scheduling
@@ -370,6 +382,7 @@ async function updatePost(req, res) {
       post.scheduleStatus = 'ready';
       post.scheduleError = '';
       post.scheduleClaimedAt = null;
+      post.savedForReview = false;
     }
   }
 
