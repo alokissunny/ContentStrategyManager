@@ -52,7 +52,10 @@ function paintImg(attrs, src, extraClass = '') {
   // (flex / % / cqi). A bitmap src — even 1×1 — changes intrinsic size and
   // collapses or blows out the composition.
   const srcAttr = src ? ` src="${escAttr(src)}"` : '';
-  return `<img${clean ? ` ${clean}` : ''}${slot}${alt}${srcAttr}>`;
+  // Real photos load lazily and asynchronously; a shimmer placeholder (shell CSS)
+  // shows until they paint, and the parent adds `is-loaded` on load to stop it.
+  const lazyAttrs = src && !/\bloading\s*=/.test(clean) ? ' loading="lazy" decoding="async"' : '';
+  return `<img${clean ? ` ${clean}` : ''}${slot}${alt}${lazyAttrs}${srcAttr}>`;
 }
 
 // Wire real photograph URLs into image slots. Empty slots keep no src and get
@@ -671,9 +674,22 @@ export function paintCarouselSlideImages(frame, { direction, index, imageUrls })
 // full carousel HTML; Week View has to show one canvas. Putting that canvas in
 // its own document means `html`/`body`/`:root` rules and direction wrappers
 // apply the same way, and the app's `.wv-dynlay` CSS cannot restyle it.
+// Skeleton shimmer behind a real photo until it paints (it lazy-loads). The
+// parent (DynamicLayout) adds `is-loaded` on the img's load event to stop the
+// animation; an opaque photo covers the background, so nothing shows through once
+// loaded. Shared by the single-slide shell and the themed carousel document.
+export const IMG_SHIMMER_CSS = [
+  'img[data-slot="image"][src]:not(.is-loaded){background-color:#e9e6df;'
+    + 'background-image:linear-gradient(100deg,rgba(255,255,255,0) 36%,rgba(255,255,255,.6) 50%,rgba(255,255,255,0) 64%);'
+    + 'background-size:200% 100%;background-repeat:no-repeat;animation:hf-imgshimmer 1.15s ease-in-out infinite}',
+  '@keyframes hf-imgshimmer{0%{background-position:180% 0}100%{background-position:-60% 0}}',
+  '@media (prefers-reduced-motion:reduce){img[data-slot="image"][src]:not(.is-loaded){animation:none}}',
+].join('');
+
 const SLIDE_FRAME_SHELL = [
   'html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#fff}',
   'body>section[data-direction],body>.slide,body>article{width:100%;height:100%;box-sizing:border-box}',
+  IMG_SHIMMER_CSS,
 ].join('');
 
 const SLIDE_FRAME_THEMED = [
@@ -785,7 +801,7 @@ export function applyThemeToCarouselDocument(html, { themed = false, paint } = {
     'html.is-themed .slide :is([data-slot="eyebrow"],[data-slot="kicker"],[data-slot="label"],[data-slot="index"],[data-slot="accent"],.eyebrow,.kicker,.label,.accent){color:var(--t-accent-bg,#ff5227)}',
     'html.is-themed .slide hr,html.is-themed .slide [data-slot="rule"],html.is-themed .slide [role="separator"]{border-color:var(--t-accent-bg,#ff5227);color:var(--t-accent-bg,#ff5227)}',
   ].join('');
-  const style = `<style data-brand-theme>${vars ? `:root{${vars}}` : ''}${tokenRule}${SLIDE_FRAME_THEMED}${accentRule}</style>`;
+  const style = `<style data-brand-theme>${vars ? `:root{${vars}}` : ''}${tokenRule}${SLIDE_FRAME_THEMED}${accentRule}${IMG_SHIMMER_CSS}</style>`;
 
   let out = raw;
   if (/<html[\s>]/i.test(out)) {

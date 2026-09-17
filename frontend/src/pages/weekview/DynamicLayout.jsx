@@ -18,6 +18,22 @@ import { plainOf, titleRuns } from '../../lib/slidetext';
 
 const ANNOTATIONS_ENABLED = false;
 
+// Stop the shimmer placeholder (IMG_SHIMMER_CSS) once each real photo has painted:
+// add `is-loaded` when the image is complete, else on its load/error event. The
+// iframe is same-origin, so the parent can watch its images directly (its own
+// document has no scripts). Idempotent — safe to call after each (re)paint.
+function markImagesLoaded(doc) {
+  if (!doc) return;
+  doc.querySelectorAll('img[data-slot="image"][src]').forEach((img) => {
+    if (img.complete && img.naturalWidth > 0) { img.classList.add('is-loaded'); return; }
+    if (img.dataset.hfWatch === '1') return;
+    img.dataset.hfWatch = '1';
+    const done = () => img.classList.add('is-loaded');
+    img.addEventListener('load', done, { once: true });
+    img.addEventListener('error', done, { once: true }); // stop the shimmer even if it fails
+  });
+}
+
 function trim(value) {
   return String(value || '').trim();
 }
@@ -478,6 +494,10 @@ export default function DynamicLayout({
       doc.head.insertBefore(base, doc.head.firstChild);
     }
     void doc.documentElement.offsetWidth;
+    // Watch the injected photos so the shimmer placeholder clears when they load
+    // (non-document path has src baked in by prepareLayoutHtml; the document path
+    // re-marks inside crop() once paintCarouselSlideImages sets each src).
+    markImagesLoaded(doc);
 
     if (!useDocument) {
       if (copyRef.current) {
@@ -491,6 +511,7 @@ export default function DynamicLayout({
     const crop = (lockCopy) => {
       if (cancelled) return;
       paintCarouselSlideImages(frame, { direction, index: slideIndex, imageUrls: urls });
+      markImagesLoaded(frame.contentDocument);
       cropIframeToCarouselSlide(frame, { direction, index: slideIndex });
       if (copyRef.current && (lockCopy || isSlideFrozen(frame, { direction, index: slideIndex }))) {
         applyDraftCopy(frame);
