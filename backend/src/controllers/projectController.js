@@ -204,20 +204,45 @@ async function signUploads(req, res) {
 // ── projects ─────────────────────────────────────────────────────────────
 // Projects belong to the user's current Instagram account (see
 // utils/currentProfile), so they switch together with the header account.
+// Users whose legacy (null-handle) projects have already been adopted in this
+// process — so the one-time backfill below never runs on the hot read path more
+// than once per user. Once adopted, a null-handle project can't reappear:
+// createProject always stamps the current handle.
+const legacyAdopted = new Set();
+
 async function listProjects(req, res) {
   const lite = ['1', 'true'].includes(String(req.query.lite || '').toLowerCase());
   const username = await currentUsername(req.user._id);
   const filter = { user: req.user._id };
   if (username) {
+    const uid = String(req.user._id);
     // Adopt legacy projects (created before projects were tied to a handle) into
     // the current account so nothing disappears now that projects are scoped.
-    await Project.updateMany(
-      { user: req.user._id, instagramUsername: { $in: [null, ''] } },
-      { $set: { instagramUsername: username } }
-    );
+    // This is a one-time backfill; guard it so we don't issue a write on every
+    // calendar load.
+    if (!legacyAdopted.has(uid)) {
+      await Project.updateMany(
+        { user: req.user._id, instagramUsername: { $in: [null, ''] } },
+        { $set: { instagramUsername: username } }
+      );
+      legacyAdopted.add(uid);
+    }
     filter.instagramUsername = username;
   }
-  const projects = await Project.find(filter).sort({ updatedAt: -1 });
+  const query = Project.find(filter).sort({ updatedAt: -1 });
+  if (lite) {
+    // The calendar's lite view only needs capture ids, session text and
+    // attachment keys — never the heavy per-capture analysis, understanding,
+    // stories or raw conversation turns. Leave those in the DB rather than
+    // shipping (and then discarding) them over the wire on every load.
+    query.select({
+      'captures.understanding': 0,
+      'captures.stories': 0,
+      'captures.conversationTurns': 0,
+      'captures.attachments.analysis': 0,
+    });
+  }
+  const projects = await query;
   res.json({ projects: await Promise.all(projects.map((p) => serializeProject(p, { lite }))) });
 }
 

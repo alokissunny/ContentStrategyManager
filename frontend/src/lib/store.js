@@ -174,13 +174,30 @@ let lastPushedSig = null;
    be overwritten by a slower GET that left before the write. */
 let syncWriteGen = 0;
 
+// One in-flight hydrate per handle. Both AccountSwitcher instances (header +
+// sidebar) — doubled again by StrictMode in dev — mount at once and each drives
+// syncHandle → hydrate, which would otherwise fire the identical settings + logos
+// GETs 2–4× in parallel. Concurrent callers for the same handle share one promise
+// instead; the entry clears when it settles, so a later reload still re-fetches.
+const inFlightHydrate = new Map();
+
+function hydrate(handle) {
+  const h = normHandle(handle);
+  if (!h) return Promise.resolve();
+  const existing = inFlightHydrate.get(h);
+  if (existing) return existing;
+  const p = hydrateNow(h).finally(() => {
+    if (inFlightHydrate.get(h) === p) inFlightHydrate.delete(h);
+  });
+  inFlightHydrate.set(h, p);
+  return p;
+}
+
 // Pull this account's saved settings and merge them over the local state. The
 // server is authoritative for the synced fields on load; a switch/reload is the
 // only time this runs, so it never clobbers a mid-session edit. Guarded against a
 // handle switch landing mid-flight.
-async function hydrate(handle) {
-  const h = normHandle(handle);
-  if (!h) return;
+async function hydrateNow(h) {
   const gen = syncWriteGen;
   let remote;
   let logos = null;
