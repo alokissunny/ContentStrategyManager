@@ -4583,22 +4583,6 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
                     {String(day.format).replace(/ series$/, '')}
                   </span>
                 )}
-                {aiDebug.enabled && (
-                  <button
-                    type="button"
-                    className={`wv-ig__layrun${layoutBusy ? ' is-busy' : ''}`}
-                    disabled={layoutBusy}
-                    onPointerDown={(e) => e.stopPropagation()}
-                    onClick={(e) => { e.stopPropagation(); handleRunLayout(); }}
-                    title="Run the layout agent on this post only"
-                  >
-                    <Glyph name="layout-template" size={13} strokeWidth={2} />
-                    {layoutBusy ? 'Laying out…' : 'Run layout agent'}
-                  </button>
-                )}
-                {aiDebug.enabled && layoutErr && (
-                  <span className="wv-ig__layerr">{layoutErr}</span>
-                )}
               </div>
               {/* the carousel's own arrows — step through slides; the last one
                   hands the post over to the next day (see nextSlideOrDay) */}
