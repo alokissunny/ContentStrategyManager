@@ -5,7 +5,7 @@ const InstagramProfile = require('../models/InstagramProfile');
 const { generateWeeklyPlan, buildMonthCalendar, dayHasContent, isoDate, parseIsoDate } = require('../services/weeklyPlan');
 const { analyzeImageAsset } = require('../services/imageAnalysis');
 const { rewriteCaption } = require('../services/captionPolish');
-const { runLayoutForPost, writeLayoutVariations, applyLayoutToContent, normalizeWriterPost } = require('../services/planOrchestrator');
+const { runLayoutForPost, writeLayoutVariations, applyLayoutToContent, normalizeWriterPost, attachGeneratedVisuals } = require('../services/planOrchestrator');
 const { copyFromLayoutHtml, injectImageIntoSlots } = require('../services/layoutHtml');
 const { compileBrandMemory } = require('../services/planContext');
 const { generateCoverSpec, renderCoverVideo } = require('../services/carouselCoverAgent');
@@ -1286,9 +1286,33 @@ async function rerunDayLayout(req, res) {
     }
 
     const current = plainOf(day.content) || {};
-    const next = applyLayoutToContent({ ...current, slides: post.content.slides }, result.parsed);
+    let next = applyLayoutToContent({ ...current, slides: post.content.slides }, result.parsed);
+    // User-initiated re-run: fill any empty image slot (no supplied asset) with a
+    // generated conceptual visual (OpenAI gpt-image-1). fillEmpty is on here.
+    const visualAgents = [];
+    try {
+      next = await attachGeneratedVisuals({
+        source: label,
+        content: next,
+        brief: plainOf(trace.strategyBrief) || {},
+        brand,
+        userId: req.user._id,
+        handle: route.instagramUsername,
+        fillEmpty: true,
+        collect: (agent) => { if (agent?.debugEntry) visualAgents.push(agent); },
+      });
+    } catch (err) {
+      console.warn('[route] visual agent skipped on layout rerun:', err.message);
+    }
     day.content = { ...current, ...next, slides: next.slides };
-    day.agentTrace = { ...trace, layout: result.parsed, carousel: result.parsed };
+    day.agentTrace = {
+      ...trace,
+      layout: result.parsed,
+      carousel: result.parsed,
+      visual: Array.isArray(next.visualTrace) && next.visualTrace.length
+        ? { slides: next.visualTrace, usage: next.visualUsage || null }
+        : trace.visual || null,
+    };
     route.markModified('days');
     await route.save();
 
@@ -1318,19 +1342,34 @@ async function rerunDayLayout(req, res) {
           mode: 'carousel-debug',
           model: result.usage?.model || debugEntry.model,
           usage: result.usage || debugEntry.usage || null,
-          agents: [{
-            source: debugEntry.source || `Carousel:${label}:debug`,
-            model: debugEntry.model,
-            provider: debugEntry.provider || '',
-            prompt: debugEntry.prompt,
-            output: debugEntry.output || '',
-            elapsedMs: Number(debugEntry.elapsedMs || result.usage?.elapsedMs) || 0,
-            usage: result.usage || debugEntry.usage || null,
-            inputTokens: Number(result.usage?.inputTokens || debugEntry.usage?.inputTokens) || 0,
-            outputTokens: Number(result.usage?.outputTokens || debugEntry.usage?.outputTokens) || 0,
-            totalTokens: Number(result.usage?.totalTokens || debugEntry.usage?.totalTokens) || 0,
-            estimatedCostUsd: Number(result.usage?.estimatedCostUsd || debugEntry.usage?.estimatedCostUsd) || 0,
-          }],
+          agents: [
+            {
+              source: debugEntry.source || `Carousel:${label}:debug`,
+              model: debugEntry.model,
+              provider: debugEntry.provider || '',
+              prompt: debugEntry.prompt,
+              output: debugEntry.output || '',
+              elapsedMs: Number(debugEntry.elapsedMs || result.usage?.elapsedMs) || 0,
+              usage: result.usage || debugEntry.usage || null,
+              inputTokens: Number(result.usage?.inputTokens || debugEntry.usage?.inputTokens) || 0,
+              outputTokens: Number(result.usage?.outputTokens || debugEntry.usage?.outputTokens) || 0,
+              totalTokens: Number(result.usage?.totalTokens || debugEntry.usage?.totalTokens) || 0,
+              estimatedCostUsd: Number(result.usage?.estimatedCostUsd || debugEntry.usage?.estimatedCostUsd) || 0,
+            },
+            ...visualAgents.map((a) => ({
+              source: a.debugEntry?.source || `Visual:${label}`,
+              model: a.debugEntry?.model,
+              provider: a.debugEntry?.provider || '',
+              prompt: a.debugEntry?.prompt,
+              output: a.debugEntry?.output || '',
+              elapsedMs: Number(a.debugEntry?.elapsedMs) || 0,
+              usage: a.usage || null,
+              inputTokens: Number(a.usage?.inputTokens) || 0,
+              outputTokens: Number(a.usage?.outputTokens) || 0,
+              totalTokens: Number(a.usage?.totalTokens) || 0,
+              estimatedCostUsd: Number(a.usage?.estimatedCostUsd) || 0,
+            })),
+          ],
           elapsedMs: Number(debugEntry.elapsedMs || result.usage?.elapsedMs) || 0,
         },
       } : {}),

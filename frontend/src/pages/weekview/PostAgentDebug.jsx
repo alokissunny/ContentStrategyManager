@@ -231,6 +231,26 @@ function costOf(entry) {
   return [time, cost ? `~${cost}` : '', tokens ? `${tokens} tok` : ''].filter(Boolean).join(' · ');
 }
 
+// Sum time/cost/tokens across several debug entries (e.g. per-slide Visual runs).
+function sumEntries(entries) {
+  return (entries || []).reduce((acc, e) => ({
+    elapsedMs: acc.elapsedMs + (Number(e?.elapsedMs) || 0),
+    estimatedCostUsd: acc.estimatedCostUsd + (Number(e?.estimatedCostUsd) || 0),
+    totalTokens: acc.totalTokens + (Number(e?.totalTokens) || 0),
+  }), { elapsedMs: 0, estimatedCostUsd: 0, totalTokens: 0 });
+}
+
+// Visual run summary — like costOf, but includes the image count (image-render
+// cost is estimated and not counted in tokens).
+function visualCostOf(usage) {
+  const time = fmtElapsed(usage?.elapsedMs);
+  const cost = fmtCost(usage?.estimatedCostUsd);
+  const imgs = Number(usage?.images) || 0;
+  const tokens = fmtTokens(usage?.totalTokens);
+  return [time, cost ? `~${cost}` : '', imgs ? `${imgs} img` : '', tokens ? `${tokens} tok` : '']
+    .filter(Boolean).join(' · ');
+}
+
 function briefFromStrategistLog(entries, date) {
   const entry = (entries || []).find((e) => /^Strategist/i.test(String(e.source || '')));
   const parsed = parseJson(entry?.output);
@@ -260,16 +280,31 @@ function traceForDay(day, entries) {
   const layout = stored.layout
     || stored.carousel
     || parseJson(layoutEntry?.output);
+  // Visual Generator agent — the persisted per-slide trace (what was generated
+  // or skipped), or, right after a re-run, the raw Visual: prompt-agent entries.
+  const visualEntries = (entries || []).filter((e) => /^Visual:/i.test(String(e.source || '')));
+  const visual = (stored.visual && (stored.visual.slides || stored.visual.agents) ? stored.visual : null)
+    || (visualEntries.length
+      ? { agents: visualEntries.map((e) => ({ source: e.source, prompt: e.prompt, output: e.output })) }
+      : null);
+  // Time + cost for the whole Visual run: the persisted aggregate (LLM prompt
+  // agents + image renders), else summed session Visual: entries (prompt only).
+  const visualUsage = stored.visual?.usage || null;
+  const visualCost = visualUsage
+    ? visualCostOf(visualUsage)
+    : (visualEntries.length ? costOf(sumEntries(visualEntries)) : '');
   return {
     strategyBrief,
     structure,
     dayWriter,
     layout,
+    visual,
     costs: {
       strategy: costOf(strategyEntry),
       structure: costOf(structureEntry),
       dayWriter: costOf(dayHit),
       layout: costOf(layoutEntry),
+      visual: visualCost,
     },
   };
 }
@@ -359,7 +394,7 @@ export default function PostAgentDebug({
 }) {
   const debug = useAiDebug();
   const trace = traceForDay(day, debug.entries);
-  const empty = !trace.strategyBrief && !trace.structure && !trace.dayWriter && !trace.layout;
+  const empty = !trace.strategyBrief && !trace.structure && !trace.dayWriter && !trace.layout && !trace.visual;
   const took = fmtElapsed(elapsedMs);
   const cost = fmtCost(estimatedCostUsd);
   const tokens = fmtTokens(totalTokens);
@@ -375,7 +410,7 @@ export default function PostAgentDebug({
         </p>
       ) : null}
       <p className="wv-agentdbg__lead">
-        Agent outputs for this post. Strategy decides the brief; Structure locks the slide map; Carousel composes HTML layout directions. Slide content is derived from Structure.
+        Agent outputs for this post. Strategy decides the brief; Structure locks the slide map; Carousel composes HTML layout directions; Visual generates images for slides that need one but have no supplied asset. Slide content is derived from Structure.
       </p>
       {staleShell ? (
         <p className="wv-agentdbg__empty">
@@ -405,6 +440,7 @@ export default function PostAgentDebug({
       <Block title="Structure agent" value={trace.structure} cost={trace.costs?.structure} />
       <Block title="Slide content" value={trace.dayWriter} cost={trace.costs?.dayWriter} />
       <Block title="Carousel agent" value={trace.layout} cost={trace.costs?.layout} />
+      <Block title="Visual agent" value={trace.visual} cost={trace.costs?.visual} />
     </div>
   );
 }

@@ -49,6 +49,16 @@ const AGENTS = {
     modelEnv: 'PLAN_COVER_MODEL',
     providerEnv: 'PLAN_COVER_PROVIDER',
   },
+  // Visual Generator — writes ONE image-generation prompt for a slide that needs
+  // a conceptual visual it has no supplied asset for. Cheap by design: it emits a
+  // short JSON prompt, not a whole document. The rendered image comes from
+  // services/openaiImage.js (gpt-image-1), not from this text model.
+  visual: {
+    defaultProvider: 'openai',
+    modelEnv: 'PLAN_VISUAL_MODEL',
+    providerEnv: 'PLAN_VISUAL_PROVIDER',
+    defaultModel: 'gpt-5.6-terra',
+  },
   // Experimental Reel Editor — a three-agent short-form video edit pipeline
   // (director → caption stylist → motion graphics). See services/reelEditorAgent.
   reelDirector: {

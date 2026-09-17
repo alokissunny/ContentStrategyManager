@@ -1,7 +1,7 @@
 const PlannedPost = require('../models/PlannedPost');
 const { generateWeeklyPlan, buildEmptySlots, isoDate } = require('../services/weeklyPlan');
 const { rewriteCaption } = require('../services/captionPolish');
-const { runLayoutForPost, writeLayoutVariations, applyLayoutToContent, normalizeWriterPost } = require('../services/planOrchestrator');
+const { runLayoutForPost, writeLayoutVariations, applyLayoutToContent, normalizeWriterPost, attachGeneratedVisuals } = require('../services/planOrchestrator');
 const { copyFromLayoutHtml, injectImageIntoSlots } = require('../services/layoutHtml');
 const { compileBrandMemory } = require('../services/planContext');
 const { generateCoverSpec, renderCoverVideo } = require('../services/carouselCoverAgent');
@@ -559,9 +559,35 @@ async function rerunLayout(req, res) {
     }
 
     const current = plainOf(record.content) || {};
-    const next = applyLayoutToContent({ ...current, slides: post.content.slides }, result.parsed);
+    let next = applyLayoutToContent({ ...current, slides: post.content.slides }, result.parsed);
+    // Fill any slide that now has an empty image slot but no supplied asset with
+    // a generated conceptual visual (OpenAI gpt-image-1). This is a user-initiated
+    // re-run, so fillEmpty is on — it generates for any missing-asset image slot,
+    // not only the structure agent's generate-conceptual-support slides.
+    const visualAgents = [];
+    try {
+      next = await attachGeneratedVisuals({
+        source: label,
+        content: next,
+        brief: plainOf(trace.strategyBrief) || {},
+        brand,
+        userId: req.user._id,
+        handle: record.instagramUsername,
+        fillEmpty: true,
+        collect: (agent) => { if (agent?.debugEntry) visualAgents.push(agent); },
+      });
+    } catch (err) {
+      console.warn('[posts] visual agent skipped on layout rerun:', err.message);
+    }
     record.content = { ...current, ...next, slides: next.slides };
-    record.agentTrace = { ...trace, layout: result.parsed, carousel: result.parsed };
+    record.agentTrace = {
+      ...trace,
+      layout: result.parsed,
+      carousel: result.parsed,
+      visual: Array.isArray(next.visualTrace) && next.visualTrace.length
+        ? { slides: next.visualTrace, usage: next.visualUsage || null }
+        : trace.visual || null,
+    };
     record.markModified('content');
     record.markModified('agentTrace');
     await record.save();
@@ -576,19 +602,34 @@ async function rerunLayout(req, res) {
           mode: 'carousel-debug',
           model: result.usage?.model || debugEntry.model,
           usage: result.usage || debugEntry.usage || null,
-          agents: [{
-            source: debugEntry.source || `Carousel:${label}:debug`,
-            model: debugEntry.model,
-            provider: debugEntry.provider || '',
-            prompt: debugEntry.prompt,
-            output: debugEntry.output || '',
-            elapsedMs: Number(debugEntry.elapsedMs || result.usage?.elapsedMs) || 0,
-            usage: result.usage || debugEntry.usage || null,
-            inputTokens: Number(result.usage?.inputTokens || debugEntry.usage?.inputTokens) || 0,
-            outputTokens: Number(result.usage?.outputTokens || debugEntry.usage?.outputTokens) || 0,
-            totalTokens: Number(result.usage?.totalTokens || debugEntry.usage?.totalTokens) || 0,
-            estimatedCostUsd: Number(result.usage?.estimatedCostUsd || debugEntry.usage?.estimatedCostUsd) || 0,
-          }],
+          agents: [
+            {
+              source: debugEntry.source || `Carousel:${label}:debug`,
+              model: debugEntry.model,
+              provider: debugEntry.provider || '',
+              prompt: debugEntry.prompt,
+              output: debugEntry.output || '',
+              elapsedMs: Number(debugEntry.elapsedMs || result.usage?.elapsedMs) || 0,
+              usage: result.usage || debugEntry.usage || null,
+              inputTokens: Number(result.usage?.inputTokens || debugEntry.usage?.inputTokens) || 0,
+              outputTokens: Number(result.usage?.outputTokens || debugEntry.usage?.outputTokens) || 0,
+              totalTokens: Number(result.usage?.totalTokens || debugEntry.usage?.totalTokens) || 0,
+              estimatedCostUsd: Number(result.usage?.estimatedCostUsd || debugEntry.usage?.estimatedCostUsd) || 0,
+            },
+            ...visualAgents.map((a) => ({
+              source: a.debugEntry?.source || `Visual:${label}`,
+              model: a.debugEntry?.model,
+              provider: a.debugEntry?.provider || '',
+              prompt: a.debugEntry?.prompt,
+              output: a.debugEntry?.output || '',
+              elapsedMs: Number(a.debugEntry?.elapsedMs) || 0,
+              usage: a.usage || null,
+              inputTokens: Number(a.usage?.inputTokens) || 0,
+              outputTokens: Number(a.usage?.outputTokens) || 0,
+              totalTokens: Number(a.usage?.totalTokens) || 0,
+              estimatedCostUsd: Number(a.usage?.estimatedCostUsd) || 0,
+            })),
+          ],
           elapsedMs: Number(debugEntry.elapsedMs || result.usage?.elapsedMs) || 0,
         },
       } : {}),

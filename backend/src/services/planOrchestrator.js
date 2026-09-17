@@ -6,8 +6,10 @@ const { completeText, resolvePlanAgentLlm, splitPromptTemplate, reasoningEffortF
 const { ANNOTATIONS_ENABLED, asStoredText, asStoredLines, flattenSlide, layoutForStructure, mediaKeysOf, projectMediaKeysIn } = require('./slideContent');
 const { boxOf, matchSubject, regionFromBox } = require('./subjectBox');
 const { layoutById } = require('./layoutCatalog');
-const { extractLayoutHtml, extractHtmlDocument, parseCarouselDocument, hasImageSlot, shareLayoutStyles, copyFromLayoutHtml } = require('./layoutHtml');
-const { publicMediaUrl, isCdnConfigured } = require('./s3Client');
+const { extractLayoutHtml, extractHtmlDocument, parseCarouselDocument, hasImageSlot, shareLayoutStyles, copyFromLayoutHtml, injectImageIntoSlots } = require('./layoutHtml');
+const { publicMediaUrl, isCdnConfigured, getMediaUrl, isS3Configured } = require('./s3Client');
+const { isImageGenConfigured: isOpenAIImageConfigured, generateImage: renderOpenAIImage } = require('./openaiImage');
+const { buildImagePrompt, persistGeneratedImage } = require('./generatedImage');
 
 const PROMPTS_DIR = path.join(__dirname, '..', '..', 'prompts');
 const cache = {};
@@ -266,6 +268,10 @@ function maxTokensFor(kind) {
     const n = Number(process.env.PLAN_CAROUSEL_MAX_TOKENS);
     return Number.isFinite(n) && n > 0 ? n : 32768;
   }
+  if (kind === 'visual') {
+    const n = Number(process.env.PLAN_VISUAL_MAX_TOKENS);
+    return Number.isFinite(n) && n > 0 ? n : 2048;
+  }
   const n = Number(process.env.PLAN_AGENT_MAX_TOKENS);
   return Number.isFinite(n) && n > 0 ? n : 16384;
 }
@@ -290,6 +296,26 @@ function carouselAgentEnabled() {
 
 function layoutSlideParallelEnabled() {
   return !envFlagOff('PLAN_LAYOUT_SLIDE_PARALLEL', '1');
+}
+
+// Visual Generator agent — fills the image slot of a slide that needs a visual
+// but has no supplied asset. On by default whenever both an OpenAI key (to
+// render) and S3 (to store) are configured; force off with PLAN_VISUAL_AGENT=0.
+function visualAgentEnabled() {
+  if (!envFlagOn('PLAN_VISUAL_AGENT', '1')) return false;
+  return isOpenAIImageConfigured() && isS3Configured();
+}
+
+function visualSlideConcurrency() {
+  return envPositiveInt('PLAN_VISUAL_SLIDE_CONCURRENCY', 3);
+}
+
+// Auto-generation fills ANY empty image slot (a slide the carousel agent kept an
+// image slot for, with no supplied asset) by default — that is the intent of
+// "generate a visual where the asset is missing". Set PLAN_VISUAL_STRICT=1 to
+// restrict it to only the structure agent's `generate-conceptual-support` slides.
+function visualFillEmptyEnabled() {
+  return !envFlagOn('PLAN_VISUAL_STRICT', '0');
 }
 
 function envPositiveInt(name, fallback) {
@@ -794,7 +820,12 @@ function normalizeWriterPost(parsed, dayBrief, dayAssets) {
 function approvedGenerationRouteOf() {
   const v = String(process.env.PLAN_IMAGE_GENERATION ?? '1').trim().toLowerCase();
   if (v === '0' || v === 'false' || v === 'off' || v === 'no') return 'assets-only';
-  if (process.env.GEMINI_API_KEY || process.env.GOOGLE_CLOUD_PROJECT) return 'generate';
+  // The Visual Generator agent renders through OpenAI (gpt-image-1); the legacy
+  // "Create image" flow uses Gemini/Vertex. Either backend authorises the
+  // structure agent to pick `generate-conceptual-support`.
+  if (process.env.OPENAI_API_KEY || process.env.GEMINI_API_KEY || process.env.GOOGLE_CLOUD_PROJECT) {
+    return 'generate';
+  }
   return 'assets-only';
 }
 
@@ -2176,8 +2207,405 @@ async function attachLayout({ label, structure, writer, collect, dayBrief, dayAs
   }
 }
 
+// ── Visual Generator agent ───────────────────────────────────────────────────
+// Fills the empty image slot of a slide that needs a visual but has no supplied
+// asset. Content Structure decides this (evidenceResolution = generate-
+// conceptual-support); this agent writes ONE art-direction prompt, renders it
+// with OpenAI (gpt-image-1), stores the bytes on S3, and injects the picture
+// into the slide's applied layout and every layout option. Runs after the layout/
+// carousel agent, per day, so it only ever sees the composed slides.
+
+// Map a slide's evidence resolution + image slot onto "needs a generated visual".
+// Strict by default: only slides the structure agent explicitly routed to
+// generate-conceptual-support are filled, so a generated picture never stands in
+// for missing factual proof. PLAN_VISUAL_FILL_EMPTY=1 broadens it to any empty
+// image slot the layout kept for a slide that wants a visual.
+function slideNeedsGeneratedVisual(slide, { fillEmpty = false } = {}) {
+  const html = optionalText(slide?.layoutHtml);
+  if (!html || !hasImageSlot(html)) return false;
+  const flat = flattenSlide(slide);
+  const visual = slide?.visual && typeof slide.visual === 'object' ? slide.visual : (flat.visual || {});
+  if (slideHasAsset(slide, flat, visual)) return false;
+  // Already carries a baked picture (a supplied asset was injected upstream).
+  const baked = copyFromLayoutHtml(html)?.image;
+  if (optionalText(baked?.src) || optionalText(baked?.assetKey)) return false;
+  const resolution = String(slide?.evidenceResolution?.type || '').trim().toLowerCase();
+  if (resolution === 'generate-conceptual-support') return true;
+  // Broader fill: any empty image slot the layout kept for a slide that wants a
+  // visual. Off during automatic bulk generation (a generated picture must not
+  // silently stand in for missing factual proof), but on for user-initiated
+  // actions like "Run layout agent" (see `fillEmpty` / PLAN_VISUAL_FILL_EMPTY).
+  if (fillEmpty || envFlagOn('PLAN_VISUAL_FILL_EMPTY', '0')) {
+    // Never fabricate a picture for a slide that already references a real photo
+    // (the pre-pass binds these; this is a defensive backstop).
+    if (suppliedKeysForSlide(slide).length) return false;
+    return true;
+  }
+  return false;
+}
+
+// The guidance the Visual Generator agent gets for one slide: the structure
+// agent's visual decision plus the slide's real on-slide copy (so the image
+// complements the words, not repeats them).
+function visualSlideInputOf(slide) {
+  const flat = flattenSlide(slide);
+  const v = slide?.visual && typeof slide.visual === 'object' ? slide.visual : (flat.visual || {});
+  const filled = {};
+  ['title', 'subtitle', 'body', 'stat', 'quote', 'action', 'comparisonA', 'comparisonB'].forEach((k) => {
+    const t = optionalText(flat[k]);
+    if (t) filled[k] = t;
+  });
+  ['items', 'itemsA', 'itemsB', 'labels'].forEach((k) => {
+    const list = Array.isArray(flat[k]) ? flat[k].map(optionalText).filter(Boolean) : [];
+    if (list.length) filled[k] = list;
+  });
+  return {
+    index: Number(slide?.index) > 0 ? Number(slide.index) : 1,
+    role: optionalText(slide?.role || flat.role),
+    purpose: optionalText(slide?.purpose),
+    contentGuidance: optionalText(slide?.contentGuidance),
+    informationShape: optionalText(slide?.informationShape || flat.informationShape),
+    primaryStructure: optionalText(slide?.structure || flat.structure),
+    visual: {
+      role: optionalText(v.role),
+      priority: optionalText(v.priority),
+      communicationFunction: optionalText(v.communicationFunction),
+      truthBoundary: optionalText(v.truthBoundary),
+    },
+    evidenceResolution: {
+      type: optionalText(slide?.evidenceResolution?.type),
+      reason: optionalText(slide?.evidenceResolution?.reason),
+    },
+    filledCopy: filled,
+  };
+}
+
+function visualPostContextOf(brief) {
+  return {
+    angle: optionalText(brief?.angle),
+    pillar: optionalText(brief?.pillar),
+    format: optionalText(brief?.format),
+    uniqueJob: optionalText(brief?.uniqueJob),
+    centralFact: optionalText(brief?.centralFact),
+    verifiedTruth: stringList(brief?.verifiedTruth),
+    observableDetails: stringList(brief?.observableDetails),
+  };
+}
+
+// Flatten brand style into the { accent, primary, neutral, mood } shape
+// buildImagePrompt (services/generatedImage.js) appends to the render prompt, so
+// generated slides share the palette of the photographed ones.
+function brandPaletteOf(brand) {
+  const b = brand && typeof brand === 'object' ? brand : {};
+  const style = brandStyleOf(brand) || {};
+  const palette = style.palette && typeof style.palette === 'object' ? style.palette : {};
+  return {
+    accent: optionalText(palette.accent || b.accent),
+    primary: optionalText(palette.primary || palette.ink || b.primary),
+    neutral: optionalText(palette.neutral || palette.background || b.neutral),
+    mood: optionalText(b.visualStyle || b.mood || style.visualStyle),
+  };
+}
+
+function validateVisualPrompt(parsed) {
+  const status = String(parsed?.status || '').trim().toLowerCase();
+  if (status === 'skip') {
+    parsed.status = 'skip';
+    parsed.skipReason = optionalText(parsed.skipReason);
+    return;
+  }
+  const prompt = optionalText(parsed?.imagePrompt);
+  if (!prompt) throw new Error('visual agent returned no imagePrompt');
+  parsed.status = 'ready';
+  parsed.imagePrompt = prompt;
+  parsed.altText = optionalText(parsed.altText);
+}
+
+// Write the image-generation prompt for one slide (the LLM "agent" step).
+async function writeVisualPrompt({ source, slide, brief, brand }) {
+  const assembled = assembleAgentPrompt('plan-visual.md', {
+    SLIDE_JSON: json(visualSlideInputOf(slide)),
+    POST_CONTEXT_JSON: optionalPromptJson(visualPostContextOf(brief)),
+    BRAND_STYLE: optionalPromptJson(brandStyleOf(brand)),
+  });
+  return callAgent({
+    source,
+    kind: 'visual',
+    system: assembled.system,
+    user: assembled.user,
+    prompt: assembled.prompt,
+    validate: (parsed) => validateVisualPrompt(parsed),
+  });
+}
+
+// End to end for ONE slide: prompt agent → OpenAI render → S3. Returns
+// { ok, key, src, alt, imagePrompt, finalPrompt, model } on success, or
+// { ok:false, skipReason } when the agent declined to art-direct the slide.
+async function generateSlideVisual({ source, slide, brief, brand, userId, handle, collect }) {
+  const agent = await writeVisualPrompt({ source, slide, brief, brand });
+  if (collect) collect(agent);
+  const parsed = agent.parsed || {};
+  if (parsed.status !== 'ready') {
+    const skipReason = optionalText(parsed.skipReason) || 'no prompt';
+    console.log(`[planOrchestrator] ${source} skipped — ${skipReason}`);
+    return { ok: false, skipReason };
+  }
+  // The agent's art direction, composed with the brand palette and the shared
+  // house guardrails (no text, full-bleed, negative space kept in-scene).
+  const finalPrompt = buildImagePrompt(parsed.imagePrompt, brandPaletteOf(brand));
+  const {
+    buffer, mimeType, model, elapsedMs: imageElapsedMs = 0, estimatedCostUsd: imageCostUsd = 0,
+  } = await renderOpenAIImage(finalPrompt);
+  const stored = await persistGeneratedImage({
+    userId,
+    handle,
+    buffer,
+    mimeType,
+    prompt: finalPrompt,
+    model,
+  });
+  let src = '';
+  try { src = await getMediaUrl(stored.key); } catch { /* CDN off / presign fail — key still resolves client-side */ }
+  // Cost/time for this slide = the prompt agent (LLM tokens) + the image render.
+  const promptUsage = agent.usage || {};
+  const promptCost = Number(promptUsage.estimatedCostUsd) || 0;
+  const promptTokens = Number(promptUsage.totalTokens) || 0;
+  const promptElapsedMs = Number(agent.debugEntry?.elapsedMs) || 0;
+  return {
+    ok: true,
+    key: stored.key,
+    src,
+    alt: optionalText(parsed.altText),
+    imagePrompt: optionalText(parsed.imagePrompt),
+    finalPrompt,
+    model,
+    usage: {
+      elapsedMs: promptElapsedMs + imageElapsedMs,
+      estimatedCostUsd: promptCost + imageCostUsd,
+      promptCostUsd: promptCost,
+      imageCostUsd,
+      totalTokens: promptTokens,
+    },
+  };
+}
+
+// Object keys the Visual Generator agent produced (persistGeneratedImage names
+// them `<prefix>/gen-<uuid>.<ext>`). Lets a re-run re-bind a slide's own prior
+// generated picture into freshly composed html without paying to regenerate it.
+function isGeneratedAssetKey(key) {
+  return /\/gen-[0-9a-fA-F-]+\.[a-z0-9]+$/.test(String(key || ''));
+}
+
+// Every project media key this slide already owns or references — direct asset
+// fields, plus keys the structure agent embedded in element text / support
+// references / evidence (where an allocated photo often lives instead of on
+// assetKey). Used to decide a slide already has a real asset (so the Visual
+// Generator must NOT fabricate one) and to bind that asset into the slots.
+function suppliedKeysForSlide(slide) {
+  const flat = flattenSlide(slide);
+  // `elements` is an array of OBJECTS; projectMediaKeysIn would join it to
+  // "[object Object]" and lose the keys, so flatten its text/supportReference to
+  // a string first (this is where slideFromStructure puts allocated photo keys).
+  const elementsText = (Array.isArray(slide?.elements) ? slide.elements : [])
+    .map((el) => {
+      const refs = Array.isArray(el?.supportReference) ? el.supportReference : [el?.supportReference];
+      return [el?.text, ...refs].filter(Boolean).join(' ');
+    })
+    .join(' ');
+  return projectMediaKeysIn(
+    slide?.assetKeys, slide?.assetKey, slide?.visual?.assetKeys, slide?.visual?.assetKey,
+    flat.assetKey, flat.assetKeys,
+    elementsText,
+    slide?.body, slide?.items, slide?.itemsA, slide?.itemsB,
+    slide?.comparisonA, slide?.comparisonB, slide?.title, slide?.subtitle,
+    slide?.visual, slide?.evidenceAvailability,
+  );
+}
+
+// Assign each key to the next image slot, in order — for Multiple_Images slides
+// the carousel composes several <img data-slot="image"> and each supplied photo
+// fills one. Extra slots (more slots than keys) are left untouched.
+function injectMultiImages(html, keys) {
+  const list = (Array.isArray(keys) ? keys : []).map((k) => String(k || '').trim()).filter(Boolean);
+  if (!list.length) return String(html || '');
+  let i = 0;
+  return String(html || '').replace(/<img\b([^>]*?)\/?>/gi, (full, attrs) => {
+    if (!/\bdata-slot\s*=\s*["'](?:image|illustration)["']/i.test(attrs)) return full;
+    const key = list[i];
+    i += 1;
+    if (!key) return full; // more slots than keys — leave the rest as-is
+    const src = photographSrcOf(key);
+    const clean = String(attrs)
+      .replace(/\s+src\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/i, '')
+      .replace(/\s+data-asset-key\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/i, '')
+      .trim();
+    const keyAttr = ` data-asset-key="${key.replace(/"/g, '&quot;')}"`;
+    const srcAttr = src ? ` src="${src.replace(/"/g, '&quot;')}"` : '';
+    return `<img ${clean}${keyAttr}${srcAttr}>`;
+  });
+}
+
+// Bind supplied (or previously generated) asset keys onto a slide and inject
+// them into its image slots — no model call. `assetKeys` carries every key so a
+// Multiple_Images slide renders all of them (the client reads keysOf → all keys).
+function bindAssetsToSlide(slide, keys) {
+  const list = (Array.isArray(keys) ? keys : []).map((k) => String(k || '').trim()).filter(Boolean);
+  if (!list.length) return slide;
+  const next = { ...slide };
+  next.assetKey = list[0];
+  next.assetKeys = list;
+  next.visual = {
+    ...(next.visual && typeof next.visual === 'object' ? next.visual : {}),
+    assetKey: list[0],
+    ...(list.length > 1 ? { assetKeys: list } : {}),
+  };
+  if (next.layoutHtml) next.layoutHtml = injectMultiImages(next.layoutHtml, list);
+  if (Array.isArray(next.layoutOptions)) {
+    next.layoutOptions = next.layoutOptions.map((o) => ({
+      ...o,
+      html: injectMultiImages(String(o?.html || ''), list),
+    }));
+  }
+  const firstSrc = photographSrcOf(list[0]);
+  next.image = firstSrc || list[0] || optionalText(next.image);
+  return next;
+}
+
+// Inject a generated picture into a slide's applied layout and every option, and
+// bind the S3 key onto the slide so re-runs / layout variations keep it.
+function applyVisualToSlide(slide, image) {
+  const asset = { src: optionalText(image?.src), assetKey: optionalText(image?.key) };
+  const next = { ...slide };
+  if (next.layoutHtml) next.layoutHtml = injectImageIntoSlots(next.layoutHtml, asset);
+  if (Array.isArray(next.layoutOptions)) {
+    next.layoutOptions = next.layoutOptions.map((o) => ({
+      ...o,
+      html: injectImageIntoSlots(String(o?.html || ''), asset),
+    }));
+  }
+  next.assetKey = asset.assetKey || next.assetKey;
+  next.visual = {
+    ...(next.visual && typeof next.visual === 'object' ? next.visual : {}),
+    assetKey: asset.assetKey || next.visual?.assetKey,
+    execution: 'generated-visual',
+    ...(image?.alt ? { alt: image.alt } : {}),
+  };
+  // `slide.image` is a STRING in the PlannedPost/WeeklyRoute schema (an object
+  // fails the cast). The picture actually renders from the injected <img src> in
+  // layoutHtml + `assetKey`; keep `image` a non-empty string (the src, else the
+  // key) so it no longer reads as "placeholder" and `Boolean(slide.image)` holds.
+  next.image = asset.src || asset.assetKey || optionalText(next.image);
+  if (image?.finalPrompt) next.imagePrompt = image.finalPrompt;
+  return next;
+}
+
+// Run the Visual Generator agent over one day's composed content, filling every
+// slide that needs a generated visual. Mutates and returns `content`. Failures
+// on a single slide are logged and skipped — the slide keeps its empty slot
+// rather than failing the whole day.
+async function attachGeneratedVisuals({ source, content, brief, brand, userId, handle, collect, fillEmpty = false }) {
+  if (!visualAgentEnabled()) {
+    console.warn(
+      `[planOrchestrator] Visual:${source} disabled — needs OPENAI_API_KEY${isS3Configured() ? '' : ' and S3_BUCKET_NAME'}`,
+    );
+    return content;
+  }
+  if (!userId) {
+    console.warn(`[planOrchestrator] Visual:${source} skipped — no userId to store generated images`);
+    return content;
+  }
+  // Asset-binding pre-pass (no model call): the carousel agent leaves each
+  // <img> src empty, so bind the real photos a slide already references into its
+  // slots BEFORE deciding what still needs generating. This (a) fills a
+  // Multiple_Images slide's every slot, and (b) stops the agent generating a
+  // picture for a slide that has a supplied asset the structure merely tucked
+  // into element text instead of assetKey. Generate-conceptual-support slides
+  // only re-bind a picture THEY generated before — never a rejected asset.
+  const slides = (Array.isArray(content?.slides) ? content.slides : []).map((slide) => {
+    const html = optionalText(slide?.layoutHtml);
+    if (!html || !hasImageSlot(html)) return slide;
+    if (optionalText(copyFromLayoutHtml(html)?.image?.src)) return slide; // already baked
+    const keys = suppliedKeysForSlide(slide);
+    if (!keys.length) return slide;
+    const resolution = String(slide?.evidenceResolution?.type || '').trim().toLowerCase();
+    if (resolution === 'generate-conceptual-support') {
+      const generated = keys.filter(isGeneratedAssetKey);
+      return generated.length ? bindAssetsToSlide(slide, generated) : slide;
+    }
+    // Real supplied photos win over any stray generated key left on the slide by
+    // an earlier run, so a re-run restores the true asset rather than the
+    // fallback image.
+    const supplied = keys.filter((k) => !isGeneratedAssetKey(k));
+    return bindAssetsToSlide(slide, supplied.length ? supplied : keys);
+  });
+  content.slides = slides;
+  const targets = slides
+    .map((slide, i) => ({ slide, i }))
+    .filter(({ slide }) => slideNeedsGeneratedVisual(slide, { fillEmpty }));
+  if (!targets.length) return content;
+  console.log(
+    `[planOrchestrator] Visual:${source} · ${targets.length} slide${targets.length === 1 ? '' : 's'} need a generated visual`,
+  );
+  const results = await mapPool(targets, visualSlideConcurrency(), async ({ slide, i }) => {
+    const index = Number(slide?.index) > 0 ? Number(slide.index) : i + 1;
+    try {
+      const image = await generateSlideVisual({
+        source: `Visual:${source}#${index}`,
+        slide,
+        brief,
+        brand,
+        userId,
+        handle,
+        collect,
+      });
+      return { i, index, image };
+    } catch (err) {
+      console.warn(`[planOrchestrator] Visual:${source}#${index} skipped — ${err.message}`);
+      return { i, index, image: { ok: false, skipReason: err.message } };
+    }
+  });
+  // A per-slide record of what the Visual Generator did — surfaced in the Debug
+  // panel (agentTrace.visual) so a generated (or skipped) image is inspectable.
+  const trace = results
+    .sort((a, b) => a.index - b.index)
+    .map((r) => (r.image?.ok
+      ? {
+        index: r.index,
+        status: 'generated',
+        assetKey: r.image.key,
+        model: r.image.model,
+        imagePrompt: r.image.imagePrompt || '',
+        finalPrompt: r.image.finalPrompt || '',
+        altText: r.image.alt || '',
+        estimatedCostUsd: Number(r.image.usage?.estimatedCostUsd) || 0,
+        elapsedMs: Number(r.image.usage?.elapsedMs) || 0,
+      }
+      : {
+        index: r.index,
+        status: 'skipped',
+        skipReason: r.image?.skipReason || 'unknown',
+      }));
+  // Aggregate cost/time for the whole Visual Generator run (LLM prompt agents +
+  // image renders). elapsedMs sums per-slide work; renders run concurrently, so
+  // this is an upper bound, not wall-clock.
+  const generatedResults = results.filter((r) => r?.image?.ok);
+  content.visualUsage = {
+    images: generatedResults.length,
+    elapsedMs: generatedResults.reduce((n, r) => n + (Number(r.image.usage?.elapsedMs) || 0), 0),
+    estimatedCostUsd: generatedResults.reduce((n, r) => n + (Number(r.image.usage?.estimatedCostUsd) || 0), 0),
+    imageCostUsd: generatedResults.reduce((n, r) => n + (Number(r.image.usage?.imageCostUsd) || 0), 0),
+    promptCostUsd: generatedResults.reduce((n, r) => n + (Number(r.image.usage?.promptCostUsd) || 0), 0),
+    totalTokens: generatedResults.reduce((n, r) => n + (Number(r.image.usage?.totalTokens) || 0), 0),
+  };
+  const byIndex = new Map(generatedResults.map((r) => [r.i, r.image]));
+  content.visualTrace = trace;
+  if (!byIndex.size) return content;
+  content.slides = slides.map((slide, i) => (byIndex.has(i) ? applyVisualToSlide(slide, byIndex.get(i)) : slide));
+  return content;
+}
+
 /**
- * Multi-agent plan: Strategist → Content Structure → Carousel.
+ * Multi-agent plan: Strategist → Content Structure → Carousel → Visual.
  * Returns the same shape fields weeklyPlan needs to assemble a route:
  *   { focusOut, rawDays, usage, model, debug }
  */
@@ -2410,11 +2838,37 @@ async function runMultiAgentPlan({
           dayAssets,
           collect,
         });
+      // Compose the day's content here (async), then let the Visual Generator
+      // agent fill any slide that needs a picture it has no supplied asset for.
+      // Rendering + S3 storage is per-day and concurrent, so it belongs in this
+      // pooled worker, not the synchronous assembly below.
+      let content = null;
+      if (!writerFailed(writer.parsed)) {
+        content = applyLayoutToContent(
+          normalizeWriterPost(writer.parsed, brief, dayAssets),
+          layout?.parsed || null,
+        );
+        try {
+          content = await attachGeneratedVisuals({
+            source: label,
+            content,
+            brief,
+            brand: visualBrand,
+            userId,
+            handle: username,
+            collect,
+            fillEmpty: visualFillEmptyEnabled(),
+          });
+        } catch (err) {
+          console.warn(`[planOrchestrator] Visual:${label} skipped — ${err.message}`);
+        }
+      }
       return {
         index,
         dayBrief: brief,
         result: writer,
         layout: layout?.parsed || null,
+        content,
         debugEntries,
         runUsages,
         structure: structure.parsed,
@@ -2437,7 +2891,7 @@ async function runMultiAgentPlan({
 
   const rawDays = dayResults
     .sort((a, b) => a.index - b.index)
-    .map(({ dayBrief, result, skipped, structure, layout, dayAssets }) => {
+    .map(({ dayBrief, result, skipped, structure, layout, dayAssets, content: precomputed }) => {
       if (!result) {
         console.warn(`[planOrchestrator] @${username}: dropped ${dayBrief.date || dayBrief.day} (${skipped})`);
         return null;
@@ -2452,7 +2906,9 @@ async function runMultiAgentPlan({
         );
         return null;
       }
-      const content = applyLayoutToContent(normalizeWriterPost(parsed, dayBrief, dayAssets), layout);
+      // Prefer the content composed (and visually filled) inside writeOneDay;
+      // fall back to composing it here if that step produced nothing.
+      const content = precomputed || applyLayoutToContent(normalizeWriterPost(parsed, dayBrief, dayAssets), layout);
       const slides = content.slides;
       const bound = slides.flatMap((s) => [
         s.assetKey,
@@ -2487,6 +2943,9 @@ async function runMultiAgentPlan({
           dayWriter: parsed,
           layout: layout || null,
           carousel: carouselOn ? (layout || null) : null,
+          visual: (content && Array.isArray(content.visualTrace) && content.visualTrace.length)
+            ? { slides: content.visualTrace, usage: content.visualUsage || null }
+            : null,
         },
         content,
       };
@@ -2545,4 +3004,9 @@ module.exports = {
   writeLayoutVariations,
   applyLayoutToContent,
   normalizeWriterPost,
+  attachGeneratedVisuals,
+  slideNeedsGeneratedVisual,
+  applyVisualToSlide,
+  suppliedKeysForSlide,
+  bindAssetsToSlide,
 };
