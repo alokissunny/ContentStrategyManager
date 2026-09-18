@@ -21,13 +21,13 @@ async function ownedHandle(userId, requested) {
 const {
   isS3Configured,
   getPresignedUploadUrl,
-  getPresignedMediaUrl,
+  getMediaUrl,
   deleteObjects,
 } = require('../services/s3Client');
 
 // Visual Mood — the reference pictures a studio adds on the Library Settings
 // page. The bytes live in S3 under a per-user prefix; Mongo keeps only the key
-// (plus a title), and the client is handed short-lived presigned read URLs.
+// (plus a title), and the client is handed short-lived CDN / presigned URLs.
 
 const EXT = {
   'image/jpeg': 'jpg', 'image/jpg': 'jpg', 'image/png': 'png', 'image/webp': 'webp',
@@ -51,9 +51,9 @@ function logoPrefix(userId, handle) {
 async function withUrl(m) {
   let url = null;
   try {
-    if (isS3Configured()) url = await getPresignedMediaUrl(m.key);
+    if (isS3Configured()) url = await getMediaUrl(m.key);
   } catch (err) {
-    console.error('[visual-brand] could not presign', m.key, err.message);
+    console.error('[visual-brand] could not resolve url', m.key, err.message);
   }
   return { key: m.key, title: m.title || '', addedAt: m.addedAt || 0, url };
 }

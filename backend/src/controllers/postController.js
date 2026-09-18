@@ -161,7 +161,7 @@ async function generateAndSavePosts(userId, profile, trigger = 'generate', planS
 // GET /posts — calendar list for the current handle. Heavy content + trace are
 // projected out (fetched per-post on open), same speedup as the old getRoutes.
 async function getPosts(req, res) {
-  const profile = await currentProfile(req.user._id);
+  const profile = await currentProfile(req.user._id).select('username fetchedAt').lean();
   if (!profile) return res.json({ posts: [], username: null, preparing: false });
 
   const posts = await PlannedPost.find({
@@ -239,9 +239,8 @@ async function generatePlan(req, res) {
   res.json(out);
 }
 
-// DELETE /posts — clear upcoming (unpublished, today onward) posts for the
-// current handle. Past and already-published posts stay. Replaces the old
-// "clear this month" action now that there is no month grouping.
+// DELETE /posts — clear the full calendar for the current handle: every
+// unpublished planned post, any date. Already-published posts stay.
 async function clearUpcoming(req, res) {
   const profile = await currentProfile(req.user._id);
   if (!profile) return res.status(404).json({ message: 'No Instagram profile found.' });
@@ -250,9 +249,8 @@ async function clearUpcoming(req, res) {
     user: req.user._id,
     instagramUsername: profile.username,
     published: { $ne: true },
-    date: { $gte: isoDate(startOfDay()) },
   });
-  console.log(`[posts] clear-upcoming @${profile.username} · deleted=${result.deletedCount}`);
+  console.log(`[posts] clear-calendar @${profile.username} · deleted=${result.deletedCount}`);
   res.json({ deleted: result.deletedCount });
 }
 
@@ -526,6 +524,7 @@ async function rerunLayout(req, res) {
   const record = await PlannedPost.findOne({ _id: req.params.id, user: req.user._id });
   if (!record) return res.status(404).json({ message: 'Post not found' });
 
+  const themeId = String(req.body?.themeId || '').trim();
   const post = layoutPostFromPost(record);
   const trace = record.agentTrace && typeof record.agentTrace === 'object' ? record.agentTrace : {};
   if (trace.strategyBrief) {
@@ -550,6 +549,7 @@ async function rerunLayout(req, res) {
       dayBrief: plainOf(trace.strategyBrief) || {},
       brand,
       dayWriterOutput,
+      themeId,
     });
     if (result.parsed?.status === 'failed') {
       return res.status(422).json({
@@ -580,19 +580,30 @@ async function rerunLayout(req, res) {
       console.warn('[posts] visual agent skipped on layout rerun:', err.message);
     }
     record.content = { ...current, ...next, slides: next.slides };
+    if (themeId) record.content.themeId = themeId;
+    const debugEntry = result.debugEntry || {};
     record.agentTrace = {
       ...trace,
       layout: result.parsed,
       carousel: result.parsed,
+      layoutPrompt: optionalText(debugEntry.prompt) || trace.layoutPrompt || '',
+      themeId: themeId || trace.themeId || '',
       visual: Array.isArray(next.visualTrace) && next.visualTrace.length
-        ? { slides: next.visualTrace, usage: next.visualUsage || null }
+        ? {
+          slides: next.visualTrace,
+          usage: next.visualUsage || null,
+          agents: visualAgents.map((a) => ({
+            source: a.debugEntry?.source || '',
+            prompt: a.debugEntry?.prompt || '',
+            output: a.debugEntry?.output || '',
+          })),
+        }
         : trace.visual || null,
     };
     record.markModified('content');
     record.markModified('agentTrace');
     await record.save();
 
-    const debugEntry = result.debugEntry || {};
     return res.json({
       post: record,
       layout: result.parsed,

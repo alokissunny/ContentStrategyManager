@@ -19,6 +19,7 @@ const AGENTS = {
     defaultProvider: 'openai',
     modelEnv: 'PLAN_STRATEGIST_MODEL',
     providerEnv: 'PLAN_STRATEGIST_PROVIDER',
+    defaultModel: 'gpt-6-astra',
   },
   structure: {
     defaultProvider: 'openai',

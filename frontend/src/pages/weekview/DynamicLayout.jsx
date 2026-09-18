@@ -441,6 +441,8 @@ export default function DynamicLayout({
   const editingCopy = Boolean(copyDraft);
   const draftTitle = copyDraft?.title;
   const draftSubtitle = copyDraft?.subtitle;
+  const draftSlots = copyDraft?.slots;
+  const draftSlotsKey = draftSlots ? JSON.stringify(draftSlots) : '';
   const markup = useMemo(
     () => (useDocument ? '' : prepareLayoutHtml(html, { imageUrls: urls })),
     [html, urlKey, useDocument],
@@ -466,6 +468,7 @@ export default function DynamicLayout({
       index: slideIndex,
       title: draft.title,
       subtitle: draft.subtitle,
+      slots: draft.slots,
     });
   };
 
@@ -549,9 +552,10 @@ export default function DynamicLayout({
       index: slideIndex,
       title: draftTitle,
       subtitle: draftSubtitle,
+      slots: draftSlots,
     });
     return undefined;
-  }, [editingCopy, direction, slideIndex, draftTitle, draftSubtitle]);
+  }, [editingCopy, direction, slideIndex, draftTitle, draftSubtitle, draftSlotsKey]);
 
   // When a real photo is injected, its intrinsic ratio can still push in-flow
   // copy past the 4:5 frame (debug preview has no src, so it never hits this).

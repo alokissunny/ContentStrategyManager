@@ -70,6 +70,8 @@ async function createImage(req, res) {
 // switches with the account — the same scoping as mood images and plans.
 async function listGeneratedImages(req, res) {
   const handle = (await currentUsername(req.user._id)) || '';
+  // protect() no longer loads generatedImages (keeps auth lean) — fetch only
+  // this field here.
   const user = await User.findById(req.user._id).select('generatedImages').lean();
   const all = (user && user.generatedImages) || [];
   // Strict handle match. Legacy rows saved before scoping (empty handle) used

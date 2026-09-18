@@ -9,6 +9,8 @@ const { computeAuthorityFunnel } = require('../services/authorityFunnel');
 const { buildAnalysisOverview } = require('../services/analysisOverview');
 const { loadCompetitorOverviewForUser } = require('./competitorController');
 const { generateAndSavePosts } = require('./postController');
+const { invalidateCurrentUsername } = require('../utils/currentProfile');
+const { createTtlCache } = require('../utils/ttlCache');
 
 // The "current" handle is the one most recently activated (analyzed or switched
 // to in the header). fetchedAt is the tiebreaker so legacy rows — which predate
@@ -74,6 +76,8 @@ async function fetchInstagram(req, res) {
       if (recentReport) {
         existing.activatedAt = new Date();
         await existing.save();
+        invalidateCurrentUsername(req.user._id);
+        profilesListCache.del(String(req.user._id));
         const report = {
           id: recentReport._id,
           createdAt: recentReport.createdAt,
@@ -147,6 +151,8 @@ async function fetchInstagram(req, res) {
     },
     { new: true, upsert: true }
   );
+  invalidateCurrentUsername(req.user._id);
+  profilesListCache.del(String(req.user._id));
 
   let report = null;
   let reportError = null;
@@ -210,6 +216,7 @@ async function fetchInstagram(req, res) {
 }
 
 const avatarAttempted = new Set();
+const profilesListCache = createTtlCache({ ttlMs: 15_000, max: 100 });
 
 function scheduleMissingAvatarCache(userId, profiles) {
   const uid = String(userId);
@@ -230,6 +237,7 @@ function scheduleMissingAvatarCache(userId, profiles) {
         p.profilePicKey = key;
         p.profilePicUrl = url;
         await p.save();
+        profilesListCache.del(uid);
       }
     })).catch((err) => {
       console.warn('[avatar] background cache failed:', err.message);
@@ -238,15 +246,27 @@ function scheduleMissingAvatarCache(userId, profiles) {
 }
 
 async function getInstagramProfile(req, res) {
-  const profiles = await InstagramProfile.find({ user: req.user._id }).sort(CURRENT_SORT);
+  const uid = String(req.user._id);
+  const cached = profilesListCache.get(uid);
+  if (cached) {
+    return res.json(cached);
+  }
+  const profiles = await InstagramProfile.find({ user: req.user._id }).sort(CURRENT_SORT).lean();
   const hydrated = await withFreshAvatars(profiles);
   // `profile` (the current handle) is kept for backward compatibility; `profiles`
   // lists every handle connected to this account, current one first.
-  res.json({ profile: hydrated[0] || null, profiles: hydrated });
+  const payload = { profile: hydrated[0] || null, profiles: hydrated };
+  profilesListCache.set(uid, payload);
+  res.json(payload);
   // Avatar downloads (Graph + Instagram CDN) used to run before this response
   // and often sat on HTTP 403 for every handle without an S3 key — that hid the
   // account switcher for 0.5–2s. Cache in the background instead.
-  scheduleMissingAvatarCache(req.user._id, profiles);
+  // Re-load mongoose docs only when we need to save avatar keys.
+  if (profiles.some((p) => !p.profilePicKey)) {
+    InstagramProfile.find({ user: req.user._id }).sort(CURRENT_SORT).then((docs) => {
+      scheduleMissingAvatarCache(req.user._id, docs);
+    }).catch(() => {});
+  }
 }
 
 // Make an already-connected handle the current one, so plans, brand profile and
@@ -264,9 +284,13 @@ async function activateInstagram(req, res) {
   if (!profile) {
     return res.status(404).json({ message: 'That Instagram account is not connected to your workspace.' });
   }
-  const profiles = await InstagramProfile.find({ user: req.user._id }).sort(CURRENT_SORT);
+  invalidateCurrentUsername(req.user._id);
+  profilesListCache.del(String(req.user._id));
+  const profiles = await InstagramProfile.find({ user: req.user._id }).sort(CURRENT_SORT).lean();
   const hydrated = await withFreshAvatars(profiles);
-  res.json({ profile: await withFreshAvatar(profile), profiles: hydrated });
+  const payload = { profile: await withFreshAvatar(profile), profiles: hydrated };
+  profilesListCache.set(String(req.user._id), payload);
+  res.json(payload);
 }
 
 // Authority funnel (Discovery / Credibility / Trust) for the most recently

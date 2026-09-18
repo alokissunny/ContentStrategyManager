@@ -202,14 +202,17 @@ async function hydrateNow(h) {
   let remote;
   let logos = null;
   try {
-    remote = await getBrandSettings(h);
+    // Settings + logos are independent — fetch in parallel so hydrate pays one
+    // wait, not two sequential Atlas RTTs.
+    const [settingsResult, logosResult] = await Promise.allSettled([
+      getBrandSettings(h),
+      listLogos(),
+    ]);
+    if (settingsResult.status === 'fulfilled') remote = settingsResult.value;
+    else return; /* offline or signed out — local-first stands */
+    if (logosResult.status === 'fulfilled') logos = logosResult.value;
   } catch {
-    return; /* offline or signed out — local-first stands */
-  }
-  try {
-    logos = await listLogos();
-  } catch {
-    logos = null;
+    return;
   }
   if (normHandle(activeHandle) !== h) return; // account changed while we waited
   if (syncWriteGen !== gen) return; // this handle was written while we waited

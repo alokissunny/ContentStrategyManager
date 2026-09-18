@@ -4,6 +4,11 @@ import client from './client';
 // bytes go straight to S3 via a presigned PUT; the API keeps the object key and
 // hands back short-lived presigned read URLs.
 
+// Concurrent callers (React StrictMode remounts, AccountSwitcher + store hydrate)
+// share one in-flight request so a page load does not double-tax Atlas.
+let logosInflight = null;
+const settingsInflight = new Map();
+
 // Upload one or more files to S3 and persist them as mood images.
 // Returns the full mood set (newest first), each with a presigned `url`.
 export async function uploadMoodImages(files) {
@@ -75,7 +80,11 @@ export async function uploadLogo(slot, file) {
 }
 
 export function listLogos() {
-  return client.get('/visual-brand/logos').then((r) => packLogos(r.data.logos));
+  if (logosInflight) return logosInflight;
+  logosInflight = client.get('/visual-brand/logos')
+    .then((r) => packLogos(r.data.logos))
+    .finally(() => { logosInflight = null; });
+  return logosInflight;
 }
 
 export function deleteLogo(slot) {
@@ -89,7 +98,13 @@ export function deleteLogo(slot) {
 
 // The saved settings blob for one Instagram handle, or null if none saved yet.
 export function getBrandSettings(handle) {
-  return client.get('/visual-brand/settings', { params: handle ? { handle } : {} }).then((r) => r.data.settings ?? null);
+  const key = String(handle || '').trim().toLowerCase() || '_';
+  if (settingsInflight.has(key)) return settingsInflight.get(key);
+  const p = client.get('/visual-brand/settings', { params: handle ? { handle } : {} })
+    .then((r) => r.data.settings ?? null)
+    .finally(() => { settingsInflight.delete(key); });
+  settingsInflight.set(key, p);
+  return p;
 }
 
 // Upsert one Instagram handle's settings blob. The handle is required so a

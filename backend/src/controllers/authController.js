@@ -1,6 +1,6 @@
 const { OAuth2Client } = require('google-auth-library');
 const User = require('../models/User');
-const InstagramProfile = require('../models/InstagramProfile');
+const { currentUsername } = require('../utils/currentProfile');
 const generateToken = require('../utils/generateToken');
 
 const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
@@ -17,7 +17,8 @@ function toPublicUser(user) {
 }
 
 async function userHasInstagramProfile(userId) {
-  return Boolean(await InstagramProfile.exists({ user: userId }));
+  // Reuses the current-username cache so /auth/me does not pay a second Atlas RTT.
+  return Boolean(await currentUsername(userId));
 }
 
 async function authPayload(user) {

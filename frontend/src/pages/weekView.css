@@ -3595,6 +3595,58 @@
   bottom: 0;
   width: min(280px, calc(100vw - 48px));
 }
+.wv-ig__menuflyout--themes {
+  width: min(320px, calc(100vw - 48px));
+  max-height: min(70vh, 520px);
+  overflow: auto;
+  padding-bottom: 10px;
+}
+.wv-ig__flylist--themes {
+  gap: 4px;
+  max-height: none;
+}
+.wv-ig__flyitem--theme {
+  align-items: center;
+  gap: 10px;
+  padding: 6px 8px;
+}
+.wv-ig__flythumb {
+  width: 72px;
+  height: 48px;
+  object-fit: cover;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--surface-sunken);
+  flex-shrink: 0;
+}
+.wv-ig__laying,
+.wv-ig__layerr {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 6;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  max-width: calc(100% - 32px);
+  padding: 10px 14px;
+  border-radius: 12px;
+  background: rgba(24, 24, 28, 0.78);
+  color: #fff;
+  font-family: var(--font-ui);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.35;
+  text-align: center;
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  pointer-events: none;
+}
+.wv-ig__layerr {
+  background: rgba(140, 28, 28, 0.92);
+  pointer-events: auto;
+}
 .wv-ig__menuflyout::before {
   content: '';
   position: absolute;
@@ -3723,7 +3775,8 @@
 
 @media (max-width: 560px) {
   .wv-ig__menuflyout,
-  .wv-ig__menuflyout--addslide {
+  .wv-ig__menuflyout--addslide,
+  .wv-ig__menuflyout--themes {
     top: calc(100% + 8px);
     bottom: auto;
     left: auto;
@@ -5792,10 +5845,26 @@ span.wv-layed__apply { margin-left: auto; flex-shrink: 0; }
   list-style: none;
 }
 .wv-agentdbg__sum::-webkit-details-marker { display: none; }
+.wv-agentdbg__section {
+  border-top: 1px solid var(--border);
+}
+.wv-agentdbg__sechead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 12px 0;
+  font-family: var(--font-ui);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink-500);
+}
 .wv-agentdbg__pre {
   margin: 0;
-  padding: 0 12px 12px;
-  max-height: min(42vh, 420px);
+  padding: 8px 12px 12px;
+  max-height: min(36vh, 360px);
   overflow: auto;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 11px;

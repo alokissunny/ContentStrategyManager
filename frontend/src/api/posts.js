@@ -103,8 +103,17 @@ export function getPosts() {
 
 // The full render payload for one post (content minus agentTrace and the heavy
 // slides.layoutOptions, both fetched on demand). → post | null
+// Coalesce concurrent opens of the same post (StrictMode / calendar + editor).
+const postInflight = new Map();
 export function getPost(id) {
-  return client.get(`/posts/${id}`).then((res) => res.data?.post || null);
+  const key = String(id || '');
+  if (!key) return Promise.resolve(null);
+  if (postInflight.has(key)) return postInflight.get(key);
+  const p = client.get(`/posts/${key}`)
+    .then((res) => res.data?.post || null)
+    .finally(() => { postInflight.delete(key); });
+  postInflight.set(key, p);
+  return p;
 }
 
 // Fill empty calendar slots with fresh posts from the latest analysis.
@@ -123,7 +132,7 @@ export function generatePlan(trigger = 'generate', extras = {}) {
   });
 }
 
-// Delete upcoming (unpublished, today-onward) posts for the active handle.
+// Delete every unpublished planned post for the active handle (full calendar).
 export function clearUpcoming() {
   return client.delete('/posts').then((res) => res.data);
 }
@@ -189,9 +198,11 @@ export function polishCaption(id, { caption, instruction, kind, role, fills }) {
 }
 
 // Run the Carousel agent on one post (long — a high-reasoning model can take
-// several minutes). → { post, layout, ... }
-export function runPostLayout(id) {
-  return client.post(`/posts/${id}/layout`, {}, { timeout: 540000 }).then((res) => {
+// several minutes). Optional themeId rebuilds the carousel in that visual theme.
+// → { post, layout, ... }
+export function runPostLayout(id, { themeId } = {}) {
+  const body = themeId ? { themeId } : {};
+  return client.post(`/posts/${id}/layout`, body, { timeout: 540000 }).then((res) => {
     const data = res.data || {};
     ingestPlanDebug('Carousel agent (debug)', data);
     return data;

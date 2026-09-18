@@ -22,8 +22,14 @@ export function fetchInstagram(username) {
 const PROFILES_CACHE_KEY = 'bauhly.igProfiles';
 const HANDLE_KEY = 'bauhly.currentHandle';
 let profilesInflight = null;
+let profilesCached = null;
+let profilesCachedAt = 0;
+const PROFILES_TTL_MS = 15_000;
 
 export function readCachedProfiles() {
+  if (profilesCached?.profiles?.length && Date.now() - profilesCachedAt < PROFILES_TTL_MS) {
+    return profilesCached.profiles;
+  }
   try {
     const raw = sessionStorage.getItem(PROFILES_CACHE_KEY);
     if (raw) {
@@ -44,10 +50,15 @@ function writeCachedProfiles(profiles) {
   } catch { /* quota / private mode */ }
 }
 
-export function listInstagramProfiles() {
-  if (profilesInflight) return profilesInflight;
+export function listInstagramProfiles({ force = false } = {}) {
+  if (!force && profilesCached && Date.now() - profilesCachedAt < PROFILES_TTL_MS) {
+    return Promise.resolve(profilesCached);
+  }
+  if (!force && profilesInflight) return profilesInflight;
   profilesInflight = client.get('/instagram').then((res) => {
     writeCachedProfiles(res.data.profiles || []);
+    profilesCached = res.data;
+    profilesCachedAt = Date.now();
     return res.data;
   }).finally(() => {
     profilesInflight = null;
@@ -60,6 +71,8 @@ export function listInstagramProfiles() {
 export function activateInstagramProfile(username) {
   return client.post('/instagram/activate', { username }).then((res) => {
     writeCachedProfiles(res.data.profiles || []);
+    profilesCached = res.data;
+    profilesCachedAt = Date.now();
     return res.data;
   });
 }

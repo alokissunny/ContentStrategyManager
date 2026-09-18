@@ -661,7 +661,7 @@ export default function YourPlans() {
   async function onClearMonth() {
     if (clearing || replanning) return;
     const ok = window.confirm(
-      'Clear upcoming posts? Every unpublished post from today onward will be deleted. Past and already-published posts stay. This cannot be undone.',
+      'Clear the full calendar? Every unpublished planned post for this account will be deleted, on any date. Already-published posts stay. This cannot be undone.',
     );
     if (!ok) return;
     setError('');
@@ -674,7 +674,7 @@ export default function YourPlans() {
       setSelectedDay(0);
       setView('list');
     } catch (err) {
-      setError(err.response?.data?.message || "We couldn't clear this month’s plan. Please try again.");
+      setError(err.response?.data?.message || "We couldn't clear the calendar. Please try again.");
     } finally {
       setClearing(false);
     }

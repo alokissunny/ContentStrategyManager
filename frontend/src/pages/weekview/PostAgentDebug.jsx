@@ -280,25 +280,49 @@ function traceForDay(day, entries) {
   const layout = stored.layout
     || stored.carousel
     || parseJson(layoutEntry?.output);
-  // Visual Generator agent — the persisted per-slide trace (what was generated
-  // or skipped), or, right after a re-run, the raw Visual: prompt-agent entries.
   const visualEntries = (entries || []).filter((e) => /^Visual:/i.test(String(e.source || '')));
   const visual = (stored.visual && (stored.visual.slides || stored.visual.agents) ? stored.visual : null)
     || (visualEntries.length
       ? { agents: visualEntries.map((e) => ({ source: e.source, prompt: e.prompt, output: e.output })) }
       : null);
-  // Time + cost for the whole Visual run: the persisted aggregate (LLM prompt
-  // agents + image renders), else summed session Visual: entries (prompt only).
   const visualUsage = stored.visual?.usage || null;
   const visualCost = visualUsage
     ? visualCostOf(visualUsage)
     : (visualEntries.length ? costOf(sumEntries(visualEntries)) : '');
+
+  const strategyPrompt = stored.strategyPrompt
+    || strategyEntry?.prompt
+    || '';
+  const structurePrompt = stored.structurePrompt
+    || structureEntry?.prompt
+    || '';
+  const dayWriterPrompt = stored.dayWriterPrompt
+    || dayHit?.prompt
+    || '';
+  const layoutPrompt = stored.layoutPrompt
+    || layoutEntry?.prompt
+    || '';
+  const visualPrompt = Array.isArray(stored.visual?.agents) && stored.visual.agents.length
+    ? stored.visual.agents.map((a) => [
+      a.source ? `# ${a.source}` : '',
+      a.prompt || '',
+    ].filter(Boolean).join('\n')).filter(Boolean).join('\n\n---\n\n')
+    : visualEntries.map((e) => [
+      e.source ? `# ${e.source}` : '',
+      e.prompt || '',
+    ].filter(Boolean).join('\n')).filter(Boolean).join('\n\n---\n\n');
+
   return {
     strategyBrief,
+    strategyPrompt,
     structure,
+    structurePrompt,
     dayWriter,
+    dayWriterPrompt,
     layout,
+    layoutPrompt,
     visual,
+    visualPrompt,
     costs: {
       strategy: costOf(strategyEntry),
       structure: costOf(structureEntry),
@@ -353,9 +377,10 @@ function CopyButton({ text }) {
   );
 }
 
-function Block({ title, value, open = false, cost = '' }) {
-  const body = pretty(value);
-  if (!body) {
+function Block({ title, input, output, open = false, cost = '' }) {
+  const inputBody = pretty(input);
+  const outputBody = pretty(output);
+  if (!inputBody && !outputBody) {
     return (
       <details className="wv-agentdbg__block">
         <summary className="wv-agentdbg__sum">
@@ -366,8 +391,11 @@ function Block({ title, value, open = false, cost = '' }) {
       </details>
     );
   }
-  const slides = previewSlidesHtml(value);
-  const documentHtml = carouselDocumentHtml(value);
+  const slides = previewSlidesHtml(output);
+  const documentHtml = carouselDocumentHtml(output);
+  const copyAll = [inputBody && `## Input\n\n${inputBody}`, outputBody && `## Output\n\n${outputBody}`]
+    .filter(Boolean)
+    .join('\n\n');
   return (
     <details className="wv-agentdbg__block" open={open}>
       <summary className="wv-agentdbg__sum">
@@ -375,10 +403,31 @@ function Block({ title, value, open = false, cost = '' }) {
         <span className="wv-agentdbg__acts">
           {cost ? <span className="wv-agentdbg__cost">{cost}</span> : null}
           <PreviewButton slides={slides} documentHtml={documentHtml} />
-          <CopyButton text={body} />
+          <CopyButton text={copyAll} />
         </span>
       </summary>
-      <pre className="wv-agentdbg__pre">{body}</pre>
+      {inputBody ? (
+        <div className="wv-agentdbg__section">
+          <div className="wv-agentdbg__sechead">
+            <span>Input</span>
+            <CopyButton text={inputBody} />
+          </div>
+          <pre className="wv-agentdbg__pre">{inputBody}</pre>
+        </div>
+      ) : (
+        <p className="wv-agentdbg__empty">Input not recorded for this agent.</p>
+      )}
+      {outputBody ? (
+        <div className="wv-agentdbg__section">
+          <div className="wv-agentdbg__sechead">
+            <span>Output</span>
+            <CopyButton text={outputBody} />
+          </div>
+          <pre className="wv-agentdbg__pre">{outputBody}</pre>
+        </div>
+      ) : (
+        <p className="wv-agentdbg__empty">Output not recorded for this agent.</p>
+      )}
     </details>
   );
 }
@@ -394,13 +443,17 @@ export default function PostAgentDebug({
 }) {
   const debug = useAiDebug();
   const trace = traceForDay(day, debug.entries);
-  const empty = !trace.strategyBrief && !trace.structure && !trace.dayWriter && !trace.layout && !trace.visual;
+  const empty = !trace.strategyBrief && !trace.strategyPrompt
+    && !trace.structure && !trace.structurePrompt
+    && !trace.dayWriter && !trace.dayWriterPrompt
+    && !trace.layout && !trace.layoutPrompt
+    && !trace.visual && !trace.visualPrompt;
   const took = fmtElapsed(elapsedMs);
   const cost = fmtCost(estimatedCostUsd);
   const tokens = fmtTokens(totalTokens);
   const genMeta = [took, cost ? `~${cost} est.` : '', tokens ? `${tokens} tokens` : ''].filter(Boolean).join(' · ');
   const staleShell = /content structure (was )?not included|awaiting content|role not supplied/i
-    .test(String(trace.layout?.html || trace.carousel?.html || day?.content?.carouselHtml || ''));
+    .test(String(trace.layout?.html || day?.content?.carouselHtml || ''));
 
   return (
     <div className="wv-agentdbg">
@@ -410,7 +463,7 @@ export default function PostAgentDebug({
         </p>
       ) : null}
       <p className="wv-agentdbg__lead">
-        Agent outputs for this post. Strategy decides the brief; Structure locks the slide map; Carousel composes HTML layout directions; Visual generates images for slides that need one but have no supplied asset. Slide content is derived from Structure.
+        Input and output for each agent on this post. Strategy writes the brief; Carousel turns it into HTML. Structure / Visual appear when those agents ran.
       </p>
       {staleShell ? (
         <p className="wv-agentdbg__empty">
@@ -433,14 +486,40 @@ export default function PostAgentDebug({
       {layoutErr ? <p className="wv-agentdbg__empty">{layoutErr}</p> : null}
       {empty && (
         <p className="wv-agentdbg__empty">
-          No agent trace on this post yet. Generate or replan a week with debug mode on. Posts created before this will only show a trace if this session still has the prompt log.
+          No agent trace on this post yet. Generate or replan with debug mode on. Older posts may only show output until you regenerate.
         </p>
       )}
-      <Block title="Strategy brief" value={trace.strategyBrief} open cost={trace.costs?.strategy} />
-      <Block title="Structure agent" value={trace.structure} cost={trace.costs?.structure} />
-      <Block title="Slide content" value={trace.dayWriter} cost={trace.costs?.dayWriter} />
-      <Block title="Carousel agent" value={trace.layout} cost={trace.costs?.layout} />
-      <Block title="Visual agent" value={trace.visual} cost={trace.costs?.visual} />
+      <Block
+        title="Strategy agent"
+        input={trace.strategyPrompt}
+        output={trace.strategyBrief}
+        open
+        cost={trace.costs?.strategy}
+      />
+      <Block
+        title="Structure agent"
+        input={trace.structurePrompt}
+        output={trace.structure}
+        cost={trace.costs?.structure}
+      />
+      <Block
+        title="Slide content"
+        input={trace.dayWriterPrompt}
+        output={trace.dayWriter}
+        cost={trace.costs?.dayWriter}
+      />
+      <Block
+        title="Carousel agent"
+        input={trace.layoutPrompt}
+        output={trace.layout}
+        cost={trace.costs?.layout}
+      />
+      <Block
+        title="Visual agent"
+        input={trace.visualPrompt}
+        output={trace.visual}
+        cost={trace.costs?.visual}
+      />
     </div>
   );
 }

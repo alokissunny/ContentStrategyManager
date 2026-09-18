@@ -44,6 +44,7 @@ import { toSvg } from 'html-to-image';
 import { CaptureChat } from './Projects';
 import { styleOf, groundOf } from '../lib/visualbrand';
 import { LAYOUTS as LIB_LAYOUTS, catForRole, shotsOf, DEFAULT_LAYOUT_BY_CAT, layoutShowsAllCopy } from '../data/layouts';
+import { CAROUSEL_THEMES } from '../data/carouselThemes';
 import { paintAll, paintOf, identityOf, TYPE_SLOTS, FACES, logoPositionOf, markForTone } from '../lib/identity';
 import { rolesOf as textRolesOf, plainOf, parseMarked, isListRole, listIndexOf } from '../lib/slidetext';
 import ImagePicker from './weekview/ImagePicker';
@@ -56,6 +57,7 @@ import PostAgentDebug from './weekview/PostAgentDebug';
 import DynamicLayout, { AnnotationOverlay } from './weekview/DynamicLayout';
 import { BrandMark } from './visuallibrary/BrandMark';
 import { rewriteAnnotationText, rewriteLayoutText, rewriteCarouselDocumentText, slotPlain, slideSlotPlain, withSharedLayoutStyles, layoutDirectionOf, themeIdOf, themeDirectionOf, slideIsThemed, optionForTheme, THEME_ORDER, bakeFrozenGeometry, findCarouselSlide } from './weekview/layoutHtml';
+import { discoverSlideTextRoles, agentHtmlSource, isAgentHtmlSlide } from './weekview/slideTextRoles';
 import { boxOf, normalizeSubjects } from './weekview/subjectBox';
 import {
   CHANGE_LAYOUTS,
@@ -1236,12 +1238,31 @@ function withAllocatedSlideKeys(slides, day) {
   });
 }
 
+function keysFromLayoutHtml(html) {
+  const keys = [];
+  const seen = new Set();
+  String(html || '').replace(/<img\b([^>]*?)\/?>/gi, (_, attrs) => {
+    if (!/data-slot\s*=\s*(["'](?:image|illustration)["']|(?:image|illustration)(?=[\s>/]|$))/i.test(attrs)) return _;
+    const m = String(attrs).match(/\bdata-asset-key\s*=\s*("([^"]*)"|'([^']*)'|([^\s>]+))/i);
+    const key = String(m?.[2] || m?.[3] || m?.[4] || '').trim();
+    if (key && !seen.has(key)) {
+      seen.add(key);
+      keys.push(key);
+    }
+    return _;
+  });
+  return keys;
+}
+
 function keysOf(slide) {
   const listed = splitMediaKeys(slide?.assetKeys);
   if (listed.length) return listed;
   const single = splitMediaKeys(slide?.assetKey);
   if (single.length) return single;
-  return splitMediaKeys(slide?.visual?.assetKey || slide?.image?.key);
+  const fromVisual = splitMediaKeys(slide?.visual?.assetKey || slide?.image?.key);
+  if (fromVisual.length) return fromVisual;
+  // Carousel often stamps data-asset-key on the <img> without setting slide.assetKey.
+  return keysFromLayoutHtml(slide?.layoutHtml);
 }
 
 function subjectsForSlide(slide, subjectsByKey) {
@@ -1360,7 +1381,21 @@ function slideHasPhoto(slide) {
   );
 }
 
-function wordRolesForSlide(slide) {
+function wordRolesForSlide(slide, visual) {
+  if (isAgentHtmlSlide(slide)) {
+    const html = agentHtmlSource(slide, visual);
+    const index = Number(slide?.index) > 0 ? Number(slide.index) : 1;
+    const direction = visual?.direction || layoutDirectionOf(slide);
+    const discovered = discoverSlideTextRoles(html, { direction, index });
+    if (discovered.length) {
+      if (ANNOTATIONS_ENABLED && (slideHasPhoto(slide) || annotationTextOf(slide))) {
+        if (!discovered.some((r) => r.key === 'annotation' || r.htmlSlot === 'annotation')) {
+          discovered.push(ANNOTE_ROLE);
+        }
+      }
+      return discovered;
+    }
+  }
   const layout = composeLayoutOf(slide) || BEST_FIT_LAYOUT;
   const roles = [...textRolesOf(layout)];
   if (ANNOTATIONS_ENABLED && (slideHasPhoto(slide) || annotationTextOf(slide))) roles.push(ANNOTE_ROLE);
@@ -1553,6 +1588,20 @@ function visibleSlot(html, slide, slot, visual) {
 }
 
 function seedWordDraft(layout, slide, contentType, visual) {
+  if (isAgentHtmlSlide(slide)) {
+    const html = agentHtmlSource(slide, visual);
+    const index = Number(slide?.index) > 0 ? Number(slide.index) : 1;
+    const direction = visual?.direction || layoutDirectionOf(slide);
+    const discovered = discoverSlideTextRoles(html, { direction, index });
+    if (discovered.length) {
+      const out = {};
+      discovered.forEach((r) => { out[r.key] = r.text || ''; });
+      if (ANNOTATIONS_ENABLED && (slideHasPhoto(slide) || annotationTextOf(slide))) {
+        out.annotation = annotationTextOf(slide);
+      }
+      return out;
+    }
+  }
   const filled = fillLayout(layout, slide, contentType);
   const art = filled?.art || {};
   const baked = slide?.layoutHtml || '';
@@ -2213,7 +2262,7 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
   // one sets this. null = the menu itself is showing.
   const [visEdit, setVisEdit] = useState(null); // 'theme' | 'layout' | 'images' | 'words' | null
   // Nested flyout inside the visual-zone menu.
-  const [menuPane, setMenuPane] = useState(null); // 'elements' | 'add-slide' | null
+  const [menuPane, setMenuPane] = useState(null); // 'elements' | 'theme' | 'add-slide' | null
   const layoutFrameRef = useRef(null);
   // Edit image (bauhly-v3 §961/§965/§982): the still-photo studio. `adjustFor`
   // is the picture being cropped; `editSlot` is the measured layout region it
@@ -2324,7 +2373,7 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
   const retryScheduledDay = (_id, i) => retryScheduled(postIdAt(i)).then(mergePost);
   const setDayTime = (_id, i, { time } = {}) => setPostTime(postIdAt(i), time || '').then(mergePost);
   const reviewDay = (_id, i, on) => setPostReview(postIdAt(i), on).then(mergePost);
-  const runDayLayout = (_id, i) => runPostLayout(postIdAt(i)).then((d) => ({ ...d, route: mergePost(d.post) }));
+  const runDayLayout = (_id, i, opts) => runPostLayout(postIdAt(i), opts).then((d) => ({ ...d, route: mergePost(d.post) }));
   const runDayCover = (_id, i, visual) => runPostCover(postIdAt(i), visual).then((d) => ({ ...d, route: mergePost(d.post) }));
   const runSlideLayoutVariations = (_id, i, slideIndex) => apiRunSlideLayoutVariations(postIdAt(i), slideIndex);
   // Options are per-post; fetch each day's, index-aligned with route.days.
@@ -3296,12 +3345,13 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
     }
   }
 
-  async function handleRunLayout() {
+  async function handleRunLayout(themeId) {
     if (layoutBusy || !route?._id) return;
+    const theme = typeof themeId === 'string' ? themeId.trim() : '';
     setLayoutBusy(true);
     setLayoutErr('');
     try {
-      const data = await runDayLayout(route._id, selected);
+      const data = await runDayLayout(route._id, selected, theme ? { themeId: theme } : undefined);
       if (data?.route) {
         setRoute(data.route);
         onRouteChange?.(data.route);
@@ -3316,6 +3366,13 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
     } finally {
       setLayoutBusy(false);
     }
+  }
+
+  async function handleChangeTheme(theme) {
+    if (!theme?.id || layoutBusy) return;
+    setMenuPane(null);
+    closeZone();
+    await handleRunLayout(theme.id);
   }
 
   // Load the week's stored layoutOptions (kept out of the render payload) and
@@ -3525,14 +3582,8 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
       .sort((a, b) => (Number(a.rank) || 0) - (Number(b.rank) || 0));
   }, [activeSlide?.layoutOptions]);
   const hasLayoutOpts = layoutOpts.length > 0;
-  // "Change theme" only makes sense when the options carry more than one distinct
-  // carousel theme (legacy multi-theme carousels). New carousels are a single
-  // theme and on-demand Change-layout variations are compositions, not themes —
-  // in both cases there is nothing to switch between, so the picker stays hidden.
-  const hasThemeOpts = useMemo(
-    () => new Set(layoutOpts.map((o) => themeDirectionOf(o)).filter(Boolean)).size > 1,
-    [layoutOpts],
-  );
+  // "Change theme" used to switch between stored multi-theme layout options.
+  // New carousels pick a catalog theme and re-run the carousel agent instead.
   // Number of generated (non-original) variations already stored — a fresh
   // single-theme carousel has just its one composition, so opening Change layout
   // should generate the variations on demand; once they exist, don't regenerate.
@@ -3589,14 +3640,14 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
       : (visEdit === 'layout' && draftOpt)
         ? Boolean(themeDirectionOf(draftOpt))
         : slideIsThemed(previewSlide);
-  const wordRoles = visEdit === 'words' ? wordRolesForSlide(activeSlide) : [];
-  const primaryWordKey = wordRoles.find((r) => r.key === 'head')?.key
-    || wordRoles.find((r) => r.key === 'body')?.key
-    || wordRoles[0]?.key;
   const wordVisual = {
     documentHtml: isManualSlide(activeSlide) || isBlankSlide(activeSlide) ? '' : carouselDocumentOf(day),
     direction: layoutDirectionOf(activeSlide),
   };
+  const wordRoles = visEdit === 'words' ? wordRolesForSlide(activeSlide, wordVisual) : [];
+  const primaryWordKey = wordRoles.find((r) => r.key === 'title' || r.key === 'head')?.key
+    || wordRoles.find((r) => r.key === 'supporting-text' || r.key === 'body' || r.key === 'subtitle')?.key
+    || wordRoles[0]?.key;
   const wordsSeed = visEdit === 'words'
     ? seedWordDraft(composeLayoutOf(activeSlide) || BEST_FIT_LAYOUT, activeSlide, day?.contentType || day?.format, wordVisual)
     : null;
@@ -3623,14 +3674,25 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
   }, [day?.content?.caption, slides, safeIdx]);
 
   function applyWords() {
-    const roles = wordRolesForSlide(activeSlide);
-    const hasHead = roles.some((r) => r.key === 'head');
-    const hasBody = roles.some((r) => r.key === 'body');
+    const roles = wordRolesForSlide(activeSlide, wordVisual);
+    const agentSlide = isAgentHtmlSlide(activeSlide);
+    const hasHead = roles.some((r) => r.key === 'head' || r.key === 'title');
+    const hasBody = roles.some((r) => (
+      r.key === 'body' || r.key === 'supporting-text' || r.key === 'subtitle'
+    ));
     const hasAnnote = roles.some((r) => r.key === 'annotation');
     const elLay = findElementLayout(activeSlide?.layout);
     const isStack = activeSlide?.layout === 'el-stack';
     let patch = {};
-    if (isStack) {
+    if (agentSlide) {
+      const titleKey = roles.find((r) => r.key === 'title' || r.htmlSlot === 'title')?.key;
+      const bodyRole = roles.find((r) => (
+        r.key === 'supporting-text' || r.key === 'subtitle' || r.key === 'body'
+        || r.htmlSlot === 'supporting-text' || r.htmlSlot === 'subtitle' || r.htmlSlot === 'body'
+      ));
+      if (titleKey) patch.title = capText(wordDraft?.[titleKey] || '');
+      if (bodyRole) patch.subtitle = capText(wordDraft?.[bodyRole.key] || '');
+    } else if (isStack) {
       // Each role writes straight to its field. A role only exists while its
       // element does, so this preserves every element on the slide and edits
       // each independently; a role emptied to nothing drops that element.
@@ -3673,13 +3735,27 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
       };
     }
 
+    const slots = agentSlide
+      ? Object.fromEntries(
+        roles
+          .filter((r) => r.key !== 'annotation')
+          .map((r) => [r.key, wordDraft?.[r.key] ?? '']),
+      )
+      : null;
+
     // The words are baked into the agent HTML, so patching title/subtitle alone
     // changes nothing on screen. Rewrite the applied composition AND every
     // ranked layout option, so the preview, the export, and the Change layout
     // option previews all show the edited copy.
     const applyToHtml = (html) => {
       if (!html) return html;
-      let h = rewriteLayoutText(html, { title, subtitle });
+      let h = rewriteLayoutText(html, {
+        title: slots ? undefined : title,
+        subtitle: slots ? undefined : subtitle,
+        slots,
+        direction: layoutDirectionOf(activeSlide),
+        index: Number(activeSlide?.index) > 0 ? Number(activeSlide.index) : safeIdx + 1,
+      });
       if (annotationText != null) h = rewriteAnnotationText(h, annotationText);
       return h;
     };
@@ -3702,7 +3778,13 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
     // its words back into the shared carousel document at its index.
     const doc = isManualSlide(activeSlide) ? '' : carouselDocumentOf(day);
     let carouselHtml = doc
-      ? rewriteCarouselDocumentText(doc, { index, title, subtitle: subtitle ?? '' })
+      ? rewriteCarouselDocumentText(doc, {
+        index,
+        title: slots ? undefined : title,
+        subtitle: slots ? undefined : (subtitle ?? ''),
+        slots,
+        direction,
+      })
       : '';
     const live = findCarouselSlide(layoutFrameRef.current?.contentDocument, direction, index);
     if (live) {
@@ -4554,7 +4636,9 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
                   carouselLayoutHtmls={slides.map((s) => s?.layoutHtml || '')}
                   documentHtml={previewUsesDoc ? carouselDocumentOf(day) : ''}
                   copyDraft={visEdit === 'words' && wordDraft
-                    ? { title: wordDraft.head, subtitle: wordDraft.body }
+                    ? (isAgentHtmlSlide(activeSlide)
+                      ? { slots: wordDraft }
+                      : { title: wordDraft.head, subtitle: wordDraft.body })
                     : null}
                   frameRef={layoutFrameRef}
                   slideIndex={safeIdx + 1}
@@ -4562,6 +4646,17 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
                     ? (themeIdOf(draftOpt) || THEME_ORDER[draftOptIdx] || layoutDirectionOf(previewSlide))
                     : layoutDirectionOf(previewSlide)}
                 />
+                {layoutBusy && (
+                  <div className="wv-ig__laying" role="status" aria-live="polite">
+                    <span className="wv-spin" aria-hidden="true" />
+                    <span>Composing carousel…</span>
+                  </div>
+                )}
+                {layoutErr && !layoutBusy && (
+                  <div className="wv-ig__layerr" role="alert">
+                    <span>{layoutErr}</span>
+                  </div>
+                )}
                 {safeIdx === 0 && videoCoverOn && appliedCoverUrl && (
                   <video
                     className="wv-ig__covervideo"
@@ -4652,22 +4747,20 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
                     <span className="wv-ig__menugrow">Add elements</span>
                     <Icon name="chevron-right" size={16} strokeWidth={2} />
                   </button>
-                  {hasThemeOpts && (
-                    <button
-                      type="button"
-                      role="menuitem"
-                      className="wv-ig__menuitem"
-                      onMouseEnter={() => setMenuPane(null)}
-                      onClick={() => {
-                        setMenuPane(null);
-                        setLayOpt(appliedOptIdx >= 0 ? appliedOptIdx : 0);
-                        setVisEdit('theme');
-                      }}
-                    >
-                      <Icon name="swatch" size={17} strokeWidth={2} />
-                      <span>Change theme</span>
-                    </button>
-                  )}
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className={`wv-ig__menuitem wv-ig__menuitem--sub${menuPane === 'theme' ? ' is-open' : ''}`}
+                    aria-haspopup="menu"
+                    aria-expanded={menuPane === 'theme'}
+                    disabled={layoutBusy}
+                    onMouseEnter={() => setMenuPane('theme')}
+                    onClick={() => setMenuPane((p) => (p === 'theme' ? null : 'theme'))}
+                  >
+                    <Icon name="swatch" size={17} strokeWidth={2} />
+                    <span className="wv-ig__menugrow">Change theme</span>
+                    <Icon name="chevron-right" size={16} strokeWidth={2} />
+                  </button>
                   <button
                     type="button"
                     role="menuitem"
@@ -4794,6 +4887,42 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
                     </p>
                   </div>
                 )}
+                {menuPane === 'theme' && (
+                  <div
+                    className="wv-ig__menuflyout wv-ig__menuflyout--themes"
+                    role="menu"
+                    aria-label="Change theme"
+                    onMouseEnter={() => setMenuPane('theme')}
+                  >
+                    <div className="wv-ig__flyhead">
+                      <strong>Change theme</strong>
+                      <span>Rebuilds this carousel with the chosen look</span>
+                    </div>
+                    <div className="wv-ig__flylist wv-ig__flylist--themes">
+                      {CAROUSEL_THEMES.map((theme) => (
+                        <button
+                          key={theme.id}
+                          type="button"
+                          role="menuitem"
+                          className="wv-ig__flyitem wv-ig__flyitem--theme"
+                          disabled={layoutBusy}
+                          onClick={() => handleChangeTheme(theme)}
+                        >
+                          <img
+                            className="wv-ig__flythumb"
+                            src={theme.thumb}
+                            alt=""
+                            loading="lazy"
+                            decoding="async"
+                          />
+                          <span className="wv-ig__flycopy">
+                            <span className="wv-ig__flylabel">{theme.name}</span>
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
                 {menuPane === 'add-slide' && (
                   <div
                     className="wv-ig__menuflyout wv-ig__menuflyout--addslide"
@@ -4898,7 +5027,7 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
                     <div className="wv-worded__fields">
                       {wordRoles.map((r, n) => (
                         <RoleField
-                          key={`${chosenLayout?.id}-${r.key}`}
+                          key={`${activeSlide?.layoutHtml ? 'agent' : (chosenLayout?.id || 'lay')}-${r.key}`}
                           role={r}
                           faceName={faceLabelFor(r.slot, vbStore)}
                           value={wordDraft[r.key] || ''}

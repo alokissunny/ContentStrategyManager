@@ -135,6 +135,8 @@ const plannedPostSchema = new mongoose.Schema(
       // Full carousel-agent HTML document. The post view crops one slide from
       // this so the Instagram preview matches the debug iframe.
       carouselHtml: { type: String, default: '' },
+      // Studio-picked carousel theme id (Change theme → catalog slug).
+      themeId: { type: String, default: '' },
       // Applied Animated Carousel Cover: { key } of the rendered MP4 in S3.
       // When set, the post view plays it in place of the static hook (slide 1).
       // The full spec + render metadata live on agentTrace.cover.

@@ -17,6 +17,11 @@ The visual you describe must be **clearly conceptual, atmospheric, or illustrati
 sets mood and makes the idea recognisable. It must **never** impersonate missing factual
 proof. Read `visual.truthBoundary` and obey it exactly.
 
+Prefer a finished **concept illustration** look when the slide is explaining a space,
+material, or design idea without a project photo — for example a refined monochrome
+architectural sketch / charcoal study of a bathroom or room corner (not a fake project
+photograph). Label-worthy clarity without pretending the image is documentary proof.
+
 Never describe, and never let the image imply:
 
 - a real before or after state of a specific project;

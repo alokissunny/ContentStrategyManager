@@ -1,4 +1,5 @@
 import { parseMarked, plainOf } from '../../lib/slidetext';
+import { collectEditableElements, metaForSlotName, parseRoleSlotKey } from './slideTextRoles';
 
 function trim(value) {
   return String(value || '').trim();
@@ -147,9 +148,34 @@ export function slideRootOf(frame, { direction, index } = {}) {
     || null;
 }
 
-export function paintSlideCopy(frame, { direction, index, title, subtitle }) {
+export function paintSlideCopy(frame, { direction, index, title, subtitle, slots } = {}) {
   const slide = slideRootOf(frame, { direction, index });
   if (!slide) return false;
+  if (slots && typeof slots === 'object') {
+    Object.entries(slots).forEach(([key, value]) => {
+      if (value == null) return;
+      const parsed = parseRoleSlotKey(key);
+      if (parsed.line) {
+        const el = slide.querySelector(`[data-slot="line-${parsed.lineAt}"]`)
+          || collectEditableElements(slide).filter((node) => !node.getAttribute('data-slot'))[parsed.lineAt];
+        if (!el) return;
+        const html = escText(plainOf(value));
+        const leaf = el.querySelector('h1, h2, h3, h4, h5, h6, p') || el;
+        if (leaf !== el) leaf.innerHTML = html;
+        else el.innerHTML = withPreservedFrame(el.innerHTML, html);
+        return;
+      }
+      const meta = metaForSlotName(parsed.slot);
+      const list = [...slide.querySelectorAll(`[data-slot="${parsed.slot}"]`)];
+      const el = list[parsed.at];
+      if (!el) return;
+      const html = meta.marked ? markedToInner(value) : escText(plainOf(value));
+      const leaf = el.querySelector('h1, h2, h3, h4, h5, h6, p') || el;
+      if (leaf !== el) leaf.innerHTML = html;
+      else el.innerHTML = withPreservedFrame(el.innerHTML, html);
+    });
+    return true;
+  }
   if (title != null) paintSlotText(slide, ['title'], title, true);
   if (subtitle != null) paintSlotText(slide, ['subtitle', 'supporting-text', 'body'], subtitle, false);
   return true;
@@ -284,13 +310,30 @@ function paintSlotText(root, names, value, marked) {
 }
 
 // Edit text on a layout-agent slide: the words are baked into the slide's HTML,
-// so patching slide.title/subtitle alone never shows. Rewrite the matching
-// slots in place. Title keeps its {{accent|…}} → <em> treatment; the subtitle
-// line targets the `subtitle` slot, falling back to `body` when the agent used
-// that instead. Only the fields that were edited (non-null) are touched.
-export function rewriteLayoutText(html, { title, subtitle } = {}) {
+// so patching slide.title/subtitle alone never shows. Rewrite matching slots in
+// place. `slots` is a map of discovery keys (title, label#1, line-0, …).
+export function rewriteLayoutText(html, { title, subtitle, slots, direction, index } = {}) {
   let out = String(html || '');
   if (!out) return out;
+  if (slots && typeof slots === 'object') {
+    Object.entries(slots).forEach(([key, value]) => {
+      if (value == null) return;
+      const parsed = parseRoleSlotKey(key);
+      if (parsed.line) {
+        out = rewriteUnlabeledLine(out, {
+          direction,
+          index,
+          lineAt: parsed.lineAt,
+          value,
+        });
+        return;
+      }
+      const meta = metaForSlotName(parsed.slot);
+      const inner = meta.marked ? markedToInner(value) : escText(plainOf(value));
+      out = replaceSlotInnerAt(out, parsed.slot, inner, parsed.at).html;
+    });
+    return out;
+  }
   if (title != null) {
     out = replaceSlotInner(out, 'title', markedToInner(title)).html;
   }
@@ -304,14 +347,48 @@ export function rewriteLayoutText(html, { title, subtitle } = {}) {
   return out;
 }
 
-export function rewriteCarouselDocumentText(html, { index, title, subtitle } = {}) {
+function replaceSlotInnerAt(html, slot, inner, at = 0) {
+  let n = -1;
+  let found = false;
+  const re = new RegExp(
+    `(<([a-z][a-z0-9]*)\\b[^>]*\\bdata-slot\\s*=\\s*["']${slot}["'][^>]*>)([\\s\\S]*?)(<\\/\\2>)`,
+    'gi',
+  );
+  const out = String(html || '').replace(re, (_all, open, _tag, prev, close) => {
+    n += 1;
+    if (n !== at) return _all;
+    found = true;
+    return `${open}${withPreservedFrame(prev, inner)}${close}`;
+  });
+  return { html: out, found };
+}
+
+function rewriteUnlabeledLine(html, { direction, index, lineAt, value } = {}) {
+  const raw = String(html || '');
+  if (!raw || typeof DOMParser === 'undefined') return raw;
+  const doc = new DOMParser().parseFromString(raw, 'text/html');
+  const slide = findCarouselSlide(doc, direction, index)
+    || doc.querySelector('article.slide, .slide, article');
+  if (!slide) return raw;
+  const el = slide.querySelector(`[data-slot="line-${lineAt}"]`)
+    || collectEditableElements(slide).filter((node) => !node.getAttribute('data-slot'))[lineAt];
+  if (!el) return raw;
+  const inner = escText(plainOf(value));
+  const leaf = el.querySelector('h1, h2, h3, h4, h5, h6, p') || el;
+  if (leaf !== el) leaf.innerHTML = inner;
+  else el.innerHTML = withPreservedFrame(el.innerHTML, inner);
+  if (!el.getAttribute('data-slot')) el.setAttribute('data-slot', `line-${lineAt}`);
+  return serializeParsed(raw, doc);
+}
+
+export function rewriteCarouselDocumentText(html, { index, title, subtitle, slots, direction } = {}) {
   const raw = String(html || '');
   if (!raw) return raw;
   const idx = String(Number(index) > 0 ? Number(index) : 1);
   return raw.replace(/<article\b[^>]*>[\s\S]*?<\/article>/gi, (article) => {
     const n = (article.match(/\bdata-index=["']([^"']+)["']/i) || [])[1];
     if (String(n || '') !== idx) return article;
-    return rewriteLayoutText(article, { title, subtitle });
+    return rewriteLayoutText(article, { title, subtitle, slots, direction, index });
   });
 }
 
@@ -400,11 +477,22 @@ const THEME_CATALOG = [
   { id: 'warm-editorial', match: /warm\s*editorial/i },
   { id: 'architectural-minimal', match: /architectural\s*minimal/i },
   { id: 'quiet-luxury', match: /quiet\s*luxury/i },
-  { id: 'natural-tactile', match: /natural|tactile/i },
-  { id: 'contemporary-gallery', match: /contemporary|gallery/i },
-  { id: 'editorial', match: /\beditorial\b/i },
-  { id: 'architectural', match: /\barchitectural\b/i },
+  { id: 'natural-tactile', match: /natural\s*(?:and|&)?\s*tactile/i },
+  { id: 'contemporary-gallery', match: /contemporary\s*gallery/i },
+  { id: 'editorial', match: /^editorial$/i },
+  { id: 'architectural', match: /^architectural$/i },
   { id: 'bold-minimal', match: /bold\s*-?\s*minimal/i },
+  // Change-theme catalog (instagram-carousel-themes.html)
+  { id: 'scrapbook-diary', match: /scrapbook\s*diary/i },
+  { id: 'editorial-magazine', match: /editorial\s*magazine/i },
+  { id: 'annotated-photo-dump', match: /annotated\s*photo\s*dump/i },
+  { id: 'notes-app-confessions', match: /notes[-\s]*app\s*confessions/i },
+  { id: 'bold-mini-guide', match: /bold\s*mini[-\s]*guide/i },
+  { id: 'before-process-after', match: /before\s*(?:→|->|to)?\s*process\s*(?:→|->|to)?\s*after/i },
+  { id: 'myth-vs-reality', match: /myth\s*(?:vs\.?|versus)\s*reality/i },
+  { id: 'moodboard-story', match: /moodboard\s*story/i },
+  { id: 'seamless-panorama', match: /seamless\s*panorama/i },
+  { id: 'personal-field-notes', match: /personal\s*field\s*notes/i },
 ];
 
 const THEME_IDS = new Set(THEME_CATALOG.map((t) => t.id));
@@ -421,15 +509,20 @@ export const THEME_ORDER = [
 ];
 
 function canonThemeId(value) {
-  const raw = trim(value).toLowerCase()
+  const original = String(value || '').trim();
+  const raw = original.toLowerCase()
     .replace(/&/g, 'and')
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '');
   if (!raw) return '';
   if (THEME_IDS.has(raw)) return raw;
   if (raw === 'natural-and-tactile') return 'natural-tactile';
-  const hit = THEME_CATALOG.find((t) => t.match.test(String(value || '')));
-  return hit?.id || '';
+  // Agent / Change-theme slugs (e.g. scrapbook-diary) must stay verbatim so
+  // `section[data-direction="…"]` still matches. Fuzzy catalog matching is only
+  // for human labels like "Architectural Minimal".
+  if (/^[a-z0-9]+(?:-[a-z0-9]+)+$/.test(raw)) return raw;
+  const hit = THEME_CATALOG.find((t) => t.match.test(original));
+  return hit?.id || raw;
 }
 
 function themeFallbacks(direction) {
@@ -445,26 +538,6 @@ function themeFallbacks(direction) {
   return aliases[id] || [id];
 }
 
-export function layoutDirectionOf(slide) {
-  const stored = canonThemeId(slide?.layoutTheme);
-  if (stored) return stored;
-  const opts = Array.isArray(slide?.layoutOptions) ? slide.layoutOptions : [];
-  const hit = opts.find((o) => o.html && o.html === slide?.layoutHtml) || opts[0] || {};
-  return canonThemeId(hit.direction) || canonThemeId(hit.label) || THEME_ORDER[0];
-}
-
-export function themeIdOf(opt) {
-  return canonThemeId(opt?.direction) || canonThemeId(opt?.label);
-}
-
-// The carousel theme an option belongs to, from its `direction` ONLY (never the
-// label). On-demand Change-layout variations carry an empty direction and a
-// composition-name label ("Centered Verdict"); those are standalone fragments,
-// not document themes, so they must not be mistaken for a theme via the label.
-export function themeDirectionOf(opt) {
-  return canonThemeId(opt?.direction);
-}
-
 // True when a slide renders by cropping the carousel document (a themed carousel
 // slide). False when it renders from its own layoutHtml — an on-demand layout
 // variation, which is a standalone <style>+<article> fragment not in the
@@ -473,12 +546,43 @@ export function slideIsThemed(slide) {
   // Empty studio-added pages never crop the carousel document.
   if (slide?.blank || slide?.layout === 'blank') return false;
   if (slide?.manual || String(slide?.layout || '').startsWith('el-')) return false;
-  if (canonThemeId(slide?.layoutTheme)) return true;
+  // Any stored layoutTheme (including Change-theme catalog slugs) means the
+  // slide belongs to the carousel document — do not require the legacy catalog.
+  if (trim(slide?.layoutTheme) || canonThemeId(slide?.layoutTheme)) return true;
   const opts = Array.isArray(slide?.layoutOptions) ? slide.layoutOptions : [];
   const applied = opts.find((o) => o.html && o.html === slide?.layoutHtml);
-  if (applied) return Boolean(canonThemeId(applied.direction));
-  if (opts.length) return opts.some((o) => canonThemeId(o.direction));
+  if (applied) {
+    return Boolean(trim(applied.direction) || canonThemeId(applied.direction));
+  }
+  if (opts.length) {
+    return opts.some((o) => trim(o?.direction) || canonThemeId(o?.direction));
+  }
   return true;
+}
+
+export function layoutDirectionOf(slide) {
+  const stored = canonThemeId(slide?.layoutTheme) || trim(slide?.layoutTheme).toLowerCase();
+  if (stored) return stored;
+  const opts = Array.isArray(slide?.layoutOptions) ? slide.layoutOptions : [];
+  const hit = opts.find((o) => o.html && o.html === slide?.layoutHtml) || opts[0] || {};
+  return canonThemeId(hit.direction)
+    || trim(hit.direction).toLowerCase()
+    || canonThemeId(hit.label)
+    || THEME_ORDER[0];
+}
+
+export function themeIdOf(opt) {
+  return canonThemeId(opt?.direction)
+    || trim(opt?.direction).toLowerCase()
+    || canonThemeId(opt?.label);
+}
+
+// The carousel theme an option belongs to, from its `direction` ONLY (never the
+// label). On-demand Change-layout variations carry an empty direction and a
+// composition-name label ("Centered Verdict"); those are standalone fragments,
+// not document themes, so they must not be mistaken for a theme via the label.
+export function themeDirectionOf(opt) {
+  return canonThemeId(opt?.direction) || trim(opt?.direction).toLowerCase();
 }
 
 export function optionForTheme(slide, theme) {

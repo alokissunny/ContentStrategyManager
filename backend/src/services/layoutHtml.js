@@ -273,10 +273,14 @@ function slideArticles(html) {
     || /\bdata-slot\s*=/i.test(a)
   ));
   if (fromArticles.length) return fromArticles;
-  // Some model runs emit canvases as div.slide instead of article.slide.
-  return balancedBlocks(html, 'div').filter((a) => (
-    /class=["'][^"']*\bslide\b/i.test(a) && /\bdata-index\s*=/i.test(a)
-  ));
+  // Some model runs emit canvases as div.slide / section.slide instead of article.slide.
+  for (const tag of ['div', 'section']) {
+    const blocks = balancedBlocks(html, tag).filter((a) => (
+      /class=["'][^"']*\bslide\b/i.test(a)
+    ));
+    if (blocks.length) return blocks;
+  }
+  return [];
 }
 
 /** Match an open/close tag pair with correct nesting (non-greedy </tag> breaks on nested chrome). */

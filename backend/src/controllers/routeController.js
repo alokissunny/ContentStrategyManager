@@ -1245,6 +1245,7 @@ async function rerunDayLayout(req, res) {
   if (!route) return res.status(404).json({ message: 'Route not found' });
   if (!route.days[index]) return res.status(404).json({ message: 'Day not found' });
 
+  const themeId = String(req.body?.themeId || '').trim();
   const day = route.days[index];
   const post = layoutPostFromDay(day);
   const trace = day.agentTrace && typeof day.agentTrace === 'object' ? day.agentTrace : {};
@@ -1277,6 +1278,7 @@ async function rerunDayLayout(req, res) {
       dayBrief: plainOf(trace.strategyBrief) || {},
       brand,
       dayWriterOutput,
+      themeId,
     });
     if (result.parsed?.status === 'failed') {
       return res.status(422).json({
@@ -1305,18 +1307,29 @@ async function rerunDayLayout(req, res) {
       console.warn('[route] visual agent skipped on layout rerun:', err.message);
     }
     day.content = { ...current, ...next, slides: next.slides };
+    if (themeId) day.content.themeId = themeId;
+    const debugEntry = result.debugEntry || {};
     day.agentTrace = {
       ...trace,
       layout: result.parsed,
       carousel: result.parsed,
+      layoutPrompt: String(debugEntry.prompt || trace.layoutPrompt || ''),
+      themeId: themeId || trace.themeId || '',
       visual: Array.isArray(next.visualTrace) && next.visualTrace.length
-        ? { slides: next.visualTrace, usage: next.visualUsage || null }
+        ? {
+          slides: next.visualTrace,
+          usage: next.visualUsage || null,
+          agents: visualAgents.map((a) => ({
+            source: a.debugEntry?.source || '',
+            prompt: a.debugEntry?.prompt || '',
+            output: a.debugEntry?.output || '',
+          })),
+        }
         : trace.visual || null,
     };
     route.markModified('days');
     await route.save();
 
-    const debugEntry = result.debugEntry || {};
     // Always log the standalone rerun's input + output (like the full plan's
     // per-agent trace), so a bad standalone layout can be diagnosed from server
     // logs even without the client debug panel. Truncated to keep logs readable;
