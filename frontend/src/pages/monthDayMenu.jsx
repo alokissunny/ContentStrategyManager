@@ -27,6 +27,28 @@ function ymdKey(d) {
   return `${y}-${m}-${day}`;
 }
 
+/** True when the post has real slide paint — not a lite list stub / direction-only fallback. */
+export function peekReady(day) {
+  if (!day) return false;
+  if (String(day?.content?.carouselHtml || '').trim()) return true;
+  const slides = day?.content?.slides;
+  if (!Array.isArray(slides) || !slides.length) return false;
+  return slides.some((s) => String(s?.layoutHtml || '').trim()
+    || String(s?.assetKey || s?.image?.key || '').trim());
+}
+
+function PeekSkeleton({ phone = false }) {
+  const h = phone ? 210 : 176;
+  const w = Math.round(h * 0.8);
+  return (
+    <div className={`yw-peek yw-peek--skel${phone ? ' is-phone' : ''}`} aria-hidden="true">
+      <div className="yw-peek__frame yw-peek__skel-frame" style={{ width: `${w}px`, height: `${h}px` }}>
+        <span className="yw-peek__skel-spin" />
+      </div>
+    </div>
+  );
+}
+
 export function calStatusOf(post, metaConnected) {
   if (post?.published) return { tone: 'done', icon: 'check', label: 'Published' };
   if (metaConnected && post?.scheduledAt) return { tone: 'set', icon: 'clock', label: 'Scheduled' };
@@ -47,6 +69,7 @@ export function MonthDayMenu({
   onDistribute,
   onPatch,
   variant = 'popover',
+  peekLoading = false,
 }) {
   const sheet = variant === 'sheet';
   const empty = !day;
@@ -55,6 +78,9 @@ export function MonthDayMenu({
   const isRev = !!day?.savedForReview && !out;
   const wasDay = day?.date && String(day.date).slice(0, 10) < ymdKey(new Date());
   const st = day ? calStatusOf(day, metaConnected) : null;
+  const ready = peekReady(day);
+  const showPeek = !!day && !level && ready;
+  const showSkel = !!day && !level && !ready && peekLoading;
 
   const patch = async (fn) => {
     if (!day?._id) return;
@@ -169,7 +195,8 @@ export function MonthDayMenu({
 
   const body = (
     <>
-      {day && !level && <DayPeek day={day} phone={sheet} />}
+      {showPeek && <DayPeek day={day} phone={sheet} />}
+      {showSkel && <PeekSkeleton phone={sheet} />}
       <div role="menu" className={sheet ? 'msheet__menu' : undefined}>{items}</div>
     </>
   );
@@ -257,24 +284,81 @@ export function MonthDayCell({
   );
 }
 
-/** Hook: which day menu is open + enriched post for the peek. */
+/** Hook: which day menu is open + enriched post for the peek.
+ *  List posts omit layoutHtml — fetch the full post before DayPeek paints so
+ *  the menu never flashes a direction-text stub (bauhly-v3). */
 export function useMonthDayMenu(index) {
   const [dayMenu, setDayMenu] = useState(null);
   const [fullDay, setFullDay] = useState(null);
+  const [peekLoading, setPeekLoading] = useState(false);
+  const cacheRef = useRef(new Map());
+
+  const openDayMenu = (key) => {
+    setFullDay(null);
+    setPeekLoading(true);
+    setDayMenu({ key, level: null });
+  };
 
   useEffect(() => {
-    if (!dayMenu?.key) { setFullDay(null); return undefined; }
+    if (!dayMenu?.key) {
+      setFullDay(null);
+      setPeekLoading(false);
+      return undefined;
+    }
     const row = index.get(dayMenu.key);
-    const id = row?.day?._id || row?.week?._id;
-    if (!id) { setFullDay(row?.day || null); return undefined; }
+    const stub = row?.day || null;
+    const id = stub?._id || row?.week?._id;
+    if (!id) {
+      setFullDay(stub);
+      setPeekLoading(false);
+      return undefined;
+    }
+
+    const cached = cacheRef.current.get(String(id));
+    if (cached && peekReady(cached)) {
+      setFullDay(cached);
+      setPeekLoading(false);
+      return undefined;
+    }
+    if (peekReady(stub)) {
+      cacheRef.current.set(String(id), stub);
+      setFullDay(stub);
+      setPeekLoading(false);
+      return undefined;
+    }
+
+    /* Hold the stub out of the peek — actions still use list fields via caller */
+    setFullDay(null);
+    setPeekLoading(true);
     let cancelled = false;
     getPost(id)
-      .then((p) => { if (!cancelled && p) setFullDay(p); })
-      .catch(() => { if (!cancelled) setFullDay(row?.day || null); });
+      .then((p) => {
+        if (cancelled) return;
+        if (p) {
+          cacheRef.current.set(String(id), p);
+          setFullDay(p);
+        } else {
+          setFullDay(stub);
+        }
+      })
+      .catch(() => { if (!cancelled) setFullDay(stub); })
+      .finally(() => { if (!cancelled) setPeekLoading(false); });
     return () => { cancelled = true; };
   }, [dayMenu?.key, index]);
 
-  return { dayMenu, setDayMenu, fullDay, setFullDay };
+  const setFullDayCached = (p) => {
+    if (p?._id && peekReady(p)) cacheRef.current.set(String(p._id), p);
+    setFullDay(p);
+  };
+
+  return {
+    dayMenu,
+    setDayMenu,
+    openDayMenu,
+    fullDay,
+    setFullDay: setFullDayCached,
+    peekLoading,
+  };
 }
 
 export { ymdKey as menuYmdKey };

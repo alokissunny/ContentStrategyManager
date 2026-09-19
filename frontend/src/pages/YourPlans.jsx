@@ -567,7 +567,7 @@ function MonthView({
   const weeks = [];
   for (let i = 0; i < cells.length; i += 7) weeks.push(cells.slice(i, i + 7));
   const today = startOfDay(new Date());
-  const { dayMenu, setDayMenu, fullDay, setFullDay } = useMonthDayMenu(index);
+  const { dayMenu, setDayMenu, openDayMenu, fullDay, setFullDay, peekLoading } = useMonthDayMenu(index);
   const [daySel, setDaySel] = useState(null);
 
   const closeMenu = () => {
@@ -578,7 +578,13 @@ function MonthView({
   const menuKey = dayMenu?.key || null;
   const menuLevel = dayMenu?.level || null;
   const menuRow = menuKey ? index.get(menuKey) : null;
-  const menuDay = menuKey ? (fullDay || menuRow?.day || null) : null;
+  const menuStub = menuRow?.day || null;
+  /* Prefer enriched post only when it is THIS cell's — never paint the previous
+     day's peek while the new fetch is in flight. */
+  const menuEnriched = fullDay && menuStub && String(fullDay._id) === String(menuStub._id)
+    ? fullDay
+    : null;
+  const menuDay = menuKey ? (menuEnriched || menuStub) : null;
   const sheetDate = menuKey
     ? (() => {
       const [y, m, d] = menuKey.split('-').map(Number);
@@ -606,9 +612,12 @@ function MonthView({
               const key = ymdKey(cell.date);
               const open = dayMenu?.key === key;
               const row = cell.row;
-              const cellDay = open
-                ? (fullDay || row?.day || null)
+              const cellStub = row?.day || null;
+              const cellEnriched = open && fullDay && cellStub
+                && String(fullDay._id) === String(cellStub._id)
+                ? fullDay
                 : null;
+              const cellDay = open ? (cellEnriched || cellStub) : null;
               return (
                 <div role="gridcell" key={key} className="yw-mcal__cell">
                   <MonthDayCell
@@ -620,8 +629,7 @@ function MonthView({
                     onSelect={(c, r, late) => {
                       const k = ymdKey(c.date);
                       if (late) {
-                        setDayMenu({ key: k, level: null });
-                        setFullDay(r?.day || null);
+                        openDayMenu(k);
                         return;
                       }
                       /* lime lands immediately; menu waits so a double-click
@@ -634,6 +642,7 @@ function MonthView({
                     menu={open && !phone ? (
                       <MonthDayMenu
                         day={cellDay}
+                        peekLoading={peekLoading}
                         handle={handle}
                         metaConnected={metaConnected}
                         level={menuLevel}
@@ -669,6 +678,7 @@ function MonthView({
           <MonthDayMenu
             variant="sheet"
             day={menuDay}
+            peekLoading={peekLoading}
             handle={handle}
             metaConnected={metaConnected}
             level={menuLevel}
