@@ -1,66 +1,86 @@
+/*
+ * Sidebar / header profile control (bauhly-v3 + account flyout).
+ *
+ * Collapsed: avatar + name + chevron at the foot of the sidebar.
+ * Open: menu with profile row (opens "Your Accounts" to the right),
+ * Upgrade / Settings / Help / Log out — matching the Bauhly account panels.
+ */
+
 import React, { useEffect, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import Glyph from './Glyph';
+import AccountsPanel from './AccountsPanel';
 import { useAuth } from '../context/AuthContext';
-import { LS_SURFACE, LS_BORDER, LS_INK, LS_T2, LS_MUTED, LS_SIGNAL, LS_HOVER, LS_FONT } from '../theme';
+
+function userInitials(name = '') {
+  const parts = String(name).trim().split(/\s+/).filter(Boolean);
+  if (parts.length >= 2) {
+    return `${parts[0][0] || ''}${parts[1][0] || ''}`.toUpperCase();
+  }
+  return (parts[0] || 'U').slice(0, 2).toUpperCase();
+}
 
 function UserAvatar({ user, size = 32 }) {
-  const initial = (user?.name || 'U').slice(0, 1).toUpperCase();
-
   if (user?.avatar) {
     return (
       <img
+        className="sb__avatar"
         src={user.avatar}
-        alt={user.name || 'User'}
+        alt=""
         referrerPolicy="no-referrer"
-        style={{
-          width: size,
-          height: size,
-          borderRadius: '50%',
-          objectFit: 'cover',
-          flexShrink: 0,
-          border: `1px solid ${LS_BORDER}`,
-        }}
+        style={{ width: size, height: size }}
       />
     );
   }
-
   return (
-    <div
-      style={{
-        width: size,
-        height: size,
-        borderRadius: '50%',
-        background: LS_INK,
-        color: '#fff',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        fontFamily: LS_FONT,
-        fontWeight: 700,
-        fontSize: Math.round(size * 0.4),
-        flexShrink: 0,
-      }}
-    >
-      {initial}
-    </div>
+    <span className="sb__avatar" style={{ width: size, height: size, fontSize: Math.round(size * 0.34) }}>
+      {userInitials(user?.name)}
+    </span>
   );
 }
+
+const MENU_LINKS = [
+  { label: 'Upgrade plan', icon: 'sparkles', to: '/#pricing', muted: true },
+  { label: 'Settings', icon: 'sun', to: '/dashboard/settings' },
+  { label: 'Visual Library', icon: 'layout-grid', to: '/dashboard/visual-library' },
+  { label: 'Business memory', icon: 'file-text', to: '/dashboard/brand-dna' },
+  { label: 'Competitor overview', icon: 'trending-up', to: '/dashboard/competitor-overview' },
+];
 
 export default function UserMenu({ compact = false }) {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
+  const { pathname } = useLocation();
   const [open, setOpen] = useState(false);
+  const [accountsOpen, setAccountsOpen] = useState(false);
   const menuRef = useRef(null);
 
   useEffect(() => {
+    setOpen(false);
+    setAccountsOpen(false);
+  }, [pathname]);
+
+  useEffect(() => {
     if (!open) return undefined;
-    function handleClick(event) {
-      if (!menuRef.current?.contains(event.target)) setOpen(false);
+    function onAway(e) {
+      if (!menuRef.current?.contains(e.target)) {
+        setOpen(false);
+        setAccountsOpen(false);
+      }
     }
-    document.addEventListener('mousedown', handleClick);
-    return () => document.removeEventListener('mousedown', handleClick);
-  }, [open]);
+    function onEsc(e) {
+      if (e.key === 'Escape') {
+        if (accountsOpen) setAccountsOpen(false);
+        else setOpen(false);
+      }
+    }
+    document.addEventListener('mousedown', onAway);
+    window.addEventListener('keydown', onEsc);
+    return () => {
+      document.removeEventListener('mousedown', onAway);
+      window.removeEventListener('keydown', onEsc);
+    };
+  }, [open, accountsOpen]);
 
   if (!user) return null;
 
@@ -71,155 +91,108 @@ export default function UserMenu({ compact = false }) {
 
   function go(path) {
     setOpen(false);
+    setAccountsOpen(false);
+    if (path.startsWith('/#')) {
+      navigate('/');
+      return;
+    }
     navigate(path);
   }
 
-  // Settings, Visual Library, Business memory and Competitor overview live
-  // here in the account menu rather than the main nav.
-  const LINKS = [
-    { label: 'Settings', icon: 'settings', to: '/dashboard/settings' },
-    { label: 'Visual Library', icon: 'layout-grid', to: '/dashboard/visual-library' },
-    { label: 'Business memory', icon: 'file-text', to: '/dashboard/brand-dna' },
-    { label: 'Competitor overview', icon: 'trending-up', to: '/dashboard/competitor-overview' },
-  ];
+  function closeAll() {
+    setOpen(false);
+    setAccountsOpen(false);
+  }
 
   return (
-    <div ref={menuRef} style={{ position: 'relative' }}>
+    <div ref={menuRef} className={`sb__userwrap${compact ? ' sb__userwrap--compact' : ''}`}>
+      {open && (
+        <div className="sb__menu" role="menu">
+          {/* Profile row → opens Your Accounts beside this panel (desktop).
+              On the compact header chip, account switching is the header acs. */}
+          <button
+            type="button"
+            role="menuitem"
+            className={`sb__menuitem sb__menuitem--profile${accountsOpen ? ' is-on' : ''}`}
+            aria-haspopup={compact ? undefined : 'menu'}
+            aria-expanded={compact ? undefined : accountsOpen}
+            onClick={() => {
+              if (compact) return;
+              setAccountsOpen((v) => !v);
+            }}
+          >
+            <UserAvatar user={user} size={32} />
+            <span className="sb__menuitem__label">{user.name}</span>
+            {!compact && <Glyph name="chevron-right" size={16} strokeWidth={2} />}
+          </button>
+
+          <span className="sb__menusep" />
+
+          {MENU_LINKS.map((link) => (
+            <button
+              key={link.to}
+              type="button"
+              role="menuitem"
+              className={`sb__menuitem${link.muted ? ' sb__menuitem--muted' : ''}`}
+              onClick={() => go(link.to)}
+            >
+              <Glyph name={link.icon} size={16} strokeWidth={1.9} />
+              {link.label}
+            </button>
+          ))}
+
+          <span className="sb__menusep" />
+
+          <button
+            type="button"
+            role="menuitem"
+            className="sb__menuitem"
+            onClick={() => go('/dashboard/settings')}
+          >
+            <Glyph name="info" size={16} strokeWidth={1.9} />
+            <span className="sb__menuitem__label">Help</span>
+            <Glyph name="chevron-right" size={16} strokeWidth={2} />
+          </button>
+
+          <button
+            type="button"
+            role="menuitem"
+            className="sb__menuitem"
+            onClick={handleLogout}
+          >
+            <Glyph name="log-out" size={16} strokeWidth={1.9} />
+            Log out
+          </button>
+
+          {accountsOpen && !compact && (
+            <div className="sb__accounts">
+              <AccountsPanel inline onClose={closeAll} />
+            </div>
+          )}
+        </div>
+      )}
+
       <button
         type="button"
-        onClick={() => setOpen((value) => !value)}
-        aria-expanded={open}
+        className={`sb__user${open ? ' is-open' : ''}${compact ? ' sb__user--compact' : ''}`}
         aria-haspopup="menu"
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: compact ? 0 : 10,
-          padding: compact ? 4 : '10px 12px',
-          borderRadius: compact ? '50%' : 8,
-          border: compact ? 'none' : `1px solid ${LS_BORDER}`,
-          background: compact ? 'none' : 'none',
-          cursor: 'pointer',
-          textAlign: 'left',
-          width: compact ? 'auto' : '100%',
+        aria-expanded={open}
+        title={user.name}
+        onClick={() => {
+          setOpen((v) => !v);
+          if (open) setAccountsOpen(false);
         }}
       >
         <UserAvatar user={user} size={compact ? 34 : 32} />
         {!compact && (
           <>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div
-                style={{
-                  fontFamily: LS_FONT,
-                  fontSize: 13,
-                  fontWeight: 600,
-                  color: LS_INK,
-                  whiteSpace: 'nowrap',
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                }}
-              >
-                {user.name}
-              </div>
-              <div
-                style={{
-                  fontFamily: LS_FONT,
-                  fontSize: 11,
-                  color: LS_MUTED,
-                  whiteSpace: 'nowrap',
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                }}
-              >
-                {user.email}
-              </div>
-            </div>
-            <Glyph name={open ? 'chevron-up' : 'chevron-down'} size={16} color={LS_T2} />
+            <span className="sb__who">
+              <span className="sb__name">{user.name}</span>
+            </span>
+            <Glyph name="chevron-down" size={15} strokeWidth={2.25} className="sb__user-chevron" />
           </>
         )}
       </button>
-
-      {open && (
-        <div
-          role="menu"
-          style={{
-            position: 'absolute',
-            bottom: compact ? 'auto' : 'calc(100% + 8px)',
-            top: compact ? 'calc(100% + 8px)' : 'auto',
-            right: compact ? 0 : 0,
-            left: compact ? 'auto' : 0,
-            minWidth: compact ? 220 : undefined,
-            background: LS_SURFACE,
-            border: `1px solid ${LS_BORDER}`,
-            borderRadius: 10,
-            boxShadow: '0 8px 24px rgba(17,24,39,0.12)',
-            padding: 6,
-            zIndex: 60,
-          }}
-        >
-          {compact && (
-            <div style={{ padding: '8px 10px 10px', borderBottom: `1px solid ${LS_BORDER}`, marginBottom: 4 }}>
-              <div style={{ fontFamily: LS_FONT, fontSize: 13, fontWeight: 600, color: LS_INK }}>{user.name}</div>
-              <div style={{ fontFamily: LS_FONT, fontSize: 11, color: LS_MUTED, marginTop: 2 }}>{user.email}</div>
-            </div>
-          )}
-          {LINKS.map((link) => (
-            <button
-              key={link.to}
-              type="button"
-              role="menuitem"
-              onClick={() => go(link.to)}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 10,
-                width: '100%',
-                padding: '10px 12px',
-                border: 'none',
-                borderRadius: 8,
-                background: 'transparent',
-                cursor: 'pointer',
-                fontFamily: LS_FONT,
-                fontSize: 13,
-                fontWeight: 600,
-                color: LS_INK,
-                textAlign: 'left',
-              }}
-              onMouseEnter={(e) => { e.currentTarget.style.background = LS_HOVER; }}
-              onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
-            >
-              <Glyph name={link.icon} size={16} color={LS_T2} />
-              {link.label}
-            </button>
-          ))}
-
-          <div style={{ height: 1, background: LS_BORDER, margin: '4px 6px' }} />
-
-          <button
-            type="button"
-            role="menuitem"
-            onClick={handleLogout}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 10,
-              width: '100%',
-              padding: '10px 12px',
-              border: 'none',
-              borderRadius: 8,
-              background: 'transparent',
-              cursor: 'pointer',
-              fontFamily: LS_FONT,
-              fontSize: 13,
-              fontWeight: 600,
-              color: LS_SIGNAL,
-              textAlign: 'left',
-            }}
-          >
-            <Glyph name="log-out" size={16} color={LS_SIGNAL} />
-            Sign out
-          </button>
-        </div>
-      )}
     </div>
   );
 }

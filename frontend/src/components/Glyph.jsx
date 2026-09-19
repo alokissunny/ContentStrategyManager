@@ -1,6 +1,6 @@
 import React, { useEffect, useRef } from 'react';
 
-export default function Glyph({ name, size = 20, color, strokeWidth = 1.5, style }) {
+export default function Glyph({ name, size = 20, color, strokeWidth = 1.5, style, className }) {
   const ref = useRef(null);
 
   useEffect(() => {
@@ -14,5 +14,5 @@ export default function Glyph({ name, size = 20, color, strokeWidth = 1.5, style
     window.lucide.createIcons({ attrs: { 'stroke-width': strokeWidth } });
   }, [name, size, strokeWidth]);
 
-  return <span ref={ref} style={{ display: 'inline-flex', color, ...style }} />;
+  return <span ref={ref} className={className} style={{ display: 'inline-flex', color, ...style }} />;
 }

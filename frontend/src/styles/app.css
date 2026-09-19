@@ -11,6 +11,9 @@
   min-height: 100vh;
   background: var(--canvas);
   --navbar-bg: #ffffff;
+  /* soft sage column — separates from the white main without a hairline */
+  --sidebar-bg: #f8f9f5;
+  --sidebar-foot-bg: #eff1e8;
   /* the inside product uses a Notion-style native system font — cleaner and
    * more "app" than the marketing display face. Scoped to .app only, so the
    * landing (/) and onboarding (/onboarding) keep Bricolage + Inter. */
@@ -32,10 +35,9 @@
   flex-shrink: 0;
   padding: 10px var(--sp-6);
   padding-top: calc(10px + env(safe-area-inset-top));
-  background: rgba(255, 255, 255, 0.92);
-  backdrop-filter: saturate(160%) blur(12px);
-  -webkit-backdrop-filter: saturate(160%) blur(12px);
-  border-bottom: 1px solid var(--border);
+  background: var(--navbar-bg, #fff);
+  /* no hairline — the reference separates chrome by space, not a rule */
+  border-bottom: 0;
 }
 .apptop__end {
   display: flex;
@@ -44,8 +46,8 @@
   margin-left: auto;
   min-width: 0;
 }
-/* Instagram switcher sits in the sidebar on desktop; it joins the header
-   from tablet down. The Bauhly user menu stays in the header at every width. */
+/* Instagram switcher joins the header from tablet down. On desktop the
+   profile menu at the sidebar foot owns account switching. */
 .apptop__acct { display: none; }
 .apptop__user { display: block; }
 .app__body {
@@ -59,18 +61,29 @@
 .sb {
   width: var(--sidebar-w);
   flex-shrink: 0;
-  background: var(--surface);
-  border-right: 1px solid var(--border);
+  background: var(--sidebar-bg, var(--surface));
+  /* no vertical rule — tint alone separates the column (bauhly-v3) */
+  border-right: 0;
   display: flex;
   flex-direction: column;
   padding: var(--sp-5) var(--sp-4);
   position: sticky;
   top: var(--apptop-h);
-  height: calc(100vh - var(--apptop-h));
+  height: calc(100dvh - var(--apptop-h));
+  min-height: calc(100dvh - var(--apptop-h));
   z-index: 30;
+  align-self: stretch;
 }
 .sb__logo {
   padding: 0 var(--sp-2) var(--sp-6);
+}
+.sb__brand {
+  display: flex;
+  align-items: center;
+  height: 40px;
+  padding: 0 var(--sp-3);
+  margin-bottom: var(--sp-6);
+  flex-shrink: 0;
 }
 .sb__nav {
   display: flex;
@@ -118,6 +131,129 @@
   flex-direction: column;
   gap: var(--sp-3);
 }
+.sb__usermenu {
+  /* full-bleed foot band under Capture (bauhly account panels) */
+  margin: 0 calc(var(--sp-4) * -1) calc(var(--sp-5) * -1);
+  padding: var(--sp-3) var(--sp-4) var(--sp-5);
+  border-top: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
+  background: var(--sidebar-foot-bg, #eff1e8);
+}
+/* profile control + upward menu + nested Your Accounts (bauhly-v3 panels) */
+.sb__userwrap { position: relative; width: 100%; }
+.sb__user {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-2);
+  font: inherit;
+  text-align: left;
+  color: inherit;
+  background: none;
+  border: 0;
+  border-radius: var(--r-md);
+  cursor: pointer;
+}
+.sb__user:hover,
+.sb__user.is-open { background: color-mix(in srgb, var(--surface) 70%, transparent); }
+.sb__user-chevron {
+  flex-shrink: 0;
+  margin-left: auto;
+  color: var(--ink-400, #9b9ba6);
+  transition: transform var(--dur-fast, 120ms) ease;
+}
+.sb__user.is-open .sb__user-chevron {
+  transform: rotate(180deg);
+}
+.sb__user--compact {
+  width: auto;
+  padding: 4px;
+  border-radius: 50%;
+}
+.sb__user--compact:hover,
+.sb__user--compact.is-open { background: var(--surface-sunken); }
+.sb__who { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.sb__name {
+  display: block;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--ink-900, #16161a);
+}
+.sb__menu {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: calc(100% + 8px);
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  min-width: 240px;
+  padding: 6px;
+  background: var(--surface);
+  border-radius: 14px;
+  box-shadow: 0 14px 34px -14px rgba(20, 20, 25, 0.32), 0 0 0 1px var(--border);
+}
+.sb__userwrap--compact .sb__menu {
+  left: auto;
+  right: 0;
+  bottom: auto;
+  top: calc(100% + 8px);
+  min-width: 260px;
+}
+.sb__menuitem {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  width: 100%;
+  padding: 9px var(--sp-3);
+  font-family: var(--font-ui);
+  font-size: var(--text-sm);
+  font-weight: 500;
+  color: var(--ink-800);
+  text-align: left;
+  background: none;
+  border: 0;
+  border-radius: var(--r-sm);
+  cursor: pointer;
+}
+.sb__menuitem:hover { background: var(--surface-sunken); color: var(--ink-900); }
+.sb__menuitem svg { flex-shrink: 0; color: var(--ink-500); }
+.sb__menuitem--muted { color: var(--ink-500); font-weight: 500; }
+.sb__menuitem--profile {
+  font-weight: 600;
+  color: var(--ink-900);
+  padding: 8px 10px;
+}
+.sb__menuitem--profile.is-on,
+.sb__menuitem--profile:hover { background: var(--surface-sunken); }
+.sb__menuitem__label {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.sb__menusep { display: block; height: 1px; margin: 5px 6px; background: var(--border); }
+.sb__accounts {
+  position: absolute;
+  left: calc(100% + 8px);
+  bottom: 0;
+  z-index: 51;
+  min-width: 280px;
+}
+/* when the flyout would leave the viewport, drop it above the menu instead */
+@media (max-width: 1100px) {
+  .sb__accounts {
+    left: 0;
+    right: 0;
+    bottom: calc(100% + 6px);
+    min-width: 0;
+  }
+}
 /* Capture — full-width primary at the foot (bauhly-v3). `.app` prefix so it
  * wins over `.btn`'s own 44px height. Optical centre: padding-right absorbs
  * the plus+gap so the label sits on the midline. */
@@ -150,12 +286,6 @@
   flex-shrink: 0;
   animation: signal-pulse 2.4s ease-in-out infinite;
 }
-.sb__user {
-  display: flex;
-  align-items: center;
-  gap: var(--sp-3);
-  padding: var(--sp-2) var(--sp-2);
-}
 .sb__avatar {
   width: 34px;
   height: 34px;
@@ -167,6 +297,7 @@
   font-size: var(--text-xs);
   font-weight: 700;
   flex-shrink: 0;
+  object-fit: cover;
 }
 
 /* ── Main column ── */
@@ -1596,18 +1727,19 @@ textarea.ai-debug__input {
  * 232px of mostly-empty sidebar is the cheapest space to give back. The nav
  * survives as icons — three destinations with distinct icons stay recognisable
  * without their labels, and each keeps a tooltip and its accessible name. */
-@media (max-width: 1100px) {
+@media (max-width: 1100px) and (min-width: 801px) {
   .app { --sidebar-w: 68px; }
   .sb { padding: var(--sp-5) 10px; align-items: center; }
+  .sb__brand {
+    justify-content: center;
+    padding: 0;
+    margin-bottom: var(--sp-5);
+  }
   .sb__nav { width: 100%; }
   .sb__link { justify-content: center; padding: 11px 0; }
   .sb__label { display: none; }
   .sb__section { display: none; }
-  /* Keep Capture on the rail as an icon disc; account switcher stays in the header */
-  .sb__foot { display: flex; align-items: center; }
-  .sb__foot .acs,
-  .sb__foot .acctsw,
-  .sb__foot [class*="acct"] { display: none; }
+  .sb__foot { display: flex; align-items: center; width: 100%; }
   .app .sb__capture {
     width: 44px;
     height: 44px;
@@ -1615,10 +1747,36 @@ textarea.ai-debug__input {
     align-self: center;
     border-radius: var(--r-full, 999px);
   }
-  .apptop__acct { display: block; }
-  .apptop__user { display: block; }
-  /* the user menu already sits here — a second avatar beside the handle is noise */
-  .apptop .acctsw__pic { display: none; }
+  .sb__usermenu {
+    margin: 0;
+    padding: var(--sp-2) 0 0;
+    border-top: 0;
+    background: transparent;
+    display: flex;
+    justify-content: center;
+    width: 100%;
+  }
+  .sb__who { display: none; }
+  .sb__user {
+    width: auto;
+    flex-direction: column;
+    gap: var(--sp-2);
+    padding: var(--sp-2) 0;
+  }
+  .sb__user-chevron { display: none; }
+  .sb__menu {
+    left: 50%;
+    right: auto;
+    transform: translateX(-50%);
+    min-width: 260px;
+  }
+  .sb__accounts {
+    left: 50%;
+    right: auto;
+    bottom: calc(100% + 6px);
+    transform: translateX(-50%);
+    min-width: 280px;
+  }
 
   .dash {
     grid-template-columns: 1fr;
@@ -1629,6 +1787,18 @@ textarea.ai-debug__input {
   }
   .app__main {
     padding: var(--sp-6);
+  }
+}
+
+/* Desktop (≥801): no top bar — wordmark + account live in the sidebar so its
+   sage ground runs the full height of the window (bauhly-v3). */
+@media (min-width: 801px) {
+  .apptop { display: none; }
+  .app { --apptop-h: 0px; }
+  .sb {
+    top: 0;
+    height: 100dvh;
+    min-height: 100dvh;
   }
 }
 
@@ -1745,6 +1915,155 @@ textarea.ai-debug__input {
     flex-wrap: wrap;
   }
 }
+
+/* ── the account switcher (header chip + Your Accounts sheet) ─────────── */
+.acs {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 100%;
+  min-width: 0;
+  padding: 4px 4px 4px 12px;
+  border: 0;
+  background: transparent;
+  border-radius: var(--r-full, 999px);
+  color: var(--ink-700);
+  cursor: pointer;
+  font: inherit;
+  transition: background var(--dur-fast), color var(--dur-fast);
+}
+.acs:hover { background: var(--ink-100); color: var(--ink-900); }
+.acs svg { color: var(--ink-quiet, #9b9ba6); flex-shrink: 0; }
+.acs__avatar,
+.acs .acs-opt__avatar {
+  display: grid;
+  place-items: center;
+  width: 28px !important;
+  height: 28px !important;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--ink-900, #16161a);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  object-fit: cover;
+}
+.acs__handle {
+  font-family: var(--font-ui);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+.acs { flex-shrink: 1; }
+
+.acs-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+}
+.acs-sheet {
+  position: fixed;
+  z-index: 71;
+  left: var(--sp-4);
+  right: var(--sp-4);
+  bottom: calc(var(--sp-4) + env(safe-area-inset-bottom));
+  max-width: 380px;
+  margin: 0 auto;
+  padding: var(--sp-3);
+  border-radius: var(--r-lg, 16px);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-lift, 0 14px 40px rgba(22, 22, 26, 0.14));
+}
+@media (min-width: 801px) {
+  .acs-sheet:not(.acs-sheet--inline) {
+    left: auto;
+    right: var(--sp-5);
+    top: calc(var(--apptop-h, 56px) + 8px);
+    bottom: auto;
+    margin: 0;
+  }
+}
+.acs-sheet--inline {
+  position: relative;
+  left: auto;
+  right: auto;
+  top: auto;
+  bottom: auto;
+  max-width: none;
+  margin: 0;
+  width: 280px;
+}
+.acs-sheet__label {
+  display: block;
+  padding: 6px 10px 8px;
+  font-family: var(--font-ui);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-quiet, #9b9ba6);
+}
+.acs-sheet__sep { height: 1px; background: var(--border); margin: 6px 4px; }
+.acs-opt {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  width: 100%;
+  min-height: 52px;
+  padding: 8px 10px;
+  border: 0;
+  background: transparent;
+  border-radius: var(--r-sm, 8px);
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  text-decoration: none;
+  transition: background var(--dur-fast);
+}
+.acs-opt:hover { background: var(--ink-100); }
+.acs-opt.is-on { background: var(--signal-50, #fff1ec); }
+.acs-opt.is-on svg { color: var(--signal-600, #ff5227); }
+.acs-opt:disabled { cursor: default; opacity: 0.7; }
+.acs-opt__avatar {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--ink-900, #16161a);
+  color: #fff;
+  font-size: var(--text-xs);
+  font-weight: 700;
+  object-fit: cover;
+}
+.acs-opt__avatar--ghost {
+  background: var(--ink-100, #efeff2);
+  color: var(--ink-600);
+  border: 1px dashed var(--ink-400, #9b9ba6);
+}
+.acs-opt__text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  flex: 1;
+}
+.acs-opt__text b {
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--ink-900);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.acs-opt__text span { font-size: var(--text-xs); color: var(--ink-500); }
 
 /* ── generation toast — bottom-left, past the sidebar, same box as library
  * settings. Lives on the shell so a finished plan can land on any page. */

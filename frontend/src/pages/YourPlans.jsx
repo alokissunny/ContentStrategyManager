@@ -1674,20 +1674,9 @@ export default function YourPlans() {
 
   return (
     <div className={`ph ph--cal ph--cal-${calView}${feedOn ? ' ph--cal-feed' : ''}`}>
-      {/* Month keeps the Calendar title. Weekly / Day promote the period label
-          to the title (bauhly-v3). Capture lives in the sidebar. */}
-      {calView === 'month' && !phoneWidth && (
-        <div className="ph__head">
-          <div className="ph__headrow">
-            <h1 className="ph__title">Calendar</h1>
-          </div>
-          {error && <p className="ph__sub" style={{ color: 'var(--negative)' }}>{error}</p>}
-        </div>
-      )}
-      {calView === 'month' && phoneWidth && error && (
-        <p className="ph__sub" style={{ color: 'var(--negative)' }}>{error}</p>
-      )}
-      {calView !== 'month' && error && (
+      {/* Period is the title (bauhly-v3) — no separate "Calendar" heading.
+          Month / week / day all read from the cal-bar. */}
+      {error && (
         <p className="ph__sub" style={{ color: 'var(--negative)' }}>{error}</p>
       )}
 

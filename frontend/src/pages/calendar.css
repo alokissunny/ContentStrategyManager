@@ -183,6 +183,33 @@
 .yw-mcal__grid { display: grid; gap: var(--sp-3); }
 .yw-mcal__cell { min-width: 0; }
 
+/* Desktop month — airier gutters + slightly taller cards (bauhly-v3 reference) */
+@media (min-width: 961px) {
+  .ph.ph--cal-month {
+    gap: var(--sp-5);
+  }
+  .ph.ph--cal-month .cal-bar {
+    margin-bottom: var(--sp-2);
+  }
+  .ph.ph--cal-month .cal-period {
+    font-size: clamp(24px, 2.6vw, 30px);
+    font-weight: 800;
+    letter-spacing: -0.02em;
+  }
+  .ph.ph--cal-month .yw-mcal__head,
+  .ph.ph--cal-month .yw-mcal__row,
+  .ph.ph--cal-month .yw-mcal__grid {
+    gap: var(--sp-4);
+  }
+  .ph.ph--cal-month .yw-mcal__head { margin-bottom: var(--sp-5); }
+  .ph.ph--cal-month .yw-mday__hit {
+    min-height: 104px;
+    padding: var(--sp-4) var(--sp-4) var(--sp-3);
+    border-radius: var(--r-lg, 18px);
+  }
+  .ph.ph--cal-month .yw-mday { border-radius: var(--r-lg, 18px); }
+}
+
 /* the "Posting" chip under a publishing weekday */
 .yw-postchip {
   display: inline-flex;
@@ -791,9 +818,11 @@
   margin-top: var(--sp-5);
 }
 
+/* Month: period is the title — no separate Calendar heading */
+.ph.ph--cal-month .ph__head { display: none; }
+
 /* Month keeps the fuller Calendar title; only tighten the bar a touch */
-.ph.ph--cal-month .cal-bar { margin-top: 2px; }
-.ph.ph--cal-month .cal-period { font-size: 22px; }
+.ph.ph--cal-month .cal-bar { margin-top: 0; }
 
 @media (max-width: 767px) {
   .ph.ph--cal-week,

@@ -32,9 +32,8 @@ export default function DashboardLayout({ children }) {
 
   return (
     <div className="app">
-      {/* Mark left. Bauhly user (Settings / sign out) right. The Instagram
-        * handle lives in the sidebar footer on desktop and joins this bar
-        * when the sidebar is a rail or gone. */}
+      {/* Mark left. Account chip + Bauhly user on the right (phone / tablet).
+        * Desktop hides this bar — profile + accounts live in the sidebar foot. */}
       <header className="apptop">
         <Logo size={22} as={Link} to="/dashboard" />
         <div className="apptop__end">

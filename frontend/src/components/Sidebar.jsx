@@ -1,12 +1,13 @@
 import React from 'react';
-import { NavLink } from 'react-router-dom';
+import { NavLink, Link } from 'react-router-dom';
 import Glyph from './Glyph';
-import AccountSwitcher from './AccountSwitcher';
+import UserMenu from './UserMenu';
+import { Logo } from '../brand/Logo';
 import { useFeatureFlags } from '../lib/featureFlags';
 import { openCaptureIdea } from '../lib/captureUi';
 
-// Settings, Visual Library, Business memory and Competitor overview live in the
-// header user menu. The sidebar footer is Capture + the Instagram account switcher.
+// Settings / Visual Library / Business memory / accounts live in the profile
+// menu at the foot of the sidebar (bauhly-v3 account panels).
 export const NAV_ITEMS = [
   { to: '/dashboard', label: 'Calendar', icon: 'calendar', exact: true },
   { to: '/dashboard/projects', label: 'Projects', icon: 'folder' },
@@ -29,6 +30,10 @@ export default function Sidebar() {
   const navItems = useNavItems();
   return (
     <aside className="sb">
+      {/* Wordmark at the top of the column (bauhly-v3) — desktop hides .apptop */}
+      <div className="sb__brand">
+        <Logo size={22} as={Link} to="/dashboard" />
+      </div>
       <nav className="sb__nav" aria-label="Main">
         {navItems.map((item) => (
           <NavLink
@@ -45,8 +50,6 @@ export default function Sidebar() {
       </nav>
 
       <div className="sb__foot">
-        {/* Capture is product furniture, not a page button (bauhly-v3): one home
-            at the foot of the sidebar on every route. */}
         <button
           type="button"
           className="btn btn--primary sb__capture"
@@ -57,7 +60,10 @@ export default function Sidebar() {
           <Glyph name="plus" size={16} strokeWidth={2.5} />
           <span className="sb__label">Capture idea</span>
         </button>
-        <AccountSwitcher variant="sidebar" />
+        {/* Profile opens Settings / accounts / sign-out (bauhly account panels) */}
+        <div className="sb__usermenu">
+          <UserMenu />
+        </div>
       </div>
     </aside>
   );

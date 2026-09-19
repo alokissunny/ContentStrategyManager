@@ -1,259 +1,52 @@
 /*
- * Instagram account switcher — the current handle, with a dropdown to switch
- * between connected accounts or add another. Switching calls /instagram/activate,
- * then does a SOFT switch: it updates the reactive active handle (lib/store),
- * which remounts the routed page (DashboardLayout keys content on the handle) so
- * every page re-fetches for the new account — no full browser reload.
- *
- * `variant="sidebar"` fills the sidebar footer (desktop). `variant="header"` is
- * the compact pill used in the app header on tablet and phone.
+ * Instagram account switcher — header chip (tablet / phone).
+ * Desktop uses the nested "Your Accounts" flyout inside UserMenu instead.
  */
 
-import React, { useEffect, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
+import React, { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import Glyph from './Glyph';
-import { listInstagramProfiles, readCachedProfiles, activateInstagramProfile } from '../api/instagram';
-import { getMetaStatus, isMetaConnectedFor } from '../api/meta';
+import AccountsPanel, { ProfileAvatar } from './AccountsPanel';
+import { listInstagramProfiles, readCachedProfiles } from '../api/instagram';
 import { syncHandle } from '../lib/store';
-import { resetProjects } from '../lib/projectsStore';
-import { LS_SURFACE, LS_BORDER, LS_INK, LS_T2, LS_MUTED, LS_SIGNAL, LS_SOFT, LS_SOFT_BORDER, LS_HOVER, LS_FONT } from '../theme';
 
-// Tokens not exposed on the LS_* palette but part of the shared design system.
-const SUNKEN = '#F6F6F8';   // --surface-sunken
-const POSITIVE = '#0A6E46'; // --positive / --trust-600 (this app's AA-safe green)
-const INK_500 = '#6C6C79';  // --ink-500
-const SHADOW_MD = '0 2px 6px rgba(22,22,26,0.06), 0 14px 36px rgba(22,22,26,0.09)';
-
-function handleInitials(username = '') {
-  return (username.replace(/[^a-z0-9]/gi, '').slice(0, 2) || 'IG').toUpperCase();
-}
-
-function Avatar({ profile, size = 34 }) {
-  const [broken, setBroken] = useState(false);
-  const base = {
-    width: size, height: size, borderRadius: '50%', flexShrink: 0,
-    objectFit: 'cover',
-  };
-  const showImg = profile?.profilePicUrl && !broken;
-  if (showImg) {
-    return (
-      <img
-        src={profile.profilePicUrl}
-        alt=""
-        referrerPolicy="no-referrer"
-        onError={() => setBroken(true)}
-        style={{ ...base, border: `1px solid ${LS_BORDER}` }}
-      />
-    );
-  }
-  return (
-    <div
-      style={{
-        ...base, background: LS_INK, color: '#fff', display: 'grid', placeItems: 'center',
-        fontFamily: LS_FONT, fontWeight: 700, fontSize: Math.round(size * 0.34),
-      }}
-    >
-      {handleInitials(profile?.username)}
-    </div>
-  );
-}
-
-export default function AccountSwitcher({ variant = 'header' }) {
-  const sidebar = variant === 'sidebar';
+export default function AccountSwitcher() {
   const [profiles, setProfiles] = useState(readCachedProfiles);
-  const [meta, setMeta] = useState(null);
   const [open, setOpen] = useState(false);
-  const [switching, setSwitching] = useState('');
-  const ref = useRef(null);
 
   useEffect(() => {
     listInstagramProfiles()
       .then((data) => {
         const list = data.profiles || [];
         setProfiles(list);
-        // Point the per-account client store (Visual Library / Library Settings)
-        // at the current handle so it shows this account's own data.
         if (list[0]) syncHandle(list[0].username);
       })
       .catch(() => setProfiles([]));
-    getMetaStatus().then(setMeta).catch(() => setMeta(null));
   }, []);
 
-  useEffect(() => {
-    if (!open) return undefined;
-    function onClick(e) {
-      if (!ref.current?.contains(e.target)) setOpen(false);
-    }
-    function onKey(e) {
-      if (e.key === 'Escape') setOpen(false);
-    }
-    document.addEventListener('mousedown', onClick);
-    document.addEventListener('keydown', onKey);
-    return () => {
-      document.removeEventListener('mousedown', onClick);
-      document.removeEventListener('keydown', onKey);
-    };
-  }, [open]);
-
-  // Backend returns the current handle first.
   const current = profiles[0];
   if (!current) return null;
 
-  // Insights badge per handle — each Bauhly account can have its own Meta link.
-  const insightsConnected = (username) => isMetaConnectedFor(meta, username);
-
-  async function switchTo(username) {
-    if (username === current.username || switching) return;
-    setSwitching(username);
-    try {
-      // Soft switch — no full page reload. Order matters:
-      //  1. clear the (account-scoped) projects store so nothing stale lingers,
-      //  2. tell the backend this handle is now current (bumps activatedAt) so
-      //     "current profile" endpoints return it, THEN
-      //  3. syncHandle → points the client store namespace at the new handle and
-      //     notifies useActiveHandle subscribers, which remounts the routed page
-      //     (DashboardLayout keys content on the handle) so every page re-fetches
-      //     for the new account. Activating first avoids the remounted page
-      //     fetching the OLD current mid-switch.
-      resetProjects();
-      const data = await activateInstagramProfile(username);
-      if (data?.profiles?.length) setProfiles(data.profiles); // new current first → switcher updates
-      syncHandle(username);
-      setOpen(false);
-    } catch {
-      /* leave the current account selected; the switch simply didn't take */
-    } finally {
-      setSwitching('');
-    }
-  }
-
-  const insights = insightsConnected(current.username);
-
   return (
-    <div ref={ref} className={sidebar ? 'acctsw acctsw--sidebar' : 'acctsw'} style={{ position: 'relative', width: sidebar ? '100%' : undefined }}>
+    <>
       <button
         type="button"
-        onClick={() => setOpen((v) => !v)}
-        aria-haspopup="menu"
-        aria-expanded={open}
-        style={sidebar ? {
-          display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px',
-          borderRadius: 8, border: `1px solid ${LS_BORDER}`, background: open ? SUNKEN : 'none', cursor: 'pointer',
-          fontFamily: LS_FONT, textAlign: 'left', width: '100%', minWidth: 0,
-        } : {
-          display: 'flex', alignItems: 'center', gap: 8, padding: '5px 6px 5px 10px',
-          borderRadius: 999, border: 'none', background: open ? SUNKEN : 'transparent', cursor: 'pointer',
-          fontFamily: LS_FONT, fontSize: 14, fontWeight: 600, color: LS_INK, transition: 'background 140ms ease',
-          minWidth: 0, maxWidth: '100%',
-        }}
-        onMouseEnter={(e) => { if (!open) e.currentTarget.style.background = SUNKEN; }}
-        onMouseLeave={(e) => { if (!open) e.currentTarget.style.background = sidebar ? 'none' : 'transparent'; }}
+        className="acs"
+        onClick={() => setOpen(true)}
+        aria-haspopup="dialog"
+        aria-label={`Account @${current.username}. Switch account`}
       >
-        {sidebar ? (
-          <>
-            <Avatar profile={current} size={32} />
-            <span style={{ flex: 1, minWidth: 0 }}>
-              <span style={{
-                display: 'block', fontSize: 13, fontWeight: 600, color: LS_INK,
-                overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-              }}>
-                @{current.username}
-              </span>
-              <span style={{
-                display: 'block', fontSize: 11, marginTop: 1,
-                color: insights ? POSITIVE : LS_MUTED,
-                overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-              }}>
-                {insights ? 'Insights connected' : 'Switch account'}
-              </span>
-            </span>
-            <Glyph name={open ? 'chevron-up' : 'chevron-down'} size={16} color={LS_T2} />
-          </>
-        ) : (
-          <>
-            <span style={{ maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              @{current.username}
-            </span>
-            <Glyph name="chevron-down" size={16} color={LS_T2} style={{ transform: open ? 'rotate(180deg)' : 'none', transition: 'transform 160ms ease' }} />
-            <span className="acctsw__pic">
-              <Avatar profile={current} size={34} />
-            </span>
-          </>
-        )}
+        <span className="acs__handle">@{current.username}</span>
+        <Glyph name="chevron-down" size={14} strokeWidth={2.25} />
+        <ProfileAvatar profile={current} size={28} className="acs__avatar" />
       </button>
-
-      {open && (
-        <div
-          role="menu"
-          style={{
-            position: 'absolute',
-            ...(sidebar
-              ? { bottom: 'calc(100% + 8px)', left: 0, minWidth: 280 }
-              : { top: 'calc(100% + 10px)', right: 0, minWidth: 300 }),
-            background: LS_SURFACE, border: `1px solid ${LS_BORDER}`, borderRadius: 18,
-            boxShadow: SHADOW_MD, padding: 8, zIndex: 60,
-          }}
-        >
-          <div style={{ padding: '6px 10px 8px', fontFamily: LS_FONT, fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', color: LS_MUTED }}>
-            YOUR ACCOUNTS
-          </div>
-          {profiles.map((p) => {
-            const active = p.username === current.username;
-            const busy = switching === p.username;
-            const insights = insightsConnected(p.username);
-            return (
-              <button
-                key={p._id || p.username}
-                type="button"
-                role="menuitemradio"
-                aria-checked={active}
-                disabled={!!switching}
-                onClick={() => switchTo(p.username)}
-                style={{
-                  display: 'flex', alignItems: 'center', gap: 12, width: '100%', padding: '10px',
-                  border: active ? `1px solid ${LS_SOFT_BORDER}` : '1px solid transparent', borderRadius: 12,
-                  background: active ? LS_SOFT : 'transparent', cursor: switching ? 'default' : 'pointer',
-                  textAlign: 'left', font: 'inherit', fontFamily: LS_FONT, marginBottom: 2,
-                  transition: 'background 120ms ease',
-                }}
-                onMouseEnter={(e) => { if (!active && !switching) e.currentTarget.style.background = LS_HOVER; }}
-                onMouseLeave={(e) => { if (!active) e.currentTarget.style.background = 'transparent'; }}
-              >
-                <Avatar profile={p} size={34} />
-                <span style={{ flex: 1, minWidth: 0 }}>
-                  <span style={{ display: 'block', fontSize: 14, fontWeight: 600, color: LS_INK, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    @{p.username}
-                  </span>
-                  <span style={{ display: 'block', fontSize: 12, marginTop: 1, color: busy ? INK_500 : insights ? POSITIVE : INK_500 }}>
-                    {busy ? 'Switching…' : insights ? 'Insights connected' : 'Public profile only'}
-                  </span>
-                </span>
-                {active && <Glyph name="check" size={18} color={LS_SIGNAL} />}
-              </button>
-            );
-          })}
-
-          <div style={{ height: 1, background: LS_BORDER, margin: '6px 4px 8px' }} />
-
-          <Link
-            to="/onboarding?add=1"
-            role="menuitem"
-            onClick={() => setOpen(false)}
-            style={{
-              display: 'flex', alignItems: 'center', gap: 12, padding: '10px', borderRadius: 12,
-              textDecoration: 'none', fontFamily: LS_FONT, fontSize: 14, fontWeight: 600, color: LS_INK,
-              transition: 'background 120ms ease',
-            }}
-            onMouseEnter={(e) => { e.currentTarget.style.background = LS_HOVER; }}
-            onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
-          >
-            <span style={{ width: 34, height: 34, borderRadius: '50%', border: `1px dashed ${LS_MUTED}`, background: SUNKEN, display: 'grid', placeItems: 'center', flexShrink: 0 }}>
-              <Glyph name="plus" size={16} color={LS_T2} />
-            </span>
-            Add another account
-          </Link>
-        </div>
+      {open && createPortal(
+        <>
+          <div className="acs-scrim" onClick={() => setOpen(false)} aria-hidden="true" />
+          <AccountsPanel onClose={() => setOpen(false)} />
+        </>,
+        document.body,
       )}
-    </div>
+    </>
   );
 }

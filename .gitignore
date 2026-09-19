@@ -3,3 +3,5 @@
 .vscode/
 .idea/
 .claude/settings.local.json
+
+.bauhly-v3-ref/
