@@ -3,9 +3,10 @@ import { NavLink } from 'react-router-dom';
 import Glyph from './Glyph';
 import AccountSwitcher from './AccountSwitcher';
 import { useFeatureFlags } from '../lib/featureFlags';
+import { openCaptureIdea } from '../lib/captureUi';
 
 // Settings, Visual Library, Business memory and Competitor overview live in the
-// header user menu. The sidebar footer is the Instagram account switcher.
+// header user menu. The sidebar footer is Capture + the Instagram account switcher.
 export const NAV_ITEMS = [
   { to: '/dashboard', label: 'Calendar', icon: 'calendar', exact: true },
   { to: '/dashboard/projects', label: 'Projects', icon: 'folder' },
@@ -44,6 +45,18 @@ export default function Sidebar() {
       </nav>
 
       <div className="sb__foot">
+        {/* Capture is product furniture, not a page button (bauhly-v3): one home
+            at the foot of the sidebar on every route. */}
+        <button
+          type="button"
+          className="btn btn--primary sb__capture"
+          onClick={() => openCaptureIdea()}
+          title="Capture idea"
+          aria-label="Capture idea"
+        >
+          <Glyph name="plus" size={16} strokeWidth={2.5} />
+          <span className="sb__label">Capture idea</span>
+        </button>
         <AccountSwitcher variant="sidebar" />
       </div>
     </aside>

@@ -1,0 +1,1508 @@
+/* ══════════════════════════════════════════════════════════════════════════
+ * CALENDAR — Monthly / Weekly / Day views
+ *
+ * A faithful port of bauhly-v3's YourWeek calendar (branch desktop-post-
+ * workspace): the month grid, the week strip, the day panel, the "View:"
+ * dropdown and the ‹ Today › pager. Wired to the live app's real posts.
+ *
+ * The reference and this app share the same design tokens (tokens.css), so
+ * every var() below resolves. `--experiment-500` is the acid lime the product
+ * uses for "you are here"; today's cell carries it in every view.
+ * ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ── the control row ────────────────────────────────────────────────────── */
+.cal-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-4);
+  flex-wrap: wrap;
+}
+.cal-bar__left,
+.cal-bar__right {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  min-width: 0;
+}
+/* the anchor for the Distribute popover, which hangs under this end of the row */
+.cal-bar__right { position: relative; }
+
+/* the period name — one step under the page title */
+.cal-period {
+  margin: 0;
+  font-family: var(--font-display, var(--font-ui));
+  font-size: 24px;
+  font-weight: 700;
+  letter-spacing: -0.015em;
+  line-height: 1.15;
+  color: var(--ink-900);
+  white-space: nowrap;
+}
+
+/* three separate controls — a disc, a pill, a disc */
+.cal-nav {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  flex: 0 0 auto;
+}
+.cal-nav__arrow,
+.cal-nav__today {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 34px;
+  border: 0;
+  border-radius: var(--r-full);
+  background: var(--ink-100);
+  color: var(--ink-900);
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease-out), opacity var(--dur-fast) var(--ease-out);
+}
+.cal-nav__arrow { width: 34px; padding: 0; }
+.cal-nav__today {
+  padding: 0 var(--sp-4);
+  font-family: var(--font-ui);
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+.cal-nav__arrow:hover,
+.cal-nav__today:hover { background: var(--ink-200, #e3e3e9); }
+.cal-nav__arrow:focus-visible,
+.cal-nav__today:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.cal-nav__today:disabled,
+.cal-nav__arrow:disabled {
+  background: var(--surface-sunken, var(--ink-100));
+  color: var(--ink-400);
+  cursor: default;
+}
+
+/* ── the "View:" dropdown ───────────────────────────────────────────────── */
+.cal-viewm { position: relative; }
+.btn.cal-viewm__btn {
+  --cal-viewm-gap: var(--sp-2);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--cal-viewm-gap);
+  height: 34px;
+  min-height: 0;
+  padding-inline: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--surface, #fff);
+  font-size: var(--text-sm);
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease-out);
+}
+.btn.cal-viewm__btn:hover { background: var(--ink-100); }
+.cal-viewm__pre {
+  white-space: nowrap;
+  color: var(--ink-500);
+  font-weight: 500;
+  margin-right: calc(var(--sp-1) - var(--cal-viewm-gap, var(--sp-2)));
+}
+.cal-viewm__label { white-space: nowrap; color: var(--ink-900); font-weight: 600; }
+.cal-viewm__chev { margin-left: 2px; color: var(--ink-500); }
+
+.cal-menu__scrim { position: fixed; inset: 0; z-index: 60; }
+.cal-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 61;
+  min-width: 200px;
+  padding: 6px;
+  background: rgba(255, 255, 255, 0.9);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-lift);
+  display: flex;
+  flex-direction: column;
+}
+.cal-menu button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 40px;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  font-size: var(--text-base);
+  color: var(--ink-900);
+  text-align: left;
+  cursor: pointer;
+}
+.cal-menu button:hover { background: rgba(20, 20, 25, 0.06); }
+.cal-viewm__tick { display: grid; place-items: center; width: 16px; flex-shrink: 0; }
+.cal-viewm__tick svg { color: var(--ink-900); }
+.cal-menu__grow { flex: 1; min-width: 0; text-align: left; }
+
+/* the ⋯ menu sits beside the View control and wears the same pill — the two
+   are the page's own controls: what you are looking at, and what you can do */
+.cal-bar__right .ph__more { display: flex; }
+.cal-bar__right .ph__more-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 34px;
+  width: 34px;
+  min-height: 0;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--surface, #fff);
+  color: var(--ink-900);
+  transition: background var(--dur-fast) var(--ease-out);
+}
+.cal-bar__right .ph__more-btn:hover { background: var(--ink-100); }
+
+/* ══ THE MONTH ════════════════════════════════════════════════════════════ */
+.yw-mcal { display: block; min-width: 0; }
+.yw-mcal__head,
+.yw-mcal__row {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: var(--sp-3);
+}
+.yw-mcal__head { margin-bottom: var(--sp-4); }
+.yw-mcal__wd {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  font-family: var(--font-ui);
+  font-size: var(--text-sm);
+  font-weight: 500;
+  color: var(--ink-quiet);
+  text-align: center;
+}
+.yw-mcal__grid { display: grid; gap: var(--sp-3); }
+.yw-mcal__cell { min-width: 0; }
+
+/* the "Posting" chip under a publishing weekday */
+.yw-postchip {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  padding: 1px 7px;
+  border-radius: var(--r-full);
+  background: var(--ink-100);
+  font-family: var(--font-ui);
+  font-style: normal;
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: 0;
+  text-transform: none;
+  line-height: 1.4;
+  color: var(--ink-700);
+  white-space: nowrap;
+}
+
+/* ── a day ──────────────────────────────────────────────────────────────── */
+.yw-mday {
+  position: relative;
+  min-width: 0;
+  border-radius: var(--r-md);
+}
+.yw-mday__hit {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--sp-4);
+  width: 100%;
+  min-width: 0;
+  min-height: 92px;
+  padding: var(--sp-4);
+  border: 0;
+  border-radius: var(--r-md);
+  background: var(--surface-sunken);
+  text-align: left;
+  cursor: pointer;
+  transition:
+    background var(--dur-fast) var(--ease-out),
+    transform var(--dur-fast) var(--ease-out);
+}
+.yw-mday__hit:hover { background: var(--ink-100); }
+.yw-mday__hit:active { transform: scale(0.99); }
+
+/* an empty day does not compete */
+.yw-mday.is-empty .yw-mday__hit {
+  background: var(--canvas);
+  box-shadow: inset 0 0 0 1px var(--border);
+  cursor: pointer;
+}
+.yw-mday.is-empty .yw-mday__hit:hover { background: var(--surface-sunken); }
+
+/* the months either side — present, held back, no fill */
+.yw-mday.is-dim .yw-mday__hit,
+.yw-mday.is-dim.is-empty .yw-mday__hit {
+  background: transparent;
+  box-shadow: none;
+}
+.yw-mday.is-dim .yw-mday__hit:hover,
+.yw-mday.is-dim.is-empty .yw-mday__hit:hover { background: var(--surface-sunken); }
+.yw-mday.is-dim .yw-mday__when b { color: var(--ink-400); }
+.yw-mday.is-dim .yw-mday__kind { color: var(--ink-400); }
+
+.yw-mday__when {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-2);
+  min-width: 0;
+  font-family: var(--font-ui);
+}
+.yw-mday__when b {
+  font-size: var(--text-md);
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--ink-900);
+  white-space: nowrap;
+}
+
+/* today — the lime card, in every view (matches the reference screenshot) */
+.yw-mday.is-today .yw-mday__hit,
+.yw-mday.is-today .yw-mday__hit:hover,
+.yw-mday.is-today.is-empty .yw-mday__hit {
+  background: var(--experiment-500);
+  color: var(--experiment-ink);
+  box-shadow: none;
+}
+.yw-mday.is-today .yw-mday__when b { color: var(--experiment-ink); }
+.yw-mday.is-today .yw-mday__kind { color: color-mix(in srgb, var(--experiment-ink) 78%, transparent); }
+.yw-mday.is-today .yw-mday__today { color: color-mix(in srgb, var(--experiment-ink) 78%, transparent); }
+
+/* the word beside the date */
+.yw-mday__today,
+.yw-day__today {
+  font-style: normal;
+  font-size: var(--text-xs);
+  font-weight: 600;
+  color: var(--ink-900);
+  white-space: nowrap;
+}
+
+/* what kind of post it is, and when — one line */
+.yw-day__kind {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  font-family: var(--font-ui);
+  font-size: var(--text-sm);
+  font-weight: 500;
+  color: var(--ink-500);
+}
+/* the month's kind row spans the cell so the format and the hour take an end
+   each — format left, time pushed to the right edge (the reference's shape) */
+.yw-mday__kind { width: 100%; font-size: var(--text-xs); }
+.yw-mday__kind .yw-day__word { flex: 0 1 auto; min-width: 0; }
+.yw-day__word { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* the glyph is a phone-only stand-in for the word — hidden on a pointer, where
+   the word itself is shown (see the ≤900 query below) */
+.yw-day__glyph { display: none; flex-shrink: 0; }
+.yw-day__clock { font-variant-numeric: tabular-nums; }
+.yw-mday__clock { margin-left: auto; flex: 0 0 auto; color: var(--ink-500); }
+.yw-mday.is-today .yw-mday__clock { color: color-mix(in srgb, var(--experiment-ink) 70%, transparent); }
+.yw-mday.is-dim .yw-mday__clock { color: var(--ink-300); }
+.yw-mday.is-past:not(.is-today) .yw-mday__clock { color: var(--ink-400); }
+
+/* the settled-day disc, half off the corner */
+.yw-day__ready {
+  position: absolute;
+  display: grid;
+  place-items: center;
+  border-radius: var(--r-full);
+  background: var(--experiment-500);
+  color: var(--experiment-ink);
+  box-shadow: 0 0 0 2px var(--canvas);
+}
+.yw-mday__ready {
+  top: -8px;
+  right: -8px;
+  width: 22px;
+  height: 22px;
+}
+.yw-day__ready.is-done {
+  background: var(--ink-200);
+  color: var(--ink-500);
+}
+
+/* ══ THE WEEK STRIP ═══════════════════════════════════════════════════════ */
+.yw-cal { position: relative; display: block; }
+.yw-cal__grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: var(--sp-4);
+}
+.yw-day {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 9px;
+  min-width: 0;
+  min-height: 72px;
+  padding: 12px 14px;
+  border: 0;
+  border-radius: var(--r-md);
+  background: var(--surface-sunken);
+  text-align: left;
+  cursor: pointer;
+  transition:
+    background var(--dur-fast) var(--ease-out),
+    transform var(--dur-fast) var(--ease-out);
+}
+.yw-day:hover { background: var(--ink-100); }
+.yw-day:active { transform: scale(0.99); }
+.yw-day.is-empty { cursor: pointer; }
+.yw-day.is-empty:hover { background: var(--surface-sunken); }
+
+.yw-day__when {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  font-family: var(--font-ui);
+  min-width: 0;
+}
+.yw-day__when b {
+  font-size: var(--text-md);
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--ink-900);
+}
+.yw-day__when i {
+  font-style: normal;
+  font-size: var(--text-base);
+  font-weight: 600;
+  color: var(--ink-quiet);
+}
+.yw-day__line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  font-family: var(--font-ui);
+  font-size: var(--text-sm);
+  font-weight: 500;
+  color: var(--ink-500);
+}
+.yw-day__sep { color: var(--ink-300); }
+.yw-day__none { display: block; min-height: 1em; }
+
+/* today — lime, always */
+.yw-day.is-today,
+.yw-day.is-today:hover,
+.yw-day.is-empty.is-today {
+  background: var(--experiment-500);
+  color: var(--experiment-ink);
+}
+.yw-day.is-today .yw-day__when b { color: var(--experiment-ink); }
+.yw-day.is-today .yw-day__when i { color: color-mix(in srgb, var(--experiment-ink) 62%, transparent); }
+.yw-day.is-today .yw-day__today { color: color-mix(in srgb, var(--experiment-ink) 78%, transparent); }
+.yw-day.is-today .yw-day__line { color: color-mix(in srgb, var(--experiment-ink) 78%, transparent); }
+
+/* past days step back one ink level, name kept legible */
+.yw-day.is-past:not(.is-today) .yw-day__when i { color: var(--ink-400); }
+.yw-day.is-past:not(.is-today) .yw-day__line { color: var(--ink-400); }
+.yw-mday.is-past:not(.is-today) .yw-mday__when b { color: var(--ink-700); }
+.yw-mday.is-past:not(.is-today) .yw-mday__kind { color: var(--ink-400); }
+
+/* ══ THE DAY PANEL ════════════════════════════════════════════════════════ */
+.cal-daypanel {
+  max-width: 720px;
+  margin: 0 auto;
+  width: 100%;
+}
+.cal-daycard {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-5);
+  padding: var(--sp-7);
+  border-radius: var(--r-lg, var(--r-md));
+  background: var(--surface-sunken);
+}
+.cal-daycard.is-today {
+  background: var(--experiment-500);
+  color: var(--experiment-ink);
+}
+.cal-daycard.is-empty {
+  background: var(--canvas);
+  box-shadow: inset 0 0 0 1px var(--border);
+  align-items: flex-start;
+}
+.cal-daycard__top {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+}
+.cal-daycard__fmt {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--font-ui);
+  font-size: var(--text-md);
+  font-weight: 700;
+  color: var(--ink-900);
+}
+.cal-daycard.is-today .cal-daycard__fmt { color: var(--experiment-ink); }
+.cal-daycard__badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-left: auto;
+  padding: 3px 10px;
+  border-radius: var(--r-full);
+  background: var(--ink-100);
+  font-family: var(--font-ui);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  color: var(--ink-700);
+}
+.cal-daycard.is-today .cal-daycard__badge {
+  background: color-mix(in srgb, var(--experiment-ink) 14%, transparent);
+  color: var(--experiment-ink);
+}
+.cal-daycard__badge.is-done { background: var(--ink-200); color: var(--ink-600); }
+.cal-daycard__title {
+  margin: 0;
+  font-family: var(--font-display, var(--font-ui));
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--ink-900);
+  line-height: 1.2;
+}
+.cal-daycard.is-today .cal-daycard__title { color: var(--experiment-ink); }
+.cal-daycard__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2) var(--sp-4);
+  font-family: var(--font-ui);
+  font-size: var(--text-sm);
+  color: var(--ink-500);
+}
+.cal-daycard.is-today .cal-daycard__meta { color: color-mix(in srgb, var(--experiment-ink) 80%, transparent); }
+.cal-daycard__meta span { display: inline-flex; align-items: center; gap: 6px; }
+.cal-daycard__open { align-self: flex-start; margin-top: var(--sp-1); }
+.cal-daycard__empty {
+  font-family: var(--font-ui);
+  font-size: var(--text-base);
+  color: var(--ink-500);
+  margin: 0;
+}
+
+/* the fade between views */
+.cal-plan { animation: cal-vfade var(--dur-base, 240ms) var(--ease-out); }
+@keyframes cal-vfade { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+
+/* ── narrower screens ───────────────────────────────────────────────────── */
+@media (max-width: 900px) {
+  .yw-mcal__head,
+  .yw-mcal__row,
+  .yw-mcal__grid { gap: var(--sp-2); }
+  .yw-mday__hit { min-height: 76px; padding: var(--sp-3); }
+  /* the format word gives way to its glyph before the card does — the same
+     trade the reference makes at this width */
+  .yw-mday .yw-day__word,
+  .yw-mday .yw-day__clock { display: none; }
+  .yw-mday .yw-day__glyph { display: block; }
+}
+@media (max-width: 767px) {
+  .cal-bar {
+    flex-wrap: wrap;
+    gap: var(--sp-3) var(--sp-2);
+    align-items: center;
+  }
+  .cal-bar__left {
+    flex: 1 1 auto;
+    min-width: 0;
+    gap: var(--sp-2);
+  }
+  .cal-bar__right {
+    flex: 0 0 auto;
+    gap: var(--sp-2);
+  }
+  .cal-period {
+    font-size: clamp(20px, 5.5vw, 24px);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .cal-nav__arrow { width: 28px; height: 28px; }
+  .cal-nav__today { height: 28px; padding: 0 10px; font-size: var(--text-sm); }
+  .cal-period__day { display: none; }
+
+  .yw-mcal__wd { font-size: var(--text-xs); }
+  .yw-postchip span { display: none; }
+  .yw-mday__hit {
+    min-height: 0;
+    aspect-ratio: 1;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    padding: var(--sp-2);
+    border-radius: var(--r-sm);
+  }
+  .yw-mday__when { justify-content: center; }
+  .yw-mday__when b { font-size: var(--text-base); }
+  .yw-mday__today { display: none; }
+  /* the format collapses to a single dot: something is planned here */
+  .yw-mday .yw-day__kind {
+    width: 6px;
+    height: 6px;
+    padding: 0;
+    border-radius: var(--r-full);
+    background: var(--ink-400);
+    overflow: hidden;
+    text-indent: -999px;
+  }
+  .yw-mday .yw-day__glyph,
+  .yw-mday .yw-day__clock { display: none; }
+  .yw-mday.is-today .yw-day__kind { background: var(--experiment-ink); }
+  .yw-mday.is-empty .yw-day__kind { display: none; }
+  .yw-mday:not(.is-on):not(.is-dim):not(.is-today):not(.is-past) .yw-day__kind {
+    background: var(--ink-900);
+  }
+  .yw-mday.is-past:not(.is-on) .yw-day__kind { background: var(--ink-300); }
+  /* month ready badge — corner mark, not a second date (bauhly-v3) */
+  .yw-mday .yw-mday__ready,
+  .yw-mday .yw-day__ready {
+    top: 3px;
+    right: 3px;
+    width: 9px;
+    height: 9px;
+    box-shadow: 0 0 0 1.25px var(--canvas);
+  }
+  .yw-mday .yw-mday__ready svg,
+  .yw-mday .yw-day__ready svg { display: none; }
+  .yw-mday .yw-day__ready.is-review,
+  .yw-mday .yw-day__ready.is-kept { background: var(--warning, #c47a1a); }
+
+  /* week strip (legacy WeekStrip classes): same five-across scroll */
+  .yw-cal {
+    position: sticky;
+    top: var(--apptop-h, 0px);
+    z-index: 10;
+    background: var(--canvas);
+    margin-inline: calc(var(--sp-4) * -1);
+    padding: var(--sp-3) 0;
+  }
+  .yw-cal__grid {
+    gap: 6px;
+    grid-template-columns: none;
+    grid-auto-flow: column;
+    grid-auto-columns: calc((100% - 4 * 6px) / 5);
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    -webkit-overflow-scrolling: touch;
+    scroll-snap-type: x proximity;
+    scroll-padding-left: var(--sp-4);
+    scrollbar-width: none;
+    padding: 6px var(--sp-4) 26px;
+    margin-block: -6px -26px;
+  }
+  .yw-cal__grid::-webkit-scrollbar { display: none; }
+  .yw-day { scroll-snap-align: start; }
+  .yw-day__sep { display: none; }
+  .yw-day__word { display: none; }
+  .yw-day__line { gap: 4px; font-size: var(--text-xs); white-space: nowrap; }
+  .yw-day__ready {
+    top: -3px;
+    right: -3px;
+    width: 12px;
+    height: 12px;
+    box-shadow: 0 0 0 2px var(--canvas);
+  }
+  .yw-day__ready svg { display: none; }
+}
+
+@media (max-width: 767px) {
+  .yw-dist__panel { width: min(348px, calc(100vw - 2 * var(--sp-4))); }
+}
+
+/* ══ DISTRIBUTE POSTS ═════════════════════════════════════════════════════
+ * The popover the ⋯ menu opens: choose the publishing-day pattern (Choose days
+ * / Spread weekly). A faithful port of bauhly-v3's Distribute panel. */
+.yw-dist { position: static; }
+.yw-dist__panel {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 60;
+  width: 348px;
+  max-width: calc(100vw - 2 * var(--sp-6));
+  padding: var(--sp-2);
+  padding-bottom: var(--sp-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg, var(--r-md));
+  background: var(--surface, #fff);
+  box-shadow: 0 18px 44px -16px rgba(22, 22, 26, 0.3);
+  text-align: left;
+}
+.yw-dist__head {
+  margin: 0;
+  padding: var(--sp-4) var(--sp-4) var(--sp-2);
+  font-family: var(--font-ui);
+  font-size: var(--text-base);
+  font-weight: 650;
+  color: var(--ink-900);
+}
+/* the two answers, as a segmented pill */
+.yw-dist__modes {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 3px;
+  margin: 0 var(--sp-4) var(--sp-4);
+  padding: 3px;
+  border-radius: var(--r-full);
+  background: var(--ink-100);
+}
+.yw-dist__mode {
+  height: 30px;
+  border: 0;
+  border-radius: var(--r-full);
+  background: transparent;
+  font-family: var(--font-ui);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--ink-600);
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
+}
+.yw-dist__mode.is-on { background: var(--surface, #fff); color: var(--ink-900); box-shadow: var(--shadow-sm); }
+.yw-dist__mode:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+/* the ask, and the "nothing to place" note in the same slot */
+.yw-dist__ask {
+  margin: 0;
+  padding: 0 var(--sp-4) var(--sp-3);
+  font-family: var(--font-ui);
+  font-size: var(--text-sm);
+  color: var(--ink-600);
+}
+.yw-dist__none {
+  margin: 0;
+  padding: 0 var(--sp-4) var(--sp-3);
+  font-family: var(--font-ui);
+  font-size: var(--text-sm);
+  line-height: 1.45;
+  color: var(--ink-quiet);
+}
+/* the seven weekday chips — one control, equal weight */
+.yw-dist__days {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 5px;
+  padding: 0 var(--sp-4) var(--sp-4);
+}
+.yw-dist__day {
+  height: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: var(--surface, #fff);
+  box-shadow: inset 0 0 0 1px var(--border);
+  font-family: var(--font-ui);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--ink-600);
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
+}
+.yw-dist__day:hover { background: var(--ink-100); color: var(--ink-900); }
+.yw-dist__day:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.yw-dist__day.is-on { background: var(--ink-900); box-shadow: none; color: var(--canvas); }
+/* the last remaining day cannot be turned off — it keeps its ink, gives up only
+   the hover tint and pointer that promised it would respond */
+.yw-dist__day.is-only { cursor: default; }
+.yw-dist__day.is-only:hover { background: var(--ink-900); color: var(--canvas); }
+
+/* the publishing days ringed on the grid while the panel is open — the pattern,
+   drawn where it lands rather than described in the menu. The extra selectors
+   outrank the today / empty / dim grounds so every publishing day rings, even
+   today's lime cell (the reference rings it too). */
+.yw-mday.is-preview .yw-mday__hit,
+.yw-mday.is-today.is-preview .yw-mday__hit,
+.yw-mday.is-empty.is-preview .yw-mday__hit,
+.yw-mday.is-today.is-empty.is-preview .yw-mday__hit,
+.yw-mday.is-dim.is-preview .yw-mday__hit { box-shadow: inset 0 0 0 2px var(--ink-900); }
+
+/* the apply action — moves the upcoming posts onto the chosen days */
+.yw-dist__foot {
+  padding: var(--sp-2) var(--sp-4) var(--sp-3);
+}
+.btn.yw-dist__apply {
+  width: 100%;
+  justify-content: center;
+}
+
+/* the Day view names the day beside the date — "September 22 | Tuesday" */
+.cal-period__day { color: var(--ink-400); font-weight: 500; }
+.cal-period__div { margin: 0 10px; color: var(--ink-300); font-weight: 400; }
+
+/* ── Weekly / Day: one compact composition (bauhly-v3 desktop-post-workspace)
+ * Period title + pager + Capture + View on one row, then the strip, then the post.
+ * No separate "Calendar" page title — September is the title. */
+.ph.ph--cal {
+  gap: var(--sp-3);
+}
+.ph.ph--cal-week,
+.ph.ph--cal-day {
+  /* room between the period bar and the post (bauhly-v3 `.yw` gap) */
+  gap: var(--sp-6);
+}
+.ph.ph--cal-week .cal-bar,
+.ph.ph--cal-day .cal-bar {
+  gap: var(--sp-3);
+  margin: 0;
+  align-items: center;
+}
+.ph.ph--cal-week .cal-period,
+.ph.ph--cal-day .cal-period {
+  font-size: clamp(22px, 2.4vw, 28px);
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+.ph.ph--cal-week .cal-nav__arrow,
+.ph.ph--cal-week .cal-nav__today,
+.ph.ph--cal-day .cal-nav__arrow,
+.ph.ph--cal-day .cal-nav__today {
+  height: 32px;
+}
+.ph.ph--cal-week .cal-nav__arrow,
+.ph.ph--cal-day .cal-nav__arrow {
+  width: 32px;
+}
+.ph.ph--cal-week .ph__list,
+.ph.ph--cal-day .ph__list {
+  gap: 0;
+}
+.ph.ph--cal-week .cal-plan,
+.ph.ph--cal-day .cal-plan {
+  /* breathing room under the bar — was 2px and pinned the card to the title */
+  margin-top: var(--sp-5);
+}
+
+/* Month keeps the fuller Calendar title; only tighten the bar a touch */
+.ph.ph--cal-month .cal-bar { margin-top: 2px; }
+.ph.ph--cal-month .cal-period { font-size: 22px; }
+
+@media (max-width: 767px) {
+  .ph.ph--cal-week,
+  .ph.ph--cal-day { gap: 8px; }
+  .ph.ph--cal-week .cal-bar,
+  .ph.ph--cal-day .cal-bar {
+    gap: var(--sp-2);
+  }
+  .ph.ph--cal-week .cal-period,
+  .ph.ph--cal-day .cal-period {
+    font-size: clamp(20px, 5.5vw, 24px);
+  }
+  .app__main:has(.ph--cal) {
+    padding-bottom: calc(env(safe-area-inset-bottom) + 66px + var(--sp-5));
+  }
+}
+
+/* ── month day menu + post peek (bauhly-v3) ─────────────────────────────── */
+.yw-mcal,
+.yw-mcal__grid,
+.yw-mcal__row,
+.yw-mcal__cell { overflow: visible; }
+.yw-mcal__row { position: relative; z-index: 1; }
+.yw-mcal__row:has(.yw-mday__menu) { z-index: 60; }
+.yw-mcal__cell:has(.yw-mday__menu) { position: relative; z-index: 60; }
+.yw-mday:has(.yw-mday__menu) { z-index: 60; }
+
+/* selected day — black fill (screenshot / UI repo) */
+.yw-mday.is-on .yw-mday__hit,
+.yw-mday.is-on .yw-mday__hit:hover,
+.yw-mday.is-on .yw-mday__hit:focus-visible,
+.yw-mday.is-today.is-on .yw-mday__hit,
+.yw-mday.is-today.is-on .yw-mday__hit:hover {
+  background: var(--night, #141419);
+  color: var(--canvas);
+  box-shadow: none;
+  transition: none;
+}
+.yw-mday.is-on .yw-mday__when b,
+.yw-mday.is-today.is-on .yw-mday__when b,
+.yw-mday.is-on .yw-mday__today,
+.yw-mday.is-today.is-on .yw-mday__today { color: var(--canvas); }
+.yw-mday.is-on .yw-mday__kind,
+.yw-mday.is-today.is-on .yw-mday__kind,
+.yw-mday.is-on .yw-day__clock,
+.yw-mday.is-today.is-on .yw-day__clock {
+  color: color-mix(in srgb, #fff 72%, transparent);
+}
+.yw-mday.is-on.is-preview .yw-mday__hit { box-shadow: inset 0 0 0 2px var(--canvas); }
+
+/* pe-menu shell (month view may load without weekView.css) */
+.yw-mcal .pe-menu__scrim { position: fixed; inset: 0; z-index: 70; }
+.yw-mcal .pe-menu {
+  position: absolute;
+  z-index: 71;
+  min-width: 224px;
+  max-height: 62vh;
+  overflow-y: auto;
+  padding: 6px;
+  background: rgba(255, 255, 255, 0.9);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-lift, 0 12px 40px rgba(20, 20, 25, 0.14));
+  display: flex;
+  flex-direction: column;
+  cursor: default;
+}
+.yw-mcal .pe-menu button {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 44px;
+  padding: 10px 12px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  font-family: var(--font-ui);
+  font-size: var(--text-base, 14px);
+  color: var(--ink-900);
+  text-align: left;
+  cursor: pointer;
+}
+.yw-mcal .pe-menu button svg { color: var(--ink-500); flex-shrink: 0; }
+.yw-mcal .pe-menu button:hover { background: rgba(20, 20, 25, 0.06); }
+.yw-mcal .pe-menu button:disabled,
+.yw-mcal .pe-menu button[aria-disabled='true'] {
+  color: var(--ink-400);
+  cursor: default;
+}
+.yw-mcal .pe-menu button:disabled svg,
+.yw-mcal .pe-menu button[aria-disabled='true'] svg { color: var(--ink-300); }
+.yw-mcal .pe-menu button:disabled:hover,
+.yw-mcal .pe-menu button[aria-disabled='true']:hover { background: none; }
+.yw-mcal .pe-menu__back { color: var(--ink-500); }
+.yw-mcal .pe-menu__back .pe-menu__grow { font-weight: 700; color: var(--ink-900); }
+.yw-mcal .pe-menu__grow {
+  flex: 1;
+  min-width: 0;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.yw-mcal .pe-menu__grow:has(em) {
+  display: flex;
+  flex-direction: column;
+  white-space: normal;
+}
+.yw-mcal .pe-menu__grow em {
+  display: block;
+  margin-top: 2px;
+  font-style: normal;
+  font-size: var(--text-xs);
+  font-weight: 500;
+  color: var(--ink-500);
+  line-height: 1.35;
+}
+.yw-mcal .pe-menu__state {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  padding: 0 8px;
+  border-radius: 999px;
+  background: var(--ink-100);
+  color: var(--ink-600);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+}
+.yw-mcal .pe-menu__state.is-set {
+  background: var(--experiment-500);
+  color: var(--experiment-ink);
+}
+.yw-mcal .pe-menu__state.is-review {
+  background: var(--warning-soft, #f5e6d3);
+  color: var(--warning, #c47a1a);
+}
+.yw-mcal .pe-menu__state.is-out {
+  background: var(--surface-sunken);
+  color: var(--ink-quiet, var(--ink-500));
+}
+
+.yw-mday__menu {
+  background: var(--surface, #fff);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  border-radius: calc(var(--r-md) + 10px + var(--sp-3));
+  border-top-left-radius: calc(var(--r-sm) + 10px);
+  border-top-right-radius: calc(var(--r-sm) + 10px);
+  display: flex;
+  flex-direction: column-reverse;
+  gap: calc(var(--sp-2) / 2);
+  padding: 10px;
+  top: 0;
+  left: calc(100% + 8px);
+  right: auto;
+  width: max-content;
+  min-width: 200px;
+  max-width: 300px;
+  z-index: 80;
+}
+.yw-mday__menu:not(:has(.yw-peek)) {
+  border-radius: calc(var(--r-sm) + 10px);
+}
+.yw-mcal__row:nth-last-child(-n + 2) .yw-mday__menu:not(:has(.yw-peek)) {
+  border-top-left-radius: calc(var(--r-sm) + 10px);
+  border-top-right-radius: calc(var(--r-sm) + 10px);
+  border-bottom-left-radius: calc(var(--r-sm) + 10px);
+  border-bottom-right-radius: calc(var(--r-sm) + 10px);
+}
+.yw-mday__menu .yw-peek { margin: 0; }
+.yw-mday__menu > [role='menu'] {
+  display: flex;
+  flex-direction: column;
+  align-self: stretch;
+}
+.yw-mcal__cell:nth-child(n + 5) .yw-mday__menu {
+  left: auto;
+  right: calc(100% + 8px);
+}
+.yw-mcal__row:nth-last-child(-n + 2) .yw-mday__menu {
+  top: auto;
+  bottom: 0;
+  flex-direction: column;
+  border-top-left-radius: calc(var(--r-md) + 10px + var(--sp-3));
+  border-top-right-radius: calc(var(--r-md) + 10px + var(--sp-3));
+  border-bottom-left-radius: calc(var(--r-sm) + 10px);
+  border-bottom-right-radius: calc(var(--r-sm) + 10px);
+}
+
+.yw-peek {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-2);
+  padding: var(--sp-3);
+  --peek-h: 176px;
+  --peek-stage: 420px;
+}
+.yw-peek:has(.yw-peek__dots) {
+  gap: calc(var(--sp-2) / 2);
+  padding-bottom: 0;
+}
+.yw-peek__frame {
+  position: relative;
+  height: var(--peek-h);
+  max-width: 100%;
+  border-radius: var(--r-md);
+  overflow: hidden;
+  background: var(--surface-sunken, #f3f1ea);
+}
+/* Compose the post at full stage size, then scale into the frame — same type
+   weight and layout proportions as WeekView (bauhly-v3). */
+.yw-peek__stage {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: var(--peek-stage);
+  transform: scale(calc(var(--peek-h) / var(--peek-stage)));
+  transform-origin: top left;
+  pointer-events: none;
+}
+.yw-peek__photo-root.wv-ig__photo {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  aspect-ratio: auto;
+  border-radius: 0;
+}
+.yw-peek__dots {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0;
+  flex: none;
+  width: 100%;
+  min-height: 14px;
+  padding: 2px 0 4px;
+  pointer-events: auto;
+  position: relative;
+  z-index: 2;
+}
+/* Beat `.yw-mcal .pe-menu button` (min-height 44px / row padding) so dots stay
+   small marks — otherwise the carousel pager is invisible as empty menu rows. */
+.yw-mcal .pe-menu.yw-mday__menu .yw-peek .yw-peek__dot,
+.yw-mday__menu .yw-peek .yw-peek__dot {
+  display: grid !important;
+  place-items: center;
+  flex: none;
+  width: 12px;
+  height: 14px;
+  min-height: 0 !important;
+  min-width: 0;
+  margin: 0;
+  padding: 0 !important;
+  border: 0;
+  border-radius: 0;
+  background: transparent !important;
+  box-shadow: none;
+  font-size: 0;
+  line-height: 0;
+  color: transparent;
+  cursor: pointer;
+  pointer-events: auto;
+  gap: 0;
+}
+.yw-mcal .pe-menu.yw-mday__menu .yw-peek .yw-peek__dot::before,
+.yw-mday__menu .yw-peek .yw-peek__dot::before {
+  content: '';
+  display: block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--ink-300, #c4c2bc);
+  transition: background var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out);
+}
+.yw-mcal .pe-menu.yw-mday__menu .yw-peek .yw-peek__dot:hover::before,
+.yw-mday__menu .yw-peek .yw-peek__dot:hover::before {
+  background: var(--ink-500, #6b6963);
+}
+.yw-mcal .pe-menu.yw-mday__menu .yw-peek .yw-peek__dot.is-on::before,
+.yw-mday__menu .yw-peek .yw-peek__dot.is-on::before {
+  background: var(--signal-500, #ff5227);
+  transform: scale(1.25);
+}
+.yw-mcal .pe-menu.yw-mday__menu .yw-peek .yw-peek__dot:focus-visible,
+.yw-mday__menu .yw-peek .yw-peek__dot:focus-visible {
+  outline: 2px solid var(--focus-ring, #ff5227);
+  outline-offset: 0;
+  border-radius: 50%;
+}
+@media (prefers-reduced-motion: reduce) {
+  .yw-peek .yw-peek__dot::before { transition: none; }
+}
+@media (max-width: 767px) {
+  .yw-mcal .pe-menu.yw-mday__menu .yw-peek .yw-peek__dot,
+  .yw-mday__menu .yw-peek .yw-peek__dot { width: 16px; height: 16px; }
+  .yw-peek:has(.yw-peek__dots) { gap: 6px; padding-bottom: var(--sp-2); }
+  .yw-mday.is-on .yw-day__kind,
+  .yw-mday.is-today.is-on .yw-day__kind { background: var(--canvas); }
+}
+
+/* ── Phone Day feed (bauhly-v3 `.ywf`) ───────────────────────────────────── */
+.ywf {
+  display: block;
+  width: 100%;
+  min-width: 0;
+}
+.ywf__list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-6, 28px);
+  padding: 0 0 calc(env(safe-area-inset-bottom) + 88px);
+}
+.ywf__item {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  min-width: 0;
+}
+.ywf__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  padding: 0 var(--sp-4);
+  min-height: 44px;
+}
+.ywf__who {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.ywf__avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  flex: none;
+  background: linear-gradient(135deg, #f0a05a, #e07830);
+}
+.ywf__whotext {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  line-height: 1.2;
+}
+.ywf__whotext b {
+  font-size: var(--text-sm, 13px);
+  font-weight: 700;
+  color: var(--ink-900);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ywf__sched {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+  height: 34px;
+  padding: 0 var(--sp-3);
+  border: 0;
+  border-radius: 999px;
+  background: var(--experiment-500, #d4f34a);
+  color: var(--experiment-ink, #1a1a12);
+  font-family: var(--font-ui);
+  font-size: var(--text-sm, 13px);
+  font-weight: 700;
+  cursor: pointer;
+}
+.ywf__sched svg { flex-shrink: 0; }
+.ywf__sched:not(.is-set) {
+  background: var(--ink-100, #ecece8);
+  color: var(--ink-700);
+  font-weight: 600;
+}
+.ywf__media {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+}
+.ywf__frame { width: 100%; position: relative; }
+.ywf__skel {
+  width: 100%;
+  aspect-ratio: 4 / 5;
+  background: var(--surface-sunken, #f3f1ea);
+  display: grid;
+  place-items: center;
+}
+.ywf__skel-spin {
+  width: 22px;
+  height: 22px;
+  border: 2px solid var(--ink-200);
+  border-top-color: var(--ink-700);
+  border-radius: 50%;
+  animation: ywf-spin 0.7s linear infinite;
+}
+@keyframes ywf-spin { to { transform: rotate(360deg); } }
+.ywf__cap {
+  margin: 0;
+  padding: 0 var(--sp-4);
+  font-size: var(--text-sm, 13px);
+  line-height: 1.45;
+  color: var(--ink-800);
+}
+.ywf__cap b { font-weight: 700; color: var(--ink-900); }
+.ywf__more {
+  display: inline;
+  margin-left: 4px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--ink-400);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+.ywf__empty {
+  margin: var(--sp-8) var(--sp-4);
+  text-align: center;
+  color: var(--ink-500);
+  font-size: var(--text-base);
+}
+
+.yw-peek--feed {
+  width: 100%;
+  padding: 0;
+  gap: 10px;
+  align-items: stretch;
+}
+.yw-peek__frame--feed {
+  width: 100% !important;
+  max-width: none;
+  border-radius: 0;
+  overflow: hidden;
+  background: var(--surface-sunken, #f3f1ea);
+  position: relative;
+}
+.yw-peek__photo-root--feed.wv-ig__photo {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  aspect-ratio: auto;
+}
+.yw-peek--feed .wv-ig__lay,
+.yw-peek--feed .wv-dynlay {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+/* Feed dots — visible under the post, orange when active */
+.yw-peek--feed .yw-peek__dots {
+  min-height: 16px;
+  padding: 4px 0 2px;
+}
+.yw-peek--feed .yw-peek__dot,
+.ywf .yw-peek .yw-peek__dot {
+  display: grid !important;
+  place-items: center;
+  width: 12px !important;
+  height: 14px !important;
+  min-height: 0 !important;
+  padding: 0 !important;
+  background: transparent !important;
+}
+.yw-peek--feed .yw-peek__dot::before,
+.ywf .yw-peek .yw-peek__dot::before {
+  content: '';
+  display: block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--ink-300, #c4c2bc);
+}
+.yw-peek--feed .yw-peek__dot.is-on::before,
+.ywf .yw-peek .yw-peek__dot.is-on::before {
+  background: var(--signal-500, #ff5227);
+  transform: scale(1.25);
+}
+
+@media (max-width: 767px) {
+  .ph.ph--cal-feed .cal-bar {
+    position: sticky;
+    top: 0;
+    z-index: 12;
+    background: var(--canvas, #fff);
+    padding-top: 4px;
+    padding-bottom: 8px;
+  }
+  .ph.ph--cal-feed .cal-period__day { display: inline; }
+  .ph.ph--cal-feed .cal-nav--feed .cal-nav__today {
+    background: var(--ink-900);
+    color: var(--canvas);
+  }
+  .ph.ph--cal-feed .cal-nav--feed .cal-nav__today:disabled {
+    opacity: 1;
+    background: var(--ink-900);
+    color: var(--canvas);
+  }
+  .ph.ph--cal-month .ph__head { display: none; }
+  .ph.ph--cal-month .cal-period {
+    font-size: clamp(20px, 5.5vw, 24px);
+  }
+  .btn.cal-viewm__btn--toggle .cal-viewm__chev { display: none; }
+}
+
+/* ── phone day sheet (bauhly-v3 MobileSheet) ───────────────────────────── */
+.msheet__scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 118;
+  background: transparent;
+}
+.msheet {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 119;
+  display: flex;
+  flex-direction: column;
+  max-height: min(78dvh, 640px);
+  padding-bottom: env(safe-area-inset-bottom);
+  border-radius: var(--r-lg) var(--r-lg) 0 0;
+  background: var(--surface, #fff);
+  box-shadow: 0 -18px 44px -14px rgba(20, 20, 25, 0.4);
+  --msheet-gap: 56px;
+  --msheet-grow: 340ms;
+}
+.msheet.is-full { max-height: calc(100dvh - var(--msheet-gap)); }
+@media (prefers-reduced-motion: no-preference) {
+  .msheet {
+    transition: max-height var(--msheet-grow) var(--ease-out);
+    animation: msheet-in var(--dur-base) var(--ease-out) both;
+  }
+  .msheet.is-closing {
+    animation: msheet-out var(--msheet-exit, 190ms) cubic-bezier(0.4, 0, 1, 1) both;
+  }
+}
+@keyframes msheet-in {
+  from { transform: translateY(100%); }
+  to { transform: translateY(0); }
+}
+@keyframes msheet-out {
+  from { transform: translateY(0); box-shadow: 0 -18px 44px -14px rgba(20, 20, 25, 0.4); }
+  to { transform: translateY(100%); box-shadow: 0 0 0 0 transparent; }
+}
+.msheet.is-closing { pointer-events: none; }
+.msheet__grip {
+  width: 36px;
+  height: 4px;
+  margin: 8px auto 0;
+  border-radius: var(--r-full);
+  background: var(--ink-200, #e0e0e6);
+}
+.msheet__head {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: var(--sp-3) var(--sp-4) var(--sp-3);
+}
+.msheet__title {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-ui);
+  font-size: var(--text-md);
+  font-weight: 700;
+  color: var(--ink-900);
+}
+.msheet__head:has(.msheet__title:empty) .msheet__title { display: none; }
+.msheet__acts {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  flex: none;
+}
+.msheet__nav {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  flex: none;
+  border: 0;
+  border-radius: var(--r-full);
+  background: var(--canvas, #fff);
+  color: var(--ink-900);
+  box-shadow: 0 2px 8px -2px rgba(20, 20, 25, 0.22), 0 0 0 1px rgba(20, 20, 25, 0.05);
+  cursor: pointer;
+}
+.msheet__nav:active { background: var(--surface-sunken); }
+.msheet__body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
+  padding: 0 var(--sp-4) var(--sp-6);
+}
+.msheet__foot {
+  padding: var(--sp-3) var(--sp-4) var(--sp-5);
+}
+.msheet__menu { display: flex; flex-direction: column; }
+.msheet__menu button {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  width: 100%;
+  min-height: 52px;
+  padding: var(--sp-3) var(--sp-2);
+  border: 0;
+  border-radius: var(--r-md);
+  background: transparent;
+  color: var(--ink-900);
+  font: inherit;
+  font-size: var(--text-md);
+  text-align: left;
+  cursor: pointer;
+}
+.msheet__menu button:disabled { color: var(--ink-400); cursor: not-allowed; }
+.msheet__menu button:active:not(:disabled) { background: var(--surface-sunken); }
+.msheet__menu button svg { flex-shrink: 0; color: var(--ink-500); }
+.msheet__menu button:disabled svg { color: var(--ink-300); }
+.msheet__menu .pe-menu__grow { flex: 1; min-width: 0; }
+.msheet__menu .pe-menu__grow em {
+  display: block;
+  margin-top: 2px;
+  font-style: normal;
+  font-size: var(--text-sm);
+  line-height: 1.35;
+  color: var(--ink-500);
+}
+.msheet__menu .pe-menu__back { display: none; }
+.msheet__menu .pe-menu__state {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  padding: 0 8px;
+  border-radius: 999px;
+  background: var(--ink-100);
+  color: var(--ink-600);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+}
+.msheet__menu .pe-menu__state.is-set {
+  background: var(--experiment-500);
+  color: var(--experiment-ink);
+}
+.msheet__menu .pe-menu__state.is-review {
+  background: var(--warning-soft, #f5e6d3);
+  color: var(--warning, #c47a1a);
+}
+.msheet__menu .pe-menu__state.is-out {
+  background: var(--surface-sunken);
+  color: var(--ink-quiet, var(--ink-500));
+}
+
+.msheet .yw-peek {
+  margin: 0;
+  padding: var(--sp-4);
+  align-items: center;
+}
+.msheet .yw-peek.is-phone .yw-peek__frame {
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.msheet .yw-peek .yw-peek__dot {
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.msheet .yw-peek .yw-peek__dot::before {
+  content: '';
+  display: block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--ink-300, #c4c2bc);
+}
+.msheet .yw-peek .yw-peek__dot.is-on::before {
+  background: var(--signal-500, #ff5227);
+  transform: scale(1.25);
+}
+

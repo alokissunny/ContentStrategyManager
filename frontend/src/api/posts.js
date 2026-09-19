@@ -137,6 +137,13 @@ export function clearUpcoming() {
   return client.delete('/posts').then((res) => res.data);
 }
 
+// Reallocate the upcoming movable posts (after today, not published/scheduled)
+// onto the chosen publishing weekdays. mode: 'days' (a weekday set) | 'weekly'
+// (an even spread). Returns { posts, moved } — the full refreshed calendar.
+export function distributePosts(mode, days) {
+  return client.post('/posts/distribute', { mode, days }).then((res) => res.data);
+}
+
 // ── Per-post edits — all thin wrappers over PATCH /posts/:id ────────────────
 
 // Persist slide / caption / notes edits.

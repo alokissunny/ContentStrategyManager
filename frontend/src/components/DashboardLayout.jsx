@@ -6,9 +6,11 @@ import AccountSwitcher from './AccountSwitcher';
 import Glyph from './Glyph';
 import AiDebugPanel from './AiDebugPanel';
 import GenerationToast from './GenerationToast';
+import CaptureHost from './CaptureHost';
 import { Logo } from '../brand/Logo';
 import { useScrollHide } from '../hooks/useScrollHide';
 import { useActiveHandle } from '../lib/store';
+import { openCaptureIdea } from '../lib/captureUi';
 
 export default function DashboardLayout({ children }) {
   const { pathname } = useLocation();
@@ -61,6 +63,20 @@ export default function DashboardLayout({ children }) {
           </NavLink>
         ))}
       </nav>
+      {/* Phone: Capture straddles the tab bar (bauhly-v3 cap-fab--dock) */}
+      <button
+        type="button"
+        className="btn btn--primary cap-fab--dock"
+        onClick={() => openCaptureIdea()}
+        aria-label="Capture idea"
+        style={{
+          transform: `translate(-50%, ${navHidden * 175}%)`,
+          opacity: 1 - navHidden,
+          pointerEvents: navHidden > 0.4 ? 'none' : 'auto',
+        }}
+      >
+        <Glyph name="plus" size={26} strokeWidth={2.4} />
+      </button>
 
       <div className="app__body">
         <Sidebar />
@@ -68,6 +84,7 @@ export default function DashboardLayout({ children }) {
           <React.Fragment key={activeHandle || 'no-account'}>{content}</React.Fragment>
         </main>
       </div>
+      <CaptureHost />
       <AiDebugPanel />
       <GenerationToast />
     </div>

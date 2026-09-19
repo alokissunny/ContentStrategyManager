@@ -41,7 +41,7 @@ import { mediaProxyUrl, videoProxyUrl, toDisplayUrl, isProxyUrl, rememberCdnBase
 import { createImage, listGeneratedImages } from '../api/images';
 import { useProjects, uploadFiles } from '../lib/projectsStore';
 import { toSvg } from 'html-to-image';
-import { CaptureChat } from './Projects';
+import { openCaptureIdea } from '../lib/captureUi';
 import { styleOf, groundOf } from '../lib/visualbrand';
 import { LAYOUTS as LIB_LAYOUTS, catForRole, shotsOf, DEFAULT_LAYOUT_BY_CAT, layoutShowsAllCopy } from '../data/layouts';
 import { CAROUSEL_THEMES } from '../data/carouselThemes';
@@ -718,6 +718,13 @@ function weekUsageOf(route) {
 
 function shortDay(day) {
   return String(day || '').slice(0, 3);
+}
+
+/* Calendar placeholder for a weekday with no planned post (Weekly strip pads
+ * Mon–Sun). Empty slots still carry date / day / dateLabel for the rail. */
+function isEmptyCalDay(d) {
+  if (!d || d.empty) return true;
+  return !(d._id || String(d.format || '').trim() || String(d.title || '').trim());
 }
 
 // The app's default publish time when neither the post nor the plan set one.
@@ -2240,16 +2247,39 @@ function VideoCoverPanel({ busy, error, url, spec, isApplied, hasApplied, onAppl
   );
 }
 
-export default function WeekView({ route: initialRoute, onBack, monthWeeks = [], onOpenWeek, initialDay = 0, onCaptured, onRouteChange, backLabel = 'Calendar', modeSwitch = false }) {
+export default function WeekView({
+  route: initialRoute,
+  onBack,
+  monthWeeks = [],
+  onOpenWeek,
+  initialDay = 0,
+  onCaptured,
+  onRouteChange,
+  backLabel = 'Calendar',
+  modeSwitch = false,
+  embedded = false,
+  hideStrip = false,
+  onDayChange = null,
+  onDistribute = null,
+}) {
   const navigate = useNavigate();
   const projects = useProjects();
-  const [capturing, setCapturing] = useState(false);
+  // Empty-day popover (bauhly-v3 desktop-post-workspace): the strip answers
+  // "Capture for this day / Change distribution" without replacing the post.
+  const [dayPop, setDayPop] = useState(null); // { idx, iso, x, y } | null
   const [route, setRoute] = useState(initialRoute);
   const [selected, setSelected] = useState(() => {
-    const n = (initialRoute?.days || []).length;
-    const i = Number(initialDay) || 0;
+    const list = initialRoute?.days || [];
+    const n = list.length;
     if (n <= 0) return 0;
-    return Math.max(0, Math.min(n - 1, i));
+    const i = Math.max(0, Math.min(n - 1, Number(initialDay) || 0));
+    if (!isEmptyCalDay(list[i])) return i;
+    // Weekly: land on a real post. Day view may keep an empty index for its panel.
+    if (!hideStrip) {
+      const first = list.findIndex((d) => !isEmptyCalDay(d));
+      if (first >= 0) return first;
+    }
+    return i;
   });
   const [slideIdx, setSlideIdx] = useState(0);
   // The post is the interface (bauhly-v3 §652): the studio acts on the preview's
@@ -2530,13 +2560,41 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
   );
   const days = route?.days || [];
   const day = days[selected] || days[0];
+  // Local "YYYY-MM-DD" for today — the strip rings today in lime, the reference's
+  // "you are here" (a selected day that is not today takes ink instead).
+  const todayIso = (() => {
+    const t = new Date();
+    return `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, '0')}-${String(t.getDate()).padStart(2, '0')}`;
+  })();
+
+  // Close the empty-day menu when its anchor would move (scroll / resize) —
+  // coordinates are taken at press time and go stale otherwise (bauhly-v3).
+  useEffect(() => {
+    if (!dayPop) return undefined;
+    const close = () => setDayPop(null);
+    window.addEventListener('scroll', close, true);
+    window.addEventListener('resize', close);
+    return () => {
+      window.removeEventListener('scroll', close, true);
+      window.removeEventListener('resize', close);
+    };
+  }, [dayPop]);
+
+  // When embedded in the calendar, let the parent's toolbar name the day it is
+  // showing (e.g. "September 22 | Tuesday") — the selected post is WeekView's
+  // own internal state, so it reports the change out rather than being told.
+  useEffect(() => {
+    onDayChange?.(day, selected);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [day?._id, day?.date, selected]);
 
   const enrichedDays = useMemo(() => {
     // Render only the images the plan actually assigns (persisted assetKeys).
     // A slide with no assigned photo shows empty picture regions rather than
-    // borrowing one from another post.
+    // borrowing one from another post. Empty calendar placeholders stay bare.
     const used = new Set();
     return days.map((d) => {
+      if (isEmptyCalDay(d)) return { ...d, slides: [], status: 'empty' };
       const slides = bindOwnedSlides(
         withAllocatedSlideKeys(deriveSlides(d), d),
         allImages,
@@ -2619,6 +2677,7 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
   }, [selected, safeIdx]);
 
   function selectDay(i) {
+    setDayPop(null);
     setSelected(i);
     setSlideIdx(0);
     setZone(null);
@@ -2633,6 +2692,36 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
     setCoverErr('');
   }
 
+  // Skip empty calendar placeholders when stepping with the post arrows — the
+  // strip still shows them, but the stage only holds real posts (bauhly-v3).
+  function nearestPostIdx(from, dir) {
+    let i = from;
+    while (true) {
+      i += dir;
+      if (i < 0 || i >= days.length) return -1;
+      if (!isEmptyCalDay(days[i])) return i;
+    }
+  }
+
+  function onStripDay(i, el) {
+    const d = days[i];
+    if (!isEmptyCalDay(d)) {
+      animateToDay(i);
+      return;
+    }
+    // Empty day: keep the open post; answer with the same two actions the
+    // month menu offers (Capture for this day / Change distribution).
+    const r = el?.getBoundingClientRect();
+    setDayPop(r
+      ? {
+          idx: i,
+          iso: String(d.date || ''),
+          x: Math.min(r.left, window.innerWidth - 248),
+          y: r.bottom + 8,
+        }
+      : null);
+  }
+
   // Change day with the reference's slide transition: a ghost copy of the post
   // slides out and fades while the real (new) post slides in and rises from the
   // opposite side (bauhly-v3 §730/§736/§786). The ghost is a plain DOM clone,
@@ -2643,6 +2732,10 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
   function animateToDay(nextIdx, dirIn) {
     const next = Math.max(0, Math.min(days.length - 1, nextIdx));
     if (next === selected) return;
+    if (isEmptyCalDay(days[next]) && !hideStrip) {
+      // Weekly strip never stages an empty day — use the popover path instead.
+      return;
+    }
     const dir = dirIn || (next > selected ? 1 : -1);
     const reduced = typeof window !== 'undefined' && window.matchMedia
       ? window.matchMedia('(prefers-reduced-motion: reduce)').matches
@@ -2689,8 +2782,20 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
     window.setTimeout(() => animateToDay(nextIdx, dir), ARROW_OUT);
     window.setTimeout(() => setNavOut(false), ARROW_OUT + 840);
   }
-  function prevDay() { if (selected > 0) goFromArrow(selected - 1, -1); }
-  function nextDay() { if (selected < days.length - 1) goFromArrow(selected + 1, 1); }
+  function prevDay() {
+    const i = nearestPostIdx(selected, -1);
+    if (i >= 0) goFromArrow(i, -1);
+  }
+  function nextDay() {
+    const i = nearestPostIdx(selected, 1);
+    if (i >= 0) goFromArrow(i, 1);
+  }
+
+  const prevPostIdx = nearestPostIdx(selected, -1);
+  const nextPostIdx = nearestPostIdx(selected, 1);
+  // While the empty-day menu is open, that card takes the strip's selected mark
+  // (ink) so the studio can see which day they asked about (bauhly-v3).
+  const stripOnIdx = dayPop ? dayPop.idx : selected;
 
   // The carousel's own arrows (the INNER pair, on the picture): step through the
   // slides, and at the last slide the forward arrow leaves the post for the next
@@ -4109,8 +4214,11 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
   });
 
   return (
-    <div className="wv" style={libPaint}>
+    <div className={`wv${embedded ? ' wv--embedded' : ''}`} style={libPaint}>
       {/* ── the way back, and the plan's actions ─────────────────────────── */}
+      {/* When embedded in the calendar (Weekly / Day views), the page's own
+          toolbar — period label, View menu, ⋯ — replaces this bar. */}
+      {!embedded && (
       <div className="wv-top">
         {modeSwitch ? (
           <div className="cal-mode" role="tablist" aria-label="Calendar view">
@@ -4165,7 +4273,7 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
                     type="button"
                     role="menuitem"
                     className="wv-more__item"
-                    onClick={() => { setMoreOpen(false); setCapturing(true); }}
+                    onClick={() => { setMoreOpen(false); openCaptureIdea(); }}
                   >
                     <Glyph name="plus" size={15} />Capture idea
                   </button>
@@ -4191,21 +4299,22 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
           </div>
         </div>
       </div>
-
-      {capturing && (
-        <CaptureChat
-          defaultProjectId={projects[0]?.id}
-          exitLabel="Back to plan"
-          onExit={() => setCapturing(false)}
-          onViewProject={() => { setCapturing(false); navigate('/dashboard/projects'); }}
-          onCaptured={() => {
-            setCapturing(false);
-            onCaptured?.();
-          }}
-        />
       )}
 
       {/* ── the plan's dates, and which week of the month ────────────────── */}
+      {/* Hidden when embedded — the calendar's own toolbar carries the title.
+          A "Saving…" chip still surfaces so an in-flight save is visible. */}
+      {embedded ? (
+        (saving || replanning || replanMsg) && (
+          <div className="wv-head wv-head--embedded">
+            <div className="wv-head__side">
+              {saving && <span className="wv-head__chip">Saving…</span>}
+              {replanning && <span className="wv-head__chip">Adding posts to empty days…</span>}
+              {replanMsg && <span className="wv-head__chip is-warn">{replanMsg}</span>}
+            </div>
+          </div>
+        )
+      ) : (
       <div className="wv-head">
         <h1 className="wv-head__title">{postHeading(day)}</h1>
         <div className="wv-head__side">
@@ -4226,6 +4335,7 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
           )}
         </div>
       </div>
+      )}
 
       {analysisOpen && (
         <YourAnalysisModal
@@ -4399,38 +4509,57 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
         document.body,
       )}
 
-      {/* ── the week, as a calendar: seven cards, lime for the one you are on
-           (bauhly-v3 §682) ─────────────────────────────────────────────── */}
+      {/* ── the week, as a calendar: seven cards (bauhly-v3 DaySelector).
+           Today is lime; a selected day that is not today is ink. Empty days
+           open a Capture / Change distribution menu — the post underneath
+           does not move. ─────────────────────────────────────────────────── */}
+      {!hideStrip && (
       <div className={`wv-cal${calMore ? ' has-more' : ''}${calPrev ? ' has-prev' : ''}`}>
         <div className="wv-cal__grid" ref={calGridRef} role="tablist" aria-label="This week's posts">
           {enrichedDays.map((d, i) => {
-            const active = i === selected;
-            const done = d.published;
+            const empty = isEmptyCalDay(d);
+            const active = i === stripOnIdx;
+            const done = !empty && d.published;
             // Two marks, not one (bauhly-v3 §761): a scheduled post is a
             // decision about the future — the lime clock — while a published one
             // is the past, in grey. The lime only means anything with an account.
-            const scheduled = metaConnected && !!d.scheduledAt && !done;
-            const inReview = !!d.savedForReview && !scheduled && !done;
-            const ready = done || scheduled;
+            const scheduled = !empty && metaConnected && !!d.scheduledAt && !done;
+            const inReview = !empty && !!d.savedForReview && !scheduled && !done;
+            const ready = done || scheduled || inReview;
+            const isToday = String(d.date || '') === todayIso;
+            const past = !isToday && !!d.date && String(d.date) < todayIso;
+            const clock = empty ? '' : to24h(slotTimeRaw(d, route));
+            const format = empty ? '' : String(d.format || '').replace(/ series$/, '');
             return (
               <button
-                key={`${d.day}-${i}`}
+                key={`${d.date || d.day}-${i}`}
                 type="button"
                 role="tab"
                 aria-selected={active}
                 aria-current={active ? 'true' : undefined}
-                className={`wv-day${active ? ' is-on' : ''}${ready ? ' is-ready' : ''}${inReview ? ' is-review' : ''}`}
-                onClick={() => animateToDay(i)}
+                aria-label={`${shortDay(d.day)} ${String(d.dateLabel || '').replace(/^[A-Za-z]+\s*/, '')}${isToday ? ', today' : ''}: ${empty ? 'not scheduled' : `${format} at ${clock}`}`}
+                className={`wv-day${active ? ' is-on' : ''}${isToday ? ' is-today' : ''}${empty ? ' is-empty' : ''}${past ? ' is-past' : ''}${ready ? ' is-ready' : ''}${inReview ? ' is-review' : ''}`}
+                onClick={(e) => onStripDay(i, e.currentTarget)}
               >
                 <span className="wv-day__when">
                   <b>{shortDay(d.day)}</b>
                   <i>{String(d.dateLabel || '').replace(/^[A-Za-z]+\s*/, '')}</i>
+                  {isToday && <em className="wv-day__today">Today</em>}
                 </span>
-                <span className="wv-day__kind">
-                  <Glyph name={FORMAT_ICON[d.format] || 'image'} size={15} className="wv-day__glyph" />
-                  <span className="wv-day__word">{String(d.format || '').replace(/ series$/, '')}</span>
+                {/* Second line: "Carousel · 19:30" — format and hour, the facts
+                    a studio scans a week for (bauhly-v3 Sep 15). */}
+                <span className="wv-day__line">
+                  {empty ? (
+                    <span className="wv-day__none" aria-hidden="true" />
+                  ) : (
+                    <>
+                      <span className="wv-day__word">{format}</span>
+                      {clock && <span className="wv-day__sep" aria-hidden="true">·</span>}
+                      {clock && <span className="wv-day__clock">{clock}</span>}
+                    </>
+                  )}
                 </span>
-                {ready && (
+                {(done || scheduled) && (
                   <span className={`wv-day__ready${done ? ' is-done' : ''}`} aria-hidden="true">
                     <Glyph name={done ? 'check' : 'clock'} size={13} strokeWidth={done ? 3 : 2.25} />
                   </span>
@@ -4445,8 +4574,76 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
           })}
         </div>
       </div>
+      )}
 
-      {day && (
+      {dayPop && (
+        <>
+          <div className="pe-menu__scrim" onClick={() => setDayPop(null)} />
+          <div
+            className="pe-menu yw-daypop"
+            role="menu"
+            aria-label="Nothing planned"
+            style={{ left: `${Math.max(8, dayPop.x)}px`, top: `${dayPop.y}px` }}
+          >
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => { setDayPop(null); openCaptureIdea(); }}
+            >
+              <Glyph name="plus" size={17} />
+              <span className="pe-menu__grow">Capture for this day</span>
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => { setDayPop(null); onDistribute?.(); }}
+            >
+              <Glyph name="calendar" size={17} />
+              <span className="pe-menu__grow">Change distribution</span>
+            </button>
+          </div>
+        </>
+      )}
+
+      {/* Day view (no strip): an empty date gets a quiet panel. Weekly never
+          reaches this — empty strip days open the popover above instead. */}
+      {day && isEmptyCalDay(day) && hideStrip && (
+        <div className="wv-stage">
+          <div className="wv-postwrap">
+            <button
+              type="button"
+              className="wv-daynav wv-daynav--prev"
+              onClick={prevDay}
+              disabled={prevPostIdx < 0}
+              aria-label="Previous day"
+            >
+              <Glyph name="chevron-left" size={22} strokeWidth={2.5} />
+            </button>
+            <button
+              type="button"
+              className="wv-daynav wv-daynav--next"
+              onClick={nextDay}
+              disabled={nextPostIdx < 0}
+              aria-label="Next day"
+            >
+              <Glyph name="chevron-right" size={22} strokeWidth={2.5} />
+            </button>
+            <div className="wv-emptyday">
+              <h2 className="wv-emptyday__title">
+                {day.day}{day.dateLabel ? `, ${day.dateLabel}` : ''}
+                {String(day.date || '') === todayIso ? ' · Today' : ''}
+              </h2>
+              <p className="wv-emptyday__note">Nothing planned for this day.</p>
+              <button type="button" className="btn btn--primary" onClick={() => openCaptureIdea()}>
+                <Glyph name="plus" size={15} />
+                Capture idea
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {day && !isEmptyCalDay(day) && (
         <div className={`wv-stage${enter ? ' is-moving' : ''}`}>
           {/* ── the post is the interface: a true preview you act on in place
                (bauhly-v3 §652). On a day change only the OUTGOING post animates:
@@ -4459,7 +4656,7 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
             type="button"
             className={`wv-daynav wv-daynav--prev${navOut ? ' is-out' : ''}`}
             onClick={prevDay}
-            disabled={selected <= 0}
+            disabled={prevPostIdx < 0}
             aria-label="Previous day"
           >
             <Glyph name="chevron-left" size={22} strokeWidth={2.5} />
@@ -4468,7 +4665,7 @@ export default function WeekView({ route: initialRoute, onBack, monthWeeks = [],
             type="button"
             className={`wv-daynav wv-daynav--next${navOut ? ' is-out' : ''}`}
             onClick={nextDay}
-            disabled={selected >= days.length - 1}
+            disabled={nextPostIdx < 0}
             aria-label="Next day"
           >
             <Glyph name="chevron-right" size={22} strokeWidth={2.5} />

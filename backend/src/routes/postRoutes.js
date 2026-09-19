@@ -8,6 +8,7 @@ const {
   getPostDebug,
   generatePlan,
   clearUpcoming,
+  distributePosts,
   updatePost,
   polishCaption,
   rerunLayout,
@@ -20,6 +21,7 @@ const router = express.Router();
 router.use(protect);
 router.get('/', asyncHandler(getPosts));
 router.post('/generate', asyncHandler(generatePlan));
+router.post('/distribute', asyncHandler(distributePosts));
 router.delete('/', asyncHandler(clearUpcoming));
 router.get('/:id', asyncHandler(getPostById));
 router.get('/:id/options', asyncHandler(getPostOptions));

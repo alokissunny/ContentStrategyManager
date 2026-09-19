@@ -426,7 +426,7 @@
 .wv-ig {
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 20px;
+  border-radius: var(--r-xl, 26px);
   overflow: hidden;
   box-shadow: 0 22px 48px -20px rgba(20, 20, 25, 0.18), 0 1px 2px rgba(22, 22, 26, 0.04);
 }
@@ -3258,69 +3258,122 @@
 .wv-wknav__now b,
 .wv-wknav__of { font-weight: 600; color: var(--ink-900); }
 
-/* ── the week, as a calendar (§682) ─────────────────────────────────────── */
-.wv-cal { position: relative; display: block; margin-bottom: 26px; }
+/* ── the week, as a calendar (§682) — compact scan strip (bauhly-v3 Sep 16) ─ */
+.wv-cal { position: relative; display: block; margin-bottom: 16px; }
 .wv-cal__grid {
   display: grid;
   grid-template-columns: repeat(7, minmax(0, 1fr));
-  gap: 12px;
+  gap: var(--sp-3, 12px);
 }
+/* Two lines only: day + number, then format · time. 72px floor (not 104) so
+ * seven cards scan as one row; spare height is centred, not piled at the bottom. */
 .wv-day {
   position: relative;
   display: flex;
   flex-direction: column;
-  align-items: center;
+  align-items: flex-start;
   justify-content: center;
-  gap: 14px;
+  gap: 9px;
   min-width: 0;
-  min-height: 96px;
-  padding: 16px 12px;
+  min-height: 72px;
+  padding: 12px 14px;
   border: 0;
-  border-radius: 16px;
+  border-radius: var(--r-md, 12px);
   background: var(--surface-sunken);
-  text-align: center;
+  text-align: left;
   cursor: pointer;
   transition: background var(--dur-fast, 140ms) var(--ease-out, ease),
     transform var(--dur-fast, 140ms) var(--ease-out, ease);
 }
 .wv-day:hover { background: var(--ink-100); border-color: transparent; }
 .wv-day:active { transform: scale(0.99); }
-.wv-day.is-on,
-.wv-day.is-on:hover {
+/* the selected day that is not today — ink, so it reads apart from today's lime */
+.wv-day.is-on:not(.is-today),
+.wv-day.is-on:not(.is-today):hover {
+  background: var(--night);
+  color: var(--canvas);
+}
+/* today — lime, always, whether or not it is the selected day */
+.wv-day.is-today,
+.wv-day.is-today:hover,
+.wv-day.is-today.is-on,
+.wv-day.is-today.is-on:hover {
   background: var(--experiment-500);
   color: var(--experiment-ink);
 }
-.wv-day__when { display: flex; align-items: baseline; justify-content: center; gap: 7px; min-width: 0; font-family: var(--font-ui); }
-.wv-day__when b { font-size: 15px; font-weight: 700; letter-spacing: -0.01em; color: var(--ink-900); }
-.wv-day__when i { font-style: normal; font-size: 14px; font-weight: 600; color: var(--ink-quiet); }
-.wv-day.is-on .wv-day__when b { color: var(--experiment-ink); }
-.wv-day.is-on .wv-day__when i { color: color-mix(in srgb, var(--experiment-ink) 62%, transparent); }
-.wv-day__kind {
+.wv-day__when { display: flex; align-items: baseline; justify-content: flex-start; gap: 6px; min-width: 0; font-family: var(--font-ui); }
+.wv-day__when b { font-size: var(--text-base, 14px); font-weight: 700; letter-spacing: -0.01em; color: var(--ink-900); }
+.wv-day__when i { font-style: normal; font-size: var(--text-base, 14px); font-weight: 500; color: var(--ink-quiet); }
+.wv-day { container-type: inline-size; }
+.wv-day__today {
+  display: none;
+  font-style: normal;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink-quiet);
+}
+@container (min-width: 98px) {
+  .wv-day__today { display: inline; }
+}
+.wv-day.is-on:not(.is-today) .wv-day__when b { color: var(--canvas); }
+.wv-day.is-on:not(.is-today) .wv-day__when i { color: color-mix(in srgb, #fff 72%, transparent); }
+.wv-day.is-today .wv-day__when b { color: var(--experiment-ink); }
+.wv-day.is-today .wv-day__when i { color: color-mix(in srgb, var(--experiment-ink) 62%, transparent); }
+.wv-day.is-today .wv-day__today { color: color-mix(in srgb, var(--experiment-ink) 78%, transparent); }
+/* Second line: "Carousel · 19:30" (bauhly-v3 DaySelector) */
+.wv-day__line {
   display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
+  align-items: baseline;
+  gap: 5px;
+  width: 100%;
   min-width: 0;
   font-family: var(--font-ui);
-  font-size: 13px;
+  font-size: var(--text-xs, 12px);
   font-weight: 500;
-  color: var(--ink-500);
+  color: var(--ink-600);
 }
 .wv-day__word { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.wv-day__glyph { display: none; flex-shrink: 0; }
-.wv-day.is-on .wv-day__kind { color: color-mix(in srgb, var(--experiment-ink) 78%, transparent); }
+.wv-day__sep { color: var(--ink-400); flex: 0 0 auto; }
+.wv-day__clock { flex: 0 0 auto; font-variant-numeric: tabular-nums; }
+.wv-day__none { display: block; min-height: 1em; }
+.wv-day__none::before { content: '\200B'; }
+/* Empty day: outline on the canvas, not a filled sunken card */
+.wv-day.is-empty {
+  background: var(--canvas, #fff);
+  box-shadow: inset 0 0 0 1px var(--border);
+  cursor: pointer;
+}
+.wv-day.is-empty:hover { background: var(--surface-sunken); }
+.wv-day.is-empty.is-on:not(.is-today),
+.wv-day.is-empty.is-on:not(.is-today):hover {
+  background: var(--night);
+  color: var(--canvas);
+  box-shadow: none;
+}
+.wv-day.is-empty.is-today,
+.wv-day.is-empty.is-today:hover {
+  background: var(--experiment-500);
+  box-shadow: none;
+}
+.wv-day.is-on:not(.is-today) .wv-day__line { color: color-mix(in srgb, #fff 82%, transparent); }
+.wv-day.is-on:not(.is-today) .wv-day__sep { color: color-mix(in srgb, #fff 45%, transparent); }
+.wv-day.is-today .wv-day__line { color: color-mix(in srgb, var(--experiment-ink) 92%, transparent); }
+.wv-day.is-today .wv-day__sep { color: color-mix(in srgb, var(--experiment-ink) 50%, transparent); }
+/* past days step back one ink level — the week still reads as seven equal cards */
+.wv-day.is-past:not(.is-on):not(.is-today) .wv-day__when i { color: var(--ink-400); }
+.wv-day.is-past:not(.is-on):not(.is-today) .wv-day__line { color: var(--ink-400); }
 .wv-day__ready {
   position: absolute;
-  top: -9px;
-  right: -9px;
+  top: 6px;
+  right: 6px;
   display: grid;
   place-items: center;
-  width: 26px;
-  height: 26px;
+  width: 20px;
+  height: 20px;
   border-radius: 999px;
   background: var(--experiment-500);
   color: var(--experiment-ink);
-  box-shadow: 0 0 0 3px var(--canvas, #fff);
+  box-shadow: 0 0 0 2px var(--canvas, #fff);
 }
 .wv-day__ready.is-done { background: var(--ink-200); color: var(--ink-500); }
 /* held for review — a neutral ink mark, distinct from the lime "scheduled" */
@@ -4081,35 +4134,36 @@
   .wv-why__panel { width: min(100%, 460px); }
 }
 @media (max-width: 640px) {
-  .wv-cal__grid { grid-template-columns: repeat(7, minmax(64px, 1fr)); gap: 8px; overflow-x: auto; }
-  .wv-day { min-height: 92px; padding: 12px; gap: 12px; scroll-snap-align: start; }
-  .wv-day__word { display: none; }
-  .wv-day__glyph { display: block; }
-  .wv-day__kind { color: var(--ink-400); }
+  /* Phone strip sizing lives in the ≤767 block (bauhly-v3 five-across scroll).
+     Only tighten the title here. */
   .wv-head__title { font-size: 1.6rem; }
 }
 
 /* ══ ON A PHONE (bauhly-v3 ≤767px) ═══════════════════════════════════════
  * The post sits on the page's own margin as a rounded card; the calendar
  * strip is full-bleed and scrolls five weekdays with the weekend peeking;
- * the top row is back + icon actions, no ⋯. */
+ * Capture is the docked disc on the tab bar (see app.css). */
 @media (max-width: 767px) {
   .wv-stage {
     flex-direction: column;
     align-items: stretch;
     width: 100%;
   }
-  /* `width: auto` on a row-flex child shrinks to content and the 4:5 collage
-     loses its frame — the two lower photos go tall and clip. Fill the column. */
+  /* Fill the column — a shrink-to-content wrap collapses the 4:5 frame. */
   .wv-stage > .wv-postwrap {
     flex: none;
     width: 100%;
     max-width: none;
     min-width: 0;
   }
-  .wv-ig {
+  /* Single-column Instagram stack: head → media → caption/tabs */
+  .wv-postwrap > .wv-ig {
+    display: flex;
+    flex-direction: column;
     width: 100%;
     max-width: none;
+    height: auto;
+    min-height: 0;
     border: 0;
     border-radius: var(--r-lg);
     overflow: hidden;
@@ -4118,9 +4172,44 @@
       0 -2px 10px rgba(22, 22, 26, 0.04),
       0 10px 30px -6px rgba(22, 22, 26, 0.12);
   }
-  .wv-ig__photo {
+  .wv-ig__media {
+    position: relative;
+    display: block;
     width: 100%;
+    height: auto;
+    border-right: 0;
+    overflow: hidden;
+  }
+  .wv-ig__zone--visual {
+    position: relative;
+    display: block;
+    width: 100%;
+  }
+  .wv-ig__photo {
+    position: relative;
+    inset: auto;
+    width: 100%;
+    height: auto;
     aspect-ratio: 4 / 5;
+  }
+  .wv-ig__head {
+    grid-column: auto;
+    grid-row: auto;
+    padding: 12px 14px;
+  }
+  .wv-ig__panel {
+    grid-column: auto;
+    grid-row: auto;
+    display: block;
+    overflow: visible;
+    min-height: 0;
+  }
+  .wv-ig__slot,
+  .wv-time,
+  .wv-layed,
+  .wv-worded {
+    grid-column: auto;
+    grid-row: auto;
   }
   .wv-ig__lay .vl-a {
     width: 100%;
@@ -4128,6 +4217,18 @@
     min-width: 0;
     min-height: 0;
   }
+  /* Dots ride the picture foot (same as desktop wide), not a band under it */
+  .wv-ig__dotrow {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 3;
+    padding: 0 14px 12px;
+    background: none;
+    pointer-events: none;
+  }
+  .wv-ig__dots { pointer-events: auto; }
   .wv-daynav { display: none; }
 
   .wv-top { margin-bottom: 0; }
@@ -4143,14 +4244,19 @@
   }
   .wv-back { min-width: 0; overflow: hidden; }
   .wv-head { flex-wrap: nowrap; margin-bottom: var(--sp-2); }
-  .wv-head__title { min-width: 0; }
+  .wv-head__title { min-width: 0; font-size: var(--text-xl); }
   .wv-head__week { margin-left: 0; }
   .wv-wknav__now { min-width: 0; padding: 0 var(--sp-1); }
 
+  /* Strip: full-bleed, five working days, weekend peeks past the fade */
   .wv-cal {
-    position: relative;
+    position: sticky;
+    top: var(--apptop-h, 0px);
+    z-index: 10;
+    background: var(--canvas);
     margin-inline: calc(var(--sp-4) * -1);
-    padding: 0;
+    margin-block: calc(var(--sp-3) * -1);
+    padding: var(--sp-3) 0;
   }
   .wv-cal__grid {
     gap: 6px;
@@ -4172,8 +4278,8 @@
   .wv-cal::after {
     content: '';
     position: absolute;
-    top: 0;
-    bottom: 0;
+    top: var(--sp-3);
+    bottom: var(--sp-3);
     width: 64px;
     pointer-events: none;
     opacity: 0;
@@ -4199,19 +4305,37 @@
   .wv-cal.has-prev::before { opacity: 1; }
   .wv-cal.has-more::after { opacity: 1; }
   .wv-day {
-    align-items: center;
+    align-items: flex-start;
     justify-content: center;
     gap: var(--sp-2);
     min-height: 64px;
-    padding: var(--sp-2) 4px;
+    padding: var(--sp-2);
     border-radius: var(--r-sm);
   }
   .wv-day__when { gap: 4px; }
   .wv-day__when b { font-size: var(--text-sm); }
   .wv-day__when i { display: inline; font-size: var(--text-xs); }
+  .wv-day__sep { display: none; }
   .wv-day__word { display: none; }
-  .wv-day__glyph { display: block; }
-  .wv-day__kind { color: var(--ink-400); }
+  /* Hour only — format word does not fit five-across cards */
+  .wv-day__line {
+    gap: 4px;
+    font-size: var(--text-xs);
+    white-space: nowrap;
+    justify-content: flex-start;
+    color: var(--ink-800);
+  }
+  .wv-day.is-on:not(.is-today) .wv-day__line { color: color-mix(in srgb, #fff 78%, transparent); }
+  .wv-day.is-today .wv-day__line { color: color-mix(in srgb, var(--experiment-ink) 78%, transparent); }
+  .wv-day__ready {
+    top: -3px;
+    right: -3px;
+    width: 12px;
+    height: 12px;
+    box-shadow: 0 0 0 2px var(--canvas);
+  }
+  .wv-day__ready svg { display: none; }
+  .wv-day__ready.is-review { background: var(--warning, #c47a1a); }
 }
 
 /* ══ DAY-TO-DAY TRANSITION (bauhly-v3 §714/§786) ═══════════════════════════
@@ -6017,43 +6141,73 @@ span.wv-layed__apply { margin-left: auto; flex-shrink: 0; }
 }
 
 @media (min-width: 961px) {
-  .wv { max-width: none; }
+  /* Height-first two-column card (bauhly-v3 desktop-post-workspace).
+   * Chrome above/below the post is measured (~340 weekly / ~300 day), not a
+   * vh guess — so the card keeps desk around it instead of filling the column. */
+  .wv {
+    max-width: none;
+    --igc-ar: 0.8;
+    --igc-post-h: clamp(400px, calc(100dvh - 340px), 800px);
+    --igc-media-h: var(--igc-post-h);
+    --igc-rail: clamp(400px, calc(var(--igc-media-h) * var(--igc-ar) * 1.15), 520px);
+    --igc-card-w: calc(var(--igc-media-h) * var(--igc-ar) + var(--igc-rail));
+  }
+  /* Day has no week strip above the post — same split as bauhly-v3 `.yw-plan--day` */
+  .ph--cal-day .wv,
+  .ph--cal-day .wv--embedded {
+    --igc-post-h: clamp(400px, calc(100dvh - 300px), 800px);
+  }
   .wv-stage {
     display: block;
     justify-content: stretch;
+    /* gutter for the outer day arrows (bauhly-v3) */
+    padding-inline: 56px;
   }
   .wv-stage > .wv-postwrap {
     flex: none;
-    width: 100%;
-    max-width: none;
+    width: min(100%, var(--igc-card-w));
+    max-width: 100%;
+    margin-inline: auto;
   }
-  .wv-daynav { display: none; }
+  /* outer day arrows — beside the card, on the picture's middle */
+  .wv-daynav {
+    display: grid;
+    top: calc(var(--igc-media-h) / 2);
+  }
   .wv-why { display: none; }
 
   .wv-postwrap > .wv-ig {
     display: grid;
-    grid-template-columns: minmax(320px, 1.25fr) minmax(280px, 1fr);
-    grid-template-rows: auto 1fr auto;
+    grid-template-columns: minmax(0, calc(var(--igc-media-h) * var(--igc-ar))) minmax(0, var(--igc-rail));
+    grid-template-rows: auto minmax(0, 1fr) auto;
     align-items: stretch;
-    min-height: 520px;
+    justify-items: stretch;
+    height: var(--igc-media-h);
+    width: 100%;
   }
   .wv-ig__media {
     grid-column: 1;
     grid-row: 1 / -1;
+    position: relative;
     display: flex;
     flex-direction: column;
     min-width: 0;
+    height: 100%;
+    overflow: hidden;
     background: #f3f1ec;
     border-right: 1px solid var(--border);
+    border-radius: var(--r-xl, 26px) 0 0 var(--r-xl, 26px);
   }
   .wv-ig__head {
     grid-column: 2;
     grid-row: 1;
-    padding: 16px 20px 8px;
+    min-width: 0;
+    padding: 16px 22px 10px;
   }
   .wv-ig__panel {
     grid-column: 2;
     grid-row: 2;
+    min-width: 0;
     min-height: 0;
     display: flex;
     flex-direction: column;
@@ -6129,7 +6283,7 @@ span.wv-layed__apply { margin-left: auto; flex-shrink: 0; }
     display: flex;
     align-items: center;
     gap: 10px;
-    padding: 4px 20px 12px;
+    padding: 6px 22px 14px;
   }
   .wv-ig__panel.is-cap .wv-ig__whyblock,
   .wv-ig__panel.is-cap .wv-ig__videoblock,
@@ -6158,22 +6312,39 @@ span.wv-layed__apply { margin-left: auto; flex-shrink: 0; }
   }
 
   .wv-ig__zone--visual {
-    flex: 0 0 auto;
-    display: block;
+    flex: 1 1 auto;
+    min-height: 0;
+    position: relative;
   }
+  /* Picture fills the media track (height-first); aspect is the track's job */
   .wv-ig__photo {
+    position: absolute;
+    inset: 0;
     width: 100%;
-    aspect-ratio: 4 / 5;
+    height: 100%;
+    min-height: 0;
+    aspect-ratio: auto;
   }
   .wv-ig__count,
   .wv-ig__tag { display: none; }
-  .wv-ig__dotrow { padding: 14px 0 16px; background: #f3f1ec; }
+  /* Dots ride the foot of the picture (bauhly-v3 wide card), not a band under it */
+  .wv-ig__dotrow {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 3;
+    padding: 0 16px 14px;
+    background: none;
+    pointer-events: none;
+  }
+  .wv-ig__dots { pointer-events: auto; }
   .wv-ig__edit { border-top: 1px solid var(--border); }
 
-  .wv-ig__caption { border-top: 0; padding: 4px 20px 16px; }
+  .wv-ig__caption { border-top: 0; padding: 8px 22px 20px; }
   .wv-ig__caption.is-editing {
     padding: var(--sp-5);
-    margin: 0 20px 16px;
+    margin: 0 22px 16px;
   }
   .wv-ig__panel.is-cappedit .wv-ig__tabrow { display: none; }
   .wv-ig__zone--caption .wv-ig__zonebtn,
@@ -6181,7 +6352,7 @@ span.wv-layed__apply { margin-left: auto; flex-shrink: 0; }
   .wv-ig__zone--caption:hover .wv-ig__veil { background: none; }
   .wv-ig__captiontext {
     font-size: 14px;
-    line-height: 1.6;
+    line-height: 1.65;
   }
 
   .wv-ig__go,
@@ -6192,7 +6363,7 @@ span.wv-layed__apply { margin-left: auto; flex-shrink: 0; }
     font-size: 13.5px;
   }
   .wv-ig__slot {
-    padding: 14px 20px 16px;
+    padding: 16px 22px 18px;
   }
   .wv-ig__slot-edit { opacity: 1; }
   .wv-ig__user { font-size: 14px; }
@@ -6440,3 +6611,122 @@ span.wv-layed__apply { margin-left: auto; flex-shrink: 0; }
   animation: wv-vcover-spin 0.8s linear infinite;
 }
 @keyframes wv-vcover-spin { to { transform: rotate(360deg); } }
+
+/* ── WeekView embedded as the calendar's Weekly / Day view ─────────────────
+ * Same height-first two-column card as the desktop workspace (bauhly-v3). */
+.wv--embedded {
+  max-width: 100%;
+  margin: 0;
+}
+.wv--embedded .wv-cal { margin-top: 0; margin-bottom: 14px; }
+.wv--embedded .wv-stage {
+  display: block;
+  width: 100%;
+  overflow: visible;
+}
+@media (min-width: 961px) {
+  .wv--embedded .wv-stage > .wv-postwrap {
+    width: min(100%, var(--igc-card-w));
+    max-width: 100%;
+    margin-inline: auto;
+  }
+  .wv--embedded .wv-stage {
+    padding-inline: 56px;
+  }
+  .wv--embedded .wv-daynav {
+    display: grid;
+    top: calc(var(--igc-media-h) / 2);
+  }
+}
+@media (max-width: 767px) {
+  .wv--embedded .wv-cal {
+    margin-bottom: 0;
+  }
+}
+.wv-head--embedded {
+  display: flex;
+  justify-content: flex-end;
+  min-height: 0;
+  margin-bottom: 8px;
+}
+
+/* Empty weekday in Day view — invite a capture instead of a post */
+.wv-emptyday {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+  width: 100%;
+  min-height: 280px;
+  padding: 40px 36px;
+  border-radius: var(--r-xl, 26px);
+  background: var(--surface-sunken);
+}
+.wv-emptyday__title {
+  margin: 0;
+  font-family: var(--font-ui);
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--ink-900);
+}
+.wv-emptyday__note {
+  margin: 0;
+  font-family: var(--font-ui);
+  font-size: 15px;
+  color: var(--ink-quiet);
+}
+.wv-emptyday .btn { display: inline-flex; align-items: center; gap: 8px; }
+
+/* Empty-day popover under the strip card (bauhly-v3 `.pe-menu.yw-daypop`) */
+.pe-menu__scrim { position: fixed; inset: 0; z-index: 70; }
+.pe-menu {
+  position: absolute;
+  z-index: 71;
+  min-width: 224px;
+  max-height: 62vh;
+  overflow-y: auto;
+  padding: 6px;
+  background: rgba(255, 255, 255, 0.9);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-lift, 0 12px 40px rgba(20, 20, 25, 0.14));
+  display: flex;
+  flex-direction: column;
+  cursor: default;
+}
+.pe-menu button {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 44px;
+  padding: 10px 12px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  font-family: var(--font-ui);
+  font-size: var(--text-base, 14px);
+  color: var(--ink-900);
+  text-align: left;
+  cursor: pointer;
+}
+.pe-menu button svg,
+.pe-menu button span[style] { color: var(--ink-500); flex-shrink: 0; }
+.pe-menu button:hover { background: rgba(20, 20, 25, 0.06); }
+.pe-menu__grow {
+  flex: 1;
+  min-width: 0;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pe-menu.yw-daypop {
+  position: fixed;
+  top: auto;
+  right: auto;
+  min-width: 240px;
+  z-index: 80;
+}

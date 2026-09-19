@@ -15,7 +15,11 @@
 
 import React, { Suspense, useEffect, useRef, useState } from 'react';
 import Icon from '../brand/Icon';
-import { getPosts, getPost, clearUpcoming } from '../api/posts';
+import { getPosts, getPost, clearUpcoming, distributePosts } from '../api/posts';
+import { MonthDayCell, MonthDayMenu, useMonthDayMenu, calStatusOf as peekCalStatusOf } from './monthDayMenu';
+import DayFeed from './DayFeed';
+import MobileSheet from '../components/MobileSheet';
+import useMediaQuery from '../hooks/useMediaQuery';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { peekMetaOAuthResult, takeMetaOAuthResult, getMetaStatus, isMetaConnectedFor } from '../api/meta';
 import { useProjects, createProject, ensureProjects, addSession, sessionCount } from '../lib/projectsStore';
@@ -34,10 +38,10 @@ import { getBrandDna, reviseBrandDna } from '../api/brandDna';
 const WeekView = React.lazy(() => import('./WeekView'));
 const PlanLoom = React.lazy(() => import('./PlanLoom'));
 const Checkin = React.lazy(() => import('./checkin/Checkin'));
-const CaptureChat = React.lazy(() => import('./Projects').then((m) => ({ default: m.CaptureChat })));
 import NeedsAWord from '../components/NeedsAWord';
 import './plans.css';
 import './yourweek.css'; /* the shared .empty brand-moment styles */
+import './calendar.css'; /* the Monthly / Weekly / Day calendar views */
 
 const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 /* Illustration marks Mon / Wed / Fri as the studio's usual post cadence. */
@@ -333,33 +337,565 @@ function MonthCalendar({ group, days, onOpen, onPrefetch, metaConnected }) {
   );
 }
 
-function CalModeTabs({ value, onChange, onPrefetchWeekly }) {
+/* ══════════════════════════════════════════════════════════════════════════
+ * CALENDAR VIEWS — Monthly / Weekly / Day
+ *
+ * A faithful port of bauhly-v3's YourWeek calendar (MonthGrid, DaySelector,
+ * ViewMenu), wired to the live app's posts. Each `route` in the list is a post
+ * wrapped as a one-day route (see postToRoute), so `route.days[0]` is the post.
+ * `buildPostIndex` maps every post onto its calendar day (YYYY-M-D key), and the
+ * three views read from that one index so they can never disagree.
+ * ═══════════════════════════════════════════════════════════════════════════ */
+
+const WEEKDAYS_LONG = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+const CAL_VIEWS = [['day', 'Day'], ['week', 'Weekly'], ['month', 'Monthly']];
+/* the glyph each format wears — the reference's own mapping */
+const FORMAT_ICON = { Reel: 'play', Carousel: 'copy', Story: 'eye', 'Story series': 'eye', Post: 'brief' };
+
+/* the time a post goes out, as 24h "HH:MM" (matches the reference screenshot):
+   the post's own time, else the plan's weekly preference, else the app default. */
+function timeLabelOf(post, route) {
+  const raw = (post?.time && String(post.time).trim())
+    || (route?.postAtPref && String(route.postAtPref).trim())
+    || (post?.postAtPref && String(post.postAtPref).trim())
+    || '';
+  const ampm = raw.match(/(\d{1,2}):(\d{2})\s*(AM|PM)/i);
+  if (ampm) {
+    let h = Number(ampm[1]) % 12;
+    if (/pm/i.test(ampm[3])) h += 12;
+    return `${String(h).padStart(2, '0')}:${ampm[2]}`;
+  }
+  const hm = raw.match(/^(\d{1,2}):(\d{2})/);
+  if (hm) return `${String(Number(hm[1])).padStart(2, '0')}:${hm[2]}`;
+  return '09:00';
+}
+
+/* the settled state a day's post is in — the disc the calendar draws. Published
+   is history (a grey tick); scheduled is a promise (a lime clock, only when Meta
+   can actually publish). Everything else is quiet. */
+function calStatusOf(post, metaConnected) {
+  return peekCalStatusOf(post, metaConnected);
+}
+
+/* every post on its calendar day, keyed by ymdKey — the one index all three
+   views read. Skips posts with nothing on them yet. */
+function buildPostIndex(routes) {
+  const map = new Map();
+  monthDaysOf(routes).forEach((row) => {
+    if (!row.date) return;
+    const d = row?.day;
+    if (!(String(d?.title || '').trim() || String(d?.format || '').trim())) return;
+    map.set(ymdKey(row.date), row);
+  });
+  return map;
+}
+
+/* ascending list of every post's calendar date — the Day view steps through it */
+function postDatesOf(index) {
+  return [...index.values()]
+    .map((row) => row.date)
+    .filter(Boolean)
+    .sort((a, b) => a.getTime() - b.getTime());
+}
+
+function longDayLabel(date) {
+  return `${WEEKDAYS_LONG[(date.getDay() + 6) % 7]}, ${date.getDate()} ${MONTHS[date.getMonth()]}`;
+}
+
+function weekRangeLabel(monday) {
+  const sun = addDaysLocal(monday, 6);
+  if (monday.getMonth() === sun.getMonth()) {
+    return `${MONTHS[monday.getMonth()]} ${monday.getDate()} – ${sun.getDate()}`;
+  }
+  const short = (d) => MONTHS[d.getMonth()].slice(0, 3);
+  return `${short(monday)} ${monday.getDate()} – ${short(sun)} ${sun.getDate()}`;
+}
+
+/* Monday-first month grid: whole weeks, with the neighbouring months filling
+   the leading/trailing days so a sequence crossing a boundary still paints. */
+function monthCellsOf(year, month, index) {
+  const first = new Date(year, month, 1, 12, 0, 0, 0);
+  const lastDate = new Date(year, month + 1, 0).getDate();
+  const lead = (first.getDay() + 6) % 7;
+  const start = addDaysLocal(first, -lead);
+  const total = Math.ceil((lead + lastDate) / 7) * 7;
+  const cells = [];
+  for (let i = 0; i < total; i += 1) {
+    const date = addDaysLocal(start, i);
+    cells.push({
+      date,
+      inMonth: date.getMonth() === month && date.getFullYear() === year,
+      row: index.get(ymdKey(date)) || null,
+    });
+  }
+  return cells;
+}
+
+/* ── the distribution — which weekdays the studio publishes on ─────────────
+ * The "Posting" columns are the DISTRIBUTION pattern, not "every day that
+ * happens to hold a post" (so Tue/Sat/Sun can carry a post without their column
+ * claiming to be a posting day). The pattern comes from the Distribute panel:
+ * a chosen set of weekdays ("Choose days"), or an even spread the arithmetic
+ * names ("Spread weekly"). Persisted per handle; defaults to Mon/Wed/Fri. */
+const DIST_DEFAULT = { mode: 'days', days: [0, 2, 4] };
+
+function distStorageKey(handle) {
+  return `bauhly:dist:${handle || 'default'}`;
+}
+function readDist(handle) {
+  try {
+    const raw = localStorage.getItem(distStorageKey(handle));
+    if (!raw) return { ...DIST_DEFAULT };
+    const p = JSON.parse(raw);
+    const days = Array.isArray(p.days) && p.days.length
+      ? [...new Set(p.days.filter((d) => d >= 0 && d <= 6))].sort((a, b) => a - b)
+      : [...DIST_DEFAULT.days];
+    return { mode: p.mode === 'weekly' ? 'weekly' : 'days', days: days.length ? days : [...DIST_DEFAULT.days] };
+  } catch {
+    return { ...DIST_DEFAULT };
+  }
+}
+
+/* how many whole weeks this month still has in it — the denominator "Spread
+   weekly" divides by. Past that the pattern simply repeats. */
+function weeksLeftInMonth(today = new Date()) {
+  const last = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+  let n = 0;
+  for (let c = mondayOf(today); c <= last; c = addDaysLocal(c, 7)) n += 1;
+  return Math.max(1, n);
+}
+
+/* the weekday pattern an even spread produces: how many posts a week (count ÷
+   weeks, rounded up), then those weekdays from Monday outward — one is Monday,
+   two are Monday and Thursday, three are Monday/Wednesday/Friday. */
+function weeklyPattern(count, weeks) {
+  const perWeek = Math.max(1, Math.min(7, Math.ceil(Math.max(1, count) / Math.max(1, weeks))));
+  return Array.from({ length: perWeek }, (_, i) => Math.floor((i * 7) / perWeek));
+}
+
+/* the weekday Set the calendar marks Posting, for the current distribution */
+function postingSetOf(dist, count) {
+  if (dist.mode === 'weekly') return new Set(weeklyPattern(count, weeksLeftInMonth()));
+  return new Set(dist.days.length ? dist.days : DIST_DEFAULT.days);
+}
+
+/* ── the "View:" control — Day / Weekly / Monthly (phone: Day ↔ Monthly) ── */
+function ViewMenu({ value, onPick }) {
+  const [open, setOpen] = useState(false);
+  const box = useRef(null);
+  const phone = useMediaQuery('(max-width: 767px)');
+  const views = phone ? CAL_VIEWS.filter(([id]) => id !== 'week') : CAL_VIEWS;
+  useEffect(() => {
+    if (!open) return undefined;
+    const away = (e) => { if (!box.current?.contains(e.target)) setOpen(false); };
+    const esc = (e) => { if (e.key === 'Escape') setOpen(false); };
+    document.addEventListener('mousedown', away);
+    window.addEventListener('keydown', esc);
+    return () => { document.removeEventListener('mousedown', away); window.removeEventListener('keydown', esc); };
+  }, [open]);
+  const label = (CAL_VIEWS.find(([id]) => id === value) || CAL_VIEWS[2])[1];
+  /* Two views on a phone are a toggle, not a menu (bauhly-v3). */
+  if (phone) {
+    const next = views[(views.findIndex(([id]) => id === value) + 1) % views.length]
+      || views[0];
+    return (
+      <button
+        type="button"
+        className="btn cal-viewm__btn cal-viewm__btn--toggle"
+        aria-label={`${label} view. Switch to ${next?.[1] || label}`}
+        onClick={() => next && onPick(next[0])}
+      >
+        <span className="cal-viewm__pre" aria-hidden="true">View:</span>
+        <span className="cal-viewm__label">{label}</span>
+      </button>
+    );
+  }
   return (
-    <div className="cal-mode" role="tablist" aria-label="Calendar view">
+    <div className="cal-viewm" ref={box}>
       <button
         type="button"
-        role="tab"
-        aria-selected={value === 'monthly'}
-        className={`cal-mode__btn${value === 'monthly' ? ' is-on' : ''}`}
-        onClick={() => onChange('monthly')}
+        className="btn cal-viewm__btn"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-label={`How to read the plan: ${label}`}
+        onClick={() => setOpen((o) => !o)}
       >
-        Monthly
+        <span className="cal-viewm__pre" aria-hidden="true">View:</span>
+        <span className="cal-viewm__label">{label}</span>
+        <Icon name="chevron-down" size={15} strokeWidth={2.1} className="cal-viewm__chev" />
       </button>
-      <button
-        type="button"
-        role="tab"
-        aria-selected={value === 'weekly'}
-        className={`cal-mode__btn${value === 'weekly' ? ' is-on' : ''}`}
-        onClick={() => onChange('weekly')}
-        onPointerEnter={() => onPrefetchWeekly?.()}
-      >
-        Weekly
-      </button>
+      {open && (
+        <>
+          <div className="cal-menu__scrim" onClick={() => setOpen(false)} />
+          <div className="cal-menu" role="menu" aria-label="How to read the plan">
+            {views.map(([id, text]) => (
+              <button
+                key={id}
+                type="button"
+                role="menuitemradio"
+                aria-checked={value === id}
+                onClick={() => { setOpen(false); onPick(id); }}
+              >
+                <span className="cal-viewm__tick" aria-hidden="true">
+                  {value === id && <Icon name="check" size={16} strokeWidth={2.25} />}
+                </span>
+                <span className="cal-menu__grow">{text}</span>
+              </button>
+            ))}
+          </div>
+        </>
+      )}
     </div>
   );
 }
 
-function MonthMoreMenu({ canReplan, replanning, clearing, genBusy, onReplan, onClear }) {
+/* ── the month ─────────────────────────────────────────────────────────── */
+function MonthView({
+  anchor,
+  index,
+  metaConnected,
+  posting,
+  previewOn = false,
+  handle = '',
+  phone = false,
+  onOpen,
+  onPickDay,
+  onDistribute,
+  onPatchPost,
+}) {
+  const cells = monthCellsOf(anchor.getFullYear(), anchor.getMonth(), index);
+  const weeks = [];
+  for (let i = 0; i < cells.length; i += 7) weeks.push(cells.slice(i, i + 7));
+  const today = startOfDay(new Date());
+  const { dayMenu, setDayMenu, fullDay, setFullDay } = useMonthDayMenu(index);
+  const [daySel, setDaySel] = useState(null);
+
+  const closeMenu = () => {
+    setDayMenu(null);
+    setDaySel(null);
+  };
+
+  const menuKey = dayMenu?.key || null;
+  const menuLevel = dayMenu?.level || null;
+  const menuRow = menuKey ? index.get(menuKey) : null;
+  const menuDay = menuKey ? (fullDay || menuRow?.day || null) : null;
+  const sheetDate = menuKey
+    ? (() => {
+      const [y, m, d] = menuKey.split('-').map(Number);
+      return new Date(y, m - 1, d);
+    })()
+    : null;
+  const sheetTitle = menuLevel === 'shift' ? 'Shift posts'
+    : menuLevel === 'state' ? 'Status'
+      : sheetDate ? longDayLabel(sheetDate) : '';
+
+  return (
+    <div className="yw-mcal">
+      <div className="yw-mcal__head" aria-hidden="true">
+        {WEEKDAYS.map((w, i) => (
+          <span key={w} className="yw-mcal__wd">
+            <b>{w}</b>
+            {posting.has(i) && <em className="yw-postchip">Post<span>ing</span></em>}
+          </span>
+        ))}
+      </div>
+      <div className="yw-mcal__grid" role="grid" aria-label="Month of posts">
+        {weeks.map((week) => (
+          <div className="yw-mcal__row" role="row" key={ymdKey(week[0].date)}>
+            {week.map((cell) => {
+              const key = ymdKey(cell.date);
+              const open = dayMenu?.key === key;
+              const row = cell.row;
+              const cellDay = open
+                ? (fullDay || row?.day || null)
+                : null;
+              return (
+                <div role="gridcell" key={key} className="yw-mcal__cell">
+                  <MonthDayCell
+                    cell={cell}
+                    metaConnected={metaConnected}
+                    preview={previewOn && cell.date >= today && posting.has((cell.date.getDay() + 6) % 7)}
+                    selected={daySel === key || open}
+                    timeLabel={timeLabelOf}
+                    onSelect={(c, r, late) => {
+                      const k = ymdKey(c.date);
+                      if (late) {
+                        setDayMenu({ key: k, level: null });
+                        setFullDay(r?.day || null);
+                        return;
+                      }
+                      /* lime lands immediately; menu waits so a double-click
+                         can still open the post without flashing the popover */
+                      setDayMenu(null);
+                      setDaySel(k);
+                    }}
+                    onOpen={onOpen}
+                    onPickDay={onPickDay}
+                    menu={open && !phone ? (
+                      <MonthDayMenu
+                        day={cellDay}
+                        handle={handle}
+                        metaConnected={metaConnected}
+                        level={menuLevel}
+                        onLevel={(level) => setDayMenu((m) => (m ? { ...m, level } : m))}
+                        onOpen={() => {
+                          if (row?.week) onOpen(row.week);
+                          else onPickDay?.(cell.date);
+                        }}
+                        onClose={closeMenu}
+                        onDistribute={onDistribute}
+                        onPatch={(next) => {
+                          setFullDay(next);
+                          onPatchPost?.(next);
+                        }}
+                      />
+                    ) : null}
+                  />
+                </div>
+              );
+            })}
+          </div>
+        ))}
+      </div>
+      {phone && (
+        <MobileSheet
+          open={!!dayMenu}
+          title={sheetTitle}
+          onBack={menuLevel
+            ? () => setDayMenu((m) => (m ? { ...m, level: null } : m))
+            : null}
+          onClose={closeMenu}
+        >
+          <MonthDayMenu
+            variant="sheet"
+            day={menuDay}
+            handle={handle}
+            metaConnected={metaConnected}
+            level={menuLevel}
+            onLevel={(level) => setDayMenu((m) => (m ? { ...m, level } : m))}
+            onOpen={() => {
+              closeMenu();
+              if (menuRow?.week) onOpen(menuRow.week);
+              else if (sheetDate) onPickDay?.(sheetDate);
+            }}
+            onClose={closeMenu}
+            onDistribute={onDistribute}
+            onPatch={(next) => {
+              setFullDay(next);
+              onPatchPost?.(next);
+            }}
+          />
+        </MobileSheet>
+      )}
+    </div>
+  );
+}
+
+/* ── Distribute posts — choose the publishing-day pattern ──────────────────
+ * Opened from the ⋯ menu. Two answers to one question: name the weekdays
+ * ("Choose days") or say "evenly" and let the arithmetic name them ("Spread
+ * weekly"). The chosen pattern drives the calendar's Posting columns and the
+ * rings drawn while this is open. A faithful port of bauhly-v3's DistributeBody. */
+function DistributePanel({ open, onClose, count, mode, days, onMode, onDays, weeklyCopy, onApply, applying }) {
+  const box = useRef(null);
+  useEffect(() => {
+    if (!open) return undefined;
+    const away = (e) => { if (!box.current?.contains(e.target)) onClose(); };
+    const esc = (e) => { if (e.key === 'Escape') onClose(); };
+    document.addEventListener('mousedown', away);
+    window.addEventListener('keydown', esc);
+    return () => { document.removeEventListener('mousedown', away); window.removeEventListener('keydown', esc); };
+  }, [open, onClose]);
+  if (!open) return null;
+  const on = new Set(days);
+  /* the last chosen day cannot be turned off — a pattern with no days in it
+     schedules nothing, which is not a state the studio can have asked for */
+  const toggle = (i) => {
+    if (on.has(i)) { if (on.size > 1) onDays(days.filter((d) => d !== i)); return; }
+    onDays([...days, i].sort((a, b) => a - b));
+  };
+  return (
+    <div className="yw-dist" ref={box}>
+      <div className="yw-dist__panel" role="dialog" aria-label="Distribute posts">
+        <h3 className="yw-dist__head">
+          {count ? `Distribute ${count} ${count === 1 ? 'post' : 'posts'}` : 'Distribute posts'}
+        </h3>
+        <div className="yw-dist__modes" role="radiogroup" aria-label="How to place the posts">
+          {[['days', 'Choose days'], ['weekly', 'Spread weekly']].map(([id, text]) => (
+            <button
+              key={id}
+              type="button"
+              role="radio"
+              aria-checked={mode === id}
+              className={`yw-dist__mode ${mode === id ? 'is-on' : ''}`}
+              onClick={() => onMode(id)}
+            >
+              {text}
+            </button>
+          ))}
+        </div>
+        {mode === 'days' ? (
+          <>
+            <p className="yw-dist__ask" id="dist-days-label">Choose your publishing days</p>
+            {!count && (
+              <p className="yw-dist__none">
+                Every upcoming post already has a date &mdash; scheduled, published, or set.
+                These days are what new posts will use.
+              </p>
+            )}
+            <div className="yw-dist__days" role="group" aria-labelledby="dist-days-label">
+              {WEEKDAYS.map((d, i) => {
+                const only = on.has(i) && on.size === 1;
+                return (
+                  <button
+                    key={d}
+                    type="button"
+                    className={`yw-dist__day ${on.has(i) ? 'is-on' : ''} ${only ? 'is-only' : ''}`}
+                    aria-pressed={on.has(i)}
+                    aria-disabled={only || undefined}
+                    aria-label={only ? `${WEEKDAYS_LONG[i]} — the only publishing day, keep at least one` : WEEKDAYS_LONG[i]}
+                    onClick={() => toggle(i)}
+                  >
+                    {d.slice(0, 1)}
+                  </button>
+                );
+              })}
+            </div>
+          </>
+        ) : (
+          <p className="yw-dist__ask">{weeklyCopy}</p>
+        )}
+        <div className="yw-dist__foot">
+          <button
+            type="button"
+            className="btn btn--primary yw-dist__apply"
+            disabled={applying || !count}
+            onClick={onApply}
+          >
+            {applying
+              ? 'Distributing…'
+              : count
+                ? `Distribute ${count} ${count === 1 ? 'post' : 'posts'}`
+                : 'Nothing to distribute'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ── the week strip — seven day cards ──────────────────────────────────── */
+function WeekStrip({ monday, index, metaConnected, onOpen, onPickDay }) {
+  const days = Array.from({ length: 7 }, (_, i) => {
+    const date = addDaysLocal(monday, i);
+    return { date, row: index.get(ymdKey(date)) || null };
+  });
+  return (
+    <div className="yw-cal">
+      <div className="yw-cal__grid" role="tablist" aria-label="This week's posts">
+        {days.map(({ date, row }) => {
+          const day = row?.day;
+          const now = isNowDay(date);
+          const st = day ? calStatusOf(day, metaConnected) : null;
+          const format = String(day?.format || '').replace(/ series$/, '');
+          const time = day ? timeLabelOf(day, row.week) : '';
+          const past = !now && date < startOfDay(new Date());
+          const wd = WEEKDAYS[(date.getDay() + 6) % 7];
+          const cls = ['yw-day'];
+          if (now) cls.push('is-today');
+          if (!row) cls.push('is-empty');
+          if (past) cls.push('is-past');
+          return (
+            <button
+              key={ymdKey(date)}
+              type="button"
+              className={cls.join(' ')}
+              aria-current={now ? 'date' : undefined}
+              aria-label={`${wd} ${date.getDate()}${now ? ', today' : ''}: ${day ? `${format} at ${time}` : 'not scheduled'}`}
+              onClick={() => (row ? onOpen(row.week, row.dayIndex) : onPickDay(date))}
+            >
+              <span className="yw-day__when">
+                <b>{wd}</b>
+                <i>{date.getDate()}</i>
+                {now && <em className="yw-day__today">Today</em>}
+              </span>
+              <span className="yw-day__line">
+                {day ? (
+                  <>
+                    <span className="yw-day__word">{format || 'Post'}</span>
+                    <span className="yw-day__sep" aria-hidden="true">·</span>
+                    <span className="yw-day__clock">{time}</span>
+                  </>
+                ) : (
+                  <span className="yw-day__none" aria-hidden="true" />
+                )}
+              </span>
+              {st && (
+                <span className={`yw-day__ready ${st.tone === 'done' ? 'is-done' : ''}`} aria-hidden="true">
+                  <Icon name={st.icon} size={13} strokeWidth={st.tone === 'done' ? 3 : 2.25} />
+                </span>
+              )}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/* ── the day — one post on its own, or an empty day inviting a capture ──── */
+function DayPanel({ date, index, metaConnected, onOpen, onCapture }) {
+  const row = index.get(ymdKey(date)) || null;
+  const day = row?.day;
+  const now = isNowDay(date);
+  const st = day ? calStatusOf(day, metaConnected) : null;
+  const format = String(day?.format || '').replace(/ series$/, '');
+  const time = day ? timeLabelOf(day, row.week) : '';
+  const cls = ['cal-daycard'];
+  if (now) cls.push('is-today');
+  if (!row) cls.push('is-empty');
+  return (
+    <div className="cal-daypanel">
+      <div className={cls.join(' ')}>
+        {day ? (
+          <>
+            <div className="cal-daycard__top">
+              <span className="cal-daycard__fmt">
+                <Icon name={FORMAT_ICON[day.format] || 'brief'} size={18} strokeWidth={2} />
+                {format || 'Post'}
+              </span>
+              {st && (
+                <span className={`cal-daycard__badge ${st.tone === 'done' ? 'is-done' : ''}`}>
+                  <Icon name={st.icon} size={12} strokeWidth={2.25} />
+                  {st.label}
+                </span>
+              )}
+            </div>
+            <h2 className="cal-daycard__title">{day.title || day.contentType || 'Planned post'}</h2>
+            <div className="cal-daycard__meta">
+              <span><Icon name="calendar" size={14} strokeWidth={2} />{longDayLabel(date)}</span>
+              {time && <span><Icon name="clock" size={14} strokeWidth={2} />{time}</span>}
+            </div>
+            <button className="btn btn--primary cal-daycard__open" onClick={() => onOpen(row.week, row.dayIndex)}>
+              Open post
+            </button>
+          </>
+        ) : (
+          <>
+            <h2 className="cal-daycard__title">{longDayLabel(date)}{now ? ' · Today' : ''}</h2>
+            <p className="cal-daycard__empty">Nothing planned for this day.</p>
+            <button className="btn btn--primary cal-daycard__open" onClick={onCapture}>
+              <Icon name="plus" size={15} strokeWidth={2.5} />
+              Capture idea
+            </button>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function MonthMoreMenu({ canReplan, canDistribute, replanning, clearing, genBusy, onReplan, onClear, onDistribute }) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef(null);
 
@@ -379,7 +915,7 @@ function MonthMoreMenu({ canReplan, replanning, clearing, genBusy, onReplan, onC
     };
   }, [open]);
 
-  if (!canReplan) return <span className="ph__toolbar-end" aria-hidden="true" />;
+  if (!canReplan && !canDistribute) return <span className="ph__toolbar-end" aria-hidden="true" />;
 
   return (
     <div className="ph__more" ref={rootRef}>
@@ -395,26 +931,41 @@ function MonthMoreMenu({ canReplan, replanning, clearing, genBusy, onReplan, onC
       </button>
       {open && (
         <div className="ph__more-menu" role="menu">
-          <button
-            type="button"
-            role="menuitem"
-            className="ph__more-item"
-            disabled={replanning || clearing || genBusy}
-            onClick={() => { setOpen(false); onReplan(); }}
-          >
-            <Icon name="refresh" size={14} strokeWidth={2.25} />
-            {replanning ? 'Adding posts…' : 'Fill empty days'}
-          </button>
-          <button
-            type="button"
-            role="menuitem"
-            className="ph__more-item ph__more-item--danger"
-            disabled={replanning || clearing || genBusy}
-            onClick={() => { setOpen(false); onClear(); }}
-          >
-            <Icon name="trash" size={14} strokeWidth={2.25} />
-            {clearing ? 'Clearing…' : 'Clear plan'}
-          </button>
+          {canDistribute && (
+            <button
+              type="button"
+              role="menuitem"
+              className="ph__more-item"
+              onClick={() => { setOpen(false); onDistribute(); }}
+            >
+              <Icon name="filter" size={14} strokeWidth={2.25} />
+              Distribute posts
+            </button>
+          )}
+          {canReplan && (
+            <button
+              type="button"
+              role="menuitem"
+              className="ph__more-item"
+              disabled={replanning || clearing || genBusy}
+              onClick={() => { setOpen(false); onReplan(); }}
+            >
+              <Icon name="refresh" size={14} strokeWidth={2.25} />
+              {replanning ? 'Adding posts…' : 'Fill empty days'}
+            </button>
+          )}
+          {canReplan && (
+            <button
+              type="button"
+              role="menuitem"
+              className="ph__more-item ph__more-item--danger"
+              disabled={replanning || clearing || genBusy}
+              onClick={() => { setOpen(false); onClear(); }}
+            >
+              <Icon name="trash" size={14} strokeWidth={2.25} />
+              {clearing ? 'Clearing…' : 'Clear plan'}
+            </button>
+          )}
         </div>
       )}
     </div>
@@ -448,13 +999,33 @@ export default function YourPlans() {
       .then((full) => { if (full?._id === id) fullCacheRef.current.set(id, postToRoute(full)); else fullCacheRef.current.delete(id); })
       .catch(() => fullCacheRef.current.delete(id));
   };
-  const [capturing, setCapturing] = useState(false); // the Capture idea flow
   const [replanning, setReplanning] = useState(false);
   const [clearing, setClearing] = useState(false);
-  const [calCursor, setCalCursor] = useState(() => {
-    const n = new Date();
-    return { year: n.getFullYear(), month: n.getMonth() };
+  // The calendar's focal date drives all three views: the month it falls in,
+  // the Mon–Sun week around it, or the day itself. `calView` is remembered
+  // across visits so the studio lands back in the reading they chose.
+  const [anchorDate, setAnchorDate] = useState(() => startOfDay(new Date()));
+  const [calViewStored, setCalView] = useState(() => {
+    try { return localStorage.getItem('calView') || 'month'; } catch { return 'month'; }
   });
+  /* A phone never lands in Weekly — the menu does not offer it, and a stored
+     desktop preference must not trap them there (bauhly-v3). */
+  const phoneWidth = useMediaQuery('(max-width: 767px)');
+  const calView = (phoneWidth && calViewStored === 'week') ? 'day' : calViewStored;
+  const [forceWorkspace, setForceWorkspace] = useState(false);
+  const feedOn = phoneWidth && calView === 'day' && !forceWorkspace;
+  const [feedIso, setFeedIso] = useState(null);
+  const [feedScrollIso, setFeedScrollIso] = useState(null);
+  // The Distribute panel (opened from the ⋯) and the publishing-day pattern it
+  // edits. The pattern is per handle; it drives the calendar's Posting columns.
+  const [distOpen, setDistOpen] = useState(false);
+  const [dist, setDist] = useState(DIST_DEFAULT);
+  const [distributing, setDistributing] = useState(false);
+  // The Weekly / Day views embed WeekView (the post workspace). `embedWeek` is
+  // the built week route + which day to open; `embedDay` is the post WeekView is
+  // currently showing (so the toolbar can name the day it is on).
+  const [embedWeek, setEmbedWeek] = useState(null);
+  const [embedDay, setEmbedDay] = useState(null);
   // Week 0 returns before the rest of the month finishes — poll until stubs land.
   const [monthFilling, setMonthFilling] = useState(false);
   const fillWatchRef = useRef(null);
@@ -497,6 +1068,37 @@ export default function YourPlans() {
     reload().finally(() => setLoading(false));
     return () => stopMonthFillWatch();
   }, []);
+
+  // Load the publishing-day pattern for the active handle (it switches with the
+  // header account). localStorage is the source of truth, so a background reload
+  // that re-runs this reads back whatever the panel last saved.
+  const activeHandle = current?.instagramUsername || routes[0]?.instagramUsername || '';
+  useEffect(() => { setDist(readDist(activeHandle)); }, [activeHandle]);
+
+  function saveDist(next) {
+    setDist(next);
+    try { localStorage.setItem(distStorageKey(activeHandle), JSON.stringify(next)); } catch { /* private mode — the session value holds */ }
+  }
+
+  // Build WeekView embed for Weekly / desktop Day / phone feed→editor.
+  const embedKey = view !== 'list' || (feedOn && !forceWorkspace)
+    ? ''
+    : (calView === 'day' || forceWorkspace)
+      ? ymdKey(anchorDate)
+      : calView === 'week'
+        ? mondayKey(anchorDate)
+        : '';
+  useEffect(() => {
+    if (loading || view !== 'list' || calView === 'month') { setEmbedWeek(null); return undefined; }
+    let cancelled = false;
+    setEmbedWeek(null);
+    // Weekly always stages a real post; Day view may open on an empty date.
+    buildEmbedWeek(anchorDate, { preferPost: calView === 'week' }).then((r) => {
+      if (!cancelled) setEmbedWeek(r);
+    });
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [calView, embedKey, loading, view, activeHandle]);
 
   // After the grid can paint: meta (schedule badges) + lite projects (NeedsAWord).
   // Skips a forced /projects refresh when the store is already hydrated.
@@ -624,7 +1226,6 @@ export default function YourPlans() {
   // Re-run the current month's plan (same path as check-in generate).
   async function runGenerate(trigger, extras = {}) {
     setError('');
-    setCapturing(false);
     setView('gen');
     setPlanWatching(true);
     try {
@@ -647,6 +1248,26 @@ export default function YourPlans() {
     runGenerate(trigger, extras);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [location.state?.generateAfterCapture]);
+
+  // Move the upcoming posts onto the chosen publishing days. The backend does
+  // the reallocation (it owns the dates + the unique-slot rule) and returns the
+  // refreshed calendar, which we fold back in without a second round-trip.
+  async function applyDistribute() {
+    if (distributing) return;
+    setError('');
+    setDistributing(true);
+    try {
+      const data = await distributePosts(dist.mode, dist.days);
+      const all = (data.posts || []).map(postToRoute);
+      setRoutes(all);
+      setCurrent(pickCurrentRoute(all));
+      setDistOpen(false);
+    } catch (err) {
+      setError(err.response?.data?.message || "We couldn't distribute the posts just now. Please try again.");
+    } finally {
+      setDistributing(false);
+    }
+  }
 
   async function onReplanMonth() {
     if (replanning || gen.status === 'generating') return;
@@ -853,153 +1474,357 @@ export default function YourPlans() {
   // the day rail, with the clicked post auto-selected. Each day is an
   // independent post, so we gather the week's posts from the loaded list and
   // fetch their full content (using the prefetch cache when warm).
-  async function open(clicked, _dayIndex = 0) {
-    const clickedPost = clicked?.days?.[0] || clicked;
-    const clickedId = clickedPost?._id;
-    const base = parseIsoDay(clickedPost?.date) || new Date();
+  // Gather a whole Mon–Sun week around `anchor` — always seven day slots, with
+  // full post content where a post exists and empty calendar placeholders where
+  // it does not (bauhly-v3 DaySelector draws seven equal cards). Open on the
+  // anchor's weekday, whether or not that day has a post.
+  // The one builder behind both the embedded Weekly/Day views and the
+  // full-screen open() (meta-OAuth return).
+  async function buildEmbedWeek(anchor, { preferPost = true } = {}) {
+    const base = anchor instanceof Date ? anchor : (parseIsoDay(anchor) || new Date());
     const mon = startOfDay(mondayOf(base));
     const sun = startOfDay(addDaysLocal(mon, 6));
-
+    const handle = activeHandle;
     const weekRoutes = (routes || [])
       .filter((r) => {
         const d = parseIsoDay(r.days?.[0]?.date);
         return d && startOfDay(d) >= mon && startOfDay(d) <= sun;
       })
       .sort((a, b) => (parseIsoDay(a.days?.[0]?.date)?.getTime() || 0) - (parseIsoDay(b.days?.[0]?.date)?.getTime() || 0));
-    const list = weekRoutes.length ? weekRoutes : [clicked].filter(Boolean);
-
-    setOpening(true);
-    const fullPosts = await Promise.all(list.map(async (r) => {
+    const byYmd = new Map();
+    await Promise.all(weekRoutes.map(async (r) => {
       const cached = fullCacheRef.current.get(r._id);
-      if (cached?.days?.[0]?.content) return cached.days[0];
-      const p = await getPost(r._id).catch(() => null);
-      if (p) fullCacheRef.current.set(r._id, postToRoute(p));
-      return p || r.days?.[0] || r;
+      let post = cached?.days?.[0]?.content ? cached.days[0] : null;
+      if (!post) {
+        const p = await getPost(r._id).catch(() => null);
+        if (p) fullCacheRef.current.set(r._id, postToRoute(p));
+        post = p || r.days?.[0] || null;
+      }
+      if (!post) return;
+      const d = parseIsoDay(post.date);
+      if (d) byYmd.set(ymdKey(d), post);
     }));
-    setOpening(false);
-
-    const days = fullPosts.filter(Boolean);
-    const idx = Math.max(0, days.findIndex((p) => String(p._id) === String(clickedId)));
-    const weekRoute = {
-      _id: `week-${clickedPost?.instagramUsername || ''}-${mondayKey(mon)}`,
-      instagramUsername: clickedPost?.instagramUsername,
-      days,
+    const days = Array.from({ length: 7 }, (_, i) => {
+      const date = addDaysLocal(mon, i);
+      const existing = byYmd.get(ymdKey(date));
+      if (existing) return existing;
+      const iso = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+      return {
+        empty: true,
+        date: iso,
+        day: WEEKDAYS_LONG[i],
+        dateLabel: date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+      };
+    });
+    const anchorKey = ymdKey(base);
+    let idx = days.findIndex((p) => ymdKey(parseIsoDay(p.date)) === anchorKey);
+    if (idx < 0) idx = Math.min(6, Math.max(0, Math.round((startOfDay(base) - mon) / 86400000)));
+    // Weekly always stages a real post; Day view may keep an empty anchor.
+    if (preferPost && days[idx]?.empty) {
+      const first = days.findIndex((p) => !p.empty);
+      if (first >= 0) idx = first;
+    }
+    return {
+      route: { _id: `week-${handle}-${mondayKey(mon)}`, instagramUsername: handle, days },
+      dayIndex: idx,
     };
+  }
+
+  async function open(clicked, _dayIndex = 0) {
+    const clickedPost = clicked?.days?.[0] || clicked;
+    const base = parseIsoDay(clickedPost?.date) || new Date();
+    setOpening(true);
+    const { route: weekRoute, dayIndex } = await buildEmbedWeek(base);
+    setOpening(false);
     setSelected(weekRoute);
-    setSelectedDay(idx);
+    setSelectedDay(dayIndex);
     setView('week');
   }
 
+  // Month "Open post" / double-click → Day view on that date (bauhly-v3 openDay).
+  // Never Weekly: the month names a day; Weekly is only via the View menu.
+  function goToPost(clicked) {
+    const post = clicked?.days?.[0] || clicked;
+    const d = parseIsoDay(post?.date);
+    if (d) setAnchorDate(startOfDay(d));
+    if (phoneWidth && !forceWorkspace) {
+      /* Phone Day view is the feed — land on that post. From the feed itself
+         the caller sets forceWorkspace first so we open the editor. */
+      const iso = d
+        ? `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+        : '';
+      pickView('day');
+      if (iso) {
+        setFeedIso(iso);
+        setFeedScrollIso(`${iso}#${Date.now()}`);
+      }
+      return;
+    }
+    pickView('day');
+  }
+
   const now = new Date();
-  const isCurrentView = calCursor.year === now.getFullYear() && calCursor.month === now.getMonth();
-  // Every post is a synthetic one-day route; monthDaysOf turns each into a
-  // calendar day-row on its own date (the grid filters to the visible month).
-  const monthDays = monthDaysOf(routes);
+  // Every post is a synthetic one-day route wrapped by postToRoute; buildPostIndex
+  // lays each onto its own calendar day, and all three views read from that index.
+  const postIndex = buildPostIndex(routes);
+  const postDates = postDatesOf(postIndex);
+  const isCurrentView = anchorDate.getFullYear() === now.getFullYear() && anchorDate.getMonth() === now.getMonth();
   const canReplan = isCurrentView && routes.length > 0;
-  const monthLabel = `${MONTHS[calCursor.month]} ${calCursor.year}`;
-  const calGroup = { start: new Date(calCursor.year, calCursor.month, 1, 12, 0, 0, 0) };
   const calendarHandle = current?.instagramUsername || routes[0]?.instagramUsername;
   const calendarMetaConnected = isMetaConnectedFor(metaStatus, calendarHandle);
 
-  const shiftMonth = (delta) => {
-    setCalCursor((c) => {
-      const d = new Date(c.year, c.month + delta, 1);
-      return { year: d.getFullYear(), month: d.getMonth() };
+  // The posts the distribution will move: strictly after today, not published,
+  // not scheduled (matches the backend's "movable" set exactly, so the count the
+  // panel names equals the number that actually move).
+  const toPlace = routes.filter((r) => {
+    const d = r.days?.[0];
+    const date = parseIsoDay(d?.date);
+    if (!date || startOfDay(date) <= startOfDay(now)) return false;
+    if (d?.published || d?.scheduledAt || d?.savedForReview) return false;
+    return Boolean(String(d?.title || '').trim() || String(d?.format || '').trim());
+  }).length;
+  const postingSet = postingSetOf(dist, toPlace);
+  const weeklyCopy = toPlace
+    ? `We'll spread your ${toPlace} ${toPlace === 1 ? 'post' : 'posts'} evenly across the available weeks. If those weeks are full, we'll continue into the next month.`
+    : 'Nothing left to spread — every upcoming post already has a date.';
+
+  const weekMonday = mondayOf(anchorDate);
+  // In Day view the workspace owns which post is on screen; the toolbar names
+  // that day (from `embedDay`), falling back to the anchor before it loads.
+  const dayLabelDate = (feedOn && feedIso && parseIsoDay(feedIso))
+    || (calView === 'day' && parseIsoDay(embedDay?.date))
+    || anchorDate;
+  // The period label + the Today button both answer "where am I" in each view's
+  // own terms: a month it contains, the week it falls in, or the day it is. The
+  // Weekly view names the month (its strip carries the days), like the reference.
+  const periodLabel = calView === 'month'
+    ? `${MONTHS[anchorDate.getMonth()]} ${anchorDate.getFullYear()}`
+    : calView === 'week'
+      ? `${MONTHS[weekMonday.getMonth()]} ${weekMonday.getFullYear()}`
+      : `${MONTHS[dayLabelDate.getMonth()].slice(0, 3)} ${dayLabelDate.getDate()}`;
+  const dayWeekdayLabel = WEEKDAYS_LONG[(dayLabelDate.getDay() + 6) % 7].slice(0, 3);
+  const atToday = calView === 'month'
+    ? isCurrentView
+    : calView === 'week'
+      ? ymdKey(weekMonday) === ymdKey(mondayOf(now))
+      : isNowDay(dayLabelDate);
+
+  const pickView = (v) => {
+    const next = (phoneWidth && v === 'week') ? 'day' : v;
+    setForceWorkspace(false);
+    setCalView(next);
+    try { localStorage.setItem('calView', next); } catch { /* private mode — the default holds */ }
+  };
+
+  // The Day view steps between scheduled posts (skipping empty days); month and
+  // week step by a whole period. Everything moves the one anchor date.
+  const stepDayDate = (from, delta) => {
+    const cur = startOfDay(from);
+    if (delta > 0) {
+      const nxt = postDates.find((pd) => startOfDay(pd) > cur);
+      if (nxt) return startOfDay(nxt);
+    } else {
+      const prev = [...postDates].reverse().find((pd) => startOfDay(pd) < cur);
+      if (prev) return startOfDay(prev);
+    }
+    return startOfDay(addDaysLocal(from, delta));
+  };
+  const stepPeriod = (delta) => {
+    setAnchorDate((d) => {
+      if (calView === 'month') {
+        const day = Math.min(d.getDate(), new Date(d.getFullYear(), d.getMonth() + delta + 1, 0).getDate());
+        const n = new Date(d.getFullYear(), d.getMonth() + delta, day);
+        n.setHours(0, 0, 0, 0);
+        return n;
+      }
+      if (calView === 'week') return startOfDay(addDaysLocal(d, delta * 7));
+      return stepDayDate(d, delta);
     });
   };
-
-  // The "Weekly" tab now just opens a post — the current/first upcoming one.
-  const openWeekly = () => {
-    const post = selected || current || routes[0];
-    if (!post) return;
-    open(post, 0);
+  const goToday = () => {
+    const today = startOfDay(new Date());
+    setAnchorDate(today);
+    if (feedOn) {
+      const isoOfDate = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+      const todayIso = isoOfDate(today);
+      const hit = postDates.find((pd) => isoOfDate(startOfDay(pd)) === todayIso)
+        || postDates.find((pd) => startOfDay(pd) >= today)
+        || postDates[postDates.length - 1];
+      if (hit) {
+        const iso = isoOfDate(startOfDay(hit));
+        setFeedIso(iso);
+        setFeedScrollIso(`${iso}#${Date.now()}`); /* force scroll even if same iso */
+      }
+    }
   };
+  // Pressing an empty day in the month or week drills into it in Day view.
+  const goDay = (date) => { setAnchorDate(startOfDay(date)); pickView('day'); };
+
+  const feedItems = [...postIndex.values()];
 
   return (
-    <div className="ph">
-      <div className="ph__head">
-        <div className="ph__headrow">
-          <h1 className="ph__title">Calendar</h1>
-          <div className="ph__headacts">
-            <button className="btn btn--primary btn--sm ph__new" onClick={() => { ensureProjects(); setCapturing(true); }}>
-              <Icon name="plus" size={15} strokeWidth={2.5} />
-              Capture idea
-            </button>
+    <div className={`ph ph--cal ph--cal-${calView}${feedOn ? ' ph--cal-feed' : ''}`}>
+      {/* Month keeps the Calendar title. Weekly / Day promote the period label
+          to the title (bauhly-v3). Capture lives in the sidebar. */}
+      {calView === 'month' && !phoneWidth && (
+        <div className="ph__head">
+          <div className="ph__headrow">
+            <h1 className="ph__title">Calendar</h1>
           </div>
+          {error && <p className="ph__sub" style={{ color: 'var(--negative)' }}>{error}</p>}
         </div>
-        {error && <p className="ph__sub" style={{ color: 'var(--negative)' }}>{error}</p>}
-      </div>
+      )}
+      {calView === 'month' && phoneWidth && error && (
+        <p className="ph__sub" style={{ color: 'var(--negative)' }}>{error}</p>
+      )}
+      {calView !== 'month' && error && (
+        <p className="ph__sub" style={{ color: 'var(--negative)' }}>{error}</p>
+      )}
 
       <NeedsAWord />
 
-      <div className="ph__toolbar">
-        <span className="ph__monthnav ph__monthnav--pill">
-          <button
-            type="button"
-            className="btn btn--ghost btn--sm ph__monthnav-btn"
-            onClick={() => shiftMonth(-1)}
-            aria-label="Previous month"
-          >
-            <Icon name="chevron-left" size={16} strokeWidth={2.25} />
-          </button>
-          <span className="ph__monthnav-label">{monthLabel}</span>
-          <button
-            type="button"
-            className="btn btn--ghost btn--sm ph__monthnav-btn"
-            onClick={() => shiftMonth(1)}
-            aria-label="Next month"
-          >
-            <Icon name="chevron-right" size={16} strokeWidth={2.25} />
-          </button>
-        </span>
+      <div className="cal-bar">
+        <div className="cal-bar__left">
+          <h2 className="cal-period">
+            {periodLabel}
+            {(calView === 'day' || feedOn) && (
+              <span className="cal-period__day"><span className="cal-period__div">|</span>{dayWeekdayLabel}</span>
+            )}
+          </h2>
+          <span className={`cal-nav${feedOn ? ' cal-nav--feed' : ''}`}>
+            {!feedOn && (
+              <button
+                type="button"
+                className="cal-nav__arrow"
+                onClick={() => stepPeriod(-1)}
+                aria-label={`Previous ${calView === 'month' ? 'month' : calView === 'week' ? 'week' : 'post'}`}
+              >
+                <Icon name="chevron-left" size={16} strokeWidth={2.25} />
+              </button>
+            )}
+            <button
+              type="button"
+              className="cal-nav__today"
+              onClick={goToday}
+              disabled={atToday && !feedOn}
+              aria-current={atToday ? 'date' : undefined}
+            >
+              Today
+            </button>
+            {!feedOn && (
+              <button
+                type="button"
+                className="cal-nav__arrow"
+                onClick={() => stepPeriod(1)}
+                aria-label={`Next ${calView === 'month' ? 'month' : calView === 'week' ? 'week' : 'post'}`}
+              >
+                <Icon name="chevron-right" size={16} strokeWidth={2.25} />
+              </button>
+            )}
+          </span>
+        </div>
 
-        <CalModeTabs
-          value="monthly"
-          onChange={(mode) => { if (mode === 'weekly') openWeekly(); }}
-          onPrefetchWeekly={() => {
-            const week = selected || current || routes[0];
-            if (week?._id) prefetchWeek(week._id);
-          }}
-        />
-
-        <MonthMoreMenu
-          canReplan={canReplan}
-          replanning={replanning}
-          clearing={clearing}
-          genBusy={gen.status === 'generating'}
-          onReplan={onReplanMonth}
-          onClear={onClearMonth}
-        />
+        <div className="cal-bar__right">
+          <ViewMenu value={calView} onPick={pickView} />
+          <MonthMoreMenu
+            canReplan={canReplan}
+            canDistribute={routes.length > 0}
+            replanning={replanning}
+            clearing={clearing}
+            genBusy={gen.status === 'generating'}
+            onReplan={onReplanMonth}
+            onClear={onClearMonth}
+            onDistribute={() => setDistOpen(true)}
+          />
+          <DistributePanel
+            open={distOpen}
+            onClose={() => setDistOpen(false)}
+            count={toPlace}
+            mode={dist.mode}
+            days={dist.days.length ? dist.days : DIST_DEFAULT.days}
+            onMode={(m) => saveDist({ ...dist, mode: m })}
+            onDays={(d) => saveDist({ ...dist, days: d })}
+            weeklyCopy={weeklyCopy}
+            onApply={applyDistribute}
+            applying={distributing}
+          />
+        </div>
       </div>
 
       <div className="ph__list">
-        <section className="ph__group">
-          <div className="ph__month">
-            {monthFilling && isCurrentView && (
-              <p className="ph__usage ph__usage--filling">Writing the rest of this month…</p>
-            )}
-            <MonthCalendar
-              group={calGroup}
-              days={monthDays}
-              onOpen={open}
-              onPrefetch={prefetchWeek}
+        {monthFilling && isCurrentView && calView === 'month' && (
+          <p className="ph__usage ph__usage--filling">Writing the rest of this month…</p>
+        )}
+        <div className="cal-plan" key={calView === 'month' ? `m-${anchorDate.getFullYear()}-${anchorDate.getMonth()}` : (feedOn ? 'feed' : calView)}>
+          {calView === 'month' ? (
+            <MonthView
+              anchor={anchorDate}
+              index={postIndex}
               metaConnected={calendarMetaConnected}
+              posting={postingSet}
+              previewOn={distOpen}
+              handle={activeHandle}
+              phone={phoneWidth}
+              onOpen={(route) => goToPost(route)}
+              onPickDay={goDay}
+              onDistribute={() => setDistOpen(true)}
+              onPatchPost={(post) => {
+                if (!post?._id) return;
+                const next = postToRoute(post);
+                fullCacheRef.current.set(String(post._id), next);
+                setRoutes((list) => list.map((r) => (String(r._id) === String(post._id) ? next : r)));
+                setCurrent((c) => (c && String(c._id) === String(post._id) ? next : c));
+              }}
             />
-          </div>
-        </section>
+          ) : feedOn ? (
+            <DayFeed
+              items={feedItems}
+              handle={activeHandle}
+              metaConnected={calendarMetaConnected}
+              onOpen={(row) => {
+                const post = row.week || row.day;
+                const d = parseIsoDay(post?.date || row.date);
+                if (d) setAnchorDate(startOfDay(d));
+                setForceWorkspace(true);
+              }}
+              onIso={(iso) => {
+                setFeedIso(iso);
+                const d = parseIsoDay(iso);
+                if (d) setAnchorDate(startOfDay(d));
+              }}
+              scrollToIso={feedScrollIso}
+            />
+          ) : embedWeek ? (
+            <Suspense fallback={<div className="ph"><p className="ph__sub">Opening…</p></div>}>
+              <WeekView
+                key={`${embedWeek.route._id}-${calView}-${forceWorkspace ? 'edit' : ''}`}
+                route={embedWeek.route}
+                initialDay={embedWeek.dayIndex}
+                monthWeeks={[]}
+                embedded
+                hideStrip={calView === 'day' || forceWorkspace}
+                onDayChange={(d) => setEmbedDay(d)}
+                onDistribute={() => setDistOpen(true)}
+                onCaptured={() => runGenerate('capture')}
+                onRouteChange={(route) => {
+                  const byId = new Map();
+                  (route?.days || []).forEach((p) => { if (p?._id) byId.set(String(p._id), postToRoute(p)); });
+                  if (!byId.size) return;
+                  byId.forEach((w, id) => fullCacheRef.current.set(id, w));
+                  setRoutes((list) => list.map((r) => byId.get(String(r._id)) || r));
+                  setCurrent((c) => (c && byId.get(String(c._id))) || c);
+                }}
+                onBack={() => {
+                  if (forceWorkspace) setForceWorkspace(false);
+                  else pickView('month');
+                }}
+              />
+            </Suspense>
+          ) : (
+            <div className="ph"><p className="ph__sub">Opening…</p></div>
+          )}
+        </div>
       </div>
-
-      {capturing && (
-        <Suspense fallback={null}>
-          <CaptureChat
-            defaultProjectId={projects[0]?.id}
-            exitLabel="Back to calendar"
-            onExit={() => setCapturing(false)}
-            onViewProject={() => { setCapturing(false); navigate('/dashboard/projects'); }}
-            onCaptured={() => runGenerate('capture')}
-          />
-        </Suspense>
-      )}
     </div>
   );
 }

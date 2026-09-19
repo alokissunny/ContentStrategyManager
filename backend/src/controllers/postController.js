@@ -1,5 +1,5 @@
 const PlannedPost = require('../models/PlannedPost');
-const { generateWeeklyPlan, buildEmptySlots, isoDate } = require('../services/weeklyPlan');
+const { generateWeeklyPlan, buildEmptySlots, isoDate, parseIsoDate } = require('../services/weeklyPlan');
 const { rewriteCaption } = require('../services/captionPolish');
 const { runLayoutForPost, writeLayoutVariations, applyLayoutToContent, normalizeWriterPost, attachGeneratedVisuals } = require('../services/planOrchestrator');
 const { copyFromLayoutHtml, injectImageIntoSlots } = require('../services/layoutHtml');
@@ -252,6 +252,115 @@ async function clearUpcoming(req, res) {
   });
   console.log(`[posts] clear-calendar @${profile.username} · deleted=${result.deletedCount}`);
   res.json({ deleted: result.deletedCount });
+}
+
+// ── Distribute posts ────────────────────────────────────────────────────────
+// Reallocate the upcoming, movable posts onto the studio's chosen publishing
+// weekdays. "Movable" = strictly after today, not published, not scheduled, not
+// held for review — history and promises stay where they are. The posts keep
+// their order (oldest first) and take the pattern's free days from tomorrow
+// forward, one per day, skipping any date a kept post already holds.
+const WEEKDAY_LONG = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+const mondayIndexOf = (d) => (d.getDay() + 6) % 7;
+
+// how many whole weeks this month still has in it — the denominator "Spread
+// weekly" divides by.
+function weeksLeftInMonth(today) {
+  const last = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+  const c = new Date(today);
+  c.setHours(0, 0, 0, 0);
+  c.setDate(c.getDate() - mondayIndexOf(c)); // Monday of this week
+  let n = 0;
+  while (c <= last) { n += 1; c.setDate(c.getDate() + 7); }
+  return Math.max(1, n);
+}
+
+// the weekday pattern an even spread produces: how many posts a week (count ÷
+// weeks, rounded up), then those weekdays from Monday outward.
+function weeklyPatternDays(count, weeks) {
+  const perWeek = Math.max(1, Math.min(7, Math.ceil(Math.max(1, count) / Math.max(1, weeks))));
+  return Array.from({ length: perWeek }, (_, i) => Math.floor((i * 7) / perWeek));
+}
+
+async function distributePosts(req, res) {
+  const profile = await currentProfile(req.user._id).select('username').lean();
+  if (!profile) return res.status(404).json({ message: 'No Instagram profile found.' });
+  const handle = profile.username;
+
+  const mode = req.body?.mode === 'weekly' ? 'weekly' : 'days';
+  const chosen = Array.isArray(req.body?.days)
+    ? [...new Set(req.body.days.map(Number).filter((d) => Number.isInteger(d) && d >= 0 && d <= 6))].sort((a, b) => a - b)
+    : [];
+
+  const today = startOfDay();
+  const todayIso = isoDate(today);
+
+  const all = await PlannedPost.find({ user: req.user._id, instagramUsername: handle })
+    .select('date published scheduledAt savedForReview title format').lean();
+
+  // Movable: strictly after today, not locked, and actually a post.
+  const movable = all
+    .filter((p) => p.date > todayIso
+      && !p.published && !p.scheduledAt && !p.savedForReview
+      && (String(p.title || '').trim() || String(p.format || '').trim()))
+    .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+
+  const respond = async (moved) => {
+    const posts = await PlannedPost.find({ user: req.user._id, instagramUsername: handle })
+      .sort({ date: 1 }).select('-content -agentTrace').lean();
+    res.json({ posts, moved });
+  };
+
+  if (!movable.length) return respond(0);
+
+  // Dates spoken for by posts that stay put — targets must avoid them.
+  const movableIds = new Set(movable.map((p) => String(p._id)));
+  const keepDates = new Set(all.filter((p) => !movableIds.has(String(p._id))).map((p) => p.date));
+
+  const patternDays = mode === 'weekly'
+    ? new Set(weeklyPatternDays(movable.length, weeksLeftInMonth(today)))
+    : new Set(chosen.length ? chosen : [0, 2, 4]);
+
+  // Walk forward from tomorrow, collecting the pattern's free days in order.
+  const targets = [];
+  const cursor = new Date(today);
+  cursor.setDate(cursor.getDate() + 1);
+  for (let i = 0; i < 800 && targets.length < movable.length; i += 1) {
+    const iso = isoDate(cursor);
+    if (patternDays.has(mondayIndexOf(cursor)) && !keepDates.has(iso)) {
+      targets.push({ iso, wd: mondayIndexOf(cursor) });
+    }
+    cursor.setDate(cursor.getDate() + 1);
+  }
+  if (targets.length < movable.length) {
+    return res.status(400).json({ message: 'Not enough room to distribute all posts onto those days.' });
+  }
+
+  // Already where the pattern wants them — nothing to write.
+  if (movable.every((p, i) => p.date === targets[i].iso)) return respond(0);
+
+  const monthShort = (iso) => {
+    const d = parseIsoDate(iso);
+    return d ? d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '';
+  };
+
+  // Two-phase write so the unique (user, handle, date) index never collides: a
+  // target may be another movable post's current date, so first park them all on
+  // throwaway dates, then set the finals (which are distinct and avoid kept days).
+  const parkOps = movable.map((p, i) => ({
+    updateOne: { filter: { _id: p._id }, update: { $set: { date: `0000-00-${String(i).padStart(4, '0')}` } } },
+  }));
+  const finalOps = movable.map((p, i) => ({
+    updateOne: {
+      filter: { _id: p._id },
+      update: { $set: { date: targets[i].iso, day: WEEKDAY_LONG[targets[i].wd], dateLabel: monthShort(targets[i].iso) } },
+    },
+  }));
+  await PlannedPost.bulkWrite(parkOps, { ordered: false });
+  await PlannedPost.bulkWrite(finalOps, { ordered: false });
+
+  console.log(`[posts] distribute @${handle} · mode=${mode} · moved=${movable.length}`);
+  return respond(movable.length);
 }
 
 // ── Content merge (preserves plan-written fields across studio edits) ────────
@@ -846,6 +955,7 @@ module.exports = {
   getPostDebug,
   generatePlan,
   clearUpcoming,
+  distributePosts,
   updatePost,
   polishCaption,
   rerunLayout,

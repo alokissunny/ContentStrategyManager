@@ -10,6 +10,7 @@
   flex-direction: column;
   min-height: 100vh;
   background: var(--canvas);
+  --navbar-bg: #ffffff;
   /* the inside product uses a Notion-style native system font — cleaner and
    * more "app" than the marketing display face. Scoped to .app only, so the
    * landing (/) and onboarding (/onboarding) keep Bricolage + Inter. */
@@ -116,6 +117,19 @@
   display: flex;
   flex-direction: column;
   gap: var(--sp-3);
+}
+/* Capture — full-width primary at the foot (bauhly-v3). `.app` prefix so it
+ * wins over `.btn`'s own 44px height. Optical centre: padding-right absorbs
+ * the plus+gap so the label sits on the midline. */
+.app .sb__capture {
+  width: 100%;
+  justify-content: center;
+  height: 48px;
+  padding-left: var(--sp-6);
+  padding-right: calc(var(--sp-6) + 24px);
+  border-radius: var(--r-pill, 999px);
+  font-weight: 600;
+  gap: 8px;
 }
 .sb__status {
   display: flex;
@@ -1574,6 +1588,8 @@ textarea.ai-debug__input {
 .mtabs {
   display: none;
 }
+/* Capture dock: phone only (bauhly-v3). `.btn` would otherwise paint it. */
+.btn.cap-fab--dock { display: none; }
 
 /* ── tablet: the sidebar collapses to a rail ─────────────────────────────
  * Between 801 and 1100px the content column is the thing under pressure, and
@@ -1587,7 +1603,18 @@ textarea.ai-debug__input {
   .sb__link { justify-content: center; padding: 11px 0; }
   .sb__label { display: none; }
   .sb__section { display: none; }
-  .sb__foot { display: none; }
+  /* Keep Capture on the rail as an icon disc; account switcher stays in the header */
+  .sb__foot { display: flex; align-items: center; }
+  .sb__foot .acs,
+  .sb__foot .acctsw,
+  .sb__foot [class*="acct"] { display: none; }
+  .app .sb__capture {
+    width: 44px;
+    height: 44px;
+    padding: 0;
+    align-self: center;
+    border-radius: var(--r-full, 999px);
+  }
   .apptop__acct { display: block; }
   .apptop__user { display: block; }
   /* the user menu already sits here — a second avatar beside the handle is noise */
@@ -1639,7 +1666,7 @@ textarea.ai-debug__input {
     right: 0;
     bottom: 0;
     z-index: 40;
-    background: rgba(255, 255, 255, 0.92);
+    background: var(--navbar-bg, rgba(255, 255, 255, 0.92));
     backdrop-filter: blur(22px) saturate(180%);
     -webkit-backdrop-filter: blur(22px) saturate(180%);
     border-top: 1px solid var(--border);
@@ -1662,6 +1689,25 @@ textarea.ai-debug__input {
     color: var(--ink-900);
   }
   .mtabs a.is-active > span { color: var(--experiment-ink); }
+
+  /* Capture dock — disc on the tab bar's top edge (bauhly-v3) */
+  .btn.cap-fab--dock {
+    display: inline-flex;
+    position: fixed;
+    left: 50%;
+    width: 60px;
+    height: 60px;
+    padding: 0;
+    gap: 0;
+    border-radius: var(--r-full, 999px);
+    bottom: calc(env(safe-area-inset-bottom) + 60px - 30px);
+    z-index: 41;
+    box-shadow:
+      0 0 0 4px var(--navbar-bg),
+      0 0 0 5px var(--border),
+      0 10px 26px -8px rgba(20, 20, 25, 0.5);
+    transition: transform 90ms linear, opacity 90ms linear;
+  }
 
   .app__main {
     padding: var(--sp-5) var(--sp-4) calc(96px + env(safe-area-inset-bottom));
