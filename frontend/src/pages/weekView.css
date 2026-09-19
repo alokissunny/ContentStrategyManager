@@ -5950,7 +5950,25 @@ span.wv-layed__apply { margin-left: auto; flex-shrink: 0; }
   color: var(--ink-900);
 }
 .wv-layprev__count { color: var(--ink-500, #74736d); font-weight: 500; }
-.wv-layprev__head .wv-agentdbg__copy { margin-left: auto; }
+.wv-layprev__actions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.wv-layprev__pdf:disabled {
+  opacity: 0.55;
+  cursor: wait;
+}
+.wv-layprev__err {
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #b42318;
+  font-size: 12px;
+  font-weight: 500;
+}
 .wv-layprev__grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));

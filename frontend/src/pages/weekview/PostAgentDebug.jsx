@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useAiDebug, fmtElapsed, fmtCost, fmtTokens } from '../../lib/aiDebug';
 import { prepareLayoutHtml, shareLayoutStyles } from './layoutHtml';
+import { downloadCarouselPreviewPdf } from './carouselPdf';
 
 function pretty(value) {
   if (value == null || value === '') return '';
@@ -166,11 +167,33 @@ function DocumentFrame({ html }) {
 }
 
 function LayoutPreview({ slides, documentHtml = '', onClose }) {
+  const [pdfBusy, setPdfBusy] = useState(false);
+  const [pdfError, setPdfError] = useState('');
   useEffect(() => {
     const onKey = (e) => { if (e.key === 'Escape') onClose(); };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose]);
+
+  const onDownloadPdf = async (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (pdfBusy) return;
+    setPdfError('');
+    setPdfBusy(true);
+    try {
+      await downloadCarouselPreviewPdf({
+        documentHtml,
+        slides,
+        filename: 'carousel-preview.pdf',
+      });
+    } catch (err) {
+      setPdfError(err?.message || 'Could not build the PDF.');
+    } finally {
+      setPdfBusy(false);
+    }
+  };
+
   return createPortal(
     <div className="wv-layprev" role="dialog" aria-modal="true" aria-label="Layout preview" onClick={onClose}>
       <div className="wv-layprev__panel" onClick={(e) => e.stopPropagation()}>
@@ -179,7 +202,18 @@ function LayoutPreview({ slides, documentHtml = '', onClose }) {
           <span className="wv-layprev__count">
             {documentHtml ? 'Full document' : `${slides.length} slide${slides.length === 1 ? '' : 's'}`}
           </span>
-          <button type="button" className="wv-agentdbg__copy" onClick={onClose}>Close</button>
+          <div className="wv-layprev__actions">
+            {pdfError ? <span className="wv-layprev__err" title={pdfError}>{pdfError}</span> : null}
+            <button
+              type="button"
+              className="wv-agentdbg__copy wv-layprev__pdf"
+              onClick={onDownloadPdf}
+              disabled={pdfBusy}
+            >
+              {pdfBusy ? 'Preparing PDF…' : 'Download PDF'}
+            </button>
+            <button type="button" className="wv-agentdbg__copy" onClick={onClose}>Close</button>
+          </div>
         </div>
         {documentHtml ? (
           <div className="wv-layprev__docwrap">

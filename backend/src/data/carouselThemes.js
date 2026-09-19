@@ -3,7 +3,7 @@
  * agent as a visual reference (Change theme). Ids are stable kebab-case slugs
  * used as `<section data-direction="…">` values.
  *
- * Source examples: instagram-carousel-themes.html (10 concept boards).
+ * Source examples: instagram-carousel-themes.html (concept boards).
  */
 const CAROUSEL_THEMES = [
   {
@@ -34,28 +34,9 @@ const CAROUSEL_THEMES = [
     reference: [
       'Casual photo dump with designer annotations. Large photos dominate; overlay',
       'handwritten labels, thin arrows, circled details, and short callouts that',
-      'point at what matters. Feels like a designer marking up a site photo — raw,',
+      'point at what matters ON the photo or ON a specific word — never float a circle',
+      'in empty layout space. Feels like a designer marking up a site photo — raw,',
       'specific, and personal rather than template-polished.',
-    ].join(' '),
-  },
-  {
-    id: 'notes-app-confessions',
-    name: 'Notes-app confessions',
-    direction: 'notes-app-confessions',
-    reference: [
-      'Phone Notes app aesthetic. Soft yellow or off-white note paper, system-like',
-      'sans type, short confessional lines, occasional bold for emphasis, minimal chrome.',
-      'Feels intimate and typed-on-a-phone — not designed as a brand poster.',
-    ].join(' '),
-  },
-  {
-    id: 'bold-mini-guide',
-    name: 'Bold mini-guide',
-    direction: 'bold-mini-guide',
-    reference: [
-      'Bold instructional mini-guide. Huge numerals or short titles, high-contrast',
-      'blocks of colour, punchy one-line tips, clear hierarchy. Educational and',
-      'swipeable — each slide is one step or one rule, not a paragraph essay.',
     ].join(' '),
   },
   {
@@ -118,6 +99,29 @@ function themeById(id) {
   return BY_ID.get(key) || null;
 }
 
+/** Compact catalog for strategist prompts — id + name + one-line fit hint. */
+function themesForStrategistPrompt() {
+  return CAROUSEL_THEMES.map((t) => ({
+    id: t.id,
+    name: t.name,
+    fit: t.reference.split(/[.!]/)[0].trim(),
+  }));
+}
+
+/**
+ * Normalize a strategist/studio theme pick. Unknown ids fall back by pillar so
+ * the carousel agent still gets concrete visual guidance.
+ */
+function resolveThemeId(raw, { pillar } = {}) {
+  const hit = themeById(raw);
+  if (hit) return hit.id;
+  const lens = String(pillar || '').trim().toLowerCase();
+  if (lens === 'credibility') return 'before-process-after';
+  if (lens === 'trust') return 'editorial-magazine';
+  if (lens === 'discovery') return 'annotated-photo-dump';
+  return 'editorial-magazine';
+}
+
 function themeReferenceForPrompt(theme) {
   if (!theme) return 'None supplied — choose one cohesive look that fits the brand.';
   return [
@@ -131,5 +135,7 @@ function themeReferenceForPrompt(theme) {
 module.exports = {
   CAROUSEL_THEMES,
   themeById,
+  themesForStrategistPrompt,
+  resolveThemeId,
   themeReferenceForPrompt,
 };

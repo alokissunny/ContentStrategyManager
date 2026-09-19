@@ -1307,14 +1307,18 @@ async function rerunDayLayout(req, res) {
       console.warn('[route] visual agent skipped on layout rerun:', err.message);
     }
     day.content = { ...current, ...next, slides: next.slides };
-    if (themeId) day.content.themeId = themeId;
+    const appliedTheme = themeId
+      || result.parsed?.themeId
+      || plainOf(trace.strategyBrief)?.themeId
+      || '';
+    if (appliedTheme) day.content.themeId = appliedTheme;
     const debugEntry = result.debugEntry || {};
     day.agentTrace = {
       ...trace,
       layout: result.parsed,
       carousel: result.parsed,
       layoutPrompt: String(debugEntry.prompt || trace.layoutPrompt || ''),
-      themeId: themeId || trace.themeId || '',
+      themeId: appliedTheme || trace.themeId || '',
       visual: Array.isArray(next.visualTrace) && next.visualTrace.length
         ? {
           slides: next.visualTrace,

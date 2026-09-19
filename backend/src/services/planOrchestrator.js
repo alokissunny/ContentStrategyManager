@@ -10,7 +10,7 @@ const { extractLayoutHtml, extractHtmlDocument, parseCarouselDocument, hasImageS
 const { publicMediaUrl, isCdnConfigured, getMediaUrl, isS3Configured } = require('./s3Client');
 const { isImageGenConfigured: isOpenAIImageConfigured, generateImage: renderOpenAIImage } = require('./openaiImage');
 const { buildImagePrompt, persistGeneratedImage } = require('./generatedImage');
-const { themeById, themeReferenceForPrompt } = require('../data/carouselThemes');
+const { themeById, themeReferenceForPrompt, themesForStrategistPrompt, resolveThemeId } = require('../data/carouselThemes');
 
 const PROMPTS_DIR = path.join(__dirname, '..', '..', 'prompts');
 const cache = {};
@@ -215,6 +215,7 @@ function lockedFormat(briefFormat) {
 
 function briefFieldsOf(b) {
   const lens = normalizeLens(b.lens || b.pillar);
+  const themeId = resolveThemeId(b.themeId || b.theme || b.carouselTheme, { pillar: lens });
   return {
     source: b.source || '',
     captureId: optionalText(b.captureId),
@@ -238,6 +239,8 @@ function briefFieldsOf(b) {
     doNotRepeat: optionalTextOrList(b.doNotRepeat),
     format: optionalText(b.format),
     formatReason: optionalText(b.formatReason),
+    themeId,
+    themeReason: optionalText(b.themeReason),
     narrativeUnits: narrativeUnitsOf(b),
     approvedGenerationRoute: optionalText(b.approvedGenerationRoute),
     knownLimitation: optionalText(b.knownLimitation),
@@ -1077,6 +1080,8 @@ function strategyBriefPayload(brief) {
     doNotRepeat: brief.doNotRepeat,
     format: brief.format,
     formatReason: brief.formatReason,
+    themeId: brief.themeId,
+    themeReason: brief.themeReason,
     narrativeUnits: brief.narrativeUnits,
     approvedGenerationRoute: brief.approvedGenerationRoute,
     knownLimitation: brief.knownLimitation,
@@ -1294,6 +1299,7 @@ function postFromStructure(structure, dayBrief) {
 
 // Build a Day Writer–shaped post from the Strategist brief when Content Structure is skipped.
 // One visual slide per narrative unit (CTA units become caption/cta, not slides).
+// Spread every allocated asset across slides: supportsUnitIds first, then leftover assets.
 function postFromBrief(dayBrief) {
   const units = Array.isArray(dayBrief?.narrativeUnits) ? dayBrief.narrativeUnits : [];
   const allocated = allocatedAssetsOf(dayBrief?.allocatedAssets);
@@ -1314,14 +1320,18 @@ function postFromBrief(dayBrief) {
         || optionalText(dayBrief?.uniqueJob),
       support: optionalText(dayBrief?.centralFact),
     }];
+  const usedKeys = new Set();
   const slides = outline.map((u, i) => {
     const id = optionalText(u?.id) || `u${i + 1}`;
     const purpose = optionalText(u?.purpose);
     const support = optionalText(u?.support);
     const matched = allocated.find((a) => (
-      Array.isArray(a?.supportsUnitIds) && a.supportsUnitIds.map(optionalText).includes(id)
+      !usedKeys.has(optionalText(a?.key))
+      && Array.isArray(a?.supportsUnitIds)
+      && a.supportsUnitIds.map(optionalText).includes(id)
     ));
     const assetKey = optionalText(matched?.key);
+    if (assetKey) usedKeys.add(assetKey);
     const hasAsset = Boolean(assetKey);
     return {
       index: Number(u?.index) > 0 ? Number(u.index) : i + 1,
@@ -1352,6 +1362,47 @@ function postFromBrief(dayBrief) {
       ],
     };
   });
+
+  // Assign remaining allocated assets onto slides that still have none, so a
+  // before/after pair (or any multi-photo set) is not collapsed to a single hero.
+  const leftover = allocated.filter((a) => {
+    const key = optionalText(a?.key);
+    return key && !usedKeys.has(key);
+  });
+  if (leftover.length) {
+    const preferRole = (role) => {
+      const r = String(role || '').toLowerCase();
+      if (/(result|after|outcome)/.test(r)) return 0;
+      if (/(problem|before|context|hook)/.test(r)) return 1;
+      if (/(decision|reason|process)/.test(r)) return 2;
+      return 3;
+    };
+    const open = slides
+      .map((s, i) => ({ s, i }))
+      .filter(({ s }) => !optionalText(s.assetKey))
+      .sort((a, b) => preferRole(a.s.role) - preferRole(b.s.role));
+    leftover.forEach((asset, n) => {
+      const slot = open[n];
+      if (!slot) return;
+      const key = optionalText(asset.key);
+      usedKeys.add(key);
+      const next = {
+        ...slot.s,
+        assetKey: key,
+        image: 'placeholder',
+        visual: {
+          priority: 'recommended',
+          role: 'evidence',
+          type: 'Image',
+          execution: 'supplied-asset',
+          assetKey: key,
+          communicationFunction: optionalText(asset.visibleContent) || optionalText(asset.why),
+        },
+      };
+      slides[slot.i] = next;
+    });
+  }
+
   const ctaUnit = units.find((u) => {
     const role = String(u?.role || '').trim().toLowerCase();
     const placement = String(u?.placement || '').trim().toLowerCase();
@@ -1894,6 +1945,7 @@ function applyLayoutToContent(content, layoutParsed) {
     };
   });
   if (layoutParsed?.html) content.carouselHtml = layoutParsed.html;
+  if (layoutParsed?.themeId) content.themeId = layoutParsed.themeId;
   return content;
 }
 
@@ -2257,7 +2309,12 @@ async function writeCarousel({ source, structure, post, dayBrief, brand, dayWrit
     : carouselBriefInputOf(dayBrief, post);
   const structureSlides = visualSlidesOf(structure).length;
   const postSlideCount = Array.isArray(post?.content?.slides) ? post.content.slides.length : 0;
-  const theme = themeById(themeId);
+  // Studio Change-theme wins when passed; otherwise use the Strategist's brief pick.
+  const resolvedThemeId = resolveThemeId(
+    themeId || dayBrief?.themeId || post?.content?.themeId,
+    { pillar: dayBrief?.pillar || dayBrief?.lens },
+  );
+  const theme = themeById(resolvedThemeId);
   console.log(
     `[planOrchestrator] ${source} input · structureSlides=${structureSlides} ` +
       `postSlides=${postSlideCount} inputSlides=${carouselInput.slides?.length || 0} ` +
@@ -2285,7 +2342,7 @@ async function writeCarousel({ source, structure, post, dayBrief, brand, dayWrit
   if (!/\{\s*"/.test(assembled.user || '') && !/slides|narrativeUnits/i.test(assembled.user || '')) {
     throw new Error(`${source}: strategy brief / content structure missing from assembled user prompt`);
   }
-  return withLayoutSlot(() => callAgent({
+  const result = await withLayoutSlot(() => callAgent({
     source,
     kind: 'carousel',
     system: assembled.system,
@@ -2295,6 +2352,10 @@ async function writeCarousel({ source, structure, post, dayBrief, brand, dayWrit
     htmlDirection: theme?.direction || 'architectural-minimal',
     validate: (parsed) => validateCarousel(parsed, post),
   }));
+  if (result?.parsed && theme?.id) {
+    result.parsed.themeId = theme.id;
+  }
+  return result;
 }
 
 async function attachCarousel({ label, structure, writer, collect, dayBrief, dayAssets, brand }) {
@@ -2312,6 +2373,7 @@ async function attachCarousel({ label, structure, writer, collect, dayBrief, day
       dayBrief,
       brand,
       dayWriterOutput: '',
+      themeId: dayBrief?.themeId || '',
     });
     collectLayoutParts(carousel, collect);
     const htmlCount = (carousel.parsed?.slides || []).filter((s) => s.html).length;
@@ -2319,7 +2381,8 @@ async function attachCarousel({ label, structure, writer, collect, dayBrief, day
       `[planOrchestrator] Carousel:${label}` +
         (carousel.parsed?.status === 'failed'
           ? ` failed${carousel.parsed.failureReason ? ` — ${carousel.parsed.failureReason}` : ''}`
-          : ` · ${htmlCount} html ${htmlCount === 1 ? 'slide' : 'slides'}`),
+          : ` · ${htmlCount} html ${htmlCount === 1 ? 'slide' : 'slides'}`) +
+        (carousel.parsed?.themeId ? ` · theme=${carousel.parsed.themeId}` : ''),
     );
     return carousel;
   } catch (err) {
@@ -2839,9 +2902,11 @@ async function runMultiAgentPlan({
       month: ctx.calendar.month,
       maxBriefs: Math.max(emptyDates.length, 3),
       supportedFormats: ['Carousel'],
-      requirePillars: ['discovery', 'credibility', 'trust'],
-      planFrom: 'conversationCaptures only — turn each capture into multiple Carousel briefs covering Discovery, Credibility, and Trust; do not invent facts; capped by maxBriefs',
+      optionalPillars: ['discovery', 'credibility', 'trust'],
+      planFrom: 'conversationCaptures only — pick the strongest angle(s) the capture supports (usually one); prioritise angles proven by assets; fit every story-aligned provided asset across narrative units; skip weak/obvious/boring angles; do not force Discovery + Credibility + Trust; do not invent facts; capped by maxBriefs',
+      requireThemeId: true,
     }),
+    CAROUSEL_THEMES_JSON: json(themesForStrategistPrompt()),
     OCCUPIED_TOPICS_JSON: json(ctx.calendar.occupiedTopics || []),
     AUTHORITY_JSON: json(ctx.authority),
     BRAND_JSON: json(ctx.brand),
@@ -2876,7 +2941,8 @@ async function runMultiAgentPlan({
   console.log(
     `[planOrchestrator] @${username}: ${briefs.length} briefs → ${plannedDays.length} dated slots` +
       (plannedDays[0]?.date ? ` starting ${plannedDays[0].date}` : '') +
-      ` · allocatedAssets=${briefs.reduce((n, b) => n + (b.allocatedAssets || []).length, 0)}`,
+      ` · allocatedAssets=${briefs.reduce((n, b) => n + (b.allocatedAssets || []).length, 0)}` +
+      ` · themes=${briefs.map((b) => b.themeId || '?').join(',')}`,
   );
   const brandMemory = ctx.brand || {};
   const brandJson = json(brandMemory);
@@ -2945,6 +3011,8 @@ async function runMultiAgentPlan({
         doNotRepeat: planned.doNotRepeat || '',
         format: lockedFormat(planned.format),
         formatReason: planned.formatReason || '',
+        themeId: resolveThemeId(planned.themeId, { pillar }),
+        themeReason: optionalText(planned.themeReason),
         narrativeUnits: withUnitIds(planned.narrativeUnits || []),
         approvedGenerationRoute: planned.approvedGenerationRoute || approvedGenerationRouteOf(),
         knownLimitation: planned.knownLimitation || '',
@@ -3104,6 +3172,7 @@ async function runMultiAgentPlan({
       // Prefer the content composed (and visually filled) inside writeOneDay;
       // fall back to composing it here if that step produced nothing.
       const content = precomputed || applyLayoutToContent(normalizeWriterPost(parsed, dayBrief, dayAssets), layout);
+      if (dayBrief.themeId && !content.themeId) content.themeId = dayBrief.themeId;
       const slides = content.slides;
       const bound = slides.flatMap((s) => [
         s.assetKey,
@@ -3139,6 +3208,7 @@ async function runMultiAgentPlan({
         agentTrace: {
           strategyBrief: strategyBriefPayload(dayBrief),
           strategyPrompt: strategistPrompt,
+          themeId: content.themeId || dayBrief.themeId || '',
           structure: structure || null,
           structurePrompt: optionalText(structureDbg?.prompt),
           dayWriter: parsed,

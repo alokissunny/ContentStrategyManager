@@ -486,8 +486,6 @@ const THEME_CATALOG = [
   { id: 'scrapbook-diary', match: /scrapbook\s*diary/i },
   { id: 'editorial-magazine', match: /editorial\s*magazine/i },
   { id: 'annotated-photo-dump', match: /annotated\s*photo\s*dump/i },
-  { id: 'notes-app-confessions', match: /notes[-\s]*app\s*confessions/i },
-  { id: 'bold-mini-guide', match: /bold\s*mini[-\s]*guide/i },
   { id: 'before-process-after', match: /before\s*(?:→|->|to)?\s*process\s*(?:→|->|to)?\s*after/i },
   { id: 'myth-vs-reality', match: /myth\s*(?:vs\.?|versus)\s*reality/i },
   { id: 'moodboard-story', match: /moodboard\s*story/i },

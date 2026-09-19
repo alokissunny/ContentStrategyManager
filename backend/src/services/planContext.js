@@ -608,7 +608,7 @@ function allocatedAssetsOf(value) {
         : [],
     }));
   }
-  return out.slice(0, 4);
+  return out.slice(0, 8);
 }
 
 function allocatedKeysOf(dayBrief) {
@@ -695,17 +695,30 @@ function sanitizeAllocatedAssets(raw, brief, capture, known) {
 
 function applyAssetAllocation(brief, capture, known) {
   let allocated = sanitizeAllocatedAssets(brief?.allocatedAssets, brief, capture, known);
+  const captureRows = (capture?.assets || capture?.attachedAssets || []).map((a) => ({
+    key: a.key,
+    source: 'conversation',
+    why: a.summary || '',
+    visibleContent: a.summary || '',
+  }));
   if (!allocated.length && capture) {
     allocated = sanitizeAllocatedAssets(
-      (capture.assets || capture.attachedAssets || []).map((a) => ({
-        key: a.key,
-        source: 'conversation',
-        why: a.summary || '',
-      })),
+      captureRows,
       { ...brief, captureId: brief.captureId || capture.id || capture.captureId },
       capture,
       known,
     );
+  } else if (captureRows.length && allocated.length) {
+    // Keep every capture photo in play when the strategist under-allocates
+    // (e.g. before/after pairs reduced to a single hero).
+    const have = new Set(allocated.map((a) => a.key));
+    const extras = sanitizeAllocatedAssets(
+      captureRows.filter((a) => a.key && !have.has(a.key)),
+      { ...brief, captureId: brief.captureId || capture.id || capture.captureId },
+      capture,
+      known,
+    );
+    if (extras.length) allocated = allocatedAssetsOf([...allocated, ...extras]);
   }
   const fromAllocated = allocated
     .map((a) => a.why || known?.summaries?.get(a.key) || '')

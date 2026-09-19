@@ -20,16 +20,6 @@ export const CAROUSEL_THEMES = [
     thumb: '/carousel-themes/03-annotated-photo-dump.jpg',
   },
   {
-    id: 'notes-app-confessions',
-    name: 'Notes-app confessions',
-    thumb: '/carousel-themes/04-notes-app-confessions.jpg',
-  },
-  {
-    id: 'bold-mini-guide',
-    name: 'Bold mini-guide',
-    thumb: '/carousel-themes/05-bold-mini-guide.jpg',
-  },
-  {
     id: 'before-process-after',
     name: 'Before → process → after',
     thumb: '/carousel-themes/06-before-process-after.jpg',

@@ -580,14 +580,18 @@ async function rerunLayout(req, res) {
       console.warn('[posts] visual agent skipped on layout rerun:', err.message);
     }
     record.content = { ...current, ...next, slides: next.slides };
-    if (themeId) record.content.themeId = themeId;
+    const appliedTheme = themeId
+      || result.parsed?.themeId
+      || plainOf(trace.strategyBrief)?.themeId
+      || '';
+    if (appliedTheme) record.content.themeId = appliedTheme;
     const debugEntry = result.debugEntry || {};
     record.agentTrace = {
       ...trace,
       layout: result.parsed,
       carousel: result.parsed,
       layoutPrompt: optionalText(debugEntry.prompt) || trace.layoutPrompt || '',
-      themeId: themeId || trace.themeId || '',
+      themeId: appliedTheme || trace.themeId || '',
       visual: Array.isArray(next.visualTrace) && next.visualTrace.length
         ? {
           slides: next.visualTrace,
