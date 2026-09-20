@@ -158,38 +158,52 @@
   border: 1px solid var(--border);
   background: var(--surface);
 }
+/* the ⋯ menu — the app's frosted "words" popover (bauhly-v3 .pe-menu) */
 .ph__more-menu {
   position: absolute;
   top: calc(100% + 6px);
   right: 0;
   z-index: 20;
-  min-width: 180px;
+  min-width: 224px;
+  max-height: 62vh;
+  overflow-y: auto;
   padding: 6px;
+  display: flex;
+  flex-direction: column;
   border: 1px solid var(--border);
-  border-radius: 12px;
-  background: var(--surface);
-  box-shadow: 0 8px 24px rgba(22, 22, 26, 0.12);
+  border-radius: var(--r-md);
+  background: rgba(255, 255, 255, 0.86);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  box-shadow: var(--shadow-lift);
 }
 .ph__more-item {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 12px;
   width: 100%;
-  height: 36px;
-  padding: 0 10px;
+  min-height: 44px;
+  padding: 10px 12px;
   border: none;
-  border-radius: 8px;
+  border-radius: var(--r-sm);
   background: transparent;
   cursor: pointer;
   font-family: var(--font-ui);
-  font-size: 13px;
-  font-weight: 600;
+  font-size: var(--text-base);
+  /* the reference's menu rows inherit the body's normal weight (400) — 600 made
+     IgSignal's read heavier than bauhly-v3's (Distribute posts / Your analysis) */
+  font-weight: 400;
   color: var(--ink-900);
   text-align: left;
 }
-.ph__more-item:hover:not(:disabled) { background: var(--surface-sunken); }
-.ph__more-item:disabled { opacity: 0.55; cursor: default; }
+.ph__more-item svg { color: var(--ink-500); flex-shrink: 0; }
+.ph__more-item:hover:not(:disabled) { background: rgba(20, 20, 25, 0.06); }
+.ph__more-item:disabled { color: var(--ink-400); cursor: default; }
+.ph__more-item:disabled svg { color: var(--ink-300); }
+/* a hairline between the reference's three actions and IgSignal's plan tools */
+.ph__more-sep { height: 1px; margin: 5px 4px; background: var(--border); }
 .ph__more-item--danger { color: var(--negative); }
+.ph__more-item--danger svg { color: var(--negative); }
 .ph__more-item--danger:hover:not(:disabled) {
   background: var(--negative-soft);
 }

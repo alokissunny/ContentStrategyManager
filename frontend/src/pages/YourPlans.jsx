@@ -19,6 +19,7 @@ import Icon from '../brand/Icon';
 import { getPosts, getPost, clearUpcoming, distributePosts, shiftPosts } from '../api/posts';
 import { MonthDayCell, MonthDayMenu, useMonthDayMenu, calStatusOf as peekCalStatusOf } from './monthDayMenu';
 import DayFeed from './DayFeed';
+import YourAnalysisModal from '../components/YourAnalysisModal';
 import MobileSheet from '../components/MobileSheet';
 import useMediaQuery from '../hooks/useMediaQuery';
 import { useNavigate, useLocation } from 'react-router-dom';
@@ -73,6 +74,30 @@ function postToRoute(post) {
     generatedAt: post.generatedAt || post.updatedAt,
     days: [post],
   };
+}
+
+// Plan → Markdown. One heading per post in date order, with whatever the
+// calendar list holds (captions are only present on posts whose content has
+// been fetched). Mirrors WeekView's per-post export, one level up.
+function buildPlanMarkdown(routes, handle) {
+  const posts = (routes || [])
+    .map((r) => r?.days?.[0] || r)
+    .filter((d) => d && d.date)
+    .sort((a, b) => String(a.date).localeCompare(String(b.date)));
+  const who = String(handle || posts[0]?.instagramUsername || 'account').replace(/^@/, '');
+  const lines = [`# Content plan — @${who}`, `${posts.length} post${posts.length === 1 ? '' : 's'}`, ''];
+  posts.forEach((d) => {
+    const when = d.dateLabel || d.day || String(d.date).slice(0, 10);
+    const kind = [d.format, d.contentType].filter(Boolean).join(' · ');
+    lines.push(`## ${when}${kind ? ` · ${kind}` : ''}`);
+    if (d.title) lines.push(`Title: ${d.title}`);
+    if (d.scheduledAt) lines.push(`Scheduled: ${new Date(d.scheduledAt).toLocaleString()}`);
+    else if (d.published) lines.push('Published');
+    if (d.content?.caption) lines.push('', 'Caption:', d.content.caption);
+    if (d.content?.cta) lines.push('', `CTA: ${d.content.cta}`);
+    lines.push('', '---', '');
+  });
+  return lines.join('\n');
 }
 
 /* Monday of the week containing `from` — mirrors backend routeController.mondayOf. */
@@ -1165,7 +1190,7 @@ function DayPanel({ date, index, metaConnected, onOpen, onCapture }) {
   );
 }
 
-function MonthMoreMenu({ canReplan, canDistribute, replanning, clearing, genBusy, onReplan, onClear, onDistribute }) {
+function MonthMoreMenu({ canReplan, canDistribute, replanning, clearing, genBusy, onReplan, onClear, onDistribute, onAnalysis, onExport, canExport }) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef(null);
 
@@ -1185,7 +1210,8 @@ function MonthMoreMenu({ canReplan, canDistribute, replanning, clearing, genBusy
     };
   }, [open]);
 
-  if (!canReplan && !canDistribute) return <span className="ph__toolbar-end" aria-hidden="true" />;
+  /* Your analysis + Export are always on offer (bauhly-v3 ⋯), so the menu
+     always draws — even when there is no plan yet to distribute or refill. */
 
   return (
     <div className="ph__more" ref={rootRef}>
@@ -1208,10 +1234,30 @@ function MonthMoreMenu({ canReplan, canDistribute, replanning, clearing, genBusy
               className="ph__more-item"
               onClick={() => { setOpen(false); onDistribute(); }}
             >
-              <Icon name="filter" size={14} strokeWidth={2.25} />
+              <Icon name="sliders" size={17} />
               Distribute posts
             </button>
           )}
+          <button
+            type="button"
+            role="menuitem"
+            className="ph__more-item"
+            onClick={() => { setOpen(false); onAnalysis?.(); }}
+          >
+            <Icon name="evidence" size={17} />
+            Your analysis
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            className="ph__more-item"
+            disabled={!canExport}
+            onClick={() => { setOpen(false); onExport?.(); }}
+          >
+            <Icon name="download" size={17} />
+            Export
+          </button>
+          {canReplan && <div className="ph__more-sep" role="separator" />}
           {canReplan && (
             <button
               type="button"
@@ -1220,7 +1266,7 @@ function MonthMoreMenu({ canReplan, canDistribute, replanning, clearing, genBusy
               disabled={replanning || clearing || genBusy}
               onClick={() => { setOpen(false); onReplan(); }}
             >
-              <Icon name="refresh" size={14} strokeWidth={2.25} />
+              <Icon name="refresh" size={17} />
               {replanning ? 'Adding posts…' : 'Fill empty days'}
             </button>
           )}
@@ -1232,7 +1278,7 @@ function MonthMoreMenu({ canReplan, canDistribute, replanning, clearing, genBusy
               disabled={replanning || clearing || genBusy}
               onClick={() => { setOpen(false); onClear(); }}
             >
-              <Icon name="trash" size={14} strokeWidth={2.25} />
+              <Icon name="trash" size={17} />
               {clearing ? 'Clearing…' : 'Clear plan'}
             </button>
           )}
@@ -1289,6 +1335,7 @@ export default function YourPlans() {
   // The Distribute panel (opened from the ⋯) and the publishing-day pattern it
   // edits. The pattern is per handle; it drives the calendar's Posting columns.
   const [distOpen, setDistOpen] = useState(false);
+  const [analysisOpen, setAnalysisOpen] = useState(false);
   const [dist, setDist] = useState(DIST_DEFAULT);
   const [distributing, setDistributing] = useState(false);
   // The Weekly / Day views embed WeekView (the post workspace). `embedWeek` is
@@ -1344,6 +1391,20 @@ export default function YourPlans() {
   // that re-runs this reads back whatever the panel last saved.
   const activeHandle = current?.instagramUsername || routes[0]?.instagramUsername || '';
   useEffect(() => { setDist(readDist(activeHandle)); }, [activeHandle]);
+
+  // Export the plan as a Markdown file — every upcoming post in date order,
+  // with whatever fields the calendar has (bauhly-v3 ⋯ · Export).
+  function handleExportPlan() {
+    if (!routes.length) return;
+    const md = buildPlanMarkdown(routes, activeHandle);
+    const blob = new Blob([md], { type: 'text/markdown' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `plan-${(activeHandle || 'account').replace(/^@/, '')}.md`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
 
   function saveDist(next) {
     setDist(next);
@@ -1988,12 +2049,15 @@ export default function YourPlans() {
           <MonthMoreMenu
             canReplan={canReplan}
             canDistribute={routes.length > 0}
+            canExport={routes.length > 0}
             replanning={replanning}
             clearing={clearing}
             genBusy={gen.status === 'generating'}
             onReplan={onReplanMonth}
             onClear={onClearMonth}
             onDistribute={() => setDistOpen(true)}
+            onAnalysis={() => setAnalysisOpen(true)}
+            onExport={handleExportPlan}
           />
           <DistributePanel
             open={distOpen}
@@ -2009,6 +2073,13 @@ export default function YourPlans() {
           />
         </div>
       </div>
+
+      {analysisOpen && (
+        <YourAnalysisModal
+          username={activeHandle}
+          onClose={() => setAnalysisOpen(false)}
+        />
+      )}
 
       <div className="ph__list">
         {monthFilling && isCurrentView && calView === 'month' && (

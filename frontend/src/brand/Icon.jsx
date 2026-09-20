@@ -114,6 +114,13 @@ const PATHS = {
     </>
   ),
   filter: <path d="M3.5 5.5h17M6.5 12h11M10 18.5h4" />,
+  sliders: (
+    <>
+      <path d="M4 7.5h4.5M12.5 7.5H20M4 16.5h8.5M16.5 16.5H20" />
+      <circle cx="10.5" cy="7.5" r="2.1" />
+      <circle cx="14.5" cy="16.5" r="2.1" />
+    </>
+  ),
   sun: (
     <>
       <circle cx="12" cy="12" r="4.2" />
