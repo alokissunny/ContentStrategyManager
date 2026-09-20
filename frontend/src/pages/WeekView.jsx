@@ -27,7 +27,9 @@ import {
   runPostCover,
   getPostOptions,
   getPostDebug,
+  shiftPosts,
 } from '../api/posts';
+import { isoOf as isoOfDate, dateOf as dateFromIso, addDays as addDaysIso } from '../lib/shiftPosts';
 import { getMetaStatus, publishPostToMeta, isMetaConnectedFor, metaConnectionFor, otherMetaConnections, rememberMetaOAuthReturn } from '../api/meta';
 
 // WeekView edits a WEEK of PlannedPosts (one per day). Its engine still works on
@@ -861,6 +863,180 @@ function slotTimeRaw(day, route) {
   return (day?.time && String(day.time).trim())
     || (route?.postAtPref && String(route.postAtPref).trim())
     || DEFAULT_TIME_24;
+}
+
+// ── Change time (bauhly-v3): a Date field with a calendar, and a typed Time
+// field. Both draw the product's own surfaces instead of the browser's native
+// date/time controls, which read in the OS locale and paint a second clock.
+const SCHED_WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+const SCHED_MONTHS = ['January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December'];
+const SCHED_DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
+// Any typed time ("9", "930", "9:30", "9 pm", "21:15") → "HH:MM" or null.
+function readClock(raw) {
+  const t = String(raw || '').trim().toLowerCase();
+  if (!t) return null;
+  const pm = /p/.test(t);
+  const am = /a/.test(t);
+  let h;
+  let m = 0;
+  const parts = t.match(/^\s*(\d{1,2})\s*[:.\s]\s*(\d{1,2})/);
+  if (parts) { h = Number(parts[1]); m = Number(parts[2]); } else {
+    const digits = t.replace(/[^0-9]/g, '');
+    if (!digits) return null;
+    if (digits.length <= 2) h = Number(digits);
+    else if (digits.length === 3) { h = Number(digits.slice(0, 1)); m = Number(digits.slice(1)); }
+    else { h = Number(digits.slice(0, 2)); m = Number(digits.slice(2, 4)); }
+  }
+  if (!Number.isFinite(h) || !Number.isFinite(m)) return null;
+  if (pm && h < 12) h += 12;
+  if (am && h === 12) h = 0;
+  if (h > 23 || m > 59) return null;
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+}
+
+const schedMonthLabel = (year, month) => `${SCHED_MONTHS[month]} ${year}`;
+// "Thursday, 24 September" — the product's own words, not the OS locale's.
+function schedLongDay(iso) {
+  const d = dateFromIso(iso);
+  return d ? `${SCHED_DAYS[d.getDay()]}, ${d.getDate()} ${SCHED_MONTHS[d.getMonth()]}` : '';
+}
+// "Thu, Sep 24, 2026" — the value shown on the Date field.
+function schedFieldDate(iso) {
+  const d = dateFromIso(iso);
+  if (!d) return '';
+  return `${SCHED_WEEKDAYS[(d.getDay() + 6) % 7]}, ${SCHED_MONTHS[d.getMonth()].slice(0, 3)} ${d.getDate()}, ${d.getFullYear()}`;
+}
+// Monday→Sunday weeks covering the month, with neighbours marked out-of-month.
+function schedMonthGrid(year, month, today = new Date()) {
+  const first = new Date(year, month, 1);
+  const lead = (first.getDay() + 6) % 7;
+  const start = addDaysIso(first, -lead);
+  const last = new Date(year, month + 1, 0);
+  const tail = 6 - ((last.getDay() + 6) % 7);
+  const total = lead + last.getDate() + tail;
+  const rows = Math.ceil(total / 7);
+  const t0 = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
+  const weeks = [];
+  for (let r = 0; r < rows; r += 1) {
+    weeks.push(Array.from({ length: 7 }, (_, i) => {
+      const d = addDaysIso(start, r * 7 + i);
+      return {
+        iso: isoOfDate(d),
+        day: d.getDate(),
+        inMonth: d.getMonth() === month,
+        isToday: new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime() === t0,
+      };
+    }));
+  }
+  return weeks;
+}
+
+// One labelled field: an icon, a value and a chevron, opening a picker.
+function SchedField({ id, label, icon, value, open, onOpen }) {
+  return (
+    <div className="schedf">
+      <span className="schedf__label" id={`${id}-lb`}>{label}</span>
+      <button
+        type="button"
+        className={`schedf__box ${open ? 'is-open' : ''}`}
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        aria-label={`${label}: ${value}`}
+        onClick={onOpen}
+      >
+        <Glyph name={icon} size={16} strokeWidth={1.9} />
+        <span className="schedf__value">{value}</span>
+        <Glyph name="chevron-down" size={15} strokeWidth={2.1} className="schedf__caret" />
+      </button>
+    </div>
+  );
+}
+
+// The Time field — the same box, but a typed 24-hour input that commits on blur.
+function SchedTime({ id, label, value, onCommit }) {
+  const [draft, setDraft] = useState(value);
+  const live = useRef(false);
+  useEffect(() => { if (!live.current) setDraft(value); }, [value]);
+  const commit = () => {
+    live.current = false;
+    const next = readClock(draft);
+    if (next) { setDraft(next); if (next !== value) onCommit(next); } else setDraft(value);
+  };
+  return (
+    <div className="schedf">
+      <span className="schedf__label" id={`${id}-lb`}>{label}</span>
+      <span className="schedf__box schedf__box--type">
+        <Glyph name="clock" size={16} strokeWidth={1.9} />
+        <input
+          id={id}
+          className="schedf__value schedf__input"
+          type="text"
+          inputMode="numeric"
+          autoComplete="off"
+          autoCorrect="off"
+          spellCheck="false"
+          maxLength={8}
+          value={draft}
+          aria-label={`${label}, 24-hour, for example 09:30`}
+          onFocus={(e) => { live.current = true; e.target.select(); }}
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={commit}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') { e.preventDefault(); e.currentTarget.blur(); }
+            if (e.key === 'Escape') { setDraft(value); live.current = false; e.currentTarget.blur(); }
+          }}
+        />
+      </span>
+    </div>
+  );
+}
+
+// The month grid the Date field opens — today is lime, the chosen day is ink.
+function SchedCalendar({ value, minIso = null, onPick }) {
+  const [month, setMonth] = useState(() => {
+    const d = dateFromIso(value) || new Date();
+    return new Date(d.getFullYear(), d.getMonth(), 1);
+  });
+  const weeks = useMemo(() => schedMonthGrid(month.getFullYear(), month.getMonth()), [month]);
+  const step = (n) => setMonth((m) => new Date(m.getFullYear(), m.getMonth() + n, 1));
+  return (
+    <div className="schedcal">
+      <div className="schedcal__head">
+        <button type="button" aria-label="Previous month" onClick={() => step(-1)}>
+          <Glyph name="chevron-left" size={16} strokeWidth={2.25} />
+        </button>
+        <b>{schedMonthLabel(month.getFullYear(), month.getMonth())}</b>
+        <button type="button" aria-label="Next month" onClick={() => step(1)}>
+          <Glyph name="chevron-right" size={16} strokeWidth={2.25} />
+        </button>
+      </div>
+      <div className="schedcal__wd" aria-hidden="true">
+        {SCHED_WEEKDAYS.map((w) => <span key={w}>{w}</span>)}
+      </div>
+      <div className="schedcal__grid">
+        {weeks.map((week) => week.map((d) => {
+          const blocked = minIso ? (d.iso < minIso && d.iso !== value) : false;
+          const on = d.iso === value;
+          return (
+            <button
+              key={d.iso}
+              type="button"
+              disabled={blocked}
+              aria-pressed={on}
+              aria-current={d.isToday ? 'date' : undefined}
+              aria-label={schedLongDay(d.iso)}
+              className={`schedcal__day ${on ? 'is-on' : ''} ${d.isToday ? 'is-today' : ''} ${d.inMonth ? '' : 'is-dim'}`}
+              onClick={() => onPick(d.iso)}
+            >
+              {d.day}
+            </button>
+          );
+        }))}
+      </div>
+    </div>
+  );
 }
 
 // The moment this day's post is scheduled to go out — the week's start plus the
@@ -2408,8 +2584,9 @@ export default function WeekView({
   const [scheduling, setScheduling] = useState(false);
   const [schedMenu, setSchedMenu] = useState(false); // schedule button dropdown
   const [askSchedule, setAskSchedule] = useState(false); // no-caption confirm
-  // the inline "Edit publish time" editor: null = closed, else { at, every }
+  // the inline "Change time" editor: null = closed, else { date, time }
   const [timeDraft, setTimeDraft] = useState(null);
+  const [pick, setPick] = useState(null); // 'date' = the calendar popover is open
   const [clockOpen, setClockOpen] = useState(false);
   const [savingTime, setSavingTime] = useState(false);
   const [replanning, setReplanning] = useState(false);
@@ -2702,10 +2879,6 @@ export default function WeekView({
   // the time is editable only while the decision is still open (bauhly-v3 §787)
   const canEditTime = !isScheduled && !day?.published;
   const timeSeedAt = to24h(slotTimeRaw(day, route));
-  const timeSeedEvery = !day?.time && !!route?.postAtPref;
-  const timeUnchanged = Boolean(timeDraft)
-    && timeDraft.at === timeSeedAt
-    && Boolean(timeDraft.every) === Boolean(timeSeedEvery);
   const captionText = String(day?.content?.caption || '').trim();
   const captionCta = String(day?.content?.cta || '').trim();
   const captionTags = hashtagsOf(day);
@@ -2927,6 +3100,7 @@ export default function WeekView({
       if (e.target.closest('.wv-confirm') || e.target.closest('.wv-confirm__scrim')) return;
       if (e.target.closest('.wv-schedask') || e.target.closest('.wv-schedask__scrim')) return;
       setTimeDraft(null);
+      setPick(null);
       setClockOpen(false);
     };
     document.addEventListener('mousedown', away);
@@ -2984,6 +3158,7 @@ export default function WeekView({
       // Escape steps back one level: generate → images → browse → editor → menu
       if (e.key !== 'Escape') return;
       if (schedMenu) { setSchedMenu(false); return; }
+      if (pick) { setPick(null); return; }
       if (timeDraft) { setTimeDraft(null); setClockOpen(false); return; }
       if (adjustFor) { setAdjustFor(null); setEditSlot(null); return; }
       if (packOpen) { setPackOpen(false); return; }
@@ -2997,7 +3172,7 @@ export default function WeekView({
     }
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [zone, visEdit, menuPane, askImgs, imgPick, creating, timeDraft, adjustFor, packOpen, schedMenu]);
+  }, [zone, visEdit, menuPane, askImgs, imgPick, creating, timeDraft, pick, adjustFor, packOpen, schedMenu]);
 
   // Close the schedule dropdown on any press outside it, and whenever the open
   // day changes.
@@ -3376,31 +3551,58 @@ export default function WeekView({
     setSchedMenu(false);
     setPublishMsg('');
     closeZone();
+    setPick(null);
     setTimeDraft({
-      at: to24h(slotTimeRaw(day, route)),
-      every: !day.time && !!route?.postAtPref,
+      date: String(day.date || '').slice(0, 10),
+      time: to24h(slotTimeRaw(day, route)),
     });
-    setClockOpen(true);
   }
 
-  // Done — three outcomes from two controls, the same rule the slot reads:
-  //   every week      → the plan's habit; this post drops its own time
-  //   this post only  → a time on this post
-  //   default (reset) → neither: clear the habit too, or the next post inherits
-  //                     the thing they just stepped out of
-  async function saveTime() {
-    if (!route || !day || !timeDraft || savingTime || timeUnchanged) return;
-    // The cross-post "use this time every week" preference is gone with the
-    // week model — a time is set per post now. Default time clears it.
-    const { at } = timeDraft;
+  // The Time field commits a "HH:MM" — the post's own slot time. The default
+  // clears it so the plan's habit takes over again (bauhly-v3 §787).
+  async function commitTime(at) {
+    if (!route || !day || savingTime) return;
+    setTimeDraft((d) => (d ? { ...d, time: at } : d));
     const payload = at === DEFAULT_TIME_24 ? { time: '' } : { time: at };
     setSavingTime(true);
     try {
       setRoute(await setDayTime(route._id, selected, payload));
-      setTimeDraft(null);
-      setClockOpen(false);
     } catch (err) {
       setPublishMsg(err.response?.data?.message || 'Could not save the time just now');
+    } finally {
+      setSavingTime(false);
+    }
+  }
+
+  // The Date field moves the post to another day. It reuses the Shift-posts
+  // endpoint (a single-post move), then reflects the new date locally and tells
+  // the parent so its calendar follows.
+  async function moveDate(iso) {
+    setPick(null);
+    const from = String(day?.date || '').slice(0, 10);
+    if (!route?._id || !iso || iso === from) return;
+    setSavingTime(true);
+    setPublishMsg('');
+    try {
+      await shiftPosts({ [route._id]: iso });
+      const d = dateFromIso(iso);
+      const patch = {
+        date: iso,
+        day: SCHED_DAYS[d.getDay()],
+        dateLabel: `${SCHED_MONTHS[d.getMonth()].slice(0, 3)} ${d.getDate()}`,
+      };
+      const updated = {
+        ...route,
+        date: iso,
+        weekOf: iso,
+        startsAt: iso,
+        days: (route.days || []).map((dd, i) => (i === selected ? { ...dd, ...patch } : dd)),
+      };
+      setRoute(updated);
+      setTimeDraft((t) => (t ? { ...t, date: iso } : t));
+      onRouteChange?.(updated);
+    } catch (err) {
+      setPublishMsg(err.response?.data?.message || 'Could not move this post to that day.');
     } finally {
       setSavingTime(false);
     }
@@ -5570,52 +5772,76 @@ export default function WeekView({
             {/* when this goes out. A scheduled post waits for the next daily
                 run after its slot; Publish now sends it immediately. */}
             {timeDraft ? (
-              <div className="wv-time" onClick={(e) => e.stopPropagation()}>
-                <div className="wv-time__head">
-                  <button
-                    type="button"
-                    className="wv-time__back"
-                    onClick={() => { setTimeDraft(null); setClockOpen(false); }}
-                    aria-label="Back"
-                  >
-                    <Glyph name="arrow-left" size={16} />
-                  </button>
-                  <span className="wv-time__title">Edit publish time</span>
-                  <button
-                    type="button"
-                    className="btn btn--primary btn--sm wv-time__apply"
-                    onClick={saveTime}
-                    disabled={savingTime || timeUnchanged}
-                  >
-                    Apply changes
-                  </button>
-                </div>
-                <ClockField
-                  value={timeDraft.at}
-                  open={clockOpen}
-                  onToggle={() => setClockOpen((v) => !v)}
-                  onChange={(at) => setTimeDraft((d) => ({ ...d, at }))}
+              <div className="wv-time wv-time--change" onClick={(e) => e.stopPropagation()}>
+                <button
+                  type="button"
+                  className="schedm__back"
+                  onClick={() => { setTimeDraft(null); setPick(null); }}
+                >
+                  <Glyph name="arrow-left" size={16} strokeWidth={2.1} />
+                  Back
+                </button>
+                <h3 className="schedm__title">Change time</h3>
+                <p className="schedm__lead">Pick a different date and time.</p>
+
+                <SchedField
+                  id="wv-sched-date"
+                  label="Date"
+                  icon="calendar"
+                  value={schedFieldDate(timeDraft.date)}
+                  open={pick === 'date'}
+                  onOpen={() => setPick((v) => (v === 'date' ? null : 'date'))}
                 />
-                <div className="wv-time__every">
-                  <label className="wv-time__box">
-                    <input
-                      type="checkbox"
-                      checked={timeDraft.every}
-                      onChange={() => setTimeDraft((d) => ({ ...d, every: !d.every }))}
-                    />
-                    Use this time every week
-                  </label>
-                  {(timeDraft.at !== DEFAULT_TIME_24 || timeDraft.every) && (
+                {pick === 'date' && (
+                  <div className="schedpop" role="dialog" aria-label="Choose date">
+                    <SchedCalendar value={timeDraft.date} minIso={todayIso} onPick={moveDate} />
+                  </div>
+                )}
+
+                <SchedTime
+                  id="wv-sched-time"
+                  label="Time"
+                  value={timeDraft.time}
+                  onCommit={commitTime}
+                />
+
+                {metaConnected ? (
+                  <>
+                    <div className="schedm__rec">
+                      <span className="schedm__rechead">
+                        <Glyph name="sparkles" size={15} strokeWidth={2} />
+                        Recommended time
+                      </span>
+                      <b>{shortDay(day.day)} · {timeSeedAt}</b>
+                      <em>Based on when your audience is most active.</em>
+                    </div>
                     <button
                       type="button"
-                      className="btn btn--quiet btn--sm wv-time__reset"
-                      onClick={() => setTimeDraft({ at: DEFAULT_TIME_24, every: false })}
+                      className="btn btn--tertiary btn--sm schedm__use"
+                      onClick={() => commitTime(timeSeedAt)}
                     >
-                      <Glyph name="refresh-cw" size={14} />
-                      Use Bauhly time
+                      <Glyph name="refresh-cw" size={15} strokeWidth={2} />
+                      Use recommended time
                     </button>
-                  )}
-                </div>
+                  </>
+                ) : (
+                  <div className="schedm__offer">
+                    <span className="schedm__rechead">
+                      <Glyph name="sparkles" size={15} strokeWidth={2} />
+                      Get your best posting times
+                    </span>
+                    <em>Connect Instagram to let Bauhly recommend when to publish, based on when your audience is most active.</em>
+                    <button
+                      type="button"
+                      className="btn btn--tertiary btn--sm schedm__connect"
+                      onClick={() => { setTimeDraft(null); setConnectOpen(true); }}
+                    >
+                      Connect Instagram
+                    </button>
+                  </div>
+                )}
+                {savingTime && <span className="wv-time__saving">Saving…</span>}
+                {publishMsg && <span className="wv-publish__msg">{publishMsg}</span>}
               </div>
             ) : (
               <div className={`wv-ig__slot${day.published ? ' is-out' : ''}${!metaConnected ? ' is-muted' : ''}`}>
