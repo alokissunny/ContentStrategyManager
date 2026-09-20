@@ -3039,7 +3039,8 @@
   }
   .wv-slide { flex: 0 0 84px; }
   .wv-slide__addlabel { display: none; }
-  .wv-ig { max-width: 360px; }
+  /* `.wv-ig { max-width: 360px }` was here — a leftover from the retired tab
+     studio that capped the preview-first card and fought its window sizing. */
   .wv-day { max-width: none; }
 }
 
@@ -3387,7 +3388,7 @@
   justify-content: center;
   gap: 14px;
 }
-.wv-stage > .wv-postwrap { flex: 0 0 auto; width: min(100%, 420px); }
+.wv-stage > .wv-postwrap { flex: 0 0 auto; width: min(100%, var(--wv-media-w)); }
 /* During a move the STAGE clips — it spans the content width, so the leaving
    card slides its full width across the open space beside the post and only
    clips near the content edge, the way the reference does (its `.app` shell
@@ -3401,7 +3402,21 @@
   display: flex;
   flex-direction: column;
   --wv-head-h: 55px;   /* card top border (1) + account row (54) */
-  --wv-media-w: 418px; /* the 4:5 picture's width at the desktop card size */
+  /* ── THE POST IS SIZED BY THE WINDOW, NOT A FIXED WIDTH (bauhly-v3) ───────
+     The picture's height is what the window affords (clamped), and its width
+     falls out of that at 4:5, capped so it never sprawls. So the whole preview
+     fits the desk on a laptop and grows on a large monitor instead of always
+     being a 420px card that scrolls (reference `--igc-post-h` / `--igc-solo-max`). */
+  --wv-post-h: clamp(360px, calc(100vh - 300px), 700px);
+  --wv-post-max: 460px;
+  --wv-media-w: min(var(--wv-post-max), calc(var(--wv-post-h) * 0.8));
+}
+/* ≥1024 the product is a desk, not a page you scroll: the post takes more of it
+   and its cap grows to match (bauhly-v3 `@media (min-width: 1024px)`). The Day
+   view carries no week strip above it, so it may be that much taller. */
+@media (min-width: 1024px) {
+  .wv-postwrap { --wv-post-h: clamp(400px, calc(100vh - 300px), 780px); --wv-post-max: 500px; }
+  .ph--cal-day .wv-postwrap { --wv-post-h: clamp(400px, calc(100vh - 260px), 780px); }
 }
 .wv-postwrap > .wv-ig { width: 100%; }
 
@@ -4150,7 +4165,7 @@
 @media (max-width: 900px) {
   .wv-stage { flex-wrap: wrap; }
   .wv-daynav { display: none; }
-  .wv-stage > .wv-postwrap { width: min(100%, 460px); }
+  .wv-stage > .wv-postwrap { width: min(100%, var(--wv-media-w)); }
   .wv-why { width: 100%; order: 3; display: flex; flex-direction: column; align-items: center; }
   .wv-why.is-open { width: 100%; max-width: 100%; }
   .wv-why__panel { width: min(100%, 460px); }
