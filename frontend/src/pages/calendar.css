@@ -1453,11 +1453,16 @@
   cursor: pointer;
 }
 .ywf__sched svg { flex-shrink: 0; }
-.ywf__sched:not(.is-set) {
-  background: var(--ink-100, #ecece8);
-  color: var(--ink-700);
-  font-weight: 600;
+/* Match the desktop schedule button (bauhly-v3 .igc__sched / .wv-sched): the
+   unscheduled "Schedule for HH:MM" offer is SOLID lime, and a post that is
+   already set recedes to translucent lime. The feed used to invert this —
+   grey when unscheduled, solid lime when set. */
+.ywf__sched:hover { background: #c7dd18; }
+.ywf__sched.is-set {
+  background: rgba(210, 232, 35, 0.5);
+  box-shadow: inset 0 0 0 1px var(--experiment-500, #d4f34a);
 }
+.ywf__sched.is-set:hover { background: rgba(210, 232, 35, 0.72); }
 .ywf__media {
   display: block;
   width: 100%;

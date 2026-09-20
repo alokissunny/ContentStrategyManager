@@ -29,12 +29,34 @@ function captionOf(day) {
   return raw;
 }
 
-function clockOf(day) {
-  const at = day?.scheduledAt || day?.bestTime || day?.publishAt;
-  if (!at) return '';
-  const d = new Date(at);
-  if (Number.isNaN(d.getTime())) return '';
-  return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+// Parse any time string ("9:00 AM", "07:30", "7 pm") into 24h "HH:MM" — the
+// same parsing WeekView uses, so the two views name the same hour.
+function to24h(t) {
+  const m = String(t || '').match(/(\d{1,2})(?::(\d{2}))?\s*(am|pm)?/i);
+  if (!m) return '09:00';
+  let h = Number(m[1]);
+  const min = Number(m[2] || 0);
+  const ap = (m[3] || '').toLowerCase();
+  if (ap === 'pm' && h < 12) h += 12;
+  if (ap === 'am' && h === 12) h = 0;
+  h = Math.min(23, Math.max(0, h));
+  return `${String(h).padStart(2, '0')}:${String(Math.min(59, Math.max(0, min))).padStart(2, '0')}`;
+}
+
+// The post's hour. A scheduled post carries a full timestamp; an unscheduled
+// one carries a slot time string (day.time / postAtPref), which is what the
+// desktop WeekView reads too (see slotTimeRaw). Never empty — it defaults to
+// 09:00 exactly as the desktop does, so the feed no longer falls back to a
+// wrong "Not scheduled" for a post that has a real slot time.
+function clockOf(day, route) {
+  const at = day?.scheduledAt || day?.publishAt;
+  if (at) {
+    const d = new Date(at);
+    if (!Number.isNaN(d.getTime())) {
+      return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+    }
+  }
+  return to24h(day?.time || route?.postAtPref || day?.postAtPref || day?.bestTime || '09:00');
 }
 
 function hasRenderableSlides(day) {
@@ -54,20 +76,19 @@ function FeedItem({ row, handle, metaConnected, onOpen, enriched, loading }) {
   const long = caption.length > 120;
   const shown = more || !long ? caption : `${caption.slice(0, 110).trim()}…`;
   const who = String(handle || day?.instagramUsername || '').replace(/^@/, '');
-  const clock = clockOf(day);
+  const clock = clockOf(day, row.week);
   const out = !!day?.published;
   const set = metaConnected && !!day?.scheduledAt && !out;
+  // Same sentence at every width (bauhly-v3): a scheduled post reads
+  // "Scheduled for HH:MM", an unscheduled one offers "Schedule for HH:MM" —
+  // never a bare "Not scheduled" when the desktop shows a time.
   const schedLabel = out
     ? 'Published'
-    : set && clock
-      ? `Schedule for ${clock}`
-      : set
-        ? 'Scheduled'
-        : day?.savedForReview
-          ? 'For review'
-          : clock
-            ? `Best at ${clock}`
-            : 'Not scheduled';
+    : set
+      ? `Scheduled for ${clock}`
+      : day?.savedForReview
+        ? `Needs review · ${clock}`
+        : `Schedule for ${clock}`;
   /* List rows have no content — wait for GET /posts/:id before painting. */
   const ready = Boolean(enriched && (hasRenderableSlides(enriched) || enriched.content));
 
