@@ -1875,6 +1875,205 @@ body.is-immersive .app__main {
   .cap-overlay { padding: var(--sp-8) var(--sp-8) 0; }
 }
 
+/* ── Capture as a centred modal (bauhly-v3 .capm) ───────────────────────────
+   A surface OVER the product, not a destination: the week stays legible behind
+   a light scrim, and the conversation lives in a rounded box in the middle. */
+.cap-overlay--modal {
+  z-index: 200;
+  display: grid;
+  place-items: center;
+  padding: var(--sp-5);
+  background: transparent;
+  overflow: hidden;
+}
+@media (min-width: 801px) {
+  .cap-overlay--modal { padding: var(--sp-5); }
+}
+.cap-overlay__scrim {
+  position: absolute;
+  inset: 0;
+  /* light, on purpose — Capture is something you do WHILE looking at your week */
+  background: rgba(24, 24, 27, 0.16);
+  animation: capm-fade 160ms var(--ease-out) both;
+}
+.cap-overlay--modal .ck {
+  position: relative;
+  z-index: 1;
+  width: min(776px, 100%);
+  height: min(732px, 88vh);
+  min-height: 0;
+  padding: 48px var(--sp-10) var(--sp-8);
+  border-radius: 24px;
+  background: var(--surface);
+  box-shadow: 0 40px 90px -30px rgba(20, 20, 25, 0.45);
+  overflow: hidden;
+  animation: capm-in 200ms var(--ease-out) both;
+}
+@media (min-width: 801px) {
+  .cap-overlay--modal .ck { height: min(732px, 88vh); }
+}
+/* the conversation column no longer needs its own centring — the box IS it */
+.cap-overlay--modal .ck__thread { max-width: none; }
+.cap-overlay--modal .ck__intro { align-items: flex-start; margin-top: 0; }
+.ck__x {
+  position: absolute;
+  top: 42px;
+  right: calc(var(--sp-10) - 20px);
+  z-index: 2;
+  display: grid;
+  place-items: center;
+  width: var(--icon-btn);
+  height: var(--icon-btn);
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--ink-600);
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
+}
+.ck__x:hover { background: var(--surface-sunken); color: var(--ink-900); }
+.ck__x:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+@keyframes capm-fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes capm-in {
+  from { opacity: 0; transform: translateY(10px) scale(0.985); }
+  to { opacity: 1; transform: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .cap-overlay__scrim, .cap-overlay--modal .ck { animation: none; }
+}
+/* a phone gives the modal the whole screen — a card with margins on 375px is a
+   card with no room for the conversation (bauhly-v3) */
+@media (max-width: 640px) {
+  .cap-overlay--modal { padding: 0; }
+  .cap-overlay--modal .ck {
+    width: 100%;
+    height: 100%;
+    border-radius: 0;
+    padding: var(--sp-6) var(--sp-5) var(--sp-5);
+  }
+  .ck__x { top: var(--sp-4); right: var(--sp-4); }
+}
+
+/* ── the Capture composer: text, attach (+), voice (mic), send (↑) ──────────
+   Empty, it is a single bar; with text, the words take the top and the controls
+   drop to a row beneath (bauhly-v3 .capc). */
+.capc {
+  flex-shrink: 0;
+  margin-top: var(--sp-5);
+  padding: 8px 8px 8px 10px;
+  border: 1px solid rgba(22, 22, 26, 0.07);
+  border-radius: 22px;
+  background: var(--surface);
+  box-shadow: 0 6px 24px -6px rgba(22, 22, 26, 0.16), 0 2px 6px -2px rgba(22, 22, 26, 0.08);
+  transition: box-shadow var(--dur-fast) var(--ease-out), opacity var(--dur-fast) var(--ease-out);
+}
+.capc:focus-within {
+  box-shadow: 0 10px 30px -8px rgba(22, 22, 26, 0.22), 0 2px 6px -2px rgba(22, 22, 26, 0.1);
+}
+.capc.is-off { opacity: 0.55; box-shadow: 0 4px 16px -6px rgba(22, 22, 26, 0.12); }
+/* EMPTY — placeholder and all three controls across one bar; the actions row
+   dissolves so its controls become siblings of the field, each ordered so the
+   line reads add / field / mic / send */
+.capc.is-empty { display: flex; align-items: center; gap: 6px; padding: 6px 6px 6px 8px; }
+.capc.is-empty .capc__acts { display: contents; }
+.capc.is-empty .capc__add { order: 0; }
+.capc.is-empty .capc__field { order: 1; flex: 1; min-width: 0; padding: 0 6px; }
+.capc.is-empty .capc__mic { order: 2; }
+.capc.is-empty .capc__send { order: 3; }
+.capc.is-empty .capc__grow { display: none; }
+.capc .capc__field {
+  width: 100%;
+  height: auto;
+  border: 0;
+  border-radius: 0;
+  padding: 6px 4px;
+  background: transparent;
+  box-shadow: none;
+  resize: none;
+  max-height: 180px;
+  overflow-y: auto;
+  font-family: var(--font-ui);
+  font-size: var(--text-base);
+  line-height: 1.55;
+  color: var(--ink-900);
+}
+.capc .capc__field:focus {
+  outline: none;
+  border: 0;
+  box-shadow: none;
+  background: transparent;
+}
+.capc__acts { display: flex; align-items: center; gap: 6px; margin-top: 4px; }
+.capc__grow { flex: 1; }
+.capc__btn {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  border: 0;
+  border-radius: var(--r-full);
+  background: var(--surface-sunken);
+  color: var(--ink-700);
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
+}
+.capc__btn:hover:not(:disabled):not(.is-off) { background: var(--ink-200); color: var(--ink-900); }
+.capc__btn:focus-within, .capc__btn:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.capc__btn:disabled, .capc__btn.is-off { cursor: default; opacity: 0.6; }
+.capc__send {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  border: 0;
+  border-radius: var(--r-full);
+  background: var(--ink-900);
+  color: #fff;
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease-out), opacity var(--dur-fast) var(--ease-out);
+}
+.capc__send:hover:not(:disabled) { background: var(--night, #000); }
+.capc__send:disabled { background: var(--ink-300, #c9c9d1); cursor: default; }
+.capc__send:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+/* staged image thumbnails inside the composer (ChatGPT-style attach-while-typing) */
+.capc__pending {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 4px 4px 8px;
+}
+.capc__thumb {
+  position: relative;
+  width: 56px;
+  height: 56px;
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--surface-sunken);
+  box-shadow: inset 0 0 0 1px rgba(22, 22, 26, 0.08);
+  flex-shrink: 0;
+}
+.capc__thumb img,
+.capc__thumb video { width: 100%; height: 100%; object-fit: cover; display: block; }
+.capc__thumbx {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border: 0;
+  border-radius: var(--r-full);
+  background: rgba(20, 20, 25, 0.72);
+  color: #fff;
+  cursor: pointer;
+}
+.capc__thumbx:hover { background: rgba(20, 20, 25, 0.9); }
+/* a user turn carrying both an image and words stacks them, right-aligned */
+.ck-turn--user.ck-turn--stack { flex-direction: column; align-items: flex-end; }
+
 
 /* ── Capture: the real project list at the "which project?" step ──────────
  * Each of the studio's own projects as a card to file into — a cover, the

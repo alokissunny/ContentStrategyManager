@@ -874,11 +874,98 @@ function ProjectPickerModal({ projects, onClose, onPick, onNew }) {
  * detects internal stories for clarification, preserves one unified Capture,
  * and asks at most four non-obvious questions that fill missing story pieces for the Strategist.
  * Strategy, Brand DNA, and format stay out of this conversation. */
-export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewProject, onCaptured, exitLabel = 'Back' }) {
+
+/* The Capture composer — text, attach (+), voice (mic) and send (↑) in one
+ * bordered field (bauhly-v3). It holds no capture logic: every control calls
+ * back into CaptureChat. `live` is whether the step can take input; off, the
+ * field greys and the buttons stop — it never unmounts, so the box does not
+ * jump each time Bauhly speaks. Empty, it is a single bar; with text, the
+ * words take the top and the controls drop to a row beneath. */
+function CaptureComposer({ value, onValue, live, canSend, placeholder, onSend, onFiles, onRecord, pending = [], onRemoveFile }) {
+  /* staged images make the composer non-empty even with no text, so it takes
+     its two-row shape (thumbnails on top, field, controls beneath) */
+  const empty = !value && pending.length === 0;
+  return (
+    <div className={`capc ${empty ? 'is-empty' : ''} ${live ? '' : 'is-off'}`}>
+      {pending.length > 0 && (
+        <div className="capc__pending">
+          {pending.map((p) => (
+            <span className="capc__thumb" key={p.id}>
+              {p.type === 'video' ? <video src={p.url} muted /> : <img src={p.url} alt="" />}
+              <button
+                type="button"
+                className="capc__thumbx"
+                onClick={() => onRemoveFile?.(p.id)}
+                aria-label="Remove attachment"
+              >
+                <Icon name="x" size={12} strokeWidth={2.5} />
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
+      <AutoTextarea
+        className="capc__field"
+        value={value}
+        onChange={(e) => onValue(e.target.value)}
+        minHeight={24}
+        placeholderGrows={false}
+        rows={1}
+        disabled={!live}
+        placeholder={placeholder}
+        aria-label="Your capture"
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); if (live && canSend) onSend(); }
+        }}
+      />
+      <div className="capc__acts">
+        <label className={`capc__btn capc__add ${live ? '' : 'is-off'}`} title="Add a photo or clip">
+          <Icon name="plus" size={17} strokeWidth={2.2} />
+          <span className="sr-only">Add a photo or clip</span>
+          <input
+            type="file"
+            accept="image/*,video/*"
+            multiple
+            hidden
+            disabled={!live}
+            onChange={(e) => { onFiles(e.target.files); e.target.value = ''; }}
+          />
+        </label>
+        <span className="capc__grow" />
+        <button
+          type="button"
+          className="capc__btn capc__mic"
+          disabled={!live}
+          onClick={onRecord}
+          title="Record a voice note"
+        >
+          <Icon name="mic" size={16} strokeWidth={2.2} />
+          <span className="sr-only">Record a voice note</span>
+        </button>
+        <button
+          type="button"
+          className="capc__send"
+          disabled={!live || !canSend}
+          onClick={onSend}
+          title="Send"
+        >
+          <Icon name="arrow-up" size={16} strokeWidth={2.4} />
+          <span className="sr-only">Send</span>
+        </button>
+      </div>
+    </div>
+  );
+}
+
+export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewProject, onCaptured, exitLabel = 'Back', modal = false }) {
   const projects = useProjects();
   const { messages, typing, push, say, after } = useConversation();
   const [step, setStep] = useState('boot');
   const [draft, setDraft] = useState('');
+  const [pending, setPending] = useState([]); // images staged in the composer, sent with the next message
+  const pendingRef = useRef(pending);
+  pendingRef.current = pending;
+  useEffect(() => () => pendingRef.current.forEach((p) => { try { URL.revokeObjectURL(p.url); } catch { /* ok */ } }), []);
   const [optionsReady, setOptionsReady] = useState(false);
   const [saved, setSaved] = useState(null);
   const [creating, setCreating] = useState(false); // the new-project modal
@@ -1412,16 +1499,100 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
   };
 
   const actions = renderActions();
-  const showActions = Boolean(actions) && optionsReady && !typing && !busy;
   const thinking = !typing && !busy && Boolean(actions) && !optionsReady;
 
+  // In the modal, the text/voice steps are driven by the anchored composer at
+  // the foot (bauhly-v3), not by the inline chips/textarea — so those are
+  // suppressed for those steps and the composer owns the input.
+  const composerOwnsInput = modal && ['how', 'writing', 'clarify'].includes(step);
+  const composerLive = composerOwnsInput && optionsReady && !typing && !busy;
+  const composerSendable = Boolean(draft.trim()) || pending.length > 0;
+  // Staged images ride along with the next message (ChatGPT-style): the + adds a
+  // thumbnail to the composer instead of posting a "file" turn on its own.
+  const composerFiles = (files) => {
+    const arr = [...files].filter(Boolean);
+    if (!arr.length) return;
+    const staged = arr.map((file, i) => ({
+      id: `${Date.now()}-${i}-${Math.random().toString(36).slice(2, 7)}`,
+      file,
+      url: URL.createObjectURL(file),
+      type: (file.type || '').startsWith('video') ? 'video' : 'image',
+    }));
+    setPending((p) => [...p, ...staged]);
+  };
+  const removePending = (id) => setPending((p) => {
+    const gone = p.find((x) => x.id === id);
+    if (gone) { try { URL.revokeObjectURL(gone.url); } catch { /* already revoked */ } }
+    return p.filter((x) => x.id !== id);
+  });
+  const composerSend = async () => {
+    const text = draft.trim();
+    if (!text && !pending.length) return;
+    // Text only — the existing conversational submits.
+    if (!pending.length) {
+      if (step === 'writing') { submitWriting(); return; }
+      if (step === 'clarify') { submitClarify(); return; }
+      cap.current.kind = 'note';
+      submitWriting();
+      return;
+    }
+    // Text + staged images sent as ONE turn, then understood together.
+    const files = pending.map((p) => p.file);
+    pending.forEach((p) => { try { URL.revokeObjectURL(p.url); } catch { /* ok */ } });
+    setPending([]);
+    fromVoice.current = false;
+    setDraft('');
+    setStep('boot');
+    setBusy(true);
+    try {
+      const added = await uploadFiles(files);
+      cap.current.attachments = [...(cap.current.attachments || []), ...added];
+      cap.current.kind = added.some((a) => a.type === 'video')
+        ? 'video'
+        : (cap.current.kind || (text ? 'note' : 'photo'));
+      push({ from: 'user', text: text || undefined, media: added });
+      let extra;
+      if (text && step === 'clarify') {
+        cap.current.askedAnswer = text;
+        cap.current.text = [cap.current.text, text].filter(Boolean).join('\n\n');
+        cap.current.turns = [...(cap.current.turns || []), { role: 'user', text }];
+        extra = { extraTurn: { role: 'user', text } };
+      } else if (text) {
+        cap.current.text = text;
+        cap.current.turns = [{ role: 'user', text }];
+      } else if (!cap.current.turns?.length) {
+        cap.current.turns = [{ role: 'user', text: 'Uploaded a file' }];
+      }
+      const finishing = afterUnderstood(await runUnderstand(extra));
+      if (!finishing) setBusy(false);
+    } catch {
+      const d = say("That upload didn't go through — want to try again?");
+      after(d, () => setStep(step === 'clarify' ? 'clarify' : 'how'));
+      setBusy(false);
+    }
+  };
+  const composerRecord = () => {
+    if (step === 'clarify') return recordClarify();
+    if (step === 'writing' && fromVoice.current) return recordAgain();
+    return chooseRecord();
+  };
+
+  const showActions = Boolean(actions) && optionsReady && !typing && !busy && !composerOwnsInput;
+
   return createPortal(
-    <div className="cap-overlay">
+    <div className={`cap-overlay${modal ? ' cap-overlay--modal' : ''}`}>
+      {modal && <div className="cap-overlay__scrim" onClick={onExit} aria-hidden="true" />}
       <div className="ck">
-        <button className="btn btn--quiet btn--sm ck__keep" onClick={onExit}>
-          <Icon name="arrow-left" size={15} />
-          {preset ? `Back to ${preset.name}` : exitLabel}
-        </button>
+        {modal ? (
+          <button type="button" className="ck__x" onClick={onExit} aria-label="Close capture">
+            <Icon name="x" size={20} strokeWidth={2} />
+          </button>
+        ) : (
+          <button className="btn btn--quiet btn--sm ck__keep" onClick={onExit}>
+            <Icon name="arrow-left" size={15} />
+            {preset ? `Back to ${preset.name}` : exitLabel}
+          </button>
+        )}
 
         <div className="ck__thread" aria-live="polite" ref={threadRef}>
           <div className="ck__intro">
@@ -1432,8 +1603,8 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
           {messages.map((m) => {
             if (m.from === 'user') {
               return (
-                <div className="ck-turn ck-turn--user" key={m.id}>
-                  {m.media ? (
+                <div className="ck-turn ck-turn--user ck-turn--stack" key={m.id}>
+                  {m.media && (
                     <span className="cvmedia">
                       {m.media.map((a) => (
                         <span className="cvmedia__item" key={a.key || a.id}>
@@ -1441,9 +1612,8 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
                         </span>
                       ))}
                     </span>
-                  ) : (
-                    <span className="ck-said">{m.text}</span>
                   )}
+                  {m.text && <span className="ck-said">{m.text}</span>}
                 </div>
               );
             }
@@ -1489,6 +1659,23 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
         </div>
 
         <ScrollJump threadRef={threadRef} tailRef={endRef} deps={messages.length} />
+
+        {/* Anchored at the foot in the modal: text, attach, voice, send — one
+            bar that never changes the box height (bauhly-v3 CaptureComposer). */}
+        {modal && step !== 'recording' && (
+          <CaptureComposer
+            value={draft}
+            onValue={setDraft}
+            live={composerLive}
+            canSend={composerSendable}
+            pending={pending}
+            onRemoveFile={removePending}
+            placeholder={step === 'clarify' ? 'Answer in your own words…' : 'Say it however it comes out…'}
+            onSend={composerSend}
+            onFiles={composerFiles}
+            onRecord={composerRecord}
+          />
+        )}
       </div>
 
       {step === 'recording' && (

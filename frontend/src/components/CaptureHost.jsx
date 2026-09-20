@@ -26,6 +26,7 @@ export default function CaptureHost() {
   return (
     <Suspense fallback={null}>
       <CaptureChat
+        modal
         defaultProjectId={projects[0]?.id}
         exitLabel="Back"
         onExit={() => setOpen(false)}
