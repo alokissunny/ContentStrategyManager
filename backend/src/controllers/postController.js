@@ -363,6 +363,115 @@ async function distributePosts(req, res) {
   return respond(movable.length);
 }
 
+// ── Shift posts ─────────────────────────────────────────────────────────────
+// Apply a client-proposed date map (from the month calendar's Shift posts flow).
+// Same two-phase write as distribute so the unique (user, handle, date) index
+// never collides. Published posts are refused; scheduled posts keep their
+// clock shifted by the day delta when they are included in the map.
+async function shiftPosts(req, res) {
+  const profile = await currentProfile(req.user._id).select('username').lean();
+  if (!profile) return res.status(404).json({ message: 'No Instagram profile found.' });
+  const handle = profile.username;
+
+  const moves = req.body?.moves;
+  if (!moves || typeof moves !== 'object' || Array.isArray(moves)) {
+    return res.status(400).json({ message: 'Send a map of post id → YYYY-MM-DD date.' });
+  }
+
+  const entries = Object.entries(moves)
+    .map(([id, date]) => ({ id: String(id), date: String(date || '').slice(0, 10) }))
+    .filter((e) => e.id && /^\d{4}-\d{2}-\d{2}$/.test(e.date));
+  if (!entries.length) {
+    return res.status(400).json({ message: 'No valid moves to apply.' });
+  }
+
+  const ids = entries.map((e) => e.id);
+  const posts = await PlannedPost.find({
+    _id: { $in: ids },
+    user: req.user._id,
+    instagramUsername: handle,
+  });
+  if (posts.length !== ids.length) {
+    return res.status(404).json({ message: 'One or more posts could not be found.' });
+  }
+
+  const byId = new Map(posts.map((p) => [String(p._id), p]));
+  for (const e of entries) {
+    const p = byId.get(e.id);
+    if (p.published) {
+      return res.status(400).json({ message: 'Published posts stay where they are.' });
+    }
+  }
+
+  /* Destination uniqueness among the moves themselves */
+  const dests = entries.map((e) => e.date);
+  if (new Set(dests).size !== dests.length) {
+    return res.status(400).json({ message: 'Two posts cannot land on the same day.' });
+  }
+
+  /* Destinations must not collide with posts outside the move set */
+  const others = await PlannedPost.find({
+    user: req.user._id,
+    instagramUsername: handle,
+    _id: { $nin: ids },
+    date: { $in: dests },
+  }).select('_id date').lean();
+  if (others.length) {
+    return res.status(400).json({
+      message: 'That day already has a post that is not part of this move.',
+    });
+  }
+
+  const monthShort = (iso) => {
+    const d = parseIsoDate(iso);
+    return d ? d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '';
+  };
+
+  const parkOps = entries.map((e, i) => ({
+    updateOne: {
+      filter: { _id: e.id, user: req.user._id },
+      update: { $set: { date: `0000-00-${String(i).padStart(4, '0')}` } },
+    },
+  }));
+
+  const finalOps = entries.map((e) => {
+    const p = byId.get(e.id);
+    const from = String(p.date || '').slice(0, 10);
+    const to = e.date;
+    const wd = mondayIndexOf(parseIsoDate(to) || new Date());
+    const $set = {
+      date: to,
+      day: WEEKDAY_LONG[wd],
+      dateLabel: monthShort(to),
+    };
+    /* Keep the clock on the new day when a scheduled post travels with the run */
+    if (p.scheduledAt) {
+      const fromD = parseIsoDate(from);
+      const toD = parseIsoDate(to);
+      if (fromD && toD) {
+        const delta = Math.round((toD - fromD) / 86400000);
+        const at = new Date(p.scheduledAt);
+        at.setDate(at.getDate() + delta);
+        $set.scheduledAt = at;
+      }
+    }
+    return {
+      updateOne: {
+        filter: { _id: e.id, user: req.user._id },
+        update: { $set },
+      },
+    };
+  });
+
+  await PlannedPost.bulkWrite(parkOps, { ordered: false });
+  await PlannedPost.bulkWrite(finalOps, { ordered: false });
+
+  const refreshed = await PlannedPost.find({ user: req.user._id, instagramUsername: handle })
+    .sort({ date: 1 }).select('-content -agentTrace').lean();
+  console.log(`[posts] shift @${handle} · moved=${entries.length}`);
+  return res.json({ posts: refreshed, moved: entries.length });
+}
+
 // ── Content merge (preserves plan-written fields across studio edits) ────────
 function mergeSlides(incomingSlides, prevSlides) {
   const prev = Array.isArray(prevSlides) ? prevSlides : [];
@@ -956,6 +1065,7 @@ module.exports = {
   generatePlan,
   clearUpcoming,
   distributePosts,
+  shiftPosts,
   updatePost,
   polishCaption,
   rerunLayout,

@@ -68,6 +68,7 @@ export function MonthDayMenu({
   onClose,
   onDistribute,
   onPatch,
+  onShift,
   variant = 'popover',
   peekLoading = false,
 }) {
@@ -112,11 +113,24 @@ export function MonthDayMenu({
           <Icon name="chevron-left" size={16} strokeWidth={2.1} />
           <span className="pe-menu__grow">Shift posts</span>
         </button>
-        <button type="button" role="menuitem" onClick={() => { onClose(); onDistribute?.(); }}>
-          <Icon name="calendar" size={17} />
+        <button
+          type="button"
+          role="menuitem"
+          onClick={() => { onClose(); onShift?.(day, 'one'); }}
+        >
           <span className="pe-menu__grow">
-            Change distribution
-            <em>Move upcoming posts onto your publishing days</em>
+            This post
+            <em>Move only the selected post.</em>
+          </span>
+        </button>
+        <button
+          type="button"
+          role="menuitem"
+          onClick={() => { onClose(); onShift?.(day, 'future'); }}
+        >
+          <span className="pe-menu__grow">
+            This + next posts
+            <em>Move this post and all future posts in the sequence.</em>
           </span>
         </button>
       </>
@@ -184,11 +198,21 @@ export function MonthDayMenu({
           )}
           <Icon name="chevron-right" size={16} strokeWidth={2.1} />
         </button>
-        <button type="button" role="menuitem" onClick={() => onLevel('shift')}>
-          <Icon name="arrow-right" size={17} />
-          <span className="pe-menu__grow">Shift posts</span>
-          <Icon name="chevron-right" size={16} strokeWidth={2.1} />
-        </button>
+        {!out && (
+          <button
+            type="button"
+            role="menuitem"
+            disabled={!!set}
+            onClick={set ? undefined : () => onLevel('shift')}
+          >
+            <Icon name="arrow-right" size={17} />
+            <span className="pe-menu__grow">
+              Shift posts
+              {set && <em>Unschedule first</em>}
+            </span>
+            <Icon name="chevron-right" size={16} strokeWidth={2.1} />
+          </button>
+        )}
       </>
     );
   }
@@ -218,6 +242,9 @@ export function MonthDayCell({
   metaConnected,
   preview = false,
   selected = false,
+  picking = false,
+  muted = false,
+  moveKind = null,
   menu = null,
   timeLabel,
   onSelect,
@@ -238,6 +265,10 @@ export function MonthDayCell({
   if (past) cls.push('is-past');
   if (preview) cls.push('is-preview');
   if (selected) cls.push('is-on');
+  if (picking) cls.push('is-picking');
+  if (muted) cls.push('is-muted');
+  if (moveKind === 'from') cls.push('is-mv--src');
+  if (moveKind === 'to') cls.push('is-mv--to');
   if (st?.tone === 'done') cls.push('is-out');
   if (st) cls.push('is-ready');
   const title = (day?.title || day?.contentType || '').trim();
@@ -258,6 +289,7 @@ export function MonthDayCell({
         }}
         onDoubleClick={() => {
           clearTimeout(timer.current);
+          if (picking) return;
           if (row) onOpen?.(row.week);
           else onPickDay?.(cell.date);
         }}

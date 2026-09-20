@@ -13,9 +13,10 @@
  * Switching accounts in the header reloads; list endpoints follow the active handle.
  */
 
-import React, { Suspense, useEffect, useRef, useState } from 'react';
+import React, { Suspense, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import Icon from '../brand/Icon';
-import { getPosts, getPost, clearUpcoming, distributePosts } from '../api/posts';
+import { getPosts, getPost, clearUpcoming, distributePosts, shiftPosts } from '../api/posts';
 import { MonthDayCell, MonthDayMenu, useMonthDayMenu, calStatusOf as peekCalStatusOf } from './monthDayMenu';
 import DayFeed from './DayFeed';
 import MobileSheet from '../components/MobileSheet';
@@ -32,6 +33,12 @@ import {
 } from '../lib/planGeneration';
 import { useAuth } from '../context/AuthContext';
 import { getBrandDna, reviseBrandDna } from '../api/brandDna';
+import {
+  proposeShift,
+  validShiftDays,
+  isoOf as shiftIsoOf,
+  postIso,
+} from '../lib/shiftPosts';
 // Code-split the heavy views so the Calendar (month grid) does not download
 // WeekView (~the largest component) or the capture/generate flows until they are
 // actually opened.
@@ -562,25 +569,183 @@ function MonthView({
   onPickDay,
   onDistribute,
   onPatchPost,
+  onPostsReload,
 }) {
   const cells = monthCellsOf(anchor.getFullYear(), anchor.getMonth(), index);
   const weeks = [];
   for (let i = 0; i < cells.length; i += 7) weeks.push(cells.slice(i, i + 7));
   const today = startOfDay(new Date());
+  const todayIso = shiftIsoOf(today);
   const { dayMenu, setDayMenu, openDayMenu, fullDay, setFullDay, peekLoading } = useMonthDayMenu(index);
   const [daySel, setDaySel] = useState(null);
+  /* Shift posts: `{ post, from, mode }` while picking; `+ to, result` once proposed */
+  const [moving, setMoving] = useState(null);
+  const [offDay, setOffDay] = useState(false);
+  const [shifting, setShifting] = useState(false);
+  const [shiftErr, setShiftErr] = useState('');
+
+  const posts = useMemo(() => (
+    [...index.values()]
+      .map((row) => row?.day)
+      .filter((d) => d?._id && postIso(d))
+      .sort((a, b) => postIso(a).localeCompare(postIso(b)))
+  ), [index]);
+
+  /* Pattern weekdays when distribution is under 7 days — sequence shifts re-deal onto it */
+  const patternDays = useMemo(() => {
+    if (!moving) return null;
+    if (!posting || posting.size >= 7) return null;
+    return posting;
+  }, [moving, posting]);
+
+  const validStarts = useMemo(() => {
+    if (!moving) return null;
+    return validShiftDays({
+      year: anchor.getFullYear(),
+      month: anchor.getMonth(),
+      mode: moving.mode,
+      patternDays,
+      posts,
+      metaConnected,
+      floorIso: todayIso,
+    });
+  }, [moving, anchor, patternDays, posts, metaConnected, todayIso]);
+
+  /* Preview index: only movers re-keyed onto proposed dates */
+  const displayIndex = useMemo(() => {
+    const result = moving?.result;
+    if (!result?.dates) return index;
+    const m = new Map(index);
+    const shiftingIds = new Set([...result.moved, ...(result.bumped || [])]);
+    /* clear old cells */
+    [...m.entries()].forEach(([key, row]) => {
+      const id = String(row?.day?._id || '');
+      if (shiftingIds.has(id)) m.delete(key);
+    });
+    /* place on new dates */
+    shiftingIds.forEach((id) => {
+      const iso = result.dates[id];
+      if (!iso) return;
+      const post = posts.find((p) => String(p._id) === id);
+      if (!post) return;
+      const d = new Date(`${iso}T12:00:00`);
+      m.set(ymdKey(d), {
+        date: d,
+        day: { ...post, date: iso },
+        week: { ...post, date: iso, days: [{ ...post, date: iso }] },
+      });
+    });
+    return m;
+  }, [moving, index, posts]);
+
+  const moveMarks = useMemo(() => {
+    const result = moving?.result;
+    if (!result) return new Map();
+    const marks = new Map();
+    const fromIso = moving.from;
+    if (fromIso) marks.set(fromIso, 'from');
+    const movedIds = new Set([...result.moved, ...(result.bumped || [])]);
+    movedIds.forEach((id) => {
+      const now = result.dates[id];
+      if (now) marks.set(now, marks.get(now) === 'from' ? 'from' : 'to');
+    });
+    return marks;
+  }, [moving]);
 
   const closeMenu = () => {
     setDayMenu(null);
     setDaySel(null);
   };
 
+  const startShift = (day, mode) => {
+    const from = postIso(day);
+    if (!day?._id || !from) return;
+    setDayMenu(null);
+    setDaySel(null);
+    setOffDay(false);
+    setShiftErr('');
+    setMoving({ post: day, from, mode });
+  };
+
+  const cancelShift = () => {
+    setMoving(null);
+    setOffDay(false);
+    setShiftErr('');
+  };
+
+  const commitShift = async () => {
+    if (!moving?.result?.dates || shifting) return;
+    setShifting(true);
+    setShiftErr('');
+    try {
+      const data = await shiftPosts(moving.result.dates);
+      onPostsReload?.(data.posts || []);
+      cancelShift();
+    } catch (err) {
+      setShiftErr(err.response?.data?.message || 'Could not move those posts.');
+    } finally {
+      setShifting(false);
+    }
+  };
+
+  const pickShiftDay = (iso, cellRow) => {
+    if (!moving) return;
+    /* Fixed post on destination */
+    const sitting = cellRow?.day;
+    if (sitting?.published || (metaConnected && sitting?.scheduledAt)) {
+      setShiftErr(sitting.published
+        ? 'That post has already been published, so its day stays where it is.'
+        : 'That post is scheduled. Unschedule it first, or choose another day.');
+      return;
+    }
+    /* Off-pattern destination for a sequence shift */
+    if (
+      moving.mode === 'future'
+      && patternDays
+      && patternDays.size < 7
+      && !patternDays.has((new Date(`${iso}T12:00:00`).getDay() + 6) % 7)
+    ) {
+      setOffDay(true);
+      setShiftErr('');
+      return;
+    }
+    setOffDay(false);
+    setShiftErr('');
+    const res = proposeShift({
+      posts,
+      anchorId: String(moving.post._id),
+      fromIso: moving.from,
+      toIso: iso,
+      mode: moving.mode,
+      patternDays,
+      metaConnected,
+    });
+    if (res.offPattern) {
+      setOffDay(true);
+      return;
+    }
+    if (res.conflict) {
+      setShiftErr('A published or scheduled post is on one of those days.');
+      return;
+    }
+    if (!res.result) {
+      /* Pressing the source day clears the proposal */
+      setMoving({ post: moving.post, from: moving.from, mode: moving.mode });
+      return;
+    }
+    setMoving({
+      post: moving.post,
+      from: moving.from,
+      mode: moving.mode,
+      to: iso,
+      result: res.result,
+    });
+  };
+
   const menuKey = dayMenu?.key || null;
   const menuLevel = dayMenu?.level || null;
   const menuRow = menuKey ? index.get(menuKey) : null;
   const menuStub = menuRow?.day || null;
-  /* Prefer enriched post only when it is THIS cell's — never paint the previous
-     day's peek while the new fetch is in flight. */
   const menuEnriched = fullDay && menuStub && String(fullDay._id) === String(menuStub._id)
     ? fullDay
     : null;
@@ -595,8 +760,12 @@ function MonthView({
     : menuLevel === 'state' ? 'Status'
       : sheetDate ? longDayLabel(sheetDate) : '';
 
+  const displayCells = monthCellsOf(anchor.getFullYear(), anchor.getMonth(), displayIndex);
+  const displayWeeks = [];
+  for (let i = 0; i < displayCells.length; i += 7) displayWeeks.push(displayCells.slice(i, i + 7));
+
   return (
-    <div className="yw-mcal">
+    <div className={`yw-mcal${moving ? ' is-shifting' : ''}`}>
       <div className="yw-mcal__head" aria-hidden="true">
         {WEEKDAYS.map((w, i) => (
           <span key={w} className="yw-mcal__wd">
@@ -606,34 +775,58 @@ function MonthView({
         ))}
       </div>
       <div className="yw-mcal__grid" role="grid" aria-label="Month of posts">
-        {weeks.map((week) => (
+        {displayWeeks.map((week) => (
           <div className="yw-mcal__row" role="row" key={ymdKey(week[0].date)}>
             {week.map((cell) => {
               const key = ymdKey(cell.date);
-              const open = dayMenu?.key === key;
+              const iso = shiftIsoOf(cell.date);
+              const open = !moving && dayMenu?.key === key;
               const row = cell.row;
-              const cellStub = row?.day || null;
+              /* Source row from the real index (not preview) for menu enrichment */
+              const realRow = index.get(key);
+              const cellStub = realRow?.day || null;
               const cellEnriched = open && fullDay && cellStub
                 && String(fullDay._id) === String(cellStub._id)
                 ? fullDay
                 : null;
               const cellDay = open ? (cellEnriched || cellStub) : null;
+              const canPick = !!moving && !!validStarts?.has(iso);
               return (
                 <div role="gridcell" key={key} className="yw-mcal__cell">
                   <MonthDayCell
                     cell={cell}
                     metaConnected={metaConnected}
-                    preview={previewOn && cell.date >= today && posting.has((cell.date.getDay() + 6) % 7)}
-                    selected={daySel === key || open}
+                    preview={moving
+                      ? canPick
+                      : (previewOn && cell.date >= today && posting.has((cell.date.getDay() + 6) % 7))}
+                    selected={moving
+                      ? (iso === moving.to || (!moving.to && iso === moving.from))
+                      : (daySel === key || open)}
+                    picking={!!moving}
+                    muted={!!moving && !canPick && iso !== moving.from}
+                    moveKind={moveMarks.get(iso) || (iso === moving?.from ? 'from' : null)}
                     timeLabel={timeLabelOf}
                     onSelect={(c, r, late) => {
                       const k = ymdKey(c.date);
+                      const dayIso = shiftIsoOf(c.date);
+                      if (moving) {
+                        if (!late) return; /* wait for the settled click */
+                        if (validStarts?.has(dayIso) || dayIso === moving.from) {
+                          pickShiftDay(dayIso, index.get(k) || r);
+                        } else if (
+                          moving.mode === 'future'
+                          && patternDays
+                          && !patternDays.has((c.date.getDay() + 6) % 7)
+                          && dayIso >= todayIso
+                        ) {
+                          setOffDay(true);
+                        }
+                        return;
+                      }
                       if (late) {
                         openDayMenu(k);
                         return;
                       }
-                      /* lime lands immediately; menu waits so a double-click
-                         can still open the post without flashing the popover */
                       setDayMenu(null);
                       setDaySel(k);
                     }}
@@ -648,11 +841,12 @@ function MonthView({
                         level={menuLevel}
                         onLevel={(level) => setDayMenu((m) => (m ? { ...m, level } : m))}
                         onOpen={() => {
-                          if (row?.week) onOpen(row.week);
+                          if (realRow?.week) onOpen(realRow.week);
                           else onPickDay?.(cell.date);
                         }}
                         onClose={closeMenu}
                         onDistribute={onDistribute}
+                        onShift={startShift}
                         onPatch={(next) => {
                           setFullDay(next);
                           onPatchPost?.(next);
@@ -666,7 +860,7 @@ function MonthView({
           </div>
         ))}
       </div>
-      {phone && (
+      {phone && !moving && (
         <MobileSheet
           open={!!dayMenu}
           title={sheetTitle}
@@ -690,12 +884,78 @@ function MonthView({
             }}
             onClose={closeMenu}
             onDistribute={onDistribute}
+            onShift={startShift}
             onPatch={(next) => {
               setFullDay(next);
               onPatchPost?.(next);
             }}
           />
         </MobileSheet>
+      )}
+      {moving && createPortal(
+        <div className="yw-moving" role="status">
+          <span className="yw-moving__say">
+            {offDay ? null : !moving.result ? (
+              <>
+                <span className="yw-moving__what">Choose a new day</span>
+                <span className="yw-moving__hint">
+                  {moving.mode === 'future'
+                    ? 'Everything planned after it moves with it.'
+                    : 'Only this post moves. Everything else stays.'}
+                </span>
+              </>
+            ) : (
+              <>
+                <span className="yw-moving__what">
+                  Shifted <b>{Math.abs(moving.result.delta)} day{Math.abs(moving.result.delta) === 1 ? '' : 's'}</b>
+                  {moving.result.delta > 0 ? ' later' : ' earlier'}
+                  {moving.result.moved.length > 1 && (
+                    <>{' · '}{moving.result.moved.length} posts move</>
+                  )}
+                </span>
+                {(moving.result.bumped || []).length > 0 && (
+                  <span className="yw-moving__hint">
+                    {moving.result.bumped.length} post{moving.result.bumped.length === 1 ? '' : 's'} moved down
+                  </span>
+                )}
+              </>
+            )}
+            {offDay && (
+              <span className="yw-moving__note">This day isn’t in your posting schedule.</span>
+            )}
+            {shiftErr && <span className="yw-moving__note">{shiftErr}</span>}
+          </span>
+          <span className="yw-moving__do">
+            {offDay && (
+              <button
+                type="button"
+                className="btn btn--quiet btn--sm"
+                onClick={() => { cancelShift(); onDistribute?.(); }}
+              >
+                {phone ? 'Change distribution' : 'Change distribution days'}
+              </button>
+            )}
+            {moving.result && !offDay && (
+              <button
+                type="button"
+                className="btn btn--primary btn--sm"
+                disabled={shifting}
+                onClick={commitShift}
+              >
+                {shifting ? 'Moving…' : 'Move posts'}
+              </button>
+            )}
+          </span>
+          <button
+            type="button"
+            className="yw-moving__x"
+            onClick={cancelShift}
+            aria-label="Cancel move"
+          >
+            <Icon name="x" size={18} strokeWidth={2.25} />
+          </button>
+        </div>,
+        document.body,
       )}
     </div>
   );
@@ -1773,6 +2033,12 @@ export default function YourPlans() {
                 fullCacheRef.current.set(String(post._id), next);
                 setRoutes((list) => list.map((r) => (String(r._id) === String(post._id) ? next : r)));
                 setCurrent((c) => (c && String(c._id) === String(post._id) ? next : c));
+              }}
+              onPostsReload={(list) => {
+                const all = (list || []).map(postToRoute);
+                setRoutes(all);
+                setCurrent(pickCurrentRoute(all));
+                fullCacheRef.current.clear();
               }}
             />
           ) : feedOn ? (

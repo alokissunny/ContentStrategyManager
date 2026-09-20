@@ -144,6 +144,12 @@ export function distributePosts(mode, days) {
   return client.post('/posts/distribute', { mode, days }).then((res) => res.data);
 }
 
+// Apply a Shift posts proposal: { [postId]: 'YYYY-MM-DD', ... }.
+// Returns { posts, moved } — the full refreshed calendar list.
+export function shiftPosts(moves) {
+  return client.post('/posts/shift', { moves }).then((res) => res.data);
+}
+
 // ── Per-post edits — all thin wrappers over PATCH /posts/:id ────────────────
 
 // Persist slide / caption / notes edits.

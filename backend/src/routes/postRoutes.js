@@ -9,6 +9,7 @@ const {
   generatePlan,
   clearUpcoming,
   distributePosts,
+  shiftPosts,
   updatePost,
   polishCaption,
   rerunLayout,
@@ -22,6 +23,7 @@ router.use(protect);
 router.get('/', asyncHandler(getPosts));
 router.post('/generate', asyncHandler(generatePlan));
 router.post('/distribute', asyncHandler(distributePosts));
+router.post('/shift', asyncHandler(shiftPosts));
 router.delete('/', asyncHandler(clearUpcoming));
 router.get('/:id', asyncHandler(getPostById));
 router.get('/:id/options', asyncHandler(getPostOptions));

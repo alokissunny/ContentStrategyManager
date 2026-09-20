@@ -873,6 +873,228 @@
 }
 .yw-mday.is-on.is-preview .yw-mday__hit { box-shadow: inset 0 0 0 2px var(--canvas); }
 
+/* ── Shift posts — the move drawn on the grid (bauhly-v3 YourWeek) ───────────
+ * Pressing "Shift posts" puts the month into a picking state: every day the
+ * anchor can move to carries the black available-day border, the day it leaves
+ * is ringed, the days behind it grey out, and a bar at the foot of the window
+ * says what will happen. `is-shifting` lives on `.yw-mcal` here (bauhly puts it
+ * on `.yw`), and the port emits only `is-mv--src` / `is-mv--to` — no ghost,
+ * lock or blocked marks. */
+
+/* today gives up its lime for the length of a move — lime's second job here is
+   the day being left, and one colour cannot mean two things on one grid */
+.yw-mcal.is-shifting .yw-mday.is-today:not(.is-on) .yw-mday__hit,
+.yw-mcal.is-shifting .yw-mday.is-today:not(.is-on) .yw-mday__hit:hover {
+  background: var(--canvas);
+  box-shadow: inset 0 0 0 1px var(--border);
+}
+.yw-mcal.is-shifting .yw-mday.is-today:not(.is-on) .yw-mday__when b { color: var(--ink-900); }
+.yw-mcal.is-shifting .yw-mday.is-today:not(.is-on) .yw-mday__today { color: var(--ink-600); }
+.yw-mcal.is-shifting .yw-mday.is-today:not(.is-on) .yw-mday__kind { color: var(--ink-500); }
+
+/* 1 · AVAILABLE — the black border on every day the anchor can reach. Clears
+   the neighbouring month's transparent ground so a dim day still rings. */
+.yw-mday.is-picking.is-preview:not(.is-on) .yw-mday__hit.yw-mday__hit {
+  opacity: 1;
+  background: var(--canvas);
+  box-shadow: inset 0 0 0 2px var(--ink-900);
+}
+.yw-mday.is-picking.is-preview .yw-mday__hit { cursor: pointer; }
+.yw-mday.is-picking:not(.is-preview) .yw-mday__hit { cursor: default; }
+
+/* today, while picking but not the selection — neutral ground, ink type */
+.yw-mday.is-picking.is-today:not(.is-on) .yw-mday__hit.yw-mday__hit {
+  background: var(--canvas);
+}
+.yw-mday.is-picking.is-today:not(.is-on) .yw-mday__when b,
+.yw-mday.is-picking.is-today:not(.is-on) .yw-mday__today,
+.yw-mday.is-picking.is-today:not(.is-on) .yw-mday__kind { color: var(--ink-900); }
+@media (max-width: 767px) {
+  .yw-mday.is-picking.is-today:not(.is-on) .yw-day__kind { background: var(--ink-900); }
+}
+
+/* 0 · everything behind the anchor is out of play — grounded out, no border,
+   no pointer, type stepped back so the boundary reads without a label */
+.yw-mday.is-picking.is-muted .yw-mday__hit.yw-mday__hit.yw-mday__hit.yw-mday__hit {
+  opacity: 0.45;
+  background: var(--surface-sunken);
+  box-shadow: none;
+  cursor: default;
+}
+/* but today stays findable even when it is behind the line — quiet, not gone */
+.yw-mday.is-picking.is-muted.is-today .yw-mday__hit.yw-mday__hit.yw-mday__hit.yw-mday__hit {
+  opacity: 0.62;
+  background: var(--canvas);
+  box-shadow: inset 0 0 0 1px var(--border);
+}
+
+/* 3 · where it came from — the anchor's day, ringed in ink (not lime) once a
+   destination is pressed and it is no longer the selection */
+.yw-mday.is-picking.is-preview.is-mv--src:not(.is-on):not(.is-today) .yw-mday__hit.yw-mday__hit {
+  background: var(--canvas);
+  box-shadow: inset 0 0 0 2px var(--ink-900);
+  opacity: 1;
+}
+.yw-mday.is-picking.is-preview.is-mv--src:not(.is-on):not(.is-today) .yw-mday__when b,
+.yw-mday.is-picking.is-preview.is-mv--src:not(.is-on):not(.is-today) .yw-mday__kind {
+  color: var(--ink-900);
+}
+
+/* 4 · the pointer outranks all of it — accent ground + border on any available
+   day under the cursor, never on the selection */
+.yw-mday.is-picking.is-preview:not(.is-on):hover .yw-mday__hit.yw-mday__hit.yw-mday__hit.yw-mday__hit {
+  opacity: 1;
+  background: var(--signal-50);
+  box-shadow: inset 0 0 0 2px var(--action-accent);
+}
+.yw-mday.is-picking.is-preview:not(.is-on):hover .yw-mday__when b.yw-mday__when,
+.yw-mday.is-picking.is-preview:not(.is-on):hover .yw-mday__kind.yw-mday__kind { color: var(--action-accent-text, var(--ink-900)); }
+
+/* a proposed destination is not a post yet — ground stays, only the border
+   speaks. Doubled so it does not collide with the available-day rule. */
+.yw-mday.is-mv--to .yw-mday__hit.yw-mday__hit {
+  background: var(--surface-sunken);
+  box-shadow: inset 0 0 0 2px var(--ink-900);
+}
+.yw-mday.is-mv--to .yw-mday__kind.yw-mday__kind { color: var(--ink-500); }
+
+/* the selected day is black whatever else it is — tripled so it beats every
+   picking mark above, including `is-mv--to` on the pressed destination */
+.yw-mday.is-on .yw-mday__hit.yw-mday__hit.yw-mday__hit {
+  background: var(--night, #141419);
+  color: var(--canvas);
+  box-shadow: none;
+  opacity: 1;
+}
+.yw-mday.is-on .yw-mday__hit.yw-mday__hit .yw-mday__when b { color: var(--canvas); }
+.yw-mday.is-on .yw-mday__hit.yw-mday__hit .yw-mday__kind,
+.yw-mday.is-on .yw-mday__hit.yw-mday__hit .yw-day__clock {
+  color: color-mix(in srgb, #fff 72%, transparent);
+}
+
+/* ── The shift bar — fixed to the foot of the window, above everything ─────── */
+.yw-moving {
+  position: fixed;
+  left: var(--sp-4);
+  right: var(--sp-4);
+  margin-inline: auto;
+  width: fit-content;
+  bottom: var(--sp-6);
+  z-index: 120;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  max-width: calc(100vw - 2 * var(--sp-4));
+  padding: 10px 10px 10px var(--sp-5);
+  border-radius: var(--r-full);
+  background: var(--ink-900);
+  color: #fff;
+  box-shadow: 0 18px 44px -14px rgba(20, 20, 25, 0.55);
+  font-size: var(--text-sm);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .yw-moving { animation: yw-moving-in 200ms var(--ease-out) both; }
+}
+@keyframes yw-moving-in {
+  from { opacity: 0; translate: 0 10px; }
+  to { opacity: 1; translate: 0 0; }
+}
+.yw-moving__say {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-3);
+  min-width: 0;
+}
+.yw-moving__what { white-space: nowrap; }
+.yw-moving__what b { font-weight: 700; }
+.yw-moving__hint {
+  color: rgba(255, 255, 255, 0.62);
+  font-size: var(--text-xs);
+  white-space: nowrap;
+}
+.yw-moving__note { color: rgba(255, 255, 255, 0.72); font-size: var(--text-xs); }
+.yw-moving__do {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  flex: none;
+}
+/* the bar is ink, so its buttons cannot be the page's ink-on-white ones */
+.yw-moving .btn--primary { background: #fff; color: var(--ink-900); }
+.yw-moving .btn--primary:hover { background: rgba(255, 255, 255, 0.86); }
+.yw-moving .btn--quiet { color: rgba(255, 255, 255, 0.72); text-decoration: underline; }
+.yw-moving .btn--quiet:hover { color: #fff; background: rgba(255, 255, 255, 0.12); }
+.yw-moving__x {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 34px;
+  height: 34px;
+  border: 0;
+  border-radius: var(--r-full);
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+  cursor: pointer;
+  transition: background var(--dur-fast);
+}
+.yw-moving__x:hover { background: rgba(255, 255, 255, 0.22); }
+.yw-moving__x:focus-visible { outline: 2px solid var(--canvas); outline-offset: 2px; }
+
+/* a phone has no room for one row of all that — message first, actions under */
+@media (max-width: 720px) {
+  .yw-moving {
+    left: var(--sp-3);
+    right: var(--sp-3);
+    width: auto;
+    max-width: none;
+    margin-inline: 0;
+    bottom: calc(var(--sp-3) + env(safe-area-inset-bottom));
+    flex-direction: column;
+    align-items: stretch;
+    gap: var(--sp-3);
+    padding: var(--sp-4);
+    border-radius: var(--r-lg);
+  }
+  .yw-moving__say {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 2px;
+    padding-right: 52px;
+    min-height: 40px;
+  }
+  .yw-moving__what, .yw-moving__hint { white-space: normal; }
+  .yw-moving__do { flex-wrap: nowrap; gap: var(--sp-2); width: 100%; }
+  .yw-moving__do .btn {
+    flex: 1 1 0;
+    min-width: 0;
+    justify-content: center;
+    min-height: 44px;
+    padding-inline: var(--sp-2);
+    white-space: normal;
+    text-align: center;
+    line-height: 1.25;
+  }
+  .yw-moving__do .btn--quiet {
+    text-decoration: none;
+    border: 1px solid rgba(255, 255, 255, 0.28);
+  }
+  .yw-moving__do:empty { display: none; }
+  .yw-moving__x {
+    position: absolute;
+    top: var(--sp-3);
+    right: var(--sp-3);
+    width: 40px;
+    height: 40px;
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    .yw-moving { animation: none; }
+  }
+}
+@media (max-width: 360px) {
+  .yw-moving__do .btn { font-size: var(--text-xs); }
+}
+
 /* pe-menu shell (month view may load without weekView.css) */
 .yw-mcal .pe-menu__scrim { position: fixed; inset: 0; z-index: 70; }
 .yw-mcal .pe-menu {
