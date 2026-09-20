@@ -2181,6 +2181,50 @@ function WhyBody({ day }) {
   );
 }
 
+/* The IG-preview caption, collapsed to three lines with a "Show more" toggle
+ * (bauhly-v3 FeedCard). Keyed per day by the caller so it resets on switch.
+ * When collapsed the CTA and hashtags are part of "more" and stay hidden. */
+function CaptionPreview({ handle, caption, direction, cta, tags = [], needsReview, onEdit }) {
+  const [open, setOpen] = useState(false);
+  const text = String(caption || '').trim();
+  // A control that expands two lines into two lines does nothing — only draw it
+  // when there is more to reveal: a long caption, a CTA, or hashtags.
+  const long = text.length > 120 || Boolean(cta) || tags.length > 0;
+  return (
+    <div className="wv-ig__caption wv-ig__zone wv-ig__zone--caption">
+      {needsReview && <span className="wv-ig__caprev">Caption needs review</span>}
+      <p className={`wv-ig__captiontext ${long && !open ? 'is-clamped' : ''}`}>
+        <b>{handle}</b>{' '}
+        {caption || direction || <span className="wv-muted">Add a caption…</span>}
+      </p>
+      {(!long || open) && cta && <p className="wv-ig__cta">{cta}</p>}
+      {(!long || open) && tags.length > 0 && (
+        <p className="wv-ig__hashtags">
+          {tags.map((t) => <span key={t}>#{t}</span>)}
+        </p>
+      )}
+      {long && (
+        <button
+          type="button"
+          className="wv-ig__more"
+          onClick={() => setOpen((o) => !o)}
+        >
+          {open ? 'Show less' : 'Show more'}
+        </button>
+      )}
+      <span className="wv-ig__veil" aria-hidden="true" />
+      <button
+        type="button"
+        className="wv-ig__zonebtn"
+        aria-label="Edit the caption"
+        onClick={onEdit}
+      >
+        <Glyph name="pencil" size={16} />
+      </button>
+    </div>
+  );
+}
+
 /* Video cover — the animated hook clip from the Carousel Cover agent. Shown in
    the side panel; Apply swaps it in for the static hook slide. */
 function VideoCoverPanel({ busy, error, url, spec, isApplied, hasApplied, onApply, onRemove, onRegenerate }) {
@@ -5478,34 +5522,16 @@ export default function WeekView({
                 </div>
               </div>
             ) : (
-              <div className="wv-ig__caption wv-ig__zone wv-ig__zone--caption">
-                {capNeedsReview && (
-                  <span className="wv-ig__caprev">Caption needs review</span>
-                )}
-                <p className="wv-ig__captiontext">
-                  <b>{handle}</b>{' '}
-                  {day.content?.caption || day.direction || <span className="wv-muted">Add a caption…</span>}
-                </p>
-                {captionCta && (
-                  <p className="wv-ig__cta">{captionCta}</p>
-                )}
-                {captionTags.length > 0 && (
-                  <p className="wv-ig__hashtags">
-                    {captionTags.map((t) => (
-                      <span key={t}>#{t}</span>
-                    ))}
-                  </p>
-                )}
-                <span className="wv-ig__veil" aria-hidden="true" />
-                <button
-                  type="button"
-                  className="wv-ig__zonebtn"
-                  aria-label="Edit the caption"
-                  onClick={() => openZone('caption')}
-                >
-                  <Glyph name="pencil" size={16} />
-                </button>
-              </div>
+              <CaptionPreview
+                key={selected}
+                handle={handle}
+                caption={day.content?.caption}
+                direction={day.direction}
+                cta={captionCta}
+                tags={captionTags}
+                needsReview={capNeedsReview}
+                onEdit={() => openZone('caption')}
+              />
             )}
             </div>
             <div className="wv-ig__whyblock">

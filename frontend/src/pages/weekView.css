@@ -3968,6 +3968,28 @@
   white-space: pre-wrap;
 }
 .wv-ig__captiontext b { font-weight: 700; }
+/* collapsed to three lines until the studio presses "Show more" (bauhly-v3) */
+.wv-ig__captiontext.is-clamped {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
+/* quiet, and plainly a control — the one thing in the block that is not caption */
+.wv-ig__more {
+  display: inline-block;
+  margin-top: 4px;
+  padding: 4px 0;
+  border: 0;
+  background: none;
+  font-family: var(--font-ui);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink-600);
+  cursor: pointer;
+}
+.wv-ig__more:hover { color: var(--ink-900); }
 .wv-ig__cta {
   margin: 8px 0 0;
   font-family: var(--font-ui);

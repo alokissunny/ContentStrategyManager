@@ -91,19 +91,10 @@ function FeedItem({ row, handle, metaConnected, onOpen, enriched, loading }) {
         </button>
       </header>
 
-      <div
-        className="ywf__media"
-        role="button"
-        tabIndex={0}
-        aria-label="Open post"
-        onClick={() => onOpen?.(row)}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter' || e.key === ' ') {
-            e.preventDefault();
-            onOpen?.(row);
-          }
-        }}
-      >
+      {/* The day feed shows the whole post inline, so the media is not a way in
+          to a separate editor view — tapping it does nothing (per product). The
+          schedule chip above stays the one control that opens the workspace. */}
+      <div className="ywf__media">
         <div className="ywf__frame">
           {ready ? (
             <DayPeek key={String(enriched._id)} day={enriched} feed />
