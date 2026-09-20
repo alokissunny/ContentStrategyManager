@@ -6858,32 +6858,62 @@ span.wv-layed__apply { margin-left: auto; flex-shrink: 0; }
 }
 
 /* Empty weekday in Day view — invite a capture instead of a post */
-.wv-emptyday {
+/* ── the day with nothing on it (bauhly-v3 .yw-dayempty) ─────────────────────
+   The three photographs, the line and the action are one block, centred on the
+   whole panel — a rounded card filling the post area, not a narrow column. */
+/* the empty day fills the whole panel, not a fixed 520 — the card grows to the
+   height the window affords (bauhly-v3 .yw:has(.yw-dayempty) flex chain) */
+.ph:has(.wv-dayempty) { height: 100%; }
+.ph:has(.wv-dayempty) .ph__list { flex: 1 1 auto; min-height: 0; }
+.ph:has(.wv-dayempty) .cal-plan { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+.ph:has(.wv-dayempty) .wv { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+.wv-dayempty {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  width: 100%;
+}
+.wv-dayempty__card {
+  flex: 1 1 auto;
+  min-height: clamp(360px, 46vh, 520px);
+  /* shots → title → action, tightly stacked and centred as one block */
   display: flex;
   flex-direction: column;
-  align-items: flex-start;
-  gap: 12px;
-  width: 100%;
-  min-height: 280px;
-  padding: 40px 36px;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: var(--sp-8, 40px) var(--sp-6, 24px);
   border-radius: var(--r-xl, 26px);
-  background: var(--surface-sunken);
+  background: var(--surface-sunken, #f6f6f8);
 }
-.wv-emptyday__title {
-  margin: 0;
-  font-family: var(--font-ui);
-  font-size: 22px;
-  font-weight: 700;
+/* the studio's own photographs, three of them, small and drained of colour —
+   what material IS, not an illustration of capturing */
+.wv-dayempty__shots {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2, 8px);
+  margin-bottom: var(--sp-6, 24px);
+}
+.wv-dayempty__shots img {
+  width: 64px;
+  height: 80px;
+  object-fit: cover;
+  border-radius: var(--r-md, 14px);
+  /* the middle one leads, the outer two step back — a group, not a filmstrip */
+  transform: scale(0.92);
+  opacity: 0.9;
+  filter: saturate(0.2) contrast(1.04);
+}
+.wv-dayempty__shots img:nth-child(2) { opacity: 1; transform: none; }
+.wv-dayempty__title {
+  margin: 0 0 var(--sp-5, 20px);
+  font-family: var(--font-display, var(--font-ui));
+  font-size: var(--text-xl, 22px);
+  font-weight: 800;
   letter-spacing: -0.02em;
   color: var(--ink-900);
 }
-.wv-emptyday__note {
-  margin: 0;
-  font-family: var(--font-ui);
-  font-size: 15px;
-  color: var(--ink-quiet);
-}
-.wv-emptyday .btn { display: inline-flex; align-items: center; gap: 8px; }
+.wv-dayempty .btn { display: inline-flex; align-items: center; gap: 8px; }
 
 /* Empty-day popover under the strip card (bauhly-v3 `.pe-menu.yw-daypop`) */
 .pe-menu__scrim { position: fixed; inset: 0; z-index: 70; }

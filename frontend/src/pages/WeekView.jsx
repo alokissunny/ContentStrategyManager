@@ -4854,37 +4854,20 @@ export default function WeekView({
       {/* Day view (no strip): an empty date gets a quiet panel. Weekly never
           reaches this — empty strip days open the popover above instead. */}
       {day && isEmptyCalDay(day) && hideStrip && (
-        <div className="wv-stage">
-          <div className="wv-postwrap">
-            <button
-              type="button"
-              className="wv-daynav wv-daynav--prev"
-              onClick={prevDay}
-              disabled={prevPostIdx < 0}
-              aria-label="Previous day"
-            >
-              <Glyph name="chevron-left" size={22} strokeWidth={2.5} />
+        /* the day with nothing on it — three washed studio photographs, a line
+           and one obvious move, centred on the whole panel (bauhly-v3 .yw-dayempty) */
+        <div className="wv-dayempty">
+          <div className="wv-dayempty__card">
+            <span className="wv-dayempty__shots" aria-hidden="true">
+              <img src="/assets/photo/mood/light.jpg" alt="" loading="lazy" />
+              <img src="/assets/photo/mood/materials.jpg" alt="" loading="lazy" />
+              <img src="/assets/photo/mood/style.jpg" alt="" loading="lazy" />
+            </span>
+            <h2 className="wv-dayempty__title">Capture something new</h2>
+            <button type="button" className="btn btn--primary" onClick={() => openCaptureIdea()}>
+              <Glyph name="plus" size={16} strokeWidth={2.5} />
+              Capture idea
             </button>
-            <button
-              type="button"
-              className="wv-daynav wv-daynav--next"
-              onClick={nextDay}
-              disabled={nextPostIdx < 0}
-              aria-label="Next day"
-            >
-              <Glyph name="chevron-right" size={22} strokeWidth={2.5} />
-            </button>
-            <div className="wv-emptyday">
-              <h2 className="wv-emptyday__title">
-                {day.day}{day.dateLabel ? `, ${day.dateLabel}` : ''}
-                {String(day.date || '') === todayIso ? ' · Today' : ''}
-              </h2>
-              <p className="wv-emptyday__note">Nothing planned for this day.</p>
-              <button type="button" className="btn btn--primary" onClick={() => openCaptureIdea()}>
-                <Glyph name="plus" size={15} />
-                Capture idea
-              </button>
-            </div>
           </div>
         </div>
       )}
