@@ -1932,8 +1932,8 @@ export default function YourPlans() {
     ? `${MONTHS[anchorDate.getMonth()]} ${anchorDate.getFullYear()}`
     : calView === 'week'
       ? `${MONTHS[weekMonday.getMonth()]} ${weekMonday.getFullYear()}`
-      : `${MONTHS[dayLabelDate.getMonth()].slice(0, 3)} ${dayLabelDate.getDate()}`;
-  const dayWeekdayLabel = WEEKDAYS_LONG[(dayLabelDate.getDay() + 6) % 7].slice(0, 3);
+      : `${MONTHS[dayLabelDate.getMonth()]} ${dayLabelDate.getDate()}`;
+  const dayWeekdayLabel = WEEKDAYS_LONG[(dayLabelDate.getDay() + 6) % 7];
   const atToday = calView === 'month'
     ? isCurrentView
     : calView === 'week'
@@ -2008,7 +2008,7 @@ export default function YourPlans() {
           <h2 className="cal-period">
             {periodLabel}
             {(calView === 'day' || feedOn) && (
-              <span className="cal-period__day"><span className="cal-period__div">|</span>{dayWeekdayLabel}</span>
+              <span className="cal-period__day"><span className="cal-period__div" aria-hidden="true" />{dayWeekdayLabel}</span>
             )}
           </h2>
           <span className={`cal-nav${feedOn ? ' cal-nav--feed' : ''}`}>
@@ -2024,7 +2024,7 @@ export default function YourPlans() {
             )}
             <button
               type="button"
-              className="cal-nav__today"
+              className={`cal-nav__today ${atToday && !feedOn ? 'is-on' : 'is-back'}`}
               onClick={goToday}
               disabled={atToday && !feedOn}
               aria-current={atToday ? 'date' : undefined}

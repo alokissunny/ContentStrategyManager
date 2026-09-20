@@ -40,11 +40,14 @@
   white-space: nowrap;
 }
 
-/* three separate controls — a disc, a pill, a disc */
+/* ── the pager, in the app's tertiary voice (bauhly-v3 .yw-period__nav) ──────
+   Bare chevrons and a Today button — no grey grounds beside the title, ink on
+   nothing, the ground taken only under the pointer. The tight gap makes the
+   three read as one control against the title. */
 .cal-nav {
   display: flex;
   align-items: center;
-  gap: var(--sp-2);
+  gap: 2px;
   flex: 0 0 auto;
 }
 .cal-nav__arrow,
@@ -55,10 +58,10 @@
   height: 34px;
   border: 0;
   border-radius: var(--r-full);
-  background: var(--ink-100);
-  color: var(--ink-900);
+  background: transparent;
+  color: var(--ink-800);
   cursor: pointer;
-  transition: background var(--dur-fast) var(--ease-out), opacity var(--dur-fast) var(--ease-out);
+  transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out), opacity var(--dur-fast) var(--ease-out);
 }
 .cal-nav__arrow { width: 34px; padding: 0; }
 .cal-nav__today {
@@ -67,16 +70,22 @@
   font-size: var(--text-sm);
   font-weight: 600;
 }
-.cal-nav__arrow:hover,
-.cal-nav__today:hover { background: var(--ink-200, #e3e3e9); }
+.cal-nav__arrow:hover:not(:disabled),
+.cal-nav__today:hover:not(:disabled) { background: var(--ink-100); }
 .cal-nav__arrow:focus-visible,
 .cal-nav__today:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
-.cal-nav__today:disabled,
-.cal-nav__arrow:disabled {
-  background: var(--surface-sunken, var(--ink-100));
-  color: var(--ink-400);
-  cursor: default;
+/* away from today, Today is the page's one obvious action: the ink ground */
+.cal-nav__today.is-back {
+  background: var(--ink-900);
+  color: var(--canvas, #fff);
+  font-weight: 700;
 }
+.cal-nav__today.is-back:hover:not(:disabled) { background: var(--ink-800, #26262c); }
+/* on today it goes quiet — still there, ink stepped back, no shout */
+.cal-nav__today.is-on { color: var(--ink-500); }
+.cal-nav__today:disabled { cursor: default; }
+/* an arrow with nowhere to page keeps the row's shape and dims (reference) */
+.cal-nav__arrow:disabled { opacity: 0.35; cursor: default; }
 
 /* ── the "View:" dropdown ───────────────────────────────────────────────── */
 .cal-viewm { position: relative; }
@@ -191,7 +200,9 @@
   .ph.ph--cal-month .cal-bar {
     margin-bottom: var(--sp-2);
   }
-  .ph.ph--cal-month .cal-period {
+  /* one title for Day, Weekly and Monthly — the large display size the month
+     has always used, so every view's navigator reads the same (bauhly-v3) */
+  .ph.ph--cal .cal-period {
     font-size: clamp(24px, 2.6vw, 30px);
     font-weight: 800;
     letter-spacing: -0.02em;
@@ -556,14 +567,15 @@
     flex: 0 0 auto;
     gap: var(--sp-2);
   }
+  /* the reference keeps the pager's 34px discs at every width and only steps
+     the title down and tightens the Today pill (bauhly-v3 .yw-period @767) */
   .cal-period {
-    font-size: clamp(20px, 5.5vw, 24px);
+    font-size: 20px;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
   }
-  .cal-nav__arrow { width: 28px; height: 28px; }
-  .cal-nav__today { height: 28px; padding: 0 10px; font-size: var(--text-sm); }
+  .cal-nav__today { padding: 0 12px; }
   .cal-period__day { display: none; }
 
   .yw-mcal__wd { font-size: var(--text-xs); }
@@ -772,8 +784,25 @@
 }
 
 /* the Day view names the day beside the date — "September 22 | Tuesday" */
-.cal-period__day { color: var(--ink-400); font-weight: 500; }
-.cal-period__div { margin: 0 10px; color: var(--ink-300); font-weight: 400; }
+/* the weekday is the date's quieter half, not a caption: same size and weight
+   as the title, the ink carrying the difference (bauhly-v3 .yw-head__dow) */
+.cal-period__day {
+  font-size: inherit;
+  font-weight: inherit;
+  letter-spacing: inherit;
+  color: color-mix(in srgb, var(--ink-500) 80%, var(--canvas, #fff));
+}
+/* a thin upright rule between the two, as tall as the capitals and on the
+   baseline — not a bold "|" glyph */
+.cal-period__div {
+  display: inline-block;
+  width: 2px;
+  height: 0.72em;
+  margin: 0 0.42em;
+  vertical-align: baseline;
+  background: var(--ink-300);
+  border-radius: 1px;
+}
 
 /* ── Weekly / Day: one compact composition (bauhly-v3 desktop-post-workspace)
  * Period title + pager + Capture + View on one row, then the strip, then the post.
@@ -792,22 +821,10 @@
   margin: 0;
   align-items: center;
 }
-.ph.ph--cal-week .cal-period,
-.ph.ph--cal-day .cal-period {
-  font-size: clamp(22px, 2.4vw, 28px);
-  font-weight: 800;
-  letter-spacing: -0.02em;
-}
-.ph.ph--cal-week .cal-nav__arrow,
-.ph.ph--cal-week .cal-nav__today,
-.ph.ph--cal-day .cal-nav__arrow,
-.ph.ph--cal-day .cal-nav__today {
-  height: 32px;
-}
-.ph.ph--cal-week .cal-nav__arrow,
-.ph.ph--cal-day .cal-nav__arrow {
-  width: 32px;
-}
+/* The period title and the ‹ Today › pager are ONE navigator across Day, Weekly
+   and Monthly (bauhly-v3 .yw-period): 24px/700 title, 34px discs and pill. The
+   week/day views used to size the title bigger (28px/800) and the pager smaller
+   (32px), which made each view's navigator its own shape. */
 .ph.ph--cal-week .ph__list,
 .ph.ph--cal-day .ph__list {
   gap: 0;
@@ -830,10 +847,6 @@
   .ph.ph--cal-week .cal-bar,
   .ph.ph--cal-day .cal-bar {
     gap: var(--sp-2);
-  }
-  .ph.ph--cal-week .cal-period,
-  .ph.ph--cal-day .cal-period {
-    font-size: clamp(20px, 5.5vw, 24px);
   }
   .app__main:has(.ph--cal) {
     padding-bottom: calc(env(safe-area-inset-bottom) + 66px + var(--sp-5));
