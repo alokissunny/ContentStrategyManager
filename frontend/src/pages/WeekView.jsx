@@ -2513,6 +2513,8 @@ export default function WeekView({
   const [visEdit, setVisEdit] = useState(null); // 'theme' | 'layout' | 'images' | 'words' | null
   // Nested flyout inside the visual-zone menu.
   const [menuPane, setMenuPane] = useState(null); // 'elements' | 'theme' | 'add-slide' | null
+  const menuRef = useRef(null); // the .wv-ig__menu box, so flyouts can anchor to it
+  const [flyPos, setFlyPos] = useState(null); // fixed-position for the portalled flyout
   const layoutFrameRef = useRef(null);
   // Edit image (bauhly-v3 §961/§965/§982): the still-photo studio. `adjustFor`
   // is the picture being cropped; `editSlot` is the measured layout region it
@@ -3031,6 +3033,22 @@ export default function WeekView({
     const t = window.setTimeout(() => setEnter(0), 820);
     return () => window.clearTimeout(t);
   }, [enter, selected]);
+
+  // The submenu flyout is portalled to <body> so the card's overflow (and the
+  // side panel) never clip or cover it. Anchor it to the menu box: to the right
+  // when there is room, otherwise to the left, clamped to the viewport.
+  useLayoutEffect(() => {
+    if (!menuPane || !menuRef.current) { setFlyPos(null); return; }
+    const r = menuRef.current.getBoundingClientRect();
+    const W = Math.min(300, window.innerWidth - 24);
+    const GAP = 8;
+    const M = 12;
+    let left = r.right + GAP;
+    if (left + W > window.innerWidth - M) left = r.left - GAP - W;
+    if (left < M) left = M;
+    const top = Math.max(M, Math.min(r.top, window.innerHeight - M - 120));
+    setFlyPos({ top, left, width: W });
+  }, [menuPane]);
 
   // Open one of the post's editors. Opening the picture closes the words, and
   // vice-versa — a single value can only name one zone. Opening the caption
@@ -5159,6 +5177,7 @@ export default function WeekView({
                   className="wv-ig__menu"
                   role="menu"
                   aria-label="Edit this slide"
+                  ref={menuRef}
                 >
                   <button
                     type="button"
@@ -5273,11 +5292,12 @@ export default function WeekView({
                     <Icon name="chevron-right" size={16} strokeWidth={2} />
                   </button>
                 </div>
-                {menuPane === 'elements' && (
+                {menuPane === 'elements' && flyPos && createPortal(
                   <div
                     className="wv-ig__menuflyout"
                     role="menu"
                     aria-label="Add elements"
+                    style={{ position: 'fixed', top: flyPos.top, left: flyPos.left, width: flyPos.width, zIndex: 200 }}
                     onMouseEnter={() => setMenuPane('elements')}
                   >
                     <div className="wv-ig__flyhead">
@@ -5311,13 +5331,15 @@ export default function WeekView({
                         and your content are shown.
                       </span>
                     </p>
-                  </div>
+                  </div>,
+                  document.body,
                 )}
-                {menuPane === 'theme' && (
+                {menuPane === 'theme' && flyPos && createPortal(
                   <div
                     className="wv-ig__menuflyout wv-ig__menuflyout--themes"
                     role="menu"
                     aria-label="Change theme"
+                    style={{ position: 'fixed', top: flyPos.top, left: flyPos.left, width: flyPos.width, zIndex: 200 }}
                     onMouseEnter={() => setMenuPane('theme')}
                   >
                     <div className="wv-ig__flyhead">
@@ -5347,13 +5369,15 @@ export default function WeekView({
                         </button>
                       ))}
                     </div>
-                  </div>
+                  </div>,
+                  document.body,
                 )}
-                {menuPane === 'add-slide' && (
+                {menuPane === 'add-slide' && flyPos && createPortal(
                   <div
                     className="wv-ig__menuflyout wv-ig__menuflyout--addslide"
                     role="menu"
                     aria-label="Add slide"
+                    style={{ position: 'fixed', top: flyPos.top, left: flyPos.left, width: flyPos.width, zIndex: 200 }}
                     onMouseEnter={() => setMenuPane('add-slide')}
                   >
                     <div className="wv-ig__flyhead wv-ig__flyhead--back">
@@ -5401,7 +5425,8 @@ export default function WeekView({
                         </span>
                       </button>
                     </div>
-                  </div>
+                  </div>,
+                  document.body,
                 )}
                 </div>
                 </>
