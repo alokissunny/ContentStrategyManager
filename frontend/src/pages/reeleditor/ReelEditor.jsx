@@ -16,9 +16,14 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom';
 import Icon from '../../brand/Icon';
 import { useFeatureFlags } from '../../lib/featureFlags';
+import { useAuth } from '../../context/AuthContext';
+import { loadReelDraft, saveReelDraft, clearReelDraft } from '../../lib/reelDraft';
 import { uploadReelClip, editReel, isSupportedVideo } from '../../api/reels';
 import { sampleVideoFrames } from '../../lib/reelFrames';
 import ReelEditView from './ReelEditView';
+import ReelBackgroundPicker from './ReelBackgroundPicker';
+import ReelVideo from './ReelVideo';
+import { getReelBackground } from './reelBackgrounds';
 import './reelEditor.css';
 
 const MAX_DURATION_SEC = 180;
@@ -265,24 +270,28 @@ function PreviewStage({ videoUrl, spec, children }) {
   // Accent is set ONLY when it was derived from the video; otherwise the CSS
   // neutral fallbacks apply (no hardcoded brand colour).
   const accent = spec?.brand?.accent || spec?.strategy?.accent || '';
-  const screenStyle = accent ? { ...SCREEN_STYLE, '--reel-accent': accent } : SCREEN_STYLE;
+  const background = getReelBackground(spec?.background);
+  const screenStyle = { ...SCREEN_STYLE, background: background.background, ...(accent ? { '--reel-accent': accent } : {}) };
 
   return (
     <div className="reel-stage">
       <div className="reel-phone" style={PHONE_STYLE}>
         <div className="reel-phone__screen" style={screenStyle} onClick={toggle} role="presentation">
-          <video
-            ref={videoRef}
-            src={videoUrl}
-            className="rl-video"
-            style={{ ...VIDEO_BASE, transform: `scale(${zoom})` }}
-            playsInline
-            onPlay={() => setPlaying(true)}
-            onPause={() => setPlaying(false)}
-            onTimeUpdate={(e) => setTime(e.currentTarget.currentTime)}
-            onEnded={() => setPlaying(false)}
-          />
-          {spec?.grade && <div className="rl-grade" />}
+          <div className="rl-video-layer">
+            <ReelVideo
+              videoRef={videoRef}
+              background={background.id}
+              src={videoUrl}
+              className="rl-video"
+              style={{ ...VIDEO_BASE, transform: `scale(${zoom})` }}
+              playsInline
+              onPlay={() => setPlaying(true)}
+              onPause={() => setPlaying(false)}
+              onTimeUpdate={(e) => setTime(e.currentTarget.currentTime)}
+              onEnded={() => setPlaying(false)}
+            />
+            {spec?.grade && <div className="rl-grade" />}
+          </div>
           <div className="rl-overlay">
             <BrandBar brand={spec?.brand} />
             <AnimationLayer animations={animations} time={time} duration={duration} />
@@ -309,10 +318,18 @@ function PreviewStage({ videoUrl, spec, children }) {
 
 // ── the page ─────────────────────────────────────────────────────────────────
 export default function ReelEditor() {
+  const { user } = useAuth();
+  const owner = user?._id || user?.id || user?.email;
+  if (!owner) return null;
+  return <ReelEditorDraft key={owner} owner={owner} />;
+}
+
+function ReelEditorDraft({ owner }) {
   const flags = useFeatureFlags();
   const [file, setFile] = useState(null);
   const [meta, setMeta] = useState(null); // { duration, width, height, url }
   const [guidance, setGuidance] = useState('');
+  const [background, setBackground] = useState('original');
   const [error, setError] = useState('');
   const [phase, setPhase] = useState('idle'); // idle | uploading | editing | done
   const [progress, setProgress] = useState(0);
@@ -322,20 +339,51 @@ export default function ReelEditor() {
   const [editMode, setEditMode] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const inputRef = useRef(null);
+  const [draftReady, setDraftReady] = useState(false);
+  const [storageStatus, setStorageStatus] = useState('');
+  const saveVersion = useRef(0);
 
   // Revoke the local preview URL when the clip changes or the page unmounts.
   useEffect(() => () => { if (meta?.url) URL.revokeObjectURL(meta.url); }, [meta]);
 
-  // A fresh AI result seeds the editable working copy (deep clone so edits never
-  // mutate the original), and drops out of edit mode.
   useEffect(() => {
-    if (result?.spec) {
-      setEditedSpec(typeof structuredClone === 'function' ? structuredClone(result.spec) : JSON.parse(JSON.stringify(result.spec)));
-    } else {
-      setEditedSpec(null);
-    }
-    setEditMode(false);
-  }, [result]);
+    let cancelled = false;
+    loadReelDraft(owner).then((draft) => {
+      if (cancelled || !draft) return;
+      if (!(draft.file instanceof Blob) || !draft.meta) throw new Error('Invalid saved reel.');
+      const restoredFile = draft.file instanceof File ? draft.file : new File([draft.file], draft.fileName || 'Your clip.mp4', { type: draft.file.type });
+      setFile(restoredFile);
+      setMeta({ ...draft.meta, url: URL.createObjectURL(restoredFile) });
+      setGuidance(draft.guidance || '');
+      setBackground(getReelBackground(draft.background).id);
+      setResult(draft.result || null);
+      setEditedSpec(draft.editedSpec || draft.result?.spec || null);
+      setPhase(draft.result ? 'done' : 'idle');
+      setStorageStatus('Saved on this browser');
+    }).catch(() => {
+      if (!cancelled) setStorageStatus('Could not restore the local draft. Please upload your clip again.');
+    }).finally(() => {
+      if (!cancelled) setDraftReady(true);
+    });
+    return () => { cancelled = true; };
+  }, [owner]);
+
+  useEffect(() => {
+    if (!draftReady || !file || !meta) return;
+    const version = ++saveVersion.current;
+    setStorageStatus('Saving on this browser…');
+    // Save immediately, without a debounce that could lose edits on refresh.
+    saveReelDraft(owner, {
+      file, fileName: file.name,
+      meta: { duration: meta.duration, width: meta.width, height: meta.height },
+      guidance, background, result, editedSpec,
+    }).then(() => {
+      if (saveVersion.current === version) setStorageStatus('Saved on this browser');
+    }).catch(() => {
+      if (saveVersion.current === version) setStorageStatus('Could not save locally. Browser storage may be full or unavailable; this draft may be lost on refresh.');
+    });
+    return () => { saveVersion.current += 1; };
+  }, [owner, draftReady, file, meta, guidance, background, result, editedSpec]);
 
   // Cosmetic: walk the agent-step list while the pipeline runs (it runs these
   // stages server-side in this order; the single request can't stream progress).
@@ -346,7 +394,7 @@ export default function ReelEditor() {
     return () => clearInterval(id);
   }, [phase]);
 
-  const busy = phase === 'uploading' || phase === 'editing';
+  const busy = !draftReady || phase === 'uploading' || phase === 'editing';
 
   const pickFile = useCallback(async (f) => {
     setError('');
@@ -365,6 +413,8 @@ export default function ReelEditor() {
       setMeta((prev) => { if (prev?.url) URL.revokeObjectURL(prev.url); return m; });
       setFile(f);
       setResult(null);
+      setEditedSpec(null);
+      setEditMode(false);
       setPhase('idle');
     } catch (err) {
       setError(err.message || 'Could not read that video.');
@@ -385,6 +435,8 @@ export default function ReelEditor() {
     if (!file || !meta || busy) return;
     setError('');
     setResult(null);
+    setEditedSpec(null);
+    setEditMode(false);
     try {
       setPhase('uploading');
       setProgress(0);
@@ -405,6 +457,8 @@ export default function ReelEditor() {
         accentColor: sampled.accentColor,
       });
       setResult(data);
+      setEditedSpec(typeof structuredClone === 'function' ? structuredClone(data.spec) : JSON.parse(JSON.stringify(data.spec)));
+      setEditMode(false);
       setPhase('done');
     } catch (err) {
       setError(err.response?.data?.message || err.message || 'Could not edit that reel.');
@@ -413,11 +467,21 @@ export default function ReelEditor() {
   };
 
   const reset = () => {
+    saveVersion.current += 1;
+    setStorageStatus('Clearing local draft…');
+    clearReelDraft(owner).then(() => {
+      setStorageStatus('');
+    }).catch(() => {
+      setStorageStatus('Could not clear the local draft. It may reappear after refresh.');
+    });
+    setEditedSpec(null);
+    setEditMode(false);
     if (meta?.url) URL.revokeObjectURL(meta.url);
     setFile(null);
     setMeta(null);
     setResult(null);
     setGuidance('');
+    setBackground('original');
     setError('');
     setPhase('idle');
     setProgress(0);
@@ -426,8 +490,8 @@ export default function ReelEditor() {
   const strategy = result?.direction || result?.spec?.strategy;
   // Prefer the manually-edited working copy so tweaks show in the live preview too.
   const previewSpec = useMemo(
-    () => editedSpec || result?.spec || (meta ? { meta: { durationSec: meta.duration }, captions: { cues: [] }, animations: [] } : null),
-    [editedSpec, result, meta],
+    () => meta ? { ...(editedSpec || result?.spec || { meta: { durationSec: meta.duration }, captions: { cues: [] }, animations: [] }), background } : null,
+    [editedSpec, result, meta, background],
   );
 
   if (!flags.reelEditor) {
@@ -478,11 +542,14 @@ export default function ReelEditor() {
         </div>
       </div>
 
-      {editMode && editedSpec && meta ? (
+      {storageStatus && <p className="reel-field__hint" role="status">{storageStatus}</p>}
+
+      {!draftReady ? <p role="status">Restoring your local reel…</p> : editMode && editedSpec && meta ? (
         <ReelEditView
           videoUrl={meta.url}
-          spec={editedSpec}
+          spec={previewSpec}
           onChange={setEditedSpec}
+          onBackgroundChange={setBackground}
           onExit={() => setEditMode(false)}
         />
       ) : (
@@ -556,6 +623,10 @@ export default function ReelEditor() {
                 </button>
               ))}
             </div>
+          </div>
+
+          <div className="card set-card">
+            <ReelBackgroundPicker value={background} onChange={setBackground} disabled={busy} />
           </div>
 
           {error && <p className="reel-err">{error}</p>}

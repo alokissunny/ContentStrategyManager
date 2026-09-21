@@ -312,3 +312,22 @@
 .reel-tactics { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
 .reel-tactics li { font-size: var(--text-sm); color: var(--ink-700); display: flex; align-items: flex-start; gap: 8px; }
 .reel-tactics li svg { margin-top: 3px; color: var(--signal-600); flex: none; }
+
+/* Fixed background templates, shared by the preview and timeline editor. */
+.reel-backgrounds { border: 0; padding: 0; margin: 0; min-width: 0; }
+.reel-backgrounds legend { padding: 0; }
+.reel-backgrounds__grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.reel-backgrounds__option { position: relative; display: flex; flex-direction: column; gap: 6px; cursor: pointer; font-size: var(--text-xs); color: var(--ink-700); }
+.reel-backgrounds__option input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+.reel-backgrounds__swatch { display: grid; place-items: center; height: 76px; border: 2px solid transparent; border-radius: 10px; box-shadow: 0 0 0 1px var(--border); }
+.reel-backgrounds__swatch > span { width: 28px; height: 50px; border-radius: 4px; background: #ffffff70; box-shadow: 0 2px 8px #0002; }
+.reel-backgrounds__swatch > .is-original { width: 36px; height: 64px; background: linear-gradient(145deg, #9c9ca7, #53535d); }
+.reel-backgrounds__option input:checked + .reel-backgrounds__swatch { border-color: var(--ink-900); box-shadow: 0 0 0 2px #cafa47; }
+.reel-backgrounds__option input:focus-visible + .reel-backgrounds__swatch { outline: 3px solid #5375e2; outline-offset: 4px; }
+.reel-backgrounds:disabled { opacity: .55; }
+.reel-backgrounds:disabled .reel-backgrounds__option { cursor: default; }
+.rle__inspector > .reel-backgrounds { margin-bottom: 24px; }
+.rl-video-layer { position: absolute; inset: 0; overflow: hidden; }
+.rl-person { pointer-events: none; transition: transform .12s ease-out; }
+.rl-background-status { position: absolute; z-index: 2; top: 12px; left: 12px; right: 12px; padding: 8px 10px; border-radius: 8px; background: #16161ce6; color: #fff; font-size: 12px; line-height: 1.4; }
+.rl-background-status button { color: #fff; background: none; border: 0; text-decoration: underline; cursor: pointer; font: inherit; }

@@ -11,6 +11,9 @@ import Icon from '../../brand/Icon';
 import {
   PHONE_STYLE, SCREEN_STYLE, VIDEO_BASE, fmtTime, ReelOverlay, zoomScale,
 } from './reelOverlay';
+import ReelBackgroundPicker from './ReelBackgroundPicker';
+import ReelVideo from './ReelVideo';
+import { getReelBackground } from './reelBackgrounds';
 import './reelEditView.css';
 
 const ANIM_TYPES = ['title', 'callout', 'emoji', 'progress', 'zoom', 'lower-third', 'cta', 'pointer', 'spotlight', 'label'];
@@ -44,7 +47,7 @@ function blockLabel(track, item) {
   return item.text || item.type;
 }
 
-export default function ReelEditView({ videoUrl, spec, onChange, onExit }) {
+export default function ReelEditView({ videoUrl, spec, onChange, onExit, onBackgroundChange }) {
   const videoRef = useRef(null);
   const lanesRef = useRef(null);
   const rafRef = useRef(0);
@@ -55,7 +58,8 @@ export default function ReelEditView({ videoUrl, spec, onChange, onExit }) {
 
   const duration = spec?.meta?.durationSec || 0;
   const accent = spec?.brand?.accent || spec?.strategy?.accent || '';
-  const screenStyle = accent ? { ...SCREEN_STYLE, '--reel-accent': accent } : SCREEN_STYLE;
+  const background = getReelBackground(spec?.background);
+  const screenStyle = { ...SCREEN_STYLE, background: background.background, ...(accent ? { '--reel-accent': accent } : {}) };
 
   // ── playback ──
   const tick = useCallback(() => {
@@ -199,18 +203,21 @@ export default function ReelEditView({ videoUrl, spec, onChange, onExit }) {
         <div className="rle__stage">
           <div className="reel-phone" style={PHONE_STYLE}>
             <div className="reel-phone__screen" style={screenStyle} onClick={togglePlay} role="presentation">
-              <video
-                ref={videoRef}
-                src={videoUrl}
-                className="rl-video"
-                style={{ ...VIDEO_BASE, transform: `scale(${zoom})` }}
-                playsInline
-                onPlay={() => setPlaying(true)}
-                onPause={() => setPlaying(false)}
-                onTimeUpdate={(e) => setTime(e.currentTarget.currentTime)}
-                onEnded={() => setPlaying(false)}
-              />
-              {spec?.grade && <div className="rl-grade" />}
+              <div className="rl-video-layer">
+                <ReelVideo
+                  videoRef={videoRef}
+                  background={background.id}
+                  src={videoUrl}
+                  className="rl-video"
+                  style={{ ...VIDEO_BASE, transform: `scale(${zoom})` }}
+                  playsInline
+                  onPlay={() => setPlaying(true)}
+                  onPause={() => setPlaying(false)}
+                  onTimeUpdate={(e) => setTime(e.currentTarget.currentTime)}
+                  onEnded={() => setPlaying(false)}
+                />
+                {spec?.grade && <div className="rl-grade" />}
+              </div>
               <ReelOverlay spec={spec} time={time} />
               {!playing && (
                 <button type="button" className="rl-play" aria-label="Play" onClick={(e) => { e.stopPropagation(); togglePlay(); }}>
@@ -224,6 +231,7 @@ export default function ReelEditView({ videoUrl, spec, onChange, onExit }) {
 
         {/* inspector */}
         <div className="rle__inspector">
+          <ReelBackgroundPicker value={spec?.background} onChange={onBackgroundChange} />
           {selItem ? (
             <Inspector
               track={sel.track}
