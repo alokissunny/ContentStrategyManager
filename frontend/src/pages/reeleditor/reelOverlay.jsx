@@ -11,6 +11,8 @@ export const PHONE_STYLE = { width: '100%', maxWidth: 300, aspectRatio: '9 / 16'
 export const SCREEN_STYLE = { position: 'relative', width: '100%', height: '100%', overflow: 'hidden' };
 export const VIDEO_BASE = { position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' };
 export const TITLE_END = 2.8;
+const placed = (position) => position && Number.isFinite(position.x) && Number.isFinite(position.y)
+  ? { left: `${position.x}%`, top: `${position.y}%`, bottom: 'auto', right: 'auto', width: '86%', transform: 'translate(-50%, -50%)' } : {};
 
 export function fmtTime(s) {
   const t = Math.max(0, Math.floor(s || 0));
@@ -45,7 +47,7 @@ export function CaptionLayer({ captions, time }) {
     });
   }
   return (
-    <div className={`rl-cap rl-cap--${captions.position || 'bottom'} rl-cap--${style}`}>
+    <div data-reel-text={`captions:${captions.cues.indexOf(cue)}`} style={placed(cue.position)} className={`rl-cap rl-cap--${captions.position || 'bottom'} rl-cap--${style}`}>
       <span className="rl-cap__box">{inner}</span>
     </div>
   );
@@ -106,7 +108,7 @@ export function AnimationLayer({ animations, time, duration }) {
         }
         if (a.type === 'label') {
           return (
-            <div key={i} className="rl-anim rl-anim--labelwrap" style={{ left: `${x}%`, top: `${y}%`, opacity }}>
+            <div data-reel-text={`animations:${i}`} key={i} className="rl-anim rl-anim--labelwrap" style={{ left: `${x}%`, top: `${y}%`, opacity }}>
               <span className="rl-label__pill" style={{ transform: `translate(-50%, calc(-100% - 20px)) ${motionTransform(a, time)}` }}>{a.text}</span>
               <span className="rl-label__leader" />
               <span className="rl-label__dot" />
@@ -121,8 +123,8 @@ export function AnimationLayer({ animations, time, duration }) {
           transform: `translate(-50%, -50%) ${motionTransform(a, time)}`,
         };
         const cls = `rl-anim rl-anim--${a.type}${a.emphasis ? ' is-emph' : ''}`;
-        if (a.type === 'emoji') return <div key={i} className={cls} style={style}>{a.emoji || '✨'}</div>;
-        return <div key={i} className={cls} style={style}>{a.text}</div>;
+        if (a.type === 'emoji') return <div data-reel-text={`animations:${i}`} key={i} className={cls} style={style}>{a.emoji || '✨'}</div>;
+        return <div data-reel-text={`animations:${i}`} key={i} className={cls} style={style}>{a.text}</div>;
       })}
     </>
   );
@@ -140,7 +142,7 @@ export function zoomScale(animations, time) {
 export function BrandBar({ brand }) {
   if (!brand?.name) return null;
   return (
-    <div className="rl-brandbar">
+    <div data-reel-text="brand:0" className="rl-brandbar" style={placed(brand.position)}>
       <span className="rl-brandbar__logo"><i className="rl-dotmark" />{brand.name}</span>
       {brand.tag && <span className="rl-brandbar__tag">{brand.tag}</span>}
     </div>
@@ -150,13 +152,12 @@ export function BrandBar({ brand }) {
 export function TitleCard({ strategy, time }) {
   if (!strategy?.hook || time > TITLE_END) return null;
   const words = String(strategy.hook).toUpperCase().split(/\s+/).filter(Boolean);
-  if (words.length < 2 || words.length > 9) return null;
   const opacity = Math.min(1, (TITLE_END - time) / 0.4);
   const cut = words.length > 2 ? words.length - 2 : Math.max(1, words.length - 1);
   const head = words.slice(0, cut).join(' ');
   const tail = words.slice(cut).join(' ');
   return (
-    <div className="rl-title" style={{ opacity }}>
+    <div data-reel-text="strategy:0" className="rl-title" style={{ opacity, ...placed(strategy.position) }}>
       {strategy.hookEyebrow && <span className="rl-title__eyebrow">{strategy.hookEyebrow}</span>}
       <span className="rl-title__head">
         {head} {tail && <span className="rl-accent">{tail}</span>}
@@ -173,7 +174,7 @@ export function SectionCard({ sections, time }) {
   const pct = Math.min(100, Math.max(0, ((time - s.start) / Math.max(0.5, s.end - s.start)) * 100));
   const lit = Math.ceil((pct / 100) * (s.chips?.length || 0));
   return (
-    <div className="rl-section">
+    <div data-reel-text={`sections:${sections.indexOf(s)}`} className="rl-section" style={placed(s.position)}>
       {s.eyebrow && <span className="rl-section__eyebrow">{s.eyebrow}</span>}
       {s.chips?.length ? (
         <div className="rl-section__chips">

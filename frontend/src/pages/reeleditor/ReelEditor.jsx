@@ -644,7 +644,7 @@ function ReelEditorDraft({ owner }) {
             <>
               {editedSpec && (
                 <button type="button" className="btn btn--ghost btn--sm" onClick={() => setEditMode(true)} disabled={busy}>
-                  <Icon name="edit" size={14} /> Edit on timeline
+                  <Icon name="edit" size={14} /> Edit text
                 </button>
               )}
               {assets.length > 0 && (

@@ -1,4 +1,20 @@
 /* Reel Edit View — timeline editor. Namespaced .rle* so nothing leaks. */
+.rle--simple h2 { margin: 0 0 6px; font-size: 24px; }
+.rle--simple p { margin: 0; }
+.rle--simple .rle__toolbar { background: transparent; padding: 0; }
+.rle__form { padding: 20px 0; }
+.rle__positions { display: flex; gap: 8px; flex-wrap: wrap; }
+.rle__delete { align-self: start; color: #b42318; }
+.rle__text-list { display: grid; gap: 8px; max-height: 330px; overflow: auto; border-top: 1px solid var(--border); padding-top: 16px; }
+.rle__text-item { text-align: left; display: flex; justify-content: space-between; gap: 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); color: var(--ink-900); padding: 12px; cursor: pointer; font: inherit; }
+.rle__text-item span { overflow-wrap: anywhere; min-width: 0; }
+.rle__text-item small { color: var(--ink-500); }
+.rle__text-item[aria-pressed="true"] { border-color: var(--ink-900); background: var(--surface-sunken); box-shadow: inset 3px 0 var(--signal-500); }
+.rle__canvas [data-reel-text] { pointer-events: auto; cursor: grab; touch-action: none; outline: 1px dashed rgba(255,255,255,.5); outline-offset: 4px; }
+.rle__canvas [data-reel-text]:hover { outline: 2px solid #d4f52a; }
+.rle__playback { display: flex; align-items: center; gap: 8px; width: 100%; font-size: 12px; white-space: nowrap; }
+.rle__playback input { width: 100%; min-width: 20px; }
+.rle--simple summary { cursor: pointer; font-size: 13px; padding-bottom: 10px; }
 
 .rle { display: flex; flex-direction: column; gap: var(--sp-4); outline: none; }
 
