@@ -65,6 +65,40 @@ function round2(n) {
   return Math.round((Number(n) || 0) * 100) / 100;
 }
 
+// Assembly times are already measured on the final stitched video, including
+// transition overlaps. Source times are reference metadata, never overlay times.
+function assemblyContext(assembly, durationSec) {
+  const clips = (Array.isArray(assembly?.clips) ? assembly.clips : [])
+    .filter((clip) => clip && ['image', 'photo', 'video'].includes(clip.kind)
+      && Number.isFinite(clip.start) && Number.isFinite(clip.end)
+      && clip.start >= 0 && clip.end > clip.start && clip.start < durationSec)
+    .map((clip) => ({
+      index: clip.index,
+      kind: clip.kind === 'photo' ? 'image' : clip.kind,
+      start: round2(clip.start),
+      end: round2(Math.min(clip.end, durationSec)),
+      sourceStart: clip.sourceStart,
+      sourceEnd: clip.sourceEnd,
+    }));
+  const overlays = (Array.isArray(assembly?.mixPlan?.overlays) ? assembly.mixPlan.overlays : [])
+    .filter((item) => item && ['pip', 'cutaway'].includes(item.mode) && Number.isFinite(item.atSec) && Number.isFinite(item.durationSec))
+    .slice(0, 12)
+    .map((item) => ({ assetIndex: item.assetIndex, mode: item.mode, position: item.position,
+      start: round2(Math.max(0, item.atSec)), end: round2(Math.min(durationSec, item.atSec + item.durationSec)), reason: str(item.reason, 200) }));
+  return clips.length ? { transition: str(assembly.transition, 40), clips, ...(overlays.length ? { overlays } : {}) } : null;
+}
+
+function assemblyInstructions(assembly) {
+  if (!assembly) return '';
+  return `\n\nAssembled source timeline (JSON):\n${json(assembly)}\n`
+    + 'This is ONE finished reel in the supplied source order. All start/end times are on the assembled timeline; sourceStart/sourceEnd refer to original media only. '
+    + 'Picture-in-picture and cutaway overlays, when listed, are already burned into the reel. The base narration continues under them; do not invent separate overlay speech. Avoid placing graphics over the inset or pointing at a base subject hidden by a full-frame cutaway. '
+    + 'Transitions are already rendered. Never reorder sources, request extra footage, or claim additional cuts or transitions were executed. '
+    + 'Build a coherent opening, scene-aligned beats, and ending using only the transcript, observed frames, and creator guidance. '
+    + 'Photo segments have no speech of their own. Do not invent narration or describe unseen content. '
+    + 'Keep scene-specific callouts and pointers within their source interval and away from transition overlaps; broad hook and progress overlays may span scenes.';
+}
+
 // Words a complete on-screen phrase should never END on — a hook/headline that
 // stops here is a truncated sentence fragment ("…which I'd", "…to", "…all"), not
 // a finished statement, so we reject it rather than show something that reads cut.
@@ -248,7 +282,7 @@ const REEL_VISION_TOOL = {
 };
 
 const VISION_SYSTEM = [
-  'You are a scene analyst for short-form vertical video. You are given frames sampled in order from ONE clip, each labelled with its timestamp.',
+  'You are a scene analyst for short-form vertical video. You are given frames sampled in order from ONE finished reel (possibly assembled from videos and photos), each labelled with its timestamp.',
   'For each frame: describe the scene in a short phrase, and list up to 3 concrete subjects a viewer should look at (objects, hands, products, faces, on-screen text) with their CENTRE as x/y percentages of the frame (x left→right, y top→bottom).',
   'Also report `brand`: any logo, watermark, @handle or brand name you can LITERALLY read on screen, plus a short on-screen tag/label if one is shown. If nothing brand-like is visible, return empty strings — NEVER guess or invent a brand.',
   'Only list things clearly visible. The x/y must match where the thing actually is in that frame. Do not invent subjects. Call record_reel_frames with one entry per frame.',
@@ -330,9 +364,9 @@ function chunkWordsToCues(words, { maxWords = 4, maxDur = 1.8, maxChars = 28 } =
 function guidanceCues(guidance, durationSec) {
   const text = str(guidance, 400);
   if (!text) return [];
-  const phrases = text.split(/[.!?\n]+/).map((s) => s.trim()).filter(Boolean).slice(0, 6);
+  const phrases = text.split(/[.!?\n]+/).map((s) => s.trim()).filter(Boolean).slice(0, Math.max(1, Math.min(6, Math.floor(durationSec / 0.4))));
   if (!phrases.length) return [];
-  const span = Math.max(1, durationSec) / phrases.length;
+  const span = durationSec / phrases.length;
   return phrases.map((p, i) => ({
     start: round2(i * span),
     end: round2(Math.min(durationSec, (i + 1) * span - 0.1)),
@@ -401,7 +435,7 @@ function normalizeDirection(raw, { durationSec }) {
   };
 }
 
-async function runDirectorAgent({ guidance, transcript, brand, durationSec }, debug) {
+async function runDirectorAgent({ guidance, transcript, brand, durationSec, assembly }, debug) {
   const startedAt = Date.now();
   const llm = resolvePlanAgentLlm('reelDirector');
   const { system, userTemplate } = splitPromptTemplate(loadPrompt('reelDirector'));
@@ -411,7 +445,7 @@ async function runDirectorAgent({ guidance, transcript, brand, durationSec }, de
     SEGMENTS_JSON: json((transcript.segments || []).slice(0, 40)),
     BRAND_JSON: json(brand || {}),
     DURATION_SEC: round2(durationSec),
-  });
+  }) + assemblyInstructions(assembly);
   try {
     const res = await completeText({
       model: llm.model, system, user, maxTokens: 1200,
@@ -529,7 +563,7 @@ function heuristicAnimations(direction, durationSec) {
   return out.map((a) => normalizeAnimation(a, durationSec)).filter(Boolean);
 }
 
-async function runAnimationAgent({ direction, transcript, visual, guidance, durationSec }, debug) {
+async function runAnimationAgent({ direction, transcript, visual, guidance, durationSec, assembly }, debug) {
   const startedAt = Date.now();
   const llm = resolvePlanAgentLlm('reelAnimations');
   const { system, userTemplate } = splitPromptTemplate(loadPrompt('reelAnimations'));
@@ -539,7 +573,7 @@ async function runAnimationAgent({ direction, transcript, visual, guidance, dura
     VISUAL_CONTEXT_JSON: json((visual || []).slice(0, 10)),
     GUIDANCE: str(guidance, 600),
     DURATION_SEC: round2(durationSec),
-  });
+  }) + assemblyInstructions(assembly);
   try {
     const res = await completeText({
       model: llm.model, system, user, maxTokens: 2000,
@@ -573,11 +607,13 @@ async function runAnimationAgent({ direction, transcript, visual, guidance, dura
  * `spec` is what the frontend overlays on the <video>:
  *   { meta, strategy, captions:{style,position,cues[]}, animations[] }
  */
-async function runReelEditor({ buffer, contentType, guidance = '', brand = null, durationSec = 0, frames = [], accentColor = '' } = {}) {
+async function runReelEditor({ buffer, contentType, guidance = '', brand = null, durationSec = 0, frames = [], accentColor = '', assembly = null } = {}) {
   const debug = [];
   const notes = [];
   const editStart = Date.now();
-  const dur = num(durationSec, 30, 1, 190);
+  const dur = num(durationSec, 30, 0.5, 190);
+  const assembled = assemblyContext(assembly, dur);
+  const photosOnly = Boolean(assembled && assembled.clips.every((clip) => clip.kind === 'image'));
   // Accent is SAMPLED from the video (client-side dominant colour) — never a
   // hardcoded brand colour. Empty when the clip has no strong colour.
   const accent = /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(String(accentColor || '').trim())
@@ -586,13 +622,15 @@ async function runReelEditor({ buffer, contentType, guidance = '', brand = null,
   // Transcription (needs the audio) and vision (needs the sampled frames) are
   // independent — run them together up front.
   const [transcript, vision] = await Promise.all([
-    transcribeWords(buffer, contentType),
+    photosOnly
+      ? Promise.resolve({ words: [], segments: [], text: '', note: 'Photo montage: there is no source speech. On-screen text uses your creator guidance; it is not a spoken transcript.' })
+      : transcribeWords(buffer, contentType),
     analyzeReelFrames({ frames, guidance }, debug),
   ]);
   if (transcript.note) notes.push(transcript.note);
   if (vision.note) notes.push(vision.note);
 
-  const direction = await runDirectorAgent({ guidance, transcript, brand, durationSec: dur }, debug);
+  const direction = await runDirectorAgent({ guidance, transcript, brand, durationSec: dur, assembly: assembled }, debug);
   if (direction._heuristic) {
     notes.push('The director step was unavailable, so the opening title and section cards were skipped — live captions and animations still applied. See the debug panel for details.');
   }
@@ -601,13 +639,13 @@ async function runReelEditor({ buffer, contentType, guidance = '', brand = null,
   const rawCues = transcript.words.length
     ? chunkWordsToCues(transcript.words)
     : guidanceCues(guidance, dur);
-  if (!transcript.words.length && rawCues.length) {
+  if (!photosOnly && !transcript.words.length && rawCues.length) {
     notes.push('No speech detected — captions were built from your guidance and spread across the clip.');
   }
 
   const [captions, animations] = await Promise.all([
     runCaptionAgent({ cues: rawCues, direction, guidance }, debug),
-    runAnimationAgent({ direction, transcript, visual: vision.context, guidance, durationSec: dur }, debug),
+    runAnimationAgent({ direction, transcript, visual: vision.context, guidance, durationSec: dur, assembly: assembled }, debug),
   ]);
 
   // Bottom "section card" timeline — each section shows from its atSec until the
@@ -683,6 +721,8 @@ async function runReelEditor({ buffer, contentType, guidance = '', brand = null,
 
 module.exports = {
   runReelEditor,
+  assemblyContext,
+  assemblyInstructions,
   transcribeWords,
   analyzeReelFrames,
   runDirectorAgent,

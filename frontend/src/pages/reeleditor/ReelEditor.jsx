@@ -1,15 +1,6 @@
-/*
- * Reel Editor (experimental) — upload a clip (≤3 min) + a note, and a multi-agent
- * pipeline (director → caption stylist → motion graphics) returns a "reel spec"
- * we overlay LIVE on the <video> during playback: karaoke/pop captions and
- * on-screen animations, all driven by the video's currentTime. No server render
- * — the preview is a time-synced DOM layer over the local clip.
- *
- * Gated by the `reelEditor` feature flag (Settings → Experimental features).
- *
- * The phone frame and <video> carry INLINE sizing as well as the stylesheet, so
- * a slow/absent CSS chunk can never let the video render at its natural (huge)
- * resolution and swamp the page.
+/* Experimental reel editor: ordered video/photo sources are rendered into a
+ * stitched MP4. Captions, graphics, and virtual backgrounds remain live overlays.
+ * Source media and rendered output are stored locally in IndexedDB.
  */
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -18,7 +9,7 @@ import Icon from '../../brand/Icon';
 import { useFeatureFlags } from '../../lib/featureFlags';
 import { useAuth } from '../../context/AuthContext';
 import { loadReelDraft, saveReelDraft, clearReelDraft } from '../../lib/reelDraft';
-import { uploadReelClip, editReel, isSupportedVideo } from '../../api/reels';
+import { uploadReelClip, editReel, assembleReel, isSupportedVideo, isSupportedMedia } from '../../api/reels';
 import { sampleVideoFrames } from '../../lib/reelFrames';
 import ReelEditView from './ReelEditView';
 import ReelBackgroundPicker from './ReelBackgroundPicker';
@@ -27,7 +18,7 @@ import { getReelBackground } from './reelBackgrounds';
 import './reelEditor.css';
 
 const MAX_DURATION_SEC = 180;
-const DURATION_TOLERANCE = 1.5; // allow slightly-over clips
+const MAX_ASSETS = 12;
 const SUGGESTIONS = ['Make it punchy', 'Educational tone', 'Storytime', 'Add a strong CTA'];
 const AGENT_STEPS = [
   'Watching the video & transcribing',
@@ -316,6 +307,33 @@ function PreviewStage({ videoUrl, spec, children }) {
   );
 }
 
+function MixerDecisions({ plan, assets }) {
+  if (!plan) return null;
+  const name = (index) => assets[index]?.file?.name || `Source ${Number(index) + 1}`;
+  let cursor = 0;
+  const sequence = (plan.sequence || []).map((clip, index) => {
+    const at = cursor;
+    cursor += Number(clip.durationSec) || Math.max(0, clip.endSec - clip.startSec);
+    if (index < plan.sequence.length - 1 && plan.transition !== 'none') cursor -= 11 / 30;
+    return { ...clip, at };
+  });
+  return <section className="card set-card reel-mixer-decisions" aria-label="Mixer decisions">
+    <h2>Mixer decisions</h2>
+    {plan.summary && <p>{plan.summary}</p>}
+    {sequence.length > 0 && <><h3>Main story</h3><ul>{sequence.map((clip, i) => <li key={i}>
+      <b>{fmtTime(clip.at)} · {name(clip.assetIndex)}</b>
+      <span>Source {fmtTime(clip.startSec)}–{fmtTime(clip.endSec ?? (clip.startSec || 0) + clip.durationSec)}</span>
+      {clip.reason && <span>{clip.reason}</span>}
+    </li>)}</ul></>}
+    {plan.overlays?.length > 0 && <><h3>Supporting visuals</h3><ul>{plan.overlays.map((clip, i) => <li key={i}>
+      <b>{fmtTime(clip.atSec)}–{fmtTime(clip.atSec + clip.durationSec)} · {clip.mode === 'pip' ? 'Small-screen insert' : 'Full-screen cutaway'}</b>
+      <span>{name(clip.assetIndex)}{assets[clip.assetIndex]?.kind === 'video' ? ` · source from ${fmtTime(clip.startSec)} · muted` : ''}</span>
+      {clip.reason && <span>{clip.reason}</span>}
+    </li>)}</ul><p className="reel-field__hint">The main story audio continues underneath supporting visuals.</p></>}
+    {plan.omitted?.length > 0 && <><h3>Left out</h3><ul>{plan.omitted.map((clip, i) => <li key={i}><b>{name(clip.assetIndex)}</b><span>{clip.reason}</span></li>)}</ul></>}
+  </section>;
+}
+
 // ── the page ─────────────────────────────────────────────────────────────────
 export default function ReelEditor() {
   const { user } = useAuth();
@@ -326,7 +344,14 @@ export default function ReelEditor() {
 
 function ReelEditorDraft({ owner }) {
   const flags = useFeatureFlags();
+  const [assets, setAssets] = useState([]);
+  const assetFiles = useMemo(() => assets.map((a) => a.file), [assets]);
+  const [transition, setTransition] = useState('fade');
+  const [mixMode, setMixMode] = useState('smart');
   const [file, setFile] = useState(null);
+  const [reading, setReading] = useState(false);
+  const assetUrls = useRef(new Set());
+  useEffect(() => () => assetUrls.current.forEach((url) => URL.revokeObjectURL(url)), []);
   const [meta, setMeta] = useState(null); // { duration, width, height, url }
   const [guidance, setGuidance] = useState('');
   const [background, setBackground] = useState('original');
@@ -361,12 +386,24 @@ function ReelEditorDraft({ owner }) {
     let cancelled = false;
     loadReelDraft(owner).then((draft) => {
       if (cancelled || !draft) return;
-      if (!(draft.file instanceof Blob) || !draft.meta) throw new Error('Invalid saved reel.');
-      const restoredFile = draft.file instanceof File ? draft.file : new File([draft.file], draft.fileName || 'Your clip.mp4', { type: draft.file.type });
-      setFile(restoredFile);
+      if (!draft.assets && draft.file && !draft.meta) throw new Error('Invalid saved reel.');
+      const entries = draft.assets || (draft.file ? [{ id: 'legacy', kind: 'video', startSec: 0, endSec: draft.meta.duration, durationSec: draft.meta.duration, ...draft.meta }] : []);
+      const files = draft.assetFiles || [draft.file];
+      const restored = entries.map((entry, i) => {
+        if (!(files[i] instanceof Blob)) throw new Error('Invalid saved media.');
+        const source = files[i] instanceof File ? files[i] : new File([files[i]], entry.fileName || draft.fileName || 'Your clip.mp4', { type: files[i].type });
+        const url = URL.createObjectURL(source);
+        assetUrls.current.add(url);
+        return { ...entry, file: source, url };
+      });
+      setAssets(restored);
+      setTransition(draft.transition || 'fade');
+      setMixMode(draft.mixMode === 'manual' ? 'manual' : 'smart');
+      const assembled = draft.assembledFile || (!draft.assets ? draft.file : null);
+      setFile(assembled);
       setCleanAudio(draft.cleanAudio !== false);
       setEnhancedFile(draft.enhancedFile instanceof Blob ? draft.enhancedFile : null);
-      setMeta({ ...draft.meta, url: URL.createObjectURL(restoredFile) });
+      if (assembled && draft.meta) setMeta({ ...draft.meta, url: URL.createObjectURL(assembled) });
       setGuidance(draft.guidance || '');
       setBackground(getReelBackground(draft.background).id);
       setResult(draft.result || null);
@@ -382,13 +419,15 @@ function ReelEditorDraft({ owner }) {
   }, [owner]);
 
   useEffect(() => {
-    if (!draftReady || !file || !meta) return;
+    if (!draftReady || !assets.length) return;
     const version = ++saveVersion.current;
     setStorageStatus('Saving on this browser…');
     // Save immediately, without a debounce that could lose edits on refresh.
     saveReelDraft(owner, {
-      file, fileName: file.name, enhancedFile, cleanAudio,
-      meta: { duration: meta.duration, width: meta.width, height: meta.height },
+      assetFiles,
+      assets: assets.map(({ file: source, url, ...a }) => ({ ...a, fileName: source.name })),
+      transition, mixMode, assembledFile: file, enhancedFile, cleanAudio,
+      meta: meta ? { duration: meta.duration, width: meta.width, height: meta.height } : null,
       guidance, background, result, editedSpec,
     }).then(() => {
       if (saveVersion.current === version) setStorageStatus('Saved on this browser');
@@ -396,7 +435,7 @@ function ReelEditorDraft({ owner }) {
       if (saveVersion.current === version) setStorageStatus('Could not save locally. Browser storage may be full or unavailable; this draft may be lost on refresh.');
     });
     return () => { saveVersion.current += 1; };
-  }, [owner, draftReady, file, meta, guidance, background, result, editedSpec, enhancedFile, cleanAudio]);
+  }, [owner, draftReady, assets, assetFiles, transition, mixMode, file, meta, guidance, background, result, editedSpec, enhancedFile, cleanAudio]);
 
   // Cosmetic: walk the agent-step list while the pipeline runs (it runs these
   // stages server-side in this order; the single request can't stream progress).
@@ -407,46 +446,69 @@ function ReelEditorDraft({ owner }) {
     return () => clearInterval(id);
   }, [phase, agentSteps]);
 
-  const busy = !draftReady || phase === 'uploading' || phase === 'editing';
-
-  const pickFile = useCallback(async (f) => {
-    setError('');
-    if (!f) return;
-    if (!isSupportedVideo(f)) {
-      setError('Please upload an MP4, MOV, or WebM video.');
-      return;
-    }
-    try {
-      const m = await readVideoMeta(f);
-      if (m.duration > MAX_DURATION_SEC + DURATION_TOLERANCE) {
-        URL.revokeObjectURL(m.url);
-        setError(`That clip is ${Math.round(m.duration)}s. Clips must be 3 minutes or less.`);
-        return;
-      }
-      setMeta((prev) => { if (prev?.url) URL.revokeObjectURL(prev.url); return m; });
-      setFile(f);
-      setEnhancedFile(null);
-      setResult(null);
-      setEditedSpec(null);
-      setEditMode(false);
-      setPhase('idle');
-    } catch (err) {
-      setError(err.message || 'Could not read that video.');
-    }
-  }, []);
-
-  const onDrop = (e) => {
-    e.preventDefault();
-    setDragOver(false);
-    pickFile(e.dataTransfer.files?.[0]);
+  const busy = !draftReady || reading || ['uploading', 'assembling', 'editing'].includes(phase);
+  const totalDuration = assets.reduce((sum, a) => sum + (a.kind === 'image' ? a.durationSec : a.endSec - a.startSec), 0) - (mixMode === 'smart' || transition === 'none' ? 0 : Math.max(0, assets.length - 1) * (11 / 30));
+  const validAssets = assets.length > 0 && assets.every((a) => a.kind === 'image'
+    ? Number.isFinite(a.durationSec) && a.durationSec >= 1 && a.durationSec <= 10
+    : Number.isFinite(a.startSec) && Number.isFinite(a.endSec) && a.startSec >= 0 && a.endSec <= a.duration && a.endSec - a.startSec >= 1 && a.endSec - a.startSec <= MAX_DURATION_SEC);
+  const invalidate = () => { setFile(null); setMeta(null); setResult(null); setEditedSpec(null); setEnhancedFile(null); setEditMode(false); setPhase('idle'); };
+  const updateAsset = (id, changes) => { invalidate(); setAssets((items) => items.map((a) => a.id === id ? { ...a, ...changes } : a)); };
+  const removeAsset = (id) => {
+    if (assets.length === 1) { reset(); return; }
+    const removed = assets.find((a) => a.id === id);
+    if (removed) { URL.revokeObjectURL(removed.url); assetUrls.current.delete(removed.url); }
+    invalidate();
+    setAssets((items) => items.filter((a) => a.id !== id));
   };
+  const moveAsset = (index, direction) => {
+    invalidate();
+    setAssets((items) => { const next = [...items]; [next[index], next[index + direction]] = [next[index + direction], next[index]]; return next; });
+  };
+  const pickFiles = async (selection) => {
+    if (busy) return;
+    const incoming = Array.from(selection || []);
+    if (!incoming.length) return;
+    setError('');
+    if (assets.length + incoming.length > MAX_ASSETS) { setError('Choose up to 12 videos and photos per reel.'); return; }
+    if (incoming.some((f) => f.size > 100 * 1024 * 1024)) { setError('Each file must be 100 MB or smaller.'); return; }
+    if ([...assets.map((a) => a.file), ...incoming].reduce((sum, f) => sum + f.size, 0) > 300 * 1024 * 1024) { setError('Keep the total upload size within 300 MB.'); return; }
+    if (incoming.some((f) => !isSupportedMedia(f))) { setError('Use MP4, MOV, WebM, JPEG, PNG, or WebP files.'); return; }
+    setReading(true);
+    const added = [];
+    try {
+      for (const source of incoming) {
+        const kind = isSupportedVideo(source) ? 'video' : 'image';
+        let m;
+        if (kind === 'video') {
+          m = await readVideoMeta(source);
+          if (!Number.isFinite(m.duration) || m.duration < 1) { URL.revokeObjectURL(m.url); throw new Error('Video clips must have at least one second of playable media.'); }
+        } else {
+          const url = URL.createObjectURL(source);
+          m = await new Promise((resolve, reject) => {
+            const img = new Image();
+            img.onload = () => resolve({ url, width: img.naturalWidth, height: img.naturalHeight });
+            img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('Could not read that photo.')); };
+            img.src = url;
+          });
+        }
+        assetUrls.current.add(m.url);
+        added.push({ ...m, id: crypto.randomUUID(), file: source, kind, startSec: 0, endSec: m.duration, durationSec: kind === 'image' ? 3 : m.duration });
+      }
+      invalidate();
+      setAssets((items) => [...items, ...added]);
+    } catch (err) {
+      added.forEach((a) => { URL.revokeObjectURL(a.url); assetUrls.current.delete(a.url); });
+      setError(err.message || 'Could not read this media.');
+    } finally { setReading(false); }
+  };
+  const onDrop = (e) => { e.preventDefault(); setDragOver(false); if (!busy) pickFiles(e.dataTransfer.files); };
 
   const addSuggestion = (s) => {
     setGuidance((g) => (g.trim() ? `${g.trim()} ${s}.` : `${s}.`));
   };
 
   const generate = async () => {
-    if (!file || !meta || busy) return;
+    if (!validAssets || (mixMode === 'manual' && totalDuration > MAX_DURATION_SEC) || busy) return;
     setError('');
     setResult(null);
     setEditedSpec(null);
@@ -455,23 +517,34 @@ function ReelEditorDraft({ owner }) {
     try {
       setPhase('uploading');
       setProgress(0);
-      // Sample frames locally (for the vision agent) + derive the clip's accent
-      // colour, and upload in parallel. More frames for longer clips (~1 / 12s,
-      // capped at the backend's 8-frame limit) so vision covers the whole reel.
-      const frameCount = Math.max(5, Math.min(10, Math.round(meta.duration / 15)));
-      const [{ key }, sampled] = await Promise.all([
-        uploadReelClip(file, setProgress),
-        sampleVideoFrames(meta.url, { count: frameCount }),
-      ]);
+      const uploaded = [];
+      for (let i = 0; i < assets.length; i += 1) {
+        const asset = assets[i];
+        const { key } = await uploadReelClip(asset.file, (pct) => setProgress(Math.round((i * 100 + pct) / assets.length)));
+        uploaded.push({ key, kind: asset.kind, startSec: asset.startSec, endSec: asset.endSec, durationSec: asset.kind === 'image' ? asset.durationSec : asset.endSec - asset.startSec });
+      }
+      setPhase('assembling');
+      const assembled = await assembleReel({ assets: uploaded, transition, guidance: guidance.trim(), mixMode });
+      const response = await fetch(assembled.url, { signal: AbortSignal.timeout(120000) });
+      if (!response.ok) throw new Error('Could not download the assembled reel. Please try again.');
+      const assembledFile = await response.blob();
+      const assembledMeta = await readVideoMeta(assembledFile);
+      setFile(assembledFile);
+      setMeta(assembledMeta);
+      const key = assembled.key;
+      const frameCount = Math.max(5, Math.min(10, Math.round(assembled.durationSec / 15)));
+      const sampled = await sampleVideoFrames(assembledMeta.url, { count: frameCount });
       setPhase('editing');
       const data = await editReel({
         key,
-        durationSec: meta.duration,
+        durationSec: assembled.durationSec,
         guidance: guidance.trim(),
         frames: sampled.frames,
         accentColor: sampled.accentColor,
         cleanAudio,
       });
+      data.mixPlan = assembled.mixPlan || null;
+      data.notes = [...(assembled.notes || []), ...(data.notes || [])];
       if (data.audioCleanup?.status === 'applied') {
         try {
           const response = await fetch(data.audioCleanup.url, { signal: AbortSignal.timeout(60000) });
@@ -511,6 +584,11 @@ function ReelEditorDraft({ owner }) {
     setEditMode(false);
     if (meta?.url) URL.revokeObjectURL(meta.url);
     setFile(null);
+    setAssets([]);
+    setTransition('fade');
+    setMixMode('smart');
+    assetUrls.current.forEach((url) => URL.revokeObjectURL(url));
+    assetUrls.current.clear();
     setEnhancedFile(null);
     setCleanAudio(true);
     setMeta(null);
@@ -523,11 +601,12 @@ function ReelEditorDraft({ owner }) {
   };
 
   const previewVideoUrl = cleanAudio && enhancedFile && enhancedUrl ? enhancedUrl : meta?.url;
+  const hasMixedOverlays = Boolean(result?.mixPlan?.overlays?.length);
   const strategy = result?.direction || result?.spec?.strategy;
   // Prefer the manually-edited working copy so tweaks show in the live preview too.
   const previewSpec = useMemo(
-    () => meta ? { ...(editedSpec || result?.spec || { meta: { durationSec: meta.duration }, captions: { cues: [] }, animations: [] }), background } : null,
-    [editedSpec, result, meta, background],
+    () => meta ? { ...(editedSpec || result?.spec || { meta: { durationSec: meta.duration }, captions: { cues: [] }, animations: [] }), background: hasMixedOverlays ? 'original' : background } : null,
+    [editedSpec, result, meta, background, hasMixedOverlays],
   );
 
   if (!flags.reelEditor) {
@@ -568,7 +647,7 @@ function ReelEditorDraft({ owner }) {
                   <Icon name="edit" size={14} /> Edit on timeline
                 </button>
               )}
-              {meta && (
+              {assets.length > 0 && (
                 <button type="button" className="btn btn--ghost btn--sm" onClick={reset} disabled={busy}>
                   <Icon name="plus" size={14} /> New reel
                 </button>
@@ -580,7 +659,7 @@ function ReelEditorDraft({ owner }) {
 
       {storageStatus && <p className="reel-field__hint" role="status">{storageStatus}</p>}
 
-      {draftReady && meta && (
+      {draftReady && assets.length > 0 && (
         <div className="reel-audio">
           <label><input type="checkbox" checked={cleanAudio} onChange={(event) => { setStorageStatus('Saving on this browser…'); setCleanAudio(event.target.checked); }} disabled={busy} /> Clean voice audio</label>
           <p className="reel-field__hint">Reduce steady background noise and rumble, and balance voice volume.</p>
@@ -597,6 +676,7 @@ function ReelEditorDraft({ owner }) {
           spec={previewSpec}
           onChange={setEditedSpec}
           onBackgroundChange={setBackground}
+          backgroundDisabled={hasMixedOverlays}
           onExit={() => setEditMode(false)}
         />
       ) : (
@@ -604,51 +684,46 @@ function ReelEditorDraft({ owner }) {
       {/* eslint-disable-next-line react/jsx-no-useless-fragment */}
 
       <p className="reel-lead">
-        Upload a clip (up to 3 minutes) and tell the agents what you&rsquo;re going for. A director, a
-        caption stylist, and a motion-graphics agent cut it into a viral-style reel with live
-        captions and on-screen animations — previewed right here.
+        Add up to 12 videos and photos. An Instagram video editor agent builds the story, places supporting media where it adds value, and chooses transitions for one reel up to 3 minutes. Add context below to guide the edit.
       </p>
 
       <div className="reel-grid">
         {/* ── left: inputs ── */}
         <div className="reel-col">
-          {!meta ? (
-            <div
-              className={`reel-drop ${dragOver ? 'is-over' : ''}`}
-              onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
-              onDragLeave={() => setDragOver(false)}
-              onDrop={onDrop}
-              onClick={() => inputRef.current?.click()}
-              role="button"
-              tabIndex={0}
-              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') inputRef.current?.click(); }}
-            >
-              <span className="reel-drop__ico"><Icon name="upload" size={24} /></span>
-              <b>Drop a clip or click to upload</b>
-              <span>MP4, MOV or WebM · up to 3 minutes · vertical 9:16 works best</span>
-              <input
-                ref={inputRef}
-                type="file"
-                accept="video/mp4,video/quicktime,video/webm"
-                hidden
-                onChange={(e) => pickFile(e.target.files?.[0])}
-              />
-            </div>
-          ) : (
-            <div className="card set-card">
+          <div className={`reel-drop ${dragOver ? 'is-over' : ''}`} onDragOver={(e) => { e.preventDefault(); if (!busy) setDragOver(true); }} onDragLeave={() => setDragOver(false)} onDrop={onDrop}>
+            <span className="reel-drop__ico"><Icon name="upload" size={24} /></span>
+            <button className="btn btn--ghost" type="button" disabled={busy || assets.length >= MAX_ASSETS} onClick={() => inputRef.current?.click()}>{reading ? 'Reading media…' : assets.length ? 'Add videos or photos' : 'Choose videos and photos'}</button>
+            <span>Or drop files here · MP4, MOV, WebM, JPEG, PNG, WebP · up to 12 files</span>
+            <input ref={inputRef} type="file" accept="video/mp4,video/quicktime,video/webm,image/jpeg,image/png,image/webp" multiple hidden disabled={busy} onChange={(e) => { pickFiles(e.target.files); e.target.value = ''; }} />
+          </div>
+          {assets.length > 0 && <div className="card set-card reel-assets">
+            <fieldset className="reel-mix-mode" disabled={busy}>
+              <legend>How should we combine your media?</legend>
+              <label><input type="radio" name="mixMode" value="smart" checked={mixMode === 'smart'} onChange={() => { invalidate(); setMixMode('smart'); }} /> Let the editor decide</label>
+              <label><input type="radio" name="mixMode" value="manual" checked={mixMode === 'manual'} onChange={() => { invalidate(); setMixMode('manual'); }} /> Use my sequence</label>
+            </fieldset>
+            <div className="reel-field__label">{mixMode === 'smart' ? 'Source media' : 'Your sequence'} · {assets.length}/12</div>
+            <p className="reel-field__hint">{mixMode === 'smart' ? 'Source order is not the final edit. The mixer watches your media and uses speech and your brief to select the story, add small-screen inserts or full-screen cutaways, and skip media that does not fit. Source trims set the available footage.' : 'Clips play in this order. Landscape media is fitted into the vertical reel.'}</p>
+            {assets.map((asset, index) => <div className="reel-asset" key={asset.id}>
               <div className="reel-clip">
-                <video className="reel-clip__thumb" src={meta.url} muted playsInline preload="metadata" />
-                <span className="reel-clip__main">
-                  <b>{file?.name || 'Your clip'}</b>
-                  <span>{Math.round(meta.duration)}s · {meta.width}×{meta.height}</span>
-                  <span className="reel-clip__ok"><Icon name="check" size={13} /> Ready to edit</span>
-                </span>
-                <button type="button" className="btn btn--ghost btn--sm" onClick={reset} disabled={busy}>
-                  <Icon name="x" size={14} /> Remove
-                </button>
+                {asset.kind === 'image' ? <img className="reel-clip__thumb" src={asset.url} alt="" /> : <video className="reel-clip__thumb" src={asset.url} muted playsInline preload="metadata" />}
+                <span className="reel-clip__main"><b>{index + 1}. {asset.file.name}</b><span>{asset.kind === 'image' ? 'Photo' : `${asset.duration.toFixed(1)}s video`} · {asset.width}×{asset.height}</span></span>
+                <button className="btn btn--ghost btn--sm" type="button" aria-label={`Remove ${asset.file.name}`} disabled={busy} onClick={() => removeAsset(asset.id)}>Remove</button>
               </div>
-            </div>
-          )}
+              <div className="reel-asset__controls">
+                <button type="button" disabled={busy || index === 0} onClick={() => moveAsset(index, -1)} aria-label={`Move ${asset.file.name} earlier`}>↑ Earlier</button>
+                <button type="button" disabled={busy || index === assets.length - 1} onClick={() => moveAsset(index, 1)} aria-label={`Move ${asset.file.name} later`}>↓ Later</button>
+                {asset.kind === 'image' ? <label>Show for (s)<input type="number" min="1" max="10" step="0.1" value={asset.durationSec} disabled={busy} onChange={(e) => updateAsset(asset.id, { durationSec: Number(e.target.value) })} /></label> : <>
+                  <label>Start (s)<input type="number" min="0" max={asset.duration} step="0.1" value={asset.startSec} disabled={busy} onChange={(e) => updateAsset(asset.id, { startSec: Number(e.target.value) })} /></label>
+                  <label>End (s)<input type="number" min="1" max={asset.duration} step="0.1" value={asset.endSec} disabled={busy} onChange={(e) => updateAsset(asset.id, { endSec: Number(e.target.value) })} /></label>
+                </>}
+              </div>
+            </div>)}
+            {mixMode === 'manual' && <label className="reel-transition">Between clips <select value={transition} disabled={busy} onChange={(e) => { invalidate(); setTransition(e.target.value); }}><option value="none">Cut (no transition)</option><option value="fade">Crossfade</option><option value="slide">Slide</option></select></label>}
+            <p className="reel-field__hint">{Math.max(0, totalDuration).toFixed(1)}s {mixMode === 'smart' ? 'of source media · editor selects up to 180s and chooses transitions' : '/ 180s'}{mixMode === 'manual' && transition !== 'none' && assets.length > 1 ? ' · ~0.37s overlap per transition' : ''}</p>
+            {!validAssets && <p className="reel-err">Each video trim must be 1–180 seconds and within the source clip. Photos must be 1–10 seconds.</p>}
+            {mixMode === 'manual' && totalDuration > MAX_DURATION_SEC && <p className="reel-err">Trim clips or shorten photos to keep your reel within 180 seconds.</p>}
+          </div>}
 
           <div className="card set-card">
             <div className="reel-field__label">What&rsquo;s this reel about?</div>
@@ -673,15 +748,17 @@ function ReelEditorDraft({ owner }) {
           </div>
 
           <div className="card set-card">
-            <ReelBackgroundPicker value={background} onChange={setBackground} disabled={busy} />
+            <ReelBackgroundPicker value={hasMixedOverlays ? 'original' : background} onChange={setBackground} disabled={busy || hasMixedOverlays} />
+            {hasMixedOverlays && <p className="reel-field__hint">Virtual backgrounds are unavailable for mixes with cutaways or picture-in-picture.</p>}
           </div>
 
           {error && <p className="reel-err">{error}</p>}
 
-          <button type="button" className="btn reel-go" disabled={!file || busy} onClick={generate}>
+          <button type="button" className="btn reel-go" disabled={!validAssets || (mixMode === 'manual' && totalDuration > MAX_DURATION_SEC) || busy} onClick={generate}>
             <Icon name="sparkle" size={16} />
             {phase === 'uploading'
               ? `Uploading… ${progress}%`
+              : phase === 'assembling' ? (mixMode === 'smart' ? 'Mixer is planning & composing…' : 'Stitching clips & transitions…')
               : phase === 'editing'
                 ? 'Agents are editing…'
                 : result ? 'Re-generate reel' : 'Generate viral reel'}
@@ -707,7 +784,9 @@ function ReelEditorDraft({ owner }) {
         {/* ── right: preview + strategy ── */}
         <div className="reel-col reel-col--prev">
           {previewSpec ? (
-            <PreviewStage videoUrl={previewVideoUrl} spec={previewSpec}>
+            <PreviewStage key={previewVideoUrl} videoUrl={previewVideoUrl} spec={previewSpec}>
+              {file && <div className="reel-download"><a className="btn btn--ghost btn--sm" href={previewVideoUrl} download="stitched-reel.mp4">Download stitched MP4</a><p className="reel-field__hint">Includes cuts, transitions, small-screen inserts, full-screen cutaways, and selected audio. Live captions, graphics, and virtual backgrounds are preview-only.</p></div>}
+              <MixerDecisions plan={result?.mixPlan} assets={assets} />
               {strategy && (
                 <div className="card set-card reel-strategy">
                   <h2>The edit</h2>
@@ -731,11 +810,16 @@ function ReelEditorDraft({ owner }) {
                 </div>
               )}
             </PreviewStage>
+          ) : assets.length ? (
+            <div className="reel-stage">
+              <div className="reel-phone" style={PHONE_STYLE}><div style={SCREEN_STYLE}>{assets[0].kind === 'image' ? <img src={assets[0].url} alt="First uploaded photo" style={{ ...VIDEO_BASE, objectFit: 'contain' }} /> : <video key={assets[0].url} src={assets[0].url} controls playsInline style={{ ...VIDEO_BASE, objectFit: 'contain' }} />}</div></div>
+              <p className="reel-field__hint">First source preview, before editing. {mixMode === 'smart' ? 'Generate to see the mixer’s chosen story and supporting visuals.' : 'Generate to see your sequence stitched into one reel.'}</p>
+            </div>
           ) : (
             <div className="reel-stage">
               <div className="reel-emptyprev" style={PHONE_STYLE}>
                 <Icon name="play" size={26} />
-                <p>Upload a clip to see your edited reel preview here.</p>
+                <p>Add videos or photos to start your reel.</p>
               </div>
             </div>
           )}

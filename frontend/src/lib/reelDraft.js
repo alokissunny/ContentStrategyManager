@@ -6,6 +6,8 @@ let database;
 let pending = Promise.resolve();
 const savedFiles = new Map();
 const savedEnhancedFiles = new Map();
+const savedAssetFiles = new Map();
+const savedAssembledFiles = new Map();
 
 function openDatabase() {
   if (!database) {
@@ -16,7 +18,7 @@ function openDatabase() {
       request.onblocked = () => reject(new Error('Local reel storage is blocked by another tab.'));
       request.onsuccess = () => {
         const db = request.result;
-        db.onversionchange = () => { db.close(); database = null; savedFiles.clear(); savedEnhancedFiles.clear(); };
+        db.onversionchange = () => { db.close(); database = null; savedFiles.clear(); savedEnhancedFiles.clear(); savedAssetFiles.clear(); savedAssembledFiles.clear(); };
         resolve(db);
       };
     }).catch((error) => { database = null; throw error; });
@@ -48,22 +50,34 @@ export function loadReelDraft(owner) {
     return transaction(db, 'readonly', (store) => {
       const clip = store.get(`${owner}:clip`);
       const enhanced = store.get(`${owner}:enhanced`);
+      const assets = store.get(`${owner}:assets`);
+      const assembled = store.get(`${owner}:assembled`);
       const draft = store.get(`${owner}:draft`);
       return () => {
-        if (!clip.result || !draft.result) return null;
+        if (!draft.result) return null;
         savedFiles.set(owner, clip.result);
         savedEnhancedFiles.set(owner, enhanced.result);
-        return { ...draft.result, file: clip.result, enhancedFile: enhanced.result || null };
+        savedAssetFiles.set(owner, assets.result);
+        savedAssembledFiles.set(owner, assembled.result);
+        return { ...draft.result, file: clip.result, assetFiles: assets.result, assembledFile: assembled.result || null, enhancedFile: enhanced.result || null };
       };
     });
   });
 }
 
-export function saveReelDraft(owner, { file, enhancedFile = null, ...draft }) {
+export function saveReelDraft(owner, { file, assetFiles, assembledFile = null, enhancedFile = null, ...draft }) {
   return enqueue(async () => {
     const db = await openDatabase();
     await transaction(db, 'readwrite', (store) => {
-      if (savedFiles.get(owner) !== file) store.put(file, `${owner}:clip`);
+      if (file && savedFiles.get(owner) !== file) store.put(file, `${owner}:clip`);
+      if (assetFiles) {
+        const previous = savedAssetFiles.get(owner);
+        if (!previous || previous.length !== assetFiles.length || assetFiles.some((file, i) => previous[i] !== file)) store.put(assetFiles, `${owner}:assets`);
+        store.delete(`${owner}:clip`); // discard redundant legacy bytes after migration
+      }
+      if (assembledFile) {
+        if (savedAssembledFiles.get(owner) !== assembledFile) store.put(assembledFile, `${owner}:assembled`);
+      } else store.delete(`${owner}:assembled`);
       if (enhancedFile) {
         if (savedEnhancedFiles.get(owner) !== enhancedFile) store.put(enhancedFile, `${owner}:enhanced`);
       } else {
@@ -72,6 +86,8 @@ export function saveReelDraft(owner, { file, enhancedFile = null, ...draft }) {
       store.put(draft, `${owner}:draft`);
     });
     savedFiles.set(owner, file);
+    savedAssetFiles.set(owner, assetFiles);
+    savedAssembledFiles.set(owner, assembledFile);
     savedEnhancedFiles.set(owner, enhancedFile);
   });
 }
@@ -81,10 +97,14 @@ export function clearReelDraft(owner) {
     const db = await openDatabase();
     await transaction(db, 'readwrite', (store) => {
       store.delete(`${owner}:clip`);
+      store.delete(`${owner}:assets`);
+      store.delete(`${owner}:assembled`);
       store.delete(`${owner}:enhanced`);
       store.delete(`${owner}:draft`);
     });
     savedFiles.delete(owner);
+    savedAssetFiles.delete(owner);
+    savedAssembledFiles.delete(owner);
     savedEnhancedFiles.delete(owner);
   });
 }

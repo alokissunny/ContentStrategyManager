@@ -13,6 +13,16 @@ const VIDEO_TYPES = {
   'video/webm': true,
 };
 
+export function isSupportedMedia(file) {
+  return isSupportedVideo(file) || ['image/jpeg', 'image/png', 'image/webp'].includes(file?.type);
+}
+
+export async function assembleReel({ assets, transition, guidance, mixMode = 'smart' }) {
+  const { data } = await client.post('/reels/assemble', { assets, transition, guidance, mixMode }, { timeout: 600000 });
+  ingestDebug(data.debug);
+  return data;
+}
+
 export function isSupportedVideo(file) {
   return Boolean(file && VIDEO_TYPES[file.type]);
 }
@@ -42,8 +52,8 @@ function ingestDebug(debug) {
 
 // Presign + PUT the clip to S3. Returns { key }.
 export async function uploadReelClip(file, onProgress) {
-  if (!isSupportedVideo(file)) {
-    throw new Error('Unsupported video type. Upload an MP4, MOV, or WebM.');
+  if (!isSupportedMedia(file)) {
+    throw new Error('Upload MP4, MOV, WebM, JPEG, PNG, or WebP files.');
   }
   const { data } = await client.post('/reels/uploads/sign', { contentType: file.type });
   const { key, uploadUrl, cacheControl } = data;

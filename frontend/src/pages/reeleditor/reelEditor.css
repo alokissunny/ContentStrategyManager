@@ -337,3 +337,27 @@
 .reel-audio input { accent-color: #668800; width: 16px; height: 16px; }
 .reel-audio .reel-field__hint { margin: 6px 0; }
 .reel-audio > span { font-size: var(--text-xs); color: var(--ink-500); }
+
+.reel-asset { padding: 18px 0; border-bottom: 1px solid var(--border, #e6e6ed); }
+.reel-asset:first-of-type { padding-top: 8px; }
+.reel-asset__controls { display: flex; align-items: end; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.reel-asset__controls label { display: grid; gap: 4px; font-size: 12px; color: var(--muted, #737383); }
+.reel-asset__controls input { width: 84px; }
+.reel-asset__controls input, .reel-asset__controls button, .reel-transition select { border: 1px solid #dddde5; border-radius: 8px; padding: 7px 9px; background: #fff; color: #242429; font: inherit; font-size: 13px; }
+.reel-asset__controls button:disabled { opacity: .4; }
+.reel-transition { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 18px 0 10px; font-size: 14px; }
+.reel-assets .reel-clip__main { min-width: 0; }
+.reel-assets .reel-clip__main b { overflow-wrap: anywhere; }
+.reel-download { margin: 16px 0; max-width: 340px; text-align: center; }
+
+/* Editorial mixer controls and a readable record of its composition choices. */
+.reel-mix-mode { border: 0; padding: 0 0 18px; margin: 0 0 18px; border-bottom: 1px solid var(--border, #e8e8ed); display: flex; flex-wrap: wrap; gap: 12px 20px; }
+.reel-mix-mode legend { font-weight: 600; margin-bottom: 12px; }
+.reel-mix-mode label { display: flex; align-items: center; gap: 7px; font-size: 14px; cursor: pointer; }
+.reel-mixer-decisions { width: 100%; box-sizing: border-box; }
+.reel-mixer-decisions h2 { margin: 0 0 12px; font-size: 20px; }
+.reel-mixer-decisions h3 { margin: 18px 0 8px; font-size: 14px; }
+.reel-mixer-decisions p, .reel-mixer-decisions li { font-size: 13px; line-height: 1.6; }
+.reel-mixer-decisions ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; }
+.reel-mixer-decisions li { display: grid; gap: 2px; overflow-wrap: anywhere; }
+.reel-mixer-decisions li span { color: var(--text-muted, #737383); }

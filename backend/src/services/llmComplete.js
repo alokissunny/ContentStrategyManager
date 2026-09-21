@@ -212,7 +212,7 @@ async function anthropicMessagesCreate(createArgs, requestOpts) {
 
 async function completeOpenAIJson({
   model, system, userParts, tool, maxTokens, extraUserText = '', cacheKey = '',
-  kind = 'conversation', reasoningEffort, verbosity,
+  kind = 'conversation', reasoningEffort, verbosity, timeoutMs,
 }) {
   const messages = [];
   const sys = [system, jsonSchemaInstruction(tool)].filter(Boolean).join('\n\n');
@@ -231,7 +231,7 @@ async function completeOpenAIJson({
     ...tokenArgFor(model, maxTokens),
     ...gptExtraParams(model, { kind, reasoningEffort, verbosity }),
     ...(promptCacheEnabled() && cacheKey ? { prompt_cache_key: cacheKey } : {}),
-  });
+  }, Number(timeoutMs) > 0 ? { timeout: Number(timeoutMs) } : undefined);
   const text = response.choices?.[0]?.message?.content || '';
   if (!String(text).trim()) throw new Error('Empty model response');
   const choice = response.choices?.[0] || {};
@@ -383,6 +383,7 @@ async function completeToolCall({
   kind = 'conversation',
   reasoningEffort,
   verbosity,
+  timeoutMs,
 }) {
   const resolved = model || conversationModel();
   const name = tool.name;
@@ -402,6 +403,7 @@ async function completeToolCall({
       kind,
       reasoningEffort,
       verbosity,
+      timeoutMs,
     });
     try {
       let done = await run(maxTokens, extraUserText);
@@ -435,7 +437,7 @@ async function completeToolCall({
     tools: [tool],
     tool_choice: { type: 'tool', name },
     messages: msgs,
-  });
+  }, Number(timeoutMs) > 0 ? { timeout: Number(timeoutMs) } : undefined);
   let response = await request([{ role: 'user', content: userContent }]);
   try {
     return {

@@ -62,6 +62,12 @@ const AGENTS = {
   },
   // Experimental Reel Editor — a three-agent short-form video edit pipeline
   // (director → caption stylist → motion graphics). See services/reelEditorAgent.
+  reelMixer: {
+    defaultProvider: 'openai',
+    modelEnv: 'PLAN_REEL_MIXER_MODEL',
+    providerEnv: 'PLAN_REEL_MIXER_PROVIDER',
+    defaultModel: 'gpt-5.6-terra',
+  },
   reelDirector: {
     defaultProvider: 'openai',
     modelEnv: 'PLAN_REEL_DIRECTOR_MODEL',

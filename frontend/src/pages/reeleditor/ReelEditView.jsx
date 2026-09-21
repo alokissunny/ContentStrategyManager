@@ -47,7 +47,7 @@ function blockLabel(track, item) {
   return item.text || item.type;
 }
 
-export default function ReelEditView({ videoUrl, spec, onChange, onExit, onBackgroundChange }) {
+export default function ReelEditView({ videoUrl, spec, onChange, onExit, onBackgroundChange, backgroundDisabled = false }) {
   const videoRef = useRef(null);
   const lanesRef = useRef(null);
   const rafRef = useRef(0);
@@ -231,7 +231,8 @@ export default function ReelEditView({ videoUrl, spec, onChange, onExit, onBackg
 
         {/* inspector */}
         <div className="rle__inspector">
-          <ReelBackgroundPicker value={spec?.background} onChange={onBackgroundChange} />
+          <ReelBackgroundPicker value={spec?.background} onChange={onBackgroundChange} disabled={backgroundDisabled} />
+          {backgroundDisabled && <p className="reel-field__hint">Virtual backgrounds are unavailable for mixes with cutaways or picture-in-picture.</p>}
           {selItem ? (
             <Inspector
               track={sel.track}
