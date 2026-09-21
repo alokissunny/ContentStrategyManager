@@ -467,7 +467,7 @@ export default function LibrarySettings() {
     };
   }, [dirty]);
 
-  const goBack = () => (dirty ? setLeaving('/dashboard/visual-library') : nav('/dashboard/visual-library'));
+  const goBack = () => (dirty ? setLeaving('/dashboard/settings') : nav('/dashboard/settings'));
   const discard = () => {
     const to = leaving;
     setLeaving(null);
@@ -877,7 +877,7 @@ export default function LibrarySettings() {
       <div className="ls-topbar">
         <button className="btn btn--quiet btn--sm ls-back" onClick={goBack}>
           <Icon name="arrow-left" size={16} strokeWidth={2.25} />
-          {phone ? 'Visual Library' : 'Back to Visual Library'}
+          {phone ? 'Settings' : 'Back to Settings'}
         </button>
         <div className="ls-topbar__acts">
           <button
@@ -900,7 +900,7 @@ export default function LibrarySettings() {
 
       <header className="ls-head">
         <div className="ls-head__text">
-          <h1 className="ls-head__title">Library Settings</h1>
+          <h1 className="ls-head__title">Brand Kit</h1>
           <p className="ls-head__lead">
             Edit your brand visuals below, then apply them to every layout in your library.
           </p>
@@ -1375,7 +1375,7 @@ export default function LibrarySettings() {
           <div className="ls-dialog__scrim" onClick={() => setLeaving(null)} />
           <div className="ls-dialog" role="alertdialog" aria-modal="true" aria-labelledby="ls-discard">
             <h2 id="ls-discard">Discard changes?</h2>
-            <p>You have changes you have not applied. If you leave now, all edits made in Library Settings will be lost.</p>
+            <p>You have changes you have not applied. If you leave now, all edits made in the Brand Kit will be lost.</p>
             {/* CONTINUE EDITING IS THE PRIMARY (Leon, Aug 7). It was the other
                 way round: the ink-filled button — the one a hand goes to without
                 reading — threw the work away. The safe path is the default, and

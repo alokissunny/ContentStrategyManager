@@ -272,6 +272,7 @@ function PreviewStage({ videoUrl, spec, children }) {
             <ReelVideo
               videoRef={videoRef}
               background={background.id}
+              mix={spec?.backgroundMix}
               src={videoUrl}
               className="rl-video"
               style={{ ...VIDEO_BASE, transform: `scale(${zoom})` }}
@@ -544,6 +545,7 @@ function ReelEditorDraft({ owner }) {
         cleanAudio,
       });
       data.mixPlan = assembled.mixPlan || null;
+      data.assemblyClips = assembled.clips || [];
       data.notes = [...(assembled.notes || []), ...(data.notes || [])];
       if (data.audioCleanup?.status === 'applied') {
         try {
@@ -605,8 +607,9 @@ function ReelEditorDraft({ owner }) {
   const strategy = result?.direction || result?.spec?.strategy;
   // Prefer the manually-edited working copy so tweaks show in the live preview too.
   const previewSpec = useMemo(
-    () => meta ? { ...(editedSpec || result?.spec || { meta: { durationSec: meta.duration }, captions: { cues: [] }, animations: [] }), background: hasMixedOverlays ? 'original' : background } : null,
-    [editedSpec, result, meta, background, hasMixedOverlays],
+    () => meta ? { ...(editedSpec || result?.spec || { meta: { durationSec: meta.duration }, captions: { cues: [] }, animations: [] }), background,
+      backgroundMix: { ...result?.mixPlan, clips: result?.assemblyClips || [], overlays: result?.mixPlan?.overlays || [], assets: assets.map(({ width, height, kind }) => ({ width, height, kind })) } } : null,
+    [editedSpec, result, meta, background, assets],
   );
 
   if (!flags.reelEditor) {
@@ -748,8 +751,8 @@ function ReelEditorDraft({ owner }) {
           </div>
 
           <div className="card set-card">
-            <ReelBackgroundPicker value={hasMixedOverlays ? 'original' : background} onChange={setBackground} disabled={busy || hasMixedOverlays} />
-            {hasMixedOverlays && <p className="reel-field__hint">Virtual backgrounds are unavailable for mixes with cutaways or picture-in-picture.</p>}
+            <ReelBackgroundPicker value={background} onChange={setBackground} disabled={busy} />
+            {hasMixedOverlays && <p className="reel-field__hint">The background follows the speaker. Photos, cutaways, and small-screen inserts keep their original appearance.</p>}
           </div>
 
           {error && <p className="reel-err">{error}</p>}

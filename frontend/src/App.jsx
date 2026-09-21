@@ -11,7 +11,6 @@ import ProtectedLayout from './components/ProtectedLayout';
 const Onboarding = lazy(() => import('./pages/Onboarding'));
 const Projects = lazy(() => import('./pages/Projects'));
 const BrandDna = lazy(() => import('./pages/BrandDna'));
-const VisualLibrary = lazy(() => import('./pages/visuallibrary/VisualLibrary'));
 const LibrarySettings = lazy(() => import('./pages/visuallibrary/LibrarySettings'));
 const CompetitorOverview = lazy(() => import('./pages/CompetitorOverview'));
 const Settings = lazy(() => import('./pages/Settings'));
@@ -42,11 +41,12 @@ export default function App() {
           <Route path="/dashboard/content-route" element={<Navigate to="/dashboard" replace />} />
           <Route path="/dashboard/projects" element={<Projects />} />
           <Route path="/dashboard/brand-dna" element={<BrandDna />} />
-          {/* Visual Brand is removed — its palette/type editing lives in Library
-              Settings now (the Visual Library's own settings). The old URL stays
-              as a redirect so bookmarks and any lingering links still land. */}
-          <Route path="/dashboard/visual-brand" element={<Navigate to="/dashboard/visual-library" replace />} />
-          <Route path="/dashboard/visual-library" element={<VisualLibrary />} />
+          {/* The Visual Library page is removed — the Brand Kit (formerly Library
+              Settings) is the one surviving surface for the studio's visual
+              identity. Old URLs redirect there so bookmarks and lingering links
+              still land. */}
+          <Route path="/dashboard/visual-brand" element={<Navigate to="/dashboard/library-settings" replace />} />
+          <Route path="/dashboard/visual-library" element={<Navigate to="/dashboard/library-settings" replace />} />
           <Route path="/dashboard/library-settings" element={<LibrarySettings />} />
           <Route path="/dashboard/competitor-overview" element={<CompetitorOverview />} />
           <Route path="/dashboard/settings" element={<Settings />} />

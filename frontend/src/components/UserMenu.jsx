@@ -42,7 +42,7 @@ function UserAvatar({ user, size = 32 }) {
 const MENU_LINKS = [
   { label: 'Upgrade plan', icon: 'sparkles', to: '/#pricing', muted: true },
   { label: 'Settings', icon: 'sun', to: '/dashboard/settings' },
-  { label: 'Visual Library', icon: 'layout-grid', to: '/dashboard/visual-library' },
+  { label: 'Brand Kit', icon: 'palette', to: '/dashboard/library-settings' },
   { label: 'Business memory', icon: 'file-text', to: '/dashboard/brand-dna' },
   { label: 'Competitor overview', icon: 'trending-up', to: '/dashboard/competitor-overview' },
 ];

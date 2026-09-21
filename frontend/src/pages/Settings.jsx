@@ -162,6 +162,36 @@ export default function Settings() {
         {isAdmin && <span className="set-row__badge" style={{ alignSelf: 'center' }}>Admin</span>}
       </div>
 
+      {/* ── Your business ── */}
+      <section className="card set-card">
+        <h2>Your business</h2>
+        <p className="set-card__sub">
+          The facts every plan and every caption is written from, and the look every post is drawn in.
+        </p>
+
+        <Link className="set-row set-row--switch" to="/dashboard/brand-dna" title="Business memory">
+          <span className="set-row__ico"><Icon name="brief" size={20} /></span>
+          <span className="set-row__main">
+            <b className="set-row__title">Business memory</b>
+            <span className="set-row__sub">What Bauhly knows about your business</span>
+          </span>
+          <span className="set-row__acts">
+            <Icon name="chevron-right" size={18} className="set-row__chev" />
+          </span>
+        </Link>
+
+        <Link className="set-row set-row--switch" to="/dashboard/library-settings" title="Brand Kit">
+          <span className="set-row__ico"><Icon name="swatch" size={20} /></span>
+          <span className="set-row__main">
+            <b className="set-row__title">Brand Kit</b>
+            <span className="set-row__sub">Your colours, faces and visual mood</span>
+          </span>
+          <span className="set-row__acts">
+            <Icon name="chevron-right" size={18} className="set-row__chev" />
+          </span>
+        </Link>
+      </section>
+
       {/* ── Instagram ── */}
       <section className="card set-card">
         <h2>Instagram</h2>
