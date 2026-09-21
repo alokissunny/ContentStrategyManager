@@ -15,11 +15,6 @@ export const CAROUSEL_THEMES = [
     thumb: '/carousel-themes/02-editorial-magazine.jpg',
   },
   {
-    id: 'annotated-photo-dump',
-    name: 'Annotated photo dump',
-    thumb: '/carousel-themes/03-annotated-photo-dump.jpg',
-  },
-  {
     id: 'before-process-after',
     name: 'Before → process → after',
     thumb: '/carousel-themes/06-before-process-after.jpg',

@@ -16,7 +16,8 @@
 import React, { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import Icon from '../brand/Icon';
-import { getPosts, getPost, clearUpcoming, distributePosts, shiftPosts } from '../api/posts';
+import { getPosts, getPost, clearUpcoming, distributePosts, shiftPosts, getDistribution, saveDistribution } from '../api/posts';
+import { DIST_DEFAULT, distStorageKey, readDistribution } from '../lib/distribution';
 import { MonthDayCell, MonthDayMenu, useMonthDayMenu, calStatusOf as peekCalStatusOf } from './monthDayMenu';
 import DayFeed from './DayFeed';
 import YourAnalysisModal from '../components/YourAnalysisModal';
@@ -469,24 +470,10 @@ function monthCellsOf(year, month, index) {
  * claiming to be a posting day). The pattern comes from the Distribute panel:
  * a chosen set of weekdays ("Choose days"), or an even spread the arithmetic
  * names ("Spread weekly"). Persisted per handle; defaults to Mon/Wed/Fri. */
-const DIST_DEFAULT = { mode: 'days', days: [0, 2, 4] };
-
-function distStorageKey(handle) {
-  return `bauhly:dist:${handle || 'default'}`;
-}
-function readDist(handle) {
-  try {
-    const raw = localStorage.getItem(distStorageKey(handle));
-    if (!raw) return { ...DIST_DEFAULT };
-    const p = JSON.parse(raw);
-    const days = Array.isArray(p.days) && p.days.length
-      ? [...new Set(p.days.filter((d) => d >= 0 && d <= 6))].sort((a, b) => a - b)
-      : [...DIST_DEFAULT.days];
-    return { mode: p.mode === 'weekly' ? 'weekly' : 'days', days: days.length ? days : [...DIST_DEFAULT.days] };
-  } catch {
-    return { ...DIST_DEFAULT };
-  }
-}
+// Distribution helpers now live in lib/distribution.js so the "generate posts"
+// paths fill onto the same chosen weekdays this panel writes. Kept as local
+// aliases to minimise churn below.
+const readDist = readDistribution;
 
 /* how many whole weeks this month still has in it — the denominator "Spread
    weekly" divides by. Past that the pattern simply repeats. */
@@ -1390,7 +1377,20 @@ export default function YourPlans() {
   // header account). localStorage is the source of truth, so a background reload
   // that re-runs this reads back whatever the panel last saved.
   const activeHandle = current?.instagramUsername || routes[0]?.instagramUsername || '';
-  useEffect(() => { setDist(readDist(activeHandle)); }, [activeHandle]);
+  // The publishing rule now lives on the server (per handle) so it governs every
+  // allocation path, not just this page. Paint instantly from localStorage, then
+  // reconcile with the server's copy (the source of truth).
+  useEffect(() => {
+    setDist(readDist(activeHandle));
+    let stale = false;
+    getDistribution().then((d) => {
+      if (stale || !d || !Array.isArray(d.days)) return;
+      const next = { mode: d.mode === 'weekly' ? 'weekly' : 'days', days: d.days };
+      setDist(next);
+      try { localStorage.setItem(distStorageKey(activeHandle), JSON.stringify(next)); } catch { /* private mode */ }
+    }).catch(() => { /* offline / no profile — localStorage value holds */ });
+    return () => { stale = true; };
+  }, [activeHandle]);
 
   // Export the plan as a Markdown file — every upcoming post in date order,
   // with whatever fields the calendar has (bauhly-v3 ⋯ · Export).
@@ -1409,6 +1409,8 @@ export default function YourPlans() {
   function saveDist(next) {
     setDist(next);
     try { localStorage.setItem(distStorageKey(activeHandle), JSON.stringify(next)); } catch { /* private mode — the session value holds */ }
+    // Persist the rule server-side so it governs future allocation everywhere.
+    saveDistribution(next.mode, next.days).catch(() => { /* localStorage + generate-time send still carry it */ });
   }
 
   // Build WeekView embed for Weekly / desktop Day / phone feed→editor.

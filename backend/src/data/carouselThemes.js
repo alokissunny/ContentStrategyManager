@@ -28,18 +28,6 @@ const CAROUSEL_THEMES = [
     ].join(' '),
   },
   {
-    id: 'annotated-photo-dump',
-    name: 'Annotated photo dump',
-    direction: 'annotated-photo-dump',
-    reference: [
-      'Casual photo dump with designer annotations. Large photos dominate; overlay',
-      'handwritten labels, thin arrows, circled details, and short callouts that',
-      'point at what matters ON the photo or ON a specific word — never float a circle',
-      'in empty layout space. Feels like a designer marking up a site photo — raw,',
-      'specific, and personal rather than template-polished.',
-    ].join(' '),
-  },
-  {
     id: 'before-process-after',
     name: 'Before → process → after',
     direction: 'before-process-after',
@@ -118,7 +106,7 @@ function resolveThemeId(raw, { pillar } = {}) {
   const lens = String(pillar || '').trim().toLowerCase();
   if (lens === 'credibility') return 'before-process-after';
   if (lens === 'trust') return 'editorial-magazine';
-  if (lens === 'discovery') return 'annotated-photo-dump';
+  if (lens === 'discovery') return 'scrapbook-diary';
   return 'editorial-magazine';
 }
 

@@ -30,6 +30,7 @@ import {
   shiftPosts,
 } from '../api/posts';
 import { isoOf as isoOfDate, dateOf as dateFromIso, addDays as addDaysIso } from '../lib/shiftPosts';
+import { distributionForGenerate } from '../lib/distribution';
 import { getMetaStatus, publishPostToMeta, isMetaConnectedFor, metaConnectionFor, otherMetaConnections, rememberMetaOAuthReturn } from '../api/meta';
 
 // WeekView edits a WEEK of PlannedPosts (one per day). Its engine still works on
@@ -3703,7 +3704,7 @@ export default function WeekView({
       // action (it creates OTHER posts, not this one), so we just report how
       // many landed — the new posts appear on the calendar. This post is left
       // exactly as it is.
-      const data = await generatePlan('fill-empty-slots');
+      const data = await generatePlan('fill-empty-slots', distributionForGenerate());
       const added = Number(data?.count) || (Array.isArray(data?.posts) ? data.posts.length : 0);
       setReplanMsg(added ? `Added ${added} post${added === 1 ? '' : 's'} to empty days.` : 'No empty days to fill.');
       onCaptured?.();

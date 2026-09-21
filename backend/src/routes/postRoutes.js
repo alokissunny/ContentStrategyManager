@@ -9,6 +9,8 @@ const {
   generatePlan,
   clearUpcoming,
   distributePosts,
+  getDistribution,
+  setDistribution,
   shiftPosts,
   updatePost,
   polishCaption,
@@ -23,6 +25,8 @@ router.use(protect);
 router.get('/', asyncHandler(getPosts));
 router.post('/generate', asyncHandler(generatePlan));
 router.post('/distribute', asyncHandler(distributePosts));
+router.get('/distribution', asyncHandler(getDistribution));
+router.put('/distribution', asyncHandler(setDistribution));
 router.post('/shift', asyncHandler(shiftPosts));
 router.delete('/', asyncHandler(clearUpcoming));
 router.get('/:id', asyncHandler(getPostById));

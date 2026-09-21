@@ -234,23 +234,40 @@ function buildMonthCalendar({ monthDate = new Date(), routes = [], fromDate } = 
 // fill horizon. Returns the same { month, today, occupied, emptyDates } shape
 // generateWeeklyPlan consumes, so the planner is unchanged — only the source of
 // "what's already taken" moved from weeks to individual posts.
-function buildEmptySlots({ fromDate = new Date(), occupiedDates = [] } = {}) {
+// `allowedWeekdays` (optional) is the studio's chosen publishing weekdays — the
+// same Monday-indexed set (0=Mon … 6=Sun) the Distribute panel persists. It does
+// NOT gate how many posts get generated (generation is content-driven and must
+// never be starved by the calendar): it only orders ALLOCATION. Empty slots on an
+// allowed weekday are offered first (chronologically), the rest after, so the
+// planner assigns each generated post to the next available allowed slot and only
+// spills onto other days if every allowed slot in the horizon is taken. Omitted ⇒
+// plain chronological order (old behaviour).
+function buildEmptySlots({ fromDate = new Date(), occupiedDates = [], allowedWeekdays = null } = {}) {
   const today = startOfLocalDay(fromDate);
   const occupiedByIso = new Set(
     (occupiedDates || [])
       .map((d) => (d instanceof Date ? isoDate(d) : String(d || '')))
       .filter(Boolean),
   );
+  const allowSet = Array.isArray(allowedWeekdays) && allowedWeekdays.length
+    ? new Set(allowedWeekdays.map(Number).filter((d) => Number.isInteger(d) && d >= 0 && d <= 6))
+    : null;
   const occupied = [];
-  const emptyDates = [];
+  const allowedEmpty = []; // empty slots on a publishing weekday (preferred)
+  const otherEmpty = [];   // empty slots on other weekdays (fallback only)
   for (let i = 1; i <= FILL_HORIZON_DAYS; i += 1) {
     const dt = addDays(today, i);
     const iso = isoDate(dt);
     const day = weekdayName(dt);
     const slot = { date: iso, dayOfMonth: dt.getDate(), day, pillar: WEEKDAY_PILLAR[day] };
-    if (occupiedByIso.has(iso)) occupied.push(slot);
-    else emptyDates.push(slot);
+    if (occupiedByIso.has(iso)) { occupied.push(slot); continue; }
+    // DAY_NAMES is Monday-first, so this index matches the Distribute panel's 0..6.
+    if (!allowSet || allowSet.has((dt.getDay() + 6) % 7)) allowedEmpty.push(slot);
+    else otherEmpty.push(slot);
   }
+  // Allowed slots first (both lists already chronological) so allocation lands on
+  // publishing days before it ever reaches a fallback day.
+  const emptyDates = allowedEmpty.concat(otherEmpty);
   return {
     month: today.toLocaleDateString('en-US', { month: 'long', year: 'numeric' }),
     today: isoDate(today),

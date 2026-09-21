@@ -1,4 +1,5 @@
 const PlannedPost = require('../models/PlannedPost');
+const InstagramProfile = require('../models/InstagramProfile');
 const { generateWeeklyPlan, buildEmptySlots, isoDate, parseIsoDate } = require('../services/weeklyPlan');
 const { rewriteCaption } = require('../services/captionPolish');
 const { runLayoutForPost, writeLayoutVariations, applyLayoutToContent, normalizeWriterPost, attachGeneratedVisuals } = require('../services/planOrchestrator');
@@ -33,6 +34,35 @@ function plainOf(value) {
   if (value == null) return value;
   if (typeof value.toObject === 'function') return value.toObject();
   try { return JSON.parse(JSON.stringify(value)); } catch { return value; }
+}
+
+// ── Publishing-day rule ───────────────────────────────────────────────────
+// The profile's `publishing` field is the single source of truth for which
+// weekdays new posts may be allocated onto. Reading it here (not from the request)
+// means the rule governs EVERY allocation path — capture, month-fill, any client,
+// stale bundle or not — instead of relying on the frontend to resend it each time.
+const DEFAULT_PUBLISH_DAYS = [0, 2, 4]; // Mon / Wed / Fri
+
+function sanitizeWeekdays(list) {
+  return Array.isArray(list)
+    ? [...new Set(list.map(Number).filter((d) => Number.isInteger(d) && d >= 0 && d <= 6))].sort((a, b) => a - b)
+    : [];
+}
+
+// The Monday-indexed weekdays new posts may land on, or null for no restriction.
+// 'weekly' (even spread) carries no weekday gate into the fill.
+function allowedWeekdaysFor(profile) {
+  const pub = profile?.publishing || {};
+  if (pub.mode === 'weekly') return null;
+  const days = sanitizeWeekdays(pub.days);
+  return days.length ? days : DEFAULT_PUBLISH_DAYS;
+}
+
+function readPublishingRule(profile) {
+  const pub = profile?.publishing || {};
+  const mode = pub.mode === 'weekly' ? 'weekly' : 'days';
+  const days = sanitizeWeekdays(pub.days);
+  return { mode, days: days.length ? days : DEFAULT_PUBLISH_DAYS };
 }
 
 // ── Generation ──────────────────────────────────────────────────────────────
@@ -89,7 +119,11 @@ async function generateAndSavePosts(userId, profile, trigger = 'generate', planS
     instagramUsername: profile.username,
     date: { $gte: todayIso },
   }).select('date content.slides.assetKey').lean();
-  const emptySlots = buildEmptySlots({ fromDate: today, occupiedDates: existingPosts.map((p) => p.date) });
+  const emptySlots = buildEmptySlots({
+    fromDate: today,
+    occupiedDates: existingPosts.map((p) => p.date),
+    allowedWeekdays: planSource.allowedWeekdays || null,
+  });
   const usedAssetKeys = collectUsedAssetKeys(existingPosts);
 
   console.log(
@@ -217,12 +251,30 @@ async function generatePlan(req, res) {
   const captureIds = Array.isArray(req.body?.captureIds)
     ? req.body.captureIds.map((id) => String(id || '').trim()).filter(Boolean).slice(0, 24)
     : [];
+  // The profile's saved publishing rule governs allocation. If the client sent an
+  // explicit distribution (Distribute panel / generate), adopt it as the new rule
+  // so the change takes effect now AND persists for every future allocation — the
+  // frontend no longer has to resend it, and a stale client can't override it.
+  const bodyMode = req.body?.mode === 'weekly' ? 'weekly' : (req.body?.mode === 'days' ? 'days' : '');
+  const bodyDays = Array.isArray(req.body?.days) ? sanitizeWeekdays(req.body.days) : null;
+  if (bodyMode || bodyDays) {
+    profile.publishing = {
+      mode: bodyMode || profile.publishing?.mode || 'days',
+      days: (bodyDays && bodyDays.length) ? bodyDays : (sanitizeWeekdays(profile.publishing?.days).length
+        ? sanitizeWeekdays(profile.publishing.days) : DEFAULT_PUBLISH_DAYS),
+    };
+    await profile.save().catch((e) => console.error('[posts] could not persist publishing rule:', e.message));
+  }
+  const allowedWeekdays = allowedWeekdaysFor(profile);
+  const pubRule = readPublishingRule(profile);
   console.log(`[posts] POST /posts/generate trigger=${trigger} user=${req.user._id} @${profile.username}` +
-    (sessionId ? ` session=${sessionId}` : ''));
+    (sessionId ? ` session=${sessionId}` : '') +
+    ` publish=${pubRule.mode}${allowedWeekdays ? `[${allowedWeekdays.join(',')}]` : '(any day)'}`);
 
   const { posts, count, debug, emptyReason } = await generateAndSavePosts(req.user._id, profile, trigger, {
     sessionId,
     captureIds,
+    allowedWeekdays,
   });
   if (emptyReason && !count) {
     const out = { message: emptyReason };
@@ -252,6 +304,29 @@ async function clearUpcoming(req, res) {
   });
   console.log(`[posts] clear-calendar @${profile.username} · deleted=${result.deletedCount}`);
   res.json({ deleted: result.deletedCount });
+}
+
+// GET /posts/distribution — the current handle's saved publishing-day rule.
+async function getDistribution(req, res) {
+  const profile = await currentProfile(req.user._id).select('publishing username').lean();
+  if (!profile) return res.status(404).json({ message: 'No Instagram profile found.' });
+  res.json(readPublishingRule(profile));
+}
+
+// PUT /posts/distribution — save the publishing-day rule for the current handle.
+async function setDistribution(req, res) {
+  const profile = await currentProfile(req.user._id);
+  if (!profile) return res.status(404).json({ message: 'No Instagram profile found.' });
+  const mode = req.body?.mode === 'weekly' ? 'weekly' : 'days';
+  const days = sanitizeWeekdays(req.body?.days);
+  profile.publishing = {
+    mode,
+    days: days.length ? days : (sanitizeWeekdays(profile.publishing?.days).length
+      ? sanitizeWeekdays(profile.publishing.days) : DEFAULT_PUBLISH_DAYS),
+  };
+  await profile.save();
+  console.log(`[posts] set publishing rule @${profile.username} · ${mode}[${profile.publishing.days.join(',')}]`);
+  res.json(readPublishingRule(profile));
 }
 
 // ── Distribute posts ────────────────────────────────────────────────────────
@@ -288,9 +363,15 @@ async function distributePosts(req, res) {
   const handle = profile.username;
 
   const mode = req.body?.mode === 'weekly' ? 'weekly' : 'days';
-  const chosen = Array.isArray(req.body?.days)
-    ? [...new Set(req.body.days.map(Number).filter((d) => Number.isInteger(d) && d >= 0 && d <= 6))].sort((a, b) => a - b)
-    : [];
+  const chosen = sanitizeWeekdays(req.body?.days);
+
+  // Distributing also SETS the rule for future allocation: the weekdays chosen
+  // here are the ones new posts will land on from now on.
+  const pubSet = mode === 'days' && chosen.length
+    ? { 'publishing.mode': 'days', 'publishing.days': chosen }
+    : { 'publishing.mode': mode };
+  await InstagramProfile.updateOne({ _id: profile._id }, { $set: pubSet })
+    .catch((e) => console.error('[posts] could not persist publishing rule on distribute:', e.message));
 
   const today = startOfDay();
   const todayIso = isoDate(today);
@@ -1065,6 +1146,8 @@ module.exports = {
   generatePlan,
   clearUpcoming,
   distributePosts,
+  getDistribution,
+  setDistribution,
   shiftPosts,
   updatePost,
   polishCaption,

@@ -6,6 +6,7 @@
 
 import { useSyncExternalStore } from 'react';
 import { generatePlan } from '../api/posts';
+import { distributionForGenerate } from './distribution';
 
 const listeners = new Set();
 
@@ -95,7 +96,10 @@ export async function startPlanGeneration(trigger, extras = {}) {
   });
   inFlight = (async () => {
     try {
-      const data = await generatePlan(trigger, extras);
+      // Fill onto the studio's chosen publishing weekdays unless the caller
+      // already named a distribution.
+      const withDist = { ...distributionForGenerate(), ...extras };
+      const data = await generatePlan(trigger, withDist);
       const posts = Array.isArray(data.posts) ? data.posts : [];
       const watching = snapshot.watching;
       set({

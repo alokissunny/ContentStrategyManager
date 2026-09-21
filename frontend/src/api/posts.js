@@ -125,6 +125,10 @@ export function generatePlan(trigger = 'generate', extras = {}) {
   if (Array.isArray(extras.captureIds) && extras.captureIds.length) {
     body.captureIds = extras.captureIds.map((id) => String(id || '').trim()).filter(Boolean);
   }
+  // Fill only the studio's chosen publishing weekdays (Distribute panel), so a
+  // fresh post takes the next allowed slot rather than the next calendar day.
+  if (extras.mode) body.mode = extras.mode;
+  if (Array.isArray(extras.days)) body.days = extras.days;
   return client.post('/posts/generate', body, { timeout: 10 * 60 * 1000 }).then((res) => {
     const data = res.data || {};
     ingestPlanDebug(`Generate posts (${trigger})`, data);
@@ -142,6 +146,17 @@ export function clearUpcoming() {
 // (an even spread). Returns { posts, moved } — the full refreshed calendar.
 export function distributePosts(mode, days) {
   return client.post('/posts/distribute', { mode, days }).then((res) => res.data);
+}
+
+// The current handle's saved publishing-day rule → { mode, days }.
+export function getDistribution() {
+  return client.get('/posts/distribution').then((res) => res.data);
+}
+
+// Persist the publishing-day rule for the current handle. New posts allocate onto
+// these weekdays from now on. Returns the saved { mode, days }.
+export function saveDistribution(mode, days) {
+  return client.put('/posts/distribution', { mode, days }).then((res) => res.data);
 }
 
 // Apply a Shift posts proposal: { [postId]: 'YYYY-MM-DD', ... }.

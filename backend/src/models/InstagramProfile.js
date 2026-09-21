@@ -39,6 +39,16 @@ const instagramProfileSchema = new mongoose.Schema(
       views: { type: Number, default: null },
       totalInteractions: { type: Number, default: null },
     },
+    // The studio's publishing-day rule for this handle — the single source of
+    // truth for which weekdays new posts may be allocated onto (the Distribute
+    // panel edits it). Monday-indexed 0..6. 'days' names an explicit weekday set;
+    // 'weekly' is an even spread and carries no weekday restriction into the fill.
+    // Every new-post allocation consults this, so the rule governs the future
+    // regardless of which client triggered generation.
+    publishing: {
+      mode: { type: String, enum: ['days', 'weekly'], default: 'days' },
+      days: { type: [Number], default: [0, 2, 4] }, // Mon / Wed / Fri
+    },
     // Where the last snapshot came from: 'apify' | 'graph'.
     dataSource: { type: String, default: 'apify' },
     fetchedAt: { type: Date, default: Date.now },
