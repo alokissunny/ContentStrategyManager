@@ -194,14 +194,32 @@ async function generateAndSavePosts(userId, profile, trigger = 'generate', planS
 // ── Read endpoints ────────────────────────────────────────────────────────
 // GET /posts — calendar list for the current handle. Heavy content + trace are
 // projected out (fetched per-post on open), same speedup as the old getRoutes.
+// `date` is a "YYYY-MM-DD" string, so a lexicographic bound is chronological and
+// stays covered by the { user, instagramUsername, date } index. Anything that is
+// not a well-formed date is ignored, leaving that side of the range open.
+function isoBound(value) {
+  const s = String(value || '').trim();
+  return /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : null;
+}
+
 async function getPosts(req, res) {
   const profile = await currentProfile(req.user._id).select('username fetchedAt').lean();
   if (!profile) return res.json({ posts: [], username: null, preparing: false });
 
-  const posts = await PlannedPost.find({
-    user: req.user._id,
-    instagramUsername: profile.username,
-  }).sort({ date: 1 }).select('-content -agentTrace').lean();
+  // Optional date window keeps the payload bounded as a handle's history grows —
+  // the calendar sends the range it is showing (plus buffer) and widens on
+  // navigation. No `from`/`to` = the full list (backward compatible).
+  const from = isoBound(req.query.from);
+  const to = isoBound(req.query.to);
+  const query = { user: req.user._id, instagramUsername: profile.username };
+  if (from || to) {
+    query.date = {};
+    if (from) query.date.$gte = from;
+    if (to) query.date.$lte = to;
+  }
+
+  const posts = await PlannedPost.find(query)
+    .sort({ date: 1 }).select('-content -agentTrace').lean();
 
   const preparing =
     !posts.length && Date.now() - new Date(profile.fetchedAt).getTime() < REGENERATING_WINDOW_MS;

@@ -82,15 +82,22 @@ function ingestPlanDebug(label, data = {}) {
 // Concurrent callers share one request. React StrictMode runs mount effects
 // twice in dev, and the account-switch remount can re-trigger a load, so without
 // this the Calendar fires GET /posts twice; the in-flight promise coalesces them.
-// Keyed by the active handle so a soft account switch never shares the previous
-// account's in-flight request with the newly-remounted page.
+// Keyed by the active handle + requested window so a soft account switch (or a
+// widened calendar range) never shares a previous in-flight request with the
+// newly-remounted page. `from`/`to` are optional "YYYY-MM-DD" bounds — omit both
+// for the full list. The calendar sends the range it is showing (plus buffer) so
+// the payload stays bounded as a handle's history grows.
 let postsInflight = null;
-let postsInflightHandle = null;
-export function getPosts() {
+let postsInflightKey = null;
+export function getPosts({ from, to } = {}) {
   const handle = getActiveHandle();
-  if (postsInflight && postsInflightHandle === handle) return postsInflight;
-  postsInflightHandle = handle;
-  const p = client.get('/posts')
+  const params = {};
+  if (from) params.from = from;
+  if (to) params.to = to;
+  const key = `${handle}|${params.from || ''}|${params.to || ''}`;
+  if (postsInflight && postsInflightKey === key) return postsInflight;
+  postsInflightKey = key;
+  const p = client.get('/posts', { params })
     .then((res) => ({
       posts: res.data.posts || [],
       preparing: Boolean(res.data.preparing),

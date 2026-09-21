@@ -246,6 +246,24 @@ function startOfDay(date) {
   return d;
 }
 
+// Local calendar day as the backend's "YYYY-MM-DD" (no UTC shift).
+function isoOfDate(d) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+// A "YYYY-MM-DD" string shifted by whole days (for exclusive range boundaries).
+function shiftIsoDay(iso, n) {
+  const [y, m, d] = String(iso).split('-').map(Number);
+  const dt = new Date(y, (m || 1) - 1, (d || 1) + n);
+  return isoOfDate(dt);
+}
+
+// How many whole months of posts to keep loaded on either side of the anchor.
+// Wide enough that stepping a month/week never lands on an unloaded edge before
+// the widen-and-reload effect fills it in.
+const WINDOW_MONTHS_BACK = 3;
+const WINDOW_MONTHS_FWD = 6;
+
 /* Lay posts onto calendar dates. Each post already owns a real date (its slot),
  * so every month simply places posts on their stored date — no redistribution.
  * (The old week model had to spread a week's days across free future days;
@@ -1294,6 +1312,13 @@ export default function YourPlans() {
   // the Mon–Sun week around it, or the day itself. `calView` is remembered
   // across visits so the studio lands back in the reading they chose.
   const [anchorDate, setAnchorDate] = useState(() => startOfDay(new Date()));
+  // The date window currently loaded from the server. Starts around today and
+  // only ever widens as the calendar navigates past its edges, so the payload
+  // stays bounded instead of pulling every post a handle has ever had.
+  const loadedRangeRef = useRef(null);
+  // Merged posts keyed by _id. Navigation fetches only the newly-exposed months
+  // and merges them here, so a window already loaded is never re-requested.
+  const postsMapRef = useRef(new Map());
   const [calViewStored, setCalView] = useState(() => {
     try { return localStorage.getItem('calView') || 'month'; } catch { return 'month'; }
   });
@@ -1326,17 +1351,66 @@ export default function YourPlans() {
   const [brandReportId, setBrandReportId] = useState(null);
   const [metaStatus, setMetaStatus] = useState(null);
 
-  async function reload() {
-    // One list call paints the calendar; the "current" post + preparing are
-    // derived from it (preparing is included on GET /posts). Each post is wrapped
-    // as a synthetic one-day route so the calendar/editor keep working. Meta +
-    // projects load after.
-    const data = await getPosts().catch(() => ({ posts: [], preparing: false }));
-    const all = (data.posts || []).map(postToRoute);
+  // The window we want loaded for a given anchor: a generous buffer of whole
+  // months on either side so ordinary prev/next navigation never hits an empty
+  // edge. Returned as "YYYY-MM-DD" bounds the backend filters on directly.
+  function windowFor(date) {
+    const from = new Date(date.getFullYear(), date.getMonth() - WINDOW_MONTHS_BACK, 1);
+    const to = new Date(date.getFullYear(), date.getMonth() + WINDOW_MONTHS_FWD + 1, 0);
+    return { from: isoOfDate(from), to: isoOfDate(to) };
+  }
+
+  // Repaint the calendar from the merged posts map (id-keyed, so re-fetches of an
+  // overlapping window can't create duplicate calendar entries), sorted by date.
+  function paintFromMap() {
+    const all = [...postsMapRef.current.values()]
+      .sort((a, b) => String(a.date).localeCompare(String(b.date)))
+      .map(postToRoute);
     setRoutes(all);
     setCurrent(pickCurrentRoute(all));
+    return all;
+  }
+
+  async function reload() {
+    // Full refresh of the current window: refetch it whole and REPLACE the map,
+    // so edits/deletes/new posts on the server are reflected. This is the event
+    // path (mount, tab-visible, after generate) — navigation uses ensureRange,
+    // which only pulls the months it doesn't already have.
+    const want = windowFor(anchorDate);
+    const prev = loadedRangeRef.current;
+    const range = prev
+      ? { from: prev.from < want.from ? prev.from : want.from, to: prev.to > want.to ? prev.to : want.to }
+      : want;
+    loadedRangeRef.current = range;
+    const data = await getPosts(range).catch(() => ({ posts: [], preparing: false }));
+    const next = new Map();
+    for (const p of (data.posts || [])) next.set(String(p._id), p);
+    postsMapRef.current = next;
+    const all = paintFromMap();
     setPreparing(Boolean(data.preparing));
     return { current: pickCurrentRoute(all), routes: all };
+  }
+
+  // Navigation widen: fetch only the month(s) newly brought into view and merge
+  // them, leaving the already-loaded window untouched — no duplicate request for
+  // a time window we already hold.
+  async function ensureRange() {
+    const loaded = loadedRangeRef.current;
+    if (!loaded) return reload();
+    const want = windowFor(anchorDate);
+    const gaps = [];
+    if (want.from < loaded.from) gaps.push({ from: want.from, to: shiftIsoDay(loaded.from, -1) });
+    if (want.to > loaded.to) gaps.push({ from: shiftIsoDay(loaded.to, 1), to: want.to });
+    if (!gaps.length) return; // already covered
+    loadedRangeRef.current = {
+      from: want.from < loaded.from ? want.from : loaded.from,
+      to: want.to > loaded.to ? want.to : loaded.to,
+    };
+    const results = await Promise.all(gaps.map((g) => getPosts(g).catch(() => ({ posts: [] }))));
+    for (const data of results) {
+      for (const p of (data.posts || [])) postsMapRef.current.set(String(p._id), p);
+    }
+    paintFromMap();
   }
 
   function stopMonthFillWatch() {
@@ -1354,10 +1428,23 @@ export default function YourPlans() {
     stopMonthFillWatch();
   }
 
+  const didInitRef = useRef(false);
   useEffect(() => {
+    // StrictMode double-invokes mount effects; only kick off the first load once
+    // so we never fire two requests for the same opening window.
+    if (didInitRef.current) return undefined;
+    didInitRef.current = true;
     reload().finally(() => setLoading(false));
     return () => stopMonthFillWatch();
   }, []);
+
+  // Widen the loaded window when the calendar navigates past its edges. Only the
+  // newly-exposed months are fetched (ensureRange) — a window already loaded is
+  // never re-requested.
+  useEffect(() => {
+    if (!loadedRangeRef.current) return; // initial load owns the first fetch
+    ensureRange().catch(() => {});
+  }, [anchorDate]);
 
   // Load the publishing-day pattern for the active handle (it switches with the
   // header account). localStorage is the source of truth, so a background reload
@@ -1986,7 +2073,6 @@ export default function YourPlans() {
     const today = startOfDay(new Date());
     setAnchorDate(today);
     if (feedOn) {
-      const isoOfDate = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
       const todayIso = isoOfDate(today);
       const hit = postDates.find((pd) => isoOfDate(startOfDay(pd)) === todayIso)
         || postDates.find((pd) => startOfDay(pd) >= today)
