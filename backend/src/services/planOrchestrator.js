@@ -10,7 +10,7 @@ const { extractLayoutHtml, extractHtmlDocument, parseCarouselDocument, hasImageS
 const { publicMediaUrl, isCdnConfigured, getMediaUrl, isS3Configured } = require('./s3Client');
 const { isImageGenConfigured: isOpenAIImageConfigured, generateImage: renderOpenAIImage } = require('./openaiImage');
 const { buildImagePrompt, persistGeneratedImage } = require('./generatedImage');
-const { themeById, themeReferenceForPrompt, themesForStrategistPrompt, resolveThemeId } = require('../data/carouselThemes');
+const { themeById, themeReferenceForPrompt, themesForStrategistPrompt, resolveThemeId, DEFAULT_THEME_ID } = require('../data/carouselThemes');
 
 const PROMPTS_DIR = path.join(__dirname, '..', '..', 'prompts');
 const cache = {};
@@ -215,7 +215,8 @@ function lockedFormat(briefFormat) {
 
 function briefFieldsOf(b) {
   const lens = normalizeLens(b.lens || b.pillar);
-  const themeId = resolveThemeId(b.themeId || b.theme || b.carouselTheme, { pillar: lens });
+  // Hard-coded theme for every generated post — ignore the strategist's own pick.
+  const themeId = DEFAULT_THEME_ID;
   return {
     source: b.source || '',
     captureId: optionalText(b.captureId),
@@ -3011,7 +3012,8 @@ async function runMultiAgentPlan({
         doNotRepeat: planned.doNotRepeat || '',
         format: lockedFormat(planned.format),
         formatReason: planned.formatReason || '',
-        themeId: resolveThemeId(planned.themeId, { pillar }),
+        themeId: DEFAULT_THEME_ID, // hard-coded theme for every generated post
+
         themeReason: optionalText(planned.themeReason),
         narrativeUnits: withUnitIds(planned.narrativeUnits || []),
         approvedGenerationRoute: planned.approvedGenerationRoute || approvedGenerationRouteOf(),

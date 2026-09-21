@@ -11,10 +11,12 @@ const CAROUSEL_THEMES = [
     name: 'Scrapbook diary',
     direction: 'scrapbook-diary',
     reference: [
-      'Paper scrapbook / diary collage. Cream or kraft paper grounds, torn edges,',
-      'washi tape, polaroid or taped photo frames, handwritten captions, ink underlines,',
-      'and small ephemera (tickets, stamps, date marks). Soft shadows, imperfect alignment,',
-      'warm intimate tone — not sterile corporate. Mix serif display with casual notes.',
+      'Paper scrapbook / diary collage. The cream or kraft paper ground FILLS THE ENTIRE',
+      '4:5 canvas edge-to-edge (full-bleed) — no surrounding desk, mat, border, or margin;',
+      'the paper IS the slide background. On it: torn edges, washi tape, polaroid or taped',
+      'photo frames, handwritten captions, ink underlines, and small ephemera (tickets,',
+      'stamps, date marks). Soft shadows, imperfect alignment, warm intimate tone — not',
+      'sterile corporate. Mix serif display with casual notes.',
     ].join(' '),
   },
   {
@@ -80,6 +82,12 @@ const CAROUSEL_THEMES = [
   },
 ];
 
+// Product decision: every generated post uses ONE fixed carousel theme. The
+// strategy agent still emits a themeId, but the pipeline ignores it and pins this
+// so the whole feed renders one cohesive look. (Manual "Change theme" on a post
+// still overrides per-post — this only governs fresh generation.)
+const DEFAULT_THEME_ID = 'scrapbook-diary';
+
 const BY_ID = new Map(CAROUSEL_THEMES.map((t) => [t.id, t]));
 
 function themeById(id) {
@@ -122,6 +130,7 @@ function themeReferenceForPrompt(theme) {
 
 module.exports = {
   CAROUSEL_THEMES,
+  DEFAULT_THEME_ID,
   themeById,
   themesForStrategistPrompt,
   resolveThemeId,

@@ -5351,7 +5351,11 @@
 /* the slot line — when this post goes out, under the caption. A hairline above
    ties it to the post; the clock is the row's own glyph. */
 .wv-ig__slot {
-  display: flex;
+  /* Removed from the post preview to match the reference — the resting "Best time
+     / schedule" bar no longer sits under the caption. Scheduling lives in the
+     header's Schedule menu, and its "Change time" item still opens the .wv-time
+     editor (which is a separate element, untouched). */
+  display: none;
   align-items: flex-start;
   gap: 8px;
   width: 100%;
@@ -6387,7 +6391,13 @@ span.wv-layed__apply { margin-left: auto; flex-shrink: 0; }
 
   .wv-postwrap > .wv-ig {
     display: grid;
-    grid-template-columns: minmax(0, calc(var(--igc-media-h) * var(--igc-ar))) minmax(0, var(--igc-rail));
+    /* The media column is a FIXED 4:5 against the card's fixed height (width =
+       height × 0.8), so the picture track is always exactly 4:5 and the slide
+       fills it with no letterbox and no crop. Only the caption rail flexes when
+       the card is width-constrained — the picture never distorts. (It was
+       minmax(0, …), which let the media column shrink below 4:5 and letterbox
+       the slide top/bottom.) */
+    grid-template-columns: calc(var(--igc-media-h) * var(--igc-ar)) minmax(0, var(--igc-rail));
     grid-template-rows: auto minmax(0, 1fr) auto;
     align-items: stretch;
     justify-items: stretch;

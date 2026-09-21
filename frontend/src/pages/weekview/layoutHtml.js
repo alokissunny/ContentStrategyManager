@@ -682,21 +682,17 @@ export function cropIframeToCarouselSlide(frame, { direction, index }) {
   const slide = findCarouselSlide(doc, dir, index);
   if (!slide) return false;
 
-  // Some agent compositions lay the whole slide out with position:absolute
-  // children. With no in-flow content, `.slide{height:100%}` on an indefinite
-  // parent collapses to 0 height — the slide measures empty and the crop below
-  // bails, leaving the raw document (theme buttons + draft label) on screen.
-  // Give a collapsed slide an explicit 4:5 box so the absolute children have a
-  // sized canvas to position against. Flow-based slides (non-zero height) are
-  // left exactly as the agent sized them.
-  let probe = slide.getBoundingClientRect();
-  if (!probe.height || probe.height < 10 || !probe.width || probe.width < 10) {
-    slide.style.boxSizing = 'border-box';
-    slide.style.width = `${CAROUSEL_LAYOUT_WIDTH}px`;
-    slide.style.height = `${Math.round(CAROUSEL_LAYOUT_WIDTH * 1.25)}px`;
-    void doc.documentElement.offsetWidth;
-    probe = slide.getBoundingClientRect();
-  }
+  // Every slide previews as one 4:5 Instagram frame, so pin the slide to that
+  // exact box. A composition shorter (or taller) than 4:5 would otherwise be
+  // contain-fitted and letterboxed — the card's own background then shows as
+  // top/bottom (or side) margins, which is the gap we want gone. Sizing the box
+  // also gives absolute-positioned compositions (which collapse to 0 height on an
+  // indefinite parent) a canvas to lay out against. The slide's own overflow:hidden
+  // clips any internal overflow past the frame.
+  slide.style.boxSizing = 'border-box';
+  slide.style.width = `${CAROUSEL_LAYOUT_WIDTH}px`;
+  slide.style.height = `${Math.round(CAROUSEL_LAYOUT_WIDTH * 1.25)}px`;
+  void doc.documentElement.offsetWidth;
 
   const bottom = slide.getBoundingClientRect().bottom;
   frame.style.height = `${Math.max(Math.ceil(bottom + 48), 800)}px`;
@@ -704,18 +700,21 @@ export function cropIframeToCarouselSlide(frame, { direction, index }) {
 
   const box = slide.getBoundingClientRect();
   if (!box.width || !box.height) return false;
+  // CONTAIN-fit: show the whole slide, never crop its content. The media track is
+  // kept at 4:5 in CSS (matching the slide), so contain fills it exactly with no
+  // letterbox — the fit only ever matters as a safety net if the track is briefly
+  // off-ratio, and there it must letterbox rather than truncate the composition.
   const scale = Math.min(fw / box.width, fh / box.height);
   const tx = -box.left * scale + (fw - box.width * scale) / 2;
   const ty = -box.top * scale + (fh - box.height * scale) / 2;
   frame.style.transformOrigin = '0 0';
   frame.style.transform = `translate(${tx}px, ${ty}px) scale(${scale})`;
   // The whole carousel is one tall document, so every slide above/below the
-  // target sits in the same iframe. `contain` fitting letterboxes the slide,
-  // and those gaps fall INSIDE the host box, where the host's own overflow:hidden
-  // can't clip them — the neighbouring slide bleeds in. Clip the iframe itself to
-  // exactly the target slide's box (in its own pre-transform pixel space; the
-  // transform then scales the clipped region), so nothing outside this slide can
-  // ever paint. box.left/top are iframe-local offsets (the document never scrolls).
+  // target sits in the same iframe. Clip the iframe to exactly the target slide's
+  // box (in its own pre-transform pixel space; the transform then scales the
+  // clipped region), so no neighbouring slide can ever paint. The host's own
+  // overflow:hidden then trims the cover overflow to the frame. box.left/top are
+  // iframe-local offsets (the document never scrolls).
   const frameW = CAROUSEL_LAYOUT_WIDTH;
   const frameH = parseFloat(frame.style.height) || (box.top + box.height);
   const clip = (v) => Math.max(0, v);
