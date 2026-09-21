@@ -978,7 +978,7 @@ function MonthView({
  * ("Choose days") or say "evenly" and let the arithmetic name them ("Spread
  * weekly"). The chosen pattern drives the calendar's Posting columns and the
  * rings drawn while this is open. A faithful port of bauhly-v3's DistributeBody. */
-function DistributePanel({ open, onClose, count, mode, days, onMode, onDays, weeklyCopy, onApply, applying }) {
+function DistributePanel({ open, onClose, count, mode, days, onMode, onDays, weeklyCopy, applying }) {
   const box = useRef(null);
   useEffect(() => {
     if (!open) return undefined;
@@ -998,7 +998,7 @@ function DistributePanel({ open, onClose, count, mode, days, onMode, onDays, wee
   };
   return (
     <div className="yw-dist" ref={box}>
-      <div className="yw-dist__panel" role="dialog" aria-label="Distribute posts">
+      <div className="yw-dist__panel" role="dialog" aria-label="Distribute posts" aria-busy={applying || undefined}>
         <h3 className="yw-dist__head">
           {count ? `Distribute ${count} ${count === 1 ? 'post' : 'posts'}` : 'Distribute posts'}
         </h3>
@@ -1047,20 +1047,6 @@ function DistributePanel({ open, onClose, count, mode, days, onMode, onDays, wee
         ) : (
           <p className="yw-dist__ask">{weeklyCopy}</p>
         )}
-        <div className="yw-dist__foot">
-          <button
-            type="button"
-            className="btn btn--primary yw-dist__apply"
-            disabled={applying || !count}
-            onClick={onApply}
-          >
-            {applying
-              ? 'Distributing…'
-              : count
-                ? `Distribute ${count} ${count === 1 ? 'post' : 'posts'}`
-                : 'Nothing to distribute'}
-          </button>
-        </div>
       </div>
     </div>
   );
@@ -1585,21 +1571,43 @@ export default function YourPlans() {
   // Move the upcoming posts onto the chosen publishing days. The backend does
   // the reallocation (it owns the dates + the unique-slot rule) and returns the
   // refreshed calendar, which we fold back in without a second round-trip.
-  async function applyDistribute() {
-    if (distributing) return;
-    setError('');
+  // The Distribute panel has no apply button (matches bauhly-v3): picking days or a
+  // mode re-deals the calendar live. Toggles are debounced and coalesced — the
+  // latest choice always wins, even mid-request — and the panel stays open.
+  const distApplyTimer = useRef(null);
+  const latestDistRef = useRef(null);
+  const distRunningRef = useRef(false);
+
+  async function runDistribute() {
+    if (distRunningRef.current) return; // an apply loop is active; it picks up the latest
+    distRunningRef.current = true;
     setDistributing(true);
     try {
-      const data = await distributePosts(dist.mode, dist.days);
-      const all = (data.posts || []).map(postToRoute);
-      setRoutes(all);
-      setCurrent(pickCurrentRoute(all));
-      setDistOpen(false);
-    } catch (err) {
-      setError(err.response?.data?.message || "We couldn't distribute the posts just now. Please try again.");
+      while (latestDistRef.current) {
+        const { mode, days } = latestDistRef.current;
+        latestDistRef.current = null;
+        try {
+          const data = await distributePosts(mode, days);
+          const all = (data.posts || []).map(postToRoute);
+          setRoutes(all);
+          setCurrent(pickCurrentRoute(all));
+        } catch (err) {
+          setError(err.response?.data?.message || "We couldn't distribute the posts just now. Please try again.");
+        }
+      }
     } finally {
+      distRunningRef.current = false;
       setDistributing(false);
     }
+  }
+
+  // Persist the rule (localStorage + server) and re-deal the calendar onto it.
+  function changeDist(next) {
+    setError('');
+    saveDist(next);
+    latestDistRef.current = { mode: next.mode, days: next.days };
+    if (distApplyTimer.current) clearTimeout(distApplyTimer.current);
+    distApplyTimer.current = setTimeout(runDistribute, 350);
   }
 
   async function onReplanMonth() {
@@ -2067,10 +2075,9 @@ export default function YourPlans() {
             count={toPlace}
             mode={dist.mode}
             days={dist.days.length ? dist.days : DIST_DEFAULT.days}
-            onMode={(m) => saveDist({ ...dist, mode: m })}
-            onDays={(d) => saveDist({ ...dist, days: d })}
+            onMode={(m) => changeDist({ ...dist, mode: m })}
+            onDays={(d) => changeDist({ ...dist, days: d })}
             weeklyCopy={weeklyCopy}
-            onApply={applyDistribute}
             applying={distributing}
           />
         </div>

@@ -4870,9 +4870,11 @@ export default function WeekView({
         </>
       )}
 
-      {/* Day view (no strip): an empty date gets a quiet panel. Weekly never
-          reaches this — empty strip days open the popover above instead. */}
-      {day && isEmptyCalDay(day) && hideStrip && (
+      {/* An empty selected day gets the capture card instead of a blank panel.
+          Day view lands on the empty date directly; Weekly reaches this when the
+          whole week has no posts (nothing real to land on) — either way, never
+          show blank. (Clicking an empty strip day still opens the quick popover.) */}
+      {day && isEmptyCalDay(day) && (
         /* the day with nothing on it — three washed studio photographs, a line
            and one obvious move, centred on the whole panel (bauhly-v3 .yw-dayempty) */
         <div className="wv-dayempty">

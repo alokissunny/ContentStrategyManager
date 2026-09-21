@@ -774,15 +774,6 @@
 .yw-mday.is-today.is-empty.is-preview .yw-mday__hit,
 .yw-mday.is-dim.is-preview .yw-mday__hit { box-shadow: inset 0 0 0 2px var(--ink-900); }
 
-/* the apply action — moves the upcoming posts onto the chosen days */
-.yw-dist__foot {
-  padding: var(--sp-2) var(--sp-4) var(--sp-3);
-}
-.btn.yw-dist__apply {
-  width: 100%;
-  justify-content: center;
-}
-
 /* the Day view names the day beside the date — "September 22 | Tuesday" */
 /* the weekday is the date's quieter half, not a caption: same size and weight
    as the title, the ink carrying the difference (bauhly-v3 .yw-head__dow) */
