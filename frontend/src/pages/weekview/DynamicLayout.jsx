@@ -487,6 +487,7 @@ export default function DynamicLayout({
       frame.style.height = '';
       frame.style.maxWidth = '';
       frame.style.transform = '';
+      frame.style.clipPath = '';
     }
     doc.open();
     doc.write(page);

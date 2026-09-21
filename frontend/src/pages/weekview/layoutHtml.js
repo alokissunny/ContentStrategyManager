@@ -709,6 +709,18 @@ export function cropIframeToCarouselSlide(frame, { direction, index }) {
   const ty = -box.top * scale + (fh - box.height * scale) / 2;
   frame.style.transformOrigin = '0 0';
   frame.style.transform = `translate(${tx}px, ${ty}px) scale(${scale})`;
+  // The whole carousel is one tall document, so every slide above/below the
+  // target sits in the same iframe. `contain` fitting letterboxes the slide,
+  // and those gaps fall INSIDE the host box, where the host's own overflow:hidden
+  // can't clip them — the neighbouring slide bleeds in. Clip the iframe itself to
+  // exactly the target slide's box (in its own pre-transform pixel space; the
+  // transform then scales the clipped region), so nothing outside this slide can
+  // ever paint. box.left/top are iframe-local offsets (the document never scrolls).
+  const frameW = CAROUSEL_LAYOUT_WIDTH;
+  const frameH = parseFloat(frame.style.height) || (box.top + box.height);
+  const clip = (v) => Math.max(0, v);
+  frame.style.clipPath = `inset(${clip(box.top)}px ${clip(frameW - (box.left + box.width))}px `
+    + `${clip(frameH - (box.top + box.height))}px ${clip(box.left)}px)`;
   return true;
 }
 
