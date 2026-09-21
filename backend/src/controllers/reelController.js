@@ -9,8 +9,11 @@ const {
   isS3Configured,
   getPresignedUploadUrl,
   getObjectBytes,
+  uploadBytes,
+  getPresignedDownloadUrl,
   MEDIA_CACHE_CONTROL,
 } = require('../services/s3Client');
+const { cleanReelAudio } = require('../services/reelAudio');
 const { runReelEditor } = require('../services/reelEditorAgent');
 
 // Videos only, and only the browser-safe container types the app already
@@ -59,7 +62,7 @@ function sanitizeFrames(raw) {
 const HEX_RE = /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/;
 
 async function editReel(req, res) {
-  const { key, durationSec, guidance = '', brand = null, accentColor = '' } = req.body || {};
+  const { key, durationSec, guidance = '', brand = null, accentColor = '', cleanAudio = false } = req.body || {};
   const clean = String(key || '').trim();
   const frames = sanitizeFrames(req.body?.frames);
   // Accent is sampled from the video on the client; only accept a valid hex.
@@ -85,9 +88,32 @@ async function editReel(req, res) {
   }
 
   const ext = String(clean.split('.').pop() || '').toLowerCase();
+  let pipelineBuffer = bytes.buffer;
+  let pipelineContentType = EXT_MIME[ext] || 'video/mp4';
+  let audioCleanup = { status: 'disabled' };
+  const audioNotes = [];
+  if (cleanAudio === true) {
+    try {
+      const cleaned = await cleanReelAudio(bytes.buffer, pipelineContentType);
+      if (cleaned.status === 'applied') {
+        const cleanedKey = `${prefixOf(req.user._id)}${crypto.randomUUID()}-voice.${cleaned.ext}`;
+        await uploadBytes(cleanedKey, cleaned.buffer, cleaned.contentType);
+        audioCleanup = { status: 'applied', key: cleanedKey, url: await getPresignedDownloadUrl(cleanedKey), contentType: cleaned.contentType };
+        pipelineBuffer = cleaned.buffer;
+        pipelineContentType = cleaned.contentType;
+      } else {
+        audioCleanup = { status: 'no-audio' };
+        audioNotes.push('This clip has no audio track to clean.');
+      }
+    } catch (err) {
+      console.warn('[reel] audio cleanup unavailable:', err.message);
+      audioCleanup = { status: 'failed' };
+      audioNotes.push('Voice cleanup was unavailable. This edit uses the original audio; you can regenerate to try again.');
+    }
+  }
   const result = await runReelEditor({
-    buffer: bytes.buffer,
-    contentType: bytes.contentType || EXT_MIME[ext] || 'video/mp4',
+    buffer: pipelineBuffer,
+    contentType: pipelineContentType,
     guidance: String(guidance || '').slice(0, 2000),
     brand: brand && typeof brand === 'object' ? brand : null,
     durationSec: dur,
@@ -95,7 +121,7 @@ async function editReel(req, res) {
     accentColor: accent,
   });
 
-  res.json({ key: clean, ...result });
+  res.json({ key: clean, ...result, audioCleanup, notes: [...audioNotes, ...(result.notes || [])] });
 }
 
 module.exports = { signUpload, editReel };

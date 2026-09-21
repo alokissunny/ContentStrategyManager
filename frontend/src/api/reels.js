@@ -74,8 +74,8 @@ export async function uploadReelClip(file, onProgress) {
 // the vision agent can anchor pointers to what's on screen; `accentColor` is the
 // clip's own dominant colour (derived from its pixels, never hardcoded).
 // Returns { spec, transcript, direction, visualContext, notes }.
-export async function editReel({ key, durationSec, guidance, brand, frames, accentColor } = {}) {
-  const { data } = await client.post('/reels/edit', { key, durationSec, guidance, brand, frames, accentColor });
+export async function editReel({ key, durationSec, guidance, brand, frames, accentColor, cleanAudio = false } = {}) {
+  const { data } = await client.post('/reels/edit', { key, durationSec, guidance, brand, frames, accentColor, cleanAudio });
   ingestDebug(data.debug);
   return data;
 }

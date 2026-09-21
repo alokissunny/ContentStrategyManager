@@ -330,6 +330,10 @@ function ReelEditorDraft({ owner }) {
   const [meta, setMeta] = useState(null); // { duration, width, height, url }
   const [guidance, setGuidance] = useState('');
   const [background, setBackground] = useState('original');
+  const [cleanAudio, setCleanAudio] = useState(true);
+  const [enhancedFile, setEnhancedFile] = useState(null);
+  const [enhancedUrl, setEnhancedUrl] = useState('');
+  const agentSteps = useMemo(() => cleanAudio ? ['Cleaning & leveling voice', ...AGENT_STEPS] : AGENT_STEPS, [cleanAudio]);
   const [error, setError] = useState('');
   const [phase, setPhase] = useState('idle'); // idle | uploading | editing | done
   const [progress, setProgress] = useState(0);
@@ -347,12 +351,21 @@ function ReelEditorDraft({ owner }) {
   useEffect(() => () => { if (meta?.url) URL.revokeObjectURL(meta.url); }, [meta]);
 
   useEffect(() => {
+    if (!enhancedFile) { setEnhancedUrl(''); return undefined; }
+    const url = URL.createObjectURL(enhancedFile);
+    setEnhancedUrl(url);
+    return () => URL.revokeObjectURL(url);
+  }, [enhancedFile]);
+
+  useEffect(() => {
     let cancelled = false;
     loadReelDraft(owner).then((draft) => {
       if (cancelled || !draft) return;
       if (!(draft.file instanceof Blob) || !draft.meta) throw new Error('Invalid saved reel.');
       const restoredFile = draft.file instanceof File ? draft.file : new File([draft.file], draft.fileName || 'Your clip.mp4', { type: draft.file.type });
       setFile(restoredFile);
+      setCleanAudio(draft.cleanAudio !== false);
+      setEnhancedFile(draft.enhancedFile instanceof Blob ? draft.enhancedFile : null);
       setMeta({ ...draft.meta, url: URL.createObjectURL(restoredFile) });
       setGuidance(draft.guidance || '');
       setBackground(getReelBackground(draft.background).id);
@@ -374,7 +387,7 @@ function ReelEditorDraft({ owner }) {
     setStorageStatus('Saving on this browser…');
     // Save immediately, without a debounce that could lose edits on refresh.
     saveReelDraft(owner, {
-      file, fileName: file.name,
+      file, fileName: file.name, enhancedFile, cleanAudio,
       meta: { duration: meta.duration, width: meta.width, height: meta.height },
       guidance, background, result, editedSpec,
     }).then(() => {
@@ -383,16 +396,16 @@ function ReelEditorDraft({ owner }) {
       if (saveVersion.current === version) setStorageStatus('Could not save locally. Browser storage may be full or unavailable; this draft may be lost on refresh.');
     });
     return () => { saveVersion.current += 1; };
-  }, [owner, draftReady, file, meta, guidance, background, result, editedSpec]);
+  }, [owner, draftReady, file, meta, guidance, background, result, editedSpec, enhancedFile, cleanAudio]);
 
   // Cosmetic: walk the agent-step list while the pipeline runs (it runs these
   // stages server-side in this order; the single request can't stream progress).
   useEffect(() => {
     if (phase !== 'editing') return undefined;
     setEditStep(0);
-    const id = setInterval(() => setEditStep((s) => Math.min(AGENT_STEPS.length - 1, s + 1)), 2600);
+    const id = setInterval(() => setEditStep((s) => Math.min(agentSteps.length - 1, s + 1)), 2600);
     return () => clearInterval(id);
-  }, [phase]);
+  }, [phase, agentSteps]);
 
   const busy = !draftReady || phase === 'uploading' || phase === 'editing';
 
@@ -412,6 +425,7 @@ function ReelEditorDraft({ owner }) {
       }
       setMeta((prev) => { if (prev?.url) URL.revokeObjectURL(prev.url); return m; });
       setFile(f);
+      setEnhancedFile(null);
       setResult(null);
       setEditedSpec(null);
       setEditMode(false);
@@ -437,6 +451,7 @@ function ReelEditorDraft({ owner }) {
     setResult(null);
     setEditedSpec(null);
     setEditMode(false);
+    setEnhancedFile(null);
     try {
       setPhase('uploading');
       setProgress(0);
@@ -455,7 +470,25 @@ function ReelEditorDraft({ owner }) {
         guidance: guidance.trim(),
         frames: sampled.frames,
         accentColor: sampled.accentColor,
+        cleanAudio,
       });
+      if (data.audioCleanup?.status === 'applied') {
+        try {
+          const response = await fetch(data.audioCleanup.url, { signal: AbortSignal.timeout(60000) });
+          if (!response.ok) throw new Error('Could not download cleaned clip');
+          const blob = await response.blob();
+          // Confirm this is playable before switching away from the original.
+          const cleanedMeta = await readVideoMeta(blob);
+          URL.revokeObjectURL(cleanedMeta.url);
+          setStorageStatus('Saving on this browser…');
+          setEnhancedFile(blob);
+        } catch {
+          data.audioCleanup = { status: 'failed' };
+          data.notes = [...(data.notes || []), 'Could not load the cleaned audio. Preview uses the original audio; regenerate to try again.'];
+        }
+        // The bytes are saved in IndexedDB, not an expiring download URL.
+        delete data.audioCleanup.url;
+      }
       setResult(data);
       setEditedSpec(typeof structuredClone === 'function' ? structuredClone(data.spec) : JSON.parse(JSON.stringify(data.spec)));
       setEditMode(false);
@@ -478,6 +511,8 @@ function ReelEditorDraft({ owner }) {
     setEditMode(false);
     if (meta?.url) URL.revokeObjectURL(meta.url);
     setFile(null);
+    setEnhancedFile(null);
+    setCleanAudio(true);
     setMeta(null);
     setResult(null);
     setGuidance('');
@@ -487,6 +522,7 @@ function ReelEditorDraft({ owner }) {
     setProgress(0);
   };
 
+  const previewVideoUrl = cleanAudio && enhancedFile && enhancedUrl ? enhancedUrl : meta?.url;
   const strategy = result?.direction || result?.spec?.strategy;
   // Prefer the manually-edited working copy so tweaks show in the live preview too.
   const previewSpec = useMemo(
@@ -544,9 +580,20 @@ function ReelEditorDraft({ owner }) {
 
       {storageStatus && <p className="reel-field__hint" role="status">{storageStatus}</p>}
 
+      {draftReady && meta && (
+        <div className="reel-audio">
+          <label><input type="checkbox" checked={cleanAudio} onChange={(event) => { setStorageStatus('Saving on this browser…'); setCleanAudio(event.target.checked); }} disabled={busy} /> Clean voice audio</label>
+          <p className="reel-field__hint">Reduce steady background noise and rumble, and balance voice volume.</p>
+          <span role="status">{enhancedFile
+            ? cleanAudio ? 'Previewing cleaned audio. Turn off to compare with the original.' : 'Previewing original audio. Turn on to hear cleaned audio.'
+            : result?.audioCleanup?.status === 'no-audio' ? 'No audio track found in this clip.'
+              : cleanAudio ? 'Applied when you generate or regenerate this reel.' : 'Original audio will be used.'}</span>
+        </div>
+      )}
+
       {!draftReady ? <p role="status">Restoring your local reel…</p> : editMode && editedSpec && meta ? (
         <ReelEditView
-          videoUrl={meta.url}
+          videoUrl={previewVideoUrl}
           spec={previewSpec}
           onChange={setEditedSpec}
           onBackgroundChange={setBackground}
@@ -642,7 +689,7 @@ function ReelEditorDraft({ owner }) {
 
           {phase === 'editing' && (
             <ul className="reel-steps">
-              {AGENT_STEPS.map((label, i) => (
+              {agentSteps.map((label, i) => (
                 <li key={label} className={i < editStep ? 'is-done' : i === editStep ? 'is-run' : ''}>{label}</li>
               ))}
             </ul>
@@ -660,7 +707,7 @@ function ReelEditorDraft({ owner }) {
         {/* ── right: preview + strategy ── */}
         <div className="reel-col reel-col--prev">
           {previewSpec ? (
-            <PreviewStage videoUrl={meta.url} spec={previewSpec}>
+            <PreviewStage videoUrl={previewVideoUrl} spec={previewSpec}>
               {strategy && (
                 <div className="card set-card reel-strategy">
                   <h2>The edit</h2>
