@@ -1337,10 +1337,8 @@ export default function YourPlans() {
   const [dist, setDist] = useState(DIST_DEFAULT);
   const [distributing, setDistributing] = useState(false);
   // The Weekly / Day views embed WeekView (the post workspace). `embedWeek` is
-  // the built week route + which day to open; `embedDay` is the post WeekView is
-  // currently showing (so the toolbar can name the day it is on).
+  // the built week route + which day to open.
   const [embedWeek, setEmbedWeek] = useState(null);
-  const [embedDay, setEmbedDay] = useState(null);
   // Week 0 returns before the rest of the month finishes — poll until stubs land.
   const [monthFilling, setMonthFilling] = useState(false);
   const fillWatchRef = useRef(null);
@@ -2017,10 +2015,10 @@ export default function YourPlans() {
     : 'Nothing left to spread — every upcoming post already has a date.';
 
   const weekMonday = mondayOf(anchorDate);
-  // In Day view the workspace owns which post is on screen; the toolbar names
-  // that day (from `embedDay`), falling back to the anchor before it loads.
+  // Day view hides the week strip, so the anchor date is the single source of
+  // which day is on screen — the toolbar names it directly (the phone feed still
+  // tracks its own scrolled day via `feedIso`).
   const dayLabelDate = (feedOn && feedIso && parseIsoDay(feedIso))
-    || (calView === 'day' && parseIsoDay(embedDay?.date))
     || anchorDate;
   // The period label + the Today button both answer "where am I" in each view's
   // own terms: a month it contains, the week it falls in, or the day it is. The
@@ -2044,19 +2042,8 @@ export default function YourPlans() {
     try { localStorage.setItem('calView', next); } catch { /* private mode — the default holds */ }
   };
 
-  // The Day view steps between scheduled posts (skipping empty days); month and
-  // week step by a whole period. Everything moves the one anchor date.
-  const stepDayDate = (from, delta) => {
-    const cur = startOfDay(from);
-    if (delta > 0) {
-      const nxt = postDates.find((pd) => startOfDay(pd) > cur);
-      if (nxt) return startOfDay(nxt);
-    } else {
-      const prev = [...postDates].reverse().find((pd) => startOfDay(pd) < cur);
-      if (prev) return startOfDay(prev);
-    }
-    return startOfDay(addDaysLocal(from, delta));
-  };
+  // Month steps a whole month, week a whole week, day a single calendar day.
+  // Everything moves the one anchor date.
   const stepPeriod = (delta) => {
     setAnchorDate((d) => {
       if (calView === 'month') {
@@ -2066,7 +2053,7 @@ export default function YourPlans() {
         return n;
       }
       if (calView === 'week') return startOfDay(addDaysLocal(d, delta * 7));
-      return stepDayDate(d, delta);
+      return startOfDay(addDaysLocal(d, delta));
     });
   };
   const goToday = () => {
@@ -2113,7 +2100,7 @@ export default function YourPlans() {
                 type="button"
                 className="cal-nav__arrow"
                 onClick={() => stepPeriod(-1)}
-                aria-label={`Previous ${calView === 'month' ? 'month' : calView === 'week' ? 'week' : 'post'}`}
+                aria-label={`Previous ${calView === 'month' ? 'month' : calView === 'week' ? 'week' : 'day'}`}
               >
                 <Icon name="chevron-left" size={16} strokeWidth={2.25} />
               </button>
@@ -2132,7 +2119,7 @@ export default function YourPlans() {
                 type="button"
                 className="cal-nav__arrow"
                 onClick={() => stepPeriod(1)}
-                aria-label={`Next ${calView === 'month' ? 'month' : calView === 'week' ? 'week' : 'post'}`}
+                aria-label={`Next ${calView === 'month' ? 'month' : calView === 'week' ? 'week' : 'day'}`}
               >
                 <Icon name="chevron-right" size={16} strokeWidth={2.25} />
               </button>
@@ -2228,13 +2215,12 @@ export default function YourPlans() {
           ) : embedWeek ? (
             <Suspense fallback={<div className="ph"><p className="ph__sub">Opening…</p></div>}>
               <WeekView
-                key={`${embedWeek.route._id}-${calView}-${forceWorkspace ? 'edit' : ''}`}
+                key={`${embedWeek.route._id}-${calView}-${(calView === 'day' || forceWorkspace) ? embedWeek.dayIndex : ''}-${forceWorkspace ? 'edit' : ''}`}
                 route={embedWeek.route}
                 initialDay={embedWeek.dayIndex}
                 monthWeeks={[]}
                 embedded
                 hideStrip={calView === 'day' || forceWorkspace}
-                onDayChange={(d) => setEmbedDay(d)}
                 onDistribute={() => setDistOpen(true)}
                 onCaptured={() => runGenerate('capture')}
                 onRouteChange={(route) => {
