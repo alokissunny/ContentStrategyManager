@@ -12,7 +12,7 @@ import React, { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import Icon from '../brand/Icon';
 import { useAuth } from '../context/AuthContext';
-import { listInstagramProfiles, activateInstagramProfile } from '../api/instagram';
+import { listInstagramProfiles, activateInstagramProfile, refreshInstagramMedia } from '../api/instagram';
 import { getMetaStatus, startMetaConnect, disconnectMeta, metaConnectionFor, rememberMetaOAuthReturn } from '../api/meta';
 import { syncHandle } from '../lib/store';
 import { resetProjects } from '../lib/projectsStore';
@@ -39,6 +39,11 @@ function initialsOf(name = '') {
 // First two letters of a handle — the header switcher's avatar convention.
 function handleInitials(username = '') {
   return (username.replace(/[^a-z0-9]/gi, '').slice(0, 2) || 'IG').toUpperCase();
+}
+
+const compactCount = new Intl.NumberFormat('en', { notation: 'compact', maximumFractionDigits: 1 });
+function formatCount(n) {
+  return typeof n === 'number' ? compactCount.format(n) : '0';
 }
 
 function metaConnections(meta) {
@@ -84,6 +89,27 @@ export default function Settings() {
       .then(setCarousel)
       .catch(() => setCarousel(null));
   }, []);
+
+  // Graph's post-thumbnail URLs are short-lived; re-pull media for each
+  // Meta-linked handle once so the "Publish to Instagram" preview isn't
+  // showing stale, expired links. Fire-and-forget, one pass per mount.
+  const mediaRefreshed = React.useRef(false);
+  useEffect(() => {
+    if (mediaRefreshed.current || loading || !profiles.length) return;
+    const linked = profiles.filter((p) => metaConnectionFor(meta, p.username));
+    if (!linked.length) return;
+    mediaRefreshed.current = true;
+    linked.forEach((p) => {
+      refreshInstagramMedia(p.username)
+        .then(({ profile: fresh }) => {
+          if (!fresh) return;
+          setProfiles((prev) => prev.map((row) => (
+            row.username === p.username ? { ...row, ...fresh } : row
+          )));
+        })
+        .catch(() => {});
+    });
+  }, [loading, profiles, meta]);
 
   async function pickCarousel(patch) {
     if (!isAdmin || carouselBusy) return;
@@ -319,7 +345,36 @@ export default function Settings() {
                             : 'Connected with Instagram Login'}
                         </span>
                       </span>
-                    ) : (
+                    ) : null}
+                    {link && (
+                      <span className="set-igdata">
+                        <span className="set-igdata__stats">
+                          <span><b>{formatCount(p.followersCount)}</b> followers</span>
+                          <span><b>{formatCount(p.followingCount)}</b> following</span>
+                          <span><b>{formatCount(p.postsCount)}</b> posts</span>
+                        </span>
+                        {Array.isArray(p.posts) && p.posts.length > 0 && (
+                          <span className="set-igdata__thumbs">
+                            {p.posts.slice(0, 4).map((post) => (
+                              post.displayUrl && (
+                                <img
+                                  key={post.externalId || post.url}
+                                  src={post.displayUrl}
+                                  alt=""
+                                  referrerPolicy="no-referrer"
+                                  onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                                />
+                              )
+                            ))}
+                          </span>
+                        )}
+                        <span className="set-igdata__note">
+                          Bauhly reads @{link.igUsername || p.username}&rsquo;s profile and recent posts from
+                          Instagram to plan captions, formats and timing.
+                        </span>
+                      </span>
+                    )}
+                    {!link && (
                       <span className="set-row__sub">
                         Connect Instagram and sign in as @{p.username}.
                       </span>

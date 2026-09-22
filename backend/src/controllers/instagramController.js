@@ -269,6 +269,38 @@ async function getInstagramProfile(req, res) {
   }
 }
 
+// Graph's media_url/thumbnail_url are short-lived signed CDN links — a post
+// thumbnail saved days ago is likely expired by the time it's rendered. This
+// re-pulls just the media list (no LLM report, no plan regen) so the Settings
+// "Publish to Instagram" preview stays loadable. Meta-connected handles only.
+async function refreshGraphMedia(req, res) {
+  const username = extractUsername(req.body.username);
+  if (!username) {
+    return res.status(400).json({ message: 'Instagram username is required' });
+  }
+  const metaConn = await findMetaConnectionForUsername(req.user._id, username);
+  if (!metaConn) {
+    return res.status(404).json({ message: 'That Instagram account is not connected via Meta.' });
+  }
+  const graph = await fetchViaGraph(req.user._id, username);
+  const profile = await InstagramProfile.findOneAndUpdate(
+    { user: req.user._id, username },
+    {
+      posts: graph.posts,
+      followersCount: graph.profile.followersCount,
+      followingCount: graph.profile.followingCount,
+      postsCount: graph.profile.postsCount,
+      insights: graph.insights || null,
+    },
+    { new: true }
+  ).lean();
+  if (!profile) {
+    return res.status(404).json({ message: 'That Instagram account is not connected to your workspace.' });
+  }
+  profilesListCache.del(String(req.user._id));
+  res.json({ profile: await withFreshAvatar(profile) });
+}
+
 // Make an already-connected handle the current one, so plans, brand profile and
 // analysis across the app follow it. Used by the header account switcher.
 async function activateInstagram(req, res) {
@@ -345,4 +377,4 @@ async function getAnalysisOverview(req, res) {
   res.json(overview);
 }
 
-module.exports = { fetchInstagram, getInstagramProfile, activateInstagram, getAuthorityFunnel, getAnalysisOverview };
+module.exports = { fetchInstagram, getInstagramProfile, activateInstagram, getAuthorityFunnel, getAnalysisOverview, refreshGraphMedia };

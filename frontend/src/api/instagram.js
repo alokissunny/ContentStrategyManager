@@ -19,6 +19,12 @@ export function fetchInstagram(username) {
   return promise;
 }
 
+// Media-only refresh for a Meta-linked handle — Graph's post thumbnail URLs
+// are short-lived, so callers re-pull just before displaying them.
+export function refreshInstagramMedia(username) {
+  return client.post('/instagram/refresh-media', { username }).then((res) => res.data);
+}
+
 const PROFILES_CACHE_KEY = 'bauhly.igProfiles';
 const HANDLE_KEY = 'bauhly.currentHandle';
 let profilesInflight = null;

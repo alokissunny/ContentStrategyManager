@@ -424,12 +424,71 @@
 
 /* Instagram preview */
 .wv-ig {
+  position: relative;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--r-xl, 26px);
   overflow: hidden;
   box-shadow: 0 22px 48px -20px rgba(20, 20, 25, 0.18), 0 1px 2px rgba(22, 22, 26, 0.04);
 }
+
+/* Publishing loader — a soft scrim over the whole preview card while the
+   post renders and uploads to Instagram. */
+.wv-ig__publishing {
+  position: absolute;
+  inset: 0;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  padding: 24px;
+  text-align: center;
+  background: color-mix(in srgb, var(--surface, #fff) 82%, transparent);
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
+}
+.wv-ig__publishing-spin {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  border: 3px solid var(--ink-100, #e3e0d8);
+  border-top-color: var(--ink-900, #1b1a17);
+  animation: wv-vcover-spin 0.8s linear infinite;
+}
+.wv-ig__publishing-text {
+  font-family: var(--font-ui);
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--ink-700, var(--ink-900));
+  max-width: 260px;
+}
+/* Header pill spinner (manual publish in progress). */
+.wv-ig__go-spin {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 2px solid color-mix(in srgb, var(--ink-900, #1b1a17) 25%, transparent);
+  border-top-color: var(--ink-900, #1b1a17);
+  animation: wv-vcover-spin 0.7s linear infinite;
+  flex-shrink: 0;
+}
+/* Success confirmation, shown briefly after a post goes out. */
+.wv-ig__published {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 18px 4px;
+  padding: 10px 14px;
+  border-radius: 12px;
+  background: rgba(31, 138, 76, 0.1);
+  color: #1f8a4c;
+  font-family: var(--font-ui);
+  font-size: 13px;
+  font-weight: 600;
+}
+.wv-ig__published svg { flex-shrink: 0; }
 .wv-ig__head {
   display: flex;
   align-items: center;

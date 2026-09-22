@@ -177,7 +177,7 @@ async function findRecentPublishedMedia(igId, token, graph, caption) {
   try {
     const json = await graphGet(
       `${igId}/media`,
-      { fields: 'id,timestamp,caption', limit: '5', access_token: token },
+      { fields: 'id,timestamp,caption,permalink', limit: '5', access_token: token },
       graph,
     );
     const needle = String(caption || '').replace(/\s+/g, ' ').trim().slice(0, 32).toLowerCase();
@@ -482,10 +482,23 @@ function clearScheduleFields(day) {
   day.scheduleClaimedAt = null;
 }
 
-function markDayPosted(day, igMediaId) {
+function markDayPosted(day, igMediaId, permalink) {
   day.published = true;
   if (igMediaId) day.igMediaId = String(igMediaId);
+  if (permalink) day.permalink = String(permalink);
   clearScheduleFields(day);
+}
+
+// The media_publish call only returns { id } — fetch the instagram.com URL
+// separately so the app can show the user their live post.
+async function fetchPermalink(mediaId, token, graph) {
+  try {
+    const json = await graphGet(mediaId, { fields: 'permalink', access_token: token }, graph);
+    return json.permalink || '';
+  } catch (err) {
+    console.warn('[meta] permalink fetch failed:', err.message);
+    return '';
+  }
 }
 
 async function resolveConnection(userId, route) {
@@ -648,12 +661,12 @@ async function publishPostToInstagram({ userId, post, imageKeys, imageUrls }) {
   try {
     const already = await findRecentPublishedMedia(igId, token, graph, caption);
     if (already?.id) {
-      markDayPosted(post, already.id);
+      markDayPosted(post, already.id, already.permalink);
       conn.lastPublishAt = new Date();
       await conn.save();
       await post.save();
       console.log(`[meta] post ${post._id} already on Instagram as ${already.id}`);
-      return { post, published: true, live: true, igMediaId: already.id };
+      return { post, published: true, live: true, igMediaId: already.id, permalink: already.permalink || '' };
     }
 
     // Public, Graph-fetchable image URLs. Preference order:
@@ -678,19 +691,20 @@ async function publishPostToInstagram({ userId, post, imageKeys, imageUrls }) {
     }
 
     const pub = await createAndPublishMedia({ igId, token, graph, caption, imageUrls: urls });
-    markDayPosted(post, pub.id);
+    const permalink = await fetchPermalink(pub.id, token, graph);
+    markDayPosted(post, pub.id, permalink);
     conn.lastPublishAt = new Date();
     await conn.save();
     await post.save();
     console.log(`[meta] published post ${post._id} to @${conn.igUsername || igId} as media ${pub.id}`);
-    return { post, published: true, live: true, igMediaId: pub.id };
+    return { post, published: true, live: true, igMediaId: pub.id, permalink };
   } catch (err) {
     if (err.status && err.status < 500) throw err;
     console.error('[meta] publish failed:', err.message);
     try {
       const recent = await findRecentPublishedMedia(igId, token, graph, caption);
       if (recent?.id) {
-        markDayPosted(post, recent.id);
+        markDayPosted(post, recent.id, recent.permalink);
         conn.lastPublishAt = new Date();
         await conn.save();
         await post.save();
@@ -700,6 +714,7 @@ async function publishPostToInstagram({ userId, post, imageKeys, imageUrls }) {
           published: true,
           live: true,
           igMediaId: recent.id,
+          permalink: recent.permalink || '',
           message: 'Posted to Instagram. Instagram returned a limit error after the post went out.',
         };
       }

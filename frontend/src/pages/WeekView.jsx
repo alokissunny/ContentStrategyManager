@@ -3208,7 +3208,7 @@ export default function WeekView({
     return () => window.removeEventListener('pointerdown', onDown, true);
   }, [schedMenu]);
 
-  useEffect(() => { setSchedMenu(false); }, [selected]);
+  useEffect(() => { setSchedMenu(false); setPublishMsg(''); }, [selected]);
 
   // Persist the caption for the open day — optimistic, then reconciled with the
   // server's copy. Backend whitelists `content.caption` (routeController §642).
@@ -4942,12 +4942,24 @@ export default function WeekView({
                   <Glyph name="instagram" size={13} />Connect Instagram
                 </button>
               ) : day.published ? (
-                <span className="wv-ig__go is-out" aria-label="Published">
-                  <Glyph name="check" size={14} strokeWidth={3} />Published
-                </span>
-              ) : isPublishingSlot ? (
+                day.permalink ? (
+                  <a
+                    className="wv-ig__go is-out"
+                    href={day.permalink}
+                    target="_blank"
+                    rel="noreferrer"
+                    aria-label="View published post on Instagram"
+                  >
+                    <Glyph name="check" size={14} strokeWidth={3} />Published
+                  </a>
+                ) : (
+                  <span className="wv-ig__go is-out" aria-label="Published">
+                    <Glyph name="check" size={14} strokeWidth={3} />Published
+                  </span>
+                )
+              ) : (isPublishingSlot || publishing) ? (
                 <span className="wv-ig__go is-on" aria-label="Publishing">
-                  <Glyph name="clock" size={14} />Publishing…
+                  <span className="wv-ig__go-spin" aria-hidden="true" />Publishing…
                 </span>
               ) : (
                 <div className={`wv-sched${schedMenu ? ' is-open' : ''}`}>
@@ -5078,6 +5090,22 @@ export default function WeekView({
                 </div>
               )}
             </header>
+
+            {/* Publishing loader — covers the card while slides render and the
+                post goes out to Instagram, then a success confirmation once
+                the day flips to published. */}
+            {publishing && (
+              <div className="wv-ig__publishing" role="status" aria-live="polite">
+                <span className="wv-ig__publishing-spin" aria-hidden="true" />
+                <span className="wv-ig__publishing-text">{publishMsg || 'Publishing to Instagram…'}</span>
+              </div>
+            )}
+            {!publishing && day.published && publishMsg && (
+              <div className="wv-ig__published" role="status">
+                <Glyph name="check" size={15} strokeWidth={3} />
+                <span>{publishMsg}</span>
+              </div>
+            )}
 
             {/* the picture — left column on desktop, full width on a phone */}
             <div className="wv-ig__media">
@@ -5875,7 +5903,7 @@ export default function WeekView({
                   </div>
                 )}
                 {savingTime && <span className="wv-time__saving">Saving…</span>}
-                {publishMsg && <span className="wv-publish__msg">{publishMsg}</span>}
+                {publishMsg && !day.published && <span className="wv-publish__msg">{publishMsg}</span>}
               </div>
             ) : (
               <div className={`wv-ig__slot${day.published ? ' is-out' : ''}${!metaConnected ? ' is-muted' : ''}`}>
@@ -5938,7 +5966,7 @@ export default function WeekView({
                     <Glyph name="pencil" size={16} />
                   </button>
                 )}
-                {publishMsg && <span className="wv-publish__msg">{publishMsg}</span>}
+                {publishMsg && !day.published && <span className="wv-publish__msg">{publishMsg}</span>}
               </div>
             )}
           </article>

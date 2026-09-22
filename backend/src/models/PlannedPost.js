@@ -54,6 +54,8 @@ const plannedPostSchema = new mongoose.Schema(
     scheduleError: { type: String, default: '' },
     scheduleClaimedAt: { type: Date, default: null },
     igMediaId: { type: String, default: '' },
+    // The live post's instagram.com URL, fetched from Graph right after publish.
+    permalink: { type: String, default: '' },
     // "Save for review" — the studio wants this post kept in the calendar as a
     // draft to look over, explicitly NOT queued to auto-publish. Distinct from a
     // plain unscheduled post: it's a deliberate "hold, don't publish yet" flag.
