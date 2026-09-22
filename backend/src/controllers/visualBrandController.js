@@ -48,6 +48,14 @@ function logoPrefix(userId, handle) {
   return `visualbrand/${userId}/${handle}/logos/`;
 }
 
+function backgroundPrefix(userId, handle) {
+  return `visualbrand/${userId}/${handle}/backgrounds/`;
+}
+
+function moodSetPrefix(userId, handle) {
+  return `visualbrand/${userId}/${handle}/moodsets/`;
+}
+
 async function withUrl(m) {
   let url = null;
   try {
@@ -310,6 +318,221 @@ async function saveSettings(req, res) {
   res.json({ ok: true, updatedAt: now, handle });
 }
 
+// ── Backgrounds (Brand Kit) ─────────────────────────────────────────────────
+// Picture grounds the studio can apply across content. Same S3-key pattern as
+// mood images, scoped per handle, one of them optionally the default.
+
+// POST /visual-brand/backgrounds/sign  Body: { files: [{ contentType }] }
+async function signBackgroundUploads(req, res) {
+  if (!isS3Configured()) {
+    return res.status(503).json({ message: 'Media storage is not configured (set S3_BUCKET_NAME).' });
+  }
+  const handle = await currentUsername(req.user._id);
+  if (!handle) return res.status(400).json({ message: 'Connect an Instagram account first' });
+  const files = Array.isArray(req.body.files) ? req.body.files : [];
+  if (!files.length) return res.status(400).json({ message: 'No files to sign' });
+  if (files.length > 20) return res.status(400).json({ message: 'Too many files in one request' });
+  const uploads = await Promise.all(
+    files.map(async ({ contentType }) => {
+      const ext = EXT[contentType] || 'bin';
+      const key = `${backgroundPrefix(req.user._id, handle)}${crypto.randomUUID()}.${ext}`;
+      const uploadUrl = await getPresignedUploadUrl(key, contentType);
+      return { key, uploadUrl };
+    })
+  );
+  res.json({ uploads });
+}
+
+async function withBackgroundUrl(b) {
+  let url = null;
+  try {
+    if (isS3Configured()) url = await getMediaUrl(b.key);
+  } catch (err) {
+    console.error('[visual-brand] could not resolve background url', b.key, err.message);
+  }
+  return { key: b.key, title: b.title || '', isDefault: !!b.isDefault, addedAt: b.addedAt || 0, url };
+}
+
+// GET /visual-brand/backgrounds → { backgrounds: [{ key, title, isDefault, url }] }
+async function listBackgrounds(req, res) {
+  const handle = await currentUsername(req.user._id);
+  const user = await User.findById(req.user._id).select('visualBrand').lean();
+  const list = (user && user.visualBrand && user.visualBrand.backgrounds) || [];
+  const mine = handle ? list.filter((b) => (b.handle || '') === handle) : [];
+  const backgrounds = await Promise.all(mine.map(withBackgroundUrl));
+  res.json({ backgrounds });
+}
+
+// POST /visual-brand/backgrounds  Body: { images: [{ key, title }] }
+async function addBackgrounds(req, res) {
+  const handle = await currentUsername(req.user._id);
+  if (!handle) return res.status(400).json({ message: 'Connect an Instagram account first' });
+  const prefix = backgroundPrefix(req.user._id, handle);
+  const incoming = Array.isArray(req.body.images) ? req.body.images : [];
+  const clean = incoming
+    .map((m) => ({ key: String((m && m.key) || '').trim(), title: String((m && m.title) || '').trim(), isDefault: false, handle, addedAt: Date.now() }))
+    .filter((m) => m.key.startsWith(prefix));
+  if (!clean.length) return res.status(400).json({ message: 'No valid backgrounds to add' });
+  const user = await User.findById(req.user._id);
+  if (!user.visualBrand) user.visualBrand = {};
+  if (!Array.isArray(user.visualBrand.backgrounds)) user.visualBrand.backgrounds = [];
+  const existing = new Set(user.visualBrand.backgrounds.map((b) => b.key));
+  const anyDefault = user.visualBrand.backgrounds.some((b) => (b.handle || '') === handle && b.isDefault);
+  clean.reverse().forEach((m, i) => {
+    if (!existing.has(m.key)) {
+      // the very first background a handle adds becomes its default
+      if (!anyDefault && i === clean.length - 1) m.isDefault = true;
+      user.visualBrand.backgrounds.unshift(m);
+      existing.add(m.key);
+    }
+  });
+  user.markModified('visualBrand.backgrounds');
+  await user.save();
+  const mine = user.visualBrand.backgrounds.filter((b) => (b.handle || '') === handle);
+  const backgrounds = await Promise.all(mine.map(withBackgroundUrl));
+  res.json({ backgrounds });
+}
+
+// PUT /visual-brand/backgrounds/default  Body: { key }
+async function setDefaultBackground(req, res) {
+  const handle = await currentUsername(req.user._id);
+  if (!handle) return res.status(400).json({ message: 'Connect an Instagram account first' });
+  const key = String((req.body && req.body.key) || '').trim();
+  const user = await User.findById(req.user._id);
+  const list = (user.visualBrand && user.visualBrand.backgrounds) || [];
+  list.forEach((b) => { if ((b.handle || '') === handle) b.isDefault = b.key === key; });
+  user.markModified('visualBrand.backgrounds');
+  await user.save();
+  const mine = list.filter((b) => (b.handle || '') === handle);
+  const backgrounds = await Promise.all(mine.map(withBackgroundUrl));
+  res.json({ backgrounds });
+}
+
+// DELETE /visual-brand/backgrounds/:key
+async function deleteBackground(req, res) {
+  const handle = await currentUsername(req.user._id);
+  const key = decodeURIComponent(req.params.key || '');
+  if (!handle || !key.startsWith(backgroundPrefix(req.user._id, handle))) {
+    return res.status(400).json({ message: 'Invalid key' });
+  }
+  const user = await User.findById(req.user._id);
+  const list = (user.visualBrand && user.visualBrand.backgrounds) || [];
+  const removed = list.find((b) => b.key === key);
+  if (user.visualBrand) user.visualBrand.backgrounds = list.filter((b) => b.key !== key);
+  // if the default went, promote the newest remaining one for this handle
+  if (removed && removed.isDefault) {
+    const rest = (user.visualBrand.backgrounds || []).filter((b) => (b.handle || '') === handle);
+    if (rest[0]) rest[0].isDefault = true;
+  }
+  user.markModified('visualBrand.backgrounds');
+  await user.save();
+  try { if (isS3Configured()) await deleteObjects([key]); } catch (err) { console.error('[visual-brand] could not delete background', key, err.message); }
+  res.json({ key });
+}
+
+// ── Visual Mood SETS (Brand Kit) ────────────────────────────────────────────
+// A named set of up to four reference pictures per role. The whole array is
+// saved at once (PUT); role images are uploaded to S3 first via the sign flow.
+
+// POST /visual-brand/mood-sets/sign  Body: { files: [{ contentType }] }
+async function signMoodSetUploads(req, res) {
+  if (!isS3Configured()) {
+    return res.status(503).json({ message: 'Media storage is not configured (set S3_BUCKET_NAME).' });
+  }
+  const handle = await currentUsername(req.user._id);
+  if (!handle) return res.status(400).json({ message: 'Connect an Instagram account first' });
+  const files = Array.isArray(req.body.files) ? req.body.files : [];
+  if (!files.length) return res.status(400).json({ message: 'No files to sign' });
+  if (files.length > 20) return res.status(400).json({ message: 'Too many files in one request' });
+  const uploads = await Promise.all(
+    files.map(async ({ contentType }) => {
+      const ext = EXT[contentType] || 'bin';
+      const key = `${moodSetPrefix(req.user._id, handle)}${crypto.randomUUID()}.${ext}`;
+      const uploadUrl = await getPresignedUploadUrl(key, contentType);
+      return { key, uploadUrl };
+    })
+  );
+  res.json({ uploads });
+}
+
+const MOOD_SET_ROLES = ['primary', 'materials', 'light', 'style'];
+
+async function withMoodSetUrls(set) {
+  const refs = {};
+  await Promise.all(MOOD_SET_ROLES.map(async (role) => {
+    const r = set.refs && set.refs[role];
+    if (r && r.key) {
+      let url = null;
+      try { if (isS3Configured()) url = await getMediaUrl(r.key); } catch (err) { /* leave null */ }
+      refs[role] = { key: r.key, title: r.title || '', url };
+    } else {
+      refs[role] = null;
+    }
+  }));
+  return { id: set.id, name: set.name || '', note: set.note || '', isDefault: !!set.isDefault, refs, addedAt: set.addedAt || 0 };
+}
+
+// GET /visual-brand/mood-sets → { moodSets: [{ id, name, note, isDefault, refs }] }
+async function listMoodSets(req, res) {
+  const handle = await currentUsername(req.user._id);
+  const user = await User.findById(req.user._id).select('visualBrand').lean();
+  const list = (user && user.visualBrand && user.visualBrand.moodSets) || [];
+  const mine = handle ? list.filter((m) => (m.handle || '') === handle) : [];
+  const moodSets = await Promise.all(mine.map(withMoodSetUrls));
+  res.json({ moodSets });
+}
+
+// PUT /visual-brand/mood-sets  Body: { moodSets: [{ id, name, note, isDefault, refs:{role:{key,title}} }] }
+// Replaces this handle's sets. Role keys are validated against the handle's own
+// prefix; S3 objects no longer referenced are best-effort deleted.
+async function saveMoodSets(req, res) {
+  const handle = await currentUsername(req.user._id);
+  if (!handle) return res.status(400).json({ message: 'Connect an Instagram account first' });
+  const prefix = moodSetPrefix(req.user._id, handle);
+  const incoming = Array.isArray(req.body.moodSets) ? req.body.moodSets : [];
+  const clean = incoming.slice(0, 50).map((m) => {
+    const refs = {};
+    MOOD_SET_ROLES.forEach((role) => {
+      const r = m && m.refs && m.refs[role];
+      const key = String((r && r.key) || '').trim();
+      refs[role] = key && key.startsWith(prefix) ? { key, title: String((r && r.title) || '').trim().slice(0, 80) } : null;
+    });
+    return {
+      id: String((m && m.id) || crypto.randomUUID()),
+      name: String((m && m.name) || '').trim().slice(0, 40),
+      note: String((m && m.note) || '').trim().slice(0, 120),
+      isDefault: !!(m && m.isDefault),
+      refs,
+      handle,
+      addedAt: Number(m && m.addedAt) || Date.now(),
+    };
+  });
+  // exactly one default among this handle's sets (the first flagged, else the first set)
+  let seenDefault = false;
+  clean.forEach((m) => { if (m.isDefault && !seenDefault) { seenDefault = true; } else { m.isDefault = false; } });
+  if (!seenDefault && clean[0]) clean[0].isDefault = true;
+
+  const user = await User.findById(req.user._id);
+  if (!user.visualBrand) user.visualBrand = {};
+  if (!Array.isArray(user.visualBrand.moodSets)) user.visualBrand.moodSets = [];
+  const others = user.visualBrand.moodSets.filter((m) => (m.handle || '') !== handle);
+  // keys that were referenced before but are gone now → delete from S3
+  const beforeKeys = new Set();
+  user.visualBrand.moodSets.filter((m) => (m.handle || '') === handle).forEach((m) => MOOD_SET_ROLES.forEach((role) => { const k = m.refs && m.refs[role] && m.refs[role].key; if (k) beforeKeys.add(k); }));
+  const afterKeys = new Set();
+  clean.forEach((m) => MOOD_SET_ROLES.forEach((role) => { const k = m.refs[role] && m.refs[role].key; if (k) afterKeys.add(k); }));
+  const orphaned = [...beforeKeys].filter((k) => !afterKeys.has(k));
+
+  user.visualBrand.moodSets = [...others, ...clean];
+  user.markModified('visualBrand.moodSets');
+  await user.save();
+  try { if (isS3Configured() && orphaned.length) await deleteObjects(orphaned); } catch (err) { console.error('[visual-brand] could not delete mood-set objects', err.message); }
+
+  const mine = user.visualBrand.moodSets.filter((m) => (m.handle || '') === handle);
+  const moodSets = await Promise.all(mine.map(withMoodSetUrls));
+  res.json({ moodSets });
+}
+
 module.exports = {
   signMoodUploads,
   listMoodImages,
@@ -321,4 +544,12 @@ module.exports = {
   deleteLogo,
   getSettings,
   saveSettings,
+  signBackgroundUploads,
+  listBackgrounds,
+  addBackgrounds,
+  setDefaultBackground,
+  deleteBackground,
+  signMoodSetUploads,
+  listMoodSets,
+  saveMoodSets,
 };

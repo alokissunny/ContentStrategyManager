@@ -180,6 +180,7 @@ export function themesOf(edits) {
       .map((t, i) => ({
         id: String(t.id),
         name: (typeof t.name === 'string' && t.name.trim()) ? t.name.trim() : `Theme ${i + 1}`,
+        note: typeof t.note === 'string' ? t.note.slice(0, 120) : '',
         palette: paletteFrom(t.palette),
       }));
     if (listed.length) return listed;
@@ -190,6 +191,7 @@ export function themesOf(edits) {
     name: (typeof asObject(t).name === 'string' && asObject(t).name.trim())
       ? asObject(t).name.trim()
       : (titleCase(id) || `Theme ${i + 1}`),
+    note: typeof asObject(t).note === 'string' ? asObject(t).note.slice(0, 120) : '',
     palette: paletteFrom(t),
   }));
   if (fromOld.length) return fromOld;
@@ -253,7 +255,7 @@ export function migrateIdentity(edits) {
 export function commitIdentity(edits) {
   const ident = identityOf({ libraryEdits: edits });
   return {
-    themes: ident.themes.map((t) => ({ id: t.id, name: t.name, palette: { ...t.palette } })),
+    themes: ident.themes.map((t) => ({ id: t.id, name: t.name, note: t.note || '', palette: { ...t.palette } })),
     activeThemeId: ident.activeThemeId,
     palette: { ...ident.palette },
     type: { ...ident.type },

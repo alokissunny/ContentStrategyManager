@@ -1,0 +1,540 @@
+/* ── Brand Kit ───────────────────────────────────────────────────────────────
+ *
+ * The page that edits the studio's visual identity (Leon, Sep 8 — Phase 1 of
+ * the product handoff; replaces librarysettings.css, whose rules for the
+ * preview, the swatches, the picker and the font field are carried over here
+ * under the `bk-` prefix so the old file can go at the cleanup gate).
+ *
+ * Same material as the rest of the app: `.btn`, `.input`, `.pe-menu`, tokens
+ * only. The artwork inside Live preview is the library's own (`.vl-a`,
+ * visuallibrary.css). NO PURPLE — the primary action is an ink fill.
+ * ────────────────────────────────────────────────────────────────────────── */
+
+.bk { display: flex; flex-direction: column; gap: var(--sp-5); }
+
+/* ── the head: title left, the one commit right ── */
+.bk-head { display: flex; align-items: flex-end; justify-content: space-between; gap: var(--sp-5); flex-wrap: wrap; }
+.bk-head__title { margin: var(--sp-1) 0 6px; font-family: var(--font-display, var(--font-ui)); font-size: var(--text-2xl); font-weight: 700; color: var(--ink-900); }
+.bk-head__lead { margin: 0; font-size: var(--text-sm); line-height: 1.55; color: var(--ink-500); max-width: 54ch; }
+.bk-head__acts { display: flex; align-items: center; gap: var(--sp-2); flex: 0 0 auto; }
+
+/* ── a section ── */
+.bk-card { display: flex; flex-direction: column; gap: var(--sp-4); padding: var(--sp-6); border: 1px solid var(--border); border-radius: var(--r-lg); background: var(--surface); min-width: 0; }
+/* the action stays top-right at every width: the text column gives way and
+   the lead wraps inside it; the head never wraps the button under the text */
+.bk-card__head { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--sp-4); flex-wrap: nowrap; }
+.bk-card__text { flex: 1 1 auto; min-width: 0; }
+.bk-card__title { margin: 0 0 4px; font-size: var(--text-lg); font-weight: 700; color: var(--ink-900); }
+.bk-card__lead { margin: 0; font-size: var(--text-sm); line-height: 1.5; color: var(--ink-500); max-width: 62ch; }
+.bk-card__acts { display: flex; align-items: center; gap: var(--sp-2); flex: 0 0 auto; }
+
+/* two sections side by side and equal */
+.bk-pair { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-5); align-items: stretch; }
+.bk-pair > .bk-card { min-width: 0; }
+
+/* ── live preview ── */
+.bk-prevs { display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--sp-4); }
+.bk-prev { display: flex; flex-direction: column; gap: 10px; min-width: 0; container-type: inline-size; }
+.bk-prev__label { font-family: var(--font-ui); font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-quiet); }
+.bk-dots { display: none; }
+
+/* ── the ⋯ on a tile or a row ──
+ * The disc floats (it sits on a picture). The menu it opens is NOT here: it is
+ * a `.bk-pop`, portalled to the body (see bits.jsx), so no card's overflow and
+ * no sibling row's stacking context can touch it. */
+.bk-more { position: absolute; top: 8px; right: 8px; z-index: 2; }
+.bk-more__btn { display: grid; place-items: center; width: 36px; height: 36px; border: 0; border-radius: var(--r-full); background: var(--surface); color: var(--ink-900); box-shadow: var(--shadow-sm); cursor: pointer; transition: transform var(--dur-fast) var(--ease-out), background var(--dur-fast) var(--ease-out); }
+.bk-more__btn:hover { background: var(--ink-100); }
+.bk-more__btn:active { transform: scale(0.97); }
+.bk-more__btn:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.bk-more--row { position: static; z-index: auto; flex: 0 0 auto; }
+.bk-more--row .bk-more__btn { box-shadow: none; background: transparent; color: var(--ink-500); }
+.bk-more--row .bk-more__btn:hover { background: var(--ink-100); color: var(--ink-900); }
+
+/* ── THE PORTALLED SURFACES KEEP THE APP'S FACE (Leon, Sep 9r) ──
+ * `MoodModal` and `Popover` both render through `createPortal` into
+ * `document.body`, which is how they escape every card's overflow and every
+ * sibling's stacking context. It also puts them OUTSIDE `.app` — and `.app`
+ * is exactly where the product swaps `--font-display` / `--font-ui` to the
+ * native system stack. So they were falling back to `:root`'s marketing face
+ * and the mood dialog's heading came out in Cabinet Grotesk while every other
+ * heading in the app was system-ui. Asking for the token by name puts them
+ * back in the product's own voice; `letter-spacing` is `.app`'s too. */
+.bk-modal,
+.bk-scrim,
+.bk-pop {
+  --font-display: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-ui: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-family: var(--font-ui);
+  letter-spacing: -0.01em;
+}
+
+/* ── ONE FLOATING SURFACE (Leon, Sep 9) ──
+ * Every menu and every small editor on this page is this: fixed, placed from
+ * its anchor's rect, above everything (the scrim is the layer under it).
+ * Under 560px it becomes a bottom sheet. */
+/* ABOVE THE MODAL TOO (Leon, Sep 9i). The mood dialog wears `.fmodal` from
+   app.css, which sits at z-index 100 — so a menu at 71 opened INSIDE the
+   dialog was drawn underneath it: visible through nothing, every press
+   landing on the picture behind. That is what "Remove does nothing" was.
+   This layer is the topmost thing on the page by definition, so it is
+   numbered above every modal the app has, not just this page's own. */
+.bk-scrim { position: fixed; inset: 0; z-index: 120; }
+/* the surface is the app's menu surface (projects.css `.pe-menu`), stated
+   here so an EDITOR can wear it without wearing the menu's button rules */
+.bk-pop {
+  position: fixed; z-index: 121;
+  min-width: 176px; max-width: calc(100vw - 16px); max-height: calc(100vh - 16px); overflow-y: auto;
+  padding: 6px;
+  background: rgba(255, 255, 255, 0.92);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-lift);
+  display: flex; flex-direction: column;
+  animation: modal-rise var(--dur-base) var(--ease-out);
+  cursor: default;
+}
+.pe-menu.bk-pop { position: fixed; top: auto; right: auto; }
+.pe-menu.bk-menu button.is-danger { color: var(--negative); }
+.pe-menu.bk-menu button:disabled { color: var(--ink-400); cursor: default; }
+.bk-pop--editor, .bk-pop--colour { width: 320px; padding: var(--sp-4); gap: var(--sp-3); background: var(--surface); }
+.bk-pop--colour { width: 240px; }
+.bk-pop__title { font-size: var(--text-sm); font-weight: 700; color: var(--ink-900); }
+.bk-pop__hint { margin-top: -8px; font-size: var(--text-xs); color: var(--ink-500); }
+.bk-pop__acts { display: flex; justify-content: flex-end; gap: var(--sp-2); margin-top: var(--sp-1); }
+.bk-pop.bk-pop--sheet { left: var(--sp-3); right: var(--sp-3); bottom: var(--sp-3); top: auto; width: auto; max-height: calc(100vh - 2 * var(--sp-3)); overflow: auto; }
+
+/* the colour picker's two controls: the spectrum, then the hex */
+.bk-picker__field { display: block; width: 100%; height: 96px; padding: 0; border: 1px solid var(--border); border-radius: var(--r-sm); background: none; cursor: pointer; }
+.bk-picker__field::-webkit-color-swatch-wrapper { padding: 0; }
+.bk-picker__field::-webkit-color-swatch { border: 0; border-radius: calc(var(--r-sm) - 1px); }
+.bk-picker__field::-moz-color-swatch { border: 0; border-radius: calc(var(--r-sm) - 1px); }
+.bk-picker__field:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.bk-picker__hex { width: 100%; min-height: 36px; font-family: var(--font-mono); font-size: var(--text-sm); text-transform: uppercase; }
+
+/* ── swatches ── */
+.bk-swatches { display: inline-flex; gap: 6px; flex: 0 0 auto; }
+.bk-swatch { display: block; padding: 0; border: 1px solid var(--border); border-radius: var(--r-md); }
+.bk-swatch--btn { width: 48px; height: 48px; cursor: pointer; transition: transform var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out); }
+.bk-swatch--card { width: 100%; height: 96px; cursor: pointer; }
+.bk-swatch--btn:hover, .bk-swatch--card:hover { transform: translateY(-1px); box-shadow: var(--shadow-sm); }
+.bk-swatch--btn:focus-visible, .bk-swatch--card:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+
+/* ── theme sets ── */
+.bk-themes { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--sp-2); }
+.bk-theme { display: flex; align-items: center; gap: var(--sp-4); padding: 10px 10px 10px 12px; border: 1px solid var(--border); border-radius: var(--r-md); background: var(--surface); }
+.bk-theme__text { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1 1 auto; }
+.bk-theme__text b { display: flex; align-items: center; gap: 8px; font-size: var(--text-sm); font-weight: 700; color: var(--ink-900); }
+.bk-theme__text span { font-size: var(--text-sm); color: var(--ink-500); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bk-chip { display: inline-flex; align-items: center; height: 18px; padding: 0 7px; border-radius: var(--r-full); background: var(--ink-100); color: var(--ink-700); font-size: 11px; font-weight: 600; letter-spacing: 0.02em; vertical-align: middle; }
+
+/* fields inside a popover or the dialog */
+.bk-field { display: flex; flex-direction: column; gap: 6px; position: relative; }
+.bk-field__label { font-size: var(--text-xs); font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-quiet); }
+.bk-field__label em { font-style: normal; font-weight: 500; text-transform: none; letter-spacing: 0; color: var(--ink-400); }
+.bk-field .input { width: 100%; }
+
+/* the single-set view (onboarding's Colour palette, and Theme sets with
+   exactly one set) */
+.bk-roles { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--sp-3); }
+.bk-role { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.bk-role b { font-size: var(--text-sm); font-weight: 600; color: var(--ink-900); }
+.bk-role em { font-style: normal; font-family: var(--font-mono); font-size: 11px; color: var(--ink-quiet); }
+.bk-role__use { font-size: var(--text-xs); color: var(--ink-500); }
+/* the expanded mode: substantial enough to read as the section's one real
+   decision, not a compact control among others (9b) */
+/* recovered from an over-correction (9d) — "substantial" does not mean a
+   176px tower; the same 96px card the onboarding palette already uses reads
+   as the section's one real decision without dominating the page. */
+.bk-roles--lg { gap: var(--sp-4); }
+.bk-roles--lg .bk-role b { font-size: var(--text-base); }
+
+/* ── ONE ITEM, EXPANDED: THE SHARED HEAD (9b) ──
+ * Theme sets and Visual Mood both collapse to a single full-width view when
+ * there is exactly one of them — one name, one ⋯, then the substantial
+ * content beneath. Sharing the head here is what keeps the two reading as
+ * one system rather than two ad-hoc "if count === 1" branches. */
+.bk-single { display: flex; flex-direction: column; gap: var(--sp-4); }
+.bk-single-head { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3); }
+.bk-single-head__name { font-size: var(--text-base); font-weight: 700; color: var(--ink-900); }
+
+/* ── pager ── */
+.bk-pager { display: flex; align-items: center; justify-content: center; gap: var(--sp-3); margin-top: var(--sp-1); }
+.bk-pager__arrow { display: grid; place-items: center; width: 32px; height: 32px; border: 1px solid var(--border-strong); border-radius: var(--r-full); background: var(--surface); color: var(--ink-900); cursor: pointer; }
+.bk-pager__arrow:hover { background: var(--ink-100); }
+.bk-pager__arrow:disabled { color: var(--ink-400); background: var(--surface-sunken); border-color: var(--border); cursor: default; }
+.bk-pager__arrow:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.bk-pager__dots { display: inline-flex; gap: 7px; }
+.bk-pager__dot { width: 7px; height: 7px; padding: 0; border: 0; border-radius: var(--r-full); background: var(--ink-200); cursor: pointer; transition: width var(--dur-fast) var(--ease-out), background var(--dur-fast) var(--ease-out); }
+.bk-pager__dot.is-on { background: var(--ink-900); }
+.bk-pager__dot:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 3px; }
+
+/* ── typography ── */
+.bk-types { display: flex; flex-direction: column; gap: var(--sp-3); }
+.bk-type { display: flex; flex-direction: column; gap: 6px; }
+.bk-type__label { font-size: var(--text-xs); font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-quiet); }
+.bk-type__wrap { position: relative; display: block; }
+.bk-type__btn { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-2); width: 100%; min-height: 44px; padding: 0 12px; border: 1px solid var(--border-strong); border-radius: var(--r-md); background: var(--surface); color: var(--ink-900); font-size: var(--text-base); text-align: left; cursor: pointer; }
+.bk-type__btn:hover { border-color: var(--ink-400); }
+.bk-type__btn:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.bk-type__btn > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bk-type__btn svg { flex-shrink: 0; color: var(--ink-500); }
+/* ── AND THE FONT MENU IS ABOVE ITS OWN SCRIM (Leon, Sep 12) ─────────────
+ * The scrim went to 120 when the mood dialog needed a menu over a modal; this
+ * one stayed at 41 and has been UNDER the sheet that exists to catch the click
+ * outside it ever since. It opened, it looked right, and every press on an
+ * option landed on the scrim — which closes the menu. That is the whole of
+ * "the dropdown is not working": the same layer as `.bk-pop`, and it works. */
+.pe-menu.bk-fontmenu { position: absolute; left: 0; right: 0; top: calc(100% + 6px); bottom: auto; z-index: 121; }
+/* ── ABOVE THE FIELD WHEN BELOW IT IS OFF THE PAGE (Leon, Sep 13) ────────
+ * Typography is the last card on the screen; a menu that only ever drops
+ * downward opened past the fold and had to be scrolled to. The component
+ * measures the room at the moment of opening and asks for this. */
+.bk-type__wrap.is-up .pe-menu.bk-fontmenu { top: auto; bottom: calc(100% + 6px); }
+.bk-fontmenu__row { display: flex; align-items: center; }
+.bk-fontmenu__row .pe-menu__sep { flex-basis: 100%; }
+.bk-fontmenu__row { flex-wrap: wrap; }
+.bk-fontmenu__opt { flex: 1 1 auto; display: flex; align-items: center; justify-content: space-between; gap: var(--sp-2); padding: 9px 10px; border: 0; border-radius: var(--r-sm); background: none; color: var(--ink-900); font-size: var(--text-base); text-align: left; cursor: pointer; }
+.bk-fontmenu__opt:hover { background: var(--ink-100); }
+.bk-fontmenu__opt.is-on { font-weight: 600; }
+.bk-fontmenu__x { display: grid; place-items: center; width: 28px; height: 28px; margin-right: 4px; border: 0; border-radius: var(--r-full); background: none; color: var(--ink-500); cursor: pointer; }
+.bk-fontmenu__x:hover { background: var(--ink-100); color: var(--ink-900); }
+
+/* ── tiles: backgrounds, logos, elements ── */
+.bk-tiles { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--sp-4); }
+.bk-tiles--wide { grid-template-columns: repeat(4, 1fr); }
+.bk-tiles--elements { grid-template-columns: repeat(6, 1fr); gap: var(--sp-3); }
+.bk-tiles--logos { grid-template-columns: repeat(4, 1fr); gap: var(--sp-3); }
+.bk-tile { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.bk-tile__art { position: relative; display: block; aspect-ratio: 16 / 10; border-radius: var(--r-md); overflow: hidden; background: var(--surface-sunken); border: 1px solid var(--border); }
+.bk-tile__art--sunken { background: var(--surface-sunken); }
+.bk-tile--element .bk-tile__art { aspect-ratio: 4 / 3; }
+.bk-tile--logo .bk-tile__art { aspect-ratio: 5 / 6; background: var(--surface-sunken); padding: 14%; }
+.bk-tile--logo.is-dark .bk-tile__art { background: var(--ink-900); border-color: var(--ink-900); }
+.bk-tile__open { display: block; width: 100%; height: 100%; padding: 0; border: 0; background: none; cursor: zoom-in; }
+.bk-tile__open:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
+.bk-tile__chip { position: absolute; left: 8px; bottom: 8px; }
+/* the slot's name inside a real logo tile, where the example carried it */
+.bk-tile__slot { position: absolute; left: 0; right: 0; bottom: 8px; z-index: 1; font-size: 10px; font-weight: 600; letter-spacing: 0.02em; text-align: center; color: var(--ink-400); }
+.bk-tile--logo.is-dark .bk-tile__slot { color: rgba(255, 255, 255, 0.5); }
+.bk-asset { display: block; width: 100%; height: 100%; object-fit: cover; }
+.bk-asset--contain { object-fit: contain; padding: 10%; }
+.bk-tile--logo .bk-asset--contain { padding: 0; }
+.bk-asset--blank { display: block; width: 100%; height: 100%; background: var(--surface-sunken); }
+
+/* ── logos: the set on the left, the position on the right ── */
+.bk-logos { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); gap: var(--sp-6); align-items: start; }
+.bk-logos__pos { display: flex; flex-direction: column; gap: var(--sp-3); padding-left: var(--sp-6); border-left: 1px solid var(--border); }
+.bk-logos__poslabel { font-size: var(--text-sm); font-weight: 600; color: var(--ink-700); }
+.bk-positions { display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--sp-3); }
+.bk-position { display: flex; flex-direction: column; align-items: center; gap: 8px; cursor: pointer; }
+.bk-position input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+.bk-position__card { position: relative; display: block; width: 100%; aspect-ratio: 4 / 3; border: 1px solid var(--border); border-radius: var(--r-md); background: var(--surface-sunken); }
+.bk-position__card i { position: absolute; width: 18%; aspect-ratio: 1; border-radius: 3px; background: var(--ink-900); }
+.bk-position--tl i { top: 12%; left: 12%; }
+.bk-position--tr i { top: 12%; right: 12%; }
+.bk-position--bl i { bottom: 12%; left: 12%; }
+.bk-position--br i { bottom: 12%; right: 12%; }
+.bk-position.is-on .bk-position__card { border-color: var(--ink-900); box-shadow: inset 0 0 0 1px var(--ink-900); }
+.bk-position:has(input:focus-visible) .bk-position__card { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.bk-position__name { font-size: var(--text-xs); color: var(--ink-500); }
+.bk-position.is-on .bk-position__name { color: var(--ink-900); font-weight: 600; }
+
+/* ── THE EMPTY PLACE, THE PRODUCT'S OWN (Sep 9) ──
+ * A dashed edge on nothing, the mark in the quiet ink, one move — the same
+ * language as an empty slide place (`.yw-slist__thumb--add`). Creating what is
+ * not there yet takes the accent on hover (design system). */
+.bk-drop { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; padding: var(--sp-3); border: 1px dashed var(--border-strong); border-radius: var(--r-md); background: none; color: var(--ink-quiet); cursor: pointer; font: inherit; transition: border-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out); }
+.bk-drop b { font-size: var(--text-sm); font-weight: 600; color: var(--ink-700); margin-top: 4px; }
+.bk-drop span { font-size: var(--text-xs); }
+.bk-drop:hover, .bk-drop.is-over { border-color: var(--action-accent); color: var(--action-accent-text); }
+.bk-drop:hover b { color: var(--action-accent-text); }
+.bk-drop:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.bk-drop--tile { aspect-ratio: 4 / 3; width: 100%; box-shadow: none; }
+.bk-drop--tile b { margin-top: 2px; font-size: var(--text-xs); }
+/* `.bk-drop` is now only the dormant Decorative Sets' (see BrandKit.jsx);
+   Backgrounds has no empty body at all and Visual Mood's roles are soft
+   fields, not dashed boxes, since 9h. */
+
+/* ── THE EXAMPLE IS THE SLOT (Leon, Sep 9 → 9b → 9h → 9j) ──
+ * A dashed edge, Bauhly's muted mark dead centre, the slot's name at the
+ * bottom edge — and the whole thing is the button. Nothing else inside:
+ * no pill, no "Add image" (9j). What says "press me" is behaviour: the
+ * cursor, a hover that deepens the ground, a focus ring, a pressed state
+ * that tightens it — none of which a phone needs to find the slot, because
+ * the section's own line has already said what the four are for. */
+.bk-example { position: relative; display: flex; flex-direction: column; min-width: 0; list-style: none; }
+.bk-example__hit {
+  position: relative; display: grid; place-items: center; width: 100%;
+  aspect-ratio: 5 / 6; padding: var(--sp-4) var(--sp-3); overflow: hidden;
+  border: 1px dashed var(--border-strong); border-radius: var(--r-md);
+  background: none; color: var(--ink-400); cursor: pointer; font: inherit;
+  transition: border-color var(--dur-fast) var(--ease-out), background var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out);
+}
+.bk-example__hit:hover, .bk-example__hit:focus-visible { border-color: var(--ink-400); background: var(--surface-sunken); }
+.bk-example__hit:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.bk-example__hit:active { background: var(--ink-100); border-color: var(--ink-500); transform: scale(0.99); }
+.bk-example--dark .bk-example__hit { background: var(--ink-200); border-color: var(--ink-300); color: var(--surface); }
+.bk-example--dark .bk-example__hit:hover, .bk-example--dark .bk-example__hit:focus-visible { border-color: var(--ink-500); background: var(--ink-300); }
+.bk-example--dark .bk-example__hit:active { background: var(--ink-400); }
+.bk-example__art { display: grid; place-items: center; width: 100%; }
+.bk-example__art svg { max-width: 100%; max-height: 100%; }
+.bk-example__word { font-family: var(--font-display, var(--font-ui)); font-size: clamp(18px, 2.4vw, 28px); font-weight: 700; letter-spacing: -0.02em; line-height: 1; }
+.bk-example__word i { font-style: normal; opacity: 0.7; }
+/* the slot's name: at the edge, out of the grid, so the mark stays centred
+   whether or not it is there */
+.bk-example__slot { position: absolute; left: 0; right: 0; bottom: 10px; font-size: 11px; font-weight: 600; letter-spacing: 0.01em; text-align: center; color: var(--ink-400); }
+.bk-example--dark .bk-example__slot { color: var(--ink-500); }
+
+/* the decorative sets' one illustrative row — a single hit target standing
+   for "a set groups several shapes", not four independent slots like Logos */
+.bk-deco-example {
+  position: relative; display: flex; align-items: center; gap: var(--sp-5); flex-wrap: wrap;
+  width: 100%; padding: var(--sp-5) var(--sp-6);
+  border: 1px dashed var(--border-strong); border-radius: var(--r-md);
+  background: none; cursor: pointer; text-align: left; font: inherit;
+  transition: border-color var(--dur-fast) var(--ease-out), background var(--dur-fast) var(--ease-out);
+}
+.bk-deco-example:hover, .bk-deco-example:focus-visible { border-color: var(--ink-400); background: var(--surface-sunken); }
+.bk-deco-example:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.bk-deco-example__shapes { display: flex; gap: var(--sp-3); flex: 0 0 auto; }
+.bk-deco-example__shape { display: grid; place-items: center; width: 64px; height: 64px; border-radius: var(--r-sm); background: var(--surface-sunken); color: var(--ink-300); }
+.bk-deco-example__shape svg { width: 60%; height: 60%; }
+.bk-deco-example__text { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.bk-deco-example__text b { font-size: var(--text-sm); font-weight: 700; color: var(--ink-900); }
+.bk-deco-example__text span { font-size: var(--text-xs); color: var(--ink-500); }
+
+/* ── decorative sets (dormant — not mounted since 9h, see BrandKit.jsx) ── */
+.bk-sets { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--sp-2); }
+.bk-set { border: 1px solid var(--border); border-radius: var(--r-md); background: var(--surface); }
+.bk-set.is-open { box-shadow: var(--shadow-panel-on); }
+.bk-set__row { display: flex; align-items: center; gap: var(--sp-2); padding: 8px 10px 8px 8px; }
+.bk-set__open { display: flex; align-items: center; gap: var(--sp-4); flex: 1 1 auto; min-width: 0; padding: 0; border: 0; background: none; text-align: left; cursor: pointer; font: inherit; color: var(--ink-500); border-radius: var(--r-sm); }
+.bk-set__open:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 4px; }
+.bk-set__strip { display: inline-flex; gap: 6px; flex: 0 0 auto; }
+.bk-set__thumb { display: grid; place-items: center; width: 48px; height: 48px; border-radius: var(--r-sm); background: var(--surface-sunken); overflow: hidden; }
+.bk-set__thumb--blank { border: 1px dashed var(--border-strong); background: none; }
+.bk-set__thumb .bk-asset--contain { padding: 18%; }
+.bk-set__more { display: grid; place-items: center; width: 48px; height: 48px; border-radius: var(--r-sm); background: var(--ink-100); font-size: var(--text-xs); font-weight: 600; color: var(--ink-700); }
+.bk-set__text { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1 1 auto; }
+.bk-set__text b { display: flex; align-items: center; gap: 8px; font-size: var(--text-sm); font-weight: 700; color: var(--ink-900); }
+.bk-set__text span { font-size: var(--text-sm); color: var(--ink-500); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bk-set__elements { padding: 0 12px 12px; margin: 0; }
+
+/* ── visual mood rows ── */
+.bk-moods { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--sp-2); }
+.bk-mood { display: flex; align-items: center; gap: var(--sp-2); padding: 8px 10px 8px 8px; border: 1px solid var(--border); border-radius: var(--r-md); background: var(--surface); position: relative; }
+.bk-mood__row { display: flex; align-items: center; gap: var(--sp-5); flex: 1 1 auto; min-width: 0; padding: 0; border: 0; background: none; text-align: left; cursor: pointer; font: inherit; color: inherit; border-radius: var(--r-sm); }
+.bk-mood__row:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 4px; }
+.bk-mood__thumbs { display: grid; grid-template-columns: repeat(4, 64px); gap: 6px; flex: 0 0 auto; }
+.bk-mood__thumb { display: block; aspect-ratio: 1; border-radius: var(--r-sm); overflow: hidden; background: var(--surface-sunken); }
+.bk-mood__thumb-blank { display: block; width: 100%; height: 100%; }
+.bk-mood__text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.bk-mood__text b { display: flex; align-items: center; gap: 8px; font-size: var(--text-sm); font-weight: 700; color: var(--ink-900); }
+.bk-mood__text span { font-size: var(--text-sm); color: var(--ink-500); }
+
+/* ── the modal (mood; unsaved-changes) ── */
+.bk-modal { position: fixed; inset: 0; z-index: 60; display: grid; place-items: center; padding: var(--sp-5); }
+.bk-modal__scrim { position: absolute; inset: 0; background: rgba(20, 16, 14, 0.42); }
+.bk-modal__card { position: relative; width: min(1120px, 100%); max-height: calc(100vh - 2 * var(--sp-5)); overflow: auto; padding: var(--sp-7); border-radius: var(--r-xl); background: var(--surface); box-shadow: var(--shadow-lift); display: flex; flex-direction: column; gap: var(--sp-4); }
+.bk-modal--small .bk-modal__card { width: min(440px, 100%); }
+.bk-modal__x { position: absolute; top: var(--sp-4); right: var(--sp-4); display: grid; place-items: center; width: 36px; height: 36px; border: 0; border-radius: var(--r-full); background: none; color: var(--ink-700); cursor: pointer; }
+.bk-modal__x:hover { background: var(--ink-100); color: var(--ink-900); }
+.bk-modal__x:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+/* THE HEADING IS `.fmodal__title` (app.css), the one every other modal in the
+   product wears — family, weight, size, line-height and tracking all come
+   from there and from `base.css`'s own h1–h4 rule. This dialog used to state
+   its own at `--text-xl`, one step under the rest of the app, which is what
+   made it read as a different design system (9q). Only what is genuinely
+   local stays: no margin, because the card is a flex column with its own
+   gap, and room on the right for the close button. */
+.bk-modal__title { margin: 0; padding-right: var(--sp-8); color: var(--ink-900); }
+.bk-modal__lead { margin: -6px 0 0; font-size: var(--text-sm); line-height: 1.5; color: var(--ink-500); max-width: 70ch; }
+.bk-modal__fields { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-5); }
+.bk-modal__acts { display: flex; justify-content: flex-end; gap: var(--sp-2); margin-top: var(--sp-2); }
+
+/* ── A ROLE IS A REFERENCE PLACE (Leon, Sep 9h) ────────────────────────────
+ * Four equal columns, a gap and nothing drawn between them. Inside each: the
+ * role's name, its one line, and then a single soft field the exact size and
+ * shape of the picture that will replace it.
+ *
+ * EVERYTHING THE STUDIO NEEDS IS INSIDE THAT FIELD — what to choose, three
+ * images of this role to choose from, and the one move. Before 9h the field
+ * was a dashed upload box with the instruction repeated below the column and
+ * the suggestions labelled beneath that: five pieces of text arranged around
+ * a box. The words moved in; the box became a place.
+ *
+ * EMPTY AND FILLED ARE THE SAME SHAPE, so nothing below the columns moves
+ * when a picture lands. Portrait, because a reference photograph is looked at
+ * rather than scanned — except on a phone, where one column is the full
+ * width and portrait would push the next role off the screen entirely. */
+.bk-mroles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--sp-5); }
+/* ONE LABEL GROUP, NOT TWO PARAGRAPHS (9q): the role's name and the line
+   under it are a pair, so the gap between them is nearly nothing and the
+   air lives below the pair instead (`__lead`'s own margin), where it
+   separates the label from the frame it labels. */
+.bk-mrole { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.bk-mrole__title { font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-700); }
+.bk-mrole__lead { margin-bottom: var(--sp-3); font-size: var(--text-xs); color: var(--ink-500); }
+.bk-mrole__pic { position: relative; display: block; aspect-ratio: 4 / 5; width: 100%; border-radius: var(--r-md); overflow: hidden; background: var(--surface-sunken); }
+/* ── THE EMPTY PLACE EXPLAINS ITSELF, THEN OFFERS TWO WAYS FORWARD ──
+ * (Leon, Sep 9j → 9l → 9m → 9n, against Leon's own reference image.) A
+ * dashed edge — the same empty language as a Logo slot — over the mood
+ * section's own soft grey interior. Inside, top to bottom: one short line, a
+ * row of three PORTRAIT photographs of this role, and the studio's own move
+ * at the foot. No generic image icon: the row already says what a "Primary
+ * reference" is. The block is one real button — press anywhere on it to
+ * upload; `Choose from examples` stands on its own beneath it (Leon's
+ * reference puts it there too), so there is no button nested inside another.
+ *
+ * A 4:5 PORTRAIT, THE SHAPE OF THE PICTURE THAT WILL REPLACE IT (9o).
+ * Measured off Leon's reference: each block there is ~408 wide by ~510 tall,
+ * which is 4:5 — the same ratio `.bk-mrole__pic` already uses. 9n let height
+ * come from content instead and landed at 249×218, LANDSCAPE, which is what
+ * read as squashed. Stating the ratio also means the empty and filled states
+ * are the same box to the pixel, so filling a role never resizes its column.
+ * Content taller than the ratio would still push the box down rather than
+ * spill out of it — `aspect-ratio` yields to min-content — so this cannot
+ * clip at a narrow width.
+ *
+ * The two `margin-top: auto` below (on the pictures and on the move) split
+ * the spare height in two: air above the row, air between the caption and
+ * the move. That is the reference's own rhythm — the group sits high, the
+ * move sits on the floor. */
+.bk-mrole__place {
+  position: relative;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--sp-3);
+  aspect-ratio: 4 / 5; width: 100%; padding: var(--sp-4) var(--sp-3) var(--sp-7);
+  border: 1px dashed var(--border-strong); border-radius: var(--r-md);
+  background: var(--surface-sunken); color: var(--ink-400); cursor: pointer; font: inherit;
+  transition: border-color var(--dur-fast) var(--ease-out), background var(--dur-fast) var(--ease-out);
+}
+.bk-mrole__place:hover, .bk-mrole__place:focus-visible { border-color: var(--ink-400); background: var(--ink-100); }
+.bk-mrole__place:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.bk-mrole__place.is-over { border-color: var(--ink-900); background: var(--ink-100); }
+/* two lines' worth of height, always — one role's sentence runs longer than
+   its neighbours', and without this the four blocks (and the "Choose from
+   examples" links below them) fall out of line with each other */
+.bk-mrole__say { min-height: 2.9em; font-size: var(--text-xs); line-height: 1.45; color: var(--ink-500); text-align: center; }
+/* the caption follows its pictures, so it is the pictures that carry the
+   first auto margin and sit high in the block */
+/* PORTRAIT, LIKE THE PICTURE THEY STAND IN FOR (9n, correcting 9m's squares).
+   The same 4:5 as the filled `.bk-mrole__pic` below, so the block's own
+   proportions and the composition it is teaching read as one idea, and so
+   filling a role doesn't reshape its column — only replace what's in it. A
+   fixed max-width keeps the row a supporting detail rather than letting a
+   full-width mobile column blow the three up into something that competes
+   with the sentence above them.
+   WASHED OUT so a photograph here never reads as something already chosen —
+   opacity plus a touch less saturation and contrast, not grey: enough colour
+   survives to tell warm from airy from raw apart. The filled state carries
+   none of this; a real upload is always the strongest thing in its column. */
+/* Centring the GROUP is not centring the PICTURES: the caption hangs below
+   them and carries half its own height off the top, leaving the row about
+   14px high in the area it is meant to fill. This nudge is that compensation,
+   measured — the pictures land on the centre line, the caption still sits
+   directly beneath them where it belongs. */
+.bk-mrole__egs { margin-top: var(--sp-6); display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; width: 100%; max-width: 240px; }
+/* 7:10 — measured off the reference's own thumbnails (~107 x 160), a shade
+   taller than the 4:5 the block itself takes */
+.bk-mrole__eg { display: block; aspect-ratio: 7 / 10; border-radius: var(--r-sm); overflow: hidden; background: var(--surface); }
+.bk-mrole__eg .bk-asset { opacity: 0.72; filter: saturate(0.82) contrast(0.94); }
+/* A LABEL ON THE FRAME, NOT A BUTTON IN IT (9p). It used to read `Upload my
+   own` in the ink and weight of a move, which is what it was; now the frame
+   itself is the move and the two ways in live in its menu, so this only has
+   to say "this can be pressed". Quiet ink, normal weight, no fill, no accent
+   — and always drawn, so a phone finds it without hovering. */
+/* OUT OF THE FLOW, ON THE FLOOR (9p). Left in the column it pushed the
+   pictures upward — auto margins split the spare height evenly, so the
+   caption's own height rode the imagery about 20px above the centre of the
+   area it was meant to sit in. Pinned instead: the frame centres the pictures
+   and their caption over its whole height, and the label sits below them
+   without taking any of it (the frame's extra bottom padding is its room). */
+.bk-mrole__or { position: absolute; left: 0; right: 0; bottom: var(--sp-4); display: inline-flex; align-items: center; justify-content: center; gap: 5px; font-size: var(--text-xs); font-weight: 500; color: var(--ink-quiet); }
+.bk-mrole__or svg { opacity: 0.85; }
+.bk-mrole__place:hover .bk-mrole__or, .bk-mrole__place:focus-visible .bk-mrole__or { color: var(--ink-700); }
+
+/* ── the dialog's second view: this role's photographs, at a size worth
+   judging ── The card turns over rather than stacking another one on top
+   (9k → 9m); Back is the way out and sits where a title would start. */
+.bk-modal__back {
+  align-self: flex-start; display: inline-flex; align-items: center; gap: 4px;
+  margin-bottom: -2px; padding: 4px 8px 4px 4px;
+  border: 0; border-radius: var(--r-sm); background: none;
+  color: var(--ink-500); cursor: pointer; font: inherit; font-size: var(--text-sm); font-weight: 600;
+}
+.bk-modal__back:hover { background: var(--ink-100); color: var(--ink-900); }
+.bk-modal__back:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.bk-picks { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--sp-5); }
+.bk-pick { display: flex; flex-direction: column; gap: 8px; width: 100%; padding: 0; border: 0; background: none; cursor: pointer; font: inherit; text-align: left; }
+.bk-pick__shot { display: block; width: 100%; aspect-ratio: 4 / 5; border-radius: var(--r-md); overflow: hidden; background: var(--surface-sunken); box-shadow: 0 0 0 1px var(--border); transition: box-shadow var(--dur-fast) var(--ease-out); }
+.bk-pick:hover .bk-pick__shot { box-shadow: 0 0 0 2px var(--ink-900); }
+.bk-pick:focus-visible .bk-pick__shot { outline: 2px solid var(--focus-ring); outline-offset: 3px; }
+.bk-pick.is-on .bk-pick__shot { box-shadow: 0 0 0 2px var(--ink-900); }
+.bk-pick__name { font-size: var(--text-sm); font-weight: 600; color: var(--ink-900); }
+.bk-pick.is-on .bk-pick__name::after { content: ' · in use'; font-weight: 500; color: var(--ink-500); }
+
+/* ── responsive ─────────────────────────────────────────────────────────── */
+@media (max-width: 1100px) {
+  .bk-tiles--elements { grid-template-columns: repeat(4, 1fr); }
+  /* two columns means each is roughly twice as wide, and a 4:5 field would be
+     twice as tall with it — half a screen of empty grey per role. The FILLED
+     picture turns landscape as soon as it stops being a quarter of the row
+     (9h); the empty place is sized by its own compact content since 9m and
+     needs no forced ratio at any width. */
+  .bk-mroles { grid-template-columns: 1fr 1fr; }
+  .bk-mrole__pic, .bk-mrole__place { aspect-ratio: 3 / 2; }
+}
+@media (max-width: 1000px) {
+  .bk-prevs { grid-template-columns: repeat(2, 1fr); }
+  .bk-tiles--wide { grid-template-columns: repeat(2, 1fr); }
+  .bk-logos { grid-template-columns: 1fr; }
+  .bk-logos__pos { padding-left: 0; border-left: 0; padding-top: var(--sp-4); border-top: 1px solid var(--border); }
+}
+@media (max-width: 900px) {
+  .bk-pair { grid-template-columns: 1fr; }
+  .bk-modal__fields { grid-template-columns: 1fr; }
+}
+@media (max-width: 800px) {
+  .bk-card { padding: var(--sp-5); }
+  .bk-deco-example { gap: var(--sp-4); padding: var(--sp-4) var(--sp-5); }
+  .bk-deco-example__shape { width: 48px; height: 48px; }
+  /* the phone's live preview is a carousel: one at a time, swiped, with dots */
+  .bk-card--preview { overflow: hidden; }
+  .bk-prevs { display: flex; gap: var(--sp-3); overflow-x: auto; scroll-snap-type: x mandatory; scrollbar-width: none; margin: 0 calc(-1 * var(--sp-5)); padding: 0 var(--sp-5); }
+  .bk-prevs::-webkit-scrollbar { display: none; }
+  .bk-prev { flex: 0 0 78%; scroll-snap-align: start; }
+  .bk-dots { display: flex; justify-content: center; gap: 7px; }
+  .bk-dot { width: 7px; height: 7px; padding: 0; border: 0; border-radius: var(--r-full); background: var(--ink-200); cursor: pointer; transition: width var(--dur-fast) var(--ease-out), background var(--dur-fast) var(--ease-out); }
+  .bk-dot.is-on { width: 18px; background: var(--ink-900); }
+  .bk-dot:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 3px; }
+  .bk-mood__thumbs { grid-template-columns: repeat(4, 44px); }
+  .bk-modal { padding: var(--sp-3); }
+  .bk-modal__card { padding: var(--sp-5); border-radius: var(--r-lg); }
+}
+@media (max-width: 560px) {
+  .bk-head { align-items: flex-start; }
+  .bk-tiles--elements { grid-template-columns: repeat(2, 1fr); }
+  .bk-tiles--logos { grid-template-columns: repeat(2, 1fr); }
+  .bk-positions { grid-template-columns: repeat(4, 1fr); gap: var(--sp-2); }
+  .bk-roles { grid-template-columns: 1fr; }
+  .bk-mroles { grid-template-columns: 1fr; }
+  .bk-deco-example { flex-direction: column; align-items: flex-start; }
+  /* one column at full width: portrait would push the next role off screen,
+     so both the picture and the empty place turn landscape here (9h → 9o) */
+  .bk-mrole__pic, .bk-mrole__place { aspect-ratio: 4 / 3; }
+  .bk-mood__row { gap: var(--sp-3); }
+  .bk-mood__thumbs { grid-template-columns: repeat(2, 40px); }
+  .bk-mood__text span { white-space: normal; }
+  .bk-theme { gap: var(--sp-3); }
+  .bk-swatch--btn { width: 36px; height: 36px; }
+  .bk-set__thumb, .bk-set__more { width: 36px; height: 36px; }
+}
+
+/* ── shell box (live app) ──────────────────────────────────────────────────
+ * The live DashboardLayout wraps the outlet in a padding-less div; the page
+ * gutters come from the shell's `.app__main`, exactly as `.ls`/`.vl` rely on.
+ * Match those: centre the column and cap its width. */
+.bk { max-width: 1240px; margin: 0 auto; }

@@ -112,3 +112,68 @@ export function getBrandSettings(handle) {
 export function saveBrandSettings(data, handle) {
   return client.put('/visual-brand/settings', { data, handle }).then((r) => r.data);
 }
+
+// ── Backgrounds (Brand Kit) ─────────────────────────────────────────────────
+// Same S3 presign flow as mood images. Returns the full set (newest first),
+// each with a presigned `url` and an `isDefault` flag.
+
+export async function uploadBackground(file) {
+  if (!file || !file.type || !String(file.type).startsWith('image/')) return null;
+  const { data } = await client.post('/visual-brand/backgrounds/sign', {
+    files: [{ contentType: file.type || 'application/octet-stream' }],
+  });
+  const upload = (data.uploads || [])[0];
+  if (!upload) throw new Error('no upload');
+  const put = await fetch(upload.uploadUrl, {
+    method: 'PUT',
+    headers: { 'Content-Type': file.type || 'application/octet-stream' },
+    body: file,
+  });
+  if (!put.ok) throw new Error(`Upload failed (${put.status})`);
+  const { data: saved } = await client.post('/visual-brand/backgrounds', {
+    images: [{ key: upload.key, title: file.name }],
+  });
+  return saved.backgrounds || [];
+}
+
+export function listBackgrounds() {
+  return client.get('/visual-brand/backgrounds').then((r) => r.data.backgrounds || []);
+}
+
+export function setDefaultBackground(key) {
+  return client.put('/visual-brand/backgrounds/default', { key }).then((r) => r.data.backgrounds || []);
+}
+
+export function deleteBackground(key) {
+  return client.delete(`/visual-brand/backgrounds/${encodeURIComponent(key)}`).then((r) => r.data);
+}
+
+// ── Visual Mood sets (Brand Kit) ────────────────────────────────────────────
+// The whole array of sets is saved at once; each role image is uploaded to S3
+// first and referenced by its key.
+
+// Upload one role image, returning { key, url } (not yet attached to a set).
+export async function uploadMoodSetImage(file) {
+  if (!file || !file.type || !String(file.type).startsWith('image/')) return null;
+  const { data } = await client.post('/visual-brand/mood-sets/sign', {
+    files: [{ contentType: file.type || 'application/octet-stream' }],
+  });
+  const upload = (data.uploads || [])[0];
+  if (!upload) throw new Error('no upload');
+  const put = await fetch(upload.uploadUrl, {
+    method: 'PUT',
+    headers: { 'Content-Type': file.type || 'application/octet-stream' },
+    body: file,
+  });
+  if (!put.ok) throw new Error(`Upload failed (${put.status})`);
+  return { key: upload.key, url: URL.createObjectURL(file) };
+}
+
+export function listMoodSets() {
+  return client.get('/visual-brand/mood-sets').then((r) => r.data.moodSets || []);
+}
+
+// Persist the full set list for the active handle. Each ref carries { key }.
+export function saveMoodSets(moodSets) {
+  return client.put('/visual-brand/mood-sets', { moodSets }).then((r) => r.data.moodSets || []);
+}

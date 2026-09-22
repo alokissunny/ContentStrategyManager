@@ -50,6 +50,38 @@ const userSchema = new mongoose.Schema(
         ],
         default: [],
       },
+      // Background assets (Brand Kit). Same S3-key pattern as moodImages/logos,
+      // scoped per Instagram handle. `isDefault` marks the preferred ground.
+      backgrounds: {
+        type: [
+          {
+            key: { type: String, required: true },
+            title: { type: String, trim: true, default: '' },
+            isDefault: { type: Boolean, default: false },
+            handle: { type: String, trim: true, lowercase: true, default: '' },
+            addedAt: { type: Number, default: () => Date.now() },
+          },
+        ],
+        default: [],
+      },
+      // Visual Mood SETS (Brand Kit) — a named collection of up to four reference
+      // pictures (primary / materials / light / style). `refs` holds one S3 key
+      // per role; the bytes live in S3 and are re-signed on read, like moodImages.
+      // Scoped per Instagram handle; `isDefault` marks the preferred set.
+      moodSets: {
+        type: [
+          {
+            id: { type: String, required: true },
+            name: { type: String, trim: true, default: '' },
+            note: { type: String, trim: true, default: '' },
+            refs: { type: mongoose.Schema.Types.Mixed, default: {} },
+            isDefault: { type: Boolean, default: false },
+            handle: { type: String, trim: true, lowercase: true, default: '' },
+            addedAt: { type: Number, default: () => Date.now() },
+          },
+        ],
+        default: [],
+      },
       // The Library Settings the studio applies — palette, type/fonts, which
       // layouts are on, and the palette readings from each mood image. These
       // used to live only in the browser's localStorage, so the same account saw

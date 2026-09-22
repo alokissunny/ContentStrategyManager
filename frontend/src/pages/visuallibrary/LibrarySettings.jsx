@@ -1,209 +1,60 @@
 /*
- * Library Settings — the studio's visual identity, in one page.
+ * Brand Kit — the studio's visual identity, in one page (formerly "Library
+ * Settings"). A faithful port of bauhly-v3's `pages/app/brandkit/` look (see
+ * [[bauhly-v3-design-source]]), wired to the LIVE model and backend:
  *
- * WHAT THIS PAGE IS (Leon, Aug 6–7).
+ *   · themes / palette / type / fonts / logo position  → `libraryEdits`
+ *     (identity.js), autosaved through the store on every change;
+ *   · logos and Visual Mood images                     → S3 (api/visualBrand),
+ *     written through the moment they land, exactly as before.
  *
- * Bauhly draws every layout from three things: a palette, a set of type styles,
- * and the pictures the studio has given it. This is the one place all three are
- * edited, and it is ONE page — no tabs, no second editor, no wizard.
- *
- * ── THEMES ARE NAMED PALETTES (Sep 2026) ──────────────────────────────────
- *
- * A theme is three colours — primary, accent, neutral — and a name. A studio
- * may keep more than one and switch which one is active. Typography and mood
- * images stay shared; only the three colours change with the theme. The active
- * theme is what the library, the preview and the weekly plan paint.
- *
- * ── WHY SAVING IS EXPLICIT HERE, AND ONLY HERE ────────────────────────────
- *
- * Everything else in this product saves as you type. An identity is not one
- * decision but six or seven made together, and a library repainting between each
- * of them would be unreadable while you worked. So edits are a DRAFT — the
- * preview reads it, the library does not. Because a draft can be lost, leaving
- * with one unapplied asks first.
- *
- * ── THERE IS NO SAVE BUTTON (Leon, Aug 7) ─────────────────────────────────
- *
- * There were two commits on this page — Save, and then Update Visual Library —
- * and a studio could not tell what the second one added, because the first had
- * already repainted the library. One page, ONE commit: edits stay pending, a
- * compact note says so, and **Update Visual Library** is the only thing that
- * writes. It asks first, because it changes all of them at once.
- *
- * And it now writes EXACTLY WHAT IS ON SCREEN. It used to re-sample the palette
- * off the reference pictures as it applied, which was defensible while Save
- * existed and is not now: it would silently replace an accent the studio had
- * just chosen by hand. Reading the pictures is its own button in Image References,
- * it edits the DRAFT, and the preview shows the result before anything applies.
- *
- * ── FOUR DEPARTURES FROM THE ORIGINAL REFERENCE, ALL DELIBERATE ───────────
- *
- * 1 · No purple: it was rejected for this product and the primary action is an
- *     ink fill (CLAUDE.md §2, design system §1).
- * 2 · One sidebar, the app's own — a second nav would be the extra configuration
- *     layer the brief rules out.
- * 3 · Counts are read, never repeated from a picture.
- * 4 · No decorative "01 ___" under the previews; that was removed in 490.
+ * IT AUTOSAVES. There is no page-level Save or "Update Library": a change is
+ * written the moment it is made. Colour edits hold a local copy behind the
+ * popover's Cancel / Done; everything else is immediate.
  */
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { useNavigate } from 'react-router-dom';
 import Icon from '../../brand/Icon.jsx';
-import { useStore, setState, getActiveHandle } from '../../lib/store.js';
-import { LAYOUTS } from '../../data/layouts.js';
+import { useStore, setState } from '../../lib/store.js';
 import {
   TYPE_SLOTS, COLOUR_ROLES, DEFAULT_PALETTE, THEME_CAP, identityOf, paintOf, slotFace,
   facesWith, registerFont, newThemeId, nextThemeName, activeThemeOf, commitIdentity,
   LOGO_SLOTS, LOGO_POSITIONS, markForTone,
 } from '../../lib/identity.js';
-import { analyseNew, pendingOf, forgetRef, paletteFromAnalysis } from '../../lib/refanalysis.js';
-import { uploadMoodImages, listMoodImages, deleteMoodImage, uploadLogo, listLogos, deleteLogo } from '../../api/visualBrand.js';
+import { uploadLogo, listLogos, deleteLogo } from '../../api/visualBrand.js';
 import { BrandMark } from './BrandMark.jsx';
-import EmptyState from '../../components/ui/EmptyState.jsx';
+import {
+  SectionCard, TileMenu, Pager, DefaultChip, RenamePopover, ColourPopover, ExampleTile, usePager,
+} from './brandkitBits.jsx';
+import Backgrounds from './Backgrounds.jsx';
+import VisualMood from './VisualMood.jsx';
 import './visuallibrary.css';
 import './librarysettings.css';
+import './brandkit.css';
 
-/* ── the colour picker, anchored to the swatch it belongs to ──────────────
- *
- * NO BRAND-COLOUR GRID FIRST (Leon, Aug 7). Pressing a swatch used to open a
- * menu of eight suggested colours with "Pick another" under a separator — so
- * choosing your own colour, which is the whole point of the control, was the
- * last item behind a list of the product's guesses. The grid is gone. Pressing
- * a swatch opens the picker itself.
- *
- * WHY THIS IS STILL A POPOVER and not the OS colour dialog on the swatch: an
- * `<input type="color">` opens a window the browser positions, which cannot be
- * anchored to anything and looks nothing like the rest of the app. This is the
- * app's own `.pe-menu`, anchored under the swatch like every other popover
- * here, holding the two things a colour needs — a spectrum and a hex — both
- * live, so the four previews move as the colour does.
- */
-function Picker({ value, onPick, onClose }) {
-  const [text, setText] = useState(value);
-  /* the hex box accepts what is being TYPED, and only commits when it is a
-     real colour — otherwise a half-typed "#1b1" repaints the library */
-  const typeHex = (v) => {
-    setText(v);
-    if (/^#[0-9a-f]{6}$/i.test(v)) onPick(v);
-  };
-  return (
-    <>
-      <span className="ls-scrim" onClick={onClose} />
-      <span className="pe-menu ls-picker" role="dialog" aria-label="Choose a colour">
-        <input
-          className="ls-picker__field"
-          type="color"
-          value={value}
-          aria-label="Colour spectrum"
-          onChange={(e) => { setText(e.target.value); onPick(e.target.value); }}
-        />
-        <input
-          className="ls-picker__hex"
-          type="text"
-          value={text}
-          spellCheck="false"
-          aria-label="Hex value"
-          onChange={(e) => typeHex(e.target.value.trim())}
-        />
-      </span>
-    </>
-  );
-}
+/* how many fonts of their own a studio may carry (identity's own cap) */
+const FONT_SLOTS = 3;
 
-/* ── ONE FONT FIELD: A LABEL AND A DROPDOWN, AND NOTHING ELSE (Leon, Aug 7) ─
- *
- * Typography had grown a card of its own material: two rows of chips, a
- * specimen line under each, a strip of three upload slots, a Reset, and a
- * paragraph explaining which faces could be removed. Six controls and a
- * paragraph to answer two questions — what do headings use, what does body use.
- *
- * It is two dropdowns now. Everything that was scattered around them lives
- * INSIDE the menu, where it is only visible to someone already choosing a font:
- * Bauhly's four faces (no remove — they ship with the product), then the
- * studio's own with a ✕ each, then Add a font, which is simply absent at three
- * because an option that cannot be taken is a control that only disappoints. */
-function FontField({ slot, current, faces, canAdd, onPick, onDrop, onAdd }) {
-  const [open, setOpen] = useState(false);
-  const chosen = faces.find((f) => f.id === current) || faces[0];
-  return (
-    <div className="ls-type">
-      <span className="ls-type__label">{slot.label}</span>
-      <span className="ls-type__wrap">
-        <button
-          type="button"
-          className="ls-type__btn"
-          aria-haspopup="listbox"
-          aria-expanded={open}
-          onClick={() => setOpen((v) => !v)}
-        >
-          <span style={{ fontFamily: chosen.stack }}>{chosen.label}</span>
-          <Icon name="chevron-down" size={15} strokeWidth={2.25} />
-        </button>
-        {open && (
-          <>
-            <span className="ls-scrim" onClick={() => setOpen(false)} />
-            <span className="pe-menu ls-fontmenu" role="listbox" aria-label={slot.label}>
-              {faces.map((f, i) => (
-                <span className="ls-fontmenu__row" key={f.id}>
-                  {/* the first of the studio's own opens a rule above it, so the
-                      four that ship and the ones they added read as two groups
-                      without a heading over either */}
-                  {f.own && !faces[i - 1]?.own && <span className="pe-menu__sep" />}
-                  <button
-                    type="button"
-                    className={`ls-fontmenu__opt ${f.id === current ? 'is-on' : ''}`}
-                    role="option"
-                    aria-selected={f.id === current}
-                    style={{ fontFamily: f.stack }}
-                    onClick={() => { onPick(f.id); setOpen(false); }}
-                  >
-                    {f.label}
-                    {f.id === current && <Icon name="check" size={14} strokeWidth={2.5} />}
-                  </button>
-                  {f.own && (
-                    <button
-                      type="button"
-                      className="ls-fontmenu__x"
-                      aria-label={`Remove ${f.label}`}
-                      onClick={() => onDrop(f.id)}
-                    >
-                      <Icon name="x" size={12} strokeWidth={2.5} />
-                    </button>
-                  )}
-                </span>
-              ))}
-              {canAdd && (
-                <>
-                  <span className="pe-menu__sep" />
-                  <label className="ls-fontmenu__add">
-                    <Icon name="plus" size={14} strokeWidth={2.5} />
-                    Add a font
-                    <input
-                      type="file"
-                      accept=".woff,.woff2,.ttf,.otf,font/*"
-                      hidden
-                      onChange={(e) => { const file = e.target.files?.[0]; e.target.value = ''; setOpen(false); onAdd(file); }}
-                    />
-                  </label>
-                </>
-              )}
-            </span>
-          </>
-        )}
-      </span>
-    </div>
-  );
-}
+/* short corner codes so the position cards can draw the right corner
+   (`.bk-position--tl` …); the live ids are the long form */
+const POS_CODE = { 'top-left': 'tl', 'top-right': 'tr', 'bottom-left': 'bl', 'bottom-right': 'br' };
 
-/* ── one of the four previews ──────────────────────────────────────────────
- * Real library compositions in the library's own CSS, so the page shows what the
- * library draws rather than a drawing of it. */
+/* ── LIVE PREVIEW ──────────────────────────────────────────────────────────
+ * Four real library compositions in the library's own CSS, so the page shows
+ * what the library draws rather than a drawing of it. */
+const PREVIEWS = [
+  { eyebrow: 'Hook', kind: 'statement', tone: 'ground', art: { eyebrow: 'Prinsengracht', head: 'Beautiful projects aren’t enough', accent: 'anymore.' } },
+  { eyebrow: 'Explanation', kind: 'steps', tone: 'ground', art: { head: '3 things to get right in your next project.', items: ['The light', 'The floor', 'The one wall'] } },
+  { eyebrow: 'Evidence', kind: 'statement', tone: 'ground', art: { eyebrow: 'Case study', head: 'From empty space to a home that', accent: 'feels like them.' } },
+  { eyebrow: 'CTA', kind: 'stat', tone: 'accent', art: { big: '70%', body: 'of clients choose designers who show their process.' } },
+];
+
 function Preview({ eyebrow, kind, tone, art, logos, logoPosition }) {
   const mark = markForTone(logos, tone);
   return (
-    <div className="ls-prev">
-      <span className="ls-prev__label">{eyebrow}</span>
+    <div className="bk-prev">
+      <span className="bk-prev__label">{eyebrow}</span>
       <span className={`vl-a vl-a--${kind} vl-a--${tone}`}>
         {kind === 'stat' ? (
           <>
@@ -234,473 +85,430 @@ function Preview({ eyebrow, kind, tone, art, logos, logoPosition }) {
   );
 }
 
-function LogoSlot({ slot, file, busy, onAdd, onReplace, onRemove }) {
-  const [menu, setMenu] = useState(false);
-  const filled = Boolean(file?.url);
+/* ── THEME SETS ────────────────────────────────────────────────────────────
+ * One set → the three colours expanded, full width, no carousel. Two or more →
+ * a compact row per set with its swatches, name, the Default mark and a ⋯. */
+const PAGE = 3;
+const roleHex = (theme, roleId) => theme.palette[roleId] || DEFAULT_PALETTE[roleId];
+
+function Swatches({ theme, onPick }) {
+  const refs = useRef({});
   return (
-    <div className="ls-logo">
-      <div className={`ls-logo__tile${slot.inverted ? ' is-inverted' : ''}${filled ? ' is-filled' : ''}${busy ? ' is-busy' : ''}`}>
-        {filled ? (
-          <img className="ls-logo__img" src={file.url} alt="" />
-        ) : (
-          <>
-            <span className="ls-logo__ex">Example</span>
-            <span className={`ls-logo__ghost${slot.kind === 'mark' ? ' is-mark' : ''}`} aria-hidden="true">
-              {slot.kind === 'mark' ? 'B.' : 'Bauhly'}
-            </span>
-            <label className="ls-logo__add">
-              <Icon name="plus" size={13} strokeWidth={2.5} />
-              Add image
-              <input
-                type="file"
-                accept="image/png,image/svg+xml,image/webp,image/jpeg,image/*"
-                hidden
-                onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; onAdd(f); }}
-              />
-            </label>
-          </>
-        )}
-        {filled && (
-          <span className="ls-logo__morewrap">
-            <button
-              type="button"
-              className="ls-logo__more"
-              aria-haspopup="menu"
-              aria-expanded={menu}
-              aria-label={`${slot.label} options`}
-              onClick={() => setMenu((v) => !v)}
-            >
-              <Icon name="more" size={16} strokeWidth={2} />
-            </button>
-            {menu && (
-              <>
-                <span className="ls-scrim" onClick={() => setMenu(false)} />
-                <span className="pe-menu ls-logo__menu" role="menu">
-                  <label className="ls-logo__opt" role="menuitem">
-                    Replace
-                    <input
-                      type="file"
-                      accept="image/png,image/svg+xml,image/webp,image/jpeg,image/*"
-                      hidden
-                      onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; setMenu(false); onReplace(f); }}
-                    />
-                  </label>
-                  <button type="button" className="pe-menu__del" role="menuitem" onClick={() => { setMenu(false); onRemove(); }}>
-                    Remove
-                  </button>
-                </span>
-              </>
-            )}
-          </span>
-        )}
-      </div>
-      <span className="ls-logo__label">{slot.label}</span>
-    </div>
-  );
-}
-
-const PREVIEWS = [
-  { eyebrow: 'Hook', kind: 'statement', tone: 'ground', art: { eyebrow: 'Prinsengracht', head: 'Beautiful projects aren’t enough', accent: 'anymore.' } },
-  { eyebrow: 'Educational', kind: 'steps', tone: 'ground', art: { head: '3 things to get right in your next project.', items: ['The light', 'The floor', 'The one wall'] } },
-  { eyebrow: 'Client story', kind: 'statement', tone: 'ground', art: { eyebrow: 'Case study', head: 'From empty space to a home that', accent: 'feels like them.' } },
-  { eyebrow: 'Result', kind: 'stat', tone: 'accent', art: { big: '70%', body: 'of clients choose designers who show their process.' } },
-];
-
-/* how many fonts of their own a studio may carry. Three is the brief's number
-   and it is also the honest one: a visual identity that needs a fourth face is
-   not an identity any more. */
-const FONT_SLOTS = 3;
-
-/* the luminance and saturation sums this page used to carry moved into
-   `lib/refanalysis.js` with the rest of the reading — one implementation, used
-   by this page and by the per-category Add flow (Leon, Aug 7) */
-
-/* ── WHAT A MOOD IMAGE CAN BE (Leon, Aug 7 — decision 557, revising 554) ──
- *
- * Visual Mood used to answer this in prose: a sentence naming interiors,
- * website screenshots, Instagram posts, Pinterest saves, editorial spreads,
- * materials — and two more paragraphs about what the analysis reads off them.
- * It was the most-written and least-read part of the page.
- *
- * 554 replaced it with six DRAWN tiles — a browser window, a post, a pinboard,
- * a spread. They were legible and they were wrong: a diagram of a layout is a
- * picture of a STRUCTURE, and this section is not asking for structures. It is
- * asking what a room should FEEL like. The tiles read as layout references,
- * which is the one thing a mood image is not.
- *
- * Photographs instead, of the things a studio's own mood folder is made of:
- * a room, materials laid out, a floor with the light across it, light on
- * plaster, a niche with one object in it, a detail. 554 avoided photographs
- * because the product's own stills, on a page where every other picture is the
- * studio's, could read as content already there (546). The wash is what answers
- * that — every tile takes the same neutral overlay and the same reduced
- * saturation, so the row reads as one quiet band of examples rather than as six
- * pictures, and no single one of them can become the thing you look at.
- *
- * Nothing here is pressable and nothing here is data: `aria-hidden`, and the
- * title and the one sentence under it carry the meaning on their own. */
-const MOOD_EXAMPLES = [
-  { id: 'room', src: '/assets/photo/ph/ph-sat.jpg' },          /* an interior */
-  { id: 'materials', src: '/assets/photo/ph/ph-mon-4.jpg' },   /* oak, stone, linen, plaster */
-  { id: 'floor', src: '/assets/photo/ph/ph-tue-2.jpg' },       /* a texture, with the window on it */
-  { id: 'light', src: '/assets/photo/ph/ph-mon-6.jpg' },       /* light across a wall */
-  { id: 'styling', src: '/assets/photo/ph/ph-tue-4.jpg' },     /* a niche, one vase in it */
-  { id: 'detail', src: '/assets/photo/canal-house-02-detail-ash.jpg' }, /* a detail */
-];
-
-function MoodExamples() {
-  return (
-    <span className="ls-moodex" aria-hidden="true">
-      {MOOD_EXAMPLES.map((e) => (
-        <span key={e.id} className="ls-moodex__t">
-          <img src={e.src} alt="" loading="lazy" />
-        </span>
-      ))}
+    <span className="bk-swatches bk-swatches--md">
+      {COLOUR_ROLES.map((r) => {
+        const hex = roleHex(theme, r.id);
+        return (
+          <button
+            key={r.id}
+            ref={(el) => { refs.current[r.id] = el; }}
+            type="button"
+            className="bk-swatch bk-swatch--btn"
+            style={{ background: hex }}
+            aria-label={`${r.label} — ${hex.toUpperCase()}`}
+            title={`${r.label} · ${hex.toUpperCase()}`}
+            onClick={(e) => { e.stopPropagation(); onPick(r, refs.current[r.id]); }}
+          />
+        );
+      })}
     </span>
   );
 }
 
-export default function LibrarySettings() {
+/* the three colours as big cards — the single-set view */
+function ColorRoles({ theme, onHex, size = 'md' }) {
+  const [colour, setColour] = useState(null); // { role, anchor }
+  const refs = useRef({});
+  return (
+    <div className={`bk-roles ${size === 'lg' ? 'bk-roles--lg' : ''}`}>
+      {COLOUR_ROLES.map((r) => {
+        const hex = roleHex(theme, r.id);
+        return (
+          <div className="bk-role" key={r.id}>
+            <button
+              ref={(el) => { refs.current[r.id] = el; }}
+              type="button"
+              className="bk-swatch bk-swatch--card"
+              style={{ background: hex }}
+              aria-label={`${r.label} — ${hex.toUpperCase()}`}
+              onClick={() => setColour({ role: r, anchor: refs.current[r.id] })}
+            />
+            <b>{r.label}</b>
+            <em>{hex.toUpperCase()}</em>
+            <span className="bk-role__use">{r.use}</span>
+          </div>
+        );
+      })}
+      {colour && (
+        <ColourPopover
+          anchor={colour.anchor}
+          role={colour.role}
+          value={roleHex(theme, colour.role.id)}
+          onClose={() => setColour(null)}
+          onDone={(hex) => { onHex(colour.role.id, hex); setColour(null); }}
+        />
+      )}
+    </div>
+  );
+}
+
+function ThemeSets({ themes, activeThemeId, onHex, onRename, onDefault, onDuplicate, onDelete, onAdd }) {
+  const { page, pages, setPage, slice } = usePager(themes.length, PAGE);
+  const [colour, setColour] = useState(null); // { themeId, role, anchor }
+  const [renaming, setRenaming] = useState(null); // theme id
+  const rowRefs = useRef({});
+  const singleRef = useRef(null);
+  const single = themes.length === 1;
+  const rows = slice(themes);
+  const renamingTheme = renaming ? themes.find((t) => t.id === renaming) : null;
+  const colourTheme = colour ? themes.find((t) => t.id === colour.themeId) : null;
+
+  const act = (t, id) => {
+    if (id === 'rename') setRenaming(t.id);
+    if (id === 'default') onDefault(t.id);
+    if (id === 'duplicate') onDuplicate(t.id);
+    if (id === 'delete') onDelete(t.id);
+  };
+  const add = () => {
+    const id = onAdd();
+    if (id) { setPage(Math.floor(themes.length / PAGE)); setRenaming(id); }
+  };
+
+  return (
+    <SectionCard
+      title="Theme sets"
+      lead="Manage the colour themes Bauhly can use across your content."
+      className="bk-card--themes"
+      action={(
+        <button type="button" className="btn btn--tertiary btn--sm" onClick={add} disabled={themes.length >= THEME_CAP} title={themes.length >= THEME_CAP ? `There is room for ${THEME_CAP} themes` : undefined}>
+          <Icon name="plus" size={15} strokeWidth={2.5} />
+          Add theme
+        </button>
+      )}
+    >
+      {single ? (
+        <div className="bk-single" ref={singleRef}>
+          <div className="bk-single-head">
+            <span className="bk-single-head__name">{themes[0].name}</span>
+            <TileMenu
+              label={`More for ${themes[0].name}`}
+              items={[
+                { id: 'rename', label: 'Rename', icon: 'edit' },
+                { id: 'duplicate', label: 'Duplicate', icon: 'copy' },
+                { id: 'delete', label: 'Delete', icon: 'trash', danger: true, disabled: true },
+              ]}
+              onPick={(id) => act(themes[0], id)}
+            />
+          </div>
+          <ColorRoles theme={themes[0]} onHex={(roleId, hex) => onHex(themes[0].id, roleId, hex)} size="lg" />
+        </div>
+      ) : (
+        <>
+          <ul className="bk-themes">
+            {rows.map((t) => {
+              const isDefault = t.id === activeThemeId;
+              return (
+                <li key={t.id} className="bk-theme" ref={(el) => { rowRefs.current[t.id] = el; }}>
+                  <Swatches theme={t} onPick={(role, anchor) => setColour({ themeId: t.id, role, anchor })} />
+                  <span className="bk-theme__text">
+                    <b>{t.name}{isDefault && <DefaultChip />}</b>
+                    <span>{t.note || 'Colour theme'}</span>
+                  </span>
+                  <TileMenu
+                    label={`More for ${t.name}`}
+                    className="bk-more--row"
+                    items={[
+                      { id: 'rename', label: 'Rename', icon: 'edit' },
+                      { id: 'default', label: 'Set as default', icon: 'check', disabled: isDefault },
+                      { id: 'duplicate', label: 'Duplicate', icon: 'copy' },
+                      { id: 'delete', label: 'Delete', icon: 'trash', danger: true, disabled: themes.length <= 1 },
+                    ]}
+                    onPick={(id) => act(t, id)}
+                  />
+                </li>
+              );
+            })}
+          </ul>
+          <Pager page={page} pages={pages} onPage={setPage} label="Theme sets" />
+        </>
+      )}
+      {colourTheme && (
+        <ColourPopover
+          anchor={colour.anchor}
+          role={colour.role}
+          value={roleHex(colourTheme, colour.role.id)}
+          onClose={() => setColour(null)}
+          onDone={(hex) => { onHex(colour.themeId, colour.role.id, hex); setColour(null); }}
+        />
+      )}
+      {renamingTheme && (
+        <RenamePopover
+          anchor={single ? (() => singleRef.current) : (() => rowRefs.current[renamingTheme.id])}
+          title="Rename theme"
+          name={renamingTheme.name}
+          note={renamingTheme.note || ''}
+          onClose={() => setRenaming(null)}
+          onDone={(v) => { onRename(renamingTheme.id, v); setRenaming(null); }}
+        />
+      )}
+    </SectionCard>
+  );
+}
+
+/* ── TYPOGRAPHY ────────────────────────────────────────────────────────────
+ * Three faces, each a dropdown. Bauhly's own faces ship; the studio's own live
+ * in the menu with a ✕ each, and "Add font" sits on the card's title row. */
+function FontField({ slot, current, faces, onPick, onDrop }) {
+  const [open, setOpen] = useState(false);
+  const [up, setUp] = useState(false);
+  const field = useRef(null);
+  const toggle = () => {
+    setOpen((was) => {
+      if (!was) {
+        const box = field.current?.getBoundingClientRect();
+        const need = Math.min(320, 56 + (faces.length * 44));
+        setUp(Boolean(box) && window.innerHeight - box.bottom < need && box.top > need);
+      }
+      return !was;
+    });
+  };
+  const chosen = faces.find((f) => f.id === current) || faces[0];
+  return (
+    <div className="bk-type">
+      <span className="bk-type__label">{slot.label}</span>
+      <span className={`bk-type__wrap ${up ? 'is-up' : ''}`} ref={field}>
+        <button type="button" className="bk-type__btn" aria-haspopup="listbox" aria-expanded={open} onClick={toggle}>
+          <span style={{ fontFamily: chosen.stack }}>{chosen.label}</span>
+          <Icon name="chevron-down" size={15} strokeWidth={2.25} />
+        </button>
+        {open && (
+          <>
+            <span className="bk-scrim" onClick={() => setOpen(false)} />
+            <span className="pe-menu bk-fontmenu" role="listbox" aria-label={slot.label}>
+              {faces.map((f, i) => (
+                <span className="bk-fontmenu__row" key={f.id}>
+                  {f.own && !faces[i - 1]?.own && <span className="pe-menu__sep" />}
+                  <button type="button" className={`bk-fontmenu__opt ${f.id === current ? 'is-on' : ''}`} role="option" aria-selected={f.id === current} style={{ fontFamily: f.stack }} onClick={() => { onPick(f.id); setOpen(false); }}>
+                    {f.label}
+                    {f.id === current && <Icon name="check" size={14} strokeWidth={2.5} />}
+                  </button>
+                  {f.own && (
+                    <button type="button" className="bk-fontmenu__x" aria-label={`Remove ${f.label}`} onClick={() => onDrop(f.id)}>
+                      <Icon name="x" size={12} strokeWidth={2.5} />
+                    </button>
+                  )}
+                </span>
+              ))}
+            </span>
+          </>
+        )}
+      </span>
+    </div>
+  );
+}
+
+function Typography({ draft, faces, canAdd, onPick, onDrop, onAdd }) {
+  return (
+    <SectionCard
+      title="Typography"
+      lead="Choose the fonts for your brand."
+      className="bk-card--type"
+      action={canAdd ? (
+        <label className="btn btn--tertiary btn--sm">
+          <Icon name="plus" size={15} strokeWidth={2.5} />
+          Add font
+          <input
+            type="file"
+            accept=".woff,.woff2,.ttf,.otf,font/*"
+            hidden
+            onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; onAdd(f); }}
+          />
+        </label>
+      ) : null}
+    >
+      <div className="bk-types">
+        {TYPE_SLOTS.map((slot) => (
+          <FontField
+            key={slot.id}
+            slot={slot}
+            current={slotFace(draft, slot)}
+            faces={faces}
+            onPick={(faceId) => onPick(slot.id, faceId)}
+            onDrop={onDrop}
+          />
+        ))}
+      </div>
+    </SectionCard>
+  );
+}
+
+/* ── LOGOS ─────────────────────────────────────────────────────────────────
+ * The four named slots, always all four: filled slots show the mark, empty
+ * slots stand as pressable examples. Position appears once a real logo exists. */
+function Logos({ logos, logoPosition, busy, onUpload, onRemove, onPosition }) {
+  const pending = useRef(null);
+  const inputRef = useRef(null);
+  const openFor = (slot) => { pending.current = slot.id; inputRef.current?.click(); };
+  const onFile = (f) => { const id = pending.current; pending.current = null; if (id && f) onUpload(id, f); };
+
+  const tiles = (
+    <ul className="bk-tiles bk-tiles--logos">
+      {LOGO_SLOTS.map((slot) => {
+        const file = logos[slot.id];
+        /* the reference labels an inverted slot with a middle dot */
+        const label = slot.label.replace(/ inverted$/, ' · inverted');
+        return file?.url ? (
+          <li key={slot.id} className={`bk-tile bk-tile--logo ${slot.inverted ? 'is-dark' : ''}`}>
+            <span className="bk-tile__art">
+              <span className="bk-tile__slot">{label}</span>
+              <img src={file.url} alt={label} className="bk-asset bk-asset--contain" draggable="false" />
+              <TileMenu
+                label={`More for ${label}`}
+                items={[
+                  { id: 'replace', label: 'Replace', icon: 'refresh' },
+                  { id: 'remove', label: 'Remove', icon: 'trash', danger: true },
+                ]}
+                onPick={(id) => (id === 'replace' ? openFor(slot) : onRemove(slot.id))}
+              />
+            </span>
+          </li>
+        ) : (
+          <ExampleTile key={slot.id} tone={slot.inverted ? 'dark' : 'light'} slot={label} onClick={() => openFor(slot)}>
+            <span className="bk-example__word">{slot.kind === 'mark' ? 'B' : 'bauhly'}<i>.</i></span>
+          </ExampleTile>
+        );
+      })}
+    </ul>
+  );
+
+  const input = (
+    <input
+      ref={inputRef}
+      type="file"
+      accept="image/png,image/svg+xml,image/webp,image/jpeg,image/*"
+      hidden
+      onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; onFile(f); }}
+    />
+  );
+
+  return (
+    <SectionCard title="Logos" lead="Add your full logo and symbol, in regular and inverted versions." className="bk-card--logos">
+      {input}
+      {/* The two-column layout (tiles on the left, position on the right) is
+          always shown so the section keeps the reference's proportions whether
+          or not a logo has been uploaded — empty slots stay compact instead of
+          stretching to the full card width. */}
+      <div className="bk-logos">
+        {tiles}
+        <div className="bk-logos__pos" role="radiogroup" aria-label="Logo position">
+          <span className="bk-logos__poslabel">Logo position</span>
+          <div className="bk-positions">
+            {LOGO_POSITIONS.map((p) => {
+              const on = logoPosition === p.id;
+              return (
+                <label key={p.id} className={`bk-position bk-position--${POS_CODE[p.id] || 'tl'} ${on ? 'is-on' : ''}`}>
+                  <input type="radio" name="bk-logo-position" value={p.id} checked={on} onChange={() => onPosition(p.id)} />
+                  <span className="bk-position__card" aria-hidden="true"><i /></span>
+                  <span className="bk-position__name">{p.label}</span>
+                </label>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+    </SectionCard>
+  );
+}
+
+export default function BrandKit() {
   const s = useStore();
-  const nav = useNavigate();
-  const accountHandle = getActiveHandle();
   const saved = useMemo(() => identityOf(s), [s]);
 
-  /* THE REFERENCES ARE PART OF THE DRAFT (Leon, Aug 7). They used to write
-     straight to the store, so removing one was instant and un-undoable while
-     every other edit on the page waited for Save. One page, one rule: nothing
-     here is real until Save changes. */
   const [draft, setDraft] = useState(() => ({
     themes: saved.themes.map((t) => ({ ...t, palette: { ...t.palette } })),
     activeThemeId: saved.activeThemeId,
     type: JSON.parse(JSON.stringify(saved.type || {})),
     fonts: [...(saved.fonts || [])],
-    refs: [...(s.visualRefs || [])],
-    /* what has already been read off each picture — see lib/refanalysis.js */
-    analysis: { ...(s.refAnalysis || {}) },
     logos: { ...(s.brandLogos || {}) },
     logoPosition: saved.logoPosition,
   }));
-  const [editingId, setEditingId] = useState(() => saved.activeThemeId);
-  const [picking, setPicking] = useState(null);
   const [toast, setToast] = useState(null);
-  const [confirming, setConfirming] = useState(false);
-  const [leaving, setLeaving] = useState(null); // where the studio tried to go
+  const note = (text) => setToast({ kind: 'note', text });
 
-  const draftIdent = identityOf({ libraryEdits: draft });
-  const draftSig = JSON.stringify({
-    themes: draftIdent.themes,
-    activeThemeId: draftIdent.activeThemeId,
-    type: draftIdent.type,
-    fonts: (draftIdent.fonts || []).map((f) => ({ id: f.id, name: f.name })),
-    refIds: (draft.refs || []).map((r) => r.id || r.key).filter(Boolean),
-    analysis: draft.analysis || {},
+  /* ── AUTOSAVE (Sep 2026) ────────────────────────────────────────────────
+   * Every identity change (themes, palette, type, fonts, logo position) is
+   * written through to `libraryEdits` — the blob the whole app paints from —
+   * shortly after it settles. Debounced so a colour drag does not spam the
+   * backend; flushed on unmount so the last edit is never lost. Logos and mood
+   * images write through on their own the moment they land (S3). */
+  const identSig = JSON.stringify({
+    themes: draft.themes,
+    activeThemeId: draft.activeThemeId,
+    type: draft.type,
+    fonts: (draft.fonts || []).map((f) => ({ id: f.id, name: f.name })),
     logoPosition: draft.logoPosition,
   });
-  const savedSig = JSON.stringify({
-    themes: saved.themes,
-    activeThemeId: saved.activeThemeId,
-    type: saved.type,
-    fonts: (saved.fonts || []).map((f) => ({ id: f.id, name: f.name })),
-    refIds: (s.visualRefs || []).map((r) => r.id || r.key).filter(Boolean),
-    analysis: s.refAnalysis || {},
-    logoPosition: saved.logoPosition,
-  });
-  const dirty = draftSig !== savedSig;
-
-  /* THE PENDING NOTE COMES BACK (Leon, Aug 7). It is dismissible, because a note
-     that cannot be closed is a banner. But dismissing it must not be a way to
-     lose the only route to applying — so it is remembered against the draft it
-     was dismissed ON, and the next edit brings it back. */
-  const [hushed, setHushed] = useState(null);
-
-  /* ── THE PHONE COMMITS WITH A BUTTON, NOT A NOTE (Leon, Aug 7) ────────────
-   *
-   * On a desktop there is room beside the page for a standing note that says
-   * "not applied yet" and carries the action. On a phone that note is a bar
-   * across the bottom of a screen already carrying the tab bar, sitting over
-   * the thing being edited for as long as the studio keeps editing.
-   *
-   * So the phone gets what a phone expects: **Save** in the header, where the
-   * page's other two controls already are, applying directly with a brief
-   * confirmation. The note is suppressed there entirely — the button IS the
-   * note, and having both would be the same message twice.
-   *
-   * It is one commit either way, the same function, with the same guard on
-   * leaving. Only the affordance differs, because the two screens do. */
-  const [phone, setPhone] = useState(() => window.matchMedia('(max-width: 800px)').matches);
+  /* the last identity actually written, so an unchanged commit (a mount, a
+     StrictMode re-run, a store hydrate) never triggers a needless backend PUT */
+  const lastSaved = useRef(null);
+  if (lastSaved.current === null) lastSaved.current = JSON.stringify(commitIdentity(draft));
+  const pendingWrite = useRef(null);
   useEffect(() => {
-    const mq = window.matchMedia('(max-width: 800px)');
-    const on = (e) => setPhone(e.matches);
-    mq.addEventListener('change', on);
-    return () => mq.removeEventListener('change', on);
+    const next = commitIdentity(draft);
+    const sig = JSON.stringify(next);
+    if (sig === lastSaved.current) { pendingWrite.current = null; return undefined; }
+    pendingWrite.current = { next, sig };
+    const t = window.setTimeout(() => {
+      if (!pendingWrite.current) return;
+      setState({ libraryEdits: pendingWrite.current.next });
+      lastSaved.current = pendingWrite.current.sig;
+      pendingWrite.current = null;
+    }, 300);
+    return () => window.clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [identSig]);
+  /* flush a pending edit if the studio leaves before the debounce fires */
+  useEffect(() => () => {
+    if (pendingWrite.current) { setState({ libraryEdits: pendingWrite.current.next }); lastSaved.current = pendingWrite.current.sig; }
   }, []);
 
-  const pending = dirty && !phone && draftSig !== hushed;
+  const previewVars = paintOf(draft);
 
-  /* ── NOTHING IS DISCARDED WITHOUT BEING ASKED (Leon, Aug 7) ──────────────
-   *
-   * A draft can be lost three ways: this page's own Back, a link in the app's
-   * sidebar, and the browser (a reload, a closed tab). All three are covered.
-   *
-   * The sidebar is the awkward one — this app mounts a `BrowserRouter`, not a
-   * data router, so `useBlocker` does not exist. A capture-phase listener on the
-   * document catches the anchor BEFORE the router sees it, which is the same
-   * moment `useBlocker` would have fired. */
-  useEffect(() => {
-    if (!dirty) return undefined;
-    const onClick = (e) => {
-      const a = e.target.closest?.('a[href]');
-      if (!a || a.target === '_blank' || e.metaKey || e.ctrlKey) return;
-      const to = a.getAttribute('href');
-      if (!to || to.startsWith('http') || to === window.location.pathname) return;
-      e.preventDefault();
-      e.stopPropagation();
-      setLeaving(to);
-    };
-    const onUnload = (e) => { e.preventDefault(); e.returnValue = ''; };
-    document.addEventListener('click', onClick, true);
-    window.addEventListener('beforeunload', onUnload);
-    return () => {
-      document.removeEventListener('click', onClick, true);
-      window.removeEventListener('beforeunload', onUnload);
-    };
-  }, [dirty]);
-
-  const goBack = () => (dirty ? setLeaving('/dashboard/settings') : nav('/dashboard/settings'));
-  const discard = () => {
-    const to = leaving;
-    setLeaving(null);
-    setEditingId(saved.activeThemeId);
-    setDraft({
-      themes: saved.themes.map((t) => ({ ...t, palette: { ...t.palette } })),
-      activeThemeId: saved.activeThemeId,
-      type: { ...saved.type },
-      fonts: [...(saved.fonts || [])],
-      refs: [...(s.visualRefs || [])],
-      analysis: { ...(s.refAnalysis || {}) },
-      logos: { ...(s.brandLogos || {}) },
-      logoPosition: saved.logoPosition,
-    });
-    nav(to);
-  };
-
-  /* ── the palette (the theme being edited — not necessarily the default) ── */
-  const editingTheme = draft.themes.find((t) => t.id === editingId) || activeThemeOf(draft);
-  const roleValue = (role) => editingTheme.palette[role] || DEFAULT_PALETTE[role];
-  const setRole = (role, hex) => setDraft((d) => ({
-    ...d,
-    themes: d.themes.map((t) => (
-      t.id === editingId ? { ...t, palette: { ...t.palette, [role]: hex } } : t
-    )),
+  /* ── themes ── */
+  const setThemeHex = (themeId, roleId, hex) => setDraft((d) => ({
+    ...d, themes: d.themes.map((t) => (t.id === themeId ? { ...t, palette: { ...t.palette, [roleId]: hex } } : t)),
   }));
-  const setDefaultTheme = (id) => {
-    if (!draft.themes.some((t) => t.id === id)) return;
-    setPicking(null);
-    setEditingId(id);
-    const next = { ...draft, activeThemeId: id };
-    setDraft(next);
-    /* write through immediately so Visual Library paints this theme now.
-       Set default used to live only in the draft, so the library kept the
-       previous default until Update Library — and selecting a theme never
-       changed the default at all. */
-    setState({ libraryEdits: commitIdentity(next) });
-  };
-  const selectTheme = setDefaultTheme;
-  const renameTheme = (id, name) => setDraft((d) => ({
-    ...d,
-    themes: d.themes.map((t) => (t.id === id ? { ...t, name } : t)),
+  const renameThemeFull = (id, { name, note }) => setDraft((d) => ({
+    ...d, themes: d.themes.map((t) => (t.id === id ? { ...t, name: name || t.name, note } : t)),
   }));
+  const setDefaultTheme = (id) => setDraft((d) => (d.themes.some((t) => t.id === id) ? { ...d, activeThemeId: id } : d));
+  const duplicateTheme = (id) => setDraft((d) => {
+    const t = d.themes.find((x) => x.id === id);
+    if (!t) return d;
+    const copy = { id: newThemeId(), name: `${t.name} copy`.slice(0, 40), note: t.note || '', palette: { ...t.palette } };
+    const at = d.themes.findIndex((x) => x.id === id);
+    return { ...d, themes: [...d.themes.slice(0, at + 1), copy, ...d.themes.slice(at + 1)] };
+  });
+  const dropTheme = (id) => setDraft((d) => {
+    if (d.themes.length <= 1) return d;
+    const themes = d.themes.filter((t) => t.id !== id);
+    const activeThemeId = d.activeThemeId === id ? themes[0].id : d.activeThemeId;
+    return { ...d, themes, activeThemeId };
+  });
+  /* returns the new theme's id so Theme sets can open Rename on it */
   const addTheme = () => {
     if (draft.themes.length >= THEME_CAP) {
       setToast({ kind: 'note', text: `There is room for ${THEME_CAP} themes — remove one to add another.` });
-      return;
+      return null;
     }
+    const base = activeThemeOf(draft);
     const id = newThemeId();
-    const next = { id, name: nextThemeName(draft.themes), palette: { ...editingTheme.palette } };
-    setPicking(null);
-    setEditingId(id);
-    setDraft((d) => ({ ...d, themes: [...d.themes, next] }));
-  };
-  const dropTheme = (id) => {
-    if (draft.themes.length <= 1) return;
-    setPicking(null);
-    setDraft((d) => {
-      const themes = d.themes.filter((t) => t.id !== id);
-      const activeThemeId = d.activeThemeId === id ? themes[0].id : d.activeThemeId;
-      return { ...d, themes, activeThemeId };
-    });
-    setEditingId((cur) => {
-      if (cur !== id) return cur;
-      const next = draft.themes.find((t) => t.id !== id);
-      return next?.id || draft.activeThemeId;
-    });
+    setDraft((d) => ({ ...d, themes: [...d.themes, { id, name: nextThemeName(d.themes), note: '', palette: { ...base.palette } }] }));
+    return id;
   };
 
-  /* ── type: three slots, each a face and a weight, edited in place ── */
-  const setSlot = (slotId, patch) => setDraft((d) => ({
-    ...d, type: { ...d.type, [slotId]: { ...(d.type[slotId] || {}), ...patch } },
-  }));
-
-  /* the preview follows the theme being edited, so a non-default theme still
-     shows its own colours while you work. The library keeps the default until
-     Update Library. */
-  const previewVars = paintOf({ ...draft, activeThemeId: editingId });
-  const setLogoPosition = (id) => setDraft((d) => ({ ...d, logoPosition: id }));
-  const [logoBusy, setLogoBusy] = useState(null);
-  const logosRef = useRef(draft.logos);
-  useEffect(() => { logosRef.current = draft.logos; }, [draft.logos]);
-  const setLogos = (next) => {
-    logosRef.current = next;
-    setDraft((d) => ({ ...d, logos: next }));
-    setState({ brandLogos: next });
-  };
-  const addLogo = async (slotId, f) => {
-    if (!f) return;
-    const localUrl = URL.createObjectURL(f);
-    const prev = logosRef.current[slotId];
-    setLogos({ ...logosRef.current, [slotId]: { ...(prev || {}), url: localUrl, title: f.name, uploading: true } });
-    setLogoBusy(slotId);
-    try {
-      const next = await uploadLogo(slotId, f);
-      setLogos({ ...next, [slotId]: { ...(next[slotId] || {}), url: localUrl } });
-    } catch (err) {
-      const revert = { ...logosRef.current };
-      if (prev) revert[slotId] = prev;
-      else delete revert[slotId];
-      setLogos(revert);
-      setToast({ kind: 'note', text: 'Bauhly could not save that logo. Please try again.' });
-    } finally {
-      setLogoBusy(null);
-    }
-  };
-  const dropLogo = (slotId) => {
-    const next = { ...logosRef.current };
-    delete next[slotId];
-    setLogos(next);
-    deleteLogo(slotId).catch(() => {});
-  };
-
-  /* ── references (Visual Mood) ───────────────────────────────────────────────
-     Stored in S3 through the backend (see api/visualBrand): a picture uploads on
-     add and its record is deleted on remove, so the mood board survives a reload
-     rather than dying with the session's object URLs. `setRefs` keeps the local
-     draft and the store in step, so a mood change never reads as an unsaved
-     palette edit. `refsRef` gives the async handlers the latest list without a
-     stale closure. */
-  const refs = draft.refs;
-  const refsRef = useRef(draft.refs);
-  useEffect(() => { refsRef.current = draft.refs; }, [draft.refs]);
-  const setRefs = (next) => {
-    refsRef.current = next;
-    setDraft((d) => ({ ...d, refs: next }));
-    setState({ visualRefs: next });
-  };
-  /* the ones Bauhly has never read — the only ones any analysis will touch */
-  const pendingRefs = pendingOf(refs, draft.analysis);
-
-  /* load the saved mood images once, with fresh presigned URLs. Ids are the S3
-     key, so a reading kept per id (refAnalysis) still lines up after a reload. */
-  useEffect(() => {
-    let alive = true;
-    listMoodImages()
-      .then((imgs) => {
-        if (!alive) return;
-        const loaded = imgs
-          .filter((m) => m.url)
-          .map((m) => ({ id: m.key, key: m.key, kind: 'reference', url: m.url, title: m.title || '', source: 'added', addedAt: m.addedAt || Date.now() }));
-        setRefs(loaded);
-      })
-      .catch(() => { /* offline / no S3 — keep whatever the store had */ });
-    listLogos()
-      .then((slots) => {
-        if (!alive) return;
-        setLogos(slots);
-      })
-      .catch(() => { /* same — keep whatever the store had */ });
-    return () => { alive = false; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  const addRef = async (f) => {
-    if (!f) return;
-    const localUrl = URL.createObjectURL(f);
-    const tmpId = `tmp-${Date.now()}`;
-    /* show it straight away, marked uploading */
-    setRefs([
-      { id: tmpId, kind: 'reference', url: localUrl, title: f.name, source: 'added', addedAt: Date.now(), uploading: true },
-      ...refsRef.current,
-    ]);
-    try {
-      const [saved] = await uploadMoodImages([f]);
-      if (!saved) throw new Error('no result');
-      /* keep the local object URL for this session — same-origin, instant, and
-         safe for the palette reader; the S3 key is what makes it persist */
-      const finalRef = { id: saved.key, key: saved.key, kind: 'reference', url: localUrl, title: saved.title || f.name, source: 'added', addedAt: saved.addedAt || Date.now() };
-      setRefs(refsRef.current.map((r) => (r.id === tmpId ? finalRef : r)));
-    } catch (err) {
-      setRefs(refsRef.current.filter((r) => r.id !== tmpId));
-      setToast({ kind: 'note', text: 'Bauhly could not save that image. Please try again.' });
-    }
-  };
-  /* A REMOVED PICTURE TAKES ITS OWN READING WITH IT, AND NOTHING ELSE'S
-     (Leon, Aug 7). `forgetRef` drops that one record; every other picture keeps
-     what was read off it, so the palette shifts by exactly the one reference
-     that left. The picture also leaves S3. */
-  const dropRef = (id) => {
-    const gone = refsRef.current.find((r) => r.id === id);
-    setRefs(refsRef.current.filter((r) => r.id !== id));
-    setDraft((d) => ({ ...d, analysis: forgetRef(d.analysis, id) }));
-    if (gone && gone.key) deleteMoodImage(gone.key).catch(() => {});
-  };
-
-  /* ── THE VIEWER REPLACED SELECT MODE (Leon, Aug 7) ──────────────────────
-   *
-   * The phone had a Select mode — tap Select, tap the ones to remove, tap
-   * Remove — which is three steps and a mode to be in, for the one thing a
-   * studio does to a reference after adding it. Tapping a picture now opens the
-   * picture, at the size a picture deserves, with the only two actions there
-   * are: Delete, and Replace.
-   *
-   * REPLACING FORGETS WHAT WAS READ. A different photograph is a different
-   * palette, so the slot's reading is dropped with the old file and the
-   * reference goes back to "Not read yet". Keeping the old record against a new
-   * picture would be the product claiming to have read something it has not. */
-  const [viewing, setViewing] = useState(null);
-  const replaceRef = async (id, f) => {
-    if (!f) return;
-    const old = refsRef.current.find((r) => r.id === id);
-    const localUrl = URL.createObjectURL(f);
-    /* show the new picture in the slot straight away; its reading is dropped */
-    setRefs(refsRef.current.map((r) => (r.id === id
-      ? { ...r, url: localUrl, title: f.name, addedAt: Date.now(), uploading: true }
-      : r)));
-    setDraft((d) => ({ ...d, analysis: forgetRef(d.analysis, id) }));
-    try {
-      const [saved] = await uploadMoodImages([f]);
-      if (!saved) throw new Error('no result');
-      setRefs(refsRef.current.map((r) => (r.id === id
-        ? { id: saved.key, key: saved.key, kind: 'reference', url: localUrl, title: saved.title || f.name, source: 'added', addedAt: saved.addedAt || Date.now() }
-        : r)));
-      setViewing((v) => (v === id ? saved.key : v));
-      if (old && old.key && old.key !== saved.key) deleteMoodImage(old.key).catch(() => {});
-    } catch (err) {
-      setToast({ kind: 'note', text: 'Bauhly could not save that image. Please try again.' });
-    }
-  };
-  /* the viewer follows the draft, so a replaced picture updates in place and a
-     deleted one closes it */
-  const viewed = viewing ? draft.refs.find((r) => r.id === viewing) : null;
-  useEffect(() => { if (viewing && !viewed) setViewing(null); }, [viewing, viewed]);
-  useEffect(() => {
-    if (!viewed) return undefined;
-    const onKey = (e) => { if (e.key === 'Escape') setViewing(null); };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [viewed]);
-
-  /* ── the studio's own faces ── */
+  /* ── type / fonts ── */
   const faces = facesWith(draft.fonts);
+  const setSlot = (slotId, faceId) => setDraft((d) => ({ ...d, type: { ...d.type, [slotId]: { ...(d.type[slotId] || {}), face: faceId } } }));
   const addFont = (f) => {
     if (!f) return;
     if (draft.fonts.length >= FONT_SLOTS) {
@@ -717,95 +525,55 @@ export default function LibrarySettings() {
   const dropFont = (id) => setDraft((d) => ({
     ...d,
     fonts: d.fonts.filter((f) => f.id !== id),
-    /* a slot pointing at a face that no longer exists falls back to the default
-       rather than drawing whatever the browser guesses */
     type: Object.fromEntries(Object.entries(d.type).filter(([, v]) => v.face !== id)),
   }));
 
-  /* ── READING THE PICTURES IS AN EDIT, NOT A COMMIT (Leon, Aug 7) ─────────
-   *
-   * `paletteOf` samples the studio's references and the colours that come out
-   * become the palette. That used to happen INSIDE "Update Visual Library",
-   * which meant applying could silently replace an accent chosen by hand a
-   * moment earlier. It is its own action now, it writes to the DRAFT, and the
-   * preview shows what it found before anything reaches the library. */
-  const busyRef = useRef(false);
-  const readReferences = async () => {
-    if (busyRef.current) return;
-    if (!pendingRefs.length) {
-      setToast({
-        kind: 'note',
-        text: refs.length
-          ? 'Every mood image has been read already — add a new one and Bauhly will read that one.'
-          : 'Add some mood images first — there is nothing to read a palette from yet.',
-      });
-      return;
+  /* ── logos (S3) ── */
+  const [logoBusy, setLogoBusy] = useState(null);
+  const logosRef = useRef(draft.logos);
+  useEffect(() => { logosRef.current = draft.logos; }, [draft.logos]);
+  const setLogos = (next) => {
+    logosRef.current = next;
+    setDraft((d) => ({ ...d, logos: next }));
+    setState({ brandLogos: next });
+  };
+  const setLogoPosition = (id) => setDraft((d) => ({ ...d, logoPosition: id }));
+  const addLogo = async (slotId, f) => {
+    if (!f) return;
+    const localUrl = URL.createObjectURL(f);
+    const prev = logosRef.current[slotId];
+    setLogos({ ...logosRef.current, [slotId]: { ...(prev || {}), url: localUrl, title: f.name, uploading: true } });
+    setLogoBusy(slotId);
+    try {
+      const next = await uploadLogo(slotId, f);
+      setLogos({ ...next, [slotId]: { ...(next[slotId] || {}), url: localUrl } });
+    } catch (err) {
+      const revert = { ...logosRef.current };
+      if (prev) revert[slotId] = prev; else delete revert[slotId];
+      setLogos(revert);
+      setToast({ kind: 'note', text: 'Bauhly could not save that logo. Please try again.' });
+    } finally {
+      setLogoBusy(null);
     }
-    busyRef.current = true;
-    const n = pendingRefs.length;
-    setToast({ kind: 'busy', text: `Reading ${n} new mood image${n === 1 ? '' : 's'}…` });
-    /* ONLY THE NEW ONES (Leon, Aug 7). `analyseNew` skips every picture that
-       already has a record, so this decodes exactly what arrived since the last
-       time and nothing else. The palette is then merged off ALL the records —
-       what the old pictures taught is preserved rather than recomputed. */
-    const { analysis, read, failed } = await analyseNew(refs, draft.analysis, Date.now());
-    busyRef.current = false;
-    if (!read) {
-      setToast({ kind: 'note', text: `Bauhly could not read ${failed === 1 ? 'that reference' : 'those references'} — your colours are unchanged.` });
-      return;
-    }
-    setDraft((d) => {
-      const current = activeThemeOf(d).palette;
-      const next = paletteFromAnalysis(analysis, current.accent || DEFAULT_PALETTE.accent);
-      if (!next) return { ...d, analysis };
-      const palette = { ...next, accent: next.accent || current.accent || DEFAULT_PALETTE.accent };
-      return {
-        ...d,
-        analysis,
-        themes: d.themes.map((t) => (t.id === editingId ? { ...t, palette } : t)),
-      };
-    });
-    const kept = Object.keys(draft.analysis).length;
-    setToast({
-      kind: 'done',
-      text: kept
-        ? `Read ${read} new mood image${read === 1 ? '' : 's'} and merged ${read === 1 ? 'it' : 'them'} into your visual profile. Apply when you are ready.`
-        : `Read ${read} mood image${read === 1 ? '' : 's'} — the preview shows the colours they gave. Apply when you are ready.`,
-    });
+  };
+  const dropLogo = (slotId) => {
+    const next = { ...logosRef.current };
+    delete next[slotId];
+    setLogos(next);
+    deleteLogo(slotId).catch(() => {});
   };
 
-  /* the one commit on this page: exactly what is on screen, to every layout */
-  const applyToLibrary = () => {
-    const libraryEdits = commitIdentity({ ...draft, activeThemeId: editingId });
-    const applied = activeThemeOf(libraryEdits);
-    setState({
-      libraryEdits,
-      visualRefs: [...draft.refs],
-      /* what has been read off each picture travels with the pictures, so the
-         next visit knows which ones are already done */
-      refAnalysis: { ...draft.analysis },
-    });
-    setDraft((d) => ({
-      ...d,
-      themes: libraryEdits.themes.map((t) => ({ ...t, palette: { ...t.palette } })),
-      activeThemeId: libraryEdits.activeThemeId,
-      type: { ...libraryEdits.type },
-      fonts: [...libraryEdits.fonts],
-      logoPosition: libraryEdits.logoPosition,
-    }));
-    setConfirming(false);
-    /* NO TOAST ON A PHONE (Leon, Aug 7). The phone pressed a button labelled
-       Update Library and watched it go disabled — that IS the confirmation, and
-       it is the one the studio is already looking at. A note sliding up over the
-       tab bar to repeat it is a second answer to a question nobody asked. */
-    if (phone) return;
-    setToast({
-      kind: 'done',
-      text: accountHandle
-        ? `Updated @${accountHandle}'s library. All ${LAYOUTS.length} layouts now use ${applied.name}.`
-        : `Updated this account's library. All ${LAYOUTS.length} layouts now use ${applied.name}.`,
-    });
-  };
+  /* the logos are the one S3-backed thing this component still loads itself;
+     Backgrounds and Visual Mood are self-contained sections with their own
+     backend calls (api/visualBrand). */
+  useEffect(() => {
+    let alive = true;
+    listLogos()
+      .then((slots) => { if (alive) setLogos(slots); })
+      .catch(() => {});
+    return () => { alive = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     if (!toast || toast.kind === 'busy') return undefined;
@@ -813,25 +581,7 @@ export default function LibrarySettings() {
     return () => window.clearTimeout(t);
   }, [toast]);
 
-  /* RESET COMMITS ON THE SPOT (2026-09-02 — reverses the Aug-7 "reset is a draft"
-     rule, at the studio's request). Reset has to switch every surface — the
-     weekly-plan preview included — straight back to the raw layout-agent output,
-     with no separate Update Library. So it clears the draft AND writes the empty
-     palette/type through to the store in one call. Only palette and type are
-     reset; the studio's own font files and mood references are theirs and stay. */
-  const resetAll = () => {
-    setPicking(null);
-    setEditingId('theme-1');
-    const themes = [{ id: 'theme-1', name: 'Theme 1', palette: {} }];
-    setDraft((d) => ({ ...d, themes, activeThemeId: 'theme-1', type: {} }));
-    setState({ libraryEdits: { themes, activeThemeId: 'theme-1', palette: {}, type: {}, fonts: [...draft.fonts], logoPosition: draft.logoPosition } });
-    setToast({ kind: 'note', text: 'Back to Bauhly’s defaults — your layouts show the raw output again.' });
-  };
-
-  /* ── the phone's live preview is a carousel ──────────────────────────────
-   * One preview at a time, swiped, with dots under it. The index is read off the
-   * scroll position as a fraction of the whole run rather than from a slide
-   * width, so a change to the peek or the gap cannot desynchronise the dots. */
+  /* ── the live-preview carousel (phone) ── */
   const railRef = useRef(null);
   const [slide, setSlide] = useState(0);
   useEffect(() => {
@@ -853,79 +603,33 @@ export default function LibrarySettings() {
   };
 
   return (
-    <div className="ls">
-      {/* ONE NAVIGATION ROW (Leon, Aug 7). Back on the left, Reset on the right,
-          the app's own two levels — and it stays a row at every width, because a
-          secondary action that wraps under a back link reads as a third page
-          heading. Under 560 it just gets smaller. */}
-      {/* ── ONE HEADER ROW, THE APP'S OWN BUTTONS (Leon, Aug 7) ───────────
-        *
-        * Visual Library · Reset · Update Library, at every width. All three are
-        * `.btn` at `btn--sm`, so height, padding, radius, icon size, type,
-        * hover, focus, disabled and active come from `base.css` and cannot
-        * drift from the rest of the app — the back control was a bespoke
-        * `.pd__back` with its own geometry, and Reset carried a hand-written
-        * height override under 560 that made it shorter than everything
-        * beside it.
-        *
-        * Update Library is the primary and is visible on a desktop and a
-        * tablet as well as a phone: it is the page's one commit, and having it
-        * only in a toast meant the action existed only while the toast did.
-        * On a phone the label drops to "Visual Library" and Reset drops its
-        * word — three labelled buttons do not fit 375px, and the two that must
-        * stay readable are where you are going and what you are committing. */}
-      <div className="ls-topbar">
-        <button className="btn btn--quiet btn--sm ls-back" onClick={goBack}>
-          <Icon name="arrow-left" size={16} strokeWidth={2.25} />
-          {phone ? 'Settings' : 'Back to Settings'}
-        </button>
-        <div className="ls-topbar__acts">
-          <button
-            className={`btn btn--tertiary btn--sm ${phone ? 'btn--icon' : ''}`}
-            onClick={resetAll}
-            aria-label={phone ? 'Reset to defaults' : undefined}
-            title={phone ? 'Reset to defaults' : undefined}
-          >
-            {phone ? <Icon name="refresh" size={16} strokeWidth={2} /> : 'Reset to defaults'}
-          </button>
-          <button
-            className="btn btn--primary btn--sm"
-            disabled={!dirty}
-            onClick={() => (phone ? applyToLibrary() : setConfirming(true))}
-          >
-            Update Library
-          </button>
-        </div>
-      </div>
-
-      <header className="ls-head">
-        <div className="ls-head__text">
-          <h1 className="ls-head__title">Brand Kit</h1>
-          <p className="ls-head__lead">
-            Edit your brand visuals below, then apply them to every layout in your library.
-          </p>
+    <div className="bk">
+      <header className="bk-head">
+        <div className="bk-head__text">
+          <span className="eyebrow">Settings</span>
+          <h1 className="bk-head__title">Brand Kit</h1>
+          <p className="bk-head__lead">Edit your brand visuals below. Changes apply to every layout and plan as you make them.</p>
         </div>
       </header>
 
-      {/* ── LIVE PREVIEW ──
-        * Four specimens on a desktop; on a phone one at a time, swiped, running
-        * to both edges of the screen — see `.ls-prevs` in the stylesheet. */}
-      <section className="ls-card ls-card--preview">
-        <div className="ls-card__head">
-          <div>
-            <h2 className="ls-card__title">Live preview</h2>
+      {/* ── LIVE PREVIEW ── */}
+      <section className="bk-card bk-card--preview">
+        <div className="bk-card__head">
+          <div className="bk-card__text">
+            <h2 className="bk-card__title">Live preview</h2>
           </div>
         </div>
-        <div className="ls-prevs" style={previewVars} ref={railRef}>
+        <div className="bk-prevs" style={previewVars} ref={railRef}>
           {PREVIEWS.map((p) => (
             <Preview key={p.eyebrow} {...p} logos={draft.logos} logoPosition={draft.logoPosition} />
           ))}
         </div>
-        <div className="ls-dots" role="tablist" aria-label="Live preview">
+        <div className="bk-dots" role="tablist" aria-label="Live preview">
           {PREVIEWS.map((p, i) => (
             <button
               key={p.eyebrow}
-              className={`ls-dot ${i === slide ? 'is-on' : ''}`}
+              type="button"
+              className={`bk-dot ${i === slide ? 'is-on' : ''}`}
               role="tab"
               aria-selected={i === slide}
               aria-label={p.eyebrow}
@@ -935,460 +639,55 @@ export default function LibrarySettings() {
         </div>
       </section>
 
-      {/* ── PALETTE + TYPE, side by side and equal ── */}
-      <div className="ls-pair">
-        <section className="ls-card">
-          <div className="ls-card__head">
-            <div>
-              <h2 className="ls-card__title">Theme settings</h2>
-              <p className="ls-card__lead">
-                Edit colour themes and choose which one is the default across your content.
-              </p>
-            </div>
-            <button
-              type="button"
-              className="btn btn--tertiary btn--sm ls-themeadd"
-              onClick={addTheme}
-              disabled={draft.themes.length >= THEME_CAP}
-              title={draft.themes.length >= THEME_CAP ? `There is room for ${THEME_CAP} themes` : undefined}
-            >
-              <Icon name="plus" size={15} strokeWidth={2.5} />
-              Add theme
-            </button>
-          </div>
-          {draft.themes.length > 1 && (
-            <div className="ls-themes" role="tablist" aria-label="Colour themes">
-              {draft.themes.map((t) => {
-                const on = t.id === editingId;
-                const isDefault = t.id === draft.activeThemeId;
-                const fg = t.palette.fg || DEFAULT_PALETTE.fg;
-                const accent = t.palette.accent || DEFAULT_PALETTE.accent;
-                const ground = t.palette.ground || DEFAULT_PALETTE.ground;
-                return (
-                  <span key={t.id} className={`ls-theme ${on ? 'is-on' : ''} ${isDefault ? 'is-default' : ''}`}>
-                    <span className="ls-theme__dots" aria-hidden="true">
-                      <i style={{ background: fg }} />
-                      <i style={{ background: accent }} />
-                      <i style={{ background: ground }} />
-                    </span>
-                    {on ? (
-                      <input
-                        className="ls-theme__name"
-                        value={t.name}
-                        aria-label="Theme name"
-                        role="tab"
-                        aria-selected="true"
-                        onChange={(e) => renameTheme(t.id, e.target.value)}
-                        onBlur={() => {
-                          const trimmed = t.name.trim();
-                          if (!trimmed) renameTheme(t.id, nextThemeName(draft.themes.filter((x) => x.id !== t.id)));
-                          else if (trimmed !== t.name) renameTheme(t.id, trimmed);
-                        }}
-                      />
-                    ) : (
-                      <button
-                        type="button"
-                        className="ls-theme__hit"
-                        role="tab"
-                        aria-selected="false"
-                        onClick={() => selectTheme(t.id)}
-                      >
-                        {t.name}
-                      </button>
-                    )}
-                    <button
-                      type="button"
-                      className={`ls-theme__default ${isDefault ? 'is-on' : ''}`}
-                      aria-pressed={isDefault}
-                      disabled={isDefault}
-                      aria-label={isDefault ? `${t.name} is the default theme` : `Set ${t.name} as the default theme`}
-                      onClick={() => setDefaultTheme(t.id)}
-                    >
-                      {isDefault ? 'Default' : 'Set default'}
-                    </button>
-                    {on && (
-                      <button
-                        type="button"
-                        className="ls-theme__x"
-                        aria-label={`Remove ${t.name}`}
-                        onClick={() => dropTheme(t.id)}
-                      >
-                        <Icon name="x" size={12} strokeWidth={2.5} />
-                      </button>
-                    )}
-                  </span>
-                );
-              })}
-            </div>
-          )}
-          <div className="ls-roles">
-            {COLOUR_ROLES.map((r) => (
-              <div className="ls-role" key={r.id}>
-                <span className="ls-swatchwrap">
-                  <button
-                    className="ls-swatch"
-                    style={{ background: roleValue(r.id) }}
-                    aria-label={`${r.label} — ${roleValue(r.id)}`}
-                    onClick={() => setPicking(r.id)}
-                  />
-                  {picking === r.id && (
-                    <Picker
-                      value={roleValue(r.id)}
-                      onPick={(hex) => setRole(r.id, hex)}
-                      onClose={() => setPicking(null)}
-                    />
-                  )}
-                </span>
-                <b>{r.label}</b>
-                <em>{roleValue(r.id).toUpperCase()}</em>
-                <span className="ls-role__use">{r.use}</span>
-              </div>
-            ))}
-          </div>
-        </section>
-
-        {/* TWO FACES, EDITED IN PLACE (Leon, Aug 7). No Edit button and no second
-          * screen: the faces ARE the control. Bauhly's own four are always here
-          * and cannot be removed; the studio's own files live in the three slots
-          * below the rows, which is where they are added and taken away. */}
-        <section className="ls-card">
-          <div className="ls-card__head">
-            <div>
-              <h2 className="ls-card__title">Typography</h2>
-            </div>
-          </div>
-
-          <div className="ls-types">
-            {TYPE_SLOTS.map((slot) => (
-              <FontField
-                key={slot.id}
-                slot={slot}
-                current={slotFace(draft, slot)}
-                faces={faces}
-                canAdd={draft.fonts.length < FONT_SLOTS}
-                onPick={(faceId) => setSlot(slot.id, { face: faceId })}
-                onDrop={dropFont}
-                onAdd={addFont}
-              />
-            ))}
-          </div>
-        </section>
+      {/* ── THEME SETS + TYPOGRAPHY ── */}
+      <div className="bk-pair">
+        <ThemeSets
+          themes={draft.themes}
+          activeThemeId={draft.activeThemeId}
+          onHex={setThemeHex}
+          onRename={renameThemeFull}
+          onDefault={setDefaultTheme}
+          onDuplicate={duplicateTheme}
+          onDelete={dropTheme}
+          onAdd={addTheme}
+        />
+        <Typography
+          draft={draft}
+          faces={faces}
+          canAdd={draft.fonts.length < FONT_SLOTS}
+          onPick={setSlot}
+          onDrop={dropFont}
+          onAdd={addFont}
+        />
       </div>
 
-      {/* ── LOGOS ──────────────────────────────────────────────────────────
-        * Four named files and a corner. The files write through the moment they
-        * land (they are pictures, like Visual Mood); the corner waits for
-        * Update Library, because moving a mark is a layout decision the preview
-        * should show before the library takes it. */}
-      <section className="ls-card">
-        <div className="ls-card__head">
-          <div>
-            <h2 className="ls-card__title">Logos</h2>
-            <p className="ls-card__lead">Add your logos and choose how they’re used.</p>
-          </div>
-        </div>
-        <div className="ls-logos">
-          <div className="ls-logos__slots">
-            {LOGO_SLOTS.map((slot) => (
-              <LogoSlot
-                key={slot.id}
-                slot={slot}
-                file={draft.logos[slot.id]}
-                busy={logoBusy === slot.id}
-                onAdd={(f) => addLogo(slot.id, f)}
-                onReplace={(f) => addLogo(slot.id, f)}
-                onRemove={() => dropLogo(slot.id)}
-              />
-            ))}
-          </div>
-          <div className="ls-logos__pos">
-            <span className="ls-logos__poslabel">Logo position</span>
-            <div className="ls-logos__posrow" role="radiogroup" aria-label="Logo position">
-              {LOGO_POSITIONS.map((p) => {
-                const on = draft.logoPosition === p.id;
-                return (
-                  <button
-                    key={p.id}
-                    type="button"
-                    className={`ls-logopos ${on ? 'is-on' : ''}`}
-                    role="radio"
-                    aria-checked={on}
-                    onClick={() => setLogoPosition(p.id)}
-                  >
-                    <span className={`ls-logopos__card is-${p.id}`} aria-hidden="true">
-                      <i />
-                    </span>
-                    <span className="ls-logopos__name">{p.label}</span>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        </div>
-      </section>
+      {/* ── LOGOS ── */}
+      <Logos
+        logos={draft.logos}
+        logoPosition={draft.logoPosition}
+        busy={logoBusy}
+        onUpload={addLogo}
+        onRemove={dropLogo}
+        onPosition={setLogoPosition}
+      />
 
-      {/* ── IMAGE REFERENCES ──────────────────────────────────────────────
-        *
-        * ONE CONCEPT, NOT TWO (Leon, Aug 7). This was "Visual mood", and the
-        * pictures Bauhly ANALYSES to build the library were a separate idea
-        * living in the Visual Brand's Reference Library — so a studio had to
-        * decide, per picture, whether it was inspiration or input. That is a
-        * distinction the product invented and nobody outside it can make: a
-        * Pinterest save that shows how you want type to sit IS the thing the
-        * analysis reads.
-        *
-        * There is one section and one meaning now. Every picture here is both:
-        * the studio's inspiration, and what the library is built from. The data
-        * never distinguished them either — one `visualRefs` array, one kind. */}
-      <section className="ls-card ls-card--refs">
-        {/* ── THE HEAD IS FOR A SECTION THAT HAS SOMETHING IN IT (Leon, Aug 7
-          * — decision 554) ────────────────────────────────────────────────
-          * With no pictures yet, the title, the lead and the Add button were
-          * drawn twice: once here and once in the placeholder under them. The
-          * placeholder IS the section while it is empty — it carries the title,
-          * the one sentence and the one move. The head comes back the moment
-          * there is a grid for it to sit over. */}
-        {refs.length > 0 && (
-          <div className="ls-card__head">
-            <div>
-              <h2 className="ls-card__title">Visual Mood</h2>
-              <p className="ls-card__lead">
-                Add images that reflect the look and feel you want Bauhly to create.
-              </p>
-            </div>
-            {/* ONE ADD, ON THE TITLE'S ROW (Leon, Aug 7). Compact, icon and word,
-                the app's own tertiary button — and it is the only way to add,
-                now that the dashed tile is gone from the grid.
-                THE STATE SITS BESIDE IT: "all references read" used to be a
-                sentence under the grid, in a row that also carried a button — a
-                paragraph to say a thing that is either true or not. It is a chip
-                here, and only when nothing is waiting; when something IS waiting
-                the button below counts it, which is the more useful half. */}
-            <div className="ls-refs__acts">
-              {!pendingRefs.length && (
-                <span className="ls-refs__status">
-                  <Icon name="check" size={13} strokeWidth={3} />
-                  All mood images analyzed
-                </span>
-              )}
-              <label className="btn btn--tertiary btn--sm ls-refs__add">
-                <Icon name="plus" size={15} strokeWidth={2.5} />
-                Add mood images
-                <input
-                  type="file"
-                  accept="image/*"
-                  hidden
-                  onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; addRef(f); }}
-                />
-              </label>
-            </div>
-          </div>
-        )}
-        {/* ── THE PROSE IS GONE (Leon, Aug 7 — decision 554) ────────────────
-          * Three paragraphs stood here: the list of kinds a reference can be,
-          * what the analysis reads off them, and what it does with what it
-          * read. All of it true, none of it something a studio needs before
-          * uploading their first picture — and the last two were the product
-          * explaining its own implementation to someone who came here to add
-          * six photographs.
-          * The list of kinds became the six tiles in the placeholder, which is
-          * the same information in about a second. The rest is simply not
-          * shown: what Bauhly does with a mood image is a promise the product
-          * keeps, not a paragraph it prints. */}
-        {refs.length === 0 && (
-          <EmptyState
-            visual={<MoodExamples />}
-            title="Visual Mood"
-            action={(
-              <>
-                <label className="btn btn--primary ls-refs__add">
-                  <Icon name="plus" size={16} strokeWidth={2.5} />
-                  Add mood images
-                  <input
-                    type="file"
-                    accept="image/*"
-                    hidden
-                    onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; addRef(f); }}
-                  />
-                </label>
-                {/* the one line that has to survive the cut: it is the answer
-                    to "will my photographs end up in my posts?", which is the
-                    question a grid of your own pictures in a settings page
-                    actually raises (549) */}
-                <p className="ls-moodhelp">
-                  Your references help Bauhly understand your visual style. They are never
-                  copied directly into your content.
-                </p>
-              </>
-            )}
-          >
-            Add images that reflect the look and feel you want Bauhly to create.
-          </EmptyState>
-        )}
-        <ul className="ls-refs">
-          {refs.map((r) => (
-            <li key={r.id} className={`ls-refs__item ${draft.analysis[r.id] ? '' : 'is-pending'}`}>
-              {/* the whole tile is the control: it opens the picture. There is
-                  no ✕ on any thumbnail at any width — Delete and Replace live
-                  in the viewer, which is where you can see what you are about
-                  to delete or replace. */}
-              <button
-                type="button"
-                className="ls-refs__open"
-                aria-label={`Open ${r.title || 'this mood image'}`}
-                onClick={() => setViewing(r.id)}
-              >
-                <img src={r.url} alt="" loading="lazy" />
-              </button>
-              {!draft.analysis[r.id] && <span className="ls-refs__pending">Not read yet</span>}
-            </li>
-          ))}
-        </ul>
-        {refs.length > 0 && (
-          <>
-            {/* the row exists only while there is something to read — the
-                done state is the chip in the header (Leon, Aug 7) */}
-            {pendingRefs.length > 0 && (
-              <div className="ls-reset">
-                {/* the button counts what it will actually do, so it can never
-                    promise work it is not going to perform */}
-                <button className="btn btn--tertiary btn--xs" onClick={readReferences}>
-                  <Icon name="refresh" size={14} strokeWidth={2} />
-                  {`Read ${pendingRefs.length} new mood image${pendingRefs.length === 1 ? '' : 's'}`}
-                </button>
-                {/* the mechanics of the read went with the paragraphs above
-                    (554). What is left is the only part that changes what the
-                    studio does next. */}
-                <span>Nothing reaches your library until you apply it.</span>
-              </div>
-            )}
-            <p className="ls-note">Uploads last this session — there is no file storage in this build yet.</p>
-          </>
-        )}
-      </section>
+      {/* ── BACKGROUNDS ── */}
+      <Backgrounds onNote={note} />
 
-      {/* ── the toast ─────────────────────────────────────────────────────
-        * One at a time: something that just happened outranks the standing note
-        * that there are changes waiting, and the note comes back underneath it. */}
-      {(toast || pending) && createPortal(
-        toast ? (
-          <div className={`ls-toast ${toast.kind === 'busy' ? 'is-busy' : ''}`} role="status">
-            <span className="ls-toast__row">
-              <Icon
-                name={toast.kind === 'busy' ? 'refresh' : toast.kind === 'done' ? 'check' : 'info'}
-                size={17}
-                strokeWidth={2.25}
-              />
-              <span className="ls-toast__text">{toast.text}</span>
-            </span>
-            <button className="ls-toast__x" aria-label="Dismiss" onClick={() => setToast(null)}>
-              <Icon name="x" size={14} strokeWidth={2.5} />
-            </button>
-          </div>
-        ) : (
-          <div className="ls-toast" role="status">
-            <span className="ls-toast__row">
-              <Icon name="info" size={17} strokeWidth={2.25} />
-              <span className="ls-toast__text">
-                <b>Not applied yet.</b> Your library still shows the last settings you applied.
-              </span>
-            </span>
-            <button className="btn btn--primary btn--xs" onClick={() => setConfirming(true)}>
-              Update Library
-            </button>
-            <button className="ls-toast__x" aria-label="Dismiss" onClick={() => setHushed(draftSig)}>
-              <Icon name="x" size={14} strokeWidth={2.5} />
-            </button>
-          </div>
-        ),
-        document.body,
-      )}
+      {/* ── VISUAL MOOD (sets) ── */}
+      <VisualMood onNote={note} />
 
-      {/* ── ONE REFERENCE, FULL SCREEN ────────────────────────────────────
-        * The picture at the largest size the screen allows, and the only two
-        * things there are to do to it. No crop, no rename, no notes: a
-        * reference is a picture Bauhly reads, so the studio's whole relationship
-        * with it is "keep this one" or "use a different one". */}
-      {viewed && createPortal(
-        <div className="ls-view" role="dialog" aria-modal="true" aria-label={viewed.title || 'Reference'}>
-          <button className="ls-view__scrim" aria-label="Close" onClick={() => setViewing(null)} />
-          <img className="ls-view__img" src={viewed.url} alt={viewed.title || ''} />
-          <div className="ls-view__bar">
-            <span className="ls-view__name">
-              {viewed.title || 'Reference'}
-              {!draft.analysis[viewed.id] && <em>Not read yet</em>}
-            </span>
-            <span className="ls-view__acts">
-              <label className="btn btn--quiet btn--sm ls-view__btn">
-                <Icon name="refresh" size={15} strokeWidth={2} />
-                Replace
-                <input
-                  type="file"
-                  accept="image/*"
-                  hidden
-                  onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; replaceRef(viewed.id, f); }}
-                />
-              </label>
-              <button
-                className="btn btn--quiet btn--sm ls-view__btn ls-view__del"
-                onClick={() => { dropRef(viewed.id); setViewing(null); }}
-              >
-                <Icon name="trash" size={15} strokeWidth={2} />
-                Delete
-              </button>
-            </span>
-          </div>
-          <button className="ls-view__x" aria-label="Close" onClick={() => setViewing(null)}>
-            <Icon name="x" size={18} strokeWidth={2.5} />
+      {/* ── the toast ── */}
+      {toast && createPortal(
+        <div className={`ls-toast ${toast.kind === 'busy' ? 'is-busy' : ''}`} role="status">
+          <span className="ls-toast__row">
+            <Icon name={toast.kind === 'busy' ? 'refresh' : toast.kind === 'done' ? 'check' : 'info'} size={17} strokeWidth={2.25} />
+            <span className="ls-toast__text">{toast.text}</span>
+          </span>
+          <button className="ls-toast__x" aria-label="Dismiss" onClick={() => setToast(null)}>
+            <Icon name="x" size={14} strokeWidth={2.5} />
           </button>
         </div>,
-        document.body,
-      )}
-
-      {/* ── WHAT APPLYING DOES, ASKED RATHER THAN PRINTED (Leon, Aug 7) ─────
-        * This used to be a standing notice at the foot of the page — a sentence
-        * about a consequence, sitting where nobody was about to cause it. It is
-        * the same fact, moved to the moment it is true, and shortened to the two
-        * lines that moment has room for. */}
-      {confirming && createPortal(
-        <>
-          <div className="ls-dialog__scrim" onClick={() => setConfirming(false)} />
-          <div className="ls-dialog" role="alertdialog" aria-modal="true" aria-labelledby="ls-apply">
-            <h2 id="ls-apply">Update this account's library?</h2>
-            <p>
-              {accountHandle
-                ? `These colours, typography, logos, and image references will be applied to @${accountHandle}'s layouts only. Your other Instagram accounts stay as they are.`
-                : `These colours, typography, logos, and image references will be applied to this Instagram account's layouts only.`}
-            </p>
-            <div className="ls-dialog__acts">
-              <button className="btn btn--tertiary btn--sm" onClick={() => setConfirming(false)}>Cancel</button>
-              <button className="btn btn--primary btn--sm" onClick={applyToLibrary}>Update</button>
-            </div>
-          </div>
-        </>,
-        document.body,
-      )}
-
-      {/* ── leaving with unsaved changes ── */}
-      {leaving && createPortal(
-        <>
-          <div className="ls-dialog__scrim" onClick={() => setLeaving(null)} />
-          <div className="ls-dialog" role="alertdialog" aria-modal="true" aria-labelledby="ls-discard">
-            <h2 id="ls-discard">Discard changes?</h2>
-            <p>You have changes you have not applied. If you leave now, all edits made in the Brand Kit will be lost.</p>
-            {/* CONTINUE EDITING IS THE PRIMARY (Leon, Aug 7). It was the other
-                way round: the ink-filled button — the one a hand goes to without
-                reading — threw the work away. The safe path is the default, and
-                the destructive one is the app's own destructive treatment
-                (negative text, negative-soft on hover; a filled red primary
-                exists nowhere in this product). Discarding still only ever
-                happens on this explicit press. */}
-            <div className="ls-dialog__acts">
-              <button className="btn btn--quiet btn--sm ls-dialog__danger" onClick={discard}>Discard changes</button>
-              <button className="btn btn--primary btn--sm" onClick={() => setLeaving(null)}>Continue editing</button>
-            </div>
-          </div>
-        </>,
         document.body,
       )}
     </div>
