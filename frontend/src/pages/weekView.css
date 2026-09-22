@@ -854,6 +854,19 @@
   box-shadow: 0 0 0 1px rgba(18, 16, 14, 0.45);
 }
 .wv-ig--export .wv-boxdbg { display: none; }
+/* The off-screen export stage renders each slide at a fixed 1080×1350 (4:5),
+   the source PNG for publishing. It has no sized/positioned parent, so it must
+   NOT inherit the ≥961px rule that makes .wv-ig__photo position:absolute;
+   inset:0; height:100% — that collapses the export node to 0 height and makes
+   rasterize throw "Slide has no size to render." Two-class specificity keeps
+   this winning inside that media query. */
+.wv-ig--export .wv-ig__photo {
+  position: relative;
+  inset: auto;
+  width: 1080px;
+  height: 1350px;
+  aspect-ratio: 4 / 5;
+}
 .wv-boxdbg__readout {
   position: absolute;
   left: 6px;
