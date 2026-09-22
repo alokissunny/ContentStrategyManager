@@ -45,7 +45,8 @@ function brandStyleVars(store) {
     '--wv-neutral': paint['--t-ground-bg'],
     '--wv-post-font': paint['--t-headline-face'],
   };
-  if (ground.own && ground.url) vars['--wv-ground-img'] = `url(${ground.url})`;
+  if (paint['--t-ground-image']) vars['--wv-ground-img'] = paint['--t-ground-image'];
+  else if (ground.own && ground.url) vars['--wv-ground-img'] = `url(${ground.url})`;
   return vars;
 }
 

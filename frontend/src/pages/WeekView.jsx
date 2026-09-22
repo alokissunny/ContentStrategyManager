@@ -483,7 +483,10 @@ function brandStyleVars(store) {
     '--wv-neutral': paint['--t-ground-bg'],
     '--wv-post-font': paint['--t-headline-face'],
   };
-  if (ground.own && ground.url) vars['--wv-ground-img'] = `url(${ground.url})`;
+  // the Brand Kit's chosen background (libraryEdits.background → paintAll) is the
+  // ground image now; the legacy brandStyle ground is the fallback
+  if (paint['--t-ground-image']) vars['--wv-ground-img'] = paint['--t-ground-image'];
+  else if (ground.own && ground.url) vars['--wv-ground-img'] = `url(${ground.url})`;
   return vars;
 }
 

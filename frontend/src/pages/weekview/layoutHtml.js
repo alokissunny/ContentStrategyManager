@@ -805,11 +805,16 @@ const SLIDE_FRAME_SHELL = [
   IMG_SHIMMER_CSS,
 ].join('');
 
+// the ground image sits BETWEEN the theme colour and the slide's own content:
+// it is painted as the element's background-image over the ground colour, so a
+// slide's injected photos and its text (both DOM children) always draw on top.
+// Unset, `--t-ground-image` falls back to `none` and only the flat colour shows.
+const GROUND_LAYER = 'background-color:var(--t-ground-bg,#f4f2ee);background-image:var(--t-ground-image,none);background-size:cover;background-position:center;background-repeat:no-repeat';
 const SLIDE_FRAME_THEMED = [
-  'html.is-themed,html.is-themed body{background:var(--t-ground-bg,#f4f2ee);color:var(--t-ground-fg,#1b100d)}',
+  `html.is-themed,html.is-themed body{${GROUND_LAYER};color:var(--t-ground-fg,#1b100d)}`,
   'html.is-themed .slide,html.is-themed .slide *{font-family:var(--t-body-face,sans-serif)}',
   'html.is-themed .slide :is(h1,h2,h3,[data-slot="title"],[data-slot="stat"],[data-slot="quote"]){font-family:var(--t-headline-face,sans-serif)}',
-  'html.is-themed .slide{background:var(--t-ground-bg,#f4f2ee);color:var(--t-ground-fg,#1b100d)}',
+  `html.is-themed .slide{${GROUND_LAYER};color:var(--t-ground-fg,#1b100d)}`,
   'html.is-themed .slide em,html.is-themed .slide [data-slot="stat"]{color:var(--t-accent-bg,#ff5227)}',
 ].join('');
 

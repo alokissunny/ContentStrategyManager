@@ -430,9 +430,13 @@ export default function BrandKit() {
     fonts: [...(saved.fonts || [])],
     logos: { ...(s.brandLogos || {}) },
     logoPosition: saved.logoPosition,
+    background: saved.background || null,
   }));
   const [toast, setToast] = useState(null);
   const note = (text) => setToast({ kind: 'note', text });
+  /* the Brand Kit's chosen default background flows into `libraryEdits` so the
+     Live preview here and every layout in WeekView paint it (--t-ground-image) */
+  const setBackground = (bg) => setDraft((d) => ({ ...d, background: bg || null }));
 
   /* ── AUTOSAVE (Sep 2026) ────────────────────────────────────────────────
    * Every identity change (themes, palette, type, fonts, logo position) is
@@ -446,6 +450,7 @@ export default function BrandKit() {
     type: draft.type,
     fonts: (draft.fonts || []).map((f) => ({ id: f.id, name: f.name })),
     logoPosition: draft.logoPosition,
+    background: draft.background,
   });
   /* the last identity actually written, so an unchanged commit (a mount, a
      StrictMode re-run, a store hydrate) never triggers a needless backend PUT */
@@ -672,7 +677,7 @@ export default function BrandKit() {
       />
 
       {/* ── BACKGROUNDS ── */}
-      <Backgrounds onNote={note} />
+      <Backgrounds onNote={note} onDefaultChange={setBackground} savedBackground={saved.background} />
 
       {/* ── VISUAL MOOD (sets) ── */}
       <VisualMood onNote={note} />

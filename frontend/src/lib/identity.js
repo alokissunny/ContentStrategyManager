@@ -251,6 +251,14 @@ export function migrateIdentity(edits) {
   };
 }
 
+/* the chosen background ground, if any — `{ key, url }` or null. It is the one
+   the studio marked default in the Brand Kit; a layout paints it behind a ground
+   surface (see `--t-ground-image`). */
+function backgroundOf(edits) {
+  const b = asObject(asObject(edits).background);
+  return typeof b.url === 'string' && b.url ? { key: String(b.key || ''), url: b.url } : null;
+}
+
 /* the shape we persist — themes normalised so a later read compares equal */
 export function commitIdentity(edits) {
   const ident = identityOf({ libraryEdits: edits });
@@ -261,6 +269,7 @@ export function commitIdentity(edits) {
     type: { ...ident.type },
     fonts: ident.fonts.map((f) => ({ ...f })),
     logoPosition: ident.logoPosition,
+    background: ident.background,
   };
 }
 
@@ -277,6 +286,7 @@ export const identityOf = (store) => {
        "no fonts of their own", which is true and does not throw */
     fonts: asArray(e.fonts).filter((f) => f && typeof f === 'object' && f.id && f.name && f.url),
     logoPosition: logoPositionOf(e),
+    background: backgroundOf(e),
     /* THERE IS NO `systemImages` HERE ANY MORE (Leon, Aug 7). It was the old
        `layoutMood` key, surfaced as a switch in Library Settings; the switch is
        removed and the library no longer reads it. The key may still sit in an
@@ -306,6 +316,8 @@ export function paintOf(edits) {
      version did: a studio who sets a body face and never opens Detail still
      gets their face on the eyebrows, exactly as before (Leon, Aug 7). */
   if (!t.detail?.face && t.body?.face) out['--t-detail-face'] = stackOf(t.body.face, asArray(edits?.fonts));
+  const bg = backgroundOf(edits);
+  if (bg) out['--t-ground-image'] = `url("${bg.url}")`;
   return out;
 }
 
@@ -324,6 +336,7 @@ export function paintAll(edits) {
     '--t-headline-face': stackOf(ident.type?.headline?.face || 'display', fonts),
     '--t-body-face': stackOf(ident.type?.body?.face || 'ui', fonts),
     '--t-detail-face': stackOf(ident.type?.detail?.face || ident.type?.body?.face || 'ui', fonts),
+    ...(ident.background ? { '--t-ground-image': `url("${ident.background.url}")` } : {}),
   };
 }
 

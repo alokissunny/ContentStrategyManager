@@ -335,7 +335,14 @@
 
 /* the roles a layout stands on */
 .vl-a--ground {
-  background: var(--t-ground-bg);
+  /* the ground colour, with the studio's chosen Brand Kit background layered
+     over it when one is set (`--t-ground-image`, emitted by paintOf/paintAll);
+     unset, `none` falls through to the flat colour */
+  background-color: var(--t-ground-bg);
+  background-image: var(--t-ground-image, none);
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
   border-color: var(--t-ground-edge);
   --a-fg: var(--t-ground-fg); --a-mute: var(--t-ground-mute);
   --a-eyebrow: var(--t-ground-eyebrow); --a-mark: var(--t-ground-mark); --a-deco: var(--t-ground-deco);

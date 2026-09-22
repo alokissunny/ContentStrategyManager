@@ -17,9 +17,22 @@ import { listBackgrounds, uploadBackground, setDefaultBackground, deleteBackgrou
 import { DEFAULT_BACKGROUNDS } from './brandkitDefaults.js';
 import { SectionCard, DefaultChip, TileMenu } from './brandkitBits.jsx';
 
-export default function Backgrounds({ onNote }) {
+/* the shipped defaults, with the persisted choice (libraryEdits.background)
+   marked default — so a chosen default survives leaving and returning to the
+   page instead of snapping back to off-white */
+function defaultsWith(saved) {
+  const key = saved?.key;
+  const url = saved?.url;
+  const match = (key || url) && DEFAULT_BACKGROUNDS.find((b) => (key && b.key === key) || (url && b.url === url));
+  return match ? DEFAULT_BACKGROUNDS.map((b) => ({ ...b, isDefault: b === match })) : DEFAULT_BACKGROUNDS;
+}
+
+export default function Backgrounds({ onNote, onDefaultChange, savedBackground }) {
+  // capture the persisted choice once, so the initial default is the studio's
+  const savedRef = useRef(savedBackground);
   // shipped starter tiles until the account saves its own (then those take over)
-  const [items, setItems] = useState(DEFAULT_BACKGROUNDS);
+  const [items, setItems] = useState(() => defaultsWith(savedRef.current));
+  const [ready, setReady] = useState(false);
   const [viewing, setViewing] = useState(null); // key
   const itemsRef = useRef(items);
   useEffect(() => { itemsRef.current = items; }, [items]);
@@ -28,9 +41,24 @@ export default function Backgrounds({ onNote }) {
 
   useEffect(() => {
     let alive = true;
-    listBackgrounds().then((list) => { if (alive && list.length) setItems(list); }).catch(() => {});
+    listBackgrounds()
+      .then((list) => { if (alive && list.length) setItems(list); })
+      .catch(() => {})
+      // only report the default UP once we know the real state — otherwise the
+      // mount's shipped default would overwrite the persisted choice
+      .finally(() => { if (alive) setReady(true); });
     return () => { alive = false; };
   }, []);
+
+  /* tell the page which background is the default, so the Live preview and every
+     layout can paint it (BrandKit → libraryEdits.background → paintOf) */
+  const chosen = items.find((b) => b.isDefault) || null;
+  const chosenSig = chosen ? `${chosen.key}|${chosen.url}` : '';
+  useEffect(() => {
+    if (!ready) return;
+    onDefaultChange?.(chosen ? { key: chosen.key, url: chosen.url } : null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chosenSig, ready]);
 
   const add = async (file, oldKey = null) => {
     if (!file || !file.type?.startsWith('image/')) return;
