@@ -580,20 +580,25 @@ async function createAndPublishMedia({ igId, token, graph, caption, imageUrls })
     );
     creationId = c.id;
   } else {
-    const children = [];
-    for (const url of imageUrls.slice(0, 10)) {
-      const child = await graphPost(
-        `${igId}/media`,
-        {
-          image_url: url,
-          is_carousel_item: 'true',
-          access_token: token,
-        },
-        graph,
-      );
-      await waitForContainer(child.id, token, graph);
-      children.push(child.id);
-    }
+    // Create every child container and wait for each to finish processing in
+    // parallel — Instagram processes them independently, so doing this one
+    // at a time (as before) multiplied the wait by the slide count. Promise.all
+    // preserves array order, so the carousel order is unaffected.
+    const children = await Promise.all(
+      imageUrls.slice(0, 10).map(async (url) => {
+        const child = await graphPost(
+          `${igId}/media`,
+          {
+            image_url: url,
+            is_carousel_item: 'true',
+            access_token: token,
+          },
+          graph,
+        );
+        await waitForContainer(child.id, token, graph);
+        return child.id;
+      }),
+    );
     const parent = await graphPost(
       `${igId}/media`,
       {
