@@ -26,6 +26,9 @@ import './settings.css';
 const FORMATS = ['Reels', 'Carousels', 'Stories', 'Single posts'];
 const FORMAT_ICON = { Reels: 'play', Carousels: 'copy', Stories: 'eye', 'Single posts': 'brief' };
 const DROPPED_KEY = 'bauhly_dropped_formats';
+// connectingHandle key for the generic footer "Connect Instagram" button,
+// which isn't tied to one row's handle.
+const FOOTER_CONNECT_KEY = '__footer__';
 const loadDropped = () => {
   try { return JSON.parse(localStorage.getItem(DROPPED_KEY)) || []; } catch { return []; }
 };
@@ -69,7 +72,7 @@ export default function Settings() {
   const [switching, setSwitching] = useState('');
   const [dropped, setDropped] = useState(loadDropped);
   const [meta, setMeta] = useState({ connected: false, configured: false, connections: [] });
-  const [metaBusy, setMetaBusy] = useState(false);
+  const [connectingHandle, setConnectingHandle] = useState('');
   const [disconnectingId, setDisconnectingId] = useState('');
   const debug = useAiDebug();
   const flags = useFeatureFlags();
@@ -124,17 +127,20 @@ export default function Settings() {
     }
   }
 
-  async function connectMeta() {
-    setMetaBusy(true);
+  // `expectedHandle` is the Bauhly handle this particular Connect button is
+  // for — MetaCallback checks the OAuth result against it, so each row must
+  // pass its own username rather than always the first/current profile.
+  async function connectMeta(expectedHandle = '') {
+    setConnectingHandle(expectedHandle || FOOTER_CONNECT_KEY);
     try {
       const { url, state } = await startMetaConnect();
-      rememberMetaOAuthReturn({ expectedHandle: profiles[0]?.username || '' });
+      rememberMetaOAuthReturn({ expectedHandle: expectedHandle || profiles[0]?.username || '' });
       if (state) sessionStorage.setItem('meta_oauth_state', state);
       if (url) window.location.href = url;
     } catch (err) {
       alert(err.response?.data?.message || 'Instagram connect is not available yet.');
     } finally {
-      setMetaBusy(false);
+      setConnectingHandle('');
     }
   }
 
@@ -385,7 +391,7 @@ export default function Settings() {
                       <button
                         type="button"
                         className="btn btn--ghost btn--sm"
-                        disabled={busy || metaBusy}
+                        disabled={busy || !!connectingHandle}
                         onClick={() => disconnectMetaAccount(id)}
                         title={`Disconnect Instagram for @${p.username}`}
                       >
@@ -396,11 +402,11 @@ export default function Settings() {
                       <button
                         type="button"
                         className="btn btn--ghost btn--sm"
-                        disabled={metaBusy}
-                        onClick={connectMeta}
+                        disabled={!!connectingHandle}
+                        onClick={() => connectMeta(p.username)}
                       >
                         <Icon name="instagram" size={14} />
-                        {metaBusy ? 'Connecting…' : 'Connect'}
+                        {connectingHandle === p.username ? 'Connecting…' : 'Connect'}
                       </button>
                     )}
                   </span>
@@ -440,7 +446,7 @@ export default function Settings() {
                       <button
                         type="button"
                         className="btn btn--ghost btn--sm"
-                        disabled={busy || metaBusy}
+                        disabled={busy || !!connectingHandle}
                         onClick={() => disconnectMetaAccount(id)}
                         title={`Disconnect @${c.igUsername}`}
                       >
@@ -458,11 +464,11 @@ export default function Settings() {
           <button
             type="button"
             className="btn btn--ghost btn--sm"
-            disabled={metaBusy}
-            onClick={connectMeta}
+            disabled={!!connectingHandle}
+            onClick={() => connectMeta()}
           >
             <Icon name="instagram" size={14} />
-            {metaBusy
+            {connectingHandle === FOOTER_CONNECT_KEY
               ? 'Connecting…'
               : connections.length
                 ? 'Connect another Instagram'
