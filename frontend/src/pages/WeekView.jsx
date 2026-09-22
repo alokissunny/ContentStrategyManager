@@ -3712,7 +3712,12 @@ export default function WeekView({
       setReplanMsg(added ? `Added ${added} post${added === 1 ? '' : 's'} to empty days.` : 'No empty days to fill.');
       onCaptured?.();
     } catch (err) {
-      setReplanMsg(err?.response?.data?.message || 'Could not add posts just now. Try again in a moment.');
+      // a `needsInput` 422 is the strategist asking for a clearer idea, not a
+      // failure — keep it gentle and point at Capture idea
+      const msg = err?.response?.data?.needsInput
+        ? 'Add a clearer idea first — tap Capture idea to fill these days.'
+        : (err?.response?.data?.message || 'Could not add posts just now. Try again in a moment.');
+      setReplanMsg(msg);
     } finally {
       setReplanning(false);
     }
@@ -4983,6 +4988,21 @@ export default function WeekView({
                           <span className="wv-sched__copy">
                             <span className="wv-sched__label">Schedule</span>
                             <span className="wv-sched__desc">Publish to Meta at a specific time</span>
+                          </span>
+                        </button>
+                      )}
+                      {!isScheduled && (
+                        <button
+                          type="button"
+                          role="menuitem"
+                          className="wv-sched__item"
+                          onClick={() => { setSchedMenu(false); handlePublish(); }}
+                          disabled={publishing}
+                        >
+                          <Glyph name="send" size={18} strokeWidth={2} />
+                          <span className="wv-sched__copy">
+                            <span className="wv-sched__label">{publishing ? 'Publishing…' : 'Publish now'}</span>
+                            <span className="wv-sched__desc">Send it to Instagram right away</span>
                           </span>
                         </button>
                       )}

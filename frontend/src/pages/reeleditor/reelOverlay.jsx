@@ -75,6 +75,7 @@ export function AnimationLayer({ animations, time, duration }) {
   return (
     <>
       {(animations || []).map((a, i) => {
+        if (['pointer', 'spotlight', 'label'].includes(a.type) && /\b(face|faces|head|heads|boy|girl|child|kid|person|speaker)\b/i.test(a.text || '')) return null;
         if (a.type === 'progress') {
           return (
             <div key={i} className="rl-anim rl-anim--progress">

@@ -526,6 +526,8 @@ const MOTIONS = ['pop', 'slide-up', 'fade', 'bounce', 'shake'];
 
 function normalizeAnimation(a, durationSec) {
   if (!a || !ANIM_TYPES.includes(a.type)) return null;
+  // Automatic edits should emphasize the story, not annotate people's faces.
+  if (POINTER_TYPES.has(a.type)) return null;
   const start = num(a.start, 0, 0, durationSec);
   let end = num(a.end, start + 1.5, 0, durationSec);
   if (end <= start) end = Math.min(durationSec, start + 1.2);

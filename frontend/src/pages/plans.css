@@ -822,3 +822,43 @@
   transition: background var(--dur-fast), color var(--dur-fast);
 }
 .nw-row__del:hover { background: var(--surface); color: var(--negative); }
+
+/* ── Generation guidance prompt ──────────────────────────────────────────────
+ * The friendly, accent-tinted card shown when the strategist asks for a clearer
+ * idea (backend `needsInput`). Deliberately NOT the app's negative treatment —
+ * this is a nudge with a next step, not a failure. */
+.gen-guide {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--sp-3);
+  margin: 0 0 var(--sp-4);
+  padding: var(--sp-4);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--action-accent, #ff5227);
+  border-radius: var(--r-lg);
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
+}
+.gen-guide__ico {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  flex: 0 0 auto;
+  border-radius: var(--r-full);
+  background: color-mix(in srgb, var(--action-accent, #ff5227) 12%, var(--surface));
+  color: var(--action-accent, #ff5227);
+}
+.gen-guide__body { flex: 1 1 auto; min-width: 0; }
+.gen-guide__title { display: block; font-size: var(--text-sm); font-weight: 700; color: var(--ink-900); margin-bottom: 2px; }
+.gen-guide__text { margin: 0; font-size: var(--text-sm); line-height: 1.5; color: var(--ink-500); }
+.gen-guide__acts { display: flex; align-items: center; gap: var(--sp-1); flex: 0 0 auto; }
+.gen-guide__x {
+  display: grid; place-items: center; width: 30px; height: 30px;
+  border: 0; border-radius: var(--r-full); background: none; color: var(--ink-400); cursor: pointer;
+}
+.gen-guide__x:hover { background: var(--ink-100); color: var(--ink-700); }
+@media (max-width: 640px) {
+  .gen-guide { flex-wrap: wrap; }
+  .gen-guide__acts { width: 100%; justify-content: flex-end; }
+}

@@ -20,14 +20,16 @@ function subscribe(listener) {
 }
 
 const IDLE = {
-  status: 'idle', // idle | generating | ready | error
+  status: 'idle', // idle | generating | ready | error | needs-input
   trigger: '',
   posts: [],
   count: null,
   error: '',
+  guidance: '', // a soft "needs more context" note (not an error) — the
+  // strategist asked for a clearer idea/visual; the UI shows it as a prompt/CTA
   startedAt: 0,
   watching: false,
-  toast: null, // { kind: 'busy' | 'done' | 'error', text, action?: 'view' }
+  toast: null, // { kind: 'busy' | 'done' | 'error' | 'guidance', text, action? }
 };
 
 let snapshot = { ...IDLE };
@@ -107,17 +109,31 @@ export async function startPlanGeneration(trigger, extras = {}) {
         posts,
         count: Number(data.count) || posts.length || null,
         error: '',
+        guidance: '',
         toast: watching ? null : doneToast(),
       });
       return data;
     } catch (err) {
       const message = err.response?.data?.message
         || "We couldn't build a plan just now. Please try again.";
-      set({
-        status: 'error',
-        error: message,
-        toast: snapshot.watching ? null : { kind: 'error', text: message },
-      });
+      // a 422 with `needsInput` is the strategist asking for a clearer idea, not
+      // a failure — surface it as a friendly prompt/CTA, never a red error
+      const needsInput = !!err.response?.data?.needsInput;
+      if (needsInput) {
+        set({
+          status: 'needs-input',
+          error: '',
+          guidance: message,
+          toast: snapshot.watching ? null : { kind: 'guidance', text: message, action: 'capture' },
+        });
+      } else {
+        set({
+          status: 'error',
+          error: message,
+          guidance: '',
+          toast: snapshot.watching ? null : { kind: 'error', text: message },
+        });
+      }
       throw err;
     } finally {
       inFlight = null;

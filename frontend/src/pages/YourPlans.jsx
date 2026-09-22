@@ -33,6 +33,7 @@ import {
   startPlanGeneration,
   usePlanGeneration,
 } from '../lib/planGeneration';
+import { openCaptureIdea } from '../lib/captureUi';
 import { useAuth } from '../context/AuthContext';
 import { getBrandDna, reviseBrandDna } from '../api/brandDna';
 import {
@@ -51,6 +52,34 @@ import NeedsAWord from '../components/NeedsAWord';
 import './plans.css';
 import './yourweek.css'; /* the shared .empty brand-moment styles */
 import './calendar.css'; /* the Monthly / Weekly / Day calendar views */
+
+/* ── A FRIENDLY PROMPT, NOT A RED ERROR ──────────────────────────────────────
+ * When the strategist judges a capture too thin to plan from, it returns a
+ * clarification (backend `needsInput`) rather than failing. That is guidance,
+ * not an error, so it reads as a soft accent-tinted card with the strategist's
+ * ask and a "Capture idea" button — never the app's negative treatment. */
+function GuidancePrompt({ text, onCapture, onDismiss }) {
+  return (
+    <div className="gen-guide" role="status">
+      <span className="gen-guide__ico" aria-hidden="true"><Icon name="bulb" size={18} strokeWidth={1.9} /></span>
+      <div className="gen-guide__body">
+        <b className="gen-guide__title">A little more to go on</b>
+        <p className="gen-guide__text">{text}</p>
+      </div>
+      <div className="gen-guide__acts">
+        <button type="button" className="btn btn--primary btn--sm" onClick={onCapture}>
+          <Icon name="plus" size={14} strokeWidth={2.5} />
+          Capture idea
+        </button>
+        {onDismiss && (
+          <button type="button" className="gen-guide__x" aria-label="Dismiss" onClick={onDismiss}>
+            <Icon name="x" size={14} strokeWidth={2.5} />
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
 
 const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 /* Illustration marks Mon / Wed / Fri as the studio's usual post cadence. */
@@ -1287,6 +1316,9 @@ export default function YourPlans() {
   const [preparing, setPreparing] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  // a soft "needs more context" note from generation (strategist asked for a
+  // clearer idea/visual) — shown as a friendly prompt/CTA, never a red error
+  const [guidance, setGuidance] = useState('');
   const gen = usePlanGeneration();
   const [view, setView] = useState(() => {
     if (getPlanGeneration().status === 'generating' || getPlanGeneration().status === 'ready') return 'gen';
@@ -1621,15 +1653,25 @@ export default function YourPlans() {
   }, [gen.status, gen.startedAt]);
 
   useEffect(() => {
+    if (gen.status === 'needs-input') {
+      // not a failure — the strategist wants a clearer idea/visual
+      setGuidance(gen.guidance);
+      setError('');
+      setView('list');
+      setReplanning(false);
+      return;
+    }
     if (gen.status !== 'error') return;
     setError(gen.error);
+    setGuidance('');
     setView('list');
     setReplanning(false);
-  }, [gen.status, gen.error]);
+  }, [gen.status, gen.error, gen.guidance]);
 
   // Re-run the current month's plan (same path as check-in generate).
   async function runGenerate(trigger, extras = {}) {
     setError('');
+    setGuidance('');
     setView('gen');
     setPlanWatching(true);
     try {
@@ -1882,6 +1924,7 @@ export default function YourPlans() {
               A week of posts built from your own work and aimed at the stage that moves your
               enquiries most — each with a reason behind it.
             </p>
+            {guidance && <GuidancePrompt text={guidance} onCapture={openCaptureIdea} onDismiss={() => setGuidance('')} />}
             {error && <p className="ph__sub" style={{ color: 'var(--negative)' }}>{error}</p>}
             <button className="btn btn--primary" onClick={() => { ensureProjects(); setView('checkin'); }}>Let's plan your week</button>
           </div>
@@ -2080,6 +2123,9 @@ export default function YourPlans() {
     <div className={`ph ph--cal ph--cal-${calView}${feedOn ? ' ph--cal-feed' : ''}`}>
       {/* Period is the title (bauhly-v3) — no separate "Calendar" heading.
           Month / week / day all read from the cal-bar. */}
+      {guidance && (
+        <GuidancePrompt text={guidance} onCapture={openCaptureIdea} onDismiss={() => setGuidance('')} />
+      )}
       {error && (
         <p className="ph__sub" style={{ color: 'var(--negative)' }}>{error}</p>
       )}

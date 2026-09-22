@@ -1,5 +1,9 @@
 /* Reel Edit View — timeline editor. Namespaced .rle* so nothing leaks. */
 .rle--simple h2 { margin: 0 0 6px; font-size: 24px; }
+.rle__prompt { display: grid; gap: 12px; padding: 18px; border: 1px solid var(--border); border-radius: 14px; background: var(--surface); }
+.rle__prompt-actions { display: flex; gap: 12px; justify-content: space-between; align-items: center; flex-wrap: wrap; }
+.rle__edit-controls { border: 0; padding: 0; margin: 0; min-width: 0; display: grid; gap: 20px; }
+.rle__edit-controls:disabled .rle__canvas { pointer-events: none; }
 .rle--simple p { margin: 0; }
 .rle--simple .rle__toolbar { background: transparent; padding: 0; }
 .rle__form { padding: 20px 0; }

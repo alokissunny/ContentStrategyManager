@@ -1,6 +1,8 @@
-import React, { useRef, useState } from 'react';
-import { PHONE_STYLE, SCREEN_STYLE, VIDEO_BASE, fmtTime, ReelOverlay, TITLE_END } from './reelOverlay';
+import React, { useEffect, useRef, useState } from 'react';
+import { PHONE_STYLE, SCREEN_STYLE, VIDEO_BASE, fmtTime, ReelOverlay, TITLE_END, zoomScale } from './reelOverlay';
+import { promptEditReel } from '../../api/reels';
 import ReelVideo from './ReelVideo';
+import ReelMediaOverlays from './ReelMediaOverlays';
 import { getReelBackground } from './reelBackgrounds';
 import './reelEditView.css';
 
@@ -20,11 +22,29 @@ function texts(s) {
 export default function ReelEditView({ videoUrl, spec, onChange, onExit }) {
   const video = useRef(null), screen = useRef(null), drag = useRef(null), latest = useRef(spec);
   latest.current = spec;
+  const mounted = useRef(true);
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
+  const [prompt, setPrompt] = useState(''), [applying, setApplying] = useState(false), [reply, setReply] = useState(''), [promptError, setPromptError] = useState('');
   const [time, setTime] = useState(0), [playing, setPlaying] = useState(false), [selected, setSelected] = useState(null), [history, setHistory] = useState([]);
   const duration = spec.meta?.durationSec || 0, rows = texts(spec), item = selected ? get(spec, selected) : null, track = selected?.split(':')[0];
   const background = getReelBackground(spec.background);
   const remember = () => setHistory((h) => [...h.slice(-29), structuredClone(latest.current)]);
   const change = (next, save = true) => { if (save) remember(); latest.current = next; onChange(next); };
+  const applyPrompt = async (event) => {
+    event.preventDefault();
+    if (!prompt.trim() || applying) return;
+    pause(); setApplying(true); setReply(''); setPromptError('');
+    const snapshot = JSON.stringify(latest.current);
+    try {
+      const assets = [...(spec.sourceVisualAssets || []), ...(spec.visualAssets || [])].map(({ id, name, kind, duration }) => ({ id, name, kind, duration }));
+      const result = await promptEditReel({ spec: latest.current, prompt: prompt.trim(), time, selected, assets });
+      if (!mounted.current) return;
+      if (JSON.stringify(latest.current) !== snapshot) throw new Error('Your reel changed while this request was running. Please try again.');
+      if (result.changed) { change(result.spec); setSelected(null); }
+      setReply(result.summary); setPrompt('');
+    } catch (error) { setPromptError(error.response?.data?.message || error.message || 'Could not apply this edit. Please try again.'); }
+    finally { setApplying(false); }
+  };
   const patch = (p) => { const next = structuredClone(spec); Object.assign(get(next, selected), p); change(next); };
   const pause = () => { video.current?.pause(); setPlaying(false); };
   const seek = (t) => { t = clamp(t, 0, duration); if (video.current) video.current.currentTime = t; setTime(t); };
@@ -35,10 +55,18 @@ export default function ReelEditView({ videoUrl, spec, onChange, onExit }) {
   const move = (e) => { const d = drag.current; if (!d || Math.hypot(e.clientX - d.x, e.clientY - d.y) < 3) return; const next = structuredClone(latest.current); get(next, d.key).position = { x: clamp(d.p.x + (e.clientX - d.x) / d.s.width * 100, 10, 90), y: clamp(d.p.y + (e.clientY - d.y) / d.s.height * 100, 8, 92) }; change(next, false); };
   const field = (label, prop) => <label className="rle-field"><span>{label}</span><textarea rows={2} value={item[prop] || ''} onChange={(e) => patch({ [prop]: e.target.value })} /></label>;
   return <div className="rle rle--simple">
+    <form className="rle__prompt" onSubmit={applyPrompt} aria-busy={applying}>
+      <label className="rle-field"><span>Edit with a prompt</span><textarea value={prompt} disabled={applying} maxLength={2000} onChange={(e) => setPrompt(e.target.value)} placeholder={'Try “At 12 seconds, add a bouncing callout saying Big idea for 3 seconds”'} rows={2} /></label>
+      <div className="rle__prompt-actions"><span className="reel-field__hint">“Here” means {fmtTime(time)}. Changes appear in the preview and can be undone.</span><button className="btn btn--primary" disabled={applying || !prompt.trim()}>{applying ? 'Applying edit…' : 'Apply edit'}</button></div>
+      {reply && <p role="status">{reply}</p>}{promptError && <p className="reel-err" role="alert">{promptError}</p>}
+      <p className="reel-field__hint">Request an uploaded photo/video, or describe a scene to create an AI image. Image creation may take a minute. Visual overlays are preview-only.</p>
+    </form>
+    <fieldset className="rle__edit-controls" disabled={applying}>
+    {(spec.mediaOverlays || []).length > 0 && <div className="rle__text-list" aria-label="Visual overlays">{spec.mediaOverlays.map((o, index) => <div className="rle__text-item" key={index}><button className="btn btn--ghost" onClick={() => { pause(); seek(o.start + .05); }}>{[...(spec.visualAssets || []), ...(spec.sourceVisualAssets || [])].find((a) => a.id === o.assetId)?.name || 'Visual'} · {fmtTime(o.start)}–{fmtTime(o.end)}</button><button className="btn btn--ghost" onClick={() => { const next = structuredClone(spec); next.mediaOverlays.splice(index, 1); change(next); }}>Remove visual</button></div>)}</div>}
     <div className="rle__toolbar"><div className="rle__spacer"><h2>Edit text</h2><p>Tap text to edit. Drag it to move.</p></div><button className="btn btn--primary" onClick={onExit}>Done</button></div>
     <div className="rle__top">
       <div className="rle__stage"><div className="reel-phone" style={PHONE_STYLE}><div ref={screen} className="reel-phone__screen rle__canvas" style={{ ...SCREEN_STYLE, background: background.background, '--reel-accent': spec.brand?.accent || spec.strategy?.accent }} onPointerDown={down} onPointerMove={move} onPointerUp={() => { drag.current = null; }} onPointerCancel={() => { drag.current = null; }}>
-        <div className="rl-video-layer"><ReelVideo videoRef={video} mix={spec.backgroundMix} background={background.id} src={videoUrl} className="rl-video" style={VIDEO_BASE} playsInline onTimeUpdate={(e) => setTime(e.currentTarget.currentTime)} onPlay={() => setPlaying(true)} onPause={() => setPlaying(false)} onEnded={() => setPlaying(false)} /></div><ReelOverlay spec={spec} time={time} />
+        <div className="rl-video-layer"><ReelVideo videoRef={video} mix={spec.backgroundMix} background={background.id} src={videoUrl} className="rl-video" style={{ ...VIDEO_BASE, transform: `scale(${zoomScale(spec.animations, time)})` }} playsInline onTimeUpdate={(e) => setTime(e.currentTarget.currentTime)} onPlay={() => setPlaying(true)} onPause={() => setPlaying(false)} onEnded={() => setPlaying(false)} /></div><ReelMediaOverlays spec={spec} time={time} playing={playing} /><ReelOverlay spec={spec} time={time} />
       </div></div><div className="rle__playback"><button className="btn btn--ghost" onClick={() => playing ? pause() : video.current?.play().catch(() => setPlaying(false))}>{playing ? 'Pause' : 'Play'}</button><input aria-label="Preview position" type="range" min="0" max={duration} step=".01" value={time} onChange={(e) => { pause(); seek(+e.target.value); }} /><span>{fmtTime(time)} / {fmtTime(duration)}</span></div><p className="reel-field__hint">Changes save automatically.</p></div>
       <div className="rle__inspector"><div className="rle__toolbar"><button className="btn btn--ghost" onClick={add}>+ Add text</button><button className="btn btn--ghost" disabled={!history.length} onClick={() => { onChange(history.at(-1)); setHistory((h) => h.slice(0, -1)); setSelected(null); }}>Undo</button></div>
         {item ? <div className="rle-insp rle__form">{track === 'strategy' ? <>{field('Text', 'hook')}{field('Small heading', 'hookEyebrow')}</> : track === 'brand' ? <>{field('Text', 'name')}{field('Tagline', 'tag')}</> : track === 'sections' ? <>{field('Text', 'headline')}{field('Small heading', 'eyebrow')}<label className="rle-field"><span>Labels (one per line)</span><textarea value={(item.chips || []).join('\n')} onChange={(e) => patch({ chips: e.target.value.split('\n').filter(Boolean) })} /></label></> : field('Text', item.type === 'emoji' ? 'emoji' : 'text')}
@@ -48,5 +76,6 @@ export default function ReelEditView({ videoUrl, spec, onChange, onExit }) {
         <div className="rle__text-list" aria-label="Text in this reel">{rows.map((r) => <button key={r.key} className="rle__text-item" aria-pressed={selected === r.key} onClick={() => select(r.key)}><span>{r.text}</span><small>{fmtTime(r.start)}</small></button>)}{!rows.length && <p>No text yet. Add your first line above.</p>}</div>
       </div>
     </div>
+    </fieldset>
   </div>;
 }

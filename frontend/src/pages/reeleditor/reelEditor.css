@@ -129,7 +129,7 @@
   background: #000; cursor: pointer; container-type: inline-size;
 }
 .rl-video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; transition: transform .12s ease-out; }
-.rl-overlay { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+.rl-overlay { position: absolute; inset: 0; pointer-events: none; overflow: hidden; z-index: 3; }
 
 .rl-play {
   position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);

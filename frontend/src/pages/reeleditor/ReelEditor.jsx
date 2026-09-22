@@ -14,6 +14,7 @@ import { sampleVideoFrames } from '../../lib/reelFrames';
 import ReelEditView from './ReelEditView';
 import ReelBackgroundPicker from './ReelBackgroundPicker';
 import ReelVideo from './ReelVideo';
+import ReelMediaOverlays from './ReelMediaOverlays';
 import { getReelBackground } from './reelBackgrounds';
 import './reelEditor.css';
 
@@ -107,6 +108,7 @@ function AnimationLayer({ animations, time, duration }) {
   return (
     <>
       {animations.map((a, i) => {
+        if (['pointer', 'spotlight', 'label'].includes(a.type) && /\b(face|faces|head|heads|boy|girl|child|kid|person|speaker)\b/i.test(a.text || '')) return null;
         if (a.type === 'progress') {
           return (
             <div key={i} className="rl-anim rl-anim--progress">
@@ -284,6 +286,7 @@ function PreviewStage({ videoUrl, spec, children }) {
             />
             {spec?.grade && <div className="rl-grade" />}
           </div>
+          <ReelMediaOverlays spec={spec} time={time} playing={playing} />
           <div className="rl-overlay">
             <BrandBar brand={spec?.brand} />
             <AnimationLayer animations={animations} time={time} duration={duration} />
@@ -608,6 +611,7 @@ function ReelEditorDraft({ owner }) {
   // Prefer the manually-edited working copy so tweaks show in the live preview too.
   const previewSpec = useMemo(
     () => meta ? { ...(editedSpec || result?.spec || { meta: { durationSec: meta.duration }, captions: { cues: [] }, animations: [] }), background,
+      sourceVisualAssets: assets.map((a) => ({ id: a.id, name: a.file.name, kind: a.kind, duration: a.duration, url: a.url })),
       backgroundMix: { ...result?.mixPlan, clips: result?.assemblyClips || [], overlays: result?.mixPlan?.overlays || [], assets: assets.map(({ width, height, kind }) => ({ width, height, kind })) } } : null,
     [editedSpec, result, meta, background, assets],
   );

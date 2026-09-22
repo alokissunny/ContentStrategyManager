@@ -40,11 +40,8 @@ Context-anchored pointers — **position is a real on-screen point from `VISUAL_
 - `label` — a small pill naming a subject, with a leader line down to `position`. Put the
   subject's `label` in `text`.
 
-Use pointers to make the video **understandable**: when the clip shows a specific object, hand,
-product, or bit of text, drop a `pointer`, `spotlight`, or `label` on it at a `t` when it is on
-screen (match `start`/`end` to that subject's frame time). Only anchor to subjects that appear
-in `VISUAL_CONTEXT_JSON`; never guess a position. If `VISUAL_CONTEXT_JSON` is empty, emit no
-pointers/spotlights/labels.
+These annotation types are disabled for automatic edits. Use visual context only to
+keep ordinary text clear of the subject. Do not create face or body-part annotations.
 
 ## Output — return ONLY this JSON
 
@@ -67,7 +64,8 @@ pointers/spotlights/labels.
 
 Rules:
 - 6–12 animations total. Always include exactly one `title` (the hook) and one `cta` (the end).
-  Add 2–4 context-anchored pointers/spotlights/labels when `VISUAL_CONTEXT_JSON` has subjects.
+  Do not create pointer, spotlight, or label annotations. Never label faces, heads,
+  people, or body parts. Use ordinary callouts about the spoken message instead.
 - `position.x` / `position.y` are percentages `0–100` of the frame (x = left→right, y = top→bottom).
   For `pointer`/`spotlight`/`label`, copy `position` from a subject in `VISUAL_CONTEXT_JSON`.
   Keep base-beat text clear of captions (captions sit low/center) and of the top progress bar.

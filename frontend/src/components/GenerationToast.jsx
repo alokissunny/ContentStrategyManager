@@ -9,8 +9,9 @@ import { createPortal } from 'react-dom';
 import { useLocation, useNavigate } from 'react-router-dom';
 import Icon from '../brand/Icon';
 import { dismissPlanToast, usePlanGeneration } from '../lib/planGeneration';
+import { openCaptureIdea } from '../lib/captureUi';
 
-const AUTO_MS = { error: 10000 };
+const AUTO_MS = { error: 10000, guidance: 14000 };
 
 export default function GenerationToast() {
   const gen = usePlanGeneration();
@@ -28,17 +29,24 @@ export default function GenerationToast() {
 
   if (!toast) return null;
 
-  const icon = toast.kind === 'busy' ? 'refresh' : toast.kind === 'done' ? 'check' : 'info';
+  const icon = toast.kind === 'busy' ? 'refresh'
+    : toast.kind === 'done' ? 'check'
+    : toast.kind === 'guidance' ? 'bulb'
+    : 'info';
 
   function viewPlan() {
     dismissPlanToast();
     if (pathname !== '/dashboard') navigate('/dashboard');
   }
+  function capture() {
+    dismissPlanToast();
+    openCaptureIdea();
+  }
 
   return createPortal(
     <div
       key={toast.kind}
-      className={`toast${toast.kind === 'busy' ? ' is-busy' : ''}`}
+      className={`toast${toast.kind === 'busy' ? ' is-busy' : ''}${toast.kind === 'guidance' ? ' is-guidance' : ''}`}
       role="status"
       aria-live="polite"
       aria-busy={toast.kind === 'busy' ? 'true' : undefined}
@@ -52,6 +60,11 @@ export default function GenerationToast() {
       {toast.action === 'view' && (
         <button type="button" className="btn btn--primary btn--xs" onClick={viewPlan}>
           View plan
+        </button>
+      )}
+      {toast.action === 'capture' && (
+        <button type="button" className="btn btn--primary btn--xs" onClick={capture}>
+          Capture idea
         </button>
       )}
       <button type="button" className="toast__x" aria-label="Dismiss" onClick={() => dismissPlanToast()}>

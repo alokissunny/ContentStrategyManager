@@ -153,7 +153,10 @@ async function generateAndSavePosts(userId, profile, trigger = 'generate', planS
   if (!days.length) {
     const emptyReason = String(plan.constraints?.insufficientContext || '').trim()
       || 'No posts could be built from this conversation.';
-    return { posts: [], count: 0, debug: plan.debug || null, emptyReason };
+    // NOT a failure — the strategist judged the capture too thin to plan from and
+    // asked for more. `needsInput` lets the client show a friendly prompt/CTA
+    // rather than a red error (see planGeneration.js).
+    return { posts: [], count: 0, debug: plan.debug || null, emptyReason, needsInput: true };
   }
 
   // Split the run's LLM usage evenly across the posts it produced (display only).
@@ -289,13 +292,16 @@ async function generatePlan(req, res) {
     (sessionId ? ` session=${sessionId}` : '') +
     ` publish=${pubRule.mode}${allowedWeekdays ? `[${allowedWeekdays.join(',')}]` : '(any day)'}`);
 
-  const { posts, count, debug, emptyReason } = await generateAndSavePosts(req.user._id, profile, trigger, {
+  const { posts, count, debug, emptyReason, needsInput } = await generateAndSavePosts(req.user._id, profile, trigger, {
     sessionId,
     captureIds,
     allowedWeekdays,
   });
   if (emptyReason && !count) {
     const out = { message: emptyReason };
+    // a soft "needs more context" result, not a failure — the client shows a
+    // friendly prompt/CTA instead of an error banner
+    if (needsInput) out.needsInput = true;
     if (wantsPromptDebug(req) && (debug?.agents?.length || debug?.finalPrompt)) out.debug = debug;
     return res.status(422).json(out);
   }

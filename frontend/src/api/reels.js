@@ -89,3 +89,11 @@ export async function editReel({ key, durationSec, guidance, brand, frames, acce
   ingestDebug(data.debug);
   return data;
 }
+
+export async function promptEditReel({ spec, prompt, time, selected, assets }) {
+  const { visualAssets, sourceVisualAssets, ...editable } = spec;
+  const { data } = await client.post('/reels/prompt-edit', { spec: editable, prompt, time, selected, assets }, { timeout: 360000 });
+  data.spec.visualAssets = [...(visualAssets || []), ...(data.generatedAssets || [])];
+  data.spec.sourceVisualAssets = sourceVisualAssets;
+  return data;
+}

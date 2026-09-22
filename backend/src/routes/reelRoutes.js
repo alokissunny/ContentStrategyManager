@@ -13,5 +13,12 @@ router.use(protect);
 router.post('/uploads/sign', asyncHandler(signUpload));
 router.post('/assemble', asyncHandler(assembleReel));
 router.post('/edit', asyncHandler(editReel));
+router.post('/prompt-edit', asyncHandler(async (req, res) => {
+  try {
+    res.json(await require('../services/reelPromptEdit').promptEdit(req.body || {}));
+  } catch (error) {
+    res.status(error.statusCode === 400 ? 400 : 502).json({ message: error.statusCode === 400 ? error.message : 'Could not apply this edit. Your reel is unchanged. Try again.' });
+  }
+}));
 
 module.exports = router;

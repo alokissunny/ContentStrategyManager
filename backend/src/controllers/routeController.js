@@ -647,6 +647,8 @@ async function generateAndSaveRoute(userId, profile, trigger = 'generate', planS
     expectedWeeks: Math.max(savedWeeks.length, 1),
     debug: plan?.debug || null,
     emptyReason,
+    // every empty case here is the strategist asking for more, not a failure
+    needsInput: !!emptyReason,
   };
 }
 
@@ -821,12 +823,13 @@ async function generateRoute(req, res) {
   console.log(`[route] POST /routes/generate trigger=${trigger} user=${req.user._id} @${profile.username}` +
     (sessionId ? ` session=${sessionId}` : ''));
   // Returns as soon as new empty-day posts are saved; next-month stubs fill in the background.
-  const { route, expectedWeeks, debug, emptyReason } = await generateAndSaveRoute(req.user._id, profile, trigger, {
+  const { route, expectedWeeks, debug, emptyReason, needsInput } = await generateAndSaveRoute(req.user._id, profile, trigger, {
     sessionId,
     captureIds,
   });
   if (emptyReason) {
     const out = { message: emptyReason };
+    if (needsInput) out.needsInput = true;
     if (wantsPromptDebug(req) && (debug?.agents?.length || debug?.finalPrompt)) out.debug = debug;
     return res.status(422).json(out);
   }
