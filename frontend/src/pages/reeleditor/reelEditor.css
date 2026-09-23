@@ -361,3 +361,11 @@
 .reel-mixer-decisions ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; }
 .reel-mixer-decisions li { display: grid; gap: 2px; overflow-wrap: anywhere; }
 .reel-mixer-decisions li span { color: var(--text-muted, #737383); }
+
+.reel-scene { text-align: left; position: relative; overflow: hidden; transform-origin: top left; container-type: inline-size; }
+/* All scene motion is driven by reel time, so scrubbing and export agree. */
+.reel-scene .rl-video, .reel-scene .rl-cap__w { transition: none; }
+.reel-export-stage { position: fixed; left: -10000px; top: 0; width: 300px; height: 533.333333px; pointer-events: none; }
+.reel-export-stage .reel-phone__screen { border-radius: 0; }
+.reel-download { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.reel-download progress, .reel-download p { width: 100%; }

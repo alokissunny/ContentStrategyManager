@@ -129,7 +129,7 @@ async function signUpload(req, res) {
   if (!ext) {
     return res.status(400).json({ message: 'Unsupported media type. Upload MP4, MOV, WebM, JPEG, PNG, or WebP.' });
   }
-  const key = `${prefixOf(req.user._id)}${crypto.randomUUID()}.${ext}`;
+  const key = `${prefixOf(req.user._id)}${crypto.randomUUID()}${req.body?.purpose === 'reel-export' ? '-export-tmp' : ''}.${ext}`;
   const uploadUrl = await getPresignedUploadUrl(key, contentType);
   res.json({ key, uploadUrl, cacheControl: MEDIA_CACHE_CONTROL });
 }
@@ -229,4 +229,44 @@ async function editReel(req, res) {
   res.json({ key: clean, ...result, audioCleanup, mixPlan: assembly?.mixPlan || null, notes: [...audioNotes, ...(result.notes || [])] });
 }
 
-module.exports = { signUpload, assembleReel, editReel };
+function isTemporaryExportKey(key, userId) {
+  return typeof key === 'string' && VIDEO_KEY_RE.test(key) && key.startsWith(prefixOf(userId)) && /-export-tmp\.(mp4|webm|mov)$/i.test(key);
+}
+async function cleanupReelExport(req, res) {
+  const keys = req.body?.keys;
+  if (!Array.isArray(keys) || keys.length > 2 || !keys.every((key) => isTemporaryExportKey(key, req.user._id))) {
+    return res.status(400).json({ message: 'Invalid temporary export files.' });
+  }
+  if (keys.length) await require('../services/s3Client').deleteObjects(keys);
+  return res.json({ ok: true });
+}
+let activeExports = 0;
+async function exportReel(req, res) {
+  const { videoKey, audioKey } = req.body || {};
+  if (![videoKey, audioKey].every((key) => typeof key === 'string' && VIDEO_KEY_RE.test(key) && key.startsWith(prefixOf(req.user._id)))) {
+    return res.status(400).json({ message: 'Upload the rendered reel and its selected audio before exporting.' });
+  }
+  if (activeExports >= 2) return res.status(429).json({ message: 'The export renderer is busy. Please retry shortly.' });
+  activeExports++;
+  try {
+    const [video, audio] = await Promise.all([getObjectBytes(videoKey), getObjectBytes(audioKey)]);
+    if (video.buffer.length > 150 * 1024 * 1024 || audio.buffer.length > MAX_TOTAL_BYTES) {
+      return res.status(413).json({ message: 'This reel is too large to export. Shorten the reel and retry.' });
+    }
+    const output = await require('../services/reelExport').muxReelExport(video.buffer, audio.buffer, EXT_MIME[audioKey.split('.').pop().toLowerCase()]);
+    res.set('Content-Type', 'video/mp4');
+    res.set('Content-Disposition', 'attachment; filename="finished-reel.mp4"');
+    res.set('Cache-Control', 'no-store');
+    return res.send(output);
+  } catch (error) {
+    console.error('[reel] export failed:', error.message);
+    return res.status(500).json({ message: 'Could not finish the MP4 export. Please retry.' });
+  } finally {
+    activeExports--;
+    const temporaryKeys = [videoKey, audioKey].filter((key) => isTemporaryExportKey(key, req.user._id));
+    if (temporaryKeys.length) {
+      try { await require('../services/s3Client').deleteObjects(temporaryKeys); } catch { /* client retries cleanup */ }
+    }
+  }
+}
+module.exports = { signUpload, assembleReel, editReel, exportReel, cleanupReelExport };

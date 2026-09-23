@@ -51,18 +51,23 @@ function ingestDebug(debug) {
 }
 
 // Presign + PUT the clip to S3. Returns { key }.
-export async function uploadReelClip(file, onProgress) {
+export async function uploadReelClip(file, onProgress, signal, purpose) {
   if (!isSupportedMedia(file)) {
     throw new Error('Upload MP4, MOV, WebM, JPEG, PNG, or WebP files.');
   }
-  const { data } = await client.post('/reels/uploads/sign', { contentType: file.type });
+  const { data } = await client.post('/reels/uploads/sign', { contentType: file.type, purpose }, { signal });
   const { key, uploadUrl, cacheControl } = data;
   const headers = { 'Content-Type': file.type };
   if (cacheControl) headers['Cache-Control'] = cacheControl;
 
   await new Promise((resolve, reject) => {
     // XHR (not fetch) so the upload can report progress on large clips.
+    signal?.throwIfAborted();
     const xhr = new XMLHttpRequest();
+    const abort = () => xhr.abort();
+    signal?.addEventListener('abort', abort, { once: true });
+    xhr.onloadend = () => signal?.removeEventListener('abort', abort);
+    xhr.onabort = () => reject(new DOMException('Export cancelled', 'AbortError'));
     xhr.open('PUT', uploadUrl);
     Object.entries(headers).forEach(([k, v]) => xhr.setRequestHeader(k, v));
     xhr.upload.onprogress = (e) => {
@@ -96,4 +101,20 @@ export async function promptEditReel({ spec, prompt, time, selected, assets }) {
   data.spec.visualAssets = [...(visualAssets || []), ...(data.generatedAssets || [])];
   data.spec.sourceVisualAssets = sourceVisualAssets;
   return data;
+}
+
+export async function finishReelExport(keys, signal) {
+  try {
+    const { data } = await client.post('/reels/export', keys, { signal, responseType: 'blob', timeout: 180000 });
+    return data;
+  } catch (error) {
+    if (error.response?.data instanceof Blob) {
+      try { const body = JSON.parse(await error.response.data.text()); error.message = body.message || error.message; } catch { /* preserve transport error */ }
+    }
+    throw error;
+  }
+}
+
+export async function cleanupReelExport(keys) {
+  if (keys.length) await client.post('/reels/export/cleanup', { keys }, { timeout: 15000 });
 }

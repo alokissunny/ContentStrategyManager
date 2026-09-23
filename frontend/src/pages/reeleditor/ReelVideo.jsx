@@ -3,7 +3,7 @@ import { backgroundProtection } from '../../lib/reelBackgroundProtection.mjs';
 
 // Keep the video as the playback/audio clock. A transparent canvas holds only
 // the person, letting the selected CSS background show through behind them.
-export default function ReelVideo({ videoRef, background, src, style, mix, ...videoProps }) {
+export default function ReelVideo({ videoRef, background, src, style, mix, exporting = false, ...videoProps }) {
   const mixRef = useRef(mix);
   mixRef.current = mix;
   const canvasRef = useRef(null);
@@ -28,8 +28,8 @@ export default function ReelVideo({ videoRef, background, src, style, mix, ...vi
 
     function draw(now) {
       if (disposed) return;
-      // Cap inference at 24 fps, and do no work for unchanged paused frames.
-      if (video.readyState >= 2 && !video.seeking && video.currentTime !== lastTime && now - lastFrameAt >= 1000 / 24) {
+      // Cap live preview inference at 24 fps. Offline export runs on seek completion.
+      if (video.readyState >= 2 && !video.seeking && video.currentTime !== lastTime && (exporting || now - lastFrameAt >= 1000 / 24)) {
         try {
           const width = Math.max(1, Math.round(video.videoWidth * Math.min(1, 720 / video.videoHeight)));
           const height = Math.max(1, Math.round(video.videoHeight * Math.min(1, 720 / video.videoHeight)));
@@ -41,8 +41,9 @@ export default function ReelVideo({ videoRef, background, src, style, mix, ...vi
             context.drawImage(video, 0, 0, width, height);
             lastTime = video.currentTime;
             lastFrameAt = now;
+            canvas.dataset.frameTime = String(video.currentTime);
             setStatus('ready');
-            raf = requestAnimationFrame(draw);
+            if (!exporting) raf = requestAnimationFrame(draw);
             return;
           }
           segmenter.segmentForVideo(video, now, (result) => {
@@ -82,6 +83,7 @@ export default function ReelVideo({ videoRef, background, src, style, mix, ...vi
           });
           lastTime = video.currentTime;
           lastFrameAt = now;
+          canvas.dataset.frameTime = String(video.currentTime);
           setStatus((previous) => previous === 'ready' ? previous : 'ready');
         } catch {
           setStatus('error');
@@ -90,14 +92,17 @@ export default function ReelVideo({ videoRef, background, src, style, mix, ...vi
           return;
         }
       }
-      raf = requestAnimationFrame(draw);
+      if (!exporting) raf = requestAnimationFrame(draw);
     }
+
+    const drawExportFrame = () => { if (segmenter) draw(performance.now()); };
+    if (exporting) { video.addEventListener('seeked', drawExportFrame); video.addEventListener('loadeddata', drawExportFrame); }
 
     import('../../lib/personSegmentation').then(({ createPersonSegmenter }) => createPersonSegmenter()).then((instance) => {
       if (disposed) { instance.close(); return; }
       segmenter = instance;
       if (!context || !maskContext) throw new Error('Canvas unavailable');
-      raf = requestAnimationFrame(draw);
+      if (exporting) drawExportFrame(); else raf = requestAnimationFrame(draw);
     }).catch(() => {
       if (!disposed) setStatus('error');
       segmenter?.close();
@@ -107,15 +112,17 @@ export default function ReelVideo({ videoRef, background, src, style, mix, ...vi
     return () => {
       disposed = true;
       cancelAnimationFrame(raf);
+      video.removeEventListener('seeked', drawExportFrame);
+      video.removeEventListener('loadeddata', drawExportFrame);
       segmenter?.close();
     };
-  }, [enabled, src, attempt, videoRef]);
+  }, [enabled, src, attempt, videoRef, exporting]);
 
   const ready = enabled && status === 'ready';
   return (
     <>
       <video {...videoProps} ref={videoRef} src={src} style={{ ...style, opacity: ready ? 0 : 1 }} />
-      {enabled && <canvas ref={canvasRef} className="rl-person" style={{ ...style, visibility: ready ? 'visible' : 'hidden' }} aria-hidden="true" />}
+      {enabled && <canvas ref={canvasRef} data-background-status={status} className="rl-person" style={{ ...style, visibility: ready ? 'visible' : 'hidden' }} aria-hidden="true" />}
       {enabled && status !== 'ready' && (
         <div className="rl-background-status" role="status" onClick={(event) => event.stopPropagation()}>
           {status === 'error' ? <>Could not apply background. Showing original. <button type="button" onClick={() => setAttempt((value) => value + 1)}>Retry</button></> : 'Preparing virtual background…'}

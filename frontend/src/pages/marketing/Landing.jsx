@@ -19,7 +19,6 @@ import S10Intelligence from './bauhly/scenes/S10Intelligence.jsx';
 import S9Memory from './bauhly/scenes/S9Memory.jsx';
 import S4Strategist from './bauhly/scenes/S4Strategist.jsx';
 import S5Journey from './bauhly/scenes/S5Journey.jsx';
-import S7Pricing from './bauhly/scenes/S7Pricing.jsx';
 import S8Faq from './bauhly/scenes/S8Faq.jsx';
 import S6Invitation from './bauhly/scenes/S6Invitation.jsx';
 import Footer from './bauhly/components/Footer.jsx';
@@ -60,7 +59,6 @@ export default function Landing() {
         <S9Memory />
         <S4Strategist />
         <S5Journey />
-        <S7Pricing />
         <S8Faq />
         <S6Invitation />
         <Footer />

@@ -48,7 +48,7 @@ export function CaptionLayer({ captions, time }) {
   }
   return (
     <div data-reel-text={`captions:${captions.cues.indexOf(cue)}`} style={placed(cue.position)} className={`rl-cap rl-cap--${captions.position || 'bottom'} rl-cap--${style}`}>
-      <span className="rl-cap__box">{inner}</span>
+      <span className="rl-cap__box" style={style === 'pop' ? { animationPlayState: 'paused', animationDelay: `${-(time - cue.start)}s` } : undefined}>{inner}</span>
     </div>
   );
 }
@@ -101,8 +101,8 @@ export function AnimationLayer({ animations, time, duration }) {
         if (a.type === 'pointer') {
           return (
             <div key={i} className="rl-anim rl-anim--pointer" style={{ left: `${x}%`, top: `${y}%`, opacity }}>
-              <span className="rl-ring" />
-              <span className="rl-ring rl-ring--2" />
+              <span className="rl-ring" style={{ animationPlayState: 'paused', animationDelay: `${-(time - a.start)}s` }} />
+              <span className="rl-ring rl-ring--2" style={{ animationPlayState: 'paused', animationDelay: `${0.6 - (time - a.start)}s` }} />
               <span className="rl-dot" />
             </div>
           );

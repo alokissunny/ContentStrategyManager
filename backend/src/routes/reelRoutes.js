@@ -1,7 +1,7 @@
 const express = require('express');
 const asyncHandler = require('../utils/asyncHandler');
 const { protect } = require('../middleware/auth');
-const { signUpload, assembleReel, editReel } = require('../controllers/reelController');
+const { signUpload, assembleReel, editReel, exportReel, cleanupReelExport } = require('../controllers/reelController');
 
 // Experimental Reel Editor. The clip uploads straight to S3 via a presigned PUT
 // (browser → S3, never through this server); /edit reads the stored bytes and
@@ -12,6 +12,8 @@ router.use(protect);
 
 router.post('/uploads/sign', asyncHandler(signUpload));
 router.post('/assemble', asyncHandler(assembleReel));
+router.post('/export/cleanup', asyncHandler(cleanupReelExport));
+router.post('/export', asyncHandler(exportReel));
 router.post('/edit', asyncHandler(editReel));
 router.post('/prompt-edit', asyncHandler(async (req, res) => {
   try {
