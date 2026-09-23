@@ -1,10 +1,7 @@
 import { motion } from 'motion/react'
-import { useNavigate } from 'react-router-dom'
 import { pop, popDelayed } from '../lib/motion.js'
 
 export default function S6Invitation() {
-  const nav = useNavigate()
-
   return (
     <section className="b6">
       <span className="b6-orb" aria-hidden="true" />
@@ -18,9 +15,9 @@ export default function S6Invitation() {
           you&rsquo;re not convinced, we&rsquo;ll give a month back.
         </motion.p>
         <motion.div {...popDelayed(0.16)}>
-          <button className="cta cta-ink" onClick={() => nav('/auth')}>
-            Analyze my profile
-          </button>
+          <span className="cta cta-ink" aria-disabled="true">
+            Coming soon
+          </span>
         </motion.div>
         <motion.p className="b6-reassure" {...popDelayed(0.24)}>
           No trend-chasing. No dancing. No guilt about the weeks you missed.

@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
 import { heroPop } from '../lib/motion.js'
 import Nav from '../components/Nav.jsx'
@@ -125,8 +124,6 @@ function HeroDeck() {
 }
 
 export default function S1Hero() {
-  const nav = useNavigate()
-
   return (
     <section className="h1s">
       <Nav />
@@ -165,12 +162,9 @@ export default function S1Hero() {
           </motion.p>
 
           <motion.div className="h1s-ctas" {...heroPop(0.2)}>
-            <button
-              className="cta cta-ink h1s-main-cta"
-              onClick={() => nav('/auth')}
-            >
-              Analyse my profile →
-            </button>
+            <span className="cta cta-ink h1s-main-cta" aria-disabled="true">
+              Coming soon
+            </span>
           </motion.div>
         </div>
 
