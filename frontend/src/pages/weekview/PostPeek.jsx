@@ -256,10 +256,10 @@ function PeekSlide({ slide, paint, themed, documentHtml, carouselLayoutHtmls, sl
 export function DayPeek({ day, feed = false, phone = false }) {
   const store = useStore();
   const paint = useMemo(() => brandStyleVars(store), [store]);
-  const themed = useMemo(
-    () => Object.keys(paintAll(store?.libraryEdits) || {}).length > 0,
-    [store?.libraryEdits],
-  );
+  // Same rule as WeekView's own preview: agent-generated slides render as the
+  // raw model output, never auto-repainted with Library visual settings — so
+  // this calendar peek always matches what the post actually looks like open.
+  const themed = false;
   const slides = useMemo(() => slidesOf(day), [day]);
   const n = slides.length;
   const ar = canvasAr(day?.format);
