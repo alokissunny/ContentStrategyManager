@@ -3868,6 +3868,7 @@
   color: var(--ink-900);
 }
 .wv-ig__flyitem:hover { background: var(--surface-sunken); }
+.wv-ig__flyitem.is-disabled { opacity: 0.5; pointer-events: none; }
 .wv-ig__flyitem > svg { color: var(--ink-500); flex-shrink: 0; }
 .wv-ig__flycopy {
   flex: 1;

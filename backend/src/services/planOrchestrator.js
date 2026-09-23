@@ -454,7 +454,7 @@ function mergeUsage(parts, model) {
   return usage;
 }
 
-async function callAgent({ source, kind, prompt, system, user, validate, parse, htmlDirection }) {
+async function callAgent({ source, kind, prompt, system, user, image, validate, parse, htmlDirection }) {
   const llm = resolvePlanAgentLlm(kind);
   const model = llm.model;
   let maxTokens = maxTokensFor(kind);
@@ -476,6 +476,7 @@ async function callAgent({ source, kind, prompt, system, user, validate, parse, 
       system,
       user: userContent,
       prompt: userContent,
+      image,
       maxTokens,
       cacheKey: `igsignal-plan-${kind}`,
       kind,
@@ -2303,19 +2304,20 @@ function runLayoutForPost(opts) {
   return writeLayout(opts);
 }
 
-async function writeCarousel({ source, structure, post, dayBrief, brand, dayWriterOutput, themeId }) {
+async function writeCarousel({ source, structure, post, dayBrief, brand, dayWriterOutput, themeId, referenceTheme, referenceImage }) {
   const hasStructure = Array.isArray(structure?.slidesOrScenes) && structure.slidesOrScenes.length > 0;
   const carouselInput = hasStructure
     ? carouselInputOf(structure, post, dayBrief)
     : carouselBriefInputOf(dayBrief, post);
   const structureSlides = visualSlidesOf(structure).length;
   const postSlideCount = Array.isArray(post?.content?.slides) ? post.content.slides.length : 0;
-  // Studio Change-theme wins when passed; otherwise use the Strategist's brief pick.
-  const resolvedThemeId = resolveThemeId(
+  // A studio-uploaded reference photo (Change theme › Upload a reference) wins
+  // over everything else; otherwise Change-theme's catalog pick, then the
+  // Strategist's brief pick.
+  const theme = referenceTheme || themeById(resolveThemeId(
     themeId || dayBrief?.themeId || post?.content?.themeId,
     { pillar: dayBrief?.pillar || dayBrief?.lens },
-  );
-  const theme = themeById(resolvedThemeId);
+  ));
   console.log(
     `[planOrchestrator] ${source} input · structureSlides=${structureSlides} ` +
       `postSlides=${postSlideCount} inputSlides=${carouselInput.slides?.length || 0} ` +
@@ -2349,6 +2351,9 @@ async function writeCarousel({ source, structure, post, dayBrief, brand, dayWrit
     system: assembled.system,
     user: assembled.user,
     prompt: assembled.prompt,
+    // Only attach the photo when this IS the reference theme — a catalog theme
+    // pick has no photo to show.
+    image: theme === referenceTheme ? referenceImage : undefined,
     parse: 'html',
     htmlDirection: theme?.direction || 'architectural-minimal',
     validate: (parsed) => validateCarousel(parsed, post),

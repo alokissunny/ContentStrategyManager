@@ -234,9 +234,12 @@ export function polishCaption(id, { caption, instruction, kind, role, fills }) {
 
 // Run the Carousel agent on one post (long — a high-reasoning model can take
 // several minutes). Optional themeId rebuilds the carousel in that visual theme.
+// Optional referenceImageKey (an uploaded photo's S3 key) rebuilds it instead
+// using that photo's look — the server reads it with vision and hands the
+// agent a description to design from.
 // → { post, layout, ... }
-export function runPostLayout(id, { themeId } = {}) {
-  const body = themeId ? { themeId } : {};
+export function runPostLayout(id, { themeId, referenceImageKey } = {}) {
+  const body = referenceImageKey ? { referenceImageKey } : (themeId ? { themeId } : {});
   return client.post(`/posts/${id}/layout`, body, { timeout: 540000 }).then((res) => {
     const data = res.data || {};
     ingestPlanDebug('Carousel agent (debug)', data);

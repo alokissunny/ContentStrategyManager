@@ -189,6 +189,20 @@ function estimateCost(model, inputTokens, outputTokens) {
 }
 
 /**
+ * Load a stored image ready to attach to a vision-model message: { mediaType,
+ * data: base64 }. Kept separate from analyzeImageAsset() — that result gets
+ * spread onto a persisted `analysis` sub-document (Projects), so it must never
+ * carry the image bytes themselves. Used by Change theme's "Upload a
+ * reference" to hand the carousel agent the actual photo, not just a written
+ * description of it.
+ */
+async function loadReferenceImage(key) {
+  const { buffer, contentType } = await getObjectBytes(key);
+  const vision = await toVisionImage(buffer, contentType, key);
+  return { mediaType: vision.mediaType, data: vision.buffer.toString('base64') };
+}
+
+/**
  * Analyse a single stored image asset. Returns the descriptive fields for the
  * attachment's `analysis` sub-document (status/model/analyzedAt are set by the
  * caller). Throws on unsupported types or an API/parse failure.
@@ -239,4 +253,4 @@ async function analyzeImageAsset(key, { type } = {}) {
   };
 }
 
-module.exports = { analyzeImageAsset };
+module.exports = { analyzeImageAsset, loadReferenceImage };

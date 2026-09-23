@@ -304,21 +304,28 @@ function cachedTokensOf(usage) {
  * Provider-agnostic text completion for plan generation.
  * Pass `system` (stable instructions) + `user` (per-call data) so OpenAI/Anthropic
  * can cache the prefix. `prompt` remains a fallback for a single user blob.
+ * Optional `image` ({ mediaType, data: base64 }) attaches one photo to the user
+ * turn — e.g. Change theme's "Upload a reference" gives the model the actual
+ * photo to read (palette, materials, composition) rather than only a written
+ * description, for more accurate theme extraction.
  * Returns { text, model, stopReason, usage: { input_tokens, output_tokens, cached_tokens } }.
  */
 async function completeText({
-  model, prompt, system, user, maxTokens, cacheKey, kind, reasoningEffort, verbosity, timeoutMs,
+  model, prompt, system, user, image, maxTokens, cacheKey, kind, reasoningEffort, verbosity, timeoutMs,
 }) {
   const resolved = model || planTextModel(kind);
   const userContent = (user != null && String(user).length) ? String(user) : String(prompt || '');
   const sys = String(system || '').trim();
   const provider = providerOf(resolved);
   const requestOpts = Number(timeoutMs) > 0 ? { timeout: Number(timeoutMs) } : undefined;
+  const imageParts = image?.data
+    ? [{ type: 'image', mediaType: image.mediaType, data: image.data }, { type: 'text', text: userContent }]
+    : null;
 
   if (provider === 'openai') {
     const messages = [];
     if (sys) messages.push({ role: 'system', content: sys });
-    messages.push({ role: 'user', content: userContent });
+    messages.push({ role: 'user', content: imageParts ? toOpenAIUserContent(imageParts) : userContent });
     const response = await openaiChatCreate({
       model: resolved,
       messages,
@@ -347,7 +354,7 @@ async function completeText({
   const createArgs = {
     model: resolved,
     max_tokens: maxTokens,
-    messages: [{ role: 'user', content: userContent }],
+    messages: [{ role: 'user', content: imageParts ? toAnthropicUserContent(imageParts) : userContent }],
     ...anthropicExtraParams(resolved, { kind, reasoningEffort }),
   };
   if (sys) {

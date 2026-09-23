@@ -128,6 +128,31 @@ function themeReferenceForPrompt(theme) {
   ].join('\n');
 }
 
+// A one-off "theme" built from a studio-uploaded photo (Change theme › Upload a
+// reference) instead of the fixed catalog above. `analysis` is the vision
+// analyzeImageAsset() result for that photo — its description/colours/mood
+// become the carousel agent's visual reference, same shape as a catalog entry
+// so writeCarousel() can use either interchangeably.
+function customReferenceTheme(analysis) {
+  const bits = [
+    'Visual reference supplied by the studio: a photograph they like the look of, attached to this message — look at it directly (not part of this post’s own content — do not depict this exact scene).',
+    analysis?.description || analysis?.summary
+      ? `What the photo shows: ${analysis.description || analysis.summary}`
+      : '',
+    Array.isArray(analysis?.colors) && analysis.colors.length
+      ? `Its dominant colours: ${analysis.colors.join(', ')}.`
+      : '',
+    analysis?.mood ? `Its mood/tone: ${analysis.mood}.` : '',
+    'Read the attached photo yourself for the exact palette, materials/texture, lighting and composition — the notes above are a starting point, not a substitute. Design this carousel so its palette, mood, materials/texture and composition energy evoke this reference — adapt its aesthetic direction into an Instagram carousel design system; do not literally reproduce the photo.',
+  ].filter(Boolean);
+  return {
+    id: 'custom-reference',
+    name: 'Your reference photo',
+    direction: 'custom-reference',
+    reference: bits.join(' '),
+  };
+}
+
 module.exports = {
   CAROUSEL_THEMES,
   DEFAULT_THEME_ID,
@@ -135,4 +160,5 @@ module.exports = {
   themesForStrategistPrompt,
   resolveThemeId,
   themeReferenceForPrompt,
+  customReferenceTheme,
 };

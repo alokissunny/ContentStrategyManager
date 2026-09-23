@@ -191,8 +191,11 @@ export function polishCaption(routeId, index, { caption, instruction, kind, role
 // this must outlast the backend's carousel timeout (up to 5 min) — otherwise the
 // client aborts a run that is still generating and it looks like nothing ran.
 // Optional themeId rebuilds the carousel using that theme as visual reference.
-export function runDayLayout(routeId, index, { themeId } = {}) {
-  const body = themeId ? { themeId } : {};
+// Optional referenceImageKey (an uploaded photo's S3 key) rebuilds it instead
+// using that photo's look — the server reads it with vision and hands the
+// agent a description to design from.
+export function runDayLayout(routeId, index, { themeId, referenceImageKey } = {}) {
+  const body = referenceImageKey ? { referenceImageKey } : (themeId ? { themeId } : {});
   return client
     .post(`/routes/${routeId}/day/${index}/layout`, body, { timeout: 540000 })
     .then((res) => {

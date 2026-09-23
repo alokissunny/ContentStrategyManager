@@ -48,7 +48,7 @@ import { openCaptureIdea } from '../lib/captureUi';
 import { styleOf, groundOf } from '../lib/visualbrand';
 import { LAYOUTS as LIB_LAYOUTS, catForRole, shotsOf, DEFAULT_LAYOUT_BY_CAT, layoutShowsAllCopy } from '../data/layouts';
 import { CAROUSEL_THEMES } from '../data/carouselThemes';
-import { paintAll, paintOf, identityOf, TYPE_SLOTS, FACES, logoPositionOf, markForTone } from '../lib/identity';
+import { paintAll, identityOf, TYPE_SLOTS, FACES, logoPositionOf, markForTone } from '../lib/identity';
 import { rolesOf as textRolesOf, plainOf, parseMarked, isListRole, listIndexOf } from '../lib/slidetext';
 import ImagePicker from './weekview/ImagePicker';
 import { PhotoEditor, SlotPack } from './weekview/PhotoEditor';
@@ -2782,15 +2782,14 @@ export default function WeekView({
   // Palette + type set on the Visual Brand page, reflected in the post preview.
   const vbStore = useStore();
   const igVars = useMemo(() => brandStyleVars(vbStore), [vbStore]);
-  // A slide renders as the raw layout-agent output by default. Once the studio
-  // applies anything in Library visual settings, paintOf emits a token for it —
-  // that flips the agent slides to the brand (faces + palette). Untouched =
-  // raw. (SafeLayout / best-fit compositions are the studio's own art and stay
-  // branded regardless.)
-  const hasVisualEdits = useMemo(
-    () => Object.keys(paintOf(vbStore?.libraryEdits)).length > 0,
-    [vbStore?.libraryEdits],
-  );
+  // Agent-generated carousel slides always render as the raw layout-agent
+  // output — the actual model result, same as the AI Debug "Carousel preview"
+  // — never auto-repainted with Library visual settings. Applying the studio's
+  // brand palette to a slide is a manual, per-post choice made from the slide's
+  // context menu (Change theme), not an automatic side effect of having set a
+  // palette. (SafeLayout / best-fit compositions are the studio's own art and
+  // stay branded regardless — they have no agent styling to preserve.)
+  const hasVisualEdits = false;
   const days = route?.days || [];
   const day = days[selected] || days[0];
   // Local "YYYY-MM-DD" for today — the strip rings today in lime, the reference's
@@ -3731,13 +3730,18 @@ export default function WeekView({
     }
   }
 
-  async function handleRunLayout(themeId) {
+  async function handleRunLayout(opts) {
     if (layoutBusy || !route?._id) return;
-    const theme = typeof themeId === 'string' ? themeId.trim() : '';
+    const themeId = typeof opts === 'string' ? opts.trim() : String(opts?.themeId || '').trim();
+    const referenceImageKey = typeof opts === 'object' && opts ? String(opts.referenceImageKey || '').trim() : '';
     setLayoutBusy(true);
     setLayoutErr('');
     try {
-      const data = await runDayLayout(route._id, selected, theme ? { themeId: theme } : undefined);
+      const data = await runDayLayout(
+        route._id,
+        selected,
+        referenceImageKey ? { referenceImageKey } : (themeId ? { themeId } : undefined),
+      );
       if (data?.route) {
         setRoute(data.route);
         onRouteChange?.(data.route);
@@ -3759,6 +3763,35 @@ export default function WeekView({
     setMenuPane(null);
     closeZone();
     await handleRunLayout(theme.id);
+  }
+
+  // Change theme › Upload a reference: upload the studio's photo, then rebuild
+  // the carousel with it as the visual reference instead of a catalog theme.
+  async function handleUploadReferenceTheme(file) {
+    if (!file || layoutBusy || !route?._id) return;
+    setMenuPane(null);
+    closeZone();
+    setLayoutBusy(true);
+    setLayoutErr('');
+    try {
+      const uploaded = await uploadFiles([file]);
+      const key = uploaded?.[0]?.key;
+      if (!key) throw new Error('Could not upload that photo.');
+      const data = await runDayLayout(route._id, selected, { referenceImageKey: key });
+      if (data?.route) {
+        setRoute(data.route);
+        onRouteChange?.(data.route);
+      }
+    } catch (err) {
+      const timedOut = err?.code === 'ECONNABORTED' || /timeout/i.test(String(err?.message || ''));
+      setLayoutErr(
+        timedOut
+          ? 'Carousel agent timed out. Try again — a server restart mid-run can leave this stuck.'
+          : (err.response?.data?.message || err.message || 'Could not use that reference photo.'),
+      );
+    } finally {
+      setLayoutBusy(false);
+    }
   }
 
   // Load the week's stored layoutOptions (kept out of the render payload) and
@@ -5271,12 +5304,12 @@ export default function WeekView({
                   <button
                     type="button"
                     role="menuitem"
-                    className={`wv-ig__menuitem wv-ig__menuitem--sub${menuPane === 'theme' ? ' is-open' : ''}`}
+                    className={`wv-ig__menuitem wv-ig__menuitem--sub${menuPane === 'theme' || menuPane === 'theme-library' ? ' is-open' : ''}`}
                     aria-haspopup="menu"
-                    aria-expanded={menuPane === 'theme'}
+                    aria-expanded={menuPane === 'theme' || menuPane === 'theme-library'}
                     disabled={layoutBusy}
                     onMouseEnter={() => setMenuPane('theme')}
-                    onClick={() => setMenuPane((p) => (p === 'theme' ? null : 'theme'))}
+                    onClick={() => setMenuPane((p) => (p === 'theme' || p === 'theme-library' ? null : 'theme'))}
                   >
                     <Icon name="swatch" size={17} strokeWidth={2} />
                     <span className="wv-ig__menugrow">Change theme</span>
@@ -5426,15 +5459,82 @@ export default function WeekView({
                 )}
                 {menuPane === 'theme' && flyPos && createPortal(
                   <div
-                    className="wv-ig__menuflyout wv-ig__menuflyout--themes"
+                    className="wv-ig__menuflyout"
                     role="menu"
-                    aria-label="Change theme"
+                    aria-label="Themes"
                     style={{ position: 'fixed', top: flyPos.top, left: flyPos.left, width: flyPos.width, zIndex: 200 }}
                     onMouseEnter={() => setMenuPane('theme')}
                   >
-                    <div className="wv-ig__flyhead">
-                      <strong>Change theme</strong>
-                      <span>Rebuilds this carousel with the chosen look</span>
+                    <div className="wv-ig__flyhead wv-ig__flyhead--back">
+                      <button
+                        type="button"
+                        className="wv-ig__flyback"
+                        aria-label="Back"
+                        onClick={() => setMenuPane(null)}
+                      >
+                        <Icon name="chevron-left" size={18} strokeWidth={2} />
+                      </button>
+                      <strong>Themes</strong>
+                    </div>
+                    <div className="wv-ig__flylist">
+                      <label
+                        className={`wv-ig__flyitem${layoutBusy ? ' is-disabled' : ''}`}
+                        role="menuitem"
+                      >
+                        <Icon name="image" size={18} strokeWidth={2} />
+                        <span className="wv-ig__flycopy">
+                          <span className="wv-ig__flylabel">Upload a reference</span>
+                          <span className="wv-ig__flydesc">A photograph you like the look of</span>
+                        </span>
+                        <Icon name="chevron-right" size={16} strokeWidth={2} />
+                        <input
+                          type="file"
+                          accept="image/*"
+                          hidden
+                          disabled={layoutBusy}
+                          onChange={(e) => {
+                            const file = e.target.files?.[0];
+                            e.target.value = '';
+                            if (file) handleUploadReferenceTheme(file);
+                          }}
+                        />
+                      </label>
+                      <button
+                        type="button"
+                        role="menuitem"
+                        className="wv-ig__flyitem"
+                        disabled={layoutBusy}
+                        onClick={() => setMenuPane('theme-library')}
+                      >
+                        <Icon name="droplet" size={18} strokeWidth={2} />
+                        <span className="wv-ig__flycopy">
+                          <span className="wv-ig__flylabel">Choose from library</span>
+                          <span className="wv-ig__flydesc">{CAROUSEL_THEMES.length} directions</span>
+                        </span>
+                        <Icon name="chevron-right" size={16} strokeWidth={2} />
+                      </button>
+                    </div>
+                  </div>,
+                  document.body,
+                )}
+                {menuPane === 'theme-library' && flyPos && createPortal(
+                  <div
+                    className="wv-ig__menuflyout wv-ig__menuflyout--themes"
+                    role="menu"
+                    aria-label="Choose from library"
+                    style={{ position: 'fixed', top: flyPos.top, left: flyPos.left, width: flyPos.width, zIndex: 200 }}
+                    onMouseEnter={() => setMenuPane('theme-library')}
+                  >
+                    <div className="wv-ig__flyhead wv-ig__flyhead--back">
+                      <button
+                        type="button"
+                        className="wv-ig__flyback"
+                        aria-label="Back"
+                        onClick={() => setMenuPane('theme')}
+                      >
+                        <Icon name="chevron-left" size={18} strokeWidth={2} />
+                      </button>
+                      <strong>Choose from library</strong>
                     </div>
                     <div className="wv-ig__flylist wv-ig__flylist--themes">
                       {CAROUSEL_THEMES.map((theme) => (

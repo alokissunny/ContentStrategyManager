@@ -3,6 +3,8 @@ const InstagramProfile = require('../models/InstagramProfile');
 const { generateWeeklyPlan, buildEmptySlots, isoDate, parseIsoDate } = require('../services/weeklyPlan');
 const { rewriteCaption } = require('../services/captionPolish');
 const { runLayoutForPost, writeLayoutVariations, applyLayoutToContent, normalizeWriterPost, attachGeneratedVisuals } = require('../services/planOrchestrator');
+const { analyzeImageAsset, loadReferenceImage } = require('../services/imageAnalysis');
+const { customReferenceTheme } = require('../data/carouselThemes');
 const { copyFromLayoutHtml, injectImageIntoSlots } = require('../services/layoutHtml');
 const { compileBrandMemory } = require('../services/planContext');
 const { generateCoverSpec, renderCoverVideo } = require('../services/carouselCoverAgent');
@@ -848,6 +850,28 @@ async function rerunLayout(req, res) {
   if (!record) return res.status(404).json({ message: 'Post not found' });
 
   const themeId = String(req.body?.themeId || '').trim();
+  // Change theme › Upload a reference: an S3 key from POST /projects/uploads/sign
+  // (so it's always under this user's own prefix). Read with vision and turn
+  // into a one-off theme the carousel agent designs from, instead of a catalog pick.
+  const referenceImageKey = String(req.body?.referenceImageKey || '').trim();
+  let referenceTheme = null;
+  let referenceImage = null;
+  if (referenceImageKey) {
+    if (!referenceImageKey.startsWith(`projects/${req.user._id}/`)) {
+      return res.status(400).json({ message: 'Invalid reference image.' });
+    }
+    try {
+      const [analysis, image] = await Promise.all([
+        analyzeImageAsset(referenceImageKey),
+        loadReferenceImage(referenceImageKey),
+      ]);
+      referenceTheme = customReferenceTheme(analysis);
+      referenceImage = image;
+    } catch (err) {
+      return res.status(422).json({ message: `Could not read that reference photo — ${err.message}` });
+    }
+  }
+
   const post = layoutPostFromPost(record);
   const trace = record.agentTrace && typeof record.agentTrace === 'object' ? record.agentTrace : {};
   if (trace.strategyBrief) {
@@ -873,6 +897,8 @@ async function rerunLayout(req, res) {
       brand,
       dayWriterOutput,
       themeId,
+      referenceTheme,
+      referenceImage,
     });
     if (result.parsed?.status === 'failed') {
       return res.status(422).json({
