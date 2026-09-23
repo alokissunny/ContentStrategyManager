@@ -9,8 +9,10 @@ import {
   paintSlideCopy,
   freezeSlideGeometry,
   isSlideFrozen,
+  slideRootOf,
   CAROUSEL_LAYOUT_WIDTH,
 } from './layoutHtml';
+import { attachSlideEditMode } from './slideEditMode';
 import { iframeSafeUrl } from '../../api/media';
 import { boxOf, fmtBox, mapBoxToCover, mapPointToCover, normalizeSubjects, placeFromBox, resolveTargetBox } from './subjectBox';
 import { useAiDebug } from '../../lib/aiDebug';
@@ -431,6 +433,7 @@ export default function DynamicLayout({
   themed = false,
   copyDraft = null,
   frameRef = null,
+  editMode = false,
 }) {
   const canvasRef = useRef(null);
   const copyRef = useRef(copyDraft);
@@ -544,6 +547,20 @@ export default function DynamicLayout({
     };
   }, [page, useDocument, direction, slideIndex, urlKey, editingCopy]);
 
+  // Experimental edit mode: a Canva-lite move/resize overlay layered straight
+  // into the iframe's own document (see slideEditMode.js). Runs after the
+  // doc.write effect above so the DOM it reaches into already exists; for the
+  // carousel-document path it also runs before the crop finishes, which is
+  // fine since nothing is selected yet and the overlay measures on demand.
+  useLayoutEffect(() => {
+    if (!editMode) return undefined;
+    const frame = canvasRef.current;
+    if (!frame || !page) return undefined;
+    const root = slideRootOf(frame, { direction, index: slideIndex });
+    const detach = attachSlideEditMode(frame, { root });
+    return () => detach();
+  }, [editMode, page, useDocument, direction, slideIndex]);
+
   useLayoutEffect(() => {
     if (!editingCopy) return undefined;
     const frame = canvasRef.current;
@@ -620,7 +637,7 @@ export default function DynamicLayout({
 
   if (page) {
     return (
-      <div className={`wv-dynlay is-ready${themed && !useDocument ? ' is-themed' : ''}${useDocument ? ' is-crop' : ''}`} style={paint}>
+      <div className={`wv-dynlay is-ready${themed && !useDocument ? ' is-themed' : ''}${useDocument ? ' is-crop' : ''}${editMode ? ' is-editing' : ''}`} style={paint}>
         <iframe
           ref={canvasRef}
           className="wv-dynlay__frame"

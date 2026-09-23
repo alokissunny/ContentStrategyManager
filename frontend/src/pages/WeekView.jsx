@@ -2113,6 +2113,7 @@ function SlideMedia({
   direction: directionProp = '',
   copyDraft = null,
   frameRef = null,
+  editMode = false,
 }) {
   const store = useStore();
   const copy = slideCopy(slide, parts);
@@ -2187,6 +2188,7 @@ function SlideMedia({
           direction={directionProp || layoutDirectionOf(slide)}
           copyDraft={copyDraft}
           frameRef={frameRef}
+          editMode={editMode}
           subjects={subjects}
           needsVisual={missingVisual}
           themed={themed}
@@ -2520,6 +2522,10 @@ export default function WeekView({
   const menuRef = useRef(null); // the .wv-ig__menu box, so flyouts can anchor to it
   const [flyPos, setFlyPos] = useState(null); // fixed-position for the portalled flyout
   const layoutFrameRef = useRef(null);
+  // Experimental "Edit mode" (Canva-lite): drag/resize any element on the
+  // rendered slide directly in the iframe. Visual-only for this pass — see
+  // weekview/slideEditMode.js.
+  const [slideEditMode, setSlideEditMode] = useState(false);
   // Edit image (bauhly-v3 §961/§965/§982): the still-photo studio. `adjustFor`
   // is the picture being cropped; `editSlot` is the measured layout region it
   // will occupy. More than one picture place opens the set first (`packOpen`).
@@ -3060,6 +3066,7 @@ export default function WeekView({
   function openZone(next) {
     setVisEdit(null); // the visual zone always opens on its MENU, not an editor
     setMenuPane(null);
+    setSlideEditMode(false);
     if (next === 'caption') setSideTab('caption');
     if (next) setTimeDraft(null);
     setZone((cur) => {
@@ -3088,6 +3095,7 @@ export default function WeekView({
     setAskImgs(0);
     setCapBusy(false);
     setWordsBusy(false);
+    setSlideEditMode(false);
   }
 
   // Press anywhere outside the caption editor and it closes without saving —
@@ -5139,11 +5147,25 @@ export default function WeekView({
                       : { title: wordDraft.head, subtitle: wordDraft.body })
                     : null}
                   frameRef={layoutFrameRef}
+                  editMode={slideEditMode}
                   slideIndex={safeIdx + 1}
                   direction={visEdit === 'theme'
                     ? (themeIdOf(draftOpt) || THEME_ORDER[draftOptIdx] || layoutDirectionOf(previewSlide))
                     : layoutDirectionOf(previewSlide)}
                 />
+                {slideEditMode && (
+                  <div className="wv-editmode-bar" role="status">
+                    <span className="wv-editmode-bar__dot" aria-hidden="true" />
+                    <span>Edit mode — drag to move, corners to resize, double-click to type</span>
+                    <button
+                      type="button"
+                      className="wv-editmode-bar__done"
+                      onClick={() => setSlideEditMode(false)}
+                    >
+                      Done
+                    </button>
+                  </div>
+                )}
                 {layoutBusy && (
                   <div className="wv-ig__laying" role="status" aria-live="polite">
                     <span className="wv-spin" aria-hidden="true" />
@@ -5219,7 +5241,7 @@ export default function WeekView({
               </button>
               {/* the edit menu — Add elements, shape, this picture, pictures, words
                   (bauhly-v3 §818/§989/§993). Anchored under the pencil. */}
-              {zone === 'visual' && !visEdit && !imgPick && (
+              {zone === 'visual' && !visEdit && !imgPick && !slideEditMode && (
                 <>
                 <div
                   className="wv-ig__menuscrim"
@@ -5318,6 +5340,20 @@ export default function WeekView({
                   >
                     <Icon name="edit" size={17} strokeWidth={2} />
                     <span>Edit text</span>
+                  </button>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className="wv-ig__menuitem"
+                    onMouseEnter={() => setMenuPane(null)}
+                    onClick={() => {
+                      setMenuPane(null);
+                      setSlideEditMode(true);
+                    }}
+                  >
+                    <Icon name="expand" size={17} strokeWidth={2} />
+                    <span className="wv-ig__menugrow">Edit mode</span>
+                    <span className="wv-ig__menubadge">Beta</span>
                   </button>
                   {safeIdx === 0 && videoCoverOn && (
                     <button

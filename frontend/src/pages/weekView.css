@@ -628,6 +628,12 @@
   height: 2400px;
   max-width: none;
 }
+/* Edit mode (experimental): the preview iframe is click-through by default
+   (pointer-events: none, above) — re-enable it only while editing so the
+   in-frame overlay (slideEditMode.js) can actually receive mouse events. */
+.wv-dynlay.is-editing .wv-dynlay__frame {
+  pointer-events: auto;
+}
 .wv-dynlay img[data-slot="image"] {
   display: block !important;
   background: var(--t-empty-bg, #ddd8ce);
@@ -4516,6 +4522,66 @@
   overflow: hidden;
   text-overflow: ellipsis;
   pointer-events: none;
+}
+
+/* ── Edit mode (experimental) — Canva-lite move/resize overlay ──────────── */
+.wv-ig__menubadge {
+  flex-shrink: 0;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--blue-500) 14%, transparent);
+  color: var(--blue-500);
+  font-family: var(--font-ui);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+.wv-editmode-bar {
+  position: absolute;
+  left: 50%;
+  top: 12px;
+  z-index: 7;
+  transform: translateX(-50%);
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: calc(100% - 24px);
+  padding: 7px 8px 7px 12px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--ink-900) 82%, transparent);
+  font-family: var(--font-ui);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--surface);
+  white-space: nowrap;
+}
+.wv-editmode-bar__dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--blue-500);
+  flex-shrink: 0;
+  animation: wv-editmode-pulse 1.6s ease-in-out infinite;
+}
+@keyframes wv-editmode-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+.wv-editmode-bar__done {
+  border: 0;
+  border-radius: 999px;
+  padding: 5px 12px;
+  background: var(--surface);
+  color: var(--ink-900);
+  font-family: var(--font-ui);
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.wv-editmode-bar__done:hover { background: var(--blue-500); color: #fff; }
+@media (prefers-reduced-motion: reduce) {
+  .wv-editmode-bar__dot { animation: none; }
 }
 
 /* ── Browse layouts: the Visual Library opened over the post (825) ──────── */
