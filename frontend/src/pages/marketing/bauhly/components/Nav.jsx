@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 
 const links = [
   ['#problem', 'The problem'],
@@ -8,8 +9,11 @@ const links = [
 ]
 
 export default function Nav() {
+  const nav = useNavigate()
   const [hidden, setHidden] = useState(false)
   const [open, setOpen] = useState(false)
+
+  const goLogin = () => nav('/auth')
 
   useEffect(() => {
     let last = window.scrollY
@@ -37,9 +41,9 @@ export default function Nav() {
       </div>
 
       <div className="nav-actions">
-        <span className="cta cta-ink nav-cta" aria-disabled="true">
-          Coming soon
-        </span>
+        <button className="cta cta-ink nav-cta" onClick={goLogin}>
+          Log in
+        </button>
       </div>
 
       <button
@@ -61,9 +65,15 @@ export default function Nav() {
             </a>
           ))}
           <div className="nav-panel-actions">
-            <span className="cta cta-ink nav-cta" aria-disabled="true">
-              Coming soon
-            </span>
+            <button
+              className="cta cta-ink nav-cta"
+              onClick={() => {
+                setOpen(false)
+                goLogin()
+              }}
+            >
+              Log in
+            </button>
           </div>
         </div>
       )}
