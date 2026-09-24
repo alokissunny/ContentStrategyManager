@@ -60,7 +60,8 @@ import { useFeatureFlags } from '../lib/featureFlags';
 import PostAgentDebug from './weekview/PostAgentDebug';
 import DynamicLayout, { AnnotationOverlay } from './weekview/DynamicLayout';
 import { BrandMark } from './visuallibrary/BrandMark';
-import { rewriteAnnotationText, rewriteLayoutText, rewriteCarouselDocumentText, slotPlain, slideSlotPlain, withSharedLayoutStyles, layoutDirectionOf, themeIdOf, themeDirectionOf, slideIsThemed, optionForTheme, THEME_ORDER, bakeFrozenGeometry, findCarouselSlide } from './weekview/layoutHtml';
+import { bakeSlidePatches } from './weekview/slideEditMode';
+import { rewriteAnnotationText, rewriteLayoutText, rewriteCarouselDocumentText, slotPlain, slideSlotPlain, withSharedLayoutStyles, layoutDirectionOf, themeIdOf, themeDirectionOf, slideIsThemed, optionForTheme, THEME_ORDER, bakeFrozenGeometry, findCarouselSlide, isCarouselDocument } from './weekview/layoutHtml';
 import { discoverSlideTextRoles, agentHtmlSource, isAgentHtmlSlide } from './weekview/slideTextRoles';
 import { boxOf, normalizeSubjects } from './weekview/subjectBox';
 import {
@@ -2097,6 +2098,146 @@ function carouselDocumentOf(day) {
   return (/<!doctype html/i.test(raw) || /<html[\s>]/i.test(raw)) ? raw : '';
 }
 
+// The bar over a selected element in Editor mode (bauhly-v3 `edm-selbar`):
+// text style ▾, arrange ▾, size ▾, colour ▾, the AI rewrite, reset, remove.
+// Fixed to the page and hung above the element (below it when there is no
+// room under the header). Every press goes to the edit engine (`run`).
+function ElementBar({ sel, menu, setMenu, run, swatches, onAi, onImage }) {
+  const barRef = useRef(null);
+  const [w, setW] = useState(0);
+  useLayoutEffect(() => {
+    if (barRef.current) setW(barRef.current.offsetWidth);
+  });
+  const p = sel.page;
+  const BAR_H = 44;
+  const above = p.top - BAR_H - 14;
+  const top = above < 84 ? p.top + p.height + 14 : above;
+  const half = w / 2;
+  const vw = typeof window !== 'undefined' ? window.innerWidth : 1200;
+  const cx = Math.max(half + 12, Math.min(vw - half - 12, p.left + p.width / 2));
+  const st = sel.style || {};
+  const isText = sel.kind === 'text';
+  const isImage = sel.kind === 'image';
+  const toggle = (m) => setMenu(menu === m ? null : m);
+  const press = (fn) => (e) => { e.preventDefault(); e.stopPropagation(); fn(); };
+  const Caret = () => <Glyph name="chevron-down" size={13} strokeWidth={2.4} />;
+
+  return (
+    <div
+      className={`wv-edm__tb${sel.texting ? ' is-typing' : ''}`}
+      ref={barRef}
+      style={{ top, left: cx }}
+      role="toolbar"
+      aria-label="Edit element"
+      onMouseDown={(e) => { if (!e.target.closest('label, input')) e.preventDefault(); }}
+    >
+      {isText && (
+        <div className="wv-edm__tbgroup">
+          <button type="button" className={`wv-edm__tbbtn${menu === 'text' ? ' is-open' : ''}`} onClick={press(() => toggle('text'))} aria-label="Text style" title="Text style">
+            <b className="wv-edm__tbglyph">B</b><Caret />
+          </button>
+          {menu === 'text' && (
+            <div className="wv-edm__tbmenu" role="menu">
+              <button type="button" className={st.bold ? 'is-on' : ''} onClick={press(() => run('bold'))}><Glyph name="bold" size={15} strokeWidth={2.4} />Bold</button>
+              <button type="button" className={st.italic ? 'is-on' : ''} onClick={press(() => run('italic'))}><Glyph name="italic" size={15} strokeWidth={2.2} />Italic</button>
+              <button type="button" className={st.underline ? 'is-on' : ''} onClick={press(() => run('underline'))}><Glyph name="underline" size={15} strokeWidth={2.2} />Underline</button>
+              <button type="button" onClick={press(() => run('uppercase'))}><Glyph name="case-upper" size={15} strokeWidth={2.2} />Uppercase</button>
+              <span className="wv-edm__tbsep" />
+              <button type="button" onClick={press(() => { setMenu(null); run('type'); })}><Glyph name="text-cursor-input" size={15} strokeWidth={2.2} />Edit the words</button>
+            </div>
+          )}
+        </div>
+      )}
+      <div className="wv-edm__tbgroup">
+        <button type="button" className={`wv-edm__tbbtn${menu === 'arrange' ? ' is-open' : ''}`} onClick={press(() => toggle('arrange'))} aria-label="Arrange" title="Align and arrange">
+          <Glyph name="crop" size={15} strokeWidth={2.2} /><Caret />
+        </button>
+        {menu === 'arrange' && (
+          <div className="wv-edm__tbmenu" role="menu">
+            {isText && (
+              <div className="wv-edm__tbrow">
+                {['left', 'center', 'right'].map((a) => (
+                  <button key={a} type="button" className={`wv-edm__tbicon${st.align === a || (a === 'left' && st.align === 'start') ? ' is-on' : ''}`} onClick={press(() => run('align', a))} aria-label={`Align ${a}`}>
+                    <Glyph name={`align-${a}`} size={15} strokeWidth={2.2} />
+                  </button>
+                ))}
+              </div>
+            )}
+            <button type="button" onClick={press(() => run('front'))}><Glyph name="bring-to-front" size={15} strokeWidth={2.2} />Bring to front</button>
+            <button type="button" onClick={press(() => run('back'))}><Glyph name="send-to-back" size={15} strokeWidth={2.2} />Send to back</button>
+            <span className="wv-edm__tbsep" />
+            <div className="wv-edm__tbrow wv-edm__tbrow--label">
+              <span>Opacity</span>
+              {[1, 0.75, 0.5, 0.25].map((o) => (
+                <button key={o} type="button" className={`wv-edm__tbchip${Math.abs((st.opacity ?? 1) - o) < 0.01 ? ' is-on' : ''}`} onClick={press(() => run('opacity', o))}>
+                  {Math.round(o * 100)}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+      {isText && (
+        <div className="wv-edm__tbgroup">
+          <button type="button" className={`wv-edm__tbbtn${menu === 'size' ? ' is-open' : ''}`} onClick={press(() => toggle('size'))} aria-label="Text size" title="Text size">
+            <span className="wv-edm__tbglyph">Aa</span><Caret />
+          </button>
+          {menu === 'size' && (
+            <div className="wv-edm__tbmenu wv-edm__tbmenu--size" role="menu">
+              <div className="wv-edm__tbrow">
+                <button type="button" className="wv-edm__tbicon" onClick={press(() => run('size', 1 / 1.1))} aria-label="Smaller"><Glyph name="minus" size={15} strokeWidth={2.4} /></button>
+                <span className="wv-edm__tbval">{Math.round(st.fontSize || 0)}px</span>
+                <button type="button" className="wv-edm__tbicon" onClick={press(() => run('size', 1.1))} aria-label="Larger"><Glyph name="plus" size={15} strokeWidth={2.4} /></button>
+              </div>
+              <div className="wv-edm__tbrow wv-edm__tbrow--wrap">
+                {[24, 32, 48, 64, 88, 120].map((n) => (
+                  <button key={n} type="button" className={`wv-edm__tbchip${Math.round(st.fontSize) === n ? ' is-on' : ''}`} onClick={press(() => run('size', `${n}px`))}>{n}</button>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+      {isText && (
+        <div className="wv-edm__tbgroup">
+          <button type="button" className={`wv-edm__tbbtn${menu === 'color' ? ' is-open' : ''}`} onClick={press(() => toggle('color'))} aria-label="Colour" title="Colour">
+            <span className="wv-edm__tbdot" style={{ background: st.color || '#16161a' }} /><Caret />
+          </button>
+          {menu === 'color' && (
+            <div className="wv-edm__tbmenu wv-edm__tbmenu--color" role="menu">
+              <div className="wv-edm__tbrow wv-edm__tbrow--wrap">
+                {swatches.map((hex) => (
+                  <button key={hex} type="button" className="wv-edm__tbswatch" style={{ background: hex }} onClick={press(() => run('color', hex))} aria-label={hex} title={hex} />
+                ))}
+                <label className="wv-edm__tbswatch wv-edm__tbswatch--pick" title="Any colour">
+                  <Glyph name="pipette" size={13} strokeWidth={2.2} />
+                  <input type="color" onChange={(e) => run('color', e.target.value)} />
+                </label>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+      {isText && (
+        <button type="button" className="wv-edm__tbbtn wv-edm__tbbtn--solo" onClick={press(() => { setMenu(null); onAi(); })} aria-label="Rewrite with Bauhly" title="Rewrite with Bauhly">
+          <Icon name="sparkle" size={15} strokeWidth={2.2} />
+        </button>
+      )}
+      {isImage && (
+        <button type="button" className="wv-edm__tbbtn wv-edm__tbbtn--solo" onClick={press(() => { setMenu(null); onImage(); })} aria-label="Replace image" title="Replace image">
+          <Icon name="image" size={15} strokeWidth={2.2} />
+        </button>
+      )}
+      <button type="button" className="wv-edm__tbbtn wv-edm__tbbtn--solo" onClick={press(() => { setMenu(null); run('reset'); })} disabled={!sel.edited} aria-label="Undo edits to this element" title="Put this element back">
+        <Glyph name="undo-2" size={15} strokeWidth={2.2} />
+      </button>
+      <button type="button" className="wv-edm__tbbtn wv-edm__tbbtn--solo" onClick={press(() => { setMenu(null); run('hide'); })} aria-label="Remove element" title="Remove (Delete)">
+        <Glyph name="trash-2" size={15} strokeWidth={2.2} />
+      </button>
+    </div>
+  );
+}
+
 // Editor mode's page-scroll lock — mounted only while the Editor is open.
 function EditorScrollLock() {
   useBodyScrollLock();
@@ -2193,6 +2334,7 @@ function SlideMedia({
   copyDraft = null,
   frameRef = null,
   editMode = false,
+  editHooks = null,
 }) {
   const store = useStore();
   const copy = slideCopy(slide, parts);
@@ -2268,6 +2410,7 @@ function SlideMedia({
           copyDraft={copyDraft}
           frameRef={frameRef}
           editMode={editMode}
+          editHooks={editHooks}
           subjects={subjects}
           needsVisual={missingVisual}
           themed={themed}
@@ -2609,6 +2752,18 @@ export default function WeekView({
   // a dark header (Cancel / Apply changes), the slide as a stack with its
   // neighbours peeking, Fix layout + ⋯ over it and the AI mark on it.
   const [postEdit, setPostEdit] = useState(false);
+  // Element edits made on the slide in Editor mode (select / move / resize /
+  // rotate / restyle / type), per slide index, held until Apply changes bakes
+  // them into the stored html — Cancel drops them. `{ [i]: { patches, doc, dir, idx } }`
+  const [elemEdits, setElemEdits] = useState({});
+  const elemEditsRef = useRef(elemEdits);
+  elemEditsRef.current = elemEdits;
+  const elemApiRef = useRef(null); // the live engine's { run, setPatches, deselect }
+  const [elemSel, setElemSel] = useState(null); // what is selected + where (page px)
+  const [elemMenu, setElemMenu] = useState(null); // toolbar dropdown: 'text'|'arrange'|'size'|'color'
+  const [elemHist, setElemHist] = useState({ past: [], future: [] });
+  const elemHistRef = useRef(elemHist);
+  elemHistRef.current = elemHist;
   // Edit image (bauhly-v3 §961/§965/§982): the still-photo studio. `adjustFor`
   // is the picture being cropped; `editSlot` is the measured layout region it
   // will occupy. More than one picture place opens the set first (`packOpen`).
@@ -3180,6 +3335,7 @@ export default function WeekView({
   }
 
   function enterPostEdit() {
+    resetElemEdits();
     closeZone();
     setTimeDraft(null);
     setSchedMenu(false);
@@ -3190,7 +3346,111 @@ export default function WeekView({
   // still holding as a draft (new words, a layout / theme being tried on) is
   // committed first. Cancel drops those drafts. Edits already applied inside
   // the Editor were saved when they were applied, as they are on the preview.
+  function resetElemEdits() {
+    setElemEdits({});
+    elemEditsRef.current = {};
+    setElemHist({ past: [], future: [] });
+    setElemSel(null);
+    setElemMenu(null);
+  }
+
+  // Bake every slide's pending element edits into its stored html and save —
+  // the slide's own layoutHtml, or (for a themed slide) its <article> inside
+  // the shared carousel document.
+  function flushElemEdits() {
+    const edits = elemEditsRef.current || {};
+    const live = Object.keys(edits).filter((k) => Object.keys(edits[k]?.patches || {}).length);
+    if (!live.length || !day) { resetElemEdits(); return false; }
+    const base = deriveSlides(day);
+    let docHtml = carouselDocumentOf(day);
+    let docChanged = false;
+    const next = base.map((sl, i) => {
+      const e = edits[i];
+      if (!e || !Object.keys(e.patches || {}).length) return sl;
+      const findRoot = (d) => findCarouselSlide(d, e.dir, e.idx)
+        || d.querySelector('article.slide, .slide, article');
+      if (e.doc) {
+        const out = bakeSlidePatches(docHtml, e.patches, findRoot, { isDocument: true });
+        if (out !== docHtml) { docHtml = out; docChanged = true; }
+        return sl;
+      }
+      const out = bakeSlidePatches(sl.layoutHtml, e.patches, findRoot);
+      return out && out !== sl.layoutHtml ? { ...sl, layoutHtml: out } : sl;
+    });
+    replaceSlides(next, docChanged ? { extra: { carouselHtml: docHtml } } : {});
+    resetElemEdits();
+    return true;
+  }
+
+  function commitElemEdits(patches) {
+    const i = safeIdx;
+    const before = elemEditsRef.current[i]?.patches || {};
+    const docHtml = carouselDocumentOf(day);
+    const entry = {
+      patches,
+      doc: Boolean(previewUsesDoc && isCarouselDocument(docHtml)),
+      dir: layoutDirectionOf(previewSlide),
+      idx: Number(activeSlide?.index) > 0 ? Number(activeSlide.index) : safeIdx + 1,
+    };
+    const nextEdits = { ...elemEditsRef.current, [i]: entry };
+    elemEditsRef.current = nextEdits;
+    setElemEdits(nextEdits);
+    setElemHist((h) => ({ past: [...h.past, { i, before, after: patches }].slice(-100), future: [] }));
+  }
+
+  function setSlidePatches(i, patches) {
+    const cur = elemEditsRef.current[i] || {};
+    const nextEdits = { ...elemEditsRef.current, [i]: { ...cur, patches } };
+    elemEditsRef.current = nextEdits;
+    setElemEdits(nextEdits);
+    if (i === safeIdx) elemApiRef.current?.setPatches(patches);
+    else setSlideIdx(i);
+  }
+
+  function undoElem() {
+    const h = elemHistRef.current;
+    const e = h.past[h.past.length - 1];
+    if (!e) return;
+    setElemHist({ past: h.past.slice(0, -1), future: [...h.future, e] });
+    setSlidePatches(e.i, e.before);
+  }
+
+  function redoElem() {
+    const h = elemHistRef.current;
+    const e = h.future[h.future.length - 1];
+    if (!e) return;
+    setElemHist({ past: [...h.past, e], future: h.future.slice(0, -1) });
+    setSlidePatches(e.i, e.after);
+  }
+
+  // The engine reports the selection in the iframe's own px; the toolbar lives
+  // on the page, so scale by however the frame is drawn.
+  function onElemSelect(info, frame) {
+    if (!info || !frame) { setElemSel(null); setElemMenu(null); return; }
+    const fr = frame.getBoundingClientRect();
+    const sx = fr.width / (frame.offsetWidth || fr.width || 1);
+    const sy = fr.height / (frame.offsetHeight || fr.height || 1);
+    setElemSel((prev) => {
+      if (prev && prev.kind !== info.kind) setElemMenu(null);
+      return {
+        ...info,
+        page: {
+          left: fr.left + info.rect.left * sx,
+          top: fr.top + info.rect.top * sy,
+          width: info.rect.width * sx,
+          height: info.rect.height * sy,
+        },
+      };
+    });
+  }
+
+  function runElem(cmd, value) {
+    elemApiRef.current?.run(cmd, value);
+  }
+
   function leavePostEdit(keep) {
+    if (keep) flushElemEdits();
+    else resetElemEdits();
     if (keep && zone === 'visual') {
       if (visEdit === 'words' && wordDraft && !wordsUnchanged && !wordsBusy) applyWords();
       else if (visEdit === 'layout') applyLayout();
@@ -3312,6 +3572,8 @@ export default function WeekView({
       if (creating) { setCreating(false); return; }
       if (imgPick) { setImgPick(null); return; }
       if (askImgs) { setAskImgs(0); return; }
+      if (!zone && postEdit && elemMenu) { setElemMenu(null); return; }
+      if (!zone && postEdit && elemSel) { elemApiRef.current?.deselect(); return; }
       if (!zone && slideEditMode) { setSlideEditMode(false); return; }
       if (!zone) { if (postEdit) { closeZone(); setPostEdit(false); } return; }
       if (menuPane) { setMenuPane(null); return; }
@@ -3320,10 +3582,27 @@ export default function WeekView({
     }
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [zone, visEdit, menuPane, askImgs, imgPick, creating, timeDraft, pick, adjustFor, packOpen, schedMenu, postEdit, slideEditMode]);
+  }, [zone, visEdit, menuPane, askImgs, imgPick, creating, timeDraft, pick, adjustFor, packOpen, schedMenu, postEdit, slideEditMode, elemSel, elemMenu]);
 
   // Editor mode belongs to one post: a different day (or no day) closes it.
-  useEffect(() => { setPostEdit(false); }, [selected, route?._id]);
+  useEffect(() => { setPostEdit(false); resetElemEdits(); }, [selected, route?._id]);
+  // A menu editor (layout / theme / words / images) rewrites the slide's html,
+  // so element edits are saved before one opens — they would not survive it.
+  useEffect(() => {
+    if (postEdit && visEdit) flushElemEdits();
+  }, [visEdit]);
+  // …and cmd-Z / cmd-shift-Z while the page (not the slide) has focus
+  useEffect(() => {
+    if (!postEdit) return undefined;
+    const onKey = (e) => {
+      if (!(e.metaKey || e.ctrlKey) || (e.key !== 'z' && e.key !== 'Z')) return;
+      if (/^(INPUT|TEXTAREA|SELECT)$/.test(e.target?.tagName || '') || e.target?.isContentEditable) return;
+      e.preventDefault();
+      if (e.shiftKey) redoElem(); else undoElem();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  });
 
   // Close the schedule dropdown on any press outside it, and whenever the open
   // day changes.
@@ -4662,6 +4941,17 @@ export default function WeekView({
   // theme, on the post's current direction). Lime = work Bauhly does.
   const canFixLayout = Boolean(route?._id) && !layoutBusy && !publishing && !day?.published;
 
+  // Colours offered on a selected element: the brand kit's own, then ink/paper.
+  const elemSwatches = (() => {
+    const out = [];
+    Object.values(igVars || {}).forEach((v) => {
+      const hex = String(v || '').trim();
+      if (/^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(hex) && !out.includes(hex.toLowerCase())) out.push(hex.toLowerCase());
+    });
+    ['#16161a', '#ffffff', '#e8552d', '#d2e823', '#6b6b73'].forEach((h) => { if (!out.includes(h)) out.push(h); });
+    return out.slice(0, 10);
+  })();
+
   const editMenuEl = (
     <>
       {/* the edit menu — Add elements, shape, this picture, pictures, words
@@ -4759,6 +5049,7 @@ export default function WeekView({
             <Icon name="edit" size={17} strokeWidth={2} />
             <span>Edit text</span>
           </button>
+          {!postEdit && (
           <button
             type="button"
             role="menuitem"
@@ -4773,6 +5064,7 @@ export default function WeekView({
             <span className="wv-ig__menugrow">Edit mode</span>
             <span className="wv-ig__menubadge">Beta</span>
           </button>
+          )}
           {safeIdx === 0 && videoCoverOn && (
             <button
               type="button"
@@ -5218,14 +5510,21 @@ export default function WeekView({
             </div>
           </header>
 
-          <div className={`wv-edm__body${compositionEditing || wordsEditing ? ' has-panel' : ''}`}>
+          <div
+            className={`wv-edm__body${compositionEditing || wordsEditing ? ' has-panel' : ''}`}
+            onMouseDown={(e) => {
+              if (!elemSel) return;
+              if (e.target.closest('.wv-edm__tb, .wv-edm__line, .wv-edm__panel, .wv-edm__card.is-on')) return;
+              elemApiRef.current?.deselect();
+            }}
+          >
             <section className="wv-edm__stage">
               <div className="wv-edm__line">
                 <button
                   type="button"
                   className="wv-edm__fix"
                   disabled={!canFixLayout}
-                  onClick={() => handleRunLayout(layoutDirectionOf(activeSlide) || '')}
+                  onClick={() => { resetElemEdits(); handleRunLayout(layoutDirectionOf(activeSlide) || ''); }}
                   title={canFixLayout
                     ? 'Re-make this post’s layout so everything fits again'
                     : (layoutBusy ? 'Composing…' : 'Nothing to fix yet')}
@@ -5233,6 +5532,29 @@ export default function WeekView({
                   <Icon name="sparkle" size={15} strokeWidth={2.2} />
                   {layoutBusy ? 'Fixing…' : 'Fix layout'}
                 </button>
+                <div className="wv-edm__right">
+                <div className="wv-edm__hist">
+                  <button
+                    type="button"
+                    className="wv-edm__histbtn"
+                    onClick={undoElem}
+                    disabled={!elemHist.past.length}
+                    aria-label="Undo"
+                    title="Undo (⌘Z)"
+                  >
+                    <Glyph name="undo-2" size={17} strokeWidth={2.2} />
+                  </button>
+                  <button
+                    type="button"
+                    className="wv-edm__histbtn"
+                    onClick={redoElem}
+                    disabled={!elemHist.future.length}
+                    aria-label="Redo"
+                    title="Redo (⇧⌘Z)"
+                  >
+                    <Glyph name="redo-2" size={17} strokeWidth={2.2} />
+                  </button>
+                </div>
                 <div className="wv-edm__morewrap">
                   <button
                     type="button"
@@ -5251,6 +5573,7 @@ export default function WeekView({
                     <Icon name="more" size={18} strokeWidth={2.2} />
                   </button>
                   {editMenuEl}
+                </div>
                 </div>
               </div>
 
@@ -5282,7 +5605,15 @@ export default function WeekView({
                                 : { title: wordDraft.head, subtitle: wordDraft.body })
                               : null}
                             frameRef={layoutFrameRef}
-                            editMode={slideEditMode}
+                            editMode={!visEdit && !layoutBusy}
+                            editHooks={{
+                              patches: elemEdits[safeIdx]?.patches || null,
+                              onCommit: commitElemEdits,
+                              onSelect: onElemSelect,
+                              onUndo: undoElem,
+                              onRedo: redoElem,
+                              apiRef: elemApiRef,
+                            }}
                             slideIndex={safeIdx + 1}
                             direction={visEdit === 'theme'
                               ? (themeIdOf(draftOpt) || THEME_ORDER[draftOptIdx] || layoutDirectionOf(previewSlide))
@@ -5323,21 +5654,12 @@ export default function WeekView({
                           />
                         )}
                       </div>
-                      {on && slideEditMode && (
-                        <div className="wv-editmode-bar" role="status">
-                          <span className="wv-editmode-bar__dot" aria-hidden="true" />
-                          <span>Drag to move, corners to resize, double-click to type</span>
-                          <button type="button" className="wv-editmode-bar__done" onClick={() => setSlideEditMode(false)}>
-                            Done
-                          </button>
-                        </div>
-                      )}
                       {on && (visEdit === 'layout' && layPick && layPick !== appliedId) || (on && visEdit === 'theme' && draftOpt && !themeUnchanged) ? (
                         <span className="wv-ig__previewtag">
                           {visEdit === 'theme' ? 'Preview only · Apply to keep' : 'Preview only · Apply to keep'}
                         </span>
                       ) : null}
-                      {on && !slideEditMode && (
+                      {on && (
                         <button
                           type="button"
                           className={`wv-edm__ai${wordsEditing ? ' is-on' : ''}`}
@@ -5382,6 +5704,18 @@ export default function WeekView({
               </aside>
             )}
           </div>
+
+          {elemSel && !visEdit && (
+            <ElementBar
+              sel={elemSel}
+              menu={elemMenu}
+              setMenu={setElemMenu}
+              run={runElem}
+              swatches={elemSwatches}
+              onAi={openWordsEditor}
+              onImage={openImagePicker}
+            />
+          )}
         </div>,
         document.body,
       )}

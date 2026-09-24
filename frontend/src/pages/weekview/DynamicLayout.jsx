@@ -434,8 +434,14 @@ export default function DynamicLayout({
   copyDraft = null,
   frameRef = null,
   editMode = false,
+  // Editor mode's hooks into the edit engine: { patches, onCommit, onSelect,
+  // onUndo, onRedo, apiRef } — see slideEditMode.js. Read through a ref so a new
+  // object each render never re-attaches the engine.
+  editHooks = null,
 }) {
   const canvasRef = useRef(null);
+  const hooksRef = useRef(editHooks);
+  hooksRef.current = editHooks;
   const copyRef = useRef(copyDraft);
   copyRef.current = copyDraft;
   const urls = (Array.isArray(imageUrls) ? imageUrls : []).map(iframeSafeUrl).filter(Boolean);
@@ -557,8 +563,20 @@ export default function DynamicLayout({
     const frame = canvasRef.current;
     if (!frame || !page) return undefined;
     const root = slideRootOf(frame, { direction, index: slideIndex });
-    const detach = attachSlideEditMode(frame, { root });
-    return () => detach();
+    const h = hooksRef.current;
+    const detach = attachSlideEditMode(frame, {
+      root,
+      patches: h?.patches || null,
+      onCommit: (p) => hooksRef.current?.onCommit?.(p),
+      onSelect: (info) => hooksRef.current?.onSelect?.(info, frame),
+      onUndo: () => hooksRef.current?.onUndo?.(),
+      onRedo: () => hooksRef.current?.onRedo?.(),
+    });
+    if (h?.apiRef) h.apiRef.current = detach.api;
+    return () => {
+      if (hooksRef.current?.apiRef?.current === detach.api) hooksRef.current.apiRef.current = null;
+      detach();
+    };
   }, [editMode, page, useDocument, direction, slideIndex]);
 
   useLayoutEffect(() => {
