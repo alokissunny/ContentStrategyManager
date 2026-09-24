@@ -5759,7 +5759,7 @@ export default function WeekView({
                 onClick={() => {
                   setMenuPane(null);
                   if (postEdit) leavePostEdit(true);
-                  navigate('/dashboard/library-settings');
+                  navigate('/dashboard/library-settings?add=colour');
                 }}
               >
                 <Icon name="plus" size={18} strokeWidth={2} />

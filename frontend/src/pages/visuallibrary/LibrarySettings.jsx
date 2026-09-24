@@ -15,6 +15,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { useSearchParams } from 'react-router-dom';
 import Icon from '../../brand/Icon.jsx';
 import { useStore, setState } from '../../lib/store.js';
 import {
@@ -151,7 +152,10 @@ function ColorRoles({ theme, onHex, size = 'md' }) {
   );
 }
 
-function ThemeSets({ themes, activeThemeId, onHex, onRename, onDefault, onDuplicate, onDelete, onAdd }) {
+// `autoAdd`: arrived from a post's ⋯ › Colour sets › Create a colour set
+// (`?add=colour`) — bring this section into view and start a new set at once,
+// with Rename open on it, so the studio lands on the thing they came to do.
+function ThemeSets({ themes, activeThemeId, onHex, onRename, onDefault, onDuplicate, onDelete, onAdd, autoAdd = false, onAutoAdded }) {
   const { page, pages, setPage, slice } = usePager(themes.length, PAGE);
   const [colour, setColour] = useState(null); // { themeId, role, anchor }
   const [renaming, setRenaming] = useState(null); // theme id
@@ -172,6 +176,14 @@ function ThemeSets({ themes, activeThemeId, onHex, onRename, onDefault, onDuplic
     const id = onAdd();
     if (id) { setPage(Math.floor(themes.length / PAGE)); setRenaming(id); }
   };
+  const autoDone = useRef(false);
+  useEffect(() => {
+    if (!autoAdd || autoDone.current) return;
+    autoDone.current = true;
+    document.querySelector('.bk-card--themes')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    add();
+    onAutoAdded?.();
+  }, [autoAdd]);
 
   return (
     <SectionCard
@@ -420,6 +432,9 @@ function Logos({ logos, logoPosition, busy, onUpload, onRemove, onPosition }) {
 }
 
 export default function BrandKit() {
+  // ?add=colour — sent here from a post to create a new colour set
+  const [search, setSearch] = useSearchParams();
+  const addColourOnArrival = search.get('add') === 'colour';
   const s = useStore();
   const saved = useMemo(() => identityOf(s), [s]);
 
@@ -655,6 +670,12 @@ export default function BrandKit() {
           onDuplicate={duplicateTheme}
           onDelete={dropTheme}
           onAdd={addTheme}
+          autoAdd={addColourOnArrival}
+          onAutoAdded={() => {
+            const next = new URLSearchParams(search);
+            next.delete('add');
+            setSearch(next, { replace: true });
+          }}
         />
         <Typography
           draft={draft}
