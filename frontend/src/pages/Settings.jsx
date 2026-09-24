@@ -19,6 +19,7 @@ import { resetProjects } from '../lib/projectsStore';
 import { useAiDebug, setAiDebugEnabled, clearAiDebugEntries } from '../lib/aiDebug';
 import { useFeatureFlags, setVideoCoverEnabled, setReelEditorEnabled } from '../lib/featureFlags';
 import { getCarouselModel, updateCarouselModel } from '../api/settings';
+import LinkedInSettings from '../components/LinkedInSettings';
 import './settings.css';
 
 /* which formats Bauhly may use — held as EXCLUSIONS so a format added later is
@@ -476,6 +477,8 @@ export default function Settings() {
           </button>
         </div>
       </section>
+
+      <LinkedInSettings />
 
       {/* ── Formats ── */}
       <section className="card set-card">

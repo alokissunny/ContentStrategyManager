@@ -15,6 +15,7 @@ const LibrarySettings = lazy(() => import('./pages/visuallibrary/LibrarySettings
 const CompetitorOverview = lazy(() => import('./pages/CompetitorOverview'));
 const Settings = lazy(() => import('./pages/Settings'));
 const ReelEditor = lazy(() => import('./pages/reeleditor/ReelEditor'));
+const LinkedInCallback = lazy(() => import('./pages/LinkedInCallback'));
 const MetaCallback = lazy(() => import('./pages/MetaCallback'));
 const Privacy = lazy(() => import('./pages/Privacy'));
 const Terms = lazy(() => import('./pages/Terms'));
@@ -53,6 +54,7 @@ export default function App() {
           {/* Experimental Reel editor (gated by the reelEditor flag; the page
               itself shows an enable prompt when the flag is off). */}
           <Route path="/dashboard/reel-editor" element={<ReelEditor />} />
+          <Route path="/dashboard/linkedin/callback" element={<LinkedInCallback />} />
           <Route path="/dashboard/meta/callback" element={<MetaCallback />} />
         </Route>
       </Routes>

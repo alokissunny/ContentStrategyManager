@@ -13,6 +13,7 @@ import Glyph from '../components/Glyph';
 import Icon from '../brand/Icon';
 import YourAnalysisModal from '../components/YourAnalysisModal';
 import ConnectMetaModal from '../components/ConnectMetaModal';
+import LinkedInPublisher from '../components/LinkedInPublisher';
 import {
   getPost,
   generatePlan,
@@ -6106,6 +6107,10 @@ export default function WeekView({
               </div>
             )}
           </article>
+          <LinkedInPublisher
+            key={day._id || `${route._id}-${selected}`}
+            initialText={[day.content?.caption, captionCta, formatHashtagLine(captionTags)].filter(Boolean).join('\n\n')}
+          />
           </div>
 
           {/* why this post exists — the strategy, beside the preview, on demand */}

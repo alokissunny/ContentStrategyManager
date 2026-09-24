@@ -130,3 +130,27 @@ current route from the API).
 Requires a running MongoDB instance (local or Atlas) for the backend to connect, and an Apify token
 to actually run the Instagram scrape (without one, `/onboarding` will show a clear error at the
 analyze step).
+
+### Experimental LinkedIn company-page publishing
+
+Settings → LinkedIn connects company pages and includes a public text-post composer. The post editor also offers **Post to a LinkedIn company page**, prefilled with the caption, CTA and hashtags for review. Select a page, edit the text, then click **Publish to company page**. Recent activity includes publication status and a link to successful posts. This version supports immediate text posts (including URLs in the text), not media attachments, scheduling, personal-profile publishing or analytics. LinkedIn publication is tracked separately from Instagram.
+
+#### Server setup
+
+1. Obtain LinkedIn **Community Management API** access for your developer app. Self-serve **Share on LinkedIn** alone does not enable company-page publishing. The app must be granted `rw_organization_admin` and `w_organization_social`.
+2. Configure `LINKEDIN_CLIENT_ID`, `LINKEDIN_CLIENT_SECRET`, and `LINKEDIN_REDIRECT_URI`. Register that exact redirect URI in the LinkedIn developer portal, e.g. `https://www.bauhly.com/dashboard/linkedin/callback` (localhost: `http://localhost:5173/dashboard/linkedin/callback`).
+3. Set `LINKEDIN_TOKEN_ENCRYPTION_KEY` to a randomly generated 32-byte key encoded as 64 hex characters. Generate once with `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`. Store it in your deployment secret manager, keep it stable across replicas, and do not commit it. Changing this key requires all users to reconnect.
+4. Set `LINKEDIN_API_VERSION` to a supported Marketing API version; the default is `202603`. Update before LinkedIn sunsets the chosen version.
+5. Restart the backend, then connect/reconnect in Settings as a Page super admin or content admin. Older profile-only connections **must reconnect** because they have no retained token or company-page grant. Approval and OAuth consent must be completed on LinkedIn; adding environment variables cannot grant API access.
+
+The company authorization flow requests only the two organization scopes above and does not depend on the OpenID Connect product. Page discovery filters approved publishing roles and checks them again immediately before sending. If your app or account cannot read Page roles, LinkedIn returns a permission error. An empty page list asks the user to check their Page role.
+
+Tokens are AES-256-GCM encrypted at rest with the Bauhly user ID as authenticated data; they are never returned to the browser. Expired tokens require reconnection (no automatic token refresh). OAuth state is user-bound, single-use and expires after ten minutes. Disconnect deletes the local grant and token; it does not delete published posts or the local publication history. Users can revoke the provider grant in LinkedIn’s permitted services settings.
+
+Publishing requests have a user-scoped idempotency ID backed by MongoDB's unique primary key. Repeating the same request cannot create another post. Network timeouts and ambiguous provider errors are recorded as unknown and are never automatically resent. Check recent activity and the LinkedIn Page before starting another post. If the server stops after submitting a request, its pending record likewise prevents a retry from duplicating it.
+
+#### Validation
+
+Run `node --test backend/test/linkedin.test.js` and `npm run build --prefix frontend`. Provider calls and persistence are mocked in the automated tests; a live end-to-end check requires an approved app, configured secrets and a real Page admin. No live posts are created by the test suite.
+
+Provider documentation: [API access and scopes](https://learn.microsoft.com/en-us/linkedin/marketing/increasing-access), [organization roles](https://learn.microsoft.com/en-us/linkedin/marketing/community-management/organizations/organization-access-control-by-role), [Posts API](https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/posts-api).

@@ -75,6 +75,7 @@ app.use('/api/reels', reelRoutes);
 app.use('/api/debug', debugRoutes);
 app.use('/api/internal', internalRoutes);
 app.use('/api/settings', settingsRoutes);
+app.use('/api/linkedin', require('./routes/linkedinRoutes'));
 
 app.use(notFound);
 app.use(errorHandler);
