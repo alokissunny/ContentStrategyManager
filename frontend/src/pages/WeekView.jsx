@@ -2097,6 +2097,84 @@ function carouselDocumentOf(day) {
   return (/<!doctype html/i.test(raw) || /<html[\s>]/i.test(raw)) ? raw : '';
 }
 
+// Editor mode's page-scroll lock — mounted only while the Editor is open.
+function EditorScrollLock() {
+  useBodyScrollLock();
+  return null;
+}
+
+// The Editor's slide stack (bauhly-v3 onboarding/Stack.jsx): every slide is
+// always rendered, the active one centred and the neighbours stepping out
+// behind it — offset, shrunk, faded and blurred by their distance (`--a`) —
+// so moving between slides is a travel, not a swap. Arrows only where there is
+// somewhere to go; ←/→ step (except while typing into something editable).
+function EditStack({ count, index, onIndex, children }) {
+  const frame = useRef(null);
+  const rail = useRef(null);
+  useEffect(() => {
+    const box = rail.current;
+    const wrap = frame.current;
+    if (!box || !wrap) return undefined;
+    const set = () => {
+      const card = box.querySelector('.wv-edm__one > *');
+      const w = card ? card.offsetWidth : box.clientWidth;
+      if (w) wrap.style.setProperty('--card-half', `${Math.round(w / 2)}px`);
+    };
+    set();
+    const ro = new ResizeObserver(set);
+    ro.observe(box);
+    const card = box.querySelector('.wv-edm__one > *');
+    if (card) ro.observe(card);
+    return () => ro.disconnect();
+  }, []);
+  const go = (i) => onIndex(Math.max(0, Math.min(count - 1, i)));
+  return (
+    <div className="wv-edm__frame" ref={frame}>
+      {index > 0 && (
+        <button type="button" className="wv-edm__arrow wv-edm__arrow--prev"
+          onClick={(e) => { e.stopPropagation(); go(index - 1); }} aria-label="Previous slide">
+          <Icon name="arrow-left" size={17} strokeWidth={2.1} />
+        </button>
+      )}
+      <div
+        className="wv-edm__rail"
+        ref={rail}
+        role="group"
+        aria-label="Slides"
+        tabIndex={0}
+        onKeyDown={(e) => {
+          const from = e.target;
+          if (from?.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(from?.tagName || '')) return;
+          if (e.key === 'ArrowRight') { e.preventDefault(); go(index + 1); }
+          if (e.key === 'ArrowLeft') { e.preventDefault(); go(index - 1); }
+        }}
+      >
+        <ul className="wv-edm__slides">
+          {Array.from({ length: count }, (_, i) => {
+            const d = i - index;
+            return (
+              <li
+                className={`wv-edm__one${d === 0 ? ' is-on' : ''}`}
+                key={i}
+                style={{ '--d': d, '--a': Math.min(Math.abs(d), 3) }}
+                aria-hidden={d !== 0}
+              >
+                {children(i, d === 0)}
+              </li>
+            );
+          })}
+        </ul>
+      </div>
+      {index < count - 1 && (
+        <button type="button" className="wv-edm__arrow wv-edm__arrow--next"
+          onClick={(e) => { e.stopPropagation(); go(index + 1); }} aria-label="Next slide">
+          <Icon name="arrow-right" size={17} strokeWidth={2.1} />
+        </button>
+      )}
+    </div>
+  );
+}
+
 function SlideMedia({
   slide,
   localMedia,
@@ -2527,6 +2605,10 @@ export default function WeekView({
   // rendered slide directly in the iframe. Visual-only for this pass — see
   // weekview/slideEditMode.js.
   const [slideEditMode, setSlideEditMode] = useState(false);
+  // Editor mode (bauhly-v3 PostEditor): the pencil opens the post full-width —
+  // a dark header (Cancel / Apply changes), the slide as a stack with its
+  // neighbours peeking, Fix layout + ⋯ over it and the AI mark on it.
+  const [postEdit, setPostEdit] = useState(false);
   // Edit image (bauhly-v3 §961/§965/§982): the still-photo studio. `adjustFor`
   // is the picture being cropped; `editSlot` is the measured layout region it
   // will occupy. More than one picture place opens the set first (`packOpen`).
@@ -3085,6 +3167,39 @@ export default function WeekView({
     });
   }
 
+  // Edit text — the slide's words with suggested edits and an ask box. From the
+  // ⋯ menu, and from the Editor's AI mark (which opens it straight away).
+  function openWordsEditor() {
+    setMenuPane(null);
+    setWordDraft(seedWordDraft(composeLayoutOf(activeSlide) || BEST_FIT_LAYOUT, activeSlide, day?.contentType || day?.format, {
+      documentHtml: isManualSlide(activeSlide) || isBlankSlide(activeSlide) ? '' : carouselDocumentOf(day),
+      direction: layoutDirectionOf(activeSlide),
+    }));
+    setZone('visual');
+    setVisEdit('words');
+  }
+
+  function enterPostEdit() {
+    closeZone();
+    setTimeDraft(null);
+    setSchedMenu(false);
+    setPostEdit(true);
+  }
+
+  // Leaving Editor mode. `keep` is Apply changes: whatever the open editor is
+  // still holding as a draft (new words, a layout / theme being tried on) is
+  // committed first. Cancel drops those drafts. Edits already applied inside
+  // the Editor were saved when they were applied, as they are on the preview.
+  function leavePostEdit(keep) {
+    if (keep && zone === 'visual') {
+      if (visEdit === 'words' && wordDraft && !wordsUnchanged && !wordsBusy) applyWords();
+      else if (visEdit === 'layout') applyLayout();
+      else if (visEdit === 'theme' && draftOpt && !themeUnchanged) applyTheme();
+    }
+    closeZone();
+    setPostEdit(false);
+  }
+
   function closeZone() {
     setZone(null);
     setVisEdit(null);
@@ -3145,7 +3260,8 @@ export default function WeekView({
       if (e.target.closest('.wv-vlib') || e.target.closest('.wv-vlib__scrim')) return;
       if (e.target.closest('.wv-confirm') || e.target.closest('.wv-confirm__scrim')) return;
       if (e.target.closest('.wv-ig__zonebtn') || e.target.closest('.wv-ig__menuwrap')
-        || e.target.closest('.wv-ig__menuscrim')) return;
+        || e.target.closest('.wv-ig__menuscrim') || e.target.closest('.wv-edm__top')
+        || e.target.closest('.wv-edm__more') || e.target.closest('.wv-edm__ai')) return;
       setVisEdit(null);
       setLayPick(null);
       setLayOpt(null);
@@ -3160,7 +3276,8 @@ export default function WeekView({
     const away = (e) => {
       if (e.target.closest('.wv-worded')) return;
       if (e.target.closest('.wv-ig__zonebtn') || e.target.closest('.wv-ig__menuwrap')
-        || e.target.closest('.wv-ig__menuscrim')) return;
+        || e.target.closest('.wv-ig__menuscrim') || e.target.closest('.wv-edm__top')
+        || e.target.closest('.wv-edm__more') || e.target.closest('.wv-edm__ai')) return;
       setVisEdit(null);
     };
     document.addEventListener('mousedown', away);
@@ -3195,14 +3312,18 @@ export default function WeekView({
       if (creating) { setCreating(false); return; }
       if (imgPick) { setImgPick(null); return; }
       if (askImgs) { setAskImgs(0); return; }
-      if (!zone) return;
+      if (!zone && slideEditMode) { setSlideEditMode(false); return; }
+      if (!zone) { if (postEdit) { closeZone(); setPostEdit(false); } return; }
       if (menuPane) { setMenuPane(null); return; }
       if (visEdit) setVisEdit(null);
       else closeZone();
     }
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [zone, visEdit, menuPane, askImgs, imgPick, creating, timeDraft, pick, adjustFor, packOpen, schedMenu]);
+  }, [zone, visEdit, menuPane, askImgs, imgPick, creating, timeDraft, pick, adjustFor, packOpen, schedMenu, postEdit, slideEditMode]);
+
+  // Editor mode belongs to one post: a different day (or no day) closes it.
+  useEffect(() => { setPostEdit(false); }, [selected, route?._id]);
 
   // Close the schedule dropdown on any press outside it, and whenever the open
   // day changes.
@@ -4528,8 +4649,742 @@ export default function WeekView({
     );
   });
 
+  // The edit menu and the two focused editors are drawn in one of two places:
+  // inside the post card (the calendar preview) or inside Editor mode
+  // (`postEdit`, bauhly-v3 PostEditor) — one element each, never both.
+  // Editor mode's header: "Editing post for Tue, Sep 15 | Carousel".
+  const editDate = day?.date ? dateFromIso(day.date) : null;
+  const editDayLabel = editDate
+    ? editDate.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
+    : (dayDateLabel(day) || 'this day');
+  const editFormat = day?.format ? String(day.format).replace(/ series$/, '') : '';
+  // Fix layout re-runs the carousel agent for this post (same call as Change
+  // theme, on the post's current direction). Lime = work Bauhly does.
+  const canFixLayout = Boolean(route?._id) && !layoutBusy && !publishing && !day?.published;
+
+  const editMenuEl = (
+    <>
+      {/* the edit menu — Add elements, shape, this picture, pictures, words
+          (bauhly-v3 §818/§989/§993). Anchored under the pencil. */}
+      {zone === 'visual' && !visEdit && !imgPick && !slideEditMode && (
+        <>
+        <div
+          className="wv-ig__menuscrim"
+          onPointerDown={(e) => { e.preventDefault(); e.stopPropagation(); closeZone(); }}
+          aria-hidden="true"
+        />
+        <div className="wv-ig__menuwrap">
+        <div
+          className="wv-ig__menu"
+          role="menu"
+          aria-label="Edit this slide"
+          ref={menuRef}
+        >
+          <button
+            type="button"
+            role="menuitem"
+            className={`wv-ig__menuitem wv-ig__menuitem--sub${menuPane === 'elements' ? ' is-open' : ''}`}
+            aria-haspopup="menu"
+            aria-expanded={menuPane === 'elements'}
+            onMouseEnter={() => setMenuPane('elements')}
+            onClick={() => setMenuPane((p) => (p === 'elements' ? null : 'elements'))}
+          >
+            <Icon name="sparkle" size={17} strokeWidth={2} />
+            <span className="wv-ig__menugrow">Add elements</span>
+            <Icon name="chevron-right" size={16} strokeWidth={2} />
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            className={`wv-ig__menuitem wv-ig__menuitem--sub${menuPane === 'theme' || menuPane === 'theme-library' ? ' is-open' : ''}`}
+            aria-haspopup="menu"
+            aria-expanded={menuPane === 'theme' || menuPane === 'theme-library'}
+            disabled={layoutBusy}
+            onMouseEnter={() => setMenuPane('theme')}
+            onClick={() => setMenuPane((p) => (p === 'theme' || p === 'theme-library' ? null : 'theme'))}
+          >
+            <Icon name="swatch" size={17} strokeWidth={2} />
+            <span className="wv-ig__menugrow">Change theme</span>
+            <Icon name="chevron-right" size={16} strokeWidth={2} />
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            className="wv-ig__menuitem"
+            onMouseEnter={() => setMenuPane(null)}
+            onClick={() => {
+              setMenuPane(null);
+              setLayPick(appliedId);
+              setLayVarErr('');
+              setLayOpt(null);
+              setVisEdit('layout');
+              // layoutOptions are NOT in the week's render payload (too
+              // heavy) — load the stored ones now. An effect generates the
+              // variations only if none exist once they're loaded.
+              ensureRouteOptions();
+            }}
+          >
+            <Icon name="dashboard" size={17} strokeWidth={2} />
+            <span>Change layout</span>
+          </button>
+          {hasEditImage && (
+            <button
+              type="button"
+              role="menuitem"
+              className="wv-ig__menuitem"
+              onMouseEnter={() => setMenuPane(null)}
+              onClick={openAdjust}
+            >
+              <Icon name="crop" size={17} strokeWidth={2} />
+              <span>Edit image</span>
+            </button>
+          )}
+          <button
+            type="button"
+            role="menuitem"
+            className="wv-ig__menuitem"
+            onMouseEnter={() => setMenuPane(null)}
+            onClick={openImagePicker}
+          >
+            <Icon name="image" size={17} strokeWidth={2} />
+            <span>Select images</span>
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            className="wv-ig__menuitem"
+            onMouseEnter={() => setMenuPane(null)}
+            onClick={openWordsEditor}
+          >
+            <Icon name="edit" size={17} strokeWidth={2} />
+            <span>Edit text</span>
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            className="wv-ig__menuitem"
+            onMouseEnter={() => setMenuPane(null)}
+            onClick={() => {
+              setMenuPane(null);
+              setSlideEditMode(true);
+            }}
+          >
+            <Icon name="expand" size={17} strokeWidth={2} />
+            <span className="wv-ig__menugrow">Edit mode</span>
+            <span className="wv-ig__menubadge">Beta</span>
+          </button>
+          {safeIdx === 0 && videoCoverOn && (
+            <button
+              type="button"
+              role="menuitem"
+              className="wv-ig__menuitem"
+              onMouseEnter={() => setMenuPane(null)}
+              onClick={handleMakeCover}
+              disabled={coverBusy}
+            >
+              <Icon name="play" size={17} strokeWidth={2} />
+              <span>{coverBusy ? 'Creating cover…' : 'Video cover'}</span>
+            </button>
+          )}
+          <button
+            type="button"
+            role="menuitem"
+            className={`wv-ig__menuitem wv-ig__menuitem--sub${menuPane === 'add-slide' ? ' is-open' : ''}`}
+            aria-haspopup="menu"
+            aria-expanded={menuPane === 'add-slide'}
+            onMouseEnter={() => setMenuPane('add-slide')}
+            onClick={() => setMenuPane((p) => (p === 'add-slide' ? null : 'add-slide'))}
+          >
+            <Icon name="plus" size={17} strokeWidth={2} />
+            <span className="wv-ig__menugrow">Add slide</span>
+            <Icon name="chevron-right" size={16} strokeWidth={2} />
+          </button>
+        </div>
+        {menuPane === 'elements' && flyPos && createPortal(
+          <div
+            className="wv-ig__menuflyout"
+            role="menu"
+            aria-label="Add elements"
+            style={{ position: 'fixed', top: flyPos.top, left: flyPos.left, width: flyPos.width, zIndex: 200 }}
+            onMouseEnter={() => setMenuPane('elements')}
+          >
+            <div className="wv-ig__flyhead">
+              <strong>Add elements</strong>
+              <span>{slideRoleName} slide</span>
+            </div>
+            <div className="wv-ig__flylist">
+              {addElementsForRole(slideRoleName).map((el) => (
+                <button
+                  key={el.id}
+                  type="button"
+                  role="menuitem"
+                  className="wv-ig__flyitem"
+                  onClick={() => addSlideElement(el)}
+                >
+                  <Icon name={el.icon} size={18} strokeWidth={2} />
+                  <span className="wv-ig__flycopy">
+                    <span className="wv-ig__flylabel">{el.label}</span>
+                    <span className="wv-ig__flydesc">{el.desc}</span>
+                  </span>
+                  <span className="wv-ig__flyadd" aria-hidden="true">
+                    <Icon name="plus" size={16} strokeWidth={2.2} />
+                  </span>
+                </button>
+              ))}
+            </div>
+            <p className="wv-ig__flynote">
+              <Icon name="info" size={14} strokeWidth={2} />
+              <span>
+                Only elements compatible with a {String(slideRoleName).toLowerCase()} slide
+                and your content are shown.
+              </span>
+            </p>
+          </div>,
+          document.body,
+        )}
+        {menuPane === 'theme' && flyPos && createPortal(
+          <div
+            className="wv-ig__menuflyout"
+            role="menu"
+            aria-label="Themes"
+            style={{ position: 'fixed', top: flyPos.top, left: flyPos.left, width: flyPos.width, zIndex: 200 }}
+            onMouseEnter={() => setMenuPane('theme')}
+          >
+            <div className="wv-ig__flyhead wv-ig__flyhead--back">
+              <button
+                type="button"
+                className="wv-ig__flyback"
+                aria-label="Back"
+                onClick={() => setMenuPane(null)}
+              >
+                <Icon name="chevron-left" size={18} strokeWidth={2} />
+              </button>
+              <strong>Themes</strong>
+            </div>
+            <div className="wv-ig__flylist">
+              <label
+                className={`wv-ig__flyitem${layoutBusy ? ' is-disabled' : ''}`}
+                role="menuitem"
+              >
+                <Icon name="image" size={18} strokeWidth={2} />
+                <span className="wv-ig__flycopy">
+                  <span className="wv-ig__flylabel">Upload a reference</span>
+                  <span className="wv-ig__flydesc">A photograph you like the look of</span>
+                </span>
+                <Icon name="chevron-right" size={16} strokeWidth={2} />
+                <input
+                  type="file"
+                  accept="image/*"
+                  hidden
+                  disabled={layoutBusy}
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    e.target.value = '';
+                    if (file) handleUploadReferenceTheme(file);
+                  }}
+                />
+              </label>
+              <button
+                type="button"
+                role="menuitem"
+                className="wv-ig__flyitem"
+                disabled={layoutBusy}
+                onClick={() => setMenuPane('theme-library')}
+              >
+                <Icon name="droplet" size={18} strokeWidth={2} />
+                <span className="wv-ig__flycopy">
+                  <span className="wv-ig__flylabel">Choose from library</span>
+                  <span className="wv-ig__flydesc">{CAROUSEL_THEMES.length} directions</span>
+                </span>
+                <Icon name="chevron-right" size={16} strokeWidth={2} />
+              </button>
+            </div>
+          </div>,
+          document.body,
+        )}
+        {menuPane === 'theme-library' && flyPos && createPortal(
+          <div
+            className="wv-ig__menuflyout wv-ig__menuflyout--themes"
+            role="menu"
+            aria-label="Choose from library"
+            style={{ position: 'fixed', top: flyPos.top, left: flyPos.left, width: flyPos.width, zIndex: 200 }}
+            onMouseEnter={() => setMenuPane('theme-library')}
+          >
+            <div className="wv-ig__flyhead wv-ig__flyhead--back">
+              <button
+                type="button"
+                className="wv-ig__flyback"
+                aria-label="Back"
+                onClick={() => setMenuPane('theme')}
+              >
+                <Icon name="chevron-left" size={18} strokeWidth={2} />
+              </button>
+              <strong>Choose from library</strong>
+            </div>
+            <div className="wv-ig__flylist wv-ig__flylist--themes">
+              {CAROUSEL_THEMES.map((theme) => (
+                <button
+                  key={theme.id}
+                  type="button"
+                  role="menuitem"
+                  className="wv-ig__flyitem wv-ig__flyitem--theme"
+                  disabled={layoutBusy}
+                  onClick={() => handleChangeTheme(theme)}
+                >
+                  <img
+                    className="wv-ig__flythumb"
+                    src={theme.thumb}
+                    alt=""
+                    loading="lazy"
+                    decoding="async"
+                  />
+                  <span className="wv-ig__flycopy">
+                    <span className="wv-ig__flylabel">{theme.name}</span>
+                  </span>
+                </button>
+              ))}
+            </div>
+          </div>,
+          document.body,
+        )}
+        {menuPane === 'add-slide' && flyPos && createPortal(
+          <div
+            className="wv-ig__menuflyout wv-ig__menuflyout--addslide"
+            role="menu"
+            aria-label="Add slide"
+            style={{ position: 'fixed', top: flyPos.top, left: flyPos.left, width: flyPos.width, zIndex: 200 }}
+            onMouseEnter={() => setMenuPane('add-slide')}
+          >
+            <div className="wv-ig__flyhead wv-ig__flyhead--back">
+              <button
+                type="button"
+                className="wv-ig__flyback"
+                aria-label="Back"
+                onClick={() => setMenuPane(null)}
+              >
+                <Icon name="chevron-left" size={18} strokeWidth={2} />
+              </button>
+              <strong>Add slide</strong>
+            </div>
+            <div className="wv-ig__flylist">
+              <button
+                type="button"
+                role="menuitem"
+                className="wv-ig__flyitem"
+                onClick={() => {
+                  addSlide();
+                  setMenuPane(null);
+                  closeZone();
+                }}
+              >
+                <Icon name="file-plus" size={18} strokeWidth={2} />
+                <span className="wv-ig__flycopy">
+                  <span className="wv-ig__flylabel">Add blank slide</span>
+                  <span className="wv-ig__flydesc">Add a new empty slide</span>
+                </span>
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                className="wv-ig__flyitem"
+                onClick={() => {
+                  duplicateSlide();
+                  setMenuPane(null);
+                  closeZone();
+                }}
+              >
+                <Icon name="files-plus" size={18} strokeWidth={2} />
+                <span className="wv-ig__flycopy">
+                  <span className="wv-ig__flylabel">Duplicate slide</span>
+                  <span className="wv-ig__flydesc">Create a copy of this slide</span>
+                </span>
+              </button>
+            </div>
+          </div>,
+          document.body,
+        )}
+        </div>
+        </>
+      )}
+    </>
+  );
+  const wordsEditorEl = (
+    <>
+      {wordsEditing && (
+        <div className="wv-worded" onClick={(e) => e.stopPropagation()}>
+          <div className="wv-worded__head">
+            <button
+              type="button"
+              className="wv-worded__back"
+              onClick={() => closeZone()}
+              aria-label="Back"
+            >
+              <Glyph name="arrow-left" size={16} />
+            </button>
+            <span className="wv-worded__title">Edit text</span>
+            <button
+              type="button"
+              className="btn btn--primary btn--sm wv-worded__apply"
+              onClick={applyWords}
+              disabled={wordsUnchanged || wordsBusy}
+            >
+              Apply changes
+            </button>
+          </div>
+          {wordDraft && (
+            <>
+              <div className="wv-worded__fields">
+                {wordRoles.map((r, n) => (
+                  <RoleField
+                    key={`${activeSlide?.layoutHtml ? 'agent' : (chosenLayout?.id || 'lay')}-${r.key}`}
+                    role={r}
+                    faceName={faceLabelFor(r.slot, vbStore)}
+                    value={wordDraft[r.key] || ''}
+                    autoFocus={wordFocus ? r.key === wordFocus : n === 0}
+                    onChange={(next) => setWordDraft((d) => ({ ...(d || {}), [r.key]: next }))}
+                  />
+                ))}
+              </div>
+              <div className="wv-worded__foot">
+                <WordsPolish
+                  routeId={route?._id}
+                  dayIndex={selected}
+                  caption={plainOf(wordDraft[primaryWordKey] || '')}
+                  fills={wordFills}
+                  role={wordRoles.find((r) => r.key === primaryWordKey)?.label}
+                  onBusy={setWordsBusy}
+                  onCaption={(next) => {
+                    if (!primaryWordKey) return;
+                    setWordDraft((d) => ({ ...(d || {}), [primaryWordKey]: capText(next) }));
+                  }}
+                />
+              </div>
+            </>
+          )}
+        </div>
+      )}
+    </>
+  );
+  const layoutEditorEl = (
+    <>
+      {compositionEditing && (
+        <div className="wv-layed" onClick={(e) => e.stopPropagation()}>
+          <div className="wv-layed__head">
+            <button
+              type="button"
+              className="wv-layed__back"
+              onClick={() => closeZone()}
+              aria-label="Back"
+            >
+              <Glyph name="arrow-left" size={16} />
+            </button>
+            <span className="wv-layed__title">
+              {themeEditing ? 'Change theme' : 'Change layout'}
+              {themeEditing ? (
+                <span className="wv-layed__hint">Applies to every slide in this carousel</span>
+              ) : optionsBusy ? (
+                <span className="wv-layed__hint">Loading layouts…</span>
+              ) : layVarBusy ? (
+                <span className="wv-layed__hint">Generating four layouts for this slide…</span>
+              ) : hasLayoutOpts && !needsLayoutVars ? (
+                <span className="wv-layed__hint">
+                  Original + {generatedCount} ranked alternatives
+                  <button
+                    type="button"
+                    className="wv-layed__regen"
+                    onClick={() => generateLayoutVariations(true)}
+                  >
+                    Regenerate
+                  </button>
+                </span>
+              ) : null}
+            </span>
+            {!themeEditing && (layVarBusy || (layVarErr && needsLayoutVars)) ? (
+              <span className="wv-layed__apply" aria-hidden="true" />
+            ) : (
+              <button
+                type="button"
+                className="btn btn--primary btn--sm wv-layed__apply"
+                onClick={themeEditing ? applyTheme : applyLayout}
+                disabled={themeEditing
+                  ? (!draftOpt || themeUnchanged)
+                  : (hasLayoutOpts ? (!draftOpt || optUnchanged) : (!draftId || layoutUnchanged))}
+                title={themeEditing
+                  ? (themeUnchanged ? 'This theme is already on every slide' : 'Apply this theme to every slide')
+                  : ((hasLayoutOpts ? optUnchanged : layoutUnchanged)
+                    ? 'This is the layout the post already has'
+                    : undefined)}
+              >
+                <Glyph name="check" size={16} strokeWidth={2.5} />
+                {themeEditing ? 'Apply theme' : 'Apply changes'}
+              </button>
+            )}
+          </div>
+          <div className="wv-layed__picker">
+            {!themeEditing && (optionsBusy || layVarBusy) ? (
+              <div className="wv-layed__loading" role="status" aria-live="polite">
+                <span className="wv-spin" aria-hidden="true" />
+                <span>{optionsBusy ? 'Loading this slide’s layouts…' : 'Generating four layout variations of this slide…'}</span>
+              </div>
+            ) : !themeEditing && layVarErr && needsLayoutVars ? (
+              <div className="wv-layed__loading wv-layed__loading--err" role="alert">
+                <span>{layVarErr}</span>
+                <button
+                  type="button"
+                  className="btn btn--primary btn--sm"
+                  onClick={() => generateLayoutVariations(true)}
+                >
+                  Try again
+                </button>
+              </div>
+            ) : themeEditing || hasLayoutOpts ? (
+              <div
+                className="wv-acts wv-layed__grid wv-layed__grid--opts"
+                role="radiogroup"
+                aria-label={themeEditing
+                  ? 'Which carousel theme should this post use?'
+                  : 'Which layout option should this slide use?'}
+              >
+                {layoutOptionCards(themeEditing)}
+              </div>
+            ) : (
+              <div className="wv-actsrow">
+                <button
+                  type="button"
+                  className="wv-actsrow__arrow wv-layed__arrow"
+                  onClick={() => stepLayout(-1)}
+                  disabled={layWinStart <= 0}
+                  aria-label="Previous layouts"
+                >
+                  <Glyph name="chevron-left" size={15} strokeWidth={2.5} />
+                </button>
+                <div className="wv-acts wv-layed__grid" role="radiogroup" aria-label="Which layout should this slide take?">
+                  {layoutPickerCards(pickerLayouts)}
+                </div>
+                <button
+                  type="button"
+                  className="wv-actsrow__arrow wv-layed__arrow"
+                  onClick={() => stepLayout(1)}
+                  disabled={layWinStart >= maxWinStart}
+                  aria-label="Next layouts"
+                >
+                  <Glyph name="chevron-right" size={15} strokeWidth={2.5} />
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </>
+  );
+
   return (
     <div className={`wv${embedded ? ' wv--embedded' : ''}`} style={libPaint}>
+
+      {/* ══ EDITOR MODE (bauhly-v3 editor/PostEditor.jsx `.edm`) ═══════════
+          The pencil opens the post into its own workspace beside the sidebar:
+          an ink header naming the post with Cancel / Apply changes, the slide
+          as a stack with its neighbours blurred behind it, Fix layout and ⋯ on
+          the post's top line, and the AI mark in its corner. The ⋯ carries the
+          same edit menu the preview had; its editors open in a panel beside
+          the slide so the change is watched happening on it. */}
+      {postEdit && day && !isEmptyCalDay(day) && createPortal(
+        <div
+          className="wv-edm"
+          role="dialog"
+          aria-modal="true"
+          aria-label={`Editing post for ${editDayLabel}`}
+          style={{ ...libPaint, ...igVars }}
+        >
+          <EditorScrollLock />
+          <header className="wv-edm__top">
+            <p className="wv-edm__what">
+              <b>Editing post for {editDayLabel}</b>
+              {editFormat && <span className="wv-edm__sep" aria-hidden="true">|</span>}
+              {editFormat && <span className="wv-edm__format">{editFormat}</span>}
+            </p>
+            <div className="wv-edm__acts">
+              <button type="button" className="btn btn--quiet wv-edm__cancel" onClick={() => leavePostEdit(false)}>
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn btn--primary wv-edm__apply"
+                onClick={() => leavePostEdit(true)}
+                disabled={wordsBusy}
+              >
+                <span className="wv-edm__applylabel">Apply<span className="wv-edm__applylong"> changes</span></span>
+              </button>
+            </div>
+          </header>
+
+          <div className={`wv-edm__body${compositionEditing || wordsEditing ? ' has-panel' : ''}`}>
+            <section className="wv-edm__stage">
+              <div className="wv-edm__line">
+                <button
+                  type="button"
+                  className="wv-edm__fix"
+                  disabled={!canFixLayout}
+                  onClick={() => handleRunLayout(layoutDirectionOf(activeSlide) || '')}
+                  title={canFixLayout
+                    ? 'Re-make this post’s layout so everything fits again'
+                    : (layoutBusy ? 'Composing…' : 'Nothing to fix yet')}
+                >
+                  <Icon name="sparkle" size={15} strokeWidth={2.2} />
+                  {layoutBusy ? 'Fixing…' : 'Fix layout'}
+                </button>
+                <div className="wv-edm__morewrap">
+                  <button
+                    type="button"
+                    className={`wv-edm__more${zone === 'visual' && !visEdit ? ' is-on' : ''}`}
+                    aria-label="More"
+                    aria-haspopup="menu"
+                    aria-expanded={zone === 'visual' && !visEdit}
+                    onPointerDown={(e) => e.stopPropagation()}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      // an open editor steps back to the menu; otherwise toggle it
+                      if (zone === 'visual' && visEdit) { setVisEdit(null); return; }
+                      openZone('visual');
+                    }}
+                  >
+                    <Icon name="more" size={18} strokeWidth={2.2} />
+                  </button>
+                  {editMenuEl}
+                </div>
+              </div>
+
+              <div className="wv-edm__canvas">
+                <EditStack
+                  count={Math.max(slides.length, 1)}
+                  index={safeIdx}
+                  onIndex={(i) => { if (!visEdit) setSlideIdx(i); }}
+                >
+                  {(i, on) => (
+                    <div className={`wv-edm__card${on ? ' is-on' : ''}`}>
+                      <div className={`wv-ig__photo${on && layoutBusy ? ' is-laying' : ''}`}>
+                        {on ? (
+                          <SlideMedia
+                            slide={previewSlide}
+                            localMedia={localMedia}
+                            mediaByKey={mediaByKey}
+                            subjectsByKey={subjectsByKey}
+                            parts={visEdit === 'words' ? wordDraft : null}
+                            showVisualHint
+                            paint={igVars}
+                            themed={hasVisualEdits}
+                            layoutOverride={(visEdit === 'layout' && !hasLayoutOpts) ? (chosenLayout || null) : null}
+                            carouselLayoutHtmls={slides.map((sl) => sl?.layoutHtml || '')}
+                            documentHtml={previewUsesDoc ? carouselDocumentOf(day) : ''}
+                            copyDraft={visEdit === 'words' && wordDraft
+                              ? (isAgentHtmlSlide(activeSlide)
+                                ? { slots: wordDraft }
+                                : { title: wordDraft.head, subtitle: wordDraft.body })
+                              : null}
+                            frameRef={layoutFrameRef}
+                            editMode={slideEditMode}
+                            slideIndex={safeIdx + 1}
+                            direction={visEdit === 'theme'
+                              ? (themeIdOf(draftOpt) || THEME_ORDER[draftOptIdx] || layoutDirectionOf(previewSlide))
+                              : layoutDirectionOf(previewSlide)}
+                          />
+                        ) : slides[i] ? (
+                          <SlideMedia
+                            slide={slides[i]}
+                            localMedia={localMedia}
+                            mediaByKey={mediaByKey}
+                            subjectsByKey={subjectsByKey}
+                            paint={igVars}
+                            themed={hasVisualEdits}
+                            carouselLayoutHtmls={slides.map((sl) => sl?.layoutHtml || '')}
+                            documentHtml={!isBlankSlide(slides[i]) && slideIsThemed(slides[i]) ? carouselDocumentOf(day) : ''}
+                            slideIndex={i + 1}
+                            direction={layoutDirectionOf(slides[i])}
+                          />
+                        ) : null}
+                        {on && layoutBusy && (
+                          <div className="wv-ig__laying" role="status" aria-live="polite">
+                            <span className="wv-spin" aria-hidden="true" />
+                            <span>Composing carousel…</span>
+                          </div>
+                        )}
+                        {on && layoutErr && !layoutBusy && (
+                          <div className="wv-ig__layerr" role="alert"><span>{layoutErr}</span></div>
+                        )}
+                        {on && safeIdx === 0 && videoCoverOn && appliedCoverUrl && (
+                          <video
+                            className="wv-ig__covervideo"
+                            src={appliedCoverUrl}
+                            autoPlay
+                            loop
+                            muted
+                            playsInline
+                            aria-label="Animated hook cover"
+                          />
+                        )}
+                      </div>
+                      {on && slideEditMode && (
+                        <div className="wv-editmode-bar" role="status">
+                          <span className="wv-editmode-bar__dot" aria-hidden="true" />
+                          <span>Drag to move, corners to resize, double-click to type</span>
+                          <button type="button" className="wv-editmode-bar__done" onClick={() => setSlideEditMode(false)}>
+                            Done
+                          </button>
+                        </div>
+                      )}
+                      {on && (visEdit === 'layout' && layPick && layPick !== appliedId) || (on && visEdit === 'theme' && draftOpt && !themeUnchanged) ? (
+                        <span className="wv-ig__previewtag">
+                          {visEdit === 'theme' ? 'Preview only · Apply to keep' : 'Preview only · Apply to keep'}
+                        </span>
+                      ) : null}
+                      {on && !slideEditMode && (
+                        <button
+                          type="button"
+                          className={`wv-edm__ai${wordsEditing ? ' is-on' : ''}`}
+                          aria-label={wordsEditing ? 'Close Ask Bauhly' : 'Ask Bauhly to rewrite this slide'}
+                          title="Ask Bauhly"
+                          onPointerDown={(e) => e.stopPropagation()}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (wordsEditing) { setVisEdit(null); setZone(null); return; }
+                            openWordsEditor();
+                          }}
+                        >
+                          <Icon name="sparkle" size={18} strokeWidth={2} />
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </EditStack>
+              </div>
+
+              {slides.length > 1 && (
+                <div className="wv-edm__dots" role="tablist" aria-label={`Slide ${safeIdx + 1} of ${slides.length}`}>
+                  {slides.map((_, i) => (
+                    <button
+                      key={i}
+                      type="button"
+                      role="tab"
+                      aria-selected={i === safeIdx}
+                      aria-label={`Slide ${i + 1} of ${slides.length}`}
+                      className={`wv-edm__dot${i === safeIdx ? ' is-on' : ''}`}
+                      onClick={() => { if (!visEdit) setSlideIdx(i); }}
+                    />
+                  ))}
+                </div>
+              )}
+            </section>
+
+            {(compositionEditing || wordsEditing) && (
+              <aside className="wv-edm__panel wv-ig">
+                {wordsEditorEl}
+                {layoutEditorEl}
+              </aside>
+            )}
+          </div>
+        </div>,
+        document.body,
+      )}
       {/* ── the way back, and the plan's actions ─────────────────────────── */}
       {/* When embedded in the calendar (Weekly / Day views), the page's own
           toolbar — period label, View menu, ⋯ — replaces this bar. */}
@@ -5159,7 +6014,7 @@ export default function WeekView({
                 // press on the Edit button only.
                 if (e.target.closest('button, a, [role="button"], input, label')) return;
                 if (typeof window !== 'undefined' && window.matchMedia('(min-width: 961px)').matches) return;
-                openZone('visual');
+                enterPostEdit();
               }}
             >
               <div className={`wv-ig__photo${layoutBusy ? ' is-laying' : ''}`}>
@@ -5180,14 +6035,14 @@ export default function WeekView({
                       ? { slots: wordDraft }
                       : { title: wordDraft.head, subtitle: wordDraft.body })
                     : null}
-                  frameRef={layoutFrameRef}
-                  editMode={slideEditMode}
+                  frameRef={postEdit ? null : layoutFrameRef}
+                  editMode={!postEdit && slideEditMode}
                   slideIndex={safeIdx + 1}
                   direction={visEdit === 'theme'
                     ? (themeIdOf(draftOpt) || THEME_ORDER[draftOptIdx] || layoutDirectionOf(previewSlide))
                     : layoutDirectionOf(previewSlide)}
                 />
-                {slideEditMode && (
+                {slideEditMode && !postEdit && (
                   <div className="wv-editmode-bar" role="status">
                     <span className="wv-editmode-bar__dot" aria-hidden="true" />
                     <span>Edit mode — drag to move, corners to resize, double-click to type</span>
@@ -5264,364 +6119,17 @@ export default function WeekView({
               <button
                 type="button"
                 className="wv-ig__zonebtn"
-                aria-label={zone === 'visual' ? 'Done editing image' : 'Edit this image'}
+                aria-label="Edit this post"
                 onPointerDown={(e) => e.stopPropagation()}
                 onClick={(e) => {
                   e.stopPropagation();
-                  openZone('visual');
+                  enterPostEdit();
                 }}
               >
-                <Glyph name={zone === 'visual' ? 'x' : 'pencil'} size={17} strokeWidth={2} />
+                <Glyph name="pencil" size={17} strokeWidth={2} />
               </button>
-              {/* the edit menu — Add elements, shape, this picture, pictures, words
-                  (bauhly-v3 §818/§989/§993). Anchored under the pencil. */}
-              {zone === 'visual' && !visEdit && !imgPick && !slideEditMode && (
-                <>
-                <div
-                  className="wv-ig__menuscrim"
-                  onPointerDown={(e) => { e.preventDefault(); e.stopPropagation(); closeZone(); }}
-                  aria-hidden="true"
-                />
-                <div className="wv-ig__menuwrap">
-                <div
-                  className="wv-ig__menu"
-                  role="menu"
-                  aria-label="Edit this slide"
-                  ref={menuRef}
-                >
-                  <button
-                    type="button"
-                    role="menuitem"
-                    className={`wv-ig__menuitem wv-ig__menuitem--sub${menuPane === 'elements' ? ' is-open' : ''}`}
-                    aria-haspopup="menu"
-                    aria-expanded={menuPane === 'elements'}
-                    onMouseEnter={() => setMenuPane('elements')}
-                    onClick={() => setMenuPane((p) => (p === 'elements' ? null : 'elements'))}
-                  >
-                    <Icon name="sparkle" size={17} strokeWidth={2} />
-                    <span className="wv-ig__menugrow">Add elements</span>
-                    <Icon name="chevron-right" size={16} strokeWidth={2} />
-                  </button>
-                  <button
-                    type="button"
-                    role="menuitem"
-                    className={`wv-ig__menuitem wv-ig__menuitem--sub${menuPane === 'theme' || menuPane === 'theme-library' ? ' is-open' : ''}`}
-                    aria-haspopup="menu"
-                    aria-expanded={menuPane === 'theme' || menuPane === 'theme-library'}
-                    disabled={layoutBusy}
-                    onMouseEnter={() => setMenuPane('theme')}
-                    onClick={() => setMenuPane((p) => (p === 'theme' || p === 'theme-library' ? null : 'theme'))}
-                  >
-                    <Icon name="swatch" size={17} strokeWidth={2} />
-                    <span className="wv-ig__menugrow">Change theme</span>
-                    <Icon name="chevron-right" size={16} strokeWidth={2} />
-                  </button>
-                  <button
-                    type="button"
-                    role="menuitem"
-                    className="wv-ig__menuitem"
-                    onMouseEnter={() => setMenuPane(null)}
-                    onClick={() => {
-                      setMenuPane(null);
-                      setLayPick(appliedId);
-                      setLayVarErr('');
-                      setLayOpt(null);
-                      setVisEdit('layout');
-                      // layoutOptions are NOT in the week's render payload (too
-                      // heavy) — load the stored ones now. An effect generates the
-                      // variations only if none exist once they're loaded.
-                      ensureRouteOptions();
-                    }}
-                  >
-                    <Icon name="dashboard" size={17} strokeWidth={2} />
-                    <span>Change layout</span>
-                  </button>
-                  {hasEditImage && (
-                    <button
-                      type="button"
-                      role="menuitem"
-                      className="wv-ig__menuitem"
-                      onMouseEnter={() => setMenuPane(null)}
-                      onClick={openAdjust}
-                    >
-                      <Icon name="crop" size={17} strokeWidth={2} />
-                      <span>Edit image</span>
-                    </button>
-                  )}
-                  <button
-                    type="button"
-                    role="menuitem"
-                    className="wv-ig__menuitem"
-                    onMouseEnter={() => setMenuPane(null)}
-                    onClick={openImagePicker}
-                  >
-                    <Icon name="image" size={17} strokeWidth={2} />
-                    <span>Select images</span>
-                  </button>
-                  <button
-                    type="button"
-                    role="menuitem"
-                    className="wv-ig__menuitem"
-                    onMouseEnter={() => setMenuPane(null)}
-                    onClick={() => {
-                      setMenuPane(null);
-                      setWordDraft(seedWordDraft(composeLayoutOf(activeSlide) || BEST_FIT_LAYOUT, activeSlide, day?.contentType || day?.format, {
-                        documentHtml: isManualSlide(activeSlide) || isBlankSlide(activeSlide) ? '' : carouselDocumentOf(day),
-                        direction: layoutDirectionOf(activeSlide),
-                      }));
-                      setVisEdit('words');
-                    }}
-                  >
-                    <Icon name="edit" size={17} strokeWidth={2} />
-                    <span>Edit text</span>
-                  </button>
-                  <button
-                    type="button"
-                    role="menuitem"
-                    className="wv-ig__menuitem"
-                    onMouseEnter={() => setMenuPane(null)}
-                    onClick={() => {
-                      setMenuPane(null);
-                      setSlideEditMode(true);
-                    }}
-                  >
-                    <Icon name="expand" size={17} strokeWidth={2} />
-                    <span className="wv-ig__menugrow">Edit mode</span>
-                    <span className="wv-ig__menubadge">Beta</span>
-                  </button>
-                  {safeIdx === 0 && videoCoverOn && (
-                    <button
-                      type="button"
-                      role="menuitem"
-                      className="wv-ig__menuitem"
-                      onMouseEnter={() => setMenuPane(null)}
-                      onClick={handleMakeCover}
-                      disabled={coverBusy}
-                    >
-                      <Icon name="play" size={17} strokeWidth={2} />
-                      <span>{coverBusy ? 'Creating cover…' : 'Video cover'}</span>
-                    </button>
-                  )}
-                  <button
-                    type="button"
-                    role="menuitem"
-                    className={`wv-ig__menuitem wv-ig__menuitem--sub${menuPane === 'add-slide' ? ' is-open' : ''}`}
-                    aria-haspopup="menu"
-                    aria-expanded={menuPane === 'add-slide'}
-                    onMouseEnter={() => setMenuPane('add-slide')}
-                    onClick={() => setMenuPane((p) => (p === 'add-slide' ? null : 'add-slide'))}
-                  >
-                    <Icon name="plus" size={17} strokeWidth={2} />
-                    <span className="wv-ig__menugrow">Add slide</span>
-                    <Icon name="chevron-right" size={16} strokeWidth={2} />
-                  </button>
-                </div>
-                {menuPane === 'elements' && flyPos && createPortal(
-                  <div
-                    className="wv-ig__menuflyout"
-                    role="menu"
-                    aria-label="Add elements"
-                    style={{ position: 'fixed', top: flyPos.top, left: flyPos.left, width: flyPos.width, zIndex: 200 }}
-                    onMouseEnter={() => setMenuPane('elements')}
-                  >
-                    <div className="wv-ig__flyhead">
-                      <strong>Add elements</strong>
-                      <span>{slideRoleName} slide</span>
-                    </div>
-                    <div className="wv-ig__flylist">
-                      {addElementsForRole(slideRoleName).map((el) => (
-                        <button
-                          key={el.id}
-                          type="button"
-                          role="menuitem"
-                          className="wv-ig__flyitem"
-                          onClick={() => addSlideElement(el)}
-                        >
-                          <Icon name={el.icon} size={18} strokeWidth={2} />
-                          <span className="wv-ig__flycopy">
-                            <span className="wv-ig__flylabel">{el.label}</span>
-                            <span className="wv-ig__flydesc">{el.desc}</span>
-                          </span>
-                          <span className="wv-ig__flyadd" aria-hidden="true">
-                            <Icon name="plus" size={16} strokeWidth={2.2} />
-                          </span>
-                        </button>
-                      ))}
-                    </div>
-                    <p className="wv-ig__flynote">
-                      <Icon name="info" size={14} strokeWidth={2} />
-                      <span>
-                        Only elements compatible with a {String(slideRoleName).toLowerCase()} slide
-                        and your content are shown.
-                      </span>
-                    </p>
-                  </div>,
-                  document.body,
-                )}
-                {menuPane === 'theme' && flyPos && createPortal(
-                  <div
-                    className="wv-ig__menuflyout"
-                    role="menu"
-                    aria-label="Themes"
-                    style={{ position: 'fixed', top: flyPos.top, left: flyPos.left, width: flyPos.width, zIndex: 200 }}
-                    onMouseEnter={() => setMenuPane('theme')}
-                  >
-                    <div className="wv-ig__flyhead wv-ig__flyhead--back">
-                      <button
-                        type="button"
-                        className="wv-ig__flyback"
-                        aria-label="Back"
-                        onClick={() => setMenuPane(null)}
-                      >
-                        <Icon name="chevron-left" size={18} strokeWidth={2} />
-                      </button>
-                      <strong>Themes</strong>
-                    </div>
-                    <div className="wv-ig__flylist">
-                      <label
-                        className={`wv-ig__flyitem${layoutBusy ? ' is-disabled' : ''}`}
-                        role="menuitem"
-                      >
-                        <Icon name="image" size={18} strokeWidth={2} />
-                        <span className="wv-ig__flycopy">
-                          <span className="wv-ig__flylabel">Upload a reference</span>
-                          <span className="wv-ig__flydesc">A photograph you like the look of</span>
-                        </span>
-                        <Icon name="chevron-right" size={16} strokeWidth={2} />
-                        <input
-                          type="file"
-                          accept="image/*"
-                          hidden
-                          disabled={layoutBusy}
-                          onChange={(e) => {
-                            const file = e.target.files?.[0];
-                            e.target.value = '';
-                            if (file) handleUploadReferenceTheme(file);
-                          }}
-                        />
-                      </label>
-                      <button
-                        type="button"
-                        role="menuitem"
-                        className="wv-ig__flyitem"
-                        disabled={layoutBusy}
-                        onClick={() => setMenuPane('theme-library')}
-                      >
-                        <Icon name="droplet" size={18} strokeWidth={2} />
-                        <span className="wv-ig__flycopy">
-                          <span className="wv-ig__flylabel">Choose from library</span>
-                          <span className="wv-ig__flydesc">{CAROUSEL_THEMES.length} directions</span>
-                        </span>
-                        <Icon name="chevron-right" size={16} strokeWidth={2} />
-                      </button>
-                    </div>
-                  </div>,
-                  document.body,
-                )}
-                {menuPane === 'theme-library' && flyPos && createPortal(
-                  <div
-                    className="wv-ig__menuflyout wv-ig__menuflyout--themes"
-                    role="menu"
-                    aria-label="Choose from library"
-                    style={{ position: 'fixed', top: flyPos.top, left: flyPos.left, width: flyPos.width, zIndex: 200 }}
-                    onMouseEnter={() => setMenuPane('theme-library')}
-                  >
-                    <div className="wv-ig__flyhead wv-ig__flyhead--back">
-                      <button
-                        type="button"
-                        className="wv-ig__flyback"
-                        aria-label="Back"
-                        onClick={() => setMenuPane('theme')}
-                      >
-                        <Icon name="chevron-left" size={18} strokeWidth={2} />
-                      </button>
-                      <strong>Choose from library</strong>
-                    </div>
-                    <div className="wv-ig__flylist wv-ig__flylist--themes">
-                      {CAROUSEL_THEMES.map((theme) => (
-                        <button
-                          key={theme.id}
-                          type="button"
-                          role="menuitem"
-                          className="wv-ig__flyitem wv-ig__flyitem--theme"
-                          disabled={layoutBusy}
-                          onClick={() => handleChangeTheme(theme)}
-                        >
-                          <img
-                            className="wv-ig__flythumb"
-                            src={theme.thumb}
-                            alt=""
-                            loading="lazy"
-                            decoding="async"
-                          />
-                          <span className="wv-ig__flycopy">
-                            <span className="wv-ig__flylabel">{theme.name}</span>
-                          </span>
-                        </button>
-                      ))}
-                    </div>
-                  </div>,
-                  document.body,
-                )}
-                {menuPane === 'add-slide' && flyPos && createPortal(
-                  <div
-                    className="wv-ig__menuflyout wv-ig__menuflyout--addslide"
-                    role="menu"
-                    aria-label="Add slide"
-                    style={{ position: 'fixed', top: flyPos.top, left: flyPos.left, width: flyPos.width, zIndex: 200 }}
-                    onMouseEnter={() => setMenuPane('add-slide')}
-                  >
-                    <div className="wv-ig__flyhead wv-ig__flyhead--back">
-                      <button
-                        type="button"
-                        className="wv-ig__flyback"
-                        aria-label="Back"
-                        onClick={() => setMenuPane(null)}
-                      >
-                        <Icon name="chevron-left" size={18} strokeWidth={2} />
-                      </button>
-                      <strong>Add slide</strong>
-                    </div>
-                    <div className="wv-ig__flylist">
-                      <button
-                        type="button"
-                        role="menuitem"
-                        className="wv-ig__flyitem"
-                        onClick={() => {
-                          addSlide();
-                          setMenuPane(null);
-                          closeZone();
-                        }}
-                      >
-                        <Icon name="file-plus" size={18} strokeWidth={2} />
-                        <span className="wv-ig__flycopy">
-                          <span className="wv-ig__flylabel">Add blank slide</span>
-                          <span className="wv-ig__flydesc">Add a new empty slide</span>
-                        </span>
-                      </button>
-                      <button
-                        type="button"
-                        role="menuitem"
-                        className="wv-ig__flyitem"
-                        onClick={() => {
-                          duplicateSlide();
-                          setMenuPane(null);
-                          closeZone();
-                        }}
-                      >
-                        <Icon name="files-plus" size={18} strokeWidth={2} />
-                        <span className="wv-ig__flycopy">
-                          <span className="wv-ig__flylabel">Duplicate slide</span>
-                          <span className="wv-ig__flydesc">Create a copy of this slide</span>
-                        </span>
-                      </button>
-                    </div>
-                  </div>,
-                  document.body,
-                )}
-                </div>
-                </>
-              )}
+              {/* the edit menu — anchored under the pencil, or under the Editor's ⋯ */}
+              {!postEdit && editMenuEl}
             </div>
 
             {/* the carousel's own indicators — under the media, always (§951) */}
@@ -5643,168 +6151,9 @@ export default function WeekView({
 
             </div>
 
-            {wordsEditing && (
-              <div className="wv-worded" onClick={(e) => e.stopPropagation()}>
-                <div className="wv-worded__head">
-                  <button
-                    type="button"
-                    className="wv-worded__back"
-                    onClick={() => closeZone()}
-                    aria-label="Back"
-                  >
-                    <Glyph name="arrow-left" size={16} />
-                  </button>
-                  <span className="wv-worded__title">Edit text</span>
-                  <button
-                    type="button"
-                    className="btn btn--primary btn--sm wv-worded__apply"
-                    onClick={applyWords}
-                    disabled={wordsUnchanged || wordsBusy}
-                  >
-                    Apply changes
-                  </button>
-                </div>
-                {wordDraft && (
-                  <>
-                    <div className="wv-worded__fields">
-                      {wordRoles.map((r, n) => (
-                        <RoleField
-                          key={`${activeSlide?.layoutHtml ? 'agent' : (chosenLayout?.id || 'lay')}-${r.key}`}
-                          role={r}
-                          faceName={faceLabelFor(r.slot, vbStore)}
-                          value={wordDraft[r.key] || ''}
-                          autoFocus={wordFocus ? r.key === wordFocus : n === 0}
-                          onChange={(next) => setWordDraft((d) => ({ ...(d || {}), [r.key]: next }))}
-                        />
-                      ))}
-                    </div>
-                    <div className="wv-worded__foot">
-                      <WordsPolish
-                        routeId={route?._id}
-                        dayIndex={selected}
-                        caption={plainOf(wordDraft[primaryWordKey] || '')}
-                        fills={wordFills}
-                        role={wordRoles.find((r) => r.key === primaryWordKey)?.label}
-                        onBusy={setWordsBusy}
-                        onCaption={(next) => {
-                          if (!primaryWordKey) return;
-                          setWordDraft((d) => ({ ...(d || {}), [primaryWordKey]: capText(next) }));
-                        }}
-                      />
-                    </div>
-                  </>
-                )}
-              </div>
-            )}
+            {!postEdit && wordsEditorEl}
 
-            {compositionEditing && (
-              <div className="wv-layed" onClick={(e) => e.stopPropagation()}>
-                <div className="wv-layed__head">
-                  <button
-                    type="button"
-                    className="wv-layed__back"
-                    onClick={() => closeZone()}
-                    aria-label="Back"
-                  >
-                    <Glyph name="arrow-left" size={16} />
-                  </button>
-                  <span className="wv-layed__title">
-                    {themeEditing ? 'Change theme' : 'Change layout'}
-                    {themeEditing ? (
-                      <span className="wv-layed__hint">Applies to every slide in this carousel</span>
-                    ) : optionsBusy ? (
-                      <span className="wv-layed__hint">Loading layouts…</span>
-                    ) : layVarBusy ? (
-                      <span className="wv-layed__hint">Generating four layouts for this slide…</span>
-                    ) : hasLayoutOpts && !needsLayoutVars ? (
-                      <span className="wv-layed__hint">
-                        Original + {generatedCount} ranked alternatives
-                        <button
-                          type="button"
-                          className="wv-layed__regen"
-                          onClick={() => generateLayoutVariations(true)}
-                        >
-                          Regenerate
-                        </button>
-                      </span>
-                    ) : null}
-                  </span>
-                  {!themeEditing && (layVarBusy || (layVarErr && needsLayoutVars)) ? (
-                    <span className="wv-layed__apply" aria-hidden="true" />
-                  ) : (
-                    <button
-                      type="button"
-                      className="btn btn--primary btn--sm wv-layed__apply"
-                      onClick={themeEditing ? applyTheme : applyLayout}
-                      disabled={themeEditing
-                        ? (!draftOpt || themeUnchanged)
-                        : (hasLayoutOpts ? (!draftOpt || optUnchanged) : (!draftId || layoutUnchanged))}
-                      title={themeEditing
-                        ? (themeUnchanged ? 'This theme is already on every slide' : 'Apply this theme to every slide')
-                        : ((hasLayoutOpts ? optUnchanged : layoutUnchanged)
-                          ? 'This is the layout the post already has'
-                          : undefined)}
-                    >
-                      <Glyph name="check" size={16} strokeWidth={2.5} />
-                      {themeEditing ? 'Apply theme' : 'Apply changes'}
-                    </button>
-                  )}
-                </div>
-                <div className="wv-layed__picker">
-                  {!themeEditing && (optionsBusy || layVarBusy) ? (
-                    <div className="wv-layed__loading" role="status" aria-live="polite">
-                      <span className="wv-spin" aria-hidden="true" />
-                      <span>{optionsBusy ? 'Loading this slide’s layouts…' : 'Generating four layout variations of this slide…'}</span>
-                    </div>
-                  ) : !themeEditing && layVarErr && needsLayoutVars ? (
-                    <div className="wv-layed__loading wv-layed__loading--err" role="alert">
-                      <span>{layVarErr}</span>
-                      <button
-                        type="button"
-                        className="btn btn--primary btn--sm"
-                        onClick={() => generateLayoutVariations(true)}
-                      >
-                        Try again
-                      </button>
-                    </div>
-                  ) : themeEditing || hasLayoutOpts ? (
-                    <div
-                      className="wv-acts wv-layed__grid wv-layed__grid--opts"
-                      role="radiogroup"
-                      aria-label={themeEditing
-                        ? 'Which carousel theme should this post use?'
-                        : 'Which layout option should this slide use?'}
-                    >
-                      {layoutOptionCards(themeEditing)}
-                    </div>
-                  ) : (
-                    <div className="wv-actsrow">
-                      <button
-                        type="button"
-                        className="wv-actsrow__arrow wv-layed__arrow"
-                        onClick={() => stepLayout(-1)}
-                        disabled={layWinStart <= 0}
-                        aria-label="Previous layouts"
-                      >
-                        <Glyph name="chevron-left" size={15} strokeWidth={2.5} />
-                      </button>
-                      <div className="wv-acts wv-layed__grid" role="radiogroup" aria-label="Which layout should this slide take?">
-                        {layoutPickerCards(pickerLayouts)}
-                      </div>
-                      <button
-                        type="button"
-                        className="wv-actsrow__arrow wv-layed__arrow"
-                        onClick={() => stepLayout(1)}
-                        disabled={layWinStart >= maxWinStart}
-                        aria-label="Next layouts"
-                      >
-                        <Glyph name="chevron-right" size={15} strokeWidth={2.5} />
-                      </button>
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
+            {!postEdit && layoutEditorEl}
 
             {/* caption / why — right column on desktop */}
             <div className={`wv-ig__panel${sideTab === 'why' ? ' is-why' : sideTab === 'debug' ? ' is-debug' : sideTab === 'video' ? ' is-video' : ' is-cap'}${zone === 'caption' ? ' is-cappedit' : ''}`}>
