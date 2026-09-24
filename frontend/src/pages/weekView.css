@@ -7206,7 +7206,7 @@ span.wv-layed__apply { margin-left: auto; flex-shrink: 0; }
 .wv-edm__body.has-panel { --edm-panel-w: min(400px, 38cqw); }
 .wv-edm__body > * {
   --edm-card-h: min(
-    calc(100dvh - 72px - 150px),
+    calc(100dvh - 72px - 150px - var(--edm-ask-h, 0px)),
     760px,
     calc((100cqw - var(--edm-panel-w) - 76px - 2 * var(--edm-peek)) / var(--edm-ar))
   );
@@ -7616,3 +7616,194 @@ span.wv-layed__apply { margin-left: auto; flex-shrink: 0; }
 .wv-edm__tbswatch:hover { box-shadow: inset 0 0 0 1px rgb(0 0 0 / 0.14), 0 0 0 2px var(--ink-900); }
 .wv-edm__tbswatch--pick { background: var(--surface-sunken); color: var(--ink-700); }
 .wv-edm__tbswatch--pick input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+
+/* ── Editor mode: the prompt band (bauhly-v3 `edm-askbar`) ─────────────────
+   A band under the workspace, as wide as the post and its air: suggestions on
+   top, the field under them. The body gives up its height (`--edm-ask-h`) so
+   the post scales down rather than being covered. */
+.wv-edm__body.is-asking { --edm-ask-h: 160px; padding-bottom: var(--sp-4); }
+.wv-edm__ask {
+  flex: 0 0 auto;
+  display: flex;
+  justify-content: center;
+  padding: 0 var(--sp-6) var(--sp-5);
+  animation: wv-ask-rise 220ms var(--ease-out, ease);
+}
+@keyframes wv-ask-rise {
+  from { opacity: 0; transform: translateY(14px); }
+  to { opacity: 1; transform: none; }
+}
+@media (prefers-reduced-motion: reduce) { .wv-edm__ask { animation: none; } }
+.wv-edm__askin { width: min(100%, 1360px); display: flex; flex-direction: column; gap: var(--sp-3); }
+.wv-edm__askrow { display: flex; align-items: center; gap: var(--sp-3); }
+.wv-edm__asktries { display: flex; flex-wrap: wrap; gap: var(--sp-2); min-width: 0; margin-right: auto; }
+.wv-edm__asktry {
+  height: 44px;
+  padding: 0 var(--sp-4);
+  border: 0;
+  border-radius: var(--r-full);
+  background: var(--ink-100);
+  color: var(--ink-800);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
+}
+.wv-edm__asktry:hover:not(:disabled) { background: var(--ink-200, var(--border-strong)); color: var(--ink-900); }
+.wv-edm__asktry:disabled { opacity: 0.5; cursor: default; }
+.wv-edm__askx {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border: 0;
+  border-radius: var(--r-full);
+  background: var(--ink-900);
+  color: #fff;
+  cursor: pointer;
+}
+.wv-edm__askx:hover:not(:disabled) { background: var(--ink-800, #26262c); }
+.wv-edm__askx:disabled { opacity: 0.5; cursor: default; }
+.wv-edm__asknote {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  margin: 0;
+  padding: 0 var(--sp-2);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ink-700);
+}
+.wv-edm__asknote.is-err { color: var(--danger-600, #c2410c); }
+.wv-edm__askundo {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--ink-900);
+  font: inherit;
+  font-weight: 700;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+.wv-edm__askfield {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  height: 68px;
+  padding: 0 12px 0 16px;
+  border-radius: var(--r-full);
+  background: var(--ink-900);
+  color: #fff;
+  box-shadow: 0 18px 40px -18px rgba(22, 22, 26, 0.55);
+  --focus-ring: #fff;
+}
+.wv-edm__askinput {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 100%;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: #fff;
+  font: inherit;
+  font-size: 16px;
+  caret-color: #fff;
+}
+.wv-edm__askinput::placeholder { color: rgb(255 255 255 / 0.5); }
+.wv-edm__asksend {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border: 0;
+  border-radius: var(--r-full);
+  background: #fff;
+  color: var(--ink-900);
+  cursor: pointer;
+  transition: opacity var(--dur-fast) var(--ease-out);
+}
+.wv-edm__asksend:disabled { background: rgb(255 255 255 / 0.14); color: rgb(255 255 255 / 0.5); cursor: default; }
+.wv-edm__askfield.is-busy .wv-edm__asksend .wv-spin { border-color: rgb(255 255 255 / 0.3); border-top-color: #fff; }
+/* a sentence ready to send is the lime (bauhly-v3: `--experiment-500`) */
+.wv-edm__asksend:not(:disabled) { background: var(--experiment-500, #d2e823); color: var(--experiment-ink, #3a4204); }
+.wv-edm__asksend:not(:disabled):hover { filter: brightness(1.05); }
+
+/* the subject (a fact — quiet) and the chosen action / refinement (tokens,
+   blue-tinted, each with its own ×) — bauhly-v3 `.edm-sub` / `.edm-cmd` */
+.wv-edm__asksub {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  height: 32px;
+  padding: 0 12px;
+  border-radius: 8px;
+  background: rgb(255 255 255 / 0.12);
+  color: rgb(255 255 255 / 0.78);
+  font-size: 14px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.wv-edm__cmd {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: 0 0 auto;
+  height: 32px;
+  padding: 0 6px 0 12px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--blue-500, #3b6cff) 24%, transparent);
+  color: color-mix(in srgb, var(--blue-500, #3b6cff) 45%, #fff);
+  font-size: 14px;
+  font-weight: 600;
+  white-space: nowrap;
+  animation: wv-cmd-in 160ms var(--ease-out, ease);
+}
+@keyframes wv-cmd-in { from { opacity: 0; transform: scale(0.94); } to { opacity: 1; transform: none; } }
+.wv-edm__cmdx {
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--r-full);
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  opacity: 0.75;
+}
+.wv-edm__cmdx:hover { opacity: 1; background: rgb(255 255 255 / 0.14); }
+
+.wv-edm__askmic {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border: 0;
+  border-radius: var(--r-full);
+  background: rgb(255 255 255 / 0.12);
+  color: #fff;
+  cursor: pointer;
+}
+.wv-edm__askmic:hover:not(:disabled) { background: rgb(255 255 255 / 0.2); }
+.wv-edm__askmic:disabled { opacity: 0.5; cursor: default; }
+.wv-edm__askmic.is-on { background: #fff; color: var(--ink-900); animation: wv-mic-pulse 1.4s ease-in-out infinite; }
+@keyframes wv-mic-pulse { 0%, 100% { box-shadow: 0 0 0 0 rgb(255 255 255 / 0.45); } 50% { box-shadow: 0 0 0 6px rgb(255 255 255 / 0); } }
+.wv-edm__askstop { width: 12px; height: 12px; border-radius: 3px; background: currentColor; }
+
+/* the row's ideas arrive one after another when the level changes */
+.wv-edm__asktry { animation: wv-try-in 220ms var(--ease-out, ease) both; animation-delay: calc(var(--i, 0) * 30ms); }
+@keyframes wv-try-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .wv-edm__asktry, .wv-edm__cmd { animation: none; } }
+
+@media (max-width: 800px) {
+  .wv-edm__ask { padding: 0 var(--sp-3) var(--sp-3); }
+  .wv-edm__asktries { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
+  .wv-edm__asktry { flex: 0 0 auto; height: 38px; font-size: 13px; }
+  .wv-edm__askfield { height: 56px; }
+}

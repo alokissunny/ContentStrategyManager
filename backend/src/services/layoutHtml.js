@@ -438,6 +438,11 @@ function parseCarouselDocument(html, expectedCount) {
 
 module.exports = {
   MAX_LAYOUT_HTML,
+  discoveredThemes,
+  blockForDirection,
+  slideArticles,
+  htmlAttr,
+  canonThemeId,
   extractLayoutHtml,
   extractHtmlDocument,
   parseCarouselDocument,

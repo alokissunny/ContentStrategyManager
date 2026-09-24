@@ -25,6 +25,7 @@ import {
   setPostReview,
   runPostLayout,
   runSlideLayoutVariations as apiRunSlideLayoutVariations,
+  refinePost,
   runPostCover,
   getPostOptions,
   getPostDebug,
@@ -44,6 +45,7 @@ import { getMetaStatus, publishPostToMeta, isMetaConnectedFor, metaConnectionFor
 import { mediaProxyUrl, videoProxyUrl, toDisplayUrl, isProxyUrl, rememberCdnBase, onCdnBase, getCdnBase, canvasSafeUrl, isProjectMediaKey, splitMediaKeys, iframeSafeUrl, projectKeysInText } from '../api/media';
 import { createImage, listGeneratedImages } from '../api/images';
 import { useProjects, uploadFiles } from '../lib/projectsStore';
+import { transcribeCapture } from '../api/projects';
 import { toSvg } from 'html-to-image';
 import { openCaptureIdea } from '../lib/captureUi';
 import { styleOf, groundOf } from '../lib/visualbrand';
@@ -60,7 +62,9 @@ import { useFeatureFlags } from '../lib/featureFlags';
 import PostAgentDebug from './weekview/PostAgentDebug';
 import DynamicLayout, { AnnotationOverlay } from './weekview/DynamicLayout';
 import { BrandMark } from './visuallibrary/BrandMark';
-import { bakeSlidePatches } from './weekview/slideEditMode';
+import { bakeSlidePatches, replaceSlideArticle, slideArticleOf, nodeAt } from './weekview/slideEditMode';
+import { actionsFor, actionOf, modifierOf, askHint, askSay } from '../lib/askactions';
+import { useRecorder, captureSttLanguages } from './checkin/recorder';
 import { rewriteAnnotationText, rewriteLayoutText, rewriteCarouselDocumentText, slotPlain, slideSlotPlain, withSharedLayoutStyles, layoutDirectionOf, themeIdOf, themeDirectionOf, slideIsThemed, optionForTheme, THEME_ORDER, bakeFrozenGeometry, findCarouselSlide, isCarouselDocument } from './weekview/layoutHtml';
 import { discoverSlideTextRoles, agentHtmlSource, isAgentHtmlSlide } from './weekview/slideTextRoles';
 import { boxOf, normalizeSubjects } from './weekview/subjectBox';
@@ -2764,6 +2768,24 @@ export default function WeekView({
   const [elemHist, setElemHist] = useState({ past: [], future: [] });
   const elemHistRef = useRef(elemHist);
   elemHistRef.current = elemHist;
+  // The prompt band (bauhly-v3 `edm-askbar`): "Say what else this should be".
+  // Opened by ⋯ › Add elements and by the AI mark on the slide.
+  const [askOpen, setAskOpen] = useState(false);
+  const [askDraft, setAskDraft] = useState('');
+  // The instruction being built as badges (bauhly-v3 lib/askactions.js):
+  // subject (This post / the selected element) → action → refinement.
+  const [askAct, setAskAct] = useState(null);
+  const [askTune, setAskTune] = useState(null);
+  const [askAll, setAskAll] = useState(false); // the running edit covers every slide
+  const [askVisual, setAskVisual] = useState(false); // …and is making a picture first
+  const askRec = useRecorder();
+  const [askHearing, setAskHearing] = useState(false); // transcribing a take
+  const askUploadRef = useRef(null);
+  const askRefRef = useRef(null);
+  const [askBusy, setAskBusy] = useState(false);
+  const [askMsg, setAskMsg] = useState(null); // { text, tone: 'ok'|'err' }
+  const [askUndo, setAskUndo] = useState(null); // { slides, docHtml? } before the last prompt edit
+  const askInputRef = useRef(null);
   // Edit image (bauhly-v3 §961/§965/§982): the still-photo studio. `adjustFor`
   // is the picture being cropped; `editSlot` is the measured layout region it
   // will occupy. More than one picture place opens the set first (`packOpen`).
@@ -3336,6 +3358,7 @@ export default function WeekView({
 
   function enterPostEdit() {
     resetElemEdits();
+    resetAsk();
     closeZone();
     setTimeDraft(null);
     setSchedMenu(false);
@@ -3357,10 +3380,15 @@ export default function WeekView({
   // Bake every slide's pending element edits into its stored html and save —
   // the slide's own layoutHtml, or (for a themed slide) its <article> inside
   // the shared carousel document.
+  // Returns the slides + carousel document as saved, so a caller in the same
+  // tick (the prompt band) can build on them before `day` re-renders.
   function flushElemEdits() {
     const edits = elemEditsRef.current || {};
     const live = Object.keys(edits).filter((k) => Object.keys(edits[k]?.patches || {}).length);
-    if (!live.length || !day) { resetElemEdits(); return false; }
+    if (!live.length || !day) {
+      resetElemEdits();
+      return day ? { slides: deriveSlides(day), docHtml: carouselDocumentOf(day) } : null;
+    }
     const base = deriveSlides(day);
     let docHtml = carouselDocumentOf(day);
     let docChanged = false;
@@ -3379,7 +3407,7 @@ export default function WeekView({
     });
     replaceSlides(next, docChanged ? { extra: { carouselHtml: docHtml } } : {});
     resetElemEdits();
-    return true;
+    return { slides: next, docHtml };
   }
 
   function commitElemEdits(patches) {
@@ -3448,9 +3476,266 @@ export default function WeekView({
     elemApiRef.current?.run(cmd, value);
   }
 
+  function resetAsk() {
+    setAskOpen(false);
+    setAskDraft('');
+    setAskAct(null);
+    setAskTune(null);
+    setAskMsg(null);
+    setAskUndo(null);
+    if (askRec.status === 'recording') askRec.stop();
+  }
+
+  function openAsk(prefill) {
+    setMenuPane(null);
+    setZone(null);
+    setVisEdit(null);
+    setAskMsg(null);
+    if (typeof prefill === 'string') setAskDraft(prefill);
+    setAskOpen(true);
+    window.requestAnimationFrame(() => askInputRef.current?.focus());
+  }
+
+  // What the field is about and what can be asked of it — the reference's
+  // `askCtxNow`, fed from this slide and whatever element is selected.
+  const askSel = postEdit && askOpen && elemSel ? elemSel : null;
+  const askKind = !askSel ? 'post'
+    : askSel.kind === 'text' ? 'text'
+      : askSel.kind === 'image' ? (askSel.hasImg ? 'picture' : 'place')
+        : 'post';
+  const askRole = (() => {
+    const r = String(activeSlide?.role || '').trim().toLowerCase();
+    const known = ['hook', 'context', 'struggle', 'shift', 'evidence', 'framework', 'takeaway', 'cta'];
+    if (known.includes(r)) return r;
+    if (/call to action|cta/.test(r)) return 'cta';
+    if (slides.length <= 1 || safeIdx === 0) return 'hook';
+    if (safeIdx === slides.length - 1) return 'cta';
+    return 'context';
+  })();
+  const askParts = {
+    title: String(activeSlide?.title || '').trim(),
+    body: String(activeSlide?.subtitle || activeSlide?.body || '').trim(),
+    eyebrow: String(activeSlide?.eyebrow || activeSlide?.kicker || '').trim(),
+  };
+  const askCtxNow = {
+    kind: askKind,
+    role: askRole,
+    action: askAct,
+    modifier: askTune,
+    len: askSel ? String(askSel.text || '').length : 0,
+    parts: askParts,
+    bare: !(askParts.title || askParts.body || askParts.eyebrow),
+    heavy: [askParts.title, askParts.body, askParts.eyebrow].join(' ').length > 180,
+    hasArt: keysOf(activeSlide).length > 0 || Boolean(activeSlide?.image),
+    room: !(askParts.title && askParts.body && askParts.eyebrow),
+    slides: slides.length,
+    canGenerate: false,
+    // the logo is the Brand Kit's mark drawn over every slide, not slide HTML
+    canLogo: false,
+    acts: ['media', 'upload', 'reference'],
+  };
+  const askList = postEdit && askOpen ? actionsFor(askCtxNow) : [];
+  // The subject changing (a different element, another slide) takes the
+  // half-built instruction with it — it was about the old one.
+  const askOn = `${askKind}:${askSel?.path ?? ''}:${safeIdx}`;
+  const askOnRef = useRef(askOn);
+  useEffect(() => {
+    if (askOnRef.current === askOn) return;
+    askOnRef.current = askOn;
+    setAskAct(null);
+    setAskTune(null);
+  }, [askOn]);
+
+  function askDoor(id) {
+    if (id === 'media') { openImagePicker(); return; }
+    if (id === 'upload') { askUploadRef.current?.click(); return; }
+    if (id === 'reference') { askRefRef.current?.click(); }
+  }
+
+  // A chip either opens the place its answer lives, arms the action (a badge
+  // in the field + its refinements on the row), or — with an action armed —
+  // arms the refinement. Nothing is sent until the studio sends.
+  function askPress(one) {
+    if (one.act) { askDoor(one.act); return; }
+    setAskMsg(null);
+    if (askAct) { setAskTune(one.id); }
+    else { setAskAct(one.id); setAskTune(null); }
+    askInputRef.current?.focus();
+  }
+
+  async function askUploadImage(file) {
+    if (!file || !file.type?.startsWith('image/')) return;
+    setUploading(true);
+    try {
+      const added = await uploadFiles([file]);
+      const first = added[0];
+      if (!first) return;
+      rememberImage(first.key, first.url, { skipGen: true });
+      patchActiveSlide({ assetKey: first.key, assetKeys: [first.key, ...keysOf(activeSlide).slice(1)] });
+      setAskMsg({ tone: 'ok', text: 'Picture added to this slide.' });
+    } catch {
+      setAskMsg({ tone: 'err', text: 'Could not upload that picture.' });
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  // The mic: live words land in the field as they are heard; on stop the take
+  // is transcribed properly and replaces them.
+  function askMic() {
+    if (askRec.status === 'recording') { askRec.stop(); return; }
+    askRec.reset();
+    askRec.start();
+  }
+  useEffect(() => {
+    if (askRec.status === 'recording' && askRec.liveText) setAskDraft(askRec.liveText);
+  }, [askRec.liveText, askRec.status]);
+  useEffect(() => {
+    if (askRec.status !== 'done') return;
+    const blob = askRec.blob;
+    const live = String(askRec.getLiveText?.() || askRec.liveText || '').trim();
+    (async () => {
+      setAskHearing(true);
+      let text = live;
+      try {
+        if (blob) {
+          const r = await transcribeCapture(blob, { hint: live, languages: captureSttLanguages(askRec.speechLang) });
+          text = String(r?.text || live).trim();
+        }
+      } catch { /* keep the live words */ }
+      if (text) setAskDraft(text);
+      setAskHearing(false);
+      askRec.reset();
+      askInputRef.current?.focus();
+    })();
+  }, [askRec.status]);
+
+  // Send what is on screen: the armed action + refinement as a sentence with
+  // anything typed appended (`askSay`), to the Slide Edit agent — for this
+  // slide, or every slide for `Improve the flow`. A selected element travels
+  // as a marker on that node so the agent changes it and nothing else. Each
+  // returned <article> is swapped into the stored html and saved; the pre-edit
+  // slides are kept so the band can offer Undo.
+  // Words that ask for a picture — mirrors the server's reading, only to say
+  // "making a visual" while it runs.
+  const ASKS_VISUAL = /\b(add|include|insert|put|place|give|generate|create|make|show|use)\b[^.?!]{0,48}\b(visual|image|picture|photo|photograph|illustration|graphic|artwork|sketch|render)s?\b/i;
+
+  async function sendAsk() {
+    // `Add a visual` has no sentence of its own in the catalogue (its refinements
+    // are doors) — sent armed, it is a request for a new picture, described by
+    // whatever the studio typed.
+    const typed = askDraft.trim();
+    const instruction = askAct === 'visual'
+      ? `Add a visual${typed ? `: ${typed}` : ' that supports this slide'}.`
+      : (askAct ? askSay(askCtxNow, askDraft) : typed);
+    const wantsVisual = askAct === 'visual' || ASKS_VISUAL.test(instruction);
+    if (!instruction || askBusy || !day) return;
+    const postId = postIdAt(selected);
+    if (!postId) return;
+    const focusPath = askSel?.path ?? null;
+    const every = askAct === 'flow';
+    const saved = flushElemEdits();
+    const base = saved?.slides || deriveSlides(day);
+    const docBefore = saved?.docHtml ?? carouselDocumentOf(day);
+    const hasDoc = isCarouselDocument(docBefore);
+    const active = base[safeIdx];
+    if (!active || isBlankSlide(active)) {
+      setAskMsg({ tone: 'err', text: 'This slide has no layout to edit yet — try Fix layout first.' });
+      return;
+    }
+    const activeIdx = Number(active.index) > 0 ? Number(active.index) : safeIdx + 1;
+    const activeDir = layoutDirectionOf(active);
+    const findActive = (d) => findCarouselSlide(d, activeDir, activeIdx) || d.querySelector('article.slide, .slide, article');
+    // The reference: the carousel as it stands, each slide's own html where it
+    // has one, and the pictures on every slide. The selected element is marked
+    // where it lives (the document or the slide's own html).
+    let carouselHtml = hasDoc ? docBefore : '';
+    const slidesRef = base.map((sl, i) => ({
+      index: Number(sl.index) > 0 ? Number(sl.index) : i + 1,
+      themed: hasDoc && slideIsThemed(sl),
+      layoutHtml: sl.layoutHtml || '',
+      assetKeys: keysOf(sl),
+      role: sl.role || '',
+    }));
+    if (focusPath != null && typeof DOMParser !== 'undefined') {
+      const mark = (html, isDocument) => {
+        const art = slideArticleOf(html, findActive);
+        if (!art) return html;
+        const d = new DOMParser().parseFromString(art.html, 'text/html');
+        const root = d.querySelector('article, .slide');
+        const el = root ? nodeAt(root, focusPath) : null;
+        if (!el) return html;
+        el.setAttribute('data-bauhly-focus', '1');
+        return replaceSlideArticle(html, root.outerHTML, findActive, { isDocument });
+      };
+      if (slidesRef[safeIdx].themed) carouselHtml = mark(carouselHtml, true);
+      else slidesRef[safeIdx] = { ...slidesRef[safeIdx], layoutHtml: mark(slidesRef[safeIdx].layoutHtml, false) };
+    }
+    setAskAll(every);
+    setAskVisual(wantsVisual);
+    setAskBusy(true);
+    setAskMsg(null);
+    setAskDraft('');
+    setAskAct(null);
+    setAskTune(null);
+    try {
+      const data = await refinePost(postId, {
+        instruction,
+        slideIndex: every ? null : activeIdx,
+        focus: askSel ? { slideIndex: activeIdx, tag: askSel.tag, slot: askSel.slot, text: askSel.text } : null,
+        visual: askAct === 'visual' ? true : undefined,
+        visualSlideIndex: activeIdx,
+        current: { carouselHtml, direction: activeDir, slides: slidesRef },
+      });
+      // the new picture is on the page the moment the post lands
+      if (data?.visual?.ok && data.visual.key && data.visual.src) {
+        rememberImage(data.visual.key, data.visual.src, { skipGen: true });
+      }
+      if (!data?.post) throw new Error('Nothing came back.');
+      setAskUndo({ slides: base, docHtml: docBefore || null });
+      const merged = mergePost(data.post);
+      setRoute(merged);
+      onRouteChange?.(merged);
+      const changed = Array.isArray(data.changed) ? data.changed.length : 1;
+      const html = String(data.post?.content?.carouselHtml || '');
+      const addedPic = /<img\b(?![^>]*\ssrc=)(?![^>]*data-asset-key=)[^>]*data-slot="(?:image|illustration)"/i.test(html)
+        && !/<img\b(?![^>]*\ssrc=)(?![^>]*data-asset-key=)[^>]*data-slot="(?:image|illustration)"/i.test(docBefore || '');
+      const v = data?.visual;
+      setAskMsg({
+        tone: v && !v.ok ? 'err' : 'ok',
+        text: v?.ok
+          ? (v.placed === false
+            ? 'Made a new visual, but it did not land on the slide — try again or place it with Project photos.'
+            : `Added a new visual${changed > 1 ? ` · ${changed} slides updated` : ''}.`)
+          : v && !v.ok
+            ? `Could not make a visual${v.reason ? ` (${v.reason})` : ''} — the slide was updated without one.`
+            : `${changed === 1 ? 'Slide updated' : `${changed} slides updated`}${addedPic ? ' — added a picture spot; fill it with Project photos.' : '.'}`,
+      });
+    } catch (err) {
+      const timedOut = err?.code === 'ECONNABORTED' || /timeout/i.test(String(err?.message || ''));
+      setAskMsg({
+        tone: 'err',
+        text: timedOut
+          ? 'Bauhly took too long — try again.'
+          : (err?.response?.data?.message || err?.message || 'Bauhly could not change this carousel.'),
+      });
+    } finally {
+      setAskBusy(false);
+    }
+  }
+
+  function undoAsk() {
+    if (!askUndo) return;
+    replaceSlides(askUndo.slides, askUndo.docHtml ? { extra: { carouselHtml: askUndo.docHtml } } : {});
+    // the recreated carousel wrote every slide's html — put all of it back
+    setAskUndo(null);
+    setAskMsg({ tone: 'ok', text: 'Put back.' });
+  }
+
   function leavePostEdit(keep) {
     if (keep) flushElemEdits();
     else resetElemEdits();
+    resetAsk();
     if (keep && zone === 'visual') {
       if (visEdit === 'words' && wordDraft && !wordsUnchanged && !wordsBusy) applyWords();
       else if (visEdit === 'layout') applyLayout();
@@ -3574,6 +3859,7 @@ export default function WeekView({
       if (askImgs) { setAskImgs(0); return; }
       if (!zone && postEdit && elemMenu) { setElemMenu(null); return; }
       if (!zone && postEdit && elemSel) { elemApiRef.current?.deselect(); return; }
+      if (!zone && postEdit && askOpen && !askBusy) { setAskOpen(false); return; }
       if (!zone && slideEditMode) { setSlideEditMode(false); return; }
       if (!zone) { if (postEdit) { closeZone(); setPostEdit(false); } return; }
       if (menuPane) { setMenuPane(null); return; }
@@ -3582,10 +3868,10 @@ export default function WeekView({
     }
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [zone, visEdit, menuPane, askImgs, imgPick, creating, timeDraft, pick, adjustFor, packOpen, schedMenu, postEdit, slideEditMode, elemSel, elemMenu]);
+  }, [zone, visEdit, menuPane, askImgs, imgPick, creating, timeDraft, pick, adjustFor, packOpen, schedMenu, postEdit, slideEditMode, elemSel, elemMenu, askOpen, askBusy]);
 
   // Editor mode belongs to one post: a different day (or no day) closes it.
-  useEffect(() => { setPostEdit(false); resetElemEdits(); }, [selected, route?._id]);
+  useEffect(() => { setPostEdit(false); resetElemEdits(); resetAsk(); }, [selected, route?._id]);
   // A menu editor (layout / theme / words / images) rewrites the slide's html,
   // so element edits are saved before one opens — they would not survive it.
   useEffect(() => {
@@ -4976,12 +5262,15 @@ export default function WeekView({
             className={`wv-ig__menuitem wv-ig__menuitem--sub${menuPane === 'elements' ? ' is-open' : ''}`}
             aria-haspopup="menu"
             aria-expanded={menuPane === 'elements'}
-            onMouseEnter={() => setMenuPane('elements')}
-            onClick={() => setMenuPane((p) => (p === 'elements' ? null : 'elements'))}
+            onMouseEnter={() => setMenuPane(postEdit ? null : 'elements')}
+            onClick={() => {
+              if (postEdit) { openAsk(''); return; }
+              setMenuPane((p) => (p === 'elements' ? null : 'elements'));
+            }}
           >
             <Icon name="sparkle" size={17} strokeWidth={2} />
             <span className="wv-ig__menugrow">Add elements</span>
-            <Icon name="chevron-right" size={16} strokeWidth={2} />
+            {!postEdit && <Icon name="chevron-right" size={16} strokeWidth={2} />}
           </button>
           <button
             type="button"
@@ -5511,7 +5800,7 @@ export default function WeekView({
           </header>
 
           <div
-            className={`wv-edm__body${compositionEditing || wordsEditing ? ' has-panel' : ''}`}
+            className={`wv-edm__body${compositionEditing || wordsEditing ? ' has-panel' : ''}${askOpen && !visEdit ? ' is-asking' : ''}`}
             onMouseDown={(e) => {
               if (!elemSel) return;
               if (e.target.closest('.wv-edm__tb, .wv-edm__line, .wv-edm__panel, .wv-edm__card.is-on')) return;
@@ -5605,7 +5894,7 @@ export default function WeekView({
                                 : { title: wordDraft.head, subtitle: wordDraft.body })
                               : null}
                             frameRef={layoutFrameRef}
-                            editMode={!visEdit && !layoutBusy}
+                            editMode={!visEdit && !layoutBusy && !askBusy}
                             editHooks={{
                               patches: elemEdits[safeIdx]?.patches || null,
                               onCommit: commitElemEdits,
@@ -5633,10 +5922,10 @@ export default function WeekView({
                             direction={layoutDirectionOf(slides[i])}
                           />
                         ) : null}
-                        {on && layoutBusy && (
+                        {on && (layoutBusy || askBusy) && (
                           <div className="wv-ig__laying" role="status" aria-live="polite">
                             <span className="wv-spin" aria-hidden="true" />
-                            <span>Composing carousel…</span>
+                            <span>{askBusy ? (askVisual ? 'Bauhly is making a visual, then placing it…' : askAll ? 'Bauhly is editing every slide…' : 'Bauhly is editing this slide…') : 'Composing carousel…'}</span>
                           </div>
                         )}
                         {on && layoutErr && !layoutBusy && (
@@ -5662,14 +5951,15 @@ export default function WeekView({
                       {on && (
                         <button
                           type="button"
-                          className={`wv-edm__ai${wordsEditing ? ' is-on' : ''}`}
-                          aria-label={wordsEditing ? 'Close Ask Bauhly' : 'Ask Bauhly to rewrite this slide'}
+                          className={`wv-edm__ai${askOpen ? ' is-on' : ''}`}
+                          aria-label={askOpen ? 'Close Ask Bauhly' : 'Ask Bauhly to change this slide'}
+                          aria-expanded={askOpen}
                           title="Ask Bauhly"
                           onPointerDown={(e) => e.stopPropagation()}
                           onClick={(e) => {
                             e.stopPropagation();
-                            if (wordsEditing) { setVisEdit(null); setZone(null); return; }
-                            openWordsEditor();
+                            if (askOpen) { if (!askBusy) setAskOpen(false); return; }
+                            openAsk();
                           }}
                         >
                           <Icon name="sparkle" size={18} strokeWidth={2} />
@@ -5705,6 +5995,132 @@ export default function WeekView({
             )}
           </div>
 
+
+          {askOpen && !visEdit && (() => {
+            const act = askAct ? actionOf(askKind, askAct) : null;
+            const tune = askAct && askTune ? modifierOf(askKind, askAct, askTune) : null;
+            const listening = askRec.status === 'recording';
+            const ready = (Boolean(askDraft.trim()) || Boolean(askAct)) && !askBusy && !listening && !askHearing;
+            const subject = askSel
+              ? (askSel.kind === 'image' ? 'The picture'
+                : askSel.slot === 'title' ? 'The title'
+                  : askSel.slot === 'eyebrow' || askSel.slot === 'kicker' ? 'The kicker'
+                    : askSel.slot ? `The ${askSel.slot}` : (askSel.kind === 'text' ? 'The text' : 'The element'))
+              : null;
+            const badge = (label, off, key) => (
+              <span className="wv-edm__cmd" key={key}>
+                {label}
+                <button
+                  type="button"
+                  className="wv-edm__cmdx"
+                  aria-label={`Remove ${label}`}
+                  onMouseDown={(e) => { e.preventDefault(); off(); }}
+                >
+                  <Icon name="x" size={12} strokeWidth={2.4} />
+                </button>
+              </span>
+            );
+            return (
+              <div className="wv-edm__ask" role="region" aria-label="Ask Bauhly">
+                <div className="wv-edm__askin">
+                  <div className="wv-edm__askrow">
+                    <div className="wv-edm__asktries" key={`${askKind}:${askAct || ''}:${askTune || ''}`}>
+                      {askList.map((one, i) => (
+                        <button
+                          key={one.id}
+                          type="button"
+                          className="wv-edm__asktry"
+                          style={{ '--i': i }}
+                          disabled={askBusy}
+                          onMouseDown={(e) => { e.preventDefault(); askPress(one); }}
+                        >
+                          {one.label}
+                        </button>
+                      ))}
+                    </div>
+                    <button
+                      type="button"
+                      className="wv-edm__askx"
+                      onClick={() => { if (!askBusy) { setAskOpen(false); setAskAct(null); setAskTune(null); } }}
+                      aria-label="Hide the field"
+                      disabled={askBusy}
+                    >
+                      <Icon name="x" size={17} strokeWidth={2.4} />
+                    </button>
+                  </div>
+                  {askMsg && (
+                    <p className={`wv-edm__asknote is-${askMsg.tone}`} role="status">
+                      {askMsg.text}
+                      {askMsg.tone === 'ok' && askUndo && (
+                        <button type="button" className="wv-edm__askundo" onClick={undoAsk}>Undo</button>
+                      )}
+                    </p>
+                  )}
+                  <form
+                    className={`wv-edm__askfield${askBusy ? ' is-busy' : ''}${listening ? ' is-listening' : ''}`}
+                    onSubmit={(e) => { e.preventDefault(); if (ready) sendAsk(); }}
+                  >
+                    {subject
+                      ? badge(subject, () => elemApiRef.current?.deselect(), 'who')
+                      : <span className="wv-edm__asksub">This post</span>}
+                    {act && badge(act.label, () => { setAskAct(null); setAskTune(null); }, 'act')}
+                    {tune && badge(tune.label, () => setAskTune(null), 'tune')}
+                    <input
+                      ref={askInputRef}
+                      className="wv-edm__askinput"
+                      value={askDraft}
+                      onChange={(e) => setAskDraft(e.target.value)}
+                      onKeyDown={(e) => {
+                        // Backspace on an empty field takes the last badge back
+                        if (e.key === 'Backspace' && !askDraft) {
+                          if (askTune) { e.preventDefault(); setAskTune(null); }
+                          else if (askAct) { e.preventDefault(); setAskAct(null); }
+                        }
+                      }}
+                      placeholder={listening ? 'Listening…' : askHearing ? 'Writing down what you said…' : askHint(askCtxNow, 'Say what else this should be')}
+                      maxLength={600}
+                      disabled={askBusy}
+                      aria-label="What should change"
+                    />
+                    <button
+                      type="button"
+                      className={`wv-edm__askmic${listening ? ' is-on' : ''}`}
+                      onClick={askMic}
+                      disabled={askBusy || askHearing}
+                      aria-label={listening ? 'Stop recording' : 'Say it'}
+                      title={listening ? 'Stop' : 'Say it'}
+                    >
+                      {listening
+                        ? <span className="wv-edm__askstop" aria-hidden="true" />
+                        : <Icon name="mic" size={16} strokeWidth={2.2} />}
+                    </button>
+                    <button
+                      type="submit"
+                      className="wv-edm__asksend"
+                      disabled={!ready}
+                      aria-label="Send"
+                    >
+                      {askBusy ? <span className="wv-spin" aria-hidden="true" /> : <Glyph name="arrow-up" size={17} strokeWidth={2.4} />}
+                    </button>
+                  </form>
+                  <input
+                    ref={askUploadRef}
+                    type="file"
+                    accept="image/*"
+                    hidden
+                    onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) askUploadImage(f); }}
+                  />
+                  <input
+                    ref={askRefRef}
+                    type="file"
+                    accept="image/*"
+                    hidden
+                    onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) handleUploadReferenceTheme(f); }}
+                  />
+                </div>
+              </div>
+            );
+          })()}
           {elemSel && !visEdit && (
             <ElementBar
               sel={elemSel}

@@ -2,6 +2,7 @@ const PlannedPost = require('../models/PlannedPost');
 const InstagramProfile = require('../models/InstagramProfile');
 const { generateWeeklyPlan, buildEmptySlots, isoDate, parseIsoDate } = require('../services/weeklyPlan');
 const { rewriteCaption } = require('../services/captionPolish');
+const { refineCarouselFromEdits } = require('../services/carouselRefine');
 const { runLayoutForPost, writeLayoutVariations, applyLayoutToContent, normalizeWriterPost, attachGeneratedVisuals } = require('../services/planOrchestrator');
 const { analyzeImageAsset, loadReferenceImage } = require('../services/imageAnalysis');
 const { customReferenceTheme } = require('../data/carouselThemes');
@@ -807,6 +808,122 @@ async function polishCaption(req, res) {
   }
 }
 
+// POST /posts/:id/refine — Editor mode's prompt band. The studio's CURRENT
+// carousel (every hand edit baked in, the pictures on each slide) is sent as the
+// reference and the Carousel Refine agent recreates the carousel with the
+// instruction applied (services/carouselRefine.js). The result is saved on the
+// post exactly like a Fix layout rerun and the post is returned.
+// A request for a picture (`visual: true`, or words asking for one) first runs
+// the Visual agent on `visualSlideIndex`; the new picture goes to the carousel
+// agent as a supplied asset and lands on that slide.
+// Body: { instruction, slideIndex?, focus?, visual?, visualSlideIndex?,
+//   current: { carouselHtml, direction, slides: [{ index, layoutHtml, themed, assetKeys }] } }
+async function refinePost(req, res) {
+  const record = await PlannedPost.findOne({ _id: req.params.id, user: req.user._id });
+  if (!record) return res.status(404).json({ message: 'Post not found' });
+  const stored = Array.isArray(record.content?.slides) ? record.content.slides.map((s) => plainOf(s)) : [];
+  const current = req.body?.current && typeof req.body.current === 'object' ? req.body.current : {};
+  const sent = Array.isArray(current.slides) ? current.slides : [];
+  if (!stored.length) return res.status(400).json({ message: 'This post has no slides to refine.' });
+  if (sent.length !== stored.length) {
+    return res.status(409).json({ message: 'The post changed while you were editing — reopen it and try again.' });
+  }
+  const own = `projects/${req.user._id}/`;
+  const ownKeys = (list) => (Array.isArray(list) ? list : [])
+    .map((k) => String(k || '').trim())
+    .filter((k) => k.startsWith(own));
+  const label = record.day || (record.date ? record.date.toISOString().slice(0, 10) : record._id.toString());
+  const dna = await loadBrandDna(req.user._id, record.instagramUsername).catch(() => null);
+  const brand = compileBrandMemory(dna);
+
+  try {
+    const out = await refineCarouselFromEdits({
+      userId: req.user._id,
+      label,
+      instruction: req.body?.instruction,
+      slideIndex: req.body?.slideIndex,
+      focus: req.body?.focus || null,
+      current: { ...current, slides: sent.map((s, i) => ({ ...s, assetKeys: ownKeys(s?.assetKeys) })) },
+      brand,
+      themeId: record.content?.themeId || '',
+      handle: record.instagramUsername,
+      visual: typeof req.body?.visual === 'boolean' ? req.body.visual : undefined,
+      visualSlideIndex: req.body?.visualSlideIndex,
+      brief: plainOf(record.agentTrace?.strategyBrief) || {},
+      slideRecords: stored,
+    });
+
+    // The studio's latest pictures travel with the reference — keep them on the
+    // slides, then lay the recreated carousel over every slide.
+    const merged = stored.map((slide, i) => {
+      const keys = ownKeys(sent[i]?.assetKeys);
+      return keys.length ? { ...slide, assetKey: keys[0], assetKeys: keys } : slide;
+    });
+    const content = plainOf(record.content) || {};
+    const next = applyLayoutToContent(
+      { ...content, slides: merged },
+      { status: 'ready', html: out.html, slides: out.slides, themeId: content.themeId || '' },
+    );
+    // the words a slide now shows become its stored copy (plan list, captions),
+    // and its pictures follow the order its image slots hold them in — which is
+    // how a freshly generated visual joins the slide
+    next.slides = next.slides.map((slide, i) => {
+      const index = Number(slide?.index) > 0 ? Number(slide.index) : i + 1;
+      if (!out.changed.includes(index)) return slide;
+      const copy = copyFromLayoutHtml(slide.layoutHtml)?.filled || {};
+      const keys = out.slideKeys?.[index];
+      const pics = Array.isArray(keys) ? { assetKeys: keys, assetKey: keys[0] || '' } : {};
+      return { ...slide, ...copy, ...pics };
+    });
+    record.content = { ...content, ...next, slides: next.slides, carouselHtml: out.html };
+    const trace = record.agentTrace && typeof record.agentTrace === 'object' ? plainOf(record.agentTrace) : {};
+    const debugEntry = out.result?.debugEntry || {};
+    record.agentTrace = {
+      ...trace,
+      layout: { ...(plainOf(trace.layout) || {}), html: out.html },
+      carousel: { ...(plainOf(trace.carousel) || {}), html: out.html },
+      refines: [
+        ...(Array.isArray(trace.refines) ? trace.refines : []).slice(-19),
+        {
+          at: new Date().toISOString(),
+          instruction: String(req.body?.instruction || '').slice(0, 800),
+          slideIndex: Number(req.body?.slideIndex) || null,
+          model: debugEntry.model || '',
+          ...(out.visual ? {
+            visual: out.visual.ok
+              ? { key: out.visual.key, placement: out.visual.placement, prompt: out.visual.imagePrompt, placed: out.visual.placed }
+              : { skipped: out.visual.skipReason || 'failed' },
+          } : {}),
+        },
+      ],
+    };
+    record.markModified('content');
+    record.markModified('agentTrace');
+    await record.save();
+    return res.json({
+      post: record,
+      changed: out.changed,
+      visual: out.visual
+        ? (out.visual.ok
+          ? { ok: true, key: out.visual.key, src: out.visual.src, alt: out.visual.alt, placement: out.visual.placement, placed: out.visual.placed }
+          : { ok: false, reason: out.visual.skipReason || '' })
+        : null,
+      ...(wantsPromptDebug(req) ? {
+        debug: {
+          mode: 'carousel-refine',
+          model: debugEntry.model,
+          finalPrompt: debugEntry.prompt,
+          output: out.html,
+        },
+      } : {}),
+    });
+  } catch (err) {
+    const status = err.status || 502;
+    console.error('[posts] carousel refine failed:', err.message);
+    return res.status(status).json({ message: err.message || 'Could not refine this carousel.' });
+  }
+}
+
 // Copy/asset fields the studio can edit — overlaid onto the rich Day Writer
 // slides on a standalone carousel rerun so edits survive.
 const EDITABLE_SLIDE_FIELDS = [
@@ -1201,6 +1318,7 @@ module.exports = {
   shiftPosts,
   updatePost,
   polishCaption,
+  refinePost,
   rerunLayout,
   rerunSlideLayoutVariations,
   renderCover,

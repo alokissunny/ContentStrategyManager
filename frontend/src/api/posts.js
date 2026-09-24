@@ -247,6 +247,21 @@ export function runPostLayout(id, { themeId, referenceImageKey } = {}) {
   });
 }
 
+// Editor mode's prompt band: recreate the carousel with an instruction applied.
+// `current` is the carousel as the studio sees it (every hand edit baked in,
+// each slide's pictures) — the reference the model rebuilds from. The server
+// saves the result and returns the post. slideIndex null = every slide.
+// → { post, changed: [slideIndex…] }
+export function refinePost(id, { instruction, slideIndex, focus, current } = {}) {
+  return client
+    .post(`/posts/${id}/refine`, { instruction, slideIndex, focus, current }, { timeout: 540000 })
+    .then((res) => {
+      const data = res.data || {};
+      ingestPlanDebug('Carousel refine (debug)', data);
+      return data;
+    });
+}
+
 // Run the on-demand Layout Variation agent for ONE slide (Change layout).
 // slideIndex is the slide's 1-based data-index. → { options, slideIndex }
 export function runSlideLayoutVariations(id, slideIndex) {

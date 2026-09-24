@@ -353,6 +353,11 @@ export function attachSlideEditMode(frame, {
         kind: kindOf(selected, win),
         texting: selected === editingText,
         edited: Boolean(path != null && patches[path]),
+        path,
+        tag: selected.tagName.toLowerCase(),
+        slot: selected.getAttribute('data-slot') || '',
+        text: (selected.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 160),
+        hasImg: Boolean(selected.matches('img') || selected.querySelector('img[src]')),
         style: {
           bold: Number(cs.fontWeight) >= 600,
           italic: cs.fontStyle === 'italic',
@@ -875,4 +880,34 @@ export function bakeSlidePatches(html, patches, findRoot, { isDocument = false }
   }
   // a fragment: DOMParser hoists leading <style>/<link> into <head> — keep them
   return `${doc.head?.innerHTML || ''}${doc.body?.innerHTML || ''}`;
+}
+
+// Swap a slide's whole <article> in its stored html for a new one (the prompt
+// band's result). Same root-finding and serialisation as `bakeSlidePatches`.
+export function replaceSlideArticle(html, nextArticle, findRoot, { isDocument = false } = {}) {
+  const raw = String(html || '');
+  if (!raw || !nextArticle || typeof DOMParser === 'undefined') return raw;
+  const doc = new DOMParser().parseFromString(raw, 'text/html');
+  const root = findRoot(doc);
+  if (!root) return raw;
+  const tpl = doc.createElement('template');
+  tpl.innerHTML = String(nextArticle).trim();
+  const fresh = tpl.content.firstElementChild;
+  if (!fresh) return raw;
+  root.replaceWith(doc.importNode(fresh, true));
+  if (isDocument || /<html[\s>]/i.test(raw) || /<!doctype/i.test(raw)) {
+    return `<!DOCTYPE html>\n${doc.documentElement.outerHTML}`;
+  }
+  return `${doc.head?.innerHTML || ''}${doc.body?.innerHTML || ''}`;
+}
+
+// The stored <article> for a slide, and the CSS it is drawn with.
+export function slideArticleOf(html, findRoot, { maxCss = 30000 } = {}) {
+  const raw = String(html || '');
+  if (!raw || typeof DOMParser === 'undefined') return null;
+  const doc = new DOMParser().parseFromString(raw, 'text/html');
+  const root = findRoot(doc);
+  if (!root) return null;
+  const css = [...doc.querySelectorAll('style')].map((st) => st.textContent || '').join('\n');
+  return { html: root.outerHTML, css: css.length > maxCss ? css.slice(0, maxCss) : css };
 }

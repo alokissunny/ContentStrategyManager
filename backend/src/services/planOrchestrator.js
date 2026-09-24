@@ -2364,6 +2364,45 @@ async function writeCarousel({ source, structure, post, dayBrief, brand, dayWrit
   return result;
 }
 
+// ── Carousel Refine agent (Editor mode's prompt band) ─────────────────────
+// Recreates an EXISTING carousel with one instruction applied. The current,
+// hand-edited carousel is the reference (every element / text / style edit is
+// already baked into it), with the pictures on each slide and what they show;
+// the model returns the whole carousel. Same model, timeout, HTML parse and
+// validation as the carousel agent — see services/carouselRefine.js for how
+// the reference is assembled and the result spliced back in.
+async function refineCarousel({
+  source, currentHtml, direction, instruction, scope, focus, pictures, brand, themeId, image, expectedSlides,
+}) {
+  const theme = themeById(resolveThemeId(themeId || direction, {}));
+  const assembled = assembleAgentPrompt('plan-carousel-refine.md', {
+    INSTRUCTION: String(instruction || '').trim(),
+    SCOPE: String(scope || 'All slides'),
+    FOCUS: focus ? json(focus) : 'None — the instruction is about the slide(s) in scope as a whole.',
+    SLIDE_PICTURES: json(pictures || []),
+    CURRENT_CAROUSEL: String(currentHtml || ''),
+    BRAND_STYLE: optionalPromptJson(brandStyleOf(brand)),
+    BRAND_JSON: optionalPromptJson(brandMemoryOf(brand)),
+    // the carousel's own direction wins: a theme whose direction differs would
+    // tell the model to re-skin what the studio has been editing
+    THEME_REFERENCE: theme && (!direction || theme.direction === direction)
+      ? themeReferenceForPrompt(theme)
+      : `Keep the look of CURRENT_CAROUSEL — data-direction="${direction}", its CSS and its type.`,
+  });
+  const fakePost = { content: { slides: Array.from({ length: Number(expectedSlides) || 0 }, () => ({})) } };
+  return withLayoutSlot(() => callAgent({
+    source,
+    kind: 'carousel',
+    system: assembled.system,
+    user: assembled.user,
+    prompt: assembled.prompt,
+    image,
+    parse: 'html',
+    htmlDirection: direction || theme?.direction || 'architectural-minimal',
+    validate: (parsed) => validateCarousel(parsed, fakePost),
+  }));
+}
+
 async function attachCarousel({ label, structure, writer, collect, dayBrief, dayAssets, brand }) {
   if (!carouselAgentEnabled() || !writer || writerFailed(writer.parsed)) return null;
   try {
@@ -2599,6 +2638,65 @@ async function generateSlideVisual({ source, slide, brief, brand, userId, handle
       promptCostUsd: promptCost,
       imageCostUsd,
       totalTokens: promptTokens,
+    },
+  };
+}
+
+// ── A visual the studio ASKED for (Editor mode › Add a visual) ─────────────
+// Unlike `generateSlideVisual` (the plan's own gap-filler, gated behind
+// PLAN_VISUAL_AGENT), this runs on an explicit request, so it only needs image
+// generation + storage configured. The prompt agent reads the request, the
+// slide's words and what the carousel's other pictures look like, and chooses
+// how the picture sits (inset / background) for the carousel designer.
+function requestedVisualAvailable() {
+  return isOpenAIImageConfigured() && isS3Configured();
+}
+
+async function generateRequestedVisual({
+  source, request, slide, existingPictures, brief, brand, userId, handle,
+}) {
+  const assembled = assembleAgentPrompt('plan-visual-request.md', {
+    STUDIO_REQUEST: String(request || '').trim() || 'Add a visual that supports this slide.',
+    SLIDE_JSON: json(visualSlideInputOf(slide || {})),
+    EXISTING_PICTURES: json(existingPictures || []),
+    POST_CONTEXT_JSON: optionalPromptJson(visualPostContextOf(brief)),
+    BRAND_STYLE: optionalPromptJson(brandStyleOf(brand)),
+  });
+  const agent = await callAgent({
+    source: `${source}:prompt`,
+    kind: 'visual',
+    system: assembled.system,
+    user: assembled.user,
+    prompt: assembled.prompt,
+    validate: (parsed) => {
+      validateVisualPrompt(parsed);
+      const place = String(parsed.placement || '').trim().toLowerCase();
+      parsed.placement = place === 'background' ? 'background' : 'inset';
+    },
+  });
+  const parsed = agent.parsed || {};
+  if (parsed.status !== 'ready') {
+    return { ok: false, skipReason: optionalText(parsed.skipReason) || 'The visual agent declined this request.' };
+  }
+  const finalPrompt = buildImagePrompt(parsed.imagePrompt, brandPaletteOf(brand));
+  const { buffer, mimeType, model, elapsedMs: imageElapsedMs = 0, estimatedCostUsd: imageCostUsd = 0 } = await renderOpenAIImage(finalPrompt);
+  const stored = await persistGeneratedImage({ userId, handle, buffer, mimeType, prompt: finalPrompt, model });
+  let src = '';
+  try { src = await getMediaUrl(stored.key); } catch { /* resolves client-side by key */ }
+  console.log(`[planOrchestrator] ${source} · visual ${stored.key} (${parsed.placement}) · ${Math.round(imageElapsedMs / 100) / 10}s`);
+  return {
+    ok: true,
+    key: stored.key,
+    src,
+    alt: optionalText(parsed.altText),
+    placement: parsed.placement,
+    imagePrompt: optionalText(parsed.imagePrompt),
+    finalPrompt,
+    model,
+    debugEntry: agent.debugEntry,
+    usage: {
+      imageElapsedMs,
+      estimatedCostUsd: (Number(agent.usage?.estimatedCostUsd) || 0) + (Number(imageCostUsd) || 0),
     },
   };
 }
@@ -3290,6 +3388,9 @@ async function runMultiAgentPlan({
 module.exports = {
   runMultiAgentPlan,
   runLayoutForPost,
+  refineCarousel,
+  generateRequestedVisual,
+  requestedVisualAvailable,
   writeLayoutVariations,
   applyLayoutToContent,
   normalizeWriterPost,

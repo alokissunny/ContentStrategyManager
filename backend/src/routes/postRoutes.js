@@ -16,6 +16,7 @@ const {
   polishCaption,
   rerunLayout,
   rerunSlideLayoutVariations,
+  refinePost,
   renderCover,
 } = require('../controllers/postController');
 
@@ -35,6 +36,7 @@ router.get('/:id/debug', asyncHandler(getPostDebug));
 router.patch('/:id', asyncHandler(updatePost));
 router.post('/:id/layout', asyncHandler(rerunLayout));
 router.post('/:id/slide/:slideIndex/layout-variations', asyncHandler(rerunSlideLayoutVariations));
+router.post('/:id/refine', asyncHandler(refinePost));
 router.post('/:id/cover', asyncHandler(renderCover));
 router.post('/:id/polish-caption', asyncHandler(polishCaption));
 
