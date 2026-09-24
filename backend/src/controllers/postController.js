@@ -835,6 +835,18 @@ async function refinePost(req, res) {
   const label = record.day || (record.date ? record.date.toISOString().slice(0, 10) : record._id.toString());
   const dna = await loadBrandDna(req.user._id, record.instagramUsername).catch(() => null);
   const brand = compileBrandMemory(dna);
+  // one row per step for the debug panel (only when the client asks for it)
+  const steps = wantsPromptDebug(req) ? [] : null;
+  const started = Date.now();
+  const debugOf = (extra = {}) => (steps ? {
+    debug: {
+      mode: 'carousel-refine',
+      instruction: String(req.body?.instruction || '').slice(0, 800),
+      elapsedMs: Date.now() - started,
+      agents: steps,
+      ...extra,
+    },
+  } : {});
 
   try {
     const out = await refineCarouselFromEdits({
@@ -851,6 +863,7 @@ async function refinePost(req, res) {
       visualSlideIndex: req.body?.visualSlideIndex,
       brief: plainOf(record.agentTrace?.strategyBrief) || {},
       slideRecords: stored,
+      debug: steps,
     });
 
     // The studio's latest pictures travel with the reference — keep them on the
@@ -908,19 +921,15 @@ async function refinePost(req, res) {
           ? { ok: true, key: out.visual.key, src: out.visual.src, alt: out.visual.alt, placement: out.visual.placement, placed: out.visual.placed }
           : { ok: false, reason: out.visual.skipReason || '' })
         : null,
-      ...(wantsPromptDebug(req) ? {
-        debug: {
-          mode: 'carousel-refine',
-          model: debugEntry.model,
-          finalPrompt: debugEntry.prompt,
-          output: out.html,
-        },
-      } : {}),
+      ...debugOf({ model: debugEntry.model }),
     });
   } catch (err) {
     const status = err.status || 502;
     console.error('[posts] carousel refine failed:', err.message);
-    return res.status(status).json({ message: err.message || 'Could not refine this carousel.' });
+    return res.status(status).json({
+      message: err.message || 'Could not refine this carousel.',
+      ...debugOf({ error: err.message }),
+    });
   }
 }
 

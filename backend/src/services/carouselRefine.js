@@ -193,10 +193,32 @@ function slotKeysOf(article, prevKeys, own) {
  * @param {object} p.current          { carouselHtml, slides: [{ index, layoutHtml, themed, assetKeys, role, title }] }
  * @returns {{ html, slides, direction, result }} — `html` is the new carousel document
  */
+// A debug-panel row: what went into one step and what came out of it.
+function logStep(debug, entry) {
+  if (!Array.isArray(debug)) return;
+  const u = entry.usage || {};
+  debug.push({
+    source: entry.source,
+    model: entry.model || '',
+    prompt: typeof entry.prompt === 'string' ? entry.prompt : JSON.stringify(entry.prompt ?? '', null, 2),
+    output: typeof entry.output === 'string' ? entry.output : JSON.stringify(entry.output ?? '', null, 2),
+    elapsedMs: Number(entry.elapsedMs) || 0,
+    inputTokens: Number(u.inputTokens) || 0,
+    outputTokens: Number(u.outputTokens) || 0,
+    totalTokens: Number(u.totalTokens) || 0,
+    estimatedCostUsd: Number(u.estimatedCostUsd) || 0,
+  });
+}
+
+// `debug` (optional array) collects one row per step — the request, the Visual
+// agent's prompt call, the image render, the carousel agent, the spliced result —
+// so the Editor's debug panel can show the input and output of every edit, even
+// when a later step fails.
 async function refineCarouselFromEdits({
   userId, handle, label, instruction, slideIndex, focus, current, brand, themeId,
-  visual: visualFlag, visualSlideIndex, brief, slideRecords,
+  visual: visualFlag, visualSlideIndex, brief, slideRecords, debug,
 }) {
+  const t0 = Date.now();
   const ask = String(instruction || '').trim();
   if (!ask) throw err(400, 'Say what should change.');
   if (ask.length > 800) throw err(400, 'Keep the instruction under 800 characters.');
@@ -211,6 +233,19 @@ async function refineCarouselFromEdits({
   if (target && !composed.articles.some((a) => a.index === target)) throw err(404, 'Slide not found on this post.');
 
   const pictures = await describePictures({ userId, slides });
+  logStep(debug, {
+    source: 'Prompt edit · request',
+    prompt: {
+      instruction: ask,
+      scope: target ? `slide ${target} of ${n}` : `all ${n} slides`,
+      focus: focus || null,
+      visualRequested: asksForVisual(ask, visualFlag),
+      direction: composed.direction,
+      referenceChars: composed.html.length,
+    },
+    output: { slidePictures: pictures },
+    elapsedMs: Date.now() - t0,
+  });
 
   // ── the Visual agent, when a picture was asked for ──────────────────────
   let visual = null;
@@ -237,6 +272,28 @@ async function refineCarouselFromEdits({
       } catch (e) {
         console.warn(`[carouselRefine] visual agent failed — ${e.message}`);
         visual = { ok: false, skipReason: e.message };
+      }
+      if (visual?.debugEntry) {
+        logStep(debug, {
+          source: 'Prompt edit · Visual agent (image brief)',
+          model: visual.debugEntry.model,
+          prompt: visual.debugEntry.prompt,
+          output: visual.debugEntry.output,
+          elapsedMs: visual.debugEntry.elapsedMs,
+          usage: visual.debugEntry.usage,
+        });
+      }
+      if (visual?.ok) {
+        logStep(debug, {
+          source: 'Prompt edit · Image render',
+          model: visual.model,
+          prompt: visual.finalPrompt,
+          output: { key: visual.key, url: visual.src, placement: visual.placement, alt: visual.alt },
+          elapsedMs: visual.usage?.imageElapsedMs,
+          usage: { estimatedCostUsd: visual.usage?.imageCostUsd },
+        });
+      } else if (visual) {
+        logStep(debug, { source: 'Prompt edit · Visual agent', output: `Skipped — ${visual.skipReason || 'no reason given'}` });
       }
     }
     if (visual?.ok) {
@@ -273,7 +330,10 @@ async function refineCarouselFromEdits({
     currentText: String(focus.text || '').slice(0, 240),
   } : null;
 
-  const result = await refineCarousel({
+  const tRefine = Date.now();
+  let result;
+  try {
+    result = await refineCarousel({
     source: `CarouselRefine:${label}${target ? `#${target}` : ''}`,
     currentHtml: composed.html,
     direction: composed.direction,
@@ -285,6 +345,24 @@ async function refineCarouselFromEdits({
     themeId,
     image: image || undefined,
     expectedSlides: n,
+  });
+  } catch (e) {
+    logStep(debug, {
+      source: 'Prompt edit · Carousel agent',
+      prompt: `(failed before a valid answer — the request above is what was sent)\n\nINSTRUCTION:\n${refineAsk}`,
+      output: `Error — ${e.message}`,
+      elapsedMs: Date.now() - tRefine,
+    });
+    throw e;
+  }
+  const de = result?.debugEntry || {};
+  logStep(debug, {
+    source: 'Prompt edit · Carousel agent',
+    model: de.model,
+    prompt: `${de.prompt || ''}${image ? `\n\n[attached image: ${leadKey}]` : ''}`,
+    output: de.output,
+    elapsedMs: de.elapsedMs,
+    usage: de.usage,
   });
   if (result?.parsed?.status === 'failed' || !result?.parsed?.html) {
     throw err(422, result?.parsed?.failureReason || 'Bauhly could not recreate this carousel — try saying it another way.');
@@ -324,6 +402,17 @@ async function refineCarouselFromEdits({
   } else if (visual?.ok) {
     visual = { ...visual, placed: true };
   }
+  logStep(debug, {
+    source: 'Prompt edit · result (saved)',
+    prompt: target ? `Only slide ${target} is taken from the agent; the others keep the studio's markup.` : 'Every slide is taken from the agent.',
+    output: {
+      changed,
+      slideKeys,
+      visual: visual ? (visual.ok ? { key: visual.key, placement: visual.placement, placed: visual.placed } : { skipped: visual.skipReason }) : null,
+      slides: changed.map((idx) => ({ index: idx, html: articles[composed.articles.findIndex((a) => a.index === idx)] })),
+    },
+    elapsedMs: Date.now() - t0,
+  });
   return {
     html: parsed.html,
     slides: parsed.slides,

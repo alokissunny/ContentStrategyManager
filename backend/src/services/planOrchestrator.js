@@ -2676,7 +2676,7 @@ async function generateRequestedVisual({
   });
   const parsed = agent.parsed || {};
   if (parsed.status !== 'ready') {
-    return { ok: false, skipReason: optionalText(parsed.skipReason) || 'The visual agent declined this request.' };
+    return { ok: false, skipReason: optionalText(parsed.skipReason) || 'The visual agent declined this request.', debugEntry: agent.debugEntry };
   }
   const finalPrompt = buildImagePrompt(parsed.imagePrompt, brandPaletteOf(brand));
   const { buffer, mimeType, model, elapsedMs: imageElapsedMs = 0, estimatedCostUsd: imageCostUsd = 0 } = await renderOpenAIImage(finalPrompt);
@@ -2696,6 +2696,7 @@ async function generateRequestedVisual({
     debugEntry: agent.debugEntry,
     usage: {
       imageElapsedMs,
+      imageCostUsd: Number(imageCostUsd) || 0,
       estimatedCostUsd: (Number(agent.usage?.estimatedCostUsd) || 0) + (Number(imageCostUsd) || 0),
     },
   };

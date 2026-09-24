@@ -51,8 +51,12 @@ function ingestPlanDebug(label, data = {}) {
       model: debug.model,
       elapsedMs,
       ...genUsage,
+      // an edit's summary row carries what was asked and how it ended
+      prompt: debug.instruction || '',
+      output: debug.error ? `Error — ${debug.error}` : '',
       note: [
         debug.mode ? `mode: ${debug.mode}` : '',
+        debug.error ? 'failed' : '',
         elapsedMs ? `complete generation ${fmtElapsed(elapsedMs)}` : '',
         costLabel ? `~${costLabel} est.` : '',
         `${agents.length} agent ${agents.length === 1 ? 'call' : 'calls'}`,
@@ -252,13 +256,29 @@ export function runPostLayout(id, { themeId, referenceImageKey } = {}) {
 // each slide's pictures) — the reference the model rebuilds from. The server
 // saves the result and returns the post. slideIndex null = every slide.
 // → { post, changed: [slideIndex…] }
-export function refinePost(id, { instruction, slideIndex, focus, current } = {}) {
+export function refinePost(id, { instruction, slideIndex, focus, current, visual, visualSlideIndex } = {}) {
+  // one debug-panel group per edit: every step's input and output, then a
+  // summary row with the instruction — on failure too
+  const label = `Prompt edit — “${String(instruction || '').slice(0, 60)}${String(instruction || '').length > 60 ? '…' : ''}”`;
   return client
-    .post(`/posts/${id}/refine`, { instruction, slideIndex, focus, current }, { timeout: 540000 })
+    .post(`/posts/${id}/refine`, { instruction, slideIndex, focus, current, visual, visualSlideIndex }, { timeout: 540000 })
     .then((res) => {
       const data = res.data || {};
-      ingestPlanDebug('Carousel refine (debug)', data);
+      ingestPlanDebug(label, data);
       return data;
+    })
+    .catch((err) => {
+      const data = err?.response?.data;
+      if (data?.debug) ingestPlanDebug(label, data);
+      else {
+        addAiDebugEntry({
+          source: label,
+          prompt: String(instruction || ''),
+          output: `Error — ${data?.message || err?.message || 'request failed'}`,
+          note: 'mode: carousel-refine · failed before the server answered',
+        });
+      }
+      throw err;
     });
 }
 
