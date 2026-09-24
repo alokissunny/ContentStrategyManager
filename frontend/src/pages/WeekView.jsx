@@ -2786,7 +2786,7 @@ export default function WeekView({
   // Desktop side panel: Caption | Why this post | Video cover | Debug.
   const [sideTab, setSideTab] = useState('caption'); // 'caption' | 'why' | 'video' | 'debug'
   const aiDebug = useAiDebug();
-  const videoCoverOn = useFeatureFlags().videoCover;
+  const { videoCover: videoCoverOn, linkedin: linkedinOn } = useFeatureFlags();
   const [layoutBusy, setLayoutBusy] = useState(false);
   const [layoutErr, setLayoutErr] = useState('');
   // On-demand Change-layout variations for the current slide. The layout agent
@@ -6790,10 +6790,10 @@ export default function WeekView({
               </div>
             )}
           </article>
-          <LinkedInPublisher
+          {linkedinOn && <LinkedInPublisher
             key={day._id || `${route._id}-${selected}`}
             initialText={[day.content?.caption, captionCta, formatHashtagLine(captionTags)].filter(Boolean).join('\n\n')}
-          />
+          />}
           </div>
 
           {/* why this post exists — the strategy, beside the preview, on demand */}

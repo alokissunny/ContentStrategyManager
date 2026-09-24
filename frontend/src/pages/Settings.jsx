@@ -17,7 +17,7 @@ import { getMetaStatus, startMetaConnect, disconnectMeta, metaConnectionFor, rem
 import { syncHandle } from '../lib/store';
 import { resetProjects } from '../lib/projectsStore';
 import { useAiDebug, setAiDebugEnabled, clearAiDebugEntries } from '../lib/aiDebug';
-import { useFeatureFlags, setVideoCoverEnabled, setReelEditorEnabled } from '../lib/featureFlags';
+import { useFeatureFlags, setVideoCoverEnabled, setReelEditorEnabled, setLinkedInEnabled } from '../lib/featureFlags';
 import { getCarouselModel, updateCarouselModel } from '../api/settings';
 import LinkedInSettings from '../components/LinkedInSettings';
 import './settings.css';
@@ -478,7 +478,7 @@ export default function Settings() {
         </div>
       </section>
 
-      <LinkedInSettings />
+      {flags.linkedin && <LinkedInSettings />}
 
       {/* ── Formats ── */}
       <section className="card set-card">
@@ -591,6 +591,29 @@ export default function Settings() {
       <section className="card set-card">
         <h2>Experimental features</h2>
         <p className="set-card__sub">Early features you can try. Off by default.</p>
+        <div className="set-row">
+          <span className="set-row__ico" aria-hidden="true"><b>in</b></span>
+          <span className="set-row__main">
+            <b className="set-row__title">LinkedIn connection &amp; publishing</b>
+            <span className="set-row__sub">
+              {flags.linkedin
+                ? 'On · connect LinkedIn above and publish company-page posts from Settings or the post editor'
+                : 'Off · enable LinkedIn connection and company-page publishing on this browser'}
+            </span>
+          </span>
+          <span className="set-row__acts">
+            <button
+              type="button"
+              className={`set-switch ${flags.linkedin ? 'is-on' : ''}`}
+              role="switch"
+              aria-checked={flags.linkedin}
+              aria-label="LinkedIn connection and publishing"
+              onClick={() => setLinkedInEnabled(!flags.linkedin)}
+            >
+              <i aria-hidden="true" />
+            </button>
+          </span>
+        </div>
         <div className="set-row">
           <span className="set-row__ico"><Icon name="play" size={19} /></span>
           <span className="set-row__main">

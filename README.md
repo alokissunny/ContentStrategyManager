@@ -133,6 +133,8 @@ analyze step).
 
 ### Experimental LinkedIn company-page publishing
 
+Enable **Settings → Experimental features → LinkedIn connection & publishing** first. This browser-local flag defaults to off and hides both connection and publishing controls when disabled. Disabling it does not disconnect an existing account or remove published posts; it is a UI feature flag, not server-side access control.
+
 Settings → LinkedIn connects company pages and includes a public text-post composer. The post editor also offers **Post to a LinkedIn company page**, prefilled with the caption, CTA and hashtags for review. Select a page, edit the text, then click **Publish to company page**. Recent activity includes publication status and a link to successful posts. This version supports immediate text posts (including URLs in the text), not media attachments, scheduling, personal-profile publishing or analytics. LinkedIn publication is tracked separately from Instagram.
 
 #### Server setup

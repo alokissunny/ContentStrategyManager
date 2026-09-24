@@ -7,6 +7,7 @@ import { useSyncExternalStore } from 'react';
 const KEYS = {
   videoCover: 'bauhly.ff.videoCover',
   reelEditor: 'bauhly.ff.reelEditor',
+  linkedin: 'bauhly.ff.linkedin',
 };
 
 function readBool(key, fallback = false) {
@@ -22,6 +23,7 @@ function readBool(key, fallback = false) {
 let state = {
   videoCover: readBool(KEYS.videoCover, false),
   reelEditor: readBool(KEYS.reelEditor, false),
+  linkedin: readBool(KEYS.linkedin, false),
 };
 
 const listeners = new Set();
@@ -35,6 +37,7 @@ function setState(patch) {
   try {
     if ('videoCover' in patch) localStorage.setItem(KEYS.videoCover, state.videoCover ? '1' : '0');
     if ('reelEditor' in patch) localStorage.setItem(KEYS.reelEditor, state.reelEditor ? '1' : '0');
+    if ('linkedin' in patch) localStorage.setItem(KEYS.linkedin, state.linkedin ? '1' : '0');
   } catch {
     // best-effort local cache only
   }
@@ -55,6 +58,10 @@ export function isReelEditorEnabled() {
 
 export function setReelEditorEnabled(next) {
   setState({ reelEditor: Boolean(next) });
+}
+
+export function setLinkedInEnabled(next) {
+  setState({ linkedin: Boolean(next) });
 }
 
 export function useFeatureFlags() {
