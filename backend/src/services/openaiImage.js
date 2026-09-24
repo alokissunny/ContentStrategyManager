@@ -32,6 +32,12 @@ const DEFAULT_QUALITY = process.env.OPENAI_IMAGE_QUALITY || 'medium';
 const OUTPUT_FORMAT = (process.env.OPENAI_IMAGE_FORMAT || 'png').toLowerCase();
 const FORMAT_MIME = { png: 'image/png', jpeg: 'image/jpeg', webp: 'image/webp' };
 
+// WebP/JPEG compression (0–100). The model's default is 100 — a 1024×1536 WebP
+// came out at ~1.7 MB, which is what made a new visual paint in slowly on the
+// slide. ~80 is visually the same for social imagery at a fraction of the bytes.
+// Ignored for PNG. Overridable via OPENAI_IMAGE_COMPRESSION.
+const OUTPUT_COMPRESSION = Math.max(0, Math.min(100, Number(process.env.OPENAI_IMAGE_COMPRESSION) || 80));
+
 // Approximate gpt-image-1 output pricing per image (USD), by quality × size — the
 // image cost is NOT reported as token usage, so estimate it for the debug panel.
 // Override a single flat per-image price with OPENAI_IMAGE_COST_USD.
@@ -86,6 +92,7 @@ async function generateImage(prompt, opts = {}) {
         quality,
         n: 1,
         output_format: OUTPUT_FORMAT,
+        ...(OUTPUT_FORMAT === 'png' ? {} : { output_compression: OUTPUT_COMPRESSION }),
       },
       { timeout },
     );

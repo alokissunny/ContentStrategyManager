@@ -128,8 +128,10 @@ async function uploadMarkdown(key, content) {
   return key;
 }
 
-/** Upload raw bytes (e.g. a profile avatar fetched from Instagram/Graph). */
-async function uploadBytes(key, body, contentType = 'application/octet-stream') {
+/** Upload raw bytes (e.g. a profile avatar fetched from Instagram/Graph).
+ *  `immutable: true` for objects whose key is never reused (uuid-named media):
+ *  the CDN edge and browsers then cache them for a year, as presigned uploads are. */
+async function uploadBytes(key, body, contentType = 'application/octet-stream', { immutable = false } = {}) {
   const s3 = getS3Client();
   await s3.send(
     new PutObjectCommand({
@@ -137,6 +139,7 @@ async function uploadBytes(key, body, contentType = 'application/octet-stream') 
       Key: key,
       Body: body,
       ContentType: contentType,
+      ...(immutable ? { CacheControl: MEDIA_CACHE_CONTROL } : {}),
     })
   );
   return key;

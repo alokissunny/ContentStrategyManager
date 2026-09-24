@@ -52,7 +52,8 @@ async function persistGeneratedImage({ userId, handle, buffer, mimeType, prompt,
   if (!isS3Configured()) throw new Error('Media storage is not configured (set S3_BUCKET_NAME).');
   const ext = MIME_EXT[mimeType] || 'png';
   const key = `${prefixOf(userId)}gen-${crypto.randomUUID()}.${ext}`;
-  await uploadBytes(key, buffer, mimeType);
+  // uuid-named, never overwritten — cache it hard at the edge and in the browser
+  await uploadBytes(key, buffer, mimeType, { immutable: true });
   try {
     await User.updateOne(
       { _id: userId },

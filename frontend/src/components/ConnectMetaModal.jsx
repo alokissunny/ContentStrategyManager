@@ -4,7 +4,7 @@
 
 import React, { useState } from 'react';
 import Glyph from './Glyph';
-import { startMetaConnect } from '../api/meta';
+import { startMetaConnect, META_PERMISSIONS } from '../api/meta';
 import {
   LS_SURFACE, LS_BORDER, LS_INK, LS_T2, LS_MUTED, LS_SIGNAL, LS_SOFT,
   LS_FONT, LS_DISPLAY,
@@ -13,7 +13,6 @@ import {
 const REQUIREMENTS = [
   'An Instagram Professional account (Business or Creator)',
   'You sign in with that Instagram account (no Facebook Page)',
-  'Permission for Bauhly to publish on your behalf',
 ];
 
 export default function ConnectMetaModal({
@@ -109,6 +108,27 @@ export default function ConnectMetaModal({
             ))}
           </ul>
 
+          <div style={{
+            marginTop: 18, border: `1px solid ${LS_BORDER}`, borderRadius: 12, padding: '14px 14px 4px',
+          }}>
+            <p style={{
+              fontFamily: LS_FONT, fontSize: 12, fontWeight: 700, letterSpacing: '0.04em',
+              textTransform: 'uppercase', color: LS_MUTED, margin: '0 0 10px',
+            }}>
+              Bauhly will ask Instagram for
+            </p>
+            {META_PERMISSIONS.map((p) => (
+              <div key={p.scope} style={{ display: 'flex', gap: 10, alignItems: 'flex-start', marginBottom: 12 }}>
+                <Glyph name="shield" size={16} color={LS_SIGNAL} style={{ flexShrink: 0, marginTop: 2 }} />
+                <div style={{ fontFamily: LS_FONT, fontSize: 13.5, lineHeight: 1.45, color: LS_INK }}>
+                  <strong>{p.label}</strong>
+                  <code style={{ display: 'block', fontSize: 11, color: LS_MUTED }}>{p.scope}</code>
+                  <span style={{ color: LS_T2, fontSize: 12.5 }}>{p.why}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+
           {error && (
             <p style={{
               marginTop: 16, fontFamily: LS_FONT, fontSize: 13.5, lineHeight: 1.5,
@@ -127,19 +147,6 @@ export default function ConnectMetaModal({
             </p>
           )}
 
-          <p style={{
-            marginTop: 14, fontFamily: LS_FONT, fontSize: 12, lineHeight: 1.45, color: LS_MUTED,
-            wordBreak: 'break-all',
-          }}>
-            If Instagram says “URL Blocked”, add this exact redirect under{' '}
-            <strong>Instagram → API setup with Instagram login → Business login settings → OAuth redirect URIs</strong>:
-            <br />
-            <code style={{ fontSize: 11, color: LS_INK }}>
-              {typeof window !== 'undefined'
-                ? `${window.location.origin}/dashboard/meta/callback`
-                : '/dashboard/meta/callback'}
-            </code>
-          </p>
         </div>
 
         <div style={{
@@ -157,7 +164,7 @@ export default function ConnectMetaModal({
             }}
           >
             <Glyph name="link" size={16} color="#fff" />
-            {busy ? 'Connecting…' : 'Connect Instagram'}
+            {busy ? 'Opening Instagram…' : 'Continue to Instagram'}
           </button>
           {onMarkManually && (
             <button

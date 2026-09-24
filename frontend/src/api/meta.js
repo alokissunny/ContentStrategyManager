@@ -54,6 +54,28 @@ export function otherMetaConnections(status, username) {
   );
 }
 
+/**
+ * The Instagram permissions Bauhly requests, in plain words. Shown before the
+ * redirect (what we'll ask for) and after consent (what was granted) — App
+ * Review needs both steps visible in the screencast.
+ */
+export const META_PERMISSIONS = [
+  {
+    scope: 'instagram_business_basic',
+    label: 'Read your profile and media',
+    why: 'Shows your handle and avatar, and confirms which account posts go to.',
+  },
+  {
+    scope: 'instagram_business_content_publish',
+    label: 'Publish posts on your behalf',
+    why: 'Posts the carousels you approve in Bauhly, only when you click Publish or schedule.',
+  },
+];
+
+export function metaPermissionFor(scope) {
+  return META_PERMISSIONS.find((p) => p.scope === scope) || { scope, label: scope, why: '' };
+}
+
 const OAUTH_RETURN_KEY = 'meta_oauth_return';
 const OAUTH_RESULT_KEY = 'meta_oauth_result';
 

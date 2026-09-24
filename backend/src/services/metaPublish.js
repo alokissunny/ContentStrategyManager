@@ -229,6 +229,9 @@ function connectionPublic(doc) {
     igUserId: doc.igUserId || null,
     igUsername: doc.igUsername || null,
     pageName: doc.pageName || null,
+    accountType: doc.accountType || null,
+    profilePictureUrl: doc.profilePictureUrl || null,
+    scopes: Array.isArray(doc.scopes) ? doc.scopes : [],
     connectedAt: doc.connectedAt || null,
   };
 }
@@ -381,7 +384,7 @@ async function completeConnect(req, res) {
     const expiresIn = Number(llJson.expires_in) || (llJson.access_token ? 60 * 24 * 3600 : 3600);
 
     const meUrl = new URL(`${IG_GRAPH}/me`);
-    meUrl.searchParams.set('fields', 'user_id,username,name,account_type');
+    meUrl.searchParams.set('fields', 'user_id,username,name,account_type,profile_picture_url');
     meUrl.searchParams.set('access_token', userToken);
     const meRes = await fetch(meUrl);
     const me = await meRes.json().catch(() => ({}));
@@ -416,6 +419,8 @@ async function completeConnect(req, res) {
         pageId: '',
         pageName: '',
         authType: 'instagram_login',
+        accountType,
+        profilePictureUrl: String(me.profile_picture_url || ''),
         accessToken: userToken,
         tokenExpiresAt: new Date(Date.now() + expiresIn * 1000),
         scopes: granted.length ? granted : DEFAULT_IG_SCOPES,
@@ -427,7 +432,9 @@ async function completeConnect(req, res) {
 
     const docs = await listConnected(req.user._id);
     console.log(`[meta] connected Instagram @${igUsername || igUserId} (${igUserId})`);
-    res.json(buildStatus(docs));
+    // `justConnected` drives the post-consent confirmation screen (account +
+    // granted permissions) that App Review requires at the end of the flow.
+    res.json({ ...buildStatus(docs), justConnected: igUserId });
   } catch (err) {
     console.error('[meta] connect failed:', err.message);
     res.status(502).json({ message: err.message || 'Could not complete Instagram connection' });

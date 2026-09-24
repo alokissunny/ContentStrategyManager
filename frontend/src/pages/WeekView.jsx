@@ -51,7 +51,7 @@ import { openCaptureIdea } from '../lib/captureUi';
 import { styleOf, groundOf } from '../lib/visualbrand';
 import { LAYOUTS as LIB_LAYOUTS, catForRole, shotsOf, DEFAULT_LAYOUT_BY_CAT, layoutShowsAllCopy } from '../data/layouts';
 import { CAROUSEL_THEMES } from '../data/carouselThemes';
-import { paintAll, identityOf, TYPE_SLOTS, FACES, logoPositionOf, markForTone } from '../lib/identity';
+import { paintAll, identityOf, TYPE_SLOTS, FACES, logoPositionOf, markForTone, themesOf, activeThemeIdOf } from '../lib/identity';
 import { rolesOf as textRolesOf, plainOf, parseMarked, isListRole, listIndexOf } from '../lib/slidetext';
 import ImagePicker from './weekview/ImagePicker';
 import { PhotoEditor, SlotPack } from './weekview/PhotoEditor';
@@ -1173,6 +1173,7 @@ function slideRecord(s, extra = {}) {
   return {
     index: Number(s.index) > 0 ? Number(s.index) : (Number(extra.index) > 0 ? Number(extra.index) : 0),
     role: s.role || '',
+    colorSet: s.colorSet || '',
     structure: s.structure || '',
     title: s.title || '',
     subtitle: s.subtitle || s.body || '',
@@ -3067,6 +3068,23 @@ export default function WeekView({
   // palette. (SafeLayout / best-fit compositions are the studio's own art and
   // stay branded regardless — they have no agent styling to preserve.)
   const hasVisualEdits = false;
+  // Brand Kit colour sets (Editor mode › Colour sets). A slide with `colorSet`
+  // is drawn THEMED in that set's palette — the carousel's own tokens
+  // (--paper / --ink / --accent…) are remapped onto it (applyThemeToCarouselDocument);
+  // a slide without one keeps the colours the carousel was generated in.
+  const kitSets = useMemo(() => themesOf(vbStore?.libraryEdits), [vbStore?.libraryEdits]);
+  const kitDefaultSet = useMemo(() => activeThemeIdOf(vbStore?.libraryEdits), [vbStore?.libraryEdits]);
+  const paintFor = (slide) => {
+    const set = slide?.colorSet ? kitSets.find((t) => t.id === slide.colorSet) : null;
+    if (!set) return { paint: igVars, themed: hasVisualEdits };
+    const p = set.palette || {};
+    const colours = {};
+    if (p.ground) { colours['--t-ground-bg'] = p.ground; colours['--wv-neutral'] = p.ground; }
+    if (p.fg) { colours['--t-ground-fg'] = p.fg; colours['--wv-primary'] = p.fg; }
+    if (p.accent) { colours['--t-accent-bg'] = p.accent; colours['--wv-accent'] = p.accent; }
+    // 'colours' = repaint the palette only; the slide keeps its own typefaces
+    return { paint: { ...igVars, ...colours }, themed: 'colours' };
+  };
   const days = route?.days || [];
   const day = days[selected] || days[0];
   // Local "YYYY-MM-DD" for today — the strip rings today in lime, the reference's
@@ -5134,6 +5152,20 @@ export default function WeekView({
     setZone(null);
   }
 
+  // Colour sets: draw this slide (or every slide) in a Brand Kit colour set;
+  // '' puts the carousel's own generated colours back. Saved on the slides, so
+  // Cancel in Editor mode reverts it like any other change.
+  const [colourPick, setColourPick] = useState(null);
+  function applyColourSet(setId, every) {
+    if (!day) return;
+    const base = deriveSlides(day);
+    const next = base.map((sl, i) => ((every || i === safeIdx) ? { ...sl, colorSet: setId || '' } : sl));
+    replaceSlides(next);
+    setColourPick(null);
+    setMenuPane(null);
+    setZone(null);
+  }
+
   function openImagePicker() {
     const n = Math.max(1, shotsForLayout(chosenLayout || findChangeLayout(activeSlide?.layout)) || 1);
     const saved = keysOf(activeSlide).map((k) => urlForKey(k, activeSlide, localMedia, mediaByKey));
@@ -5359,8 +5391,8 @@ export default function WeekView({
             localMedia={localMedia}
             mediaByKey={mediaByKey}
             subjectsByKey={subjectsByKey}
-            paint={igVars}
-            themed={hasVisualEdits}
+            paint={paintFor(optSlide).paint}
+            themed={paintFor(optSlide).themed}
             documentHtml={optDir ? carouselDocumentOf(day) : ''}
             slideIndex={safeIdx + 1}
             direction={optDir || layoutDirectionOf(optSlide)}
@@ -5449,6 +5481,19 @@ export default function WeekView({
           >
             <Icon name="swatch" size={17} strokeWidth={2} />
             <span className="wv-ig__menugrow">Change theme</span>
+            <Icon name="chevron-right" size={16} strokeWidth={2} />
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            className={`wv-ig__menuitem wv-ig__menuitem--sub${menuPane === 'colour' || menuPane === 'colour-reach' ? ' is-open' : ''}`}
+            aria-haspopup="menu"
+            aria-expanded={menuPane === 'colour' || menuPane === 'colour-reach'}
+            onMouseEnter={() => { if (menuPane !== 'colour-reach') setMenuPane('colour'); }}
+            onClick={() => setMenuPane((p) => (p === 'colour' || p === 'colour-reach' ? null : 'colour'))}
+          >
+            <Glyph name="palette" size={17} strokeWidth={2} />
+            <span className="wv-ig__menugrow">Colour sets</span>
             <Icon name="chevron-right" size={16} strokeWidth={2} />
           </button>
           <button
@@ -5643,6 +5688,123 @@ export default function WeekView({
                   <span className="wv-ig__flydesc">{CAROUSEL_THEMES.length} directions</span>
                 </span>
                 <Icon name="chevron-right" size={16} strokeWidth={2} />
+              </button>
+            </div>
+          </div>,
+          document.body,
+        )}
+        {menuPane === 'colour' && flyPos && createPortal(
+          <div
+            className="wv-ig__menuflyout wv-ig__menuflyout--colour"
+            role="menu"
+            aria-label="Theme colour"
+            style={{ position: 'fixed', top: flyPos.top, left: flyPos.left, width: flyPos.width, zIndex: 200 }}
+            onMouseEnter={() => setMenuPane('colour')}
+          >
+            <div className="wv-ig__flyhead wv-ig__flyhead--back">
+              <button type="button" className="wv-ig__flyback" aria-label="Back" onClick={() => setMenuPane(null)}>
+                <Icon name="chevron-left" size={18} strokeWidth={2} />
+              </button>
+              <strong>Theme colour</strong>
+            </div>
+            <div className="wv-ig__flylist">
+              {kitSets.map((set) => {
+                const p = set.palette || {};
+                const on = activeSlide?.colorSet === set.id;
+                return (
+                  <button
+                    key={set.id}
+                    type="button"
+                    role="menuitem"
+                    className={`wv-ig__flyitem wv-ig__flyitem--set${on ? ' is-on' : ''}`}
+                    onClick={() => { setColourPick(set.id); setMenuPane('colour-reach'); }}
+                    title={set.note || set.name}
+                  >
+                    <span className="wv-ig__swatches" aria-hidden="true">
+                      {[p.fg, p.accent, p.ground].map((hex, i) => (
+                        <span key={i} className="wv-ig__swatch" style={{ background: hex || '#e5e2da' }} />
+                      ))}
+                    </span>
+                    <span className="wv-ig__flycopy">
+                      <span className="wv-ig__flylabel">
+                        {set.name}
+                        {set.id === kitDefaultSet && <span className="wv-ig__setbadge">Default</span>}
+                        {on && <span className="wv-ig__setbadge wv-ig__setbadge--on">On this slide</span>}
+                      </span>
+                    </span>
+                    <Icon name="chevron-right" size={16} strokeWidth={2} />
+                  </button>
+                );
+              })}
+              {activeSlide?.colorSet && (
+                <button
+                  type="button"
+                  role="menuitem"
+                  className="wv-ig__flyitem"
+                  onClick={() => { setColourPick(''); setMenuPane('colour-reach'); }}
+                >
+                  <Icon name="refresh" size={18} strokeWidth={2} />
+                  <span className="wv-ig__flycopy">
+                    <span className="wv-ig__flylabel">Original colours</span>
+                    <span className="wv-ig__flydesc">The colours this carousel was made in</span>
+                  </span>
+                  <Icon name="chevron-right" size={16} strokeWidth={2} />
+                </button>
+              )}
+              <span className="wv-ig__flyrule" aria-hidden="true" />
+              <button
+                type="button"
+                role="menuitem"
+                className="wv-ig__flyitem"
+                onClick={() => {
+                  setMenuPane(null);
+                  if (postEdit) leavePostEdit(true);
+                  navigate('/dashboard/library-settings');
+                }}
+              >
+                <Icon name="plus" size={18} strokeWidth={2} />
+                <span className="wv-ig__flycopy">
+                  <span className="wv-ig__flylabel">Create a colour set</span>
+                  <span className="wv-ig__flydesc">Opens your Brand Kit</span>
+                </span>
+              </button>
+            </div>
+          </div>,
+          document.body,
+        )}
+        {menuPane === 'colour-reach' && flyPos && createPortal(
+          <div
+            className="wv-ig__menuflyout wv-ig__menuflyout--colour"
+            role="menu"
+            aria-label="Apply to"
+            style={{ position: 'fixed', top: flyPos.top, left: flyPos.left, width: flyPos.width, zIndex: 200 }}
+          >
+            <div className="wv-ig__flyhead wv-ig__flyhead--back">
+              <button type="button" className="wv-ig__flyback" aria-label="Back" onClick={() => setMenuPane('colour')}>
+                <Icon name="chevron-left" size={18} strokeWidth={2} />
+              </button>
+              <strong>Apply to</strong>
+            </div>
+            <div className="wv-ig__flylist">
+              <button type="button" role="menuitem" className="wv-ig__flyitem" onClick={() => applyColourSet(colourPick, false)}>
+                <Glyph name="square" size={18} strokeWidth={2} />
+                <span className="wv-ig__flycopy">
+                  <span className="wv-ig__flylabel">This slide only</span>
+                  <span className="wv-ig__flydesc">The others keep what they have</span>
+                </span>
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                className="wv-ig__flyitem"
+                disabled={slides.length < 2}
+                onClick={() => applyColourSet(colourPick, true)}
+              >
+                <Icon name="copy" size={18} strokeWidth={2} />
+                <span className="wv-ig__flycopy">
+                  <span className="wv-ig__flylabel">All slides</span>
+                  <span className="wv-ig__flydesc">Draw the whole carousel in it</span>
+                </span>
               </button>
             </div>
           </div>,
@@ -6055,8 +6217,8 @@ export default function WeekView({
                             subjectsByKey={subjectsByKey}
                             parts={visEdit === 'words' ? wordDraft : null}
                             showVisualHint
-                            paint={igVars}
-                            themed={hasVisualEdits}
+                            paint={paintFor(previewSlide).paint}
+                            themed={paintFor(previewSlide).themed}
                             layoutOverride={(visEdit === 'layout' && !hasLayoutOpts) ? (chosenLayout || null) : null}
                             carouselLayoutHtmls={slides.map((sl) => sl?.layoutHtml || '')}
                             documentHtml={previewUsesDoc ? carouselDocumentOf(day) : ''}
@@ -6086,8 +6248,8 @@ export default function WeekView({
                             localMedia={localMedia}
                             mediaByKey={mediaByKey}
                             subjectsByKey={subjectsByKey}
-                            paint={igVars}
-                            themed={hasVisualEdits}
+                            paint={paintFor(slides[i]).paint}
+                            themed={paintFor(slides[i]).themed}
                             carouselLayoutHtmls={slides.map((sl) => sl?.layoutHtml || '')}
                             documentHtml={!isBlankSlide(slides[i]) && slideIsThemed(slides[i]) ? carouselDocumentOf(day) : ''}
                             slideIndex={i + 1}
@@ -6954,8 +7116,8 @@ export default function WeekView({
                   subjectsByKey={subjectsByKey}
                   parts={visEdit === 'words' ? wordDraft : null}
                   showVisualHint
-                  paint={igVars}
-                  themed={hasVisualEdits}
+                  paint={paintFor(previewSlide).paint}
+                  themed={paintFor(previewSlide).themed}
                   layoutOverride={(visEdit === 'layout' && !hasLayoutOpts) ? (chosenLayout || null) : null}
                   carouselLayoutHtmls={slides.map((s) => s?.layoutHtml || '')}
                   documentHtml={previewUsesDoc ? carouselDocumentOf(day) : ''}
@@ -7445,8 +7607,8 @@ export default function WeekView({
                   mediaByKey={mediaByKey}
                   subjectsByKey={subjectsByKey}
                   preferProxy
-                  paint={igVars}
-                  themed={hasVisualEdits}
+                  paint={paintFor(s).paint}
+                  themed={paintFor(s).themed}
                   carouselLayoutHtmls={slides.map((x) => x?.layoutHtml || '')}
                   documentHtml={slideIsThemed(s) ? carouselDocumentOf(day) : ''}
                   slideIndex={i + 1}

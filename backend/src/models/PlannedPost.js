@@ -70,6 +70,10 @@ const plannedPostSchema = new mongoose.Schema(
         type: [
           {
             role: { type: String, default: '' },
+            // Brand Kit colour set (libraryEdits.themes[].id) this slide is drawn
+            // in — set from Editor mode › Colour sets. Empty = the carousel's own
+            // generated colours.
+            colorSet: { type: String, default: '' },
             title: { type: String, default: '' },
             // The supporting line under the title — the second piece of on-slide
             // copy the layout can show (e.g. a subtitle beneath a hook). Real

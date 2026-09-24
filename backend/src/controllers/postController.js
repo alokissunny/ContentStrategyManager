@@ -590,6 +590,7 @@ function mergeSlides(incomingSlides, prevSlides) {
     const manual = !blank && (Boolean(s.manual) || String(s.layout || '').startsWith('el-'));
     return {
       role: String(s.role || ''),
+      colorSet: String(s.colorSet ?? p.colorSet ?? ''),
       title: String(s.title || ''),
       subtitle: (blank || manual) ? String(s.subtitle || '') : String(s.subtitle ?? p.subtitle ?? ''),
       body: (blank || manual) ? String(s.body || '') : String(s.body ?? p.body ?? ''),

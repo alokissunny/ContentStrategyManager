@@ -10,6 +10,9 @@ const metaConnectionSchema = new mongoose.Schema(
     // Instagram Business / Creator user id (Graph).
     igUserId: { type: String, default: '', required: true },
     igUsername: { type: String, default: '', trim: true, lowercase: true },
+    // BUSINESS or MEDIA_CREATOR, and the avatar — shown on the connect confirmation.
+    accountType: { type: String, default: '' },
+    profilePictureUrl: { type: String, default: '' },
     // How this row was authorized. Legacy Facebook Login rows may omit this.
     authType: {
       type: String,

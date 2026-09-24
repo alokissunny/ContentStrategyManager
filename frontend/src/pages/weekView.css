@@ -7867,3 +7867,31 @@ span.wv-layed__apply { margin-left: auto; flex-shrink: 0; }
 .edp__cap { margin-top: 6px; font-size: 12px; font-weight: 600; color: var(--ink-500); text-align: center; }
 .edp__none { color: var(--ink-500); font-size: 13px; }
 @media (max-width: 640px) { .edp__pair { grid-template-columns: 1fr; } }
+
+/* ── ⋯ › Colour sets (Brand Kit themes) ─────────────────────────────────── */
+.wv-ig__flyitem--set.is-on { background: var(--surface-sunken); }
+.wv-ig__flyitem:disabled { opacity: 0.45; cursor: default; }
+.wv-ig__flyitem:disabled:hover { background: transparent; }
+.wv-ig__swatches { display: inline-flex; flex: 0 0 auto; padding-left: 6px; }
+.wv-ig__swatch {
+  width: 22px;
+  height: 22px;
+  margin-left: -6px;
+  border-radius: 50%;
+  box-shadow: 0 0 0 2px var(--surface), inset 0 0 0 1px rgb(0 0 0 / 0.12);
+}
+.wv-ig__flyitem--set .wv-ig__flylabel { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.wv-ig__setbadge {
+  display: inline-flex;
+  align-items: center;
+  height: 22px;
+  padding: 0 8px;
+  border-radius: var(--r-full);
+  background: var(--ink-100);
+  color: var(--ink-700);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+.wv-ig__setbadge--on { background: var(--experiment-500, #d2e823); color: var(--experiment-ink, #3a4204); }
+.wv-ig__flyrule { display: block; height: 1px; margin: 6px 4px; background: var(--border); }

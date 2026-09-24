@@ -791,12 +791,19 @@ export function paintCarouselSlideImages(frame, { direction, index, imageUrls })
 // parent (DynamicLayout) adds `is-loaded` on the img's load event to stop the
 // animation; an opaque photo covers the background, so nothing shows through once
 // loaded. Shared by the single-slide shell and the themed carousel document.
+// Until a photo has FULLY loaded its pixels are pushed out of the box
+// (object-position far off) so only the shimmer shows — WebP/PNG are not
+// progressive, and a large image otherwise paints in visibly top-down as it
+// downloads. On load it fades in.
 export const IMG_SHIMMER_CSS = [
   'img[data-slot="image"][src]:not(.is-loaded){background-color:#e9e6df;'
     + 'background-image:linear-gradient(100deg,rgba(255,255,255,0) 36%,rgba(255,255,255,.6) 50%,rgba(255,255,255,0) 64%);'
-    + 'background-size:200% 100%;background-repeat:no-repeat;animation:hf-imgshimmer 1.15s ease-in-out infinite}',
+    + 'background-size:200% 100%;background-repeat:no-repeat;animation:hf-imgshimmer 1.15s ease-in-out infinite;'
+    + 'object-position:-99999px -99999px !important;color:transparent}',
+  'img[data-slot="image"].is-loaded{animation:hf-imgin .28s ease-out}',
   '@keyframes hf-imgshimmer{0%{background-position:180% 0}100%{background-position:-60% 0}}',
-  '@media (prefers-reduced-motion:reduce){img[data-slot="image"][src]:not(.is-loaded){animation:none}}',
+  '@keyframes hf-imgin{from{opacity:0}to{opacity:1}}',
+  '@media (prefers-reduced-motion:reduce){img[data-slot="image"][src]:not(.is-loaded){animation:none}img[data-slot="image"].is-loaded{animation:none}}',
 ].join('');
 
 const SLIDE_FRAME_SHELL = [
@@ -810,13 +817,23 @@ const SLIDE_FRAME_SHELL = [
 // slide's injected photos and its text (both DOM children) always draw on top.
 // Unset, `--t-ground-image` falls back to `none` and only the flat colour shows.
 const GROUND_LAYER = 'background-color:var(--t-ground-bg,#f4f2ee);background-image:var(--t-ground-image,none);background-size:cover;background-position:center;background-repeat:no-repeat';
-const SLIDE_FRAME_THEMED = [
+const SLIDE_FRAME_THEMED_COLOURS = [
   `html.is-themed,html.is-themed body{${GROUND_LAYER};color:var(--t-ground-fg,#1b100d)}`,
-  'html.is-themed .slide,html.is-themed .slide *{font-family:var(--t-body-face,sans-serif)}',
-  'html.is-themed .slide :is(h1,h2,h3,[data-slot="title"],[data-slot="stat"],[data-slot="quote"]){font-family:var(--t-headline-face,sans-serif)}',
   `html.is-themed .slide{${GROUND_LAYER};color:var(--t-ground-fg,#1b100d)}`,
   'html.is-themed .slide em,html.is-themed .slide [data-slot="stat"]{color:var(--t-accent-bg,#ff5227)}',
 ].join('');
+const SLIDE_FRAME_THEMED = [
+  SLIDE_FRAME_THEMED_COLOURS,
+  'html.is-themed .slide,html.is-themed .slide *{font-family:var(--t-body-face,sans-serif)}',
+  'html.is-themed .slide :is(h1,h2,h3,[data-slot="title"],[data-slot="stat"],[data-slot="quote"]){font-family:var(--t-headline-face,sans-serif)}',
+].join('');
+
+// `themed === 'colours'` — a Brand Kit colour set on one slide: repaint the
+// palette, keep the slide's own typefaces (no face vars, no font rules).
+const coloursOnly = (themed) => themed === 'colours';
+const withoutFaces = (paint) => Object.fromEntries(
+  Object.entries(paint || {}).filter(([k]) => !/-face$|post-font/.test(k)),
+);
 
 function paintCssVars(paint) {
   if (!paint || typeof paint !== 'object') return '';
@@ -881,13 +898,14 @@ function carouselTokenOverrides(paint) {
 export function buildSlideFrameDocument(html, { themed = false, paint } = {}) {
   const { css, body } = splitLayoutDocument(html);
   if (!body) return '';
+  if (coloursOnly(themed)) paint = withoutFaces(paint);
   const vars = themed ? paintCssVars(paint) : '';
   const head = [
     '<meta charset="utf-8">',
     '<meta name="viewport" content="width=device-width,initial-scale=1">',
     `<style>${SLIDE_FRAME_SHELL}</style>`,
     css ? `<style>${css}</style>` : '',
-    themed ? `<style>${vars ? `:root{${vars}}` : ''}${SLIDE_FRAME_THEMED}</style>` : '',
+    themed ? `<style>${vars ? `:root{${vars}}` : ''}${coloursOnly(themed) ? SLIDE_FRAME_THEMED_COLOURS : SLIDE_FRAME_THEMED}</style>` : '',
   ].filter(Boolean).join('');
   return `<!doctype html><html${themed ? ' class="is-themed"' : ''}><head>${head}</head><body>${body}</body></html>`;
 }
@@ -907,6 +925,7 @@ export function buildSlideFrameDocument(html, { themed = false, paint } = {}) {
 export function applyThemeToCarouselDocument(html, { themed = false, paint } = {}) {
   const raw = trim(html);
   if (!raw || !themed) return raw;
+  if (coloursOnly(themed)) paint = withoutFaces(paint);
   const vars = paintCssVars(paint);
   const tokens = carouselTokenOverrides(paint);
   const tokenRule = tokens
@@ -919,7 +938,8 @@ export function applyThemeToCarouselDocument(html, { themed = false, paint } = {
     'html.is-themed .slide :is([data-slot="eyebrow"],[data-slot="kicker"],[data-slot="label"],[data-slot="index"],[data-slot="accent"],.eyebrow,.kicker,.label,.accent){color:var(--t-accent-bg,#ff5227)}',
     'html.is-themed .slide hr,html.is-themed .slide [data-slot="rule"],html.is-themed .slide [role="separator"]{border-color:var(--t-accent-bg,#ff5227);color:var(--t-accent-bg,#ff5227)}',
   ].join('');
-  const style = `<style data-brand-theme>${vars ? `:root{${vars}}` : ''}${tokenRule}${SLIDE_FRAME_THEMED}${accentRule}${IMG_SHIMMER_CSS}</style>`;
+  const frame = coloursOnly(themed) ? SLIDE_FRAME_THEMED_COLOURS : SLIDE_FRAME_THEMED;
+  const style = `<style data-brand-theme>${vars ? `:root{${vars}}` : ''}${tokenRule}${frame}${accentRule}${IMG_SHIMMER_CSS}</style>`;
 
   let out = raw;
   if (/<html[\s>]/i.test(out)) {
