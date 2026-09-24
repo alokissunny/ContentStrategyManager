@@ -39,11 +39,25 @@ function emit() {
   });
 }
 
+// Slide previews carry the carousel's CSS — heavy. Only the newest few survive
+// a reload so the log stays well inside localStorage's quota.
+const PERSIST_PREVIEWS = 12;
+function persistable(entries) {
+  let kept = 0;
+  return entries.map((e) => {
+    if (!e.preview) return e;
+    kept += 1;
+    if (kept <= PERSIST_PREVIEWS) return e;
+    const { preview, ...rest } = e;
+    return rest;
+  });
+}
+
 function persist() {
   try {
     localStorage.setItem(ENABLE_KEY, state.enabled ? '1' : '0');
     localStorage.setItem(OPEN_KEY, state.open ? '1' : '0');
-    localStorage.setItem(LOG_KEY, JSON.stringify(state.entries));
+    localStorage.setItem(LOG_KEY, JSON.stringify(persistable(state.entries)));
   } catch {
     // best-effort local cache only
   }
@@ -147,6 +161,10 @@ export function addAiDebugEntry(entry = {}) {
     note: String(entry.note || ''),
     elapsedMs,
     ...usage,
+    // { direction, css, slides: [{ index, before, after }] } — Preview in the panel
+    ...(entry.preview && typeof entry.preview === 'object' && Array.isArray(entry.preview.slides)
+      ? { preview: entry.preview }
+      : {}),
   };
   const next = [item, ...state.entries].slice(0, MAX_ENTRIES);
   setState({ entries: next });

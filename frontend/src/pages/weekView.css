@@ -7185,6 +7185,7 @@ span.wv-layed__apply { margin-left: auto; flex-shrink: 0; }
 }
 .btn.wv-edm__apply:hover { background: color-mix(in srgb, var(--surface) 88%, var(--ink-900)); }
 .btn.wv-edm__apply:disabled { opacity: 0.6; cursor: default; }
+.btn.wv-edm__cancel:disabled { opacity: 0.45; cursor: default; background: transparent; }
 
 /* The body sizes the post from the window: three limits, whichever binds
    first — the height left under the header and the post's top line/dots, a
@@ -7807,3 +7808,62 @@ span.wv-layed__apply { margin-left: auto; flex-shrink: 0; }
   .wv-edm__asktry { flex: 0 0 auto; height: 38px; font-size: 13px; }
   .wv-edm__askfield { height: 56px; }
 }
+
+/* ── Debug panel › Preview of a prompt edit (weekview/EditPreview.jsx) ───── */
+.edp {
+  position: fixed;
+  inset: 0;
+  z-index: 2100; /* over the AI debug panel (70) and Editor mode (55) */
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(16, 16, 20, 0.55);
+  animation: fade-in var(--dur-fast, 140ms) var(--ease-out, ease);
+}
+.edp__panel {
+  width: min(980px, 100%);
+  max-height: calc(100vh - 48px);
+  display: flex;
+  flex-direction: column;
+  border-radius: var(--r-lg, 16px);
+  background: var(--surface);
+  box-shadow: 0 30px 80px -30px rgba(0, 0, 0, 0.5);
+  overflow: hidden;
+}
+.edp__head {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border);
+}
+.edp__sub { color: var(--ink-500); font-size: 13px; }
+.edp__close {
+  margin-left: auto;
+  height: 32px;
+  padding: 0 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-full);
+  background: var(--surface);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.edp__close:hover { background: var(--surface-sunken); }
+.edp__body { overflow-y: auto; padding: 16px 20px 24px; display: flex; flex-direction: column; gap: 24px; }
+.edp__slide { margin: 0 0 10px; font-size: 13px; font-weight: 700; color: var(--ink-700); }
+.edp__pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.edp__fig { margin: 0; }
+.edp__canvas {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 4 / 5;
+  border-radius: 10px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+}
+.edp__canvas--empty { display: grid; place-items: center; color: var(--ink-400); font-size: 13px; background: var(--surface-sunken); }
+.edp__cap { margin-top: 6px; font-size: 12px; font-weight: 600; color: var(--ink-500); text-align: center; }
+.edp__none { color: var(--ink-500); font-size: 13px; }
+@media (max-width: 640px) { .edp__pair { grid-template-columns: 1fr; } }

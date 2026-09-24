@@ -63,9 +63,10 @@ import PostAgentDebug from './weekview/PostAgentDebug';
 import DynamicLayout, { AnnotationOverlay } from './weekview/DynamicLayout';
 import { BrandMark } from './visuallibrary/BrandMark';
 import { bakeSlidePatches, replaceSlideArticle, slideArticleOf, nodeAt } from './weekview/slideEditMode';
+import { auditSlideLayout, measureSlide, slideCssOf } from './weekview/slideAudit';
 import { actionsFor, actionOf, modifierOf, askHint, askSay } from '../lib/askactions';
 import { useRecorder, captureSttLanguages } from './checkin/recorder';
-import { rewriteAnnotationText, rewriteLayoutText, rewriteCarouselDocumentText, slotPlain, slideSlotPlain, withSharedLayoutStyles, layoutDirectionOf, themeIdOf, themeDirectionOf, slideIsThemed, optionForTheme, THEME_ORDER, bakeFrozenGeometry, findCarouselSlide, isCarouselDocument } from './weekview/layoutHtml';
+import { rewriteAnnotationText, rewriteLayoutText, rewriteCarouselDocumentText, slotPlain, slideSlotPlain, withSharedLayoutStyles, layoutDirectionOf, themeIdOf, themeDirectionOf, slideIsThemed, optionForTheme, THEME_ORDER, bakeFrozenGeometry, findCarouselSlide, isCarouselDocument, slideRootOf } from './weekview/layoutHtml';
 import { discoverSlideTextRoles, agentHtmlSource, isAgentHtmlSlide } from './weekview/slideTextRoles';
 import { boxOf, normalizeSubjects } from './weekview/subjectBox';
 import {
@@ -2106,7 +2107,9 @@ function carouselDocumentOf(day) {
 // text style ▾, arrange ▾, size ▾, colour ▾, the AI rewrite, reset, remove.
 // Fixed to the page and hung above the element (below it when there is no
 // room under the header). Every press goes to the edit engine (`run`).
-function ElementBar({ sel, menu, setMenu, run, swatches, onAi, onImage }) {
+// `onAsk` opens the prompt band about this element (bauhly-v3: the selection's
+// own AI door); `asking` = the band is already about it, so the door stands down.
+function ElementBar({ sel, menu, setMenu, run, swatches, onAsk, asking, onImage }) {
   const barRef = useRef(null);
   const [w, setW] = useState(0);
   useLayoutEffect(() => {
@@ -2222,19 +2225,27 @@ function ElementBar({ sel, menu, setMenu, run, swatches, onAi, onImage }) {
           )}
         </div>
       )}
-      {isText && (
-        <button type="button" className="wv-edm__tbbtn wv-edm__tbbtn--solo" onClick={press(() => { setMenu(null); onAi(); })} aria-label="Rewrite with Bauhly" title="Rewrite with Bauhly">
-          <Icon name="sparkle" size={15} strokeWidth={2.2} />
-        </button>
-      )}
       {isImage && (
         <button type="button" className="wv-edm__tbbtn wv-edm__tbbtn--solo" onClick={press(() => { setMenu(null); onImage(); })} aria-label="Replace image" title="Replace image">
           <Icon name="image" size={15} strokeWidth={2.2} />
         </button>
       )}
-      <button type="button" className="wv-edm__tbbtn wv-edm__tbbtn--solo" onClick={press(() => { setMenu(null); run('reset'); })} disabled={!sel.edited} aria-label="Undo edits to this element" title="Put this element back">
-        <Glyph name="undo-2" size={15} strokeWidth={2.2} />
-      </button>
+      {!asking && (
+        <button
+          type="button"
+          className="wv-edm__tbbtn wv-edm__tbbtn--solo wv-edm__tbbtn--ai"
+          onClick={press(() => { setMenu(null); onAsk(); })}
+          aria-label="Ask about this"
+          title="Ask about this"
+        >
+          <Icon name="sparkle" size={15} strokeWidth={2.2} />
+        </button>
+      )}
+      {sel.edited && (
+        <button type="button" className="wv-edm__tbbtn wv-edm__tbbtn--solo" onClick={press(() => { setMenu(null); run('reset'); })} aria-label="Undo edits to this element" title="Put this element back">
+          <Glyph name="undo-2" size={15} strokeWidth={2.2} />
+        </button>
+      )}
       <button type="button" className="wv-edm__tbbtn wv-edm__tbbtn--solo" onClick={press(() => { setMenu(null); run('hide'); })} aria-label="Remove element" title="Remove (Delete)">
         <Glyph name="trash-2" size={15} strokeWidth={2.2} />
       </button>
@@ -2756,6 +2767,11 @@ export default function WeekView({
   // a dark header (Cancel / Apply changes), the slide as a stack with its
   // neighbours peeking, Fix layout + ⋯ over it and the AI mark on it.
   const [postEdit, setPostEdit] = useState(false);
+  // The post as it was when Editor mode opened. Every change made inside the
+  // Editor saves as it happens (a prompt edit, a layout, a picture, Fix layout),
+  // so Cancel means "put it back to this"; Apply changes drops it and keeps
+  // whatever the post is now.
+  const editSnapRef = useRef(null);
   // Element edits made on the slide in Editor mode (select / move / resize /
   // rotate / restyle / type), per slide index, held until Apply changes bakes
   // them into the stored html — Cancel drops them. `{ [i]: { patches, doc, dir, idx } }`
@@ -2778,6 +2794,7 @@ export default function WeekView({
   const [askTune, setAskTune] = useState(null);
   const [askAll, setAskAll] = useState(false); // the running edit covers every slide
   const [askVisual, setAskVisual] = useState(false); // …and is making a picture first
+  const [askPhase, setAskPhase] = useState(''); // what the running edit is doing now
   const askRec = useRecorder();
   const [askHearing, setAskHearing] = useState(false); // transcribing a take
   const askUploadRef = useRef(null);
@@ -3357,6 +3374,13 @@ export default function WeekView({
   }
 
   function enterPostEdit() {
+    editSnapRef.current = day && !isEmptyCalDay(day) ? {
+      dayIndex: selected,
+      slides: JSON.parse(JSON.stringify(deriveSlides(day))),
+      docHtml: carouselDocumentOf(day),
+      themeId: day.content?.themeId ?? '',
+      coverKey: day.content?.coverVideo?.key || '',
+    } : null;
     resetElemEdits();
     resetAsk();
     closeZone();
@@ -3620,6 +3644,56 @@ export default function WeekView({
   // "making a visual" while it runs.
   const ASKS_VISUAL = /\b(add|include|insert|put|place|give|generate|create|make|show|use)\b[^.?!]{0,48}\b(visual|image|picture|photo|photograph|illustration|graphic|artwork|sketch|render)s?\b/i;
 
+  // The reference a refine/repair call sends: the post as it stands.
+  function refineCurrentOf(d) {
+    const base = deriveSlides(d);
+    const docHtml = carouselDocumentOf(d);
+    const hasDoc = isCarouselDocument(docHtml);
+    return {
+      carouselHtml: hasDoc ? docHtml : '',
+      slides: base.map((sl, i) => ({
+        index: Number(sl.index) > 0 ? Number(sl.index) : i + 1,
+        themed: hasDoc && slideIsThemed(sl),
+        layoutHtml: sl.layoutHtml || '',
+        assetKeys: keysOf(sl),
+        role: sl.role || '',
+      })),
+    };
+  }
+
+  // Wait for the active card to draw slide `idx` of post `d` (its text is on
+  // the page and fonts have settled), then measure it. null = it never drew.
+  async function auditRenderedSlide(d, idx, dir) {
+    const base = deriveSlides(d);
+    const at = base.findIndex((sl, i) => (Number(sl.index) > 0 ? Number(sl.index) : i + 1) === idx);
+    const sl = base[at];
+    if (!sl) return null;
+    const docHtml = carouselDocumentOf(d);
+    const findRoot = (doc) => findCarouselSlide(doc, dir, idx) || doc.querySelector('article.slide, .slide, article');
+    const src = isCarouselDocument(docHtml) && slideIsThemed(sl) ? docHtml : sl.layoutHtml;
+    const art = src ? slideArticleOf(src, findRoot) : null;
+    let want = '';
+    if (art && typeof DOMParser !== 'undefined') {
+      want = new DOMParser().parseFromString(art.html, 'text/html').body.textContent.replace(/\s+/g, ' ').trim().slice(0, 32);
+    }
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    for (let t = 0; t < 30; t += 1) {
+      await sleep(150);
+      const frame = layoutFrameRef.current;
+      const doc = frame?.contentDocument;
+      if (!doc) continue;
+      const root = slideRootOf(frame, { direction: dir, index: idx });
+      if (!root) continue;
+      if (want && !root.textContent.replace(/\s+/g, ' ').includes(want)) continue;
+      try { await doc.fonts?.ready; } catch { /* measure anyway */ }
+      await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+      const list = auditSlideLayout(root);
+      list.geometry = measureSlide(root);
+      return list;
+    }
+    return null;
+  }
+
   async function sendAsk() {
     // `Add a visual` has no sentence of its own in the catalogue (its refinements
     // are doors) — sent armed, it is a request for a new picture, described by
@@ -3671,8 +3745,24 @@ export default function WeekView({
       if (slidesRef[safeIdx].themed) carouselHtml = mark(carouselHtml, true);
       else slidesRef[safeIdx] = { ...slidesRef[safeIdx], layoutHtml: mark(slidesRef[safeIdx].layoutHtml, false) };
     }
+    // what the slide already had wrong before this edit — never "repaired"
+    // behind the studio's back (it may be their own arrangement)
+    let before = [];
+    // the slide as the editor draws it — its real type sizes and boxes, which
+    // the agent cannot see from html alone (the theme CSS sets them)
+    let geometry = null;
+    // …and the theme CSS rules that apply to it, so the agent sees the whole picture
+    let slideCss = '';
+    try {
+      const frame = layoutFrameRef.current;
+      const root = frame ? slideRootOf(frame, { direction: activeDir, index: activeIdx }) : null;
+      before = root ? auditSlideLayout(root).map((x) => x.key) : [];
+      geometry = root ? measureSlide(root) : null;
+      slideCss = root ? slideCssOf(root) : '';
+    } catch { before = []; }
     setAskAll(every);
     setAskVisual(wantsVisual);
+    setAskPhase('');
     setAskBusy(true);
     setAskMsg(null);
     setAskDraft('');
@@ -3685,6 +3775,8 @@ export default function WeekView({
         focus: askSel ? { slideIndex: activeIdx, tag: askSel.tag, slot: askSel.slot, text: askSel.text } : null,
         visual: askAct === 'visual' ? true : undefined,
         visualSlideIndex: activeIdx,
+        geometry,
+        slideCss,
         current: { carouselHtml, direction: activeDir, slides: slidesRef },
       });
       // the new picture is on the page the moment the post lands
@@ -3696,20 +3788,58 @@ export default function WeekView({
       const merged = mergePost(data.post);
       setRoute(merged);
       onRouteChange?.(merged);
+
+      // ── quality gate: measure the slide as rendered; repair up to twice ──
+      // Overlapping text, text outside the frame, cut-off or unreadably small
+      // text go back to the Slide Edit agent as measured problems.
+      let lastPost = data.post;
+      const introduced = (list) => {
+        if (!list) return null;
+        const out = list.filter((x) => !before.includes(x.key));
+        out.geometry = list.geometry;
+        return out;
+      };
+      let issues = introduced(await auditRenderedSlide(lastPost, activeIdx, activeDir));
+      let repairs = 0;
+      while (issues && issues.length && repairs < 2) {
+        repairs += 1;
+        setAskPhase(repairs > 1 ? 'Still tidying the layout…' : 'Tidying the layout — some text overlapped…');
+        let fix = null;
+        try {
+          fix = await refinePost(postId, {
+            instruction: 'Fix the layout problems listed so the slide reads cleanly. Keep the words, the change just made and the studio\'s edits.',
+            slideIndex: activeIdx,
+            layoutIssues: issues.map((x) => x.say),
+            geometry: issues.geometry || null,
+            slideCss,
+            current: { ...refineCurrentOf(lastPost), direction: activeDir },
+          });
+        } catch { break; }
+        if (!fix?.post) break;
+        lastPost = fix.post;
+        const m2 = mergePost(fix.post);
+        setRoute(m2);
+        onRouteChange?.(m2);
+        issues = introduced(await auditRenderedSlide(lastPost, activeIdx, activeDir));
+      }
+      setAskPhase('');
+      const layoutNote = issues && issues.length
+        ? ` Some layout problems remain (${issues.length}) — try Fix layout or adjust by hand.`
+        : (repairs ? ' Layout tidied.' : '');
       const changed = Array.isArray(data.changed) ? data.changed.length : 1;
       const html = String(data.post?.content?.carouselHtml || '');
       const addedPic = /<img\b(?![^>]*\ssrc=)(?![^>]*data-asset-key=)[^>]*data-slot="(?:image|illustration)"/i.test(html)
         && !/<img\b(?![^>]*\ssrc=)(?![^>]*data-asset-key=)[^>]*data-slot="(?:image|illustration)"/i.test(docBefore || '');
       const v = data?.visual;
       setAskMsg({
-        tone: v && !v.ok ? 'err' : 'ok',
-        text: v?.ok
+        tone: (v && !v.ok) || (issues && issues.length) ? 'err' : 'ok',
+        text: (v?.ok
           ? (v.placed === false
             ? 'Made a new visual, but it did not land on the slide — try again or place it with Project photos.'
             : `Added a new visual${changed > 1 ? ` · ${changed} slides updated` : ''}.`)
           : v && !v.ok
             ? `Could not make a visual${v.reason ? ` (${v.reason})` : ''} — the slide was updated without one.`
-            : `${changed === 1 ? 'Slide updated' : `${changed} slides updated`}${addedPic ? ' — added a picture spot; fill it with Project photos.' : '.'}`,
+            : `${changed === 1 ? 'Slide updated' : `${changed} slides updated`}${addedPic ? ' — added a picture spot; fill it with Project photos.' : '.'}`) + layoutNote,
       });
     } catch (err) {
       const timedOut = err?.code === 'ECONNABORTED' || /timeout/i.test(String(err?.message || ''));
@@ -3721,6 +3851,7 @@ export default function WeekView({
       });
     } finally {
       setAskBusy(false);
+      setAskPhase('');
     }
   }
 
@@ -3732,9 +3863,37 @@ export default function WeekView({
     setAskMsg({ tone: 'ok', text: 'Put back.' });
   }
 
+  // Cancel: whatever was saved while the Editor was open goes back to the
+  // version it opened on — slides, the carousel document, the theme and the
+  // video cover. Nothing is written when nothing changed.
+  function revertPostEdit() {
+    const snap = editSnapRef.current;
+    editSnapRef.current = null;
+    if (!snap || !route?.days?.[snap.dayIndex]) return;
+    const d = route.days[snap.dayIndex];
+    const now = {
+      slides: JSON.stringify(deriveSlides(d).map((sl) => slideRecord(sl))),
+      docHtml: carouselDocumentOf(d),
+      themeId: d.content?.themeId ?? '',
+      coverKey: d.content?.coverVideo?.key || '',
+    };
+    const was = JSON.stringify(snap.slides.map((sl) => slideRecord(sl)));
+    const extra = {};
+    if (now.docHtml !== snap.docHtml) extra.carouselHtml = snap.docHtml;
+    if (now.themeId !== snap.themeId) extra.themeId = snap.themeId;
+    if (now.coverKey !== snap.coverKey) extra.coverVideo = snap.coverKey ? { key: snap.coverKey } : null;
+    if (now.slides === was && !Object.keys(extra).length) return;
+    replaceSlides(snap.slides, { dayIndex: snap.dayIndex, exact: true, extra });
+  }
+
   function leavePostEdit(keep) {
-    if (keep) flushElemEdits();
-    else resetElemEdits();
+    if (keep) {
+      flushElemEdits();
+      editSnapRef.current = null;
+    } else {
+      resetElemEdits();
+      revertPostEdit();
+    }
     resetAsk();
     if (keep && zone === 'visual') {
       if (visEdit === 'words' && wordDraft && !wordsUnchanged && !wordsBusy) applyWords();
@@ -3845,6 +4004,10 @@ export default function WeekView({
     el.style.height = `${Math.min(240, Math.max(120, el.scrollHeight))}px`;
   }, [capDraft, zone]);
 
+  // Something Bauhly is doing to this post that will save when it lands — Cancel
+  // and Apply wait for it, so a late result can never undo a revert.
+  const editBusy = askBusy || layoutBusy || uploading || coverBusy || wordsBusy;
+
   useEffect(() => {
     function onKey(e) {
       // Escape steps back one level: generate → images → browse → editor → menu
@@ -3861,14 +4024,14 @@ export default function WeekView({
       if (!zone && postEdit && elemSel) { elemApiRef.current?.deselect(); return; }
       if (!zone && postEdit && askOpen && !askBusy) { setAskOpen(false); return; }
       if (!zone && slideEditMode) { setSlideEditMode(false); return; }
-      if (!zone) { if (postEdit) { closeZone(); setPostEdit(false); } return; }
+      if (!zone) { if (postEdit && !editBusy) leavePostEdit(false); return; }
       if (menuPane) { setMenuPane(null); return; }
       if (visEdit) setVisEdit(null);
       else closeZone();
     }
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [zone, visEdit, menuPane, askImgs, imgPick, creating, timeDraft, pick, adjustFor, packOpen, schedMenu, postEdit, slideEditMode, elemSel, elemMenu, askOpen, askBusy]);
+  }, [zone, visEdit, menuPane, askImgs, imgPick, creating, timeDraft, pick, adjustFor, packOpen, schedMenu, postEdit, slideEditMode, elemSel, elemMenu, askOpen, askBusy, editBusy]);
 
   // Editor mode belongs to one post: a different day (or no day) closes it.
   useEffect(() => { setPostEdit(false); resetElemEdits(); resetAsk(); }, [selected, route?._id]);
@@ -3931,10 +4094,12 @@ export default function WeekView({
     finally { setSaving(false); }
   }
 
-  async function persistSlides(nextSlides, dayIndex = selected, extra = {}) {
+  // `exact`: send the slides exactly as given — no falling back to the last
+  // saved picture keys (Editor mode's Cancel restores a slide that had none).
+  async function persistSlides(nextSlides, dayIndex = selected, extra = {}, { exact = false } = {}) {
     if (!route?._id) return;
     const gen = ++persistGenRef.current;
-    const payload = slidesPayload(nextSlides, lastSavedByDayRef.current[dayIndex] || []);
+    const payload = slidesPayload(nextSlides, exact ? [] : (lastSavedByDayRef.current[dayIndex] || []));
     setSaving(true);
     try {
       const updated = await updateDayContent(route._id, dayIndex, { slides: payload, ...extra });
@@ -3949,7 +4114,7 @@ export default function WeekView({
     }
   }
 
-  function replaceSlides(next, { persist = true, dayIndex = selected, extra = {} } = {}) {
+  function replaceSlides(next, { persist = true, dayIndex = selected, extra = {}, exact = false } = {}) {
     setRoute((prev) => {
       const daysCopy = [...(prev.days || [])];
       const d = { ...daysCopy[dayIndex] };
@@ -3972,7 +4137,7 @@ export default function WeekView({
       daysCopy[dayIndex] = { ...d, content };
       return { ...prev, days: daysCopy };
     });
-    if (persist) persistSlides(next, dayIndex, extra);
+    if (persist) persistSlides(next, dayIndex, extra, { exact });
   }
 
   function patchActiveSlide(patch) {
@@ -5785,14 +5950,21 @@ export default function WeekView({
               {editFormat && <span className="wv-edm__format">{editFormat}</span>}
             </p>
             <div className="wv-edm__acts">
-              <button type="button" className="btn btn--quiet wv-edm__cancel" onClick={() => leavePostEdit(false)}>
+              <button
+                type="button"
+                className="btn btn--quiet wv-edm__cancel"
+                onClick={() => leavePostEdit(false)}
+                disabled={editBusy}
+                title={editBusy ? 'Wait for Bauhly to finish' : 'Put the post back the way it was when you opened it'}
+              >
                 Cancel
               </button>
               <button
                 type="button"
                 className="btn btn--primary wv-edm__apply"
                 onClick={() => leavePostEdit(true)}
-                disabled={wordsBusy}
+                disabled={editBusy}
+                title={editBusy ? 'Wait for Bauhly to finish' : 'Keep these changes'}
               >
                 <span className="wv-edm__applylabel">Apply<span className="wv-edm__applylong"> changes</span></span>
               </button>
@@ -5925,7 +6097,7 @@ export default function WeekView({
                         {on && (layoutBusy || askBusy) && (
                           <div className="wv-ig__laying" role="status" aria-live="polite">
                             <span className="wv-spin" aria-hidden="true" />
-                            <span>{askBusy ? (askVisual ? 'Bauhly is making a visual, then placing it…' : askAll ? 'Bauhly is editing every slide…' : 'Bauhly is editing this slide…') : 'Composing carousel…'}</span>
+                            <span>{askBusy ? (askPhase || (askVisual ? 'Bauhly is making a visual, then placing it…' : askAll ? 'Bauhly is editing every slide…' : 'Bauhly is editing this slide…')) : 'Composing carousel…'}</span>
                           </div>
                         )}
                         {on && layoutErr && !layoutBusy && (
@@ -6001,11 +6173,17 @@ export default function WeekView({
             const tune = askAct && askTune ? modifierOf(askKind, askAct, askTune) : null;
             const listening = askRec.status === 'recording';
             const ready = (Boolean(askDraft.trim()) || Boolean(askAct)) && !askBusy && !listening && !askHearing;
+            const SLOT_NAMES = {
+              title: 'The title', eyebrow: 'The kicker', kicker: 'The kicker', subtitle: 'The subtitle',
+              'supporting-text': 'The supporting line', body: 'The body text', label: 'The label',
+              caption: 'The caption', note: 'The note', detail: 'The detail', action: 'The call to action',
+              quote: 'The quote', stat: 'The stat', index: 'The number',
+            };
             const subject = askSel
               ? (askSel.kind === 'image' ? 'The picture'
-                : askSel.slot === 'title' ? 'The title'
-                  : askSel.slot === 'eyebrow' || askSel.slot === 'kicker' ? 'The kicker'
-                    : askSel.slot ? `The ${askSel.slot}` : (askSel.kind === 'text' ? 'The text' : 'The element'))
+                : SLOT_NAMES[askSel.slot]
+                  || (/^h[1-3]$/.test(askSel.tag || '') ? 'The headline'
+                    : askSel.kind === 'text' ? 'The text' : 'The element'))
               : null;
             const badge = (label, off, key) => (
               <span className="wv-edm__cmd" key={key}>
@@ -6077,7 +6255,7 @@ export default function WeekView({
                           else if (askAct) { e.preventDefault(); setAskAct(null); }
                         }
                       }}
-                      placeholder={listening ? 'Listening…' : askHearing ? 'Writing down what you said…' : askHint(askCtxNow, 'Say what else this should be')}
+                      placeholder={listening ? 'Listening…' : askHearing ? 'Writing down what you said…' : askHint(askCtxNow, subject ? `What should change about ${subject.charAt(0).toLowerCase()}${subject.slice(1)}?` : 'Say what else this should be')}
                       maxLength={600}
                       disabled={askBusy}
                       aria-label="What should change"
@@ -6128,7 +6306,8 @@ export default function WeekView({
               setMenu={setElemMenu}
               run={runElem}
               swatches={elemSwatches}
-              onAi={openWordsEditor}
+              onAsk={() => openAsk()}
+              asking={askOpen}
               onImage={openImagePicker}
             />
           )}

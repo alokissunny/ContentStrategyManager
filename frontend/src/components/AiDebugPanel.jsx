@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { Suspense, lazy, useState } from 'react';
 import Glyph from './Glyph';
 import {
   useAiDebug,
@@ -106,7 +106,59 @@ function CopyButton({ text }) {
   );
 }
 
-function DebugBlock({ label, text, open = true, copyable = false }) {
+// the slide renderer only loads when a preview is opened
+const EditPreview = lazy(() => import('../pages/weekview/EditPreview'));
+
+// A row logged before previews were recorded still holds both slides: the
+// Slide Edit agent's input ends with `SLIDE:\n<article …>` (before) and its
+// output is the edited article (after). Rebuilt without the carousel's CSS, so
+// inline styles draw but theme classes do not — new rows carry the CSS.
+function firstArticle(text) {
+  const t = String(text || '');
+  const start = t.search(/<article\b/i);
+  const end = t.toLowerCase().lastIndexOf('</article>');
+  return start >= 0 && end > start ? t.slice(start, end + '</article>'.length) : '';
+}
+function previewOfEntry(entry) {
+  if (entry?.preview?.slides?.length) return entry.preview;
+  // only an agent's own html answer (a JSON summary row escapes its html)
+  if (!/^\s*(```(?:html)?\s*)?</.test(String(entry?.output || ''))) return null;
+  const after = firstArticle(entry?.output);
+  if (!after) return null;
+  const input = String(entry?.prompt || '');
+  const at = input.lastIndexOf('SLIDE:');
+  const before = at >= 0 ? firstArticle(input.slice(at)) : '';
+  const index = Number((after.match(/\sdata-index\s*=\s*["'](\d+)["']/i) || [])[1]) || 1;
+  const direction = (input.match(/data-direction\s*=\s*["']([^"']+)["']/i) || [])[1] || '';
+  return { direction, css: '', slides: [{ index, before, after }], rebuilt: true };
+}
+
+// Output › Preview: the slide(s) an edit agent returned, before and after,
+// rendered the way the editor renders them.
+function PreviewButton({ preview, title }) {
+  const [open, setOpen] = useState(false);
+  if (!preview?.slides?.length) return null;
+  return (
+    <>
+      <button
+        type="button"
+        className="ai-debug__copy"
+        onClick={(e) => { e.preventDefault(); e.stopPropagation(); setOpen(true); }}
+        onPointerDown={(e) => e.stopPropagation()}
+        title="See the slide before and after this edit"
+      >
+        Preview
+      </button>
+      {open && (
+        <Suspense fallback={null}>
+          <EditPreview preview={preview} title={title} onClose={() => setOpen(false)} />
+        </Suspense>
+      )}
+    </>
+  );
+}
+
+function DebugBlock({ label, text, open = true, copyable = false, extra = null }) {
   const body = formatBlock(text);
   if (!body) return null;
 
@@ -114,7 +166,12 @@ function DebugBlock({ label, text, open = true, copyable = false }) {
     <details className="ai-debug__block" open={open}>
       <summary className="ai-debug__block-sum">
         <span>{label}</span>
-        {copyable ? <CopyButton text={body} /> : null}
+        {copyable || extra ? (
+          <span className="ai-debug__block-acts">
+            {extra}
+            {copyable ? <CopyButton text={body} /> : null}
+          </span>
+        ) : null}
       </summary>
       <pre className="ai-debug__pre">{body}</pre>
     </details>
@@ -216,7 +273,14 @@ function DebugEntry({ entry }) {
           {error ? <p className="ai-debug__error">{error}</p> : null}
           {busy ? <p className="ai-debug__missing">Rerunning with modified input…</p> : null}
           {entry.output
-            ? <DebugBlock label="Output" text={entry.output} copyable />
+            ? (
+              <DebugBlock
+                label="Output"
+                text={entry.output}
+                copyable
+                extra={<PreviewButton preview={previewOfEntry(entry)} title={entry.source} />}
+              />
+            )
             : (!busy && <p className="ai-debug__missing">No output recorded for this call.</p>)}
         </>
       ) : null}

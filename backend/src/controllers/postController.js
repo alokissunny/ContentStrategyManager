@@ -737,6 +737,8 @@ async function updatePost(req, res) {
     if (incoming.notes !== undefined) cur.notes = String(incoming.notes);
     if (incoming.plan !== undefined) cur.plan = String(incoming.plan);
     if (incoming.carouselHtml !== undefined) cur.carouselHtml = String(incoming.carouselHtml || '');
+    // Editor mode's Cancel puts the post's theme back along with its slides
+    if (incoming.themeId !== undefined) cur.themeId = String(incoming.themeId || '');
     if (Array.isArray(incoming.hashtags)) {
       cur.hashtags = incoming.hashtags.map((h) => String(h).replace(/^#/, ''));
     }
@@ -808,10 +810,10 @@ async function polishCaption(req, res) {
   }
 }
 
-// POST /posts/:id/refine — Editor mode's prompt band. The studio's CURRENT
-// carousel (every hand edit baked in, the pictures on each slide) is sent as the
-// reference and the Carousel Refine agent recreates the carousel with the
-// instruction applied (services/carouselRefine.js). The result is saved on the
+// POST /posts/:id/refine — Editor mode's prompt band. The studio's current
+// carousel comes in (every hand edit baked in); the Slide Edit agent edits only
+// the slide(s) in scope from that slide's html + the change asked for
+// (services/carouselRefine.js → slideEditAgent.js). The result is saved on the
 // post exactly like a Fix layout rerun and the post is returned.
 // A request for a picture (`visual: true`, or words asking for one) first runs
 // the Visual agent on `visualSlideIndex`; the new picture goes to the carousel
@@ -857,12 +859,18 @@ async function refinePost(req, res) {
       focus: req.body?.focus || null,
       current: { ...current, slides: sent.map((s, i) => ({ ...s, assetKeys: ownKeys(s?.assetKeys) })) },
       brand,
-      themeId: record.content?.themeId || '',
       handle: record.instagramUsername,
       visual: typeof req.body?.visual === 'boolean' ? req.body.visual : undefined,
       visualSlideIndex: req.body?.visualSlideIndex,
-      brief: plainOf(record.agentTrace?.strategyBrief) || {},
       slideRecords: stored,
+      // the strategist's brief keeps every edit on-angle and truthful
+      strategy: plainOf(record.agentTrace?.strategyBrief) || null,
+      // a repair pass from the editor: overlaps / overflow it measured on the rendered slide
+      layoutIssues: Array.isArray(req.body?.layoutIssues) ? req.body.layoutIssues.map(String).slice(0, 12) : null,
+      // the slide in scope as the editor renders it (real type sizes / boxes)
+      geometry: req.body?.geometry && typeof req.body.geometry === 'object' ? req.body.geometry : null,
+      // the theme CSS rules that apply to that slide (read-only context)
+      slideCss: typeof req.body?.slideCss === 'string' ? req.body.slideCss.slice(0, 16000) : '',
       debug: steps,
     });
 
@@ -890,7 +898,7 @@ async function refinePost(req, res) {
     });
     record.content = { ...content, ...next, slides: next.slides, carouselHtml: out.html };
     const trace = record.agentTrace && typeof record.agentTrace === 'object' ? plainOf(record.agentTrace) : {};
-    const debugEntry = out.result?.debugEntry || {};
+    const debugEntry = { model: out.model };
     record.agentTrace = {
       ...trace,
       layout: { ...(plainOf(trace.layout) || {}), html: out.html },

@@ -2364,45 +2364,6 @@ async function writeCarousel({ source, structure, post, dayBrief, brand, dayWrit
   return result;
 }
 
-// ── Carousel Refine agent (Editor mode's prompt band) ─────────────────────
-// Recreates an EXISTING carousel with one instruction applied. The current,
-// hand-edited carousel is the reference (every element / text / style edit is
-// already baked into it), with the pictures on each slide and what they show;
-// the model returns the whole carousel. Same model, timeout, HTML parse and
-// validation as the carousel agent — see services/carouselRefine.js for how
-// the reference is assembled and the result spliced back in.
-async function refineCarousel({
-  source, currentHtml, direction, instruction, scope, focus, pictures, brand, themeId, image, expectedSlides,
-}) {
-  const theme = themeById(resolveThemeId(themeId || direction, {}));
-  const assembled = assembleAgentPrompt('plan-carousel-refine.md', {
-    INSTRUCTION: String(instruction || '').trim(),
-    SCOPE: String(scope || 'All slides'),
-    FOCUS: focus ? json(focus) : 'None — the instruction is about the slide(s) in scope as a whole.',
-    SLIDE_PICTURES: json(pictures || []),
-    CURRENT_CAROUSEL: String(currentHtml || ''),
-    BRAND_STYLE: optionalPromptJson(brandStyleOf(brand)),
-    BRAND_JSON: optionalPromptJson(brandMemoryOf(brand)),
-    // the carousel's own direction wins: a theme whose direction differs would
-    // tell the model to re-skin what the studio has been editing
-    THEME_REFERENCE: theme && (!direction || theme.direction === direction)
-      ? themeReferenceForPrompt(theme)
-      : `Keep the look of CURRENT_CAROUSEL — data-direction="${direction}", its CSS and its type.`,
-  });
-  const fakePost = { content: { slides: Array.from({ length: Number(expectedSlides) || 0 }, () => ({})) } };
-  return withLayoutSlot(() => callAgent({
-    source,
-    kind: 'carousel',
-    system: assembled.system,
-    user: assembled.user,
-    prompt: assembled.prompt,
-    image,
-    parse: 'html',
-    htmlDirection: direction || theme?.direction || 'architectural-minimal',
-    validate: (parsed) => validateCarousel(parsed, fakePost),
-  }));
-}
-
 async function attachCarousel({ label, structure, writer, collect, dayBrief, dayAssets, brand }) {
   if (!carouselAgentEnabled() || !writer || writerFailed(writer.parsed)) return null;
   try {
@@ -3389,7 +3350,6 @@ async function runMultiAgentPlan({
 module.exports = {
   runMultiAgentPlan,
   runLayoutForPost,
-  refineCarousel,
   generateRequestedVisual,
   requestedVisualAvailable,
   writeLayoutVariations,

@@ -80,6 +80,14 @@ const AGENTS = {
     providerEnv: 'PLAN_REEL_CAPTIONS_PROVIDER',
     defaultModel: 'gpt-5.6-terra',
   },
+  // Editor mode's prompt edits: GPT-6 at low reasoning (effort set in
+  // llmComplete.reasoningEffortFor — PLAN_SLIDE_EDIT_REASONING_EFFORT).
+  slideEdit: {
+    defaultProvider: 'openai',
+    modelEnv: 'PLAN_SLIDE_EDIT_MODEL',
+    providerEnv: 'PLAN_SLIDE_EDIT_PROVIDER',
+    defaultModel: 'gpt-6-astra',
+  },
   reelAnimations: {
     defaultProvider: 'openai',
     modelEnv: 'PLAN_REEL_ANIMATIONS_MODEL',
