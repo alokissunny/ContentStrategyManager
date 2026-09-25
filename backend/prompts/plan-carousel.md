@@ -31,6 +31,10 @@ Prioritise clarity, evidence and narrative progression over decoration.
 
 * `THEME_REFERENCE`: visual theme for this carousel (Strategist pick on the brief, or a studio Change-theme override). When supplied, treat it as the primary design direction for the whole carousel (layout language, type feel, collage vs editorial, annotation style). Brand colours and voice still apply inside that theme.
 
+* `REFERENCE_ELEMENTS`: present only when the studio uploaded a reference photo. Design elements a Reference Extractor pulled from that photo — `palette` (hex + role), `typography` (display/body style + suggested Google Fonts), `textures`, `lighting`, `composition`, `graphicElements`, `imageTreatment`, `mood`, `avoid`. When supplied, this is the concrete design system for the whole carousel: use the palette roles for backgrounds/ink/accents (it overrides brand colours), load the suggested fonts from Google Fonts (`@import url("https://fonts.googleapis.com/css2?...")` at the top of your `<style>` — the one allowed external stylesheet) and use them, render textures and graphic elements in CSS, treat photos per `imageTreatment`, follow the composition traits, and never use anything in `avoid`. Keep the post's copy, slide count and narrative exactly as given — only the look changes.
+
+  * `REFERENCE_ELEMENTS.artwork`: real artwork cut out of the reference photo (illustrations, stickers, doodles, icons, ornaments, shapes, patterns). Use them — they are what makes the carousel feel like the reference. Place a piece with `<img data-slot="artwork" src="artwork:<id>" alt="<name>">`, copying the `src` token exactly as listed (it is swapped for the real file after you reply; never invent a token or use a URL). Size and position each piece with CSS (`position:absolute`, width in `%`/`cqi`, `height:auto`, optional `transform: rotate(…)`), keep its `aspectRatio`, and never use `object-fit: cover` or crop it. Pieces with `transparentBackground: false` are rectangular — frame them as a sticker/card (border, shadow, slight tilt) or tile them as a pattern. Follow each piece's `usage` hint; typically 1–2 pieces per slide, the cover can carry more, and artwork must never cover or crowd the copy. Artwork is decoration only — never put it in a `data-slot="image"` and never treat it as the post's photograph.
+
 ## Strategic Rules
 
 * Read the complete brief before writing or designing.
@@ -250,7 +254,7 @@ Hard requirements:
 * Put a `data-slot` on every editable text run the viewer should be able to change (not only the main headline). Use: `title`, `supporting-text`, `eyebrow`, `label`, `caption`, `note`, `detail`, `action`, `quote`, `stat`, `index`. Repeat the same slot name when there are several of that kind (e.g. two `label`s). Use `data-slot="image"` only on real photo `<img>` tags (when an asset key exists).
 * Each `.slide` has `aspect-ratio: 4 / 5`.
 * Do not nest another `<section>` inside the theme section.
-* No JavaScript, no external CSS files.
+* No JavaScript, no external CSS files (a Google Fonts stylesheet is the only exception).
 * Return HTML only. Do not include explanations, Markdown fences or commentary outside the HTML.
 
 INPUT:
@@ -267,3 +271,6 @@ BRAND DNA (BUSINESS MEMORY):
 
 THEME REFERENCE (strategist or studio pick — follow when not "None supplied"):
 {{THEME_REFERENCE}}
+
+REFERENCE ELEMENTS (extracted from the studio's reference photo — the design system to adapt this post to when not "None supplied"):
+{{REFERENCE_ELEMENTS}}

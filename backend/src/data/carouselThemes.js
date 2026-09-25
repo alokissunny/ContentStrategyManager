@@ -129,21 +129,21 @@ function themeReferenceForPrompt(theme) {
 }
 
 // A one-off "theme" built from a studio-uploaded photo (Change theme › Upload a
-// reference) instead of the fixed catalog above. `analysis` is the vision
-// analyzeImageAsset() result for that photo — its description/colours/mood
-// become the carousel agent's visual reference, same shape as a catalog entry
-// so writeCarousel() can use either interchangeably.
-function customReferenceTheme(analysis) {
+// reference) instead of the fixed catalog above. `elements` is the Reference
+// Extractor agent's output for that photo (referenceExtractor.js). The full
+// element set is also passed to the carousel agent as REFERENCE_ELEMENTS; this
+// reference text is the short direction, same shape as a catalog entry so
+// writeCarousel() can use either interchangeably.
+function customReferenceTheme(elements) {
+  const e = elements || {};
   const bits = [
     'Visual reference supplied by the studio: a photograph they like the look of, attached to this message — look at it directly (not part of this post’s own content — do not depict this exact scene).',
-    analysis?.description || analysis?.summary
-      ? `What the photo shows: ${analysis.description || analysis.summary}`
+    e.summary ? `Aesthetic: ${e.summary.replace(/\.?$/, '.')}` : '',
+    Array.isArray(e.palette) && e.palette.length
+      ? `Palette: ${e.palette.map((c) => `${c.hex} ${c.role}`).join(', ')}.`
       : '',
-    Array.isArray(analysis?.colors) && analysis.colors.length
-      ? `Its dominant colours: ${analysis.colors.join(', ')}.`
-      : '',
-    analysis?.mood ? `Its mood/tone: ${analysis.mood}.` : '',
-    'Read the attached photo yourself for the exact palette, materials/texture, lighting and composition — the notes above are a starting point, not a substitute. Design this carousel so its palette, mood, materials/texture and composition energy evoke this reference — adapt its aesthetic direction into an Instagram carousel design system; do not literally reproduce the photo.',
+    Array.isArray(e.mood) && e.mood.length ? `Mood: ${e.mood.join(', ')}.` : '',
+    'The REFERENCE ELEMENTS block lists the design elements extracted from this photo (palette roles, type, textures, composition, graphic motifs, image treatment, things to avoid) — build the carousel design system from them, and check the attached photo for anything they miss. Adapt this aesthetic to an Instagram carousel; do not literally reproduce the photo.',
   ].filter(Boolean);
   return {
     id: 'custom-reference',

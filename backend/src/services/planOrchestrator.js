@@ -11,6 +11,7 @@ const { publicMediaUrl, isCdnConfigured, getMediaUrl, isS3Configured } = require
 const { isImageGenConfigured: isOpenAIImageConfigured, generateImage: renderOpenAIImage } = require('./openaiImage');
 const { buildImagePrompt, persistGeneratedImage } = require('./generatedImage');
 const { themeById, themeReferenceForPrompt, themesForStrategistPrompt, resolveThemeId, DEFAULT_THEME_ID } = require('../data/carouselThemes');
+const { resolveArtworkTokens, artworkForPrompt } = require('./referenceExtractor');
 
 const PROMPTS_DIR = path.join(__dirname, '..', '..', 'prompts');
 const cache = {};
@@ -2304,7 +2305,7 @@ function runLayoutForPost(opts) {
   return writeLayout(opts);
 }
 
-async function writeCarousel({ source, structure, post, dayBrief, brand, dayWriterOutput, themeId, referenceTheme, referenceImage }) {
+async function writeCarousel({ source, structure, post, dayBrief, brand, dayWriterOutput, themeId, referenceTheme, referenceImage, referenceElements }) {
   const hasStructure = Array.isArray(structure?.slidesOrScenes) && structure.slidesOrScenes.length > 0;
   const carouselInput = hasStructure
     ? carouselInputOf(structure, post, dayBrief)
@@ -2330,12 +2331,20 @@ async function writeCarousel({ source, structure, post, dayBrief, brand, dayWrit
         `(structureSlides=${structureSlides} postSlides=${postSlideCount})`,
     );
   }
+  // Reference Extractor output — only alongside its own reference theme.
+  const useReference = Boolean(referenceTheme && theme === referenceTheme && referenceElements);
+  const referenceArtwork = useReference && Array.isArray(referenceElements.artwork)
+    ? referenceElements.artwork
+    : [];
   const assembled = assembleAgentPrompt('plan-carousel.md', {
     CONTENT_STRUCTURE_JSON: json(carouselInput),
     DAY_WRITER_OUTPUT: optionalPromptJson(dayWriterOutput),
     BRAND_STYLE: optionalPromptJson(brandStyleOf(brand)),
     BRAND_JSON: optionalPromptJson(brandMemoryOf(brand)),
     THEME_REFERENCE: themeReferenceForPrompt(theme),
+    REFERENCE_ELEMENTS: useReference
+      ? json({ ...referenceElements, artwork: artworkForPrompt(referenceArtwork) })
+      : 'None supplied.',
     contentStructure: json(carouselInput),
     dayWriterOutput: optionalPromptJson(dayWriterOutput),
     brandStyle: optionalPromptJson(brandStyleOf(brand)),
@@ -2356,7 +2365,14 @@ async function writeCarousel({ source, structure, post, dayBrief, brand, dayWrit
     image: theme === referenceTheme ? referenceImage : undefined,
     parse: 'html',
     htmlDirection: theme?.direction || 'architectural-minimal',
-    validate: (parsed) => validateCarousel(parsed, post),
+    validate: (parsed) => {
+      // Swap `artwork:<id>` tokens for the lifted artwork's stored URLs before
+      // the slides are split out, so every slide piece carries the real src.
+      if (referenceArtwork.length && parsed?.html) {
+        parsed.html = resolveArtworkTokens(parsed.html, referenceArtwork);
+      }
+      return validateCarousel(parsed, post);
+    },
   }));
   if (result?.parsed && theme?.id) {
     result.parsed.themeId = theme.id;

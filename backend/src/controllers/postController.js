@@ -4,7 +4,7 @@ const { generateWeeklyPlan, buildEmptySlots, isoDate, parseIsoDate } = require('
 const { rewriteCaption } = require('../services/captionPolish');
 const { refineCarouselFromEdits } = require('../services/carouselRefine');
 const { runLayoutForPost, writeLayoutVariations, applyLayoutToContent, normalizeWriterPost, attachGeneratedVisuals } = require('../services/planOrchestrator');
-const { analyzeImageAsset, loadReferenceImage } = require('../services/imageAnalysis');
+const { extractReferenceElements } = require('../services/referenceExtractor');
 const { customReferenceTheme } = require('../data/carouselThemes');
 const { copyFromLayoutHtml, injectImageIntoSlots } = require('../services/layoutHtml');
 const { compileBrandMemory } = require('../services/planContext');
@@ -991,17 +991,18 @@ async function rerunLayout(req, res) {
   const referenceImageKey = String(req.body?.referenceImageKey || '').trim();
   let referenceTheme = null;
   let referenceImage = null;
+  let referenceElements = null;
   if (referenceImageKey) {
     if (!referenceImageKey.startsWith(`projects/${req.user._id}/`)) {
       return res.status(400).json({ message: 'Invalid reference image.' });
     }
     try {
-      const [analysis, image] = await Promise.all([
-        analyzeImageAsset(referenceImageKey),
-        loadReferenceImage(referenceImageKey),
-      ]);
-      referenceTheme = customReferenceTheme(analysis);
-      referenceImage = image;
+      // Reference Extractor agent: pull the photo's design elements, then pass
+      // them with the reference theme to the carousel agent.
+      const extracted = await extractReferenceElements(referenceImageKey, { userId: req.user._id });
+      referenceElements = extracted.elements;
+      referenceTheme = customReferenceTheme(referenceElements);
+      referenceImage = extracted.image;
     } catch (err) {
       return res.status(422).json({ message: `Could not read that reference photo — ${err.message}` });
     }
@@ -1034,6 +1035,7 @@ async function rerunLayout(req, res) {
       themeId,
       referenceTheme,
       referenceImage,
+      referenceElements,
     });
     if (result.parsed?.status === 'failed') {
       return res.status(422).json({
@@ -1087,6 +1089,9 @@ async function rerunLayout(req, res) {
           })),
         }
         : trace.visual || null,
+      // Reference Extractor output from Change theme › Upload a reference;
+      // cleared on a catalog theme pick so it never goes stale.
+      referenceElements: referenceElements || (referenceImageKey || themeId ? null : trace.referenceElements || null),
     };
     record.markModified('content');
     record.markModified('agentTrace');

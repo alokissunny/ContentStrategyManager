@@ -3,7 +3,8 @@ const BrandAnalysisReport = require('../models/BrandAnalysisReport');
 const Project = require('../models/Project');
 const InstagramProfile = require('../models/InstagramProfile');
 const { generateWeeklyPlan, buildMonthCalendar, dayHasContent, isoDate, parseIsoDate } = require('../services/weeklyPlan');
-const { analyzeImageAsset, loadReferenceImage } = require('../services/imageAnalysis');
+const { analyzeImageAsset } = require('../services/imageAnalysis');
+const { extractReferenceElements } = require('../services/referenceExtractor');
 const { rewriteCaption } = require('../services/captionPolish');
 const { runLayoutForPost, writeLayoutVariations, applyLayoutToContent, normalizeWriterPost, attachGeneratedVisuals } = require('../services/planOrchestrator');
 const { customReferenceTheme } = require('../data/carouselThemes');
@@ -1256,17 +1257,18 @@ async function rerunDayLayout(req, res) {
   const referenceImageKey = String(req.body?.referenceImageKey || '').trim();
   let referenceTheme = null;
   let referenceImage = null;
+  let referenceElements = null;
   if (referenceImageKey) {
     if (!referenceImageKey.startsWith(`projects/${req.user._id}/`)) {
       return res.status(400).json({ message: 'Invalid reference image.' });
     }
     try {
-      const [analysis, image] = await Promise.all([
-        analyzeImageAsset(referenceImageKey),
-        loadReferenceImage(referenceImageKey),
-      ]);
-      referenceTheme = customReferenceTheme(analysis);
-      referenceImage = image;
+      // Reference Extractor agent: pull the photo's design elements, then pass
+      // them with the reference theme to the carousel agent.
+      const extracted = await extractReferenceElements(referenceImageKey, { userId: req.user._id });
+      referenceElements = extracted.elements;
+      referenceTheme = customReferenceTheme(referenceElements);
+      referenceImage = extracted.image;
     } catch (err) {
       return res.status(422).json({ message: `Could not read that reference photo — ${err.message}` });
     }
@@ -1307,6 +1309,7 @@ async function rerunDayLayout(req, res) {
       themeId,
       referenceTheme,
       referenceImage,
+      referenceElements,
     });
     if (result.parsed?.status === 'failed') {
       return res.status(422).json({
@@ -1358,6 +1361,9 @@ async function rerunDayLayout(req, res) {
           })),
         }
         : trace.visual || null,
+      // Reference Extractor output from Change theme › Upload a reference;
+      // cleared on a catalog theme pick so it never goes stale.
+      referenceElements: referenceElements || (referenceImageKey || themeId ? null : trace.referenceElements || null),
     };
     route.markModified('days');
     await route.save();
