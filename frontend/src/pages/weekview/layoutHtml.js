@@ -817,13 +817,21 @@ const SLIDE_FRAME_SHELL = [
 // slide's injected photos and its text (both DOM children) always draw on top.
 // Unset, `--t-ground-image` falls back to `none` and only the flat colour shows.
 const GROUND_LAYER = 'background-color:var(--t-ground-bg,#f4f2ee);background-image:var(--t-ground-image,none);background-size:cover;background-position:center;background-repeat:no-repeat';
+// No blanket `color` here: text inherits it, including text on a slide's own
+// cards (cream notes, stickers) where the set's ink can be unreadable.
+// DynamicLayout's paintSetInk() recolours exactly the text on the ground.
 const SLIDE_FRAME_THEMED_COLOURS = [
-  `html.is-themed,html.is-themed body{${GROUND_LAYER};color:var(--t-ground-fg,#1b100d)}`,
-  `html.is-themed .slide{${GROUND_LAYER};color:var(--t-ground-fg,#1b100d)}`,
+  `html.is-themed,html.is-themed body{${GROUND_LAYER}}`,
+  `html.is-themed .slide{${GROUND_LAYER}}`,
   'html.is-themed .slide em,html.is-themed .slide [data-slot="stat"]{color:var(--t-accent-bg,#ff5227)}',
+  // the marks that point take the accent in both render paths (the document
+  // path also adds this in applyThemeToCarouselDocument)
+  'html.is-themed .slide u,html.is-themed .slide [class*="underline"]{text-decoration-color:var(--t-accent-bg,#ff5227)}',
+  'html.is-themed .slide hr,html.is-themed .slide [data-slot="rule"]{border-color:var(--t-accent-bg,#ff5227)}',
 ].join('');
 const SLIDE_FRAME_THEMED = [
   SLIDE_FRAME_THEMED_COLOURS,
+  'html.is-themed,html.is-themed body,html.is-themed .slide{color:var(--t-ground-fg,#1b100d)}',
   'html.is-themed .slide,html.is-themed .slide *{font-family:var(--t-body-face,sans-serif)}',
   'html.is-themed .slide :is(h1,h2,h3,[data-slot="title"],[data-slot="stat"],[data-slot="quote"]){font-family:var(--t-headline-face,sans-serif)}',
 ].join('');

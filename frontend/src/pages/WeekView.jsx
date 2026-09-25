@@ -500,6 +500,18 @@ function brandStyleVars(store) {
 const FORMAT_ICON = { Reel: 'play', Carousel: 'copy', Post: 'image', Story: 'book-open' };
 // The glyph the post's own format tag wears — a moving waveform for a Reel, the
 // same marks the day cards use for the rest.
+// Dark or light text for a background colour (WCAG relative luminance).
+function readableInkOn(hex) {
+  const m = String(hex || '').replace('#', '').match(/^([0-9a-f]{3}|[0-9a-f]{6})$/i);
+  if (!m) return '';
+  const h = m[1].length === 3 ? m[1].split('').map((c) => c + c).join('') : m[1];
+  const lin = (v) => { const c = v / 255; return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4; };
+  const [r, g, b] = [0, 2, 4].map((i) => lin(parseInt(h.slice(i, i + 2), 16)));
+  const L = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  // contrast against near-black vs white — pick the stronger
+  return (L + 0.05) / (0.012 + 0.05) >= 1.05 / (L + 0.05) ? '#1b100d' : '#ffffff';
+}
+
 const FORMAT_GLYPH = { Reel: 'activity', Carousel: 'copy', Post: 'image', Story: 'book-open' };
 
 function hashtagsOf(day) {
@@ -1861,10 +1873,61 @@ function seedWordDraft(layout, slide, contentType, visual) {
 const EXPORT_IMG_PLACEHOLDER =
   'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
 
-function rasterizeSlide(node, { timeoutMs = 20000 } = {}) {
+// The composed slide lives in a same-origin iframe (DynamicLayout). Its photos
+// are `loading="lazy"`, and the export stage sits far off-screen, so they never
+// load there — they keep the shimmer rule (IMG_SHIMMER_CSS pushes the pixels
+// out of the box with `object-position:-99999px`) and the snapshot came out as
+// an empty frame on Instagram. Force every photo to load, mark it `is-loaded`,
+// and freeze animations (the load fade-in starts at opacity 0) before capture.
+const EXPORT_FREEZE_CSS = '*,*::before,*::after{animation:none!important;transition:none!important}';
+
+function imgsOf(node) {
+  const docs = [];
+  node.querySelectorAll('iframe').forEach((f) => {
+    try { if (f.contentDocument) docs.push(f.contentDocument); } catch { /* cross-origin */ }
+  });
+  return {
+    docs,
+    imgs: [node, ...docs].flatMap((root) => [...root.querySelectorAll('img')]),
+  };
+}
+
+async function readyImagesForExport(node, { timeoutMs = 12000 } = {}) {
+  const { docs, imgs } = imgsOf(node);
+  const styles = docs.map((doc) => {
+    const style = doc.createElement('style');
+    style.setAttribute('data-wv-export', '');
+    style.textContent = EXPORT_FREEZE_CSS;
+    (doc.head || doc.documentElement).appendChild(style);
+    return style;
+  });
+  const loads = imgs
+    .filter((img) => img.getAttribute('src') && !img.classList.contains('is-placeholder'))
+    .map((img) => {
+      if (img.loading === 'lazy') img.loading = 'eager';
+      const loaded = img.complete && img.naturalWidth > 0
+        ? Promise.resolve()
+        : new Promise((resolve) => {
+          img.addEventListener('load', resolve, { once: true });
+          img.addEventListener('error', resolve, { once: true });
+        });
+      return loaded
+        .then(() => (img.decode ? img.decode().catch(() => {}) : null))
+        .then(() => { if (img.naturalWidth > 0) img.classList.add('is-loaded'); });
+    });
+  await Promise.race([
+    Promise.all(loads),
+    new Promise((resolve) => setTimeout(resolve, timeoutMs)),
+  ]);
+  return () => styles.forEach((s) => s.remove());
+}
+
+async function rasterizeSlide(node, { timeoutMs = 20000 } = {}) {
   const w = node.offsetWidth;
   const h = node.offsetHeight;
-  if (!w || !h) return Promise.reject(new Error('Slide has no size to render.'));
+  if (!w || !h) throw new Error('Slide has no size to render.');
+
+  const unfreeze = await readyImagesForExport(node);
 
   // Empty / broken image slots must not abort export. Give them a loadable
   // data-URI for the duration of the snapshot, then restore.
@@ -1882,6 +1945,7 @@ function rasterizeSlide(node, { timeoutMs = 20000 } = {}) {
       if (prev == null || prev === '') img.removeAttribute('src');
       else img.setAttribute('src', prev);
     });
+    unfreeze();
   };
 
   return toSvg(node, {
@@ -3078,9 +3142,16 @@ export default function WeekView({
     const set = slide?.colorSet ? kitSets.find((t) => t.id === slide.colorSet) : null;
     if (!set) return { paint: igVars, themed: hasVisualEdits };
     const p = set.palette || {};
-    const colours = {};
+    const colours = {
+      // the set's ground colour is the point — the Brand Kit's background
+      // texture would paint over it (it did: `bg-offwhite.svg` hid it entirely)
+      '--t-ground-image': 'none',
+      '--wv-ground-img': 'none',
+    };
+    // a set saved without an ink still needs readable text on its ground
+    const ink = p.fg || (p.ground ? readableInkOn(p.ground) : '');
     if (p.ground) { colours['--t-ground-bg'] = p.ground; colours['--wv-neutral'] = p.ground; }
-    if (p.fg) { colours['--t-ground-fg'] = p.fg; colours['--wv-primary'] = p.fg; }
+    if (ink) { colours['--t-ground-fg'] = ink; colours['--wv-primary'] = ink; }
     if (p.accent) { colours['--t-accent-bg'] = p.accent; colours['--wv-accent'] = p.accent; }
     // 'colours' = repaint the palette only; the slide keeps its own typefaces
     return { paint: { ...igVars, ...colours }, themed: 'colours' };

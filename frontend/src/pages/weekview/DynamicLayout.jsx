@@ -36,6 +36,36 @@ function markImagesLoaded(doc) {
   });
 }
 
+// A Brand Kit colour set on a carousel that hard-codes its text colours
+// (`.slide h1{color:#202a32}` rather than a --ink token): CSS alone cannot
+// recolour it without also recolouring text that sits on its own card, where
+// the set's ink may be unreadable. So walk the text: a run that sits directly
+// on the slide's ground (no ancestor with a fill of its own) takes the set's
+// ink, or its accent for the marks that point; text on a card, sticker or
+// photo keeps its colour. A colour the studio set by hand (inline) is kept.
+const ACCENT_MARKS = '[data-slot="eyebrow"],[data-slot="kicker"],[data-slot="label"],[data-slot="index"],[data-slot="stat"],.eyebrow,.kicker,.label,em';
+function paintSetInk(doc) {
+  const win = doc?.defaultView;
+  if (!win) return;
+  const clear = (cs) => cs.backgroundImage === 'none'
+    && (cs.backgroundColor === 'transparent' || /rgba\([^)]*,\s*0\)$/.test(cs.backgroundColor));
+  doc.querySelectorAll('.slide').forEach((slide) => {
+    slide.querySelectorAll('*').forEach((el) => {
+      if (el.closest('[data-wv-edit-ui]') || el.dataset.wvInk === 'studio') return;
+      const direct = [...el.childNodes].some((n) => n.nodeType === 3 && n.textContent.trim());
+      if (!direct) return;
+      if (el.style.color && !el.dataset.wvInk) { el.dataset.wvInk = 'studio'; return; }
+      for (let n = el; n && n !== slide; n = n.parentElement) {
+        if (!clear(win.getComputedStyle(n))) return; // on its own surface
+      }
+      el.dataset.wvInk = 'set';
+      el.style.setProperty('color', el.matches(ACCENT_MARKS)
+        ? 'var(--t-accent-bg, var(--t-ground-fg))'
+        : 'var(--t-ground-fg)', 'important');
+    });
+  });
+}
+
 function trim(value) {
   return String(value || '').trim();
 }
@@ -507,6 +537,7 @@ export default function DynamicLayout({
       doc.head.insertBefore(base, doc.head.firstChild);
     }
     void doc.documentElement.offsetWidth;
+    if (themed === 'colours') paintSetInk(doc);
     // Watch the injected photos so the shimmer placeholder clears when they load
     // (non-document path has src baked in by prepareLayoutHtml; the document path
     // re-marks inside crop() once paintCarouselSlideImages sets each src).
