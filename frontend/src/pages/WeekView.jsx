@@ -66,7 +66,7 @@ import DynamicLayout, { AnnotationOverlay } from './weekview/DynamicLayout';
 import { BrandMark } from './visuallibrary/BrandMark';
 import { bakeSlidePatches, replaceSlideArticle, slideArticleOf, nodeAt } from './weekview/slideEditMode';
 import { auditSlideLayout, measureSlide, slideCssOf } from './weekview/slideAudit';
-import { actionsFor, actionOf, modifierOf, askHint, askSay } from '../lib/askactions';
+import { actionsFor, askHint, askSay, askReady, endOf, trailOf } from '../lib/askactions';
 import { useRecorder, captureSttLanguages } from './checkin/recorder';
 import { rewriteAnnotationText, rewriteLayoutText, rewriteCarouselDocumentText, slotPlain, slideSlotPlain, withSharedLayoutStyles, layoutDirectionOf, themeIdOf, themeDirectionOf, slideIsThemed, optionForTheme, THEME_ORDER, bakeFrozenGeometry, findCarouselSlide, isCarouselDocument, slideRootOf } from './weekview/layoutHtml';
 import { discoverSlideTextRoles, agentHtmlSource, isAgentHtmlSlide } from './weekview/slideTextRoles';
@@ -2911,8 +2911,10 @@ export default function WeekView({
   const [askDraft, setAskDraft] = useState('');
   // The instruction being built as badges (bauhly-v3 lib/askactions.js):
   // subject (This post / the selected element) → action → refinement.
-  const [askAct, setAskAct] = useState(null);
-  const [askTune, setAskTune] = useState(null);
+  // bauhly-v3 lib/askactions.js is a tree: the instruction being built is a
+  // PATH of chip ids (`['rewrite', 'impact']`), shown as a trail above the row.
+  const [askPath, setAskPath] = useState([]);
+  const askAct = askPath[0] || null;
   const [askAll, setAskAll] = useState(false); // the running edit covers every slide
   const [askVisual, setAskVisual] = useState(false); // …and is making a picture first
   const [askPhase, setAskPhase] = useState(''); // what the running edit is doing now
@@ -3675,8 +3677,7 @@ export default function WeekView({
   function resetAsk() {
     setAskOpen(false);
     setAskDraft('');
-    setAskAct(null);
-    setAskTune(null);
+    setAskPath([]);
     setAskMsg(null);
     setAskUndo(null);
     if (askRec.status === 'recording') askRec.stop();
@@ -3713,11 +3714,11 @@ export default function WeekView({
     body: String(activeSlide?.subtitle || activeSlide?.body || '').trim(),
     eyebrow: String(activeSlide?.eyebrow || activeSlide?.kicker || '').trim(),
   };
+  const askLast = slides.length > 1 && safeIdx === slides.length - 1;
   const askCtxNow = {
     kind: askKind,
     role: askRole,
-    action: askAct,
-    modifier: askTune,
+    path: askPath,
     len: askSel ? String(askSel.text || '').length : 0,
     parts: askParts,
     bare: !(askParts.title || askParts.body || askParts.eyebrow),
@@ -3725,11 +3726,24 @@ export default function WeekView({
     hasArt: keysOf(activeSlide).length > 0 || Boolean(activeSlide?.image),
     room: !(askParts.title && askParts.body && askParts.eyebrow),
     slides: slides.length,
+    at: safeIdx,
+    first: safeIdx === 0,
+    last: askLast,
+    // how many runs of words the slide shows (Write it again weighs this)
+    written: [askParts.title, askParts.body, askParts.eyebrow].filter(Boolean).length,
+    hasPhoto: keysOf(activeSlide).length > 0,
+    ctaOn: Boolean(String(activeSlide?.action || '').trim()),
+    nextSaid: Boolean(String(slides[safeIdx + 1]?.title || '').trim()),
+    // what the post can back up (facts / quotes) is on the strategy brief,
+    // which this payload does not carry — so those chips are not offered
+    source: {},
+    dna: {},
     canGenerate: false,
     // the logo is the Brand Kit's mark drawn over every slide, not slide HTML
     canLogo: false,
     acts: ['media', 'upload', 'reference'],
   };
+  const askLeaf = postEdit && askOpen ? endOf(askCtxNow) : null;
   const askList = postEdit && askOpen ? actionsFor(askCtxNow) : [];
   // The subject changing (a different element, another slide) takes the
   // half-built instruction with it — it was about the old one.
@@ -3738,9 +3752,16 @@ export default function WeekView({
   useEffect(() => {
     if (askOnRef.current === askOn) return;
     askOnRef.current = askOn;
-    setAskAct(null);
-    setAskTune(null);
+    setAskPath([]);
   }, [askOn]);
+  // Selecting an element in Editor mode opens the chat on it (bauhly-v3: the
+  // field is always there, and a selection re-aims its suggestions). Focus
+  // stays where it is, so a double-click to type is not interrupted.
+  const selKey = postEdit && elemSel ? `${safeIdx}:${elemSel.path ?? ''}:${elemSel.kind || ''}` : '';
+  useEffect(() => {
+    if (selKey && !visEdit) setAskOpen(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selKey]);
 
   function askDoor(id) {
     if (id === 'media') { openImagePicker(); return; }
@@ -3751,11 +3772,17 @@ export default function WeekView({
   // A chip either opens the place its answer lives, arms the action (a badge
   // in the field + its refinements on the row), or — with an action armed —
   // arms the refinement. Nothing is sent until the studio sends.
+  // (bauhly-v3 `askPress`) a chip with more under it steps down into it; at
+  // the end of a branch, pressing a sibling swaps the leaf and pressing the
+  // chosen one again takes it back. Nothing is sent until the studio sends.
   function askPress(one) {
     if (one.act) { askDoor(one.act); return; }
     setAskMsg(null);
-    if (askAct) { setAskTune(one.id); }
-    else { setAskAct(one.id); setAskTune(null); }
+    if (askLeaf) {
+      setAskPath((was) => (was[was.length - 1] === one.id ? was.slice(0, -1) : [...was.slice(0, -1), one.id]));
+    } else {
+      setAskPath((was) => [...was, one.id]);
+    }
     askInputRef.current?.focus();
   }
 
@@ -3871,10 +3898,18 @@ export default function WeekView({
     // are doors) — sent armed, it is a request for a new picture, described by
     // whatever the studio typed.
     const typed = askDraft.trim();
-    const instruction = askAct === 'visual'
+    // a path through `An image` / `Generate an image` asks for a new picture
+    const wantsPicture = askPath.includes('visual') || askPath.includes('narrative');
+    const said = askPath.length ? askSay(askCtxNow, askDraft) : typed;
+    const instruction = said || (wantsPicture
       ? `Add a visual${typed ? `: ${typed}` : ' that supports this slide'}.`
-      : (askAct ? askSay(askCtxNow, askDraft) : typed);
-    const wantsVisual = askAct === 'visual' || ASKS_VISUAL.test(instruction);
+      : '');
+    const wantsVisual = wantsPicture || ASKS_VISUAL.test(instruction);
+    // what was pressed, exactly — the backend turns it into a precise brief for
+    // the Slide Edit agent, or a picture operation (replace / straighten)
+    const intent = askPath.length
+      ? { kind: askKind, path: [...askPath], labels: trailOf(askKind, askPath).map((n) => n.label) }
+      : null;
     if (!instruction || askBusy || !day) return;
     const postId = postIdAt(selected);
     if (!postId) return;
@@ -3938,15 +3973,15 @@ export default function WeekView({
     setAskBusy(true);
     setAskMsg(null);
     setAskDraft('');
-    setAskAct(null);
-    setAskTune(null);
+    setAskPath([]);
     try {
       const data = await refinePost(postId, {
         instruction,
         slideIndex: every ? null : activeIdx,
         focus: askSel ? { slideIndex: activeIdx, tag: askSel.tag, slot: askSel.slot, text: askSel.text } : null,
-        visual: askAct === 'visual' ? true : undefined,
+        visual: wantsPicture ? true : undefined,
         visualSlideIndex: activeIdx,
+        intent,
         geometry,
         slideCss,
         current: { carouselHtml, direction: activeDir, slides: slidesRef },
@@ -6268,10 +6303,9 @@ export default function WeekView({
 
 
           {askOpen && !visEdit && (() => {
-            const act = askAct ? actionOf(askKind, askAct) : null;
-            const tune = askAct && askTune ? modifierOf(askKind, askAct, askTune) : null;
             const listening = askRec.status === 'recording';
-            const ready = (Boolean(askDraft.trim()) || Boolean(askAct)) && !askBusy && !listening && !askHearing;
+            const ready = (Boolean(askDraft.trim()) || askReady(askCtxNow, askDraft)) && !askBusy && !listening && !askHearing;
+            const trail = trailOf(askKind, askPath);
             const SLOT_NAMES = {
               title: 'The title', eyebrow: 'The kicker', kicker: 'The kicker', subtitle: 'The subtitle',
               'supporting-text': 'The supporting line', body: 'The body text', label: 'The label',
@@ -6284,46 +6318,65 @@ export default function WeekView({
                   || (/^h[1-3]$/.test(askSel.tag || '') ? 'The headline'
                     : askSel.kind === 'text' ? 'The text' : 'The element'))
               : null;
-            const badge = (label, off, key) => (
-              <span className="wv-edm__cmd" key={key}>
-                {label}
-                <button
-                  type="button"
-                  className="wv-edm__cmdx"
-                  aria-label={`Remove ${label}`}
-                  onMouseDown={(e) => { e.preventDefault(); off(); }}
-                >
-                  <Icon name="x" size={12} strokeWidth={2.4} />
-                </button>
-              </span>
-            );
             return (
               <div className="wv-edm__ask" role="region" aria-label="Ask Bauhly">
                 <div className="wv-edm__askin">
+                  {/* where the studio is: the subject, then each chip pressed
+                      (bauhly-v3 `edm-trail`) — "The title › Write it again" */}
+                  <p className="wv-edm__trail">
+                    <span className="wv-edm__trailwho">{subject || 'This post'}</span>
+                    {trail.map((node, i) => (
+                      <span className="wv-edm__trailstep" key={`tr${i}`}>
+                        <span className="wv-edm__trailsep" aria-hidden="true">›</span>
+                        {node.label}
+                      </span>
+                    ))}
+                  </p>
                   <div className="wv-edm__askrow">
-                    <div className="wv-edm__asktries" key={`${askKind}:${askAct || ''}:${askTune || ''}`}>
+                    <button
+                      type="button"
+                      className="wv-edm__askclose"
+                      aria-label={askSel ? 'Deselect' : 'Hide suggestions'}
+                      title={askSel ? 'Deselect' : 'Hide'}
+                      disabled={askBusy}
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        if (askBusy) return;
+                        setAskPath([]);
+                        if (askSel) elemApiRef.current?.deselect();
+                        else setAskOpen(false);
+                      }}
+                    >
+                      <Icon name="x" size={16} strokeWidth={2.4} />
+                    </button>
+                    {askPath.length > 0 && (
+                      <button
+                        type="button"
+                        className="wv-edm__askback"
+                        aria-label="Back"
+                        title="Back"
+                        disabled={askBusy}
+                        onMouseDown={(e) => { e.preventDefault(); setAskPath((was) => was.slice(0, -1)); }}
+                      >
+                        <Icon name="chevron-left" size={17} strokeWidth={2.4} />
+                      </button>
+                    )}
+                    <div className="wv-edm__asktries" key={`${askKind}:${askSel?.path ?? ''}:${askPath.join('/')}`}>
                       {askList.map((one, i) => (
                         <button
                           key={one.id}
                           type="button"
-                          className="wv-edm__asktry"
+                          className={`wv-edm__asktry${askLeaf?.id === one.id ? ' is-on' : ''}`}
+                          aria-pressed={askLeaf ? askLeaf.id === one.id : undefined}
                           style={{ '--i': i }}
                           disabled={askBusy}
                           onMouseDown={(e) => { e.preventDefault(); askPress(one); }}
                         >
                           {one.label}
+                          {one.deeper ? <Icon name="chevron-right" size={14} strokeWidth={2.2} /> : null}
                         </button>
                       ))}
                     </div>
-                    <button
-                      type="button"
-                      className="wv-edm__askx"
-                      onClick={() => { if (!askBusy) { setAskOpen(false); setAskAct(null); setAskTune(null); } }}
-                      aria-label="Hide the field"
-                      disabled={askBusy}
-                    >
-                      <Icon name="x" size={17} strokeWidth={2.4} />
-                    </button>
                   </div>
                   {askMsg && (
                     <p className={`wv-edm__asknote is-${askMsg.tone}`} role="status">
@@ -6337,21 +6390,32 @@ export default function WeekView({
                     className={`wv-edm__askfield${askBusy ? ' is-busy' : ''}${listening ? ' is-listening' : ''}`}
                     onSubmit={(e) => { e.preventDefault(); if (ready) sendAsk(); }}
                   >
-                    {subject
-                      ? badge(subject, () => elemApiRef.current?.deselect(), 'who')
-                      : <span className="wv-edm__asksub">This post</span>}
-                    {act && badge(act.label, () => { setAskAct(null); setAskTune(null); }, 'act')}
-                    {tune && badge(tune.label, () => setAskTune(null), 'tune')}
+                    {/* the chosen end of the branch rides in the field as a quick
+                        link (bauhly-v3 `askPend`); × steps back one level */}
+                    {askLeaf && !askLeaf.act && (
+                      <span className="wv-edm__cmd">
+                        {askLeaf.label}
+                        <button
+                          type="button"
+                          className="wv-edm__cmdx"
+                          aria-label={`Remove ${askLeaf.label}`}
+                          disabled={askBusy}
+                          onMouseDown={(e) => { e.preventDefault(); setAskPath((was) => was.slice(0, -1)); }}
+                        >
+                          <Icon name="x" size={12} strokeWidth={2.4} />
+                        </button>
+                      </span>
+                    )}
                     <input
                       ref={askInputRef}
                       className="wv-edm__askinput"
                       value={askDraft}
                       onChange={(e) => setAskDraft(e.target.value)}
                       onKeyDown={(e) => {
-                        // Backspace on an empty field takes the last badge back
-                        if (e.key === 'Backspace' && !askDraft) {
-                          if (askTune) { e.preventDefault(); setAskTune(null); }
-                          else if (askAct) { e.preventDefault(); setAskAct(null); }
+                        // Backspace on an empty field steps back one chip
+                        if (e.key === 'Backspace' && !askDraft && askPath.length) {
+                          e.preventDefault();
+                          setAskPath((was) => was.slice(0, -1));
                         }
                       }}
                       placeholder={listening ? 'Listening…' : askHearing ? 'Writing down what you said…' : askHint(askCtxNow, subject ? `What should change about ${subject.charAt(0).toLowerCase()}${subject.slice(1)}?` : 'Say what else this should be')}

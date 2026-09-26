@@ -876,6 +876,8 @@ async function refinePost(req, res) {
       geometry: req.body?.geometry && typeof req.body.geometry === 'object' ? req.body.geometry : null,
       // the theme CSS rules that apply to that slide (read-only context)
       slideCss: typeof req.body?.slideCss === 'string' ? req.body.slideCss.slice(0, 16000) : '',
+      // the suggestion chips pressed in the Editor chat: { kind, path, labels }
+      intent: req.body?.intent && typeof req.body.intent === 'object' ? req.body.intent : null,
       debug: steps,
     });
 

@@ -180,7 +180,8 @@ function indexAttr(article) {
 async function editSlideHtml({ instruction, html, newPicture, otherSlides, strategy, brand, slide, layoutIssues, geometry, slideCss } = {}) {
   const ask = String(instruction || '').trim();
   if (!ask) throw err(400, 'Say what should change.');
-  if (ask.length > 800) throw err(400, 'Keep the instruction under 800 characters.');
+  // the studio's words are capped at 800 upstream; the pressed chip's brief rides on top
+  if (ask.length > 2400) throw err(400, 'Keep the instruction under 800 characters.');
   const source = String(html || '').trim();
   if (!/^<article\b/i.test(source)) throw err(400, 'This slide has no layout to edit — try Fix layout first.');
   if (source.length > 60000) throw err(413, 'This slide is too large to edit by prompt.');

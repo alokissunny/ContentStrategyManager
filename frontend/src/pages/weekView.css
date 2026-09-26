@@ -8134,3 +8134,96 @@ span.wv-layed__apply { margin-left: auto; flex-shrink: 0; }
   color: inherit;
   cursor: pointer;
 }
+
+/* ── The chat under the post, bauhly-v3's `edm-try` row (Sep 26) ───────────
+   A trail says where the studio is ("The title › Write it again"); the row
+   starts with × (deselect / hide) and, inside a branch, ‹ back; a chip that
+   opens another level carries a ›, and the chosen leaf is ink. The field is
+   the light composer from the reference. */
+.wv-edm__askin { gap: 10px; }
+.wv-edm__trail {
+  display: flex;
+  align-items: center;
+  flex-wrap: nowrap;
+  overflow: hidden;
+  gap: 2px;
+  min-width: 0;
+  margin: 0;
+  padding-inline: 2px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  line-height: 1.4;
+  color: var(--ink-500);
+}
+.wv-edm__trailwho,
+.wv-edm__trailstep { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.wv-edm__trailstep { display: inline-flex; align-items: center; gap: 2px; }
+.wv-edm__trailstep:last-child { flex: 0 0 auto; color: var(--ink-900); font-weight: 700; }
+.wv-edm__trailsep { color: var(--ink-300, var(--border-strong)); padding: 0 2px; }
+.wv-edm__askrow { gap: var(--sp-2); }
+.wv-edm__askclose,
+.wv-edm__askback {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border-radius: var(--r-full);
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
+}
+.wv-edm__askclose { border: 1px solid var(--border-strong, var(--border)); background: var(--surface); color: var(--ink-900); }
+.wv-edm__askclose:hover:not(:disabled) { background: var(--surface-sunken); }
+.wv-edm__askback { border: 0; background: var(--ink-900); color: var(--surface); }
+.wv-edm__askback:hover:not(:disabled) { background: var(--ink-800, #26262c); }
+.wv-edm__askclose:disabled,
+.wv-edm__askback:disabled { opacity: 0.5; cursor: default; }
+.wv-edm__asktry { display: inline-flex; align-items: center; gap: 6px; }
+.wv-edm__asktry > svg { color: var(--ink-500); margin-right: -4px; }
+.wv-edm__asktry.is-on,
+.wv-edm__asktry.is-on:hover:not(:disabled) { background: var(--ink-900); color: var(--surface); }
+.wv-edm__asktry.is-on > svg { color: color-mix(in srgb, var(--surface) 62%, transparent); }
+
+/* the light composer */
+.wv-edm__askfield {
+  background: var(--surface);
+  color: var(--ink-900);
+  border: 1px solid var(--border);
+  box-shadow: 0 18px 44px -20px rgba(22, 22, 26, 0.28);
+  --focus-ring: var(--ink-900);
+}
+.wv-edm__askinput { color: var(--ink-900); caret-color: var(--ink-900); }
+.wv-edm__askinput::placeholder { color: var(--ink-500); }
+.wv-edm__askmic { background: var(--surface-sunken); color: var(--ink-700, var(--ink-900)); }
+.wv-edm__askmic:hover:not(:disabled) { background: var(--ink-100); }
+.wv-edm__askmic.is-on { background: var(--ink-900); color: #fff; }
+.wv-edm__asksend:disabled { background: var(--surface-sunken); color: var(--ink-400, var(--ink-500)); }
+
+/* the quick link in the light composer: the chosen chip, blue on pale blue */
+.wv-edm__askfield .wv-edm__cmd {
+  height: 36px;
+  padding: 0 8px 0 14px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--blue-500, #3b6cff) 12%, #fff);
+  color: var(--blue-600, #2a5bd7);
+  font-size: 15px;
+  font-weight: 600;
+}
+.wv-edm__askfield .wv-edm__cmdx { color: inherit; opacity: 0.8; }
+.wv-edm__askfield .wv-edm__cmdx:hover { opacity: 1; background: color-mix(in srgb, var(--blue-500, #3b6cff) 16%, transparent); }
+/* the mock's composer is a pale grey pill, not a bordered white one */
+.wv-edm__askfield { background: var(--surface-sunken, #f5f5f7); border-color: transparent; box-shadow: none; }
+.wv-edm__askmic { background: var(--ink-100, #ececf0); }
+/* the field is the pill — the text input inside it never draws its own ring
+   (the app-wide :focus-visible outline was boxing it in ink) */
+.wv-edm__askfield .wv-edm__askinput,
+.wv-edm__askfield .wv-edm__askinput:focus,
+.wv-edm__askfield .wv-edm__askinput:focus-visible {
+  outline: none;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  background: transparent;
+}

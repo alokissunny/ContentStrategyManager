@@ -16,6 +16,11 @@
  */
 const { generateRequestedVisual, requestedVisualAvailable } = require('./planOrchestrator');
 const { editSlideHtml } = require('./slideEditAgent');
+const { planIntent, focusedImage, swapFocusedImage, attrOf, PERSPECTIVE_PROMPT } = require('./slideActions');
+const { editImage } = require('./openaiImage');
+const { persistGeneratedImage } = require('./generatedImage');
+const { getObjectBytes, getMediaUrl } = require('./s3Client');
+const { toVisionImage } = require('./visionImage');
 const {
   extractHtmlDocument,
   parseCarouselDocument,
@@ -173,9 +178,13 @@ function previewOf(composed, slides) {
 // a later step fails.
 async function refineCarouselFromEdits({
   userId, handle, label, instruction, slideIndex, focus, current, brand,
-  visual: visualFlag, visualSlideIndex, slideRecords, strategy, layoutIssues, geometry, slideCss, debug,
+  visual: visualFlag, visualSlideIndex, slideRecords, strategy, layoutIssues, geometry, slideCss, debug, intent,
 }) {
   const t0 = Date.now();
+  // the chip path that was pressed (Editor chat) — a precise brief for the
+  // agent, or a picture operation it cannot do by rewriting html
+  const plan = planIntent(intent);
+  if (plan.unsupported) throw err(422, plan.unsupported);
   const ask = String(instruction || '').trim();
   if (!ask) throw err(400, 'Say what should change.');
   if (ask.length > 800) throw err(400, 'Keep the instruction under 800 characters.');
@@ -193,7 +202,8 @@ async function refineCarouselFromEdits({
     const i = composed.articles.findIndex((a) => a.index === index);
     return (slides[i]?.assetKeys || []).filter((k) => String(k).startsWith(own));
   };
-  const wantsVisual = asksForVisual(ask, visualFlag);
+  const pictureOp = (plan.op === 'replace' || plan.op === 'perspective') ? plan.op : '';
+  const wantsVisual = !pictureOp && (plan.op === 'add' || asksForVisual(ask, visualFlag));
   logStep(debug, {
     source: 'Prompt edit · request',
     prompt: {
@@ -201,6 +211,9 @@ async function refineCarouselFromEdits({
       scope: target ? `slide ${target} of ${n}` : `all ${n} slides`,
       focus: focus || null,
       visualRequested: wantsVisual,
+      pressed: plan.pressed || null,
+      pictureOp: pictureOp || plan.op || null,
+      brief: plan.brief || null,
     },
     output: { slides: target ? [target] : composed.articles.map((a) => a.index) },
     elapsedMs: Date.now() - t0,
@@ -256,6 +269,110 @@ async function refineCarouselFromEdits({
     }
   }
 
+  // ── a picture operation on the selected image: done directly ────────────
+  // `Generate a new image` / `Correct the perspective` change what ONE picture
+  // shows, not the slide — so the new bytes go into the selected <img> in
+  // place (same box, same classes) and the html agent is not called at all.
+  const picAt = target || Number(focus?.slideIndex) || null;
+  const picArticle = pictureOp && picAt ? composed.articles.find((a) => a.index === picAt) : null;
+  const picTag = picArticle ? focusedImage(picArticle.html) : null;
+  if (pictureOp && !picTag) throw err(400, 'Select the picture first, then choose what to do with it.');
+  if (pictureOp) {
+    const tp = Date.now();
+    let made = null;
+    if (pictureOp === 'perspective') {
+      const key = attrOf(picTag.tag, 'data-asset-key');
+      const src = attrOf(picTag.tag, 'src');
+      if (!key && !/^https?:\/\//i.test(src)) throw err(400, 'This frame has no photo to straighten yet.');
+      let bytes;
+      if (key) {
+        bytes = await getObjectBytes(key);
+      } else {
+        const r = await fetch(src);
+        if (!r.ok) throw err(502, 'Could not read the photo to straighten.');
+        bytes = { buffer: Buffer.from(await r.arrayBuffer()), contentType: r.headers.get('content-type') || '' };
+      }
+      const vision = await toVisionImage(bytes.buffer, bytes.contentType, key || src);
+      const edited = await editImage({ buffer: vision.buffer, mediaType: vision.mediaType, prompt: PERSPECTIVE_PROMPT });
+      const stored = await persistGeneratedImage({ userId, handle, buffer: edited.buffer, mimeType: edited.mimeType, prompt: PERSPECTIVE_PROMPT, model: edited.model });
+      let url = '';
+      try { url = await getMediaUrl(stored.key); } catch { /* resolves client-side by key */ }
+      made = { ok: true, key: stored.key, src: url, alt: attrOf(picTag.tag, 'alt'), placement: 'replace', model: edited.model, usage: { imageElapsedMs: edited.elapsedMs, imageCostUsd: edited.estimatedCostUsd, estimatedCostUsd: edited.estimatedCostUsd } };
+      logStep(debug, {
+        source: 'Prompt edit · Image edit (perspective)',
+        model: edited.model,
+        prompt: `${PERSPECTIVE_PROMPT}\n\nSource: ${key || src}`,
+        output: { key: stored.key, url },
+        elapsedMs: edited.elapsedMs,
+        usage: { estimatedCostUsd: edited.estimatedCostUsd },
+      });
+    } else {
+      if (!requestedVisualAvailable()) throw err(503, 'Image generation is not configured.');
+      const record = (Array.isArray(slideRecords) ? slideRecords : [])
+        .find((x, i) => (Number(x?.index) > 0 ? Number(x.index) : i + 1) === picAt) || { index: picAt };
+      const wanted = attrOf(picTag.tag, 'data-image-request') || attrOf(picTag.tag, 'alt');
+      made = await generateRequestedVisual({
+        source: `SlideEdit:${label}#${picAt}:replace`,
+        request: [ask, wanted ? `The picture this frame is for: ${wanted}` : ''].filter(Boolean).join('\n'),
+        slide: record,
+        existingPictures: [],
+        brief: strategy || {},
+        brand,
+        userId,
+        handle,
+      });
+      if (made?.debugEntry) {
+        logStep(debug, {
+          source: 'Prompt edit · Visual agent (image brief)',
+          model: made.debugEntry.model,
+          prompt: made.debugEntry.prompt,
+          output: made.debugEntry.output,
+          elapsedMs: made.debugEntry.elapsedMs,
+          usage: made.debugEntry.usage,
+        });
+      }
+      if (!made?.ok) throw err(422, made?.skipReason || 'Bauhly could not make a picture for this frame.');
+      logStep(debug, {
+        source: 'Prompt edit · Image render',
+        model: made.model,
+        prompt: made.finalPrompt,
+        output: { key: made.key, url: made.src },
+        elapsedMs: made.usage?.imageElapsedMs,
+        usage: { estimatedCostUsd: made.usage?.imageCostUsd },
+      });
+    }
+    const swapped = swapFocusedImage(picArticle.html, made);
+    if (!swapped) throw err(422, 'Could not find the selected picture on the slide.');
+    const i = composed.articles.findIndex((a) => a.index === picAt);
+    const articles = composed.articles.map((a, j) => (j === i ? withIndex(swapped, a.index) : a.html));
+    const html = `<!DOCTYPE html>\n<html><head><meta charset="utf-8"></head><body>\n<section data-direction="${composed.direction}">\n${composed.styles.join('\n')}\n${articles.join('\n')}\n</section>\n</body></html>`;
+    const parsed = parseCarouselDocument(html, n);
+    if (!parsed.slides.length) throw err(502, 'Bauhly returned a slide the editor cannot read — try again.');
+    const slideKeys = { [picAt]: slotKeysOf(articles[i], keysAt(picAt), own) };
+    logStep(debug, {
+      source: 'Prompt edit · result (saved)',
+      prompt: `${plan.pressed || ask} — picture ${pictureOp === 'perspective' ? 'straightened' : 'replaced'} on slide ${picAt}.`,
+      output: { changed: [picAt], slideKeys, key: made.key },
+      elapsedMs: Date.now() - tp,
+      preview: previewOf(composed, [{ index: picAt, before: picArticle.html, after: articles[i] }]),
+    });
+    return {
+      html: parsed.html,
+      slides: parsed.slides,
+      direction: composed.direction,
+      changed: [picAt],
+      slideKeys,
+      visual: { ...made, placed: true },
+      model: made.model || '',
+      usage: { totalTokens: 0, estimatedCostUsd: Number(made.usage?.estimatedCostUsd) || 0 },
+    };
+  }
+
+  // the pressed chip's meaning goes to the agent with the studio's sentence
+  const agentAsk = plan.brief
+    ? `${ask}\n\nWHAT WAS PRESSED: ${plan.pressed}\nWHAT IT MEANS: ${plan.brief}`
+    : (plan.pressed ? `${ask}\n\nWHAT WAS PRESSED: ${plan.pressed}` : ask);
+
   // ── the Slide Edit agent: one slide's html + the change, per slide ───────
   const plain = (html) => String(html || '').replace(/<style\b[\s\S]*?<\/style>/gi, ' ')
     .replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim();
@@ -266,7 +383,7 @@ async function refineCarouselFromEdits({
       const rec = (Array.isArray(slideRecords) ? slideRecords : [])
         .find((x, i) => (Number(x?.index) > 0 ? Number(x.index) : i + 1) === a.index) || {};
       const r = await editSlideHtml({
-        instruction: ask,
+        instruction: agentAsk,
         html: a.html,
         newPicture: visual?.ok && a.index === visualAt ? visual : null,
         otherSlides: flowLines,

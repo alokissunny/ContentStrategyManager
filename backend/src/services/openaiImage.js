@@ -123,4 +123,68 @@ async function generateImage(prompt, opts = {}) {
   };
 }
 
-module.exports = { generateImage, isImageGenConfigured, estimateImageCostUsd, DEFAULT_MODEL };
+/**
+ * Edit an existing picture with a prompt (gpt-image-1 image edit) — Editor
+ * mode's picture actions, e.g. `Correct the perspective`. The source bytes go
+ * in as the image; the output keeps the source's shape (`size: 'auto'`).
+ * @param {{ buffer: Buffer, mediaType: string, prompt: string, quality?: string }} p
+ * @returns {Promise<{ buffer, mimeType, model, elapsedMs, estimatedCostUsd }>}
+ */
+async function editImage({ buffer, mediaType, prompt, quality } = {}) {
+  const text = String(prompt || '').trim();
+  if (!text) throw new Error('A prompt is required to edit an image.');
+  if (!buffer || !buffer.length) throw new Error('There is no picture to edit.');
+  const { toFile } = require('openai');
+  const client = getOpenAIClient();
+  const model = DEFAULT_MODEL;
+  const q = quality || DEFAULT_QUALITY;
+  const timeout = Number(process.env.OPENAI_IMAGE_TIMEOUT_MS) || 120000;
+  const type = /png|webp|jpe?g/i.test(String(mediaType || '')) ? mediaType : 'image/jpeg';
+  const ext = type.includes('png') ? 'png' : (type.includes('webp') ? 'webp' : 'jpg');
+  // keep the photo's shape: gpt-image-1 edits come back in one of three sizes,
+  // and `auto` was observed returning a square for a 3:4 portrait
+  let size = '1024x1536';
+  try {
+    const sharp = require('sharp');
+    const meta = await sharp(buffer).rotate().metadata();
+    const w = Number(meta.width) || 0;
+    const h = Number(meta.height) || 0;
+    // EXIF orientation 5–8 swaps width and height
+    const [W, H] = Number(meta.orientation) >= 5 ? [h, w] : [w, h];
+    if (W && H) size = W / H > 1.15 ? '1536x1024' : (H / W > 1.15 ? '1024x1536' : '1024x1024');
+  } catch { /* keep the portrait default — carousels are 4:5 */ }
+  const started = Date.now();
+  const file = await toFile(buffer, `source.${ext}`, { type });
+  let response;
+  try {
+    response = await client.images.edit(
+      {
+        model,
+        image: file,
+        prompt: text,
+        size,
+        quality: q,
+        n: 1,
+        output_format: OUTPUT_FORMAT,
+        ...(OUTPUT_FORMAT === 'png' ? {} : { output_compression: OUTPUT_COMPRESSION }),
+      },
+      { timeout },
+    );
+  } catch (err) {
+    console.warn('[openaiImage] edit rejected, retrying minimal request:', err?.message || err);
+    const again = await toFile(buffer, `source.${ext}`, { type });
+    response = await client.images.edit({ model, image: again, prompt: text, size, n: 1 }, { timeout });
+  }
+  const b64 = response?.data?.[0]?.b64_json;
+  if (!b64) throw new Error('The image model returned no picture.');
+  return {
+    buffer: Buffer.from(b64, 'base64'),
+    mimeType: FORMAT_MIME[OUTPUT_FORMAT] || 'image/png',
+    model,
+    elapsedMs: Date.now() - started,
+    size,
+    estimatedCostUsd: estimateImageCostUsd(size, q),
+  };
+}
+
+module.exports = { generateImage, editImage, isImageGenConfigured, estimateImageCostUsd, DEFAULT_MODEL };

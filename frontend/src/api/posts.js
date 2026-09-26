@@ -257,14 +257,14 @@ export function runPostLayout(id, { themeId, referenceImageKey } = {}) {
 // each slide's pictures) — the reference the model rebuilds from. The server
 // saves the result and returns the post. slideIndex null = every slide.
 // → { post, changed: [slideIndex…] }
-export function refinePost(id, { instruction, slideIndex, focus, current, visual, visualSlideIndex, layoutIssues, geometry, slideCss } = {}) {
+export function refinePost(id, { instruction, slideIndex, focus, current, visual, visualSlideIndex, layoutIssues, geometry, slideCss, intent } = {}) {
   // one debug-panel group per edit: every step's input and output, then a
   // summary row with the instruction — on failure too
   const label = layoutIssues?.length
     ? `Prompt edit — layout repair (${layoutIssues.length} problem${layoutIssues.length === 1 ? '' : 's'})`
     : `Prompt edit — “${String(instruction || '').slice(0, 60)}${String(instruction || '').length > 60 ? '…' : ''}”`;
   return client
-    .post(`/posts/${id}/refine`, { instruction, slideIndex, focus, current, visual, visualSlideIndex, layoutIssues, geometry, slideCss }, { timeout: 540000 })
+    .post(`/posts/${id}/refine`, { instruction, slideIndex, focus, current, visual, visualSlideIndex, layoutIssues, geometry, slideCss, intent }, { timeout: 540000 })
     .then((res) => {
       const data = res.data || {};
       ingestPlanDebug(label, data);
