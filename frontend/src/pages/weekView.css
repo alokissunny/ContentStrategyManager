@@ -8089,3 +8089,48 @@ span.wv-layed__apply { margin-left: auto; flex-shrink: 0; }
   color: #fff;
 }
 .wv-confirm__bad.btn--primary:hover { background: color-mix(in srgb, var(--negative, #d92d20) 88%, #000); }
+
+/* Slide › Add before/after — "Writing slide N from your capture…" while the
+   Add Slide agent works, or why it could not */
+.wv-edm__note {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  position: absolute;
+  top: var(--sp-3, 12px);
+  left: 50%;
+  transform: translateX(-50%);
+  max-width: calc(var(--edm-card-w, 360px) - 24px);
+  padding: 8px 14px;
+  border-radius: var(--r-full, 999px);
+  background: var(--ink-900);
+  color: var(--surface);
+  font-size: 13.5px;
+  font-weight: 500;
+  box-shadow: 0 10px 28px -12px rgba(22, 22, 26, 0.45);
+  z-index: 25;
+  white-space: nowrap;
+}
+.wv-edm__note.is-err { white-space: normal; }
+.wv-edm__note.is-err { background: var(--negative-soft, #feefec); color: var(--negative, #d92d20); }
+.wv-edm__notespin {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 2px solid color-mix(in srgb, currentColor 30%, transparent);
+  border-top-color: currentColor;
+  animation: wv-edm-spin 0.8s linear infinite;
+}
+@keyframes wv-edm-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .wv-edm__notespin { animation: none; } }
+.wv-edm__notex {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}

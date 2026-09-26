@@ -285,6 +285,39 @@ export function refinePost(id, { instruction, slideIndex, focus, current, visual
     });
 }
 
+// The project a post was written from — Add slide files its capture there.
+// → { projectId, projectName }
+export function getPostProject(id) {
+  return client.get(`/posts/${id}/project`).then((r) => r.data || {});
+}
+
+// Editor mode › Slide › Add before / Add after: the Add Slide agent writes one
+// new slide at `at` (0-based) from the studio's capture + the post's strategy.
+// → { post, index (the new slide's 1-based index), visual }
+export function addSlideFromCapture(id, { at, capture, current } = {}) {
+  const label = `Add slide — “${String(capture?.text || '').slice(0, 60)}${String(capture?.text || '').length > 60 ? '…' : ''}”`;
+  return client
+    .post(`/posts/${id}/slides`, { at, capture, current }, { timeout: 300000 })
+    .then((res) => {
+      const data = res.data || {};
+      ingestPlanDebug(label, data);
+      return data;
+    })
+    .catch((err) => {
+      const data = err?.response?.data;
+      if (data?.debug) ingestPlanDebug(label, data);
+      else {
+        addAiDebugEntry({
+          source: label,
+          prompt: String(capture?.text || ''),
+          output: `Error — ${data?.message || err?.message || 'request failed'}`,
+          note: 'mode: add-slide · failed before the server answered',
+        });
+      }
+      throw err;
+    });
+}
+
 // Run the on-demand Layout Variation agent for ONE slide (Change layout).
 // slideIndex is the slide's 1-based data-index. → { options, slideIndex }
 export function runSlideLayoutVariations(id, slideIndex) {

@@ -54,6 +54,8 @@ app.use((req, res, next) => {
   if (req.originalUrl.includes('/reels/edit')) return reelJsonParser(req, res, next);
   // Editor mode's prompt band sends the whole edited carousel as the reference.
   if (/\/posts\/[^/]+\/refine/.test(req.originalUrl)) return reelJsonParser(req, res, next);
+  // …and Slide › Add before/after sends it too, to write the new slide against
+  if (/\/posts\/[^/]+\/slides(\?|$)/.test(req.originalUrl)) return reelJsonParser(req, res, next);
   return jsonParser(req, res, next);
 });
 app.use(morgan('dev'));

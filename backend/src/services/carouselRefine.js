@@ -354,4 +354,4 @@ async function refineCarouselFromEdits({
   };
 }
 
-module.exports = { refineCarouselFromEdits, composeCurrentCarousel };
+module.exports = { refineCarouselFromEdits, composeCurrentCarousel, withIndex, slotKeysOf, logStep, previewOf };

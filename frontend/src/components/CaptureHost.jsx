@@ -12,10 +12,13 @@ const CaptureChat = React.lazy(() => import('../pages/Projects').then((m) => ({ 
  */
 export default function CaptureHost() {
   const [open, setOpen] = useState(false);
+  // a capture aimed at one thing (Add slide) — see lib/captureUi
+  const [aim, setAim] = useState(null);
   const projects = useProjects();
   const navigate = useNavigate();
 
-  useEffect(() => subscribeCaptureIdea(() => {
+  useEffect(() => subscribeCaptureIdea((options) => {
+    setAim(options && typeof options === 'object' ? options : null);
     ensureProjects({ lite: true })
       .catch(() => {})
       .finally(() => setOpen(true));
@@ -27,12 +30,26 @@ export default function CaptureHost() {
     <Suspense fallback={null}>
       <CaptureChat
         modal
+        key={aim ? 'aimed' : 'open'}
         defaultProjectId={projects[0]?.id}
+        presetProjectId={aim?.projectId || undefined}
+        opening={aim?.opening || ''}
+        projectName={aim?.projectName || ''}
+        askProject={aim ? aim.askProject !== false : true}
+        maxQuestions={Number.isFinite(aim?.maxQuestions) ? aim.maxQuestions : 4}
+        askMedia={aim ? aim.askMedia !== false : true}
+        savedLine={aim?.savedLine || ''}
         exitLabel="Back"
-        onExit={() => setOpen(false)}
+        onExit={() => { setOpen(false); aim?.onCancel?.(); setAim(null); }}
         onViewProject={() => { setOpen(false); navigate('/dashboard/projects'); }}
-        onCaptured={() => {
+        onCaptured={(captured) => {
           setOpen(false);
+          if (aim?.onSaved) {
+            const done = aim.onSaved;
+            setAim(null);
+            done(captured);
+            return;
+          }
           startPlanGeneration('capture').catch(() => {});
         }}
       />

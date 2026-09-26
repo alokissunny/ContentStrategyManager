@@ -1,8 +1,10 @@
 const PlannedPost = require('../models/PlannedPost');
+const Project = require('../models/Project');
 const InstagramProfile = require('../models/InstagramProfile');
 const { generateWeeklyPlan, buildEmptySlots, isoDate, parseIsoDate } = require('../services/weeklyPlan');
 const { rewriteCaption } = require('../services/captionPolish');
 const { refineCarouselFromEdits } = require('../services/carouselRefine');
+const { addSlideToCarousel } = require('../services/addSlideAgent');
 const { runLayoutForPost, writeLayoutVariations, applyLayoutToContent, normalizeWriterPost, attachGeneratedVisuals } = require('../services/planOrchestrator');
 const { analyzeImageAsset, loadReferenceImage } = require('../services/imageAnalysis');
 const { customReferenceTheme } = require('../data/carouselThemes');
@@ -944,6 +946,148 @@ async function refinePost(req, res) {
   }
 }
 
+// POST /posts/:id/slides — Editor mode › Slide › Add before / Add after. The
+// studio has answered Capture ("What is this new slide about?"); that capture
+// and the post's FULL strategy brief go to the Add Slide agent
+// (services/addSlideAgent.js), which writes one new slide in the carousel's own
+// design. It is spliced in at `at` (0-based), later slides are renumbered, and
+// the post is saved and returned.
+// Body: { at, capture: { text, conversationSummary, conversationTitle,
+//   understanding, turns, attachments:[{key,type}], projectName },
+//   current: { carouselHtml, direction, slides: [{ index, layoutHtml, themed, assetKeys }] } }
+async function addSlideToPost(req, res) {
+  const record = await PlannedPost.findOne({ _id: req.params.id, user: req.user._id });
+  if (!record) return res.status(404).json({ message: 'Post not found' });
+  const stored = Array.isArray(record.content?.slides) ? record.content.slides.map((s) => plainOf(s)) : [];
+  const current = req.body?.current && typeof req.body.current === 'object' ? req.body.current : {};
+  const sent = Array.isArray(current.slides) ? current.slides : [];
+  if (!stored.length) return res.status(400).json({ message: 'This post has no slides to add to.' });
+  if (sent.length !== stored.length) {
+    return res.status(409).json({ message: 'The post changed while you were editing — reopen it and try again.' });
+  }
+  if (stored.length >= 20) return res.status(400).json({ message: 'Instagram carousels hold up to 20 slides.' });
+  const capture = req.body?.capture && typeof req.body.capture === 'object' ? req.body.capture : {};
+  if (!String(capture.text || '').trim() && !(Array.isArray(capture.attachments) && capture.attachments.length)) {
+    return res.status(400).json({ message: 'Say what the new slide is about.' });
+  }
+  const own = `projects/${req.user._id}/`;
+  const ownKeys = (list) => (Array.isArray(list) ? list : [])
+    .map((k) => String(k || '').trim())
+    .filter((k) => k.startsWith(own));
+  const label = record.day || (record.date ? record.date.toISOString().slice(0, 10) : record._id.toString());
+  const dna = await loadBrandDna(req.user._id, record.instagramUsername).catch(() => null);
+  const brand = compileBrandMemory(dna);
+  const steps = wantsPromptDebug(req) ? [] : null;
+  const started = Date.now();
+  const debugOf = (extra = {}) => (steps ? {
+    debug: { mode: 'add-slide', elapsedMs: Date.now() - started, agents: steps, ...extra },
+  } : {});
+
+  try {
+    const out = await addSlideToCarousel({
+      userId: req.user._id,
+      handle: record.instagramUsername,
+      label,
+      at: Number(req.body?.at),
+      capture,
+      current: { ...current, slides: sent.map((s) => ({ ...s, assetKeys: ownKeys(s?.assetKeys) })) },
+      // the post's FULL strategy — the new slide must be a beat in that story
+      strategy: plainOf(record.agentTrace?.strategyBrief) || null,
+      brand,
+      slideRecords: stored,
+      debug: steps,
+    });
+
+    // the studio's latest pictures stay on their slides; the new slide's record
+    // goes in at its position, and every slide is renumbered in order
+    const kept = stored.map((slide, i) => {
+      const keys = ownKeys(sent[i]?.assetKeys);
+      return keys.length ? { ...slide, assetKey: keys[0], assetKeys: keys } : slide;
+    });
+    const role = out.newIndex === 1 ? 'Hook' : (out.newIndex === stored.length + 1 ? 'Takeaway' : 'Slide');
+    const fresh = {
+      role,
+      title: '',
+      assetKey: out.keys[0] || '',
+      assetKeys: out.keys,
+      layout: 'dynamic',
+    };
+    const merged = [...kept.slice(0, out.at), fresh, ...kept.slice(out.at)]
+      .map((slide, i) => ({ ...slide, index: i + 1 }));
+    const content = plainOf(record.content) || {};
+    const next = applyLayoutToContent(
+      { ...content, slides: merged },
+      { status: 'ready', html: out.html, slides: out.slides, themeId: content.themeId || '' },
+    );
+    next.slides = next.slides.map((slide, i) => {
+      if (i !== out.at) return slide;
+      const copy = copyFromLayoutHtml(slide.layoutHtml)?.filled || {};
+      return { ...slide, ...copy };
+    });
+    record.content = {
+      ...content,
+      ...next,
+      slides: next.slides,
+      onScreenText: next.slides.map((s) => s.title || ''),
+      carouselHtml: out.html,
+    };
+    const trace = record.agentTrace && typeof record.agentTrace === 'object' ? plainOf(record.agentTrace) : {};
+    record.agentTrace = {
+      ...trace,
+      layout: { ...(plainOf(trace.layout) || {}), html: out.html },
+      carousel: { ...(plainOf(trace.carousel) || {}), html: out.html },
+      addedSlides: [
+        ...(Array.isArray(trace.addedSlides) ? trace.addedSlides : []).slice(-19),
+        {
+          at: new Date().toISOString(),
+          index: out.newIndex,
+          capture: String(capture.text || '').slice(0, 800),
+          model: out.model || '',
+          ...(out.visual ? { visual: out.visual.ok ? { key: out.visual.key } : { skipped: out.visual.skipReason || 'failed' } } : {}),
+        },
+      ],
+    };
+    record.markModified('content');
+    record.markModified('agentTrace');
+    await record.save();
+    return res.json({
+      post: record,
+      index: out.newIndex,
+      visual: out.visual
+        ? (out.visual.ok ? { ok: true, key: out.visual.key, src: out.visual.src } : { ok: false, reason: out.visual.skipReason || '' })
+        : null,
+      ...debugOf({ model: out.model }),
+    });
+  } catch (err) {
+    const status = err.status || 502;
+    console.error('[posts] add slide failed:', err.message);
+    return res.status(status).json({
+      message: err.message || 'Could not add the slide.',
+      ...debugOf({ error: err.message }),
+    });
+  }
+}
+
+// GET /posts/:id/project — the project this post was written from, so a capture
+// made for it (Editor › Add slide) is filed there without asking. The strategist
+// names it on the brief (`project`, a name — captures carry names, not ids);
+// matched to the studio's projects by name, this account's first.
+// → { projectId, projectName } (projectId '' when no project has that name)
+async function getPostProject(req, res) {
+  const record = await PlannedPost.findOne({ _id: req.params.id, user: req.user._id })
+    .select('instagramUsername agentTrace.strategyBrief.project').lean();
+  if (!record) return res.status(404).json({ message: 'Post not found' });
+  const raw = record.agentTrace?.strategyBrief?.project;
+  const projectName = String((raw && typeof raw === 'object' ? (raw.name || raw.title) : raw) || '').trim();
+  if (!projectName) return res.json({ projectId: '', projectName: '' });
+  const esc = projectName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const matches = await Project.find({ user: req.user._id, name: new RegExp(`^${esc}$`, 'i') })
+    .select('_id name instagramUsername updatedAt').sort({ updatedAt: -1 }).lean();
+  const handle = String(record.instagramUsername || '').toLowerCase();
+  const hit = matches.find((m) => String(m.instagramUsername || '') === handle) || matches[0];
+  return res.json({ projectId: hit ? String(hit._id) : '', projectName: hit?.name || projectName });
+}
+
 // Copy/asset fields the studio can edit — overlaid onto the rich Day Writer
 // slides on a standalone carousel rerun so edits survive.
 const EDITABLE_SLIDE_FIELDS = [
@@ -1339,6 +1483,8 @@ module.exports = {
   updatePost,
   polishCaption,
   refinePost,
+  addSlideToPost,
+  getPostProject,
   rerunLayout,
   rerunSlideLayoutVariations,
   renderCover,

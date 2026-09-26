@@ -957,7 +957,7 @@ function CaptureComposer({ value, onValue, live, canSend, placeholder, onSend, o
   );
 }
 
-export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewProject, onCaptured, exitLabel = 'Back', modal = false }) {
+export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewProject, onCaptured, exitLabel = 'Back', modal = false, opening = '', savedLine = '', projectName = '', askProject = true, maxQuestions = 4, askMedia = true }) {
   const projects = useProjects();
   const { messages, typing, push, say, after } = useConversation();
   const [step, setStep] = useState('boot');
@@ -1007,9 +1007,10 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
   }, []);
 
   useEffect(() => {
-    const d = say(preset
+    // `opening` aims the capture at one question (Editor › Add slide)
+    const d = say(opening || (preset
       ? `Anything from ${preset.name}? Something that happened, an idea, something you noticed, or anything else that feels relevant.`
-      : 'What would you like to capture today? Maybe something that happened at work, an idea, or something you noticed.');
+      : 'What would you like to capture today? Maybe something that happened at work, an idea, or something you noticed.'));
     after(d, () => setStep('how'));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -1043,17 +1044,30 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
     }
   };
 
+  /* A capture aimed at something that already has a project (Editor › Add
+   * slide: the parent post's) is filed there — never "Which project is this
+   * for?". By id when known, else by name (made if the studio has none of that
+   * name yet), else the default project. Returns true when it filed. */
+  const fileWithoutAsking = () => {
+    if (preset) { finish(preset.id); return true; }
+    if (askProject) return false;
+    const want = String(projectName || '').trim().toLowerCase();
+    const named = want ? projects.find((p) => String(p.name || '').trim().toLowerCase() === want) : null;
+    if (named) finish(named.id);
+    else if (want) finish(null, projectName.trim());
+    else if (defaultProjectId) finish(defaultProjectId);
+    else finish(null, 'Content ideas');
+    return true;
+  };
+
   const continueToFile = (result) => {
     const choice = String(result?.understanding?.visualAssetChoice || '').toLowerCase();
-    if (!cap.current.attachments.length && choice !== 'generate' && choice !== 'none') {
+    if (askMedia && !cap.current.attachments.length && choice !== 'generate' && choice !== 'none') {
       const d = say('Do you have a photo or clip of this, or would you rather generate visuals later?');
       after(d, () => setStep('media'));
       return false;
     }
-    if (preset) {
-      finish(preset.id);
-      return true;
-    }
+    if (fileWithoutAsking()) return true;
     const d = say('Which project is this for?');
     after(d, () => setStep('project'));
     return false;
@@ -1067,8 +1081,11 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
     }
     if (result?.conversationSummary) cap.current.conversationSummary = result.conversationSummary;
     if (result?.conversationTitle) cap.current.conversationTitle = result.conversationTitle;
-    const followUp = clarificationQuestion(result, cap.current.turns)
-      || transcriptGapQuestion(cap.current.text, cap.current.askedQuestion);
+    // an aimed capture (Editor › Add slide) caps its follow-ups: the post's
+    // strategy already holds the context, so the studio is not interviewed
+    const asked = (cap.current.turns || []).filter((t) => t?.role === 'assistant').length;
+    const followUp = asked >= maxQuestions ? '' : (clarificationQuestion(result, cap.current.turns)
+      || transcriptGapQuestion(cap.current.text, cap.current.askedQuestion));
     if (followUp) {
       cap.current.askedQuestion = followUp;
       cap.current.turns = [...(cap.current.turns || []), { role: 'assistant', text: followUp }];
@@ -1310,7 +1327,7 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
       resolveAssetTurn(spoken);
       return;
     }
-    if (preset) { finish(preset.id); return; }
+    if (fileWithoutAsking()) return;
     const d = say('Which project is this for?');
     after(d, () => setStep('project'));
   };
@@ -1352,8 +1369,18 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
       const cover = previewUrl(c.attachments.find((a) => a.type === 'image') || c.attachments[0]) || null;
       setSaved({ id: pid, name });
       if (onCaptured) {
-        const d = say("It's in your library — building your plan now.");
-        after(d + 700, () => onCaptured({ projectId: pid, projectName: name }));
+        const d = say(savedLine || "It's in your library — building your plan now.");
+        // what was captured travels with it, for a caller that uses it (Add slide)
+        after(d + 700, () => onCaptured({
+          projectId: pid,
+          projectName: name,
+          text,
+          attachments: (c.attachments || []).map((a) => ({ key: a.key, type: a.type, url: a.url })),
+          understanding: c.understanding,
+          conversationSummary: c.conversationSummary,
+          conversationTitle: c.conversationTitle,
+          turns: c.turns,
+        }));
       } else {
         const d = say([{ kind: 'saved', project: { name, cover } }, "It's in your library — the next plan is written from it."]);
         after(d, () => setStep('done'));

@@ -26,6 +26,8 @@ import {
   runPostLayout,
   runSlideLayoutVariations as apiRunSlideLayoutVariations,
   refinePost,
+  addSlideFromCapture,
+  getPostProject,
   runPostCover,
   getPostOptions,
   getPostDebug,
@@ -2904,6 +2906,8 @@ export default function WeekView({
   // The prompt band (bauhly-v3 `edm-askbar`): "Say what else this should be".
   // Opened by ⋯ › Add elements and by the AI mark on the slide.
   const [askOpen, setAskOpen] = useState(false);
+  // Slide › Add before/after: { at, error? } while the Add Slide agent writes
+  const [slideAdding, setSlideAdding] = useState(null);
   const [askDraft, setAskDraft] = useState('');
   // The instruction being built as badges (bauhly-v3 lib/askactions.js):
   // subject (This post / the selected element) → action → refinement.
@@ -4174,7 +4178,7 @@ export default function WeekView({
 
   // Something Bauhly is doing to this post that will save when it lands — Cancel
   // and Apply wait for it, so a late result can never undo a revert.
-  const editBusy = askBusy || layoutBusy || uploading || coverBusy || wordsBusy;
+  const editBusy = askBusy || layoutBusy || uploading || coverBusy || wordsBusy || Boolean(slideAdding && !slideAdding.error);
 
   useEffect(() => {
     function onKey(e) {
@@ -5396,11 +5400,81 @@ export default function WeekView({
     }
     dressSlides(every, { colorSet: '', ground: '', logoMark: '' });
   }
-  // Slide › Add before / Add after — a blank slide there. Pending element edits
-  // are baked first: they are keyed by slide position.
-  function insertSlideAt(at) {
-    const flushed = flushElemEdits();
-    addSlide(at, flushed?.slides || null);
+  // Slide › Add before / Add after goes through Capture (bauhly-v3
+  // `captureForSlide`): Capture asks what the new slide is about and files the
+  // answer to the Content Library as any capture; the capture then goes, with
+  // the post's full strategy, to the Add Slide agent, which writes the slide in
+  // the carousel's own design at that position.
+  const NEW_SLIDE_ASK = 'What is this new slide about? One line is enough — a step, a fact, or the thing you want it to say.';
+  async function insertSlideAt(at) {
+    if (!day || slideAdding) return;
+    const dayIndex = selected;
+    const postId = postIdAt(dayIndex);
+    closeZone();
+    // The capture belongs to the parent post's project — Capture never asks
+    // which. The server reads it off the post's strategy brief.
+    let project = { projectId: '', projectName: '' };
+    try { if (postId) project = await getPostProject(postId); } catch { /* filed by name below */ }
+    openCaptureIdea({
+      opening: NEW_SLIDE_ASK,
+      savedLine: "It's in your library — writing the new slide now.",
+      projectId: project.projectId || undefined,
+      projectName: project.projectName || '',
+      askProject: false,
+      // one line is enough — at most one follow-up, and no "photo or clip?"
+      // step (the composer's + still attaches pictures to the slide)
+      maxQuestions: 1,
+      askMedia: false,
+      onSaved: (captured) => { addSlideFromCaptured(dayIndex, at, captured); },
+    });
+  }
+  async function addSlideFromCaptured(dayIndex, at, captured) {
+    const postId = postIdAt(dayIndex);
+    const d = routeRef.current?.days?.[dayIndex];
+    if (!postId || !d) return;
+    // hand edits are keyed by slide position — bake them in before positions move
+    const flushed = dayIndex === selected ? flushElemEdits() : null;
+    const current = flushed
+      ? {
+        carouselHtml: isCarouselDocument(flushed.docHtml) ? flushed.docHtml : '',
+        slides: flushed.slides.map((sl, i) => ({
+          index: Number(sl.index) > 0 ? Number(sl.index) : i + 1,
+          themed: isCarouselDocument(flushed.docHtml) && slideIsThemed(sl),
+          layoutHtml: sl.layoutHtml || '',
+          assetKeys: keysOf(sl),
+          role: sl.role || '',
+        })),
+      }
+      : refineCurrentOf(d);
+    const base = deriveSlides(d);
+    const direction = layoutDirectionOf(base[Math.min(at, base.length - 1)] || base[0]);
+    // the capture's own pictures show the moment the slide lands
+    (captured?.attachments || []).forEach((a) => { if (a?.key && a?.url) rememberImage(a.key, a.url, { skipGen: true }); });
+    setSlideAdding({ at });
+    try {
+      const data = await addSlideFromCapture(postId, {
+        at,
+        capture: {
+          text: captured?.text || '',
+          conversationSummary: captured?.conversationSummary || '',
+          conversationTitle: captured?.conversationTitle || '',
+          understanding: captured?.understanding || null,
+          turns: captured?.turns || [],
+          attachments: (captured?.attachments || []).map((a) => ({ key: a.key, type: a.type })),
+          projectName: captured?.projectName || '',
+        },
+        current: { ...current, direction },
+      });
+      if (data?.visual?.ok && data.visual.key && data.visual.src) rememberImage(data.visual.key, data.visual.src, { skipGen: true });
+      if (!data?.post) throw new Error('Nothing came back.');
+      const merged = mergePost(data.post);
+      setRoute(merged);
+      onRouteChange?.(merged);
+      if (dayIndex === selected) setSlideIdx(Math.max(0, (Number(data.index) || at + 1) - 1));
+      setSlideAdding(null);
+    } catch (e) {
+      setSlideAdding({ at, error: e?.response?.data?.message || e?.message || 'Could not add the slide.' });
+    }
   }
   function confirmRemove() {
     const ask = askRemove;
@@ -6046,6 +6120,23 @@ export default function WeekView({
                 </div>
               </div>
 
+              {slideAdding && (
+                <div className={`wv-edm__note${slideAdding.error ? ' is-err' : ''}`} role="status">
+                  {slideAdding.error ? (
+                    <>
+                      <span>{slideAdding.error}</span>
+                      <button type="button" className="wv-edm__notex" aria-label="Dismiss" onClick={() => setSlideAdding(null)}>
+                        <Icon name="x" size={14} strokeWidth={2.2} />
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <span className="wv-edm__notespin" aria-hidden="true" />
+                      <span>{`Writing slide ${slideAdding.at + 1} from your capture…`}</span>
+                    </>
+                  )}
+                </div>
+              )}
               <div className="wv-edm__canvas">
                 <EditStack
                   count={Math.max(slides.length, 1)}

@@ -88,6 +88,14 @@ const AGENTS = {
     providerEnv: 'PLAN_SLIDE_EDIT_PROVIDER',
     defaultModel: 'gpt-6-astra',
   },
+  // Editor mode › Slide › Add before/after: writes ONE new slide from the
+  // studio's capture + the full strategy, in the carousel's own design.
+  addSlide: {
+    defaultProvider: 'openai',
+    modelEnv: 'PLAN_ADD_SLIDE_MODEL',
+    providerEnv: 'PLAN_ADD_SLIDE_PROVIDER',
+    defaultModel: 'gpt-6-astra',
+  },
   reelAnimations: {
     defaultProvider: 'openai',
     modelEnv: 'PLAN_REEL_ANIMATIONS_MODEL',
