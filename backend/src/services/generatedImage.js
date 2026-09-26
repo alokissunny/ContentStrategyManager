@@ -28,6 +28,17 @@ const GUARDRAILS = [
   'Avoid distorted anatomy (extra or missing fingers/limbs), warped faces, and unreadable/melted geometry, and nothing not-safe-for-work.',
 ].join(' ');
 
+// Artwork the carousel agent commissions (a sketch, cut-out object, swatch) is
+// NOT a full-bleed slide background — it sits inside the composition, often on
+// a transparent ground — so the band/full-bleed rules above do not apply.
+const ARTWORK_GUARDRAILS = [
+  'Produce ONE standalone piece of artwork that will be placed inside a designed Instagram slide.',
+  'Do NOT render any text, letters, words, numbers, captions, labels, watermarks, logos, or signatures anywhere in the image.',
+  'No people or faces, no brand products, no screenshots, charts or UI.',
+  'No frame, border, drop shadow, mockup, paper edge or photographed surface around the artwork unless explicitly asked.',
+  'Avoid distorted or melted geometry, and nothing not-safe-for-work.',
+].join(' ');
+
 function prefixOf(userId) {
   return `projects/${userId}/`;
 }
@@ -47,11 +58,27 @@ function buildImagePrompt(prompt, brand = {}) {
   return lines.filter(Boolean).join('\n');
 }
 
-async function persistGeneratedImage({ userId, handle, buffer, mimeType, prompt, model }) {
+// Compose an artwork render prompt: the art director's prompt + ground rule
+// (transparent cut-out vs. edge-to-edge) + brand palette + artwork guardrails.
+function buildArtworkPrompt(prompt, { transparent = false, brand = {} } = {}) {
+  const lines = [String(prompt || '').trim()];
+  lines.push(transparent
+    ? 'Isolate the subject on a fully transparent background — no ground, no backdrop colour, no cast shadow on a floor; clean edges.'
+    : 'Fill the entire frame edge to edge with the artwork itself — no margins, bands or borders.');
+  const style = [];
+  if (brand.accent) style.push(`accent colour ${brand.accent}`);
+  if (brand.primary) style.push(`primary/ink colour ${brand.primary}`);
+  if (brand.neutral) style.push(`neutral colour ${brand.neutral}`);
+  if (style.length) lines.push(`Stay within this brand palette: ${style.join(', ')}.`);
+  lines.push(ARTWORK_GUARDRAILS);
+  return lines.filter(Boolean).join('\n');
+}
+
+async function persistGeneratedImage({ userId, handle, buffer, mimeType, prompt, model, namePrefix = 'gen' }) {
   if (!userId) throw new Error('userId is required to store a generated image.');
   if (!isS3Configured()) throw new Error('Media storage is not configured (set S3_BUCKET_NAME).');
   const ext = MIME_EXT[mimeType] || 'png';
-  const key = `${prefixOf(userId)}gen-${crypto.randomUUID()}.${ext}`;
+  const key = `${prefixOf(userId)}${namePrefix}-${crypto.randomUUID()}.${ext}`;
   // uuid-named, never overwritten — cache it hard at the edge and in the browser
   await uploadBytes(key, buffer, mimeType, { immutable: true });
   try {
@@ -92,9 +119,11 @@ function canStoreGeneratedImage(userId) {
 
 module.exports = {
   GUARDRAILS,
+  ARTWORK_GUARDRAILS,
   MIME_EXT,
   prefixOf,
   buildImagePrompt,
+  buildArtworkPrompt,
   persistGeneratedImage,
   renderAndStoreGeneratedImage,
   canStoreGeneratedImage,

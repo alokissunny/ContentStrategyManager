@@ -1,3 +1,4 @@
+import { waitForReelFonts } from './reelBrandKit';
 import { getFontEmbedCSS } from 'html-to-image';
 import { createReelFrameCompositor } from './reelFrameCompositor';
 import { Muxer, ArrayBufferTarget } from 'mp4-muxer';
@@ -43,6 +44,7 @@ export async function renderReelVideo({ scene, video, spec, setTime, signal, onP
   if (!globalThis.VideoEncoder || !globalThis.VideoFrame) throw new Error('MP4 export needs a browser with WebCodecs. Try an up-to-date Chrome or Edge browser.');
   const config = { codec: 'avc1.42001f', width: 720, height: 1280, bitrate: 5_000_000, framerate: 30, avc: { format: 'avc' } };
   if (!(await VideoEncoder.isConfigSupported(config)).supported) throw new Error('This browser cannot encode H.264 MP4. Try Chrome or Edge on another device.');
+  await waitForReelFonts(spec.brandKit);
   await document.fonts.ready;
   await seekVideo(video, 0, signal);
   const duration = video.duration;

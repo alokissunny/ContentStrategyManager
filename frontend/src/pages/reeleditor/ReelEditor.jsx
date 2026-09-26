@@ -13,12 +13,15 @@ import { loadReelDraft, saveReelDraft, clearReelDraft } from '../../lib/reelDraf
 import { uploadReelClip, editReel, assembleReel, isSupportedVideo, isSupportedMedia } from '../../api/reels';
 import { sampleVideoFrames } from '../../lib/reelFrames';
 import ReelEditView from './ReelEditView';
+import PodcastGenerator from './PodcastGenerator';
 import ReelBackgroundPicker from './ReelBackgroundPicker';
 import ReelScene from './ReelScene';
 import ReelExportButton from './ReelExportButton';
 import { PHONE_STYLE, VIDEO_BASE, SCREEN_STYLE, fmtTime } from './reelOverlay';
 import { getReelBackground } from './reelBackgrounds';
 import './reelEditor.css';
+import { useStore, useActiveHandle } from '../../lib/store';
+import { resolveReelBrandKit, reelBrandBrief } from '../../lib/reelBrandKit';
 
 const MAX_DURATION_SEC = 180;
 const MAX_ASSETS = 12;
@@ -121,13 +124,37 @@ function MixerDecisions({ plan, assets }) {
 // ── the page ─────────────────────────────────────────────────────────────────
 export default function ReelEditor() {
   const { user } = useAuth();
+  const activeHandle = useActiveHandle();
   const owner = user?._id || user?.id || user?.email;
   if (!owner) return null;
-  return <ReelEditorDraft key={owner} owner={owner} />;
+  return <ReelWorkspace key={`${owner}:${activeHandle || ''}`} owner={owner} />;
+}
+
+function ReelWorkspace({ owner }) {
+  const flags = useFeatureFlags();
+  const brandStore = useStore();
+  const brandHandle = useActiveHandle();
+  const { user } = useAuth();
+  const brandKit = useMemo(() => resolveReelBrandKit(brandStore, { handle: brandHandle, name: user?.business?.name }), [brandStore, brandHandle, user?.business?.name]);
+  const [tab, setTab] = useState('reels');
+  useEffect(() => { document.querySelectorAll(`#studio-panel-${tab === 'reels' ? 'podcast' : 'reels'} video`).forEach((video) => video.pause()); }, [tab]);
+  if (!flags.reelEditor) return <ReelEditorDraft owner={owner} />;
+  return <>
+    <div className="reel-workspace-tabs" role="tablist" aria-label="Video studio">
+      {['reels', 'podcast'].map((value) => <button key={value} id={`studio-tab-${value}`} type="button" role="tab" aria-selected={tab === value} aria-controls={`studio-panel-${value}`} tabIndex={tab === value ? 0 : -1} onClick={() => setTab(value)} onKeyDown={(e) => { if (['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) { e.preventDefault(); const next = e.key === 'Home' ? 'reels' : e.key === 'End' ? 'podcast' : tab === 'reels' ? 'podcast' : 'reels'; setTab(next); document.getElementById(`studio-tab-${next}`)?.focus(); } }}>{value === 'reels' ? 'Reel editor' : 'Podcast generator'}</button>)}
+    </div>
+    <div id="studio-panel-reels" role="tabpanel" aria-labelledby="studio-tab-reels" hidden={tab !== 'reels'}><ReelEditorDraft owner={owner} /></div>
+    <div id="studio-panel-podcast" role="tabpanel" aria-labelledby="studio-tab-podcast" hidden={tab !== 'podcast'}><PodcastGenerator brandKit={brandKit} /></div>
+  </>;
 }
 
 function ReelEditorDraft({ owner }) {
   const flags = useFeatureFlags();
+  const brandStore = useStore();
+  const brandHandle = useActiveHandle();
+  const { user } = useAuth();
+  const [useBrandKit, setUseBrandKit] = useState(true);
+  const brandKit = useMemo(() => resolveReelBrandKit(brandStore, { handle: brandHandle, name: user?.business?.name }), [brandStore, brandHandle, user?.business?.name]);
   const [assets, setAssets] = useState([]);
   const assetFiles = useMemo(() => assets.map((a) => a.file), [assets]);
   const [transition, setTransition] = useState('fade');
@@ -190,6 +217,7 @@ function ReelEditorDraft({ owner }) {
       if (assembled && draft.meta) setMeta({ ...draft.meta, url: URL.createObjectURL(assembled) });
       setGuidance(draft.guidance || '');
       setBackground(getReelBackground(draft.background).id);
+      setUseBrandKit(draft.useBrandKit !== false);
       setResult(draft.result || null);
       setEditedSpec(draft.editedSpec || draft.result?.spec || null);
       setPhase(draft.result ? 'done' : 'idle');
@@ -212,14 +240,14 @@ function ReelEditorDraft({ owner }) {
       assets: assets.map(({ file: source, url, ...a }) => ({ ...a, fileName: source.name })),
       transition, mixMode, assembledFile: file, enhancedFile, cleanAudio,
       meta: meta ? { duration: meta.duration, width: meta.width, height: meta.height } : null,
-      guidance, background, result, editedSpec,
+      guidance, background, result, editedSpec, useBrandKit,
     }).then(() => {
       if (saveVersion.current === version) setStorageStatus('Saved on this browser');
     }).catch(() => {
       if (saveVersion.current === version) setStorageStatus('Could not save locally. Browser storage may be full or unavailable; this draft may be lost on refresh.');
     });
     return () => { saveVersion.current += 1; };
-  }, [owner, draftReady, assets, assetFiles, transition, mixMode, file, meta, guidance, background, result, editedSpec, enhancedFile, cleanAudio]);
+  }, [owner, draftReady, assets, assetFiles, transition, mixMode, file, meta, guidance, background, result, editedSpec, enhancedFile, cleanAudio, useBrandKit]);
 
   // Cosmetic: walk the agent-step list while the pipeline runs (it runs these
   // stages server-side in this order; the single request can't stream progress).
@@ -325,6 +353,7 @@ function ReelEditorDraft({ owner }) {
         guidance: guidance.trim(),
         frames: sampled.frames,
         accentColor: sampled.accentColor,
+        brand: useBrandKit ? reelBrandBrief(brandKit) : null,
         cleanAudio,
       });
       data.mixPlan = assembled.mixPlan || null;
@@ -390,10 +419,10 @@ function ReelEditorDraft({ owner }) {
   const strategy = result?.direction || result?.spec?.strategy;
   // Prefer the manually-edited working copy so tweaks show in the live preview too.
   const previewSpec = useMemo(
-    () => meta ? { ...(editedSpec || result?.spec || { meta: { durationSec: meta.duration }, captions: { cues: [] }, animations: [] }), background,
+    () => meta ? { ...(editedSpec || result?.spec || { meta: { durationSec: meta.duration }, captions: { cues: [] }, animations: [] }), background, brandKit: useBrandKit ? brandKit : null,
       sourceVisualAssets: assets.map((a) => ({ id: a.id, name: a.file.name, kind: a.kind, duration: a.duration, url: a.url })),
       backgroundMix: { ...result?.mixPlan, clips: result?.assemblyClips || [], overlays: result?.mixPlan?.overlays || [], assets: assets.map(({ width, height, kind }) => ({ width, height, kind })) } } : null,
-    [editedSpec, result, meta, background, assets],
+    [editedSpec, result, meta, background, assets, useBrandKit, brandKit],
   );
 
   if (!flags.reelEditor) {
@@ -444,6 +473,13 @@ function ReelEditorDraft({ owner }) {
         </div>
       </div>
 
+      <section className="card set-card reel-kit" aria-label="Reel Brand Kit">
+        <label><input type="checkbox" checked={useBrandKit} onChange={e => setUseBrandKit(e.target.checked)} disabled={busy} /> Use Brand Kit</label>
+        <p className="reel-field__hint">{brandKit ? `${brandKit.themeName} · ${brandKit.typography.headline.name} / ${brandKit.typography.body.name}${brandKit.logo ? ' · Logo included' : ' · No logo uploaded'}` : 'Add your logo, fonts and colors in Brand Kit to apply them to this reel.'}</p>
+        {useBrandKit && brandKit && <div className="reel-kit__swatches">{Object.entries(brandKit.palette).map(([role, hex]) => <span key={role} title={`${role}: ${hex}`} style={{ background: hex }} />)}</div>}
+        {useBrandKit && brandKit?.warnings.map(warning => <p key={warning} role="status" className="reel-field__hint">{warning}</p>)}
+        <Link to="/dashboard/library-settings">Edit Brand Kit</Link>
+      </section>
       {storageStatus && <p className="reel-field__hint" role="status">{storageStatus}</p>}
 
       {draftReady && assets.length > 0 && (

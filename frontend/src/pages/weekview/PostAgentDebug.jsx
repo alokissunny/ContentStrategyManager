@@ -324,6 +324,25 @@ function traceForDay(day, entries) {
     ? visualCostOf(visualUsage)
     : (visualEntries.length ? costOf(sumEntries(visualEntries)) : '');
 
+  // Artwork agent — the pieces the carousel agent commissioned. Stored whole on
+  // agentTrace.artwork; a fresh plan's debug log is the fallback.
+  const artworkEntry = lastMatching(entries, date ? `Artwork:${date}` : 'Artwork:');
+  const artworkStored = stored.artwork && typeof stored.artwork === 'object' ? stored.artwork : null;
+  const artworkPrompt = artworkStored?.input || artworkEntry?.prompt || '';
+  const artwork = artworkStored
+    ? {
+      status: artworkStored.status,
+      ...(artworkStored.reason ? { reason: artworkStored.reason } : {}),
+      model: artworkStored.model || undefined,
+      commissions: artworkStored.commissions || [],
+      ...(artworkStored.output || {}),
+      renders: artworkStored.renders || [],
+    }
+    : parseJson(artworkEntry?.output);
+  const artworkCost = artworkStored?.usage
+    ? visualCostOf(artworkStored.usage)
+    : (artworkEntry ? costOf(artworkEntry) : '');
+
   const strategyPrompt = stored.strategyPrompt
     || strategyEntry?.prompt
     || '';
@@ -357,12 +376,15 @@ function traceForDay(day, entries) {
     layoutPrompt,
     visual,
     visualPrompt,
+    artwork,
+    artworkPrompt,
     costs: {
       strategy: costOf(strategyEntry),
       structure: costOf(structureEntry),
       dayWriter: costOf(dayHit),
       layout: costOf(layoutEntry),
       visual: visualCost,
+      artwork: artworkCost,
     },
   };
 }
@@ -481,7 +503,8 @@ export default function PostAgentDebug({
     && !trace.structure && !trace.structurePrompt
     && !trace.dayWriter && !trace.dayWriterPrompt
     && !trace.layout && !trace.layoutPrompt
-    && !trace.visual && !trace.visualPrompt;
+    && !trace.visual && !trace.visualPrompt
+    && !trace.artwork && !trace.artworkPrompt;
   const took = fmtElapsed(elapsedMs);
   const cost = fmtCost(estimatedCostUsd);
   const tokens = fmtTokens(totalTokens);
@@ -547,6 +570,12 @@ export default function PostAgentDebug({
         input={trace.layoutPrompt}
         output={trace.layout}
         cost={trace.costs?.layout}
+      />
+      <Block
+        title="Artwork agent"
+        input={trace.artworkPrompt}
+        output={trace.artwork}
+        cost={trace.costs?.artwork}
       />
       <Block
         title="Visual agent"

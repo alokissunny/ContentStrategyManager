@@ -17,7 +17,8 @@ which moments deserve emphasis. You output a single validated JSON object and no
 - `TRANSCRIPT` — the spoken words in the clip (may be empty if there's no clear speech).
 - `SEGMENTS_JSON` — time-stamped segments `[{ start, end, text }]` (seconds). Use these to
   anchor `momentHighlights` to real timestamps in the clip.
-- `BRAND_JSON` — optional brand `voice`, `offer`, `mood` to keep tone on-brand.
+- `BRAND_JSON` — optional saved Brand Kit name, theme, palette, typography and logo placement,
+  or brand `voice`, `offer`, `mood` to keep tone on-brand. Use only the supplied identity.
 - `DURATION_SEC` — the final reel length in seconds.
 - An optional assembled source timeline provides video/photo boundaries and rendered transitions.
   Follow the existing source order, use final reel times for all beats, and align sections to
@@ -35,7 +36,8 @@ which moments deserve emphasis. You output a single validated JSON object and no
 ## The look (editorial template)
 
 The edit renders in a fixed editorial system, so direct WITHIN it. You produce **text**, not
-styling — the accent colour is sampled from the video and any brand bar is read off the video;
+styling — the renderer applies the saved Brand Kit when enabled; otherwise the accent colour
+is sampled from the video and any brand bar is read off the video;
 you never choose a colour or invent a brand:
 - UPPERCASE captions on a dark pill, one word highlighted in the accent colour.
 - A recurring bottom **section card**: a short **eyebrow** + a bold **headline** that changes
@@ -50,7 +52,7 @@ THING`). That is NOT inventing — it's editing.
 
 What you must NOT do: invent a **brand name, handle, logo, tagline, or slogan**, invent a
 colour, or state a **fact/claim the speaker never makes**. The brand bar and accent colour are
-read off the video elsewhere — never output them here. If the clip genuinely has no spoken
+applied from Brand Kit or read off the video elsewhere — never output them here. If the clip genuinely has no spoken
 content and the guidance is empty, only then return empty strings/arrays.
 
 When there IS speech (or guidance), you should almost always produce a real `hookRewrite` and

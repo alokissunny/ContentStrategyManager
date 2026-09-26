@@ -10,7 +10,7 @@ const get = (s, key) => { const [t, i] = key.split(':'); return ['strategy', 'br
 function texts(s) {
   const rows = [];
   if (s.strategy?.hook) rows.push({ key: 'strategy:0', text: s.strategy.hook, start: 0, end: TITLE_END });
-  if (s.brand?.name) rows.push({ key: 'brand:0', text: s.brand.name, start: 0, end: s.meta.durationSec });
+  if (s.brand?.name && !s.brandKit) rows.push({ key: 'brand:0', text: s.brand.name, start: 0, end: s.meta.durationSec });
   for (const t of ['captions', 'animations', 'sections']) (list(s, t) || []).forEach((v, i) => {
     if (t === 'animations' && !['callout', 'cta', 'lower-third', 'label', 'emoji'].includes(v.type)) return;
     rows.push({ key: `${t}:${i}`, text: v.text || v.emoji || v.chips?.join(' · ') || v.headline || v.eyebrow || 'Text', start: v.start, end: v.end });

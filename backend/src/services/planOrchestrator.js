@@ -9,7 +9,7 @@ const { layoutById } = require('./layoutCatalog');
 const { extractLayoutHtml, extractHtmlDocument, parseCarouselDocument, hasImageSlot, shareLayoutStyles, copyFromLayoutHtml, injectImageIntoSlots } = require('./layoutHtml');
 const { publicMediaUrl, isCdnConfigured, getMediaUrl, isS3Configured } = require('./s3Client');
 const { isImageGenConfigured: isOpenAIImageConfigured, generateImage: renderOpenAIImage } = require('./openaiImage');
-const { buildImagePrompt, persistGeneratedImage } = require('./generatedImage');
+const { buildImagePrompt, buildArtworkPrompt, persistGeneratedImage } = require('./generatedImage');
 const { themeById, themeReferenceForPrompt, themesForStrategistPrompt, resolveThemeId, DEFAULT_THEME_ID } = require('../data/carouselThemes');
 
 const PROMPTS_DIR = path.join(__dirname, '..', '..', 'prompts');
@@ -313,6 +313,19 @@ function layoutSlideParallelEnabled() {
 function visualAgentEnabled() {
   if (!envFlagOn('PLAN_VISUAL_AGENT', '0')) return false;
   return isOpenAIImageConfigured() && isS3Configured();
+}
+
+// Artwork agent — renders the pieces the carousel agent commissions
+// (<img data-slot="artwork" data-art-request=…>). On by default whenever OpenAI
+// image + S3 are configured: it only costs anything when the carousel asks.
+// PLAN_ARTWORK_AGENT=0 turns it off (commissions are then dropped from the html).
+function artworkAgentEnabled() {
+  if (envFlagOff('PLAN_ARTWORK_AGENT', '1')) return false;
+  return isOpenAIImageConfigured() && isS3Configured();
+}
+
+function artworkMaxPerCarousel() {
+  return envPositiveInt('PLAN_ARTWORK_MAX', 3);
 }
 
 function visualSlideConcurrency() {
@@ -2663,6 +2676,264 @@ async function generateRequestedVisual({
   };
 }
 
+// ── Artwork agent (spun off by the carousel agent) ──────────────────────────
+// The carousel agent can't draw a convincing stair elevation or a cut-out chair
+// in CSS, so it commissions one instead: an src-less
+//   <img data-slot="artwork" data-art-id data-art-kind data-art-shape data-art-request>
+// After the carousel is composed, this agent reads every commission in the
+// carousel, art-directs them together in ONE LLM call (so the pieces share one
+// finish), renders each with gpt-image-1 (transparent ground for sketch /
+// cutout / illustration), stores them on S3 as `art-<uuid>` and fills the slots.
+// A declined or failed commission is removed, so no empty frame is left behind.
+
+const ARTWORK_KINDS = ['sketch', 'cutout', 'illustration', 'texture'];
+const ARTWORK_SIZES = { square: '1024x1024', portrait: '1024x1536', landscape: '1536x1024' };
+
+function tagAttr(tag, name) {
+  const m = String(tag || '').match(new RegExp(`\\s${name}\\s*=\\s*("([^"]*)"|'([^']*)'|([^\\s>]+))`, 'i'));
+  if (!m) return '';
+  return String(m[2] ?? m[3] ?? m[4] ?? '')
+    .replace(/&quot;/g, '"').replace(/&#39;|&apos;/g, "'").replace(/&amp;/g, '&')
+    .trim();
+}
+
+function isArtworkTag(tag) {
+  return /\sdata-slot\s*=\s*["']?artwork["']?(?=[\s>/]|$)/i.test(String(tag || ''));
+}
+
+// An artwork slot still waiting for its piece (no real src yet).
+function isOpenCommission(tag) {
+  if (!isArtworkTag(tag)) return false;
+  const src = tagAttr(tag, 'src');
+  return !src || /^(#|about:blank|null|undefined|artwork:.*)$/i.test(src);
+}
+
+function commissionKeyOf(request) {
+  return String(request || '').toLowerCase().replace(/\s+/g, ' ').trim();
+}
+
+function artworkCommissionsIn(html) {
+  const out = [];
+  String(html || '').replace(/<img\b[^>]*>/gi, (tag) => {
+    if (!isOpenCommission(tag)) return tag;
+    const request = tagAttr(tag, 'data-art-request');
+    if (!request) return tag;
+    const kind = tagAttr(tag, 'data-art-kind').toLowerCase();
+    const shape = tagAttr(tag, 'data-art-shape').toLowerCase();
+    out.push({
+      artId: tagAttr(tag, 'data-art-id'),
+      kind: ARTWORK_KINDS.includes(kind) ? kind : 'illustration',
+      shape: ARTWORK_SIZES[shape] ? shape : 'square',
+      request,
+      alt: tagAttr(tag, 'alt'),
+    });
+    return tag;
+  });
+  return out;
+}
+
+// Every open commission across the carousel, deduped by request text (the same
+// request in the applied layout and its options is ONE render), capped per
+// carousel. Carries the slide's real copy so the art director serves the words.
+function collectArtworkCommissions(slides, max) {
+  const byKey = new Map();
+  (Array.isArray(slides) ? slides : []).forEach((slide, i) => {
+    const htmls = [slide?.layoutHtml, ...(Array.isArray(slide?.layoutOptions) ? slide.layoutOptions.map((o) => o?.html) : [])];
+    htmls.forEach((html) => {
+      artworkCommissionsIn(html).forEach((c) => {
+        const key = commissionKeyOf(c.request);
+        if (byKey.has(key)) return;
+        const index = Number(slide?.index) > 0 ? Number(slide.index) : i + 1;
+        // The carousel bakes the real words into its html; slide fields often
+        // hold structure metadata instead.
+        const baked = copyFromLayoutHtml(slide?.layoutHtml)?.filled || {};
+        const slideCopy = Object.keys(baked).length ? baked : visualSlideInputOf(slide).filledCopy;
+        byKey.set(key, { ...c, key, slide: index, slideCopy });
+      });
+    });
+  });
+  return [...byKey.values()].slice(0, max).map((c, n) => ({ ...c, id: `a${n + 1}` }));
+}
+
+function validateArtworkPrompts(parsed, commissions) {
+  const list = Array.isArray(parsed?.artworks) ? parsed.artworks : [];
+  if (!list.length) throw new Error('artwork agent returned no artworks');
+  const byId = new Map(list.map((a) => [String(a?.id || '').trim(), a]));
+  parsed.artworks = commissions.map((c, i) => {
+    const a = byId.get(c.id) || list[i] || {};
+    const prompt = optionalText(a.imagePrompt);
+    const skip = String(a.status || '').trim().toLowerCase() === 'skip' || !prompt;
+    return {
+      id: c.id,
+      status: skip ? 'skip' : 'ready',
+      imagePrompt: skip ? '' : prompt,
+      altText: optionalText(a.altText),
+      skipReason: skip ? (optionalText(a.skipReason) || 'no prompt') : '',
+    };
+  });
+  parsed.sharedFinish = optionalText(parsed.sharedFinish);
+}
+
+async function writeArtworkPrompts({ source, commissions, themeId, brief, brand }) {
+  const assembled = assembleAgentPrompt('plan-artwork.md', {
+    COMMISSIONS_JSON: json(commissions.map((c) => ({
+      id: c.id, slide: c.slide, kind: c.kind, shape: c.shape, request: c.request, slideCopy: c.slideCopy,
+    }))),
+    THEME_REFERENCE: themeReferenceForPrompt(themeById(themeId)),
+    POST_CONTEXT_JSON: optionalPromptJson(visualPostContextOf(brief)),
+    BRAND_STYLE: optionalPromptJson(brandStyleOf(brand)),
+  });
+  return callAgent({
+    source,
+    kind: 'visual',
+    system: assembled.system,
+    user: assembled.user,
+    prompt: assembled.prompt,
+    validate: (parsed) => validateArtworkPrompts(parsed, commissions),
+  });
+}
+
+// Fill each open commission with its rendered piece (src + data-asset-key), and
+// drop the ones with none — a src-less artwork img would leave a hole.
+function fillArtworkSlots(html, rendered) {
+  return String(html || '').replace(/<img\b[^>]*>/gi, (tag) => {
+    if (!isOpenCommission(tag)) return tag;
+    const art = rendered.get(commissionKeyOf(tagAttr(tag, 'data-art-request')));
+    if (!art) return '';
+    const clean = tag
+      .replace(/^<img\b/i, '')
+      .replace(/\/?>$/, '')
+      .replace(/\s+src\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/i, '')
+      .replace(/\s+data-asset-key\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/i, '')
+      .trim();
+    const esc = (v) => String(v).replace(/&/g, '&amp;').replace(/"/g, '&quot;');
+    const alt = /\salt\s*=/i.test(` ${clean}`) || !art.alt ? '' : ` alt="${esc(art.alt)}"`;
+    return `<img ${clean}${alt} data-asset-key="${esc(art.key)}" src="${esc(art.src)}">`;
+  });
+}
+
+function fillArtworkInSlide(slide, rendered) {
+  const next = { ...slide };
+  if (next.layoutHtml) next.layoutHtml = fillArtworkSlots(next.layoutHtml, rendered);
+  if (Array.isArray(next.layoutOptions)) {
+    next.layoutOptions = next.layoutOptions.map((o) => ({ ...o, html: fillArtworkSlots(String(o?.html || ''), rendered) }));
+  }
+  return next;
+}
+
+// What the Debug panel's "Artwork agent" block shows (stored as
+// agentTrace.artwork): the carousel's commissions, the art director's full
+// input + output, and every render's final prompt / key / cost.
+function artworkDebugOf({ status, reason = '', commissions = [], agent = null, renders = [], usage = null }) {
+  const brief = (c) => ({ id: c.id, slide: c.slide, kind: c.kind, shape: c.shape, request: c.request });
+  return {
+    status,
+    ...(reason ? { reason } : {}),
+    source: agent?.debugEntry?.source || '',
+    model: agent?.debugEntry?.model || '',
+    input: agent?.debugEntry?.prompt || '',
+    output: agent?.parsed
+      ? { sharedFinish: agent.parsed.sharedFinish || '', artworks: agent.parsed.artworks || [] }
+      : null,
+    rawOutput: agent?.debugEntry?.output || '',
+    commissions: commissions.map(brief),
+    renders,
+    usage,
+  };
+}
+
+// Run the Artwork agent over one composed carousel. Returns
+// { content, trace, usage, debug }; never throws — a failure drops the commissions.
+async function attachCommissionedArtwork({ source, content, brief, brand, userId, handle, collect }) {
+  const slides = Array.isArray(content?.slides) ? content.slides : [];
+  const commissions = collectArtworkCommissions(slides, artworkMaxPerCarousel());
+  const dropAll = () => ({ ...content, slides: slides.map((s) => fillArtworkInSlide(s, new Map())) });
+  if (!commissions.length) {
+    // Commissions past the cap (or with no request) still need removing.
+    return {
+      content: dropAll(), trace: [], usage: null,
+      debug: artworkDebugOf({ status: 'none', reason: 'The carousel agent commissioned no artwork.' }),
+    };
+  }
+  if (!artworkAgentEnabled() || !userId) {
+    const reason = userId ? 'PLAN_ARTWORK_AGENT off or image stack not configured' : 'no userId';
+    console.log(`[planOrchestrator] Artwork:${source} skipped ${commissions.length} commission(s) — ${reason}`);
+    return {
+      content: dropAll(), trace: [], usage: null,
+      debug: artworkDebugOf({ status: 'skipped', reason, commissions }),
+    };
+  }
+  console.log(`[planOrchestrator] Artwork:${source} · ${commissions.length} commission(s) from the carousel agent`);
+  let agent;
+  try {
+    agent = await writeArtworkPrompts({
+      source: `Artwork:${source}`, commissions, themeId: content?.themeId || brief?.themeId, brief, brand,
+    });
+    if (collect) collect(agent);
+  } catch (err) {
+    console.warn(`[planOrchestrator] Artwork:${source} skipped — ${err.message}`);
+    return {
+      content: dropAll(), trace: [], usage: null,
+      debug: artworkDebugOf({ status: 'failed', reason: err.message, commissions }),
+    };
+  }
+  const prompts = new Map((agent.parsed?.artworks || []).map((a) => [a.id, a]));
+  const palette = brandPaletteOf(brand);
+  const results = await mapPool(commissions, visualSlideConcurrency(), async (c) => {
+    const art = prompts.get(c.id) || {};
+    if (art.status !== 'ready') return { c, ok: false, skipReason: art.skipReason || 'declined' };
+    try {
+      const transparent = c.kind !== 'texture';
+      const finalPrompt = buildArtworkPrompt(art.imagePrompt, { transparent, brand: palette });
+      const img = await renderOpenAIImage(finalPrompt, {
+        size: ARTWORK_SIZES[c.shape],
+        background: transparent ? 'transparent' : undefined,
+      });
+      const stored = await persistGeneratedImage({
+        userId, handle, buffer: img.buffer, mimeType: img.mimeType, prompt: finalPrompt, model: img.model, namePrefix: 'art',
+      });
+      const src = await getMediaUrl(stored.key);
+      if (!src) throw new Error('no media url for stored artwork');
+      return {
+        c, ok: true, key: stored.key, src, alt: art.altText || c.alt, finalPrompt, imagePrompt: art.imagePrompt,
+        model: img.model, elapsedMs: Number(img.elapsedMs) || 0, costUsd: Number(img.estimatedCostUsd) || 0,
+      };
+    } catch (err) {
+      console.warn(`[planOrchestrator] Artwork:${source}#${c.slide} ${c.id} failed — ${err.message}`);
+      return { c, ok: false, skipReason: err.message };
+    }
+  });
+  const rendered = new Map(results.filter((r) => r.ok).map((r) => [r.c.key, r]));
+  const promptCost = Number(agent.usage?.estimatedCostUsd) || 0;
+  const imageCost = [...rendered.values()].reduce((n, r) => n + r.costUsd, 0);
+  const trace = results.map((r) => ({
+    index: r.c.slide,
+    agent: 'artwork',
+    artId: r.c.id,
+    kind: r.c.kind,
+    request: r.c.request,
+    status: r.ok ? 'generated' : 'skipped',
+    ...(r.ok
+      ? { assetKey: r.key, model: r.model, imagePrompt: r.imagePrompt, finalPrompt: r.finalPrompt, altText: r.alt, estimatedCostUsd: r.costUsd, elapsedMs: r.elapsedMs }
+      : { skipReason: r.skipReason }),
+  }));
+  console.log(`[planOrchestrator] Artwork:${source} · rendered ${rendered.size}/${commissions.length}`);
+  const usage = {
+    images: rendered.size,
+    elapsedMs: (Number(agent.debugEntry?.elapsedMs) || 0) + [...rendered.values()].reduce((n, r) => n + r.elapsedMs, 0),
+    estimatedCostUsd: promptCost + imageCost,
+    imageCostUsd: imageCost,
+    promptCostUsd: promptCost,
+    totalTokens: Number(agent.usage?.totalTokens) || 0,
+  };
+  return {
+    content: { ...content, slides: slides.map((s) => fillArtworkInSlide(s, rendered)) },
+    trace,
+    usage,
+    debug: artworkDebugOf({ status: 'ran', commissions, agent, renders: trace, usage }),
+  };
+}
+
 // Object keys the Visual Generator agent produced (persistGeneratedImage names
 // them `<prefix>/gen-<uuid>.<ext>`). Lets a re-run re-bind a slide's own prior
 // generated picture into freshly composed html without paying to regenerate it.
@@ -2833,7 +3104,18 @@ function applyVisualToSlide(slide, image) {
 // Asset binding (injecting real project photos into empty <img> slots) always
 // runs — even when PLAN_VISUAL_AGENT=0 — otherwise carousel slides keep
 // data-asset-key with no src.
-async function attachGeneratedVisuals({ source, content, brief, brand, userId, handle, collect, fillEmpty = false }) {
+// Entry point for every composed carousel (plan generation + layout re-runs):
+// first the Artwork agent renders what the carousel agent commissioned, then
+// the Visual Generator fills any remaining empty photo slot. Each keeps its own
+// trace — visualTrace/visualUsage vs artworkTrace (Debug panel "Artwork agent").
+async function attachGeneratedVisuals(opts) {
+  const artwork = await attachCommissionedArtwork(opts);
+  const content = await attachGapVisuals({ ...opts, content: artwork.content });
+  content.artworkTrace = artwork.debug;
+  return content;
+}
+
+async function attachGapVisuals({ source, content, brief, brand, userId, handle, collect, fillEmpty = false }) {
   content = bindSuppliedAssetsInContent(content);
   const bound = (content.slides || []).filter((s) => optionalText(copyFromLayoutHtml(s?.layoutHtml)?.image?.src)).length;
   if (bound) {
@@ -3293,6 +3575,7 @@ async function runMultiAgentPlan({
               })),
             }
             : null,
+          artwork: content?.artworkTrace || null,
         },
         content,
       };
@@ -3356,6 +3639,9 @@ module.exports = {
   applyLayoutToContent,
   normalizeWriterPost,
   attachGeneratedVisuals,
+  attachCommissionedArtwork,
+  collectArtworkCommissions,
+  fillArtworkSlots,
   slideNeedsGeneratedVisual,
   applyVisualToSlide,
   suppliedKeysForSlide,

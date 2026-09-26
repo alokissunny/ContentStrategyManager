@@ -64,7 +64,9 @@ function isImageGenConfigured() {
 /**
  * Generate a single image from a prompt.
  * @param {string} prompt fully-composed instruction (subject + brand style + guardrails).
- * @param {{ size?: string, quality?: string }} [opts] optional output shape / quality.
+ * @param {{ size?: string, quality?: string, background?: 'transparent'|'opaque'|'auto' }} [opts]
+ *   optional output shape / quality; `background: 'transparent'` renders a cut-out
+ *   (forces PNG, since JPEG has no alpha).
  * @returns {Promise<{ buffer: Buffer, mimeType: string, model: string }>}
  */
 async function generateImage(prompt, opts = {}) {
@@ -75,6 +77,8 @@ async function generateImage(prompt, opts = {}) {
   const model = DEFAULT_MODEL;
   const size = opts.size || DEFAULT_SIZE;
   const quality = opts.quality || DEFAULT_QUALITY;
+  const transparent = opts.background === 'transparent';
+  const format = transparent && OUTPUT_FORMAT === 'jpeg' ? 'png' : OUTPUT_FORMAT;
 
   // A hard request timeout is a guard rail: a stalled render fails fast instead
   // of holding the plan pipeline open. Overridable; default 120s (image models
@@ -91,8 +95,9 @@ async function generateImage(prompt, opts = {}) {
         size,
         quality,
         n: 1,
-        output_format: OUTPUT_FORMAT,
-        ...(OUTPUT_FORMAT === 'png' ? {} : { output_compression: OUTPUT_COMPRESSION }),
+        output_format: format,
+        ...(format === 'png' ? {} : { output_compression: OUTPUT_COMPRESSION }),
+        ...(opts.background ? { background: opts.background } : {}),
       },
       { timeout },
     );
@@ -116,7 +121,7 @@ async function generateImage(prompt, opts = {}) {
 
   return {
     buffer: Buffer.from(b64, 'base64'),
-    mimeType: FORMAT_MIME[OUTPUT_FORMAT] || 'image/png',
+    mimeType: FORMAT_MIME[format] || 'image/png',
     model,
     elapsedMs: Date.now() - started,
     estimatedCostUsd: estimateImageCostUsd(size, quality),

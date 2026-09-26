@@ -26,6 +26,7 @@ execFileSync(ffmpeg, ['-y','-loglevel','error','-i',root+'/frontend/public/asset
   page.on('pageerror',e=>{errors.push(e.message); console.log('PAGE ERROR',e.message)});
   page.on('console',m=>{if(m.type()==='error')console.log('CONSOLE',m.text().slice(0,300))});
   await page.route('**/__source.mp4',r=>r.fulfill({contentType:'video/mp4',body:fs.readFileSync(path.join(outputDir, 'source.mp4'))}));
+  if (process.env.REEL_TEST_FONT) await page.route('**/__brand.ttf', r => r.fulfill({ contentType: 'font/ttf', body: fs.readFileSync(process.env.REEL_TEST_FONT) }));
   await page.route('**/__store/**',async r=>{objects.set(new URL(r.request().url()).pathname.slice('/__store/'.length),r.request().postDataBuffer());await r.fulfill({status:200,body:''})});
   await page.route('**/api/reels/**',async r=>{
     const res={statusCode:200,headers:{},status(c){this.statusCode=c;return this},json(body){this.body=JSON.stringify(body);this.headers['content-type']='application/json';return this},set(k,v){this.headers[k]=v;return this},send(body){this.body=body;return this}};
@@ -43,6 +44,11 @@ execFileSync(ffmpeg, ['-y','-loglevel','error','-i',root+'/frontend/public/asset
     const url=URL.createObjectURL(sourceFile);
     const tile=document.createElement('canvas');tile.width=80;tile.height=80;tile.getContext('2d').fillStyle='red';tile.getContext('2d').fillRect(0,0,80,80);
     const initial={meta:{durationSec:${clipSeconds}},background:'original',grade:true,brand:{name:'TEST BRAND',tag:'export'},strategy:{hook:'MOVE THIS TITLE',position:{x:50,y:28}},captions:{style:'karaoke',cues:[{start:0,end:${clipSeconds},text:'Export every word',position:{x:50,y:63}}]},animations:[{type:'pointer',start:0,end:${clipSeconds},position:{x:20,y:50}},{type:'zoom',start:0,end:${clipSeconds}},{type:'callout',text:'Look here',start:0,end:${clipSeconds},position:{x:60,y:48},motion:'pop'}],sections:[{start:0,end:${clipSeconds},headline:'Finished reel',eyebrow:'INCLUDED'}],visualAssets:[{id:'tile',kind:'image',url:tile.toDataURL(),name:'Red tile'},{id:'clip',kind:'video',url,name:'Video insert'}],mediaOverlays:[{assetId:'tile',start:0,end:${clipSeconds},width:20,position:{x:80,y:76}},{assetId:'clip',start:.2,end:.6,width:22,sourceStart:0,position:{x:20,y:75}}]};
+    if (${Boolean(process.env.REEL_TEST_FONT)}) {
+      const {resolveReelBrandKit}=await import('/src/lib/reelBrandKit.js');
+      initial.brandKit=resolveReelBrandKit({libraryEdits:{themes:[{id:'test',name:'Export theme',palette:{ground:'#ffffff',fg:'#111111',accent:'#ff00ff'}}],activeThemeId:'test',type:{headline:{face:'test-font'},body:{face:'test-font'},detail:{face:'test-font'}},fonts:[{id:'test-font',name:'Export test font',url:'/__brand.ttf'}],logoPosition:'top-right'},brandLogos:{full:{url:tile.toDataURL()}}},{handle:'export-test',name:'BRAND KIT'});
+      if(initial.brandKit.palette.accent!=='#ff00ff'||initial.brandKit.typography.headline.name!=='Export test font'||!initial.brandKit.logo)throw Error('Brand Kit resolution failed');
+    }
     function App(){const [spec,setSpec]=React.useState(initial);window.setSpec=setSpec;const video=React.useRef(null);return React.createElement(React.Fragment,null,React.createElement('div',{style:{width:300,height:533.333333},id:'preview'},React.createElement(Scene,{spec,videoRef:video,videoUrl:url,time:0})),React.createElement(Button,{videoUrl:url,spec,sourceFile}));}
     createRoot(document.getElementById('root')).render(React.createElement(React.StrictMode,null,React.createElement(App)));
     </script>`}));

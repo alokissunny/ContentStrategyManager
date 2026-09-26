@@ -369,3 +369,24 @@
 .reel-export-stage .reel-phone__screen { border-radius: 0; }
 .reel-download { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .reel-download progress, .reel-download p { width: 100%; }
+
+.reel-kit { margin-bottom: 16px; }
+.reel-kit label { display: flex; gap: 8px; align-items: center; font-weight: 700; }
+.reel-kit__swatches { display: flex; gap: 6px; margin: 8px 0; }
+.reel-kit__swatches span { width: 22px; height: 22px; border-radius: 50%; border: 1px solid #aaa; }
+.reel-scene--branded .rl-cap, .reel-scene--branded .rl-anim, .reel-scene--branded .rl-brandbar { font-family: var(--reel-body-font); }
+.reel-scene--branded .rl-title__head, .reel-scene--branded .rl-section__headline { font-family: var(--reel-heading-font); }
+.reel-scene--branded .rl-title__eyebrow, .reel-scene--branded .rl-section__eyebrow, .reel-scene--branded .rl-brandbar__tag, .reel-scene--branded .rl-chip { font-family: var(--reel-detail-font); }
+.reel-scene--branded .rl-section { background: var(--reel-ground); color: var(--reel-ink); }
+.reel-scene--branded .rl-anim--labelwrap .rl-label__pill { background: var(--reel-ground); color: var(--reel-ink); }
+.reel-scene--branded .rl-anim--cta, .reel-scene--branded .rl-anim--callout, .reel-scene--branded .rl-chip.is-lit { background: var(--reel-accent); color: var(--reel-on-accent); text-shadow: none; }
+.rl-kit-logo { position: absolute; z-index: 5; width: 24%; height: 7%; object-fit: contain; filter: drop-shadow(0 1px 3px #0006); }
+.rl-kit-logo--top-left { top: 3%; left: 5%; object-position: left center; }
+.rl-kit-logo--top-right { top: 3%; right: 5%; object-position: right center; }
+.rl-kit-logo--bottom-left { bottom: 3%; left: 5%; object-position: left center; }
+.rl-kit-logo--bottom-right { bottom: 3%; right: 5%; object-position: right center; }
+/* Reserve room when the preferred logo corner shares the section card edge. */
+.reel-scene:has(.rl-kit-logo--bottom-left) .rl-section,
+.reel-scene:has(.rl-kit-logo--bottom-right) .rl-section { bottom: 12%; }
+.reel-scene:has(.rl-kit-logo--top-left) .rl-title:not([style*="translate"]),
+.reel-scene:has(.rl-kit-logo--top-right) .rl-title:not([style*="translate"]) { top: 12%; }

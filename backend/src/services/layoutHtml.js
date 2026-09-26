@@ -196,7 +196,7 @@ function listItems(html) {
 function imageFromLayoutHtml(html) {
   const tag = (String(html || '').match(
     /<img\b[^>]*\bdata-slot\s*=\s*["'](?:image|illustration)["'][^>]*>/i,
-  ) || [])[0] || (String(html || '').match(/<img\b[^>]*>/i) || [])[0];
+  ) || [])[0] || (String(html || '').match(/<img\b(?![^>]*\bdata-slot\s*=\s*["']artwork["'])[^>]*>/i) || [])[0];
   if (!tag) return null;
   const src = htmlAttr(tag, 'src');
   const assetKey = htmlAttr(tag, 'data-asset-key');

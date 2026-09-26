@@ -1080,13 +1080,14 @@ async function rerunLayout(req, res) {
         ? {
           slides: next.visualTrace,
           usage: next.visualUsage || null,
-          agents: visualAgents.map((a) => ({
+          agents: visualAgents.filter((a) => !/^Artwork:/.test(a.debugEntry?.source || '')).map((a) => ({
             source: a.debugEntry?.source || '',
             prompt: a.debugEntry?.prompt || '',
             output: a.debugEntry?.output || '',
           })),
         }
         : trace.visual || null,
+      artwork: next.artworkTrace || trace.artwork || null,
     };
     record.markModified('content');
     record.markModified('agentTrace');

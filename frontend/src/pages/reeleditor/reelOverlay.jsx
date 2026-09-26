@@ -196,7 +196,7 @@ export function ReelOverlay({ spec, time }) {
   const duration = spec?.meta?.durationSec || 0;
   return (
     <div className="rl-overlay">
-      <BrandBar brand={spec?.brand} />
+      {spec?.brandKit?.logo ? <img className={`rl-kit-logo rl-kit-logo--${spec.brandKit.logo.position}`} src={spec.brandKit.logo.url} crossOrigin="anonymous" alt={spec.brandKit.name || 'Brand logo'} /> : <BrandBar brand={spec?.brandKit ? { name: spec.brandKit.name, position: spec?.brand?.position } : spec?.brand} />}
       <AnimationLayer animations={spec?.animations} time={time} duration={duration} />
       <SectionCard sections={spec?.sections} time={time} />
       <CaptionLayer captions={spec?.captions} time={time} />

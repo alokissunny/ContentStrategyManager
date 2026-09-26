@@ -174,6 +174,26 @@ Every no-asset slide that needs a visual must include an intentional graphic, di
 
 For planned or unverified work, communicate intention with normal design language (“proposed,” “direction,” “intent”) — not with on-slide caveats about missing documentation.
 
+### Commissioning artwork (the Artwork agent)
+
+When a slide's narrative needs a picture that HTML / CSS / SVG cannot draw well — a hand-drawn elevation of the staircase, a cut-out of the proposed chair, a limewash swatch, a small illustration of light falling across a threshold — commission it instead of faking it with shapes. An Artwork agent renders each commission after you finish and drops the finished piece into your `<img>`.
+
+Commission with an empty `<img>` (no `src`) carrying:
+
+```html
+<img data-slot="artwork" data-art-id="a1" data-art-kind="sketch" data-art-shape="portrait"
+     data-art-request="Loose charcoal elevation of a narrow stair with a built-in bench on the landing; the bench is the focus"
+     alt="Sketch of the proposed stair bench">
+```
+
+* `data-art-id`: unique per commission (`a1`, `a2`, …).
+* `data-art-kind`: `sketch` (line / charcoal study of a plan, elevation, detail or object), `cutout` (one object or material on a transparent ground), `illustration` (small editorial vignette), or `texture` (edge-to-edge material surface).
+* `data-art-shape`: `square`, `portrait` or `landscape` — match the box you give it.
+* `data-art-request`: one concrete sentence — what the piece shows and which part of the slide's idea it carries. Describe the subject generically; never a specific real project, person, brand, document or result.
+* Size and place the `<img>` with your own CSS (width/height or aspect-ratio, `object-fit: contain` for `sketch`/`cutout`/`illustration`, `cover` for `texture`). Sketches and cut-outs arrive on a transparent ground, so they sit directly on your slide background — let them overlap swatches, frames or type the way a designer would.
+* Commission only where the piece carries the slide's story — at most one per slide and three per carousel. Never commission when a real project photo (`data-slot="image"`) belongs on that slide; the photo always wins.
+* A commission can be declined. Design so the slide still reads if the `<img>` is removed — do not wrap it in a frame, label or caption that would look empty on its own.
+
 ## Slide Composition
 
 * Slide 1: create the strongest possible hook and visual tension.
@@ -218,7 +238,7 @@ Before returning the HTML, check that:
 * Every factual claim is supported.
 * Visuals support the exact slide message.
 * Real assets are used when available.
-* No empty image placeholders exist.
+* No empty image placeholders exist (an artwork commission is not a placeholder — it is filled after you finish).
 * No concept graphic is presented as a finished result.
 * The final slide is short: takeaway + CTA only — not a dense summary of the whole carousel.
 * The CTA is clear and singular.
@@ -247,7 +267,7 @@ Hard requirements:
 
 * Exactly one `<section data-direction="…">` wrapping all slides. When `THEME_REFERENCE` names a direction, use that exact value; otherwise use `architectural-minimal`.
 * Every canvas MUST be `<article class="slide" data-index="N">` (1-based). Never use `<div class="slide">`.
-* Put a `data-slot` on every editable text run the viewer should be able to change (not only the main headline). Use: `title`, `supporting-text`, `eyebrow`, `label`, `caption`, `note`, `detail`, `action`, `quote`, `stat`, `index`. Repeat the same slot name when there are several of that kind (e.g. two `label`s). Use `data-slot="image"` only on real photo `<img>` tags (when an asset key exists).
+* Put a `data-slot` on every editable text run the viewer should be able to change (not only the main headline). Use: `title`, `supporting-text`, `eyebrow`, `label`, `caption`, `note`, `detail`, `action`, `quote`, `stat`, `index`. Repeat the same slot name when there are several of that kind (e.g. two `label`s). Use `data-slot="image"` only on real photo `<img>` tags (when an asset key exists), and `data-slot="artwork"` only on artwork commissions.
 * Each `.slide` has `aspect-ratio: 4 / 5`.
 * Do not nest another `<section>` inside the theme section.
 * No JavaScript, no external CSS files.

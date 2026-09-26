@@ -10,6 +10,12 @@ const router = express.Router();
 
 router.use(protect);
 
+const podcast = require('../controllers/podcastController');
+router.post('/podcast/jobs', asyncHandler(podcast.create));
+router.get('/podcast/jobs/:id', asyncHandler(podcast.status));
+router.post('/podcast/jobs/:id/render', asyncHandler(podcast.render));
+router.delete('/podcast/jobs/:id', asyncHandler(podcast.cancel));
+
 router.post('/uploads/sign', asyncHandler(signUpload));
 router.post('/assemble', asyncHandler(assembleReel));
 router.post('/export/cleanup', asyncHandler(cleanupReelExport));
