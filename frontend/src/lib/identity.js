@@ -120,6 +120,17 @@ export function markForTone(slots, tone) {
   return pick('full') || pick('symbol') || pick('fullInverted') || pick('symbolInverted');
 }
 
+/* the mark one slide draws: Editor mode › Logo can hide it on a slide
+   (`logoMark: 'off'`) or pin one of the four files; otherwise the tone picks. */
+export function markForSlide(slots, slide, tone) {
+  const want = String(slide?.logoMark || '');
+  if (want === 'off') return null;
+  const map = slots && typeof slots === 'object' && !Array.isArray(slots) ? slots : {};
+  const v = want ? map[want] : null;
+  if (v && typeof v === 'object' && v.url) return { ...v, slot: want };
+  return markForTone(map, tone);
+}
+
 /* ── READING A STORE THAT MAY BE OLDER THAN THIS FILE ─────────────────────
  *
  * (Leon, Aug 7 — after the page crashed for anyone with a session from before

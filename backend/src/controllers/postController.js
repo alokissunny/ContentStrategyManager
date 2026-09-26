@@ -591,6 +591,8 @@ function mergeSlides(incomingSlides, prevSlides) {
     return {
       role: String(s.role || ''),
       colorSet: String(s.colorSet ?? p.colorSet ?? ''),
+      ground: String(s.ground ?? p.ground ?? ''),
+      logoMark: String(s.logoMark ?? p.logoMark ?? ''),
       title: String(s.title || ''),
       subtitle: (blank || manual) ? String(s.subtitle || '') : String(s.subtitle ?? p.subtitle ?? ''),
       body: (blank || manual) ? String(s.body || '') : String(s.body ?? p.body ?? ''),

@@ -688,7 +688,7 @@ export default function DynamicLayout({
 
   if (page) {
     return (
-      <div className={`wv-dynlay is-ready${themed && !useDocument ? ' is-themed' : ''}${useDocument ? ' is-crop' : ''}${editMode ? ' is-editing' : ''}`} style={paint}>
+      <div className={`wv-dynlay is-ready${themed && themed !== 'ground' && !useDocument ? ' is-themed' : ''}${useDocument ? ' is-crop' : ''}${editMode ? ' is-editing' : ''}`} style={paint}>
         <iframe
           ref={canvasRef}
           className="wv-dynlay__frame"

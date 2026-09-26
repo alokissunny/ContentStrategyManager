@@ -153,6 +153,36 @@ const PATHS = {
       <circle cx="12" cy="10" r="2.4" />
     </>
   ),
+  /* the Editor's ⋯ (bauhly-v3 PostMenu): Layouts, Image, the plain-canvas
+     tile and Remove all edits */
+  'blocks': (
+    <>
+      <rect x="4" y="4" width="16" height="5" rx="1.6" />
+      <rect x="4" y="15" width="16" height="5" rx="1.6" />
+    </>
+  ),
+  'image-plus': (
+    <>
+      <path d="M20.5 12.5V7a2.5 2.5 0 0 0-2.5-2.5H6A2.5 2.5 0 0 0 3.5 7v10A2.5 2.5 0 0 0 6 19.5h6.5" />
+      <circle cx="8.5" cy="9.5" r="1.6" />
+      <path d="m4.5 17.5 4.5-4.5 3 3" />
+      <path d="M17.5 15v6M14.5 18h6" />
+    </>
+  ),
+  'image-off': (
+    <>
+      <rect x="3.5" y="4.5" width="17" height="15" rx="2.5" />
+      <circle cx="8.5" cy="9.5" r="1.6" />
+      <path d="m4.5 17.5 4.5-4.5 3 3" />
+      <path d="m4 20 16-16" />
+    </>
+  ),
+  undo: (
+    <>
+      <path d="M4 10.5h10.5a5 5 0 0 1 0 10H9" />
+      <path d="m8 6.5-3.5 4 3.5 4" />
+    </>
+  ),
   trash: (
     <>
       <path d="M4 6.5h16M9 6.5V5a1.5 1.5 0 0 1 1.5-1.5h3A1.5 1.5 0 0 1 15 5v1.5" />

@@ -7895,3 +7895,197 @@ span.wv-layed__apply { margin-left: auto; flex-shrink: 0; }
 }
 .wv-ig__setbadge--on { background: var(--experiment-500, #d2e823); color: var(--experiment-ink, #3a4204); }
 .wv-ig__flyrule { display: block; height: 1px; margin: 6px 4px; background: var(--border); }
+
+/* ── The Editor's ⋯ (bauhly-v3 PostMenu.jsx › EditorMore, `.pe-menu`) ─────
+   Rows carry a label with a hint under it; levels open in place with a back
+   row; collections (themes, backgrounds, marks) are grids of tiles you choose
+   by looking. Dividers separate groups, not items. */
+.wv-ig__menu.wv-em {
+  width: 320px;
+  min-width: 320px;
+  max-width: min(320px, calc(100vw - 32px));
+  max-height: min(78vh, 720px);
+  overflow-y: auto;
+  gap: 0;
+}
+.wv-em__row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 44px;
+  padding: 9px 12px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  cursor: pointer;
+  font-family: var(--font-ui);
+  font-size: var(--text-base, 15px);
+  font-weight: 500;
+  color: var(--ink-900);
+  text-align: left;
+}
+.wv-em__row > svg { color: var(--ink-500); flex-shrink: 0; }
+.wv-em__row:hover { background: var(--surface-sunken); }
+.wv-em__row:focus-visible { outline: 2px solid var(--focus-ring, var(--ink-900)); outline-offset: -2px; }
+.wv-em__row:disabled { cursor: default; opacity: 0.45; }
+.wv-em__row:disabled:hover { background: transparent; }
+.wv-em__row > svg:first-child { align-self: flex-start; margin-top: 2px; }
+.wv-em__grow { display: flex; flex-direction: column; gap: 1px; flex: 1; min-width: 0; }
+.wv-em__label { line-height: 1.3; }
+.wv-em__hint {
+  font-style: normal;
+  font-size: var(--text-xs, 12.5px);
+  font-weight: 400;
+  line-height: 1.35;
+  color: var(--ink-500);
+}
+.wv-em__row--back { font-weight: 600; }
+.wv-em__row--back > svg:first-child { align-self: center; margin-top: 0; color: var(--ink-900); }
+.wv-em__row.is-danger,
+.wv-em__row.is-danger > svg { color: var(--negative, #d92d20); }
+.wv-em__row.is-danger:hover { background: var(--negative-soft, #feefec); }
+.wv-em__row.is-danger .wv-em__hint { color: var(--ink-500); }
+.wv-em__rule { display: block; height: 1px; margin: 5px 10px; background: var(--border); flex: none; }
+.wv-em__pad { display: block; height: 6px; flex: none; }
+.wv-em__chip {
+  flex: none;
+  padding: 2px 7px;
+  border-radius: var(--r-full, 999px);
+  background: var(--surface-sunken);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ink-700, var(--ink-900));
+}
+/* a colour set is shown, not named: its three swatches take the icon's place */
+.wv-em__sw { display: inline-flex; flex: none; align-self: center; }
+.wv-em__sw i {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 1.5px solid var(--surface);
+  box-shadow: 0 0 0 1px var(--border);
+}
+.wv-em__sw i + i { margin-left: -4px; }
+
+/* collections: a grid of tiles, the one in use ringed in ink */
+.wv-em__grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-auto-rows: max-content;
+  gap: 6px;
+  padding: 2px 6px 6px;
+  max-height: 46vh;
+  overflow: auto;
+  flex: none;
+}
+.wv-em__tile {
+  position: relative;
+  display: grid;
+  padding: 0;
+  border: 1px solid var(--border-strong, var(--border));
+  border-radius: 8px;
+  background: var(--surface);
+  overflow: hidden;
+  cursor: pointer;
+  min-width: 0;
+}
+.wv-em__tile:hover { border-color: var(--ink-400, var(--ink-500)); }
+.wv-em__tile.is-on {
+  border-color: var(--ink-900);
+  outline: 2px solid var(--ink-900);
+  outline-offset: -2px;
+}
+.wv-em__tile img { display: block; width: 100%; height: 100%; min-width: 0; object-fit: cover; }
+.wv-em__tile--theme { aspect-ratio: 4 / 5; }
+.wv-em__tilename {
+  position: absolute;
+  inset: auto 0 0 0;
+  padding: 14px 8px 6px;
+  background: linear-gradient(to top, rgba(22, 22, 26, 0.72), rgba(22, 22, 26, 0));
+  color: #fff;
+  font-size: 11.5px;
+  font-weight: 600;
+  line-height: 1.2;
+  text-align: left;
+}
+.wv-em__tile--ground { aspect-ratio: 4 / 5; }
+.wv-em__none {
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 6px;
+  width: 100%;
+  height: 100%;
+  padding: 6px;
+  background: var(--surface-sunken);
+  color: var(--ink-500);
+}
+.wv-em__none i { font-size: var(--text-xs, 12.5px); font-style: normal; line-height: 1.2; text-align: center; }
+.wv-em__tile--none:hover .wv-em__none { color: var(--ink-900); }
+.wv-em__tile--logo { aspect-ratio: 16 / 10; }
+.wv-em__tile--logo img {
+  position: absolute;
+  top: 14px;
+  left: 14px;
+  width: calc(100% - 28px);
+  height: calc(100% - 28px);
+  object-fit: contain;
+}
+.wv-em__tile--logo.is-dark { background: var(--ink-900); }
+
+/* the direction chosen in the library, before it is generated */
+.wv-em__thm {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 2px 6px 4px;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  flex: none;
+}
+.wv-em__thmart { width: 44px; aspect-ratio: 4 / 5; flex: none; border-radius: 6px; overflow: hidden; background: var(--surface-sunken); }
+.wv-em__thmart img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.wv-em__thmsay { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
+.wv-em__thmname { font-size: 14px; font-weight: 600; color: var(--ink-900); }
+.wv-em__thmnote { font-size: var(--text-xs, 12.5px); color: var(--ink-500); }
+.wv-em__thmx {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--ink-500);
+  cursor: pointer;
+}
+.wv-em__thmx:hover { background: var(--surface-sunken); color: var(--ink-900); }
+
+/* a new colour set: the Brand Kit's three role cards, each a colour picker */
+.wv-em__roles { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; padding: 4px 10px 6px; flex: none; }
+.wv-em__role { position: relative; display: flex; flex-direction: column; gap: 2px; cursor: pointer; }
+.wv-em__rolecard { display: block; height: 72px; border-radius: 8px; box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.08); margin-bottom: 4px; }
+.wv-em__role b { font-size: 12.5px; font-weight: 600; color: var(--ink-900); }
+.wv-em__role em { font-style: normal; font-size: 11.5px; color: var(--ink-500); font-family: var(--font-mono, ui-monospace, monospace); }
+.wv-em__role input[type="color"] {
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 72px;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+/* Remove slide / Remove edits — the action is the product's own red */
+.wv-confirm__bad.btn--primary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--negative, #d92d20);
+  border-color: var(--negative, #d92d20);
+  color: #fff;
+}
+.wv-confirm__bad.btn--primary:hover { background: color-mix(in srgb, var(--negative, #d92d20) 88%, #000); }

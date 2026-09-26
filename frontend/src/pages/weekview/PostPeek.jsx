@@ -20,7 +20,7 @@ import {
   iframeSafeUrl,
   canvasSafeUrl,
 } from '../../api/media';
-import { paintAll, logoPositionOf, markForTone } from '../../lib/identity';
+import { paintAll, logoPositionOf, markForSlide } from '../../lib/identity';
 import { styleOf, groundOf } from '../../lib/visualbrand';
 import { useStore } from '../../lib/store';
 import '../weekView.css';
@@ -192,7 +192,7 @@ function PeekSlide({ slide, paint, themed, documentHtml, carouselLayoutHtmls, sl
       : [slide?.layoutHtml],
   );
   const store = useStore();
-  const mark = markForTone(store.brandLogos, urls[0] ? 'photo' : 'ground');
+  const mark = markForSlide(store.brandLogos, slide, urls[0] ? 'photo' : 'ground');
   const logo = mark?.key
     ? { ...mark, url: canvasSafeUrl(mark.url, mark.key) || mark.url }
     : mark;

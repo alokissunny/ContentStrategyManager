@@ -74,6 +74,13 @@ const plannedPostSchema = new mongoose.Schema(
             // in — set from Editor mode › Colour sets. Empty = the carousel's own
             // generated colours.
             colorSet: { type: String, default: '' },
+            // Editor mode › Background: the Brand Kit background this slide
+            // stands on (its key). Empty = the carousel's own ground; 'none' =
+            // plain canvas (no texture).
+            ground: { type: String, default: '' },
+            // Editor mode › Logo: which Brand Kit mark this slide draws (a
+            // brandLogos slot id). Empty = chosen by tone; 'off' = hidden.
+            logoMark: { type: String, default: '' },
             title: { type: String, default: '' },
             // The supporting line under the title — the second piece of on-slide
             // copy the layout can show (e.g. a subtitle beneath a hook). Real

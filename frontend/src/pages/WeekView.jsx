@@ -51,7 +51,7 @@ import { openCaptureIdea } from '../lib/captureUi';
 import { styleOf, groundOf } from '../lib/visualbrand';
 import { LAYOUTS as LIB_LAYOUTS, catForRole, shotsOf, DEFAULT_LAYOUT_BY_CAT, layoutShowsAllCopy } from '../data/layouts';
 import { CAROUSEL_THEMES } from '../data/carouselThemes';
-import { paintAll, identityOf, TYPE_SLOTS, FACES, logoPositionOf, markForTone, themesOf, activeThemeIdOf } from '../lib/identity';
+import { paintAll, identityOf, TYPE_SLOTS, FACES, logoPositionOf, markForSlide, themesOf, activeThemeIdOf, newThemeId, nextThemeName, THEME_CAP } from '../lib/identity';
 import { rolesOf as textRolesOf, plainOf, parseMarked, isListRole, listIndexOf } from '../lib/slidetext';
 import ImagePicker from './weekview/ImagePicker';
 import { PhotoEditor, SlotPack } from './weekview/PhotoEditor';
@@ -79,7 +79,10 @@ import {
 import { useAiDebug, fmtElapsed } from '../lib/aiDebug';
 import { useBodyScrollLock } from './visualbrand/useBodyScrollLock';
 import useMediaQuery from '../hooks/useMediaQuery';
-import { useStore } from '../lib/store';
+import { useStore, setState as setStoreState, getState as getStoreState } from '../lib/store';
+import { listBackgrounds, uploadBackground, uploadLogo } from '../api/visualBrand';
+import { DEFAULT_BACKGROUNDS } from './visuallibrary/brandkitDefaults';
+import EditorMore from './weekview/EditorMore';
 import './weekView.css';
 
 // ── Which layouts a slide can take — drawn straight from the Visual Library ──
@@ -1186,6 +1189,8 @@ function slideRecord(s, extra = {}) {
     index: Number(s.index) > 0 ? Number(s.index) : (Number(extra.index) > 0 ? Number(extra.index) : 0),
     role: s.role || '',
     colorSet: s.colorSet || '',
+    ground: s.ground || '',
+    logoMark: s.logoMark || '',
     structure: s.structure || '',
     title: s.title || '',
     subtitle: s.subtitle || s.body || '',
@@ -2445,7 +2450,7 @@ function SlideMedia({
       ? carouselLayoutHtmls
       : [slide?.layoutHtml],
   );
-  const mark = markForTone(store.brandLogos, src ? 'photo' : 'ground');
+  const mark = markForSlide(store.brandLogos, slide, src ? 'photo' : 'ground');
   const logo = mark?.key
     ? { ...mark, url: canvasSafeUrl(mark.url, mark.key) || mark.url }
     : mark;
@@ -2559,6 +2564,53 @@ function AddImagesDialog({ count, onAdd, onSkip, onClose }) {
           </button>
           <button type="button" className="btn btn--tertiary btn--sm" onClick={onAdd}>
             Add images
+          </button>
+        </div>
+      </div>
+    </>,
+    document.body,
+  );
+}
+
+/* ── Remove slide / Remove all edits (bauhly-v3 `askRemove`) ────────────
+ * Says exactly what goes, and the action is the product's own red. */
+// the four Brand Kit marks, named as Editor › Logo › Replace logo shows them
+const LOGO_SLOT_NAMES = [
+  { slot: 'full', name: 'Full', inverted: false },
+  { slot: 'fullInverted', name: 'Full inverted', inverted: true },
+  { slot: 'symbol', name: 'Symbol', inverted: false },
+  { slot: 'symbolInverted', name: 'Symbol inverted', inverted: true },
+];
+
+function RemoveDialog({ ask, onConfirm, onClose }) {
+  useBodyScrollLock();
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+  const edits = ask.kind === 'edits';
+  const title = edits
+    ? (ask.every ? 'Remove your edits to every slide?' : `Remove your edits to slide ${ask.i + 1}?`)
+    : `Remove slide ${ask.i + 1}?`;
+  const body = edits
+    ? (ask.every
+      ? `The colours, background and logo you chose on all ${ask.n} slides go, with any element changes you have not applied yet. The words and layout stay as they are.`
+      : 'The colours, background and logo you chose on this slide go, with any element changes you have not applied yet. The words and layout stay as they are.')
+    : `Slide ${ask.i + 1} of ${ask.n} goes, with its words and its picture. The other ${ask.n - 1} slides close up around it and the post stays where it is.`;
+  return createPortal(
+    <>
+      <div className="wv-confirm__scrim" onClick={onClose} />
+      <div className="wv-confirm" role="alertdialog" aria-modal="true" aria-labelledby="wv-rm-t">
+        <h2 id="wv-rm-t">{title}</h2>
+        <p>{body}</p>
+        <div className="wv-confirm__acts">
+          <button type="button" className="btn btn--tertiary btn--sm" onClick={onClose}>
+            Keep it
+          </button>
+          <button type="button" className="btn btn--primary btn--sm wv-confirm__bad" onClick={onConfirm}>
+            <Icon name="trash" size={15} strokeWidth={2} />
+            {edits ? 'Remove edits' : 'Remove slide'}
           </button>
         </div>
       </div>
@@ -3138,15 +3190,42 @@ export default function WeekView({
   // a slide without one keeps the colours the carousel was generated in.
   const kitSets = useMemo(() => themesOf(vbStore?.libraryEdits), [vbStore?.libraryEdits]);
   const kitDefaultSet = useMemo(() => activeThemeIdOf(vbStore?.libraryEdits), [vbStore?.libraryEdits]);
+  // Brand Kit backgrounds (Editor mode › Background). The studio's own uploads
+  // once there are any, else the shipped starters — the same list the Brand Kit
+  // shows. A slide stores the background's KEY (`slide.ground`); the url is
+  // looked up here because uploaded ones are presigned and expire.
+  const [kitGrounds, setKitGrounds] = useState(DEFAULT_BACKGROUNDS);
+  useEffect(() => {
+    let alive = true;
+    listBackgrounds()
+      .then((list) => { if (alive && Array.isArray(list) && list.length) setKitGrounds(list); })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, [route?.instagramUsername]);
+  // the CSS image a slide's own background choice paints: '' = none chosen
+  // (the carousel's own ground), 'none' = plain canvas
+  const groundImageOf = (slide) => {
+    const g = String(slide?.ground || '');
+    if (!g) return '';
+    if (g === 'none') return 'none';
+    const hit = kitGrounds.find((b) => b.key === g) || DEFAULT_BACKGROUNDS.find((b) => b.key === g);
+    return hit?.url ? `url("${hit.url}")` : '';
+  };
   const paintFor = (slide) => {
     const set = slide?.colorSet ? kitSets.find((t) => t.id === slide.colorSet) : null;
-    if (!set) return { paint: igVars, themed: hasVisualEdits };
+    const groundImg = groundImageOf(slide);
+    if (!set) {
+      // a background alone lays the picture over the slide; colours untouched
+      if (groundImg) return { paint: { ...igVars, '--t-ground-image': groundImg, '--wv-ground-img': groundImg }, themed: 'ground' };
+      return { paint: igVars, themed: hasVisualEdits };
+    }
     const p = set.palette || {};
     const colours = {
       // the set's ground colour is the point — the Brand Kit's background
-      // texture would paint over it (it did: `bg-offwhite.svg` hid it entirely)
-      '--t-ground-image': 'none',
-      '--wv-ground-img': 'none',
+      // texture would paint over it (it did: `bg-offwhite.svg` hid it entirely),
+      // unless this slide was given a background of its own
+      '--t-ground-image': groundImg || 'none',
+      '--wv-ground-img': groundImg || 'none',
     };
     // a set saved without an ink still needs readable text on its ground
     const ink = p.fg || (p.ground ? readableInkOn(p.ground) : '');
@@ -4241,10 +4320,10 @@ export default function WeekView({
     replaceSlides(next);
   }
 
-  function addSlide() {
+  function addSlide(at = safeIdx + 1, from = null) {
     const roles = SLIDE_ROLES[day.format] || SLIDE_ROLES.Post;
-    const base = deriveSlides(day);
-    const insertAt = Math.min(safeIdx + 1, base.length);
+    const base = from || deriveSlides(day);
+    const insertAt = Math.max(0, Math.min(at, base.length));
     const role = roles[Math.min(insertAt, roles.length - 1)] || 'Slide';
     const next = [...base.slice(0, insertAt), makeBlankSlide(role), ...base.slice(insertAt)];
     replaceSlides(next);
@@ -4262,8 +4341,8 @@ export default function WeekView({
     setSlideIdx(insertAt);
   }
 
-  function removeSlide(index) {
-    const base = deriveSlides(day);
+  function removeSlide(index, from = null) {
+    const base = from || deriveSlides(day);
     if (base.length <= 1) return;
     const next = base.filter((_, i) => i !== index);
     replaceSlides(next);
@@ -5223,18 +5302,113 @@ export default function WeekView({
     setZone(null);
   }
 
-  // Colour sets: draw this slide (or every slide) in a Brand Kit colour set;
-  // '' puts the carousel's own generated colours back. Saved on the slides, so
-  // Cancel in Editor mode reverts it like any other change.
-  const [colourPick, setColourPick] = useState(null);
-  function applyColourSet(setId, every) {
+  /* ── Editor ⋯ (bauhly-v3 EditorMore) ─────────────────────────────────
+   * Per-slide dressing is saved on the slide like `colorSet`: `ground` (a Brand
+   * Kit background key, 'none' = plain canvas) and `logoMark` (a brandLogos
+   * slot, 'off' = hidden). All of it goes through replaceSlides, so Cancel in
+   * Editor mode reverts it. */
+  const [askRemove, setAskRemove] = useState(null);
+  // Copy settings to › All slides takes this slide's dressing everywhere once;
+  // This slide only puts the others back (the snapshot).
+  const [copySnap, setCopySnap] = useState(null);
+  useEffect(() => { setCopySnap(null); }, [selected, route?._id]);
+  const DRESS = ['colorSet', 'ground', 'logoMark'];
+  const dressOf = (sl) => Object.fromEntries(DRESS.map((k) => [k, sl?.[k] || '']));
+  const isDressed = (sl) => DRESS.some((k) => Boolean(sl?.[k]));
+
+  function dressSlides(every, patch) {
     if (!day) return;
     const base = deriveSlides(day);
-    const next = base.map((sl, i) => ((every || i === safeIdx) ? { ...sl, colorSet: setId || '' } : sl));
-    replaceSlides(next);
-    setColourPick(null);
-    setMenuPane(null);
-    setZone(null);
+    replaceSlides(base.map((sl, i) => ((every || i === safeIdx)
+      ? { ...sl, ...(typeof patch === 'function' ? patch(sl, i) : patch) } : sl)));
+    setCopySnap(null);
+  }
+  // Let the story decide: the sets taken in turn across the arc
+  function applyStoryColours(ids, every) {
+    if (!ids?.length) return;
+    dressSlides(every, (sl, i) => ({ colorSet: ids[i % ids.length] }));
+  }
+  // Create a colour set: saved to the Brand Kit (libraryEdits.themes) and used
+  function addKitColourSet(hex) {
+    const edits = getStoreState().libraryEdits || {};
+    const themes = themesOf(edits);
+    if (themes.length >= THEME_CAP) return null;
+    const id = newThemeId();
+    const palette = { ground: hex.ground, fg: hex.fg, accent: hex.accent };
+    setStoreState({ libraryEdits: { ...edits, themes: [...themes, { id, name: nextThemeName(themes), note: '', palette }] } });
+    return id;
+  }
+  async function uploadKitGround(file) {
+    if (!file?.type?.startsWith('image/')) return;
+    setUploading(true);
+    try {
+      const list = await uploadBackground(file);
+      if (Array.isArray(list) && list.length) {
+        setKitGrounds(list);
+        const made = list.find((b) => b.title === file.name) || list[0];
+        if (made?.key) dressSlides(false, { ground: made.key });
+      }
+    } catch { /* the Brand Kit keeps what it had */ }
+    finally { setUploading(false); }
+  }
+  async function uploadKitLogo(file) {
+    if (!file?.type?.startsWith('image/')) return;
+    const slots = vbStore?.brandLogos || {};
+    const order = ['full', 'symbol', 'fullInverted', 'symbolInverted'];
+    const cur = activeSlide?.logoMark && activeSlide.logoMark !== 'off' ? activeSlide.logoMark : '';
+    // an empty slot first; otherwise the file replaces the mark this slide draws
+    const slot = order.find((id) => !slots[id]?.url) || cur || 'full';
+    setUploading(true);
+    try {
+      const logos = await uploadLogo(slot, file);
+      if (logos) {
+        setStoreState({ brandLogos: logos });
+        dressSlides(false, { logoMark: slot });
+      }
+    } catch { /* keep the marks already there */ }
+    finally { setUploading(false); }
+  }
+  function copyDressToAll(on) {
+    if (!day) return;
+    const base = deriveSlides(day);
+    if (on) {
+      const src = dressOf(base[safeIdx]);
+      const snap = { dayIndex: selected, slides: base.map(dressOf) };
+      replaceSlides(base.map((sl) => ({ ...sl, ...src })));
+      setCopySnap(snap);
+      return;
+    }
+    if (copySnap && copySnap.dayIndex === selected && copySnap.slides.length === base.length) {
+      replaceSlides(base.map((sl, i) => (i === safeIdx ? sl : { ...sl, ...copySnap.slides[i] })));
+    }
+    setCopySnap(null);
+  }
+  const pendingPatchesAt = (i) => Object.keys(elemEdits[i]?.patches || {}).length > 0;
+  function resetDressing(every) {
+    if (!day) return;
+    if (every) resetElemEdits();
+    else if (pendingPatchesAt(safeIdx)) {
+      const nextEdits = { ...elemEditsRef.current };
+      delete nextEdits[safeIdx];
+      elemEditsRef.current = nextEdits;
+      setElemEdits(nextEdits);
+      elemApiRef.current?.setPatches({});
+    }
+    dressSlides(every, { colorSet: '', ground: '', logoMark: '' });
+  }
+  // Slide › Add before / Add after — a blank slide there. Pending element edits
+  // are baked first: they are keyed by slide position.
+  function insertSlideAt(at) {
+    const flushed = flushElemEdits();
+    addSlide(at, flushed?.slides || null);
+  }
+  function confirmRemove() {
+    const ask = askRemove;
+    setAskRemove(null);
+    if (!ask) return;
+    if (ask.kind === 'edits') { resetDressing(ask.every); return; }
+    const flushed = flushElemEdits();
+    removeSlide(ask.i, flushed?.slides || null);
   }
 
   function openImagePicker() {
@@ -5506,10 +5680,63 @@ export default function WeekView({
     return out.slice(0, 10);
   })();
 
+  // The Editor's ⋯ — bauhly-v3's EditorMore (weekview/EditorMore.jsx). WeekView
+  // hands it what to draw and every act; the menu owns only its own levels.
+  const kitLogos = LOGO_SLOT_NAMES
+    .map((l) => ({ ...l, url: vbStore?.brandLogos?.[l.slot]?.url || '' }))
+    .filter((l) => l.url);
+  const moreActs = {
+    slides: slides.length,
+    busy: layoutBusy,
+    uploading,
+    onLayouts: () => {
+      setMenuPane(null);
+      setLayPick(appliedId);
+      setLayVarErr('');
+      setLayOpt(null);
+      setVisEdit('layout');
+      // layoutOptions are NOT in the week's render payload (too heavy) — load
+      // the stored ones now; variations generate only if none exist.
+      ensureRouteOptions();
+    },
+    themes: CAROUSEL_THEMES,
+    themeId: layoutDirectionOf(activeSlide) || '',
+    onTheme: (theme) => handleChangeTheme(theme),
+    onReference: (file) => handleUploadReferenceTheme(file),
+    sets: kitSets.map((t) => ({ ...t, swatches: [t.palette?.fg, t.palette?.accent, t.palette?.ground] })),
+    setId: activeSlide?.colorSet || '',
+    defaultSetId: kitDefaultSet,
+    setHexes: (kitSets.find((t) => t.id === (activeSlide?.colorSet || kitDefaultSet)) || {}).palette || null,
+    canNewSet: kitSets.length < THEME_CAP,
+    onColour: (setId, every) => dressSlides(every, { colorSet: setId || '' }),
+    onStoryColour: applyStoryColours,
+    onNewSet: addKitColourSet,
+    onImageLibrary: () => openImagePicker(),
+    onUploadImage: (file) => askUploadImage(file),
+    onAdjust: hasEditImage ? () => openAdjust() : null,
+    grounds: kitGrounds,
+    groundId: activeSlide?.ground || '',
+    onGround: (key, every) => dressSlides(every, { ground: key || '' }),
+    onUploadGround: uploadKitGround,
+    logos: kitLogos,
+    logoMark: activeSlide?.logoMark || '',
+    onLogo: (mark) => dressSlides(false, { logoMark: mark || '' }),
+    onUploadLogo: uploadKitLogo,
+    sameAll: Boolean(copySnap && copySnap.dayIndex === selected),
+    onSameAll: copyDressToAll,
+    onAddBefore: () => insertSlideAt(safeIdx),
+    onAddAfter: () => insertSlideAt(safeIdx + 1),
+    onVideoCover: safeIdx === 0 && videoCoverOn ? handleMakeCover : null,
+    coverBusy,
+    canReset: slides.some(isDressed) || Object.keys(elemEdits).some((k) => pendingPatchesAt(k)),
+    canResetSlide: isDressed(activeSlide) || pendingPatchesAt(safeIdx),
+    onReset: (every) => setAskRemove({ kind: 'edits', i: safeIdx, every: Boolean(every), n: slides.length }),
+    onRemoveSlide: () => setAskRemove({ kind: 'slide', i: safeIdx, n: slides.length }),
+  };
   const editMenuEl = (
     <>
-      {/* the edit menu — Add elements, shape, this picture, pictures, words
-          (bauhly-v3 §818/§989/§993). Anchored under the pencil. */}
+      {/* the Editor's ⋯ (bauhly-v3 PostMenu.jsx › EditorMore), anchored under
+          the button. Levels open in place. */}
       {zone === 'visual' && !visEdit && !imgPick && !slideEditMode && (
         <>
         <div
@@ -5518,470 +5745,18 @@ export default function WeekView({
           aria-hidden="true"
         />
         <div className="wv-ig__menuwrap">
-        <div
-          className="wv-ig__menu"
-          role="menu"
-          aria-label="Edit this slide"
-          ref={menuRef}
-        >
-          <button
-            type="button"
-            role="menuitem"
-            className={`wv-ig__menuitem wv-ig__menuitem--sub${menuPane === 'elements' ? ' is-open' : ''}`}
-            aria-haspopup="menu"
-            aria-expanded={menuPane === 'elements'}
-            onMouseEnter={() => setMenuPane(postEdit ? null : 'elements')}
-            onClick={() => {
-              if (postEdit) { openAsk(''); return; }
-              setMenuPane((p) => (p === 'elements' ? null : 'elements'));
-            }}
-          >
-            <Icon name="sparkle" size={17} strokeWidth={2} />
-            <span className="wv-ig__menugrow">Add elements</span>
-            {!postEdit && <Icon name="chevron-right" size={16} strokeWidth={2} />}
-          </button>
-          <button
-            type="button"
-            role="menuitem"
-            className={`wv-ig__menuitem wv-ig__menuitem--sub${menuPane === 'theme' || menuPane === 'theme-library' ? ' is-open' : ''}`}
-            aria-haspopup="menu"
-            aria-expanded={menuPane === 'theme' || menuPane === 'theme-library'}
-            disabled={layoutBusy}
-            onMouseEnter={() => setMenuPane('theme')}
-            onClick={() => setMenuPane((p) => (p === 'theme' || p === 'theme-library' ? null : 'theme'))}
-          >
-            <Icon name="swatch" size={17} strokeWidth={2} />
-            <span className="wv-ig__menugrow">Change theme</span>
-            <Icon name="chevron-right" size={16} strokeWidth={2} />
-          </button>
-          <button
-            type="button"
-            role="menuitem"
-            className={`wv-ig__menuitem wv-ig__menuitem--sub${menuPane === 'colour' || menuPane === 'colour-reach' ? ' is-open' : ''}`}
-            aria-haspopup="menu"
-            aria-expanded={menuPane === 'colour' || menuPane === 'colour-reach'}
-            onMouseEnter={() => { if (menuPane !== 'colour-reach') setMenuPane('colour'); }}
-            onClick={() => setMenuPane((p) => (p === 'colour' || p === 'colour-reach' ? null : 'colour'))}
-          >
-            <Glyph name="palette" size={17} strokeWidth={2} />
-            <span className="wv-ig__menugrow">Colour sets</span>
-            <Icon name="chevron-right" size={16} strokeWidth={2} />
-          </button>
-          <button
-            type="button"
-            role="menuitem"
-            className="wv-ig__menuitem"
-            onMouseEnter={() => setMenuPane(null)}
-            onClick={() => {
-              setMenuPane(null);
-              setLayPick(appliedId);
-              setLayVarErr('');
-              setLayOpt(null);
-              setVisEdit('layout');
-              // layoutOptions are NOT in the week's render payload (too
-              // heavy) — load the stored ones now. An effect generates the
-              // variations only if none exist once they're loaded.
-              ensureRouteOptions();
-            }}
-          >
-            <Icon name="dashboard" size={17} strokeWidth={2} />
-            <span>Change layout</span>
-          </button>
-          {hasEditImage && (
-            <button
-              type="button"
-              role="menuitem"
-              className="wv-ig__menuitem"
-              onMouseEnter={() => setMenuPane(null)}
-              onClick={openAdjust}
-            >
-              <Icon name="crop" size={17} strokeWidth={2} />
-              <span>Edit image</span>
-            </button>
-          )}
-          <button
-            type="button"
-            role="menuitem"
-            className="wv-ig__menuitem"
-            onMouseEnter={() => setMenuPane(null)}
-            onClick={openImagePicker}
-          >
-            <Icon name="image" size={17} strokeWidth={2} />
-            <span>Select images</span>
-          </button>
-          <button
-            type="button"
-            role="menuitem"
-            className="wv-ig__menuitem"
-            onMouseEnter={() => setMenuPane(null)}
-            onClick={openWordsEditor}
-          >
-            <Icon name="edit" size={17} strokeWidth={2} />
-            <span>Edit text</span>
-          </button>
-          {!postEdit && (
-          <button
-            type="button"
-            role="menuitem"
-            className="wv-ig__menuitem"
-            onMouseEnter={() => setMenuPane(null)}
-            onClick={() => {
-              setMenuPane(null);
-              setSlideEditMode(true);
-            }}
-          >
-            <Icon name="expand" size={17} strokeWidth={2} />
-            <span className="wv-ig__menugrow">Edit mode</span>
-            <span className="wv-ig__menubadge">Beta</span>
-          </button>
-          )}
-          {safeIdx === 0 && videoCoverOn && (
-            <button
-              type="button"
-              role="menuitem"
-              className="wv-ig__menuitem"
-              onMouseEnter={() => setMenuPane(null)}
-              onClick={handleMakeCover}
-              disabled={coverBusy}
-            >
-              <Icon name="play" size={17} strokeWidth={2} />
-              <span>{coverBusy ? 'Creating cover…' : 'Video cover'}</span>
-            </button>
-          )}
-          <button
-            type="button"
-            role="menuitem"
-            className={`wv-ig__menuitem wv-ig__menuitem--sub${menuPane === 'add-slide' ? ' is-open' : ''}`}
-            aria-haspopup="menu"
-            aria-expanded={menuPane === 'add-slide'}
-            onMouseEnter={() => setMenuPane('add-slide')}
-            onClick={() => setMenuPane((p) => (p === 'add-slide' ? null : 'add-slide'))}
-          >
-            <Icon name="plus" size={17} strokeWidth={2} />
-            <span className="wv-ig__menugrow">Add slide</span>
-            <Icon name="chevron-right" size={16} strokeWidth={2} />
-          </button>
-        </div>
-        {menuPane === 'elements' && flyPos && createPortal(
           <div
-            className="wv-ig__menuflyout"
+            className="wv-ig__menu wv-em"
             role="menu"
-            aria-label="Add elements"
-            style={{ position: 'fixed', top: flyPos.top, left: flyPos.left, width: flyPos.width, zIndex: 200 }}
-            onMouseEnter={() => setMenuPane('elements')}
+            aria-label="Edit this slide"
+            ref={menuRef}
           >
-            <div className="wv-ig__flyhead">
-              <strong>Add elements</strong>
-              <span>{slideRoleName} slide</span>
-            </div>
-            <div className="wv-ig__flylist">
-              {addElementsForRole(slideRoleName).map((el) => (
-                <button
-                  key={el.id}
-                  type="button"
-                  role="menuitem"
-                  className="wv-ig__flyitem"
-                  onClick={() => addSlideElement(el)}
-                >
-                  <Icon name={el.icon} size={18} strokeWidth={2} />
-                  <span className="wv-ig__flycopy">
-                    <span className="wv-ig__flylabel">{el.label}</span>
-                    <span className="wv-ig__flydesc">{el.desc}</span>
-                  </span>
-                  <span className="wv-ig__flyadd" aria-hidden="true">
-                    <Icon name="plus" size={16} strokeWidth={2.2} />
-                  </span>
-                </button>
-              ))}
-            </div>
-            <p className="wv-ig__flynote">
-              <Icon name="info" size={14} strokeWidth={2} />
-              <span>
-                Only elements compatible with a {String(slideRoleName).toLowerCase()} slide
-                and your content are shown.
-              </span>
-            </p>
-          </div>,
-          document.body,
-        )}
-        {menuPane === 'theme' && flyPos && createPortal(
-          <div
-            className="wv-ig__menuflyout"
-            role="menu"
-            aria-label="Themes"
-            style={{ position: 'fixed', top: flyPos.top, left: flyPos.left, width: flyPos.width, zIndex: 200 }}
-            onMouseEnter={() => setMenuPane('theme')}
-          >
-            <div className="wv-ig__flyhead wv-ig__flyhead--back">
-              <button
-                type="button"
-                className="wv-ig__flyback"
-                aria-label="Back"
-                onClick={() => setMenuPane(null)}
-              >
-                <Icon name="chevron-left" size={18} strokeWidth={2} />
-              </button>
-              <strong>Themes</strong>
-            </div>
-            <div className="wv-ig__flylist">
-              <label
-                className={`wv-ig__flyitem${layoutBusy ? ' is-disabled' : ''}`}
-                role="menuitem"
-              >
-                <Icon name="image" size={18} strokeWidth={2} />
-                <span className="wv-ig__flycopy">
-                  <span className="wv-ig__flylabel">Upload a reference</span>
-                  <span className="wv-ig__flydesc">A photograph you like the look of</span>
-                </span>
-                <Icon name="chevron-right" size={16} strokeWidth={2} />
-                <input
-                  type="file"
-                  accept="image/*"
-                  hidden
-                  disabled={layoutBusy}
-                  onChange={(e) => {
-                    const file = e.target.files?.[0];
-                    e.target.value = '';
-                    if (file) handleUploadReferenceTheme(file);
-                  }}
-                />
-              </label>
-              <button
-                type="button"
-                role="menuitem"
-                className="wv-ig__flyitem"
-                disabled={layoutBusy}
-                onClick={() => setMenuPane('theme-library')}
-              >
-                <Icon name="droplet" size={18} strokeWidth={2} />
-                <span className="wv-ig__flycopy">
-                  <span className="wv-ig__flylabel">Choose from library</span>
-                  <span className="wv-ig__flydesc">{CAROUSEL_THEMES.length} directions</span>
-                </span>
-                <Icon name="chevron-right" size={16} strokeWidth={2} />
-              </button>
-            </div>
-          </div>,
-          document.body,
-        )}
-        {menuPane === 'colour' && flyPos && createPortal(
-          <div
-            className="wv-ig__menuflyout wv-ig__menuflyout--colour"
-            role="menu"
-            aria-label="Theme colour"
-            style={{ position: 'fixed', top: flyPos.top, left: flyPos.left, width: flyPos.width, zIndex: 200 }}
-            onMouseEnter={() => setMenuPane('colour')}
-          >
-            <div className="wv-ig__flyhead wv-ig__flyhead--back">
-              <button type="button" className="wv-ig__flyback" aria-label="Back" onClick={() => setMenuPane(null)}>
-                <Icon name="chevron-left" size={18} strokeWidth={2} />
-              </button>
-              <strong>Theme colour</strong>
-            </div>
-            <div className="wv-ig__flylist">
-              {kitSets.map((set) => {
-                const p = set.palette || {};
-                const on = activeSlide?.colorSet === set.id;
-                return (
-                  <button
-                    key={set.id}
-                    type="button"
-                    role="menuitem"
-                    className={`wv-ig__flyitem wv-ig__flyitem--set${on ? ' is-on' : ''}`}
-                    onClick={() => { setColourPick(set.id); setMenuPane('colour-reach'); }}
-                    title={set.note || set.name}
-                  >
-                    <span className="wv-ig__swatches" aria-hidden="true">
-                      {[p.fg, p.accent, p.ground].map((hex, i) => (
-                        <span key={i} className="wv-ig__swatch" style={{ background: hex || '#e5e2da' }} />
-                      ))}
-                    </span>
-                    <span className="wv-ig__flycopy">
-                      <span className="wv-ig__flylabel">
-                        {set.name}
-                        {set.id === kitDefaultSet && <span className="wv-ig__setbadge">Default</span>}
-                        {on && <span className="wv-ig__setbadge wv-ig__setbadge--on">On this slide</span>}
-                      </span>
-                    </span>
-                    <Icon name="chevron-right" size={16} strokeWidth={2} />
-                  </button>
-                );
-              })}
-              {activeSlide?.colorSet && (
-                <button
-                  type="button"
-                  role="menuitem"
-                  className="wv-ig__flyitem"
-                  onClick={() => { setColourPick(''); setMenuPane('colour-reach'); }}
-                >
-                  <Icon name="refresh" size={18} strokeWidth={2} />
-                  <span className="wv-ig__flycopy">
-                    <span className="wv-ig__flylabel">Original colours</span>
-                    <span className="wv-ig__flydesc">The colours this carousel was made in</span>
-                  </span>
-                  <Icon name="chevron-right" size={16} strokeWidth={2} />
-                </button>
-              )}
-              <span className="wv-ig__flyrule" aria-hidden="true" />
-              <button
-                type="button"
-                role="menuitem"
-                className="wv-ig__flyitem"
-                onClick={() => {
-                  setMenuPane(null);
-                  if (postEdit) leavePostEdit(true);
-                  navigate('/dashboard/library-settings?add=colour');
-                }}
-              >
-                <Icon name="plus" size={18} strokeWidth={2} />
-                <span className="wv-ig__flycopy">
-                  <span className="wv-ig__flylabel">Create a colour set</span>
-                  <span className="wv-ig__flydesc">Opens your Brand Kit</span>
-                </span>
-              </button>
-            </div>
-          </div>,
-          document.body,
-        )}
-        {menuPane === 'colour-reach' && flyPos && createPortal(
-          <div
-            className="wv-ig__menuflyout wv-ig__menuflyout--colour"
-            role="menu"
-            aria-label="Apply to"
-            style={{ position: 'fixed', top: flyPos.top, left: flyPos.left, width: flyPos.width, zIndex: 200 }}
-          >
-            <div className="wv-ig__flyhead wv-ig__flyhead--back">
-              <button type="button" className="wv-ig__flyback" aria-label="Back" onClick={() => setMenuPane('colour')}>
-                <Icon name="chevron-left" size={18} strokeWidth={2} />
-              </button>
-              <strong>Apply to</strong>
-            </div>
-            <div className="wv-ig__flylist">
-              <button type="button" role="menuitem" className="wv-ig__flyitem" onClick={() => applyColourSet(colourPick, false)}>
-                <Glyph name="square" size={18} strokeWidth={2} />
-                <span className="wv-ig__flycopy">
-                  <span className="wv-ig__flylabel">This slide only</span>
-                  <span className="wv-ig__flydesc">The others keep what they have</span>
-                </span>
-              </button>
-              <button
-                type="button"
-                role="menuitem"
-                className="wv-ig__flyitem"
-                disabled={slides.length < 2}
-                onClick={() => applyColourSet(colourPick, true)}
-              >
-                <Icon name="copy" size={18} strokeWidth={2} />
-                <span className="wv-ig__flycopy">
-                  <span className="wv-ig__flylabel">All slides</span>
-                  <span className="wv-ig__flydesc">Draw the whole carousel in it</span>
-                </span>
-              </button>
-            </div>
-          </div>,
-          document.body,
-        )}
-        {menuPane === 'theme-library' && flyPos && createPortal(
-          <div
-            className="wv-ig__menuflyout wv-ig__menuflyout--themes"
-            role="menu"
-            aria-label="Choose from library"
-            style={{ position: 'fixed', top: flyPos.top, left: flyPos.left, width: flyPos.width, zIndex: 200 }}
-            onMouseEnter={() => setMenuPane('theme-library')}
-          >
-            <div className="wv-ig__flyhead wv-ig__flyhead--back">
-              <button
-                type="button"
-                className="wv-ig__flyback"
-                aria-label="Back"
-                onClick={() => setMenuPane('theme')}
-              >
-                <Icon name="chevron-left" size={18} strokeWidth={2} />
-              </button>
-              <strong>Choose from library</strong>
-            </div>
-            <div className="wv-ig__flylist wv-ig__flylist--themes">
-              {CAROUSEL_THEMES.map((theme) => (
-                <button
-                  key={theme.id}
-                  type="button"
-                  role="menuitem"
-                  className="wv-ig__flyitem wv-ig__flyitem--theme"
-                  disabled={layoutBusy}
-                  onClick={() => handleChangeTheme(theme)}
-                >
-                  <img
-                    className="wv-ig__flythumb"
-                    src={theme.thumb}
-                    alt=""
-                    loading="lazy"
-                    decoding="async"
-                  />
-                  <span className="wv-ig__flycopy">
-                    <span className="wv-ig__flylabel">{theme.name}</span>
-                  </span>
-                </button>
-              ))}
-            </div>
-          </div>,
-          document.body,
-        )}
-        {menuPane === 'add-slide' && flyPos && createPortal(
-          <div
-            className="wv-ig__menuflyout wv-ig__menuflyout--addslide"
-            role="menu"
-            aria-label="Add slide"
-            style={{ position: 'fixed', top: flyPos.top, left: flyPos.left, width: flyPos.width, zIndex: 200 }}
-            onMouseEnter={() => setMenuPane('add-slide')}
-          >
-            <div className="wv-ig__flyhead wv-ig__flyhead--back">
-              <button
-                type="button"
-                className="wv-ig__flyback"
-                aria-label="Back"
-                onClick={() => setMenuPane(null)}
-              >
-                <Icon name="chevron-left" size={18} strokeWidth={2} />
-              </button>
-              <strong>Add slide</strong>
-            </div>
-            <div className="wv-ig__flylist">
-              <button
-                type="button"
-                role="menuitem"
-                className="wv-ig__flyitem"
-                onClick={() => {
-                  addSlide();
-                  setMenuPane(null);
-                  closeZone();
-                }}
-              >
-                <Icon name="file-plus" size={18} strokeWidth={2} />
-                <span className="wv-ig__flycopy">
-                  <span className="wv-ig__flylabel">Add blank slide</span>
-                  <span className="wv-ig__flydesc">Add a new empty slide</span>
-                </span>
-              </button>
-              <button
-                type="button"
-                role="menuitem"
-                className="wv-ig__flyitem"
-                onClick={() => {
-                  duplicateSlide();
-                  setMenuPane(null);
-                  closeZone();
-                }}
-              >
-                <Icon name="files-plus" size={18} strokeWidth={2} />
-                <span className="wv-ig__flycopy">
-                  <span className="wv-ig__flylabel">Duplicate slide</span>
-                  <span className="wv-ig__flydesc">Create a copy of this slide</span>
-                </span>
-              </button>
-            </div>
-          </div>,
-          document.body,
-        )}
+            <EditorMore
+              key={`${selected}-${safeIdx}`}
+              acts={moreActs}
+              onClose={() => { if (!visEdit) closeZone(); }}
+            />
+          </div>
         </div>
         </>
       )}
@@ -6725,6 +6500,10 @@ export default function WeekView({
             </div>
           </div>
         </>
+      )}
+
+      {askRemove && (
+        <RemoveDialog ask={askRemove} onConfirm={confirmRemove} onClose={() => setAskRemove(null)} />
       )}
 
       {askImgs > 0 && (

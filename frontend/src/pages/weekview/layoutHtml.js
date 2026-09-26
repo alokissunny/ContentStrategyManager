@@ -836,6 +836,15 @@ const SLIDE_FRAME_THEMED = [
   'html.is-themed .slide :is(h1,h2,h3,[data-slot="title"],[data-slot="stat"],[data-slot="quote"]){font-family:var(--t-headline-face,sans-serif)}',
 ].join('');
 
+// `themed === 'ground'` — Editor mode › Background on a slide with no colour
+// set: lay the chosen background (or none, for plain canvas) over the slide's
+// own ground colour. Nothing else about the carousel is repainted.
+const SLIDE_FRAME_GROUND = 'html.is-themed .slide{background-image:var(--t-ground-image,none);background-size:cover;background-position:center;background-repeat:no-repeat}';
+const groundOnly = (themed) => themed === 'ground';
+const groundVars = (paint) => Object.fromEntries(
+  Object.entries(paint || {}).filter(([k]) => k === '--t-ground-image'),
+);
+
 // `themed === 'colours'` — a Brand Kit colour set on one slide: repaint the
 // palette, keep the slide's own typefaces (no face vars, no font rules).
 const coloursOnly = (themed) => themed === 'colours';
@@ -907,13 +916,17 @@ export function buildSlideFrameDocument(html, { themed = false, paint } = {}) {
   const { css, body } = splitLayoutDocument(html);
   if (!body) return '';
   if (coloursOnly(themed)) paint = withoutFaces(paint);
+  if (groundOnly(themed)) paint = groundVars(paint);
   const vars = themed ? paintCssVars(paint) : '';
+  const frame = groundOnly(themed)
+    ? SLIDE_FRAME_GROUND
+    : (coloursOnly(themed) ? SLIDE_FRAME_THEMED_COLOURS : SLIDE_FRAME_THEMED);
   const head = [
     '<meta charset="utf-8">',
     '<meta name="viewport" content="width=device-width,initial-scale=1">',
     `<style>${SLIDE_FRAME_SHELL}</style>`,
     css ? `<style>${css}</style>` : '',
-    themed ? `<style>${vars ? `:root{${vars}}` : ''}${coloursOnly(themed) ? SLIDE_FRAME_THEMED_COLOURS : SLIDE_FRAME_THEMED}</style>` : '',
+    themed ? `<style>${vars ? `:root{${vars}}` : ''}${frame}</style>` : '',
   ].filter(Boolean).join('');
   return `<!doctype html><html${themed ? ' class="is-themed"' : ''}><head>${head}</head><body>${body}</body></html>`;
 }
@@ -933,6 +946,11 @@ export function buildSlideFrameDocument(html, { themed = false, paint } = {}) {
 export function applyThemeToCarouselDocument(html, { themed = false, paint } = {}) {
   const raw = trim(html);
   if (!raw || !themed) return raw;
+  if (groundOnly(themed)) {
+    const gv = paintCssVars(groundVars(paint));
+    const groundStyle = `<style data-brand-theme>${gv ? `:root{${gv}}` : ''}${SLIDE_FRAME_GROUND}${IMG_SHIMMER_CSS}</style>`;
+    return markThemed(raw, groundStyle);
+  }
   if (coloursOnly(themed)) paint = withoutFaces(paint);
   const vars = paintCssVars(paint);
   const tokens = carouselTokenOverrides(paint);
@@ -948,7 +966,12 @@ export function applyThemeToCarouselDocument(html, { themed = false, paint } = {
   ].join('');
   const frame = coloursOnly(themed) ? SLIDE_FRAME_THEMED_COLOURS : SLIDE_FRAME_THEMED;
   const style = `<style data-brand-theme>${vars ? `:root{${vars}}` : ''}${tokenRule}${frame}${accentRule}${IMG_SHIMMER_CSS}</style>`;
+  return markThemed(raw, style);
+}
 
+// Flag <html> as `is-themed` and put the theme <style> last (end of body) so it
+// wins source-order ties.
+function markThemed(raw, style) {
   let out = raw;
   if (/<html[\s>]/i.test(out)) {
     out = out.replace(/<html\b([^>]*)>/i, (_, attrs) => {
