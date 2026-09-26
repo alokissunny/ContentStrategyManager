@@ -3,6 +3,7 @@
  * Uses the same toSvg → canvas path as Week View publish (avoids hanging toBlob).
  */
 import { toSvg } from 'html-to-image';
+import { repairStrandedOffsets } from './layoutHtml';
 
 const SLIDE_W = 1080;
 const SLIDE_H = 1350;
@@ -180,6 +181,7 @@ async function mountDocument(html) {
   doc.open();
   doc.write(html);
   doc.close();
+  repairStrandedOffsets(doc);
   await wait(80);
   if (doc.fonts?.ready) {
     try { await Promise.race([doc.fonts.ready, wait(1500)]); } catch { /* ignore */ }

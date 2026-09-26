@@ -128,8 +128,8 @@ Use this visual priority order:
 2. Annotated project photograph or crop.
 3. Plan, sketch, elevation or detail drawing.
 4. Material, finish or reference board.
-5. Honest concept illustration.
-6. Intentional typographic or diagram-led composition.
+5. Generated concept picture (reserved image slot, see below).
+6. Intentional typographic composition.
 
 Do not use a lower-priority visual when a stronger approved visual is available.
 
@@ -149,28 +149,30 @@ Use the actual asset key from the input. Never use a placeholder asset key.
 * Do not apply heavy filters that alter material colour or architectural detail.
 * Use the image only when it supports the slide’s specific narrative unit.
 
-### No project photo
+### No project photo — reserve an image slot
 
-If no project photo is available, do not create an empty `<img data-slot="image">` slot.
+If a slide needs a picture but no project photo is available, **do not draw it with HTML / CSS / SVG**. Reserve an empty image slot instead; a separate Image Generator agent renders a picture for it and fills the slot after you finish:
 
-Build the visual with HTML / CSS / SVG graphics instead—editorial concept art that supports the slide idea.
+```html
+<img data-slot="image" data-image-request="WHAT THE PICTURE SHOWS" alt="">
+```
 
-Match this graphic language, unless `THEME_REFERENCE` specifies a different treatment:
+* Leave out `src` and `data-asset-key` — the generator adds them.
+* `data-image-request`: one plain sentence (≤ 30 words) describing the picture this slide needs — subject, setting, mood, and whether it is a photo-style scene or a concept illustration. Make it specific to this slide's idea, not generic.
+* Keep it conceptual and honest: never request a fake project photograph, before-and-after result, client, product, document, chart or completed installation presented as the brand's own work.
+* Never ask for text, numbers or logos inside the picture — the slide's copy stays in HTML.
+* At most **one** reserved image slot per slide.
+* Compose the slide around the slot exactly as you would for a real photo: give it a deliberate size and position (full-bleed background, large inset, or framed crop), `object-fit: cover`, and keep text off the part that will carry the subject. Style the `<img>` with a quiet neutral background colour so the slide still reads while the picture loads.
+* Not every slide needs a picture. Slides that work as pure typography (a stat, a quote, the final takeaway) should stay typographic — do not reserve a slot just to fill space.
 
-* Dashed rectangular frames for proposed artwork or placements.
-* Simple abstract shapes inside those frames using muted earth tones.
-* Overlapping material swatches such as stone, paint or wood blocks.
-* A leaf, sprig or similar simple SVG accent when it fits.
-* Small handwritten-style labels with thin arrows only when they help reading (e.g. “CONCEPT STUDY”).
-* Prefer quiet concept graphics over long honesty disclaimers printed as body copy.
+Annotations still follow these rules:
+
 * **Annotations must mark something real.** Hand-drawn circles, ovals, underlines, arrows, or scribbles are allowed only when they clearly highlight a specific word, short phrase, or photo detail.
 * Never place a circle/oval/scribble in empty whitespace between text blocks, over blank background, or as decoration that points at nothing.
 * If you cannot place an annotation tightly on its target, omit it. A clean slide beats a floating mark.
 * Prefer underlining or accenting the key word in the headline (via `<em>` / colour) over a free-floating oval.
 
-Keep graphics conceptual and honest. Never fake a project photograph, before-and-after result, client quote or completed installation.
-
-Every no-asset slide that needs a visual must include an intentional graphic, diagram or typographic composition. Never use a blank grey box, empty placeholder or meaningless decorative panel.
+Never use a blank grey box, drawn placeholder or meaningless decorative panel in place of a picture — reserve an image slot instead.
 
 For planned or unverified work, communicate intention with normal design language (“proposed,” “direction,” “intent”) — not with on-slide caveats about missing documentation.
 
@@ -205,11 +207,13 @@ For planned or unverified work, communicate intention with normal design languag
 * Do not use fake statistics, quotes or social-proof elements.
 * Do not use visual effects that make the carousel look like a template rather than a real design story.
 * Do not add random hand-drawn circles or ovals. Any mark must sit on its target (text glyph or photo feature), with tight padding — not mid-layout empty space.
+* **Placed elements must be positioned in the same rule.** Any rule that sets `top` / `right` / `bottom` / `left` must also set `position: absolute` (or `relative`/`fixed` deliberately) in that same rule. Never rely on a second helper class (e.g. `.taped`) to supply the positioning — if that class is left off one element, its offsets are ignored and it collapses onto the top of the slide over the copy.
 
 ## Final Quality Gate
 
 Before returning the HTML, check that:
 
+* Every element with `top` / `right` / `bottom` / `left` has `position` set in the same CSS rule, and no two text blocks overlap.
 * The first slide is specific and scroll-stopping.
 * The central idea is clear within two seconds.
 * Every slide advances the narrative.
@@ -247,7 +251,7 @@ Hard requirements:
 
 * Exactly one `<section data-direction="…">` wrapping all slides. When `THEME_REFERENCE` names a direction, use that exact value; otherwise use `architectural-minimal`.
 * Every canvas MUST be `<article class="slide" data-index="N">` (1-based). Never use `<div class="slide">`.
-* Put a `data-slot` on every editable text run the viewer should be able to change (not only the main headline). Use: `title`, `supporting-text`, `eyebrow`, `label`, `caption`, `note`, `detail`, `action`, `quote`, `stat`, `index`. Repeat the same slot name when there are several of that kind (e.g. two `label`s). Use `data-slot="image"` only on real photo `<img>` tags (when an asset key exists).
+* Put a `data-slot` on every editable text run the viewer should be able to change (not only the main headline). Use: `title`, `supporting-text`, `eyebrow`, `label`, `caption`, `note`, `detail`, `action`, `quote`, `stat`, `index`. Repeat the same slot name when there are several of that kind (e.g. two `label`s). Use `data-slot="image"` only on `<img>` tags: real photos (with their asset key) or reserved slots for the Image Generator (with `data-image-request`, no `src`).
 * Each `.slide` has `aspect-ratio: 4 / 5`.
 * Do not nest another `<section>` inside the theme section.
 * No JavaScript, no external CSS files.

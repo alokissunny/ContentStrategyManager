@@ -1,6 +1,7 @@
 import { useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   prepareLayoutHtml,
+  repairStrandedOffsets,
   buildSlideFrameDocument,
   applyThemeToCarouselDocument,
   isCarouselDocument,
@@ -537,6 +538,7 @@ export default function DynamicLayout({
       doc.head.insertBefore(base, doc.head.firstChild);
     }
     void doc.documentElement.offsetWidth;
+    repairStrandedOffsets(doc);
     if (themed === 'colours') paintSetInk(doc);
     // Watch the injected photos so the shimmer placeholder clears when they load
     // (non-document path has src baked in by prepareLayoutHtml; the document path

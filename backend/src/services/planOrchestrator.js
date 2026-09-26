@@ -308,10 +308,11 @@ function layoutSlideParallelEnabled() {
   return !envFlagOff('PLAN_LAYOUT_SLIDE_PARALLEL', '1');
 }
 
-// Visual Generator agent — fills empty image slots with generated pictures.
-// Off by default. Set PLAN_VISUAL_AGENT=1 (and OpenAI + S3) to enable.
+// Visual Generator agent — fills the empty image slots the carousel agent
+// reserves (data-image-request) with generated pictures. On by default when
+// OpenAI + S3 are configured; set PLAN_VISUAL_AGENT=0 to disable.
 function visualAgentEnabled() {
-  if (!envFlagOn('PLAN_VISUAL_AGENT', '0')) return false;
+  if (envFlagOff('PLAN_VISUAL_AGENT', '1')) return false;
   return isOpenAIImageConfigured() && isS3Configured();
 }
 
@@ -1648,7 +1649,9 @@ function compositionNoteOf(_flat, visual) {
     return 'Include <img data-slot="image" alt=""> with empty src. Give it a real flex/grid area. Use visual.photograph.visibleContent when present so the subject stays in frame.';
   }
   if (visual?.includeImageSlot) {
-    return 'Include <img data-slot="image" alt=""> with empty src. Give it a real flex/grid area. Do not invent graphics.';
+    return 'No photo exists — reserve <img data-slot="image" data-image-request="…" alt=""> with no src; the Image Generator fills it. '
+      + 'Write data-image-request as one specific sentence describing the picture this slide needs. Give it a real flex/grid area. '
+      + 'Do not draw the visual with SVG/CSS.';
   }
   return 'No image slot. Text-led composition only.';
 }
@@ -2453,6 +2456,8 @@ function slideNeedsGeneratedVisual(slide, { fillEmpty = false } = {}) {
   if (supplied.length) return false;
   const resolution = String(slide?.evidenceResolution?.type || '').trim().toLowerCase();
   if (resolution === 'generate-conceptual-support') return true;
+  // The carousel agent reserved this slot and described the picture it wants.
+  if (imageRequestOf(html)) return true;
   // Fill any remaining empty image slot the carousel reserved for a concept visual.
   if (fillEmpty || envFlagOn('PLAN_VISUAL_FILL_EMPTY', '0')) return true;
   return false;
@@ -2491,7 +2496,17 @@ function visualSlideInputOf(slide) {
       reason: optionalText(slide?.evidenceResolution?.reason),
     },
     filledCopy: filled,
+    carouselImageRequest: imageRequestOf(slide?.layoutHtml),
   };
+}
+
+// The carousel agent reserves an empty <img data-slot="image"> for a slide that
+// needs a picture but has no photo, and says what it wants in data-image-request.
+function imageRequestOf(html) {
+  const tag = (String(html || '').match(/<img\b[^>]*\bdata-slot\s*=\s*["']image["'][^>]*>/i) || [])[0] || '';
+  const m = tag.match(/\bdata-image-request\s*=\s*("([^"]*)"|'([^']*)')/i);
+  const raw = m ? (m[2] ?? m[3] ?? '') : '';
+  return optionalText(raw.replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, '&'));
 }
 
 function visualPostContextOf(brief) {

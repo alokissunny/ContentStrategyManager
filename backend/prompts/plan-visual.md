@@ -3,8 +3,9 @@
 ## Purpose
 
 Write ONE image-generation prompt for a single carousel slide that **needs a visual but has
-no supplied photograph or asset**. Content Structure has already decided this slide's visual
-must be *generated* (its `evidenceResolution.type` is `generate-conceptual-support`). Your
+no supplied photograph or asset**. Either Content Structure decided this slide's visual must be
+*generated* (`evidenceResolution.type` is `generate-conceptual-support`), or the carousel
+designer reserved an empty image slot for it (`carouselImageRequest`). Your
 only job is to turn that decision into a precise, art-directed prompt that an image model
 renders into a background picture behind the slide's copy.
 
@@ -48,6 +49,10 @@ So the image must:
 
 Use, in order:
 
+0. `carouselImageRequest` — when present, the carousel designer reserved an empty image slot
+   on this slide and wrote exactly what picture it wants there. It is your primary brief:
+   render that picture (still within the truth boundary and guardrails below). Use the
+   fields that follow to sharpen it, not replace it.
 1. `visual.communicationFunction` — what this visual must communicate after evidence
    resolution. This is the spine of the image.
 2. `visual.role` — `context`, `recognition`, `explanation`, or `demonstration`. Let it set

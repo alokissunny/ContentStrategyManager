@@ -966,6 +966,26 @@ export function applyThemeToCarouselDocument(html, { themed = false, paint } = {
   return `${out}${style}`;
 }
 
+// The carousel agent sometimes places a panel with top/bottom offsets but forgets
+// `position:absolute` (it relied on a helper class like `.taped` and left it off).
+// A static element ignores its offsets, so the panel falls to the top of the
+// slide and covers the copy. getComputedStyle reports a static element's
+// specified offset (e.g. "47%") rather than "auto" only when one was authored,
+// so this matches exactly the elements the agent meant to place — promote them.
+export function repairStrandedOffsets(doc) {
+  const view = doc?.defaultView;
+  if (!view) return 0;
+  let fixed = 0;
+  doc.querySelectorAll('.slide *, article[data-index] *').forEach((el) => {
+    const cs = view.getComputedStyle(el);
+    if (cs.position !== 'static') return;
+    if (cs.top === 'auto' && cs.bottom === 'auto') return;
+    el.style.position = 'absolute';
+    fixed += 1;
+  });
+  return fixed;
+}
+
 // Render the layout agent's output as-is. We only inject real image URLs and
 // (when `scope` is set) prefix selectors so in-page embeds cannot leak. The
 // Week View canvas skips scoping and iframes the fragment instead.

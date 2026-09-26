@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useAiDebug, fmtElapsed, fmtCost, fmtTokens } from '../../lib/aiDebug';
-import { prepareLayoutHtml, shareLayoutStyles } from './layoutHtml';
+import { prepareLayoutHtml, repairStrandedOffsets, shareLayoutStyles } from './layoutHtml';
 import { downloadCarouselPreviewPdf } from './carouselPdf';
 
 function pretty(value) {
@@ -125,6 +125,7 @@ function SlideFrame({ html, label }) {
     doc.open();
     doc.write(page);
     doc.close();
+    repairStrandedOffsets(doc);
     // Force a layout pass so container-query units measure against the frame.
     void doc.documentElement.offsetWidth;
     return undefined;
@@ -154,6 +155,7 @@ function DocumentFrame({ html }) {
     doc.open();
     doc.write(html);
     doc.close();
+    repairStrandedOffsets(doc);
     return undefined;
   }, [html]);
   return (
