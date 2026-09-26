@@ -129,6 +129,19 @@ function planIntent(intent) {
       if (rest[0] === 'artwork') return { ...out, unsupported: 'There is no artwork library on this account yet — upload a picture instead.' };
     }
   }
+  // `All slides` in the chat: the same change on every slide, which the refine
+  // runs per slide with a one-line outline of the others for context
+  if (kind === 'all') {
+    const EVERY = 'Apply it to THIS slide the way it applies to every slide of the carousel, so the slides still read as one story and look like one set.';
+    if (head === 'write') {
+      if (rest[0] === 'soundlike') return { ...out, brief: brief(rest.slice(-1), VOICE, `${SLIDE_WORDS_SCOPE} ${EVERY}`) };
+      return { ...out, brief: brief(rest, { ...REWRITE, _: 'Rewrite the words on this slide; keep the meaning and every fact.' }, `${SLIDE_WORDS_SCOPE} ${EVERY}`) };
+    }
+    if (head === 'type') return { ...out, brief: brief(rest, TYPE, `${LOOK_SCOPE} ${EVERY}`) };
+    if (head === 'visuals') {
+      return { ...out, unsupported: 'Pictures are made one slide at a time — switch to This post, pick the slide, and choose Make something › An image.' };
+    }
+  }
   // anything else: the labels say what was pressed; the sentence says the rest
   return out;
 }

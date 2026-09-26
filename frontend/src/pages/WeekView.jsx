@@ -2915,6 +2915,8 @@ export default function WeekView({
   // PATH of chip ids (`['rewrite', 'impact']`), shown as a trail above the row.
   const [askPath, setAskPath] = useState([]);
   const askAct = askPath[0] || null;
+  // the chat's This post / All slides switch (bauhly-v3 `scopeAll`)
+  const [askScopeAll, setAskScopeAll] = useState(false);
   const [askAll, setAskAll] = useState(false); // the running edit covers every slide
   const [askVisual, setAskVisual] = useState(false); // …and is making a picture first
   const [askPhase, setAskPhase] = useState(''); // what the running edit is doing now
@@ -3561,6 +3563,10 @@ export default function WeekView({
     setTimeDraft(null);
     setSchedMenu(false);
     setPostEdit(true);
+    // the chat is part of the Editor (bauhly-v3 `asking` starts true): open on
+    // This post, and a selection re-aims it
+    setAskScopeAll(false);
+    setAskOpen(true);
   }
 
   // Leaving Editor mode. `keep` is Apply changes: whatever the open editor is
@@ -3696,7 +3702,9 @@ export default function WeekView({
   // What the field is about and what can be asked of it — the reference's
   // `askCtxNow`, fed from this slide and whatever element is selected.
   const askSel = postEdit && askOpen && elemSel ? elemSel : null;
-  const askKind = !askSel ? 'post'
+  // All slides applies only with nothing selected, on a carousel
+  const askScopeOn = askScopeAll && !askSel && slides.length > 1;
+  const askKind = askScopeOn ? 'all' : !askSel ? 'post'
     : askSel.kind === 'text' ? 'text'
       : askSel.kind === 'image' ? (askSel.hasImg ? 'picture' : 'place')
         : 'post';
@@ -3744,10 +3752,12 @@ export default function WeekView({
     acts: ['media', 'upload', 'reference'],
   };
   const askLeaf = postEdit && askOpen ? endOf(askCtxNow) : null;
-  const askList = postEdit && askOpen ? actionsFor(askCtxNow) : [];
+  const askList = postEdit && askOpen
+    ? actionsFor(askCtxNow).filter((one) => !(askKind === 'all' && !askPath.length && one.id === 'visuals'))
+    : [];
   // The subject changing (a different element, another slide) takes the
   // half-built instruction with it — it was about the old one.
-  const askOn = `${askKind}:${askSel?.path ?? ''}:${safeIdx}`;
+  const askOn = `${askKind}:${askSel?.path ?? ''}:${askScopeOn ? 'all' : safeIdx}`;
   const askOnRef = useRef(askOn);
   useEffect(() => {
     if (askOnRef.current === askOn) return;
@@ -3914,7 +3924,7 @@ export default function WeekView({
     const postId = postIdAt(selected);
     if (!postId) return;
     const focusPath = askSel?.path ?? null;
-    const every = askAct === 'flow';
+    const every = askScopeOn;
     const saved = flushElemEdits();
     const base = saved?.slides || deriveSlides(day);
     const docBefore = saved?.docHtml ?? carouselDocumentOf(day);
@@ -6323,8 +6333,33 @@ export default function WeekView({
                 <div className="wv-edm__askin">
                   {/* where the studio is: the subject, then each chip pressed
                       (bauhly-v3 `edm-trail`) — "The title › Write it again" */}
+                  <div className="wv-edm__asktop">
+                  {slides.length > 1 && !askSel && !askPath.length && (
+                    <div className="wv-edm__scope" role="group" aria-label="What this changes">
+                      <button
+                        type="button"
+                        className={`wv-edm__sc${askScopeOn ? '' : ' is-on'}`}
+                        aria-pressed={!askScopeOn}
+                        disabled={askBusy}
+                        onMouseDown={(e) => { e.preventDefault(); setAskScopeAll(false); }}
+                      >
+                        This post
+                      </button>
+                      <button
+                        type="button"
+                        className={`wv-edm__sc wv-edm__sc--wide${askScopeOn ? ' is-on' : ''}`}
+                        aria-pressed={askScopeOn}
+                        disabled={askBusy}
+                        onMouseDown={(e) => { e.preventDefault(); setAskScopeAll(true); }}
+                      >
+                        All slides
+                      </button>
+                    </div>
+                  )}
                   <p className="wv-edm__trail">
-                    <span className="wv-edm__trailwho">{subject || 'This post'}</span>
+                    {(askSel || askPath.length || slides.length <= 1) && (
+                      <span className="wv-edm__trailwho">{subject || (askScopeOn ? 'All slides' : 'This post')}</span>
+                    )}
                     {trail.map((node, i) => (
                       <span className="wv-edm__trailstep" key={`tr${i}`}>
                         <span className="wv-edm__trailsep" aria-hidden="true">›</span>
@@ -6332,7 +6367,9 @@ export default function WeekView({
                       </span>
                     ))}
                   </p>
+                  </div>
                   <div className="wv-edm__askrow">
+                    {askSel && (
                     <button
                       type="button"
                       className="wv-edm__askclose"
@@ -6349,6 +6386,7 @@ export default function WeekView({
                     >
                       <Icon name="x" size={16} strokeWidth={2.4} />
                     </button>
+                    )}
                     {askPath.length > 0 && (
                       <button
                         type="button"
@@ -6392,6 +6430,21 @@ export default function WeekView({
                   >
                     {/* the chosen end of the branch rides in the field as a quick
                         link (bauhly-v3 `askPend`); × steps back one level */}
+                    {askScopeOn && (
+                      <span className="wv-edm__cmd wv-edm__cmd--all">
+                        All slides
+                        <button
+                          type="button"
+                          className="wv-edm__cmdx"
+                          aria-label="Back to this slide only"
+                          title="Back to this slide only"
+                          disabled={askBusy}
+                          onMouseDown={(e) => { e.preventDefault(); setAskScopeAll(false); }}
+                        >
+                          <Icon name="x" size={12} strokeWidth={2.4} />
+                        </button>
+                      </span>
+                    )}
                     {askLeaf && !askLeaf.act && (
                       <span className="wv-edm__cmd">
                         {askLeaf.label}

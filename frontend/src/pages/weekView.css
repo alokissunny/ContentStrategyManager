@@ -8227,3 +8227,37 @@ span.wv-layed__apply { margin-left: auto; flex-shrink: 0; }
   box-shadow: none;
   background: transparent;
 }
+
+/* This post / All slides (bauhly-v3 `edm-try__scope`) above the chips */
+.wv-edm__asktop { display: flex; align-items: center; gap: var(--sp-3); min-width: 0; }
+.wv-edm__asktop .wv-edm__trail { flex: 1 1 auto; }
+.wv-edm__scope {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  border-radius: var(--r-full);
+  background: var(--ink-100);
+}
+.wv-edm__sc {
+  height: 26px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: var(--r-full);
+  background: transparent;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink-500);
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
+}
+.wv-edm__sc:hover:not(:disabled) { color: var(--ink-900); }
+.wv-edm__sc.is-on { background: var(--surface); color: var(--ink-900); box-shadow: 0 1px 2px rgb(0 0 0 / 8%); }
+.wv-edm__sc--wide.is-on,
+.wv-edm__sc--wide.is-on:hover:not(:disabled) { background: var(--ink-900); color: var(--surface); box-shadow: none; }
+/* the All slides tag in the field is ink, like the switch that set it */
+.wv-edm__askfield .wv-edm__cmd--all { background: var(--ink-900); color: var(--surface); }
+.wv-edm__askfield .wv-edm__cmd--all .wv-edm__cmdx:hover { background: color-mix(in srgb, var(--surface) 22%, transparent); }
