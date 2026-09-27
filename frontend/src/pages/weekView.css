@@ -8266,3 +8266,5 @@ span.wv-layed__apply { margin-left: auto; flex-shrink: 0; }
 .wv-em__thmart { width: 52px; }
 .wv-em__thmname { font-size: 15px; }
 .wv-em__thmnote { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+/* Debug › Preview of a whole carousel document: every slide, side by side */
+.edp__grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 16px; }

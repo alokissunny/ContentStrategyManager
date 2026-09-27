@@ -124,6 +124,30 @@ function previewOfEntry(entry) {
   if (entry?.preview?.slides?.length) return entry.preview;
   // only an agent's own html answer (a JSON summary row escapes its html)
   if (!/^\s*(```(?:html)?\s*)?</.test(String(entry?.output || ''))) return null;
+  // A whole carousel document (the carousel agent): render it as written — its
+  // own <style>, its own font <link>s, every slide — never one article lifted
+  // out and drawn in the editor's CSS (that dropped the type and the ground).
+  const out = String(entry.output || '').replace(/^\s*```(?:html)?\s*/i, '').replace(/```\s*$/, '');
+  const docAt = out.search(/<!doctype html|<html[\s>]|<section\b[^>]*data-direction/i);
+  if (docAt >= 0 && /<style\b/i.test(out)) {
+    const end = out.toLowerCase().lastIndexOf('</html>');
+    let document = end > docAt ? out.slice(docAt, end + 7) : out.slice(docAt);
+    // a bare <section> (styles inside it) is still the whole carousel
+    if (!/<html[\s>]/i.test(document)) document = `<!DOCTYPE html><html><head><meta charset="utf-8"></head><body>${document}</body></html>`;
+    const articles = document.match(/<article\b[\s\S]*?<\/article>/gi) || [];
+    if (articles.length) {
+      const direction = (document.match(/<section\b[^>]*data-direction\s*=\s*["']([^"']+)["']/i) || [])[1] || '';
+      return {
+        document,
+        direction,
+        slides: articles.map((a, i) => ({
+          index: Number((a.match(/^<article\b[^>]*\sdata-index\s*=\s*["'](\d+)["']/i) || [])[1]) || i + 1,
+          before: '',
+          after: a,
+        })),
+      };
+    }
+  }
   const after = firstArticle(entry?.output);
   if (!after) return null;
   const input = String(entry?.prompt || '');

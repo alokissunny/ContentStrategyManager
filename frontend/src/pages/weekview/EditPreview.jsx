@@ -61,6 +61,26 @@ function indexOf(article, fallback) {
   return m ? Number(m[1]) : fallback;
 }
 
+// One slide of a whole carousel document, drawn from that document as written
+// (its own <style> and font <link>s) — the carousel agent's output.
+function DocSlideView({ document: doc, direction, article, label }) {
+  return (
+    <figure className="edp__fig">
+      <div className="edp__canvas wv-ig__photo">
+        <DynamicLayout
+          html=""
+          documentHtml={doc}
+          slideIndex={indexOf(article, 1)}
+          direction={direction}
+          imageUrls={imageUrlsOf(article)}
+          copy={{}}
+        />
+      </div>
+      <figcaption className="edp__cap">{label}</figcaption>
+    </figure>
+  );
+}
+
 function SlideView({ css, direction, article, label }) {
   if (!article) {
     return (
@@ -94,6 +114,7 @@ export default function EditPreview({ preview, title, onClose }) {
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose]);
   const slides = Array.isArray(preview?.slides) ? preview.slides : [];
+  const whole = Boolean(preview?.document);
   // the theme to draw with: what the row recorded, completed from the editor
   const [theme] = useState(() => {
     const live = liveTheme(preview?.direction);
@@ -110,7 +131,7 @@ export default function EditPreview({ preview, title, onClose }) {
         <header className="edp__head">
           <strong>{title || 'Slide preview'}</strong>
           <span className="edp__sub">
-            {theme.source === 'none'
+            {whole ? `The agent's output · ${slides.length} slide${slides.length === 1 ? '' : 's'} · rendered with its own styles and fonts` : theme.source === 'none'
               ? 'Before and after · open the post in the editor to see it in its theme (this row did not record its styles)'
               : theme.source === 'editor'
                 ? 'Before and after · in the theme of the slide open in the editor'
@@ -119,7 +140,14 @@ export default function EditPreview({ preview, title, onClose }) {
           <button type="button" className="edp__close" onClick={onClose}>Close</button>
         </header>
         <div className="edp__body">
-          {slides.map((sl, i) => (
+          {whole && (
+            <div className="edp__grid">
+              {slides.map((sl, i) => (
+                <DocSlideView key={`${sl.index}-${i}`} document={preview.document} direction={preview.direction} article={sl.after} label={`Slide ${sl.index}`} />
+              ))}
+            </div>
+          )}
+          {!whole && slides.map((sl, i) => (
             <section key={`${sl.index}-${i}`} className="edp__row">
               <h3 className="edp__slide">Slide {sl.index}</h3>
               <div className="edp__pair">
