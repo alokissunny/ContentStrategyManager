@@ -34,9 +34,10 @@ async function probePodcast(filePath, signal) {
   return { durationSec, hasAudio: /Stream .*Audio:/.test(info), width: +size[1], height: +size[2] };
 }
 
-async function renderPodcast({ assets, plan, mode = 'conversation', masterAssetId, masterStartSec = 0, aspectRatio = '16:9', cleanAudio = true, brandingPath, signal, onProgress }) {
+async function renderPodcast({ assets, plan, mode = 'conversation', layout = 'camera-cuts', simple = false, masterAssetId, masterStartSec = 0, aspectRatio = '16:9', cleanAudio = true, brandingPath, signal, onProgress }) {
   const sizes = { '16:9': [1280, 720], '9:16': [720, 1280], '1:1': [720, 720] };
   if (!sizes[aspectRatio] || !['conversation', 'segments'].includes(mode) || !Array.isArray(assets) || assets.length < 1 || assets.length > 12 || !plan?.segments?.length || plan.segments.length > 300) throw invalid('Invalid podcast render settings.');
+  if (!['side-by-side', 'camera-cuts'].includes(layout) || (layout === 'side-by-side' && (mode !== 'conversation' || assets.length < 2))) throw invalid('Side-by-side needs two synchronized recordings.');
   const lookup = new Map(assets.map(asset => [asset.id, asset]));
   let elapsed = 0;
   const segments = plan.segments.map(segment => {
@@ -49,8 +50,8 @@ async function renderPodcast({ assets, plan, mode = 'conversation', masterAssetI
     return { ...segment, asset, duration: frames / 30, frames };
   });
   if (!Number.isFinite(plan.durationSec) || elapsed > 1800 || Math.abs(elapsed - plan.durationSec) > 0.05) throw invalid('Podcast duration must match its timeline and cannot exceed 30 minutes.');
-  const master = lookup.get(masterAssetId);
-  if (mode === 'conversation' && (!master || !Number.isFinite(masterStartSec) || masterStartSec < 0 || masterStartSec + elapsed > master.durationSec + 0.04)) throw invalid('The continuous audio source must cover the entire podcast.');
+  const master = simple ? lookup.get(masterAssetId) : mode === 'conversation' ? assets[0] : lookup.get(masterAssetId);
+  if (mode === 'conversation' && (!master?.hasAudio || !Number.isFinite(masterStartSec) || masterStartSec < 0 || masterStartSec + elapsed > master.durationSec + 0.04)) throw invalid('The continuous audio source must cover the entire podcast.');
   elapsed = Math.round(elapsed * 30) / 30;
   const folder = await fs.mkdtemp(path.join(os.tmpdir(), 'podcast-render-'));
   const [width, height] = sizes[aspectRatio];
@@ -60,6 +61,28 @@ async function renderPodcast({ assets, plan, mode = 'conversation', masterAssetI
     const files = [];
     for (const [index, segment] of segments.entries()) {
       const output = path.join(folder, `clip-${index}.mov`);
+      if (layout === 'side-by-side') {
+        const pair = simple ? [assets.find(a => a.role === 'host'), assets.find(a => a.role === 'guest')] : [master, segment.asset.id === master.id ? assets[1] : segment.asset];
+        const input = [], filters = [];
+        for (const [side, asset] of pair.entries()) {
+          const local = simple ? asset.startSec + segment.start : masterStartSec + segment.start - (asset.id === master.id ? 0 : (asset.offsetSec || 0));
+          const from = Math.max(local, asset.startSec || 0);
+          const until = Math.min(local + segment.duration, asset.endSec ?? asset.durationSec);
+          const panel = `scale=${width / 2}:${height}:force_original_aspect_ratio=decrease:force_divisible_by=2,pad=${width / 2}:${height}:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1,fps=30`;
+          if (until <= from) {
+            input.push('-f', 'lavfi', '-i', `color=c=black:s=${width / 2}x${height}:r=30:d=${segment.duration}`);
+            filters.push(`[${side}:v]${panel}[panel${side}]`);
+          } else {
+            input.push('-ss', String(from), '-t', String(until - from), '-protocol_whitelist', 'file,pipe', '-i', asset.path);
+            filters.push(`[${side}:v]setpts=PTS-STARTPTS,${panel},tpad=start_mode=add:start_duration=${Math.max(0, from - local)}:stop_mode=add:stop_duration=${segment.duration}:color=black,trim=duration=${segment.duration},setpts=PTS-STARTPTS[panel${side}]`);
+          }
+        }
+        filters.push('[panel0][panel1]hstack=inputs=2[split]');
+        await execute([...input, '-filter_complex', filters.join(';'), '-map', '[split]', '-an', '-t', String(segment.duration), '-frames:v', String(segment.frames), ...commonOutput, output], { signal });
+        files.push(`file '${output}'`);
+        onProgress?.(Math.round((index + 1) / segments.length * 85));
+        continue;
+      }
       const audio = mode === 'segments';
       const input = ['-ss', String(segment.sourceStart), '-protocol_whitelist', 'file,pipe', '-i', segment.asset.path];
       if (audio && !segment.asset.hasAudio) input.push('-f', 'lavfi', '-i', 'anullsrc=r=48000:cl=stereo');
@@ -77,8 +100,22 @@ async function renderPodcast({ assets, plan, mode = 'conversation', masterAssetI
     const brandingIndex = mode === 'conversation' ? 2 : 1;
     if (brandingPath) inputs.push('-loop', '1', '-protocol_whitelist', 'file,pipe', '-i', brandingPath);
     const output = path.join(folder, 'podcast.mp4');
+    const filters = [];
+    let videoMap = '0:v:0';
+    if (brandingPath) {
+      filters.push(`[${brandingIndex}:v]scale=${width}:${height},format=rgba[brand];[0:v][brand]overlay=0:0:shortest=1[branded]`);
+      videoMap = '[branded]';
+    }
+    if (plan.captions?.length || plan.overlays?.length) {
+      const subtitles = path.join(folder, 'captions.ass');
+      await fs.writeFile(subtitles, require('./podcastSubtitles').podcastSubtitles(plan, width, height));
+      const escaped = subtitles.replace(/\\/g, '/').replace(/:/g, '\\:').replace(/'/g, "'\\''");
+      filters.push(`${videoMap === '0:v:0' ? '[0:v]' : videoMap}ass=filename='${escaped}'[decorated]`);
+      videoMap = '[decorated]';
+    }
+
     const audioFilter = cleanAudio ? 'highpass=f=70,afftdn=nf=-25,loudnorm=I=-16:TP=-1.5:LRA=11,aresample=48000,apad' : 'aresample=48000,apad';
-    await execute([...inputs, ...(brandingPath ? ['-filter_complex', `[${brandingIndex}:v]scale=${width}:${height},format=rgba[brand];[0:v][brand]overlay=0:0:shortest=1[branded]`, '-map', '[branded]', ...commonOutput] : ['-map', '0:v:0', '-c:v', 'copy']), '-map', mode === 'conversation' ? '1:a:0' : '0:a:0', '-af', audioFilter, '-ac', '2', '-c:a', 'aac', '-b:a', '192k', '-t', String(elapsed), '-movflags', '+faststart', '-progress', 'pipe:1', output], { signal, onProgress: seconds => onProgress?.(Math.min(99, 85 + Math.round(seconds / elapsed * 14))) });
+    await execute([...inputs, ...(filters.length ? ['-filter_complex', filters.join(';'), '-map', videoMap, ...commonOutput] : ['-map', '0:v:0', '-c:v', 'copy']), '-map', mode === 'conversation' ? '1:a:0' : '0:a:0', '-af', audioFilter, '-ac', '2', '-c:a', 'aac', '-b:a', '192k', '-t', String(elapsed), '-movflags', '+faststart', '-progress', 'pipe:1', output], { signal, onProgress: seconds => onProgress?.(Math.min(99, 85 + Math.round(seconds / elapsed * 14))) });
     const verified = await probePodcast(output, signal);
     if (Math.abs(verified.durationSec - elapsed) > 0.12 || verified.width !== width || verified.height !== height || !verified.hasAudio) throw new Error('Rendered podcast failed duration, dimensions, or audio validation.');
     const buffer = await fs.readFile(output);

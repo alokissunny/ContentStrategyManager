@@ -151,7 +151,7 @@ export function addAiDebugEntry(entry = {}) {
   const usage = usageFields(entry);
   if (!prompt && !output && !String(entry.note || '').trim() && !elapsedMs && !usage.estimatedCostUsd) return;
   const item = {
-    id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    id: entry.id || `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     at: Date.now(),
     source: String(entry.source || 'AI call'),
     model: String(entry.model || ''),
@@ -166,7 +166,7 @@ export function addAiDebugEntry(entry = {}) {
       ? { preview: entry.preview }
       : {}),
   };
-  const next = [item, ...state.entries].slice(0, MAX_ENTRIES);
+  const next = [item, ...state.entries.filter(e => e.id !== item.id)].slice(0, MAX_ENTRIES);
   setState({ entries: next });
 }
 

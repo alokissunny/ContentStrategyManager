@@ -13,6 +13,12 @@ test('conversation enforces continuous master audio timeline and manual offsets'
   assert.throws(() => normalizePlan({ segments: [{ assetId: 'g', sourceStart: 0, sourceEnd: 8 }] }, assets, 'conversation'), /synchronized/);
   assert.throws(() => normalizePlan({ segments: [{ assetId: 'h', sourceStart: 0, sourceEnd: 9 }] }, assets, 'conversation'), /complete/);
 });
+test('first upload anchors audio and timeline even when assigned the guest role', () => {
+  const reversedRoles = assets.map(a => ({ ...a, role: a.role === 'host' ? 'guest' : 'host' }));
+  const raw = { segments: [{ assetId: 'h', sourceStart: 0, sourceEnd: 4 }, { assetId: 'g', sourceStart: 2, sourceEnd: 8 }] };
+  assert.equal(normalizePlan(raw, reversedRoles, 'conversation').durationSec, 10);
+  assert.equal(fallbackPlan(reversedRoles, 'conversation').segments[0].assetId, 'h');
+});
 test('separate segments retain source chronology and reject fabricated ranges', () => {
   assert.equal(fallbackPlan(assets, 'segments').durationSec, 18);
   assert.throws(() => normalizePlan({ segments: [{ assetId: 'h', sourceStart: 5, sourceEnd: 10 }, { assetId: 'h', sourceStart: 1, sourceEnd: 2 }] }, assets, 'segments'), /chronological/);

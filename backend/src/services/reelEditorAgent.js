@@ -186,6 +186,7 @@ function debugEntry({ source, model, system, user, output, startedAt, note, usag
 // ── Step 1: Whisper word/segment timestamps ────────────────────────────────────
 function transcribeFilename(contentType) {
   const ct = String(contentType || '').toLowerCase();
+  if (ct.includes('audio/mp4')) return 'clip.m4a';
   if (ct.includes('webm')) return 'clip.webm';
   if (ct.includes('quicktime') || ct.includes('mov')) return 'clip.mov';
   return 'clip.mp4';
@@ -198,14 +199,14 @@ function transcribeFilename(contentType) {
  */
 async function transcribeWords(buffer, contentType) {
   if (!process.env.OPENAI_API_KEY) {
-    return { words: [], segments: [], text: '', note: 'No OPENAI_API_KEY — captions timed heuristically.' };
+    return { words: [], segments: [], text: '', note: 'No OPENAI_API_KEY — captions timed heuristically.', failureReason: 'Speech transcription is not configured on the server.' };
   }
   if (!buffer || !buffer.length) {
     return { words: [], segments: [], text: '', note: 'Empty clip — nothing to transcribe.' };
   }
-  const client = getOpenAIClient();
   const model = process.env.REEL_TRANSCRIBE_MODEL || 'whisper-1';
   try {
+    const client = getOpenAIClient();
     const file = await toFile(buffer, transcribeFilename(contentType), { type: contentType || 'video/mp4' });
     const res = await client.audio.transcriptions.create({
       file,
@@ -222,7 +223,18 @@ async function transcribeWords(buffer, contentType) {
     return { words, segments, text: str(res.text, 6000), note: '' };
   } catch (err) {
     console.warn('[reelEditor] transcription failed —', err.message);
-    return { words: [], segments: [], text: '', note: `Transcription failed: ${err.message}` };
+    // Return actionable categories without exposing provider payloads or credentials.
+    const failureReason = err.status === 401 ? 'The speech service rejected the server API key. Update the key and retry.'
+      : err.status === 403 ? 'The server does not have permission to use speech transcription.'
+      : err.status === 429 ? (err.code === 'insufficient_quota' ? 'The speech service has run out of API quota. Check billing or credits, then retry.' : 'The speech service is rate limited. Wait briefly and retry.')
+      : err.status === 413 ? 'The audio exceeds the speech service upload limit. Use a shorter recording.'
+      : err.status === 400 ? 'The speech service rejected the audio or transcription settings. Check the server log for details.'
+      : err.status === 404 ? 'The configured speech model is unavailable. Check the server transcription model setting.'
+      : err.status >= 500 ? 'The speech service is temporarily unavailable. Retry shortly.'
+      : /timeout|timed out/i.test(`${err.name} ${err.message}`) ? 'The speech request timed out. Retry the episode plan.'
+      : /connection|fetch failed|ENOTFOUND|ECONN/i.test(`${err.name} ${err.message}`) ? 'The server could not connect to the speech service. Check its network connection and retry.'
+      : 'Speech transcription failed. Check the server log for the provider error, then retry.';
+    return { words: [], segments: [], text: '', note: `Transcription failed: ${err.message}`, failureReason };
   }
 }
 

@@ -137,14 +137,14 @@ function ReelWorkspace({ owner }) {
   const { user } = useAuth();
   const brandKit = useMemo(() => resolveReelBrandKit(brandStore, { handle: brandHandle, name: user?.business?.name }), [brandStore, brandHandle, user?.business?.name]);
   const [tab, setTab] = useState('reels');
-  useEffect(() => { document.querySelectorAll(`#studio-panel-${tab === 'reels' ? 'podcast' : 'reels'} video`).forEach((video) => video.pause()); }, [tab]);
+  useEffect(() => { document.querySelector(`#studio-panel-${tab === 'reels' ? 'podcast' : 'reels'}`)?.querySelectorAll('video, audio').forEach((video) => video.pause()); }, [tab]);
   if (!flags.reelEditor) return <ReelEditorDraft owner={owner} />;
   return <>
     <div className="reel-workspace-tabs" role="tablist" aria-label="Video studio">
       {['reels', 'podcast'].map((value) => <button key={value} id={`studio-tab-${value}`} type="button" role="tab" aria-selected={tab === value} aria-controls={`studio-panel-${value}`} tabIndex={tab === value ? 0 : -1} onClick={() => setTab(value)} onKeyDown={(e) => { if (['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) { e.preventDefault(); const next = e.key === 'Home' ? 'reels' : e.key === 'End' ? 'podcast' : tab === 'reels' ? 'podcast' : 'reels'; setTab(next); document.getElementById(`studio-tab-${next}`)?.focus(); } }}>{value === 'reels' ? 'Reel editor' : 'Podcast generator'}</button>)}
     </div>
     <div id="studio-panel-reels" role="tabpanel" aria-labelledby="studio-tab-reels" hidden={tab !== 'reels'}><ReelEditorDraft owner={owner} /></div>
-    <div id="studio-panel-podcast" role="tabpanel" aria-labelledby="studio-tab-podcast" hidden={tab !== 'podcast'}><PodcastGenerator brandKit={brandKit} /></div>
+    <div id="studio-panel-podcast" role="tabpanel" aria-labelledby="studio-tab-podcast" hidden={tab !== 'podcast'}><PodcastGenerator owner={`${owner}:${brandHandle || ''}`} brandKit={brandKit} /></div>
   </>;
 }
 

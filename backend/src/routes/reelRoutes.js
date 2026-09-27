@@ -11,6 +11,7 @@ const router = express.Router();
 router.use(protect);
 
 const podcast = require('../controllers/podcastController');
+router.get('/podcast/output', asyncHandler(podcast.output));
 router.post('/podcast/jobs', asyncHandler(podcast.create));
 router.get('/podcast/jobs/:id', asyncHandler(podcast.status));
 router.post('/podcast/jobs/:id/render', asyncHandler(podcast.render));
