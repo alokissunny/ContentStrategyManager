@@ -10,6 +10,7 @@ import {
   fmtTokens,
 } from '../lib/aiDebug';
 import { rerunPrompt } from '../api/debug';
+import { mediaProxyUrl } from '../api/media';
 import {
   debugEntriesToFiles,
   downloadFilesAsFolder,
@@ -178,6 +179,29 @@ function DebugBlock({ label, text, open = true, copyable = false, extra = null }
   );
 }
 
+// The image sent to the model with this prompt (a theme's example board, the
+// studio's reference photo). The server records where it came from, not the
+// bytes: a public path, or a storage key served through the media proxy.
+function InputImageBlock({ image }) {
+  if (!image) return null;
+  const src = image.path || (image.key ? mediaProxyUrl(image.key) : '');
+  return (
+    <details className="ai-debug__block" open>
+      <summary className="ai-debug__block-sum">
+        <span>Input image</span>
+        <span className="ai-debug__block-acts">
+          <span className="ai-debug__imgmeta">{image.label}{image.kb ? ` · ${image.kb} KB` : ''}</span>
+        </span>
+      </summary>
+      {src ? (
+        <a href={src} target="_blank" rel="noreferrer" className="ai-debug__img" title="Open full size">
+          <img src={src} alt={image.label} />
+        </a>
+      ) : <p className="ai-debug__missing">Attached, but no preview is available.</p>}
+    </details>
+  );
+}
+
 function InputBlock({ draft, onDraftChange, onRerun, busy, disabled }) {
   const onRerunClick = (e) => {
     e.preventDefault();
@@ -263,6 +287,7 @@ function DebugEntry({ entry }) {
       {hasIo ? (
         <>
           <DebugBlock label="System" text={entry.systemPrompt} open copyable />
+          <InputImageBlock image={entry.inputImage} />
           <InputBlock
             draft={draft}
             onDraftChange={setDraft}

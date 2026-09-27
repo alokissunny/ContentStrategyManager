@@ -14,7 +14,8 @@
 const CAROUSEL_THEMES = [
   {
     id: 'scrapbook-diary',
-    image: '01-scrapbook-diary.jpg',
+    image: 'single/scrapbook-diary.jpg',
+    typography: "Headlines in a warm handwritten script — Google Font 'Caveat' 600–700 — dark ink (#2f2a24), sentence case, written across torn cream paper strips; small handwritten notes in 'Caveat' on taped cards; tiny page number in a quiet sans. No formal serif display. Ground: cream/kraft paper with soft grain, gingham and washi tape, sage-green paper scraps, a large warm photograph taped across the slide, a small line-drawn sprig or sun doodle.",
     imageStyle: 'Warm natural-light lifestyle photographs with a soft film feel — like prints you would tape into a diary: cosy, lived-in, slightly imperfect. A plain photo only; the slide itself adds the tape, frames and handwriting.',
     name: 'Scrapbook diary',
     direction: 'scrapbook-diary',
@@ -24,12 +25,13 @@ const CAROUSEL_THEMES = [
       'the paper IS the slide background. On it: torn edges, washi tape, polaroid or taped',
       'photo frames, handwritten-style captions, ink underlines, and small ephemera (tickets,',
       'stamps, date marks). Soft shadows, imperfect alignment, warm intimate feel — not',
-      'sterile corporate. Serif display type mixed with casual handwritten accents.',
+      'sterile corporate. Handwritten-script headlines and notes (see typography).',
     ].join(' '),
   },
   {
     id: 'editorial-magazine',
-    image: '02-editorial-magazine.jpg',
+    image: 'single/editorial-magazine.jpg',
+    typography: "Large high-contrast serif display — Google Font 'Playfair Display' (or 'Bodoni Moda') at 400, tight leading (~0.95), sentence case, set left and big (a third of the slide); tiny serif page number top right; supporting text, when present, in a light sans ('Inter' 300) small. Ground: a full-bleed, tactile, close-cropped photograph (fabric, material, still life) in muted burgundy / ivory / espresso, with calm negative space for the headline.",
     imageStyle: 'Premium editorial still-life and interior photography: soft directional daylight, rich muted tones, tactile materials in close-up, calm negative space, magazine-grade.',
     name: 'Editorial magazine',
     direction: 'editorial-magazine',
@@ -41,7 +43,8 @@ const CAROUSEL_THEMES = [
   },
   {
     id: 'before-process-after',
-    image: '06-before-process-after.jpg',
+    image: 'single/before-process-after.jpg',
+    typography: "Centred serif headline — Google Font 'DM Serif Display' 400, sentence case, dark ink; directly under it a small letter-spaced caps label ('Inter' 500, tracking ~0.2em, e.g. PROCESS) naming the stage; tiny centred page number at the foot. Ground: one full-bleed, warm, naturally lit interior photograph (work in progress, tidy desk, shelves), headline sitting in the calm upper wall area.",
     imageStyle: 'Honest documentary photography of spaces and work in progress: neutral daylight, straight verticals, true-to-life colour, no styling gloss.',
     name: 'Before → process → after',
     direction: 'before-process-after',
@@ -56,7 +59,8 @@ const CAROUSEL_THEMES = [
   },
   {
     id: 'myth-vs-reality',
-    image: '07-myth-vs-reality.jpg',
+    image: 'single/myth-vs-reality.jpg',
+    typography: "Very heavy geometric sans — Google Font 'Poppins' 800 — white, sentence case, three short lines, left aligned; a lilac (#c9b3ff) brush-stroke sticker label in black 'Poppins' 900 caps above it; small handwritten asides in 'Caveat' with a hand-drawn arrow. Ground: flat deep purple (#4b1d8f); photographed objects as white-outlined cut-out stickers (laptop, cup), a taped note card.",
     imageStyle: 'Clean, bright photographs of one clear object or scene on a simple ground — crisp light, bold and uncluttered so they read beside big type and sticker labels.',
     name: 'Myth vs. reality',
     direction: 'myth-vs-reality',
@@ -71,7 +75,8 @@ const CAROUSEL_THEMES = [
   },
   {
     id: 'moodboard-story',
-    image: '08-moodboard-story.jpg',
+    image: 'single/moodboard-story.jpg',
+    typography: "Elegant light serif — Google Font 'Cormorant Garamond' 400–500 — in cream, sentence case, three short lines top left; no heavy type anywhere. Ground: warm terracotta flat-lay with soft window shadows: fabric swatches, a ceramic bowl with an olive sprig, a polaroid-style photo, a paint-chip card of three colour blocks.",
     imageStyle: 'Top-down flat-lay or close-up photographs of materials — stone, timber, fabric, paint chips — soft even light, tactile texture, a curated palette.',
     name: 'Moodboard story',
     direction: 'moodboard-story',
@@ -83,7 +88,8 @@ const CAROUSEL_THEMES = [
   },
   {
     id: 'seamless-panorama',
-    image: '09-seamless-panorama.jpg',
+    image: 'single/seamless-panorama.jpg',
+    typography: "Thin, large serif — Google Font 'Cormorant Garamond' 300 — in white, sentence case, one line at the very top that continues across slides, with a thin arrow (→) pointing to the next slide. Ground: one continuous, richly coloured scene (golden-hour street or landscape) that runs edge to edge and across the frame boundaries.",
     imageStyle: 'One wide, continuous scene with even light and a steady horizon, calm and spacious, so it can run across frames.',
     name: 'Seamless panorama',
     direction: 'seamless-panorama',
@@ -95,7 +101,8 @@ const CAROUSEL_THEMES = [
   },
   {
     id: 'personal-field-notes',
-    image: '10-personal-field-notes.jpg',
+    image: 'single/personal-field-notes.jpg',
+    typography: "Typewriter headline — Google Font 'Courier Prime' 700 (or 'Special Elite') — deep forest green (#1f3d2b), sentence case, large, with a hand-drawn ink underline; handwritten notes and checklists in 'Caveat' in dark ink; small caps label 'FIELD NOTES' letter-spaced. Ground: light grid / ruled notebook paper, an open notebook with a checklist, a fountain pen, taped landscape photos, small pine-sprig ink drawings.",
     imageStyle: 'Natural, observational photographs in warm daylight — snapshots from a site visit — or fine ink line sketches on paper; quiet and thoughtful.',
     name: 'Personal field notes',
     direction: 'personal-field-notes',
@@ -147,11 +154,12 @@ function themeReferenceForPrompt(theme, { hasImage = false } = {}) {
   if (!theme) return 'None supplied — choose one cohesive look that fits the brand.';
   return [
     'VISUAL DIRECTION ONLY — how the carousel looks, never what it says. Slide count, order, story beats and every word come from the narrative (CONTENT STRUCTURE and the strategy brief), not from this theme.',
-    hasImage && theme.image ? 'An example board of this theme is attached as an image: read its look (ground, type, framing devices, texture, palette, how pictures sit on the slide) — never its words, subjects or story.' : '',
+    hasImage && theme.image ? 'An example slide of this theme is attached as an image: match its look exactly — typography (typeface style, weight, case, size, placement), ground and texture, palette, framing devices and how pictures sit on the slide — never its words, subjects or story.' : '',
     `Theme id: ${theme.id}`,
     `Theme name: ${theme.name}`,
     `Use data-direction="${theme.direction}" on the wrapping <section>.`,
     `Visual reference: ${theme.reference}`,
+    theme.typography ? `Typography and look (follow exactly; load the fonts with one Google Fonts <link> in <head>): ${theme.typography}` : '',
     theme.imageStyle ? `Pictures in this theme: ${theme.imageStyle}` : '',
   ].filter(Boolean).join('\n');
 }
@@ -168,7 +176,12 @@ function themeImageOf(theme) {
   if (imageCache.has(file)) return imageCache.get(file);
   let out = null;
   try {
-    out = { mediaType: 'image/jpeg', data: fs.readFileSync(path.join(IMAGE_DIR, file)).toString('base64') };
+    out = {
+      mediaType: 'image/jpeg',
+      data: fs.readFileSync(path.join(IMAGE_DIR, file)).toString('base64'),
+      // what the debug panel shows for this attachment (frontend/public has the same file)
+      debug: { label: `Theme reference — ${theme.name}`, path: `/carousel-themes/${file}` },
+    };
   } catch (err) {
     console.warn(`[carouselThemes] no example image for ${theme.id}: ${err.message}`);
   }
@@ -184,7 +197,7 @@ function themeStyleForVisuals(theme, { hasImage = false } = {}) {
     `Carousel theme: ${theme.name} (${theme.id}).`,
     theme.imageStyle ? `How pictures look in this theme: ${theme.imageStyle}` : '',
     `The theme's look: ${theme.reference}`,
-    hasImage ? 'An example of the theme is attached as an image — match its palette, light, medium and mood; do not copy its subjects, objects or words.' : '',
+    hasImage ? 'An example slide of the theme is attached as an image — match its palette, light, medium and mood; do not copy its subjects, objects or words.' : '',
   ].filter(Boolean).join('\n');
 }
 

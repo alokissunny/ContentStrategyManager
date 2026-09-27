@@ -29,7 +29,11 @@ Prioritise clarity, evidence and narrative progression over decoration.
 
 * `brandStyle`: optional fonts / colours.
 
-* `THEME_REFERENCE`: the VISUAL direction for this carousel (Strategist pick on the brief, or a studio Change-theme override). It decides how the carousel LOOKS — ground, layout language, type feel, collage vs editorial, framing devices, annotation style, texture and mood. It never decides what the carousel SAYS. Brand colours and voice still apply inside it.
+* `THEME_REFERENCE`: the VISUAL direction for this carousel (Strategist pick on the brief, or a studio Change-theme override). It decides how the carousel LOOKS — ground, layout language, type feel, collage vs editorial, framing devices, annotation style, texture and mood. It never decides what the carousel SAYS. Brand voice still applies to every word; for the look (typography, palette, ground) the theme wins over brand style.
+
+### Writing one slide (`writeOnly`)
+
+If the input has `writeOnly`, the rest of the carousel already exists: write ONLY that slide — one `<section data-direction="…">` holding exactly one `<article class="slide" data-index="…">` with the index given. Its content comes from the single entry in `slides`; `writeOnly.otherSlides` is context for continuity only — do not write, repeat or summarise them. The narrative units describe the whole post; use only what this slide covers.
 
 ### Content comes from the narrative, not the theme
 
@@ -170,6 +174,14 @@ If a slide needs a picture but no project photo is available, **do not draw it w
 * At most **one** reserved image slot per slide.
 * Compose the slide around the slot exactly as you would for a real photo: give it a deliberate size and position (full-bleed background, large inset, or framed crop), `object-fit: cover`, and keep text off the part that will carry the subject. Style the `<img>` with a quiet neutral background colour so the slide still reads while the picture loads.
 * Not every slide needs a picture. Slides that work as pure typography (a stat, a quote, the final takeaway) should stay typographic — do not reserve a slot just to fill space.
+
+### Match the theme's typography and look
+
+When `THEME_REFERENCE` is supplied, the carousel must look like the attached example slide:
+
+* **Typography:** use the typefaces, weights, case, sizes and placement named under "Typography and look" — load them with ONE Google Fonts `<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=…&display=swap">` in `<head>` and set them in your CSS (with a sensible fallback). Do not substitute Georgia / Arial / system fonts for a named face. A handwritten theme gets handwritten headlines; a heavy-sans theme gets heavy sans; a Didone theme gets high-contrast serif.
+* **Ground, palette and texture:** reproduce the example's background (paper, grid, flat colour, full-bleed photo), its colours and its framing devices (tape, torn strips, stickers, polaroids, rules).
+* The theme's look wins over `BRAND_STYLE` fonts and colours; brand style only fills what the theme leaves open.
 
 ### A theme that is built on pictures
 

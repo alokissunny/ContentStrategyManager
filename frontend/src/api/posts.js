@@ -44,6 +44,7 @@ function ingestPlanDebug(label, data = {}) {
         note: debug.mode ? `mode: ${debug.mode}` : '',
         ...usage,
         preview: agent.preview,
+        inputImage: agent.inputImage,
       });
     });
     const costLabel = fmtCost(genUsage.estimatedCostUsd);

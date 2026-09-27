@@ -81,6 +81,9 @@ export default function EditorMore({ acts, onClose }) {
   const [bgPick, setBgPick] = useState(false);
   // the direction marked in the theme library, before it is generated
   const [thmPick, setThmPick] = useState(null);
+  // a reference photo picked from the device, shown on the card before it is
+  // applied: { file, url (object URL), name }
+  const [thmRef, setThmRef] = useState(null);
   // a new colour set, started from the set this slide wears (or the kit's)
   const [newHex, setNewHex] = useState(() => ({ ...DEFAULT_PALETTE, ...(acts.setHexes || {}) }));
   const refFile = useRef(null);
@@ -98,13 +101,41 @@ export default function EditorMore({ acts, onClose }) {
   ];
 
   /* ── Themes ─────────────────────────────────────────────────────────── */
+  // A direction is chosen two ways — from the library, or read off a photo the
+  // studio uploads — and either way it is shown on a card first, then applied to
+  // This slide / All slides (bauhly-v3 `pe-thm` + reach).
   if (level === 'theme') {
     const list = acts.themes || [];
-    const chosen = thmPick ? list.find((t) => t.id === thmPick) : null;
+    const chosen = thmRef
+      ? { name: 'Your reference', thumb: thmRef.url, note: `Read from ${thmRef.name}` }
+      : (thmPick ? list.find((t) => t.id === thmPick) : null);
+    const clear = () => {
+      if (thmRef?.url) { try { URL.revokeObjectURL(thmRef.url); } catch { /* already gone */ } }
+      setThmRef(null);
+      setThmPick(null);
+    };
+    const go = (every) => {
+      if (thmRef) {
+        const file = thmRef.file;
+        setThmRef(null);
+        acts.onReference?.(file, every);
+        return;
+      }
+      const t = chosen;
+      setThmPick(null);
+      acts.onTheme?.(t, every);
+    };
     return (
       <>
         <Rows onClose={onClose} rows={backRow('Themes')} />
-        <FilePick inputRef={refFile} onFile={(f) => { acts.onReference?.(f); onClose(); }} />
+        <FilePick
+          inputRef={refFile}
+          onFile={(f) => {
+            if (thmRef?.url) { try { URL.revokeObjectURL(thmRef.url); } catch { /* already gone */ } }
+            setThmPick(null);
+            setThmRef({ file: f, url: URL.createObjectURL(f), name: f.name || 'your photo' });
+          }}
+        />
         {!chosen ? (
           <Rows
             onClose={onClose}
@@ -119,24 +150,24 @@ export default function EditorMore({ acts, onClose }) {
               <span className="wv-em__thmart"><img src={chosen.thumb} alt="" /></span>
               <span className="wv-em__thmsay">
                 <span className="wv-em__thmname">{chosen.name}</span>
-                <span className="wv-em__thmnote">From your library</span>
+                <span className="wv-em__thmnote" title={chosen.note || ''}>{chosen.note || 'From your library'}</span>
               </span>
               <button
                 type="button"
                 className="wv-em__thmx"
                 aria-label="Choose a different direction"
-                onClick={(e) => { e.stopPropagation(); setThmPick(null); }}
+                onClick={(e) => { e.stopPropagation(); clear(); }}
               >
                 <Icon name="x" size={15} strokeWidth={2.2} />
               </button>
             </div>
             <Rows
               onClose={onClose}
-              rows={many ? reach((every) => { const t = chosen; setThmPick(null); acts.onTheme?.(t, every); }, {
+              rows={many ? reach(go, {
                 one: 'The others keep theirs',
                 all: 'The whole carousel wears it',
               }).map((r) => ({ ...r, dead: acts.busy })) : [
-                { id: 'go', icon: 'sparkle', label: 'Generate theme', hint: 'Draws this post in the direction above', dead: acts.busy, fn: () => { const t = chosen; setThmPick(null); acts.onTheme?.(t, true); } },
+                { id: 'go', icon: 'sparkle', label: 'Generate theme', hint: 'Draws this post in the direction above', dead: acts.busy, fn: () => go(true) },
               ]}
             />
           </>
@@ -157,7 +188,7 @@ export default function EditorMore({ acts, onClose }) {
               aria-checked={thmPick === t.id}
               title={t.name}
               className={`wv-em__tile wv-em__tile--theme${acts.themeId === t.id ? ' is-on' : ''}`}
-              onClick={(e) => { e.stopPropagation(); setThmPick(t.id); setLevel('theme'); }}
+              onClick={(e) => { e.stopPropagation(); setThmRef(null); setThmPick(t.id); setLevel('theme'); }}
             >
               <img src={t.thumb} alt="" loading="lazy" decoding="async" />
               <span className="wv-em__tilename">{t.name}</span>

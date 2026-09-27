@@ -270,6 +270,7 @@ async function addSlideToCarousel({ userId, handle, label, at, capture, current,
         output: visual.debugEntry.output,
         elapsedMs: visual.debugEntry.elapsedMs,
         usage: visual.debugEntry.usage,
+        inputImage: visual.debugEntry.inputImage,
       });
     }
     if (visual?.ok) {

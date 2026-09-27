@@ -7,36 +7,36 @@ export const CAROUSEL_THEMES = [
   {
     id: 'scrapbook-diary',
     name: 'Scrapbook diary',
-    thumb: '/carousel-themes/01-scrapbook-diary.jpg',
+    thumb: '/carousel-themes/single/scrapbook-diary.jpg',
   },
   {
     id: 'editorial-magazine',
     name: 'Editorial magazine',
-    thumb: '/carousel-themes/02-editorial-magazine.jpg',
+    thumb: '/carousel-themes/single/editorial-magazine.jpg',
   },
   {
     id: 'before-process-after',
     name: 'Before → process → after',
-    thumb: '/carousel-themes/06-before-process-after.jpg',
+    thumb: '/carousel-themes/single/before-process-after.jpg',
   },
   {
     id: 'myth-vs-reality',
     name: 'Myth vs. reality',
-    thumb: '/carousel-themes/07-myth-vs-reality.jpg',
+    thumb: '/carousel-themes/single/myth-vs-reality.jpg',
   },
   {
     id: 'moodboard-story',
     name: 'Moodboard story',
-    thumb: '/carousel-themes/08-moodboard-story.jpg',
+    thumb: '/carousel-themes/single/moodboard-story.jpg',
   },
   {
     id: 'seamless-panorama',
     name: 'Seamless panorama',
-    thumb: '/carousel-themes/09-seamless-panorama.jpg',
+    thumb: '/carousel-themes/single/seamless-panorama.jpg',
   },
   {
     id: 'personal-field-notes',
     name: 'Personal field notes',
-    thumb: '/carousel-themes/10-personal-field-notes.jpg',
+    thumb: '/carousel-themes/single/personal-field-notes.jpg',
   },
 ];

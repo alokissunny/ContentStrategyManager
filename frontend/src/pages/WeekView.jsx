@@ -4885,10 +4885,13 @@ export default function WeekView({
 
   // Change theme › Upload a reference: upload the studio's photo, then rebuild
   // the carousel with it as the visual reference instead of a catalog theme.
-  async function handleUploadReferenceTheme(file) {
+  async function handleUploadReferenceTheme(file, every = true) {
     if (!file || layoutBusy || !route?._id) return;
     setMenuPane(null);
     closeZone();
+    // This slide: only the slide on screen takes the photo's look
+    if (!every) flushElemEdits();
+    const slideIndex = every ? 0 : (Number(activeSlide?.index) > 0 ? Number(activeSlide.index) : safeIdx + 1);
     setLayoutBusy(true);
     setLayoutErr('');
     try {
@@ -4896,12 +4899,15 @@ export default function WeekView({
       const key = uploaded?.[0]?.key;
       if (!key) throw new Error('Could not upload that photo.');
       const wasEditing = postEdit;
-      const data = await runDayLayout(route._id, selected, { referenceImageKey: key });
+      const data = await runDayLayout(route._id, selected, { referenceImageKey: key, ...(slideIndex ? { slideIndex } : {}) });
       if (data?.route) {
         setRoute(data.route);
         onRouteChange?.(data.route);
         setSlideGen((g) => g + 1);
-        if (wasEditing) setPostEdit(true);
+        if (wasEditing) {
+          setPostEdit(true);
+          if (slideIndex) setSlideIdx(Math.max(0, slideIndex - 1));
+        }
       }
     } catch (err) {
       const timedOut = err?.code === 'ECONNABORTED' || /timeout/i.test(String(err?.message || ''));
@@ -5875,7 +5881,7 @@ export default function WeekView({
     // a slide given its own theme sits in `<theme>-s<N>`; the library marks the theme
     themeId: String(layoutDirectionOf(activeSlide) || '').replace(/-s\d+$/, ''),
     onTheme: (theme, every) => handleChangeTheme(theme, every),
-    onReference: (file) => handleUploadReferenceTheme(file),
+    onReference: (file, every) => handleUploadReferenceTheme(file, every),
     sets: kitSets.map((t) => ({ ...t, swatches: [t.palette?.fg, t.palette?.accent, t.palette?.ground] })),
     setId: activeSlide?.colorSet || '',
     defaultSetId: kitDefaultSet,

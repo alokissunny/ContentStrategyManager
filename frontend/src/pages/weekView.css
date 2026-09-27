@@ -8265,3 +8265,4 @@ span.wv-layed__apply { margin-left: auto; flex-shrink: 0; }
 .wv-em__thm { background: var(--surface-sunken, #f5f5f7); padding: 10px; gap: 12px; }
 .wv-em__thmart { width: 52px; }
 .wv-em__thmname { font-size: 15px; }
+.wv-em__thmnote { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }

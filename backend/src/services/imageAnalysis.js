@@ -199,7 +199,11 @@ function estimateCost(model, inputTokens, outputTokens) {
 async function loadReferenceImage(key) {
   const { buffer, contentType } = await getObjectBytes(key);
   const vision = await toVisionImage(buffer, contentType, key);
-  return { mediaType: vision.mediaType, data: vision.buffer.toString('base64') };
+  return {
+    mediaType: vision.mediaType,
+    data: vision.buffer.toString('base64'),
+    debug: { label: 'Your reference photo', key },
+  };
 }
 
 /**

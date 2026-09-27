@@ -165,6 +165,10 @@ export function addAiDebugEntry(entry = {}) {
     ...(entry.preview && typeof entry.preview === 'object' && Array.isArray(entry.preview.slides)
       ? { preview: entry.preview }
       : {}),
+    // the image sent with the prompt — { label, path | key, kb } — shown under Input
+    ...(entry.inputImage && typeof entry.inputImage === 'object'
+      ? { inputImage: { label: String(entry.inputImage.label || 'Attached image'), path: String(entry.inputImage.path || ''), key: String(entry.inputImage.key || ''), kb: Number(entry.inputImage.kb) || 0 } }
+      : {}),
   };
   const next = [item, ...state.entries].slice(0, MAX_ENTRIES);
   setState({ entries: next });

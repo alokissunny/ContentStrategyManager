@@ -1195,17 +1195,31 @@ async function rerunLayout(req, res) {
   const dayWriterOutput = plainOf(trace.dayWriter)
     || (Array.isArray(post.content?.slides) ? { content: { slides: post.content.slides } } : '');
 
+  // This slide: the slide the studio is looking at NOW (after any added /
+  // removed slides and edits), so the index and its words line up
+  const oneSlide = Number(req.body?.slideIndex) || 0;
+  let layoutPost = post;
+  let layoutStructure = structure;
+  if (oneSlide) {
+    const current = Array.isArray(record.content?.slides) ? record.content.slides.map((s) => plainOf(s)) : [];
+    if (oneSlide < 1 || oneSlide > current.length) return res.status(404).json({ message: 'Slide not found on this post.' });
+    layoutPost = { ...post, content: { ...(post.content || {}), slides: current.map((s, i) => ({ ...s, index: i + 1 })) } };
+    layoutStructure = {};
+  }
+
   try {
     const result = await runLayoutForPost({
       source: `Carousel:${label}:debug`,
-      structure,
-      post,
+      structure: layoutStructure,
+      post: layoutPost,
       dayBrief: plainOf(trace.strategyBrief) || {},
       brand,
       dayWriterOutput,
       themeId,
       referenceTheme,
       referenceImage,
+      // Themes › This slide: the agent writes that slide only
+      onlySlide: Number(req.body?.slideIndex) || 0,
     });
     if (result.parsed?.status === 'failed') {
       return res.status(422).json({
@@ -1316,6 +1330,7 @@ async function rerunLayout(req, res) {
               provider: debugEntry.provider || '',
               prompt: debugEntry.prompt,
               output: debugEntry.output || '',
+              ...(debugEntry.inputImage ? { inputImage: debugEntry.inputImage } : {}),
               elapsedMs: Number(debugEntry.elapsedMs || result.usage?.elapsedMs) || 0,
               usage: result.usage || debugEntry.usage || null,
               inputTokens: Number(result.usage?.inputTokens || debugEntry.usage?.inputTokens) || 0,
@@ -1329,6 +1344,7 @@ async function rerunLayout(req, res) {
               provider: a.debugEntry?.provider || '',
               prompt: a.debugEntry?.prompt,
               output: a.debugEntry?.output || '',
+              ...(a.debugEntry?.inputImage ? { inputImage: a.debugEntry.inputImage } : {}),
               elapsedMs: Number(a.debugEntry?.elapsedMs) || 0,
               usage: a.usage || null,
               inputTokens: Number(a.usage?.inputTokens) || 0,

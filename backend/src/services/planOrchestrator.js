@@ -465,12 +465,21 @@ async function callAgent({ source, kind, prompt, system, user, image, validate, 
   const baseUser = user || prompt || '';
   let userContent = baseUser;
   const debugPrompt = [system, baseUser].filter(Boolean).join('\n\n');
+  // the image sent with this call, as the debug panel can show it — a public
+  // path (theme board) or a storage key (the studio's photo), never the bytes
+  const inputImage = image?.data ? {
+    label: image.debug?.label || 'Attached image',
+    ...(image.debug?.path ? { path: image.debug.path } : {}),
+    ...(image.debug?.key ? { key: image.debug.key } : {}),
+    mediaType: image.mediaType || '',
+    kb: Math.round((String(image.data).length * 3) / 4 / 1024),
+  } : null;
   const started = Date.now();
   const sectionDir = String(htmlDirection || 'architectural-minimal').trim() || 'architectural-minimal';
 
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     if (attempt === 1) {
-      console.log(`[planOrchestrator] ${source} · ${llm.provider}/${model}`);
+      console.log(`[planOrchestrator] ${source} · ${llm.provider}/${model}${inputImage ? ` · image: ${inputImage.label} (${inputImage.kb} KB)` : ''}`);
     }
     const response = await completeText({
       model,
@@ -487,7 +496,7 @@ async function callAgent({ source, kind, prompt, system, user, image, validate, 
     });
     const fullText = response.text || '';
     const usage = usageOf(response, model);
-    const debugEntry = { source, model, provider: llm.provider, prompt: debugPrompt, kind };
+    const debugEntry = { source, model, provider: llm.provider, prompt: debugPrompt, kind, ...(inputImage ? { inputImage } : {}) };
 
     if (response.stopReason === 'max_tokens') {
       lastErr = new Error(`${source} response truncated (max_tokens=${maxTokens})`);
@@ -2302,12 +2311,32 @@ function validateCarousel(parsed, post) {
   parsed.slides = doc.slides;
 }
 
+// This slide: exactly one slide back, numbered as the slide it replaces.
+function validateOneSlide(parsed, index) {
+  let raw = String(parsed?.html || '');
+  const articles = raw.match(/<article\b[^>]*>/gi) || [];
+  if (!articles.length) throw new Error('carousel html has no slide');
+  // a lone slide numbered from 1 is still the slide that was asked for
+  if (articles.length === 1 && !new RegExp(`data-index=["']${index}["']`).test(articles[0])) {
+    const fixed = /\sdata-index\s*=/.test(articles[0])
+      ? articles[0].replace(/\sdata-index\s*=\s*("[^"]*"|'[^']*')/i, ` data-index="${index}"`)
+      : articles[0].replace(/>$/, ` data-index="${index}">`);
+    raw = raw.replace(articles[0], fixed);
+  }
+  const doc = parseCarouselDocument(raw, index);
+  const mine = doc.slides.filter((s) => Number(s.index) === index);
+  if (!mine.length) throw new Error(`carousel html has no slide ${index}`);
+  parsed.status = 'ready';
+  parsed.html = doc.html;
+  parsed.slides = mine;
+}
+
 function runLayoutForPost(opts) {
   if (carouselAgentEnabled()) return writeCarousel(opts);
   return writeLayout(opts);
 }
 
-async function writeCarousel({ source, structure, post, dayBrief, brand, dayWriterOutput, themeId, referenceTheme, referenceImage }) {
+async function writeCarousel({ source, structure, post, dayBrief, brand, dayWriterOutput, themeId, referenceTheme, referenceImage, onlySlide = 0 }) {
   const hasStructure = Array.isArray(structure?.slidesOrScenes) && structure.slidesOrScenes.length > 0;
   const carouselInput = hasStructure
     ? carouselInputOf(structure, post, dayBrief)
@@ -2340,6 +2369,24 @@ async function writeCarousel({ source, structure, post, dayBrief, brand, dayWrit
       ? { ...sl, visual: { ...sl.visual, generatedPictureAllowed: true } }
       : sl));
   }
+  // Editor › Themes › This slide: the agent writes ONE slide — the rest of the
+  // carousel already exists and keeps its own look. It sees the others only as
+  // a one-line outline, for continuity.
+  const one = Number(onlySlide) || 0;
+  if (one && Array.isArray(carouselInput.slides)) {
+    const all = carouselInput.slides;
+    const target = all.find((sl, i) => (Number(sl?.index) || i + 1) === one);
+    if (!target) throw new Error(`${source}: slide ${one} is not in this post`);
+    carouselInput.writeOnly = {
+      index: one,
+      of: all.length,
+      instruction: `Write ONLY slide ${one} of ${all.length}: return one <section data-direction="…"> holding exactly one <article class="slide" data-index="${one}">. The other slides already exist and are not yours to write.`,
+      otherSlides: all
+        .filter((sl) => sl !== target)
+        .map((sl, i) => ({ index: Number(sl?.index) || i + 1, role: sl?.role || '', title: sl?.draftCopy?.title || sl?.purpose || '' })),
+    };
+    carouselInput.slides = [target];
+  }
   if (!(carouselInput.slides || []).length && !carouselInput.narrativeUnits?.length) {
     throw new Error(
       `${source}: no slides to send to carousel agent ` +
@@ -2371,7 +2418,7 @@ async function writeCarousel({ source, structure, post, dayBrief, brand, dayWrit
     image: themeImage || undefined,
     parse: 'html',
     htmlDirection: theme?.direction || 'architectural-minimal',
-    validate: (parsed) => validateCarousel(parsed, post),
+    validate: (parsed) => (one ? validateOneSlide(parsed, one) : validateCarousel(parsed, post)),
   }));
   if (result?.parsed && theme?.id) {
     result.parsed.themeId = theme.id;

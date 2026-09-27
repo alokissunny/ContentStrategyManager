@@ -183,6 +183,7 @@ function logStep(debug, entry) {
     totalTokens: Number(u.totalTokens) || 0,
     estimatedCostUsd: Number(u.estimatedCostUsd) || 0,
     ...(entry.preview ? { preview: entry.preview } : {}),
+    ...(entry.inputImage ? { inputImage: entry.inputImage } : {}),
   });
 }
 
@@ -280,6 +281,7 @@ async function refineCarouselFromEdits({
         output: visual.debugEntry.output,
         elapsedMs: visual.debugEntry.elapsedMs,
         usage: visual.debugEntry.usage,
+        inputImage: visual.debugEntry.inputImage,
       });
     }
     if (visual?.ok) {
@@ -357,6 +359,7 @@ async function refineCarouselFromEdits({
           output: made.debugEntry.output,
           elapsedMs: made.debugEntry.elapsedMs,
           usage: made.debugEntry.usage,
+          inputImage: made.debugEntry.inputImage,
         });
       }
       if (!made?.ok) throw err(422, made?.skipReason || 'Bauhly could not make a picture for this frame.');
