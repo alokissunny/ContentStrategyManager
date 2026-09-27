@@ -16,7 +16,7 @@ const CAROUSEL_THEMES = [
     id: 'scrapbook-diary',
     image: 'single/scrapbook-diary.jpg',
     typography: "Headlines in a warm handwritten script — Google Font 'Caveat' 600–700 — dark ink (#2f2a24), sentence case, written across torn cream paper strips; small handwritten notes in 'Caveat' on taped cards; tiny page number in a quiet sans. No formal serif display. Ground: cream/kraft paper with soft grain, gingham and washi tape, sage-green paper scraps, a large warm photograph taped across the slide, a small line-drawn sprig or sun doodle.",
-    imageStyle: 'Warm natural-light lifestyle photographs with a soft film feel — like prints you would tape into a diary: cosy, lived-in, slightly imperfect. A plain photo only; the slide itself adds the tape, frames and handwriting.',
+    imageStyle: 'Warm natural light, soft film grain, gently faded warm tones, candid and lived-in — like a personal print. (Finish only: the subject comes from the slide.)',
     name: 'Scrapbook diary',
     direction: 'scrapbook-diary',
     reference: [
@@ -32,7 +32,7 @@ const CAROUSEL_THEMES = [
     id: 'editorial-magazine',
     image: 'single/editorial-magazine.jpg',
     typography: "Large high-contrast serif display — Google Font 'Playfair Display' (or 'Bodoni Moda') at 400, tight leading (~0.95), sentence case, set left and big (a third of the slide); tiny serif page number top right; supporting text, when present, in a light sans ('Inter' 300) small. Ground: a full-bleed, tactile, close-cropped photograph (fabric, material, still life) in muted burgundy / ivory / espresso, with calm negative space for the headline.",
-    imageStyle: 'Premium editorial still-life and interior photography: soft directional daylight, rich muted tones, tactile materials in close-up, calm negative space, magazine-grade.',
+    imageStyle: 'Magazine-grade photography: soft directional daylight, rich but muted tones, shallow depth of field, calm negative space, refined finish. (Finish only: the subject comes from the slide.)',
     name: 'Editorial magazine',
     direction: 'editorial-magazine',
     reference: [
@@ -45,7 +45,7 @@ const CAROUSEL_THEMES = [
     id: 'before-process-after',
     image: 'single/before-process-after.jpg',
     typography: "Centred serif headline — Google Font 'DM Serif Display' 400, sentence case, dark ink; directly under it a small letter-spaced caps label ('Inter' 500, tracking ~0.2em, e.g. PROCESS) naming the stage; tiny centred page number at the foot. Ground: one full-bleed, warm, naturally lit interior photograph (work in progress, tidy desk, shelves), headline sitting in the calm upper wall area.",
-    imageStyle: 'Honest documentary photography of spaces and work in progress: neutral daylight, straight verticals, true-to-life colour, no styling gloss.',
+    imageStyle: 'Honest documentary photography: neutral daylight, straight verticals, true-to-life colour, no styling gloss. (Finish only: the subject comes from the slide.)',
     name: 'Before → process → after',
     direction: 'before-process-after',
     reference: [
@@ -61,7 +61,7 @@ const CAROUSEL_THEMES = [
     id: 'myth-vs-reality',
     image: 'single/myth-vs-reality.jpg',
     typography: "Very heavy geometric sans — Google Font 'Poppins' 800 — white, sentence case, three short lines, left aligned; a lilac (#c9b3ff) brush-stroke sticker label in black 'Poppins' 900 caps above it; small handwritten asides in 'Caveat' with a hand-drawn arrow. Ground: flat deep purple (#4b1d8f); photographed objects as white-outlined cut-out stickers (laptop, cup), a taped note card.",
-    imageStyle: 'Clean, bright photographs of one clear object or scene on a simple ground — crisp light, bold and uncluttered so they read beside big type and sticker labels.',
+    imageStyle: 'Clean, bright, crisply lit photography with one clear subject on a simple uncluttered ground, bold enough to read beside big type. (Finish only: the subject comes from the slide.)',
     name: 'Myth vs. reality',
     direction: 'myth-vs-reality',
     reference: [
@@ -77,7 +77,7 @@ const CAROUSEL_THEMES = [
     id: 'moodboard-story',
     image: 'single/moodboard-story.jpg',
     typography: "Elegant light serif — Google Font 'Cormorant Garamond' 400–500 — in cream, sentence case, three short lines top left; no heavy type anywhere. Ground: warm terracotta flat-lay with soft window shadows: fabric swatches, a ceramic bowl with an olive sprig, a polaroid-style photo, a paint-chip card of three colour blocks.",
-    imageStyle: 'Top-down flat-lay or close-up photographs of materials — stone, timber, fabric, paint chips — soft even light, tactile texture, a curated palette.',
+    imageStyle: 'Soft even light, warm earthy palette, tactile texture and a curated, calm composition. (Finish only: the subject comes from the slide.)',
     name: 'Moodboard story',
     direction: 'moodboard-story',
     reference: [
@@ -90,7 +90,7 @@ const CAROUSEL_THEMES = [
     id: 'seamless-panorama',
     image: 'single/seamless-panorama.jpg',
     typography: "Thin, large serif — Google Font 'Cormorant Garamond' 300 — in white, sentence case, one line at the very top that continues across slides, with a thin arrow (→) pointing to the next slide. Ground: one continuous, richly coloured scene (golden-hour street or landscape) that runs edge to edge and across the frame boundaries.",
-    imageStyle: 'One wide, continuous scene with even light and a steady horizon, calm and spacious, so it can run across frames.',
+    imageStyle: 'Wide, calm composition with even light and a steady horizon, rich natural colour. (Finish only: the subject comes from the slide.)',
     name: 'Seamless panorama',
     direction: 'seamless-panorama',
     reference: [
@@ -103,7 +103,7 @@ const CAROUSEL_THEMES = [
     id: 'personal-field-notes',
     image: 'single/personal-field-notes.jpg',
     typography: "Typewriter headline — Google Font 'Courier Prime' 700 (or 'Special Elite') — deep forest green (#1f3d2b), sentence case, large, with a hand-drawn ink underline; handwritten notes and checklists in 'Caveat' in dark ink; small caps label 'FIELD NOTES' letter-spaced. Ground: light grid / ruled notebook paper, an open notebook with a checklist, a fountain pen, taped landscape photos, small pine-sprig ink drawings.",
-    imageStyle: 'Natural, observational photographs in warm daylight — snapshots from a site visit — or fine ink line sketches on paper; quiet and thoughtful.',
+    imageStyle: 'Natural observational daylight, candid and quiet, muted greens and warm neutrals — or a fine ink line sketch on paper. (Finish only: the subject comes from the slide.)',
     name: 'Personal field notes',
     direction: 'personal-field-notes',
     reference: [
@@ -191,13 +191,16 @@ function themeImageOf(theme) {
 
 // What a generated picture must look like to sit inside this theme — for the
 // Visual agents (plan-visual.md, plan-visual-request.md) and the image model.
-function themeStyleForVisuals(theme, { hasImage = false } = {}) {
+function themeStyleForVisuals(theme) {
   if (!theme) return '';
+  // FINISH ONLY. The theme decides how the picture is lit, coloured and
+  // finished so it sits in the carousel — never what it shows. Its layout
+  // description and example slide are deliberately NOT given to the Visual
+  // agents: they copied the example's subjects (fabric, props) into slides
+  // about something else.
   return [
-    `Carousel theme: ${theme.name} (${theme.id}).`,
-    theme.imageStyle ? `How pictures look in this theme: ${theme.imageStyle}` : '',
-    `The theme's look: ${theme.reference}`,
-    hasImage ? 'An example slide of the theme is attached as an image — match its palette, light, medium and mood; do not copy its subjects, objects or words.' : '',
+    `Carousel theme: ${theme.name}.`,
+    theme.imageStyle ? `Finish to match: ${theme.imageStyle}` : '',
   ].filter(Boolean).join('\n');
 }
 
@@ -224,7 +227,7 @@ function customReferenceTheme(analysis) {
     direction: 'custom-reference',
     reference: bits.join(' '),
     imageStyle: [
-      'Match the attached reference photo\'s palette, light, materials and mood',
+      'Match the studio reference photo\'s palette, light and mood (finish only — the subject comes from the slide)',
       Array.isArray(analysis?.colors) && analysis.colors.length ? `(colours: ${analysis.colors.join(', ')})` : '',
       analysis?.mood ? `— ${analysis.mood}` : '',
     ].filter(Boolean).join(' ') + '.',

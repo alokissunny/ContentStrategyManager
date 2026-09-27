@@ -62,14 +62,19 @@ Use, in order:
 4. `filledCopy` — the actual words on the slide, so the image complements (not repeats) them.
 5. `POST_CONTEXT_JSON` — the locked angle, pillar, and verified truths, so the image stays
    on-topic and never contradicts what the post is allowed to say.
-6. `THEME_STYLE` — the carousel theme the slide is drawn in, and how pictures look in it
-   (medium, light, palette, finish). When an example board of the theme is attached as an
-   image, look at it: the picture must feel like it belongs on those slides — same kind of
-   light, colour temperature, grain and medium. Take only the LOOK from the example, never
-   its subjects, objects or words; the subject always comes from the slide.
+6. `THEME_STYLE` — FINISH ONLY: how the picture is lit, colour-treated and finished so it
+   sits in the carousel (light, grain, colour temperature, medium). It never decides what
+   the picture shows.
 7. `BRAND_STYLE` — visual style / mood / palette. Honour it so generated slides sit beside
    photographed ones without clashing. Where the theme and brand differ, the theme sets
-   the medium and light; the brand palette tints it.
+   the finish; the brand palette tints it.
+
+**The subject comes from the slide's narrative, never from the theme.** Decide WHAT the
+picture shows from items 0–5 only: what this slide says and does in the story (its request,
+communication function, purpose, words, and the post's angle and truths). Ask: "what would a
+reader need to SEE to feel this slide's point?" and show that. Never pick fabrics, materials,
+props, still lifes or scenes because the theme's style suggests them; a picture that could sit
+on any slide of any post is wrong.
 
 Compose a prompt that names: the subject or scene, the composition and where the negative
 space sits, the lighting and mood, the colour direction (from brand palette when given),

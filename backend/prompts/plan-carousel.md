@@ -188,7 +188,8 @@ When `THEME_REFERENCE` is supplied, the carousel must look like the attached exa
 When `THEME_REFERENCE` is supplied, its look decides where pictures sit (see "Pictures in this theme" and the attached example board). Most themes carry a picture on most slides — taped photos, a hero image, a framed inset.
 
 * A slide's `visual.priority: "none"` / `includeImageSlot: false` only means there is no PROJECT photo for it. It does not forbid a generated picture: when the slide says `generatedPictureAllowed: true`, reserve an image slot (`data-image-request`, as above) wherever the theme's composition would put a picture.
-* Reserve one on the hook (slide 1) and on roughly every other content slide, so the carousel reads like the theme's example — each request specific to that slide's idea, in the theme's picture style.
+* Reserve one on the hook (slide 1) and on roughly every other content slide, so the carousel reads like the theme's example.
+* **What each picture shows comes from that slide's narrative** — its point, its words, its beat in the story — never from the theme or the example slide. The theme only decides how the picture is framed and finished on the slide. Never request the example's subjects (its fabrics, cups, props, landscapes) or a generic still life that could sit on any slide.
 * Keep stat, quote and final call-to-action slides typographic, and never request a picture that would pass as the studio's own finished work.
 
 Annotations still follow these rules:

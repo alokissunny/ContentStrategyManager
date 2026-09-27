@@ -2615,7 +2615,7 @@ async function writeVisualPrompt({ source, slide, brief, brand, visualTheme }) {
     SLIDE_JSON: json(visualSlideInputOf(slide)),
     POST_CONTEXT_JSON: optionalPromptJson(visualPostContextOf(brief)),
     BRAND_STYLE: optionalPromptJson(brandStyleOf(brand)),
-    THEME_STYLE: themeStyleForVisuals(visualTheme?.theme, { hasImage: Boolean(visualTheme?.image) }) || 'None supplied — match BRAND_STYLE.',
+    THEME_STYLE: themeStyleForVisuals(visualTheme?.theme) || 'None supplied — match BRAND_STYLE.',
   });
   return callAgent({
     source,
@@ -2623,7 +2623,7 @@ async function writeVisualPrompt({ source, slide, brief, brand, visualTheme }) {
     system: assembled.system,
     user: assembled.user,
     prompt: assembled.prompt,
-    image: visualTheme?.image || undefined,
+    // no theme example image: the picture's SUBJECT comes from the slide
     validate: (parsed) => validateVisualPrompt(parsed),
   });
 }
@@ -2640,7 +2640,7 @@ function visualThemeOf(themeId, { referenceTheme = null, referenceImage = null }
 }
 function themeLineForRender(visualTheme) {
   const t = visualTheme?.theme;
-  return t?.imageStyle ? `Photographic style (carousel theme "${t.name}"): ${t.imageStyle}` : '';
+  return t?.imageStyle ? `Finish only (lighting, colour treatment, grain) to sit in the carousel theme "${t.name}" — keep the subject described above: ${t.imageStyle}` : '';
 }
 
 // End to end for ONE slide: prompt agent → OpenAI render → S3. Returns
@@ -2713,7 +2713,7 @@ async function generateRequestedVisual({
     EXISTING_PICTURES: json(existingPictures || []),
     POST_CONTEXT_JSON: optionalPromptJson(visualPostContextOf(brief)),
     BRAND_STYLE: optionalPromptJson(brandStyleOf(brand)),
-    THEME_STYLE: themeStyleForVisuals(visualTheme?.theme, { hasImage: Boolean(visualTheme?.image) }) || 'None supplied — match BRAND_STYLE.',
+    THEME_STYLE: themeStyleForVisuals(visualTheme?.theme) || 'None supplied — match BRAND_STYLE.',
   });
   const agent = await callAgent({
     source: `${source}:prompt`,
@@ -2721,7 +2721,7 @@ async function generateRequestedVisual({
     system: assembled.system,
     user: assembled.user,
     prompt: assembled.prompt,
-    image: visualTheme?.image || undefined,
+    // no theme example image: the picture's SUBJECT comes from the slide
     validate: (parsed) => {
       validateVisualPrompt(parsed);
       const place = String(parsed.placement || '').trim().toLowerCase();
