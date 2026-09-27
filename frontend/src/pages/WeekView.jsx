@@ -2576,6 +2576,23 @@ function AddImagesDialog({ count, onAdd, onSkip, onClose }) {
 
 /* ── Remove slide / Remove all edits (bauhly-v3 `askRemove`) ────────────
  * Says exactly what goes, and the action is the product's own red. */
+// The post being edited in Editor mode, per browser tab — so a remount of the
+// Week view (the calendar refreshing mid-regeneration) reopens the Editor on
+// the same post. Cleared when the studio leaves the Editor.
+const EDITING_KEY = 'wv-editing-post';
+function rememberEditing(postId) {
+  try {
+    if (postId) sessionStorage.setItem(EDITING_KEY, JSON.stringify({ id: String(postId), at: Date.now() }));
+    else sessionStorage.removeItem(EDITING_KEY);
+  } catch { /* private mode — the Editor just won't survive a remount */ }
+}
+function editingRemembered(postId) {
+  try {
+    const v = JSON.parse(sessionStorage.getItem(EDITING_KEY) || 'null');
+    return Boolean(v && v.id === String(postId) && Date.now() - Number(v.at || 0) < 30 * 60 * 1000);
+  } catch { return false; }
+}
+
 // the four Brand Kit marks, named as Editor › Logo › Replace logo shows them
 const LOGO_SLOT_NAMES = [
   { slot: 'full', name: 'Full', inverted: false },
@@ -2886,6 +2903,10 @@ export default function WeekView({
   // a dark header (Cancel / Apply changes), the slide as a stack with its
   // neighbours peeking, Fix layout + ⋯ over it and the AI mark on it.
   const [postEdit, setPostEdit] = useState(false);
+  // Bumped after a theme / layout regeneration lands: the Editor's cards are
+  // keyed on it, so the slide is rebuilt from the new html (a fresh iframe,
+  // fresh pictures) instead of patching the one that was on screen.
+  const [slideGen, setSlideGen] = useState(0);
   // The post as it was when Editor mode opened. Every change made inside the
   // Editor saves as it happens (a prompt edit, a layout, a picture, Fix layout),
   // so Cancel means "put it back to this"; Apply changes drops it and keeps
@@ -3563,6 +3584,7 @@ export default function WeekView({
     setTimeDraft(null);
     setSchedMenu(false);
     setPostEdit(true);
+    rememberEditing(day?._id);
     // the chat is part of the Editor (bauhly-v3 `asking` starts true): open on
     // This post, and a selection re-aims it
     setAskScopeAll(false);
@@ -3866,6 +3888,7 @@ export default function WeekView({
         layoutHtml: sl.layoutHtml || '',
         assetKeys: keysOf(sl),
         role: sl.role || '',
+        direction: layoutDirectionOf(sl),
       })),
     };
   }
@@ -3947,6 +3970,7 @@ export default function WeekView({
       layoutHtml: sl.layoutHtml || '',
       assetKeys: keysOf(sl),
       role: sl.role || '',
+      direction: layoutDirectionOf(sl),
     }));
     if (focusPath != null && typeof DOMParser !== 'undefined') {
       const mark = (html, isDocument) => {
@@ -4119,6 +4143,7 @@ export default function WeekView({
     }
     closeZone();
     setPostEdit(false);
+    rememberEditing(null);
   }
 
   function closeZone() {
@@ -4252,6 +4277,16 @@ export default function WeekView({
 
   // Editor mode belongs to one post: a different day (or no day) closes it.
   useEffect(() => { setPostEdit(false); resetElemEdits(); resetAsk(); }, [selected, route?._id]);
+  // …but a remount of this view on the SAME post (the calendar refreshing
+  // while a theme regenerates) must not throw the studio out of the Editor:
+  // the open Editor is remembered per post and restored.
+  const restoredEditRef = useRef(false);
+  useEffect(() => {
+    if (restoredEditRef.current || postEdit || !day?._id || isEmptyCalDay(day)) return;
+    restoredEditRef.current = true;
+    if (editingRemembered(day._id)) enterPostEdit();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [day?._id]);
   // A menu editor (layout / theme / words / images) rewrites the slide's html,
   // so element edits are saved before one opens — they would not survive it.
   useEffect(() => {
@@ -4803,17 +4838,26 @@ export default function WeekView({
     if (layoutBusy || !route?._id) return;
     const themeId = typeof opts === 'string' ? opts.trim() : String(opts?.themeId || '').trim();
     const referenceImageKey = typeof opts === 'object' && opts ? String(opts.referenceImageKey || '').trim() : '';
+    const slideIndex = typeof opts === 'object' && opts ? Number(opts.slideIndex) || 0 : 0;
+    const wasEditing = postEdit;
     setLayoutBusy(true);
     setLayoutErr('');
     try {
       const data = await runDayLayout(
         route._id,
         selected,
-        referenceImageKey ? { referenceImageKey } : (themeId ? { themeId } : undefined),
+        referenceImageKey ? { referenceImageKey } : (themeId ? { themeId, ...(slideIndex ? { slideIndex } : {}) } : undefined),
       );
       if (data?.route) {
         setRoute(data.route);
         onRouteChange?.(data.route);
+        // redraw the slide from the regenerated html, and stay in the Editor on
+        // the slide the studio was looking at
+        setSlideGen((g) => g + 1);
+        if (wasEditing) {
+          setPostEdit(true);
+          if (slideIndex) setSlideIdx(Math.max(0, slideIndex - 1));
+        }
       }
     } catch (err) {
       const timedOut = err?.code === 'ECONNABORTED' || /timeout/i.test(String(err?.message || ''));
@@ -4827,11 +4871,16 @@ export default function WeekView({
     }
   }
 
-  async function handleChangeTheme(theme) {
+  // Themes: the whole carousel, or only the slide on screen (its own section
+  // of the carousel document — see backend services/themeMerge.js)
+  async function handleChangeTheme(theme, every = true) {
     if (!theme?.id || layoutBusy) return;
     setMenuPane(null);
     closeZone();
-    await handleRunLayout(theme.id);
+    // hand edits are keyed by slide and baked into the document the merge keeps
+    if (!every) flushElemEdits();
+    const slideIndex = every ? 0 : (Number(activeSlide?.index) > 0 ? Number(activeSlide.index) : safeIdx + 1);
+    await handleRunLayout({ themeId: theme.id, slideIndex });
   }
 
   // Change theme › Upload a reference: upload the studio's photo, then rebuild
@@ -4846,10 +4895,13 @@ export default function WeekView({
       const uploaded = await uploadFiles([file]);
       const key = uploaded?.[0]?.key;
       if (!key) throw new Error('Could not upload that photo.');
+      const wasEditing = postEdit;
       const data = await runDayLayout(route._id, selected, { referenceImageKey: key });
       if (data?.route) {
         setRoute(data.route);
         onRouteChange?.(data.route);
+        setSlideGen((g) => g + 1);
+        if (wasEditing) setPostEdit(true);
       }
     } catch (err) {
       const timedOut = err?.code === 'ECONNABORTED' || /timeout/i.test(String(err?.message || ''));
@@ -5488,6 +5540,7 @@ export default function WeekView({
           layoutHtml: sl.layoutHtml || '',
           assetKeys: keysOf(sl),
           role: sl.role || '',
+          direction: layoutDirectionOf(sl),
         })),
       }
       : refineCurrentOf(d);
@@ -5819,8 +5872,9 @@ export default function WeekView({
       ensureRouteOptions();
     },
     themes: CAROUSEL_THEMES,
-    themeId: layoutDirectionOf(activeSlide) || '',
-    onTheme: (theme) => handleChangeTheme(theme),
+    // a slide given its own theme sits in `<theme>-s<N>`; the library marks the theme
+    themeId: String(layoutDirectionOf(activeSlide) || '').replace(/-s\d+$/, ''),
+    onTheme: (theme, every) => handleChangeTheme(theme, every),
     onReference: (file) => handleUploadReferenceTheme(file),
     sets: kitSets.map((t) => ({ ...t, swatches: [t.palette?.fg, t.palette?.accent, t.palette?.ground] })),
     setId: activeSlide?.colorSet || '',
@@ -6189,7 +6243,7 @@ export default function WeekView({
                   onIndex={(i) => { if (!visEdit) setSlideIdx(i); }}
                 >
                   {(i, on) => (
-                    <div className={`wv-edm__card${on ? ' is-on' : ''}`}>
+                    <div className={`wv-edm__card${on ? ' is-on' : ''}`} key={`g${slideGen}-${i}`}>
                       <div className={`wv-ig__photo${on && layoutBusy ? ' is-laying' : ''}`}>
                         {on ? (
                           <SlideMedia

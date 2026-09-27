@@ -5,10 +5,11 @@ const { generateWeeklyPlan, buildEmptySlots, isoDate, parseIsoDate } = require('
 const { rewriteCaption } = require('../services/captionPolish');
 const { refineCarouselFromEdits } = require('../services/carouselRefine');
 const { addSlideToCarousel } = require('../services/addSlideAgent');
-const { runLayoutForPost, writeLayoutVariations, applyLayoutToContent, normalizeWriterPost, attachGeneratedVisuals } = require('../services/planOrchestrator');
+const { runLayoutForPost, writeLayoutVariations, applyLayoutToContent, normalizeWriterPost, attachGeneratedVisuals, visualThemeOf } = require('../services/planOrchestrator');
 const { analyzeImageAsset, loadReferenceImage } = require('../services/imageAnalysis');
 const { customReferenceTheme } = require('../data/carouselThemes');
-const { copyFromLayoutHtml, injectImageIntoSlots } = require('../services/layoutHtml');
+const { copyFromLayoutHtml, injectImageIntoSlots, parseCarouselDocument } = require('../services/layoutHtml');
+const { applySlideTheme } = require('../services/themeMerge');
 const { compileBrandMemory } = require('../services/planContext');
 const { generateCoverSpec, renderCoverVideo } = require('../services/carouselCoverAgent');
 const { isS3Configured, uploadBytes, getMediaUrl } = require('../services/s3Client');
@@ -878,6 +879,8 @@ async function refinePost(req, res) {
       slideCss: typeof req.body?.slideCss === 'string' ? req.body.slideCss.slice(0, 16000) : '',
       // the suggestion chips pressed in the Editor chat: { kind, path, labels }
       intent: req.body?.intent && typeof req.body.intent === 'object' ? req.body.intent : null,
+      // a picture made by this edit matches the slide's theme
+      visualTheme: await visualThemeForPost(record, Number(req.body?.visualSlideIndex) || Number(req.body?.slideIndex) || Number(req.body?.focus?.slideIndex) || 1),
       debug: steps,
     });
 
@@ -995,6 +998,8 @@ async function addSlideToPost(req, res) {
       current: { ...current, slides: sent.map((s) => ({ ...s, assetKeys: ownKeys(s?.assetKeys) })) },
       // the post's FULL strategy — the new slide must be a beat in that story
       strategy: plainOf(record.agentTrace?.strategyBrief) || null,
+      // its picture (if it needs one) matches the theme of the slide it follows
+      visualTheme: await visualThemeForPost(record, Math.max(1, Number(req.body?.at) || 1)),
       brand,
       slideRecords: stored,
       debug: steps,
@@ -1127,6 +1132,25 @@ function layoutPostFromPost(post) {
   return { format: post.format, status: 'ready', content: { slides: stored } };
 }
 
+// The theme a picture made for slide `slideIndex` of this post must sit inside:
+// that slide's own theme (Themes › This slide) or the post's, with its example
+// board — or, for a post drawn from the studio's reference photo, that photo.
+async function visualThemeForPost(record, slideIndex) {
+  const slides = Array.isArray(record?.content?.slides) ? record.content.slides : [];
+  const own = String(slides[(Number(slideIndex) || 1) - 1]?.layoutTheme || '').trim();
+  const id = own || String(record?.content?.themeId || '').trim();
+  const ref = record?.agentTrace?.themeReference;
+  if (/^custom-reference/.test(id) && ref?.key) {
+    let image = null;
+    try { image = await loadReferenceImage(ref.key); } catch { /* the words still carry the look */ }
+    return visualThemeOf('', {
+      referenceTheme: { id: 'custom-reference', name: 'Your reference photo', reference: ref.reference || '', imageStyle: ref.imageStyle || '' },
+      referenceImage: image,
+    });
+  }
+  return visualThemeOf(id);
+}
+
 // POST /posts/:id/layout — run the Carousel agent on this post only.
 async function rerunLayout(req, res) {
   const record = await PlannedPost.findOne({ _id: req.params.id, user: req.user._id });
@@ -1191,7 +1215,32 @@ async function rerunLayout(req, res) {
     }
 
     const current = plainOf(record.content) || {};
-    let next = applyLayoutToContent({ ...current, slides: post.content.slides }, result.parsed);
+    // Editor › Themes › This slide: the carousel was written in the new theme,
+    // but only this slide moves into it — into a section of its own, with its
+    // CSS scoped — and every other slide keeps exactly what it has (see
+    // services/themeMerge.js).
+    const slideIndex = Number(req.body?.slideIndex) || 0;
+    let layoutForContent = result.parsed;
+    let baseSlides = post.content.slides;
+    let slideDir = '';
+    if (slideIndex) {
+      const stored = Array.isArray(current.slides) ? current.slides : [];
+      const curDoc = current.carouselHtml || plainOf(trace.carousel)?.html || plainOf(trace.layout)?.html || '';
+      if (slideIndex < 1 || slideIndex > stored.length) return res.status(404).json({ message: 'Slide not found on this post.' });
+      if (!curDoc) return res.status(400).json({ message: 'This carousel has no layout yet — apply a theme to all slides first.' });
+      const merged = applySlideTheme({ currentDoc: curDoc, newDoc: result.parsed.html, slideIndex });
+      slideDir = merged.dir;
+      const parsed2 = parseCarouselDocument(merged.html, stored.length);
+      layoutForContent = { status: 'ready', html: parsed2.html, slides: parsed2.slides, themeId: current.themeId || '' };
+      baseSlides = stored;
+    }
+    let next = applyLayoutToContent({ ...current, slides: baseSlides }, layoutForContent);
+    if (slideIndex) {
+      // the re-themed slide's words are what its new html shows
+      next.slides = next.slides.map((sl, i) => (i === slideIndex - 1
+        ? { ...sl, ...(copyFromLayoutHtml(sl.layoutHtml)?.filled || {}), layoutTheme: slideDir || sl.layoutTheme }
+        : sl));
+    }
     // Fill any slide that now has an empty image slot but no supplied asset with
     // a generated conceptual visual (OpenAI gpt-image-1). This is a user-initiated
     // re-run, so fillEmpty is on — it generates for any missing-asset image slot,
@@ -1207,21 +1256,32 @@ async function rerunLayout(req, res) {
         handle: record.instagramUsername,
         fillEmpty: true,
         collect: (agent) => { if (agent?.debugEntry) visualAgents.push(agent); },
+        // pictures match the theme the carousel was just drawn in
+        visualTheme: referenceTheme
+          ? visualThemeOf('', { referenceTheme, referenceImage })
+          : visualThemeOf(themeId || result.parsed?.themeId || current.themeId || ''),
       });
     } catch (err) {
       console.warn('[posts] visual agent skipped on layout rerun:', err.message);
     }
     record.content = { ...current, ...next, slides: next.slides };
-    const appliedTheme = themeId
+    // one slide's theme is not the post's theme
+    const appliedTheme = slideIndex ? '' : (themeId
       || result.parsed?.themeId
       || plainOf(trace.strategyBrief)?.themeId
-      || '';
+      || '');
     if (appliedTheme) record.content.themeId = appliedTheme;
     const debugEntry = result.debugEntry || {};
+    const savedLayout = slideIndex ? { ...layoutForContent, slideIndex, slideTheme: themeId || slideDir } : result.parsed;
     record.agentTrace = {
       ...trace,
-      layout: result.parsed,
-      carousel: result.parsed,
+      // a post drawn from the studio's reference photo keeps it, so pictures
+      // made in later edits can match it too
+      ...(referenceImageKey && referenceTheme ? {
+        themeReference: { key: referenceImageKey, reference: referenceTheme.reference, imageStyle: referenceTheme.imageStyle || '' },
+      } : {}),
+      layout: savedLayout,
+      carousel: savedLayout,
       layoutPrompt: optionalText(debugEntry.prompt) || trace.layoutPrompt || '',
       themeId: appliedTheme || trace.themeId || '',
       visual: Array.isArray(next.visualTrace) && next.visualTrace.length

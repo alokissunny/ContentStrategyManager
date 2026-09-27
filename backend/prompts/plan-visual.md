@@ -62,8 +62,14 @@ Use, in order:
 4. `filledCopy` — the actual words on the slide, so the image complements (not repeats) them.
 5. `POST_CONTEXT_JSON` — the locked angle, pillar, and verified truths, so the image stays
    on-topic and never contradicts what the post is allowed to say.
-6. `BRAND_STYLE` — visual style / mood / palette. Honour it so generated slides sit beside
-   photographed ones without clashing.
+6. `THEME_STYLE` — the carousel theme the slide is drawn in, and how pictures look in it
+   (medium, light, palette, finish). When an example board of the theme is attached as an
+   image, look at it: the picture must feel like it belongs on those slides — same kind of
+   light, colour temperature, grain and medium. Take only the LOOK from the example, never
+   its subjects, objects or words; the subject always comes from the slide.
+7. `BRAND_STYLE` — visual style / mood / palette. Honour it so generated slides sit beside
+   photographed ones without clashing. Where the theme and brand differ, the theme sets
+   the medium and light; the brand palette tints it.
 
 Compose a prompt that names: the subject or scene, the composition and where the negative
 space sits, the lighting and mood, the colour direction (from brand palette when given),
@@ -97,6 +103,10 @@ Slide that needs a generated conceptual visual:
 Post context (locked angle and verified truths — do not contradict):
 
 {{POST_CONTEXT_JSON}}
+
+Carousel theme (the look this picture must sit inside):
+
+{{THEME_STYLE}}
 
 Brand visual style:
 

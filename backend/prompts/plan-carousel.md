@@ -29,7 +29,13 @@ Prioritise clarity, evidence and narrative progression over decoration.
 
 * `brandStyle`: optional fonts / colours.
 
-* `THEME_REFERENCE`: visual theme for this carousel (Strategist pick on the brief, or a studio Change-theme override). When supplied, treat it as the primary design direction for the whole carousel (layout language, type feel, collage vs editorial, annotation style). Brand colours and voice still apply inside that theme.
+* `THEME_REFERENCE`: the VISUAL direction for this carousel (Strategist pick on the brief, or a studio Change-theme override). It decides how the carousel LOOKS — ground, layout language, type feel, collage vs editorial, framing devices, annotation style, texture and mood. It never decides what the carousel SAYS. Brand colours and voice still apply inside it.
+
+### Content comes from the narrative, not the theme
+
+* What each slide says, how many slides there are, their order and each slide's story beat come ONLY from the narrative: `CONTENT STRUCTURE` (its slides, roles and purposes), the brief's `narrativeUnits`, slide outline, `centralFact`, `verifiedTruth` and the brand voice.
+* Never add, drop, merge, reorder or reframe story beats to suit a theme, and never write copy in a theme's register or format. A theme name is not a content format: "Before → process → after" does not make the story a before/after, "Myth vs. reality" does not add a myth, "Field notes" does not make the copy diary-like.
+* A theme's signature devices (split panels, stage labels, strike-throughs, a panorama) are visual vocabulary. Use one only where the narrative already has that shape; otherwise express the theme through ground, type, texture and composition alone.
 
 ## Strategic Rules
 
@@ -110,7 +116,7 @@ Prioritise clarity, evidence and narrative progression over decoration.
 ## Brand Rules
 
 * Follow the audience, positioning, tone, visual style and “never do” rules in `BRAND_JSON`.
-* Brand voice is more important than the theme’s default copy style.
+* The theme has no say over copy — brand voice and the narrative decide every word.
 * Do not use luxury language for an accessible or budget-focused brand.
 * Do not use aggressive sales language for a quiet, refined studio.
 * Do not let the visual theme overpower the project or make every project look identical.
@@ -118,7 +124,7 @@ Prioritise clarity, evidence and narrative progression over decoration.
 
 ## Visuals
 
-When `THEME_REFERENCE` is supplied, match that theme’s composition language across every slide.
+When `THEME_REFERENCE` is supplied, match that theme’s visual language (ground, type, composition, texture, framing devices) across every slide — while each slide's content stays exactly what the narrative gives it.
 
 When no theme is supplied, prefer a strong editorial layout with a clear relationship between copy and visual evidence.
 
@@ -164,6 +170,14 @@ If a slide needs a picture but no project photo is available, **do not draw it w
 * At most **one** reserved image slot per slide.
 * Compose the slide around the slot exactly as you would for a real photo: give it a deliberate size and position (full-bleed background, large inset, or framed crop), `object-fit: cover`, and keep text off the part that will carry the subject. Style the `<img>` with a quiet neutral background colour so the slide still reads while the picture loads.
 * Not every slide needs a picture. Slides that work as pure typography (a stat, a quote, the final takeaway) should stay typographic — do not reserve a slot just to fill space.
+
+### A theme that is built on pictures
+
+When `THEME_REFERENCE` is supplied, its look decides where pictures sit (see "Pictures in this theme" and the attached example board). Most themes carry a picture on most slides — taped photos, a hero image, a framed inset.
+
+* A slide's `visual.priority: "none"` / `includeImageSlot: false` only means there is no PROJECT photo for it. It does not forbid a generated picture: when the slide says `generatedPictureAllowed: true`, reserve an image slot (`data-image-request`, as above) wherever the theme's composition would put a picture.
+* Reserve one on the hook (slide 1) and on roughly every other content slide, so the carousel reads like the theme's example — each request specific to that slide's idea, in the theme's picture style.
+* Keep stat, quote and final call-to-action slides typographic, and never request a picture that would pass as the studio's own finished work.
 
 Annotations still follow these rules:
 
@@ -213,6 +227,7 @@ For planned or unverified work, communicate intention with normal design languag
 
 Before returning the HTML, check that:
 
+* The slide count, order, story beats and copy follow the narrative (CONTENT STRUCTURE / brief) — the theme changed only how it looks.
 * Every element with `top` / `right` / `bottom` / `left` has `position` set in the same CSS rule, and no two text blocks overlap.
 * The first slide is specific and scroll-stopping.
 * The central idea is clear within two seconds.
@@ -257,10 +272,10 @@ Hard requirements:
 * No JavaScript, no external CSS files.
 * Return HTML only. Do not include explanations, Markdown fences or commentary outside the HTML.
 
-INPUT:
+CONTENT STRUCTURE — THE NARRATIVE (the only source of what the slides say, how many there are and in what order):
 {{CONTENT_STRUCTURE_JSON}}
 
-OPTIONAL FINAL COPY:
+OPTIONAL FINAL COPY (part of the narrative — the words to use):
 {{DAY_WRITER_OUTPUT}}
 
 OPTIONAL BRAND STYLE:
@@ -269,5 +284,5 @@ OPTIONAL BRAND STYLE:
 BRAND DNA (BUSINESS MEMORY):
 {{BRAND_JSON}}
 
-THEME REFERENCE (strategist or studio pick — follow when not "None supplied"):
+THEME REFERENCE — VISUAL DIRECTION ONLY (strategist or studio pick — follow for the look when not "None supplied"; never for content):
 {{THEME_REFERENCE}}

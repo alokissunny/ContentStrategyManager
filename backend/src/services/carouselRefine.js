@@ -77,6 +77,11 @@ function composeCurrentCarousel({ carouselHtml, slides, direction }) {
   const dir = (want && dirs.includes(want) ? want : '') || dirs[0] || want || 'architectural-minimal';
   const block = doc ? (blockForDirection(doc, dir) || doc) : '';
   const docArticles = block ? slideArticles(block) : [];
+  // A slide given its own theme (Editor › Themes › This slide) lives in a
+  // section of its own — look for it there, and keep it there.
+  const sectionArticles = {};
+  (doc ? dirs : []).forEach((d) => { sectionArticles[d] = slideArticles(blockForDirection(doc, d)); });
+  const findIn = (d, index) => (sectionArticles[d] || []).find((a) => indexOfArticle(a) === index) || '';
   const styles = [];
   const addStyles = (list) => list.forEach((st) => { if (!styles.includes(st)) styles.push(st); });
   if (doc) addStyles(outerStyles(doc));
@@ -90,21 +95,42 @@ function composeCurrentCarousel({ carouselHtml, slides, direction }) {
       art = slideArticles(own)[0] || '';
       if (art) addStyles(outerStyles(own));
     }
+    let artDir = dir;
+    if (!art) {
+      const own = canonThemeId(s?.direction);
+      const mine = own && sectionArticles[own] ? findIn(own, index) : '';
+      if (mine) { art = mine; artDir = own; }
+    }
+    if (!art && dirs.length > 1) {
+      const d = dirs.find((x) => findIn(x, index));
+      if (d) { art = findIn(d, index); artDir = d; }
+    }
     if (!art) {
       art = docArticles.find((a) => indexOfArticle(a) === index) || docArticles[i] || '';
     }
     if (!art) throw err(400, `Slide ${index} has no layout to refine — try Fix layout first.`);
-    return { index, html: withIndex(stripDanger(art), index) };
+    return { index, dir: artDir, html: withIndex(stripDanger(art), index) };
   });
   if (!articles.length) throw err(400, 'This post has no slides to refine.');
-  const html = `<section data-direction="${dir}">\n${styles.join('\n')}\n${articles.map((a) => a.html).join('\n')}\n</section>`;
+  // one section per theme in use, in slide order — `render` rebuilds the
+  // document the same way after an edit or an added slide
+  const render = (list, { document = false } = {}) => {
+    const groups = [];
+    list.forEach((a) => {
+      const g = groups.find((x) => x.dir === (a.dir || dir));
+      if (g) g.items.push(a.html); else groups.push({ dir: a.dir || dir, items: [a.html] });
+    });
+    const body = groups.map((g, gi) => `<section data-direction="${g.dir}">\n${gi === 0 ? `${styles.join('\n')}\n` : ''}${g.items.join('\n')}\n</section>`).join('\n');
+    return document ? `<!DOCTYPE html>\n<html><head><meta charset="utf-8"></head><body>\n${body}\n</body></html>` : body;
+  };
+  const html = render(articles);
   if (html.length > MAX_REFERENCE) throw err(413, 'This carousel is too large to refine by prompt.');
   // the theme's font stylesheets — not for the model, only so a preview draws
   // the slide in its real type (https links only)
   const links = [...String(doc || '').matchAll(/<link\b[^>]*\brel\s*=\s*["']?stylesheet["']?[^>]*>/gi)]
     .map((m) => m[0])
     .filter((l) => /\bhref\s*=\s*["']https:\/\//i.test(l));
-  return { html, direction: dir, articles, styles, links: [...new Set(links)] };
+  return { html, direction: dir, articles, styles, render, links: [...new Set(links)] };
 }
 
 // Does this instruction ask for a picture? The band's `visual` action says so
@@ -178,7 +204,7 @@ function previewOf(composed, slides) {
 // a later step fails.
 async function refineCarouselFromEdits({
   userId, handle, label, instruction, slideIndex, focus, current, brand,
-  visual: visualFlag, visualSlideIndex, slideRecords, strategy, layoutIssues, geometry, slideCss, debug, intent,
+  visual: visualFlag, visualSlideIndex, slideRecords, strategy, layoutIssues, geometry, slideCss, debug, intent, visualTheme,
 }) {
   const t0 = Date.now();
   // the chip path that was pressed (Editor chat) — a precise brief for the
@@ -239,6 +265,7 @@ async function refineCarouselFromEdits({
           brand,
           userId,
           handle,
+          visualTheme,
         });
       } catch (e) {
         console.warn(`[carouselRefine] visual agent failed — ${e.message}`);
@@ -320,6 +347,7 @@ async function refineCarouselFromEdits({
         brand,
         userId,
         handle,
+        visualTheme,
       });
       if (made?.debugEntry) {
         logStep(debug, {
@@ -345,7 +373,7 @@ async function refineCarouselFromEdits({
     if (!swapped) throw err(422, 'Could not find the selected picture on the slide.');
     const i = composed.articles.findIndex((a) => a.index === picAt);
     const articles = composed.articles.map((a, j) => (j === i ? withIndex(swapped, a.index) : a.html));
-    const html = `<!DOCTYPE html>\n<html><head><meta charset="utf-8"></head><body>\n<section data-direction="${composed.direction}">\n${composed.styles.join('\n')}\n${articles.join('\n')}\n</section>\n</body></html>`;
+    const html = composed.render(composed.articles.map((a, j) => ({ dir: a.dir, html: articles[j] })), { document: true });
     const parsed = parseCarouselDocument(html, n);
     if (!parsed.slides.length) throw err(502, 'Bauhly returned a slide the editor cannot read — try again.');
     const slideKeys = { [picAt]: slotKeysOf(articles[i], keysAt(picAt), own) };
@@ -429,7 +457,7 @@ async function refineCarouselFromEdits({
   const articles = composed.articles.map((a) => (byIndex.has(a.index) ? withIndex(byIndex.get(a.index), a.index) : a.html));
   const changed = done.map((x) => x.index);
 
-  const html = `<!DOCTYPE html>\n<html><head><meta charset="utf-8"></head><body>\n<section data-direction="${composed.direction}">\n${composed.styles.join('\n')}\n${articles.join('\n')}\n</section>\n</body></html>`;
+  const html = composed.render(composed.articles.map((a, j) => ({ dir: a.dir, html: articles[j] })), { document: true });
   const parsed = parseCarouselDocument(html, n);
   if (!parsed.slides.length) throw err(502, 'Bauhly returned a slide the editor cannot read — try again.');
   // each changed slide's pictures, in the order its image slots now hold them

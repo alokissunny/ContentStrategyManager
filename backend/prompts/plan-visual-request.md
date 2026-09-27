@@ -20,7 +20,8 @@ When the request names a subject, depict that subject generically (a representat
 
 - Complement the slide's words (`SLIDE_JSON.filledCopy`) — show the idea, never repeat the headline as an image.
 - Sit beside the carousel's existing pictures (`EXISTING_PICTURES`): same kind of light, palette and finish, so the new picture does not look pasted in. If there are none, follow `BRAND_STYLE`, then the post's mood.
-- Prefer a refined editorial look: a soft-light interior photograph style for rooms and materials, or a monochrome architectural sketch / charcoal study when the idea is a plan, principle or proportion.
+- Match the carousel theme (`THEME_STYLE`): its medium, light, palette and finish decide how the picture looks. When an example board of the theme is attached as an image, look at it and make the picture feel like it belongs on those slides — take only the look, never its subjects, objects or words.
+- With no theme supplied, prefer a refined editorial look: a soft-light interior photograph style for rooms and materials, or a monochrome architectural sketch / charcoal study when the idea is a plan, principle or proportion.
 - **No text, letters, numbers, logos, watermarks or UI** anywhere in the image.
 - One continuous scene, no collage, no borders, no split panels.
 
@@ -58,6 +59,9 @@ EXISTING_PICTURES:
 
 POST_CONTEXT_JSON:
 {{POST_CONTEXT_JSON}}
+
+THEME_STYLE:
+{{THEME_STYLE}}
 
 BRAND_STYLE:
 {{BRAND_STYLE}}

@@ -8261,3 +8261,7 @@ span.wv-layed__apply { margin-left: auto; flex-shrink: 0; }
 /* the All slides tag in the field is ink, like the switch that set it */
 .wv-edm__askfield .wv-edm__cmd--all { background: var(--ink-900); color: var(--surface); }
 .wv-edm__askfield .wv-edm__cmd--all .wv-edm__cmdx:hover { background: color-mix(in srgb, var(--surface) 22%, transparent); }
+/* the chosen direction sits on a pale card, as in the reference */
+.wv-em__thm { background: var(--surface-sunken, #f5f5f7); padding: 10px; gap: 12px; }
+.wv-em__thmart { width: 52px; }
+.wv-em__thmname { font-size: 15px; }

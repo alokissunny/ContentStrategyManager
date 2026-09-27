@@ -132,9 +132,11 @@ export default function EditorMore({ acts, onClose }) {
             </div>
             <Rows
               onClose={onClose}
-              rows={[
-                // the theme agent redraws the whole carousel, so there is one reach
-                { id: 'go', icon: 'sparkle', label: 'Generate theme', hint: many ? 'Draws the whole carousel in this direction' : 'Draws this post in the direction above', dead: acts.busy, fn: () => { const t = chosen; setThmPick(null); acts.onTheme?.(t); } },
+              rows={many ? reach((every) => { const t = chosen; setThmPick(null); acts.onTheme?.(t, every); }, {
+                one: 'The others keep theirs',
+                all: 'The whole carousel wears it',
+              }).map((r) => ({ ...r, dead: acts.busy })) : [
+                { id: 'go', icon: 'sparkle', label: 'Generate theme', hint: 'Draws this post in the direction above', dead: acts.busy, fn: () => { const t = chosen; setThmPick(null); acts.onTheme?.(t, true); } },
               ]}
             />
           </>

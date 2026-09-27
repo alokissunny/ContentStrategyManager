@@ -161,7 +161,7 @@ async function writeNewSlide({ position, newIndex, capture, pictures, strategy, 
  * @param {object} p.strategy  the post's full strategy brief (agentTrace.strategyBrief)
  * @returns {{ html, slides, newIndex, article, keys, visual, model, usage }}
  */
-async function addSlideToCarousel({ userId, handle, label, at, capture, current, strategy, brand, slideRecords, debug }) {
+async function addSlideToCarousel({ userId, handle, label, at, capture, current, strategy, brand, slideRecords, debug, visualTheme }) {
   const t0 = Date.now();
   const slides = Array.isArray(current?.slides) ? current.slides : [];
   const composed = composeCurrentCarousel({
@@ -255,6 +255,7 @@ async function addSlideToCarousel({ userId, handle, label, at, capture, current,
           brand,
           userId,
           handle,
+          visualTheme,
         });
       } catch (e) {
         console.warn(`[addSlide] visual agent failed — ${e.message}`);
@@ -285,9 +286,10 @@ async function addSlideToCarousel({ userId, handle, label, at, capture, current,
   }
 
   // ── splice it in and renumber what follows ─────────────────────────────
-  const articles = composed.articles.map((a) => (a.index >= newIndex ? withIndex(a.html, a.index + 1) : a.html));
-  articles.splice(pos, 0, withIndex(article, newIndex));
-  const html = `<!DOCTYPE html>\n<html><head><meta charset="utf-8"></head><body>\n<section data-direction="${composed.direction}">\n${composed.styles.join('\n')}\n${articles.join('\n')}\n</section>\n</body></html>`;
+  const articles = composed.articles.map((a) => ({ dir: a.dir, html: a.index >= newIndex ? withIndex(a.html, a.index + 1) : a.html }));
+  // the new slide joins the theme of the slide it follows (or precedes)
+  articles.splice(pos, 0, { dir: (before || after)?.dir || composed.direction, html: withIndex(article, newIndex) });
+  const html = composed.render(articles, { document: true });
   const parsed = parseCarouselDocument(html, n + 1);
   if (!parsed.slides.length) throw err(502, 'Bauhly returned a slide the editor cannot read — try again.');
   const keys = slotKeysOf(article, pictures, own);

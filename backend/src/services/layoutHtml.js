@@ -129,7 +129,17 @@ function discoveredThemes(html) {
     const block = blockForDirection(html, d.id);
     if (block && slideArticles(block).length) add(d.id);
   });
-  if (found.length) return found;
+  if (found.length) {
+    // …and any other direction that holds slides — a slide given its own theme
+    // (Editor › Themes › This slide) lives in a section of its own
+    [...String(html || '').matchAll(/\bdata-direction=["']([^"']+)["']/gi)].forEach((m) => {
+      const id = canonThemeId(m[1]);
+      if (!id || seen.has(id)) return;
+      const block = blockForDirection(html, id);
+      if (block && slideArticles(block).length) add(id);
+    });
+    return found;
+  }
   CAROUSEL_THEMES.forEach((d) => {
     if (blockForDirection(html, d.id)) add(d.id);
   });
@@ -403,7 +413,10 @@ function parseCarouselDocument(html, expectedCount) {
     const options = [];
     directions.forEach((d, di) => {
       const list = byDirection[d.id] || [];
-      const article = list.find((a) => Number(htmlAttr(a, 'data-index')) === i) || list[i - 1];
+      // by position only when the section numbers nothing — a section holding
+      // one re-themed slide must not lend it to slide 1
+      const numbered = list.some((a) => Number(htmlAttr(a, 'data-index')) > 0);
+      const article = list.find((a) => Number(htmlAttr(a, 'data-index')) === i) || (numbered ? null : list[i - 1]);
       if (!article) return;
       // Keep the direction section around the canvas so selectors like
       // `section[data-direction="architectural-minimal"] .slide` still match when this

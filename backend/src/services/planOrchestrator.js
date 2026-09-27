@@ -10,7 +10,7 @@ const { extractLayoutHtml, extractHtmlDocument, parseCarouselDocument, hasImageS
 const { publicMediaUrl, isCdnConfigured, getMediaUrl, isS3Configured } = require('./s3Client');
 const { isImageGenConfigured: isOpenAIImageConfigured, generateImage: renderOpenAIImage } = require('./openaiImage');
 const { buildImagePrompt, persistGeneratedImage } = require('./generatedImage');
-const { themeById, themeReferenceForPrompt, themesForStrategistPrompt, resolveThemeId, DEFAULT_THEME_ID } = require('../data/carouselThemes');
+const { themeById, themeReferenceForPrompt, themesForStrategistPrompt, resolveThemeId, DEFAULT_THEME_ID, themeImageOf, themeStyleForVisuals } = require('../data/carouselThemes');
 
 const PROMPTS_DIR = path.join(__dirname, '..', '..', 'prompts');
 const cache = {};
@@ -2327,6 +2327,19 @@ async function writeCarousel({ source, structure, post, dayBrief, brand, dayWrit
       `from=${hasStructure ? 'structure' : 'strategy-brief'}` +
       ` theme=${theme?.id || 'default'}`,
   );
+  // What the agent SEES of the theme: the studio's reference photo, or the
+  // catalog theme's example board (backend/assets/carousel-themes).
+  const themeImage = theme === referenceTheme ? (referenceImage || null) : themeImageOf(theme);
+  // A theme is built on pictures: a slide with no project photo may still carry
+  // a GENERATED one where the theme's composition puts a picture — the Image
+  // Generator fills those slots in the theme's style afterwards. Without this,
+  // a brief that marks every slide `priority: none` produced a text-only carousel
+  // (no slots, nothing to generate) whatever theme was picked.
+  if (theme && Array.isArray(carouselInput.slides)) {
+    carouselInput.slides = carouselInput.slides.map((sl) => (sl?.visual && !sl.visual.hasAsset
+      ? { ...sl, visual: { ...sl.visual, generatedPictureAllowed: true } }
+      : sl));
+  }
   if (!(carouselInput.slides || []).length && !carouselInput.narrativeUnits?.length) {
     throw new Error(
       `${source}: no slides to send to carousel agent ` +
@@ -2338,7 +2351,7 @@ async function writeCarousel({ source, structure, post, dayBrief, brand, dayWrit
     DAY_WRITER_OUTPUT: optionalPromptJson(dayWriterOutput),
     BRAND_STYLE: optionalPromptJson(brandStyleOf(brand)),
     BRAND_JSON: optionalPromptJson(brandMemoryOf(brand)),
-    THEME_REFERENCE: themeReferenceForPrompt(theme),
+    THEME_REFERENCE: themeReferenceForPrompt(theme, { hasImage: Boolean(themeImage) }),
     contentStructure: json(carouselInput),
     dayWriterOutput: optionalPromptJson(dayWriterOutput),
     brandStyle: optionalPromptJson(brandStyleOf(brand)),
@@ -2354,9 +2367,8 @@ async function writeCarousel({ source, structure, post, dayBrief, brand, dayWrit
     system: assembled.system,
     user: assembled.user,
     prompt: assembled.prompt,
-    // Only attach the photo when this IS the reference theme — a catalog theme
-    // pick has no photo to show.
-    image: theme === referenceTheme ? referenceImage : undefined,
+    // the reference photo for a reference theme, else the theme's example board
+    image: themeImage || undefined,
     parse: 'html',
     htmlDirection: theme?.direction || 'architectural-minimal',
     validate: (parsed) => validateCarousel(parsed, post),
@@ -2551,11 +2563,12 @@ function validateVisualPrompt(parsed) {
 }
 
 // Write the image-generation prompt for one slide (the LLM "agent" step).
-async function writeVisualPrompt({ source, slide, brief, brand }) {
+async function writeVisualPrompt({ source, slide, brief, brand, visualTheme }) {
   const assembled = assembleAgentPrompt('plan-visual.md', {
     SLIDE_JSON: json(visualSlideInputOf(slide)),
     POST_CONTEXT_JSON: optionalPromptJson(visualPostContextOf(brief)),
     BRAND_STYLE: optionalPromptJson(brandStyleOf(brand)),
+    THEME_STYLE: themeStyleForVisuals(visualTheme?.theme, { hasImage: Boolean(visualTheme?.image) }) || 'None supplied — match BRAND_STYLE.',
   });
   return callAgent({
     source,
@@ -2563,15 +2576,31 @@ async function writeVisualPrompt({ source, slide, brief, brand }) {
     system: assembled.system,
     user: assembled.user,
     prompt: assembled.prompt,
+    image: visualTheme?.image || undefined,
     validate: (parsed) => validateVisualPrompt(parsed),
   });
+}
+
+// The theme a generated picture has to sit inside: { theme, image } — the
+// studio's reference photo theme when there is one, else the catalog theme
+// (its example board attached). `themeId` may carry a per-slide suffix
+// (`<theme>-s3`, Editor › Themes › This slide).
+function visualThemeOf(themeId, { referenceTheme = null, referenceImage = null } = {}) {
+  if (referenceTheme) return { theme: referenceTheme, image: referenceImage || null };
+  const id = String(themeId || '').trim().replace(/-s\d+$/, '');
+  const theme = id ? themeById(resolveThemeId(id)) : null;
+  return theme ? { theme, image: themeImageOf(theme) } : null;
+}
+function themeLineForRender(visualTheme) {
+  const t = visualTheme?.theme;
+  return t?.imageStyle ? `Photographic style (carousel theme "${t.name}"): ${t.imageStyle}` : '';
 }
 
 // End to end for ONE slide: prompt agent → OpenAI render → S3. Returns
 // { ok, key, src, alt, imagePrompt, finalPrompt, model } on success, or
 // { ok:false, skipReason } when the agent declined to art-direct the slide.
-async function generateSlideVisual({ source, slide, brief, brand, userId, handle, collect }) {
-  const agent = await writeVisualPrompt({ source, slide, brief, brand });
+async function generateSlideVisual({ source, slide, brief, brand, userId, handle, collect, visualTheme }) {
+  const agent = await writeVisualPrompt({ source, slide, brief, brand, visualTheme });
   if (collect) collect(agent);
   const parsed = agent.parsed || {};
   if (parsed.status !== 'ready') {
@@ -2581,7 +2610,7 @@ async function generateSlideVisual({ source, slide, brief, brand, userId, handle
   }
   // The agent's art direction, composed with the brand palette and the shared
   // house guardrails (no text, full-bleed, negative space kept in-scene).
-  const finalPrompt = buildImagePrompt(parsed.imagePrompt, brandPaletteOf(brand));
+  const finalPrompt = [buildImagePrompt(parsed.imagePrompt, brandPaletteOf(brand)), themeLineForRender(visualTheme)].filter(Boolean).join('\n');
   const {
     buffer, mimeType, model, elapsedMs: imageElapsedMs = 0, estimatedCostUsd: imageCostUsd = 0,
   } = await renderOpenAIImage(finalPrompt);
@@ -2629,7 +2658,7 @@ function requestedVisualAvailable() {
 }
 
 async function generateRequestedVisual({
-  source, request, slide, existingPictures, brief, brand, userId, handle,
+  source, request, slide, existingPictures, brief, brand, userId, handle, visualTheme,
 }) {
   const assembled = assembleAgentPrompt('plan-visual-request.md', {
     STUDIO_REQUEST: String(request || '').trim() || 'Add a visual that supports this slide.',
@@ -2637,6 +2666,7 @@ async function generateRequestedVisual({
     EXISTING_PICTURES: json(existingPictures || []),
     POST_CONTEXT_JSON: optionalPromptJson(visualPostContextOf(brief)),
     BRAND_STYLE: optionalPromptJson(brandStyleOf(brand)),
+    THEME_STYLE: themeStyleForVisuals(visualTheme?.theme, { hasImage: Boolean(visualTheme?.image) }) || 'None supplied — match BRAND_STYLE.',
   });
   const agent = await callAgent({
     source: `${source}:prompt`,
@@ -2644,6 +2674,7 @@ async function generateRequestedVisual({
     system: assembled.system,
     user: assembled.user,
     prompt: assembled.prompt,
+    image: visualTheme?.image || undefined,
     validate: (parsed) => {
       validateVisualPrompt(parsed);
       const place = String(parsed.placement || '').trim().toLowerCase();
@@ -2654,7 +2685,7 @@ async function generateRequestedVisual({
   if (parsed.status !== 'ready') {
     return { ok: false, skipReason: optionalText(parsed.skipReason) || 'The visual agent declined this request.', debugEntry: agent.debugEntry };
   }
-  const finalPrompt = buildImagePrompt(parsed.imagePrompt, brandPaletteOf(brand));
+  const finalPrompt = [buildImagePrompt(parsed.imagePrompt, brandPaletteOf(brand)), themeLineForRender(visualTheme)].filter(Boolean).join('\n');
   const { buffer, mimeType, model, elapsedMs: imageElapsedMs = 0, estimatedCostUsd: imageCostUsd = 0 } = await renderOpenAIImage(finalPrompt);
   const stored = await persistGeneratedImage({ userId, handle, buffer, mimeType, prompt: finalPrompt, model });
   let src = '';
@@ -2848,7 +2879,10 @@ function applyVisualToSlide(slide, image) {
 // Asset binding (injecting real project photos into empty <img> slots) always
 // runs — even when PLAN_VISUAL_AGENT=0 — otherwise carousel slides keep
 // data-asset-key with no src.
-async function attachGeneratedVisuals({ source, content, brief, brand, userId, handle, collect, fillEmpty = false }) {
+async function attachGeneratedVisuals({ source, content, brief, brand, userId, handle, collect, fillEmpty = false, visualTheme = undefined }) {
+  // pictures are made to sit inside the carousel's theme — the caller's, else
+  // the one this content was drawn in
+  const vt = visualTheme !== undefined ? visualTheme : visualThemeOf(content?.themeId || brief?.themeId || '');
   content = bindSuppliedAssetsInContent(content);
   const bound = (content.slides || []).filter((s) => optionalText(copyFromLayoutHtml(s?.layoutHtml)?.image?.src)).length;
   if (bound) {
@@ -2882,6 +2916,10 @@ async function attachGeneratedVisuals({ source, content, brief, brand, userId, h
         userId,
         handle,
         collect,
+        // a slide re-themed on its own (Themes › This slide) follows its theme
+        visualTheme: slide?.layoutTheme && vt && !vt.theme?.id?.startsWith('custom') && String(slide.layoutTheme).replace(/-s\d+$/, '') !== vt.theme?.id
+          ? (visualThemeOf(slide.layoutTheme) || vt)
+          : vt,
       });
       return { i, index, image };
     } catch (err) {
@@ -3203,6 +3241,8 @@ async function runMultiAgentPlan({
             handle: username,
             collect,
             fillEmpty: visualFillEmptyEnabled(),
+            // the theme the carousel agent drew this post in
+            visualTheme: visualThemeOf(layout?.parsed?.themeId || brief?.themeId || ''),
           });
         } catch (err) {
           console.warn(`[planOrchestrator] Visual:${label} skipped — ${err.message}`);
@@ -3364,6 +3404,7 @@ async function runMultiAgentPlan({
 
 module.exports = {
   runMultiAgentPlan,
+  visualThemeOf,
   runLayoutForPost,
   generateRequestedVisual,
   requestedVisualAvailable,

@@ -243,8 +243,10 @@ export function polishCaption(id, { caption, instruction, kind, role, fills }) {
 // using that photo's look — the server reads it with vision and hands the
 // agent a description to design from.
 // → { post, layout, ... }
-export function runPostLayout(id, { themeId, referenceImageKey } = {}) {
+export function runPostLayout(id, { themeId, referenceImageKey, slideIndex } = {}) {
   const body = referenceImageKey ? { referenceImageKey } : (themeId ? { themeId } : {});
+  // Editor › Themes › This slide: only that slide (1-based) moves to the theme
+  if (Number(slideIndex) > 0) body.slideIndex = Number(slideIndex);
   return client.post(`/posts/${id}/layout`, body, { timeout: 540000 }).then((res) => {
     const data = res.data || {};
     ingestPlanDebug('Carousel agent (debug)', data);
