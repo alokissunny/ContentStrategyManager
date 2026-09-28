@@ -60,6 +60,16 @@ const AGENTS = {
     providerEnv: 'PLAN_VISUAL_PROVIDER',
     defaultModel: 'gpt-5.6-terra',
   },
+  // Decorative elements — when a studio theme-reference photo is applied, names
+  // the illustrated motifs in that photo (mountains, signs, brush marks) and
+  // writes one image prompt each. Must see the reference, so it defaults to the
+  // same vision-capable model as the carousel agent. Renders are gpt-image-1.
+  decorative: {
+    defaultProvider: 'openai',
+    modelEnv: 'PLAN_DECORATIVE_MODEL',
+    providerEnv: 'PLAN_DECORATIVE_PROVIDER',
+    defaultModel: 'gpt-6-astra',
+  },
   // Experimental Reel Editor — a three-agent short-form video edit pipeline
   // (director → caption stylist → motion graphics). See services/reelEditorAgent.
   reelMixer: {

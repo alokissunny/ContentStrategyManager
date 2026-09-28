@@ -64,7 +64,8 @@ function isImageGenConfigured() {
 /**
  * Generate a single image from a prompt.
  * @param {string} prompt fully-composed instruction (subject + brand style + guardrails).
- * @param {{ size?: string, quality?: string }} [opts] optional output shape / quality.
+ * @param {{ size?: string, quality?: string, background?: 'transparent'|'opaque'|'auto' }} [opts]
+ *        optional output shape / quality. `background: 'transparent'` forces a PNG.
  * @returns {Promise<{ buffer: Buffer, mimeType: string, model: string }>}
  */
 async function generateImage(prompt, opts = {}) {
@@ -75,6 +76,10 @@ async function generateImage(prompt, opts = {}) {
   const model = DEFAULT_MODEL;
   const size = opts.size || DEFAULT_SIZE;
   const quality = opts.quality || DEFAULT_QUALITY;
+  const background = ['transparent', 'opaque', 'auto'].includes(opts.background) ? opts.background : '';
+  // Transparency is only honoured for PNG (and WebP). Force PNG so a jpeg
+  // default in the environment cannot flatten a sticker onto a white box.
+  const format = background === 'transparent' ? 'png' : OUTPUT_FORMAT;
 
   // A hard request timeout is a guard rail: a stalled render fails fast instead
   // of holding the plan pipeline open. Overridable; default 120s (image models
@@ -82,6 +87,7 @@ async function generateImage(prompt, opts = {}) {
   const timeout = Number(process.env.OPENAI_IMAGE_TIMEOUT_MS) || 120000;
   const started = Date.now();
 
+  let usedFormat = format;
   let response;
   try {
     response = await client.images.generate(
@@ -91,8 +97,9 @@ async function generateImage(prompt, opts = {}) {
         size,
         quality,
         n: 1,
-        output_format: OUTPUT_FORMAT,
-        ...(OUTPUT_FORMAT === 'png' ? {} : { output_compression: OUTPUT_COMPRESSION }),
+        output_format: format,
+        ...(format === 'png' ? {} : { output_compression: OUTPUT_COMPRESSION }),
+        ...(background ? { background } : {}),
       },
       { timeout },
     );
@@ -101,6 +108,7 @@ async function generateImage(prompt, opts = {}) {
     // a given model build — retry once with only the prompt so a stray option
     // never fails the whole render.
     console.warn('[openaiImage] generate rejected, retrying minimal request:', err?.message || err);
+    usedFormat = OUTPUT_FORMAT;
     response = await client.images.generate({ model, prompt: text, n: 1 }, { timeout });
   }
 
@@ -116,7 +124,7 @@ async function generateImage(prompt, opts = {}) {
 
   return {
     buffer: Buffer.from(b64, 'base64'),
-    mimeType: FORMAT_MIME[OUTPUT_FORMAT] || 'image/png',
+    mimeType: FORMAT_MIME[usedFormat] || 'image/png',
     model,
     elapsedMs: Date.now() - started,
     estimatedCostUsd: estimateImageCostUsd(size, quality),

@@ -220,6 +220,7 @@ function customReferenceTheme(analysis) {
       : '',
     analysis?.mood ? `Its mood/tone: ${analysis.mood}.` : '',
     'Read the attached photo yourself for the exact palette, materials/texture, lighting and composition — the notes above are a starting point, not a substitute. Design this carousel so its palette, mood, materials/texture and composition energy evoke this reference — adapt its aesthetic direction into an Instagram carousel design system; do not literally reproduce the photo.',
+    'When DECORATIVE ELEMENTS lists motifs, those are the reference’s illustrated marks (a mountain, a sign shape, a brush stroke) already rendered for this post. Place that set across the slides. Do not redraw them, and do not copy the reference’s words.',
   ].filter(Boolean);
   return {
     id: 'custom-reference',

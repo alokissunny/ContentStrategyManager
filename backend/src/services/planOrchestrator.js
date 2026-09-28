@@ -11,6 +11,12 @@ const { publicMediaUrl, isCdnConfigured, getMediaUrl, isS3Configured } = require
 const { isImageGenConfigured: isOpenAIImageConfigured, generateImage: renderOpenAIImage } = require('./openaiImage');
 const { buildImagePrompt, persistGeneratedImage } = require('./generatedImage');
 const { themeById, themeReferenceForPrompt, themesForStrategistPrompt, resolveThemeId, DEFAULT_THEME_ID, themeImageOf, themeStyleForVisuals } = require('../data/carouselThemes');
+const {
+  decorativeAgentEnabled,
+  generateDecorativeSet,
+  decorativePromptOf,
+  injectDecorativeSrc,
+} = require('./decorativeAgent');
 
 const PROMPTS_DIR = path.join(__dirname, '..', '..', 'prompts');
 const cache = {};
@@ -275,6 +281,10 @@ function maxTokensFor(kind) {
   }
   if (kind === 'visual') {
     const n = Number(process.env.PLAN_VISUAL_MAX_TOKENS);
+    return Number.isFinite(n) && n > 0 ? n : 2048;
+  }
+  if (kind === 'decorative') {
+    const n = Number(process.env.PLAN_DECORATIVE_MAX_TOKENS);
     return Number.isFinite(n) && n > 0 ? n : 2048;
   }
   const n = Number(process.env.PLAN_AGENT_MAX_TOKENS);
@@ -2336,7 +2346,50 @@ function runLayoutForPost(opts) {
   return writeLayout(opts);
 }
 
-async function writeCarousel({ source, structure, post, dayBrief, brand, dayWriterOutput, themeId, referenceTheme, referenceImage, onlySlide = 0 }) {
+function decorativeNarrativeOf(carouselInput, dayBrief) {
+  return {
+    angle: optionalText(dayBrief?.angle),
+    centralFact: optionalText(dayBrief?.centralFact),
+    pillar: optionalText(dayBrief?.pillar || dayBrief?.lens),
+    verifiedTruth: stringList(dayBrief?.verifiedTruth).slice(0, 8),
+    narrativeUnits: narrativeUnitsOf(dayBrief).slice(0, 12).map((u) => ({
+      role: u.role,
+      purpose: u.purpose,
+    })),
+    slides: (carouselInput?.slides || []).map((sl) => ({
+      index: sl.index,
+      role: sl.role || '',
+      purpose: sl.purpose || '',
+      title: sl.draftCopy?.title || '',
+      body: sl.draftCopy?.body || sl.draftCopy?.subtitle || '',
+    })),
+  };
+}
+
+// Bake media URLs into the decorative <img>s on the full document and on each
+// slide fragment. The carousel agent writes data-decor-id only — it is not
+// trusted with a long media URL. Re-parsing would renumber a one-slide edit.
+function applyDecorativeElements(parsed, elements) {
+  if (!parsed?.html || !elements?.length) return;
+  const placed = (String(parsed.html).match(/\bdata-decor-id\s*=/gi) || []).length;
+  if (!placed) {
+    console.warn('[planOrchestrator] carousel placed no decorative elements');
+    return;
+  }
+  parsed.html = injectDecorativeSrc(parsed.html, elements);
+  if (Array.isArray(parsed.slides)) {
+    parsed.slides = parsed.slides.map((slide) => ({
+      ...slide,
+      html: injectDecorativeSrc(slide.html, elements),
+      options: Array.isArray(slide.options)
+        ? slide.options.map((opt) => ({ ...opt, html: injectDecorativeSrc(opt.html, elements) }))
+        : slide.options,
+    }));
+  }
+  console.log(`[planOrchestrator] decorative motifs placed=${placed}`);
+}
+
+async function writeCarousel({ source, structure, post, dayBrief, brand, dayWriterOutput, themeId, referenceTheme, referenceImage, onlySlide = 0, userId, handle }) {
   const hasStructure = Array.isArray(structure?.slidesOrScenes) && structure.slidesOrScenes.length > 0;
   const carouselInput = hasStructure
     ? carouselInputOf(structure, post, dayBrief)
@@ -2369,6 +2422,26 @@ async function writeCarousel({ source, structure, post, dayBrief, brand, dayWrit
       ? { ...sl, visual: { ...sl.visual, generatedPictureAllowed: true } }
       : sl));
   }
+  // A studio reference photo: generate its illustrated motifs (mountains, signs,
+  // brush marks) once, then the carousel places that same set on the slides.
+  // The narrative is the whole post, even when only one slide is being rewritten.
+  let decorative = null;
+  if (referenceTheme && referenceImage?.data && decorativeAgentEnabled() && userId) {
+    try {
+      decorative = await generateDecorativeSet({
+        source: `Decorative:${source}`,
+        referenceImage,
+        referenceNotes: [theme?.reference, theme?.imageStyle].filter(Boolean).join('\n'),
+        narrative: decorativeNarrativeOf(carouselInput, dayBrief),
+        userId,
+        handle,
+      });
+    } catch (err) {
+      console.warn(`[planOrchestrator] ${source} decorative elements skipped — ${err.message}`);
+    }
+  } else if (referenceTheme && referenceImage?.data && !userId) {
+    console.warn(`[planOrchestrator] ${source} decorative elements skipped — no userId`);
+  }
   // Editor › Themes › This slide: the agent writes ONE slide — the rest of the
   // carousel already exists and keeps its own look. It sees the others only as
   // a one-line outline, for continuity.
@@ -2393,12 +2466,17 @@ async function writeCarousel({ source, structure, post, dayBrief, brand, dayWrit
         `(structureSlides=${structureSlides} postSlides=${postSlideCount})`,
     );
   }
+  let decorBlock = decorativePromptOf(decorative);
+  if (one && decorative?.elements?.length) {
+    decorBlock += `\n\nThis call writes ONLY slide ${one}. Place motifs on that slide. Do not write the other slides.`;
+  }
   const assembled = assembleAgentPrompt('plan-carousel.md', {
     CONTENT_STRUCTURE_JSON: json(carouselInput),
     DAY_WRITER_OUTPUT: optionalPromptJson(dayWriterOutput),
     BRAND_STYLE: optionalPromptJson(brandStyleOf(brand)),
     BRAND_JSON: optionalPromptJson(brandMemoryOf(brand)),
     THEME_REFERENCE: themeReferenceForPrompt(theme, { hasImage: Boolean(themeImage) }),
+    DECORATIVE_ELEMENTS: decorBlock,
     contentStructure: json(carouselInput),
     dayWriterOutput: optionalPromptJson(dayWriterOutput),
     brandStyle: optionalPromptJson(brandStyleOf(brand)),
@@ -2423,6 +2501,8 @@ async function writeCarousel({ source, structure, post, dayBrief, brand, dayWrit
   if (result?.parsed && theme?.id) {
     result.parsed.themeId = theme.id;
   }
+  if (decorative?.elements?.length) applyDecorativeElements(result.parsed, decorative.elements);
+  if (result) result.decorative = decorative;
   return result;
 }
 

@@ -4,6 +4,7 @@ const Project = require('../models/Project');
 const InstagramProfile = require('../models/InstagramProfile');
 const { generateWeeklyPlan, buildMonthCalendar, dayHasContent, isoDate, parseIsoDate } = require('../services/weeklyPlan');
 const { analyzeImageAsset, loadReferenceImage } = require('../services/imageAnalysis');
+const { decorativeDebugAgents, storedDecorativeElements } = require('../services/decorativeAgent');
 const { rewriteCaption } = require('../services/captionPolish');
 const { runLayoutForPost, writeLayoutVariations, applyLayoutToContent, normalizeWriterPost, attachGeneratedVisuals } = require('../services/planOrchestrator');
 const { customReferenceTheme } = require('../data/carouselThemes');
@@ -1307,6 +1308,8 @@ async function rerunDayLayout(req, res) {
       themeId,
       referenceTheme,
       referenceImage,
+      userId: req.user._id,
+      handle: route.instagramUsername,
     });
     if (result.parsed?.status === 'failed') {
       return res.status(422).json({
@@ -1343,6 +1346,10 @@ async function rerunDayLayout(req, res) {
     const debugEntry = result.debugEntry || {};
     day.agentTrace = {
       ...trace,
+      ...(referenceImageKey && referenceTheme ? {
+        themeReference: { key: referenceImageKey, reference: referenceTheme.reference, imageStyle: referenceTheme.imageStyle || '' },
+        decorativeElements: storedDecorativeElements(result.decorative),
+      } : {}),
       layout: result.parsed,
       carousel: result.parsed,
       layoutPrompt: String(debugEntry.prompt || trace.layoutPrompt || ''),
@@ -1402,7 +1409,7 @@ async function rerunDayLayout(req, res) {
               totalTokens: Number(result.usage?.totalTokens || debugEntry.usage?.totalTokens) || 0,
               estimatedCostUsd: Number(result.usage?.estimatedCostUsd || debugEntry.usage?.estimatedCostUsd) || 0,
             },
-            ...visualAgents.map((a) => ({
+            ...[...decorativeDebugAgents(result.decorative), ...visualAgents].map((a) => ({
               source: a.debugEntry?.source || `Visual:${label}`,
               model: a.debugEntry?.model,
               provider: a.debugEntry?.provider || '',

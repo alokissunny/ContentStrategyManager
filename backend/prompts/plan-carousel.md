@@ -192,6 +192,19 @@ When `THEME_REFERENCE` is supplied, its look decides where pictures sit (see "Pi
 * **What each picture shows comes from that slide's narrative** — its point, its words, its beat in the story — never from the theme or the example slide. The theme only decides how the picture is framed and finished on the slide. Never request the example's subjects (its fabrics, cups, props, landscapes) or a generic still life that could sit on any slide.
 * Keep stat, quote and final call-to-action slides typographic, and never request a picture that would pass as the studio's own finished work.
 
+### Decorative motifs from a theme reference
+
+When `DECORATIVE ELEMENTS` lists motifs, those images are already rendered. They are the reference’s illustrated marks (a mountain range, a sign shape, a brush stroke, an icon) redrawn for this post. Place them across the carousel so every slide that has room shares the set.
+
+* Use only the ids listed. Markup: `<img data-slot="decor" data-decor-id="THE_ID" alt="">`. Do not set `src`.
+* Repeat the signature motif (the first one) on the hook and on at least one later slide. Every listed motif appears at least once.
+* They are accents: `object-fit: contain`, about 16–32% of the slide wide, in a margin, corner, or header. Never full-bleed. Never the main photograph. Never covering the headline.
+* Do not set a background colour on these images. They are transparent; a fill paints a box behind the motif.
+* Any rule that sets `top` / `right` / `bottom` / `left` on a motif must also set `position: absolute` in that same rule.
+* Do not redraw these motifs in CSS, SVG, or a `data-image-request`. Do not copy words from the reference onto them.
+
+When `DECORATIVE ELEMENTS` says none are supplied, skip this section.
+
 Annotations still follow these rules:
 
 * **Annotations must mark something real.** Hand-drawn circles, ovals, underlines, arrows, or scribbles are allowed only when they clearly highlight a specific word, short phrase, or photo detail.
@@ -211,6 +224,7 @@ For planned or unverified work, communicate intention with normal design languag
 * **Final slide: light and save-worthy** — ideally one short takeaway + one CTA. No stacked cards, no footnotes, no second essay.
 * Every slide must have a clear visual focal point.
 * Do not overload slides with badges, labels, captions, footers and decorative borders.
+* Do not invent decorative graphics. When `DECORATIVE ELEMENTS` lists rendered motifs, use those and only those. When it says none are supplied, draw the theme’s framing devices in CSS and do not add extra illustration.
 * Use labels only when they improve comprehension.
 * Use visual contrast to guide the swipe sequence.
 * Avoid repeating the same layout on every slide unless the theme specifically requires it.
@@ -229,7 +243,7 @@ For planned or unverified work, communicate intention with normal design languag
 * Use strong alignment, consistent spacing and deliberate rhythm.
 * Ensure contrast is sufficient for mobile viewing.
 * Avoid excessive all-caps text.
-* Avoid decorative elements that compete with the main message.
+* Avoid decoration that competes with the main message. Supplied decorative motifs (see below) are the exception: they are part of the theme, kept small, and kept off the headline.
 * Do not use slide numbers or page dots inside the slide canvas.
 * Do not use fake statistics, quotes or social-proof elements.
 * Do not use visual effects that make the carousel look like a template rather than a real design story.
@@ -258,6 +272,7 @@ Before returning the HTML, check that:
 * The carousel is readable on a mobile screen.
 * No internal production language, documentation disclaimers, or “not proven / not documented” copy appears on any slide.
 * No floating circles, ovals, arrows, or scribbles that do not tightly mark real text or a photo detail.
+* When decorative motifs were supplied, each id appears at least once as `data-decor-id`, and the signature motif is on more than one slide (or on the only slide, when `writeOnly` is set).
 * Every editable text run has a valid `data-slot`.
 * The HTML contract below is followed exactly.
 
@@ -279,7 +294,7 @@ Hard requirements:
 
 * Exactly one `<section data-direction="…">` wrapping all slides. When `THEME_REFERENCE` names a direction, use that exact value; otherwise use `architectural-minimal`.
 * Every canvas MUST be `<article class="slide" data-index="N">` (1-based). Never use `<div class="slide">`.
-* Put a `data-slot` on every editable text run the viewer should be able to change (not only the main headline). Use: `title`, `supporting-text`, `eyebrow`, `label`, `caption`, `note`, `detail`, `action`, `quote`, `stat`, `index`. Repeat the same slot name when there are several of that kind (e.g. two `label`s). Use `data-slot="image"` only on `<img>` tags: real photos (with their asset key) or reserved slots for the Image Generator (with `data-image-request`, no `src`).
+* Put a `data-slot` on every editable text run the viewer should be able to change (not only the main headline). Use: `title`, `supporting-text`, `eyebrow`, `label`, `caption`, `note`, `detail`, `action`, `quote`, `stat`, `index`. Repeat the same slot name when there are several of that kind (e.g. two `label`s). Use `data-slot="image"` only on `<img>` tags: real photos (with their asset key) or reserved slots for the Image Generator (with `data-image-request`, no `src`). Use `data-slot="decor"` only for a supplied decorative motif (`data-decor-id` set to that motif’s id, no `src`).
 * Each `.slide` has `aspect-ratio: 4 / 5`.
 * Do not nest another `<section>` inside the theme section.
 * No JavaScript, no external CSS files.
@@ -299,3 +314,6 @@ BRAND DNA (BUSINESS MEMORY):
 
 THEME REFERENCE — VISUAL DIRECTION ONLY (strategist or studio pick — follow for the look when not "None supplied"; never for content):
 {{THEME_REFERENCE}}
+
+DECORATIVE ELEMENTS — shared motifs for this carousel (place them when a list is given; when this says none are supplied, do not add any):
+{{DECORATIVE_ELEMENTS}}

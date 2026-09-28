@@ -7,6 +7,7 @@ const { refineCarouselFromEdits } = require('../services/carouselRefine');
 const { addSlideToCarousel } = require('../services/addSlideAgent');
 const { runLayoutForPost, writeLayoutVariations, applyLayoutToContent, normalizeWriterPost, attachGeneratedVisuals, visualThemeOf } = require('../services/planOrchestrator');
 const { analyzeImageAsset, loadReferenceImage } = require('../services/imageAnalysis');
+const { decorativeDebugAgents, storedDecorativeElements } = require('../services/decorativeAgent');
 const { customReferenceTheme } = require('../data/carouselThemes');
 const { copyFromLayoutHtml, injectImageIntoSlots, parseCarouselDocument } = require('../services/layoutHtml');
 const { applySlideTheme } = require('../services/themeMerge');
@@ -1218,6 +1219,8 @@ async function rerunLayout(req, res) {
       themeId,
       referenceTheme,
       referenceImage,
+      userId: req.user._id,
+      handle: record.instagramUsername,
       // Themes › This slide: the agent writes that slide only
       onlySlide: Number(req.body?.slideIndex) || 0,
     });
@@ -1293,6 +1296,7 @@ async function rerunLayout(req, res) {
       // made in later edits can match it too
       ...(referenceImageKey && referenceTheme ? {
         themeReference: { key: referenceImageKey, reference: referenceTheme.reference, imageStyle: referenceTheme.imageStyle || '' },
+        decorativeElements: storedDecorativeElements(result.decorative),
       } : {}),
       layout: savedLayout,
       carousel: savedLayout,
@@ -1338,7 +1342,7 @@ async function rerunLayout(req, res) {
               totalTokens: Number(result.usage?.totalTokens || debugEntry.usage?.totalTokens) || 0,
               estimatedCostUsd: Number(result.usage?.estimatedCostUsd || debugEntry.usage?.estimatedCostUsd) || 0,
             },
-            ...visualAgents.map((a) => ({
+            ...[...decorativeDebugAgents(result.decorative), ...visualAgents].map((a) => ({
               source: a.debugEntry?.source || `Visual:${label}`,
               model: a.debugEntry?.model,
               provider: a.debugEntry?.provider || '',
