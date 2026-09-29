@@ -609,6 +609,7 @@ function mergeSlides(incomingSlides, prevSlides) {
     return {
       role: String(s.role || ''),
       colorSet: String(s.colorSet ?? p.colorSet ?? ''),
+      colorSetAt: Number(s.colorSetAt ?? p.colorSetAt ?? 0) || 0,
       ground: String(s.ground ?? p.ground ?? ''),
       logoMark: String(s.logoMark ?? p.logoMark ?? ''),
       title: String(s.title || ''),
@@ -1364,7 +1365,7 @@ async function rerunLayout(req, res) {
 // Body: { referenceImageKey, slideIndexes: [1-based…], snapshots?: { [index]: dataUrl } }
 const THEME_IMAGE_CONCURRENCY = Math.max(1, Number(process.env.THEME_IMAGE_CONCURRENCY) || 3);
 const COPY_FIELDS = ['role', 'title', 'subtitle', 'body', 'items', 'itemsA', 'itemsB', 'stat', 'quote', 'action',
-  'comparisonA', 'comparisonB', 'labels', 'colorSet', 'ground', 'logoMark', 'annotation', 'visualNeed'];
+  'comparisonA', 'comparisonB', 'labels', 'colorSet', 'colorSetAt', 'ground', 'logoMark', 'annotation', 'visualNeed'];
 
 function snapshotOf(dataUrl) {
   const m = String(dataUrl || '').match(/^data:image\/(jpeg|jpg|png|webp);base64,([A-Za-z0-9+/=]+)$/);

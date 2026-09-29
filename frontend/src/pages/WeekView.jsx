@@ -55,7 +55,7 @@ import { openCaptureIdea } from '../lib/captureUi';
 import { styleOf, groundOf } from '../lib/visualbrand';
 import { LAYOUTS as LIB_LAYOUTS, catForRole, shotsOf, DEFAULT_LAYOUT_BY_CAT, layoutShowsAllCopy } from '../data/layouts';
 import { CAROUSEL_THEMES } from '../data/carouselThemes';
-import { paintAll, identityOf, TYPE_SLOTS, FACES, logoPositionOf, markForSlide, themesOf, activeThemeIdOf, newThemeId, nextThemeName, THEME_CAP, DEFAULT_PALETTE } from '../lib/identity';
+import { paintAll, identityOf, TYPE_SLOTS, FACES, logoPositionOf, markForSlide, themesOf, activeThemeIdOf, activeThemeAtOf, newThemeId, nextThemeName, THEME_CAP, DEFAULT_PALETTE } from '../lib/identity';
 import { rolesOf as textRolesOf, plainOf, parseMarked, isListRole, listIndexOf } from '../lib/slidetext';
 import ImagePicker from './weekview/ImagePicker';
 import { PhotoEditor, SlotPack } from './weekview/PhotoEditor';
@@ -1193,6 +1193,7 @@ function slideRecord(s, extra = {}) {
     index: Number(s.index) > 0 ? Number(s.index) : (Number(extra.index) > 0 ? Number(extra.index) : 0),
     role: s.role || '',
     colorSet: s.colorSet || '',
+    colorSetAt: Number(s.colorSetAt) || 0,
     ground: s.ground || '',
     logoMark: s.logoMark || '',
     structure: s.structure || '',
@@ -1470,15 +1471,22 @@ function keysFromLayoutHtml(html) {
   return keys;
 }
 
+// A Theme Apply render (`…/themed-<uuid>.jpg`) is stored first in assetKeys
+// ([themedKey, ...originalPhotos]). It is the picture only while the slide is
+// drawn as that themed image; once the slide is HTML again (Remove theme, a
+// layout, a colour set) its photo slots take the studio's original photos.
+const THEMED_RENDER = /\/themed-/;
 function keysOf(slide) {
-  const listed = splitMediaKeys(slide?.assetKeys);
+  const themed = /^themed-image/.test(String(slide?.layoutTheme || ''));
+  const own = (list) => (themed ? list : list.filter((k) => !THEMED_RENDER.test(k)));
+  const listed = own(splitMediaKeys(slide?.assetKeys));
   if (listed.length) return listed;
-  const single = splitMediaKeys(slide?.assetKey);
+  const single = own(splitMediaKeys(slide?.assetKey));
   if (single.length) return single;
-  const fromVisual = splitMediaKeys(slide?.visual?.assetKey || slide?.image?.key);
+  const fromVisual = own(splitMediaKeys(slide?.visual?.assetKey || slide?.image?.key));
   if (fromVisual.length) return fromVisual;
   // Carousel often stamps data-asset-key on the <img> without setting slide.assetKey.
-  return keysFromLayoutHtml(slide?.layoutHtml);
+  return own(keysFromLayoutHtml(slide?.layoutHtml));
 }
 
 function subjectsForSlide(slide, subjectsByKey) {
@@ -3269,6 +3277,7 @@ export default function WeekView({
   // a slide without one keeps the colours the carousel was generated in.
   const kitSets = useMemo(() => themesOf(vbStore?.libraryEdits), [vbStore?.libraryEdits]);
   const kitDefaultSet = useMemo(() => activeThemeIdOf(vbStore?.libraryEdits), [vbStore?.libraryEdits]);
+  const kitDefaultAt = useMemo(() => activeThemeAtOf(vbStore?.libraryEdits), [vbStore?.libraryEdits]);
   // Brand Kit backgrounds (Editor mode › Background). The studio's own uploads
   // once there are any, else the shipped starters — the same list the Brand Kit
   // shows. A slide stores the background's KEY (`slide.ground`); the url is
@@ -3290,8 +3299,22 @@ export default function WeekView({
     const hit = kitGrounds.find((b) => b.key === g) || DEFAULT_BACKGROUNDS.find((b) => b.key === g);
     return hit?.url ? `url("${hit.url}")` : '';
   };
+  // The colour set a slide is drawn in: the Brand Kit's default set, unless the
+  // post picked its own (⋯ › Theme colour) SINCE the default was last changed —
+  // a later change of default in the Brand Kit repaints every post again.
+  // 'original' = Original colours (the slide keeps what it was generated in).
+  // Theme Apply renders are pictures: no set.
+  const setIdOf = (slide) => {
+    const own = String(slide?.colorSet || '');
+    const ownHolds = own && (Number(slide?.colorSetAt) || 0) >= kitDefaultAt;
+    if (ownHolds && own === 'original') return '';
+    if (ownHolds) return own;
+    if (/^themed-image/.test(String(slide?.layoutTheme || ''))) return '';
+    return kitDefaultSet || '';
+  };
   const paintFor = (slide) => {
-    const set = slide?.colorSet ? kitSets.find((t) => t.id === slide.colorSet) : null;
+    const setId = setIdOf(slide);
+    const set = setId ? kitSets.find((t) => t.id === setId) : null;
     const groundImg = groundImageOf(slide);
     if (!set) {
       // a background alone lays the picture over the slide; colours untouched
@@ -3299,20 +3322,18 @@ export default function WeekView({
       return { paint: igVars, themed: hasVisualEdits };
     }
     const p = set.palette || {};
-    const colours = {
-      // the set's ground colour is the point — the Brand Kit's background
-      // texture would paint over it (it did: `bg-offwhite.svg` hid it entirely),
-      // unless this slide was given a background of its own
-      '--t-ground-image': groundImg || 'none',
-      '--wv-ground-img': groundImg || 'none',
-    };
+    // the set's ground colour is the point — the Brand Kit's background texture
+    // would paint over it (it did: `bg-offwhite.svg` hid it entirely), so only a
+    // background this slide was given of its own is laid over the slide
+    const { '--t-ground-image': _kitTexture, '--wv-ground-img': _kitImg, ...baseVars } = igVars || {};
+    const colours = groundImg ? { '--t-ground-image': groundImg, '--wv-ground-img': groundImg } : {};
     // a set saved without an ink still needs readable text on its ground
     const ink = p.fg || (p.ground ? readableInkOn(p.ground) : '');
     if (p.ground) { colours['--t-ground-bg'] = p.ground; colours['--wv-neutral'] = p.ground; }
     if (ink) { colours['--t-ground-fg'] = ink; colours['--wv-primary'] = ink; }
     if (p.accent) { colours['--t-accent-bg'] = p.accent; colours['--wv-accent'] = p.accent; }
     // 'colours' = repaint the palette only; the slide keeps its own typefaces
-    return { paint: { ...igVars, ...colours }, themed: 'colours' };
+    return { paint: { ...baseVars, ...colours }, themed: 'colours' };
   };
   const days = route?.days || [];
   const day = days[selected] || days[0];
@@ -5014,7 +5035,8 @@ export default function WeekView({
       // Kit shows for it.
       const brandColors = {};
       for (const i of slideIndexes) {
-        const set = kitSets.find((t) => t.id === (slides[i - 1]?.colorSet || kitDefaultSet));
+        // the set the slide is drawn in now (a themed render counts as unthemed here)
+        const set = kitSets.find((t) => t.id === setIdOf({ ...slides[i - 1], layoutTheme: '' }));
         const p = set?.palette || {};
         if (p.ground || p.fg || p.accent) brandColors[i] = { name: set.name || '', ...DEFAULT_PALETTE, ...p };
       }
@@ -5544,7 +5566,7 @@ export default function WeekView({
   // This slide only puts the others back (the snapshot).
   const [copySnap, setCopySnap] = useState(null);
   useEffect(() => { setCopySnap(null); }, [selected, route?._id]);
-  const DRESS = ['colorSet', 'ground', 'logoMark'];
+  const DRESS = ['colorSet', 'colorSetAt', 'ground', 'logoMark'];
   const dressOf = (sl) => Object.fromEntries(DRESS.map((k) => [k, sl?.[k] || '']));
   const isDressed = (sl) => DRESS.some((k) => Boolean(sl?.[k]));
 
@@ -5558,7 +5580,8 @@ export default function WeekView({
   // Let the story decide: the sets taken in turn across the arc
   function applyStoryColours(ids, every) {
     if (!ids?.length) return;
-    dressSlides(every, (sl, i) => ({ colorSet: ids[i % ids.length] }));
+    const at = Date.now();
+    dressSlides(every, (sl, i) => ({ colorSet: ids[i % ids.length], colorSetAt: at }));
   }
   // Create a colour set: saved to the Brand Kit (libraryEdits.themes) and used
   function addKitColourSet(hex) {
@@ -5626,7 +5649,7 @@ export default function WeekView({
       setElemEdits(nextEdits);
       elemApiRef.current?.setPatches({});
     }
-    dressSlides(every, { colorSet: '', ground: '', logoMark: '' });
+    dressSlides(every, { colorSet: '', colorSetAt: 0, ground: '', logoMark: '' });
   }
   // Slide › Add before / Add after goes through Capture (bauhly-v3
   // `captureForSlide`): Capture asks what the new slide is about and files the
@@ -6012,11 +6035,13 @@ export default function WeekView({
     slideThemed: /^themed-image/.test(String(activeSlide?.layoutTheme || '')),
     onRemoveTheme: (every) => handleRemoveTheme(every),
     sets: kitSets.map((t) => ({ ...t, swatches: [t.palette?.fg, t.palette?.accent, t.palette?.ground] })),
-    setId: activeSlide?.colorSet || '',
+    setId: setIdOf(activeSlide),
     defaultSetId: kitDefaultSet,
-    setHexes: (kitSets.find((t) => t.id === (activeSlide?.colorSet || kitDefaultSet)) || {}).palette || null,
+    setHexes: (kitSets.find((t) => t.id === (setIdOf(activeSlide) || kitDefaultSet)) || {}).palette || null,
     canNewSet: kitSets.length < THEME_CAP,
-    onColour: (setId, every) => dressSlides(every, { colorSet: setId || '' }),
+    // '' from the menu = Original colours: stored as an explicit opt-out, since
+    // an unset slide follows the Brand Kit's default set
+    onColour: (setId, every) => dressSlides(every, { colorSet: setId || 'original', colorSetAt: Date.now() }),
     onStoryColour: applyStoryColours,
     onNewSet: addKitColourSet,
     onImageLibrary: () => openImagePicker(),

@@ -539,7 +539,8 @@ export default function DynamicLayout({
     }
     void doc.documentElement.offsetWidth;
     repairStrandedOffsets(doc);
-    if (themed === 'colours') paintSetInk(doc);
+    // (the document path recolours the carousel's own CSS in applyThemeToCarouselDocument)
+    if (themed === 'colours' && !useDocument) paintSetInk(doc);
     // Watch the injected photos so the shimmer placeholder clears when they load
     // (non-document path has src baked in by prepareLayoutHtml; the document path
     // re-marks inside crop() once paintCarouselSlideImages sets each src).

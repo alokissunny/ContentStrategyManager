@@ -1341,8 +1341,8 @@ export default function YourPlans() {
   const [replanning, setReplanning] = useState(false);
   const [clearing, setClearing] = useState(false);
   // The calendar's focal date drives all three views: the month it falls in,
-  // the Mon–Sun week around it, or the day itself. `calView` is remembered
-  // across visits so the studio lands back in the reading they chose.
+  // the Mon–Sun week around it, or the day itself. Every visit lands on the
+  // Monthly view; switching views only lasts for the current visit.
   const [anchorDate, setAnchorDate] = useState(() => startOfDay(new Date()));
   // The date window currently loaded from the server. Starts around today and
   // only ever widens as the calendar navigates past its edges, so the payload
@@ -1351,9 +1351,7 @@ export default function YourPlans() {
   // Merged posts keyed by _id. Navigation fetches only the newly-exposed months
   // and merges them here, so a window already loaded is never re-requested.
   const postsMapRef = useRef(new Map());
-  const [calViewStored, setCalView] = useState(() => {
-    try { return localStorage.getItem('calView') || 'month'; } catch { return 'month'; }
-  });
+  const [calViewStored, setCalView] = useState('month');
   /* A phone never lands in Weekly — the menu does not offer it, and a stored
      desktop preference must not trap them there (bauhly-v3). */
   const phoneWidth = useMediaQuery('(max-width: 767px)');
@@ -2082,7 +2080,6 @@ export default function YourPlans() {
     const next = (phoneWidth && v === 'week') ? 'day' : v;
     setForceWorkspace(false);
     setCalView(next);
-    try { localStorage.setItem('calView', next); } catch { /* private mode — the default holds */ }
   };
 
   // Month steps a whole month, week a whole week, day a single calendar day.

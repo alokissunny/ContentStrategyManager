@@ -961,6 +961,21 @@ export function buildSlideFrameDocument(html, { themed = false, paint } = {}) {
 export function applyThemeToCarouselDocument(html, { themed = false, paint } = {}) {
   const raw = trim(html);
   if (!raw || !themed) return raw;
+  // A Brand Kit colour set: the carousel agent writes its palette as literal
+  // hex values (not tokens), so recolour those values in place — every colour
+  // keeps the role the agent gave it (ground / ink / accent, dark slides too).
+  // A background the slide was given is still laid over its ground.
+  if (coloursOnly(themed)) {
+    // Newer carousels name their colour roles (--brand-primary / -background /
+    // -accent, prompts/plan-carousel.md › Colour roles): just re-point those.
+    // Older ones wrote literal hex values, recoloured by inference.
+    const roles = colourRoleVars(paint);
+    const named = roles && BRAND_ROLE_RE.test(raw);
+    const recoloured = named ? raw : recolourCarouselDocument(raw, paint);
+    const gv = paintCssVars(groundVars(paint));
+    const extra = `${named ? `:root:root,html.is-themed [data-direction],html.is-themed .slide{${roles}}` : ''}${gv ? `:root{${gv}}${SLIDE_FRAME_GROUND}` : ''}`;
+    return markThemed(recoloured, `<style data-brand-theme>${extra}${IMG_SHIMMER_CSS}</style>`);
+  }
   if (groundOnly(themed)) {
     const gv = paintCssVars(groundVars(paint));
     const groundStyle = `<style data-brand-theme>${gv ? `:root{${gv}}` : ''}${SLIDE_FRAME_GROUND}${IMG_SHIMMER_CSS}</style>`;
@@ -982,6 +997,155 @@ export function applyThemeToCarouselDocument(html, { themed = false, paint } = {
   const frame = coloursOnly(themed) ? SLIDE_FRAME_THEMED_COLOURS : SLIDE_FRAME_THEMED;
   const style = `<style data-brand-theme>${vars ? `:root{${vars}}` : ''}${tokenRule}${frame}${accentRule}${IMG_SHIMMER_CSS}</style>`;
   return markThemed(raw, style);
+}
+
+// The carousel's declared colour roles → the set's three colours.
+const BRAND_ROLE_RE = /--brand-(?:primary|background|accent)\s*:/i;
+function colourRoleVars(paint) {
+  const decls = [
+    ['--brand-primary', paint?.['--t-ground-fg']],
+    ['--brand-background', paint?.['--t-ground-bg']],
+    ['--brand-accent', paint?.['--t-accent-bg']],
+  ].filter(([, v]) => parseHex(v)).map(([k, v]) => `${k}:${v}`);
+  return decls.length ? decls.join(';') : '';
+}
+
+// ── Colour-set recolour (older carousels with literal colours) ──────────────
+// Reads the carousel's own palette from its CSS (ground = the most-used
+// background, ink = the most-used text colour that reads on it, accent = the
+// colour furthest off the ground↔ink axis), then maps every colour in the
+// document onto the set: accent-family colours become the set's accent, and
+// the neutrals keep their place between ground and ink (a tint of the ground
+// stays a tint, an espresso "dark slide" becomes the set's ink with ground text).
+// Only declaration values and SVG paint attributes are touched — never
+// selectors, url(#id) references or image sources.
+const NAMED_COLOURS = { white: [255, 255, 255], black: [0, 0, 0] };
+const COLOUR_RE = /#[0-9a-f]{8}\b|#[0-9a-f]{6}\b|#[0-9a-f]{3,4}\b|rgba?\(\s*[\d.]+%?\s*[, ]\s*[\d.]+%?\s*[, ]\s*[\d.]+%?\s*(?:[,/]\s*[\d.]+%?\s*)?\)|\b(?:white|black)\b/gi;
+
+function colourOf(token) {
+  const t = String(token).trim().toLowerCase();
+  if (NAMED_COLOURS[t]) return { rgb: NAMED_COLOURS[t], alpha: null };
+  if (t[0] === '#') {
+    let s = t.slice(1);
+    if (s.length <= 4) s = s.split('').map((c) => c + c).join('');
+    const rgb = [0, 2, 4].map((i) => parseInt(s.slice(i, i + 2), 16));
+    const alpha = s.length === 8 ? parseInt(s.slice(6, 8), 16) / 255 : null;
+    return rgb.some(Number.isNaN) ? null : { rgb, alpha };
+  }
+  const nums = t.replace(/^rgba?\(|\)$/g, '').split(/[\s,/]+/).filter(Boolean);
+  if (nums.length < 3) return null;
+  const chan = (v) => (v.endsWith('%') ? parseFloat(v) * 2.55 : parseFloat(v));
+  const rgb = nums.slice(0, 3).map(chan);
+  if (rgb.some(Number.isNaN)) return null;
+  const a = nums[3];
+  return { rgb, alpha: a == null ? null : (a.endsWith('%') ? parseFloat(a) / 100 : parseFloat(a)) };
+}
+
+const rgbKey = (rgb) => rgb.map((n) => Math.round(n)).join(',');
+const rgbDist = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
+const lum = (rgb) => 0.2126 * rgb[0] + 0.7152 * rgb[1] + 0.0722 * rgb[2];
+// position of c along ground→ink (0 = ground, 1 = ink) and its distance off that axis
+function onAxis(c, g, i) {
+  const d = [i[0] - g[0], i[1] - g[1], i[2] - g[2]];
+  const len2 = d[0] * d[0] + d[1] * d[1] + d[2] * d[2] || 1;
+  const t = ((c[0] - g[0]) * d[0] + (c[1] - g[1]) * d[1] + (c[2] - g[2]) * d[2]) / len2;
+  const tc = Math.max(0, Math.min(1, t));
+  const p = [g[0] + d[0] * tc, g[1] + d[1] * tc, g[2] + d[2] * tc];
+  return { t: tc, off: rgbDist(c, p) };
+}
+const mixRgb = (a, b, t) => a.map((v, k) => v + (b[k] - v) * t);
+function rgbOut(rgb, alpha) {
+  const [r, g, b] = rgb.map((n) => Math.max(0, Math.min(255, Math.round(n))));
+  if (alpha != null && alpha < 1) return `rgba(${r},${g},${b},${Math.round(alpha * 1000) / 1000})`;
+  return `#${[r, g, b].map((n) => n.toString(16).padStart(2, '0')).join('')}`;
+}
+
+// every `prop: value` in a CSS text (style blocks and style="" attributes)
+const DECL_RE = /(^|[{;])(\s*)(--[\w-]+|[a-z-]+)(\s*:\s*)([^;{}]+)/gi;
+// SVG / legacy paint attributes that carry a colour
+const PAINT_ATTR_RE = /(\s(?:fill|stroke|stop-color|flood-color|lighting-color|color|bgcolor)\s*=\s*)(["'])([^"']*)\2/gi;
+const STYLE_BLOCK_RE = /(<style\b[^>]*>)([\s\S]*?)(<\/style>)/gi;
+const STYLE_ATTR_RE = /(\sstyle\s*=\s*)(["'])([\s\S]*?)\2/gi;
+
+function eachColour(value, fn) {
+  // never a url(#gradient) reference
+  return String(value).replace(/url\([^)]*\)|#[0-9a-f]{3,8}\b|rgba?\([^)]*\)|\b(?:white|black)\b/gi, (m) => {
+    if (/^url\(/i.test(m)) return m;
+    if (!new RegExp(`^(?:${COLOUR_RE.source})$`, 'i').test(m)) return m;
+    const c = colourOf(m);
+    return c ? fn(c, m) : m;
+  });
+}
+
+function recolourCarouselDocument(html, paint) {
+  const target = {
+    ground: parseHex(paint?.['--t-ground-bg']),
+    ink: parseHex(paint?.['--t-ground-fg']),
+    accent: parseHex(paint?.['--t-accent-bg']),
+  };
+  if (!target.ground && !target.ink && !target.accent) return html;
+
+  // 1. read the document's palette
+  const bg = new Map();
+  const fg = new Map();
+  const all = new Map();
+  const vote = (map, rgb) => { const k = rgbKey(rgb); map.set(k, { rgb, n: (map.get(k)?.n || 0) + 1 }); };
+  const readDecls = (css) => {
+    String(css).replace(DECL_RE, (m, _a, _b, prop, _c, value) => {
+      const p = prop.toLowerCase();
+      eachColour(value, (c, tok) => {
+        if (c.alpha != null && c.alpha < 0.35) return tok; // scrims don't define the palette
+        vote(all, c.rgb);
+        if (p === 'background' || p === 'background-color') vote(bg, c.rgb);
+        else if (p === 'color') vote(fg, c.rgb);
+        return tok;
+      });
+      return m;
+    });
+  };
+  html.replace(STYLE_BLOCK_RE, (m, _o, css) => { readDecls(css); return m; });
+  html.replace(STYLE_ATTR_RE, (m, _p, _q, css) => { readDecls(`;${css}`); return m; });
+
+  const top = (map, ok = () => true) => [...map.values()].filter((x) => ok(x.rgb))
+    .sort((a, b) => (b.n - a.n) || ((all.get(rgbKey(b.rgb))?.n || 0) - (all.get(rgbKey(a.rgb))?.n || 0)))[0]?.rgb || null;
+  const srcGround = top(bg) || top(all);
+  if (!srcGround) return html;
+  const reads = (rgb) => Math.abs(lum(rgb) - lum(srcGround)) > 70;
+  const srcInk = top(fg, reads)
+    || [...all.values()].map((x) => x.rgb).sort((a, b) => Math.abs(lum(b) - lum(srcGround)) - Math.abs(lum(a) - lum(srcGround)))[0]
+    || null;
+  if (!srcInk || rgbDist(srcInk, srcGround) < 30) return html;
+  const srcAccent = [...all.values()].map((x) => x.rgb)
+    .map((rgb) => ({ rgb, off: onAxis(rgb, srcGround, srcInk).off }))
+    .sort((a, b) => b.off - a.off)
+    .find((x) => x.off > 40)?.rgb || null;
+
+  const newGround = target.ground || srcGround;
+  const newInk = target.ink || srcInk;
+  const newAccent = target.accent || newInk;
+
+  // 2. map every colour onto the set
+  // the carousel's main copy colour is text, never the accent
+  const mainText = top(fg, reads);
+  const cache = new Map(mainText ? [[rgbKey(mainText), newInk]] : []);
+  const mapColour = (c) => {
+    const k = rgbKey(c.rgb);
+    let rgb = cache.get(k);
+    if (!rgb) {
+      const axis = onAxis(c.rgb, srcGround, srcInk);
+      rgb = (srcAccent && rgbDist(c.rgb, srcAccent) < axis.off)
+        ? newAccent
+        : mixRgb(newGround, newInk, axis.t);
+      cache.set(k, rgb);
+    }
+    return rgbOut(rgb, c.alpha);
+  };
+  const recolourDecls = (css) => String(css).replace(DECL_RE, (m, a, b, prop, c, value) => `${a}${b}${prop}${c}${eachColour(value, mapColour)}`);
+
+  let out = html.replace(STYLE_BLOCK_RE, (m, open, css, close) => `${open}${recolourDecls(css)}${close}`);
+  out = out.replace(STYLE_ATTR_RE, (m, p, q, css) => `${p}${q}${recolourDecls(css)}${q}`);
+  out = out.replace(PAINT_ATTR_RE, (m, p, q, value) => `${p}${q}${eachColour(value, mapColour)}${q}`);
+  return out;
 }
 
 // Flag <html> as `is-themed` and put the theme <style> last (end of body) so it

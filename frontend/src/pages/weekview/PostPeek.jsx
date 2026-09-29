@@ -20,7 +20,7 @@ import {
   iframeSafeUrl,
   canvasSafeUrl,
 } from '../../api/media';
-import { paintAll, logoPositionOf, markForSlide } from '../../lib/identity';
+import { paintAll, logoPositionOf, markForSlide, themesOf, activeThemeIdOf, activeThemeAtOf } from '../../lib/identity';
 import { styleOf, groundOf } from '../../lib/visualbrand';
 import { useStore } from '../../lib/store';
 import '../weekView.css';
@@ -66,14 +66,19 @@ function keysFromLayoutHtml(html) {
   return keys;
 }
 
+// A Theme Apply render (`…/themed-…`) is the picture only on a themed-image
+// slide; an HTML slide's photo slots take the original photos.
+const THEMED_RENDER = /\/themed-/;
 function keysOf(slide) {
-  const listed = splitMediaKeys(slide?.assetKeys);
+  const themed = /^themed-image/.test(String(slide?.layoutTheme || ''));
+  const own = (list) => (themed ? list : list.filter((k) => !THEMED_RENDER.test(k)));
+  const listed = own(splitMediaKeys(slide?.assetKeys));
   if (listed.length) return listed;
-  const single = splitMediaKeys(slide?.assetKey);
+  const single = own(splitMediaKeys(slide?.assetKey));
   if (single.length) return single;
-  const fromVisual = splitMediaKeys(slide?.visual?.assetKey || slide?.image?.key);
+  const fromVisual = own(splitMediaKeys(slide?.visual?.assetKey || slide?.image?.key));
   if (fromVisual.length) return fromVisual;
-  return keysFromLayoutHtml(slide?.layoutHtml);
+  return own(keysFromLayoutHtml(slide?.layoutHtml));
 }
 
 function mediaUrlOf(value) {
@@ -259,7 +264,24 @@ export function DayPeek({ day, feed = false, phone = false }) {
   // Same rule as WeekView's own preview: agent-generated slides render as the
   // raw model output, never auto-repainted with Library visual settings — so
   // this calendar peek always matches what the post actually looks like open.
-  const themed = false;
+  // ...except the Brand Kit colour set, as WeekView's paintFor draws it: the
+  // slide's own set, else the kit's default ('original' = generated colours).
+  const kitSets = useMemo(() => themesOf(store?.libraryEdits), [store?.libraryEdits]);
+  const kitDefault = useMemo(() => activeThemeIdOf(store?.libraryEdits), [store?.libraryEdits]);
+  const kitDefaultAt = useMemo(() => activeThemeAtOf(store?.libraryEdits), [store?.libraryEdits]);
+  const setPaint = (sl) => {
+    // a post's own pick holds only if made since the Brand Kit default last changed
+    const own = (Number(sl?.colorSetAt) || 0) >= kitDefaultAt ? String(sl?.colorSet || '') : '';
+    const id = own === 'original' ? ''
+      : (own || (/^themed-image/.test(String(sl?.layoutTheme || '')) ? '' : kitDefault));
+    const p = (id && kitSets.find((t) => t.id === id)?.palette) || null;
+    if (!p) return null;
+    const out = {};
+    if (p.ground) out['--t-ground-bg'] = p.ground;
+    if (p.fg) out['--t-ground-fg'] = p.fg;
+    if (p.accent) out['--t-accent-bg'] = p.accent;
+    return Object.keys(out).length ? out : null;
+  };
   const slides = useMemo(() => slidesOf(day), [day]);
   const n = slides.length;
   const ar = canvasAr(day?.format);
@@ -313,12 +335,13 @@ export function DayPeek({ day, feed = false, phone = false }) {
     </div>
   ) : null;
 
+  const curSet = cur ? setPaint(cur) : null;
   const slideNode = cur ? (
     <PeekSlide
       key={`${day?._id || day?.date}-${safe}`}
       slide={cur}
-      paint={paint}
-      themed={themed}
+      paint={curSet ? { ...paint, '--t-ground-image': '', '--wv-ground-img': '', ...curSet } : paint}
+      themed={curSet ? 'colours' : themed}
       documentHtml={doc}
       carouselLayoutHtmls={carouselHtmls}
       slideIndex={safe + 1}

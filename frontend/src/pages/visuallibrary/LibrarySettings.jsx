@@ -441,6 +441,7 @@ export default function BrandKit() {
   const [draft, setDraft] = useState(() => ({
     themes: saved.themes.map((t) => ({ ...t, palette: { ...t.palette } })),
     activeThemeId: saved.activeThemeId,
+    activeThemeAt: saved.activeThemeAt || 0,
     type: JSON.parse(JSON.stringify(saved.type || {})),
     fonts: [...(saved.fonts || [])],
     logos: { ...(s.brandLogos || {}) },
@@ -462,6 +463,7 @@ export default function BrandKit() {
   const identSig = JSON.stringify({
     themes: draft.themes,
     activeThemeId: draft.activeThemeId,
+    activeThemeAt: draft.activeThemeAt,
     type: draft.type,
     fonts: (draft.fonts || []).map((f) => ({ id: f.id, name: f.name })),
     logoPosition: draft.logoPosition,
@@ -500,7 +502,9 @@ export default function BrandKit() {
   const renameThemeFull = (id, { name, note }) => setDraft((d) => ({
     ...d, themes: d.themes.map((t) => (t.id === id ? { ...t, name: name || t.name, note } : t)),
   }));
-  const setDefaultTheme = (id) => setDraft((d) => (d.themes.some((t) => t.id === id) ? { ...d, activeThemeId: id } : d));
+  // making a set the default repaints every post: stamped, so colour sets picked
+  // on individual posts before now give way to it (WeekView setIdOf)
+  const setDefaultTheme = (id) => setDraft((d) => (d.themes.some((t) => t.id === id) ? { ...d, activeThemeId: id, activeThemeAt: Date.now() } : d));
   const duplicateTheme = (id) => setDraft((d) => {
     const t = d.themes.find((x) => x.id === id);
     if (!t) return d;
@@ -511,8 +515,9 @@ export default function BrandKit() {
   const dropTheme = (id) => setDraft((d) => {
     if (d.themes.length <= 1) return d;
     const themes = d.themes.filter((t) => t.id !== id);
-    const activeThemeId = d.activeThemeId === id ? themes[0].id : d.activeThemeId;
-    return { ...d, themes, activeThemeId };
+    const lostDefault = d.activeThemeId === id;
+    const activeThemeId = lostDefault ? themes[0].id : d.activeThemeId;
+    return { ...d, themes, activeThemeId, ...(lostDefault ? { activeThemeAt: Date.now() } : {}) };
   });
   /* returns the new theme's id so Theme sets can open Rename on it */
   const addTheme = () => {

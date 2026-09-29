@@ -215,6 +215,12 @@ export function activeThemeIdOf(edits) {
   return themes.some((t) => t.id === wanted) ? wanted : themes[0].id;
 }
 
+/* when the studio last changed the default set in the Brand Kit (ms, 0 = never).
+   A colour set picked on a post before this gives way to the new default. */
+export function activeThemeAtOf(edits) {
+  return Number(asObject(edits).activeThemeAt) || 0;
+}
+
 export function activeThemeOf(edits) {
   const themes = themesOf(edits);
   const id = activeThemeIdOf(edits);
@@ -276,6 +282,7 @@ export function commitIdentity(edits) {
   return {
     themes: ident.themes.map((t) => ({ id: t.id, name: t.name, note: t.note || '', palette: { ...t.palette } })),
     activeThemeId: ident.activeThemeId,
+    activeThemeAt: ident.activeThemeAt,
     palette: { ...ident.palette },
     type: { ...ident.type },
     fonts: ident.fonts.map((f) => ({ ...f })),
@@ -292,6 +299,7 @@ export const identityOf = (store) => {
     palette: active.palette,
     themes,
     activeThemeId: active.id,
+    activeThemeAt: activeThemeAtOf(e),
     type: asObject(e.type),
     /* only a real list of `{ id, name, url }` — a stale object shape reads as
        "no fonts of their own", which is true and does not throw */

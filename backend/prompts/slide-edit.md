@@ -31,6 +31,7 @@ Return ONLY the edited `<article>` element — no explanation, no Markdown fence
 ## Design
 
 - Stay inside the slide's existing visual language: its classes, `var(--…)` custom properties, type, colours and theme feel. New elements use inline `style` that matches, and must visibly be what was asked (a "large stat" is large and heavy, a label quiet).
+- Colours: when SLIDE CSS uses `--brand-primary` / `--brand-background` / `--brand-accent`, every colour you add is one of those `var(…)`s or a `color-mix()` of them — never a hex, `rgb()`, `white` or `black`. Primary = all copy and dark surfaces; background = the ground and text on a dark surface; accent = only the one key word, kicker, rules and small marks.
 - Clear type hierarchy: eyebrow or label → headline → supporting text → detail or CTA. Strong alignment, consistent spacing, deliberate rhythm, enough negative space, legible at phone size, sufficient contrast.
 - One clear focal point. Do not overload with badges, labels, captions, footers or decorative borders; use labels only when they help comprehension. Avoid excessive all-caps.
 - The 4:5 frame is fixed: nothing overflows it or overlaps text illegibly.
