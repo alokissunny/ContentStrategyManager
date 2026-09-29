@@ -10,13 +10,8 @@ const { extractLayoutHtml, extractHtmlDocument, parseCarouselDocument, hasImageS
 const { publicMediaUrl, isCdnConfigured, getMediaUrl, isS3Configured } = require('./s3Client');
 const { isImageGenConfigured: isOpenAIImageConfigured, generateImage: renderOpenAIImage } = require('./openaiImage');
 const { buildImagePrompt, persistGeneratedImage } = require('./generatedImage');
-const { themeById, themeReferenceForPrompt, themesForStrategistPrompt, resolveThemeId, DEFAULT_THEME_ID, themeImageOf, themeStyleForVisuals } = require('../data/carouselThemes');
-const {
-  decorativeAgentEnabled,
-  generateDecorativeSet,
-  decorativePromptOf,
-  injectDecorativeSrc,
-} = require('./decorativeAgent');
+const { themeById, themesForStrategistPrompt, resolveThemeId, themeImageOf, themeStyleForVisuals } = require('../data/carouselThemes');
+const { injectDecorativeSrc } = require('./decorativeAgent');
 
 const PROMPTS_DIR = path.join(__dirname, '..', '..', 'prompts');
 const cache = {};
@@ -221,8 +216,9 @@ function lockedFormat(briefFormat) {
 
 function briefFieldsOf(b) {
   const lens = normalizeLens(b.lens || b.pillar);
-  // Hard-coded theme for every generated post — ignore the strategist's own pick.
-  const themeId = DEFAULT_THEME_ID;
+  // No theme: the carousel agent designs in its house style; a theme is applied
+  // afterwards by the Theme Apply agent (Editor › Themes) when the studio wants one.
+  const themeId = '';
   return {
     source: b.source || '',
     captureId: optionalText(b.captureId),
@@ -2346,102 +2342,22 @@ function runLayoutForPost(opts) {
   return writeLayout(opts);
 }
 
-function decorativeNarrativeOf(carouselInput, dayBrief) {
-  return {
-    angle: optionalText(dayBrief?.angle),
-    centralFact: optionalText(dayBrief?.centralFact),
-    pillar: optionalText(dayBrief?.pillar || dayBrief?.lens),
-    verifiedTruth: stringList(dayBrief?.verifiedTruth).slice(0, 8),
-    narrativeUnits: narrativeUnitsOf(dayBrief).slice(0, 12).map((u) => ({
-      role: u.role,
-      purpose: u.purpose,
-    })),
-    slides: (carouselInput?.slides || []).map((sl) => ({
-      index: sl.index,
-      role: sl.role || '',
-      purpose: sl.purpose || '',
-      title: sl.draftCopy?.title || '',
-      body: sl.draftCopy?.body || sl.draftCopy?.subtitle || '',
-    })),
-  };
-}
-
-// Bake media URLs into the decorative <img>s on the full document and on each
-// slide fragment. The carousel agent writes data-decor-id only — it is not
-// trusted with a long media URL. Re-parsing would renumber a one-slide edit.
-function applyDecorativeElements(parsed, elements) {
-  if (!parsed?.html || !elements?.length) return;
-  const placed = (String(parsed.html).match(/\bdata-decor-id\s*=/gi) || []).length;
-  if (!placed) {
-    console.warn('[planOrchestrator] carousel placed no decorative elements');
-    return;
-  }
-  parsed.html = injectDecorativeSrc(parsed.html, elements);
-  if (Array.isArray(parsed.slides)) {
-    parsed.slides = parsed.slides.map((slide) => ({
-      ...slide,
-      html: injectDecorativeSrc(slide.html, elements),
-      options: Array.isArray(slide.options)
-        ? slide.options.map((opt) => ({ ...opt, html: injectDecorativeSrc(opt.html, elements) }))
-        : slide.options,
-    }));
-  }
-  console.log(`[planOrchestrator] decorative motifs placed=${placed}`);
-}
-
-async function writeCarousel({ source, structure, post, dayBrief, brand, dayWriterOutput, themeId, referenceTheme, referenceImage, onlySlide = 0, userId, handle }) {
+async function writeCarousel({ source, structure, post, dayBrief, brand, dayWriterOutput, onlySlide = 0 }) {
   const hasStructure = Array.isArray(structure?.slidesOrScenes) && structure.slidesOrScenes.length > 0;
   const carouselInput = hasStructure
     ? carouselInputOf(structure, post, dayBrief)
     : carouselBriefInputOf(dayBrief, post);
   const structureSlides = visualSlidesOf(structure).length;
   const postSlideCount = Array.isArray(post?.content?.slides) ? post.content.slides.length : 0;
-  // A studio-uploaded reference photo (Change theme › Upload a reference) wins
-  // over everything else; otherwise Change-theme's catalog pick, then the
-  // Strategist's brief pick.
-  const theme = referenceTheme || themeById(resolveThemeId(
-    themeId || dayBrief?.themeId || post?.content?.themeId,
-    { pillar: dayBrief?.pillar || dayBrief?.lens },
-  ));
+  // No visual theme: the carousel agent designs every post in its house style
+  // (prompts/plan-carousel.md › House style). Themes are applied afterwards, as
+  // images, by the Theme Apply agent.
   console.log(
     `[planOrchestrator] ${source} input · structureSlides=${structureSlides} ` +
       `postSlides=${postSlideCount} inputSlides=${carouselInput.slides?.length || 0} ` +
       `from=${hasStructure ? 'structure' : 'strategy-brief'}` +
-      ` theme=${theme?.id || 'default'}`,
+      ' theme=none (house style)',
   );
-  // What the agent SEES of the theme: the studio's reference photo, or the
-  // catalog theme's example board (backend/assets/carousel-themes).
-  const themeImage = theme === referenceTheme ? (referenceImage || null) : themeImageOf(theme);
-  // A theme is built on pictures: a slide with no project photo may still carry
-  // a GENERATED one where the theme's composition puts a picture — the Image
-  // Generator fills those slots in the theme's style afterwards. Without this,
-  // a brief that marks every slide `priority: none` produced a text-only carousel
-  // (no slots, nothing to generate) whatever theme was picked.
-  if (theme && Array.isArray(carouselInput.slides)) {
-    carouselInput.slides = carouselInput.slides.map((sl) => (sl?.visual && !sl.visual.hasAsset
-      ? { ...sl, visual: { ...sl.visual, generatedPictureAllowed: true } }
-      : sl));
-  }
-  // A studio reference photo: generate its illustrated motifs (mountains, signs,
-  // brush marks) once, then the carousel places that same set on the slides.
-  // The narrative is the whole post, even when only one slide is being rewritten.
-  let decorative = null;
-  if (referenceTheme && referenceImage?.data && decorativeAgentEnabled() && userId) {
-    try {
-      decorative = await generateDecorativeSet({
-        source: `Decorative:${source}`,
-        referenceImage,
-        referenceNotes: [theme?.reference, theme?.imageStyle].filter(Boolean).join('\n'),
-        narrative: decorativeNarrativeOf(carouselInput, dayBrief),
-        userId,
-        handle,
-      });
-    } catch (err) {
-      console.warn(`[planOrchestrator] ${source} decorative elements skipped — ${err.message}`);
-    }
-  } else if (referenceTheme && referenceImage?.data && !userId) {
-    console.warn(`[planOrchestrator] ${source} decorative elements skipped — no userId`);
-  }
   // Editor › Themes › This slide: the agent writes ONE slide — the rest of the
   // carousel already exists and keeps its own look. It sees the others only as
   // a one-line outline, for continuity.
@@ -2466,17 +2382,11 @@ async function writeCarousel({ source, structure, post, dayBrief, brand, dayWrit
         `(structureSlides=${structureSlides} postSlides=${postSlideCount})`,
     );
   }
-  let decorBlock = decorativePromptOf(decorative);
-  if (one && decorative?.elements?.length) {
-    decorBlock += `\n\nThis call writes ONLY slide ${one}. Place motifs on that slide. Do not write the other slides.`;
-  }
   const assembled = assembleAgentPrompt('plan-carousel.md', {
     CONTENT_STRUCTURE_JSON: json(carouselInput),
     DAY_WRITER_OUTPUT: optionalPromptJson(dayWriterOutput),
     BRAND_STYLE: optionalPromptJson(brandStyleOf(brand)),
     BRAND_JSON: optionalPromptJson(brandMemoryOf(brand)),
-    THEME_REFERENCE: themeReferenceForPrompt(theme, { hasImage: Boolean(themeImage) }),
-    DECORATIVE_ELEMENTS: decorBlock,
     contentStructure: json(carouselInput),
     dayWriterOutput: optionalPromptJson(dayWriterOutput),
     brandStyle: optionalPromptJson(brandStyleOf(brand)),
@@ -2492,17 +2402,10 @@ async function writeCarousel({ source, structure, post, dayBrief, brand, dayWrit
     system: assembled.system,
     user: assembled.user,
     prompt: assembled.prompt,
-    // the reference photo for a reference theme, else the theme's example board
-    image: themeImage || undefined,
     parse: 'html',
-    htmlDirection: theme?.direction || 'architectural-minimal',
+    htmlDirection: 'warm-editorial',
     validate: (parsed) => (one ? validateOneSlide(parsed, one) : validateCarousel(parsed, post)),
   }));
-  if (result?.parsed && theme?.id) {
-    result.parsed.themeId = theme.id;
-  }
-  if (decorative?.elements?.length) applyDecorativeElements(result.parsed, decorative.elements);
-  if (result) result.decorative = decorative;
   return result;
 }
 
@@ -2712,11 +2615,22 @@ async function writeVisualPrompt({ source, slide, brief, brand, visualTheme }) {
 // studio's reference photo theme when there is one, else the catalog theme
 // (its example board attached). `themeId` may carry a per-slide suffix
 // (`<theme>-s3`, Editor › Themes › This slide).
+// The carousel agent's default look (prompts/plan-carousel.md › Default look:
+// Warm editorial) — generated pictures are finished to sit in it. No example
+// board: only the finish is described, never subjects.
+const WARM_EDITORIAL = {
+  id: 'warm-editorial',
+  name: 'Warm editorial',
+  imageStyle: 'Warm natural daylight, soft shadows, a warm neutral palette (cream, oat, sand, terracotta, wood), gentle film-like grain and calm editorial composition with room to breathe — like an interiors magazine feature. (Finish only: the subject comes from the slide.)',
+};
+
 function visualThemeOf(themeId, { referenceTheme = null, referenceImage = null } = {}) {
   if (referenceTheme) return { theme: referenceTheme, image: referenceImage || null };
   const id = String(themeId || '').trim().replace(/-s\d+$/, '');
-  const theme = id ? themeById(resolveThemeId(id)) : null;
-  return theme ? { theme, image: themeImageOf(theme) } : null;
+  // only an exact library theme (a post from before the default look) keeps its
+  // own finish; anything else — none, warm-editorial, a themed image — is Warm editorial
+  const theme = id ? themeById(id) : null;
+  return theme ? { theme, image: themeImageOf(theme) } : { theme: WARM_EDITORIAL, image: null };
 }
 function themeLineForRender(visualTheme) {
   const t = visualTheme?.theme;
@@ -3257,7 +3171,7 @@ async function runMultiAgentPlan({
         doNotRepeat: planned.doNotRepeat || '',
         format: lockedFormat(planned.format),
         formatReason: planned.formatReason || '',
-        themeId: DEFAULT_THEME_ID, // hard-coded theme for every generated post
+        themeId: '', // no theme — the carousel agent's house style (Themes applies one later)
 
         themeReason: optionalText(planned.themeReason),
         narrativeUnits: withUnitIds(planned.narrativeUnits || []),

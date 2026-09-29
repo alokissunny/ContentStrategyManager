@@ -682,6 +682,21 @@ export function cropIframeToCarouselSlide(frame, { direction, index }) {
   const slide = findCarouselSlide(doc, dir, index);
   if (!slide) return false;
 
+  // The width the carousel designed this slide at: a document that sizes its
+  // slides itself (`width: min(100%, 720px)`, type in px capped for that
+  // width) must be laid out at THAT width — forcing 1100px kept its px type at
+  // 720px sizes and re-flowed the layout, so the editor no longer matched the
+  // model's output. A slide that just fills its container (width:100%) has no
+  // design width of its own and keeps the full layout width. Measured with any
+  // earlier pin cleared, since crop runs again on every repaint.
+  slide.style.width = '';
+  slide.style.height = '';
+  void doc.documentElement.offsetWidth;
+  const natural = slide.getBoundingClientRect().width;
+  const designWidth = natural >= 280 && natural < CAROUSEL_LAYOUT_WIDTH - 1
+    ? Math.round(natural)
+    : CAROUSEL_LAYOUT_WIDTH;
+
   // Every slide previews as one 4:5 Instagram frame, so pin the slide to that
   // exact box. A composition shorter (or taller) than 4:5 would otherwise be
   // contain-fitted and letterboxed — the card's own background then shows as
@@ -690,8 +705,8 @@ export function cropIframeToCarouselSlide(frame, { direction, index }) {
   // indefinite parent) a canvas to lay out against. The slide's own overflow:hidden
   // clips any internal overflow past the frame.
   slide.style.boxSizing = 'border-box';
-  slide.style.width = `${CAROUSEL_LAYOUT_WIDTH}px`;
-  slide.style.height = `${Math.round(CAROUSEL_LAYOUT_WIDTH * 1.25)}px`;
+  slide.style.width = `${designWidth}px`;
+  slide.style.height = `${Math.round(designWidth * 1.25)}px`;
   void doc.documentElement.offsetWidth;
 
   const bottom = slide.getBoundingClientRect().bottom;

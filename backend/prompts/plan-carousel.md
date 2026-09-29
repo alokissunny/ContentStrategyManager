@@ -29,17 +29,16 @@ Prioritise clarity, evidence and narrative progression over decoration.
 
 * `brandStyle`: optional fonts / colours.
 
-* `THEME_REFERENCE`: the VISUAL direction for this carousel (Strategist pick on the brief, or a studio Change-theme override). It decides how the carousel LOOKS — ground, layout language, type feel, collage vs editorial, framing devices, annotation style, texture and mood. It never decides what the carousel SAYS. Brand voice still applies to every word; for the look (typography, palette, ground) the theme wins over brand style.
+Design every carousel in the default **Warm editorial** look described below (the studio applies a different theme afterwards, as an image, when it wants one).
 
 ### Writing one slide (`writeOnly`)
 
 If the input has `writeOnly`, the rest of the carousel already exists: write ONLY that slide — one `<section data-direction="…">` holding exactly one `<article class="slide" data-index="…">` with the index given. Its content comes from the single entry in `slides`; `writeOnly.otherSlides` is context for continuity only — do not write, repeat or summarise them. The narrative units describe the whole post; use only what this slide covers.
 
-### Content comes from the narrative, not the theme
+### Content comes from the narrative
 
 * What each slide says, how many slides there are, their order and each slide's story beat come ONLY from the narrative: `CONTENT STRUCTURE` (its slides, roles and purposes), the brief's `narrativeUnits`, slide outline, `centralFact`, `verifiedTruth` and the brand voice.
-* Never add, drop, merge, reorder or reframe story beats to suit a theme, and never write copy in a theme's register or format. A theme name is not a content format: "Before → process → after" does not make the story a before/after, "Myth vs. reality" does not add a myth, "Field notes" does not make the copy diary-like.
-* A theme's signature devices (split panels, stage labels, strike-throughs, a panorama) are visual vocabulary. Use one only where the narrative already has that shape; otherwise express the theme through ground, type, texture and composition alone.
+* Never add, drop, merge, reorder or reframe story beats to suit a layout idea. A device (a split panel, a stage label, a before/after) is used only where the narrative already has that shape.
 
 ## Strategic Rules
 
@@ -120,17 +119,15 @@ If the input has `writeOnly`, the rest of the carousel already exists: write ONL
 ## Brand Rules
 
 * Follow the audience, positioning, tone, visual style and “never do” rules in `BRAND_JSON`.
-* The theme has no say over copy — brand voice and the narrative decide every word.
+* Brand voice and the narrative decide every word.
 * Do not use luxury language for an accessible or budget-focused brand.
 * Do not use aggressive sales language for a quiet, refined studio.
-* Do not let the visual theme overpower the project or make every project look identical.
+* Do not let the design overpower the project or make every project look identical.
 * Make the designer’s point of view recognisable without adding unsupported claims.
 
 ## Visuals
 
-When `THEME_REFERENCE` is supplied, match that theme’s visual language (ground, type, composition, texture, framing devices) across every slide — while each slide's content stays exactly what the narrative gives it.
-
-When no theme is supplied, prefer a strong editorial layout with a clear relationship between copy and visual evidence.
+Design in the default Warm editorial look (see "Default look: Warm editorial" below): a strong editorial layout with a clear relationship between copy and visual evidence.
 
 Use this visual priority order:
 
@@ -175,35 +172,16 @@ If a slide needs a picture but no project photo is available, **do not draw it w
 * Compose the slide around the slot exactly as you would for a real photo: give it a deliberate size and position (full-bleed background, large inset, or framed crop), `object-fit: cover`, and keep text off the part that will carry the subject. Style the `<img>` with a quiet neutral background colour so the slide still reads while the picture loads.
 * Not every slide needs a picture. Slides that work as pure typography (a stat, a quote, the final takeaway) should stay typographic — do not reserve a slot just to fill space.
 
-### Match the theme's typography and look
+### Default look: Warm editorial
 
-When `THEME_REFERENCE` is supplied, the carousel must look like the attached example slide:
+Every carousel is designed in **Warm editorial** — a warm, calm, magazine-quality look: the feel of an interiors feature in a print magazine, warmed by natural materials and daylight. Premium and quiet, never cute.
 
-* **Typography:** use the typefaces, weights, case, sizes and placement named under "Typography and look" — load them with ONE Google Fonts `<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=…&display=swap">` in `<head>` and set them in your CSS (with a sensible fallback). Do not substitute Georgia / Arial / system fonts for a named face. A handwritten theme gets handwritten headlines; a heavy-sans theme gets heavy sans; a Didone theme gets high-contrast serif.
-* **Ground, palette and texture:** reproduce the example's background (paper, grid, flat colour, full-bleed photo), its colours and its framing devices (tape, torn strips, stickers, polaroids, rules).
-* The theme's look wins over `BRAND_STYLE` fonts and colours; brand style only fills what the theme leaves open.
-
-### A theme that is built on pictures
-
-When `THEME_REFERENCE` is supplied, its look decides where pictures sit (see "Pictures in this theme" and the attached example board). Most themes carry a picture on most slides — taped photos, a hero image, a framed inset.
-
-* A slide's `visual.priority: "none"` / `includeImageSlot: false` only means there is no PROJECT photo for it. It does not forbid a generated picture: when the slide says `generatedPictureAllowed: true`, reserve an image slot (`data-image-request`, as above) wherever the theme's composition would put a picture.
-* Reserve one on the hook (slide 1) and on roughly every other content slide, so the carousel reads like the theme's example.
-* **What each picture shows comes from that slide's narrative** — its point, its words, its beat in the story — never from the theme or the example slide. The theme only decides how the picture is framed and finished on the slide. Never request the example's subjects (its fabrics, cups, props, landscapes) or a generic still life that could sit on any slide.
-* Keep stat, quote and final call-to-action slides typographic, and never request a picture that would pass as the studio's own finished work.
-
-### Decorative motifs from a theme reference
-
-When `DECORATIVE ELEMENTS` lists motifs, those images are already rendered. They are the reference’s illustrated marks (a mountain range, a sign shape, a brush stroke, an icon) redrawn for this post. Place them across the carousel so every slide that has room shares the set.
-
-* Use only the ids listed. Markup: `<img data-slot="decor" data-decor-id="THE_ID" alt="">`. Do not set `src`.
-* Repeat the signature motif (the first one) on the hook and on at least one later slide. Every listed motif appears at least once.
-* They are accents: `object-fit: contain`, about 16–32% of the slide wide, in a margin, corner, or header. Never full-bleed. Never the main photograph. Never covering the headline.
-* Do not set a background colour on these images. They are transparent; a fill paints a box behind the motif.
-* Any rule that sets `top` / `right` / `bottom` / `left` on a motif must also set `position: absolute` in that same rule.
-* Do not redraw these motifs in CSS, SVG, or a `data-image-request`. Do not copy words from the reference onto them.
-
-When `DECORATIVE ELEMENTS` says none are supplied, skip this section.
+* **Palette:** warm neutral grounds — cream `#F5EFE6`, oat `#EDE3D4`, sand `#E4D5C1` — with a deep espresso ink `#2B211B` for text and ONE warm accent: terracotta `#B5613D` or caramel `#C08A5B`. Use one dark slide (espresso `#2B211B` ground with cream text) for rhythm at most once or twice. When `BRAND_STYLE` / `BRAND_JSON` give brand colours, use the brand colour as the accent if it sits well with warm neutrals; the grounds stay warm.
+* **Typography:** an editorial serif for headlines — Google Font `Fraunces` (optical size high, 400–500, soft) or `Cormorant Garamond` 500 — sentence case, tight leading; a clean sans for body and labels — `DM Sans` or `Inter`. Load them with ONE Google Fonts `<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=…&display=swap">` in `<head>` (with a sensible fallback). Use the brand's fonts instead when `BRAND_STYLE` names them. On the 1080-px canvas: headlines about 76–108px, line-height ~1.05, one key word may take the accent colour or italic; body about 36–44px, line-height ~1.4; labels 22–26px in small letter-spaced caps (tracking ~0.14em). Never more than two families.
+* **Layout:** a magazine grid with generous, consistent outer margins (at least 7% on every side — about 80px) and plenty of warm negative space. Let the photo lead: full-bleed with type on a calm band, a large crop beside a text column, or a framed inset with a thin cream border. Type sits on calm areas or on a solid warm band, never over busy detail.
+* **Editorial details:** a small letter-spaced caps kicker above headlines, a thin hairline rule (1–2px, accent or ink at low opacity), a pull-quote treatment for a key line, and optional small editorial numbering (01 / 02) only where the story is a sequence. Photos keep a warm, natural finish — no heavy filters.
+* **Rhythm:** vary compositions across slides (photo-led, type-led, split, pull-quote) while keeping the same palette, type and margins, so the carousel reads as one warm editorial system.
+* **Restraint:** no clip art, stickers, tape, collage, doodles, gradients or novelty textures — warmth comes from colour, type and photography.
 
 Annotations still follow these rules:
 
@@ -224,10 +202,10 @@ For planned or unverified work, communicate intention with normal design languag
 * **Final slide: light and save-worthy** — ideally one short takeaway + one CTA. No stacked cards, no footnotes, no second essay.
 * Every slide must have a clear visual focal point.
 * Do not overload slides with badges, labels, captions, footers and decorative borders.
-* Do not invent decorative graphics. When `DECORATIVE ELEMENTS` lists rendered motifs, use those and only those. When it says none are supplied, draw the theme’s framing devices in CSS and do not add extra illustration.
+* Do not invent decorative graphics or illustration — keep decoration to fine rules and a single accent.
 * Use labels only when they improve comprehension.
 * Use visual contrast to guide the swipe sequence.
-* Avoid repeating the same layout on every slide unless the theme specifically requires it.
+* Avoid repeating the same layout on every slide.
 * Maintain enough negative space for premium readability.
 * Keep text legible at mobile size.
 * Make the carousel feel cohesive without making every slide visually identical.
@@ -238,12 +216,12 @@ For planned or unverified work, communicate intention with normal design languag
 * One cohesive look across every slide.
 * Each `.slide` must be 4:5.
 * Use brand colours when supplied.
-* When `THEME_REFERENCE` is present, the theme’s visual language wins over a generic minimal layout.
+* Follow the Warm editorial look: its palette, type and grid, with the brand's accent colour and fonts where they fit.
 * Use a clear type hierarchy: eyebrow or label → headline → supporting text → detail or CTA.
 * Use strong alignment, consistent spacing and deliberate rhythm.
 * Ensure contrast is sufficient for mobile viewing.
 * Avoid excessive all-caps text.
-* Avoid decoration that competes with the main message. Supplied decorative motifs (see below) are the exception: they are part of the theme, kept small, and kept off the headline.
+* Avoid decoration that competes with the main message.
 * Do not use slide numbers or page dots inside the slide canvas.
 * Do not use fake statistics, quotes or social-proof elements.
 * Do not use visual effects that make the carousel look like a template rather than a real design story.
@@ -254,7 +232,7 @@ For planned or unverified work, communicate intention with normal design languag
 
 Before returning the HTML, check that:
 
-* The slide count, order, story beats and copy follow the narrative (CONTENT STRUCTURE / brief) — the theme changed only how it looks.
+* The slide count, order, story beats and copy follow the narrative (CONTENT STRUCTURE / brief).
 * Every element with `top` / `right` / `bottom` / `left` has `position` set in the same CSS rule, and no two text blocks overlap.
 * The first slide is specific and scroll-stopping.
 * The central idea is clear within two seconds.
@@ -272,7 +250,8 @@ Before returning the HTML, check that:
 * The carousel is readable on a mobile screen.
 * No internal production language, documentation disclaimers, or “not proven / not documented” copy appears on any slide.
 * No floating circles, ovals, arrows, or scribbles that do not tightly mark real text or a photo detail.
-* When decorative motifs were supplied, each id appears at least once as `data-decor-id`, and the signature motif is on more than one slide (or on the only slide, when `writeOnly` is set).
+* Every word sits at least 7% inside every edge of its slide — nothing clipped, crowded or overlapping.
+* Every `.slide` is a fixed 1080×1350 px canvas, with no `vw` / `vh` or responsive widths.
 * Every editable text run has a valid `data-slot`.
 * The HTML contract below is followed exactly.
 
@@ -281,7 +260,7 @@ Before returning the HTML, check that:
 Return one self-contained HTML document only. Use this exact structure:
 
 ```html
-<section data-direction="THEME_DIRECTION">
+<section data-direction="warm-editorial">
 
   <article class="slide" data-index="1">...</article>
 
@@ -292,11 +271,12 @@ Return one self-contained HTML document only. Use this exact structure:
 
 Hard requirements:
 
-* Exactly one `<section data-direction="…">` wrapping all slides. When `THEME_REFERENCE` names a direction, use that exact value; otherwise use `architectural-minimal`.
+* Exactly one `<section data-direction="warm-editorial">` wrapping all slides.
 * Every canvas MUST be `<article class="slide" data-index="N">` (1-based). Never use `<div class="slide">`.
-* Put a `data-slot` on every editable text run the viewer should be able to change (not only the main headline). Use: `title`, `supporting-text`, `eyebrow`, `label`, `caption`, `note`, `detail`, `action`, `quote`, `stat`, `index`. Repeat the same slot name when there are several of that kind (e.g. two `label`s). Use `data-slot="image"` only on `<img>` tags: real photos (with their asset key) or reserved slots for the Image Generator (with `data-image-request`, no `src`). Use `data-slot="decor"` only for a supplied decorative motif (`data-decor-id` set to that motif’s id, no `src`).
+* Put a `data-slot` on every editable text run the viewer should be able to change (not only the main headline). Use: `title`, `supporting-text`, `eyebrow`, `label`, `caption`, `note`, `detail`, `action`, `quote`, `stat`, `index`. Repeat the same slot name when there are several of that kind (e.g. two `label`s). Use `data-slot="image"` only on `<img>` tags: real photos (with their asset key) or reserved slots for the Image Generator (with `data-image-request`, no `src`).
 * Each `.slide` has `aspect-ratio: 4 / 5`.
-* Do not nest another `<section>` inside the theme section.
+* **Fixed canvas:** every `.slide` is exactly `width: 1080px; height: 1350px` — an Instagram post, not a responsive web page. Size type, spacing and positions in px for that 1080-px canvas (or in % of the slide). Never use `vw` / `vh`, `min(100%, …)` / `max-width` slide widths, or `clamp()` built on viewport units: the app scales the whole 1080×1350 slide to every preview and export size, so the layout must not change with the window.
+* Do not nest another `<section>` inside that section.
 * No JavaScript, no external CSS files.
 * Return HTML only. Do not include explanations, Markdown fences or commentary outside the HTML.
 
@@ -311,9 +291,3 @@ OPTIONAL BRAND STYLE:
 
 BRAND DNA (BUSINESS MEMORY):
 {{BRAND_JSON}}
-
-THEME REFERENCE — VISUAL DIRECTION ONLY (strategist or studio pick — follow for the look when not "None supplied"; never for content):
-{{THEME_REFERENCE}}
-
-DECORATIVE ELEMENTS — shared motifs for this carousel (place them when a list is given; when this says none are supplied, do not add any):
-{{DECORATIVE_ELEMENTS}}

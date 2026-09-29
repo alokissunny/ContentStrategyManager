@@ -17,7 +17,9 @@ const AppSetting = require('../models/AppSetting');
 // reasoning-effort toggle (Haiku). `tier` is a rough cost hint for the UI.
 const CAROUSEL_MODEL_OPTIONS = [
   { id: 'gpt-5.6-terra', label: 'GPT 5.6', provider: 'openai', reasoning: true, tier: 'mid' },
-  { id: 'gpt-6-astra', label: 'GPT-6 Astra', provider: 'openai', reasoning: true, tier: 'mid' },
+  { id: 'gpt-6-luna', label: 'GPT-6 Luna', provider: 'openai', reasoning: true, tier: 'cheapest' },
+  { id: 'gpt-6-sol', label: 'GPT-6 Sol', provider: 'openai', reasoning: true, tier: 'mid' },
+  { id: 'gpt-6-astra', label: 'GPT-6 Astra', provider: 'openai', reasoning: true, tier: 'priciest' },
   { id: 'claude-haiku-4-5', label: 'Claude Haiku 4.5', provider: 'anthropic', reasoning: false, tier: 'cheapest' },
   { id: 'claude-sonnet-5', label: 'Claude Sonnet 5', provider: 'anthropic', reasoning: true, tier: 'mid' },
   { id: 'claude-opus-5', label: 'Claude Opus 5', provider: 'anthropic', reasoning: true, tier: 'priciest' },

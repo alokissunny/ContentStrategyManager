@@ -487,6 +487,26 @@ export default function PostAgentDebug({
 }) {
   const debug = useAiDebug();
   const trace = traceForDay(day, debug.entries);
+  // Only the agents of the latest run on this post (agentTrace.lastRun, set by
+  // every run on the server). A post from before lastRun existed shows all.
+  const stored = day?.agentTrace && typeof day.agentTrace === 'object' ? day.agentTrace : {};
+  const run = stored.lastRun && Array.isArray(stored.lastRun.agents) ? stored.lastRun : null;
+  const shows = (id) => !run || run.agents.includes(id);
+  const RUN_LABEL = {
+    generate: 'Post generation',
+    layout: 'Carousel agent (Fix layout)',
+    theme: 'Theme Apply',
+    'remove-theme': 'Remove theme — back to the carousel agent’s design (no agent ran)',
+    refine: 'Prompt edit (Slide Edit agent)',
+    'add-slide': 'Add slide (Add Slide agent)',
+  };
+  const runAt = run?.at ? new Date(run.at) : null;
+  const runWhen = runAt && !Number.isNaN(runAt.getTime())
+    ? runAt.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+    : '';
+  const lastOf = (list) => (Array.isArray(list) && list.length ? list[list.length - 1] : null);
+  const lastRefine = run?.kind === 'refine' ? lastOf(stored.refines) : null;
+  const lastAdded = run?.kind === 'add-slide' ? lastOf(stored.addedSlides) : null;
   const ta = trace.themeApply;
   const taSlides = Array.isArray(ta?.slides) ? ta.slides : [];
   const bySlide = (fn) => taSlides.map((sl) => [`# Slide ${sl.index}`, fn(sl)].join('\n')).join('\n\n');
@@ -506,13 +526,18 @@ export default function PostAgentDebug({
 
   return (
     <div className="wv-agentdbg">
-      {genMeta ? (
+      {run ? (
+        <p className="wv-agentdbg__time">
+          Latest run: <strong>{RUN_LABEL[run.kind] || run.kind}</strong>{runWhen ? ` · ${runWhen}` : ''}
+        </p>
+      ) : null}
+      {genMeta && (!run || run.kind === 'generate') ? (
         <p className="wv-agentdbg__time">
           Complete generation <strong>{genMeta}</strong>
         </p>
       ) : null}
       <p className="wv-agentdbg__lead">
-        Input and output for each agent that ran on this post. Agents that did not run are not listed.
+        Input and output for each agent in the latest run on this post. Earlier runs are not listed.
       </p>
       {staleShell ? (
         <p className="wv-agentdbg__empty">
@@ -538,38 +563,54 @@ export default function PostAgentDebug({
           No agent trace on this post yet. Generate or replan with debug mode on. Older posts may only show output until you regenerate.
         </p>
       )}
-      <Block
+      {shows('strategy') && <Block
         title="Strategy agent"
         input={trace.strategyPrompt}
         output={trace.strategyBrief}
         open
         cost={trace.costs?.strategy}
-      />
-      <Block
+      />}
+      {shows('structure') && <Block
         title="Structure agent"
         input={trace.structurePrompt}
         output={trace.structure}
         cost={trace.costs?.structure}
-      />
-      <Block
+      />}
+      {shows('dayWriter') && <Block
         title="Slide content"
         input={trace.dayWriterPrompt}
         output={trace.dayWriter}
         cost={trace.costs?.dayWriter}
-      />
-      <Block
+      />}
+      {shows('carousel') && <Block
         title="Carousel agent"
         input={trace.layoutPrompt}
         output={trace.layout}
         cost={trace.costs?.layout}
-      />
-      <Block
+      />}
+      {shows('visual') && <Block
         title="Visual agent"
         input={trace.visualPrompt}
         output={trace.visual}
         cost={trace.costs?.visual}
-      />
-      {ta ? (
+      />}
+      {lastRefine ? (
+        <Block
+          title="Slide Edit agent"
+          input={lastRefine.instruction || ''}
+          output={lastRefine}
+          open
+        />
+      ) : null}
+      {lastAdded ? (
+        <Block
+          title="Add Slide agent"
+          input={lastAdded.capture || ''}
+          output={lastAdded}
+          open
+        />
+      ) : null}
+      {ta && shows('themeApply') ? (
         <>
           <Block
             title="Theme Apply agent"

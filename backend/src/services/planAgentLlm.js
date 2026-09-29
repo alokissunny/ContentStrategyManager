@@ -43,7 +43,9 @@ const AGENTS = {
     defaultProvider: 'openai',
     modelEnv: 'PLAN_CAROUSEL_MODEL',
     providerEnv: 'PLAN_CAROUSEL_PROVIDER',
-    defaultModel: 'gpt-6-astra',
+    // GPT-6 Luna: ~100× cheaper than Astra ($0.10 / $0.50 per 1M tokens) and
+    // it writes a complete, valid house-style carousel (Sep 2026 test)
+    defaultModel: 'gpt-6-luna',
   },
   cover: {
     defaultProvider: 'openai',

@@ -4884,20 +4884,17 @@ export default function WeekView({
     }
   }
 
-  async function handleRunLayout(opts) {
+  // Run the carousel agent on this post (Fix layout / Debug › Run carousel
+  // agent). It has no themes — it designs in its house style; themes are
+  // applied afterwards by the Theme Apply agent (Editor › Themes).
+  async function handleRunLayout() {
     if (layoutBusy || !route?._id) return;
-    const themeId = typeof opts === 'string' ? opts.trim() : String(opts?.themeId || '').trim();
-    const referenceImageKey = typeof opts === 'object' && opts ? String(opts.referenceImageKey || '').trim() : '';
-    const slideIndex = typeof opts === 'object' && opts ? Number(opts.slideIndex) || 0 : 0;
+    const slideIndex = 0;
     const wasEditing = postEdit;
     setLayoutBusy(true);
     setLayoutErr('');
     try {
-      const data = await runDayLayout(
-        route._id,
-        selected,
-        referenceImageKey ? { referenceImageKey } : (themeId ? { themeId, ...(slideIndex ? { slideIndex } : {}) } : undefined),
-      );
+      const data = await runDayLayout(route._id, selected, undefined);
       if (data?.route) {
         setRoute(data.route);
         onRouteChange?.(data.route);
@@ -4962,7 +4959,7 @@ export default function WeekView({
       const body = err?.response?.data || {};
       if (body.needsRegenerate) {
         const ok = window.confirm(`${body.message} Recreate the whole carousel with the carousel agent instead? It takes 1–3 minutes and replaces every slide's design.`);
-        if (ok) await handleRunLayout({});
+        if (ok) await handleRunLayout();
         return;
       }
       setLayoutErr(body.message || err.message || 'Could not remove the theme.');
@@ -6294,7 +6291,7 @@ export default function WeekView({
                   type="button"
                   className="wv-edm__fix"
                   disabled={!canFixLayout}
-                  onClick={() => { resetElemEdits(); handleRunLayout(layoutDirectionOf(activeSlide) || ''); }}
+                  onClick={() => { resetElemEdits(); handleRunLayout(); }}
                   title={canFixLayout
                     ? 'Re-make this post’s layout so everything fits again'
                     : (layoutBusy ? 'Composing…' : 'Nothing to fix yet')}

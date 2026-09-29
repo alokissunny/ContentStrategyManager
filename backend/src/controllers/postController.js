@@ -6,9 +6,9 @@ const { rewriteCaption } = require('../services/captionPolish');
 const { refineCarouselFromEdits } = require('../services/carouselRefine');
 const { addSlideToCarousel } = require('../services/addSlideAgent');
 const { runLayoutForPost, writeLayoutVariations, applyLayoutToContent, normalizeWriterPost, attachGeneratedVisuals, visualThemeOf } = require('../services/planOrchestrator');
-const { analyzeImageAsset, loadReferenceImage } = require('../services/imageAnalysis');
-const { decorativeDebugAgents, storedDecorativeElements } = require('../services/decorativeAgent');
-const { customReferenceTheme, themeById, themeImageOf } = require('../data/carouselThemes');
+const { loadReferenceImage } = require('../services/imageAnalysis');
+const { decorativeDebugAgents } = require('../services/decorativeAgent');
+const { themeById, themeImageOf } = require('../data/carouselThemes');
 const { copyFromLayoutHtml, injectImageIntoSlots, parseCarouselDocument } = require('../services/layoutHtml');
 const { applySlideTheme } = require('../services/themeMerge');
 const { compileBrandMemory } = require('../services/planContext');
@@ -40,6 +40,13 @@ function wantsPromptDebug(req) {
 function optionalText(value) {
   return typeof value === 'string' ? value.trim() : '';
 }
+// The run that last touched this post and the agents it ran — the post's Debug
+// tab shows only these, so a section left over from an older run (a Visual
+// trace from generation after a Fix layout, …) never reads as current.
+function lastRunOf(kind, agents = []) {
+  return { kind, at: new Date().toISOString(), agents: agents.filter(Boolean) };
+}
+
 function plainOf(value) {
   if (value == null) return value;
   if (typeof value.toObject === 'function') return value.toObject();
@@ -98,7 +105,10 @@ function dayToPostDoc(userId, username, d, plan, perPostUsage) {
     direction: d.direction || '',
     published: false,
     content: plainOf(d.content) || {},
-    agentTrace: plainOf(d.agentTrace) || null,
+    agentTrace: d.agentTrace ? {
+      ...plainOf(d.agentTrace),
+      lastRun: lastRunOf('generate', ['strategy', 'structure', 'dayWriter', 'carousel', d.agentTrace.visual ? 'visual' : '']),
+    } : null,
     model: plan.model || '',
     generatedAt: new Date(),
     usage: perPostUsage,
@@ -915,6 +925,7 @@ async function refinePost(req, res) {
     const debugEntry = { model: out.model };
     record.agentTrace = {
       ...trace,
+      lastRun: lastRunOf('refine'),
       layout: { ...(plainOf(trace.layout) || {}), html: out.html },
       carousel: { ...(plainOf(trace.carousel) || {}), html: out.html },
       refines: [
@@ -1045,6 +1056,7 @@ async function addSlideToPost(req, res) {
     const trace = record.agentTrace && typeof record.agentTrace === 'object' ? plainOf(record.agentTrace) : {};
     record.agentTrace = {
       ...trace,
+      lastRun: lastRunOf('add-slide'),
       layout: { ...(plainOf(trace.layout) || {}), html: out.html },
       carousel: { ...(plainOf(trace.carousel) || {}), html: out.html },
       addedSlides: [
@@ -1160,27 +1172,11 @@ async function rerunLayout(req, res) {
   const record = await PlannedPost.findOne({ _id: req.params.id, user: req.user._id });
   if (!record) return res.status(404).json({ message: 'Post not found' });
 
-  const themeId = String(req.body?.themeId || '').trim();
-  // Change theme › Upload a reference: an S3 key from POST /projects/uploads/sign
-  // (so it's always under this user's own prefix). Read with vision and turn
-  // into a one-off theme the carousel agent designs from, instead of a catalog pick.
-  const referenceImageKey = String(req.body?.referenceImageKey || '').trim();
-  let referenceTheme = null;
-  let referenceImage = null;
-  if (referenceImageKey) {
-    if (!referenceImageKey.startsWith(`projects/${req.user._id}/`)) {
-      return res.status(400).json({ message: 'Invalid reference image.' });
-    }
-    try {
-      const [analysis, image] = await Promise.all([
-        analyzeImageAsset(referenceImageKey),
-        loadReferenceImage(referenceImageKey),
-      ]);
-      referenceTheme = customReferenceTheme(analysis);
-      referenceImage = image;
-    } catch (err) {
-      return res.status(422).json({ message: `Could not read that reference photo — ${err.message}` });
-    }
+  // The carousel agent has no themes: it designs in its house style. Themes —
+  // a library pick or an uploaded reference — are applied afterwards as images
+  // by POST /posts/:id/theme-image (the Theme Apply agent).
+  if (req.body?.themeId || req.body?.referenceImageKey) {
+    return res.status(400).json({ message: 'Themes are applied with Editor › Themes (the Theme Apply agent), not the carousel agent.' });
   }
 
   const post = layoutPostFromPost(record);
@@ -1219,9 +1215,6 @@ async function rerunLayout(req, res) {
       dayBrief: plainOf(trace.strategyBrief) || {},
       brand,
       dayWriterOutput,
-      themeId,
-      referenceTheme,
-      referenceImage,
       userId: req.user._id,
       handle: record.instagramUsername,
       // Themes › This slide: the agent writes that slide only
@@ -1276,35 +1269,24 @@ async function rerunLayout(req, res) {
         handle: record.instagramUsername,
         fillEmpty: true,
         collect: (agent) => { if (agent?.debugEntry) visualAgents.push(agent); },
-        // pictures match the theme the carousel was just drawn in
-        visualTheme: referenceTheme
-          ? visualThemeOf('', { referenceTheme, referenceImage })
-          : visualThemeOf(themeId || result.parsed?.themeId || current.themeId || ''),
+        // pictures finished to sit in the default Warm editorial look
+        visualTheme: visualThemeOf(''),
       });
     } catch (err) {
       console.warn('[posts] visual agent skipped on layout rerun:', err.message);
     }
     record.content = { ...current, ...next, slides: next.slides };
-    // one slide's theme is not the post's theme
-    const appliedTheme = slideIndex ? '' : (themeId
-      || result.parsed?.themeId
-      || plainOf(trace.strategyBrief)?.themeId
-      || '');
-    if (appliedTheme) record.content.themeId = appliedTheme;
+    // a full rerun is the carousel agent's house style — no theme on the post
+    if (!slideIndex) record.content.themeId = '';
     const debugEntry = result.debugEntry || {};
-    const savedLayout = slideIndex ? { ...layoutForContent, slideIndex, slideTheme: themeId || slideDir } : result.parsed;
+    const savedLayout = slideIndex ? { ...layoutForContent, slideIndex, slideTheme: slideDir } : result.parsed;
     record.agentTrace = {
       ...trace,
-      // a post drawn from the studio's reference photo keeps it, so pictures
-      // made in later edits can match it too
-      ...(referenceImageKey && referenceTheme ? {
-        themeReference: { key: referenceImageKey, reference: referenceTheme.reference, imageStyle: referenceTheme.imageStyle || '' },
-        decorativeElements: storedDecorativeElements(result.decorative),
-      } : {}),
+      lastRun: lastRunOf('layout', ['carousel', Array.isArray(next.visualTrace) && next.visualTrace.length ? 'visual' : '']),
       layout: savedLayout,
       carousel: savedLayout,
       layoutPrompt: optionalText(debugEntry.prompt) || trace.layoutPrompt || '',
-      themeId: appliedTheme || trace.themeId || '',
+      themeId: slideIndex ? (trace.themeId || '') : '',
       visual: Array.isArray(next.visualTrace) && next.visualTrace.length
         ? {
           slides: next.visualTrace,
@@ -1457,6 +1439,7 @@ async function removeTheme(req, res) {
     if (!stillThemed) record.content.themeId = snap.themeId || '';
     record.agentTrace = {
       ...trace,
+      lastRun: lastRunOf('remove-theme'),
       layout: { ...(plainOf(trace.layout) || {}), html: doc },
       carousel: { ...(plainOf(trace.carousel) || {}), html: doc },
       // a fully restored post is back to the agent's design — the next theme
@@ -1672,6 +1655,7 @@ async function applyThemeImage(req, res) {
     if (libraryTheme && done.length === stored.length) record.content.themeId = libraryTheme.id;
     record.agentTrace = {
       ...trace,
+      lastRun: lastRunOf('theme', ['themeApply']),
       layout: { ...(plainOf(trace.layout) || {}), html: doc },
       carousel: { ...(plainOf(trace.carousel) || {}), html: doc },
       ...(preTheme ? { preTheme } : {}),

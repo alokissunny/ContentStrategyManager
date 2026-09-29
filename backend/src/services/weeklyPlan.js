@@ -31,7 +31,7 @@ const GOAL_TAG = { discovery: 'Get noticed', credibility: 'Show expertise', trus
 // Override via ANTHROPIC_INPUT_USD_PER_MTOK / ANTHROPIC_OUTPUT_USD_PER_MTOK if needed.
 function ratesForModel(model = '') {
   const m = String(model).toLowerCase();
-  const isOpenAI = /gpt|terra|astra|o1|o3|o4/.test(m);
+  const isOpenAI = /gpt|terra|astra|luna|sol|o1|o3|o4/.test(m);
   const envIn = Number(isOpenAI ? process.env.OPENAI_INPUT_USD_PER_MTOK : process.env.ANTHROPIC_INPUT_USD_PER_MTOK);
   const envOut = Number(isOpenAI ? process.env.OPENAI_OUTPUT_USD_PER_MTOK : process.env.ANTHROPIC_OUTPUT_USD_PER_MTOK);
   const envCached = Number(isOpenAI
@@ -41,7 +41,12 @@ function ratesForModel(model = '') {
     const cached = Number.isFinite(envCached) ? envCached : envIn * 0.1;
     return { in: envIn, out: envOut, cached };
   }
+  // OpenAI list prices, short context (pricing page, Sep 2026)
+  if (/gpt-6-luna|\bluna\b.*6|gpt-6.*luna/.test(m)) return { in: 0.1, out: 0.5, cached: 0.01 };
+  if (/gpt-6-sol/.test(m)) return { in: 2, out: 10, cached: 0.2 };
   if (/astra|gpt-6/.test(m)) return { in: 10, out: 50, cached: 1 };
+  if (/gpt-5\.6-luna/.test(m)) return { in: 0.2, out: 1.2, cached: 0.02 };
+  if (/terra|gpt-5\.6/.test(m)) return { in: 2, out: 12, cached: 0.2 };
   if (isOpenAI) return { in: 1.25, out: 10, cached: 0.125 };
   if (m.includes('opus')) return { in: 15, out: 75, cached: 1.5 };
   if (m.includes('haiku')) return { in: 0.8, out: 4, cached: 0.08 };

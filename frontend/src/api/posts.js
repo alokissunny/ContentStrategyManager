@@ -240,16 +240,11 @@ export function polishCaption(id, { caption, instruction, kind, role, fills }) {
 }
 
 // Run the Carousel agent on one post (long — a high-reasoning model can take
-// several minutes). Optional themeId rebuilds the carousel in that visual theme.
-// Optional referenceImageKey (an uploaded photo's S3 key) rebuilds it instead
-// using that photo's look — the server reads it with vision and hands the
-// agent a description to design from.
+// several minutes). It has no themes: it designs in its house style; themes are
+// applied afterwards by applyThemeImage (the Theme Apply agent).
 // → { post, layout, ... }
-export function runPostLayout(id, { themeId, referenceImageKey, slideIndex } = {}) {
-  const body = referenceImageKey ? { referenceImageKey } : (themeId ? { themeId } : {});
-  // Editor › Themes › This slide: only that slide (1-based) moves to the theme
-  if (Number(slideIndex) > 0) body.slideIndex = Number(slideIndex);
-  return client.post(`/posts/${id}/layout`, body, { timeout: 540000 }).then((res) => {
+export function runPostLayout(id) {
+  return client.post(`/posts/${id}/layout`, {}, { timeout: 540000 }).then((res) => {
     const data = res.data || {};
     ingestPlanDebug('Carousel agent (debug)', data);
     return data;
