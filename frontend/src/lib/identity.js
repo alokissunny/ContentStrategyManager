@@ -340,6 +340,36 @@ export function paintOf(edits) {
   return out;
 }
 
+/* The Brand Kit's Typography, as the slide renderer applies it to EVERY carousel
+   slide (DynamicLayout › applyBrandFonts): only the slots the studio actually
+   chose — an untouched slot keeps the carousel's own face. Detail falls back to
+   a chosen body face, as in paintOf. Changing a font in the Brand Kit therefore
+   restyles all posts at once. */
+export function brandFontVars(edits) {
+  const t = asObject(edits?.type);
+  const fonts = asArray(edits?.fonts);
+  const out = {};
+  if (t.headline?.face) out['--bk-font-heading'] = stackOf(t.headline.face, fonts);
+  if (t.body?.face) out['--bk-font-body'] = stackOf(t.body.face, fonts);
+  const detail = t.detail?.face || t.body?.face;
+  if (detail) out['--bk-font-detail'] = stackOf(detail, fonts);
+  return out;
+}
+
+/* The same chosen slots as family NAMES (e.g. "Instrument Serif") — what the
+   Theme Apply image model is told to letter the slide in. */
+export function brandFontNames(edits) {
+  const t = asObject(edits?.type);
+  const faces = facesWith(asArray(edits?.fonts));
+  const name = (id) => (id ? (faces.find((f) => f.id === id)?.label || '') : '');
+  const out = {
+    heading: name(t.headline?.face),
+    body: name(t.body?.face),
+    detail: name(t.detail?.face || t.body?.face),
+  };
+  return (out.heading || out.body || out.detail) ? out : null;
+}
+
 /* WeekView and DynamicLayout cannot fall back to `--font-display` / `--font-ui`.
    `.app` overwrites those to the product's system face, so a Library Settings
    choice of Cabinet Grotesk would silently paint as ui-sans-serif. This always

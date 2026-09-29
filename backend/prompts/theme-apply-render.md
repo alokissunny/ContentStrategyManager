@@ -73,4 +73,6 @@ Return one finished slide. Do not include explanations or alternate versions.
 
 {{BRAND_COLORS}}
 
+{{BRAND_FONTS}}
+
 {{PRIMARY_IMAGE}}

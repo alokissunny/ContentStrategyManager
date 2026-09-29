@@ -25,6 +25,7 @@ import {
   setPostReview,
   runPostLayout,
   applyThemeImage,
+  getPreTheme,
   removeTheme as apiRemoveTheme,
   runSlideLayoutVariations as apiRunSlideLayoutVariations,
   refinePost,
@@ -55,7 +56,7 @@ import { openCaptureIdea } from '../lib/captureUi';
 import { styleOf, groundOf } from '../lib/visualbrand';
 import { LAYOUTS as LIB_LAYOUTS, catForRole, shotsOf, DEFAULT_LAYOUT_BY_CAT, layoutShowsAllCopy } from '../data/layouts';
 import { CAROUSEL_THEMES } from '../data/carouselThemes';
-import { paintAll, identityOf, TYPE_SLOTS, FACES, logoPositionOf, markForSlide, themesOf, activeThemeIdOf, activeThemeAtOf, newThemeId, nextThemeName, THEME_CAP, DEFAULT_PALETTE } from '../lib/identity';
+import { paintAll, identityOf, TYPE_SLOTS, FACES, logoPositionOf, markForSlide, themesOf, activeThemeIdOf, activeThemeAtOf, brandFontVars, brandFontNames, newThemeId, nextThemeName, THEME_CAP, DEFAULT_PALETTE } from '../lib/identity';
 import { rolesOf as textRolesOf, plainOf, parseMarked, isListRole, listIndexOf } from '../lib/slidetext';
 import ImagePicker from './weekview/ImagePicker';
 import { PhotoEditor, SlotPack } from './weekview/PhotoEditor';
@@ -3092,6 +3093,11 @@ export default function WeekView({
   // these to PNGs so Instagram receives the actual designed post, not the raw
   // project images. Indexed by slide position.
   const exportRefs = useRef([]);
+  // Re-theme: the BASE slides (carousel agent output, from agentTrace.preTheme)
+  // drawn off-screen just long enough to snapshot them as Image 1.
+  // { doc, slides: [{ index, slide }] } | null
+  const [baseStage, setBaseStage] = useState(null);
+  const baseRefs = useRef({});
   const routeRef = useRef(route);
   const lastSavedByDayRef = useRef({});
   const persistGenRef = useRef(0);
@@ -3312,7 +3318,15 @@ export default function WeekView({
     if (/^themed-image/.test(String(slide?.layoutTheme || ''))) return '';
     return kitDefaultSet || '';
   };
+  // Brand Kit Typography restyles every slide (DynamicLayout › applyBrandFonts);
+  // a Theme Apply render is a picture, its type is baked in
+  const kitFontVars = useMemo(() => brandFontVars(vbStore?.libraryEdits), [vbStore?.libraryEdits]);
   const paintFor = (slide) => {
+    const out = paintColoursFor(slide);
+    if (/^themed-image/.test(String(slide?.layoutTheme || ''))) return out;
+    return { ...out, paint: { ...(out.paint || {}), ...kitFontVars } };
+  };
+  const paintColoursFor = (slide) => {
     const setId = setIdOf(slide);
     const set = setId ? kitSets.find((t) => t.id === setId) : null;
     const groundImg = groundImageOf(slide);
@@ -5018,16 +5032,38 @@ export default function WeekView({
         reference = { referenceImageKey: key };
       }
       const wasEditing = postEdit;
-      // the slide as the studio sees it now — what the agent re-dresses
-      // A slide already re-themed IS a picture of itself — the server re-reads
-      // that stored render, so it is not captured again here.
+      // Image 1 = the slide as the carousel agent designed it (in the Brand
+      // Kit's colours and fonts). A slide already re-themed is NOT re-dressed
+      // from its previous render: its base slide is rebuilt from the design
+      // saved before the first theme (agentTrace.preTheme) and captured.
       const snapshots = {};
       const captureErrors = {};
+      const rethemed = slideIndexes.filter((i) => /^themed-image/.test(String(slides[i - 1]?.layoutTheme || '')));
+      let base = null;
+      if (rethemed.length) {
+        base = await getPreTheme(postIdAt(dayIndex)).catch(() => null);
+        if (!base?.carouselHtml || !Array.isArray(base.slides) || base.slides.length !== count) base = null;
+      }
       for (const i of slideIndexes) {
-        if (/\/themed-/.test(keysOf(slides[i - 1])[0] || '')) continue;
+        if (rethemed.includes(i)) continue;
         const shot = await slideSnapshotDataUrl(exportRefs.current[i - 1]);
         if (shot.url) snapshots[i] = shot.url;
         else captureErrors[i] = shot.error;
+      }
+      if (base) {
+        baseRefs.current = {};
+        setBaseStage({
+          doc: base.carouselHtml,
+          slides: rethemed.map((i) => ({ index: i, slide: { ...slides[i - 1], image: null, ...base.slides[i - 1], index: i } })),
+        });
+        // let the frames mount, load the document and its photos/fonts
+        await new Promise((r) => { setTimeout(r, 1800); });
+        for (const i of rethemed) {
+          const shot = await slideSnapshotDataUrl(baseRefs.current[i]);
+          if (shot.url) snapshots[i] = shot.url;
+          else captureErrors[i] = `the original slide could not be drawn (${shot.error})`;
+        }
+        setBaseStage(null);
       }
       // the Brand Kit colours chosen for each slide (its own set, else the kit's
       // default) — the image model paints in these instead of the reference's.
@@ -5040,7 +5076,9 @@ export default function WeekView({
         const p = set?.palette || {};
         if (p.ground || p.fg || p.accent) brandColors[i] = { name: set.name || '', ...DEFAULT_PALETTE, ...p };
       }
-      const data = await runDayThemeImage(route._id, dayIndex, { ...reference, slideIndexes, snapshots, captureErrors, brandColors });
+      // the Brand Kit's Typography — the render letters the slide in these faces
+      const brandFonts = brandFontNames(vbStore?.libraryEdits);
+      const data = await runDayThemeImage(route._id, dayIndex, { ...reference, slideIndexes, snapshots, captureErrors, brandColors, brandFonts });
       (data?.applied || []).forEach((a) => { if (a?.key && a?.src) rememberImage(a.key, a.src, { skipGen: true }); });
       if (data?.route) {
         setRoute(data.route);
@@ -7888,6 +7926,37 @@ export default function WeekView({
               </div>
             ))}
           </div>
+          {/* Re-theme source: base slides (pre-theme design), same export
+              geometry, mounted only while runThemeApply captures them. */}
+          {baseStage && (
+            <div
+              aria-hidden="true"
+              className="wv-ig wv-ig--export"
+              style={{ ...igVars, position: 'fixed', left: '-100000px', top: 0, width: 1080, pointerEvents: 'none' }}
+            >
+              {baseStage.slides.map(({ index, slide: b }) => (
+                <div
+                  key={index}
+                  ref={(el) => { baseRefs.current[index] = el; }}
+                  className="wv-ig__photo"
+                  style={{ width: 1080 }}
+                >
+                  <SlideMedia
+                    slide={b}
+                    localMedia={localMedia}
+                    mediaByKey={mediaByKey}
+                    subjectsByKey={subjectsByKey}
+                    preferProxy
+                    paint={paintFor(b).paint}
+                    themed={paintFor(b).themed}
+                    carouselLayoutHtmls={slides.map((x) => x?.layoutHtml || '')}
+                    documentHtml={slideIsThemed(b) ? baseStage.doc : ''}
+                    slideIndex={index}
+                  />
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
     </div>

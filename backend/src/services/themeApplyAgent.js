@@ -163,7 +163,29 @@ function brandColorsSection(palette) {
   ].filter(Boolean).join('\n');
 }
 
-function themeApplyPrompt(lines = [], photo = null, { native = paintsFourByFive(THEME_IMAGE_MODEL()), palette = null } = {}) {
+// The studio's Brand Kit Typography — the faces the render letters the slide in
+// (Image 2 still gives the type's treatment: scale, weight contrast, placement).
+function brandTypeFaces(fonts) {
+  if (!fonts || typeof fonts !== 'object') return null;
+  const pick = (v) => String(v || '').replace(/[^\w\s'&.-]/g, '').trim().slice(0, 60);
+  const f = { heading: pick(fonts.heading), body: pick(fonts.body), detail: pick(fonts.detail) };
+  return (f.heading || f.body || f.detail) ? f : null;
+}
+
+function brandFontsSection(faces) {
+  if (!faces) return '';
+  return [
+    '## Brand fonts',
+    '',
+    'The studio chose these typefaces in its Brand Kit. Letter the slide in them INSTEAD of Image 2\'s typefaces — keep Image 2\'s typographic treatment (scale, weight contrast, case, spacing, placement), but the letterforms must be these fonts:',
+    faces.heading ? `- Headline, pull-quote, big numbers: ${faces.heading}` : '',
+    faces.body ? `- Supporting text and body copy: ${faces.body}` : '',
+    faces.detail ? `- Small labels, eyebrows/kickers, captions, CTA: ${faces.detail}` : '',
+    '- Draw each font faithfully (its real letter shapes, serif or sans, contrast and proportions). If one face is given for several roles, use it for all of them, varying only size and weight.',
+  ].filter(Boolean).join('\n');
+}
+
+function themeApplyPrompt(lines = [], photo = null, { native = paintsFourByFive(THEME_IMAGE_MODEL()), palette = null, faces = null } = {}) {
   const text = lines.length
     ? lines.map((l, i) => `${i + 1}. ${roleName(l)}: "${l.text}"`).join('\n')
     : '(the slide has no text — render none)';
@@ -171,6 +193,7 @@ function themeApplyPrompt(lines = [], photo = null, { native = paintsFourByFive(
     TEXT_LINES: text,
     PRIMARY_IMAGE: primaryImageSection(photo),
     BRAND_COLORS: brandColorsSection(palette),
+    BRAND_FONTS: brandFontsSection(faces),
     CANVAS: native ? CANVAS_NOTE.native : CANVAS_NOTE.cropped,
   }).replace(/\n{3,}/g, '\n\n');
 }
@@ -204,10 +227,11 @@ async function padToRenderShape(buffer) {
 /**
  * @param {{ slideIndex: number, slide?: object, userId: string,
  *   reference: { buffer: Buffer }, snapshot: { buffer: Buffer }, photo?: { buffer: Buffer }|null,
- *   brandColors?: { name?, ground?, fg?, accent? }|null }} p
+ *   brandColors?: { name?, ground?, fg?, accent? }|null,
+ *   brandFonts?: { heading?, body?, detail? }|null }} p
  * @returns {Promise<{ key, src, renderPrompt, textLines, primaryImage, check, usage, debugEntry }>}
  */
-async function applyThemeToSlide({ slideIndex, slide = {}, userId, reference, snapshot, photo = null, brandColors = null }) {
+async function applyThemeToSlide({ slideIndex, slide = {}, userId, reference, snapshot, photo = null, brandColors = null, brandFonts = null }) {
   if (!reference?.buffer) throw new Error('A reference photo is required.');
   if (!snapshot?.buffer) throw new Error('Could not capture this slide to re-theme it — try again.');
   const started = Date.now();
@@ -221,7 +245,8 @@ async function applyThemeToSlide({ slideIndex, slide = {}, userId, reference, sn
   const photoMeta = photo?.buffer ? await sharp(photo.buffer).rotate().metadata().catch(() => null) : null;
   const photoInfo = photoMeta ? { width: photoMeta.width, height: photoMeta.height } : null;
   const palette = brandPalette(brandColors);
-  const prompt = themeApplyPrompt(lines, photoInfo, { native, palette });
+  const faces = brandTypeFaces(brandFonts);
+  const prompt = themeApplyPrompt(lines, photoInfo, { native, palette, faces });
 
   // one render, cropped to 4:5 when the model painted 2:3
   const renderOnce = async (extra = '') => {
@@ -297,6 +322,7 @@ async function applyThemeToSlide({ slideIndex, slide = {}, userId, reference, sn
     renderPrompt: prompt,
     textLines: lines,
     brandColors: palette,
+    brandFonts: faces,
     primaryImage: photo?.buffer ? { kept: Boolean(placed?.found), box: placed?.box || null, renders: renders.length } : null,
     check: checks.length ? { runs: checks.length, firstProblems: checks[0].problems, problems: lastCheck.problems } : null,
     usage,

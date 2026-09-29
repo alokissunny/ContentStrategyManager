@@ -1386,6 +1386,17 @@ const preThemeSlide = (sl) => Object.fromEntries(PRE_THEME_FIELDS.filter((k) => 
 // every slide, or only `slideIndex` (its original article moves back into the
 // carousel document in a section of its own, like Themes › This slide).
 // 409 { needsRegenerate } when the post was themed before snapshots existed.
+// GET /posts/:id/pre-theme — the carousel agent's design as it was before the
+// first Theme Apply (agentTrace.preTheme). A re-theme renders the BASE slide
+// from it and sends that as Image 1, never the previous themed render.
+async function getPreTheme(req, res) {
+  const record = await PlannedPost.findOne({ _id: req.params.id, user: req.user._id }, { agentTrace: 1 }).lean();
+  if (!record) return res.status(404).json({ message: 'Post not found' });
+  const snap = record.agentTrace?.preTheme;
+  if (!snap?.carouselHtml || !Array.isArray(snap.slides)) return res.json({ carouselHtml: '', slides: [] });
+  return res.json({ carouselHtml: snap.carouselHtml, slides: snap.slides, at: snap.at || null });
+}
+
 async function removeTheme(req, res) {
   const record = await PlannedPost.findOne({ _id: req.params.id, user: req.user._id });
   if (!record) return res.status(404).json({ message: 'Post not found' });
@@ -1517,13 +1528,21 @@ async function applyThemeImage(req, res) {
   const captureErrors = req.body?.captureErrors && typeof req.body.captureErrors === 'object' ? req.body.captureErrors : {};
   // the Brand Kit colour set the studio chose for each slide ({ [index]: { name, ground, fg, accent } })
   const brandColors = req.body?.brandColors && typeof req.body.brandColors === 'object' ? req.body.brandColors : {};
+  // the Brand Kit's Typography ({ heading, body, detail } family names), for every slide
+  const brandFonts = req.body?.brandFonts && typeof req.body.brandFonts === 'object' ? req.body.brandFonts : null;
   // No capture from the studio: a slide already re-themed is a full picture of
   // itself (its themed key leads its keys); else the slide's last publish render.
+  const hasBaseDesign = Boolean(record.agentTrace?.preTheme?.carouselHtml);
   const storedSlidePicture = async (idx) => {
     const slide = stored[idx - 1] || {};
     const lead = String((Array.isArray(slide.assetKeys) && slide.assetKeys[0]) || slide.assetKey || '');
     const published = Array.isArray(record.publishImageKeys) ? String(record.publishImageKeys[idx - 1] || '') : '';
-    const key = (lead.startsWith(own) && /\/themed-/.test(lead) && lead) || (published.startsWith(own) && published) || '';
+    // a slide already themed: its base design is the source (the studio renders
+    // it from agentTrace.preTheme) — the previous render is used only when the
+    // post has no saved base design (themed before it was kept)
+    const themedLead = /\/themed-/.test(lead);
+    if (themedLead && hasBaseDesign) return null;
+    const key = (lead.startsWith(own) && themedLead && lead) || (published.startsWith(own) && published) || '';
     if (!key) return null;
     try {
       const { buffer, contentType } = await getObjectBytes(key);
@@ -1565,6 +1584,7 @@ async function applyThemeImage(req, res) {
           reference,
           snapshot,
           brandColors: brandColors[idx] || brandColors.all || null,
+          brandFonts,
         });
       } catch (err) {
         console.error(`[posts] ThemeApply:${label}#${idx} failed:`, err.message);
@@ -1681,6 +1701,7 @@ async function applyThemeImage(req, res) {
             check: results[i].check || null,
             textLines: results[i].textLines,
             ...(results[i].brandColors ? { brandColors: results[i].brandColors } : {}),
+            ...(results[i].brandFonts ? { brandFonts: results[i].brandFonts } : {}),
             usage: results[i].usage,
           })),
           failed,
@@ -1906,5 +1927,6 @@ module.exports = {
   rerunSlideLayoutVariations,
   applyThemeImage,
   removeTheme,
+  getPreTheme,
   renderCover,
 };

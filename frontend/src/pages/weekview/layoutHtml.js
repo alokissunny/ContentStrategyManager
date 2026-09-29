@@ -999,6 +999,54 @@ export function applyThemeToCarouselDocument(html, { themed = false, paint } = {
   return markThemed(raw, style);
 }
 
+// ── Brand Kit fonts ─────────────────────────────────────────────────────────
+// The Brand Kit's Typography (`--bk-font-heading/-body/-detail` in paint, only
+// the slots the studio chose — identity.brandFontVars) restyles every slide.
+// Newer carousels name their font roles (--brand-font-heading / -body / -detail,
+// prompts/plan-carousel.md › Font roles): those are re-pointed. Older ones get
+// the faces by element job. The slide is its own document, so the app's font
+// stylesheets (`links`) and the studio's uploaded faces (`faceCss`) go in too.
+const BRAND_FONT_ROLE_RE = /--brand-font-(?:heading|body|detail)\s*:/i;
+const HEAD_SEL = 'h1,h2,h3,[data-slot="title"],[data-slot="stat"],[data-slot="quote"]';
+const DETAIL_SEL = '[data-slot="eyebrow"],[data-slot="kicker"],[data-slot="label"],[data-slot="caption"],[data-slot="index"],[data-slot="detail"],[data-slot="note"],[data-slot="action"],.eyebrow,.kicker,.label';
+
+export function applyBrandFonts(page, paint, { links = [], faceCss = '' } = {}) {
+  const html = trim(page);
+  const heading = paint?.['--bk-font-heading'];
+  const body = paint?.['--bk-font-body'];
+  const detail = paint?.['--bk-font-detail'];
+  if (!html || (!heading && !body && !detail)) return html;
+  const roles = [
+    ['--brand-font-heading', heading],
+    ['--brand-font-body', body],
+    ['--brand-font-detail', detail],
+  ].filter(([, v]) => v).map(([k, v]) => `${k}:${v}`).join(';');
+  let rules;
+  if (BRAND_FONT_ROLE_RE.test(html)) {
+    rules = `:root:root,html [data-direction],html .slide{${roles}}`;
+  } else {
+    const within = (sel) => sel.split(',').map((s) => `html .slide ${s},html .slide ${s} *`).join(',');
+    rules = [
+      // body first, sparing the headline and detail runs (so an untouched slot
+      // keeps the carousel's face); then the headline and detail faces
+      body ? `html .slide,html .slide :not(:is(${HEAD_SEL},${DETAIL_SEL}),:is(${HEAD_SEL},${DETAIL_SEL}) *){font-family:${body} !important}` : '',
+      heading ? `${within(HEAD_SEL)}{font-family:${heading} !important}` : '',
+      detail ? `${within(DETAIL_SEL)}{font-family:${detail} !important}` : '',
+    ].join('');
+  }
+  const head = [
+    ...links.filter((h) => /^https:\/\//.test(h)).map((h) => `<link rel="stylesheet" href="${h.replace(/"/g, '&quot;')}">`),
+    faceCss ? `<style>${faceCss}</style>` : '',
+  ].join('');
+  let out = html;
+  if (head) {
+    out = /<head[^>]*>/i.test(out) ? out.replace(/<head([^>]*)>/i, (m) => `${m}${head}`) : `${head}${out}`;
+  }
+  const style = `<style data-brand-fonts>${rules}</style>`;
+  if (/<\/body>/i.test(out)) return out.replace(/<\/body>/i, `${style}</body>`);
+  return `${out}${style}`;
+}
+
 // The carousel's declared colour roles → the set's three colours.
 const BRAND_ROLE_RE = /--brand-(?:primary|background|accent)\s*:/i;
 function colourRoleVars(paint) {

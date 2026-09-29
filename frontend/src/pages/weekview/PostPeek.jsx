@@ -20,7 +20,7 @@ import {
   iframeSafeUrl,
   canvasSafeUrl,
 } from '../../api/media';
-import { paintAll, logoPositionOf, markForSlide, themesOf, activeThemeIdOf, activeThemeAtOf } from '../../lib/identity';
+import { paintAll, logoPositionOf, markForSlide, themesOf, activeThemeIdOf, activeThemeAtOf, brandFontVars } from '../../lib/identity';
 import { styleOf, groundOf } from '../../lib/visualbrand';
 import { useStore } from '../../lib/store';
 import '../weekView.css';
@@ -336,11 +336,13 @@ export function DayPeek({ day, feed = false, phone = false }) {
   ) : null;
 
   const curSet = cur ? setPaint(cur) : null;
+  // Brand Kit Typography, as WeekView's paintFor (not on a Theme Apply render)
+  const curFonts = cur && !/^themed-image/.test(String(cur?.layoutTheme || '')) ? brandFontVars(store?.libraryEdits) : {};
   const slideNode = cur ? (
     <PeekSlide
       key={`${day?._id || day?.date}-${safe}`}
       slide={cur}
-      paint={curSet ? { ...paint, '--t-ground-image': '', '--wv-ground-img': '', ...curSet } : paint}
+      paint={{ ...(curSet ? { ...paint, '--t-ground-image': '', '--wv-ground-img': '', ...curSet } : paint), ...curFonts }}
       themed={curSet ? 'colours' : themed}
       documentHtml={doc}
       carouselLayoutHtmls={carouselHtmls}

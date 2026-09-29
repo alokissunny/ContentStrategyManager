@@ -4,6 +4,7 @@ import {
   repairStrandedOffsets,
   buildSlideFrameDocument,
   applyThemeToCarouselDocument,
+  applyBrandFonts,
   isCarouselDocument,
   cropIframeToCarouselSlide,
   paintCarouselSlideImages,
@@ -15,6 +16,7 @@ import {
 } from './layoutHtml';
 import { attachSlideEditMode } from './slideEditMode';
 import { iframeSafeUrl } from '../../api/media';
+import { useStore } from '../../lib/store';
 import { boxOf, fmtBox, mapBoxToCover, mapPointToCover, normalizeSubjects, placeFromBox, resolveTargetBox } from './subjectBox';
 import { useAiDebug } from '../../lib/aiDebug';
 import { plainOf, titleRuns } from '../../lib/slidetext';
@@ -65,6 +67,14 @@ function paintSetInk(doc) {
         : 'var(--t-ground-fg)', 'important');
     });
   });
+}
+
+// the app's own font stylesheets (index.html: Google Fonts, Fontshare)
+function appFontLinks() {
+  if (typeof document === 'undefined') return [];
+  return [...document.querySelectorAll('link[rel="stylesheet"][href]')]
+    .map((l) => l.href)
+    .filter((h) => /fonts\.googleapis\.com|fontshare\.com/.test(h));
 }
 
 function trim(value) {
@@ -488,12 +498,20 @@ export default function DynamicLayout({
     [html, urlKey, useDocument],
   );
   const paintKey = JSON.stringify(paint && typeof paint === 'object' ? paint : null);
+  // Brand Kit fonts: the slide is its own document, so it gets the app's font
+  // stylesheets and the studio's uploaded faces (identity.registerFont files).
+  const kitFonts = useStore()?.libraryEdits?.fonts;
+  const faceCss = useMemo(() => (Array.isArray(kitFonts) ? kitFonts : [])
+    .filter((f) => f?.name && /^(https?:|data:|blob:)/.test(String(f.url || '')))
+    .map((f) => `@font-face{font-family:'${String(f.name).replace(/'/g, '')}';src:url("${String(f.url).replace(/"/g, '%22')}");font-display:swap}`)
+    .join(''), [kitFonts]);
   const page = useMemo(() => {
     const nextPaint = paintKey ? JSON.parse(paintKey) : null;
-    if (useDocument) return applyThemeToCarouselDocument(documentHtml, { themed, paint: nextPaint });
+    const withFonts = (doc) => applyBrandFonts(doc, nextPaint, { links: appFontLinks(), faceCss });
+    if (useDocument) return withFonts(applyThemeToCarouselDocument(documentHtml, { themed, paint: nextPaint }));
     if (!markup) return '';
-    return buildSlideFrameDocument(markup, { themed, paint: nextPaint });
-  }, [useDocument, documentHtml, markup, themed, paintKey]);
+    return withFonts(buildSlideFrameDocument(markup, { themed, paint: nextPaint }));
+  }, [useDocument, documentHtml, markup, themed, paintKey, faceCss]);
 
   useLayoutEffect(() => {
     if (frameRef) frameRef.current = canvasRef.current;

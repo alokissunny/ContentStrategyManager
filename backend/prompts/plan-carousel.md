@@ -189,6 +189,15 @@ Every carousel is designed in **Warm editorial** — a warm, calm, magazine-qual
   * `--brand-accent` — only the pointing marks: the ONE key word in a headline (`<em>`), a kicker/eyebrow, rules and hairlines, small shapes, an index number. Never a whole headline, never body copy.
 
   A dark slide is `background: var(--brand-primary); color: var(--brand-background);` — never new hex values.
+* **Font roles (required — the studio restyles type through them):** in that same `:root` rule declare the three font stacks, and give every `font-family` in the CSS and inline styles as one of these vars (never a family name directly):
+
+  ```css
+  :root { --brand-font-heading: 'Fraunces', Georgia, serif; --brand-font-body: 'DM Sans', system-ui, sans-serif; --brand-font-detail: 'DM Sans', system-ui, sans-serif; }
+  ```
+
+  * `--brand-font-heading` — headlines, pull-quotes, big stats (`data-slot` title / quote / stat).
+  * `--brand-font-body` — supporting text, body copy, list items.
+  * `--brand-font-detail` — kickers/eyebrows, labels, captions, index numbers, CTA (`data-slot` eyebrow / label / caption / index / action).
 * **Typography:** an editorial serif for headlines — Google Font `Fraunces` (optical size high, 400–500, soft) or `Cormorant Garamond` 500 — sentence case, tight leading; a clean sans for body and labels — `DM Sans` or `Inter`. Load them with ONE Google Fonts `<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=…&display=swap">` in `<head>` (with a sensible fallback). Use the brand's fonts instead when `BRAND_STYLE` names them. On the 1080-px canvas: headlines about 76–108px, line-height ~1.05, one key word may take the accent colour or italic; body about 36–44px, line-height ~1.4; labels 22–26px in small letter-spaced caps (tracking ~0.14em). Never more than two families.
 * **Layout:** a magazine grid with generous, consistent outer margins (at least 7% on every side — about 80px) and plenty of warm negative space. Let the photo lead: full-bleed with type on a calm band, a large crop beside a text column, or a framed inset with a thin cream border. Type sits on calm areas or on a solid warm band, never over busy detail.
 * **Editorial details:** a small letter-spaced caps kicker above headlines, a thin hairline rule (1–2px, accent or ink at low opacity), a pull-quote treatment for a key line, and optional small editorial numbering (01 / 02) only where the story is a sequence. Photos keep a warm, natural finish — no heavy filters.

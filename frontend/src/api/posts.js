@@ -258,10 +258,16 @@ export function runPostLayout(id) {
 // ({ [index]: { name, ground, fg, accent } }) is each slide's Brand Kit colour
 // set — the render's palette. The server saves the
 // post. → { post, applied: [{ index, key, src }], failed: [{ index, message }] }
-export function applyThemeImage(id, { referenceImageKey, themeId, slideIndexes, snapshots, captureErrors, brandColors } = {}) {
+// The carousel agent's design from before the first Theme Apply
+// (agentTrace.preTheme) → { carouselHtml, slides } ('' when none was kept).
+export function getPreTheme(id) {
+  return client.get(`/posts/${id}/pre-theme`).then((res) => res.data || { carouselHtml: '', slides: [] });
+}
+
+export function applyThemeImage(id, { referenceImageKey, themeId, slideIndexes, snapshots, captureErrors, brandColors, brandFonts } = {}) {
   const label = `Theme Apply agent — ${slideIndexes?.length === 1 ? `slide ${slideIndexes[0]}` : `${slideIndexes?.length || 0} slides`}`;
   return client
-    .post(`/posts/${id}/theme-image`, { referenceImageKey, themeId, slideIndexes, snapshots, captureErrors, brandColors }, { timeout: 600000 })
+    .post(`/posts/${id}/theme-image`, { referenceImageKey, themeId, slideIndexes, snapshots, captureErrors, brandColors, brandFonts }, { timeout: 600000 })
     .then((res) => {
       const data = res.data || {};
       ingestPlanDebug(label, data);
