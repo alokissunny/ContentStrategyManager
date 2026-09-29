@@ -1,3 +1,4 @@
+import { mediaProxyUrl } from '../../api/media';
 import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useAiDebug, fmtElapsed, fmtCost, fmtTokens } from '../../lib/aiDebug';
@@ -348,7 +349,12 @@ function traceForDay(day, entries) {
       e.prompt || '',
     ].filter(Boolean).join('\n')).filter(Boolean).join('\n\n---\n\n');
 
+  // Editor › Themes › Upload a reference — the latest run's four steps
+  const runs = Array.isArray(stored.themeApply) ? stored.themeApply : [];
+  const themeApply = runs.length ? runs[runs.length - 1] : null;
+
   return {
+    themeApply,
     strategyBrief,
     strategyPrompt,
     structure,
@@ -413,20 +419,12 @@ function CopyButton({ text }) {
   );
 }
 
-function Block({ title, input, output, open = false, cost = '' }) {
+// Only agents that actually ran on this post are drawn — a block with nothing
+// recorded is left out rather than shown as "Not recorded".
+function Block({ title, input, output, open = false, cost = '', images = [] }) {
   const inputBody = pretty(input);
   const outputBody = pretty(output);
-  if (!inputBody && !outputBody) {
-    return (
-      <details className="wv-agentdbg__block">
-        <summary className="wv-agentdbg__sum">
-          <span>{title}</span>
-          {cost ? <span className="wv-agentdbg__cost">{cost}</span> : null}
-        </summary>
-        <p className="wv-agentdbg__empty">Not recorded for this post.</p>
-      </details>
-    );
-  }
+  if (!inputBody && !outputBody && !images.length) return null;
   const slides = previewSlidesHtml(output);
   const documentHtml = carouselDocumentHtml(output);
   const copyAll = [inputBody && `## Input\n\n${inputBody}`, outputBody && `## Output\n\n${outputBody}`]
@@ -464,6 +462,16 @@ function Block({ title, input, output, open = false, cost = '' }) {
       ) : (
         <p className="wv-agentdbg__empty">Output not recorded for this agent.</p>
       )}
+      {images.length ? (
+        <div className="wv-agentdbg__imgs">
+          {images.map((im) => (
+            <a key={im.key} href={im.src || mediaProxyUrl(im.key)} target="_blank" rel="noreferrer" title={im.label}>
+              <img src={im.src || mediaProxyUrl(im.key)} alt={im.label} loading="lazy" />
+              <span>{im.label}</span>
+            </a>
+          ))}
+        </div>
+      ) : null}
     </details>
   );
 }
@@ -479,11 +487,16 @@ export default function PostAgentDebug({
 }) {
   const debug = useAiDebug();
   const trace = traceForDay(day, debug.entries);
+  const ta = trace.themeApply;
+  const taSlides = Array.isArray(ta?.slides) ? ta.slides : [];
+  const bySlide = (fn) => taSlides.map((sl) => [`# Slide ${sl.index}`, fn(sl)].join('\n')).join('\n\n');
+  const sumOf = (list) => costOf(sumEntries(list.filter(Boolean)));
   const empty = !trace.strategyBrief && !trace.strategyPrompt
     && !trace.structure && !trace.structurePrompt
     && !trace.dayWriter && !trace.dayWriterPrompt
     && !trace.layout && !trace.layoutPrompt
-    && !trace.visual && !trace.visualPrompt;
+    && !trace.visual && !trace.visualPrompt
+    && !ta;
   const took = fmtElapsed(elapsedMs);
   const cost = fmtCost(estimatedCostUsd);
   const tokens = fmtTokens(totalTokens);
@@ -499,7 +512,7 @@ export default function PostAgentDebug({
         </p>
       ) : null}
       <p className="wv-agentdbg__lead">
-        Input and output for each agent on this post. Strategy writes the brief; Carousel turns it into HTML. Structure / Visual appear when those agents ran.
+        Input and output for each agent that ran on this post. Agents that did not run are not listed.
       </p>
       {staleShell ? (
         <p className="wv-agentdbg__empty">
@@ -556,6 +569,21 @@ export default function PostAgentDebug({
         output={trace.visual}
         cost={trace.costs?.visual}
       />
+      {ta ? (
+        <>
+          <Block
+            title="Theme Apply agent"
+            input={taSlides.length ? bySlide((sl) => sl.renderPrompt || '') : ''}
+            output={taSlides.length ? taSlides.map((sl) => ({ slide: sl.index, model: sl.renderModel, key: sl.key })) : null}
+            cost={sumOf(taSlides.map((sl) => sl.usage))}
+            images={[
+              ...(ta.referenceKey ? [{ key: ta.referenceKey, label: 'Reference' }] : []),
+              ...(ta.referenceTheme?.path ? [{ key: ta.referenceTheme.path, src: ta.referenceTheme.path, label: ta.referenceTheme.name || 'Theme' }] : []),
+              ...taSlides.map((sl) => ({ key: sl.key, label: `Slide ${sl.index}` })),
+            ]}
+          />
+        </>
+      ) : null}
     </div>
   );
 }

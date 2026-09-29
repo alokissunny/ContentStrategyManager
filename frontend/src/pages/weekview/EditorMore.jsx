@@ -142,6 +142,20 @@ export default function EditorMore({ acts, onClose }) {
             rows={[
               { id: 'ref', icon: 'image-plus', label: 'Upload a reference', hint: 'A photograph you like the look of', dead: acts.busy, fn: () => refFile.current?.click(), into: true },
               { id: 'lib', icon: 'droplet', label: 'Choose from library', hint: `${list.length} directions`, dead: acts.busy, fn: () => setLevel('themelib'), into: true, chevron: true },
+              ...(acts.themed ? [
+                { id: 'r-untheme', rule: true },
+                {
+                  id: 'untheme',
+                  icon: 'undo',
+                  label: 'Remove theme',
+                  hint: 'Back to the carousel agent’s design',
+                  dead: acts.busy,
+                  // a carousel asks how far; a single slide just goes back
+                  fn: () => (many ? setLevel('theme-remove') : acts.onRemoveTheme?.(true)),
+                  into: many,
+                  chevron: many,
+                },
+              ] : []),
             ]}
           />
         ) : (
@@ -163,16 +177,44 @@ export default function EditorMore({ acts, onClose }) {
             </div>
             <Rows
               onClose={onClose}
+              // both a reference photo and a library theme go through the Theme
+              // Apply agent: the slide is repainted as a finished image
               rows={many ? reach(go, {
-                one: 'The others keep theirs',
-                all: 'The whole carousel wears it',
+                one: 'Repainted in this look — the others keep theirs',
+                all: 'Every slide repainted in this look',
               }).map((r) => ({ ...r, dead: acts.busy })) : [
-                { id: 'go', icon: 'sparkle', label: 'Generate theme', hint: 'Draws this post in the direction above', dead: acts.busy, fn: () => go(true) },
+                {
+                  id: 'go',
+                  icon: 'sparkle',
+                  label: 'Generate theme',
+                  hint: 'Repaints this post in the look above',
+                  dead: acts.busy,
+                  fn: () => go(true),
+                },
               ]}
             />
           </>
         )}
       </>
+    );
+  }
+  if (level === 'theme-remove') {
+    return (
+      <Rows
+        onClose={onClose}
+        rows={[
+          ...backRow('Remove theme', 'theme'),
+          {
+            id: 'one',
+            icon: 'brief',
+            label: 'This slide',
+            hint: acts.slideThemed ? 'Only this slide goes back' : 'This slide has no theme',
+            dead: acts.busy || !acts.slideThemed,
+            fn: () => acts.onRemoveTheme?.(false),
+          },
+          { id: 'all', icon: 'copy', label: 'All slides', hint: 'The whole carousel as the carousel agent made it', dead: acts.busy, fn: () => acts.onRemoveTheme?.(true) },
+        ]}
+      />
     );
   }
   if (level === 'themelib') {

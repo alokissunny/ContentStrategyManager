@@ -169,6 +169,10 @@ export function addAiDebugEntry(entry = {}) {
     ...(entry.inputImage && typeof entry.inputImage === 'object'
       ? { inputImage: { label: String(entry.inputImage.label || 'Attached image'), path: String(entry.inputImage.path || ''), key: String(entry.inputImage.key || ''), kb: Number(entry.inputImage.kb) || 0 } }
       : {}),
+    // the image an agent returned (Theme Apply's rendered slide) — shown under Output
+    ...(entry.outputImage && typeof entry.outputImage === 'object'
+      ? { outputImage: { label: String(entry.outputImage.label || 'Output image'), path: String(entry.outputImage.path || ''), key: String(entry.outputImage.key || '') } }
+      : {}),
   };
   const next = [item, ...state.entries].slice(0, MAX_ENTRIES);
   setState({ entries: next });

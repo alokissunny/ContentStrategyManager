@@ -45,6 +45,8 @@ const debugJsonParser = express.json({ limit: '4mb' });
 // The Reel editor's /edit sends a few sampled video frames (base64 JPEG) so the
 // vision agent can see the clip — larger than the default 100kb JSON limit.
 const reelJsonParser = express.json({ limit: '8mb' });
+// Themes › Upload a reference sends one JPEG snapshot per slide (up to 20)
+const themeImageJsonParser = express.json({ limit: '24mb' });
 app.use((req, res, next) => {
   // Voice-note transcription sends a raw audio body, not JSON.
   if (req.originalUrl.includes('/projects/captures/transcribe')) return next();
@@ -56,6 +58,8 @@ app.use((req, res, next) => {
   if (/\/posts\/[^/]+\/refine/.test(req.originalUrl)) return reelJsonParser(req, res, next);
   // …and Slide › Add before/after sends it too, to write the new slide against
   if (/\/posts\/[^/]+\/slides(\?|$)/.test(req.originalUrl)) return reelJsonParser(req, res, next);
+  // Themes › Upload a reference sends a snapshot of each slide it re-renders
+  if (/\/posts\/[^/]+\/theme-image/.test(req.originalUrl)) return themeImageJsonParser(req, res, next);
   return jsonParser(req, res, next);
 });
 app.use(morgan('dev'));

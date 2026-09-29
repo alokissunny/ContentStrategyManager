@@ -8,12 +8,15 @@ const { addSlideToCarousel } = require('../services/addSlideAgent');
 const { runLayoutForPost, writeLayoutVariations, applyLayoutToContent, normalizeWriterPost, attachGeneratedVisuals, visualThemeOf } = require('../services/planOrchestrator');
 const { analyzeImageAsset, loadReferenceImage } = require('../services/imageAnalysis');
 const { decorativeDebugAgents, storedDecorativeElements } = require('../services/decorativeAgent');
-const { customReferenceTheme } = require('../data/carouselThemes');
+const { customReferenceTheme, themeById, themeImageOf } = require('../data/carouselThemes');
 const { copyFromLayoutHtml, injectImageIntoSlots, parseCarouselDocument } = require('../services/layoutHtml');
 const { applySlideTheme } = require('../services/themeMerge');
 const { compileBrandMemory } = require('../services/planContext');
 const { generateCoverSpec, renderCoverVideo } = require('../services/carouselCoverAgent');
-const { isS3Configured, uploadBytes, getMediaUrl } = require('../services/s3Client');
+const { isS3Configured, uploadBytes, getMediaUrl, getObjectBytes } = require('../services/s3Client');
+const { applyThemeToSlide, themedSlideDocument } = require('../services/themeApplyAgent');
+const { isImageGenConfigured } = require('../services/openaiImage');
+const { toVisionImage } = require('../services/visionImage');
 const { currentProfile } = require('../utils/currentProfile');
 const { ownedMediaKeys, clearScheduleFields } = require('../services/metaPublish');
 const {
@@ -1368,6 +1371,347 @@ async function rerunLayout(req, res) {
   }
 }
 
+// POST /posts/:id/theme-image — Editor › Themes › Upload a reference. The Theme
+// Apply agent (services/themeApplyAgent.js) re-paints each slide asked for in
+// the reference photo's look — from the slide as it looks now, its photo, its
+// words and the post's strategy — and returns an IMAGE, not html. Each picture
+// goes into the carousel document as a full-bleed slide in a section of its own
+// (themeMerge.applySlideTheme), so every other slide keeps exactly what it has.
+// Body: { referenceImageKey, slideIndexes: [1-based…], snapshots?: { [index]: dataUrl } }
+const THEME_IMAGE_CONCURRENCY = Math.max(1, Number(process.env.THEME_IMAGE_CONCURRENCY) || 3);
+const COPY_FIELDS = ['role', 'title', 'subtitle', 'body', 'items', 'itemsA', 'itemsB', 'stat', 'quote', 'action',
+  'comparisonA', 'comparisonB', 'labels', 'colorSet', 'ground', 'logoMark', 'annotation', 'visualNeed'];
+
+function snapshotOf(dataUrl) {
+  const m = String(dataUrl || '').match(/^data:image\/(jpeg|jpg|png|webp);base64,([A-Za-z0-9+/=]+)$/);
+  if (!m) return null;
+  const buffer = Buffer.from(m[2], 'base64');
+  return buffer.length && buffer.length <= 6 * 1024 * 1024 ? { buffer } : null;
+}
+
+// A slide the Theme Apply agent painted (its section is `themed-image[-sN]`).
+const isThemedSlide = (sl) => /^themed-image/.test(String(sl?.layoutTheme || ''));
+// What Remove theme puts back on a slide (layoutHtml is rebuilt from the
+// carousel html, so it is not stored twice).
+const PRE_THEME_FIELDS = ['layout', 'layoutTheme', 'assetKey', 'assetKeys', 'title', 'subtitle', 'body', 'items', 'itemsA', 'itemsB', 'stat', 'quote', 'action', 'comparisonA', 'comparisonB', 'labels', 'image'];
+const preThemeSlide = (sl) => Object.fromEntries(PRE_THEME_FIELDS.filter((k) => sl?.[k] !== undefined).map((k) => [k, plainOf(sl[k])]));
+
+// POST /posts/:id/remove-theme — Editor › Themes › Remove theme. Puts the
+// carousel agent's design back (the snapshot taken before the first theme):
+// every slide, or only `slideIndex` (its original article moves back into the
+// carousel document in a section of its own, like Themes › This slide).
+// 409 { needsRegenerate } when the post was themed before snapshots existed.
+async function removeTheme(req, res) {
+  const record = await PlannedPost.findOne({ _id: req.params.id, user: req.user._id });
+  if (!record) return res.status(404).json({ message: 'Post not found' });
+  const current = plainOf(record.content) || {};
+  const stored = Array.isArray(current.slides) ? current.slides.map((s) => plainOf(s)) : [];
+  const trace = record.agentTrace && typeof record.agentTrace === 'object' ? plainOf(record.agentTrace) : {};
+  const snap = trace.preTheme;
+  if (!stored.some(isThemedSlide)) return res.status(400).json({ message: 'This post has no theme to remove.' });
+  if (!snap?.carouselHtml || !Array.isArray(snap.slides)) {
+    return res.status(409).json({ needsRegenerate: true, message: 'This post was themed before its original design was saved.' });
+  }
+  if (snap.slides.length !== stored.length) {
+    return res.status(409).json({ needsRegenerate: true, message: 'Slides were added or removed since the theme was applied, so the saved design no longer lines up.' });
+  }
+  const one = Number(req.body?.slideIndex) || 0;
+  if (one && (one < 1 || one > stored.length)) return res.status(404).json({ message: 'Slide not found on this post.' });
+  // no slideIndex: the whole carousel goes back to the agent's design
+  const targets = one ? [one] : stored.map((_, i) => i + 1);
+  const { sectionsOf, indexOf, buildDocument, stylesOf, linksOf } = require('../services/themeMerge');
+  const { extractHtmlDocument } = require('../services/layoutHtml');
+  try {
+    let doc;
+    const dirs = {};
+    if (!one) {
+      // the snapshot is the carousel as the agent left it — it replaces the document
+      doc = snap.carouselHtml;
+    } else {
+      doc = current.carouselHtml || trace.carousel?.html || '';
+      const snapDoc = extractHtmlDocument(snap.carouselHtml);
+      const snapSections = sectionsOf(snapDoc);
+      targets.forEach((i) => {
+        const sec = snapSections.find((s) => s.articles.some((a) => indexOf(a) === i));
+        const article = sec?.articles.find((a) => indexOf(a) === i);
+        if (!article) throw new Error(`The saved design has no slide ${i}.`);
+        const single = buildDocument({ links: linksOf(snapDoc), css: stylesOf(snapDoc), sections: [{ dir: sec.dir, articles: [article] }] });
+        const merged = applySlideTheme({ currentDoc: doc, newDoc: single, slideIndex: i });
+        doc = merged.html;
+        dirs[i] = merged.dir;
+      });
+    }
+    const parsed = parseCarouselDocument(doc, stored.length);
+    const next = applyLayoutToContent(
+      { ...current, slides: stored },
+      { status: 'ready', html: parsed.html, slides: parsed.slides, themeId: current.themeId || '' },
+    );
+    next.slides = next.slides.map((sl, n) => {
+      const i = n + 1;
+      if (!targets.includes(i)) return sl;
+      const was = snap.slides[n] || {};
+      return { ...sl, ...was, ...(dirs[i] ? { layoutTheme: dirs[i] } : {}), layoutOptions: [] };
+    });
+    record.content = { ...current, ...next, slides: next.slides, carouselHtml: doc };
+    const stillThemed = next.slides.some(isThemedSlide);
+    if (!stillThemed) record.content.themeId = snap.themeId || '';
+    record.agentTrace = {
+      ...trace,
+      layout: { ...(plainOf(trace.layout) || {}), html: doc },
+      carousel: { ...(plainOf(trace.carousel) || {}), html: doc },
+      // a fully restored post is back to the agent's design — the next theme
+      // takes a fresh snapshot
+      ...(stillThemed ? {} : { preTheme: null }),
+    };
+    record.markModified('content');
+    record.markModified('agentTrace');
+    await record.save();
+    console.log(`[posts] RemoveTheme:${record._id} · restored ${targets.join(',')}${stillThemed ? '' : ' · post back to the carousel agent design'}`);
+    return res.json({ post: record, restored: targets });
+  } catch (err) {
+    console.error(`[posts] remove theme failed for ${record._id}:`, err.message);
+    return res.status(500).json({ message: err.message || 'Could not remove the theme.' });
+  }
+}
+
+async function applyThemeImage(req, res) {
+  const record = await PlannedPost.findOne({ _id: req.params.id, user: req.user._id });
+  if (!record) return res.status(404).json({ message: 'Post not found' });
+  if (!isImageGenConfigured()) return res.status(503).json({ message: 'Image generation is not configured on this server.' });
+  if (!isS3Configured()) return res.status(503).json({ message: 'Storage is not configured on this server.' });
+
+  const own = `projects/${req.user._id}/`;
+  // Image 2: an uploaded photo (Upload a reference) or a library theme's
+  // example board (Choose from library, backend/assets/carousel-themes)
+  const referenceImageKey = String(req.body?.referenceImageKey || '').trim();
+  const themeId = String(req.body?.themeId || '').trim();
+  const libraryTheme = !referenceImageKey && themeId ? themeById(themeId) : null;
+  if (referenceImageKey && !referenceImageKey.startsWith(own)) return res.status(400).json({ message: 'Invalid reference image.' });
+  if (!referenceImageKey && !libraryTheme) return res.status(400).json({ message: themeId ? 'That theme is not in the library.' : 'Choose a theme or upload a reference.' });
+  const referenceLabel = libraryTheme ? `Theme — ${libraryTheme.name}` : 'Your reference photo';
+  const referenceImage = libraryTheme
+    ? { label: referenceLabel, path: `/carousel-themes/${libraryTheme.image}` }
+    : { label: referenceLabel, key: referenceImageKey };
+
+  const current = plainOf(record.content) || {};
+  const stored = Array.isArray(current.slides) ? current.slides.map((s) => plainOf(s)) : [];
+  if (!stored.length) return res.status(400).json({ message: 'This post has no slides to theme.' });
+  const trace = record.agentTrace && typeof record.agentTrace === 'object' ? plainOf(record.agentTrace) : {};
+  const curDoc = current.carouselHtml || trace.carousel?.html || trace.layout?.html || '';
+  if (!curDoc) return res.status(400).json({ message: 'This carousel has no layout yet — run Fix layout first.' });
+
+  const asked = Array.isArray(req.body?.slideIndexes) ? req.body.slideIndexes : [req.body?.slideIndex];
+  const indexes = [...new Set(asked.map(Number).filter((n) => Number.isInteger(n) && n >= 1 && n <= stored.length))];
+  if (!indexes.length) return res.status(400).json({ message: 'Say which slide to theme.' });
+
+  let reference;
+  try {
+    if (libraryTheme) {
+      const board = themeImageOf(libraryTheme);
+      if (!board?.data) throw new Error(`no example image for ${libraryTheme.name}`);
+      reference = { buffer: Buffer.from(board.data, 'base64') };
+    } else {
+      const { buffer, contentType } = await getObjectBytes(referenceImageKey);
+      reference = await toVisionImage(buffer, contentType, referenceImageKey);
+    }
+  } catch (err) {
+    return res.status(422).json({ message: `Could not read ${libraryTheme ? 'that theme' : 'that reference photo'} — ${err.message}` });
+  }
+
+  const runStarted = Date.now();
+  const snapshots = req.body?.snapshots && typeof req.body.snapshots === 'object' ? req.body.snapshots : {};
+  const label = record.day || record.date || record._id.toString();
+  // what a themed slide keeps behind its picture: its real photo, never an
+  // earlier themed render of it
+  const photoKeysOf = (s) => [...(Array.isArray(s?.assetKeys) ? s.assetKeys : []), s?.assetKey]
+    .map((k) => String(k || '').trim())
+    .filter((k, i, all) => k.startsWith(own) && !/\/themed-/.test(k) && all.indexOf(k) === i);
+
+
+  const captureErrors = req.body?.captureErrors && typeof req.body.captureErrors === 'object' ? req.body.captureErrors : {};
+  // No capture from the studio: a slide already re-themed is a full picture of
+  // itself (its themed key leads its keys); else the slide's last publish render.
+  const storedSlidePicture = async (idx) => {
+    const slide = stored[idx - 1] || {};
+    const lead = String((Array.isArray(slide.assetKeys) && slide.assetKeys[0]) || slide.assetKey || '');
+    const published = Array.isArray(record.publishImageKeys) ? String(record.publishImageKeys[idx - 1] || '') : '';
+    const key = (lead.startsWith(own) && /\/themed-/.test(lead) && lead) || (published.startsWith(own) && published) || '';
+    if (!key) return null;
+    try {
+      const { buffer, contentType } = await getObjectBytes(key);
+      const img = await toVisionImage(buffer, contentType, key);
+      return { buffer: img.buffer };
+    } catch (err) {
+      console.warn(`[posts] ThemeApply:${label}#${idx} stored picture unreadable — ${err.message}`);
+      return null;
+    }
+  };
+
+  const results = {};
+  const queue = [...indexes];
+  const worker = async () => {
+    while (queue.length) {
+      const idx = queue.shift();
+      try {
+        const snapshot = snapshotOf(snapshots[idx]) || await storedSlidePicture(idx);
+        if (!snapshot) {
+          const why = String(captureErrors[idx] || '').slice(0, 200);
+          throw new Error(`Could not capture slide ${idx} to re-theme it${why ? ` (${why})` : ''} — try again.`);
+        }
+        // the slide's primary photo — kept exactly as it is (pasted back in)
+        const photoKey = photoKeysOf(stored[idx - 1])[0];
+        let photo = null;
+        if (photoKey) {
+          try {
+            const { buffer, contentType } = await getObjectBytes(photoKey);
+            photo = { buffer: (await toVisionImage(buffer, contentType, photoKey)).buffer };
+          } catch (err) {
+            console.warn(`[posts] ThemeApply:${label}#${idx} photo unreadable — ${err.message}`);
+          }
+        }
+        results[idx] = await applyThemeToSlide({
+          slideIndex: idx,
+          slide: stored[idx - 1],
+          photo,
+          userId: req.user._id,
+          reference,
+          snapshot,
+        });
+      } catch (err) {
+        console.error(`[posts] ThemeApply:${label}#${idx} failed:`, err.message);
+        results[idx] = { error: err.message || 'failed' };
+      }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(THEME_IMAGE_CONCURRENCY, indexes.length) }, worker));
+
+  const done = indexes.filter((i) => results[i] && !results[i].error);
+  const failed = indexes.filter((i) => !done.includes(i)).map((i) => ({ index: i, message: results[i]?.error || 'failed' }));
+  // the whole run for the summary row: every call's tokens and cost, wall time
+  const runRows = done.map((i) => results[i].usage).filter(Boolean);
+  const runUsage = runRows.reduce((acc, u) => ({
+    inputTokens: acc.inputTokens + (Number(u.inputTokens) || 0),
+    outputTokens: acc.outputTokens + (Number(u.outputTokens) || 0),
+    totalTokens: acc.totalTokens + (Number(u.totalTokens) || 0),
+    estimatedCostUsd: acc.estimatedCostUsd + (Number(u.estimatedCostUsd) || 0),
+  }), { inputTokens: 0, outputTokens: 0, totalTokens: 0, estimatedCostUsd: 0 });
+  const debugOf = () => (wantsPromptDebug(req) ? {
+    debug: {
+      mode: 'theme-apply',
+      elapsedMs: Date.now() - runStarted,
+      usage: runUsage,
+      agents: [
+        ...done.map((i) => ({
+          ...results[i].debugEntry,
+          usage: results[i].usage,
+          ...results[i].usage,
+          inputImage: referenceImage,
+          outputImage: { label: `Themed slide ${i}`, key: results[i].key },
+        })),
+      ],
+    },
+  } : {});
+  if (!done.length) {
+    return res.status(502).json({ message: failed[0]?.message || 'Could not apply the reference.', failed, ...debugOf() });
+  }
+
+  try {
+    // each rendered slide moves into a section of its own, one at a time
+    let doc = curDoc;
+    const dirs = {};
+    done.forEach((i) => {
+      const merged = applySlideTheme({
+        currentDoc: doc,
+        newDoc: themedSlideDocument({ slideIndex: i, key: results[i].key, src: results[i].src }),
+        slideIndex: i,
+      });
+      doc = merged.html;
+      dirs[i] = merged.dir;
+    });
+    const parsed = parseCarouselDocument(doc, stored.length);
+    const next = applyLayoutToContent(
+      { ...current, slides: stored },
+      { status: 'ready', html: parsed.html, slides: parsed.slides, themeId: current.themeId || '' },
+    );
+    next.slides = next.slides.map((sl, n) => {
+      const i = n + 1;
+      if (!dirs[i]) return sl;
+      const was = stored[n] || {};
+      const keep = Object.fromEntries(COPY_FIELDS.filter((k) => was[k] !== undefined).map((k) => [k, was[k]]));
+      // the words now painted on the slide become its copy (plan list, captions)
+      const lines = Array.isArray(results[i].textLines) ? results[i].textLines : [];
+      const head = lines.find((l) => /head/i.test(l.role));
+      const rest = lines.filter((l) => l !== head).map((l) => l.text);
+      if (head || rest.length) {
+        keep.title = head?.text || keep.title || '';
+        keep.subtitle = rest[0] || '';
+        keep.body = rest.slice(1).join('\n');
+        keep.items = [];
+      }
+      const key = results[i].key;
+      // the words stay on the record (plan list, caption context); the picture
+      // leads the slide's keys, its real photo stays behind it for a re-theme
+      return {
+        ...sl,
+        ...keep,
+        layout: 'dynamic',
+        layoutTheme: dirs[i],
+        layoutOptions: [],
+        assetKey: key,
+        assetKeys: [key, ...photoKeysOf(was)],
+      };
+    });
+    // the carousel agent's design, kept for Themes › Remove theme: taken when
+    // the post is not themed yet — a second theme keeps the original snapshot
+    const themedBefore = stored.some((sl) => isThemedSlide(sl));
+    const preTheme = themedBefore
+      ? (trace.preTheme || null)
+      : { at: new Date().toISOString(), carouselHtml: curDoc, themeId: current.themeId || '', slides: stored.map(preThemeSlide) };
+    record.content = { ...current, ...next, slides: next.slides, carouselHtml: doc };
+    // a library theme on every slide is the post's theme (the library marks it)
+    if (libraryTheme && done.length === stored.length) record.content.themeId = libraryTheme.id;
+    record.agentTrace = {
+      ...trace,
+      layout: { ...(plainOf(trace.layout) || {}), html: doc },
+      carousel: { ...(plainOf(trace.carousel) || {}), html: doc },
+      ...(preTheme ? { preTheme } : {}),
+      themeApply: [
+        ...(Array.isArray(trace.themeApply) ? trace.themeApply : []).slice(-19),
+        {
+          at: new Date().toISOString(),
+          referenceKey: referenceImageKey,
+          referenceTheme: libraryTheme ? { id: libraryTheme.id, name: libraryTheme.name, path: referenceImage.path } : null,
+          // each step's prompt, output and cost — the post's Debug tab reads these
+          slides: done.map((i) => ({
+            index: i,
+            key: results[i].key,
+            renderPrompt: results[i].renderPrompt,
+            renderModel: results[i].debugEntry?.model || '',
+            primaryImage: results[i].primaryImage || null,
+            check: results[i].check || null,
+            textLines: results[i].textLines,
+            usage: results[i].usage,
+          })),
+          failed,
+        },
+      ],
+    };
+    record.markModified('content');
+    record.markModified('agentTrace');
+    await record.save();
+    console.log(`[posts] ThemeApply:${label} · themed ${done.join(',')}${failed.length ? ` · failed ${failed.map((f) => f.index).join(',')}` : ''}`);
+    return res.json({
+      post: record,
+      applied: done.map((i) => ({ index: i, key: results[i].key, src: results[i].src })),
+      failed,
+      ...debugOf(),
+    });
+  } catch (err) {
+    console.error(`[posts] ThemeApply:${label} merge failed:`, err.message);
+    return res.status(500).json({ message: err.message || 'Could not place the themed slide.', ...debugOf() });
+  }
+}
+
 // POST /posts/:id/slide/:slideIndex/layout-variations — on-demand variations for
 // one slide (the Change layout picker). Composes four fresh layouts in the
 // slide's current theme, stored on that slide's layoutOptions.
@@ -1569,5 +1913,7 @@ module.exports = {
   getPostProject,
   rerunLayout,
   rerunSlideLayoutVariations,
+  applyThemeImage,
+  removeTheme,
   renderCover,
 };

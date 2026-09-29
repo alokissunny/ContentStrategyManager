@@ -41,10 +41,11 @@ function ingestPlanDebug(label, data = {}) {
         prompt: agent.prompt,
         output: agent.output,
         elapsedMs: Number(agent.elapsedMs) || 0,
-        note: debug.mode ? `mode: ${debug.mode}` : '',
+        note: [debug.mode ? `mode: ${debug.mode}` : '', agent.note || ''].filter(Boolean).join(' · '),
         ...usage,
         preview: agent.preview,
         inputImage: agent.inputImage,
+        outputImage: agent.outputImage,
       });
     });
     const costLabel = fmtCost(genUsage.estimatedCostUsd);
@@ -253,6 +254,37 @@ export function runPostLayout(id, { themeId, referenceImageKey, slideIndex } = {
     ingestPlanDebug('Carousel agent (debug)', data);
     return data;
   });
+}
+
+// Editor › Themes › Upload a reference: the Theme Apply agent re-paints the
+// given slides (1-based) in the reference photo's look and returns each as an
+// IMAGE — from the slide as it looks now (`snapshots`: { [index]: JPEG data
+// URL }), its photo, its words and the post's strategy. The server saves the
+// post. → { post, applied: [{ index, key, src }], failed: [{ index, message }] }
+export function applyThemeImage(id, { referenceImageKey, themeId, slideIndexes, snapshots, captureErrors } = {}) {
+  const label = `Theme Apply agent — ${slideIndexes?.length === 1 ? `slide ${slideIndexes[0]}` : `${slideIndexes?.length || 0} slides`}`;
+  return client
+    .post(`/posts/${id}/theme-image`, { referenceImageKey, themeId, slideIndexes, snapshots, captureErrors }, { timeout: 600000 })
+    .then((res) => {
+      const data = res.data || {};
+      ingestPlanDebug(label, data);
+      return data;
+    })
+    .catch((err) => {
+      const data = err?.response?.data;
+      if (data?.debug) ingestPlanDebug(label, data);
+      throw err;
+    });
+}
+
+// Editor › Themes › Remove theme: back to the carousel agent's design — every
+// slide, or only `slideIndex` (1-based). → { post, restored }. A 409 with
+// `needsRegenerate` means the post has no saved design (themed before
+// snapshots existed, or slides were added / removed since).
+export function removeTheme(id, { slideIndex } = {}) {
+  return client
+    .post(`/posts/${id}/remove-theme`, Number(slideIndex) > 0 ? { slideIndex: Number(slideIndex) } : {})
+    .then((res) => res.data || {});
 }
 
 // Editor mode's prompt band: recreate the carousel with an instruction applied.

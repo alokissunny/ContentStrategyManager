@@ -206,19 +206,19 @@ function DebugBlock({ label, text, open = true, copyable = false, extra = null }
 // The image sent to the model with this prompt (a theme's example board, the
 // studio's reference photo). The server records where it came from, not the
 // bytes: a public path, or a storage key served through the media proxy.
-function InputImageBlock({ image }) {
+function InputImageBlock({ image, heading = 'Input image', big = false }) {
   if (!image) return null;
   const src = image.path || (image.key ? mediaProxyUrl(image.key) : '');
   return (
     <details className="ai-debug__block" open>
       <summary className="ai-debug__block-sum">
-        <span>Input image</span>
+        <span>{heading}</span>
         <span className="ai-debug__block-acts">
           <span className="ai-debug__imgmeta">{image.label}{image.kb ? ` · ${image.kb} KB` : ''}</span>
         </span>
       </summary>
       {src ? (
-        <a href={src} target="_blank" rel="noreferrer" className="ai-debug__img" title="Open full size">
+        <a href={src} target="_blank" rel="noreferrer" className={`ai-debug__img${big ? ' ai-debug__img--big' : ''}`} title="Open full size">
           <img src={src} alt={image.label} />
         </a>
       ) : <p className="ai-debug__missing">Attached, but no preview is available.</p>}
@@ -321,6 +321,7 @@ function DebugEntry({ entry }) {
           />
           {error ? <p className="ai-debug__error">{error}</p> : null}
           {busy ? <p className="ai-debug__missing">Rerunning with modified input…</p> : null}
+          <InputImageBlock image={entry.outputImage} heading="Output preview" big />
           {entry.output
             ? (
               <DebugBlock

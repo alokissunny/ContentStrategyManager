@@ -2149,4 +2149,5 @@ textarea.ai-debug__input {
   object-fit: contain;
   background: var(--surface-sunken);
 }
+.ai-debug__img--big img { max-height: 480px; }
 .ai-debug__imgmeta { font-size: 12px; color: var(--ink-500); font-weight: 500; }

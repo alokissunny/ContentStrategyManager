@@ -159,4 +159,4 @@ function applySlideTheme({ currentDoc, newDoc, slideIndex }) {
   };
 }
 
-module.exports = { scopeCss, applySlideTheme, buildDocument, sectionsOf, indexOf };
+module.exports = { scopeCss, applySlideTheme, buildDocument, sectionsOf, indexOf, stylesOf, linksOf };

@@ -46,13 +46,59 @@ const IMAGE_COST_USD = {
   medium: { '1024x1024': 0.042, '1024x1536': 0.063, '1536x1024': 0.063 },
   high: { '1024x1024': 0.167, '1024x1536': 0.25, '1536x1024': 0.25 },
 };
+// gpt-image-1-mini output pricing (approximate, USD per image)
+const MINI_IMAGE_COST_USD = {
+  low: { '1024x1024': 0.005, '1024x1536': 0.006, '1536x1024': 0.006 },
+  medium: { '1024x1024': 0.011, '1024x1536': 0.015, '1536x1024': 0.015 },
+  high: { '1024x1024': 0.036, '1024x1536': 0.052, '1536x1024': 0.052 },
+};
 
-function estimateImageCostUsd(size, quality) {
+// Per-token image pricing, USD per 1M tokens (text in / image in / image out).
+// The images API reports `usage` for GPT image models; when it does, the cost is
+// priced from it — the input pictures and prompt are billed too, which the
+// flat per-image table above does not see.
+// (OpenAI pricing page, Sep 2026)
+const IMAGE_TOKEN_PRICE = {
+  'gpt-image-1': { textIn: 5, imageIn: 10, out: 40 },
+  'gpt-image-1-mini': { textIn: 2, imageIn: 2.5, out: 8 },
+  'gpt-image-1.5': { textIn: 5, imageIn: 8, out: 32 },
+  'gpt-image-2': { textIn: 5, imageIn: 8, out: 30 },
+  'gpt-image-2.5': { textIn: 5, imageIn: 8, out: 30 }, // -flare and -sunburst
+};
+function tokenPriceFor(model) {
+  const m = String(model || '').toLowerCase();
+  if (/mini/.test(m)) return IMAGE_TOKEN_PRICE['gpt-image-1-mini'];
+  if (/^gpt-image-2\.5/.test(m)) return IMAGE_TOKEN_PRICE['gpt-image-2.5'];
+  if (/^gpt-image-2/.test(m)) return IMAGE_TOKEN_PRICE['gpt-image-2'];
+  if (/^gpt-image-1\.5/.test(m)) return IMAGE_TOKEN_PRICE['gpt-image-1.5'];
+  return IMAGE_TOKEN_PRICE['gpt-image-1'];
+}
+// `input_fidelity` is only accepted by gpt-image-1 and gpt-image-1.5 (mini and
+// the 2.x models answer 400)
+const acceptsInputFidelity = (model) => /^gpt-image-1(\.5)?(-\d{4}-\d{2}-\d{2})?$/i.test(String(model || ''));
+
+function costFromImageUsage(usage, model) {
+  if (!usage || !(Number(usage.output_tokens) > 0)) return null;
+  const p = tokenPriceFor(model);
+  const d = usage.input_tokens_details || {};
+  const imageIn = Number(d.image_tokens) || 0;
+  const textIn = Number(d.text_tokens) || Math.max(0, (Number(usage.input_tokens) || 0) - imageIn);
+  const out = Number(usage.output_tokens) || 0;
+  return {
+    inputTokens: Number(usage.input_tokens) || textIn + imageIn,
+    outputTokens: out,
+    totalTokens: Number(usage.total_tokens) || textIn + imageIn + out,
+    estimatedCostUsd: (textIn * p.textIn + imageIn * p.imageIn + out * p.out) / 1e6,
+  };
+}
+
+function estimateImageCostUsd(size, quality, model = DEFAULT_MODEL) {
   const override = Number(process.env.OPENAI_IMAGE_COST_USD);
   if (Number.isFinite(override) && override >= 0) return override;
   const q = String(quality || DEFAULT_QUALITY || 'medium').toLowerCase();
   const s = String(size || DEFAULT_SIZE || '1024x1536');
-  return (IMAGE_COST_USD[q] && IMAGE_COST_USD[q][s]) || IMAGE_COST_USD.medium['1024x1536'];
+  const table = /mini/i.test(String(model || '')) ? MINI_IMAGE_COST_USD : IMAGE_COST_USD;
+  return (table[q] && table[q][s]) || table.medium['1024x1536'];
 }
 
 // Whether image generation is configured at all — lets callers answer with a
@@ -195,4 +241,67 @@ async function editImage({ buffer, mediaType, prompt, quality } = {}) {
   };
 }
 
-module.exports = { generateImage, editImage, isImageGenConfigured, estimateImageCostUsd, DEFAULT_MODEL };
+/**
+ * Compose a new picture from SEVERAL input pictures and a prompt (gpt-image-1
+ * multi-image edit) — the Theme Apply agent hands it the slide as it is, the
+ * studio's reference and the slide's own photo, and gets the finished slide
+ * back as one image. `images[0]` is the one the output should follow most
+ * closely; `input_fidelity: 'high'` keeps faces, type and product detail.
+ * @param {{ images: { buffer: Buffer, mediaType?: string, name?: string }[], prompt: string,
+ *   size?: string, quality?: string }} p
+ * @returns {Promise<{ buffer, mimeType, model, elapsedMs, size, estimatedCostUsd }>}
+ */
+async function composeImage({ images, prompt, size, quality, model: wanted } = {}) {
+  const text = String(prompt || '').trim();
+  if (!text) throw new Error('A prompt is required to compose an image.');
+  const list = (Array.isArray(images) ? images : []).filter((im) => im?.buffer?.length).slice(0, 16);
+  if (!list.length) throw new Error('There are no pictures to compose from.');
+  const { toFile } = require('openai');
+  const client = getOpenAIClient();
+  const model = wanted || DEFAULT_MODEL;
+  const q = quality || 'medium';
+  const s = size || '1024x1536';
+  const timeout = Number(process.env.OPENAI_THEME_IMAGE_TIMEOUT_MS) || 240000;
+  const filesOf = () => Promise.all(list.map((im, i) => {
+    const type = /png|webp|jpe?g/i.test(String(im.mediaType || '')) ? im.mediaType : 'image/jpeg';
+    const ext = type.includes('png') ? 'png' : (type.includes('webp') ? 'webp' : 'jpg');
+    return toFile(im.buffer, `${im.name || `input-${i + 1}`}.${ext}`, { type });
+  }));
+  const started = Date.now();
+  let response;
+  try {
+    response = await client.images.edit(
+      {
+        model,
+        image: await filesOf(),
+        prompt: text,
+        size: s,
+        quality: q,
+        // keeps faces / type / detail of the inputs — only where the model takes it
+        ...(acceptsInputFidelity(model) ? { input_fidelity: 'high' } : {}),
+        n: 1,
+        output_format: OUTPUT_FORMAT,
+        ...(OUTPUT_FORMAT === 'png' ? {} : { output_compression: Math.max(OUTPUT_COMPRESSION, 90) }),
+      },
+      { timeout },
+    );
+  } catch (err) {
+    console.warn('[openaiImage] compose rejected, retrying minimal request:', err?.message || err);
+    response = await client.images.edit({ model, image: await filesOf(), prompt: text, size: s, quality: q, n: 1 }, { timeout });
+  }
+  const b64 = response?.data?.[0]?.b64_json;
+  if (!b64) throw new Error('The image model returned no picture.');
+  return {
+    buffer: Buffer.from(b64, 'base64'),
+    mimeType: FORMAT_MIME[OUTPUT_FORMAT] || 'image/png',
+    model,
+    quality: q,
+    elapsedMs: Date.now() - started,
+    size: s,
+    // what the API billed (tokens), else the flat per-image estimate
+    usage: costFromImageUsage(response?.usage, model),
+    estimatedCostUsd: costFromImageUsage(response?.usage, model)?.estimatedCostUsd ?? estimateImageCostUsd(s, q, model),
+  };
+}
+
+module.exports = { generateImage, editImage, composeImage, costFromImageUsage, isImageGenConfigured, estimateImageCostUsd, DEFAULT_MODEL };

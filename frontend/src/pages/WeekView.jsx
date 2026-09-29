@@ -24,6 +24,8 @@ import {
   setPostTime,
   setPostReview,
   runPostLayout,
+  applyThemeImage,
+  removeTheme as apiRemoveTheme,
   runSlideLayoutVariations as apiRunSlideLayoutVariations,
   refinePost,
   addSlideFromCapture,
@@ -1934,18 +1936,32 @@ async function rasterizeSlide(node, { timeoutMs = 20000 } = {}) {
   const h = node.offsetHeight;
   if (!w || !h) throw new Error('Slide has no size to render.');
 
-  const unfreeze = await readyImagesForExport(node);
-
-  // Empty / broken image slots must not abort export. Give them a loadable
-  // data-URI for the duration of the snapshot, then restore.
+  // Every picture the snapshot will read — in the node AND inside the slide's
+  // iframe (the slide renders there), for the duration of the snapshot:
+  //  - an empty slot (<img data-image-request> with no src) gets a loadable
+  //    placeholder — an <img> without src resolves to the page itself, so
+  //    html-to-image fetched the HTML page, failed to decode it and the whole
+  //    capture died ("a picture on the slide failed to load");
+  //  - a CDN picture goes through the media proxy — CloudFront sends no CORS
+  //    header, so html-to-image could not read it and it came out blank.
   const restored = [];
-  node.querySelectorAll('img').forEach((img) => {
+  imgsOf(node).imgs.forEach((img) => {
     const src = img.getAttribute('src');
     if (!src || img.classList.contains('is-placeholder')) {
       restored.push([img, src]);
       img.setAttribute('src', EXPORT_IMG_PLACEHOLDER);
+      return;
+    }
+    if (/^https?:/i.test(src) && !src.startsWith(window.location.origin)) {
+      const safe = canvasSafeUrl(src, img.getAttribute('data-asset-key') || '');
+      if (safe && safe !== src) {
+        restored.push([img, src]);
+        img.setAttribute('src', safe);
+      }
     }
   });
+
+  const unfreeze = await readyImagesForExport(node);
 
   const restoreImgs = () => {
     restored.forEach(([img, prev]) => {
@@ -1992,6 +2008,38 @@ async function rasterizeSlide(node, { timeoutMs = 20000 } = {}) {
           img.src = dataUrl;
         })
     );
+}
+
+// The slide as it looks now, for the Theme Apply agent — its words included:
+// Image 1 is the source of truth for the copy. The export render, rasterised
+// and scaled to ≤1536px, as a JPEG data URL. One retry — the first pass can
+// miss fonts / pictures still loading. → { url } or { error }
+async function slideSnapshotDataUrl(node, max = 1536) {
+  if (!node) return { error: 'the slide is not on the page' };
+  return captureSlide(node, max);
+}
+
+async function captureSlide(node, max) {
+  let last = null;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      await rasterizeSlide(node).catch(() => null); // first pass warms fonts/images, as for publish
+      const blob = await rasterizeSlide(node);
+      const bmp = await createImageBitmap(blob);
+      const k = Math.min(1, max / Math.max(bmp.width, bmp.height));
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.round(bmp.width * k);
+      canvas.height = Math.round(bmp.height * k);
+      canvas.getContext('2d').drawImage(bmp, 0, 0, canvas.width, canvas.height);
+      bmp.close?.();
+      return { url: canvas.toDataURL('image/jpeg', 0.92) };
+    } catch (err) {
+      last = err;
+      console.warn('[theme-apply] slide capture failed', attempt + 1, err);
+    }
+  }
+  const why = last?.message || (last?.type === 'error' ? 'a picture on the slide failed to load' : String(last || 'unknown'));
+  return { error: why };
 }
 
 function VisualNeedHint({ need }) {
@@ -3060,6 +3108,8 @@ export default function WeekView({
   const setDayTime = (_id, i, { time } = {}) => setPostTime(postIdAt(i), time || '').then(mergePost);
   const reviewDay = (_id, i, on) => setPostReview(postIdAt(i), on).then(mergePost);
   const runDayLayout = (_id, i, opts) => runPostLayout(postIdAt(i), opts).then((d) => ({ ...d, route: mergePost(d.post) }));
+  const removeDayTheme = (_id, i, body) => apiRemoveTheme(postIdAt(i), body).then((d) => ({ ...d, route: mergePost(d.post) }));
+  const runDayThemeImage = (_id, i, body) => applyThemeImage(postIdAt(i), body).then((d) => ({ ...d, route: mergePost(d.post) }));
   const runDayCover = (_id, i, visual) => runPostCover(postIdAt(i), visual).then((d) => ({ ...d, route: mergePost(d.post) }));
   const runSlideLayoutVariations = (_id, i, slideIndex) => apiRunSlideLayoutVariations(postIdAt(i), slideIndex);
   // Options are per-post; fetch each day's, index-aligned with route.days.
@@ -4873,53 +4923,121 @@ export default function WeekView({
 
   // Themes: the whole carousel, or only the slide on screen (its own section
   // of the carousel document — see backend services/themeMerge.js)
+  // Themes › Choose from library: the same Theme Apply agent as Upload a
+  // reference — the library theme's example board is Image 2 (the server
+  // reads it from backend/assets/carousel-themes by id).
   async function handleChangeTheme(theme, every = true) {
     if (!theme?.id || layoutBusy) return;
-    setMenuPane(null);
-    closeZone();
-    // hand edits are keyed by slide and baked into the document the merge keeps
-    if (!every) flushElemEdits();
-    const slideIndex = every ? 0 : (Number(activeSlide?.index) > 0 ? Number(activeSlide.index) : safeIdx + 1);
-    await handleRunLayout({ themeId: theme.id, slideIndex });
+    await runThemeApply({ themeId: theme.id, label: theme.name || 'that theme' }, every);
   }
 
-  // Change theme › Upload a reference: upload the studio's photo, then rebuild
-  // the carousel with it as the visual reference instead of a catalog theme.
-  async function handleUploadReferenceTheme(file, every = true) {
-    if (!file || layoutBusy || !route?._id) return;
+
+  // Themes › Upload a reference: upload the studio's photo, then the Theme
+  // Apply agent re-applies its look to a snapshot of each slide and returns a
+  // finished IMAGE (backend services/themeApplyAgent.js). This slide: only the
+  // slide on screen; All slides: every slide, each in its own render.
+  // Themes › Remove theme: the slide(s) go back to the carousel agent's design
+  // (the snapshot the server took before the first theme). A post themed
+  // before snapshots existed has none — then the carousel agent is re-run.
+  async function handleRemoveTheme(every = true) {
+    if (layoutBusy || !route?._id) return;
     setMenuPane(null);
     closeZone();
-    // This slide: only the slide on screen takes the photo's look
-    if (!every) flushElemEdits();
-    const slideIndex = every ? 0 : (Number(activeSlide?.index) > 0 ? Number(activeSlide.index) : safeIdx + 1);
+    flushElemEdits();
+    const here = safeIdx + 1;
+    const wasEditing = postEdit;
     setLayoutBusy(true);
     setLayoutErr('');
     try {
-      const uploaded = await uploadFiles([file]);
-      const key = uploaded?.[0]?.key;
-      if (!key) throw new Error('Could not upload that photo.');
+      const data = await removeDayTheme(route._id, selected, every ? {} : { slideIndex: here });
+      if (data?.route) {
+        setRoute(data.route);
+        onRouteChange?.(data.route);
+        setSlideGen((g) => g + 1);
+        if (wasEditing) { setPostEdit(true); setSlideIdx(Math.max(0, here - 1)); }
+      }
+      setLayoutBusy(false);
+    } catch (err) {
+      setLayoutBusy(false);
+      const body = err?.response?.data || {};
+      if (body.needsRegenerate) {
+        const ok = window.confirm(`${body.message} Recreate the whole carousel with the carousel agent instead? It takes 1–3 minutes and replaces every slide's design.`);
+        if (ok) await handleRunLayout({});
+        return;
+      }
+      setLayoutErr(body.message || err.message || 'Could not remove the theme.');
+    }
+  }
+
+  async function handleUploadReferenceTheme(file, every = true) {
+    if (!file || layoutBusy || !route?._id) return;
+    await runThemeApply({ file, label: 'that reference photo' }, every);
+  }
+
+  // Theme Apply agent (backend services/themeApplyAgent.js): re-paints the
+  // slide(s) in the reference's look and returns each as a finished image.
+  // `file` (an uploaded photo) or `themeId` (a library theme) is Image 2; each
+  // slide, captured as the studio sees it, is Image 1. This slide: only the
+  // slide on screen; All slides: every slide, each in its own render.
+  async function runThemeApply({ file = null, themeId = '', label = 'that reference' }, every) {
+    if (layoutBusy || !route?._id) return;
+    setMenuPane(null);
+    closeZone();
+    // hand edits are keyed by slide and baked into the document the merge keeps
+    flushElemEdits();
+    const dayIndex = selected;
+    const count = slides.length;
+    const here = safeIdx + 1;
+    const slideIndexes = every ? Array.from({ length: count }, (_, i) => i + 1) : [here];
+    setLayoutBusy(true);
+    setLayoutErr('');
+    try {
+      let reference = { themeId };
+      if (file) {
+        const uploaded = await uploadFiles([file]);
+        const key = uploaded?.[0]?.key;
+        if (!key) throw new Error('Could not upload that photo.');
+        reference = { referenceImageKey: key };
+      }
       const wasEditing = postEdit;
-      const data = await runDayLayout(route._id, selected, { referenceImageKey: key, ...(slideIndex ? { slideIndex } : {}) });
+      // the slide as the studio sees it now — what the agent re-dresses
+      // A slide already re-themed IS a picture of itself — the server re-reads
+      // that stored render, so it is not captured again here.
+      const snapshots = {};
+      const captureErrors = {};
+      for (const i of slideIndexes) {
+        if (/\/themed-/.test(keysOf(slides[i - 1])[0] || '')) continue;
+        const shot = await slideSnapshotDataUrl(exportRefs.current[i - 1]);
+        if (shot.url) snapshots[i] = shot.url;
+        else captureErrors[i] = shot.error;
+      }
+      const data = await runDayThemeImage(route._id, dayIndex, { ...reference, slideIndexes, snapshots, captureErrors });
+      (data?.applied || []).forEach((a) => { if (a?.key && a?.src) rememberImage(a.key, a.src, { skipGen: true }); });
       if (data?.route) {
         setRoute(data.route);
         onRouteChange?.(data.route);
         setSlideGen((g) => g + 1);
         if (wasEditing) {
           setPostEdit(true);
-          if (slideIndex) setSlideIdx(Math.max(0, slideIndex - 1));
+          setSlideIdx(Math.max(0, here - 1));
         }
+      }
+      if (data?.failed?.length) {
+        const n = data.failed.map((f) => f.index).join(', ');
+        setLayoutErr(`Slide${data.failed.length === 1 ? '' : 's'} ${n} could not take the theme — ${data.failed[0].message}`);
       }
     } catch (err) {
       const timedOut = err?.code === 'ECONNABORTED' || /timeout/i.test(String(err?.message || ''));
       setLayoutErr(
         timedOut
-          ? 'Carousel agent timed out. Try again — a server restart mid-run can leave this stuck.'
-          : (err.response?.data?.message || err.message || 'Could not use that reference photo.'),
+          ? 'Theme Apply agent timed out. Try again — a server restart mid-run can leave this stuck.'
+          : (err.response?.data?.message || err.message || `Could not use ${label}.`),
       );
     } finally {
       setLayoutBusy(false);
     }
   }
+
 
   // Load the week's stored layoutOptions (kept out of the render payload) and
   // merge them into the in-memory route, once per week. Runs when Change layout
@@ -5882,6 +6000,10 @@ export default function WeekView({
     themeId: String(layoutDirectionOf(activeSlide) || '').replace(/-s\d+$/, ''),
     onTheme: (theme, every) => handleChangeTheme(theme, every),
     onReference: (file, every) => handleUploadReferenceTheme(file, every),
+    // Remove theme: shown while any slide wears a Theme Apply render
+    themed: slides.some((sl) => /^themed-image/.test(String(sl?.layoutTheme || ''))),
+    slideThemed: /^themed-image/.test(String(activeSlide?.layoutTheme || '')),
+    onRemoveTheme: (every) => handleRemoveTheme(every),
     sets: kitSets.map((t) => ({ ...t, swatches: [t.palette?.fg, t.palette?.accent, t.palette?.ground] })),
     setId: activeSlide?.colorSet || '',
     defaultSetId: kitDefaultSet,

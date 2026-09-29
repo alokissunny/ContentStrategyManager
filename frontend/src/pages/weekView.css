@@ -8268,3 +8268,8 @@ span.wv-layed__apply { margin-left: auto; flex-shrink: 0; }
 .wv-em__thmnote { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 /* Debug › Preview of a whole carousel document: every slide, side by side */
 .edp__grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 16px; }
+
+/* Debug tab › Theme Apply — the reference and the text-free renders */
+.wv-agentdbg__imgs { display: flex; flex-wrap: wrap; gap: 10px; padding: 10px 14px 14px; }
+.wv-agentdbg__imgs a { display: flex; flex-direction: column; gap: 4px; width: 110px; color: inherit; text-decoration: none; font-size: 12px; }
+.wv-agentdbg__imgs img { width: 110px; aspect-ratio: 4 / 5; object-fit: cover; border-radius: 8px; border: 1px solid rgba(0, 0, 0, 0.08); background: #f1efe9; }
