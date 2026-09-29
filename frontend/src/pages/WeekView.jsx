@@ -55,7 +55,7 @@ import { openCaptureIdea } from '../lib/captureUi';
 import { styleOf, groundOf } from '../lib/visualbrand';
 import { LAYOUTS as LIB_LAYOUTS, catForRole, shotsOf, DEFAULT_LAYOUT_BY_CAT, layoutShowsAllCopy } from '../data/layouts';
 import { CAROUSEL_THEMES } from '../data/carouselThemes';
-import { paintAll, identityOf, TYPE_SLOTS, FACES, logoPositionOf, markForSlide, themesOf, activeThemeIdOf, newThemeId, nextThemeName, THEME_CAP } from '../lib/identity';
+import { paintAll, identityOf, TYPE_SLOTS, FACES, logoPositionOf, markForSlide, themesOf, activeThemeIdOf, newThemeId, nextThemeName, THEME_CAP, DEFAULT_PALETTE } from '../lib/identity';
 import { rolesOf as textRolesOf, plainOf, parseMarked, isListRole, listIndexOf } from '../lib/slidetext';
 import ImagePicker from './weekview/ImagePicker';
 import { PhotoEditor, SlotPack } from './weekview/PhotoEditor';
@@ -5008,7 +5008,17 @@ export default function WeekView({
         if (shot.url) snapshots[i] = shot.url;
         else captureErrors[i] = shot.error;
       }
-      const data = await runDayThemeImage(route._id, dayIndex, { ...reference, slideIndexes, snapshots, captureErrors });
+      // the Brand Kit colours chosen for each slide (its own set, else the kit's
+      // default) — the image model paints in these instead of the reference's.
+      // All three roles: one the studio never edited is the default the Brand
+      // Kit shows for it.
+      const brandColors = {};
+      for (const i of slideIndexes) {
+        const set = kitSets.find((t) => t.id === (slides[i - 1]?.colorSet || kitDefaultSet));
+        const p = set?.palette || {};
+        if (p.ground || p.fg || p.accent) brandColors[i] = { name: set.name || '', ...DEFAULT_PALETTE, ...p };
+      }
+      const data = await runDayThemeImage(route._id, dayIndex, { ...reference, slideIndexes, snapshots, captureErrors, brandColors });
       (data?.applied || []).forEach((a) => { if (a?.key && a?.src) rememberImage(a.key, a.src, { skipGen: true }); });
       if (data?.route) {
         setRoute(data.route);

@@ -1,6 +1,7 @@
 const PlannedPost = require('../models/PlannedPost');
 const Project = require('../models/Project');
 const InstagramProfile = require('../models/InstagramProfile');
+const { brandKitColors, brandStylePalette } = require('../services/brandKitColors');
 const { generateWeeklyPlan, buildEmptySlots, isoDate, parseIsoDate } = require('../services/weeklyPlan');
 const { rewriteCaption } = require('../services/captionPolish');
 const { refineCarouselFromEdits } = require('../services/carouselRefine');
@@ -1191,7 +1192,8 @@ async function rerunLayout(req, res) {
   const structure = plainOf(trace.structure) || {};
   const label = record.day || (record.date ? record.date.toISOString().slice(0, 10) : record._id.toString());
   const dna = await loadBrandDna(req.user._id, record.instagramUsername).catch(() => null);
-  const brand = compileBrandMemory(dna);
+  const kitColors = await brandKitColors(req.user._id, record.instagramUsername);
+  const brand = { ...compileBrandMemory(dna), ...(kitColors ? { palette: brandStylePalette(kitColors) } : {}) };
   const dayWriterOutput = plainOf(trace.dayWriter)
     || (Array.isArray(post.content?.slides) ? { content: { slides: post.content.slides } } : '');
 
@@ -1512,6 +1514,8 @@ async function applyThemeImage(req, res) {
 
 
   const captureErrors = req.body?.captureErrors && typeof req.body.captureErrors === 'object' ? req.body.captureErrors : {};
+  // the Brand Kit colour set the studio chose for each slide ({ [index]: { name, ground, fg, accent } })
+  const brandColors = req.body?.brandColors && typeof req.body.brandColors === 'object' ? req.body.brandColors : {};
   // No capture from the studio: a slide already re-themed is a full picture of
   // itself (its themed key leads its keys); else the slide's last publish render.
   const storedSlidePicture = async (idx) => {
@@ -1559,6 +1563,7 @@ async function applyThemeImage(req, res) {
           userId: req.user._id,
           reference,
           snapshot,
+          brandColors: brandColors[idx] || brandColors.all || null,
         });
       } catch (err) {
         console.error(`[posts] ThemeApply:${label}#${idx} failed:`, err.message);
@@ -1674,6 +1679,7 @@ async function applyThemeImage(req, res) {
             primaryImage: results[i].primaryImage || null,
             check: results[i].check || null,
             textLines: results[i].textLines,
+            ...(results[i].brandColors ? { brandColors: results[i].brandColors } : {}),
             usage: results[i].usage,
           })),
           failed,

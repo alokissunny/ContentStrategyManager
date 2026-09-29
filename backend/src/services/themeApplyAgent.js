@@ -138,13 +138,39 @@ function primaryImageSection(photo) {
   ].join('\n');
 }
 
-function themeApplyPrompt(lines = [], photo = null, { native = paintsFourByFive(THEME_IMAGE_MODEL()) } = {}) {
+// The studio's Brand Kit colours (the slide's chosen colour set) — the palette
+// the render must use; Image 2 still gives textures, type mood and decoration.
+const HEX = /^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i;
+function brandPalette(colors) {
+  if (!colors || typeof colors !== 'object') return null;
+  const pick = (v) => (HEX.test(String(v || '').trim()) ? String(v).trim().toUpperCase() : '');
+  const p = { ground: pick(colors.ground || colors.bg), fg: pick(colors.fg || colors.ink), accent: pick(colors.accent) };
+  if (!p.ground && !p.fg && !p.accent) return null;
+  return { ...p, name: String(colors.name || '').slice(0, 60) };
+}
+
+function brandColorsSection(palette) {
+  if (!palette) return '';
+  return [
+    `## Brand colours${palette.name ? ` (${palette.name})` : ''}`,
+    '',
+    'The studio chose these brand colours for this slide. Use them as the slide\'s palette in place of Image 2\'s colours — keep Image 2\'s textures, typography mood, framing and decoration, but recolour them into this palette:',
+    palette.ground ? `- Background — the slide ground: ${palette.ground}` : '',
+    palette.fg ? `- Primary — all text (headline, copy, labels) and dark surfaces: ${palette.fg}` : '',
+    palette.accent ? `- Accent (highlights, shapes, tape, frames, small details): ${palette.accent}` : '',
+    '- Tints, shades and paper textures of these colours are fine; do not introduce other dominant colours. Keep text-to-background contrast strong.',
+    '- These colours never apply to the original photo.',
+  ].filter(Boolean).join('\n');
+}
+
+function themeApplyPrompt(lines = [], photo = null, { native = paintsFourByFive(THEME_IMAGE_MODEL()), palette = null } = {}) {
   const text = lines.length
     ? lines.map((l, i) => `${i + 1}. ${roleName(l)}: "${l.text}"`).join('\n')
     : '(the slide has no text — render none)';
   return fillTemplate(loadPrompt(), {
     TEXT_LINES: text,
     PRIMARY_IMAGE: primaryImageSection(photo),
+    BRAND_COLORS: brandColorsSection(palette),
     CANVAS: native ? CANVAS_NOTE.native : CANVAS_NOTE.cropped,
   }).replace(/\n{3,}/g, '\n\n');
 }
@@ -177,10 +203,11 @@ async function padToRenderShape(buffer) {
 
 /**
  * @param {{ slideIndex: number, slide?: object, userId: string,
- *   reference: { buffer: Buffer }, snapshot: { buffer: Buffer }, photo?: { buffer: Buffer }|null }} p
+ *   reference: { buffer: Buffer }, snapshot: { buffer: Buffer }, photo?: { buffer: Buffer }|null,
+ *   brandColors?: { name?, ground?, fg?, accent? }|null }} p
  * @returns {Promise<{ key, src, renderPrompt, textLines, primaryImage, check, usage, debugEntry }>}
  */
-async function applyThemeToSlide({ slideIndex, slide = {}, userId, reference, snapshot, photo = null }) {
+async function applyThemeToSlide({ slideIndex, slide = {}, userId, reference, snapshot, photo = null, brandColors = null }) {
   if (!reference?.buffer) throw new Error('A reference photo is required.');
   if (!snapshot?.buffer) throw new Error('Could not capture this slide to re-theme it — try again.');
   const started = Date.now();
@@ -193,7 +220,8 @@ async function applyThemeToSlide({ slideIndex, slide = {}, userId, reference, sn
   const lines = slideLines(slide);
   const photoMeta = photo?.buffer ? await sharp(photo.buffer).rotate().metadata().catch(() => null) : null;
   const photoInfo = photoMeta ? { width: photoMeta.width, height: photoMeta.height } : null;
-  const prompt = themeApplyPrompt(lines, photoInfo, { native });
+  const palette = brandPalette(brandColors);
+  const prompt = themeApplyPrompt(lines, photoInfo, { native, palette });
 
   // one render, cropped to 4:5 when the model painted 2:3
   const renderOnce = async (extra = '') => {
@@ -268,6 +296,7 @@ async function applyThemeToSlide({ slideIndex, slide = {}, userId, reference, sn
     src,
     renderPrompt: prompt,
     textLines: lines,
+    brandColors: palette,
     primaryImage: photo?.buffer ? { kept: Boolean(placed?.found), box: placed?.box || null, renders: renders.length } : null,
     check: checks.length ? { runs: checks.length, firstProblems: checks[0].problems, problems: lastCheck.problems } : null,
     usage,

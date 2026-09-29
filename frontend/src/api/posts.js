@@ -254,12 +254,14 @@ export function runPostLayout(id) {
 // Editor › Themes › Upload a reference: the Theme Apply agent re-paints the
 // given slides (1-based) in the reference photo's look and returns each as an
 // IMAGE — from the slide as it looks now (`snapshots`: { [index]: JPEG data
-// URL }), its photo, its words and the post's strategy. The server saves the
+// URL }), its photo, its words and the post's strategy. `brandColors`
+// ({ [index]: { name, ground, fg, accent } }) is each slide's Brand Kit colour
+// set — the render's palette. The server saves the
 // post. → { post, applied: [{ index, key, src }], failed: [{ index, message }] }
-export function applyThemeImage(id, { referenceImageKey, themeId, slideIndexes, snapshots, captureErrors } = {}) {
+export function applyThemeImage(id, { referenceImageKey, themeId, slideIndexes, snapshots, captureErrors, brandColors } = {}) {
   const label = `Theme Apply agent — ${slideIndexes?.length === 1 ? `slide ${slideIndexes[0]}` : `${slideIndexes?.length || 0} slides`}`;
   return client
-    .post(`/posts/${id}/theme-image`, { referenceImageKey, themeId, slideIndexes, snapshots, captureErrors }, { timeout: 600000 })
+    .post(`/posts/${id}/theme-image`, { referenceImageKey, themeId, slideIndexes, snapshots, captureErrors, brandColors }, { timeout: 600000 })
     .then((res) => {
       const data = res.data || {};
       ingestPlanDebug(label, data);

@@ -1,5 +1,7 @@
 const fs = require('fs');
 const path = require('path');
+const { brandKitColors, brandStylePalette } = require('./brandKitColors');
+const { carouselLayoutProblems } = require('./carouselLayoutCheck');
 const { extractJson, estimatePlanCostUsd, assignToEmptyDates, normalizeLens } = require('./weeklyPlan');
 const { compileStrategyContext, assetsForDay, allocatedAssetsOf, applyAssetAllocation, knownAssetIndexOf, json } = require('./planContext');
 const { completeText, resolvePlanAgentLlm, splitPromptTemplate, reasoningEffortFor } = require('./llmComplete');
@@ -2396,6 +2398,7 @@ async function writeCarousel({ source, structure, post, dayBrief, brand, dayWrit
   if (!/\{\s*"/.test(assembled.user || '') && !/slides|narrativeUnits/i.test(assembled.user || '')) {
     throw new Error(`${source}: strategy brief / content structure missing from assembled user prompt`);
   }
+  const validate = (parsed) => (one ? validateOneSlide(parsed, one) : validateCarousel(parsed, post));
   const result = await withLayoutSlot(() => callAgent({
     source,
     kind: 'carousel',
@@ -2404,9 +2407,68 @@ async function writeCarousel({ source, structure, post, dayBrief, brand, dayWrit
     prompt: assembled.prompt,
     parse: 'html',
     htmlDirection: 'warm-editorial',
-    validate: (parsed) => (one ? validateOneSlide(parsed, one) : validateCarousel(parsed, post)),
+    validate,
   }));
-  return result;
+  return fixCarouselLayout({ source, assembled, validate, result });
+}
+
+// Layout check (services/carouselLayoutCheck.js): measures the carousel's text
+// boxes from its CSS — overlapping text, text on the photo, the safe area. On
+// problems, ONE repair call hands the agent its own HTML plus the problems;
+// whichever version has fewer problems is kept. CAROUSEL_LAYOUT_CHECK=0 = off.
+async function fixCarouselLayout({ source, assembled, validate, result }) {
+  if (process.env.CAROUSEL_LAYOUT_CHECK === '0' || !result?.parsed?.html) return result;
+  const problems = carouselLayoutProblems(result.parsed.html);
+  const note = (list) => (list.length ? `${list.length} problem${list.length === 1 ? '' : 's'}:\n- ${list.join('\n- ')}` : 'passed');
+  if (!problems.length) {
+    return { ...result, debugEntry: { ...result.debugEntry, output: `${result.debugEntry?.output || ''}\n\n[Layout check] passed` } };
+  }
+  console.warn(`[planOrchestrator] ${source} layout check: ${problems.length} problem(s) — ${problems.join(' | ')}`);
+  const fixNote = [
+    '---',
+    'LAYOUT FIX. The carousel you wrote (below) was measured from its CSS and has these layout problems:',
+    ...problems.map((p) => `- ${p}`),
+    '',
+    'Return the COMPLETE corrected HTML document (every slide). Fix exactly these problems, following "Text layout — no overlaps": put each affected slide\'s text in ONE flex-column group with a gap, re-budget the lines, reduce type or give the group more room, and keep 48px between the text and the photo. Keep everything else — copy, slide order, data-slot attributes, images and asset keys, palette, fonts and the overall design — unchanged.',
+    '',
+    'YOUR PREVIOUS HTML:',
+    result.parsed.html,
+  ].join('\n');
+  let fixed = null;
+  try {
+    fixed = await withLayoutSlot(() => callAgent({
+      source: `${source}:layout-fix`,
+      kind: 'carousel',
+      system: assembled.system,
+      user: `${assembled.user}\n\n${fixNote}`,
+      prompt: `${assembled.prompt || ''}\n\n${fixNote}`,
+      parse: 'html',
+      htmlDirection: 'warm-editorial',
+      validate,
+    }));
+  } catch (err) {
+    console.warn(`[planOrchestrator] ${source} layout fix failed — keeping the first version: ${err.message}`);
+  }
+  const after = fixed?.parsed?.html ? carouselLayoutProblems(fixed.parsed.html) : null;
+  const keepFixed = after && after.length < problems.length;
+  const chosen = keepFixed ? fixed : result;
+  const usage = [result.usage, fixed?.usage].filter(Boolean).reduce((a, u) => {
+    const out = { ...a };
+    Object.entries(u).forEach(([k, v]) => { if (typeof v === 'number') out[k] = (Number(a[k]) || 0) + v; });
+    return out;
+  }, { model: result.usage?.model });
+  if (after) console.log(`[planOrchestrator] ${source} layout fix: ${problems.length} → ${after.length} problem(s) · kept ${keepFixed ? 'the fix' : 'the first version'}`);
+  return {
+    ...chosen,
+    usage,
+    layoutCheck: { problems, after, kept: keepFixed ? 'fix' : 'first' },
+    debugEntry: {
+      ...chosen.debugEntry,
+      usage,
+      elapsedMs: (Number(result.debugEntry?.elapsedMs) || 0) + (Number(fixed?.debugEntry?.elapsedMs) || 0),
+      output: `${chosen.debugEntry?.output || ''}\n\n[Layout check] first version: ${note(problems)}${after ? `\n[Layout check] after one fix: ${note(after)} → kept ${keepFixed ? 'the fix' : 'the first version'}` : '\n[Layout check] fix call failed — kept the first version'}`,
+    },
+  };
 }
 
 async function attachCarousel({ label, structure, writer, collect, dayBrief, dayAssets, brand }) {
@@ -3106,10 +3168,14 @@ async function runMultiAgentPlan({
   );
   const brandMemory = ctx.brand || {};
   const brandJson = json(brandMemory);
+  // the Brand Kit colour set the studio selected — the carousel's palette
+  const kitColors = await brandKitColors(userId, profile?.username);
   const visualBrand = {
     ...brandMemory,
     mood: optionalText(brandMemory.visualStyle),
+    ...(kitColors ? { palette: brandStylePalette(kitColors) } : {}),
   };
+  if (kitColors) console.log(`[planOrchestrator] @${username}: Brand Kit colours "${kitColors.name}" ${[kitColors.ground, kitColors.fg, kitColors.accent].filter(Boolean).join(' ')}`);
   const conversationCaptures = Array.isArray(ctx.projects?.conversationCaptures)
     ? ctx.projects.conversationCaptures : [];
   const lastThree = Array.isArray(ctx.projects?.lastThree) ? ctx.projects.lastThree : [];

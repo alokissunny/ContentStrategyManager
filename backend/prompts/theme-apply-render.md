@@ -71,4 +71,6 @@ Return one finished slide. Do not include explanations or alternate versions.
 - The copy on Image 1, for exact spelling:
 {{TEXT_LINES}}
 
+{{BRAND_COLORS}}
+
 {{PRIMARY_IMAGE}}
