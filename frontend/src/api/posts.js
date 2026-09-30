@@ -264,6 +264,27 @@ export function getPreTheme(id) {
   return client.get(`/posts/${id}/pre-theme`).then((res) => res.data || { carouselHtml: '', slides: [] });
 }
 
+// Theme Apply render, edited by region: map where its text blocks and photo
+// sit → { regions: { key, texts: [{ id, role, text, box }], images: [{ id, box }] }, post? }
+export function mapThemeRegions(id, slideIndex, { force = false } = {}) {
+  return client.post(`/posts/${id}/slide/${slideIndex}/theme-regions`, { force }, { timeout: 120000 }).then((res) => {
+    const data = res.data || {};
+    ingestPlanDebug(`Region map — slide ${slideIndex}`, data);
+    return data;
+  });
+}
+
+// change one region: { regionId, action: 'text' | 'regenerate' | 'photo', text?, instruction?, photoKey? }
+// → { post, key, src, regions }
+export function editThemeRegion(id, slideIndex, body) {
+  return client.post(`/posts/${id}/slide/${slideIndex}/theme-region`, body, { timeout: 300000 }).then((res) => {
+    const data = res.data || {};
+    const what = body?.action === 'text' ? 'text' : body?.action === 'photo' ? 'photo' : 'picture';
+    ingestPlanDebug(`Region edit — slide ${slideIndex} · ${what}`, data);
+    return data;
+  });
+}
+
 export function applyThemeImage(id, { referenceImageKey, themeId, slideIndexes, snapshots, captureErrors, brandColors, brandFonts } = {}) {
   const label = `Theme Apply agent — ${slideIndexes?.length === 1 ? `slide ${slideIndexes[0]}` : `${slideIndexes?.length || 0} slides`}`;
   return client

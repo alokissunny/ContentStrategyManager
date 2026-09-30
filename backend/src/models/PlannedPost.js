@@ -77,6 +77,9 @@ const plannedPostSchema = new mongoose.Schema(
             // when that set was picked on the post (ms). A Brand Kit default
             // changed later (libraryEdits.activeThemeAt) overrides the pick.
             colorSetAt: { type: Number, default: 0 },
+            // a Theme Apply render's editable regions: { key (the render they
+            // were mapped on), texts: [{ id, role, text, box % }], images: [{ id, box % }] }
+            themeRegions: { type: mongoose.Schema.Types.Mixed, default: null },
             // Editor mode › Background: the Brand Kit background this slide
             // stands on (its key). Empty = the carousel's own ground; 'none' =
             // plain canvas (no texture).

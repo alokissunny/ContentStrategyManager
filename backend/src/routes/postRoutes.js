@@ -19,6 +19,8 @@ const {
   applyThemeImage,
   removeTheme,
   getPreTheme,
+  mapThemeRegions,
+  editThemeRegion,
   refinePost,
   addSlideToPost,
   getPostProject,
@@ -44,6 +46,8 @@ router.post('/:id/slide/:slideIndex/layout-variations', asyncHandler(rerunSlideL
 router.post('/:id/theme-image', asyncHandler(applyThemeImage));
 router.post('/:id/remove-theme', asyncHandler(removeTheme));
 router.get('/:id/pre-theme', asyncHandler(getPreTheme));
+router.post('/:id/slide/:slideIndex/theme-regions', asyncHandler(mapThemeRegions));
+router.post('/:id/slide/:slideIndex/theme-region', asyncHandler(editThemeRegion));
 router.post('/:id/refine', asyncHandler(refinePost));
 router.post('/:id/slides', asyncHandler(addSlideToPost));
 router.get('/:id/project', asyncHandler(getPostProject));

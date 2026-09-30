@@ -26,6 +26,8 @@ import {
   runPostLayout,
   applyThemeImage,
   getPreTheme,
+  mapThemeRegions,
+  editThemeRegion,
   removeTheme as apiRemoveTheme,
   runSlideLayoutVariations as apiRunSlideLayoutVariations,
   refinePost,
@@ -1195,6 +1197,8 @@ function slideRecord(s, extra = {}) {
     role: s.role || '',
     colorSet: s.colorSet || '',
     colorSetAt: Number(s.colorSetAt) || 0,
+    // a Theme Apply render's click regions travel with its picture key
+    ...(s.themeRegions ? { themeRegions: s.themeRegions } : {}),
     ground: s.ground || '',
     logoMark: s.logoMark || '',
     structure: s.structure || '',
@@ -5371,6 +5375,101 @@ export default function WeekView({
       : (visEdit === 'layout' && draftOpt)
         ? Boolean(themeDirectionOf(draftOpt))
         : slideIsThemed(previewSlide);
+
+  /* ── Theme Apply render, edited by region ─────────────────────────────
+   * A themed slide is one picture. Its regions (where each text block and the
+   * photo sit — slide.themeRegions, mapped by the backend on the render) become
+   * click targets in Editor mode; a click opens the side panel: text → new
+   * words + Regenerate (re-letters only that area), picture → another photo
+   * (pasted in) or Regenerate (repaints only that area). */
+  const activeThemed = /^themed-image/.test(String(activeSlide?.layoutTheme || ''));
+  const themedKey = activeThemed ? (keysOf(activeSlide).find((k) => /\/themed-/.test(k)) || '') : '';
+  const [rgnMap, setRgnMap] = useState(null);
+  const [rgnLoading, setRgnLoading] = useState(false);
+  const [rgnPick, setRgnPick] = useState('');
+  const [rgnText, setRgnText] = useState('');
+  const [rgnBrief, setRgnBrief] = useState('');
+  const [rgnBusy, setRgnBusy] = useState('');
+  const [rgnErr, setRgnErr] = useState('');
+  const rgnFileRef = useRef(null);
+  useEffect(() => { setRgnPick(''); setRgnErr(''); setRgnBrief(''); }, [safeIdx, selected]);
+  useEffect(() => {
+    if (!activeThemed || !themedKey) { setRgnMap(null); return undefined; }
+    const saved = activeSlide?.themeRegions;
+    if (saved?.key === themedKey) { setRgnMap(saved); return undefined; }
+    let alive = true;
+    setRgnMap(null);
+    setRgnLoading(true);
+    mapThemeRegions(postIdAt(selected), safeIdx + 1)
+      .then((d) => {
+        if (!alive) return;
+        if (d?.regions) setRgnMap(d.regions);
+        if (d?.post) { const r = mergePost(d.post); if (r) { setRoute(r); onRouteChange?.(r); } }
+      })
+      .catch((err) => { if (alive) setRgnErr(err?.response?.data?.message || 'Could not find the text and picture on this slide.'); })
+      .finally(() => { if (alive) setRgnLoading(false); });
+    return () => { alive = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeThemed, themedKey, safeIdx, selected]);
+  const rgnRegion = rgnPick && rgnMap
+    ? ((rgnMap.texts || []).find((t) => t.id === rgnPick) || (rgnMap.images || []).find((t) => t.id === rgnPick) || null)
+    : null;
+  const rgnIsText = Boolean(rgnRegion && (rgnMap?.texts || []).some((t) => t.id === rgnRegion.id));
+  const regionEditing = Boolean(postEdit && activeThemed && rgnRegion && !visEdit);
+  const regionsOn = Boolean(postEdit && activeThemed && rgnMap && !visEdit && !layoutBusy);
+  // the post preview (outside Editor mode): the same targets; a click opens
+  // Editor mode with that text / picture already in the side panel
+  const previewRegionsOn = Boolean(!postEdit && activeThemed && rgnMap && !visEdit && !layoutBusy && !slideEditMode);
+  function pickRegion(r, isText) {
+    setRgnPick(r.id);
+    setRgnErr('');
+    setRgnText(isText ? r.text : '');
+    setRgnBrief('');
+  }
+  async function runRegionEdit(body) {
+    if (!rgnRegion || rgnBusy) return;
+    setRgnBusy(body.action);
+    setRgnErr('');
+    try {
+      const d = await editThemeRegion(postIdAt(selected), safeIdx + 1, { regionId: rgnRegion.id, ...body });
+      if (d?.key && d?.src) rememberImage(d.key, d.src, { skipGen: true });
+      if (d?.regions) setRgnMap(d.regions);
+      if (d?.post) {
+        const r = mergePost(d.post);
+        if (r) { setRoute(r); onRouteChange?.(r); setSlideGen((g) => g + 1); }
+        // a Regenerate is saved on the spot — Editor mode's Cancel must not
+        // put the slide back to the picture it had when the Editor opened
+        const snap = editSnapRef.current;
+        if (snap && snap.dayIndex === selected && Array.isArray(snap.slides) && snap.slides[safeIdx]) {
+          const fresh = deriveSlides(d.post)[safeIdx];
+          if (fresh) {
+            snap.slides[safeIdx] = JSON.parse(JSON.stringify(fresh));
+            snap.docHtml = carouselDocumentOf(d.post);
+          }
+        }
+      }
+      if (body.action === 'text' && body.text) setRgnText(body.text);
+    } catch (err) {
+      setRgnErr(err?.response?.data?.message || err?.message || 'Could not change that part of the slide.');
+    } finally {
+      setRgnBusy('');
+    }
+  }
+  async function uploadRegionPhoto(file) {
+    if (!file?.type?.startsWith('image/')) return;
+    setRgnBusy('photo');
+    setRgnErr('');
+    try {
+      const up = await uploadFiles([file]);
+      const key = up?.[0]?.key;
+      if (!key) throw new Error('Could not upload that photo.');
+      setRgnBusy('');
+      await runRegionEdit({ action: 'photo', photoKey: key });
+    } catch (err) {
+      setRgnErr(err?.message || 'Could not upload that photo.');
+      setRgnBusy('');
+    }
+  }
   const wordVisual = {
     documentHtml: isManualSlide(activeSlide) || isBlankSlide(activeSlide) ? '' : carouselDocumentOf(day),
     direction: layoutDirectionOf(activeSlide),
@@ -6133,6 +6232,115 @@ export default function WeekView({
       )}
     </>
   );
+  // the themed picture cropped to one region (the image panel's preview)
+  const regionCropStyle = (box, url) => {
+    const w = Math.max(1, box.width);
+    const h = Math.max(1, box.height);
+    return {
+      aspectRatio: `${(w * 4) / (h * 5)}`,
+      backgroundImage: url ? `url("${url}")` : 'none',
+      backgroundSize: `${(100 / w) * 100}% ${(100 / h) * 100}%`,
+      backgroundPosition: `${w >= 100 ? 0 : (box.left / (100 - w)) * 100}% ${h >= 100 ? 0 : (box.top / (100 - h)) * 100}%`,
+    };
+  };
+  const regionPhotos = activeThemed ? keysOf(activeSlide).filter((k) => !/\/themed-/.test(k)) : [];
+  const regionEditorEl = regionEditing ? (
+    <div className="wv-worded wv-rgned" onClick={(e) => e.stopPropagation()}>
+      <div className="wv-worded__head">
+        <button type="button" className="wv-worded__back" onClick={() => setRgnPick('')} aria-label="Back">
+          <Glyph name="arrow-left" size={16} />
+        </button>
+        <span className="wv-worded__title">{rgnIsText ? 'Edit text' : 'Edit picture'}</span>
+      </div>
+      {rgnIsText ? (
+        <div className="wv-rgned__fields">
+          <label className="wv-rgned__label" htmlFor="wv-rgn-text">{String(rgnRegion.role || 'Text').replace(/^./, (c) => c.toUpperCase())}</label>
+          <textarea
+            id="wv-rgn-text"
+            className="wv-rgned__text"
+            value={rgnText}
+            rows={5}
+            autoFocus
+            disabled={Boolean(rgnBusy)}
+            onChange={(e) => setRgnText(e.target.value)}
+          />
+          <button
+            type="button"
+            className="btn btn--primary btn--sm wv-rgned__go"
+            disabled={Boolean(rgnBusy) || !rgnText.trim() || rgnText.trim() === rgnRegion.text}
+            onClick={() => runRegionEdit({ action: 'text', text: rgnText.trim() })}
+          >
+            {rgnBusy === 'text' ? 'Regenerating…' : 'Regenerate'}
+          </button>
+          <p className="wv-rgned__hint">Only this text is redrawn on the picture, in the same lettering. Takes about 20 seconds.</p>
+        </div>
+      ) : (
+        <div className="wv-rgned__fields">
+          <div
+            className="wv-rgned__crop"
+            style={regionCropStyle(rgnRegion.box, urlForKey(themedKey, activeSlide, localMedia, mediaByKey))}
+            role="img"
+            aria-label="The picture on this slide"
+          />
+          {regionPhotos.length > 0 && (
+            <>
+              <span className="wv-rgned__label">Use one of your photos</span>
+              <div className="wv-rgned__photos">
+                {regionPhotos.map((k) => (
+                  <button
+                    key={k}
+                    type="button"
+                    className="wv-rgned__photo"
+                    disabled={Boolean(rgnBusy)}
+                    onClick={() => runRegionEdit({ action: 'photo', photoKey: k })}
+                    aria-label="Put this photo in the picture"
+                  >
+                    <img src={urlForKey(k, activeSlide, localMedia, mediaByKey) || ''} alt="" loading="lazy" />
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
+          <button
+            type="button"
+            className="btn btn--secondary btn--sm wv-rgned__go"
+            disabled={Boolean(rgnBusy)}
+            onClick={() => rgnFileRef.current?.click()}
+          >
+            {rgnBusy === 'photo' ? 'Placing photo…' : 'Upload a photo'}
+          </button>
+          <input
+            ref={rgnFileRef}
+            type="file"
+            accept="image/*"
+            hidden
+            onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; uploadRegionPhoto(f); }}
+          />
+          <span className="wv-rgned__or">or</span>
+          <label className="wv-rgned__label" htmlFor="wv-rgn-brief">Describe a new picture (optional)</label>
+          <textarea
+            id="wv-rgn-brief"
+            className="wv-rgned__text"
+            value={rgnBrief}
+            rows={3}
+            placeholder="e.g. a warm reading corner with a linen armchair"
+            disabled={Boolean(rgnBusy)}
+            onChange={(e) => setRgnBrief(e.target.value)}
+          />
+          <button
+            type="button"
+            className="btn btn--primary btn--sm wv-rgned__go"
+            disabled={Boolean(rgnBusy)}
+            onClick={() => runRegionEdit({ action: 'regenerate', instruction: rgnBrief.trim() })}
+          >
+            {rgnBusy === 'regenerate' ? 'Regenerating…' : 'Regenerate picture'}
+          </button>
+          <p className="wv-rgned__hint">Only the picture's area is redrawn; the rest of the slide stays as it is.</p>
+        </div>
+      )}
+      {rgnErr && <p className="wv-rgned__err" role="alert">{rgnErr}</p>}
+    </div>
+  ) : null;
   const wordsEditorEl = (
     <>
       {wordsEditing && (
@@ -6351,7 +6559,7 @@ export default function WeekView({
           </header>
 
           <div
-            className={`wv-edm__body${compositionEditing || wordsEditing ? ' has-panel' : ''}${askOpen && !visEdit ? ' is-asking' : ''}`}
+            className={`wv-edm__body${compositionEditing || wordsEditing || regionEditing ? ' has-panel' : ''}${askOpen && !visEdit ? ' is-asking' : ''}`}
             onMouseDown={(e) => {
               if (!elemSel) return;
               if (e.target.closest('.wv-edm__tb, .wv-edm__line, .wv-edm__panel, .wv-edm__card.is-on')) return;
@@ -6462,7 +6670,7 @@ export default function WeekView({
                                 : { title: wordDraft.head, subtitle: wordDraft.body })
                               : null}
                             frameRef={layoutFrameRef}
-                            editMode={!visEdit && !layoutBusy && !askBusy}
+                            editMode={!visEdit && !layoutBusy && !askBusy && !activeThemed}
                             editHooks={{
                               patches: elemEdits[safeIdx]?.patches || null,
                               onCommit: commitElemEdits,
@@ -6490,6 +6698,43 @@ export default function WeekView({
                             direction={layoutDirectionOf(slides[i])}
                           />
                         ) : null}
+                        {on && regionsOn && (
+                          <div className="wv-rgn" onPointerDown={(e) => e.stopPropagation()}>
+                            {(rgnMap.images || []).map((r) => (
+                              <button
+                                key={r.id}
+                                type="button"
+                                className={`wv-rgn__box is-img${rgnPick === r.id ? ' is-on' : ''}`}
+                                style={{ left: `${r.box.left}%`, top: `${r.box.top}%`, width: `${r.box.width}%`, height: `${r.box.height}%` }}
+                                aria-label="Edit the picture"
+                                title="Edit the picture"
+                                disabled={Boolean(rgnBusy)}
+                                onClick={(e) => { e.stopPropagation(); pickRegion(r, false); }}
+                              />
+                            ))}
+                            {(rgnMap.texts || []).map((r) => (
+                              <button
+                                key={r.id}
+                                type="button"
+                                className={`wv-rgn__box is-text${rgnPick === r.id ? ' is-on' : ''}`}
+                                style={{ left: `${r.box.left}%`, top: `${r.box.top}%`, width: `${r.box.width}%`, height: `${r.box.height}%` }}
+                                aria-label={`Edit the text: ${r.text}`}
+                                title="Edit this text"
+                                disabled={Boolean(rgnBusy)}
+                                onClick={(e) => { e.stopPropagation(); pickRegion(r, true); }}
+                              />
+                            ))}
+                          </div>
+                        )}
+                        {on && postEdit && activeThemed && rgnLoading && (
+                          <div className="wv-rgn__status" role="status">Finding the text and picture…</div>
+                        )}
+                        {on && rgnBusy && rgnBusy !== 'photo' && (
+                          <div className="wv-ig__laying" role="status" aria-live="polite">
+                            <span className="wv-spin" aria-hidden="true" />
+                            <span>{rgnBusy === 'text' ? 'Redrawing the text…' : 'Redrawing the picture…'}</span>
+                          </div>
+                        )}
                         {on && (layoutBusy || askBusy) && (
                           <div className="wv-ig__laying" role="status" aria-live="polite">
                             <span className="wv-spin" aria-hidden="true" />
@@ -6555,8 +6800,9 @@ export default function WeekView({
               )}
             </section>
 
-            {(compositionEditing || wordsEditing) && (
+            {(compositionEditing || wordsEditing || regionEditing) && (
               <aside className="wv-edm__panel wv-ig">
+                {regionEditorEl}
                 {wordsEditorEl}
                 {layoutEditorEl}
               </aside>
@@ -7443,6 +7689,27 @@ export default function WeekView({
                     ? (themeIdOf(draftOpt) || THEME_ORDER[draftOptIdx] || layoutDirectionOf(previewSlide))
                     : layoutDirectionOf(previewSlide)}
                 />
+                {previewRegionsOn && (
+                  <div className="wv-rgn" onPointerDown={(e) => e.stopPropagation()}>
+                    {[...(rgnMap.images || []).map((r) => [r, false]), ...(rgnMap.texts || []).map((r) => [r, true])].map(([r, isText]) => (
+                      <button
+                        key={r.id}
+                        type="button"
+                        className={`wv-rgn__box ${isText ? 'is-text' : 'is-img'}`}
+                        style={{ left: `${r.box.left}%`, top: `${r.box.top}%`, width: `${r.box.width}%`, height: `${r.box.height}%` }}
+                        aria-label={isText ? `Edit the text: ${r.text}` : 'Edit the picture'}
+                        title={isText ? 'Edit this text' : 'Edit the picture'}
+                        onClick={(e) => { e.stopPropagation(); enterPostEdit(); pickRegion(r, isText); }}
+                      />
+                    ))}
+                  </div>
+                )}
+                {!postEdit && activeThemed && rgnLoading && (
+                  <div className="wv-rgn__status" role="status">Finding the text and picture…</div>
+                )}
+                {!postEdit && activeThemed && !rgnLoading && !rgnMap && rgnErr && (
+                  <div className="wv-rgn__status is-err" role="alert">{rgnErr}</div>
+                )}
                 {slideEditMode && !postEdit && (
                   <div className="wv-editmode-bar" role="status">
                     <span className="wv-editmode-bar__dot" aria-hidden="true" />

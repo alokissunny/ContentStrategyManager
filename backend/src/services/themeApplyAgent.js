@@ -25,6 +25,7 @@ const { uploadBytes, getMediaUrl } = require('./s3Client');
 const { copyFromLayoutHtml } = require('./layoutHtml');
 const { pastePrimaryImage, PLACEHOLDER_HEX } = require('./primaryImage');
 const { checkSlide } = require('./slideCheck');
+const { mapRegions } = require('./themeRegions');
 
 const PROMPT_PATH = path.join(__dirname, '..', '..', 'prompts', 'theme-apply-render.md');
 let promptCache = '';
@@ -305,6 +306,10 @@ async function applyThemeToSlide({ slideIndex, slide = {}, userId, reference, sn
   const key = `projects/${userId}/themed-${crypto.randomUUID()}.jpg`;
   await uploadBytes(key, out, 'image/jpeg');
   const src = await getMediaUrl(key).catch(() => '');
+  // where each text block and the photo sit — makes the picture editable by
+  // region in the editor (null when the map could not be made; the editor
+  // maps it on demand then)
+  const regions = await mapRegions({ buffer: out, lines, photoBox: placed?.found ? placed.box : null, key });
 
   // every render plus every quality check
   const usage = [...renders.map((r) => ({ ...(r.usage || {}), estimatedCostUsd: r.estimatedCostUsd })), ...checks.map((c) => c.usage)]
@@ -323,6 +328,8 @@ async function applyThemeToSlide({ slideIndex, slide = {}, userId, reference, sn
     textLines: lines,
     brandColors: palette,
     brandFonts: faces,
+    regions: regions ? { key, texts: regions.texts, images: regions.images } : null,
+    regionsDebug: regions?.debug ? { ...regions.debug, model: regions.model, usage: regions.usage } : null,
     primaryImage: photo?.buffer ? { kept: Boolean(placed?.found), box: placed?.box || null, renders: renders.length } : null,
     check: checks.length ? { runs: checks.length, firstProblems: checks[0].problems, problems: lastCheck.problems } : null,
     usage,

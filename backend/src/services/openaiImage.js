@@ -251,7 +251,7 @@ async function editImage({ buffer, mediaType, prompt, quality } = {}) {
  *   size?: string, quality?: string }} p
  * @returns {Promise<{ buffer, mimeType, model, elapsedMs, size, estimatedCostUsd }>}
  */
-async function composeImage({ images, prompt, size, quality, model: wanted } = {}) {
+async function composeImage({ images, prompt, size, quality, model: wanted, mask = null } = {}) {
   const text = String(prompt || '').trim();
   if (!text) throw new Error('A prompt is required to compose an image.');
   const list = (Array.isArray(images) ? images : []).filter((im) => im?.buffer?.length).slice(0, 16);
@@ -267,13 +267,19 @@ async function composeImage({ images, prompt, size, quality, model: wanted } = {
     const ext = type.includes('png') ? 'png' : (type.includes('webp') ? 'webp' : 'jpg');
     return toFile(im.buffer, `${im.name || `input-${i + 1}`}.${ext}`, { type });
   }));
+  // an edit mask (PNG, transparent where the model may paint) — region edits;
+  // a model that refuses masks gets the same request without it (the caller
+  // composites the region back regardless)
+  const maskFile = () => (mask?.buffer ? toFile(mask.buffer, 'mask.png', { type: 'image/png' }) : null);
   const started = Date.now();
   let response;
   try {
+    const m = await maskFile();
     response = await client.images.edit(
       {
         model,
         image: await filesOf(),
+        ...(m ? { mask: m } : {}),
         prompt: text,
         size: s,
         quality: q,

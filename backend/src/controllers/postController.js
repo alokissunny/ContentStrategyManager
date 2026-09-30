@@ -610,6 +610,7 @@ function mergeSlides(incomingSlides, prevSlides) {
       role: String(s.role || ''),
       colorSet: String(s.colorSet ?? p.colorSet ?? ''),
       colorSetAt: Number(s.colorSetAt ?? p.colorSetAt ?? 0) || 0,
+      themeRegions: s.themeRegions ?? p.themeRegions ?? null,
       ground: String(s.ground ?? p.ground ?? ''),
       logoMark: String(s.logoMark ?? p.logoMark ?? ''),
       title: String(s.title || ''),
@@ -1386,6 +1387,219 @@ const preThemeSlide = (sl) => Object.fromEntries(PRE_THEME_FIELDS.filter((k) => 
 // every slide, or only `slideIndex` (its original article moves back into the
 // carousel document in a section of its own, like Themes › This slide).
 // 409 { needsRegenerate } when the post was themed before snapshots existed.
+// ── Theme Apply renders, edited by region ───────────────────────────────────
+// A picture the AI debug panel shows (the input a model saw, its raw output) —
+// uploaded only when the panel asked for prompts.
+async function debugImage(buffer, userId, label) {
+  if (!buffer?.length) return null;
+  try {
+    const key = `projects/${userId}/debug/${require('crypto').randomUUID()}.jpg`;
+    const jpeg = await require('sharp')(buffer).jpeg({ quality: 85 }).toBuffer();
+    await uploadBytes(key, jpeg, 'image/jpeg');
+    return { label, key, kb: Math.round(jpeg.length / 1024) };
+  } catch (err) {
+    console.warn(`[posts] debug image not stored: ${err.message}`);
+    return null;
+  }
+}
+// the region map's debug row (Theme Apply and the on-demand map)
+async function regionMapDebugEntry(dbg, userId, idx) {
+  if (!dbg) return null;
+  return {
+    source: `Region map (Haiku) · slide ${idx}`,
+    model: dbg.model || '',
+    prompt: dbg.prompt,
+    output: dbg.output,
+    elapsedMs: Number(dbg.usage?.elapsedMs) || 0,
+    usage: dbg.usage || null,
+    ...(dbg.usage || {}),
+    inputImage: await debugImage(dbg.inputImage, userId, 'Slide with the numbered line boxes the model saw'),
+  };
+}
+
+// A themed slide is one picture; `themeRegions` (services/themeRegions) says
+// where its text blocks and photo sit, so the editor can change one of them.
+function themedSlideAt(record, slideParam) {
+  const stored = Array.isArray(record?.content?.slides) ? record.content.slides.map((s) => plainOf(s)) : [];
+  const idx = Number(slideParam) || 0;
+  const slide = stored[idx - 1];
+  if (!slide) return { error: [404, 'Slide not found on this post.'] };
+  if (!isThemedSlide(slide)) return { error: [400, 'This slide has no applied theme to edit.'] };
+  const keys = [...(Array.isArray(slide.assetKeys) ? slide.assetKeys : []), slide.assetKey].map((k) => String(k || '')).filter(Boolean);
+  const lead = keys.find((k) => /\/themed-/.test(k)) || '';
+  if (!lead) return { error: [409, 'The themed picture for this slide is missing — apply the theme again.'] };
+  return { stored, idx, slide, lead, photos: [...new Set(keys.filter((k) => k !== lead && !/\/themed-/.test(k)))] };
+}
+
+// the render's copy + photo box as the Theme Apply run recorded them
+function themeRunFor(record, idx, key) {
+  const runs = Array.isArray(record?.agentTrace?.themeApply) ? record.agentTrace.themeApply : [];
+  for (let r = runs.length - 1; r >= 0; r -= 1) {
+    const hit = (Array.isArray(runs[r]?.slides) ? runs[r].slides : []).find((s) => s.index === idx && (!key || s.key === key));
+    if (hit) return hit;
+  }
+  return null;
+}
+
+// POST /posts/:id/slide/:slideIndex/theme-regions — map (or return) the regions
+// of the slide's current themed render. Body: { force? }
+async function mapThemeRegions(req, res) {
+  const record = await PlannedPost.findOne({ _id: req.params.id, user: req.user._id });
+  if (!record) return res.status(404).json({ message: 'Post not found' });
+  const at = themedSlideAt(record, req.params.slideIndex);
+  if (at.error) return res.status(at.error[0]).json({ message: at.error[1] });
+  const { idx, slide, lead } = at;
+  if (slide.themeRegions?.key === lead && !req.body?.force) return res.json({ regions: slide.themeRegions });
+  const { mapRegions } = require('../services/themeRegions');
+  const run = themeRunFor(record, idx, lead) || themeRunFor(record, idx, '');
+  const lines = Array.isArray(run?.textLines) && run.textLines.length
+    ? run.textLines
+    : [['Headline', slide.title], ['Supporting text', slide.subtitle], ['Body', slide.body]]
+      .filter(([, t]) => String(t || '').trim()).map(([role, text]) => ({ role, text: String(text).trim() }));
+  let bytes;
+  try {
+    bytes = (await getObjectBytes(lead)).buffer;
+  } catch (err) {
+    return res.status(502).json({ message: `Could not read the themed picture (${err.message}).` });
+  }
+  // region edits never move the photo frame, so the latest Theme Apply run's
+  // photo box still holds for a render edited since
+  const mapped = await mapRegions({ buffer: bytes, lines, photoBox: run?.primaryImage?.box || null, key: lead });
+  if (!mapped) return res.status(502).json({ message: 'Could not find the text and picture on this slide — try again.' });
+  const regions = { key: lead, texts: mapped.texts, images: mapped.images };
+  record.content.slides[idx - 1].themeRegions = regions;
+  record.markModified('content');
+  await record.save();
+  const debug = wantsPromptDebug(req) ? {
+    mode: 'theme-regions',
+    elapsedMs: Number(mapped.usage?.elapsedMs) || 0,
+    usage: mapped.usage,
+    agents: [await regionMapDebugEntry({ ...mapped.debug, model: mapped.model, usage: mapped.usage }, req.user._id, idx)].filter(Boolean),
+  } : null;
+  return res.json({ regions, post: record, ...(debug ? { debug } : {}) });
+}
+
+// POST /posts/:id/slide/:slideIndex/theme-region — change one region of the
+// themed render. Body: { regionId, action: 'text' | 'regenerate' | 'photo',
+// text? (action text), instruction? (regenerate), photoKey? (photo) }
+async function editThemeRegion(req, res) {
+  const record = await PlannedPost.findOne({ _id: req.params.id, user: req.user._id });
+  if (!record) return res.status(404).json({ message: 'Post not found' });
+  const at = themedSlideAt(record, req.params.slideIndex);
+  if (at.error) return res.status(at.error[0]).json({ message: at.error[1] });
+  const { idx, slide, lead, photos } = at;
+  const regions = slide.themeRegions;
+  if (!regions || regions.key !== lead) return res.status(409).json({ needsMap: true, message: 'Map the slide\'s regions first.' });
+  const regionId = String(req.body?.regionId || '');
+  const action = String(req.body?.action || '');
+  const textRegion = (regions.texts || []).find((t) => t.id === regionId);
+  const imageRegion = (regions.images || []).find((t) => t.id === regionId);
+  const region = textRegion || imageRegion;
+  if (!region) return res.status(404).json({ message: 'That part of the slide was not found.' });
+  const own = `projects/${req.user._id}/`;
+  const { editText, regenImage, placePhoto } = require('../services/themeRegions');
+  let result;
+  let newText = '';
+  let photoKey = '';
+  try {
+    const base = (await getObjectBytes(lead)).buffer;
+    if (action === 'text' && textRegion) {
+      newText = String(req.body?.text || '').trim().slice(0, 400);
+      if (!newText) return res.status(400).json({ message: 'Write the new text first.' });
+      if (newText === textRegion.text) return res.status(400).json({ message: 'The text is unchanged.' });
+      result = await editText({ buffer: base, region: textRegion, text: newText });
+    } else if (action === 'photo' && imageRegion) {
+      photoKey = String(req.body?.photoKey || '');
+      if (!photoKey.startsWith(own)) return res.status(400).json({ message: 'Choose one of your own photos.' });
+      const photo = (await getObjectBytes(photoKey)).buffer;
+      result = await placePhoto({ buffer: base, region: imageRegion, photo });
+    } else if (action === 'regenerate' && imageRegion) {
+      if (!isImageGenConfigured()) return res.status(503).json({ message: 'Image generation is not configured.' });
+      result = await regenImage({ buffer: base, region: imageRegion, instruction: String(req.body?.instruction || '').slice(0, 400) });
+    } else {
+      return res.status(400).json({ message: 'That change is not available for this part of the slide.' });
+    }
+  } catch (err) {
+    console.error(`[posts] ThemeRegion:${req.params.id}#${idx} ${action} failed:`, err.message);
+    return res.status(502).json({ message: err.message || 'Could not change that part of the slide.' });
+  }
+
+  const key = `${own}themed-${require('crypto').randomUUID()}.jpg`;
+  await uploadBytes(key, result.buffer, 'image/jpeg');
+  const src = await getMediaUrl(key).catch(() => '');
+  // the carousel document's <img> for this slide now points at the new render
+  const swapKey = (html) => String(html || '').replace(/<img\b[^>]*>/gi, (tag) => (tag.includes(`"${lead}"`)
+    ? tag.split(lead).join(key).replace(/\ssrc\s*=\s*"[^"]*"/i, '')
+    : tag));
+  const current = plainOf(record.content) || {};
+  const nextRegions = {
+    ...regions,
+    key,
+    texts: (regions.texts || []).map((t) => (t.id === regionId && newText ? { ...t, text: newText } : t)),
+  };
+  const was = slide;
+  const swapText = (v) => (newText && typeof v === 'string' && textRegion?.text && v.includes(textRegion.text) ? v.split(textRegion.text).join(newText) : v);
+  const nextPhotos = photoKey ? [photoKey, ...photos.filter((k) => k !== photoKey)] : photos;
+  record.content.slides[idx - 1] = {
+    ...was,
+    title: swapText(was.title),
+    subtitle: swapText(was.subtitle),
+    body: swapText(was.body),
+    assetKey: key,
+    assetKeys: [key, ...nextPhotos],
+    themeRegions: nextRegions,
+  };
+  record.content.carouselHtml = swapKey(current.carouselHtml);
+  const trace = record.agentTrace && typeof record.agentTrace === 'object' ? plainOf(record.agentTrace) : {};
+  record.agentTrace = {
+    ...trace,
+    layout: trace.layout ? { ...trace.layout, html: swapKey(trace.layout.html) } : trace.layout,
+    carousel: trace.carousel ? { ...trace.carousel, html: swapKey(trace.carousel.html) } : trace.carousel,
+    themeRegionEdits: [
+      ...(Array.isArray(trace.themeRegionEdits) ? trace.themeRegionEdits : []).slice(-29),
+      { at: new Date().toISOString(), index: idx, regionId, action, from: lead, key, text: newText || undefined, photoKey: photoKey || undefined, model: result.model || '', usage: result.usage || null },
+    ],
+  };
+  record.markModified('content');
+  record.markModified('agentTrace');
+  await record.save();
+  console.log(`[posts] ThemeRegion:${req.params.id}#${idx} ${action} ${regionId} → ${key}`);
+  let debug = null;
+  if (wantsPromptDebug(req)) {
+    const d = result.debug || {};
+    const what = action === 'text'
+      ? `Text region ${regionId} (${textRegion.role}): ${JSON.stringify(textRegion.text)} → ${JSON.stringify(newText)}`
+      : action === 'photo'
+        ? `Picture region ${regionId}: photo ${photoKey} fitted in`
+        : `Picture region ${regionId} regenerated${req.body?.instruction ? `: ${String(req.body.instruction).slice(0, 400)}` : ' (fresh variation)'}`;
+    const boxLine = `Region (percent of the slide): ${JSON.stringify(region.box)}${d.region ? ` · kept area (px): ${JSON.stringify(d.region)}` : ''}${d.size ? ` · model size ${d.size}` : ''}`;
+    const agents = [];
+    if (action !== 'photo') {
+      agents.push({
+        source: `Region edit (image model) · slide ${idx} · ${action}`,
+        model: result.model || '',
+        prompt: `${d.prompt || ''}\n\nInput images: 1. the slide as it is · mask: transparent over the region`,
+        output: `${what}\n${boxLine}\nThe model's own picture is below; only the region is kept from it.`,
+        elapsedMs: Number(result.usage?.elapsedMs) || 0,
+        usage: result.usage || null,
+        ...(result.usage || {}),
+        inputImage: { label: 'Slide before the edit', key: lead },
+        outputImage: await debugImage(d.raw, req.user._id, 'Image model output (before keeping only the region)'),
+      });
+    }
+    agents.push({
+      source: `Region edit result · slide ${idx}`,
+      model: action === 'photo' ? 'sharp (no model)' : 'composite',
+      prompt: action === 'photo' ? d.prompt : 'The region from the model\'s picture, pasted back into the original slide with a soft edge.',
+      output: `${what}\n${boxLine}\nSaved as ${key}`,
+      inputImage: action === 'photo' ? { label: 'Photo put in', key: photoKey } : { label: 'Slide before the edit', key: lead },
+      outputImage: { label: 'Slide after the edit', key },
+    });
+    debug = { mode: 'theme-region', elapsedMs: Number(result.usage?.elapsedMs) || 0, usage: result.usage || null, instruction: what, agents };
+  }
+  return res.json({ post: record, key, src, regions: nextRegions, usage: result.usage || null, ...(debug ? { debug } : {}) });
+}
+
 // GET /posts/:id/pre-theme — the carousel agent's design as it was before the
 // first Theme Apply (agentTrace.preTheme). A re-theme renders the BASE slide
 // from it and sends that as Image 1, never the previous themed render.
@@ -1604,12 +1818,16 @@ async function applyThemeImage(req, res) {
     totalTokens: acc.totalTokens + (Number(u.totalTokens) || 0),
     estimatedCostUsd: acc.estimatedCostUsd + (Number(u.estimatedCostUsd) || 0),
   }), { inputTokens: 0, outputTokens: 0, totalTokens: 0, estimatedCostUsd: 0 });
+  const regionRows = wantsPromptDebug(req)
+    ? (await Promise.all(done.map((i) => regionMapDebugEntry(results[i].regionsDebug, req.user._id, i)))).filter(Boolean)
+    : [];
   const debugOf = () => (wantsPromptDebug(req) ? {
     debug: {
       mode: 'theme-apply',
       elapsedMs: Date.now() - runStarted,
       usage: runUsage,
       agents: [
+        ...regionRows,
         ...done.map((i) => ({
           ...results[i].debugEntry,
           usage: results[i].usage,
@@ -1668,6 +1886,7 @@ async function applyThemeImage(req, res) {
         layoutOptions: [],
         assetKey: key,
         assetKeys: [key, ...photoKeysOf(was)],
+        themeRegions: results[i].regions || null,
       };
     });
     // the carousel agent's design, kept for Themes › Remove theme: taken when
@@ -1928,5 +2147,7 @@ module.exports = {
   applyThemeImage,
   removeTheme,
   getPreTheme,
+  mapThemeRegions,
+  editThemeRegion,
   renderCover,
 };
