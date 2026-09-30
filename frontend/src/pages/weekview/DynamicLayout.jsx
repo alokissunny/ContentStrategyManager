@@ -1,10 +1,11 @@
-import { useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   prepareLayoutHtml,
   repairStrandedOffsets,
   buildSlideFrameDocument,
   applyThemeToCarouselDocument,
   applyBrandFonts,
+  findCarouselSlide,
   isCarouselDocument,
   cropIframeToCarouselSlide,
   paintCarouselSlideImages,
@@ -517,6 +518,36 @@ export default function DynamicLayout({
     if (frameRef) frameRef.current = canvasRef.current;
   });
 
+  // Image loader: shown over the slide from the moment it is (re)drawn until
+  // the photos it should show have a src and have loaded — a themed render or a
+  // large photo otherwise leaves a blank card for a while. Polled (cheap) so it
+  // also covers the src the crop pass sets later; gives up after 15s.
+  const [loading, setLoading] = useState(Boolean(page));
+  useEffect(() => {
+    if (!page) { setLoading(false); return undefined; }
+    setLoading(true);
+    const started = Date.now();
+    const check = () => {
+      const doc = canvasRef.current?.contentDocument;
+      if (!doc?.body) return false;
+      const root = useDocument ? findCarouselSlide(doc, direction, slideIndex) : doc.body;
+      if (!root) return false;
+      const slots = [...root.querySelectorAll('img[data-slot="image"]')];
+      const withSrc = slots.filter((img) => img.getAttribute('src'));
+      // the crop pass has not put this slide's photos in yet
+      if (withSrc.length < Math.min(urls.length, slots.length)) return false;
+      return withSrc.every((img) => img.complete);
+    };
+    const t = window.setInterval(() => {
+      if (check() || Date.now() - started > 15000) {
+        window.clearInterval(t);
+        setLoading(false);
+      }
+    }, 120);
+    return () => window.clearInterval(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [page, useDocument, direction, slideIndex, urlKey]);
+
   const applyDraftCopy = (frame) => {
     const draft = copyRef.current;
     if (!frame || !draft) return;
@@ -714,6 +745,11 @@ export default function DynamicLayout({
           title="Slide layout"
           sandbox={useDocument ? 'allow-same-origin allow-scripts' : 'allow-same-origin'}
         />
+        {loading && (
+          <div className="wv-dynlay__loading" role="status" aria-label="Loading slide">
+            <span className="wv-spin" aria-hidden="true" />
+          </div>
+        )}
       </div>
     );
   }
