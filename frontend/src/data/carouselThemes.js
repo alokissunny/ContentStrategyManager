@@ -10,11 +10,6 @@ export const CAROUSEL_THEMES = [
     thumb: '/carousel-themes/single/scrapbook-diary.jpg',
   },
   {
-    id: 'editorial-magazine',
-    name: 'Editorial magazine',
-    thumb: '/carousel-themes/single/editorial-magazine.jpg',
-  },
-  {
     id: 'before-process-after',
     name: 'Before → process → after',
     thumb: '/carousel-themes/single/before-process-after.jpg',
@@ -28,11 +23,6 @@ export const CAROUSEL_THEMES = [
     id: 'moodboard-story',
     name: 'Moodboard story',
     thumb: '/carousel-themes/single/moodboard-story.jpg',
-  },
-  {
-    id: 'seamless-panorama',
-    name: 'Seamless panorama',
-    thumb: '/carousel-themes/single/seamless-panorama.jpg',
   },
   {
     id: 'personal-field-notes',

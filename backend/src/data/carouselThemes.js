@@ -29,19 +29,6 @@ const CAROUSEL_THEMES = [
     ].join(' '),
   },
   {
-    id: 'editorial-magazine',
-    image: 'single/editorial-magazine.jpg',
-    typography: "Large high-contrast serif display — Google Font 'Playfair Display' (or 'Bodoni Moda') at 400, tight leading (~0.95), sentence case, set left and big (a third of the slide); tiny serif page number top right; supporting text, when present, in a light sans ('Inter' 300) small. Ground: a full-bleed, tactile, close-cropped photograph (fabric, material, still life) in muted burgundy / ivory / espresso, with calm negative space for the headline.",
-    imageStyle: 'Magazine-grade photography: soft directional daylight, rich but muted tones, shallow depth of field, calm negative space, refined finish. (Finish only: the subject comes from the slide.)',
-    name: 'Editorial magazine',
-    direction: 'editorial-magazine',
-    reference: [
-      'High-end magazine editorial. Large display headlines, generous whitespace,',
-      'asymmetric grids, pull-quote styling, thin rules, and one hero photograph or graphic',
-      'per slide. Serif display + clean sans body. Premium, calm, print-like.',
-    ].join(' '),
-  },
-  {
     id: 'before-process-after',
     image: 'single/before-process-after.jpg',
     typography: "Centred serif headline — Google Font 'DM Serif Display' 400, sentence case, dark ink; directly under it a small letter-spaced caps label ('Inter' 500, tracking ~0.2em, e.g. PROCESS) naming the stage; tiny centred page number at the foot. Ground: one full-bleed, warm, naturally lit interior photograph (work in progress, tidy desk, shelves), headline sitting in the calm upper wall area.",
@@ -84,19 +71,6 @@ const CAROUSEL_THEMES = [
       'Interior moodboard look. Overlapping material swatches, colour chips, fabric and',
       'stone samples, dashed concept frames, sprig/leaf accents and short labels. Collage',
       'energy that stays curated, not chaotic.',
-    ].join(' '),
-  },
-  {
-    id: 'seamless-panorama',
-    image: 'single/seamless-panorama.jpg',
-    typography: "Thin, large serif — Google Font 'Cormorant Garamond' 300 — in white, sentence case, one line at the very top that continues across slides, with a thin arrow (→) pointing to the next slide. Ground: one continuous, richly coloured scene (golden-hour street or landscape) that runs edge to edge and across the frame boundaries.",
-    imageStyle: 'Wide, calm composition with even light and a steady horizon, rich natural colour. (Finish only: the subject comes from the slide.)',
-    name: 'Seamless panorama',
-    direction: 'seamless-panorama',
-    reference: [
-      'Seamless panorama across slides. Shared background, continuous colour fields, or',
-      'aligned elements that feel like one wide canvas cut into 4:5 frames, with strong',
-      'horizontal continuity. Each frame must still be legible on its own.',
     ].join(' '),
   },
   {
@@ -145,9 +119,9 @@ function resolveThemeId(raw, { pillar } = {}) {
   if (hit) return hit.id;
   const lens = String(pillar || '').trim().toLowerCase();
   if (lens === 'credibility') return 'before-process-after';
-  if (lens === 'trust') return 'editorial-magazine';
+  if (lens === 'trust') return 'moodboard-story';
   if (lens === 'discovery') return 'scrapbook-diary';
-  return 'editorial-magazine';
+  return DEFAULT_THEME_ID;
 }
 
 function themeReferenceForPrompt(theme, { hasImage = false } = {}) {
