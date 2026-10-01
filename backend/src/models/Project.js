@@ -108,6 +108,11 @@ const captureSchema = new mongoose.Schema(
     sessionSummary: { type: String, default: '' },
     conversationTurns: { type: [conversationTurnSchema], default: [] },
     stories: { type: [understandingSchema], default: [] },
+    // Captures page: the studio held this capture back from future plans
+    // ("Exclude capture"). Reversible — not a deletion.
+    excluded: { type: Boolean, default: false },
+    // When a plan was last generated from this capture (Captures › Generate plan).
+    usedInPlanAt: { type: Date, default: null },
     createdAt: { type: Date, default: Date.now },
   },
   { _id: true }

@@ -2151,3 +2151,22 @@ textarea.ai-debug__input {
 }
 .ai-debug__img--big img { max-height: 480px; }
 .ai-debug__imgmeta { font-size: 12px; color: var(--ink-500); font-weight: 500; }
+
+/* Captures nav badge — captures ready for a plan (bauhly-v3 .sb__count) */
+.sb__count {
+  margin-left: auto;
+  display: inline-grid;
+  place-items: center;
+  min-width: 19px;
+  height: 19px;
+  padding: 0 5px;
+  border-radius: var(--r-full);
+  background: var(--negative, #d7402b);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+@media (max-width: 1100px) and (min-width: 801px) {
+  .sb__count { display: none; }
+}

@@ -1,3 +1,4 @@
+const mongoose = require('mongoose');
 const PlannedPost = require('../models/PlannedPost');
 const Project = require('../models/Project');
 const InstagramProfile = require('../models/InstagramProfile');
@@ -325,6 +326,15 @@ async function generatePlan(req, res) {
     if (needsInput) out.needsInput = true;
     if (wantsPromptDebug(req) && (debug?.agents?.length || debug?.finalPrompt)) out.debug = debug;
     return res.status(422).json(out);
+  }
+  // Captures page: the captures this plan was written from are now "used".
+  const usedIds = captureIds.filter((id) => mongoose.isValidObjectId(id)).map((id) => new mongoose.Types.ObjectId(id));
+  if (count && usedIds.length) {
+    await Project.updateMany(
+      { user: req.user._id, 'captures._id': { $in: usedIds } },
+      { $set: { 'captures.$[c].usedInPlanAt': new Date() } },
+      { arrayFilters: [{ 'c._id': { $in: usedIds } }] },
+    ).catch((e) => console.error('[posts] could not mark captures used:', e.message));
   }
   const out = {
     posts,

@@ -9,7 +9,7 @@ import ProtectedLayout from './components/ProtectedLayout';
 // not download their JS on first load. Each becomes its own chunk, fetched only
 // when its route is visited.
 const Onboarding = lazy(() => import('./pages/Onboarding'));
-const Projects = lazy(() => import('./pages/Projects'));
+const Captures = lazy(() => import('./pages/Captures'));
 const BrandDna = lazy(() => import('./pages/BrandDna'));
 const LibrarySettings = lazy(() => import('./pages/visuallibrary/LibrarySettings'));
 const CompetitorOverview = lazy(() => import('./pages/CompetitorOverview'));
@@ -40,7 +40,7 @@ export default function App() {
           {/* Your Plans + Weekly route merged into Your Week — keep the old URL
               working for bookmarks and any lingering in-app links */}
           <Route path="/dashboard/content-route" element={<Navigate to="/dashboard" replace />} />
-          <Route path="/dashboard/projects" element={<Projects />} />
+          <Route path="/dashboard/projects" element={<Captures />} />
           <Route path="/dashboard/brand-dna" element={<BrandDna />} />
           {/* The Visual Library page is removed — the Brand Kit (formerly Library
               Settings) is the one surviving surface for the studio's visual

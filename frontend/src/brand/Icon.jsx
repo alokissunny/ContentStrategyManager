@@ -9,6 +9,38 @@
  */
 
 const PATHS = {
+  /* Captures page (bauhly-v3) */
+  grid: (
+    <>
+      <rect x="3.5" y="3.5" width="17" height="17" rx="2.5" />
+      <path d="M9.17 3.5v17M14.83 3.5v17M3.5 9.17h17M3.5 14.83h17" />
+    </>
+  ),
+  folder: (
+    <path d="M3.5 6.5A2 2 0 0 1 5.5 4.5h3.4a2 2 0 0 1 1.5.7l1 1.2h9.1a2 2 0 0 1 2 2v8.1a2 2 0 0 1-2 2H5.5a2 2 0 0 1-2-2Z" />
+  ),
+  'image-find': (
+    <>
+      <path d="M20.5 12.5V7a2.5 2.5 0 0 0-2.5-2.5H6A2.5 2.5 0 0 0 3.5 7v10A2.5 2.5 0 0 0 6 19.5h5.5" />
+      <circle cx="8.5" cy="9.5" r="1.6" />
+      <path d="m4.5 17.5 4.5-4.5 3 3" />
+      <circle cx="17" cy="17" r="3.5" />
+      <path d="m19.6 19.6 2.4 2.4" />
+    </>
+  ),
+  'minus-circle': (
+    <>
+      <circle cx="12" cy="12" r="8.25" />
+      <path d="M8.5 12h7" />
+    </>
+  ),
+  'eye-off': (
+    <>
+      <path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12Z" />
+      <circle cx="12" cy="12" r="3" />
+      <path d="m4 20 16-16" />
+    </>
+  ),
   /* navigation & actions */
   'arrow-right': <path d="M5 12h14m-6-6 6 6-6 6" />,
   'arrow-left': <path d="M19 12H5m6-6-6 6 6 6" />,

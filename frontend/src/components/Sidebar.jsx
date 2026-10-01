@@ -5,12 +5,14 @@ import UserMenu from './UserMenu';
 import { Logo } from '../brand/Logo';
 import { useFeatureFlags } from '../lib/featureFlags';
 import { openCaptureIdea } from '../lib/captureUi';
+import { useProjects } from '../lib/projectsStore';
+import { readyCount } from '../lib/captureStatus';
 
 // Settings / Visual Library / Business memory / accounts live in the profile
 // menu at the foot of the sidebar (bauhly-v3 account panels).
 export const NAV_ITEMS = [
   { to: '/dashboard', label: 'Calendar', icon: 'calendar', exact: true },
-  { to: '/dashboard/projects', label: 'Projects', icon: 'folder' },
+  { to: '/dashboard/projects', label: 'Captures', icon: 'notebook-text' },
 ];
 
 // Nav items that only appear when their experimental feature flag is on.
@@ -28,6 +30,8 @@ export function useNavItems() {
 
 export default function Sidebar() {
   const navItems = useNavItems();
+  // captures waiting for a plan — the badge on the Captures link (bauhly-v3)
+  const ready = readyCount(useProjects({ autoLoad: false }));
   return (
     <aside className="sb">
       {/* Wordmark at the top of the column (bauhly-v3) — desktop hides .apptop */}
@@ -45,6 +49,9 @@ export default function Sidebar() {
             <Glyph name={item.icon} size={18} strokeWidth={1.6} />
             {/* hidden on the tablet rail; `title` keeps the name on hover */}
             <span className="sb__label" title={item.label}>{item.label}</span>
+            {item.to === '/dashboard/projects' && ready > 0 && (
+              <b className="sb__count" aria-label={`${ready} captures ready for a plan`}>{ready}</b>
+            )}
           </NavLink>
         ))}
       </nav>

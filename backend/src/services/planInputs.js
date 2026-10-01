@@ -188,6 +188,8 @@ async function loadProjectAssets(userId, username) {
     const notes = [];
     const assets = [];
     for (const c of capturesNewest) {
+      // held back by the studio on the Captures page — never planned from
+      if (c.excluded) continue;
       const captureAssets = [];
       for (const a of c.attachments || []) {
         if (a.type === 'image' && a.key) {

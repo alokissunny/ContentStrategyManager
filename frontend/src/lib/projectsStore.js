@@ -335,6 +335,17 @@ export async function updateEntry(projectId, entryId, patch) {
   if (patch.attachments !== undefined) payload.attachments = patch.attachments.map((a) => ({ type: a.type, key: a.key }));
   upsert(await api.updateCapture(projectId, entryId, payload));
 }
+/** Captures page › Exclude / Include — hold a session's captures back from
+ *  future plans (reversible; not a deletion). */
+export async function setSessionExcluded(projectId, memberIds, excluded) {
+  const ids = [...new Set((memberIds || []).filter(Boolean))];
+  let project;
+  for (const id of ids) {
+    // eslint-disable-next-line no-await-in-loop
+    project = await api.updateCapture(projectId, id, { excluded: Boolean(excluded) });
+  }
+  if (project) upsert(project);
+}
 export async function deleteEntry(projectId, entryId) {
   upsert(await api.deleteCapture(projectId, entryId));
 }

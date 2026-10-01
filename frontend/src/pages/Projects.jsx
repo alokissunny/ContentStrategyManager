@@ -42,14 +42,14 @@ function genCacheKey() {
     return h ? `${GEN_CACHE_KEY}::${h}` : GEN_CACHE_KEY;
   } catch { return GEN_CACHE_KEY; }
 }
-function readGenCache() {
+export function readGenCache() {
   try {
     const raw = localStorage.getItem(genCacheKey());
     const list = raw ? JSON.parse(raw) : [];
     return Array.isArray(list) ? list : [];
   } catch { return []; }
 }
-function writeGenCache(list) {
+export function writeGenCache(list) {
   try { localStorage.setItem(genCacheKey(), JSON.stringify(list || [])); } catch { /* quota/private mode — cache is best-effort */ }
 }
 import './yourweek.css'; /* the shared .empty brand-moment styles */
@@ -768,7 +768,7 @@ export function EntryPanel({ project, entry, week, regenerating, onClose, onRege
 }
 
 /* ── create / edit a project ───────────────────────────────────────────── */
-function ProjectFormModal({ mode, project, onClose, onSubmit }) {
+export function ProjectFormModal({ mode, project, onClose, onSubmit }) {
   const isEdit = mode === 'edit';
   const [name, setName] = useState(project?.name || '');
   const submit = () => { if (name.trim()) onSubmit(name.trim()); };
@@ -2070,7 +2070,7 @@ function ProjectDetail({ project, projects, onBack }) {
  * account-scoped. Not a project (no notes/analysis) — a flat library the studio
  * can revisit, reuse and prune. A full-page grid + lightbox, matching the
  * project detail view's chrome. */
-function GeneratedFolderView({ images, loading, onBack, onDelete }) {
+export function GeneratedFolderView({ images, loading, onBack, onDelete }) {
   const [light, setLight] = useState(null); // index into images, or null
   const current = light != null ? images[light] : null;
 

@@ -120,6 +120,8 @@ async function serializeCapture(c, { lite = false } = {}) {
       sessionKind: c.sessionKind || '',
       sessionTitle: c.sessionTitle || '',
       sessionSummary: c.sessionSummary || '',
+      excluded: Boolean(c.excluded),
+      usedInPlanAt: c.usedInPlanAt || null,
       attachments,
     };
   }
@@ -140,6 +142,8 @@ async function serializeCapture(c, { lite = false } = {}) {
     conversationTurns: sanitizeConversationTurns(c.conversationTurns),
     understanding,
     stories: storyRows,
+    excluded: Boolean(c.excluded),
+    usedInPlanAt: c.usedInPlanAt || null,
     attachments,
   };
 }
@@ -327,6 +331,7 @@ async function updateCapture(req, res) {
   if (!capture) return res.status(404).json({ message: 'Capture not found' });
 
   if (req.body.text !== undefined) capture.text = String(req.body.text);
+  if (req.body.excluded !== undefined) capture.excluded = Boolean(req.body.excluded);
   if (req.body.sessionTitle !== undefined) capture.sessionTitle = String(req.body.sessionTitle).trim();
   if (req.body.sessionSummary !== undefined) capture.sessionSummary = String(req.body.sessionSummary);
   if (req.body.conversationTurns !== undefined) {
