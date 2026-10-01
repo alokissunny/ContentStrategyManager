@@ -6758,23 +6758,6 @@ export default function WeekView({
                           {visEdit === 'theme' ? 'Preview only · Apply to keep' : 'Preview only · Apply to keep'}
                         </span>
                       ) : null}
-                      {on && (
-                        <button
-                          type="button"
-                          className={`wv-edm__ai${askOpen ? ' is-on' : ''}`}
-                          aria-label={askOpen ? 'Close Ask Bauhly' : 'Ask Bauhly to change this slide'}
-                          aria-expanded={askOpen}
-                          title="Ask Bauhly"
-                          onPointerDown={(e) => e.stopPropagation()}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            if (askOpen) { if (!askBusy) setAskOpen(false); return; }
-                            openAsk();
-                          }}
-                        >
-                          <Icon name="sparkle" size={18} strokeWidth={2} />
-                        </button>
-                      )}
                     </div>
                   )}
                 </EditStack>
