@@ -70,7 +70,7 @@ async function getMe(req, res) {
 }
 
 const DEMO_EMAIL = 'demo@widesignals.com';
-const DEMO_PASSWORD = 'demo-password-1234';
+const DEMO_PASSWORD = 'test123';
 
 async function demoLogin(req, res) {
   let user = await User.findOne({ email: DEMO_EMAIL });

@@ -5,10 +5,15 @@
  * A themed slide is one picture, so a text block can't be styled in place:
  * the panel collects what the studio wants (new words, bold / italic /
  * underline / strike, a colour, a highlight, an alignment, or removing the
- * text) and Apply sends it as ONE region redraw (`action: 'text'` on
- * /theme-region). Marks apply to the words selected in the field, or to the
- * whole text when nothing is selected — except alignment, which is always the
- * whole block.
+ * text) as a HELD change. Nothing is drawn from here: the Editor's chat keeps
+ * the count ("1 change ready") and its Send redraws every held region (bauhly-v3:
+ * `Keep change` is not `Apply`). Marks apply to the words selected in the
+ * field, or to the whole text when nothing is selected — except alignment,
+ * which is always the whole block.
+ *
+ * Controlled: `change` is { text, marks:[{id, words}], remove, asks:[{say, what}] }
+ * or null, and every edit reports the next one through `onChange` (null when
+ * the region is back to what the picture says).
  */
 
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
@@ -39,46 +44,146 @@ const TEXT_ALIGNS = [
 const GROUPS = [TEXT_INKS.map((c) => c.id), TEXT_HILITES.map((c) => c.id), TEXT_ALIGNS.map((a) => a.id)];
 const groupOf = (id) => GROUPS.find((g) => g.includes(id)) || [id];
 
-const styleOf = (ids, palette) => ({
-  fontWeight: ids.includes('bold') ? 800 : undefined,
-  fontStyle: ids.includes('italic') ? 'italic' : undefined,
-  textDecoration: [ids.includes('underline') ? 'underline' : '', ids.includes('strike') ? 'line-through' : '']
-    .filter(Boolean).join(' ') || undefined,
-  color: palette?.[(TEXT_INKS.find((c) => ids.includes(c.id)) || {}).key] || undefined,
-  background: palette?.[(TEXT_HILITES.find((c) => ids.includes(c.id)) || {}).key] || undefined,
+const ALIGN_OF = { alignl: 'left', alignc: 'center', alignr: 'right' };
+const FORM_IDS = TEXT_FORMS.map((f) => f.id);
+
+/* ── The look of the words (bauhly-v3 `spot.runs` + the studio's marks) ──────
+ * A look is { bold, italic, underline, strike, color, highlight }. The region
+ * map read the picture's own (`region.style`, `region.runs`); the studio's marks
+ * are laid over it: a form mark sets its field (`off` = turns it off), a colour
+ * mark sets the palette colour. Order: the block → its runs → whole-text marks
+ * → marks on words, so the last word said wins. */
+const lookOfStyle = (st = {}) => ({
+  bold: Boolean(st.bold),
+  italic: Boolean(st.italic),
+  underline: Boolean(st.underline),
+  strike: Boolean(st.strike),
+  color: st.color || '',
+  highlight: st.highlight || '',
+});
+function applyMark(look, m, palette) {
+  if (FORM_IDS.includes(m.id)) return { ...look, [m.id]: !m.off };
+  const ink = TEXT_INKS.find((c) => c.id === m.id);
+  if (ink) return { ...look, color: m.off ? '' : (palette?.[ink.key] || look.color) };
+  const hl = TEXT_HILITES.find((c) => c.id === m.id);
+  if (hl) return { ...look, highlight: m.off ? '' : (palette?.[hl.key] || look.highlight) };
+  return look;
+}
+const applyRun = (look, r) => {
+  const out = { ...look };
+  ['bold', 'italic', 'underline', 'strike'].forEach((k) => { if (typeof r[k] === 'boolean') out[k] = r[k]; });
+  if (r.color) out.color = r.color;
+  if (r.highlight) out.highlight = r.highlight;
+  return out;
+};
+// every index `words` covers in `text` (first match)
+const rangeOf = (text, words) => {
+  const at = words ? text.indexOf(words) : -1;
+  return at < 0 ? null : [at, at + words.length];
+};
+/** One look per character of `text`. */
+function looksOf(text, region, marks, palette) {
+  const base = lookOfStyle(region.style);
+  const out = Array.from({ length: text.length }, () => ({ ...base }));
+  const over = (range, fn) => { if (range) for (let i = range[0]; i < range[1]; i += 1) out[i] = fn(out[i]); };
+  (region.runs || []).forEach((r) => over(rangeOf(text, r.words), (l) => applyRun(l, r)));
+  marks.filter((m) => !m.words).forEach((m) => over([0, text.length], (l) => applyMark(l, m, palette)));
+  marks.filter((m) => m.words).forEach((m) => over(rangeOf(text, m.words), (l) => applyMark(l, m, palette)));
+  return out;
+}
+/** The look of `words` (or the whole block): what the toolbar shows lit. */
+function lookAt(text, words, region, marks, palette) {
+  const all = looksOf(text, region, marks, palette);
+  const r = words ? rangeOf(text, words) : [0, text.length];
+  const part = r ? all.slice(r[0], r[1]) : all;
+  if (!part.length) return lookOfStyle(region.style);
+  const every = (k) => part.every((l) => l[k]);
+  const one = (k) => (part.every((l) => l[k] === part[0][k]) ? part[0][k] : '');
+  return { bold: every('bold'), italic: every('italic'), underline: every('underline'), strike: every('strike'), color: one('color'), highlight: one('highlight') };
+}
+
+// the picture's own colour, drawn as is — only near-black ink (which would
+// vanish on the dark panel) is shown in the panel's white
+function readableOnDark(hex) {
+  const m = /^#?([0-9a-f]{6})$/i.exec(String(hex || ''));
+  if (!m) return false;
+  const v = parseInt(m[1], 16);
+  const lin = (c) => { const x = c / 255; return x <= 0.03928 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4; };
+  return 0.2126 * lin(v >> 16) + 0.7152 * lin((v >> 8) & 255) + 0.0722 * lin(v & 255) >= 0.03;
+}
+const cssOf = (l, keepMetrics = null) => ({
+  fontWeight: (keepMetrics ? keepMetrics.bold : l.bold) ? 800 : undefined,
+  fontStyle: (keepMetrics ? keepMetrics.italic : l.italic) ? 'italic' : undefined,
+  textDecoration: [l.underline ? 'underline' : '', l.strike ? 'line-through' : ''].filter(Boolean).join(' ') || undefined,
+  color: l.highlight ? (l.color || undefined) : (readableOnDark(l.color) ? l.color : undefined),
+  background: l.highlight || undefined,
+  borderRadius: l.highlight ? 3 : undefined,
 });
 
 /** What a mark asks for, in the words the redraw prompt uses. */
 export function describeMark(m, palette) {
   const ink = TEXT_INKS.find((c) => c.id === m.id);
-  if (ink) return `in the colour ${palette?.[ink.key] || ink.label}`;
+  if (ink) return m.off ? 'back in its original colour' : `in the colour ${palette?.[ink.key] || ink.label}`;
   const hl = TEXT_HILITES.find((c) => c.id === m.id);
-  if (hl) return `with a ${palette?.[hl.key] || hl.label} highlight behind the letters`;
-  return (TEXT_FORMS.find((f) => f.id === m.id) || TEXT_ALIGNS.find((a) => a.id === m.id) || {}).what || m.id;
+  if (hl) return m.off ? 'with no highlight behind the letters' : `with a ${palette?.[hl.key] || hl.label} highlight behind the letters`;
+  const what = (TEXT_FORMS.find((f) => f.id === m.id) || TEXT_ALIGNS.find((a) => a.id === m.id) || {}).what || m.id;
+  return m.off ? `no longer ${what}` : what;
+}
+/** The palette hex a colour mark names ('' for the rest). */
+export function markHex(m, palette) {
+  const c = TEXT_INKS.find((x) => x.id === m.id) || TEXT_HILITES.find((x) => x.id === m.id);
+  return c && !m.off ? palette?.[c.key] || '' : '';
 }
 
-export default function RegionTextPanel({ region, palette = null, busy = false, err = '', onApply, onClose }) {
-  const [text, setText] = useState(region.text || '');
+/** Whether a held change asks for anything at all. */
+export function changeIsLive(change, region) {
+  if (!change) return false;
+  return Boolean(change.remove || change.marks?.length || change.asks?.length
+    || String(change.text ?? region?.text ?? '').trim() !== String(region?.text || '').trim());
+}
+
+export default function RegionTextPanel({ region, palette = null, busy = false, change = null, onChange, onClose }) {
+  const text = change?.text ?? region.text ?? '';
   // [{ id, words }] — words '' = the whole text
-  const [marks, setMarks] = useState([]);
-  const [wipe, setWipe] = useState(false);
+  const marks = change?.marks || [];
+  const wipe = Boolean(change?.remove);
   const [pop, setPop] = useState(null);
   const [sel, setSel] = useState('');
+  const [typing, setTyping] = useState(false);
   const box = useRef(null);
   const field = useRef(null);
+  const mirror = useRef(null);
 
-  useEffect(() => {
-    setText(region.text || '');
-    setMarks([]);
-    setWipe(false);
-    setPop(null);
-    setSel('');
-  }, [region.id, region.text]);
+  useEffect(() => { setPop(null); setSel(''); }, [region.id]);
 
-  const touched = wipe || marks.length > 0 || text.trim() !== String(region.text || '').trim();
-  const isOn = (id) => marks.some((m) => m.id === id && m.words === (groupOf(id) === GROUPS[2] ? '' : sel));
-  const lineIds = marks.filter((m) => !m.words).map((m) => m.id);
-  const runs = marks.filter((m) => m.words);
+  const put = (patch) => {
+    const next = { text, marks, remove: wipe, asks: change?.asks || [], ...patch };
+    onChange?.(changeIsLive(next, region) ? next : null);
+  };
+  const setText = (v) => put({ text: v });
+  const setMarks = (fn) => put({ marks: fn(marks) });
+  const setWipe = (fn) => put({ remove: fn(wipe) });
+  const touched = changeIsLive(change, region);
+  const look = lookAt(text, sel, region, marks, palette);
+  const align = ALIGN_OF[(marks.find((m) => ALIGN_OF[m.id]) || {}).id] || region.style?.align || 'left';
+  const isOn = (id) => {
+    if (FORM_IDS.includes(id)) return Boolean(look[id]);
+    if (ALIGN_OF[id]) return ALIGN_OF[id] === align;
+    return marks.some((m) => m.id === id && m.words === sel);
+  };
+  // the line drawn in the field: one span per run of characters set alike.
+  // While the caret is in it, bold/italic follow the whole block so the
+  // mirror wraps exactly where the textarea does (the reference's `typing`).
+  const looks = looksOf(text, region, marks, palette);
+  const block = lookAt(text, '', region, marks, palette);
+  const spans = [];
+  for (let i = 0, from = 0; i <= looks.length; i += 1) {
+    const same = i < looks.length && JSON.stringify(looks[i]) === JSON.stringify(looks[from]);
+    if (i === looks.length || !same) {
+      if (i > from) spans.push(<span key={from} style={cssOf(looks[from], typing ? block : null)}>{text.slice(from, i)}</span>);
+      from = i;
+    }
+  }
 
   const readSel = () => {
     const el = field.current;
@@ -89,24 +194,25 @@ export default function RegionTextPanel({ region, palette = null, busy = false, 
     setPop(null);
     const words = groupOf(id) === GROUPS[2] ? '' : readSel();
     setMarks((cur) => {
+      if (FORM_IDS.includes(id)) {
+        // flip what the words show now: drop this mark, then add one only if
+        // the picture's own look doesn't already give the flipped state
+        const now = lookAt(text, words, region, cur, palette)[id];
+        const rest = cur.filter((m) => !(m.id === id && m.words === words));
+        if (lookAt(text, words, region, rest, palette)[id] === !now) return rest;
+        return [...rest, { id, words, off: now }];
+      }
+      if (ALIGN_OF[id] && ALIGN_OF[id] === (region.style?.align || 'left')) {
+        return cur.filter((m) => !ALIGN_OF[m.id]);
+      }
       if (cur.some((m) => m.id === id && m.words === words)) return cur.filter((m) => !(m.id === id && m.words === words));
       const group = groupOf(id);
       return [...cur.filter((m) => !(m.words === words && group.includes(m.id))), { id, words }];
     });
   };
   const revert = () => {
-    setText(region.text || '');
-    setMarks([]);
-    setWipe(false);
     setPop(null);
-  };
-  const apply = () => {
-    if (!touched || busy) return;
-    onApply?.({
-      text: text.trim(),
-      remove: wipe,
-      marks: marks.map((m) => ({ ...m, what: describeMark(m, palette) })),
-    });
+    onChange?.(null);
   };
 
   /* placed under the region (over it when the region sits low), centred on
@@ -136,17 +242,22 @@ export default function RegionTextPanel({ region, palette = null, busy = false, 
   }, [region.id, region.box]);
 
   useEffect(() => {
+    // captured on the document so the Editor's own Escape (which would close
+    // the chat) doesn't also run
     const onKey = (e) => {
       if (e.key !== 'Escape') return;
+      e.stopPropagation();
       if (pop) setPop(null);
       else onClose?.();
     };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
+    document.addEventListener('keydown', onKey, true);
+    return () => document.removeEventListener('keydown', onKey, true);
   }, [pop, onClose]);
 
   const label = String(region.role || 'Text').replace(/^./, (c) => c.toUpperCase());
   const swatch = (list) => palette?.[(list.find((c) => isOn(c.id)) || list[0]).key];
+  const inkNow = TEXT_INKS.some((c) => isOn(c.id)) ? swatch(TEXT_INKS) : look.color;
+  const hlNow = TEXT_HILITES.some((c) => isOn(c.id)) ? swatch(TEXT_HILITES) : look.highlight;
 
   return (
     <div
@@ -200,7 +311,7 @@ export default function RegionTextPanel({ region, palette = null, busy = false, 
               onMouseDown={(e) => e.preventDefault()}
               onClick={() => setPop((v) => (v === 'ink' ? null : 'ink'))}
             >
-              <i style={{ background: TEXT_INKS.some((c) => isOn(c.id)) ? swatch(TEXT_INKS) : 'transparent' }} aria-hidden="true" />
+              <i style={{ background: inkNow || 'transparent' }} aria-hidden="true" />
             </button>
             {pop === 'ink' && (
               <span className="wv-sa__pop" role="group" aria-label="Text colour">
@@ -235,7 +346,7 @@ export default function RegionTextPanel({ region, palette = null, busy = false, 
               onClick={() => setPop((v) => (v === 'hl' ? null : 'hl'))}
             >
               <Icon name="format-highlight" size={19} strokeWidth={2.3} />
-              {TEXT_HILITES.some((c) => isOn(c.id)) && <i style={{ background: swatch(TEXT_HILITES) }} aria-hidden="true" />}
+              {hlNow && <i style={{ background: hlNow }} aria-hidden="true" />}
             </button>
             {pop === 'hl' && (
               <span className="wv-sa__pop" role="group" aria-label="Colour behind the words">
@@ -300,49 +411,29 @@ export default function RegionTextPanel({ region, palette = null, busy = false, 
         </button>
       </div>
 
-      <textarea
-        ref={field}
-        className={`wv-sa__field${wipe ? ' is-wiped' : ''}`}
-        value={text}
-        rows={Math.min(5, Math.max(2, Math.ceil(text.length / 38)))}
-        disabled={busy || wipe}
-        aria-label={`${label} text`}
-        style={{
-          ...styleOf(lineIds, palette),
-          textAlign: lineIds.includes('alignc') ? 'center' : (lineIds.includes('alignr') ? 'right' : undefined),
-        }}
-        onChange={(e) => setText(e.target.value)}
-        onSelect={() => setSel(readSel())}
-        onBlur={() => setSel('')}
-        onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) apply(); }}
-      />
-
-      {runs.length > 0 && !wipe && (
-        <ul className="wv-sa__runs">
-          {[...new Set(runs.map((m) => m.words))].map((w) => {
-            const ids = runs.filter((m) => m.words === w).map((m) => m.id);
-            return (
-              <li key={w}>
-                <span style={styleOf(ids, palette)}>{w}</span>
-                <em>{ids.map((id) => describeMark({ id }, null)).join(' · ')}</em>
-              </li>
-            );
-          })}
-        </ul>
-      )}
-
-      {(touched || err) && (
-        <div className="wv-sa__foot">
-          <span className={`wv-sa__hint${err ? ' is-err' : ''}`} role={err ? 'alert' : undefined}>
-            {err || (wipe ? 'The text is taken off and the background filled in.' : 'Redrawn on the picture in the same lettering · ~20s')}
-          </span>
-          {touched && (
-            <button type="button" className="wv-sa__go" disabled={busy} onClick={apply}>
-              {busy ? 'Redrawing…' : 'Apply'}
-            </button>
-          )}
+      <div className={`wv-sa__fieldwrap${wipe ? ' is-wiped' : ''}`} style={{ textAlign: align }}>
+        {/* the words as the picture sets them, under a see-through textarea */}
+        <div ref={mirror} className="wv-sa__mirror" aria-hidden="true">
+          {spans}
+          {'\u200b'}
         </div>
-      )}
+        <textarea
+          ref={field}
+          className="wv-sa__field"
+          value={text}
+          disabled={busy || wipe}
+          aria-label={`${label} text`}
+          spellCheck={false}
+          style={{ fontWeight: block.bold ? 800 : undefined, fontStyle: block.italic ? 'italic' : undefined, textAlign: align }}
+          onChange={(e) => setText(e.target.value)}
+          onSelect={() => setSel(readSel())}
+          onFocus={() => setTyping(true)}
+          onBlur={() => { setSel(''); setTyping(false); }}
+          onScroll={(e) => { if (mirror.current) mirror.current.scrollTop = e.currentTarget.scrollTop; }}
+        />
+      </div>
+
+      {wipe && <p className="wv-sa__hint">The text comes off and the background is filled in when you send.</p>}
     </div>
   );
 }

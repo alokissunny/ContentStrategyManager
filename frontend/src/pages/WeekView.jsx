@@ -11,7 +11,7 @@ import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import Glyph from '../components/Glyph';
 import Icon from '../brand/Icon';
-import RegionTextPanel from './weekview/RegionTextPanel';
+import RegionTextPanel, { changeIsLive, describeMark, markHex } from './weekview/RegionTextPanel';
 import YourAnalysisModal from '../components/YourAnalysisModal';
 import ConnectMetaModal from '../components/ConnectMetaModal';
 import LinkedInPublisher from '../components/LinkedInPublisher';
@@ -2243,6 +2243,14 @@ function carouselDocumentOf(day) {
 // room under the header). Every press goes to the edit engine (`run`).
 // `onAsk` opens the prompt band about this element (bauhly-v3: the selection's
 // own AI door); `asking` = the band is already about it, so the door stands down.
+// the chat's suggestions on a Theme Apply text block (bauhly-v3 ShotSpots TEXT_TRIES)
+const REGION_TRIES = [
+  { say: 'Make it shorter', what: 'shortened' },
+  { say: 'Make it simpler', what: 'simplified' },
+  { say: 'Sound more like me', what: 'rewritten in your voice' },
+  { say: 'Say more about it', what: 'expanded' },
+];
+
 function ElementBar({ sel, menu, setMenu, run, swatches, onAsk, asking, onImage }) {
   const barRef = useRef(null);
   const [w, setW] = useState(0);
@@ -5397,7 +5405,9 @@ export default function WeekView({
   useEffect(() => {
     if (!postEdit || !activeThemed || !themedKey) { setRgnMap(null); return undefined; }
     const saved = activeSlide?.themeRegions;
-    if (saved?.key === themedKey) { setRgnMap(saved); return undefined; }
+    // v2 maps carry each block's style (how the picture sets it); older ones
+    // are read again so the text panel can show it
+    if (saved?.key === themedKey && (Number(saved.v) || 1) >= 3) { setRgnMap(saved); return undefined; }
     let alive = true;
     setRgnMap(null);
     setRgnLoading(true);
@@ -5429,6 +5439,111 @@ export default function WeekView({
     setRgnErr('');
     setRgnText(isText ? r.text : '');
     setRgnBrief('');
+    // a text block is refined through the chat (bauhly-v3 ShotSpots): its
+    // suggestions and the held-changes badge live in the composer
+    if (isText) { setAskPath([]); setAskDraft(''); setAskMsg(null); setAskOpen(true); }
+  }
+
+  /* ── Held region changes (bauhly-v3 `shotHeld`) ─────────────────────────
+   * The floating text panel and the chat's suggestions only HOLD a change;
+   * the chat's Send redraws every held region, one after another. Keyed
+   * `${slideIdx}:${regionId}` so changes on several slides wait together. */
+  const [rgnHeld, setRgnHeld] = useState({});
+  const [rgnList, setRgnList] = useState(false);
+  const [rgnSending, setRgnSending] = useState('');
+  useEffect(() => { setRgnHeld({}); setRgnList(false); }, [selected, postEdit]);
+  const heldKey = (slideIdx, id) => `${slideIdx}:${id}`;
+  const heldNow = rgnRegion && rgnIsText ? rgnHeld[heldKey(safeIdx, rgnRegion.id)] || null : null;
+  const heldList = Object.values(rgnHeld).sort((a, b) => a.slide - b.slide);
+  const rgnTextOpen = Boolean(regionEditing && rgnIsText);
+  const roleLabel = (r) => String(r?.role || 'Text').replace(/^./, (c) => c.toUpperCase());
+  function holdChange(region, change, slideIdx = safeIdx) {
+    const k = heldKey(slideIdx, region.id);
+    setRgnHeld((cur) => {
+      const next = { ...cur };
+      if (changeIsLive(change, region)) next[k] = { key: k, slide: slideIdx, region, change };
+      else delete next[k];
+      return next;
+    });
+  }
+  // what the list calls a held change — the act, not its contents
+  function heldWhat(h) {
+    const c = h.change || {};
+    if (c.remove) return 'removed';
+    const parts = [];
+    if (String(c.text ?? '').trim() !== String(h.region.text || '').trim()) parts.push('edited');
+    (c.asks || []).forEach((a) => parts.push(a.what));
+    const forms = [...new Set((c.marks || []).map((m) => describeMark({ id: m.id, off: m.off }, null)))];
+    if (forms.length) parts.push(forms.join(', '));
+    return parts.join(' · ') || 'edited';
+  }
+  // a chat suggestion on the open text block ("Make it shorter") — held, and
+  // pressed again to take it back
+  function toggleRegionAsk(one) {
+    if (!rgnRegion) return;
+    const c = heldNow?.change || { text: rgnRegion.text, marks: [], remove: false, asks: [] };
+    const has = (c.asks || []).some((a) => a.say === one.say);
+    holdChange(rgnRegion, { ...c, asks: has ? c.asks.filter((a) => a.say !== one.say) : [...(c.asks || []), one] });
+  }
+  async function sendRegionChanges() {
+    if (rgnSending || rgnBusy) return;
+    const typed = askDraft.trim();
+    let held = heldList;
+    if (typed && rgnTextOpen) {
+      const c = heldNow?.change || { text: rgnRegion.text, marks: [], remove: false, asks: [] };
+      const one = { say: typed, what: 'rewritten' };
+      held = [...held.filter((h) => h.key !== heldKey(safeIdx, rgnRegion.id)),
+        { key: heldKey(safeIdx, rgnRegion.id), slide: safeIdx, region: rgnRegion, change: { ...c, asks: [...(c.asks || []), one] } }];
+      held.sort((a, b) => a.slide - b.slide);
+    }
+    if (!held.length) return;
+    const postId = postIdAt(selected);
+    if (!postId) return;
+    if (typed && rgnTextOpen) setAskDraft('');
+    setRgnList(false);
+    setAskMsg(null);
+    setRgnErr('');
+    setRgnPick('');
+    setRgnBusy('text');
+    let done = 0;
+    try {
+      for (const h of held) {
+        setRgnSending(held.length > 1 ? `Redrawing ${done + 1} of ${held.length}…` : '');
+        const c = h.change;
+        // eslint-disable-next-line no-await-in-loop
+        const d = await editThemeRegion(postId, h.slide + 1, {
+          regionId: h.region.id,
+          action: 'text',
+          text: String(c.text ?? h.region.text).trim(),
+          remove: Boolean(c.remove),
+          marks: (c.marks || []).map((m) => ({ ...m, what: describeMark(m, rgnPalette), hex: markHex(m, rgnPalette) })),
+          instructions: (c.asks || []).map((a) => a.say),
+        });
+        done += 1;
+        setRgnHeld((cur) => { const next = { ...cur }; delete next[h.key]; return next; });
+        if (d?.key && d?.src) rememberImage(d.key, d.src, { skipGen: true });
+        if (d?.regions && h.slide === safeIdx) setRgnMap(d.regions);
+        if (d?.post) {
+          const r = mergePost(d.post);
+          if (r) { setRoute(r); onRouteChange?.(r); setSlideGen((g) => g + 1); }
+          const snap = editSnapRef.current;
+          if (snap && snap.dayIndex === selected && Array.isArray(snap.slides) && snap.slides[h.slide]) {
+            const fresh = deriveSlides(d.post)[h.slide];
+            if (fresh) {
+              snap.slides[h.slide] = JSON.parse(JSON.stringify(fresh));
+              snap.docHtml = carouselDocumentOf(d.post);
+            }
+          }
+        }
+      }
+      setAskMsg({ tone: 'ok', text: done === 1 ? 'Redrawn.' : `${done} changes redrawn.` });
+    } catch (err) {
+      const why = err?.response?.data?.message || err?.message || 'Could not change that part of the slide.';
+      setAskMsg({ tone: 'err', text: done ? `${done} redrawn, then: ${why}` : why });
+    } finally {
+      setRgnBusy('');
+      setRgnSending('');
+    }
   }
   async function runRegionEdit(body) {
     if (!rgnRegion || rgnBusy) return;
@@ -6728,14 +6843,14 @@ export default function WeekView({
                                 onClick={(e) => { e.stopPropagation(); pickRegion(r, true); }}
                               />
                             ))}
-                            {regionEditing && rgnIsText && (
+                            {rgnTextOpen && (
                               <RegionTextPanel
                                 region={rgnRegion}
                                 palette={rgnPalette}
-                                busy={rgnBusy === 'text'}
-                                err={rgnErr}
+                                busy={Boolean(rgnBusy)}
+                                change={heldNow?.change || null}
+                                onChange={(c) => holdChange(rgnRegion, c)}
                                 onClose={() => setRgnPick('')}
-                                onApply={({ text, marks, remove }) => runRegionEdit({ action: 'text', text, marks, remove })}
                               />
                             )}
                           </div>
@@ -6746,7 +6861,7 @@ export default function WeekView({
                         {on && rgnBusy && rgnBusy !== 'photo' && (
                           <div className="wv-ig__laying" role="status" aria-live="polite">
                             <span className="wv-spin" aria-hidden="true" />
-                            <span>{rgnBusy === 'text' ? 'Redrawing the text…' : 'Redrawing the picture…'}</span>
+                            <span>{rgnBusy === 'text' ? (rgnSending || 'Redrawing the text…') : 'Redrawing the picture…'}</span>
                           </div>
                         )}
                         {on && (layoutBusy || askBusy) && (
@@ -6809,7 +6924,9 @@ export default function WeekView({
 
           {askOpen && !visEdit && (() => {
             const listening = askRec.status === 'recording';
-            const ready = (Boolean(askDraft.trim()) || askReady(askCtxNow, askDraft)) && !askBusy && !listening && !askHearing;
+            const regionSend = rgnTextOpen || heldList.length > 0;
+            const ready = (Boolean(askDraft.trim()) || askReady(askCtxNow, askDraft) || heldList.length > 0) && !askBusy && !rgnBusy && !listening && !askHearing
+              && (!regionSend || heldList.length > 0 || (rgnTextOpen && Boolean(askDraft.trim())));
             const trail = trailOf(askKind, askPath);
             const SLOT_NAMES = {
               title: 'The title', eyebrow: 'The kicker', kicker: 'The kicker', subtitle: 'The subtitle',
@@ -6829,7 +6946,7 @@ export default function WeekView({
                   {/* where the studio is: the subject, then each chip pressed
                       (bauhly-v3 `edm-trail`) — "The title › Write it again" */}
                   <div className="wv-edm__asktop">
-                  {slides.length > 1 && !askSel && !askPath.length && (
+                  {slides.length > 1 && !askSel && !askPath.length && !rgnTextOpen && (
                     <div className="wv-edm__scope" role="group" aria-label="What this changes">
                       <button
                         type="button"
@@ -6852,10 +6969,12 @@ export default function WeekView({
                     </div>
                   )}
                   <p className="wv-edm__trail">
-                    {(askSel || askPath.length || slides.length <= 1) && (
+                    {rgnTextOpen ? (
+                      <span className="wv-edm__trailwho">{roleLabel(rgnRegion)}</span>
+                    ) : (askSel || askPath.length || slides.length <= 1) && (
                       <span className="wv-edm__trailwho">{subject || (askScopeOn ? 'All slides' : 'This post')}</span>
                     )}
-                    {trail.map((node, i) => (
+                    {!rgnTextOpen && trail.map((node, i) => (
                       <span className="wv-edm__trailstep" key={`tr${i}`}>
                         <span className="wv-edm__trailsep" aria-hidden="true">›</span>
                         {node.label}
@@ -6894,6 +7013,26 @@ export default function WeekView({
                         <Icon name="chevron-left" size={17} strokeWidth={2.4} />
                       </button>
                     )}
+                    {rgnTextOpen ? (
+                    <div className="wv-edm__asktries" key={`rgn:${rgnRegion.id}`}>
+                      {REGION_TRIES.map((one, i) => {
+                        const on = (heldNow?.change?.asks || []).some((a) => a.say === one.say);
+                        return (
+                          <button
+                            key={one.say}
+                            type="button"
+                            className={`wv-edm__asktry${on ? ' is-on' : ''}`}
+                            aria-pressed={on}
+                            style={{ '--i': i }}
+                            disabled={Boolean(rgnBusy) || Boolean(heldNow?.change?.remove)}
+                            onMouseDown={(e) => { e.preventDefault(); toggleRegionAsk(one); }}
+                          >
+                            {one.say}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    ) : (
                     <div className="wv-edm__asktries" key={`${askKind}:${askSel?.path ?? ''}:${askPath.join('/')}`}>
                       {askList.map((one, i) => (
                         <button
@@ -6910,6 +7049,7 @@ export default function WeekView({
                         </button>
                       ))}
                     </div>
+                    )}
                   </div>
                   {askMsg && (
                     <p className={`wv-edm__asknote is-${askMsg.tone}`} role="status">
@@ -6921,11 +7061,92 @@ export default function WeekView({
                   )}
                   <form
                     className={`wv-edm__askfield${askBusy ? ' is-busy' : ''}${listening ? ' is-listening' : ''}`}
-                    onSubmit={(e) => { e.preventDefault(); if (ready) sendAsk(); }}
+                    onSubmit={(e) => { e.preventDefault(); if (!ready) return; if (regionSend) sendRegionChanges(); else sendAsk(); }}
                   >
+                    {heldList.length > 0 && (
+                      <span className="wv-held">
+                        <button
+                          type="button"
+                          className={`wv-held__chip${rgnList ? ' is-on' : ''}`}
+                          aria-haspopup="dialog"
+                          aria-expanded={rgnList}
+                          disabled={Boolean(rgnBusy)}
+                          onMouseDown={(e) => { e.preventDefault(); setRgnList((v) => !v); }}
+                        >
+                          <b className="wv-held__n" key={heldList.length}>{heldList.length}</b>
+                          {`${heldList.length === 1 ? 'change' : 'changes'} ready`}
+                          <Icon name="chevron-right" size={13} strokeWidth={2.4} />
+                        </button>
+                        {rgnList && (
+                          <>
+                            <span className="wv-held__scrim" onMouseDown={() => setRgnList(false)} aria-hidden="true" />
+                            <div className="wv-held__menu" role="dialog" aria-label="Changes waiting to be sent">
+                              <div className="wv-held__head">
+                                <span className="wv-held__title">
+                                  <b className="wv-held__count">{heldList.length}</b>
+                                  {`${heldList.length === 1 ? 'change' : 'changes'} ready`}
+                                </span>
+                                <button
+                                  type="button"
+                                  className="btn btn--tertiary btn--sm wv-held__all"
+                                  onClick={() => { setRgnHeld({}); setRgnList(false); }}
+                                >
+                                  Clear all
+                                </button>
+                              </div>
+                              <p className="wv-held__note">Send once and Bauhly redraws each of these on the picture, plus anything you type about the open text.</p>
+                              <ul className="wv-held__list">
+                                {heldList.map((h, i) => (
+                                  <li key={h.key}>
+                                    <button
+                                      type="button"
+                                      className="wv-held__row"
+                                      onClick={() => {
+                                        setRgnList(false);
+                                        // another slide: go there; its region is a click away
+                                        if (h.slide !== safeIdx) setSlideIdx(h.slide);
+                                        else setRgnPick(h.region.id);
+                                      }}
+                                    >
+                                      <span className="wv-held__lab">{i + 1}</span>
+                                      <span className="wv-held__say" title={h.region.text}>
+                                        {`${roleLabel(h.region)} ${heldWhat(h)}`}
+                                        {slides.length > 1 && <em>{`Slide ${h.slide + 1}`}</em>}
+                                      </span>
+                                    </button>
+                                    <button
+                                      type="button"
+                                      className="wv-held__x"
+                                      aria-label={`Remove the change to the ${roleLabel(h.region).toLowerCase()}`}
+                                      onClick={() => setRgnHeld((cur) => { const next = { ...cur }; delete next[h.key]; return next; })}
+                                    >
+                                      <Icon name="x" size={16} strokeWidth={2.4} />
+                                    </button>
+                                  </li>
+                                ))}
+                              </ul>
+                            </div>
+                          </>
+                        )}
+                      </span>
+                    )}
+                    {rgnTextOpen && (
+                      <span className="wv-edm__cmd">
+                        {roleLabel(rgnRegion)}
+                        <button
+                          type="button"
+                          className="wv-edm__cmdx"
+                          aria-label={`Deselect the ${roleLabel(rgnRegion).toLowerCase()}`}
+                          disabled={Boolean(rgnBusy)}
+                          onMouseDown={(e) => { e.preventDefault(); setRgnPick(''); }}
+                        >
+                          <Icon name="x" size={12} strokeWidth={2.4} />
+                        </button>
+                      </span>
+                    )}
                     {/* the chosen end of the branch rides in the field as a quick
                         link (bauhly-v3 `askPend`); × steps back one level */}
-                    {askScopeOn && (
+                    {askScopeOn && !regionSend && (
                       <span className="wv-edm__cmd wv-edm__cmd--all">
                         All slides
                         <button
@@ -6940,7 +7161,7 @@ export default function WeekView({
                         </button>
                       </span>
                     )}
-                    {askLeaf && !askLeaf.act && (
+                    {askLeaf && !askLeaf.act && !rgnTextOpen && (
                       <span className="wv-edm__cmd">
                         {askLeaf.label}
                         <button
@@ -6966,7 +7187,7 @@ export default function WeekView({
                           setAskPath((was) => was.slice(0, -1));
                         }
                       }}
-                      placeholder={listening ? 'Listening…' : askHearing ? 'Writing down what you said…' : askHint(askCtxNow, subject ? `What should change about ${subject.charAt(0).toLowerCase()}${subject.slice(1)}?` : 'Say what else this should be')}
+                      placeholder={listening ? 'Listening…' : askHearing ? 'Writing down what you said…' : rgnTextOpen ? 'Say what else this should be' : askHint(askCtxNow, subject ? `What should change about ${subject.charAt(0).toLowerCase()}${subject.slice(1)}?` : 'Say what else this should be')}
                       maxLength={600}
                       disabled={askBusy}
                       aria-label="What should change"
@@ -6989,7 +7210,7 @@ export default function WeekView({
                       disabled={!ready}
                       aria-label="Send"
                     >
-                      {askBusy ? <span className="wv-spin" aria-hidden="true" /> : <Glyph name="arrow-up" size={17} strokeWidth={2.4} />}
+                      {askBusy || rgnBusy === 'text' ? <span className="wv-spin" aria-hidden="true" /> : <Glyph name="arrow-up" size={17} strokeWidth={2.4} />}
                     </button>
                   </form>
                   <input

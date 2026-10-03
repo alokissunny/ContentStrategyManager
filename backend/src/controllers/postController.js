@@ -1459,8 +1459,8 @@ async function mapThemeRegions(req, res) {
   const at = themedSlideAt(record, req.params.slideIndex);
   if (at.error) return res.status(at.error[0]).json({ message: at.error[1] });
   const { idx, slide, lead } = at;
-  if (slide.themeRegions?.key === lead && !req.body?.force) return res.json({ regions: slide.themeRegions });
-  const { mapRegions } = require('../services/themeRegions');
+  const { mapRegions, REGIONS_V } = require('../services/themeRegions');
+  if (slide.themeRegions?.key === lead && (Number(slide.themeRegions.v) || 1) >= REGIONS_V && !req.body?.force) return res.json({ regions: slide.themeRegions });
   const run = themeRunFor(record, idx, lead) || themeRunFor(record, idx, '');
   const lines = Array.isArray(run?.textLines) && run.textLines.length
     ? run.textLines
@@ -1476,7 +1476,7 @@ async function mapThemeRegions(req, res) {
   // photo box still holds for a render edited since
   const mapped = await mapRegions({ buffer: bytes, lines, photoBox: run?.primaryImage?.box || null, key: lead });
   if (!mapped) return res.status(502).json({ message: 'Could not find the text and picture on this slide — try again.' });
-  const regions = { key: lead, texts: mapped.texts, images: mapped.images };
+  const regions = { key: lead, v: mapped.v, texts: mapped.texts, images: mapped.images };
   record.content.slides[idx - 1].themeRegions = regions;
   record.markModified('content');
   await record.save();
@@ -1489,9 +1489,35 @@ async function mapThemeRegions(req, res) {
   return res.json({ regions, post: record, ...(debug ? { debug } : {}) });
 }
 
+// The map's record of how a text block is set, after a redraw asked for
+// `marks` (the Editor's text panel) — so the panel shows the new look without
+// reading the picture again. Runs whose words are gone are dropped.
+const MARK_FIELD = { bold: 'bold', italic: 'italic', underline: 'underline', strike: 'strike' };
+const MARK_ALIGN = { alignl: 'left', alignc: 'center', alignr: 'right' };
+function restyleRegion(region, marks) {
+  if (!region.style && !marks.length) return region;
+  const style = { ...(region.style || {}) };
+  let runs = (Array.isArray(region.runs) ? region.runs : []).filter((r) => region.text.includes(r.words)).map((r) => ({ ...r }));
+  marks.forEach((m) => {
+    const field = MARK_FIELD[m.id] || (/^hl-/.test(m.id) ? 'highlight' : (['ink', 'accent', 'ground'].includes(m.id) ? 'color' : ''));
+    if (MARK_ALIGN[m.id]) { style.align = MARK_ALIGN[m.id]; return; }
+    if (!field) return;
+    const value = field === 'color' || field === 'highlight' ? (m.off ? '' : m.hex) : !m.off;
+    if (!m.words) {
+      style[field] = value;
+      runs = runs.map((r) => { const { [field]: _drop, ...rest } = r; return rest; }).filter((r) => Object.keys(r).length > 1);
+    } else if (region.text.includes(m.words)) {
+      const at = runs.find((r) => r.words === m.words);
+      if (at) at[field] = value; else runs.push({ words: m.words, [field]: value });
+    }
+  });
+  return { ...region, style, runs };
+}
+
 // POST /posts/:id/slide/:slideIndex/theme-region — change one region of the
 // themed render. Body: { regionId, action: 'text' | 'regenerate' | 'photo',
-// text? marks? remove? (action text), instruction? (regenerate), photoKey? (photo) }
+// text? marks? remove? instructions? (action text — instructions are
+// rewrite asks applied to the words first), instruction? (regenerate), photoKey? (photo) }
 async function editThemeRegion(req, res) {
   const record = await PlannedPost.findOne({ _id: req.params.id, user: req.user._id });
   if (!record) return res.status(404).json({ message: 'Post not found' });
@@ -1507,7 +1533,7 @@ async function editThemeRegion(req, res) {
   const region = textRegion || imageRegion;
   if (!region) return res.status(404).json({ message: 'That part of the slide was not found.' });
   const own = `projects/${req.user._id}/`;
-  const { editText, regenImage, placePhoto } = require('../services/themeRegions');
+  const { editText, regenImage, placePhoto, rewriteText } = require('../services/themeRegions');
   let result;
   let newText = '';
   let photoKey = '';
@@ -1518,9 +1544,20 @@ async function editThemeRegion(req, res) {
     if (action === 'text' && textRegion) {
       removed = req.body?.remove === true;
       marks = (Array.isArray(req.body?.marks) ? req.body.marks : []).slice(0, 24)
-        .map((m) => ({ id: String(m?.id || '').slice(0, 24), words: String(m?.words || '').slice(0, 200), what: String(m?.what || '').slice(0, 120) }))
+        .map((m) => ({
+          id: String(m?.id || '').slice(0, 24),
+          words: String(m?.words || '').slice(0, 200),
+          what: String(m?.what || '').slice(0, 120),
+          off: m?.off === true,
+          hex: /^#[0-9a-f]{6}$/i.test(String(m?.hex || '')) ? String(m.hex).toLowerCase() : '',
+        }))
         .filter((m) => m.id && m.what);
-      newText = removed ? '' : String(req.body?.text || '').trim().slice(0, 400);
+      newText = removed ? '' : (String(req.body?.text || '').trim().slice(0, 400) || textRegion.text);
+      const asks = (Array.isArray(req.body?.instructions) ? req.body.instructions : []).slice(0, 8).map((x) => String(x || '').slice(0, 300)).filter(Boolean);
+      if (!removed && asks.length) {
+        const others = (regions.texts || []).filter((t) => t.id !== regionId).map((t) => t.text).join(' / ');
+        newText = (await rewriteText({ text: newText, role: textRegion.role, instructions: asks, context: others })).text;
+      }
       if (!removed && !newText) return res.status(400).json({ message: 'Write the new text first.' });
       if (!removed && newText === textRegion.text && !marks.length) return res.status(400).json({ message: 'The text is unchanged.' });
       if (newText === textRegion.text) newText = '';
@@ -1554,7 +1591,7 @@ async function editThemeRegion(req, res) {
     key,
     texts: (regions.texts || [])
       .filter((t) => !(removed && t.id === regionId))
-      .map((t) => (t.id === regionId && newText ? { ...t, text: newText } : t)),
+      .map((t) => (t.id === regionId ? restyleRegion({ ...t, text: newText || t.text }, marks) : t)),
   };
   const was = slide;
   const swapText = (v) => ((newText || removed) && typeof v === 'string' && textRegion?.text && v.includes(textRegion.text) ? v.split(textRegion.text).join(newText) : v);

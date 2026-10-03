@@ -8494,35 +8494,50 @@ span.wv-layed__apply { margin-left: auto; flex-shrink: 0; }
 .wv-sa__sw:hover,
 .wv-sa__sw.is-on { background: rgba(255, 255, 255, 0.14); }
 .wv-sa__sw.is-on i { box-shadow: 0 0 0 2px #2a2a30, 0 0 0 3.5px #fff; }
-.wv-sa__field {
-  display: block;
-  width: 100%;
-  box-sizing: border-box;
-  margin: 0;
-  padding: 10px 11px;
+.wv-sa__fieldwrap {
+  position: relative;
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: var(--r-sm, 10px);
   background: rgba(255, 255, 255, 0.06);
-  color: #fff;
+}
+.wv-sa__fieldwrap:focus-within { border-color: rgba(255, 255, 255, 0.28); }
+/* the mirror and the textarea share every metric so the caret sits on the words */
+.wv-sa__mirror,
+.wv-sa__field {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 10px 11px;
+  border: 0;
   font: 400 14px/1.55 var(--font-ui);
+  letter-spacing: normal;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  word-break: normal;
+}
+.wv-sa__mirror {
+  min-height: calc(2 * 1.55em + 20px);
+  max-height: 160px;
+  overflow: hidden;
+  color: #fff;
+  pointer-events: none;
+}
+.wv-sa__mirror span { text-decoration-thickness: 1.5px; text-underline-offset: 2px; }
+.wv-sa__field {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  background: transparent;
+  color: transparent;
+  caret-color: #fff;
   resize: none;
   outline: none;
+  overflow: auto;
+  scrollbar-width: none;
 }
-.wv-sa__field:focus { border-color: rgba(255, 255, 255, 0.28); }
-.wv-sa__field::selection { background: rgba(43, 127, 255, 0.55); }
-.wv-sa__field.is-wiped { text-decoration: line-through; opacity: 0.45; }
-.wv-sa__runs {
-  margin: 8px 0 0;
-  padding: 0 4px;
-  list-style: none;
-  display: grid;
-  gap: 4px;
-  font-size: 12px;
-  line-height: 1.4;
-}
-.wv-sa__runs li { display: flex; gap: 8px; align-items: baseline; min-width: 0; }
-.wv-sa__runs span { padding: 0 2px; border-radius: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 55%; }
-.wv-sa__runs em { font-style: normal; color: rgba(255, 255, 255, 0.55); }
+.wv-sa__field::selection { background: rgba(43, 127, 255, 0.45); color: transparent; }
+.wv-sa__fieldwrap.is-wiped .wv-sa__mirror { text-decoration: line-through; opacity: 0.45; }
 .wv-sa__foot {
   display: flex;
   align-items: center;
@@ -8544,3 +8559,107 @@ span.wv-layed__apply { margin-left: auto; flex-shrink: 0; }
 }
 .wv-sa__go:disabled { opacity: 0.6; cursor: progress; }
 .wv-rgn__box.is-text.is-on { box-shadow: none; outline: 2px solid var(--hand-ink, #2b7fff); outline-offset: 3px; border-radius: 3px; }
+
+/* ── Held region changes in the chat (bauhly-v3 `edm-shotchip` / `edm-shotmenu`) ── */
+.wv-held { position: relative; display: inline-flex; flex: none; }
+.wv-held__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 32px;
+  padding: 0 10px 0 6px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--action-primary, var(--ink-900, #16161a));
+  color: var(--action-primary-ink, #fff);
+  font: 600 14px/1 var(--font-ui);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.wv-held__chip:hover,
+.wv-held__chip.is-on { background: var(--action-primary-hover, #000); }
+.wv-held__chip > svg:last-child { opacity: 0.7; }
+.wv-held__n {
+  display: grid;
+  place-items: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 5px;
+  box-sizing: border-box;
+  border-radius: 999px;
+  background: var(--canvas, #fff);
+  color: var(--ink-900, #16161a);
+  font-size: 11px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  animation: wv-held-pop 320ms var(--ease-out, ease);
+}
+@keyframes wv-held-pop { 0% { transform: scale(1); } 35% { transform: scale(0.7); } 70% { transform: scale(1.15); } 100% { transform: scale(1); } }
+@media (prefers-reduced-motion: reduce) { .wv-held__n { animation: none; } }
+.wv-held__scrim { position: fixed; inset: 0; z-index: 60; }
+.wv-held__menu {
+  position: absolute;
+  left: 0;
+  bottom: calc(100% + 10px);
+  z-index: 61;
+  width: min(360px, 92vw);
+  max-height: min(60vh, 420px);
+  overflow: auto;
+  padding: 6px;
+  border: 1px solid var(--line, rgba(22, 22, 26, 0.08));
+  border-radius: var(--r-lg, 18px);
+  background: var(--surface, #fff);
+  box-shadow: 0 18px 40px -16px rgba(20, 20, 25, 0.35);
+  text-align: left;
+}
+.wv-held__head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 4px 0 6px 10px; }
+.wv-held__title { display: inline-flex; align-items: center; gap: 8px; font: 700 14px/1.2 var(--font-ui); color: var(--ink-900, #16161a); }
+.wv-held__count {
+  display: grid;
+  place-items: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 5px;
+  box-sizing: border-box;
+  border-radius: 999px;
+  background: var(--ink-900, #16161a);
+  color: #fff;
+  font-size: 11px;
+}
+.wv-held__all { border-radius: 999px; }
+.wv-held__note { margin: 0 10px 6px; font-size: 12.5px; line-height: 1.45; color: var(--ink-quiet, #6b6b73); }
+.wv-held__list { list-style: none; margin: 0; padding: 0; }
+.wv-held__list li { display: flex; align-items: center; gap: 2px; }
+.wv-held__row {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 40px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: var(--r-sm, 10px);
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+.wv-held__row:hover { background: var(--ink-50, rgba(22, 22, 26, 0.05)); }
+.wv-held__lab { flex: none; min-width: 12px; font: 600 12px/1 var(--font-ui); color: var(--ink-quiet, #6b6b73); font-variant-numeric: tabular-nums; }
+.wv-held__say { display: flex; flex-direction: column; min-width: 0; font-size: 14px; line-height: 1.4; color: var(--ink-900, #16161a); }
+.wv-held__say::first-letter { text-transform: uppercase; }
+.wv-held__say em { font-style: normal; font-size: 12px; color: var(--ink-quiet, #6b6b73); }
+.wv-held__x {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 32px;
+  height: 32px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--ink-700, #44444c);
+  cursor: pointer;
+}
+.wv-held__x:hover { background: var(--ink-50, rgba(22, 22, 26, 0.06)); color: var(--ink-900, #16161a); }
+p.wv-sa__hint { margin: 8px 4px 0; }

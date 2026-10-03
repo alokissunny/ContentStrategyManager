@@ -120,6 +120,137 @@ async function drawCandidates(jpeg, cands) {
   return sharp(jpeg).composite([{ input: svg, left: 0, top: 0 }]).jpeg({ quality: 88 }).toBuffer();
 }
 
+// v2: text blocks carry `style` {bold, italic, underline, strike, color,
+// highlight, align} and `runs` [{words, …the same}] — older maps are re-read
+const REGIONS_V = 3;
+// stroke thickness / line height at and above which letters read as bold
+const BOLD_WEIGHT = Number(process.env.THEME_REGIONS_BOLD_WEIGHT) || 0.12;
+const HEX = /^#[0-9a-f]{6}$/i;
+const hexOr = (v) => (HEX.test(String(v || '').trim()) ? String(v).trim().toLowerCase() : '');
+function cleanStyle(st = {}) {
+  const align = ['left', 'center', 'right'].includes(st?.align) ? st.align : 'left';
+  return {
+    bold: Boolean(st?.bold),
+    italic: Boolean(st?.italic),
+    underline: Boolean(st?.underline),
+    strike: Boolean(st?.strike),
+    highlight: hexOr(st?.highlight),
+    align,
+  };
+}
+function cleanRuns(runs) {
+  return (Array.isArray(runs) ? runs : []).slice(0, 12)
+    .map((r) => {
+      const out = { words: String(r?.words || '').trim().slice(0, 200) };
+      ['bold', 'italic', 'underline', 'strike'].forEach((k) => { if (typeof r?.[k] === 'boolean') out[k] = r[k]; });
+      if (hexOr(r?.color)) out.color = hexOr(r.color);
+      if (hexOr(r?.highlight)) out.highlight = hexOr(r.highlight);
+      return out;
+    })
+    .filter((r) => r.words && Object.keys(r).length > 1);
+}
+
+// The colour most of a block's letters are drawn in: pixels that stand out
+// from the paper behind them (median-filtered), bucketed, the biggest bucket
+// averaged — so anti-aliased edges and a differently coloured word don't win.
+async function inkColour(buffer, box) {
+  const src = sharp(buffer).rotate();
+  const { width: W, height: H } = await src.metadata();
+  const r = pxBox(box, W, H);
+  const cut = await sharp(buffer).rotate().extract(r).resize({ width: Math.min(320, r.width) }).removeAlpha().toBuffer();
+  const { data, info } = await sharp(cut).raw().toBuffer({ resolveWithObject: true });
+  const n = info.width * info.height * 3;
+  const bucketOf = (skip) => {
+    const buckets = new Map();
+    for (let i = 0; i < n; i += 3) {
+      if (skip(i)) continue;
+      const k = `${data[i] >> 5},${data[i + 1] >> 5},${data[i + 2] >> 5}`;
+      const b = buckets.get(k) || { n: 0, r: 0, g: 0, b: 0 };
+      b.n += 1; b.r += data[i]; b.g += data[i + 1]; b.b += data[i + 2];
+      buckets.set(k, b);
+    }
+    let top = null;
+    buckets.forEach((b) => { if (!top || b.n > top.n) top = b; });
+    return top;
+  };
+  // the paper is the commonest colour in the block's box; ink stands well off it
+  const paper = bucketOf(() => false);
+  if (!paper) return '';
+  const pr = paper.r / paper.n; const pg = paper.g / paper.n; const pb = paper.b / paper.n;
+  const top = bucketOf((i) => Math.hypot(data[i] - pr, data[i + 1] - pg, data[i + 2] - pb) <= 80);
+  if (!top || top.n < 12) return '';
+  const hex = (v) => Math.round(v / top.n).toString(16).padStart(2, '0');
+  return `#${hex(top.r)}${hex(top.g)}${hex(top.b)}`;
+}
+
+// What the pixels say about how a block is set — the model misses rules and
+// weight often enough that these are measured: a strike is a rule crossing a
+// text line at mid-height, an underline one at or just under its foot (or a
+// thin rule-only line under it), and weight is the stroke thickness against
+// the line's height. `lineBoxes` are the block's candidate lines (percent).
+async function typeFeatures(buffer, lineBoxes, text = '') {
+  const { width: W, height: H } = await sharp(buffer).rotate().metadata();
+  const heights = lineBoxes.map((b) => (b.height / 100) * H).sort((a, b) => a - b);
+  const textH = heights[Math.floor(heights.length / 2)] || 1;
+  let strike = false;
+  let underline = false;
+  const strokes = [];
+  for (const b of lineBoxes) {
+    const own = pxBox(b, W, H);
+    // look a little under the line too, where an underline sits
+    const r = { ...own, height: Math.max(1, Math.min(H - own.top, Math.round(own.height * 1.4))) };
+    // eslint-disable-next-line no-await-in-loop
+    const { data, info } = await sharp(buffer).rotate().extract(r).removeAlpha().raw().toBuffer({ resolveWithObject: true });
+    const w = info.width; const h = info.height;
+    // paper = the commonest colour of this strip
+    const counts = new Map();
+    for (let i = 0; i < w * h * 3; i += 3) {
+      const k = `${data[i] >> 4},${data[i + 1] >> 4},${data[i + 2] >> 4}`;
+      const c = counts.get(k) || [0, 0, 0, 0];
+      c[0] += 1; c[1] += data[i]; c[2] += data[i + 1]; c[3] += data[i + 2];
+      counts.set(k, c);
+    }
+    let paper = null;
+    counts.forEach((c) => { if (!paper || c[0] > paper[0]) paper = c; });
+    const [pn, pr, pg, pb] = paper;
+    const ink = (x, y) => {
+      const i = (y * w + x) * 3;
+      return Math.hypot(data[i] - pr / pn, data[i + 1] - pg / pn, data[i + 2] - pb / pn) > 80;
+    };
+    const thinRule = own.height < textH * 0.4;
+    const ruleRows = new Set();
+    for (let y = 0; y < h; y += 1) {
+      let best = 0; let run = 0; let gap = 0;
+      for (let x = 0; x < w; x += 1) {
+        if (ink(x, y)) { run += 1 + gap; gap = 0; } else if (run && gap < 2) gap += 1; else { run = 0; gap = 0; }
+        if (run > best) best = run;
+      }
+      if (best >= w * 0.6) ruleRows.add(y);
+    }
+    if (thinRule) { if (ruleRows.size) underline = true; continue; }
+    ruleRows.forEach((y) => {
+      const p = y / own.height;
+      if (p > 0.28 && p < 0.72) strike = true;
+      else if (p >= 0.72) underline = true;
+    });
+    // stroke widths across the middle of the letters, away from any rule
+    for (let y = Math.floor(own.height * 0.38); y < Math.ceil(own.height * 0.62); y += 1) {
+      if ([-2, -1, 0, 1, 2].some((d) => ruleRows.has(y + d))) continue;
+      let run = 0;
+      for (let x = 0; x <= w; x += 1) {
+        if (x < w && ink(x, y)) run += 1;
+        else { if (run > 0 && run < own.height * 0.5) strokes.push(run / own.height); run = 0; }
+      }
+    }
+  }
+  strokes.sort((a, b) => a - b);
+  // an all-caps line has no ascenders/descenders, so its box is only the cap
+  // height (~0.72 of a mixed-case line) and every stroke reads thicker
+  const caps = /[A-Z]/.test(text) && text === text.toUpperCase();
+  const weight = (strokes.length ? strokes[Math.floor(strokes.length / 2)] : 0) * (caps ? 0.72 : 1);
+  return { strike, underline, weight };
+}
+
 const REGION_TOOL = {
   name: 'record_regions',
   description: 'Group the numbered line boxes into text blocks, and locate photographs.',
@@ -135,8 +266,38 @@ const REGION_TOOL = {
             boxes: { type: 'array', items: { type: 'integer' }, description: 'The numbers of the blue boxes that make up this block.' },
             line: { type: 'integer', description: 'The number of the EXPECTED COPY line this block shows (0 when it is not in the list).' },
             text: { type: 'string', description: 'The words of this block exactly as they appear.' },
+            style: {
+              type: 'object',
+              description: 'How MOST of this block is set, as you see it on the slide.',
+              properties: {
+                bold: { type: 'boolean', description: 'A heavy / bold weight.' },
+                italic: { type: 'boolean', description: 'Italic or slanted letters.' },
+                underline: { type: 'boolean', description: 'A line drawn under the words.' },
+                strike: { type: 'boolean', description: 'A line drawn THROUGH the middle of the words.' },
+                highlight: { type: 'string', description: 'Hex colour of a band / box painted behind the words, or "" when none.' },
+                align: { type: 'string', enum: ['left', 'center', 'right'] },
+              },
+              required: ['bold', 'italic', 'underline', 'strike', 'highlight', 'align'],
+            },
+            runs: {
+              type: 'array',
+              description: 'Words set DIFFERENTLY from the rest of the block (e.g. one word in italic or another colour). Empty when the whole block is set alike.',
+              items: {
+                type: 'object',
+                properties: {
+                  words: { type: 'string', description: 'The words exactly as they appear in `text`.' },
+                  bold: { type: 'boolean' },
+                  italic: { type: 'boolean' },
+                  underline: { type: 'boolean' },
+                  strike: { type: 'boolean' },
+                  color: { type: 'string', description: 'Hex colour of these letters.' },
+                  highlight: { type: 'string', description: 'Hex colour behind these words, or "".' },
+                },
+                required: ['words'],
+              },
+            },
           },
-          required: ['boxes', 'line', 'text'],
+          required: ['boxes', 'line', 'text', 'style', 'runs'],
         },
       },
       pictures: {
@@ -152,7 +313,7 @@ const REGION_TOOL = {
     required: ['blocks', 'pictures'],
   },
 };
-const REGION_SYSTEM = 'You read an Instagram slide. Numbered blue boxes mark candidate lines of ink found on it. Group the boxes that are TEXT into text blocks — each block is one headline, one paragraph, one label or one CTA (a block usually spans several consecutive lines in the same style). Leave out boxes that are not text (doodles, underline swooshes, tape, leaves, photo edges). Match each block to the expected copy line it shows. Also give the bounding boxes of any photographs (percent of the slide). Call record_regions.';
+const REGION_SYSTEM = 'You read an Instagram slide, given twice: as it is, and with numbered blue boxes marking candidate lines of ink found on it. Group the boxes that are TEXT into text blocks — each block is one headline, one paragraph, one label or one CTA (a block usually spans several consecutive lines in the same style). Leave out boxes that are not text (doodles, underline swooshes, tape, leaves, photo edges). Match each block to the expected copy line it shows, and describe how it is set, judged on the clean image: bold = a heavy weight (thicker strokes than regular text); italic = slanted letters; underline = a rule below the baseline; strike = a rule crossing the letters at mid-height; highlight = a painted band or box of colour directly behind the words (paper, texture or the slide background is NOT a highlight; the blue annotation boxes are NOT a highlight); alignment. List words set differently from the rest of their block as runs. Also give the bounding boxes of any photographs (percent of the slide). Call record_regions.';
 
 /**
  * @param {{ buffer: Buffer, lines?: {role,text}[], photoBox?: {left,top,width,height}|null (pixels), key?: string }} p
@@ -177,6 +338,9 @@ async function mapRegions({ buffer, lines = [], photoBox = null, key = '' }) {
       model,
       system: REGION_SYSTEM,
       userParts: [
+        { type: 'text', text: 'Image 1 — the slide as it is (read the type styles and colours from THIS one):' },
+        { type: 'image', mediaType: 'image/jpeg', data: jpeg.toString('base64') },
+        { type: 'text', text: 'Image 2 — the same slide with our numbered blue candidate boxes drawn on it (the blue boxes and numbers are OUR annotations, not part of the design):' },
         { type: 'image', mediaType: 'image/jpeg', data: marked.toString('base64') },
         { type: 'text', text: userText },
       ],
@@ -202,31 +366,46 @@ async function mapRegions({ buffer, lines = [], photoBox = null, key = '' }) {
       const line = Number(b.line) || 0;
       const same = line > 0 && merged.find((m) => m.line === line);
       if (same) { same.boxes.push(...boxes); same.text = `${same.text} ${String(b.text || '').trim()}`; return; }
-      merged.push({ line, boxes, text: String(b.text || '').trim() });
+      merged.push({ line, boxes, text: String(b.text || '').trim(), style: b.style, runs: b.runs });
     });
-    const texts = merged
-      .map((b, n) => {
+    const texts = (await Promise.all(merged
+      .map(async (b, n) => {
         const line = lines[b.line - 1];
+        const box = union(b.boxes);
+        // the colour, rules and weight are read off the pixels (the model's
+        // hex is a guess, and it misses rules)
+        const color = await inkColour(buffer, box).catch(() => '');
+        const feat = await typeFeatures(buffer, b.boxes, String(line?.text || b.text)).catch(() => null);
+        const st = cleanStyle(b.style);
+        if (feat) {
+          st.strike = st.strike || feat.strike;
+          st.underline = st.underline || feat.underline;
+          if (feat.weight > 0) st.bold = feat.weight >= BOLD_WEIGHT;
+          st.weight = Math.round(feat.weight * 1000) / 1000;
+        }
         return {
           id: `t${n + 1}`,
           role: line?.role || 'text',
           // the copy's exact spelling when the block is that line
           text: String(line?.text || b.text).trim(),
-          box: round1(padBox(union(b.boxes), 0.8)),
+          box: round1(padBox(box, 0.8)),
+          style: { ...st, color },
+          runs: cleanRuns(b.runs),
         };
-      })
+      })))
       .filter((t) => t.text);
     const i = Number(done.usage?.input_tokens || done.usage?.prompt_tokens) || 0;
     const o = Number(done.usage?.output_tokens || done.usage?.completion_tokens) || 0;
     return {
       key,
+      v: REGIONS_V,
       texts,
       images,
       model,
       usage: { inputTokens: i, outputTokens: o, totalTokens: i + o, estimatedCostUsd: (i * PRICE.in + o * PRICE.out) / 1e6, elapsedMs: Date.now() - started },
       // for the AI debug panel: exactly what the model saw and said
       debug: {
-        prompt: `SYSTEM:\n${REGION_SYSTEM}\n\nUSER (image: the slide with ${cands.length} numbered candidate line boxes):\n${userText}`,
+        prompt: `SYSTEM:\n${REGION_SYSTEM}\n\nUSER (image 1: the slide; image 2: the slide with ${cands.length} numbered candidate line boxes):\n${userText}`,
         output: JSON.stringify({ modelAnswer: p, regions: { texts, images } }, null, 2),
         inputImage: marked,
       },
@@ -351,4 +530,38 @@ async function placePhoto({ buffer, region, photo }) {
   return { buffer: out, usage: null, model: '', debug: { prompt: '(no model call — the photo is fitted into the picture area and pasted in)', region: r } };
 }
 
-module.exports = { mapRegions, editText, regenImage, placePhoto };
+// The Editor's chat on a text region ("Make it shorter", a typed ask): new
+// words for that block, written before the picture is re-lettered.
+const REWRITE_TOOL = {
+  name: 'rewrite_text',
+  description: 'Return the rewritten words for the text block.',
+  input_schema: {
+    type: 'object',
+    properties: { text: { type: 'string', description: 'The new words, exactly as they should appear on the slide.' } },
+    required: ['text'],
+  },
+};
+async function rewriteText({ text, role, instructions = [], context = '' }) {
+  const asks = instructions.map((s) => String(s || '').trim()).filter(Boolean);
+  if (!asks.length) return { text };
+  const done = await completeToolCall({
+    model: REGION_MODEL(),
+    system: 'You rewrite one block of text on an Instagram carousel slide for a design studio. Follow every instruction. Keep the meaning and the studio\'s voice, keep it about as long unless told otherwise, and never add hashtags, emoji or quotation marks the original does not have. Call rewrite_text with the new words only.',
+    userParts: [{
+      type: 'text',
+      text: [
+        `Block (${role || 'text'}): ${JSON.stringify(text)}`,
+        context ? `The rest of the slide says: ${JSON.stringify(context.slice(0, 600))}` : '',
+        `Instructions:\n${asks.map((a) => `- ${a.slice(0, 300)}`).join('\n')}`,
+      ].filter(Boolean).join('\n\n'),
+    }],
+    tool: REWRITE_TOOL,
+    maxTokens: 400,
+    reasoningEffort: 'low',
+    retryHint: 'Call rewrite_text with valid JSON.',
+  });
+  const next = String(done.parsed?.text || '').trim().slice(0, 400);
+  return { text: next || text };
+}
+
+module.exports = { mapRegions, editText, regenImage, placePhoto, rewriteText, REGIONS_V, typeFeatures };
