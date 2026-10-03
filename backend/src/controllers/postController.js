@@ -1520,10 +1520,14 @@ function restyleRegion(region, marks) {
   return { ...region, style, runs };
 }
 
-// POST /posts/:id/slide/:slideIndex/theme-region — change one region of the
-// themed render. Body: { regionId, action: 'text' | 'regenerate' | 'photo' | 'remove' (a picture),
-// text? marks? remove? instructions? (action text — instructions are
-// rewrite asks applied to the words first), instruction? (regenerate), photoKey? (photo) }
+// POST /posts/:id/slide/:slideIndex/theme-region — change parts of the themed
+// render. Body: one change, or { changes: [change, …] } — sent together they
+// are ONE image-model call. A change is { regionId, action:
+//   'text'       (text region)  text? marks? remove? instructions? — the
+//                instructions are rewrite asks applied to the words first,
+//   'photo'      (picture)      photoKey — fitted in, no model,
+//   'regenerate' (picture)      instruction? referenceKey?,
+//   'remove'     (picture) }.
 async function editThemeRegion(req, res) {
   const record = await PlannedPost.findOne({ _id: req.params.id, user: req.user._id });
   if (!record) return res.status(404).json({ message: 'Post not found' });
@@ -1532,24 +1536,22 @@ async function editThemeRegion(req, res) {
   const { idx, slide, lead, photos } = at;
   const regions = slide.themeRegions;
   if (!regions || regions.key !== lead) return res.status(409).json({ needsMap: true, message: 'Map the slide\'s regions first.' });
-  const regionId = String(req.body?.regionId || '');
-  const action = String(req.body?.action || '');
-  const textRegion = (regions.texts || []).find((t) => t.id === regionId);
-  const imageRegion = (regions.images || []).find((t) => t.id === regionId);
-  const region = textRegion || imageRegion;
-  if (!region) return res.status(404).json({ message: 'That part of the slide was not found.' });
   const own = `projects/${req.user._id}/`;
-  const { editText, regenImage, eraseImage, placePhoto, rewriteText } = require('../services/themeRegions');
-  let result;
-  let newText = '';
-  let photoKey = '';
-  let removed = false;
-  let marks = [];
-  try {
-    const base = (await getObjectBytes(lead)).buffer;
+  const { placePhoto, rewriteText, textArea, imageArea, eraseArea, repaintAreas } = require('../services/themeRegions');
+
+  // ── read every change first; a bad one fails the lot before any work ──
+  const asked = (Array.isArray(req.body?.changes) ? req.body.changes : [req.body]).slice(0, 12);
+  const byRegion = new Map(); // the last change to a region wins
+  for (const c of asked) {
+    const regionId = String(c?.regionId || '');
+    const action = String(c?.action || '');
+    const textRegion = (regions.texts || []).find((t) => t.id === regionId);
+    const imageRegion = (regions.images || []).find((t) => t.id === regionId);
+    if (!textRegion && !imageRegion) return res.status(404).json({ message: 'That part of the slide was not found.' });
+    const plan = { regionId, action, region: textRegion || imageRegion, isText: Boolean(textRegion) };
     if (action === 'text' && textRegion) {
-      removed = req.body?.remove === true;
-      marks = (Array.isArray(req.body?.marks) ? req.body.marks : []).slice(0, 24)
+      plan.removed = c?.remove === true;
+      plan.marks = (Array.isArray(c?.marks) ? c.marks : []).slice(0, 24)
         .map((m) => ({
           id: String(m?.id || '').slice(0, 24),
           words: String(m?.words || '').slice(0, 200),
@@ -1558,58 +1560,104 @@ async function editThemeRegion(req, res) {
           hex: /^#[0-9a-f]{6}$/i.test(String(m?.hex || '')) ? String(m.hex).toLowerCase() : '',
         }))
         .filter((m) => m.id && m.what);
-      newText = removed ? '' : (String(req.body?.text || '').trim().slice(0, 400) || textRegion.text);
-      const asks = (Array.isArray(req.body?.instructions) ? req.body.instructions : []).slice(0, 8).map((x) => String(x || '').slice(0, 300)).filter(Boolean);
-      if (!removed && asks.length) {
-        const others = (regions.texts || []).filter((t) => t.id !== regionId).map((t) => t.text).join(' / ');
-        newText = (await rewriteText({ text: newText, role: textRegion.role, instructions: asks, context: others })).text;
-      }
-      if (!removed && !newText) return res.status(400).json({ message: 'Write the new text first.' });
-      if (!removed && newText === textRegion.text && !marks.length) return res.status(400).json({ message: 'The text is unchanged.' });
-      if (newText === textRegion.text) newText = '';
-      result = await editText({ buffer: base, region: textRegion, text: newText || textRegion.text, marks, remove: removed });
+      plan.text = plan.removed ? '' : (String(c?.text || '').trim().slice(0, 400) || textRegion.text);
+      plan.asks = (Array.isArray(c?.instructions) ? c.instructions : []).slice(0, 8).map((x) => String(x || '').slice(0, 300)).filter(Boolean);
     } else if (action === 'photo' && imageRegion) {
-      photoKey = String(req.body?.photoKey || '');
-      if (!photoKey.startsWith(own)) return res.status(400).json({ message: 'Choose one of your own photos.' });
-      const photo = (await getObjectBytes(photoKey)).buffer;
-      result = await placePhoto({ buffer: base, region: imageRegion, photo });
+      plan.photoKey = String(c?.photoKey || '');
+      if (!plan.photoKey.startsWith(own)) return res.status(400).json({ message: 'Choose one of your own photos.' });
     } else if (action === 'regenerate' && imageRegion) {
-      if (!isImageGenConfigured()) return res.status(503).json({ message: 'Image generation is not configured.' });
-      const refKey = String(req.body?.referenceKey || '');
-      if (refKey && !refKey.startsWith(own)) return res.status(400).json({ message: 'Use one of your own photos as the reference.' });
-      const reference = refKey ? (await getObjectBytes(refKey)).buffer : null;
-      result = await regenImage({ buffer: base, region: imageRegion, instruction: String(req.body?.instruction || '').slice(0, 400), reference });
+      plan.instruction = String(c?.instruction || '').slice(0, 400);
+      plan.refKey = String(c?.referenceKey || '');
+      if (plan.refKey && !plan.refKey.startsWith(own)) return res.status(400).json({ message: 'Use one of your own photos as the reference.' });
     } else if (action === 'remove' && imageRegion) {
-      if (!isImageGenConfigured()) return res.status(503).json({ message: 'Image generation is not configured.' });
-      removed = true;
-      result = await eraseImage({ buffer: base, region: imageRegion });
+      plan.removed = true;
     } else {
       return res.status(400).json({ message: 'That change is not available for this part of the slide.' });
     }
+    byRegion.set(regionId, plan);
+  }
+  const plans = [...byRegion.values()];
+  if (!plans.length) return res.status(400).json({ message: 'Nothing to change.' });
+  const needsModel = plans.some((p) => p.action !== 'photo');
+  if (needsModel && !isImageGenConfigured()) return res.status(503).json({ message: 'Image generation is not configured.' });
+
+  const started = Date.now();
+  let base;
+  let painted = null;
+  try {
+    // the words the chat asked for, all rewritten at once (small model)
+    const others = (id) => (regions.texts || []).filter((t) => t.id !== id).map((t) => t.text).join(' / ');
+    await Promise.all(plans.filter((p) => p.action === 'text' && !p.removed && p.asks.length).map(async (p) => {
+      p.text = (await rewriteText({ text: p.text, role: p.region.role, instructions: p.asks, context: others(p.regionId) })).text;
+    }));
+    for (const p of plans.filter((x) => x.action === 'text' && !x.removed)) {
+      if (!p.text) return res.status(400).json({ message: 'Write the new text first.' });
+      // nothing asked of this one after all — leave it out
+      if (p.text === p.region.text && !p.marks.length) p.noop = true;
+    }
+    const live = plans.filter((p) => !p.noop);
+    if (!live.length) return res.status(400).json({ message: 'The text is unchanged.' });
+
+    base = (await getObjectBytes(lead)).buffer;
+    // photos the studio chose are pasted in first (no model)
+    let buffer = base;
+    for (const p of live.filter((x) => x.action === 'photo')) {
+      const photo = (await getObjectBytes(p.photoKey)).buffer; // eslint-disable-line no-await-in-loop
+      buffer = (await placePhoto({ buffer, region: p.region, photo })).buffer; // eslint-disable-line no-await-in-loop
+    }
+    // …then every other change, ONE image-model call over all their areas
+    const modelled = live.filter((p) => p.action !== 'photo');
+    if (modelled.length) {
+      const refKeys = [...new Set(modelled.map((p) => p.refKey).filter(Boolean))];
+      const references = await Promise.all(refKeys.map(async (k) => (await getObjectBytes(k)).buffer));
+      const areas = modelled.map((p) => {
+        if (p.action === 'text') return textArea({ region: p.region, text: p.text, marks: p.marks, remove: p.removed });
+        if (p.action === 'remove') return eraseArea({ region: p.region });
+        return imageArea({ region: p.region, instruction: p.instruction, refImage: p.refKey ? refKeys.indexOf(p.refKey) + 2 : 0 });
+      });
+      painted = await repaintAreas(buffer, areas, references);
+      buffer = painted.buffer;
+    } else {
+      buffer = await require('sharp')(buffer).jpeg({ quality: 92, mozjpeg: true }).toBuffer();
+    }
+    plans.length = 0;
+    plans.push(...live);
+    base = buffer;
   } catch (err) {
-    console.error(`[posts] ThemeRegion:${req.params.id}#${idx} ${action} failed:`, err.message);
+    console.error(`[posts] ThemeRegion:${req.params.id}#${idx} ${plans.map((p) => p.action).join('+')} failed:`, err.message);
     return res.status(502).json({ message: err.message || 'Could not change that part of the slide.' });
   }
 
   const key = `${own}themed-${require('crypto').randomUUID()}.jpg`;
-  await uploadBytes(key, result.buffer, 'image/jpeg', { immutable: true });
+  await uploadBytes(key, base, 'image/jpeg', { immutable: true });
   const src = await getMediaUrl(key).catch(() => '');
   // the carousel document's <img> for this slide now points at the new render
   const swapKey = (html) => String(html || '').replace(/<img\b[^>]*>/gi, (tag) => (tag.includes(`"${lead}"`)
     ? tag.split(lead).join(key).replace(/\ssrc\s*=\s*"[^"]*"/i, '')
     : tag));
   const current = plainOf(record.content) || {};
+  const gone = new Set(plans.filter((p) => p.removed).map((p) => p.regionId));
+  const textPlan = new Map(plans.filter((p) => p.action === 'text').map((p) => [p.regionId, p]));
   const nextRegions = {
     ...regions,
     key,
-    images: (regions.images || []).filter((t) => !(removed && t.id === regionId)),
+    images: (regions.images || []).filter((t) => !gone.has(t.id)),
     texts: (regions.texts || [])
-      .filter((t) => !(removed && t.id === regionId))
-      .map((t) => (t.id === regionId ? restyleRegion({ ...t, text: newText || t.text }, marks) : t)),
+      .filter((t) => !gone.has(t.id))
+      .map((t) => {
+        const p = textPlan.get(t.id);
+        return p ? restyleRegion({ ...t, text: p.text || t.text }, p.marks) : t;
+      }),
   };
+  // the slide's copy fields follow the words that changed (or came off)
+  const swapText = (v) => [...textPlan.values()].reduce((acc, p) => {
+    if (typeof acc !== 'string' || !p.region.text || !acc.includes(p.region.text)) return acc;
+    if (!p.removed && p.text === p.region.text) return acc;
+    return acc.split(p.region.text).join(p.removed ? '' : p.text);
+  }, v);
+  const photoKeys = plans.filter((p) => p.photoKey).map((p) => p.photoKey);
+  const nextPhotos = [...new Set([...photoKeys, ...photos])];
   const was = slide;
-  const swapText = (v) => ((newText || removed) && typeof v === 'string' && textRegion?.text && v.includes(textRegion.text) ? v.split(textRegion.text).join(newText) : v);
-  const nextPhotos = photoKey ? [photoKey, ...photos.filter((k) => k !== photoKey)] : photos;
   record.content.slides[idx - 1] = {
     ...was,
     title: swapText(was.title),
@@ -1620,6 +1668,7 @@ async function editThemeRegion(req, res) {
     themeRegions: nextRegions,
   };
   record.content.carouselHtml = swapKey(current.carouselHtml);
+  const usage = painted?.usage || null;
   const trace = record.agentTrace && typeof record.agentTrace === 'object' ? plainOf(record.agentTrace) : {};
   record.agentTrace = {
     ...trace,
@@ -1627,51 +1676,71 @@ async function editThemeRegion(req, res) {
     carousel: trace.carousel ? { ...trace.carousel, html: swapKey(trace.carousel.html) } : trace.carousel,
     themeRegionEdits: [
       ...(Array.isArray(trace.themeRegionEdits) ? trace.themeRegionEdits : []).slice(-29),
-      { at: new Date().toISOString(), index: idx, regionId, action, from: lead, key, text: newText || undefined, marks: marks.length ? marks : undefined, removed: removed || undefined, photoKey: photoKey || undefined, model: result.model || '', usage: result.usage || null },
+      {
+        at: new Date().toISOString(),
+        index: idx,
+        from: lead,
+        key,
+        changes: plans.map((p) => ({
+          regionId: p.regionId,
+          action: p.action,
+          text: p.action === 'text' && !p.removed ? p.text : undefined,
+          marks: p.marks?.length ? p.marks : undefined,
+          removed: p.removed || undefined,
+          photoKey: p.photoKey || undefined,
+          referenceKey: p.refKey || undefined,
+          instruction: p.instruction || undefined,
+        })),
+        model: painted?.model || '',
+        usage,
+      },
     ],
   };
   record.markModified('content');
   record.markModified('agentTrace');
   await record.save();
-  console.log(`[posts] ThemeRegion:${req.params.id}#${idx} ${action} ${regionId} → ${key}`);
+
+  const whatOf = (p) => {
+    const r = p.region;
+    if (p.action === 'text') {
+      return p.removed
+        ? `Text ${p.regionId} (${r.role}) removed: ${JSON.stringify(r.text)}`
+        : `Text ${p.regionId} (${r.role}): ${JSON.stringify(r.text)} → ${JSON.stringify(p.text)}${p.asks?.length ? ` (asked: ${p.asks.join('; ')})` : ''}${p.marks?.length ? ` · ${p.marks.map((m) => (m.words ? `"${m.words}" ${m.what}` : m.what)).join('; ')}` : ''}`;
+    }
+    if (p.action === 'photo') return `Picture ${p.regionId}: photo ${p.photoKey} fitted in`;
+    if (p.action === 'remove') return `Picture ${p.regionId} removed`;
+    return `Picture ${p.regionId} regenerated${p.refKey ? ` from reference ${p.refKey}` : ''}${p.instruction ? `: ${p.instruction}` : ''}`;
+  };
+  const what = plans.map(whatOf).join('\n');
+  console.log(`[posts] ThemeRegion:${req.params.id}#${idx} ${plans.length} change(s) [${plans.map((p) => `${p.action}:${p.regionId}`).join(', ')}] → ${key} (${painted ? '1 image call' : 'no model'}, ${Date.now() - started}ms)`);
   let debug = null;
   if (wantsPromptDebug(req)) {
-    const d = result.debug || {};
-    const what = action === 'text'
-      ? (removed
-        ? `Text region ${regionId} (${textRegion.role}) removed: ${JSON.stringify(textRegion.text)}`
-        : `Text region ${regionId} (${textRegion.role}): ${JSON.stringify(textRegion.text)} → ${JSON.stringify(newText || textRegion.text)}${marks.length ? ` · ${marks.map((m) => (m.words ? `"${m.words}" ${m.what}` : m.what)).join('; ')}` : ''}`)
-      : action === 'photo'
-        ? `Picture region ${regionId}: photo ${photoKey} fitted in`
-        : action === 'remove'
-          ? `Picture region ${regionId} removed`
-        : `Picture region ${regionId} regenerated${req.body?.instruction ? `: ${String(req.body.instruction).slice(0, 400)}` : ' (fresh variation)'}`;
-    const boxLine = `Region (percent of the slide): ${JSON.stringify(region.box)}${d.region ? ` · kept area (px): ${JSON.stringify(d.region)}` : ''}${d.size ? ` · model size ${d.size}` : ''}`;
+    const d = painted?.debug || {};
     const agents = [];
-    if (action !== 'photo') {
+    if (painted) {
       agents.push({
-        source: `Region edit (image model) · slide ${idx} · ${action}`,
-        model: result.model || '',
-        prompt: `${d.prompt || ''}\n\nInput images: 1. the slide as it is · mask: transparent over the region`,
-        output: `${what}\n${boxLine}\nThe model's own picture is below; only the region is kept from it.`,
-        elapsedMs: Number(result.usage?.elapsedMs) || 0,
-        usage: result.usage || null,
-        ...(result.usage || {}),
+        source: `Region edit (image model) · slide ${idx} · ${plans.filter((p) => p.action !== 'photo').length} area(s) in one call`,
+        model: painted.model || '',
+        prompt: `${d.prompt || ''}\n\nInput images: 1. the slide${plans.some((p) => p.refKey) ? ' · then the reference photo(s)' : ''} · mask: transparent over each area`,
+        output: `${what}\nKept areas (px): ${JSON.stringify(d.regions || [])}${d.size ? ` · model size ${d.size}` : ''}\nThe model's own picture is below; only the areas are kept from it.`,
+        elapsedMs: Number(usage?.elapsedMs) || 0,
+        usage,
+        ...(usage || {}),
         inputImage: { label: 'Slide before the edit', key: lead },
-        outputImage: await debugImage(d.raw, req.user._id, 'Image model output (before keeping only the region)'),
+        outputImage: await debugImage(d.raw, req.user._id, 'Image model output (before keeping only the areas)'),
       });
     }
     agents.push({
       source: `Region edit result · slide ${idx}`,
-      model: action === 'photo' ? 'sharp (no model)' : 'composite',
-      prompt: action === 'photo' ? d.prompt : 'The region from the model\'s picture, pasted back into the original slide with a soft edge.',
-      output: `${what}\n${boxLine}\nSaved as ${key}`,
-      inputImage: action === 'photo' ? { label: 'Photo put in', key: photoKey } : { label: 'Slide before the edit', key: lead },
+      model: painted ? 'composite' : 'sharp (no model)',
+      prompt: painted ? 'Each area from the model\'s picture, pasted back into the slide with a soft edge (photos the studio chose are fitted in first).' : '(no model call — the photos are fitted into their picture areas and pasted in)',
+      output: `${what}\nSaved as ${key}`,
+      inputImage: { label: 'Slide before the edit', key: lead },
       outputImage: { label: 'Slide after the edit', key },
     });
-    debug = { mode: 'theme-region', elapsedMs: Number(result.usage?.elapsedMs) || 0, usage: result.usage || null, instruction: what, agents };
+    debug = { mode: 'theme-region', elapsedMs: Date.now() - started, usage, instruction: what, agents };
   }
-  return res.json({ post: record, key, src, regions: nextRegions, usage: result.usage || null, ...(debug ? { debug } : {}) });
+  return res.json({ post: record, key, src, regions: nextRegions, usage, changes: plans.length, ...(debug ? { debug } : {}) });
 }
 
 // GET /posts/:id/pre-theme — the carousel agent's design as it was before the

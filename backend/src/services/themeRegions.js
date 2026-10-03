@@ -428,12 +428,6 @@ function pxBox(box, W, H) {
   };
 }
 
-// the edit mask the image model reads: opaque everywhere, transparent in the region
-async function editMask(W, H, r) {
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}"><rect width="${W}" height="${H}" fill="#000"/><rect x="${r.left}" y="${r.top}" width="${r.width}" height="${r.height}" fill="#000" fill-opacity="0"/></svg>`;
-  return sharp(Buffer.from(svg)).png().toBuffer();
-}
-
 // Put `patch` (same size as `base`) back into `base` inside `r` only, with a
 // soft edge so no seam shows.
 async function compositeRegion(base, patch, r) {
@@ -447,95 +441,23 @@ async function compositeRegion(base, patch, r) {
   return sharp(base).composite([{ input: rgba, left: r.left, top: r.top }]).jpeg({ quality: 92, mozjpeg: true }).toBuffer();
 }
 
-// one image-model pass over the whole render (mask when the model takes it),
-// kept only inside the region
-async function repaintRegion(buffer, box, prompt, padPct = 2, extra = []) {
-  const src = await sharp(buffer).rotate().jpeg({ quality: 94 }).toBuffer();
-  const { width: W, height: H } = await sharp(src).metadata();
-  const region = pxBox(padBox(box, padPct), W, H);
-  const mask = await editMask(W, H, region);
-  const size = W / H > 0.95 ? '1024x1024' : '1024x1280';
-  const r = await composeImage({
-    images: [{ buffer: src, mediaType: 'image/jpeg', name: 'slide' }, ...extra],
-    mask: { buffer: mask, mediaType: 'image/png' },
-    prompt,
-    size,
-    model: EDIT_MODEL(),
-    quality: process.env.OPENAI_THEME_IMAGE_QUALITY || 'medium',
-  });
-  const out = await compositeRegion(src, r.buffer, region);
-  return {
-    buffer: out,
-    usage: { ...(r.usage || {}), estimatedCostUsd: r.estimatedCostUsd, elapsedMs: r.elapsedMs },
-    model: `${r.model} · ${r.quality}`,
-    // for the AI debug panel: the prompt, the model's own picture (before only
-    // the region was kept) and the region it was kept inside (px)
-    debug: { prompt, raw: r.buffer, region, size },
-  };
-}
-
 const where = (b) => `the area at left ${Math.round(b.left)}%, top ${Math.round(b.top)}%, ${Math.round(b.width)}% wide, ${Math.round(b.height)}% tall`;
 
-// marks: [{ id, words ('' = all of it), what (plain words, e.g. "bold",
-// "in the colour #d2e823") }] from the Editor's text panel; remove: take the
-// text off and fill the background in.
-async function editText({ buffer, region, text, marks = [], remove = false }) {
-  if (remove) {
-    const prompt = [
-      `Edit ONLY the transparent (masked) area of this Instagram slide — ${where(region.box)}.`,
-      `It currently reads: ${JSON.stringify(region.text)}.`,
-      'Remove those words completely. Repaint the area as the background around it continues — the same texture, colour, light and any graphic that passes behind the words — so nothing shows that text was ever there.',
-      'Change nothing outside the area.',
-    ].join('\n');
-    return repaintRegion(buffer, region.box, prompt, 1.5);
-  }
-  const next = String(text || '').trim() || region.text;
-  const changed = next !== region.text;
-  const styled = (Array.isArray(marks) ? marks : [])
-    .filter((m) => m && m.what)
-    .map((m) => (m.words
-      ? `- The words ${JSON.stringify(String(m.words).slice(0, 200))}: ${String(m.what).slice(0, 120)}.`
-      : `- All of the text: ${String(m.what).slice(0, 120)}.`));
-  const prompt = [
-    `Edit ONLY the transparent (masked) area of this Instagram slide — ${where(region.box)}.`,
-    `It currently reads: ${JSON.stringify(region.text)}.`,
-    changed ? `Replace those words with exactly: ${JSON.stringify(next)}` : `Keep exactly those words: ${JSON.stringify(next)}`,
-    ...(styled.length ? ['Set the lettering with these changes (everything not named keeps its current look):', ...styled] : []),
-    `Otherwise match the original lettering exactly: the same typeface, ${styled.length ? '' : 'weight, '}size, letter spacing, case, colour and alignment. Repaint the background behind the words seamlessly (same texture and colour as around it).`,
-    'If the new words are longer, wrap them onto more lines or make them slightly smaller so they stay inside the area. Spell every word exactly as given, with the same punctuation.',
-    'Change nothing outside the area.',
-  ].join('\n');
-  return repaintRegion(buffer, region.box, prompt, 1.5);
+// One change on its own — the same areas `repaintAreas` paints several of.
+// marks: [{ id, words ('' = all of it), what (plain words, e.g. "bold") }];
+// remove: take the text off and fill the background in.
+function editText({ buffer, region, text, marks = [], remove = false }) {
+  return repaintAreas(buffer, [textArea({ region, text, marks, remove })]);
 }
-
 // reference: a photo the studio gave (Editor › Generate from a reference) —
 // the new picture follows its subject and look
-async function regenImage({ buffer, region, instruction, reference = null }) {
-  const brief = String(instruction || '').trim();
-  const ref = reference?.length
-    ? [{ buffer: await sharp(reference).rotate().resize({ width: 1024, height: 1024, fit: 'inside', withoutEnlargement: true }).jpeg({ quality: 90 }).toBuffer(), mediaType: 'image/jpeg', name: 'reference' }]
-    : [];
-  const prompt = [
-    `Edit ONLY the transparent (masked) area of this Instagram slide (Image 1) — ${where(region.box)}. It holds the slide's picture.`,
-    ref.length
-      ? `Replace that picture with a new one based on the reference photo (Image 2): the same subject, mood, colours and kind of shot as the reference, framed to fill the area.${brief ? ` Also: ${brief}` : ''}`
-      : brief
-        ? `Replace that picture with: ${brief}`
-        : 'Replace that picture with a fresh variation of the same subject — same framing, crop, lighting and style.',
-    'Keep the picture\'s frame, border and position exactly; the picture fills the area edge to edge. No text, numbers or logos in the picture.',
-    'Change nothing outside the area.',
-  ].join('\n');
-  return repaintRegion(buffer, region.box, prompt, 0.5, ref);
+function regenImage({ buffer, region, instruction, reference = null }) {
+  const refs = reference?.length ? [reference] : [];
+  return repaintAreas(buffer, [imageArea({ region, instruction, refImage: refs.length ? 2 : 0 })], refs);
 }
-
 // take the picture off: the area becomes the slide's background again
-async function eraseImage({ buffer, region }) {
-  const prompt = [
-    `Edit ONLY the transparent (masked) area of this Instagram slide — ${where(region.box)}. It holds a photograph (with any frame, border, tape or shadow it sits in).`,
-    'Remove the photograph and everything that frames it. Paint the area as the slide\'s background continues around it — the same paper, texture, colour, light and any graphic that passes behind — so nothing shows a picture was ever there.',
-    'Do not add any new object, text or picture. Change nothing outside the area.',
-  ].join('\n');
-  return repaintRegion(buffer, region.box, prompt, 1.5);
+function eraseImage({ buffer, region }) {
+  return repaintAreas(buffer, [eraseArea({ region })]);
 }
 
 async function placePhoto({ buffer, region, photo }) {
@@ -581,4 +503,107 @@ async function rewriteText({ text, role, instructions = [], context = '' }) {
   return { text: next || text };
 }
 
-module.exports = { mapRegions, editText, regenImage, eraseImage, placePhoto, rewriteText, REGIONS_V, typeFeatures };
+/* ── Several areas in ONE image-model call ──────────────────────────────────
+ * The Editor holds changes to several parts of a slide and sends them
+ * together. Each change becomes an AREA — its box, how much padding the mask
+ * gets, and what should happen inside it — and all of them are painted by a
+ * single masked call (one transparent rect per area); each padded area is
+ * then pasted back from that one output, so everything else stays
+ * pixel-identical. One call instead of one per change: ~20 s and ~2¢ total. */
+function textArea({ region, text, marks = [], remove = false }) {
+  if (remove) {
+    return {
+      box: region.box,
+      pad: 1.5,
+      lines: [
+        `It currently reads: ${JSON.stringify(region.text)}.`,
+        'Remove those words completely. Repaint it as the background around it continues — the same texture, colour, light and any graphic that passes behind the words — so nothing shows that text was ever there.',
+      ],
+    };
+  }
+  const next = String(text || '').trim() || region.text;
+  const changed = next !== region.text;
+  const styled = (Array.isArray(marks) ? marks : [])
+    .filter((m) => m && m.what)
+    .map((m) => (m.words
+      ? `- The words ${JSON.stringify(String(m.words).slice(0, 200))}: ${String(m.what).slice(0, 120)}.`
+      : `- All of the text: ${String(m.what).slice(0, 120)}.`));
+  return {
+    box: region.box,
+    pad: 1.5,
+    lines: [
+      `It currently reads: ${JSON.stringify(region.text)}.`,
+      changed ? `Replace those words with exactly: ${JSON.stringify(next)}` : `Keep exactly those words: ${JSON.stringify(next)}`,
+      ...(styled.length ? ['Set the lettering with these changes (everything not named keeps its current look):', ...styled] : []),
+      `Otherwise match the original lettering exactly: the same typeface, ${styled.length ? '' : 'weight, '}size, letter spacing, case, colour and alignment. Repaint the background behind the words seamlessly (same texture and colour as around it).`,
+      'If the new words are longer, wrap them onto more lines or make them slightly smaller so they stay inside the area. Spell every word exactly as given, with the same punctuation.',
+    ],
+  };
+}
+// refImage: the number of the reference photo among the inputs (0 = none)
+function imageArea({ region, instruction = '', refImage = 0 }) {
+  const brief = String(instruction || '').trim();
+  return {
+    box: region.box,
+    pad: 0.5,
+    lines: [
+      'It holds the slide\'s picture.',
+      refImage
+        ? `Replace that picture with a new one based on the reference photo (Image ${refImage}): the same subject, mood, colours and kind of shot as the reference, framed to fill the area.${brief ? ` Also: ${brief}` : ''}`
+        : brief
+          ? `Replace that picture with: ${brief}`
+          : 'Replace that picture with a fresh variation of the same subject — same framing, crop, lighting and style.',
+      'Keep the picture\'s frame, border and position exactly; the picture fills the area edge to edge. No text, numbers or logos in the picture.',
+    ],
+  };
+}
+function eraseArea({ region }) {
+  return {
+    box: region.box,
+    pad: 1.5,
+    lines: [
+      'It holds a photograph (with any frame, border, tape or shadow it sits in).',
+      'Remove the photograph and everything that frames it. Paint the area as the slide\'s background continues around it — the same paper, texture, colour, light and any graphic that passes behind — so nothing shows a picture was ever there. Do not add any new object, text or picture.',
+    ],
+  };
+}
+async function repaintAreas(buffer, areas, references = []) {
+  const src = await sharp(buffer).rotate().jpeg({ quality: 94 }).toBuffer();
+  const { width: W, height: H } = await sharp(src).metadata();
+  const rects = areas.map((a) => pxBox(padBox(a.box, a.pad), W, H));
+  const holes = rects.map((r) => `<rect x="${r.left}" y="${r.top}" width="${r.width}" height="${r.height}" fill="#000" fill-opacity="0"/>`).join('');
+  const mask = await sharp(Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}"><rect width="${W}" height="${H}" fill="#000"/>${holes}</svg>`)).png().toBuffer();
+  const refs = await Promise.all(references.map(async (b, i) => ({
+    buffer: await sharp(b).rotate().resize({ width: 1024, height: 1024, fit: 'inside', withoutEnlargement: true }).jpeg({ quality: 90 }).toBuffer(),
+    mediaType: 'image/jpeg',
+    name: `reference-${i + 1}`,
+  })));
+  const one = areas.length === 1;
+  const prompt = [
+    one
+      ? `Edit ONLY the transparent (masked) area of this Instagram slide (Image 1) — ${where(areas[0].box)}.`
+      : `Edit ONLY the ${areas.length} transparent (masked) areas of this Instagram slide (Image 1). Change each exactly as described under its number, and nothing else:`,
+    ...(one ? areas[0].lines : areas.flatMap((a, i) => ['', `AREA ${i + 1} — ${where(a.box)}:`, ...a.lines])),
+    '',
+    one ? 'Change nothing outside the area.' : 'Each area keeps its own content — never move words or pictures between areas. Change nothing outside the areas.',
+  ].join('\n');
+  const size = W / H > 0.95 ? '1024x1024' : '1024x1280';
+  const r = await composeImage({
+    images: [{ buffer: src, mediaType: 'image/jpeg', name: 'slide' }, ...refs],
+    mask: { buffer: mask, mediaType: 'image/png' },
+    prompt,
+    size,
+    model: EDIT_MODEL(),
+    quality: process.env.OPENAI_THEME_IMAGE_QUALITY || 'medium',
+  });
+  let out = src;
+  for (const rect of rects) out = await compositeRegion(out, r.buffer, rect); // eslint-disable-line no-await-in-loop
+  return {
+    buffer: out,
+    usage: { ...(r.usage || {}), estimatedCostUsd: r.estimatedCostUsd, elapsedMs: r.elapsedMs },
+    model: `${r.model} · ${r.quality}`,
+    debug: { prompt, raw: r.buffer, regions: rects, size },
+  };
+}
+
+module.exports = { mapRegions, editText, regenImage, eraseImage, placePhoto, rewriteText, REGIONS_V, typeFeatures, textArea, imageArea, eraseArea, repaintAreas };

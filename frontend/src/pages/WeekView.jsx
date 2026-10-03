@@ -5591,24 +5591,34 @@ export default function WeekView({
     setRgnErr('');
     setRgnPick('');
     setRgnBusy('text');
+    // every change on a slide goes in ONE request — one image-model call —
+    // so a slide is redrawn once however many of its parts changed
+    const bySlide = [];
+    held.forEach((h) => {
+      const at = bySlide.find((g) => g.slide === h.slide);
+      if (at) at.items.push(h); else bySlide.push({ slide: h.slide, items: [h] });
+    });
     let done = 0;
     try {
-      for (const h of held) {
-        setRgnSending(held.length > 1 ? `Redrawing ${done + 1} of ${held.length}…` : '');
+      for (const g of bySlide) {
+        setRgnSending(bySlide.length > 1
+          ? `Redrawing slide ${g.slide + 1} (${done + 1} of ${bySlide.length})…`
+          : (g.items.length > 1 ? `Redrawing ${g.items.length} changes…` : ''));
         // eslint-disable-next-line no-await-in-loop
-        const d = await editThemeRegion(postId, h.slide + 1, regionBody(h));
-        done += 1;
-        setRgnHeld((cur) => { const next = { ...cur }; delete next[h.key]; return next; });
+        const d = await editThemeRegion(postId, g.slide + 1, { changes: g.items.map(regionBody) });
+        done += g.items.length;
+        const sent = new Set(g.items.map((h) => h.key));
+        setRgnHeld((cur) => Object.fromEntries(Object.entries(cur).filter(([k]) => !sent.has(k))));
         if (d?.key && d?.src) rememberImage(d.key, d.src, { skipGen: true });
-        if (d?.regions && h.slide === safeIdx) setRgnMap(d.regions);
+        if (d?.regions && g.slide === safeIdx) setRgnMap(d.regions);
         if (d?.post) {
           const r = mergePost(d.post);
-          if (r) { setRoute(r); onRouteChange?.(r); setSlideGen((g) => g + 1); }
+          if (r) { setRoute(r); onRouteChange?.(r); setSlideGen((n) => n + 1); }
           const snap = editSnapRef.current;
-          if (snap && snap.dayIndex === selected && Array.isArray(snap.slides) && snap.slides[h.slide]) {
-            const fresh = deriveSlides(d.post)[h.slide];
+          if (snap && snap.dayIndex === selected && Array.isArray(snap.slides) && snap.slides[g.slide]) {
+            const fresh = deriveSlides(d.post)[g.slide];
             if (fresh) {
-              snap.slides[h.slide] = JSON.parse(JSON.stringify(fresh));
+              snap.slides[g.slide] = JSON.parse(JSON.stringify(fresh));
               snap.docHtml = carouselDocumentOf(d.post);
             }
           }

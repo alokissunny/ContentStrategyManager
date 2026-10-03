@@ -279,7 +279,8 @@ export function mapThemeRegions(id, slideIndex, { force = false } = {}) {
 export function editThemeRegion(id, slideIndex, body) {
   return client.post(`/posts/${id}/slide/${slideIndex}/theme-region`, body, { timeout: 300000 }).then((res) => {
     const data = res.data || {};
-    const what = body?.action === 'text' ? 'text' : body?.action === 'photo' ? 'photo' : 'picture';
+    const list = Array.isArray(body?.changes) ? body.changes : [body];
+    const what = list.length > 1 ? `${list.length} changes` : (list[0]?.action === 'text' ? 'text' : list[0]?.action === 'photo' ? 'photo' : 'picture');
     ingestPlanDebug(`Region edit — slide ${slideIndex} · ${what}`, data);
     return data;
   });
