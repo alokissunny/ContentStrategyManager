@@ -11,6 +11,7 @@ import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import Glyph from '../components/Glyph';
 import Icon from '../brand/Icon';
+import RegionTextPanel from './weekview/RegionTextPanel';
 import YourAnalysisModal from '../components/YourAnalysisModal';
 import ConnectMetaModal from '../components/ConnectMetaModal';
 import LinkedInPublisher from '../components/LinkedInPublisher';
@@ -5416,6 +5417,12 @@ export default function WeekView({
     : null;
   const rgnIsText = Boolean(rgnRegion && (rgnMap?.texts || []).some((t) => t.id === rgnRegion.id));
   const regionEditing = Boolean(postEdit && activeThemed && rgnRegion && !visEdit);
+  // text regions edit in the floating panel on the card; pictures in the side panel
+  const regionPanelOn = regionEditing && !rgnIsText;
+  const rgnPalette = (() => {
+    const p = (kitSets.find((t) => t.id === (setIdOf(activeSlide) || kitDefaultSet)) || kitSets[0])?.palette;
+    return p && (p.fg || p.accent || p.ground) ? { ink: p.fg, accent: p.accent, ground: p.ground } : null;
+  })();
   const regionsOn = Boolean(postEdit && activeThemed && rgnMap && !visEdit && !layoutBusy);
   function pickRegion(r, isText) {
     setRgnPick(r.id);
@@ -6241,7 +6248,7 @@ export default function WeekView({
     };
   };
   const regionPhotos = activeThemed ? keysOf(activeSlide).filter((k) => !/\/themed-/.test(k)) : [];
-  const regionEditorEl = regionEditing ? (
+  const regionEditorEl = regionPanelOn ? (
     <div className="wv-worded wv-rgned" onClick={(e) => e.stopPropagation()}>
       <div className="wv-worded__head">
         <button type="button" className="wv-worded__back" onClick={() => setRgnPick('')} aria-label="Back">
@@ -6556,7 +6563,7 @@ export default function WeekView({
           </header>
 
           <div
-            className={`wv-edm__body${compositionEditing || wordsEditing || regionEditing ? ' has-panel' : ''}${askOpen && !visEdit ? ' is-asking' : ''}`}
+            className={`wv-edm__body${compositionEditing || wordsEditing || regionPanelOn ? ' has-panel' : ''}${askOpen && !visEdit ? ' is-asking' : ''}`}
             onMouseDown={(e) => {
               if (!elemSel) return;
               if (e.target.closest('.wv-edm__tb, .wv-edm__line, .wv-edm__panel, .wv-edm__card.is-on')) return;
@@ -6721,6 +6728,16 @@ export default function WeekView({
                                 onClick={(e) => { e.stopPropagation(); pickRegion(r, true); }}
                               />
                             ))}
+                            {regionEditing && rgnIsText && (
+                              <RegionTextPanel
+                                region={rgnRegion}
+                                palette={rgnPalette}
+                                busy={rgnBusy === 'text'}
+                                err={rgnErr}
+                                onClose={() => setRgnPick('')}
+                                onApply={({ text, marks, remove }) => runRegionEdit({ action: 'text', text, marks, remove })}
+                              />
+                            )}
                           </div>
                         )}
                         {on && postEdit && activeThemed && rgnLoading && (
@@ -6780,7 +6797,7 @@ export default function WeekView({
               )}
             </section>
 
-            {(compositionEditing || wordsEditing || regionEditing) && (
+            {(compositionEditing || wordsEditing || regionPanelOn) && (
               <aside className="wv-edm__panel wv-ig">
                 {regionEditorEl}
                 {wordsEditorEl}

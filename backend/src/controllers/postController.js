@@ -1491,7 +1491,7 @@ async function mapThemeRegions(req, res) {
 
 // POST /posts/:id/slide/:slideIndex/theme-region — change one region of the
 // themed render. Body: { regionId, action: 'text' | 'regenerate' | 'photo',
-// text? (action text), instruction? (regenerate), photoKey? (photo) }
+// text? marks? remove? (action text), instruction? (regenerate), photoKey? (photo) }
 async function editThemeRegion(req, res) {
   const record = await PlannedPost.findOne({ _id: req.params.id, user: req.user._id });
   if (!record) return res.status(404).json({ message: 'Post not found' });
@@ -1511,13 +1511,20 @@ async function editThemeRegion(req, res) {
   let result;
   let newText = '';
   let photoKey = '';
+  let removed = false;
+  let marks = [];
   try {
     const base = (await getObjectBytes(lead)).buffer;
     if (action === 'text' && textRegion) {
-      newText = String(req.body?.text || '').trim().slice(0, 400);
-      if (!newText) return res.status(400).json({ message: 'Write the new text first.' });
-      if (newText === textRegion.text) return res.status(400).json({ message: 'The text is unchanged.' });
-      result = await editText({ buffer: base, region: textRegion, text: newText });
+      removed = req.body?.remove === true;
+      marks = (Array.isArray(req.body?.marks) ? req.body.marks : []).slice(0, 24)
+        .map((m) => ({ id: String(m?.id || '').slice(0, 24), words: String(m?.words || '').slice(0, 200), what: String(m?.what || '').slice(0, 120) }))
+        .filter((m) => m.id && m.what);
+      newText = removed ? '' : String(req.body?.text || '').trim().slice(0, 400);
+      if (!removed && !newText) return res.status(400).json({ message: 'Write the new text first.' });
+      if (!removed && newText === textRegion.text && !marks.length) return res.status(400).json({ message: 'The text is unchanged.' });
+      if (newText === textRegion.text) newText = '';
+      result = await editText({ buffer: base, region: textRegion, text: newText || textRegion.text, marks, remove: removed });
     } else if (action === 'photo' && imageRegion) {
       photoKey = String(req.body?.photoKey || '');
       if (!photoKey.startsWith(own)) return res.status(400).json({ message: 'Choose one of your own photos.' });
@@ -1545,10 +1552,12 @@ async function editThemeRegion(req, res) {
   const nextRegions = {
     ...regions,
     key,
-    texts: (regions.texts || []).map((t) => (t.id === regionId && newText ? { ...t, text: newText } : t)),
+    texts: (regions.texts || [])
+      .filter((t) => !(removed && t.id === regionId))
+      .map((t) => (t.id === regionId && newText ? { ...t, text: newText } : t)),
   };
   const was = slide;
-  const swapText = (v) => (newText && typeof v === 'string' && textRegion?.text && v.includes(textRegion.text) ? v.split(textRegion.text).join(newText) : v);
+  const swapText = (v) => ((newText || removed) && typeof v === 'string' && textRegion?.text && v.includes(textRegion.text) ? v.split(textRegion.text).join(newText) : v);
   const nextPhotos = photoKey ? [photoKey, ...photos.filter((k) => k !== photoKey)] : photos;
   record.content.slides[idx - 1] = {
     ...was,
@@ -1567,7 +1576,7 @@ async function editThemeRegion(req, res) {
     carousel: trace.carousel ? { ...trace.carousel, html: swapKey(trace.carousel.html) } : trace.carousel,
     themeRegionEdits: [
       ...(Array.isArray(trace.themeRegionEdits) ? trace.themeRegionEdits : []).slice(-29),
-      { at: new Date().toISOString(), index: idx, regionId, action, from: lead, key, text: newText || undefined, photoKey: photoKey || undefined, model: result.model || '', usage: result.usage || null },
+      { at: new Date().toISOString(), index: idx, regionId, action, from: lead, key, text: newText || undefined, marks: marks.length ? marks : undefined, removed: removed || undefined, photoKey: photoKey || undefined, model: result.model || '', usage: result.usage || null },
     ],
   };
   record.markModified('content');
@@ -1578,7 +1587,9 @@ async function editThemeRegion(req, res) {
   if (wantsPromptDebug(req)) {
     const d = result.debug || {};
     const what = action === 'text'
-      ? `Text region ${regionId} (${textRegion.role}): ${JSON.stringify(textRegion.text)} → ${JSON.stringify(newText)}`
+      ? (removed
+        ? `Text region ${regionId} (${textRegion.role}) removed: ${JSON.stringify(textRegion.text)}`
+        : `Text region ${regionId} (${textRegion.role}): ${JSON.stringify(textRegion.text)} → ${JSON.stringify(newText || textRegion.text)}${marks.length ? ` · ${marks.map((m) => (m.words ? `"${m.words}" ${m.what}` : m.what)).join('; ')}` : ''}`)
       : action === 'photo'
         ? `Picture region ${regionId}: photo ${photoKey} fitted in`
         : `Picture region ${regionId} regenerated${req.body?.instruction ? `: ${String(req.body.instruction).slice(0, 400)}` : ' (fresh variation)'}`;

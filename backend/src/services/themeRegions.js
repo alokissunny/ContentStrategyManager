@@ -297,13 +297,32 @@ async function repaintRegion(buffer, box, prompt, padPct = 2) {
 
 const where = (b) => `the area at left ${Math.round(b.left)}%, top ${Math.round(b.top)}%, ${Math.round(b.width)}% wide, ${Math.round(b.height)}% tall`;
 
-async function editText({ buffer, region, text }) {
-  const next = String(text || '').trim();
+// marks: [{ id, words ('' = all of it), what (plain words, e.g. "bold",
+// "in the colour #d2e823") }] from the Editor's text panel; remove: take the
+// text off and fill the background in.
+async function editText({ buffer, region, text, marks = [], remove = false }) {
+  if (remove) {
+    const prompt = [
+      `Edit ONLY the transparent (masked) area of this Instagram slide — ${where(region.box)}.`,
+      `It currently reads: ${JSON.stringify(region.text)}.`,
+      'Remove those words completely. Repaint the area as the background around it continues — the same texture, colour, light and any graphic that passes behind the words — so nothing shows that text was ever there.',
+      'Change nothing outside the area.',
+    ].join('\n');
+    return repaintRegion(buffer, region.box, prompt, 1.5);
+  }
+  const next = String(text || '').trim() || region.text;
+  const changed = next !== region.text;
+  const styled = (Array.isArray(marks) ? marks : [])
+    .filter((m) => m && m.what)
+    .map((m) => (m.words
+      ? `- The words ${JSON.stringify(String(m.words).slice(0, 200))}: ${String(m.what).slice(0, 120)}.`
+      : `- All of the text: ${String(m.what).slice(0, 120)}.`));
   const prompt = [
     `Edit ONLY the transparent (masked) area of this Instagram slide — ${where(region.box)}.`,
     `It currently reads: ${JSON.stringify(region.text)}.`,
-    `Replace those words with exactly: ${JSON.stringify(next)}`,
-    'Match the original lettering exactly: the same typeface, weight, size, letter spacing, case, colour and alignment. Repaint the background behind the words seamlessly (same texture and colour as around it).',
+    changed ? `Replace those words with exactly: ${JSON.stringify(next)}` : `Keep exactly those words: ${JSON.stringify(next)}`,
+    ...(styled.length ? ['Set the lettering with these changes (everything not named keeps its current look):', ...styled] : []),
+    `Otherwise match the original lettering exactly: the same typeface, ${styled.length ? '' : 'weight, '}size, letter spacing, case, colour and alignment. Repaint the background behind the words seamlessly (same texture and colour as around it).`,
     'If the new words are longer, wrap them onto more lines or make them slightly smaller so they stay inside the area. Spell every word exactly as given, with the same punctuation.',
     'Change nothing outside the area.',
   ].join('\n');

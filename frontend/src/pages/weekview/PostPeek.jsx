@@ -343,7 +343,7 @@ export function DayPeek({ day, feed = false, phone = false }) {
       key={`${day?._id || day?.date}-${safe}`}
       slide={cur}
       paint={{ ...(curSet ? { ...paint, '--t-ground-image': '', '--wv-ground-img': '', ...curSet } : paint), ...curFonts }}
-      themed={curSet ? 'colours' : themed}
+      themed={curSet ? 'colours' : false}
       documentHtml={doc}
       carouselLayoutHtmls={carouselHtmls}
       slideIndex={safe + 1}

@@ -179,6 +179,21 @@ const PATHS = {
       <path d="M17.5 21.5v-13a2 2 0 0 0-2-2h-13" />
     </>
   ),
+  'format-bold': <path strokeWidth={3.1} d="M6 12h9a4 4 0 0 1 0 8H7a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1h7a4 4 0 0 1 0 8" />,
+  'format-italic': <path d="M19 4h-9M14 20H5M15 4 9 20" />,
+  'format-underline': <path d="M6 4v6a6 6 0 0 0 12 0V4M4 20h16" />,
+  'format-strike': <path d="M16 4H9a3 3 0 0 0-2.83 4M14 12a4 4 0 0 1 0 8H6M4 12h16" />,
+  'format-highlight': <path d="m9 11-6 6v3h9l3-3M22 12l-4.6 4.6a2 2 0 0 1-2.8 0l-5.2-5.2a2 2 0 0 1 0-2.8L14 4" />,
+  'align-left': <path d="M4 6h16M4 12h10M4 18h13" />,
+  'align-center': <path d="M4 6h16M7 12h10M6 18h12" />,
+  'align-right': <path d="M4 6h16M10 12h10M7 18h13" />,
+  layers: (
+    <>
+      <path d="m12 3.2 8.2 4.3-8.2 4.3-8.2-4.3Z" />
+      <path d="m4.4 12 7.6 4 7.6-4" />
+      <path d="m4.4 16.4 7.6 4 7.6-4" />
+    </>
+  ),
   pin: (
     <>
       <path d="M12 21s6.5-5.5 6.5-11a6.5 6.5 0 0 0-13 0c0 5.5 6.5 11 6.5 11Z" />

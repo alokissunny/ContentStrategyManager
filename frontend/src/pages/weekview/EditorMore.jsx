@@ -1,9 +1,8 @@
 /*
  * The Editor's ⋯ — ported from bauhly-v3 `src/pages/app/editor/PostMenu.jsx`
- * (`EditorMore`, Sep 25). One menu, three groups: what the slide is made of
- * (Layouts · Themes · Colours), what it wears (Image · Background · Logo), and
- * the carousel it sits in (Copy settings to · Slide · Remove all edits ·
- * Remove slide).
+ * (`EditorMore`, Sep 28 layout). The root is five categories — Layout · Theme ·
+ * Content (Image · Logo) · Style (Colours · Background) · Slide (Add · Copy
+ * settings to · Video cover · Remove slide) — and Reset edits under a rule.
  *
  * Levels open IN PLACE with a back row at the top, as in the reference, rather
  * than as side flyouts. A row that asks "how far does this go?" on a carousel
@@ -248,7 +247,7 @@ export default function EditorMore({ acts, onClose }) {
       <Rows
         onClose={onClose}
         rows={[
-          ...backRow('Theme colour'),
+          ...backRow('Colours', 'style'),
           ...sets.map((one) => ({
             id: `set-${one.id}`,
             swatches: one.swatches,
@@ -366,7 +365,7 @@ export default function EditorMore({ acts, onClose }) {
         <Rows
           onClose={onClose}
           rows={[
-            ...backRow('Image'),
+            ...backRow('Image', 'content'),
             { id: 'imglib', icon: 'image', label: 'Choose from library', hint: 'The project’s own photographs', fn: () => acts.onImageLibrary?.(), stay: true },
             { id: 'imgup', icon: 'upload', label: 'Upload an image', hint: 'A file from this device', dead: acts.uploading, fn: () => imgFile.current?.click(), into: true },
             ...(acts.onAdjust ? [{ id: 'imgedit', icon: 'crop', label: 'Adjust the photo', hint: 'Crop, straighten and tune it', fn: () => acts.onAdjust() }] : []),
@@ -387,7 +386,7 @@ export default function EditorMore({ acts, onClose }) {
     };
     return (
       <>
-        <Rows onClose={onClose} rows={backRow('Background')} />
+        <Rows onClose={onClose} rows={backRow('Background', 'style')} />
         <FilePick inputRef={groundFile} onFile={(f) => { acts.onUploadGround?.(f); onClose(); }} />
         <div className="wv-em__grid" role="radiogroup" aria-label="Backgrounds">
           <button
@@ -452,7 +451,7 @@ export default function EditorMore({ acts, onClose }) {
         <Rows
           onClose={onClose}
           rows={[
-            ...backRow('Logo'),
+            ...backRow('Logo', 'content'),
             ...(hasLogo && hidden ? [{
               id: 'logoon', icon: 'sparkle', label: 'Put it on this slide', hint: 'Your mark, in the post’s own corner', fn: () => acts.onLogo?.(''),
             }] : []),
@@ -510,7 +509,7 @@ export default function EditorMore({ acts, onClose }) {
       <Rows
         onClose={onClose}
         rows={[
-          ...backRow('Copy settings to'),
+          ...backRow('Copy settings to', 'slide'),
           { id: 'solo', icon: 'brief', label: 'This slide only', hint: 'The others keep their own', on: !acts.sameAll, fn: () => acts.onSameAll?.(false) },
           { id: 'all', icon: 'copy', label: 'All slides', hint: 'Take these settings to every slide', on: !!acts.sameAll, fn: () => acts.onSameAll?.(true) },
         ]}
@@ -527,6 +526,18 @@ export default function EditorMore({ acts, onClose }) {
           ...backRow('Slide'),
           { id: 'before', icon: 'arrow-left', label: 'Add before', hint: 'A new slide before this one', fn: acts.onAddBefore },
           { id: 'after', icon: 'arrow-right', label: 'Add after', hint: 'A new slide after this one', fn: acts.onAddAfter },
+          ...(many ? [
+            { id: 'r-slide', rule: true },
+            { id: 'text', icon: 'sliders', label: 'Copy settings to', fn: () => setLevel('text'), into: true, chevron: true },
+          ] : []),
+          ...(acts.onVideoCover ? [
+            { id: 'r-cover', rule: true },
+            { id: 'cover', icon: 'play', label: acts.coverBusy ? 'Creating cover…' : 'Video cover', hint: 'An animated hook for the first slide', dead: acts.coverBusy, fn: acts.onVideoCover },
+          ] : []),
+          ...(many ? [
+            { id: 'r-slidebad', rule: true },
+            { id: 'removeslide', icon: 'trash', label: 'Remove slide', hint: 'Takes this frame out of the carousel', fn: acts.onRemoveSlide, bad: true },
+          ] : []),
         ]}
       />
     );
@@ -538,7 +549,7 @@ export default function EditorMore({ acts, onClose }) {
       <Rows
         onClose={onClose}
         rows={[
-          ...backRow('Remove all edits'),
+          ...backRow('Reset edits'),
           { id: 'one', icon: 'brief', label: 'This slide only', hint: 'The others keep theirs', dead: !acts.canResetSlide, fn: () => acts.onReset?.(false) },
           { id: 'every', icon: 'copy', label: 'All slides', hint: many ? `All ${n} go back` : 'Nothing else to put back', dead: !many, fn: () => acts.onReset?.(true) },
         ]}
@@ -546,26 +557,50 @@ export default function EditorMore({ acts, onClose }) {
     );
   }
 
-  /* ── The root ───────────────────────────────────────────────────────── */
+  /* ── Content · Style ───────────────────────────────────────────────
+     Landings, not copies: every level they open already existed (bauhly-v3
+     PostMenu, Sep 28 "five categories"). Text and Graphic from the reference
+     are not wired here yet, so Content holds what is. */
+  if (level === 'content') {
+    return (
+      <Rows
+        onClose={onClose}
+        rows={[
+          ...backRow('Content'),
+          { id: 'image', icon: 'image-plus', label: 'Image', hint: 'A photograph on this slide', fn: () => setLevel('image'), into: true, chevron: true },
+          { id: 'logo', icon: 'pin', label: 'Logo', hint: 'Your mark on this slide', fn: () => setLevel('logo'), into: true, chevron: true },
+        ]}
+      />
+    );
+  }
+  if (level === 'style') {
+    return (
+      <Rows
+        onClose={onClose}
+        rows={[
+          ...backRow('Style'),
+          { id: 'colours', icon: 'swatch', label: 'Colours', hint: 'The set this slide is drawn in', fn: () => setLevel('colour'), into: true, chevron: true },
+          { id: 'background', icon: 'image', label: 'Background', hint: 'The ground behind it', fn: () => setLevel('background'), into: true, chevron: true },
+        ]}
+      />
+    );
+  }
+
+  /* ── The root ───────────────────────────────────────────────────────────
+     bauhly-v3's five categories, in the order a studio meets a post, with
+     Reset edits under a rule at the foot. */
   return (
     <Rows
       onClose={onClose}
       rows={[
-        { id: 'layouts', icon: 'blocks', label: 'Layouts', hint: 'How this slide is arranged', dead: acts.busy, fn: () => acts.onLayouts?.(), stay: true, chevron: true },
-        { id: 'themes', icon: 'droplet', label: 'Themes', hint: 'The direction it wears', fn: () => setLevel('theme'), into: true, chevron: true },
-        { id: 'colours', icon: 'swatch', label: 'Colours', hint: 'The set it is drawn in', fn: () => setLevel('colour'), into: true, chevron: true },
-        { id: 'r-dress', rule: true },
-        { id: 'image', icon: 'image-plus', label: 'Image', hint: 'A photograph on this slide', fn: () => setLevel('image'), into: true, chevron: true },
-        { id: 'background', icon: 'image', label: 'Background', hint: 'The ground behind it', fn: () => setLevel('background'), into: true, chevron: true },
-        { id: 'logo', icon: 'pin', label: 'Logo', hint: 'Your mark on this slide', fn: () => setLevel('logo'), into: true, chevron: true },
-        { id: 'r-on', rule: true },
-        ...(many ? [{ id: 'text', icon: 'sliders', label: 'Copy settings to', fn: () => setLevel('text'), into: true }] : []),
-        { id: 'slide', icon: 'plus', label: 'Slide', fn: () => setLevel('slide'), into: true },
-        ...(acts.onVideoCover ? [{ id: 'cover', icon: 'play', label: acts.coverBusy ? 'Creating cover…' : 'Video cover', hint: 'An animated hook for the first slide', dead: acts.coverBusy, fn: acts.onVideoCover }] : []),
-        ...(acts.canReset ? [{ id: 'resetedits', icon: 'undo', label: 'Remove all edits', fn: () => setLevel('reset'), into: true, chevron: true }] : []),
-        ...(many ? [
-          { id: 'r2', rule: true },
-          { id: 'removeslide', icon: 'trash', label: 'Remove slide', hint: 'Takes this frame out of the carousel', fn: acts.onRemoveSlide, bad: true },
+        { id: 'layouts', icon: 'blocks', label: 'Layout', hint: 'How this slide is arranged', dead: acts.busy, fn: () => acts.onLayouts?.(), stay: true, chevron: true },
+        { id: 'themes', icon: 'droplet', label: 'Theme', hint: 'The direction it wears', fn: () => setLevel('theme'), into: true, chevron: true },
+        { id: 'content', icon: 'layers', label: 'Content', hint: 'Image and logo', fn: () => setLevel('content'), into: true, chevron: true },
+        { id: 'style', icon: 'swatch', label: 'Style', hint: 'Colours and background', fn: () => setLevel('style'), into: true, chevron: true },
+        { id: 'slide', icon: 'copy', label: 'Slide', hint: many ? 'This frame, and the ones around it' : 'Add another frame', fn: () => setLevel('slide'), into: true, chevron: true },
+        ...(acts.canReset ? [
+          { id: 'r-reset', rule: true },
+          { id: 'resetedits', icon: 'undo', label: 'Reset edits', hint: 'Put back what Bauhly made', fn: () => setLevel('reset'), into: true, chevron: true },
         ] : []),
       ]}
     />
