@@ -135,9 +135,53 @@ export function markHex(m, palette) {
   return c && !m.off ? palette?.[c.key] || '' : '';
 }
 
+/* placed under the region (over it when the region sits low), centred on it
+   and held inside the card */
+function usePanelPlace(box, region) {
+  useLayoutEffect(() => {
+    const el = box.current;
+    const frame = el?.parentElement;
+    if (!el || !frame) return undefined;
+    const place = () => {
+      const fw = frame.clientWidth;
+      const fh = frame.clientHeight;
+      const half = el.offsetWidth / 2;
+      const pad = 8;
+      const want = ((region.box.left + region.box.width / 2) / 100) * fw;
+      const x = fw - 2 * pad < 2 * half ? fw / 2 : Math.min(Math.max(want, pad + half), fw - pad - half);
+      el.style.left = `${Math.round(x)}px`;
+      const h = el.offsetHeight;
+      const below = ((region.box.top + region.box.height) / 100) * fh + 8;
+      const above = (region.box.top / 100) * fh - h - 8;
+      const top = below + h <= fh - pad ? below : (above >= pad ? above : Math.max(pad, fh - pad - h));
+      el.style.top = `${Math.round(top)}px`;
+    };
+    place();
+    const ro = new ResizeObserver(place);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [box, region.id, region.box]);
+}
+
+// Escape closes a popover, then the panel — captured on the document so the
+// Editor's own Escape (which would close the chat) doesn't also run
+function useEscape(pop, setPop, onClose) {
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.key !== 'Escape') return;
+      e.stopPropagation();
+      if (pop) setPop(null);
+      else onClose?.();
+    };
+    document.addEventListener('keydown', onKey, true);
+    return () => document.removeEventListener('keydown', onKey, true);
+  }, [pop, setPop, onClose]);
+}
+
 /** Whether a held change asks for anything at all. */
 export function changeIsLive(change, region) {
   if (!change) return false;
+  if (change.kind === 'image') return Boolean(change.act || change.asks?.length);
   return Boolean(change.remove || change.marks?.length || change.asks?.length
     || String(change.text ?? region?.text ?? '').trim() !== String(region?.text || '').trim());
 }
@@ -215,44 +259,9 @@ export default function RegionTextPanel({ region, palette = null, busy = false, 
     onChange?.(null);
   };
 
-  /* placed under the region (over it when the region sits low), centred on
-     it and held inside the card */
-  useLayoutEffect(() => {
-    const el = box.current;
-    const frame = el?.parentElement;
-    if (!el || !frame) return undefined;
-    const place = () => {
-      const fw = frame.clientWidth;
-      const fh = frame.clientHeight;
-      const half = el.offsetWidth / 2;
-      const pad = 8;
-      const want = ((region.box.left + region.box.width / 2) / 100) * fw;
-      const x = fw - 2 * pad < 2 * half ? fw / 2 : Math.min(Math.max(want, pad + half), fw - pad - half);
-      el.style.left = `${Math.round(x)}px`;
-      const h = el.offsetHeight;
-      const below = ((region.box.top + region.box.height) / 100) * fh + 8;
-      const above = (region.box.top / 100) * fh - h - 8;
-      const top = below + h <= fh - pad ? below : (above >= pad ? above : Math.max(pad, fh - pad - h));
-      el.style.top = `${Math.round(top)}px`;
-    };
-    place();
-    const ro = new ResizeObserver(place);
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, [region.id, region.box]);
+  usePanelPlace(box, region);
 
-  useEffect(() => {
-    // captured on the document so the Editor's own Escape (which would close
-    // the chat) doesn't also run
-    const onKey = (e) => {
-      if (e.key !== 'Escape') return;
-      e.stopPropagation();
-      if (pop) setPop(null);
-      else onClose?.();
-    };
-    document.addEventListener('keydown', onKey, true);
-    return () => document.removeEventListener('keydown', onKey, true);
-  }, [pop, onClose]);
+  useEscape(pop, setPop, onClose);
 
   const label = String(region.role || 'Text').replace(/^./, (c) => c.toUpperCase());
   const swatch = (list) => palette?.[(list.find((c) => isOn(c.id)) || list[0]).key];
@@ -434,6 +443,97 @@ export default function RegionTextPanel({ region, palette = null, busy = false, 
       </div>
 
       {wipe && <p className="wv-sa__hint">The text comes off and the background is filled in when you send.</p>}
+    </div>
+  );
+}
+
+/* ── The picture's panel (bauhly-v3 ShotSpots `.shotask--acts`) ──────────────
+ * Three acts a flattened picture can take — replaced with one the studio
+ * chooses, generated again, or taken off — one at a time, held like the text
+ * changes and redrawn by the chat's Send. A chosen picture shows on a plate
+ * under the acts, with × to drop it.
+ * `change` is { kind:'image', act: 'replace'|'generate'|'remove'|'ref'|'asvisual'|null,
+ * photoKey, photoUrl, refKey, refUrl, asks } or null. */
+export const IMAGE_ACTS = [
+  { id: 'replace', label: 'Replace image', icon: 'image-plus' },
+  { id: 'generate', label: 'Generate image', icon: 'sparkle' },
+  { id: 'remove', label: 'Remove image', icon: 'trash', bad: true },
+];
+
+export function RegionImagePanel({ region, busy = false, change = null, onChange, onReplace, onClose }) {
+  const box = useRef(null);
+  const [pop, setPop] = useState(null);
+  usePanelPlace(box, region);
+  useEscape(pop, setPop, onClose);
+  const act = change?.act || null;
+  const touched = changeIsLive(change, region);
+  const put = (patch) => {
+    const next = { kind: 'image', act, asks: change?.asks || [], ...(change || {}), ...patch };
+    onChange?.(changeIsLive(next, region) ? next : null);
+  };
+  // the generate family (generate / from a reference / as a graphic) all light the sparkle
+  const isOn = (id) => (id === 'generate' ? ['generate', 'ref', 'asvisual'].includes(act) : act === id);
+  const plate = act === 'replace' ? change?.photoUrl : (act === 'ref' ? change?.refUrl : '');
+
+  return (
+    <div
+      ref={box}
+      className="wv-sa wv-sa--acts"
+      role="dialog"
+      aria-label="Edit the picture"
+      onClick={(e) => e.stopPropagation()}
+      onPointerDown={(e) => e.stopPropagation()}
+    >
+      <div className="wv-sa__head">
+        <span className="wv-sa__what">
+          Image
+          {touched && <em className="wv-sa__done">Updated</em>}
+        </span>
+        {touched && (
+          <button type="button" className="wv-sa__x" aria-label="Revert this picture" title="Revert" disabled={busy} onClick={() => onChange?.(null)}>
+            <Icon name="undo" size={16} strokeWidth={2} />
+          </button>
+        )}
+        <button type="button" className="wv-sa__x" aria-label="Close" onClick={onClose}>
+          <Icon name="x" size={16} strokeWidth={2} />
+        </button>
+      </div>
+      <div className="wv-sa__acts">
+        {IMAGE_ACTS.map((a) => (
+          <button
+            key={a.id}
+            type="button"
+            className={`wv-sa__btn${a.bad ? ' is-bad' : ''}${isOn(a.id) ? ' is-on' : ''}`}
+            aria-pressed={isOn(a.id)}
+            title={a.label}
+            aria-label={a.label}
+            disabled={busy}
+            onClick={() => {
+              if (a.id === 'replace') { onReplace?.(); return; }
+              put({ act: isOn(a.id) ? null : a.id });
+            }}
+          >
+            <Icon name={a.icon} size={17} strokeWidth={1.9} />
+          </button>
+        ))}
+      </div>
+      {plate ? (
+        <span className="wv-sa__put">
+          <span className="wv-sa__pic"><img src={plate} alt={act === 'ref' ? 'the reference you added' : 'the picture you chose'} /></span>
+          {act === 'ref' && <em className="wv-sa__putlab">Reference</em>}
+          <button
+            type="button"
+            className="wv-sa__putx"
+            aria-label="Take this picture off again"
+            title="Take this picture off again"
+            disabled={busy}
+            onClick={() => put({ act: null, photoKey: '', photoUrl: '', refKey: '', refUrl: '' })}
+          >
+            <Icon name="x" size={11} strokeWidth={2.6} />
+          </button>
+        </span>
+      ) : null}
+      {act === 'remove' && <p className="wv-sa__hint">The picture comes off and the background is filled in when you send.</p>}
     </div>
   );
 }

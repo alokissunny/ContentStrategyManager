@@ -11,7 +11,7 @@ import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import Glyph from '../components/Glyph';
 import Icon from '../brand/Icon';
-import RegionTextPanel, { changeIsLive, describeMark, markHex } from './weekview/RegionTextPanel';
+import RegionTextPanel, { RegionImagePanel, changeIsLive, describeMark, markHex } from './weekview/RegionTextPanel';
 import YourAnalysisModal from '../components/YourAnalysisModal';
 import ConnectMetaModal from '../components/ConnectMetaModal';
 import LinkedInPublisher from '../components/LinkedInPublisher';
@@ -2244,6 +2244,12 @@ function carouselDocumentOf(day) {
 // `onAsk` opens the prompt band about this element (bauhly-v3: the selection's
 // own AI door); `asking` = the band is already about it, so the door stands down.
 // the chat's suggestions on a Theme Apply text block (bauhly-v3 ShotSpots TEXT_TRIES)
+// …and on a Theme Apply picture (bauhly-v3 ShotSpots IMAGE_TRIES)
+const IMAGE_TRIES = [
+  { say: 'Generate a new image', act: 'generate' },
+  { say: 'Generate from a reference', act: 'ref' },
+  { say: 'Turn it into a graphic', act: 'asvisual' },
+];
 const REGION_TRIES = [
   { say: 'Make it shorter', what: 'shortened' },
   { say: 'Make it simpler', what: 'simplified' },
@@ -3008,6 +3014,9 @@ export default function WeekView({
   const askAct = askPath[0] || null;
   // the chat's This post / All slides switch (bauhly-v3 `scopeAll`)
   const [askScopeAll, setAskScopeAll] = useState(false);
+  // bauhly-v3 `reachAsk`: Send on a carousel asks how far it goes —
+  // This post / All slides — in a menu over the button
+  const [askReach, setAskReach] = useState(false);
   const [askAll, setAskAll] = useState(false); // the running edit covers every slide
   const [askVisual, setAskVisual] = useState(false); // …and is making a picture first
   const [askPhase, setAskPhase] = useState(''); // what the running edit is doing now
@@ -3878,6 +3887,15 @@ export default function WeekView({
   // The subject changing (a different element, another slide) takes the
   // half-built instruction with it — it was about the old one.
   const askOn = `${askKind}:${askSel?.path ?? ''}:${askScopeOn ? 'all' : safeIdx}`;
+  useEffect(() => {
+    if (!askReach) return undefined;
+    const away = (e) => { if (!e.target.closest?.('.wv-reach, .wv-edm__asksend')) setAskReach(false); };
+    const esc = (e) => { if (e.key === 'Escape') { e.stopPropagation(); setAskReach(false); } };
+    document.addEventListener('pointerdown', away, true);
+    document.addEventListener('keydown', esc, true);
+    return () => { document.removeEventListener('pointerdown', away, true); document.removeEventListener('keydown', esc, true); };
+  }, [askReach]);
+  useEffect(() => { setAskReach(false); }, [askOn, askOpen]);
   const askOnRef = useRef(askOn);
   useEffect(() => {
     if (askOnRef.current === askOn) return;
@@ -4024,7 +4042,9 @@ export default function WeekView({
     return null;
   }
 
-  async function sendAsk() {
+  // `reach`: the answer from the Send menu (true = All slides); anything else
+  // (an event, nothing) falls back to the chat's own scope
+  async function sendAsk(reach) {
     // `Add a visual` has no sentence of its own in the catalogue (its refinements
     // are doors) — sent armed, it is a request for a new picture, described by
     // whatever the studio typed.
@@ -4045,7 +4065,7 @@ export default function WeekView({
     const postId = postIdAt(selected);
     if (!postId) return;
     const focusPath = askSel?.path ?? null;
-    const every = askScopeOn;
+    const every = typeof reach === 'boolean' ? reach : askScopeOn;
     const saved = flushElemEdits();
     const base = saved?.slides || deriveSlides(day);
     const docBefore = saved?.docHtml ?? carouselDocumentOf(day);
@@ -5396,12 +5416,10 @@ export default function WeekView({
   const [rgnMap, setRgnMap] = useState(null);
   const [rgnLoading, setRgnLoading] = useState(false);
   const [rgnPick, setRgnPick] = useState('');
-  const [rgnText, setRgnText] = useState('');
-  const [rgnBrief, setRgnBrief] = useState('');
   const [rgnBusy, setRgnBusy] = useState('');
   const [rgnErr, setRgnErr] = useState('');
-  const rgnFileRef = useRef(null);
-  useEffect(() => { setRgnPick(''); setRgnErr(''); setRgnBrief(''); }, [safeIdx, selected]);
+  const rgnRefFile = useRef(null); // Generate from a reference: the photo
+  useEffect(() => { setRgnPick(''); setRgnErr(''); }, [safeIdx, selected]);
   useEffect(() => {
     if (!postEdit || !activeThemed || !themedKey) { setRgnMap(null); return undefined; }
     const saved = activeSlide?.themeRegions;
@@ -5427,8 +5445,6 @@ export default function WeekView({
     : null;
   const rgnIsText = Boolean(rgnRegion && (rgnMap?.texts || []).some((t) => t.id === rgnRegion.id));
   const regionEditing = Boolean(postEdit && activeThemed && rgnRegion && !visEdit);
-  // text regions edit in the floating panel on the card; pictures in the side panel
-  const regionPanelOn = regionEditing && !rgnIsText;
   const rgnPalette = (() => {
     const p = (kitSets.find((t) => t.id === (setIdOf(activeSlide) || kitDefaultSet)) || kitSets[0])?.palette;
     return p && (p.fg || p.accent || p.ground) ? { ink: p.fg, accent: p.accent, ground: p.ground } : null;
@@ -5437,11 +5453,10 @@ export default function WeekView({
   function pickRegion(r, isText) {
     setRgnPick(r.id);
     setRgnErr('');
-    setRgnText(isText ? r.text : '');
-    setRgnBrief('');
-    // a text block is refined through the chat (bauhly-v3 ShotSpots): its
+    // a region is refined through the chat (bauhly-v3 ShotSpots): its
     // suggestions and the held-changes badge live in the composer
-    if (isText) { setAskPath([]); setAskDraft(''); setAskMsg(null); setAskOpen(true); }
+    setAskPath([]); setAskDraft(''); setAskMsg(null); setAskOpen(true);
+    void isText;
   }
 
   /* ── Held region changes (bauhly-v3 `shotHeld`) ─────────────────────────
@@ -5453,10 +5468,14 @@ export default function WeekView({
   const [rgnSending, setRgnSending] = useState('');
   useEffect(() => { setRgnHeld({}); setRgnList(false); }, [selected, postEdit]);
   const heldKey = (slideIdx, id) => `${slideIdx}:${id}`;
-  const heldNow = rgnRegion && rgnIsText ? rgnHeld[heldKey(safeIdx, rgnRegion.id)] || null : null;
+  const heldNow = rgnRegion ? rgnHeld[heldKey(safeIdx, rgnRegion.id)] || null : null;
   const heldList = Object.values(rgnHeld).sort((a, b) => a.slide - b.slide);
-  const rgnTextOpen = Boolean(regionEditing && rgnIsText);
+  const rgnOpen = Boolean(regionEditing);
+  const rgnTextOpen = rgnOpen && rgnIsText;
+  const rgnImgOpen = rgnOpen && !rgnIsText;
   const roleLabel = (r) => String(r?.role || 'Text').replace(/^./, (c) => c.toUpperCase());
+  const heldLabel = (h) => (h.change?.kind === 'image' ? 'Image' : roleLabel(h.region));
+  const openLabel = rgnRegion ? (rgnIsText ? roleLabel(rgnRegion) : 'Image') : '';
   function holdChange(region, change, slideIdx = safeIdx) {
     const k = heldKey(slideIdx, region.id);
     setRgnHeld((cur) => {
@@ -5469,6 +5488,10 @@ export default function WeekView({
   // what the list calls a held change — the act, not its contents
   function heldWhat(h) {
     const c = h.change || {};
+    if (c.kind === 'image') {
+      const what = { replace: 'replaced', generate: 'regenerated', remove: 'removed', ref: 'from a new reference', asvisual: 'drawn as a graphic' }[c.act] || 'changed';
+      return (c.asks || []).length && c.act !== 'remove' ? `${what} · ${c.asks.map((a) => a.say).join('; ')}` : what;
+    }
     if (c.remove) return 'removed';
     const parts = [];
     if (String(c.text ?? '').trim() !== String(h.region.text || '').trim()) parts.push('edited');
@@ -5485,21 +5508,84 @@ export default function WeekView({
     const has = (c.asks || []).some((a) => a.say === one.say);
     holdChange(rgnRegion, { ...c, asks: has ? c.asks.filter((a) => a.say !== one.say) : [...(c.asks || []), one] });
   }
+  // the picture's chips (bauhly-v3 IMAGE_TRIES): one act at a time, pressed
+  // again to take back; `ref` first asks for the reference photo
+  function pressImageTry(one) {
+    if (!rgnRegion) return;
+    const c = heldNow?.change || { kind: 'image', act: null, asks: [] };
+    if (c.act === one.act) { holdChange(rgnRegion, { ...c, act: null }); return; }
+    if (one.act === 'ref') { rgnRefFile.current?.click(); return; }
+    holdChange(rgnRegion, { ...c, act: one.act });
+  }
+  async function takeRegionReference(file) {
+    if (!file?.type?.startsWith('image/') || !rgnRegion) return;
+    const region = rgnRegion;
+    const slideAt = safeIdx;
+    setRgnBusy('upload');
+    try {
+      const up = await uploadFiles([file]);
+      const first = up?.[0];
+      if (!first?.key) throw new Error('Could not upload that photo.');
+      rememberImage(first.key, first.url, { skipGen: true });
+      const c = rgnHeld[heldKey(slideAt, region.id)]?.change || { kind: 'image', act: null, asks: [] };
+      holdChange(region, { ...c, act: 'ref', refKey: first.key, refUrl: first.url || URL.createObjectURL(file) }, slideAt);
+    } catch (err) {
+      setAskMsg({ tone: 'err', text: err?.message || 'Could not upload that photo.' });
+    } finally {
+      setRgnBusy('');
+    }
+  }
+  // Replace image → the product's picture chooser, in region mode; the chosen
+  // picture is held (see applyImgPick)
+  function replaceRegionImage() {
+    if (!rgnRegion) return;
+    setImgPick({ slots: [null], at: 0, region: { slide: safeIdx, region: rgnRegion } });
+  }
+  function regionBody(h) {
+    const c = h.change || {};
+    if (c.kind === 'image') {
+      const asks = (c.asks || []).map((a) => a.say).join(' ');
+      if (c.act === 'replace') return { regionId: h.region.id, action: 'photo', photoKey: c.photoKey };
+      if (c.act === 'remove') return { regionId: h.region.id, action: 'remove' };
+      const graphic = c.act === 'asvisual'
+        ? 'Redraw it as a clean flat graphic / illustration of the same subject (not a photograph), in the slide\'s own colours.'
+        : '';
+      return {
+        regionId: h.region.id,
+        action: 'regenerate',
+        instruction: [graphic, asks].filter(Boolean).join(' '),
+        ...(c.act === 'ref' && c.refKey ? { referenceKey: c.refKey } : {}),
+      };
+    }
+    return {
+      regionId: h.region.id,
+      action: 'text',
+      text: String(c.text ?? h.region.text).trim(),
+      remove: Boolean(c.remove),
+      marks: (c.marks || []).map((m) => ({ ...m, what: describeMark(m, rgnPalette), hex: markHex(m, rgnPalette) })),
+      instructions: (c.asks || []).map((a) => a.say),
+    };
+  }
   async function sendRegionChanges() {
     if (rgnSending || rgnBusy) return;
     const typed = askDraft.trim();
     let held = heldList;
-    if (typed && rgnTextOpen) {
-      const c = heldNow?.change || { text: rgnRegion.text, marks: [], remove: false, asks: [] };
-      const one = { say: typed, what: 'rewritten' };
+    if (typed && rgnOpen) {
+      const c = heldNow?.change || (rgnIsText
+        ? { text: rgnRegion.text, marks: [], remove: false, asks: [] }
+        : { kind: 'image', act: null, asks: [] });
+      const one = { say: typed, what: rgnIsText ? 'rewritten' : 'changed' };
+      const next = { ...c, asks: [...(c.asks || []), one] };
+      // a typed ask about a picture is a new one drawn to it
+      if (!rgnIsText && (!next.act || next.act === 'replace' || next.act === 'remove')) next.act = 'generate';
       held = [...held.filter((h) => h.key !== heldKey(safeIdx, rgnRegion.id)),
-        { key: heldKey(safeIdx, rgnRegion.id), slide: safeIdx, region: rgnRegion, change: { ...c, asks: [...(c.asks || []), one] } }];
+        { key: heldKey(safeIdx, rgnRegion.id), slide: safeIdx, region: rgnRegion, change: next }];
       held.sort((a, b) => a.slide - b.slide);
     }
     if (!held.length) return;
     const postId = postIdAt(selected);
     if (!postId) return;
-    if (typed && rgnTextOpen) setAskDraft('');
+    if (typed && rgnOpen) setAskDraft('');
     setRgnList(false);
     setAskMsg(null);
     setRgnErr('');
@@ -5509,16 +5595,8 @@ export default function WeekView({
     try {
       for (const h of held) {
         setRgnSending(held.length > 1 ? `Redrawing ${done + 1} of ${held.length}…` : '');
-        const c = h.change;
         // eslint-disable-next-line no-await-in-loop
-        const d = await editThemeRegion(postId, h.slide + 1, {
-          regionId: h.region.id,
-          action: 'text',
-          text: String(c.text ?? h.region.text).trim(),
-          remove: Boolean(c.remove),
-          marks: (c.marks || []).map((m) => ({ ...m, what: describeMark(m, rgnPalette), hex: markHex(m, rgnPalette) })),
-          instructions: (c.asks || []).map((a) => a.say),
-        });
+        const d = await editThemeRegion(postId, h.slide + 1, regionBody(h));
         done += 1;
         setRgnHeld((cur) => { const next = { ...cur }; delete next[h.key]; return next; });
         if (d?.key && d?.src) rememberImage(d.key, d.src, { skipGen: true });
@@ -5543,50 +5621,6 @@ export default function WeekView({
     } finally {
       setRgnBusy('');
       setRgnSending('');
-    }
-  }
-  async function runRegionEdit(body) {
-    if (!rgnRegion || rgnBusy) return;
-    setRgnBusy(body.action);
-    setRgnErr('');
-    try {
-      const d = await editThemeRegion(postIdAt(selected), safeIdx + 1, { regionId: rgnRegion.id, ...body });
-      if (d?.key && d?.src) rememberImage(d.key, d.src, { skipGen: true });
-      if (d?.regions) setRgnMap(d.regions);
-      if (d?.post) {
-        const r = mergePost(d.post);
-        if (r) { setRoute(r); onRouteChange?.(r); setSlideGen((g) => g + 1); }
-        // a Regenerate is saved on the spot — Editor mode's Cancel must not
-        // put the slide back to the picture it had when the Editor opened
-        const snap = editSnapRef.current;
-        if (snap && snap.dayIndex === selected && Array.isArray(snap.slides) && snap.slides[safeIdx]) {
-          const fresh = deriveSlides(d.post)[safeIdx];
-          if (fresh) {
-            snap.slides[safeIdx] = JSON.parse(JSON.stringify(fresh));
-            snap.docHtml = carouselDocumentOf(d.post);
-          }
-        }
-      }
-      if (body.action === 'text' && body.text) setRgnText(body.text);
-    } catch (err) {
-      setRgnErr(err?.response?.data?.message || err?.message || 'Could not change that part of the slide.');
-    } finally {
-      setRgnBusy('');
-    }
-  }
-  async function uploadRegionPhoto(file) {
-    if (!file?.type?.startsWith('image/')) return;
-    setRgnBusy('photo');
-    setRgnErr('');
-    try {
-      const up = await uploadFiles([file]);
-      const key = up?.[0]?.key;
-      if (!key) throw new Error('Could not upload that photo.');
-      setRgnBusy('');
-      await runRegionEdit({ action: 'photo', photoKey: key });
-    } catch (err) {
-      setRgnErr(err?.message || 'Could not upload that photo.');
-      setRgnBusy('');
     }
   }
   const wordVisual = {
@@ -6020,6 +6054,18 @@ export default function WeekView({
       const img = imagePool.find((i) => i.url === url || i.thumb === url);
       return img?.key || Object.entries(localMedia).find(([, u]) => u === url)?.[0] || '';
     };
+    // Replace image on a Theme Apply picture: the choice is HELD, sent by the chat
+    if (imgPick.region) {
+      const url = slots.find(Boolean);
+      const key = keyOf(url);
+      const { slide: slideAt, region } = imgPick.region;
+      if (key) {
+        const c = rgnHeld[heldKey(slideAt, region.id)]?.change || { kind: 'image', asks: [] };
+        holdChange(region, { ...c, kind: 'image', act: 'replace', photoKey: key, photoUrl: url }, slideAt);
+      }
+      setImgPick(null);
+      return;
+    }
     const keys = slots.map(keyOf);
     const extra = {};
     slots.forEach((url, i) => { if (url && keys[i]) extra[keys[i]] = url; });
@@ -6351,115 +6397,6 @@ export default function WeekView({
       )}
     </>
   );
-  // the themed picture cropped to one region (the image panel's preview)
-  const regionCropStyle = (box, url) => {
-    const w = Math.max(1, box.width);
-    const h = Math.max(1, box.height);
-    return {
-      aspectRatio: `${(w * 4) / (h * 5)}`,
-      backgroundImage: url ? `url("${url}")` : 'none',
-      backgroundSize: `${(100 / w) * 100}% ${(100 / h) * 100}%`,
-      backgroundPosition: `${w >= 100 ? 0 : (box.left / (100 - w)) * 100}% ${h >= 100 ? 0 : (box.top / (100 - h)) * 100}%`,
-    };
-  };
-  const regionPhotos = activeThemed ? keysOf(activeSlide).filter((k) => !/\/themed-/.test(k)) : [];
-  const regionEditorEl = regionPanelOn ? (
-    <div className="wv-worded wv-rgned" onClick={(e) => e.stopPropagation()}>
-      <div className="wv-worded__head">
-        <button type="button" className="wv-worded__back" onClick={() => setRgnPick('')} aria-label="Back">
-          <Glyph name="arrow-left" size={16} />
-        </button>
-        <span className="wv-worded__title">{rgnIsText ? 'Edit text' : 'Edit picture'}</span>
-      </div>
-      {rgnIsText ? (
-        <div className="wv-rgned__fields">
-          <label className="wv-rgned__label" htmlFor="wv-rgn-text">{String(rgnRegion.role || 'Text').replace(/^./, (c) => c.toUpperCase())}</label>
-          <textarea
-            id="wv-rgn-text"
-            className="wv-rgned__text"
-            value={rgnText}
-            rows={5}
-            autoFocus
-            disabled={Boolean(rgnBusy)}
-            onChange={(e) => setRgnText(e.target.value)}
-          />
-          <button
-            type="button"
-            className="btn btn--primary btn--sm wv-rgned__go"
-            disabled={Boolean(rgnBusy) || !rgnText.trim() || rgnText.trim() === rgnRegion.text}
-            onClick={() => runRegionEdit({ action: 'text', text: rgnText.trim() })}
-          >
-            {rgnBusy === 'text' ? 'Regenerating…' : 'Regenerate'}
-          </button>
-          <p className="wv-rgned__hint">Only this text is redrawn on the picture, in the same lettering. Takes about 20 seconds.</p>
-        </div>
-      ) : (
-        <div className="wv-rgned__fields">
-          <div
-            className="wv-rgned__crop"
-            style={regionCropStyle(rgnRegion.box, urlForKey(themedKey, activeSlide, localMedia, mediaByKey))}
-            role="img"
-            aria-label="The picture on this slide"
-          />
-          {regionPhotos.length > 0 && (
-            <>
-              <span className="wv-rgned__label">Use one of your photos</span>
-              <div className="wv-rgned__photos">
-                {regionPhotos.map((k) => (
-                  <button
-                    key={k}
-                    type="button"
-                    className="wv-rgned__photo"
-                    disabled={Boolean(rgnBusy)}
-                    onClick={() => runRegionEdit({ action: 'photo', photoKey: k })}
-                    aria-label="Put this photo in the picture"
-                  >
-                    <img src={urlForKey(k, activeSlide, localMedia, mediaByKey) || ''} alt="" loading="lazy" />
-                  </button>
-                ))}
-              </div>
-            </>
-          )}
-          <button
-            type="button"
-            className="btn btn--secondary btn--sm wv-rgned__go"
-            disabled={Boolean(rgnBusy)}
-            onClick={() => rgnFileRef.current?.click()}
-          >
-            {rgnBusy === 'photo' ? 'Placing photo…' : 'Upload a photo'}
-          </button>
-          <input
-            ref={rgnFileRef}
-            type="file"
-            accept="image/*"
-            hidden
-            onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; uploadRegionPhoto(f); }}
-          />
-          <span className="wv-rgned__or">or</span>
-          <label className="wv-rgned__label" htmlFor="wv-rgn-brief">Describe a new picture (optional)</label>
-          <textarea
-            id="wv-rgn-brief"
-            className="wv-rgned__text"
-            value={rgnBrief}
-            rows={3}
-            placeholder="e.g. a warm reading corner with a linen armchair"
-            disabled={Boolean(rgnBusy)}
-            onChange={(e) => setRgnBrief(e.target.value)}
-          />
-          <button
-            type="button"
-            className="btn btn--primary btn--sm wv-rgned__go"
-            disabled={Boolean(rgnBusy)}
-            onClick={() => runRegionEdit({ action: 'regenerate', instruction: rgnBrief.trim() })}
-          >
-            {rgnBusy === 'regenerate' ? 'Regenerating…' : 'Regenerate picture'}
-          </button>
-          <p className="wv-rgned__hint">Only the picture's area is redrawn; the rest of the slide stays as it is.</p>
-        </div>
-      )}
-      {rgnErr && <p className="wv-rgned__err" role="alert">{rgnErr}</p>}
-    </div>
-  ) : null;
   const wordsEditorEl = (
     <>
       {wordsEditing && (
@@ -6678,7 +6615,7 @@ export default function WeekView({
           </header>
 
           <div
-            className={`wv-edm__body${compositionEditing || wordsEditing || regionPanelOn ? ' has-panel' : ''}${askOpen && !visEdit ? ' is-asking' : ''}`}
+            className={`wv-edm__body${compositionEditing || wordsEditing ? ' has-panel' : ''}${askOpen && !visEdit ? ' is-asking' : ''}`}
             onMouseDown={(e) => {
               if (!elemSel) return;
               if (e.target.closest('.wv-edm__tb, .wv-edm__line, .wv-edm__panel, .wv-edm__card.is-on')) return;
@@ -6843,6 +6780,16 @@ export default function WeekView({
                                 onClick={(e) => { e.stopPropagation(); pickRegion(r, true); }}
                               />
                             ))}
+                            {rgnImgOpen && (
+                              <RegionImagePanel
+                                region={rgnRegion}
+                                busy={Boolean(rgnBusy)}
+                                change={heldNow?.change || null}
+                                onChange={(c) => holdChange(rgnRegion, c)}
+                                onReplace={replaceRegionImage}
+                                onClose={() => setRgnPick('')}
+                              />
+                            )}
                             {rgnTextOpen && (
                               <RegionTextPanel
                                 region={rgnRegion}
@@ -6858,7 +6805,10 @@ export default function WeekView({
                         {on && postEdit && activeThemed && rgnLoading && (
                           <div className="wv-rgn__status" role="status">Finding the text and picture…</div>
                         )}
-                        {on && rgnBusy && rgnBusy !== 'photo' && (
+                        {on && postEdit && activeThemed && !rgnLoading && rgnErr && (
+                          <div className="wv-rgn__status is-err" role="alert">{rgnErr}</div>
+                        )}
+                        {on && rgnBusy && rgnBusy !== 'photo' && rgnBusy !== 'upload' && (
                           <div className="wv-ig__laying" role="status" aria-live="polite">
                             <span className="wv-spin" aria-hidden="true" />
                             <span>{rgnBusy === 'text' ? (rgnSending || 'Redrawing the text…') : 'Redrawing the picture…'}</span>
@@ -6912,9 +6862,8 @@ export default function WeekView({
               )}
             </section>
 
-            {(compositionEditing || wordsEditing || regionPanelOn) && (
+            {(compositionEditing || wordsEditing) && (
               <aside className="wv-edm__panel wv-ig">
-                {regionEditorEl}
                 {wordsEditorEl}
                 {layoutEditorEl}
               </aside>
@@ -6924,9 +6873,11 @@ export default function WeekView({
 
           {askOpen && !visEdit && (() => {
             const listening = askRec.status === 'recording';
-            const regionSend = rgnTextOpen || heldList.length > 0;
+            const regionSend = rgnOpen || heldList.length > 0;
+            // the reach is asked about the post, never about a selection
+            const canReach = slides.length > 1 && !askSel && !regionSend;
             const ready = (Boolean(askDraft.trim()) || askReady(askCtxNow, askDraft) || heldList.length > 0) && !askBusy && !rgnBusy && !listening && !askHearing
-              && (!regionSend || heldList.length > 0 || (rgnTextOpen && Boolean(askDraft.trim())));
+              && (!regionSend || heldList.length > 0 || (rgnOpen && Boolean(askDraft.trim())));
             const trail = trailOf(askKind, askPath);
             const SLOT_NAMES = {
               title: 'The title', eyebrow: 'The kicker', kicker: 'The kicker', subtitle: 'The subtitle',
@@ -6946,35 +6897,13 @@ export default function WeekView({
                   {/* where the studio is: the subject, then each chip pressed
                       (bauhly-v3 `edm-trail`) — "The title › Write it again" */}
                   <div className="wv-edm__asktop">
-                  {slides.length > 1 && !askSel && !askPath.length && !rgnTextOpen && (
-                    <div className="wv-edm__scope" role="group" aria-label="What this changes">
-                      <button
-                        type="button"
-                        className={`wv-edm__sc${askScopeOn ? '' : ' is-on'}`}
-                        aria-pressed={!askScopeOn}
-                        disabled={askBusy}
-                        onMouseDown={(e) => { e.preventDefault(); setAskScopeAll(false); }}
-                      >
-                        This post
-                      </button>
-                      <button
-                        type="button"
-                        className={`wv-edm__sc wv-edm__sc--wide${askScopeOn ? ' is-on' : ''}`}
-                        aria-pressed={askScopeOn}
-                        disabled={askBusy}
-                        onMouseDown={(e) => { e.preventDefault(); setAskScopeAll(true); }}
-                      >
-                        All slides
-                      </button>
-                    </div>
-                  )}
                   <p className="wv-edm__trail">
-                    {rgnTextOpen ? (
-                      <span className="wv-edm__trailwho">{roleLabel(rgnRegion)}</span>
+                    {rgnOpen ? (
+                      <span className="wv-edm__trailwho">{openLabel}</span>
                     ) : (askSel || askPath.length || slides.length <= 1) && (
                       <span className="wv-edm__trailwho">{subject || (askScopeOn ? 'All slides' : 'This post')}</span>
                     )}
-                    {!rgnTextOpen && trail.map((node, i) => (
+                    {!rgnOpen && trail.map((node, i) => (
                       <span className="wv-edm__trailstep" key={`tr${i}`}>
                         <span className="wv-edm__trailsep" aria-hidden="true">›</span>
                         {node.label}
@@ -7013,7 +6942,33 @@ export default function WeekView({
                         <Icon name="chevron-left" size={17} strokeWidth={2.4} />
                       </button>
                     )}
-                    {rgnTextOpen ? (
+                    {rgnImgOpen ? (
+                    <div className="wv-edm__asktries" key={`rgn:${rgnRegion.id}`}>
+                      {IMAGE_TRIES.map((one, i) => {
+                        const on = heldNow?.change?.act === one.act;
+                        return (
+                          <button
+                            key={one.act}
+                            type="button"
+                            className={`wv-edm__asktry${on ? ' is-on' : ''}`}
+                            aria-pressed={on}
+                            style={{ '--i': i }}
+                            disabled={Boolean(rgnBusy)}
+                            onMouseDown={(e) => { e.preventDefault(); pressImageTry(one); }}
+                          >
+                            {one.say}
+                          </button>
+                        );
+                      })}
+                      <input
+                        ref={rgnRefFile}
+                        type="file"
+                        accept="image/*"
+                        hidden
+                        onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) takeRegionReference(f); }}
+                      />
+                    </div>
+                    ) : rgnTextOpen ? (
                     <div className="wv-edm__asktries" key={`rgn:${rgnRegion.id}`}>
                       {REGION_TRIES.map((one, i) => {
                         const on = (heldNow?.change?.asks || []).some((a) => a.say === one.say);
@@ -7061,8 +7016,32 @@ export default function WeekView({
                   )}
                   <form
                     className={`wv-edm__askfield${askBusy ? ' is-busy' : ''}${listening ? ' is-listening' : ''}`}
-                    onSubmit={(e) => { e.preventDefault(); if (!ready) return; if (regionSend) sendRegionChanges(); else sendAsk(); }}
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      if (!ready) return;
+                      if (regionSend) { sendRegionChanges(); return; }
+                      // a carousel asks how far the change goes before it is sent
+                      if (canReach) { setAskReach(true); return; }
+                      sendAsk();
+                    }}
                   >
+                    {askReach && canReach && (
+                      <div className="wv-reach" role="menu" aria-label="How far this goes">
+                        <span className="wv-reach__q">Apply this to</span>
+                        {[{ id: 'one', label: 'This post', icon: 'brief' }, { id: 'all', label: 'All slides', icon: 'copy' }].map((o) => (
+                          <button
+                            key={o.id}
+                            type="button"
+                            role="menuitem"
+                            className="wv-reach__opt"
+                            onClick={() => { setAskReach(false); sendAsk(o.id === 'all'); }}
+                          >
+                            <Icon name={o.icon} size={16} strokeWidth={1.9} />
+                            {o.label}
+                          </button>
+                        ))}
+                      </div>
+                    )}
                     {heldList.length > 0 && (
                       <span className="wv-held">
                         <button
@@ -7110,14 +7089,14 @@ export default function WeekView({
                                     >
                                       <span className="wv-held__lab">{i + 1}</span>
                                       <span className="wv-held__say" title={h.region.text}>
-                                        {`${roleLabel(h.region)} ${heldWhat(h)}`}
+                                        {`${heldLabel(h)} ${heldWhat(h)}`}
                                         {slides.length > 1 && <em>{`Slide ${h.slide + 1}`}</em>}
                                       </span>
                                     </button>
                                     <button
                                       type="button"
                                       className="wv-held__x"
-                                      aria-label={`Remove the change to the ${roleLabel(h.region).toLowerCase()}`}
+                                      aria-label={`Remove the change to the ${heldLabel(h).toLowerCase()}`}
                                       onClick={() => setRgnHeld((cur) => { const next = { ...cur }; delete next[h.key]; return next; })}
                                     >
                                       <Icon name="x" size={16} strokeWidth={2.4} />
@@ -7130,13 +7109,13 @@ export default function WeekView({
                         )}
                       </span>
                     )}
-                    {rgnTextOpen && (
+                    {rgnOpen && (
                       <span className="wv-edm__cmd">
-                        {roleLabel(rgnRegion)}
+                        {openLabel}
                         <button
                           type="button"
                           className="wv-edm__cmdx"
-                          aria-label={`Deselect the ${roleLabel(rgnRegion).toLowerCase()}`}
+                          aria-label={`Deselect the ${openLabel.toLowerCase()}`}
                           disabled={Boolean(rgnBusy)}
                           onMouseDown={(e) => { e.preventDefault(); setRgnPick(''); }}
                         >
@@ -7146,22 +7125,7 @@ export default function WeekView({
                     )}
                     {/* the chosen end of the branch rides in the field as a quick
                         link (bauhly-v3 `askPend`); × steps back one level */}
-                    {askScopeOn && !regionSend && (
-                      <span className="wv-edm__cmd wv-edm__cmd--all">
-                        All slides
-                        <button
-                          type="button"
-                          className="wv-edm__cmdx"
-                          aria-label="Back to this slide only"
-                          title="Back to this slide only"
-                          disabled={askBusy}
-                          onMouseDown={(e) => { e.preventDefault(); setAskScopeAll(false); }}
-                        >
-                          <Icon name="x" size={12} strokeWidth={2.4} />
-                        </button>
-                      </span>
-                    )}
-                    {askLeaf && !askLeaf.act && !rgnTextOpen && (
+                    {askLeaf && !askLeaf.act && !rgnOpen && (
                       <span className="wv-edm__cmd">
                         {askLeaf.label}
                         <button
@@ -7187,7 +7151,7 @@ export default function WeekView({
                           setAskPath((was) => was.slice(0, -1));
                         }
                       }}
-                      placeholder={listening ? 'Listening…' : askHearing ? 'Writing down what you said…' : rgnTextOpen ? 'Say what else this should be' : askHint(askCtxNow, subject ? `What should change about ${subject.charAt(0).toLowerCase()}${subject.slice(1)}?` : 'Say what else this should be')}
+                      placeholder={listening ? 'Listening…' : askHearing ? 'Writing down what you said…' : rgnOpen ? 'Say what else this should be' : askHint(askCtxNow, subject ? `What should change about ${subject.charAt(0).toLowerCase()}${subject.slice(1)}?` : 'Say what else this should be')}
                       maxLength={600}
                       disabled={askBusy}
                       aria-label="What should change"
@@ -7442,6 +7406,7 @@ export default function WeekView({
       {imgPick && (
         <ImagePicker
           layout={(() => {
+            if (imgPick.region) return { ...BEST_FIT_LAYOUT, imgs: imgPick.slots };
             const change = findChangeLayout(activeSlide?.layout);
             if (!change) return { ...BEST_FIT_LAYOUT, imgs: imgPick.slots };
             // Map onto LayoutArt kinds that expose .vl-ph slots for the picker.

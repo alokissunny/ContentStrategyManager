@@ -449,14 +449,14 @@ async function compositeRegion(base, patch, r) {
 
 // one image-model pass over the whole render (mask when the model takes it),
 // kept only inside the region
-async function repaintRegion(buffer, box, prompt, padPct = 2) {
+async function repaintRegion(buffer, box, prompt, padPct = 2, extra = []) {
   const src = await sharp(buffer).rotate().jpeg({ quality: 94 }).toBuffer();
   const { width: W, height: H } = await sharp(src).metadata();
   const region = pxBox(padBox(box, padPct), W, H);
   const mask = await editMask(W, H, region);
   const size = W / H > 0.95 ? '1024x1024' : '1024x1280';
   const r = await composeImage({
-    images: [{ buffer: src, mediaType: 'image/jpeg', name: 'slide' }],
+    images: [{ buffer: src, mediaType: 'image/jpeg', name: 'slide' }, ...extra],
     mask: { buffer: mask, mediaType: 'image/png' },
     prompt,
     size,
@@ -508,17 +508,34 @@ async function editText({ buffer, region, text, marks = [], remove = false }) {
   return repaintRegion(buffer, region.box, prompt, 1.5);
 }
 
-async function regenImage({ buffer, region, instruction }) {
+// reference: a photo the studio gave (Editor › Generate from a reference) —
+// the new picture follows its subject and look
+async function regenImage({ buffer, region, instruction, reference = null }) {
   const brief = String(instruction || '').trim();
+  const ref = reference?.length
+    ? [{ buffer: await sharp(reference).rotate().resize({ width: 1024, height: 1024, fit: 'inside', withoutEnlargement: true }).jpeg({ quality: 90 }).toBuffer(), mediaType: 'image/jpeg', name: 'reference' }]
+    : [];
   const prompt = [
-    `Edit ONLY the transparent (masked) area of this Instagram slide — ${where(region.box)}. It holds the slide's picture.`,
-    brief
-      ? `Replace that picture with: ${brief}`
-      : 'Replace that picture with a fresh variation of the same subject — same framing, crop, lighting and style.',
+    `Edit ONLY the transparent (masked) area of this Instagram slide (Image 1) — ${where(region.box)}. It holds the slide's picture.`,
+    ref.length
+      ? `Replace that picture with a new one based on the reference photo (Image 2): the same subject, mood, colours and kind of shot as the reference, framed to fill the area.${brief ? ` Also: ${brief}` : ''}`
+      : brief
+        ? `Replace that picture with: ${brief}`
+        : 'Replace that picture with a fresh variation of the same subject — same framing, crop, lighting and style.',
     'Keep the picture\'s frame, border and position exactly; the picture fills the area edge to edge. No text, numbers or logos in the picture.',
     'Change nothing outside the area.',
   ].join('\n');
-  return repaintRegion(buffer, region.box, prompt, 0.5);
+  return repaintRegion(buffer, region.box, prompt, 0.5, ref);
+}
+
+// take the picture off: the area becomes the slide's background again
+async function eraseImage({ buffer, region }) {
+  const prompt = [
+    `Edit ONLY the transparent (masked) area of this Instagram slide — ${where(region.box)}. It holds a photograph (with any frame, border, tape or shadow it sits in).`,
+    'Remove the photograph and everything that frames it. Paint the area as the slide\'s background continues around it — the same paper, texture, colour, light and any graphic that passes behind — so nothing shows a picture was ever there.',
+    'Do not add any new object, text or picture. Change nothing outside the area.',
+  ].join('\n');
+  return repaintRegion(buffer, region.box, prompt, 1.5);
 }
 
 async function placePhoto({ buffer, region, photo }) {
@@ -564,4 +581,4 @@ async function rewriteText({ text, role, instructions = [], context = '' }) {
   return { text: next || text };
 }
 
-module.exports = { mapRegions, editText, regenImage, placePhoto, rewriteText, REGIONS_V, typeFeatures };
+module.exports = { mapRegions, editText, regenImage, eraseImage, placePhoto, rewriteText, REGIONS_V, typeFeatures };

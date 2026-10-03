@@ -1521,7 +1521,7 @@ function restyleRegion(region, marks) {
 }
 
 // POST /posts/:id/slide/:slideIndex/theme-region — change one region of the
-// themed render. Body: { regionId, action: 'text' | 'regenerate' | 'photo',
+// themed render. Body: { regionId, action: 'text' | 'regenerate' | 'photo' | 'remove' (a picture),
 // text? marks? remove? instructions? (action text — instructions are
 // rewrite asks applied to the words first), instruction? (regenerate), photoKey? (photo) }
 async function editThemeRegion(req, res) {
@@ -1539,7 +1539,7 @@ async function editThemeRegion(req, res) {
   const region = textRegion || imageRegion;
   if (!region) return res.status(404).json({ message: 'That part of the slide was not found.' });
   const own = `projects/${req.user._id}/`;
-  const { editText, regenImage, placePhoto, rewriteText } = require('../services/themeRegions');
+  const { editText, regenImage, eraseImage, placePhoto, rewriteText } = require('../services/themeRegions');
   let result;
   let newText = '';
   let photoKey = '';
@@ -1575,7 +1575,14 @@ async function editThemeRegion(req, res) {
       result = await placePhoto({ buffer: base, region: imageRegion, photo });
     } else if (action === 'regenerate' && imageRegion) {
       if (!isImageGenConfigured()) return res.status(503).json({ message: 'Image generation is not configured.' });
-      result = await regenImage({ buffer: base, region: imageRegion, instruction: String(req.body?.instruction || '').slice(0, 400) });
+      const refKey = String(req.body?.referenceKey || '');
+      if (refKey && !refKey.startsWith(own)) return res.status(400).json({ message: 'Use one of your own photos as the reference.' });
+      const reference = refKey ? (await getObjectBytes(refKey)).buffer : null;
+      result = await regenImage({ buffer: base, region: imageRegion, instruction: String(req.body?.instruction || '').slice(0, 400), reference });
+    } else if (action === 'remove' && imageRegion) {
+      if (!isImageGenConfigured()) return res.status(503).json({ message: 'Image generation is not configured.' });
+      removed = true;
+      result = await eraseImage({ buffer: base, region: imageRegion });
     } else {
       return res.status(400).json({ message: 'That change is not available for this part of the slide.' });
     }
@@ -1595,6 +1602,7 @@ async function editThemeRegion(req, res) {
   const nextRegions = {
     ...regions,
     key,
+    images: (regions.images || []).filter((t) => !(removed && t.id === regionId)),
     texts: (regions.texts || [])
       .filter((t) => !(removed && t.id === regionId))
       .map((t) => (t.id === regionId ? restyleRegion({ ...t, text: newText || t.text }, marks) : t)),
@@ -1635,6 +1643,8 @@ async function editThemeRegion(req, res) {
         : `Text region ${regionId} (${textRegion.role}): ${JSON.stringify(textRegion.text)} → ${JSON.stringify(newText || textRegion.text)}${marks.length ? ` · ${marks.map((m) => (m.words ? `"${m.words}" ${m.what}` : m.what)).join('; ')}` : ''}`)
       : action === 'photo'
         ? `Picture region ${regionId}: photo ${photoKey} fitted in`
+        : action === 'remove'
+          ? `Picture region ${regionId} removed`
         : `Picture region ${regionId} regenerated${req.body?.instruction ? `: ${String(req.body.instruction).slice(0, 400)}` : ' (fresh variation)'}`;
     const boxLine = `Region (percent of the slide): ${JSON.stringify(region.box)}${d.region ? ` · kept area (px): ${JSON.stringify(d.region)}` : ''}${d.size ? ` · model size ${d.size}` : ''}`;
     const agents = [];
