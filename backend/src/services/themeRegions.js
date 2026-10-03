@@ -567,12 +567,38 @@ function eraseArea({ region }) {
     ],
   };
 }
+// The whole slide in a Brand Kit colour set (Editor › Theme colour on a Theme
+// Apply picture). `keep`: picture boxes (percent) the recolour must not touch —
+// they are protected in the mask and pasted back from the original.
+function recolourArea({ palette = {}, name = '', keep = [] }) {
+  const hex = (v) => (/^#[0-9a-f]{6}$/i.test(String(v || '')) ? String(v) : '');
+  return {
+    whole: true,
+    box: { left: 0, top: 0, width: 100, height: 100 },
+    pad: 0,
+    keep,
+    lines: [
+      `Recolour the slide into the colour set${name ? ` "${name}"` : ''}:`,
+      ...(hex(palette.ground) ? [`- the background / paper / ground → ${hex(palette.ground)} (keep its texture, grain and light, only its colour changes)`] : []),
+      ...(hex(palette.fg) ? [`- the main lettering and dark ink → ${hex(palette.fg)}`] : []),
+      ...(hex(palette.accent) ? [`- accents — emphasised words, highlights, shapes, tape, doodles, rules and badges → ${hex(palette.accent)}`] : []),
+      'Keep everything else exactly as it is: the layout and every position, every word and its spelling, the typefaces, sizes and weights, all textures and shadows. Photographs keep their own colours and stay exactly where they are.',
+    ],
+  };
+}
+
 async function repaintAreas(buffer, areas, references = []) {
   const src = await sharp(buffer).rotate().jpeg({ quality: 94 }).toBuffer();
   const { width: W, height: H } = await sharp(src).metadata();
   const rects = areas.map((a) => pxBox(padBox(a.box, a.pad), W, H));
+  // A whole-slide area (recolour) goes WITHOUT a mask: the model hides what
+  // sits under a transparent mask (measured — a full-slide mask came back
+  // black with only the protected photo recoloured), so it has to see the
+  // whole slide; the pictures it keeps are pasted back from the original.
+  const whole = areas.find((a) => a.whole);
+  const kept = whole ? (whole.keep || []).map((b) => pxBox(b, W, H)) : [];
   const holes = rects.map((r) => `<rect x="${r.left}" y="${r.top}" width="${r.width}" height="${r.height}" fill="#000" fill-opacity="0"/>`).join('');
-  const mask = await sharp(Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}"><rect width="${W}" height="${H}" fill="#000"/>${holes}</svg>`)).png().toBuffer();
+  const mask = whole ? null : await sharp(Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}"><rect width="${W}" height="${H}" fill="#000"/>${holes}</svg>`)).png().toBuffer();
   const refs = await Promise.all(references.map(async (b, i) => ({
     buffer: await sharp(b).rotate().resize({ width: 1024, height: 1024, fit: 'inside', withoutEnlargement: true }).jpeg({ quality: 90 }).toBuffer(),
     mediaType: 'image/jpeg',
@@ -581,23 +607,32 @@ async function repaintAreas(buffer, areas, references = []) {
   const one = areas.length === 1;
   const prompt = [
     one
-      ? `Edit ONLY the transparent (masked) area of this Instagram slide (Image 1) — ${where(areas[0].box)}.`
+      ? (areas[0].whole
+        ? 'Edit this Instagram slide (Image 1) as described. Return the whole slide.'
+        : `Edit ONLY the transparent (masked) area of this Instagram slide (Image 1) — ${where(areas[0].box)}.`)
       : `Edit ONLY the ${areas.length} transparent (masked) areas of this Instagram slide (Image 1). Change each exactly as described under its number, and nothing else:`,
-    ...(one ? areas[0].lines : areas.flatMap((a, i) => ['', `AREA ${i + 1} — ${where(a.box)}:`, ...a.lines])),
+    ...(one ? areas[0].lines : areas.flatMap((a, i) => ['', `AREA ${i + 1} — ${a.whole ? 'the whole slide (apply this first; the numbered areas after it are changed on top of it)' : where(a.box)}:`, ...a.lines])),
     '',
     one ? 'Change nothing outside the area.' : 'Each area keeps its own content — never move words or pictures between areas. Change nothing outside the areas.',
   ].join('\n');
   const size = W / H > 0.95 ? '1024x1024' : '1024x1280';
   const r = await composeImage({
     images: [{ buffer: src, mediaType: 'image/jpeg', name: 'slide' }, ...refs],
-    mask: { buffer: mask, mediaType: 'image/png' },
+    mask: mask ? { buffer: mask, mediaType: 'image/png' } : null,
     prompt,
     size,
     model: EDIT_MODEL(),
     quality: process.env.OPENAI_THEME_IMAGE_QUALITY || 'medium',
   });
   let out = src;
-  for (const rect of rects) out = await compositeRegion(out, r.buffer, rect); // eslint-disable-line no-await-in-loop
+  if (whole) {
+    // the model's whole picture, then the kept photographs back from the original
+    out = await sharp(r.buffer).resize(W, H, { fit: 'fill' }).jpeg({ quality: 94 }).toBuffer();
+    const pieces = await Promise.all(kept.map(async (k) => ({ input: await sharp(src).extract(k).toBuffer(), left: k.left, top: k.top })));
+    if (pieces.length) out = await sharp(out).composite(pieces).jpeg({ quality: 92, mozjpeg: true }).toBuffer();
+  } else {
+    for (const rect of rects) out = await compositeRegion(out, r.buffer, rect); // eslint-disable-line no-await-in-loop
+  }
   return {
     buffer: out,
     usage: { ...(r.usage || {}), estimatedCostUsd: r.estimatedCostUsd, elapsedMs: r.elapsedMs },
@@ -606,4 +641,4 @@ async function repaintAreas(buffer, areas, references = []) {
   };
 }
 
-module.exports = { mapRegions, editText, regenImage, eraseImage, placePhoto, rewriteText, REGIONS_V, typeFeatures, textArea, imageArea, eraseArea, repaintAreas };
+module.exports = { mapRegions, editText, regenImage, eraseImage, placePhoto, rewriteText, REGIONS_V, typeFeatures, textArea, imageArea, eraseArea, recolourArea, repaintAreas };

@@ -243,60 +243,77 @@ export default function EditorMore({ acts, onClose }) {
   /* ── Colours ────────────────────────────────────────────────────────── */
   if (level === 'colour') {
     const sets = acts.sets || [];
+    /* bauhly-v3 PostMenu `colour` (Sep 28): a press MARKS a set (the tick
+       starts on the one the slide wears), and `Generate colours` applies it —
+       asking This slide / All slides on a carousel. On a Theme Apply picture
+       the set is redrawn by the image model, so it is held in the chat's
+       changes and sent from there (see `onColour` in WeekView). */
+    const now = acts.setId || '';
+    const marked = typeof setPick === 'string' ? setPick : now;
+    const goSet = () => {
+      if (typeof setPick !== 'string' || setPick === now) return;
+      if (!many) { acts.onColour?.(setPick, false); setSetPick(null); onClose(); return; }
+      setLevel('colour-reach');
+    };
     return (
-      <Rows
-        onClose={onClose}
-        rows={[
-          ...backRow('Colours', 'style'),
-          ...sets.map((one) => ({
-            id: `set-${one.id}`,
-            swatches: one.swatches,
-            label: one.name,
-            hint: acts.setId === one.id ? 'On this slide' : undefined,
-            badge: acts.defaultSetId === one.id ? 'Default' : null,
-            fn: () => {
-              if (!many) { acts.onColour?.(one.id, false); return; }
-              setSetPick(one.id);
-              setLevel('colour-reach');
+      <>
+        <Rows
+          onClose={onClose}
+          rows={[
+            ...backRow('Theme colour', 'style'),
+            ...sets.map((one) => ({
+              id: `set-${one.id}`,
+              swatches: one.swatches,
+              label: one.name,
+              hint: acts.defaultSetId === one.id ? 'Your Brand Kit default' : undefined,
+              badge: now === one.id ? 'Current' : null,
+              on: marked === one.id,
+              fn: () => setSetPick(setPick === one.id ? null : one.id),
+              into: true,
+            })),
+            ...(now && !acts.slideThemed ? [{
+              id: 'original',
+              icon: 'undo',
+              label: 'Original colours',
+              hint: 'The colours this carousel was made in',
+              on: setPick === '',
+              fn: () => setSetPick(setPick === '' ? null : ''),
+              into: true,
+            }] : []),
+            { id: 'r-more', rule: true },
+            {
+              id: 'colournew',
+              icon: 'plus',
+              label: 'Create a colour set',
+              hint: acts.canNewSet ? 'Three of your own' : 'Your Brand Kit is full',
+              dead: !acts.canNewSet,
+              fn: () => setLevel('colour-new'),
+              into: true,
+              chevron: true,
             },
-            into: many,
-            chevron: many,
-          })),
-          ...(acts.setId ? [{
-            id: 'original',
-            icon: 'undo',
-            label: 'Original colours',
-            hint: 'The colours this carousel was made in',
-            fn: () => {
-              if (!many) { acts.onColour?.('', false); return; }
-              setSetPick('');
-              setLevel('colour-reach');
-            },
-            into: many,
-            chevron: many,
-          }] : []),
-          { id: 'r-more', rule: true },
-          {
-            id: 'colournew',
-            icon: 'plus',
-            label: 'Create a colour set',
-            hint: acts.canNewSet ? 'Three colours, saved to your Brand Kit' : 'Your Brand Kit is full',
-            dead: !acts.canNewSet,
-            fn: () => setLevel('colour-new'),
-            into: true,
-            chevron: true,
-          },
-          ...(many && sets.length > 1 ? [{
-            id: 'colourstory',
-            icon: 'sparkle',
-            label: 'Let the story decide',
-            hint: `Bauhly spends the ${sets.length} sets above across the arc`,
-            fn: () => { setSetPick({ story: sets.map((x) => x.id) }); setLevel('colour-reach'); },
-            into: true,
-            chevron: true,
-          }] : []),
-        ]}
-      />
+            ...(many && sets.length > 1 ? [{
+              id: 'colourstory',
+              icon: 'sparkle',
+              label: 'Let the story decide',
+              hint: 'One set per beat',
+              fn: () => { setSetPick({ story: sets.map((x) => x.id) }); setLevel('colour-reach'); },
+              into: true,
+              chevron: true,
+            }] : []),
+          ]}
+        />
+        <div className="wv-em__go">
+          <button
+            type="button"
+            className="wv-em__gobtn"
+            disabled={typeof setPick !== 'string' || setPick === now}
+            onClick={(e) => { e.stopPropagation(); goSet(); }}
+          >
+            <Icon name="sparkle" size={16} strokeWidth={2.2} />
+            Generate colours
+          </button>
+        </div>
+      </>
     );
   }
   if (level === 'colour-reach') {

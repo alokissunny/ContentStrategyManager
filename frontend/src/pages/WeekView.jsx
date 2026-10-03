@@ -2244,6 +2244,8 @@ function carouselDocumentOf(day) {
 // `onAsk` opens the prompt band about this element (bauhly-v3: the selection's
 // own AI door); `asking` = the band is already about it, so the door stands down.
 // the chat's suggestions on a Theme Apply text block (bauhly-v3 ShotSpots TEXT_TRIES)
+// a held colour set on a Theme Apply slide: not a region — the whole picture
+const COLOUR_REGION = { id: 'colours', role: 'colours' };
 // …and on a Theme Apply picture (bauhly-v3 ShotSpots IMAGE_TRIES)
 const IMAGE_TRIES = [
   { say: 'Generate a new image', act: 'generate' },
@@ -5474,7 +5476,7 @@ export default function WeekView({
   const rgnTextOpen = rgnOpen && rgnIsText;
   const rgnImgOpen = rgnOpen && !rgnIsText;
   const roleLabel = (r) => String(r?.role || 'Text').replace(/^./, (c) => c.toUpperCase());
-  const heldLabel = (h) => (h.change?.kind === 'image' ? 'Image' : roleLabel(h.region));
+  const heldLabel = (h) => (h.change?.kind === 'image' ? 'Image' : h.change?.kind === 'colours' ? 'Colours' : roleLabel(h.region));
   const openLabel = rgnRegion ? (rgnIsText ? roleLabel(rgnRegion) : 'Image') : '';
   function holdChange(region, change, slideIdx = safeIdx) {
     const k = heldKey(slideIdx, region.id);
@@ -5488,6 +5490,7 @@ export default function WeekView({
   // what the list calls a held change — the act, not its contents
   function heldWhat(h) {
     const c = h.change || {};
+    if (c.kind === 'colours') return `→ ${c.name || 'a new set'}`;
     if (c.kind === 'image') {
       const what = { replace: 'replaced', generate: 'regenerated', remove: 'removed', ref: 'from a new reference', asvisual: 'drawn as a graphic' }[c.act] || 'changed';
       return (c.asks || []).length && c.act !== 'remove' ? `${what} · ${c.asks.map((a) => a.say).join('; ')}` : what;
@@ -5543,6 +5546,9 @@ export default function WeekView({
   }
   function regionBody(h) {
     const c = h.change || {};
+    if (c.kind === 'colours') {
+      return { regionId: 'colours', action: 'recolour', setId: c.setId, name: c.name, palette: { ground: c.palette.ground, fg: c.palette.fg, accent: c.palette.accent } };
+    }
     if (c.kind === 'image') {
       const asks = (c.asks || []).map((a) => a.say).join(' ');
       if (c.act === 'replace') return { regionId: h.region.id, action: 'photo', photoKey: c.photoKey };
@@ -5880,8 +5886,33 @@ export default function WeekView({
   // Let the story decide: the sets taken in turn across the arc
   function applyStoryColours(ids, every) {
     if (!ids?.length) return;
+    colourSlides(every, (sl, i) => ids[i % ids.length]);
+  }
+  /* A colour set onto slides. HTML slides take it at once (CSS paint). A
+     Theme Apply picture can only be redrawn in it, so there it is HELD in the
+     chat's changes ("Colours → Primary") and the chat's Send recolours the
+     picture with everything else held on that slide — one image call. */
+  function colourSlides(every, setFor) {
+    if (!day) return;
+    const base = deriveSlides(day);
     const at = Date.now();
-    dressSlides(every, (sl, i) => ({ colorSet: ids[i % ids.length], colorSetAt: at }));
+    let held = 0;
+    const next = base.map((sl, i) => {
+      if (!(every || i === safeIdx)) return sl;
+      const setId = setFor(sl, i) || '';
+      if (/^themed-image/.test(String(sl?.layoutTheme || ''))) {
+        const set = kitSets.find((t) => t.id === setId);
+        if (set?.palette) {
+          holdChange(COLOUR_REGION, { kind: 'colours', setId, name: set.name, palette: set.palette }, i);
+          held += 1;
+        }
+        return sl;
+      }
+      return { ...sl, colorSet: setId || 'original', colorSetAt: at };
+    });
+    if (next.some((sl, i) => sl !== base[i])) replaceSlides(next);
+    setCopySnap(null);
+    if (held) { setAskPath([]); setAskMsg(null); setAskOpen(true); }
   }
   // Create a colour set: saved to the Brand Kit (libraryEdits.themes) and used
   function addKitColourSet(hex) {
@@ -6353,7 +6384,7 @@ export default function WeekView({
     canNewSet: kitSets.length < THEME_CAP,
     // '' from the menu = Original colours: stored as an explicit opt-out, since
     // an unset slide follows the Brand Kit's default set
-    onColour: (setId, every) => dressSlides(every, { colorSet: setId || 'original', colorSetAt: Date.now() }),
+    onColour: (setId, every) => colourSlides(every, () => setId),
     onStoryColour: applyStoryColours,
     onNewSet: addKitColourSet,
     onImageLibrary: () => openImagePicker(),
@@ -7094,7 +7125,7 @@ export default function WeekView({
                                         setRgnList(false);
                                         // another slide: go there; its region is a click away
                                         if (h.slide !== safeIdx) setSlideIdx(h.slide);
-                                        else setRgnPick(h.region.id);
+                                        else if (h.change?.kind !== 'colours') setRgnPick(h.region.id);
                                       }}
                                     >
                                       <span className="wv-held__lab">{i + 1}</span>

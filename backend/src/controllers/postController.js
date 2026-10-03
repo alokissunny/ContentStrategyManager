@@ -1537,7 +1537,7 @@ async function editThemeRegion(req, res) {
   const regions = slide.themeRegions;
   if (!regions || regions.key !== lead) return res.status(409).json({ needsMap: true, message: 'Map the slide\'s regions first.' });
   const own = `projects/${req.user._id}/`;
-  const { placePhoto, rewriteText, textArea, imageArea, eraseArea, repaintAreas } = require('../services/themeRegions');
+  const { placePhoto, rewriteText, textArea, imageArea, eraseArea, recolourArea, repaintAreas } = require('../services/themeRegions');
 
   // ── read every change first; a bad one fails the lot before any work ──
   const asked = (Array.isArray(req.body?.changes) ? req.body.changes : [req.body]).slice(0, 12);
@@ -1545,6 +1545,14 @@ async function editThemeRegion(req, res) {
   for (const c of asked) {
     const regionId = String(c?.regionId || '');
     const action = String(c?.action || '');
+    // the whole slide in a Brand Kit colour set — not a region
+    if (action === 'recolour') {
+      const hex = (v) => (/^#[0-9a-f]{6}$/i.test(String(v || '')) ? String(v).toLowerCase() : '');
+      const palette = { ground: hex(c?.palette?.ground), fg: hex(c?.palette?.fg), accent: hex(c?.palette?.accent) };
+      if (!palette.ground && !palette.fg && !palette.accent) return res.status(400).json({ message: 'Choose a colour set first.' });
+      byRegion.set('colours', { regionId: 'colours', action, palette, setId: String(c?.setId || '').slice(0, 60), name: String(c?.name || '').slice(0, 60), region: { id: 'colours' } });
+      continue;
+    }
     const textRegion = (regions.texts || []).find((t) => t.id === regionId);
     const imageRegion = (regions.images || []).find((t) => t.id === regionId);
     if (!textRegion && !imageRegion) return res.status(404).json({ message: 'That part of the slide was not found.' });
@@ -1610,7 +1618,13 @@ async function editThemeRegion(req, res) {
     if (modelled.length) {
       const refKeys = [...new Set(modelled.map((p) => p.refKey).filter(Boolean))];
       const references = await Promise.all(refKeys.map(async (k) => (await getObjectBytes(k)).buffer));
+      // pictures the recolour leaves alone: every one not being changed itself
+      const touchedPics = new Set(live.filter((p) => !p.isText && p.action !== 'recolour').map((p) => p.regionId));
+      const keep = (regions.images || []).filter((im) => !touchedPics.has(im.id)).map((im) => im.box);
+      // the recolour goes first so the numbered areas are changed on top of it
+      modelled.sort((a, b) => (b.action === 'recolour') - (a.action === 'recolour'));
       const areas = modelled.map((p) => {
+        if (p.action === 'recolour') return recolourArea({ palette: p.palette, name: p.name, keep });
         if (p.action === 'text') return textArea({ region: p.region, text: p.text, marks: p.marks, remove: p.removed });
         if (p.action === 'remove') return eraseArea({ region: p.region });
         return imageArea({ region: p.region, instruction: p.instruction, refImage: p.refKey ? refKeys.indexOf(p.refKey) + 2 : 0 });
@@ -1638,9 +1652,12 @@ async function editThemeRegion(req, res) {
   const current = plainOf(record.content) || {};
   const gone = new Set(plans.filter((p) => p.removed).map((p) => p.regionId));
   const textPlan = new Map(plans.filter((p) => p.action === 'text').map((p) => [p.regionId, p]));
+  const recoloured = plans.find((p) => p.action === 'recolour');
   const nextRegions = {
     ...regions,
     key,
+    // the words' colours changed with the set — the map is read again next open
+    ...(recoloured ? { v: 0 } : {}),
     images: (regions.images || []).filter((t) => !gone.has(t.id)),
     texts: (regions.texts || [])
       .filter((t) => !gone.has(t.id))
@@ -1666,6 +1683,8 @@ async function editThemeRegion(req, res) {
     assetKey: key,
     assetKeys: [key, ...nextPhotos],
     themeRegions: nextRegions,
+    // the menu shows the set the picture is now drawn in
+    ...(recoloured?.setId ? { colorSet: recoloured.setId, colorSetAt: Date.now() } : {}),
   };
   record.content.carouselHtml = swapKey(current.carouselHtml);
   const usage = painted?.usage || null;
@@ -1688,6 +1707,7 @@ async function editThemeRegion(req, res) {
           marks: p.marks?.length ? p.marks : undefined,
           removed: p.removed || undefined,
           photoKey: p.photoKey || undefined,
+          palette: p.palette || undefined,
           referenceKey: p.refKey || undefined,
           instruction: p.instruction || undefined,
         })),
@@ -1707,6 +1727,7 @@ async function editThemeRegion(req, res) {
         ? `Text ${p.regionId} (${r.role}) removed: ${JSON.stringify(r.text)}`
         : `Text ${p.regionId} (${r.role}): ${JSON.stringify(r.text)} → ${JSON.stringify(p.text)}${p.asks?.length ? ` (asked: ${p.asks.join('; ')})` : ''}${p.marks?.length ? ` · ${p.marks.map((m) => (m.words ? `"${m.words}" ${m.what}` : m.what)).join('; ')}` : ''}`;
     }
+    if (p.action === 'recolour') return `Whole slide recoloured${p.name ? ` into "${p.name}"` : ''}: ${JSON.stringify(p.palette)}`;
     if (p.action === 'photo') return `Picture ${p.regionId}: photo ${p.photoKey} fitted in`;
     if (p.action === 'remove') return `Picture ${p.regionId} removed`;
     return `Picture ${p.regionId} regenerated${p.refKey ? ` from reference ${p.refKey}` : ''}${p.instruction ? `: ${p.instruction}` : ''}`;

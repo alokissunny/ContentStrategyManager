@@ -8755,3 +8755,22 @@ p.wv-sa__hint { margin: 8px 4px 0; }
 .wv-reach__opt:focus-visible { background: var(--ink-050, rgba(16, 16, 20, 0.06)); outline: none; }
 .wv-reach__opt svg { color: var(--ink-700, #44444c); }
 @media (max-width: 767px) { .wv-reach { min-width: 190px; padding: 6px; border-radius: 16px; } .wv-reach__q { padding: 6px 10px 8px; font-size: 10px; } }
+
+/* Theme colour › Generate colours (bauhly-v3 `.pe-lays__go`) */
+.wv-em__go { padding: 6px 4px 2px; }
+.wv-em__gobtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  height: 48px;
+  border: 0;
+  border-radius: 14px;
+  background: var(--experiment-500, #d2e823);
+  color: var(--experiment-ink, #16161a);
+  font: 700 16px/1 var(--font-ui);
+  cursor: pointer;
+}
+.wv-em__gobtn:hover:not(:disabled) { filter: brightness(0.97); }
+.wv-em__gobtn:disabled { opacity: 0.45; cursor: default; }

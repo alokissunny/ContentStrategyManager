@@ -182,6 +182,7 @@ function useEscape(pop, setPop, onClose) {
 export function changeIsLive(change, region) {
   if (!change) return false;
   if (change.kind === 'image') return Boolean(change.act || change.asks?.length);
+  if (change.kind === 'colours') return Boolean(change.setId && change.palette);
   return Boolean(change.remove || change.marks?.length || change.asks?.length
     || String(change.text ?? region?.text ?? '').trim() !== String(region?.text || '').trim());
 }
