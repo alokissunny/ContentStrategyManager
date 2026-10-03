@@ -259,6 +259,12 @@ async function getPostById(req, res) {
     .select('-agentTrace -content.slides.layoutOptions').lean();
   if (!post) return res.status(404).json({ message: 'Post not found' });
   res.json({ post });
+  // the slides' display copies (light WebP) made ahead of the first look
+  const keys = (post.content?.slides || []).flatMap((sl) => [
+    ...(Array.isArray(sl?.assetKeys) ? sl.assetKeys : []), sl?.assetKey, sl?.image?.key, sl?.visual?.assetKey,
+  ]);
+  const inDoc = String(post.content?.carouselHtml || '').match(/projects\/[a-f0-9]{24}\/[A-Za-z0-9._-]+\.(?:png|jpe?g|webp|gif|hei[cf])/gi) || [];
+  require('./mediaController').warmDisplayCopies([...keys, ...inDoc].flatMap((k) => String(k || '').split(',')));
 }
 
 // GET /posts/:id/options — this post's stored layoutOptions per slide.
@@ -1405,7 +1411,7 @@ async function debugImage(buffer, userId, label) {
   try {
     const key = `projects/${userId}/debug/${require('crypto').randomUUID()}.jpg`;
     const jpeg = await require('sharp')(buffer).jpeg({ quality: 85 }).toBuffer();
-    await uploadBytes(key, jpeg, 'image/jpeg');
+    await uploadBytes(key, jpeg, 'image/jpeg', { immutable: true });
     return { label, key, kb: Math.round(jpeg.length / 1024) };
   } catch (err) {
     console.warn(`[posts] debug image not stored: ${err.message}`);
@@ -1579,7 +1585,7 @@ async function editThemeRegion(req, res) {
   }
 
   const key = `${own}themed-${require('crypto').randomUUID()}.jpg`;
-  await uploadBytes(key, result.buffer, 'image/jpeg');
+  await uploadBytes(key, result.buffer, 'image/jpeg', { immutable: true });
   const src = await getMediaUrl(key).catch(() => '');
   // the carousel document's <img> for this slide now points at the new render
   const swapKey = (html) => String(html || '').replace(/<img\b[^>]*>/gi, (tag) => (tag.includes(`"${lead}"`)

@@ -304,7 +304,7 @@ async function applyThemeToSlide({ slideIndex, slide = {}, userId, reference, sn
   const { rendered, cropW, cropH } = best.run;
 
   const key = `projects/${userId}/themed-${crypto.randomUUID()}.jpg`;
-  await uploadBytes(key, out, 'image/jpeg');
+  await uploadBytes(key, out, 'image/jpeg', { immutable: true });
   const src = await getMediaUrl(key).catch(() => '');
   // where each text block and the photo sit — makes the picture editable by
   // region in the editor (null when the map could not be made; the editor

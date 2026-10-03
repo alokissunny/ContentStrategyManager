@@ -2,6 +2,7 @@ const {
   S3Client,
   PutObjectCommand,
   GetObjectCommand,
+  HeadObjectCommand,
   DeleteObjectsCommand,
 } = require('@aws-sdk/client-s3');
 const { getSignedUrl } = require('@aws-sdk/s3-request-presigner');
@@ -145,6 +146,17 @@ async function uploadBytes(key, body, contentType = 'application/octet-stream', 
   return key;
 }
 
+// HEAD an object: { size, contentType } or null when it isn't there
+async function headObject(key) {
+  try {
+    const r = await getS3Client().send(new HeadObjectCommand({ Bucket: process.env.S3_BUCKET_NAME, Key: key }));
+    return { size: Number(r.ContentLength) || 0, contentType: r.ContentType || '' };
+  } catch (err) {
+    if (err?.$metadata?.httpStatusCode === 404 || err?.name === 'NotFound') return null;
+    throw err;
+  }
+}
+
 async function getPresignedDownloadUrl(key) {
   const s3 = getS3Client();
   const expiresIn = Number(process.env.S3_REPORT_PRESIGN_EXPIRY_SECONDS) || 3600;
@@ -170,6 +182,7 @@ async function getObjectBytes(key) {
 module.exports = {
   uploadMarkdown,
   uploadBytes,
+  headObject,
   getPresignedDownloadUrl,
   getObjectText,
   getObjectBytes,

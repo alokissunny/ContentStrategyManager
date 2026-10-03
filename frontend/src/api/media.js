@@ -65,6 +65,20 @@ export function mediaProxyUrl(key) {
   return `${base}/media/proxy?key=${encodeURIComponent(first)}`;
 }
 
+// The display copy of a project image (backend /media/display): a WebP no
+// wider than `w`, made once and served from the CDN by redirect. Slides and
+// previews show this; export / publish / crop keep the original (proxy).
+export function mediaDisplayUrl(key, w = 1080) {
+  const raw = String(key || '').trim();
+  if (!isProjectMediaKey(raw) || /\.w\d+\.webp$/i.test(raw)) return '';
+  const base = (client.defaults.baseURL || '/api').replace(/\/$/, '');
+  return `${base}/media/display?key=${encodeURIComponent(raw)}&w=${w}`;
+}
+
+export function isDisplayUrl(url) {
+  return /\/media\/display\?key=/.test(String(url || ''));
+}
+
 export function isProxyUrl(url) {
   return /\/media\/proxy\?key=/.test(String(url || ''));
 }
@@ -120,7 +134,7 @@ function setCdnBase(base) {
 }
 
 export function inferCdnBaseFromUrl(url) {
-  if (!url || isProxyUrl(url)) return '';
+  if (!url || isProxyUrl(url) || isDisplayUrl(url)) return '';
   if (/^(blob:|data:)/i.test(url)) return '';
   try {
     const u = new URL(url);
@@ -143,7 +157,7 @@ export function keyFromMediaUrl(url) {
   if (!raw || /^(blob:|data:)/i.test(raw)) return '';
   try {
     const u = new URL(raw, typeof window !== 'undefined' ? window.location.origin : 'http://local');
-    if (isProxyUrl(raw)) return u.searchParams.get('key') || '';
+    if (isProxyUrl(raw) || isDisplayUrl(raw)) return u.searchParams.get('key') || '';
     const path = decodeURIComponent(u.pathname.replace(/^\/+/, ''));
     if (/^projects\//.test(path) || /^visualbrand\//.test(path)) return path;
     return '';
@@ -176,6 +190,12 @@ export function iframeSafeUrl(url) {
 export function toDisplayUrl(url, key) {
   if (url && /^(blob:|data:)/i.test(url)) return url;
   const k = key || keyFromMediaUrl(url);
+  // project images show their light display copy (a WebP ≤1080 wide, HEIC
+  // transcoded) — the originals run to several MB and a slide waits for them
+  if (isProjectMediaKey(k)) {
+    if (url) rememberCdnBase(url);
+    return mediaDisplayUrl(k);
+  }
   // Chrome and Firefox cannot paint HEIC. Serve a JPEG transcode through the API
   // proxy instead of the raw CloudFront object.
   if (isHeicKey(k)) return mediaProxyUrl(k);

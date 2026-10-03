@@ -1,4 +1,5 @@
-const { getObjectBytes, mediaCdnBaseUrl } = require('../services/s3Client');
+const sharp = require('sharp');
+const { getObjectBytes, mediaCdnBaseUrl, headObject, uploadBytes } = require('../services/s3Client');
 const { toVisionImage } = require('../services/visionImage');
 
 // Only ever serve project media: the immutable, content-addressed objects under
@@ -94,8 +95,106 @@ async function proxyMedia(req, res) {
   }
 }
 
+/*
+ * Display copy of a project image — what slides and previews show.
+ *
+ * Generated photos and uploads are stored as they came (gpt-image PNGs run
+ * 1.5–6 MB), and a slide waits for its photo before it shows. This serves a
+ * WebP no wider than `w` (1080 default — an Instagram slide), made once and
+ * stored beside the original as `projects/<uid>/<name>.w<w>.webp` (inside the
+ * CDN's `projects/*` scope), then redirects to it on the CDN. The redirect is
+ * cacheable for a year: keys are immutable, so the copy never changes.
+ * Originals stay as they are for export / publish (`/media/proxy`).
+ * Authless for the same reason as the proxy: the key is the capability.
+ */
+const DISPLAY_WIDTHS = [480, 1080];
+const SMALL_ENOUGH = 350 * 1024; // a JPEG/WebP this light is shown as is
+const making = new Map();
+const shownFor = new Map(); // `${key}@${w}` → the key to show (keys are immutable)
+async function displayCopy(key, w) {
+  const memo = `${key}@${w}`;
+  if (shownFor.has(memo)) return shownFor.get(memo);
+  const remember = (shown) => {
+    if (shownFor.size > 20000) shownFor.clear();
+    shownFor.set(memo, shown);
+    return shown;
+  };
+  const name = key.replace(/\.[a-z0-9]+$/i, '');
+  const out = `${name}.w${w}.webp`;
+  if (await headObject(out)) return remember(out);
+  if (!making.has(out)) {
+    making.set(out, (async () => {
+      // already a light JPEG/WebP (a Theme Apply render): shown as is, no download
+      const head = await headObject(key);
+      if (head && head.size <= SMALL_ENOUGH && /jpe?g|webp/i.test(head.contentType || key)) return key;
+      const { buffer, contentType } = await getObjectBytes(key);
+      let input = buffer;
+      if (/hei[cf]/i.test(contentType || key)) input = (await toVisionImage(buffer, contentType, key)).buffer;
+      const meta = await sharp(input).metadata();
+      // already light and no bigger than asked: the original is the display copy
+      if (buffer.length <= SMALL_ENOUGH && (meta.width || 0) <= w && /jpe?g|webp/i.test(meta.format || '')) return key;
+      const webp = await sharp(input).rotate().resize({ width: w, withoutEnlargement: true }).webp({ quality: 82 }).toBuffer();
+      await uploadBytes(out, webp, 'image/webp', { immutable: true });
+      return out;
+    })().then(remember).finally(() => making.delete(out)));
+  }
+  return making.get(out);
+}
+
+// Make the display copies of a post's images in the background (when the
+// editor loads the post), so the first look at a slide doesn't wait for the
+// copy to be made. Remembers what it has done; two at a time.
+const warmed = new Set();
+const queue = [];
+let running = 0;
+function pump() {
+  while (running < 2 && queue.length) {
+    const key = queue.shift();
+    running += 1;
+    displayCopy(key, 1080)
+      .catch((err) => { warmed.delete(key); console.warn('[media] warm display copy failed', key, err.message); })
+      .finally(() => { running -= 1; pump(); });
+  }
+}
+function warmDisplayCopies(keys = []) {
+  keys.forEach((k) => {
+    const key = String(k || '').trim();
+    if (!PROJECT_KEY_RE.test(key) || /\.w\d+\.webp$/i.test(key) || /\/debug\//.test(key) || warmed.has(key)) return;
+    if (warmed.size > 5000) warmed.clear();
+    warmed.add(key);
+    queue.push(key);
+  });
+  pump();
+}
+
+async function displayMedia(req, res) {
+  const key = String(req.query.key || '');
+  if (!PROJECT_KEY_RE.test(key) || /\.w\d+\.webp$/i.test(key)) return res.status(400).json({ message: 'Invalid media key' });
+  const asked = Number(req.query.w) || 1080;
+  const w = DISPLAY_WIDTHS.find((x) => x >= asked) || DISPLAY_WIDTHS[DISPLAY_WIDTHS.length - 1];
+  const cdn = mediaCdnBaseUrl();
+  try {
+    const shown = await displayCopy(key, w);
+    if (cdn) {
+      res.set('Cache-Control', 'public, max-age=31536000, immutable');
+      return res.redirect(302, `${cdn}/${shown.split('/').map(encodeURIComponent).join('/')}`);
+    }
+    const { buffer, contentType } = await getObjectBytes(shown);
+    res.set('Access-Control-Allow-Origin', '*');
+    res.set('Cross-Origin-Resource-Policy', 'cross-origin');
+    res.set('Cache-Control', 'public, max-age=31536000, immutable');
+    res.type(contentType || 'image/webp');
+    return res.send(buffer);
+  } catch (err) {
+    console.error('[media] display copy failed for', key, err.message);
+    // never leave the slide blank over a copy: fall back to the original
+    if (cdn) return res.redirect(302, `${cdn}/${key.split('/').map(encodeURIComponent).join('/')}`);
+    return res.status(404).json({ message: 'Media not found' });
+  }
+}
+
 function cdnBase(req, res) {
   return res.json({ base: mediaCdnBaseUrl() || '' });
 }
 
-module.exports = { proxyMedia, cdnBase };
+module.exports = { proxyMedia, cdnBase, displayMedia, warmDisplayCopies };
