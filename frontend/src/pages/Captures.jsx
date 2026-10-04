@@ -15,19 +15,19 @@
  * generate-after-capture flow (YourPlans), which marks them used server-side.
  */
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import Icon from '../brand/Icon';
 import EmptyState from '../components/ui/EmptyState';
 import { useBodyScrollLock } from './checkin/ui';
 import {
   useProjects, useProjectsHydrated, refreshProjects, createProject, renameProject, deleteProject,
-  deleteSession, moveSession, setSessionExcluded, fmtWhen, sessionDisplayText,
+  deleteSession, moveSession, setSessionExcluded, fmtWhen, sessionDisplayText, updateEntry, uploadFiles,
 } from '../lib/projectsStore';
 import { allCaptureSessions } from '../lib/captureStatus';
 import { listGeneratedImages, deleteGeneratedImage } from '../api/images';
 import { previewUrl } from '../api/media';
-import { EntryPanel, GeneratedFolderView, readGenCache, writeGenCache } from './Projects';
+import { GeneratedFolderView, readGenCache, writeGenCache } from './Projects';
 import './projects.css';
 import './captures.css';
 
@@ -58,6 +58,302 @@ function useIsPhone() {
     return () => mq.removeEventListener('change', on);
   }, []);
   return phone;
+}
+
+/* ── The capture's side panel (bauhly-v3 pages/app/Projects.jsx › EntryPanel)
+ * Head: the project, the state badge and when. Body: one box per state — the
+ * reason and the one press (Answer clarification / Generate plan / Generate
+ * another plan) — then the words, editable where they are read ("Edit note"),
+ * then the files with Add. ⋯ holds Move to project and Delete capture.
+ * "Needs clarification" here means photos with no words (lib/captureStatus),
+ * so answering it is writing the note: the button puts the caret there. */
+const shortDay = (iso) => {
+  const d = iso ? new Date(iso) : null;
+  return d && !Number.isNaN(d.getTime()) ? d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : '';
+};
+
+function NoteField({ value, placeholder, onSave, fieldRef }) {
+  const [v, setV] = useState(value || '');
+  useEffect(() => { setV(value || ''); }, [value]);
+  const grow = (el) => { if (el) { el.style.height = 'auto'; el.style.height = `${el.scrollHeight}px`; } };
+  useEffect(() => { grow(fieldRef.current); });
+  return (
+    <textarea
+      ref={fieldRef}
+      className="ctxf ctxf--panel"
+      value={v}
+      rows={1}
+      placeholder={placeholder}
+      aria-label="Note"
+      onChange={(e) => { setV(e.target.value); grow(e.target); }}
+      onBlur={() => { if (v.trim() !== String(value || '').trim()) onSave(v.trim()); }}
+    />
+  );
+}
+
+function CapturePanel({ item, projects, onClose, onGenerate, onDelete, onMove }) {
+  useBodyScrollLock();
+  const entry = item.session;
+  const atts = entry.attachments || [];
+  const members = (item.project.captures || []).filter((c) => item.memberIds.includes(c.id));
+  const lead = members.find((c) => c.id === entry.id) || members[0] || entry;
+  const words = String(sessionDisplayText(entry) || '').trim();
+  const usedAt = members.map((c) => c.usedInPlanAt).filter(Boolean).sort().pop() || null;
+  const others = projects.filter((p) => p.id !== item.projectId);
+  const [menu, setMenu] = useState(false);
+  const [moveOpen, setMoveOpen] = useState(false);
+  const [light, setLight] = useState(null);
+  const [uploading, setUploading] = useState(false);
+  const [err, setErr] = useState('');
+  const field = useRef(null);
+  const closeMenu = () => { setMenu(false); setMoveOpen(false); };
+
+  useEffect(() => {
+    const onKey = (e) => {
+      if (light !== null) {
+        if (e.key === 'Escape') setLight(null);
+        else if (e.key === 'ArrowRight') setLight((i) => (i + 1) % atts.length);
+        else if (e.key === 'ArrowLeft') setLight((i) => (i - 1 + atts.length) % atts.length);
+        return;
+      }
+      if (e.key === 'Escape') { if (menu) closeMenu(); else onClose(); }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [light, menu, atts.length, onClose]);
+
+  const saveNote = async (text) => {
+    setErr('');
+    try {
+      // the words the list shows come from the capture's stories first, so the
+      // edit is written into them too (the first story carries the note)
+      const stories = Array.isArray(lead.stories) && lead.stories.length
+        ? [{ ...lead.stories[0], summary: text }]
+        : undefined;
+      await updateEntry(item.projectId, lead.id, {
+        text,
+        sessionSummary: text,
+        ...(stories ? { stories, understanding: stories[0] } : {}),
+      });
+    } catch { setErr('That note could not be saved. Try again.'); }
+  };
+  const removeAtt = async (att) => {
+    const owner = members.find((c) => (c.attachments || []).some((a) => (a.key || a.id) === (att.key || att.id)));
+    if (!owner) return;
+    setLight(null);
+    try {
+      await updateEntry(item.projectId, owner.id, { attachments: owner.attachments.filter((a) => (a.key || a.id) !== (att.key || att.id)) });
+    } catch { setErr('That file could not be removed. Try again.'); }
+  };
+  const addFiles = async (files) => {
+    setUploading(true);
+    setErr('');
+    try {
+      const added = await uploadFiles(files);
+      await updateEntry(item.projectId, lead.id, { attachments: [...(lead.attachments || []), ...added] });
+    } catch { setErr('Those files could not be added. Try again.'); }
+    finally { setUploading(false); }
+  };
+
+  const st = item.status;
+  const mark = st === 'used'
+    ? { label: 'In a plan', icon: 'clock', tone: 'ready', more: usedAt ? `· ${shortDay(usedAt)}` : '' }
+    : STATUS_SAY[st];
+  const current = light !== null ? atts[light] : null;
+
+  return (
+    <>
+      <div className="np-scrim" onClick={onClose} />
+      <aside className="np" role="dialog" aria-modal="true" aria-label={`Capture in ${item.projectName}`}>
+        <header className="np__bar">
+          <span className="np__headtext">
+            <span className="np__title">{item.projectName || 'No project'}</span>
+            <span className="np__sub">
+              {mark && (
+                <span className={`pjw-badge pjw-badge--${mark.tone}`} title={mark.label}>
+                  <Icon name={mark.icon} size={12} strokeWidth={2.2} />
+                  {mark.label}
+                  {mark.more && <em className="pjw-used__w">{mark.more}</em>}
+                </span>
+              )}
+              <span className="np__sub__when">{fmtWhen(entry.createdAt)}</span>
+            </span>
+          </span>
+          <div className="np__baracts">
+            <div className="np__morewrap">
+              <button className="np__close" aria-label="More actions" aria-haspopup="menu" aria-expanded={menu} onClick={() => (menu ? closeMenu() : setMenu(true))}>
+                <Icon name="more" size={18} />
+              </button>
+              {menu && (
+                <>
+                  <div className="pe-menu__scrim" onClick={closeMenu} />
+                  <div className="pe-menu pe-menu--panel" role="menu">
+                    {!moveOpen ? (
+                      <>
+                        {others.length > 0 && (
+                          <button role="menuitem" onClick={() => setMoveOpen(true)}>
+                            <Icon name="plan" size={17} />
+                            <span className="pe-menu__grow">Move to project</span>
+                            <Icon name="chevron-right" size={16} />
+                          </button>
+                        )}
+                        {others.length > 0 && <div className="pe-menu__sep" />}
+                        <button role="menuitem" className="pe-menu__del" onClick={() => { closeMenu(); onDelete(); }}>
+                          <Icon name="trash" size={17} /> Delete capture
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        <button role="menuitem" className="pe-menu__back" onClick={() => setMoveOpen(false)}>
+                          <Icon name="arrow-left" size={16} />
+                          <span className="pe-menu__grow">Move to project</span>
+                        </button>
+                        <div className="pe-menu__sep" />
+                        {others.map((p) => (
+                          <button key={p.id} role="menuitem" onClick={() => { closeMenu(); onMove(p.id); }}>
+                            <span className="pe-menu__grow">{p.name}</span>
+                          </button>
+                        ))}
+                      </>
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
+            <button className="np__close" onClick={onClose} aria-label="Close"><Icon name="x" size={16} strokeWidth={2.25} /></button>
+          </div>
+        </header>
+
+        <div className="np__body">
+          {st === 'unclear' && (
+            <div className="np__needs">
+              <p className="np__needs__top">
+                <Icon name="info" size={15} strokeWidth={2.2} />
+                Bauhly would have to guess
+              </p>
+              <p className="np__needs__say">
+                Without your answer it has to work this out on its own, and what comes
+                back can be inaccurate — the wrong reason, a detail that is not quite
+                right, a post that does not sound like your work. One answer and it is
+                written from what you actually said.
+              </p>
+              <button type="button" className="np__needs__go" onClick={() => field.current?.focus()}>
+                Answer clarification
+                <Icon name="arrow-right" size={15} strokeWidth={2.2} />
+              </button>
+            </div>
+          )}
+          {st === 'ready' && (
+            <div className="np__needs np__needs--go">
+              <p className="np__needs__top">
+                <Icon name="plan" size={15} strokeWidth={2.2} />
+                Nothing left to answer
+              </p>
+              <p className="np__needs__say">Bauhly has everything it needs from this one.</p>
+              <button type="button" className="np__needs__go np__needs__go--ink" onClick={onGenerate}>
+                Generate plan
+                <Icon name="arrow-right" size={15} strokeWidth={2.2} />
+              </button>
+            </div>
+          )}
+          {st === 'used' && (
+            <div className="np__needs np__needs--done">
+              <p className="np__needs__top">
+                <Icon name="check-circle" size={15} strokeWidth={2.2} />
+                Already generated
+              </p>
+              <p className="np__needs__say">
+                {usedAt ? `It went into a plan on ${shortDay(usedAt)}.` : 'This capture has already been through a plan.'}
+              </p>
+              <button type="button" className="np__needs__go np__needs__go--quiet" onClick={onGenerate}>
+                Generate another plan
+                <Icon name="arrow-right" size={15} strokeWidth={2.2} />
+              </button>
+            </div>
+          )}
+          {st === 'off' && (
+            <div className="np__needs np__needs--done">
+              <p className="np__needs__top">
+                <Icon name="eye-off" size={15} strokeWidth={2.2} />
+                Held back from plans
+              </p>
+              <p className="np__needs__say">Your plans leave this one out until you include it again from the list.</p>
+            </div>
+          )}
+
+          <div className="np__note">
+            {words && (
+              <button type="button" className="np__note__edit" onClick={() => field.current?.focus()}>
+                <Icon name="edit" size={13} strokeWidth={2} />
+                Edit note
+              </button>
+            )}
+            <NoteField
+              fieldRef={field}
+              value={words}
+              placeholder="What happened here, in your own words? Bauhly writes next week's plan from this."
+              onSave={saveNote}
+            />
+          </div>
+          {err && <p className="np__err" role="alert">{err}</p>}
+
+          <div className="np__grid">
+            {atts.map((a, i) => (
+              <span className="np__cellwrap" key={a.key || a.id || i}>
+                <button
+                  className="np__cellx"
+                  aria-label={`Remove ${a.type} ${i + 1}`}
+                  title="Remove this file"
+                  onClick={(e) => { e.stopPropagation(); removeAtt(a); }}
+                >
+                  <Icon name="x" size={13} strokeWidth={2.75} />
+                </button>
+                <button className="np__cell" onClick={() => setLight(i)} aria-label={`Open ${a.type} ${i + 1} of ${atts.length}`}>
+                  <span className="np__cellmedia">
+                    <img src={previewUrl(a)} alt="" loading="lazy" onError={(e) => { e.target.style.visibility = 'hidden'; }} />
+                    {a.type === 'video' && <span className="ms__play"><Icon name="play" size={18} /></span>}
+                  </span>
+                </button>
+              </span>
+            ))}
+            <label className={`np__add ${uploading ? 'is-busy' : ''}`} aria-busy={uploading}>
+              {uploading ? <span className="pj-spin" /> : <Icon name="plus" size={20} strokeWidth={2.5} />}
+              <span>{uploading ? 'Adding…' : 'Add'}</span>
+              <input
+                type="file"
+                accept="image/*,video/*"
+                multiple
+                hidden
+                disabled={uploading}
+                onChange={(e) => { if (e.target.files?.length) addFiles([...e.target.files]); e.target.value = ''; }}
+              />
+            </label>
+          </div>
+        </div>
+      </aside>
+
+      {current && (
+        <div className="lb" role="dialog" aria-modal="true" aria-label="Media viewer">
+          <div className="lb__scrim" onClick={() => setLight(null)} />
+          <div className="lb__bar lb__bar--top">
+            <span className="lb__count">{light + 1} / {atts.length}</span>
+            <button className="lb__close" onClick={() => setLight(null)} aria-label="Close"><Icon name="x" size={20} strokeWidth={2.25} /></button>
+          </div>
+          {atts.length > 1 && (
+            <button className="lb__nav lb__nav--prev" onClick={() => setLight((i) => (i - 1 + atts.length) % atts.length)} aria-label="Previous"><Icon name="arrow-left" size={22} /></button>
+          )}
+          <figure className="lb__stage">
+            {current.type === 'image'
+              ? <img src={previewUrl(current)} alt="" />
+              : <video src={current.url} poster={previewUrl(current)} controls autoPlay playsInline />}
+          </figure>
+          {atts.length > 1 && (
+            <button className="lb__nav lb__nav--next" onClick={() => setLight((i) => (i + 1) % atts.length)} aria-label="Next"><Icon name="arrow-right" size={22} /></button>
+          )}
+        </div>
+      )}
+    </>
+  );
 }
 
 const wordsOf = (it) => String(sessionDisplayText(it.session) || it.session.text || '').trim();
@@ -757,13 +1053,14 @@ export default function Captures() {
       })()}
 
       {openItem && (
-        <EntryPanel
+        <CapturePanel
           key={openItem.id}
-          project={openItem.project}
-          entry={openItem.session}
-          week={openItem.projectName}
+          item={openItem}
+          projects={projects}
           onClose={() => setOpen(null)}
-          onRegenerate={() => { setOpen(null); runGen([openItem]); }}
+          onGenerate={() => { setOpen(null); runGen([openItem]); }}
+          onMove={(toId) => run(async () => { setOpen(null); await moveSession(openItem.projectId, toId, openItem.memberIds); })}
+          onDelete={() => { setSel([openItem.id]); setOpen(null); setDropping(true); }}
         />
       )}
     </div>

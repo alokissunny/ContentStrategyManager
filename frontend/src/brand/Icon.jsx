@@ -43,6 +43,12 @@ const PATHS = {
   ),
   /* navigation & actions */
   'arrow-right': <path d="M5 12h14m-6-6 6 6-6 6" />,
+  'check-circle': (
+    <>
+      <circle cx="12" cy="12" r="8.25" />
+      <path d="m8.4 12.2 2.6 2.6 4.6-5" />
+    </>
+  ),
   'arrow-left': <path d="M19 12H5m6-6-6 6 6 6" />,
   'arrow-up-right': <path d="M7 17 17 7M9 7h8v8" />,
   'arrow-down': <path d="M12 5v14m-6-6 6 6 6-6" />,
