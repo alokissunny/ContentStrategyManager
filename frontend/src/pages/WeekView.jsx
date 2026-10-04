@@ -2979,7 +2979,7 @@ export default function WeekView({
   const [slideEditMode, setSlideEditMode] = useState(false);
   // Editor mode (bauhly-v3 PostEditor): the pencil opens the post full-width —
   // a dark header (Cancel / Apply changes), the slide as a stack with its
-  // neighbours peeking, Fix layout + ⋯ over it and the AI mark on it.
+  // neighbours peeking, undo/redo + ⋯ over it and the AI mark on it.
   const [postEdit, setPostEdit] = useState(false);
   // Bumped after a theme / layout regeneration lands: the Editor's cards are
   // keyed on it, so the slide is rebuilt from the new html (a fresh iframe,
@@ -6334,9 +6334,6 @@ export default function WeekView({
     ? editDate.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
     : (dayDateLabel(day) || 'this day');
   const editFormat = day?.format ? String(day.format).replace(/ series$/, '') : '';
-  // Fix layout re-runs the carousel agent for this post (same call as Change
-  // theme, on the post's current direction). Lime = work Bauhly does.
-  const canFixLayout = Boolean(route?._id) && !layoutBusy && !publishing && !day?.published;
 
   // Colours offered on a selected element: the brand kit's own, then ink/paper.
   const elemSwatches = (() => {
@@ -6614,7 +6611,7 @@ export default function WeekView({
       {/* ══ EDITOR MODE (bauhly-v3 editor/PostEditor.jsx `.edm`) ═══════════
           The pencil opens the post into its own workspace beside the sidebar:
           an ink header naming the post with Cancel / Apply changes, the slide
-          as a stack with its neighbours blurred behind it, Fix layout and ⋯ on
+          as a stack with its neighbours blurred behind it, undo/redo and ⋯ on
           the post's top line, and the AI mark in its corner. The ⋯ carries the
           same edit menu the preview had; its editors open in a panel beside
           the slide so the change is watched happening on it. */}
@@ -6665,18 +6662,6 @@ export default function WeekView({
           >
             <section className="wv-edm__stage">
               <div className="wv-edm__line">
-                <button
-                  type="button"
-                  className="wv-edm__fix"
-                  disabled={!canFixLayout}
-                  onClick={() => { resetElemEdits(); handleRunLayout(); }}
-                  title={canFixLayout
-                    ? 'Re-make this post’s layout so everything fits again'
-                    : (layoutBusy ? 'Composing…' : 'Nothing to fix yet')}
-                >
-                  <Icon name="sparkle" size={15} strokeWidth={2.2} />
-                  {layoutBusy ? 'Fixing…' : 'Fix layout'}
-                </button>
                 <div className="wv-edm__right">
                 <div className="wv-edm__hist">
                   <button

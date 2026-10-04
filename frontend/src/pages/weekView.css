@@ -7247,7 +7247,7 @@ span.wv-layed__apply { margin-left: auto; flex-shrink: 0; }
   min-width: 0;
 }
 
-/* The post's own top line: Fix layout at its left corner, ⋯ at its right.
+/* The post's own top line: undo/redo and ⋯ at its right corner.
    Out of flow, so the stage is exactly the post and centring it centres the
    artwork. */
 .wv-edm__line {
@@ -7259,31 +7259,9 @@ span.wv-layed__apply { margin-left: auto; flex-shrink: 0; }
   transform: translateX(-50%);
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-end;
   gap: var(--sp-3);
 }
-/* Lime = work Bauhly does (tokens.css): the one press here that asks for the
-   slide to be made again. */
-.wv-edm__fix {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  height: 38px;
-  padding: 0 var(--sp-3);
-  border: 0;
-  border-radius: var(--r-full);
-  background: var(--experiment-500, #d2e823);
-  color: var(--experiment-ink, #3a4204);
-  font: inherit;
-  font-size: 13px;
-  font-weight: 600;
-  line-height: 1;
-  cursor: pointer;
-  transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
-}
-.wv-edm__fix:hover:not(:disabled) { filter: brightness(1.06); }
-.wv-edm__fix:disabled { background: var(--surface-sunken); color: var(--ink-400); cursor: default; }
-.wv-edm__fix:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 3px; }
 
 .wv-edm__morewrap { position: relative; }
 .wv-edm__more {
