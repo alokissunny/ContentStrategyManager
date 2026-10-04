@@ -2361,3 +2361,18 @@ body.is-immersive .apptop {
 /* one avatar on a phone: the account's — the person's links are in its sheet */
 @media (max-width: 767px) { .apptop__user { display: none; } }
 .acs-opt--link { width: 100%; border: 0; background: transparent; text-align: left; cursor: pointer; font: inherit; }
+
+/* the menus' destructive row and its rule (bauhly-v3 editor.css) */
+
+.pe-menu .is-danger,
+.msheet__menu .is-danger { color: var(--negative); }
+.pe-menu .is-danger svg,
+.msheet__menu .is-danger svg { color: var(--negative); }
+.pe-menu .is-danger:hover,
+.msheet__menu .is-danger:hover { background: var(--negative-soft); }
+.pe-menu__rule {
+  display: block;
+  height: 1px;
+  margin: 5px 10px;
+  background: var(--border);
+}

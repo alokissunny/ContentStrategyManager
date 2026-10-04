@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import Icon from '../brand/Icon';
-import { getPost, schedulePost, setPostReview, markPublished } from '../api/posts';
+import { getPost, schedulePost, setPostReview, markPublished, deletePost } from '../api/posts';
 import { openCaptureIdea } from '../lib/captureUi';
 import { DayPeek } from './weekview/PostPeek';
 
@@ -69,9 +70,28 @@ export function MonthDayMenu({
   onDistribute,
   onPatch,
   onShift,
+  onRemove = null,
   variant = 'popover',
   peekLoading = false,
 }) {
+  /* Remove post (bauhly-v3 YourWeek day menu): last, behind a rule, in the
+     danger ink — and it asks first, the same dialog the Editor's Remove uses */
+  const [askRemove, setAskRemove] = useState(false);
+  const [removing, setRemoving] = useState(false);
+  const removeNow = async () => {
+    if (!day?._id || removing) return;
+    setRemoving(true);
+    try {
+      await deletePost(day._id);
+      onRemove?.(String(day._id));
+      setAskRemove(false);
+      onClose();
+    } catch { /* keep the post — the dialog stays for another try */ }
+    finally { setRemoving(false); }
+  };
+  const dayLabel = day?.date
+    ? new Date(`${String(day.date).slice(0, 10)}T12:00:00`).toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' })
+    : 'this day';
   const sheet = variant === 'sheet';
   const empty = !day;
   const out = !!day?.published;
@@ -213,9 +233,35 @@ export function MonthDayMenu({
             <Icon name="chevron-right" size={16} strokeWidth={2.1} />
           </button>
         )}
+        {onRemove && (
+          <>
+            <span className="pe-menu__rule" aria-hidden="true" />
+            <button type="button" role="menuitem" className="is-danger" onClick={() => setAskRemove(true)}>
+              <Icon name="trash" size={17} />
+              <span className="pe-menu__grow">Remove post</span>
+            </button>
+          </>
+        )}
       </>
     );
   }
+
+  const confirm = askRemove && createPortal(
+    <>
+      <div className="wv-confirm__scrim" onClick={() => !removing && setAskRemove(false)} />
+      <div className="wv-confirm" role="alertdialog" aria-modal="true" aria-labelledby="yw-rm-t">
+        <h2 id="yw-rm-t">Remove this post?</h2>
+        <p>{`The whole post for ${dayLabel} goes — its caption, its schedule and all of its slides. The day stays in the plan with nothing on it.`}</p>
+        <div className="wv-confirm__acts">
+          <button type="button" className="btn btn--tertiary btn--sm" disabled={removing} onClick={() => setAskRemove(false)}>Keep it</button>
+          <button type="button" className="btn btn--primary btn--sm wv-confirm__bad" disabled={removing} onClick={removeNow}>
+            {removing ? 'Removing…' : 'Remove post'}
+          </button>
+        </div>
+      </div>
+    </>,
+    document.body,
+  );
 
   const body = (
     <>
@@ -224,11 +270,12 @@ export function MonthDayMenu({
       <div role="menu" className={sheet ? 'msheet__menu' : undefined}>{items}</div>
     </>
   );
-  if (sheet) return body;
+  if (sheet) return <>{body}{confirm}</>;
   return (
     <>
-      <div className="pe-menu__scrim" onClick={onClose} />
-      <div className="pe-menu yw-mday__menu">{body}</div>
+      {!askRemove && <div className="pe-menu__scrim" onClick={onClose} />}
+      {!askRemove && <div className="pe-menu yw-mday__menu">{body}</div>}
+      {confirm}
     </>
   );
 }

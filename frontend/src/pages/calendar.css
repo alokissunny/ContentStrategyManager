@@ -1893,3 +1893,82 @@
   .ph.ph--cal-feed .btn.cal-viewm__btn { height: 40px; padding-inline: 16px; }
   .ph.ph--cal-feed .btn.ph__more-btn { width: 40px; height: 40px; }
 }
+
+/* ── Day feed › Scheduling sheet (bauhly-v3 SchedMenu rows, extracted) ── */
+
+.schedm__row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  width: 100%;
+  padding: 9px 10px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--ink-900);
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease-out);
+}
+.schedm__row:hover:not(:disabled) { background: var(--surface-sunken); }
+.schedm__row:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
+.schedm__row:disabled { opacity: 0.45; cursor: default; }
+.schedm__row > svg { flex-shrink: 0; margin-top: 1px; color: var(--ink-600); }
+.schedm__text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.schedm__text b { font-size: var(--text-sm); font-weight: 600; }
+.schedm__text em {
+  font-style: normal;
+  font-size: var(--text-xs);
+  line-height: 1.35;
+  color: var(--ink-500);
+}
+.schedm__more { margin-left: auto; align-self: center; color: var(--ink-400); }
+.schedm__row--danger,
+.schedm__row--danger > svg { color: var(--negative); }
+.schedm__row--danger:hover:not(:disabled) { background: var(--negative-soft); }
+.schedm__lead { margin: 3px 0 var(--sp-4); font-size: var(--text-xs); color: var(--ink-500); }
+.schedm__field { display: block; margin-bottom: var(--sp-3); }
+@media (max-width: 767px) {
+  .schedm--sheet .schedm__row {
+    align-items: center;
+    min-height: 52px;
+    padding: var(--sp-3) var(--sp-2);
+    gap: var(--sp-3);
+    border-radius: var(--r-md);
+  }
+}
+@media (max-width: 767px) {
+  .schedm--sheet .schedm__row > svg:first-child {
+    margin-top: 0;
+    margin-right: calc(var(--msheet-icon-gap) - var(--sp-3));
+  }
+}
+@media (max-width: 767px) {
+  .schedm--sheet .schedm__text b { font-size: var(--text-base); }
+}
+@media (max-width: 767px) {
+  .schedm--sheet .schedm__text em { font-size: var(--text-sm); }
+}.schedm--sheet { --msheet-icon-gap: 16px; }
+.ywf-sched__time { display: grid; gap: var(--sp-3); padding: 0 var(--sp-2) var(--sp-2); }
+.ywf-sched__field { display: grid; gap: 6px; font: 600 var(--text-sm)/1.2 var(--font-ui); color: var(--ink-700); }
+.ywf-sched__field input {
+  height: 48px;
+  padding: 0 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--surface);
+  font: 500 var(--text-base)/1 var(--font-ui);
+  color: var(--ink-900);
+}
+.ywf-sched__save { height: 48px; margin-top: var(--sp-2); border-radius: var(--r-full); }
+.ywf-sched__err { margin: var(--sp-2) var(--sp-2) 0; font-size: var(--text-sm); color: var(--negative, #b42318); }
+.schedm--sheet .msheet__acts { margin-left: auto; }
+.schedm--sheet .ywf-sched__x { border-radius: var(--r-full); background: var(--surface-sunken); }
+
+/* the day menu carries the post at a recognisable size now — let it be as tall
+   as that needs (on short screens it still scrolls), and keep Remove in the
+   danger ink against `.yw-mcal .pe-menu button` */
+.yw-mcal .pe-menu.yw-mday__menu { max-height: min(88vh, 640px); }
+.yw-mcal .pe-menu button.is-danger,
+.yw-mcal .pe-menu button.is-danger svg { color: var(--negative); }
+.yw-mcal .pe-menu button.is-danger:hover { background: var(--negative-soft); }

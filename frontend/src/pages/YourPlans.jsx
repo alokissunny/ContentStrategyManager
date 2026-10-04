@@ -629,6 +629,7 @@ function MonthView({
   onDistribute,
   onPatchPost,
   onPostsReload,
+  onRemovePost = null,
   // phone: the months run on in one scroller (bauhly-v3 `months`) — every month
   // after the first is drawn `bare` (no weekday head) under its own `title`
   bare = false,
@@ -911,6 +912,7 @@ function MonthView({
                         onClose={closeMenu}
                         onDistribute={onDistribute}
                         onShift={startShift}
+                        onRemove={onRemovePost}
                         onPatch={(next) => {
                           setFullDay(next);
                           onPatchPost?.(next);
@@ -949,6 +951,7 @@ function MonthView({
             onClose={closeMenu}
             onDistribute={onDistribute}
             onShift={startShift}
+            onRemove={onRemovePost}
             onPatch={(next) => {
               setFullDay(next);
               onPatchPost?.(next);
@@ -2172,6 +2175,12 @@ export default function YourPlans() {
         setRoutes((list) => list.map((r) => (String(r._id) === String(post._id) ? next : r)));
         setCurrent((c) => (c && String(c._id) === String(post._id) ? next : c));
       }}
+      onRemovePost={(id) => {
+        postsMapRef.current.delete(String(id));
+        fullCacheRef.current.delete(String(id));
+        setRoutes((list) => list.filter((r) => String(r._id) !== String(id)));
+        setCurrent((c) => (c && String(c._id) === String(id) ? null : c));
+      }}
       onPostsReload={(list) => {
         const all = (list || []).map(postToRoute);
         setRoutes(all);
@@ -2359,6 +2368,12 @@ export default function YourPlans() {
                 if (d) setAnchorDate(startOfDay(d));
               }}
               scrollToIso={feedScrollIso}
+              onPatchPost={(post) => {
+                if (!post?._id) return;
+                const next = postToRoute(post);
+                fullCacheRef.current.set(String(post._id), next);
+                setRoutes((list) => list.map((r) => (String(r._id) === String(post._id) ? { ...r, ...next } : r)));
+              }}
             />
           ) : embedWeek ? (
             <Suspense fallback={<div className="ph"><p className="ph__sub">Opening…</p></div>}>

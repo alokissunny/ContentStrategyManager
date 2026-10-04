@@ -371,7 +371,9 @@ export function DayPeek({ day, feed = false, phone = false }) {
 
   /* height-first: peek-h capped so actions stay on screen; width from ratio.
      Phone sheet uses 210px (bauhly-v3 `.msheet .yw-peek`). */
-  const deskH = Math.min(phone ? 210 : 176, Math.round((phone ? 260 : 220) / ar));
+  // desktop menu: the slide fills a ~232px column at its own ratio (bauhly-v3
+  // shows the post large enough to recognise; 176 left a 4:5 slide 141px wide)
+  const deskH = Math.min(phone ? 210 : 290, Math.round((phone ? 260 : 232) / ar));
   const deskW = Math.round(deskH * ar);
   const stageH = PEEK_STAGE;
   const stageW = Math.round(stageH * ar);

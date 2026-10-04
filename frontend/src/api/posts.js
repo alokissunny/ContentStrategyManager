@@ -186,6 +186,11 @@ export function updatePostContent(id, content) {
   return client.patch(`/posts/${id}`, { content }).then((res) => res.data.post);
 }
 
+// Remove one post from the calendar (Calendar › day menu › Remove post).
+export function deletePost(id) {
+  return client.delete(`/posts/${id}`).then((res) => res.data);
+}
+
 // Toggle (or set) a post's published state.
 export function markPublished(id, published) {
   return client

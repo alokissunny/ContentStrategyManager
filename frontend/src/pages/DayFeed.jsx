@@ -8,7 +8,8 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import Icon from '../brand/Icon';
 import { DayPeek } from './weekview/PostPeek';
-import { getPost } from '../api/posts';
+import { getPost, schedulePost, setPostReview, setPostTime, shiftPosts } from '../api/posts';
+import MobileSheet from '../components/MobileSheet';
 
 function isoOf(date) {
   if (!date) return '';
@@ -68,7 +69,146 @@ function hasRenderableSlides(day) {
     || String(s?.assetKey || '').trim());
 }
 
-function FeedItem({ row, handle, metaConnected, onOpen, enriched, loading }) {
+/* ── The schedule chip's sheet (bauhly-v3 YourWeek SchedMenu on a phone) ────
+ * "Scheduling": Schedule ↔ Unschedule, Mark for review ↔ Clear review, and
+ * Change time — a level of its own with the date and the time. Each row names
+ * what pressing it produces, so the post is never in a state the sheet has no
+ * word for. Open the post leads into the editor (the chip used to do only that). */
+function SchedSheet({ open, day, iso, clock, metaConnected, onClose, onPatched, onOpenPost }) {
+  const [level, setLevel] = useState(null); // null | 'time'
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+  const [date, setDate] = useState(iso);
+  const [time, setTime] = useState(clock);
+  useEffect(() => {
+    if (open) { setLevel(null); setErr(''); setDate(iso); setTime(clock); }
+  }, [open, iso, clock]);
+  const id = String(day?._id || '');
+  const out = !!day?.published;
+  const set = !!day?.scheduledAt && !out;
+  const review = !!day?.savedForReview;
+  const run = async (fn, close = true) => {
+    if (!id || busy) return;
+    setBusy(true);
+    setErr('');
+    try {
+      const next = await fn();
+      if (next?._id) onPatched(next);
+      if (close) onClose();
+    } catch (e) {
+      setErr(e?.response?.data?.message || 'That did not go through — try again.');
+    } finally {
+      setBusy(false);
+    }
+  };
+  const slotIso = (d, t) => new Date(`${d}T${t || '09:00'}:00`).toISOString();
+  const saveTime = () => run(async () => {
+    if (date && date !== iso) await shiftPosts({ [id]: date });
+    let next = await setPostTime(id, time);
+    if (set) next = await schedulePost(id, slotIso(date || iso, time));
+    return (await getPost(id).catch(() => null)) || next;
+  });
+
+  return (
+    <MobileSheet
+      open={open}
+      title={level === 'time' ? 'Change time' : 'Scheduling'}
+      onBack={level ? () => setLevel(null) : null}
+      onClose={onClose}
+      className="schedm--sheet"
+      // the reference's head: the title on the left, a round × on the right;
+      // a level below the root keeps its ‹ back on the left
+      nav={Boolean(level)}
+      actions={(
+        <button type="button" className="msheet__nav ywf-sched__x" onClick={onClose} aria-label="Close">
+          <Icon name="x" size={20} strokeWidth={2.25} />
+        </button>
+      )}
+    >
+      {level === 'time' ? (
+        <div className="schedm schedm--sheet ywf-sched__time">
+          <p className="schedm__lead">Pick a different date and time.</p>
+          <label className="ywf-sched__field">
+            <span>Date</span>
+            <input type="date" value={date} min={isoOf(new Date())} onChange={(e) => setDate(e.target.value)} />
+          </label>
+          <label className="ywf-sched__field">
+            <span>Time</span>
+            <input type="time" value={time} onChange={(e) => setTime(e.target.value)} />
+          </label>
+          {err && <p className="ywf-sched__err" role="alert">{err}</p>}
+          <button type="button" className="btn btn--primary ywf-sched__save" disabled={busy || !date || !time} onClick={saveTime}>
+            {busy ? 'Saving…' : 'Save'}
+          </button>
+        </div>
+      ) : (
+        <div className="msheet__menu schedm schedm--sheet" role="menu">
+          {out ? null : set ? (
+            <button type="button" role="menuitem" className="schedm__row" disabled={busy} onClick={() => run(() => schedulePost(id, null))}>
+              <Icon name="calendar" size={17} strokeWidth={1.9} />
+              <span className="schedm__text">
+                <b>Unschedule</b>
+                <em>Take it off the calendar; nothing else changes</em>
+              </span>
+            </button>
+          ) : (
+            <button
+              type="button"
+              role="menuitem"
+              className="schedm__row"
+              disabled={busy}
+              onClick={() => (metaConnected ? run(() => schedulePost(id, slotIso(iso, clock))) : (onClose(), onOpenPost()))}
+            >
+              <Icon name="calendar" size={17} strokeWidth={1.9} />
+              <span className="schedm__text">
+                <b>Schedule</b>
+                <em>{metaConnected ? 'Publish to Meta at the selected time' : 'Connect Meta to publish automatically'}</em>
+              </span>
+            </button>
+          )}
+          {!out && (review ? (
+            <button type="button" role="menuitem" className="schedm__row" disabled={busy} onClick={() => run(() => setPostReview(id, false))}>
+              <Icon name="eye" size={17} strokeWidth={1.9} />
+              <span className="schedm__text">
+                <b>Clear review</b>
+                <em>Take the hold off — nothing else about the post changes</em>
+              </span>
+            </button>
+          ) : (
+            <button type="button" role="menuitem" className="schedm__row" disabled={busy} onClick={() => run(() => setPostReview(id, true))}>
+              <Icon name="eye" size={17} strokeWidth={1.9} />
+              <span className="schedm__text">
+                <b>Mark for review</b>
+                <em>Prepared, but held until you check it</em>
+              </span>
+            </button>
+          ))}
+          {!out && (
+            <button type="button" role="menuitem" className="schedm__row" disabled={busy} onClick={() => setLevel('time')}>
+              <Icon name="clock" size={17} strokeWidth={1.9} />
+              <span className="schedm__text">
+                <b>Change time</b>
+                <em>Set a different date and time</em>
+              </span>
+              <Icon name="chevron-right" size={16} strokeWidth={2.1} className="schedm__more" />
+            </button>
+          )}
+          <button type="button" role="menuitem" className="schedm__row" onClick={() => { onClose(); onOpenPost(); }}>
+            <Icon name="edit" size={17} strokeWidth={1.9} />
+            <span className="schedm__text">
+              <b>Open the post</b>
+              <em>Slides, caption and layout</em>
+            </span>
+          </button>
+          {err && <p className="ywf-sched__err" role="alert">{err}</p>}
+        </div>
+      )}
+    </MobileSheet>
+  );
+}
+
+function FeedItem({ row, handle, metaConnected, onOpen, enriched, loading, onPatched }) {
+  const [schedOpen, setSchedOpen] = useState(false);
   const day = enriched || row.day;
   const iso = isoOf(row.date || day?.date);
   const caption = captionOf(day);
@@ -104,7 +244,9 @@ function FeedItem({ row, handle, metaConnected, onOpen, enriched, loading }) {
         <button
           type="button"
           className={`ywf__sched${set || out ? ' is-set' : ''}`}
-          onClick={() => onOpen?.(row)}
+          aria-haspopup="dialog"
+          aria-expanded={schedOpen}
+          onClick={() => setSchedOpen(true)}
         >
           <Icon name="clock" size={14} strokeWidth={2.25} />
           <span>{schedLabel}</span>
@@ -126,6 +268,17 @@ function FeedItem({ row, handle, metaConnected, onOpen, enriched, loading }) {
           )}
         </div>
       </div>
+
+      <SchedSheet
+        open={schedOpen}
+        day={day}
+        iso={iso}
+        clock={clock}
+        metaConnected={metaConnected}
+        onClose={() => setSchedOpen(false)}
+        onPatched={onPatched}
+        onOpenPost={() => onOpen?.(row)}
+      />
 
       {caption ? (
         <p className="ywf__cap">
@@ -155,6 +308,7 @@ export default function DayFeed({
   onOpen,
   onIso,
   scrollToIso,
+  onPatchPost,
 }) {
   const listRef = useRef(null);
   const [fullById, setFullById] = useState(() => new Map());
@@ -252,6 +406,16 @@ export default function DayFeed({
               onOpen={onOpen}
               enriched={id ? fullById.get(id) : null}
               loading={id ? pending.has(id) && !fullById.has(id) : false}
+              onPatched={(post) => {
+                // the PATCH returns the post without its heavy content — keep ours
+                setFullById((prev) => {
+                  const next = new Map(prev);
+                  const was = prev.get(String(post._id));
+                  next.set(String(post._id), was && !post.content ? { ...was, ...post } : { ...(was || {}), ...post });
+                  return next;
+                });
+                onPatchPost?.(post);
+              }}
             />
           );
         })}

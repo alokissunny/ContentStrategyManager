@@ -13,6 +13,7 @@ const {
   setDistribution,
   shiftPosts,
   updatePost,
+  deletePost,
   polishCaption,
   rerunLayout,
   rerunSlideLayoutVariations,
@@ -41,6 +42,7 @@ router.get('/:id', asyncHandler(getPostById));
 router.get('/:id/options', asyncHandler(getPostOptions));
 router.get('/:id/debug', asyncHandler(getPostDebug));
 router.patch('/:id', asyncHandler(updatePost));
+router.delete('/:id', asyncHandler(deletePost));
 router.post('/:id/layout', asyncHandler(rerunLayout));
 router.post('/:id/slide/:slideIndex/layout-variations', asyncHandler(rerunSlideLayoutVariations));
 router.post('/:id/theme-image', asyncHandler(applyThemeImage));

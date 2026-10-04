@@ -367,6 +367,15 @@ async function clearUpcoming(req, res) {
   res.json({ deleted: result.deletedCount });
 }
 
+// DELETE /posts/:id — remove one post from the calendar (Calendar › day menu ›
+// Remove post). The day stays in the plan with nothing on it.
+async function deletePost(req, res) {
+  const record = await PlannedPost.findOneAndDelete({ _id: req.params.id, user: req.user._id });
+  if (!record) return res.status(404).json({ message: 'Post not found' });
+  console.log(`[posts] removed ${req.params.id} (${String(record.date || '').slice(0, 10)})`);
+  res.json({ deleted: 1, id: String(record._id) });
+}
+
 // GET /posts/distribution — the current handle's saved publishing-day rule.
 async function getDistribution(req, res) {
   const profile = await currentProfile(req.user._id).select('publishing username').lean();
@@ -2290,6 +2299,7 @@ async function renderCover(req, res) {
 }
 
 module.exports = {
+  deletePost,
   generateAndSavePosts,
   getPosts,
   getPostById,
