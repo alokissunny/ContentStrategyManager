@@ -1111,7 +1111,7 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
     recordingReturn.current = 'writing';
     autoDraft.current = '';
     setPolishing(false);
-    say("I'm listening — take your time.");
+    say(modal ? "I'm listening — take your time. Press Add a photo if there is something to show while you talk." : "I'm listening — take your time.");
     rec.reset();
     rec.start();
     setStep('recording');
@@ -1123,7 +1123,7 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
     recordingReturn.current = 'clarify';
     autoDraft.current = '';
     setPolishing(false);
-    say("I'm listening — take your time.");
+    say(modal ? "I'm listening — take your time. Press Add a photo if there is something to show while you talk." : "I'm listening — take your time.");
     rec.reset();
     rec.start();
     setStep('recording');
@@ -1547,6 +1547,30 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
     }));
     setPending((p) => [...p, ...staged]);
   };
+  /* Add a photo WHILE talking (bauhly-v3 Capture, Oct 1): the press holds the
+     take — nothing said to a file browser is recorded — and the take carries
+     on by itself once a file is in, or once the dialog is dismissed (the
+     browser reports a cancel as the window getting focus back, nothing else). */
+  const pickingFile = useRef(false);
+  const hearHold = () => {
+    if (rec.status !== 'recording') return;
+    rec.pause();
+    pickingFile.current = true;
+    const back = () => {
+      window.removeEventListener('focus', back);
+      window.setTimeout(() => {
+        if (!pickingFile.current) return;
+        pickingFile.current = false;
+        rec.resume();
+      }, 500);
+    };
+    window.addEventListener('focus', back);
+  };
+  const hearFiles = (files) => {
+    pickingFile.current = false;
+    composerFiles(files); // staged: shown in the live turn, sent with the words
+    rec.resume();
+  };
   const removePending = (id) => setPending((p) => {
     const gone = p.find((x) => x.id === id);
     if (gone) { try { URL.revokeObjectURL(gone.url); } catch { /* already revoked */ } }
@@ -1611,9 +1635,15 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
       {modal && <div className="cap-overlay__scrim" onClick={onExit} aria-hidden="true" />}
       <div className="ck">
         {modal ? (
-          <button type="button" className="ck__x" onClick={onExit} aria-label="Close capture">
-            <Icon name="x" size={20} strokeWidth={2} />
-          </button>
+          <>
+            <div className="ck__intro ck__intro--row">
+              <span className={`ck__intro-mark ${typing || busy || step === 'recording' ? 'is-live' : ''}`}><Mark size={36} /></span>
+              <h2 className="ck__title">Capture</h2>
+            </div>
+            <button type="button" className="ck__x" onClick={onExit} aria-label="Close capture">
+              <Icon name="x" size={18} strokeWidth={2.2} />
+            </button>
+          </>
         ) : (
           <button className="btn btn--quiet btn--sm ck__keep" onClick={onExit}>
             <Icon name="arrow-left" size={15} />
@@ -1622,10 +1652,12 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
         )}
 
         <div className="ck__thread" aria-live="polite" ref={threadRef}>
-          <div className="ck__intro">
-            <span className="ck__intro-mark"><Mark size={30} /></span>
-            <span className="eyebrow">Capture</span>
-          </div>
+          {!modal && (
+            <div className="ck__intro">
+              <span className="ck__intro-mark"><Mark size={30} /></span>
+              <span className="eyebrow">Capture</span>
+            </div>
+          )}
 
           {messages.map((m) => {
             if (m.from === 'user') {
@@ -1668,6 +1700,29 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
             );
           })}
 
+          {/* the words land on the studio's side as they are said (bauhly-v3
+              `ck-turn--live`): settled text, then a caret; before any words,
+              what is happening to the take */}
+          {modal && step === 'recording' && (
+            <div className="ck-turn ck-turn--user ck-turn--stack ck-turn--live">
+              {pending.length > 0 && (
+                <span className="cvmedia">
+                  {pending.map((a) => (
+                    <span className="cvmedia__item" key={a.id}>
+                      {a.type === 'image' ? <img src={a.url} alt="" /> : <video src={a.url} muted />}
+                    </span>
+                  ))}
+                </span>
+              )}
+              <span className="ck-said ck-said--live">
+                {rec.liveText
+                  ? <span>{rec.liveText}</span>
+                  : <span className="ck-said__waiting">{rec.liveSupported ? 'Transcribing…' : 'Recording…'}</span>}
+                <i className="ck-said__caret" aria-hidden="true" />
+              </span>
+            </div>
+          )}
+
           {(typing || thinking || busy) && (
             <div className="ck-turn ck-turn--bauhly">
               <span className="ck-avatar" aria-hidden="true"><Mark size={15} /></span>
@@ -1689,6 +1744,33 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
 
         {/* Anchored at the foot in the modal: text, attach, voice, send — one
             bar that never changes the box height (bauhly-v3 CaptureComposer). */}
+        {/* in the modal the bar IS the recorder (bauhly-v3 OnbComposer
+            `listening`): the mark, Listening…, a live wave, Add a photo and Stop */}
+        {modal && step === 'recording' && (
+          <div className="capc capc--hearing">
+            <span className={`capc__listen ${rec.status === 'paused' ? 'is-held' : ''}`}>
+              <Icon name={rec.status === 'paused' ? 'image-plus' : 'mic'} size={18} strokeWidth={1.9} className="capc__listen-mic" />
+              <span className="capc__listen-say">{rec.status === 'paused' ? 'Choosing a photo…' : 'Listening…'}</span>
+              <span className="capc__listen-wave" aria-hidden="true">
+                {Array.from({ length: 14 }, (_, i) => <i key={i} style={{ '--i': i }} />)}
+              </span>
+              <label className="capc__hearadd" title="Add a photo or file while you talk" onPointerDown={hearHold}>
+                <span>Add a photo</span>
+                <input
+                  type="file"
+                  accept="image/*,video/*"
+                  multiple
+                  hidden
+                  onChange={(e) => { const f = [...(e.target.files || [])]; e.target.value = ''; if (f.length) hearFiles(f); else { pickingFile.current = false; rec.resume(); } }}
+                />
+              </label>
+              <button type="button" className="capc__stop" onClick={() => rec.stop()} title="Stop recording">
+                <span className="capc__stop-mark" aria-hidden="true" />
+                <span className="sr-only">Stop recording</span>
+              </button>
+            </span>
+          </div>
+        )}
         {modal && step !== 'recording' && (
           <CaptureComposer
             value={draft}
@@ -1705,7 +1787,7 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
         )}
       </div>
 
-      {step === 'recording' && (
+      {step === 'recording' && !modal && (
         <RecordingSheet
           rec={rec}
           note="Your recording is only used to plan. It is never shared or posted."

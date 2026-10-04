@@ -198,7 +198,7 @@ export function RecordingSheet({ rec, note, label = 'Recording' }) {
 }
 
 export function useRecorder(opts = {}) {
-  const [status, setStatus] = useState('idle'); // idle | recording | done | denied
+  const [status, setStatus] = useState('idle'); // idle | recording | paused | done | denied
   const [url, setUrl] = useState(null);
   const [blob, setBlob] = useState(null);
   const [ms, setMs] = useState(0);
@@ -412,6 +412,31 @@ export function useRecorder(opts = {}) {
       finishRecorder();
     }
   };
+  /* Hold the take while the studio does something else (Capture › Add a photo
+   * opens the file dialog mid-sentence): the audio pauses and the live
+   * transcription stops, so nothing said to a file browser lands in the take;
+   * resume picks both back up, and the words already heard are kept. */
+  const pause = () => {
+    const mr = rec.current;
+    if (!mr || mr.state !== 'recording') return;
+    try { mr.pause(); } catch { return; }
+    clearPauseTimer();
+    listening.current = false;
+    stopRecognitionOnly();
+    clearInterval(timer.current);
+    setStatus('paused');
+  };
+  const resume = () => {
+    const mr = rec.current;
+    if (!mr || mr.state !== 'paused') return;
+    try { mr.resume(); } catch { return; }
+    // the live words carry on from what was heard before the hold
+    spokenFinal.current = String(liveTextRef.current || spokenFinal.current || '').trim();
+    startLiveSpeech();
+    started.current = Date.now() - ms;
+    timer.current = setInterval(() => setMs(Date.now() - started.current), 100);
+    setStatus('recording');
+  };
   /* back to the beginning — so "record again" starts a clean take rather than
    * resuming a finished one (Leon, July 31) */
   const reset = () => {
@@ -450,6 +475,8 @@ export function useRecorder(opts = {}) {
     getLiveText: () => liveTextRef.current,
     start,
     stop,
+    pause,
+    resume,
     reset,
   };
 }
