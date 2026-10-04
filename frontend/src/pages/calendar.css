@@ -1795,3 +1795,101 @@
   transform: scale(1.25);
 }
 
+
+/* ── Phone month (bauhly-v3 .yw-head on a phone): one row — "Oct 2026", Today,
+   Monthly, ⋯ — and the months run on below, each under its own title ── */
+@media (max-width: 767px) {
+  .cal-bar { flex-wrap: nowrap; gap: var(--sp-2); }
+  .cal-period { font-size: 26px; font-weight: 800; letter-spacing: -0.02em; }
+  .ph--cal-month .cal-nav__arrow { display: none; }
+  .cal-nav__today { height: 44px; padding: 0 16px; background: var(--surface-sunken); font-size: var(--text-base); }
+  .cal-nav__today.is-on { color: var(--ink-400, #a1a1aa); }
+  .cal-viewm__pre,
+  .cal-viewm__chev { display: none; }
+  .btn.cal-viewm__btn {
+    height: 44px;
+    padding-inline: 18px;
+    border: 0;
+    border-radius: var(--r-full);
+    background: var(--surface-sunken);
+    font-size: var(--text-base);
+    font-weight: 600;
+  }
+  .btn.ph__more-btn {
+    width: 44px;
+    height: 44px;
+    min-height: 0;
+    padding: 0;
+    border: 0;
+    border-radius: var(--r-full);
+    background: var(--surface-sunken);
+  }
+  .yw-mrun__month + .yw-mrun__month { margin-top: var(--sp-7, 32px); }
+  .yw-mcal__title {
+    margin: 0 0 var(--sp-4);
+    font-family: var(--font-display, var(--font-ui));
+    font-size: 26px;
+    font-weight: 800;
+    letter-spacing: -0.02em;
+    color: var(--ink-900);
+  }
+}
+
+/* ── Phone month: the top bar scrolls away with the page and the calendar's
+   own head — "Apr 2027 · Today · Monthly · ⋯" and the weekday row — pins to
+   the top while the months run under it (bauhly-v3 .yw-head on a phone) ── */
+.cal-bar__wd { display: none; }
+@media (max-width: 767px) {
+  .ph--cal-month .cal-bar {
+    position: sticky;
+    top: 0;
+    z-index: 30;
+    flex-wrap: wrap;
+    row-gap: var(--sp-4);
+    margin-inline: calc(-1 * var(--sp-4));
+    padding: var(--sp-3) var(--sp-4) var(--sp-2);
+    background: var(--canvas, #fff);
+  }
+  .ph--cal-month .cal-bar__left { flex: 1 1 auto; }
+  .ph--cal-month .cal-bar__wd {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    flex: 1 0 100%;
+    margin: 0;
+  }
+}
+
+/* ── Phone day feed: the top bar sticks but slides out on scroll down / back
+   on scroll up (html.is-tophidden, set in YourPlans), and the day's head is
+   pinned under it — at the very top while the bar is away ── */
+@media (max-width: 767px) {
+  body:has(.ph--cal-feed) .apptop {
+    position: sticky;
+    top: 0;
+    z-index: 41;
+    background: var(--canvas, #fff);
+    translate: 0 0;
+  }
+  html.is-tophidden body:has(.ph--cal-feed) .apptop { translate: 0 -100%; }
+  .ph.ph--cal-feed .cal-bar {
+    position: sticky;
+    top: var(--apptop-real, var(--apptop-h, 57px));
+    z-index: 30;
+    margin-inline: calc(-1 * var(--sp-4));
+    padding: var(--sp-3) var(--sp-4);
+    background: var(--canvas, #fff);
+  }
+  html.is-tophidden .ph.ph--cal-feed .cal-bar { top: 0; }
+  @media (prefers-reduced-motion: no-preference) {
+    body:has(.ph--cal-feed) .apptop { transition: translate 260ms var(--ease-out, ease); }
+    .ph.ph--cal-feed .cal-bar { transition: top 260ms var(--ease-out, ease); }
+  }
+}
+/* the day's title carries the weekday too ("Oct 12 | Mon"), so the row is a
+   little tighter than the month's to keep it whole on a 375–400px phone */
+@media (max-width: 767px) {
+  .ph.ph--cal-feed .cal-period { font-size: 22px; }
+  .ph.ph--cal-feed .cal-nav__today { height: 40px; padding: 0 14px; }
+  .ph.ph--cal-feed .btn.cal-viewm__btn { height: 40px; padding-inline: 16px; }
+  .ph.ph--cal-feed .btn.ph__more-btn { width: 40px; height: 40px; }
+}

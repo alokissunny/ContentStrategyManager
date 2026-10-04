@@ -39,7 +39,7 @@ function UserAvatar({ user, size = 32 }) {
   );
 }
 
-const MENU_LINKS = [
+export const MENU_LINKS = [
   { label: 'Upgrade plan', icon: 'sparkles', to: '/#pricing', muted: true },
   { label: 'Settings', icon: 'sun', to: '/dashboard/settings' },
   { label: 'Brand Kit', icon: 'palette', to: '/dashboard/library-settings' },

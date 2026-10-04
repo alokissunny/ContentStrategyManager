@@ -193,6 +193,27 @@ const PATHS = {
   'align-left': <path d="M4 6h16M4 12h10M4 18h13" />,
   'align-center': <path d="M4 6h16M7 12h10M6 18h12" />,
   'align-right': <path d="M4 6h16M10 12h10M7 18h13" />,
+  'brief-fill': (
+    <path
+      fillRule="evenodd"
+      clipRule="evenodd"
+      fill="currentColor"
+      stroke="none"
+      d="M6.5 3H17.5A2 2 0 0 1 19.5 5V19A2 2 0 0 1 17.5 21H6.5A2 2 0 0 1 4.5 19V5A2 2 0 0 1 6.5 3ZM8 7.1H16A0.9 0.9 0 0 1 16 8.9H8A0.9 0.9 0 0 1 8 7.1ZM8 11.1H16A0.9 0.9 0 0 1 16 12.9H8A0.9 0.9 0 0 1 8 11.1ZM8 15.1H13A0.9 0.9 0 0 1 13 16.9H8A0.9 0.9 0 0 1 8 15.1Z"
+    />
+  ),
+  'calendar-fill': (
+    <>
+      <path d="M8 2.75V6.5M16 2.75V6.5" />
+      <path
+        fillRule="evenodd"
+        clipRule="evenodd"
+        fill="currentColor"
+        stroke="none"
+        d="M6 5H18A2.5 2.5 0 0 1 20.5 7.5V18A2.5 2.5 0 0 1 18 20.5H6A2.5 2.5 0 0 1 3.5 18V7.5A2.5 2.5 0 0 1 6 5ZM3.5 9.2H20.5V10.8H3.5Z"
+      />
+    </>
+  ),
   layers: (
     <>
       <path d="m12 3.2 8.2 4.3-8.2 4.3-8.2-4.3Z" />

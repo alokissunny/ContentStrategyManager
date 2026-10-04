@@ -42,7 +42,7 @@ export function ProfileAvatar({ profile, size = 34, className = '' }) {
   );
 }
 
-export default function AccountsPanel({ onClose, label = 'Your accounts', inline = false }) {
+export default function AccountsPanel({ onClose, label = 'Your accounts', inline = false, footer = null }) {
   const sheetClass = inline ? 'acs-sheet acs-sheet--inline' : 'acs-sheet';
   const [profiles, setProfiles] = useState(readCachedProfiles);
   const [meta, setMeta] = useState(null);
@@ -93,6 +93,7 @@ export default function AccountsPanel({ onClose, label = 'Your accounts', inline
           </span>
           <span className="acs-opt__text"><b>Add an account</b></span>
         </Link>
+        {footer}
       </div>
     );
   }
@@ -137,6 +138,7 @@ export default function AccountsPanel({ onClose, label = 'Your accounts', inline
         </span>
         <span className="acs-opt__text"><b>Add another account</b></span>
       </Link>
+      {footer}
     </div>
   );
 }

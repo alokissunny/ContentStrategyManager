@@ -629,6 +629,10 @@ function MonthView({
   onDistribute,
   onPatchPost,
   onPostsReload,
+  // phone: the months run on in one scroller (bauhly-v3 `months`) — every month
+  // after the first is drawn `bare` (no weekday head) under its own `title`
+  bare = false,
+  title = '',
 }) {
   const cells = monthCellsOf(anchor.getFullYear(), anchor.getMonth(), index);
   const weeks = [];
@@ -824,15 +828,16 @@ function MonthView({
   for (let i = 0; i < displayCells.length; i += 7) displayWeeks.push(displayCells.slice(i, i + 7));
 
   return (
-    <div className={`yw-mcal${moving ? ' is-shifting' : ''}`}>
-      <div className="yw-mcal__head" aria-hidden="true">
+    <div className={`yw-mcal${moving ? ' is-shifting' : ''}${bare ? ' is-bare' : ''}`}>
+      {title && <h3 className="yw-mcal__title">{title}</h3>}
+      {!bare && <div className="yw-mcal__head" aria-hidden="true">
         {WEEKDAYS.map((w, i) => (
           <span key={w} className="yw-mcal__wd">
             <b>{w}</b>
             {posting.has(i) && <em className="yw-postchip">Post<span>ing</span></em>}
           </span>
         ))}
-      </div>
+      </div>}
       <div className="yw-mcal__grid" role="grid" aria-label="Month of posts">
         {displayWeeks.map((week) => (
           <div className="yw-mcal__row" role="row" key={ymdKey(week[0].date)}>
@@ -1356,8 +1361,76 @@ export default function YourPlans() {
      desktop preference must not trap them there (bauhly-v3). */
   const phoneWidth = useMediaQuery('(max-width: 767px)');
   const calView = (phoneWidth && calViewStored === 'week') ? 'day' : calViewStored;
+  // phone month view: the anchor month and the ones after it, stacked
+  const RUN_MONTHS = 6;
+  const runMonths = useMemo(() => Array.from({ length: RUN_MONTHS },
+    (_, i) => new Date(anchorDate.getFullYear(), anchorDate.getMonth() + i, 1)),
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  [anchorDate.getFullYear(), anchorDate.getMonth()]);
+  // a callback ref: the run mounts after the loading screen, not with the page
+  const [runEl, setRunEl] = useState(null);
+  const [runAt, setRunAt] = useState(0); // which stacked month the header names
+  useEffect(() => {
+    setRunAt(0);
+    const box = runEl;
+    if (!box || !phoneWidth || calView !== 'month') return undefined;
+    const io = new IntersectionObserver((entries) => {
+      const seen = entries.filter((e) => e.isIntersecting)
+        .sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top);
+      if (seen[0]) setRunAt(Number(seen[0].target.dataset.month) || 0);
+    }, {
+      // the band starts under the pinned head (bar + weekday row), so a month
+      // is "the one in view" once it reaches the top of what can be seen
+      rootMargin: `-${Math.round((document.querySelector('.cal-bar')?.getBoundingClientRect().height || 140) + 8)}px 0px -50% 0px`,
+    });
+    box.querySelectorAll('.yw-mrun__month').forEach((el) => io.observe(el));
+    return () => io.disconnect();
+  }, [runMonths, phoneWidth, calView, runEl]);
   const [forceWorkspace, setForceWorkspace] = useState(false);
   const feedOn = phoneWidth && calView === 'day' && !forceWorkspace;
+  /* The phone's day feed (bauhly-v3 YourWeek `is-tophidden`): the top bar
+     slides away while the studio scrolls DOWN the posts and comes back as soon
+     as they scroll UP; the day's own head is pinned under it, or at the very
+     top while it is away. Direction is read from where the scroll last turned
+     (`pivot`) so one flick is enough, with a dead band so jitter does nothing. */
+  useEffect(() => {
+    const root = document.documentElement;
+    const CLS = 'is-tophidden';
+    if (!feedOn) { root.classList.remove(CLS); return undefined; }
+    const STEP = 56;
+    const TOP = 72;
+    const bar = document.querySelector('.apptop');
+    const publish = () => {
+      const h = bar ? Math.round(bar.getBoundingClientRect().height) : 0;
+      if (h > 0) root.style.setProperty('--apptop-real', `${h}px`);
+    };
+    publish();
+    const ro = bar && typeof ResizeObserver !== 'undefined' ? new ResizeObserver(publish) : null;
+    if (ro) ro.observe(bar);
+    let last = window.scrollY;
+    let pivot = last;
+    let down = true;
+    let hidden = false;
+    const set = (v) => { if (v !== hidden) { hidden = v; root.classList.toggle(CLS, v); } };
+    const onScroll = () => {
+      const y = Math.max(0, window.scrollY);
+      const prev = last;
+      const d = y - prev;
+      if (!d) return;
+      last = y;
+      if (document.body.classList.contains('has-modal')) { pivot = y; down = d > 0; return; }
+      if ((d > 0) !== down) { down = d > 0; pivot = prev; }
+      if (y <= TOP) { set(false); pivot = y; return; }
+      if (down && !hidden && y - pivot > STEP) set(true);
+      if (!down && hidden && pivot - y > STEP) set(false);
+    };
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => {
+      window.removeEventListener('scroll', onScroll);
+      ro?.disconnect();
+      root.classList.remove(CLS);
+    };
+  }, [feedOn]);
   const [feedIso, setFeedIso] = useState(null);
   const [feedScrollIso, setFeedScrollIso] = useState(null);
   // The Distribute panel (opened from the ⋯) and the publishing-day pattern it
@@ -2064,17 +2137,49 @@ export default function YourPlans() {
   // The period label + the Today button both answer "where am I" in each view's
   // own terms: a month it contains, the week it falls in, or the day it is. The
   // Weekly view names the month (its strip carries the days), like the reference.
+  const runShown = phoneWidth && calView === 'month' ? (runMonths[runAt] || anchorDate) : anchorDate;
   const periodLabel = calView === 'month'
-    ? `${MONTHS[anchorDate.getMonth()]} ${anchorDate.getFullYear()}`
+    ? `${phoneWidth ? MONTHS[runShown.getMonth()].slice(0, 3) : MONTHS[runShown.getMonth()]} ${runShown.getFullYear()}`
     : calView === 'week'
       ? `${MONTHS[weekMonday.getMonth()]} ${weekMonday.getFullYear()}`
-      : `${MONTHS[dayLabelDate.getMonth()]} ${dayLabelDate.getDate()}`;
-  const dayWeekdayLabel = WEEKDAYS_LONG[(dayLabelDate.getDay() + 6) % 7];
+      : `${phoneWidth ? MONTHS[dayLabelDate.getMonth()].slice(0, 3) : MONTHS[dayLabelDate.getMonth()]} ${dayLabelDate.getDate()}`;
+  const dayWeekdayLabel = (phoneWidth ? WEEKDAYS : WEEKDAYS_LONG)[(dayLabelDate.getDay() + 6) % 7];
   const atToday = calView === 'month'
-    ? isCurrentView
+    ? isCurrentView && !(phoneWidth && runAt > 0)
     : calView === 'week'
       ? ymdKey(weekMonday) === ymdKey(mondayOf(now))
       : isNowDay(dayLabelDate);
+
+  const monthViewFor = (at, extra) => (
+            <MonthView
+      key={ymdKey(at)}
+      anchor={at}
+      bare={extra.bare}
+      title={extra.title}
+      index={postIndex}
+      metaConnected={calendarMetaConnected}
+      posting={postingSet}
+      previewOn={distOpen}
+      handle={activeHandle}
+      phone={phoneWidth}
+      onOpen={(route) => goToPost(route)}
+      onPickDay={goDay}
+      onDistribute={() => setDistOpen(true)}
+      onPatchPost={(post) => {
+        if (!post?._id) return;
+        const next = postToRoute(post);
+        fullCacheRef.current.set(String(post._id), next);
+        setRoutes((list) => list.map((r) => (String(r._id) === String(post._id) ? next : r)));
+        setCurrent((c) => (c && String(c._id) === String(post._id) ? next : c));
+      }}
+      onPostsReload={(list) => {
+        const all = (list || []).map(postToRoute);
+        setRoutes(all);
+        setCurrent(pickCurrentRoute(all));
+        fullCacheRef.current.clear();
+      }}
+    />
+  );
 
   const pickView = (v) => {
     const next = (phoneWidth && v === 'week') ? 'day' : v;
@@ -2099,6 +2204,8 @@ export default function YourPlans() {
   const goToday = () => {
     const today = startOfDay(new Date());
     setAnchorDate(today);
+    // the phone's run of months: back up to this month
+    if (phoneWidth && calView === 'month') window.scrollTo({ top: 0, behavior: 'smooth' });
     if (feedOn) {
       const todayIso = isoOfDate(today);
       const hit = postDates.find((pd) => isoOfDate(startOfDay(pd)) === todayIso)
@@ -2197,6 +2304,18 @@ export default function YourPlans() {
             applying={distributing}
           />
         </div>
+        {/* the phone's run of months: one weekday row, pinned with the bar
+            (bauhly-v3 — the legend joins the header when the months run on) */}
+        {phoneWidth && calView === 'month' && (
+          <div className="yw-mcal__head cal-bar__wd" aria-hidden="true">
+            {WEEKDAYS.map((w, i) => (
+              <span key={w} className="yw-mcal__wd">
+                <b>{w}</b>
+                {postingSet.has(i) && <em className="yw-postchip">Post<span>ing</span></em>}
+              </span>
+            ))}
+          </div>
+        )}
       </div>
 
       {analysisOpen && (
@@ -2212,31 +2331,17 @@ export default function YourPlans() {
         )}
         <div className="cal-plan" key={calView === 'month' ? `m-${anchorDate.getFullYear()}-${anchorDate.getMonth()}` : (feedOn ? 'feed' : calView)}>
           {calView === 'month' ? (
-            <MonthView
-              anchor={anchorDate}
-              index={postIndex}
-              metaConnected={calendarMetaConnected}
-              posting={postingSet}
-              previewOn={distOpen}
-              handle={activeHandle}
-              phone={phoneWidth}
-              onOpen={(route) => goToPost(route)}
-              onPickDay={goDay}
-              onDistribute={() => setDistOpen(true)}
-              onPatchPost={(post) => {
-                if (!post?._id) return;
-                const next = postToRoute(post);
-                fullCacheRef.current.set(String(post._id), next);
-                setRoutes((list) => list.map((r) => (String(r._id) === String(post._id) ? next : r)));
-                setCurrent((c) => (c && String(c._id) === String(post._id) ? next : c));
-              }}
-              onPostsReload={(list) => {
-                const all = (list || []).map(postToRoute);
-                setRoutes(all);
-                setCurrent(pickCurrentRoute(all));
-                fullCacheRef.current.clear();
-              }}
-            />
+            phoneWidth ? (
+              /* phone: the months run on in one scroller (bauhly-v3 `months`),
+                 the header naming whichever month is in view */
+              <div className="yw-mrun" ref={setRunEl}>
+                {runMonths.map((at, i) => (
+                  <section className="yw-mrun__month" data-month={i} key={ymdKey(at)}>
+                    {monthViewFor(at, { bare: true, title: i > 0 ? `${MONTHS[at.getMonth()]} ${at.getFullYear()}` : '' })}
+                  </section>
+                ))}
+              </div>
+            ) : monthViewFor(anchorDate, { bare: false, title: '' })
           ) : feedOn ? (
             <DayFeed
               items={feedItems}

@@ -8,9 +8,14 @@ import AiDebugPanel from './AiDebugPanel';
 import GenerationToast from './GenerationToast';
 import CaptureHost from './CaptureHost';
 import { Logo } from '../brand/Logo';
+import Icon from '../brand/Icon';
 import { useScrollHide } from '../hooks/useScrollHide';
 import { useActiveHandle } from '../lib/store';
 import { openCaptureIdea } from '../lib/captureUi';
+
+// the phone's tab bar draws the brand marks, solid on the destination you are
+// on (bauhly-v3 AppShell `${icon}-fill`); other nav items keep their glyph
+const TAB_MARK = { calendar: 'calendar', 'notebook-text': 'brief' };
 
 export default function DashboardLayout({ children }) {
   const { pathname } = useLocation();
@@ -57,8 +62,14 @@ export default function DashboardLayout({ children }) {
             end={n.exact}
             className={({ isActive }) => (isActive ? 'is-active' : undefined)}
           >
-            <Glyph name={n.icon} size={20} strokeWidth={1.6} />
-            {n.label}
+            {({ isActive }) => (
+              <>
+                {TAB_MARK[n.icon]
+                  ? <Icon name={isActive ? `${TAB_MARK[n.icon]}-fill` : TAB_MARK[n.icon]} size={20} />
+                  : <Glyph name={n.icon} size={20} strokeWidth={1.6} />}
+                {n.label}
+              </>
+            )}
           </NavLink>
         ))}
       </nav>
@@ -75,6 +86,7 @@ export default function DashboardLayout({ children }) {
         }}
       >
         <Glyph name="plus" size={26} strokeWidth={2.4} />
+        <span className="cap-fab__dockname" aria-hidden="true">Capture idea</span>
       </button>
 
       <div className="app__body">
