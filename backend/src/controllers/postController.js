@@ -1466,6 +1466,44 @@ function themeRunFor(record, idx, key) {
   return null;
 }
 
+// read the regions of a themed slide's current render and store them on the
+// post → { regions, mapped, record } or { error: [status, message] }
+async function readSlideRegions(record, slideIndex) {
+  const at = themedSlideAt(record, slideIndex);
+  if (at.error) return { error: at.error };
+  const { idx, slide, lead } = at;
+  const { mapRegions, sameWords } = require('../services/themeRegions');
+  const run = themeRunFor(record, idx, lead) || themeRunFor(record, idx, '');
+  // the copy the render was drawn with, plus the words of any region edit
+  // since (the slide's last map carries them)
+  const lines = Array.isArray(run?.textLines) && run.textLines.length
+    ? [...run.textLines]
+    : [['Headline', slide.title], ['Supporting text', slide.subtitle], ['Body', slide.body]]
+      .filter(([, t]) => String(t || '').trim()).map(([role, text]) => ({ role, text: String(text).trim() }));
+  (Array.isArray(slide.themeRegions?.texts) ? slide.themeRegions.texts : []).forEach((t) => {
+    if (t?.text && !lines.some((l) => sameWords(l.text, t.text))) lines.push({ role: t.role || 'text', text: t.text });
+  });
+  let bytes;
+  try {
+    bytes = (await getObjectBytes(lead)).buffer;
+  } catch (err) {
+    return { error: [502, `Could not read the themed picture (${err.message}).`] };
+  }
+  // region edits never move the photo frame, so the latest Theme Apply run's
+  // photo box still holds for a render edited since
+  const mapped = await mapRegions({ buffer: bytes, lines, photoBox: run?.primaryImage?.box || null, key: lead });
+  if (!mapped) return { error: [502, 'Could not find the text and picture on this slide — try again.'] };
+  const regions = { key: lead, v: mapped.v, texts: mapped.texts, images: mapped.images };
+  // the slide may have moved on while the model read it (another edit)
+  const now = await PlannedPost.findOne({ _id: record._id, user: record.user });
+  const cur = now && themedSlideAt(now, idx);
+  if (!cur || cur.error || cur.lead !== lead) return { regions, mapped, record: now || record };
+  now.content.slides[idx - 1].themeRegions = regions;
+  now.markModified('content');
+  await now.save();
+  return { regions, mapped, record: now };
+}
+
 // POST /posts/:id/slide/:slideIndex/theme-regions — map (or return) the regions
 // of the slide's current themed render. Body: { force? }
 async function mapThemeRegions(req, res) {
@@ -1474,34 +1512,18 @@ async function mapThemeRegions(req, res) {
   const at = themedSlideAt(record, req.params.slideIndex);
   if (at.error) return res.status(at.error[0]).json({ message: at.error[1] });
   const { idx, slide, lead } = at;
-  const { mapRegions, REGIONS_V } = require('../services/themeRegions');
+  const { REGIONS_V } = require('../services/themeRegions');
   if (slide.themeRegions?.key === lead && (Number(slide.themeRegions.v) || 1) >= REGIONS_V && !req.body?.force) return res.json({ regions: slide.themeRegions });
-  const run = themeRunFor(record, idx, lead) || themeRunFor(record, idx, '');
-  const lines = Array.isArray(run?.textLines) && run.textLines.length
-    ? run.textLines
-    : [['Headline', slide.title], ['Supporting text', slide.subtitle], ['Body', slide.body]]
-      .filter(([, t]) => String(t || '').trim()).map(([role, text]) => ({ role, text: String(text).trim() }));
-  let bytes;
-  try {
-    bytes = (await getObjectBytes(lead)).buffer;
-  } catch (err) {
-    return res.status(502).json({ message: `Could not read the themed picture (${err.message}).` });
-  }
-  // region edits never move the photo frame, so the latest Theme Apply run's
-  // photo box still holds for a render edited since
-  const mapped = await mapRegions({ buffer: bytes, lines, photoBox: run?.primaryImage?.box || null, key: lead });
-  if (!mapped) return res.status(502).json({ message: 'Could not find the text and picture on this slide — try again.' });
-  const regions = { key: lead, v: mapped.v, texts: mapped.texts, images: mapped.images };
-  record.content.slides[idx - 1].themeRegions = regions;
-  record.markModified('content');
-  await record.save();
+  const read = await readSlideRegions(record, idx);
+  if (read.error) return res.status(read.error[0]).json({ message: read.error[1] });
+  const { regions, mapped } = read;
   const debug = wantsPromptDebug(req) ? {
     mode: 'theme-regions',
     elapsedMs: Number(mapped.usage?.elapsedMs) || 0,
     usage: mapped.usage,
     agents: [await regionMapDebugEntry({ ...mapped.debug, model: mapped.model, usage: mapped.usage }, req.user._id, idx)].filter(Boolean),
   } : null;
-  return res.json({ regions, post: record, ...(debug ? { debug } : {}) });
+  return res.json({ regions, post: read.record, ...(debug ? { debug } : {}) });
 }
 
 // The map's record of how a text block is set, after a redraw asked for
@@ -1728,6 +1750,13 @@ async function editThemeRegion(req, res) {
   record.markModified('content');
   record.markModified('agentTrace');
   await record.save();
+  // a recolour leaves the map stale (the words' colours changed): read it again
+  // now, in the background, so the next Editor open does not wait on it
+  if (recoloured) {
+    readSlideRegions(record, idx)
+      .then((r) => { if (r.error) console.warn(`[posts] ThemeRegion:${req.params.id}#${idx} re-map: ${r.error[1]}`); })
+      .catch((err) => console.warn(`[posts] ThemeRegion:${req.params.id}#${idx} re-map failed: ${err.message}`));
+  }
 
   const whatOf = (p) => {
     const r = p.region;

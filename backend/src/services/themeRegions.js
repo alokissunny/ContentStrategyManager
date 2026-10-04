@@ -67,7 +67,51 @@ async function inkMap(buffer, pictures = []) {
       if (Math.hypot(data[i] - bg[i], data[i + 1] - bg[i + 1], data[i + 2] - bg[i + 2]) > 48) mask[y * w + x] = 1;
     }
   }
-  return { mask, w, h };
+  return { mask: dropNonLetters(mask, w, h), w, h };
+}
+
+// Torn paper, tape and frame edges are "ink" too, and they run down the slide
+// beside the type — one edge bridges the label and the headline into a band too
+// tall to be a line, and both are lost. Connected blobs that cannot be letters
+// are wiped: taller than a line, or wide wiggles (a lot of box, little ink).
+// A straight rule (an underline) is thin, so it stays.
+function dropNonLetters(mask, w, h) {
+  return dropBlobs(mask, w, h, ({ n, bw, bh }) => bh > h * 0.11 // taller than a line
+    || (bw > w * 0.2 && bh > h * 0.012 && n / (bw * bh) < 0.1) // a wide wiggle
+    || n <= 2);
+}
+
+// wipe the 8-connected blobs of `mask` that `drop({ n, bw, bh })` picks
+function dropBlobs(mask, w, h, drop) {
+  const seen = new Uint8Array(w * h);
+  const stack = new Int32Array(w * h);
+  const out = new Uint8Array(mask);
+  for (let s = 0; s < w * h; s += 1) {
+    if (!mask[s] || seen[s]) continue;
+    let top = 0;
+    stack[top++] = s;
+    seen[s] = 1;
+    const px = [];
+    let x0 = w; let x1 = 0; let y0 = h; let y1 = 0;
+    while (top) {
+      const p = stack[--top];
+      px.push(p);
+      const x = p % w; const y = (p - x) / w;
+      if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y;
+      for (let dy = -1; dy <= 1; dy += 1) {
+        const ny = y + dy;
+        if (ny < 0 || ny >= h) continue;
+        for (let dx = -1; dx <= 1; dx += 1) {
+          const nx = x + dx;
+          if (nx < 0 || nx >= w) continue;
+          const q = ny * w + nx;
+          if (mask[q] && !seen[q]) { seen[q] = 1; stack[top++] = q; }
+        }
+      }
+    }
+    if (drop({ n: px.length, bw: x1 - x0 + 1, bh: y1 - y0 + 1 })) px.forEach((p) => { out[p] = 0; });
+  }
+  return out;
 }
 
 // candidate line boxes (percent), top to bottom
@@ -75,15 +119,29 @@ function lineCandidates({ mask, w, h }) {
   const rowCount = (y) => { let c = 0; for (let x = 0; x < w; x += 1) c += mask[y * w + x]; return c; };
   const runs = [];
   let start = -1;
+  // a few stray pixels (a paper edge beside the type) do not join two lines
+  const minRow = Math.max(2, Math.round(w * 0.012));
   for (let y = 0; y < h; y += 1) {
-    const on = rowCount(y) >= 2;
+    const on = rowCount(y) >= minRow;
     if (on && start < 0) start = y;
     if (!on && start >= 0) { runs.push([start, y - 1]); start = -1; }
   }
   if (start >= 0) runs.push([start, h - 1]);
+  // tightly set lines touch (a descender into the cap height below) and read
+  // as one band too tall to be a line: cut it at its thinnest row until each
+  // piece is line-sized. Bands far too tall (a shape, a photo) stay whole.
+  const maxH = h * 0.11;
+  const minH = Math.max(3, Math.round(h * 0.015));
+  const split = ([y0, y1]) => {
+    if (y1 - y0 + 1 <= maxH || y1 - y0 + 1 > h * 0.35) return [[y0, y1]];
+    let cut = -1; let least = Infinity;
+    for (let y = y0 + minH; y <= y1 - minH; y += 1) { const c = rowCount(y); if (c < least) { least = c; cut = y; } }
+    if (cut < 0) return [[y0, y1]];
+    return [...split([y0, cut - 1]), ...split([cut + 1, y1])];
+  };
   const gapCols = Math.round(w * 0.05);
   const out = [];
-  runs.forEach(([y0, y1]) => {
+  runs.flatMap(split).forEach(([y0, y1]) => {
     const colOn = [];
     for (let x = 0; x < w; x += 1) {
       let c = 0;
@@ -121,8 +179,10 @@ async function drawCandidates(jpeg, cands) {
 }
 
 // v2: text blocks carry `style` {bold, italic, underline, strike, color,
-// highlight, align} and `runs` [{words, …the same}] — older maps are re-read
-const REGIONS_V = 3;
+// highlight, align} and `runs` [{words, …the same}]; v4: paper edges no longer
+// hide lines, touching lines are split; v5: styles / colour / box read off
+// the letters only (not the tape or backgrounds around them) — older maps are re-read
+const REGIONS_V = 5;
 // stroke thickness / line height at and above which letters read as bold
 const BOLD_WEIGHT = Number(process.env.THEME_REGIONS_BOLD_WEIGHT) || 0.12;
 const HEX = /^#[0-9a-f]{6}$/i;
@@ -153,93 +213,192 @@ function cleanRuns(runs) {
 // The colour most of a block's letters are drawn in: pixels that stand out
 // from the paper behind them (median-filtered), bucketed, the biggest bucket
 // averaged — so anti-aliased edges and a differently coloured word don't win.
-async function inkColour(buffer, box) {
-  const src = sharp(buffer).rotate();
-  const { width: W, height: H } = await src.metadata();
-  const r = pxBox(box, W, H);
-  const cut = await sharp(buffer).rotate().extract(r).resize({ width: Math.min(320, r.width) }).removeAlpha().toBuffer();
-  const { data, info } = await sharp(cut).raw().toBuffer({ resolveWithObject: true });
-  const n = info.width * info.height * 3;
-  const bucketOf = (skip) => {
-    const buckets = new Map();
-    for (let i = 0; i < n; i += 3) {
-      if (skip(i)) continue;
-      const k = `${data[i] >> 5},${data[i + 1] >> 5},${data[i + 2] >> 5}`;
-      const b = buckets.get(k) || { n: 0, r: 0, g: 0, b: 0 };
-      b.n += 1; b.r += data[i]; b.g += data[i + 1]; b.b += data[i + 2];
-      buckets.set(k, b);
-    }
-    let top = null;
-    buckets.forEach((b) => { if (!top || b.n > top.n) top = b; });
-    return top;
-  };
-  // the paper is the commonest colour in the block's box; ink stands well off it
-  const paper = bucketOf(() => false);
-  if (!paper) return '';
-  const pr = paper.r / paper.n; const pg = paper.g / paper.n; const pb = paper.b / paper.n;
-  const top = bucketOf((i) => Math.hypot(data[i] - pr, data[i + 1] - pg, data[i + 2] - pb) <= 80);
-  if (!top || top.n < 12) return '';
-  const hex = (v) => Math.round(v / top.n).toString(16).padStart(2, '0');
-  return `#${hex(top.r)}${hex(top.g)}${hex(top.b)}`;
-}
-
-// What the pixels say about how a block is set — the model misses rules and
-// weight often enough that these are measured: a strike is a rule crossing a
-// text line at mid-height, an underline one at or just under its foot (or a
-// thin rule-only line under it), and weight is the stroke thickness against
-// the line's height. `lineBoxes` are the block's candidate lines (percent).
-async function typeFeatures(buffer, lineBoxes, text = '') {
-  const { width: W, height: H } = await sharp(buffer).rotate().metadata();
-  const heights = lineBoxes.map((b) => (b.height / 100) * H).sort((a, b) => a - b);
-  const textH = heights[Math.floor(heights.length / 2)] || 1;
-  let strike = false;
-  let underline = false;
-  const strokes = [];
-  for (const b of lineBoxes) {
-    const own = pxBox(b, W, H);
-    // look a little under the line too, where an underline sits
-    const r = { ...own, height: Math.max(1, Math.min(H - own.top, Math.round(own.height * 1.4))) };
-    // eslint-disable-next-line no-await-in-loop
-    const { data, info } = await sharp(buffer).rotate().extract(r).removeAlpha().raw().toBuffer({ resolveWithObject: true });
-    const w = info.width; const h = info.height;
-    // paper = the commonest colour of this strip
+// One line of type read off the pixels. Its box may hold more than paper and
+// letters — a label on tape has the tape, the slide around the tape and some
+// doodles in it — so every BACKGROUND is found, not only the commonest colour:
+// a colour that fills a solid patch a third of a line tall (letter strokes are
+// thinner than that). Ink is what stands off all of them; the letters' box is
+// where the ink is. `lineH` = the block's usual line height (px).
+async function lineInk(buffer, box, W, H, below = 1, lineH = 0) {
+  const own = pxBox(box, W, H);
+  const r = { ...own, height: Math.max(1, Math.min(H - own.top, Math.round(own.height * below))) };
+  const { data, info } = await sharp(buffer).rotate().extract(r).removeAlpha().raw().toBuffer({ resolveWithObject: true });
+  const w = info.width; const h = info.height;
+  const near = (i, c, d) => Math.hypot(data[i] - c[0], data[i + 1] - c[1], data[i + 2] - c[2]) <= d;
+  const commonest = (skip) => {
     const counts = new Map();
     for (let i = 0; i < w * h * 3; i += 3) {
+      if (skip(i)) continue;
       const k = `${data[i] >> 4},${data[i + 1] >> 4},${data[i + 2] >> 4}`;
       const c = counts.get(k) || [0, 0, 0, 0];
       c[0] += 1; c[1] += data[i]; c[2] += data[i + 1]; c[3] += data[i + 2];
       counts.set(k, c);
     }
-    let paper = null;
-    counts.forEach((c) => { if (!paper || c[0] > paper[0]) paper = c; });
-    const [pn, pr, pg, pb] = paper;
-    const ink = (x, y) => {
-      const i = (y * w + x) * 3;
-      return Math.hypot(data[i] - pr / pn, data[i + 1] - pg / pn, data[i + 2] - pb / pn) > 80;
-    };
-    const thinRule = own.height < textH * 0.4;
+    let top = null;
+    counts.forEach((c) => { if (!top || c[0] > top[0]) top = c; });
+    return top ? { n: top[0], rgb: [top[1] / top[0], top[2] / top[0], top[3] / top[0]] } : null;
+  };
+  // a solid k×k patch of colour c somewhere in the box (integral image)
+  const k = Math.max(3, Math.round((lineH || own.height) * 0.35));
+  const solid = (c) => {
+    const sum = new Int32Array((w + 1) * (h + 1));
+    for (let y = 0; y < h; y += 1) {
+      let row = 0;
+      for (let x = 0; x < w; x += 1) {
+        row += near((y * w + x) * 3, c, 60) ? 1 : 0;
+        sum[(y + 1) * (w + 1) + x + 1] = sum[y * (w + 1) + x + 1] + row;
+      }
+    }
+    for (let y = k; y <= h; y += 1) {
+      for (let x = k; x <= w; x += 1) {
+        const v = sum[y * (w + 1) + x] - sum[(y - k) * (w + 1) + x] - sum[y * (w + 1) + x - k] + sum[(y - k) * (w + 1) + x - k];
+        if (v >= k * k * 0.97) return true;
+      }
+    }
+    return false;
+  };
+  const backs = [];
+  const first = commonest(() => false);
+  if (!first) return null;
+  backs.push(first.rgb);
+  for (let n = 0; n < 2; n += 1) {
+    const next = commonest((i) => backs.some((c) => near(i, c, 60)));
+    if (!next || next.n < w * h * 0.08) break;
+    if (k > Math.min(w, h) || !solid(next.rgb)) break;
+    backs.push(next.rgb);
+  }
+  const mask = new Uint8Array(w * h);
+  for (let p = 0; p < w * h; p += 1) if (!backs.some((c) => near(p * 3, c, 80))) mask[p] = 1;
+  // where two backgrounds meet (the tape's torn edge on the slide) a blended,
+  // fibrous line is left: ink with BOTH backgrounds close by is that seam —
+  // letters sit inside one background
+  if (backs.length > 1) {
+    const r = Math.max(2, Math.round((lineH || own.height) * 0.06));
+    const near2 = backs.map((c) => {
+      const sum = new Int32Array((w + 1) * (h + 1));
+      for (let y = 0; y < h; y += 1) {
+        let row = 0;
+        for (let x = 0; x < w; x += 1) {
+          row += near((y * w + x) * 3, c, 60) ? 1 : 0;
+          sum[(y + 1) * (w + 1) + x + 1] = sum[y * (w + 1) + x + 1] + row;
+        }
+      }
+      return (x, y) => {
+        const xa = Math.max(0, x - r); const xb = Math.min(w, x + r + 1);
+        const ya = Math.max(0, y - r); const yb = Math.min(h, y + r + 1);
+        return sum[yb * (w + 1) + xb] - sum[ya * (w + 1) + xb] - sum[yb * (w + 1) + xa] + sum[ya * (w + 1) + xa] > 0;
+      };
+    });
+    for (let y = 0; y < h; y += 1) {
+      for (let x = 0; x < w; x += 1) {
+        if (mask[y * w + x] && near2.filter((f) => f(x, y)).length > 1) mask[y * w + x] = 0;
+      }
+    }
+  }
+  // the letters' box: rows / columns with more than a speck of ink, inside the
+  // line's own height (the part below is only looked at for an underline)
+  // (a shape's outline — the tape's edge — leaves only a few pixels a row or
+  // a column, letters many)
+  const rowsOn = [];
+  for (let y = 0; y < Math.min(h, own.height); y += 1) {
+    let c = 0;
+    for (let x = 0; x < w; x += 1) c += mask[y * w + x];
+    rowsOn.push(c);
+  }
+  const ys = rowsOn.map((c, y) => (c >= Math.max(2, w * 0.015) ? y : -1)).filter((y) => y >= 0);
+  const colsOn = new Array(w).fill(0);
+  if (ys.length) for (let y = ys[0]; y <= ys[ys.length - 1]; y += 1) for (let x = 0; x < w; x += 1) colsOn[x] += mask[y * w + x];
+  const span = ys.length ? ys[ys.length - 1] - ys[0] + 1 : 0;
+  const xs = colsOn.map((c, x) => (c >= Math.max(2, span * 0.08) ? x : -1)).filter((x) => x >= 0);
+  const tight = ys.length && xs.length
+    ? { left: own.left + xs[0], top: own.top + ys[0], width: xs[xs.length - 1] - xs[0] + 1, height: ys[ys.length - 1] - ys[0] + 1 }
+    : null;
+  // the ink's colour: its commonest colour
+  let colour = '';
+  const inkTop = commonest((i) => !mask[i / 3]);
+  if (inkTop && inkTop.n >= 12) colour = `#${inkTop.rgb.map((v) => Math.round(v).toString(16).padStart(2, '0')).join('')}`;
+  return { mask, w, h, own, tight, colour, inkCount: mask.reduce((a, v) => a + v, 0) };
+}
+
+// What the pixels say about how a block is set — the model misses rules and
+// weight often enough that these are measured: a strike is a rule crossing a
+// text line at mid-height, an underline one at or just under its foot (or a
+// thin, wide rule-only line under the type), and weight is the stroke
+// thickness against the line's height. `lineBoxes` are the block's candidate
+// lines (percent). Also returns the block's ink colour and the letters' box.
+async function typeFeatures(buffer, lineBoxes, text = '') {
+  const { width: W, height: H } = await sharp(buffer).rotate().metadata();
+  const heights = lineBoxes.map((b) => (b.height / 100) * H).sort((a, b) => a - b);
+  // (the tallest line, not the median: slivers cut off the tops of tall
+  // letters would drag a median down)
+  const tallest = heights[heights.length - 1] || 1;
+  let strike = false;
+  let underline = false;
+  const strokes = [];
+  const slants = [];
+  const reads = [];
+  const lines = lineBoxes.map((b) => ({ b, thin: (b.height / 100) * H < tallest * 0.4 }));
+  const typeLines = lines.filter((l) => !l.thin).map((l) => l.b);
+  const blockW = Math.max(...lineBoxes.map((b) => b.width), 0);
+  for (const { b, thin } of lines) {
+    // look a little under the line for an underline — not into the next line
+    const nextTop = Math.min(...typeLines.filter((t) => t.top > b.top + b.height * 0.5).map((t) => t.top));
+    const below = thin ? 1 : Math.max(1, Math.min(1.4, (nextTop - b.top) / b.height));
+    // eslint-disable-next-line no-await-in-loop
+    const ink = await lineInk(buffer, b, W, H, below, tallest);
+    if (!ink) continue;
+    const { mask, w, h, own } = ink;
     const ruleRows = new Set();
     for (let y = 0; y < h; y += 1) {
       let best = 0; let run = 0; let gap = 0;
       for (let x = 0; x < w; x += 1) {
-        if (ink(x, y)) { run += 1 + gap; gap = 0; } else if (run && gap < 2) gap += 1; else { run = 0; gap = 0; }
+        if (mask[y * w + x]) { run += 1 + gap; gap = 0; } else if (run && gap < 2) gap += 1; else { run = 0; gap = 0; }
         if (run > best) best = run;
       }
       if (best >= w * 0.6) ruleRows.add(y);
     }
-    if (thinRule) { if (ruleRows.size) underline = true; continue; }
+    if (thin) {
+      // a rule of its own: an underline only when it is wide and sits under
+      // the type (not the top of a tall letter cut off by the line split)
+      const under = typeLines.some((t) => b.top >= t.top + t.height * 0.6 && b.top <= t.top + t.height * 1.6);
+      if (ruleRows.size && under && b.width >= blockW * 0.5) underline = true;
+      continue;
+    }
+    reads.push(ink);
+    const t = ink.tight || { top: own.top, height: own.height, left: own.left, width: own.width };
+    const y0 = t.top - own.top; const lh = t.height;
     ruleRows.forEach((y) => {
-      const p = y / own.height;
+      const p = (y - y0) / lh;
       if (p > 0.28 && p < 0.72) strike = true;
-      else if (p >= 0.72) underline = true;
+      else if (p >= 0.72 && p <= 1.4) underline = true;
     });
+    const x0 = t.left - own.left; const x1 = x0 + t.width;
+    // slant: the shear that best stands the strokes upright (italic leans the
+    // tops right) — the columns' ink is most peaked at that shear
+    const peak = (k) => {
+      const cols = new Map();
+      for (let y = y0; y < y0 + lh; y += 1) {
+        if (ruleRows.has(y)) continue;
+        const shift = Math.round(k * (y0 + lh - y));
+        for (let x = x0; x < x1; x += 1) if (mask[y * w + x]) cols.set(x - shift, (cols.get(x - shift) || 0) + 1);
+      }
+      let sq = 0;
+      cols.forEach((c) => { sq += c * c; });
+      return sq;
+    };
+    const upright = peak(0);
+    if (upright > 0) {
+      let best = 0; let bestK = 0;
+      for (let k = -0.1; k <= 0.4001; k += 0.05) { const v = peak(k); if (v > best) { best = v; bestK = k; } }
+      slants.push({ k: bestK, gain: best / upright, n: ink.inkCount });
+    }
     // stroke widths across the middle of the letters, away from any rule
-    for (let y = Math.floor(own.height * 0.38); y < Math.ceil(own.height * 0.62); y += 1) {
+    for (let y = y0 + Math.floor(lh * 0.38); y < y0 + Math.ceil(lh * 0.62); y += 1) {
       if ([-2, -1, 0, 1, 2].some((d) => ruleRows.has(y + d))) continue;
       let run = 0;
-      for (let x = 0; x <= w; x += 1) {
-        if (x < w && ink(x, y)) run += 1;
-        else { if (run > 0 && run < own.height * 0.5) strokes.push(run / own.height); run = 0; }
+      for (let x = x0; x <= x1; x += 1) {
+        if (x < x1 && mask[y * w + x]) run += 1;
+        else { if (run > 0 && run < lh * 0.5) strokes.push(run / lh); run = 0; }
       }
     }
   }
@@ -248,7 +407,20 @@ async function typeFeatures(buffer, lineBoxes, text = '') {
   // height (~0.72 of a mixed-case line) and every stroke reads thicker
   const caps = /[A-Z]/.test(text) && text === text.toUpperCase();
   const weight = (strokes.length ? strokes[Math.floor(strokes.length / 2)] : 0) * (caps ? 0.72 : 1);
-  return { strike, underline, weight };
+  // the colour of the line with the most ink; the letters' box over all lines
+  const main = reads.slice().sort((a, b) => b.inkCount - a.inkCount)[0];
+  const tights = reads.map((r) => r.tight).filter(Boolean);
+  const letters = tights.length ? (() => {
+    const l = Math.min(...tights.map((t) => t.left)); const tp = Math.min(...tights.map((t) => t.top));
+    const rr = Math.max(...tights.map((t) => t.left + t.width)); const bt = Math.max(...tights.map((t) => t.top + t.height));
+    return pctBox({ left: (l / W) * 100, top: (tp / H) * 100, width: ((rr - l) / W) * 100, height: ((bt - tp) / H) * 100 });
+  })() : null;
+  // upright when the line with most of the ink stands best unsheared — then
+  // it is not italic, whatever the model guessed. (A lean is not proof of
+  // italic: rotated type leans too, so that call stays the model's.)
+  const lean = slants.slice().sort((a, b) => b.n - a.n)[0];
+  const upright = Boolean(lean && lean.n >= 300 && lean.k < 0.1);
+  return { strike, underline, weight, upright, colour: main?.colour || '', letters };
 }
 
 const REGION_TOOL = {
@@ -319,6 +491,16 @@ const REGION_SYSTEM = 'You read an Instagram slide, given twice: as it is, and w
  * @param {{ buffer: Buffer, lines?: {role,text}[], photoBox?: {left,top,width,height}|null (pixels), key?: string }} p
  * @returns {Promise<{ key, texts: {id,role,text,box}[], images: {id,box}[], usage } | null>}
  */
+// do two strings carry mostly the same words (spelling / punctuation aside)?
+function sameWords(a, b) {
+  const words = (t) => new Set(String(t || '').toLowerCase().replace(/[’']/g, '').split(/[^a-z0-9]+/).filter(Boolean));
+  const A = words(a); const B = words(b);
+  if (!A.size || !B.size) return !B.size;
+  let both = 0;
+  A.forEach((x) => { if (B.has(x)) both += 1; });
+  return both / Math.max(A.size, B.size) >= 0.6;
+}
+
 async function mapRegions({ buffer, lines = [], photoBox = null, key = '' }) {
   const started = Date.now();
   const model = REGION_MODEL();
@@ -371,13 +553,15 @@ async function mapRegions({ buffer, lines = [], photoBox = null, key = '' }) {
     const texts = (await Promise.all(merged
       .map(async (b, n) => {
         const line = lines[b.line - 1];
-        const box = union(b.boxes);
         // the colour, rules and weight are read off the pixels (the model's
-        // hex is a guess, and it misses rules)
-        const color = await inkColour(buffer, box).catch(() => '');
+        // hex is a guess, and it misses rules) — and the box is the letters'
+        // (not the tape or doodles around them)
         const feat = await typeFeatures(buffer, b.boxes, String(line?.text || b.text)).catch(() => null);
+        const box = feat?.letters || union(b.boxes);
+        const color = feat?.colour || '';
         const st = cleanStyle(b.style);
         if (feat) {
+          if (feat.upright) st.italic = false;
           st.strike = st.strike || feat.strike;
           st.underline = st.underline || feat.underline;
           if (feat.weight > 0) st.bold = feat.weight >= BOLD_WEIGHT;
@@ -386,8 +570,9 @@ async function mapRegions({ buffer, lines = [], photoBox = null, key = '' }) {
         return {
           id: `t${n + 1}`,
           role: line?.role || 'text',
-          // the copy's exact spelling when the block is that line
-          text: String(line?.text || b.text).trim(),
+          // the copy's exact spelling when the block is that line — unless the
+          // picture says other words (the copy predates a region edit)
+          text: (line && sameWords(line.text, b.text) ? String(line.text) : String(b.text || line?.text || '')).trim(),
           box: round1(padBox(box, 0.8)),
           style: { ...st, color },
           runs: cleanRuns(b.runs),
@@ -641,4 +826,4 @@ async function repaintAreas(buffer, areas, references = []) {
   };
 }
 
-module.exports = { mapRegions, editText, regenImage, eraseImage, placePhoto, rewriteText, REGIONS_V, typeFeatures, textArea, imageArea, eraseArea, recolourArea, repaintAreas };
+module.exports = { mapRegions, sameWords, editText, regenImage, eraseImage, placePhoto, rewriteText, REGIONS_V, typeFeatures, textArea, imageArea, eraseArea, recolourArea, repaintAreas };

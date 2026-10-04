@@ -5425,9 +5425,9 @@ export default function WeekView({
   useEffect(() => {
     if (!postEdit || !activeThemed || !themedKey) { setRgnMap(null); return undefined; }
     const saved = activeSlide?.themeRegions;
-    // v2 maps carry each block's style (how the picture sets it); older ones
-    // are read again so the text panel can show it
-    if (saved?.key === themedKey && (Number(saved.v) || 1) >= 3) { setRgnMap(saved); return undefined; }
+    // maps older than v5 (styles read off the letters, not the tape around) are
+    // read again
+    if (saved?.key === themedKey && (Number(saved.v) || 1) >= 5) { setRgnMap(saved); return undefined; }
     let alive = true;
     setRgnMap(null);
     setRgnLoading(true);
