@@ -4745,6 +4745,28 @@
   line-height: 1.3;
   color: inherit;
 }
+/* the way back out (stay), on the question's line — bauhly-v3 `.yw-confirm__x` */
+.wv-confirm__head { padding-right: calc(34px + var(--sp-3)); }
+.wv-confirm__x {
+  position: absolute;
+  top: calc(var(--sp-6) + 0.675 * var(--text-md) - 17px);
+  right: var(--sp-5);
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--r-full);
+  background: var(--ink-100);
+  color: var(--ink-800);
+  cursor: pointer;
+}
+.wv-confirm__x:hover { background: var(--ink-200, #e0e0e6); }
+.wv-confirm__x:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+@media (max-width: 480px) {
+  .wv-confirm__x { top: calc(var(--sp-5) + 0.675 * var(--text-md) - 17px); right: var(--sp-4); }
+}
 .wv-confirm__acts {
   display: flex;
   flex-wrap: wrap;

@@ -5655,6 +5655,61 @@ export default function WeekView({
       (k) => plainOf(wordDraft[k] || '') === plainOf(wordsSeed[k] || ''),
     ));
 
+  /* ── Leaving Editor mode with unapplied work asks (bauhly-v3 `edAsk`) ──
+   * A press on a sidebar link (Calendar, Captures) or Capture idea would take
+   * the Editor's unapplied edits with it. While there is something to lose,
+   * that press is stopped in the capture phase and held: Save changes = Apply
+   * changes then go, Don't save changes = Cancel then go, × / Escape / the
+   * scrim = stay. With a clean post nothing is attached. */
+  const postEditDirty = useMemo(() => {
+    if (!postEdit) return false;
+    if (Object.values(elemEdits).some((e) => e && Object.keys(e.patches || {}).length)) return true;
+    if (Object.keys(rgnHeld).length) return true;
+    if (zone === 'visual' && ((visEdit === 'words' && wordDraft && !wordsUnchanged)
+      || (visEdit === 'theme' && draftOpt && !themeUnchanged))) return true;
+    const snap = editSnapRef.current;
+    const d = snap ? route?.days?.[snap.dayIndex] : null;
+    if (!d) return false;
+    return JSON.stringify(deriveSlides(d).map((sl) => slideRecord(sl))) !== JSON.stringify(snap.slides.map((sl) => slideRecord(sl)))
+      || carouselDocumentOf(d) !== snap.docHtml
+      || (d.content?.themeId ?? '') !== snap.themeId
+      || (d.content?.coverVideo?.key || '') !== snap.coverKey;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [postEdit, elemEdits, rgnHeld, zone, visEdit, wordDraft, wordsUnchanged, draftOpt, themeUnchanged, route]);
+  // what the held press was going to do
+  const [edAsk, setEdAsk] = useState(null);
+  const edLeavingRef = useRef(false);
+  useEffect(() => {
+    if (!edAsk) return undefined;
+    const key = (e) => { if (e.key === 'Escape') setEdAsk(null); };
+    document.addEventListener('keydown', key);
+    return () => document.removeEventListener('keydown', key);
+  }, [edAsk]);
+  useEffect(() => {
+    if (!postEdit || !postEditDirty) return undefined;
+    const stop = (e) => {
+      if (edLeavingRef.current) return;
+      const link = e.target?.closest?.('.sb__link');
+      const cap = link ? null : e.target?.closest?.('.sb__capture');
+      if (!link && !cap) return;
+      const to = link?.getAttribute('href');
+      e.preventDefault();
+      e.stopPropagation();
+      setEdAsk(() => () => {
+        if (to) { navigate(to); return; }
+        // Capture idea opens a modal over this page: its own press, replayed
+        edLeavingRef.current = true;
+        cap.click();
+        edLeavingRef.current = false;
+      });
+    };
+    document.addEventListener('click', stop, true);
+    return () => document.removeEventListener('click', stop, true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [postEdit, postEditDirty]);
+  const edKeep = () => { const go = edAsk; setEdAsk(null); leavePostEdit(true); go?.(); };
+  const edDrop = () => { const go = edAsk; setEdAsk(null); leavePostEdit(false); go?.(); };
+
   useEffect(() => {
     if (visEdit !== 'words') return;
     setWordDraft(seedWordDraft(composeLayoutOf(activeSlide) || BEST_FIT_LAYOUT, activeSlide, day?.contentType || day?.format, {
@@ -6607,6 +6662,33 @@ export default function WeekView({
 
   return (
     <div className={`wv${embedded ? ' wv--embedded' : ''}`} style={libPaint}>
+      {edAsk && createPortal(
+        <>
+          <div className="wv-confirm__scrim" onClick={() => setEdAsk(null)} />
+          <div className="wv-confirm" role="alertdialog" aria-modal="true" aria-labelledby="wv-edq-t">
+            <h2 id="wv-edq-t" className="wv-confirm__head">Keep the changes to this post?</h2>
+            <p>You have edited this post and not applied the changes yet.</p>
+            <button
+              type="button"
+              className="wv-confirm__x"
+              onClick={() => setEdAsk(null)}
+              aria-label="Stay on this post"
+              title="Stay on this post"
+            >
+              <Glyph name="x" size={17} strokeWidth={2} />
+            </button>
+            <div className="wv-confirm__acts">
+              <button type="button" className="btn btn--primary btn--sm" onClick={edKeep}>
+                Save changes
+              </button>
+              <button type="button" className="btn btn--tertiary btn--sm" onClick={edDrop}>
+                Don’t save changes
+              </button>
+            </div>
+          </div>
+        </>,
+        document.body,
+      )}
 
       {/* ══ EDITOR MODE (bauhly-v3 editor/PostEditor.jsx `.edm`) ═══════════
           The pencil opens the post into its own workspace beside the sidebar:
