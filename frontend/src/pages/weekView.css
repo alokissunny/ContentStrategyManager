@@ -5474,6 +5474,13 @@
   left: 10px;
   right: 10px;
   bottom: 44px;
+  /* the centred toast rule above sets these — undone, or the bar is pulled
+     half off the card and stretched into a tall block */
+  top: auto;
+  transform: none;
+  max-width: none;
+  display: block;
+  text-align: left;
   z-index: 6;
   padding: 6px 8px;
   border-radius: 8px;

@@ -288,8 +288,15 @@ async function addSlideToCarousel({ userId, handle, label, at, capture, current,
 
   // ── splice it in and renumber what follows ─────────────────────────────
   const articles = composed.articles.map((a) => ({ dir: a.dir, html: a.index >= newIndex ? withIndex(a.html, a.index + 1) : a.html }));
-  // the new slide joins the theme of the slide it follows (or precedes)
-  articles.splice(pos, 0, { dir: (before || after)?.dir || composed.direction, html: withIndex(article, newIndex) });
+  // the new slide joins the theme of the slide it follows (or precedes) — but
+  // never a Theme Apply section: those hold pictures, and the new slide is
+  // HTML until a theme is applied to it, so it takes the nearest HTML theme
+  const themedDir = (d) => /^themed-image/.test(String(d || ''));
+  const near = [before, after, ...composed.articles.slice(0, pos).reverse(), ...composed.articles.slice(pos + 1)];
+  const dir = near.map((a) => a?.dir).find((d) => d && !themedDir(d))
+    || (!themedDir(composed.direction) && composed.direction)
+    || 'warm-editorial';
+  articles.splice(pos, 0, { dir, html: withIndex(article, newIndex) });
   const html = composed.render(articles, { document: true });
   const parsed = parseCarouselDocument(html, n + 1);
   if (!parsed.slides.length) throw err(502, 'Bauhly returned a slide the editor cannot read — try again.');

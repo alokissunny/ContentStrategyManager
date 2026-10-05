@@ -21,6 +21,7 @@ import {
   canvasSafeUrl,
 } from '../../api/media';
 import { paintAll, logoPositionOf, markForSlide, themesOf, activeThemeIdOf, activeThemeAtOf, brandFontVars } from '../../lib/identity';
+import { isThemedPicture } from '../../lib/themedSlide';
 import { styleOf, groundOf } from '../../lib/visualbrand';
 import { useStore } from '../../lib/store';
 import '../weekView.css';
@@ -198,7 +199,7 @@ function PeekSlide({ slide, paint, themed, documentHtml, carouselLayoutHtmls, sl
   );
   const store = useStore();
   // a Theme Apply picture carries its logo painted in — no overlay on it
-  const mark = /^themed-image/.test(String(slide?.layoutTheme || ''))
+  const mark = isThemedPicture(slide)
     ? null
     : markForSlide(store.brandLogos, slide, urls[0] ? 'photo' : 'ground');
   const logo = mark?.key
@@ -276,7 +277,7 @@ export function DayPeek({ day, feed = false, phone = false }) {
     // a post's own pick holds only if made since the Brand Kit default last changed
     const own = (Number(sl?.colorSetAt) || 0) >= kitDefaultAt ? String(sl?.colorSet || '') : '';
     const id = own === 'original' ? ''
-      : (own || (/^themed-image/.test(String(sl?.layoutTheme || '')) ? '' : kitDefault));
+      : (own || (isThemedPicture(sl) ? '' : kitDefault));
     const p = (id && kitSets.find((t) => t.id === id)?.palette) || null;
     if (!p) return null;
     const out = {};
@@ -340,7 +341,7 @@ export function DayPeek({ day, feed = false, phone = false }) {
 
   const curSet = cur ? setPaint(cur) : null;
   // Brand Kit Typography, as WeekView's paintFor (not on a Theme Apply render)
-  const curFonts = cur && !/^themed-image/.test(String(cur?.layoutTheme || '')) ? brandFontVars(store?.libraryEdits) : {};
+  const curFonts = cur && !isThemedPicture(cur) ? brandFontVars(store?.libraryEdits) : {};
   const slideNode = cur ? (
     <PeekSlide
       key={`${day?._id || day?.date}-${safe}`}

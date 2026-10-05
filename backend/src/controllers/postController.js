@@ -1405,7 +1405,10 @@ function snapshotOf(dataUrl) {
 }
 
 // A slide the Theme Apply agent painted (its section is `themed-image[-sN]`).
-const isThemedSlide = (sl) => /^themed-image/.test(String(sl?.layoutTheme || ''));
+// (the section alone is not enough: it must carry its render — a slide added
+// next to a themed one may sit in that section with only HTML in it)
+const isThemedSlide = (sl) => /^themed-image/.test(String(sl?.layoutTheme || ''))
+  && [...(Array.isArray(sl?.assetKeys) ? sl.assetKeys : []), sl?.assetKey].some((k) => /\/themed-/.test(String(k || '')));
 // What Remove theme puts back on a slide (layoutHtml is rebuilt from the
 // carousel html, so it is not stored twice).
 const PRE_THEME_FIELDS = ['layout', 'layoutTheme', 'assetKey', 'assetKeys', 'title', 'subtitle', 'body', 'items', 'itemsA', 'itemsB', 'stat', 'quote', 'action', 'comparisonA', 'comparisonB', 'labels', 'image'];
@@ -1975,7 +1978,10 @@ async function applyThemeImage(req, res) {
   const brandFonts = req.body?.brandFonts && typeof req.body.brandFonts === 'object' ? req.body.brandFonts : null;
   // No capture from the studio: a slide already re-themed is a full picture of
   // itself (its themed key leads its keys); else the slide's last publish render.
-  const hasBaseDesign = Boolean(record.agentTrace?.preTheme?.carouselHtml);
+  // (a saved design for a different number of slides cannot be lined up — the
+  // studio does not capture from it, so the slide's current picture is used)
+  const pre = record.agentTrace?.preTheme;
+  const hasBaseDesign = Boolean(pre?.carouselHtml) && Array.isArray(pre?.slides) && pre.slides.length === stored.length;
   const storedSlidePicture = async (idx) => {
     const slide = stored[idx - 1] || {};
     const lead = String((Array.isArray(slide.assetKeys) && slide.assetKeys[0]) || slide.assetKey || '');
@@ -2005,7 +2011,10 @@ async function applyThemeImage(req, res) {
       try {
         const snapshot = snapshotOf(snapshots[idx]) || await storedSlidePicture(idx);
         if (!snapshot) {
-          const why = String(captureErrors[idx] || '').slice(0, 200);
+          // what arrived, so a failure says which side lost the picture
+          const sent = snapshots[idx];
+          const why = String(captureErrors[idx] || '').slice(0, 200)
+            || (sent ? `the picture sent was not a readable image: ${String(sent).slice(0, 24)}…, ${String(sent).length} chars` : 'no picture of it was sent');
           throw new Error(`Could not capture slide ${idx} to re-theme it${why ? ` (${why})` : ''} — try again.`);
         }
         // the slide's primary photo — kept exactly as it is (pasted back in)

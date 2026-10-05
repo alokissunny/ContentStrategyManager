@@ -10,6 +10,7 @@ import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 're
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import Glyph from '../components/Glyph';
+import { isThemedPicture } from '../lib/themedSlide';
 import Icon from '../brand/Icon';
 import RegionTextPanel, { RegionImagePanel, changeIsLive, describeMark, markHex } from './weekview/RegionTextPanel';
 import YourAnalysisModal from '../components/YourAnalysisModal';
@@ -2534,7 +2535,7 @@ function SlideMedia({
   );
   // a Theme Apply picture carries its logo painted in (Editor ⋯ › Logo redraws
   // it) — no overlay on top of it
-  const mark = /^themed-image/.test(String(slide?.layoutTheme || ''))
+  const mark = isThemedPicture(slide)
     ? null
     : markForSlide(store.brandLogos, slide, src ? 'photo' : 'ground');
   const logo = mark?.key
@@ -3345,7 +3346,7 @@ export default function WeekView({
     const ownHolds = own && (Number(slide?.colorSetAt) || 0) >= kitDefaultAt;
     if (ownHolds && own === 'original') return '';
     if (ownHolds) return own;
-    if (/^themed-image/.test(String(slide?.layoutTheme || ''))) return '';
+    if (isThemedPicture(slide)) return '';
     return kitDefaultSet || '';
   };
   // Brand Kit Typography restyles every slide (DynamicLayout › applyBrandFonts);
@@ -3353,7 +3354,7 @@ export default function WeekView({
   const kitFontVars = useMemo(() => brandFontVars(vbStore?.libraryEdits), [vbStore?.libraryEdits]);
   const paintFor = (slide) => {
     const out = paintColoursFor(slide);
-    if (/^themed-image/.test(String(slide?.layoutTheme || ''))) return out;
+    if (isThemedPicture(slide)) return out;
     return { ...out, paint: { ...(out.paint || {}), ...kitFontVars } };
   };
   const paintColoursFor = (slide) => {
@@ -5079,7 +5080,7 @@ export default function WeekView({
       // saved before the first theme (agentTrace.preTheme) and captured.
       const snapshots = {};
       const captureErrors = {};
-      const rethemed = slideIndexes.filter((i) => /^themed-image/.test(String(slides[i - 1]?.layoutTheme || '')));
+      const rethemed = slideIndexes.filter((i) => isThemedPicture(slides[i - 1]));
       let base = null;
       if (rethemed.length) {
         base = await getPreTheme(postIdAt(dayIndex)).catch(() => null);
@@ -5091,6 +5092,10 @@ export default function WeekView({
         if (shot.url) snapshots[i] = shot.url;
         else captureErrors[i] = shot.error;
       }
+      // a slide already themed whose saved base design no longer lines up
+      // (slides added or removed since) has no source to capture — say so
+      // (the server then starts from the slide's current picture)
+      if (!base) rethemed.forEach((i) => { captureErrors[i] = 'its original design is no longer saved for this many slides'; });
       if (base) {
         baseRefs.current = {};
         setBaseStage({
@@ -5106,6 +5111,17 @@ export default function WeekView({
         }
         setBaseStage(null);
       }
+      // every slide asked for leaves with a picture or the reason it has none —
+      // a capture that came back blank is a reason too
+      slideIndexes.forEach((i) => {
+        const url = snapshots[i];
+        if (url && (!/^data:image\/(jpeg|png|webp);base64,/.test(url) || url.length < 2000)) {
+          delete snapshots[i];
+          captureErrors[i] = `the capture came back empty (${String(url).slice(0, 24)}…, ${url.length} chars)`;
+        }
+        if (!snapshots[i] && !captureErrors[i]) captureErrors[i] = 'nothing was captured';
+        if (captureErrors[i]) console.warn(`[theme-apply] slide ${i}: ${captureErrors[i]}`);
+      });
       // the Brand Kit colours chosen for each slide (its own set, else the kit's
       // default) — the image model paints in these instead of the reference's.
       // All three roles: one the studio never edited is the default the Brand
@@ -5419,7 +5435,7 @@ export default function WeekView({
    * click targets in Editor mode; a click opens the side panel: text → new
    * words + Regenerate (re-letters only that area), picture → another photo
    * (pasted in) or Regenerate (repaints only that area). */
-  const activeThemed = /^themed-image/.test(String(activeSlide?.layoutTheme || ''));
+  const activeThemed = isThemedPicture(activeSlide);
   const themedKey = activeThemed ? (keysOf(activeSlide).find((k) => /\/themed-/.test(k)) || '') : '';
   const [rgnMap, setRgnMap] = useState(null);
   const [rgnLoading, setRgnLoading] = useState(false);
@@ -5967,7 +5983,7 @@ export default function WeekView({
     const next = base.map((sl, i) => {
       if (!(every || i === safeIdx)) return sl;
       const setId = setFor(sl, i) || '';
-      if (/^themed-image/.test(String(sl?.layoutTheme || ''))) {
+      if (isThemedPicture(sl)) {
         const set = kitSets.find((t) => t.id === setId);
         if (set?.palette) {
           holdChange(COLOUR_REGION, { kind: 'colours', setId, name: set.name, palette: set.palette }, i);
@@ -6010,7 +6026,7 @@ export default function WeekView({
      file in (replacing the logo already painted) — or takes it off — in the
      slide's one image call. */
   function logoSlide(mark, slots = vbStore?.brandLogos) {
-    if (!/^themed-image/.test(String(activeSlide?.layoutTheme || ''))) {
+    if (!isThemedPicture(activeSlide)) {
       dressSlides(false, { logoMark: mark });
       return;
     }
@@ -6461,8 +6477,8 @@ export default function WeekView({
     onTheme: (theme, every) => handleChangeTheme(theme, every),
     onReference: (file, every) => handleUploadReferenceTheme(file, every),
     // Remove theme: shown while any slide wears a Theme Apply render
-    themed: slides.some((sl) => /^themed-image/.test(String(sl?.layoutTheme || ''))),
-    slideThemed: /^themed-image/.test(String(activeSlide?.layoutTheme || '')),
+    themed: slides.some((sl) => isThemedPicture(sl)),
+    slideThemed: isThemedPicture(activeSlide),
     onRemoveTheme: (every) => handleRemoveTheme(every),
     sets: kitSets.map((t) => ({ ...t, swatches: [t.palette?.fg, t.palette?.accent, t.palette?.ground] })),
     setId: setIdOf(activeSlide),
