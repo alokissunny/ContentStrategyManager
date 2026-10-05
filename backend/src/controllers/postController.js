@@ -1497,10 +1497,16 @@ async function readSlideRegions(record, slideIndex) {
     return { error: [502, `Could not read the themed picture (${err.message}).`] };
   }
   // region edits never move the photo frame, so the latest Theme Apply run's
-  // photo box still holds for a render edited since
-  const mapped = await mapRegions({ buffer: bytes, lines, photoBox: run?.primaryImage?.box || null, key: lead });
+  // photo box still holds for a render edited since — unless the slide was
+  // re-arranged (Editor ⋯ › Layout): then the picture is found afresh
+  const relaid = Boolean(slide.themeRegions?.relaid);
+  const relaidBox = relaid ? (slide.themeRegions?.photoBox || null) : null;
+  const mapped = await mapRegions({ buffer: bytes, lines, photoBox: relaid ? relaidBox : (run?.primaryImage?.box || null), key: lead });
   if (!mapped) return { error: [502, 'Could not find the text and picture on this slide — try again.'] };
-  const regions = { key: lead, v: mapped.v, texts: mapped.texts, images: mapped.images, logo: mapped.logo || null };
+  const regions = {
+    key: lead, v: mapped.v, texts: mapped.texts, images: mapped.images, logo: mapped.logo || null,
+    ...(relaid ? { relaid: true, ...(relaidBox ? { photoBox: relaidBox } : {}) } : {}),
+  };
   // the slide may have moved on while the model read it (another edit)
   const now = await PlannedPost.findOne({ _id: record._id, user: record.user });
   const cur = now && themedSlideAt(now, idx);
@@ -1702,7 +1708,31 @@ async function editThemeRegion(req, res) {
     }
     // …then every other change, ONE image-model call over all their areas
     const modelled = live.filter((p) => p.action !== 'photo');
-    if (modelled.length) {
+    const relay = live.find((p) => p.action === 'relayout');
+    if (relay) {
+      // Re-arranged as Theme Apply does it: the photograph's new place comes
+      // back as a flat key-colour rectangle and the ORIGINAL photo is pasted in
+      // — exact pixels, and its new box is known for the region map. Two
+      // tries; then the model shows the photo itself from the reference.
+      const { pastePrimaryImage, pickPlaceholder, PLACEHOLDERS } = require('../services/primaryImage');
+      const photoBuf = relay.photoKey ? (await getObjectBytes(relay.photoKey)).buffer : null;
+      if (photoBuf) {
+        const kind = await pickPlaceholder(buffer);
+        const ph = PLACEHOLDERS[kind];
+        for (let t = 0; t < 2 && !relay.photoBox; t += 1) {
+          const ask = t ? `${relay.instruction}\nIMPORTANT: the previous attempt did not leave the photograph's place as one flat solid ${ph.hex} rectangle — do that, and do not paint the photograph.` : relay.instruction;
+          // eslint-disable-next-line no-await-in-loop
+          const r = await repaintAreas(buffer, [relayoutArea({ instruction: ask, placeholder: ph })], []);
+          // eslint-disable-next-line no-await-in-loop
+          const placed = await pastePrimaryImage(r.buffer, photoBuf, kind);
+          if (placed.found) { painted = { ...r, buffer: placed.buffer }; relay.photoBox = placed.box; }
+        }
+      }
+      if (!relay.photoBox) {
+        painted = await repaintAreas(buffer, [relayoutArea({ instruction: relay.instruction, photoImage: photoBuf ? 2 : 0 })], photoBuf ? [photoBuf] : []);
+      }
+      buffer = painted.buffer;
+    } else if (modelled.length) {
       const refKeys = [...new Set(modelled.map((p) => p.refKey || (p.action === 'logo' && !p.remove ? p.logoKey : '') || (p.action === 'relayout' ? p.photoKey : '')).filter(Boolean))];
       const references = await Promise.all(refKeys.map(async (k) => (await getObjectBytes(k)).buffer));
       // pictures the recolour leaves alone: every one not being changed itself
@@ -1744,7 +1774,12 @@ async function editThemeRegion(req, res) {
   const recoloured = plans.find((p) => p.action === 'recolour');
   const logoPlan = plans.find((p) => p.action === 'logo');
   const relaid = plans.find((p) => p.action === 'relayout');
-  const nextRegions = relaid ? { key, v: 0, texts: [], images: [], logo: null } : {
+  // (`relaid`: the Theme Apply run's photo box no longer holds — see readSlideRegions)
+  const nextRegions = relaid ? {
+    key, v: 0, texts: [], images: [], logo: null, relaid: true,
+    // where the original photo was pasted (px) — the map's picture box
+    ...(relaid.photoBox ? { photoBox: relaid.photoBox } : {}),
+  } : {
     ...regions,
     key,
     // where the logo now sits (or none)

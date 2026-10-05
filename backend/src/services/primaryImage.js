@@ -11,11 +11,19 @@
 const sharp = require('sharp');
 
 const PLACEHOLDER_HEX = '#FF00FF';
+// A slide that is itself magenta / pink would hide a magenta placeholder in its
+// own ground — a re-arrangement (themeRegions relayout) picks the key colour
+// the slide uses least (see pickPlaceholder).
+const PLACEHOLDERS = {
+  magenta: { hex: '#FF00FF', name: 'pure magenta', lo: 285, hi: 345 },
+  green: { hex: '#00FF00', name: 'pure green', lo: 95, hi: 145 },
+  cyan: { hex: '#00FFFF', name: 'pure cyan', lo: 170, hi: 200 },
+};
 
 // A pixel of the placeholder. The model never paints exact #FF00FF — it came
 // back as hot pink rgb(252, 49, 164) — so match by hue: a strong, bright
 // magenta-to-pink (hue 285°–345°). Skin, reds and pale pinks fall outside.
-function isMagenta(r, g, b) {
+function isMagenta(r, g, b, lo = 285, hi = 345) {
   const max = Math.max(r, g, b);
   const min = Math.min(r, g, b);
   const d = max - min;
@@ -25,14 +33,27 @@ function isMagenta(r, g, b) {
   else if (max === g) h = 60 * ((b - r) / d + 2);
   else h = 60 * ((r - g) / d + 4);
   if (h < 0) h += 360;
-  return h >= 285 && h <= 345;
+  return h >= lo && h <= hi;
+}
+
+// the placeholder colour this picture uses least (share of its pixels)
+async function pickPlaceholder(buffer) {
+  const data = await sharp(buffer).rotate().resize({ width: 128, height: 160, fit: 'fill' }).removeAlpha().raw().toBuffer();
+  let best = null;
+  Object.entries(PLACEHOLDERS).forEach(([id, ph]) => {
+    let n = 0;
+    for (let i = 0; i < data.length; i += 3) if (isMagenta(data[i], data[i + 1], data[i + 2], ph.lo, ph.hi)) n += 1;
+    if (!best || n < best.n) best = { id, n };
+  });
+  return best.id;
 }
 
 /**
  * Find the placeholder: the largest connected magenta region.
  * @returns {Promise<{ left, top, width, height, fill } | null>} in pixels of `buffer`
  */
-async function findPlaceholder(buffer) {
+async function findPlaceholder(buffer, kind = 'magenta') {
+  const ph = PLACEHOLDERS[kind] || PLACEHOLDERS.magenta;
   const img = sharp(buffer).rotate();
   const { width: W, height: H } = await img.metadata();
   const w = 256;
@@ -40,7 +61,7 @@ async function findPlaceholder(buffer) {
   const data = await img.clone().resize({ width: w, height: h, fit: 'fill' }).removeAlpha().raw().toBuffer();
   const mask = new Uint8Array(w * h);
   for (let i = 0; i < w * h; i += 1) {
-    if (isMagenta(data[i * 3], data[i * 3 + 1], data[i * 3 + 2])) mask[i] = 1;
+    if (isMagenta(data[i * 3], data[i * 3 + 1], data[i * 3 + 2], ph.lo, ph.hi)) mask[i] = 1;
   }
   // connected components (4-way), keep the largest
   const seen = new Uint8Array(w * h);
@@ -92,8 +113,8 @@ async function findPlaceholder(buffer) {
  * Paste the original photo into the render's placeholder.
  * @returns {Promise<{ buffer: Buffer, box: object|null, found: boolean }>}
  */
-async function pastePrimaryImage(renderBuffer, photoBuffer) {
-  const box = await findPlaceholder(renderBuffer);
+async function pastePrimaryImage(renderBuffer, photoBuffer, kind = 'magenta') {
+  const box = await findPlaceholder(renderBuffer, kind);
   if (!box) return { buffer: renderBuffer, box: null, found: false };
   const { width: W, height: H } = await sharp(renderBuffer).metadata();
   // grow a hair past the edge so no magenta fringe survives
@@ -109,4 +130,4 @@ async function pastePrimaryImage(renderBuffer, photoBuffer) {
   return { buffer, box: { left, top, width, height, fill: box.fill }, found: true };
 }
 
-module.exports = { findPlaceholder, pastePrimaryImage, PLACEHOLDER_HEX };
+module.exports = { findPlaceholder, pastePrimaryImage, pickPlaceholder, PLACEHOLDER_HEX, PLACEHOLDERS };

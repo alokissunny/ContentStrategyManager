@@ -670,7 +670,11 @@ async function mapRegions({ buffer, lines = [], photoBox = null, key = '' }) {
     if (!known.length) {
       pictures = await Promise.all(pictures.map(async (b) => {
         const blob = await pictureBlob(buffer, b).catch(() => null);
-        return blob ? pctBox({ left: (blob.box.left / W) * 100, top: (blob.box.top / H) * 100, width: (blob.box.width / W) * 100, height: (blob.box.height / H) * 100 }) : b;
+        if (!blob) return b;
+        const t = pctBox({ left: (blob.box.left / W) * 100, top: (blob.box.top / H) * 100, width: (blob.box.width / W) * 100, height: (blob.box.height / H) * 100 });
+        // on a busy ground (a photo behind everything) the blob runs into the
+        // rest of the slide — then the model's own box is the better guess
+        return t.width * t.height > b.width * b.height * 1.8 ? b : t;
       }));
     }
     const images = pictures.map((b, n) => ({ id: `i${n + 1}`, box: round1(b) }));
@@ -951,7 +955,11 @@ function logoArea({ box, refImage = 0, remove = false, had = false }) {
 // Editor ⋯ › Layout on a Theme Apply picture: the whole slide re-arranged by
 // the image model — the same words, photo, type and colours, laid out anew.
 // `photoImage`: the input number of the slide's own photograph (kept faithful).
-function relayoutArea({ instruction, photoImage = 0 }) {
+// `placeholder` ({ hex, name }): the photograph's new place is left as a flat
+// key-colour rectangle and the ORIGINAL photo is pasted into it afterwards
+// (services/primaryImage) — exact pixels, and its box is known. Without one,
+// `photoImage` is the input number of the photo for the model to show itself.
+function relayoutArea({ instruction, photoImage = 0, placeholder = null }) {
   return {
     whole: true,
     box: { left: 0, top: 0, width: 100, height: 100 },
@@ -961,9 +969,11 @@ function relayoutArea({ instruction, photoImage = 0 }) {
       'Re-arrange this slide into a new layout:',
       String(instruction || '').trim(),
       'Keep EVERYTHING else: every word with its exact spelling and line order, the typefaces, weights and type colours, the paper / ground, textures, tape, doodles and decoration, the brand logo, and the overall look. Only the positions and proportions change to fit the new arrangement.',
-      photoImage
-        ? `The slide's photograph is Image ${photoImage}: show that same photograph (same content, crop it to the new picture area) — never invent a different one.`
-        : 'Any photograph on the slide stays the same photograph — only its frame and position change. If the new arrangement has a picture area and the slide has no photograph, fill it with a picture that suits what the slide says, in the slide\'s style.',
+      placeholder
+        ? `The slide's photograph: do NOT paint it. In its new place paint a flat, solid ${placeholder.hex} (${placeholder.name}) rectangle — one even colour, no texture, no shading, nothing drawn inside it — framed the way the photograph is framed now (border, tape, shadow). The app puts the photograph in.`
+        : (photoImage
+          ? `The slide's photograph is Image ${photoImage}: show that same photograph (same content, crop it to the new picture area) — never invent a different one.`
+          : 'Any photograph on the slide stays the same photograph — only its frame and position change. If the new arrangement has a picture area and the slide has no photograph, fill it with a picture that suits what the slide says, in the slide\'s style.'),
       'The result is a finished 4:5 Instagram slide with nothing cut off at the edges.',
     ].filter(Boolean),
   };
