@@ -114,6 +114,95 @@ function dropBlobs(mask, w, h, drop) {
   return out;
 }
 
+// The picture inside a rough box (a model's guess, a kept area): the slide's
+// ground is the commonest colour along the box's edge; the picture is the
+// biggest blob standing off it (a photo with its frame, a cut-out sticker),
+// holes filled. → { rect (px, the area searched), alpha (rect-sized, 0/255),
+// box (px, the blob's bounds) } or null when nothing stands out.
+// A rough box can also be SMALLER than the picture: while the blob runs into
+// the searched area's edge, the area grows.
+async function pictureBlob(buffer, box) {
+  let found = null;
+  for (const pad of [3, 8, 14, 22]) {
+    found = await blobIn(buffer, box, pad); // eslint-disable-line no-await-in-loop
+    if (!found) return null;
+    const { rect: r, box: b } = found;
+    const clipped = (b.left <= r.left + 1 && r.left > 0) || (b.top <= r.top + 1 && r.top > 0)
+      || (b.left + b.width >= r.left + r.width - 1 && r.left + r.width < found.W)
+      || (b.top + b.height >= r.top + r.height - 1 && r.top + r.height < found.H);
+    if (!clipped) break;
+  }
+  return found;
+}
+async function blobIn(buffer, box, pad) {
+  const { width: W, height: H } = await sharp(buffer).rotate().metadata();
+  const rect = pxBox(padBox(box, pad), W, H);
+  const { data } = await sharp(buffer).rotate().extract(rect).removeAlpha().raw().toBuffer({ resolveWithObject: true });
+  const w = rect.width; const h = rect.height;
+  const counts = new Map();
+  const edge = (x, y) => {
+    const i = (y * w + x) * 3;
+    const k = `${data[i] >> 4},${data[i + 1] >> 4},${data[i + 2] >> 4}`;
+    const c = counts.get(k) || [0, 0, 0, 0];
+    c[0] += 1; c[1] += data[i]; c[2] += data[i + 1]; c[3] += data[i + 2];
+    counts.set(k, c);
+  };
+  for (let x = 0; x < w; x += 1) { edge(x, 0); edge(x, h - 1); }
+  for (let y = 0; y < h; y += 1) { edge(0, y); edge(w - 1, y); }
+  let g = null;
+  counts.forEach((c) => { if (!g || c[0] > g[0]) g = c; });
+  const ground = [g[1] / g[0], g[2] / g[0], g[3] / g[0]];
+  const off = new Uint8Array(w * h);
+  for (let p = 0; p < w * h; p += 1) {
+    const i = p * 3;
+    if (Math.hypot(data[i] - ground[0], data[i + 1] - ground[1], data[i + 2] - ground[2]) > 60) off[p] = 1;
+  }
+  // the blob of off-ground pixels that fills most of the box asked about (the
+  // area searched may have grown into a neighbour)
+  const own = pxBox(box, W, H);
+  const inBox = (x, y) => x + rect.left >= own.left && x + rect.left < own.left + own.width
+    && y + rect.top >= own.top && y + rect.top < own.top + own.height;
+  const label = new Int32Array(w * h).fill(-1);
+  const stack = new Int32Array(w * h);
+  let best = -1; let bestN = 0;
+  for (let s0 = 0; s0 < w * h; s0 += 1) {
+    if (!off[s0] || label[s0] >= 0) continue;
+    let top = 0; let n = 0;
+    stack[top++] = s0; label[s0] = s0;
+    while (top) {
+      const q = stack[--top];
+      const x = q % w; const y = (q - x) / w;
+      if (inBox(x, y)) n += 1;
+      if (x > 0 && off[q - 1] && label[q - 1] < 0) { label[q - 1] = s0; stack[top++] = q - 1; }
+      if (x < w - 1 && off[q + 1] && label[q + 1] < 0) { label[q + 1] = s0; stack[top++] = q + 1; }
+      if (y > 0 && off[q - w] && label[q - w] < 0) { label[q - w] = s0; stack[top++] = q - w; }
+      if (y < h - 1 && off[q + w] && label[q + w] < 0) { label[q + w] = s0; stack[top++] = q + w; }
+    }
+    if (n > bestN) { bestN = n; best = s0; }
+  }
+  if (best < 0 || bestN < own.width * own.height * 0.04) return null;
+  // fill its holes: whatever the outside cannot reach without crossing it
+  const outside = new Uint8Array(w * h);
+  let top = 0;
+  const seed = (q) => { if (label[q] !== best && !outside[q]) { outside[q] = 1; stack[top++] = q; } };
+  for (let x = 0; x < w; x += 1) { seed(x); seed((h - 1) * w + x); }
+  for (let y = 0; y < h; y += 1) { seed(y * w); seed(y * w + w - 1); }
+  while (top) {
+    const q = stack[--top];
+    const x = q % w; const y = (q - x) / w;
+    if (x > 0) seed(q - 1); if (x < w - 1) seed(q + 1); if (y > 0) seed(q - w); if (y < h - 1) seed(q + w);
+  }
+  const alpha = Buffer.alloc(w * h);
+  let x0 = w; let x1 = -1; let y0 = h; let y1 = -1;
+  for (let q = 0; q < w * h; q += 1) {
+    if (outside[q]) continue;
+    alpha[q] = 255;
+    const x = q % w; const y = (q - x) / w;
+    if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y;
+  }
+  return { rect, alpha, box: { left: rect.left + x0, top: rect.top + y0, width: x1 - x0 + 1, height: y1 - y0 + 1 }, W, H };
+}
+
 // candidate line boxes (percent), top to bottom
 function lineCandidates({ mask, w, h }) {
   const rowCount = (y) => { let c = 0; for (let x = 0; x < w; x += 1) c += mask[y * w + x]; return c; };
@@ -200,8 +289,10 @@ async function drawCandidates(jpeg, cands, marker = MARKERS[0]) {
 // highlight, align} and `runs` [{words, …the same}]; v4: paper edges no longer
 // hide lines, touching lines are split; v5: styles / colour / box read off
 // the letters only (not the tape or backgrounds around them); v6: a line the
-// model drops (type in the marker colour) is folded back in — older maps are re-read
-const REGIONS_V = 6;
+// model drops (type in the marker colour) is folded back in; v7: the logo's box
+// (`logo`); v8: model-guessed picture boxes tightened to the pixels — older
+// maps are re-read
+const REGIONS_V = 8;
 // stroke thickness / line height at and above which letters read as bold
 const BOLD_WEIGHT = Number(process.env.THEME_REGIONS_BOLD_WEIGHT) || 0.12;
 const HEX = /^#[0-9a-f]{6}$/i;
@@ -505,9 +596,14 @@ const REGION_TOOL = {
           required: ['boxes', 'line', 'text', 'style', 'runs'],
         },
       },
+      logo: {
+        type: 'object',
+        description: 'The brand logo / wordmark on the slide (percent of the slide, with the tag or sticker it sits on). Leave it out when there is none. A logo is NOT a text block and NOT a picture.',
+        properties: { left: { type: 'number' }, top: { type: 'number' }, width: { type: 'number' }, height: { type: 'number' } },
+      },
       pictures: {
         type: 'array',
-        description: 'Photographs / illustrations (percent of the slide; not decorations, not the background). Empty when none.',
+        description: 'Photographs / illustrations (percent of the slide; not decorations, not the background, not the logo). Empty when none.',
         items: {
           type: 'object',
           properties: { left: { type: 'number' }, top: { type: 'number' }, width: { type: 'number' }, height: { type: 'number' } },
@@ -518,7 +614,7 @@ const REGION_TOOL = {
     required: ['blocks', 'pictures'],
   },
 };
-const regionSystem = (mark) => `You read an Instagram slide, given twice: as it is, and with numbered ${mark} boxes marking candidate lines of ink found on it. Group the boxes that are TEXT into text blocks — each block is one headline, one paragraph, one label or one CTA (a block usually spans several consecutive lines in the same style). Leave out boxes that are not text (doodles, underline swooshes, tape, leaves, photo edges). Match each block to the expected copy line it shows, and describe how it is set, judged on the clean image: bold = a heavy weight (thicker strokes than regular text); italic = slanted letters; underline = a rule below the baseline; strike = a rule crossing the letters at mid-height; highlight = a painted band or box of colour directly behind the words (paper, texture or the slide background is NOT a highlight; the ${mark} annotation boxes are NOT a highlight); alignment. Type may be set in any colour, including one close to the boxes — judge it on image 1. List words set differently from the rest of their block as runs. Also give the bounding boxes of any photographs (percent of the slide). Call record_regions.`;
+const regionSystem = (mark) => `You read an Instagram slide, given twice: as it is, and with numbered ${mark} boxes marking candidate lines of ink found on it. Group the boxes that are TEXT into text blocks — each block is one headline, one paragraph, one label or one CTA (a block usually spans several consecutive lines in the same style). Leave out boxes that are not text (doodles, underline swooshes, tape, leaves, photo edges, and the brand logo / wordmark — give that as logo). Match each block to the expected copy line it shows, and describe how it is set, judged on the clean image: bold = a heavy weight (thicker strokes than regular text); italic = slanted letters; underline = a rule below the baseline; strike = a rule crossing the letters at mid-height; highlight = a painted band or box of colour directly behind the words (paper, texture or the slide background is NOT a highlight; the ${mark} annotation boxes are NOT a highlight); alignment. Type may be set in any colour, including one close to the boxes — judge it on image 1. List words set differently from the rest of their block as runs. Also give the bounding boxes of any photographs (percent of the slide). Call record_regions.`;
 
 /**
  * @param {{ buffer: Buffer, lines?: {role,text}[], photoBox?: {left,top,width,height}|null (pixels), key?: string }} p
@@ -567,9 +663,19 @@ async function mapRegions({ buffer, lines = [], photoBox = null, key = '' }) {
       retryHint: 'Call record_regions with valid JSON.',
     });
     const p = done.parsed && typeof done.parsed === 'object' ? done.parsed : {};
-    const pictures = (known.length ? known : (Array.isArray(p.pictures) ? p.pictures : []).map(pctBox))
+    let pictures = (known.length ? known : (Array.isArray(p.pictures) ? p.pictures : []).map(pctBox))
       .filter((b) => b.width > 3 && b.height > 3);
+    // the model's picture boxes are rough (round numbers, often over the text
+    // beside them): tightened to the picture the pixels show
+    if (!known.length) {
+      pictures = await Promise.all(pictures.map(async (b) => {
+        const blob = await pictureBlob(buffer, b).catch(() => null);
+        return blob ? pctBox({ left: (blob.box.left / W) * 100, top: (blob.box.top / H) * 100, width: (blob.box.width / W) * 100, height: (blob.box.height / H) * 100 }) : b;
+      }));
+    }
     const images = pictures.map((b, n) => ({ id: `i${n + 1}`, box: round1(b) }));
+    const lg = p.logo && typeof p.logo === 'object' ? pctBox(p.logo) : null;
+    const logo = lg && lg.width > 1 && lg.height > 1 && lg.width < 60 && lg.height < 40 ? round1(lg) : null;
     const union = (list) => {
       const l = Math.min(...list.map((b) => b.left));
       const t = Math.min(...list.map((b) => b.top));
@@ -646,12 +752,13 @@ async function mapRegions({ buffer, lines = [], photoBox = null, key = '' }) {
       v: REGIONS_V,
       texts,
       images,
+      logo,
       model,
       usage: { inputTokens: i, outputTokens: o, totalTokens: i + o, estimatedCostUsd: (i * PRICE.in + o * PRICE.out) / 1e6, elapsedMs: Date.now() - started },
       // for the AI debug panel: exactly what the model saw and said
       debug: {
         prompt: `SYSTEM:\n${REGION_SYSTEM}\n\nUSER (image 1: the slide; image 2: the slide with ${cands.length} numbered candidate line boxes):\n${userText}`,
-        output: JSON.stringify({ modelAnswer: p, regions: { texts, images } }, null, 2),
+        output: JSON.stringify({ modelAnswer: p, regions: { texts, images, logo } }, null, 2),
         inputImage: marked,
       },
     };
@@ -812,6 +919,35 @@ function eraseArea({ region }) {
     ],
   };
 }
+// The brand logo, put on (or taken off) a Theme Apply picture by the image
+// model — `box` is where the slide's logo sits (from the map) or the corner the
+// Brand Kit places it in; `refImage` the input number of the logo file.
+const LOGO_CORNERS = {
+  'top-left': { left: 5, top: 4, width: 22, height: 9 },
+  'top-right': { left: 73, top: 4, width: 22, height: 9 },
+  'bottom-left': { left: 5, top: 87, width: 22, height: 9 },
+  'bottom-right': { left: 73, top: 87, width: 22, height: 9 },
+};
+function logoBox(regions, position) {
+  return (regions?.logo && regions.logo.width) ? regions.logo : (LOGO_CORNERS[position] || LOGO_CORNERS['top-left']);
+}
+function logoArea({ box, refImage = 0, remove = false, had = false }) {
+  return {
+    box,
+    pad: 1,
+    lines: remove
+      ? [
+        'It holds the brand logo (with any tag, sticker or paper it sits on).',
+        'Remove the logo and what it sits on. Paint the area as the slide\'s background continues around it — the same paper, texture, colour and light — so nothing shows a logo was ever there. Do not add anything.',
+      ]
+      : [
+        had ? 'It holds the slide\'s current brand logo.' : 'It is a corner of the slide where the brand logo goes.',
+        `${had ? 'Replace that logo with' : 'Place'} the brand logo shown in Image ${refImage}, reproduced EXACTLY — the same mark, letterforms, spelling, colours and proportions; do not redraw, restyle or invent any part of it, and ignore the plain background around it in Image ${refImage}.`,
+        'Set it the way this slide\'s design would carry a small logo (on a paper tag, sticker or straight on the ground — whatever suits the style), small and legible, inside the area. Nothing else changes.',
+      ],
+  };
+}
+
 // The whole slide in a Brand Kit colour set (Editor › Theme colour on a Theme
 // Apply picture). `keep`: picture boxes (percent) the recolour must not touch —
 // they are protected in the mask and pasted back from the original.
@@ -841,11 +977,11 @@ async function repaintAreas(buffer, areas, references = []) {
   // black with only the protected photo recoloured), so it has to see the
   // whole slide; the pictures it keeps are pasted back from the original.
   const whole = areas.find((a) => a.whole);
-  const kept = whole ? (whole.keep || []).map((b) => pxBox(b, W, H)) : [];
   const holes = rects.map((r) => `<rect x="${r.left}" y="${r.top}" width="${r.width}" height="${r.height}" fill="#000" fill-opacity="0"/>`).join('');
   const mask = whole ? null : await sharp(Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}"><rect width="${W}" height="${H}" fill="#000"/>${holes}</svg>`)).png().toBuffer();
   const refs = await Promise.all(references.map(async (b, i) => ({
-    buffer: await sharp(b).rotate().resize({ width: 1024, height: 1024, fit: 'inside', withoutEnlargement: true }).jpeg({ quality: 90 }).toBuffer(),
+    // (a transparent logo would turn black in a jpeg — set it on white)
+    buffer: await sharp(b, { density: 300 }).rotate().flatten({ background: '#ffffff' }).resize({ width: 1024, height: 1024, fit: 'inside', withoutEnlargement: true }).jpeg({ quality: 90 }).toBuffer(),
     mediaType: 'image/jpeg',
     name: `reference-${i + 1}`,
   })));
@@ -873,7 +1009,17 @@ async function repaintAreas(buffer, areas, references = []) {
   if (whole) {
     // the model's whole picture, then the kept photographs back from the original
     out = await sharp(r.buffer).resize(W, H, { fit: 'fill' }).jpeg({ quality: 94 }).toBuffer();
-    const pieces = await Promise.all(kept.map(async (k) => ({ input: await sharp(src).extract(k).toBuffer(), left: k.left, top: k.top })));
+    // only the picture's own pixels go back (a loose box would bring the old
+    // ground and words around it back too), with a soft edge
+    const pieces = await Promise.all((whole.keep || []).map(async (b) => {
+      const blob = await pictureBlob(src, b).catch(() => null);
+      if (!blob) return null;
+      const r = blob.rect;
+      const alpha = await sharp(blob.alpha, { raw: { width: r.width, height: r.height, channels: 1 } }).blur(1.2).raw().toBuffer();
+      const rgb = await sharp(src).extract(r).removeAlpha().raw().toBuffer();
+      const input = await sharp(rgb, { raw: { width: r.width, height: r.height, channels: 3 } }).joinChannel(alpha, { raw: { width: r.width, height: r.height, channels: 1 } }).png().toBuffer();
+      return { input, left: r.left, top: r.top };
+    })).then((list) => list.filter(Boolean));
     if (pieces.length) out = await sharp(out).composite(pieces).jpeg({ quality: 92, mozjpeg: true }).toBuffer();
   } else {
     for (const rect of rects) out = await compositeRegion(out, r.buffer, rect); // eslint-disable-line no-await-in-loop
@@ -886,4 +1032,4 @@ async function repaintAreas(buffer, areas, references = []) {
   };
 }
 
-module.exports = { mapRegions, sameWords, editText, regenImage, eraseImage, placePhoto, rewriteText, REGIONS_V, typeFeatures, textArea, imageArea, eraseArea, recolourArea, repaintAreas };
+module.exports = { mapRegions, sameWords, logoArea, logoBox, editText, regenImage, eraseImage, placePhoto, rewriteText, REGIONS_V, typeFeatures, textArea, imageArea, eraseArea, recolourArea, repaintAreas };

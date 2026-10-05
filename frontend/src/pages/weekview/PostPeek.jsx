@@ -197,7 +197,10 @@ function PeekSlide({ slide, paint, themed, documentHtml, carouselLayoutHtmls, sl
       : [slide?.layoutHtml],
   );
   const store = useStore();
-  const mark = markForSlide(store.brandLogos, slide, urls[0] ? 'photo' : 'ground');
+  // a Theme Apply picture carries its logo painted in — no overlay on it
+  const mark = /^themed-image/.test(String(slide?.layoutTheme || ''))
+    ? null
+    : markForSlide(store.brandLogos, slide, urls[0] ? 'photo' : 'ground');
   const logo = mark?.key
     ? { ...mark, url: canvasSafeUrl(mark.url, mark.key) || mark.url }
     : mark;

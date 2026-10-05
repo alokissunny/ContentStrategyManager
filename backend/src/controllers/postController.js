@@ -1497,7 +1497,7 @@ async function readSlideRegions(record, slideIndex) {
   // photo box still holds for a render edited since
   const mapped = await mapRegions({ buffer: bytes, lines, photoBox: run?.primaryImage?.box || null, key: lead });
   if (!mapped) return { error: [502, 'Could not find the text and picture on this slide — try again.'] };
-  const regions = { key: lead, v: mapped.v, texts: mapped.texts, images: mapped.images };
+  const regions = { key: lead, v: mapped.v, texts: mapped.texts, images: mapped.images, logo: mapped.logo || null };
   // the slide may have moved on while the model read it (another edit)
   const now = await PlannedPost.findOne({ _id: record._id, user: record.user });
   const cur = now && themedSlideAt(now, idx);
@@ -1562,7 +1562,9 @@ function restyleRegion(region, marks) {
 //                instructions are rewrite asks applied to the words first,
 //   'photo'      (picture)      photoKey — fitted in, no model,
 //   'regenerate' (picture)      instruction? referenceKey?,
-//   'remove'     (picture) }.
+//   'remove'     (picture),
+//   'recolour'   (regionId 'colours') palette setId? name?,
+//   'logo'       (regionId 'logo')    logoKey slot? position? | remove }.
 async function editThemeRegion(req, res) {
   const record = await PlannedPost.findOne({ _id: req.params.id, user: req.user._id });
   if (!record) return res.status(404).json({ message: 'Post not found' });
@@ -1572,7 +1574,7 @@ async function editThemeRegion(req, res) {
   const regions = slide.themeRegions;
   if (!regions || regions.key !== lead) return res.status(409).json({ needsMap: true, message: 'Map the slide\'s regions first.' });
   const own = `projects/${req.user._id}/`;
-  const { placePhoto, rewriteText, textArea, imageArea, eraseArea, recolourArea, repaintAreas } = require('../services/themeRegions');
+  const { placePhoto, rewriteText, textArea, imageArea, eraseArea, recolourArea, logoArea, logoBox, repaintAreas } = require('../services/themeRegions');
 
   // ── read every change first; a bad one fails the lot before any work ──
   const asked = (Array.isArray(req.body?.changes) ? req.body.changes : [req.body]).slice(0, 12);
@@ -1586,6 +1588,19 @@ async function editThemeRegion(req, res) {
       const palette = { ground: hex(c?.palette?.ground), fg: hex(c?.palette?.fg), accent: hex(c?.palette?.accent) };
       if (!palette.ground && !palette.fg && !palette.accent) return res.status(400).json({ message: 'Choose a colour set first.' });
       byRegion.set('colours', { regionId: 'colours', action, palette, setId: String(c?.setId || '').slice(0, 60), name: String(c?.name || '').slice(0, 60), region: { id: 'colours' } });
+      continue;
+    }
+    // the brand logo: painted in from the Brand Kit file, or taken off
+    if (action === 'logo') {
+      const remove = c?.remove === true;
+      const logoKey = String(c?.logoKey || '');
+      if (!remove && !logoKey.startsWith(`visualbrand/${req.user._id}/`)) return res.status(400).json({ message: 'Choose one of your Brand Kit logos.' });
+      if (remove && !regions.logo) return res.status(400).json({ message: 'There is no logo on this slide to take off.' });
+      const position = ['top-left', 'top-right', 'bottom-left', 'bottom-right'].includes(c?.position) ? c.position : 'top-left';
+      byRegion.set('logo', {
+        regionId: 'logo', action, remove, logoKey, slot: String(c?.slot || '').slice(0, 30), had: Boolean(regions.logo),
+        region: { id: 'logo', box: logoBox(regions, position) },
+      });
       continue;
     }
     const textRegion = (regions.texts || []).find((t) => t.id === regionId);
@@ -1651,7 +1666,7 @@ async function editThemeRegion(req, res) {
     // …then every other change, ONE image-model call over all their areas
     const modelled = live.filter((p) => p.action !== 'photo');
     if (modelled.length) {
-      const refKeys = [...new Set(modelled.map((p) => p.refKey).filter(Boolean))];
+      const refKeys = [...new Set(modelled.map((p) => p.refKey || (p.action === 'logo' && !p.remove ? p.logoKey : '')).filter(Boolean))];
       const references = await Promise.all(refKeys.map(async (k) => (await getObjectBytes(k)).buffer));
       // pictures the recolour leaves alone: every one not being changed itself
       const touchedPics = new Set(live.filter((p) => !p.isText && p.action !== 'recolour').map((p) => p.regionId));
@@ -1660,6 +1675,7 @@ async function editThemeRegion(req, res) {
       modelled.sort((a, b) => (b.action === 'recolour') - (a.action === 'recolour'));
       const areas = modelled.map((p) => {
         if (p.action === 'recolour') return recolourArea({ palette: p.palette, name: p.name, keep });
+        if (p.action === 'logo') return logoArea({ box: p.region.box, remove: p.remove, had: p.had, refImage: p.remove ? 0 : refKeys.indexOf(p.logoKey) + 2 });
         if (p.action === 'text') return textArea({ region: p.region, text: p.text, marks: p.marks, remove: p.removed });
         if (p.action === 'remove') return eraseArea({ region: p.region });
         return imageArea({ region: p.region, instruction: p.instruction, refImage: p.refKey ? refKeys.indexOf(p.refKey) + 2 : 0 });
@@ -1688,9 +1704,12 @@ async function editThemeRegion(req, res) {
   const gone = new Set(plans.filter((p) => p.removed).map((p) => p.regionId));
   const textPlan = new Map(plans.filter((p) => p.action === 'text').map((p) => [p.regionId, p]));
   const recoloured = plans.find((p) => p.action === 'recolour');
+  const logoPlan = plans.find((p) => p.action === 'logo');
   const nextRegions = {
     ...regions,
     key,
+    // where the logo now sits (or none)
+    ...(logoPlan ? { logo: logoPlan.remove ? null : logoPlan.region.box } : {}),
     // the words' colours changed with the set — the map is read again next open
     ...(recoloured ? { v: 0 } : {}),
     images: (regions.images || []).filter((t) => !gone.has(t.id)),
@@ -1720,6 +1739,8 @@ async function editThemeRegion(req, res) {
     themeRegions: nextRegions,
     // the menu shows the set the picture is now drawn in
     ...(recoloured?.setId ? { colorSet: recoloured.setId, colorSetAt: Date.now() } : {}),
+    // the menu shows the logo the picture now carries
+    ...(logoPlan ? { logoMark: logoPlan.remove ? 'off' : (logoPlan.slot || was.logoMark || '') } : {}),
   };
   record.content.carouselHtml = swapKey(current.carouselHtml);
   const usage = painted?.usage || null;
@@ -1743,6 +1764,7 @@ async function editThemeRegion(req, res) {
           removed: p.removed || undefined,
           photoKey: p.photoKey || undefined,
           palette: p.palette || undefined,
+          logoKey: p.logoKey || undefined,
           referenceKey: p.refKey || undefined,
           instruction: p.instruction || undefined,
         })),
@@ -1769,6 +1791,7 @@ async function editThemeRegion(req, res) {
         ? `Text ${p.regionId} (${r.role}) removed: ${JSON.stringify(r.text)}`
         : `Text ${p.regionId} (${r.role}): ${JSON.stringify(r.text)} → ${JSON.stringify(p.text)}${p.asks?.length ? ` (asked: ${p.asks.join('; ')})` : ''}${p.marks?.length ? ` · ${p.marks.map((m) => (m.words ? `"${m.words}" ${m.what}` : m.what)).join('; ')}` : ''}`;
     }
+    if (p.action === 'logo') return p.remove ? 'Logo taken off' : `Logo ${p.had ? 'replaced with' : 'placed:'} ${p.logoKey}`;
     if (p.action === 'recolour') return `Whole slide recoloured${p.name ? ` into "${p.name}"` : ''}: ${JSON.stringify(p.palette)}`;
     if (p.action === 'photo') return `Picture ${p.regionId}: photo ${p.photoKey} fitted in`;
     if (p.action === 'remove') return `Picture ${p.regionId} removed`;

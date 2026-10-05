@@ -2246,6 +2246,8 @@ function carouselDocumentOf(day) {
 // the chat's suggestions on a Theme Apply text block (bauhly-v3 ShotSpots TEXT_TRIES)
 // a held colour set on a Theme Apply slide: not a region — the whole picture
 const COLOUR_REGION = { id: 'colours', role: 'colours' };
+// …and a held logo on one: painted in (or taken off) by the image model
+const LOGO_REGION = { id: 'logo', role: 'logo' };
 // …and on a Theme Apply picture (bauhly-v3 ShotSpots IMAGE_TRIES)
 const IMAGE_TRIES = [
   { say: 'Generate a new image', act: 'generate' },
@@ -2530,7 +2532,11 @@ function SlideMedia({
       ? carouselLayoutHtmls
       : [slide?.layoutHtml],
   );
-  const mark = markForSlide(store.brandLogos, slide, src ? 'photo' : 'ground');
+  // a Theme Apply picture carries its logo painted in (Editor ⋯ › Logo redraws
+  // it) — no overlay on top of it
+  const mark = /^themed-image/.test(String(slide?.layoutTheme || ''))
+    ? null
+    : markForSlide(store.brandLogos, slide, src ? 'photo' : 'ground');
   const logo = mark?.key
     ? { ...mark, url: canvasSafeUrl(mark.url, mark.key) || mark.url }
     : mark;
@@ -5427,7 +5433,7 @@ export default function WeekView({
     const saved = activeSlide?.themeRegions;
     // maps older than v6 (the current pixel read, see services/themeRegions) are
     // read again
-    if (saved?.key === themedKey && (Number(saved.v) || 1) >= 6) { setRgnMap(saved); return undefined; }
+    if (saved?.key === themedKey && (Number(saved.v) || 1) >= 8) { setRgnMap(saved); return undefined; }
     let alive = true;
     setRgnMap(null);
     setRgnLoading(true);
@@ -5476,7 +5482,7 @@ export default function WeekView({
   const rgnTextOpen = rgnOpen && rgnIsText;
   const rgnImgOpen = rgnOpen && !rgnIsText;
   const roleLabel = (r) => String(r?.role || 'Text').replace(/^./, (c) => c.toUpperCase());
-  const heldLabel = (h) => (h.change?.kind === 'image' ? 'Image' : h.change?.kind === 'colours' ? 'Colours' : roleLabel(h.region));
+  const heldLabel = (h) => ({ image: 'Image', colours: 'Colours', logo: 'Logo' }[h.change?.kind] || roleLabel(h.region));
   const openLabel = rgnRegion ? (rgnIsText ? roleLabel(rgnRegion) : 'Image') : '';
   function holdChange(region, change, slideIdx = safeIdx) {
     const k = heldKey(slideIdx, region.id);
@@ -5491,6 +5497,7 @@ export default function WeekView({
   function heldWhat(h) {
     const c = h.change || {};
     if (c.kind === 'colours') return `→ ${c.name || 'a new set'}`;
+    if (c.kind === 'logo') return c.remove ? 'taken off' : `→ ${c.name || 'your logo'}`;
     if (c.kind === 'image') {
       const what = { replace: 'replaced', generate: 'regenerated', remove: 'removed', ref: 'from a new reference', asvisual: 'drawn as a graphic' }[c.act] || 'changed';
       return (c.asks || []).length && c.act !== 'remove' ? `${what} · ${c.asks.map((a) => a.say).join('; ')}` : what;
@@ -5546,6 +5553,11 @@ export default function WeekView({
   }
   function regionBody(h) {
     const c = h.change || {};
+    if (c.kind === 'logo') {
+      return c.remove
+        ? { regionId: 'logo', action: 'logo', remove: true }
+        : { regionId: 'logo', action: 'logo', logoKey: c.key, slot: c.slot, position: logoPositionOf(vbStore?.libraryEdits) };
+    }
     if (c.kind === 'colours') {
       return { regionId: 'colours', action: 'recolour', setId: c.setId, name: c.name, palette: { ground: c.palette.ground, fg: c.palette.fg, accent: c.palette.accent } };
     }
@@ -5992,6 +6004,29 @@ export default function WeekView({
     } catch { /* the Brand Kit keeps what it had */ }
     finally { setUploading(false); }
   }
+  /* Editor ⋯ › Logo. An HTML slide draws the mark as an overlay (`logoMark`).
+     A Theme Apply picture can only be redrawn with it, so there the pick is
+     HELD in the chat's changes ("Logo → Full") and Send paints that Brand Kit
+     file in (replacing the logo already painted) — or takes it off — in the
+     slide's one image call. */
+  function logoSlide(mark, slots = vbStore?.brandLogos) {
+    if (!/^themed-image/.test(String(activeSlide?.layoutTheme || ''))) {
+      dressSlides(false, { logoMark: mark });
+      return;
+    }
+    if (mark === 'off') {
+      // nothing painted to take off: only the menu's state changes
+      if (!rgnMap?.logo) { dressSlides(false, { logoMark: 'off' }); return; }
+      holdChange(LOGO_REGION, { kind: 'logo', remove: true });
+    } else {
+      const rec = markForSlide(slots, { logoMark: mark }, 'ground');
+      if (!rec?.key) return;
+      const name = LOGO_SLOT_NAMES.find((l) => l.slot === rec.slot)?.name || 'your logo';
+      holdChange(LOGO_REGION, { kind: 'logo', slot: rec.slot, key: rec.key, name });
+    }
+    closeZone();
+    setAskPath([]); setAskMsg(null); setAskOpen(true);
+  }
   async function uploadKitLogo(file) {
     if (!file?.type?.startsWith('image/')) return;
     const slots = vbStore?.brandLogos || {};
@@ -6004,7 +6039,7 @@ export default function WeekView({
       const logos = await uploadLogo(slot, file);
       if (logos) {
         setStoreState({ brandLogos: logos });
-        dressSlides(false, { logoMark: slot });
+        logoSlide(slot, logos);
       }
     } catch { /* keep the marks already there */ }
     finally { setUploading(false); }
@@ -6448,7 +6483,7 @@ export default function WeekView({
     onUploadGround: uploadKitGround,
     logos: kitLogos,
     logoMark: activeSlide?.logoMark || '',
-    onLogo: (mark) => dressSlides(false, { logoMark: mark || '' }),
+    onLogo: (mark) => logoSlide(mark || ''),
     onUploadLogo: uploadKitLogo,
     sameAll: Boolean(copySnap && copySnap.dayIndex === selected),
     onSameAll: copyDressToAll,

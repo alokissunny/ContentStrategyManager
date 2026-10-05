@@ -328,7 +328,7 @@ async function applyThemeToSlide({ slideIndex, slide = {}, userId, reference, sn
     textLines: lines,
     brandColors: palette,
     brandFonts: faces,
-    regions: regions ? { key, v: regions.v, texts: regions.texts, images: regions.images } : null,
+    regions: regions ? { key, v: regions.v, texts: regions.texts, images: regions.images, logo: regions.logo || null } : null,
     regionsDebug: regions?.debug ? { ...regions.debug, model: regions.model, usage: regions.usage } : null,
     primaryImage: photo?.buffer ? { kept: Boolean(placed?.found), box: placed?.box || null, renders: renders.length } : null,
     check: checks.length ? { runs: checks.length, firstProblems: checks[0].problems, problems: lastCheck.problems } : null,
