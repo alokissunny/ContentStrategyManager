@@ -322,6 +322,12 @@ export function removeTheme(id, { slideIndex } = {}) {
 // each slide's pictures) — the reference the model rebuilds from. The server
 // saves the result and returns the post. slideIndex null = every slide.
 // → { post, changed: [slideIndex…] }
+// Editor ⋯ › Layout › Upload a composition: the picture's arrangement
+// → { layout: 'text'|'top'|'bottom'|'left'|'right'|'bleed', description }
+export function readComposition(imageKey) {
+  return client.post('/posts/composition/read', { imageKey }, { timeout: 60000 }).then((res) => res.data || {});
+}
+
 export function refinePost(id, { instruction, slideIndex, focus, current, visual, visualSlideIndex, layoutIssues, geometry, slideCss, intent } = {}) {
   // one debug-panel group per edit: every step's input and output, then a
   // summary row with the instruction — on failure too

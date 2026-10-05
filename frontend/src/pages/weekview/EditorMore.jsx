@@ -90,6 +90,14 @@ export default function EditorMore({ acts, onClose }) {
   const groundFile = useRef(null);
   const logoFile = useRef(null);
 
+  // Layout: the arrangement marked on the grid, and a composition picture read
+  // for one ({ url (object URL), name, id, layName, description })
+  const [layPick, setLayPick] = useState(null);
+  const [layShot, setLayShot] = useState(null);
+  const [layBusy, setLayBusy] = useState(false);
+  const [laySaid, setLaySaid] = useState('');
+  const layFile = useRef(null);
+
   const backRow = (label, to = null) => [
     { id: 'back', icon: 'chevron-left', label, fn: () => setLevel(to), into: true, back: true },
   ];
@@ -98,6 +106,109 @@ export default function EditorMore({ acts, onClose }) {
     { id: 'one', icon: 'brief', label: 'This slide', hint: one, fn: () => put(false) },
     { id: 'all', icon: 'copy', label: 'All slides', hint: all, fn: () => put(true) },
   ];
+
+  /* ── Layout (bauhly-v3 PostMenu `layout`) ────────────────────────────
+   * Six arrangements as wireframes, and Upload a composition under them: a
+   * picture laid out the way the studio wants, read by AI for its arrangement
+   * (it then stands where the grid stood, with what it was read as and an ×).
+   * A press MARKS; the act is the pair at the foot — Apply layout to this slide
+   * / all slides — and applying is an AI edit of the slide's html. */
+  if (level === 'layout') {
+    const lays = acts.layouts || {};
+    const list = lays.list || [];
+    const dropShot = () => {
+      if (layShot?.url) { try { URL.revokeObjectURL(layShot.url); } catch { /* already gone */ } }
+      setLayShot(null);
+    };
+    const go = (every) => {
+      const id = layPick;
+      const comp = layShot ? { description: layShot.description } : null;
+      dropShot();
+      setLayPick(null);
+      setLaySaid('');
+      lays.onApply?.(id, every, comp);
+      onClose();
+    };
+    const applyRows = !layPick ? [] : (many ? [
+      { id: 'one', icon: 'brief', label: 'Apply layout to this slide', hint: 'The others keep theirs', dead: acts.busy, fn: () => go(false) },
+      { id: 'all', icon: 'copy', label: 'Apply layout to all slides', hint: 'The whole carousel takes it', dead: acts.busy, fn: () => go(true) },
+    ] : [
+      { id: 'go', icon: 'sparkle', label: 'Apply layout to this post', hint: 'Fits this post to that arrangement', dead: acts.busy, fn: () => go(false) },
+    ]);
+    return (
+      <>
+        <Rows onClose={onClose} rows={backRow('Layouts')} />
+        <FilePick
+          inputRef={layFile}
+          onFile={async (f) => {
+            setLaySaid('');
+            setLayBusy(true);
+            const url = URL.createObjectURL(f);
+            let got = null;
+            try { got = await lays.onRead?.(f); } catch { got = null; }
+            setLayBusy(false);
+            if (!got?.id) {
+              URL.revokeObjectURL(url);
+              setLaySaid('That picture could not be read');
+              return;
+            }
+            dropShot();
+            setLayPick(got.id);
+            setLayShot({ url, name: f.name || 'your picture', id: got.id, layName: got.name, description: got.description });
+          }}
+        />
+        {layShot ? (
+          <div className="wv-em__thm">
+            <span className="wv-em__thmart"><img src={layShot.url} alt="" /></span>
+            <span className="wv-em__thmsay">
+              <span className="wv-em__thmname">{layShot.layName}</span>
+              <span className="wv-em__thmnote" title={layShot.name}>{`Read from ${layShot.name}`}</span>
+            </span>
+            <button
+              type="button"
+              className="wv-em__thmx"
+              aria-label="Take this picture off"
+              onClick={(e) => { e.stopPropagation(); dropShot(); setLayPick(null); }}
+            >
+              <Icon name="x" size={15} strokeWidth={2.2} />
+            </button>
+          </div>
+        ) : (
+          <>
+            <div className="wv-em__lays" role="group" aria-label="Layouts">
+              {list.map((l) => (
+                <button
+                  key={l.id}
+                  type="button"
+                  title={l.name}
+                  aria-label={l.name}
+                  aria-pressed={layPick === l.id}
+                  className={`wv-em__lay wv-em__lay--${l.id}${layPick === l.id ? ' is-pick' : ''}`}
+                  onClick={(e) => { e.stopPropagation(); setLayPick(l.id); }}
+                >
+                  <i aria-hidden="true" />
+                </button>
+              ))}
+            </div>
+            <Rows
+              onClose={onClose}
+              rows={[{
+                id: 'layref',
+                icon: 'image-plus',
+                label: layBusy ? 'Reading your picture…' : 'Upload a composition',
+                hint: laySaid || 'A picture laid out the way you want',
+                dead: layBusy,
+                fn: () => layFile.current?.click(),
+                into: true,
+                chevron: true,
+              }]}
+            />
+          </>
+        )}
+        {applyRows.length > 0 && <Rows onClose={onClose} rows={[{ id: 'r-lay', rule: true }, ...applyRows]} />}
+      </>
+    );
+  }
 
   /* ── Themes ─────────────────────────────────────────────────────────── */
   // A direction is chosen two ways — from the library, or read off a photo the
@@ -610,7 +721,7 @@ export default function EditorMore({ acts, onClose }) {
     <Rows
       onClose={onClose}
       rows={[
-        { id: 'layouts', icon: 'blocks', label: 'Layout', hint: 'How this slide is arranged', dead: acts.busy, fn: () => acts.onLayouts?.(), stay: true, chevron: true },
+        { id: 'layouts', icon: 'blocks', label: 'Layout', hint: 'How this slide is arranged', dead: acts.busy, fn: () => setLevel('layout'), into: true, chevron: true },
         { id: 'themes', icon: 'droplet', label: 'Theme', hint: 'The direction it wears', fn: () => setLevel('theme'), into: true, chevron: true },
         { id: 'content', icon: 'layers', label: 'Content', hint: 'Image and logo', fn: () => setLevel('content'), into: true, chevron: true },
         { id: 'style', icon: 'swatch', label: 'Style', hint: 'Colours and background', fn: () => setLevel('style'), into: true, chevron: true },

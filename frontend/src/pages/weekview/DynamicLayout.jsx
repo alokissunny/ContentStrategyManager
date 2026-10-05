@@ -31,12 +31,17 @@ const ANNOTATIONS_ENABLED = false;
 function markImagesLoaded(doc) {
   if (!doc) return;
   doc.querySelectorAll('img[data-slot="image"][src]').forEach((img) => {
-    if (img.complete && img.naturalWidth > 0) { img.classList.add('is-loaded'); return; }
-    if (img.dataset.hfWatch === '1') return;
-    img.dataset.hfWatch = '1';
-    const done = () => img.classList.add('is-loaded');
-    img.addEventListener('load', done, { once: true });
-    img.addEventListener('error', done, { once: true }); // stop the shimmer even if it fails
+    // a picture that failed shows as an empty picture space (`is-broken`); a
+    // later src that loads clears it — the listeners stay for the img's life
+    if (img.dataset.hfWatch !== '1') {
+      img.dataset.hfWatch = '1';
+      img.addEventListener('load', () => { img.classList.add('is-loaded'); img.classList.remove('is-broken'); });
+      img.addEventListener('error', () => { img.classList.add('is-loaded', 'is-broken'); });
+    }
+    if (img.complete) {
+      img.classList.add('is-loaded');
+      img.classList.toggle('is-broken', !(img.naturalWidth > 0));
+    }
   });
 }
 

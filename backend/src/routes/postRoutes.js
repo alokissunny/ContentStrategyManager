@@ -26,6 +26,7 @@ const {
   addSlideToPost,
   getPostProject,
   renderCover,
+  readCompositionPicture,
 } = require('../controllers/postController');
 
 const router = express.Router();
@@ -37,6 +38,7 @@ router.post('/distribute', asyncHandler(distributePosts));
 router.get('/distribution', asyncHandler(getDistribution));
 router.put('/distribution', asyncHandler(setDistribution));
 router.post('/shift', asyncHandler(shiftPosts));
+router.post('/composition/read', asyncHandler(readCompositionPicture));
 router.delete('/', asyncHandler(clearUpcoming));
 router.get('/:id', asyncHandler(getPostById));
 router.get('/:id/options', asyncHandler(getPostOptions));

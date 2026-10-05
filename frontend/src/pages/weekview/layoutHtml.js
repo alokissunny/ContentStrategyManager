@@ -819,6 +819,11 @@ export const IMG_SHIMMER_CSS = [
   '@keyframes hf-imgshimmer{0%{background-position:180% 0}100%{background-position:-60% 0}}',
   '@keyframes hf-imgin{from{opacity:0}to{opacity:1}}',
   '@media (prefers-reduced-motion:reduce){img[data-slot="image"][src]:not(.is-loaded){animation:none}img[data-slot="image"].is-loaded{animation:none}}',
+  // a picture space with no picture — none bound to it yet, or one that failed
+  // to load — shows as an empty picture placeholder (a hatch), never as a gap
+  'img[data-slot="image"]:not([src]),img[data-slot="image"].is-placeholder,img[data-slot="image"].is-broken{'
+    + 'background-color:#e6e3dd;background-image:repeating-linear-gradient(135deg,rgba(27,16,13,.08) 0 10px,transparent 10px 20px);'
+    + 'color:transparent;object-position:-99999px -99999px !important;animation:none}',
 ].join('');
 
 const SLIDE_FRAME_SHELL = [

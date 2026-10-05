@@ -948,6 +948,27 @@ function logoArea({ box, refImage = 0, remove = false, had = false }) {
   };
 }
 
+// Editor ⋯ › Layout on a Theme Apply picture: the whole slide re-arranged by
+// the image model — the same words, photo, type and colours, laid out anew.
+// `photoImage`: the input number of the slide's own photograph (kept faithful).
+function relayoutArea({ instruction, photoImage = 0 }) {
+  return {
+    whole: true,
+    box: { left: 0, top: 0, width: 100, height: 100 },
+    pad: 0,
+    keep: [],
+    lines: [
+      'Re-arrange this slide into a new layout:',
+      String(instruction || '').trim(),
+      'Keep EVERYTHING else: every word with its exact spelling and line order, the typefaces, weights and type colours, the paper / ground, textures, tape, doodles and decoration, the brand logo, and the overall look. Only the positions and proportions change to fit the new arrangement.',
+      photoImage
+        ? `The slide's photograph is Image ${photoImage}: show that same photograph (same content, crop it to the new picture area) — never invent a different one.`
+        : 'Any photograph on the slide stays the same photograph — only its frame and position change. If the new arrangement has a picture area and the slide has no photograph, fill it with a picture that suits what the slide says, in the slide\'s style.',
+      'The result is a finished 4:5 Instagram slide with nothing cut off at the edges.',
+    ].filter(Boolean),
+  };
+}
+
 // The whole slide in a Brand Kit colour set (Editor › Theme colour on a Theme
 // Apply picture). `keep`: picture boxes (percent) the recolour must not touch —
 // they are protected in the mask and pasted back from the original.
@@ -1032,4 +1053,4 @@ async function repaintAreas(buffer, areas, references = []) {
   };
 }
 
-module.exports = { mapRegions, sameWords, logoArea, logoBox, editText, regenImage, eraseImage, placePhoto, rewriteText, REGIONS_V, typeFeatures, textArea, imageArea, eraseArea, recolourArea, repaintAreas };
+module.exports = { mapRegions, sameWords, logoArea, logoBox, relayoutArea, editText, regenImage, eraseImage, placePhoto, rewriteText, REGIONS_V, typeFeatures, textArea, imageArea, eraseArea, recolourArea, repaintAreas };

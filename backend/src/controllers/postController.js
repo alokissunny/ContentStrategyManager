@@ -1511,6 +1511,28 @@ async function readSlideRegions(record, slideIndex) {
   return { regions, mapped, record: now };
 }
 
+// POST /posts/composition/read { imageKey } — Editor ⋯ › Layout › Upload a
+// composition: the picture's arrangement → { layout, description }
+async function readCompositionPicture(req, res) {
+  const key = String(req.body?.imageKey || '');
+  if (!key.startsWith(`projects/${req.user._id}/`)) return res.status(400).json({ message: 'Upload the picture first.' });
+  let bytes;
+  try {
+    bytes = (await getObjectBytes(key)).buffer;
+  } catch (err) {
+    return res.status(502).json({ message: `Could not read that picture (${err.message}).` });
+  }
+  try {
+    const { readComposition } = require('../services/compositionRead');
+    const read = await readComposition(bytes);
+    if (!read.layout) return res.status(422).json({ message: 'That picture could not be read.' });
+    return res.json(read);
+  } catch (err) {
+    console.error('[posts] composition read failed:', err.message);
+    return res.status(502).json({ message: 'That picture could not be read — try again.' });
+  }
+}
+
 // POST /posts/:id/slide/:slideIndex/theme-regions — map (or return) the regions
 // of the slide's current themed render. Body: { force? }
 async function mapThemeRegions(req, res) {
@@ -1567,20 +1589,24 @@ function restyleRegion(region, marks) {
 //   'regenerate' (picture)      instruction? referenceKey?,
 //   'remove'     (picture),
 //   'recolour'   (regionId 'colours') palette setId? name?,
-//   'logo'       (regionId 'logo')    logoKey slot? position? | remove }.
+//   'logo'       (regionId 'logo')    logoKey slot? position? | remove,
+//   'relayout'   (alone; no map needed) instruction — the whole slide re-arranged }.
 async function editThemeRegion(req, res) {
   const record = await PlannedPost.findOne({ _id: req.params.id, user: req.user._id });
   if (!record) return res.status(404).json({ message: 'Post not found' });
   const at = themedSlideAt(record, req.params.slideIndex);
   if (at.error) return res.status(at.error[0]).json({ message: at.error[1] });
   const { idx, slide, lead, photos } = at;
-  const regions = slide.themeRegions;
-  if (!regions || regions.key !== lead) return res.status(409).json({ needsMap: true, message: 'Map the slide\'s regions first.' });
+  const asked = (Array.isArray(req.body?.changes) ? req.body.changes : [req.body]).slice(0, 12);
+  // a re-arrangement repaints the whole picture — it needs no map of it
+  const relayoutOnly = asked.length > 0 && asked.every((c) => c?.action === 'relayout');
+  const mapped = slide.themeRegions && slide.themeRegions.key === lead;
+  if (!mapped && !relayoutOnly) return res.status(409).json({ needsMap: true, message: 'Map the slide\'s regions first.' });
+  const regions = mapped ? slide.themeRegions : { key: lead, texts: [], images: [] };
   const own = `projects/${req.user._id}/`;
-  const { placePhoto, rewriteText, textArea, imageArea, eraseArea, recolourArea, logoArea, logoBox, repaintAreas } = require('../services/themeRegions');
+  const { placePhoto, rewriteText, textArea, imageArea, eraseArea, recolourArea, logoArea, logoBox, relayoutArea, repaintAreas } = require('../services/themeRegions');
 
   // ── read every change first; a bad one fails the lot before any work ──
-  const asked = (Array.isArray(req.body?.changes) ? req.body.changes : [req.body]).slice(0, 12);
   const byRegion = new Map(); // the last change to a region wins
   for (const c of asked) {
     const regionId = String(c?.regionId || '');
@@ -1591,6 +1617,14 @@ async function editThemeRegion(req, res) {
       const palette = { ground: hex(c?.palette?.ground), fg: hex(c?.palette?.fg), accent: hex(c?.palette?.accent) };
       if (!palette.ground && !palette.fg && !palette.accent) return res.status(400).json({ message: 'Choose a colour set first.' });
       byRegion.set('colours', { regionId: 'colours', action, palette, setId: String(c?.setId || '').slice(0, 60), name: String(c?.name || '').slice(0, 60), region: { id: 'colours' } });
+      continue;
+    }
+    // Editor ⋯ › Layout on a theme picture: the whole slide re-arranged
+    if (action === 'relayout') {
+      if (asked.length > 1) return res.status(400).json({ message: 'Change the layout on its own.' });
+      const instruction = String(c?.instruction || '').trim().slice(0, 1200);
+      if (!instruction) return res.status(400).json({ message: 'Choose a layout first.' });
+      byRegion.set('layout', { regionId: 'layout', action, instruction, photoKey: photos[0] || '', region: { id: 'layout' } });
       continue;
     }
     // the brand logo: painted in from the Brand Kit file, or taken off
@@ -1669,7 +1703,7 @@ async function editThemeRegion(req, res) {
     // …then every other change, ONE image-model call over all their areas
     const modelled = live.filter((p) => p.action !== 'photo');
     if (modelled.length) {
-      const refKeys = [...new Set(modelled.map((p) => p.refKey || (p.action === 'logo' && !p.remove ? p.logoKey : '')).filter(Boolean))];
+      const refKeys = [...new Set(modelled.map((p) => p.refKey || (p.action === 'logo' && !p.remove ? p.logoKey : '') || (p.action === 'relayout' ? p.photoKey : '')).filter(Boolean))];
       const references = await Promise.all(refKeys.map(async (k) => (await getObjectBytes(k)).buffer));
       // pictures the recolour leaves alone: every one not being changed itself
       const touchedPics = new Set(live.filter((p) => !p.isText && p.action !== 'recolour').map((p) => p.regionId));
@@ -1678,6 +1712,7 @@ async function editThemeRegion(req, res) {
       modelled.sort((a, b) => (b.action === 'recolour') - (a.action === 'recolour'));
       const areas = modelled.map((p) => {
         if (p.action === 'recolour') return recolourArea({ palette: p.palette, name: p.name, keep });
+        if (p.action === 'relayout') return relayoutArea({ instruction: p.instruction, photoImage: p.photoKey ? refKeys.indexOf(p.photoKey) + 2 : 0 });
         if (p.action === 'logo') return logoArea({ box: p.region.box, remove: p.remove, had: p.had, refImage: p.remove ? 0 : refKeys.indexOf(p.logoKey) + 2 });
         if (p.action === 'text') return textArea({ region: p.region, text: p.text, marks: p.marks, remove: p.removed });
         if (p.action === 'remove') return eraseArea({ region: p.region });
@@ -1708,7 +1743,8 @@ async function editThemeRegion(req, res) {
   const textPlan = new Map(plans.filter((p) => p.action === 'text').map((p) => [p.regionId, p]));
   const recoloured = plans.find((p) => p.action === 'recolour');
   const logoPlan = plans.find((p) => p.action === 'logo');
-  const nextRegions = {
+  const relaid = plans.find((p) => p.action === 'relayout');
+  const nextRegions = relaid ? { key, v: 0, texts: [], images: [], logo: null } : {
     ...regions,
     key,
     // where the logo now sits (or none)
@@ -1781,7 +1817,7 @@ async function editThemeRegion(req, res) {
   await record.save();
   // a recolour leaves the map stale (the words' colours changed): read it again
   // now, in the background, so the next Editor open does not wait on it
-  if (recoloured) {
+  if (recoloured || relaid) {
     readSlideRegions(record, idx)
       .then((r) => { if (r.error) console.warn(`[posts] ThemeRegion:${req.params.id}#${idx} re-map: ${r.error[1]}`); })
       .catch((err) => console.warn(`[posts] ThemeRegion:${req.params.id}#${idx} re-map failed: ${err.message}`));
@@ -1794,6 +1830,7 @@ async function editThemeRegion(req, res) {
         ? `Text ${p.regionId} (${r.role}) removed: ${JSON.stringify(r.text)}`
         : `Text ${p.regionId} (${r.role}): ${JSON.stringify(r.text)} → ${JSON.stringify(p.text)}${p.asks?.length ? ` (asked: ${p.asks.join('; ')})` : ''}${p.marks?.length ? ` · ${p.marks.map((m) => (m.words ? `"${m.words}" ${m.what}` : m.what)).join('; ')}` : ''}`;
     }
+    if (p.action === 'relayout') return `Slide re-arranged: ${p.instruction}`;
     if (p.action === 'logo') return p.remove ? 'Logo taken off' : `Logo ${p.had ? 'replaced with' : 'placed:'} ${p.logoKey}`;
     if (p.action === 'recolour') return `Whole slide recoloured${p.name ? ` into "${p.name}"` : ''}: ${JSON.stringify(p.palette)}`;
     if (p.action === 'photo') return `Picture ${p.regionId}: photo ${p.photoKey} fitted in`;
@@ -2364,6 +2401,7 @@ async function renderCover(req, res) {
 }
 
 module.exports = {
+  readCompositionPicture,
   deletePost,
   generateAndSavePosts,
   getPosts,

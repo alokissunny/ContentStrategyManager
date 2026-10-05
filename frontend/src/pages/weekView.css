@@ -8781,3 +8781,40 @@ p.wv-sa__hint { margin: 8px 4px 0; }
 }
 .wv-em__gobtn:hover:not(:disabled) { filter: brightness(0.97); }
 .wv-em__gobtn:disabled { opacity: 0.45; cursor: default; }
+
+/* Editor ⋯ › Layout — the six arrangements as wireframes (bauhly-v3 `pe-lays`):
+   a 4:5 card, the picture area hatched */
+.wv-em__lays {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  padding: 4px 8px 8px;
+}
+.wv-em__lay {
+  position: relative;
+  aspect-ratio: 4 / 5;
+  padding: 0;
+  border: 1px solid var(--border, #e3e3e8);
+  border-radius: 10px;
+  background: var(--surface-sunken, #f5f5f5);
+  overflow: hidden;
+  cursor: pointer;
+}
+.wv-em__lay:hover { border-color: var(--ink-400, #9a9aa3); }
+.wv-em__lay.is-pick { border: 2px solid var(--ink-900, #16161a); }
+.wv-em__lay i {
+  position: absolute;
+  background: repeating-linear-gradient(135deg, #cfcfd3 0 7px, #e2e2e5 7px 14px);
+}
+.wv-em__lay--text i { display: none; }
+.wv-em__lay--top i { left: 0; right: 0; top: 0; height: 50%; }
+.wv-em__lay--bottom i { left: 0; right: 0; bottom: 0; height: 50%; }
+.wv-em__lay--left i { left: 0; top: 0; bottom: 0; width: 45%; }
+.wv-em__lay--right i { right: 0; top: 0; bottom: 0; width: 45%; }
+.wv-em__lay--bleed i { inset: 0; }
+.wv-em__note {
+  margin: 2px 12px 6px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--ink-500, #6b6b73);
+}

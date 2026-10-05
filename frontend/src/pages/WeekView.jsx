@@ -33,6 +33,7 @@ import {
   removeTheme as apiRemoveTheme,
   runSlideLayoutVariations as apiRunSlideLayoutVariations,
   refinePost,
+  readComposition,
   addSlideFromCapture,
   getPostProject,
   runPostCover,
@@ -2247,6 +2248,17 @@ function carouselDocumentOf(day) {
 // the chat's suggestions on a Theme Apply text block (bauhly-v3 ShotSpots TEXT_TRIES)
 // a held colour set on a Theme Apply slide: not a region — the whole picture
 const COLOUR_REGION = { id: 'colours', role: 'colours' };
+// Editor ⋯ › Layout (bauhly-v3 `lays`): the six arrangements on the grid, each
+// applied by the Slide Edit agent from the sentence it carries
+const LAYOUT_KEEP = 'Keep every word and its order, the slide\'s picture, its typefaces and colours — only the arrangement changes. If the arrangement has a picture area and the slide has no picture, leave an empty picture space there. A slide that is one full picture (a single <img> of the whole slide) stays exactly as it is.';
+const LAYOUT_WIRES = [
+  { id: 'text', name: 'Words only', say: 'Lay this slide out with words only: no picture area — the text holds the frame, with generous space around it.' },
+  { id: 'top', name: 'Picture on top', say: 'Re-arrange this slide: a picture area across the top, edge to edge, about the upper half; the words below it on the plain ground.' },
+  { id: 'bottom', name: 'Picture below', say: 'Re-arrange this slide: the words in the upper half on the plain ground; a picture area across the bottom, edge to edge, about the lower half.' },
+  { id: 'left', name: 'Picture left', say: 'Re-arrange this slide: a picture area down the left side, full height, about 45% of the width; the words in the column on the right.' },
+  { id: 'right', name: 'Picture right', say: 'Re-arrange this slide: the words in a column on the left; a picture area down the right side, full height, about 45% of the width.' },
+  { id: 'bleed', name: 'Full-bleed picture', say: 'Re-arrange this slide: the picture fills the whole frame edge to edge, with the words set over it where they stay legible (a soft scrim behind them if needed).' },
+];
 // …and a held logo on one: painted in (or taken off) by the image model
 const LOGO_REGION = { id: 'logo', role: 'logo' };
 // …and on a Theme Apply picture (bauhly-v3 ShotSpots IMAGE_TRIES)
@@ -4053,27 +4065,29 @@ export default function WeekView({
 
   // `reach`: the answer from the Send menu (true = All slides); anything else
   // (an event, nothing) falls back to the chat's own scope
-  async function sendAsk(reach) {
+  // `preset` (Editor ⋯ › Layout): an instruction written for the studio, sent
+  // through the same edit — the chat's draft and pressed chips are not read
+  async function sendAsk(reach, preset = null) {
     // `Add a visual` has no sentence of its own in the catalogue (its refinements
     // are doors) — sent armed, it is a request for a new picture, described by
     // whatever the studio typed.
-    const typed = askDraft.trim();
+    const typed = preset ? '' : askDraft.trim();
     // a path through `An image` / `Generate an image` asks for a new picture
-    const wantsPicture = askPath.includes('visual') || askPath.includes('narrative');
-    const said = askPath.length ? askSay(askCtxNow, askDraft) : typed;
+    const wantsPicture = !preset && (askPath.includes('visual') || askPath.includes('narrative'));
+    const said = preset ? preset.instruction : (askPath.length ? askSay(askCtxNow, askDraft) : typed);
     const instruction = said || (wantsPicture
       ? `Add a visual${typed ? `: ${typed}` : ' that supports this slide'}.`
       : '');
-    const wantsVisual = wantsPicture || ASKS_VISUAL.test(instruction);
+    const wantsVisual = wantsPicture || (!preset && ASKS_VISUAL.test(instruction));
     // what was pressed, exactly — the backend turns it into a precise brief for
     // the Slide Edit agent, or a picture operation (replace / straighten)
-    const intent = askPath.length
+    const intent = !preset && askPath.length
       ? { kind: askKind, path: [...askPath], labels: trailOf(askKind, askPath).map((n) => n.label) }
       : null;
     if (!instruction || askBusy || !day) return;
     const postId = postIdAt(selected);
     if (!postId) return;
-    const focusPath = askSel?.path ?? null;
+    const focusPath = preset ? null : (askSel?.path ?? null);
     const every = typeof reach === 'boolean' ? reach : askScopeOn;
     const saved = flushElemEdits();
     const base = saved?.slides || deriveSlides(day);
@@ -4139,7 +4153,7 @@ export default function WeekView({
       const data = await refinePost(postId, {
         instruction,
         slideIndex: every ? null : activeIdx,
-        focus: askSel ? { slideIndex: activeIdx, tag: askSel.tag, slot: askSel.slot, text: askSel.text } : null,
+        focus: !preset && askSel ? { slideIndex: activeIdx, tag: askSel.tag, slot: askSel.slot, text: askSel.text } : null,
         visual: wantsPicture ? true : undefined,
         visualSlideIndex: activeIdx,
         intent,
@@ -5667,6 +5681,44 @@ export default function WeekView({
       setRgnSending('');
     }
   }
+  // Editor ⋯ › Layout on theme pictures: each slide (index into `slides`) is
+  // re-arranged by the image model in a call of its own, one after another
+  async function relayoutThemed(targets, instruction) {
+    const postId = postIdAt(selected);
+    if (!postId || !targets.length || rgnBusy) return;
+    setAskMsg(null);
+    setRgnPick('');
+    setRgnBusy('text');
+    let done = 0;
+    try {
+      for (const i of targets) {
+        setRgnSending(targets.length > 1 ? `Re-arranging slide ${i + 1} (${done + 1} of ${targets.length})…` : 'Re-arranging the slide…');
+        // eslint-disable-next-line no-await-in-loop
+        const d = await editThemeRegion(postId, i + 1, { changes: [{ regionId: 'layout', action: 'relayout', instruction }] });
+        done += 1;
+        if (d?.key && d?.src) rememberImage(d.key, d.src, { skipGen: true });
+        if (d?.regions && i === safeIdx) setRgnMap(d.regions);
+        if (d?.post) {
+          const r = mergePost(d.post);
+          if (r) { setRoute(r); onRouteChange?.(r); setSlideGen((n) => n + 1); }
+          // a repainted picture is kept, as region edits are: Cancel does not undo it
+          const snap = editSnapRef.current;
+          const fresh = deriveSlides(d.post)[i];
+          if (snap && snap.dayIndex === selected && Array.isArray(snap.slides) && snap.slides[i] && fresh) {
+            snap.slides[i] = JSON.parse(JSON.stringify(fresh));
+            snap.docHtml = carouselDocumentOf(d.post);
+          }
+        }
+      }
+      setAskMsg({ tone: 'ok', text: done === 1 ? 'Layout changed.' : `${done} slides re-arranged.` });
+    } catch (err) {
+      const why = err?.response?.data?.message || err?.message || 'Could not change the layout.';
+      setAskMsg({ tone: 'err', text: done ? `${done} re-arranged, then: ${why}` : why });
+    } finally {
+      setRgnBusy('');
+      setRgnSending('');
+    }
+  }
   const wordVisual = {
     documentHtml: isManualSlide(activeSlide) || isBlankSlide(activeSlide) ? '' : carouselDocumentOf(day),
     direction: layoutDirectionOf(activeSlide),
@@ -6461,15 +6513,34 @@ export default function WeekView({
     slides: slides.length,
     busy: layoutBusy,
     uploading,
-    onLayouts: () => {
-      setMenuPane(null);
-      setLayPick(appliedId);
-      setLayVarErr('');
-      setLayOpt(null);
-      setVisEdit('layout');
-      // layoutOptions are NOT in the week's render payload (too heavy) — load
-      // the stored ones now; variations generate only if none exist.
-      ensureRouteOptions();
+    // Layout: the six arrangements + Upload a composition (bauhly-v3 `lays`);
+    // applying one is an AI edit — the Slide Edit agent re-lays the slide out
+    layouts: {
+      list: LAYOUT_WIRES,
+      // a theme picture is one image: its arrangement is repainted by the
+      // image model (see relayoutThemed); an HTML slide is re-laid out by the
+      // Slide Edit agent
+      onRead: async (file) => {
+        const added = await uploadFiles([file]);
+        const key = added?.[0]?.key;
+        if (!key) throw new Error('Could not upload that picture.');
+        const read = await readComposition(key);
+        const wire = LAYOUT_WIRES.find((l) => l.id === read.layout);
+        return wire ? { id: wire.id, name: wire.name, description: read.description || '' } : null;
+      },
+      onApply: async (id, every, comp = null) => {
+        const wire = LAYOUT_WIRES.find((l) => l.id === id);
+        if (!wire) return;
+        const said = comp?.description
+          ? `Re-arrange this slide to follow the studio's reference composition: ${comp.description}`
+          : wire.say;
+        const themedAt = slides.map((sl, i) => (isThemedPicture(sl) ? i : -1)).filter((i) => i >= 0);
+        const pictures = every ? themedAt : (activeThemed ? [safeIdx] : []);
+        const htmlToo = every ? themedAt.length < slides.length : !activeThemed;
+        // the HTML slides first, then the pictures — one write at a time
+        if (htmlToo) await sendAsk(every, { instruction: `${said}\n\n${LAYOUT_KEEP}` });
+        if (pictures.length) await relayoutThemed(pictures, said);
+      },
     },
     themes: CAROUSEL_THEMES,
     // a slide given its own theme sits in `<theme>-s<N>`; the library marks the theme
