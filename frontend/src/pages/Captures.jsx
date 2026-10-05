@@ -25,10 +25,11 @@ import {
   useProjects, useProjectsHydrated, refreshProjects, createProject, renameProject, deleteProject,
   deleteSession, moveSession, setSessionExcluded, fmtWhen, sessionDisplayText, updateEntry, uploadFiles,
 } from '../lib/projectsStore';
-import { allCaptureSessions } from '../lib/captureStatus';
+import { allCaptureSessions, plannable } from '../lib/captureStatus';
+import { captureQuestions } from '../api/projects';
 import { listGeneratedImages, deleteGeneratedImage } from '../api/images';
 import { previewUrl } from '../api/media';
-import { GeneratedFolderView, readGenCache, writeGenCache } from './Projects';
+import { GeneratedFolderView, readGenCache, writeGenCache, CaptureChat } from './Projects';
 import './projects.css';
 import './captures.css';
 
@@ -37,6 +38,7 @@ const MAX_GEN_IDS = 24;
 
 const STATUS_SAY = {
   unclear: { label: 'Needs clarification', short: 'Answer', icon: 'info', tone: 'ask' },
+  thin: { label: 'Needs more information', short: 'More info', icon: 'info', tone: 'ask' },
   ready: { label: 'Ready for plan', short: 'Ready', icon: 'plan', tone: 'ready' },
   used: { label: 'Generated plan', short: 'Generated', icon: 'check', tone: 'done' },
   off: { label: 'Excluded from plan', short: 'Excluded', icon: 'eye-off', tone: 'off' },
@@ -44,6 +46,7 @@ const STATUS_SAY = {
 
 const STATES = [
   { id: 'unclear', label: 'Needs clarification' },
+  { id: 'thin', label: 'Needs more information' },
   { id: 'ready', label: 'Ready for plan' },
   { id: 'used', label: 'Used in a plan' },
   { id: 'off', label: 'Excluded' },
@@ -102,7 +105,41 @@ function NoteField({ value, placeholder, onSave, fieldRef }) {
   );
 }
 
-function CapturePanel({ item, projects, onClose, onGenerate, onDelete, onMove }) {
+// what Bauhly would ask about a capture session: each member's open questions
+// (stored on the capture) plus any asked on this visit
+// …and what a capture with words still lacks (skipped questions, a missing piece)
+const gapsOfItem = (item) => [...new Set((item.project.captures || [])
+  .filter((c) => item.memberIds.includes(c.id))
+  .flatMap((c) => [...(c.gaps || []), ...(c.openQuestions || [])]))];
+const questionsOf = (item, asked = {}) => [...new Set((item.project.captures || [])
+  .filter((c) => item.memberIds.includes(c.id))
+  .flatMap((c) => [...(c.openQuestions || []), ...(asked[c.id] || [])]))];
+
+// Add the detail: the member that is missing something, its conversation and
+// the first gap — what the Capture window needs to pick it back up
+function resumeOf(item) {
+  const members = (item.project.captures || []).filter((c) => item.memberIds.includes(c.id));
+  const m = members.find((c) => (c.gaps || []).length || (c.openQuestions || []).length);
+  if (!m) return null;
+  // the history to show: this capture's chat, else the session's (one member
+  // usually carries it), else the note itself as what the studio said
+  const chat = [m, ...members].map((c) => c.conversationTurns || []).find((t) => t.length) || [];
+  return {
+    projectId: item.projectId,
+    captureId: m.id,
+    turns: chat,
+    history: chat.length ? null : members.map((c) => ({
+      text: String(c.text || c.sessionSummary || '').trim(),
+      media: (c.attachments || []).map((a) => ({ type: a.type, key: a.key, url: a.url })),
+    })).filter((h) => h.text || h.media.length),
+    gap: (m.gaps || [])[0] || (m.openQuestions || [])[0] || '',
+    text: m.text || '',
+    attachments: (m.attachments || []).map((a) => ({ type: a.type, key: a.key, url: a.url })),
+    kind: m.type || 'note',
+  };
+}
+
+function CapturePanel({ item, projects, asked, onClose, onGenerate, onDelete, onMove, onAddDetail }) {
   useBodyScrollLock();
   const entry = item.session;
   const atts = entry.attachments || [];
@@ -254,6 +291,9 @@ function CapturePanel({ item, projects, onClose, onGenerate, onDelete, onMove })
                 <Icon name="info" size={15} strokeWidth={2.2} />
                 Bauhly would have to guess
               </p>
+              {questionsOf(item, asked).map((q) => (
+                <p key={q} className="np__needs__ask">{q}</p>
+              ))}
               <p className="np__needs__say">
                 Without your answer it has to work this out on its own, and what comes
                 back can be inaccurate — the wrong reason, a detail that is not quite
@@ -262,6 +302,29 @@ function CapturePanel({ item, projects, onClose, onGenerate, onDelete, onMove })
               </p>
               <button type="button" className="np__needs__go" onClick={() => field.current?.focus()}>
                 Answer clarification
+                <Icon name="arrow-right" size={15} strokeWidth={2.2} />
+              </button>
+            </div>
+          )}
+          {st === 'thin' && (
+            <div className="np__needs">
+              <p className="np__needs__top">
+                <Icon name="info" size={15} strokeWidth={2.2} />
+                Bauhly is missing a detail
+              </p>
+              {gapsOfItem(item).map((q) => (
+                <p key={q} className="np__needs__ask">{q}</p>
+              ))}
+              <p className="np__needs__say">
+                It can plan from this as it is, but it will fill the gap on its own.
+                Add the detail to the note and the post is written from what you said.
+              </p>
+              <button type="button" className="np__needs__go" onClick={() => (onAddDetail ? onAddDetail() : field.current?.focus())}>
+                Add the detail
+                <Icon name="arrow-right" size={15} strokeWidth={2.2} />
+              </button>
+              <button type="button" className="np__needs__go np__needs__go--quiet" onClick={onGenerate}>
+                Generate plan anyway
                 <Icon name="arrow-right" size={15} strokeWidth={2.2} />
               </button>
             </div>
@@ -515,6 +578,7 @@ export default function Captures() {
   const [killing, setKilling] = useState(null); // project to delete
   const [gen, setGen] = useState(null); // { eligible, blocked, held, spent }
   const [busy, setBusy] = useState(false);
+  const [resuming, setResuming] = useState(null); // Add the detail: the capture conversation picked back up
 
   // The generated-image folder (WeekView › Create image) — reached from Filters.
   const [genImages, setGenImages] = useState(readGenCache);
@@ -532,6 +596,25 @@ export default function Captures() {
   }, []);
 
   const all = allCaptureSessions(projects);
+  // the questions Bauhly would ask about captures it cannot read — fetched for
+  // the ones that have none stored yet (each is asked once, then kept)
+  const [asked, setAsked] = useState({});
+  const askedFor = useRef(new Set());
+  useEffect(() => {
+    const items = all
+      .filter((it) => it.status === 'unclear' && !questionsOf(it, asked).length)
+      .flatMap((it) => (it.project.captures || [])
+        .filter((c) => it.memberIds.includes(c.id) && (c.attachments || []).length && !askedFor.current.has(c.id))
+        .slice(0, 1)
+        .map((c) => ({ projectId: it.projectId, captureId: c.id })))
+      .slice(0, 12);
+    if (!items.length) return;
+    items.forEach((i) => askedFor.current.add(i.captureId));
+    captureQuestions(items)
+      .then((got) => setAsked((cur) => ({ ...cur, ...got })))
+      .catch(() => { /* the badge still says it needs words */ });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projects]);
   const inProject = (it, s) => (!s.length ? true : s.includes(it.projectId));
   const inStatus = (it, s) => (!s.length ? true : s.includes(it.status));
   const flip = (was, id) => (was.includes(id) ? was.filter((x) => x !== id) : [...was, id]);
@@ -578,7 +661,7 @@ export default function Captures() {
   const allHeld = holdable.length > 0 && holdable.every((it) => it.status === 'off');
 
   const waiting = all.filter((it) => inProject(it, pick) && it.status === 'unclear');
-  const readyNow = all.filter((it) => inProject(it, pick) && it.status === 'ready');
+  const readyNow = all.filter((it) => inProject(it, pick) && plannable(it.status));
 
   const run = async (fn) => {
     if (busy) return;
@@ -595,7 +678,7 @@ export default function Captures() {
   };
   const genSplit = () => {
     const g = {
-      eligible: picked.filter((it) => it.status === 'ready'),
+      eligible: picked.filter((it) => plannable(it.status)),
       blocked: picked.filter((it) => it.status === 'unclear'),
       held: picked.filter((it) => it.status === 'off'),
       spent: picked.filter((it) => it.status === 'used'),
@@ -961,6 +1044,12 @@ export default function Captures() {
                         {words
                           ? <span className="pjw-quote">{`“${words}”`}</span>
                           : <span className="pjw-quote pjw-quote--none">No words captured</span>}
+                        {(it.status === 'unclear' ? questionsOf(it, asked) : it.status === 'thin' ? gapsOfItem(it) : []).map((q) => (
+                          <span key={q} className="pjw-ask">
+                            <Icon name="info" size={13} strokeWidth={2.2} />
+                            {q}
+                          </span>
+                        ))}
                         <span className="pjw-meta">
                           {images > 0 && (
                             <span><Icon name="image" size={13} strokeWidth={2} />{`${images} ${images === 1 ? 'image' : 'images'}`}</span>
@@ -1084,10 +1173,23 @@ export default function Captures() {
           key={openItem.id}
           item={openItem}
           projects={projects}
+          asked={asked}
           onClose={() => setOpen(null)}
           onGenerate={() => { setOpen(null); runGen([openItem]); }}
           onMove={(toId) => run(async () => { setOpen(null); await moveSession(openItem.projectId, toId, openItem.memberIds); })}
           onDelete={() => { setSel([openItem.id]); setOpen(null); setDropping(true); }}
+          onAddDetail={() => { const r = resumeOf(openItem); if (r) { setOpen(null); setResuming(r); } }}
+        />
+      )}
+      {resuming && (
+        <CaptureChat
+          modal
+          resume={resuming}
+          presetProjectId={resuming.projectId}
+          askMedia={false}
+          // its earlier questions count; room for two more follow-ups
+          maxQuestions={(resuming.turns || []).filter((t) => t.role === 'assistant').length + 2}
+          onExit={() => setResuming(null)}
         />
       )}
     </div>

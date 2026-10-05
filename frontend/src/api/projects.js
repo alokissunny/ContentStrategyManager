@@ -99,6 +99,13 @@ export function transcriptGapQuestion(text, alreadyAsked) {
   return 'I missed a word in what you said — what was it?';
 }
 
+// Captures page: the question Bauhly would ask about each capture it cannot
+// read (photos with no words) — asked once, stored on the capture.
+// items: [{ projectId, captureId }] → { [captureId]: [question] }
+export function captureQuestions(items) {
+  return client.post('/projects/captures/questions', { items }, { timeout: 120000 }).then((r) => r.data?.questions || {});
+}
+
 export function understandCapture(payload) {
   return client.post('/projects/captures/understand', payload).then((r) => {
     const data = r.data || {};

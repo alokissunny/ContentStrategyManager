@@ -116,6 +116,12 @@ const captureSchema = new mongoose.Schema(
     // …and the posts that plan made from it (PlannedPost ids), so the page can
     // say which days it went into — read live, so moves and deletions show.
     usedInPosts: { type: [mongoose.Schema.Types.ObjectId], default: [] },
+    // Captures page: what Bauhly would ask before planning from a capture it
+    // cannot read (photos with no words) — asked once, cleared by a note.
+    clarifyQuestions: { type: [String], default: [] },
+    // …and a capture with words whose gaps (skipped questions, a missing
+    // piece) the studio has since filled in by editing the note.
+    gapsAnswered: { type: Boolean, default: false },
     createdAt: { type: Date, default: Date.now },
   },
   { _id: true }

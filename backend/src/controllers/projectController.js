@@ -103,6 +103,37 @@ function sanitizeConversationTurns(raw) {
     .slice(0, 40);
 }
 
+// What is still open on a capture: the questions asked for it on the Captures
+// page, else a capture conversation that ended on a question nobody answered.
+function openQuestionsOf(c) {
+  const stored = (c.clarifyQuestions || []).map((q) => String(q || '').trim()).filter(Boolean);
+  if (stored.length) return stored;
+  const turns = c.conversationTurns || [];
+  const last = turns[turns.length - 1];
+  return last && last.role === 'assistant' && String(last.text || '').trim().endsWith('?') ? [String(last.text).trim()] : [];
+}
+
+// What a capture WITH words still lacks (Captures › Needs more information):
+// the questions the studio skipped in the capture chat, the gap the
+// understanding recorded, or a chat that held only a few words.
+const SKIP_TURN = /^skip this question/i;
+function gapsOf(c) {
+  if (c.gapsAnswered) return [];
+  const turns = c.conversationTurns || [];
+  const out = [];
+  turns.forEach((t, i) => {
+    if (t.role !== 'user' || !SKIP_TURN.test(String(t.text || ''))) return;
+    const q = turns[i - 1];
+    if (q && q.role === 'assistant' && String(q.text || '').trim()) out.push(String(q.text).trim());
+  });
+  const miss = String(c.understanding?.missingPiece || '').trim();
+  if (miss) out.push(miss);
+  const said = turns.filter((t) => t.role === 'user' && !SKIP_TURN.test(String(t.text || '')))
+    .map((t) => String(t.text || '')).join(' ').trim();
+  if (turns.length && said && said.split(/\s+/).length < 6 && !out.length) out.push('Only a few words were captured — say more about what happened.');
+  return [...new Set(out)];
+}
+
 // the posts a capture went into, as they are now: { id, date } (gone ones drop)
 function postsOf(c, postDates) {
   return (c.usedInPosts || [])
@@ -133,6 +164,8 @@ async function serializeCapture(c, { lite = false, postDates = null } = {}) {
       usedInPlanAt: c.usedInPlanAt || null,
       usedInPosts: postsOf(c, postDates),
       linkedPosts: (c.usedInPosts || []).length,
+      openQuestions: openQuestionsOf(c),
+      gaps: gapsOf(c),
       attachments,
     };
   }
@@ -157,6 +190,8 @@ async function serializeCapture(c, { lite = false, postDates = null } = {}) {
     usedInPlanAt: c.usedInPlanAt || null,
     usedInPosts: postsOf(c, postDates),
     linkedPosts: (c.usedInPosts || []).length,
+    openQuestions: openQuestionsOf(c),
+    gaps: gapsOf(c),
     attachments,
   };
 }
@@ -343,14 +378,69 @@ async function addCapture(req, res) {
   res.status(201).json({ project: await serializeProject(project) });
 }
 
+// POST /projects/captures/questions { items: [{ projectId, captureId }] }
+// For captures Bauhly cannot read (photos/clips with no words), the question it
+// would ask before planning from them — asked of the pictures once by the
+// Capture Conversation agent, then stored. → { questions: { [captureId]: [..] } }
+async function captureQuestions(req, res) {
+  const items = (Array.isArray(req.body?.items) ? req.body.items : []).slice(0, 12)
+    .map((i) => ({ projectId: String(i?.projectId || ''), captureId: String(i?.captureId || '') }))
+    .filter((i) => i.projectId && i.captureId);
+  const out = {};
+  const projectIds = [...new Set(items.map((i) => i.projectId))];
+  const projects = await Project.find({ _id: { $in: projectIds }, user: req.user._id });
+  const wordless = (c) => !String(c.text || c.sessionSummary || c.understanding?.summary || '').trim();
+  const queue = items.map((i) => {
+    const p = projects.find((x) => String(x._id) === i.projectId);
+    const c = p?.captures.id(i.captureId);
+    return c ? { p, c } : null;
+  }).filter(Boolean);
+  const work = async ({ p, c }) => {
+    const open = openQuestionsOf(c);
+    if (open.length || !wordless(c) || !(c.attachments || []).length) { out[String(c._id)] = open; return; }
+    let question = '';
+    try {
+      const r = await understandCapture({
+        text: '',
+        attachments: (c.attachments || []).map((a) => ({ type: a.type, key: a.key, analysis: a.analysis })),
+        projectName: p.name,
+      });
+      question = String(r?.question || '').trim();
+    } catch (err) {
+      console.warn(`[projects] capture question failed ${c._id}: ${err.message}`);
+    }
+    const n = (c.attachments || []).length;
+    const asked = question || `What do ${n === 1 ? 'this picture' : 'these pictures'} show, and what happened?`;
+    await Project.updateOne(
+      { _id: p._id, user: req.user._id, 'captures._id': c._id },
+      { $set: { 'captures.$.clarifyQuestions': [asked] } },
+    );
+    out[String(c._id)] = [asked];
+  };
+  // a few at a time — each is one vision call
+  const pending = [...queue];
+  await Promise.all(Array.from({ length: Math.min(4, pending.length) }, async () => {
+    while (pending.length) await work(pending.shift()); // eslint-disable-line no-await-in-loop
+  }));
+  res.json({ questions: out });
+}
+
 async function updateCapture(req, res) {
   const project = await Project.findOne({ _id: req.params.id, user: req.user._id });
   if (!project) return res.status(404).json({ message: 'Project not found' });
   const capture = project.captures.id(req.params.captureId);
   if (!capture) return res.status(404).json({ message: 'Capture not found' });
 
-  if (req.body.text !== undefined) capture.text = String(req.body.text);
+  if (req.body.text !== undefined) {
+    const changed = String(req.body.text) !== String(capture.text || '');
+    capture.text = String(req.body.text);
+    // a note answers what Bauhly would have asked — and fills what it lacked
+    if (capture.text.trim()) capture.clarifyQuestions = [];
+    if (changed && capture.text.trim()) capture.gapsAnswered = true;
+  }
   if (req.body.excluded !== undefined) capture.excluded = Boolean(req.body.excluded);
+  // the capture conversation picked back up (Captures › Add the detail)
+  if (req.body.gapsAnswered !== undefined) capture.gapsAnswered = Boolean(req.body.gapsAnswered);
   if (req.body.sessionTitle !== undefined) capture.sessionTitle = String(req.body.sessionTitle).trim();
   if (req.body.sessionSummary !== undefined) capture.sessionSummary = String(req.body.sessionSummary);
   if (req.body.conversationTurns !== undefined) {
@@ -715,6 +805,7 @@ async function correctDraft(req, res) {
 }
 
 module.exports = {
+  captureQuestions,
   signUploads,
   listProjects,
   createProject,

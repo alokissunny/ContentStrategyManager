@@ -20,7 +20,7 @@ import { RecordingSheet, useRecorder, refreshDraftIfUnedited, captureSttLanguage
 import ScrollJump from './checkin/ScrollJump';
 import {
   useProjects, useProjectsHydrated, createProject, renameProject, deleteProject,
-  addEntry, addSession, updateEntry, deleteSession, moveSession,
+  addEntry, addSession, resumeSession, updateEntry, deleteSession, moveSession,
   analyzeProjectAssets, analyzeAsset,
   coverOf, groupByWeek, groupCapturesIntoSessions, sessionCount, sessionDisplayText,
   sessionDisplayTitle, sessionConversationTurns, storiesFromConversationTurns, fmtWhen, uploadFiles,
@@ -957,7 +957,7 @@ function CaptureComposer({ value, onValue, live, canSend, placeholder, onSend, o
   );
 }
 
-export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewProject, onCaptured, exitLabel = 'Back', modal = false, opening = '', savedLine = '', projectName = '', askProject = true, maxQuestions = 4, askMedia = true }) {
+export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewProject, onCaptured, exitLabel = 'Back', modal = false, opening = '', savedLine = '', projectName = '', askProject = true, maxQuestions = 4, askMedia = true, resume = null }) {
   const projects = useProjects();
   const { messages, typing, push, say, after } = useConversation();
   const [step, setStep] = useState('boot');
@@ -1007,6 +1007,38 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
   }, []);
 
   useEffect(() => {
+    /* `resume` picks a saved capture's conversation back up (Captures › Add
+       the detail): its turns are shown as they were, then the question it was
+       left without is asked again and the answer goes into that capture */
+    if (resume) {
+      const skip = /^skip this question/i;
+      // a capture filed without a chat: what it holds is what the studio said
+      (resume.history || []).forEach((h) => push({ from: 'user', text: h.text || undefined, media: h.media?.length ? h.media : undefined }));
+      (resume.turns || []).forEach((t) => push(t.role === 'assistant'
+        ? { from: 'bauhly', text: t.text }
+        : { from: 'user', text: skip.test(t.text) ? 'Skip this question' : t.text }));
+      // the skipped exchanges go; the gap is asked afresh below
+      const kept = [];
+      (resume.turns || []).forEach((t) => {
+        if (t.role === 'user' && skip.test(t.text)) { if (kept[kept.length - 1]?.role === 'assistant') kept.pop(); return; }
+        kept.push({ role: t.role, text: t.text });
+      });
+      const gap = String(resume.gap || '').trim();
+      const ask = /\?$/.test(gap) ? gap : `One thing is still missing — ${gap.replace(/\.$/, '')}. Can you tell me more?`;
+      // with no chat on file, the note opens the conversation the model reads
+      if (!kept.length && resume.text) kept.push({ role: 'user', text: resume.text });
+      cap.current = {
+        ...cap.current,
+        kind: resume.kind || 'note',
+        text: resume.text || '',
+        attachments: resume.attachments || [],
+        turns: [...kept, { role: 'assistant', text: ask }],
+        askedQuestion: ask,
+      };
+      const d = say(ask);
+      after(d, () => setStep('clarify'));
+      return;
+    }
     // `opening` aims the capture at one question (Editor › Add slide)
     const d = say(opening || (preset
       ? `Anything from ${preset.name}? Something that happened, an idea, something you noticed, or anything else that feels relevant.`
@@ -1049,6 +1081,7 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
    * for?". By id when known, else by name (made if the studio has none of that
    * name yet), else the default project. Returns true when it filed. */
   const fileWithoutAsking = () => {
+    if (resume) { finish(resume.projectId); return true; }
     if (preset) { finish(preset.id); return true; }
     if (askProject) return false;
     const want = String(projectName || '').trim().toLowerCase();
@@ -1061,6 +1094,7 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
   };
 
   const continueToFile = (result) => {
+    if (resume) return fileWithoutAsking();
     const choice = String(result?.understanding?.visualAssetChoice || '').toLowerCase();
     if (askMedia && !cap.current.attachments.length && choice !== 'generate' && choice !== 'none') {
       const d = say('Do you have a photo or clip of this, or would you rather generate visuals later?');
@@ -1181,6 +1215,12 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
     setDraft('');
     setStep('boot');
     userSays('Skip this question');
+    // picking a capture back up and skipping again: nothing new to keep
+    if (resume) {
+      const d = say('No problem — it stays as it was.');
+      after(d + 700, () => onExit?.());
+      return;
+    }
     setBusy(true);
     try {
       const finishing = afterUnderstood(await runUnderstand({
@@ -1355,6 +1395,20 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
       const rows = (c.understandings && c.understandings.length)
         ? c.understandings
         : [c.understanding];
+      if (resume) {
+        await resumeSession(resume.projectId, resume.captureId, {
+          text,
+          attachments: c.attachments,
+          understanding: c.understanding,
+          understandings: rows,
+          conversationSummary: c.conversationSummary,
+          conversationTitle: c.conversationTitle,
+          conversationTurns: c.turns,
+        });
+        const d = say('Added to your capture — the next plan is written from it.');
+        after(d + 900, () => onExit?.());
+        return;
+      }
       await addSession(pid, {
         type,
         text,
@@ -1730,6 +1784,18 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
             </div>
           )}
 
+          {/* in the modal the composer owns the answer, so the one other thing a
+              question offers — not answering it — sits under it as a chip */}
+          {composerLive && step === 'clarify' && (
+            <div className="ck-turn ck-turn--bauhly ck-turn--actions ck-turn--cont">
+              <span className="ck-avatar ck-avatar--ghost" aria-hidden="true" />
+              <div className="ck-inline">
+                <button type="button" className="ck-chip" onClick={skipClarify}>
+                  <Icon name="arrow-right" size={14} /> Skip this question
+                </button>
+              </div>
+            </div>
+          )}
           {showActions && (
             <div className="ck-turn ck-turn--bauhly ck-turn--actions ck-turn--cont">
               <span className="ck-avatar ck-avatar--ghost" aria-hidden="true" />

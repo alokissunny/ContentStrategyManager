@@ -324,6 +324,31 @@ export async function addSession(projectId, {
   });
 }
 
+/** Captures › Add the detail: the capture conversation picked back up — the
+ *  same shaping as addSession, written over the capture it continues. */
+export async function resumeSession(projectId, captureId, {
+  text, attachments, understanding, understandings, conversationTitle, conversationSummary, conversationTurns,
+}) {
+  const stories = storiesInToldOrder(
+    (understandings && understandings.length)
+      ? understandings.filter(Boolean)
+      : (understanding ? [understanding] : []),
+  );
+  const sessionSummary = String(conversationSummary || '').trim()
+    || composeSessionSummary(stories, text);
+  const sessionTitle = String(conversationTitle || '').trim()
+    || composeSessionTitle({ title: conversationTitle, stories, summary: sessionSummary, fallbackText: text });
+  return updateEntry(projectId, captureId, {
+    text: sessionSummary || text,
+    sessionSummary,
+    sessionTitle,
+    conversationTurns: sanitizeTurns(conversationTurns),
+    ...(stories.length ? { stories, understanding: stories[0] } : {}),
+    attachments,
+    gapsAnswered: true,
+  });
+}
+
 export async function updateEntry(projectId, entryId, patch) {
   const payload = {};
   if (patch.text !== undefined) payload.text = patch.text;
@@ -333,6 +358,7 @@ export async function updateEntry(projectId, entryId, patch) {
   if (patch.stories !== undefined) payload.stories = patch.stories;
   if (patch.understanding !== undefined) payload.understanding = patch.understanding;
   if (patch.attachments !== undefined) payload.attachments = patch.attachments.map((a) => ({ type: a.type, key: a.key }));
+  if (patch.gapsAnswered !== undefined) payload.gapsAnswered = Boolean(patch.gapsAnswered);
   upsert(await api.updateCapture(projectId, entryId, payload));
 }
 /** Captures page › Exclude / Include — hold a session's captures back from

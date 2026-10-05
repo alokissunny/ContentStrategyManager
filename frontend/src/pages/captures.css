@@ -1589,3 +1589,25 @@ body:has(.np) .btn.cap-fab--dock { display: none; }
 /* ours */
 .fm__submit--bad { background: var(--negative, #d7402b); border-color: var(--negative, #d7402b); }
 .np__err { margin: var(--sp-2) 0 0; font-size: var(--text-sm); color: var(--danger-600, #b3261e); }
+
+/* the question Bauhly would ask about a capture it cannot read — in the
+   Needs clarification badge's colours, under the row's words */
+.pjw-ask {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin-top: 4px;
+  font-size: var(--text-sm);
+  line-height: 1.4;
+  color: var(--warning);
+}
+.pjw-ask svg { flex: none; margin-top: 3px; }
+.np__needs__ask {
+  margin: 0 0 var(--sp-2);
+  padding: var(--sp-2) var(--sp-3);
+  border-radius: var(--r-md);
+  background: var(--warning-soft);
+  color: var(--warning);
+  font-weight: 600;
+  line-height: 1.45;
+}

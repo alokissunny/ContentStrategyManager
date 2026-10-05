@@ -3,6 +3,7 @@ const asyncHandler = require('../utils/asyncHandler');
 const { protect } = require('../middleware/auth');
 const {
   signUploads,
+  captureQuestions,
   listProjects,
   createProject,
   renameProject,
@@ -27,6 +28,7 @@ router.post('/uploads/sign', asyncHandler(signUploads));
 
 // Capture-time intelligence — before `/:id` so "captures" is not a project id.
 router.post('/captures/understand', asyncHandler(understandDraft));
+router.post('/captures/questions', asyncHandler(captureQuestions));
 router.post('/checkin/understand', asyncHandler(understandCheckinDraft));
 router.post(
   '/captures/transcribe',
