@@ -163,15 +163,33 @@ function lineCandidates({ mask, w, h }) {
   return out;
 }
 
-async function drawCandidates(jpeg, cands) {
+// The boxes are drawn in the marker colour the slide uses least — type set in
+// the marker's own colour reads as part of the annotation and is left out.
+const MARKERS = [
+  { name: 'blue', hex: '#00b7ff', rgb: [0, 183, 255] },
+  { name: 'magenta', hex: '#ff00aa', rgb: [255, 0, 170] },
+  { name: 'green', hex: '#00c853', rgb: [0, 200, 83] },
+  { name: 'orange', hex: '#ff6d00', rgb: [255, 109, 0] },
+];
+async function pickMarker(jpeg) {
+  const { data } = await sharp(jpeg).resize({ width: 64, height: 80, fit: 'fill' }).removeAlpha().raw().toBuffer({ resolveWithObject: true });
+  const uses = MARKERS.map((m) => {
+    let n = 0;
+    for (let i = 0; i < data.length; i += 3) if (Math.hypot(data[i] - m.rgb[0], data[i + 1] - m.rgb[1], data[i + 2] - m.rgb[2]) < 110) n += 1;
+    return n;
+  });
+  return MARKERS[uses.indexOf(Math.min(...uses))];
+}
+
+async function drawCandidates(jpeg, cands, marker = MARKERS[0]) {
   const { width: W, height: H } = await sharp(jpeg).metadata();
   const marks = cands.map((b, n) => {
     const x = (b.left / 100) * W;
     const y = (b.top / 100) * H;
     const bw = (b.width / 100) * W;
     const bh = (b.height / 100) * H;
-    return `<rect x="${x}" y="${y}" width="${bw}" height="${bh}" fill="none" stroke="#00b7ff" stroke-width="2"/>`
-      + `<rect x="${Math.max(0, x - 26)}" y="${y}" width="24" height="18" fill="#00b7ff"/>`
+    return `<rect x="${x}" y="${y}" width="${bw}" height="${bh}" fill="none" stroke="${marker.hex}" stroke-width="2"/>`
+      + `<rect x="${Math.max(0, x - 26)}" y="${y}" width="24" height="18" fill="${marker.hex}"/>`
       + `<text x="${Math.max(0, x - 25)}" y="${y + 14}" font-size="14" font-family="sans-serif" font-weight="700" fill="#fff">${n + 1}</text>`;
   }).join('');
   const svg = Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}">${marks}</svg>`);
@@ -181,8 +199,9 @@ async function drawCandidates(jpeg, cands) {
 // v2: text blocks carry `style` {bold, italic, underline, strike, color,
 // highlight, align} and `runs` [{words, …the same}]; v4: paper edges no longer
 // hide lines, touching lines are split; v5: styles / colour / box read off
-// the letters only (not the tape or backgrounds around them) — older maps are re-read
-const REGIONS_V = 5;
+// the letters only (not the tape or backgrounds around them); v6: a line the
+// model drops (type in the marker colour) is folded back in — older maps are re-read
+const REGIONS_V = 6;
 // stroke thickness / line height at and above which letters read as bold
 const BOLD_WEIGHT = Number(process.env.THEME_REGIONS_BOLD_WEIGHT) || 0.12;
 const HEX = /^#[0-9a-f]{6}$/i;
@@ -326,6 +345,20 @@ async function lineInk(buffer, box, W, H, below = 1, lineH = 0) {
 // thin, wide rule-only line under the type), and weight is the stroke
 // thickness against the line's height. `lineBoxes` are the block's candidate
 // lines (percent). Also returns the block's ink colour and the letters' box.
+// a row of separate letter-sized blobs of ink (not one long edge or tape)
+async function looksLikeLetters(buffer, box) {
+  const { width: W, height: H } = await sharp(buffer).rotate().metadata();
+  const ink = await lineInk(buffer, box, W, H);
+  if (!ink?.tight) return false;
+  const th = ink.tight.height;
+  let letters = 0;
+  dropBlobs(ink.mask, ink.w, ink.h, ({ n, bw, bh }) => {
+    if (n >= 6 && bh >= th * 0.3 && bh <= th * 1.05 && bw <= th * 2.5) letters += 1;
+    return false;
+  });
+  return letters >= 4;
+}
+
 async function typeFeatures(buffer, lineBoxes, text = '') {
   const { width: W, height: H } = await sharp(buffer).rotate().metadata();
   const heights = lineBoxes.map((b) => (b.height / 100) * H).sort((a, b) => a - b);
@@ -435,7 +468,7 @@ const REGION_TOOL = {
         items: {
           type: 'object',
           properties: {
-            boxes: { type: 'array', items: { type: 'integer' }, description: 'The numbers of the blue boxes that make up this block.' },
+            boxes: { type: 'array', items: { type: 'integer' }, description: 'The numbers of the boxes that make up this block.' },
             line: { type: 'integer', description: 'The number of the EXPECTED COPY line this block shows (0 when it is not in the list).' },
             text: { type: 'string', description: 'The words of this block exactly as they appear.' },
             style: {
@@ -485,7 +518,7 @@ const REGION_TOOL = {
     required: ['blocks', 'pictures'],
   },
 };
-const REGION_SYSTEM = 'You read an Instagram slide, given twice: as it is, and with numbered blue boxes marking candidate lines of ink found on it. Group the boxes that are TEXT into text blocks — each block is one headline, one paragraph, one label or one CTA (a block usually spans several consecutive lines in the same style). Leave out boxes that are not text (doodles, underline swooshes, tape, leaves, photo edges). Match each block to the expected copy line it shows, and describe how it is set, judged on the clean image: bold = a heavy weight (thicker strokes than regular text); italic = slanted letters; underline = a rule below the baseline; strike = a rule crossing the letters at mid-height; highlight = a painted band or box of colour directly behind the words (paper, texture or the slide background is NOT a highlight; the blue annotation boxes are NOT a highlight); alignment. List words set differently from the rest of their block as runs. Also give the bounding boxes of any photographs (percent of the slide). Call record_regions.';
+const regionSystem = (mark) => `You read an Instagram slide, given twice: as it is, and with numbered ${mark} boxes marking candidate lines of ink found on it. Group the boxes that are TEXT into text blocks — each block is one headline, one paragraph, one label or one CTA (a block usually spans several consecutive lines in the same style). Leave out boxes that are not text (doodles, underline swooshes, tape, leaves, photo edges). Match each block to the expected copy line it shows, and describe how it is set, judged on the clean image: bold = a heavy weight (thicker strokes than regular text); italic = slanted letters; underline = a rule below the baseline; strike = a rule crossing the letters at mid-height; highlight = a painted band or box of colour directly behind the words (paper, texture or the slide background is NOT a highlight; the ${mark} annotation boxes are NOT a highlight); alignment. Type may be set in any colour, including one close to the boxes — judge it on image 1. List words set differently from the rest of their block as runs. Also give the bounding boxes of any photographs (percent of the slide). Call record_regions.`;
 
 /**
  * @param {{ buffer: Buffer, lines?: {role,text}[], photoBox?: {left,top,width,height}|null (pixels), key?: string }} p
@@ -513,7 +546,9 @@ async function mapRegions({ buffer, lines = [], photoBox = null, key = '' }) {
       : [];
     const cands = lineCandidates(await inkMap(buffer, known));
     const jpeg = await sharp(buffer).rotate().resize({ width: 1024, height: 1280, fit: 'inside' }).jpeg({ quality: 88 }).toBuffer();
-    const marked = await drawCandidates(jpeg, cands);
+    const marker = await pickMarker(jpeg);
+    const REGION_SYSTEM = regionSystem(marker.name);
+    const marked = await drawCandidates(jpeg, cands, marker);
     const expected = lines.length ? lines.map((l, i) => `${i + 1}. ${l.role}: ${JSON.stringify(l.text)}`).join('\n') : '(none given)';
     const userText = `There are ${cands.length} numbered boxes.\n\nEXPECTED COPY:\n${expected}`;
     const done = await completeToolCall({
@@ -522,7 +557,7 @@ async function mapRegions({ buffer, lines = [], photoBox = null, key = '' }) {
       userParts: [
         { type: 'text', text: 'Image 1 — the slide as it is (read the type styles and colours from THIS one):' },
         { type: 'image', mediaType: 'image/jpeg', data: jpeg.toString('base64') },
-        { type: 'text', text: 'Image 2 — the same slide with our numbered blue candidate boxes drawn on it (the blue boxes and numbers are OUR annotations, not part of the design):' },
+        { type: 'text', text: `Image 2 — the same slide with our numbered ${marker.name} candidate boxes drawn on it (the ${marker.name} boxes and numbers are OUR annotations, not part of the design):` },
         { type: 'image', mediaType: 'image/jpeg', data: marked.toString('base64') },
         { type: 'text', text: userText },
       ],
@@ -550,6 +585,31 @@ async function mapRegions({ buffer, lines = [], photoBox = null, key = '' }) {
       if (same) { same.boxes.push(...boxes); same.text = `${same.text} ${String(b.text || '').trim()}`; return; }
       merged.push({ line, boxes, text: String(b.text || '').trim(), style: b.style, runs: b.runs });
     });
+    // a line the model left out right above / below a block, aligned with it
+    // and of its size, is part of it (one word set apart in another colour)
+    const used = new Set(merged.flatMap((m) => m.boxes));
+    const lettery = new Map();
+    await Promise.all(cands.filter((c) => !used.has(c) && c.width >= 4).map(async (c) => {
+      lettery.set(c, await looksLikeLetters(buffer, c).catch(() => false));
+    }));
+    let grew = true;
+    while (grew) {
+      grew = false;
+      cands.filter((c) => !used.has(c) && lettery.get(c)).forEach((c) => {
+        const host = merged.find((m) => {
+          const hs = m.boxes.map((x) => x.height).sort((a, b) => a - b);
+          const lh = hs[Math.floor(hs.length / 2)];
+          if (c.height < lh * 0.6 || c.height > lh * 1.6) return false;
+          const u = union(m.boxes);
+          const gap = c.top >= u.top + u.height ? c.top - (u.top + u.height) : u.top - (c.top + c.height);
+          if (gap < 0 || gap > lh * 0.6) return false;
+          const aligned = Math.abs(c.left - u.left) < 3 || Math.abs((c.left + c.width) - (u.left + u.width)) < 3
+            || Math.abs((c.left + c.width / 2) - (u.left + u.width / 2)) < 3;
+          return aligned && c.left >= u.left - 3 && c.left + c.width <= u.left + u.width + 3;
+        });
+        if (host) { host.boxes.push(c); used.add(c); grew = true; }
+      });
+    }
     const texts = (await Promise.all(merged
       .map(async (b, n) => {
         const line = lines[b.line - 1];
