@@ -113,6 +113,9 @@ const captureSchema = new mongoose.Schema(
     excluded: { type: Boolean, default: false },
     // When a plan was last generated from this capture (Captures › Generate plan).
     usedInPlanAt: { type: Date, default: null },
+    // …and the posts that plan made from it (PlannedPost ids), so the page can
+    // say which days it went into — read live, so moves and deletions show.
+    usedInPosts: { type: [mongoose.Schema.Types.ObjectId], default: [] },
     createdAt: { type: Date, default: Date.now },
   },
   { _id: true }

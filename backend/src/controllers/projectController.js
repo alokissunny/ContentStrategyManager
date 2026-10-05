@@ -1,5 +1,6 @@
 const crypto = require('crypto');
 const Project = require('../models/Project');
+const PlannedPost = require('../models/PlannedPost');
 const { currentUsername } = require('../utils/currentProfile');
 const {
   isS3Configured,
@@ -102,7 +103,15 @@ function sanitizeConversationTurns(raw) {
     .slice(0, 40);
 }
 
-async function serializeCapture(c, { lite = false } = {}) {
+// the posts a capture went into, as they are now: { id, date } (gone ones drop)
+function postsOf(c, postDates) {
+  return (c.usedInPosts || [])
+    .map((id) => postDates?.get(String(id)))
+    .filter(Boolean)
+    .sort((a, b) => String(a.date).localeCompare(String(b.date)));
+}
+
+async function serializeCapture(c, { lite = false, postDates = null } = {}) {
   const stories = lite ? [] : serializeStories(c.stories);
   const understanding = lite ? null : serializeUnderstanding(c.understanding);
   const storyRows = stories.length ? stories : (understanding ? [understanding] : []);
@@ -122,6 +131,8 @@ async function serializeCapture(c, { lite = false } = {}) {
       sessionSummary: c.sessionSummary || '',
       excluded: Boolean(c.excluded),
       usedInPlanAt: c.usedInPlanAt || null,
+      usedInPosts: postsOf(c, postDates),
+      linkedPosts: (c.usedInPosts || []).length,
       attachments,
     };
   }
@@ -144,15 +155,23 @@ async function serializeCapture(c, { lite = false } = {}) {
     stories: storyRows,
     excluded: Boolean(c.excluded),
     usedInPlanAt: c.usedInPlanAt || null,
+    usedInPosts: postsOf(c, postDates),
+    linkedPosts: (c.usedInPosts || []).length,
     attachments,
   };
 }
 
 async function serializeProject(p, { lite = false } = {}) {
+  const ids = (p.captures || []).flatMap((c) => c.usedInPosts || []);
+  const postDates = new Map();
+  if (ids.length) {
+    const rows = await PlannedPost.find({ _id: { $in: ids }, user: p.user }, { date: 1 }).lean().catch(() => []);
+    rows.forEach((r) => postDates.set(String(r._id), { id: String(r._id), date: r.date || '' }));
+  }
   return {
     id: p._id.toString(),
     name: p.name,
-    captures: await Promise.all((p.captures || []).map((c) => serializeCapture(c, { lite }))),
+    captures: await Promise.all((p.captures || []).map((c) => serializeCapture(c, { lite, postDates }))),
     createdAt: p.createdAt,
     updatedAt: p.updatedAt,
   };

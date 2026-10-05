@@ -10,7 +10,8 @@
  * same filtered set to a wall of its photos and clips.
  *
  * Status is derived in lib/captureStatus.js from the live capture model:
- * `excluded` and `usedInPlanAt` are stored on each capture by the backend.
+ * `excluded`, `usedInPlanAt` and `usedInPosts` (the posts it went into, {id, date}
+ * read live) are stored on each capture by the backend.
  * Generating hands the chosen capture ids to the Calendar's existing
  * generate-after-capture flow (YourPlans), which marks them used server-side.
  */
@@ -72,6 +73,16 @@ const shortDay = (iso) => {
   return d && !Number.isNaN(d.getTime()) ? d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : '';
 };
 
+// a post's calendar day ('2026-10-05', local) → "Mon, 5 Oct"
+const postDay = (ymd, { weekday = true } = {}) => {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(ymd || ''));
+  if (!m) return '';
+  const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+  return d.toLocaleDateString(undefined, { ...(weekday ? { weekday: 'short' } : {}), month: 'short', day: 'numeric' });
+};
+const listDays = (days) => (days.length <= 1 ? days.join('')
+  : `${days.slice(0, -1).join(', ')} and ${days[days.length - 1]}`);
+
 function NoteField({ value, placeholder, onSave, fieldRef }) {
   const [v, setV] = useState(value || '');
   useEffect(() => { setV(value || ''); }, [value]);
@@ -99,6 +110,11 @@ function CapturePanel({ item, projects, onClose, onGenerate, onDelete, onMove })
   const lead = members.find((c) => c.id === entry.id) || members[0] || entry;
   const words = String(sessionDisplayText(entry) || '').trim();
   const usedAt = members.map((c) => c.usedInPlanAt).filter(Boolean).sort().pop() || null;
+  // the posts the plan made from it, as the calendar has them now (the
+  // backend reads them live); `linked` = posts recorded, some may be gone
+  const usedPosts = [...new Map(members.flatMap((c) => c.usedInPosts || []).map((p) => [p.id, p])).values()]
+    .sort((a, b) => String(a.date).localeCompare(String(b.date)));
+  const linked = members.some((c) => Number(c.linkedPosts) > 0);
   const others = projects.filter((p) => p.id !== item.projectId);
   const [menu, setMenu] = useState(false);
   const [moveOpen, setMoveOpen] = useState(false);
@@ -157,7 +173,14 @@ function CapturePanel({ item, projects, onClose, onGenerate, onDelete, onMove })
 
   const st = item.status;
   const mark = st === 'used'
-    ? { label: 'In a plan', icon: 'clock', tone: 'ready', more: usedAt ? `· ${shortDay(usedAt)}` : '' }
+    ? {
+      label: 'In a plan',
+      icon: 'clock',
+      tone: 'ready',
+      more: usedPosts.length
+        ? `· ${postDay(usedPosts[0].date, { weekday: false })}${usedPosts.length > 1 ? ` +${usedPosts.length - 1}` : ''}`
+        : '',
+    }
     : STATUS_SAY[st];
   const current = light !== null ? atts[light] : null;
 
@@ -263,7 +286,11 @@ function CapturePanel({ item, projects, onClose, onGenerate, onDelete, onMove })
                 Already generated
               </p>
               <p className="np__needs__say">
-                {usedAt ? `It went into a plan on ${shortDay(usedAt)}.` : 'This capture has already been through a plan.'}
+                {usedPosts.length
+                  ? `It went into the ${usedPosts.length > 1 ? 'posts' : 'post'} on ${listDays(usedPosts.map((p) => postDay(p.date)))}.`
+                  : (linked
+                    ? 'The posts made from it are no longer on the calendar.'
+                    : (usedAt ? `A plan was made from it on ${shortDay(usedAt)}.` : 'This capture has already been through a plan.'))}
               </p>
               <button type="button" className="np__needs__go np__needs__go--quiet" onClick={onGenerate}>
                 Generate another plan

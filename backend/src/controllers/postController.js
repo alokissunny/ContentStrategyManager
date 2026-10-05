@@ -338,7 +338,11 @@ async function generatePlan(req, res) {
   if (count && usedIds.length) {
     await Project.updateMany(
       { user: req.user._id, 'captures._id': { $in: usedIds } },
-      { $set: { 'captures.$[c].usedInPlanAt': new Date() } },
+      {
+        $set: { 'captures.$[c].usedInPlanAt': new Date() },
+        // the posts it went into (Captures shows their days); another plan adds
+        $addToSet: { 'captures.$[c].usedInPosts': { $each: posts.map((p) => p._id).filter(Boolean) } },
+      },
       { arrayFilters: [{ 'c._id': { $in: usedIds } }] },
     ).catch((e) => console.error('[posts] could not mark captures used:', e.message));
   }
