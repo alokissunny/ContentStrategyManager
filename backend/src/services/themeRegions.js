@@ -972,7 +972,7 @@ function relayoutArea({ instruction, photoImage = 0, placeholder = null }) {
       placeholder
         ? `The slide's photograph: do NOT paint it. In its new place paint a flat, solid ${placeholder.hex} (${placeholder.name}) rectangle — one even colour, no texture, no shading, nothing drawn inside it — framed the way the photograph is framed now (border, tape, shadow). The app puts the photograph in.`
         : (photoImage
-          ? `The slide's photograph is Image ${photoImage}: show that same photograph (same content, crop it to the new picture area) — never invent a different one.`
+          ? `The slide's photograph is Image ${photoImage}: show that same photograph (same content, crop it to the new picture area) — never invent a different one. Where the words sit over the photograph, they are drawn ON TOP of it and stay fully legible (a soft scrim or a paper card behind them if needed) — never hidden or cut off by it.`
           : 'Any photograph on the slide stays the same photograph — only its frame and position change. If the new arrangement has a picture area and the slide has no photograph, fill it with a picture that suits what the slide says, in the slide\'s style.'),
       'The result is a finished 4:5 Instagram slide with nothing cut off at the edges.',
     ].filter(Boolean),

@@ -5683,7 +5683,8 @@ export default function WeekView({
   }
   // Editor ⋯ › Layout on theme pictures: each slide (index into `slides`) is
   // re-arranged by the image model in a call of its own, one after another
-  async function relayoutThemed(targets, instruction) {
+  // `overlay`: the arrangement sets the words over the picture (full-bleed)
+  async function relayoutThemed(targets, instruction, overlay = false) {
     const postId = postIdAt(selected);
     if (!postId || !targets.length || rgnBusy) return;
     setAskMsg(null);
@@ -5694,7 +5695,7 @@ export default function WeekView({
       for (const i of targets) {
         setRgnSending(targets.length > 1 ? `Re-arranging slide ${i + 1} (${done + 1} of ${targets.length})…` : 'Re-arranging the slide…');
         // eslint-disable-next-line no-await-in-loop
-        const d = await editThemeRegion(postId, i + 1, { changes: [{ regionId: 'layout', action: 'relayout', instruction }] });
+        const d = await editThemeRegion(postId, i + 1, { changes: [{ regionId: 'layout', action: 'relayout', instruction, overlay }] });
         done += 1;
         if (d?.key && d?.src) rememberImage(d.key, d.src, { skipGen: true });
         if (d?.regions && i === safeIdx) setRgnMap(d.regions);
@@ -6539,7 +6540,7 @@ export default function WeekView({
         const htmlToo = every ? themedAt.length < slides.length : !activeThemed;
         // the HTML slides first, then the pictures — one write at a time
         if (htmlToo) await sendAsk(every, { instruction: `${said}\n\n${LAYOUT_KEEP}` });
-        if (pictures.length) await relayoutThemed(pictures, said);
+        if (pictures.length) await relayoutThemed(pictures, said, id === 'bleed');
       },
     },
     themes: CAROUSEL_THEMES,

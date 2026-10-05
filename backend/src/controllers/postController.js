@@ -1630,7 +1630,9 @@ async function editThemeRegion(req, res) {
       if (asked.length > 1) return res.status(400).json({ message: 'Change the layout on its own.' });
       const instruction = String(c?.instruction || '').trim().slice(0, 1200);
       if (!instruction) return res.status(400).json({ message: 'Choose a layout first.' });
-      byRegion.set('layout', { regionId: 'layout', action, instruction, photoKey: photos[0] || '', region: { id: 'layout' } });
+      // `overlay`: the words sit ON the photograph (full-bleed) — a pasted photo
+      // would cover them, so the model paints the photo itself from the reference
+      byRegion.set('layout', { regionId: 'layout', action, instruction, overlay: c?.overlay === true, photoKey: photos[0] || '', region: { id: 'layout' } });
       continue;
     }
     // the brand logo: painted in from the Brand Kit file, or taken off
@@ -1716,7 +1718,7 @@ async function editThemeRegion(req, res) {
       // tries; then the model shows the photo itself from the reference.
       const { pastePrimaryImage, pickPlaceholder, PLACEHOLDERS } = require('../services/primaryImage');
       const photoBuf = relay.photoKey ? (await getObjectBytes(relay.photoKey)).buffer : null;
-      if (photoBuf) {
+      if (photoBuf && !relay.overlay) {
         const kind = await pickPlaceholder(buffer);
         const ph = PLACEHOLDERS[kind];
         for (let t = 0; t < 2 && !relay.photoBox; t += 1) {
