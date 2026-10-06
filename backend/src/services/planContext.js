@@ -383,6 +383,10 @@ function capturesForSource(projects, source = {}) {
     if (hit.length) {
       return hit.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
     }
+    console.warn(
+      `[planContext] none of the requested captures (${[...ids].join(', ')}) is plannable` +
+        ' — falling back to the most recent conversation',
+    );
   }
   return null;
 }

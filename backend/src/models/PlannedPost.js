@@ -169,6 +169,9 @@ const plannedPostSchema = new mongoose.Schema(
 
     model: { type: String, default: '' },
     generatedAt: { type: Date, default: Date.now },
+    // The queued PlanRun that created this post (services/planQueue); unset for
+    // posts from the synchronous path.
+    planRunId: { type: mongoose.Schema.Types.ObjectId, ref: 'PlanRun', default: undefined },
     // LLM usage attributed to this post's generation (cost / token display).
     usage: {
       inputTokens: { type: Number, default: 0 },
@@ -188,5 +191,6 @@ const plannedPostSchema = new mongoose.Schema(
 plannedPostSchema.index({ user: 1, instagramUsername: 1, date: 1 }, { unique: true });
 // The daily publish job scans by schedule state.
 plannedPostSchema.index({ scheduledAt: 1, scheduleStatus: 1 });
+plannedPostSchema.index({ planRunId: 1 }, { sparse: true });
 
 module.exports = mongoose.model('PlannedPost', plannedPostSchema);

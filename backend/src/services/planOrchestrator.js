@@ -1,5 +1,6 @@
 const fs = require('fs');
 const path = require('path');
+const { AsyncResource } = require('async_hooks');
 const { brandKitColors, brandStylePalette } = require('./brandKitColors');
 const { carouselLayoutProblems } = require('./carouselLayoutCheck');
 const { extractJson, estimatePlanCostUsd, assignToEmptyDates, normalizeLens } = require('./weeklyPlan');
@@ -402,7 +403,10 @@ function withLayoutSlot(fn) {
         });
     };
     if (layoutActive < max) start();
-    else layoutWaiters.push(start);
+    // Bound to the caller's async context: a waiter is started by whichever
+    // call frees the slot, and must not inherit that call's context (queued
+    // runs tag their logs per job through AsyncLocalStorage — services/planRunLog).
+    else layoutWaiters.push(AsyncResource.bind(start));
   });
 }
 
@@ -3077,7 +3081,18 @@ async function attachGeneratedVisuals({ source, content, brief, brand, userId, h
  * Returns the same shape fields weeklyPlan needs to assemble a route:
  *   { focusOut, rawDays, usage, model, debug }
  */
-async function runMultiAgentPlan({
+async function runMultiAgentPlan(args) {
+  const phase = await runStrategistPhase(args);
+  const dayResults = await mapPool(phase.plannedDays, dayConcurrency(), (p, i) => writePlanDay(phase, args.projects, p, i));
+  return assemblePlanResult(phase, dayResults);
+}
+
+// ── Phase 1 of a plan run: context → Strategist → dated briefs ─────────────
+// Returns a plain, JSON-serializable `phase` object. The synchronous path hands
+// it straight to writePlanDay/assemblePlanResult; the queued path (services/
+// planQueue) stores it on the PlanRun so each post job and the finalize job can
+// pick up from here in another process.
+async function runStrategistPhase({
   profile,
   brandDna,
   competitorInsights,
@@ -3100,8 +3115,6 @@ async function runMultiAgentPlan({
     captureIds,
   });
   const emptyDates = Array.isArray(ctx.calendar.emptyDates) ? ctx.calendar.emptyDates : [];
-  const debugAgents = [];
-  const usages = [];
 
   const brandFilled = ['offer', 'audience', 'firstProblem', 'position', 'proof', 'voice', 'visualStyle', 'neverDo']
     .filter((k) => String(ctx.brand?.[k] || '').trim())
@@ -3148,8 +3161,6 @@ async function runMultiAgentPlan({
     prompt: strategistPrompt,
     validate: (p) => validateStrategist(p),
   });
-  debugAgents.push(strategist.debugEntry);
-  usages.push(strategist.usage);
   const briefs = enrichBriefsFromCaptures(
     Array.isArray(strategist.parsed.briefs)
       ? strategist.parsed.briefs
@@ -3201,174 +3212,201 @@ async function runMultiAgentPlan({
   // When Content Structure is disabled (default), slide outline comes from the
   // Strategist brief's narrative units and Carousel composes HTML from that brief.
   // When enabled, Content Structure still maps units → surfaces first.
-  const layoutOn = layoutAgentEnabled();
-  const carouselOn = carouselAgentEnabled();
-  const structureOn = contentStructureAgentEnabled();
-  const writeOneDay = async (planned, index) => {
-      const pillar = lockedPillarOf(planned) || planned.pillar;
-      const brief = {
-        index,
-        date: planned.date,
-        dayOfMonth: planned.dayOfMonth,
-        day: planned.day,
-        pillar,
-        lens: pillar,
-        pillarJob: optionalText(planned.pillarJob) || PILLAR_JOB[pillar] || '',
-        source: planned.source || '',
-        captureId: planned.captureId || '',
-        sourceCaptureId: planned.sourceCaptureId || planned.captureId || '',
-        sourceInternalStoryIds: planned.sourceInternalStoryIds || [],
-        sourceTrace: planned.sourceTrace || [],
-        sourceStoryId: planned.sourceStoryId || '',
-        project: planned.project || '',
-        originalCapture: planned.originalCapture || '',
-        angle: planned.angle || '',
-        verifiedTruth: planned.verifiedTruth || [],
-        observableDetails: planned.observableDetails || [],
-        relevantAssetContext: planned.relevantAssetContext || [],
-        allocatedAssets: planned.allocatedAssets || [],
-        suggestedAssetKey: planned.suggestedAssetKey || planned.allocatedAssets?.[0]?.key || '',
-        visualLimitations: planned.visualLimitations || [],
-        uniqueJob: planned.uniqueJob || '',
-        audienceTension: planned.audienceTension || '',
-        hookTerritory: planned.hookTerritory || '',
-        centralFact: planned.centralFact || '',
-        ownedTerritory: planned.ownedTerritory || '',
-        doNotRepeat: planned.doNotRepeat || '',
-        format: lockedFormat(planned.format),
-        formatReason: planned.formatReason || '',
-        themeId: '', // no theme — the carousel agent's house style (Themes applies one later)
+  return {
+    started,
+    username,
+    userId: userId ? String(userId) : '',
+    strategistPrompt,
+    strategistDebugEntry: strategist.debugEntry,
+    strategistUsage: strategist.usage,
+    focusOut: strategist.parsed.focus || {},
+    constraints: strategist.parsed.constraints || {},
+    plannedDays,
+    brandJson,
+    visualBrand,
+    flags: {
+      layoutOn: layoutAgentEnabled(),
+      carouselOn: carouselAgentEnabled(),
+      structureOn: contentStructureAgentEnabled(),
+    },
+  };
+}
 
-        themeReason: optionalText(planned.themeReason),
-        narrativeUnits: withUnitIds(planned.narrativeUnits || []),
-        approvedGenerationRoute: planned.approvedGenerationRoute || approvedGenerationRouteOf(),
-        knownLimitation: planned.knownLimitation || '',
-        hashtags: planned.hashtags || [],
-        recommendedTime: planned.recommendedTime || '',
-      };
-      const dayAssets = (() => {
-        const rows = assetsForDay(projects, brief);
-        if (rows[0]?.key) return rows.map((a, i) => ({ ...a, preferred: i === 0 }));
-        return rows;
-      })();
-      const label = brief.date || brief.day || `D${index + 1}`;
-      const debugEntries = [];
-      const runUsages = [];
-      const collect = (agent) => {
-        if (!agent) return;
-        debugEntries.push(agent.debugEntry);
-        runUsages.push(agent.usage);
-      };
+// ── Phase 2: one post (Structure → Carousel/Layout → Visual Generator) ─────
+// Independent per brief, so the sync path pools these and the queued path runs
+// each as its own job. Returns a JSON-serializable day result.
+async function writePlanDay(phase, projects, planned, index) {
+  const { brandJson, visualBrand, userId, username } = phase;
+  const { structureOn } = phase.flags;
+  const pillar = lockedPillarOf(planned) || planned.pillar;
+  const brief = {
+    index,
+    date: planned.date,
+    dayOfMonth: planned.dayOfMonth,
+    day: planned.day,
+    pillar,
+    lens: pillar,
+    pillarJob: optionalText(planned.pillarJob) || PILLAR_JOB[pillar] || '',
+    source: planned.source || '',
+    captureId: planned.captureId || '',
+    sourceCaptureId: planned.sourceCaptureId || planned.captureId || '',
+    sourceInternalStoryIds: planned.sourceInternalStoryIds || [],
+    sourceTrace: planned.sourceTrace || [],
+    sourceStoryId: planned.sourceStoryId || '',
+    project: planned.project || '',
+    originalCapture: planned.originalCapture || '',
+    angle: planned.angle || '',
+    verifiedTruth: planned.verifiedTruth || [],
+    observableDetails: planned.observableDetails || [],
+    relevantAssetContext: planned.relevantAssetContext || [],
+    allocatedAssets: planned.allocatedAssets || [],
+    suggestedAssetKey: planned.suggestedAssetKey || planned.allocatedAssets?.[0]?.key || '',
+    visualLimitations: planned.visualLimitations || [],
+    uniqueJob: planned.uniqueJob || '',
+    audienceTension: planned.audienceTension || '',
+    hookTerritory: planned.hookTerritory || '',
+    centralFact: planned.centralFact || '',
+    ownedTerritory: planned.ownedTerritory || '',
+    doNotRepeat: planned.doNotRepeat || '',
+    format: lockedFormat(planned.format),
+    formatReason: planned.formatReason || '',
+    themeId: '', // no theme — the carousel agent's house style (Themes applies one later)
 
-      let structure = null;
-      if (structureOn) {
-        try {
-          structure = await writeContentStructure({
-            source: `Structure:${label}`,
-            brief,
-            dayAssets,
-            brandJson,
-          });
-          collect(structure);
-        } catch (err) {
-          console.warn(`[planOrchestrator] Structure:${label} skipped — ${err.message}`);
-          return { index, dayBrief: brief, result: null, skipped: err.message, debugEntries, runUsages, structure: null };
-        }
+    themeReason: optionalText(planned.themeReason),
+    narrativeUnits: withUnitIds(planned.narrativeUnits || []),
+    approvedGenerationRoute: planned.approvedGenerationRoute || approvedGenerationRouteOf(),
+    knownLimitation: planned.knownLimitation || '',
+    hashtags: planned.hashtags || [],
+    recommendedTime: planned.recommendedTime || '',
+  };
+  const dayAssets = (() => {
+    const rows = assetsForDay(projects, brief);
+    if (rows[0]?.key) return rows.map((a, i) => ({ ...a, preferred: i === 0 }));
+    return rows;
+  })();
+  const label = brief.date || brief.day || `D${index + 1}`;
+  const debugEntries = [];
+  const runUsages = [];
+  const collect = (agent) => {
+    if (!agent) return;
+    debugEntries.push(agent.debugEntry);
+    runUsages.push(agent.usage);
+  };
 
-        if (structure.parsed?.status === 'unresolved') {
-          const why = optionalText(structure.parsed.limitations?.[0])
-            || optionalText(structure.parsed.validation?.problems?.[0]?.detail)
-            || optionalText(structure.parsed.structureReason)
-            || 'unresolved structure';
-          console.warn(`[planOrchestrator] Structure:${label} unresolved — ${why}`);
-          return {
-            index,
-            dayBrief: brief,
-            result: null,
-            skipped: `structure unresolved: ${why}`,
-            debugEntries,
-            runUsages,
-            structure: structure.parsed,
-          };
-        }
+  let structure = null;
+  if (structureOn) {
+    try {
+      structure = await writeContentStructure({
+        source: `Structure:${label}`,
+        brief,
+        dayAssets,
+        brandJson,
+      });
+      collect(structure);
+    } catch (err) {
+      console.warn(`[planOrchestrator] Structure:${label} skipped — ${err.message}`);
+      return { index, dayBrief: brief, result: null, skipped: err.message, debugEntries, runUsages, structure: null };
+    }
 
-        if (structure.parsed.format) brief.format = lockedFormat(structure.parsed.format);
-        const visualCount = visualSlidesOf(structure.parsed).length;
-        console.log(
-          `[planOrchestrator] Structure:${label} ${structure.parsed.format}` +
-            ` · ${visualCount} visual ${visualCount === 1 ? 'slide' : 'slides'}`,
-        );
-      } else {
-        console.log(
-          `[planOrchestrator] Structure:${label} skipped — brief → carousel` +
-            ` · ${brief.narrativeUnits.length} narrative unit${brief.narrativeUnits.length === 1 ? '' : 's'}`,
-        );
-      }
-
-      const writer = {
-        parsed: structureOn
-          ? postFromStructure(structure.parsed, brief)
-          : postFromBrief(brief),
-      };
-      const layout = carouselAgentEnabled()
-        ? await attachCarousel({
-          label,
-          structure: structure?.parsed || null,
-          writer,
-          dayBrief: brief,
-          dayAssets,
-          brand: visualBrand,
-          collect,
-        })
-        : await attachLayout({
-          label,
-          structure: structure?.parsed || null,
-          writer,
-          dayBrief: brief,
-          dayAssets,
-          collect,
-        });
-      // Compose the day's content here (async), then let the Visual Generator
-      // agent fill any slide that needs a picture it has no supplied asset for.
-      // Rendering + S3 storage is per-day and concurrent, so it belongs in this
-      // pooled worker, not the synchronous assembly below.
-      let content = null;
-      if (!writerFailed(writer.parsed)) {
-        content = applyLayoutToContent(
-          normalizeWriterPost(writer.parsed, brief, dayAssets),
-          layout?.parsed || null,
-        );
-        try {
-          content = await attachGeneratedVisuals({
-            source: label,
-            content,
-            brief,
-            brand: visualBrand,
-            userId,
-            handle: username,
-            collect,
-            fillEmpty: visualFillEmptyEnabled(),
-            // the theme the carousel agent drew this post in
-            visualTheme: visualThemeOf(layout?.parsed?.themeId || brief?.themeId || ''),
-          });
-        } catch (err) {
-          console.warn(`[planOrchestrator] Visual:${label} skipped — ${err.message}`);
-        }
-      }
+    if (structure.parsed?.status === 'unresolved') {
+      const why = optionalText(structure.parsed.limitations?.[0])
+        || optionalText(structure.parsed.validation?.problems?.[0]?.detail)
+        || optionalText(structure.parsed.structureReason)
+        || 'unresolved structure';
+      console.warn(`[planOrchestrator] Structure:${label} unresolved — ${why}`);
       return {
         index,
         dayBrief: brief,
-        result: writer,
-        layout: layout?.parsed || null,
-        content,
+        result: null,
+        skipped: `structure unresolved: ${why}`,
         debugEntries,
         runUsages,
-        structure: structure?.parsed || null,
-        dayAssets,
+        structure: structure.parsed,
       };
-  };
+    }
 
-  const dayResults = await mapPool(plannedDays, dayConcurrency(), (p, i) => writeOneDay(p, i));
+    if (structure.parsed.format) brief.format = lockedFormat(structure.parsed.format);
+    const visualCount = visualSlidesOf(structure.parsed).length;
+    console.log(
+      `[planOrchestrator] Structure:${label} ${structure.parsed.format}` +
+        ` · ${visualCount} visual ${visualCount === 1 ? 'slide' : 'slides'}`,
+    );
+  } else {
+    console.log(
+      `[planOrchestrator] Structure:${label} skipped — brief → carousel` +
+        ` · ${brief.narrativeUnits.length} narrative unit${brief.narrativeUnits.length === 1 ? '' : 's'}`,
+    );
+  }
+
+  const writer = {
+    parsed: structureOn
+      ? postFromStructure(structure.parsed, brief)
+      : postFromBrief(brief),
+  };
+  const layout = carouselAgentEnabled()
+    ? await attachCarousel({
+      label,
+      structure: structure?.parsed || null,
+      writer,
+      dayBrief: brief,
+      dayAssets,
+      brand: visualBrand,
+      collect,
+    })
+    : await attachLayout({
+      label,
+      structure: structure?.parsed || null,
+      writer,
+      dayBrief: brief,
+      dayAssets,
+      collect,
+    });
+  // Compose the day's content here (async), then let the Visual Generator
+  // agent fill any slide that needs a picture it has no supplied asset for.
+  // Rendering + S3 storage is per-day and concurrent, so it belongs in this
+  // pooled worker, not the synchronous assembly below.
+  let content = null;
+  if (!writerFailed(writer.parsed)) {
+    content = applyLayoutToContent(
+      normalizeWriterPost(writer.parsed, brief, dayAssets),
+      layout?.parsed || null,
+    );
+    try {
+      content = await attachGeneratedVisuals({
+        source: label,
+        content,
+        brief,
+        brand: visualBrand,
+        userId,
+        handle: username,
+        collect,
+        fillEmpty: visualFillEmptyEnabled(),
+        // the theme the carousel agent drew this post in
+        visualTheme: visualThemeOf(layout?.parsed?.themeId || brief?.themeId || ''),
+      });
+    } catch (err) {
+      console.warn(`[planOrchestrator] Visual:${label} skipped — ${err.message}`);
+    }
+  }
+  return {
+    index,
+    dayBrief: brief,
+    result: writer,
+    layout: layout?.parsed || null,
+    content,
+    debugEntries,
+    runUsages,
+    structure: structure?.parsed || null,
+    dayAssets,
+  };
+}
+
+// ── Phase 3: ordered day results → the plan result runMultiAgentPlan returns ─
+function assemblePlanResult(phase, dayResults) {
+  const { started, username, strategistPrompt } = phase;
+  const { layoutOn, carouselOn, structureOn } = phase.flags;
+  const debugAgents = [phase.strategistDebugEntry];
+  const usages = [phase.strategistUsage];
 
   dayResults
     .sort((a, b) => a.index - b.index)
@@ -3480,8 +3518,8 @@ async function runMultiAgentPlan({
   );
 
   return {
-    focusOut: strategist.parsed.focus || {},
-    constraints: strategist.parsed.constraints || {},
+    focusOut: phase.focusOut || {},
+    constraints: phase.constraints || {},
     rawDays,
     usage,
     model,
@@ -3511,6 +3549,9 @@ async function runMultiAgentPlan({
 
 module.exports = {
   runMultiAgentPlan,
+  runStrategistPhase,
+  writePlanDay,
+  assemblePlanResult,
   visualThemeOf,
   runLayoutForPost,
   generateRequestedVisual,

@@ -20,6 +20,10 @@ const { applyThemeToSlide, themedSlideDocument } = require('../services/themeApp
 const { isImageGenConfigured } = require('../services/openaiImage');
 const { toVisionImage } = require('../services/visionImage');
 const { currentProfile } = require('../utils/currentProfile');
+const PlanRun = require('../models/PlanRun');
+const PlanRunPost = require('../models/PlanRunPost');
+const { planQueueEnabledFor, enqueuePlanRun, activeRunFor } = require('../services/planQueue');
+const { runTag, queueDebug } = require('../services/planRunLog');
 const { ownedMediaKeys, clearScheduleFields } = require('../services/metaPublish');
 const {
   logPlanInstagramSource,
@@ -117,7 +121,31 @@ function dayToPostDoc(userId, username, d, plan, perPostUsage) {
   };
 }
 
+const PLAN_FAILED_REASON = 'We couldn’t build posts just now. Please try again.';
+
+// Fill empty calendar slots for a handle and save each generated day as a
+// PlannedPost. The queued path (services/planRunSteps) runs the same three
+// steps — load inputs, plan, save — split across background jobs.
 async function generateAndSavePosts(userId, profile, trigger = 'generate', planSource = {}) {
+  const inputs = await loadGenerationInputs(userId, profile, trigger, planSource);
+
+  let plan;
+  try {
+    plan = await generateWeeklyPlan(
+      profile, inputs.brandDna, inputs.competitorInsights, inputs.projects,
+      planOptionsOf(inputs, userId, planSource),
+    );
+  } catch (err) {
+    console.error(`[posts] slot fill failed for @${profile.username}:`, err.message);
+    return { posts: [], count: 0, debug: null, emptyReason: PLAN_FAILED_REASON };
+  }
+
+  return savePlanAsPosts(userId, profile.username, trigger, plan);
+}
+
+// Everything a plan is built from: Brand DNA, the cohort's competitor
+// insights, project assets and the calendar's empty slots.
+async function loadGenerationInputs(userId, profile, trigger = 'generate', planSource = {}) {
   await logPlanInstagramSource(userId, profile, trigger);
 
   const [brandDna, competitorInsights, projects] = await Promise.all([
@@ -156,21 +184,22 @@ async function generateAndSavePosts(userId, profile, trigger = 'generate', planS
       (planSource.sessionId ? ` · session=${planSource.sessionId}` : ''),
   );
 
-  let plan;
-  try {
-    plan = await generateWeeklyPlan(profile, brandDna, competitorInsights, projects, {
-      weekDate: today,
-      usedAssetKeys,
-      monthCalendar: emptySlots,
-      sessionId: planSource.sessionId || '',
-      captureIds: planSource.captureIds || [],
-      userId,
-    });
-  } catch (err) {
-    console.error(`[posts] slot fill failed for @${profile.username}:`, err.message);
-    return { posts: [], count: 0, debug: null, emptyReason: 'We couldn’t build posts just now. Please try again.' };
-  }
+  return { brandDna, competitorInsights, projects, emptySlots, usedAssetKeys, today };
+}
 
+function planOptionsOf(inputs, userId, planSource = {}) {
+  return {
+    weekDate: inputs.today,
+    usedAssetKeys: inputs.usedAssetKeys,
+    monthCalendar: inputs.emptySlots,
+    sessionId: planSource.sessionId || '',
+    captureIds: planSource.captureIds || [],
+    userId,
+  };
+}
+
+// A finished plan → PlannedPosts on the empty dates it was given.
+async function savePlanAsPosts(userId, username, trigger, plan, extra = {}) {
   const days = (plan.days || []).filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(String(d.date || '')));
   if (!days.length) {
     const emptyReason = String(plan.constraints?.insufficientContext || '').trim()
@@ -193,7 +222,7 @@ async function generateAndSavePosts(userId, profile, trigger = 'generate', planS
     model: u.model || plan.model || '',
   };
 
-  const docs = days.map((d) => dayToPostDoc(userId, profile.username, d, plan, perPostUsage));
+  const docs = days.map((d) => ({ ...dayToPostDoc(userId, username, d, plan, perPostUsage), ...extra }));
 
   // Insert only onto empty slots. The unique (user, handle, date) index makes a
   // collision with an already-occupied date a no-op duplicate error, which we
@@ -205,15 +234,49 @@ async function generateAndSavePosts(userId, profile, trigger = 'generate', planS
     if (err && Array.isArray(err.insertedDocs)) {
       saved = err.insertedDocs;
       const dups = (err.writeErrors || []).length;
-      if (dups) console.log(`[posts] ${trigger} @${profile.username}: skipped ${dups} already-occupied slot(s)`);
+      if (dups) console.log(`[posts] ${trigger} @${username}: skipped ${dups} already-occupied slot(s)`);
     } else {
-      console.error(`[posts] insert failed for @${profile.username}:`, err.message);
+      console.error(`[posts] insert failed for @${username}:`, err.message);
       throw err;
     }
   }
 
-  console.log(`[posts] ${trigger} @${profile.username}: saved ${saved.length} post(s)`);
+  console.log(`[posts] ${trigger} @${username}: saved ${saved.length} post(s)`);
   return { posts: saved, count: saved.length, debug: plan.debug || null, emptyReason: '' };
+}
+
+// Captures page: the captures a plan was written from are now "used".
+// Each post is linked to the capture its brief was written from
+// (agentTrace.strategyBrief.captureId) — not to every capture the request
+// named: the Strategist often plans from one of several, and a capture that
+// produced nothing must stay available. Only a post whose source can't be
+// identified falls back to every requested capture.
+const OBJECT_ID = /^[a-f0-9]{24}$/i;
+async function markCapturesUsed(userId, captureIds, posts) {
+  const requested = [...new Set((captureIds || []).map((id) => String(id || '').trim()).filter((id) => OBJECT_ID.test(id)))];
+  if (!requested.length || !(posts || []).length) return;
+  const postsByCapture = new Map();
+  for (const post of posts) {
+    if (!post?._id) continue;
+    const source = String(post.agentTrace?.strategyBrief?.captureId || '').trim();
+    for (const id of OBJECT_ID.test(source) ? [source] : requested) {
+      if (!postsByCapture.has(id)) postsByCapture.set(id, []);
+      postsByCapture.get(id).push(post._id);
+    }
+  }
+  const usedAt = new Date();
+  await Promise.all([...postsByCapture].map(([captureId, postIds]) => {
+    const cid = new mongoose.Types.ObjectId(captureId);
+    return Project.updateMany(
+      { user: userId, 'captures._id': cid },
+      {
+        $set: { 'captures.$[c].usedInPlanAt': usedAt },
+        // the posts it went into (Captures shows their days); another plan adds
+        $addToSet: { 'captures.$[c].usedInPosts': { $each: postIds } },
+      },
+      { arrayFilters: [{ 'c._id': cid }] },
+    ).catch((e) => console.error('[posts] could not mark captures used:', e.message));
+  }));
 }
 
 // ── Read endpoints ────────────────────────────────────────────────────────
@@ -320,6 +383,23 @@ async function generatePlan(req, res) {
     (sessionId ? ` session=${sessionId}` : '') +
     ` publish=${pubRule.mode}${allowedWeekdays ? `[${allowedWeekdays.join(',')}]` : '(any day)'}`);
 
+  // Queued path (PLAN_QUEUE): answer at once with a run id the client polls
+  // (GET /posts/runs/:runId). If Redis is unreachable, fall through and
+  // generate synchronously as before.
+  if (planQueueEnabledFor(req.user._id)) {
+    try {
+      const { run, reused } = await enqueuePlanRun({
+        userId: req.user._id,
+        username: profile.username,
+        trigger,
+        planSource: { sessionId, captureIds, allowedWeekdays },
+      });
+      return res.status(202).json({ runId: String(run._id), status: run.status, reused });
+    } catch (err) {
+      console.error('[posts] could not queue plan run — generating synchronously:', err.message);
+    }
+  }
+
   const { posts, count, debug, emptyReason, needsInput } = await generateAndSavePosts(req.user._id, profile, trigger, {
     sessionId,
     captureIds,
@@ -334,18 +414,7 @@ async function generatePlan(req, res) {
     return res.status(422).json(out);
   }
   // Captures page: the captures this plan was written from are now "used".
-  const usedIds = captureIds.filter((id) => mongoose.isValidObjectId(id)).map((id) => new mongoose.Types.ObjectId(id));
-  if (count && usedIds.length) {
-    await Project.updateMany(
-      { user: req.user._id, 'captures._id': { $in: usedIds } },
-      {
-        $set: { 'captures.$[c].usedInPlanAt': new Date() },
-        // the posts it went into (Captures shows their days); another plan adds
-        $addToSet: { 'captures.$[c].usedInPosts': { $each: posts.map((p) => p._id).filter(Boolean) } },
-      },
-      { arrayFilters: [{ 'c._id': { $in: usedIds } }] },
-    ).catch((e) => console.error('[posts] could not mark captures used:', e.message));
-  }
+  if (count) await markCapturesUsed(req.user._id, captureIds, posts);
   const out = {
     posts,
     count,
@@ -354,6 +423,85 @@ async function generatePlan(req, res) {
   };
   if (wantsPromptDebug(req) && (debug?.agents?.length || debug?.finalPrompt)) out.debug = debug;
   res.json(out);
+}
+
+// Background plan generation for a handle (Instagram analyze). Queued when
+// PLAN_QUEUE is on; otherwise — or if queuing fails — the original
+// fire-and-forget synchronous run.
+function startBackgroundGeneration(userId, profile, trigger) {
+  const runSync = () => generateAndSavePosts(userId, profile, trigger);
+  if (!planQueueEnabledFor(userId)) return runSync();
+  return enqueuePlanRun({ userId, username: profile.username, trigger })
+    .catch((err) => {
+      console.error('[posts] could not queue background plan — generating synchronously:', err.message);
+      return runSync();
+    });
+}
+
+// GET /posts/runs/:runId — a queued run's progress. Once finished it carries
+// the same body POST /posts/generate returns synchronously: { posts, count, … }
+// when done, or { message, needsInput? } for the cases the sync path answers 422.
+async function getPlanRun(req, res) {
+  if (!mongoose.isValidObjectId(req.params.runId)) return res.status(404).json({ message: 'Not found' });
+  const run = await PlanRun.findOne({ _id: req.params.runId, user: req.user._id }).select('-state').lean();
+  if (!run) return res.status(404).json({ message: 'Not found' });
+  const body = await planRunBody(run, req);
+  queueDebug(
+    `${runTag(run._id, run.instagramUsername)} poll · status=${body.status}` +
+      (body.postsWritten != null ? ` · ${body.postsWritten}/${body.totalPosts} posts written` : '') +
+      (body.count != null ? ` · ${body.count} saved` : ''),
+  );
+  res.json(body);
+}
+
+// GET /posts/runs/active — the current handle's run in progress, if any.
+async function getActivePlanRun(req, res) {
+  const profile = await currentProfile(req.user._id).select('username').lean();
+  const run = profile ? await activeRunFor(req.user._id, profile.username) : null;
+  res.json({ run: run ? await planRunBody(run.toObject ? run.toObject() : run, req) : null });
+}
+
+async function planRunBody(run, req) {
+  const body = {
+    runId: String(run._id),
+    status: run.status,
+    trigger: run.trigger,
+    totalPosts: run.totalPosts || 0,
+  };
+  if (run.status === 'writing' || run.status === 'finalizing') {
+    body.postsWritten = await PlanRunPost.countDocuments({ run: run._id });
+  }
+  const result = run.result || {};
+  const debug = (() => {
+    if (!result.debug || !wantsPromptDebug(req)) return null;
+    try { return JSON.parse(result.debug); } catch { return null; }
+  })();
+  const withDebug = (out) => {
+    if (debug && (debug.agents?.length || debug.finalPrompt)) out.debug = debug;
+    return out;
+  };
+  if (run.status === 'done') {
+    const ids = result.postIds || [];
+    const found = ids.length ? await PlannedPost.find({ _id: { $in: ids }, user: req.user._id }).lean() : [];
+    const order = new Map(ids.map((id, i) => [String(id), i]));
+    found.sort((a, b) => order.get(String(a._id)) - order.get(String(b._id)));
+    const profile = await InstagramProfile.findOne({ user: req.user._id, username: run.instagramUsername })
+      .select('dataSource fetchedAt').lean();
+    return withDebug({
+      ...body,
+      posts: found,
+      count: Number(result.count) || found.length,
+      dataSource: profile?.dataSource || 'unknown',
+      fetchedAt: profile?.fetchedAt || null,
+    });
+  }
+  if (run.status === 'needs-input') {
+    return withDebug({ ...body, message: result.emptyReason || 'No posts could be built from this conversation.', needsInput: true });
+  }
+  if (run.status === 'failed') {
+    return withDebug({ ...body, message: run.error || result.emptyReason || PLAN_FAILED_REASON });
+  }
+  return body;
 }
 
 // DELETE /posts — clear the full calendar for the current handle: every
@@ -2441,11 +2589,19 @@ module.exports = {
   readCompositionPicture,
   deletePost,
   generateAndSavePosts,
+  loadGenerationInputs,
+  planOptionsOf,
+  savePlanAsPosts,
+  markCapturesUsed,
+  PLAN_FAILED_REASON,
   getPosts,
   getPostById,
   getPostOptions,
   getPostDebug,
   generatePlan,
+  startBackgroundGeneration,
+  getPlanRun,
+  getActivePlanRun,
   clearUpcoming,
   distributePosts,
   getDistribution,

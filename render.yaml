@@ -154,6 +154,35 @@ services:
           name: igsignal-api
           envVarKey: S3_BUCKET_NAME
 
+  # ── Queued post generation (opt-in) ─────────────────────────────────────
+  # Uncomment to provision Redis + a generation worker, then set on igsignal-api:
+  #   PLAN_QUEUE=1 and REDIS_URL (fromService below). Leave PLAN_QUEUE unset to
+  #   keep the synchronous path. Use a Key Value plan with persistence, and keep
+  #   maxmemoryPolicy noeviction so queued jobs are never evicted.
+  # - type: keyvalue
+  #   name: igsignal-queue
+  #   region: oregon
+  #   plan: starter
+  #   maxmemoryPolicy: noeviction
+  #   ipAllowList: []
+  #
+  # - type: worker
+  #   name: igsignal-gen-worker
+  #   runtime: node
+  #   region: oregon
+  #   plan: starter
+  #   rootDir: backend
+  #   buildCommand: npm install
+  #   startCommand: node src/workers/index.js
+  #   envVars:
+  #     - key: REDIS_URL
+  #       fromService: { type: keyvalue, name: igsignal-queue, property: connectionString }
+  #     - key: PLAN_QUEUE
+  #       value: "1"
+  #     # …plus the same MONGO_URI, OPENAI_API_KEY, ANTHROPIC_API_KEY, AWS_*,
+  #     # S3_BUCKET_NAME and MEDIA_CDN_BASE_URL values as igsignal-api
+  #     # (fromService: igsignal-api, envVarKey: …).
+
   - type: web
     name: igsignal-web
     runtime: static

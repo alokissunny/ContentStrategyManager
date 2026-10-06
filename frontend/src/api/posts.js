@@ -143,11 +143,53 @@ export function generatePlan(trigger = 'generate', extras = {}) {
   // fresh post takes the next allowed slot rather than the next calendar day.
   if (extras.mode) body.mode = extras.mode;
   if (Array.isArray(extras.days)) body.days = extras.days;
-  return client.post('/posts/generate', body, { timeout: 10 * 60 * 1000 }).then((res) => {
-    const data = res.data || {};
+  return client.post('/posts/generate', body, { timeout: 10 * 60 * 1000 }).then(async (res) => {
+    let data = res.data || {};
+    // Queued generation (backend PLAN_QUEUE): a 202 with a run id. Wait for the
+    // run here so callers get the same result — or the same 422-style error —
+    // as the synchronous response.
+    if (res.status === 202 && data.runId) data = await waitForPlanRun(data.runId);
     ingestPlanDebug(`Generate posts (${trigger})`, data);
     return data;
   });
+}
+
+const RUN_POLL_MS = 2500;
+const RUN_MAX_WAIT_MS = 20 * 60 * 1000;
+const RUN_POLL_RETRIES = 5; // consecutive network errors tolerated while polling
+
+const sleep = (ms) => new Promise((resolve) => { setTimeout(resolve, ms); });
+
+// Shaped like an axios error, so existing `err.response.data` handling applies.
+function runError(status, data) {
+  const err = new Error(data?.message || 'Request failed');
+  err.response = { status, data };
+  return err;
+}
+
+// Poll a queued plan run until it finishes. Resolves with the body the sync
+// endpoint would have returned; rejects with a 422-shaped error for
+// needs-input / failed, exactly as the sync endpoint answers those.
+export async function waitForPlanRun(runId, { onProgress } = {}) {
+  const deadline = Date.now() + RUN_MAX_WAIT_MS;
+  let misses = 0;
+  while (Date.now() < deadline) {
+    await sleep(RUN_POLL_MS);
+    let data;
+    try {
+      data = (await client.get(`/posts/runs/${runId}`)).data || {};
+      misses = 0;
+    } catch (err) {
+      if (err.response?.status === 404 || misses >= RUN_POLL_RETRIES) throw err;
+      misses += 1;
+      continue;
+    }
+    if (data.status === 'done') return data;
+    if (data.status === 'needs-input') throw runError(422, { message: data.message, needsInput: true, debug: data.debug });
+    if (data.status === 'failed') throw runError(422, { message: data.message, debug: data.debug });
+    onProgress?.(data);
+  }
+  throw runError(504, { message: 'Building posts is taking longer than expected. Check your calendar again in a few minutes.' });
 }
 
 // Delete every unpublished planned post for the active handle (full calendar).

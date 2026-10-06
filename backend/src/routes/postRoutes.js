@@ -7,6 +7,8 @@ const {
   getPostOptions,
   getPostDebug,
   generatePlan,
+  getPlanRun,
+  getActivePlanRun,
   clearUpcoming,
   distributePosts,
   getDistribution,
@@ -34,6 +36,9 @@ const router = express.Router();
 router.use(protect);
 router.get('/', asyncHandler(getPosts));
 router.post('/generate', asyncHandler(generatePlan));
+// Queued generation runs (PLAN_QUEUE) — before '/:id' so "runs" isn't read as a post id.
+router.get('/runs/active', asyncHandler(getActivePlanRun));
+router.get('/runs/:runId', asyncHandler(getPlanRun));
 router.post('/distribute', asyncHandler(distributePosts));
 router.get('/distribution', asyncHandler(getDistribution));
 router.put('/distribution', asyncHandler(setDistribution));

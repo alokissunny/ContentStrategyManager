@@ -961,6 +961,48 @@ async function generateSingleAgentPlan({
 }
 
 async function generateWeeklyPlan(profile, brandDna, competitorInsights = null, projects = [], options = {}) {
+  const pre = prepareWeeklyPlan(profile, brandDna, competitorInsights, projects, options);
+  if (pre.earlyResult) return pre.earlyResult;
+
+  let generated;
+  if (pre.useMulti) {
+    // Lazy require avoids a circular init with planOrchestrator → weeklyPlan helpers.
+    const { runMultiAgentPlan } = require('./planOrchestrator');
+    generated = await runMultiAgentPlan(multiAgentArgsOf(pre, profile, brandDna, competitorInsights, projects, options));
+  } else {
+    generated = await generateSingleAgentPlan({
+      model: pre.model,
+      snapshot: pre.snapshot,
+      focusSummary: pre.focusSummary,
+      competitorInsights,
+      projects,
+      prompt: pre.prompt,
+      system: pre.planSystem,
+      user: pre.planUser,
+    });
+  }
+  return finishWeeklyPlan(pre, generated, projects, options);
+}
+
+// Arguments the multi-agent orchestrator's first phase needs.
+function multiAgentArgsOf(pre, profile, brandDna, competitorInsights, projects, options = {}) {
+  return {
+    profile,
+    brandDna,
+    competitorInsights,
+    projects,
+    focusSummary: pre.focusSummary,
+    monthCalendar: pre.monthCalendar,
+    sessionId: options.sessionId || '',
+    captureIds: options.captureIds || [],
+    userId: options.userId || '',
+  };
+}
+
+// Everything generateWeeklyPlan works out before any model call. Plain data
+// (Dates aside), so the queued path can store it on the PlanRun and finish the
+// plan in another process. `earlyResult` is set when there is nothing to fill.
+function prepareWeeklyPlan(profile, brandDna, competitorInsights = null, projects = [], options = {}) {
   const started = Date.now();
   const model = planTextModel();
   const { funnel, focusPillar: gapPillar, confidence, seed } = buildFunnelWithScores(profile);
@@ -1026,9 +1068,30 @@ async function generateWeeklyPlan(profile, brandDna, competitorInsights = null, 
       (options.sessionId ? ` · session=${options.sessionId}` : ''),
   );
 
+  const pre = {
+    started,
+    model,
+    funnel,
+    focusPillar,
+    confidence,
+    seed,
+    weekOf,
+    weekLabel,
+    monday,
+    dayAllocation,
+    monthCalendar,
+    focusSummary,
+    snapshot,
+    planSystem,
+    planUser,
+    prompt,
+    useMulti,
+    earlyResult: null,
+  };
+
   if (monthCalendar.emptyDates.length === 0) {
     console.log(`[weeklyPlan] @${snapshot.username}: no empty days in the fill horizon — nothing to fill`);
-    return {
+    pre.earlyResult = {
       weekOf,
       weekLabel,
       model,
@@ -1047,35 +1110,18 @@ async function generateWeeklyPlan(profile, brandDna, competitorInsights = null, 
       debug: { mode: 'skipped-full-month', model, finalPrompt: '', agents: [] },
     };
   }
+  return pre;
+}
 
-  let generated;
-  if (useMulti) {
-    // Lazy require avoids a circular init with planOrchestrator → weeklyPlan helpers.
-    const { runMultiAgentPlan } = require('./planOrchestrator');
-    generated = await runMultiAgentPlan({
-      profile,
-      brandDna,
-      competitorInsights,
-      projects,
-      focusSummary,
-      monthCalendar,
-      sessionId: options.sessionId || '',
-      captureIds: options.captureIds || [],
-      userId: options.userId || '',
-    });
-  } else {
-    generated = await generateSingleAgentPlan({
-      model,
-      snapshot,
-      focusSummary,
-      competitorInsights,
-      projects,
-      prompt,
-      system: planSystem,
-      user: planUser,
-    });
-  }
-
+// The model's output → the plan generateWeeklyPlan returns (focus, dated days,
+// usage, debug). Shared by the sync path and the queued finalize job.
+function finishWeeklyPlan(pre, generated, projects = [], options = {}) {
+  const {
+    started, model, funnel, focusPillar, confidence, seed, weekOf, weekLabel,
+    dayAllocation, monthCalendar, snapshot, prompt, useMulti,
+  } = pre;
+  // A stored PlanRun brings `monday` back as an ISO string.
+  const monday = pre.monday instanceof Date ? pre.monday : new Date(pre.monday);
   const focusOut = generated.focusOut || {};
   // Fallbacks reference the chosen (priority-based) focus pillar, which can
   // differ from the funnel's own seed focus.
@@ -1148,6 +1194,9 @@ async function generateWeeklyPlan(profile, brandDna, competitorInsights = null, 
 
 module.exports = {
   generateWeeklyPlan,
+  prepareWeeklyPlan,
+  multiAgentArgsOf,
+  finishWeeklyPlan,
   buildFunnelWithScores,
   weekRange,
   allocateDays,

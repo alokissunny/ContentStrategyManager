@@ -224,7 +224,11 @@ async function loadProjectAssets(userId, username) {
       const filled = mergeStoriesForPlan(storyRows, originalCapture);
       if (originalCapture || captureAssets.length || filled) {
         notes.push({
-          id: filled?.captureId || (c._id ? String(c._id) : ''),
+          // Always the capture's MongoDB id: the Strategist cites it back as the
+          // brief's captureId and capturesForSource pins requests by it. The
+          // understanding's own captureId is a local label ("c1"), shared by
+          // many captures — it stays on understanding.captureId.
+          id: c._id ? String(c._id) : (filled?.captureId || ''),
           text: originalCapture,
           createdAt: c.createdAt || null,
           sessionId,

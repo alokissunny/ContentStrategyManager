@@ -9,7 +9,8 @@
     "dev": "nodemon src/server.js",
     "seed:admin": "node src/scripts/seedAdmin.js",
     "seed:test": "node src/scripts/seedTestUser.js",
-    "publish:due": "node src/scripts/publishDue.js"
+    "publish:due": "node src/scripts/publishDue.js",
+    "queue:watch": "node src/scripts/watchPlanQueue.js"
   },
   "engines": {
     "node": ">=20"
@@ -21,6 +22,7 @@
     "@google/genai": "^2.16.0",
     "apify-client": "^2.11.0",
     "bcryptjs": "^2.4.3",
+    "bullmq": "^5.81.5",
     "compression": "^1.8.2",
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
@@ -33,7 +35,6 @@
     "mongoose": "^8.5.0",
     "morgan": "^1.10.0",
     "openai": "^6.47.0",
-    "redis": "^4.7.1",
     "sharp": "^0.35.4"
   },
   "devDependencies": {

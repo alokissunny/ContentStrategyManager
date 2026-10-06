@@ -8,7 +8,7 @@ const { cacheProfilePicture } = require('../services/profileAvatar');
 const { computeAuthorityFunnel } = require('../services/authorityFunnel');
 const { buildAnalysisOverview } = require('../services/analysisOverview');
 const { loadCompetitorOverviewForUser } = require('./competitorController');
-const { generateAndSavePosts } = require('./postController');
+const { startBackgroundGeneration } = require('./postController');
 const { invalidateCurrentUsername } = require('../utils/currentProfile');
 const { createTtlCache } = require('../utils/ttlCache');
 
@@ -203,7 +203,7 @@ async function fetchInstagram(req, res) {
   // account's Brand DNA + history and, when an operator has assigned a
   // competitor cohort, that cohort's saved analysis. Fire-and-forget, since
   // planning takes a while and the analyze request shouldn't wait.
-  generateAndSavePosts(req.user._id, snapshot, `analyze-${dataSource}`).catch((err) => {
+  Promise.resolve(startBackgroundGeneration(req.user._id, snapshot, `analyze-${dataSource}`)).catch((err) => {
     console.error(`[instagram] background plan refresh failed for @${username}:`, err.message);
   });
 

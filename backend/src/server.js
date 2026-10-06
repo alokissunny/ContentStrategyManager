@@ -27,6 +27,18 @@ connectDB()
     const reqTimeout = Number(process.env.SERVER_REQUEST_TIMEOUT_MS);
     server.requestTimeout = Number.isFinite(reqTimeout) && reqTimeout >= 0 ? reqTimeout : 600000;
     server.headersTimeout = 65000;
+
+    // Queued post generation: PLAN_WORKER_IN_API=1 runs the BullMQ workers in
+    // this process (no separate worker service needed). See services/planQueue.
+    const { isQueueConfigured } = require('./services/planQueue');
+    if (isQueueConfigured() && ['1', 'true', 'on', 'yes'].includes(String(process.env.PLAN_WORKER_IN_API || '').toLowerCase())) {
+      const workers = require('./workers/planWorkers').startPlanWorkers();
+      process.once('SIGTERM', () => {
+        workers.close()
+          .catch((err) => console.error('[server] plan workers close failed:', err.message))
+          .finally(() => process.exit(0));
+      });
+    }
   })
   .catch((err) => {
     console.error('Failed to connect to MongoDB', err);
