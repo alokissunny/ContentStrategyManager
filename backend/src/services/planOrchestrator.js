@@ -3132,50 +3132,59 @@ async function runStrategistPhase({
   );
 
   // ── 1. Strategist ────────────────────────────────────────────────────────
-  const strategistAssembled = assembleAgentPrompt('plan-strategist.md', {
-    LIMITS_JSON: json({
-      month: ctx.calendar.month,
-      maxBriefs: Math.max(emptyDates.length, 3),
-      supportedFormats: ['Carousel'],
-      optionalPillars: ['discovery', 'credibility', 'trust'],
-      planFrom: 'conversationCaptures only — pick the strongest angle(s) the capture supports (usually one); prioritise angles proven by assets; fit every story-aligned provided asset across narrative units; skip weak/obvious/boring angles; do not force Discovery + Credibility + Trust; do not invent facts; capped by maxBriefs',
-      requireThemeId: true,
-    }),
-    CAROUSEL_THEMES_JSON: json(themesForStrategistPrompt()),
-    OCCUPIED_TOPICS_JSON: json(ctx.calendar.occupiedTopics || []),
-    AUTHORITY_JSON: json(ctx.authority),
-    BRAND_JSON: json(ctx.brand),
-    COMPETITOR_SIGNALS_JSON: json({
-      confidence: ctx.competitor.confidence,
-      signals: ctx.competitor.signals,
-    }),
-    PROJECT_TRUTH_JSON: json(ctx.projects),
-    ASSET_CONTEXT_JSON: json(ctx.assetContext || { projectAssets: [] }),
-  });
-  const strategistPrompt = strategistAssembled.prompt;
-  const strategist = await callAgent({
-    source: 'Strategist',
-    kind: 'strategist',
-    system: strategistAssembled.system,
-    user: strategistAssembled.user,
-    prompt: strategistPrompt,
-    validate: (p) => validateStrategist(p),
-  });
-  const briefs = enrichBriefsFromCaptures(
-    Array.isArray(strategist.parsed.briefs)
-      ? strategist.parsed.briefs
-      : (strategist.parsed.plannedDays || []),
-    ctx.projects?.conversationCaptures,
-    { projectsList: projects, assetContext: ctx.assetContext },
-  );
+  // One call per requested capture conversation, in parallel: each capture is
+  // planned on its own merits instead of competing for one call's attention.
+  // A single conversation (or a sessionId request) keeps the one call.
+  const groups = captureGroupsOf(projects, captureIds, sessionId);
+  const calls = [];
+  if (groups.length > 1) {
+    console.log(
+      `[planOrchestrator] @${username}: ${groups.length} capture conversations → one Strategist call each` +
+        ` (${groups.map((g) => `${g.project || '?'}:${g.captureIds.length}`).join(', ')})`,
+    );
+    const results = await mapPool(groups, strategistConcurrency(), async (group, i) => {
+      const groupCtx = compileStrategyContext({
+        brandDna,
+        competitorInsights,
+        projects,
+        focusSummary,
+        monthCalendar,
+        sessionId: '',
+        captureIds: group.captureIds,
+      });
+      const sameName = groups.filter((g) => g.project === group.project).length > 1;
+      const source = `Strategist:${group.project || `capture ${i + 1}`}${sameName ? ` #${i + 1}` : ''}`;
+      try {
+        return await runStrategistCall({ ctx: groupCtx, emptyDates, projects, source });
+      } catch (err) {
+        console.warn(`[planOrchestrator] ${source} failed — planning the other captures without it: ${err.message}`);
+        return null;
+      }
+    });
+    results.filter(Boolean).forEach((r) => calls.push(r));
+    if (!calls.length) throw new Error(`Strategist failed for all ${groups.length} captures`);
+  } else {
+    calls.push(await runStrategistCall({ ctx, emptyDates, projects, source: 'Strategist' }));
+  }
+
+  // Round-robin across the calls (each call's briefs stay in its own rank
+  // order), so every capture gets its best post onto the calendar first.
+  const briefs = [];
+  const longest = Math.max(...calls.map((c) => c.briefs.length));
+  for (let rank = 0; rank < longest; rank += 1) {
+    calls.forEach((c, callIndex) => {
+      if (c.briefs[rank]) briefs.push(calls.length > 1 ? { ...c.briefs[rank], strategistCall: callIndex } : c.briefs[rank]);
+    });
+  }
   const plannedDays = assignToEmptyDates(briefs, emptyDates);
-  strategist.parsed.briefs = briefs;
-  strategist.parsed.plannedDays = plannedDays;
+  const strategistPrompt = calls[0].prompt;
+  const constraints = calls.length > 1 ? mergedConstraintsOf(calls) : (calls[0].parsed.constraints || {});
   console.log(
     `[planOrchestrator] @${username}: ${briefs.length} briefs → ${plannedDays.length} dated slots` +
       (plannedDays[0]?.date ? ` starting ${plannedDays[0].date}` : '') +
       ` · allocatedAssets=${briefs.reduce((n, b) => n + (b.allocatedAssets || []).length, 0)}` +
-      ` · themes=${briefs.map((b) => b.themeId || '?').join(',')}`,
+      ` · themes=${briefs.map((b) => b.themeId || '?').join(',')}` +
+      (calls.length > 1 ? ` · per capture ${calls.map((c) => `${c.source.replace(/^Strategist:/, '')}=${c.briefs.length}`).join(', ')}` : ''),
   );
   const brandMemory = ctx.brand || {};
   const brandJson = json(brandMemory);
@@ -3195,7 +3204,7 @@ async function runStrategistPhase({
   const latest = conversationCaptures[0]?.captureSummary
     || ctx.projects?.latestCapture?.text
     || '';
-  const whyEmpty = String(strategist.parsed.constraints?.insufficientContext || '').trim();
+  const whyEmpty = String(constraints?.insufficientContext || '').trim();
 
   if (plannedDays.length === 0) {
     console.log(
@@ -3208,19 +3217,17 @@ async function runStrategistPhase({
     );
   }
 
-  // ── 2. Content Structure (optional) → Carousel ──────────────────────────
-  // When Content Structure is disabled (default), slide outline comes from the
-  // Strategist brief's narrative units and Carousel composes HTML from that brief.
-  // When enabled, Content Structure still maps units → surfaces first.
   return {
     started,
     username,
     userId: userId ? String(userId) : '',
     strategistPrompt,
-    strategistDebugEntry: strategist.debugEntry,
-    strategistUsage: strategist.usage,
-    focusOut: strategist.parsed.focus || {},
-    constraints: strategist.parsed.constraints || {},
+    // one entry per Strategist call (index = a planned day's strategistCall)
+    strategistPrompts: calls.map((c) => c.prompt),
+    strategistDebugEntries: calls.map((c) => c.debugEntry),
+    strategistUsages: calls.map((c) => c.usage),
+    focusOut: calls[0].parsed.focus || {},
+    constraints,
     plannedDays,
     brandJson,
     visualBrand,
@@ -3230,6 +3237,95 @@ async function runStrategistPhase({
       structureOn: contentStructureAgentEnabled(),
     },
   };
+}
+
+// One Strategist call over a compiled context → its briefs, enriched from the
+// captures that context holds.
+async function runStrategistCall({ ctx, emptyDates, projects, source }) {
+  const assembled = assembleAgentPrompt('plan-strategist.md', {
+    LIMITS_JSON: json({
+      month: ctx.calendar.month,
+      maxBriefs: Math.max(emptyDates.length, 3),
+      supportedFormats: ['Carousel'],
+      optionalPillars: ['discovery', 'credibility', 'trust'],
+      planFrom: 'conversationCaptures only — pick the strongest angle(s) the capture supports (usually one); prioritise angles proven by assets; fit every story-aligned provided asset across narrative units; skip weak/obvious/boring angles; do not force Discovery + Credibility + Trust; do not invent facts; capped by maxBriefs',
+      requireThemeId: true,
+    }),
+    CAROUSEL_THEMES_JSON: json(themesForStrategistPrompt()),
+    OCCUPIED_TOPICS_JSON: json(ctx.calendar.occupiedTopics || []),
+    AUTHORITY_JSON: json(ctx.authority),
+    BRAND_JSON: json(ctx.brand),
+    COMPETITOR_SIGNALS_JSON: json({
+      confidence: ctx.competitor.confidence,
+      signals: ctx.competitor.signals,
+    }),
+    PROJECT_TRUTH_JSON: json(ctx.projects),
+    ASSET_CONTEXT_JSON: json(ctx.assetContext || { projectAssets: [] }),
+  });
+  const strategist = await callAgent({
+    source,
+    kind: 'strategist',
+    system: assembled.system,
+    user: assembled.user,
+    prompt: assembled.prompt,
+    validate: (p) => validateStrategist(p),
+  });
+  const briefs = enrichBriefsFromCaptures(
+    Array.isArray(strategist.parsed.briefs)
+      ? strategist.parsed.briefs
+      : (strategist.parsed.plannedDays || []),
+    ctx.projects?.conversationCaptures,
+    { projectsList: projects, assetContext: ctx.assetContext },
+  );
+  return {
+    source,
+    prompt: assembled.prompt,
+    parsed: strategist.parsed,
+    briefs,
+    debugEntry: strategist.debugEntry,
+    usage: strategist.usage,
+  };
+}
+
+// The requested captures, grouped the way the Captures page shows them: one
+// group per conversation (sessionId), else per capture. Empty unless the
+// request names captures from at least two conversations — the single-call
+// path covers everything else.
+function captureGroupsOf(projects, captureIds = [], sessionId = '') {
+  if (String(sessionId || '').trim()) return [];
+  const wanted = [...new Set((captureIds || []).map((id) => String(id || '').trim()).filter(Boolean))];
+  if (wanted.length < 2) return [];
+  const notes = new Map();
+  for (const p of projects || []) {
+    for (const n of p.notes || []) notes.set(String(n.id || ''), { sessionId: String(n.sessionId || '').trim(), project: p.name || '' });
+  }
+  const groups = new Map();
+  for (const id of wanted) {
+    const note = notes.get(id);
+    if (!note) continue; // excluded / not plannable — capturesForSource drops it too
+    const key = note.sessionId || id;
+    if (!groups.has(key)) groups.set(key, { key, project: note.project, captureIds: [] });
+    groups.get(key).captureIds.push(id);
+  }
+  return [...groups.values()];
+}
+
+// Per-capture calls each judge their own capture; the plan's constraints are
+// the first call's, with every "needs more input" reason when none produced a post.
+function mergedConstraintsOf(calls) {
+  const reasons = [...new Set(calls
+    .filter((c) => !c.briefs.length)
+    .map((c) => String(c.parsed.constraints?.insufficientContext || '').trim())
+    .filter(Boolean))];
+  const anyBriefs = calls.some((c) => c.briefs.length);
+  return {
+    ...(calls[0].parsed.constraints || {}),
+    insufficientContext: anyBriefs ? '' : reasons.join(' '),
+  };
+}
+
+function strategistConcurrency() {
+  return envPositiveInt('PLAN_STRATEGIST_CONCURRENCY', 4);
 }
 
 // ── Phase 2: one post (Structure → Carousel/Layout → Visual Generator) ─────
@@ -3405,8 +3501,14 @@ async function writePlanDay(phase, projects, planned, index) {
 function assemblePlanResult(phase, dayResults) {
   const { started, username, strategistPrompt } = phase;
   const { layoutOn, carouselOn, structureOn } = phase.flags;
-  const debugAgents = [phase.strategistDebugEntry];
-  const usages = [phase.strategistUsage];
+  // (strategistDebugEntry/strategistUsage: phases stored before per-capture Strategist calls)
+  const debugAgents = [...(phase.strategistDebugEntries || [phase.strategistDebugEntry])];
+  const usages = [...(phase.strategistUsages || [phase.strategistUsage])];
+  // The prompt of the Strategist call that wrote a given day's brief.
+  const strategyPromptOf = (index) => {
+    const call = phase.plannedDays?.[index]?.strategistCall;
+    return (Number.isInteger(call) && phase.strategistPrompts?.[call]) || strategistPrompt;
+  };
 
   dayResults
     .sort((a, b) => a.index - b.index)
@@ -3421,7 +3523,7 @@ function assemblePlanResult(phase, dayResults) {
 
   const rawDays = dayResults
     .sort((a, b) => a.index - b.index)
-    .map(({ dayBrief, result, skipped, structure, layout, dayAssets, content: precomputed, debugEntries }) => {
+    .map(({ index, dayBrief, result, skipped, structure, layout, dayAssets, content: precomputed, debugEntries }) => {
       if (!result) {
         console.warn(`[planOrchestrator] @${username}: dropped ${dayBrief.date || dayBrief.day} (${skipped})`);
         return null;
@@ -3474,7 +3576,7 @@ function assemblePlanResult(phase, dayResults) {
         direction: parsed.direction || dayBrief.angle || '',
         agentTrace: {
           strategyBrief: strategyBriefPayload(dayBrief),
-          strategyPrompt: strategistPrompt,
+          strategyPrompt: strategyPromptOf(index),
           themeId: content.themeId || dayBrief.themeId || '',
           structure: structure || null,
           structurePrompt: optionalText(structureDbg?.prompt),

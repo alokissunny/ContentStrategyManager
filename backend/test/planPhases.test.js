@@ -11,8 +11,14 @@ for (const k of ['OPENAI_API_KEY', 'ANTHROPIC_API_KEY', 'S3_BUCKET_NAME', 'AWS_A
 const llm = require('../src/services/llmComplete');
 const calls = [];
 let briefCount = 3;
-llm.completeText = async ({ kind }) => {
+llm.completeText = async ({ kind, user, prompt }) => {
   calls.push(kind);
+  const text = String(user || prompt || '');
+  if (kind === 'strategist' && text.includes('FAILCAP')) return { text: 'not json', stopReason: 'stop', usage: {} };
+  if (kind === 'strategist' && text.includes('THINCAP')) {
+    const reason = text.includes('THINCAP-A') ? 'Say more about the hall.' : 'Say more about the kitchen.';
+    return { text: JSON.stringify({ focus: {}, constraints: { insufficientContext: reason }, briefs: [] }), stopReason: 'stop', usage: {} };
+  }
   if (kind === 'strategist') {
     return {
       text: JSON.stringify({
@@ -145,4 +151,56 @@ test('phase state survives JSON (what PlanRun.state stores)', async () => {
     weekly.prepareWeeklyPlan(profile, brandDna, null, [], options()), profile, brandDna, null, [], options(),
   ));
   assert.deepEqual(rt(phase), phase);
+});
+
+// ── One Strategist call per capture conversation ──────────────────────────
+function capturesProject(entries) {
+  return [{
+    name: 'studio',
+    notes: entries.map(([id, sessionId, text]) => ({
+      id, sessionId, text, createdAt: new Date('2026-10-01T10:00:00Z'),
+      understanding: { originalCapture: text, summary: text, captureStatus: 'ready' },
+    })),
+  }];
+}
+const A = 'aaaaaaaaaaaaaaaaaaaaaaaa';
+const B = 'bbbbbbbbbbbbbbbbbbbbbbbb';
+const phaseFor = (projects, captureIds) => orch.runStrategistPhase({
+  profile, brandDna, competitorInsights: null, projects, focusSummary: {}, monthCalendar, sessionId: '', captureIds,
+});
+
+test('captures from two conversations get one Strategist call each', async () => {
+  briefCount = 1;
+  const phase = await phaseFor(capturesProject([[A, 's1', 'Hall renovation'], [B, 's2', 'Kitchen storage']]), [A, B]);
+  assert.equal(phase.strategistDebugEntries.length, 2);
+  assert.deepEqual(phase.strategistDebugEntries.map((e) => e.source), ['Strategist:studio #1', 'Strategist:studio #2']);
+  assert.deepEqual(phase.plannedDays.map((d) => d.strategistCall), [0, 1]);
+  briefCount = 3;
+});
+
+test('two captures from the same conversation stay one call', async () => {
+  const phase = await phaseFor(capturesProject([[A, 's1', 'Hall renovation'], [B, 's1', 'More on the hall']]), [A, B]);
+  assert.equal(phase.strategistDebugEntries.length, 1);
+  assert.equal(phase.strategistDebugEntries[0].source, 'Strategist');
+});
+
+test('a capture whose Strategist call fails is skipped; the others still plan', async () => {
+  briefCount = 1;
+  const phase = await phaseFor(capturesProject([[A, 's1', 'FAILCAP hall'], [B, 's2', 'Kitchen storage']]), [A, B]);
+  assert.equal(phase.strategistDebugEntries.length, 1);
+  assert.equal(phase.plannedDays.length, 1);
+  briefCount = 3;
+});
+
+test('every Strategist call failing fails the phase', async () => {
+  await assert.rejects(
+    phaseFor(capturesProject([[A, 's1', 'FAILCAP hall'], [B, 's2', 'FAILCAP kitchen']]), [A, B]),
+    /Strategist failed for all 2 captures/,
+  );
+});
+
+test('when no capture yields a brief, every reason is kept', async () => {
+  const phase = await phaseFor(capturesProject([[A, 's1', 'THINCAP-A hall'], [B, 's2', 'THINCAP-B kitchen']]), [A, B]);
+  assert.equal(phase.plannedDays.length, 0);
+  assert.equal(phase.constraints.insufficientContext, 'Say more about the hall. Say more about the kitchen.');
 });
