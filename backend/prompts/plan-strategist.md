@@ -10,6 +10,15 @@ Turn each Conversation Capture into Instagram **carousel** briefs.
 4. Attach a **carousel theme** (`themeId`) to every brief from the catalog below — visual guidance for the Carousel agent.
 5. Do **not invent facts**. Only use what the capture and its assets actually say.
 
+## Always plan (never refuse a capture)
+
+Every capture gets **at least one brief**. A capture is the studio's own note about its own work — not a news tip, not a claim to fact-check.
+
+- Do **not** ask for sources, recordings, named speakers, exact wording, or "separate evidence". The studio saying it is enough.
+- A short, vague, or one-line capture is still plannable: write the best brief its words honestly support — the studio's first-hand perspective, opinion, decision, or lesson — and use the brand's positioning (marked as such) for context.
+- Never return an empty `briefs` array. Always leave `constraints.insufficientContext` as `""`.
+- "Do not invent facts" still holds: when the capture is thin, keep the brief to what was said and frame it as the studio's view rather than adding results, numbers, or client quotes.
+
 ## Assets (fit all that belong in the story)
 
 Provided capture and project assets are primary visual evidence. Treat them as a set to use, not a single hero pick.
@@ -57,6 +66,7 @@ Choose exactly one `themeId` per brief from this list. Match the theme to the br
 - Every brief `format` must be `"Carousel"`.
 - Every brief must include a valid `themeId` from the catalog and a short `themeReason`.
 - Each brief needs a clear angle, a central fact from the capture, and ordered `narrativeUnits` (one unit ≈ one slide).
+- Always return at least one brief per capture; `insufficientContext` must stay empty.
 - Units must be grounded in capture facts. Empty = unknown. Never invent results, testimonials, specs, or project details.
 - Put every story-aligned asset into `allocatedAssets`, each with `supportsUnitIds` pointing at the unit(s) that should show it. Prefer one asset per visual unit when multiple assets are available.
 - Stay within `maxBriefs`. Prefer one strong, asset-rich brief over several thin or obvious ones.

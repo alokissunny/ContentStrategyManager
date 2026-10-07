@@ -113,9 +113,9 @@ export async function deleteProject(id) {
   removeById(id);
 }
 export async function addEntry(projectId, {
-  type, text, attachments, understanding, sessionId, sessionKind, sessionTitle, sessionSummary, conversationTurns, stories,
+  type, text, attachments, understanding, sessionId, sessionKind, sessionTitle, sessionSummary, conversationTurns, stories, clarifyQuestions,
 }) {
-  upsert(await api.addCapture(projectId, {
+  const project = await api.addCapture(projectId, {
     type,
     text,
     understanding: understanding || undefined,
@@ -125,8 +125,11 @@ export async function addEntry(projectId, {
     sessionSummary,
     conversationTurns,
     stories,
+    clarifyQuestions: clarifyQuestions?.length ? clarifyQuestions : undefined,
     attachments: (attachments || []).map((a) => ({ type: a.type, key: a.key })),
-  }));
+  });
+  upsert(project);
+  return project;
 }
 
 function uniqueTexts(parts) {
@@ -296,7 +299,7 @@ export function sessionConversationTurns(entry) {
 
 /** File one capture or check-in conversation as a single library session. */
 export async function addSession(projectId, {
-  type, text, attachments, understanding, understandings, conversationTitle, conversationSummary, conversationTurns, sessionKind,
+  type, text, attachments, understanding, understandings, conversationTitle, conversationSummary, conversationTurns, sessionKind, clarifyQuestions,
 }) {
   const stories = storiesInToldOrder(
     (understandings && understandings.length)
@@ -308,20 +311,25 @@ export async function addSession(projectId, {
   const sessionTitle = String(conversationTitle || '').trim()
     || composeSessionTitle({ title: conversationTitle, stories, summary: sessionSummary, fallbackText: text });
   const turns = sanitizeTurns(conversationTurns);
-  return addEntry(projectId, {
+  const sessionId = (typeof crypto !== 'undefined' && crypto.randomUUID)
+    ? crypto.randomUUID()
+    : `session-${Date.now()}`;
+  const project = await addEntry(projectId, {
     type,
     text: sessionSummary || text,
     attachments,
     understanding: stories[0],
     stories,
-    sessionId: (typeof crypto !== 'undefined' && crypto.randomUUID)
-      ? crypto.randomUUID()
-      : `session-${Date.now()}`,
+    sessionId,
     sessionKind: sessionKind || 'capture',
     sessionTitle,
     sessionSummary,
     conversationTurns: turns.length ? turns : turnsFromStories(stories),
+    clarifyQuestions,
   });
+  // the capture just filed — what a later `Generate plan` amends and plans from
+  const made = (project?.captures || []).filter((c) => c.sessionId === sessionId);
+  return { sessionId, captureId: made[0]?.id || null, captureIds: made.map((c) => c.id) };
 }
 
 /** Captures › Add the detail: the capture conversation picked back up — the

@@ -957,7 +957,64 @@ function CaptureComposer({ value, onValue, live, canSend, placeholder, onSend, o
   );
 }
 
-export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewProject, onCaptured, exitLabel = 'Back', modal = false, opening = '', savedLine = '', projectName = '', askProject = true, maxQuestions = 4, askMedia = true, resume = null }) {
+/* what the studio actually said in a capture's conversation — the reference
+   quotes this, never the summary written from it */
+function saidIn(turns, fallback = '') {
+  const said = (turns || [])
+    .filter((t) => t?.role === 'user' && !/^skip this question/i.test(String(t.text || '')))
+    .map((t) => String(t.text || '').trim())
+    .filter((t) => t && t !== 'Uploaded a file');
+  return said.length ? said.join('\n\n') : String(fallback || '').trim();
+}
+
+/* "Today, 12:41" / "Oct 3, 09:10" — names one capture in the reference card */
+function refWhen(iso) {
+  const d = iso ? new Date(iso) : new Date();
+  if (Number.isNaN(d.getTime())) return '';
+  const time = d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', hour12: false });
+  const today = new Date();
+  const day = d.toDateString() === today.toDateString()
+    ? 'Today'
+    : d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  return `${day}, ${time}`;
+}
+
+/* bauhly-v3 `ck-quote`: what a clarification is ABOUT — the studio's own words
+   and pictures, with when it was taken and where it is filed — drawn under the
+   question so the studio knows what is being asked about */
+function CaptureReference({ of: r }) {
+  const quote = String(r?.quote || '').trim();
+  const shots = (r?.shots || []).slice(0, 4);
+  if (!quote && !shots.length) return null;
+  return (
+    <div className="ck-quote">
+      <span className="ck-quote__head">
+        <span className="ck-quote__label">From your capture</span>
+        <span className="ck-quote__meta">
+          {r.when}
+          {r.project && (
+            <span className="ck-quote__proj">
+              <Icon name="folder" size={12} strokeWidth={2} />
+              {r.project}
+            </span>
+          )}
+        </span>
+      </span>
+      {quote && <p className="ck-quote__said">{`“${quote}”`}</p>}
+      {shots.length > 0 && (
+        <span className="ck-quote__shots">
+          {shots.map((a) => (
+            <span className="ck-quote__shot" key={a.key || a.id}>
+              {a.type === 'video' ? <video src={a.url} muted /> : <img src={previewUrl(a)} alt="" />}
+            </span>
+          ))}
+        </span>
+      )}
+    </div>
+  );
+}
+
+export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewProject, onCaptured, exitLabel = 'Back', modal = false, opening = '', savedLine = '', projectName = '', askProject = true, maxQuestions = 4, askMedia = true, resume = null, deferQuestions = false }) {
   const projects = useProjects();
   const { messages, typing, push, say, after } = useConversation();
   const [step, setStep] = useState('boot');
@@ -971,6 +1028,18 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
   const [creating, setCreating] = useState(false); // the new-project modal
   const [busy, setBusy] = useState(false); // an upload, understand, or save is in flight
   const [polishing, setPolishing] = useState(false);
+  /* bauhly-v3 (Oct 6): a new capture is filed without being interviewed — the
+     question Bauhly would ask is kept on it and asked only when the studio
+     presses `Generate plan`, under a heads-up band saying what is at stake */
+  const planning = useRef(false);
+  const [notice, setNotice] = useState(false);
+  // the capture a clarification is about (see CaptureReference)
+  const [reference, setReference] = useState(() => (resume ? {
+    quote: saidIn(resume.turns, (resume.history || []).map((h) => h.text).filter(Boolean).join('\n\n') || resume.text),
+    shots: resume.attachments || [],
+    when: refWhen(resume.createdAt),
+    project: projects.find((p) => p.id === resume.projectId)?.name || '',
+  } : null));
   const rec = useRecorder({
     keywords: projects.map((p) => p.name).filter(Boolean),
   });
@@ -989,6 +1058,7 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
     askedAnswer: '',
     turns: [],
     awaitingAssets: false,
+    held: [], // questions held back until Generate plan (deferQuestions)
   });
   /* whether the field on screen came from a recording — only then is "record
    * again" a real answer */
@@ -997,6 +1067,7 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
   const recordingReturn = useRef('writing');
 
   const preset = projects.find((p) => p.id === presetProjectId);
+  const resumed = useRef(false);
 
   useEffect(() => { endRef.current?.scrollIntoView({ block: 'end' }); }, [messages, typing, step]);
 
@@ -1012,11 +1083,16 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
        left without is asked again and the answer goes into that capture */
     if (resume) {
       const skip = /^skip this question/i;
-      // a capture filed without a chat: what it holds is what the studio said
-      (resume.history || []).forEach((h) => push({ from: 'user', text: h.text || undefined, media: h.media?.length ? h.media : undefined }));
-      (resume.turns || []).forEach((t) => push(t.role === 'assistant'
-        ? { from: 'bauhly', text: t.text }
-        : { from: 'user', text: skip.test(t.text) ? 'Skip this question' : t.text }));
+      // StrictMode runs this twice in dev: the replayed turns are pushed once
+      // (the question below is a timer, which the first run's cleanup clears)
+      if (!resumed.current) {
+        resumed.current = true;
+        // a capture filed without a chat: what it holds is what the studio said
+        (resume.history || []).forEach((h) => push({ from: 'user', text: h.text || undefined, media: h.media?.length ? h.media : undefined }));
+        (resume.turns || []).forEach((t) => push(t.role === 'assistant'
+          ? { from: 'bauhly', text: t.text }
+          : { from: 'user', text: skip.test(t.text) ? 'Skip this question' : t.text }));
+      }
       // the skipped exchanges go; the gap is asked afresh below
       const kept = [];
       (resume.turns || []).forEach((t) => {
@@ -1120,6 +1196,15 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
     const asked = (cap.current.turns || []).filter((t) => t?.role === 'assistant').length;
     const followUp = asked >= maxQuestions ? '' : (clarificationQuestion(result, cap.current.turns)
       || transcriptGapQuestion(cap.current.text, cap.current.askedQuestion));
+    // a new capture keeps its question for Generate plan rather than asking now
+    if (followUp && deferQuestions && !planning.current) {
+      cap.current.held = [followUp];
+      return continueToFile(result);
+    }
+    if (!followUp && planning.current) {
+      planAnswered();
+      return true;
+    }
     if (followUp) {
       cap.current.askedQuestion = followUp;
       cap.current.turns = [...(cap.current.turns || []), { role: 'assistant', text: followUp }];
@@ -1215,6 +1300,11 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
     setDraft('');
     setStep('boot');
     userSays('Skip this question');
+    // Generate plan: the question stays open on the capture and Bauhly guesses
+    if (planning.current) {
+      handOff();
+      return;
+    }
     // picking a capture back up and skipping again: nothing new to keep
     if (resume) {
       const d = say('No problem — it stays as it was.');
@@ -1409,7 +1499,7 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
         after(d + 900, () => onExit?.());
         return;
       }
-      await addSession(pid, {
+      const made = await addSession(pid, {
         type,
         text,
         attachments: c.attachments,
@@ -1419,10 +1509,14 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
         conversationTitle: c.conversationTitle,
         conversationTurns: c.turns,
         sessionKind: 'capture',
+        clarifyQuestions: deferQuestions ? c.held : undefined,
       });
       const cover = previewUrl(c.attachments.find((a) => a.type === 'image') || c.attachments[0]) || null;
-      setSaved({ id: pid, name });
-      if (onCaptured) {
+      setSaved({ id: pid, name, captureId: made?.captureId || null, at: new Date().toISOString() });
+      if (deferQuestions) {
+        const d = say('Saved. It is ready for your next plan.');
+        after(d, () => setStep('done'));
+      } else if (onCaptured) {
         const d = say(savedLine || "It's in your library — building your plan now.");
         // what was captured travels with it, for a caller that uses it (Add slide)
         after(d + 700, () => onCaptured({
@@ -1445,6 +1539,72 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
     } finally {
       setBusy(false);
     }
+  };
+
+  /* the payload a caller (Add slide, plan generation) gets with the capture */
+  const capturedPayload = () => {
+    const c = cap.current;
+    return {
+      projectId: saved?.id,
+      projectName: saved?.name,
+      text: c.text || '',
+      attachments: (c.attachments || []).map((a) => ({ key: a.key, type: a.type, url: a.url })),
+      understanding: c.understanding,
+      conversationSummary: c.conversationSummary,
+      conversationTitle: c.conversationTitle,
+      turns: c.turns,
+    };
+  };
+  /* the questions are dealt with (or skipped): the plan is the caller's */
+  const handOff = () => {
+    planning.current = false;
+    setNotice(false);
+    setStep('boot');
+    const d = say('Generating your plan…');
+    after(d + 500, () => (onCaptured ? onCaptured(capturedPayload()) : onExit?.()));
+  };
+  /* `Generate plan` (deferQuestions): the question held back at filing is
+     asked now, in this conversation; with none, the plan starts */
+  const generatePlan = () => {
+    setStep('boot');
+    userSays('Generate plan');
+    const ask = (cap.current.held || [])[0];
+    if (!ask || !saved?.captureId) { handOff(); return; }
+    planning.current = true;
+    setReference({
+      quote: saidIn(cap.current.turns, cap.current.text),
+      shots: cap.current.attachments || [],
+      when: refWhen(saved.at),
+      project: saved.name || '',
+    });
+    cap.current.held = [];
+    cap.current.askedQuestion = ask;
+    cap.current.turns = [...(cap.current.turns || []), { role: 'assistant', text: ask }];
+    try { if (localStorage.getItem('bauhly.planNotice.off') !== '1') setNotice(true); } catch { setNotice(true); }
+    const d = say(ask);
+    after(d, () => setStep('clarify'));
+  };
+  /* the answer is in: written over the capture it was asked about (which also
+     clears its open question), then the plan */
+  const planAnswered = async () => {
+    const c = cap.current;
+    setBusy(true);
+    try {
+      await resumeSession(saved.id, saved.captureId, {
+        text: c.text || '',
+        attachments: c.attachments,
+        understanding: c.understanding,
+        understandings: (c.understandings && c.understandings.length) ? c.understandings : [c.understanding],
+        conversationSummary: c.conversationSummary,
+        conversationTitle: c.conversationTitle,
+        conversationTurns: c.turns,
+      });
+    } catch (err) {
+      console.warn('[capture] saving the answer failed', err);
+    } finally {
+      setBusy(false);
+    }
+    handOff();
   };
 
   const restart = () => {
@@ -1567,6 +1727,14 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
           </div>
         );
       case 'done':
+        if (deferQuestions) {
+          return (
+            <>
+              <button className="ck-chip ck-chip--primary" onClick={generatePlan}><Icon name="sparkle" size={14} /> Generate plan</button>
+              <button className="ck-chip" onClick={onExit}>Save and close</button>
+            </>
+          );
+        }
         return (
           <>
             <button className="ck-chip ck-chip--primary" onClick={() => onViewProject?.(saved.id)}><Icon name="arrow-right" size={14} /> Open {saved.name}</button>
@@ -1697,6 +1865,25 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
             <button type="button" className="ck__x" onClick={onExit} aria-label="Close capture">
               <Icon name="x" size={18} strokeWidth={2.2} />
             </button>
+            {notice && (
+              <div className="ck__notice" role="status">
+                <span className="ck__notice__mark" aria-hidden="true"><Icon name="info" size={16} strokeWidth={2.2} /></span>
+                <p className="ck__notice__say">
+                  Bauhly is unsure about 1 thing. Answer it and your post comes out right. Skip and Bauhly has to guess.
+                  {' '}
+                  <button
+                    type="button"
+                    className="ck__notice__never"
+                    onClick={() => { setNotice(false); try { localStorage.setItem('bauhly.planNotice.off', '1'); } catch { /* this visit only */ } }}
+                  >
+                    Don&rsquo;t show again
+                  </button>
+                </p>
+                <button type="button" className="ck__notice__x" onClick={() => setNotice(false)} aria-label="Hide this">
+                  <Icon name="x" size={15} strokeWidth={2.2} />
+                </button>
+              </div>
+            )}
           </>
         ) : (
           <button className="btn btn--quiet btn--sm ck__keep" onClick={onExit}>
@@ -1789,10 +1976,16 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
           {composerLive && step === 'clarify' && (
             <div className="ck-turn ck-turn--bauhly ck-turn--actions ck-turn--cont">
               <span className="ck-avatar ck-avatar--ghost" aria-hidden="true" />
-              <div className="ck-inline">
-                <button type="button" className="ck-chip" onClick={skipClarify}>
-                  <Icon name="arrow-right" size={14} /> Skip this question
-                </button>
+              <div className="ck-refwrap">
+                {reference && <CaptureReference of={reference} />}
+                <div className="ck-inline">
+                  {(planning.current || resume) && (
+                    <button type="button" className="ck-chip" onClick={onExit}>Save and close</button>
+                  )}
+                  <button type="button" className={planning.current || resume ? 'btn btn--quiet btn--sm' : 'ck-chip'} onClick={skipClarify}>
+                    {!(planning.current || resume) && <Icon name="arrow-right" size={14} />} Skip this question
+                  </button>
+                </div>
               </div>
             </div>
           )}
@@ -2198,6 +2391,7 @@ function ProjectDetail({ project, projects, onBack }) {
         {capturing && (
           <CaptureChat
             presetProjectId={project.id}
+            deferQuestions
             exitLabel={`Back to ${project.name}`}
             onExit={() => setCapturing(false)}
             onViewProject={() => setCapturing(false)}

@@ -3225,7 +3225,7 @@ async function runStrategistPhase({
     // one entry per Strategist call (index = a planned day's strategistCall)
     strategistPrompts: calls.map((c) => c.prompt),
     strategistDebugEntries: calls.map((c) => c.debugEntry),
-    strategistUsages: calls.map((c) => c.usage),
+    strategistUsages: calls.flatMap((c) => [c.usage, ...(c.extraUsages || [])]),
     focusOut: calls[0].parsed.focus || {},
     constraints,
     plannedDays,
@@ -3248,7 +3248,8 @@ async function runStrategistCall({ ctx, emptyDates, projects, source }) {
       maxBriefs: Math.max(emptyDates.length, 3),
       supportedFormats: ['Carousel'],
       optionalPillars: ['discovery', 'credibility', 'trust'],
-      planFrom: 'conversationCaptures only — pick the strongest angle(s) the capture supports (usually one); prioritise angles proven by assets; fit every story-aligned provided asset across narrative units; skip weak/obvious/boring angles; do not force Discovery + Credibility + Trust; do not invent facts; capped by maxBriefs',
+      minBriefs: 1,
+      planFrom: 'conversationCaptures only — always write at least one brief (never refuse a capture as too thin or unverified); pick the strongest angle(s) the capture supports (usually one); prioritise angles proven by assets; fit every story-aligned provided asset across narrative units; skip weak/obvious/boring angles; do not force Discovery + Credibility + Trust; do not invent facts; capped by maxBriefs',
       requireThemeId: true,
     }),
     CAROUSEL_THEMES_JSON: json(themesForStrategistPrompt()),
@@ -3262,21 +3263,39 @@ async function runStrategistCall({ ctx, emptyDates, projects, source }) {
     PROJECT_TRUTH_JSON: json(ctx.projects),
     ASSET_CONTEXT_JSON: json(ctx.assetContext || { projectAssets: [] }),
   });
-  const strategist = await callAgent({
+  const ask = (user) => callAgent({
     source,
     kind: 'strategist',
     system: assembled.system,
-    user: assembled.user,
+    user,
     prompt: assembled.prompt,
     validate: (p) => validateStrategist(p),
   });
-  const briefs = enrichBriefsFromCaptures(
-    Array.isArray(strategist.parsed.briefs)
-      ? strategist.parsed.briefs
-      : (strategist.parsed.plannedDays || []),
+  const briefsOf = (parsed) => enrichBriefsFromCaptures(
+    Array.isArray(parsed.briefs) ? parsed.briefs : (parsed.plannedDays || []),
     ctx.projects?.conversationCaptures,
     { projectsList: projects, assetContext: ctx.assetContext },
   );
+  let strategist = await ask(assembled.user);
+  let briefs = briefsOf(strategist.parsed);
+  const extraUsages = []; // a refused first answer still cost tokens
+  // A capture is never refused for being thin or unverified — one retry that
+  // says so, so plan generation does not stop on "a little more to go on".
+  if (!briefs.length && (ctx.projects?.conversationCaptures || []).length) {
+    const why = String(strategist.parsed.constraints?.insufficientContext || '').trim();
+    console.warn(`[planOrchestrator] ${source}: strategist returned 0 briefs${why ? ` (${why.slice(0, 160)})` : ''} — retrying without refusal`);
+    try {
+      const retry = await ask(`${assembled.user}\n\nYour previous answer returned no briefs${why ? ` because: "${why}"` : ''}. That is not allowed. The capture is the studio's own first-hand note — it needs no sources or verification. Write at least one brief from exactly what it says (framed as the studio's view; no invented facts) and leave constraints.insufficientContext empty.`);
+      const again = briefsOf(retry.parsed);
+      if (again.length) {
+        extraUsages.push(strategist.usage);
+        strategist = retry;
+        briefs = again;
+      }
+    } catch (err) {
+      console.warn(`[planOrchestrator] ${source}: strategist retry failed — ${err.message}`);
+    }
+  }
   return {
     source,
     prompt: assembled.prompt,
@@ -3284,6 +3303,7 @@ async function runStrategistCall({ ctx, emptyDates, projects, source }) {
     briefs,
     debugEntry: strategist.debugEntry,
     usage: strategist.usage,
+    extraUsages,
   };
 }
 

@@ -2333,3 +2333,102 @@ body.is-immersive .app__main {
   .capc__listen-wave { display: none; }
   .capc__listen-say { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 }
+
+/* ══ Generate plan's heads-up (bauhly-v3 `.capm .ck__notice`, Oct 6) ═════
+   A tinted band above the thread, drawn only while Generate plan is holding
+   the plan on the question a new capture kept back. The `--warning` family —
+   the same colour the `Needs more information` badge wears. */
+.cap-overlay--modal .ck__notice {
+  flex-shrink: 0;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin: 0 0 var(--sp-4);
+  padding: 12px 14px;
+  border-radius: var(--r-md);
+  background: var(--warning-soft);
+  color: var(--ink-900);
+  position: relative;
+  z-index: 2;
+}
+.cap-overlay--modal .ck__notice__mark {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  color: var(--warning);
+}
+.cap-overlay--modal .ck__notice__say {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  font-family: var(--font-ui);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+}
+.cap-overlay--modal .ck__notice__never {
+  display: inline;
+  padding: 0;
+  background: none;
+  border: 0;
+  font: inherit;
+  font-weight: 700;
+  color: var(--ink-600);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.cap-overlay--modal .ck__notice__never:hover { color: var(--ink-900); }
+.cap-overlay--modal .ck__notice__x {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  margin-top: -2px;
+  border: 0;
+  border-radius: var(--r-full);
+  background: none;
+  color: var(--ink-500);
+  cursor: pointer;
+}
+.cap-overlay--modal .ck__notice__x:hover { background: rgb(22 22 26 / 0.06); color: var(--ink-900); }
+
+/* ══ The clarification's reference (bauhly-v3 `ck-quote`, Sep 30) ═════════
+   "From your capture" — the studio's own words and pictures, when and where
+   filed — under the question, with the ways past it beneath the card. */
+.ck-refwrap { display: flex; flex-direction: column; align-items: flex-start; gap: var(--sp-3); min-width: 0; width: 100%; }
+.ck-quote {
+  min-width: 0;
+  width: fit-content;
+  max-width: min(560px, 100%);
+  padding: var(--sp-3) var(--sp-4);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--surface-sunken);
+}
+.ck-quote__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 2px var(--sp-3);
+  margin-bottom: var(--sp-3);
+}
+.ck-quote__label { font-size: var(--text-xs); font-weight: 700; color: var(--ink-800); }
+.ck-quote__meta { display: inline-flex; align-items: center; gap: 6px; min-width: 0; font-size: var(--text-xs); color: var(--ink-quiet, var(--ink-500)); }
+.ck-quote__proj { display: inline-flex; align-items: center; gap: 4px; }
+.ck-quote__proj svg { flex: 0 0 auto; }
+.ck-quote__said {
+  margin: 0;
+  padding-left: var(--sp-3);
+  border-left: 2px solid var(--action-accent, var(--signal-500));
+  font-size: var(--text-sm);
+  line-height: 1.6;
+  color: var(--ink-800);
+  white-space: pre-line;
+}
+.ck-quote__shots { display: flex; flex-wrap: wrap; gap: 6px; margin-top: var(--sp-3); }
+.ck-quote__shot { display: block; width: 64px; height: 64px; border-radius: var(--r-sm); overflow: hidden; background: var(--ink-100); }
+.ck-quote__shot img,
+.ck-quote__shot video { width: 100%; height: 100%; object-fit: cover; display: block; }

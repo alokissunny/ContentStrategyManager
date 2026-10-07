@@ -356,6 +356,9 @@ async function addCapture(req, res) {
       fallbackText: text,
     });
   const conversationTurns = sanitizeConversationTurns(req.body.conversationTurns);
+  // the question the capture chat held back (it is asked at Generate plan)
+  const clarifyQuestions = (Array.isArray(req.body.clarifyQuestions) ? req.body.clarifyQuestions : [])
+    .map((q) => String(q || '').trim().slice(0, 500)).filter(Boolean).slice(0, 4);
 
   project.captures.push({
     type,
@@ -368,6 +371,7 @@ async function addCapture(req, res) {
     sessionTitle,
     sessionSummary,
     conversationTurns,
+    clarifyQuestions,
     createdAt: new Date(),
   });
   // Persist the files first so a slow vision call cannot lose the upload.

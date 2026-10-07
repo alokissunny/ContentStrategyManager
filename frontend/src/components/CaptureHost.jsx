@@ -34,11 +34,15 @@ export default function CaptureHost() {
         defaultProjectId={projects[0]?.id}
         presetProjectId={aim?.projectId || undefined}
         opening={aim?.opening || ''}
-        projectName={aim?.projectName || ''}
-        askProject={aim ? aim.askProject !== false : true}
+        // a plain capture is never asked "Which project is this for?" (bauhly-v3):
+        // it files under `No project` (made on first use) and can be moved later
+        projectName={aim ? (aim.projectName || '') : 'No project'}
+        askProject={aim ? aim.askProject !== false : false}
         maxQuestions={Number.isFinite(aim?.maxQuestions) ? aim.maxQuestions : 4}
         askMedia={aim ? aim.askMedia !== false : true}
         savedLine={aim?.savedLine || ''}
+        // a plain capture is filed without questions; they wait for Generate plan
+        deferQuestions={!aim}
         exitLabel="Back"
         onExit={() => { setOpen(false); aim?.onCancel?.(); setAim(null); }}
         onViewProject={() => { setOpen(false); navigate('/dashboard/projects'); }}

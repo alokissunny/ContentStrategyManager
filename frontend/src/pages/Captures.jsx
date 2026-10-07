@@ -132,8 +132,10 @@ function resumeOf(item) {
       text: String(c.text || c.sessionSummary || '').trim(),
       media: (c.attachments || []).map((a) => ({ type: a.type, key: a.key, url: a.url })),
     })).filter((h) => h.text || h.media.length),
-    gap: (m.gaps || [])[0] || (m.openQuestions || [])[0] || '',
+    // Bauhly's own question first; the generic gap only when there is none
+    gap: (m.openQuestions || [])[0] || (m.gaps || [])[0] || '',
     text: m.text || '',
+    createdAt: m.createdAt || item.session?.createdAt || null,
     attachments: (m.attachments || []).map((a) => ({ type: a.type, key: a.key, url: a.url })),
     kind: m.type || 'note',
   };
