@@ -10,7 +10,7 @@ import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 're
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import Glyph from '../components/Glyph';
-import { isThemedPicture } from '../lib/themedSlide';
+import { isThemedPicture, isThemedHtml } from '../lib/themedSlide';
 import Icon from '../brand/Icon';
 import RegionTextPanel, { RegionImagePanel, changeIsLive, describeMark, markHex } from './weekview/RegionTextPanel';
 import YourAnalysisModal from '../components/YourAnalysisModal';
@@ -3071,7 +3071,7 @@ export default function WeekView({
   // Desktop side panel: Caption | Why this post | Video cover | Debug.
   const [sideTab, setSideTab] = useState('caption'); // 'caption' | 'why' | 'video' | 'debug'
   const aiDebug = useAiDebug();
-  const { videoCover: videoCoverOn, linkedin: linkedinOn } = useFeatureFlags();
+  const { videoCover: videoCoverOn, linkedin: linkedinOn, themeApplyHtml: themeApplyHtmlOn } = useFeatureFlags();
   const [layoutBusy, setLayoutBusy] = useState(false);
   const [layoutErr, setLayoutErr] = useState('');
   // On-demand Change-layout variations for the current slide. The layout agent
@@ -5088,6 +5088,9 @@ export default function WeekView({
         reference = { referenceImageKey: key };
       }
       const wasEditing = postEdit;
+      // Settings › Experimental › HTML theme apply: the server restyles each
+      // slide's own HTML (Claude Opus 5.5) — no capture needed
+      const htmlMode = themeApplyHtmlOn;
       // Image 1 = the slide as the carousel agent designed it (in the Brand
       // Kit's colours and fonts). A slide already re-themed is NOT re-dressed
       // from its previous render: its base slide is rebuilt from the design
@@ -5096,12 +5099,12 @@ export default function WeekView({
       const captureErrors = {};
       const rethemed = slideIndexes.filter((i) => isThemedPicture(slides[i - 1]));
       let base = null;
-      if (rethemed.length) {
+      if (rethemed.length && !htmlMode) {
         base = await getPreTheme(postIdAt(dayIndex)).catch(() => null);
         if (!base?.carouselHtml || !Array.isArray(base.slides) || base.slides.length !== count) base = null;
       }
       for (const i of slideIndexes) {
-        if (rethemed.includes(i)) continue;
+        if (htmlMode || rethemed.includes(i)) continue;
         const shot = await slideSnapshotDataUrl(exportRefs.current[i - 1]);
         if (shot.url) snapshots[i] = shot.url;
         else captureErrors[i] = shot.error;
@@ -5109,7 +5112,7 @@ export default function WeekView({
       // a slide already themed whose saved base design no longer lines up
       // (slides added or removed since) has no source to capture — say so
       // (the server then starts from the slide's current picture)
-      if (!base) rethemed.forEach((i) => { captureErrors[i] = 'its original design is no longer saved for this many slides'; });
+      if (!base && !htmlMode) rethemed.forEach((i) => { captureErrors[i] = 'its original design is no longer saved for this many slides'; });
       if (base) {
         baseRefs.current = {};
         setBaseStage({
@@ -5127,7 +5130,7 @@ export default function WeekView({
       }
       // every slide asked for leaves with a picture or the reason it has none —
       // a capture that came back blank is a reason too
-      slideIndexes.forEach((i) => {
+      if (!htmlMode) slideIndexes.forEach((i) => {
         const url = snapshots[i];
         if (url && (!/^data:image\/(jpeg|png|webp);base64,/.test(url) || url.length < 2000)) {
           delete snapshots[i];
@@ -5149,7 +5152,7 @@ export default function WeekView({
       }
       // the Brand Kit's Typography — the render letters the slide in these faces
       const brandFonts = brandFontNames(vbStore?.libraryEdits);
-      const data = await runDayThemeImage(route._id, dayIndex, { ...reference, slideIndexes, snapshots, captureErrors, brandColors, brandFonts });
+      const data = await runDayThemeImage(route._id, dayIndex, { ...reference, slideIndexes, snapshots, captureErrors, brandColors, brandFonts, ...(htmlMode ? { mode: 'html' } : {}) });
       (data?.applied || []).forEach((a) => { if (a?.key && a?.src) rememberImage(a.key, a.src, { skipGen: true }); });
       if (data?.route) {
         setRoute(data.route);
@@ -6549,8 +6552,8 @@ export default function WeekView({
     onTheme: (theme, every) => handleChangeTheme(theme, every),
     onReference: (file, every) => handleUploadReferenceTheme(file, every),
     // Remove theme: shown while any slide wears a Theme Apply render
-    themed: slides.some((sl) => isThemedPicture(sl)),
-    slideThemed: isThemedPicture(activeSlide),
+    themed: slides.some((sl) => isThemedPicture(sl) || isThemedHtml(sl)),
+    slideThemed: isThemedPicture(activeSlide) || isThemedHtml(activeSlide),
     onRemoveTheme: (every) => handleRemoveTheme(every),
     sets: kitSets.map((t) => ({ ...t, swatches: [t.palette?.fg, t.palette?.accent, t.palette?.ground] })),
     setId: setIdOf(activeSlide),

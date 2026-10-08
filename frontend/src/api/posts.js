@@ -333,10 +333,10 @@ export function editThemeRegion(id, slideIndex, body) {
   });
 }
 
-export function applyThemeImage(id, { referenceImageKey, themeId, slideIndexes, snapshots, captureErrors, brandColors, brandFonts } = {}) {
-  const label = `Theme Apply agent — ${slideIndexes?.length === 1 ? `slide ${slideIndexes[0]}` : `${slideIndexes?.length || 0} slides`}`;
+export function applyThemeImage(id, { referenceImageKey, themeId, slideIndexes, snapshots, captureErrors, brandColors, brandFonts, mode } = {}) {
+  const label = `Theme Apply agent${mode === 'html' ? ' (HTML)' : ''} — ${slideIndexes?.length === 1 ? `slide ${slideIndexes[0]}` : `${slideIndexes?.length || 0} slides`}`;
   return client
-    .post(`/posts/${id}/theme-image`, { referenceImageKey, themeId, slideIndexes, snapshots, captureErrors, brandColors, brandFonts }, { timeout: 600000 })
+    .post(`/posts/${id}/theme-image`, { referenceImageKey, themeId, slideIndexes, snapshots, captureErrors, brandColors, brandFonts, mode }, { timeout: 600000 })
     .then((res) => {
       const data = res.data || {};
       ingestPlanDebug(label, data);

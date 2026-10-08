@@ -17,6 +17,7 @@ const { compileBrandMemory } = require('../services/planContext');
 const { generateCoverSpec, renderCoverVideo } = require('../services/carouselCoverAgent');
 const { isS3Configured, uploadBytes, getMediaUrl, getObjectBytes } = require('../services/s3Client');
 const { applyThemeToSlide, themedSlideDocument } = require('../services/themeApplyAgent');
+const { applyThemeHtmlToSlide, slideDocumentOf, HTML_DIRECTION } = require('../services/themeApplyHtmlAgent');
 const { isImageGenConfigured } = require('../services/openaiImage');
 const { toVisionImage } = require('../services/visionImage');
 const { currentProfile } = require('../utils/currentProfile');
@@ -1557,6 +1558,10 @@ function snapshotOf(dataUrl) {
 // next to a themed one may sit in that section with only HTML in it)
 const isThemedSlide = (sl) => /^themed-image/.test(String(sl?.layoutTheme || ''))
   && [...(Array.isArray(sl?.assetKeys) ? sl.assetKeys : []), sl?.assetKey].some((k) => /\/themed-/.test(String(k || '')));
+// A slide the HTML-mode Theme Apply agent restyled (section `themed-html[-sN]`).
+const isHtmlThemedSlide = (sl) => new RegExp(`^${HTML_DIRECTION}`).test(String(sl?.layoutTheme || ''));
+// Either kind of applied theme — what Remove theme can take off.
+const hasAppliedTheme = (sl) => isThemedSlide(sl) || isHtmlThemedSlide(sl);
 // What Remove theme puts back on a slide (layoutHtml is rebuilt from the
 // carousel html, so it is not stored twice).
 const PRE_THEME_FIELDS = ['layout', 'layoutTheme', 'assetKey', 'assetKeys', 'title', 'subtitle', 'body', 'items', 'itemsA', 'itemsB', 'stat', 'quote', 'action', 'comparisonA', 'comparisonB', 'labels', 'image'];
@@ -2072,7 +2077,7 @@ async function removeTheme(req, res) {
   const stored = Array.isArray(current.slides) ? current.slides.map((s) => plainOf(s)) : [];
   const trace = record.agentTrace && typeof record.agentTrace === 'object' ? plainOf(record.agentTrace) : {};
   const snap = trace.preTheme;
-  if (!stored.some(isThemedSlide)) return res.status(400).json({ message: 'This post has no theme to remove.' });
+  if (!stored.some(hasAppliedTheme)) return res.status(400).json({ message: 'This post has no theme to remove.' });
   if (!snap?.carouselHtml || !Array.isArray(snap.slides)) {
     return res.status(409).json({ needsRegenerate: true, message: 'This post was themed before its original design was saved.' });
   }
@@ -2117,7 +2122,7 @@ async function removeTheme(req, res) {
       return { ...sl, ...was, ...(dirs[i] ? { layoutTheme: dirs[i] } : {}), layoutOptions: [] };
     });
     record.content = { ...current, ...next, slides: next.slides, carouselHtml: doc };
-    const stillThemed = next.slides.some(isThemedSlide);
+    const stillThemed = next.slides.some(hasAppliedTheme);
     if (!stillThemed) record.content.themeId = snap.themeId || '';
     record.agentTrace = {
       ...trace,
@@ -2142,8 +2147,12 @@ async function removeTheme(req, res) {
 async function applyThemeImage(req, res) {
   const record = await PlannedPost.findOne({ _id: req.params.id, user: req.user._id });
   if (!record) return res.status(404).json({ message: 'Post not found' });
-  if (!isImageGenConfigured()) return res.status(503).json({ message: 'Image generation is not configured on this server.' });
-  if (!isS3Configured()) return res.status(503).json({ message: 'Storage is not configured on this server.' });
+  // Settings › Experimental › HTML theme apply: the slide goes in and comes
+  // back as HTML (Claude Opus 5.5) instead of a picture (image model)
+  const htmlMode = req.body?.mode === 'html';
+  if (!htmlMode && !isImageGenConfigured()) return res.status(503).json({ message: 'Image generation is not configured on this server.' });
+  if (htmlMode && !process.env.ANTHROPIC_API_KEY) return res.status(503).json({ message: 'The HTML theme model is not configured on this server (ANTHROPIC_API_KEY).' });
+  if (!htmlMode && !isS3Configured()) return res.status(503).json({ message: 'Storage is not configured on this server.' });
 
   const own = `projects/${req.user._id}/`;
   // Image 2: an uploaded photo (Upload a reference) or a library theme's
@@ -2225,11 +2234,37 @@ async function applyThemeImage(req, res) {
     }
   };
 
+  // HTML mode: each slide's source is its carousel-agent article — for a slide
+  // already themed, the article saved before the first theme (agentTrace.preTheme)
+  const htmlSourceOf = (idx) => {
+    const slide = stored[idx - 1] || {};
+    if (hasAppliedTheme(slide)) {
+      if (!hasBaseDesign) throw new Error(`Slide ${idx}'s original design is no longer saved — use Remove theme or Fix layout, then apply the theme again.`);
+      return slideDocumentOf(pre.carouselHtml, idx);
+    }
+    return slideDocumentOf(curDoc, idx);
+  };
+
   const results = {};
   const queue = [...indexes];
   const worker = async () => {
     while (queue.length) {
       const idx = queue.shift();
+      if (htmlMode) {
+        try {
+          results[idx] = await applyThemeHtmlToSlide({
+            slideIndex: idx,
+            slideDoc: htmlSourceOf(idx),
+            reference,
+            brandColors: brandColors[idx] || brandColors.all || null,
+            brandFonts,
+          });
+        } catch (err) {
+          console.error(`[posts] ThemeApply(html):${label}#${idx} failed:`, err.message);
+          results[idx] = { error: err.message || 'failed' };
+        }
+        continue;
+      }
       try {
         const snapshot = snapshotOf(snapshots[idx]) || await storedSlidePicture(idx);
         if (!snapshot) {
@@ -2293,7 +2328,7 @@ async function applyThemeImage(req, res) {
           usage: results[i].usage,
           ...results[i].usage,
           inputImage: referenceImage,
-          outputImage: { label: `Themed slide ${i}`, key: results[i].key },
+          ...(results[i].key ? { outputImage: { label: `Themed slide ${i}`, key: results[i].key } } : {}),
         })),
       ],
     },
@@ -2309,7 +2344,7 @@ async function applyThemeImage(req, res) {
     done.forEach((i) => {
       const merged = applySlideTheme({
         currentDoc: doc,
-        newDoc: themedSlideDocument({ slideIndex: i, key: results[i].key, src: results[i].src }),
+        newDoc: htmlMode ? results[i].html : themedSlideDocument({ slideIndex: i, key: results[i].key, src: results[i].src }),
         slideIndex: i,
       });
       doc = merged.html;
@@ -2325,6 +2360,21 @@ async function applyThemeImage(req, res) {
       if (!dirs[i]) return sl;
       const was = stored[n] || {};
       const keep = Object.fromEntries(COPY_FIELDS.filter((k) => was[k] !== undefined).map((k) => [k, was[k]]));
+      if (htmlMode) {
+        // the words stay live in the HTML (data-slots); the slide keeps its
+        // real photos — never an earlier themed render
+        const photos = photoKeysOf(was);
+        return {
+          ...sl,
+          ...keep,
+          layout: 'dynamic',
+          layoutTheme: dirs[i],
+          layoutOptions: [],
+          assetKey: photos[0] || '',
+          assetKeys: photos,
+          themeRegions: null,
+        };
+      }
       // the words now painted on the slide become its copy (plan list, captions)
       const lines = Array.isArray(results[i].textLines) ? results[i].textLines : [];
       const head = lines.find((l) => /head/i.test(l.role));
@@ -2351,7 +2401,7 @@ async function applyThemeImage(req, res) {
     });
     // the carousel agent's design, kept for Themes › Remove theme: taken when
     // the post is not themed yet — a second theme keeps the original snapshot
-    const themedBefore = stored.some((sl) => isThemedSlide(sl));
+    const themedBefore = stored.some(hasAppliedTheme);
     const preTheme = themedBefore
       ? (trace.preTheme || null)
       : { at: new Date().toISOString(), carouselHtml: curDoc, themeId: current.themeId || '', slides: stored.map(preThemeSlide) };
@@ -2370,12 +2420,14 @@ async function applyThemeImage(req, res) {
           at: new Date().toISOString(),
           referenceKey: referenceImageKey,
           referenceTheme: libraryTheme ? { id: libraryTheme.id, name: libraryTheme.name, path: referenceImage.path } : null,
+          mode: htmlMode ? 'html' : 'image',
           // each step's prompt, output and cost — the post's Debug tab reads these
           slides: done.map((i) => ({
             index: i,
             key: results[i].key,
-            renderPrompt: results[i].renderPrompt,
+            renderPrompt: results[i].renderPrompt || results[i].prompt || '',
             renderModel: results[i].debugEntry?.model || '',
+            ...(htmlMode ? { problems: results[i].problems || [], themeDescription: results[i].themeDescription || '' } : {}),
             primaryImage: results[i].primaryImage || null,
             check: results[i].check || null,
             textLines: results[i].textLines,
@@ -2393,7 +2445,7 @@ async function applyThemeImage(req, res) {
     console.log(`[posts] ThemeApply:${label} · themed ${done.join(',')}${failed.length ? ` · failed ${failed.map((f) => f.index).join(',')}` : ''}`);
     return res.json({
       post: record,
-      applied: done.map((i) => ({ index: i, key: results[i].key, src: results[i].src })),
+      applied: done.map((i) => (htmlMode ? { index: i, mode: 'html' } : { index: i, key: results[i].key, src: results[i].src })),
       failed,
       ...debugOf(),
     });

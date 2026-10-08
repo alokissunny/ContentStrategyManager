@@ -7,3 +7,9 @@ export function isThemedPicture(slide) {
   return [...(Array.isArray(slide?.assetKeys) ? slide.assetKeys : []), slide?.assetKey]
     .some((k) => /\/themed-/.test(String(k || '')));
 }
+
+// A slide the Theme Apply agent restyled in HTML mode (Settings › Experimental):
+// still live HTML, drawn in a `themed-html[-sN]` section.
+export function isThemedHtml(slide) {
+  return /^themed-html/.test(String(slide?.layoutTheme || ''));
+}
