@@ -53,6 +53,7 @@ app.use((req, res, next) => {
   // Prompt-debug reruns send the full captured Input, which can exceed the
   // default 100kb JSON limit (weekly-plan prompts especially).
   if (req.originalUrl.includes('/debug/rerun-prompt')) return debugJsonParser(req, res, next);
+  if (req.originalUrl.includes('/research/carousel')) return reelJsonParser(req, res, next);
   if (req.originalUrl.includes('/reels/edit')) return reelJsonParser(req, res, next);
   // Editor mode's prompt band sends the whole edited carousel as the reference.
   if (/\/posts\/[^/]+\/refine/.test(req.originalUrl)) return reelJsonParser(req, res, next);
@@ -80,6 +81,7 @@ app.use('/api/images', imageRoutes);
 app.use('/api/visual-brand', visualBrandRoutes);
 app.use('/api/media', mediaRoutes);
 app.use('/api/reels', reelRoutes);
+app.use('/api/research', require('./routes/researchRoutes'));
 app.use('/api/debug', debugRoutes);
 app.use('/api/internal', internalRoutes);
 app.use('/api/settings', settingsRoutes);

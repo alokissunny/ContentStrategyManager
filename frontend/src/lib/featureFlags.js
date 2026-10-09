@@ -8,6 +8,7 @@ const KEYS = {
   videoCover: 'bauhly.ff.videoCover',
   reelEditor: 'bauhly.ff.reelEditor',
   linkedin: 'bauhly.ff.linkedin',
+  research: 'bauhly.ff.research',
 };
 
 function readBool(key, fallback = false) {
@@ -24,6 +25,7 @@ let state = {
   videoCover: readBool(KEYS.videoCover, false),
   reelEditor: readBool(KEYS.reelEditor, false),
   linkedin: readBool(KEYS.linkedin, false),
+  research: readBool(KEYS.research, false),
 };
 
 const listeners = new Set();
@@ -37,6 +39,7 @@ function setState(patch) {
   try {
     if ('videoCover' in patch) localStorage.setItem(KEYS.videoCover, state.videoCover ? '1' : '0');
     if ('reelEditor' in patch) localStorage.setItem(KEYS.reelEditor, state.reelEditor ? '1' : '0');
+    if ('research' in patch) localStorage.setItem(KEYS.research, state.research ? '1' : '0');
     if ('linkedin' in patch) localStorage.setItem(KEYS.linkedin, state.linkedin ? '1' : '0');
   } catch {
     // best-effort local cache only
@@ -69,4 +72,8 @@ export function useFeatureFlags() {
     (fn) => { listeners.add(fn); return () => listeners.delete(fn); },
     () => state,
   );
+}
+
+export function setResearchEnabled(next) {
+  setState({ research: Boolean(next) });
 }

@@ -17,6 +17,7 @@ export const NAV_ITEMS = [
 
 // Nav items that only appear when their experimental feature flag is on.
 const FLAGGED_NAV_ITEMS = [
+  { to: '/dashboard/research', label: 'Research', icon: 'search', flag: 'research' },
   { to: '/dashboard/reel-editor', label: 'Reel editor', icon: 'clapperboard', flag: 'reelEditor' },
 ];
 

@@ -13,6 +13,7 @@ const Captures = lazy(() => import('./pages/Captures'));
 const BrandDna = lazy(() => import('./pages/BrandDna'));
 const LibrarySettings = lazy(() => import('./pages/visuallibrary/LibrarySettings'));
 const CompetitorOverview = lazy(() => import('./pages/CompetitorOverview'));
+const Research = lazy(() => import('./pages/Research'));
 const Settings = lazy(() => import('./pages/Settings'));
 const ReelEditor = lazy(() => import('./pages/reeleditor/ReelEditor'));
 const LinkedInCallback = lazy(() => import('./pages/LinkedInCallback'));
@@ -50,6 +51,7 @@ export default function App() {
           <Route path="/dashboard/visual-library" element={<Navigate to="/dashboard/library-settings" replace />} />
           <Route path="/dashboard/library-settings" element={<LibrarySettings />} />
           <Route path="/dashboard/competitor-overview" element={<CompetitorOverview />} />
+          <Route path="/dashboard/research" element={<Research />} />
           <Route path="/dashboard/settings" element={<Settings />} />
           {/* Experimental Reel editor (gated by the reelEditor flag; the page
               itself shows an enable prompt when the flag is off). */}

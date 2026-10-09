@@ -17,7 +17,7 @@ import { getMetaStatus, startMetaConnect, disconnectMeta, metaConnectionFor, rem
 import { syncHandle } from '../lib/store';
 import { resetProjects } from '../lib/projectsStore';
 import { useAiDebug, setAiDebugEnabled, clearAiDebugEntries } from '../lib/aiDebug';
-import { useFeatureFlags, setVideoCoverEnabled, setReelEditorEnabled, setLinkedInEnabled } from '../lib/featureFlags';
+import { useFeatureFlags, setVideoCoverEnabled, setReelEditorEnabled, setLinkedInEnabled, setResearchEnabled } from '../lib/featureFlags';
 import { getCarouselModel, updateCarouselModel } from '../api/settings';
 import LinkedInSettings from '../components/LinkedInSettings';
 import './settings.css';
@@ -591,6 +591,15 @@ export default function Settings() {
       <section className="card set-card">
         <h2>Experimental features</h2>
         <p className="set-card__sub">Early features you can try. Off by default.</p>
+        <div className="set-row">
+          <span className="set-row__main">
+            <b className="set-row__title">Research</b>
+            <span className="set-row__sub">Turn a topic into a sourced carousel with downloadable slides.</span>
+          </span>
+          <span className="set-row__acts">
+            <button type="button" className={`set-switch ${flags.research ? 'is-on' : ''}`} role="switch" aria-checked={flags.research} aria-label="Research" onClick={() => setResearchEnabled(!flags.research)}><i aria-hidden="true" /></button>
+          </span>
+        </div>
         <div className="set-row">
           <span className="set-row__ico" aria-hidden="true"><b>in</b></span>
           <span className="set-row__main">

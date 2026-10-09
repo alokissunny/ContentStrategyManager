@@ -1,0 +1,77 @@
+<!doctype html>
+<!--
+  THEME: default  —  clean, professional, minimal.
+  Copy this file once per slide as slide-01.html, slide-02.html, ...
+  Per slide: edit the brand vars (once, keep identical across slides),
+  swap the `layout-*` class, and fill the content.
+  Layouts:  layout-hook (slide 1) | layout-content (slides 2..n-1) | layout-cta (last)
+  The renderer sizes the viewport; .slide fills it. Width is always 1080px.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700;800;900&display=swap" rel="stylesheet" />
+<style>
+  :root {
+    /* --- BRAND: set once, keep identical on every slide --- */
+    --bg-from: #1e1b4b;
+    --bg-to:   #312e81;
+    --text:    #ffffff;
+    --muted:   rgba(255, 255, 255, 0.62);
+    --accent:  #818cf8;
+    --font:    'Inter', system-ui, sans-serif;
+  }
+  html, body { margin: 0; height: 100%; }
+  .slide {
+    width: 100vw; height: 100vh;
+    box-sizing: border-box;
+    padding: 88px;
+    background: linear-gradient(160deg, var(--bg-from), var(--bg-to));
+    color: var(--text);
+    font-family: var(--font);
+    display: flex; flex-direction: column;
+    overflow: hidden;
+  }
+  .eyebrow {
+    font-size: 22px; font-weight: 700; letter-spacing: 3px;
+    text-transform: uppercase; color: var(--accent); margin: 0;
+  }
+  .heading { font-size: 60px; font-weight: 900; line-height: 1.14; margin: 18px 0 0; }
+  .body    { font-size: 26px; font-weight: 400; line-height: 1.6; color: var(--muted); margin: 22px 0 0; }
+  .number  { font-size: 120px; font-weight: 900; color: var(--accent); line-height: 1; margin: 0; }
+  .footer  {
+    margin-top: auto; display: flex; justify-content: space-between;
+    align-items: center; font-size: 20px; color: var(--muted);
+  }
+  .swipe   { font-size: 26px; font-weight: 500; color: var(--muted); margin-top: 32px; }
+
+  /* --- layout: hook (slide 1) --- */
+  .layout-hook    { justify-content: center; text-align: center; align-items: center; }
+  .layout-hook .heading { font-size: 72px; }
+
+  /* --- layout: content (middle slides) --- */
+  /* content flows from the top; .footer's margin-top:auto pins it to the bottom */
+  .layout-content { justify-content: flex-start; }
+
+  /* --- layout: cta (last slide) --- */
+  .layout-cta     { justify-content: center; text-align: center; align-items: center; }
+</style>
+</head>
+<body>
+  <!-- EXAMPLE: a content slide. Change `layout-content` per the guide above. -->
+  <div class="slide layout-content">
+    <p class="number">01</p>
+    <h2 class="heading">Your headline is too vague</h2>
+    <p class="body">
+      &ldquo;Welcome to our platform&rdquo; tells the visitor nothing.
+      Lead with the outcome: &ldquo;Ship docs in minutes, not days.&rdquo;
+    </p>
+    <div class="footer">
+      <span>@yourhandle</span>
+      <span>2 / 7</span>
+    </div>
+  </div>
+</body>
+</html>
