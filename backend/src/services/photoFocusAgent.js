@@ -10,19 +10,23 @@
  * (frontend pages/weekview/photoFocus.js) positions the crop so that box sits
  * in the part of the slide the copy leaves visible.
  *
- * Results are cached on the post (`photoFocus`: [{ slide, key, sig, box }]) so
- * a slide whose html was saved without the attribute is re-annotated for free.
+ * The answer is LOCKED on the post (`photoFocus`: [{ slide, key, box, at }]):
+ * once a photo has a focus it is never sent to the agent again — not on a
+ * page refresh, not when its html is saved without the attribute, not when the
+ * slide's words are edited, not when the photo moves to another slide. A call
+ * that failed is recorded too (`failedAt`) and only retried after
+ * PHOTO_FOCUS_RETRY_HOURS (12).
  */
 
 const fs = require('fs');
 const path = require('path');
-const crypto = require('crypto');
 const sharp = require('sharp');
 const { completeToolCall } = require('./llmComplete');
 const { getObjectBytes } = require('./s3Client');
 const { toVisionImage } = require('./visionImage');
 
 const FOCUS_MODEL = () => process.env.PHOTO_FOCUS_MODEL || 'gpt-5.6-terra';
+const RETRY_MS = () => Math.max(0, Number(process.env.PHOTO_FOCUS_RETRY_HOURS ?? 12)) * 3600e3;
 const CONCURRENCY = () => Math.max(1, Number(process.env.PHOTO_FOCUS_CONCURRENCY) || 4);
 
 let promptCache = null;
@@ -79,7 +83,6 @@ const plain = (html) => String(html || '')
   .replace(/\s+/g, ' ')
   .trim();
 
-const sigOf = (words, key) => crypto.createHash('sha1').update(`${key}\n${words.toLowerCase()}`).digest('hex').slice(0, 12);
 
 /** One photo + the slide's words → { box, subject, reason, usage } */
 async function focusForPhoto({ key, words, context = '' }) {
@@ -156,19 +159,26 @@ async function annotatePostPhotos(post, { owns = () => true } = {}) {
     if (!key || hasFocus(tag) || !owns(key)) return;
     const s = slides[slideNo - 1] || {};
     const words = plain(html) || [s.title, s.subtitle, s.body].filter(Boolean).join(' ');
-    wanted.set(`${slideNo}|${key}`, { slide: slideNo, key, words, sig: sigOf(words, key) });
+    wanted.set(`${slideNo}|${key}`, { slide: slideNo, key, words });
   };
   arts.forEach((a, i) => (a.html.match(IMG_TAG) || []).forEach((tag) => want(i + 1, tag, a.html)));
   slides.forEach((s, i) => (String(s?.layoutHtml || '').match(IMG_TAG) || []).forEach((tag) => want(i + 1, tag, s.layoutHtml)));
-  if (!wanted.size) return { changed: false, added: 0, calls: 0, rows: [] };
+  if (!wanted.size) return { changed: false, locked: false, added: 0, calls: 0, held: 0, rows: [] };
 
-  // cached answers first, then the agent (a few at a time)
-  const cache = Array.isArray(post.photoFocus) ? post.photoFocus : [];
+  // locked answers first (this slide's, else the same photo's on any slide),
+  // then the agent for photos never asked — or whose last try failed long ago
+  const cache = (Array.isArray(post.photoFocus) ? post.photoFocus : []).filter((c) => c && c.key);
+  const answered = (c) => !c.failedAt;
   const found = new Map();
   const todo = [];
+  let held = 0;
   wanted.forEach((w, id) => {
-    const hit = cache.find((c) => c && c.slide === w.slide && c.key === w.key && c.sig === w.sig);
-    if (hit) found.set(id, hit.box || null); else todo.push([id, w]);
+    const lock = cache.find((c) => answered(c) && c.slide === w.slide && c.key === w.key)
+      || cache.find((c) => answered(c) && c.key === w.key);
+    if (lock) { found.set(id, lock.box || null); return; }
+    const failed = cache.find((c) => c.failedAt && c.key === w.key);
+    if (failed && Date.now() - new Date(failed.failedAt).getTime() < RETRY_MS()) { held += 1; return; }
+    todo.push([id, w]);
   });
   const rows = [];
   let next = 0;
@@ -213,13 +223,17 @@ async function annotatePostPhotos(post, { owns = () => true } = {}) {
     if (out !== s.layoutHtml) { s.layoutHtml = out; changed = true; }
   });
 
-  // cache: keep the newest answer per slide + photo (failures are not cached)
-  const fresh = rows.filter((r) => r.box).map((r) => ({ slide: r.slide, key: r.key, sig: r.sig, box: r.box, subject: r.subject }));
-  if (fresh.length) {
+  // lock every answer (a "none" too); a failure is noted so it waits to retry
+  const at = new Date().toISOString();
+  const fresh = rows.map((r) => (r.error
+    ? { slide: r.slide, key: r.key, failedAt: at }
+    : { slide: r.slide, key: r.key, box: r.box || null, subject: r.subject || '', at }));
+  const locked = fresh.length > 0;
+  if (locked) {
     const keep = cache.filter((c) => !fresh.some((f) => f.slide === c.slide && f.key === c.key));
     post.photoFocus = [...keep, ...fresh].slice(-200);
   }
-  return { changed, added: found.size, calls: todo.length, rows };
+  return { changed, locked, added: found.size, calls: todo.length, held, rows };
 }
 
 module.exports = { annotatePostPhotos, focusForPhoto, FOCUS_TOOL };

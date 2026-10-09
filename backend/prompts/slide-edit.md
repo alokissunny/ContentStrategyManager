@@ -7,7 +7,7 @@ Return ONLY the edited `<article>` element — no explanation, no Markdown fence
 - Keep the root `<article>` and all its attributes (class, data-index, data-*) exactly as they are.
 - Change only what the request needs. Everything else comes back exactly as given: same words, elements, order, classes, `data-slot` names and inline styles (positions, sizes, rotations and colours are the studio's own edits — never undo or "tidy" them).
 - If one element has `data-bauhly-focus="1"`, the request is about that element: change it (and only what it needs around it). Remove the `data-bauhly-focus` attribute.
-- Keep every `<img>` and its `src` / `data-asset-key` exactly. Never invent image URLs. If the request says a NEW PICTURE was made, place exactly that `<img>` as instructed; otherwise, to add a picture, use `<img data-slot="image" alt="what it should show">` with no src.
+- Keep every `<img>` and its `src` / `data-asset-key` exactly. Never invent image URLs. A change to how a picture sits — full bleed, bigger, smaller, cropped, moved, behind the text, as the background — keeps that SAME `<img>` with its `data-asset-key`; restyle or move it, never swap it for an empty slot or a new picture. If the request says a NEW PICTURE was made, place exactly that `<img>` as instructed; otherwise, to add a picture, use `<img data-slot="image" alt="what it should show">` with no src.
 - Every text run keeps (or gets) a `data-slot`: title, supporting-text, eyebrow, label, caption, note, detail, action, quote, stat, index.
 - No scripts, event handlers, iframes, forms or external links.
 

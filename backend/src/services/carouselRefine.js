@@ -133,13 +133,27 @@ function composeCurrentCarousel({ carouselHtml, slides, direction }) {
   return { html, direction: dir, articles, styles, render, links: [...new Set(links)] };
 }
 
-// Does this instruction ask for a picture? The band's `visual` action says so
-// outright; typed words are read for an add/generate verb near a picture noun.
-const VISUAL_ASK = /\b(add|adding|include|insert|put|place|give|generate|create|make|show|use)\b[^.?!]{0,48}\b(visual|image|picture|photo|photograph|illustration|graphic|artwork|sketch|render)s?\b/i;
+// Does this instruction ask for a NEW picture? The band's `visual` action says
+// so outright. Typed words only count when they plainly ask for one to be made
+// or added ("generate an image of…", "add a photo", "use a different picture",
+// "a new illustration") — words about the picture already on the slide ("make
+// the image full bleed", "show the photo larger", "put the image on the
+// right", "use the image as the background") change how it sits and keep the
+// same asset. Generating costs an image render, so when in doubt: no.
+const PIC = '(?:visuals?|images?|pictures?|photos?|photographs?|illustrations?|graphics?|artworks?|sketch(?:es)?|renders?|drawings?)';
+const MAKE_NEW = new RegExp(`\\b(?:generate|create|draw|render|illustrate|paint|produce|design)\\b[^.?!]{0,40}\\b${PIC}\\b`, 'i');
+const ADD_ONE = new RegExp(`\\b(?:add|adding|include|insert|give(?: it| this| the slide)?)\\s+(?:a|an|one|another|some|more|new|extra|second|\\d+)\\b[^.?!]{0,30}\\b${PIC}\\b`, 'i');
+const SWAP_NEW = new RegExp(`\\b(?:new|different|another|fresh|other|alternative|replacement)\\s+(?:\\w+\\s+){0,2}${PIC}\\b`, 'i');
+const REPLACE_IT = new RegExp(`\\b(?:replace|swap|change)\\b[^.?!]{0,20}\\b${PIC}\\b[^.?!]{0,20}\\b(?:with|for)\\s+(?:a|an|another|one)\\b`, 'i');
+const MAKE_A = new RegExp(`\\b(?:make|show|use|put)\\s+(?:me\\s+)?(?:a|an|another|one)\\s+(?:\\w+\\s+){0,2}${PIC}\\b`, 'i');
+function wordsAskForNewPicture(text) {
+  const t = String(text || '');
+  return MAKE_NEW.test(t) || ADD_ONE.test(t) || SWAP_NEW.test(t) || REPLACE_IT.test(t) || MAKE_A.test(t);
+}
 function asksForVisual(instruction, flag) {
   if (flag === true) return true;
   if (flag === false) return false;
-  return VISUAL_ASK.test(String(instruction || ''));
+  return wordsAskForNewPicture(instruction);
 }
 
 // The asset keys an article's image slots hold, in slot order — a slot with a
@@ -502,4 +516,5 @@ async function refineCarouselFromEdits({
   };
 }
 
-module.exports = { refineCarouselFromEdits, composeCurrentCarousel, withIndex, slotKeysOf, logStep, previewOf };
+module.exports = {
+  wordsAskForNewPicture, refineCarouselFromEdits, composeCurrentCarousel, withIndex, slotKeysOf, logStep, previewOf };

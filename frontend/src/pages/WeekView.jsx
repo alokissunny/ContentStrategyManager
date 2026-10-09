@@ -4125,9 +4125,19 @@ export default function WeekView({
   // as a marker on that node so the agent changes it and nothing else. Each
   // returned <article> is swapped into the stored html and saved; the pre-edit
   // slides are kept so the band can offer Undo.
-  // Words that ask for a picture — mirrors the server's reading, only to say
-  // "making a visual" while it runs.
-  const ASKS_VISUAL = /\b(add|include|insert|put|place|give|generate|create|make|show|use)\b[^.?!]{0,48}\b(visual|image|picture|photo|photograph|illustration|graphic|artwork|sketch|render)s?\b/i;
+  // Words that ask for a NEW picture — mirrors the server's reading
+  // (carouselRefine.wordsAskForNewPicture), only to say "making a visual" while
+  // it runs. Words about the picture already there ("make the image full
+  // bleed") keep the same asset.
+  const PIC_WORD = '(?:visuals?|images?|pictures?|photos?|photographs?|illustrations?|graphics?|artworks?|sketch(?:es)?|renders?|drawings?)';
+  const ASKS_VISUAL_ALL = [
+    new RegExp(`\\b(?:generate|create|draw|render|illustrate|paint|produce|design)\\b[^.?!]{0,40}\\b${PIC_WORD}\\b`, 'i'),
+    new RegExp(`\\b(?:add|adding|include|insert|give(?: it| this| the slide)?)\\s+(?:a|an|one|another|some|more|new|extra|second|\\d+)\\b[^.?!]{0,30}\\b${PIC_WORD}\\b`, 'i'),
+    new RegExp(`\\b(?:new|different|another|fresh|other|alternative|replacement)\\s+(?:\\w+\\s+){0,2}${PIC_WORD}\\b`, 'i'),
+    new RegExp(`\\b(?:replace|swap|change)\\b[^.?!]{0,20}\\b${PIC_WORD}\\b[^.?!]{0,20}\\b(?:with|for)\\s+(?:a|an|another|one)\\b`, 'i'),
+    new RegExp(`\\b(?:make|show|use|put)\\s+(?:me\\s+)?(?:a|an|another|one)\\s+(?:\\w+\\s+){0,2}${PIC_WORD}\\b`, 'i'),
+  ];
+  const ASKS_VISUAL = { test: (t) => ASKS_VISUAL_ALL.some((re) => re.test(String(t || ''))) };
 
   // The reference a refine/repair call sends: the post as it stands.
   function refineCurrentOf(d) {

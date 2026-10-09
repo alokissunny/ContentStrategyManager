@@ -959,6 +959,7 @@ async function updatePost(req, res) {
 // POST /posts/:id/photo-focus — the Photo Focus agent marks every photo on the
 // post that has no `data-focus` yet with the part the slide's words need seen
 // (cached per slide + photo + words, so a re-annotation is usually free).
+const focusRuns = new Map(); // post id → the run in progress
 async function focusPostPhotos(req, res) {
   const post = await PlannedPost.findOne({ _id: req.params.id, user: req.user._id });
   if (!post) return res.status(404).json({ message: 'Post not found' });
@@ -966,9 +967,29 @@ async function focusPostPhotos(req, res) {
   const uid = String(req.user._id);
   const started = Date.now();
   const owns = (key) => key.includes(`/${uid}/`);
+  // one run per post at a time: a second tab / a double mount waits for the
+  // first run and is then answered from the locked results
+  const postId = String(post._id);
+  while (focusRuns.has(postId)) {
+    // eslint-disable-next-line no-await-in-loop
+    await focusRuns.get(postId).catch(() => {});
+  }
+  let release;
+  focusRuns.set(postId, new Promise((ok) => { release = ok; }));
+  try {
+    return await focusPostPhotosOnce(req, res, { uid, owns, started });
+  } finally {
+    focusRuns.delete(postId);
+    release();
+  }
+}
+
+async function focusPostPhotosOnce(req, res, { owns, started }) {
+  const post = await PlannedPost.findOne({ _id: req.params.id, user: req.user._id });
+  if (!post) return res.status(404).json({ message: 'Post not found' });
   const r = await annotatePostPhotos(post, { owns });
   let saved = null;
-  if (r.changed) {
+  if (r.changed || r.locked) {
     // the agent took seconds: write onto the post as it is NOW (a save in the
     // meantime keeps its edits) — the second pass is answered from the cache
     saved = await PlannedPost.findOne({ _id: req.params.id, user: req.user._id });
@@ -979,6 +1000,7 @@ async function focusPostPhotos(req, res) {
       if (again.changed) saved.markModified('content');
       await saved.save();
       r.rows.push(...again.rows);
+      if (!again.changed) saved = null; // nothing for the page to take
     }
   }
   const body = { post: saved, added: r.added, calls: r.calls };
@@ -1015,7 +1037,7 @@ async function focusPostPhotos(req, res) {
       model: agents[0]?.model,
       elapsedMs: Date.now() - started,
       usage,
-      instruction: `${r.calls} photo${r.calls === 1 ? '' : 's'} sent to the agent · ${Math.max(0, r.added - r.calls)} answered from the cache`,
+      instruction: `${r.calls} photo${r.calls === 1 ? '' : 's'} sent to the agent · ${Math.max(0, r.added - r.calls)} locked from before${r.held ? ` · ${r.held} waiting to retry after a failure` : ''}`,
       agents,
     };
   }
