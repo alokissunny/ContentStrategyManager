@@ -3723,10 +3723,13 @@ export default function WeekView({
   // still holding as a draft (new words, a layout / theme being tried on) is
   // committed first. Cancel drops those drafts. Edits already applied inside
   // the Editor were saved when they were applied, as they are on the preview.
-  function resetElemEdits() {
+  // `keepHist`: the post steps stay in the Editor's history (the hand-edit
+  // steps go — their patches are baked or dropped with them)
+  function resetElemEdits({ keepHist = false } = {}) {
     setElemEdits({});
     elemEditsRef.current = {};
-    setElemHist({ past: [], future: [] });
+    if (keepHist) setElemHist((h) => ({ past: h.past.filter((e) => e.kind === 'post'), future: h.future.filter((e) => e.kind === 'post') }));
+    else setElemHist({ past: [], future: [] });
     setElemSel(null);
     setElemMenu(null);
   }
@@ -3736,11 +3739,11 @@ export default function WeekView({
   // the shared carousel document.
   // Returns the slides + carousel document as saved, so a caller in the same
   // tick (the prompt band) can build on them before `day` re-renders.
-  function flushElemEdits() {
+  function flushElemEdits({ keepHist = true } = {}) {
     const edits = elemEditsRef.current || {};
     const live = Object.keys(edits).filter((k) => Object.keys(edits[k]?.patches || {}).length);
     if (!live.length || !day) {
-      resetElemEdits();
+      resetElemEdits({ keepHist });
       return day ? { slides: deriveSlides(day), docHtml: carouselDocumentOf(day) } : null;
     }
     const base = deriveSlides(day);
@@ -3760,49 +3763,162 @@ export default function WeekView({
       return out && out !== sl.layoutHtml ? { ...sl, layoutHtml: out } : sl;
     });
     replaceSlides(next, docChanged ? { extra: { carouselHtml: docHtml } } : {});
-    resetElemEdits();
+    resetElemEdits({ keepHist });
+    if (keepHist) {
+      // the hand-edit steps are baked now: one post step stands for them
+      const idxs = live.map(Number);
+      const after = {
+        ...day,
+        content: { ...(day.content || {}), slides: next.map((sl) => slideRecord(sl)), ...(docChanged ? { carouselHtml: docHtml } : {}) },
+      };
+      pushPostStep(day, after, idxs);
+    }
     return { slides: next, docHtml };
   }
 
-  function commitElemEdits(patches) {
-    const i = safeIdx;
+  // `i` is the slide the engine is attached to — passed in, since a commit can
+  // land as that slide is being left (an open text edit closing on detach).
+  function commitElemEdits(patches, i = safeIdx) {
     const before = elemEditsRef.current[i]?.patches || {};
     const docHtml = carouselDocumentOf(day);
-    const entry = {
-      patches,
-      doc: Boolean(previewUsesDoc && isCarouselDocument(docHtml)),
-      dir: layoutDirectionOf(previewSlide),
-      idx: Number(activeSlide?.index) > 0 ? Number(activeSlide.index) : safeIdx + 1,
+    const sl = slides[i];
+    const meta = {
+      doc: Boolean(sl && !isBlankSlide(sl) && slideIsThemed(sl) && isCarouselDocument(docHtml)),
+      dir: layoutDirectionOf(sl),
+      idx: Number(sl?.index) > 0 ? Number(sl.index) : i + 1,
     };
-    const nextEdits = { ...elemEditsRef.current, [i]: entry };
+    const nextEdits = { ...elemEditsRef.current, [i]: { patches, ...meta } };
     elemEditsRef.current = nextEdits;
     setElemEdits(nextEdits);
-    setElemHist((h) => ({ past: [...h.past, { i, before, after: patches }].slice(-100), future: [] }));
+    setElemHist((h) => ({ past: [...h.past, { i, meta, before, after: patches }].slice(-100), future: [] }));
   }
 
-  function setSlidePatches(i, patches) {
+  // Undo / redo work across the whole post: a step on another slide brings
+  // that slide forward, and its engine re-attaches with these patches.
+  function setSlidePatches(e, patches) {
+    const { i } = e;
     const cur = elemEditsRef.current[i] || {};
-    const nextEdits = { ...elemEditsRef.current, [i]: { ...cur, patches } };
+    const nextEdits = { ...elemEditsRef.current, [i]: { ...e.meta, ...cur, patches } };
     elemEditsRef.current = nextEdits;
     setElemEdits(nextEdits);
-    if (i === safeIdx) elemApiRef.current?.setPatches(patches);
-    else setSlideIdx(i);
+    if (i === safeIdx) {
+      elemApiRef.current?.setPatches(patches);
+      return;
+    }
+    // keys typed into the slide we are leaving would go to its detached
+    // iframe — give focus back to the page so the next ⌘Z still lands
+    const act = document.activeElement;
+    if (act && act.tagName === 'IFRAME') act.blur();
+    setElemSel(null);
+    setElemMenu(null);
+    setSlideIdx(i);
   }
 
   function undoElem() {
     const h = elemHistRef.current;
     const e = h.past[h.past.length - 1];
-    if (!e) return;
+    if (!e || histLocked) return;
+    if (e.kind === 'post' && !putPostState(e, e.before, e.after)) return;
     setElemHist({ past: h.past.slice(0, -1), future: [...h.future, e] });
-    setSlidePatches(e.i, e.before);
+    if (e.kind !== 'post') setSlidePatches(e, e.before);
   }
 
   function redoElem() {
     const h = elemHistRef.current;
     const e = h.future[h.future.length - 1];
-    if (!e) return;
+    if (!e || histLocked) return;
+    if (e.kind === 'post' && !putPostState(e, e.after, e.before)) return;
     setElemHist({ past: [...h.past, e], future: h.future.slice(0, -1) });
-    setSlidePatches(e.i, e.after);
+    if (e.kind !== 'post') setSlidePatches(e, e.after);
+  }
+
+  // ── Post steps in the Editor's history ────────────────────────────────
+  // Changes the server makes to a slide — a Theme Apply render, a region of
+  // the theme picture redrawn / recoloured / given a logo, a re-arranged
+  // picture — are steps too, so undo / redo walk them with the hand edits.
+  // A step holds the touched slides as they were before and after (and the
+  // carousel document + theme id); putting one back only rewrites those
+  // slides, so later edits to other slides stay.
+  // `d` with its slides / carousel document as `flushElemEdits` returned them
+  function dayWith(d, { slides: sl, docHtml }) {
+    if (!d) return d;
+    return {
+      ...d,
+      content: { ...(d.content || {}), slides: sl.map((x) => slideRecord(x)), ...(docHtml ? { carouselHtml: docHtml } : {}) },
+    };
+  }
+
+  function postStateOf(d, idxs) {
+    const all = deriveSlides(d);
+    return {
+      recs: Object.fromEntries(idxs.filter((i) => all[i]).map((i) => [i, JSON.parse(JSON.stringify(all[i]))])),
+      doc: carouselDocumentOf(d),
+      themeId: d?.content?.themeId ?? '',
+      count: all.length,
+    };
+  }
+
+  // `before` = the post as it was (a day object), `after` = as it is now.
+  // `snap`: the change was also written into the Cancel snapshot (region
+  // edits are kept on Cancel), so stepping it must move the snapshot too.
+  function pushPostStep(before, after, idxs, { snap = false, focus = idxs[0] } = {}) {
+    if (!before || !after || !idxs.length) return;
+    const b = postStateOf(before, idxs);
+    const a = postStateOf(after, idxs);
+    if (JSON.stringify(b.recs) === JSON.stringify(a.recs) && b.doc === a.doc && b.themeId === a.themeId) return;
+    const step = { kind: 'post', i: focus, idxs, snap, before: b, after: a };
+    setElemHist((h) => ({ past: [...h.past, step].slice(-100), future: [] }));
+  }
+
+  function putPostState(step, to, from) {
+    if (!day) return false;
+    const base = deriveSlides(day);
+    if (base.length !== to.count) {
+      setAskMsg({ tone: 'err', text: 'Slides were added or removed since — that step can no longer be put back.' });
+      return false;
+    }
+    // hand edits still waiting on these slides were made on what is being
+    // replaced — they go with it
+    if (step.idxs.some((i) => elemEditsRef.current[i])) {
+      const left = { ...elemEditsRef.current };
+      step.idxs.forEach((i) => { delete left[i]; });
+      elemEditsRef.current = left;
+      setElemEdits(left);
+    }
+    const next = base.map((sl, i) => (to.recs[i] ? JSON.parse(JSON.stringify(to.recs[i])) : sl));
+    // the document: whole when nothing else changed it since, else just the
+    // touched slides' pictures swapped back
+    let doc = carouselDocumentOf(day);
+    if (doc === from.doc) doc = to.doc;
+    else {
+      step.idxs.forEach((i) => {
+        const was = from.recs[i]?.assetKeys?.[0];
+        const now = to.recs[i]?.assetKeys?.[0];
+        if (was && now && was !== now && doc.includes(was)) doc = doc.split(was).join(now);
+      });
+    }
+    const extra = {};
+    if (doc !== carouselDocumentOf(day)) extra.carouselHtml = doc;
+    if ((day.content?.themeId ?? '') !== to.themeId) extra.themeId = to.themeId;
+    replaceSlides(next, { exact: true, extra });
+    if (step.snap) {
+      const s = editSnapRef.current;
+      if (s && s.dayIndex === selected && Array.isArray(s.slides) && s.slides.length === next.length) {
+        step.idxs.forEach((i) => { s.slides[i] = JSON.parse(JSON.stringify(next[i])); });
+        s.docHtml = doc;
+      }
+    }
+    setRgnPick('');
+    setRgnErr('');
+    setElemSel(null);
+    setElemMenu(null);
+    setSlideGen((g) => g + 1);
+    if (step.i !== safeIdx) {
+      const act = document.activeElement;
+      if (act && act.tagName === 'IFRAME') act.blur();
+      setSlideIdx(step.i);
+    }
+    return true;
   }
 
   // The engine reports the selection in the iframe's own px; the toolbar lives
@@ -4167,6 +4283,7 @@ export default function WeekView({
       }
       if (!data?.post) throw new Error('Nothing came back.');
       setAskUndo({ slides: base, docHtml: docBefore || null });
+      const askBefore = dayWith(day, { slides: base, docHtml: docBefore });
       const merged = mergePost(data.post);
       setRoute(merged);
       onRouteChange?.(merged);
@@ -4205,6 +4322,7 @@ export default function WeekView({
         issues = introduced(await auditRenderedSlide(lastPost, activeIdx, activeDir));
       }
       setAskPhase('');
+      pushPostStep(askBefore, lastPost, every ? base.map((_, i) => i) : [safeIdx]);
       const layoutNote = issues && issues.length
         ? ` Some layout problems remain (${issues.length}) — try Fix layout or adjust by hand.`
         : (repairs ? ' Layout tidied.' : '');
@@ -5039,6 +5157,13 @@ export default function WeekView({
     try {
       const data = await removeDayTheme(route._id, selected, every ? {} : { slideIndex: here });
       if (data?.route) {
+        const failed = new Set((data.failed || []).map((f) => Number(f.index)));
+        pushPostStep(
+          wasDay,
+          data.route.days?.[dayIndex],
+          slideIndexes.filter((i) => !failed.has(i)).map((i) => i - 1),
+          { focus: here - 1 },
+        );
         setRoute(data.route);
         onRouteChange?.(data.route);
         setSlideGen((g) => g + 1);
@@ -5072,8 +5197,9 @@ export default function WeekView({
     setMenuPane(null);
     closeZone();
     // hand edits are keyed by slide and baked into the document the merge keeps
-    flushElemEdits();
+    const flushed = flushElemEdits();
     const dayIndex = selected;
+    const wasDay = flushed ? dayWith(day, flushed) : day;
     const count = slides.length;
     const here = safeIdx + 1;
     const slideIndexes = every ? Array.from({ length: count }, (_, i) => i + 1) : [here];
@@ -5457,6 +5583,8 @@ export default function WeekView({
   const [rgnBusy, setRgnBusy] = useState('');
   const [rgnErr, setRgnErr] = useState('');
   const rgnRefFile = useRef(null); // Generate from a reference: the photo
+  // undo / redo wait while anything is being written to the post
+  const histLocked = editBusy || Boolean(rgnBusy);
   useEffect(() => { setRgnPick(''); setRgnErr(''); }, [safeIdx, selected]);
   useEffect(() => {
     if (!postEdit || !activeThemed || !themedKey) { setRgnMap(null); return undefined; }
@@ -5647,6 +5775,7 @@ export default function WeekView({
       if (at) at.items.push(h); else bySlide.push({ slide: h.slide, items: [h] });
     });
     let done = 0;
+    let was = day;
     try {
       for (const g of bySlide) {
         setRgnSending(bySlide.length > 1
@@ -5662,6 +5791,8 @@ export default function WeekView({
         if (d?.post) {
           const r = mergePost(d.post);
           if (r) { setRoute(r); onRouteChange?.(r); setSlideGen((n) => n + 1); }
+          pushPostStep(was, d.post, [g.slide], { snap: true });
+          was = d.post;
           const snap = editSnapRef.current;
           if (snap && snap.dayIndex === selected && Array.isArray(snap.slides) && snap.slides[g.slide]) {
             const fresh = deriveSlides(d.post)[g.slide];
@@ -5691,6 +5822,7 @@ export default function WeekView({
     setRgnPick('');
     setRgnBusy('text');
     let done = 0;
+    let was = day;
     try {
       for (const i of targets) {
         setRgnSending(targets.length > 1 ? `Re-arranging slide ${i + 1} (${done + 1} of ${targets.length})…` : 'Re-arranging the slide…');
@@ -5702,6 +5834,8 @@ export default function WeekView({
         if (d?.post) {
           const r = mergePost(d.post);
           if (r) { setRoute(r); onRouteChange?.(r); setSlideGen((n) => n + 1); }
+          pushPostStep(was, d.post, [i], { snap: true });
+          was = d.post;
           // a repainted picture is kept, as region edits are: Cancel does not undo it
           const snap = editSnapRef.current;
           const fresh = deriveSlides(d.post)[i];
@@ -6131,7 +6265,7 @@ export default function WeekView({
   const pendingPatchesAt = (i) => Object.keys(elemEdits[i]?.patches || {}).length > 0;
   function resetDressing(every) {
     if (!day) return;
-    if (every) resetElemEdits();
+    if (every) resetElemEdits({ keepHist: true });
     else if (pendingPatchesAt(safeIdx)) {
       const nextEdits = { ...elemEditsRef.current };
       delete nextEdits[safeIdx];
@@ -6873,7 +7007,7 @@ export default function WeekView({
                     type="button"
                     className="wv-edm__histbtn"
                     onClick={undoElem}
-                    disabled={!elemHist.past.length}
+                    disabled={!elemHist.past.length || histLocked}
                     aria-label="Undo"
                     title="Undo (⌘Z)"
                   >
@@ -6883,7 +7017,7 @@ export default function WeekView({
                     type="button"
                     className="wv-edm__histbtn"
                     onClick={redoElem}
-                    disabled={!elemHist.future.length}
+                    disabled={!elemHist.future.length || histLocked}
                     aria-label="Redo"
                     title="Redo (⇧⌘Z)"
                   >
@@ -6960,7 +7094,7 @@ export default function WeekView({
                             editMode={!visEdit && !layoutBusy && !askBusy && !activeThemed}
                             editHooks={{
                               patches: elemEdits[safeIdx]?.patches || null,
-                              onCommit: commitElemEdits,
+                              onCommit: (p) => commitElemEdits(p, safeIdx),
                               onSelect: onElemSelect,
                               onUndo: undoElem,
                               onRedo: redoElem,

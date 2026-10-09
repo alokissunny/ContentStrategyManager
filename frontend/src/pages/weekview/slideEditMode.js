@@ -196,6 +196,14 @@ export function applyPatchTo(el, patch) {
 
 const clone = (v) => JSON.parse(JSON.stringify(v || {}));
 
+// Each element's style + html from before the FIRST edit made to it, kept
+// across attaches. Leaving a slide detaches its engine but leaves the edits
+// painted on its DOM (the neighbour card keeps showing them); when the slide
+// is edited again — or undo/redo lands on it from another slide — the new
+// engine must know the true originals, not the already-edited DOM, or undoing
+// an earlier session's edit has nothing to put back.
+const PRISTINE = new WeakMap();
+
 export function attachSlideEditMode(frame, {
   root: rootEl,
   patches: initialPatches = null,
@@ -252,12 +260,15 @@ export function attachSlideEditMode(frame, {
   function remember(el) {
     const path = pathOf(el, root);
     if (path == null) return null;
-    if (!originals.has(path)) {
-      originals.set(path, {
-        el,
-        style: el.getAttribute('style'),
-        html: el.innerHTML,
-      });
+    const known = originals.get(path);
+    if (!known) {
+      const o = PRISTINE.get(el) || { style: el.getAttribute('style'), html: el.innerHTML };
+      PRISTINE.set(el, o);
+      originals.set(path, { el, style: o.style, html: o.html });
+    } else if (known.el !== el) {
+      // the node was rebuilt (an ancestor's html was put back) — same original
+      known.el = el;
+      PRISTINE.set(el, { style: known.style, html: known.html });
     }
     return path;
   }
@@ -822,7 +833,16 @@ export function attachSlideEditMode(frame, {
   win.addEventListener('resize', onWinResize);
   win.addEventListener('scroll', onWinResize, true);
 
-  // Work carried over from an earlier visit to this slide.
+  // Work carried over from an earlier visit to this slide: put back whatever
+  // an earlier engine left painted on this DOM, then paint the patches the
+  // host holds now (they differ when undo/redo changed this slide while it
+  // was not the one being edited).
+  [root, ...root.querySelectorAll('*')].forEach((el) => {
+    const o = PRISTINE.get(el);
+    const path = o ? pathOf(el, root) : null;
+    if (path != null && !originals.has(path)) originals.set(path, { el, style: o.style, html: o.html });
+  });
+  restoreAll();
   applyAll();
 
   function detach() {

@@ -70,21 +70,38 @@ Record every internal story in `internalStories`. Do not drop a weaker internal 
 
 ## Clarification questions
 
-After detecting all internal stories, rank missing information by value to the Strategist.
+After detecting all internal stories, first determine whether the existing information is enough to create valuable, truthful content.
 
-Ask only what is not already in the source. If they said they are about to renovate a kitchen, do not ask what they are working on, whether it is a kitchen, or whether it is a renovation. That is obvious.
+Missing information does not automatically require clarification.
+
+Before asking, check:
+
+1. Is the information already provided, even indirectly? If yes, don't ask.
+2. Can the existing facts already support a clear, useful story? If yes, clarification is optional.
+3. Would the answer reveal an important missing decision, challenge, reason, or result that significantly improves the story? If not, don't ask.
+4. Does the question follow the story the user actually shared? Don't introduce a different direction just because information is missing.
+
+Ask only when the answer is necessary for accuracy or would significantly improve the completeness or usefulness of an existing story.
+
+If the capture already contains enough meaningful information, return ready.
 
 A good question adds a piece the Strategist cannot get from the note: why now, what is wrong with the current state, what specifically will change, constraints, or a concrete outcome. A bad question restates, confirms, or asks them to narrate what they just said.
 
-Prioritise:
+Prioritise only gaps that pass the clarification decision rules above:
 
-0. a missed spoken word — `[?]`, `[unclear]`, `[inaudible]`. Recover it first. This is not a project-filing question.
-1. the original problem or tension, if it was not stated
-2. why a decision was made, if it was not stated
-3. what specifically changed, if it was not stated
-4. the practical or human outcome, if it was not stated
-5. a concrete example or proof, if none exists
-6. the relationship between internal stories, if more than one exists and the link is unstated
+0. A missed spoken word — `[?]`, `[unclear]`, `[inaudible]` — when needed to understand an important fact.
+1. An important problem or challenge that is unclear.
+2. A key decision or solution whose reason is missing.
+3. An important change or result that needs explanation.
+4. A practical or human outcome, only when it is central to the existing story.
+5. A concrete example or proof that would significantly strengthen an unsupported claim.
+6. A missing connection between internal stories, only when needed to understand what happened.
+
+These are priorities, not a checklist.
+
+Do not ask about every missing category. A missing outcome, reason, or example is not automatically a reason to ask.
+
+Prefer questions that deepen the strongest existing story rather than open a new one.
 
 Never ask more than 4 questions for the complete capture. There is no minimum. Prefer one sharp question over filling a quota. Do not ask one question per internal story automatically.
 
@@ -133,7 +150,16 @@ Empty fields are unknown. Omit them rather than filling them speculatively.
 
 ## Status
 
-Use `needs_clarification` when a non-obvious material gap remains and fewer than 4 questions have been asked.
+Use `needs_clarification` only when:
+
+- Important information is missing.
+- The missing information is necessary for accuracy or would significantly strengthen an existing story.
+- The question cannot be answered using the information already provided.
+- Fewer than 4 questions have been asked.
+
+Do not use `needs_clarification` simply because an internal story is incomplete.
+
+Use `ready` when the existing information already supports useful, truthful content, even if additional details could make it richer.
 
 Use `ready` when:
 

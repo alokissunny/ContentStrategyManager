@@ -652,13 +652,16 @@ export default function DynamicLayout({
     if (!frame || !page) return undefined;
     const root = slideRootOf(frame, { direction, index: slideIndex });
     const h = hooksRef.current;
+    // Leaving a slide drops its hooks before this detaches, and detaching
+    // commits an open text edit — that commit still belongs to this slide.
+    const hooks = () => hooksRef.current || h;
     const detach = attachSlideEditMode(frame, {
       root,
       patches: h?.patches || null,
-      onCommit: (p) => hooksRef.current?.onCommit?.(p),
-      onSelect: (info) => hooksRef.current?.onSelect?.(info, frame),
-      onUndo: () => hooksRef.current?.onUndo?.(),
-      onRedo: () => hooksRef.current?.onRedo?.(),
+      onCommit: (p) => hooks()?.onCommit?.(p),
+      onSelect: (info) => hooks()?.onSelect?.(info, frame),
+      onUndo: () => hooks()?.onUndo?.(),
+      onRedo: () => hooks()?.onRedo?.(),
     });
     if (h?.apiRef) h.apiRef.current = detach.api;
     return () => {
