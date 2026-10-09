@@ -37,6 +37,11 @@ const plannedPostSchema = new mongoose.Schema(
     title: { type: String, default: '' },
     direction: { type: String, default: '' },
 
+    // When the studio first opened this post (clicked it on the calendar or
+    // had it on screen in the week / day view). Null = never — the calendar
+    // tags it `New`.
+    seenAt: { type: Date, default: null },
+
     // ── Publish / schedule ─────────────────────────────────────────────────
     published: { type: Boolean, default: false },
     // When the studio schedules this post to go out. Null = not scheduled.

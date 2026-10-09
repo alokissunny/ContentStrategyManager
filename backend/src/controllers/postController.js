@@ -956,6 +956,23 @@ async function updatePost(req, res) {
   res.json({ post });
 }
 
+// POST /posts/:id/seen — the studio opened this post for the first time; the
+// calendar stops tagging it `New`. Only the first open is recorded.
+async function markPostSeen(req, res) {
+  if (!OBJECT_ID.test(String(req.params.id || ''))) return res.status(400).json({ message: 'Not a post id.' });
+  const now = new Date();
+  const r = await PlannedPost.updateOne(
+    { _id: req.params.id, user: req.user._id, seenAt: null },
+    { $set: { seenAt: now } },
+  );
+  if (!r.matchedCount) {
+    const post = await PlannedPost.findOne({ _id: req.params.id, user: req.user._id }).select('seenAt').lean();
+    if (!post) return res.status(404).json({ message: 'Post not found' });
+    return res.json({ seenAt: post.seenAt });
+  }
+  res.json({ seenAt: now });
+}
+
 // POST /posts/:id/photo-focus — the Photo Focus agent marks every photo on the
 // post that has no `data-focus` yet with the part the slide's words need seen
 // (cached per slide + photo + words, so a re-annotation is usually free).
@@ -2698,6 +2715,7 @@ module.exports = {
   shiftPosts,
   updatePost,
   focusPostPhotos,
+  markPostSeen,
   polishCaption,
   refinePost,
   addSlideToPost,

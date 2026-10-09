@@ -72,6 +72,7 @@ import CaptionPolish from './weekview/CaptionPolish';
 import { useFeatureFlags } from '../lib/featureFlags';
 import PostAgentDebug from './weekview/PostAgentDebug';
 import DynamicLayout, { AnnotationOverlay } from './weekview/DynamicLayout';
+import { markPostSeen } from '../lib/seenPosts';
 import { BrandMark } from './visuallibrary/BrandMark';
 import { bakeSlidePatches, replaceSlideArticle, slideArticleOf, nodeAt } from './weekview/slideEditMode';
 import { auditSlideLayout, measureSlide, slideCssOf } from './weekview/slideAudit';
@@ -4557,6 +4558,12 @@ export default function WeekView({
     if (editingRemembered(day._id)) enterPostEdit();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [day?._id]);
+  // the post on screen has been opened — the calendar drops its `New` tag
+  useEffect(() => {
+    if (day?._id && !isEmptyCalDay(day)) markPostSeen(day);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [day?._id]);
+
   // Photo Focus: a photo on the open post without `data-focus` is sent to the
   // Photo Focus agent once per visit, so each slide's crop shows what its words
   // are about (pages/weekview/photoFocus.js does the cropping). Only the

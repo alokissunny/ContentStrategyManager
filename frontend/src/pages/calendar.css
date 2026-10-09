@@ -369,6 +369,24 @@
   background: var(--ink-200);
   color: var(--ink-500);
 }
+/* a post the studio has never opened (bauhly-v3 `.yw-mday__new`) */
+.yw-mday__new {
+  position: absolute;
+  top: var(--sp-3);
+  right: var(--sp-3);
+  z-index: 1;
+  font-style: normal;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  line-height: 1;
+  padding: 3px 6px;
+  border-radius: var(--r-full);
+  background: var(--discovery-500);
+  color: #fff;
+  white-space: nowrap;
+  pointer-events: none;
+}
 
 /* ══ THE WEEK STRIP ═══════════════════════════════════════════════════════ */
 .yw-cal { position: relative; display: block; }

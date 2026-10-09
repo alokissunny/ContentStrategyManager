@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import Icon from '../brand/Icon';
 import { getPost, schedulePost, setPostReview, markPublished, deletePost } from '../api/posts';
+import { isNewPost, markPostSeen, useSeenPosts } from '../lib/seenPosts';
 import { openCaptureIdea } from '../lib/captureUi';
 import { DayPeek } from './weekview/PostPeek';
 
@@ -300,6 +301,8 @@ export function MonthDayCell({
 }) {
   const row = cell.row;
   const day = row?.day;
+  useSeenPosts();
+  const fresh = isNewPost(day);
   const now = isNowDay(cell.date);
   const st = day ? calStatusOf(day, metaConnected) : null;
   const format = String(day?.format || '').replace(/ series$/, '');
@@ -330,6 +333,7 @@ export function MonthDayCell({
         aria-current={now ? 'date' : undefined}
         aria-label={label}
         onClick={() => {
+          if (day && !picking) markPostSeen(day);
           onSelect?.(cell, row, false);
           clearTimeout(timer.current);
           timer.current = setTimeout(() => onSelect?.(cell, row, true), 220);
@@ -353,6 +357,7 @@ export function MonthDayCell({
           </span>
         )}
       </button>
+      {fresh && <i className="yw-mday__new">New</i>}
       {st && (
         <span className={`yw-day__ready yw-mday__ready ${st.tone === 'done' ? 'is-done' : ''} ${st.tone === 'kept' ? 'is-kept' : ''}`} aria-hidden="true">
           <Icon name={st.icon} size={12} strokeWidth={st.tone === 'done' ? 3 : 2.25} />

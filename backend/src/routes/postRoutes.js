@@ -16,6 +16,7 @@ const {
   shiftPosts,
   updatePost,
   focusPostPhotos,
+  markPostSeen,
   deletePost,
   polishCaption,
   rerunLayout,
@@ -60,6 +61,7 @@ router.post('/:id/slide/:slideIndex/theme-regions', asyncHandler(mapThemeRegions
 router.post('/:id/slide/:slideIndex/theme-region', asyncHandler(editThemeRegion));
 router.post('/:id/refine', asyncHandler(refinePost));
 router.post('/:id/photo-focus', asyncHandler(focusPostPhotos));
+router.post('/:id/seen', asyncHandler(markPostSeen));
 router.post('/:id/slides', asyncHandler(addSlideToPost));
 router.get('/:id/project', asyncHandler(getPostProject));
 router.post('/:id/cover', asyncHandler(renderCover));
