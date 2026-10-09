@@ -1410,9 +1410,10 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
         await resolveAssetTurn('I uploaded photos of this.');
         return;
       }
-      const d = say('Added. Anything else, or save it?');
-      after(d, () => setStep('media'));
+      // the upload answers "Do you have a photo…?" — file the capture now,
+      // without an extra "Anything else, or save it?" stop
       setBusy(false);
+      proceed('provided', { quiet: true });
     } catch {
       const d = say("That upload didn't go through — want to try again?");
       after(d, () => setStep('media'));
@@ -1443,12 +1444,13 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
     }
   };
 
-  const proceed = (visualChoice = '') => {
+  // `quiet`: reached from an upload, whose photo bubble already answered
+  const proceed = (visualChoice = '', { quiet = false } = {}) => {
     setStep('boot');
     const spoken = cap.current.attachments.length
       ? 'That’s everything'
       : (visualChoice === 'generate' ? 'Generate visuals' : 'Nothing right now');
-    userSays(spoken);
+    if (!quiet) userSays(spoken);
     const choice = visualChoice || (cap.current.attachments.length ? 'provided' : 'none');
     const applyChoice = (u) => (u ? { ...u, visualAssetChoice: u.visualAssetChoice || choice } : u);
     cap.current.understanding = applyChoice(cap.current.understanding);

@@ -493,6 +493,15 @@ function sessionQueryWords(session) {
   return wordsOf(text);
 }
 
+// A "project" that only holds unfiled captures (`No project`, made on first
+// use by Capture idea; `Content ideas`, the capture chat's fallback). Its
+// photos belong to unrelated captures, so they are never offered as library
+// photos for another capture — a capture there plans from its own media only.
+const CATCH_ALL_PROJECT = /^(no project|content ideas)$/i;
+function isCatchAllProject(name) {
+  return CATCH_ALL_PROJECT.test(String(name || '').trim());
+}
+
 /** Extra same-project library photos. Conversation attachments live on
  *  each capture's `assets` — do not repeat them here. */
 function compileAssetContext(projects, source = {}) {
@@ -506,7 +515,7 @@ function compileAssetContext(projects, source = {}) {
 
   const projectAssets = [];
   const sourceProjects = (projects || []).filter((p) => (
-    !sessionProjects.size || sessionProjects.has(p.name)
+    (!sessionProjects.size || sessionProjects.has(p.name)) && !isCatchAllProject(p.name)
   ));
   for (const p of sourceProjects) {
     const ranked = (p.assets || [])
@@ -648,7 +657,7 @@ function knownAssetIndexOf(projects, assetContext) {
     (p.assets || []).forEach((a) => remember(a?.key, a?.summary));
   });
   for (const p of projects || []) {
-    (p.assets || []).forEach((a) => remember(a?.key, assetOneLiner(a)));
+    if (!isCatchAllProject(p.name)) (p.assets || []).forEach((a) => remember(a?.key, assetOneLiner(a)));
     (p.notes || []).forEach((n) => {
       (n.assets || []).forEach((a) => addConversation(
         n.id || n.understanding?.captureId,
@@ -795,6 +804,7 @@ function assetsForDay(projects, dayBrief) {
   }
   for (const p of projects || []) {
     if (briefProject && p.name !== briefProject) continue;
+    if (isCatchAllProject(p.name)) continue; // unrelated captures' photos
     for (const a of p.assets || []) push(a, p.name);
   }
   rows.sort((a, b) => b.score - a.score || Number(b.preferred) - Number(a.preferred));
