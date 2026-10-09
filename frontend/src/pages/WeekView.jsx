@@ -17,6 +17,7 @@ import YourAnalysisModal from '../components/YourAnalysisModal';
 import ConnectMetaModal from '../components/ConnectMetaModal';
 import LinkedInPublisher from '../components/LinkedInPublisher';
 import {
+  focusPostPhotos,
   getPost,
   generatePlan,
   markPublished,
@@ -4546,6 +4547,46 @@ export default function WeekView({
     if (editingRemembered(day._id)) enterPostEdit();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [day?._id]);
+  // Photo Focus: a photo on the open post without `data-focus` is sent to the
+  // Photo Focus agent once per visit, so each slide's crop shows what its words
+  // are about (pages/weekview/photoFocus.js does the cropping). Only the
+  // attributes come back into the page, and only when the post's html has not
+  // changed in the meantime; otherwise the next open picks it up (cached).
+  const focusAskedRef = useRef(new Set());
+  useEffect(() => {
+    if (!day?._id || isEmptyCalDay(day)) return;
+    const doc = carouselDocumentOf(day);
+    const htmls = deriveSlides(day).map((sl) => sl?.layoutHtml || '');
+    const unfocused = /<img\b(?![^>]*\sdata-focus=)[^>]*\sdata-asset-key="[^"]+"/i;
+    if (!unfocused.test(doc) && !htmls.some((h) => unfocused.test(h))) return;
+    const id = String(day._id);
+    if (focusAskedRef.current.has(id)) return;
+    focusAskedRef.current.add(id);
+    focusPostPhotos(id).then((data) => {
+      const fresh = data?.post;
+      if (!fresh?.content) return;
+      const cur = routeRef.current;
+      const at = (cur?.days || []).findIndex((d) => String(d._id) === id);
+      const now = at >= 0 ? cur.days[at] : null;
+      if (!now) return;
+      // anything saved since the request wins; the attributes come next visit
+      if (carouselDocumentOf(now) !== doc) return;
+      const nowHtmls = deriveSlides(now).map((sl) => sl?.layoutHtml || '');
+      if (nowHtmls.length !== htmls.length || nowHtmls.some((h, i) => h !== htmls[i])) return;
+      const nowSlides = Array.isArray(now.content?.slides) ? now.content.slides : [];
+      const freshSlides = Array.isArray(fresh.content.slides) ? fresh.content.slides : [];
+      const content = {
+        ...now.content,
+        ...(fresh.content.carouselHtml ? { carouselHtml: fresh.content.carouselHtml } : {}),
+        slides: nowSlides.map((sl, i) => (freshSlides[i]?.layoutHtml ? { ...sl, layoutHtml: freshSlides[i].layoutHtml } : sl)),
+      };
+      const next = { ...cur, days: cur.days.map((d, i) => (i === at ? { ...d, content } : d)) };
+      routeRef.current = next;
+      setRoute(next);
+      onRouteChange?.(next);
+    }).catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [day]);
   // A menu editor (layout / theme / words / images) rewrites the slide's html,
   // so element edits are saved before one opens — they would not survive it.
   useEffect(() => {

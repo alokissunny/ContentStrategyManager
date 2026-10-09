@@ -15,6 +15,7 @@ const {
   setDistribution,
   shiftPosts,
   updatePost,
+  focusPostPhotos,
   deletePost,
   polishCaption,
   rerunLayout,
@@ -58,6 +59,7 @@ router.get('/:id/pre-theme', asyncHandler(getPreTheme));
 router.post('/:id/slide/:slideIndex/theme-regions', asyncHandler(mapThemeRegions));
 router.post('/:id/slide/:slideIndex/theme-region', asyncHandler(editThemeRegion));
 router.post('/:id/refine', asyncHandler(refinePost));
+router.post('/:id/photo-focus', asyncHandler(focusPostPhotos));
 router.post('/:id/slides', asyncHandler(addSlideToPost));
 router.get('/:id/project', asyncHandler(getPostProject));
 router.post('/:id/cover', asyncHandler(renderCover));

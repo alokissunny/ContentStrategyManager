@@ -3,7 +3,7 @@ const PlannedPost = require('../models/PlannedPost');
 const Project = require('../models/Project');
 const InstagramProfile = require('../models/InstagramProfile');
 const { brandKitColors, brandStylePalette } = require('../services/brandKitColors');
-const { generateWeeklyPlan, buildEmptySlots, isoDate, parseIsoDate } = require('../services/weeklyPlan');
+const { generateWeeklyPlan, buildEmptySlots, isoDate, parseIsoDate, estimatePlanCostUsd } = require('../services/weeklyPlan');
 const { rewriteCaption } = require('../services/captionPolish');
 const { refineCarouselFromEdits } = require('../services/carouselRefine');
 const { addSlideToCarousel } = require('../services/addSlideAgent');
@@ -25,6 +25,7 @@ const PlanRunPost = require('../models/PlanRunPost');
 const { planQueueEnabledFor, enqueuePlanRun, activeRunFor } = require('../services/planQueue');
 const { runTag, queueDebug } = require('../services/planRunLog');
 const { ownedMediaKeys, clearScheduleFields } = require('../services/metaPublish');
+const { annotatePostPhotos } = require('../services/photoFocusAgent');
 const {
   logPlanInstagramSource,
   loadCohortCompetitorInsights,
@@ -953,6 +954,72 @@ async function updatePost(req, res) {
 
   await post.save();
   res.json({ post });
+}
+
+// POST /posts/:id/photo-focus — the Photo Focus agent marks every photo on the
+// post that has no `data-focus` yet with the part the slide's words need seen
+// (cached per slide + photo + words, so a re-annotation is usually free).
+async function focusPostPhotos(req, res) {
+  const post = await PlannedPost.findOne({ _id: req.params.id, user: req.user._id });
+  if (!post) return res.status(404).json({ message: 'Post not found' });
+  if (!isS3Configured()) return res.status(503).json({ message: 'Storage is not configured.' });
+  const uid = String(req.user._id);
+  const started = Date.now();
+  const owns = (key) => key.includes(`/${uid}/`);
+  const r = await annotatePostPhotos(post, { owns });
+  let saved = null;
+  if (r.changed) {
+    // the agent took seconds: write onto the post as it is NOW (a save in the
+    // meantime keeps its edits) — the second pass is answered from the cache
+    saved = await PlannedPost.findOne({ _id: req.params.id, user: req.user._id });
+    if (saved) {
+      saved.photoFocus = post.photoFocus;
+      const again = await annotatePostPhotos(saved, { owns });
+      saved.markModified('photoFocus');
+      if (again.changed) saved.markModified('content');
+      await saved.save();
+      r.rows.push(...again.rows);
+    }
+  }
+  const body = { post: saved, added: r.added, calls: r.calls };
+  if (wantsPromptDebug(req) && r.rows.length) {
+    // each call priced from its own model's rates (weeklyPlan.ratesForModel)
+    const agents = r.rows.map((row) => {
+      const model = row.model || process.env.PHOTO_FOCUS_MODEL || 'gpt-5.6-terra';
+      const inputTokens = Number(row.usage?.input_tokens) || 0;
+      const outputTokens = Number(row.usage?.output_tokens) || 0;
+      const cachedTokens = Number(row.usage?.cached_tokens) || 0;
+      return {
+        source: `Photo focus · Photo Focus agent (slide ${row.slide})`,
+        model,
+        prompt: `Photo: ${row.key}\nThe slide's words: ${row.words}`,
+        output: row.error ? `Error: ${row.error}` : JSON.stringify({ subject: row.subject, box: row.box, reason: row.reason }, null, 2),
+        elapsedMs: row.elapsedMs || 0,
+        usage: {
+          inputTokens,
+          outputTokens,
+          totalTokens: inputTokens + outputTokens,
+          estimatedCostUsd: estimatePlanCostUsd(model, inputTokens, outputTokens, cachedTokens),
+        },
+        note: row.error ? 'failed' : '',
+      };
+    });
+    const usage = agents.reduce((u, a) => ({
+      inputTokens: u.inputTokens + a.usage.inputTokens,
+      outputTokens: u.outputTokens + a.usage.outputTokens,
+      totalTokens: u.totalTokens + a.usage.totalTokens,
+      estimatedCostUsd: Math.round((u.estimatedCostUsd + a.usage.estimatedCostUsd) * 1e6) / 1e6,
+    }), { inputTokens: 0, outputTokens: 0, totalTokens: 0, estimatedCostUsd: 0 });
+    body.debug = {
+      mode: 'photo-focus',
+      model: agents[0]?.model,
+      elapsedMs: Date.now() - started,
+      usage,
+      instruction: `${r.calls} photo${r.calls === 1 ? '' : 's'} sent to the agent · ${Math.max(0, r.added - r.calls)} answered from the cache`,
+      agents,
+    };
+  }
+  res.json(body);
 }
 
 // POST /posts/:id/polish-caption — rewrite the caption/words; returns a draft.
@@ -2608,6 +2675,7 @@ module.exports = {
   setDistribution,
   shiftPosts,
   updatePost,
+  focusPostPhotos,
   polishCaption,
   refinePost,
   addSlideToPost,

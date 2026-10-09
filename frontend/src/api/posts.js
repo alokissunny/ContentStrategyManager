@@ -321,6 +321,16 @@ export function mapThemeRegions(id, slideIndex, { force = false } = {}) {
   });
 }
 
+// Photo Focus agent: mark every photo on the post that has no data-focus with
+// the part its slide needs seen → { post|null, added, calls }
+export function focusPostPhotos(id) {
+  return client.post(`/posts/${id}/photo-focus`, {}, { timeout: 120000 }).then((res) => {
+    const data = res.data || {};
+    if (data.debug) ingestPlanDebug('Photo focus', data);
+    return data;
+  });
+}
+
 // change one region: { regionId, action: 'text' | 'regenerate' | 'photo', text?, instruction?, photoKey? }
 // → { post, key, src, regions }
 export function editThemeRegion(id, slideIndex, body) {

@@ -16,6 +16,7 @@ import {
   CAROUSEL_LAYOUT_WIDTH,
 } from './layoutHtml';
 import { attachSlideEditMode } from './slideEditMode';
+import { focusPhotos } from './photoFocus';
 import { iframeSafeUrl } from '../../api/media';
 import { useStore } from '../../lib/store';
 import { boxOf, fmtBox, mapBoxToCover, mapPointToCover, normalizeSubjects, placeFromBox, resolveTargetBox } from './subjectBox';
@@ -599,8 +600,12 @@ export default function DynamicLayout({
     // (non-document path has src baked in by prepareLayoutHtml; the document path
     // re-marks inside crop() once paintCarouselSlideImages sets each src).
     markImagesLoaded(doc);
+    // crop each photo around what its slide is about (data-focus, Photo Focus agent)
+    focusPhotos(doc);
 
     if (!useDocument) {
+      // the copy's size (fonts) decides how much of the photo it covers
+      doc.fonts?.ready?.then(() => { if (frame.contentDocument === doc) focusPhotos(doc); });
       if (copyRef.current) {
         const later = window.requestAnimationFrame(() => applyDraftCopy(frame));
         return () => window.cancelAnimationFrame(later);
@@ -613,6 +618,7 @@ export default function DynamicLayout({
       if (cancelled) return;
       paintCarouselSlideImages(frame, { direction, index: slideIndex, imageUrls: urls });
       markImagesLoaded(frame.contentDocument);
+      focusPhotos(frame.contentDocument);
       cropIframeToCarouselSlide(frame, { direction, index: slideIndex });
       if (copyRef.current && (lockCopy || isSlideFrozen(frame, { direction, index: slideIndex }))) {
         applyDraftCopy(frame);

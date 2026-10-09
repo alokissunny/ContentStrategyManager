@@ -167,6 +167,12 @@ const plannedPostSchema = new mongoose.Schema(
     // the preview renders; the trace is the agent's reasoning.
     agentTrace: { type: mongoose.Schema.Types.Mixed, default: null },
 
+    // Photo Focus agent cache: per slide + photo, the part of the photo the
+    // slide's words need seen ([{ slide, key, sig, box:{x,y,w,h}%, subject }]).
+    // The html carries it as <img data-focus>; this keeps an answer when a save
+    // drops the attribute. See services/photoFocusAgent.js.
+    photoFocus: { type: [mongoose.Schema.Types.Mixed], default: undefined },
+
     model: { type: String, default: '' },
     generatedAt: { type: Date, default: Date.now },
     // The queued PlanRun that created this post (services/planQueue); unset for
