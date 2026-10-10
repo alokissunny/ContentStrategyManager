@@ -22,3 +22,8 @@ export function fillBrandDnaGaps(reportId, answers) {
 export function getBrandDnaRaw(reportId) {
   return client.get(`/analysis/reports/${reportId}/brand-dna/raw`).then((res) => res.data);
 }
+
+/** Read the last 10 Instagram posts and store the account's Brand Voice. */
+export function fetchBrandVoice(reportId) {
+  return client.post(`/analysis/reports/${reportId}/brand-voice`).then((res) => res.data);
+}

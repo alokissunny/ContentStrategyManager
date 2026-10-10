@@ -737,6 +737,6 @@ Photographs available for this brief. This is the only visual catalog. Rows with
 
 ### Brand (complete Business memory)
 
-Audience, first problem, offer, position, proof, voice, visual style, and never-do. Use this when choosing BrandRole units, CTA expression, and who the structure must speak to. Do not invent facts from it. Do not ignore a filled `voice` or `audience`.
+Audience, first problem, offer, position, proof, voice, visual style, and never-do — plus `voiceProfile` when present (tone, writing style, vocabulary, positioning, content themes and communication patterns read from the account's recent posts). Use this when choosing BrandRole units, CTA expression, and who the structure must speak to. Do not invent facts from it. Do not ignore a filled `voice` or `audience`.
 
 {{BRAND_JSON}}

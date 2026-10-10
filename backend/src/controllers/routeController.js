@@ -204,6 +204,7 @@ async function loadBrandDna(userId, username) {
       howYouSound: '',
       visualStyle: '',
       neverDo: '',
+      brandVoice: null,
     };
   }
   return {
@@ -215,6 +216,7 @@ async function loadBrandDna(userId, username) {
     howYouSound: report.howYouSound || '',
     visualStyle: report.visualStyle || '',
     neverDo: report.neverDo || '',
+    brandVoice: report.brandVoice || null,
   };
 }
 

@@ -10,6 +10,7 @@
 
 const crypto = require('crypto');
 const { subjectNames, subjectsForPlan } = require('./subjectBox');
+const { brandVoiceForMemory } = require('./brandVoice');
 
 const memo = new Map();
 const MEMO_CAP = 40;
@@ -67,6 +68,9 @@ function compileBrandMemory(brandDna) {
     visualStyle: brandText(dna.visualStyle),
     neverDo: brandText(dna.neverDo),
   };
+  // Brand Voice read from recent posts — only present once fetched.
+  const voiceProfile = brandVoiceForMemory(dna.brandVoice);
+  if (voiceProfile) source.voiceProfile = voiceProfile;
   const key = versionOf('brand', source);
   return memoGet(key, () => ({
     version: key,

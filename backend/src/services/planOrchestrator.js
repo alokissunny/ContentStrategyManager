@@ -2284,8 +2284,11 @@ function brandMemoryOf(brand) {
     neverDo: optionalText(b.neverDo),
     guardrails: Array.isArray(b.guardrails) ? b.guardrails.map(optionalText).filter(Boolean) : [],
   };
+  // Brand Voice read from recent posts (tone, style, vocabulary, positioning,
+  // themes, patterns) — full object, same as the Strategist sees.
+  if (b.voiceProfile && typeof b.voiceProfile === 'object') memory.voiceProfile = b.voiceProfile;
   const filled = ['offer', 'audience', 'firstProblem', 'position', 'proof', 'voice', 'visualStyle', 'neverDo']
-    .some((k) => memory[k]) || memory.guardrails.length > 0;
+    .some((k) => memory[k]) || memory.guardrails.length > 0 || Boolean(memory.voiceProfile);
   return filled ? memory : '';
 }
 

@@ -34,7 +34,16 @@ const REASONING_OPTIONS = [
 const KEYS = {
   carouselModel: 'carousel.model',
   carouselReasoningEffort: 'carousel.reasoningEffort',
+  brandVoiceProvider: 'brandVoice.provider',
 };
+
+// Which provider reads the last 10 posts for Business memory › Fetch brand voice.
+// Model ids are env-overridable; OpenAI is the default.
+const BRAND_VOICE_PROVIDERS = [
+  { id: 'openai', label: 'OpenAI', model: process.env.BRAND_VOICE_OPENAI_MODEL || 'gpt-6-luna' },
+  { id: 'anthropic', label: 'Claude', model: process.env.BRAND_VOICE_ANTHROPIC_MODEL || process.env.ANTHROPIC_MODEL || 'claude-sonnet-5' },
+];
+const DEFAULT_BRAND_VOICE_PROVIDER = 'openai';
 
 const cache = new Map();
 let loaded = false;
@@ -74,6 +83,17 @@ function isValidReasoning(id) {
   return REASONING_OPTIONS.some((r) => r.id === id);
 }
 
+function isValidBrandVoiceProvider(id) {
+  return BRAND_VOICE_PROVIDERS.some((p) => p.id === id);
+}
+
+/** The provider + model Fetch brand voice runs on right now. */
+function brandVoiceLlm() {
+  const chosen = getRuntimeSetting(KEYS.brandVoiceProvider);
+  const id = isValidBrandVoiceProvider(chosen) ? chosen : DEFAULT_BRAND_VOICE_PROVIDER;
+  return BRAND_VOICE_PROVIDERS.find((p) => p.id === id);
+}
+
 module.exports = {
   KEYS,
   CAROUSEL_MODEL_OPTIONS,
@@ -83,4 +103,7 @@ module.exports = {
   setRuntimeSetting,
   isValidCarouselModel,
   isValidReasoning,
+  BRAND_VOICE_PROVIDERS,
+  isValidBrandVoiceProvider,
+  brandVoiceLlm,
 };

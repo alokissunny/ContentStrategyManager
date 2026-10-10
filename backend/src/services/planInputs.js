@@ -87,7 +87,7 @@ async function loadBrandDna(userId, username) {
   if (report.brandDnaClearedAt) {
     return {
       whatYouOffer: '', whoYouHelp: '', firstProblem: '', position: '',
-      proof: '', howYouSound: '', visualStyle: '', neverDo: '',
+      proof: '', howYouSound: '', visualStyle: '', neverDo: '', brandVoice: null,
     };
   }
   return {
@@ -99,6 +99,7 @@ async function loadBrandDna(userId, username) {
     howYouSound: report.howYouSound || '',
     visualStyle: report.visualStyle || '',
     neverDo: report.neverDo || '',
+    brandVoice: report.brandVoice || null,
   };
 }
 

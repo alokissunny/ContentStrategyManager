@@ -164,6 +164,8 @@ Return only a fenced JSON block:
 
 ## Brand
 
+Complete Business memory. When `voiceProfile` is present it was read from the account's own recent posts (tone, writingStyle, vocabulary, positioning, contentThemes, communicationPatterns): pick angles that fit its content themes and positioning, and write `voiceNotes` that match its tone, vocabulary and the way the studio explains its decisions. It describes how they communicate — never treat it as factual proof.
+
 {{BRAND_JSON}}
 
 ## Competitor signals

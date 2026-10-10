@@ -8,7 +8,7 @@ import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 're
 import { createPortal } from 'react-dom';
 import { Link } from 'react-router-dom';
 import Glyph from '../components/Glyph';
-import { fillBrandDnaGaps, getBrandDna, getBrandDnaRaw, reviseBrandDna, updateBrandDna } from '../api/brandDna';
+import { fetchBrandVoice, fillBrandDnaGaps, getBrandDna, getBrandDnaRaw, reviseBrandDna, updateBrandDna } from '../api/brandDna';
 import { useAiDebug } from '../lib/aiDebug';
 import './brandDna.css';
 
@@ -80,6 +80,59 @@ const DOCUMENT_ITEMS = [
     why: 'So the strategist does not suggest work you would never publish.',
   },
 ];
+
+/** Brand Voice axes, read from the last 10 posts (POST /brand-voice). */
+const VOICE_AXES = [
+  { key: 'tone', title: 'Tone of voice' },
+  { key: 'writingStyle', title: 'Writing style' },
+  { key: 'vocabulary', title: 'Vocabulary' },
+  { key: 'positioning', title: 'Positioning' },
+  { key: 'contentThemes', title: 'Content themes' },
+  { key: 'communicationPatterns', title: 'Communication patterns' },
+];
+
+const VOICE_SOURCE = { graph: 'connected Instagram', apify: 'public Instagram' };
+
+function BrandVoiceBlock({ voice }) {
+  if (!voice) return null;
+  const meta = [
+    voice.postsAnalyzed
+      ? (voice.postsAnalyzed === 1 ? 'From the latest post' : `From the last ${voice.postsAnalyzed} posts`)
+      : '',
+    VOICE_SOURCE[voice.source] ? `via ${VOICE_SOURCE[voice.source]}` : '',
+    voice.postsFetchedAt ? `posts fetched ${new Date(voice.postsFetchedAt).toLocaleDateString()}` : '',
+    voice.fetchedAt ? `read ${new Date(voice.fetchedAt).toLocaleDateString()}` : '',
+  ].filter(Boolean).join(' · ');
+  return (
+    <section className="bm-block bm-voice" aria-labelledby="bm-voice-t">
+      <h2 className="bm-block__title" id="bm-voice-t">Brand voice</h2>
+      {meta ? <p className="bm-voice__meta">{meta}</p> : null}
+      <dl className="bm-voice__grid">
+        {VOICE_AXES.map(({ key, title }) => {
+          const axis = voice[key] || {};
+          const labels = Array.isArray(axis.labels) ? axis.labels : [];
+          return (
+            <div className="bm-voice__row" key={key}>
+              <dt>{title}</dt>
+              <dd>
+                {labels.length ? (
+                  <span className="bm-voice__chips">
+                    {labels.map((l) => <span className="bm-voice__chip" key={l}>{l}</span>)}
+                  </span>
+                ) : null}
+                {axis.summary ? (
+                  <span className="bm-voice__sum">{axis.summary}</span>
+                ) : !labels.length ? (
+                  <span className="bm-voice__sum is-empty">Not clear from recent posts.</span>
+                ) : null}
+              </dd>
+            </div>
+          );
+        })}
+      </dl>
+    </section>
+  );
+}
 
 function valueMap(sections) {
   const map = {};
@@ -530,6 +583,8 @@ export default function BrandDna() {
   const [interviewBusy, setInterviewBusy] = useState(false);
   const [interviewError, setInterviewError] = useState('');
   const [inspecting, setInspecting] = useState(false);
+  const [voice, setVoice] = useState(null);
+  const [voiceBusy, setVoiceBusy] = useState(false);
   const inputRef = useRef(null);
   const COMPOSER_MIN = 72;
   const COMPOSER_MAX = 180;
@@ -549,6 +604,7 @@ export default function BrandDna() {
         setReportId(data.reportId);
         setSections(data.sections || []);
         setGaps(Array.isArray(data.gaps) ? data.gaps : []);
+        setVoice(data.brandVoice || null);
       })
       .catch((err) => {
         if (cancelled) return;
@@ -571,7 +627,7 @@ export default function BrandDna() {
       })),
     [map],
   );
-  const hasMemory = groups.some((g) => g.text);
+  const hasMemory = groups.some((g) => g.text) || Boolean(voice);
   const visibleGaps = notFound ? [] : gaps;
 
   async function clearMemory() {
@@ -583,6 +639,7 @@ export default function BrandDna() {
       const data = await updateBrandDna(reportId, emptyFields());
       setSections(data.sections || []);
       setGaps(Array.isArray(data.gaps) ? data.gaps : []);
+      setVoice(data.brandVoice || null);
       setNote('');
       setHideGaps(false);
       setConfirming(false);
@@ -591,6 +648,26 @@ export default function BrandDna() {
       setConfirming(false);
     } finally {
       setClearing(false);
+    }
+  }
+
+  async function loadBrandVoice() {
+    if (!reportId || voiceBusy) return;
+    setVoiceBusy(true);
+    setError('');
+    setFlash('');
+    try {
+      const data = await fetchBrandVoice(reportId);
+      setSections(data.sections || []);
+      setGaps(Array.isArray(data.gaps) ? data.gaps : []);
+      setVoice(data.brandVoice || null);
+      setFlash(data.brandVoice?.postsReused
+        ? 'Brand voice updated from posts already fetched this month.'
+        : 'Brand voice added to memory.');
+    } catch (err) {
+      setError(err.response?.data?.message || err.message || 'Could not read your brand voice just now.');
+    } finally {
+      setVoiceBusy(false);
     }
   }
 
@@ -686,8 +763,19 @@ export default function BrandDna() {
             is written from this.
           </p>
         </div>
-        {(debug.enabled && reportId) || hasMemory ? (
+        {reportId || hasMemory ? (
           <div className="bm-head__acts">
+            {reportId && !notFound ? (
+              <button
+                type="button"
+                className="btn btn--primary bm-clear-btn"
+                onClick={loadBrandVoice}
+                disabled={voiceBusy}
+                title="Read the last 10 Instagram posts and add tone, style, vocabulary, positioning, themes and patterns to memory"
+              >
+                {voiceBusy ? 'Reading last 10 posts…' : voice ? 'Refresh brand voice' : 'Fetch brand voice'}
+              </button>
+            ) : null}
             {debug.enabled && reportId ? (
               <button
                 type="button"
@@ -737,6 +825,7 @@ export default function BrandDna() {
               )}
             </section>
           ))}
+          <BrandVoiceBlock voice={voice} />
           {composer}
           {status}
         </div>

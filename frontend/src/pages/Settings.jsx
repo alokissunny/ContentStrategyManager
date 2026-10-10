@@ -18,7 +18,7 @@ import { syncHandle } from '../lib/store';
 import { resetProjects } from '../lib/projectsStore';
 import { useAiDebug, setAiDebugEnabled, clearAiDebugEntries } from '../lib/aiDebug';
 import { useFeatureFlags, setVideoCoverEnabled, setReelEditorEnabled, setLinkedInEnabled } from '../lib/featureFlags';
-import { getCarouselModel, updateCarouselModel } from '../api/settings';
+import { getBrandVoiceModel, getCarouselModel, updateBrandVoiceModel, updateCarouselModel } from '../api/settings';
 import LinkedInSettings from '../components/LinkedInSettings';
 import './settings.css';
 import { LOCALES, useLocale, setLocale, intlLocale, translate as t } from '../i18n';
@@ -82,6 +82,9 @@ export default function Settings() {
   const [carousel, setCarousel] = useState(null);
   const [carouselBusy, setCarouselBusy] = useState('');
   const [carouselErr, setCarouselErr] = useState('');
+  const [voiceModel, setVoiceModel] = useState(null);
+  const [voiceBusy, setVoiceBusy] = useState(false);
+  const [voiceErr, setVoiceErr] = useState('');
 
   useEffect(() => {
     listInstagramProfiles()
@@ -94,6 +97,9 @@ export default function Settings() {
     getCarouselModel()
       .then(setCarousel)
       .catch(() => setCarousel(null));
+    getBrandVoiceModel()
+      .then(setVoiceModel)
+      .catch(() => setVoiceModel(null));
   }, []);
 
   // Graph's post-thumbnail URLs are short-lived; re-pull media for each
@@ -116,6 +122,19 @@ export default function Settings() {
         .catch(() => {});
     });
   }, [loading, profiles, meta]);
+
+  async function pickVoiceModel(provider) {
+    if (!isAdmin || voiceBusy || voiceModel?.provider === provider) return;
+    setVoiceBusy(true);
+    setVoiceErr('');
+    try {
+      setVoiceModel(await updateBrandVoiceModel(provider));
+    } catch (err) {
+      setVoiceErr(err.response?.data?.message || 'Could not update the brand voice model.');
+    } finally {
+      setVoiceBusy(false);
+    }
+  }
 
   async function pickCarousel(patch) {
     if (!isAdmin || carouselBusy) return;
@@ -597,6 +616,40 @@ export default function Settings() {
           </>
           );
         })()}
+      </section>
+
+      {/* ── Brand voice model ── */}
+      <section className="card set-card">
+        <h2>Brand voice model</h2>
+        <p className="set-card__sub">
+          Which model reads your last 10 posts when you press <b>Fetch brand voice</b> in Business memory.
+          {!isAdmin && ' Only an admin can change this.'}
+        </p>
+        {!voiceModel ? (
+          <p className="set-empty">Loading…</p>
+        ) : (
+          <>
+            <div className="set-seg" role="group" aria-label="Brand voice model">
+              {voiceModel.options.map((o) => {
+                const on = o.id === voiceModel.provider;
+                return (
+                  <button
+                    type="button"
+                    key={o.id}
+                    className={`set-seg__btn ${on ? 'is-on' : ''}`}
+                    aria-pressed={on}
+                    disabled={!isAdmin || voiceBusy}
+                    onClick={() => pickVoiceModel(o.id)}
+                  >
+                    {o.label}
+                    <span className="set-seg__tag">{o.model}</span>
+                  </button>
+                );
+              })}
+            </div>
+            {voiceErr && <p className="set-err">{voiceErr}</p>}
+          </>
+        )}
       </section>
 
       {/* ── Experimental features ── */}

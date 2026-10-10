@@ -81,6 +81,15 @@ function compactBrandVoice(brand) {
   const b = brand && typeof brand === 'object' ? brand : {};
   const lines = [];
   if (b.voice) lines.push(`How they sound: ${clip(b.voice, 300)}`);
+  const vp = b.voiceProfile && typeof b.voiceProfile === 'object' ? b.voiceProfile : null;
+  if (vp) {
+    const axis = (k) => {
+      const a = vp[k] || {};
+      return [(a.labels || []).join(', '), a.summary].filter(Boolean).join(' — ');
+    };
+    [['tone', 'Tone'], ['writingStyle', 'Writing style'], ['vocabulary', 'Vocabulary'], ['communicationPatterns', 'Explains decisions by']]
+      .forEach(([k, label]) => { const v = axis(k); if (v) lines.push(`${label}: ${clip(v, 220)}`); });
+  }
   if (b.audience) lines.push(`Audience: ${clip(b.audience, 200)}`);
   if (b.position) lines.push(`Position: ${clip(b.position, 200)}`);
   const never = Array.isArray(b.guardrails) && b.guardrails.length ? b.guardrails.join('; ') : b.neverDo;

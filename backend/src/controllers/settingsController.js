@@ -6,6 +6,9 @@ const {
   setRuntimeSetting,
   isValidCarouselModel,
   isValidReasoning,
+  BRAND_VOICE_PROVIDERS,
+  isValidBrandVoiceProvider,
+  brandVoiceLlm,
 } = require('../services/runtimeSettings');
 const { resolvePlanAgentLlm } = require('../services/planAgentLlm');
 
@@ -54,4 +57,31 @@ async function updateCarouselModel(req, res) {
   return res.json(currentCarouselModel());
 }
 
-module.exports = { getCarouselModel, updateCarouselModel };
+function currentBrandVoiceModel() {
+  const { id, model } = brandVoiceLlm();
+  return {
+    provider: id,
+    model,
+    options: BRAND_VOICE_PROVIDERS.map(({ id: pid, label, model: m }) => ({ id: pid, label, model: m })),
+  };
+}
+
+// GET /api/settings/brand-voice-model
+async function getBrandVoiceModel(req, res) {
+  res.json(currentBrandVoiceModel());
+}
+
+// PUT /api/settings/brand-voice-model  (admin only)
+async function updateBrandVoiceModel(req, res) {
+  if (req.user?.role !== 'admin') {
+    return res.status(403).json({ message: 'Only an admin can change the brand voice model.' });
+  }
+  const provider = String(req.body?.provider || '').trim().toLowerCase();
+  if (!isValidBrandVoiceProvider(provider)) {
+    return res.status(400).json({ message: `Unsupported brand voice provider: ${req.body?.provider}` });
+  }
+  await setRuntimeSetting(KEYS.brandVoiceProvider, provider);
+  return res.json(currentBrandVoiceModel());
+}
+
+module.exports = { getCarouselModel, updateCarouselModel, getBrandVoiceModel, updateBrandVoiceModel };

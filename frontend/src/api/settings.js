@@ -9,3 +9,12 @@ export function getCarouselModel() {
 export function updateCarouselModel({ model, reasoningEffort } = {}) {
   return client.put('/settings/carousel-model', { model, reasoningEffort }).then((res) => res.data);
 }
+
+// Which provider reads posts for Business memory › Fetch brand voice.
+export function getBrandVoiceModel() {
+  return client.get('/settings/brand-voice-model').then((res) => res.data);
+}
+
+export function updateBrandVoiceModel(provider) {
+  return client.put('/settings/brand-voice-model', { provider }).then((res) => res.data);
+}

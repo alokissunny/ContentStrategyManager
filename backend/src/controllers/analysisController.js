@@ -10,6 +10,7 @@ const {
   assessBrandDnaGaps,
 } = require('../services/brandAnalysis');
 const { currentUsername } = require('../utils/currentProfile');
+const { buildBrandVoice, hasBrandVoice } = require('../services/brandVoice');
 
 function serializeGaps(gaps) {
   return (Array.isArray(gaps) ? gaps : [])
@@ -29,6 +30,7 @@ function brandDnaPayload(report, parsedFromMarkdown, gaps) {
     reportId: report._id,
     ...buildBrandDnaSections(report, parsedFromMarkdown),
     gaps: serializeGaps(gaps !== undefined ? gaps : report.memoryGaps),
+    brandVoice: hasBrandVoice(report.brandVoice) ? report.brandVoice : null,
   };
 }
 
@@ -115,7 +117,7 @@ async function getLatestBrandDna(req, res) {
 
   const report = await BrandAnalysisReport.findOne(filter)
     .sort({ createdAt: -1 })
-    .select(['_id', 's3Key', 'brandDnaClearedAt', 'memoryGaps', 'memoryGapsAssessedAt', ...BRAND_DNA_FIELDS.map(({ key }) => key)].join(' '))
+    .select(['_id', 's3Key', 'brandDnaClearedAt', 'memoryGaps', 'memoryGapsAssessedAt', 'brandVoice', ...BRAND_DNA_FIELDS.map(({ key }) => key)].join(' '))
     .lean();
 
   if (!report) {
@@ -175,6 +177,7 @@ async function updateBrandDna(req, res) {
   });
   const cleared = BRAND_DNA_FIELDS.every(({ key }) => !String(fields[key] || '').trim());
   report.brandDnaClearedAt = cleared ? new Date() : null;
+  if (cleared) report.brandVoice = null;
   await refreshMemoryGaps(report, fields);
   await report.save();
 
@@ -284,6 +287,41 @@ async function fillBrandDnaGaps(req, res) {
   }
 }
 
+/**
+ * Fetch Brand Voice: read the handle's last 10 posts (Meta Graph when
+ * connected, Apify otherwise) and store tone / style / vocabulary /
+ * positioning / themes / patterns on the report.
+ */
+async function fetchBrandVoice(req, res) {
+  const report = await BrandAnalysisReport.findOne({ _id: req.params.id, user: req.user._id });
+  if (!report) {
+    return res.status(404).json({ message: 'Report not found' });
+  }
+
+  let result;
+  try {
+    result = await buildBrandVoice({
+      userId: req.user._id,
+      username: report.instagramUsername,
+      currentFields: fieldsFromReport(report),
+      snapshot: report.brandVoicePosts,
+    });
+  } catch (err) {
+    console.error(`[brandVoice] fetch failed for @${report.instagramUsername}:`, err.message);
+    return res.status(502).json({
+      message: err.message || 'Could not read your brand voice just now.',
+    });
+  }
+
+  report.brandVoice = result.brandVoice;
+  report.brandVoicePosts = result.postsSnapshot;
+  report.markModified('brandVoice');
+  report.markModified('brandVoicePosts');
+  await report.save();
+
+  res.json(brandDnaPayload(report, fieldsFromReport(report), report.memoryGaps));
+}
+
 /** Full stored snapshot for debug — Mongo Brand DNA plus the S3 analysis file. */
 async function getBrandDnaRaw(req, res) {
   const report = await BrandAnalysisReport.findOne({ _id: req.params.id, user: req.user._id }).lean();
@@ -313,6 +351,7 @@ async function getBrandDnaRaw(req, res) {
     updatedAt: report.updatedAt || null,
     brandDna,
     memoryGaps: serializeGaps(report.memoryGaps),
+    brandVoice: report.brandVoice || null,
     markdown,
   });
 }
@@ -326,4 +365,5 @@ module.exports = {
   reviseBrandDna,
   fillBrandDnaGaps,
   getBrandDnaRaw,
+  fetchBrandVoice,
 };

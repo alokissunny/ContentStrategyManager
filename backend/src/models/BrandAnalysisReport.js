@@ -33,6 +33,12 @@ const brandAnalysisReportSchema = new mongoose.Schema(
     // current fields, not a hardcoded catalog. Empty array means nothing blocking.
     memoryGaps: { type: [memoryGapSchema], default: [] },
     memoryGapsAssessedAt: { type: Date, default: null },
+    // Brand Voice read from the last 10 posts (services/brandVoice.js). Each
+    // axis is { labels: [String], summary: String }; Mixed keeps it flexible.
+    brandVoice: { type: mongoose.Schema.Types.Mixed, default: null },
+    // The posts that Brand Voice read ({ fetchedAt, source, posts }) — reused
+    // instead of re-fetching from Instagram within the same calendar month.
+    brandVoicePosts: { type: mongoose.Schema.Types.Mixed, default: null },
     // Link to the detailed competitor-analysis Markdown (stored in S3).
     competitorAnalysisS3Key: { type: String, default: '' },
     competitorAnalysisAt: { type: Date, default: null },
