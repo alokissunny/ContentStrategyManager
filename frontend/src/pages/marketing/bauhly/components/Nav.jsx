@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { useLocale, setLocale } from '../../../../i18n'
 
 const links = [
   ['#problem', 'The problem'],
@@ -10,6 +11,7 @@ const links = [
 
 export default function Nav() {
   const nav = useNavigate()
+  const locale = useLocale()
   const [hidden, setHidden] = useState(false)
   const [open, setOpen] = useState(false)
 
@@ -39,6 +41,19 @@ export default function Nav() {
           </a>
         ))}
       </div>
+
+      <button
+        type="button"
+        className="nav-language"
+        role="switch"
+        aria-label="Español"
+        aria-checked={locale === 'es'}
+        onClick={() => setLocale(locale === 'es' ? 'en' : 'es')}
+      >
+        <span className="nav-language__thumb" aria-hidden="true" />
+        <span lang="en" translate="no" aria-hidden="true">EN</span>
+        <span lang="es" translate="no" aria-hidden="true">ES</span>
+      </button>
 
       <div className="nav-actions">
         <button className="cta cta-ink nav-cta" onClick={goLogin}>

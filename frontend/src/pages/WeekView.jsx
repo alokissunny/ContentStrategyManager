@@ -1,3 +1,4 @@
+import { translate as t } from '../i18n';
 /*
  * WeekView — complete content for one plan's seven-day route.
  *
@@ -934,17 +935,17 @@ function readClock(raw) {
   return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
 }
 
-const schedMonthLabel = (year, month) => `${SCHED_MONTHS[month]} ${year}`;
+const schedMonthLabel = (year, month) => `${t(SCHED_MONTHS[month])} ${year}`;
 // "Thursday, 24 September" — the product's own words, not the OS locale's.
 function schedLongDay(iso) {
   const d = dateFromIso(iso);
-  return d ? `${SCHED_DAYS[d.getDay()]}, ${d.getDate()} ${SCHED_MONTHS[d.getMonth()]}` : '';
+  return d ? `${t(SCHED_DAYS[d.getDay()])}, ${d.getDate()} ${t(SCHED_MONTHS[d.getMonth()])}` : '';
 }
 // "Thu, Sep 24, 2026" — the value shown on the Date field.
 function schedFieldDate(iso) {
   const d = dateFromIso(iso);
   if (!d) return '';
-  return `${SCHED_WEEKDAYS[(d.getDay() + 6) % 7]}, ${SCHED_MONTHS[d.getMonth()].slice(0, 3)} ${d.getDate()}, ${d.getFullYear()}`;
+  return `${t(SCHED_WEEKDAYS[(d.getDay() + 6) % 7])}, ${t(SCHED_MONTHS[d.getMonth()]).slice(0, 3)} ${d.getDate()}, ${d.getFullYear()}`;
 }
 // Monday→Sunday weeks covering the month, with neighbours marked out-of-month.
 function schedMonthGrid(year, month, today = new Date()) {

@@ -1,3 +1,4 @@
+import { translate as t, intlLocale } from '../i18n';
 /*
  * Calendar — the page you land on.
  *
@@ -370,7 +371,7 @@ function MonthCalendar({ group, days, onOpen, onPrefetch, metaConnected }) {
           if (now) cls.push('is-now');
           if (done) cls.push('is-done');
           if (clickable) cls.push('is-post');
-          const label = `${cell.date.getDate()} ${MONTHS[cell.date.getMonth()]}${now ? ' Today' : ''}${title ? `, ${title}` : format ? `, ${format}` : ''}`;
+          const label = `${cell.date.getDate()} ${t(MONTHS[cell.date.getMonth()])}${now ? ` ${t('Today')}` : ''}${title ? `, ${title}` : format ? `, ${format}` : ''}`;
           const inner = (
             <>
               <span className="ph-cal__num">
@@ -479,15 +480,15 @@ function postDatesOf(index) {
 }
 
 function longDayLabel(date) {
-  return `${WEEKDAYS_LONG[(date.getDay() + 6) % 7]}, ${date.getDate()} ${MONTHS[date.getMonth()]}`;
+  return date.toLocaleDateString(intlLocale(), { weekday: 'long', day: 'numeric', month: 'long' });
 }
 
 function weekRangeLabel(monday) {
   const sun = addDaysLocal(monday, 6);
   if (monday.getMonth() === sun.getMonth()) {
-    return `${MONTHS[monday.getMonth()]} ${monday.getDate()} – ${sun.getDate()}`;
+    return `${t(MONTHS[monday.getMonth()])} ${monday.getDate()} – ${sun.getDate()}`;
   }
-  const short = (d) => MONTHS[d.getMonth()].slice(0, 3);
+  const short = d => d.toLocaleDateString(intlLocale(), { month: 'short' });
   return `${short(monday)} ${monday.getDate()} – ${short(sun)} ${sun.getDate()}`;
 }
 
@@ -2142,11 +2143,11 @@ export default function YourPlans() {
   // Weekly view names the month (its strip carries the days), like the reference.
   const runShown = phoneWidth && calView === 'month' ? (runMonths[runAt] || anchorDate) : anchorDate;
   const periodLabel = calView === 'month'
-    ? `${phoneWidth ? MONTHS[runShown.getMonth()].slice(0, 3) : MONTHS[runShown.getMonth()]} ${runShown.getFullYear()}`
+    ? runShown.toLocaleDateString(intlLocale(), { month: phoneWidth ? 'short' : 'long', year: 'numeric' })
     : calView === 'week'
-      ? `${MONTHS[weekMonday.getMonth()]} ${weekMonday.getFullYear()}`
-      : `${phoneWidth ? MONTHS[dayLabelDate.getMonth()].slice(0, 3) : MONTHS[dayLabelDate.getMonth()]} ${dayLabelDate.getDate()}`;
-  const dayWeekdayLabel = (phoneWidth ? WEEKDAYS : WEEKDAYS_LONG)[(dayLabelDate.getDay() + 6) % 7];
+      ? weekMonday.toLocaleDateString(intlLocale(), { month: 'long', year: 'numeric' })
+      : dayLabelDate.toLocaleDateString(intlLocale(), { month: phoneWidth ? 'short' : 'long', day: 'numeric' });
+  const dayWeekdayLabel = dayLabelDate.toLocaleDateString(intlLocale(), { weekday: phoneWidth ? 'short' : 'long' });
   const atToday = calView === 'month'
     ? isCurrentView && !(phoneWidth && runAt > 0)
     : calView === 'week'
@@ -2346,7 +2347,7 @@ export default function YourPlans() {
               <div className="yw-mrun" ref={setRunEl}>
                 {runMonths.map((at, i) => (
                   <section className="yw-mrun__month" data-month={i} key={ymdKey(at)}>
-                    {monthViewFor(at, { bare: true, title: i > 0 ? `${MONTHS[at.getMonth()]} ${at.getFullYear()}` : '' })}
+                    {monthViewFor(at, { bare: true, title: i > 0 ? `${t(MONTHS[at.getMonth()])} ${at.getFullYear()}` : '' })}
                   </section>
                 ))}
               </div>

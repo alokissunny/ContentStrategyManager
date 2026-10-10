@@ -21,6 +21,7 @@ import { useFeatureFlags, setVideoCoverEnabled, setReelEditorEnabled, setLinkedI
 import { getCarouselModel, updateCarouselModel } from '../api/settings';
 import LinkedInSettings from '../components/LinkedInSettings';
 import './settings.css';
+import { LOCALES, useLocale, setLocale, intlLocale, translate as t } from '../i18n';
 
 /* which formats Bauhly may use — held as EXCLUSIONS so a format added later is
  * on by default. Persisted locally (self-contained) until generation reads it. */
@@ -45,7 +46,7 @@ function handleInitials(username = '') {
   return (username.replace(/[^a-z0-9]/gi, '').slice(0, 2) || 'IG').toUpperCase();
 }
 
-const compactCount = new Intl.NumberFormat('en', { notation: 'compact', maximumFractionDigits: 1 });
+const compactCount = { format: n => new Intl.NumberFormat(intlLocale(), { notation: 'compact', maximumFractionDigits: 1 }).format(n) };
 function formatCount(n) {
   return typeof n === 'number' ? compactCount.format(n) : '0';
 }
@@ -64,6 +65,7 @@ function metaConnections(meta) {
 }
 
 export default function Settings() {
+  const locale = useLocale();
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const isAdmin = user?.role === 'admin';
@@ -194,6 +196,17 @@ export default function Settings() {
         </div>
         {isAdmin && <span className="set-row__badge" style={{ alignSelf: 'center' }}>Admin</span>}
       </div>
+
+      <section className="card set-card">
+        <h2>Language</h2>
+        <p className="set-card__sub">Choose the language for the app. Your posts and other content keep their original language.</p>
+        <div className="set-row">
+          <label className="set-row__main" htmlFor="app-language">App language</label>
+          <select id="app-language" value={locale} onChange={event => setLocale(event.target.value)} style={{ padding: '10px 14px', borderRadius: 8, font: 'inherit' }}>
+            {LOCALES.map(item => <option key={item.id} value={item.id} lang={item.id}>{item.label}</option>)}
+          </select>
+        </div>
+      </section>
 
       {/* ── Your business ── */}
       <section className="card set-card">
@@ -376,8 +389,7 @@ export default function Settings() {
                           </span>
                         )}
                         <span className="set-igdata__note">
-                          Bauhly reads @{link.igUsername || p.username}&rsquo;s profile and recent posts from
-                          Instagram to plan captions, formats and timing.
+                          {`Bauhly reads @${link.igUsername || p.username}’s profile and recent posts from Instagram to plan captions, formats and timing.`}
                         </span>
                       </span>
                     )}
@@ -498,7 +510,7 @@ export default function Settings() {
                   className={`set-switch ${on ? 'is-on' : ''}`}
                   role="switch"
                   aria-checked={on}
-                  aria-label={`${on ? 'Exclude' : 'Include'} ${f}`}
+                  aria-label={`${on ? 'Exclude' : 'Include'} ${t(f)}`}
                   onClick={() => toggleFormat(f)}
                 >
                   <i aria-hidden="true" />
@@ -545,7 +557,7 @@ export default function Settings() {
                     {m.label}
                     <span className="set-seg__tag">
                       {m.provider === 'anthropic' ? 'Anthropic' : 'OpenAI'}
-                      {TIER_LABEL[m.tier] ? ` · ${TIER_LABEL[m.tier]}` : ''}
+                      {TIER_LABEL[m.tier] ? ` · ${t(TIER_LABEL[m.tier])}` : ''}
                     </span>
                   </button>
                 );
@@ -592,7 +604,7 @@ export default function Settings() {
         <h2>Experimental features</h2>
         <p className="set-card__sub">Early features you can try. Off by default.</p>
         <div className="set-row">
-          <span className="set-row__ico" aria-hidden="true"><b>in</b></span>
+          <span className="set-row__ico" aria-hidden="true"><b translate="no">in</b></span>
           <span className="set-row__main">
             <b className="set-row__title">LinkedIn connection &amp; publishing</b>
             <span className="set-row__sub">
@@ -672,7 +684,7 @@ export default function Settings() {
             <b className="set-row__title">AI prompt debug panel</b>
             <span className="set-row__sub">
               {debug.enabled
-                ? `On · ${debug.entries.length} prompt${debug.entries.length === 1 ? '' : 's'} logged`
+                ? (debug.entries.length === 1 ? 'On · 1 prompt logged' : `On · ${debug.entries.length} prompts logged`)
                 : 'Off'}
             </span>
           </span>

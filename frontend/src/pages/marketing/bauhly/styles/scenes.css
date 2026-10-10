@@ -92,6 +92,58 @@
   gap: clamp(10px, 1.4vw, 20px);
 }
 
+.bauhly-landing .nav-language {
+  position: relative;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  align-items: center;
+  flex-shrink: 0;
+  width: 82px;
+  height: 36px;
+  padding: 3px;
+  border: 1px solid color-mix(in srgb, var(--ink) 20%, transparent);
+  border-radius: 999px;
+  background: var(--paper);
+  color: var(--ink);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+}
+
+.bauhly-landing .nav-language > span:not(.nav-language__thumb) {
+  position: relative;
+  z-index: 1;
+}
+
+.bauhly-landing .nav-language__thumb {
+  position: absolute;
+  inset: 3px auto 3px 3px;
+  width: calc((100% - 6px) / 2);
+  border-radius: 999px;
+  background: var(--ink);
+  transition: transform 160ms ease;
+}
+
+.bauhly-landing .nav-language[aria-checked="true"] .nav-language__thumb {
+  transform: translateX(100%);
+}
+
+.bauhly-landing .nav-language[aria-checked="false"] [lang="en"],
+.bauhly-landing .nav-language[aria-checked="true"] [lang="es"] {
+  color: var(--paper);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bauhly-landing .nav-language__thumb { transition: none; }
+}
+
+.bauhly-landing .nav-language:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 3px;
+}
+
 .bauhly-landing .nav-login {
   text-decoration: none;
   font-weight: 600;
@@ -3167,6 +3219,15 @@
   .bauhly-landing .nav-links,
   .bauhly-landing .nav-actions {
     display: none;
+  }
+
+  .bauhly-landing .nav {
+    gap: 10px;
+    padding-left: 16px;
+  }
+
+  .bauhly-landing .nav-language {
+    margin-left: auto;
   }
 
   .bauhly-landing .nav-burger {
