@@ -15,7 +15,7 @@ function usageFrom(agent = {}, fallback = {}) {
 
 // Fold a plan-generation debug payload into the AI debug panel (per-agent
 // prompts/outputs + a summary row). Shared by generate and the on-demand agents.
-function ingestPlanDebug(label, data = {}) {
+export function ingestPlanDebug(label, data = {}) {
   const debug = data.debug;
   if (!debug) return;
   const elapsedMs = Number(debug.elapsedMs || data.usage?.elapsedMs) || 0;

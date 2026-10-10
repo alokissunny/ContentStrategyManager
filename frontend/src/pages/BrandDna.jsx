@@ -89,6 +89,7 @@ const VOICE_AXES = [
   { key: 'positioning', title: 'Positioning' },
   { key: 'contentThemes', title: 'Content themes' },
   { key: 'communicationPatterns', title: 'Communication patterns' },
+  { key: 'visualStyle', title: 'Post visuals' },
 ];
 
 const VOICE_SOURCE = { graph: 'connected Instagram', apify: 'public Instagram' };
@@ -98,6 +99,9 @@ function BrandVoiceBlock({ voice }) {
   const meta = [
     voice.postsAnalyzed
       ? (voice.postsAnalyzed === 1 ? 'From the latest post' : `From the last ${voice.postsAnalyzed} posts`)
+        + (voice.imagesAnalyzed != null
+          ? (voice.imagesAnalyzed ? ` (captions + ${voice.imagesAnalyzed} image${voice.imagesAnalyzed === 1 ? '' : 's'})` : ' (captions only)')
+          : '')
       : '',
     VOICE_SOURCE[voice.source] ? `via ${VOICE_SOURCE[voice.source]}` : '',
     voice.postsFetchedAt ? `posts fetched ${new Date(voice.postsFetchedAt).toLocaleDateString()}` : '',

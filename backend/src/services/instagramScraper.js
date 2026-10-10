@@ -27,8 +27,35 @@ function normalizeProfile(raw) {
   };
 }
 
+// Every slide of a carousel (sidecar) — or the single image / video — as
+// { type: 'image'|'video', imageUrl, videoUrl }. Not persisted on profiles;
+// Brand Voice reads it to analyse the whole post, not just the cover.
+function mediaItemsOf(raw) {
+  const children = Array.isArray(raw.childPosts) && raw.childPosts.length
+    ? raw.childPosts
+    : null;
+  if (children) {
+    return children.map((c) => {
+      const videoUrl = firstDefined(c, ['videoUrl', 'video_url']) || '';
+      return {
+        type: videoUrl || /video/i.test(String(c.type || '')) ? 'video' : 'image',
+        imageUrl: firstDefined(c, ['displayUrl', 'display_url', 'imageUrl']) || '',
+        videoUrl,
+      };
+    }).filter((m) => m.imageUrl || m.videoUrl);
+  }
+  if (Array.isArray(raw.images) && raw.images.length) {
+    return raw.images.filter(Boolean).map((url) => ({ type: 'image', imageUrl: String(url), videoUrl: '' }));
+  }
+  const videoUrl = firstDefined(raw, ['videoUrl', 'video_url']) || '';
+  const imageUrl = firstDefined(raw, ['displayUrl', 'display_url', 'imageUrl']) || '';
+  if (!videoUrl && !imageUrl) return [];
+  return [{ type: videoUrl ? 'video' : 'image', imageUrl, videoUrl }];
+}
+
 function normalizePost(raw) {
   return {
+    mediaItems: mediaItemsOf(raw),
     externalId: String(firstDefined(raw, ['id', 'shortCode', 'pk']) || ''),
     caption: firstDefined(raw, ['caption', 'text']) || '',
     likesCount: firstDefined(raw, ['likesCount', 'likes_count', 'likes']) || 0,

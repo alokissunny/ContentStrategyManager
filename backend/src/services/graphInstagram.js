@@ -179,7 +179,42 @@ async function fetchGraphProfilePicUrl(userId, username) {
   }
 }
 
+/**
+ * Every slide of a post (carousel children, or the single image / video) as
+ * { type: 'image'|'video', imageUrl, videoUrl }. One Graph call per post —
+ * Brand Voice uses it to read whole posts. Returns null when not connected.
+ */
+async function fetchGraphMediaItems(userId, username, mediaIds) {
+  const conn = await findMetaConnectionForUsername(userId, username);
+  if (!conn) return null;
+  const host = graphHost(conn);
+  const itemOf = (m) => {
+    const video = /VIDEO|REELS/i.test(String(m.media_type || ''));
+    return {
+      type: video ? 'video' : 'image',
+      imageUrl: video ? (m.thumbnail_url || '') : (m.media_url || ''),
+      videoUrl: video ? (m.media_url || '') : '',
+    };
+  };
+  const out = {};
+  await Promise.all((mediaIds || []).map(async (id) => {
+    try {
+      const m = await graphGet(String(id), conn.accessToken, {
+        fields: 'media_type,media_url,thumbnail_url,children{media_type,media_url,thumbnail_url}',
+      }, host);
+      const kids = m.children?.data;
+      out[id] = (Array.isArray(kids) && kids.length ? kids : [m])
+        .map(itemOf)
+        .filter((x) => x.imageUrl || x.videoUrl);
+    } catch (err) {
+      console.warn(`[graphInstagram] media ${id} details failed:`, err.message);
+    }
+  }));
+  return out;
+}
+
 module.exports = {
+  fetchGraphMediaItems,
   findMetaConnectionForUsername,
   fetchViaGraph,
   fetchAccountInsights,

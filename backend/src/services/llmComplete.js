@@ -317,15 +317,21 @@ function cachedTokensOf(usage) {
  * Returns { text, model, stopReason, usage: { input_tokens, output_tokens, cached_tokens } }.
  */
 async function completeText({
-  model, prompt, system, user, image, maxTokens, cacheKey, kind, reasoningEffort, verbosity, timeoutMs,
+  model, prompt, system, user, image, images, maxTokens, cacheKey, kind, reasoningEffort, verbosity, timeoutMs,
 }) {
   const resolved = model || planTextModel(kind);
   const userContent = (user != null && String(user).length) ? String(user) : String(prompt || '');
   const sys = String(system || '').trim();
   const provider = providerOf(resolved);
   const requestOpts = Number(timeoutMs) > 0 ? { timeout: Number(timeoutMs) } : undefined;
-  const imageParts = image?.data
-    ? [{ type: 'image', mediaType: image.mediaType, data: image.data }, { type: 'text', text: userContent }]
+  // `images` (several, in order) or the legacy single `image`; text goes last.
+  const imageList = (Array.isArray(images) && images.length ? images : (image?.data ? [image] : []))
+    .filter((img) => img?.data);
+  const imageParts = imageList.length
+    ? [
+      ...imageList.map((img) => ({ type: 'image', mediaType: img.mediaType, data: img.data })),
+      { type: 'text', text: userContent },
+    ]
     : null;
 
   if (provider === 'openai') {

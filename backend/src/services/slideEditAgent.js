@@ -87,7 +87,7 @@ function compactBrandVoice(brand) {
       const a = vp[k] || {};
       return [(a.labels || []).join(', '), a.summary].filter(Boolean).join(' — ');
     };
-    [['tone', 'Tone'], ['writingStyle', 'Writing style'], ['vocabulary', 'Vocabulary'], ['communicationPatterns', 'Explains decisions by']]
+    [['tone', 'Tone'], ['writingStyle', 'Writing style'], ['vocabulary', 'Vocabulary'], ['communicationPatterns', 'Explains decisions by'], ['visualStyle', 'Their posts look like']]
       .forEach(([k, label]) => { const v = axis(k); if (v) lines.push(`${label}: ${clip(v, 220)}`); });
   }
   if (b.audience) lines.push(`Audience: ${clip(b.audience, 200)}`);

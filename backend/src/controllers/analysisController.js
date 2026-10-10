@@ -11,6 +11,11 @@ const {
 } = require('../services/brandAnalysis');
 const { currentUsername } = require('../utils/currentProfile');
 const { buildBrandVoice, hasBrandVoice } = require('../services/brandVoice');
+const { brandVoiceLlm } = require('../services/runtimeSettings');
+
+function wantsPromptDebug(req) {
+  return String(req.get('x-debug-prompts') || '').trim() === '1';
+}
 
 function serializeGaps(gaps) {
   return (Array.isArray(gaps) ? gaps : [])
@@ -298,6 +303,13 @@ async function fetchBrandVoice(req, res) {
     return res.status(404).json({ message: 'Report not found' });
   }
 
+  // one row per step / model call for the AI debug panel (only when asked)
+  const steps = wantsPromptDebug(req) ? [] : null;
+  const started = Date.now();
+  const debugOf = (extra = {}) => (steps ? {
+    debug: { mode: 'brand-voice', model: brandVoiceLlm().model, elapsedMs: Date.now() - started, agents: steps, ...extra },
+  } : {});
+
   let result;
   try {
     result = await buildBrandVoice({
@@ -305,11 +317,13 @@ async function fetchBrandVoice(req, res) {
       username: report.instagramUsername,
       currentFields: fieldsFromReport(report),
       snapshot: report.brandVoicePosts,
+      debug: steps,
     });
   } catch (err) {
     console.error(`[brandVoice] fetch failed for @${report.instagramUsername}:`, err.message);
     return res.status(502).json({
       message: err.message || 'Could not read your brand voice just now.',
+      ...debugOf({ error: err.message }),
     });
   }
 
@@ -319,7 +333,7 @@ async function fetchBrandVoice(req, res) {
   report.markModified('brandVoicePosts');
   await report.save();
 
-  res.json(brandDnaPayload(report, fieldsFromReport(report), report.memoryGaps));
+  res.json({ ...brandDnaPayload(report, fieldsFromReport(report), report.memoryGaps), ...debugOf() });
 }
 
 /** Full stored snapshot for debug — Mongo Brand DNA plus the S3 analysis file. */

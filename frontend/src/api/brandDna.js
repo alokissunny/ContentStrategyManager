@@ -1,4 +1,6 @@
 import client from './client';
+import { ingestPlanDebug } from './posts';
+import { addAiDebugEntry } from '../lib/aiDebug';
 
 export function getBrandDna() {
   return client.get('/analysis/reports/latest/brand-dna').then((res) => res.data);
@@ -24,6 +26,30 @@ export function getBrandDnaRaw(reportId) {
 }
 
 /** Read the last 10 Instagram posts and store the account's Brand Voice. */
+// The posts step is not a model call — log it as its own row so the summary
+// row counts (and costs) only the AI calls.
+function ingestBrandVoiceDebug(data) {
+  const agents = Array.isArray(data?.debug?.agents) ? data.debug.agents : [];
+  const isAi = (a) => !/no AI call/.test(a?.note || '');
+  agents.filter((a) => !isAi(a)).forEach((a) => addAiDebugEntry({
+    source: a.source,
+    model: a.model,
+    output: a.output,
+    elapsedMs: a.elapsedMs,
+    note: a.note,
+  }));
+  ingestPlanDebug('Brand voice', { ...data, debug: { ...data.debug, agents: agents.filter(isAi) } });
+}
+
 export function fetchBrandVoice(reportId) {
-  return client.post(`/analysis/reports/${reportId}/brand-voice`).then((res) => res.data);
+  return client.post(`/analysis/reports/${reportId}/brand-voice`)
+    .then((res) => {
+      // AI debug panel: post fetch + each model call with tokens and cost
+      if (res.data?.debug) ingestBrandVoiceDebug(res.data);
+      return res.data;
+    })
+    .catch((err) => {
+      if (err.response?.data?.debug) ingestBrandVoiceDebug(err.response.data);
+      throw err;
+    });
 }

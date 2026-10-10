@@ -25,7 +25,7 @@ Prioritise clarity, evidence and narrative progression over decoration.
 
 * Strategy brief (JSON): angle, narrative units, verified truth, allocated visuals, and optional slide outline.
 
-* `BRAND_JSON`: brand voice, audience, visual style. Follow it when present. `voiceProfile` (when present) is the voice read from the account's recent posts — tone, writing style, vocabulary and how they explain decisions; write slide copy in that voice.
+* `BRAND_JSON`: brand voice, audience, visual style. Follow it when present. `voiceProfile` (when present) is the voice read from the account's recent posts — tone, writing style, vocabulary and how they explain decisions; write slide copy in that voice. Its `visualStyle` describes what the account's past posts looked like — use it only for picture/subject choices, never to change this prompt's design look.
 
 * `brandStyle`: optional fonts / colours.
 
