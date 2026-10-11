@@ -35,6 +35,7 @@ const KEYS = {
   carouselModel: 'carousel.model',
   carouselReasoningEffort: 'carousel.reasoningEffort',
   brandVoiceProvider: 'brandVoice.provider',
+  themeRegionsProvider: 'themeRegions.provider',
 };
 
 // Which provider reads the last 10 posts for Business memory › Fetch brand voice.
@@ -44,6 +45,14 @@ const BRAND_VOICE_PROVIDERS = [
   { id: 'anthropic', label: 'Claude', model: process.env.BRAND_VOICE_ANTHROPIC_MODEL || process.env.ANTHROPIC_MODEL || 'claude-sonnet-5' },
 ];
 const DEFAULT_BRAND_VOICE_PROVIDER = 'openai';
+
+// Which vision model finds the text blocks + pictures on a Theme Apply render
+// (Editor mode region map) and rewrites a region's words. OpenAI by default.
+const THEME_REGIONS_PROVIDERS = [
+  { id: 'openai', label: 'OpenAI', model: process.env.THEME_REGIONS_OPENAI_MODEL || 'gpt-6-luna' },
+  { id: 'anthropic', label: 'Claude', model: process.env.THEME_REGIONS_MODEL || process.env.THEME_CHECK_MODEL || 'claude-haiku-4-5-20251001' },
+];
+const DEFAULT_THEME_REGIONS_PROVIDER = 'openai';
 
 const cache = new Map();
 let loaded = false;
@@ -94,6 +103,17 @@ function brandVoiceLlm() {
   return BRAND_VOICE_PROVIDERS.find((p) => p.id === id);
 }
 
+function isValidThemeRegionsProvider(id) {
+  return THEME_REGIONS_PROVIDERS.some((p) => p.id === id);
+}
+
+/** The provider + model the theme-slide region map runs on right now. */
+function themeRegionsLlm() {
+  const chosen = getRuntimeSetting(KEYS.themeRegionsProvider);
+  const id = isValidThemeRegionsProvider(chosen) ? chosen : DEFAULT_THEME_REGIONS_PROVIDER;
+  return THEME_REGIONS_PROVIDERS.find((p) => p.id === id);
+}
+
 module.exports = {
   KEYS,
   CAROUSEL_MODEL_OPTIONS,
@@ -106,4 +126,7 @@ module.exports = {
   BRAND_VOICE_PROVIDERS,
   isValidBrandVoiceProvider,
   brandVoiceLlm,
+  THEME_REGIONS_PROVIDERS,
+  isValidThemeRegionsProvider,
+  themeRegionsLlm,
 };

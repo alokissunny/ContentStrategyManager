@@ -9,6 +9,9 @@ const {
   BRAND_VOICE_PROVIDERS,
   isValidBrandVoiceProvider,
   brandVoiceLlm,
+  THEME_REGIONS_PROVIDERS,
+  isValidThemeRegionsProvider,
+  themeRegionsLlm,
 } = require('../services/runtimeSettings');
 const { resolvePlanAgentLlm } = require('../services/planAgentLlm');
 
@@ -84,4 +87,34 @@ async function updateBrandVoiceModel(req, res) {
   return res.json(currentBrandVoiceModel());
 }
 
-module.exports = { getCarouselModel, updateCarouselModel, getBrandVoiceModel, updateBrandVoiceModel };
+function currentThemeRegionsModel() {
+  const { id, model } = themeRegionsLlm();
+  return {
+    provider: id,
+    model,
+    options: THEME_REGIONS_PROVIDERS.map(({ id: pid, label, model: m }) => ({ id: pid, label, model: m })),
+  };
+}
+
+// GET /api/settings/theme-regions-model
+async function getThemeRegionsModel(req, res) {
+  res.json(currentThemeRegionsModel());
+}
+
+// PUT /api/settings/theme-regions-model  (admin only)
+async function updateThemeRegionsModel(req, res) {
+  if (req.user?.role !== 'admin') {
+    return res.status(403).json({ message: 'Only an admin can change the theme slide model.' });
+  }
+  const provider = String(req.body?.provider || '').trim().toLowerCase();
+  if (!isValidThemeRegionsProvider(provider)) {
+    return res.status(400).json({ message: `Unsupported provider: ${req.body?.provider}` });
+  }
+  await setRuntimeSetting(KEYS.themeRegionsProvider, provider);
+  return res.json(currentThemeRegionsModel());
+}
+
+module.exports = {
+  getCarouselModel, updateCarouselModel, getBrandVoiceModel, updateBrandVoiceModel,
+  getThemeRegionsModel, updateThemeRegionsModel,
+};

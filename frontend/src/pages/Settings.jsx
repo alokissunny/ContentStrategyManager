@@ -18,7 +18,7 @@ import { syncHandle } from '../lib/store';
 import { resetProjects } from '../lib/projectsStore';
 import { useAiDebug, setAiDebugEnabled, clearAiDebugEntries } from '../lib/aiDebug';
 import { useFeatureFlags, setVideoCoverEnabled, setReelEditorEnabled, setLinkedInEnabled } from '../lib/featureFlags';
-import { getBrandVoiceModel, getCarouselModel, updateBrandVoiceModel, updateCarouselModel } from '../api/settings';
+import { getBrandVoiceModel, getCarouselModel, getThemeRegionsModel, updateBrandVoiceModel, updateCarouselModel, updateThemeRegionsModel } from '../api/settings';
 import LinkedInSettings from '../components/LinkedInSettings';
 import './settings.css';
 import { LOCALES, useLocale, setLocale, intlLocale, translate as t } from '../i18n';
@@ -85,6 +85,9 @@ export default function Settings() {
   const [voiceModel, setVoiceModel] = useState(null);
   const [voiceBusy, setVoiceBusy] = useState(false);
   const [voiceErr, setVoiceErr] = useState('');
+  const [regionModel, setRegionModel] = useState(null);
+  const [regionBusy, setRegionBusy] = useState(false);
+  const [regionErr, setRegionErr] = useState('');
 
   useEffect(() => {
     listInstagramProfiles()
@@ -100,6 +103,9 @@ export default function Settings() {
     getBrandVoiceModel()
       .then(setVoiceModel)
       .catch(() => setVoiceModel(null));
+    getThemeRegionsModel()
+      .then(setRegionModel)
+      .catch(() => setRegionModel(null));
   }, []);
 
   // Graph's post-thumbnail URLs are short-lived; re-pull media for each
@@ -133,6 +139,19 @@ export default function Settings() {
       setVoiceErr(err.response?.data?.message || 'Could not update the brand voice model.');
     } finally {
       setVoiceBusy(false);
+    }
+  }
+
+  async function pickRegionModel(provider) {
+    if (!isAdmin || regionBusy || regionModel?.provider === provider) return;
+    setRegionBusy(true);
+    setRegionErr('');
+    try {
+      setRegionModel(await updateThemeRegionsModel(provider));
+    } catch (err) {
+      setRegionErr(err.response?.data?.message || 'Could not update the theme slide model.');
+    } finally {
+      setRegionBusy(false);
     }
   }
 
@@ -648,6 +667,41 @@ export default function Settings() {
               })}
             </div>
             {voiceErr && <p className="set-err">{voiceErr}</p>}
+          </>
+        )}
+      </section>
+
+      {/* ── Theme slide regions model ── */}
+      <section className="card set-card">
+        <h2>Theme slide editing model</h2>
+        <p className="set-card__sub">
+          Which model finds the text and pictures on a theme-applied slide when you open it in Editor mode,
+          and rewrites a text block you ask it to change.
+          {!isAdmin && ' Only an admin can change this.'}
+        </p>
+        {!regionModel ? (
+          <p className="set-empty">Loading…</p>
+        ) : (
+          <>
+            <div className="set-seg" role="group" aria-label="Theme slide editing model">
+              {regionModel.options.map((o) => {
+                const on = o.id === regionModel.provider;
+                return (
+                  <button
+                    type="button"
+                    key={o.id}
+                    className={`set-seg__btn ${on ? 'is-on' : ''}`}
+                    aria-pressed={on}
+                    disabled={!isAdmin || regionBusy}
+                    onClick={() => pickRegionModel(o.id)}
+                  >
+                    {o.label}
+                    <span className="set-seg__tag">{o.model}</span>
+                  </button>
+                );
+              })}
+            </div>
+            {regionErr && <p className="set-err">{regionErr}</p>}
           </>
         )}
       </section>

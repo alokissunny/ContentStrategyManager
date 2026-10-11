@@ -18,3 +18,12 @@ export function getBrandVoiceModel() {
 export function updateBrandVoiceModel(provider) {
   return client.put('/settings/brand-voice-model', { provider }).then((res) => res.data);
 }
+
+// Which provider finds the text + pictures on a theme-applied slide (Editor mode).
+export function getThemeRegionsModel() {
+  return client.get('/settings/theme-regions-model').then((res) => res.data);
+}
+
+export function updateThemeRegionsModel(provider) {
+  return client.put('/settings/theme-regions-model', { provider }).then((res) => res.data);
+}

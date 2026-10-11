@@ -1193,6 +1193,7 @@ function finishWeeklyPlan(pre, generated, projects = [], options = {}) {
 }
 
 module.exports = {
+  ratesForModel,
   generateWeeklyPlan,
   prepareWeeklyPlan,
   multiAgentArgsOf,

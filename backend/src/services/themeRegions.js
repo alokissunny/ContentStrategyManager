@@ -16,8 +16,20 @@ const sharp = require('sharp');
 const { completeToolCall } = require('./llmComplete');
 const { composeImage } = require('./openaiImage');
 
-const REGION_MODEL = () => process.env.THEME_REGIONS_MODEL || process.env.THEME_CHECK_MODEL || 'claude-haiku-4-5-20251001';
+// Settings › Theme slide regions model (OpenAI by default, switchable to Claude)
+const REGION_MODEL = () => require('./runtimeSettings').themeRegionsLlm().model;
+// a reasoning model spends output tokens thinking before it answers
+const regionTokens = (n) => (/^(gpt|o\d)/i.test(REGION_MODEL()) ? n * 4 : n);
 const EDIT_MODEL = () => process.env.OPENAI_THEME_IMAGE_MODEL || 'gpt-image-2.5-sunburst';
+// priced at the model actually used (OpenAI by default since Oct 11); the
+// env/Haiku fallback below only when the rate table has no row for it
+const regionCost = (model, i, o) => {
+  try {
+    const r = require('./weeklyPlan').ratesForModel(model);
+    if (r && Number.isFinite(r.in) && Number.isFinite(r.out)) return (i * r.in + o * r.out) / 1e6;
+  } catch { /* fall through */ }
+  return (i * PRICE.in + o * PRICE.out) / 1e6;
+};
 const PRICE = { in: Number(process.env.THEME_STYLE_PRICE_IN) || 1, out: Number(process.env.THEME_STYLE_PRICE_OUT) || 5 };
 
 const clampPct = (v) => Math.max(0, Math.min(100, Number(v) || 0));
@@ -658,7 +670,7 @@ async function mapRegions({ buffer, lines = [], photoBox = null, key = '' }) {
         { type: 'text', text: userText },
       ],
       tool: REGION_TOOL,
-      maxTokens: 1200,
+      maxTokens: regionTokens(1200),
       reasoningEffort: 'low',
       retryHint: 'Call record_regions with valid JSON.',
     });
@@ -758,7 +770,7 @@ async function mapRegions({ buffer, lines = [], photoBox = null, key = '' }) {
       images,
       logo,
       model,
-      usage: { inputTokens: i, outputTokens: o, totalTokens: i + o, estimatedCostUsd: (i * PRICE.in + o * PRICE.out) / 1e6, elapsedMs: Date.now() - started },
+      usage: { inputTokens: i, outputTokens: o, totalTokens: i + o, estimatedCostUsd: regionCost(model, i, o), elapsedMs: Date.now() - started },
       // for the AI debug panel: exactly what the model saw and said
       debug: {
         prompt: `SYSTEM:\n${REGION_SYSTEM}\n\nUSER (image 1: the slide; image 2: the slide with ${cands.length} numbered candidate line boxes):\n${userText}`,
@@ -851,7 +863,7 @@ async function rewriteText({ text, role, instructions = [], context = '' }) {
       ].filter(Boolean).join('\n\n'),
     }],
     tool: REWRITE_TOOL,
-    maxTokens: 400,
+    maxTokens: regionTokens(400),
     reasoningEffort: 'low',
     retryHint: 'Call rewrite_text with valid JSON.',
   });
