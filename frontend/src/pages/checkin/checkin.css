@@ -2432,3 +2432,11 @@ body.is-immersive .app__main {
 .ck-quote__shot { display: block; width: 64px; height: 64px; border-radius: var(--r-sm); overflow: hidden; background: var(--ink-100); }
 .ck-quote__shot img,
 .ck-quote__shot video { width: 100%; height: 100%; object-fit: cover; display: block; }
+
+/* bauhly-v3: no mark beside Bauhly's turns in the Capture modal — the dot is
+   already the dialog's title; without it the turns start on the same left
+   edge as the title and the composer. Bauhly's lines wrap at a reading measure. */
+.cap-overlay--modal .ck-turn--bauhly .ck-avatar,
+.cap-overlay--modal .ck-turn--bauhly .ck-avatar--ghost { display: none; }
+.cap-overlay--modal .ck-turn--bauhly { padding-left: 0; gap: 0; }
+.cap-overlay--modal .ck-body { font-size: var(--text-md); line-height: 1.6; max-width: 43ch; }
