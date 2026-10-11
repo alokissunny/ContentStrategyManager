@@ -141,7 +141,25 @@ function resumeOf(item) {
   };
 }
 
-function CapturePanel({ item, projects, asked, onClose, onGenerate, onDelete, onMove, onAddDetail }) {
+// Add (bauhly-v3, Oct 5): the files just chosen go into this capture's own
+// conversation — its history, then the files, then "what is this one?"
+function addingOf(item, files) {
+  const members = (item.project.captures || []).filter((c) => item.memberIds.includes(c.id));
+  const lead = members.find((c) => c.id === item.session.id) || members[0];
+  const chat = [lead, ...members].map((c) => c?.conversationTurns || []).find((t) => t.length) || [];
+  return {
+    projectId: item.projectId,
+    captureId: lead?.id || item.session.id,
+    files,
+    turns: chat,
+    history: chat.length ? null : members.map((c) => ({
+      text: String(c.text || c.sessionSummary || '').trim(),
+      media: (c.attachments || []).map((a) => ({ type: a.type, key: a.key, url: a.url })),
+    })).filter((h) => h.text || h.media.length),
+  };
+}
+
+function CapturePanel({ item, projects, asked, onClose, onGenerate, onDelete, onMove, onAddDetail, onAddFiles }) {
   useBodyScrollLock();
   const entry = item.session;
   const atts = entry.attachments || [];
@@ -205,7 +223,8 @@ function CapturePanel({ item, projects, asked, onClose, onGenerate, onDelete, on
     setErr('');
     try {
       const added = await uploadFiles(files);
-      await updateEntry(item.projectId, lead.id, { attachments: [...(lead.attachments || []), ...added] });
+      if (onAddFiles) onAddFiles(added);
+      else await updateEntry(item.projectId, lead.id, { attachments: [...(lead.attachments || []), ...added] });
     } catch { setErr('Those files could not be added. Try again.'); }
     finally { setUploading(false); }
   };
@@ -580,7 +599,8 @@ export default function Captures() {
   const [killing, setKilling] = useState(null); // project to delete
   const [gen, setGen] = useState(null); // { eligible, blocked, held, spent }
   const [busy, setBusy] = useState(false);
-  const [resuming, setResuming] = useState(null); // Add the detail: the capture conversation picked back up
+  const [resuming, setResuming] = useState(null);
+  const [adding, setAdding] = useState(null); // Add: files chosen for a capture, asked about in Capture // Add the detail: the capture conversation picked back up
 
   // The generated-image folder (WeekView › Create image) — reached from Filters.
   const [genImages, setGenImages] = useState(readGenCache);
@@ -1181,6 +1201,22 @@ export default function Captures() {
           onMove={(toId) => run(async () => { setOpen(null); await moveSession(openItem.projectId, toId, openItem.memberIds); })}
           onDelete={() => { setSel([openItem.id]); setOpen(null); setDropping(true); }}
           onAddDetail={() => { const r = resumeOf(openItem); if (r) { setOpen(null); setResuming(r); } }}
+          onAddFiles={(files) => setAdding({ ...addingOf(openItem, files), itemId: openItem.id })}
+        />
+      )}
+      {adding && (
+        <CaptureChat
+          modal
+          adding={adding}
+          presetProjectId={adding.projectId}
+          askMedia={false}
+          onPlan={() => {
+            const it = all.find((x) => x.id === adding.itemId) || openItem;
+            setAdding(null);
+            setOpen(null);
+            if (it) runGen([it]);
+          }}
+          onExit={() => setAdding(null)}
         />
       )}
       {resuming && (

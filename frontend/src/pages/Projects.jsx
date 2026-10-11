@@ -1014,7 +1014,7 @@ function CaptureReference({ of: r }) {
   );
 }
 
-export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewProject, onCaptured, exitLabel = 'Back', modal = false, opening = '', savedLine = '', projectName = '', askProject = true, maxQuestions = 4, askMedia = true, resume = null, deferQuestions = false }) {
+export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewProject, onCaptured, exitLabel = 'Back', modal = false, opening = '', savedLine = '', projectName = '', askProject = true, maxQuestions = 4, askMedia = true, resume = null, deferQuestions = false, adding = null, onPlan = null }) {
   const projects = useProjects();
   const { messages, typing, push, say, after } = useConversation();
   const [step, setStep] = useState('boot');
@@ -1078,6 +1078,32 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
   }, []);
 
   useEffect(() => {
+    /* `adding` (bauhly-v3, Oct 5–6): Captures › Add opened the drive first;
+       the chosen files arrive here as the studio's own turn, under the
+       capture's history, and Bauhly asks what they are. Nothing is written to
+       the capture until the studio answers or presses Save and close. */
+    if (adding) {
+      if (!resumed.current) {
+        resumed.current = true;
+        (adding.history || []).forEach((h) => push({ from: 'user', text: h.text || undefined, media: h.media?.length ? h.media : undefined }));
+        (adding.turns || []).forEach((t) => push(t.role === 'assistant'
+          ? { from: 'bauhly', text: t.text }
+          : { from: 'user', text: /^skip this question/i.test(t.text) ? 'Skip this question' : t.text }));
+        push({ from: 'user', media: adding.files });
+      }
+      const ask = adding.files.length > 1
+        ? 'What are these, and what should I do with them?'
+        : 'What is this one — and what should I do with it?';
+      cap.current = {
+        ...cap.current,
+        kind: adding.files.some((a) => a.type === 'video') ? 'video' : 'photo',
+        attachments: [...adding.files],
+        askedQuestion: ask,
+      };
+      const d = say(ask);
+      after(d, () => setStep('noting'));
+      return;
+    }
     /* `resume` picks a saved capture's conversation back up (Captures › Add
        the detail): its turns are shown as they were, then the question it was
        left without is asked again and the answer goes into that capture */
@@ -1609,6 +1635,71 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
     handOff();
   };
 
+  /* Captures › Add: the files (and any words) go onto the capture they were
+     added to. Words join the note; with none, the note and its open
+     questions are left as they were. */
+  const saveAdding = async (said, extra = []) => {
+    const text = String(said || '').trim();
+    const files = [...cap.current.attachments, ...extra];
+    const owner = (projects.find((p) => p.id === adding.projectId)?.captures || []).find((c) => c.id === adding.captureId);
+    const was = String(owner?.text || '').trim();
+    const joined = !text ? was : (!was || was === text ? text : `${was}\n\n${text}`);
+    const stories = text && Array.isArray(owner?.stories) && owner.stories.length
+      ? [{ ...owner.stories[0], summary: joined }]
+      : undefined;
+    await updateEntry(adding.projectId, adding.captureId, {
+      attachments: [...(owner?.attachments || []), ...files],
+      ...(text ? { text: joined, sessionSummary: joined } : {}),
+      ...(stories ? { stories, understanding: stories[0] } : {}),
+      // only when the chat was loaded — a partial list would overwrite it
+      ...(text && Array.isArray(owner?.conversationTurns)
+        ? { conversationTurns: [...owner.conversationTurns, { role: 'assistant', text: cap.current.askedQuestion }, { role: 'user', text }] }
+        : {}),
+    });
+    cap.current.attachments = [];
+  };
+  // `next`: Generate plan (onPlan) or Save and close (onExit) — anything typed goes too
+  const keepAdding = async (next) => {
+    const text = draft.trim();
+    setDraft('');
+    setStep('boot');
+    userSays(text || (next === onPlan ? 'Generate plan' : 'Save and close'));
+    setBusy(true);
+    try {
+      const extra = pending.length ? await uploadFiles(pending.map((x) => x.file)) : [];
+      setPending([]);
+      await saveAdding(text, extra);
+      setBusy(false);
+      next?.();
+    } catch {
+      setBusy(false);
+      const d = say('Something went wrong saving that — try again in a moment?');
+      after(d, () => setStep('noting'));
+    }
+  };
+  const sendAdding = async () => {
+    const text = draft.trim();
+    if (!text && !pending.length) return;
+    const files = pending.map((x) => x.file);
+    pending.forEach((x) => { try { URL.revokeObjectURL(x.url); } catch { /* ok */ } });
+    setPending([]);
+    setDraft('');
+    setStep('boot');
+    setBusy(true);
+    try {
+      const extra = files.length ? await uploadFiles(files) : [];
+      push({ from: 'user', text: text || undefined, media: extra.length ? extra : undefined });
+      await saveAdding(text, extra);
+      setBusy(false);
+      const d = say('Saved. It is on this capture now.');
+      after(d, () => setStep('done'));
+    } catch {
+      setBusy(false);
+      const d = say('Something went wrong saving that — try again in a moment?');
+      after(d, () => setStep('noting'));
+    }
+  };
+
   const restart = () => {
     cap.current = { kind: null, text: '', attachments: [], understanding: null, understandings: [], conversationSummary: '', conversationTitle: '', askedQuestion: '', askedAnswer: '', turns: [], awaitingAssets: false };
     setSaved(null);
@@ -1729,6 +1820,14 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
           </div>
         );
       case 'done':
+        if (adding) {
+          return (
+            <>
+              {onPlan && <button className="ck-chip ck-chip--primary" onClick={onPlan}><Icon name="sparkle" size={14} /> Generate plan</button>}
+              <button className="ck-chip" onClick={onExit}>Close</button>
+            </>
+          );
+        }
         if (deferQuestions) {
           return (
             <>
@@ -1755,7 +1854,7 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
   // In the modal, the text/voice steps are driven by the anchored composer at
   // the foot (bauhly-v3), not by the inline chips/textarea — so those are
   // suppressed for those steps and the composer owns the input.
-  const composerOwnsInput = modal && ['how', 'writing', 'clarify'].includes(step);
+  const composerOwnsInput = modal && (['how', 'writing', 'clarify'].includes(step) || (adding && step === 'noting'));
   const composerLive = composerOwnsInput && optionsReady && !typing && !busy;
   const composerSendable = Boolean(draft.trim()) || pending.length > 0;
   // Staged images ride along with the next message (ChatGPT-style): the + adds a
@@ -1803,6 +1902,7 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
   const composerSend = async () => {
     const text = draft.trim();
     if (!text && !pending.length) return;
+    if (adding && step === 'noting') { sendAdding(); return; }
     // Text only — the existing conversational submits.
     if (!pending.length) {
       if (step === 'writing') { submitWriting(); return; }
@@ -1975,6 +2075,21 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
 
           {/* in the modal the composer owns the answer, so the one other thing a
               question offers — not answering it — sits under it as a chip */}
+          {/* Captures › Add: the composer is the answer; these keep the file
+              without one, or go straight on to the plan */}
+          {composerLive && adding && step === 'noting' && (
+            <div className="ck-turn ck-turn--bauhly ck-turn--actions ck-turn--cont">
+              <span className="ck-avatar ck-avatar--ghost" aria-hidden="true" />
+              <div className="ck-inline">
+                {onPlan && (
+                  <button type="button" className="ck-chip ck-chip--primary" onClick={() => keepAdding(onPlan)}>
+                    <Icon name="sparkle" size={14} /> Generate plan
+                  </button>
+                )}
+                <button type="button" className="ck-chip" onClick={() => keepAdding(onExit)}>Save and close</button>
+              </div>
+            </div>
+          )}
           {composerLive && step === 'clarify' && (
             <div className="ck-turn ck-turn--bauhly ck-turn--actions ck-turn--cont">
               <span className="ck-avatar ck-avatar--ghost" aria-hidden="true" />
