@@ -1611,3 +1611,12 @@ body:has(.np) .btn.cap-fab--dock { display: none; }
   font-weight: 600;
   line-height: 1.45;
 }
+
+/* bauhly-v3 (Oct 5): `Capture summary` label + the pencil into Capture; the
+   summary itself is read here, not typed in */
+.np__note__head { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3); margin-bottom: 6px; }
+.np__note__lab { font-family: var(--font-ui); font-size: var(--text-xs); font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: var(--ink-quiet); }
+.ctxf--read { cursor: default; caret-color: transparent; }
+.np__note__pen { display: inline-grid; place-items: center; width: 34px; height: 34px; flex: none; border: 0; border-radius: 999px; background: var(--surface-sunken, #f1f1ef); color: var(--ink-800); cursor: pointer; }
+.np__note__pen:hover { background: var(--ink-100); color: var(--ink-900); }
+.np__note__pen:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }

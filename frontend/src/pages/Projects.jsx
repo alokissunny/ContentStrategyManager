@@ -1089,14 +1089,18 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
         (adding.turns || []).forEach((t) => push(t.role === 'assistant'
           ? { from: 'bauhly', text: t.text }
           : { from: 'user', text: /^skip this question/i.test(t.text) ? 'Skip this question' : t.text }));
-        push({ from: 'user', media: adding.files });
+        if (adding.files.length) push({ from: 'user', media: adding.files });
       }
-      const ask = adding.files.length > 1
-        ? 'What are these, and what should I do with them?'
-        : 'What is this one — and what should I do with it?';
+      // Add arrives holding files; the pencil (Edit capture) arrives empty
+      const ask = !adding.files.length
+        ? 'What would you like to add or change?'
+        : adding.files.length > 1
+          ? 'What are these, and what should I do with them?'
+          : 'What is this one — and what should I do with it?';
       cap.current = {
         ...cap.current,
-        kind: adding.files.some((a) => a.type === 'video') ? 'video' : 'photo',
+        text: '',
+        kind: !adding.files.length ? 'note' : adding.files.some((a) => a.type === 'video') ? 'video' : 'photo',
         attachments: [...adding.files],
         askedQuestion: ask,
       };
@@ -1668,7 +1672,8 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
     try {
       const extra = pending.length ? await uploadFiles(pending.map((x) => x.file)) : [];
       setPending([]);
-      await saveAdding(text, extra);
+      await saveAdding([cap.current.text, text].filter(Boolean).join('\n\n'), extra);
+      cap.current.text = '';
       setBusy(false);
       next?.();
     } catch {
@@ -1677,27 +1682,85 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
       after(d, () => setStep('noting'));
     }
   };
-  const sendAdding = async () => {
-    const text = draft.trim();
-    if (!text && !pending.length) return;
-    const files = pending.map((x) => x.file);
-    pending.forEach((x) => { try { URL.revokeObjectURL(x.url); } catch { /* ok */ } });
-    setPending([]);
-    setDraft('');
-    setStep('boot');
+  // what was said (and shown) this round goes onto the capture; the box stays
+  // up and says so (bauhly-v3 `stay`)
+  const commitAdding = async (extra = []) => {
     setBusy(true);
     try {
-      const extra = files.length ? await uploadFiles(files) : [];
-      push({ from: 'user', text: text || undefined, media: extra.length ? extra : undefined });
-      await saveAdding(text, extra);
+      await saveAdding(cap.current.text, extra);
+      cap.current.text = '';
       setBusy(false);
       const d = say('Saved. It is on this capture now.');
       after(d, () => setStep('done'));
     } catch {
       setBusy(false);
       const d = say('Something went wrong saving that — try again in a moment?');
-      after(d, () => setStep('noting'));
+      after(d, () => setStep(cap.current.text ? 'amendMedia' : 'noting'));
     }
+  };
+  /* the composer at `noting` / `amendMedia`. With files already in hand (Add)
+     the words are their note and it is filed; on the pencil the words come
+     first and Bauhly asks "Anything to show for it?" before filing */
+  const sendAdding = async () => {
+    const text = draft.trim();
+    const files = pending.map((x) => x.file);
+    if (step === 'noting' && !text && !files.length) return;
+    pending.forEach((x) => { try { URL.revokeObjectURL(x.url); } catch { /* ok */ } });
+    setPending([]);
+    setDraft('');
+    const at = step;
+    setStep('boot');
+    let extra = [];
+    if (files.length) {
+      setBusy(true);
+      try {
+        extra = await uploadFiles(files);
+      } catch {
+        setBusy(false);
+        const d = say("That upload didn't go through — want to try again?");
+        after(d, () => setStep(at));
+        return;
+      }
+      setBusy(false);
+    }
+    if (text || extra.length) push({ from: 'user', text: text || undefined, media: extra.length ? extra : undefined });
+    if (text) cap.current.text = [cap.current.text, text].filter(Boolean).join('\n\n');
+    if (at === 'noting' && !cap.current.attachments.length && !extra.length) {
+      const d = say('Got it. Anything to show for it?');
+      after(d, () => setStep('amendMedia'));
+      return;
+    }
+    commitAdding(extra);
+  };
+  const amendPhotos = async (list) => {
+    const files = [...(list || [])];
+    if (!files.length) return;
+    setStep('boot');
+    setBusy(true);
+    let extra;
+    try {
+      extra = await uploadFiles(files);
+    } catch {
+      setBusy(false);
+      const d = say("That upload didn't go through — want to try again?");
+      after(d, () => setStep('amendMedia'));
+      return;
+    }
+    push({ from: 'user', media: extra });
+    commitAdding(extra);
+  };
+  const amendNothing = () => {
+    setStep('boot');
+    userSays('Nothing right now');
+    commitAdding();
+  };
+  const addAnother = () => {
+    setStep('boot');
+    cap.current.text = '';
+    cap.current.attachments = [];
+    cap.current.askedQuestion = 'What else would you like to add?';
+    const d = say('What else would you like to add?');
+    after(d, () => setStep('noting'));
   };
 
   const restart = () => {
@@ -1823,8 +1886,8 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
         if (adding) {
           return (
             <>
-              {onPlan && <button className="ck-chip ck-chip--primary" onClick={onPlan}><Icon name="sparkle" size={14} /> Generate plan</button>}
-              <button className="ck-chip" onClick={onExit}>Close</button>
+              <button className="ck-chip ck-chip--primary" onClick={onExit}>Save and close</button>
+              <button className="ck-chip" onClick={addAnother}>Add something else</button>
             </>
           );
         }
@@ -1854,9 +1917,9 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
   // In the modal, the text/voice steps are driven by the anchored composer at
   // the foot (bauhly-v3), not by the inline chips/textarea — so those are
   // suppressed for those steps and the composer owns the input.
-  const composerOwnsInput = modal && (['how', 'writing', 'clarify'].includes(step) || (adding && step === 'noting'));
+  const composerOwnsInput = modal && (['how', 'writing', 'clarify'].includes(step) || (adding && ['noting', 'amendMedia'].includes(step)));
   const composerLive = composerOwnsInput && optionsReady && !typing && !busy;
-  const composerSendable = Boolean(draft.trim()) || pending.length > 0;
+  const composerSendable = Boolean(draft.trim()) || pending.length > 0 || Boolean(adding && step === 'amendMedia');
   // Staged images ride along with the next message (ChatGPT-style): the + adds a
   // thumbnail to the composer instead of posting a "file" turn on its own.
   const composerFiles = (files) => {
@@ -1901,8 +1964,8 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
   });
   const composerSend = async () => {
     const text = draft.trim();
+    if (adding && ['noting', 'amendMedia'].includes(step)) { sendAdding(); return; }
     if (!text && !pending.length) return;
-    if (adding && step === 'noting') { sendAdding(); return; }
     // Text only — the existing conversational submits.
     if (!pending.length) {
       if (step === 'writing') { submitWriting(); return; }
@@ -2086,7 +2149,24 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
                     <Icon name="sparkle" size={14} /> Generate plan
                   </button>
                 )}
-                <button type="button" className="ck-chip" onClick={() => keepAdding(onExit)}>Save and close</button>
+                {/* only when there is something to keep without words */}
+                {cap.current.attachments.length > 0 && (
+                  <button type="button" className="ck-chip" onClick={() => keepAdding(onExit)}>Save and close</button>
+                )}
+              </div>
+            </div>
+          )}
+          {/* the pencil's second question: a photo, or nothing — and the field
+              still takes more words (send saves) */}
+          {composerLive && adding && step === 'amendMedia' && (
+            <div className="ck-turn ck-turn--bauhly ck-turn--actions ck-turn--cont">
+              <span className="ck-avatar ck-avatar--ghost" aria-hidden="true" />
+              <div className="ck-inline">
+                <label className="ck-chip">
+                  Add a photo
+                  <input type="file" accept="image/*,video/*" multiple hidden onChange={(e) => { amendPhotos(e.target.files); e.target.value = ''; }} />
+                </label>
+                <button type="button" className="btn btn--quiet btn--sm" onClick={amendNothing}>Nothing right now</button>
               </div>
             </div>
           )}
@@ -2155,7 +2235,7 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
             canSend={composerSendable}
             pending={pending}
             onRemoveFile={removePending}
-            placeholder={step === 'clarify' ? 'Answer in your own words…' : 'Say it however it comes out…'}
+            placeholder={step === 'clarify' ? 'Answer in your own words…' : step === 'amendMedia' ? 'Add anything else, or send to save it…' : 'Say it however it comes out…'}
             onSend={composerSend}
             onFiles={composerFiles}
             onRecord={composerRecord}

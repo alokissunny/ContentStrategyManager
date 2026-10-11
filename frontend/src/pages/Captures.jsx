@@ -86,7 +86,7 @@ const postDay = (ymd, { weekday = true } = {}) => {
 const listDays = (days) => (days.length <= 1 ? days.join('')
   : `${days.slice(0, -1).join(', ')} and ${days[days.length - 1]}`);
 
-function NoteField({ value, placeholder, onSave, fieldRef }) {
+function NoteField({ value, placeholder, onSave, fieldRef, read = false }) {
   const [v, setV] = useState(value || '');
   useEffect(() => { setV(value || ''); }, [value]);
   const grow = (el) => { if (el) { el.style.height = 'auto'; el.style.height = `${el.scrollHeight}px`; } };
@@ -94,7 +94,8 @@ function NoteField({ value, placeholder, onSave, fieldRef }) {
   return (
     <textarea
       ref={fieldRef}
-      className="ctxf ctxf--panel"
+      className={`ctxf ctxf--panel${read ? ' ctxf--read' : ''}`}
+      readOnly={read}
       value={v}
       rows={1}
       placeholder={placeholder}
@@ -159,7 +160,7 @@ function addingOf(item, files) {
   };
 }
 
-function CapturePanel({ item, projects, asked, onClose, onGenerate, onDelete, onMove, onAddDetail, onAddFiles }) {
+function CapturePanel({ item, projects, asked, onClose, onGenerate, onDelete, onMove, onAddDetail, onAddFiles, onEditCapture }) {
   useBodyScrollLock();
   const entry = item.session;
   const atts = entry.attachments || [];
@@ -271,6 +272,13 @@ function CapturePanel({ item, projects, asked, onClose, onGenerate, onDelete, on
                   <div className="pe-menu pe-menu--panel" role="menu">
                     {!moveOpen ? (
                       <>
+                        {onEditCapture && (
+                          <button role="menuitem" onClick={() => { closeMenu(); onEditCapture(); }}>
+                            <Icon name="edit" size={17} />
+                            <span className="pe-menu__grow">Edit capture</span>
+                          </button>
+                        )}
+                        {onEditCapture && <div className="pe-menu__sep" />}
                         {others.length > 0 && (
                           <button role="menuitem" onClick={() => setMoveOpen(true)}>
                             <Icon name="plan" size={17} />
@@ -321,7 +329,7 @@ function CapturePanel({ item, projects, asked, onClose, onGenerate, onDelete, on
                 right, a post that does not sound like your work. One answer and it is
                 written from what you actually said.
               </p>
-              <button type="button" className="np__needs__go" onClick={() => field.current?.focus()}>
+              <button type="button" className="np__needs__go" onClick={() => (onAddDetail ? onAddDetail() : field.current?.focus())}>
                 Answer clarification
                 <Icon name="arrow-right" size={15} strokeWidth={2.2} />
               </button>
@@ -392,16 +400,27 @@ function CapturePanel({ item, projects, asked, onClose, onGenerate, onDelete, on
             </div>
           )}
 
+          {/* bauhly-v3 (Oct 5): the panel shows a SUMMARY of the capture; it is
+              changed only in Capture, through the pencil (or ⋯ › Edit capture) */}
           <div className="np__note">
-            {words && (
-              <button type="button" className="np__note__edit" onClick={() => field.current?.focus()}>
-                <Icon name="edit" size={13} strokeWidth={2} />
-                Edit note
-              </button>
-            )}
+            <div className="np__note__head">
+              <span className="np__note__lab">Capture summary</span>
+              {onEditCapture && (
+                <button
+                  type="button"
+                  className="np__note__pen"
+                  aria-label="Edit this capture"
+                  title="Edit this capture"
+                  onClick={onEditCapture}
+                >
+                  <Icon name="edit" size={15} strokeWidth={2} />
+                </button>
+              )}
+            </div>
             <NoteField
               fieldRef={field}
               value={words}
+              read={Boolean(onEditCapture)}
               placeholder="What happened here, in your own words? Bauhly writes next week's plan from this."
               onSave={saveNote}
             />
@@ -1200,8 +1219,10 @@ export default function Captures() {
           onGenerate={() => { setOpen(null); runGen([openItem]); }}
           onMove={(toId) => run(async () => { setOpen(null); await moveSession(openItem.projectId, toId, openItem.memberIds); })}
           onDelete={() => { setSel([openItem.id]); setOpen(null); setDropping(true); }}
-          onAddDetail={() => { const r = resumeOf(openItem); if (r) { setOpen(null); setResuming(r); } }}
+          // with nothing on file to ask again, the capture is simply reopened
+          onAddDetail={() => { const r = resumeOf(openItem); if (r) { setOpen(null); setResuming(r); } else setAdding({ ...addingOf(openItem, []), itemId: openItem.id }); }}
           onAddFiles={(files) => setAdding({ ...addingOf(openItem, files), itemId: openItem.id })}
+          onEditCapture={() => setAdding({ ...addingOf(openItem, []), itemId: openItem.id })}
         />
       )}
       {adding && (
