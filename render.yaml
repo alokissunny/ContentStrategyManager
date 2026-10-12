@@ -229,11 +229,16 @@ services:
         generateValue: true
       - key: JWT_EXPIRES_IN
         value: 12h
+      # Browser origins allowed by CORS (comma-separated): the custom domain and
+      # the static site's onrender.com URL.
       - key: CLIENT_URL
+        value: https://backoffice.bauhly.com,https://bauhly-backoffice-web.onrender.com
+      # Customers › Activity post previews load slide photos from the media CDN.
+      - key: MEDIA_CDN_BASE_URL
         fromService:
           type: web
-          name: bauhly-backoffice-web
-          envVarKey: RENDER_EXTERNAL_URL
+          name: igsignal-api
+          envVarKey: MEDIA_CDN_BASE_URL
       - key: APIFY_TOKEN
         fromService:
           type: web
@@ -266,6 +271,9 @@ services:
     buildCommand: npm install && npm run build
     staticPublishPath: dist
     autoDeploy: true
+    # DNS (GoDaddy): CNAME backoffice → bauhly-backoffice-web.onrender.com
+    domains:
+      - backoffice.bauhly.com
     routes:
       - type: rewrite
         source: /*
