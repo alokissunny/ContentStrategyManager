@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { Fragment, useEffect, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   defaultCustomerQuery,
@@ -13,15 +13,10 @@ import { filterOptions } from '../../services/intelligence/filters'
 import { ApiError } from '../../services/api'
 import { EmptyState } from '../../components/EmptyState'
 import { StatCard } from '../../components/StatCard'
-import { CustomersIcon } from '../../components/icons'
+import { CustomersIcon, TrashIcon } from '../../components/icons'
 import { CustomerActivityPanel } from './CustomerActivity'
+import { DeleteCustomerModal } from './DeleteCustomerModal'
 import './customers.css'
-
-const PILLAR_LABELS: Record<string, string> = {
-  discovery: 'Discovery',
-  credibility: 'Credibility',
-  trust: 'Trust',
-}
 
 function initials(name: string): string {
   return name
@@ -39,11 +34,6 @@ function formatDate(iso: string | null | undefined): string {
   return d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })
 }
 
-function pillarLabel(pillar: string | null | undefined): string {
-  if (!pillar) return '—'
-  const key = pillar.toLowerCase()
-  return PILLAR_LABELS[key] ?? pillar.charAt(0).toUpperCase() + pillar.slice(1)
-}
 
 function formatFollowers(n: number | null | undefined): string {
   if (n == null) return ''
@@ -181,6 +171,8 @@ export function CustomersPage() {
   const [query, setQuery] = useState<CustomerQuery>(defaultCustomerQuery)
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [selectedHandle, setSelectedHandle] = useState<string | null>(null)
+  const [deleting, setDeleting] = useState<{ id: string; name: string } | null>(null)
+  const queryClient = useQueryClient()
 
   const list = useQuery({
     queryKey: ['customers', query],
@@ -260,16 +252,6 @@ export function CustomersPage() {
             value={query.search}
             onChange={(e) => setQuery({ ...query, search: e.target.value, page: 1 })}
           />
-          <label className="cust-admin-toggle">
-            <input
-              type="checkbox"
-              checked={query.includeAdmins}
-              onChange={(e) =>
-                setQuery({ ...query, includeAdmins: e.target.checked, page: 1 })
-              }
-            />
-            <span>Include admins</span>
-          </label>
         </div>
 
         <div className="panel">
@@ -289,71 +271,93 @@ export function CustomersPage() {
                     <th>Customer</th>
                     <th>Instagram</th>
                     <th>Signed up</th>
-                    <th>Weekly plan</th>
+                    <th className="cust-row-actions"><span className="sr-only">Actions</span></th>
                   </tr>
                 </thead>
                 <tbody>
-                  {rows.map((row) => {
+                  {rows.map((row, i) => {
+                    // a customer with several Instagram accounts gets a row of
+                    // its own (name, email, signup, delete); every account —
+                    // the first included — is listed under it the same way
+                    const multi = rows.filter((r) => r.id === row.id).length > 1
+                    const opensGroup = multi && rows.findIndex((r) => r.id === row.id) === i
+                    const continued = multi
                     const isActive =
                       selectedId === row.id &&
                       (selectedHandle ?? null) === (row.instagramUsername ?? null)
-                    return (
-                      <tr
-                        key={`${row.id}:${row.instagramUsername ?? '_'}`}
-                        className={[
-                          'cust-row',
-                          isActive ? 'cust-row--active' : '',
-                          row.sameUserContinuation ? 'cust-row--continuation' : '',
-                        ]
-                          .filter(Boolean)
-                          .join(' ')}
-                        onClick={() => selectAccount(row.id, row.instagramUsername)}
+                    const deleteButton = (
+                      <button
+                        type="button"
+                        className="cust-row-del"
+                        title="Delete customer"
+                        aria-label={`Delete ${row.name || row.email}`}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          setDeleting({ id: row.id, name: row.name || row.email })
+                        }}
                       >
-                        <td>
-                          {row.sameUserContinuation ? (
-                            <div className="comp-ident cust-ident--continued">
-                              <span className="cust-continued-mark" aria-hidden="true" />
-                              <div>
-                                <div className="comp-name cust-continued-name">
-                                  {row.name || 'Unnamed'}
+                        <TrashIcon />
+                      </button>
+                    )
+                    const ident = (
+                      <div className="comp-ident">
+                        <span className="comp-avatar" aria-hidden="true">
+                          {initials(row.name || row.email)}
+                        </span>
+                        <div>
+                          <div className="comp-name">{row.name || 'Unnamed'}</div>
+                          <div className="comp-handle">{row.email}</div>
+                        </div>
+                      </div>
+                    )
+                    const accounts = rows.filter((r) => r.id === row.id).length
+                    return (
+                      <Fragment key={`${row.id}:${row.instagramUsername ?? '_'}`}>
+                        {opensGroup && (
+                          <tr className="cust-row cust-row--group">
+                            <td>{ident}</td>
+                            <td><span className="cust-stage">{`${accounts} Instagram accounts`}</span></td>
+                            <td>{formatDate(row.createdAt)}</td>
+                            <td className="cust-row-actions">{deleteButton}</td>
+                          </tr>
+                        )}
+                        <tr
+                          className={[
+                            'cust-row',
+                            isActive ? 'cust-row--active' : '',
+                            continued ? 'cust-row--continuation' : '',
+                          ]
+                            .filter(Boolean)
+                            .join(' ')}
+                          onClick={() => selectAccount(row.id, row.instagramUsername)}
+                        >
+                          <td>
+                            {continued ? (
+                              <div className="comp-ident cust-ident--continued">
+                                <span className="cust-continued-mark" aria-hidden="true" />
+                                <div>
+                                  <div className="comp-name cust-continued-name">
+                                    {row.name || 'Unnamed'}
+                                  </div>
+                                  <div className="comp-handle">same account</div>
                                 </div>
-                                <div className="comp-handle">same account</div>
                               </div>
-                            </div>
-                          ) : (
-                            <div className="comp-ident">
-                              <span className="comp-avatar" aria-hidden="true">
-                                {initials(row.name || row.email)}
-                              </span>
-                              <div>
-                                <div className="comp-name">{row.name || 'Unnamed'}</div>
-                                <div className="comp-handle">{row.email}</div>
-                              </div>
-                            </div>
-                          )}
-                        </td>
-                        <td>
-                          {row.instagramUsername ? (
-                            <>
-                              @{row.instagramUsername}
-                              {formatFollowers(row.followersCount)}
-                            </>
-                          ) : (
-                            <span className="cust-stage">—</span>
-                          )}
-                        </td>
-                        <td>{formatDate(row.createdAt)}</td>
-                        <td>
-                          {row.hasWeeklyPlan ? (
-                            <span className="cust-stage">
-                              {row.weekLabel || 'Plan ready'}
-                              {row.focusPillar ? ` · ${pillarLabel(row.focusPillar)}` : ''}
-                            </span>
-                          ) : (
-                            <span className="cust-stage">Not presented</span>
-                          )}
-                        </td>
-                      </tr>
+                            ) : ident}
+                          </td>
+                          <td>
+                            {row.instagramUsername ? (
+                              <>
+                                @{row.instagramUsername}
+                                {formatFollowers(row.followersCount)}
+                              </>
+                            ) : (
+                              <span className="cust-stage">—</span>
+                            )}
+                          </td>
+                          <td>{formatDate(row.createdAt)}</td>
+                          <td className="cust-row-actions">{!continued && deleteButton}</td>
+                        </tr>
+                      </Fragment>
                     )
                   })}
                 </tbody>
@@ -437,6 +441,22 @@ export function CustomersPage() {
           </div>
         )}
       </div>
+
+      {deleting && (
+        <DeleteCustomerModal
+          customerId={deleting.id}
+          fallbackName={deleting.name}
+          onClose={() => setDeleting(null)}
+          onDeleted={() => {
+            if (selectedId === deleting.id) {
+              setSelectedId(null)
+              setSelectedHandle(null)
+            }
+            queryClient.invalidateQueries({ queryKey: ['customers'] })
+            queryClient.removeQueries({ queryKey: ['customer-detail', deleting.id] })
+          }}
+        />
+      )}
     </div>
   )
 }

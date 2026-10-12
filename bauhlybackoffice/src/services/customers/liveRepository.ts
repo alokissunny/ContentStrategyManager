@@ -123,7 +123,7 @@ export interface CustomerQuery {
   search: string
   page: number
   pageSize: number
-  /** Surface backoffice admin accounts, which are hidden by default. */
+  /** Admin accounts are always listed alongside customers (no toggle). */
   includeAdmins: boolean
 }
 
@@ -131,7 +131,7 @@ export const defaultCustomerQuery: CustomerQuery = {
   search: '',
   page: 1,
   pageSize: 20,
-  includeAdmins: false,
+  includeAdmins: true,
 }
 
 const delay = (ms = 200) => new Promise((r) => setTimeout(r, ms))
@@ -345,4 +345,38 @@ export async function getEditPreview(
   }
   await delay()
   return null
+}
+
+/* ── Delete a customer account ──────────────────────────────────────────── */
+
+const deletionItem = z.object({ key: z.string(), label: z.string(), count: z.number() })
+
+const deletionSummary = z.object({
+  id: z.string(),
+  name: z.string(),
+  email: z.string(),
+  handles: z.array(z.string()),
+  canDelete: z.boolean(),
+  blockedReason: z.string().nullable(),
+  items: z.array(deletionItem),
+  mediaWillBeDeleted: z.boolean(),
+})
+
+const deletionResult = z.object({
+  deleted: z.array(deletionItem),
+  mediaFilesDeleted: z.number(),
+  mediaSkipped: z.boolean(),
+})
+
+export type DeletionSummary = z.infer<typeof deletionSummary>
+export type DeletionResult = z.infer<typeof deletionResult>
+
+/** What deleting this customer would remove. */
+export async function getDeletionSummary(id: string): Promise<DeletionSummary> {
+  return deletionSummary.parse(await api.get<unknown>(`/customers/${id}/deletion`))
+}
+
+/** Permanently delete the customer; `confirmEmail` must repeat their email. */
+export async function deleteCustomer(id: string, confirmEmail: string): Promise<DeletionResult> {
+  return deletionResult.parse(await api.del<unknown>(`/customers/${id}`, { confirmEmail }))
 }

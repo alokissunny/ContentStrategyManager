@@ -201,3 +201,10 @@ export const ZapIcon = (p: IconProps) => (
     <path d="M11 2.5 4.5 11h4l-1 6.5L14.5 9h-4l.5-6.5Z" />
   </Icon>
 )
+
+/* A bin: permanently remove. */
+export const TrashIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M3.5 5.5h13M8 5.5V4a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v1.5M5.5 5.5l.7 10.1A1.5 1.5 0 0 0 7.7 17h4.6a1.5 1.5 0 0 0 1.5-1.4l.7-10.1M8.5 8.5v5.5M11.5 8.5v5.5" />
+  </Icon>
+)

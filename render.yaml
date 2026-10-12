@@ -239,6 +239,27 @@ services:
           type: web
           name: igsignal-api
           envVarKey: MEDIA_CDN_BASE_URL
+      # Customers › Delete removes the customer's media (projects/<id>/, reports/<id>/).
+      - key: AWS_REGION
+        fromService:
+          type: web
+          name: igsignal-api
+          envVarKey: AWS_REGION
+      - key: AWS_ACCESS_KEY_ID
+        fromService:
+          type: web
+          name: igsignal-api
+          envVarKey: AWS_ACCESS_KEY_ID
+      - key: AWS_SECRET_ACCESS_KEY
+        fromService:
+          type: web
+          name: igsignal-api
+          envVarKey: AWS_SECRET_ACCESS_KEY
+      - key: S3_BUCKET_NAME
+        fromService:
+          type: web
+          name: igsignal-api
+          envVarKey: S3_BUCKET_NAME
       - key: APIFY_TOKEN
         fromService:
           type: web

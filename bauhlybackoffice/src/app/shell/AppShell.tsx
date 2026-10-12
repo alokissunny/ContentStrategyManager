@@ -32,7 +32,7 @@ const COMPETITORS_TITLE = {
 
 const CUSTOMERS_TITLE = {
   title: 'Customers',
-  subtitle: 'Bauhly signups and the weekly plans presented to each user',
+  subtitle: 'Bauhly signups and how each one uses the product',
 }
 
 const EARLY_ACCESS_TITLE = {

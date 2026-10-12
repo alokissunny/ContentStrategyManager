@@ -1,7 +1,9 @@
 import { Router } from 'express'
 import { z } from 'zod'
 import { getCustomerDetail, listCustomers, setCustomerCohort } from '../services/customers.ts'
+import type { AuthedRequest } from '../middleware/auth.ts'
 import { getCustomerActivity } from '../services/customerActivity.ts'
+import { DeletionError, deleteCustomer, getDeletionSummary } from '../services/customerDeletion.ts'
 import { getEditPreview, getPostPreview } from '../services/postPreview.ts'
 import { asyncHandler } from '../utils/asyncHandler.ts'
 
@@ -69,6 +71,38 @@ customerRoutes.get(
     const preview = await getEditPreview(String(req.params.id), String(req.params.editId), { includeAdmins })
     if (!preview) return res.status(404).json({ message: 'No preview stored for this edit' })
     res.json(preview)
+  }),
+)
+
+/** What deleting this customer would remove (shown in the confirmation). */
+customerRoutes.get(
+  '/customers/:id/deletion',
+  asyncHandler(async (req: AuthedRequest, res) => {
+    try {
+      res.json(await getDeletionSummary(String(req.params.id), req.admin?.id ?? ''))
+    } catch (err) {
+      if (err instanceof DeletionError) return res.status(err.status).json({ message: err.message })
+      throw err
+    }
+  }),
+)
+
+/** Permanently delete a customer account and all of its data. Body: { confirmEmail }. */
+customerRoutes.delete(
+  '/customers/:id',
+  asyncHandler(async (req: AuthedRequest, res) => {
+    const body = z.object({ confirmEmail: z.string().trim().min(1) }).safeParse(req.body)
+    if (!body.success) return res.status(400).json({ message: 'Type the customer’s email to confirm.' })
+    try {
+      res.json(await deleteCustomer(String(req.params.id), {
+        adminId: req.admin?.id ?? '',
+        adminEmail: req.admin?.email ?? '',
+        confirmEmail: body.data.confirmEmail,
+      }))
+    } catch (err) {
+      if (err instanceof DeletionError) return res.status(err.status).json({ message: err.message })
+      throw err
+    }
   }),
 )
 

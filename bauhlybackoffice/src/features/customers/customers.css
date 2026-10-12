@@ -953,3 +953,59 @@
 .cust-admin-toggle input {
   cursor: pointer;
 }
+
+/* ── Delete customer (DeleteCustomerModal + row action) ───────────────────── */
+.cust-row-actions { width: 1%; white-space: nowrap; text-align: right; }
+.cust-row-del {
+  display: inline-grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border: 0;
+  border-radius: var(--r-md);
+  background: none;
+  color: var(--ink-400);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.12s, background 0.12s, color 0.12s;
+}
+.cust-row:hover .cust-row-del,
+.cust-row-del:focus-visible { opacity: 1; }
+.cust-row-del:hover { background: var(--negative-soft); color: var(--negative); }
+.cust-row-del:focus-visible { outline: 2px solid var(--primary-400); outline-offset: 1px; }
+@media (hover: none) { .cust-row-del { opacity: 1; } }
+
+.cust-del { display: flex; flex-direction: column; gap: var(--sp-4); }
+.cust-del-warn {
+  margin: 0;
+  padding: var(--sp-3);
+  border-radius: var(--r-md);
+  background: var(--negative-soft);
+  color: var(--negative);
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+.cust-del-list { border: 1px solid var(--border); border-radius: var(--r-md); padding: var(--sp-3); }
+.cust-del-list-head { display: block; margin-bottom: var(--sp-2); font-size: var(--text-xs); font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: var(--ink-500); }
+.cust-del-list ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.cust-del-list li { display: flex; justify-content: space-between; gap: var(--sp-3); font-size: var(--text-sm); color: var(--ink-800); }
+.cust-del-list b { font-variant-numeric: tabular-nums; }
+.cust-del-confirm { display: flex; flex-direction: column; gap: var(--sp-2); font-size: var(--text-sm); color: var(--ink-700); }
+.cust-del-confirm input {
+  height: 36px;
+  padding: 0 var(--sp-3);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-md);
+  font: inherit;
+  color: var(--ink-900);
+  background: var(--surface);
+}
+.cust-del-confirm input:focus { outline: 2px solid var(--negative); outline-offset: 0; border-color: transparent; }
+.cust-del .btn-danger.cust-del-go:not(:disabled) { background: var(--negative); border-color: var(--negative); color: #fff; }
+.cust-row-actions .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.cust-del-actions { display: flex; justify-content: flex-end; gap: var(--sp-2); margin-top: var(--sp-2); }
+
+/* a customer with several Instagram accounts: its own row, accounts beneath */
+.cust-row--group { cursor: default; }
+.cust-row--group:hover td { background: transparent; }
+.cust-row--group .cust-stage { color: var(--ink-500); }
