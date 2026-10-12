@@ -10,6 +10,7 @@ import ProtectedLayout from './components/ProtectedLayout';
 // when its route is visited.
 const Onboarding = lazy(() => import('./pages/Onboarding'));
 const Captures = lazy(() => import('./pages/Captures'));
+const PlanSetup = lazy(() => import('./pages/PlanSetup'));
 const BrandDna = lazy(() => import('./pages/BrandDna'));
 const LibrarySettings = lazy(() => import('./pages/visuallibrary/LibrarySettings'));
 const CompetitorOverview = lazy(() => import('./pages/CompetitorOverview'));
@@ -41,6 +42,7 @@ export default function App() {
               working for bookmarks and any lingering in-app links */}
           <Route path="/dashboard/content-route" element={<Navigate to="/dashboard" replace />} />
           <Route path="/dashboard/projects" element={<Captures />} />
+          <Route path="/dashboard/plan-setup" element={<PlanSetup />} />
           <Route path="/dashboard/brand-dna" element={<BrandDna />} />
           {/* The Visual Library page is removed — the Brand Kit (formerly Library
               Settings) is the one surviving surface for the studio's visual

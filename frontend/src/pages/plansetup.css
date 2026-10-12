@@ -1,0 +1,145 @@
+/* Plan preferences — /dashboard/plan-setup (pages/PlanSetup.jsx). Reuses the
+   Captures list rows (captures.css pjw-*); pls-* is this page's own furniture. */
+
+.pls { gap: var(--sp-6); padding-bottom: 96px; }
+.pls .pj-head { align-items: flex-start; }
+
+.pls-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  margin: 0 0 var(--sp-2) -4px;
+  padding: 2px 4px;
+  border: 0;
+  background: none;
+  font-family: var(--font-ui);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--ink-500);
+  cursor: pointer;
+  border-radius: var(--r-sm);
+}
+.pls-back:hover { color: var(--ink-900); }
+.pls-back:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+
+.pls-lead { margin: 6px 0 0; font-size: var(--text-sm); line-height: 1.5; color: var(--ink-500); }
+
+.pls-sec { display: flex; flex-direction: column; gap: var(--sp-3); }
+.pls-sec__head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--sp-3); }
+.pls-sec__title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--text-lg);
+  font-weight: 700;
+  letter-spacing: -0.005em;
+}
+.pls-link {
+  border: 0;
+  background: none;
+  padding: 0;
+  font-family: var(--font-ui);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--ink-600);
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.pls-link:hover { color: var(--ink-900); }
+
+.pls-note {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--ink-500);
+}
+
+.pls-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+  padding: var(--sp-5);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: var(--surface);
+}
+
+.pls-modes {
+  display: inline-flex;
+  align-self: flex-start;
+  padding: 3px;
+  border-radius: var(--r-full);
+  background: var(--ink-100);
+}
+.pls-mode {
+  height: 32px;
+  padding: 0 var(--sp-4);
+  border: 0;
+  border-radius: var(--r-full);
+  background: none;
+  font-family: var(--font-ui);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--ink-600);
+  cursor: pointer;
+}
+.pls-mode.is-on { background: var(--surface, #fff); color: var(--ink-900); box-shadow: 0 1px 2px rgba(20, 20, 25, 0.12); }
+.pls-mode:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+
+.pls-days { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: var(--sp-2); max-width: 520px; }
+.pls-day {
+  height: 40px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: var(--surface, #fff);
+  box-shadow: inset 0 0 0 1px var(--border);
+  font-family: var(--font-ui);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--ink-600);
+  cursor: pointer;
+  transition: background var(--dur-fast), color var(--dur-fast);
+}
+.pls-day:hover { background: var(--ink-100); color: var(--ink-900); }
+.pls-day:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.pls-day.is-on { background: var(--ink-900); box-shadow: none; color: var(--canvas); }
+.pls-day.is-only { cursor: default; }
+.pls-day.is-only:hover { background: var(--ink-900); color: var(--canvas); }
+
+.pls-say { margin: 0; font-size: var(--text-sm); line-height: 1.5; color: var(--ink-500); }
+
+.pls-foot {
+  position: sticky;
+  bottom: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--sp-3);
+  margin-top: auto;
+  padding: var(--sp-4) 0;
+  background: var(--canvas);
+  border-top: 1px solid var(--border);
+}
+.pls-cancel {
+  height: 34px;
+  padding: 0 var(--sp-4);
+  border: 0;
+  border-radius: var(--r-full);
+  background: var(--ink-100);
+  font-family: var(--font-ui);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--ink-900);
+  cursor: pointer;
+}
+.pls-cancel:hover { background: var(--ink-200, #e4e4e7); }
+.pls-go:disabled { opacity: 0.45; cursor: not-allowed; }
+
+@media (max-width: 560px) {
+  .pls-card { padding: var(--sp-4); }
+  .pls-days { gap: 6px; }
+  .pls-day { height: 36px; font-size: var(--text-xs); }
+}

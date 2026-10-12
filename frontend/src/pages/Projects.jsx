@@ -1014,7 +1014,7 @@ function CaptureReference({ of: r }) {
   );
 }
 
-export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewProject, onCaptured, exitLabel = 'Back', modal = false, opening = '', savedLine = '', projectName = '', askProject = true, maxQuestions = 4, askMedia = true, resume = null, deferQuestions = false, adding = null, onPlan = null }) {
+export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewProject, onCaptured, exitLabel = 'Back', modal = false, opening = '', savedLine = '', projectName = '', askProject = true, maxQuestions = 4, askMedia = true, resume = null, deferQuestions = false, adding = null, onPlan = null, run = null }) {
   const projects = useProjects();
   const { messages, typing, push, say, after } = useConversation();
   const [step, setStep] = useState('boot');
@@ -1032,7 +1032,14 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
      question Bauhly would ask is kept on it and asked only when the studio
      presses `Generate plan`, under a heads-up band saying what is at stake */
   const planning = useRef(false);
-  const [notice, setNotice] = useState(false);
+  /* `run` (Captures › Generate plan): this question is one of a queue asked
+     before the plan — { left, warn, onNext, onStop, onHideWarn }. Answering or
+     skipping moves to the next; Save and close / × end the run. */
+  const [notice, setNotice] = useState(() => {
+    if (!run?.warn) return false;
+    try { return localStorage.getItem('bauhly.planNotice.off') !== '1'; } catch { return true; }
+  });
+  const hideNotice = () => { setNotice(false); run?.onHideWarn?.(); };
   // the capture a clarification is about (see CaptureReference)
   const [reference, setReference] = useState(() => (resume ? {
     quote: saidIn(resume.turns, (resume.history || []).map((h) => h.text).filter(Boolean).join('\n\n') || resume.text),
@@ -1335,6 +1342,11 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
       handOff();
       return;
     }
+    // a Generate-plan run: the capture stays as it was, on to the next question
+    if (resume && run) {
+      run.onNext();
+      return;
+    }
     // picking a capture back up and skipping again: nothing new to keep
     if (resume) {
       const d = say('No problem — it stays as it was.');
@@ -1528,7 +1540,7 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
           conversationTurns: c.turns,
         });
         const d = say('Added to your capture — the next plan is written from it.');
-        after(d + 900, () => onExit?.());
+        after(d + 900, () => (run ? run.onNext() : onExit?.()));
         return;
       }
       const made = await addSession(pid, {
@@ -2034,17 +2046,19 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
               <div className="ck__notice" role="status">
                 <span className="ck__notice__mark" aria-hidden="true"><Icon name="info" size={16} strokeWidth={2.2} /></span>
                 <p className="ck__notice__say">
-                  Bauhly is unsure about 1 thing. Answer it and your post comes out right. Skip and Bauhly has to guess.
+                  {(run?.left || 1) === 1
+                    ? 'Bauhly is unsure about 1 thing. Answer it and your post comes out right. Skip and Bauhly has to guess.'
+                    : `Bauhly is unsure about ${run.left} things. Answer them and your posts come out right. Skip and Bauhly has to guess.`}
                   {' '}
                   <button
                     type="button"
                     className="ck__notice__never"
-                    onClick={() => { setNotice(false); try { localStorage.setItem('bauhly.planNotice.off', '1'); } catch { /* this visit only */ } }}
+                    onClick={() => { hideNotice(); try { localStorage.setItem('bauhly.planNotice.off', '1'); } catch { /* this visit only */ } }}
                   >
                     Don&rsquo;t show again
                   </button>
                 </p>
-                <button type="button" className="ck__notice__x" onClick={() => setNotice(false)} aria-label="Hide this">
+                <button type="button" className="ck__notice__x" onClick={hideNotice} aria-label="Hide this">
                   <Icon name="x" size={15} strokeWidth={2.2} />
                 </button>
               </div>
@@ -2177,7 +2191,7 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
                 {reference && <CaptureReference of={reference} />}
                 <div className="ck-inline">
                   {(planning.current || resume) && (
-                    <button type="button" className="ck-chip" onClick={onExit}>Save and close</button>
+                    <button type="button" className="ck-chip" onClick={run ? run.onStop : onExit}>Save and close</button>
                   )}
                   <button type="button" className={planning.current || resume ? 'btn btn--quiet btn--sm' : 'ck-chip'} onClick={skipClarify}>
                     {!(planning.current || resume) && <Icon name="arrow-right" size={14} />} Skip this question

@@ -1763,6 +1763,9 @@ export default function YourPlans() {
     const extras = {
       sessionId: location.state.sessionId || '',
       captureIds: location.state.captureIds || [],
+      // Plan preferences (PlanSetup): the publishing days chosen for this plan
+      ...(location.state.mode ? { mode: location.state.mode } : {}),
+      ...(Array.isArray(location.state.days) ? { days: location.state.days } : {}),
     };
     const trigger = (extras.sessionId || extras.captureIds.length) ? 'regenerate-session' : 'capture';
     navigate('.', { replace: true, state: {} });

@@ -36,7 +36,7 @@ import './captures.css';
 /* The generate endpoint reads at most this many capture ids. */
 const MAX_GEN_IDS = 24;
 
-const STATUS_SAY = {
+export const STATUS_SAY = {
   unclear: { label: 'Needs clarification', short: 'Answer', icon: 'info', tone: 'ask' },
   thin: { label: 'Needs more information', short: 'More info', icon: 'info', tone: 'ask' },
   ready: { label: 'Ready for plan', short: 'Ready', icon: 'plan', tone: 'ready' },
@@ -118,9 +118,13 @@ const questionsOf = (item, asked = {}) => [...new Set((item.project.captures || 
 
 // Add the detail: the member that is missing something, its conversation and
 // the first gap — what the Capture window needs to pick it back up
-function resumeOf(item) {
+// `asked`: questions fetched on this visit; an unclear capture with none yet
+// still gets the generic one, so Generate plan can ask it
+function resumeOf(item, asked = {}) {
   const members = (item.project.captures || []).filter((c) => item.memberIds.includes(c.id));
-  const m = members.find((c) => (c.gaps || []).length || (c.openQuestions || []).length);
+  const asks = (c) => [...(c.openQuestions || []), ...(asked[c.id] || [])];
+  let m = members.find((c) => (c.gaps || []).length || asks(c).length);
+  if (!m && item.status === 'unclear') m = members.find((c) => (c.attachments || []).length) || members[0];
   if (!m) return null;
   // the history to show: this capture's chat, else the session's (one member
   // usually carries it), else the note itself as what the studio said
@@ -134,7 +138,7 @@ function resumeOf(item) {
       media: (c.attachments || []).map((a) => ({ type: a.type, key: a.key, url: a.url })),
     })).filter((h) => h.text || h.media.length),
     // Bauhly's own question first; the generic gap only when there is none
-    gap: (m.openQuestions || [])[0] || (m.gaps || [])[0] || '',
+    gap: asks(m)[0] || (m.gaps || [])[0] || 'What do these pictures show, and what happened?',
     text: m.text || '',
     createdAt: m.createdAt || item.session?.createdAt || null,
     attachments: (m.attachments || []).map((a) => ({ type: a.type, key: a.key, url: a.url })),
@@ -486,9 +490,9 @@ function CapturePanel({ item, projects, asked, onClose, onGenerate, onDelete, on
   );
 }
 
-const wordsOf = (it) => String(sessionDisplayText(it.session) || it.session.text || '').trim();
+export const wordsOf = (it) => String(sessionDisplayText(it.session) || it.session.text || '').trim();
 
-function Thumb({ att }) {
+export function Thumb({ att }) {
   const [broken, setBroken] = useState(false);
   const src = previewUrl(att);
   if (!src || broken) return <Icon name="image" size={18} strokeWidth={2} />;
@@ -619,6 +623,12 @@ export default function Captures() {
   const [gen, setGen] = useState(null); // { eligible, blocked, held, spent }
   const [busy, setBusy] = useState(false);
   const [resuming, setResuming] = useState(null);
+  /* Generate plan with questions open: each is asked in Capture, one after
+     another; when the queue is done the plan's preferences page opens */
+  const [asking, setAsking] = useState(null); // { list: [resume…], at }
+  const warnOff = useRef(false);
+  const askingRef = useRef(null);
+  askingRef.current = asking;
   const [adding, setAdding] = useState(null); // Add: files chosen for a capture, asked about in Capture // Add the detail: the capture conversation picked back up
 
   // The generated-image folder (WeekView › Create image) — reached from Filters.
@@ -729,11 +739,27 @@ export default function Captures() {
   };
   const aim = genSplit();
 
-  // the page-level Generate: everything ready in the project(s) on screen; if
-  // some are still waiting on words, say so before generating around them
+  // the page-level Generate: every open clarification in the project(s) on
+  // screen is asked first (answer or skip each), then the preferences page
+  const toSetup = () => {
+    setAsking(null);
+    navigate(`/dashboard/plan-setup${pick.length ? `?p=${pick.join(',')}` : ''}`);
+  };
   const startGen = () => {
-    if (waiting.length) setGen({ eligible: readyNow, blocked: waiting, held: [], spent: [] });
-    else runGen(readyNow);
+    const list = all
+      .filter((it) => inProject(it, pick) && (it.status === 'unclear' || it.status === 'thin'))
+      .map((it) => resumeOf(it, asked))
+      .filter(Boolean);
+    if (!list.length) { toSetup(); return; }
+    warnOff.current = false;
+    setOpen(null);
+    setAsking({ list, at: 0 });
+  };
+  const askNext = () => {
+    const a = askingRef.current;
+    if (!a) return;
+    if (a.at + 1 < a.list.length) setAsking({ ...a, at: a.at + 1 });
+    else toSetup(); // the run is over: on to the plan's preferences
   };
 
   const hold = (off) => run(async () => {
@@ -1240,6 +1266,27 @@ export default function Captures() {
           onExit={() => setAdding(null)}
         />
       )}
+      {asking && asking.list[asking.at] && (() => {
+        const q = asking.list[asking.at];
+        return (
+          <CaptureChat
+            key={`${q.captureId}-${asking.at}`}
+            modal
+            resume={q}
+            presetProjectId={q.projectId}
+            askMedia={false}
+            maxQuestions={(q.turns || []).filter((t) => t.role === 'assistant').length + 2}
+            run={{
+              left: asking.list.length - asking.at,
+              warn: !warnOff.current,
+              onNext: askNext,
+              onStop: () => setAsking(null),
+              onHideWarn: () => { warnOff.current = true; },
+            }}
+            onExit={() => setAsking(null)}
+          />
+        );
+      })()}
       {resuming && (
         <CaptureChat
           modal
