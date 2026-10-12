@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { Suspense } from 'react';
 import { Outlet, useLocation, NavLink, Link } from 'react-router-dom';
 import Sidebar, { useNavItems } from './Sidebar';
 import UserMenu from './UserMenu';
@@ -17,6 +17,25 @@ import { openCaptureIdea } from '../lib/captureUi';
 // on (bauhly-v3 AppShell `${icon}-fill`); other nav items keep their glyph
 const TAB_MARK = { calendar: 'calendar', 'notebook-text': 'brief' };
 
+function PageFallback() {
+  return (
+    <div className="ph" role="status">
+      <p className="ph__sub">Loading…</p>
+    </div>
+  );
+}
+
+// Code-split routes suspend on their first visit. This boundary has to sit
+// inside the shell: one above <Routes> replaces the sidebar and header with
+// the fallback, which looks like a full page refresh.
+function PageSlot({ handle, children }) {
+  return (
+    <Suspense fallback={<PageFallback />}>
+      <React.Fragment key={handle || 'no-account'}>{children}</React.Fragment>
+    </Suspense>
+  );
+}
+
 export default function DashboardLayout({ children }) {
   const { pathname } = useLocation();
   // The active Instagram handle scopes almost every page's data. Switching it
@@ -32,7 +51,11 @@ export default function DashboardLayout({ children }) {
   const content = children ?? <Outlet />;
 
   if (hideNav) {
-    return <div style={{ minHeight: '100vh', background: 'var(--canvas)' }}>{content}</div>;
+    return (
+      <div style={{ minHeight: '100vh', background: 'var(--canvas)' }}>
+        <PageSlot handle={activeHandle}>{content}</PageSlot>
+      </div>
+    );
   }
 
   return (
@@ -92,7 +115,7 @@ export default function DashboardLayout({ children }) {
       <div className="app__body">
         <Sidebar />
         <main className="app__main">
-          <React.Fragment key={activeHandle || 'no-account'}>{content}</React.Fragment>
+          <PageSlot handle={activeHandle}>{content}</PageSlot>
         </main>
       </div>
       <CaptureHost />
