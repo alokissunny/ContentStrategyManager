@@ -7,7 +7,6 @@ import {
   updateCustomerCohort,
   type CustomerCohort,
   type CustomerQuery,
-  type CustomerWeeklyPlan,
 } from '../../services/customers/liveRepository'
 import { getCompetitorLocations } from '../../services/competitors/repository'
 import { filterOptions } from '../../services/intelligence/filters'
@@ -15,6 +14,7 @@ import { ApiError } from '../../services/api'
 import { EmptyState } from '../../components/EmptyState'
 import { StatCard } from '../../components/StatCard'
 import { CustomersIcon } from '../../components/icons'
+import { CustomerActivityPanel } from './CustomerActivity'
 import './customers.css'
 
 const PILLAR_LABELS: Record<string, string> = {
@@ -45,95 +45,9 @@ function pillarLabel(pillar: string | null | undefined): string {
   return PILLAR_LABELS[key] ?? pillar.charAt(0).toUpperCase() + pillar.slice(1)
 }
 
-function shortDay(day: string): string {
-  const trimmed = day.trim()
-  if (/^(mon|tue|wed|thu|fri|sat|sun)/i.test(trimmed)) return trimmed.slice(0, 3)
-  return trimmed.slice(0, 3)
-}
-
 function formatFollowers(n: number | null | undefined): string {
   if (n == null) return ''
   return ` · ${n.toLocaleString('en-US')}`
-}
-
-/**
- * Calendar view of the weekly plan presented to the customer — Mon–Fri cards
- * with time, pillar, title and format (matches the Recommended weekly plan mock).
- */
-function WeeklyPlanCalendar({
-  plan,
-  customerName,
-  handle,
-}: {
-  plan: CustomerWeeklyPlan
-  customerName: string
-  handle: string | null
-}) {
-  const focusPillar = plan.focus?.pillar ? pillarLabel(plan.focus.pillar) : null
-
-  return (
-    <section className="weekly-plan" aria-labelledby={`weekly-plan-title-${plan.id}`}>
-      <div className="panel-head weekly-plan-head">
-        <h2 id={`weekly-plan-title-${plan.id}`}>
-          Recommended weekly plan — {customerName || 'Customer'}
-          {plan.weekLabel ? ` · ${plan.weekLabel}` : ''}
-        </h2>
-      </div>
-
-      {plan.focus && (
-        <div className="plan-focus">
-          <p className="plan-focus-line">
-            <span className="plan-focus-label">
-              This week focuses on {focusPillar}
-              {plan.focus.headline ? ` — ${plan.focus.headline}` : ''}
-            </span>
-          </p>
-          {(plan.focus.recommendation || plan.focus.whyMatters || plan.focus.observation) && (
-            <p className="plan-focus-explain">
-              {plan.focus.recommendation || plan.focus.whyMatters || plan.focus.observation}
-            </p>
-          )}
-        </div>
-      )}
-
-      {plan.days.some((d) => d.time) && (
-        <div className="plan-timing-note">
-          <span>Scheduled posting times from the plan presented to this customer</span>
-        </div>
-      )}
-
-      {plan.days.length === 0 ? (
-        <p className="section-note">This plan has no scheduled days.</p>
-      ) : (
-        <div className="plan-grid" role="list">
-          {plan.days.map((day, i) => {
-            const pillar = (day.pillar || 'discovery').toLowerCase()
-            return (
-              <div className="plan-day" role="listitem" key={`${day.day}-${i}`}>
-                <div className="plan-day-head">
-                  <span className="plan-day-name">{shortDay(day.day)}</span>
-                  <span className="plan-day-time">{day.time || '—'}</span>
-                </div>
-                {day.dateLabel && <span className="plan-activity-label">{day.dateLabel}</span>}
-                <span className={`pillar-tag pillar-tag--${pillar}`}>{pillarLabel(pillar)}</span>
-                <p className="plan-content">{day.title || day.contentType || 'Untitled'}</p>
-                <p className="plan-format">
-                  {day.format}
-                  {day.published ? ' · published' : ''}
-                </p>
-              </div>
-            )
-          })}
-        </div>
-      )}
-
-      <p className="panel-foot-note weekly-plan-basis">
-        {handle ? `@${handle}` : customerName}
-        {plan.generatedAt ? ` · presented ${formatDate(plan.generatedAt)}` : ''}
-        {plan.instagramUsername ? ` · plan for @${plan.instagramUsername}` : ''}
-      </p>
-    </section>
-  )
 }
 
 /**
@@ -317,26 +231,10 @@ export function CustomersPage() {
 
   const stats = list.data?.stats
   const rows = list.data?.rows ?? []
-  const selectedRow = rows.find(
-    (r) =>
-      r.id === selectedId &&
-      (r.instagramUsername ?? null) === (selectedHandle ?? null),
-  )
   const profiles = detail.data?.profiles ?? []
   const activeProfile = selectedHandle
     ? profiles.find((p) => p.username.toLowerCase() === selectedHandle.toLowerCase())
     : profiles[0]
-  const weeklyPlans =
-    detail.data?.weeklyPlans?.length
-      ? detail.data.weeklyPlans
-      : detail.data?.weeklyPlan
-        ? [detail.data.weeklyPlan]
-        : []
-  const activePlan = selectedHandle
-    ? weeklyPlans.find(
-        (p) => p.instagramUsername.toLowerCase() === selectedHandle.toLowerCase(),
-      ) ?? null
-    : weeklyPlans[0] ?? null
 
   return (
     <div className="cust-layout">
@@ -530,25 +428,12 @@ export function CustomersPage() {
               />
             )}
 
-            {activePlan ? (
-              <WeeklyPlanCalendar
-                plan={activePlan}
-                customerName={detail.data.name || selectedRow?.name || ''}
-                handle={activePlan.instagramUsername || selectedHandle}
-              />
-            ) : (
-              <section className="weekly-plan">
-                <div className="panel-head weekly-plan-head">
-                  <h2>
-                    Recommended weekly plan —{' '}
-                    {selectedHandle ? `@${selectedHandle}` : detail.data.name || 'Customer'}
-                  </h2>
-                </div>
-                <p className="section-note">
-                  No weekly plan has been presented for this Instagram account yet.
-                </p>
-              </section>
-            )}
+            <CustomerActivityPanel
+              key={`${selectedId}:${selectedHandle ?? '_'}`}
+              customerId={selectedId}
+              handle={selectedHandle}
+              includeAdmins={query.includeAdmins}
+            />
           </div>
         )}
       </div>

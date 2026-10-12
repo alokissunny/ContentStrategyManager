@@ -1,6 +1,7 @@
 const express = require('express');
 const asyncHandler = require('../utils/asyncHandler');
 const { protect } = require('../middleware/auth');
+const { postEditLog } = require('../middleware/postEditLog');
 const {
   getPosts,
   getPostById,
@@ -36,6 +37,8 @@ const {
 const router = express.Router();
 
 router.use(protect);
+// what the studio changes after generation → backoffice Customers › Activity › Edits
+router.use(postEditLog);
 router.get('/', asyncHandler(getPosts));
 router.post('/generate', asyncHandler(generatePlan));
 // Queued generation runs (PLAN_QUEUE) — before '/:id' so "runs" isn't read as a post id.

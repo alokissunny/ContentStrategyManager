@@ -40,3 +40,52 @@ const weeklyRouteSchema = new Schema(
 export const WeeklyRoute =
   mongoose.models.BackofficeWeeklyRoute ??
   mongoose.model('BackofficeWeeklyRoute', weeklyRouteSchema)
+
+/* Customer activity (Customers › Activity): captures, generated posts and the
+   edit log the customer app writes (backend middleware/postEditLog.js). */
+
+const projectSchema = new Schema(
+  {
+    user: { type: Schema.Types.ObjectId, required: true },
+    instagramUsername: String,
+    name: String,
+    captures: [Schema.Types.Mixed],
+  },
+  { collection: 'projects', strict: false, timestamps: true },
+)
+
+export const CustomerProject =
+  mongoose.models.BackofficeCustomerProject ??
+  mongoose.model('BackofficeCustomerProject', projectSchema)
+
+const plannedPostSchema = new Schema(
+  {
+    user: { type: Schema.Types.ObjectId, required: true },
+    instagramUsername: String,
+    date: String,
+    title: String,
+    format: String,
+    pillar: String,
+    content: Schema.Types.Mixed,
+    generatedAt: Date,
+  },
+  { collection: 'plannedposts', strict: false, timestamps: true },
+)
+
+export const CustomerPlannedPost =
+  mongoose.models.BackofficeCustomerPlannedPost ??
+  mongoose.model('BackofficeCustomerPlannedPost', plannedPostSchema)
+
+const postEditLogSchema = new Schema(
+  {
+    user: { type: Schema.Types.ObjectId, required: true },
+    instagramUsername: String,
+    post: Schema.Types.ObjectId,
+    at: Date,
+  },
+  { collection: 'posteditlogs', strict: false },
+)
+
+export const CustomerPostEditLog =
+  mongoose.models.BackofficeCustomerPostEditLog ??
+  mongoose.model('BackofficeCustomerPostEditLog', postEditLogSchema)

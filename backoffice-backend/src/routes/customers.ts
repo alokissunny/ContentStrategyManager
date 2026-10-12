@@ -1,6 +1,8 @@
 import { Router } from 'express'
 import { z } from 'zod'
 import { getCustomerDetail, listCustomers, setCustomerCohort } from '../services/customers.ts'
+import { getCustomerActivity } from '../services/customerActivity.ts'
+import { getEditPreview, getPostPreview } from '../services/postPreview.ts'
 import { asyncHandler } from '../utils/asyncHandler.ts'
 
 export const customerRoutes = Router()
@@ -33,6 +35,40 @@ customerRoutes.get(
     const detail = await getCustomerDetail(String(req.params.id), { includeAdmins })
     if (!detail) return res.status(404).json({ message: 'Customer not found' })
     res.json(detail)
+  }),
+)
+
+/** How the customer uses Bauhly: captures, generated posts, edit log (per handle). */
+customerRoutes.get(
+  '/customers/:id/activity',
+  asyncHandler(async (req, res) => {
+    const includeAdmins = req.query.includeAdmins === '1' || req.query.includeAdmins === 'true'
+    const handle = typeof req.query.handle === 'string' ? req.query.handle : null
+    const activity = await getCustomerActivity(String(req.params.id), { handle, includeAdmins })
+    if (!activity) return res.status(404).json({ message: 'Customer not found' })
+    res.json(activity)
+  }),
+)
+
+/** One generated post's carousel document, photos resolved, for the preview. */
+customerRoutes.get(
+  '/customers/:id/posts/:postId/preview',
+  asyncHandler(async (req, res) => {
+    const includeAdmins = req.query.includeAdmins === '1' || req.query.includeAdmins === 'true'
+    const preview = await getPostPreview(String(req.params.id), String(req.params.postId), { includeAdmins })
+    if (!preview) return res.status(404).json({ message: 'Post not found' })
+    res.json(preview)
+  }),
+)
+
+/** One edit-log entry's carousel document before and after, for slide previews. */
+customerRoutes.get(
+  '/customers/:id/edits/:editId/preview',
+  asyncHandler(async (req, res) => {
+    const includeAdmins = req.query.includeAdmins === '1' || req.query.includeAdmins === 'true'
+    const preview = await getEditPreview(String(req.params.id), String(req.params.editId), { includeAdmins })
+    if (!preview) return res.status(404).json({ message: 'No preview stored for this edit' })
+    res.json(preview)
   }),
 )
 

@@ -193,3 +193,156 @@ export async function updateCustomerCohort(
   await delay()
   return input
 }
+
+/* ── Customer activity: captures, generated posts, edit log ─────────────── */
+
+const captureLog = z.object({
+  id: z.string(),
+  projectId: z.string(),
+  projectName: z.string(),
+  createdAt: z.string().nullable(),
+  type: z.string(),
+  sessionId: z.string(),
+  title: z.string(),
+  text: z.string(),
+  status: z.enum(['excluded', 'used', 'unclear', 'needs-info', 'ready']),
+  photos: z.number(),
+  videos: z.number(),
+  questions: z.array(z.string()),
+  missingPiece: z.string(),
+  turns: z.array(z.object({ role: z.string(), text: z.string() })),
+  usedInPlanAt: z.string().nullable(),
+  usedInPosts: z.number(),
+})
+
+const generatedPostLog = z.object({
+  id: z.string(),
+  date: z.string(),
+  title: z.string(),
+  format: z.string(),
+  pillar: z.string(),
+  generatedAt: z.string().nullable(),
+  model: z.string(),
+  slides: z.array(z.object({ role: z.string(), title: z.string() })),
+  caption: z.string(),
+  hashtags: z.array(z.string()),
+  seenAt: z.string().nullable(),
+  published: z.boolean(),
+  scheduledAt: z.string().nullable(),
+  savedForReview: z.boolean(),
+  costUsd: z.number(),
+  edits: z.number(),
+  lastEditedAt: z.string().nullable(),
+})
+
+const editLog = z.object({
+  id: z.string(),
+  at: z.string().nullable(),
+  firstAt: z.string().nullable(),
+  action: z.string(),
+  label: z.string(),
+  count: z.number(),
+  postId: z.string().nullable(),
+  postTitle: z.string(),
+  postDate: z.string(),
+  hasPreview: z.boolean().default(false),
+  changes: z.array(z.object({ field: z.string(), before: z.string(), after: z.string() })),
+})
+
+const customerActivity = z.object({
+  handle: z.string().nullable(),
+  captures: z.array(captureLog),
+  posts: z.array(generatedPostLog),
+  edits: z.array(editLog),
+  totals: z.object({ captures: z.number(), posts: z.number(), edits: z.number() }),
+})
+
+export type CaptureLog = z.infer<typeof captureLog>
+export type GeneratedPostLog = z.infer<typeof generatedPostLog>
+export type EditLog = z.infer<typeof editLog>
+export type CustomerActivity = z.infer<typeof customerActivity>
+
+export async function getCustomerActivity(
+  id: string,
+  options: { handle?: string | null; includeAdmins?: boolean } = {},
+): Promise<CustomerActivity | null> {
+  if (!USE_MOCKS) {
+    try {
+      return customerActivity.parse(
+        await api.get<unknown>(`/customers/${id}/activity`, {
+          handle: options.handle || undefined,
+          includeAdmins: options.includeAdmins ? '1' : undefined,
+        }),
+      )
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 404) return null
+      throw err
+    }
+  }
+  await delay()
+  return { handle: options.handle ?? null, captures: [], posts: [], edits: [], totals: { captures: 0, posts: 0, edits: 0 } }
+}
+
+const postPreview = z.object({
+  id: z.string(),
+  title: z.string(),
+  format: z.string(),
+  html: z.string(),
+  slideCount: z.number(),
+  height: z.number(),
+})
+
+export type PostPreview = z.infer<typeof postPreview>
+
+/** A generated post's carousel document (photos resolved) for the slide preview. */
+export async function getPostPreview(
+  customerId: string,
+  postId: string,
+  options: { includeAdmins?: boolean } = {},
+): Promise<PostPreview | null> {
+  if (!USE_MOCKS) {
+    try {
+      return postPreview.parse(
+        await api.get<unknown>(`/customers/${customerId}/posts/${postId}/preview`, {
+          includeAdmins: options.includeAdmins ? '1' : undefined,
+        }),
+      )
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 404) return null
+      throw err
+    }
+  }
+  await delay()
+  return null
+}
+
+const editPreview = z.object({
+  before: z.string(),
+  after: z.string(),
+  height: z.number(),
+  changed: z.array(z.number()),
+})
+
+export type EditPreview = z.infer<typeof editPreview>
+
+/** An edit-log entry's carousel document before and after (photos resolved). */
+export async function getEditPreview(
+  customerId: string,
+  editId: string,
+  options: { includeAdmins?: boolean } = {},
+): Promise<EditPreview | null> {
+  if (!USE_MOCKS) {
+    try {
+      return editPreview.parse(
+        await api.get<unknown>(`/customers/${customerId}/edits/${editId}/preview`, {
+          includeAdmins: options.includeAdmins ? '1' : undefined,
+        }),
+      )
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 404) return null
+      throw err
+    }
+  }
+  await delay()
+  return null
+}

@@ -39,6 +39,12 @@ export const env = {
     backfillDays: Number(process.env.COLLECTION_BACKFILL_DAYS) || 30,
     backfillPosts: Number(process.env.COLLECTION_BACKFILL_POSTS) || 90,
   },
+  /* Generated-post previews: where a customer's slide photos (S3 keys) load
+   * from. CUSTOMER_API_URL serves light display copies (/api/media/display);
+   * MEDIA_CDN_BASE_URL serves originals. Neither set: the CDN host already in
+   * the post's own HTML is used. */
+  customerApiUrl: (process.env.CUSTOMER_API_URL ?? '').replace(/\/+$/, ''),
+  mediaCdnBaseUrl: (process.env.MEDIA_CDN_BASE_URL ?? '').replace(/\/+$/, ''),
   anthropic: {
     apiKey: process.env.ANTHROPIC_API_KEY ?? '',
     model: process.env.ANTHROPIC_MODEL || 'claude-sonnet-5',
