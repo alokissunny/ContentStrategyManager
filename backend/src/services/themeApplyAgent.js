@@ -3,6 +3,9 @@
  *
  * Re-paints one carousel slide in the look of a reference image and returns
  * the finished slide as an IMAGE, text included:
+ *   0. the reference's visual design rules (services/themeDesignRules.js,
+ *      extracted once per request by the caller) go into the prompt — its
+ *      typography included: the slide is lettered in the reference's type;
  *   1. the slide = the carousel agent's HTML for it (in the prompt, not a
  *      picture); the one attached image = the reference (an uploaded photo or
  *      a library theme's board);
@@ -27,6 +30,7 @@ const { copyFromLayoutHtml } = require('./layoutHtml');
 const { pastePrimaryImage, PLACEHOLDER_HEX } = require('./primaryImage');
 const { checkSlide } = require('./slideCheck');
 const { mapRegions } = require('./themeRegions');
+const { designRulesSection } = require('./themeDesignRules');
 
 const PROMPT_PATH = path.join(__dirname, '..', '..', 'prompts', 'theme-apply-render.md');
 let promptCache = '';
@@ -72,6 +76,24 @@ function slideHtmlForPrompt(slideHtml) {
     .replace(/\n\s*\n+/g, '\n')
     .trim();
   return s.length <= MAX_PROMPT_HTML ? s : slideSource(s);
+}
+
+// Number every <img> in the slide html by the attached picture it shows
+// (data-asset="N"; picture 1 is the reference). An <img> with a stored key is
+// matched by it; an empty image slot takes the next asset not placed yet.
+function numberAssets(html, assets = []) {
+  if (!assets.length) return String(html || '');
+  const used = new Set();
+  const numOf = (i) => i + 2;
+  return String(html || '').replace(/<img\b[^>]*>/gi, (tag) => {
+    const key = (tag.match(/\bdata-asset-key\s*=\s*["']([^"']+)["']/i) || [])[1] || '';
+    const src = (tag.match(/\bsrc\s*=\s*["']([^"']+)["']/i) || [])[1] || '';
+    let i = assets.findIndex((a) => a.key && (a.key === key || (src && src.includes(a.key))));
+    if (i < 0 && /data-slot\s*=\s*["']image["']/i.test(tag)) i = assets.findIndex((a, n) => !used.has(n) && !a.inHtml);
+    if (i < 0) return tag;
+    used.add(i);
+    return tag.replace(/^<img\b/i, `<img data-asset="${numOf(i)}"`);
+  });
 }
 
 // The input slide for the debug previews: as sent, minus inline data URIs
@@ -154,10 +176,10 @@ function primaryImageSection(photo) {
   return [
     '## Primary image placeholder',
     '',
-    `Do NOT paint the slide's primary photo (the main <img> in the Slide HTML). In its place, paint a flat, solid ${PLACEHOLDER_HEX} (pure magenta) rectangle — one even colour, no texture, no shading, no gradient, nothing drawn inside it. The app replaces it with the original photo, unchanged.`,
+    `Do NOT paint the slide's primary photo (the main <img> in the Slide HTML${photo.asset ? `, attached picture ${photo.asset} — attached only so you know what it shows` : ''}). In its place, paint a flat, solid ${PLACEHOLDER_HEX} (pure magenta) rectangle — one even colour, no texture, no shading, no gradient, nothing drawn inside it. The app replaces it with the original photo, unchanged.`,
     `- Shape: ${r ? `${shape}, width:height about ${r.toFixed(2)} : 1 — ` : ''}the photo's own proportions. Keep it upright (not rotated).`,
     '- Size and place it as the prominent picture of the new composition — about where and as large as the Slide HTML puts the photo, or larger.',
-    '- Treat its edges the way the reference treats pictures (if it frames them at all) — but never paint over the magenta itself.',
+    '- Its edge may take the reference\'s picture treatment (crop shape, corner radius, a plain border or shadow if the reference does that) — add no objects around it, and never paint over the magenta itself.',
     '- Use magenta ONLY for this rectangle — nowhere else on the slide.',
     '- Put NO text on or across the magenta rectangle — it is covered by the photo afterwards.',
   ].join('\n');
@@ -188,38 +210,17 @@ function brandColorsSection(palette) {
   ].filter(Boolean).join('\n');
 }
 
-// The studio's Brand Kit Typography — the faces the render letters the slide in
-// (the reference still gives the type's treatment: scale, weight contrast, placement).
-function brandTypeFaces(fonts) {
-  if (!fonts || typeof fonts !== 'object') return null;
-  const pick = (v) => String(v || '').replace(/[^\w\s'&.-]/g, '').trim().slice(0, 60);
-  const f = { heading: pick(fonts.heading), body: pick(fonts.body), detail: pick(fonts.detail) };
-  return (f.heading || f.body || f.detail) ? f : null;
-}
-
-function brandFontsSection(faces) {
-  if (!faces) return '';
-  return [
-    '## Brand fonts',
-    '',
-    'The studio chose these typefaces in its Brand Kit. Letter the slide in them INSTEAD of the reference image\'s typefaces — keep its typographic treatment (scale, weight contrast, case, spacing, placement), but the letterforms must be these fonts:',
-    faces.heading ? `- Headline, pull-quote, big numbers: ${faces.heading}` : '',
-    faces.body ? `- Supporting text and body copy: ${faces.body}` : '',
-    faces.detail ? `- Small labels, eyebrows/kickers, captions, CTA: ${faces.detail}` : '',
-    '- Draw each font faithfully (its real letter shapes, serif or sans, contrast and proportions). If one face is given for several roles, use it for all of them, varying only size and weight.',
-  ].filter(Boolean).join('\n');
-}
-
-function themeApplyPrompt(lines = [], photo = null, { native = paintsFourByFive(THEME_IMAGE_MODEL()), palette = null, faces = null, slideHtml = '' } = {}) {
+function themeApplyPrompt(lines = [], photo = null, { native = paintsFourByFive(THEME_IMAGE_MODEL()), palette = null, rules = null, slideHtml = '', assets = [] } = {}) {
   const text = lines.length
     ? lines.map((l, i) => `${i + 1}. ${roleName(l)}: "${l.text}"`).join('\n')
     : '(the slide has no text — render none)';
   return fillTemplate(loadPrompt(), {
     TEXT_LINES: text,
-    SLIDE_HTML: slideHtmlForPrompt(slideHtml) || '(no html — use the copy above)',
+    SLIDE_HTML: slideHtmlForPrompt(numberAssets(slideHtml, assets)) || '(no html — use the copy above)',
+    ASSETS: ['  1. the theme reference', ...assets.map((a, i) => `  ${i + 2}. slide asset — ${a.label || 'image'}${a.primary ? ' (the primary photo — see the placeholder note)' : ''}`)].join('\n'),
     PRIMARY_IMAGE: primaryImageSection(photo),
     BRAND_COLORS: brandColorsSection(palette),
-    BRAND_FONTS: brandFontsSection(faces),
+    DESIGN_RULES: designRulesSection(rules),
     CANVAS: native ? CANVAS_NOTE.native : CANVAS_NOTE.cropped,
   }).replace(/\n{3,}/g, '\n\n');
 }
@@ -239,29 +240,36 @@ async function normalize(buffer, max = 1536) {
 /**
  * @param {{ slideIndex: number, slide?: object, userId: string,
  *   reference: { buffer: Buffer }, slideHtml: string, photo?: { buffer: Buffer }|null,
+ *   assets?: [{ key, buffer, label?, inHtml?, primary? }] — the slide's own pictures, attached after the reference,
  *   brandColors?: { name?, ground?, fg?, accent? }|null,
- *   brandFonts?: { heading?, body?, detail? }|null }} p
+ *   designRules?: object|null — the reference's rules (themeDesignRules.extractDesignRules) }} p
  * @returns {Promise<{ key, src, renderPrompt, textLines, primaryImage, check, usage, debugEntry }>}
  */
-async function applyThemeToSlide({ slideIndex, slide = {}, userId, reference, slideHtml = '', photo = null, brandColors = null, brandFonts = null }) {
+async function applyThemeToSlide({ slideIndex, slide = {}, userId, reference, slideHtml = '', photo = null, assets = [], brandColors = null, designRules = null }) {
   if (!reference?.buffer) throw new Error('A reference photo is required.');
   if (!String(slideHtml || '').trim()) throw new Error(`Slide ${slideIndex} has no carousel design to re-theme — run Fix layout first.`);
   const started = Date.now();
   const model = THEME_IMAGE_MODEL();
   const native = paintsFourByFive(model);
   const ref = await normalize(reference.buffer);
+  const attached = [];
+  for (const a of (Array.isArray(assets) ? assets : []).filter((x) => x?.buffer)) {
+    try { attached.push({ ...a, ...(await normalize(a.buffer, 1024)) }); } catch (err) {
+      console.warn(`[themeApply] slide ${slideIndex}: asset ${a.key} unreadable — ${err.message}`);
+    }
+  }
   const lines = slideLines({ ...slide, layoutHtml: slideHtml });
   const photoMeta = photo?.buffer ? await sharp(photo.buffer).rotate().metadata().catch(() => null) : null;
-  const photoInfo = photoMeta ? { width: photoMeta.width, height: photoMeta.height } : null;
+  const primaryAt = attached.findIndex((a) => a.primary);
+  const photoInfo = photoMeta ? { width: photoMeta.width, height: photoMeta.height, ...(primaryAt >= 0 ? { asset: primaryAt + 2 } : {}) } : null;
   const palette = brandPalette(brandColors);
-  const faces = brandTypeFaces(brandFonts);
-  const prompt = themeApplyPrompt(lines, photoInfo, { native, palette, faces, slideHtml });
+  const prompt = themeApplyPrompt(lines, photoInfo, { native, palette, rules: designRules, slideHtml, assets: attached });
 
   // one render, cropped to 4:5 when the model painted 2:3
   const renderOnce = async (extra = '') => {
     const r = await composeImage({
-      // the slide travels as html in the prompt — the reference is the only picture
-      images: [{ ...ref, name: 'reference' }],
+      // the slide travels as html in the prompt; pictures: reference, then the slide's assets
+      images: [{ ...ref, name: 'reference' }, ...attached.map((a, i) => ({ buffer: a.buffer, mediaType: a.mediaType, name: `slide-asset-${i + 2}` }))],
       prompt: extra ? `${prompt}\n\n${extra}` : prompt,
       // gpt-image-2.5-sunburst won a side-by-side on this job (exact words, the
       // strongest theme, ~$0.04/slide); OPENAI_THEME_IMAGE_MODEL overrides
@@ -336,9 +344,10 @@ async function applyThemeToSlide({ slideIndex, slide = {}, userId, reference, sl
     renderPrompt: prompt,
     // the slide as it went in (the carousel agent's html) — previewed in debug
     inputHtml: debugSlideHtml(slideHtml),
+    // the slide's own pictures sent with it (attached pictures 2…)
+    assets: attached.map((a, i) => ({ n: i + 2, key: a.key, label: a.label || '', primary: Boolean(a.primary) })),
     textLines: lines,
     brandColors: palette,
-    brandFonts: faces,
     regions: regions ? { key, v: regions.v, texts: regions.texts, images: regions.images, logo: regions.logo || null } : null,
     regionsDebug: regions?.debug ? { ...regions.debug, model: regions.model, usage: regions.usage } : null,
     primaryImage: photo?.buffer ? { kept: Boolean(placed?.found), box: placed?.box || null, renders: renders.length } : null,
@@ -347,7 +356,7 @@ async function applyThemeToSlide({ slideIndex, slide = {}, userId, reference, sl
     debugEntry: {
       source: `ThemeApply:slide ${slideIndex}`,
       model: `${rendered.model} · ${rendered.quality}`,
-      prompt: `${prompt}\n\nInput image: theme reference (the slide is the HTML above)`,
+      prompt: `${prompt}\n\nInput images: 1. theme reference${attached.map((a, i) => ` · ${i + 2}. ${a.label || a.key}`).join('')} (the slide is the HTML above)`,
       output: `Rendered slide ${slideIndex} · ${cropW}×${cropH} · ${key}${photo?.buffer
         ? (placed?.found ? ` · original photo pasted into the placeholder at ${placed.box.left},${placed.box.top} ${placed.box.width}×${placed.box.height}` : ' · NO placeholder found — the photo is the model\'s redraw')
         : ' · no primary photo on this slide'}${renders.length > 1 ? ` · ${renders.length} renders` : ''}${native ? ' · painted 4:5 (no crop)' : ' · painted 2:3, cropped to 4:5'}${checks.length

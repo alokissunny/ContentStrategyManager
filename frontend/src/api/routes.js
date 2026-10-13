@@ -34,6 +34,7 @@ function ingestPlanDebug(label, data = {}) {
     [...agents].reverse().forEach((agent, i) => {
       const usage = usageFrom(agent);
       addAiDebugEntry({
+        child: true,
         source: agent.source || `${label} · step ${agents.length - i}`,
         model: agent.model || debug.model,
         prompt: agent.prompt,

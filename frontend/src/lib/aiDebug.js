@@ -161,6 +161,9 @@ export function addAiDebugEntry(entry = {}) {
     note: String(entry.note || ''),
     elapsedMs,
     ...usage,
+    // one agent of a call whose summary row is logged too — the run totals
+    // (panel header) count the summary, not each agent again
+    ...(entry.child ? { child: true } : {}),
     // { direction, css, slides: [{ index, before, after }] } — Preview in the panel
     ...(entry.preview && typeof entry.preview === 'object' && Array.isArray(entry.preview.slides)
       ? { preview: entry.preview }

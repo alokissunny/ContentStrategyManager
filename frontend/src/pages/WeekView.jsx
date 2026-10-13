@@ -29,6 +29,8 @@ import {
   setPostReview,
   runPostLayout,
   applyThemeImage,
+  listThemeReferences,
+  deleteThemeReference,
   mapThemeRegions,
   editThemeRegion,
   removeTheme as apiRemoveTheme,
@@ -62,7 +64,7 @@ import { openCaptureIdea } from '../lib/captureUi';
 import { styleOf, groundOf } from '../lib/visualbrand';
 import { LAYOUTS as LIB_LAYOUTS, catForRole, shotsOf, DEFAULT_LAYOUT_BY_CAT, layoutShowsAllCopy } from '../data/layouts';
 import { CAROUSEL_THEMES } from '../data/carouselThemes';
-import { paintAll, identityOf, TYPE_SLOTS, FACES, logoPositionOf, markForSlide, themesOf, activeThemeIdOf, activeThemeAtOf, brandFontVars, brandFontNames, newThemeId, nextThemeName, THEME_CAP, DEFAULT_PALETTE } from '../lib/identity';
+import { paintAll, identityOf, TYPE_SLOTS, FACES, logoPositionOf, markForSlide, themesOf, activeThemeIdOf, activeThemeAtOf, brandFontVars, newThemeId, nextThemeName, THEME_CAP, DEFAULT_PALETTE } from '../lib/identity';
 import { rolesOf as textRolesOf, plainOf, parseMarked, isListRole, listIndexOf } from '../lib/slidetext';
 import ImagePicker from './weekview/ImagePicker';
 import { PhotoEditor, SlotPack } from './weekview/PhotoEditor';
@@ -3134,6 +3136,12 @@ export default function WeekView({
   const reviewDay = (_id, i, on) => setPostReview(postIdAt(i), on).then(mergePost);
   const runDayLayout = (_id, i, opts) => runPostLayout(postIdAt(i), opts).then((d) => ({ ...d, route: mergePost(d.post) }));
   const removeDayTheme = (_id, i, body) => apiRemoveTheme(postIdAt(i), body).then((d) => ({ ...d, route: mergePost(d.post) }));
+  // Your references (uploaded theme references kept for re-apply)
+  const [savedRefs, setSavedRefs] = useState([]);
+  const refreshSavedRefs = () => listThemeReferences()
+    .then((list) => setSavedRefs(list.map((r) => ({ ...r, saved: true, thumb: mediaProxyUrl(r.key) }))))
+    .catch(() => {});
+  useEffect(() => { refreshSavedRefs(); }, []);
   const runDayThemeImage = (_id, i, body) => applyThemeImage(postIdAt(i), body).then((d) => ({ ...d, route: mergePost(d.post) }));
   const runDayCover = (_id, i, visual) => runPostCover(postIdAt(i), visual).then((d) => ({ ...d, route: mergePost(d.post) }));
   const runSlideLayoutVariations = (_id, i, slideIndex) => apiRunSlideLayoutVariations(postIdAt(i), slideIndex);
@@ -5211,12 +5219,25 @@ export default function WeekView({
     await runThemeApply({ file, label: 'that reference photo' }, every);
   }
 
+  // Choose from library › Your references: a reference uploaded before — its
+  // stored file goes straight to the agent (nothing is uploaded again)
+  async function handleSavedReferenceTheme(ref, every = true) {
+    if (!ref?.key || layoutBusy || !route?._id) return;
+    await runThemeApply({ referenceKey: ref.key, label: ref.name || 'that reference' }, every);
+  }
+
+  async function handleDeleteSavedReference(ref) {
+    if (!ref?.id) return;
+    setSavedRefs((list) => list.filter((r) => r.id !== ref.id));
+    try { await deleteThemeReference(ref.id); } catch { refreshSavedRefs(); }
+  }
+
   // Theme Apply agent (backend services/themeApplyAgent.js): re-paints the
   // slide(s) in the reference's look and returns each as a finished image.
   // `file` (an uploaded photo) or `themeId` (a library theme) is Image 2; each
   // slide, captured as the studio sees it, is Image 1. This slide: only the
   // slide on screen; All slides: every slide, each in its own render.
-  async function runThemeApply({ file = null, themeId = '', label = 'that reference' }, every) {
+  async function runThemeApply({ file = null, referenceKey = '', themeId = '', label = 'that reference' }, every) {
     if (layoutBusy || !route?._id) return;
     setMenuPane(null);
     closeZone();
@@ -5230,12 +5251,14 @@ export default function WeekView({
     setLayoutBusy(true);
     setLayoutErr('');
     try {
-      let reference = { themeId };
+      let reference = referenceKey ? { referenceImageKey: referenceKey } : { themeId };
       if (file) {
         const uploaded = await uploadFiles([file]);
         const key = uploaded?.[0]?.key;
         if (!key) throw new Error('Could not upload that photo.');
-        reference = { referenceImageKey: key };
+        // the name it gets in Your references (saved by the server once applied)
+        const referenceName = String(file.name || '').replace(/\.[a-z0-9]+$/i, '').replace(/[-_]+/g, ' ').trim().slice(0, 60);
+        reference = { referenceImageKey: key, referenceName };
       }
       const wasEditing = postEdit;
       // the server sends each slide to the agent as the carousel agent's HTML
@@ -5252,10 +5275,10 @@ export default function WeekView({
         const p = set?.palette || {};
         if (p.ground || p.fg || p.accent) brandColors[i] = { name: set.name || '', ...DEFAULT_PALETTE, ...p };
       }
-      // the Brand Kit's Typography — the render letters the slide in these faces
-      const brandFonts = brandFontNames(vbStore?.libraryEdits);
-      const data = await runDayThemeImage(route._id, dayIndex, { ...reference, slideIndexes, brandColors, brandFonts });
+      // (typography comes from the reference — the server's Design Rules agent)
+      const data = await runDayThemeImage(route._id, dayIndex, { ...reference, slideIndexes, brandColors });
       (data?.applied || []).forEach((a) => { if (a?.key && a?.src) rememberImage(a.key, a.src, { skipGen: true }); });
+      if (data?.reference) refreshSavedRefs();
       if (data?.route) {
         setRoute(data.route);
         onRouteChange?.(data.route);
@@ -6661,6 +6684,9 @@ export default function WeekView({
     themeId: String(layoutDirectionOf(activeSlide) || '').replace(/-s\d+$/, ''),
     onTheme: (theme, every) => handleChangeTheme(theme, every),
     onReference: (file, every) => handleUploadReferenceTheme(file, every),
+    savedRefs,
+    onSavedReference: (ref, every) => handleSavedReferenceTheme(ref, every),
+    onDeleteSavedReference: (ref) => handleDeleteSavedReference(ref),
     // Remove theme: shown while any slide wears a Theme Apply render
     themed: slides.some((sl) => isThemedPicture(sl)),
     slideThemed: isThemedPicture(activeSlide),

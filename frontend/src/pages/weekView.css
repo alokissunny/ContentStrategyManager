@@ -8111,6 +8111,38 @@ span.wv-layed__apply { margin-left: auto; flex-shrink: 0; }
 }
 .wv-em__tile img { display: block; width: 100%; height: 100%; min-width: 0; object-fit: cover; }
 .wv-em__tile--theme { aspect-ratio: 4 / 5; }
+/* Choose from library › Your references: a tile with a remove button */
+.wv-em__gridhead {
+  margin: 4px 0 0;
+  padding: 4px 10px 2px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink-500);
+}
+.wv-em__tilewrap { position: relative; min-width: 0; }
+.wv-em__tilewrap .wv-em__tile { width: 100%; }
+.wv-em__tilex {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(22, 22, 26, 0.62);
+  color: #fff;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+.wv-em__tilewrap:hover .wv-em__tilex,
+.wv-em__tilex:focus-visible { opacity: 1; }
+@media (hover: none) { .wv-em__tilex { opacity: 1; } }
 .wv-em__tilename {
   position: absolute;
   inset: auto 0 0 0;

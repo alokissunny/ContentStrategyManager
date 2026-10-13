@@ -17,6 +17,8 @@ const { compileBrandMemory } = require('../services/planContext');
 const { generateCoverSpec, renderCoverVideo } = require('../services/carouselCoverAgent');
 const { isS3Configured, uploadBytes, getMediaUrl, getObjectBytes } = require('../services/s3Client');
 const { applyThemeToSlide, themedSlideDocument } = require('../services/themeApplyAgent');
+const { extractDesignRules } = require('../services/themeDesignRules');
+const { savedReference, rememberReference } = require('./themeReferenceController');
 const { isImageGenConfigured } = require('../services/openaiImage');
 const { toVisionImage } = require('../services/visionImage');
 const { currentProfile } = require('../utils/currentProfile');
@@ -1646,7 +1648,9 @@ async function rerunLayout(req, res) {
 // picture of it) and its photo — and returns an IMAGE, not html. Each picture
 // goes into the carousel document as a full-bleed slide in a section of its own
 // (themeMerge.applySlideTheme), so every other slide keeps exactly what it has.
-// Body: { referenceImageKey | themeId, slideIndexes: [1-based…], brandColors?, brandFonts? }
+// Body: { referenceImageKey | themeId, slideIndexes: [1-based…], brandColors? }
+// how many of a slide's own pictures go to the image model with its html
+const THEME_APPLY_MAX_ASSETS = Math.max(0, Number(process.env.THEME_APPLY_MAX_ASSETS ?? 6) || 0);
 const THEME_IMAGE_CONCURRENCY = Math.max(1, Number(process.env.THEME_IMAGE_CONCURRENCY) || 3);
 const COPY_FIELDS = ['role', 'title', 'subtitle', 'body', 'items', 'itemsA', 'itemsB', 'stat', 'quote', 'action',
   'comparisonA', 'comparisonB', 'labels', 'colorSet', 'colorSetAt', 'ground', 'logoMark', 'annotation', 'visualNeed'];
@@ -2293,8 +2297,13 @@ async function applyThemeImage(req, res) {
 
   // the Brand Kit colour set the studio chose for each slide ({ [index]: { name, ground, fg, accent } })
   const brandColors = req.body?.brandColors && typeof req.body.brandColors === 'object' ? req.body.brandColors : {};
-  // the Brand Kit's Typography ({ heading, body, detail } family names), for every slide
-  const brandFonts = req.body?.brandFonts && typeof req.body.brandFonts === 'object' ? req.body.brandFonts : null;
+  // Design Rules agent: the reference's visual design rules, typography
+  // included — read once for every slide (a library theme's are cached)
+  // a reference applied before (Your references) brings its saved rules along
+  const saved = referenceImageKey ? await savedReference(req.user._id, referenceImageKey) : null;
+  const designRules = saved?.designRules
+    ? { rules: saved.designRules, model: saved.rulesModel || '', prompt: '', usage: null, cached: true }
+    : await extractDesignRules(reference, { cacheKey: libraryTheme ? `theme:${libraryTheme.id}` : '' });
   // The slide goes to the image model as the carousel agent's HTML. A slide
   // already re-themed is a picture — its source is the design saved before the
   // first theme (agentTrace.preTheme), never the previous render.
@@ -2337,15 +2346,40 @@ async function applyThemeImage(req, res) {
             console.warn(`[posts] ThemeApply:${label}#${idx} photo unreadable — ${err.message}`);
           }
         }
+        // the slide's own pictures, attached after the reference: every <img>
+        // in its html that points at one of the studio's files, then any photo
+        // of the slide the html does not show yet (an empty image slot)
+        const assetList = [];
+        const addAsset = (key, extra) => {
+          if (!key || !key.startsWith(own) || /\/themed-/.test(key) || assetList.some((a) => a.key === key)) return;
+          assetList.push({ key, ...extra });
+        };
+        for (const tag of slideHtml.match(/<img\b[^>]*>/gi) || []) {
+          const attr = (n) => ((tag.match(new RegExp(`\\b${n}\\s*=\\s*["']([^"']*)["']`, 'i')) || [])[1] || '').trim();
+          const key = attr('data-asset-key') || (attr('src').match(/projects\/[a-f0-9]{24}\/[^"'?#\s]+/) || [])[0] || '';
+          addAsset(key, { inHtml: true, label: attr('alt') || (attr('data-slot') === 'image' ? 'photo' : 'image on the slide') });
+        }
+        photoKeysOf(stored[idx - 1]).forEach((k) => addAsset(k, { inHtml: false, label: 'photo' }));
+        const assets = [];
+        for (const a of assetList.slice(0, THEME_APPLY_MAX_ASSETS)) {
+          try {
+            const buffer = a.key === photoKey && photo ? photo.buffer
+              : await getObjectBytes(a.key).then(({ buffer: b, contentType }) => toVisionImage(b, contentType, a.key)).then((img) => img.buffer);
+            assets.push({ ...a, buffer, primary: a.key === photoKey });
+          } catch (err) {
+            console.warn(`[posts] ThemeApply:${label}#${idx} asset ${a.key} unreadable — ${err.message}`);
+          }
+        }
         results[idx] = await applyThemeToSlide({
           slideIndex: idx,
           slide: stored[idx - 1],
           photo,
+          assets,
           userId: req.user._id,
           reference,
           slideHtml,
           brandColors: brandColors[idx] || brandColors.all || null,
-          brandFonts,
+          designRules: designRules?.rules || null,
         });
       } catch (err) {
         console.error(`[posts] ThemeApply:${label}#${idx} failed:`, err.message);
@@ -2358,7 +2392,7 @@ async function applyThemeImage(req, res) {
   const done = indexes.filter((i) => results[i] && !results[i].error);
   const failed = indexes.filter((i) => !done.includes(i)).map((i) => ({ index: i, message: results[i]?.error || 'failed' }));
   // the whole run for the summary row: every call's tokens and cost, wall time
-  const runRows = done.map((i) => results[i].usage).filter(Boolean);
+  const runRows = [...done.map((i) => results[i].usage), designRules && !designRules.cached ? designRules.usage : null].filter(Boolean);
   const runUsage = runRows.reduce((acc, u) => ({
     inputTokens: acc.inputTokens + (Number(u.inputTokens) || 0),
     outputTokens: acc.outputTokens + (Number(u.outputTokens) || 0),
@@ -2375,6 +2409,15 @@ async function applyThemeImage(req, res) {
       usage: runUsage,
       agents: [
         ...regionRows,
+        ...(designRules ? [{
+          source: `ThemeApply:design rules${designRules.cached ? ' (cached)' : ''}`,
+          model: designRules.model,
+          prompt: designRules.prompt ? `${designRules.prompt}\n\nInput image: the theme reference` : '(saved with this reference in Your references — not extracted again)',
+          output: JSON.stringify(designRules.rules, null, 2),
+          inputImage: referenceImage,
+          usage: designRules.usage,
+          ...designRules.usage,
+        }] : []),
         ...done.map((i) => ({
           ...results[i].debugEntry,
           usage: results[i].usage,
@@ -2389,6 +2432,11 @@ async function applyThemeImage(req, res) {
   if (!done.length) {
     return res.status(502).json({ message: failed[0]?.message || 'Could not apply the reference.', failed, ...debugOf() });
   }
+  // an uploaded reference joins the studio's library (Choose from library ›
+  // Your references) with its design rules, for re-apply without re-uploading
+  const savedRef = referenceImageKey
+    ? await rememberReference(req.user._id, { key: referenceImageKey, name: String(req.body?.referenceName || '').trim(), designRules: saved?.designRules ? null : designRules })
+    : null;
 
   try {
     // each rendered slide moves into a section of its own, one at a time
@@ -2462,18 +2510,20 @@ async function applyThemeImage(req, res) {
           at: new Date().toISOString(),
           referenceKey: referenceImageKey,
           referenceTheme: libraryTheme ? { id: libraryTheme.id, name: libraryTheme.name, path: referenceImage.path } : null,
+          // the Design Rules agent's read of the reference (null when it failed)
+          designRules: designRules ? { model: designRules.model, rules: designRules.rules, usage: designRules.usage, cached: Boolean(designRules.cached) } : null,
           // each step's prompt, output and cost — the post's Debug tab reads these
           slides: done.map((i) => ({
             index: i,
             key: results[i].key,
             renderPrompt: results[i].renderPrompt,
             inputHtml: results[i].inputHtml || '',
+            assets: results[i].assets || [],
             renderModel: results[i].debugEntry?.model || '',
             primaryImage: results[i].primaryImage || null,
             check: results[i].check || null,
             textLines: results[i].textLines,
             ...(results[i].brandColors ? { brandColors: results[i].brandColors } : {}),
-            ...(results[i].brandFonts ? { brandFonts: results[i].brandFonts } : {}),
             usage: results[i].usage,
           })),
           failed,
@@ -2487,6 +2537,7 @@ async function applyThemeImage(req, res) {
     return res.json({
       post: record,
       applied: done.map((i) => ({ index: i, key: results[i].key, src: results[i].src })),
+      ...(savedRef ? { reference: { id: String(savedRef._id), key: savedRef.key, name: savedRef.name || 'Your reference' } } : {}),
       failed,
       ...debugOf(),
     });

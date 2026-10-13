@@ -1,4 +1,5 @@
 const express = require('express');
+const { listThemeReferences, deleteThemeReference } = require('../controllers/themeReferenceController');
 const asyncHandler = require('../utils/asyncHandler');
 const { protect } = require('../middleware/auth');
 const { postEditLog } = require('../middleware/postEditLog');
@@ -40,6 +41,9 @@ router.use(protect);
 // what the studio changes after generation → backoffice Customers › Activity › Edits
 router.use(postEditLog);
 router.get('/', asyncHandler(getPosts));
+// Choose from library › Your references (uploaded theme references, kept for re-apply)
+router.get('/theme-references', asyncHandler(listThemeReferences));
+router.delete('/theme-references/:refId', asyncHandler(deleteThemeReference));
 router.post('/generate', asyncHandler(generatePlan));
 // Queued generation runs (PLAN_QUEUE) — before '/:id' so "runs" isn't read as a post id.
 router.get('/runs/active', asyncHandler(getActivePlanRun));

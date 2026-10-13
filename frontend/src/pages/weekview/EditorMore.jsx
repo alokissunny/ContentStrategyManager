@@ -216,9 +216,13 @@ export default function EditorMore({ acts, onClose }) {
   // This slide / All slides (bauhly-v3 `pe-thm` + reach).
   if (level === 'theme') {
     const list = acts.themes || [];
+    const saved = acts.savedRefs || [];
     const chosen = thmRef
       ? { name: 'Your reference', thumb: thmRef.url, note: `Read from ${thmRef.name}` }
-      : (thmPick ? list.find((t) => t.id === thmPick) : null);
+      : (thmPick
+        ? (list.find((t) => t.id === thmPick)
+          || (() => { const r = saved.find((x) => `ref:${x.id}` === thmPick); return r ? { ...r, note: 'From your references' } : null; })())
+        : null);
     const clear = () => {
       if (thmRef?.url) { try { URL.revokeObjectURL(thmRef.url); } catch { /* already gone */ } }
       setThmRef(null);
@@ -233,6 +237,7 @@ export default function EditorMore({ acts, onClose }) {
       }
       const t = chosen;
       setThmPick(null);
+      if (t?.saved) { acts.onSavedReference?.(t, every); return; }
       acts.onTheme?.(t, every);
     };
     return (
@@ -251,7 +256,7 @@ export default function EditorMore({ acts, onClose }) {
             onClose={onClose}
             rows={[
               { id: 'ref', icon: 'image-plus', label: 'Upload a reference', hint: 'A photograph you like the look of', dead: acts.busy, fn: () => refFile.current?.click(), into: true },
-              { id: 'lib', icon: 'droplet', label: 'Choose from library', hint: `${list.length} directions`, dead: acts.busy, fn: () => setLevel('themelib'), into: true, chevron: true },
+              { id: 'lib', icon: 'droplet', label: 'Choose from library', hint: saved.length ? `${saved.length} of yours · ${list.length} directions` : `${list.length} directions`, dead: acts.busy, fn: () => setLevel('themelib'), into: true, chevron: true },
               ...(acts.themed ? [
                 { id: 'r-untheme', rule: true },
                 {
@@ -331,6 +336,38 @@ export default function EditorMore({ acts, onClose }) {
     return (
       <>
         <Rows onClose={onClose} rows={backRow('Choose from library', 'theme')} />
+        {(acts.savedRefs || []).length ? (
+          <>
+            <p className="wv-em__gridhead">Your references</p>
+            <div className="wv-em__grid" role="radiogroup" aria-label="Your references">
+              {acts.savedRefs.map((r) => (
+                <div key={r.id} className="wv-em__tilewrap">
+                  <button
+                    type="button"
+                    role="radio"
+                    aria-checked={thmPick === `ref:${r.id}`}
+                    title={r.name}
+                    className="wv-em__tile wv-em__tile--theme"
+                    onClick={(e) => { e.stopPropagation(); setThmRef(null); setThmPick(`ref:${r.id}`); setLevel('theme'); }}
+                  >
+                    <img src={r.thumb} alt="" loading="lazy" decoding="async" />
+                    <span className="wv-em__tilename">{r.name}</span>
+                  </button>
+                  <button
+                    type="button"
+                    className="wv-em__tilex"
+                    aria-label={`Remove ${r.name} from your references`}
+                    title="Remove from your references"
+                    onClick={(e) => { e.stopPropagation(); acts.onDeleteSavedReference?.(r); }}
+                  >
+                    <Icon name="x" size={12} strokeWidth={2.4} />
+                  </button>
+                </div>
+              ))}
+            </div>
+            <p className="wv-em__gridhead">Bauhly themes</p>
+          </>
+        ) : null}
         <div className="wv-em__grid" role="radiogroup" aria-label="Themes">
           {(acts.themes || []).map((t) => (
             <button

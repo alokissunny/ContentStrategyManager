@@ -636,6 +636,18 @@ export default function PostAgentDebug({
       ) : null}
       {ta && shows('themeApply') ? (
         <>
+          {ta.designRules ? (
+            <Block
+              title={`Design Rules agent${ta.designRules.cached ? ' (cached)' : ''}`}
+              input={`Reference image → ${ta.designRules.model || ''}`}
+              output={ta.designRules.rules}
+              cost={sumOf([ta.designRules.usage])}
+              images={[
+                ...(ta.referenceKey ? [{ key: ta.referenceKey, label: 'Reference' }] : []),
+                ...(ta.referenceTheme?.path ? [{ key: ta.referenceTheme.path, src: ta.referenceTheme.path, label: ta.referenceTheme.name || 'Theme' }] : []),
+              ]}
+            />
+          ) : null}
           <Block
             title="Theme Apply agent"
             input={taSlides.length ? bySlide((sl) => sl.renderPrompt || '') : ''}
@@ -645,6 +657,7 @@ export default function PostAgentDebug({
             images={[
               ...(ta.referenceKey ? [{ key: ta.referenceKey, label: 'Reference' }] : []),
               ...(ta.referenceTheme?.path ? [{ key: ta.referenceTheme.path, src: ta.referenceTheme.path, label: ta.referenceTheme.name || 'Theme' }] : []),
+              ...taSlides.flatMap((sl) => (Array.isArray(sl.assets) ? sl.assets : []).map((a) => ({ key: `${sl.index}:${a.key}`, src: mediaProxyUrl(a.key), label: `Slide ${sl.index} asset ${a.n}${a.primary ? ' (primary)' : ''}` }))),
               ...taSlides.map((sl) => ({ key: sl.key, label: `Slide ${sl.index}` })),
             ]}
           />

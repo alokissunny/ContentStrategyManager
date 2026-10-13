@@ -36,6 +36,7 @@ export function ingestPlanDebug(label, data = {}) {
     [...agents].reverse().forEach((agent, i) => {
       const usage = usageFrom(agent);
       addAiDebugEntry({
+        child: true,
         source: agent.source || `${label} · step ${agents.length - i}`,
         model: agent.model || debug.model,
         prompt: agent.prompt,
@@ -344,10 +345,20 @@ export function editThemeRegion(id, slideIndex, body) {
   });
 }
 
-export function applyThemeImage(id, { referenceImageKey, themeId, slideIndexes, brandColors, brandFonts } = {}) {
+// Choose from library › Your references: the studio's uploaded theme
+// references, saved the first time each is applied → [{ id, key, name, lastUsedAt }]
+export function listThemeReferences() {
+  return client.get('/posts/theme-references').then((res) => res.data?.references || []);
+}
+
+export function deleteThemeReference(refId) {
+  return client.delete(`/posts/theme-references/${refId}`).then((res) => res.data);
+}
+
+export function applyThemeImage(id, { referenceImageKey, referenceName, themeId, slideIndexes, brandColors } = {}) {
   const label = `Theme Apply agent — ${slideIndexes?.length === 1 ? `slide ${slideIndexes[0]}` : `${slideIndexes?.length || 0} slides`}`;
   return client
-    .post(`/posts/${id}/theme-image`, { referenceImageKey, themeId, slideIndexes, brandColors, brandFonts }, { timeout: 600000 })
+    .post(`/posts/${id}/theme-image`, { referenceImageKey, referenceName, themeId, slideIndexes, brandColors }, { timeout: 600000 })
     .then((res) => {
       const data = res.data || {};
       ingestPlanDebug(label, data);

@@ -17,10 +17,34 @@ import {
   folderStamp,
 } from '../lib/downloadFolder';
 
+// The latest complete run: every top-level call (a call's summary row, or a
+// call logged on its own — never its per-agent rows) that overlaps or follows
+// the next one within RUN_GAP_MS, e.g. Theme Apply and the Photo focus it
+// triggers. Time = wall clock from the first call's start to the last one's
+// end; cost and tokens = the calls added up.
+const RUN_GAP_MS = 15000;
 function lastCompleteRun(entries) {
-  return (entries || []).find((e) => Number(e.elapsedMs) > 0 && /generate plan|replan week/i.test(String(e.source || '')))
-    || (entries || []).find((e) => Number(e.elapsedMs) > 0)
-    || null;
+  const calls = (entries || [])
+    .filter((e) => !e.child && (Number(e.elapsedMs) > 0 || Number(e.estimatedCostUsd) > 0))
+    .map((e) => ({ e, end: Number(e.at) || 0, start: (Number(e.at) || 0) - (Number(e.elapsedMs) || 0) }))
+    .sort((a, b) => b.end - a.end);
+  if (!calls.length) return null;
+  let { start, end } = calls[0];
+  const run = [calls[0]];
+  for (const c of calls.slice(1)) {
+    if (c.end < start - RUN_GAP_MS) break;
+    run.push(c);
+    start = Math.min(start, c.start);
+    end = Math.max(end, c.end);
+  }
+  const sum = (k) => run.reduce((n, c) => n + (Number(c.e[k]) || 0), 0);
+  return {
+    elapsedMs: Math.max(0, end - start),
+    estimatedCostUsd: Math.round(sum('estimatedCostUsd') * 1e6) / 1e6,
+    totalTokens: sum('totalTokens'),
+    calls: run.length,
+    sources: run.map((c) => c.e.source).reverse(),
+  };
 }
 
 function entryCostLabel(entry) {
@@ -434,7 +458,10 @@ export default function AiDebugPanel() {
           <Glyph name="bug" size={14} strokeWidth={2} />
           AI Prompt Debug
           {completeLabel ? (
-            <span className="ai-debug__elapsed" title="Time and estimated cost for the last complete generation">
+            <span
+              className="ai-debug__elapsed"
+              title={`Whole run — wall time and estimated cost of ${complete.calls} call${complete.calls === 1 ? '' : 's'}: ${complete.sources.join(' → ')}`}
+            >
               {completeLabel}
             </span>
           ) : null}
