@@ -226,6 +226,29 @@ function InputImageBlock({ image, heading = 'Input image', big = false }) {
   );
 }
 
+// The slide html sent with the prompt (Theme Apply's input slide), drawn at its
+// 1080×1350 canvas and scaled down. Scripts stay blocked.
+const SLIDE_FRAME_CSS = 'html,body{margin:0;padding:0;background:#fff;overflow:hidden}'
+  + 'section[data-direction]{padding:0!important;gap:0!important;display:block!important}';
+function InputHtmlBlock({ input }) {
+  if (!input?.html) return null;
+  const page = `<!doctype html><html><head><meta charset="utf-8"><style>${SLIDE_FRAME_CSS}</style></head><body>${input.html}</body></html>`;
+  return (
+    <details className="ai-debug__block" open>
+      <summary className="ai-debug__block-sum">
+        <span>Input slide</span>
+        <span className="ai-debug__block-acts">
+          <span className="ai-debug__imgmeta">{input.label}</span>
+          <CopyButton text={input.html} />
+        </span>
+      </summary>
+      <div className="ai-debug__slidefr">
+        <iframe title={input.label} sandbox="" srcDoc={page} />
+      </div>
+    </details>
+  );
+}
+
 function InputBlock({ draft, onDraftChange, onRerun, busy, disabled }) {
   const onRerunClick = (e) => {
     e.preventDefault();
@@ -311,6 +334,7 @@ function DebugEntry({ entry }) {
       {hasIo ? (
         <>
           <DebugBlock label="System" text={entry.systemPrompt} open copyable />
+          <InputHtmlBlock input={entry.inputHtml} />
           <InputImageBlock image={entry.inputImage} />
           <InputBlock
             draft={draft}

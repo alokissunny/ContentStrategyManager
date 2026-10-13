@@ -1642,21 +1642,14 @@ async function rerunLayout(req, res) {
 
 // POST /posts/:id/theme-image — Editor › Themes › Upload a reference. The Theme
 // Apply agent (services/themeApplyAgent.js) re-paints each slide asked for in
-// the reference photo's look — from the slide as it looks now, its photo, its
-// words and the post's strategy — and returns an IMAGE, not html. Each picture
+// the reference photo's look — from the slide's carousel-agent HTML (not a
+// picture of it) and its photo — and returns an IMAGE, not html. Each picture
 // goes into the carousel document as a full-bleed slide in a section of its own
 // (themeMerge.applySlideTheme), so every other slide keeps exactly what it has.
-// Body: { referenceImageKey, slideIndexes: [1-based…], snapshots?: { [index]: dataUrl } }
+// Body: { referenceImageKey | themeId, slideIndexes: [1-based…], brandColors?, brandFonts? }
 const THEME_IMAGE_CONCURRENCY = Math.max(1, Number(process.env.THEME_IMAGE_CONCURRENCY) || 3);
 const COPY_FIELDS = ['role', 'title', 'subtitle', 'body', 'items', 'itemsA', 'itemsB', 'stat', 'quote', 'action',
   'comparisonA', 'comparisonB', 'labels', 'colorSet', 'colorSetAt', 'ground', 'logoMark', 'annotation', 'visualNeed'];
-
-function snapshotOf(dataUrl) {
-  const m = String(dataUrl || '').match(/^data:image\/(jpeg|jpg|png|webp);base64,([A-Za-z0-9+/=]+)$/);
-  if (!m) return null;
-  const buffer = Buffer.from(m[2], 'base64');
-  return buffer.length && buffer.length <= 6 * 1024 * 1024 ? { buffer } : null;
-}
 
 // A slide the Theme Apply agent painted (its section is `themed-image[-sN]`).
 // (the section alone is not enough: it must carry its render — a slide added
@@ -2290,7 +2283,6 @@ async function applyThemeImage(req, res) {
   }
 
   const runStarted = Date.now();
-  const snapshots = req.body?.snapshots && typeof req.body.snapshots === 'object' ? req.body.snapshots : {};
   const label = record.day || record.date || record._id.toString();
   // what a themed slide keeps behind its picture: its real photo, never an
   // earlier themed render of it
@@ -2299,36 +2291,27 @@ async function applyThemeImage(req, res) {
     .filter((k, i, all) => k.startsWith(own) && !/\/themed-/.test(k) && all.indexOf(k) === i);
 
 
-  const captureErrors = req.body?.captureErrors && typeof req.body.captureErrors === 'object' ? req.body.captureErrors : {};
   // the Brand Kit colour set the studio chose for each slide ({ [index]: { name, ground, fg, accent } })
   const brandColors = req.body?.brandColors && typeof req.body.brandColors === 'object' ? req.body.brandColors : {};
   // the Brand Kit's Typography ({ heading, body, detail } family names), for every slide
   const brandFonts = req.body?.brandFonts && typeof req.body.brandFonts === 'object' ? req.body.brandFonts : null;
-  // No capture from the studio: a slide already re-themed is a full picture of
-  // itself (its themed key leads its keys); else the slide's last publish render.
-  // (a saved design for a different number of slides cannot be lined up — the
-  // studio does not capture from it, so the slide's current picture is used)
+  // The slide goes to the image model as the carousel agent's HTML. A slide
+  // already re-themed is a picture — its source is the design saved before the
+  // first theme (agentTrace.preTheme), never the previous render.
   const pre = record.agentTrace?.preTheme;
   const hasBaseDesign = Boolean(pre?.carouselHtml) && Array.isArray(pre?.slides) && pre.slides.length === stored.length;
-  const storedSlidePicture = async (idx) => {
+  let curParsed = null;
+  let preParsed = null;
+  const slideHtmlOf = (idx) => {
     const slide = stored[idx - 1] || {};
-    const lead = String((Array.isArray(slide.assetKeys) && slide.assetKeys[0]) || slide.assetKey || '');
-    const published = Array.isArray(record.publishImageKeys) ? String(record.publishImageKeys[idx - 1] || '') : '';
-    // a slide already themed: its base design is the source (the studio renders
-    // it from agentTrace.preTheme) — the previous render is used only when the
-    // post has no saved base design (themed before it was kept)
-    const themedLead = /\/themed-/.test(lead);
-    if (themedLead && hasBaseDesign) return null;
-    const key = (lead.startsWith(own) && themedLead && lead) || (published.startsWith(own) && published) || '';
-    if (!key) return null;
-    try {
-      const { buffer, contentType } = await getObjectBytes(key);
-      const img = await toVisionImage(buffer, contentType, key);
-      return { buffer: img.buffer };
-    } catch (err) {
-      console.warn(`[posts] ThemeApply:${label}#${idx} stored picture unreadable — ${err.message}`);
-      return null;
+    if (isThemedSlide(slide)) {
+      if (!hasBaseDesign) return '';
+      preParsed = preParsed || parseCarouselDocument(pre.carouselHtml, stored.length);
+      return String(preParsed.slides.find((x) => x.index === idx)?.html || '');
     }
+    if (String(slide.layoutHtml || '').trim()) return String(slide.layoutHtml);
+    curParsed = curParsed || parseCarouselDocument(curDoc, stored.length);
+    return String(curParsed.slides.find((x) => x.index === idx)?.html || '');
   };
 
   const results = {};
@@ -2337,13 +2320,11 @@ async function applyThemeImage(req, res) {
     while (queue.length) {
       const idx = queue.shift();
       try {
-        const snapshot = snapshotOf(snapshots[idx]) || await storedSlidePicture(idx);
-        if (!snapshot) {
-          // what arrived, so a failure says which side lost the picture
-          const sent = snapshots[idx];
-          const why = String(captureErrors[idx] || '').slice(0, 200)
-            || (sent ? `the picture sent was not a readable image: ${String(sent).slice(0, 24)}…, ${String(sent).length} chars` : 'no picture of it was sent');
-          throw new Error(`Could not capture slide ${idx} to re-theme it${why ? ` (${why})` : ''} — try again.`);
+        const slideHtml = slideHtmlOf(idx);
+        if (!slideHtml) {
+          throw new Error(isThemedSlide(stored[idx - 1])
+            ? `Slide ${idx}'s original design is no longer saved for this many slides — Remove theme or Fix layout, then theme it again.`
+            : `Slide ${idx} has no carousel design yet — run Fix layout first.`);
         }
         // the slide's primary photo — kept exactly as it is (pasted back in)
         const photoKey = photoKeysOf(stored[idx - 1])[0];
@@ -2362,7 +2343,7 @@ async function applyThemeImage(req, res) {
           photo,
           userId: req.user._id,
           reference,
-          snapshot,
+          slideHtml,
           brandColors: brandColors[idx] || brandColors.all || null,
           brandFonts,
         });
@@ -2400,6 +2381,7 @@ async function applyThemeImage(req, res) {
           ...results[i].usage,
           inputImage: referenceImage,
           outputImage: { label: `Themed slide ${i}`, key: results[i].key },
+          inputHtml: { label: `Slide ${i} as sent (carousel agent HTML)`, html: results[i].inputHtml || '' },
         })),
       ],
     },
@@ -2471,7 +2453,11 @@ async function applyThemeImage(req, res) {
       carousel: { ...(plainOf(trace.carousel) || {}), html: doc },
       ...(preTheme ? { preTheme } : {}),
       themeApply: [
-        ...(Array.isArray(trace.themeApply) ? trace.themeApply : []).slice(-19),
+        // the input slide html is heavy — only the newest run keeps it
+        ...(Array.isArray(trace.themeApply) ? trace.themeApply : []).slice(-19).map((r) => ({
+          ...r,
+          slides: Array.isArray(r?.slides) ? r.slides.map(({ inputHtml, ...sl }) => sl) : r?.slides,
+        })),
         {
           at: new Date().toISOString(),
           referenceKey: referenceImageKey,
@@ -2481,6 +2467,7 @@ async function applyThemeImage(req, res) {
             index: i,
             key: results[i].key,
             renderPrompt: results[i].renderPrompt,
+            inputHtml: results[i].inputHtml || '',
             renderModel: results[i].debugEntry?.model || '',
             primaryImage: results[i].primaryImage || null,
             check: results[i].check || null,

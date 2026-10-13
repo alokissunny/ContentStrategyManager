@@ -45,10 +45,10 @@ const PERSIST_PREVIEWS = 12;
 function persistable(entries) {
   let kept = 0;
   return entries.map((e) => {
-    if (!e.preview) return e;
+    if (!e.preview && !e.inputHtml) return e;
     kept += 1;
     if (kept <= PERSIST_PREVIEWS) return e;
-    const { preview, ...rest } = e;
+    const { preview, inputHtml, ...rest } = e;
     return rest;
   });
 }
@@ -168,6 +168,10 @@ export function addAiDebugEntry(entry = {}) {
     // the image sent with the prompt — { label, path | key, kb } — shown under Input
     ...(entry.inputImage && typeof entry.inputImage === 'object'
       ? { inputImage: { label: String(entry.inputImage.label || 'Attached image'), path: String(entry.inputImage.path || ''), key: String(entry.inputImage.key || ''), kb: Number(entry.inputImage.kb) || 0 } }
+      : {}),
+    // the slide html sent with the prompt (Theme Apply) — previewed under Input
+    ...(entry.inputHtml && typeof entry.inputHtml === 'object' && entry.inputHtml.html
+      ? { inputHtml: { label: String(entry.inputHtml.label || 'Input slide (HTML)'), html: String(entry.inputHtml.html) } }
       : {}),
     // the image an agent returned (Theme Apply's rendered slide) — shown under Output
     ...(entry.outputImage && typeof entry.outputImage === 'object'

@@ -3,8 +3,9 @@
  *
  * Re-paints one carousel slide in the look of a reference image and returns
  * the finished slide as an IMAGE, text included:
- *   1. Image 1 = the slide as the studio sees it (captured in the browser),
- *      Image 2 = the reference (an uploaded photo or a library theme's board);
+ *   1. the slide = the carousel agent's HTML for it (in the prompt, not a
+ *      picture); the one attached image = the reference (an uploaded photo or
+ *      a library theme's board);
  *   2. the image model (gpt-image-2.5-sunburst by default) paints the slide
  *      with prompts/theme-apply-render.md — the slide's exact words, the safe
  *      area, and a flat magenta placeholder where the primary photo goes;
@@ -55,6 +56,29 @@ function slideSource(slideHtml) {
     .replace(/\n\s*\n+/g, '\n')
     .slice(0, 12000);
 }
+
+// The slide's html as the render prompt carries it: styles kept (they say how
+// the slide is laid out), picture sources / data URIs / comments dropped, then
+// whitespace squeezed. Too long for the prompt → the bare article.
+const MAX_PROMPT_HTML = Number(process.env.THEME_APPLY_MAX_HTML) || 18000;
+function slideHtmlForPrompt(slideHtml) {
+  const s = String(slideHtml || '')
+    .replace(/<!--[\s\S]*?-->/g, '')
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/<script\b[\s\S]*?<\/script>/gi, '')
+    .replace(/\s(src|srcset|data-asset-key)\s*=\s*("[^"]*"|'[^']*')/gi, '')
+    .replace(/url\(\s*(["']?)(data:|https?:)[^)]*\)/gi, 'url(picture)')
+    .replace(/[ \t]+/g, ' ')
+    .replace(/\n\s*\n+/g, '\n')
+    .trim();
+  return s.length <= MAX_PROMPT_HTML ? s : slideSource(s);
+}
+
+// The input slide for the debug previews: as sent, minus inline data URIs
+// (pictures load from their URLs), capped so the trace stays small.
+const debugSlideHtml = (html) => String(html || '')
+  .replace(/(["'(])data:[^"')]{2000,}/gi, '$1')
+  .slice(0, 60000);
 
 // Every text element of the carousel agent's html, in order: { slot, text }.
 function sourceElements(src) {
@@ -107,7 +131,7 @@ const THEME_IMAGE_MODEL = () => process.env.OPENAI_THEME_IMAGE_MODEL || 'gpt-ima
 const paintsFourByFive = (model) => /^gpt-image-2/i.test(String(model || ''));
 const CANVAS_NOTE = {
   native: 'the canvas IS the final 4:5 slide (1024×1280) — nothing is cropped, so the edges of the canvas are the edges of the post.',
-  cropped: 'the finished slide is 4:5 but is painted on a taller 2:3 canvas and cropped to its central 4:5 band. Image 1 is shown the same way — the slide in the middle band, plain bands above and below. Keep every word and important detail inside that central band, well clear of its edges.',
+  cropped: 'the finished slide is 4:5 but is painted on a taller 2:3 canvas and cropped to its central 4:5 band. Keep every word and important detail inside that central band, well clear of its edges.',
 };
 
 const roleName = (l) => {
@@ -130,17 +154,17 @@ function primaryImageSection(photo) {
   return [
     '## Primary image placeholder',
     '',
-    `Do NOT paint Image 1's primary photo. In its place, paint a flat, solid ${PLACEHOLDER_HEX} (pure magenta) rectangle — one even colour, no texture, no shading, no gradient, nothing drawn inside it. The app replaces it with the original photo, unchanged.`,
+    `Do NOT paint the slide's primary photo (the main <img> in the Slide HTML). In its place, paint a flat, solid ${PLACEHOLDER_HEX} (pure magenta) rectangle — one even colour, no texture, no shading, no gradient, nothing drawn inside it. The app replaces it with the original photo, unchanged.`,
     `- Shape: ${r ? `${shape}, width:height about ${r.toFixed(2)} : 1 — ` : ''}the photo's own proportions. Keep it upright (not rotated).`,
-    '- Size and place it as the prominent picture of the new composition — about as large as the photo is on Image 1, or larger.',
-    '- Frame it in the theme\'s manner around its edges (a border, a mat, tape on the corners, a torn-paper edge, a shadow) — but never over the magenta itself.',
+    '- Size and place it as the prominent picture of the new composition — about where and as large as the Slide HTML puts the photo, or larger.',
+    '- Treat its edges the way the reference treats pictures (if it frames them at all) — but never paint over the magenta itself.',
     '- Use magenta ONLY for this rectangle — nowhere else on the slide.',
     '- Put NO text on or across the magenta rectangle — it is covered by the photo afterwards.',
   ].join('\n');
 }
 
 // The studio's Brand Kit colours (the slide's chosen colour set) — the palette
-// the render must use; Image 2 still gives textures, type mood and decoration.
+// the render must use; the reference still gives textures, type mood and decoration.
 const HEX = /^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i;
 function brandPalette(colors) {
   if (!colors || typeof colors !== 'object') return null;
@@ -155,17 +179,17 @@ function brandColorsSection(palette) {
   return [
     `## Brand colours${palette.name ? ` (${palette.name})` : ''}`,
     '',
-    'The studio chose these brand colours for this slide. Use them as the slide\'s palette in place of Image 2\'s colours — keep Image 2\'s textures, typography mood, framing and decoration, but recolour them into this palette:',
+    'The studio chose these brand colours for this slide. Use them as the slide\'s palette in place of the reference image\'s colours — keep the look and feel you extracted from it, but recolour it into this palette:',
     palette.ground ? `- Background — the slide ground: ${palette.ground}` : '',
     palette.fg ? `- Primary — all text (headline, copy, labels) and dark surfaces: ${palette.fg}` : '',
-    palette.accent ? `- Accent (highlights, shapes, tape, frames, small details): ${palette.accent}` : '',
-    '- Tints, shades and paper textures of these colours are fine; do not introduce other dominant colours. Keep text-to-background contrast strong.',
+    palette.accent ? `- Accent (highlights, graphic devices, small details): ${palette.accent}` : '',
+    '- Tints, shades and surface finishes of these colours are fine; do not introduce other dominant colours. Keep text-to-background contrast strong.',
     '- These colours never apply to the original photo.',
   ].filter(Boolean).join('\n');
 }
 
 // The studio's Brand Kit Typography — the faces the render letters the slide in
-// (Image 2 still gives the type's treatment: scale, weight contrast, placement).
+// (the reference still gives the type's treatment: scale, weight contrast, placement).
 function brandTypeFaces(fonts) {
   if (!fonts || typeof fonts !== 'object') return null;
   const pick = (v) => String(v || '').replace(/[^\w\s'&.-]/g, '').trim().slice(0, 60);
@@ -178,7 +202,7 @@ function brandFontsSection(faces) {
   return [
     '## Brand fonts',
     '',
-    'The studio chose these typefaces in its Brand Kit. Letter the slide in them INSTEAD of Image 2\'s typefaces — keep Image 2\'s typographic treatment (scale, weight contrast, case, spacing, placement), but the letterforms must be these fonts:',
+    'The studio chose these typefaces in its Brand Kit. Letter the slide in them INSTEAD of the reference image\'s typefaces — keep its typographic treatment (scale, weight contrast, case, spacing, placement), but the letterforms must be these fonts:',
     faces.heading ? `- Headline, pull-quote, big numbers: ${faces.heading}` : '',
     faces.body ? `- Supporting text and body copy: ${faces.body}` : '',
     faces.detail ? `- Small labels, eyebrows/kickers, captions, CTA: ${faces.detail}` : '',
@@ -186,12 +210,13 @@ function brandFontsSection(faces) {
   ].filter(Boolean).join('\n');
 }
 
-function themeApplyPrompt(lines = [], photo = null, { native = paintsFourByFive(THEME_IMAGE_MODEL()), palette = null, faces = null } = {}) {
+function themeApplyPrompt(lines = [], photo = null, { native = paintsFourByFive(THEME_IMAGE_MODEL()), palette = null, faces = null, slideHtml = '' } = {}) {
   const text = lines.length
     ? lines.map((l, i) => `${i + 1}. ${roleName(l)}: "${l.text}"`).join('\n')
     : '(the slide has no text — render none)';
   return fillTemplate(loadPrompt(), {
     TEXT_LINES: text,
+    SLIDE_HTML: slideHtmlForPrompt(slideHtml) || '(no html — use the copy above)',
     PRIMARY_IMAGE: primaryImageSection(photo),
     BRAND_COLORS: brandColorsSection(palette),
     BRAND_FONTS: brandFontsSection(faces),
@@ -211,48 +236,32 @@ async function normalize(buffer, max = 1536) {
   return { buffer: out, mediaType: 'image/jpeg' };
 }
 
-// For a 2:3 model: Image 1 padded to 2:3 — the slide in the central band, its
-// edge colour above and below — so its layout lands where the 4:5 crop keeps it.
-async function padToRenderShape(buffer) {
-  const { width: W, height: H } = await sharp(buffer).metadata();
-  const band = Math.max(0, Math.round((W * 1.5 - H) / 2));
-  if (!band) return { buffer, mediaType: 'image/jpeg' };
-  const edge = await sharp(buffer).extract({ left: 0, top: 0, width: W, height: Math.max(2, Math.round(H * 0.03)) }).stats();
-  const out = await sharp(buffer)
-    .extend({ top: band, bottom: band, background: { r: edge.dominant.r, g: edge.dominant.g, b: edge.dominant.b } })
-    .jpeg({ quality: 92 })
-    .toBuffer();
-  return { buffer: out, mediaType: 'image/jpeg' };
-}
-
 /**
  * @param {{ slideIndex: number, slide?: object, userId: string,
- *   reference: { buffer: Buffer }, snapshot: { buffer: Buffer }, photo?: { buffer: Buffer }|null,
+ *   reference: { buffer: Buffer }, slideHtml: string, photo?: { buffer: Buffer }|null,
  *   brandColors?: { name?, ground?, fg?, accent? }|null,
  *   brandFonts?: { heading?, body?, detail? }|null }} p
  * @returns {Promise<{ key, src, renderPrompt, textLines, primaryImage, check, usage, debugEntry }>}
  */
-async function applyThemeToSlide({ slideIndex, slide = {}, userId, reference, snapshot, photo = null, brandColors = null, brandFonts = null }) {
+async function applyThemeToSlide({ slideIndex, slide = {}, userId, reference, slideHtml = '', photo = null, brandColors = null, brandFonts = null }) {
   if (!reference?.buffer) throw new Error('A reference photo is required.');
-  if (!snapshot?.buffer) throw new Error('Could not capture this slide to re-theme it — try again.');
+  if (!String(slideHtml || '').trim()) throw new Error(`Slide ${slideIndex} has no carousel design to re-theme — run Fix layout first.`);
   const started = Date.now();
   const model = THEME_IMAGE_MODEL();
   const native = paintsFourByFive(model);
-  const current = native
-    ? await normalize(snapshot.buffer)
-    : await padToRenderShape((await normalize(snapshot.buffer)).buffer);
   const ref = await normalize(reference.buffer);
-  const lines = slideLines(slide);
+  const lines = slideLines({ ...slide, layoutHtml: slideHtml });
   const photoMeta = photo?.buffer ? await sharp(photo.buffer).rotate().metadata().catch(() => null) : null;
   const photoInfo = photoMeta ? { width: photoMeta.width, height: photoMeta.height } : null;
   const palette = brandPalette(brandColors);
   const faces = brandTypeFaces(brandFonts);
-  const prompt = themeApplyPrompt(lines, photoInfo, { native, palette, faces });
+  const prompt = themeApplyPrompt(lines, photoInfo, { native, palette, faces, slideHtml });
 
   // one render, cropped to 4:5 when the model painted 2:3
   const renderOnce = async (extra = '') => {
     const r = await composeImage({
-      images: [{ ...current, name: 'current-slide' }, { ...ref, name: 'reference' }],
+      // the slide travels as html in the prompt — the reference is the only picture
+      images: [{ ...ref, name: 'reference' }],
       prompt: extra ? `${prompt}\n\n${extra}` : prompt,
       // gpt-image-2.5-sunburst won a side-by-side on this job (exact words, the
       // strongest theme, ~$0.04/slide); OPENAI_THEME_IMAGE_MODEL overrides
@@ -325,6 +334,8 @@ async function applyThemeToSlide({ slideIndex, slide = {}, userId, reference, sn
     key,
     src,
     renderPrompt: prompt,
+    // the slide as it went in (the carousel agent's html) — previewed in debug
+    inputHtml: debugSlideHtml(slideHtml),
     textLines: lines,
     brandColors: palette,
     brandFonts: faces,
@@ -336,7 +347,7 @@ async function applyThemeToSlide({ slideIndex, slide = {}, userId, reference, sn
     debugEntry: {
       source: `ThemeApply:slide ${slideIndex}`,
       model: `${rendered.model} · ${rendered.quality}`,
-      prompt: `${prompt}\n\nInput images: 1. current slide · 2. theme reference`,
+      prompt: `${prompt}\n\nInput image: theme reference (the slide is the HTML above)`,
       output: `Rendered slide ${slideIndex} · ${cropW}×${cropH} · ${key}${photo?.buffer
         ? (placed?.found ? ` · original photo pasted into the placeholder at ${placed.box.left},${placed.box.top} ${placed.box.width}×${placed.box.height}` : ' · NO placeholder found — the photo is the model\'s redraw')
         : ' · no primary photo on this slide'}${renders.length > 1 ? ` · ${renders.length} renders` : ''}${native ? ' · painted 4:5 (no crop)' : ' · painted 2:3, cropped to 4:5'}${checks.length

@@ -421,7 +421,21 @@ function CopyButton({ text }) {
 
 // Only agents that actually ran on this post are drawn — a block with nothing
 // recorded is left out rather than shown as "Not recorded".
-function Block({ title, input, output, open = false, cost = '', images = [] }) {
+// The slide html an agent was given (Theme Apply's input slide), drawn at its
+// 1080×1350 canvas and scaled down. Scripts stay blocked.
+const INPUT_FRAME_CSS = 'html,body{margin:0;padding:0;background:#fff;overflow:hidden}'
+  + 'section[data-direction]{padding:0!important;gap:0!important;display:block!important}';
+function InputSlideFrame({ html, label }) {
+  const page = `<!doctype html><html><head><meta charset="utf-8"><style>${INPUT_FRAME_CSS}</style></head><body>${html}</body></html>`;
+  return (
+    <figure className="wv-agentdbg__inslide">
+      <div className="ai-debug__slidefr"><iframe title={label} sandbox="" srcDoc={page} /></div>
+      <figcaption>{label}</figcaption>
+    </figure>
+  );
+}
+
+function Block({ title, input, output, open = false, cost = '', images = [], inputSlides = [] }) {
   const inputBody = pretty(input);
   const outputBody = pretty(output);
   if (!inputBody && !outputBody && !images.length) return null;
@@ -440,6 +454,16 @@ function Block({ title, input, output, open = false, cost = '', images = [] }) {
           <CopyButton text={copyAll} />
         </span>
       </summary>
+      {inputSlides.length ? (
+        <div className="wv-agentdbg__section">
+          <div className="wv-agentdbg__sechead">
+            <span>Input slide{inputSlides.length > 1 ? 's' : ''} (HTML)</span>
+          </div>
+          <div className="wv-agentdbg__imgs">
+            {inputSlides.map((x) => <InputSlideFrame key={x.label} html={x.html} label={x.label} />)}
+          </div>
+        </div>
+      ) : null}
       {inputBody ? (
         <div className="wv-agentdbg__section">
           <div className="wv-agentdbg__sechead">
@@ -617,6 +641,7 @@ export default function PostAgentDebug({
             input={taSlides.length ? bySlide((sl) => sl.renderPrompt || '') : ''}
             output={taSlides.length ? taSlides.map((sl) => ({ slide: sl.index, model: sl.renderModel, key: sl.key })) : null}
             cost={sumOf(taSlides.map((sl) => sl.usage))}
+            inputSlides={taSlides.filter((sl) => sl.inputHtml).map((sl) => ({ html: sl.inputHtml, label: `Slide ${sl.index} as sent` }))}
             images={[
               ...(ta.referenceKey ? [{ key: ta.referenceKey, label: 'Reference' }] : []),
               ...(ta.referenceTheme?.path ? [{ key: ta.referenceTheme.path, src: ta.referenceTheme.path, label: ta.referenceTheme.name || 'Theme' }] : []),

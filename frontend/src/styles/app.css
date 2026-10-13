@@ -2150,6 +2150,17 @@ textarea.ai-debug__input {
   background: var(--surface-sunken);
 }
 .ai-debug__img--big img { max-height: 480px; }
+/* AI debug panel › Input slide — the slide html sent to Theme Apply, at 1080×1350 scaled to 1/4 */
+.ai-debug__slidefr {
+  width: 270px; height: 337.5px; margin: 8px 0 4px; overflow: hidden;
+  border-radius: 8px; border: 1px solid var(--border); background: #fff;
+}
+.wv-agentdbg__inslide { margin: 0; display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--ink-500); }
+.wv-agentdbg__inslide .ai-debug__slidefr { margin: 0; }
+.ai-debug__slidefr iframe {
+  width: 1080px; height: 1350px; border: 0; display: block;
+  transform: scale(0.25); transform-origin: 0 0;
+}
 .ai-debug__imgmeta { font-size: 12px; color: var(--ink-500); font-weight: 500; }
 
 /* Captures nav badge — captures ready for a plan (bauhly-v3 .sb__count) */

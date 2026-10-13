@@ -29,7 +29,6 @@ import {
   setPostReview,
   runPostLayout,
   applyThemeImage,
-  getPreTheme,
   mapThemeRegions,
   editThemeRegion,
   removeTheme as apiRemoveTheme,
@@ -2029,38 +2028,6 @@ async function rasterizeSlide(node, { timeoutMs = 20000 } = {}) {
     );
 }
 
-// The slide as it looks now, for the Theme Apply agent — its words included:
-// Image 1 is the source of truth for the copy. The export render, rasterised
-// and scaled to ≤1536px, as a JPEG data URL. One retry — the first pass can
-// miss fonts / pictures still loading. → { url } or { error }
-async function slideSnapshotDataUrl(node, max = 1536) {
-  if (!node) return { error: 'the slide is not on the page' };
-  return captureSlide(node, max);
-}
-
-async function captureSlide(node, max) {
-  let last = null;
-  for (let attempt = 0; attempt < 2; attempt += 1) {
-    try {
-      await rasterizeSlide(node).catch(() => null); // first pass warms fonts/images, as for publish
-      const blob = await rasterizeSlide(node);
-      const bmp = await createImageBitmap(blob);
-      const k = Math.min(1, max / Math.max(bmp.width, bmp.height));
-      const canvas = document.createElement('canvas');
-      canvas.width = Math.round(bmp.width * k);
-      canvas.height = Math.round(bmp.height * k);
-      canvas.getContext('2d').drawImage(bmp, 0, 0, canvas.width, canvas.height);
-      bmp.close?.();
-      return { url: canvas.toDataURL('image/jpeg', 0.92) };
-    } catch (err) {
-      last = err;
-      console.warn('[theme-apply] slide capture failed', attempt + 1, err);
-    }
-  }
-  const why = last?.message || (last?.type === 'error' ? 'a picture on the slide failed to load' : String(last || 'unknown'));
-  return { error: why };
-}
-
 function VisualNeedHint({ need }) {
   const [open, setOpen] = useState(false);
   const wrapRef = useRef(null);
@@ -3142,8 +3109,6 @@ export default function WeekView({
   // Re-theme: the BASE slides (carousel agent output, from agentTrace.preTheme)
   // drawn off-screen just long enough to snapshot them as Image 1.
   // { doc, slides: [{ index, slide }] } | null
-  const [baseStage, setBaseStage] = useState(null);
-  const baseRefs = useRef({});
   const routeRef = useRef(route);
   const lastSavedByDayRef = useRef({});
   const persistGenRef = useRef(0);
@@ -5273,54 +5238,9 @@ export default function WeekView({
         reference = { referenceImageKey: key };
       }
       const wasEditing = postEdit;
-      // Image 1 = the slide as the carousel agent designed it (in the Brand
-      // Kit's colours and fonts). A slide already re-themed is NOT re-dressed
-      // from its previous render: its base slide is rebuilt from the design
-      // saved before the first theme (agentTrace.preTheme) and captured.
-      const snapshots = {};
-      const captureErrors = {};
-      const rethemed = slideIndexes.filter((i) => isThemedPicture(slides[i - 1]));
-      let base = null;
-      if (rethemed.length) {
-        base = await getPreTheme(postIdAt(dayIndex)).catch(() => null);
-        if (!base?.carouselHtml || !Array.isArray(base.slides) || base.slides.length !== count) base = null;
-      }
-      for (const i of slideIndexes) {
-        if (rethemed.includes(i)) continue;
-        const shot = await slideSnapshotDataUrl(exportRefs.current[i - 1]);
-        if (shot.url) snapshots[i] = shot.url;
-        else captureErrors[i] = shot.error;
-      }
-      // a slide already themed whose saved base design no longer lines up
-      // (slides added or removed since) has no source to capture — say so
-      // (the server then starts from the slide's current picture)
-      if (!base) rethemed.forEach((i) => { captureErrors[i] = 'its original design is no longer saved for this many slides'; });
-      if (base) {
-        baseRefs.current = {};
-        setBaseStage({
-          doc: base.carouselHtml,
-          slides: rethemed.map((i) => ({ index: i, slide: { ...slides[i - 1], image: null, ...base.slides[i - 1], index: i } })),
-        });
-        // let the frames mount, load the document and its photos/fonts
-        await new Promise((r) => { setTimeout(r, 1800); });
-        for (const i of rethemed) {
-          const shot = await slideSnapshotDataUrl(baseRefs.current[i]);
-          if (shot.url) snapshots[i] = shot.url;
-          else captureErrors[i] = `the original slide could not be drawn (${shot.error})`;
-        }
-        setBaseStage(null);
-      }
-      // every slide asked for leaves with a picture or the reason it has none —
-      // a capture that came back blank is a reason too
-      slideIndexes.forEach((i) => {
-        const url = snapshots[i];
-        if (url && (!/^data:image\/(jpeg|png|webp);base64,/.test(url) || url.length < 2000)) {
-          delete snapshots[i];
-          captureErrors[i] = `the capture came back empty (${String(url).slice(0, 24)}…, ${url.length} chars)`;
-        }
-        if (!snapshots[i] && !captureErrors[i]) captureErrors[i] = 'nothing was captured';
-        if (captureErrors[i]) console.warn(`[theme-apply] slide ${i}: ${captureErrors[i]}`);
-      });
+      // the server sends each slide to the agent as the carousel agent's HTML
+      // (a slide already re-themed: the design saved before its first theme) —
+      // no picture of the slide is captured here
       // the Brand Kit colours chosen for each slide (its own set, else the kit's
       // default) — the image model paints in these instead of the reference's.
       // All three roles: one the studio never edited is the default the Brand
@@ -5334,7 +5254,7 @@ export default function WeekView({
       }
       // the Brand Kit's Typography — the render letters the slide in these faces
       const brandFonts = brandFontNames(vbStore?.libraryEdits);
-      const data = await runDayThemeImage(route._id, dayIndex, { ...reference, slideIndexes, snapshots, captureErrors, brandColors, brandFonts });
+      const data = await runDayThemeImage(route._id, dayIndex, { ...reference, slideIndexes, brandColors, brandFonts });
       (data?.applied || []).forEach((a) => { if (a?.key && a?.src) rememberImage(a.key, a.src, { skipGen: true }); });
       if (data?.route) {
         setRoute(data.route);
@@ -8779,37 +8699,6 @@ export default function WeekView({
               </div>
             ))}
           </div>
-          {/* Re-theme source: base slides (pre-theme design), same export
-              geometry, mounted only while runThemeApply captures them. */}
-          {baseStage && (
-            <div
-              aria-hidden="true"
-              className="wv-ig wv-ig--export"
-              style={{ ...igVars, position: 'fixed', left: '-100000px', top: 0, width: 1080, pointerEvents: 'none' }}
-            >
-              {baseStage.slides.map(({ index, slide: b }) => (
-                <div
-                  key={index}
-                  ref={(el) => { baseRefs.current[index] = el; }}
-                  className="wv-ig__photo"
-                  style={{ width: 1080 }}
-                >
-                  <SlideMedia
-                    slide={b}
-                    localMedia={localMedia}
-                    mediaByKey={mediaByKey}
-                    subjectsByKey={subjectsByKey}
-                    preferProxy
-                    paint={paintFor(b).paint}
-                    themed={paintFor(b).themed}
-                    carouselLayoutHtmls={slides.map((x) => x?.layoutHtml || '')}
-                    documentHtml={slideIsThemed(b) ? baseStage.doc : ''}
-                    slideIndex={index}
-                  />
-                </div>
-              ))}
-            </div>
-          )}
         </div>
       )}
     </div>
