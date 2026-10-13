@@ -1221,6 +1221,20 @@ function markThemed(raw, style) {
   return `${out}${style}`;
 }
 
+// A photo in a grid `1fr` row or a flex column can't shrink below its natural
+// height (min-height:auto), so a tall upload stretches its row and pushes the
+// text row off the bottom of the slide. Zero-specificity, so any min-height the
+// agent wrote still wins.
+const MEDIA_SHRINK_CSS = ':where(.slide, article[data-index]) :where(img, picture, video){min-height:0;min-width:0}';
+
+function letMediaShrink(doc) {
+  if (!doc?.head || doc.getElementById('bly-media-shrink')) return;
+  const style = doc.createElement('style');
+  style.id = 'bly-media-shrink';
+  style.textContent = MEDIA_SHRINK_CSS;
+  doc.head.insertBefore(style, doc.head.firstChild);
+}
+
 // The carousel agent sometimes places a panel with top/bottom offsets but forgets
 // `position:absolute` (it relied on a helper class like `.taped` and left it off).
 // A static element ignores its offsets, so the panel falls to the top of the
@@ -1230,6 +1244,7 @@ function markThemed(raw, style) {
 export function repairStrandedOffsets(doc) {
   const view = doc?.defaultView;
   if (!view) return 0;
+  letMediaShrink(doc);
   let fixed = 0;
   doc.querySelectorAll('.slide *, article[data-index] *').forEach((el) => {
     const cs = view.getComputedStyle(el);

@@ -3,7 +3,7 @@ const asyncHandler = require('../utils/asyncHandler');
 const { protect } = require('../middleware/auth');
 const {
   getCarouselModel, updateCarouselModel, getBrandVoiceModel, updateBrandVoiceModel,
-  getThemeRegionsModel, updateThemeRegionsModel,
+  getThemeRegionsModel, updateThemeRegionsModel, getStrategistModel, updateStrategistModel,
 } = require('../controllers/settingsController');
 
 const router = express.Router();
@@ -11,6 +11,8 @@ const router = express.Router();
 router.use(protect);
 router.get('/carousel-model', asyncHandler(getCarouselModel));
 router.put('/carousel-model', asyncHandler(updateCarouselModel));
+router.get('/strategist-model', asyncHandler(getStrategistModel));
+router.put('/strategist-model', asyncHandler(updateStrategistModel));
 router.get('/brand-voice-model', asyncHandler(getBrandVoiceModel));
 router.put('/brand-voice-model', asyncHandler(updateBrandVoiceModel));
 router.get('/theme-regions-model', asyncHandler(getThemeRegionsModel));

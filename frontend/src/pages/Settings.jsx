@@ -18,7 +18,7 @@ import { syncHandle } from '../lib/store';
 import { resetProjects } from '../lib/projectsStore';
 import { useAiDebug, setAiDebugEnabled, clearAiDebugEntries } from '../lib/aiDebug';
 import { useFeatureFlags, setVideoCoverEnabled, setReelEditorEnabled, setLinkedInEnabled } from '../lib/featureFlags';
-import { getBrandVoiceModel, getCarouselModel, getThemeRegionsModel, updateBrandVoiceModel, updateCarouselModel, updateThemeRegionsModel } from '../api/settings';
+import { getBrandVoiceModel, getCarouselModel, getStrategistModel, getThemeRegionsModel, updateBrandVoiceModel, updateCarouselModel, updateStrategistModel, updateThemeRegionsModel } from '../api/settings';
 import LinkedInSettings from '../components/LinkedInSettings';
 import './settings.css';
 import { LOCALES, useLocale, setLocale, intlLocale, translate as t } from '../i18n';
@@ -85,6 +85,9 @@ export default function Settings() {
   const [voiceModel, setVoiceModel] = useState(null);
   const [voiceBusy, setVoiceBusy] = useState(false);
   const [voiceErr, setVoiceErr] = useState('');
+  const [strategist, setStrategist] = useState(null);
+  const [strategistBusy, setStrategistBusy] = useState(false);
+  const [strategistErr, setStrategistErr] = useState('');
   const [regionModel, setRegionModel] = useState(null);
   const [regionBusy, setRegionBusy] = useState(false);
   const [regionErr, setRegionErr] = useState('');
@@ -100,6 +103,9 @@ export default function Settings() {
     getCarouselModel()
       .then(setCarousel)
       .catch(() => setCarousel(null));
+    getStrategistModel()
+      .then(setStrategist)
+      .catch(() => setStrategist(null));
     getBrandVoiceModel()
       .then(setVoiceModel)
       .catch(() => setVoiceModel(null));
@@ -139,6 +145,19 @@ export default function Settings() {
       setVoiceErr(err.response?.data?.message || 'Could not update the brand voice model.');
     } finally {
       setVoiceBusy(false);
+    }
+  }
+
+  async function pickStrategist(model) {
+    if (!isAdmin || strategistBusy || strategist?.model === model) return;
+    setStrategistBusy(true);
+    setStrategistErr('');
+    try {
+      setStrategist(await updateStrategistModel(model));
+    } catch (err) {
+      setStrategistErr(err.response?.data?.message || 'Could not update the strategist model.');
+    } finally {
+      setStrategistBusy(false);
     }
   }
 
@@ -635,6 +654,44 @@ export default function Settings() {
           </>
           );
         })()}
+      </section>
+
+      {/* ── Strategist model ── */}
+      <section className="card set-card">
+        <h2>Strategist model</h2>
+        <p className="set-card__sub">
+          Which model reads your captures and picks the angles for each new post when you generate a plan.
+          {!isAdmin && ' Only an admin can change this.'}
+        </p>
+        {!strategist ? (
+          <p className="set-empty">Loading…</p>
+        ) : (
+          <>
+            <div className="set-seg" role="group" aria-label="Strategist model">
+              {strategist.modelOptions.map((m) => {
+                const on = m.id === strategist.model;
+                return (
+                  <button
+                    type="button"
+                    key={m.id}
+                    className={`set-seg__btn ${on ? 'is-on' : ''}`}
+                    aria-pressed={on}
+                    disabled={!isAdmin || strategistBusy}
+                    onClick={() => pickStrategist(m.id)}
+                  >
+                    {m.label}
+                    <span className="set-seg__tag">{m.tier === 'cheapest' ? 'Faster · cheaper' : 'Slower · priciest'}</span>
+                  </button>
+                );
+              })}
+            </div>
+            {strategistErr && <p className="set-err">{strategistErr}</p>}
+            <p className="set-card__note">
+              GPT-6 Luna is the default. Switch to GPT-6 Astra for deeper angle picking — it costs much more
+              and takes longer.
+            </p>
+          </>
+        )}
       </section>
 
       {/* ── Brand voice model ── */}

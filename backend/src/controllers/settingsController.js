@@ -5,6 +5,8 @@ const {
   getRuntimeSetting,
   setRuntimeSetting,
   isValidCarouselModel,
+  STRATEGIST_MODEL_OPTIONS,
+  isValidStrategistModel,
   isValidReasoning,
   BRAND_VOICE_PROVIDERS,
   isValidBrandVoiceProvider,
@@ -58,6 +60,34 @@ async function updateCarouselModel(req, res) {
   }
 
   return res.json(currentCarouselModel());
+}
+
+function currentStrategistModel() {
+  const resolved = resolvePlanAgentLlm('strategist');
+  return {
+    model: resolved.model,
+    provider: resolved.provider,
+    overridden: Boolean(getRuntimeSetting(KEYS.strategistModel)),
+    modelOptions: STRATEGIST_MODEL_OPTIONS,
+  };
+}
+
+// GET /api/settings/strategist-model
+async function getStrategistModel(req, res) {
+  res.json(currentStrategistModel());
+}
+
+// PUT /api/settings/strategist-model  (admin only)
+async function updateStrategistModel(req, res) {
+  if (req.user?.role !== 'admin') {
+    return res.status(403).json({ message: 'Only an admin can change the strategist model.' });
+  }
+  const model = String(req.body?.model || '').trim();
+  if (!isValidStrategistModel(model)) {
+    return res.status(400).json({ message: `Unsupported strategist model: ${req.body?.model}` });
+  }
+  await setRuntimeSetting(KEYS.strategistModel, model);
+  return res.json(currentStrategistModel());
 }
 
 function currentBrandVoiceModel() {
@@ -116,5 +146,5 @@ async function updateThemeRegionsModel(req, res) {
 
 module.exports = {
   getCarouselModel, updateCarouselModel, getBrandVoiceModel, updateBrandVoiceModel,
-  getThemeRegionsModel, updateThemeRegionsModel,
+  getThemeRegionsModel, updateThemeRegionsModel, getStrategistModel, updateStrategistModel,
 };

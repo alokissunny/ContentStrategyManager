@@ -25,6 +25,12 @@ const CAROUSEL_MODEL_OPTIONS = [
   { id: 'claude-opus-5', label: 'Claude Opus 5', provider: 'anthropic', reasoning: true, tier: 'priciest' },
 ];
 
+// The plan Strategist: Luna by default (cheap + fast); Astra when quality matters more.
+const STRATEGIST_MODEL_OPTIONS = [
+  { id: 'gpt-6-luna', label: 'GPT-6 Luna', provider: 'openai', tier: 'cheapest' },
+  { id: 'gpt-6-astra', label: 'GPT-6 Astra', provider: 'openai', tier: 'priciest' },
+];
+
 const REASONING_OPTIONS = [
   { id: 'low', label: 'Low' },
   { id: 'medium', label: 'Medium' },
@@ -34,6 +40,7 @@ const REASONING_OPTIONS = [
 const KEYS = {
   carouselModel: 'carousel.model',
   carouselReasoningEffort: 'carousel.reasoningEffort',
+  strategistModel: 'strategist.model',
   brandVoiceProvider: 'brandVoice.provider',
   themeRegionsProvider: 'themeRegions.provider',
 };
@@ -88,6 +95,10 @@ function isValidCarouselModel(id) {
   return CAROUSEL_MODEL_OPTIONS.some((m) => m.id === id);
 }
 
+function isValidStrategistModel(id) {
+  return STRATEGIST_MODEL_OPTIONS.some((m) => m.id === id);
+}
+
 function isValidReasoning(id) {
   return REASONING_OPTIONS.some((r) => r.id === id);
 }
@@ -122,6 +133,8 @@ module.exports = {
   getRuntimeSetting,
   setRuntimeSetting,
   isValidCarouselModel,
+  STRATEGIST_MODEL_OPTIONS,
+  isValidStrategistModel,
   isValidReasoning,
   BRAND_VOICE_PROVIDERS,
   isValidBrandVoiceProvider,

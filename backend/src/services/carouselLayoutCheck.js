@@ -38,6 +38,13 @@ function parseDecls(text) {
   return out;
 }
 
+function compoundOf(part) {
+  return {
+    tag: (part.match(/^[a-z][a-z0-9]*/i) || [''])[0].toLowerCase(),
+    classes: [...part.matchAll(/\.([\w-]+)/g)].map((m) => m[1]),
+  };
+}
+
 // Flat rules only (@media / @font-face / @keyframes blocks are skipped).
 function parseCss(css) {
   const src = String(css || '').replace(/\/\*[\s\S]*?\*\//g, '');
@@ -61,11 +68,13 @@ function parseCss(css) {
     selector.split(',').forEach((sel) => {
       const s = sel.trim();
       if (!s || /[:[]/.test(s.replace(/::?(?:first-line|first-letter)/g, ''))) return; // no pseudo/attr selectors
-      const last = s.split(/[\s>+~]+/).filter(Boolean).pop() || '';
-      const tag = (last.match(/^[a-z][a-z0-9]*/i) || [''])[0].toLowerCase();
-      const classes = [...last.matchAll(/\.([\w-]+)/g)].map((m) => m[1]);
+      const compounds = s.split(/[\s>+~]+/).filter(Boolean).map(compoundOf);
+      const { tag, classes } = compounds.pop() || { tag: '', classes: [] };
       if (!tag && !classes.length) return;
-      rules.push({ tag, classes, decls });
+      // ancestors: `.hook .title` only styles a .title inside a .hook
+      const ancestors = compounds.filter((c) => c.tag || c.classes.length);
+      const spec = [{ tag, classes }, ...ancestors].reduce((a, c) => a + c.classes.length * 10 + (c.tag ? 1 : 0), 0);
+      rules.push({ tag, classes, ancestors, spec, order: rules.length, decls });
     });
     i = close + 1;
   }
@@ -123,15 +132,27 @@ function* walk(n) { for (const c of els(n)) { yield c; yield* walk(c); } }
 // ── styles ─────────────────────────────────────────────────────────────────
 const INHERITED = ['font-size', 'font-family', 'line-height', 'letter-spacing', 'text-transform', 'font-weight', 'font-style'];
 
+const classSet = (node) => new Set(String(node.attrs?.class || '').split(/\s+/).filter(Boolean));
+const matches = (node, c) => (!c.tag || c.tag === node.tag) && c.classes.every((k) => classSet(node).has(k));
+
+// every ancestor compound found, innermost first, walking up the tree
+function ancestorsMatch(node, ancestors) {
+  let at = node.parent;
+  for (let i = ancestors.length - 1; i >= 0; i -= 1) {
+    while (at && at.tag && at.tag !== '#root' && !matches(at, ancestors[i])) at = at.parent;
+    if (!at || !at.tag || at.tag === '#root') return false;
+    at = at.parent;
+  }
+  return true;
+}
+
 function styleOf(node, rules) {
   if (node._style) return node._style;
-  const classes = new Set(String(node.attrs.class || '').split(/\s+/).filter(Boolean));
   const own = {};
-  rules.forEach((r) => {
-    if (r.tag && r.tag !== node.tag) return;
-    if (r.classes.some((c) => !classes.has(c))) return;
-    Object.assign(own, r.decls);
-  });
+  rules
+    .filter((r) => matches(node, r) && (!r.ancestors?.length || ancestorsMatch(node, r.ancestors)))
+    .sort((a, b) => (a.spec || 0) - (b.spec || 0) || (a.order || 0) - (b.order || 0))
+    .forEach((r) => Object.assign(own, r.decls));
   Object.assign(own, parseDecls(node.attrs.style));
   const parent = node.parent && node.parent.tag && node.parent.tag !== '#root' ? styleOf(node.parent, rules) : {};
   const style = { ...own };
@@ -398,6 +419,36 @@ function checkSlide(article, rules, idx) {
       out.push(`${n}: ${labelOf(t.node)} breaks the ${Math.round(SAFE * 100)}% safe area at the ${where} (box ${round(x)},${round(y)} ${round(w)}×${round(h)}px on a ${W}×${H} slide).`);
     }
   });
+  // grid slide: a text group taller than the fixed-height row it sits in
+  // (e.g. grid-template-rows: 1fr 350px) is clipped at the slide's bottom
+  if (/grid/.test(sst.display || '')) {
+    const tracks = String(sst['grid-template-rows'] || '').trim().split(/\s+(?![^(]*\))/).filter(Boolean);
+    const sp = pad(sst, W);
+    const inner = W - sp.l - sp.r;
+    const kids = els(article).filter((c) => {
+      const st = styleOf(c, rules);
+      return !isAbs(st) && !/none/.test(st.display || '');
+    });
+    const placedByHand = kids.some((c) => {
+      const st = styleOf(c, rules);
+      return st['grid-row'] || st['grid-area'] || st['grid-row-start'];
+    });
+    if (!placedByHand) {
+      kids.forEach((k, i) => {
+        const m = /^([\d.]+)px$/.exec(tracks[i] || '');
+        if (!m || !(isText(k) || [...walk(k)].some(isText))) return;
+        const rowH = Number(m[1]);
+        const kw = Math.min(px(styleOf(k, rules).width, inner) ?? inner, inner);
+        const h = flowHeight(k, kw, rules);
+        const need = k._natural ?? h;
+        // the group estimate runs ~20–35% high (wraps on the safe side), so
+        // only a clear miss is worth a repair call
+        if (need != null && need > rowH * 1.25) {
+          out.push(`${n}: ${labelOf(k)} needs about ${round(need)}px but its grid row is ${round(rowH)}px — its text is clipped. Make that row taller (or auto) and give the photo row minmax(0, 1fr), or shorten the copy.`);
+        }
+      });
+    }
+  }
   // the pinned-tops pattern is only worth a fix where it actually broke the slide
   if (out.length && pinnedNote) out.push(pinnedNote);
   return out;

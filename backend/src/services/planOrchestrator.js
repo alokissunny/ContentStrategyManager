@@ -158,6 +158,10 @@ function narrativeUnitsOf(brief) {
       purpose: String(u?.purpose || '').trim(),
       support: String(u?.support || '').trim(),
     };
+    const copy = optionalText(u?.copy);
+    if (copy) unit.copy = copy;
+    const visual = String(u?.visual || '').trim().toLowerCase();
+    if (['photo', 'text-only'].includes(visual)) unit.visual = visual;
     const placement = String(u?.placement || '').trim().toLowerCase();
     if (['visual', 'caption', 'cta'].includes(placement)) unit.placement = placement;
     const rel = u?.relationship && typeof u.relationship === 'object' ? u.relationship : null;
@@ -232,6 +236,10 @@ function briefFieldsOf(b) {
     project: optionalText(b.project),
     originalCapture: optionalText(b.originalCapture),
     angle: b.angle || '',
+    clientCare: optionalText(b.clientCare),
+    story: optionalText(b.story),
+    caption: optionalText(b.caption),
+    cta: optionalText(b.cta),
     verifiedTruth: stringList(b.verifiedTruth),
     observableDetails: stringList(b.observableDetails),
     relevantAssetContext: stringList(b.relevantAssetContext),
@@ -1092,6 +1100,10 @@ function strategyBriefPayload(brief) {
     project: brief.project,
     originalCapture: brief.originalCapture,
     angle: brief.angle,
+    clientCare: brief.clientCare,
+    story: brief.story,
+    caption: brief.caption,
+    cta: brief.cta,
     verifiedTruth: brief.verifiedTruth,
     observableDetails: brief.observableDetails,
     relevantAssetContext: brief.relevantAssetContext,
@@ -1432,10 +1444,12 @@ function postFromBrief(dayBrief) {
     const placement = String(u?.placement || '').trim().toLowerCase();
     return role === 'cta' || placement === 'cta';
   });
-  const caption = optionalText(dayBrief?.hookTerritory)
+  const caption = optionalText(dayBrief?.caption)
+    || optionalText(dayBrief?.hookTerritory)
     || optionalText(dayBrief?.uniqueJob)
     || optionalText(dayBrief?.angle);
-  const cta = optionalText(ctaUnit?.purpose) || optionalText(ctaUnit?.support);
+  const cta = optionalText(dayBrief?.cta)
+    || optionalText(ctaUnit?.copy) || optionalText(ctaUnit?.purpose) || optionalText(ctaUnit?.support);
   const hashtags = hashtagList(dayBrief?.hashtags);
   const title = optionalText(slides[0]?.title)
     || optionalText(dayBrief?.angle)
@@ -3252,7 +3266,7 @@ async function runStrategistCall({ ctx, emptyDates, projects, source }) {
       supportedFormats: ['Carousel'],
       optionalPillars: ['discovery', 'credibility', 'trust'],
       minBriefs: 1,
-      planFrom: 'conversationCaptures only — always write at least one brief (never refuse a capture as too thin or unverified); pick the strongest angle(s) the capture supports (usually one); prioritise angles proven by assets; fit every story-aligned provided asset across narrative units; skip weak/obvious/boring angles; do not force Discovery + Credibility + Trust; do not invent facts; capped by maxBriefs',
+      planFrom: 'conversationCaptures only — always write at least one brief (never refuse a capture as too thin or unverified); consider several genuinely different supported angles, each answering "Why would a potential client care?", and brief every one that survives ranking and distinctness (one is fine when the facts support only one); prioritise angles proven by assets; use story-aligned uploaded photos across narrative units but never repeat a photo to fill slides — text-only slides instead; no new AI images; write story, slide copy, caption and CTA; skip weak/obvious/boring angles; do not force Discovery + Credibility + Trust; do not invent facts; capped by maxBriefs',
       requireThemeId: true,
     }),
     CAROUSEL_THEMES_JSON: json(themesForStrategistPrompt()),
@@ -3375,6 +3389,10 @@ async function writePlanDay(phase, projects, planned, index) {
     project: planned.project || '',
     originalCapture: planned.originalCapture || '',
     angle: planned.angle || '',
+    clientCare: planned.clientCare || '',
+    story: planned.story || '',
+    caption: planned.caption || '',
+    cta: planned.cta || '',
     verifiedTruth: planned.verifiedTruth || [],
     observableDetails: planned.observableDetails || [],
     relevantAssetContext: planned.relevantAssetContext || [],

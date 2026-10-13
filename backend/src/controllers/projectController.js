@@ -9,7 +9,7 @@ const {
   MEDIA_CACHE_CONTROL,
   deleteObjects,
 } = require('../services/s3Client');
-const { analyzeImageAsset } = require('../services/imageAnalysis');
+const { analyzeImageAsset, isVisionConfigured } = require('../services/imageAnalysis');
 const {
   understandCapture,
   sanitizeUnderstanding,
@@ -535,7 +535,7 @@ async function runAssetAnalysis(attachment) {
 
 /** Vision metadata for any image that does not already have a completed analysis. */
 async function analyzeNewImageAttachments(attachments) {
-  if (!process.env.ANTHROPIC_API_KEY) return;
+  if (!isVisionConfigured()) return;
   for (const a of attachments || []) {
     if (a.type !== 'image') continue;
     if (a.analysis && a.analysis.status === 'done') continue;
@@ -547,8 +547,8 @@ async function analyzeNewImageAttachments(attachments) {
 // POST /projects/:id/captures/:captureId/attachments/:attachmentId/analyze
 // Analyse a single asset (re-runs even if already analysed).
 async function analyzeAsset(req, res) {
-  if (!process.env.ANTHROPIC_API_KEY) {
-    return res.status(503).json({ message: 'AI analysis is not configured (set ANTHROPIC_API_KEY).' });
+  if (!isVisionConfigured()) {
+    return res.status(503).json({ message: 'AI analysis is not configured (set OPENAI_API_KEY).' });
   }
   const project = await Project.findOne({ _id: req.params.id, user: req.user._id });
   if (!project) return res.status(404).json({ message: 'Project not found' });
@@ -566,8 +566,8 @@ async function analyzeAsset(req, res) {
 // By default only assets without a completed analysis are (re)run; pass
 // { force: true } to re-analyse all of them. Video assets are skipped.
 async function analyzeProject(req, res) {
-  if (!process.env.ANTHROPIC_API_KEY) {
-    return res.status(503).json({ message: 'AI analysis is not configured (set ANTHROPIC_API_KEY).' });
+  if (!isVisionConfigured()) {
+    return res.status(503).json({ message: 'AI analysis is not configured (set OPENAI_API_KEY).' });
   }
   const project = await Project.findOne({ _id: req.params.id, user: req.user._id });
   if (!project) return res.status(404).json({ message: 'Project not found' });

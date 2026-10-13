@@ -11,7 +11,7 @@
  */
 const BrandAnalysisReport = require('../models/BrandAnalysisReport');
 const Project = require('../models/Project');
-const { analyzeImageAsset } = require('./imageAnalysis');
+const { analyzeImageAsset, isVisionConfigured } = require('./imageAnalysis');
 const { loadCompetitorOverviewForUser } = require('../controllers/competitorController');
 const { findMetaConnectionForUsername } = require('./graphInstagram');
 
@@ -112,7 +112,7 @@ function captureSourceText(c) {
 // Auto-analyze any project image that has never been through vision, bounded
 // per run. Best-effort: a bad image or missing key never blocks generation.
 async function ensureProjectImagesAnalyzed(projects) {
-  if (!process.env.ANTHROPIC_API_KEY) return;
+  if (!isVisionConfigured()) return;
   let budget = MAX_AUTO_ANALYZE;
   for (const p of projects) {
     if (budget <= 0) break;

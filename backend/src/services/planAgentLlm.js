@@ -19,7 +19,7 @@ const AGENTS = {
     defaultProvider: 'openai',
     modelEnv: 'PLAN_STRATEGIST_MODEL',
     providerEnv: 'PLAN_STRATEGIST_PROVIDER',
-    defaultModel: 'gpt-6-astra',
+    defaultModel: 'gpt-6-luna',
   },
   structure: {
     defaultProvider: 'openai',
@@ -151,13 +151,14 @@ function providerOf(model, explicit) {
 }
 
 // A model chosen at runtime through Settings wins over env and the AGENTS table.
-// Only the carousel agent is switchable from the UI today.
+// The carousel agent and the Strategist are switchable from the UI.
+const RUNTIME_MODEL_KEYS = { carousel: KEYS.carouselModel, strategist: KEYS.strategistModel };
+
 function runtimeModelFor(kind) {
-  if (kind === 'carousel') {
-    const value = getRuntimeSetting(KEYS.carouselModel);
-    return typeof value === 'string' ? value.trim() : '';
-  }
-  return '';
+  const key = RUNTIME_MODEL_KEYS[kind];
+  if (!key) return '';
+  const value = getRuntimeSetting(key);
+  return typeof value === 'string' ? value.trim() : '';
 }
 
 function resolvePlanAgentLlm(kind = 'strategist') {

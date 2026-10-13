@@ -1,5 +1,5 @@
 /*
- * Image analysis — runs a captured asset through Claude's vision model and
+ * Image analysis — runs a captured asset through an OpenAI vision model and
  * returns structured metadata (summary, tags, colours, mood, subjects, any
  * legible text). Used by the Projects detail page: the studio can analyse an
  * asset on demand, and the result is stored on the attachment so the weekly
@@ -8,6 +8,7 @@
 
 const { jsonrepair } = require('jsonrepair');
 const { completeToolCall } = require('./llmComplete');
+const { providerOf } = require('./planAgentLlm');
 const { getObjectBytes } = require('./s3Client');
 const { normalizeSubjects } = require('./subjectBox');
 const { toVisionImage } = require('./visionImage');
@@ -168,24 +169,24 @@ function parseAnalysisJson(raw) {
 const asStringArray = (v) =>
   Array.isArray(v) ? v.map((x) => String(x).trim()).filter(Boolean).slice(0, 20) : [];
 
-// Approximate API prices in USD per 1M tokens (input, output). Used only to show
-// the studio a rough per-asset cost — not billing-grade. Prices per the current
-// model catalogue; unknown models fall back to Sonnet-tier rates.
-const PRICING = {
-  'claude-fable-5': { in: 10, out: 50 },
-  'claude-mythos-5': { in: 10, out: 50 },
-  'claude-opus-5': { in: 5, out: 25 },
-  'claude-opus-4-8': { in: 5, out: 25 },
-  'claude-opus-4-7': { in: 5, out: 25 },
-  'claude-opus-4-6': { in: 5, out: 25 },
-  'claude-sonnet-5': { in: 3, out: 15 },
-  'claude-sonnet-4-6': { in: 3, out: 15 },
-  'claude-haiku-4-5': { in: 1, out: 5 },
-};
+// Vision model for photo analysis — OpenAI by default. VISION_MODEL overrides
+// (a claude-* id routes back to Anthropic).
+function visionModel() {
+  return process.env.VISION_MODEL || process.env.OPENAI_VISION_MODEL || 'gpt-5.6-terra';
+}
 
+// True when the API key for the vision model's provider is set.
+function isVisionConfigured() {
+  return providerOf(visionModel()) === 'anthropic'
+    ? Boolean(process.env.ANTHROPIC_API_KEY)
+    : Boolean(process.env.OPENAI_API_KEY);
+}
+
+// Rough per-asset cost for display — not billing-grade.
 function estimateCost(model, inputTokens, outputTokens) {
-  const p = PRICING[model] || PRICING['claude-sonnet-5'];
-  return ((inputTokens * p.in) + (outputTokens * p.out)) / 1_000_000;
+  // lazy: weeklyPlan pulls in much of the plan stack
+  const { estimatePlanCostUsd } = require('./weeklyPlan');
+  return estimatePlanCostUsd(model, inputTokens, outputTokens);
 }
 
 /**
@@ -221,7 +222,7 @@ async function analyzeImageAsset(key, { type } = {}) {
   const { buffer, contentType } = await getObjectBytes(key);
   const vision = await toVisionImage(buffer, contentType, key);
 
-  const model = process.env.ANTHROPIC_VISION_MODEL || process.env.ANTHROPIC_MODEL || 'claude-sonnet-5';
+  const model = visionModel();
   const done = await completeToolCall({
     model,
     system: SYSTEM_PROMPT,
@@ -257,4 +258,4 @@ async function analyzeImageAsset(key, { type } = {}) {
   };
 }
 
-module.exports = { analyzeImageAsset, loadReferenceImage };
+module.exports = { analyzeImageAsset, loadReferenceImage, isVisionConfigured };

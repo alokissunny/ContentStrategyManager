@@ -3,7 +3,7 @@ const BrandAnalysisReport = require('../models/BrandAnalysisReport');
 const Project = require('../models/Project');
 const InstagramProfile = require('../models/InstagramProfile');
 const { generateWeeklyPlan, buildMonthCalendar, dayHasContent, isoDate, parseIsoDate } = require('../services/weeklyPlan');
-const { analyzeImageAsset, loadReferenceImage } = require('../services/imageAnalysis');
+const { analyzeImageAsset, loadReferenceImage, isVisionConfigured } = require('../services/imageAnalysis');
 const { decorativeDebugAgents, storedDecorativeElements } = require('../services/decorativeAgent');
 const { rewriteCaption } = require('../services/captionPolish');
 const { runLayoutForPost, writeLayoutVariations, applyLayoutToContent, normalizeWriterPost, attachGeneratedVisuals } = require('../services/planOrchestrator');
@@ -242,7 +242,7 @@ function captureSourceText(c) {
 // match a relevant photo instead of guessing. Bounded and best-effort: one bad
 // image or a missing API key never blocks plan generation.
 async function ensureProjectImagesAnalyzed(projects) {
-  if (!process.env.ANTHROPIC_API_KEY) return;
+  if (!isVisionConfigured()) return;
   let budget = MAX_AUTO_ANALYZE;
   for (const p of projects) {
     if (budget <= 0) break;
