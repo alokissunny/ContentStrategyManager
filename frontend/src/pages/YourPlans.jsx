@@ -1340,6 +1340,10 @@ export default function YourPlans() {
   // Cache of full route content (by id), warmed in the background so opening a
   // week is instant. `null` marks an in-flight prefetch.
   const fullCacheRef = useRef(new Map());
+  // Day the embedded WeekView moved to on its own (its outer day arrows). The
+  // anchor follows it so the toolbar names the shown day, but the embed isn't
+  // rebuilt for that move — WeekView is already showing it.
+  const selfNavYmdRef = useRef(null);
   const prefetchWeek = (id) => {
     if (!id || fullCacheRef.current.has(id)) return;
     fullCacheRef.current.set(id, null);
@@ -1601,6 +1605,11 @@ export default function YourPlans() {
         : '';
   useEffect(() => {
     if (loading || view !== 'list' || calView === 'month') { setEmbedWeek(null); return undefined; }
+    if (selfNavYmdRef.current && selfNavYmdRef.current === embedKey) {
+      selfNavYmdRef.current = null;
+      return undefined;
+    }
+    selfNavYmdRef.current = null;
     let cancelled = false;
     setEmbedWeek(null);
     // Weekly always stages a real post; Day view may open on an empty date.
@@ -2388,6 +2397,16 @@ export default function YourPlans() {
                 monthWeeks={[]}
                 embedded
                 hideStrip={calView === 'day' || forceWorkspace}
+                onDayChange={(d) => {
+                  // Only Day view / the workspace key the embed by date.
+                  if (calView !== 'day' && !forceWorkspace) return;
+                  const dt = parseIsoDay(d?.date);
+                  if (!dt) return;
+                  const k = ymdKey(dt);
+                  if (k === ymdKey(anchorDate)) return;
+                  selfNavYmdRef.current = k;
+                  setAnchorDate(startOfDay(dt));
+                }}
                 onDistribute={() => setDistOpen(true)}
                 onCaptured={() => runGenerate('capture')}
                 onRouteChange={(route) => {
