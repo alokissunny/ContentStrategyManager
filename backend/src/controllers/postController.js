@@ -2364,7 +2364,9 @@ async function runThemeApplyRequest(req, res) {
   // Design Rules agent: the reference's visual design rules, typography
   // included — read once for every slide (a library theme's are cached)
   // a reference applied before (Your references) brings its saved rules along
-  const saved = referenceImageKey ? await savedReference(req.user._id, referenceImageKey) : null;
+  // (matched by file, or by the picture itself when the same photo is uploaded again)
+  const referenceHash = referenceImageKey ? require('crypto').createHash('sha1').update(reference.buffer).digest('hex') : '';
+  const saved = referenceImageKey ? await savedReference(req.user._id, referenceImageKey, referenceHash) : null;
   const designRules = saved?.designRules
     ? { rules: saved.designRules, model: saved.rulesModel || '', prompt: '', usage: null, cached: true }
     : await extractDesignRules(reference, { cacheKey: libraryTheme ? `theme:${libraryTheme.id}` : '' });
@@ -2502,7 +2504,7 @@ async function runThemeApplyRequest(req, res) {
   // an uploaded reference joins the studio's library (Choose from library ›
   // Your references) with its design rules, for re-apply without re-uploading
   const savedRef = referenceImageKey
-    ? await rememberReference(req.user._id, { key: referenceImageKey, name: String(req.body?.referenceName || '').trim(), designRules: saved?.designRules ? null : designRules })
+    ? await rememberReference(req.user._id, { key: saved?.key || referenceImageKey, hash: referenceHash, name: String(req.body?.referenceName || '').trim(), designRules: saved?.designRules ? null : designRules })
     : null;
 
   try {

@@ -139,7 +139,7 @@ async function planReelMix({ assets, guidance = '' }, dependencies = {}) {
   }
   const startedAt = Date.now(); let plan; let usage = {}; let note = '';
   try {
-    const done = await (dependencies.completeToolCall || completeToolCall)({ model, system, userParts, tool: TOOL, kind: 'reelMixer', timeoutMs: 120000, maxTokens: 4500, retryHint: 'Return a valid plan_reel_mix call with source ranges inside the supplied trims and non-overlapping overlays on the final base timeline.' });
+    const done = await (dependencies.completeToolCall || completeToolCall)({ model, system, userParts, tool: TOOL, kind: 'reelMixer', cacheKey: 'igsignal-reel-mixer', timeoutMs: 120000, maxTokens: 4500, retryHint: 'Return a valid plan_reel_mix call with source ranges inside the supplied trims and non-overlapping overlays on the final base timeline.' });
     usage = done.usage || {};
     plan = normalizeMixPlan(done.parsed, inspected);
   } catch (error) {

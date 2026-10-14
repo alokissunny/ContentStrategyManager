@@ -10,6 +10,9 @@ const themeReferenceSchema = new mongoose.Schema(
     user: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true, index: true },
     key: { type: String, required: true, trim: true }, // projects/<uid>/<file>
     name: { type: String, trim: true, default: '' },
+    // fingerprint of the picture (sha1) — the same photo uploaded again is the
+    // same reference: its saved rules are reused, no duplicate in the library
+    hash: { type: String, default: '' },
     designRules: { type: mongoose.Schema.Types.Mixed, default: null },
     rulesModel: { type: String, default: '' },
     lastUsedAt: { type: Date, default: Date.now },

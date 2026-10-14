@@ -234,6 +234,7 @@ async function analyzeImageAsset(key, { type } = {}) {
       },
     ],
     tool: ANALYSIS_TOOL,
+    cacheKey: 'igsignal-image-analysis',
     maxTokens: 4096,
     retryHint: 'Call record_image_analysis with valid JSON. No trailing commas. Escape quotes inside strings.',
   });

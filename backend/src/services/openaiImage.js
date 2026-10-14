@@ -86,6 +86,9 @@ function costFromImageUsage(usage, model) {
   const out = Number(usage.output_tokens) || 0;
   return {
     inputTokens: Number(usage.input_tokens) || textIn + imageIn,
+    // prompt tokens the image API served from its cache, when it reports them
+    // (shown in the debug line; priced as normal input — the rate is not published for every model)
+    cachedTokens: Number(d.cached_tokens) || 0,
     outputTokens: out,
     totalTokens: Number(usage.total_tokens) || textIn + imageIn + out,
     estimatedCostUsd: (textIn * p.textIn + imageIn * p.imageIn + out * p.out) / 1e6,

@@ -96,6 +96,7 @@ async function focusForPhoto({ key, words, context = '' }) {
   const done = await completeToolCall({
     model: FOCUS_MODEL(),
     system: systemPrompt(),
+    cacheKey: 'igsignal-photo-focus',
     userParts: [
       { type: 'text', text: 'The photo:' },
       { type: 'image', mediaType: 'image/jpeg', data: jpeg.toString('base64') },

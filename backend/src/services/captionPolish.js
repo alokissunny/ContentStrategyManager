@@ -1,4 +1,3 @@
-const getAnthropicClient = require('./anthropicClient');
 const getOpenAIClient = require('./openaiClient');
 
 const SYSTEM_CAPTION = `You rewrite Instagram captions for a studio using Bauhly.
@@ -23,16 +22,10 @@ Rules:
 - If the current text is empty, write a first draft from the context — still no invented claims.
 - Stay in the studio's voice when a voice note is provided.`;
 
-function hasAnthropic() {
-  return Boolean(process.env.ANTHROPIC_API_KEY);
-}
 function hasOpenAI() {
   return Boolean(process.env.OPENAI_API_KEY);
 }
 
-function anthropicModel() {
-  return process.env.ANTHROPIC_MODEL || 'claude-sonnet-5';
-}
 function openaiModel() {
   return process.env.OPENAI_MODEL || process.env.COMPETITOR_MODEL || 'gpt-4.1-mini';
 }
@@ -71,21 +64,6 @@ function userPrompt({ caption, instruction, context = {}, kind = 'caption' }) {
   return `${ctx}Instruction: ${instruction}\n\n${label}:\n${body}`;
 }
 
-async function completeAnthropic(user, kind) {
-  const model = anthropicModel();
-  const response = await getAnthropicClient().messages.create({
-    model,
-    max_tokens: 1024,
-    system: kind === 'words' ? SYSTEM_WORDS : SYSTEM_CAPTION,
-    messages: [{ role: 'user', content: user }],
-  });
-  const text = response.content
-    .filter((block) => block.type === 'text')
-    .map((block) => block.text)
-    .join('\n');
-  return { text, model };
-}
-
 async function completeOpenAI(user, kind) {
   const model = openaiModel();
   const messages = [
@@ -116,17 +94,16 @@ async function rewriteCaption({ caption, instruction, context, kind = 'caption' 
     err.status = 400;
     throw err;
   }
-  if (!hasAnthropic() && !hasOpenAI()) {
-    const err = new Error('AI rewrite is not configured (set ANTHROPIC_API_KEY or OPENAI_API_KEY).');
+  if (!hasOpenAI()) {
+    const err = new Error('AI rewrite is not configured (set OPENAI_API_KEY).');
     err.status = 503;
     throw err;
   }
 
   const user = userPrompt({ caption, instruction: ask, context, kind: subject });
   const systemPrompt = subject === 'words' ? SYSTEM_WORDS : SYSTEM_CAPTION;
-  const { text, model } = hasOpenAI()
-    ? await completeOpenAI(user, subject)
-    : await completeAnthropic(user, subject);
+  // OpenAI only
+  const { text, model } = await completeOpenAI(user, subject);
   const next = cleanCaption(text);
   if (!next) {
     const err = new Error('Nothing came back — try a more specific instruction.');

@@ -1,7 +1,7 @@
 /*
  * Slide check — the Theme Apply agent's quality gate.
  *
- * A cheap vision model (Haiku, THEME_CHECK_MODEL) looks at the finished slide
+ * A vision model (OpenAI gpt-5.6-terra, THEME_CHECK_MODEL) looks at the finished slide
  * and reports what an image model gets wrong: text cut off or touching an
  * edge, text outside the safe margin, and words that differ from the slide's
  * copy. The agent re-renders once with those problems named, and keeps the
@@ -10,6 +10,7 @@
 
 const sharp = require('sharp');
 const { completeToolCall } = require('./llmComplete');
+const { estimatePlanCostUsd } = require('./weeklyPlan');
 
 const CHECK_TOOL = {
   name: 'record_slide_check',
@@ -44,8 +45,6 @@ const CHECK_TOOL = {
 
 const SYSTEM = 'You are a strict quality checker for Instagram carousel slides. You get the whole slide, then each of its four edges enlarged. Compare the slide\'s text with the expected copy, and inspect every edge strip for letters that are sliced by the border (only the bottom or top half of a word visible, letters running off the side) or that sit within a few pixels of it. Decorations (flowers, tape, doodles) touching an edge are fine — only text matters. Report only real, visible problems. Call record_slide_check; empty lists when there is nothing wrong.';
 
-// Haiku-class pricing, USD per 1M tokens — display only
-const PRICE = { in: Number(process.env.THEME_STYLE_PRICE_IN) || 1, out: Number(process.env.THEME_STYLE_PRICE_OUT) || 5 };
 
 // The outer bands of the slide, enlarged: top/bottom 14% of the height,
 // left/right 12% of the width.
@@ -69,7 +68,8 @@ async function edgeStrips(jpeg) {
  */
 async function checkSlide(buffer, lines = []) {
   const started = Date.now();
-  const model = process.env.THEME_CHECK_MODEL || process.env.THEME_STYLE_MODEL || 'claude-haiku-4-5-20251001';
+  // OpenAI (THEME_CHECK_MODEL, gpt-5.6-terra by default)
+  const model = process.env.THEME_CHECK_MODEL || 'gpt-5.6-terra';
   try {
     const jpeg = await sharp(buffer).rotate().resize({ width: 1024, height: 1280, fit: 'inside' }).jpeg({ quality: 88 }).toBuffer();
     const expected = lines.length
@@ -91,6 +91,7 @@ async function checkSlide(buffer, lines = []) {
         { type: 'text', text: `EXPECTED COPY (exact):\n${expected}\n\nEvery expected line must be fully visible — a line whose letters are sliced by an edge is CLIPPED, even if you can still read it.` },
       ],
       tool: CHECK_TOOL,
+      cacheKey: 'igsignal-slide-check',
       maxTokens: 800,
       reasoningEffort: 'low',
       retryHint: 'Call record_slide_check with valid JSON.',
@@ -108,7 +109,7 @@ async function checkSlide(buffer, lines = []) {
     return {
       problems,
       model,
-      usage: { inputTokens: i, outputTokens: o, totalTokens: i + o, estimatedCostUsd: (i * PRICE.in + o * PRICE.out) / 1e6, elapsedMs: Date.now() - started },
+      usage: { inputTokens: i, outputTokens: o, totalTokens: i + o, estimatedCostUsd: estimatePlanCostUsd(model, i, o, Number(done.usage?.cached_tokens) || 0), elapsedMs: Date.now() - started },
     };
   } catch (err) {
     console.warn(`[slideCheck] check failed — slide kept unchecked: ${err.message}`);

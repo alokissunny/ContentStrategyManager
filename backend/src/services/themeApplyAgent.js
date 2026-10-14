@@ -335,9 +335,10 @@ async function applyThemeToSlide({ slideIndex, slide = {}, userId, reference, sl
       inputTokens: a.inputTokens + (Number(u?.inputTokens) || 0),
       outputTokens: a.outputTokens + (Number(u?.outputTokens) || 0),
       totalTokens: a.totalTokens + (Number(u?.totalTokens) || 0),
+      cachedTokens: a.cachedTokens + (Number(u?.cachedTokens) || 0),
       estimatedCostUsd: a.estimatedCostUsd + (Number(u?.estimatedCostUsd) || 0),
       elapsedMs: Date.now() - started,
-    }), { inputTokens: 0, outputTokens: 0, totalTokens: 0, estimatedCostUsd: 0, elapsedMs: 0 });
+    }), { inputTokens: 0, outputTokens: 0, totalTokens: 0, cachedTokens: 0, estimatedCostUsd: 0, elapsedMs: 0 });
   const lastCheck = checks[checks.length - 1] || null;
   return {
     key,
@@ -360,7 +361,7 @@ async function applyThemeToSlide({ slideIndex, slide = {}, userId, reference, sl
       prompt: `${prompt}\n\nInput images: 1. theme reference${attached.map((a, i) => ` · ${i + 2}. ${a.label || a.key}`).join('')} (the slide is the HTML above)`,
       output: `Rendered slide ${slideIndex} · ${cropW}×${cropH} · ${key}${photo?.buffer
         ? (placed?.found ? ` · original photo pasted into the placeholder at ${placed.box.left},${placed.box.top} ${placed.box.width}×${placed.box.height}` : ' · NO placeholder found — the photo is the model\'s redraw')
-        : ' · no primary photo on this slide'}${renders.length > 1 ? ` · ${renders.length} renders` : ''}${native ? ' · painted 4:5 (no crop)' : ' · painted 2:3, cropped to 4:5'}${checks.length
+        : ' · no primary photo on this slide'}${renders.length > 1 ? ` · ${renders.length} renders` : ''}${usage.cachedTokens ? ` · ${usage.cachedTokens} prompt tokens from the cache` : ''}${native ? ' · painted 4:5 (no crop)' : ' · painted 2:3, cropped to 4:5'}${checks.length
         ? `\nQuality check: ${checks[0].problems.length ? `found ${checks[0].problems.join('; ')}` : 'passed'}${checks.length > 1 ? ` → after re-render: ${lastCheck.problems.length ? lastCheck.problems.join('; ') : 'passed'}` : ''}`
         : ''}`,
       elapsedMs: usage.elapsedMs,

@@ -127,7 +127,7 @@ async function completeAnthropic({ model, systemPrompt, prompt }) {
   if (!process.env.ANTHROPIC_API_KEY) {
     fail('ANTHROPIC_API_KEY is not set.', 503);
   }
-  const resolved = model || process.env.ANTHROPIC_MODEL || 'claude-sonnet-5';
+  const resolved = model || 'gpt-5.6-terra';
   const params = {
     model: resolved,
     max_tokens: maxTokens(),
