@@ -12,9 +12,7 @@
  *   2. the image model (gpt-image-2.5-sunburst by default) paints the slide
  *      with prompts/theme-apply-render.md — the slide's exact words, the safe
  *      area, and a flat magenta placeholder where the primary photo goes;
- *   3. the ORIGINAL photo is pasted into that placeholder (services/primaryImage.js);
- *   4. a quality check (services/slideCheck.js) looks for clipped, crowded,
- *      misspelled or covered text — one re-render naming the problems if so.
+ *   3. the ORIGINAL photo is pasted into that placeholder (services/primaryImage.js).
  *
  * The caller (postController.applyThemeImage) drops the picture into the
  * carousel document as a full-bleed <img> in a section of its own.
@@ -28,8 +26,8 @@ const { composeImage } = require('./openaiImage');
 const { uploadBytes, getMediaUrl } = require('./s3Client');
 const { copyFromLayoutHtml } = require('./layoutHtml');
 const { pastePrimaryImage, PLACEHOLDER_HEX } = require('./primaryImage');
-const { checkSlide } = require('./slideCheck');
 const { mapRegions } = require('./themeRegions');
+const { themeApplyPhotoMode } = require('./runtimeSettings');
 const { designRulesSection } = require('./themeDesignRules');
 
 const PROMPT_PATH = path.join(__dirname, '..', '..', 'prompts', 'theme-apply-render.md');
@@ -185,6 +183,21 @@ function primaryImageSection(photo) {
   ].join('\n');
 }
 
+// Settings › Theme Apply photos = "Model uses the assets": no placeholder — the
+// model paints the slide's pictures itself from the attached slide assets.
+function paintedPhotoSection(photo) {
+  if (!photo) return '';
+  return [
+    '## Primary image',
+    '',
+    `Paint the slide's primary photo (the main <img> in the Slide HTML${photo.asset ? `, attached picture ${photo.asset}` : ''}) into the slide yourself, from that attached picture.`,
+    '- Reproduce it faithfully: the same scene, objects, layout, materials and colours as the attached picture — not a re-imagined or "improved" version. Do not add, remove or change anything in it.',
+    '- Size and place it as the prominent picture of the new composition — about where and as large as the Slide HTML puts the photo, or larger. Crop it, never stretch or distort it.',
+    '- Its edge may take the reference\'s picture treatment (crop shape, corner radius, a plain border or shadow) — the photo itself is not recoloured or restyled.',
+    '- Keep text off the photo unless the Slide HTML puts it there.',
+  ].join('\n');
+}
+
 // The studio's Brand Kit colours (the slide's chosen colour set) — the palette
 // the render must use; the reference still gives textures, type mood and decoration.
 const HEX = /^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i;
@@ -210,15 +223,15 @@ function brandColorsSection(palette) {
   ].filter(Boolean).join('\n');
 }
 
-function themeApplyPrompt(lines = [], photo = null, { native = paintsFourByFive(THEME_IMAGE_MODEL()), palette = null, rules = null, slideHtml = '', assets = [] } = {}) {
+function themeApplyPrompt(lines = [], photo = null, { native = paintsFourByFive(THEME_IMAGE_MODEL()), palette = null, rules = null, slideHtml = '', assets = [], paintPhoto = false } = {}) {
   const text = lines.length
-    ? lines.map((l, i) => `${i + 1}. ${roleName(l)}: "${l.text}"`).join('\n')
+    ? `${lines.map((l, i) => `${i + 1}. ${roleName(l)}: "${l.text}"`).join('\n')}\n(${lines.length} text element${lines.length === 1 ? '' : 's'} in all — the slide has no other text: no handle, button, page mark, arrow or label beyond these.)`
     : '(the slide has no text — render none)';
   return fillTemplate(loadPrompt(), {
     TEXT_LINES: text,
     SLIDE_HTML: slideHtmlForPrompt(numberAssets(slideHtml, assets)) || '(no html — use the copy above)',
-    ASSETS: ['  1. the theme reference', ...assets.map((a, i) => `  ${i + 2}. slide asset — ${a.label || 'image'}${a.primary ? ' (the primary photo — see the placeholder note)' : ''}`)].join('\n'),
-    PRIMARY_IMAGE: primaryImageSection(photo),
+    ASSETS: ['  1. the theme reference', ...assets.map((a, i) => `  ${i + 2}. slide asset — ${a.label || 'image'}${a.primary ? (paintPhoto ? ' (the primary photo — paint it into the slide)' : ' (the primary photo — see the placeholder note)') : ''}`)].join('\n'),
+    PRIMARY_IMAGE: paintPhoto ? paintedPhotoSection(photo) : primaryImageSection(photo),
     BRAND_COLORS: brandColorsSection(palette),
     DESIGN_RULES: designRulesSection(rules),
     CANVAS: native ? CANVAS_NOTE.native : CANVAS_NOTE.cropped,
@@ -243,7 +256,7 @@ async function normalize(buffer, max = 1536) {
  *   assets?: [{ key, buffer, label?, inHtml?, primary? }] — the slide's own pictures, attached after the reference,
  *   brandColors?: { name?, ground?, fg?, accent? }|null,
  *   designRules?: object|null — the reference's rules (themeDesignRules.extractDesignRules) }} p
- * @returns {Promise<{ key, src, renderPrompt, textLines, primaryImage, check, usage, debugEntry }>}
+ * @returns {Promise<{ key, src, renderPrompt, textLines, primaryImage, usage, debugEntry }>}
  */
 async function applyThemeToSlide({ slideIndex, slide = {}, userId, reference, slideHtml = '', photo = null, assets = [], brandColors = null, designRules = null }) {
   if (!reference?.buffer) throw new Error('A reference photo is required.');
@@ -263,7 +276,11 @@ async function applyThemeToSlide({ slideIndex, slide = {}, userId, reference, sl
   const primaryAt = attached.findIndex((a) => a.primary);
   const photoInfo = photoMeta ? { width: photoMeta.width, height: photoMeta.height, ...(primaryAt >= 0 ? { asset: primaryAt + 2 } : {}) } : null;
   const palette = brandPalette(brandColors);
-  const prompt = themeApplyPrompt(lines, photoInfo, { native, palette, rules: designRules, slideHtml, assets: attached });
+  // Settings › Theme Apply photos: 'model' = no placeholder, no paste — the
+  // render uses the slide's assets as it paints
+  const paintPhoto = themeApplyPhotoMode() === 'model';
+  const pasteFrom = paintPhoto ? null : photo;
+  const prompt = themeApplyPrompt(lines, photoInfo, { native, palette, rules: designRules, slideHtml, assets: attached, paintPhoto });
 
   // one render, cropped to 4:5 when the model painted 2:3
   const renderOnce = async (extra = '') => {
@@ -294,7 +311,7 @@ async function applyThemeToSlide({ slideIndex, slide = {}, userId, reference, sl
     const run = await renderOnce(extra);
     // only what the cost line needs — the picture itself is let go
     renders.push({ usage: run.rendered.usage, estimatedCostUsd: run.rendered.estimatedCostUsd });
-    const placed = photo?.buffer ? await pastePrimaryImage(run.cropped, photo.buffer) : null;
+    const placed = pasteFrom?.buffer ? await pastePrimaryImage(run.cropped, pasteFrom.buffer) : null;
     return { run, placed, out: placed?.found ? placed.buffer : run.cropped };
   };
   let best = await attempt();
@@ -303,21 +320,6 @@ async function applyThemeToSlide({ slideIndex, slide = {}, userId, reference, sl
   }
   if (best.placed && !best.placed.found) console.warn(`[themeApply] slide ${slideIndex}: no photo placeholder after a retry — the render keeps the model's own picture`);
 
-  // quality gate: clipped / edge-crowding text, wrong copy, covered text —
-  // one re-render naming the problems, keep whichever has fewer
-  // (THEME_APPLY_CHECK=0 turns it off)
-  const checks = [];
-  if (process.env.THEME_APPLY_CHECK !== '0') {
-    let check = await checkSlide(best.out, lines);
-    if (check) checks.push(check);
-    if (check?.problems.length) {
-      const again = await attempt(`FIX THESE PROBLEMS from the previous attempt: ${check.problems.join('; ')}. Keep every letter at least 8% inside every edge, and the copy exactly as given.`);
-      const recheck = await checkSlide(again.out, lines);
-      if (recheck) checks.push(recheck);
-      if (!recheck || recheck.problems.length <= check.problems.length) { best = again; check = recheck || check; }
-    }
-    if (check?.problems.length) console.warn(`[themeApply] slide ${slideIndex} kept with: ${check.problems.join('; ')}`);
-  }
   const { out, placed } = best;
   const { rendered, cropW, cropH } = best.run;
 
@@ -329,8 +331,8 @@ async function applyThemeToSlide({ slideIndex, slide = {}, userId, reference, sl
   // maps it on demand then)
   const regions = await mapRegions({ buffer: out, lines, photoBox: placed?.found ? placed.box : null, key });
 
-  // every render plus every quality check
-  const usage = [...renders.map((r) => ({ ...(r.usage || {}), estimatedCostUsd: r.estimatedCostUsd })), ...checks.map((c) => c.usage)]
+  // every render
+  const usage = renders.map((r) => ({ ...(r.usage || {}), estimatedCostUsd: r.estimatedCostUsd }))
     .reduce((a, u) => ({
       inputTokens: a.inputTokens + (Number(u?.inputTokens) || 0),
       outputTokens: a.outputTokens + (Number(u?.outputTokens) || 0),
@@ -338,7 +340,6 @@ async function applyThemeToSlide({ slideIndex, slide = {}, userId, reference, sl
       estimatedCostUsd: a.estimatedCostUsd + (Number(u?.estimatedCostUsd) || 0),
       elapsedMs: Date.now() - started,
     }), { inputTokens: 0, outputTokens: 0, totalTokens: 0, estimatedCostUsd: 0, elapsedMs: 0 });
-  const lastCheck = checks[checks.length - 1] || null;
   return {
     key,
     src,
@@ -351,18 +352,15 @@ async function applyThemeToSlide({ slideIndex, slide = {}, userId, reference, sl
     brandColors: palette,
     regions: regions ? { key, v: regions.v, texts: regions.texts, images: regions.images, logo: regions.logo || null } : null,
     regionsDebug: regions?.debug ? { ...regions.debug, model: regions.model, usage: regions.usage } : null,
-    primaryImage: photo?.buffer ? { kept: Boolean(placed?.found), box: placed?.box || null, renders: renders.length } : null,
-    check: checks.length ? { runs: checks.length, firstProblems: checks[0].problems, problems: lastCheck.problems } : null,
+    primaryImage: photo?.buffer ? { kept: Boolean(placed?.found), painted: paintPhoto, box: placed?.box || null, renders: renders.length } : null,
     usage,
     debugEntry: {
       source: `ThemeApply:slide ${slideIndex}`,
       model: `${rendered.model} · ${rendered.quality}`,
       prompt: `${prompt}\n\nInput images: 1. theme reference${attached.map((a, i) => ` · ${i + 2}. ${a.label || a.key}`).join('')} (the slide is the HTML above)`,
       output: `Rendered slide ${slideIndex} · ${cropW}×${cropH} · ${key}${photo?.buffer
-        ? (placed?.found ? ` · original photo pasted into the placeholder at ${placed.box.left},${placed.box.top} ${placed.box.width}×${placed.box.height}` : ' · NO placeholder found — the photo is the model\'s redraw')
-        : ' · no primary photo on this slide'}${renders.length > 1 ? ` · ${renders.length} renders` : ''}${native ? ' · painted 4:5 (no crop)' : ' · painted 2:3, cropped to 4:5'}${checks.length
-        ? `\nQuality check: ${checks[0].problems.length ? `found ${checks[0].problems.join('; ')}` : 'passed'}${checks.length > 1 ? ` → after re-render: ${lastCheck.problems.length ? lastCheck.problems.join('; ') : 'passed'}` : ''}`
-        : ''}`,
+        ? (paintPhoto ? ' · photo painted by the model from the slide assets (no placeholder)' : placed?.found ? ` · original photo pasted into the placeholder at ${placed.box.left},${placed.box.top} ${placed.box.width}×${placed.box.height}` : ' · NO placeholder found — the photo is the model\'s redraw')
+        : ' · no primary photo on this slide'}${renders.length > 1 ? ` · ${renders.length} renders` : ''}${native ? ' · painted 4:5 (no crop)' : ' · painted 2:3, cropped to 4:5'}`,
       elapsedMs: usage.elapsedMs,
     },
   };

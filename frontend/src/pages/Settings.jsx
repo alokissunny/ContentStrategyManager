@@ -18,7 +18,7 @@ import { syncHandle } from '../lib/store';
 import { resetProjects } from '../lib/projectsStore';
 import { useAiDebug, setAiDebugEnabled, clearAiDebugEntries } from '../lib/aiDebug';
 import { useFeatureFlags, setVideoCoverEnabled, setReelEditorEnabled, setLinkedInEnabled } from '../lib/featureFlags';
-import { getBrandVoiceModel, getCarouselModel, getStrategistModel, getThemeRegionsModel, updateBrandVoiceModel, updateCarouselModel, updateStrategistModel, updateThemeRegionsModel } from '../api/settings';
+import { getBrandVoiceModel, getCarouselModel, getStrategistModel, getThemeApplyPhotoMode, getThemeRegionsModel, updateBrandVoiceModel, updateCarouselModel, updateStrategistModel, updateThemeApplyPhotoMode, updateThemeRegionsModel } from '../api/settings';
 import LinkedInSettings from '../components/LinkedInSettings';
 import './settings.css';
 import { LOCALES, useLocale, setLocale, intlLocale, translate as t } from '../i18n';
@@ -91,6 +91,9 @@ export default function Settings() {
   const [regionModel, setRegionModel] = useState(null);
   const [regionBusy, setRegionBusy] = useState(false);
   const [regionErr, setRegionErr] = useState('');
+  const [photoMode, setPhotoMode] = useState(null);
+  const [photoBusy, setPhotoBusy] = useState(false);
+  const [photoErr, setPhotoErr] = useState('');
 
   useEffect(() => {
     listInstagramProfiles()
@@ -112,6 +115,9 @@ export default function Settings() {
     getThemeRegionsModel()
       .then(setRegionModel)
       .catch(() => setRegionModel(null));
+    getThemeApplyPhotoMode()
+      .then(setPhotoMode)
+      .catch(() => setPhotoMode(null));
   }, []);
 
   // Graph's post-thumbnail URLs are short-lived; re-pull media for each
@@ -171,6 +177,19 @@ export default function Settings() {
       setRegionErr(err.response?.data?.message || 'Could not update the theme slide model.');
     } finally {
       setRegionBusy(false);
+    }
+  }
+
+  async function pickPhotoMode(mode) {
+    if (!isAdmin || photoBusy || photoMode?.mode === mode) return;
+    setPhotoBusy(true);
+    setPhotoErr('');
+    try {
+      setPhotoMode(await updateThemeApplyPhotoMode(mode));
+    } catch (err) {
+      setPhotoErr(err.response?.data?.message || 'Could not update the Theme Apply photo setting.');
+    } finally {
+      setPhotoBusy(false);
     }
   }
 
@@ -759,6 +778,40 @@ export default function Settings() {
               })}
             </div>
             {regionErr && <p className="set-err">{regionErr}</p>}
+          </>
+        )}
+      </section>
+
+      {/* ── Theme Apply photos ── */}
+      <section className="card set-card">
+        <h2>Theme Apply photos</h2>
+        <p className="set-card__sub">
+          How Theme Apply puts the slide's photo into the re-themed slide.
+          {photoMode && ` ${photoMode.options.find((o) => o.id === photoMode.mode)?.hint || ''}`}
+          {!isAdmin && ' Only an admin can change this.'}
+        </p>
+        {!photoMode ? (
+          <p className="set-empty">Loading…</p>
+        ) : (
+          <>
+            <div className="set-seg" role="group" aria-label="Theme Apply photos">
+              {photoMode.options.map((o) => {
+                const on = o.id === photoMode.mode;
+                return (
+                  <button
+                    type="button"
+                    key={o.id}
+                    className={`set-seg__btn ${on ? 'is-on' : ''}`}
+                    aria-pressed={on}
+                    disabled={!isAdmin || photoBusy}
+                    onClick={() => pickPhotoMode(o.id)}
+                  >
+                    {o.label}
+                  </button>
+                );
+              })}
+            </div>
+            {photoErr && <p className="set-err">{photoErr}</p>}
           </>
         )}
       </section>

@@ -72,6 +72,11 @@ const RULES_TOOL = {
   },
 };
 
+// Bump when prompts/theme-design-rules.md changes what a read contains — saved
+// reads (ThemeReference.designRules) from an older version are read again.
+// 2: no composition rules that place slide furniture (handles, buttons, page marks…)
+const RULES_VERSION = 2;
+
 const cache = new Map();
 
 /**
@@ -144,7 +149,7 @@ function designRulesSection(rules) {
   return [
     '## Reference inspiration notes',
     '',
-    'An art director studied the reference image and wrote these notes on its style. They are INSPIRATION, not rules: take what suits this slide, leave the rest, and never add an element the slide does not have because a note mentions it. (Colours: the hues stay the slide\'s brand colours. Anything about how much copy there is does not apply — the slide\'s words are fixed.)',
+    'An art director studied the reference image and wrote these notes on its style. They are INSPIRATION, not rules: take what suits this slide, leave the rest, and never add an element the slide does not have because a note mentions it. A note that places a handle, button, page mark, measurement, arrow, frame or label applies only if the Slide HTML has that element — otherwise ignore it. (Colours: the hues stay the slide\'s brand colours. Anything about how much copy there is does not apply — the slide\'s words are fixed.)',
     '',
     ...block('Art direction', rules.artDirection ? [rules.artDirection] : []),
     ...block('Composition', list(rules.composition)),
@@ -164,4 +169,4 @@ function designRulesSection(rules) {
   ].join('\n').trim();
 }
 
-module.exports = { extractDesignRules, designRulesSection, RULES_TOOL };
+module.exports = { extractDesignRules, designRulesSection, RULES_TOOL, RULES_VERSION };

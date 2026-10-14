@@ -4,6 +4,7 @@ const { protect } = require('../middleware/auth');
 const {
   getCarouselModel, updateCarouselModel, getBrandVoiceModel, updateBrandVoiceModel,
   getThemeRegionsModel, updateThemeRegionsModel, getStrategistModel, updateStrategistModel,
+  getThemeApplyPhotoMode, updateThemeApplyPhotoMode,
 } = require('../controllers/settingsController');
 
 const router = express.Router();
@@ -17,5 +18,7 @@ router.get('/brand-voice-model', asyncHandler(getBrandVoiceModel));
 router.put('/brand-voice-model', asyncHandler(updateBrandVoiceModel));
 router.get('/theme-regions-model', asyncHandler(getThemeRegionsModel));
 router.put('/theme-regions-model', asyncHandler(updateThemeRegionsModel));
+router.get('/theme-apply-photo', asyncHandler(getThemeApplyPhotoMode));
+router.put('/theme-apply-photo', asyncHandler(updateThemeApplyPhotoMode));
 
 module.exports = router;

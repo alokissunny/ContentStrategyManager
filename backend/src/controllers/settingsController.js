@@ -14,6 +14,9 @@ const {
   THEME_REGIONS_PROVIDERS,
   isValidThemeRegionsProvider,
   themeRegionsLlm,
+  THEME_APPLY_PHOTO_MODES,
+  isValidThemeApplyPhotoMode,
+  themeApplyPhotoMode,
 } = require('../services/runtimeSettings');
 const { resolvePlanAgentLlm } = require('../services/planAgentLlm');
 
@@ -144,7 +147,30 @@ async function updateThemeRegionsModel(req, res) {
   return res.json(currentThemeRegionsModel());
 }
 
+function currentThemeApplyPhotoMode() {
+  return { mode: themeApplyPhotoMode(), options: THEME_APPLY_PHOTO_MODES };
+}
+
+// GET /api/settings/theme-apply-photo
+async function getThemeApplyPhotoMode(req, res) {
+  res.json(currentThemeApplyPhotoMode());
+}
+
+// PUT /api/settings/theme-apply-photo  (admin only)
+async function updateThemeApplyPhotoMode(req, res) {
+  if (req.user?.role !== 'admin') {
+    return res.status(403).json({ message: 'Only an admin can change how Theme Apply handles photos.' });
+  }
+  const mode = String(req.body?.mode || '').trim().toLowerCase();
+  if (!isValidThemeApplyPhotoMode(mode)) {
+    return res.status(400).json({ message: `Unsupported photo mode: ${req.body?.mode}` });
+  }
+  await setRuntimeSetting(KEYS.themeApplyPhotoMode, mode);
+  return res.json(currentThemeApplyPhotoMode());
+}
+
 module.exports = {
+  getThemeApplyPhotoMode, updateThemeApplyPhotoMode,
   getCarouselModel, updateCarouselModel, getBrandVoiceModel, updateBrandVoiceModel,
   getThemeRegionsModel, updateThemeRegionsModel, getStrategistModel, updateStrategistModel,
 };

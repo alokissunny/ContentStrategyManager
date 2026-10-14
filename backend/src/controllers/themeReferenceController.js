@@ -1,4 +1,5 @@
 const ThemeReference = require('../models/ThemeReference');
+const { RULES_VERSION } = require('../services/themeDesignRules');
 
 // The studio's saved theme references (Choose from library › Your references),
 // newest use first.
@@ -44,6 +45,7 @@ async function rememberReference(userId, { key, name = '', designRules = null })
   if (designRules?.rules) {
     set.designRules = designRules.rules;
     set.rulesModel = designRules.model || '';
+    set.rulesVersion = designRules.version || RULES_VERSION;
   }
   try {
     return await ThemeReference.findOneAndUpdate(

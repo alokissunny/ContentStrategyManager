@@ -17,7 +17,7 @@ const { compileBrandMemory } = require('../services/planContext');
 const { generateCoverSpec, renderCoverVideo } = require('../services/carouselCoverAgent');
 const { isS3Configured, uploadBytes, getMediaUrl, getObjectBytes } = require('../services/s3Client');
 const { applyThemeToSlide, themedSlideDocument } = require('../services/themeApplyAgent');
-const { extractDesignRules } = require('../services/themeDesignRules');
+const { extractDesignRules, RULES_VERSION } = require('../services/themeDesignRules');
 const { savedReference, rememberReference } = require('./themeReferenceController');
 const ThemeApplyJob = require('../models/ThemeApplyJob');
 const { isImageGenConfigured } = require('../services/openaiImage');
@@ -2365,8 +2365,9 @@ async function runThemeApplyRequest(req, res) {
   // included — read once for every slide (a library theme's are cached)
   // a reference applied before (Your references) brings its saved rules along
   const saved = referenceImageKey ? await savedReference(req.user._id, referenceImageKey) : null;
-  const designRules = saved?.designRules
-    ? { rules: saved.designRules, model: saved.rulesModel || '', prompt: '', usage: null, cached: true }
+  // a read made with an older rules prompt is redone (RULES_VERSION)
+  const designRules = saved?.designRules && (Number(saved.rulesVersion) || 1) >= RULES_VERSION
+    ? { rules: saved.designRules, model: saved.rulesModel || '', prompt: '', usage: null, cached: true, version: saved.rulesVersion }
     : await extractDesignRules(reference, { cacheKey: libraryTheme ? `theme:${libraryTheme.id}` : '' });
   if (!isImageGenConfigured()) return res.status(503).json({ message: 'Image generation is not configured on this server.' });
   // The slide goes to the image model as the carousel agent's HTML. A slide
@@ -2502,7 +2503,7 @@ async function runThemeApplyRequest(req, res) {
   // an uploaded reference joins the studio's library (Choose from library ›
   // Your references) with its design rules, for re-apply without re-uploading
   const savedRef = referenceImageKey
-    ? await rememberReference(req.user._id, { key: referenceImageKey, name: String(req.body?.referenceName || '').trim(), designRules: saved?.designRules ? null : designRules })
+    ? await rememberReference(req.user._id, { key: referenceImageKey, name: String(req.body?.referenceName || '').trim(), designRules: designRules && !designRules.cached ? designRules : null })
     : null;
 
   try {
@@ -2588,7 +2589,6 @@ async function runThemeApplyRequest(req, res) {
             assets: results[i].assets || [],
             renderModel: results[i].debugEntry?.model || '',
             primaryImage: results[i].primaryImage || null,
-            check: results[i].check || null,
             textLines: results[i].textLines,
             ...(results[i].brandColors ? { brandColors: results[i].brandColors } : {}),
             usage: results[i].usage,

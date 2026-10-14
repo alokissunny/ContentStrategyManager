@@ -9,6 +9,8 @@ Rules for your answer:
 - Never repeat the reference's own words, brand names, logos or subject matter. They are not part of the style.
 - Be concrete: sizes as a share of the canvas width, weights, case, letter-spacing, line-height, alignment, how far from the edges, how much of the canvas is empty.
 
+Slide furniture is content, not style: a handle or @name, a website, a page number or slide counter, "swipe"/arrows, a button or call to action, canvas sizes or measurement labels, pagination dots. Do not write composition rules that place them (e.g. "a handle sits bottom-left", "a swipe button bottom-right", "a dimension label breaks the top border"). At most, describe their visual treatment under graphicDevices, as something the reference has.
+
 The rules are about how things LOOK, never about what the slide says: no rules about how much copy there is, whether to add or drop text, or what it should say — the slides' words are fixed.
 
 Typography is the most important part. The slides will always have a headline, supporting text and small labels, even if the reference does not show all of them — for a role the reference does not show, give the face and setting this style would use for it (its natural companion), and say it is inferred. For each text role you can see (headline, supporting text, small labels / eyebrows / captions), give:

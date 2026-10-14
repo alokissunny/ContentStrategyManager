@@ -36,3 +36,12 @@ export function getThemeRegionsModel() {
 export function updateThemeRegionsModel(provider) {
   return client.put('/settings/theme-regions-model', { provider }).then((res) => res.data);
 }
+
+// How Theme Apply handles the slide's photo: 'placeholder' (paste the original) | 'model' (model paints it).
+export function getThemeApplyPhotoMode() {
+  return client.get('/settings/theme-apply-photo').then((res) => res.data);
+}
+
+export function updateThemeApplyPhotoMode(mode) {
+  return client.put('/settings/theme-apply-photo', { mode }).then((res) => res.data);
+}

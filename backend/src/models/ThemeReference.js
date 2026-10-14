@@ -12,6 +12,8 @@ const themeReferenceSchema = new mongoose.Schema(
     name: { type: String, trim: true, default: '' },
     designRules: { type: mongoose.Schema.Types.Mixed, default: null },
     rulesModel: { type: String, default: '' },
+    // themeDesignRules.RULES_VERSION the read was made with — older reads are redone
+    rulesVersion: { type: Number, default: 1 },
     lastUsedAt: { type: Date, default: Date.now },
     uses: { type: Number, default: 0 },
   },

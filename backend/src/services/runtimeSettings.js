@@ -43,6 +43,7 @@ const KEYS = {
   strategistModel: 'strategist.model',
   brandVoiceProvider: 'brandVoice.provider',
   themeRegionsProvider: 'themeRegions.provider',
+  themeApplyPhotoMode: 'themeApply.photoMode',
 };
 
 // Which provider reads the last 10 posts for Business memory › Fetch brand voice.
@@ -57,9 +58,19 @@ const DEFAULT_BRAND_VOICE_PROVIDER = 'openai';
 // (Editor mode region map) and rewrites a region's words. OpenAI by default.
 const THEME_REGIONS_PROVIDERS = [
   { id: 'openai', label: 'OpenAI', model: process.env.THEME_REGIONS_OPENAI_MODEL || 'gpt-6-luna' },
-  { id: 'anthropic', label: 'Claude', model: process.env.THEME_REGIONS_MODEL || process.env.THEME_CHECK_MODEL || 'claude-haiku-4-5-20251001' },
+  { id: 'anthropic', label: 'Claude', model: process.env.THEME_REGIONS_MODEL || 'claude-haiku-4-5-20251001' },
 ];
 const DEFAULT_THEME_REGIONS_PROVIDER = 'openai';
+
+// How Theme Apply handles the slide's primary photo. `placeholder`: the image
+// model paints a magenta box and the original photo is pasted in afterwards
+// (exact photo). `model`: the model paints the slide's pictures itself from the
+// attached assets — no placeholder, no paste (one render, but a redraw).
+const THEME_APPLY_PHOTO_MODES = [
+  { id: 'placeholder', label: 'Paste original photo', hint: 'The model leaves a placeholder; your original photo is pasted in, unchanged.' },
+  { id: 'model', label: 'Model uses the assets', hint: 'The model paints the slide with its photos itself — no placeholder. One render, but the photo is redrawn.' },
+];
+const DEFAULT_THEME_APPLY_PHOTO_MODE = 'placeholder';
 
 const cache = new Map();
 let loaded = false;
@@ -125,8 +136,21 @@ function themeRegionsLlm() {
   return THEME_REGIONS_PROVIDERS.find((p) => p.id === id);
 }
 
+function isValidThemeApplyPhotoMode(id) {
+  return THEME_APPLY_PHOTO_MODES.some((m) => m.id === id);
+}
+
+/** 'placeholder' | 'model' — how Theme Apply handles the slide's photo right now. */
+function themeApplyPhotoMode() {
+  const chosen = getRuntimeSetting(KEYS.themeApplyPhotoMode);
+  return isValidThemeApplyPhotoMode(chosen) ? chosen : DEFAULT_THEME_APPLY_PHOTO_MODE;
+}
+
 module.exports = {
   KEYS,
+  THEME_APPLY_PHOTO_MODES,
+  isValidThemeApplyPhotoMode,
+  themeApplyPhotoMode,
   CAROUSEL_MODEL_OPTIONS,
   REASONING_OPTIONS,
   loadRuntimeSettings,

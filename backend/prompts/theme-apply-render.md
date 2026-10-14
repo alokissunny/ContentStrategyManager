@@ -16,6 +16,7 @@ Apply the visual theme of the reference image to the slide described by the Slid
 - Keep the same narrative order and emphasis.
 - Do not rewrite, shorten, expand, or add copy.
 - Do not copy text, subjects, or story content from the reference image.
+- **The copy list in the technical notes is ALL the text on the slide.** Letter those lines and nothing else — no other word, letter, number or symbol anywhere on the canvas. In particular, unless it is in that list, never add: a handle or @name, a brand name, a website, a page number or slide counter ("1/5"), "swipe" / "next" / arrows, a button or call to action, canvas sizes or measurements ("1080 PX"), captions, dates, tags or watermarks. References often carry this kind of slide furniture — it belongs to the reference, not to this slide.
 - Do not render any HTML, code, tag names, class names or attribute values — only the slide they describe.
 
 ## Nothing new on the slide
@@ -24,6 +25,7 @@ The finished slide contains only the elements of the Slide HTML: its text, its p
 
 - no new photos, illustrations, icons, objects, people, plants, stickers, clip art or doodles;
 - no new decorative shapes, patterns, frames, borders, tape, badges or marks that the slide does not already have;
+- no buttons, pills, tags, arrows, pagination dots, progress bars, dimension lines or ruler marks unless the Slide HTML has them;
 - nothing taken from the reference image — its pictures, objects, decorations and graphic devices stay in the reference.
 
 When the reference relies on a device the slide does not have, carry over its feeling through the elements the slide does have (type, spacing, colour use, surface, effects) instead of drawing the device.
@@ -69,7 +71,7 @@ Adapt the reference's look to this slide's content rather than copying its layou
 - Preserve the slide’s portrait Instagram format and overall content hierarchy.
 - Keep the main headline visually dominant.
 - Make supporting copy clearly secondary and easy to read on a phone.
-- Keep any small label or brand name legible without competing with the headline.
+- If the slide has a small label or brand name, keep it legible without competing with the headline. If it has none, add none.
 - Use generous, consistent safe margins and intentional spacing.
 - Avoid crowding, overlap, clipped copy, or decorative elements covering text.
 - Maintain strong text-to-background contrast.
@@ -94,6 +96,7 @@ Before finalizing, verify that:
 5. The text is readable at Instagram viewing size.
 6. The slide has balanced margins and no clipping or overlap.
 7. Every visual element on the slide comes from the Slide HTML — nothing was added, and nothing came from the reference image.
+8. Count the text on the finished slide: it is exactly the lines in the copy list — no extra handle, button, label, number, arrow or measurement.
 
 ## Output
 
@@ -102,9 +105,9 @@ Return one finished slide. Do not include explanations or alternate versions.
 ## Technical notes (added by the app)
 
 - Canvas: {{CANVAS}}
-- Safe area (strict): every letter — including small eyebrow labels, page marks and the last line of body copy — and the whole photo frame sit at least 8% of the width (about 80 px on a 1024-px-wide canvas) inside every edge: top, bottom, left and right. Nothing touches or runs off the border. If the copy does not fit, make the type or the photo smaller — never let text reach an edge.
+- Safe area (strict): every letter — including any small label and the last line of body copy — and the whole photo frame sit at least 8% of the width (about 80 px on a 1024-px-wide canvas) inside every edge: top, bottom, left and right. Nothing touches or runs off the border. If the copy does not fit, make the type or the photo smaller — never let text reach an edge.
 - Finish: a high-quality, publish-ready Instagram carousel slide — crisp, evenly kerned type, aligned text edges, even margins on all four sides, clear hierarchy, nothing crowded or overlapping.
-- The copy in the Slide HTML, for exact spelling:
+- The copy in the Slide HTML, for exact spelling — this is the COMPLETE list of text on the slide; letter nothing else:
 {{TEXT_LINES}}
 - Attached pictures:
 {{ASSETS}}
