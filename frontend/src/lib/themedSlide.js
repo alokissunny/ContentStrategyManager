@@ -8,8 +8,8 @@ export function isThemedPicture(slide) {
     .some((k) => /\/themed-/.test(String(k || '')));
 }
 
-// A slide the Theme Apply agent restyled as HTML (the Design Rules agent chose
-// HTML output for its reference): still live HTML, in a `themed-html[-sN]` section.
+// A slide restyled as HTML by Theme Apply's (since removed) HTML output: still
+// live HTML, in a `themed-html[-sN]` section — recognised so Remove theme works.
 export function isThemedHtml(slide) {
   return /^themed-html/.test(String(slide?.layoutTheme || ''));
 }

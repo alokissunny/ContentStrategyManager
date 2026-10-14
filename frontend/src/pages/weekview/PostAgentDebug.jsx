@@ -638,7 +638,7 @@ export default function PostAgentDebug({
         <>
           {ta.designRules ? (
             <Block
-              title={`Design Rules agent${ta.designRules.cached ? ' (cached)' : ''}${ta.output?.mode ? ` → ${ta.output.mode.toUpperCase()}` : ''}`}
+              title={`Design Rules agent${ta.designRules.cached ? ' (cached)' : ''}`}
               input={`Reference image → ${ta.designRules.model || ''}`}
               output={ta.designRules.rules}
               cost={sumOf([ta.designRules.usage])}
@@ -649,12 +649,9 @@ export default function PostAgentDebug({
             />
           ) : null}
           <Block
-            title={`Theme Apply agent${ta.output?.mode ? ` — ${ta.output.mode.toUpperCase()} output${ta.output.htmlConfidence != null ? ` (HTML ${ta.output.htmlConfidence}% / image ${ta.output.imageConfidence}%)` : ''}` : ''}`}
+            title="Theme Apply agent"
             input={taSlides.length ? bySlide((sl) => sl.renderPrompt || '') : ''}
-            output={taSlides.length ? {
-              output: ta.output || null,
-              slides: taSlides.map((sl) => ({ slide: sl.index, mode: sl.mode || 'image', model: sl.renderModel, ...(sl.key ? { key: sl.key } : {}), ...(sl.fallback ? { fallback: sl.fallback } : {}), ...(sl.themeDescription ? { themeDescription: sl.themeDescription } : {}), ...(sl.problems?.length ? { problems: sl.problems } : {}) })),
-            } : null}
+            output={taSlides.length ? taSlides.map((sl) => ({ slide: sl.index, model: sl.renderModel, key: sl.key })) : null}
             cost={sumOf(taSlides.map((sl) => sl.usage))}
             inputSlides={taSlides.filter((sl) => sl.inputHtml).map((sl) => ({ html: sl.inputHtml, label: `Slide ${sl.index} as sent` }))}
             images={[

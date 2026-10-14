@@ -18,13 +18,4 @@ Typography is the most important part. The slides will always have a headline, s
 - how it is treated (outlined, filled, highlighted, rotated, overlapping images, on a band or card, mixed with another face, etc.);
 - how the roles contrast with each other (the hierarchy).
 
-Finally, decide the expected output format for a slide restyled in this look (`output`). Restyled slides are produced either as HTML/CSS (the slide's own HTML restyled — preferred) or as an image painted by an image model. Score both.
-
-What counts: the reference's graphics, shapes and layout — how complex they are and whether CSS can reproduce them on the slide's own elements. What does not count: the reference's photographs and subjects (the slide keeps its own pictures) — a clean look whose richness is in its photo is HTML.
-
-- **HTML** fits when the look lives in typography, colour use, flat or gradient backgrounds, grids or ruled lines, subtle grain, simple rectangular or rounded panels, borders, shadows, and an orderly layout (blocks on a grid, aligned, not overlapping).
-- **Image** fits when the look depends on graphics and complex shapes or layout: illustration or hand-drawn elements, real material texture (fibrous paper, canvas, fabric, painted wash), torn, cut or organic shapes, collage, overlapping / layered / rotated elements, irregular or free-form composition, heavy ornament, 3D or heavy print effects.
-
-Give `htmlConfidence` and `imageConfidence` from 0 to 100 (they add up to 100): how confident you are that each format would reproduce this look well. Then set `format` to the expected output: `image` only when the reference clearly has graphics and complex shapes or layout (imageConfidence clearly higher); otherwise `html` — HTML is preferred, and a close call is `html`.
-
 Call `record_design_rules` once.
