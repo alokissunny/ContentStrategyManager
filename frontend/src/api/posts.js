@@ -48,6 +48,7 @@ export function ingestPlanDebug(label, data = {}) {
         inputImage: agent.inputImage,
         outputImage: agent.outputImage,
         inputHtml: agent.inputHtml,
+        inputAssets: agent.inputAssets,
       });
     });
     const costLabel = fmtCost(genUsage.estimatedCostUsd);

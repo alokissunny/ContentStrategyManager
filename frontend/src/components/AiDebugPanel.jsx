@@ -10,7 +10,7 @@ import {
   fmtTokens,
 } from '../lib/aiDebug';
 import { rerunPrompt } from '../api/debug';
-import { mediaProxyUrl } from '../api/media';
+import { mediaProxyUrl, fillAssetSrcs } from '../api/media';
 import {
   debugEntriesToFiles,
   downloadFilesAsFolder,
@@ -256,7 +256,7 @@ const SLIDE_FRAME_CSS = 'html,body{margin:0;padding:0;background:#fff;overflow:h
   + 'section[data-direction]{padding:0!important;gap:0!important;display:block!important}';
 function InputHtmlBlock({ input }) {
   if (!input?.html) return null;
-  const page = `<!doctype html><html><head><meta charset="utf-8"><style>${SLIDE_FRAME_CSS}</style></head><body>${input.html}</body></html>`;
+  const page = `<!doctype html><html><head><meta charset="utf-8"><style>${SLIDE_FRAME_CSS}</style></head><body>${fillAssetSrcs(input.html)}</body></html>`;
   return (
     <details className="ai-debug__block" open>
       <summary className="ai-debug__block-sum">
@@ -268,6 +268,32 @@ function InputHtmlBlock({ input }) {
       </summary>
       <div className="ai-debug__slidefr">
         <iframe title={input.label} sandbox="" srcDoc={page} />
+      </div>
+    </details>
+  );
+}
+
+// The slide's own pictures sent with its HTML (Theme Apply: attached pictures 2…)
+function InputAssetsBlock({ assets }) {
+  if (!Array.isArray(assets) || !assets.length) return null;
+  return (
+    <details className="ai-debug__block" open>
+      <summary className="ai-debug__block-sum">
+        <span>Slide assets sent</span>
+        <span className="ai-debug__block-acts">
+          <span className="ai-debug__imgmeta">{assets.length} picture{assets.length === 1 ? '' : 's'} with the HTML</span>
+        </span>
+      </summary>
+      <div className="ai-debug__assets">
+        {assets.map((a) => {
+          const src = a.key ? mediaProxyUrl(a.key) : '';
+          return (
+            <a key={a.key || a.label} href={src} target="_blank" rel="noreferrer" className="ai-debug__img" title={a.label}>
+              {src ? <img src={src} alt={a.label} loading="lazy" /> : null}
+              <span className="ai-debug__imgmeta">{a.label}</span>
+            </a>
+          );
+        })}
       </div>
     </details>
   );
@@ -359,6 +385,7 @@ function DebugEntry({ entry }) {
         <>
           <DebugBlock label="System" text={entry.systemPrompt} open copyable />
           <InputHtmlBlock input={entry.inputHtml} />
+          <InputAssetsBlock assets={entry.inputAssets} />
           <InputImageBlock image={entry.inputImage} />
           <InputBlock
             draft={draft}

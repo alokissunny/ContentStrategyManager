@@ -176,6 +176,10 @@ export function addAiDebugEntry(entry = {}) {
     ...(entry.inputHtml && typeof entry.inputHtml === 'object' && entry.inputHtml.html
       ? { inputHtml: { label: String(entry.inputHtml.label || 'Input slide (HTML)'), html: String(entry.inputHtml.html) } }
       : {}),
+    // the slide's own pictures sent with that html — thumbnails under Input
+    ...(Array.isArray(entry.inputAssets) && entry.inputAssets.length
+      ? { inputAssets: entry.inputAssets.filter((x) => x && typeof x === 'object').map((x) => ({ label: String(x.label || 'Slide asset'), key: String(x.key || '') })) }
+      : {}),
     // the image an agent returned (Theme Apply's rendered slide) — shown under Output
     ...(entry.outputImage && typeof entry.outputImage === 'object'
       ? { outputImage: { label: String(entry.outputImage.label || 'Output image'), path: String(entry.outputImage.path || ''), key: String(entry.outputImage.key || '') } }

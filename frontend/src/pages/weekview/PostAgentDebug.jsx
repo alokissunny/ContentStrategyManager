@@ -1,4 +1,4 @@
-import { mediaProxyUrl } from '../../api/media';
+import { fillAssetSrcs, mediaProxyUrl } from '../../api/media';
 import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useAiDebug, fmtElapsed, fmtCost, fmtTokens } from '../../lib/aiDebug';
@@ -426,7 +426,7 @@ function CopyButton({ text }) {
 const INPUT_FRAME_CSS = 'html,body{margin:0;padding:0;background:#fff;overflow:hidden}'
   + 'section[data-direction]{padding:0!important;gap:0!important;display:block!important}';
 function InputSlideFrame({ html, label }) {
-  const page = `<!doctype html><html><head><meta charset="utf-8"><style>${INPUT_FRAME_CSS}</style></head><body>${html}</body></html>`;
+  const page = `<!doctype html><html><head><meta charset="utf-8"><style>${INPUT_FRAME_CSS}</style></head><body>${fillAssetSrcs(html)}</body></html>`;
   return (
     <figure className="wv-agentdbg__inslide">
       <div className="ai-debug__slidefr"><iframe title={label} sandbox="" srcDoc={page} /></div>

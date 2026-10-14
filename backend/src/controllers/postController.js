@@ -2490,6 +2490,8 @@ async function runThemeApplyRequest(req, res) {
           inputImage: referenceImage,
           outputImage: { label: `Themed slide ${i}`, key: results[i].key },
           inputHtml: { label: `Slide ${i} as sent (carousel agent HTML)`, html: results[i].inputHtml || '' },
+          // the slide's own pictures attached with its HTML (pictures 2…, after the reference)
+          inputAssets: (results[i].assets || []).map((x) => ({ key: x.key, label: `Picture ${x.n}${x.primary ? ' · primary photo (pasted back unchanged)' : ''}${x.label ? ` — ${x.label}` : ''}` })),
         })),
       ],
     },

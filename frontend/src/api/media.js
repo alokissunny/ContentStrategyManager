@@ -65,6 +65,20 @@ export function mediaProxyUrl(key) {
   return `${base}/media/proxy?key=${encodeURIComponent(first)}`;
 }
 
+// Slide HTML for a static preview (debug panels): every <img> that names its
+// picture only by data-asset-key (the editor fills `src` at display time) gets
+// a loadable src, so the preview shows the photo instead of its alt text.
+export function fillAssetSrcs(html) {
+  return String(html || '').replace(/<img\b[^>]*>/gi, (tag) => {
+    const key = (tag.match(/\bdata-asset-key\s*=\s*["']([^"']+)["']/i) || [])[1] || '';
+    const src = (tag.match(/\bsrc\s*=\s*["']([^"']*)["']/i) || [])[1] || '';
+    const url = key && !src.trim() ? mediaProxyUrl(key) : '';
+    if (!url) return tag;
+    const clean = tag.replace(/\ssrc\s*=\s*("[^"]*"|'[^']*')/i, '');
+    return clean.replace(/^<img\b/i, `<img src="${url}"`);
+  });
+}
+
 // The display copy of a project image (backend /media/display): a WebP no
 // wider than `w`, made once and served from the CDN by redirect. Slides and
 // previews show this; export / publish / crop keep the original (proxy).
