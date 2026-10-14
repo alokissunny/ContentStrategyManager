@@ -98,7 +98,6 @@ async function extractDesignRules(reference, { cacheKey = '' } = {}) {
         { type: 'text', text: 'Extract its visual design rules and call record_design_rules.' },
       ],
       tool: RULES_TOOL,
-      cacheKey: 'igsignal-theme-design-rules',
       maxTokens: 3000,
       reasoningEffort: process.env.THEME_RULES_EFFORT || 'medium',
       retryHint: 'Call record_design_rules with valid JSON.',
@@ -107,13 +106,11 @@ async function extractDesignRules(reference, { cacheKey = '' } = {}) {
     if (!rules?.typography) throw new Error('no rules in the answer');
     const i = Number(done.usage?.input_tokens || done.usage?.prompt_tokens) || 0;
     const o = Number(done.usage?.output_tokens || done.usage?.completion_tokens) || 0;
-    // the part of the prompt served from the provider's prompt cache (cheaper)
-    const cached = Number(done.usage?.cached_tokens) || 0;
     const out = {
       rules,
       model,
       prompt: system,
-      usage: { inputTokens: i, outputTokens: o, totalTokens: i + o, cachedTokens: cached, estimatedCostUsd: estimatePlanCostUsd(model, i, o, cached), elapsedMs: Date.now() - started },
+      usage: { inputTokens: i, outputTokens: o, totalTokens: i + o, estimatedCostUsd: estimatePlanCostUsd(model, i, o), elapsedMs: Date.now() - started },
     };
     if (cacheKey) cache.set(cacheKey, out);
     return out;

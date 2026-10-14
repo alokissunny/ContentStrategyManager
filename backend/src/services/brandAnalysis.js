@@ -1,15 +1,6 @@
 const fs = require('fs');
 const path = require('path');
-const { completeText } = require('./llmComplete');
-
-// Brand analysis runs on OpenAI (BRAND_ANALYSIS_MODEL, gpt-5.6-terra by default).
-const analysisModel = () => process.env.BRAND_ANALYSIS_MODEL || 'gpt-5.6-terra';
-// One prompt in, the model's text out. A reasoning model spends part of its
-// output budget thinking, so the budget is the answer's length plus headroom.
-async function askModel(model, prompt, answerTokens) {
-  const r = await completeText({ model, prompt, maxTokens: answerTokens + 8000, timeoutMs: 300000 });
-  return String(r.text || '');
-}
+const getAnthropicClient = require('./anthropicClient');
 
 const PROMPT_PATH = path.join(__dirname, '..', '..', 'prompts', 'brand-analysis-prompt.md');
 let promptTemplate;
@@ -63,14 +54,24 @@ function splitBrandProfile(fullText) {
 }
 
 async function generateBrandAnalysis(profile) {
-  const model = analysisModel();
+  const model = process.env.ANTHROPIC_MODEL || 'claude-sonnet-5';
   const snapshot = buildSnapshot(profile);
   // Function replacement so `$` sequences in captions are inserted literally.
   const prompt = loadPromptTemplate().replace('{{SNAPSHOT_JSON}}', () => JSON.stringify(snapshot, null, 2));
 
   console.log(`[brandAnalysis] Requesting analysis from ${model} for @${snapshot.username} (${snapshot.posts.length} posts)`);
 
-  const fullText = (await askModel(model, prompt, 8192));
+  const client = getAnthropicClient();
+  const response = await client.messages.create({
+    model,
+    max_tokens: 8192,
+    messages: [{ role: 'user', content: prompt }],
+  });
+
+  const fullText = response.content
+    .filter((block) => block.type === 'text')
+    .map((block) => block.text)
+    .join('\n');
 
   console.log(`[brandAnalysis] Received markdown report for @${snapshot.username} (${fullText.length} chars):\n${fullText}`);
 
@@ -148,7 +149,7 @@ function mergeBrandDna(markdown, fields) {
  * Only changes fields the note actually updates; keeps the rest intact.
  */
 async function reviseBrandDnaFromNote(currentFields, note) {
-  const model = analysisModel();
+  const model = process.env.ANTHROPIC_MODEL || 'claude-sonnet-5';
   const keys = BRAND_DNA_FIELDS.map(({ key }) => key);
   const labels = Object.fromEntries(BRAND_DNA_FIELDS.map(({ key, label }) => [key, label]));
 
@@ -169,7 +170,18 @@ async function reviseBrandDnaFromNote(currentFields, note) {
     `Studio note: ${JSON.stringify(String(note || '').trim())}`,
   ].join('\n');
 
-  const text = (await askModel(model, prompt, 2048)).trim();
+  const client = getAnthropicClient();
+  const response = await client.messages.create({
+    model,
+    max_tokens: 2048,
+    messages: [{ role: 'user', content: prompt }],
+  });
+
+  const text = response.content
+    .filter((block) => block.type === 'text')
+    .map((block) => block.text)
+    .join('\n')
+    .trim();
 
   const jsonMatch = text.match(/\{[\s\S]*\}/);
   if (!jsonMatch) {
@@ -310,7 +322,7 @@ async function assessBrandDnaGaps(fields) {
   if (allEmpty) return [];
 
   try {
-    const model = analysisModel();
+    const model = process.env.ANTHROPIC_MODEL || 'claude-sonnet-5';
     const prompt = [
       'You read a studio\'s Brand DNA / Business memory and decide what is still unclear for planning.',
       'Return ONLY a JSON object: {"gaps":[...]} with no markdown fences.',
@@ -331,7 +343,17 @@ async function assessBrandDnaGaps(fields) {
       `Current memory: ${JSON.stringify(current, null, 2)}`,
     ].join('\n');
 
-    const text = (await askModel(model, prompt, 1024)).trim();
+    const client = getAnthropicClient();
+    const response = await client.messages.create({
+      model,
+      max_tokens: 1024,
+      messages: [{ role: 'user', content: prompt }],
+    });
+    const text = response.content
+      .filter((block) => block.type === 'text')
+      .map((block) => block.text)
+      .join('\n')
+      .trim();
     const jsonMatch = text.match(/\{[\s\S]*\}/);
     if (!jsonMatch) return fallback;
     let parsed;
@@ -377,7 +399,7 @@ async function fillBrandDnaFromAnswers(currentFields, answers) {
   });
 
   try {
-    const model = analysisModel();
+    const model = process.env.ANTHROPIC_MODEL || 'claude-sonnet-5';
     const keys = BRAND_DNA_FIELDS.map(({ key }) => key);
     const prompt = [
       'You update a studio\'s Brand DNA / Business memory from answers to specific gap questions.',
@@ -394,7 +416,18 @@ async function fillBrandDnaFromAnswers(currentFields, answers) {
       `Answers: ${JSON.stringify(rows, null, 2)}`,
     ].join('\n');
 
-    const text = (await askModel(model, prompt, 2048)).trim();
+    const client = getAnthropicClient();
+    const response = await client.messages.create({
+      model,
+      max_tokens: 2048,
+      messages: [{ role: 'user', content: prompt }],
+    });
+
+    const text = response.content
+      .filter((block) => block.type === 'text')
+      .map((block) => block.text)
+      .join('\n')
+      .trim();
     const jsonMatch = text.match(/\{[\s\S]*\}/);
     if (!jsonMatch) return fallback;
     let parsed;

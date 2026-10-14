@@ -232,8 +232,10 @@ async function transcribeWords(buffer, contentType) {
 // viewer's eye should be drawn to, with their centre as x/y percentages. The
 // animation agent then anchors pointers/spotlights/labels to those positions.
 function reelVisionModel() {
-  // OpenAI (PLAN_REEL_VISION_MODEL, gpt-5.6-terra by default)
-  return process.env.PLAN_REEL_VISION_MODEL || 'gpt-5.6-terra';
+  return process.env.PLAN_REEL_VISION_MODEL
+    || process.env.ANTHROPIC_VISION_MODEL
+    || process.env.ANTHROPIC_MODEL
+    || 'claude-sonnet-5';
 }
 
 const REEL_VISION_TOOL = {

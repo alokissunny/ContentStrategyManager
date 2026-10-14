@@ -30,20 +30,17 @@ async function deleteThemeReference(req, res) {
   return res.json({ ok: true, id: String(gone._id) });
 }
 
-// The saved row for a reference — by its stored file, else by the picture's
-// fingerprint (the same photo uploaded again). null when never applied.
-async function savedReference(userId, key, hash = '') {
-  if (!key && !hash) return null;
-  const byKey = key ? await ThemeReference.findOne({ user: userId, key }).lean().catch(() => null) : null;
-  if (byKey || !hash) return byKey;
-  return ThemeReference.findOne({ user: userId, hash }).sort({ lastUsedAt: -1 }).lean().catch(() => null);
+// The saved row for a reference key (null when it has never been applied).
+async function savedReference(userId, key) {
+  if (!key) return null;
+  return ThemeReference.findOne({ user: userId, key }).lean().catch(() => null);
 }
 
 // Save (or touch) a reference after it was applied — its name and the Design
 // Rules agent's read of it, so a re-apply skips the extraction.
-async function rememberReference(userId, { key, name = '', designRules = null, hash = '' }) {
+async function rememberReference(userId, { key, name = '', designRules = null }) {
   if (!key) return null;
-  const set = { lastUsedAt: new Date(), ...(hash ? { hash } : {}) };
+  const set = { lastUsedAt: new Date() };
   if (designRules?.rules) {
     set.designRules = designRules.rules;
     set.rulesModel = designRules.model || '';

@@ -57,7 +57,7 @@ const DEFAULT_BRAND_VOICE_PROVIDER = 'openai';
 // (Editor mode region map) and rewrites a region's words. OpenAI by default.
 const THEME_REGIONS_PROVIDERS = [
   { id: 'openai', label: 'OpenAI', model: process.env.THEME_REGIONS_OPENAI_MODEL || 'gpt-6-luna' },
-  { id: 'anthropic', label: 'Claude', model: process.env.THEME_REGIONS_MODEL || 'claude-haiku-4-5-20251001' },
+  { id: 'anthropic', label: 'Claude', model: process.env.THEME_REGIONS_MODEL || process.env.THEME_CHECK_MODEL || 'claude-haiku-4-5-20251001' },
 ];
 const DEFAULT_THEME_REGIONS_PROVIDER = 'openai';
 

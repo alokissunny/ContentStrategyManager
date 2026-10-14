@@ -1,26 +1,39 @@
 const fs = require('fs');
 const path = require('path');
+const getAnthropicClient = require('./anthropicClient');
 const getOpenAIClient = require('./openaiClient');
-const { completeText } = require('./llmComplete');
 
-// Competitor discovery runs on OpenAI (COMPETITOR_MODEL, gpt-5.6-terra by default).
+// Competitor discovery can run on OpenAI or Anthropic. Provider + model are
+// env-configurable; the default is OpenAI per product requirement.
 function competitorProvider() {
-  return 'openai';
+  return (process.env.COMPETITOR_PROVIDER || 'openai').toLowerCase();
 }
 
 function competitorModel() {
-  return process.env.COMPETITOR_MODEL || 'gpt-5.6-terra';
+  if (process.env.COMPETITOR_MODEL) return process.env.COMPETITOR_MODEL;
+  return competitorProvider() === 'openai' ? 'gpt-5.6-terra' : 'claude-haiku-4-5-20251001';
 }
 
 // Provider-agnostic single-prompt completion returning the raw text response.
 async function runCompletion(prompt, maxTokens) {
   const model = competitorModel();
-  const response = await getOpenAIClient().chat.completions.create({
+  if (competitorProvider() === 'openai') {
+    const response = await getOpenAIClient().chat.completions.create({
+      model,
+      messages: [{ role: 'user', content: prompt }],
+      max_completion_tokens: maxTokens,
+    });
+    return response.choices?.[0]?.message?.content || '';
+  }
+  const response = await getAnthropicClient().messages.create({
     model,
+    max_tokens: maxTokens,
     messages: [{ role: 'user', content: prompt }],
-    max_completion_tokens: maxTokens,
   });
-  return response.choices?.[0]?.message?.content || '';
+  return response.content
+    .filter((block) => block.type === 'text')
+    .map((block) => block.text)
+    .join('\n');
 }
 
 const PROMPTS_DIR = path.join(__dirname, '..', '..', 'prompts');
@@ -165,8 +178,7 @@ async function findCompetitors(profile, options = {}) {
  * @returns {Promise<{ analysisMarkdown, model }>}
  */
 async function generateCompetitorAnalysis(profile, brandDna, competitors, activity = []) {
-  // OpenAI (COMPETITOR_ANALYSIS_MODEL, gpt-5.6-terra by default)
-  const model = process.env.COMPETITOR_ANALYSIS_MODEL || 'gpt-5.6-terra';
+  const model = process.env.ANTHROPIC_MODEL || 'claude-sonnet-5';
   const activityByUser = new Map((activity || []).map((a) => [a.username, a]));
   const payload = {
     base: buildSnapshot(profile, brandDna),
@@ -205,9 +217,16 @@ async function generateCompetitorAnalysis(profile, brandDna, competitors, activi
 
   console.log(`[competitorFinder] Generating competitor analysis for @${profile.username} with ${model}`);
 
-  // a reasoning model spends part of its output budget thinking — headroom on top of the report's 8k
-  const response = await completeText({ model, prompt, maxTokens: 16000, timeoutMs: 300000 });
-  const analysisMarkdown = String(response.text || '').trim();
+  const response = await getAnthropicClient().messages.create({
+    model,
+    max_tokens: 8192,
+    messages: [{ role: 'user', content: prompt }],
+  });
+  const analysisMarkdown = response.content
+    .filter((b) => b.type === 'text')
+    .map((b) => b.text)
+    .join('\n')
+    .trim();
 
   return { analysisMarkdown, model };
 }

@@ -7,8 +7,7 @@
 const sharp = require('sharp');
 const { completeToolCall } = require('./llmComplete');
 
-// OpenAI (COMPOSITION_READ_MODEL, gpt-5.6-terra by default)
-const MODEL = () => process.env.COMPOSITION_READ_MODEL || 'gpt-5.6-terra';
+const MODEL = () => process.env.COMPOSITION_READ_MODEL || process.env.THEME_REGIONS_MODEL || 'claude-haiku-4-5-20251001';
 const LAYOUTS = ['text', 'top', 'bottom', 'left', 'right', 'bleed'];
 
 const TOOL = {
@@ -43,7 +42,6 @@ async function readComposition(buffer) {
       { type: 'text', text: 'How is this laid out?' },
     ],
     tool: TOOL,
-    cacheKey: 'igsignal-composition-read',
     maxTokens: 500,
     reasoningEffort: 'low',
     retryHint: 'Call record_composition with valid JSON.',
