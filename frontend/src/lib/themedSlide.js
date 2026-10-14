@@ -7,3 +7,9 @@ export function isThemedPicture(slide) {
   return [...(Array.isArray(slide?.assetKeys) ? slide.assetKeys : []), slide?.assetKey]
     .some((k) => /\/themed-/.test(String(k || '')));
 }
+
+// A slide the Theme Apply agent restyled as HTML (the Design Rules agent chose
+// HTML output for its reference): still live HTML, in a `themed-html[-sN]` section.
+export function isThemedHtml(slide) {
+  return /^themed-html/.test(String(slide?.layoutTheme || ''));
+}

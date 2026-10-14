@@ -1,4 +1,7 @@
 require('dotenv').config();
+// sharp's operation cache keeps decoded pictures around between calls; on a
+// 512 MB instance the Theme Apply renders need that memory more
+require('sharp').cache(false);
 const app = require('./app');
 const connectDB = require('./config/db');
 const ensureInstagramIndexes = require('./utils/ensureInstagramIndexes');

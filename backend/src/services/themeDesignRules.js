@@ -67,8 +67,22 @@ const RULES_TOOL = {
       imageTreatment: { type: 'string', description: 'How photos / illustrations are cropped, framed, masked, layered or filtered — or none' },
       effects: { type: 'array', items: { type: 'string' }, description: 'Each visual effect: what it is, what it is applied to, how strong — empty when none' },
       donts: { type: 'array', items: { type: 'string' }, description: 'What this style never does' },
+      output: {
+        type: 'object',
+        description: 'The expected output format for a slide restyled in this look, with a confidence score for each format',
+        properties: {
+          htmlConfidence: { type: 'integer', minimum: 0, maximum: 100, description: 'How confident (0–100) that restyling the slide\'s HTML/CSS reproduces this look well' },
+          imageConfidence: { type: 'integer', minimum: 0, maximum: 100, description: 'How confident (0–100) that an image render is needed to reproduce this look (graphics, complex shapes or layout). htmlConfidence + imageConfidence = 100' },
+          graphicLoad: { type: 'string', enum: ['low', 'medium', 'high'], description: 'How much of the look lives in graphics — illustration, hand-drawn work, material texture, ornament (not the reference\'s own photos)' },
+          shapeComplexity: { type: 'string', enum: ['low', 'medium', 'high'], description: 'Simple rectangles / rounded panels (low) … torn, cut, organic or irregular shapes (high)' },
+          layoutComplexity: { type: 'string', enum: ['low', 'medium', 'high'], description: 'Orderly grid, aligned blocks (low) … collage, overlapping, layered, rotated, free-form (high)' },
+          format: { type: 'string', enum: ['html', 'image'], description: 'The expected output format: image only when graphics and complex shapes or layout clearly need it; otherwise html (preferred; a close call is html)' },
+          reason: { type: 'string', description: 'One sentence: why this format' },
+        },
+        required: ['htmlConfidence', 'imageConfidence', 'graphicLoad', 'shapeComplexity', 'layoutComplexity', 'format', 'reason'],
+      },
     },
-    required: ['artDirection', 'composition', 'typography', 'colourUse', 'surface', 'graphicDevices', 'imageTreatment', 'effects', 'donts'],
+    required: ['artDirection', 'composition', 'typography', 'colourUse', 'surface', 'graphicDevices', 'imageTreatment', 'effects', 'donts', 'output'],
   },
 };
 
@@ -164,4 +178,27 @@ function designRulesSection(rules) {
   ].join('\n').trim();
 }
 
-module.exports = { extractDesignRules, designRulesSection, RULES_TOOL };
+// The expected output format the Design Rules agent gave for a reference —
+// what the Theme Apply agent generates (html | image), with its confidence
+// scores. Its `format` decides; without one, the higher score (a tie → html).
+// No read at all → html (the preference).
+function outputModeOf(rules) {
+  const o = rules?.output;
+  if (!o || typeof o !== 'object') return { mode: 'html', reason: 'no read of the reference — HTML by default' };
+  const score = (v) => (Number.isFinite(Number(v)) ? Math.max(0, Math.min(100, Math.round(Number(v)))) : null);
+  const htmlConfidence = score(o.htmlConfidence);
+  const imageConfidence = score(o.imageConfidence);
+  const mode = ['html', 'image'].includes(o.format) ? o.format
+    : ((imageConfidence ?? 0) > (htmlConfidence ?? 0) ? 'image' : 'html');
+  return {
+    mode,
+    htmlConfidence,
+    imageConfidence,
+    graphicLoad: o.graphicLoad || '',
+    shapeComplexity: o.shapeComplexity || '',
+    layoutComplexity: o.layoutComplexity || '',
+    reason: String(o.reason || ''),
+  };
+}
+
+module.exports = { extractDesignRules, designRulesSection, outputModeOf, RULES_TOOL };

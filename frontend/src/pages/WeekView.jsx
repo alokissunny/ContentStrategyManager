@@ -11,7 +11,7 @@ import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 're
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import Glyph from '../components/Glyph';
-import { isThemedPicture } from '../lib/themedSlide';
+import { isThemedPicture, isThemedHtml } from '../lib/themedSlide';
 import Icon from '../brand/Icon';
 import RegionTextPanel, { RegionImagePanel, changeIsLive, describeMark, markHex } from './weekview/RegionTextPanel';
 import YourAnalysisModal from '../components/YourAnalysisModal';
@@ -5294,10 +5294,14 @@ export default function WeekView({
       }
     } catch (err) {
       const timedOut = err?.code === 'ECONNABORTED' || /timeout/i.test(String(err?.message || ''));
+      // no answer at all (axios "Network Error"): the connection dropped
+      const dropped = !err?.response && /network error/i.test(String(err?.message || ''));
       setLayoutErr(
         timedOut
           ? 'Theme Apply agent timed out. Try again — a server restart mid-run can leave this stuck.'
-          : (err.response?.data?.message || err.message || `Could not use ${label}.`),
+          : dropped
+            ? 'Lost the connection to the server while starting the theme. Check your connection and try again — or theme one slide at a time.'
+            : (err.response?.data?.message || err.message || `Could not use ${label}.`),
       );
     } finally {
       setLayoutBusy(false);
@@ -6688,8 +6692,8 @@ export default function WeekView({
     onSavedReference: (ref, every) => handleSavedReferenceTheme(ref, every),
     onDeleteSavedReference: (ref) => handleDeleteSavedReference(ref),
     // Remove theme: shown while any slide wears a Theme Apply render
-    themed: slides.some((sl) => isThemedPicture(sl)),
-    slideThemed: isThemedPicture(activeSlide),
+    themed: slides.some((sl) => isThemedPicture(sl) || isThemedHtml(sl)),
+    slideThemed: isThemedPicture(activeSlide) || isThemedHtml(activeSlide),
     onRemoveTheme: (every) => handleRemoveTheme(every),
     sets: kitSets.map((t) => ({ ...t, swatches: [t.palette?.fg, t.palette?.accent, t.palette?.ground] })),
     setId: setIdOf(activeSlide),

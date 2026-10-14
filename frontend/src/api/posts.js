@@ -355,20 +355,66 @@ export function deleteThemeReference(refId) {
   return client.delete(`/posts/theme-references/${refId}`).then((res) => res.data);
 }
 
-export function applyThemeImage(id, { referenceImageKey, referenceName, themeId, slideIndexes, brandColors } = {}) {
+// Runs as a background job on the server: the POST answers { jobId } at once
+// and the run is polled until it finishes, so a long all-slides run never
+// holds one request open. Resolves with what the run answered
+// ({ post, applied, failed, … }); rejects like an axios error (err.response.data
+// .message) when it failed, or with `interrupted` when the server restarted.
+const THEME_POLL_MS = 3000;
+const THEME_POLL_GIVE_UP_MS = 20 * 60 * 1000;
+// how long the poll rides out a server that is not answering (restarting)
+const THEME_POLL_OFFLINE_MS = 3 * 60 * 1000;
+const pause = (ms) => new Promise((r) => { setTimeout(r, ms); });
+
+export async function applyThemeImage(id, { referenceImageKey, referenceName, themeId, slideIndexes, brandColors } = {}) {
   const label = `Theme Apply agent — ${slideIndexes?.length === 1 ? `slide ${slideIndexes[0]}` : `${slideIndexes?.length || 0} slides`}`;
-  return client
-    .post(`/posts/${id}/theme-image`, { referenceImageKey, referenceName, themeId, slideIndexes, brandColors }, { timeout: 600000 })
-    .then((res) => {
-      const data = res.data || {};
-      ingestPlanDebug(label, data);
-      return data;
-    })
-    .catch((err) => {
-      const data = err?.response?.data;
-      if (data?.debug) ingestPlanDebug(label, data);
+  const fail = (data, message) => {
+    if (data?.debug) ingestPlanDebug(label, data);
+    const err = new Error(message || data?.message || 'Theme Apply failed.');
+    err.response = { data: { ...(data || {}), message: message || data?.message || 'Theme Apply failed.' } };
+    return err;
+  };
+  let started;
+  try {
+    started = await client.post(`/posts/${id}/theme-image`, { referenceImageKey, referenceName, themeId, slideIndexes, brandColors, async: true }, { timeout: 60000 });
+  } catch (err) {
+    const data = err?.response?.data;
+    if (data?.debug) ingestPlanDebug(label, data);
+    throw err;
+  }
+  const jobId = started?.data?.jobId;
+  // a server without jobs answered the run itself
+  if (!jobId) {
+    const data = started?.data || {};
+    ingestPlanDebug(label, data);
+    return data;
+  }
+  const t0 = Date.now();
+  let offlineSince = 0;
+  for (;;) {
+    await pause(THEME_POLL_MS);
+    if (Date.now() - t0 > THEME_POLL_GIVE_UP_MS) throw fail(null, 'Theme Apply is taking far longer than it should — check back on this post in a minute, or try again.');
+    let job;
+    try {
+      job = (await client.get(`/posts/theme-jobs/${jobId}`, { timeout: 20000 })).data || {};
+      offlineSince = 0;
+    } catch (err) {
+      if (err?.response) throw fail(err.response.data, err.response.data?.message);
+      // no answer: the server may be restarting — keep asking for a while
+      offlineSince = offlineSince || Date.now();
+      if (Date.now() - offlineSince > THEME_POLL_OFFLINE_MS) throw fail(null, 'Lost contact with the server while theming — it may have restarted. Try again, or theme one slide at a time.');
+      continue;
+    }
+    if (job.status === 'running') continue;
+    if (job.status === 'interrupted') {
+      const err = fail(null, job.message);
+      err.interrupted = true;
       throw err;
-    });
+    }
+    if (job.status === 'failed' || (job.code && job.code >= 400)) throw fail(job, job.message);
+    ingestPlanDebug(label, job);
+    return job;
+  }
 }
 
 // Editor › Themes › Remove theme: back to the carousel agent's design — every

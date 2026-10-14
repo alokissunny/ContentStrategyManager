@@ -24,6 +24,7 @@ const {
   rerunLayout,
   rerunSlideLayoutVariations,
   applyThemeImage,
+  getThemeApplyJob,
   removeTheme,
   getPreTheme,
   mapThemeRegions,
@@ -43,6 +44,8 @@ router.use(postEditLog);
 router.get('/', asyncHandler(getPosts));
 // Choose from library › Your references (uploaded theme references, kept for re-apply)
 router.get('/theme-references', asyncHandler(listThemeReferences));
+// a background Theme Apply run (POST /:id/theme-image with async: true)
+router.get('/theme-jobs/:jobId', asyncHandler(getThemeApplyJob));
 router.delete('/theme-references/:refId', asyncHandler(deleteThemeReference));
 router.post('/generate', asyncHandler(generatePlan));
 // Queued generation runs (PLAN_QUEUE) — before '/:id' so "runs" isn't read as a post id.

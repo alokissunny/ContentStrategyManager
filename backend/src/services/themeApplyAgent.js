@@ -292,7 +292,8 @@ async function applyThemeToSlide({ slideIndex, slide = {}, userId, reference, sl
   // one attempt: render, then the original photo into its placeholder
   const attempt = async (extra = '') => {
     const run = await renderOnce(extra);
-    renders.push(run.rendered);
+    // only what the cost line needs — the picture itself is let go
+    renders.push({ usage: run.rendered.usage, estimatedCostUsd: run.rendered.estimatedCostUsd });
     const placed = photo?.buffer ? await pastePrimaryImage(run.cropped, photo.buffer) : null;
     return { run, placed, out: placed?.found ? placed.buffer : run.cropped };
   };

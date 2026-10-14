@@ -291,7 +291,7 @@ async function addSlideToCarousel({ userId, handle, label, at, capture, current,
   // the new slide joins the theme of the slide it follows (or precedes) — but
   // never a Theme Apply section: those hold pictures, and the new slide is
   // HTML until a theme is applied to it, so it takes the nearest HTML theme
-  const themedDir = (d) => /^themed-image/.test(String(d || ''));
+  const themedDir = (d) => /^themed-(image|html)/.test(String(d || ''));
   const near = [before, after, ...composed.articles.slice(0, pos).reverse(), ...composed.articles.slice(pos + 1)];
   const dir = near.map((a) => a?.dir).find((d) => d && !themedDir(d))
     || (!themedDir(composed.direction) && composed.direction)
