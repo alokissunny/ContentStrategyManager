@@ -13,6 +13,7 @@ const path = require('path');
 const { getObjectBytes, isS3Configured } = require('./s3Client');
 const { completeToolCall, conversationModel, hasConversationModel, splitPromptTemplate } = require('./llmComplete');
 const { toVisionImage } = require('./visionImage');
+const { LANGUAGES } = require('../utils/appLocale');
 
 const PROMPT_PATH = path.join(__dirname, '..', '..', 'prompts', 'capture-understand-prompt.md');
 function loadPrompt() {
@@ -820,6 +821,18 @@ async function imageContentParts(attachments) {
  * Understand a draft Capture. Returns { action: 'ask'|'ready', question, understanding }.
  * Never throws for "the model declined to ask" — callers can always store.
  */
+// Settings › Language: the conversation's questions follow the studio's UI
+// language. Goes in the user turn so the cached system prompt is unchanged.
+function languageHintOf(locale) {
+  const name = LANGUAGES[locale];
+  if (!name || locale === 'en') return '';
+  return [
+    `UI LANGUAGE: ${name}.`,
+    `Write the follow-up question (\`question\`) and every other line the user reads in this conversation in ${name}, whatever language the source or answers are in.`,
+    'Keep JSON keys and enum values (status and the like) exactly as specified, in English.',
+  ].join('\n');
+}
+
 async function understandCapture(input = {}) {
   const text = str(input.text);
   const attachments = Array.isArray(input.attachments) ? input.attachments : [];
@@ -830,6 +843,7 @@ async function understandCapture(input = {}) {
   const projects = Array.isArray(input.projects) ? input.projects : [];
   const kind = str(input.kind) || 'capture';
   const forceReady = Boolean(input.forceReady);
+  const languageHint = languageHintOf(str(input.language));
 
   if (!text && attachments.length === 0 && turns.length === 0) {
     const err = new Error('A capture needs a note or a file');
@@ -845,6 +859,7 @@ async function understandCapture(input = {}) {
     assembled.user,
     forceReady ? FORCE_READY_HINT : '',
     USER_JSON_INSTRUCTION,
+    languageHint,
   ].filter(Boolean).join('\n\n');
   const debugSource = kind === 'checkin' ? 'Check-in conversation' : 'Capture conversation';
   const ctx = { text, askedQuestion, askedAnswer };

@@ -20,6 +20,7 @@ const {
   composeSessionTitle,
 } = require('../services/captureUnderstand');
 const { understandCheckin } = require('../services/checkinUnderstand');
+const { appLocaleOf } = require('../utils/appLocale');
 const { transcribeAudio, correctTranscript } = require('../services/transcribeAudio');
 
 function wantsPromptDebug(req) {
@@ -391,6 +392,7 @@ async function captureQuestions(req, res) {
     .map((i) => ({ projectId: String(i?.projectId || ''), captureId: String(i?.captureId || '') }))
     .filter((i) => i.projectId && i.captureId);
   const out = {};
+  const language = appLocaleOf(req);
   const projectIds = [...new Set(items.map((i) => i.projectId))];
   const projects = await Project.find({ _id: { $in: projectIds }, user: req.user._id });
   const wordless = (c) => !String(c.text || c.sessionSummary || c.understanding?.summary || '').trim();
@@ -408,13 +410,17 @@ async function captureQuestions(req, res) {
         text: '',
         attachments: (c.attachments || []).map((a) => ({ type: a.type, key: a.key, analysis: a.analysis })),
         projectName: p.name,
+        language,
       });
       question = String(r?.question || '').trim();
     } catch (err) {
       console.warn(`[projects] capture question failed ${c._id}: ${err.message}`);
     }
     const n = (c.attachments || []).length;
-    const asked = question || `What do ${n === 1 ? 'this picture' : 'these pictures'} show, and what happened?`;
+    const fallbackQuestion = language === 'es'
+      ? `¿Qué ${n === 1 ? 'muestra esta foto' : 'muestran estas fotos'} y qué pasó?`
+      : `What do ${n === 1 ? 'this picture' : 'these pictures'} show, and what happened?`;
+    const asked = question || fallbackQuestion;
     await Project.updateOne(
       { _id: p._id, user: req.user._id, 'captures._id': c._id },
       { $set: { 'captures.$.clarifyQuestions': [asked] } },
@@ -646,6 +652,7 @@ async function understandDraft(req, res) {
       turns,
       confirmedIds,
       forceReady,
+      language: appLocaleOf(req),
     });
     res.json(withOptionalDebug(result, req));
   } catch (err) {
@@ -728,6 +735,7 @@ async function understandCheckinDraft(req, res) {
       askedAnswer,
       turns,
       confirmedIds,
+      language: appLocaleOf(req),
     });
     res.json(withOptionalDebug(result, req));
   } catch (err) {

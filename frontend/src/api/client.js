@@ -1,5 +1,6 @@
 import axios from 'axios';
 import { isAiDebugEnabled } from '../lib/aiDebug';
+import { getLocale } from '../i18n';
 
 function resolveBaseURL() {
   const configured = import.meta.env.VITE_API_URL?.trim();
@@ -41,6 +42,8 @@ client.interceptors.request.use((config) => {
   const token = getToken();
   if (token) config.headers.Authorization = `Bearer ${token}`;
   if (isAiDebugEnabled()) config.headers['x-debug-prompts'] = '1';
+  // Settings › Language — AI conversations (Capture questions) follow it.
+  config.headers['x-app-locale'] = getLocale();
   return config;
 });
 

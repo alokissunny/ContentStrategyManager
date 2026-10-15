@@ -11,6 +11,7 @@
  */
 
 import React, { useEffect, useRef, useState } from 'react';
+import { translate } from '../i18n';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import Icon from '../brand/Icon';
@@ -818,7 +819,11 @@ function useConversation() {
         setTimeout(() => setTyping(true), at - 420),
         setTimeout(() => {
           setTyping(false);
-          push(typeof text === 'string' ? { from: 'bauhly', text } : { from: 'bauhly', ...text });
+          // Settings › Language: scripted lines come from the catalog; the
+          // model's own questions already arrive in the UI language.
+          push(typeof text === 'string'
+            ? { from: 'bauhly', text: translate(text) }
+            : { from: 'bauhly', ...text, ...(typeof text.text === 'string' ? { text: translate(text.text) } : {}) });
         }, at),
       );
     });
@@ -1099,11 +1104,11 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
         if (adding.files.length) push({ from: 'user', media: adding.files });
       }
       // Add arrives holding files; the pencil (Edit capture) arrives empty
-      const ask = !adding.files.length
+      const ask = translate(!adding.files.length
         ? 'What would you like to add or change?'
         : adding.files.length > 1
           ? 'What are these, and what should I do with them?'
-          : 'What is this one — and what should I do with it?';
+          : 'What is this one — and what should I do with it?');
       cap.current = {
         ...cap.current,
         text: '',
@@ -1137,7 +1142,7 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
         kept.push({ role: t.role, text: t.text });
       });
       const gap = String(resume.gap || '').trim();
-      const ask = /\?$/.test(gap) ? gap : `One thing is still missing — ${gap.replace(/\.$/, '')}. Can you tell me more?`;
+      const ask = /\?$/.test(gap) ? gap : translate('One thing is still missing — {{gap}}. Can you tell me more?', { gap: gap.replace(/\.$/, '') });
       // with no chat on file, the note opens the conversation the model reads
       if (!kept.length && resume.text) kept.push({ role: 'user', text: resume.text });
       cap.current = {
@@ -1154,7 +1159,7 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
     }
     // `opening` aims the capture at one question (Editor › Add slide)
     const d = say(opening || (preset
-      ? `Anything from ${preset.name}? Something that happened, an idea, something you noticed, or anything else that feels relevant.`
+      ? translate('Anything from {{name}}? Something that happened, an idea, something you noticed, or anything else that feels relevant.', { name: preset.name })
       : 'What would you like to capture today? Maybe something that happened at work, an idea, or something you noticed.'));
     after(d, () => setStep('how'));
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1770,7 +1775,7 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
     setStep('boot');
     cap.current.text = '';
     cap.current.attachments = [];
-    cap.current.askedQuestion = 'What else would you like to add?';
+    cap.current.askedQuestion = translate('What else would you like to add?');
     const d = say('What else would you like to add?');
     after(d, () => setStep('noting'));
   };
