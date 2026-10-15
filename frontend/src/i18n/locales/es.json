@@ -2058,5 +2058,8 @@
   "box": "caja",
   "not scheduled": "sin programar",
   "subject": "sujeto",
-  "{{v0}} at {{v1}}": "{{v0}} a las {{v1}}"
+  "{{v0}} at {{v1}}": "{{v0}} a las {{v1}}",
+  "No account analysis yet. If you've already connected Instagram, the first analysis may have failed — run it again. Otherwise connect your Instagram from onboarding first.": "Aún no hay análisis de la cuenta. Si ya conectaste Instagram, puede que el primer análisis haya fallado: vuelve a ejecutarlo. Si no, conecta primero tu Instagram durante la configuración inicial.",
+  "Run analysis": "Ejecutar análisis",
+  "Analysing account… (about a minute)": "Analizando la cuenta… (alrededor de un minuto)"
 }

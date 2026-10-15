@@ -8,7 +8,7 @@ import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 're
 import { createPortal } from 'react-dom';
 import { Link } from 'react-router-dom';
 import Glyph from '../components/Glyph';
-import { fetchBrandVoice, fillBrandDnaGaps, getBrandDna, getBrandDnaRaw, reviseBrandDna, updateBrandDna } from '../api/brandDna';
+import { fetchBrandVoice, fillBrandDnaGaps, getBrandDna, getBrandDnaRaw, rerunAnalysis, reviseBrandDna, updateBrandDna } from '../api/brandDna';
 import { useAiDebug } from '../lib/aiDebug';
 import './brandDna.css';
 
@@ -198,7 +198,7 @@ function ClearConfirm({ busy, onCancel, onClear }) {
   );
 }
 
-function EmptyMemory({ notFound, children }) {
+function EmptyMemory({ notFound, onRerun, rerunning, rerunError, children }) {
   return (
     <div className="bm-card bm-card--empty-state">
       <p className="bm-empty-kicker">What to document</p>
@@ -217,10 +217,17 @@ function EmptyMemory({ notFound, children }) {
         ))}
       </ul>
       {notFound ? (
-        <p className="bm-empty">
-          Connect your Instagram from onboarding first — Bauhly needs a page to start from.
-          Then come back here and write the direction.
-        </p>
+        <>
+          <p className="bm-empty">
+            No account analysis yet. If you've already connected Instagram, the first
+            analysis may have failed — run it again. Otherwise connect your Instagram
+            from onboarding first.
+          </p>
+          <button type="button" className="btn btn--primary bm-clear-btn" onClick={onRerun} disabled={rerunning}>
+            {rerunning ? 'Analysing account… (about a minute)' : 'Run analysis'}
+          </button>
+          {rerunError ? <p className="bm-empty" role="alert">{rerunError}</p> : null}
+        </>
       ) : children}
     </div>
   );
@@ -600,11 +607,16 @@ export default function BrandDna() {
     el.style.height = `${Math.min(COMPOSER_MAX, Math.max(COMPOSER_MIN, el.scrollHeight))}px`;
   }, [note]);
 
+  const [reloadKey, setReloadKey] = useState(0);
+  const [rerunning, setRerunning] = useState(false);
+  const [rerunError, setRerunError] = useState('');
+
   useEffect(() => {
     let cancelled = false;
     getBrandDna()
       .then((data) => {
         if (cancelled) return;
+        setNotFound(false);
         setReportId(data.reportId);
         setSections(data.sections || []);
         setGaps(Array.isArray(data.gaps) ? data.gaps : []);
@@ -620,7 +632,20 @@ export default function BrandDna() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [reloadKey]);
+
+  async function runAnalysisAgain() {
+    setRerunning(true);
+    setRerunError('');
+    try {
+      await rerunAnalysis();
+      setReloadKey((k) => k + 1);
+    } catch (err) {
+      setRerunError(err.response?.data?.message || err.message || 'Analysis failed.');
+    } finally {
+      setRerunning(false);
+    }
+  }
 
   const map = useMemo(() => valueMap(sections), [sections]);
   const groups = useMemo(
@@ -813,7 +838,7 @@ export default function BrandDna() {
       {loading ? (
         <BrandDnaSkeleton />
       ) : notFound || !hasMemory ? (
-        <EmptyMemory notFound={notFound}>
+        <EmptyMemory notFound={notFound} onRerun={runAnalysisAgain} rerunning={rerunning} rerunError={rerunError}>
           {composer}
           {status}
         </EmptyMemory>

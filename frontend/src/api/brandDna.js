@@ -6,6 +6,11 @@ export function getBrandDna() {
   return client.get('/analysis/reports/latest/brand-dna').then((res) => res.data);
 }
 
+/** Re-run the account analysis from the stored Instagram snapshot (no re-scrape). */
+export function rerunAnalysis() {
+  return client.post('/analysis/reports/rerun').then((res) => res.data);
+}
+
 export function updateBrandDna(reportId, sections) {
   return client.patch(`/analysis/reports/${reportId}/brand-dna`, { sections }).then((res) => res.data);
 }

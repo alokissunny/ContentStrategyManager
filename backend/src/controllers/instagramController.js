@@ -9,7 +9,7 @@ const { computeAuthorityFunnel } = require('../services/authorityFunnel');
 const { buildAnalysisOverview } = require('../services/analysisOverview');
 const { loadCompetitorOverviewForUser } = require('./competitorController');
 const { startBackgroundGeneration } = require('./postController');
-const { invalidateCurrentUsername } = require('../utils/currentProfile');
+const { invalidateCurrentUsername, currentUsername } = require('../utils/currentProfile');
 const { createTtlCache } = require('../utils/ttlCache');
 
 // The "current" handle is the one most recently activated (analyzed or switched
@@ -48,6 +48,49 @@ async function withFreshAvatar(doc) {
 
 async function withFreshAvatars(docs) {
   return Promise.all((docs || []).map((d) => withFreshAvatar(d)));
+}
+
+// Brand analysis (Claude) over a stored profile snapshot → S3 markdown + a
+// BrandAnalysisReport row. Used by analyze and by Business memory's "Run analysis".
+async function createAnalysisReport(userId, snapshot) {
+  const username = snapshot.username;
+  const { markdown, brandProfile, model } = await generateBrandAnalysis(snapshot);
+  const s3Key = `reports/${userId}/${username}-${Date.now()}.md`;
+  await uploadMarkdown(s3Key, markdown);
+  const profileFields = {
+    whatYouOffer: brandProfile?.whatYouOffer || '',
+    whoYouHelp: brandProfile?.whoYouHelp || '',
+    firstProblem: brandProfile?.firstProblem || '',
+    position: brandProfile?.position || '',
+    proof: brandProfile?.proof || '',
+    howYouSound: brandProfile?.howYouSound || '',
+    visualStyle: brandProfile?.visualStyle || '',
+    neverDo: brandProfile?.neverDo || '',
+  };
+  let memoryGaps = [];
+  try {
+    memoryGaps = await assessBrandDnaGaps(profileFields);
+  } catch (err) {
+    console.warn('[brandDna] gap assessment after analyze failed:', err.message);
+  }
+  const reportDoc = await BrandAnalysisReport.create({
+    user: userId,
+    instagramUsername: username,
+    s3Key,
+    model,
+    ...profileFields,
+    memoryGaps,
+    memoryGapsAssessedAt: new Date(),
+  });
+  return {
+    id: reportDoc._id,
+    createdAt: reportDoc.createdAt,
+    downloadUrl: await getPresignedDownloadUrl(s3Key),
+    // Kept for the onboarding confirmation conversation.
+    whoYouHelp: reportDoc.whoYouHelp,
+    whatYouOffer: reportDoc.whatYouOffer,
+    howYouSound: reportDoc.howYouSound,
+  };
 }
 
 async function fetchInstagram(req, res) {
@@ -157,45 +200,10 @@ async function fetchInstagram(req, res) {
   let report = null;
   let reportError = null;
   try {
-    const { markdown, brandProfile, model } = await generateBrandAnalysis(snapshot);
-    const s3Key = `reports/${req.user._id}/${username}-${Date.now()}.md`;
-    await uploadMarkdown(s3Key, markdown);
-    const profileFields = {
-      whatYouOffer: brandProfile?.whatYouOffer || '',
-      whoYouHelp: brandProfile?.whoYouHelp || '',
-      firstProblem: brandProfile?.firstProblem || '',
-      position: brandProfile?.position || '',
-      proof: brandProfile?.proof || '',
-      howYouSound: brandProfile?.howYouSound || '',
-      visualStyle: brandProfile?.visualStyle || '',
-      neverDo: brandProfile?.neverDo || '',
-    };
-    let memoryGaps = [];
-    try {
-      memoryGaps = await assessBrandDnaGaps(profileFields);
-    } catch (err) {
-      console.warn('[brandDna] gap assessment after analyze failed:', err.message);
-    }
-    const reportDoc = await BrandAnalysisReport.create({
-      user: req.user._id,
-      instagramUsername: username,
-      s3Key,
-      model,
-      ...profileFields,
-      memoryGaps,
-      memoryGapsAssessedAt: new Date(),
-    });
-    report = {
-      id: reportDoc._id,
-      createdAt: reportDoc.createdAt,
-      downloadUrl: await getPresignedDownloadUrl(s3Key),
-      // Kept for the onboarding confirmation conversation.
-      whoYouHelp: reportDoc.whoYouHelp,
-      whatYouOffer: reportDoc.whatYouOffer,
-      howYouSound: reportDoc.howYouSound,
-    };
+    report = await createAnalysisReport(req.user._id, snapshot);
   } catch (err) {
     reportError = err.message;
+    console.error(`[instagram] brand analysis failed for @${username}:`, err.message);
   }
 
   // Whenever a handle is (re)analyzed — including adding another account —
@@ -377,4 +385,22 @@ async function getAnalysisOverview(req, res) {
   res.json(overview);
 }
 
-module.exports = { fetchInstagram, getInstagramProfile, activateInstagram, getAuthorityFunnel, getAnalysisOverview, refreshGraphMedia };
+// Business memory › "Run analysis": rebuild the current account's report from
+// its stored snapshot (no re-scrape) — e.g. when the first analysis failed.
+async function rerunAnalysis(req, res) {
+  const username = await currentUsername(req.user._id);
+  const filter = { user: req.user._id, ...(username ? { username } : {}) };
+  const snapshot = await InstagramProfile.findOne(filter).sort(CURRENT_SORT);
+  if (!snapshot) {
+    return res.status(404).json({ message: 'No Instagram account yet. Connect one from onboarding first.' });
+  }
+  try {
+    const report = await createAnalysisReport(req.user._id, snapshot);
+    res.json({ report });
+  } catch (err) {
+    console.error(`[instagram] brand analysis rerun failed for @${snapshot.username}:`, err.message);
+    res.status(502).json({ message: `Analysis failed: ${err.message}` });
+  }
+}
+
+module.exports = { rerunAnalysis, fetchInstagram, getInstagramProfile, activateInstagram, getAuthorityFunnel, getAnalysisOverview, refreshGraphMedia };

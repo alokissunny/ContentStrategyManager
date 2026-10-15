@@ -3,10 +3,13 @@ const asyncHandler = require('../utils/asyncHandler');
 const { protect } = require('../middleware/auth');
 const { listReports, getReportDownloadUrl, confirmReport, getLatestBrandDna, updateBrandDna, reviseBrandDna, fillBrandDnaGaps, getBrandDnaRaw, fetchBrandVoice } = require('../controllers/analysisController');
 
+const { rerunAnalysis } = require('../controllers/instagramController');
+
 const router = express.Router();
 
 router.use(protect);
 router.get('/reports', asyncHandler(listReports));
+router.post('/reports/rerun', asyncHandler(rerunAnalysis));
 router.get('/reports/latest/brand-dna', asyncHandler(getLatestBrandDna));
 router.get('/reports/:id/download', asyncHandler(getReportDownloadUrl));
 router.patch('/reports/:id', asyncHandler(confirmReport));
