@@ -10,6 +10,7 @@ import { Link } from 'react-router-dom';
 import Glyph from '../components/Glyph';
 import { fetchBrandVoice, fillBrandDnaGaps, getBrandDna, getBrandDnaRaw, rerunAnalysis, reviseBrandDna, updateBrandDna } from '../api/brandDna';
 import { useAiDebug } from '../lib/aiDebug';
+import { translate, useLocale } from '../i18n';
 import './brandDna.css';
 
 /** Friendly groupings over the stored Brand DNA keys (screenshot layout). */
@@ -98,14 +99,16 @@ function BrandVoiceBlock({ voice }) {
   if (!voice) return null;
   const meta = [
     voice.postsAnalyzed
-      ? (voice.postsAnalyzed === 1 ? 'From the latest post' : `From the last ${voice.postsAnalyzed} posts`)
+      ? (voice.postsAnalyzed === 1 ? translate('From the latest post') : translate('From the last {{n}} posts', { n: voice.postsAnalyzed }))
         + (voice.imagesAnalyzed != null
-          ? (voice.imagesAnalyzed ? ` (captions + ${voice.imagesAnalyzed} image${voice.imagesAnalyzed === 1 ? '' : 's'})` : ' (captions only)')
+          ? (voice.imagesAnalyzed
+            ? ` ${voice.imagesAnalyzed === 1 ? translate('(captions + 1 image)') : translate('(captions + {{n}} images)', { n: voice.imagesAnalyzed })}`
+            : ` ${translate('(captions only)')}`)
           : '')
       : '',
-    VOICE_SOURCE[voice.source] ? `via ${VOICE_SOURCE[voice.source]}` : '',
-    voice.postsFetchedAt ? `posts fetched ${new Date(voice.postsFetchedAt).toLocaleDateString()}` : '',
-    voice.fetchedAt ? `read ${new Date(voice.fetchedAt).toLocaleDateString()}` : '',
+    VOICE_SOURCE[voice.source] ? translate(`via ${VOICE_SOURCE[voice.source]}`) : '',
+    voice.postsFetchedAt ? translate('posts fetched {{date}}', { date: new Date(voice.postsFetchedAt).toLocaleDateString() }) : '',
+    voice.fetchedAt ? translate('read {{date}}', { date: new Date(voice.fetchedAt).toLocaleDateString() }) : '',
   ].filter(Boolean).join(' · ');
   return (
     <section className="bm-block bm-voice" aria-labelledby="bm-voice-t">
@@ -117,7 +120,7 @@ function BrandVoiceBlock({ voice }) {
           const labels = Array.isArray(axis.labels) ? axis.labels : [];
           return (
             <div className="bm-voice__row" key={key}>
-              <dt>{title}</dt>
+              <dt>{translate(title)}</dt>
               <dd>
                 {labels.length ? (
                   <span className="bm-voice__chips">
@@ -358,7 +361,7 @@ function GapInterview({ gaps, busy, error, onClose, onSave }) {
         aria-labelledby="bm-interview-t"
       >
         <p className="bm-interview__step">Question {index + 1} of {total}</p>
-        <h2 id="bm-interview-t">{gap.question || `What is ${gap.missing}?`}</h2>
+        <h2 id="bm-interview-t">{gap.question || translate('What is {{missing}}?', { missing: gap.missing })}</h2>
         {gap.why ? <p className="bm-interview__why">{gap.why}</p> : null}
         <textarea
           ref={inputRef}
@@ -527,7 +530,7 @@ function RawInspect({ reportId, onClose }) {
                 return (
                   <div className="bm-raw__field" key={key}>
                     <p className="bm-raw__key">
-                      {DNA_LABELS[key] || key}
+                      {translate(DNA_LABELS[key] || key)}
                       <code>{key}</code>
                     </p>
                     <p className={`bm-raw__val${value ? '' : ' is-empty'}`}>
@@ -541,7 +544,7 @@ function RawInspect({ reportId, onClose }) {
             <section className="bm-raw__block">
               {memoryBlocks.map((g) => (
                 <div className="bm-raw__field" key={g.id}>
-                  <p className="bm-raw__key">{g.title}</p>
+                  <p className="bm-raw__key">{translate(g.title)}</p>
                   <p className={`bm-raw__val${g.text ? '' : ' is-empty'}`}>
                     {g.text || '(empty)'}
                   </p>
@@ -578,6 +581,8 @@ function RawInspect({ reportId, onClose }) {
 
 export default function BrandDna() {
   const debug = useAiDebug();
+  // Memory text comes back translated for the UI language — refetch on switch.
+  const locale = useLocale();
   const [reportId, setReportId] = useState(null);
   const [sections, setSections] = useState([]);
   const [gaps, setGaps] = useState([]);
@@ -632,7 +637,7 @@ export default function BrandDna() {
     return () => {
       cancelled = true;
     };
-  }, [reloadKey]);
+  }, [reloadKey, locale]);
 
   async function runAnalysisAgain() {
     setRerunning(true);
@@ -691,8 +696,8 @@ export default function BrandDna() {
       setGaps(Array.isArray(data.gaps) ? data.gaps : []);
       setVoice(data.brandVoice || null);
       setFlash(data.brandVoice?.postsReused
-        ? 'Brand voice updated from posts already fetched this month.'
-        : 'Brand voice added to memory.');
+        ? translate('Brand voice updated from posts already fetched this month.')
+        : translate('Brand voice added to memory.'));
     } catch (err) {
       setError(err.response?.data?.message || err.message || 'Could not read your brand voice just now.');
     } finally {
@@ -777,7 +782,7 @@ export default function BrandDna() {
 
   const status = (error || flash) ? (
     <p className={`bm-status${error ? ' is-err' : ''}`} role="status">
-      {error || flash}
+      {translate(error || flash)}
     </p>
   ) : null;
 
@@ -846,7 +851,7 @@ export default function BrandDna() {
         <div className="bm-card">
           {groups.map((g) => (
             <section className="bm-block" key={g.id}>
-              <h2 className="bm-block__title">{g.title}</h2>
+              <h2 className="bm-block__title">{translate(g.title)}</h2>
               {g.text ? (
                 <p className="bm-block__body">{g.text}</p>
               ) : (

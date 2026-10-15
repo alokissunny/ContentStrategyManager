@@ -39,6 +39,9 @@ const brandAnalysisReportSchema = new mongoose.Schema(
     // The posts that Brand Voice read ({ fetchedAt, source, posts }) — reused
     // instead of re-fetching from Instagram within the same calendar month.
     brandVoicePosts: { type: mongoose.Schema.Types.Mixed, default: null },
+    // Display translations of the memory text, per UI language:
+    // { es: { hash, strings, at } } (services/memoryTranslate.js).
+    memoryTranslations: { type: mongoose.Schema.Types.Mixed, default: null },
     // Link to the detailed competitor-analysis Markdown (stored in S3).
     competitorAnalysisS3Key: { type: String, default: '' },
     competitorAnalysisAt: { type: Date, default: null },

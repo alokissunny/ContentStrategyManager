@@ -12,6 +12,8 @@ const {
 const { currentUsername } = require('../utils/currentProfile');
 const { buildBrandVoice, hasBrandVoice } = require('../services/brandVoice');
 const { brandVoiceLlm } = require('../services/runtimeSettings');
+const { localizeBrandDnaPayload } = require('../services/memoryTranslate');
+const { appLocaleOf } = require('../utils/appLocale');
 
 function wantsPromptDebug(req) {
   return String(req.get('x-debug-prompts') || '').trim() === '1';
@@ -37,6 +39,11 @@ function brandDnaPayload(report, parsedFromMarkdown, gaps) {
     gaps: serializeGaps(gaps !== undefined ? gaps : report.memoryGaps),
     brandVoice: hasBrandVoice(report.brandVoice) ? report.brandVoice : null,
   };
+}
+
+/** brandDnaPayload in the studio's UI language (memory text translated for display). */
+function localizedPayload(req, report, parsedFromMarkdown, gaps) {
+  return localizeBrandDnaPayload(report, brandDnaPayload(report, parsedFromMarkdown, gaps), appLocaleOf(req));
 }
 
 async function refreshMemoryGaps(report, fields) {
@@ -122,7 +129,7 @@ async function getLatestBrandDna(req, res) {
 
   const report = await BrandAnalysisReport.findOne(filter)
     .sort({ createdAt: -1 })
-    .select(['_id', 's3Key', 'brandDnaClearedAt', 'memoryGaps', 'memoryGapsAssessedAt', 'brandVoice', ...BRAND_DNA_FIELDS.map(({ key }) => key)].join(' '))
+    .select(['_id', 's3Key', 'brandDnaClearedAt', 'memoryGaps', 'memoryGapsAssessedAt', 'brandVoice', 'memoryTranslations', ...BRAND_DNA_FIELDS.map(({ key }) => key)].join(' '))
     .lean();
 
   if (!report) {
@@ -166,7 +173,7 @@ async function getLatestBrandDna(req, res) {
     ).catch((err) => console.warn('[brandDna] gap persist failed:', err.message));
   }
 
-  res.json(brandDnaPayload(report, parsed, gaps));
+  res.json(await localizedPayload(req, report, parsed, gaps));
 }
 
 async function updateBrandDna(req, res) {
@@ -188,7 +195,7 @@ async function updateBrandDna(req, res) {
 
   // Respond from Mongo first — S3 markdown sync is best-effort and must not
   // block Save on the Brand profile page.
-  res.json(brandDnaPayload(report, fields, report.memoryGaps));
+  res.json(await localizedPayload(req, report, fields, report.memoryGaps));
 
   if (report.s3Key) {
     getObjectText(report.s3Key)
@@ -233,7 +240,7 @@ async function reviseBrandDna(req, res) {
   await refreshMemoryGaps(report, fields);
   await report.save();
 
-  res.json(brandDnaPayload(report, fields, report.memoryGaps));
+  res.json(await localizedPayload(req, report, fields, report.memoryGaps));
 
   if (report.s3Key) {
     getObjectText(report.s3Key)
@@ -281,7 +288,7 @@ async function fillBrandDnaGaps(req, res) {
   await refreshMemoryGaps(report, fields);
   await report.save();
 
-  res.json(brandDnaPayload(report, fields, report.memoryGaps));
+  res.json(await localizedPayload(req, report, fields, report.memoryGaps));
 
   if (report.s3Key) {
     getObjectText(report.s3Key)
@@ -333,7 +340,7 @@ async function fetchBrandVoice(req, res) {
   report.markModified('brandVoicePosts');
   await report.save();
 
-  res.json({ ...brandDnaPayload(report, fieldsFromReport(report), report.memoryGaps), ...debugOf() });
+  res.json({ ...(await localizedPayload(req, report, fieldsFromReport(report), report.memoryGaps)), ...debugOf() });
 }
 
 /** Full stored snapshot for debug — Mongo Brand DNA plus the S3 analysis file. */
