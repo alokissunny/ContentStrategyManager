@@ -13,31 +13,30 @@ import { useAiDebug } from '../lib/aiDebug';
 import { translate, useLocale } from '../i18n';
 import './brandDna.css';
 
+/* the voice model's "nothing here" line (brandVoice.js) — shown as blank */
+const VOICE_FILLER = /^not (stated|clear) (in|from) (the )?recent posts\.?$/i;
+
 /** Friendly groupings over the stored Brand DNA keys (screenshot layout). */
 const MEMORY_GROUPS = [
   {
     id: 'about',
     title: 'About the business',
     keys: ['whatYouOffer', 'proof'],
-    empty: 'What you offer, and what you can point to as proof.',
   },
   {
     id: 'customers',
     title: 'Customers & communication',
     keys: ['whoYouHelp', 'firstProblem', 'howYouSound'],
-    empty: 'Who it’s for, the first problem you speak to, and how you sound.',
   },
   {
     id: 'focus',
     title: 'Current focus',
     keys: ['position'],
-    empty: 'The one-line answer to why you — not the next account.',
   },
   {
     id: 'context',
     title: 'Important context',
     keys: ['neverDo', 'visualStyle'],
-    empty: 'What never belongs in the plan, and your visual language.',
   },
 ];
 
@@ -127,10 +126,9 @@ function BrandVoiceBlock({ voice }) {
                     {labels.map((l) => <span className="bm-voice__chip" key={l}>{l}</span>)}
                   </span>
                 ) : null}
-                {axis.summary ? (
+                {/* nothing read for this axis → leave it blank, no filler */}
+                {axis.summary && !VOICE_FILLER.test(axis.summary.trim()) ? (
                   <span className="bm-voice__sum">{axis.summary}</span>
-                ) : !labels.length ? (
-                  <span className="bm-voice__sum is-empty">Not clear from recent posts.</span>
                 ) : null}
               </dd>
             </div>
@@ -852,11 +850,8 @@ export default function BrandDna() {
           {groups.map((g) => (
             <section className="bm-block" key={g.id}>
               <h2 className="bm-block__title">{translate(g.title)}</h2>
-              {g.text ? (
-                <p className="bm-block__body">{g.text}</p>
-              ) : (
-                <p className="bm-block__body is-empty">{g.empty}</p>
-              )}
+              {/* no Brand DNA for this section → leave it blank, no hint copy */}
+              {g.text ? <p className="bm-block__body">{g.text}</p> : null}
             </section>
           ))}
           <BrandVoiceBlock voice={voice} />

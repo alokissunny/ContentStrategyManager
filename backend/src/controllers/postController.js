@@ -2,7 +2,9 @@ const mongoose = require('mongoose');
 const PlannedPost = require('../models/PlannedPost');
 const Project = require('../models/Project');
 const InstagramProfile = require('../models/InstagramProfile');
-const { brandKitColors, brandStylePalette } = require('../services/brandKitColors');
+const {
+  brandKitColors, brandStylePalette, brandKitFonts, brandStyleFonts,
+} = require('../services/brandKitColors');
 const { generateWeeklyPlan, buildEmptySlots, isoDate, parseIsoDate, estimatePlanCostUsd } = require('../services/weeklyPlan');
 const { rewriteCaption } = require('../services/captionPolish');
 const { refineCarouselFromEdits } = require('../services/carouselRefine');
@@ -1480,8 +1482,15 @@ async function rerunLayout(req, res) {
   const structure = plainOf(trace.structure) || {};
   const label = record.day || (record.date ? record.date.toISOString().slice(0, 10) : record._id.toString());
   const dna = await loadBrandDna(req.user._id, record.instagramUsername).catch(() => null);
-  const kitColors = await brandKitColors(req.user._id, record.instagramUsername);
-  const brand = { ...compileBrandMemory(dna), ...(kitColors ? { palette: brandStylePalette(kitColors) } : {}) };
+  const [kitColors, kitFonts] = await Promise.all([
+    brandKitColors(req.user._id, record.instagramUsername),
+    brandKitFonts(req.user._id, record.instagramUsername),
+  ]);
+  const brand = {
+    ...compileBrandMemory(dna),
+    ...(kitColors ? { palette: brandStylePalette(kitColors) } : {}),
+    ...(kitFonts ? { fonts: brandStyleFonts(kitFonts) } : {}),
+  };
   const dayWriterOutput = plainOf(trace.dayWriter)
     || (Array.isArray(post.content?.slides) ? { content: { slides: post.content.slides } } : '');
 

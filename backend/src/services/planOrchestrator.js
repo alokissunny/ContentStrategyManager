@@ -1,7 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const { AsyncResource } = require('async_hooks');
-const { brandKitColors, brandStylePalette } = require('./brandKitColors');
+const { brandKitColors, brandStylePalette, brandKitFonts, brandStyleFonts } = require('./brandKitColors');
 const { carouselLayoutProblems } = require('./carouselLayoutCheck');
 const { extractJson, estimatePlanCostUsd, assignToEmptyDates, normalizeLens } = require('./weeklyPlan');
 const { compileStrategyContext, assetsForDay, allocatedAssetsOf, applyAssetAllocation, knownAssetIndexOf, json } = require('./planContext');
@@ -2289,11 +2289,13 @@ async function writeLayoutVariations({
   }));
 }
 
-function brandStyleOf(brand) {
+// `withFonts: false` for the picture agents — they never letter text, so the
+// Brand Kit Typography is only noise in their prompts.
+function brandStyleOf(brand, { withFonts = true } = {}) {
   const b = brand && typeof brand === 'object' ? brand : {};
   const visualStyle = optionalText(b.visualStyle || b.mood);
   const palette = b.palette && typeof b.palette === 'object' ? b.palette : null;
-  const fonts = b.fonts && typeof b.fonts === 'object' ? b.fonts : null;
+  const fonts = withFonts && b.fonts && typeof b.fonts === 'object' ? b.fonts : null;
   if (!visualStyle && !palette && !fonts) return '';
   return { ...(visualStyle ? { visualStyle } : {}), ...(palette ? { palette } : {}), ...(fonts ? { fonts } : {}) };
 }
@@ -2693,7 +2695,7 @@ async function writeVisualPrompt({ source, slide, brief, brand, visualTheme }) {
   const assembled = assembleAgentPrompt('plan-visual.md', {
     SLIDE_JSON: json(visualSlideInputOf(slide)),
     POST_CONTEXT_JSON: optionalPromptJson(visualPostContextOf(brief)),
-    BRAND_STYLE: optionalPromptJson(brandStyleOf(brand)),
+    BRAND_STYLE: optionalPromptJson(brandStyleOf(brand, { withFonts: false })),
     THEME_STYLE: themeStyleForVisuals(visualTheme?.theme) || 'None supplied — match BRAND_STYLE.',
   });
   return callAgent({
@@ -2802,7 +2804,7 @@ async function generateRequestedVisual({
     SLIDE_JSON: json(visualSlideInputOf(slide || {})),
     EXISTING_PICTURES: json(existingPictures || []),
     POST_CONTEXT_JSON: optionalPromptJson(visualPostContextOf(brief)),
-    BRAND_STYLE: optionalPromptJson(brandStyleOf(brand)),
+    BRAND_STYLE: optionalPromptJson(brandStyleOf(brand, { withFonts: false })),
     THEME_STYLE: themeStyleForVisuals(visualTheme?.theme) || 'None supplied — match BRAND_STYLE.',
   });
   const agent = await callAgent({
@@ -3218,14 +3220,21 @@ async function runStrategistPhase({
   );
   const brandMemory = ctx.brand || {};
   const brandJson = json(brandMemory);
-  // the Brand Kit colour set the studio selected — the carousel's palette
-  const kitColors = await brandKitColors(userId, profile?.username);
+  // the Brand Kit colour set + Typography the studio selected — the carousel's
+  // palette and fonts
+  const [kitColors, kitFonts] = await Promise.all([
+    brandKitColors(userId, profile?.username),
+    brandKitFonts(userId, profile?.username),
+  ]);
   const visualBrand = {
     ...brandMemory,
     mood: optionalText(brandMemory.visualStyle),
     ...(kitColors ? { palette: brandStylePalette(kitColors) } : {}),
+    ...(kitFonts ? { fonts: brandStyleFonts(kitFonts) } : {}),
   };
   if (kitColors) console.log(`[planOrchestrator] @${username}: Brand Kit colours "${kitColors.name}" ${[kitColors.ground, kitColors.fg, kitColors.accent].filter(Boolean).join(' ')}`);
+  if (kitFonts) console.log(`[planOrchestrator] @${username}: Brand Kit fonts ${Object.entries(kitFonts).map(([k, f]) => `${k}=${f.family}`).join(' ')}`);
+  if (!kitColors || !kitFonts) console.log(`[planOrchestrator] @${username}: no Brand Kit ${[!kitColors && 'colours', !kitFonts && 'fonts'].filter(Boolean).join(' / ')} for this handle — the carousel agent uses its own`);
   const conversationCaptures = Array.isArray(ctx.projects?.conversationCaptures)
     ? ctx.projects.conversationCaptures : [];
   const lastThree = Array.isArray(ctx.projects?.lastThree) ? ctx.projects.lastThree : [];

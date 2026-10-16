@@ -370,7 +370,7 @@ function buildPrompt({ username, posts, currentFields, withImages }) {
     '- tone: e.g. professional, friendly, educational, personal, playful, authoritative.',
     '- writingStyle: e.g. short, detailed, storytelling, list-based, Q&A. Mention typical caption length and structure (hooks, line breaks, emojis, hashtags, CTAs).',
     '- vocabulary: e.g. technical, conversational, emotional, trade jargon. Quote 2–3 characteristic words or phrases.',
-    '- positioning: e.g. luxury, practical, sustainable, affordable, bespoke. ONLY labels the captions explicitly support; otherwise labels [] and summary "Not stated in recent posts."',
+    '- positioning: e.g. luxury, practical, sustainable, affordable, bespoke. ONLY labels the captions explicitly support; otherwise labels [] and summary "" (empty).',
     '- contentThemes: recurring subjects, e.g. projects, processes, materials, client problems, behind the scenes, before/after. Up to 6 labels. Use what the images show, not only the captions.',
     '- communicationPatterns: how they explain their decisions and reasoning (e.g. problem → solution, why a material was chosen, budget trade-offs, client brief → outcome) — in words and visually (annotated slides, side-by-side comparisons).',
     withImages
