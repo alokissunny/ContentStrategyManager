@@ -47,6 +47,7 @@ Do not change:
 - verifiedTruth
 - uniqueJob
 - audienceTension
+- audienceLens (the target reader, their problem, the positioning this post proves, and the brand voice — keep every slide written to that reader)
 - hookTerritory
 - centralFact, ownedTerritory, or doNotRepeat
 - format, except you may switch `Post` to `Carousel` when two or more distinct narrative units each need their own visual surface

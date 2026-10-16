@@ -221,6 +221,17 @@ function lockedFormat(briefFormat) {
   return persistFormat(s);
 }
 
+// Strategist's per-brief read of who the post is for (Business memory applied).
+function audienceLensOf(v) {
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return undefined;
+  const out = {};
+  ['reader', 'problem', 'positioning', 'voice'].forEach((k) => {
+    const t = optionalText(v[k]);
+    if (t) out[k] = t;
+  });
+  return Object.keys(out).length ? out : undefined;
+}
+
 function briefFieldsOf(b) {
   const lens = normalizeLens(b.lens || b.pillar);
   // No theme: the carousel agent designs in its house style; a theme is applied
@@ -236,6 +247,7 @@ function briefFieldsOf(b) {
     project: optionalText(b.project),
     originalCapture: optionalText(b.originalCapture),
     angle: b.angle || '',
+    ...(audienceLensOf(b.audienceLens) ? { audienceLens: audienceLensOf(b.audienceLens) } : {}),
     clientCare: optionalText(b.clientCare),
     story: optionalText(b.story),
     caption: optionalText(b.caption),
@@ -1100,6 +1112,7 @@ function strategyBriefPayload(brief) {
     project: brief.project,
     originalCapture: brief.originalCapture,
     angle: brief.angle,
+    ...(brief.audienceLens ? { audienceLens: brief.audienceLens } : {}),
     clientCare: brief.clientCare,
     story: brief.story,
     caption: brief.caption,
@@ -3389,6 +3402,7 @@ async function writePlanDay(phase, projects, planned, index) {
     project: planned.project || '',
     originalCapture: planned.originalCapture || '',
     angle: planned.angle || '',
+    ...(planned.audienceLens ? { audienceLens: planned.audienceLens } : {}),
     clientCare: planned.clientCare || '',
     story: planned.story || '',
     caption: planned.caption || '',
