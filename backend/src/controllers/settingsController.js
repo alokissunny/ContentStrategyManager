@@ -17,6 +17,7 @@ const {
   THEME_APPLY_PHOTO_MODES,
   isValidThemeApplyPhotoMode,
   themeApplyPhotoMode,
+  artDirectorEnabled,
 } = require('../services/runtimeSettings');
 const { resolvePlanAgentLlm } = require('../services/planAgentLlm');
 
@@ -169,7 +170,29 @@ async function updateThemeApplyPhotoMode(req, res) {
   return res.json(currentThemeApplyPhotoMode());
 }
 
+function currentArtDirector() {
+  return { enabled: artDirectorEnabled(), model: resolvePlanAgentLlm('artDirector').model };
+}
+
+// GET /api/settings/art-director
+async function getArtDirector(req, res) {
+  res.json(currentArtDirector());
+}
+
+// PUT /api/settings/art-director  (admin only) — { enabled: boolean }
+async function updateArtDirector(req, res) {
+  if (req.user?.role !== 'admin') {
+    return res.status(403).json({ message: 'Only an admin can turn the Art Director agent on or off.' });
+  }
+  if (typeof req.body?.enabled !== 'boolean') {
+    return res.status(400).json({ message: 'enabled must be true or false.' });
+  }
+  await setRuntimeSetting(KEYS.artDirectorEnabled, req.body.enabled);
+  return res.json(currentArtDirector());
+}
+
 module.exports = {
+  getArtDirector, updateArtDirector,
   getThemeApplyPhotoMode, updateThemeApplyPhotoMode,
   getCarouselModel, updateCarouselModel, getBrandVoiceModel, updateBrandVoiceModel,
   getThemeRegionsModel, updateThemeRegionsModel, getStrategistModel, updateStrategistModel,

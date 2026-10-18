@@ -28,6 +28,7 @@ import {
   setPostTime,
   setPostReview,
   runPostLayout,
+  runPostArtDirector,
   applyThemeImage,
   listThemeReferences,
   deleteThemeReference,
@@ -3045,6 +3046,7 @@ export default function WeekView({
   const aiDebug = useAiDebug();
   const { videoCover: videoCoverOn, linkedin: linkedinOn } = useFeatureFlags();
   const [layoutBusy, setLayoutBusy] = useState(false);
+  const [artDirectorMsg, setArtDirectorMsg] = useState('');
   const [layoutErr, setLayoutErr] = useState('');
   // On-demand Change-layout variations for the current slide. The layout agent
   // composes four fresh layouts of just this slide when Change layout is opened
@@ -5153,6 +5155,39 @@ export default function WeekView({
         timedOut
           ? 'Carousel agent timed out. Try again — a server restart mid-run can leave this stuck.'
           : (err.response?.data?.message || err.message || 'Carousel agent failed.'),
+      );
+    } finally {
+      setLayoutBusy(false);
+    }
+  }
+
+  // Debug › Run art director: the Art Director agent re-composes this post's
+  // carousel HTML (copy and photos stay). Shares the carousel agent's busy state.
+  // a result note belongs to the post it ran on
+  useEffect(() => { setArtDirectorMsg(''); }, [selected]);
+
+  async function handleRunArtDirector() {
+    if (layoutBusy || !route?._id) return;
+    const wasEditing = postEdit;
+    setLayoutBusy(true);
+    setLayoutErr('');
+    setArtDirectorMsg('');
+    try {
+      const data = await runPostArtDirector(postIdAt(selected));
+      if (data?.post) {
+        const next = mergePost(data.post);
+        setRoute(next);
+        onRouteChange?.(next);
+        setSlideGen((g) => g + 1);
+        if (wasEditing) setPostEdit(true);
+      }
+      setArtDirectorMsg(data?.artDirector?.message || 'Art director: new slides saved.');
+    } catch (err) {
+      const timedOut = err?.code === 'ECONNABORTED' || /timeout/i.test(String(err?.message || ''));
+      setArtDirectorMsg(
+        timedOut
+          ? 'Art Director agent timed out. Try again.'
+          : (err.response?.data?.message || err.message || 'Art Director agent failed.'),
       );
     } finally {
       setLayoutBusy(false);
@@ -8496,6 +8531,8 @@ export default function WeekView({
                 <PostAgentDebug
                   day={day}
                   onRunLayout={handleRunLayout}
+                  onRunArtDirector={handleRunArtDirector}
+                  artDirectorMsg={artDirectorMsg}
                   layoutBusy={layoutBusy}
                   layoutErr={layoutErr}
                   elapsedMs={weekUsage?.elapsedMs}
@@ -8685,6 +8722,8 @@ export default function WeekView({
                   <PostAgentDebug
                     day={day}
                     onRunLayout={handleRunLayout}
+                  onRunArtDirector={handleRunArtDirector}
+                  artDirectorMsg={artDirectorMsg}
                     layoutBusy={layoutBusy}
                     layoutErr={layoutErr}
                     elapsedMs={weekUsage?.elapsedMs}

@@ -37,6 +37,15 @@ export function updateThemeRegionsModel(provider) {
   return client.put('/settings/theme-regions-model', { provider }).then((res) => res.data);
 }
 
+// Art Director agent (runs after the carousel agent): { enabled, model }
+export function getArtDirector() {
+  return client.get('/settings/art-director').then((res) => res.data);
+}
+
+export function updateArtDirector(enabled) {
+  return client.put('/settings/art-director', { enabled }).then((res) => res.data);
+}
+
 // How Theme Apply handles the slide's photo: 'placeholder' (paste the original) | 'model' (model paints it).
 export function getThemeApplyPhotoMode() {
   return client.get('/settings/theme-apply-photo').then((res) => res.data);

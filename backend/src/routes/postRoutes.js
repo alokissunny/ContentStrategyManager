@@ -22,6 +22,7 @@ const {
   deletePost,
   polishCaption,
   rerunLayout,
+  runArtDirector,
   rerunSlideLayoutVariations,
   applyThemeImage,
   getThemeApplyJob,
@@ -63,6 +64,7 @@ router.get('/:id/debug', asyncHandler(getPostDebug));
 router.patch('/:id', asyncHandler(updatePost));
 router.delete('/:id', asyncHandler(deletePost));
 router.post('/:id/layout', asyncHandler(rerunLayout));
+router.post('/:id/art-director', asyncHandler(runArtDirector));
 router.post('/:id/slide/:slideIndex/layout-variations', asyncHandler(rerunSlideLayoutVariations));
 router.post('/:id/theme-image', asyncHandler(applyThemeImage));
 router.post('/:id/remove-theme', asyncHandler(removeTheme));

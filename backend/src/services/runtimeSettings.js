@@ -44,6 +44,7 @@ const KEYS = {
   brandVoiceProvider: 'brandVoice.provider',
   themeRegionsProvider: 'themeRegions.provider',
   themeApplyPhotoMode: 'themeApply.photoMode',
+  artDirectorEnabled: 'artDirector.enabled',
 };
 
 // Which provider reads the last 10 posts for Business memory › Fetch brand voice.
@@ -146,8 +147,20 @@ function themeApplyPhotoMode() {
   return isValidThemeApplyPhotoMode(chosen) ? chosen : DEFAULT_THEME_APPLY_PHOTO_MODE;
 }
 
+/**
+ * Whether the Art Director agent runs after the carousel agent. A Settings
+ * choice wins; otherwise PLAN_ART_DIRECTOR (on unless set to 0/false/off/no).
+ */
+function artDirectorEnabled() {
+  const chosen = getRuntimeSetting(KEYS.artDirectorEnabled);
+  if (typeof chosen === 'boolean') return chosen;
+  const env = String(process.env.PLAN_ART_DIRECTOR ?? '1').trim().toLowerCase();
+  return !['0', 'false', 'off', 'no'].includes(env);
+}
+
 module.exports = {
   KEYS,
+  artDirectorEnabled,
   THEME_APPLY_PHOTO_MODES,
   isValidThemeApplyPhotoMode,
   themeApplyPhotoMode,

@@ -9,7 +9,7 @@ const { generateWeeklyPlan, buildEmptySlots, isoDate, parseIsoDate, estimatePlan
 const { rewriteCaption } = require('../services/captionPolish');
 const { refineCarouselFromEdits } = require('../services/carouselRefine');
 const { addSlideToCarousel } = require('../services/addSlideAgent');
-const { runLayoutForPost, writeLayoutVariations, applyLayoutToContent, normalizeWriterPost, attachGeneratedVisuals, visualThemeOf } = require('../services/planOrchestrator');
+const { runLayoutForPost, artDirectCarousel, writeLayoutVariations, applyLayoutToContent, normalizeWriterPost, attachGeneratedVisuals, visualThemeOf } = require('../services/planOrchestrator');
 const { loadReferenceImage } = require('../services/imageAnalysis');
 const { decorativeDebugAgents } = require('../services/decorativeAgent');
 const { themeById, themeImageOf } = require('../data/carouselThemes');
@@ -119,7 +119,7 @@ function dayToPostDoc(userId, username, d, plan, perPostUsage) {
     content: plainOf(d.content) || {},
     agentTrace: d.agentTrace ? {
       ...plainOf(d.agentTrace),
-      lastRun: lastRunOf('generate', ['strategy', 'structure', 'dayWriter', 'carousel', d.agentTrace.visual ? 'visual' : '']),
+      lastRun: lastRunOf('generate', ['strategy', 'structure', 'dayWriter', 'carousel', d.agentTrace.artDirector ? 'artDirector' : '', d.agentTrace.visual ? 'visual' : '']),
     } : null,
     model: plan.model || '',
     generatedAt: new Date(),
@@ -1459,6 +1459,145 @@ async function visualThemeForPost(record, slideIndex) {
 }
 
 // POST /posts/:id/layout — run the Carousel agent on this post only.
+// Brand DNA + the Brand Kit's palette and fonts, as the carousel agents get them.
+async function carouselBrandOf(userId, handle) {
+  const dna = await loadBrandDna(userId, handle).catch(() => null);
+  const [kitColors, kitFonts] = await Promise.all([
+    brandKitColors(userId, handle),
+    brandKitFonts(userId, handle),
+  ]);
+  return {
+    ...compileBrandMemory(dna),
+    ...(kitColors ? { palette: brandStylePalette(kitColors) } : {}),
+    ...(kitFonts ? { fonts: brandStyleFonts(kitFonts) } : {}),
+  };
+}
+
+// POST /posts/:id/art-director — run the Art Director agent on the post's
+// current carousel HTML (Debug › Run art director). Same gates as in plan
+// generation: copy and photos must survive, and a version that measures worse
+// than the current one is not saved. → { post, artDirector, debug? }
+// Pull the theme-image sections (and the <style> blocks scoped to them) out of
+// a carousel document. → { html (the rest), themedParts, themedIndexes }
+function splitThemedSlides(doc) {
+  const themedParts = [];
+  const themedIndexes = [];
+  let html = String(doc || '').replace(/<style\b[^>]*>(?:(?!<\/style>)[\s\S])*data-direction=["']themed-[\s\S]*?<\/style>/gi, (m) => {
+    themedParts.push(m);
+    return '';
+  });
+  html = html.replace(/<section\b[^>]*data-direction\s*=\s*["']themed-[^"']*["'][^>]*>[\s\S]*?<\/section>/gi, (m) => {
+    themedParts.push(m);
+    for (const a of m.matchAll(/<article\b[^>]*data-index\s*=\s*["']?(\d+)/gi)) themedIndexes.push(Number(a[1]));
+    return '';
+  });
+  return { html, themedParts, themedIndexes };
+}
+
+// Rewrite every data-index="N" (articles and CSS selectors) in one pass.
+function renumberSlides(doc, map) {
+  return String(doc || '').replace(/data-index(\s*=\s*)(["']?)(\d+)\2/gi, (m, eq, q, n) => (
+    map.has(Number(n)) ? `data-index${eq}${q}${map.get(Number(n))}${q}` : m
+  ));
+}
+
+async function runArtDirector(req, res) {
+  const record = await PlannedPost.findOne({ _id: req.params.id, user: req.user._id });
+  if (!record) return res.status(404).json({ message: 'Post not found' });
+  const current = plainOf(record.content) || {};
+  const trace = record.agentTrace && typeof record.agentTrace === 'object' ? plainOf(record.agentTrace) : {};
+  const html = String(current.carouselHtml || trace.carousel?.html || trace.layout?.html || '');
+  const slides = Array.isArray(current.slides) ? current.slides : [];
+  if (!slides.length || !/<article\b/i.test(html)) {
+    return res.status(400).json({ message: 'This post has no carousel slides yet — run the carousel agent first.' });
+  }
+  // Slides with a theme applied as an image (Theme Apply) are pictures, not
+  // HTML: they stay exactly as they are. The agent gets the other slides,
+  // renumbered 1..k (its validation expects no gaps), and they are numbered
+  // back afterwards.
+  const split = splitThemedSlides(html);
+  const themedIdx = new Set(split.themedIndexes);
+  const htmlIdx = slides.map((sl, i) => (Number(sl?.index) > 0 ? Number(sl.index) : i + 1)).filter((n) => !themedIdx.has(n));
+  if (!htmlIdx.length) {
+    return res.status(400).json({ message: 'Every slide of this post is a theme image — remove the theme to run the art director.' });
+  }
+  const toAgent = new Map(htmlIdx.map((n, i) => [n, i + 1]));
+  const fromAgent = new Map(htmlIdx.map((n, i) => [i + 1, n]));
+  const agentHtml = renumberSlides(split.html, toAgent);
+  const label = record.day || (record.date ? record.date.toISOString().slice(0, 10) : record._id.toString());
+  const source = `ArtDirector:${label}`;
+  const brand = await carouselBrandOf(req.user._id, record.instagramUsername);
+  let result;
+  try {
+    result = await artDirectCarousel({
+      source,
+      result: { parsed: { status: 'ready', html: agentHtml }, usage: null, debugEntry: { source, output: '' } },
+      brand,
+      post: { content: { slides: htmlIdx.map((n) => ({ index: n })) } },
+      force: true,
+    });
+  } catch (err) {
+    console.error('[posts] art director failed:', err.message);
+    return res.status(502).json({ message: err.message || 'Art Director agent failed.' });
+  }
+  const run = result.artDirectorTrace || null;
+  if (!run) return res.status(502).json({ message: 'Art Director agent did not run.' });
+  const kept = run.kept === 'art-director';
+  let savedHtml = '';
+  if (kept) {
+    // back to the post's own numbering, with the theme-image slides put back
+    savedHtml = [renumberSlides(result.parsed.html, fromAgent), ...split.themedParts]
+      .join('\n')
+      .replace(/<\/body>\s*<\/html>\s*([\s\S]+)$/i, '$1\n</body></html>');
+    // the carousel's closing slide past the outline (see validateCarousel) comes along
+    const maxIndex = Math.max(slides.length, ...[...savedHtml.matchAll(/<article\b[^>]*data-index\s*=\s*["']?(\d+)/gi)].map((m) => Number(m[1])));
+    const parsed = parseCarouselDocument(savedHtml, Math.min(maxIndex, slides.length + 2));
+    const designed = { status: 'ready', html: savedHtml, slides: parsed.slides.filter((sl) => !themedIdx.has(Number(sl.index))) };
+    // only the art-directed slides change; a theme-image slide keeps every field
+    const next = applyLayoutToContent({ ...current, slides: slides.map((sl) => ({ ...sl })) }, designed);
+    next.slides = next.slides.map((sl, i) => (themedIdx.has(Number(sl?.index) > 0 ? Number(sl.index) : i + 1) ? slides[i] : sl));
+    record.content = { ...current, ...next, slides: next.slides };
+    record.markModified('content');
+  }
+  record.agentTrace = {
+    ...trace,
+    lastRun: lastRunOf('art-director', ['artDirector']),
+    artDirector: { ...run, inputHtml: html, html: savedHtml, ...(themedIdx.size ? { skippedThemeSlides: [...themedIdx] } : {}) },
+  };
+  record.markModified('agentTrace');
+  await record.save();
+
+  const message = kept
+    ? ''
+    : (run.problemsAfter.length
+      ? 'The art director\'s version had more layout problems than the current slides, so the current slides were kept.'
+      : 'The art director could not return a valid version (copy or photos changed), so the current slides were kept.');
+  return res.json({
+    post: record,
+    artDirector: { kept: run.kept, notes: run.notes, model: run.model, message },
+    ...(wantsPromptDebug(req) ? {
+      debug: {
+        mode: 'art-director-debug',
+        model: run.model,
+        usage: { inputTokens: run.inputTokens, outputTokens: run.outputTokens, totalTokens: run.totalTokens, estimatedCostUsd: run.estimatedCostUsd, model: run.model },
+        agents: [{
+          source,
+          model: run.model,
+          provider: 'openai',
+          prompt: run.prompt,
+          output: `${run.output}\n\n${run.summary}`,
+          elapsedMs: run.elapsedMs,
+          inputTokens: run.inputTokens,
+          outputTokens: run.outputTokens,
+          totalTokens: run.totalTokens,
+          estimatedCostUsd: run.estimatedCostUsd,
+        }],
+        elapsedMs: run.elapsedMs,
+      },
+    } : {}),
+  });
+}
+
 async function rerunLayout(req, res) {
   const record = await PlannedPost.findOne({ _id: req.params.id, user: req.user._id });
   if (!record) return res.status(404).json({ message: 'Post not found' });
@@ -1481,16 +1620,7 @@ async function rerunLayout(req, res) {
 
   const structure = plainOf(trace.structure) || {};
   const label = record.day || (record.date ? record.date.toISOString().slice(0, 10) : record._id.toString());
-  const dna = await loadBrandDna(req.user._id, record.instagramUsername).catch(() => null);
-  const [kitColors, kitFonts] = await Promise.all([
-    brandKitColors(req.user._id, record.instagramUsername),
-    brandKitFonts(req.user._id, record.instagramUsername),
-  ]);
-  const brand = {
-    ...compileBrandMemory(dna),
-    ...(kitColors ? { palette: brandStylePalette(kitColors) } : {}),
-    ...(kitFonts ? { fonts: brandStyleFonts(kitFonts) } : {}),
-  };
+  const brand = await carouselBrandOf(req.user._id, record.instagramUsername);
   const dayWriterOutput = plainOf(trace.dayWriter)
     || (Array.isArray(post.content?.slides) ? { content: { slides: post.content.slides } } : '');
 
@@ -1581,7 +1711,11 @@ async function rerunLayout(req, res) {
     const savedLayout = slideIndex ? { ...layoutForContent, slideIndex, slideTheme: slideDir } : result.parsed;
     record.agentTrace = {
       ...trace,
-      lastRun: lastRunOf('layout', ['carousel', Array.isArray(next.visualTrace) && next.visualTrace.length ? 'visual' : '']),
+      lastRun: lastRunOf('layout', ['carousel', result.artDirectorTrace ? 'artDirector' : '', Array.isArray(next.visualTrace) && next.visualTrace.length ? 'visual' : '']),
+      // the Art Director ran right after the carousel agent (inside writeCarousel)
+      ...(result.artDirectorTrace ? {
+        artDirector: { ...result.artDirectorTrace, html: result.artDirectorTrace.kept === 'art-director' ? result.parsed.html : '' },
+      } : {}),
       layout: savedLayout,
       carousel: savedLayout,
       layoutPrompt: optionalText(debugEntry.prompt) || trace.layoutPrompt || '',
@@ -1620,13 +1754,18 @@ async function rerunLayout(req, res) {
               output: debugEntry.output || '',
               ...(debugEntry.inputImage ? { inputImage: debugEntry.inputImage } : {}),
               elapsedMs: Number(debugEntry.elapsedMs || result.usage?.elapsedMs) || 0,
-              usage: result.usage || debugEntry.usage || null,
-              inputTokens: Number(result.usage?.inputTokens || debugEntry.usage?.inputTokens) || 0,
-              outputTokens: Number(result.usage?.outputTokens || debugEntry.usage?.outputTokens) || 0,
-              totalTokens: Number(result.usage?.totalTokens || debugEntry.usage?.totalTokens) || 0,
-              estimatedCostUsd: Number(result.usage?.estimatedCostUsd || debugEntry.usage?.estimatedCostUsd) || 0,
+              usage: debugEntry.usage || result.usage || null,
+              inputTokens: Number(debugEntry.usage?.inputTokens || result.usage?.inputTokens) || 0,
+              outputTokens: Number(debugEntry.usage?.outputTokens || result.usage?.outputTokens) || 0,
+              totalTokens: Number(debugEntry.usage?.totalTokens || result.usage?.totalTokens) || 0,
+              estimatedCostUsd: Number(debugEntry.usage?.estimatedCostUsd || result.usage?.estimatedCostUsd) || 0,
             },
-            ...[...decorativeDebugAgents(result.decorative), ...visualAgents].map((a) => ({
+            // the Art Director ran right after the carousel agent — its own row
+            ...[
+              ...(result.artDirectorEntry ? [{ debugEntry: result.artDirectorEntry, usage: result.artDirectorEntry.usage }] : []),
+              ...decorativeDebugAgents(result.decorative),
+              ...visualAgents,
+            ].map((a) => ({
               source: a.debugEntry?.source || `Visual:${label}`,
               model: a.debugEntry?.model,
               provider: a.debugEntry?.provider || '',
@@ -2835,6 +2974,7 @@ module.exports = {
   addSlideToPost,
   getPostProject,
   rerunLayout,
+  runArtDirector,
   rerunSlideLayoutVariations,
   applyThemeImage,
   getThemeApplyJob,

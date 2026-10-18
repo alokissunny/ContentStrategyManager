@@ -47,6 +47,15 @@ const AGENTS = {
     // it writes a complete, valid house-style carousel (Sep 2026 test)
     defaultModel: 'gpt-6-luna',
   },
+  // Art Director — runs right after the carousel agent: takes its HTML slides
+  // plus the post's photos and returns a re-composed, more editorial version
+  // (same copy, same assets). See planOrchestrator.artDirectCarousel.
+  artDirector: {
+    defaultProvider: 'openai',
+    modelEnv: 'PLAN_ART_DIRECTOR_MODEL',
+    providerEnv: 'PLAN_ART_DIRECTOR_PROVIDER',
+    defaultModel: 'gpt-6-luna',
+  },
   cover: {
     defaultProvider: 'openai',
     modelEnv: 'PLAN_COVER_MODEL',

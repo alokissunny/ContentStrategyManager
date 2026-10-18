@@ -233,7 +233,7 @@ function LayoutPreview({ slides, documentHtml = '', onClose }) {
   );
 }
 
-function PreviewButton({ slides, documentHtml = '' }) {
+function PreviewButton({ slides, documentHtml = '', label = 'Preview' }) {
   const [open, setOpen] = useState(false);
   if (!documentHtml && !slides.length) return null;
   const onOpen = (e) => {
@@ -249,7 +249,7 @@ function PreviewButton({ slides, documentHtml = '' }) {
         onClick={onOpen}
         onPointerDown={(e) => e.stopPropagation()}
       >
-        Preview
+        {label}
       </button>
       {open ? <LayoutPreview slides={slides} documentHtml={documentHtml} onClose={() => setOpen(false)} /> : null}
     </>
@@ -435,7 +435,7 @@ function InputSlideFrame({ html, label }) {
   );
 }
 
-function Block({ title, input, output, open = false, cost = '', images = [], inputSlides = [] }) {
+function Block({ title, input, output, open = false, cost = '', images = [], inputSlides = [], inputHtml = '' }) {
   const inputBody = pretty(input);
   const outputBody = pretty(output);
   if (!inputBody && !outputBody && !images.length) return null;
@@ -450,7 +450,14 @@ function Block({ title, input, output, open = false, cost = '', images = [], inp
         <span>{title}</span>
         <span className="wv-agentdbg__acts">
           {cost ? <span className="wv-agentdbg__cost">{cost}</span> : null}
-          <PreviewButton slides={slides} documentHtml={documentHtml} />
+          {inputHtml ? (
+            <PreviewButton
+              slides={previewSlidesHtml(inputHtml)}
+              documentHtml={carouselDocumentHtml(inputHtml)}
+              label="Preview input"
+            />
+          ) : null}
+          <PreviewButton slides={slides} documentHtml={documentHtml} label={inputHtml ? 'Preview output' : 'Preview'} />
           <CopyButton text={copyAll} />
         </span>
       </summary>
@@ -503,6 +510,8 @@ function Block({ title, input, output, open = false, cost = '', images = [], inp
 export default function PostAgentDebug({
   day,
   onRunLayout,
+  onRunArtDirector,
+  artDirectorMsg = '',
   layoutBusy = false,
   layoutErr = '',
   elapsedMs = 0,
@@ -523,6 +532,7 @@ export default function PostAgentDebug({
     'remove-theme': 'Remove theme — back to the carousel agent’s design (no agent ran)',
     refine: 'Prompt edit (Slide Edit agent)',
     'add-slide': 'Add slide (Add Slide agent)',
+    'art-director': 'Art Director agent',
   };
   const runAt = run?.at ? new Date(run.at) : null;
   const runWhen = runAt && !Number.isNaN(runAt.getTime())
@@ -581,6 +591,20 @@ export default function PostAgentDebug({
           <span className="wv-agentdbg__runhint">This post only — does not regenerate the week. Takes 1–3 minutes.</span>
         </div>
       )}
+      {onRunArtDirector && (
+        <div className="wv-agentdbg__run">
+          <button
+            type="button"
+            className="btn btn--tertiary btn--sm"
+            disabled={layoutBusy}
+            onClick={onRunArtDirector}
+          >
+            {layoutBusy ? 'Working…' : 'Run art director'}
+          </button>
+          <span className="wv-agentdbg__runhint">Re-composes this post's current slides with its photos — same copy. About 1 minute.</span>
+        </div>
+      )}
+      {artDirectorMsg ? <p className="wv-agentdbg__empty">{artDirectorMsg}</p> : null}
       {layoutErr ? <p className="wv-agentdbg__empty">{layoutErr}</p> : null}
       {empty && (
         <p className="wv-agentdbg__empty">
@@ -609,9 +633,23 @@ export default function PostAgentDebug({
       {shows('carousel') && <Block
         title="Carousel agent"
         input={trace.layoutPrompt}
-        output={trace.layout}
+        // when the Art Director ran after it, the post's layout is the Art
+        // Director's — the carousel agent's own slides are its input
+        output={(run?.agents?.includes('artDirector') && stored.artDirector?.inputHtml) || trace.layout}
         cost={trace.costs?.layout}
       />}
+      {stored.artDirector && shows('artDirector') ? (
+        <>
+          <Block
+            title={`Art Director agent${stored.artDirector.kept === 'art-director' ? '' : ' (not kept)'}`}
+            input={stored.artDirector.prompt}
+            output={stored.artDirector.html || stored.artDirector.output}
+            inputHtml={stored.artDirector.inputHtml || ''}
+            cost={costOf(stored.artDirector)}
+          />
+          {stored.artDirector.summary ? <pre className="wv-agentdbg__pre">{stored.artDirector.summary}</pre> : null}
+        </>
+      ) : null}
       {shows('visual') && <Block
         title="Visual agent"
         input={trace.visualPrompt}

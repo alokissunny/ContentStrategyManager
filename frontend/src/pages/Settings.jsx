@@ -18,7 +18,7 @@ import { syncHandle } from '../lib/store';
 import { resetProjects } from '../lib/projectsStore';
 import { useAiDebug, setAiDebugEnabled, clearAiDebugEntries } from '../lib/aiDebug';
 import { useFeatureFlags, setVideoCoverEnabled, setReelEditorEnabled, setLinkedInEnabled } from '../lib/featureFlags';
-import { getBrandVoiceModel, getCarouselModel, getStrategistModel, getThemeApplyPhotoMode, getThemeRegionsModel, updateBrandVoiceModel, updateCarouselModel, updateStrategistModel, updateThemeApplyPhotoMode, updateThemeRegionsModel } from '../api/settings';
+import { getArtDirector, updateArtDirector, getBrandVoiceModel, getCarouselModel, getStrategistModel, getThemeApplyPhotoMode, getThemeRegionsModel, updateBrandVoiceModel, updateCarouselModel, updateStrategistModel, updateThemeApplyPhotoMode, updateThemeRegionsModel } from '../api/settings';
 import LinkedInSettings from '../components/LinkedInSettings';
 import './settings.css';
 import { LOCALES, useLocale, setLocale, intlLocale, translate as t } from '../i18n';
@@ -94,6 +94,9 @@ export default function Settings() {
   const [photoMode, setPhotoMode] = useState(null);
   const [photoBusy, setPhotoBusy] = useState(false);
   const [photoErr, setPhotoErr] = useState('');
+  const [artDirector, setArtDirector] = useState(null);
+  const [artBusy, setArtBusy] = useState(false);
+  const [artErr, setArtErr] = useState('');
 
   useEffect(() => {
     listInstagramProfiles()
@@ -118,6 +121,9 @@ export default function Settings() {
     getThemeApplyPhotoMode()
       .then(setPhotoMode)
       .catch(() => setPhotoMode(null));
+    getArtDirector()
+      .then(setArtDirector)
+      .catch(() => setArtDirector(null));
   }, []);
 
   // Graph's post-thumbnail URLs are short-lived; re-pull media for each
@@ -177,6 +183,19 @@ export default function Settings() {
       setRegionErr(err.response?.data?.message || 'Could not update the theme slide model.');
     } finally {
       setRegionBusy(false);
+    }
+  }
+
+  async function pickArtDirector(enabled) {
+    if (!isAdmin || artBusy || artDirector?.enabled === enabled) return;
+    setArtBusy(true);
+    setArtErr('');
+    try {
+      setArtDirector(await updateArtDirector(enabled));
+    } catch (err) {
+      setArtErr(err.response?.data?.message || 'Could not update the Art Director agent.');
+    } finally {
+      setArtBusy(false);
     }
   }
 
@@ -673,6 +692,48 @@ export default function Settings() {
           </>
           );
         })()}
+      </section>
+
+      {/* ── Art Director agent ── */}
+      <section className="card set-card">
+        <h2>Art Director agent</h2>
+        <p className="set-card__sub">
+          Runs after the carousel agent: re-composes each new post's slides around its photos, keeping the
+          same copy. Turn it off to keep the carousel agent's slides as they are.
+          {!isAdmin && ' Only an admin can change this.'}
+        </p>
+        {!artDirector ? (
+          <p className="set-empty">Loading…</p>
+        ) : (
+          <>
+            <div className="set-seg" role="group" aria-label="Art Director agent">
+              {[
+                { id: true, label: 'On', tag: artDirector.model },
+                { id: false, label: 'Off', tag: 'Carousel agent only' },
+              ].map((o) => {
+                const on = o.id === artDirector.enabled;
+                return (
+                  <button
+                    type="button"
+                    key={String(o.id)}
+                    className={`set-seg__btn ${on ? 'is-on' : ''}`}
+                    aria-pressed={on}
+                    disabled={!isAdmin || artBusy}
+                    onClick={() => pickArtDirector(o.id)}
+                  >
+                    {o.label}
+                    <span className="set-seg__tag">{o.tag}</span>
+                  </button>
+                );
+              })}
+            </div>
+            {artErr && <p className="set-err">{artErr}</p>}
+            <p className="set-card__note">
+              Applies to post generation and Run carousel agent. The Debug panel's Run art director button
+              still works when it is off.
+            </p>
+          </>
+        )}
       </section>
 
       {/* ── Strategist model ── */}

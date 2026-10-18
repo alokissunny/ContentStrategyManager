@@ -5,6 +5,7 @@ const {
   getCarouselModel, updateCarouselModel, getBrandVoiceModel, updateBrandVoiceModel,
   getThemeRegionsModel, updateThemeRegionsModel, getStrategistModel, updateStrategistModel,
   getThemeApplyPhotoMode, updateThemeApplyPhotoMode,
+  getArtDirector, updateArtDirector,
 } = require('../controllers/settingsController');
 
 const router = express.Router();
@@ -20,5 +21,7 @@ router.get('/theme-regions-model', asyncHandler(getThemeRegionsModel));
 router.put('/theme-regions-model', asyncHandler(updateThemeRegionsModel));
 router.get('/theme-apply-photo', asyncHandler(getThemeApplyPhotoMode));
 router.put('/theme-apply-photo', asyncHandler(updateThemeApplyPhotoMode));
+router.get('/art-director', asyncHandler(getArtDirector));
+router.put('/art-director', asyncHandler(updateArtDirector));
 
 module.exports = router;
