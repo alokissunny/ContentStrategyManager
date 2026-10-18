@@ -641,7 +641,7 @@ export default function PostAgentDebug({
       {stored.artDirector && shows('artDirector') ? (
         <>
           <Block
-            title={`Art Director agent${stored.artDirector.kept === 'art-director' ? '' : ' (not kept)'}`}
+            title={`Art Director agent${stored.artDirector.version === 'restyle' ? ' · Restyle' : ''}${stored.artDirector.kept === 'art-director' ? '' : ' (not kept)'}`}
             input={stored.artDirector.prompt}
             output={stored.artDirector.html || stored.artDirector.output}
             inputHtml={stored.artDirector.inputHtml || ''}

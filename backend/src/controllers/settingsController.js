@@ -18,6 +18,9 @@ const {
   isValidThemeApplyPhotoMode,
   themeApplyPhotoMode,
   artDirectorEnabled,
+  ART_DIRECTOR_VERSIONS,
+  isValidArtDirectorVersion,
+  artDirectorVersion,
 } = require('../services/runtimeSettings');
 const { resolvePlanAgentLlm } = require('../services/planAgentLlm');
 
@@ -171,7 +174,12 @@ async function updateThemeApplyPhotoMode(req, res) {
 }
 
 function currentArtDirector() {
-  return { enabled: artDirectorEnabled(), model: resolvePlanAgentLlm('artDirector').model };
+  return {
+    enabled: artDirectorEnabled(),
+    version: artDirectorVersion().id,
+    versions: ART_DIRECTOR_VERSIONS.map(({ id, label, hint }) => ({ id, label, hint })),
+    model: resolvePlanAgentLlm('artDirector').model,
+  };
 }
 
 // GET /api/settings/art-director
@@ -179,15 +187,23 @@ async function getArtDirector(req, res) {
   res.json(currentArtDirector());
 }
 
-// PUT /api/settings/art-director  (admin only) — { enabled: boolean }
+// PUT /api/settings/art-director  (admin only) — { enabled?: boolean, version?: 'director' | 'restyle' }
 async function updateArtDirector(req, res) {
   if (req.user?.role !== 'admin') {
-    return res.status(403).json({ message: 'Only an admin can turn the Art Director agent on or off.' });
+    return res.status(403).json({ message: 'Only an admin can change the Art Director agent.' });
   }
-  if (typeof req.body?.enabled !== 'boolean') {
+  const { enabled, version } = req.body || {};
+  if (enabled == null && version == null) {
+    return res.status(400).json({ message: 'Send enabled and/or version.' });
+  }
+  if (enabled != null && typeof enabled !== 'boolean') {
     return res.status(400).json({ message: 'enabled must be true or false.' });
   }
-  await setRuntimeSetting(KEYS.artDirectorEnabled, req.body.enabled);
+  if (version != null && !isValidArtDirectorVersion(version)) {
+    return res.status(400).json({ message: `Unknown Art Director version: ${version}` });
+  }
+  if (version != null) await setRuntimeSetting(KEYS.artDirectorVersion, version);
+  if (enabled != null) await setRuntimeSetting(KEYS.artDirectorEnabled, enabled);
   return res.json(currentArtDirector());
 }
 

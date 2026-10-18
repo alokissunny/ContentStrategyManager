@@ -186,12 +186,14 @@ export default function Settings() {
     }
   }
 
-  async function pickArtDirector(enabled) {
-    if (!isAdmin || artBusy || artDirector?.enabled === enabled) return;
+  // 'off' | a version id ('director' | 'restyle')
+  async function pickArtDirector(choice) {
+    const current = artDirector?.enabled ? artDirector.version : 'off';
+    if (!isAdmin || artBusy || current === choice) return;
     setArtBusy(true);
     setArtErr('');
     try {
-      setArtDirector(await updateArtDirector(enabled));
+      setArtDirector(await updateArtDirector(choice === 'off' ? { enabled: false } : { enabled: true, version: choice }));
     } catch (err) {
       setArtErr(err.response?.data?.message || 'Could not update the Art Director agent.');
     } finally {
@@ -698,8 +700,9 @@ export default function Settings() {
       <section className="card set-card">
         <h2>Art Director agent</h2>
         <p className="set-card__sub">
-          Runs after the carousel agent: re-composes each new post's slides around its photos, keeping the
-          same copy. Turn it off to keep the carousel agent's slides as they are.
+          Runs after the carousel agent: takes its slides and the post's photos and redesigns them, keeping
+          the same copy. Pick a version, or turn it off to keep the carousel agent's slides as they are.
+          {artDirector?.enabled && ` ${artDirector.versions?.find((v) => v.id === artDirector.version)?.hint || ''}`}
           {!isAdmin && ' Only an admin can change this.'}
         </p>
         {!artDirector ? (
@@ -708,10 +711,10 @@ export default function Settings() {
           <>
             <div className="set-seg" role="group" aria-label="Art Director agent">
               {[
-                { id: true, label: 'On', tag: artDirector.model },
-                { id: false, label: 'Off', tag: 'Carousel agent only' },
+                ...(artDirector.versions || []).map((v) => ({ id: v.id, label: v.label, tag: artDirector.model })),
+                { id: 'off', label: 'Off', tag: 'Carousel agent only' },
               ].map((o) => {
-                const on = o.id === artDirector.enabled;
+                const on = o.id === (artDirector.enabled ? artDirector.version : 'off');
                 return (
                   <button
                     type="button"

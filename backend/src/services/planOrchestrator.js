@@ -11,7 +11,7 @@ const { boxOf, matchSubject, regionFromBox } = require('./subjectBox');
 const { layoutById } = require('./layoutCatalog');
 const { extractLayoutHtml, extractHtmlDocument, parseCarouselDocument, slideArticles, htmlAttr, hasImageSlot, shareLayoutStyles, copyFromLayoutHtml, injectImageIntoSlots } = require('./layoutHtml');
 const sharp = require('sharp');
-const { artDirectorEnabled } = require('./runtimeSettings');
+const { artDirectorEnabled, artDirectorVersion } = require('./runtimeSettings');
 const { publicMediaUrl, isCdnConfigured, getMediaUrl, isS3Configured, getObjectBytes } = require('./s3Client');
 const { toVisionImage } = require('./visionImage');
 const { isImageGenConfigured: isOpenAIImageConfigured, generateImage: renderOpenAIImage } = require('./openaiImage');
@@ -2723,7 +2723,9 @@ async function artDirectCarousel({ source, result, brand, post, force = false })
   } catch (err) {
     console.warn(`[planOrchestrator] ${label} photos skipped — ${err.message}`);
   }
-  const assembled = assembleAgentPrompt('plan-art-director.md', {
+  // Settings › Art Director agent: which version (prompt) runs
+  const version = artDirectorVersion();
+  const assembled = assembleAgentPrompt(version.prompt, {
     SLIDES_HTML: original,
     PHOTOS_NOTE: photos.note,
     BRAND_STYLE: optionalPromptJson(brandStyleOf(brand)),
@@ -2793,13 +2795,14 @@ async function artDirectCarousel({ source, result, brand, post, force = false })
   const adCost = tries.reduce((n, t) => n + (Number(t.run.usage?.estimatedCostUsd) || 0), 0);
   const adMs = tries.reduce((n, t) => n + (Number(t.run.debugEntry?.elapsedMs) || 0), 0);
   const summary = [
-    `[Art Director] ${adModel} · ${photos.images.length} photo${photos.images.length === 1 ? '' : 's'} attached · ${tries.length} call${tries.length === 1 ? '' : 's'} · ${Math.round(adMs / 100) / 10}s · ~$${adCost.toFixed(4)}`,
+    `[Art Director] ${version.label} (${version.id}) · ${adModel} · ${photos.images.length} photo${photos.images.length === 1 ? '' : 's'} attached · ${tries.length} call${tries.length === 1 ? '' : 's'} · ${Math.round(adMs / 100) / 10}s · ~$${adCost.toFixed(4)}`,
     `[Art Director] layout problems: carousel agent ${before.length}${tries.map((t, i) => ` · ${i ? 'refined' : 'art director'} ${t.problems.length}`).join('')}`,
     best ? '[Art Director] kept the art-directed slides' : `[Art Director] kept the carousel agent's slides${tries.length ? ' (art-directed version measured worse)' : ' (call failed)'}`,
     best?.notes ? `[Art Director] notes: ${best.notes}` : '',
   ].filter(Boolean).join('\n');
   console.log(`[planOrchestrator] ${summary.replace(/\n/g, ' | ')}`);
   const artDirector = {
+    version: version.id,
     model: adModel,
     kept: best ? 'art-director' : 'carousel',
     notes: best?.notes || '',

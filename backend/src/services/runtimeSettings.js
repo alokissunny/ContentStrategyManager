@@ -45,6 +45,7 @@ const KEYS = {
   themeRegionsProvider: 'themeRegions.provider',
   themeApplyPhotoMode: 'themeApply.photoMode',
   artDirectorEnabled: 'artDirector.enabled',
+  artDirectorVersion: 'artDirector.version',
 };
 
 // Which provider reads the last 10 posts for Business memory › Fetch brand voice.
@@ -147,6 +148,25 @@ function themeApplyPhotoMode() {
   return isValidThemeApplyPhotoMode(chosen) ? chosen : DEFAULT_THEME_APPLY_PHOTO_MODE;
 }
 
+// The Art Director agent's versions — same inputs (carousel HTML + photos +
+// brand kit), same checks, a different prompt.
+const ART_DIRECTOR_VERSIONS = [
+  { id: 'director', label: 'Art Director', prompt: 'plan-art-director.md', hint: 'Editorial art direction: re-composes each slide around its photos.' },
+  { id: 'restyle', label: 'Restyle', prompt: 'plan-art-director-restyle.md', hint: 'Restyles the slides for Instagram: brand kit type and colour, spacing, crops, one consistent system.' },
+];
+const DEFAULT_ART_DIRECTOR_VERSION = 'director';
+
+function isValidArtDirectorVersion(id) {
+  return ART_DIRECTOR_VERSIONS.some((v) => v.id === id);
+}
+
+/** The Art Director version chosen in Settings (default 'director'). */
+function artDirectorVersion() {
+  const chosen = getRuntimeSetting(KEYS.artDirectorVersion);
+  const id = isValidArtDirectorVersion(chosen) ? chosen : DEFAULT_ART_DIRECTOR_VERSION;
+  return ART_DIRECTOR_VERSIONS.find((v) => v.id === id);
+}
+
 /**
  * Whether the Art Director agent runs after the carousel agent. A Settings
  * choice wins; otherwise PLAN_ART_DIRECTOR (on unless set to 0/false/off/no).
@@ -161,6 +181,9 @@ function artDirectorEnabled() {
 module.exports = {
   KEYS,
   artDirectorEnabled,
+  ART_DIRECTOR_VERSIONS,
+  isValidArtDirectorVersion,
+  artDirectorVersion,
   THEME_APPLY_PHOTO_MODES,
   isValidThemeApplyPhotoMode,
   themeApplyPhotoMode,
