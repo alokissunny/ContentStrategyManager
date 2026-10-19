@@ -435,7 +435,100 @@ function InputSlideFrame({ html, label }) {
   );
 }
 
-function Block({ title, input, output, open = false, cost = '', images = [], inputSlides = [], inputHtml = '' }) {
+// Input › Edit: a full-screen editor for the prompt, rerun through `onRerun`
+// (Debug › Carousel agent — runs the agent on this post with the edited text).
+// Esc / Cancel closes (asks first when there are edits); ⌘/Ctrl+Enter reruns.
+function PromptEditor({ title, text, onRerun, busy, onClose }) {
+  const [draft, setDraft] = useState(text);
+  const ref = useRef(null);
+  const changed = draft.trim() !== String(text || '').trim();
+  const canRun = !busy && Boolean(draft.trim());
+
+  const close = () => {
+    if (changed && !window.confirm('Discard your edits to this prompt?')) return;
+    onClose();
+  };
+  const run = () => {
+    if (!canRun) return;
+    onRerun(draft);
+    onClose();
+  };
+
+  useEffect(() => {
+    const ta = ref.current;
+    if (ta) { ta.focus(); ta.setSelectionRange(0, 0); ta.scrollTop = 0; }
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => { document.body.style.overflow = prev; };
+  }, []);
+
+  const onKeyDown = (e) => {
+    if (e.key === 'Escape') { e.preventDefault(); close(); }
+    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); run(); }
+  };
+
+  const lines = draft.split('\n').length;
+  return createPortal(
+    <div className="wv-promptedit" role="dialog" aria-modal="true" aria-label={`Edit ${title} prompt`} onKeyDown={onKeyDown}>
+      <div className="wv-promptedit__head">
+        <strong>{title} · prompt</strong>
+        <span className="wv-promptedit__meta">
+          {changed ? 'Edited · ' : ''}{lines.toLocaleString()} lines · {draft.length.toLocaleString()} chars
+        </span>
+        <div className="wv-promptedit__acts">
+          <button type="button" className="wv-agentdbg__copy" disabled={!changed} onClick={() => setDraft(text)}>Reset</button>
+          <CopyButton text={draft} />
+          <button type="button" className="wv-agentdbg__copy" onClick={close}>Cancel</button>
+          <button
+            type="button"
+            className="wv-promptedit__run"
+            disabled={!canRun}
+            onClick={run}
+            title="Run the carousel agent on this post with this prompt (replaces the post's slides) · ⌘/Ctrl+Enter"
+          >
+            {busy ? 'Running…' : 'Rerun with this prompt'}
+          </button>
+        </div>
+      </div>
+      <textarea
+        ref={ref}
+        className="wv-promptedit__text"
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        spellCheck={false}
+      />
+    </div>,
+    document.body,
+  );
+}
+
+function EditableInput({ title, text, onRerun, busy }) {
+  const [editing, setEditing] = useState(false);
+  return (
+    <div className="wv-agentdbg__section">
+      <div className="wv-agentdbg__sechead">
+        <span>Input</span>
+        <span className="wv-agentdbg__acts">
+          <button
+            type="button"
+            className="wv-agentdbg__copy"
+            disabled={busy}
+            onClick={(e) => { e.preventDefault(); e.stopPropagation(); setEditing(true); }}
+          >
+            {busy ? 'Running…' : 'Edit'}
+          </button>
+          <CopyButton text={text} />
+        </span>
+      </div>
+      <pre className="wv-agentdbg__pre">{text}</pre>
+      {editing ? (
+        <PromptEditor title={title} text={text} onRerun={onRerun} busy={busy} onClose={() => setEditing(false)} />
+      ) : null}
+    </div>
+  );
+}
+
+function Block({ title, input, output, open = false, cost = '', images = [], inputSlides = [], inputHtml = '', onRerunInput = null, rerunBusy = false }) {
   const inputBody = pretty(input);
   const outputBody = pretty(output);
   if (!inputBody && !outputBody && !images.length) return null;
@@ -471,7 +564,9 @@ function Block({ title, input, output, open = false, cost = '', images = [], inp
           </div>
         </div>
       ) : null}
-      {inputBody ? (
+      {inputBody && onRerunInput ? (
+        <EditableInput title={title} text={inputBody} onRerun={onRerunInput} busy={rerunBusy} />
+      ) : inputBody ? (
         <div className="wv-agentdbg__section">
           <div className="wv-agentdbg__sechead">
             <span>Input</span>
@@ -637,6 +732,8 @@ export default function PostAgentDebug({
         // Director's — the carousel agent's own slides are its input
         output={(run?.agents?.includes('artDirector') && stored.artDirector?.inputHtml) || trace.layout}
         cost={trace.costs?.layout}
+        onRerunInput={onRunLayout ? (prompt) => onRunLayout(prompt) : null}
+        rerunBusy={layoutBusy}
       />}
       {stored.artDirector && shows('artDirector') ? (
         <>

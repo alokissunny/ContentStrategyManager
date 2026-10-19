@@ -5130,14 +5130,17 @@ export default function WeekView({
   // Run the carousel agent on this post (Fix layout / Debug › Run carousel
   // agent). It has no themes — it designs in its house style; themes are
   // applied afterwards by the Theme Apply agent (Editor › Themes).
-  async function handleRunLayout() {
+  // promptOverride: Debug › Carousel agent › Edit prompt (an onClick event
+  // arrives here too — only a string counts)
+  async function handleRunLayout(promptOverride) {
     if (layoutBusy || !route?._id) return;
+    const override = typeof promptOverride === 'string' ? promptOverride.trim() : '';
     const slideIndex = 0;
     const wasEditing = postEdit;
     setLayoutBusy(true);
     setLayoutErr('');
     try {
-      const data = await runDayLayout(route._id, selected, undefined);
+      const data = await runDayLayout(route._id, selected, override ? { promptOverride: override } : undefined);
       if (data?.route) {
         setRoute(data.route);
         onRouteChange?.(data.route);

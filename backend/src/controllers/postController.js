@@ -9,7 +9,7 @@ const { generateWeeklyPlan, buildEmptySlots, isoDate, parseIsoDate, estimatePlan
 const { rewriteCaption } = require('../services/captionPolish');
 const { refineCarouselFromEdits } = require('../services/carouselRefine');
 const { addSlideToCarousel } = require('../services/addSlideAgent');
-const { runLayoutForPost, artDirectCarousel, writeLayoutVariations, applyLayoutToContent, normalizeWriterPost, attachGeneratedVisuals, visualThemeOf } = require('../services/planOrchestrator');
+const { runLayoutForPost, carouselAgentEnabled, artDirectCarousel, writeLayoutVariations, applyLayoutToContent, normalizeWriterPost, attachGeneratedVisuals, visualThemeOf } = require('../services/planOrchestrator');
 const { loadReferenceImage } = require('../services/imageAnalysis');
 const { decorativeDebugAgents } = require('../services/decorativeAgent');
 const { themeById, themeImageOf } = require('../data/carouselThemes');
@@ -1609,6 +1609,11 @@ async function rerunLayout(req, res) {
     return res.status(400).json({ message: 'Themes are applied with Editor › Themes (the Theme Apply agent), not the carousel agent.' });
   }
 
+  const promptOverride = typeof req.body?.promptOverride === 'string' ? req.body.promptOverride.trim() : '';
+  if (promptOverride && !carouselAgentEnabled()) {
+    return res.status(400).json({ message: 'Editing the prompt needs the carousel agent (it is turned off).' });
+  }
+
   const post = layoutPostFromPost(record);
   const trace = record.agentTrace && typeof record.agentTrace === 'object' ? record.agentTrace : {};
   if (trace.strategyBrief) {
@@ -1648,6 +1653,8 @@ async function rerunLayout(req, res) {
       handle: record.instagramUsername,
       // Themes › This slide: the agent writes that slide only
       onlySlide: Number(req.body?.slideIndex) || 0,
+      // Debug › Carousel agent › Edit prompt: run this exact prompt instead
+      promptOverride,
     });
     if (result.parsed?.status === 'failed') {
       return res.status(422).json({

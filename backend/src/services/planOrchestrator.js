@@ -2433,12 +2433,22 @@ function validateOneSlide(parsed, index) {
   parsed.slides = mine;
 }
 
+function splitPromptOverride(built, override) {
+  const text = String(override || '');
+  const system = String(built.system || '');
+  if (system && text.startsWith(`${system}\n\n`)) {
+    const user = text.slice(system.length + 2);
+    return { ...built, system, user, prompt: user };
+  }
+  return { ...built, system: '', user: text, prompt: text };
+}
+
 function runLayoutForPost(opts) {
   if (carouselAgentEnabled()) return writeCarousel(opts);
   return writeLayout(opts);
 }
 
-async function writeCarousel({ source, structure, post, dayBrief, brand, dayWriterOutput, onlySlide = 0 }) {
+async function writeCarousel({ source, structure, post, dayBrief, brand, dayWriterOutput, onlySlide = 0, promptOverride = '' }) {
   const hasStructure = Array.isArray(structure?.slidesOrScenes) && structure.slidesOrScenes.length > 0;
   const carouselInput = hasStructure
     ? carouselInputOf(structure, post, dayBrief)
@@ -2478,7 +2488,7 @@ async function writeCarousel({ source, structure, post, dayBrief, brand, dayWrit
         `(structureSlides=${structureSlides} postSlides=${postSlideCount})`,
     );
   }
-  const assembled = assembleAgentPrompt('plan-carousel.md', {
+  const built = assembleAgentPrompt('plan-carousel.md', {
     CONTENT_STRUCTURE_JSON: json(carouselInput),
     DAY_WRITER_OUTPUT: optionalPromptJson(dayWriterOutput),
     BRAND_STYLE: optionalPromptJson(brandStyleOf(brand)),
@@ -2487,9 +2497,13 @@ async function writeCarousel({ source, structure, post, dayBrief, brand, dayWrit
     dayWriterOutput: optionalPromptJson(dayWriterOutput),
     brandStyle: optionalPromptJson(brandStyleOf(brand)),
   });
+  // Debug › Carousel agent › Edit prompt: the edited text replaces the
+  // assembled prompt (the panel shows system + user joined by a blank line).
+  // While the system part is unchanged it is still sent as the system prompt.
+  const assembled = promptOverride ? splitPromptOverride(built, promptOverride) : built;
   const userHead = String(assembled.user || '').slice(0, 180).replace(/\s+/g, ' ');
   console.log(`[planOrchestrator] ${source} userHead · ${userHead}`);
-  if (!/\{\s*"/.test(assembled.user || '') && !/slides|narrativeUnits/i.test(assembled.user || '')) {
+  if (!promptOverride && !/\{\s*"/.test(assembled.user || '') && !/slides|narrativeUnits/i.test(assembled.user || '')) {
     throw new Error(`${source}: strategy brief / content structure missing from assembled user prompt`);
   }
   const validate = (parsed) => (one ? validateOneSlide(parsed, one) : validateCarousel(parsed, post));
@@ -4086,6 +4100,7 @@ module.exports = {
   assemblePlanResult,
   visualThemeOf,
   runLayoutForPost,
+  carouselAgentEnabled,
   generateRequestedVisual,
   requestedVisualAvailable,
   writeLayoutVariations,

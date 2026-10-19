@@ -292,11 +292,13 @@ export function polishCaption(id, { caption, instruction, kind, role, fills }) {
 // Run the Carousel agent on one post (long — a high-reasoning model can take
 // several minutes). It has no themes: it designs in its house style; themes are
 // applied afterwards by applyThemeImage (the Theme Apply agent).
-// → { post, layout, ... }
-export function runPostLayout(id) {
-  return client.post(`/posts/${id}/layout`, {}, { timeout: 540000 }).then((res) => {
+// `promptOverride` (Debug › Carousel agent › Edit prompt) runs that exact
+// prompt instead of the one assembled from the post. → { post, layout, ... }
+export function runPostLayout(id, { promptOverride } = {}) {
+  const body = promptOverride ? { promptOverride } : {};
+  return client.post(`/posts/${id}/layout`, body, { timeout: 540000 }).then((res) => {
     const data = res.data || {};
-    ingestPlanDebug('Carousel agent (debug)', data);
+    ingestPlanDebug(promptOverride ? 'Carousel agent (edited prompt)' : 'Carousel agent (debug)', data);
     return data;
   });
 }
