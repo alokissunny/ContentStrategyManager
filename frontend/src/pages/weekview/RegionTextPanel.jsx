@@ -1,19 +1,27 @@
 /*
- * The floating text panel on a Theme Apply render — ported from bauhly-v3
- * `src/pages/app/editor/ShotSpots.jsx` (the `.shotask` panel, Oct 1–2).
+ * The floating text card on a Theme Apply render — ported from bauhly-v3
+ * `src/pages/app/editor/ShotSpots.jsx` (the `.shotask--bar` / `edm-selbar--spot`
+ * card, Oct 13–14).
  *
  * A themed slide is one picture, so a text block can't be styled in place:
- * the panel collects what the studio wants (new words, bold / italic /
- * underline / strike, a colour, a highlight, an alignment, or removing the
- * text) as a HELD change. Nothing is drawn from here: the Editor's chat keeps
- * the count ("1 change ready") and its Send redraws every held region (bauhly-v3:
- * `Keep change` is not `Apply`). Marks apply to the words selected in the
- * field, or to the whole text when nothing is selected — except alignment,
- * which is always the whole block.
+ * the card collects what the studio wants as a HELD change, and the Editor's
+ * chat Send redraws every held region. The card is one white bar:
  *
- * Controlled: `change` is { text, marks:[{id, words}], remove, asks:[{say, what}] }
+ *   × · wand · Aa ▾ · B ▾ · U ▾ · align ▾ · colour ▾ │ reset · trash
+ *   [ the words, drawn the way the picture sets them      ]
+ *                                          [Apply changes]
+ *
+ * Marks (size, weight, italic / underline / strike, colour, alignment,
+ * removing the text) are held as soon as they are picked, on the words
+ * selected in the field or the whole text (size and alignment are always the
+ * whole block). New WORDS are a draft until Apply changes (or Enter) holds
+ * them. The wand turns the card into an ask: "make it shorter" rewrites the
+ * draft (with back / forward through the versions), and Apply holds it.
+ *
+ * Controlled: `change` is { text, marks:[{id, words, off?}], remove, asks:[{say, what}] }
  * or null, and every edit reports the next one through `onChange` (null when
- * the region is back to what the picture says).
+ * the region is back to what the picture says). `onAsk(text, instruction)`
+ * resolves to the rewritten words.
  */
 
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
@@ -21,9 +29,21 @@ import Icon from '../../brand/Icon';
 
 export const TEXT_FORMS = [
   { id: 'bold', label: 'Bold', icon: 'format-bold', what: 'bold' },
-  { id: 'italic', label: 'Italic', icon: 'format-italic', what: 'italic' },
-  { id: 'underline', label: 'Underline', icon: 'format-underline', what: 'underlined' },
-  { id: 'strike', label: 'Strikethrough', icon: 'format-strike', what: 'struck through' },
+  { id: 'italic', label: 'Italic', glyph: 'I', icon: 'format-italic', what: 'italic' },
+  { id: 'underline', label: 'Underline', glyph: 'U', icon: 'format-underline', what: 'underlined' },
+  { id: 'strike', label: 'Crossed out', glyph: 'S', icon: 'format-strike', what: 'struck through' },
+];
+const TEXT_SIZES = [
+  { id: 'xsmall', label: 'Extra small', what: 'set at an extra-small type size' },
+  { id: 'small', label: 'Small', what: 'set at a small type size' },
+  { id: 'medium', label: 'Medium', what: 'set at a medium type size' },
+  { id: 'large', label: 'Large', what: 'set at a large type size' },
+  { id: 'statement', label: 'Statement', what: 'set very large, as a statement' },
+];
+const TEXT_WEIGHTS = [
+  { id: 'wregular', label: 'Regular' },
+  { id: 'wmedium', label: 'Medium', what: 'set in a medium weight' },
+  { id: 'bold', label: 'Bold' },
 ];
 const TEXT_INKS = [
   { id: 'ink', label: 'Ink', key: 'ink' },
@@ -36,25 +56,29 @@ const TEXT_HILITES = [
   { id: 'hl-ground', label: 'Ground', key: 'ground' },
 ];
 const TEXT_ALIGNS = [
-  { id: 'alignl', label: 'Align left', icon: 'align-left', what: 'aligned left' },
-  { id: 'alignc', label: 'Align centre', icon: 'align-center', what: 'centred' },
-  { id: 'alignr', label: 'Align right', icon: 'align-right', what: 'aligned right' },
+  { id: 'alignl', label: 'Left', icon: 'align-left', what: 'aligned left' },
+  { id: 'alignc', label: 'Centre', icon: 'align-center', what: 'centred' },
+  { id: 'alignr', label: 'Right', icon: 'align-right', what: 'aligned right' },
 ];
+const SIZE_IDS = TEXT_SIZES.map((z) => z.id);
 // one of each of these at a time, per run of words
-const GROUPS = [TEXT_INKS.map((c) => c.id), TEXT_HILITES.map((c) => c.id), TEXT_ALIGNS.map((a) => a.id)];
+const GROUPS = [TEXT_INKS.map((c) => c.id), TEXT_HILITES.map((c) => c.id), TEXT_ALIGNS.map((a) => a.id), SIZE_IDS];
 const groupOf = (id) => GROUPS.find((g) => g.includes(id)) || [id];
+// size and alignment belong to the whole block, never to a few words
+const WHOLE = [...TEXT_ALIGNS.map((a) => a.id), ...SIZE_IDS];
 
 const ALIGN_OF = { alignl: 'left', alignc: 'center', alignr: 'right' };
 const FORM_IDS = TEXT_FORMS.map((f) => f.id);
 
 /* ── The look of the words (bauhly-v3 `spot.runs` + the studio's marks) ──────
- * A look is { bold, italic, underline, strike, color, highlight }. The region
- * map read the picture's own (`region.style`, `region.runs`); the studio's marks
- * are laid over it: a form mark sets its field (`off` = turns it off), a colour
- * mark sets the palette colour. Order: the block → its runs → whole-text marks
- * → marks on words, so the last word said wins. */
+ * A look is { bold, medium, italic, underline, strike, color, highlight }. The
+ * region map read the picture's own (`region.style`, `region.runs`); the
+ * studio's marks are laid over it: a form mark sets its field (`off` = turns it
+ * off), a colour mark sets the palette colour. Order: the block → its runs →
+ * whole-text marks → marks on words, so the last word said wins. */
 const lookOfStyle = (st = {}) => ({
   bold: Boolean(st.bold),
+  medium: false,
   italic: Boolean(st.italic),
   underline: Boolean(st.underline),
   strike: Boolean(st.strike),
@@ -62,7 +86,8 @@ const lookOfStyle = (st = {}) => ({
   highlight: st.highlight || '',
 });
 function applyMark(look, m, palette) {
-  if (FORM_IDS.includes(m.id)) return { ...look, [m.id]: !m.off };
+  if (m.id === 'wmedium') return { ...look, bold: false, medium: !m.off };
+  if (FORM_IDS.includes(m.id)) return { ...look, [m.id]: !m.off, ...(m.id === 'bold' ? { medium: false } : {}) };
   const ink = TEXT_INKS.find((c) => c.id === m.id);
   if (ink) return { ...look, color: m.off ? '' : (palette?.[ink.key] || look.color) };
   const hl = TEXT_HILITES.find((c) => c.id === m.id);
@@ -99,23 +124,24 @@ function lookAt(text, words, region, marks, palette) {
   if (!part.length) return lookOfStyle(region.style);
   const every = (k) => part.every((l) => l[k]);
   const one = (k) => (part.every((l) => l[k] === part[0][k]) ? part[0][k] : '');
-  return { bold: every('bold'), italic: every('italic'), underline: every('underline'), strike: every('strike'), color: one('color'), highlight: one('highlight') };
+  return { bold: every('bold'), medium: every('medium'), italic: every('italic'), underline: every('underline'), strike: every('strike'), color: one('color'), highlight: one('highlight') };
 }
 
-// the picture's own colour, drawn as is — only near-black ink (which would
-// vanish on the dark panel) is shown in the panel's white
-function readableOnDark(hex) {
+// the picture's own colour, drawn as is on the white card — only very light
+// ink (which would vanish on it) falls back to the card's ink
+function readableOnLight(hex) {
   const m = /^#?([0-9a-f]{6})$/i.exec(String(hex || ''));
   if (!m) return false;
   const v = parseInt(m[1], 16);
   const lin = (c) => { const x = c / 255; return x <= 0.03928 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4; };
-  return 0.2126 * lin(v >> 16) + 0.7152 * lin((v >> 8) & 255) + 0.0722 * lin(v & 255) >= 0.03;
+  return 0.2126 * lin(v >> 16) + 0.7152 * lin((v >> 8) & 255) + 0.0722 * lin(v & 255) <= 0.6;
 }
+const weightOf = (l) => (l.bold ? 800 : (l.medium ? 600 : undefined));
 const cssOf = (l, keepMetrics = null) => ({
-  fontWeight: (keepMetrics ? keepMetrics.bold : l.bold) ? 800 : undefined,
+  fontWeight: weightOf(keepMetrics || l),
   fontStyle: (keepMetrics ? keepMetrics.italic : l.italic) ? 'italic' : undefined,
   textDecoration: [l.underline ? 'underline' : '', l.strike ? 'line-through' : ''].filter(Boolean).join(' ') || undefined,
-  color: l.highlight ? (l.color || undefined) : (readableOnDark(l.color) ? l.color : undefined),
+  color: l.highlight ? (l.color || undefined) : (readableOnLight(l.color) ? l.color : undefined),
   background: l.highlight || undefined,
   borderRadius: l.highlight ? 3 : undefined,
 });
@@ -126,7 +152,8 @@ export function describeMark(m, palette) {
   if (ink) return m.off ? 'back in its original colour' : `in the colour ${palette?.[ink.key] || ink.label}`;
   const hl = TEXT_HILITES.find((c) => c.id === m.id);
   if (hl) return m.off ? 'with no highlight behind the letters' : `with a ${palette?.[hl.key] || hl.label} highlight behind the letters`;
-  const what = (TEXT_FORMS.find((f) => f.id === m.id) || TEXT_ALIGNS.find((a) => a.id === m.id) || {}).what || m.id;
+  const what = (TEXT_FORMS.find((f) => f.id === m.id) || TEXT_ALIGNS.find((a) => a.id === m.id)
+    || TEXT_SIZES.find((z) => z.id === m.id) || TEXT_WEIGHTS.find((w) => w.id === m.id) || {}).what || m.id;
   return m.off ? `no longer ${what}` : what;
 }
 /** The palette hex a colour mark names ('' for the rest). */
@@ -135,8 +162,8 @@ export function markHex(m, palette) {
   return c && !m.off ? palette?.[c.key] || '' : '';
 }
 
-/* placed under the region (over it when the region sits low), centred on it
-   and held inside the card */
+/* above the region (under it when there is no room above), centred on it and
+   held inside the card — bauhly-v3 ShotSpots `place()` */
 function usePanelPlace(box, region) {
   useLayoutEffect(() => {
     const el = box.current;
@@ -153,7 +180,7 @@ function usePanelPlace(box, region) {
       const h = el.offsetHeight;
       const below = ((region.box.top + region.box.height) / 100) * fh + 8;
       const above = (region.box.top / 100) * fh - h - 8;
-      const top = below + h <= fh - pad ? below : (above >= pad ? above : Math.max(pad, fh - pad - h));
+      const top = above >= pad ? above : (below + h <= fh - pad ? below : Math.max(pad, fh - pad - h));
       el.style.top = `${Math.round(top)}px`;
     };
     place();
@@ -188,37 +215,69 @@ export function changeIsLive(change, region) {
     || String(change.text ?? region?.text ?? '').trim() !== String(region?.text || '').trim());
 }
 
-export default function RegionTextPanel({ region, palette = null, busy = false, change = null, onChange, onClose }) {
-  const text = change?.text ?? region.text ?? '';
+const Caret = () => <Icon name="chevron-down" size={12} strokeWidth={2.4} />;
+
+export default function RegionTextPanel({ region, palette = null, busy = false, change = null, onChange, onClose, onAsk = null }) {
+  const held = change?.text ?? region.text ?? '';
   // [{ id, words }] — words '' = the whole text
   const marks = change?.marks || [];
   const wipe = Boolean(change?.remove);
+  const [draft, setDraft] = useState(held);
   const [pop, setPop] = useState(null);
   const [sel, setSel] = useState('');
   const [typing, setTyping] = useState(false);
+  // the wand: an ask about the words, with the versions it has written
+  const [asking, setAsking] = useState(false);
+  const [ask, setAsk] = useState('');
+  const [askBusy, setAskBusy] = useState(false);
+  const [note, setNote] = useState('');
+  const [gens, setGens] = useState([]);
+  const [genAt, setGenAt] = useState(0);
   const box = useRef(null);
   const field = useRef(null);
   const mirror = useRef(null);
 
-  useEffect(() => { setPop(null); setSel(''); }, [region.id]);
+  useEffect(() => {
+    setPop(null); setSel(''); setDraft(change?.text ?? region.text ?? '');
+    setAsking(false); setAsk(''); setNote(''); setGens([]); setGenAt(0);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [region.id]);
+  // a revert / clear from outside puts the words back
+  useEffect(() => {
+    if (change == null) setDraft(region.text || '');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [change == null]);
+  // the field takes the caret when the card opens (the reference's autofocus)
+  useEffect(() => {
+    const t = setTimeout(() => field.current?.focus(), 30);
+    return () => clearTimeout(t);
+  }, [region.id]);
 
   const put = (patch) => {
-    const next = { text, marks, remove: wipe, asks: change?.asks || [], ...patch };
+    const next = { text: held, marks, remove: wipe, asks: change?.asks || [], ...patch };
     onChange?.(changeIsLive(next, region) ? next : null);
   };
-  const setText = (v) => put({ text: v });
   const setMarks = (fn) => put({ marks: fn(marks) });
-  const setWipe = (fn) => put({ remove: fn(wipe) });
-  const touched = changeIsLive(change, region);
+  const text = draft;
+  const wordsMoved = Boolean(draft.trim()) && draft.trim() !== String(held).trim();
+  const applyDraft = () => {
+    if (!wordsMoved || busy) return;
+    put({ text: draft });
+    setAsking(false); setAsk(''); setNote('');
+  };
+
   const look = lookAt(text, sel, region, marks, palette);
   const align = ALIGN_OF[(marks.find((m) => ALIGN_OF[m.id]) || {}).id] || region.style?.align || 'left';
   const isOn = (id) => {
+    if (id === 'wmedium') return look.medium;
+    if (id === 'wregular') return !look.bold && !look.medium;
     if (FORM_IDS.includes(id)) return Boolean(look[id]);
     if (ALIGN_OF[id]) return ALIGN_OF[id] === align;
+    if (SIZE_IDS.includes(id)) return marks.some((m) => m.id === id);
     return marks.some((m) => m.id === id && m.words === sel);
   };
   // the line drawn in the field: one span per run of characters set alike.
-  // While the caret is in it, bold/italic follow the whole block so the
+  // While the caret is in it, weight/italic follow the whole block so the
   // mirror wraps exactly where the textarea does (the reference's `typing`).
   const looks = looksOf(text, region, marks, palette);
   const block = lookAt(text, '', region, marks, palette);
@@ -238,7 +297,7 @@ export default function RegionTextPanel({ region, palette = null, busy = false, 
   };
   const toggle = (id) => {
     setPop(null);
-    const words = groupOf(id) === GROUPS[2] ? '' : readSel();
+    const words = WHOLE.includes(id) ? '' : readSel();
     setMarks((cur) => {
       if (FORM_IDS.includes(id)) {
         // flip what the words show now: drop this mark, then add one only if
@@ -256,198 +315,287 @@ export default function RegionTextPanel({ region, palette = null, busy = false, 
       return [...cur.filter((m) => !(m.words === words && group.includes(m.id))), { id, words }];
     });
   };
+  // the weight is one choice of three: whatever the words show, made into it
+  const setWeight = (id) => {
+    setPop(null);
+    const words = readSel();
+    setMarks((cur) => {
+      const rest = cur.filter((m) => !(m.words === words && (m.id === 'bold' || m.id === 'wmedium')));
+      const now = lookAt(text, words, region, rest, palette);
+      if (id === 'bold') return now.bold ? rest : [...rest, { id: 'bold', words }];
+      if (id === 'wmedium') return [...rest, { id: 'wmedium', words }];
+      return now.bold ? [...rest, { id: 'bold', words, off: true }] : rest;
+    });
+  };
   const revert = () => {
     setPop(null);
+    setDraft(region.text || '');
+    setAsking(false); setAsk(''); setNote('');
     onChange?.(null);
   };
 
-  usePanelPlace(box, region);
+  // the wand: one ask rewrites the draft; back / forward step through the versions
+  const runAsk = async () => {
+    const want = ask.trim();
+    if (!want || askBusy || !onAsk) return;
+    setAskBusy(true);
+    setNote('');
+    try {
+      const out = String((await onAsk(draft, want)) || '').trim();
+      if (!out || out === draft.trim()) {
+        setNote('That would leave the text as it is.');
+      } else {
+        const base = gens.length ? gens.slice(0, genAt + 1) : [draft];
+        setGens([...base, out]);
+        setGenAt(base.length);
+        setDraft(out);
+        setAsk('');
+      }
+    } catch (err) {
+      setNote(err?.message || 'Could not rewrite that just now.');
+    } finally {
+      setAskBusy(false);
+    }
+  };
+  const genStep = (to) => {
+    if (to < 0 || to >= gens.length || askBusy) return;
+    setGenAt(to);
+    setDraft(gens[to]);
+    setNote('');
+  };
+  const openAsk = () => {
+    setPop(null);
+    if (asking) { setAsking(false); setAsk(''); setNote(''); return; }
+    setGens([draft]);
+    setGenAt(0);
+    setAsking(true);
+  };
 
+  usePanelPlace(box, region);
   useEscape(pop, setPop, onClose);
 
   const label = String(region.role || 'Text').replace(/^./, (c) => c.toUpperCase());
-  const swatch = (list) => palette?.[(list.find((c) => isOn(c.id)) || list[0]).key];
-  const inkNow = TEXT_INKS.some((c) => isOn(c.id)) ? swatch(TEXT_INKS) : look.color;
-  const hlNow = TEXT_HILITES.some((c) => isOn(c.id)) ? swatch(TEXT_HILITES) : look.highlight;
+  const off = busy || wipe;
+  const touched = changeIsLive(change, region) || wordsMoved;
+  const menu = (id, q, list) => pop === id && (
+    <span className="wv-sa__pop" role="group" aria-label={q}>
+      <span className="wv-sa__popq">{q}</span>
+      {list}
+    </span>
+  );
+  const opt = (key, on, onClick, body, title) => (
+    <button
+      key={key}
+      type="button"
+      className={`wv-sa__opt${on ? ' is-on' : ''}`}
+      aria-pressed={on}
+      title={title}
+      onMouseDown={(e) => e.preventDefault()}
+      onClick={onClick}
+    >
+      {body}
+      {on && <Icon name="check" size={14} strokeWidth={2.4} className="wv-sa__optok" />}
+    </button>
+  );
+  const tool = (id, aria, body, extra = '') => (
+    <button
+      type="button"
+      className={`wv-sa__btn wv-sa__btn--menu${pop === id ? ' is-open' : ''}${extra}`}
+      aria-expanded={pop === id}
+      aria-label={aria}
+      title={aria}
+      disabled={off}
+      onMouseDown={(e) => e.preventDefault()}
+      onClick={() => setPop((v) => (v === id ? null : id))}
+    >
+      {body}
+      <Caret />
+    </button>
+  );
 
   return (
     <div
       ref={box}
-      className="wv-sa"
+      className={`wv-sa wv-sa--bar${asking ? ' is-asking' : ''}`}
       role="dialog"
       aria-label={`Edit the ${label.toLowerCase()}`}
       onClick={(e) => e.stopPropagation()}
       onPointerDown={(e) => e.stopPropagation()}
     >
-      <div className="wv-sa__head">
-        <span className="wv-sa__what">
-          {label}
-          {touched && <em className="wv-sa__done">Updated</em>}
-        </span>
-        {touched && (
-          <button type="button" className="wv-sa__x" aria-label="Revert this text" title="Revert" disabled={busy} onClick={revert}>
-            <Icon name="undo" size={16} strokeWidth={2} />
-          </button>
-        )}
-        <button type="button" className="wv-sa__x" aria-label="Close" onClick={onClose}>
-          <Icon name="x" size={16} strokeWidth={2} />
-        </button>
-      </div>
-
       <div className="wv-sa__forms">
-        {TEXT_FORMS.map((f) => (
-          <button
-            key={f.id}
-            type="button"
-            className={`wv-sa__btn${isOn(f.id) ? ' is-on' : ''}`}
-            aria-pressed={isOn(f.id)}
-            title={f.label}
-            aria-label={f.label}
-            disabled={busy || wipe}
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={() => toggle(f.id)}
-          >
-            <Icon name={f.icon} size={19} strokeWidth={2.3} />
-          </button>
-        ))}
-        {palette && (
-          <span className="wv-sa__wrap">
-            <button
-              type="button"
-              className={`wv-sa__btn wv-sa__inkbtn${pop === 'ink' ? ' is-open' : ''}${TEXT_INKS.some((c) => isOn(c.id)) ? ' is-on' : ''}`}
-              aria-expanded={pop === 'ink'}
-              aria-label="Text colour"
-              title="Colour"
-              disabled={busy || wipe}
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={() => setPop((v) => (v === 'ink' ? null : 'ink'))}
-            >
-              <i style={{ background: inkNow || 'transparent' }} aria-hidden="true" />
-            </button>
-            {pop === 'ink' && (
-              <span className="wv-sa__pop" role="group" aria-label="Text colour">
-                {TEXT_INKS.filter((c) => palette[c.key]).map((c) => (
-                  <button
-                    key={c.id}
-                    type="button"
-                    className={`wv-sa__sw${isOn(c.id) ? ' is-on' : ''}`}
-                    aria-pressed={isOn(c.id)}
-                    title={c.label}
-                    aria-label={`${c.label} colour`}
-                    onMouseDown={(e) => e.preventDefault()}
-                    onClick={() => toggle(c.id)}
-                  >
-                    <i style={{ background: palette[c.key] }} aria-hidden="true" />
-                  </button>
-                ))}
-              </span>
-            )}
-          </span>
-        )}
-        {palette && (
-          <span className="wv-sa__wrap">
-            <button
-              type="button"
-              className={`wv-sa__btn wv-sa__hlbtn${pop === 'hl' ? ' is-open' : ''}${TEXT_HILITES.some((c) => isOn(c.id)) ? ' is-on' : ''}`}
-              aria-expanded={pop === 'hl'}
-              aria-label="Colour behind the words"
-              title="Highlight"
-              disabled={busy || wipe}
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={() => setPop((v) => (v === 'hl' ? null : 'hl'))}
-            >
-              <Icon name="format-highlight" size={19} strokeWidth={2.3} />
-              {hlNow && <i style={{ background: hlNow }} aria-hidden="true" />}
-            </button>
-            {pop === 'hl' && (
-              <span className="wv-sa__pop" role="group" aria-label="Colour behind the words">
-                {TEXT_HILITES.filter((c) => palette[c.key]).map((c) => (
-                  <button
-                    key={c.id}
-                    type="button"
-                    className={`wv-sa__sw wv-sa__sw--hl${isOn(c.id) ? ' is-on' : ''}`}
-                    aria-pressed={isOn(c.id)}
-                    title={`${c.label} behind the words`}
-                    aria-label={`${c.label} behind the words`}
-                    onMouseDown={(e) => e.preventDefault()}
-                    onClick={() => toggle(c.id)}
-                  >
-                    <i style={{ background: palette[c.key] }} aria-hidden="true" />
-                  </button>
-                ))}
-              </span>
-            )}
-          </span>
-        )}
-        <span className="wv-sa__wrap">
-          <button
-            type="button"
-            className={`wv-sa__btn${pop === 'aln' ? ' is-open' : ''}${TEXT_ALIGNS.some((a) => isOn(a.id)) ? ' is-on' : ''}`}
-            aria-expanded={pop === 'aln'}
-            aria-label="Alignment"
-            title="Alignment"
-            disabled={busy || wipe}
-            onClick={() => setPop((v) => (v === 'aln' ? null : 'aln'))}
-          >
-            <Icon name={(TEXT_ALIGNS.find((a) => isOn(a.id)) || TEXT_ALIGNS[0]).icon} size={16} strokeWidth={2} />
-          </button>
-          {pop === 'aln' && (
-            <span className="wv-sa__pop" role="group" aria-label="Alignment">
-              {TEXT_ALIGNS.map((a) => (
-                <button
-                  key={a.id}
-                  type="button"
-                  className={`wv-sa__btn${isOn(a.id) ? ' is-on' : ''}`}
-                  aria-pressed={isOn(a.id)}
-                  title={a.label}
-                  aria-label={a.label}
-                  onClick={() => toggle(a.id)}
-                >
-                  <Icon name={a.icon} size={17} strokeWidth={2} />
-                </button>
-              ))}
-            </span>
-          )}
-        </span>
-        <button
-          type="button"
-          className={`wv-sa__btn is-bad${wipe ? ' is-on' : ''}`}
-          aria-pressed={wipe}
-          title="Remove text"
-          aria-label="Remove text"
-          disabled={busy}
-          onClick={() => { setPop(null); setWipe((v) => !v); }}
-        >
-          <Icon name="trash" size={16} strokeWidth={2} />
+        <button type="button" className="wv-sa__btn wv-sa__shut" aria-label="Close" title="Close" onClick={onClose}>
+          <Icon name="x" size={15} strokeWidth={2.2} />
         </button>
+        {onAsk && (
+          <button
+            type="button"
+            className={`wv-sa__btn wv-sa__ai${asking ? ' is-shut' : ''}`}
+            aria-label={asking ? 'Back to the text tools' : 'Ask for a change to this'}
+            aria-expanded={asking}
+            title={asking ? 'Back' : 'Ask'}
+            disabled={off}
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={openAsk}
+          >
+            <Icon name={asking ? 'arrow-left' : 'wand'} size={asking ? 17 : 15} strokeWidth={asking ? 1.9 : 1.7} />
+          </button>
+        )}
+        {asking ? (
+          <span className="wv-sa__gens">
+            <button type="button" className="wv-sa__btn" onClick={() => genStep(genAt - 1)} disabled={genAt <= 0 || askBusy} aria-label="The version before this" title="Back">
+              <Icon name="arrow-left" size={15} strokeWidth={1.9} />
+            </button>
+            <button type="button" className="wv-sa__btn" onClick={() => genStep(genAt + 1)} disabled={genAt >= gens.length - 1 || askBusy} aria-label="The version after this" title="Forward">
+              <Icon name="arrow-right" size={15} strokeWidth={1.9} />
+            </button>
+          </span>
+        ) : (
+          <>
+            <span className="wv-sa__wrap">
+              {tool('siz', 'Text size', <span className="wv-sa__glyph">Aa</span>, SIZE_IDS.some(isOn) ? ' is-on' : '')}
+              {menu('siz', `${label} size`, TEXT_SIZES.map((z) => opt(z.id, isOn(z.id), () => toggle(z.id), z.label, z.label)))}
+            </span>
+            <span className="wv-sa__wrap">
+              {tool('wgt', 'Text weight', <span className="wv-sa__glyph wv-sa__glyph--b">B</span>)}
+              {menu('wgt', `${label} weight`, TEXT_WEIGHTS.map((w) => opt(w.id, isOn(w.id), () => setWeight(w.id), w.label, w.label)))}
+            </span>
+            <span className="wv-sa__wrap">
+              {tool('mks', 'Italic, underline, crossed out', <Icon name="format-underline" size={15} strokeWidth={1.9} />)}
+              {menu('mks', 'Marks', TEXT_FORMS.filter((f) => f.id !== 'bold').map((f) => opt(
+                f.id,
+                isOn(f.id),
+                () => toggle(f.id),
+                <><i className={`wv-sa__mark wv-sa__mark--${f.id}`} aria-hidden="true">{f.glyph}</i>{f.label}</>,
+                f.label,
+              )))}
+            </span>
+            <span className="wv-sa__wrap">
+              {tool('aln', 'Alignment', <Icon name={(TEXT_ALIGNS.find((a) => isOn(a.id)) || TEXT_ALIGNS[0]).icon} size={15} strokeWidth={1.9} />)}
+              {menu('aln', `${label} alignment`, TEXT_ALIGNS.map((a) => opt(
+                a.id,
+                isOn(a.id),
+                () => toggle(a.id),
+                <><Icon name={a.icon} size={16} strokeWidth={2} />{a.label}</>,
+                a.label,
+              )))}
+            </span>
+            {palette && (
+              <span className="wv-sa__wrap">
+                {tool('ink', 'Colour', <Icon name="droplet" size={15} strokeWidth={1.9} />)}
+                {menu('ink', 'Text colour', TEXT_INKS.filter((c) => palette[c.key]).map((c) => opt(
+                  c.id,
+                  isOn(c.id),
+                  () => toggle(c.id),
+                  <><i className="wv-sa__dot" style={{ background: palette[c.key] }} aria-hidden="true" />{c.label}</>,
+                  `${c.label} colour`,
+                )))}
+              </span>
+            )}
+            <span className="wv-sa__rule" aria-hidden="true" />
+            <button
+              type="button"
+              className="wv-sa__btn"
+              aria-label="Put the line back as it was"
+              title="Reset"
+              disabled={busy || !touched}
+              onClick={revert}
+            >
+              <Icon name="reset" size={15} strokeWidth={1.9} />
+            </button>
+            <button
+              type="button"
+              className={`wv-sa__btn is-bad${wipe ? ' is-on' : ''}`}
+              aria-pressed={wipe}
+              title="Remove text"
+              aria-label="Remove text"
+              disabled={busy}
+              onClick={() => { setPop(null); put({ remove: !wipe }); }}
+            >
+              <Icon name="trash" size={15} strokeWidth={1.9} />
+            </button>
+          </>
+        )}
       </div>
 
-      <div className={`wv-sa__fieldwrap${wipe ? ' is-wiped' : ''}`} style={{ textAlign: align }}>
-        {/* the words as the picture sets them, under a see-through textarea */}
-        <div ref={mirror} className="wv-sa__mirror" aria-hidden="true">
-          {spans}
-          {'\u200b'}
+      {asking ? (
+        <>
+          <p className="wv-sa__plain">{draft || region.text || ''}</p>
+          <span className={`wv-sa__ask${ask ? '' : ' is-hint'}`}>
+            {!ask && <Icon name="wand" size={15} strokeWidth={1.7} className="wv-sa__askmark" />}
+            <textarea
+              className="wv-sa__askin"
+              rows={1}
+              value={ask}
+              autoFocus
+              disabled={askBusy}
+              placeholder="Ask for changes, e.g. “make it shorter”"
+              aria-label="Ask for changes"
+              onChange={(e) => setAsk(e.target.value)}
+              onKeyDown={(e) => {
+                e.stopPropagation();
+                if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); runAsk(); }
+                if (e.key === 'Escape') { e.preventDefault(); setAsking(false); }
+              }}
+            />
+            <button
+              type="button"
+              className={`wv-sa__asksend${askBusy ? ' is-busy' : ''}`}
+              onClick={runAsk}
+              disabled={askBusy || !ask.trim()}
+              aria-label={askBusy ? 'Writing' : 'Send'}
+              title="Send"
+            >
+              <Icon name={askBusy ? 'refresh' : 'arrow-up'} size={16} strokeWidth={2} />
+            </button>
+          </span>
+          {note && <p className="wv-sa__hint">{note}</p>}
+        </>
+      ) : (
+        <div className={`wv-sa__fieldwrap${wipe ? ' is-wiped' : ''}`} style={{ textAlign: align }}>
+          {/* the words as the picture sets them, under a see-through textarea */}
+          <div ref={mirror} className="wv-sa__mirror" aria-hidden="true">
+            {spans}
+            {'​'}
+          </div>
+          <textarea
+            ref={field}
+            className="wv-sa__field"
+            value={text}
+            disabled={off}
+            aria-label={`The ${label.toLowerCase()} on this slide`}
+            placeholder="What should this say?"
+            spellCheck={false}
+            style={{ fontWeight: weightOf(block), fontStyle: block.italic ? 'italic' : undefined, textAlign: align }}
+            onChange={(e) => setDraft(e.target.value)}
+            onSelect={() => setSel(readSel())}
+            onFocus={() => setTyping(true)}
+            onBlur={() => { setSel(''); setTyping(false); }}
+            onScroll={(e) => { if (mirror.current) mirror.current.scrollTop = e.currentTarget.scrollTop; }}
+            onKeyDown={(e) => {
+              e.stopPropagation();
+              if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); applyDraft(); }
+            }}
+          />
         </div>
-        <textarea
-          ref={field}
-          className="wv-sa__field"
-          value={text}
-          disabled={busy || wipe}
-          aria-label={`${label} text`}
-          spellCheck={false}
-          style={{ fontWeight: block.bold ? 800 : undefined, fontStyle: block.italic ? 'italic' : undefined, textAlign: align }}
-          onChange={(e) => setText(e.target.value)}
-          onSelect={() => setSel(readSel())}
-          onFocus={() => setTyping(true)}
-          onBlur={() => { setSel(''); setTyping(false); }}
-          onScroll={(e) => { if (mirror.current) mirror.current.scrollTop = e.currentTarget.scrollTop; }}
-        />
-      </div>
+      )}
 
-      {wipe && <p className="wv-sa__hint">The text comes off and the background is filled in when you send.</p>}
+      {wipe && !asking && <p className="wv-sa__hint">The text comes off and the background is filled in when you send.</p>}
+      {!asking && (
+        <span className="wv-sa__commit">
+          <button
+            type="button"
+            className="btn btn--primary btn--sm wv-sa__apply"
+            onClick={applyDraft}
+            disabled={!wordsMoved || busy}
+          >
+            Apply changes
+          </button>
+        </span>
+      )}
     </div>
   );
 }
+
 
 /* ── The picture's panel (bauhly-v3 ShotSpots `.shotask--acts`) ──────────────
  * Three acts a flattened picture can take — replaced with one the studio

@@ -1956,3 +1956,14 @@ export const askReady = (ctx, typed = '') => {
   if (said.asks && liveKids(said, ctx).length) return false;
   return true;
 };
+
+/* The suggestion row under a post with nothing selected (bauhly-v3
+ * `SLIDE_IDEAS`, Oct 2026): the four things anybody wants from a slide they
+ * have just looked at. A press sends `say` for the slide on screen; `icon`
+ * marks the one chip that asks Bauhly to decide. */
+export const SLIDE_IDEAS = [
+  { id: 'idea-improve', label: 'Improve design', say: 'Improve the design of this slide', icon: 'sparkle', idea: true },
+  { id: 'idea-read', label: 'Make it easier to read', say: 'Make this slide easier to read', idea: true },
+  { id: 'idea-air', label: 'More breathing room', say: 'Give this slide more breathing room', idea: true },
+  { id: 'idea-impact', label: 'More visual impact', say: 'Give this slide more visual impact', idea: true },
+];

@@ -2002,7 +2002,10 @@ function restyleRegion(region, marks) {
       if (at) at[field] = value; else runs.push({ words: m.words, [field]: value });
     }
   });
-  return { ...region, style, runs };
+  // the marks themselves, kept so a reader of the look from the slide's HTML
+  // (the Editor's text card) can lay the studio's own changes back on top
+  const applied = [...(Array.isArray(region.applied) ? region.applied : []), ...marks.map((m) => ({ id: m.id, words: m.words || '', ...(m.off ? { off: true } : {}), ...(m.hex ? { hex: m.hex } : {}) }))].slice(-40);
+  return { ...region, style, runs, ...(applied.length ? { applied } : {}) };
 }
 
 // POST /posts/:id/slide/:slideIndex/theme-region — change parts of the themed

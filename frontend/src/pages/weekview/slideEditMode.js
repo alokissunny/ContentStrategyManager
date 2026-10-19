@@ -371,9 +371,13 @@ export function attachSlideEditMode(frame, {
         hasImg: Boolean(selected.matches('img') || selected.querySelector('img[src]')),
         style: {
           bold: Number(cs.fontWeight) >= 600,
+          weight: Number(cs.fontWeight) || 400,
           italic: cs.fontStyle === 'italic',
           underline: /underline/.test(cs.textDecorationLine || cs.textDecoration || ''),
+          strike: /line-through/.test(cs.textDecorationLine || cs.textDecoration || ''),
           fontSize: parseFloat(cs.fontSize) || 0,
+          // the slide's own width, so a size can be said as a share of it
+          slideWidth: root.getBoundingClientRect().width || 0,
           color: cs.color,
           align: cs.textAlign,
           opacity: parseFloat(cs.opacity),
@@ -615,7 +619,30 @@ export function attachSlideEditMode(frame, {
         setAndRecord('font-style', cs.fontStyle === 'italic' ? 'normal' : 'italic');
         break;
       case 'underline':
-        setAndRecord('text-decoration', /underline/.test(cs.textDecorationLine || '') ? 'none' : 'underline');
+      case 'strike': {
+        // the two lines are one property: flip this one, keep the other
+        const lines = String(cs.textDecorationLine || '');
+        const want = cmd === 'underline' ? 'underline' : 'line-through';
+        const keep = cmd === 'underline' ? 'line-through' : 'underline';
+        const on = [want, keep].filter((k) => (k === want ? !lines.includes(want) : lines.includes(keep)));
+        setAndRecord('text-decoration', on.length ? on.join(' ') : 'none');
+        break;
+      }
+      case 'weight':
+        setAndRecord('font-weight', String(Number(value) || 400));
+        break;
+      case 'sizePct': {
+        // value: a share of the slide's width (bauhly-v3's cqw type ramp)
+        const w = root.getBoundingClientRect().width || 1080;
+        const px = Math.round((w * (Number(value) || 0)) / 100);
+        if (px > 0) setAndRecord('font-size', `${Math.max(6, Math.min(600, px))}px`);
+        break;
+      }
+      case 'text':
+        if (!isTextEditable(el)) return;
+        remember(el);
+        el.textContent = String(value ?? '');
+        record(el, { html: true });
         break;
       case 'uppercase':
         setAndRecord('text-transform', cs.textTransform === 'uppercase' ? 'none' : 'uppercase');

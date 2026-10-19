@@ -19,6 +19,7 @@ import ConnectMetaModal from '../components/ConnectMetaModal';
 import LinkedInPublisher from '../components/LinkedInPublisher';
 import {
   focusPostPhotos,
+  getPreTheme,
   getPost,
   generatePlan,
   markPublished,
@@ -44,6 +45,7 @@ import {
   getPostOptions,
   getPostDebug,
   shiftPosts,
+  polishCaption,
 } from '../api/posts';
 import { isoOf as isoOfDate, dateOf as dateFromIso, addDays as addDaysIso } from '../lib/shiftPosts';
 import { distributionForGenerate } from '../lib/distribution';
@@ -56,7 +58,7 @@ import { getMetaStatus, publishPostToMeta, isMetaConnectedFor, metaConnectionFor
 // INSIDE the component (below), because they key each call to
 // `days[index]._id` and merge the single-post response back into the current
 // week route (via routeRef), preserving the other days.
-import { mediaProxyUrl, videoProxyUrl, toDisplayUrl, isProxyUrl, rememberCdnBase, onCdnBase, getCdnBase, canvasSafeUrl, isProjectMediaKey, splitMediaKeys, iframeSafeUrl, projectKeysInText } from '../api/media';
+import { mediaProxyUrl, mediaDisplayUrl, videoProxyUrl, toDisplayUrl, isProxyUrl, rememberCdnBase, onCdnBase, getCdnBase, canvasSafeUrl, isProjectMediaKey, splitMediaKeys, iframeSafeUrl, projectKeysInText } from '../api/media';
 import { createImage, listGeneratedImages } from '../api/images';
 import { useProjects, uploadFiles } from '../lib/projectsStore';
 import { transcribeCapture } from '../api/projects';
@@ -79,7 +81,7 @@ import { markPostSeen } from '../lib/seenPosts';
 import { BrandMark } from './visuallibrary/BrandMark';
 import { bakeSlidePatches, replaceSlideArticle, slideArticleOf, nodeAt } from './weekview/slideEditMode';
 import { auditSlideLayout, measureSlide, slideCssOf } from './weekview/slideAudit';
-import { actionsFor, askHint, askSay, askReady, endOf, trailOf } from '../lib/askactions';
+import { actionsFor, askHint, askSay, askReady, endOf, trailOf, SLIDE_IDEAS } from '../lib/askactions';
 import { useRecorder, captureSttLanguages } from './checkin/recorder';
 import { rewriteAnnotationText, rewriteLayoutText, rewriteCarouselDocumentText, slotPlain, slideSlotPlain, withSharedLayoutStyles, layoutDirectionOf, themeIdOf, themeDirectionOf, slideIsThemed, optionForTheme, THEME_ORDER, bakeFrozenGeometry, findCarouselSlide, isCarouselDocument, slideRootOf } from './weekview/layoutHtml';
 import { discoverSlideTextRoles, agentHtmlSource, isAgentHtmlSlide } from './weekview/slideTextRoles';
@@ -98,6 +100,7 @@ import { useStore, setState as setStoreState, getState as getStoreState } from '
 import { listBackgrounds, uploadBackground, uploadLogo } from '../api/visualBrand';
 import { DEFAULT_BACKGROUNDS } from './visuallibrary/brandkitDefaults';
 import EditorMore from './weekview/EditorMore';
+import { readSlideTextStyles, styleForRegion } from './weekview/themedTextStyle';
 import './weekView.css';
 
 // ── Which layouts a slide can take — drawn straight from the Visual Library ──
@@ -2240,24 +2243,61 @@ const IMAGE_TRIES = [
   { say: 'Generate from a reference', act: 'ref' },
   { say: 'Turn it into a graphic', act: 'asvisual' },
 ];
-const REGION_TRIES = [
-  { say: 'Make it shorter', what: 'shortened' },
-  { say: 'Make it simpler', what: 'simplified' },
-  { say: 'Sound more like me', what: 'rewritten in your voice' },
-  { say: 'Say more about it', what: 'expanded' },
-];
 
-function ElementBar({ sel, menu, setMenu, run, swatches, onAsk, asking, onImage }) {
+// The selection bar over an element in Editor mode — bauhly-v3 PostEditor's
+// `edm-selbar` (Oct 13): × · wand · Aa ▾ · B ▾ · marks ▾ · align ▾ · colour ▾
+// │ remove. The wand turns the bar into its "Ask for changes" page: the line,
+// an ask field, and back / forward through the versions it writes; the chosen
+// version is written into the element when the studio goes Back.
+const SEL_SIZES = [
+  { id: 'xsmall', label: 'Extra small', title: 3.2, body: 2.6 },
+  { id: 'small', label: 'Small', title: 4.4, body: 3.1 },
+  { id: 'medium', label: 'Medium', title: 7.6, body: 3.9 },
+  { id: 'large', label: 'Large', title: 10.8, body: 4.8 },
+  { id: 'statement', label: 'Statement', title: 13.6, body: 5.8 },
+];
+const SEL_WEIGHTS = [
+  { id: 'regular', label: 'Regular', w: 400 },
+  { id: 'medium', label: 'Medium', w: 500 },
+  { id: 'bold', label: 'Bold', w: 700 },
+];
+const SEL_MARKS = [
+  { id: 'italic', label: 'Italic', glyph: 'I' },
+  { id: 'underline', label: 'Underline', glyph: 'U' },
+  { id: 'strike', label: 'Crossed out', glyph: 'S' },
+];
+const SEL_ALIGNS = [
+  { id: 'left', label: 'Left', icon: 'align-left' },
+  { id: 'center', label: 'Center', icon: 'align-center' },
+  { id: 'right', label: 'Right', icon: 'align-right' },
+];
+const SEL_NAMES = { title: 'Title', subtitle: 'Subtitle', 'supporting-text': 'Subtitle', body: 'Body', eyebrow: 'Kicker', kicker: 'Kicker', label: 'Label', caption: 'Caption', quote: 'Quote', stat: 'Stat', action: 'Call to action' };
+const hexOfRgb = (c) => {
+  const m = /rgba?\((\d+),\s*(\d+),\s*(\d+)/.exec(String(c || ''));
+  return m ? `#${[m[1], m[2], m[3]].map((n) => Number(n).toString(16).padStart(2, '0')).join('')}` : String(c || '').toLowerCase();
+};
+
+function ElementBar({ sel, menu, setMenu, run, swatches, onAsk, onImage, onClose, onRewrite }) {
   const barRef = useRef(null);
-  const [w, setW] = useState(0);
+  const [size, setSize] = useState({ w: 0, h: 44 });
+  // the wand's page: the line as it now reads, the versions, the ask
+  const [page, setPage] = useState(false);
+  const [line, setLine] = useState('');
+  const [gens, setGens] = useState([]);
+  const [genAt, setGenAt] = useState(0);
+  const [ask, setAsk] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState('');
   useLayoutEffect(() => {
-    if (barRef.current) setW(barRef.current.offsetWidth);
+    const el = barRef.current;
+    if (el && (el.offsetWidth !== size.w || el.offsetHeight !== size.h)) setSize({ w: el.offsetWidth, h: el.offsetHeight });
   });
+  useEffect(() => { setPage(false); setAsk(''); setNote(''); setGens([]); setGenAt(0); }, [sel.path]);
+
   const p = sel.page;
-  const BAR_H = 44;
-  const above = p.top - BAR_H - 14;
-  const top = above < 84 ? p.top + p.height + 14 : above;
-  const half = w / 2;
+  const above = p.top - size.h - 10;
+  const top = above < 84 ? p.top + p.height + 10 : above;
+  const half = size.w / 2;
   const vw = typeof window !== 'undefined' ? window.innerWidth : 1200;
   const cx = Math.max(half + 12, Math.min(vw - half - 12, p.left + p.width / 2));
   const st = sel.style || {};
@@ -2265,128 +2305,195 @@ function ElementBar({ sel, menu, setMenu, run, swatches, onAsk, asking, onImage 
   const isImage = sel.kind === 'image';
   const toggle = (m) => setMenu(menu === m ? null : m);
   const press = (fn) => (e) => { e.preventDefault(); e.stopPropagation(); fn(); };
-  const Caret = () => <Glyph name="chevron-down" size={13} strokeWidth={2.4} />;
+  const Caret = () => <Icon name="chevron-down" size={12} strokeWidth={2.4} />;
+  const titleish = /^h[1-3]$/.test(sel.tag || '') || ['title', 'stat', 'quote'].includes(sel.slot);
+  const name = SEL_NAMES[sel.slot] || (/^h[1-3]$/.test(sel.tag || '') ? 'Title' : 'Text');
+  const pct = st.slideWidth ? (st.fontSize / st.slideWidth) * 100 : 0;
+  const sizeNow = pct ? SEL_SIZES.reduce((best, z) => {
+    const v = titleish ? z.title : z.body;
+    return Math.abs(v - pct) < Math.abs((titleish ? best.title : best.body) - pct) ? z : best;
+  }, SEL_SIZES[0]) : null;
+  const sizeOn = sizeNow && Math.abs((titleish ? sizeNow.title : sizeNow.body) - pct) / pct < 0.12 ? sizeNow.id : '';
+  const weightOn = (st.weight || 400) >= 600 ? 'bold' : ((st.weight || 400) >= 500 ? 'medium' : 'regular');
+  const alignOn = st.align === 'center' ? 'center' : (st.align === 'right' || st.align === 'end' ? 'right' : 'left');
+  const inkOn = hexOfRgb(st.color);
+
+  const menuOf = (id, q, rows) => menu === id && (
+    <div className="wv-sb__menu" role="menu" onMouseDown={(e) => e.preventDefault()}>
+      <span className="wv-sb__q">{q}</span>
+      {rows}
+    </div>
+  );
+  const opt = (key, on, onClick, body, role = 'menuitemradio') => (
+    <button key={key} type="button" role={role} aria-checked={on} className={`wv-sb__opt${on ? ' is-on' : ''}`} onClick={press(onClick)}>
+      {body}
+      {on && <Icon name="check" size={14} strokeWidth={2.4} className="wv-sb__ok" />}
+    </button>
+  );
+  const ctl = (id, label, body) => (
+    <button type="button" className={`wv-sb__btn wv-sb__btn--menu${menu === id ? ' is-on' : ''}`} onClick={press(() => toggle(id))} aria-haspopup="menu" aria-expanded={menu === id} aria-label={label} title={label}>
+      {body}
+      <Caret />
+    </button>
+  );
+
+  const openPage = () => {
+    setMenu(null);
+    setLine(sel.text || '');
+    setGens([]);
+    setGenAt(0);
+    setAsk('');
+    setNote('');
+    setPage(true);
+  };
+  const shutPage = () => {
+    const keep = line.trim();
+    setPage(false);
+    setAsk('');
+    setNote('');
+    // written after the bar is back on its tools (bauhly-v3 `shutAsk`)
+    if (keep && keep !== String(sel.text || '').trim()) window.requestAnimationFrame(() => run('text', keep));
+  };
+  const runAsk = async () => {
+    const want = ask.trim();
+    if (!want || busy || !onRewrite) return;
+    setBusy(true);
+    setNote('');
+    try {
+      const out = String((await onRewrite(line, want, sel.slot || sel.tag || 'text')) || '').trim();
+      if (!out || out === line.trim()) setNote('That would leave the text as it is.');
+      else {
+        const base = gens.length ? gens.slice(0, genAt + 1) : [line];
+        setGens([...base, out]);
+        setGenAt(base.length);
+        setLine(out);
+        setAsk('');
+      }
+    } catch (err) {
+      setNote(err?.message || 'Could not rewrite that just now.');
+    } finally {
+      setBusy(false);
+    }
+  };
+  const step = (to) => {
+    if (to < 0 || to >= gens.length || busy) return;
+    setGenAt(to);
+    setLine(gens[to]);
+    setNote('');
+  };
 
   return (
     <div
-      className={`wv-edm__tb${sel.texting ? ' is-typing' : ''}`}
+      className={`wv-edm__tb wv-sb${page ? ' is-page' : ''}${sel.texting ? ' is-typing' : ''}`}
       ref={barRef}
       style={{ top, left: cx }}
       role="toolbar"
-      aria-label="Edit element"
-      onMouseDown={(e) => { if (!e.target.closest('label, input')) e.preventDefault(); }}
+      aria-label="What to do with the selection"
+      onMouseDown={(e) => { if (!e.target.closest('textarea, input')) e.preventDefault(); }}
     >
-      {isText && (
-        <div className="wv-edm__tbgroup">
-          <button type="button" className={`wv-edm__tbbtn${menu === 'text' ? ' is-open' : ''}`} onClick={press(() => toggle('text'))} aria-label="Text style" title="Text style">
-            <b className="wv-edm__tbglyph">B</b><Caret />
-          </button>
-          {menu === 'text' && (
-            <div className="wv-edm__tbmenu" role="menu">
-              <button type="button" className={st.bold ? 'is-on' : ''} onClick={press(() => run('bold'))}><Glyph name="bold" size={15} strokeWidth={2.4} />Bold</button>
-              <button type="button" className={st.italic ? 'is-on' : ''} onClick={press(() => run('italic'))}><Glyph name="italic" size={15} strokeWidth={2.2} />Italic</button>
-              <button type="button" className={st.underline ? 'is-on' : ''} onClick={press(() => run('underline'))}><Glyph name="underline" size={15} strokeWidth={2.2} />Underline</button>
-              <button type="button" onClick={press(() => run('uppercase'))}><Glyph name="case-upper" size={15} strokeWidth={2.2} />Uppercase</button>
-              <span className="wv-edm__tbsep" />
-              <button type="button" onClick={press(() => { setMenu(null); run('type'); })}><Glyph name="text-cursor-input" size={15} strokeWidth={2.2} />Edit the words</button>
-            </div>
-          )}
-        </div>
-      )}
-      <div className="wv-edm__tbgroup">
-        <button type="button" className={`wv-edm__tbbtn${menu === 'arrange' ? ' is-open' : ''}`} onClick={press(() => toggle('arrange'))} aria-label="Arrange" title="Align and arrange">
-          <Glyph name="crop" size={15} strokeWidth={2.2} /><Caret />
-        </button>
-        {menu === 'arrange' && (
-          <div className="wv-edm__tbmenu" role="menu">
-            {isText && (
-              <div className="wv-edm__tbrow">
-                {['left', 'center', 'right'].map((a) => (
-                  <button key={a} type="button" className={`wv-edm__tbicon${st.align === a || (a === 'left' && st.align === 'start') ? ' is-on' : ''}`} onClick={press(() => run('align', a))} aria-label={`Align ${a}`}>
-                    <Glyph name={`align-${a}`} size={15} strokeWidth={2.2} />
-                  </button>
-                ))}
-              </div>
-            )}
-            <button type="button" onClick={press(() => run('front'))}><Glyph name="bring-to-front" size={15} strokeWidth={2.2} />Bring to front</button>
-            <button type="button" onClick={press(() => run('back'))}><Glyph name="send-to-back" size={15} strokeWidth={2.2} />Send to back</button>
-            <span className="wv-edm__tbsep" />
-            <div className="wv-edm__tbrow wv-edm__tbrow--label">
-              <span>Opacity</span>
-              {[1, 0.75, 0.5, 0.25].map((o) => (
-                <button key={o} type="button" className={`wv-edm__tbchip${Math.abs((st.opacity ?? 1) - o) < 0.01 ? ' is-on' : ''}`} onClick={press(() => run('opacity', o))}>
-                  {Math.round(o * 100)}
-                </button>
-              ))}
-            </div>
+      {page ? (
+        <div className="wv-sb__page">
+          <div className="wv-sb__pagetop">
+            <button type="button" className="wv-sb__btn wv-sb__disc" onClick={press(shutPage)} aria-label="Back to the tools" title="Back">
+              <Icon name="arrow-left" size={17} strokeWidth={1.9} />
+            </button>
+            <span className="wv-sb__gens">
+              <button type="button" className="wv-sb__btn" onClick={press(() => step(genAt - 1))} disabled={genAt <= 0 || busy} aria-label="The version before this" title="Back">
+                <Icon name="arrow-left" size={15} strokeWidth={1.9} />
+              </button>
+              <button type="button" className="wv-sb__btn" onClick={press(() => step(genAt + 1))} disabled={genAt >= gens.length - 1 || busy} aria-label="The version after this" title="Forward">
+                <Icon name="arrow-right" size={15} strokeWidth={1.9} />
+              </button>
+            </span>
           </div>
-        )}
-      </div>
-      {isText && (
-        <div className="wv-edm__tbgroup">
-          <button type="button" className={`wv-edm__tbbtn${menu === 'size' ? ' is-open' : ''}`} onClick={press(() => toggle('size'))} aria-label="Text size" title="Text size">
-            <span className="wv-edm__tbglyph">Aa</span><Caret />
-          </button>
-          {menu === 'size' && (
-            <div className="wv-edm__tbmenu wv-edm__tbmenu--size" role="menu">
-              <div className="wv-edm__tbrow">
-                <button type="button" className="wv-edm__tbicon" onClick={press(() => run('size', 1 / 1.1))} aria-label="Smaller"><Glyph name="minus" size={15} strokeWidth={2.4} /></button>
-                <span className="wv-edm__tbval">{Math.round(st.fontSize || 0)}px</span>
-                <button type="button" className="wv-edm__tbicon" onClick={press(() => run('size', 1.1))} aria-label="Larger"><Glyph name="plus" size={15} strokeWidth={2.4} /></button>
-              </div>
-              <div className="wv-edm__tbrow wv-edm__tbrow--wrap">
-                {[24, 32, 48, 64, 88, 120].map((n) => (
-                  <button key={n} type="button" className={`wv-edm__tbchip${Math.round(st.fontSize) === n ? ' is-on' : ''}`} onClick={press(() => run('size', `${n}px`))}>{n}</button>
-                ))}
-              </div>
-            </div>
-          )}
+          <p className="wv-sb__line">{line}</p>
+          <span className="wv-sb__ask">
+            <Icon name="wand" size={15} strokeWidth={1.7} className="wv-sb__askmark" />
+            <textarea
+              className="wv-sb__askin"
+              rows={1}
+              value={ask}
+              spellCheck="false"
+              autoFocus
+              disabled={busy}
+              placeholder={'Ask for changes, e.g. “make it shorter”'}
+              aria-label="Ask for changes"
+              onChange={(e) => setAsk(e.target.value)}
+              onKeyDown={(e) => {
+                e.stopPropagation();
+                if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); runAsk(); }
+                if (e.key === 'Escape') { e.preventDefault(); shutPage(); }
+              }}
+            />
+            <button type="button" className={`wv-sb__go${busy ? ' is-busy' : ''}`} onClick={press(runAsk)} disabled={!ask.trim() || busy} aria-label="Send" title="Send">
+              <Icon name={busy ? 'refresh' : 'arrow-up'} size={16} strokeWidth={2.1} />
+            </button>
+          </span>
+          {note && <span className="wv-sb__note">{note}</span>}
         </div>
-      )}
-      {isText && (
-        <div className="wv-edm__tbgroup">
-          <button type="button" className={`wv-edm__tbbtn${menu === 'color' ? ' is-open' : ''}`} onClick={press(() => toggle('color'))} aria-label="Colour" title="Colour">
-            <span className="wv-edm__tbdot" style={{ background: st.color || '#16161a' }} /><Caret />
+      ) : (
+        <>
+          <button type="button" className="wv-sb__btn wv-sb__disc" onClick={press(() => { setMenu(null); onClose(); })} aria-label="Close" title="Close">
+            <Icon name="x" size={15} strokeWidth={2.2} />
           </button>
-          {menu === 'color' && (
-            <div className="wv-edm__tbmenu wv-edm__tbmenu--color" role="menu">
-              <div className="wv-edm__tbrow wv-edm__tbrow--wrap">
-                {swatches.map((hex) => (
-                  <button key={hex} type="button" className="wv-edm__tbswatch" style={{ background: hex }} onClick={press(() => run('color', hex))} aria-label={hex} title={hex} />
-                ))}
-                <label className="wv-edm__tbswatch wv-edm__tbswatch--pick" title="Any colour">
-                  <Glyph name="pipette" size={13} strokeWidth={2.2} />
-                  <input type="color" onChange={(e) => run('color', e.target.value)} />
-                </label>
-              </div>
-            </div>
+          {isText && onRewrite && (
+            <button type="button" className="wv-sb__btn" onClick={press(openPage)} aria-label="Ask for changes" title="Ask for changes">
+              <Icon name="wand" size={15} strokeWidth={1.7} />
+            </button>
           )}
-        </div>
+          {!isText && (
+            <button type="button" className="wv-sb__btn" onClick={press(() => { setMenu(null); onAsk(); })} aria-label="Ask for changes" title="Ask for changes">
+              <Icon name="wand" size={15} strokeWidth={1.7} />
+            </button>
+          )}
+          {isText && (
+            <>
+              <span className="wv-sb__wrap">
+                {ctl('size', `${name} size`, <span className="wv-sb__glyph">Aa</span>)}
+                {menuOf('size', `${name} size`, SEL_SIZES.map((z) => opt(z.id, sizeOn === z.id, () => { setMenu(null); run('sizePct', titleish ? z.title : z.body); }, z.label)))}
+              </span>
+              <span className="wv-sb__wrap">
+                {ctl('weight', `${name} weight`, <span className="wv-sb__glyph wv-sb__glyph--b">B</span>)}
+                {menuOf('weight', `${name} weight`, SEL_WEIGHTS.map((w) => opt(w.id, weightOn === w.id, () => { setMenu(null); run('weight', w.w); }, w.label)))}
+              </span>
+              <span className="wv-sb__wrap">
+                {ctl('marks', 'Italic, underline, crossed out', <Icon name="format-underline" size={14} strokeWidth={1.9} />)}
+                {menuOf('marks', 'Marks', SEL_MARKS.map((m) => opt(
+                  m.id,
+                  Boolean(st[m.id]),
+                  () => run(m.id),
+                  <><i className={`wv-sb__mark wv-sb__mark--${m.id}`} aria-hidden="true">{m.glyph}</i>{m.label}</>,
+                  'menuitemcheckbox',
+                )))}
+              </span>
+              <span className="wv-sb__wrap">
+                {ctl('align', `${name} alignment`, <Icon name={(SEL_ALIGNS.find((a) => a.id === alignOn) || SEL_ALIGNS[0]).icon} size={15} strokeWidth={1.9} />)}
+                {menuOf('align', `${name} alignment`, SEL_ALIGNS.map((a) => opt(a.id, alignOn === a.id, () => { setMenu(null); run('align', a.id); }, <><Icon name={a.icon} size={16} strokeWidth={2} />{a.label}</>)))}
+              </span>
+              <span className="wv-sb__wrap">
+                {ctl('color', 'Text colour', <Icon name="droplet" size={15} strokeWidth={1.9} />)}
+                {menuOf('color', 'Text colour', [
+                  ...swatches.map((hex) => opt(hex, inkOn === hex.toLowerCase(), () => { setMenu(null); run('color', hex); }, <><i className="wv-sb__dot" style={{ background: hex }} aria-hidden="true" />{hex.toUpperCase()}</>)),
+                  <label key="any" className="wv-sb__opt wv-sb__opt--pick">
+                    <i className="wv-sb__dot wv-sb__dot--any" aria-hidden="true" />
+                    Any colour
+                    <input type="color" onChange={(e) => run('color', e.target.value)} />
+                  </label>,
+                ])}
+              </span>
+            </>
+          )}
+          {isImage && (
+            <button type="button" className="wv-sb__btn" onClick={press(() => { setMenu(null); onImage(); })} aria-label="Replace image" title="Replace image">
+              <Icon name="image-plus" size={15} strokeWidth={1.9} />
+            </button>
+          )}
+          <span className="wv-sb__sep" aria-hidden="true" />
+          <button type="button" className="wv-sb__btn" onClick={press(() => { setMenu(null); run('hide'); })} aria-label="Remove" title="Remove (Delete)">
+            <Icon name="trash" size={15} strokeWidth={1.9} />
+          </button>
+        </>
       )}
-      {isImage && (
-        <button type="button" className="wv-edm__tbbtn wv-edm__tbbtn--solo" onClick={press(() => { setMenu(null); onImage(); })} aria-label="Replace image" title="Replace image">
-          <Icon name="image" size={15} strokeWidth={2.2} />
-        </button>
-      )}
-      {!asking && (
-        <button
-          type="button"
-          className="wv-edm__tbbtn wv-edm__tbbtn--solo wv-edm__tbbtn--ai"
-          onClick={press(() => { setMenu(null); onAsk(); })}
-          aria-label="Ask about this"
-          title="Ask about this"
-        >
-          <Icon name="sparkle" size={15} strokeWidth={2.2} />
-        </button>
-      )}
-      {sel.edited && (
-        <button type="button" className="wv-edm__tbbtn wv-edm__tbbtn--solo" onClick={press(() => { setMenu(null); run('reset'); })} aria-label="Undo edits to this element" title="Put this element back">
-          <Glyph name="undo-2" size={15} strokeWidth={2.2} />
-        </button>
-      )}
-      <button type="button" className="wv-edm__tbbtn wv-edm__tbbtn--solo" onClick={press(() => { setMenu(null); run('hide'); })} aria-label="Remove element" title="Remove (Delete)">
-        <Glyph name="trash-2" size={15} strokeWidth={2.2} />
-      </button>
     </div>
   );
 }
@@ -2997,6 +3104,7 @@ export default function WeekView({
   // The prompt band (bauhly-v3 `edm-askbar`): "Say what else this should be".
   // Opened by ⋯ › Add elements and by the AI mark on the slide.
   const [askOpen, setAskOpen] = useState(false);
+  const [askFocus, setAskFocus] = useState(false);
   // Slide › Add before/after: { at, error? } while the Add Slide agent writes
   const [slideAdding, setSlideAdding] = useState(null);
   const [askDraft, setAskDraft] = useState('');
@@ -3918,6 +4026,17 @@ export default function WeekView({
         },
       };
     });
+  }
+
+  // The selection bar's wand (bauhly-v3 `runTextAsk`): the Polish agent
+  // rewrites the line; the bar keeps the versions and writes the chosen one
+  // into the element on Back.
+  async function rewriteElemWords(text, instruction, role) {
+    const postId = postIdAt(selected);
+    if (!postId) throw new Error('Open a saved post first.');
+    const r = await polishCaption(postId, { caption: text, instruction, kind: 'words', role });
+    if (r?.unchanged) throw new Error(r.message || 'That would leave the text as it is.');
+    return r?.caption || '';
   }
 
   function runElem(cmd, value) {
@@ -5630,6 +5749,73 @@ export default function WeekView({
   // undo / redo wait while anything is being written to the post
   const histLocked = editBusy || Boolean(rgnBusy);
   useEffect(() => { setRgnPick(''); setRgnErr(''); }, [safeIdx, selected]);
+
+  // ── This post's versions (bauhly-v3 `edm-canvas__vers`, the layers button) ──
+  // Every Theme Apply render a themed slide has shown in this Editor session,
+  // oldest first — the one it opened with, then each redraw / region edit /
+  // relayout. Picking one puts that slide record back as an undoable step.
+  const [themeVers, setThemeVers] = useState({});
+  const [versOpen, setVersOpen] = useState(false);
+  const themedKeyOf = (sl) => keysOf(sl).find((k) => /\/themed-/.test(k)) || '';
+  const versId = `${day?._id || selected}:${safeIdx}`;
+  useEffect(() => {
+    if (!postEdit || !activeThemed || !themedKey) return;
+    setThemeVers((all) => {
+      let list = all[versId];
+      if (!list) {
+        const snap = editSnapRef.current;
+        const was = snap && snap.dayIndex === selected && snap.slides?.length === slides.length ? snap.slides[safeIdx] : null;
+        list = was && isThemedPicture(was) && themedKeyOf(was) !== themedKey ? [JSON.parse(JSON.stringify(was))] : [];
+      }
+      if (list.some((r) => themedKeyOf(r) === themedKey)) return all[versId] === list ? all : { ...all, [versId]: list };
+      return { ...all, [versId]: [...list, JSON.parse(JSON.stringify(activeSlide))] };
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [postEdit, activeThemed, themedKey, versId]);
+  useEffect(() => { if (!postEdit) setThemeVers({}); }, [postEdit]);
+  useEffect(() => { setVersOpen(false); }, [versId, postEdit]);
+  useEffect(() => {
+    if (!versOpen) return undefined;
+    const away = (e) => { if (!e.target.closest?.('.wv-edm__vers')) setVersOpen(false); };
+    const esc = (e) => { if (e.key === 'Escape') { e.stopPropagation(); setVersOpen(false); } };
+    document.addEventListener('pointerdown', away, true);
+    document.addEventListener('keydown', esc, true);
+    return () => { document.removeEventListener('pointerdown', away, true); document.removeEventListener('keydown', esc, true); };
+  }, [versOpen]);
+  const themeVersions = activeThemed ? (themeVers[versId] || []).map((rec, i) => {
+    const key = themedKeyOf(rec);
+    return {
+      key,
+      rec,
+      on: key === themedKey,
+      name: i === 0 ? 'Original' : `Version ${String(i).padStart(2, '0')}`,
+      url: localMedia[key] || mediaDisplayUrl(key, 160) || mediaProxyUrl(key),
+    };
+  }) : [];
+
+  function pickThemeVersion(rec) {
+    if (!day || histLocked) return;
+    const i = safeIdx;
+    const before = postStateOf(day, [i]);
+    const was = themedKeyOf(before.recs[i]);
+    const now = themedKeyOf(rec);
+    if (!now || was === now) return;
+    let doc = before.doc;
+    if (was && doc.includes(was)) doc = doc.split(was).join(now);
+    const after = { ...before, recs: { [i]: JSON.parse(JSON.stringify(rec)) }, doc };
+    const step = { kind: 'post', i, idxs: [i], snap: false, before, after };
+    if (!putPostState(step, after, before)) return;
+    setElemHist((h) => ({ past: [...h.past, step].slice(-100), future: [] }));
+  }
+
+  // The suggestion row (bauhly-v3 `runIdea`): sent at once for the slide on
+  // screen. A theme picture is redrawn whole; an HTML slide goes to the
+  // Slide Edit agent like a typed ask.
+  function runIdea(one) {
+    if (askBusy || rgnBusy || !day) return;
+    if (activeThemed) { relayoutThemed([safeIdx], one.say); return; }
+    sendAsk(false, { instruction: one.say });
+  }
   useEffect(() => {
     if (!postEdit || !activeThemed || !themedKey) { setRgnMap(null); return undefined; }
     const saved = activeSlide?.themeRegions;
@@ -5654,6 +5840,51 @@ export default function WeekView({
     ? ((rgnMap.texts || []).find((t) => t.id === rgnPick) || (rgnMap.images || []).find((t) => t.id === rgnPick) || null)
     : null;
   const rgnIsText = Boolean(rgnRegion && (rgnMap?.texts || []).some((t) => t.id === rgnRegion.id));
+  // How the open text is SET, read from the slide's last saved HTML (the
+  // design Theme Apply painted from, agentTrace.preTheme) — the map's pixel
+  // read mistakes tape edges and rules for strike-throughs / underlines.
+  // Fetched once per post; null where the snapshot doesn't line up.
+  const preThemeRef = useRef({});
+  const [rgnHtml, setRgnHtml] = useState({ id: '', blocks: null });
+  const rgnHtmlId = postEdit && activeThemed ? `${day?._id || ''}:${safeIdx}:${themedKey}` : '';
+  useEffect(() => {
+    if (!rgnHtmlId || !day?._id) return undefined;
+    let alive = true;
+    const pid = day._id;
+    if (!preThemeRef.current[pid]) preThemeRef.current[pid] = getPreTheme(pid).catch(() => null);
+    preThemeRef.current[pid].then((snap) => {
+      if (!alive) return null;
+      const list = Array.isArray(snap?.slides) ? snap.slides : [];
+      if (!snap?.carouselHtml || list.length !== slides.length || !list[safeIdx]) {
+        setRgnHtml({ id: rgnHtmlId, blocks: null });
+        return null;
+      }
+      return readSlideTextStyles(snap.carouselHtml, layoutDirectionOf(list[safeIdx]), safeIdx + 1)
+        .then((blocks) => { if (alive) setRgnHtml({ id: rgnHtmlId, blocks }); });
+    });
+    return () => { alive = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rgnHtmlId]);
+  const rgnTextShown = (() => {
+    if (!rgnIsText) return rgnRegion;
+    const look = rgnHtml.id === rgnHtmlId ? styleForRegion(rgnHtml.blocks, rgnRegion) : null;
+    if (!look) return rgnRegion;
+    // the type comes from the HTML; the colours from the picture, which Theme
+    // Apply repainted (a colour the studio set since is in the HTML look too)
+    const ownInk = (rgnRegion.applied || []).some((m) => !m.words && ['ink', 'accent', 'ground'].includes(m.id));
+    const mapStyle = rgnRegion.style || {};
+    const style = {
+      ...look.style,
+      color: ownInk ? look.style.color : (mapStyle.color || ''),
+      highlight: mapStyle.highlight || look.style.highlight || '',
+    };
+    const strip = (r) => { const { color: _c, highlight: _h, ...rest } = r; return rest; };
+    const runs = [
+      ...look.runs.map(strip).filter((r) => Object.keys(r).length > 1),
+      ...(rgnRegion.runs || []).filter((r) => r.color || r.highlight).map((r) => ({ words: r.words, ...(r.color ? { color: r.color } : {}), ...(r.highlight ? { highlight: r.highlight } : {}) })),
+    ];
+    return { ...rgnRegion, style, runs };
+  })();
   const regionEditing = Boolean(postEdit && activeThemed && rgnRegion && !visEdit);
   const rgnPalette = (() => {
     const p = (kitSets.find((t) => t.id === (setIdOf(activeSlide) || kitDefaultSet)) || kitSets[0])?.palette;
@@ -5686,6 +5917,16 @@ export default function WeekView({
   const roleLabel = (r) => String(r?.role || 'Text').replace(/^./, (c) => c.toUpperCase());
   const heldLabel = (h) => ({ image: 'Image', colours: 'Colours', logo: 'Logo' }[h.change?.kind] || roleLabel(h.region));
   const openLabel = rgnRegion ? (rgnIsText ? roleLabel(rgnRegion) : 'Image') : '';
+  // The text card's wand (bauhly-v3 ShotSpots `runAsk`): the words rewritten
+  // by the Polish agent, returned to the card's draft — nothing is held until
+  // the card's Apply changes.
+  async function askRegionWords(text, instruction) {
+    const postId = postIdAt(selected);
+    if (!postId) throw new Error('Open a saved post first.');
+    const r = await polishCaption(postId, { caption: text, instruction, kind: 'words', role: rgnRegion?.role || 'text' });
+    if (r?.unchanged) throw new Error(r.message || 'That would leave the text as it is.');
+    return r?.caption || '';
+  }
   function holdChange(region, change, slideIdx = safeIdx) {
     const k = heldKey(slideIdx, region.id);
     setRgnHeld((cur) => {
@@ -5711,14 +5952,6 @@ export default function WeekView({
     const forms = [...new Set((c.marks || []).map((m) => describeMark({ id: m.id, off: m.off }, null)))];
     if (forms.length) parts.push(forms.join(', '));
     return parts.join(' · ') || 'edited';
-  }
-  // a chat suggestion on the open text block ("Make it shorter") — held, and
-  // pressed again to take it back
-  function toggleRegionAsk(one) {
-    if (!rgnRegion) return;
-    const c = heldNow?.change || { text: rgnRegion.text, marks: [], remove: false, asks: [] };
-    const has = (c.asks || []).some((a) => a.say === one.say);
-    holdChange(rgnRegion, { ...c, asks: has ? c.asks.filter((a) => a.say !== one.say) : [...(c.asks || []), one] });
   }
   // the picture's chips (bauhly-v3 IMAGE_TRIES): one act at a time, pressed
   // again to take back; `ref` first asks for the reference photo
@@ -7016,6 +7249,29 @@ export default function WeekView({
               {editFormat && <span className="wv-edm__sep" aria-hidden="true">|</span>}
               {editFormat && <span className="wv-edm__format">{editFormat}</span>}
             </p>
+            {/* undo / redo sit in the middle of the bar (bauhly-v3 `edm__hist`) */}
+            <div className="wv-edm__hist">
+              <button
+                type="button"
+                className="wv-edm__histbtn"
+                onClick={undoElem}
+                disabled={!elemHist.past.length || histLocked}
+                aria-label="Undo"
+                title="Undo (⌘Z)"
+              >
+                <Glyph name="undo-2" size={17} strokeWidth={2.2} />
+              </button>
+              <button
+                type="button"
+                className="wv-edm__histbtn"
+                onClick={redoElem}
+                disabled={!elemHist.future.length || histLocked}
+                aria-label="Redo"
+                title="Redo (⇧⌘Z)"
+              >
+                <Glyph name="redo-2" size={17} strokeWidth={2.2} />
+              </button>
+            </div>
             <div className="wv-edm__acts">
               <button
                 type="button"
@@ -7047,30 +7303,62 @@ export default function WeekView({
             }}
           >
             <section className="wv-edm__stage">
+              {/* the post's own bar (bauhly-v3 `edm__postbar`): the themed note
+                  on the left, the versions + ⋯ on the right */}
               <div className="wv-edm__line">
+                {activeThemed ? (
+                  <p className="wv-edm__themenote">
+                    <Icon name="sparkle" size={13} strokeWidth={2} />
+                    <span className="wv-edm__themenote__t">Themed post · AI-generated edits</span>
+                  </p>
+                ) : <span className="wv-edm__linegap" />}
                 <div className="wv-edm__right">
-                <div className="wv-edm__hist">
-                  <button
-                    type="button"
-                    className="wv-edm__histbtn"
-                    onClick={undoElem}
-                    disabled={!elemHist.past.length || histLocked}
-                    aria-label="Undo"
-                    title="Undo (⌘Z)"
-                  >
-                    <Glyph name="undo-2" size={17} strokeWidth={2.2} />
-                  </button>
-                  <button
-                    type="button"
-                    className="wv-edm__histbtn"
-                    onClick={redoElem}
-                    disabled={!elemHist.future.length || histLocked}
-                    aria-label="Redo"
-                    title="Redo (⇧⌘Z)"
-                  >
-                    <Glyph name="redo-2" size={17} strokeWidth={2.2} />
-                  </button>
-                </div>
+                {activeThemed && (
+                  <span className="wv-edm__vers">
+                    <button
+                      type="button"
+                      className={`wv-edm__versbtn${versOpen ? ' is-on' : ''}`}
+                      aria-haspopup="menu"
+                      aria-expanded={versOpen}
+                      disabled={themeVersions.length < 2}
+                      aria-label="This post’s versions"
+                      title={themeVersions.length < 2 ? 'No other versions yet' : 'This post’s versions'}
+                      onClick={(e) => { e.stopPropagation(); if (themeVersions.length >= 2) setVersOpen((v) => !v); }}
+                    >
+                      <Icon name="layers" size={18} strokeWidth={1.9} />
+                    </button>
+                    {versOpen && (
+                      <div className="wv-reach wv-edm__versmenu" role="menu" aria-label="This post’s versions">
+                        <span className="wv-reach__q">This post&rsquo;s versions</span>
+                        <div className="wv-edm__shots">
+                          {themeVersions.map((v) => (
+                            <button
+                              key={v.key}
+                              type="button"
+                              role="menuitemradio"
+                              aria-checked={v.on}
+                              className={`wv-edm__shot${v.on ? ' is-on' : ''}`}
+                              title={v.on ? 'The slide as it is now' : `Go back to ${v.name}`}
+                              disabled={histLocked}
+                              onClick={() => { if (!v.on) pickThemeVersion(v.rec); setVersOpen(false); }}
+                            >
+                              <span className="wv-edm__shotpic" aria-hidden="true">
+                                {v.url ? <img src={v.url} alt="" loading="lazy" /> : null}
+                              </span>
+                              <span className="wv-edm__shotname">{v.name}</span>
+                              {v.on && (
+                                <span className="wv-edm__shoton">
+                                  <Icon name="check" size={10} strokeWidth={3} />
+                                  In use
+                                </span>
+                              )}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </span>
+                )}
                 <div className="wv-edm__morewrap">
                   <button
                     type="button"
@@ -7204,12 +7492,13 @@ export default function WeekView({
                             )}
                             {rgnTextOpen && (
                               <RegionTextPanel
-                                region={rgnRegion}
+                                region={rgnTextShown}
                                 palette={rgnPalette}
                                 busy={Boolean(rgnBusy)}
                                 change={heldNow?.change || null}
                                 onChange={(c) => holdChange(rgnRegion, c)}
                                 onClose={() => setRgnPick('')}
+                                onAsk={askRegionWords}
                               />
                             )}
                           </div>
@@ -7303,11 +7592,15 @@ export default function WeekView({
                   || (/^h[1-3]$/.test(askSel.tag || '') ? 'The headline'
                     : askSel.kind === 'text' ? 'The text' : 'The element'))
               : null;
+            // nothing selected, nothing pressed: the four slide ideas
+            // (bauhly-v3 `SLIDE_IDEAS`), which stand down while the field is focused
+            const ideas = !askSel && !askPath.length && !rgnOpen && heldList.length === 0;
             return (
-              <div className="wv-edm__ask" role="region" aria-label="Ask Bauhly">
+              <div className={`wv-edm__ask${ideas ? ' is-ideas' : ''}${askFocus ? ' is-footing' : ''}`} role="region" aria-label="Ask Bauhly">
                 <div className="wv-edm__askin">
                   {/* where the studio is: the subject, then each chip pressed
                       (bauhly-v3 `edm-trail`) — "The title › Write it again" */}
+                  {!ideas && !rgnTextOpen && !(askSel && !askPath.length) && (
                   <div className="wv-edm__asktop">
                   <p className="wv-edm__trail">
                     {rgnOpen ? (
@@ -7323,25 +7616,8 @@ export default function WeekView({
                     ))}
                   </p>
                   </div>
+                  )}
                   <div className="wv-edm__askrow">
-                    {askSel && (
-                    <button
-                      type="button"
-                      className="wv-edm__askclose"
-                      aria-label={askSel ? 'Deselect' : 'Hide suggestions'}
-                      title={askSel ? 'Deselect' : 'Hide'}
-                      disabled={askBusy}
-                      onMouseDown={(e) => {
-                        e.preventDefault();
-                        if (askBusy) return;
-                        setAskPath([]);
-                        if (askSel) elemApiRef.current?.deselect();
-                        else setAskOpen(false);
-                      }}
-                    >
-                      <Icon name="x" size={16} strokeWidth={2.4} />
-                    </button>
-                    )}
                     {askPath.length > 0 && (
                       <button
                         type="button"
@@ -7381,23 +7657,28 @@ export default function WeekView({
                       />
                     </div>
                     ) : rgnTextOpen ? (
-                    <div className="wv-edm__asktries" key={`rgn:${rgnRegion.id}`}>
-                      {REGION_TRIES.map((one, i) => {
-                        const on = (heldNow?.change?.asks || []).some((a) => a.say === one.say);
-                        return (
-                          <button
-                            key={one.say}
-                            type="button"
-                            className={`wv-edm__asktry${on ? ' is-on' : ''}`}
-                            aria-pressed={on}
-                            style={{ '--i': i }}
-                            disabled={Boolean(rgnBusy) || Boolean(heldNow?.change?.remove)}
-                            onMouseDown={(e) => { e.preventDefault(); toggleRegionAsk(one); }}
-                          >
-                            {one.say}
-                          </button>
-                        );
-                      })}
+                    // the text card carries its own tools and wand (bauhly-v3:
+                    // an open spot holds the row of ideas back)
+                    null
+                    ) : askSel && !askPath.length ? (
+                    // a selection carries its own bar (bauhly-v3: an element
+                    // picked holds the row of ideas back)
+                    null
+                    ) : ideas ? (
+                    <div className="wv-edm__asktries wv-edm__ideas" key="ideas">
+                      {SLIDE_IDEAS.map((one, i) => (
+                        <button
+                          key={one.id}
+                          type="button"
+                          className="wv-edm__asktry"
+                          style={{ '--i': i }}
+                          disabled={askBusy || Boolean(rgnBusy)}
+                          onMouseDown={(e) => { e.preventDefault(); runIdea(one); }}
+                        >
+                          {one.icon ? <Icon name={one.icon} size={14} strokeWidth={2} className="wv-edm__trymark" /> : null}
+                          {one.label}
+                        </button>
+                      ))}
                     </div>
                     ) : (
                     <div className="wv-edm__asktries" key={`${askKind}:${askSel?.path ?? ''}:${askPath.join('/')}`}>
@@ -7521,18 +7802,18 @@ export default function WeekView({
                         )}
                       </span>
                     )}
+                    {/* the open region as the field's subject (bauhly-v3
+                        `edm-cmd--slash edm-cmd--plain`): "Title /" */}
+                    {askSel && !rgnOpen && (
+                      <span className="wv-edm__lead">
+                        {String(subject || 'Text').replace(/^The /, '').replace(/^./, (c) => c.toUpperCase())}
+                        <i className="wv-edm__leadslash">/</i>
+                      </span>
+                    )}
                     {rgnOpen && (
-                      <span className="wv-edm__cmd">
+                      <span className="wv-edm__lead">
                         {openLabel}
-                        <button
-                          type="button"
-                          className="wv-edm__cmdx"
-                          aria-label={`Deselect the ${openLabel.toLowerCase()}`}
-                          disabled={Boolean(rgnBusy)}
-                          onMouseDown={(e) => { e.preventDefault(); setRgnPick(''); }}
-                        >
-                          <Icon name="x" size={12} strokeWidth={2.4} />
-                        </button>
+                        <i className="wv-edm__leadslash">/</i>
                       </span>
                     )}
                     {/* the chosen end of the branch rides in the field as a quick
@@ -7556,6 +7837,8 @@ export default function WeekView({
                       className="wv-edm__askinput"
                       value={askDraft}
                       onChange={(e) => setAskDraft(e.target.value)}
+                      onFocus={() => setAskFocus(true)}
+                      onBlur={() => setAskFocus(false)}
                       onKeyDown={(e) => {
                         // Backspace on an empty field steps back one chip
                         if (e.key === 'Backspace' && !askDraft && askPath.length) {
@@ -7563,7 +7846,7 @@ export default function WeekView({
                           setAskPath((was) => was.slice(0, -1));
                         }
                       }}
-                      placeholder={listening ? 'Listening…' : askHearing ? 'Writing down what you said…' : rgnOpen ? 'Say what else this should be' : askHint(askCtxNow, subject ? `What should change about ${subject.charAt(0).toLowerCase()}${subject.slice(1)}?` : 'Say what else this should be')}
+                      placeholder={listening ? 'Listening…' : askHearing ? 'Writing down what you said…' : rgnOpen ? `Change the ${openLabel.toLowerCase()}…` : askHint(askCtxNow, subject ? `What should change about ${subject.charAt(0).toLowerCase()}${subject.slice(1)}?` : 'Say what else this should be')}
                       maxLength={600}
                       disabled={askBusy}
                       aria-label="What should change"
@@ -7615,8 +7898,9 @@ export default function WeekView({
               run={runElem}
               swatches={elemSwatches}
               onAsk={() => openAsk()}
-              asking={askOpen}
               onImage={openImagePicker}
+              onClose={() => elemApiRef.current?.deselect()}
+              onRewrite={rewriteElemWords}
             />
           )}
         </div>,
