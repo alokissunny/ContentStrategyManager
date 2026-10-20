@@ -37,7 +37,8 @@ const AGENTS = {
     defaultProvider: 'openai',
     modelEnv: 'PLAN_LAYOUT_VARIATIONS_MODEL',
     providerEnv: 'PLAN_LAYOUT_VARIATIONS_PROVIDER',
-    defaultModel: 'gpt-5.6-terra',
+    // Editor mode: every edit runs on GPT-6 Luna (user, Oct 2026)
+    defaultModel: 'gpt-6-luna',
   },
   carousel: {
     defaultProvider: 'openai',
@@ -101,13 +102,22 @@ const AGENTS = {
     providerEnv: 'PLAN_REEL_CAPTIONS_PROVIDER',
     defaultModel: 'gpt-5.6-terra',
   },
-  // Editor mode's prompt edits: GPT-6 at low reasoning (effort set in
-  // llmComplete.reasoningEffortFor — PLAN_SLIDE_EDIT_REASONING_EFFORT).
+  // Editor mode's prompt edits (and the design chips): GPT-6 Luna at low
+  // reasoning (effort set in llmComplete.reasoningEffortFor —
+  // PLAN_SLIDE_EDIT_REASONING_EFFORT). Every Editor edit runs on Luna (user, Oct 2026).
   slideEdit: {
     defaultProvider: 'openai',
     modelEnv: 'PLAN_SLIDE_EDIT_MODEL',
     providerEnv: 'PLAN_SLIDE_EDIT_PROVIDER',
-    defaultModel: 'gpt-6-astra',
+    defaultModel: 'gpt-6-luna',
+  },
+  // Editor mode's word rewrites (a text block's wand, Edit caption's AI) —
+  // services/captionPolish.js
+  editWords: {
+    defaultProvider: 'openai',
+    modelEnv: 'PLAN_EDIT_WORDS_MODEL',
+    providerEnv: 'PLAN_EDIT_WORDS_PROVIDER',
+    defaultModel: 'gpt-6-luna',
   },
   // Editor mode › Slide › Add before/after: writes ONE new slide from the
   // studio's capture + the full strategy, in the carousel's own design.
@@ -115,7 +125,7 @@ const AGENTS = {
     defaultProvider: 'openai',
     modelEnv: 'PLAN_ADD_SLIDE_MODEL',
     providerEnv: 'PLAN_ADD_SLIDE_PROVIDER',
-    defaultModel: 'gpt-6-astra',
+    defaultModel: 'gpt-6-luna',
   },
   reelAnimations: {
     defaultProvider: 'openai',

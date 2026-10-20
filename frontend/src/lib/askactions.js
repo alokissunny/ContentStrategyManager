@@ -1962,8 +1962,10 @@ export const askReady = (ctx, typed = '') => {
  * have just looked at. A press sends `say` for the slide on screen; `icon`
  * marks the one chip that asks Bauhly to decide. */
 export const SLIDE_IDEAS = [
-  { id: 'idea-improve', label: 'Improve design', say: 'Improve the design of this slide', icon: 'sparkle', idea: true },
-  { id: 'idea-read', label: 'Make it easier to read', say: 'Make this slide easier to read', idea: true },
+  // `mode`: the backend's own prompt for the chip (prompts/slide-improve-design.md,
+  // prompts/slide-easier-to-read.md)
+  { id: 'idea-improve', label: 'Improve design', say: 'Improve the design of this slide', icon: 'sparkle', idea: true, mode: 'improve-design' },
+  { id: 'idea-read', label: 'Make it easier to read', say: 'Make this slide easier to read', idea: true, mode: 'easier-to-read' },
   { id: 'idea-air', label: 'More breathing room', say: 'Give this slide more breathing room', idea: true },
   { id: 'idea-impact', label: 'More visual impact', say: 'Give this slide more visual impact', idea: true },
 ];

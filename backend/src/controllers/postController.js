@@ -1186,6 +1186,8 @@ async function refinePost(req, res) {
       intent: req.body?.intent && typeof req.body.intent === 'object' ? req.body.intent : null,
       // a picture made by this edit matches the slide's theme
       visualTheme: await visualThemeForPost(record, Number(req.body?.visualSlideIndex) || Number(req.body?.slideIndex) || Number(req.body?.focus?.slideIndex) || 1),
+      // Editor › "Improve design": its own refine-don't-redesign prompt
+      mode: require('../services/slideEditAgent').designModeOf(req.body?.mode) || 'edit',
       debug: steps,
     });
 
@@ -1240,6 +1242,7 @@ async function refinePost(req, res) {
     return res.json({
       post: record,
       changed: out.changed,
+      ...(out.note ? { note: out.note } : {}),
       visual: out.visual
         ? (out.visual.ok
           ? { ok: true, key: out.visual.key, src: out.visual.src, alt: out.visual.alt, placement: out.visual.placement, placed: out.visual.placed }
@@ -1252,6 +1255,7 @@ async function refinePost(req, res) {
     console.error('[posts] carousel refine failed:', err.message);
     return res.status(status).json({
       message: err.message || 'Could not refine this carousel.',
+      ...(err.unchanged ? { unchanged: true } : {}),
       ...debugOf({ error: err.message }),
     });
   }
@@ -2475,8 +2479,26 @@ async function runThemeApplyRequest(req, res) {
   const own = `projects/${req.user._id}/`;
   // Image 2: an uploaded photo (Upload a reference) or a library theme's
   // example board (Choose from library, backend/assets/carousel-themes)
-  const referenceImageKey = String(req.body?.referenceImageKey || '').trim();
-  const themeId = String(req.body?.themeId || '').trim();
+  let referenceImageKey = String(req.body?.referenceImageKey || '').trim();
+  let themeId = String(req.body?.themeId || '').trim();
+  // Editor › "Improve design" on a themed slide: the slide's base design (the
+  // HTML under the picture) goes through the Improve design agent, then is
+  // repainted with the reference it was themed with (its last Theme Apply run)
+  // `designMode`: which chip ('improve-design' | 'easier-to-read'); `improveDesign: true` = improve-design
+  const { DESIGN_MODES, designModeOf } = require('../services/slideEditAgent');
+  const designMode = designModeOf(req.body?.designMode) || (req.body?.improveDesign ? 'improve-design' : '');
+  const improveDesign = Boolean(designMode);
+  let improveColors = {};
+  if (improveDesign && !referenceImageKey && !themeId) {
+    const one = Number((Array.isArray(req.body?.slideIndexes) ? req.body.slideIndexes : [req.body?.slideIndex])[0]) || 0;
+    const runs = Array.isArray(record.agentTrace?.themeApply) ? record.agentTrace.themeApply : [];
+    const run = [...runs].reverse().find((r) => (r?.slides || []).some((sl) => Number(sl?.index) === one));
+    referenceImageKey = String(run?.referenceKey || '').trim();
+    themeId = referenceImageKey ? '' : String(run?.referenceTheme?.id || '').trim();
+    const was = (run?.slides || []).find((sl) => Number(sl?.index) === one);
+    if (was?.brandColors) improveColors = { [one]: was.brandColors };
+    if (!referenceImageKey && !themeId) return res.status(409).json({ message: 'This slide\'s theme run is no longer saved — re-apply its theme from Themes, then try again.' });
+  }
   const libraryTheme = !referenceImageKey && themeId ? themeById(themeId) : null;
   if (referenceImageKey && !referenceImageKey.startsWith(own)) return res.status(400).json({ message: 'Invalid reference image.' });
   if (!referenceImageKey && !libraryTheme) return res.status(400).json({ message: themeId ? 'That theme is not in the library.' : 'Choose a theme or upload a reference.' });
@@ -2520,7 +2542,7 @@ async function runThemeApplyRequest(req, res) {
 
 
   // the Brand Kit colour set the studio chose for each slide ({ [index]: { name, ground, fg, accent } })
-  const brandColors = req.body?.brandColors && typeof req.body.brandColors === 'object' ? req.body.brandColors : {};
+  const brandColors = req.body?.brandColors && typeof req.body.brandColors === 'object' ? req.body.brandColors : improveColors;
   // Design Rules agent: the reference's visual design rules, typography
   // included — read once for every slide (a library theme's are cached)
   // a reference applied before (Your references) brings its saved rules along
@@ -2549,13 +2571,66 @@ async function runThemeApplyRequest(req, res) {
     return String(curParsed.slides.find((x) => x.index === idx)?.html || '');
   };
 
+  // Improve design: the base document the improved articles are written back
+  // into (agentTrace.preTheme, so later re-themes and Remove theme use them)
+  let improvedPreDoc = improveDesign && hasBaseDesign ? String(pre.carouselHtml) : '';
+  const improved = {};
+  const improveCtx = improveDesign ? {
+    brand: compileBrandMemory(await loadBrandDna(req.user._id, record.instagramUsername).catch(() => null)),
+    strategy: plainOf(record.agentTrace?.strategyBrief) || null,
+  } : null;
+  const improveBase = async (idx) => {
+    if (!hasBaseDesign || !hasAppliedTheme(stored[idx - 1])) {
+      throw new Error(`Slide ${idx}'s original design is not saved — Remove theme or Fix layout, then theme it again.`);
+    }
+    const { sectionsOf, indexOf, stylesOf } = require('../services/themeMerge');
+    const { extractHtmlDocument } = require('../services/layoutHtml');
+    const { editSlideHtml } = require('../services/slideEditAgent');
+    const preDoc = extractHtmlDocument(improvedPreDoc);
+    const article = sectionsOf(preDoc).flatMap((sec) => sec.articles).find((a) => indexOf(a) === idx);
+    if (!article) throw new Error(`The saved design has no slide ${idx}.`);
+    const rec = stored[idx - 1] || {};
+    const r = await editSlideHtml({
+      mode: designMode,
+      instruction: designMode === 'easier-to-read' ? 'Make this slide easier to read' : 'Improve the design of this slide',
+      html: article,
+      strategy: improveCtx.strategy,
+      brand: improveCtx.brand,
+      slide: { index: idx, count: stored.length, role: rec.role, purpose: rec.purpose || rec.contentGuidance },
+      slideCss: stylesOf(preDoc).join('\n').slice(0, 16000),
+    });
+    const debugEntry = {
+      source: `ThemeApply:${DESIGN_MODES[designMode].label} (slide ${idx})`,
+      model: r.model,
+      prompt: r.prompt,
+      output: r.output,
+      elapsedMs: r.elapsedMs,
+      usage: r.usage,
+      ...r.usage,
+      inputHtml: { label: `Slide ${idx} base design (before)`, html: article },
+    };
+    if (r.unchanged) return { unchanged: true, note: r.note || DESIGN_MODES[designMode].unchanged, debugEntry };
+    if (!improvedPreDoc.includes(article)) throw new Error(`Slide ${idx}'s saved design could not be updated.`);
+    improvedPreDoc = improvedPreDoc.replace(article, r.html);
+    preParsed = null;
+    return { note: r.note || '', debugEntry, usage: r.usage };
+  };
+
   const results = {};
   const queue = [...indexes];
   const worker = async () => {
     while (queue.length) {
       const idx = queue.shift();
       try {
-        const slideHtml = slideHtmlOf(idx);
+        if (improveDesign) {
+          // eslint-disable-next-line no-await-in-loop
+          const imp = await improveBase(idx);
+          improved[idx] = imp;
+          if (imp.unchanged) { results[idx] = { unchanged: true }; continue; }
+        }
+        const slideHtml = improveDesign
+          ? String(parseCarouselDocument(improvedPreDoc, stored.length).slides.find((x) => x.index === idx)?.html || '')
+          : slideHtmlOf(idx);
         if (!slideHtml) {
           throw new Error(hasAppliedTheme(stored[idx - 1])
             ? `Slide ${idx}'s original design is no longer saved for this many slides — Remove theme or Fix layout, then theme it again.`
@@ -2615,10 +2690,12 @@ async function runThemeApplyRequest(req, res) {
   };
   await Promise.all(Array.from({ length: Math.min(THEME_IMAGE_CONCURRENCY, indexes.length) }, worker));
 
-  const done = indexes.filter((i) => results[i] && !results[i].error);
-  const failed = indexes.filter((i) => !done.includes(i)).map((i) => ({ index: i, message: results[i]?.error || 'failed' }));
+  const done = indexes.filter((i) => results[i] && !results[i].error && !results[i].unchanged);
+  const failed = indexes.filter((i) => !done.includes(i) && !results[i]?.unchanged).map((i) => ({ index: i, message: results[i]?.error || 'failed' }));
+  const improveNote = Object.values(improved).map((x) => x?.note).filter(Boolean).join(' ');
   // the whole run for the summary row: every call's tokens and cost, wall time
-  const runRows = [...done.map((i) => results[i].usage), designRules && !designRules.cached ? designRules.usage : null].filter(Boolean);
+  const runRows = [...done.map((i) => results[i].usage), designRules && !designRules.cached ? designRules.usage : null,
+    ...Object.values(improved).map((x) => x?.debugEntry?.usage)].filter(Boolean);
   const runUsage = runRows.reduce((acc, u) => ({
     inputTokens: acc.inputTokens + (Number(u.inputTokens) || 0),
     outputTokens: acc.outputTokens + (Number(u.outputTokens) || 0),
@@ -2635,6 +2712,7 @@ async function runThemeApplyRequest(req, res) {
       usage: runUsage,
       agents: [
         ...regionRows,
+        ...Object.values(improved).map((x) => x?.debugEntry).filter(Boolean),
         ...(designRules ? [{
           source: `ThemeApply:design rules${designRules.cached ? ' (cached)' : ''}`,
           model: designRules.model,
@@ -2658,6 +2736,10 @@ async function runThemeApplyRequest(req, res) {
     },
   } : {});
   if (!done.length) {
+    // Improve design left a balanced slide alone — an answer, not a failure
+    if (improveDesign && !failed.length) {
+      return res.status(422).json({ unchanged: true, message: improveNote || DESIGN_MODES[designMode].unchanged, ...debugOf() });
+    }
     return res.status(502).json({ message: failed[0]?.message || 'Could not apply the reference.', failed, ...debugOf() });
   }
   // an uploaded reference joins the studio's library (Choose from library ›
@@ -2716,9 +2798,13 @@ async function runThemeApplyRequest(req, res) {
     // the carousel agent's design, kept for Themes › Remove theme: taken when
     // the post is not themed yet — a second theme keeps the original snapshot
     const themedBefore = stored.some(hasAppliedTheme);
-    const preTheme = themedBefore
+    let preTheme = themedBefore
       ? (trace.preTheme || null)
       : { at: new Date().toISOString(), carouselHtml: curDoc, themeId: current.themeId || '', slides: stored.map(preThemeSlide) };
+    // Improve design: the improved base design is the slide's design from now on
+    if (improveDesign && preTheme && improvedPreDoc && done.some((i) => improved[i] && !improved[i].unchanged)) {
+      preTheme = { ...preTheme, carouselHtml: improvedPreDoc };
+    }
     record.content = { ...current, ...next, slides: next.slides, carouselHtml: doc };
     // a library theme on every slide is the post's theme (the library marks it)
     if (libraryTheme && done.length === stored.length) record.content.themeId = libraryTheme.id;
@@ -2764,6 +2850,7 @@ async function runThemeApplyRequest(req, res) {
     return res.json({
       post: record,
       applied: done.map((i) => ({ index: i, key: results[i].key, src: results[i].src })),
+      ...(improveDesign ? { improved: true, designMode, note: improveNote } : {}),
       ...(savedRef ? { reference: { id: String(savedRef._id), key: savedRef.key, name: savedRef.name || 'Your reference' } } : {}),
       failed,
       ...debugOf(),

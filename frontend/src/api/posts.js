@@ -380,8 +380,8 @@ const THEME_POLL_GIVE_UP_MS = 20 * 60 * 1000;
 const THEME_POLL_OFFLINE_MS = 3 * 60 * 1000;
 const pause = (ms) => new Promise((r) => { setTimeout(r, ms); });
 
-export async function applyThemeImage(id, { referenceImageKey, referenceName, themeId, slideIndexes, brandColors } = {}) {
-  const label = `Theme Apply agent — ${slideIndexes?.length === 1 ? `slide ${slideIndexes[0]}` : `${slideIndexes?.length || 0} slides`}`;
+export async function applyThemeImage(id, { referenceImageKey, referenceName, themeId, slideIndexes, brandColors, designMode } = {}) {
+  const label = `${designMode ? `${designMode === 'easier-to-read' ? 'Easier to read' : 'Improve design'} + Theme Apply` : 'Theme Apply agent'} — ${slideIndexes?.length === 1 ? `slide ${slideIndexes[0]}` : `${slideIndexes?.length || 0} slides`}`;
   const fail = (data, message) => {
     if (data?.debug) ingestPlanDebug(label, data);
     const err = new Error(message || data?.message || 'Theme Apply failed.');
@@ -390,7 +390,7 @@ export async function applyThemeImage(id, { referenceImageKey, referenceName, th
   };
   let started;
   try {
-    started = await client.post(`/posts/${id}/theme-image`, { referenceImageKey, referenceName, themeId, slideIndexes, brandColors, async: true }, { timeout: 60000 });
+    started = await client.post(`/posts/${id}/theme-image`, { referenceImageKey, referenceName, themeId, slideIndexes, brandColors, ...(designMode ? { designMode } : {}), async: true }, { timeout: 60000 });
   } catch (err) {
     const data = err?.response?.data;
     if (data?.debug) ingestPlanDebug(label, data);
@@ -452,14 +452,14 @@ export function readComposition(imageKey) {
   return client.post('/posts/composition/read', { imageKey }, { timeout: 60000 }).then((res) => res.data || {});
 }
 
-export function refinePost(id, { instruction, slideIndex, focus, current, visual, visualSlideIndex, layoutIssues, geometry, slideCss, intent } = {}) {
+export function refinePost(id, { instruction, slideIndex, focus, current, visual, visualSlideIndex, layoutIssues, geometry, slideCss, intent, mode } = {}) {
   // one debug-panel group per edit: every step's input and output, then a
   // summary row with the instruction — on failure too
   const label = layoutIssues?.length
     ? `Prompt edit — layout repair (${layoutIssues.length} problem${layoutIssues.length === 1 ? '' : 's'})`
     : `Prompt edit — “${String(instruction || '').slice(0, 60)}${String(instruction || '').length > 60 ? '…' : ''}”`;
   return client
-    .post(`/posts/${id}/refine`, { instruction, slideIndex, focus, current, visual, visualSlideIndex, layoutIssues, geometry, slideCss, intent }, { timeout: 540000 })
+    .post(`/posts/${id}/refine`, { instruction, slideIndex, focus, current, visual, visualSlideIndex, layoutIssues, geometry, slideCss, intent, ...(mode ? { mode } : {}) }, { timeout: 540000 })
     .then((res) => {
       const data = res.data || {};
       ingestPlanDebug(label, data);

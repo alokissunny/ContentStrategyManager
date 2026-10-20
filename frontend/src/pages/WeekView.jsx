@@ -4380,6 +4380,7 @@ export default function WeekView({
         visual: wantsPicture ? true : undefined,
         visualSlideIndex: activeIdx,
         intent,
+        mode: preset?.mode,
         geometry,
         slideCss,
         current: { carouselHtml, direction: activeDir, slides: slidesRef },
@@ -4446,12 +4447,16 @@ export default function WeekView({
             : `Added a new visual${changed > 1 ? ` · ${changed} slides updated` : ''}.`)
           : v && !v.ok
             ? `Could not make a visual${v.reason ? ` (${v.reason})` : ''} — the slide was updated without one.`
-            : `${changed === 1 ? 'Slide updated' : `${changed} slides updated`}${addedPic ? ' — added a picture spot; fill it with Project photos.' : '.'}`) + layoutNote,
+            : (data?.note
+              // Improve design says what it changed, in one sentence
+              ? String(data.note)
+              : `${changed === 1 ? 'Slide updated' : `${changed} slides updated`}${addedPic ? ' — added a picture spot; fill it with Project photos.' : '.'}`)) + layoutNote,
       });
     } catch (err) {
       const timedOut = err?.code === 'ECONNABORTED' || /timeout/i.test(String(err?.message || ''));
       setAskMsg({
-        tone: 'err',
+        // Improve design leaving a balanced slide alone is an answer, not a failure
+        tone: err?.response?.data?.unchanged ? 'ok' : 'err',
         text: timedOut
           ? 'Bauhly took too long — try again.'
           : (err?.response?.data?.message || err?.message || 'Bauhly could not change this carousel.'),
@@ -5813,8 +5818,45 @@ export default function WeekView({
   // Slide Edit agent like a typed ask.
   function runIdea(one) {
     if (askBusy || rgnBusy || !day) return;
+    if (activeThemed && one.mode) { improveThemedSlide(safeIdx, one.mode); return; }
     if (activeThemed) { relayoutThemed([safeIdx], one.say); return; }
-    sendAsk(false, { instruction: one.say });
+    sendAsk(false, { instruction: one.say, mode: one.mode });
+  }
+  // "Improve design" / "Make it easier to read" on a theme picture: the server
+  // edits the slide's base design (the HTML under the picture, with that chip's
+  // prompt) and repaints it with the reference the slide was themed with
+  async function improveThemedSlide(i, mode) {
+    const postId = postIdAt(selected);
+    if (!postId || rgnBusy) return;
+    setAskMsg(null);
+    setRgnPick('');
+    setRgnBusy('text');
+    setRgnSending(mode === 'easier-to-read' ? 'Making it easier to read, then repainting the theme…' : 'Improving the design, then repainting the theme…');
+    const was = day;
+    try {
+      const d = await applyThemeImage(postId, { slideIndexes: [i + 1], designMode: mode });
+      (d?.applied || []).forEach((a) => { if (a?.key && a?.src) rememberImage(a.key, a.src, { skipGen: true }); });
+      if (d?.post) {
+        const r = mergePost(d.post);
+        if (r) { setRoute(r); onRouteChange?.(r); setSlideGen((n) => n + 1); }
+        pushPostStep(was, d.post, [i], { snap: true });
+        // a repainted picture is kept, as region edits are: Cancel does not undo it
+        const snap = editSnapRef.current;
+        const fresh = deriveSlides(d.post)[i];
+        if (snap && snap.dayIndex === selected && Array.isArray(snap.slides) && snap.slides[i] && fresh) {
+          snap.slides[i] = JSON.parse(JSON.stringify(fresh));
+          snap.docHtml = carouselDocumentOf(d.post);
+        }
+      }
+      if (d?.failed?.length) setAskMsg({ tone: 'err', text: d.failed[0].message || 'Could not improve this slide.' });
+      else setAskMsg({ tone: 'ok', text: d?.note || (mode === 'easier-to-read' ? 'Made easier to read and theme re-applied.' : 'Design improved and theme re-applied.') });
+    } catch (err) {
+      const data = err?.response?.data;
+      setAskMsg({ tone: data?.unchanged ? 'ok' : 'err', text: data?.message || err?.message || 'Could not improve this slide.' });
+    } finally {
+      setRgnBusy('');
+      setRgnSending('');
+    }
   }
   useEffect(() => {
     if (!postEdit || !activeThemed || !themedKey) { setRgnMap(null); return undefined; }

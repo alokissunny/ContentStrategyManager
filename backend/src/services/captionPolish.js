@@ -1,5 +1,4 @@
 const getAnthropicClient = require('./anthropicClient');
-const getOpenAIClient = require('./openaiClient');
 
 const SYSTEM_CAPTION = `You rewrite Instagram captions for a studio using Bauhly.
 
@@ -35,10 +34,6 @@ function anthropicModel() {
 }
 function openaiModel() {
   return process.env.OPENAI_MODEL || process.env.COMPETITOR_MODEL || 'gpt-4.1-mini';
-}
-
-function usesCompletionTokens(model) {
-  return /gpt-5|terra|o3|o4/i.test(String(model || ''));
 }
 
 function cleanCaption(text) {
@@ -86,21 +81,22 @@ async function completeAnthropic(user, kind) {
   return { text, model };
 }
 
+// Editor edits run on GPT-6 Luna (planAgentLlm `editWords`, PLAN_EDIT_WORDS_MODEL)
+// through the shared completeText, which sends GPT-6's reasoning params.
 async function completeOpenAI(user, kind) {
-  const model = openaiModel();
-  const messages = [
-    { role: 'system', content: kind === 'words' ? SYSTEM_WORDS : SYSTEM_CAPTION },
-    { role: 'user', content: user },
-  ];
-  const tokenArg = usesCompletionTokens(model)
-    ? { max_completion_tokens: 800 }
-    : { max_tokens: 800 };
-  const response = await getOpenAIClient().chat.completions.create({
+  const { resolvePlanAgentLlm } = require('./planAgentLlm');
+  const { completeText } = require('./llmComplete');
+  const llm = resolvePlanAgentLlm('editWords');
+  const model = llm.provider === 'openai' ? llm.model : openaiModel();
+  const response = await completeText({
     model,
-    messages,
-    ...tokenArg,
+    system: kind === 'words' ? SYSTEM_WORDS : SYSTEM_CAPTION,
+    user,
+    maxTokens: 2000,
+    kind: 'slideEdit',
+    timeoutMs: 60000,
   });
-  return { text: response.choices?.[0]?.message?.content || '', model };
+  return { text: response.text || '', model: response.model || model };
 }
 
 async function rewriteCaption({ caption, instruction, context, kind = 'caption' } = {}) {

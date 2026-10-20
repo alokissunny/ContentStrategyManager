@@ -15,7 +15,7 @@
  * pictures are re-read in slot order.
  */
 const { generateRequestedVisual, requestedVisualAvailable } = require('./planOrchestrator');
-const { editSlideHtml } = require('./slideEditAgent');
+const { editSlideHtml, DESIGN_MODES, designModeOf } = require('./slideEditAgent');
 const { planIntent, focusedImage, swapFocusedImage, attrOf, PERSPECTIVE_PROMPT } = require('./slideActions');
 const { editImage } = require('./openaiImage');
 const { persistGeneratedImage } = require('./generatedImage');
@@ -220,6 +220,7 @@ function previewOf(composed, slides) {
 async function refineCarouselFromEdits({
   userId, handle, label, instruction, slideIndex, focus, current, brand,
   visual: visualFlag, visualSlideIndex, slideRecords, strategy, layoutIssues, geometry, slideCss, debug, intent, visualTheme,
+  mode = 'edit',
 }) {
   const t0 = Date.now();
   // the chip path that was pressed (Editor chat) — a precise brief for the
@@ -244,7 +245,10 @@ async function refineCarouselFromEdits({
     return (slides[i]?.assetKeys || []).filter((k) => String(k).startsWith(own));
   };
   const pictureOp = (plan.op === 'replace' || plan.op === 'perspective') ? plan.op : '';
-  const wantsVisual = !pictureOp && (plan.op === 'add' || asksForVisual(ask, visualFlag));
+  // one of the Editor's design chips (Improve design, Make it easier to read)
+  const design = designModeOf(mode);
+  const improving = Boolean(design);
+  const wantsVisual = !improving && !pictureOp && (plan.op === 'add' || asksForVisual(ask, visualFlag));
   logStep(debug, {
     source: 'Prompt edit · request',
     prompt: {
@@ -440,9 +444,10 @@ async function refineCarouselFromEdits({
         // measured on the active slide only — the one the editor is drawing
         geometry: a.index === (target || visualAt || Number(focus?.slideIndex) || 0) ? geometry : null,
         slideCss: a.index === (target || visualAt || Number(focus?.slideIndex) || 0) ? slideCss : '',
+        mode: design || 'edit',
       });
       logStep(debug, {
-        source: `Prompt edit · Slide edit agent (slide ${a.index})${Array.isArray(layoutIssues) && layoutIssues.length ? ' · layout repair' : ''}`,
+        source: `Prompt edit · ${improving && !(Array.isArray(layoutIssues) && layoutIssues.length) ? DESIGN_MODES[design].label : 'Slide edit agent'} (slide ${a.index})${Array.isArray(layoutIssues) && layoutIssues.length ? ' · layout repair' : ''}`,
         model: r.model,
         prompt: r.prompt,
         output: r.staticIssues?.length
@@ -452,7 +457,7 @@ async function refineCarouselFromEdits({
         usage: r.usage,
         preview: previewOf(composed, [{ index: a.index, before: a.html, after: r.html }]),
       });
-      return { index: a.index, html: r.html, unchanged: r.unchanged, model: r.model, usage: r.usage };
+      return { index: a.index, html: r.html, unchanged: r.unchanged, note: r.note || '', model: r.model, usage: r.usage };
     } catch (e) {
       logStep(debug, {
         source: `Prompt edit · Slide edit agent (slide ${a.index})`,
@@ -468,6 +473,11 @@ async function refineCarouselFromEdits({
   const done = edited.filter((x) => x.html && !x.unchanged);
   if (!done.length) {
     const firstErr = edited.find((x) => x.error)?.error;
+    if (!firstErr && improving) {
+      const e = err(422, edited.find((x) => x.note)?.note || DESIGN_MODES[design].unchanged);
+      e.unchanged = true;
+      throw e;
+    }
     throw firstErr || err(422, 'That would leave the slide as it is — try saying it another way.');
   }
   const byIndex = new Map(done.map((x) => [x.index, x.html]));
@@ -508,6 +518,7 @@ async function refineCarouselFromEdits({
     changed,
     slideKeys,
     visual,
+    note: done.map((x) => x.note).filter(Boolean).join(' '),
     model: done[0]?.model || '',
     usage: done.reduce((acc, x) => ({
       totalTokens: acc.totalTokens + (Number(x.usage?.totalTokens) || 0),

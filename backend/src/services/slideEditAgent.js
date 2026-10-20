@@ -20,11 +20,39 @@ const path = require('path');
 const { completeText, resolvePlanAgentLlm, splitPromptTemplate } = require('./llmComplete');
 const { estimatePlanCostUsd } = require('./weeklyPlan');
 
-const PROMPT_FILE = path.join(__dirname, '..', '..', 'prompts', 'slide-edit.md');
-let template = null;
-function promptParts() {
-  if (!template) template = splitPromptTemplate(fs.readFileSync(PROMPT_FILE, 'utf8'));
-  return template;
+// `mode`: one of the Editor's design chips, each with its own refine-don't-
+// redesign prompt; anything else = the general slide edit (slide-edit.md).
+// `unchanged` is what the chip says when the slide needs nothing; `already`
+// spots that sentence when it comes back on its own.
+const DESIGN_MODES = {
+  'improve-design': {
+    file: 'slide-improve-design.md',
+    label: 'Improve design agent',
+    unchanged: 'The design already looks balanced and readable.',
+    already: /already looks balanced/i,
+  },
+  'easier-to-read': {
+    file: 'slide-easier-to-read.md',
+    label: 'Easier to read agent',
+    unchanged: 'The slide is already easy to read.',
+    already: /already easy to read/i,
+  },
+};
+const designModeOf = (mode) => (DESIGN_MODES[mode] ? mode : '');
+const templates = {};
+function promptParts(mode = '') {
+  const file = DESIGN_MODES[mode]?.file || 'slide-edit.md';
+  if (!templates[file]) templates[file] = splitPromptTemplate(fs.readFileSync(path.join(__dirname, '..', '..', 'prompts', file), 'utf8'));
+  return templates[file];
+}
+// a design chip explains itself in <!-- <mode>: … --> — read it, drop it
+function takeModeNote(html, mode) {
+  const tag = mode.replace(/[^a-z-]/g, '');
+  const m = String(html || '').match(new RegExp(`<!--\\s*${tag}:?([\\s\\S]*?)-->`, 'i'));
+  return {
+    note: m ? m[1].trim() : '',
+    html: String(html || '').replace(new RegExp(`<!--\\s*${tag}[\\s\\S]*?-->\\s*`, 'gi'), ''),
+  };
 }
 
 // ── compact context ───────────────────────────────────────────────────────
@@ -186,7 +214,7 @@ function indexAttr(article) {
  * @param {object} [geometry]     the slide as rendered: { width, height, runs:[{slot, font, lines, box}], images }
  * @param {string} [slideCss]     the theme CSS rules that apply to this slide (read-only)
  */
-async function editSlideHtml({ instruction, html, newPicture, otherSlides, strategy, brand, slide, layoutIssues, geometry, slideCss } = {}) {
+async function editSlideHtml({ instruction, html, newPicture, otherSlides, strategy, brand, slide, layoutIssues, geometry, slideCss, mode = 'edit' } = {}) {
   const ask = String(instruction || '').trim();
   if (!ask) throw err(400, 'Say what should change.');
   // the studio's words are capped at 800 upstream; the pressed chip's brief rides on top
@@ -215,7 +243,10 @@ async function editSlideHtml({ instruction, html, newPicture, otherSlides, strat
   const others = (Array.isArray(otherSlides) ? otherSlides : []).map((s) => String(s || '').trim()).filter(Boolean);
   if (others.length) lines.push(`THE CAROUSEL'S SLIDES, IN ORDER (context only):\n${others.map((s, i) => `${i + 1}. ${s.slice(0, 140)}`).join('\n')}`);
 
-  const { system, userTemplate } = promptParts();
+  // a repair pass (measured problems) always uses the general edit prompt
+  const design = measured.length ? '' : designModeOf(mode);
+  const improving = Boolean(design);
+  const { system, userTemplate } = promptParts(design);
   const ctx = [];
   if (slide?.index) ctx.push(`Slide ${slide.index}${slide.count ? ` of ${slide.count}` : ''}${slide.index === slide.count && slide.count > 1 ? ' (final slide)' : ''}${slide.index === 1 ? ' (hook)' : ''}`);
   if (slide?.role) ctx.push(`Role: ${clip(slide.role, 60)}`);
@@ -243,7 +274,7 @@ async function editSlideHtml({ instruction, html, newPicture, otherSlides, strat
       user: attempt === 1 ? user : `${user}\n\n${retryNote}`,
       maxTokens,
       kind: 'slideEdit',
-      cacheKey: 'igsignal-slide-edit',
+      cacheKey: improving ? `igsignal-slide-${design}` : 'igsignal-slide-edit',
       timeoutMs: 90000,
     });
     const inputTokens = (last?.usage?.inputTokens || 0) + (Number(res.usage?.input_tokens) || 0);
@@ -259,13 +290,23 @@ async function editSlideHtml({ instruction, html, newPicture, otherSlides, strat
         estimatedCostUsd: estimatePlanCostUsd(res.model, inputTokens, outputTokens, cached),
       },
     };
-    const next = sanitizeArticle(res.text);
+    const taken = improving ? takeModeNote(sanitizeArticle(res.text), design) : { html: sanitizeArticle(res.text), note: '' };
+    const next = taken.html;
+    const note = improving ? (taken.note || (DESIGN_MODES[design].already.test(res.text) ? DESIGN_MODES[design].unchanged : '')) : '';
+    // "already balanced" may come back as the sentence alone — that is the slide as it is
+    if (improving && !next && note) {
+      return {
+        html: sanitizeArticle(source), unchanged: true, note, model: res.model, prompt: `${system}\n\n${user}`,
+        output: res.text, usage: last.usage, elapsedMs: Date.now() - started, attempts: attempt, staticIssues: [],
+      };
+    }
     const idx = indexAttr(source);
     if (next && (idx == null || indexAttr(next) === idx) && res.stopReason !== 'max_tokens') {
       const issues = staticLayoutIssues(next, source);
       const done = {
         html: next,
         unchanged: next.replace(/\s+/g, ' ') === sanitizeArticle(source).replace(/\s+/g, ' '),
+        note,
         model: res.model,
         prompt: `${system}\n\n${user}`,
         output: res.text,
@@ -287,4 +328,4 @@ async function editSlideHtml({ instruction, html, newPicture, otherSlides, strat
   throw e;
 }
 
-module.exports = { editSlideHtml, sanitizeArticle, compactStrategy, compactBrandVoice, staticLayoutIssues };
+module.exports = { DESIGN_MODES, designModeOf, editSlideHtml, sanitizeArticle, compactStrategy, compactBrandVoice, staticLayoutIssues };
