@@ -520,6 +520,10 @@ async function callAgent({ source, kind, prompt, system, user, image, images, va
     kb: Math.round((String(firstImage.data).length * 3) / 4 / 1024),
     ...(imageList.length > 1 ? { count: imageList.length } : {}),
   } : null;
+  // every stored photo sent with the call (by key) — thumbnails in the debug panel
+  const inputAssets = imageList
+    .filter((img) => img.debug?.key)
+    .map((img, i) => ({ label: `Image ${i + 1} · ${img.debug.key.split('/').pop()}`, key: img.debug.key }));
   const started = Date.now();
   const sectionDir = String(htmlDirection || 'architectural-minimal').trim() || 'architectural-minimal';
 
@@ -544,7 +548,7 @@ async function callAgent({ source, kind, prompt, system, user, image, images, va
     });
     const fullText = response.text || '';
     const usage = usageOf(response, model);
-    const debugEntry = { source, model, provider: llm.provider, prompt: debugPrompt, kind, ...(inputImage ? { inputImage } : {}) };
+    const debugEntry = { source, model, provider: llm.provider, prompt: debugPrompt, kind, ...(inputImage ? { inputImage } : {}), ...(inputAssets.length ? { inputAssets } : {}) };
 
     if (response.stopReason === 'max_tokens') {
       lastErr = new Error(`${source} response truncated (max_tokens=${maxTokens})`);
@@ -2448,6 +2452,44 @@ function runLayoutForPost(opts) {
   return writeLayout(opts);
 }
 
+// The photos the strategy picked for this post (allocatedVisuals + each
+// slide's visual.assetKey), attached to the carousel agent as images so it
+// lays text out around the real subject. CAROUSEL_PHOTOS=0 = off,
+// CAROUSEL_PHOTO_MAX (default 6).
+async function carouselPhotosOf(carouselInput) {
+  if (process.env.CAROUSEL_PHOTOS === '0') return { images: [], note: '' };
+  const onSlides = new Map();
+  const add = (key, idx) => {
+    const k = optionalText(key);
+    if (!k) return;
+    if (!onSlides.has(k)) onSlides.set(k, []);
+    if (idx && !onSlides.get(k).includes(idx)) onSlides.get(k).push(idx);
+  };
+  (carouselInput?.slides || []).forEach((sl, i) => add(sl?.visual?.assetKey, Number(sl?.index) || i + 1));
+  (carouselInput?.allocatedVisuals || []).forEach((a) => add(a?.key, 0));
+  if (!onSlides.size) return { images: [], note: '' };
+  const max = Math.max(0, Number(process.env.CAROUSEL_PHOTO_MAX ?? 6) || 0);
+  const photos = await loadVisionPhotos([...onSlides.keys()].slice(0, max), 'Carousel');
+  if (!photos.length) return { images: [], note: '' };
+  const lines = photos.map((p, i) => {
+    const slides = onSlides.get(p.key);
+    const where = slides.length ? `assigned to slide${slides.length > 1 ? 's' : ''} ${slides.join(', ')}` : 'selected for this post';
+    return `- Attached image ${i + 1}: asset key "${p.key}" — ${where} — ${p.width}×${p.height}, ratio ${(p.width / p.height).toFixed(2)} (${photoShapeOf(p)}).`;
+  });
+  return {
+    images: photos.map((p) => ({
+      mediaType: 'image/jpeg',
+      data: p.data,
+      debug: { label: `Strategy photo (${photos.length} attached)`, key: p.key },
+    })),
+    note: [
+      '---',
+      'ATTACHED PHOTOS. These are the real photos the strategy selected for this post, in this order. Look at them: place text around each photo\'s subject, crop so the subject stays in frame, and give each photo a frame close to its own ratio. Reference a photo by its asset key exactly as in the content structure.',
+      ...lines,
+    ].join('\n'),
+  };
+}
+
 async function writeCarousel({ source, structure, post, dayBrief, brand, dayWriterOutput, onlySlide = 0, promptOverride = '' }) {
   const hasStructure = Array.isArray(structure?.slidesOrScenes) && structure.slidesOrScenes.length > 0;
   const carouselInput = hasStructure
@@ -2506,18 +2548,29 @@ async function writeCarousel({ source, structure, post, dayBrief, brand, dayWrit
   if (!promptOverride && !/\{\s*"/.test(assembled.user || '') && !/slides|narrativeUnits/i.test(assembled.user || '')) {
     throw new Error(`${source}: strategy brief / content structure missing from assembled user prompt`);
   }
+  let photos = { images: [], note: '' };
+  try {
+    photos = await carouselPhotosOf(carouselInput);
+  } catch (err) {
+    console.warn(`[planOrchestrator] ${source} photos skipped — ${err.message}`);
+  }
+  // an edited prompt (Debug › Edit prompt) already carries the note it was shown
+  const withPhotos = photos.note && !promptOverride
+    ? { ...assembled, user: `${assembled.user}\n\n${photos.note}`, prompt: `${assembled.prompt || ''}\n\n${photos.note}` }
+    : assembled;
   const validate = (parsed) => (one ? validateOneSlide(parsed, one) : validateCarousel(parsed, post));
   const result = await withLayoutSlot(() => callAgent({
     source,
     kind: 'carousel',
-    system: assembled.system,
-    user: assembled.user,
-    prompt: assembled.prompt,
+    system: withPhotos.system,
+    user: withPhotos.user,
+    prompt: withPhotos.prompt,
+    images: photos.images,
     parse: 'html',
     htmlDirection: 'warm-editorial',
     validate,
   }));
-  const laidOut = await fixCarouselLayout({ source, assembled, validate, result });
+  const laidOut = await fixCarouselLayout({ source, assembled: withPhotos, images: photos.images, validate, result });
   // Themes › This slide writes one slide into an existing carousel — the Art
   // Director re-composes whole carousels only.
   if (one) return laidOut;
@@ -2528,7 +2581,7 @@ async function writeCarousel({ source, structure, post, dayBrief, brand, dayWrit
 // boxes from its CSS — overlapping text, text on the photo, the safe area. On
 // problems, ONE repair call hands the agent its own HTML plus the problems;
 // whichever version has fewer problems is kept. CAROUSEL_LAYOUT_CHECK=0 = off.
-async function fixCarouselLayout({ source, assembled, validate, result }) {
+async function fixCarouselLayout({ source, assembled, images, validate, result }) {
   if (process.env.CAROUSEL_LAYOUT_CHECK === '0' || !result?.parsed?.html) return result;
   const problems = carouselLayoutProblems(result.parsed.html);
   const note = (list) => (list.length ? `${list.length} problem${list.length === 1 ? '' : 's'}:\n- ${list.join('\n- ')}` : 'passed');
@@ -2554,6 +2607,7 @@ async function fixCarouselLayout({ source, assembled, validate, result }) {
       system: assembled.system,
       user: `${assembled.user}\n\n${fixNote}`,
       prompt: `${assembled.prompt || ''}\n\n${fixNote}`,
+      images,
       parse: 'html',
       htmlDirection: 'warm-editorial',
       validate,
@@ -2682,14 +2736,10 @@ function htmlAttrOf(tag, name) {
   return m ? (m[2] ?? m[3] ?? '') : '';
 }
 
-async function artDirectorPhotosOf(html) {
-  const facts = slideFactsOf(html);
-  const onSlides = new Map();
-  for (const [idx, f] of facts) {
-    f.keys.forEach((k) => { if (!onSlides.has(k)) onSlides.set(k, []); onSlides.get(k).push(idx); });
-  }
-  const max = Math.max(0, Number(process.env.ART_DIRECTOR_PHOTO_MAX ?? 6) || 0);
-  const keys = isS3Configured() ? [...onSlides.keys()].slice(0, max) : [];
+// Loads project photos from S3 as 768px JPEGs for a vision call. A photo that
+// fails to load is skipped (logged with `label`).
+async function loadVisionPhotos(keys, label) {
+  if (!isS3Configured()) return [];
   const loaded = await Promise.all(keys.map(async (key) => {
     try {
       const { buffer, contentType } = await getObjectBytes(key);
@@ -2701,12 +2751,24 @@ async function artDirectorPhotosOf(html) {
         .toBuffer({ resolveWithObject: true });
       return { key, width: info.width, height: info.height, data: data.toString('base64') };
     } catch (err) {
-      console.warn(`[planOrchestrator] Art Director: photo ${key} skipped — ${err.message}`);
+      console.warn(`[planOrchestrator] ${label}: photo ${key} skipped — ${err.message}`);
       return null;
     }
   }));
-  const photos = loaded.filter(Boolean);
-  const shape = (p) => (p.width > p.height * 1.1 ? 'landscape' : (p.height > p.width * 1.1 ? 'portrait' : 'square'));
+  return loaded.filter(Boolean);
+}
+
+const photoShapeOf = (p) => (p.width > p.height * 1.1 ? 'landscape' : (p.height > p.width * 1.1 ? 'portrait' : 'square'));
+
+async function artDirectorPhotosOf(html) {
+  const facts = slideFactsOf(html);
+  const onSlides = new Map();
+  for (const [idx, f] of facts) {
+    f.keys.forEach((k) => { if (!onSlides.has(k)) onSlides.set(k, []); onSlides.get(k).push(idx); });
+  }
+  const max = Math.max(0, Number(process.env.ART_DIRECTOR_PHOTO_MAX ?? 6) || 0);
+  const photos = await loadVisionPhotos([...onSlides.keys()].slice(0, max), 'Art Director');
+  const shape = photoShapeOf;
   const lines = photos.map((p, i) => `- Attached image ${i + 1}: data-asset-key "${p.key}" — used on slide${onSlides.get(p.key).length > 1 ? 's' : ''} ${onSlides.get(p.key).join(', ')} — ${p.width}×${p.height}, ratio ${(p.width / p.height).toFixed(2)} (${shape(p)}).`);
   [...onSlides.keys()].filter((k) => !photos.some((p) => p.key === k))
     .forEach((k) => lines.push(`- data-asset-key "${k}" (slide ${onSlides.get(k).join(', ')}) — not attached; keep it as it is.`));
@@ -4079,6 +4141,8 @@ function assemblePlanResult(phase, dayResults) {
         provider: a.provider || '',
         prompt: a.prompt,
         output: a.output || '',
+        ...(a.inputImage ? { inputImage: a.inputImage } : {}),
+        ...(a.inputAssets ? { inputAssets: a.inputAssets } : {}),
         elapsedMs: Number(a.elapsedMs) || 0,
         usage: a.usage || null,
         inputTokens: Number(a.usage?.inputTokens) || 0,

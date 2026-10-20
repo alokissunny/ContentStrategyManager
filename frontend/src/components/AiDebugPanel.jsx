@@ -279,9 +279,9 @@ function InputAssetsBlock({ assets }) {
   return (
     <details className="ai-debug__block" open>
       <summary className="ai-debug__block-sum">
-        <span>Slide assets sent</span>
+        <span>Images sent</span>
         <span className="ai-debug__block-acts">
-          <span className="ai-debug__imgmeta">{assets.length} picture{assets.length === 1 ? '' : 's'} with the HTML</span>
+          <span className="ai-debug__imgmeta">{assets.length} picture{assets.length === 1 ? '' : 's'} with the prompt</span>
         </span>
       </summary>
       <div className="ai-debug__assets">
@@ -386,7 +386,10 @@ function DebugEntry({ entry }) {
           <DebugBlock label="System" text={entry.systemPrompt} open copyable />
           <InputHtmlBlock input={entry.inputHtml} />
           <InputAssetsBlock assets={entry.inputAssets} />
-          <InputImageBlock image={entry.inputImage} />
+          {/* a multi-photo call lists every photo above — skip its lead image */}
+          {entry.inputAssets?.some((a) => a.key && a.key === entry.inputImage?.key)
+            ? null
+            : <InputImageBlock image={entry.inputImage} />}
           <InputBlock
             draft={draft}
             onDraftChange={setDraft}
