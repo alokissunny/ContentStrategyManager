@@ -602,11 +602,18 @@ export default function RegionTextPanel({ region, palette = null, busy = false, 
 }
 
 
-/* ── The picture's panel (bauhly-v3 ShotSpots `.shotask--acts`) ──────────────
- * Three acts a flattened picture can take — replaced with one the studio
- * chooses, generated again, or taken off — one at a time, held like the text
- * changes and redrawn by the chat's Send. A chosen picture shows on a plate
- * under the acts, with × to drop it.
+/* ── The picture's bar (bauhly-v3 ShotSpots `edm-selbar--pic`, Oct 12–14) ───
+ * One floating row, the text card's shape without the text marks:
+ *
+ *   × · wand · image-plus · trash
+ *
+ * The wand is "Generate from your post": it arms a new picture and hands the
+ * caret to the Editor's chat field ("Image / Describe the image…") — Send
+ * with nothing typed draws one that follows the post, a typed line describes
+ * it. image-plus replaces it with one the studio chooses; trash takes it off
+ * (marked red, applied on Send). A chosen picture or reference sits on a
+ * plate under the row, with × to drop it. Every act is held like the text
+ * changes and redrawn by the chat's Send.
  * `change` is { kind:'image', act: 'replace'|'generate'|'remove'|'ref'|'asvisual'|null,
  * photoKey, photoUrl, refKey, refUrl, asks } or null. */
 export const IMAGE_ACTS = [
@@ -615,62 +622,70 @@ export const IMAGE_ACTS = [
   { id: 'remove', label: 'Remove image', icon: 'trash', bad: true },
 ];
 
-export function RegionImagePanel({ region, busy = false, change = null, onChange, onReplace, onClose }) {
+export function RegionImagePanel({ region, busy = false, change = null, onChange, onReplace, onClose, onGenerate = null }) {
   const box = useRef(null);
   const [pop, setPop] = useState(null);
   usePanelPlace(box, region);
   useEscape(pop, setPop, onClose);
   const act = change?.act || null;
-  const touched = changeIsLive(change, region);
   const put = (patch) => {
     const next = { kind: 'image', act, asks: change?.asks || [], ...(change || {}), ...patch };
     onChange?.(changeIsLive(next, region) ? next : null);
   };
-  // the generate family (generate / from a reference / as a graphic) all light the sparkle
-  const isOn = (id) => (id === 'generate' ? ['generate', 'ref', 'asvisual'].includes(act) : act === id);
+  // the generate family (generate / from a reference / as a graphic) all light the wand
+  const generating = ['generate', 'ref', 'asvisual'].includes(act);
   const plate = act === 'replace' ? change?.photoUrl : (act === 'ref' ? change?.refUrl : '');
+  const remove = IMAGE_ACTS.find((a) => a.id === 'remove');
 
   return (
     <div
       ref={box}
-      className="wv-sa wv-sa--acts"
-      role="dialog"
+      className="wv-sa wv-sa--bar wv-sa--pic"
+      role="toolbar"
       aria-label="Edit the picture"
       onClick={(e) => e.stopPropagation()}
       onPointerDown={(e) => e.stopPropagation()}
     >
-      <div className="wv-sa__head">
-        <span className="wv-sa__what">
-          Image
-          {touched && <em className="wv-sa__done">Updated</em>}
-        </span>
-        {touched && (
-          <button type="button" className="wv-sa__x" aria-label="Revert this picture" title="Revert" disabled={busy} onClick={() => onChange?.(null)}>
-            <Icon name="undo" size={16} strokeWidth={2} />
-          </button>
-        )}
-        <button type="button" className="wv-sa__x" aria-label="Close" onClick={onClose}>
-          <Icon name="x" size={16} strokeWidth={2} />
+      <div className="wv-sa__forms">
+        <button type="button" className="wv-sa__btn wv-sa__shut" aria-label="Close" title="Close" onClick={onClose}>
+          <Icon name="x" size={15} strokeWidth={2.2} />
         </button>
-      </div>
-      <div className="wv-sa__acts">
-        {IMAGE_ACTS.map((a) => (
-          <button
-            key={a.id}
-            type="button"
-            className={`wv-sa__btn${a.bad ? ' is-bad' : ''}${isOn(a.id) ? ' is-on' : ''}`}
-            aria-pressed={isOn(a.id)}
-            title={a.label}
-            aria-label={a.label}
-            disabled={busy}
-            onClick={() => {
-              if (a.id === 'replace') { onReplace?.(); return; }
-              put({ act: isOn(a.id) ? null : a.id });
-            }}
-          >
-            <Icon name={a.icon} size={17} strokeWidth={1.9} />
-          </button>
-        ))}
+        <button
+          type="button"
+          className={`wv-sa__btn wv-sa__ai${generating ? ' is-on' : ''}`}
+          aria-pressed={generating}
+          aria-label="Generate from your post"
+          title="Generate from your post"
+          disabled={busy}
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() => {
+            if (onGenerate) { onGenerate(); return; }
+            put({ act: generating ? null : 'generate' });
+          }}
+        >
+          <Icon name="wand" size={15} strokeWidth={1.7} />
+        </button>
+        <button
+          type="button"
+          className={`wv-sa__btn${act === 'replace' ? ' is-on' : ''}`}
+          aria-label="Replace image"
+          title="Replace image"
+          disabled={busy}
+          onClick={() => onReplace?.()}
+        >
+          <Icon name="image-plus" size={15} strokeWidth={1.9} />
+        </button>
+        <button
+          type="button"
+          className={`wv-sa__btn is-bad${act === 'remove' ? ' is-on' : ''}`}
+          aria-pressed={act === 'remove'}
+          aria-label={`${remove.label} — applied when you send`}
+          title={remove.label}
+          disabled={busy}
+          onClick={() => put({ act: act === 'remove' ? null : 'remove' })}
+        >
+          <Icon name={remove.icon} size={15} strokeWidth={1.9} />
+        </button>
       </div>
       {plate ? (
         <span className="wv-sa__put">

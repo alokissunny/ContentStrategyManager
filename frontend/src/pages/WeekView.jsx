@@ -6022,6 +6022,17 @@ export default function WeekView({
       setRgnBusy('');
     }
   }
+  // the picture bar's wand (bauhly-v3 "Generate from your post"): a new picture
+  // is held for this region and the caret goes to the chat field — Send with
+  // nothing typed follows the post, a typed line describes the picture.
+  // Pressed again while armed, it takes the generation back.
+  function armRegionGenerate() {
+    if (!rgnRegion) return;
+    const c = heldNow?.change || { kind: 'image', act: null, asks: [] };
+    const armed = ['generate', 'ref', 'asvisual'].includes(c.act);
+    holdChange(rgnRegion, { ...c, act: armed ? null : 'generate' });
+    if (!armed) setTimeout(() => askInputRef.current?.focus(), 0);
+  }
   // Replace image → the product's picture chooser, in region mode; the chosen
   // picture is held (see applyImgPick)
   function replaceRegionImage() {
@@ -7531,6 +7542,7 @@ export default function WeekView({
                                 change={heldNow?.change || null}
                                 onChange={(c) => holdChange(rgnRegion, c)}
                                 onReplace={replaceRegionImage}
+                                onGenerate={armRegionGenerate}
                                 onClose={() => setRgnPick('')}
                               />
                             )}
@@ -7891,7 +7903,9 @@ export default function WeekView({
                           setAskPath((was) => was.slice(0, -1));
                         }
                       }}
-                      placeholder={listening ? 'Listening…' : askHearing ? 'Writing down what you said…' : rgnOpen ? `Change the ${openLabel.toLowerCase()}…` : askHint(askCtxNow, subject ? `What should change about ${subject.charAt(0).toLowerCase()}${subject.slice(1)}?` : 'Say what else this should be')}
+                      placeholder={listening ? 'Listening…' : askHearing ? 'Writing down what you said…' : rgnOpen ? (rgnImgOpen
+                        ? (['generate', 'ref', 'asvisual'].includes(heldNow?.change?.act) ? 'Describe the image, or leave empty to follow your post…' : 'Describe the image…')
+                        : `Change the ${openLabel.toLowerCase()}…`) : askHint(askCtxNow, subject ? `What should change about ${subject.charAt(0).toLowerCase()}${subject.slice(1)}?` : 'Say what else this should be')}
                       maxLength={600}
                       disabled={askBusy}
                       aria-label="What should change"
