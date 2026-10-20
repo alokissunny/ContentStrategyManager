@@ -4444,7 +4444,10 @@ export default function WeekView({
         text: (v?.ok
           ? (v.placed === false
             ? 'Made a new visual, but it did not land on the slide — try again or place it with Project photos.'
-            : `Added a new visual${changed > 1 ? ` · ${changed} slides updated` : ''}.`)
+            : (v.placement === 'replace'
+              // the selected picture was edited (or redrawn) in its own frame
+              ? 'Picture updated.'
+              : `Added a new visual${changed > 1 ? ` · ${changed} slides updated` : ''}.`))
           : v && !v.ok
             ? `Could not make a visual${v.reason ? ` (${v.reason})` : ''} — the slide was updated without one.`
             : (data?.note
@@ -5778,6 +5781,53 @@ export default function WeekView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [postEdit, activeThemed, themedKey, versId]);
   useEffect(() => { if (!postEdit) setThemeVers({}); }, [postEdit]);
+
+  // …and an HTML slide's versions: every design it has shown in this Editor
+  // session — the one it opened with, then each edit that changed it (a prompt
+  // edit, a chip, a layout pick, hand edits once they are saved). A version is
+  // the slide record plus its <article> in the carousel document; picking one
+  // puts both back as an undoable step.
+  const [htmlVers, setHtmlVers] = useState({});
+  const htmlSlideOn = postEdit && !activeThemed && Boolean(activeSlide) && !isBlankSlide(activeSlide) && !isManualSlide(activeSlide);
+  const htmlVersionOf = (rec, doc, i) => {
+    if (!rec) return null;
+    const idx = Number(rec.index) > 0 ? Number(rec.index) : i + 1;
+    const dir = layoutDirectionOf(rec);
+    const art = isCarouselDocument(doc) ? slideArticleOf(doc, (d) => findCarouselSlide(d, dir, idx)) : null;
+    const article = art?.html || '';
+    if (!article && !String(rec.layoutHtml || '').trim()) return null;
+    return {
+      sig: JSON.stringify([String(rec.layoutHtml || ''), article, keysOf(rec)]),
+      rec: JSON.parse(JSON.stringify(rec)),
+      doc: String(doc || ''),
+      article,
+    };
+  };
+  // keyed on strings, so the document is parsed only when this slide changes
+  const htmlDocNow = htmlSlideOn ? carouselDocumentOf(day) : '';
+  const htmlRecKey = htmlSlideOn ? JSON.stringify([activeSlide.layoutHtml || '', activeSlide.layoutTheme || '', keysOf(activeSlide)]) : '';
+  const htmlNow = useMemo(
+    () => (htmlSlideOn ? htmlVersionOf(activeSlide, htmlDocNow, safeIdx) : null),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [htmlSlideOn, htmlDocNow, htmlRecKey, safeIdx],
+  );
+  useEffect(() => {
+    if (!htmlNow) return;
+    setHtmlVers((all) => {
+      let list = all[versId];
+      if (!list) {
+        const snap = editSnapRef.current;
+        const was = snap && snap.dayIndex === selected && snap.slides?.length === slides.length && !isThemedPicture(snap.slides[safeIdx])
+          ? htmlVersionOf(snap.slides[safeIdx], snap.docHtml || '', safeIdx)
+          : null;
+        list = was && was.sig !== htmlNow.sig ? [was] : [];
+      }
+      if (list.some((v) => v.sig === htmlNow.sig)) return all[versId] === list ? all : { ...all, [versId]: list };
+      return { ...all, [versId]: [...list, htmlNow].slice(-20) };
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [htmlNow?.sig, versId]);
+  useEffect(() => { if (!postEdit) setHtmlVers({}); }, [postEdit]);
   useEffect(() => { setVersOpen(false); }, [versId, postEdit]);
   useEffect(() => {
     if (!versOpen) return undefined;
@@ -5797,6 +5847,32 @@ export default function WeekView({
       url: localMedia[key] || mediaDisplayUrl(key, 160) || mediaProxyUrl(key),
     };
   }) : [];
+
+  const htmlVersions = htmlSlideOn && htmlNow ? (htmlVers[versId] || []).map((v, i) => ({
+    key: `html:${i}`,
+    rec: v.rec,
+    html: v,
+    on: v.sig === htmlNow.sig,
+    name: i === 0 ? 'Original' : `Version ${String(i).padStart(2, '0')}`,
+  })) : [];
+  const slideVersions = activeThemed ? themeVersions : htmlVersions;
+
+  function pickHtmlVersion(v) {
+    if (!day || histLocked || !v?.rec) return;
+    const i = safeIdx;
+    const before = postStateOf(day, [i]);
+    const cur = before.recs[i];
+    let doc = before.doc;
+    if (v.article && isCarouselDocument(doc) && cur) {
+      const idx = Number(cur.index) > 0 ? Number(cur.index) : i + 1;
+      doc = replaceSlideArticle(doc, v.article, (d) => findCarouselSlide(d, layoutDirectionOf(cur), idx), { isDocument: true });
+    }
+    const after = { ...before, recs: { [i]: JSON.parse(JSON.stringify(v.rec)) }, doc };
+    if (JSON.stringify(after.recs) === JSON.stringify(before.recs) && after.doc === before.doc) return;
+    const step = { kind: 'post', i, idxs: [i], snap: false, before, after };
+    if (!putPostState(step, after, before)) return;
+    setElemHist((h) => ({ past: [...h.past, step].slice(-100), future: [] }));
+  }
 
   function pickThemeVersion(rec) {
     if (!day || histLocked) return;
@@ -7368,17 +7444,17 @@ export default function WeekView({
                   </p>
                 ) : <span className="wv-edm__linegap" />}
                 <div className="wv-edm__right">
-                {activeThemed && (
+                {(activeThemed || htmlSlideOn) && (
                   <span className="wv-edm__vers">
                     <button
                       type="button"
                       className={`wv-edm__versbtn${versOpen ? ' is-on' : ''}`}
                       aria-haspopup="menu"
                       aria-expanded={versOpen}
-                      disabled={themeVersions.length < 2}
+                      disabled={slideVersions.length < 2}
                       aria-label="This post’s versions"
-                      title={themeVersions.length < 2 ? 'No other versions yet' : 'This post’s versions'}
-                      onClick={(e) => { e.stopPropagation(); if (themeVersions.length >= 2) setVersOpen((v) => !v); }}
+                      title={slideVersions.length < 2 ? 'No other versions yet' : 'This post’s versions'}
+                      onClick={(e) => { e.stopPropagation(); if (slideVersions.length >= 2) setVersOpen((v) => !v); }}
                     >
                       <Icon name="layers" size={18} strokeWidth={1.9} />
                     </button>
@@ -7386,7 +7462,7 @@ export default function WeekView({
                       <div className="wv-reach wv-edm__versmenu" role="menu" aria-label="This post’s versions">
                         <span className="wv-reach__q">This post&rsquo;s versions</span>
                         <div className="wv-edm__shots">
-                          {themeVersions.map((v) => (
+                          {slideVersions.map((v) => (
                             <button
                               key={v.key}
                               type="button"
@@ -7395,10 +7471,23 @@ export default function WeekView({
                               className={`wv-edm__shot${v.on ? ' is-on' : ''}`}
                               title={v.on ? 'The slide as it is now' : `Go back to ${v.name}`}
                               disabled={histLocked}
-                              onClick={() => { if (!v.on) pickThemeVersion(v.rec); setVersOpen(false); }}
+                              onClick={() => { if (!v.on) { if (v.html) pickHtmlVersion(v.html); else pickThemeVersion(v.rec); } setVersOpen(false); }}
                             >
-                              <span className="wv-edm__shotpic" aria-hidden="true">
-                                {v.url ? <img src={v.url} alt="" loading="lazy" /> : null}
+                              <span className={`wv-edm__shotpic${v.html ? ' is-html' : ''}`} aria-hidden="true">
+                                {v.html ? (
+                                  // an HTML version is drawn from its own html, as the slide strip draws a slide
+                                  <SlideMedia
+                                    slide={v.rec}
+                                    localMedia={localMedia}
+                                    mediaByKey={mediaByKey}
+                                    subjectsByKey={subjectsByKey}
+                                    paint={paintFor(v.rec).paint}
+                                    themed={paintFor(v.rec).themed}
+                                    documentHtml={slideIsThemed(v.rec) ? v.html.doc : ''}
+                                    slideIndex={safeIdx + 1}
+                                    direction={layoutDirectionOf(v.rec)}
+                                  />
+                                ) : (v.url ? <img src={v.url} alt="" loading="lazy" /> : null)}
                               </span>
                               <span className="wv-edm__shotname">{v.name}</span>
                               {v.on && (

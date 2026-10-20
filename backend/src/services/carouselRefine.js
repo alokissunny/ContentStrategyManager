@@ -217,6 +217,18 @@ function previewOf(composed, slides) {
 // agent (when a picture was asked for), each slide edit, the saved result — so
 // the Editor's debug panel shows the input and output of every edit, even when
 // a later step fails.
+// "bigger", "full bleed", "move it left": where the picture sits, not what it shows
+const PICTURE_LAYOUT_ASK = /\b(bigger|smaller|larger|resize|wider|narrower|taller|full[- ]?(?:bleed|width|screen|page)|move|shift|align|re-?position|swap places|rounded|round(?:ed)? corners|border|drop shadow|rotate|tilt|crop|zoom (?:in|out)|delete)\b|\bas (?:the )?background\b|\bbehind the (?:text|words|headline)\b|\b(?:remove|take off|drop) (?:the |this )?(?:image|picture|photo)\b|\b(?:put|place|push) (?:it|the (?:image|picture|photo))\b/i;
+
+// The selected photo goes in as the image; the studio's words say what changes.
+function pictureEditPrompt(ask) {
+  return [
+    `Edit this photograph: ${String(ask || '').trim()}`,
+    'Change only what that asks for. Keep everything else the same — the room, its architecture, materials, colours, light, framing and camera angle — and keep it a believable real photograph.',
+    'No text, numbers, logos or watermarks.',
+  ].join('\n');
+}
+
 async function refineCarouselFromEdits({
   userId, handle, label, instruction, slideIndex, focus, current, brand,
   visual: visualFlag, visualSlideIndex, slideRecords, strategy, layoutIssues, geometry, slideCss, debug, intent, visualTheme,
@@ -244,7 +256,19 @@ async function refineCarouselFromEdits({
     const i = composed.articles.findIndex((a) => a.index === index);
     return (slides[i]?.assetKeys || []).filter((k) => String(k).startsWith(own));
   };
-  const pictureOp = (plan.op === 'replace' || plan.op === 'perspective') ? plan.op : '';
+  // A typed prompt with a picture selected is about what the picture SHOWS
+  // ("make it warmer", "add a plant") — the selected photo goes to the image
+  // model as the input and the edited picture takes its place. A prompt about
+  // where the picture sits ("bigger", "full bleed", "move it left") is still
+  // the html agent's.
+  const focusAt = target || Number(focus?.slideIndex) || null;
+  const focusArticle = focusAt ? composed.articles.find((a) => a.index === focusAt) : null;
+  const focusImg = focusArticle ? focusedImage(focusArticle.html) : null;
+  const onPicture = Boolean(focusImg) && (String(focus?.tag || '').toLowerCase() === 'img'
+    || /image|photo|picture|illustration/i.test(String(focus?.slot || ''))
+    || !String(focus?.text || '').trim());
+  const editsPicture = !plan.op && !designModeOf(mode) && onPicture && !PICTURE_LAYOUT_ASK.test(ask);
+  const pictureOp = (plan.op === 'replace' || plan.op === 'perspective') ? plan.op : (editsPicture ? 'edit' : '');
   // one of the Editor's design chips (Improve design, Make it easier to read)
   const design = designModeOf(mode);
   const improving = Boolean(design);
@@ -327,10 +351,14 @@ async function refineCarouselFromEdits({
   if (pictureOp) {
     const tp = Date.now();
     let made = null;
-    if (pictureOp === 'perspective') {
-      const key = attrOf(picTag.tag, 'data-asset-key');
-      const src = attrOf(picTag.tag, 'src');
-      if (!key && !/^https?:\/\//i.test(src)) throw err(400, 'This frame has no photo to straighten yet.');
+    const picKey = attrOf(picTag.tag, 'data-asset-key');
+    const picSrc = attrOf(picTag.tag, 'src');
+    const hasPhoto = Boolean(picKey) || /^https?:\/\//i.test(picSrc);
+    if (pictureOp === 'perspective' || (pictureOp === 'edit' && hasPhoto)) {
+      const key = picKey;
+      const src = picSrc;
+      if (!hasPhoto) throw err(400, 'This frame has no photo to straighten yet.');
+      const editPrompt = pictureOp === 'perspective' ? PERSPECTIVE_PROMPT : pictureEditPrompt(ask);
       let bytes;
       if (key) {
         bytes = await getObjectBytes(key);
@@ -340,18 +368,20 @@ async function refineCarouselFromEdits({
         bytes = { buffer: Buffer.from(await r.arrayBuffer()), contentType: r.headers.get('content-type') || '' };
       }
       const vision = await toVisionImage(bytes.buffer, bytes.contentType, key || src);
-      const edited = await editImage({ buffer: vision.buffer, mediaType: vision.mediaType, prompt: PERSPECTIVE_PROMPT });
-      const stored = await persistGeneratedImage({ userId, handle, buffer: edited.buffer, mimeType: edited.mimeType, prompt: PERSPECTIVE_PROMPT, model: edited.model });
+      const edited = await editImage({ buffer: vision.buffer, mediaType: vision.mediaType, prompt: editPrompt });
+      const stored = await persistGeneratedImage({ userId, handle, buffer: edited.buffer, mimeType: edited.mimeType, prompt: editPrompt, model: edited.model });
       let url = '';
       try { url = await getMediaUrl(stored.key); } catch { /* resolves client-side by key */ }
       made = { ok: true, key: stored.key, src: url, alt: attrOf(picTag.tag, 'alt'), placement: 'replace', model: edited.model, usage: { imageElapsedMs: edited.elapsedMs, imageCostUsd: edited.estimatedCostUsd, estimatedCostUsd: edited.estimatedCostUsd } };
       logStep(debug, {
-        source: 'Prompt edit · Image edit (perspective)',
+        source: `Prompt edit · Image edit (${pictureOp === 'perspective' ? 'perspective' : 'selected picture'})`,
         model: edited.model,
-        prompt: `${PERSPECTIVE_PROMPT}\n\nSource: ${key || src}`,
+        prompt: `${editPrompt}\n\nSource: ${key || src}`,
         output: { key: stored.key, url },
         elapsedMs: edited.elapsedMs,
         usage: { estimatedCostUsd: edited.estimatedCostUsd },
+        inputImage: { label: 'The selected picture', ...(key ? { key } : {}) },
+        outputImage: { label: 'Edited picture', key: stored.key },
       });
     } else {
       if (!requestedVisualAvailable()) throw err(503, 'Image generation is not configured.');
@@ -400,7 +430,7 @@ async function refineCarouselFromEdits({
     const slideKeys = { [picAt]: slotKeysOf(articles[i], keysAt(picAt), own) };
     logStep(debug, {
       source: 'Prompt edit · result (saved)',
-      prompt: `${plan.pressed || ask} — picture ${pictureOp === 'perspective' ? 'straightened' : 'replaced'} on slide ${picAt}.`,
+      prompt: `${plan.pressed || ask} — picture ${pictureOp === 'perspective' ? 'straightened' : (pictureOp === 'edit' && hasPhoto ? 'edited' : 'replaced')} on slide ${picAt}.`,
       output: { changed: [picAt], slideKeys, key: made.key },
       elapsedMs: Date.now() - tp,
       preview: previewOf(composed, [{ index: picAt, before: picArticle.html, after: articles[i] }]),

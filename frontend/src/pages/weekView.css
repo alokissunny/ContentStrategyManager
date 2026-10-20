@@ -9040,6 +9040,15 @@ p.wv-sa__hint { margin: 8px 4px 0; }
   box-shadow: inset 0 0 0 1px var(--border);
 }
 .wv-edm__shotpic img { width: 100%; height: 100%; object-fit: cover; display: block; }
+/* an HTML slide's version: the slide itself drawn small (4:5), not a picture */
+.wv-edm__shotpic.is-html {
+  container-type: inline-size;
+  position: relative;
+  height: auto;
+  aspect-ratio: 4 / 5;
+  pointer-events: none;
+}
+.wv-edm__shotpic.is-html > * { position: absolute; inset: 0; }
 .wv-edm__shotname { flex: 1 1 auto; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .wv-edm__shoton {
   flex: 0 0 auto;
