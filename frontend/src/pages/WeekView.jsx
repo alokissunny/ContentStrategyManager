@@ -6019,10 +6019,12 @@ export default function WeekView({
       instructions: (c.asks || []).map((a) => a.say),
     };
   }
-  async function sendRegionChanges() {
+  // `only`: one region's change sent straight away (the text card's Apply
+  // changes) — the other held changes wait for Send.
+  async function sendRegionChanges(only = null) {
     if (rgnSending || rgnBusy) return;
-    const typed = askDraft.trim();
-    let held = heldList;
+    const typed = only ? '' : askDraft.trim();
+    let held = only ? [only] : heldList;
     if (typed && rgnOpen) {
       const c = heldNow?.change || (rgnIsText
         ? { text: rgnRegion.text, marks: [], remove: false, asks: [] }
@@ -7499,6 +7501,7 @@ export default function WeekView({
                                 onChange={(c) => holdChange(rgnRegion, c)}
                                 onClose={() => setRgnPick('')}
                                 onAsk={askRegionWords}
+                                onApply={(c) => sendRegionChanges({ key: heldKey(safeIdx, rgnRegion.id), slide: safeIdx, region: rgnRegion, change: c })}
                               />
                             )}
                           </div>

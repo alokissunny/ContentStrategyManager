@@ -14,8 +14,9 @@
  * Marks (size, weight, italic / underline / strike, colour, alignment,
  * removing the text) are held as soon as they are picked, on the words
  * selected in the field or the whole text (size and alignment are always the
- * whole block). New WORDS are a draft until Apply changes (or Enter) holds
- * them. The wand turns the card into an ask: "make it shorter" rewrites the
+ * whole block). New WORDS are a draft until Apply changes (or Enter). With
+ * `onApply`, Apply changes redraws this text straight away (the held marks
+ * plus the new words) instead of holding it for the chat's Send. The wand turns the card into an ask: "make it shorter" rewrites the
  * draft (with back / forward through the versions), and Apply holds it.
  *
  * Controlled: `change` is { text, marks:[{id, words, off?}], remove, asks:[{say, what}] }
@@ -217,7 +218,7 @@ export function changeIsLive(change, region) {
 
 const Caret = () => <Icon name="chevron-down" size={12} strokeWidth={2.4} />;
 
-export default function RegionTextPanel({ region, palette = null, busy = false, change = null, onChange, onClose, onAsk = null }) {
+export default function RegionTextPanel({ region, palette = null, busy = false, change = null, onChange, onClose, onAsk = null, onApply = null }) {
   const held = change?.text ?? region.text ?? '';
   // [{ id, words }] — words '' = the whole text
   const marks = change?.marks || [];
@@ -260,10 +261,14 @@ export default function RegionTextPanel({ region, palette = null, busy = false, 
   const setMarks = (fn) => put({ marks: fn(marks) });
   const text = draft;
   const wordsMoved = Boolean(draft.trim()) && draft.trim() !== String(held).trim();
+  const base = { text: held, marks, remove: wipe, asks: change?.asks || [] };
+  const pending = wordsMoved ? { ...base, text: draft } : base;
+  const canApply = !busy && (wordsMoved || (Boolean(onApply) && changeIsLive(pending, region)));
   const applyDraft = () => {
-    if (!wordsMoved || busy) return;
-    put({ text: draft });
+    if (!canApply) return;
     setAsking(false); setAsk(''); setNote('');
+    if (onApply) { onApply(pending); return; }
+    put({ text: draft });
   };
 
   const look = lookAt(text, sel, region, marks, palette);
@@ -579,14 +584,14 @@ export default function RegionTextPanel({ region, palette = null, busy = false, 
         </div>
       )}
 
-      {wipe && !asking && <p className="wv-sa__hint">The text comes off and the background is filled in when you send.</p>}
+      {wipe && !asking && <p className="wv-sa__hint">The text comes off and the background is filled in when you {onApply ? 'apply' : 'send'}.</p>}
       {!asking && (
         <span className="wv-sa__commit">
           <button
             type="button"
             className="btn btn--primary btn--sm wv-sa__apply"
             onClick={applyDraft}
-            disabled={!wordsMoved || busy}
+            disabled={!canApply}
           >
             Apply changes
           </button>

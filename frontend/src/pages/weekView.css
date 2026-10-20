@@ -9182,7 +9182,11 @@ p.wv-sa__hint { margin: 6px 6px 0; }
 
 .wv-sa__commit { display: flex; justify-content: flex-end; padding: 8px 2px 2px; }
 .btn.wv-sa__apply { height: 36px; padding: 0 16px; border-radius: 999px; font-weight: 600; }
-.btn.wv-sa__apply:disabled { background: var(--chrome-ground); color: var(--chrome-ink-off); opacity: 1; cursor: default; }
+/* bauhly-v3 `.shotask__apply`: lime when there is something to apply — the
+   colour is the state; quiet (not ink) when there is nothing */
+.btn.btn--primary.wv-sa__apply { background: var(--experiment-500); color: var(--experiment-ink); }
+.btn.btn--primary.wv-sa__apply:hover:not(:disabled) { background: var(--experiment-500); color: var(--experiment-ink); filter: brightness(1.04); }
+.btn.btn--primary.wv-sa__apply:disabled { background: var(--chrome-ground); color: var(--chrome-ink-off); opacity: 1; filter: none; cursor: default; }
 
 /* the wand's ask: the words read-only, then the ask field */
 .wv-sa__plain {
