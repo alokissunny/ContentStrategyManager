@@ -1,0 +1,366 @@
+/* ══════════════════════════════════════════════════════════════════════════
+ * THE PHONE'S NAVIGATION (Leon, Oct 11, with the iOS reference)
+ *
+ * "Replace the current mobile bottom navigation with a floating navigation
+ *  bar inspired by the attached iOS reference… Mobile only."
+ *
+ * Every visible surface in here belongs to ONE `<path>` — fill, hairline and
+ * lift together — which is the whole reason the raised section round Capture
+ * can be a continuous curve. A background cannot paint outside its own box,
+ * so the bar this replaces had to draw its dome as a second element above the
+ * first and then make five layers agree; the geometry is in MobileNav.jsx and
+ * what is left here is placement, type and motion.
+ *
+ * Phone only, under the same 800px the sidebar appears at. Nothing above that
+ * width is touched — `.mtabs` is `display: none` in app.css and stays so.
+ * ══════════════════════════════════════════════════════════════════════════ */
+
+@media (max-width: 800px) {
+  /* ── IT FLOATS, AND IT HUGS WHAT IS IN IT ──────────────────────────────
+     The reference's bar is not a strip across the foot of the screen: it is
+     an object ON the screen, inset from three edges, as wide as its contents
+     and no wider. `fit-content` is that literally — and it is also what makes
+     the label test below honest, because the bar only stops growing when it
+     meets the cap, which is the moment the labels have to go.
+     The bottom inset clears the home indicator by sitting ON the safe area
+     rather than inside it: 10px of air plus whatever the device reserves. */
+  .mtabs.mnav {
+    display: block;
+    position: fixed;
+    left: 50%;
+    bottom: calc(10px + env(safe-area-inset-bottom));
+    z-index: 40;
+    width: fit-content;
+    max-width: calc(100vw - 24px);
+    /* ══ AND THE ROOM GOES INSIDE THE BUTTONS (Leon, Oct 11) ══════════
+       "In tablet I would expect the navbar container to adapt to the
+        buttons, and add more padding to the buttons instead."
+       WHAT THIS REPLACES: `min-width: min(72vw, 560px)` with the two sides
+       spreading into the slack. That made the bar the right SIZE for a
+       tablet and the wrong SHAPE — the controls stayed a phone's and the
+       extra 270px came out as air between them, so the bar read as three
+       small buttons held apart rather than as a bar that had grown.
+       The container hugs its contents at every width, as it did before,
+       and what changes with the glass is the padding INSIDE a control. A
+       `clamp` rather than a breakpoint, for the same reason the floor was:
+       18 is where it starts and where it stays on a phone (5vw is 16 at
+       320 and 18.75 at 375), and 36 is where it stops, because past that
+       the lit pill is more ground than word. */
+    --mnav-sidepad: clamp(18px, 5vw, 36px);
+    /* ── AND CAPTURE GETS A LITTLE MORE OF IT (Leon, Oct 11) ─────────
+       "Also add slightly more padding to the Capture button in mobile and
+        tablet."
+       Six, and it is derived from the others' rather than written on its
+       own, so the one control that is a touch more generous stays a touch
+       more generous at every width instead of being more generous on a
+       phone and less on a tablet.
+       This does NOT reopen "keep it same height, same paddings": the
+       height is still the item's exactly and the word still sits on its
+       neighbours' line. What widens is the ground either side of it, which
+       is the one dimension a filled control can afford to be louder in. */
+    --mnav-cappad: calc(var(--mnav-sidepad) + 6px);
+    height: var(--mnav-h);
+    padding: 0;
+    margin: 0;
+    background: none;
+    border: 0;
+    box-shadow: none;
+    /* `transform` is written per-frame by the scroll gesture (the shell's
+       `navHidden`), and it carries the −50% centring with it — so this file
+       must never state a transform of its own or the bar jumps to the left
+       edge for one frame on mount. */
+    transition: transform 90ms linear, opacity 90ms linear, translate 240ms var(--ease-out);
+  }
+
+  /* ── THE SURFACE ───────────────────────────────────────────────────────
+     `overflow: visible` because the lift is a CSS filter on this element and
+     a filter's result is clipped to the SVG viewport without it — the shadow
+     under the raised section would be sliced off at the apex.
+     Two shadows, not one: a tight contact shadow that gives the bar an edge
+     against a white page, and a wide diffuse one that is the lift. This is
+     the same argument `--shadow-chrome` makes in the Editor and the same
+     reason it takes more than one layer. */
+  .mnav__shape {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    overflow: visible;
+    pointer-events: none;
+    filter:
+      drop-shadow(0 1px 2px rgba(22, 22, 26, 0.05))
+      drop-shadow(0 8px 28px rgba(22, 22, 26, 0.12));
+  }
+  .mnav__shape path {
+    fill: var(--navbar-bg);
+    /* the hairline is the path's own stroke, so it follows every curve
+       including the concave ones — a border could only trace a rectangle */
+    stroke: rgba(22, 22, 26, 0.06);
+    stroke-width: 1;
+  }
+
+  /* ── THE ROW ───────────────────────────────────────────────────────────
+     Three cells: the two sides and Capture between them. Capture's cell is
+     `auto`, so the bar is as wide as the button needs and the button's centre
+     is the bar's centre by construction — which the path depends on, because
+     the raised section is drawn about `w / 2`. Nothing positions Capture at
+     `left: 50%` any more; it is simply in the middle of the row. */
+  .mnav__row {
+    position: relative;
+    display: grid;
+    /* ── AND THE THREE CELLS SIZE TO THEIR CONTENTS (MEASURED, Oct 11) ─
+       `auto` again, and the same answer as the slots: with no free space to
+       distribute, an `auto` track settles on its base. MEASURED the moment
+       Capture became a column of mark-over-word — the button came out 44
+       wide, its own minimum, with a 76px label clipped to it, beside two
+       destinations that were 76 because their grid had already been told
+       `max-content`. Stated here too, so the row and the sides agree. */
+    /* every track sized to its contents: the bar is `fit-content`, so
+       there is no slack for a `1fr` to take and an `auto` would settle on
+       its base — which is how Capture ended up 44px wide with its label
+       clipped, twice. `max-content` says the one thing meant. */
+    grid-template-columns: max-content max-content max-content;
+    align-items: end;
+    height: 100%;
+    /* the air OUTSIDE the controls, derived rather than typed: whatever a
+       control is, it sits centred in the pill with the same band over and
+       under it. 8 at the ends is that band plus a little, so the first and
+       last marks are not tighter to the cap than they are to each other. */
+    padding: 0 6px calc((var(--mnav-pill) - var(--mnav-item)) / 2);
+  }
+  /* ── AND A SLOT IS AS WIDE AS WHAT IS IN IT (MEASURED, Oct 11) ───────
+     `minmax(44px, 1fr)` read as "at least a thumb, share what is left" and
+     meant neither: in a bar that hugs its contents there IS no free space,
+     so every `1fr` resolved to its own minimum and every slot came out
+     exactly 44 — with the labels hanging out of both sides of their links
+     and the selection's ground 44px wide under a 64px word. MEASURED: item
+     44, label 'Captures' 46.
+     `auto` is not the fix either, and this is the part worth writing down:
+     as a track's MAXIMUM it means `max-content`, but as its MINIMUM it is
+     the automatic minimum size, and in a container with no free space to
+     distribute every track settles on its base. MEASURED: `auto` gave the
+     same 44. `max-content` states the growth limit outright, which is the
+     thing actually wanted — a slot as wide as the word in it.
+     The 44 stays, on the item, where it is a touch target rather than a
+     column width. */
+  .mnav__side {
+    display: grid;
+    grid-auto-flow: column;
+    grid-auto-columns: max-content;
+    align-items: center;
+  }
+  /* the spare cell on the short side of an odd row: it holds Capture on the
+     centre line and draws nothing */
+  .mnav__slot { display: block; }
+
+  /* ── A DESTINATION ─────────────────────────────────────────────────────
+     44 tall and at least 44 wide, which is the HIG's floor and the number
+     every other control in this product takes at this width. The padding is
+     what makes a label fit; the `min-width` is what holds the target when
+     there is no label to make it. */
+  /* ── AND IT HAS ROOM IN IT (Leon, Oct 11, second pass) ───────────────
+     "The buttons have insufficient internal padding compared to the Apple
+      reference… the selected background feels cramped."
+     Both halves of that are this box, because the selected background IS
+     this box — the pip is measured onto it. So the padding is not decoration
+     here: 14 either side and 4 between the mark and the word is what gives
+     the lit pill its shape, and the first pass's 10 and 2 is what made it
+     read as a chip clipped to its contents.
+     The height is `--mnav-item`, which the row above derives its own air
+     from — one number, and the bar cannot disagree with itself about how
+     tall a control is. */
+  .mnav__item {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    min-width: 44px;
+    height: var(--mnav-item);
+    /* ── AND 14 WAS STILL TIGHT (Leon, Oct 11) ──────────────────────
+       "Add more side padding to the buttons, it feels too tight."
+       18. The slots are `max-content`, so this padding is doing two jobs
+       at once and that is why it reads as tight at a number that sounds
+       generous: it is the air inside the lit pill AND the whole of the
+       distance between one control's word and the next one's. At 14 the
+       three labels were 28 apart; at 18 they are 36, which is the step
+       this product uses between things that are not related. */
+    padding: 0 var(--mnav-sidepad);
+    border: 0;
+    border-radius: var(--r-full);
+    background: none;
+    font-family: var(--font-ui);
+    color: var(--ink-600);
+    text-decoration: none;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+    /* the ground is the pip, which slides; only the ink changes here, and it
+       changes on the pip's own clock so the two arrive together */
+    transition: color 320ms var(--ease-out);
+  }
+  .mnav__item.is-active { color: var(--ink-900); }
+  .mnav__name {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    line-height: 1;
+    white-space: nowrap;
+  }
+  /* ── AND THE NAME GOES BEFORE THE MARK DOES (Leon, Oct 11) ────────────
+     "If the screen is too narrow, hide secondary labels and prioritise
+      icons." The component decides it by measurement rather than by a
+      breakpoint — the bar hugs its contents, so the one moment a label
+      cannot be afforded is the moment the bar stops growing and hits its
+      cap. Capture's own word goes one rung later, and only if that was not
+      enough. See `fit` in MobileNav.jsx. */
+  .mnav[data-fit='1'] .mnav__name,
+  .mnav[data-fit='2'] .mnav__name,
+  .mnav[data-fit='2'] .mnav__capname {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+  /* no padding override at the tightest rung: the item's own 14 either side
+     of a 22pt mark is 50 wide, which already clears the 44 floor */
+
+  /* ── THE SELECTION'S GROUND ────────────────────────────────────────────
+     "The selection background should slide fluidly between tabs… the
+      indicator should adapt to the size of the selected item."
+     One element, measured onto the active item and moved with a transform —
+     which is the only way this can be done without the row re-laying out
+     under the thumb. It is behind the items (`z-index` above) so the glyph
+     and the word are never dimmed by it.
+     `--r-full`, matching the reference: the selection in a bar whose own
+     ends are round cannot be the one square thing in it. */
+  .mnav__pip {
+    position: absolute;
+    top: 0;
+    left: 0;
+    z-index: 0;
+    border-radius: var(--r-full);
+    background: var(--ink-100);
+    pointer-events: none;
+    will-change: transform, width;
+  }
+  /* ── AND IT ARRIVES ON A SPRING (Leon, Oct 11) ────────────────────────
+     "Use natural, native iOS-style spring animations."
+     A damped spring sampled into `linear()` — ζ = 0.78, response 0.42s, 24
+     steps — which is a real second-order curve rather than a bezier pretending
+     to be one: it overshoots by 2% and settles, which is the overshoot an
+     iOS segmented control has and the thing a `cubic-bezier` cannot express.
+     No dependency: `linear()` is CSS's own easing function.
+     The `@supports` fallback is Apple's own standard curve, which is the
+     closest a bezier gets — anything that cannot parse `linear()` gets a
+     fast-out, slow-in slide with no overshoot rather than a jump. */
+  @supports (transition-timing-function: linear(0, 1)) {
+    .mnav__pip {
+      transition:
+        transform 520ms linear(0, 0.0443, 0.1492, 0.282, 0.4207, 0.5518, 0.6675, 0.7644, 0.8422, 0.9019, 0.946, 0.977, 0.9976, 1.0102, 1.017, 1.0197, 1.0197, 1.0181, 1.0156, 1.0129, 1.0102, 1.0077, 1.0056, 1.0039, 1),
+        width 520ms linear(0, 0.0443, 0.1492, 0.282, 0.4207, 0.5518, 0.6675, 0.7644, 0.8422, 0.9019, 0.946, 0.977, 0.9976, 1.0102, 1.017, 1.0197, 1.0197, 1.0181, 1.0156, 1.0129, 1.0102, 1.0077, 1.0056, 1.0039, 1);
+    }
+  }
+  @supports not (transition-timing-function: linear(0, 1)) {
+    .mnav__pip {
+      transition:
+        transform 420ms cubic-bezier(0.32, 0.72, 0, 1),
+        width 420ms cubic-bezier(0.32, 0.72, 0, 1);
+    }
+  }
+  /* the first placement is not a move — see `placed` in MobileNav.jsx */
+  .mnav__pip.is-set { transition: none; }
+
+  /* ── CAPTURE: THE SAME CONTROL, IN INK (Leon, Oct 11, second pass) ────
+     "Capture should stand out through its black colour, not through a larger
+      size or different layout."
+     It carries `.mnav__item` as well, so the box, the padding, the mark's
+     size, the word's size and the gap between them are the rules above
+     rather than a second copy of them. Everything stated here is a
+     difference: the fill, the ink on it, the lift, and where it sits.
+     WHAT USED TO BE HERE: a 50px horizontal pill with 16px of side padding,
+     13px type at 650, a 17px mark and a 6px gap — five numbers restating
+     "this one is special" beside an ink fill that was already saying it. */
+  .mnav__item.mnav__cap {
+    /* ── IT HANGS FROM THE TOP, NOT THE BOTTOM (MEASURED, Oct 11) ────
+       A negative top margin on a cell the grid aligns to its END moves
+       nothing: the box stayed on the row's baseline, 20px from the bar's
+       top where the curve had been drawn at 5, and the button floated low
+       in an opening made for it 15px higher. MEASURED — cap top 749 against
+       a nav top of 729.
+       Aligned to the START with the band's own `gap` as its offset, the
+       button's top IS `gap` from the box's top by construction — which is
+       what the path assumes, and the path measures it anyway, so the two
+       cannot drift even if this line changes. */
+    /* ── THE BOX LIFTS, THE CONTENTS DO NOT (Leon, Oct 11) ──────────
+       Written for a non-zero `--mnav-lift` and correct at 0, which is what
+       it is today: the box is the item's height plus the lift, the lift is
+       taken back as padding at the TOP, and the whole thing hangs from the
+       row's own baseline. So the mark and the word are always centred in
+       the same 50px every other control gives them — they land on their
+       neighbours' lines to the pixel at any lift — and what rises, when
+       anything does, is only the edge the white has to follow.
+       `align-self: end` rather than `start` with a margin: aligned to the
+       bottom, extra height can only go upward, which is the one direction
+       it is allowed to go. The earlier `start` needed a margin to say the
+       same thing and said it in two places. */
+    align-self: end;
+    height: calc(var(--mnav-item) + var(--mnav-lift));
+    /* the one spacing that is not the item's: a black pill butted against
+       a neighbour's lit grey one reads as two halves of a thing */
+    margin: 0 8px;
+    padding: var(--mnav-lift) var(--mnav-cappad) 0;
+    /* the product's own ink, stated as the token rather than the hex in the
+       brief — `--ink-900` IS #16161a and is what every primary control here
+       is filled with; a second near-black would be a second black */
+    background: var(--ink-900);
+    color: var(--surface);
+    /* gentle elevation, inside the band the bar's own edge leaves round it —
+       a wider shadow would spill past the white and read as a second object */
+    box-shadow: 0 2px 8px rgba(22, 22, 26, 0.22);
+    transition: transform 220ms var(--ease-out), background 160ms var(--ease-out);
+  }
+  /* the one control here that is not a destination keeps its ink at every
+     state: the row's `is-active` ink would turn the word on it to `--ink-900`
+     on `--ink-900` */
+  .mnav__item.mnav__cap:active { transform: scale(0.96); }
+  .mnav__item.mnav__cap:hover { background: var(--ink-800); }
+  /* ── AND THE MARK DOES NOT GIVE WAY (MEASURED, Oct 11) ───────────────
+     An `<svg>` is a replaced element and a flex item, and with nothing said
+     about it the row shrank it to nothing rather than growing the button:
+     MEASURED, the plus came out 0 wide × 17 tall and the button read as the
+     words alone. Both marks on this bar are stated `flex: none` — the
+     destinations' glyphs sit in a column and have never been at risk, but
+     saying it once for the pair is how the next control added here inherits
+     the answer instead of the bug. */
+  .mnav__item > svg { flex: none; }
+  /* when the destinations lose their words, Capture keeps its own: it is the
+     one control here that is not a place, and the brief asks for it by name */
+
+  /* ── FOCUS ─────────────────────────────────────────────────────────────
+     The ring is drawn outside the control, which on a bar this tight would
+     be clipped by nothing — the nav has no overflow of its own. */
+  .mnav__item:focus-visible,
+  .mnav__cap:focus-visible {
+    outline: 2px solid var(--focus-ring);
+    outline-offset: 2px;
+  }
+
+  /* ── REDUCED MOTION ────────────────────────────────────────────────────
+     The pip still moves — it has to, it is where you are — but it goes
+     straight there. Nothing springs, nothing overshoots, nothing scales. */
+  @media (prefers-reduced-motion: reduce) {
+    .mnav__pip,
+    .mnav__item,
+    .mnav__cap { transition: none; }
+    .mnav__cap:active { transform: none; }
+  }
+
+  /* ── AND THE SHEET'S ROWS ARE THE PRODUCT'S ROWS ───────────────────────
+     Only the lit state is stated here; everything else a `.msheet__menu`
+     row wears it already wears. */
+  .msheet__opt.is-on { font-weight: 650; }
+}

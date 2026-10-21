@@ -1307,7 +1307,7 @@
   color: var(--ink-900);
 }
 .np__needs__go--quiet:hover { background: var(--ink-200); filter: none; }
-body:has(.np) .btn.cap-fab--dock { display: none; }
+body:has(.np) .mtabs { display: none; }
 .pjw-bulk__b--go .pjw-chip__n {
   display: inline-grid;
   place-items: center;

@@ -1,14 +1,13 @@
 import React, { Suspense } from 'react';
-import { Outlet, useLocation, NavLink, Link } from 'react-router-dom';
+import { Outlet, useLocation, Link } from 'react-router-dom';
 import Sidebar, { useNavItems } from './Sidebar';
 import UserMenu from './UserMenu';
 import AccountSwitcher from './AccountSwitcher';
-import Glyph from './Glyph';
+import MobileNav from './MobileNav';
 import AiDebugPanel from './AiDebugPanel';
 import GenerationToast from './GenerationToast';
 import CaptureHost from './CaptureHost';
 import { Logo } from '../brand/Logo';
-import Icon from '../brand/Icon';
 import { useScrollHide } from '../hooks/useScrollHide';
 import { useActiveHandle } from '../lib/store';
 import { openCaptureIdea } from '../lib/captureUi';
@@ -44,6 +43,12 @@ export default function DashboardLayout({ children }) {
   // a full browser reload (no JS re-download, no asset waterfall).
   const activeHandle = useActiveHandle();
   const navItems = useNavItems();
+  // keyed on the destinations: useNavItems() is a fresh array every render,
+  // and MobileNav re-measures whenever its list changes identity
+  const navKey = navItems.map((n) => n.to).join('|');
+  const mobileItems = React.useMemo(() => navItems.map((n) => (TAB_MARK[n.icon]
+    ? { to: n.to, end: n.exact, label: n.label, icon: TAB_MARK[n.icon] }
+    : { to: n.to, end: n.exact, label: n.label, glyph: n.icon })), [navKey]); // eslint-disable-line react-hooks/exhaustive-deps
   // Onboarding is a focused, full-screen flow — hide the app chrome so nothing
   // distracts from it, and skip `.app` so it keeps the marketing typefaces.
   const hideNav = pathname.startsWith('/onboarding');
@@ -73,44 +78,8 @@ export default function DashboardLayout({ children }) {
           </span>
         </div>
       </header>
-      <nav
-        className="mtabs"
-        aria-label="Main"
-        style={{ transform: `translateY(${navHidden * 175}%)`, opacity: 1 - navHidden }}
-      >
-        {navItems.map((n) => (
-          <NavLink
-            key={n.to}
-            to={n.to}
-            end={n.exact}
-            className={({ isActive }) => (isActive ? 'is-active' : undefined)}
-          >
-            {({ isActive }) => (
-              <>
-                {TAB_MARK[n.icon]
-                  ? <Icon name={isActive ? `${TAB_MARK[n.icon]}-fill` : TAB_MARK[n.icon]} size={20} />
-                  : <Glyph name={n.icon} size={20} strokeWidth={1.6} />}
-                {n.label}
-              </>
-            )}
-          </NavLink>
-        ))}
-      </nav>
-      {/* Phone: Capture straddles the tab bar (bauhly-v3 cap-fab--dock) */}
-      <button
-        type="button"
-        className="btn btn--primary cap-fab--dock"
-        onClick={() => openCaptureIdea()}
-        aria-label="Capture idea"
-        style={{
-          transform: `translate(-50%, ${navHidden * 175}%)`,
-          opacity: 1 - navHidden,
-          pointerEvents: navHidden > 0.4 ? 'none' : 'auto',
-        }}
-      >
-        <Glyph name="plus" size={26} strokeWidth={2.4} />
-        <span className="cap-fab__dockname" aria-hidden="true">Capture idea</span>
-      </button>
+      {/* Phone: the floating bar with Capture in its middle (bauhly-v3 MobileNav) */}
+      <MobileNav items={mobileItems} hidden={navHidden} onCapture={() => openCaptureIdea()} />
 
       <div className="app__body">
         <Sidebar />

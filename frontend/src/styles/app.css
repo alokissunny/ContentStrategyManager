@@ -1719,8 +1719,6 @@ textarea.ai-debug__input {
 .mtabs {
   display: none;
 }
-/* Capture dock: phone only (bauhly-v3). `.btn` would otherwise paint it. */
-.btn.cap-fab--dock { display: none; }
 
 /* ── tablet: the sidebar collapses to a rail ─────────────────────────────
  * Between 801 and 1100px the content column is the thing under pressure, and
@@ -1825,62 +1823,8 @@ textarea.ai-debug__input {
   .apptop__acct { display: block; }
   .apptop__user { display: block; }
 
-  /* A bottom bar, not a floating pill. Anchored to the edge so labels have
-     room and content never scrolls through a gap underneath it. */
-  .mtabs {
-    display: grid;
-    grid-auto-flow: column;
-    grid-auto-columns: 1fr;
-    position: fixed;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    z-index: 40;
-    background: var(--navbar-bg, rgba(255, 255, 255, 0.92));
-    backdrop-filter: blur(22px) saturate(180%);
-    -webkit-backdrop-filter: blur(22px) saturate(180%);
-    border-top: 1px solid var(--border);
-    padding: 8px 6px calc(8px + env(safe-area-inset-bottom));
-    transition: transform 90ms linear, opacity 90ms linear;
-  }
-  .mtabs a {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 4px;
-    padding: 4px 0;
-    border-radius: var(--r-md);
-    font-size: 11px;
-    font-weight: 600;
-    color: var(--ink-800);
-    transition: color var(--dur-fast);
-  }
-  .mtabs a.is-active {
-    color: var(--ink-900);
-  }
-  .mtabs a.is-active > span { color: var(--experiment-ink); }
-
-  /* Capture dock — disc on the tab bar's top edge (bauhly-v3) */
-  .btn.cap-fab--dock {
-    display: inline-flex;
-    position: fixed;
-    left: 50%;
-    width: 60px;
-    height: 60px;
-    padding: 0;
-    gap: 0;
-    border-radius: var(--r-full, 999px);
-    bottom: calc(env(safe-area-inset-bottom) + 60px - 30px);
-    z-index: 41;
-    box-shadow:
-      0 0 0 4px var(--navbar-bg),
-      0 0 0 5px var(--border),
-      0 10px 26px -8px rgba(20, 20, 25, 0.5);
-    transition: transform 90ms linear, opacity 90ms linear;
-  }
-
   .app__main {
-    padding: var(--sp-5) var(--sp-4) calc(96px + env(safe-area-inset-bottom));
+    padding: var(--sp-5) var(--sp-4) calc(var(--navh) + 34px + env(safe-area-inset-bottom));
     max-width: none;
   }
 
@@ -2188,9 +2132,10 @@ textarea.ai-debug__input {
   .sb__count { display: none; }
 }
 
-/* ── Phone shell (bauhly-v3 components/layout/app.css: .apptop, .mtabs, .cap-fab--dock),
+/* ── Phone shell (bauhly-v3 components/layout/app.css: .apptop; the bar is MobileNav),
    extracted 2026-10-04 — later than and overriding the older rules above. */
-@media (max-width: 800px) { :root { --navh: 81px; --fab: 78px; --fabdrop: 8px; --notch: 126px; } }
+/* the floating nav's pill (50 + 2×6) + 10 of air — see MobileNav GEO */
+@media (max-width: 800px) { :root { --navh: 72px; } }
 
 .apptop {
   position: sticky;
@@ -2246,101 +2191,10 @@ textarea.ai-debug__input {
 
 }
 @media (max-width: 800px) {
-  .mtabs {
-    display: grid;
-    grid-auto-flow: column;
-    grid-auto-columns: 1fr;
-    column-gap: calc(var(--notch) - 40px);
-    position: fixed;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    z-index: 40;
-    background: var(--navbar-bg);
-    --dome: 49px;
-    --fil: 20px;
-    box-shadow: 0 -10px 60px rgba(17, 17, 20, 0.14);
-    padding: 12px 6px calc(12px + env(safe-area-inset-bottom));
-    transition: transform 90ms linear, opacity 90ms linear, translate 240ms var(--ease-out);
-  }
-
-}
-@media (max-width: 800px) {
-  .mtabs::before {
-    content: '';
-    position: absolute;
-    left: 50%;
-    transform: translateX(-50%);
-    width: calc(2 * (var(--dome) + var(--fil)));
-    height: calc(var(--dome) - var(--fabdrop) + 2px);
-    bottom: calc(100% - 1px);
-    pointer-events: none;
-    filter: drop-shadow(0 -10px 30px rgba(17, 17, 20, 0.14));
-    background: url("data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 138 43%22 preserveAspectRatio=%22none%22%3E%3Cpath d=%22M0 42 L5.94 42 A20 20 0 0 0 24.22 30.12 A49 49 0 0 1 113.78 30.12 A20 20 0 0 0 132.06 42 L138 42 L138 43 L0 43 Z%22 fill=%22%23ffffff%22/%3E%3C/svg%3E") no-repeat center / 100% 100%;
-  }
-
-}
-@media (max-width: 800px) {
   body:has(.pjw-bulk) .mtabs,
-  body:has(.yw-moving) .mtabs { translate: 0 calc(100% + var(--dome) + var(--sp-3)); }
+  body:has(.yw-moving) .mtabs { translate: 0 calc(100% + 24px); }
 
 }
-@media (max-width: 800px) {
-  body:has(.pjw-bulk) .btn.cap-fab--dock,
-  body:has(.yw-moving) .btn.cap-fab--dock { translate: 0 200%; }
-
-}
-@media (max-width: 800px) {
-  .btn.cap-fab--dock { overflow: visible; }
-
-}
-@media (max-width: 800px) {
-  .cap-fab__dockname {
-    position: absolute;
-    top: calc(100% + 7px);
-    left: 50%;
-    transform: translateX(-50%);
-    font-family: var(--font-ui);
-    font-size: 13px;
-    font-weight: 600;
-    line-height: 1;
-    color: var(--ink-800);
-    white-space: nowrap;
-    pointer-events: none;
-  }
-
-}
-@media (max-width: 800px) {
-  .mtabs a {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 4px;
-    padding: 8px 0;
-    border-radius: var(--r-sm);
-    font-size: 13px;
-    font-weight: 600;
-    color: var(--ink-800);
-    transition: color var(--dur-fast);
-  }
-
-}
-@media (max-width: 800px) {
-  .mtabs a.is-active {
-    color: var(--signal-700);
-  }
-
-}
-.mtabs a {
-  justify-self: center;
-  padding-inline: var(--sp-4);
-  border-radius: var(--r-sm);
-}
-.mtabs a.is-active {
-  background: var(--experiment-500);
-  color: var(--experiment-ink);
-}
-.mtabs a.is-active svg { color: var(--experiment-ink); }
 @media (max-width: 767px) {
   body:has(.yw.is-capopen) .apptop {
     opacity: 0;
