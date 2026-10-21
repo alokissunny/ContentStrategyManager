@@ -1,0 +1,20 @@
+{
+  "appId": "com.bauhly.app",
+  "appName": "Bauhly",
+  "webDir": "dist-mobile",
+  "ios": {
+    "contentInset": "never",
+    "backgroundColor": "#ffffff"
+  },
+  "plugins": {
+    "SplashScreen": {
+      "launchShowDuration": 0,
+      "launchAutoHide": false,
+      "backgroundColor": "#ffffff"
+    },
+    "Keyboard": {
+      "resize": "native",
+      "resizeOnFullScreen": true
+    }
+  }
+}

@@ -5,6 +5,7 @@ import PanelMotif from '../components/PanelMotif';
 import { useAuth } from '../context/AuthContext';
 import { useIsMobile } from '../hooks/useMediaQuery';
 import { requestEarlyAccess } from '../api/earlyAccess';
+import { IS_NATIVE } from '../native/platform';
 import { LS_BG, LS_SURFACE, LS_BORDER, LS_INK, LS_T2, LS_MUTED, LS_SIGNAL, LS_SOFT, LS_FONT, LS_DISPLAY } from '../theme';
 
 function Wordmark() {
@@ -214,11 +215,12 @@ export default function Auth() {
   return (
     <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', minHeight: '100vh', background: LS_BG }}>
       {isMobile ? (
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '20px 20px', borderBottom: `1px solid ${LS_BORDER}` }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '20px 20px', paddingTop: 'calc(20px + env(safe-area-inset-top))', borderBottom: `1px solid ${LS_BORDER}` }}>
           <Wordmark />
-          <Link to="/" style={{ fontFamily: LS_FONT, fontSize: 13, fontWeight: 600, color: LS_T2, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+          {/* The app has no marketing site to go back to. */}
+          {!IS_NATIVE && <Link to="/" style={{ fontFamily: LS_FONT, fontSize: 13, fontWeight: 600, color: LS_T2, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
             <Glyph name="arrow-left" size={15} color={LS_T2} /> Back
-          </Link>
+          </Link>}
         </div>
       ) : (
         <div style={{ width: 440, flexShrink: 0, background: 'linear-gradient(165deg, #FFFFFF 0%, #F6F4EF 100%)', borderRight: `1px solid ${LS_BORDER}`, padding: '38px 44px', display: 'flex', flexDirection: 'column' }}>

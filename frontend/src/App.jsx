@@ -4,6 +4,7 @@ import Landing from './pages/marketing/Landing';
 import Auth from './pages/Auth';
 import YourPlans from './pages/YourPlans';
 import ProtectedLayout from './components/ProtectedLayout';
+import { IS_NATIVE } from './native/platform';
 
 // Heavy, route-specific pages are code-split so the Calendar (/dashboard) does
 // not download their JS on first load. Each becomes its own chunk, fetched only
@@ -30,7 +31,9 @@ export default function App() {
   return (
     <Suspense fallback={<RouteFallback />}>
       <Routes>
-        <Route path="/" element={<Landing />} />
+        {/* The app has no marketing site: "/" goes to sign-in, which sends a
+            signed-in user on to /dashboard. */}
+        <Route path="/" element={IS_NATIVE ? <Navigate to="/auth" replace /> : <Landing />} />
         <Route path="/privacy" element={<Privacy />} />
         <Route path="/terms" element={<Terms />} />
         <Route path="/data-deletion" element={<DataDeletion />} />

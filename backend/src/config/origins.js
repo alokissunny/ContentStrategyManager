@@ -13,6 +13,9 @@ function allowedOrigins() {
     'https://www.bauhly.com',
     'https://bauhly.com',
     'https://igsignal-web.onrender.com',
+    // Capacitor mobile app web views (iOS / Android)
+    'capacitor://localhost',
+    'https://localhost',
     ...fromEnv,
   ]);
 }

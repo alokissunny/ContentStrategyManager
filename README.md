@@ -131,6 +131,24 @@ Requires a running MongoDB instance (local or Atlas) for the backend to connect,
 to actually run the Instagram scrape (without one, `/onboarding` will show a clear error at the
 analyze step).
 
+### iOS app (Capacitor)
+
+The same React app, wrapped with Capacitor (`frontend/capacitor.config.json`, project in
+`frontend/ios/`). `npm run build:mobile` builds it into `dist-mobile/` using `.env.mobile`
+(`VITE_NATIVE=1`, absolute `VITE_API_URL` pointing at the Render API). In that build `/` goes to sign-in,
+lucide icons are bundled instead of loaded from unpkg, and the viewport is edge-to-edge for the
+existing `env(safe-area-inset-*)` padding. Native-only code goes in `src/native/`.
+
+```
+cd frontend
+npm run ios                     # build:mobile + cap sync ios + run in a simulator
+npx cap open ios                # or open in Xcode
+VITE_API_URL=http://localhost:5002/api npm run build:mobile && npx cap sync ios   # against a local API
+```
+
+The API must allow the app's origins (`capacitor://localhost`, `https://localhost`), listed in
+`backend/src/config/origins.js`.
+
 ### Experimental LinkedIn company-page publishing
 
 Enable **Settings → Experimental features → LinkedIn connection & publishing** first. This browser-local flag defaults to off and hides both connection and publishing controls when disabled. Disabling it does not disconnect an existing account or remove published posts; it is a UI feature flag, not server-side access control.
