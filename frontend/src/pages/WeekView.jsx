@@ -101,6 +101,7 @@ import { useStore, setState as setStoreState, getState as getStoreState } from '
 import { listBackgrounds, uploadBackground, uploadLogo } from '../api/visualBrand';
 import { DEFAULT_BACKGROUNDS } from './visuallibrary/brandkitDefaults';
 import EditorMore from './weekview/EditorMore';
+import TextSheet from './weekview/TextSheet';
 import { readSlideTextStyles, styleForRegion } from './weekview/themedTextStyle';
 import { htmlThemeIdOf, imageSlotCount } from '../lib/htmlThemes';
 import './weekView.css';
@@ -2297,6 +2298,124 @@ const hexOfRgb = (c) => {
   return m ? `#${[m[1], m[2], m[3]].map((n) => Number(n).toString(16).padStart(2, '0')).join('')}` : String(c || '').toLowerCase();
 };
 
+/* A phone selecting text gets bauhly-v3's text sheet instead of the floating
+ * bar: the whole line in a field, × · wand · Aa · ↑ under it. The wand asks
+ * Bauhly to rewrite the line into the field; Aa is the marks level; ↑ writes
+ * the field into the slide (one undoable step). */
+function PhoneTextSheet({ sel, run, swatches, onClose, onRewrite }) {
+  const orig = String(sel.words || sel.text || '').trim();
+  const [draft, setDraft] = useState(orig);
+  const [marksOn, setMarksOn] = useState(false);
+  const [asking, setAsking] = useState(false);
+  const [ask, setAsk] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState('');
+  const st = sel.style || {};
+  const alignOn = st.align === 'center' ? 'center' : (st.align === 'right' || st.align === 'end' ? 'right' : 'left');
+  const nextAlign = SEL_ALIGNS[(SEL_ALIGNS.findIndex((a) => a.id === alignOn) + 1) % SEL_ALIGNS.length];
+  const inkOn = hexOfRgb(st.color);
+  const can = Boolean(draft.trim()) && draft.trim() !== orig && !busy;
+  // a line that mixes styles (an italic word, a coloured span) is typed on
+  // the slide itself, so the styling survives; a rewrite Bauhly writes into
+  // the field still lands, as plain words
+  const rich = Boolean(sel.rich);
+  const apply = () => {
+    if (!can) return;
+    run('lines', draft.trim());
+    onClose();
+  };
+  const runAsk = async () => {
+    const want = ask.trim();
+    if (!want || busy || !onRewrite) return;
+    setBusy(true);
+    setNote('');
+    try {
+      const out = String((await onRewrite(draft, want, sel.slot || sel.tag || 'text')) || '').trim();
+      if (!out || out === draft.trim()) setNote('That would leave the text as it is.');
+      else { setDraft(out); setAsk(''); }
+    } catch (err) {
+      setNote(err?.message || 'Could not rewrite that just now.');
+    } finally {
+      setBusy(false);
+    }
+  };
+  const mark = (key, label, body, fn, on = false) => (
+    <button key={key} type="button" className={`shotedit__ico${on ? ' is-on' : ''}`} aria-label={label} title={label} aria-pressed={on || undefined} onClick={fn}>
+      {body}
+    </button>
+  );
+  return (
+    <TextSheet
+      label={SEL_NAMES[sel.slot] || 'text'}
+      words={(
+        <textarea
+          className="shotwrite__field"
+          value={draft}
+          rows={Math.min(6, Math.max(1, draft.split('\n').length, Math.ceil(draft.length / 34)))}
+          spellCheck="false"
+          readOnly={rich && draft === orig}
+          aria-label="The words"
+          onFocus={() => { if (rich && draft === orig) run('type'); }}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => { e.stopPropagation(); if (e.key === 'Escape') onClose(); }}
+        />
+      )}
+      door={onRewrite ? (
+        <button
+          type="button"
+          className={`shotedit__ico${asking ? ' is-on' : ''}`}
+          aria-label="Ask for changes"
+          title="Ask for changes"
+          aria-pressed={asking}
+          onClick={() => { setAsking((v) => !v); setNote(''); }}
+        >
+          <Icon name="wand" size={18} strokeWidth={1.8} />
+        </button>
+      ) : null}
+      below={asking ? (
+        <span className="shotedit__ask">
+          <input
+            className="shotedit__askin"
+            value={ask}
+            autoFocus
+            disabled={busy}
+            placeholder={'Ask for changes, e.g. “make it shorter”'}
+            aria-label="Ask for changes"
+            onChange={(e) => setAsk(e.target.value)}
+            onKeyDown={(e) => { e.stopPropagation(); if (e.key === 'Enter') { e.preventDefault(); runAsk(); } }}
+          />
+          <button type="button" className={`shotedit__ico shotedit__ico--send${busy ? ' is-busy' : ''}`} onClick={runAsk} disabled={!ask.trim() || busy} aria-label="Send" title="Send">
+            <Icon name={busy ? 'refresh' : 'arrow-up'} size={17} strokeWidth={2.1} />
+          </button>
+        </span>
+      ) : null}
+      note={note || (rich && draft === orig ? 'This line mixes styles — tap the words to type on the slide.' : '')}
+      marks={(
+        <div className="shotedit__markrow">
+          {mark('smaller', 'Smaller', <span className="shotedit__aa shotedit__aa--sm">A</span>, () => run('size', 0.9))}
+          {mark('larger', 'Larger', <span className="shotedit__aa">A</span>, () => run('size', 1.1))}
+          {mark('bold', 'Bold', <b className="shotedit__aa">B</b>, () => run('weight', (st.weight || 400) >= 600 ? 400 : 700), (st.weight || 400) >= 600)}
+          {mark('italic', 'Italic', <i className="shotedit__aa">I</i>, () => run('italic'), !!st.italic)}
+          {mark('underline', 'Underline', <Icon name="format-underline" size={18} strokeWidth={2} />, () => run('underline'), !!st.underline)}
+          {mark('align', `Align ${nextAlign.label.toLowerCase()}`, <Icon name={(SEL_ALIGNS.find((a) => a.id === alignOn) || SEL_ALIGNS[0]).icon} size={18} strokeWidth={2} />, () => run('align', nextAlign.id))}
+          {(swatches || []).slice(0, 6).map((hex) => mark(
+            `ink-${hex}`,
+            `Colour ${hex}`,
+            <i className="shotedit__sw" style={{ background: hex }} />,
+            () => run('color', hex),
+            inkOn === String(hex).toLowerCase(),
+          ))}
+        </div>
+      )}
+      marksOn={marksOn}
+      onMarksOn={setMarksOn}
+      onClose={onClose}
+      onApply={apply}
+      canApply={can}
+    />
+  );
+}
+
 function ElementBar({ sel, menu, setMenu, run, swatches, onAsk, onImage, onClose, onRewrite }) {
   const barRef = useRef(null);
   const [size, setSize] = useState({ w: 0, h: 44 });
@@ -3057,6 +3176,10 @@ export default function WeekView({
   hideStrip = false,
   onDayChange = null,
   onDistribute = null,
+  // phone Day feed: open straight into Editor mode ('post') or its caption
+  // editor ('caption'), and hand back to the feed on leaving (bauhly-v3)
+  startEdit = null,
+  onEditDone = null,
 }) {
   const navigate = useNavigate();
   const projects = useProjects();
@@ -3100,6 +3223,15 @@ export default function WeekView({
   // a dark header (Cancel / Apply changes), the slide as a stack with its
   // neighbours peeking, undo/redo + ⋯ over it and the AI mark on it.
   const [postEdit, setPostEdit] = useState(false);
+  // Editor mode on the caption (bauhly-v3's phone caption editor): the post
+  // above, the words in a card under it, ✓ saves them
+  const [edCap, setEdCap] = useState(false);
+  const [capPolishOn, setCapPolishOn] = useState(false);
+  // the phone's Editor (bauhly-v3 `.edm--phone`): the text sheet for a text
+  // selection, the ⋯ as a sheet, the round header controls
+  const phoneEd = useMediaQuery('(max-width: 767px)');
+  const [capSaving, setCapSaving] = useState(false);
+  const startedEditRef = useRef(false);
   // Bumped after a theme / layout regeneration lands: the Editor's cards are
   // keyed on it, so the slide is rebuilt from the new html (a fresh iframe,
   // fresh pictures) instead of patching the one that was on screen.
@@ -4553,7 +4685,19 @@ export default function WeekView({
     }
     closeZone();
     setPostEdit(false);
+    setEdCap(false);
+    setCapPolishOn(false);
+    startedEditRef.current = true;
     rememberEditing(null);
+    if (startEdit) onEditDone?.();
+  }
+
+  // The caption editor's ✓: save the words, then leave the way it came in
+  async function applyCaptionEdit() {
+    if (capSaving) return;
+    setCapSaving(true);
+    try { await saveCaption(capDraft); } finally { setCapSaving(false); }
+    leavePostEdit(true);
   }
 
   function closeZone() {
@@ -4687,6 +4831,23 @@ export default function WeekView({
 
   // Editor mode belongs to one post: a different day (or no day) closes it.
   useEffect(() => { setPostEdit(false); resetElemEdits(); resetAsk(); }, [selected, route?._id]);
+  // (declared after the line above: on mount that one closes the Editor, so
+  // this one has to run second)
+  // the phone feed's pencils land here: once the post is on hand, open it
+  // (`startedEditRef` turns true only when the studio leaves: the mount can
+  // still settle `selected`, which closes the Editor, and it re-opens)
+  useEffect(() => {
+    if (!startEdit || startedEditRef.current || postEdit) return;
+    if (!day || isEmptyCalDay(day) || !day.content) return;
+    enterPostEdit();
+    if (startEdit === 'caption') {
+      setEdCap(true);
+      setAskOpen(false);
+      setCapDraft(day.content?.caption || '');
+      setTagDraft(formatHashtagLine(hashtagsOf(day)));
+    }
+  }, [startEdit, day, postEdit, selected]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // …but a remount of this view on the SAME post (the calendar refreshing
   // while a theme regenerates) must not throw the studio out of the Editor:
   // the open Editor is remembered per post and restored.
@@ -4798,6 +4959,7 @@ export default function WeekView({
     try {
       const updated = await updateDayContent(route._id, selected, { caption: clean, hashtags: tags });
       setRoute(updated);
+      onRouteChange?.(updated);
     } catch { /* keep local until retry */ }
     finally { setSaving(false); }
   }
@@ -7225,6 +7387,15 @@ export default function WeekView({
             aria-label="Edit this slide"
             ref={menuRef}
           >
+            {/* on a phone the menu is a sheet with its own head (bauhly-v3
+                MobileSheet "More"); the desktop popover hides it */}
+            <span className="wv-em__sheetgrip" aria-hidden="true" />
+            <div className="wv-em__sheethead">
+              <b>More</b>
+              <button type="button" className="wv-em__sheetx" aria-label="Close" onClick={() => closeZone()}>
+                <Icon name="x" size={20} strokeWidth={2.25} />
+              </button>
+            </div>
             <EditorMore
               key={`${selected}-${safeIdx}`}
               acts={moreActs}
@@ -7445,7 +7616,7 @@ export default function WeekView({
           the slide so the change is watched happening on it. */}
       {postEdit && day && !isEmptyCalDay(day) && createPortal(
         <div
-          className="wv-edm"
+          className={`wv-edm${edCap ? ' is-capedit' : ''}`}
           role="dialog"
           aria-modal="true"
           aria-label={`Editing post for ${editDayLabel}`}
@@ -7453,8 +7624,21 @@ export default function WeekView({
         >
           <EditorScrollLock />
           <header className="wv-edm__top">
+            {/* the phone's way out, a round × at the left end (bauhly-v3
+                `edm__close`); Cancel stands down for it */}
+            <button
+              type="button"
+              className="wv-edm__close"
+              onClick={() => leavePostEdit(false)}
+              disabled={editBusy || capSaving}
+              aria-label={edCap ? 'Close the caption editor' : 'Close the editor'}
+              title="Close"
+            >
+              <Icon name="x" size={18} strokeWidth={2} />
+            </button>
             <p className="wv-edm__what">
-              <b>Editing post for {editDayLabel}</b>
+              <b className="wv-edm__whatlong">{edCap ? 'Editing caption for' : 'Editing post for'} {editDayLabel}</b>
+              <b className="wv-edm__whatshort">{editDayLabel}</b>
               {editFormat && <span className="wv-edm__sep" aria-hidden="true">|</span>}
               {editFormat && <span className="wv-edm__format">{editFormat}</span>}
             </p>
@@ -7494,11 +7678,13 @@ export default function WeekView({
               <button
                 type="button"
                 className="btn btn--primary wv-edm__apply"
-                onClick={() => leavePostEdit(true)}
-                disabled={editBusy}
+                onClick={() => (edCap ? applyCaptionEdit() : leavePostEdit(true))}
+                disabled={editBusy || capSaving}
+                aria-label="Apply changes"
                 title={editBusy ? 'Wait for Bauhly to finish' : 'Keep these changes'}
               >
                 <span className="wv-edm__applylabel">Apply<span className="wv-edm__applylong"> changes</span></span>
+                <span className="wv-edm__applymark" aria-hidden="true"><Icon name="check" size={18} strokeWidth={2.4} /></span>
               </button>
             </div>
           </header>
@@ -7598,7 +7784,7 @@ export default function WeekView({
                   >
                     <Icon name="more" size={18} strokeWidth={2.2} />
                   </button>
-                  {editMenuEl}
+                  {!phoneEd && editMenuEl}
                 </div>
                 </div>
               </div>
@@ -7796,7 +7982,48 @@ export default function WeekView({
           </div>
 
 
-          {askOpen && !visEdit && (() => {
+          {/* the phone's ⋯ is a sheet off the screen's foot, so it is drawn
+              outside the body (which contains its fixed children) */}
+          {phoneEd && <div className="wv-edm__phonemore">{editMenuEl}</div>}
+          {edCap && (
+            <TextSheet
+              label="caption"
+              className="shotedit--cap"
+              outOn={false}
+              goOn={false}
+              words={(
+                <textarea
+                  className="shotwrite__field"
+                  value={capDraft}
+                  onChange={(e) => setCapDraft(e.target.value)}
+                  placeholder="Write the caption…"
+                  aria-label="Caption"
+                />
+              )}
+              door={(
+                <button
+                  type="button"
+                  className={`shotedit__ico${capPolishOn ? ' is-on' : ''}`}
+                  aria-label="Ask Bauhly to rewrite the caption"
+                  title="Ask for changes"
+                  aria-pressed={capPolishOn}
+                  onClick={() => setCapPolishOn((v) => !v)}
+                >
+                  <Icon name="wand" size={18} strokeWidth={1.8} />
+                </button>
+              )}
+              below={capPolishOn ? (
+                <CaptionPolish
+                  routeId={route?._id}
+                  dayIndex={selected}
+                  caption={capDraft}
+                  onCaption={setCapDraft}
+                  onBusy={setCapBusy}
+                />
+              ) : null}
+            />
+          )}
+          {askOpen && !visEdit && !edCap && (() => {
             const listening = askRec.status === 'recording';
             const regionSend = rgnOpen || heldList.length > 0;
             // the reach is asked about the post, never about a selection
@@ -8116,7 +8343,17 @@ export default function WeekView({
               </div>
             );
           })()}
-          {elemSel && !visEdit && (
+          {elemSel && !visEdit && phoneEd && elemSel.kind === 'text' && (
+            <PhoneTextSheet
+              key={`${safeIdx}:${elemSel.path}`}
+              sel={elemSel}
+              run={runElem}
+              swatches={elemSwatches}
+              onClose={() => elemApiRef.current?.deselect()}
+              onRewrite={rewriteElemWords}
+            />
+          )}
+          {elemSel && !visEdit && !(phoneEd && elemSel.kind === 'text') && (
             <ElementBar
               sel={elemSel}
               menu={elemMenu}

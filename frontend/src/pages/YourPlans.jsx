@@ -1395,6 +1395,9 @@ export default function YourPlans() {
     return () => io.disconnect();
   }, [runMonths, phoneWidth, calView, runEl]);
   const [forceWorkspace, setForceWorkspace] = useState(false);
+  // phone feed pencils: open the workspace straight into Editor mode / the
+  // caption editor, and come back to the feed at that post (bauhly-v3)
+  const [startEdit, setStartEdit] = useState(null); // { mode, iso } | null
   const feedOn = phoneWidth && calView === 'day' && !forceWorkspace;
   /* The phone's day feed (bauhly-v3 YourWeek `is-tophidden`): the top bar
      slides away while the studio scrolls DOWN the posts and comes back as soon
@@ -1450,6 +1453,8 @@ export default function YourPlans() {
   // The Weekly / Day views embed WeekView (the post workspace). `embedWeek` is
   // the built week route + which day to open.
   const [embedWeek, setEmbedWeek] = useState(null);
+  const embedWeekRef = useRef(null);
+  embedWeekRef.current = embedWeek;
   // Week 0 returns before the rest of the month finishes — poll until stubs land.
   const [monthFilling, setMonthFilling] = useState(false);
   const fillWatchRef = useRef(null);
@@ -1605,16 +1610,24 @@ export default function YourPlans() {
         : '';
   useEffect(() => {
     if (loading || view !== 'list' || calView === 'month') { setEmbedWeek(null); return undefined; }
-    if (selfNavYmdRef.current && selfNavYmdRef.current === embedKey) {
+    // WeekView moved its own day: the week on screen already shows it, so
+    // keep it (re-tagged for the new key) rather than rebuilding. Only when
+    // there IS one — a stale WeekView can report its day after a newer build
+    // was started and cancelled, and returning then left "Opening…" forever.
+    if (selfNavYmdRef.current && selfNavYmdRef.current === embedKey && embedWeekRef.current) {
       selfNavYmdRef.current = null;
+      setEmbedWeek((w) => (w ? { ...w, forKey: embedKey } : w));
       return undefined;
     }
     selfNavYmdRef.current = null;
     let cancelled = false;
     setEmbedWeek(null);
     // Weekly always stages a real post; Day view may open on an empty date.
+    // Tagged with the key it was built for, so a week built for another day
+    // is never rendered (see `embedReady`).
+    const forKey = embedKey;
     buildEmbedWeek(anchorDate, { preferPost: calView === 'week' }).then((r) => {
-      if (!cancelled) setEmbedWeek(r);
+      if (!cancelled) setEmbedWeek(r ? { ...r, forKey } : r);
     });
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -2369,10 +2382,14 @@ export default function YourPlans() {
               items={feedItems}
               handle={activeHandle}
               metaConnected={calendarMetaConnected}
-              onOpen={(row) => {
+              onOpen={(row, mode) => {
                 const post = row.week || row.day;
                 const d = parseIsoDay(post?.date || row.date);
                 if (d) setAnchorDate(startOfDay(d));
+                setStartEdit(mode && d ? {
+                  mode,
+                  iso: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`,
+                } : null);
                 setForceWorkspace(true);
               }}
               onIso={(iso) => {
@@ -2388,7 +2405,7 @@ export default function YourPlans() {
                 setRoutes((list) => list.map((r) => (String(r._id) === String(post._id) ? { ...r, ...next } : r)));
               }}
             />
-          ) : embedWeek ? (
+          ) : embedWeek && embedWeek.forKey === embedKey ? (
             <Suspense fallback={<div className="ph"><p className="ph__sub">Opening…</p></div>}>
               <WeekView
                 key={`${embedWeek.route._id}-${calView}-${(calView === 'day' || forceWorkspace) ? embedWeek.dayIndex : ''}-${forceWorkspace ? 'edit' : ''}`}
@@ -2408,6 +2425,13 @@ export default function YourPlans() {
                   setAnchorDate(startOfDay(dt));
                 }}
                 onDistribute={() => setDistOpen(true)}
+                startEdit={forceWorkspace ? startEdit?.mode || null : null}
+                onEditDone={() => {
+                  const iso = startEdit?.iso;
+                  setStartEdit(null);
+                  setForceWorkspace(false);
+                  if (iso) setFeedScrollIso(`${iso}#${Date.now()}`);
+                }}
                 onCaptured={() => runGenerate('capture')}
                 onRouteChange={(route) => {
                   const byId = new Map();
@@ -2418,6 +2442,7 @@ export default function YourPlans() {
                   setCurrent((c) => (c && byId.get(String(c._id))) || c);
                 }}
                 onBack={() => {
+                  setStartEdit(null);
                   if (forceWorkspace) setForceWorkspace(false);
                   else pickView('month');
                 }}

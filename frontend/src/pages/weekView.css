@@ -9441,3 +9441,276 @@ p.wv-sa__hint { margin: 6px 6px 0; }
   font-size: 11.5px;
   color: var(--ink-500);
 }
+
+/* ── Editor mode on a phone (bauhly-v3 `.edm--phone`, Oct 2026) ────────────
+   Round header controls (× · the date · undo/redo · ✓), the slide alone with
+   no neighbours peeking, the chips starting at the left, the ⋯ as a sheet,
+   and a text selection edited in a sheet at the foot (`.shotedit`). */
+.wv-edm__close,
+.wv-edm__whatshort,
+.wv-edm__applymark,
+.wv-em__sheethead,
+.wv-em__sheetgrip { display: none; }
+
+@media (max-width: 767px) {
+  .wv-edm__top {
+    min-height: 68px;
+    gap: var(--sp-2);
+    padding: 12px 16px;
+    background: #f8f8f8;
+    box-shadow: inset 0 -1px 0 var(--chrome-rule);
+  }
+  .wv-edm__close {
+    display: inline-grid;
+    place-items: center;
+    flex: none;
+    width: 44px;
+    height: 44px;
+    padding: 0;
+    border: 0;
+    border-radius: 999px;
+    background: #efeff2;
+    color: var(--ink-900);
+    cursor: pointer;
+  }
+  .wv-edm__close:active { background: var(--ink-200); }
+  .wv-edm__close:disabled { opacity: 0.45; cursor: default; }
+  .wv-edm__what { margin-left: var(--sp-1); }
+  .wv-edm__whatlong { display: none; }
+  .wv-edm__what b.wv-edm__whatshort {
+    display: inline;
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--ink-900);
+  }
+  .wv-edm__top .wv-edm__hist { gap: 4px; }
+  .wv-edm__top .wv-edm__histbtn { width: 44px; height: 44px; border-radius: 999px; }
+  .wv-edm__top .wv-edm__histbtn:not(:disabled) { background: transparent; }
+  .wv-edm__acts { gap: 0; }
+  .btn.wv-edm__cancel { display: none; }
+  .btn.wv-edm__apply {
+    width: 40px;
+    height: 40px;
+    min-width: 0;
+    padding: 0;
+    border-radius: 999px;
+    display: inline-grid;
+    place-items: center;
+  }
+  .wv-edm__applylabel { display: none; }
+  .wv-edm__applymark { display: inline-grid; place-items: center; }
+
+  /* one slide, nothing passing behind it */
+  .wv-edm__one:not(.is-on) { opacity: 0; }
+  .wv-edm__rail { -webkit-mask-image: none; mask-image: none; }
+
+  /* the chips start at the left edge and scroll on */
+  .wv-edm__asktries { justify-content: flex-start; margin-right: 0; }
+  .wv-edm__askin { width: 100%; }
+  .wv-edm__askmic { background: transparent; }
+
+  /* ⋯ › a sheet off the foot (bauhly-v3 MobileSheet "More") */
+  .wv-edm__phonemore .wv-ig__menuscrim { z-index: 118; background: transparent; }
+  .wv-edm__phonemore .wv-ig__menuwrap {
+    position: fixed;
+    top: auto;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 119;
+  }
+  .wv-edm__phonemore .wv-ig__menu.wv-em {
+    width: 100%;
+    min-width: 0;
+    max-width: none;
+    max-height: min(78dvh, 640px);
+    overflow-y: auto;
+    padding: 0 16px calc(24px + env(safe-area-inset-bottom));
+    border: 0;
+    border-radius: 18px 18px 0 0;
+    background: var(--surface);
+    box-shadow: 0 -18px 44px -14px rgba(20, 20, 25, 0.4);
+    animation: wv-em-sheet-in 240ms cubic-bezier(0.32, 0.72, 0, 1) both;
+  }
+  @keyframes wv-em-sheet-in { from { transform: translateY(100%); } }
+  .wv-edm__phonemore .wv-em__sheetgrip {
+    display: block;
+    width: 36px;
+    height: 4px;
+    margin: 8px auto 0;
+    border-radius: 999px;
+    background: #e3e3e8;
+  }
+  .wv-edm__phonemore .wv-em__sheethead {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 0 12px 8px;
+    background: var(--surface);
+  }
+  .wv-edm__phonemore .wv-em__sheethead b { font-size: 19px; font-weight: 700; color: var(--ink-900); }
+  .wv-edm__phonemore .wv-em__sheetx {
+    display: inline-grid;
+    place-items: center;
+    width: 44px;
+    height: 44px;
+    padding: 0;
+    border: 0;
+    border-radius: 999px;
+    background: #efeff2;
+    color: #26262c;
+    cursor: pointer;
+  }
+  .wv-edm__phonemore .wv-em__row {
+    min-height: 64px;
+    padding: 12px 8px;
+    gap: 16px;
+    border-radius: 14px;
+  }
+  .wv-edm__phonemore .wv-em__row > svg:first-child { width: 22px; height: 22px; flex: none; }
+  .wv-edm__phonemore .wv-em__label { font-size: 17px; }
+  .wv-edm__phonemore .wv-em__hint { font-size: 14px; }
+
+  /* a text selection's sheet takes the foot; the composer waits under it */
+  .wv-edm:has(.shotedit) .wv-edm__ask { display: none; }
+
+  /* the caption editor: the post above, the words in the card under it */
+  .wv-edm.is-capedit .wv-edm__line,
+  .wv-edm.is-capedit .wv-edm__dots { display: none; }
+  .wv-edm.is-capedit .wv-edm__stage { pointer-events: none; }
+  .wv-edm.is-capedit .wv-edm__body { overflow: hidden; padding-top: var(--sp-4); }
+  .wv-edm.is-capedit .wv-edm__body > * {
+    --edm-card-h: min(
+      calc(100dvh - 68px - 272px - 2 * var(--sp-4) - env(safe-area-inset-bottom)),
+      calc((100cqw - 2 * var(--edm-peek)) / var(--edm-ar))
+    );
+  }
+}
+
+/* the text sheet (bauhly-v3 `.shotedit`) */
+.shotedit {
+  --shot-r: var(--r-md);
+  position: fixed;
+  z-index: 60;
+  left: 8px;
+  right: 8px;
+  bottom: calc(8px + env(safe-area-inset-bottom));
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  padding: var(--sp-2);
+  border: 1px solid var(--ink-200);
+  border-radius: calc(var(--shot-r) + var(--sp-2));
+  background: var(--surface);
+  box-shadow: 0 10px 30px rgb(22 22 26 / 0.14), 0 2px 6px rgb(22 22 26 / 0.06);
+  animation: shotedit-in 160ms ease-out both;
+}
+@keyframes shotedit-in { from { opacity: 0; transform: translateY(8px); } }
+@media (prefers-reduced-motion: reduce) { .shotedit, .shotedit__lvl { animation: none; } }
+.shotedit__words {
+  position: relative;
+  padding: var(--sp-3);
+  border-radius: var(--shot-r);
+  background: var(--chrome-ground-soft, #f4f4f6);
+}
+.shotedit textarea.shotwrite__field {
+  display: block;
+  width: 100%;
+  min-height: 1.45em;
+  max-height: 9.6em;
+  padding: 0;
+  border: 0;
+  background: none;
+  box-shadow: none;
+  resize: none;
+  outline: none;
+  font-family: var(--font-ui);
+  font-size: var(--text-sm);
+  line-height: 1.45;
+  color: var(--ink-900);
+  scrollbar-width: none;
+}
+.shotedit textarea.shotwrite__field::-webkit-scrollbar { display: none; }
+.shotedit--cap textarea.shotwrite__field { height: 9.6em; color: var(--ink-700); font-size: var(--text-base); }
+.shotedit__bar { display: flex; align-items: center; gap: var(--sp-2); height: 44px; flex: 0 0 auto; }
+.shotedit__gap { flex: 1 1 auto; }
+.shotedit__lvl {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  flex: 1 1 auto;
+  min-width: 0;
+  animation: shotedit-lvl 160ms var(--ease-out) both;
+}
+@keyframes shotedit-lvl { from { opacity: 0; transform: translateX(6px); } }
+.shotedit__ico {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: none;
+  color: var(--ink-900);
+  cursor: pointer;
+}
+.shotedit__ico > svg { width: 20px; height: 20px; }
+.shotedit__ico:hover:not(:disabled),
+.shotedit__ico:active,
+.shotedit__ico.is-on { background: var(--ink-100); }
+.shotedit__ico:disabled { opacity: 0.4; cursor: default; }
+.shotedit__ico--out { background: var(--ink-100); }
+.shotedit__ico--out:hover,
+.shotedit__ico--out:active { background: var(--ink-200); }
+.shotedit__ico--go { background: var(--lime, var(--experiment-500)); color: var(--ink-900); }
+.shotedit__ico--go:hover:not(:disabled) { background: var(--lime-deep, var(--experiment-500)); }
+.shotedit__ico--go:disabled { opacity: 1; background: var(--ink-100); color: var(--ink-400); }
+.shotedit__aa { font-family: var(--font-ui); font-size: 15px; font-weight: 700; line-height: 1; font-style: normal; }
+.shotedit__aa--sm { font-size: 12px; }
+i.shotedit__aa { font-style: italic; font-family: Georgia, serif; }
+.shotedit__marks { flex: 1 1 auto; min-width: 0; overflow: hidden; }
+.shotedit__markrow {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.shotedit__markrow::-webkit-scrollbar { display: none; }
+.shotedit__sw {
+  width: 20px;
+  height: 20px;
+  border-radius: 999px;
+  box-shadow: inset 0 0 0 1px rgb(22 22 26 / 0.14);
+}
+.shotedit__note { padding: 2px 4px 0; font-size: var(--text-xs); color: var(--ink-600); }
+.shotedit__ask {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: 2px 2px 2px var(--sp-4);
+  border-radius: 999px;
+  background: var(--chrome-ground-soft, #f4f4f6);
+}
+.shotedit__askin {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 40px;
+  border: 0;
+  background: none;
+  outline: none;
+  font: inherit;
+  font-size: var(--text-sm);
+  color: var(--ink-900);
+}
+.shotedit__ico--send { width: 40px; height: 40px; background: var(--ink-900); color: var(--surface); }
+.shotedit__ico--send:hover:not(:disabled) { background: var(--ink-800); }
+.shotedit__ico--send.is-busy > svg { animation: shotedit-spin 0.9s linear infinite; }
+@keyframes shotedit-spin { to { transform: rotate(360deg); } }
+.shotedit .wv-polish { margin: 0; }

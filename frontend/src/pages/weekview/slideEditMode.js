@@ -368,6 +368,12 @@ export function attachSlideEditMode(frame, {
         tag: selected.tagName.toLowerCase(),
         slot: selected.getAttribute('data-slot') || '',
         text: (selected.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 160),
+        // the whole line, for the phone's text sheet (which edits all of it):
+        // its line breaks kept, and whether it mixes styles (spans, em…), which
+        // a plain field would flatten
+        words: String(selected.innerText ?? selected.textContent ?? '')
+          .replace(/[ \t]+/g, ' ').replace(/ *\n */g, '\n').trim(),
+        rich: [...selected.querySelectorAll('*')].some((n) => n.tagName !== 'BR'),
         hasImg: Boolean(selected.matches('img') || selected.querySelector('img[src]')),
         // which picture frame this is, in slide order (the order pictures bind in)
         imageSlot: imageSlotOf(selected, root),
@@ -646,6 +652,16 @@ export function attachSlideEditMode(frame, {
         el.textContent = String(value ?? '');
         record(el, { html: true });
         break;
+      case 'lines': {
+        // plain words with line breaks (the phone's text sheet); only for an
+        // element that holds no styled children
+        if (!isTextEditable(el)) return;
+        remember(el);
+        const esc = (t) => t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        el.innerHTML = String(value ?? '').split('\n').map(esc).join('<br>');
+        record(el, { html: true });
+        break;
+      }
       case 'uppercase':
         setAndRecord('text-transform', cs.textTransform === 'uppercase' ? 'none' : 'uppercase');
         break;

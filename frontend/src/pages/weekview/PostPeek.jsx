@@ -2,7 +2,7 @@
  * Month-menu post peek — same slide paint as WeekView (`SlideMedia`), scaled
  * into the day menu. Dots step the carousel; the artwork is inert.
  */
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import DynamicLayout from './DynamicLayout';
 import { SlideCompose } from './slideLayouts';
 import { BrandMark } from '../visuallibrary/BrandMark';
@@ -29,6 +29,11 @@ import '../weekView.css';
 const PEEK_MS = 2800;
 const PEEK_STAGE = 420; /* compose height; CSS scales to --peek-h */
 const FEED_AR = 0.645; /* Instagram feed ceiling — tall formats trim */
+/* the opened (lifted) feed post (bauhly-v3 FeedPost `lifted`): the air kept
+   round it inside the band above the caption sheet, and the travel's timing */
+const CAP_AIR = 32;
+const LIFT_IN = { duration: 560, easing: 'cubic-bezier(0.32, 0.72, 0, 1)' };
+const LIFT_OUT = { duration: 440, easing: 'cubic-bezier(0.32, 0.72, 0, 1)' };
 const FEED_CANVAS = 0.8; /* 4:5 */
 const MOTION_AR = 9 / 16;
 
@@ -262,7 +267,7 @@ function PeekSlide({ slide, paint, themed, documentHtml, carouselLayoutHtmls, sl
 
 /** Scaled post thumbnail for the month day menu, or full-width feed frame.
  *  `phone` = taller peek inside the mobile day sheet (bauhly-v3). */
-export function DayPeek({ day, feed = false, phone = false }) {
+export function DayPeek({ day, feed = false, phone = false, lifted = false, liftSheet = 0 }) {
   const store = useStore();
   const paint = useMemo(() => brandStyleVars(store), [store]);
   // Same rule as WeekView's own preview: agent-generated slides render as the
@@ -292,10 +297,33 @@ export function DayPeek({ day, feed = false, phone = false }) {
   const [slide, setSlide] = useState(0);
   const [restart, setRestart] = useState(0);
   const [vw, setVw] = useState(() => (typeof window !== 'undefined' ? window.innerWidth : 375));
+  const [vh, setVh] = useState(() => (typeof window !== 'undefined' ? window.innerHeight : 812));
+  const frameRef = useRef(null);
+  const lastRect = useRef(null);
+
+  /* the post travels between the feed and its lifted place (FLIP): the frame's
+     box is read after every layout, and when `lifted` flips the new box is
+     animated in from the one it had — `translate`/`scale` compose with the
+     lifted frame's own `transform`, so the two never fight */
+  useLayoutEffect(() => {
+    const el = frameRef.current;
+    if (!feed || !el) return;
+    const now = el.getBoundingClientRect();
+    const was = lastRect.current;
+    lastRect.current = { rect: now, lifted };
+    if (!was || was.lifted === lifted || !now.width || !was.rect.width) return;
+    if (typeof el.animate !== 'function') return;
+    if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return;
+    const k = was.rect.width / now.width;
+    el.animate([
+      { translate: `${was.rect.left - now.left}px ${was.rect.top - now.top}px`, scale: `${k}` },
+      { translate: '0px 0px', scale: '1' },
+    ], lifted ? LIFT_IN : LIFT_OUT);
+  });
 
   useEffect(() => {
     if (!feed) return undefined;
-    const onResize = () => setVw(window.innerWidth);
+    const onResize = () => { setVw(window.innerWidth); setVh(window.innerHeight); };
     window.addEventListener('resize', onResize);
     return () => window.removeEventListener('resize', onResize);
   }, [feed]);
@@ -357,15 +385,38 @@ export function DayPeek({ day, feed = false, phone = false }) {
   if (feed) {
     const natH = vw / ar;
     const boxH = Math.min(natH, vw / FEED_AR);
+    /* Lifted: the WHOLE post (no feed trim), drawn at full width and scaled
+       down into the band the caption sheet leaves, centred in it. The box in
+       the feed keeps its height so nothing under it moves (bauhly-v3). */
+    let liftStyle = null;
+    if (lifted) {
+      const sheetH = liftSheet > 0 ? liftSheet : Math.min(vh * 0.5, 620);
+      const band = Math.max(180, vh - sheetH);
+      const liftH = Math.min(natH, band - CAP_AIR);
+      const scale = natH > 0 ? liftH / natH : 1;
+      liftStyle = {
+        position: 'fixed',
+        top: `${Math.round((band - liftH) / 2)}px`,
+        left: `${Math.round((vw - liftH * ar) / 2)}px`,
+        '--lift-w': `${Math.round(vw)}px`,
+        height: `${Math.round(natH)}px`,
+        transformOrigin: 'top left',
+        transform: `scale(${scale.toFixed(4)})`,
+        borderRadius: `${(18 / scale).toFixed(2)}px`,
+      };
+    }
     return (
       <div className="yw-peek yw-peek--feed">
-        <div
-          className="yw-peek__frame yw-peek__frame--feed"
-          style={{ width: '100%', height: `${Math.round(boxH)}px` }}
-          aria-hidden="true"
-        >
-          <div className="wv-ig__photo yw-peek__photo-root yw-peek__photo-root--feed">
-            {slideNode}
+        <div className="yw-peek__hold" style={{ height: `${Math.round(boxH)}px` }}>
+          <div
+            ref={frameRef}
+            className={`yw-peek__frame yw-peek__frame--feed${lifted ? ' is-lift' : ''}`}
+            style={liftStyle || { width: '100%', height: `${Math.round(boxH)}px` }}
+            aria-hidden="true"
+          >
+            <div className="wv-ig__photo yw-peek__photo-root yw-peek__photo-root--feed">
+              {slideNode}
+            </div>
           </div>
         </div>
         {dots}
