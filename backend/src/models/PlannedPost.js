@@ -165,6 +165,10 @@ const plannedPostSchema = new mongoose.Schema(
       // When set, the post view plays it in place of the static hook (slide 1).
       // The full spec + render metadata live on agentTrace.cover.
       coverVideo: { type: mongoose.Schema.Types.Mixed, default: null },
+      // Design in Canva (experimental): the Canva design the slides came from —
+      // { id, editUrl, viewUrl, pages: { [slideIndex]: pageNumber }, source, at }.
+      // Refresh from Canva re-exports it after the studio edits it in Canva.
+      canvaDesign: { type: mongoose.Schema.Types.Mixed, default: null },
     },
 
     // Parsed outputs from Strategist / Structure / Day Writer / Layout for this

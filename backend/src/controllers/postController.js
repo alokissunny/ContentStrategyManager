@@ -2887,6 +2887,290 @@ async function runThemeApplyRequest(req, res) {
   }
 }
 
+// POST /posts/:id/canva — Editor ⋯ › Theme › Design in Canva (experimental).
+// The post's strategy brief + each slide's copy go to Canva's AI through the
+// studio's own Canva (services/canvaCarouselAgent, Canva MCP server); each
+// exported design comes back as a picture slide in a section of its own —
+// stored exactly like a Theme Apply render, so Remove theme undoes it and the
+// design stays editable in Canva (agentTrace.canva has the links).
+// Body: { slideIndexes?: [1-based…] (default all), brandKitId?, async? }
+// async → 202 { jobId }, polled at GET /posts/theme-jobs/:jobId
+async function designInCanva(req, res) {
+  if (!req.body?.async) return runCanvaRequest(req, res);
+  const record = await PlannedPost.findOne({ _id: req.params.id, user: req.user._id }).select('_id').lean();
+  if (!record) return res.status(404).json({ message: 'Post not found' });
+  const job = await ThemeApplyJob.create({
+    user: req.user._id,
+    post: record._id,
+    bootId: THEME_JOB_BOOT_ID,
+    slideIndexes: (Array.isArray(req.body?.slideIndexes) ? req.body.slideIndexes : []).map(Number).filter(Number.isInteger),
+  });
+  const answer = { code: 200, status(c) { this.code = c; return this; }, json(b) { this.body = b; return this; } };
+  setImmediate(async () => {
+    try {
+      req.body = { ...req.body, async: false };
+      await runCanvaRequest(req, answer);
+    } catch (err) {
+      console.error(`[posts] Canva job ${job._id} crashed:`, err.message);
+      answer.code = 500;
+      answer.body = { message: err.message || 'Design in Canva failed.' };
+    }
+    const ok = answer.code < 400;
+    await ThemeApplyJob.updateOne({ _id: job._id }, {
+      $set: { status: ok ? 'done' : 'failed', finishedAt: new Date(), result: JSON.stringify({ code: answer.code, body: answer.body || {} }) },
+    }).catch((err) => console.error(`[posts] Canva job ${job._id} could not be saved:`, err.message));
+  });
+  return res.status(202).json({ jobId: String(job._id), status: 'running' });
+}
+
+// What Design in Canva imports: the carousel document as the studio sees it,
+// except a slide that is already a Canva export — a picture of an earlier
+// import — goes as the carousel agent's own slide (the pre-theme snapshot), so
+// Canva gets live, editable text again. Only for the import; nothing is saved.
+function canvaSourceDoc(curDoc, stored, trace) {
+  const snap = trace?.preTheme;
+  const canvaAt = stored.map((sl, n) => ([...(Array.isArray(sl?.assetKeys) ? sl.assetKeys : []), sl?.assetKey]
+    .some((k) => /\/themed-canva-/.test(String(k || ''))) ? n + 1 : 0)).filter(Boolean);
+  if (!canvaAt.length || !snap?.carouselHtml || !Array.isArray(snap.slides) || snap.slides.length !== stored.length) return curDoc;
+  const { sectionsOf, indexOf, buildDocument, stylesOf, linksOf } = require('../services/themeMerge');
+  const { extractHtmlDocument } = require('../services/layoutHtml');
+  const snapDoc = extractHtmlDocument(snap.carouselHtml);
+  const snapSections = sectionsOf(snapDoc);
+  let doc = curDoc;
+  canvaAt.forEach((i) => {
+    const sec = snapSections.find((x) => x.articles.some((a) => indexOf(a) === i));
+    const article = sec?.articles.find((a) => indexOf(a) === i);
+    if (!article) return;
+    const single = buildDocument({ links: linksOf(snapDoc), css: stylesOf(snapDoc), sections: [{ dir: sec.dir, articles: [article] }] });
+    doc = applySlideTheme({ currentDoc: doc, newDoc: single, slideIndex: i }).html;
+  });
+  return doc;
+}
+
+async function runCanvaRequest(req, res) {
+  const { importCarouselToCanva, refreshCanvaDesign, designCarouselInCanva } = require('../services/canvaCarouselAgent');
+  const { reimagineCarouselInCanva } = require('../services/canvaReimagineAgent');
+  const record = await PlannedPost.findOne({ _id: req.params.id, user: req.user._id });
+  if (!record) return res.status(404).json({ message: 'Post not found' });
+  if (!isS3Configured()) return res.status(503).json({ message: 'Storage is not configured on this server.' });
+  const current = plainOf(record.content) || {};
+  const stored = Array.isArray(current.slides) ? current.slides.map((s) => plainOf(s)) : [];
+  if (!stored.length) return res.status(400).json({ message: 'This post has no slides to design.' });
+  const trace = record.agentTrace && typeof record.agentTrace === 'object' ? plainOf(record.agentTrace) : {};
+  const curDoc = current.carouselHtml || trace.carousel?.html || trace.layout?.html || '';
+  if (!curDoc) return res.status(400).json({ message: 'This carousel has no layout yet — run Fix layout first.' });
+  // 'reimagine' (default): Canva reimagines the carousel agent's slides as
+  // high-quality posts, kept to their exact words and real photos ·
+  // 'import' ('carousel'): the slides imported into Canva as they are ·
+  // 'brief': Canva's AI designs each slide from the strategy brief ·
+  // refresh: the post's Canva design (edited in Canva) exported again
+  const refresh = Boolean(req.body?.refresh);
+  const source = { brief: 'brief', import: 'carousel', carousel: 'carousel' }[req.body?.source] || 'reimagine';
+  const priorDesign = current.canvaDesign && typeof current.canvaDesign === 'object' ? current.canvaDesign : null;
+  if (refresh && !priorDesign?.id) return res.status(409).json({ message: 'This post has no Canva design yet — use Design in Canva first.' });
+  const asked = refresh
+    ? Object.keys(priorDesign.pages || {})
+    : (Array.isArray(req.body?.slideIndexes) && req.body.slideIndexes.length ? req.body.slideIndexes : stored.map((_, i) => i + 1));
+  const indexes = [...new Set(asked.map(Number).filter((n) => Number.isInteger(n) && n >= 1 && n <= stored.length))];
+  if (!indexes.length) return res.status(400).json({ message: refresh ? 'The Canva design no longer matches this post\'s slides.' : 'Say which slides to design.' });
+
+  const label = record.day || record.date || record._id.toString();
+  const own = `projects/${req.user._id}/`;
+  const photoKeysOf = (s) => [...(Array.isArray(s?.assetKeys) ? s.assetKeys : []), s?.assetKey]
+    .map((k) => String(k || '').trim())
+    .filter((k, i, all) => k.startsWith(own) && !/\/themed-/.test(k) && all.indexOf(k) === i);
+  const mode = refresh ? 'refresh' : source;
+  let run;
+  let design = null;
+  try {
+    if (refresh) {
+      run = await refreshCanvaDesign({ userId: req.user._id, design: priorDesign });
+      design = { ...priorDesign, refreshedAt: new Date().toISOString() };
+    } else if (source === 'reimagine') {
+      const brand = await carouselBrandOf(req.user._id, record.instagramUsername).catch(() => ({}));
+      run = await reimagineCarouselInCanva({
+        userId: req.user._id,
+        doc: canvaSourceDoc(curDoc, stored, trace),
+        slides: stored.map((sl, n) => (trace.preTheme?.slides?.length === stored.length && photoKeysOf(sl).length === 0
+          ? { ...sl, assetKeys: photoKeysOf(trace.preTheme.slides[n]) } : sl)),
+        indexes,
+        brief: plainOf(trace.strategyBrief) || {},
+        brand,
+        title: [current.title || stored[0]?.title || 'Carousel', record.date ? new Date(record.date).toISOString().slice(0, 10) : ''].filter(Boolean).join(' · '),
+      });
+      design = run.design ? { ...run.design, source: 'reimagine', at: new Date().toISOString() } : null;
+    } else if (source === 'carousel') {
+      // the carousel agent's output as the studio sees it — a slide already
+      // themed goes as its picture. Its slides are sent as they are.
+      const brandFonts = await brandKitFonts(req.user._id, record.instagramUsername).catch(() => null);
+      run = await importCarouselToCanva({
+        userId: req.user._id,
+        doc: canvaSourceDoc(curDoc, stored, trace),
+        // a slide sent as its snapshot binds its pre-theme photos
+        slides: stored.map((sl, n) => (trace.preTheme?.slides?.length === stored.length && photoKeysOf(sl).length === 0
+          ? { ...sl, assetKeys: photoKeysOf(trace.preTheme.slides[n]) } : sl)),
+        indexes,
+        title: [current.title || stored[0]?.title || 'Carousel', record.date ? new Date(record.date).toISOString().slice(0, 10) : ''].filter(Boolean).join(' · '),
+        fontLinks: Object.values(brandFonts || {}).map((f) => f?.stylesheet).filter(Boolean),
+      });
+      design = { ...run.design, source: 'carousel', at: new Date().toISOString() };
+    } else {
+      const brand = await carouselBrandOf(req.user._id, record.instagramUsername).catch(() => ({}));
+      run = await designCarouselInCanva({
+        userId: req.user._id,
+        brief: plainOf(trace.strategyBrief) || {},
+        brand,
+        slides: stored,
+        indexes,
+        brandKitId: optionalText(req.body?.brandKitId),
+      });
+      // one design per slide: the last one is linked (each is in the trace)
+      const last = [...indexes].reverse().find((i) => run.results[i]?.designId);
+      design = last ? { id: run.results[last].designId, editUrl: run.results[last].editUrl, viewUrl: run.results[last].viewUrl, pages: { [last]: 1 }, source: 'brief', at: new Date().toISOString() } : null;
+    }
+  } catch (err) {
+    console.warn(`[posts] Canva:${label} (${mode}) ${err.message}`);
+    return res.status(err.status || 502).json({ message: err.message || 'Canva could not design this post.', code: err.code });
+  }
+  const { results } = run;
+  const done = indexes.filter((i) => results[i]?.key);
+  const failed = indexes.filter((i) => !results[i]?.key).map((i) => ({ index: i, message: results[i]?.error || 'failed' }));
+  const debugOf = () => (wantsPromptDebug(req) ? {
+    debug: {
+      mode: `canva-${mode}`,
+      elapsedMs: run.elapsedMs,
+      agents: mode === 'reimagine'
+        ? indexes.flatMap((i) => {
+          const r = results[i] || {};
+          return [{
+            // the slide's whole run (generation, planning, edits, export)
+            source: `Canva reimagine · slide ${i} · whole slide`,
+            model: 'Canva generate-design (instagram_post)',
+            prompt: r.query || '',
+            output: r.key
+              ? `${r.candidates} candidates · kept ${r.designId} (${(r.attempts || []).length} tried) · ${r.editUrl}${r.problems?.length ? `\nStill open: ${r.problems.join(' · ')}` : ''}`
+              : `Failed: ${r.error || 'unknown'}`,
+            elapsedMs: r.elapsedMs || 0,
+            ...(r.key ? { outputImage: { label: `Reimagined slide ${i}`, key: r.key } } : {}),
+          }, ...(r.attempts || []).flatMap((a) => (a.passes || []).map((ps) => ({
+            source: `Canva planner · slide ${i} · ${a.designId || a.candidate} · pass ${ps.pass}`,
+            model: ps.model,
+            prompt: ps.prompt || '(second pass: the same slide + the problems below)',
+            elapsedMs: ps.planMs || 0,
+            output: `${ps.notes || ''}\n${ps.ops} edits applied${ps.dropped?.length ? ` · dropped ${ps.dropped.join(', ')}` : ''}${ps.errors?.length ? ` · Canva: ${ps.errors.join('; ')}` : ''}\nAfter: ${ps.problems?.length ? ps.problems.join(' · ') : 'all words and photo in place'}`,
+          })))];
+        }).concat(Array.isArray(run.timings) && run.timings.length ? [{
+          source: 'Canva MCP calls · timing',
+          model: 'Canva MCP',
+          prompt: `${run.timings.length} calls (slides run in parallel, so these overlap)`,
+          output: Object.entries(run.timings.reduce((m, t) => ({ ...m, [t.tool]: [...(m[t.tool] || []), t.ms] }), {}))
+            .map(([tool, ms]) => `${tool}: ${ms.length}× · avg ${(ms.reduce((a, b) => a + b, 0) / ms.length / 1000).toFixed(1)} s · max ${(Math.max(...ms) / 1000).toFixed(1)} s`)
+            .join('\n'),
+          elapsedMs: run.elapsedMs,
+        }] : [])
+        : mode === 'brief'
+        ? indexes.map((i) => ({
+          source: `Canva MCP · slide ${i}`,
+          model: 'Canva generate-design (instagram_post)',
+          prompt: results[i]?.query || '',
+          output: results[i]?.key
+            ? `Design ${results[i].designId} · ${results[i].candidates} candidates (first kept) · ${results[i].editUrl}${results[i].photo ? ` · photo ${results[i].photo.sentToCanva ? 'sent' : 'NOT sent'}` : ''}`
+            : `Failed: ${results[i]?.error || 'unknown'}`,
+          elapsedMs: results[i]?.elapsedMs || 0,
+          ...(results[i]?.key ? { outputImage: { label: `Canva slide ${i}`, key: results[i].key } } : {}),
+        }))
+        : [{
+          source: `Canva MCP · ${mode === 'refresh' ? 'refresh (export-design)' : 'import carousel agent HTML (import-design-from-url)'}`,
+          model: 'Canva MCP',
+          prompt: mode === 'refresh' ? `Export design ${design?.id}` : `Carousel agent HTML, slides ${indexes.join(', ')} as pages (${Math.round((run.importHtmlBytes || 0) / 1024)} KB)`,
+          output: `Design ${design?.id} · ${design?.editUrl || ''} · pages ${JSON.stringify(design?.pages || {})}${failed.length ? ` · failed ${failed.map((f) => `${f.index}: ${f.message}`).join('; ')}` : ''}`,
+          elapsedMs: run.elapsedMs,
+          ...(done[0] ? { outputImage: { label: `Canva page for slide ${done[0]}`, key: results[done[0]].key } } : {}),
+        }],
+    },
+  } : {});
+  if (!done.length) return res.status(502).json({ message: failed[0]?.message || 'Canva could not design this post.', failed, ...debugOf() });
+
+  try {
+    let doc = curDoc;
+    const dirs = {};
+    done.forEach((i) => {
+      const merged = applySlideTheme({
+        currentDoc: doc,
+        newDoc: themedSlideDocument({ slideIndex: i, key: results[i].key, src: results[i].src }),
+        slideIndex: i,
+      });
+      doc = merged.html;
+      dirs[i] = merged.dir;
+    });
+    const parsed = parseCarouselDocument(doc, stored.length);
+    const next = applyLayoutToContent(
+      { ...current, slides: stored },
+      { status: 'ready', html: parsed.html, slides: parsed.slides, themeId: current.themeId || '' },
+    );
+    next.slides = next.slides.map((sl, n) => {
+      const i = n + 1;
+      if (!dirs[i]) return sl;
+      const was = stored[n] || {};
+      const keep = Object.fromEntries(COPY_FIELDS.filter((k) => was[k] !== undefined).map((k) => [k, was[k]]));
+      const key = results[i].key;
+      return {
+        ...sl,
+        ...keep,
+        layout: 'dynamic',
+        layoutTheme: dirs[i],
+        layoutOptions: [],
+        assetKey: key,
+        assetKeys: [key, ...photoKeysOf(was)],
+        themeRegions: null,
+      };
+    });
+    // same snapshot Theme Apply takes, so Themes › Remove theme undoes this
+    const themedBefore = stored.some(hasAppliedTheme);
+    const preTheme = themedBefore
+      ? (trace.preTheme || null)
+      : { at: new Date().toISOString(), carouselHtml: curDoc, themeId: current.themeId || '', slides: stored.map(preThemeSlide) };
+    record.content = { ...current, ...next, slides: next.slides, carouselHtml: doc, canvaDesign: design || priorDesign || null };
+    record.agentTrace = {
+      ...trace,
+      lastRun: lastRunOf('canva', ['canva']),
+      layout: { ...(plainOf(trace.layout) || {}), html: doc },
+      carousel: { ...(plainOf(trace.carousel) || {}), html: doc },
+      ...(preTheme ? { preTheme } : {}),
+      canva: [
+        ...(Array.isArray(trace.canva) ? trace.canva : []).slice(-9),
+        {
+          at: new Date().toISOString(),
+          mode,
+          design,
+          elapsedMs: run.elapsedMs,
+          // where the time went: each Canva call's wall time, in call order
+          ...(Array.isArray(run.timings) ? { timings: run.timings } : {}),
+          slides: done.map((i) => {
+            const { src, ...rest } = results[i];
+            return { index: i, ...rest };
+          }),
+          failed,
+        },
+      ],
+    };
+    record.markModified('content');
+    record.markModified('agentTrace');
+    await record.save();
+    console.log(`[posts] Canva:${label} (${mode}) · designed ${done.join(',')}${failed.length ? ` · failed ${failed.map((f) => f.index).join(',')}` : ''} · ${Math.round(run.elapsedMs / 1000)}s`);
+    return res.json({
+      post: record,
+      applied: done.map((i) => ({ index: i, key: results[i].key, src: results[i].src })),
+      design,
+      failed,
+      ...debugOf(),
+    });
+  } catch (err) {
+    console.error(`[posts] Canva:${label} merge failed:`, err.message);
+    return res.status(500).json({ message: err.message || 'Could not place the Canva slides.', ...debugOf() });
+  }
+}
+
 // POST /posts/:id/slide/:slideIndex/layout-variations — on-demand variations for
 // one slide (the Change layout picker). Composes four fresh layouts in the
 // slide's current theme, stored on that slide's layoutOptions.
@@ -3102,6 +3386,7 @@ module.exports = {
   runArtDirector,
   rerunSlideLayoutVariations,
   applyThemeImage,
+  designInCanva,
   getThemeApplyJob,
   removeTheme,
   getPreTheme,

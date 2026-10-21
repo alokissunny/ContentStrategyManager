@@ -133,6 +133,8 @@ function reasoningEffortFor(kind) {
   if (kind === 'decorative') return envChoice('PLAN_DECORATIVE_REASONING_EFFORT', GPT_EFFORTS, 'low');
   // medium: at low, Luna squeezed photos into narrow columns (Oct 2026 test)
   if (kind === 'artDirector') return envChoice('PLAN_ART_DIRECTOR_REASONING_EFFORT', GPT_EFFORTS, 'medium');
+  // low: medium took 65 s a pass (vs 15 s) for the same edits on a live slide (Oct 2026)
+  if (kind === 'canvaPlanner') return envChoice('CANVA_PLANNER_REASONING_EFFORT', GPT_EFFORTS, 'low');
   // Keep carousel at 'low': 'medium' pushed gpt-6-astra past the 180s timeout on
   // this 5-theme build. The earlier "terse stub" symptom was really an EMPTY
   // contentStructure (see carouselInputOf's post-slide fallback), not low

@@ -20,6 +20,7 @@
     "@aws-sdk/client-s3": "^3.687.0",
     "@aws-sdk/s3-request-presigner": "^3.687.0",
     "@google/genai": "^2.16.0",
+    "@modelcontextprotocol/sdk": "^1.32.1",
     "apify-client": "^2.11.0",
     "bcryptjs": "^2.4.3",
     "bullmq": "^5.81.5",

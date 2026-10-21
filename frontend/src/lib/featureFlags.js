@@ -9,6 +9,7 @@ const KEYS = {
   reelEditor: 'bauhly.ff.reelEditor',
   linkedin: 'bauhly.ff.linkedin',
   htmlThemes: 'bauhly.ff.htmlThemes',
+  canva: 'bauhly.ff.canva',
 };
 
 function readBool(key, fallback = false) {
@@ -26,6 +27,7 @@ let state = {
   reelEditor: readBool(KEYS.reelEditor, false),
   linkedin: readBool(KEYS.linkedin, false),
   htmlThemes: readBool(KEYS.htmlThemes, false),
+  canva: readBool(KEYS.canva, false),
 };
 
 const listeners = new Set();
@@ -41,6 +43,7 @@ function setState(patch) {
     if ('reelEditor' in patch) localStorage.setItem(KEYS.reelEditor, state.reelEditor ? '1' : '0');
     if ('linkedin' in patch) localStorage.setItem(KEYS.linkedin, state.linkedin ? '1' : '0');
     if ('htmlThemes' in patch) localStorage.setItem(KEYS.htmlThemes, state.htmlThemes ? '1' : '0');
+    if ('canva' in patch) localStorage.setItem(KEYS.canva, state.canva ? '1' : '0');
   } catch {
     // best-effort local cache only
   }
@@ -70,6 +73,11 @@ export function setLinkedInEnabled(next) {
 // Editor ⋯ › Theme › HTML themes (experimental interior templates)
 export function setHtmlThemesEnabled(next) {
   setState({ htmlThemes: Boolean(next) });
+}
+
+// Editor ⋯ › Theme › Design in Canva (Canva MCP, experimental)
+export function setCanvaEnabled(next) {
+  setState({ canva: Boolean(next) });
 }
 
 export function useFeatureFlags() {

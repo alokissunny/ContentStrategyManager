@@ -380,34 +380,24 @@ const THEME_POLL_GIVE_UP_MS = 20 * 60 * 1000;
 const THEME_POLL_OFFLINE_MS = 3 * 60 * 1000;
 const pause = (ms) => new Promise((r) => { setTimeout(r, ms); });
 
-export async function applyThemeImage(id, { referenceImageKey, referenceName, themeId, slideIndexes, brandColors, designMode } = {}) {
-  const label = `${designMode ? `${designMode === 'easier-to-read' ? 'Easier to read' : 'Improve design'} + Theme Apply` : 'Theme Apply agent'} — ${slideIndexes?.length === 1 ? `slide ${slideIndexes[0]}` : `${slideIndexes?.length || 0} slides`}`;
-  const fail = (data, message) => {
-    if (data?.debug) ingestPlanDebug(label, data);
-    const err = new Error(message || data?.message || 'Theme Apply failed.');
-    err.response = { data: { ...(data || {}), message: message || data?.message || 'Theme Apply failed.' } };
-    return err;
-  };
-  let started;
-  try {
-    started = await client.post(`/posts/${id}/theme-image`, { referenceImageKey, referenceName, themeId, slideIndexes, brandColors, ...(designMode ? { designMode } : {}), async: true }, { timeout: 60000 });
-  } catch (err) {
-    const data = err?.response?.data;
-    if (data?.debug) ingestPlanDebug(label, data);
-    throw err;
-  }
-  const jobId = started?.data?.jobId;
-  // a server without jobs answered the run itself
-  if (!jobId) {
-    const data = started?.data || {};
-    ingestPlanDebug(label, data);
-    return data;
-  }
+// a failed job run, shaped like an axios error (err.response.data.message)
+function jobFailure(label, fallback, data, message) {
+  if (data?.debug) ingestPlanDebug(label, data);
+  const text = message || data?.message || fallback;
+  const err = new Error(text);
+  err.response = { data: { ...(data || {}), message: text } };
+  return err;
+}
+
+// Polls GET /posts/theme-jobs/:jobId (Theme Apply and Design in Canva runs)
+// until it finishes → what the run answered.
+async function pollPostJob(jobId, { label, fallback, slowMessage, offlineMessage }) {
+  const fail = (data, message) => jobFailure(label, fallback, data, message);
   const t0 = Date.now();
   let offlineSince = 0;
   for (;;) {
     await pause(THEME_POLL_MS);
-    if (Date.now() - t0 > THEME_POLL_GIVE_UP_MS) throw fail(null, 'Theme Apply is taking far longer than it should — check back on this post in a minute, or try again.');
+    if (Date.now() - t0 > THEME_POLL_GIVE_UP_MS) throw fail(null, slowMessage);
     let job;
     try {
       job = (await client.get(`/posts/theme-jobs/${jobId}`, { timeout: 20000 })).data || {};
@@ -416,7 +406,7 @@ export async function applyThemeImage(id, { referenceImageKey, referenceName, th
       if (err?.response) throw fail(err.response.data, err.response.data?.message);
       // no answer: the server may be restarting — keep asking for a while
       offlineSince = offlineSince || Date.now();
-      if (Date.now() - offlineSince > THEME_POLL_OFFLINE_MS) throw fail(null, 'Lost contact with the server while theming — it may have restarted. Try again, or theme one slide at a time.');
+      if (Date.now() - offlineSince > THEME_POLL_OFFLINE_MS) throw fail(null, offlineMessage);
       continue;
     }
     if (job.status === 'running') continue;
@@ -429,6 +419,53 @@ export async function applyThemeImage(id, { referenceImageKey, referenceName, th
     ingestPlanDebug(label, job);
     return job;
   }
+}
+
+// POST to start a background job run → what the run answered
+async function runPostJob(url, body, opts) {
+  let started;
+  try {
+    started = await client.post(url, { ...body, async: true }, { timeout: 60000 });
+  } catch (err) {
+    const data = err?.response?.data;
+    if (data?.debug) ingestPlanDebug(opts.label, data);
+    throw err;
+  }
+  const jobId = started?.data?.jobId;
+  // a server without jobs answered the run itself
+  if (!jobId) {
+    const data = started?.data || {};
+    ingestPlanDebug(opts.label, data);
+    return data;
+  }
+  return pollPostJob(jobId, opts);
+}
+
+export function applyThemeImage(id, { referenceImageKey, referenceName, themeId, slideIndexes, brandColors, designMode } = {}) {
+  const label = `${designMode ? `${designMode === 'easier-to-read' ? 'Easier to read' : 'Improve design'} + Theme Apply` : 'Theme Apply agent'} — ${slideIndexes?.length === 1 ? `slide ${slideIndexes[0]}` : `${slideIndexes?.length || 0} slides`}`;
+  return runPostJob(`/posts/${id}/theme-image`, { referenceImageKey, referenceName, themeId, slideIndexes, brandColors, ...(designMode ? { designMode } : {}) }, {
+    label,
+    fallback: 'Theme Apply failed.',
+    slowMessage: 'Theme Apply is taking far longer than it should — check back on this post in a minute, or try again.',
+    offlineMessage: 'Lost contact with the server while theming — it may have restarted. Try again, or theme one slide at a time.',
+  });
+}
+
+// Editor ⋯ › Theme › Design in Canva (experimental), through the studio's
+// Canva (MCP). source 'reimagine' (default): Canva reimagines the carousel
+// agent's slides as high-quality posts with their exact words and photos ·
+// 'import': the slides as they are, as one editable design · `refresh`:
+// re-export the post's Canva design after it was edited in Canva.
+// → { post, applied: [{ index, key, src }], design, failed }
+export function designInCanva(id, { slideIndexes, refresh = false, source = 'reimagine' } = {}) {
+  const body = refresh ? { refresh: true } : { source, ...(slideIndexes?.length ? { slideIndexes } : {}) };
+  const what = refresh ? 'Refresh from Canva' : source === 'import' ? 'Import into Canva' : 'Reimagine in Canva';
+  return runPostJob(`/posts/${id}/canva`, body, {
+    label: `${what} — ${refresh ? 'Canva pages' : slideIndexes?.length === 1 ? `slide ${slideIndexes[0]}` : 'every slide'}`,
+    fallback: 'Design in Canva failed.',
+    slowMessage: 'Canva is taking far longer than it should — check back on this post in a minute, or try again.',
+    offlineMessage: 'Lost contact with the server while Canva was designing — it may have restarted. Try again.',
+  });
 }
 
 // Editor › Themes › Remove theme: back to the carousel agent's design — every

@@ -25,6 +25,7 @@ const {
   runArtDirector,
   rerunSlideLayoutVariations,
   applyThemeImage,
+  designInCanva,
   getThemeApplyJob,
   removeTheme,
   getPreTheme,
@@ -72,6 +73,8 @@ router.post('/:id/layout', asyncHandler(rerunLayout));
 router.post('/:id/art-director', asyncHandler(runArtDirector));
 router.post('/:id/slide/:slideIndex/layout-variations', asyncHandler(rerunSlideLayoutVariations));
 router.post('/:id/theme-image', asyncHandler(applyThemeImage));
+// Editor ⋯ › Theme › Design in Canva (experimental, Canva MCP)
+router.post('/:id/canva', asyncHandler(designInCanva));
 router.post('/:id/remove-theme', asyncHandler(removeTheme));
 router.get('/:id/pre-theme', asyncHandler(getPreTheme));
 router.post('/:id/slide/:slideIndex/theme-regions', asyncHandler(mapThemeRegions));

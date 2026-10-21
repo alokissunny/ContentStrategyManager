@@ -56,3 +56,19 @@ export function getThemeApplyPhotoMode() {
 export function updateThemeApplyPhotoMode(mode) {
   return client.put('/settings/theme-apply-photo', { mode }).then((res) => res.data);
 }
+
+// Settings › Experimental features › Design in Canva: the studio's Canva link
+// (OAuth against Canva's MCP server; the browser returns to /dashboard/canva/callback)
+export const canvaRedirectUri = () => `${window.location.origin}/dashboard/canva/callback`;
+export function getCanvaStatus() {
+  return client.get('/canva/status').then((r) => r.data || {});
+}
+export function startCanvaConnect() {
+  return client.post('/canva/connect', { redirectUri: canvaRedirectUri() }).then((r) => r.data || {});
+}
+export function finishCanvaConnect(code, state) {
+  return client.post('/canva/callback', { code, state }).then((r) => r.data || {});
+}
+export function disconnectCanva() {
+  return client.delete('/canva/connection').then((r) => r.data || {});
+}

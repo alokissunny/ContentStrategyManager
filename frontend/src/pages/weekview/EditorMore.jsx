@@ -273,6 +273,17 @@ export default function EditorMore({ acts, onClose }) {
                 into: true,
                 chevron: true,
               }] : []),
+              ...(acts.onCanva ? [{
+                id: 'canva',
+                icon: 'swatch',
+                label: 'Design in Canva',
+                hint: acts.canvaEditUrl ? 'Open, refresh or reimagine again · experimental' : 'Canva reimagines your slides · experimental',
+                badge: 'Beta',
+                dead: acts.busy,
+                fn: () => setLevel('theme-canva'),
+                into: true,
+                chevron: true,
+              }] : []),
               ...(acts.themed ? [
                 { id: 'r-untheme', rule: true },
                 {
@@ -327,6 +338,48 @@ export default function EditorMore({ acts, onClose }) {
           </>
         )}
       </>
+    );
+  }
+  if (level === 'theme-canva') {
+    return (
+      <Rows
+        onClose={onClose}
+        rows={[
+          ...backRow('Design in Canva', 'theme'),
+          ...(acts.canvaEditUrl ? [{
+            id: 'open',
+            icon: 'arrow-up-right',
+            label: 'Open in Canva',
+            hint: 'Edit the design in Canva, then Refresh',
+            fn: () => { window.open(acts.canvaEditUrl, '_blank', 'noopener'); onClose?.(); },
+          }] : []),
+          ...(acts.onCanvaRefresh ? [{
+            id: 'refresh',
+            icon: 'refresh',
+            label: 'Refresh from Canva',
+            hint: 'Bring your Canva edits back into the slides',
+            dead: acts.busy,
+            fn: () => acts.onCanvaRefresh(),
+          }, { id: 'r-send', rule: true }] : []),
+          {
+            id: 'all',
+            icon: 'sparkle',
+            label: 'Reimagine all slides',
+            hint: 'Canva’s layouts with your exact words and photos · about a minute a slide',
+            dead: acts.busy,
+            fn: () => acts.onCanva?.(true, 'reimagine'),
+          },
+          ...(many ? [{ id: 'one', icon: 'brief', label: 'Reimagine this slide', hint: 'Only the slide on screen', dead: acts.busy, fn: () => acts.onCanva?.(false, 'reimagine') }] : []),
+          {
+            id: 'import',
+            icon: 'copy',
+            label: 'Import as it is',
+            hint: 'The carousel unchanged, as one editable Canva design',
+            dead: acts.busy,
+            fn: () => acts.onCanva?.(true, 'import'),
+          },
+        ]}
+      />
     );
   }
   if (level === 'theme-remove') {

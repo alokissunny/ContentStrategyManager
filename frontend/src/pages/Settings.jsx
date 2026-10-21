@@ -20,6 +20,7 @@ import { useAiDebug, setAiDebugEnabled, clearAiDebugEntries } from '../lib/aiDeb
 import { useFeatureFlags, setVideoCoverEnabled, setReelEditorEnabled, setLinkedInEnabled, setHtmlThemesEnabled } from '../lib/featureFlags';
 import { getArtDirector, updateArtDirector, getBrandVoiceModel, getCarouselModel, getStrategistModel, getThemeApplyPhotoMode, getThemeRegionsModel, updateBrandVoiceModel, updateCarouselModel, updateStrategistModel, updateThemeApplyPhotoMode, updateThemeRegionsModel } from '../api/settings';
 import LinkedInSettings from '../components/LinkedInSettings';
+import CanvaSettings from '../components/CanvaSettings';
 import './settings.css';
 import { LOCALES, useLocale, setLocale, intlLocale, translate as t } from '../i18n';
 
@@ -973,6 +974,7 @@ export default function Settings() {
             </button>
           </span>
         </div>
+        <CanvaSettings />
       </section>
 
       {/* ── Debug ── */}

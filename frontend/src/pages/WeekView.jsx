@@ -31,6 +31,7 @@ import {
   runPostLayout,
   runPostArtDirector,
   applyThemeImage,
+  designInCanva,
   listThemeReferences,
   deleteThemeReference,
   mapThemeRegions,
@@ -3172,7 +3173,7 @@ export default function WeekView({
   // Desktop side panel: Caption | Why this post | Video cover | Debug.
   const [sideTab, setSideTab] = useState('caption'); // 'caption' | 'why' | 'video' | 'debug'
   const aiDebug = useAiDebug();
-  const { videoCover: videoCoverOn, linkedin: linkedinOn, htmlThemes: htmlThemesOn } = useFeatureFlags();
+  const { videoCover: videoCoverOn, linkedin: linkedinOn, htmlThemes: htmlThemesOn, canva: canvaOn } = useFeatureFlags();
   const [layoutBusy, setLayoutBusy] = useState(false);
   const [artDirectorMsg, setArtDirectorMsg] = useState('');
   const [layoutErr, setLayoutErr] = useState('');
@@ -3286,6 +3287,7 @@ export default function WeekView({
     .catch(() => {});
   useEffect(() => { refreshSavedRefs(); }, []);
   const runDayThemeImage = (_id, i, body) => applyThemeImage(postIdAt(i), body).then((d) => ({ ...d, route: mergePost(d.post) }));
+  const runDayCanva = (i, body) => designInCanva(postIdAt(i), body).then((d) => ({ ...d, route: mergePost(d.post) }));
   const runDayCover = (_id, i, visual) => runPostCover(postIdAt(i), visual).then((d) => ({ ...d, route: mergePost(d.post) }));
   const runSlideLayoutVariations = (_id, i, slideIndex) => apiRunSlideLayoutVariations(postIdAt(i), slideIndex);
   // Options are per-post; fetch each day's, index-aligned with route.days.
@@ -5415,6 +5417,44 @@ export default function WeekView({
     }
   }
 
+  // Theme › Design in Canva (experimental, Settings › Experimental features):
+  // the carousel agent's slides go to the studio's own Canva (backend
+  // canvaCarouselAgent, Canva MCP import) as one editable design; its pages
+  // come back as picture slides, like a Theme Apply render (Remove theme undoes
+  // it). `refresh`: export that design again after it was edited in Canva.
+  async function handleDesignInCanva(every = true, { refresh = false, source = 'reimagine' } = {}) {
+    if (layoutBusy || !route?._id) return;
+    setMenuPane(null);
+    closeZone();
+    flushElemEdits();
+    const dayIndex = selected;
+    const here = safeIdx + 1;
+    const wasEditing = postEdit;
+    setLayoutBusy(true);
+    setLayoutErr('');
+    try {
+      const data = await runDayCanva(dayIndex, refresh ? { refresh: true } : { source, ...(every ? {} : { slideIndexes: [here] }) });
+      (data?.applied || []).forEach((a) => { if (a?.key && a?.src) rememberImage(a.key, a.src, { skipGen: true }); });
+      if (data?.route) {
+        setRoute(data.route);
+        onRouteChange?.(data.route);
+        setSlideGen((g) => g + 1);
+        if (wasEditing) { setPostEdit(true); setSlideIdx(Math.max(0, here - 1)); }
+      }
+      if (data?.failed?.length) {
+        const n = data.failed.map((f) => f.index).join(', ');
+        setLayoutErr(`Canva could not design slide${data.failed.length === 1 ? '' : 's'} ${n} — ${data.failed[0].message}`);
+      }
+    } catch (err) {
+      const code = err?.response?.data?.code;
+      setLayoutErr(code === 'CANVA_NOT_CONNECTED' || code === 'CANVA_RECONNECT'
+        ? `${err.response.data.message}`
+        : (err.response?.data?.message || err.message || 'Design in Canva failed.'));
+    } finally {
+      setLayoutBusy(false);
+    }
+  }
+
   async function handleUploadReferenceTheme(file, every = true) {
     if (!file || layoutBusy || !route?._id) return;
     await runThemeApply({ file, label: 'that reference photo' }, every);
@@ -7171,6 +7211,10 @@ export default function WeekView({
       // a Theme Apply picture is themed from the html under it (server side)
       sendAsk(every, { instruction: `Apply the ${theme.name} HTML theme.`, mode: 'html-theme', htmlTheme: theme.id });
     },
+    // Design in Canva (experimental, `canva` feature flag)
+    onCanva: !canvaOn ? null : (every, source = 'reimagine') => handleDesignInCanva(every, { source }),
+    onCanvaRefresh: !canvaOn || !day?.content?.canvaDesign?.id ? null : () => handleDesignInCanva(true, { refresh: true }),
+    canvaEditUrl: canvaOn ? (day?.content?.canvaDesign?.editUrl || '') : '',
     // Remove theme: shown while any slide wears a Theme Apply render
     themed: slides.some((sl) => isThemedPicture(sl) || isThemedHtml(sl)),
     slideThemed: isThemedPicture(activeSlide) || isThemedHtml(activeSlide),

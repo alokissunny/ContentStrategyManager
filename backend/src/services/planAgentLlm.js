@@ -51,6 +51,16 @@ const AGENTS = {
   // Art Director — runs right after the carousel agent: takes its HTML slides
   // plus the post's photos and returns a re-composed, more editorial version
   // (same copy, same assets). See planOrchestrator.artDirectCarousel.
+  // Design in Canva › Reimagine: reads a Canva-generated slide layout (its
+  // elements + a picture of it) and writes the Canva edit operations that put
+  // the carousel agent's exact words and the post's photos into it
+  // (services/canvaCarouselAgent.planCanvaEdits).
+  canvaPlanner: {
+    defaultProvider: 'openai',
+    modelEnv: 'CANVA_PLANNER_MODEL',
+    providerEnv: 'CANVA_PLANNER_PROVIDER',
+    defaultModel: 'gpt-6-luna',
+  },
   artDirector: {
     defaultProvider: 'openai',
     modelEnv: 'PLAN_ART_DIRECTOR_MODEL',
