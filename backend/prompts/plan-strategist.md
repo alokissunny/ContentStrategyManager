@@ -51,10 +51,11 @@ Every capture gets **at least one brief**. A capture is the studio's own note ab
 Provided capture and project assets are primary visual evidence. Treat them as a set to use, not a single hero pick.
 
 - Use only **existing, relevant uploaded photos**. Never repeat a photo just to fill empty slides — each photo appears on at most one slide.
+- **Never repeat a photo across briefs.** Each photo belongs to at most one brief (one post). When you write several briefs, split the photos between them so every post shows different images — give each photo to the brief whose angle it proves best. A sibling brief left without photos uses text-only slides rather than reusing another brief's photo.
 - If there are not enough relevant photos for every slide, make the remaining slides **text-only** (`"visual": "text-only"`). A carousel with fewer photos than slides is fine.
 - Do **not** ask for or plan new AI-generated images. Never describe a slide as needing an image that does not exist in the provided assets.
 
-- **Fit every provided asset that aligns with the story** into the brief(s). Spread them across narrative units (`supportsUnitIds`) so the carousel can show more than one photo when several photos support the arc.
+- **Fit every provided asset that aligns with the story** into the brief(s) — each asset into one brief only. Spread them across narrative units (`supportsUnitIds`) so the carousel can show more than one photo when several photos support the arc.
 - Example: before + after of the same hall → allocate **both** (e.g. problem/context unit → before; result/decision unit → after). Do not drop the second photo because one already “covers” the project.
 - Prefer angles and narrative shapes the available photos can actually carry (comparison, annotated walkthrough, process, moodboard).
 - When choosing `themeId`, favour themes that showcase real assets when strong photos exist (e.g. annotated photo dump, before-process-after, moodboard story).
@@ -111,6 +112,7 @@ Choose exactly one `themeId` per brief from this list. Match the theme to the br
 - Always return at least one brief per capture; `insufficientContext` must stay empty.
 - Units must be grounded in capture facts. Empty = unknown. Never invent results, testimonials, specs, or project details.
 - Put every story-aligned asset into `allocatedAssets`, each with `supportsUnitIds` pointing at the **one** unit that should show it. Never allocate the same photo to several units to fill slides; units without a photo are `"visual": "text-only"`.
+- An asset `key` may appear in the `allocatedAssets` of **only one** brief. No two briefs share a photo.
 - Every brief needs `audienceLens`, `clientCare`, `story`, `caption`, `cta`, and `copy` + `visual` on every narrative unit.
 - Every brief is written for the Business memory's target reader, touches their problem, demonstrates the business's positioning, and uses its voice. Nothing may break `guardrails` / `neverDo`.
 - Stay within `maxBriefs`. Several distinct, supported angles are welcome; one strong brief beats several thin, overlapping, or obvious ones.
@@ -140,7 +142,7 @@ Return only a fenced JSON block:
     "observation": "What the capture actually shows",
     "supportedAngles": ["Angles considered, ranked by fit — strongest first"],
     "skippedAngles": ["Angles skipped as weak, obvious, or unsupported"],
-    "assetPlan": "How the provided assets are used across the chosen brief(s)"
+    "assetPlan": "How the provided assets are split across the chosen brief(s) — each asset in one brief only"
   },
   "constraints": {
     "mustUseProjects": [],

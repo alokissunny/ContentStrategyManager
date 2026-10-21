@@ -4,7 +4,7 @@ const { AsyncResource } = require('async_hooks');
 const { brandKitColors, brandStylePalette, brandKitFonts, brandStyleFonts } = require('./brandKitColors');
 const { carouselLayoutProblems } = require('./carouselLayoutCheck');
 const { extractJson, estimatePlanCostUsd, assignToEmptyDates, normalizeLens } = require('./weeklyPlan');
-const { compileStrategyContext, assetsForDay, allocatedAssetsOf, applyAssetAllocation, knownAssetIndexOf, json } = require('./planContext');
+const { compileStrategyContext, assetsForDay, allocatedAssetsOf, sanitizeAllocatedAssets, applyAssetAllocation, knownAssetIndexOf, json } = require('./planContext');
 const { completeText, resolvePlanAgentLlm, splitPromptTemplate, reasoningEffortFor } = require('./llmComplete');
 const { ANNOTATIONS_ENABLED, asStoredText, asStoredLines, flattenSlide, layoutForStructure, mediaKeysOf, projectMediaKeysIn } = require('./slideContent');
 const { boxOf, matchSubject, regionFromBox } = require('./subjectBox');
@@ -649,7 +649,7 @@ function captureByBriefId(conversationCaptures, brief) {
 
 function enrichBriefsFromCaptures(briefs, conversationCaptures, ctx = {}) {
   const known = knownAssetIndexOf(ctx.projectsList || ctx.projects, ctx.assetContext);
-  return (briefs || []).map((b) => {
+  const rows = (briefs || []).map((b) => {
     const src = captureByBriefId(conversationCaptures, b);
     const filled = src ? {
       ...b,
@@ -669,7 +669,37 @@ function enrichBriefsFromCaptures(briefs, conversationCaptures, ctx = {}) {
         ? b.visualLimitations
         : (src.assets || []).flatMap((a) => a.limitations || []),
     } : b;
-    return { ...filled, ...applyAssetAllocation(filled, src, known) };
+    return { filled, src };
+  });
+  // A photo is never repeated across posts: the first brief (rank order) whose
+  // own allocation names it owns it; the capture-photo top-up only hands out
+  // photos no brief has claimed yet.
+  const owner = new Map();
+  rows.forEach(({ filled, src }, i) => {
+    sanitizeAllocatedAssets(filled.allocatedAssets, filled, src, known).forEach((a) => {
+      if (!owner.has(a.key)) owner.set(a.key, i);
+    });
+  });
+  const given = new Set();
+  return rows.map(({ filled, src }, i) => {
+    const taken = new Set(given);
+    owner.forEach((o, key) => { if (o !== i) taken.add(key); });
+    const out = { ...filled, ...applyAssetAllocation(filled, src, known, taken) };
+    out.allocatedAssets.forEach((a) => given.add(a.key));
+    return out;
+  });
+}
+
+// Across Strategist calls (one per capture) the same project photo can reach
+// two briefs — keep it on the first (calendar order) and drop it from the rest.
+function dropRepeatedAssets(briefs) {
+  const used = new Set();
+  return briefs.map((b) => {
+    const allocated = allocatedAssetsOf(b.allocatedAssets);
+    const kept = allocated.filter((a) => !used.has(a.key));
+    kept.forEach((a) => used.add(a.key));
+    if (kept.length === allocated.length) return b;
+    return { ...b, allocatedAssets: kept, suggestedAssetKey: kept[0]?.key || '' };
   });
 }
 
@@ -3638,7 +3668,7 @@ async function runStrategistPhase({
       if (c.briefs[rank]) briefs.push(calls.length > 1 ? { ...c.briefs[rank], strategistCall: callIndex } : c.briefs[rank]);
     });
   }
-  const plannedDays = assignToEmptyDates(briefs, emptyDates);
+  const plannedDays = assignToEmptyDates(calls.length > 1 ? dropRepeatedAssets(briefs) : briefs, emptyDates);
   const strategistPrompt = calls[0].prompt;
   const constraints = calls.length > 1 ? mergedConstraintsOf(calls) : (calls[0].parsed.constraints || {});
   console.log(

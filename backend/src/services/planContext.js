@@ -710,9 +710,12 @@ function sanitizeAllocatedAssets(raw, brief, capture, known) {
   });
 }
 
-function applyAssetAllocation(brief, capture, known) {
-  let allocated = sanitizeAllocatedAssets(brief?.allocatedAssets, brief, capture, known);
-  const captureRows = (capture?.assets || capture?.attachedAssets || []).map((a) => ({
+// `taken` = photo keys another brief of this plan already owns — a photo is
+// never repeated across posts, so they are dropped here and never topped up.
+function applyAssetAllocation(brief, capture, known, taken = new Set()) {
+  let allocated = sanitizeAllocatedAssets(brief?.allocatedAssets, brief, capture, known)
+    .filter((a) => !taken.has(a.key));
+  const captureRows = (capture?.assets || capture?.attachedAssets || []).filter((a) => !taken.has(a?.key)).map((a) => ({
     key: a.key,
     source: 'conversation',
     why: a.summary || '',
@@ -869,6 +872,7 @@ module.exports = {
   compileStrategyContext,
   assetsForDay,
   allocatedAssetsOf,
+  sanitizeAllocatedAssets,
   applyAssetAllocation,
   knownAssetIndexOf,
   recentCapturesOf,
