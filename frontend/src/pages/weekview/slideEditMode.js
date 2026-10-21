@@ -369,6 +369,8 @@ export function attachSlideEditMode(frame, {
         slot: selected.getAttribute('data-slot') || '',
         text: (selected.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 160),
         hasImg: Boolean(selected.matches('img') || selected.querySelector('img[src]')),
+        // which picture frame this is, in slide order (the order pictures bind in)
+        imageSlot: imageSlotOf(selected, root),
         style: {
           bold: Number(cs.fontWeight) >= 600,
           weight: Number(cs.fontWeight) || 400,
@@ -926,6 +928,43 @@ export function bakeSlidePatches(html, patches, findRoot, { isDocument = false }
     return `<!DOCTYPE html>\n${doc.documentElement.outerHTML}`;
   }
   // a fragment: DOMParser hoists leading <style>/<link> into <head> — keep them
+  return `${doc.head?.innerHTML || ''}${doc.body?.innerHTML || ''}`;
+}
+
+// The selected element's picture frame, counted over the slide's image slots
+// in document order: the <img> itself, the one inside a frame, or the frame
+// around it. -1 when it holds no picture slot.
+const IMAGE_SLOTS = 'img[data-slot="image"], img[data-slot="illustration"]';
+export function imageSlotOf(el, root) {
+  if (!el || !root) return -1;
+  const img = el.matches?.(IMAGE_SLOTS) ? el : (el.querySelector?.(IMAGE_SLOTS) || el.closest?.(IMAGE_SLOTS));
+  if (!img) return -1;
+  return [...root.querySelectorAll(IMAGE_SLOTS)].indexOf(img);
+}
+
+// Put chosen pictures into a slide's picture frames by position: each slot i
+// with keys[i] gets that key (and urls[i] as its src); empty entries are left.
+export function stampImageSlots(html, findRoot, keys, urls, { isDocument = false } = {}) {
+  const raw = String(html || '');
+  if (!raw || typeof DOMParser === 'undefined') return raw;
+  const doc = new DOMParser().parseFromString(raw, 'text/html');
+  const root = findRoot(doc);
+  if (!root) return raw;
+  const imgs = [...root.querySelectorAll(IMAGE_SLOTS)];
+  let changed = false;
+  imgs.forEach((img, i) => {
+    const key = keys?.[i];
+    if (!key || img.getAttribute('data-asset-key') === key) return;
+    img.setAttribute('data-asset-key', key);
+    if (urls?.[i]) img.setAttribute('src', urls[i]);
+    img.removeAttribute('data-placeholder');
+    img.removeAttribute('data-focus');
+    changed = true;
+  });
+  if (!changed) return raw;
+  if (isDocument || /<html[\s>]/i.test(raw) || /<!doctype/i.test(raw)) {
+    return `<!DOCTYPE html>\n${doc.documentElement.outerHTML}`;
+  }
   return `${doc.head?.innerHTML || ''}${doc.body?.innerHTML || ''}`;
 }
 

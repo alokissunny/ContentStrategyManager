@@ -46,6 +46,7 @@ import {
   getPostDebug,
   shiftPosts,
   polishCaption,
+  listHtmlThemes,
 } from '../api/posts';
 import { isoOf as isoOfDate, dateOf as dateFromIso, addDays as addDaysIso } from '../lib/shiftPosts';
 import { distributionForGenerate } from '../lib/distribution';
@@ -79,7 +80,7 @@ import PostAgentDebug from './weekview/PostAgentDebug';
 import DynamicLayout, { AnnotationOverlay } from './weekview/DynamicLayout';
 import { markPostSeen } from '../lib/seenPosts';
 import { BrandMark } from './visuallibrary/BrandMark';
-import { bakeSlidePatches, replaceSlideArticle, slideArticleOf, nodeAt } from './weekview/slideEditMode';
+import { bakeSlidePatches, replaceSlideArticle, slideArticleOf, nodeAt, stampImageSlots } from './weekview/slideEditMode';
 import { auditSlideLayout, measureSlide, slideCssOf } from './weekview/slideAudit';
 import { actionsFor, askHint, askSay, askReady, endOf, trailOf, SLIDE_IDEAS } from '../lib/askactions';
 import { useRecorder, captureSttLanguages } from './checkin/recorder';
@@ -101,6 +102,7 @@ import { listBackgrounds, uploadBackground, uploadLogo } from '../api/visualBran
 import { DEFAULT_BACKGROUNDS } from './visuallibrary/brandkitDefaults';
 import EditorMore from './weekview/EditorMore';
 import { readSlideTextStyles, styleForRegion } from './weekview/themedTextStyle';
+import { htmlThemeIdOf, imageSlotCount } from '../lib/htmlThemes';
 import './weekView.css';
 
 // ── Which layouts a slide can take — drawn straight from the Visual Library ──
@@ -1503,6 +1505,24 @@ function keysOf(slide) {
   if (fromVisual.length) return fromVisual;
   // Carousel often stamps data-asset-key on the <img> without setting slide.assetKey.
   return own(keysFromLayoutHtml(slide?.layoutHtml));
+}
+
+// The picture in each of a slide's frames, by position ('' for an empty
+// frame): a frame that names its picture keeps it; the slide's other keys fill
+// the rest in order — the same rule the slide is drawn with (bindSlideImages).
+function slotKeysNow(slide) {
+  const keys = keysOf(slide);
+  const html = String(slide?.layoutHtml || '');
+  const named = [];
+  html.replace(/<img\b([^>]*?)\/?>/gi, (full, attrs) => {
+    if (!/data-slot\s*=\s*["'](?:image|illustration)["']/i.test(attrs)) return full;
+    const k = String(attrs.match(/\bdata-asset-key\s*=\s*["']([^"']+)["']/i)?.[1] || '');
+    named.push(k && keys.includes(k) ? k : '');
+    return full;
+  });
+  if (!named.length) return keys;
+  const rest = keys.filter((k) => !named.includes(k));
+  return named.map((k) => k || rest.shift() || '');
 }
 
 function subjectsForSlide(slide, subjectsByKey) {
@@ -3152,7 +3172,7 @@ export default function WeekView({
   // Desktop side panel: Caption | Why this post | Video cover | Debug.
   const [sideTab, setSideTab] = useState('caption'); // 'caption' | 'why' | 'video' | 'debug'
   const aiDebug = useAiDebug();
-  const { videoCover: videoCoverOn, linkedin: linkedinOn } = useFeatureFlags();
+  const { videoCover: videoCoverOn, linkedin: linkedinOn, htmlThemes: htmlThemesOn } = useFeatureFlags();
   const [layoutBusy, setLayoutBusy] = useState(false);
   const [artDirectorMsg, setArtDirectorMsg] = useState('');
   const [layoutErr, setLayoutErr] = useState('');
@@ -3248,6 +3268,19 @@ export default function WeekView({
   const removeDayTheme = (_id, i, body) => apiRemoveTheme(postIdAt(i), body).then((d) => ({ ...d, route: mergePost(d.post) }));
   // Your references (uploaded theme references kept for re-apply)
   const [savedRefs, setSavedRefs] = useState([]);
+  // Editor ⋯ › Theme › HTML themes: the templates, fetched once on first open
+  const [htmlThemes, setHtmlThemes] = useState(null);
+  const [htmlThemesError, setHtmlThemesError] = useState('');
+  const htmlThemesLoading = useRef(false);
+  function loadHtmlThemes() {
+    if (htmlThemes?.length || htmlThemesLoading.current) return;
+    htmlThemesLoading.current = true;
+    setHtmlThemesError('');
+    listHtmlThemes()
+      .then((d) => setHtmlThemes(Array.isArray(d?.themes) ? d.themes : []))
+      .catch(() => setHtmlThemesError('Could not load the templates — close and try again.'))
+      .finally(() => { htmlThemesLoading.current = false; });
+  }
   const refreshSavedRefs = () => listThemeReferences()
     .then((list) => setSavedRefs(list.map((r) => ({ ...r, saved: true, thumb: mediaProxyUrl(r.key) }))))
     .catch(() => {});
@@ -4335,6 +4368,8 @@ export default function WeekView({
       assetKeys: keysOf(sl),
       role: sl.role || '',
       direction: layoutDirectionOf(sl),
+      // a Theme Apply picture has no live html for an HTML theme to restyle
+      pictureThemed: isThemedPicture(sl),
     }));
     if (focusPath != null && typeof DOMParser !== 'undefined') {
       const mark = (html, isDocument) => {
@@ -4381,6 +4416,7 @@ export default function WeekView({
         visualSlideIndex: activeIdx,
         intent,
         mode: preset?.mode,
+        htmlTheme: preset?.htmlTheme,
         geometry,
         slideCss,
         current: { carouselHtml, direction: activeDir, slides: slidesRef },
@@ -6769,13 +6805,18 @@ export default function WeekView({
     removeSlide(ask.i, flushed?.slides || null);
   }
 
-  function openImagePicker() {
-    const n = Math.max(1, shotsForLayout(chosenLayout || findChangeLayout(activeSlide?.layout)) || 1);
-    const saved = keysOf(activeSlide).map((k) => urlForKey(k, activeSlide, localMedia, mediaByKey));
+  // `slot`: the picture frame selected on the slide (ElementBar › Replace
+  // image) — the picker opens on it and the choice lands in that frame only
+  function openImagePicker(slot) {
+    const want = Number.isInteger(slot) && slot >= 0 ? slot : null;
+    // a slide offers every picture frame its html has, empty ones too
+    const frames = imageSlotCount(activeSlide?.layoutHtml);
+    const n = Math.max(1, frames, (want ?? -1) + 1, shotsForLayout(chosenLayout || findChangeLayout(activeSlide?.layout)) || 1);
+    const saved = slotKeysNow(activeSlide).map((k) => (k ? urlForKey(k, activeSlide, localMedia, mediaByKey) : null));
     const fromSaved = Array.from({ length: n }, (_, i) => saved[i] || null);
-    if (fromSaved.some(Boolean)) {
+    if (fromSaved.some(Boolean) || want != null) {
       const empty = fromSaved.findIndex((u) => !u);
-      setImgPick({ slots: fromSaved, at: empty >= 0 ? empty : 0 });
+      setImgPick({ slots: fromSaved, at: want ?? (empty >= 0 ? empty : 0), slot: want });
       return;
     }
     const urls = pickerImages.map((i) => i.url).filter(Boolean);
@@ -6812,6 +6853,30 @@ export default function WeekView({
     const extra = {};
     slots.forEach((url, i) => { if (url && keys[i]) extra[keys[i]] = url; });
     if (Object.keys(extra).length) setLocalMedia((m) => ({ ...m, ...extra }));
+    // Each frame keeps the picture chosen for IT: the keys are written into the
+    // slide's own <img> slots by position (pictures bind to the frame that
+    // names them), so filling a second frame never moves the first.
+    const frames = imageSlotCount(activeSlide?.layoutHtml);
+    if (frames > 0 && typeof DOMParser !== 'undefined') {
+      const saved = flushElemEdits();
+      const base = saved?.slides || deriveSlides(day);
+      const sl = base[safeIdx];
+      const docHtml = saved?.docHtml ?? carouselDocumentOf(day);
+      const dir = layoutDirectionOf(sl);
+      const idx = Number(sl?.index) > 0 ? Number(sl.index) : safeIdx + 1;
+      const findRoot = (d) => findCarouselSlide(d, dir, idx) || d.querySelector('article.slide, .slide, article');
+      const urls = slots.map((u, i) => (u && keys[i] ? canvasSafeUrl(u, keys[i]) : ''));
+      const inDoc = Boolean(sl && slideIsThemed(sl) && isCarouselDocument(docHtml));
+      const nextDoc = inDoc ? stampImageSlots(docHtml, findRoot, keys, urls, { isDocument: true }) : docHtml;
+      const nextOwn = stampImageSlots(sl?.layoutHtml, findRoot, keys, urls);
+      // the slide's keys: every frame's picture, in frame order
+      const listed = [];
+      slots.forEach((_, i) => { const k = keys[i] || slotKeysNow(sl)[i]; if (k && !listed.includes(k)) listed.push(k); });
+      const next = base.map((s, i) => (i === safeIdx ? { ...s, layoutHtml: nextOwn || s.layoutHtml, assetKey: listed[0] || '', assetKeys: listed } : s));
+      replaceSlides(next, nextDoc !== docHtml ? { extra: { carouselHtml: nextDoc } } : {});
+      setImgPick(null);
+      return;
+    }
     patchActiveSlide({ assetKey: keys.find(Boolean) || '', assetKeys: keys });
     setImgPick(null);
   }
@@ -7093,6 +7158,19 @@ export default function WeekView({
     savedRefs,
     onSavedReference: (ref, every) => handleSavedReferenceTheme(ref, every),
     onDeleteSavedReference: (ref) => handleDeleteSavedReference(ref),
+    // HTML themes (experimental): fixed templates filled with the slide's own
+    // words and pictures (backend htmlThemes.js) — no picture is painted
+    htmlThemes: htmlThemes || [],
+    htmlThemesError,
+    loadHtmlThemes,
+    htmlThemeId: htmlThemeIdOf(activeSlide?.layoutHtml),
+    // behind the `htmlThemes` feature flag (Settings › Experimental features):
+    // without it the Theme menu has no HTML themes row
+    onHtmlTheme: !htmlThemesOn ? null : (theme, every) => {
+      if (!theme) return;
+      // a Theme Apply picture is themed from the html under it (server side)
+      sendAsk(every, { instruction: `Apply the ${theme.name} HTML theme.`, mode: 'html-theme', htmlTheme: theme.id });
+    },
     // Remove theme: shown while any slide wears a Theme Apply render
     themed: slides.some((sl) => isThemedPicture(sl) || isThemedHtml(sl)),
     slideThemed: isThemedPicture(activeSlide) || isThemedHtml(activeSlide),
@@ -8046,7 +8124,7 @@ export default function WeekView({
               run={runElem}
               swatches={elemSwatches}
               onAsk={() => openAsk()}
-              onImage={openImagePicker}
+              onImage={() => openImagePicker(elemSel?.imageSlot)}
               onClose={() => elemApiRef.current?.deselect()}
               onRewrite={rewriteElemWords}
             />

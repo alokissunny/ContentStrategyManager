@@ -63,11 +63,29 @@ function paintImg(attrs, src, extraClass = '') {
 // `is-placeholder` so CSS can paint a hatch — agent flex/cqh sizing stays intact.
 function injectSrc(html, urls) {
   const list = (Array.isArray(urls) ? urls : []).map(trim).filter(Boolean);
+  // a slot that names its picture (data-asset-key) gets it when listed — by
+  // file name, see bindSlideImages; the others take what is left, in order
+  const stem = (k) => String(k || '').split('/').pop().replace(/\.[a-z0-9]+$/i, '');
+  const taken = new Set();
+  const own = [];
+  String(html || '').replace(/<img\b([^>]*?)\/?>/gi, (full, attrs) => {
+    if (!isImageSlot(attrs)) return full;
+    const k = stem(attrs.match(/\bdata-asset-key\s*=\s*["']([^"']+)["']/i)?.[1]);
+    const at = k && k.length >= 8 ? list.findIndex((u, j) => !taken.has(j) && decodeURIComponent(u).includes(k)) : -1;
+    if (at >= 0) taken.add(at);
+    own.push(at);
+    return full;
+  });
+  const rest = list.filter((_, j) => !taken.has(j));
+  let slot = 0;
   let i = 0;
   return String(html || '').replace(/<img\b([^>]*?)\/?>/gi, (full, attrs) => {
     if (!isImageSlot(attrs)) return srcOf(attrs) ? full : '';
-    const src = list[i] || srcOf(attrs);
-    i += 1;
+    const mine = own[slot];
+    slot += 1;
+    let src;
+    if (mine >= 0) src = list[mine];
+    else { src = rest[i] || srcOf(attrs); i += 1; }
     if (!src) return paintImg(attrs, '', 'is-placeholder');
     return paintImg(attrs, src);
   });
@@ -776,21 +794,36 @@ function bindSlideImages(slide, urls) {
     ...slide.querySelectorAll('[data-slot="image"], [data-slot="illustration"]'),
     ...[...slide.querySelectorAll('img')].filter((img) => !String(img.getAttribute('src') || '').trim()),
   ];
+  // A frame that names its picture (data-asset-key) gets that picture when it
+  // is in the list — matched on the file name, which every URL form of the
+  // asset (CDN, proxy, display copy) carries — so an empty frame earlier in the
+  // slide does not pull the others out of place. The rest bind in order.
+  const stem = (k) => String(k || '').split('/').pop().replace(/\.[a-z0-9]+$/i, '');
+  const taken = new Set();
   const seen = new Set();
+  slots.forEach((el) => {
+    const s = stem(el.getAttribute?.('data-asset-key'));
+    if (!s || s.length < 8) return;
+    const at = list.findIndex((u, i) => !taken.has(i) && decodeURIComponent(u).includes(s));
+    if (at < 0) return;
+    if (paint(el, list[at])) { taken.add(at); seen.add(el); }
+  });
+  const rest = list.filter((_, i) => !taken.has(i));
   let n = 0;
   slots.forEach((el) => {
-    if (seen.has(el) || n >= list.length) return;
+    if (seen.has(el) || n >= rest.length) return;
+    // a frame keyed to a picture that is still listed waits for it (above)
     seen.add(el);
-    if (paint(el, list[n])) n += 1;
+    if (paint(el, rest[n])) n += 1;
   });
-  if (n >= list.length) return;
+  if (n >= rest.length) return;
 
   const labelled = [...slide.querySelectorAll('div, figure, aside, p, span')].find((el) => (
     /intended visual|image placeholder|conceptual illustration/i.test(el.textContent || '')
   ));
   if (!labelled) return;
   const box = labelled.previousElementSibling || labelled.parentElement || labelled;
-  paint(box, list[n] || list[0]);
+  paint(box, rest[n] || list[0]);
 }
 
 export function paintCarouselSlideImages(frame, { direction, index, imageUrls }) {
@@ -1015,12 +1048,21 @@ const BRAND_FONT_ROLE_RE = /--brand-font-(?:heading|body|detail)\s*:/i;
 const HEAD_SEL = 'h1,h2,h3,[data-slot="title"],[data-slot="stat"],[data-slot="quote"]';
 const DETAIL_SEL = '[data-slot="eyebrow"],[data-slot="kicker"],[data-slot="label"],[data-slot="caption"],[data-slot="index"],[data-slot="detail"],[data-slot="note"],[data-slot="action"],.eyebrow,.kicker,.label';
 
-export function applyBrandFonts(page, paint, { links = [], faceCss = '' } = {}) {
+// `extraLinks`: stylesheets the page needs whatever the Brand Kit says (an
+// HTML theme's families) — added even when the kit sets no fonts.
+const linkTags = (list) => list.filter((h) => /^https:\/\//.test(h)).map((h) => `<link rel="stylesheet" href="${h.replace(/"/g, '&quot;')}">`).join('');
+function withHeadLinks(html, list) {
+  const head = linkTags(list);
+  if (!head) return html;
+  return /<head[^>]*>/i.test(html) ? html.replace(/<head([^>]*)>/i, (m) => `${m}${head}`) : `${head}${html}`;
+}
+export function applyBrandFonts(page, paint, { links = [], faceCss = '', extraLinks = [] } = {}) {
   const html = trim(page);
   const heading = paint?.['--bk-font-heading'];
   const body = paint?.['--bk-font-body'];
   const detail = paint?.['--bk-font-detail'];
-  if (!html || (!heading && !body && !detail)) return html;
+  if (!html) return html;
+  if (!heading && !body && !detail) return withHeadLinks(html, extraLinks);
   const roles = [
     ['--brand-font-heading', heading],
     ['--brand-font-body', body],
@@ -1030,17 +1072,18 @@ export function applyBrandFonts(page, paint, { links = [], faceCss = '' } = {}) 
   if (BRAND_FONT_ROLE_RE.test(html)) {
     rules = `:root:root,html [data-direction],html .slide{${roles}}`;
   } else {
-    const within = (sel) => sel.split(',').map((s) => `html .slide ${s},html .slide ${s} *`).join(',');
+    // an HTML-themed slide wears its theme's type — the kit does not override it
+    const within = (sel) => sel.split(',').map((s) => `html .slide:not([data-html-theme]) ${s},html .slide:not([data-html-theme]) ${s} *`).join(',');
     rules = [
       // body first, sparing the headline and detail runs (so an untouched slot
       // keeps the carousel's face); then the headline and detail faces
-      body ? `html .slide,html .slide :not(:is(${HEAD_SEL},${DETAIL_SEL}),:is(${HEAD_SEL},${DETAIL_SEL}) *){font-family:${body} !important}` : '',
+      body ? `html .slide:not([data-html-theme]),html .slide:not([data-html-theme]) :not(:is(${HEAD_SEL},${DETAIL_SEL}),:is(${HEAD_SEL},${DETAIL_SEL}) *){font-family:${body} !important}` : '',
       heading ? `${within(HEAD_SEL)}{font-family:${heading} !important}` : '',
       detail ? `${within(DETAIL_SEL)}{font-family:${detail} !important}` : '',
     ].join('');
   }
   const head = [
-    ...links.filter((h) => /^https:\/\//.test(h)).map((h) => `<link rel="stylesheet" href="${h.replace(/"/g, '&quot;')}">`),
+    linkTags([...links, ...extraLinks]),
     faceCss ? `<style>${faceCss}</style>` : '',
   ].join('');
   let out = html;

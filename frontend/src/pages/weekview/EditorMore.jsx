@@ -13,8 +13,9 @@
  * decides what to draw.
  */
 
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Icon from '../../brand/Icon';
+import HtmlThemeThumb from './HtmlThemeThumb';
 import { COLOUR_ROLES, DEFAULT_PALETTE } from '../../lib/identity';
 
 function Rows({ rows, onClose }) {
@@ -83,6 +84,10 @@ export default function EditorMore({ acts, onClose }) {
   // a reference photo picked from the device, shown on the card before it is
   // applied: { file, url (object URL), name }
   const [thmRef, setThmRef] = useState(null);
+  // the HTML theme marked in its grid, before it is applied
+  const [htmlPick, setHtmlPick] = useState(null);
+  // the HTML theme templates are fetched the first time their level opens
+  useEffect(() => { if (level === 'themehtml') acts.loadHtmlThemes?.(); }, [level]); // eslint-disable-line react-hooks/exhaustive-deps
   // a new colour set, started from the set this slide wears (or the kit's)
   const [newHex, setNewHex] = useState(() => ({ ...DEFAULT_PALETTE, ...(acts.setHexes || {}) }));
   const refFile = useRef(null);
@@ -257,6 +262,17 @@ export default function EditorMore({ acts, onClose }) {
             rows={[
               { id: 'ref', icon: 'image-plus', label: 'Upload a reference', hint: 'A photograph you like the look of', dead: acts.busy, fn: () => refFile.current?.click(), into: true },
               { id: 'lib', icon: 'droplet', label: 'Choose from library', hint: saved.length ? `${saved.length} of yours · ${list.length} directions` : `${list.length} directions`, dead: acts.busy, fn: () => setLevel('themelib'), into: true, chevron: true },
+              ...(acts.onHtmlTheme ? [{
+                id: 'html',
+                icon: 'layers',
+                label: 'HTML themes',
+                hint: 'Interior templates, live and editable · experimental',
+                badge: 'Beta',
+                dead: acts.busy,
+                fn: () => { setHtmlPick(null); setLevel('themehtml'); },
+                into: true,
+                chevron: true,
+              }] : []),
               ...(acts.themed ? [
                 { id: 'r-untheme', rule: true },
                 {
@@ -330,6 +346,84 @@ export default function EditorMore({ acts, onClose }) {
           { id: 'all', icon: 'copy', label: 'All slides', hint: 'The whole carousel as the carousel agent made it', dead: acts.busy, fn: () => acts.onRemoveTheme?.(true) },
         ]}
       />
+    );
+  }
+  /* ── HTML themes (experimental) ──────────────────────────────────────
+   * Fixed interior-design templates (backend htmlThemes.js) filled with the
+   * slide's own words and pictures — the slide stays live, editable HTML, and
+   * a frame with no picture is left as a placeholder for Content › Image.
+   * Tiles are the templates themselves, drawn small. A press marks a tile;
+   * the card + This slide / All slides apply it. */
+  if (level === 'themehtml') {
+    const list = acts.htmlThemes || [];
+    const chosen = htmlPick ? list.find((t) => t.id === htmlPick) : null;
+    const go = (every) => {
+      const t = chosen;
+      setHtmlPick(null);
+      acts.onHtmlTheme?.(t, every);
+    };
+    return (
+      <>
+        <Rows onClose={onClose} rows={backRow('HTML themes', 'theme')} />
+        {!chosen ? (
+          <>
+            <p className="wv-em__gridhead">Experimental</p>
+            <p className="wv-em__gridnote">Your words and photos go into the template; empty frames wait for a picture.</p>
+            {!list.length && <p className="wv-em__gridnote">{acts.htmlThemesError || 'Loading templates…'}</p>}
+            <div className="wv-em__grid" role="radiogroup" aria-label="HTML themes">
+              {list.map((t) => (
+                <button
+                  key={t.id}
+                  type="button"
+                  role="radio"
+                  aria-checked={htmlPick === t.id}
+                  title={`${t.name} — ${t.note} · ${t.photos} photo${t.photos === 1 ? '' : 's'}`}
+                  disabled={acts.busy}
+                  className={`wv-em__tile wv-em__tile--theme${acts.htmlThemeId === t.id ? ' is-on' : ''}`}
+                  onClick={(e) => { e.stopPropagation(); setHtmlPick(t.id); }}
+                >
+                  <HtmlThemeThumb html={t.html} />
+                  <span className="wv-em__tilename">{t.name}</span>
+                </button>
+              ))}
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="wv-em__thm">
+              <span className="wv-em__thmart"><HtmlThemeThumb html={chosen.html} /></span>
+              <span className="wv-em__thmsay">
+                <span className="wv-em__thmname">{chosen.name}</span>
+                <span className="wv-em__thmnote" title={chosen.note}>{`${chosen.photos} photo frame${chosen.photos === 1 ? '' : 's'} · ${chosen.note}`}</span>
+              </span>
+              <button
+                type="button"
+                className="wv-em__thmx"
+                aria-label="Choose a different HTML theme"
+                onClick={(e) => { e.stopPropagation(); setHtmlPick(null); }}
+              >
+                <Icon name="x" size={15} strokeWidth={2.2} />
+              </button>
+            </div>
+            <Rows
+              onClose={onClose}
+              rows={many ? reach(go, {
+                one: 'Re-composed in this look — the others keep theirs',
+                all: 'Every slide re-composed in this look',
+              }).map((r) => ({ ...r, dead: acts.busy })) : [
+                {
+                  id: 'go',
+                  icon: 'sparkle',
+                  label: 'Apply HTML theme',
+                  hint: 'Re-composes this post in the look above',
+                  dead: acts.busy,
+                  fn: () => go(true),
+                },
+              ]}
+            />
+          </>
+        )}
+      </>
     );
   }
   if (level === 'themelib') {

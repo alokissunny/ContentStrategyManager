@@ -57,6 +57,11 @@ router.get('/distribution', asyncHandler(getDistribution));
 router.put('/distribution', asyncHandler(setDistribution));
 router.post('/shift', asyncHandler(shiftPosts));
 router.post('/composition/read', asyncHandler(readCompositionPicture));
+// Editor ⋯ › Theme › HTML themes (experimental): the templates, with a sample preview each
+router.get('/html-themes', (req, res) => {
+  const { htmlThemePreviews, HTML_THEME_FONTS_URL } = require('../services/htmlThemes');
+  res.json({ fontsUrl: HTML_THEME_FONTS_URL, themes: htmlThemePreviews() });
+});
 router.delete('/', asyncHandler(clearUpcoming));
 router.get('/:id', asyncHandler(getPostById));
 router.get('/:id/options', asyncHandler(getPostOptions));

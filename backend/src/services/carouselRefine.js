@@ -16,6 +16,7 @@
  */
 const { generateRequestedVisual, requestedVisualAvailable } = require('./planOrchestrator');
 const { editSlideHtml, DESIGN_MODES, designModeOf } = require('./slideEditAgent');
+const { htmlThemeOf, applyHtmlTheme } = require('./htmlThemes');
 const { planIntent, focusedImage, swapFocusedImage, attrOf, PERSPECTIVE_PROMPT } = require('./slideActions');
 const { editImage } = require('./openaiImage');
 const { persistGeneratedImage } = require('./generatedImage');
@@ -229,12 +230,26 @@ function pictureEditPrompt(ask) {
   ].join('\n');
 }
 
+// what an HTML theme did, in one line for the Editor chat
+function htmlThemeNote(theme, done) {
+  const n = done.length;
+  const empty = done.reduce((acc, x) => acc + (x.placeholders || 0), 0);
+  const dropped = done.reduce((acc, x) => acc + (x.dropped || 0), 0);
+  return `${theme.name} applied to ${n === 1 ? 'this slide' : `${n} slides`}.`
+    + (empty ? ` ${empty} empty photo frame${empty === 1 ? '' : 's'} — add pictures with Content › Image.` : '')
+    + (dropped ? ` ${dropped} picture${dropped === 1 ? '' : 's'} had no frame in this layout.` : '');
+}
+
 async function refineCarouselFromEdits({
   userId, handle, label, instruction, slideIndex, focus, current, brand,
   visual: visualFlag, visualSlideIndex, slideRecords, strategy, layoutIssues, geometry, slideCss, debug, intent, visualTheme,
-  mode = 'edit',
+  mode = 'edit', htmlTheme = '', themeBases = null,
 }) {
   const t0 = Date.now();
+  // Editor › Theme › HTML themes (experimental): a fixed template, filled with
+  // each slide's own words and pictures — no model call (services/htmlThemes.js)
+  const theme = mode === 'html-theme' ? htmlThemeOf(htmlTheme) : null;
+  if (mode === 'html-theme' && !theme) throw err(400, 'Pick one of the HTML themes.');
   // the chip path that was pressed (Editor chat) — a precise brief for the
   // agent, or a picture operation it cannot do by rewriting html
   const plan = planIntent(intent);
@@ -252,7 +267,12 @@ async function refineCarouselFromEdits({
   const target = Number(slideIndex) > 0 ? Number(slideIndex) : null;
   if (target && !composed.articles.some((a) => a.index === target)) throw err(404, 'Slide not found on this post.');
   const own = `projects/${userId}/`;
+  // HTML theme on a Theme Apply picture: the slide's underlying html (the
+  // pre-theme design) is what goes into the template — { [index]: { html, dir, keys } }
+  const baseOf = (index) => (theme && themeBases && themeBases[index]?.html ? themeBases[index] : null);
   const keysAt = (index) => {
+    const base = baseOf(index);
+    if (base) return (base.keys || []).filter((k) => String(k).startsWith(own));
     const i = composed.articles.findIndex((a) => a.index === index);
     return (slides[i]?.assetKeys || []).filter((k) => String(k).startsWith(own));
   };
@@ -267,12 +287,12 @@ async function refineCarouselFromEdits({
   const onPicture = Boolean(focusImg) && (String(focus?.tag || '').toLowerCase() === 'img'
     || /image|photo|picture|illustration/i.test(String(focus?.slot || ''))
     || !String(focus?.text || '').trim());
-  const editsPicture = !plan.op && !designModeOf(mode) && onPicture && !PICTURE_LAYOUT_ASK.test(ask);
+  const editsPicture = !theme && !plan.op && !designModeOf(mode) && onPicture && !PICTURE_LAYOUT_ASK.test(ask);
   const pictureOp = (plan.op === 'replace' || plan.op === 'perspective') ? plan.op : (editsPicture ? 'edit' : '');
   // one of the Editor's design chips (Improve design, Make it easier to read)
   const design = designModeOf(mode);
   const improving = Boolean(design);
-  const wantsVisual = !improving && !pictureOp && (plan.op === 'add' || asksForVisual(ask, visualFlag));
+  const wantsVisual = !theme && !improving && !pictureOp && (plan.op === 'add' || asksForVisual(ask, visualFlag));
   logStep(debug, {
     source: 'Prompt edit · request',
     prompt: {
@@ -456,8 +476,28 @@ async function refineCarouselFromEdits({
   const plain = (html) => String(html || '').replace(/<style\b[\s\S]*?<\/style>/gi, ' ')
     .replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim();
   const flowLines = target ? null : composed.articles.map((a) => plain(a.html));
-  const todo = composed.articles.filter((a) => !target || a.index === target);
+  // a slide Theme Apply turned into a picture has no live html for a template
+  const pictureAt = new Set(slides.map((s, i) => (s?.pictureThemed ? (Number(s.index) > 0 ? Number(s.index) : i + 1) : 0)).filter(Boolean));
+  const todo = composed.articles.filter((a) => (!target || a.index === target) && !(theme && pictureAt.has(a.index) && !baseOf(a.index)));
+  if (theme && !todo.length) throw err(422, 'This theme picture has no saved design underneath — use Remove theme, then apply the HTML theme.');
   const edited = await Promise.all(todo.map(async (a) => {
+    if (theme) {
+      try {
+        const t1 = Date.now();
+        const base = baseOf(a.index);
+        const r = applyHtmlTheme(base ? withIndex(base.html, a.index) : a.html, theme.id);
+        logStep(debug, {
+          source: `HTML theme · ${theme.name} (slide ${a.index})`,
+          prompt: `Template "${theme.id}" filled with the slide's ${r.runs} text run(s) and ${r.placed} picture(s)${base ? ' — from the design under its theme picture' : ''}.`,
+          output: { placeholders: r.placeholders, droppedPictures: r.dropped, html: r.html },
+          elapsedMs: Date.now() - t1,
+          preview: previewOf(composed, [{ index: a.index, before: a.html, after: r.html }]),
+        });
+        return { index: a.index, html: r.html, unchanged: false, note: '', placeholders: r.placeholders, dropped: r.dropped };
+      } catch (e) {
+        return { index: a.index, error: e.status ? err(e.status, e.message) : e };
+      }
+    }
     try {
       const rec = (Array.isArray(slideRecords) ? slideRecords : [])
         .find((x, i) => (Number(x?.index) > 0 ? Number(x.index) : i + 1) === a.index) || {};
@@ -514,7 +554,12 @@ async function refineCarouselFromEdits({
   const articles = composed.articles.map((a) => (byIndex.has(a.index) ? withIndex(byIndex.get(a.index), a.index) : a.html));
   const changed = done.map((x) => x.index);
 
-  const html = composed.render(composed.articles.map((a, j) => ({ dir: a.dir, html: articles[j] })), { document: true });
+  // a theme picture given an HTML theme leaves its themed-image section: it is
+  // live html again, in the section its underlying design came from
+  const html = composed.render(composed.articles.map((a, j) => ({
+    dir: byIndex.has(a.index) && baseOf(a.index) ? (baseOf(a.index).dir || composed.direction) : a.dir,
+    html: articles[j],
+  })), { document: true });
   const parsed = parseCarouselDocument(html, n);
   if (!parsed.slides.length) throw err(502, 'Bauhly returned a slide the editor cannot read — try again.');
   // each changed slide's pictures, in the order its image slots now hold them
@@ -548,7 +593,7 @@ async function refineCarouselFromEdits({
     changed,
     slideKeys,
     visual,
-    note: done.map((x) => x.note).filter(Boolean).join(' '),
+    note: theme ? htmlThemeNote(theme, done) : done.map((x) => x.note).filter(Boolean).join(' '),
     model: done[0]?.model || '',
     usage: done.reduce((acc, x) => ({
       totalTokens: acc.totalTokens + (Number(x.usage?.totalTokens) || 0),

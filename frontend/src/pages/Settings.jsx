@@ -17,7 +17,7 @@ import { getMetaStatus, startMetaConnect, disconnectMeta, metaConnectionFor, rem
 import { syncHandle } from '../lib/store';
 import { resetProjects } from '../lib/projectsStore';
 import { useAiDebug, setAiDebugEnabled, clearAiDebugEntries } from '../lib/aiDebug';
-import { useFeatureFlags, setVideoCoverEnabled, setReelEditorEnabled, setLinkedInEnabled } from '../lib/featureFlags';
+import { useFeatureFlags, setVideoCoverEnabled, setReelEditorEnabled, setLinkedInEnabled, setHtmlThemesEnabled } from '../lib/featureFlags';
 import { getArtDirector, updateArtDirector, getBrandVoiceModel, getCarouselModel, getStrategistModel, getThemeApplyPhotoMode, getThemeRegionsModel, updateBrandVoiceModel, updateCarouselModel, updateStrategistModel, updateThemeApplyPhotoMode, updateThemeRegionsModel } from '../api/settings';
 import LinkedInSettings from '../components/LinkedInSettings';
 import './settings.css';
@@ -946,6 +946,28 @@ export default function Settings() {
               aria-checked={flags.reelEditor}
               aria-label={`${flags.reelEditor ? 'Disable' : 'Enable'} reel editor`}
               onClick={() => setReelEditorEnabled(!flags.reelEditor)}
+            >
+              <i aria-hidden="true" />
+            </button>
+          </span>
+        </div>
+        <div className="set-row">
+          <span className="set-row__ico"><Icon name="layers" size={19} /></span>
+          <span className="set-row__main">
+            <b className="set-row__title">HTML themes</b>
+            <span className="set-row__sub">
+              {flags.htmlThemes
+                ? 'On · Editor ⋯ › Theme shows “HTML themes”'
+                : 'Off · interior-design templates applied as live, editable HTML — your words and photos poured in, empty frames left for pictures'}
+            </span>
+          </span>
+          <span className="set-row__acts">
+            <button
+              className={`set-switch ${flags.htmlThemes ? 'is-on' : ''}`}
+              role="switch"
+              aria-checked={flags.htmlThemes}
+              aria-label={`${flags.htmlThemes ? 'Disable' : 'Enable'} HTML themes`}
+              onClick={() => setHtmlThemesEnabled(!flags.htmlThemes)}
             >
               <i aria-hidden="true" />
             </button>

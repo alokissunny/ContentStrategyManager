@@ -1187,7 +1187,11 @@ async function refinePost(req, res) {
       // a picture made by this edit matches the slide's theme
       visualTheme: await visualThemeForPost(record, Number(req.body?.visualSlideIndex) || Number(req.body?.slideIndex) || Number(req.body?.focus?.slideIndex) || 1),
       // Editor › "Improve design": its own refine-don't-redesign prompt
-      mode: require('../services/slideEditAgent').designModeOf(req.body?.mode) || 'edit',
+      mode: req.body?.mode === 'html-theme' ? 'html-theme' : (require('../services/slideEditAgent').designModeOf(req.body?.mode) || 'edit'),
+      // Editor › Theme › HTML themes (experimental): which template (services/htmlThemes.js)
+      htmlTheme: typeof req.body?.htmlTheme === 'string' ? req.body.htmlTheme.slice(0, 60) : '',
+      // …and, for a Theme Apply picture, the html under it (the pre-theme design)
+      themeBases: req.body?.mode === 'html-theme' ? themeBasesOf(record, stored) : null,
       debug: steps,
     });
 
@@ -2343,6 +2347,28 @@ async function getPreTheme(req, res) {
   const snap = record.agentTrace?.preTheme;
   if (!snap?.carouselHtml || !Array.isArray(snap.slides)) return res.json({ carouselHtml: '', slides: [] });
   return res.json({ carouselHtml: snap.carouselHtml, slides: snap.slides, at: snap.at || null });
+}
+
+// HTML themes on a Theme Apply picture: each themed slide's article from the
+// pre-theme snapshot, the section it sat in, and its pictures then —
+// { [index]: { html, dir, keys } }. Slides without a usable snapshot are left out.
+function themeBasesOf(record, stored) {
+  const snap = record.agentTrace?.preTheme;
+  if (!snap?.carouselHtml || !Array.isArray(snap.slides)) return null;
+  const { sectionsOf, indexOf } = require('../services/themeMerge');
+  const { withRegionWords } = require('../services/htmlThemes');
+  const { extractHtmlDocument } = require('../services/layoutHtml');
+  const sections = sectionsOf(extractHtmlDocument(snap.carouselHtml));
+  const out = {};
+  stored.forEach((sl, n) => {
+    const i = n + 1;
+    if (!isThemedSlide(sl)) return;
+    const sec = sections.find((s) => s.articles.some((a) => indexOf(a) === i));
+    const html = sec?.articles.find((a) => indexOf(a) === i);
+    // words re-lettered on the picture since (Theme region editing) win
+    if (html) out[i] = { html: withRegionWords(html, sl.themeRegions?.texts), dir: sec.dir, keys: Array.isArray(snap.slides[n]?.assetKeys) ? snap.slides[n].assetKeys : [] };
+  });
+  return Object.keys(out).length ? out : null;
 }
 
 async function removeTheme(req, res) {

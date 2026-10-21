@@ -22,6 +22,7 @@ import { useStore } from '../../lib/store';
 import { boxOf, fmtBox, mapBoxToCover, mapPointToCover, normalizeSubjects, placeFromBox, resolveTargetBox } from './subjectBox';
 import { useAiDebug } from '../../lib/aiDebug';
 import { plainOf, titleRuns } from '../../lib/slidetext';
+import { HTML_THEME_FONTS_URL, usesHtmlTheme } from '../../lib/htmlThemes';
 
 const ANNOTATIONS_ENABLED = false;
 
@@ -514,7 +515,12 @@ export default function DynamicLayout({
     .join(''), [kitFonts]);
   const page = useMemo(() => {
     const nextPaint = paintKey ? JSON.parse(paintKey) : null;
-    const withFonts = (doc) => applyBrandFonts(doc, nextPaint, { links: appFontLinks(), faceCss });
+    // an HTML-themed slide (Editor › Theme › HTML themes) brings its own families
+    const withFonts = (doc) => applyBrandFonts(doc, nextPaint, {
+      links: appFontLinks(),
+      faceCss,
+      extraLinks: usesHtmlTheme(doc) ? [HTML_THEME_FONTS_URL] : [],
+    });
     if (useDocument) return withFonts(applyThemeToCarouselDocument(documentHtml, { themed, paint: nextPaint }));
     if (!markup) return '';
     return withFonts(buildSlideFrameDocument(markup, { themed, paint: nextPaint }));
