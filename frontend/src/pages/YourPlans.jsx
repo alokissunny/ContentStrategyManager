@@ -2430,7 +2430,7 @@ export default function YourPlans() {
                   const iso = startEdit?.iso;
                   setStartEdit(null);
                   setForceWorkspace(false);
-                  if (iso) setFeedScrollIso(`${iso}#${Date.now()}`);
+                  if (iso) setFeedScrollIso(`${iso}#pin#${Date.now()}`);
                 }}
                 onCaptured={() => runGenerate('capture')}
                 onRouteChange={(route) => {

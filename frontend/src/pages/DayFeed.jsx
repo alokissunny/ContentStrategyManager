@@ -5,7 +5,7 @@
  * List posts omit `content` (lite). Each item is enriched via GET /posts/:id so
  * DynamicLayout gets layoutHtml / slides — the same paint as WeekView.
  */
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import Icon from '../brand/Icon';
 import { DayPeek } from './weekview/PostPeek';
@@ -372,6 +372,22 @@ function CaptionSheet({ open, caption, onClose, onEdit }) {
   );
 }
 
+/* The feed's full posts outlive the feed: opening a post's Editor unmounts
+ * it, and coming back to skeletons meant every post above the one just edited
+ * changed height under the scroll. The cache paints them at once; each mount
+ * still refreshes them in the background (an edit may have changed one). */
+const FEED_CACHE = new Map();
+
+/* How far down the sticky date bar reaches — a post placed "at the top" sits
+ * under it, not behind it. */
+function stickyBottom() {
+  const bar = document.querySelector('.ph--cal-feed .cal-bar');
+  return bar ? Math.max(0, bar.getBoundingClientRect().bottom) : 0;
+}
+function feedYOf(el) {
+  return Math.max(0, Math.round(window.scrollY + el.getBoundingClientRect().top - stickyBottom()));
+}
+
 /**
  * Infinite-scroll day feed for phones. `items` are `{ week, day, date }` rows
  * sorted by date. `onIso` reports which post is centred so the toolbar date
@@ -387,7 +403,10 @@ export default function DayFeed({
   onPatchPost,
 }) {
   const listRef = useRef(null);
-  const [fullById, setFullById] = useState(() => new Map());
+  const [fullById, setFullById] = useState(() => new Map(FEED_CACHE));
+  // ids refreshed by THIS mount (the cache's copies are painted, then refreshed)
+  const fetchedRef = useRef(new Set());
+  const pendingRef = useRef(0);
   const [pending, setPending] = useState(() => new Set());
   // the opened post (its id) and the height its caption sheet really took
   const [liftId, setLiftId] = useState(null);
@@ -403,17 +422,22 @@ export default function DayFeed({
 
   useEffect(() => {
     let cancelled = false;
+    // marked as this mount's, and un-marked if this run is cancelled first
+    // (StrictMode runs it twice; the second run must still fetch)
+    const mine = new Set();
     const todo = rows
       .map((r) => String(r.day?._id || ''))
       .filter(Boolean);
 
     const load = async () => {
-      const need = todo.filter((id) => !fullById.has(id));
+      const need = todo.filter((id) => !fetchedRef.current.has(id));
       if (!need.length) return;
+      need.forEach((id) => { fetchedRef.current.add(id); mine.add(id); });
 
+      // only the ones with nothing to show yet draw as loading
       setPending((prev) => {
         const next = new Set(prev);
-        need.forEach((id) => next.add(id));
+        need.forEach((id) => { if (!fullById.has(id)) next.add(id); });
         return next;
       });
 
@@ -429,6 +453,7 @@ export default function DayFeed({
           got.forEach((p) => { if (p?._id) next.set(String(p._id), p); });
           return next;
         });
+        batch.forEach((id) => mine.delete(id));
         setPending((prev) => {
           const next = new Set(prev);
           batch.forEach((id) => next.delete(id));
@@ -438,7 +463,10 @@ export default function DayFeed({
     };
 
     load();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+      mine.forEach((id) => fetchedRef.current.delete(id));
+    };
     // rowsKey identity — avoid depending on fullById (grows every batch)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rowsKey]);
@@ -457,10 +485,55 @@ export default function DayFeed({
   }, [rows, onIso, fullById]);
 
   useEffect(() => {
-    if (!scrollToIso || !listRef.current) return;
-    const iso = String(scrollToIso).split('#')[0];
-    const el = listRef.current.querySelector(`.ywf__item[data-iso="${iso}"]`);
-    if (el) el.scrollIntoView({ block: 'start', behavior: 'smooth' });
+    fullById.forEach((v, k) => FEED_CACHE.set(k, v));
+  }, [fullById]);
+  pendingRef.current = pending.size;
+
+  // Jump to a post, under the sticky date bar. `iso#pin#…` is the way back
+  // from the Editor: placed before paint (no visible travel), then held there
+  // while the page settles — the Editor's scroll lock restoring an old
+  // position, posts still loading above it — until it has been still for a
+  // moment, or the studio touches the screen.
+  useLayoutEffect(() => {
+    if (!scrollToIso || !listRef.current) return undefined;
+    const [iso, mode] = String(scrollToIso).split('#');
+    const find = () => listRef.current?.querySelector(`.ywf__item[data-iso="${iso}"]`);
+    const el = find();
+    if (!el) return undefined;
+    if (mode !== 'pin') {
+      window.scrollTo({ top: feedYOf(el), behavior: 'smooth' });
+      return undefined;
+    }
+    let raf = 0;
+    let done = false;
+    const start = performance.now();
+    let stillSince = start;
+    const evs = ['wheel', 'touchstart', 'pointerdown', 'keydown'];
+    const stop = () => {
+      if (done) return;
+      done = true;
+      window.cancelAnimationFrame(raf);
+      evs.forEach((ev) => window.removeEventListener(ev, stop));
+    };
+    const tick = () => {
+      if (done) return;
+      const now = performance.now();
+      const e = find();
+      if (e) {
+        const y = feedYOf(e);
+        if (Math.abs(window.scrollY - y) > 1) {
+          window.scrollTo(0, y);
+          stillSince = now;
+        }
+      }
+      if (pendingRef.current > 0) stillSince = now;
+      if (now - stillSince > 500 || now - start > 8000) { stop(); return; }
+      raf = window.requestAnimationFrame(tick);
+    };
+    window.scrollTo(0, feedYOf(el));
+    evs.forEach((ev) => window.addEventListener(ev, stop, { passive: true }));
+    raf = window.requestAnimationFrame(tick);
+    return stop;
   }, [scrollToIso]);
 
   const liftRow = liftId ? rows.find((r) => String(r.day?._id || '') === liftId) : null;
