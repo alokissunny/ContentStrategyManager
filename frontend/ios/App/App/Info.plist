@@ -22,8 +22,18 @@
 	<string>$(MARKETING_VERSION)</string>
 	<key>CFBundleVersion</key>
 	<string>$(CURRENT_PROJECT_VERSION)</string>
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<key>NSCameraUsageDescription</key>
+	<string>Bauhly uses the camera so you can take photos of your projects for your posts.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Bauhly uses the microphone so you can talk through a capture instead of typing it.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Bauhly needs your photos so you can add project pictures to captures and posts.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>Bauhly turns what you say in a capture into text as you speak.</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

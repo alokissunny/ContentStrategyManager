@@ -1953,6 +1953,12 @@ body.is-immersive .app__main {
     padding: calc(var(--sp-6) + env(safe-area-inset-top)) var(--sp-5) calc(var(--sp-5) + env(safe-area-inset-bottom));
   }
   .ck__x { top: calc(var(--sp-4) + env(safe-area-inset-top)); right: var(--sp-4); }
+  /* the box is the screen and clips (overflow: hidden), so the page cannot
+     scroll here: the thread scrolls inside it again, as on desktop — otherwise
+     the turns spill over the composer and nothing can reach them */
+  .cap-overlay--modal .ck__thread { overflow-y: auto; scrollbar-width: none; }
+  .cap-overlay--modal .ck__thread::-webkit-scrollbar { display: none; }
+  .cap-overlay--modal .ck__dock { position: static; background: var(--surface); }
 }
 
 /* ── the Capture composer: text, attach (+), voice (mic), send (↑) ──────────
