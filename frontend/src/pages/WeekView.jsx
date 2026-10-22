@@ -3280,7 +3280,6 @@ export default function WeekView({
   const askRefRef = useRef(null);
   const [askBusy, setAskBusy] = useState(false);
   const [askMsg, setAskMsg] = useState(null); // { text, tone: 'ok'|'err' }
-  const [askUndo, setAskUndo] = useState(null); // { slides, docHtml? } before the last prompt edit
   const askInputRef = useRef(null);
   // Edit image (bauhly-v3 §961/§965/§982): the still-photo studio. `adjustFor`
   // is the picture being cropped; `editSlot` is the measured layout region it
@@ -4213,7 +4212,6 @@ export default function WeekView({
     setAskDraft('');
     setAskPath([]);
     setAskMsg(null);
-    setAskUndo(null);
     if (askRec.status === 'recording') askRec.stop();
   }
 
@@ -4558,7 +4556,6 @@ export default function WeekView({
         rememberImage(data.visual.key, data.visual.src, { skipGen: true });
       }
       if (!data?.post) throw new Error('Nothing came back.');
-      setAskUndo({ slides: base, docHtml: docBefore || null });
       const askBefore = dayWith(day, { slides: base, docHtml: docBefore });
       const merged = mergePost(data.post);
       setRoute(merged);
@@ -4636,14 +4633,6 @@ export default function WeekView({
       setAskBusy(false);
       setAskPhase('');
     }
-  }
-
-  function undoAsk() {
-    if (!askUndo) return;
-    replaceSlides(askUndo.slides, askUndo.docHtml ? { extra: { carouselHtml: askUndo.docHtml } } : {});
-    // the recreated carousel wrote every slide's html — put all of it back
-    setAskUndo(null);
-    setAskMsg({ tone: 'ok', text: 'Put back.' });
   }
 
   // Cancel: whatever was saved while the Editor was open goes back to the
@@ -5979,6 +5968,37 @@ export default function WeekView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [postEdit, activeThemed, themedKey, versId]);
   useEffect(() => { if (!postEdit) setThemeVers({}); }, [postEdit]);
+
+  // ── The prompt band's width (bauhly-v3 `edm-askbar__in`) ──
+  // Half again as wide as the post's canvas and centred on it, held inside the
+  // band's own room — so the field lines up with the thing it is asking about
+  // at every window size, rather than spanning the whole workspace.
+  const askInRef = useRef(null);
+  const askBandOn = postEdit && askOpen && !visEdit && !edCap;
+  useLayoutEffect(() => {
+    const box = askInRef.current;
+    const band = box?.parentElement;
+    const post = band?.parentElement?.querySelector('.wv-edm__canvas');
+    if (!askBandOn || !box || !band || !post) return undefined;
+    const fit = () => {
+      const cs = getComputedStyle(band);
+      const padL = parseFloat(cs.paddingLeft) || 0;
+      const room = band.clientWidth - padL - (parseFloat(cs.paddingRight) || 0);
+      const want = Math.min(room, Math.round(post.offsetWidth * 1.5));
+      const b = band.getBoundingClientRect();
+      const p = post.getBoundingClientRect();
+      const mid = p.left + p.width / 2 - b.left - padL;
+      const l = Math.max(0, Math.min(room - want, Math.round(mid - want / 2)));
+      box.style.width = `${want}px`;
+      box.style.marginLeft = `${l}px`;
+      box.style.marginRight = 'auto';
+    };
+    fit();
+    const ro = new ResizeObserver(fit);
+    ro.observe(post);
+    ro.observe(band);
+    return () => ro.disconnect();
+  }, [askBandOn, safeIdx, selected]);
 
   // …and an HTML slide's versions: every design it has shown in this Editor
   // session — the one it opened with, then each edit that changed it (a prompt
@@ -8048,7 +8068,7 @@ export default function WeekView({
             const ideas = !askSel && !askPath.length && !rgnOpen && heldList.length === 0;
             return (
               <div className={`wv-edm__ask${ideas ? ' is-ideas' : ''}${askFocus ? ' is-footing' : ''}`} role="region" aria-label="Ask Bauhly">
-                <div className="wv-edm__askin">
+                <div className="wv-edm__askin" ref={askInRef}>
                   {/* where the studio is: the subject, then each chip pressed
                       (bauhly-v3 `edm-trail`) — "The title › Write it again" */}
                   {!ideas && !rgnTextOpen && !(askSel && !askPath.length) && (
@@ -8153,9 +8173,6 @@ export default function WeekView({
                   {askMsg && (
                     <p className={`wv-edm__asknote is-${askMsg.tone}`} role="status">
                       {askMsg.text}
-                      {askMsg.tone === 'ok' && askUndo && (
-                        <button type="button" className="wv-edm__askundo" onClick={undoAsk}>Undo</button>
-                      )}
                     </p>
                   )}
                   <form

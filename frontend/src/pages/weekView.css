@@ -7841,17 +7841,6 @@ span.wv-layed__apply { margin-left: auto; flex-shrink: 0; }
   color: var(--ink-700);
 }
 .wv-edm__asknote.is-err { color: var(--danger-600, #c2410c); }
-.wv-edm__askundo {
-  padding: 0;
-  border: 0;
-  background: none;
-  color: var(--ink-900);
-  font: inherit;
-  font-weight: 700;
-  text-decoration: underline;
-  text-underline-offset: 2px;
-  cursor: pointer;
-}
 .wv-edm__askfield {
   display: flex;
   align-items: center;
