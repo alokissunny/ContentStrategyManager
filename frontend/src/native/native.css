@@ -1,0 +1,20 @@
+/* Capacitor app only (imported by shell.js). The page runs edge to edge under
+   the status bar: headers pin at env(safe-area-inset-top), and this strip
+   keeps scrolled content from showing through behind the clock. Under the app
+   header (41, which pads itself) and every overlay; over the pinned calendar
+   heads (30). */
+html.is-native body::after {
+  content: '';
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: env(safe-area-inset-top);
+  z-index: 35;
+  background: var(--canvas, #fff);
+  pointer-events: none;
+}
+
+/* iOS paints a grey box over whatever is tapped; the app's own :active
+   states already answer the press. */
+html.is-native { -webkit-tap-highlight-color: transparent; }

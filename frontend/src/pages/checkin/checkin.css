@@ -1311,8 +1311,9 @@ body.is-immersive .app__main {
 .ck__jump.is-on { opacity: 1; transform: none; pointer-events: auto; }
 .ck__jump:hover { color: var(--ink-900); border-color: var(--ink-400); background: var(--ink-100); }
 @media (max-width: 640px) {
-  /* the page is the scroller here, so the button rides the viewport */
-  .ck__jump { position: fixed; right: var(--sp-4); bottom: calc(var(--sp-6) + env(safe-area-inset-bottom)); }
+  /* the page is the scroller here, so the button rides the viewport — just
+     above the composer (its ~56px bar at the foot), never on its send button */
+  .ck__jump { position: fixed; right: var(--sp-4); bottom: calc(var(--sp-5) + 56px + var(--sp-3) + env(safe-area-inset-bottom)); }
 }
 
 /* ── a wait you can read ──────────────────────────────────────────────────
@@ -1869,10 +1870,10 @@ body.is-immersive .app__main {
   z-index: 60;
   background: var(--surface);
   overflow-y: auto;
-  padding: var(--sp-6) var(--sp-6) 0;
+  padding: calc(var(--sp-6) + env(safe-area-inset-top)) var(--sp-6) 0;
 }
 @media (min-width: 801px) {
-  .cap-overlay { padding: var(--sp-8) var(--sp-8) 0; }
+  .cap-overlay { padding: calc(var(--sp-8) + env(safe-area-inset-top)) var(--sp-8) 0; }
 }
 
 /* ── Capture as a centred modal (bauhly-v3 .capm) ───────────────────────────
@@ -1949,9 +1950,9 @@ body.is-immersive .app__main {
     width: 100%;
     height: 100%;
     border-radius: 0;
-    padding: var(--sp-6) var(--sp-5) var(--sp-5);
+    padding: calc(var(--sp-6) + env(safe-area-inset-top)) var(--sp-5) calc(var(--sp-5) + env(safe-area-inset-bottom));
   }
-  .ck__x { top: var(--sp-4); right: var(--sp-4); }
+  .ck__x { top: calc(var(--sp-4) + env(safe-area-inset-top)); right: var(--sp-4); }
 }
 
 /* ── the Capture composer: text, attach (+), voice (mic), send (↑) ──────────
@@ -2263,7 +2264,7 @@ body.is-immersive .app__main {
   color: var(--ink-900);
 }
 .cap-overlay--modal .ck__x:hover { background: var(--ink-100); }
-@media (max-width: 640px) { .cap-overlay--modal .ck__x { top: var(--sp-5); right: var(--sp-4); } }
+@media (max-width: 640px) { .cap-overlay--modal .ck__x { top: calc(var(--sp-5) + env(safe-area-inset-top)); right: var(--sp-4); } }
 .ck-turn--live .ck-said { background: var(--surface-sunken); }
 
 .capc.capc--hearing {

@@ -4,6 +4,7 @@ import { createIcons, icons } from 'lucide';
 import { Capacitor } from '@capacitor/core';
 import { StatusBar, Style } from '@capacitor/status-bar';
 import { SplashScreen } from '@capacitor/splash-screen';
+import './native.css';
 
 export const isNativeApp = Capacitor.isNativePlatform();
 

@@ -817,8 +817,9 @@ function MonthView({
   const menuDay = menuKey ? (menuEnriched || menuStub) : null;
   const sheetDate = menuKey
     ? (() => {
+      // the index key's month is getMonth()'s, already 0-based
       const [y, m, d] = menuKey.split('-').map(Number);
-      return new Date(y, m - 1, d);
+      return new Date(y, m, d);
     })()
     : null;
   const sheetTitle = menuLevel === 'shift' ? 'Shift posts'

@@ -6,6 +6,8 @@ import { useAuth } from '../context/AuthContext';
 import { useIsMobile } from '../hooks/useMediaQuery';
 import { requestEarlyAccess } from '../api/earlyAccess';
 import { IS_NATIVE } from '../native/platform';
+
+const SHOW_DEMO_LOGIN = import.meta.env.VITE_DEMO_LOGIN === '1';
 import { LS_BG, LS_SURFACE, LS_BORDER, LS_INK, LS_T2, LS_MUTED, LS_SIGNAL, LS_SOFT, LS_FONT, LS_DISPLAY } from '../theme';
 
 function Wordmark() {
@@ -191,7 +193,7 @@ export default function Auth() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [earlyAccessOpen, setEarlyAccessOpen] = useState(false);
-  const { user, loading: authLoading, login: doLogin } = useAuth();
+  const { user, loading: authLoading, login: doLogin, demoLogin } = useAuth();
   const navigate = useNavigate();
   const isMobile = useIsMobile();
 
@@ -288,6 +290,17 @@ export default function Auth() {
             >
               Request early access
             </button>
+
+            {/* Local test builds only (VITE_DEMO_LOGIN=1) — never set in .env / .env.mobile. */}
+            {SHOW_DEMO_LOGIN && (
+              <button
+                type="button"
+                onClick={() => demoLogin().then(() => navigate('/dashboard')).catch(() => setError('Demo login failed'))}
+                style={{ display: 'block', width: '100%', marginTop: 12, padding: 12, border: 0, background: 'none', color: LS_T2, fontFamily: LS_FONT, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
+              >
+                Continue as demo user
+              </button>
+            )}
           </div>
         </div>
       </div>

@@ -881,6 +881,7 @@
 .np__bar {
   display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3);
   padding: var(--sp-4) var(--sp-5);
+  padding-top: calc(var(--sp-4) + env(safe-area-inset-top));
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
 }
@@ -1510,6 +1511,7 @@
   position: relative; z-index: 2;
   display: flex; align-items: center; justify-content: space-between;
   padding: var(--sp-4) var(--sp-5);
+  padding-top: calc(var(--sp-4) + env(safe-area-inset-top));
   flex-shrink: 0;
   border-bottom: 1px solid var(--border);
 }

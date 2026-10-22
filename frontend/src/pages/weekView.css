@@ -6415,6 +6415,7 @@ span.wv-layed__apply { margin-left: auto; flex-shrink: 0; }
   align-items: center;
   gap: 8px 12px;
   padding: 12px 20px;
+  padding-top: calc(12px + env(safe-area-inset-top));
   border-bottom: 1px solid var(--border);
   font-family: var(--font-ui);
 }
@@ -6840,6 +6841,7 @@ span.wv-layed__apply { margin-left: auto; flex-shrink: 0; }
   position: relative; z-index: 2;
   display: flex; align-items: center; justify-content: space-between;
   padding: var(--sp-4) var(--sp-5);
+  padding-top: calc(var(--sp-4) + env(safe-area-inset-top));
   flex-shrink: 0;
   border-bottom: 1px solid var(--border);
 }
@@ -6974,6 +6976,7 @@ span.wv-layed__apply { margin-left: auto; flex-shrink: 0; }
   display: flex; align-items: center; justify-content: space-between;
   gap: 12px;
   padding: 16px 18px;
+  padding-top: calc(16px + env(safe-area-inset-top));
   flex-shrink: 0;
   border-bottom: 1px solid var(--border);
 }
@@ -7247,8 +7250,10 @@ span.wv-layed__apply { margin-left: auto; flex-shrink: 0; }
   display: flex;
   align-items: center;
   gap: var(--sp-4);
-  min-height: 72px;
+  min-height: calc(72px + env(safe-area-inset-top));
   padding: var(--sp-3) var(--sp-6);
+  /* the app runs edge to edge — keep the controls out from under the status bar */
+  padding-top: calc(var(--sp-3) + env(safe-area-inset-top));
   background: var(--ink-900);
   --focus-ring: var(--surface);
 }
@@ -7308,7 +7313,7 @@ span.wv-layed__apply { margin-left: auto; flex-shrink: 0; }
 .wv-edm__body.has-panel { --edm-panel-w: min(400px, 38cqw); }
 .wv-edm__body > * {
   --edm-card-h: min(
-    calc(100dvh - 72px - 150px - var(--edm-ask-h, 0px)),
+    calc(100dvh - 72px - 150px - var(--edm-ask-h, 0px) - env(safe-area-inset-top) - env(safe-area-inset-bottom)),
     760px,
     calc((100cqw - var(--edm-panel-w) - 76px - 2 * var(--edm-peek)) / var(--edm-ar))
   );
@@ -7626,7 +7631,7 @@ span.wv-layed__apply { margin-left: auto; flex-shrink: 0; }
   }
   .wv-edm__body.has-panel { --edm-panel-w: 100%; }
   .wv-edm__body > * {
-    --edm-card-h: min(calc(100dvh - 56px - 160px), calc((100cqw - 2 * var(--edm-peek)) / var(--edm-ar)));
+    --edm-card-h: min(calc(100dvh - 56px - 160px - env(safe-area-inset-top) - env(safe-area-inset-bottom)), calc((100cqw - 2 * var(--edm-peek)) / var(--edm-ar)));
   }
   .wv-edm__arrow { display: none; }
   .wv-edm__panel.wv-ig { width: 100%; height: auto; min-height: 320px; margin-top: var(--sp-5); }
@@ -7790,7 +7795,7 @@ span.wv-layed__apply { margin-left: auto; flex-shrink: 0; }
   flex: 0 0 auto;
   display: flex;
   justify-content: center;
-  padding: 0 var(--sp-6) var(--sp-5);
+  padding: 0 var(--sp-6) calc(var(--sp-5) + env(safe-area-inset-bottom));
   animation: wv-ask-rise 220ms var(--ease-out, ease);
 }
 @keyframes wv-ask-rise {
@@ -7955,7 +7960,7 @@ span.wv-layed__apply { margin-left: auto; flex-shrink: 0; }
 @media (prefers-reduced-motion: reduce) { .wv-edm__asktry, .wv-edm__cmd { animation: none; } }
 
 @media (max-width: 800px) {
-  .wv-edm__ask { padding: 0 var(--sp-3) var(--sp-3); }
+  .wv-edm__ask { padding: 0 var(--sp-3) calc(var(--sp-3) + env(safe-area-inset-bottom)); }
   .wv-edm__asktries { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
   .wv-edm__asktry { flex: 0 0 auto; height: 38px; font-size: 13px; }
   .wv-edm__askfield { height: 56px; }
@@ -9497,9 +9502,10 @@ p.wv-sa__hint { margin: 6px 6px 0; }
 
 @media (max-width: 767px) {
   .wv-edm__top {
-    min-height: 68px;
+    min-height: calc(68px + env(safe-area-inset-top));
     gap: var(--sp-2);
     padding: 12px 16px;
+    padding-top: calc(12px + env(safe-area-inset-top));
     background: #f8f8f8;
     box-shadow: inset 0 -1px 0 var(--chrome-rule);
   }
@@ -9627,7 +9633,7 @@ p.wv-sa__hint { margin: 6px 6px 0; }
   .wv-edm.is-capedit .wv-edm__body { overflow: hidden; padding-top: var(--sp-4); }
   .wv-edm.is-capedit .wv-edm__body > * {
     --edm-card-h: min(
-      calc(100dvh - 68px - 272px - 2 * var(--sp-4) - env(safe-area-inset-bottom)),
+      calc(100dvh - 68px - 272px - 2 * var(--sp-4) - env(safe-area-inset-top) - env(safe-area-inset-bottom)),
       calc((100cqw - 2 * var(--edm-peek)) / var(--edm-ar))
     );
   }
