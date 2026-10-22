@@ -7708,7 +7708,7 @@ export default function WeekView({
                   </p>
                 ) : <span className="wv-edm__linegap" />}
                 <div className="wv-edm__right">
-                {(activeThemed || htmlSlideOn) && (
+                {activeThemed && (
                   <span className="wv-edm__vers">
                     <button
                       type="button"
