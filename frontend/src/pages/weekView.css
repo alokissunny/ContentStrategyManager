@@ -9402,6 +9402,60 @@ p.wv-sa__hint { margin: 6px 6px 0; }
   cursor: pointer;
 }
 .wv-sb__go:disabled { background: transparent; color: var(--sb-off); cursor: default; }
+/* an AI action, so the live send is lime, not ink (bauhly-v3 `edm-selbar__page__go`) */
+.wv-sb__go:not(:disabled) { background: var(--experiment-500, #d2e823); color: var(--ink-900); }
+.wv-sb__go:not(:disabled):hover { filter: brightness(0.96); }
+/* no focus ring on the field — the gradient below is what says it is live */
+.wv-sb__askin:focus,
+.wv-sb__askin:focus-visible { outline: none; box-shadow: none; }
+
+/* ── The gradient that spreads across the edge (bauhly-v3 `is-aiglow`) ──
+   When the wand's page opens, colour appears in the middle of the field's
+   border and opens outward along it — lime leading, cyan as its edge — then
+   fades, once, over 2.2s. A masked ring on ::after, so nothing moves. */
+@property --wv-aispread {
+  syntax: '<percentage>';
+  inherits: false;
+  initial-value: 0%;
+}
+.wv-sb__ask { position: relative; }
+.wv-sb__ask::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  border-radius: inherit;
+  padding: 1.25px;
+  background:
+    radial-gradient(
+      140% 420% at 50% 50%,
+      #b9d600 0%,
+      #d2e823 calc(var(--wv-aispread) * 0.55),
+      #d2e823 var(--wv-aispread),
+      #23bbe1 calc(var(--wv-aispread) + 15%),
+      #0e9fc4 calc(var(--wv-aispread) + 25%),
+      rgba(14, 159, 196, 0) calc(var(--wv-aispread) + 44%)
+    );
+  box-shadow: 0 0 10px rgba(185, 214, 0, 0.45), 0 0 22px rgba(35, 187, 225, 0.28);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  mask-composite: exclude;
+  opacity: 0;
+  animation: wv-aispread 2200ms cubic-bezier(0.37, 0, 0.63, 1) 1 both,
+    wv-aifade 2200ms var(--ease-out, ease) 1 both;
+}
+@keyframes wv-aispread { from { --wv-aispread: 0%; } to { --wv-aispread: 112%; } }
+@keyframes wv-aifade {
+  from { opacity: 0; }
+  18% { opacity: 0.72; }
+  34% { opacity: 1; }
+  64% { opacity: 1; }
+  84% { opacity: 0.55; }
+  to { opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) { .wv-sb__ask::after { display: none; } }
 .wv-sb__go.is-busy > svg { animation: wv-sa-spin 900ms linear infinite; }
 .wv-sb__note { padding: 0 12px 4px; font-size: 12.5px; color: var(--sb-quiet); }
 
