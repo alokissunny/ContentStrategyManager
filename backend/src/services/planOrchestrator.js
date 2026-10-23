@@ -3,6 +3,7 @@ const path = require('path');
 const { AsyncResource } = require('async_hooks');
 const { brandKitColors, brandStylePalette, brandKitFonts, brandStyleFonts } = require('./brandKitColors');
 const { carouselLayoutProblems } = require('./carouselLayoutCheck');
+const { carouselContrastFailures, makeCarouselReadable } = require('./carouselContrastCheck');
 const { extractJson, estimatePlanCostUsd, assignToEmptyDates, normalizeLens } = require('./weeklyPlan');
 const { compileStrategyContext, assetsForDay, allocatedAssetsOf, sanitizeAllocatedAssets, applyAssetAllocation, knownAssetIndexOf, json } = require('./planContext');
 const { completeText, resolvePlanAgentLlm, splitPromptTemplate, reasoningEffortFor } = require('./llmComplete');
@@ -2514,7 +2515,7 @@ async function carouselPhotosOf(carouselInput) {
     })),
     note: [
       '---',
-      'ATTACHED PHOTOS. These are the real photos the strategy selected for this post, in this order. Look at them: place text around each photo\'s subject, crop so the subject stays in frame, and give each photo a frame close to its own ratio. Reference a photo by its asset key exactly as in the content structure.',
+      'ATTACHED PHOTOS. These are the real photos for this post, in this order. Look at each one before placing type. A photo slide is full-bleed: the picture fills the canvas and the text group sits directly on it, on the calm side away from the subject. Set that text in var(--brand-background) unless every letter sits on a clearly white or near-white area. Judge each line against the least-contrasting pixels behind it — a supporting line that runs onto a darker or busier area than the headline fails even when the headline is clear. If a line would miss 4.5:1 under 32px or 3:1 at 32px and larger, move the group or add a local primary wash behind the whole group. Reference a photo by its asset key exactly as in the content structure.',
       ...lines,
     ].join('\n'),
   };
@@ -2607,24 +2608,50 @@ async function writeCarousel({ source, structure, post, dayBrief, brand, dayWrit
   return artDirectCarousel({ source, result: laidOut, brand, post });
 }
 
-// Layout check (services/carouselLayoutCheck.js): measures the carousel's text
-// boxes from its CSS — overlapping text, text on the photo, the safe area. On
-// problems, ONE repair call hands the agent its own HTML plus the problems;
-// whichever version has fewer problems is kept. CAROUSEL_LAYOUT_CHECK=0 = off.
+// The photos attached to this call, keyed the way the contrast check looks
+// them up (data-asset-key → the same JPEG the model was shown).
+function visionPhotoMap(images) {
+  const map = new Map();
+  (Array.isArray(images) ? images : []).forEach((img) => {
+    const key = img?.debug?.key;
+    if (key && img.data) map.set(String(key), img.data);
+  });
+  return map;
+}
+
+function assetKeysOf(html) {
+  return [...String(html || '').matchAll(/data-asset-key\s*=\s*["']([^"']+)["']/gi)].map((m) => m[1]);
+}
+
+// Layout check (services/carouselLayoutCheck.js) measures text boxes from CSS.
+// Contrast check (services/carouselContrastCheck.js) measures each of those
+// boxes against the real photo pixels — the pass that catches dark type on a
+// busy photo. On problems, ONE repair call hands the agent its HTML, the
+// photos, and the problems. Whatever contrast failures remain get a light-text
+// wash, so an unreadable photo slide cannot ship. CAROUSEL_LAYOUT_CHECK=0 = off.
 async function fixCarouselLayout({ source, assembled, images, validate, result }) {
   if (process.env.CAROUSEL_LAYOUT_CHECK === '0' || !result?.parsed?.html) return result;
-  const problems = carouselLayoutProblems(result.parsed.html);
+  const photoMap = visionPhotoMap(images);
   const note = (list) => (list.length ? `${list.length} problem${list.length === 1 ? '' : 's'}:\n- ${list.join('\n- ')}` : 'passed');
-  if (!problems.length) {
+  const measure = async (html) => {
+    const layout = carouselLayoutProblems(html);
+    const contrast = photoMap.size ? await carouselContrastFailures(html, photoMap) : [];
+    return { layout, contrast, problems: [...layout, ...contrast.map((f) => f.problem)] };
+  };
+  const first = await measure(result.parsed.html);
+  if (!first.problems.length) {
     return { ...result, debugEntry: { ...result.debugEntry, output: `${result.debugEntry?.output || ''}\n\n[Layout check] passed` } };
   }
-  console.warn(`[planOrchestrator] ${source} layout check: ${problems.length} problem(s) — ${problems.join(' | ')}`);
+  console.warn(`[planOrchestrator] ${source} layout check: ${first.problems.length} problem(s) — ${first.problems.join(' | ')}`);
   const fixNote = [
     '---',
-    'LAYOUT FIX. The carousel you wrote (below) was measured from its CSS and has these layout problems:',
-    ...problems.map((p) => `- ${p}`),
+    'LAYOUT FIX. The carousel you wrote (below) was measured and has these problems:',
+    ...first.problems.map((p) => `- ${p}`),
     '',
-    'Return the COMPLETE corrected HTML document (every slide). Fix exactly these problems, following "Text layout — no overlaps": put each affected slide\'s text in ONE flex-column group with a gap, re-budget the lines, reduce type or give the group more room, and keep 48px between the text and the photo. Keep everything else — copy, slide order, data-slot attributes, images and asset keys, palette, fonts and the overall design — unchanged.',
+    'Return the COMPLETE corrected HTML document (every slide). Fix exactly these problems.',
+    'Overlapping text, overflow, or the safe area: follow "Text layout — no overlaps". Put the affected slide\'s text in ONE flex-column group with a gap, re-budget the lines, and reduce type or give the group more room.',
+    'Text unreadable on a photo: follow "Full-bleed text". Keep the photo full-bleed and the text directly on it — no panel, band, or box, and do not pull the text off the photo. Set that whole text group in var(--brand-background) unless every letter sits on a clearly white or near-white area. Move the group to the calm side, clear of the focal point, so no line runs onto a darker area than the one you judged. Add a primary wash behind the whole text group, only as strong as this photo needs, so every line reaches 4.5:1 under 32px and 3:1 at 32px and larger against the least-contrasting pixels behind the letters.',
+    'Keep everything else — copy, slide order, data-slot attributes, images and asset keys, palette, fonts and the overall design — unchanged.',
     '',
     'YOUR PREVIOUS HTML:',
     result.parsed.html,
@@ -2645,24 +2672,53 @@ async function fixCarouselLayout({ source, assembled, images, validate, result }
   } catch (err) {
     console.warn(`[planOrchestrator] ${source} layout fix failed — keeping the first version: ${err.message}`);
   }
-  const after = fixed?.parsed?.html ? carouselLayoutProblems(fixed.parsed.html) : null;
-  const keepFixed = after && after.length < problems.length;
+  const keptKeys = assetKeysOf(result.parsed.html);
+  const droppedKey = fixed?.parsed?.html && keptKeys.some((k) => !assetKeysOf(fixed.parsed.html).includes(k));
+  if (droppedKey) console.warn(`[planOrchestrator] ${source} layout fix dropped a photo — keeping the first version`);
+  const after = fixed?.parsed?.html && !droppedKey ? await measure(fixed.parsed.html) : null;
+  const keepFixed = after && after.problems.length < first.problems.length;
   const chosen = keepFixed ? fixed : result;
+  let contrastLeft = keepFixed ? after.contrast : first.contrast;
+  let washed = false;
+  if (contrastLeft.length && chosen.parsed?.html) {
+    const readable = makeCarouselReadable(chosen.parsed.html, contrastLeft);
+    if (readable !== chosen.parsed.html) {
+      const previous = chosen.parsed.html;
+      chosen.parsed.html = readable;
+      try {
+        if (typeof validate === 'function') validate(chosen.parsed);
+        const still = await measure(chosen.parsed.html);
+        contrastLeft = still.contrast;
+        washed = true;
+        console.log(`[planOrchestrator] ${source} contrast wash applied · ${still.problems.length} problem(s) remain`);
+      } catch (err) {
+        chosen.parsed.html = previous;
+        console.warn(`[planOrchestrator] ${source} contrast wash rejected — ${err.message}`);
+      }
+    }
+  }
   const usage = [result.usage, fixed?.usage].filter(Boolean).reduce((a, u) => {
     const out = { ...a };
     Object.entries(u).forEach(([k, v]) => { if (typeof v === 'number') out[k] = (Number(a[k]) || 0) + v; });
     return out;
   }, { model: result.usage?.model });
-  if (after) console.log(`[planOrchestrator] ${source} layout fix: ${problems.length} → ${after.length} problem(s) · kept ${keepFixed ? 'the fix' : 'the first version'}`);
+  if (after) console.log(`[planOrchestrator] ${source} layout fix: ${first.problems.length} → ${after.problems.length} problem(s) · kept ${keepFixed ? 'the fix' : 'the first version'}`);
+  const washNote = washed
+    ? `\n[Contrast check] ${contrastLeft.length ? `${contrastLeft.length} still unreadable after the wash` : 'photo text set light, with a primary wash behind the group'}`
+    : '';
+  const report = `[Layout check] first version: ${note(first.problems)}${after ? `\n[Layout check] after one fix: ${note(after.problems)} → kept ${keepFixed ? 'the fix' : 'the first version'}` : '\n[Layout check] fix call failed — kept the first version'}${washNote}`;
+  // The debug preview renders this output. After a wash, that has to be the
+  // corrected document — the model's own text is the unreadable one.
+  const shown = washed ? chosen.parsed.html : (chosen.debugEntry?.output || '');
   return {
     ...chosen,
     usage,
-    layoutCheck: { problems, after, kept: keepFixed ? 'fix' : 'first' },
+    layoutCheck: { problems: first.problems, after: after?.problems || null, kept: keepFixed ? 'fix' : 'first', washed },
     debugEntry: {
       ...chosen.debugEntry,
       usage,
       elapsedMs: (Number(result.debugEntry?.elapsedMs) || 0) + (Number(fixed?.debugEntry?.elapsedMs) || 0),
-      output: `${chosen.debugEntry?.output || ''}\n\n[Layout check] first version: ${note(problems)}${after ? `\n[Layout check] after one fix: ${note(after)} → kept ${keepFixed ? 'the fix' : 'the first version'}` : '\n[Layout check] fix call failed — kept the first version'}`,
+      output: `${shown}\n\n<!--\n${report}\n-->`,
     },
   };
 }

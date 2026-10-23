@@ -84,7 +84,7 @@ import { bakeSlidePatches, replaceSlideArticle, slideArticleOf, nodeAt, stampIma
 import { auditSlideLayout, measureSlide, slideCssOf } from './weekview/slideAudit';
 import { actionsFor, askHint, askSay, askReady, endOf, trailOf, SLIDE_IDEAS } from '../lib/askactions';
 import { useRecorder, captureSttLanguages } from './checkin/recorder';
-import { rewriteAnnotationText, rewriteLayoutText, rewriteCarouselDocumentText, slotPlain, slideSlotPlain, withSharedLayoutStyles, layoutDirectionOf, themeIdOf, themeDirectionOf, slideIsThemed, optionForTheme, THEME_ORDER, bakeFrozenGeometry, findCarouselSlide, isCarouselDocument, slideRootOf } from './weekview/layoutHtml';
+import { rewriteAnnotationText, rewriteLayoutText, rewriteCarouselDocumentText, slotPlain, slideSlotPlain, withSharedLayoutStyles, layoutDirectionOf, themeIdOf, themeDirectionOf, slideIsThemed, optionForTheme, THEME_ORDER, bakeFrozenGeometry, findCarouselSlide, isCarouselDocument, slideRootOf, asCarouselDocument } from './weekview/layoutHtml';
 import { discoverSlideTextRoles, agentHtmlSource, isAgentHtmlSlide } from './weekview/slideTextRoles';
 import { boxOf, normalizeSubjects } from './weekview/subjectBox';
 import {
@@ -2227,13 +2227,9 @@ function carouselDocumentOf(day) {
     || t.layout?.parsed?.html
     || t.carousel?.parsed?.html
     || '';
-  const raw = String(html || '').trim();
-  if (!raw) return '';
-  // Stale runs from the template-split bug stored apology shells — do not paint them.
-  if (/content structure (was )?not included|awaiting content|role not supplied/i.test(raw)) {
-    return '';
-  }
-  return (/<!doctype html/i.test(raw) || /<html[\s>]/i.test(raw)) ? raw : '';
+  // Same canvas the debug preview scales: a bare <section> is wrapped so the
+  // 1080×1350 slide is fitted whole, and the photo keeps the agent's crop.
+  return asCarouselDocument(html);
 }
 
 // The bar over a selected element in Editor mode (bauhly-v3 `edm-selbar`):

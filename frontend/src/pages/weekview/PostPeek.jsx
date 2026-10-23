@@ -11,6 +11,7 @@ import {
   layoutDirectionOf,
   slideIsThemed,
   isCarouselDocument,
+  asCarouselDocument,
 } from './layoutHtml';
 import {
   mediaProxyUrl,
@@ -133,12 +134,7 @@ function carouselDocumentOf(day) {
     || t.layout?.parsed?.html
     || t.carousel?.parsed?.html
     || '';
-  const raw = String(html || '').trim();
-  if (!raw) return '';
-  if (/content structure (was )?not included|awaiting content|role not supplied/i.test(raw)) {
-    return '';
-  }
-  return (/<!doctype html/i.test(raw) || /<html[\s>]/i.test(raw)) ? raw : '';
+  return asCarouselDocument(html);
 }
 
 /** How many frames a carousel HTML document actually contains. */

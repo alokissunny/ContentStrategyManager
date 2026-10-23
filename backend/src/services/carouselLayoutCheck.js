@@ -6,7 +6,9 @@
  *   - text blocks that overlap each other (the classic: a headline that wraps
  *     to one more line than the agent guessed runs into the copy below it,
  *     because both were pinned with a fixed `top`);
- *   - text running onto the photo without a band/scrim behind it;
+ *   - text running onto a photo that does not fill the slide, with no band behind it
+ *     (a full-bleed photo is meant to carry the type; pixel contrast is a
+ *     separate check);
  *   - text outside the 7% safe area or off the slide;
  *   - sibling text blocks each pinned with their own absolute `top` (the
  *     pattern that produces overlaps) — reported so the retry stacks them in
@@ -396,12 +398,15 @@ function checkSlide(article, rules, idx) {
       }
     }
   }
-  // text on the photo with nothing solid behind it
+  // text on a partial photo with nothing solid behind it. A full-bleed photo
+  // is supposed to carry the type (prompt › Full-bleed text); whether that
+  // type is readable is the contrast check, not a missing band.
   const imgs = items.filter((i) => i.img && !i.text);
   const scrims = items.filter((i) => !i.text && !i.img && i.bg);
   texts.forEach((t) => {
     if (t.bg || [...walk(t.node)].some((c) => hasBg(styleOf(c, rules)) && isText(c))) return;
     imgs.forEach((im) => {
+      if (im.box.w >= W * 0.6 && im.box.h >= H * 0.6) return;
       const o = overlap(t.tbox, im.box);
       if (!o || o < 6) return;
       const onScrim = scrims.some((s) => overlap(t.tbox, s.box) >= Math.min(t.tbox.h, o) * 0.9);
@@ -473,4 +478,7 @@ function carouselLayoutProblems(html) {
   }
 }
 
-module.exports = { carouselLayoutProblems, wrap, parseCss };
+module.exports = {
+  carouselLayoutProblems, wrap, parseCss, parseDecls, parseTree, styleOf, absBox, flowHeight,
+  naturalWidth, labelOf, walk, els, isAbs, isText, isImg, pad, margin, px, SLIDE,
+};

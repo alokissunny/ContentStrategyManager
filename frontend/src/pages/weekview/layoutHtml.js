@@ -491,6 +491,21 @@ export function isCarouselDocument(html) {
   return /<!doctype html/i.test(t) || /<html[\s>]/i.test(t);
 }
 
+// The carousel agent returns a bare <section>, which the debug preview wraps
+// and scales as a fixed 1080×1350 canvas. Stored the same way, that section
+// has to be wrapped before the app can crop it the same way — otherwise the
+// card stretches the slide to its own box and object-fit cover reframes the photo.
+export function asCarouselDocument(html) {
+  const raw = trim(html);
+  if (!raw) return '';
+  if (/content structure (was )?not included|awaiting content|role not supplied/i.test(raw)) return '';
+  if (isCarouselDocument(raw)) return raw;
+  if (/<section\b[^>]*\bdata-direction=/i.test(raw) && /<article\b[^>]*\bslide\b/i.test(raw)) {
+    return `<!DOCTYPE html><html><head><meta charset="utf-8"></head><body>${raw}</body></html>`;
+  }
+  return '';
+}
+
 const THEME_CATALOG = [
   { id: 'warm-editorial', match: /warm\s*editorial/i },
   { id: 'architectural-minimal', match: /architectural\s*minimal/i },
