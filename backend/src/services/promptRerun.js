@@ -95,15 +95,19 @@ function safeJson(raw) {
 
 function usageFromAnthropic(response, model) {
   const u = response.usage || {};
-  const inputTokens = Number(u.input_tokens) || 0;
-  const outputTokens = Number(u.output_tokens) || 0;
+  // Anthropic's input_tokens leaves out cache reads and writes — add them back
+  // so inputTokens is the whole prompt (see llmComplete.anthropicUsageOf)
   const cachedTokens = Number(u.cache_read_input_tokens) || 0;
+  const cacheWriteTokens = Number(u.cache_creation_input_tokens) || 0;
+  const inputTokens = (Number(u.input_tokens) || 0) + cachedTokens + cacheWriteTokens;
+  const outputTokens = Number(u.output_tokens) || 0;
   return {
     inputTokens,
     outputTokens,
     cachedTokens,
+    cacheWriteTokens,
     totalTokens: inputTokens + outputTokens,
-    estimatedCostUsd: estimatePlanCostUsd(model, inputTokens, outputTokens, cachedTokens),
+    estimatedCostUsd: estimatePlanCostUsd(model, inputTokens, outputTokens, cachedTokens, cacheWriteTokens),
     model,
   };
 }

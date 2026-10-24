@@ -290,6 +290,22 @@ function splitPromptTemplate(template) {
   };
 }
 
+// Anthropic reports input_tokens WITHOUT cache reads and cache writes (they come
+// as cache_read_input_tokens / cache_creation_input_tokens). Normalise to the
+// OpenAI convention — input_tokens = the whole prompt — so cost estimates bill
+// cache reads at the cached rate and cache writes at 1.25x, never double-count.
+function anthropicUsageOf(usage) {
+  const u = usage && typeof usage === 'object' ? usage : {};
+  const read = Number(u.cache_read_input_tokens) || 0;
+  const written = Number(u.cache_creation_input_tokens) || 0;
+  return {
+    input_tokens: (Number(u.input_tokens) || 0) + read + written,
+    output_tokens: Number(u.output_tokens) || 0,
+    cached_tokens: read,
+    cache_write_tokens: written,
+  };
+}
+
 function promptCacheEnabled() {
   const v = String(process.env.PLAN_PROMPT_CACHE ?? '1').trim().toLowerCase();
   return !(v === '0' || v === 'false' || v === 'off' || v === 'no');
@@ -377,11 +393,7 @@ async function completeText({
     text: textOfAnthropic(response),
     model: resolved,
     stopReason: response.stop_reason || '',
-    usage: {
-      input_tokens: Number(response.usage?.input_tokens) || 0,
-      output_tokens: Number(response.usage?.output_tokens) || 0,
-      cached_tokens: cachedTokensOf(response.usage),
-    },
+    usage: anthropicUsageOf(response.usage),
   };
 }
 
@@ -462,11 +474,7 @@ async function completeToolCall({
     return {
       parsed: extractAnthropicToolInput(response, name),
       model: resolved,
-      usage: {
-        input_tokens: Number(response.usage?.input_tokens) || 0,
-        output_tokens: Number(response.usage?.output_tokens) || 0,
-        cached_tokens: cachedTokensOf(response.usage),
-      },
+      usage: anthropicUsageOf(response.usage),
     };
   } catch (err) {
     if (!retryHint) throw err;
@@ -478,11 +486,7 @@ async function completeToolCall({
     return {
       parsed: extractAnthropicToolInput(response, name),
       model: resolved,
-      usage: {
-        input_tokens: Number(response.usage?.input_tokens) || 0,
-        output_tokens: Number(response.usage?.output_tokens) || 0,
-        cached_tokens: cachedTokensOf(response.usage),
-      },
+      usage: anthropicUsageOf(response.usage),
     };
   }
 }

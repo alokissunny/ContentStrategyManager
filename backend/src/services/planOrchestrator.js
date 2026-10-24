@@ -460,12 +460,14 @@ function usageOf(response, model) {
   const inputTokens = Number(response.usage?.input_tokens) || 0;
   const outputTokens = Number(response.usage?.output_tokens) || 0;
   const cachedTokens = Number(response.usage?.cached_tokens) || 0;
+  const cacheWriteTokens = Number(response.usage?.cache_write_tokens) || 0;
   return {
     inputTokens,
     outputTokens,
     cachedTokens,
+    cacheWriteTokens,
     totalTokens: inputTokens + outputTokens,
-    estimatedCostUsd: estimatePlanCostUsd(model, inputTokens, outputTokens, cachedTokens),
+    estimatedCostUsd: estimatePlanCostUsd(model, inputTokens, outputTokens, cachedTokens, cacheWriteTokens),
     model,
   };
 }

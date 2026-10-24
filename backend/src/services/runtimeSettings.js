@@ -22,6 +22,7 @@ const CAROUSEL_MODEL_OPTIONS = [
   { id: 'gpt-6-astra', label: 'GPT-6 Astra', provider: 'openai', reasoning: true, tier: 'priciest' },
   { id: 'claude-haiku-4-5', label: 'Claude Haiku 4.5', provider: 'anthropic', reasoning: false, tier: 'cheapest' },
   { id: 'claude-sonnet-5', label: 'Claude Sonnet 5', provider: 'anthropic', reasoning: true, tier: 'mid' },
+  { id: 'claude-opus-5-5', label: 'Claude Opus 5.5', provider: 'anthropic', reasoning: true, tier: 'priciest' },
   { id: 'claude-opus-5', label: 'Claude Opus 5', provider: 'anthropic', reasoning: true, tier: 'priciest' },
 ];
 

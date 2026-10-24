@@ -48,16 +48,30 @@ function ratesForModel(model = '') {
   if (/gpt-5\.6-luna/.test(m)) return { in: 0.2, out: 1.2, cached: 0.02 };
   if (/terra|gpt-5\.6/.test(m)) return { in: 2, out: 12, cached: 0.2 };
   if (isOpenAI) return { in: 1.25, out: 10, cached: 0.125 };
-  if (m.includes('opus')) return { in: 15, out: 75, cached: 1.5 };
-  if (m.includes('haiku')) return { in: 0.8, out: 4, cached: 0.08 };
-  return { in: 3, out: 15, cached: 0.3 }; // sonnet family default
+  // Anthropic list prices per MTok (first-party API, Oct 2026). Cache reads are
+  // 0.1x input unless the model has its own rate; cache writes are priced in
+  // estimatePlanCostUsd (1.25x input, 5-minute cache).
+  if (/fable-5-1|mythos-5-1/.test(m)) return { in: 10, out: 50, cached: 0.25 };
+  if (/fable|mythos/.test(m)) return { in: 10, out: 50, cached: 1 };
+  if (/opus-5-5/.test(m)) return { in: 4, out: 20, cached: 0.2 };
+  if (/opus-(5|4-[5-9])/.test(m)) return { in: 5, out: 25, cached: 0.5 };
+  if (m.includes('opus')) return { in: 15, out: 75, cached: 1.5 }; // Opus 4.1 and older
+  if (/haiku-5-5/.test(m)) return { in: 0.1, out: 0.5, cached: 0.01 };
+  if (/haiku-4-5/.test(m)) return { in: 1, out: 5, cached: 0.1 };
+  if (m.includes('haiku')) return { in: 0.8, out: 4, cached: 0.08 }; // Haiku 3.5
+  if (/sonnet-5/.test(m)) return { in: 2, out: 10, cached: 0.2 };
+  return { in: 3, out: 15, cached: 0.3 }; // Sonnet 4.x and older
 }
 
-function estimatePlanCostUsd(model, inputTokens, outputTokens, cachedTokens = 0) {
+// inputTokens is the WHOLE prompt (uncached + cache reads + cache writes), the
+// OpenAI convention; llmComplete normalises Anthropic usage to it.
+function estimatePlanCostUsd(model, inputTokens, outputTokens, cachedTokens = 0, cacheWriteTokens = 0) {
   const { in: inRate, out: outRate, cached: cachedRate } = ratesForModel(model);
   const cached = Math.min(Math.max(Number(cachedTokens) || 0, 0), inputTokens);
-  const uncached = Math.max((Number(inputTokens) || 0) - cached, 0);
-  const usd = (uncached / 1e6) * inRate + (cached / 1e6) * cachedRate + ((Number(outputTokens) || 0) / 1e6) * outRate;
+  const written = Math.min(Math.max(Number(cacheWriteTokens) || 0, 0), Math.max(inputTokens - cached, 0));
+  const uncached = Math.max((Number(inputTokens) || 0) - cached - written, 0);
+  const usd = (uncached / 1e6) * inRate + (cached / 1e6) * cachedRate + (written / 1e6) * inRate * 1.25
+    + ((Number(outputTokens) || 0) / 1e6) * outRate;
   return Math.round(usd * 1e6) / 1e6;
 }
 
