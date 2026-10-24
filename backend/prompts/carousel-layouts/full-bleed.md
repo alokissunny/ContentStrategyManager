@@ -13,26 +13,38 @@ Return one self-contained HTML document only:
 - `data-slot` on every editable text run. Photos: `<img data-slot="image" data-asset-key="…">` using the asset key from the strategy output.
 - HTML only. No explanation.
 
+## Principles
+
+- **Narrative first.** Understand the story before designing. Every slide should communicate a clear idea, with composition and emphasis driven by its narrative purpose.
+- **Full-bleed photography.** Let project images occupy the entire canvas. Integrate typography directly into the photography, using its natural composition, geometry, and available visual space.
+- **Protect the focal point.** Identify what matters in each image according to the narrative. Position text where it won't obscure important architectural details or spatial relationships. Beware the trap: the calm area that will hold type is often calm *because* it is empty floor or blank wall, while the subject sits in the busy part — so judge the two against each other, not the composition alone. When the slide is about an effect rather than an object — light, daylight, a view — the subject is the source **and** the surface it falls on: a pendant without the table it lights shows a lamp, not the lighting. Set type across neither, and keep it off the fixture itself: a headline crossing a lamp or its cord reads as a mistake even where the photograph behind it is calm. When no area is both calm and clear of the subject, re-crop the photograph or change the block's size and placement; a gradient darkens the detail, it does not move the text off it.
+- **Exceptional typography.** Create intentional hierarchy through scale, weight, alignment, line breaks, and spacing. Adapt text size and proportions to the image and narrative rather than applying fixed treatments.
+- **Distribute the lines, do not place them.** Let the lines balance: none much shorter than its neighbours, no single word stranded on a line of its own, and no line running longer than about thirteen times the type size — past that the eye loses the start of the next line. Break by hand only where a break carries meaning, such as the ask on a closing slide or a phrase that must stay whole; everywhere else a hand-placed break is what produces the stranded word. In HTML this is `text-wrap: balance` on the headline, `text-wrap: pretty` on the supporting line, and a `max-width` in `em` so the cap scales with the type.
+- **Three levels of text on every slide.** An eyebrow, a headline, and a supporting line. The headline is the unit's `copy`, with one short phrase in the Brand Kit accent colour. The supporting line is the unit's `subtitle`, used as written. Never put `support` on a slide: it is the evidence behind the unit, written for the brief ("The capture says…", "The image shows…"), not copy for the reader. The eyebrow is the unit's `eyebrow`, used as written; when the brief supplies none, leave it out rather than writing one. Leave a level out only when the unit gives it nothing to say — never to simplify a composition.
+- **Visual rhythm.** Make the carousel feel like one connected editorial story. Vary text placement, scale, alignment, and emphasis when meaningful, without forcing variation or repetition.
+- **Strong hook.** Make the opening visually compelling through photography, typography, composition, or their relationship. Avoid predictable oversized headlines.
+- **Purposeful details.** Use small labels, highlights, dividers, or other editorial elements when they improve hierarchy, storytelling, or composition. Avoid arbitrary decoration.
+- **Brand consistency.** Respect the supplied Brand Kit and use only real project assets.
+
 ## Photo slides — full bleed, text on the image
 
-- The photo is `position:absolute; inset:0; width:100%; height:100%; object-fit:cover`. No card, panel, band, border, or split layout.
-- Start each photo slide with `<!-- focal: what the subject is and where it sits -->`. Look at the attached photo before you place anything.
-- Put the text group on the calmest area of the photo, away from the subject: a dark floor, a shadowed wall, an empty ceiling, a plain foreground. Top-left or bottom-left are usual; pick per photo, never by habit. Never cross a face, a product, or the slide's focal object.
-- Text must read at a glance. On dark or mid-tone areas use the light brand colour (`--brand-background`); on pale areas use the dark one (`--brand-primary`). If the area is busy, add a soft gradient behind the whole text group only (`<div class="wash">`, the matching brand colour at 45–65%, fading out ~200px beyond the text). Never a solid block.
+- The photo is `position:absolute; inset:0; width:100%; height:100%; object-fit:cover`, with `object-position` chosen so the focal point stays in frame. No card, panel, band, border, or split layout.
+- Start each photo slide with `<!-- focal: what the slide is about in this photo, where it sits, and where the text will go -->`. Look at the attached photo before you place anything.
+- Text must read at a glance. On dark or mid-tone areas use the light brand colour (`--brand-background`); on pale areas use the dark one (`--brand-primary`). Where contrast still falls short, a soft gradient may sit behind the text group only (`<div class="wash">`, the matching brand colour, fading out ~200px beyond the text) — never a solid block, and never as a way to put text over the subject.
 - Keep text inside a 72px safe margin on every side.
 
 ## Text-only slides — solid ground
 
 - Full bleed is only for slides the strategy output gives a photo (an asset key). A slide with no photo stays text only — never add, repeat, or borrow a photo from another slide, and add no image slot.
-- A slide without a photo uses a solid brand ground: the dark brand colour for the hook/opening rhythm, the light ground for takeaway and CTA slides. Alternate so neighbouring slides don't look alike.
-- Place the text group low-left (hook, takeaway, CTA) or high-left (context slides); let the empty ground breathe — never centre everything.
+- A slide without a photo uses a solid brand ground (dark or light), chosen for the carousel's rhythm so neighbouring slides don't look alike. Let the empty ground breathe — never centre everything by default.
 
 ## Type system (every slide)
 
-- Kicker: small letter-spaced caps (20–24px, 600–700 weight, 0.14em tracking) in the accent colour. Optionally a 56px hairline rule in the accent above it on the hook and CTA.
-- Headline: the brand display font, 600–700 weight, tight tracking (-0.02em), line-height 1.02–1.08; 76–96px on photo slides, 84–108px on the hook and final slide. When the headline has two sentences or a turn, set the second in the accent colour.
-- Support line: 26–32px body font, regular weight, one or two lines, under the headline.
-- Kicker → headline → support in ONE flex-column group with a 16–24px gap. No `<br>` in copy; use `text-wrap: balance`.
+Starting points, not fixed treatments — size each level to the image and the slide's narrative.
+- Eyebrow: small letter-spaced caps (around 20–24px, 600–700 weight, 0.14em tracking) in the accent colour.
+- Headline: the brand display font, 600–700 weight, tight tracking (-0.02em), line-height 1.02–1.08, roughly 64–96px; one short phrase in the accent colour.
+- Supporting line: 26–32px body font, regular weight, under the headline.
+- Eyebrow → headline → supporting line in ONE flex-column group with a 16–24px gap.
 
 STRATEGY AGENT OUTPUT:
 {{CONTENT_STRUCTURE_JSON}}
