@@ -11,6 +11,7 @@ import {
   layoutDirectionOf,
   slideIsThemed,
   isCarouselDocument,
+  carouselDocumentOf,
 } from './layoutHtml';
 import {
   mediaProxyUrl,
@@ -123,22 +124,6 @@ function slideCopy(slide) {
       ? String(slide.quote).trim() : '',
     annotation: null,
   };
-}
-
-function carouselDocumentOf(day) {
-  const t = day?.agentTrace && typeof day.agentTrace === 'object' ? day.agentTrace : {};
-  const html = day?.content?.carouselHtml
-    || t.layout?.html
-    || t.carousel?.html
-    || t.layout?.parsed?.html
-    || t.carousel?.parsed?.html
-    || '';
-  const raw = String(html || '').trim();
-  if (!raw) return '';
-  if (/content structure (was )?not included|awaiting content|role not supplied/i.test(raw)) {
-    return '';
-  }
-  return (/<!doctype html/i.test(raw) || /<html[\s>]/i.test(raw)) ? raw : '';
 }
 
 /** How many frames a carousel HTML document actually contains. */

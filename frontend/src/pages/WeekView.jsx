@@ -82,7 +82,7 @@ import { bakeSlidePatches, replaceSlideArticle, slideArticleOf, nodeAt, stampIma
 import { auditSlideLayout, measureSlide, slideCssOf } from './weekview/slideAudit';
 import { actionsFor, askHint, askSay, askReady, endOf, trailOf, SLIDE_IDEAS } from '../lib/askactions';
 import { useRecorder, captureSttLanguages } from './checkin/recorder';
-import { rewriteAnnotationText, rewriteLayoutText, rewriteCarouselDocumentText, slotPlain, slideSlotPlain, withSharedLayoutStyles, layoutDirectionOf, themeIdOf, themeDirectionOf, slideIsThemed, optionForTheme, THEME_ORDER, bakeFrozenGeometry, findCarouselSlide, isCarouselDocument, slideRootOf } from './weekview/layoutHtml';
+import { rewriteAnnotationText, rewriteLayoutText, rewriteCarouselDocumentText, slotPlain, slideSlotPlain, withSharedLayoutStyles, layoutDirectionOf, themeIdOf, themeDirectionOf, slideIsThemed, optionForTheme, THEME_ORDER, bakeFrozenGeometry, findCarouselSlide, isCarouselDocument, carouselDocumentOf, slideRootOf } from './weekview/layoutHtml';
 import { discoverSlideTextRoles, agentHtmlSource, isAgentHtmlSlide } from './weekview/slideTextRoles';
 import { boxOf, normalizeSubjects } from './weekview/subjectBox';
 import {
@@ -2217,30 +2217,6 @@ function slideCopy(slide, parts) {
   };
 }
 
-function carouselDocumentOf(day) {
-  const t = day?.agentTrace && typeof day.agentTrace === 'object' ? day.agentTrace : {};
-  const html = day?.content?.carouselHtml
-    || t.layout?.html
-    || t.carousel?.html
-    || t.layout?.parsed?.html
-    || t.carousel?.parsed?.html
-    || '';
-  const raw = String(html || '').trim();
-  if (!raw) return '';
-  // Stale runs from the template-split bug stored apology shells — do not paint them.
-  if (/content structure (was )?not included|awaiting content|role not supplied/i.test(raw)) {
-    return '';
-  }
-  if (/<!doctype html/i.test(raw) || /<html[\s>]/i.test(raw)) return raw;
-  // The carousel agent returns a bare <section>, the same document the debug
-  // preview wraps and scales. Without the wrapper the card lays the 1080px
-  // canvas out at the card's width and clips the photo.
-  if (/<section\b[^>]*\bdata-direction\b/i.test(raw) && /<article\b/i.test(raw)) {
-    return `<!DOCTYPE html><html><head><meta charset="utf-8"></head><body>${raw}</body></html>`;
-  }
-  return '';
-}
-
 // The bar over a selected element in Editor mode (bauhly-v3 `edm-selbar`):
 // text style ▾, arrange ▾, size ▾, colour ▾, the AI rewrite, reset, remove.
 // Fixed to the page and hung above the element (below it when there is no
@@ -3886,9 +3862,12 @@ export default function WeekView({
   // day (bauhly-v3 §672/§692 — here as a click, where the reference took a
   // second swipe). The OUTER pair (`.wv-daynav`) always moves the whole day.
   function prevSlide() { if (safeIdx > 0) setSlideIdx(safeIdx - 1); }
+  // Past the last slide only when a later day has a post — an empty day is
+  // never a destination, so with no next post the arrow is disabled.
+  const atLastSlide = safeIdx >= slides.length - 1;
   function nextSlideOrDay() {
-    if (safeIdx < slides.length - 1) setSlideIdx(safeIdx + 1);
-    else if (selected < days.length - 1) nextDay();
+    if (!atLastSlide) setSlideIdx(safeIdx + 1);
+    else if (nextPostIdx >= 0) nextDay();
   }
 
   // the arriving card's class comes off once it has arrived, so a card simply
@@ -9037,12 +9016,13 @@ export default function WeekView({
                   <Glyph name="chevron-left" size={18} strokeWidth={2.5} />
                 </button>
               )}
-              {slides.length > 1 && (safeIdx < slides.length - 1 || selected < days.length - 1) && (
+              {slides.length > 1 && (
                 <button
                   type="button"
                   className="wv-igm__nav wv-igm__nav--r"
                   onClick={(e) => { e.stopPropagation(); nextSlideOrDay(); }}
-                  aria-label={safeIdx < slides.length - 1 ? 'Next slide' : 'Next day'}
+                  disabled={atLastSlide && nextPostIdx < 0}
+                  aria-label={atLastSlide ? 'Next post' : 'Next slide'}
                 >
                   <Glyph name="chevron-right" size={18} strokeWidth={2.5} />
                 </button>

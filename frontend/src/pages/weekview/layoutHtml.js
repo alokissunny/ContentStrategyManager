@@ -486,6 +486,31 @@ export function shareLayoutStyles(htmls) {
   });
 }
 
+// The post's carousel document (the carousel agent's whole answer), ready to
+// draw: a full HTML document as stored, or the bare <section> the agent returns
+// wrapped in one. Without the wrapper a card lays the 1080px canvas out at the
+// card's width and clips it. '' when there is none (or a stale apology shell).
+export function carouselDocumentOf(day) {
+  const t = day?.agentTrace && typeof day.agentTrace === 'object' ? day.agentTrace : {};
+  const html = day?.content?.carouselHtml
+    || t.layout?.html
+    || t.carousel?.html
+    || t.layout?.parsed?.html
+    || t.carousel?.parsed?.html
+    || '';
+  const raw = String(html || '').trim();
+  if (!raw) return '';
+  // Stale runs from the template-split bug stored apology shells — do not paint them.
+  if (/content structure (was )?not included|awaiting content|role not supplied/i.test(raw)) {
+    return '';
+  }
+  if (/<!doctype html/i.test(raw) || /<html[\s>]/i.test(raw)) return raw;
+  if (/<section\b[^>]*\bdata-direction\b/i.test(raw) && /<article\b/i.test(raw)) {
+    return `<!DOCTYPE html><html><head><meta charset="utf-8"></head><body>${raw}</body></html>`;
+  }
+  return '';
+}
+
 export function isCarouselDocument(html) {
   const t = trim(html);
   return /<!doctype html/i.test(t) || /<html[\s>]/i.test(t);

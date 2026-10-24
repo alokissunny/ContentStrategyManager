@@ -3586,6 +3586,8 @@
     background var(--dur-fast, 140ms) var(--ease-out, ease);
 }
 .wv-igm__nav:hover { background: #fff; border-color: var(--ink-500); transform: translateY(-50%) scale(1.08); }
+.wv-igm__nav:disabled,
+.wv-igm__nav:disabled:hover { opacity: 0.35; cursor: default; background: #fff; border-color: var(--border); transform: translateY(-50%); }
 .wv-igm__nav--l { left: 10px; }
 .wv-igm__nav--r { right: 10px; }
 
