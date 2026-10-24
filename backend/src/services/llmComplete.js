@@ -172,7 +172,7 @@ function isUnknownParamError(err) {
 
 function anthropicSupportsEffort(model) {
   const m = String(model || '').toLowerCase();
-  if (!m || /haiku/.test(m)) return false;
+  if (!m || (/haiku/.test(m) && !/haiku-5/.test(m))) return false;
   return /claude|sonnet|opus|fable/.test(m);
 }
 
