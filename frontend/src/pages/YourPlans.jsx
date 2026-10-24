@@ -2423,6 +2423,11 @@ export default function YourPlans() {
                   const k = ymdKey(dt);
                   if (k === ymdKey(anchorDate)) return;
                   selfNavYmdRef.current = k;
+                  // Re-tag the embed in the SAME update as the date: otherwise
+                  // one render sees the new key with the old tag, shows
+                  // "Opening…", unmounts WeekView, and the remount opens on its
+                  // initial day — snapping the post straight back.
+                  setEmbedWeek((w) => (w ? { ...w, forKey: k } : w));
                   setAnchorDate(startOfDay(dt));
                 }}
                 onDistribute={() => setDistOpen(true)}
