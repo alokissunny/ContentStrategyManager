@@ -4,6 +4,8 @@ import { createPortal } from 'react-dom';
 import { useAiDebug, fmtElapsed, fmtCost, fmtTokens } from '../../lib/aiDebug';
 import { prepareLayoutHtml, repairStrandedOffsets, shareLayoutStyles } from './layoutHtml';
 import { downloadCarouselPreviewPdf } from './carouselPdf';
+import DynamicLayout from './DynamicLayout';
+import { carouselDocPreview, carouselSlideImageUrls, carouselSlideIndexOf } from './carouselDocPreview';
 
 function pretty(value) {
   if (value == null || value === '') return '';
@@ -100,6 +102,8 @@ function previewSlidesHtml(value) {
 
 // Shell around the agent's markup. Only establishes a real 4:5 viewport so
 // height:100% / container-type:size / cqi/cqh work. Hatch is CSS-only.
+// Nested slides keep the agent's own width — a 1080px canvas is scaled by the
+// preview, not stretched to the cell.
 const PREVIEW_SHELL_CSS = [
   'html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#fff}',
   'body>.slide,body>article{width:100%;height:100%;box-sizing:border-box}',
@@ -146,6 +150,36 @@ function SlideFrame({ html, label }) {
   );
 }
 
+// The agent's html as one string (a document, a JSON row, or a layout object).
+function agentHtmlOf(value) {
+  if (!value) return '';
+  if (typeof value === 'string') {
+    const parsed = /^\s*[{[]/.test(value) ? parseJson(value) : null;
+    return parsed ? String(parsed.html || parsed.parsed?.html || '') : value;
+  }
+  return String(value.html || value.parsed?.html || '');
+}
+
+// One slide drawn from the whole carousel document the way the editor draws it
+// (DynamicLayout: 1100px design width, 4:5 crop, photos by asset key).
+function DocSlideFrame({ document: doc, direction, article, label }) {
+  return (
+    <figure className="wv-layprev__frame">
+      <div className="wv-layprev__canvas">
+        <DynamicLayout
+          html=""
+          documentHtml={doc}
+          slideIndex={carouselSlideIndexOf(article, 1)}
+          direction={direction}
+          imageUrls={carouselSlideImageUrls(article)}
+          copy={{}}
+        />
+      </div>
+      <figcaption className="wv-layprev__cap">{label}</figcaption>
+    </figure>
+  );
+}
+
 function DocumentFrame({ html }) {
   const ref = useRef(null);
   useEffect(() => {
@@ -169,7 +203,7 @@ function DocumentFrame({ html }) {
   );
 }
 
-function LayoutPreview({ slides, documentHtml = '', onClose }) {
+function LayoutPreview({ slides, documentHtml = '', docPreview = null, onClose }) {
   const [pdfBusy, setPdfBusy] = useState(false);
   const [pdfError, setPdfError] = useState('');
   useEffect(() => {
@@ -186,7 +220,7 @@ function LayoutPreview({ slides, documentHtml = '', onClose }) {
     setPdfBusy(true);
     try {
       await downloadCarouselPreviewPdf({
-        documentHtml,
+        documentHtml: docPreview ? fillAssetSrcs(docPreview.document) : documentHtml,
         slides,
         filename: 'carousel-preview.pdf',
       });
@@ -203,7 +237,9 @@ function LayoutPreview({ slides, documentHtml = '', onClose }) {
         <div className="wv-layprev__head">
           <strong>Carousel preview</strong>
           <span className="wv-layprev__count">
-            {documentHtml ? 'Full document' : `${slides.length} slide${slides.length === 1 ? '' : 's'}`}
+            {docPreview
+              ? `${docPreview.slides.length} slide${docPreview.slides.length === 1 ? '' : 's'}`
+              : (documentHtml ? 'Full document' : `${slides.length} slide${slides.length === 1 ? '' : 's'}`)}
           </span>
           <div className="wv-layprev__actions">
             {pdfError ? <span className="wv-layprev__err" title={pdfError}>{pdfError}</span> : null}
@@ -218,7 +254,19 @@ function LayoutPreview({ slides, documentHtml = '', onClose }) {
             <button type="button" className="wv-agentdbg__copy" onClick={onClose}>Close</button>
           </div>
         </div>
-        {documentHtml ? (
+        {docPreview ? (
+          <div className="wv-layprev__grid">
+            {docPreview.slides.map((sl, i) => (
+              <DocSlideFrame
+                key={`${sl.index}-${i}`}
+                document={docPreview.document}
+                direction={docPreview.direction}
+                article={sl.after}
+                label={`Slide ${sl.index}`}
+              />
+            ))}
+          </div>
+        ) : documentHtml ? (
           <div className="wv-layprev__docwrap">
             <DocumentFrame html={documentHtml} />
           </div>
@@ -233,8 +281,11 @@ function LayoutPreview({ slides, documentHtml = '', onClose }) {
   );
 }
 
-function PreviewButton({ slides, documentHtml = '', label = 'Preview' }) {
+// value: the agent's output — drawn like the app when it is a whole carousel
+// document; older rows fall back to the per-slide frames.
+function PreviewButton({ value, slides, documentHtml = '', label = 'Preview' }) {
   const [open, setOpen] = useState(false);
+  const docPreview = open ? carouselDocPreview(agentHtmlOf(value)) : null;
   if (!documentHtml && !slides.length) return null;
   const onOpen = (e) => {
     e.preventDefault();
@@ -251,7 +302,7 @@ function PreviewButton({ slides, documentHtml = '', label = 'Preview' }) {
       >
         {label}
       </button>
-      {open ? <LayoutPreview slides={slides} documentHtml={documentHtml} onClose={() => setOpen(false)} /> : null}
+      {open ? <LayoutPreview slides={slides} documentHtml={documentHtml} docPreview={docPreview} onClose={() => setOpen(false)} /> : null}
     </>
   );
 }
@@ -545,12 +596,13 @@ function Block({ title, input, output, open = false, cost = '', images = [], inp
           {cost ? <span className="wv-agentdbg__cost">{cost}</span> : null}
           {inputHtml ? (
             <PreviewButton
+              value={inputHtml}
               slides={previewSlidesHtml(inputHtml)}
               documentHtml={carouselDocumentHtml(inputHtml)}
               label="Preview input"
             />
           ) : null}
-          <PreviewButton slides={slides} documentHtml={documentHtml} label={inputHtml ? 'Preview output' : 'Preview'} />
+          <PreviewButton value={output} slides={slides} documentHtml={documentHtml} label={inputHtml ? 'Preview output' : 'Preview'} />
           <CopyButton text={copyAll} />
         </span>
       </summary>
@@ -605,8 +657,6 @@ function Block({ title, input, output, open = false, cost = '', images = [], inp
 export default function PostAgentDebug({
   day,
   onRunLayout,
-  onRunArtDirector,
-  artDirectorMsg = '',
   layoutBusy = false,
   layoutErr = '',
   elapsedMs = 0,
@@ -627,7 +677,6 @@ export default function PostAgentDebug({
     'remove-theme': 'Remove theme — back to the carousel agent’s design (no agent ran)',
     refine: 'Prompt edit (Slide Edit agent)',
     'add-slide': 'Add slide (Add Slide agent)',
-    'art-director': 'Art Director agent',
   };
   const runAt = run?.at ? new Date(run.at) : null;
   const runWhen = runAt && !Number.isNaN(runAt.getTime())
@@ -686,20 +735,6 @@ export default function PostAgentDebug({
           <span className="wv-agentdbg__runhint">This post only — does not regenerate the week. Takes 1–3 minutes.</span>
         </div>
       )}
-      {onRunArtDirector && (
-        <div className="wv-agentdbg__run">
-          <button
-            type="button"
-            className="btn btn--tertiary btn--sm"
-            disabled={layoutBusy}
-            onClick={onRunArtDirector}
-          >
-            {layoutBusy ? 'Working…' : 'Run art director'}
-          </button>
-          <span className="wv-agentdbg__runhint">Re-composes this post's current slides with its photos — same copy. About 1 minute.</span>
-        </div>
-      )}
-      {artDirectorMsg ? <p className="wv-agentdbg__empty">{artDirectorMsg}</p> : null}
       {layoutErr ? <p className="wv-agentdbg__empty">{layoutErr}</p> : null}
       {empty && (
         <p className="wv-agentdbg__empty">
@@ -728,25 +763,11 @@ export default function PostAgentDebug({
       {shows('carousel') && <Block
         title="Carousel agent"
         input={trace.layoutPrompt}
-        // when the Art Director ran after it, the post's layout is the Art
-        // Director's — the carousel agent's own slides are its input
-        output={(run?.agents?.includes('artDirector') && stored.artDirector?.inputHtml) || trace.layout}
+        output={trace.layout}
         cost={trace.costs?.layout}
         onRerunInput={onRunLayout ? (prompt) => onRunLayout(prompt) : null}
         rerunBusy={layoutBusy}
       />}
-      {stored.artDirector && shows('artDirector') ? (
-        <>
-          <Block
-            title={`Art Director agent${stored.artDirector.version === 'restyle' ? ' · Restyle' : ''}${stored.artDirector.kept === 'art-director' ? '' : ' (not kept)'}`}
-            input={stored.artDirector.prompt}
-            output={stored.artDirector.html || stored.artDirector.output}
-            inputHtml={stored.artDirector.inputHtml || ''}
-            cost={costOf(stored.artDirector)}
-          />
-          {stored.artDirector.summary ? <pre className="wv-agentdbg__pre">{stored.artDirector.summary}</pre> : null}
-        </>
-      ) : null}
       {shows('visual') && <Block
         title="Visual agent"
         input={trace.visualPrompt}

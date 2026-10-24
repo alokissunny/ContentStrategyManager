@@ -11,7 +11,7 @@ const { boxOf, matchSubject, regionFromBox } = require('./subjectBox');
 const { layoutById } = require('./layoutCatalog');
 const { extractLayoutHtml, extractHtmlDocument, parseCarouselDocument, slideArticles, htmlAttr, hasImageSlot, shareLayoutStyles, copyFromLayoutHtml, injectImageIntoSlots } = require('./layoutHtml');
 const sharp = require('sharp');
-const { artDirectorEnabled, artDirectorVersion } = require('./runtimeSettings');
+const { carouselLayout } = require('./runtimeSettings');
 const { publicMediaUrl, isCdnConfigured, getMediaUrl, isS3Configured, getObjectBytes } = require('./s3Client');
 const { toVisionImage } = require('./visionImage');
 const { isImageGenConfigured: isOpenAIImageConfigured, generateImage: renderOpenAIImage } = require('./openaiImage');
@@ -301,10 +301,6 @@ function maxTokensFor(kind) {
     const n = Number(process.env.PLAN_CAROUSEL_MAX_TOKENS);
     return Number.isFinite(n) && n > 0 ? n : 32768;
   }
-  if (kind === 'artDirector') {
-    const n = Number(process.env.PLAN_ART_DIRECTOR_MAX_TOKENS);
-    return Number.isFinite(n) && n > 0 ? n : 32768;
-  }
   if (kind === 'visual') {
     const n = Number(process.env.PLAN_VISUAL_MAX_TOKENS);
     return Number.isFinite(n) && n > 0 ? n : 2048;
@@ -414,10 +410,6 @@ function carouselTimeoutMs() {
 
 const layoutWaiters = [];
 let layoutActive = 0;
-
-function artDirectorTimeoutMs() {
-  return envPositiveInt('PLAN_ART_DIRECTOR_TIMEOUT_MS', 0) || 180000;
-}
 
 function withLayoutSlot(fn) {
   const max = layoutSlideConcurrency();
@@ -543,8 +535,7 @@ async function callAgent({ source, kind, prompt, system, user, image, images, va
       kind,
       timeoutMs: kind === 'layout' ? layoutTimeoutMs()
         : (kind === 'carousel' ? carouselTimeoutMs()
-          : (kind === 'layoutVariations' ? layoutVariationsTimeoutMs()
-            : (kind === 'artDirector' ? artDirectorTimeoutMs() : 0))),
+          : (kind === 'layoutVariations' ? layoutVariationsTimeoutMs() : 0)),
     });
     const fullText = response.text || '';
     const usage = usageOf(response, model);
@@ -2411,8 +2402,11 @@ function optionalPromptJson(value) {
   return json(value);
 }
 
-function validateCarousel(parsed, post) {
-  const expected = Array.isArray(post?.content?.slides) ? post.content.slides.length : 0;
+// inputCount: the slides the strategy output sent the agent — the carousel
+// must keep every one of them, even when the post's outline is shorter.
+function validateCarousel(parsed, post, inputCount = 0) {
+  const outline = Array.isArray(post?.content?.slides) ? post.content.slides.length : 0;
+  const expected = Math.max(outline, Number(inputCount) || 0);
   const raw = String(parsed?.html || '');
   if (/content structure (was )?not included|awaiting content|role not supplied/i.test(raw)) {
     throw new Error('carousel html is an empty shell (structure missing from model input)');
@@ -2482,11 +2476,24 @@ function runLayoutForPost(opts) {
   return writeLayout(opts);
 }
 
+// Per carousel layout (Settings › Carousel layout): how photos and text meet,
+// repeated in the ATTACHED PHOTOS note and the layout-fix note so neither
+// contradicts the layout's prompt.
+const FULL_BLEED_PHOTO_RULE = 'the photo is full bleed (edge to edge, object-fit: cover) and the text is set directly on it — no card, panel, or solid block. Place the words on a calm area, clear of the subject, in a colour that reads on those pixels';
+const CAROUSEL_LAYOUT_PHOTO_RULES = {
+  default: FULL_BLEED_PHOTO_RULE,
+  'full-bleed': FULL_BLEED_PHOTO_RULE,
+  'floating-panel': 'the photo is full bleed (edge to edge, object-fit: cover) and the text sits on ONE solid panel floating over a calm area of the photo, clear of the subject',
+  'split-bands': 'the slide is split into a photo band and a solid colour text band; the photo fills its band with the subject kept in frame, and no text sits on the photo',
+  editorial: 'the photo sits in a frame inside the margins, close to its own ratio, with the subject kept in frame; no text sits on the photo',
+};
+const photoRuleOf = (layout) => CAROUSEL_LAYOUT_PHOTO_RULES[layout?.id] || FULL_BLEED_PHOTO_RULE;
+
 // The photos the strategy picked for this post (allocatedVisuals + each
 // slide's visual.assetKey), attached to the carousel agent as images so it
 // lays text out around the real subject. CAROUSEL_PHOTOS=0 = off,
 // CAROUSEL_PHOTO_MAX (default 6).
-async function carouselPhotosOf(carouselInput) {
+async function carouselPhotosOf(carouselInput, layout = carouselLayout()) {
   if (process.env.CAROUSEL_PHOTOS === '0') return { images: [], note: '' };
   const onSlides = new Map();
   const add = (key, idx) => {
@@ -2514,7 +2521,7 @@ async function carouselPhotosOf(carouselInput) {
     })),
     note: [
       '---',
-      'ATTACHED PHOTOS. These are the real photos the strategy selected for this post, in this order. Look at them: place text around each photo\'s subject, crop so the subject stays in frame, and give each photo a frame close to its own ratio. Reference a photo by its asset key exactly as in the content structure.',
+      `ATTACHED PHOTOS. These are the real photos the strategy selected for this post, in this order. Look at each one. On every slide that uses a photo, ${photoRuleOf(layout)}. A slide without a photo stays text only — do not add or repeat a photo on it. Reference a photo by its asset key exactly as in the content structure.`,
       ...lines,
     ].join('\n'),
   };
@@ -2527,14 +2534,16 @@ async function writeCarousel({ source, structure, post, dayBrief, brand, dayWrit
     : carouselBriefInputOf(dayBrief, post);
   const structureSlides = visualSlidesOf(structure).length;
   const postSlideCount = Array.isArray(post?.content?.slides) ? post.content.slides.length : 0;
+  // Settings › Carousel layout picks the prompt (prompts/carousel-layouts/<id>.md).
+  const layout = carouselLayout();
   // No visual theme: the carousel agent designs every post in its house style
-  // (prompts/plan-carousel.md › House style). Themes are applied afterwards, as
+  // (prompts/carousel-layouts/default.md › House style). Themes are applied afterwards, as
   // images, by the Theme Apply agent.
   console.log(
     `[planOrchestrator] ${source} input · structureSlides=${structureSlides} ` +
       `postSlides=${postSlideCount} inputSlides=${carouselInput.slides?.length || 0} ` +
       `from=${hasStructure ? 'structure' : 'strategy-brief'}` +
-      ' theme=none (house style)',
+      ` theme=none (house style) layout=${layout.id}`,
   );
   // Editor › Themes › This slide: the agent writes ONE slide — the rest of the
   // carousel already exists and keeps its own look. It sees the others only as
@@ -2560,7 +2569,7 @@ async function writeCarousel({ source, structure, post, dayBrief, brand, dayWrit
         `(structureSlides=${structureSlides} postSlides=${postSlideCount})`,
     );
   }
-  const built = assembleAgentPrompt('plan-carousel.md', {
+  const built = assembleAgentPrompt(layout.prompt, {
     CONTENT_STRUCTURE_JSON: json(carouselInput),
     DAY_WRITER_OUTPUT: optionalPromptJson(dayWriterOutput),
     BRAND_STYLE: optionalPromptJson(brandStyleOf(brand)),
@@ -2580,7 +2589,7 @@ async function writeCarousel({ source, structure, post, dayBrief, brand, dayWrit
   }
   let photos = { images: [], note: '' };
   try {
-    photos = await carouselPhotosOf(carouselInput);
+    photos = await carouselPhotosOf(carouselInput, layout);
   } catch (err) {
     console.warn(`[planOrchestrator] ${source} photos skipped — ${err.message}`);
   }
@@ -2588,7 +2597,8 @@ async function writeCarousel({ source, structure, post, dayBrief, brand, dayWrit
   const withPhotos = photos.note && !promptOverride
     ? { ...assembled, user: `${assembled.user}\n\n${photos.note}`, prompt: `${assembled.prompt || ''}\n\n${photos.note}` }
     : assembled;
-  const validate = (parsed) => (one ? validateOneSlide(parsed, one) : validateCarousel(parsed, post));
+  const inputCount = (carouselInput.slides || []).length;
+  const validate = (parsed) => (one ? validateOneSlide(parsed, one) : validateCarousel(parsed, post, inputCount));
   const result = await withLayoutSlot(() => callAgent({
     source,
     kind: 'carousel',
@@ -2600,20 +2610,17 @@ async function writeCarousel({ source, structure, post, dayBrief, brand, dayWrit
     htmlDirection: 'warm-editorial',
     validate,
   }));
-  const laidOut = await fixCarouselLayout({ source, assembled: withPhotos, images: photos.images, validate, result });
-  // Themes › This slide writes one slide into an existing carousel — the Art
-  // Director re-composes whole carousels only.
-  if (one) return laidOut;
-  return artDirectCarousel({ source, result: laidOut, brand, post });
+  return fixCarouselLayout({ source, assembled: withPhotos, images: photos.images, validate, result, layout });
 }
 
 // Layout check (services/carouselLayoutCheck.js): measures the carousel's text
 // boxes from its CSS — overlapping text, text on the photo, the safe area. On
 // problems, ONE repair call hands the agent its own HTML plus the problems;
 // whichever version has fewer problems is kept. CAROUSEL_LAYOUT_CHECK=0 = off.
-async function fixCarouselLayout({ source, assembled, images, validate, result }) {
+async function fixCarouselLayout({ source, assembled, images, validate, result, layout = carouselLayout() }) {
   if (process.env.CAROUSEL_LAYOUT_CHECK === '0' || !result?.parsed?.html) return result;
-  const problems = carouselLayoutProblems(result.parsed.html);
+  const checkOpts = { textOnPhoto: Boolean(layout.textOnPhoto) };
+  const problems = carouselLayoutProblems(result.parsed.html, checkOpts);
   const note = (list) => (list.length ? `${list.length} problem${list.length === 1 ? '' : 's'}:\n- ${list.join('\n- ')}` : 'passed');
   if (!problems.length) {
     return { ...result, debugEntry: { ...result.debugEntry, output: `${result.debugEntry?.output || ''}\n\n[Layout check] passed` } };
@@ -2624,7 +2631,7 @@ async function fixCarouselLayout({ source, assembled, images, validate, result }
     'LAYOUT FIX. The carousel you wrote (below) was measured from its CSS and has these layout problems:',
     ...problems.map((p) => `- ${p}`),
     '',
-    'Return the COMPLETE corrected HTML document (every slide). Fix exactly these problems, following "Text layout — no overlaps": put each affected slide\'s text in ONE flex-column group with a gap, re-budget the lines, reduce type or give the group more room, and keep 48px between the text and the photo. Keep everything else — copy, slide order, data-slot attributes, images and asset keys, palette, fonts and the overall design — unchanged.',
+    `Return the COMPLETE corrected HTML document (every slide). Fix exactly these problems: put each affected slide's text in ONE flex-column group with a gap, re-budget the lines, reduce type or give the group more room. On a slide with a photo, keep this carousel's layout: ${photoRuleOf(layout)}. Keep everything else — copy, slide order, data-slot attributes, images and asset keys, palette, fonts and the overall design — unchanged.`,
     '',
     'YOUR PREVIOUS HTML:',
     result.parsed.html,
@@ -2645,7 +2652,7 @@ async function fixCarouselLayout({ source, assembled, images, validate, result }
   } catch (err) {
     console.warn(`[planOrchestrator] ${source} layout fix failed — keeping the first version: ${err.message}`);
   }
-  const after = fixed?.parsed?.html ? carouselLayoutProblems(fixed.parsed.html) : null;
+  const after = fixed?.parsed?.html ? carouselLayoutProblems(fixed.parsed.html, checkOpts) : null;
   const keepFixed = after && after.length < problems.length;
   const chosen = keepFixed ? fixed : result;
   const usage = [result.usage, fixed?.usage].filter(Boolean).reduce((a, u) => {
@@ -2665,105 +2672,6 @@ async function fixCarouselLayout({ source, assembled, images, validate, result }
       output: `${chosen.debugEntry?.output || ''}\n\n[Layout check] first version: ${note(problems)}${after ? `\n[Layout check] after one fix: ${note(after)} → kept ${keepFixed ? 'the fix' : 'the first version'}` : '\n[Layout check] fix call failed — kept the first version'}`,
     },
   };
-}
-
-// ── Art Director agent ──────────────────────────────────────────────────────
-// Runs after the carousel agent (and its layout check): gets the carousel's
-// HTML plus the post's photos (as images) and returns a re-composed, more
-// editorial version — prompts/plan-art-director.md. Same copy, same slides,
-// same assets: an answer that drops/adds words or loses an image is rejected
-// (and retried by callAgent). The measured layout check stands in for a
-// render: a version with more layout problems than the carousel agent's gets
-// ONE refine call, and the carousel agent's version is kept if it's still
-// worse. PLAN_ART_DIRECTOR=0 turns the agent off; model PLAN_ART_DIRECTOR_MODEL
-// (default gpt-6-luna), ART_DIRECTOR_PHOTO_MAX photos (default 6).
-
-const decodeEntities = (t) => String(t || '')
-  .replace(/&nbsp;/gi, ' ')
-  .replace(/&#(\d+);/g, (_, n) => String.fromCodePoint(Number(n)))
-  .replace(/&#x([0-9a-f]+);/gi, (_, n) => String.fromCodePoint(parseInt(n, 16)))
-  .replace(/&(rsquo|lsquo|apos);/gi, "'")
-  .replace(/&(rdquo|ldquo|quot);/gi, '"')
-  .replace(/&(mdash|ndash);/gi, '-')
-  .replace(/&amp;/gi, '&');
-
-// per slide: its words (lower-case tokens), asset keys, image requests, slots
-function slideFactsOf(html) {
-  const out = new Map();
-  const re = /<article\b([^>]*)>([\s\S]*?)<\/article>/gi;
-  let m;
-  while ((m = re.exec(String(html || '')))) {
-    const idx = Number((m[1].match(/data-index\s*=\s*["']?(\d+)/i) || [])[1]) || out.size + 1;
-    const body = m[2];
-    const text = decodeEntities(body
-      .replace(/<(style|script)\b[\s\S]*?<\/\1>/gi, ' ')
-      .replace(/<!--[\s\S]*?-->/g, ' ')
-      .replace(/<[^>]+>/g, ' '));
-    out.set(idx, {
-      words: (text.toLowerCase().match(/[\p{L}\p{N}]+/gu) || []),
-      keys: [...body.matchAll(/data-asset-key\s*=\s*["']([^"']+)["']/gi)].map((k) => k[1]),
-      requests: [...body.matchAll(/data-image-request\s*=\s*["']([^"']*)["']/gi)].map((k) => k[1]),
-      slots: new Set([...body.matchAll(/data-slot\s*=\s*["']([^"']+)["']/gi)].map((k) => k[1])),
-    });
-  }
-  return out;
-}
-
-function countsOf(words) {
-  const c = new Map();
-  words.forEach((w) => c.set(w, (c.get(w) || 0) + 1));
-  return c;
-}
-
-// Problems that make the Art Director's answer unusable (copy or assets changed).
-function artDirectorIntegrityProblems(beforeHtml, afterHtml) {
-  const before = slideFactsOf(beforeHtml);
-  const after = slideFactsOf(afterHtml);
-  const problems = [];
-  for (const [idx, b] of before) {
-    const a = after.get(idx);
-    if (!a) { problems.push(`slide ${idx} is missing`); continue; }
-    const have = countsOf(a.words);
-    const missing = [];
-    countsOf(b.words).forEach((n, w) => { if ((have.get(w) || 0) < n) missing.push(w); });
-    // one token of slack for entity / apostrophe quirks
-    if (missing.length > 1) problems.push(`slide ${idx} lost copy: ${missing.slice(0, 12).join(', ')}`);
-    const known = new Set(b.words);
-    const added = [...new Set(a.words.filter((w) => !known.has(w)))];
-    if (added.length > 2) problems.push(`slide ${idx} has new words that are not in its copy: ${added.slice(0, 12).join(', ')}`);
-    const lostKeys = b.keys.filter((k) => !a.keys.includes(k));
-    if (lostKeys.length) problems.push(`slide ${idx} lost its photo (data-asset-key ${lostKeys.join(', ')})`);
-    if (a.requests.length < b.requests.length) problems.push(`slide ${idx} lost its data-image-request slot`);
-    const lostSlots = [...b.slots].filter((sl) => !a.slots.has(sl));
-    if (lostSlots.length) problems.push(`slide ${idx} lost data-slot ${lostSlots.join(', ')}`);
-  }
-  return problems;
-}
-
-// The agent keeps each photo's data-asset-key but may drop attributes added
-// after the carousel agent (src from the Visual Generator, data-focus from Photo
-// Focus) — put them back from the input's <img> with the same key.
-function restoreImgAttrs(beforeHtml, afterHtml) {
-  const byKey = new Map();
-  for (const m of String(beforeHtml || '').matchAll(/<img\b[^>]*>/gi)) {
-    const key = htmlAttrOf(m[0], 'data-asset-key');
-    if (key && !byKey.has(key)) byKey.set(key, m[0]);
-  }
-  return String(afterHtml || '').replace(/<img\b[^>]*>/gi, (tag) => {
-    const was = byKey.get(htmlAttrOf(tag, 'data-asset-key'));
-    if (!was) return tag;
-    let out = tag;
-    ['src', 'data-focus'].forEach((name) => {
-      const v = htmlAttrOf(was, name);
-      if (v && !htmlAttrOf(out, name)) out = out.replace(/^<img\b/i, `<img ${name}="${v.replace(/"/g, '&quot;')}"`);
-    });
-    return out;
-  });
-}
-
-function htmlAttrOf(tag, name) {
-  const m = String(tag || '').match(new RegExp(`\\s${name}\\s*=\\s*("([^"]*)"|'([^']*)')`, 'i'));
-  return m ? (m[2] ?? m[3] ?? '') : '';
 }
 
 // Loads project photos from S3 as 768px JPEGs for a vision call. A photo that
@@ -2789,183 +2697,6 @@ async function loadVisionPhotos(keys, label) {
 }
 
 const photoShapeOf = (p) => (p.width > p.height * 1.1 ? 'landscape' : (p.height > p.width * 1.1 ? 'portrait' : 'square'));
-
-async function artDirectorPhotosOf(html) {
-  const facts = slideFactsOf(html);
-  const onSlides = new Map();
-  for (const [idx, f] of facts) {
-    f.keys.forEach((k) => { if (!onSlides.has(k)) onSlides.set(k, []); onSlides.get(k).push(idx); });
-  }
-  const max = Math.max(0, Number(process.env.ART_DIRECTOR_PHOTO_MAX ?? 6) || 0);
-  const photos = await loadVisionPhotos([...onSlides.keys()].slice(0, max), 'Art Director');
-  const shape = photoShapeOf;
-  const lines = photos.map((p, i) => `- Attached image ${i + 1}: data-asset-key "${p.key}" — used on slide${onSlides.get(p.key).length > 1 ? 's' : ''} ${onSlides.get(p.key).join(', ')} — ${p.width}×${p.height}, ratio ${(p.width / p.height).toFixed(2)} (${shape(p)}).`);
-  [...onSlides.keys()].filter((k) => !photos.some((p) => p.key === k))
-    .forEach((k) => lines.push(`- data-asset-key "${k}" (slide ${onSlides.get(k).join(', ')}) — not attached; keep it as it is.`));
-  for (const [idx, f] of facts) {
-    f.requests.forEach((r) => lines.push(`- Slide ${idx}: reserved image slot, filled after you with: "${r}"`));
-  }
-  return {
-    images: photos.map((p) => ({
-      mediaType: 'image/jpeg',
-      data: p.data,
-      debug: { label: `Post photo (${photos.length} attached)`, key: p.key },
-    })),
-    note: lines.length ? lines.join('\n') : 'None — these slides are typographic.',
-  };
-}
-
-// On/off: Settings › Art Director agent (runtimeSettings.artDirectorEnabled,
-// falling back to PLAN_ART_DIRECTOR). `force`: a run the user asked for
-// (Debug › Run art director) runs even when it is off.
-async function artDirectCarousel({ source, result, brand, post, force = false }) {
-  if ((!force && !artDirectorEnabled()) || !result?.parsed?.html) return result;
-  const original = result.parsed.html;
-  // its own row in the debug panels: "ArtDirector:<day>"
-  const label = `ArtDirector:${String(source || '').replace(/^(Carousel|ArtDirector):/i, '')}`;
-  let photos = { images: [], note: 'None.' };
-  try {
-    photos = await artDirectorPhotosOf(original);
-  } catch (err) {
-    console.warn(`[planOrchestrator] ${label} photos skipped — ${err.message}`);
-  }
-  // Settings › Art Director agent: which version (prompt) runs
-  const version = artDirectorVersion();
-  const assembled = assembleAgentPrompt(version.prompt, {
-    SLIDES_HTML: original,
-    PHOTOS_NOTE: photos.note,
-    BRAND_STYLE: optionalPromptJson(brandStyleOf(brand)),
-  });
-  let notes = '';
-  const validate = (parsed) => {
-    const raw = String(parsed?.html || '');
-    const note = raw.match(/<!--\s*art-director-notes:?([\s\S]*?)-->/i);
-    notes = note ? note[1].trim() : '';
-    parsed.html = restoreImgAttrs(original, raw.replace(/<!--\s*art-director-notes[\s\S]*?-->/gi, '').trim());
-    validateCarousel(parsed, post);
-    const problems = artDirectorIntegrityProblems(original, parsed.html);
-    if (problems.length) {
-      throw new Error(`copy/assets changed — ${problems.join('; ')}. Keep every word, data-slot, data-asset-key and data-image-request of the input on its slide`);
-    }
-  };
-  const call = (src, user) => withLayoutSlot(() => callAgent({
-    source: src,
-    kind: 'artDirector',
-    system: assembled.system,
-    user,
-    prompt: `${assembled.system}\n\n${user}`,
-    images: photos.images,
-    parse: 'html',
-    htmlDirection: 'warm-editorial',
-    validate,
-  }));
-
-  const before = carouselLayoutProblems(original);
-  const tries = [];
-  let best = null;
-  try {
-    const first = await call(label, assembled.user);
-    const after = carouselLayoutProblems(first.parsed.html);
-    tries.push({ run: first, problems: after, notes });
-    if (after.length > before.length) {
-      // the "render and refine" pass — measured problems instead of a screenshot
-      const refineNote = [
-        '---',
-        'REVIEW. Your version (below) was measured from its CSS and has these layout problems:',
-        ...after.map((p) => `- ${p}`),
-        '',
-        'Return the COMPLETE corrected HTML document (every slide), fixing exactly these problems and keeping your design otherwise.',
-        '',
-        'YOUR PREVIOUS HTML:',
-        first.parsed.html,
-      ].join('\n');
-      try {
-        const refined = await call(`${label}:refine`, `${assembled.user}\n\n${refineNote}`);
-        tries.push({ run: refined, problems: carouselLayoutProblems(refined.parsed.html), notes });
-      } catch (err) {
-        console.warn(`[planOrchestrator] ${label} refine failed — ${err.message}`);
-      }
-    }
-    best = tries.reduce((a, t) => (!a || t.problems.length < a.problems.length ? t : a), null);
-    if (best && best.problems.length > before.length) best = null;
-  } catch (err) {
-    console.warn(`[planOrchestrator] ${label} failed — keeping the carousel agent's slides: ${err.message}`);
-  }
-
-  const usage = [result.usage, ...tries.map((t) => t.run.usage)].filter(Boolean).reduce((a, u) => {
-    const out = { ...a };
-    Object.entries(u).forEach(([k, v]) => { if (typeof v === 'number') out[k] = (Number(a[k]) || 0) + v; });
-    return out;
-  }, { model: result.usage?.model });
-  const adModel = tries[0]?.run?.debugEntry?.model || resolvePlanAgentLlm('artDirector').model;
-  const adCost = tries.reduce((n, t) => n + (Number(t.run.usage?.estimatedCostUsd) || 0), 0);
-  const adMs = tries.reduce((n, t) => n + (Number(t.run.debugEntry?.elapsedMs) || 0), 0);
-  const summary = [
-    `[Art Director] ${version.label} (${version.id}) · ${adModel} · ${photos.images.length} photo${photos.images.length === 1 ? '' : 's'} attached · ${tries.length} call${tries.length === 1 ? '' : 's'} · ${Math.round(adMs / 100) / 10}s · ~$${adCost.toFixed(4)}`,
-    `[Art Director] layout problems: carousel agent ${before.length}${tries.map((t, i) => ` · ${i ? 'refined' : 'art director'} ${t.problems.length}`).join('')}`,
-    best ? '[Art Director] kept the art-directed slides' : `[Art Director] kept the carousel agent's slides${tries.length ? ' (art-directed version measured worse)' : ' (call failed)'}`,
-    best?.notes ? `[Art Director] notes: ${best.notes}` : '',
-  ].filter(Boolean).join('\n');
-  console.log(`[planOrchestrator] ${summary.replace(/\n/g, ' | ')}`);
-  const artDirector = {
-    version: version.id,
-    model: adModel,
-    kept: best ? 'art-director' : 'carousel',
-    notes: best?.notes || '',
-    problemsBefore: before.length,
-    problemsAfter: tries.map((t) => t.problems.length),
-    photos: photos.images.length,
-    estimatedCostUsd: Math.round(adCost * 1e6) / 1e6,
-    elapsedMs: adMs,
-  };
-  const lastRun = tries[tries.length - 1]?.run;
-  // the agent's own call, for a post's Debug panel (prompt without the photos)
-  const artDirectorTrace = {
-    inputHtml: original,
-    ...artDirector,
-    at: new Date().toISOString(),
-    prompt: tries[0]?.run?.debugEntry?.prompt || `${assembled.system}\n\n${assembled.user}`,
-    output: lastRun?.debugEntry?.output || '',
-    summary,
-    inputTokens: tries.reduce((n, t) => n + (Number(t.run.usage?.inputTokens) || 0), 0),
-    outputTokens: tries.reduce((n, t) => n + (Number(t.run.usage?.outputTokens) || 0), 0),
-    totalTokens: tries.reduce((n, t) => n + (Number(t.run.usage?.totalTokens) || 0), 0),
-  };
-  // Two debug rows: the carousel agent's (its own output, so its Preview is
-  // its own slides) and the Art Director's. `usage` stays the sum, for callers
-  // that report one total; `parts` is what collectLayoutParts records.
-  const carouselEntry = {
-    ...result.debugEntry,
-    output: `${result.debugEntry?.output || ''}\n\n${summary}`,
-  };
-  const adUsage = tries.length ? {
-    ...mergeUsage(tries.map((t) => t.run.usage).filter(Boolean), adModel),
-    elapsedMs: adMs,
-  } : null;
-  const adEntry = tries.length ? {
-    ...lastRun.debugEntry,
-    source: label,
-    prompt: tries[0].run.debugEntry?.prompt || '',
-    // html first: the debug panel's Preview reads an output that starts with html
-    output: `${lastRun.debugEntry?.output || ''}\n\n${summary}`,
-    elapsedMs: adMs,
-    usage: adUsage,
-    artDirectorTrace,
-  } : null;
-  return {
-    ...result,
-    ...(best ? { parsed: best.run.parsed } : {}),
-    usage,
-    artDirector,
-    artDirectorTrace,
-    debugEntry: carouselEntry,
-    artDirectorEntry: adEntry,
-    parts: [
-      { debugEntry: carouselEntry, usage: result.usage },
-      ...(adEntry ? [{ debugEntry: adEntry, usage: adUsage }] : []),
-    ],
-  };
-}
 
 async function attachCarousel({ label, structure, writer, collect, dayBrief, dayAssets, brand }) {
   if (!carouselAgentEnabled() || !writer || writerFailed(writer.parsed)) return null;
@@ -3173,7 +2904,7 @@ async function writeVisualPrompt({ source, slide, brief, brand, visualTheme }) {
 // studio's reference photo theme when there is one, else the catalog theme
 // (its example board attached). `themeId` may carry a per-slide suffix
 // (`<theme>-s3`, Editor › Themes › This slide).
-// The carousel agent's default look (prompts/plan-carousel.md › Default look:
+// The carousel agent's default look (prompts/carousel-layouts/default.md › Default look:
 // Warm editorial) — generated pictures are finished to sit in it. No example
 // board: only the finish is described, never subjects.
 const WARM_EDITORIAL = {
@@ -4087,7 +3818,6 @@ function assemblePlanResult(phase, dayResults) {
       const structureDbg = dbg.find((e) => /^Structure:/i.test(String(e?.source || '')));
       const carouselDbg = dbg.find((e) => /^(Carousel|Layout):/i.test(String(e?.source || '')));
       const visualDbg = dbg.filter((e) => /^Visual:/i.test(String(e?.source || '')));
-      const artDirectorDbg = dbg.find((e) => /^ArtDirector:/i.test(String(e?.source || '')));
       return {
         day: dayBrief.day,
         date: dayBrief.date,
@@ -4109,14 +3839,6 @@ function assemblePlanResult(phase, dayResults) {
           layout: layout || null,
           layoutPrompt: optionalText(carouselDbg?.prompt),
           carousel: carouselOn ? (layout || null) : null,
-          // the Art Director's run: its prompt/output, the carousel agent's
-          // own html (inputHtml) and the html it saved (when kept)
-          ...(artDirectorDbg?.artDirectorTrace ? {
-            artDirector: {
-              ...artDirectorDbg.artDirectorTrace,
-              html: artDirectorDbg.artDirectorTrace.kept === 'art-director' ? (layout?.html || '') : '',
-            },
-          } : {}),
           visual: (content && Array.isArray(content.visualTrace) && content.visualTrace.length)
             ? {
               slides: content.visualTrace,
@@ -4185,9 +3907,6 @@ function assemblePlanResult(phase, dayResults) {
 }
 
 module.exports = {
-  artDirectCarousel,
-  artDirectorIntegrityProblems,
-  restoreImgAttrs,
   runMultiAgentPlan,
   runStrategistPhase,
   writePlanDay,

@@ -17,10 +17,9 @@ const {
   THEME_APPLY_PHOTO_MODES,
   isValidThemeApplyPhotoMode,
   themeApplyPhotoMode,
-  artDirectorEnabled,
-  ART_DIRECTOR_VERSIONS,
-  isValidArtDirectorVersion,
-  artDirectorVersion,
+  CAROUSEL_LAYOUTS,
+  isValidCarouselLayout,
+  carouselLayout,
 } = require('../services/runtimeSettings');
 const { resolvePlanAgentLlm } = require('../services/planAgentLlm');
 
@@ -173,42 +172,33 @@ async function updateThemeApplyPhotoMode(req, res) {
   return res.json(currentThemeApplyPhotoMode());
 }
 
-function currentArtDirector() {
+function currentCarouselLayout() {
   return {
-    enabled: artDirectorEnabled(),
-    version: artDirectorVersion().id,
-    versions: ART_DIRECTOR_VERSIONS.map(({ id, label, hint }) => ({ id, label, hint })),
-    model: resolvePlanAgentLlm('artDirector').model,
+    layout: carouselLayout().id,
+    layouts: CAROUSEL_LAYOUTS.map(({ id, label, hint }) => ({ id, label, hint })),
   };
 }
 
-// GET /api/settings/art-director
-async function getArtDirector(req, res) {
-  res.json(currentArtDirector());
+// GET /api/settings/carousel-layout
+async function getCarouselLayout(req, res) {
+  res.json(currentCarouselLayout());
 }
 
-// PUT /api/settings/art-director  (admin only) — { enabled?: boolean, version?: 'director' | 'restyle' }
-async function updateArtDirector(req, res) {
+// PUT /api/settings/carousel-layout  (admin only) — { layout }
+async function updateCarouselLayout(req, res) {
   if (req.user?.role !== 'admin') {
-    return res.status(403).json({ message: 'Only an admin can change the Art Director agent.' });
+    return res.status(403).json({ message: 'Only an admin can change the carousel layout.' });
   }
-  const { enabled, version } = req.body || {};
-  if (enabled == null && version == null) {
-    return res.status(400).json({ message: 'Send enabled and/or version.' });
+  const layout = String(req.body?.layout || '').trim().toLowerCase();
+  if (!isValidCarouselLayout(layout)) {
+    return res.status(400).json({ message: `Unknown carousel layout: ${req.body?.layout}` });
   }
-  if (enabled != null && typeof enabled !== 'boolean') {
-    return res.status(400).json({ message: 'enabled must be true or false.' });
-  }
-  if (version != null && !isValidArtDirectorVersion(version)) {
-    return res.status(400).json({ message: `Unknown Art Director version: ${version}` });
-  }
-  if (version != null) await setRuntimeSetting(KEYS.artDirectorVersion, version);
-  if (enabled != null) await setRuntimeSetting(KEYS.artDirectorEnabled, enabled);
-  return res.json(currentArtDirector());
+  await setRuntimeSetting(KEYS.carouselLayout, layout);
+  return res.json(currentCarouselLayout());
 }
 
 module.exports = {
-  getArtDirector, updateArtDirector,
+  getCarouselLayout, updateCarouselLayout,
   getThemeApplyPhotoMode, updateThemeApplyPhotoMode,
   getCarouselModel, updateCarouselModel, getBrandVoiceModel, updateBrandVoiceModel,
   getThemeRegionsModel, updateThemeRegionsModel, getStrategistModel, updateStrategistModel,

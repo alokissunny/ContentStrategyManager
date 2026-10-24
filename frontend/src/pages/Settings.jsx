@@ -18,7 +18,7 @@ import { syncHandle } from '../lib/store';
 import { resetProjects } from '../lib/projectsStore';
 import { useAiDebug, setAiDebugEnabled, clearAiDebugEntries } from '../lib/aiDebug';
 import { useFeatureFlags, setVideoCoverEnabled, setReelEditorEnabled, setLinkedInEnabled, setHtmlThemesEnabled } from '../lib/featureFlags';
-import { getArtDirector, updateArtDirector, getBrandVoiceModel, getCarouselModel, getStrategistModel, getThemeApplyPhotoMode, getThemeRegionsModel, updateBrandVoiceModel, updateCarouselModel, updateStrategistModel, updateThemeApplyPhotoMode, updateThemeRegionsModel } from '../api/settings';
+import { getCarouselLayout, updateCarouselLayout, getBrandVoiceModel, getCarouselModel, getStrategistModel, getThemeApplyPhotoMode, getThemeRegionsModel, updateBrandVoiceModel, updateCarouselModel, updateStrategistModel, updateThemeApplyPhotoMode, updateThemeRegionsModel } from '../api/settings';
 import LinkedInSettings from '../components/LinkedInSettings';
 import './settings.css';
 import { LOCALES, useLocale, setLocale, intlLocale, translate as t } from '../i18n';
@@ -94,9 +94,9 @@ export default function Settings() {
   const [photoMode, setPhotoMode] = useState(null);
   const [photoBusy, setPhotoBusy] = useState(false);
   const [photoErr, setPhotoErr] = useState('');
-  const [artDirector, setArtDirector] = useState(null);
-  const [artBusy, setArtBusy] = useState(false);
-  const [artErr, setArtErr] = useState('');
+  const [layout, setLayout] = useState(null);
+  const [layoutBusy, setLayoutBusy] = useState(false);
+  const [layoutErr, setLayoutErr] = useState('');
 
   useEffect(() => {
     listInstagramProfiles()
@@ -121,9 +121,9 @@ export default function Settings() {
     getThemeApplyPhotoMode()
       .then(setPhotoMode)
       .catch(() => setPhotoMode(null));
-    getArtDirector()
-      .then(setArtDirector)
-      .catch(() => setArtDirector(null));
+    getCarouselLayout()
+      .then(setLayout)
+      .catch(() => setLayout(null));
   }, []);
 
   // Graph's post-thumbnail URLs are short-lived; re-pull media for each
@@ -186,18 +186,16 @@ export default function Settings() {
     }
   }
 
-  // 'off' | a version id ('director' | 'restyle')
-  async function pickArtDirector(choice) {
-    const current = artDirector?.enabled ? artDirector.version : 'off';
-    if (!isAdmin || artBusy || current === choice) return;
-    setArtBusy(true);
-    setArtErr('');
+  async function pickLayout(id) {
+    if (!isAdmin || layoutBusy || layout?.layout === id) return;
+    setLayoutBusy(true);
+    setLayoutErr('');
     try {
-      setArtDirector(await updateArtDirector(choice === 'off' ? { enabled: false } : { enabled: true, version: choice }));
+      setLayout(await updateCarouselLayout(id));
     } catch (err) {
-      setArtErr(err.response?.data?.message || 'Could not update the Art Director agent.');
+      setLayoutErr(err.response?.data?.message || 'Could not update the carousel layout.');
     } finally {
-      setArtBusy(false);
+      setLayoutBusy(false);
     }
   }
 
@@ -696,44 +694,38 @@ export default function Settings() {
         })()}
       </section>
 
-      {/* ── Art Director agent ── */}
+      {/* ── Carousel layout ── */}
       <section className="card set-card">
-        <h2>Art Director agent</h2>
+        <h2>Carousel layout</h2>
         <p className="set-card__sub">
-          Runs after the carousel agent: takes its slides and the post's photos and redesigns them, keeping
-          the same copy. Pick a version, or turn it off to keep the carousel agent's slides as they are.
-          {artDirector?.enabled && ` ${artDirector.versions?.find((v) => v.id === artDirector.version)?.hint || ''}`}
+          How the carousel agent lays out each post's slides.
+          {layout && ` ${layout.layouts?.find((l) => l.id === layout.layout)?.hint || ''}`}
           {!isAdmin && ' Only an admin can change this.'}
         </p>
-        {!artDirector ? (
+        {!layout ? (
           <p className="set-empty">Loading…</p>
         ) : (
           <>
-            <div className="set-seg" role="group" aria-label="Art Director agent">
-              {[
-                ...(artDirector.versions || []).map((v) => ({ id: v.id, label: v.label, tag: artDirector.model })),
-                { id: 'off', label: 'Off', tag: 'Carousel agent only' },
-              ].map((o) => {
-                const on = o.id === (artDirector.enabled ? artDirector.version : 'off');
+            <div className="set-seg" role="group" aria-label="Carousel layout">
+              {(layout.layouts || []).map((l) => {
+                const on = l.id === layout.layout;
                 return (
                   <button
                     type="button"
-                    key={String(o.id)}
+                    key={l.id}
                     className={`set-seg__btn ${on ? 'is-on' : ''}`}
                     aria-pressed={on}
-                    disabled={!isAdmin || artBusy}
-                    onClick={() => pickArtDirector(o.id)}
+                    disabled={!isAdmin || layoutBusy}
+                    onClick={() => pickLayout(l.id)}
                   >
-                    {o.label}
-                    <span className="set-seg__tag">{o.tag}</span>
+                    {l.label}
                   </button>
                 );
               })}
             </div>
-            {artErr && <p className="set-err">{artErr}</p>}
+            {layoutErr && <p className="set-err">{layoutErr}</p>}
             <p className="set-card__note">
-              Applies to post generation and Run carousel agent. The Debug panel's Run art director button
-              still works when it is off.
+              Applies to new posts and Run carousel agent. Existing posts keep their slides.
             </p>
           </>
         )}

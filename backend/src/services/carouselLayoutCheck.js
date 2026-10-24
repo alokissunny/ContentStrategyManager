@@ -331,7 +331,7 @@ function absBox(node, W, H, rules) {
 const overlap = (a, b) => Math.max(0, Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x)) > 6
   && Math.max(0, Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y));
 
-function checkSlide(article, rules, idx) {
+function checkSlide(article, rules, idx, opts = {}) {
   const out = [];
   const sst = styleOf(article, rules);
   const W = px(sst.width) || 1080;
@@ -396,10 +396,11 @@ function checkSlide(article, rules, idx) {
       }
     }
   }
-  // text on the photo with nothing solid behind it
+  // text on the photo with nothing solid behind it (skipped for layouts that
+  // set words directly on the photo — full bleed)
   const imgs = items.filter((i) => i.img && !i.text);
   const scrims = items.filter((i) => !i.text && !i.img && i.bg);
-  texts.forEach((t) => {
+  if (!opts.textOnPhoto) texts.forEach((t) => {
     if (t.bg || [...walk(t.node)].some((c) => hasBg(styleOf(c, rules)) && isText(c))) return;
     imgs.forEach((im) => {
       const o = overlap(t.tbox, im.box);
@@ -456,9 +457,10 @@ function checkSlide(article, rules, idx) {
 
 /**
  * @param {string} html  the carousel agent's full document
+ * @param {{ textOnPhoto?: boolean }} [opts]  textOnPhoto: words on photos are intended
  * @returns {string[]}   problems, one sentence each (empty = looks clean)
  */
-function carouselLayoutProblems(html) {
+function carouselLayoutProblems(html, opts = {}) {
   const doc = String(html || '');
   if (!doc) return [];
   try {
@@ -466,7 +468,7 @@ function carouselLayoutProblems(html) {
     const rules = parseCss(css);
     const tree = parseTree(doc.replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, '').replace(/<script\b[\s\S]*?<\/script>/gi, ''));
     const articles = [...walk(tree)].filter((n) => n.tag === 'article' && /\bslide\b/.test(n.attrs.class || ''));
-    return articles.flatMap((a, i) => checkSlide(a, rules, Number(a.attrs['data-index']) || i + 1));
+    return articles.flatMap((a, i) => checkSlide(a, rules, Number(a.attrs['data-index']) || i + 1, opts));
   } catch (err) {
     console.warn('[carouselLayoutCheck] could not check the layout:', err.message);
     return [];

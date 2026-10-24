@@ -303,17 +303,6 @@ export function runPostLayout(id, { promptOverride } = {}) {
   });
 }
 
-// Debug › Run art director: the Art Director agent re-composes the post's
-// current carousel HTML (same copy and photos). The server saves the post only
-// when the new version is kept. → { post, artDirector: { kept, notes, message } }
-export function runPostArtDirector(id) {
-  return client.post(`/posts/${id}/art-director`, {}, { timeout: 420000 }).then((res) => {
-    const data = res.data || {};
-    ingestPlanDebug('Art Director (debug)', data);
-    return data;
-  });
-}
-
 // Editor › Themes › Upload a reference: the Theme Apply agent re-paints the
 // given slides (1-based) in the reference photo's look and returns each as an
 // IMAGE — from the slide's carousel-agent HTML (read on the server) and its

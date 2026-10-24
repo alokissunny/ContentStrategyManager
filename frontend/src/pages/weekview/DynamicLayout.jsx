@@ -9,14 +9,13 @@ import {
   isCarouselDocument,
   cropIframeToCarouselSlide,
   paintCarouselSlideImages,
+  CAROUSEL_LAYOUT_WIDTH,
   paintSlideCopy,
   freezeSlideGeometry,
   isSlideFrozen,
   slideRootOf,
-  CAROUSEL_LAYOUT_WIDTH,
 } from './layoutHtml';
 import { attachSlideEditMode } from './slideEditMode';
-import { focusPhotos } from './photoFocus';
 import { iframeSafeUrl } from '../../api/media';
 import { useStore } from '../../lib/store';
 import { boxOf, fmtBox, mapBoxToCover, mapPointToCover, normalizeSubjects, placeFromBox, resolveTargetBox } from './subjectBox';
@@ -521,7 +520,12 @@ export default function DynamicLayout({
       faceCss,
       extraLinks: usesHtmlTheme(doc) ? [HTML_THEME_FONTS_URL] : [],
     });
-    if (useDocument) return withFonts(applyThemeToCarouselDocument(documentHtml, { themed, paint: nextPaint }));
+    // Same document the debug preview scales: the agent's own 1080×1350 canvas,
+    // not a reflow. Brand colours and font swaps are left off so a dark slide
+    // stays the colour the agent wrote. data-focus is the photo-focus crop.
+    if (useDocument) {
+      return String(documentHtml).replace(/\sdata-focus\s*=\s*["'][^"']*["']/gi, '');
+    }
     if (!markup) return '';
     return withFonts(buildSlideFrameDocument(markup, { themed, paint: nextPaint }));
   }, [useDocument, documentHtml, markup, themed, paintKey, faceCss]);
@@ -578,6 +582,7 @@ export default function DynamicLayout({
     if (!frame || !page) return undefined;
     const doc = frame.contentDocument;
     if (!doc) return undefined;
+    frame.style.clipPath = '';
     if (useDocument) {
       frame.style.width = `${CAROUSEL_LAYOUT_WIDTH}px`;
       frame.style.height = '2400px';
@@ -587,8 +592,7 @@ export default function DynamicLayout({
       frame.style.width = '';
       frame.style.height = '';
       frame.style.maxWidth = '';
-      frame.style.transform = '';
-      frame.style.clipPath = '';
+      frame.style.transform = 'none';
     }
     doc.open();
     doc.write(page);
@@ -602,16 +606,9 @@ export default function DynamicLayout({
     repairStrandedOffsets(doc);
     // (the document path recolours the carousel's own CSS in applyThemeToCarouselDocument)
     if (themed === 'colours' && !useDocument) paintSetInk(doc);
-    // Watch the injected photos so the shimmer placeholder clears when they load
-    // (non-document path has src baked in by prepareLayoutHtml; the document path
-    // re-marks inside crop() once paintCarouselSlideImages sets each src).
     markImagesLoaded(doc);
-    // crop each photo around what its slide is about (data-focus, Photo Focus agent)
-    focusPhotos(doc);
 
     if (!useDocument) {
-      // the copy's size (fonts) decides how much of the photo it covers
-      doc.fonts?.ready?.then(() => { if (frame.contentDocument === doc) focusPhotos(doc); });
       if (copyRef.current) {
         const later = window.requestAnimationFrame(() => applyDraftCopy(frame));
         return () => window.cancelAnimationFrame(later);
@@ -619,33 +616,34 @@ export default function DynamicLayout({
       return undefined;
     }
 
+    // Same fit as the debug preview: lay the agent's 1080×1350 canvas out at
+    // that size, then scale the iframe so the whole slide sits in the card.
     let cancelled = false;
-    const crop = (lockCopy) => {
-      if (cancelled) return;
+    const settle = (lockCopy) => {
+      if (cancelled || frame.contentDocument !== doc) return;
       paintCarouselSlideImages(frame, { direction, index: slideIndex, imageUrls: urls });
       markImagesLoaded(frame.contentDocument);
-      focusPhotos(frame.contentDocument);
-      cropIframeToCarouselSlide(frame, { direction, index: slideIndex });
       if (copyRef.current && (lockCopy || isSlideFrozen(frame, { direction, index: slideIndex }))) {
         applyDraftCopy(frame);
       }
+      cropIframeToCarouselSlide(frame, { direction, index: slideIndex });
     };
     const host = frame.parentElement;
     const ro = typeof ResizeObserver !== 'undefined' && host
-      ? new ResizeObserver(() => crop(false))
+      ? new ResizeObserver(() => settle(false))
       : null;
     ro?.observe(host);
     const fonts = doc.fonts?.ready;
     requestAnimationFrame(() => {
-      crop(false);
+      settle(false);
       doc.querySelectorAll('img').forEach((img) => {
         if (img.complete) return;
-        img.addEventListener('load', () => crop(true), { once: true });
-        img.addEventListener('error', () => crop(true), { once: true });
+        img.addEventListener('load', () => settle(true), { once: true });
+        img.addEventListener('error', () => settle(true), { once: true });
       });
     });
-    if (fonts) fonts.then(() => { if (!cancelled) requestAnimationFrame(() => crop(true)); });
-    const later = window.setTimeout(() => crop(true), 250);
+    if (fonts) fonts.then(() => { if (!cancelled) requestAnimationFrame(() => settle(true)); });
+    const later = window.setTimeout(() => settle(true), 250);
     return () => {
       cancelled = true;
       window.clearTimeout(later);

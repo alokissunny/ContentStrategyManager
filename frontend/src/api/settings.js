@@ -37,15 +37,14 @@ export function updateThemeRegionsModel(provider) {
   return client.put('/settings/theme-regions-model', { provider }).then((res) => res.data);
 }
 
-// Art Director agent (runs after the carousel agent):
-// { enabled, version, versions: [{ id, label, hint }], model }
-export function getArtDirector() {
-  return client.get('/settings/art-director').then((res) => res.data);
+// Carousel agent layout: { layout, layouts: [{ id, label, hint }] }
+export function getCarouselLayout() {
+  return client.get('/settings/carousel-layout').then((res) => res.data);
 }
 
-// patch: { enabled?: boolean, version?: 'director' | 'restyle' }
-export function updateArtDirector(patch) {
-  return client.put('/settings/art-director', patch).then((res) => res.data);
+// layout: 'default' | 'full-bleed' | 'floating-panel' | 'split-bands' | 'editorial'
+export function updateCarouselLayout(layout) {
+  return client.put('/settings/carousel-layout', { layout }).then((res) => res.data);
 }
 
 // How Theme Apply handles the slide's photo: 'placeholder' (paste the original) | 'model' (model paints it).

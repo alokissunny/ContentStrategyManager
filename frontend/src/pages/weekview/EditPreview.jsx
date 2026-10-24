@@ -9,7 +9,7 @@
 import React, { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import DynamicLayout from './DynamicLayout';
-import { mediaProxyUrl, isProjectMediaKey } from '../../api/media';
+import { carouselSlideImageUrls as imageUrlsOf, carouselSlideIndexOf as indexOf } from './carouselDocPreview';
 import '../weekView.css';
 
 function documentFor(css, direction, article) {
@@ -42,23 +42,6 @@ function liveTheme(direction) {
     if (!fallback) fallback = found;
   }
   return fallback;
-}
-
-function imageUrlsOf(article) {
-  const urls = [];
-  String(article || '').replace(/<img\b([^>]*?)\/?>/gi, (_, attrs) => {
-    if (!/\bdata-slot\s*=\s*["'](?:image|illustration)["']/i.test(attrs)) return '';
-    const key = (attrs.match(/\bdata-asset-key\s*=\s*["']([^"']+)["']/i) || [])[1] || '';
-    const src = (attrs.match(/\bsrc\s*=\s*["']([^"']+)["']/i) || [])[1] || '';
-    urls.push(key && isProjectMediaKey(key) ? mediaProxyUrl(key) : src || null);
-    return '';
-  });
-  return urls;
-}
-
-function indexOf(article, fallback) {
-  const m = String(article || '').match(/^<article\b[^>]*\sdata-index\s*=\s*["'](\d+)["']/i);
-  return m ? Number(m[1]) : fallback;
 }
 
 // One slide of a whole carousel document, drawn from that document as written

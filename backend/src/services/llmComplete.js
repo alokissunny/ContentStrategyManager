@@ -131,8 +131,6 @@ function reasoningEffortFor(kind) {
   if (kind === 'slideEdit') return envChoice('PLAN_SLIDE_EDIT_REASONING_EFFORT', GPT_EFFORTS, 'low');
   if (kind === 'addSlide') return envChoice('PLAN_ADD_SLIDE_REASONING_EFFORT', GPT_EFFORTS, 'low');
   if (kind === 'decorative') return envChoice('PLAN_DECORATIVE_REASONING_EFFORT', GPT_EFFORTS, 'low');
-  // medium: at low, Luna squeezed photos into narrow columns (Oct 2026 test)
-  if (kind === 'artDirector') return envChoice('PLAN_ART_DIRECTOR_REASONING_EFFORT', GPT_EFFORTS, 'medium');
   // Keep carousel at 'low': 'medium' pushed gpt-6-astra past the 180s timeout on
   // this 5-theme build. The earlier "terse stub" symptom was really an EMPTY
   // contentStructure (see carouselInputOf's post-slide fallback), not low
@@ -151,7 +149,6 @@ function verbosityFor(kind) {
   // reads verbosity:'low' as "be terse" and can return a near-empty response
   // (observed: gpt-6-astra returning ~718 chars, no slides). Default them high.
   if (kind === 'carousel') return envChoice('PLAN_CAROUSEL_VERBOSITY', GPT_VERBOSITY, 'high');
-  if (kind === 'artDirector') return envChoice('PLAN_ART_DIRECTOR_VERBOSITY', GPT_VERBOSITY, 'high');
   if (kind === 'layout') return envChoice('PLAN_LAYOUT_VERBOSITY', GPT_VERBOSITY, 'high');
   if (kind === 'layoutVariations') return envChoice('PLAN_LAYOUT_VARIATIONS_VERBOSITY', GPT_VERBOSITY, 'high');
   // one article back, whole — terse would drop markup

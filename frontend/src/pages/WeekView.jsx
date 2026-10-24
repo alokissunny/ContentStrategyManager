@@ -18,7 +18,6 @@ import YourAnalysisModal from '../components/YourAnalysisModal';
 import ConnectMetaModal from '../components/ConnectMetaModal';
 import LinkedInPublisher from '../components/LinkedInPublisher';
 import {
-  focusPostPhotos,
   getPreTheme,
   getPost,
   generatePlan,
@@ -29,7 +28,6 @@ import {
   setPostTime,
   setPostReview,
   runPostLayout,
-  runPostArtDirector,
   applyThemeImage,
   listThemeReferences,
   deleteThemeReference,
@@ -2233,7 +2231,14 @@ function carouselDocumentOf(day) {
   if (/content structure (was )?not included|awaiting content|role not supplied/i.test(raw)) {
     return '';
   }
-  return (/<!doctype html/i.test(raw) || /<html[\s>]/i.test(raw)) ? raw : '';
+  if (/<!doctype html/i.test(raw) || /<html[\s>]/i.test(raw)) return raw;
+  // The carousel agent returns a bare <section>, the same document the debug
+  // preview wraps and scales. Without the wrapper the card lays the 1080px
+  // canvas out at the card's width and clips the photo.
+  if (/<section\b[^>]*\bdata-direction\b/i.test(raw) && /<article\b/i.test(raw)) {
+    return `<!DOCTYPE html><html><head><meta charset="utf-8"></head><body>${raw}</body></html>`;
+  }
+  return '';
 }
 
 // The bar over a selected element in Editor mode (bauhly-v3 `edm-selbar`):
@@ -3305,7 +3310,6 @@ export default function WeekView({
   const aiDebug = useAiDebug();
   const { videoCover: videoCoverOn, linkedin: linkedinOn, htmlThemes: htmlThemesOn } = useFeatureFlags();
   const [layoutBusy, setLayoutBusy] = useState(false);
-  const [artDirectorMsg, setArtDirectorMsg] = useState('');
   const [layoutErr, setLayoutErr] = useState('');
   // On-demand Change-layout variations for the current slide. The layout agent
   // composes four fresh layouts of just this slide when Change layout is opened
@@ -4853,46 +4857,6 @@ export default function WeekView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [day?._id]);
 
-  // Photo Focus: a photo on the open post without `data-focus` is sent to the
-  // Photo Focus agent once per visit, so each slide's crop shows what its words
-  // are about (pages/weekview/photoFocus.js does the cropping). Only the
-  // attributes come back into the page, and only when the post's html has not
-  // changed in the meantime; otherwise the next open picks it up (cached).
-  const focusAskedRef = useRef(new Set());
-  useEffect(() => {
-    if (!day?._id || isEmptyCalDay(day)) return;
-    const doc = carouselDocumentOf(day);
-    const htmls = deriveSlides(day).map((sl) => sl?.layoutHtml || '');
-    const unfocused = /<img\b(?![^>]*\sdata-focus=)[^>]*\sdata-asset-key="[^"]+"/i;
-    if (!unfocused.test(doc) && !htmls.some((h) => unfocused.test(h))) return;
-    const id = String(day._id);
-    if (focusAskedRef.current.has(id)) return;
-    focusAskedRef.current.add(id);
-    focusPostPhotos(id).then((data) => {
-      const fresh = data?.post;
-      if (!fresh?.content) return;
-      const cur = routeRef.current;
-      const at = (cur?.days || []).findIndex((d) => String(d._id) === id);
-      const now = at >= 0 ? cur.days[at] : null;
-      if (!now) return;
-      // anything saved since the request wins; the attributes come next visit
-      if (carouselDocumentOf(now) !== doc) return;
-      const nowHtmls = deriveSlides(now).map((sl) => sl?.layoutHtml || '');
-      if (nowHtmls.length !== htmls.length || nowHtmls.some((h, i) => h !== htmls[i])) return;
-      const nowSlides = Array.isArray(now.content?.slides) ? now.content.slides : [];
-      const freshSlides = Array.isArray(fresh.content.slides) ? fresh.content.slides : [];
-      const content = {
-        ...now.content,
-        ...(fresh.content.carouselHtml ? { carouselHtml: fresh.content.carouselHtml } : {}),
-        slides: nowSlides.map((sl, i) => (freshSlides[i]?.layoutHtml ? { ...sl, layoutHtml: freshSlides[i].layoutHtml } : sl)),
-      };
-      const next = { ...cur, days: cur.days.map((d, i) => (i === at ? { ...d, content } : d)) };
-      routeRef.current = next;
-      setRoute(next);
-      onRouteChange?.(next);
-    }).catch(() => {});
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [day]);
   // A menu editor (layout / theme / words / images) rewrites the slide's html,
   // so element edits are saved before one opens — they would not survive it.
   useEffect(() => {
@@ -5472,39 +5436,6 @@ export default function WeekView({
         timedOut
           ? 'Carousel agent timed out. Try again — a server restart mid-run can leave this stuck.'
           : (err.response?.data?.message || err.message || 'Carousel agent failed.'),
-      );
-    } finally {
-      setLayoutBusy(false);
-    }
-  }
-
-  // Debug › Run art director: the Art Director agent re-composes this post's
-  // carousel HTML (copy and photos stay). Shares the carousel agent's busy state.
-  // a result note belongs to the post it ran on
-  useEffect(() => { setArtDirectorMsg(''); }, [selected]);
-
-  async function handleRunArtDirector() {
-    if (layoutBusy || !route?._id) return;
-    const wasEditing = postEdit;
-    setLayoutBusy(true);
-    setLayoutErr('');
-    setArtDirectorMsg('');
-    try {
-      const data = await runPostArtDirector(postIdAt(selected));
-      if (data?.post) {
-        const next = mergePost(data.post);
-        setRoute(next);
-        onRouteChange?.(next);
-        setSlideGen((g) => g + 1);
-        if (wasEditing) setPostEdit(true);
-      }
-      setArtDirectorMsg(data?.artDirector?.message || 'Art director: new slides saved.');
-    } catch (err) {
-      const timedOut = err?.code === 'ECONNABORTED' || /timeout/i.test(String(err?.message || ''));
-      setArtDirectorMsg(
-        timedOut
-          ? 'Art Director agent timed out. Try again.'
-          : (err.response?.data?.message || err.message || 'Art Director agent failed.'),
       );
     } finally {
       setLayoutBusy(false);
@@ -9298,8 +9229,6 @@ export default function WeekView({
                 <PostAgentDebug
                   day={day}
                   onRunLayout={handleRunLayout}
-                  onRunArtDirector={handleRunArtDirector}
-                  artDirectorMsg={artDirectorMsg}
                   layoutBusy={layoutBusy}
                   layoutErr={layoutErr}
                   elapsedMs={weekUsage?.elapsedMs}
@@ -9489,8 +9418,6 @@ export default function WeekView({
                   <PostAgentDebug
                     day={day}
                     onRunLayout={handleRunLayout}
-                  onRunArtDirector={handleRunArtDirector}
-                  artDirectorMsg={artDirectorMsg}
                     layoutBusy={layoutBusy}
                     layoutErr={layoutErr}
                     elapsedMs={weekUsage?.elapsedMs}

@@ -44,8 +44,7 @@ const KEYS = {
   brandVoiceProvider: 'brandVoice.provider',
   themeRegionsProvider: 'themeRegions.provider',
   themeApplyPhotoMode: 'themeApply.photoMode',
-  artDirectorEnabled: 'artDirector.enabled',
-  artDirectorVersion: 'artDirector.version',
+  carouselLayout: 'carousel.layout',
 };
 
 // Which provider reads the last 10 posts for Business memory › Fetch brand voice.
@@ -148,42 +147,35 @@ function themeApplyPhotoMode() {
   return isValidThemeApplyPhotoMode(chosen) ? chosen : DEFAULT_THEME_APPLY_PHOTO_MODE;
 }
 
-// The Art Director agent's versions — same inputs (carousel HTML + photos +
-// brand kit), same checks, a different prompt.
-const ART_DIRECTOR_VERSIONS = [
-  { id: 'director', label: 'Art Director', prompt: 'plan-art-director.md', hint: 'Editorial art direction: re-composes each slide around its photos.' },
-  { id: 'restyle', label: 'Restyle', prompt: 'plan-art-director-restyle.md', hint: 'Restyles the slides for Instagram: brand kit type and colour, spacing, crops, one consistent system.' },
+// The carousel agent's layouts — same inputs and checks, a different prompt
+// (one file per layout in prompts/carousel-layouts/).
+// `textOnPhoto`: the layout sets words directly on photos, so the layout
+// check's "text runs onto the photo" rule is skipped.
+const CAROUSEL_LAYOUTS = [
+  { id: 'default', label: 'Default', prompt: 'carousel-layouts/default.md', textOnPhoto: true, hint: 'The standard carousel prompt.' },
+  { id: 'full-bleed', label: 'Full bleed', prompt: 'carousel-layouts/full-bleed.md', textOnPhoto: true, hint: 'Photos edge to edge with the words set on a calm part of the image; text-only slides on solid brand grounds.' },
+  { id: 'floating-panel', label: 'Floating panel', prompt: 'carousel-layouts/floating-panel.md', textOnPhoto: false, hint: 'Photos edge to edge with the words on a solid panel floating over a calm part of the image.' },
+  { id: 'split-bands', label: 'Split bands', prompt: 'carousel-layouts/split-bands.md', textOnPhoto: false, hint: 'Each slide split into a photo band and a solid colour band holding the words.' },
+  { id: 'editorial', label: 'Editorial', prompt: 'carousel-layouts/editorial.md', textOnPhoto: false, hint: 'Magazine spreads: framed photos on a paper ground, running heads, serif headlines.' },
 ];
-const DEFAULT_ART_DIRECTOR_VERSION = 'director';
+const DEFAULT_CAROUSEL_LAYOUT = 'default';
 
-function isValidArtDirectorVersion(id) {
-  return ART_DIRECTOR_VERSIONS.some((v) => v.id === id);
+function isValidCarouselLayout(id) {
+  return CAROUSEL_LAYOUTS.some((l) => l.id === id);
 }
 
-/** The Art Director version chosen in Settings (default 'director'). */
-function artDirectorVersion() {
-  const chosen = getRuntimeSetting(KEYS.artDirectorVersion);
-  const id = isValidArtDirectorVersion(chosen) ? chosen : DEFAULT_ART_DIRECTOR_VERSION;
-  return ART_DIRECTOR_VERSIONS.find((v) => v.id === id);
-}
-
-/**
- * Whether the Art Director agent runs after the carousel agent. A Settings
- * choice wins; otherwise PLAN_ART_DIRECTOR (on unless set to 0/false/off/no).
- */
-function artDirectorEnabled() {
-  const chosen = getRuntimeSetting(KEYS.artDirectorEnabled);
-  if (typeof chosen === 'boolean') return chosen;
-  const env = String(process.env.PLAN_ART_DIRECTOR ?? '1').trim().toLowerCase();
-  return !['0', 'false', 'off', 'no'].includes(env);
+/** The carousel layout chosen in Settings (default 'default'). */
+function carouselLayout() {
+  const chosen = getRuntimeSetting(KEYS.carouselLayout);
+  const id = isValidCarouselLayout(chosen) ? chosen : DEFAULT_CAROUSEL_LAYOUT;
+  return CAROUSEL_LAYOUTS.find((l) => l.id === id);
 }
 
 module.exports = {
   KEYS,
-  artDirectorEnabled,
-  ART_DIRECTOR_VERSIONS,
-  isValidArtDirectorVersion,
-  artDirectorVersion,
+  CAROUSEL_LAYOUTS,
+  isValidCarouselLayout,
+  carouselLayout,
   THEME_APPLY_PHOTO_MODES,
   isValidThemeApplyPhotoMode,
   themeApplyPhotoMode,

@@ -766,7 +766,6 @@ function bindSlideImages(slide, urls) {
       el.setAttribute('src', src);
       el.removeAttribute('srcset');
       el.classList.remove('is-placeholder');
-      el.style.objectFit = el.style.objectFit || 'cover';
       const cap = el.closest('figure')?.querySelector('figcaption');
       if (cap && /intended visual|image placeholder/i.test(cap.textContent || '')) {
         cap.setAttribute('hidden', '');
@@ -1005,7 +1004,7 @@ export function applyThemeToCarouselDocument(html, { themed = false, paint } = {
   // A background the slide was given is still laid over its ground.
   if (coloursOnly(themed)) {
     // Newer carousels name their colour roles (--brand-primary / -background /
-    // -accent, prompts/plan-carousel.md › Colour roles): just re-point those.
+    // -accent, prompts/carousel-layouts/default.md › Colour roles): just re-point those.
     // Older ones wrote literal hex values, recoloured by inference.
     const roles = colourRoleVars(paint);
     const named = roles && BRAND_ROLE_RE.test(raw);
@@ -1041,7 +1040,7 @@ export function applyThemeToCarouselDocument(html, { themed = false, paint } = {
 // The Brand Kit's Typography (`--bk-font-heading/-body/-detail` in paint, only
 // the slots the studio chose — identity.brandFontVars) restyles every slide.
 // Newer carousels name their font roles (--brand-font-heading / -body / -detail,
-// prompts/plan-carousel.md › Font roles): those are re-pointed. Older ones get
+// prompts/carousel-layouts/default.md › Font roles): those are re-pointed. Older ones get
 // the faces by element job. The slide is its own document, so the app's font
 // stylesheets (`links`) and the studio's uploaded faces (`faceCss`) go in too.
 const BRAND_FONT_ROLE_RE = /--brand-font-(?:heading|body|detail)\s*:/i;
