@@ -7407,7 +7407,15 @@ span.wv-layed__apply { margin-left: auto; flex-shrink: 0; }
     #000 calc(50% + var(--card-half, 200px) + var(--peek-edge)), transparent 100%);
 }
 .wv-edm__rail:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 4px; border-radius: var(--r-lg); }
-.wv-edm__slides { list-style: none; margin: 0; padding: 0; position: relative; height: 100%; }
+.wv-edm__slides {
+  list-style: none; margin: 0; padding: 0; position: relative; height: 100%;
+  /* a swipe drags the whole stack with the finger, then springs back as the
+     next slide takes the centre */
+  transform: translateX(var(--drag, 0px));
+  transition: transform 320ms cubic-bezier(0.22, 0.61, 0.24, 1);
+}
+.wv-edm__rail { touch-action: pan-y; }
+.wv-edm__rail.is-dragging .wv-edm__slides { transition: none; }
 .wv-edm__one {
   position: absolute;
   inset: 0;
@@ -9553,6 +9561,9 @@ p.wv-sa__hint { margin: 6px 6px 0; }
 
   /* one slide, nothing passing behind it */
   .wv-edm__one:not(.is-on) { opacity: 0; }
+  /* while a swipe is under way the neighbours show, so the drag reveals where
+     it is going */
+  .wv-edm__rail.is-dragging .wv-edm__one:not(.is-on) { opacity: calc(1 - (var(--a) * 0.62)); }
   .wv-edm__rail { -webkit-mask-image: none; mask-image: none; }
 
   /* the chips start at the left edge and scroll on */

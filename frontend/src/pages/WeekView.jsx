@@ -102,6 +102,7 @@ import EditorMore from './weekview/EditorMore';
 import TextSheet from './weekview/TextSheet';
 import { readSlideTextStyles, styleForRegion } from './weekview/themedTextStyle';
 import { htmlThemeIdOf, imageSlotCount } from '../lib/htmlThemes';
+import { slideTick } from '../native/haptics';
 import './weekView.css';
 
 // ── Which layouts a slide can take — drawn straight from the Visual Library ──
@@ -2649,6 +2650,106 @@ function EditStack({ count, index, onIndex, children }) {
     return () => ro.disconnect();
   }, []);
   const go = (i) => onIndex(Math.max(0, Math.min(count - 1, i)));
+  /* a phone swipes between slides: the stack follows the finger (`--drag`),
+     resists past the first/last, and a flick past ~60px steps one slide.
+     Only a sideways drag counts — a vertical one is left to the page, and
+     nothing happens while a word is being edited. Points are in screen px. */
+  const drag = useRef(null);
+  const editing = (from) => from?.isContentEditable
+    || /^(INPUT|TEXTAREA|SELECT)$/.test(from?.tagName || '')
+    || from?.ownerDocument?.activeElement?.isContentEditable
+    || document.activeElement?.isContentEditable;
+  const dragStart = (x, y, from, fingers) => {
+    if (count < 2 || fingers !== 1 || editing(from)) return;
+    drag.current = { x, y, dx: 0, axis: null };
+  };
+  const dragMove = (x, y) => {
+    const d = drag.current;
+    const box = rail.current;
+    if (!d || !box) return;
+    const dx = x - d.x;
+    const dy = y - d.y;
+    if (!d.axis) {
+      if (Math.abs(dx) < 8 && Math.abs(dy) < 8) return;
+      d.axis = Math.abs(dx) > Math.abs(dy) ? 'x' : 'y';
+      if (d.axis === 'x') box.classList.add('is-dragging');
+    }
+    if (d.axis !== 'x') return;
+    const pastEnd = (index === 0 && dx > 0) || (index === count - 1 && dx < 0);
+    d.dx = pastEnd ? dx / 3 : dx;
+    box.style.setProperty('--drag', `${Math.round(d.dx)}px`);
+  };
+  const dragEnd = () => {
+    const d = drag.current;
+    const box = rail.current;
+    drag.current = null;
+    if (!d || d.axis !== 'x' || !box) return;
+    box.classList.remove('is-dragging');
+    box.style.setProperty('--drag', '0px');
+    const next = index + (d.dx < 0 ? 1 : -1);
+    if (Math.abs(d.dx) > Math.min(60, box.clientWidth * 0.18) && next >= 0 && next < count) {
+      go(next);
+      slideTick();
+    }
+  };
+  const dragRef = useRef(null);
+  dragRef.current = { dragStart, dragMove, dragEnd };
+  const onTouchStart = (e) => {
+    const t = e.touches[0];
+    if (t) dragStart(t.clientX, t.clientY, e.target, e.touches.length);
+  };
+  const onTouchMove = (e) => {
+    const t = e.touches[0];
+    if (t) dragMove(t.clientX, t.clientY);
+  };
+  /* each slide is drawn in an iframe, and a touch inside an iframe never
+     reaches this page — so the slides' own documents are listened to as well,
+     their points scaled by how much smaller the iframe is drawn than its box */
+  useEffect(() => {
+    const box = rail.current;
+    if (!box) return undefined;
+    const bound = new Map();
+    const bind = () => {
+      box.querySelectorAll('iframe').forEach((f) => {
+        let doc = null;
+        try { doc = f.contentDocument; } catch { doc = null; }
+        if (!doc || bound.has(doc)) return;
+        const k = () => {
+          const w = f.offsetWidth;
+          return w ? f.getBoundingClientRect().width / w : 1;
+        };
+        const start = (e) => {
+          const t = e.touches[0];
+          if (t) dragRef.current.dragStart(t.clientX * k(), t.clientY * k(), e.target, e.touches.length);
+        };
+        const move = (e) => {
+          const t = e.touches[0];
+          if (t) dragRef.current.dragMove(t.clientX * k(), t.clientY * k());
+        };
+        const end = () => dragRef.current.dragEnd();
+        doc.addEventListener('touchstart', start, { passive: true });
+        doc.addEventListener('touchmove', move, { passive: true });
+        doc.addEventListener('touchend', end);
+        doc.addEventListener('touchcancel', end);
+        bound.set(doc, () => {
+          doc.removeEventListener('touchstart', start);
+          doc.removeEventListener('touchmove', move);
+          doc.removeEventListener('touchend', end);
+          doc.removeEventListener('touchcancel', end);
+        });
+      });
+    };
+    bind();
+    // a slide's iframe fills in (and is replaced) after mount
+    box.addEventListener('load', bind, true);
+    const mo = new MutationObserver(bind);
+    mo.observe(box, { subtree: true, childList: true });
+    return () => {
+      box.removeEventListener('load', bind, true);
+      mo.disconnect();
+      bound.forEach((off) => off());
+    };
+  }, []);
   return (
     <div className="wv-edm__frame" ref={frame}>
       {index > 0 && (
@@ -2663,6 +2764,10 @@ function EditStack({ count, index, onIndex, children }) {
         role="group"
         aria-label="Slides"
         tabIndex={0}
+        onTouchStart={onTouchStart}
+        onTouchMove={onTouchMove}
+        onTouchEnd={dragEnd}
+        onTouchCancel={dragEnd}
         onKeyDown={(e) => {
           const from = e.target;
           if (from?.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(from?.tagName || '')) return;

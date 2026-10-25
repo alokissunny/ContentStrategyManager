@@ -1550,6 +1550,27 @@
   background: var(--surface-sunken, #f3f1ea);
   position: relative;
 }
+/* the feed post's slides, side by side; a swipe pages between them */
+.yw-peek__track {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scroll-snap-type: x mandatory;
+  overscroll-behavior-x: contain;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+.yw-peek__track::-webkit-scrollbar { display: none; }
+.yw-peek__cell {
+  position: relative;
+  flex: 0 0 100%;
+  height: 100%;
+  overflow: hidden;
+  scroll-snap-align: start;
+  scroll-snap-stop: always;
+}
 .yw-peek__photo-root--feed.wv-ig__photo {
   position: absolute;
   inset: 0;

@@ -25,6 +25,7 @@ import { paintAll, logoPositionOf, markForSlide, themesOf, activeThemeIdOf, acti
 import { isThemedPicture } from '../../lib/themedSlide';
 import { styleOf, groundOf } from '../../lib/visualbrand';
 import { useStore } from '../../lib/store';
+import { slideTick } from '../../native/haptics';
 import '../weekView.css';
 
 const PEEK_MS = 2800;
@@ -285,6 +286,8 @@ export function DayPeek({ day, feed = false, phone = false, lifted = false, lift
   const [vh, setVh] = useState(() => (typeof window !== 'undefined' ? window.innerHeight : 812));
   const frameRef = useRef(null);
   const lastRect = useRef(null);
+  const trackRef = useRef(null);
+  const seen = useRef(0);
 
   /* the post travels between the feed and its lifted place (FLIP): the frame's
      box is read after every layout, and when `lifted` flips the new box is
@@ -313,7 +316,12 @@ export function DayPeek({ day, feed = false, phone = false, lifted = false, lift
     return () => window.removeEventListener('resize', onResize);
   }, [feed]);
 
-  useEffect(() => { setSlide(0); setRestart(0); }, [day?._id, day?.date]);
+  useEffect(() => {
+    setSlide(0);
+    setRestart(0);
+    seen.current = 0;
+    if (trackRef.current) trackRef.current.scrollLeft = 0;
+  }, [day?._id, day?.date]);
   useEffect(() => {
     if (n < 2 || feed) return undefined; /* feed: studio pages with dots */
     if (typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) {
@@ -331,8 +339,27 @@ export function DayPeek({ day, feed = false, phone = false, lifted = false, lift
   const pickSlide = (i, e) => {
     e?.stopPropagation?.();
     e?.preventDefault?.();
+    const track = trackRef.current;
+    if (feed && track) {
+      // the feed's slides are a swipe track: a dot scrolls it, and the scroll
+      // sets the slide
+      track.scrollTo({ left: i * track.clientWidth, behavior: 'smooth' });
+      return;
+    }
     setSlide(i);
     setRestart((t) => t + 1);
+  };
+
+  /* the feed's track: whichever slide the scroll has settled nearest is the
+     current one (dots + a light haptic tick in the app) */
+  const onTrackScroll = () => {
+    const track = trackRef.current;
+    if (!track || !track.clientWidth) return;
+    const i = Math.min(n - 1, Math.max(0, Math.round(track.scrollLeft / track.clientWidth)));
+    if (i === seen.current) return;
+    seen.current = i;
+    setSlide(i);
+    slideTick();
   };
 
   const dots = n > 1 ? (
@@ -352,20 +379,25 @@ export function DayPeek({ day, feed = false, phone = false, lifted = false, lift
     </div>
   ) : null;
 
-  const curSet = cur ? setPaint(cur) : null;
-  // Brand Kit Typography, as WeekView's paintFor (not on a Theme Apply render)
-  const curFonts = cur && !isThemedPicture(cur) ? brandFontVars(store?.libraryEdits) : {};
-  const slideNode = cur ? (
-    <PeekSlide
-      key={`${day?._id || day?.date}-${safe}`}
-      slide={cur}
-      paint={{ ...(curSet ? { ...paint, '--t-ground-image': '', '--wv-ground-img': '', ...curSet } : paint), ...curFonts }}
-      themed={curSet ? 'colours' : false}
-      documentHtml={doc}
-      carouselLayoutHtmls={carouselHtmls}
-      slideIndex={safe + 1}
-    />
-  ) : null;
+  const nodeFor = (i) => {
+    const sl = slides[i];
+    if (!sl) return null;
+    const set = setPaint(sl);
+    // Brand Kit Typography, as WeekView's paintFor (not on a Theme Apply render)
+    const fonts = !isThemedPicture(sl) ? brandFontVars(store?.libraryEdits) : {};
+    return (
+      <PeekSlide
+        key={`${day?._id || day?.date}-${i}`}
+        slide={sl}
+        paint={{ ...(set ? { ...paint, '--t-ground-image': '', '--wv-ground-img': '', ...set } : paint), ...fonts }}
+        themed={set ? 'colours' : false}
+        documentHtml={doc}
+        carouselLayoutHtmls={carouselHtmls}
+        slideIndex={i + 1}
+      />
+    );
+  };
+  const slideNode = cur ? nodeFor(safe) : null;
 
   if (feed) {
     const natH = vw / ar;
@@ -399,8 +431,18 @@ export function DayPeek({ day, feed = false, phone = false, lifted = false, lift
             style={liftStyle || { width: '100%', height: `${Math.round(boxH)}px` }}
             aria-hidden="true"
           >
-            <div className="wv-ig__photo yw-peek__photo-root yw-peek__photo-root--feed">
-              {slideNode}
+            {/* every slide side by side in a scroll-snapping track, so a
+                swipe moves between them with the phone's own scrolling
+                (momentum, rubber-band); only the current slide and its
+                neighbours are drawn */}
+            <div className="yw-peek__track" ref={trackRef} onScroll={n > 1 ? onTrackScroll : undefined}>
+              {slides.map((_, i) => (
+                <div className="yw-peek__cell" key={i}>
+                  <div className="wv-ig__photo yw-peek__photo-root yw-peek__photo-root--feed">
+                    {Math.abs(i - safe) <= 1 ? nodeFor(i) : null}
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
         </div>
