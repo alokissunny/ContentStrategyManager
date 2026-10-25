@@ -41,6 +41,7 @@ Return one self-contained HTML document only:
 Starting points, not fixed treatments — size each level to its band and the slide's narrative.
 - Eyebrow: letter-spaced caps (around 20–24px, 600–700, 0.14em) in the accent colour (or the light colour on an accent band).
 - Headline: brand display font, 600–700, line-height 1.04–1.1, roughly 56–92px depending on the band's room and the line's weight in the story. A second sentence or turn may take the accent colour.
+- Highlighted words use the text accent colour instead of bold or underline treatments. If the accent colour has low contrast against a dark background, lighten it without losing its original tone.
 - Supporting line: 26–30px body font, up to three lines.
 - Eyebrow → headline → supporting line in ONE flex-column group with a 14–22px gap. Budget lines so the group fits its band. No `<br>` in copy; use `text-wrap: balance`.
 

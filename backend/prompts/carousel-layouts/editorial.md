@@ -31,7 +31,8 @@ Return one self-contained HTML document only:
 
 ## Type system (every slide)
 
-- Headlines in the brand display font — a serif if the brand has one — 64–92px, 84–110px on the hook and final slide, line-height 1.02–1.1; use the italic for the turn or emphasis.
+- Headlines in the brand display font — a serif if the brand has one — 64–92px, 84–110px on the hook and final slide, line-height 1.02–1.1; use the italic for the turn.
+- Highlighted words use the text accent colour instead of bold or underline treatments. If the accent colour has low contrast against a dark background, lighten it without losing its original tone.
 - Kicker: letter-spaced caps (18–22px, 600–700, 0.16em) in the accent colour.
 - Body/support: 26–30px body font, line-height 1.4, max ~32 characters per line in columns.
 - Kicker → headline → support in ONE flex-column group with a 16–24px gap. No `<br>` in copy; use `text-wrap: pretty`.

@@ -38,7 +38,7 @@ Return one self-contained HTML document only:
 - The photo is `position:absolute; inset:0; width:100%; height:100%; object-fit:cover`, with `object-position` chosen so the focal point stays in frame.
 - Start each photo slide with `<!-- focal: what the slide is about in this photo, where it sits, and where the panel will go -->`. Look at the attached photo first.
 - The panel: `position:absolute`, one solid Brand Kit colour (e.g. `--brand-background`, or `--brand-primary` with light text), fully opaque, padding around 48–64px, inset from the slide edges (at least 64px). Its size comes from its text, within the square-to-2:1 proportion above.
-- Every level — eyebrow, headline, accent phrase, supporting line — must read on the panel colour behind it. The accent colour is often a light or saturated hue that fades on a light panel: when it would, choose the panel colour that gives it contrast (often the dark brand colour), or set that phrase in the panel's text colour with a heavier weight instead.
+- Every level — eyebrow, headline, accent phrase, supporting line — must read on the panel colour behind it. The accent colour is often a light or saturated hue that fades on a light panel: when it would, choose the panel colour that gives it contrast (often the dark brand colour); on a dark panel, lighten the accent without losing its original tone. Never fall back to bold or underline to mark the phrase.
 
 ## Text-only slides
 
@@ -50,6 +50,7 @@ Return one self-contained HTML document only:
 Starting points, not fixed treatments — size each level to the panel and the slide's narrative.
 - Eyebrow: letter-spaced caps (around 20–24px, 600–700, 0.14em) in the accent colour.
 - Headline: brand display font, 600–700, line-height 1.04–1.1, roughly 56–84px; one short phrase in the accent colour.
+- Highlighted words use the text accent colour instead of bold or underline treatments. If the accent colour has low contrast against a dark background, lighten it without losing its original tone.
 - Supporting line: 26–30px body font.
 - Eyebrow → headline → supporting line in ONE flex-column group with a 14–22px gap inside the panel.
 
