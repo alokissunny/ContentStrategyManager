@@ -670,6 +670,9 @@ export default function PostAgentDebug({
   const stored = day?.agentTrace && typeof day.agentTrace === 'object' ? day.agentTrace : {};
   const run = stored.lastRun && Array.isArray(stored.lastRun.agents) ? stored.lastRun : null;
   const shows = (id) => !run || run.agents.includes(id);
+  // The Strategy agent feeds every later run (the carousel agent's input is
+  // built from its brief), so it stays listed after a rerun that skipped it.
+  const strategyCarried = !!run && !run.agents.includes('strategy');
   const RUN_LABEL = {
     generate: 'Post generation',
     layout: 'Carousel agent (Fix layout)',
@@ -715,7 +718,7 @@ export default function PostAgentDebug({
         </p>
       ) : null}
       <p className="wv-agentdbg__lead">
-        Input and output for each agent in the latest run on this post. Earlier runs are not listed.
+        Input and output for each agent in the latest run on this post, plus the Strategy agent it built on. Other earlier runs are not listed.
       </p>
       {staleShell ? (
         <p className="wv-agentdbg__empty">
@@ -741,13 +744,13 @@ export default function PostAgentDebug({
           No agent trace on this post yet. Generate or replan with debug mode on. Older posts may only show output until you regenerate.
         </p>
       )}
-      {shows('strategy') && <Block
-        title="Strategy agent"
+      <Block
+        title={strategyCarried ? 'Strategy agent (from post generation)' : 'Strategy agent'}
         input={trace.strategyPrompt}
         output={trace.strategyBrief}
-        open
+        open={!strategyCarried}
         cost={trace.costs?.strategy}
-      />}
+      />
       {shows('structure') && <Block
         title="Structure agent"
         input={trace.structurePrompt}
