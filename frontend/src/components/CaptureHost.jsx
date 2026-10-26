@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { ensureProjects, useProjects } from '../lib/projectsStore';
 import { startPlanGeneration } from '../lib/planGeneration';
 import { subscribeCaptureIdea } from '../lib/captureUi';
+import { IS_NATIVE } from '../native/platform';
 
 const CaptureChat = React.lazy(() => import('../pages/Projects').then((m) => ({ default: m.CaptureChat })));
 
@@ -18,7 +19,19 @@ export default function CaptureHost() {
   const navigate = useNavigate();
 
   useEffect(() => subscribeCaptureIdea((options) => {
-    setAim(options && typeof options === 'object' ? options : null);
+    const aimed = options && typeof options === 'object' ? options : null;
+    // the iPhone app captures in its native screen; an aimed capture (Add
+    // slide) keeps the web conversation, which hands its result back here
+    if (IS_NATIVE && !aimed) {
+      import('../native/capture').then((m) => {
+        if (m.hasNativeCapture()) return m.openNativeCapture();
+        setAim(null);
+        setOpen(true);
+        return null;
+      }).catch(() => { setAim(null); setOpen(true); });
+      return;
+    }
+    setAim(aimed);
     ensureProjects({ lite: true })
       .catch(() => {})
       .finally(() => setOpen(true));
