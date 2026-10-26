@@ -303,6 +303,16 @@ export function runPostLayout(id, { promptOverride } = {}) {
   });
 }
 
+// Debug › Strategy agent › Edit prompt: only the Strategist reruns, on this
+// exact prompt; the next Run carousel agent builds the post from its new brief.
+export function runPostStrategy(id, promptOverride) {
+  return client.post(`/posts/${id}/strategy`, { promptOverride }, { timeout: 600000 }).then((res) => {
+    const data = res.data || {};
+    ingestPlanDebug('Strategy agent (edited prompt)', data);
+    return data;
+  });
+}
+
 // Editor › Themes › Upload a reference: the Theme Apply agent re-paints the
 // given slides (1-based) in the reference photo's look and returns each as an
 // IMAGE — from the slide's carousel-agent HTML (read on the server) and its

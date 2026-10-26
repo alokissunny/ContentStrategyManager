@@ -9,7 +9,7 @@ const { generateWeeklyPlan, buildEmptySlots, isoDate, parseIsoDate, estimatePlan
 const { rewriteCaption } = require('../services/captionPolish');
 const { refineCarouselFromEdits } = require('../services/carouselRefine');
 const { addSlideToCarousel } = require('../services/addSlideAgent');
-const { runLayoutForPost, carouselAgentEnabled, writeLayoutVariations, applyLayoutToContent, normalizeWriterPost, attachGeneratedVisuals, visualThemeOf } = require('../services/planOrchestrator');
+const { runLayoutForPost, rerunStrategistForPost, postFromBrief, carouselAgentEnabled, writeLayoutVariations, applyLayoutToContent, normalizeWriterPost, attachGeneratedVisuals, visualThemeOf } = require('../services/planOrchestrator');
 const { loadReferenceImage } = require('../services/imageAnalysis');
 const { decorativeDebugAgents } = require('../services/decorativeAgent');
 const { themeById, themeImageOf } = require('../data/carouselThemes');
@@ -1150,7 +1150,7 @@ async function refinePost(req, res) {
   const ownKeys = (list) => (Array.isArray(list) ? list : [])
     .map((k) => String(k || '').trim())
     .filter((k) => k.startsWith(own));
-  const label = record.day || (record.date ? record.date.toISOString().slice(0, 10) : record._id.toString());
+  const label = record.day || (String(record.date || '').slice(0, 10) || record._id.toString());
   const dna = await loadBrandDna(req.user._id, record.instagramUsername).catch(() => null);
   const brand = compileBrandMemory(dna);
   // one row per step for the debug panel (only when the client asks for it)
@@ -1298,7 +1298,7 @@ async function addSlideToPost(req, res) {
   const ownKeys = (list) => (Array.isArray(list) ? list : [])
     .map((k) => String(k || '').trim())
     .filter((k) => k.startsWith(own));
-  const label = record.day || (record.date ? record.date.toISOString().slice(0, 10) : record._id.toString());
+  const label = record.day || (String(record.date || '').slice(0, 10) || record._id.toString());
   const dna = await loadBrandDna(req.user._id, record.instagramUsername).catch(() => null);
   const brand = compileBrandMemory(dna);
   const steps = wantsPromptDebug(req) ? [] : null;
@@ -1511,11 +1511,34 @@ async function rerunLayout(req, res) {
     return res.status(400).json({ message: 'This post has no slides to layout.' });
   }
 
-  const structure = plainOf(trace.structure) || {};
-  const label = record.day || (record.date ? record.date.toISOString().slice(0, 10) : record._id.toString());
+  let structure = plainOf(trace.structure) || {};
+  const label = record.day || (String(record.date || '').slice(0, 10) || record._id.toString());
   const brand = await carouselBrandOf(req.user._id, record.instagramUsername);
-  const dayWriterOutput = plainOf(trace.dayWriter)
+  let dayWriterOutput = plainOf(trace.dayWriter)
     || (Array.isArray(post.content?.slides) ? { content: { slides: post.content.slides } } : '');
+  // After Debug › Strategy agent rerun (trace.strategyRerun), the next full
+  // carousel run builds the slides from the NEW brief (as post generation does
+  // with Content Structure off), not the old copy. Its photos: the ones the
+  // Strategist allocated, else the post's own.
+  const strategyRerun = !req.body?.slideIndex && trace.strategyRerun && typeof trace.strategyRerun === 'object'
+    ? plainOf(trace.strategyRerun)
+    : null;
+  if (strategyRerun) {
+    const slideKeys = [...new Set((plainOf(record.content?.slides) || [])
+      .flatMap((sl) => [sl?.assetKey, ...(Array.isArray(sl?.assetKeys) ? sl.assetKeys : [])])
+      .map((k) => String(k || '').trim())
+      .filter((k) => k && !/\/themed-/.test(k)))];
+    const brief = {
+      ...(plainOf(trace.strategyBrief) || {}),
+      allocatedAssets: Array.isArray(strategyRerun.allocatedAssets) && strategyRerun.allocatedAssets.length
+        ? strategyRerun.allocatedAssets
+        : slideKeys.map((key) => ({ key })),
+    };
+    const writer = postFromBrief(brief);
+    post.content = normalizeWriterPost(writer, brief, []);
+    structure = {};
+    dayWriterOutput = writer;
+  }
 
   // This slide: the slide the studio is looking at NOW (after any added /
   // removed slides and edits), so the index and its words line up
@@ -1607,6 +1630,8 @@ async function rerunLayout(req, res) {
     record.agentTrace = {
       ...trace,
       lastRun: lastRunOf('layout', ['carousel', Array.isArray(next.visualTrace) && next.visualTrace.length ? 'visual' : '']),
+      // the new brief is used now — later runs go back to the post's own slides
+      strategyRerun: null,
       layout: savedLayout,
       carousel: savedLayout,
       layoutPrompt: optionalText(debugEntry.prompt) || trace.layoutPrompt || '',
@@ -1680,6 +1705,72 @@ async function rerunLayout(req, res) {
     console.error('[posts] layout rerun failed:', err.message);
     return res.status(status).json({ message: err.message || 'Could not run the carousel agent.' });
   }
+}
+
+// One agent run as the AI debug panel lists it.
+function debugAgentOf({ debugEntry = {}, usage = null }) {
+  return {
+    source: debugEntry.source || '',
+    model: debugEntry.model,
+    provider: debugEntry.provider || '',
+    prompt: debugEntry.prompt,
+    output: debugEntry.output || '',
+    elapsedMs: Number(debugEntry.elapsedMs || usage?.elapsedMs) || 0,
+    usage: usage || debugEntry.usage || null,
+    inputTokens: Number(usage?.inputTokens) || 0,
+    outputTokens: Number(usage?.outputTokens) || 0,
+    totalTokens: Number(usage?.totalTokens) || 0,
+    estimatedCostUsd: Number(usage?.estimatedCostUsd) || 0,
+  };
+}
+
+// POST /posts/:id/strategy — Debug › Strategy agent › Edit prompt. Runs ONLY
+// the Strategist on the edited prompt and stores the brief it writes for this
+// post; the slides stay as they are. The next Run carousel agent builds the
+// post from that brief (trace.strategyRerun). Body: { promptOverride }
+async function rerunStrategy(req, res) {
+  const record = await PlannedPost.findOne({ _id: req.params.id, user: req.user._id });
+  if (!record) return res.status(404).json({ message: 'Post not found' });
+  const prompt = typeof req.body?.promptOverride === 'string' ? req.body.promptOverride.trim() : '';
+  if (!prompt) return res.status(400).json({ message: 'The Strategy agent prompt is empty.' });
+
+  const trace = record.agentTrace && typeof record.agentTrace === 'object' ? plainOf(record.agentTrace) : {};
+  const date = String(record.date || '').slice(0, 10);
+  let strategy;
+  try {
+    strategy = await rerunStrategistForPost({
+      prompt,
+      previousBrief: plainOf(trace.strategyBrief) || {},
+      date,
+      source: `Strategist:${record.day || date || record._id}:debug`,
+    });
+  } catch (err) {
+    console.error('[posts] strategy rerun failed:', err.message);
+    return res.status(err.statusCode || 502).json({ message: err.message || 'Could not run the Strategy agent.' });
+  }
+  record.agentTrace = {
+    ...trace,
+    strategyBrief: strategy.brief,
+    strategyPrompt: prompt,
+    strategyRerun: { at: new Date().toISOString(), allocatedAssets: strategy.allocatedAssets },
+    lastRun: lastRunOf('strategy', ['strategy']),
+  };
+  record.markModified('agentTrace');
+  await record.save();
+
+  return res.json({
+    post: record,
+    strategyBrief: strategy.brief,
+    ...(wantsPromptDebug(req) ? {
+      debug: {
+        mode: 'strategy-debug',
+        model: strategy.debugEntry?.model,
+        usage: strategy.usage || null,
+        agents: [debugAgentOf(strategy)],
+        elapsedMs: Number(strategy.debugEntry?.elapsedMs) || 0,
+      },
+    } : {}),
+  });
 }
 
 // POST /posts/:id/theme-image — Editor › Themes › Upload a reference. The Theme
@@ -2782,7 +2873,7 @@ async function rerunSlideLayoutVariations(req, res) {
   const storedTarget = stored[targetIdx] || {};
   const currentHtml = String(storedTarget?.layoutHtml || '');
   const post = { format: record.format, status: 'ready', content: { slides: [storedTarget] } };
-  const label = record.day || (record.date ? record.date.toISOString().slice(0, 10) : record._id.toString());
+  const label = record.day || (String(record.date || '').slice(0, 10) || record._id.toString());
   const dna = await loadBrandDna(req.user._id, record.instagramUsername).catch(() => null);
   const brand = compileBrandMemory(dna);
 
@@ -2877,7 +2968,7 @@ async function renderCover(req, res) {
   const trace = record.agentTrace && typeof record.agentTrace === 'object' ? plainOf(record.agentTrace) : {};
   const structure = trace.structure || {};
   const brief = trace.strategyBrief || {};
-  const label = record.day || (record.date ? record.date.toISOString().slice(0, 10) : record._id.toString());
+  const label = record.day || (String(record.date || '').slice(0, 10) || record._id.toString());
   if (!structure || !Array.isArray(structure.slidesOrScenes) || !structure.slidesOrScenes.length) {
     return res.status(400).json({ message: 'This post has no content structure to build a cover from.' });
   }
@@ -2973,6 +3064,7 @@ module.exports = {
   addSlideToPost,
   getPostProject,
   rerunLayout,
+  rerunStrategy,
   rerunSlideLayoutVariations,
   applyThemeImage,
   getThemeApplyJob,

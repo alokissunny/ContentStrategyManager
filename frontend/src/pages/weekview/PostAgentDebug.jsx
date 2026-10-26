@@ -100,6 +100,48 @@ function previewSlidesHtml(value) {
   return shareLayoutStyles(raw).map((html) => prepareLayoutHtml(html, { imageUrls: [] }) || html);
 }
 
+const escHtml = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({
+  '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+}[c]));
+
+// Debug › Strategy agent › Preview: a plain wireframe of the brief — one slide
+// per narrative unit, the CTA included, with its copy and the photo the post
+// shows for that unit (hatched when the brief wants a photo the post has none
+// for). A unit the brief places in the caption is drawn and marked as such.
+const STRATEGY_SLIDE_CSS = 'font-family:system-ui,-apple-system,sans-serif;background:#f4efe6;color:#1b100d;'
+  + 'display:flex;flex-direction:column;overflow:hidden;box-sizing:border-box';
+function strategySlidesHtml(brief, postSlides = []) {
+  const units = Array.isArray(brief?.narrativeUnits) ? brief.narrativeUnits : [];
+  const onSlides = units.filter((u) => u?.copy || u?.purpose || u?.support);
+  const allocated = Array.isArray(brief?.allocatedAssets) ? brief.allocatedAssets : [];
+  const slides = Array.isArray(postSlides) ? postSlides : [];
+  const keyFor = (u, i) => {
+    const id = String(u?.id || '');
+    const hit = allocated.find((a) => Array.isArray(a?.supportsUnitIds) && a.supportsUnitIds.map(String).includes(id));
+    if (hit?.key) return hit.key;
+    const sl = slides.find((x) => Array.isArray(x?.coversUnits) && x.coversUnits.map(String).includes(id)) || slides[i];
+    const key = sl?.assetKey || (Array.isArray(sl?.assetKeys) ? sl.assetKeys[0] : '');
+    return key && !/\/themed-/.test(key) ? key : '';
+  };
+  return onSlides.map((u, i) => {
+    const wantsPhoto = String(u?.visual || '').toLowerCase() === 'photo';
+    const key = wantsPhoto ? keyFor(u, i) : '';
+    const copy = u?.copy || u?.purpose || '';
+    const note = u?.copy ? u?.purpose : u?.support;
+    const photo = wantsPhoto
+      ? (key
+        ? `<img src="${escHtml(mediaProxyUrl(key))}" alt="" style="width:100%;height:52%;object-fit:cover;flex:none;display:block">`
+        : '<div style="height:52%;flex:none;display:flex;align-items:center;justify-content:center;font-size:3.4vw;letter-spacing:.12em;color:#6b5f55;background:repeating-linear-gradient(135deg,transparent 0 10px,rgba(27,16,13,.1) 10px 20px),#ddd8ce">PHOTO</div>')
+      : '';
+    return `<article class="slide" style="${STRATEGY_SLIDE_CSS}">${photo}`
+      + '<div style="flex:1;display:flex;flex-direction:column;justify-content:center;gap:2.4vw;padding:7vw">'
+      + `<div style="font-size:3vw;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:#a0522d">${escHtml(`${i + 1} · ${u?.role || 'slide'}${String(u?.placement || '').toLowerCase() === 'caption' ? ' · in caption' : ''}`)}</div>`
+      + `<div style="font-size:${wantsPhoto ? 6.4 : 8.4}vw;font-weight:700;line-height:1.08">${escHtml(copy)}</div>`
+      + (note ? `<div style="font-size:3.6vw;line-height:1.35;color:#5a4d44">${escHtml(note)}</div>` : '')
+      + '</div></article>';
+  });
+}
+
 // Shell around the agent's markup. Only establishes a real 4:5 viewport so
 // height:100% / container-type:size / cqi/cqh work. Hatch is CSS-only.
 // Nested slides keep the agent's own width — a 1080px canvas is scaled by the
@@ -486,14 +528,36 @@ function InputSlideFrame({ html, label }) {
   );
 }
 
+// Where an agent's prompt turns from instructions into the data filled in for
+// this post: the first data heading of its template (plan-strategist.md ›
+// "## Brand", carousel-layouts/*.md › "STRATEGY AGENT OUTPUT:").
+const PROMPT_DATA_MARKERS = [/\n## Brand\n/, /\nSTRATEGY AGENT OUTPUT:\s*\n/];
+function splitPromptParts(text) {
+  const src = String(text || '');
+  for (const re of PROMPT_DATA_MARKERS) {
+    const m = re.exec(src);
+    if (m) return { system: src.slice(0, m.index).trimEnd(), data: src.slice(m.index + 1) };
+  }
+  return null;
+}
+const joinPromptParts = (system, data) => `${system.trimEnd()}\n\n${data.trimStart()}`;
+
 // Input › Edit: a full-screen editor for the prompt, rerun through `onRerun`
-// (Debug › Carousel agent — runs the agent on this post with the edited text).
+// (Debug › Strategy / Carousel agent — runs the agent on this post with the
+// edited text). Two tabs when the prompt splits: System prompt (the agent's
+// instructions) and Input data (what was filled in for this post); the rerun
+// sends both, joined back into one prompt.
 // Esc / Cancel closes (asks first when there are edits); ⌘/Ctrl+Enter reruns.
 function PromptEditor({ title, text, onRerun, busy, onClose }) {
-  const [draft, setDraft] = useState(text);
+  const parts = splitPromptParts(text);
+  const [tab, setTab] = useState('system');
+  const [draft, setDraft] = useState(parts ? { system: parts.system, data: parts.data } : { system: String(text || ''), data: '' });
   const ref = useRef(null);
-  const changed = draft.trim() !== String(text || '').trim();
-  const canRun = !busy && Boolean(draft.trim());
+  const combined = parts ? joinPromptParts(draft.system, draft.data) : draft.system;
+  const changed = combined.trim() !== String(text || '').trim();
+  const canRun = !busy && Boolean(combined.trim());
+  const key = parts ? tab : 'system';
+  const value = draft[key];
 
   const close = () => {
     if (changed && !window.confirm('Discard your edits to this prompt?')) return;
@@ -501,13 +565,17 @@ function PromptEditor({ title, text, onRerun, busy, onClose }) {
   };
   const run = () => {
     if (!canRun) return;
-    onRerun(draft);
+    onRerun(combined);
     onClose();
   };
+  const reset = () => setDraft(parts ? { system: parts.system, data: parts.data } : { system: String(text || ''), data: '' });
 
   useEffect(() => {
     const ta = ref.current;
     if (ta) { ta.focus(); ta.setSelectionRange(0, 0); ta.scrollTop = 0; }
+  }, [key]);
+
+  useEffect(() => {
     const prev = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
     return () => { document.body.style.overflow = prev; };
@@ -518,24 +586,43 @@ function PromptEditor({ title, text, onRerun, busy, onClose }) {
     if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); run(); }
   };
 
-  const lines = draft.split('\n').length;
+  const tabChanged = (k) => parts && draft[k].trim() !== parts[k].trim();
+  const lines = value.split('\n').length;
   return createPortal(
     <div className="wv-promptedit" role="dialog" aria-modal="true" aria-label={`Edit ${title} prompt`} onKeyDown={onKeyDown}>
       <div className="wv-promptedit__head">
         <strong>{title} · prompt</strong>
+        {parts ? (
+          <div className="wv-promptedit__tabs" role="tablist">
+            {[['system', 'System prompt'], ['data', 'Input data']].map(([k, label]) => (
+              <button
+                key={k}
+                type="button"
+                role="tab"
+                aria-selected={tab === k}
+                className={`wv-promptedit__tab${tab === k ? ' is-on' : ''}`}
+                onClick={() => setTab(k)}
+              >
+                {label}{tabChanged(k) ? ' •' : ''}
+              </button>
+            ))}
+          </div>
+        ) : null}
         <span className="wv-promptedit__meta">
-          {changed ? 'Edited · ' : ''}{lines.toLocaleString()} lines · {draft.length.toLocaleString()} chars
+          {changed ? 'Edited · ' : ''}{lines.toLocaleString()} lines · {value.length.toLocaleString()} chars
         </span>
         <div className="wv-promptedit__acts">
-          <button type="button" className="wv-agentdbg__copy" disabled={!changed} onClick={() => setDraft(text)}>Reset</button>
-          <CopyButton text={draft} />
+          <button type="button" className="wv-agentdbg__copy" disabled={!changed} onClick={reset}>Reset</button>
+          <CopyButton text={value} />
           <button type="button" className="wv-agentdbg__copy" onClick={close}>Cancel</button>
           <button
             type="button"
             className="wv-promptedit__run"
             disabled={!canRun}
             onClick={run}
-            title="Run the carousel agent on this post with this prompt (replaces the post's slides) · ⌘/Ctrl+Enter"
+            title={/^Strategy/i.test(title)
+              ? "Run the Strategy agent with this prompt (the slides stay until you run the carousel agent) · ⌘/Ctrl+Enter"
+              : "Run the carousel agent on this post with this prompt (replaces the post's slides) · ⌘/Ctrl+Enter"}
           >
             {busy ? 'Running…' : 'Rerun with this prompt'}
           </button>
@@ -544,8 +631,8 @@ function PromptEditor({ title, text, onRerun, busy, onClose }) {
       <textarea
         ref={ref}
         className="wv-promptedit__text"
-        value={draft}
-        onChange={(e) => setDraft(e.target.value)}
+        value={value}
+        onChange={(e) => { const v = e.target.value; setDraft((d) => ({ ...d, [key]: v })); }}
         spellCheck={false}
       />
     </div>,
@@ -579,11 +666,11 @@ function EditableInput({ title, text, onRerun, busy }) {
   );
 }
 
-function Block({ title, input, output, open = false, cost = '', images = [], inputSlides = [], inputHtml = '', onRerunInput = null, rerunBusy = false }) {
+function Block({ title, input, output, open = false, cost = '', images = [], inputSlides = [], inputHtml = '', previewSlides = null, onRerunInput = null, rerunBusy = false }) {
   const inputBody = pretty(input);
   const outputBody = pretty(output);
   if (!inputBody && !outputBody && !images.length) return null;
-  const slides = previewSlidesHtml(output);
+  const slides = previewSlides || previewSlidesHtml(output);
   const documentHtml = carouselDocumentHtml(output);
   const copyAll = [inputBody && `## Input\n\n${inputBody}`, outputBody && `## Output\n\n${outputBody}`]
     .filter(Boolean)
@@ -657,6 +744,7 @@ function Block({ title, input, output, open = false, cost = '', images = [], inp
 export default function PostAgentDebug({
   day,
   onRunLayout,
+  onRunStrategy,
   layoutBusy = false,
   layoutErr = '',
   elapsedMs = 0,
@@ -665,17 +753,18 @@ export default function PostAgentDebug({
 }) {
   const debug = useAiDebug();
   const trace = traceForDay(day, debug.entries);
-  // Only the agents of the latest run on this post (agentTrace.lastRun, set by
-  // every run on the server). A post from before lastRun existed shows all.
+  // agentTrace.lastRun: the latest run on this post (set by every run on the server)
   const stored = day?.agentTrace && typeof day.agentTrace === 'object' ? day.agentTrace : {};
   const run = stored.lastRun && Array.isArray(stored.lastRun.agents) ? stored.lastRun : null;
-  const shows = (id) => !run || run.agents.includes(id);
-  // The Strategy agent feeds every later run (the carousel agent's input is
-  // built from its brief), so it stays listed after a rerun that skipped it.
+  // The tab lists only the Strategy and Carousel agents. Each stays listed
+  // after a run that skipped it (the carousel agent's input is built from the
+  // Strategy brief), marked as coming from an earlier run.
   const strategyCarried = !!run && !run.agents.includes('strategy');
+  const carouselCarried = !!run && !run.agents.includes('carousel');
   const RUN_LABEL = {
     generate: 'Post generation',
     layout: 'Carousel agent (Fix layout)',
+    strategy: 'Strategy agent (edited prompt)',
     theme: 'Theme Apply',
     'remove-theme': 'Remove theme — back to the carousel agent’s design (no agent ran)',
     refine: 'Prompt edit (Slide Edit agent)',
@@ -685,19 +774,8 @@ export default function PostAgentDebug({
   const runWhen = runAt && !Number.isNaN(runAt.getTime())
     ? runAt.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
     : '';
-  const lastOf = (list) => (Array.isArray(list) && list.length ? list[list.length - 1] : null);
-  const lastRefine = run?.kind === 'refine' ? lastOf(stored.refines) : null;
-  const lastAdded = run?.kind === 'add-slide' ? lastOf(stored.addedSlides) : null;
-  const ta = trace.themeApply;
-  const taSlides = Array.isArray(ta?.slides) ? ta.slides : [];
-  const bySlide = (fn) => taSlides.map((sl) => [`# Slide ${sl.index}`, fn(sl)].join('\n')).join('\n\n');
-  const sumOf = (list) => costOf(sumEntries(list.filter(Boolean)));
   const empty = !trace.strategyBrief && !trace.strategyPrompt
-    && !trace.structure && !trace.structurePrompt
-    && !trace.dayWriter && !trace.dayWriterPrompt
-    && !trace.layout && !trace.layoutPrompt
-    && !trace.visual && !trace.visualPrompt
-    && !ta;
+    && !trace.layout && !trace.layoutPrompt;
   const took = fmtElapsed(elapsedMs);
   const cost = fmtCost(estimatedCostUsd);
   const tokens = fmtTokens(totalTokens);
@@ -718,7 +796,7 @@ export default function PostAgentDebug({
         </p>
       ) : null}
       <p className="wv-agentdbg__lead">
-        Input and output for each agent in the latest run on this post, plus the Strategy agent it built on. Other earlier runs are not listed.
+        Input and output of the Strategy agent and the Carousel agent on this post.
       </p>
       {staleShell ? (
         <p className="wv-agentdbg__empty">
@@ -739,6 +817,11 @@ export default function PostAgentDebug({
         </div>
       )}
       {layoutErr ? <p className="wv-agentdbg__empty">{layoutErr}</p> : null}
+      {stored.strategyRerun ? (
+        <p className="wv-agentdbg__empty">
+          New strategy saved. The slides still show the old one — click <strong>Run carousel agent</strong> to build them from it.
+        </p>
+      ) : null}
       {empty && (
         <p className="wv-agentdbg__empty">
           No agent trace on this post yet. Generate or replan with debug mode on. Older posts may only show output until you regenerate.
@@ -750,78 +833,18 @@ export default function PostAgentDebug({
         output={trace.strategyBrief}
         open={!strategyCarried}
         cost={trace.costs?.strategy}
+        previewSlides={strategySlidesHtml(trace.strategyBrief, day?.content?.slides)}
+        onRerunInput={onRunStrategy ? (prompt) => onRunStrategy(prompt) : null}
+        rerunBusy={layoutBusy}
       />
-      {shows('structure') && <Block
-        title="Structure agent"
-        input={trace.structurePrompt}
-        output={trace.structure}
-        cost={trace.costs?.structure}
-      />}
-      {shows('dayWriter') && <Block
-        title="Slide content"
-        input={trace.dayWriterPrompt}
-        output={trace.dayWriter}
-        cost={trace.costs?.dayWriter}
-      />}
-      {shows('carousel') && <Block
-        title="Carousel agent"
+      <Block
+        title={carouselCarried ? 'Carousel agent (from an earlier run)' : 'Carousel agent'}
         input={trace.layoutPrompt}
         output={trace.layout}
         cost={trace.costs?.layout}
         onRerunInput={onRunLayout ? (prompt) => onRunLayout(prompt) : null}
         rerunBusy={layoutBusy}
-      />}
-      {shows('visual') && <Block
-        title="Visual agent"
-        input={trace.visualPrompt}
-        output={trace.visual}
-        cost={trace.costs?.visual}
-      />}
-      {lastRefine ? (
-        <Block
-          title="Slide Edit agent"
-          input={lastRefine.instruction || ''}
-          output={lastRefine}
-          open
-        />
-      ) : null}
-      {lastAdded ? (
-        <Block
-          title="Add Slide agent"
-          input={lastAdded.capture || ''}
-          output={lastAdded}
-          open
-        />
-      ) : null}
-      {ta && shows('themeApply') ? (
-        <>
-          {ta.designRules ? (
-            <Block
-              title={`Design Rules agent${ta.designRules.cached ? ' (cached)' : ''}`}
-              input={`Reference image → ${ta.designRules.model || ''}`}
-              output={ta.designRules.rules}
-              cost={sumOf([ta.designRules.usage])}
-              images={[
-                ...(ta.referenceKey ? [{ key: ta.referenceKey, label: 'Reference' }] : []),
-                ...(ta.referenceTheme?.path ? [{ key: ta.referenceTheme.path, src: ta.referenceTheme.path, label: ta.referenceTheme.name || 'Theme' }] : []),
-              ]}
-            />
-          ) : null}
-          <Block
-            title="Theme Apply agent"
-            input={taSlides.length ? bySlide((sl) => sl.renderPrompt || '') : ''}
-            output={taSlides.length ? taSlides.map((sl) => ({ slide: sl.index, model: sl.renderModel, key: sl.key })) : null}
-            cost={sumOf(taSlides.map((sl) => sl.usage))}
-            inputSlides={taSlides.filter((sl) => sl.inputHtml).map((sl) => ({ html: sl.inputHtml, label: `Slide ${sl.index} as sent` }))}
-            images={[
-              ...(ta.referenceKey ? [{ key: ta.referenceKey, label: 'Reference' }] : []),
-              ...(ta.referenceTheme?.path ? [{ key: ta.referenceTheme.path, src: ta.referenceTheme.path, label: ta.referenceTheme.name || 'Theme' }] : []),
-              ...taSlides.flatMap((sl) => (Array.isArray(sl.assets) ? sl.assets : []).map((a) => ({ key: `${sl.index}:${a.key}`, src: mediaProxyUrl(a.key), label: `Slide ${sl.index} asset ${a.n}${a.primary ? ' (primary)' : ''}` }))),
-              ...taSlides.filter((sl) => sl.key).map((sl) => ({ key: sl.key, label: `Slide ${sl.index}` })),
-            ]}
-          />
-        </>
-      ) : null}
+      />
     </div>
   );
 }

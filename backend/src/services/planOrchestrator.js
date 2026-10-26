@@ -3539,6 +3539,43 @@ async function runStrategistCall({ ctx, emptyDates, projects, source }) {
   };
 }
 
+// Debug › Strategy agent › Edit prompt: run the Strategist on ONE post with
+// the exact prompt the studio edited, and take back the brief for that post
+// (same date, else same capture/angle, else the first). Fields the new brief
+// leaves out keep the post's previous brief, so its photos and date hold.
+async function rerunStrategistForPost({ prompt, previousBrief = {}, date = '', source = 'Strategist' }) {
+  const assembled = splitPromptOverride({ system: '' }, prompt);
+  const strategist = await callAgent({
+    source,
+    kind: 'strategist',
+    system: assembled.system,
+    user: assembled.user,
+    prompt: assembled.prompt,
+    validate: (p) => validateStrategist(p),
+  });
+  const briefs = Array.isArray(strategist.parsed.briefs) ? strategist.parsed.briefs : [];
+  if (!briefs.length) {
+    const why = String(strategist.parsed.constraints?.insufficientContext || '').trim();
+    const err = new Error(`The Strategist returned no brief${why ? `: ${why}` : '.'}`);
+    err.statusCode = 422;
+    throw err;
+  }
+  const same = (a, b) => String(a || '').trim() && String(a || '').trim() === String(b || '').trim();
+  const picked = (date && briefs.find((b) => same(b?.date, date)))
+    || briefs.find((b) => same(b?.captureId, previousBrief.captureId))
+    || briefs.find((b) => same(b?.angle, previousBrief.angle))
+    || briefs[0];
+  const defined = Object.fromEntries(Object.entries(picked || {}).filter(([, v]) => v !== undefined && v !== null && v !== ''));
+  return {
+    brief: strategyBriefPayload({ ...previousBrief, ...defined }),
+    // the photos the Strategist gave this brief (not part of the stored payload)
+    allocatedAssets: Array.isArray(picked?.allocatedAssets) ? picked.allocatedAssets : [],
+    parsed: strategist.parsed,
+    debugEntry: strategist.debugEntry,
+    usage: strategist.usage,
+  };
+}
+
 // The requested captures, grouped the way the Captures page shows them: one
 // group per conversation (sessionId), else per capture. Empty unless the
 // request names captures from at least two conversations — the single-call
@@ -3911,6 +3948,8 @@ function assemblePlanResult(phase, dayResults) {
 module.exports = {
   runMultiAgentPlan,
   runStrategistPhase,
+  rerunStrategistForPost,
+  postFromBrief,
   writePlanDay,
   assemblePlanResult,
   visualThemeOf,

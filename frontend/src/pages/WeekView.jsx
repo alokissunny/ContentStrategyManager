@@ -28,6 +28,7 @@ import {
   setPostTime,
   setPostReview,
   runPostLayout,
+  runPostStrategy,
   applyThemeImage,
   listThemeReferences,
   deleteThemeReference,
@@ -3481,6 +3482,7 @@ export default function WeekView({
   const setDayTime = (_id, i, { time } = {}) => setPostTime(postIdAt(i), time || '').then(mergePost);
   const reviewDay = (_id, i, on) => setPostReview(postIdAt(i), on).then(mergePost);
   const runDayLayout = (_id, i, opts) => runPostLayout(postIdAt(i), opts).then((d) => ({ ...d, route: mergePost(d.post) }));
+  const runDayStrategy = (i, prompt) => runPostStrategy(postIdAt(i), prompt).then((d) => ({ ...d, route: mergePost(d.post) }));
   const removeDayTheme = (_id, i, body) => apiRemoveTheme(postIdAt(i), body).then((d) => ({ ...d, route: mergePost(d.post) }));
   // Your references (uploaded theme references kept for re-apply)
   const [savedRefs, setSavedRefs] = useState([]);
@@ -5495,14 +5497,29 @@ export default function WeekView({
   // promptOverride: Debug › Carousel agent › Edit prompt (an onClick event
   // arrives here too — only a string counts)
   async function handleRunLayout(promptOverride) {
-    if (layoutBusy || !route?._id) return;
     const override = typeof promptOverride === 'string' ? promptOverride.trim() : '';
+    await runPostAgents(
+      () => runDayLayout(route._id, selected, override ? { promptOverride: override } : undefined),
+      'Carousel agent',
+    );
+  }
+
+  // Debug › Strategy agent › Edit prompt: only the Strategist reruns, on the
+  // edited prompt; the slides stay until Run carousel agent uses the new brief.
+  async function handleRunStrategy(prompt) {
+    const text = typeof prompt === 'string' ? prompt.trim() : '';
+    if (!text) return;
+    await runPostAgents(() => runDayStrategy(selected, text), 'Strategy agent');
+  }
+
+  async function runPostAgents(run, agentLabel) {
+    if (layoutBusy || !route?._id) return;
     const slideIndex = 0;
     const wasEditing = postEdit;
     setLayoutBusy(true);
     setLayoutErr('');
     try {
-      const data = await runDayLayout(route._id, selected, override ? { promptOverride: override } : undefined);
+      const data = await run();
       if (data?.route) {
         setRoute(data.route);
         onRouteChange?.(data.route);
@@ -5518,8 +5535,8 @@ export default function WeekView({
       const timedOut = err?.code === 'ECONNABORTED' || /timeout/i.test(String(err?.message || ''));
       setLayoutErr(
         timedOut
-          ? 'Carousel agent timed out. Try again — a server restart mid-run can leave this stuck.'
-          : (err.response?.data?.message || err.message || 'Carousel agent failed.'),
+          ? `${agentLabel} timed out. Try again — a server restart mid-run can leave this stuck.`
+          : (err.response?.data?.message || err.message || `${agentLabel} failed.`),
       );
     } finally {
       setLayoutBusy(false);
@@ -9314,6 +9331,7 @@ export default function WeekView({
                 <PostAgentDebug
                   day={day}
                   onRunLayout={handleRunLayout}
+                  onRunStrategy={handleRunStrategy}
                   layoutBusy={layoutBusy}
                   layoutErr={layoutErr}
                   elapsedMs={weekUsage?.elapsedMs}
@@ -9503,6 +9521,7 @@ export default function WeekView({
                   <PostAgentDebug
                     day={day}
                     onRunLayout={handleRunLayout}
+                    onRunStrategy={handleRunStrategy}
                     layoutBusy={layoutBusy}
                     layoutErr={layoutErr}
                     elapsedMs={weekUsage?.elapsedMs}
