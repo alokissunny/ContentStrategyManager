@@ -853,7 +853,7 @@ export default function EditorMore({ acts, onClose }) {
       onClose={onClose}
       rows={[
         { id: 'layouts', icon: 'blocks', label: 'Layout', hint: 'How this slide is arranged', dead: acts.busy, fn: () => setLevel('layout'), into: true, chevron: true },
-        { id: 'themes', icon: 'droplet', label: 'Theme', hint: 'The direction it wears', fn: () => setLevel('theme'), into: true, chevron: true },
+        { id: 'themes', icon: 'droplet', label: 'Theme', hint: 'The direction it wears', dead: true /* off for now */, fn: () => setLevel('theme'), into: true, chevron: true },
         { id: 'content', icon: 'layers', label: 'Content', hint: 'Image and logo', fn: () => setLevel('content'), into: true, chevron: true },
         { id: 'style', icon: 'swatch', label: 'Style', hint: 'Colours and background', fn: () => setLevel('style'), into: true, chevron: true },
         { id: 'slide', icon: 'copy', label: 'Slide', hint: many ? 'This frame, and the ones around it' : 'Add another frame', fn: () => setLevel('slide'), into: true, chevron: true },
