@@ -137,11 +137,23 @@ function selectableFrom(target, root, doc) {
   }
   if (!el || el === doc.documentElement || el === root || !within(el, root)) return null;
   // climb out of inline wrappers (and <svg> internals) to the block they sit in
+  const win = el.ownerDocument.defaultView;
   while (el.parentElement && el.parentElement !== root
-    && (INLINE_TAGS.has(el.tagName) || el instanceof el.ownerDocument.defaultView.SVGElement && el.tagName.toLowerCase() !== 'svg')) {
+    && (isInlineWrapper(el, win) || el instanceof win.SVGElement && el.tagName.toLowerCase() !== 'svg')) {
     el = el.parentElement;
   }
   return el;
+}
+
+// A <span>/<em>… that only marks words inside a line. One that is laid out as
+// its own box — a slotted run, an absolutely placed counter, a flex child like
+// an eyebrow — is a thing of its own and is picked directly.
+function isInlineWrapper(el, win) {
+  if (!INLINE_TAGS.has(el.tagName)) return false;
+  if (el.hasAttribute('data-slot')) return false;
+  const cs = win.getComputedStyle(el);
+  if (cs.position === 'absolute' || cs.position === 'fixed') return false;
+  return cs.display.startsWith('inline') || cs.display === 'contents';
 }
 
 // Path of `el` from `root` as element-child indices, skipping edit UI.
