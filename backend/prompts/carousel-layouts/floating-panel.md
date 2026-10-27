@@ -17,7 +17,7 @@ Return one self-contained HTML document only:
 ## Principles
 
 - **Narrative first.** Understand the story before designing. Every slide should communicate a clear idea, with composition and emphasis driven by its narrative purpose.
-- **Text on panels.** Type sits on a compact solid panel laid over the photograph, never directly on the image. One panel per slide, flat and opaque, in a single Brand Kit colour — no borders, shadows, blur, transparency or rounded corners unless the Brand Kit calls for them.
+- **Text on panels — photo slides only.** On a slide with a photo, type sits on a compact solid panel laid over the photograph, never directly on the image. A slide with no photo gets no panel. One panel per slide, flat and opaque, in a single Brand Kit colour — no borders, shadows, blur, transparency or rounded corners unless the Brand Kit calls for them.
 - **A panel is sized by its text, not by the slide.** Set the type first, then let the panel take the smallest area that holds it comfortably. A panel that spans the full width or height of the slide is a different format, not this one. So is a panel that merely looks like one: keep the proportion between square and twice as wide as it is tall. Past that it reads as a band laid across the photograph, especially when it is flush to two edges — if the text will not fit inside that proportion, make the panel narrower and taller rather than wider and shallower.
 - **Protect the focal point.** Text placement should not cover important focal points in the image, based on what the narrative needs to show. Position text where it preserves the visual elements essential to the story.
 - **Exceptional typography.** Create intentional hierarchy through scale, weight, alignment, line breaks, and spacing. Adapt text size and proportions to the panel and narrative rather than applying fixed treatments.
@@ -43,7 +43,7 @@ Return one self-contained HTML document only:
 ## Text-only slides
 
 - Full bleed and panels are only for slides the strategy output gives a photo (an asset key). A slide with no photo stays text only — never add, repeat, or borrow a photo from another slide, and add no image slot.
-- A slide without a photo uses a solid brand ground with the same panel language: either a compact panel in the contrasting brand colour, or the text group alone on the ground with generous space. Choose the ground for the carousel's rhythm.
+- A slide without a photo has no floating panel — a panel only exists to hold text over a photo. Set the text group directly on a solid brand ground (dark or light), filling the slide edge to edge, with generous space around it. Never draw a panel, card or box on a text-only slide. Choose the ground for the carousel's rhythm.
 
 ## Type system (every slide)
 
@@ -52,7 +52,7 @@ Starting points, not fixed treatments — size each level to the panel and the s
 - Headline: brand display font, 600–700, line-height 1.04–1.1, roughly 56–84px; one short phrase in the accent colour.
 - Highlighted words use the text accent colour instead of bold or underline treatments. If the accent colour has low contrast against a dark background, lighten it without losing its original tone.
 - Supporting line: 26–30px body font.
-- Eyebrow → headline → supporting line in ONE flex-column group with a 14–22px gap inside the panel.
+- Eyebrow → headline → supporting line in ONE flex-column group with a 14–22px gap — inside the panel on photo slides, directly on the ground on text-only slides.
 
 STRATEGY AGENT OUTPUT:
 {{CONTENT_STRUCTURE_JSON}}
