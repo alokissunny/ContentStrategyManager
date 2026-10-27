@@ -9085,7 +9085,7 @@ p.wv-sa__hint { margin: 8px 4px 0; }
 }
 
 /* the slide ideas: the sparkle marks the one that asks Bauhly to decide */
-.wv-edm__ideas { justify-content: center; margin: 0 auto; }
+.wv-edm__ideas { justify-content: flex-start; margin: 0 auto 0 0; }
 .wv-edm__asktry > .wv-edm__trymark { color: var(--ink-500); margin: 0 -1px 0 0; }
 .wv-edm__asktry:hover:not(:disabled) > .wv-edm__trymark { color: var(--ink-800); }
 .wv-edm__ask.is-ideas.is-footing .wv-edm__ideas { visibility: hidden; }
