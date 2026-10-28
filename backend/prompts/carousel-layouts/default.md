@@ -8,8 +8,8 @@ Return one self-contained HTML document only:
 </section>
 ```
 
-- One `<article class="slide" data-index="N">` per slide in the strategy output, in that order. Each slide is exactly 1080×1350 px.
-- Slide count is fixed: write exactly as many slides as the strategy output lists, in its order. Never merge, drop, or skip a slide, and never fold two slides' copy into one — even when a slide has little copy or no photo.
+- One `<article class="slide" data-index="N">` per slide, numbered in reading order. Each slide is exactly 1080×1350 px.
+{{SLIDE_PLAN_RULES}}
 - `data-slot` on every editable text run. Photos: `<img data-slot="image" data-asset-key="…">` using the asset key from the strategy output.
 - Full bleed only where the strategy output gives the slide a photo (an asset key): that photo fills the slide edge to edge and the text sits on it, readable.
 - A slide with no photo is text only: a solid brand-colour ground with the copy. Do not add, repeat, or borrow a photo from another slide, and do not add an image slot.

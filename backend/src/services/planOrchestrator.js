@@ -2046,6 +2046,7 @@ function applyLayoutToContent(content, layoutParsed) {
   const slides = Array.isArray(content?.slides) ? content.slides : [];
   const plans = layoutParsed?.status === 'ready' ? (layoutParsed.slides || []) : [];
   if (!slides.length || !plans.length) return content;
+  if (layoutParsed.ownsStory) return applyCarouselStory(content, layoutParsed);
   const byIndex = new Map(plans.map((s) => [Number(s.index), s]));
   content.slides = slides.map((raw, i) => {
     const index = Number(raw?.index) > 0 ? Number(raw.index) : i + 1;
@@ -2110,6 +2111,66 @@ function applyLayoutToContent(content, layoutParsed) {
     });
   if (layoutParsed?.html) content.carouselHtml = layoutParsed.html;
   if (layoutParsed?.themeId) content.themeId = layoutParsed.themeId;
+  return content;
+}
+
+const STORY_ROLES = ['hook', 'problem', 'insight', 'reasoning', 'rehook', 'resolution', 'cta'];
+
+// The carousel agent wrote the story itself (prompts/carousel-story.md): its
+// slides replace the Strategist's outline — count, order, roles and words read
+// from its html; a slide's photo keeps the outline's visual for that asset.
+function applyCarouselStory(content, layoutParsed) {
+  const outlineVisual = new Map((content.slides || [])
+    .filter((s) => optionalText(s?.assetKey))
+    .map((s) => [optionalText(s.assetKey), s.visual]));
+  const plans = [...(layoutParsed.slides || [])].sort((a, b) => Number(a.index) - Number(b.index));
+  const next = plans.map((plan, i) => {
+    const options = (Array.isArray(plan.options) ? plan.options : [])
+      .map((o, idx) => ({
+        rank: Number(o?.rank) > 0 ? Number(o.rank) : idx + 1,
+        label: optionalText(o?.label),
+        reason: optionalText(o?.reason),
+        html: extractLayoutHtml(o?.html),
+        direction: optionalText(o?.direction),
+      }))
+      .filter((o) => o.html);
+    const html = options[0]?.html || extractLayoutHtml(plan.html) || '';
+    if (!html) return null;
+    const copy = copyFromLayoutHtml(html)?.filled || {};
+    const article = (html.match(/<article\b[^>]*>/i) || [''])[0];
+    const role = String(htmlAttr(article, 'data-role') || '').trim().toLowerCase();
+    const img = (html.match(/<img\b[^>]*\bdata-asset-key\s*=[^>]*>/i) || [''])[0];
+    const assetKey = optionalText(htmlAttr(img, 'data-asset-key'));
+    return {
+      index: i + 1,
+      role: STORY_ROLES.includes(role) ? role : (copy.action ? 'cta' : 'other'),
+      purpose: '',
+      placement: 'visual',
+      coversUnits: [],
+      title: '',
+      subtitle: '',
+      body: '',
+      items: [],
+      ...copy,
+      contentGuidance: '',
+      assetKey,
+      image: assetKey ? 'placeholder' : '',
+      visual: assetKey
+        ? (outlineVisual.get(assetKey) || {
+          priority: 'recommended', role: 'evidence', type: 'Image', execution: 'supplied-asset', assetKey,
+        })
+        : { priority: 'none', role: 'none', type: 'none' },
+      elements: [],
+      layout: 'dynamic',
+      layoutHtml: html,
+      layoutOptions: options,
+      layoutTheme: options[0]?.direction || '',
+    };
+  }).filter(Boolean);
+  if (!next.length) return content;
+  content.slides = next;
+  if (layoutParsed.html) content.carouselHtml = layoutParsed.html;
+  if (layoutParsed.themeId) content.themeId = layoutParsed.themeId;
   return content;
 }
 
@@ -2480,6 +2541,26 @@ function validateCarousel(parsed, post, inputCount = 0) {
   parsed.slides = doc.slides;
 }
 
+// The carousel agent owns the story (new posts): any slide count it chose,
+// within what a carousel can hold.
+const STORY_MIN_SLIDES = 3;
+const STORY_MAX_SLIDES = 12;
+function validateCarouselStory(parsed) {
+  const raw = String(parsed?.html || '');
+  if (/content structure (was )?not included|awaiting content|role not supplied/i.test(raw)) {
+    throw new Error('carousel html is an empty shell (structure missing from model input)');
+  }
+  const doc = parseCarouselDocument(raw, 0);
+  if (!doc.html || !doc.slides.length) throw new Error(`carousel html missing slides (chars=${raw.length})`);
+  if (doc.slides.length < STORY_MIN_SLIDES || doc.slides.length > STORY_MAX_SLIDES) {
+    throw new Error(`carousel slide count ${doc.slides.length} outside ${STORY_MIN_SLIDES}-${STORY_MAX_SLIDES}`);
+  }
+  parsed.status = 'ready';
+  parsed.html = doc.html;
+  parsed.slides = doc.slides;
+  parsed.ownsStory = true;
+}
+
 // This slide: exactly one slide back, numbered as the slide it replaces.
 function validateOneSlide(parsed, index) {
   let raw = String(parsed?.html || '');
@@ -2566,7 +2647,10 @@ async function carouselPhotosOf(carouselInput, layout = carouselLayout()) {
   };
 }
 
-async function writeCarousel({ source, structure, post, dayBrief, brand, dayWriterOutput, onlySlide = 0, promptOverride = '' }) {
+// Slide rule for runs that keep the post's slides (carousel-layouts/*.md › {{SLIDE_PLAN_RULES}}).
+const FIXED_SLIDE_RULE = "- Slide count is fixed: write exactly as many slides as the strategy output lists, in its order. Never merge, drop, or skip a slide, and never fold two slides' copy into one — even when a slide has little copy or no photo. Each slide's headline is the narrative unit's `copy`, word for word.";
+
+async function writeCarousel({ source, structure, post, dayBrief, brand, dayWriterOutput, onlySlide = 0, promptOverride = '', ownsStory = false }) {
   const hasStructure = Array.isArray(structure?.slidesOrScenes) && structure.slidesOrScenes.length > 0;
   const carouselInput = hasStructure
     ? carouselInputOf(structure, post, dayBrief)
@@ -2608,7 +2692,11 @@ async function writeCarousel({ source, structure, post, dayBrief, brand, dayWrit
         `(structureSlides=${structureSlides} postSlides=${postSlideCount})`,
     );
   }
+  // New posts: the agent writes the hook and narrative itself (carousel-story.md).
+  // Editor reruns and This slide keep the post's slides as they are.
+  const story = ownsStory && !one;
   const built = assembleAgentPrompt(layout.prompt, {
+    SLIDE_PLAN_RULES: story ? loadPrompt('carousel-story.md').trim() : FIXED_SLIDE_RULE,
     CONTENT_STRUCTURE_JSON: json(carouselInput),
     DAY_WRITER_OUTPUT: optionalPromptJson(dayWriterOutput),
     BRAND_STYLE: optionalPromptJson(brandStyleOf(brand)),
@@ -2637,7 +2725,11 @@ async function writeCarousel({ source, structure, post, dayBrief, brand, dayWrit
     ? { ...assembled, user: `${assembled.user}\n\n${photos.note}`, prompt: `${assembled.prompt || ''}\n\n${photos.note}` }
     : assembled;
   const inputCount = (carouselInput.slides || []).length;
-  const validate = (parsed) => (one ? validateOneSlide(parsed, one) : validateCarousel(parsed, post, inputCount));
+  const validate = (parsed) => {
+    if (one) return validateOneSlide(parsed, one);
+    if (story) return validateCarouselStory(parsed);
+    return validateCarousel(parsed, post, inputCount);
+  };
   const result = await withLayoutSlot(() => callAgent({
     source,
     kind: 'carousel',
@@ -2753,6 +2845,7 @@ async function attachCarousel({ label, structure, writer, collect, dayBrief, day
       brand,
       dayWriterOutput: '',
       themeId: dayBrief?.themeId || '',
+      ownsStory: true,
     });
     collectLayoutParts(carousel, collect);
     const htmlCount = (carousel.parsed?.slides || []).filter((s) => s.html).length;
@@ -4001,6 +4094,7 @@ module.exports = {
   writeLayoutVariations,
   applyLayoutToContent,
   validateCarousel,
+  validateCarouselStory,
   normalizeWriterPost,
   attachGeneratedVisuals,
   slideNeedsGeneratedVisual,

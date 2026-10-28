@@ -8,8 +8,8 @@ Return one self-contained HTML document only:
 </section>
 ```
 
-- One `<article class="slide" data-index="N">` per slide in the strategy output, in that order. Each slide is exactly `width:1080px;height:1350px`, `position:relative; overflow:hidden`. Use px sizes only — no vw/vh or viewport clamp().
-- Slide count is fixed: write exactly as many slides as the strategy output lists, in its order. Never merge, drop, or skip a slide, and never fold two slides' copy into one — even when a slide has little copy or no photo.
+- One `<article class="slide" data-index="N">` per slide, numbered in reading order. Each slide is exactly `width:1080px;height:1350px`, `position:relative; overflow:hidden`. Use px sizes only — no vw/vh or viewport clamp().
+{{SLIDE_PLAN_RULES}}
 - `data-slot` on every editable text run. Photos: `<img data-slot="image" data-asset-key="…">` using the asset key from the strategy output.
 - Write compact HTML: one `<style>` block with shared classes for everything that repeats (frame, counter, hairline, eyebrow, headline, supporting line, accent devices), and per-slide rules only for what differs. No repeated inline styles, no unused CSS, no comments except each photo slide's focal comment.
 - HTML only. No explanation.
@@ -23,7 +23,7 @@ Return one self-contained HTML document only:
 - **Exceptional typography.** Create intentional hierarchy through scale, weight, alignment, line breaks, and spacing. Adapt text size and proportions to the panel and narrative rather than applying fixed treatments.
 - **Distribute the lines, do not place them.** Let the lines balance: none much shorter than its neighbours, no single word stranded on a line of its own, and no line running longer than about thirteen times the type size — past that the eye loses the start of the next line. Break by hand only where a break carries meaning, such as the ask on a closing slide or a phrase that must stay whole; everywhere else a hand-placed break is what produces the stranded word. In HTML this is `text-wrap: balance` on the headline, `text-wrap: pretty` on the supporting line, and a `max-width` in `em` so the cap scales with the type.
 - **Three levels of text on every panel.** An eyebrow, a headline, and a supporting line. You write the eyebrow and the supporting line yourself, from the narrative — the strategy output usually gives only the headline.
-  - **Headline** (`data-slot="title"`): the narrative unit's `copy`, word for word, with one short phrase in the Brand Kit accent colour.
+  - **Headline** (`data-slot="title"`): the slide's headline (see the slide rules above), with one short phrase in the Brand Kit accent colour.
   - **Eyebrow** (`data-slot="eyebrow"`): one to four words in letter-spaced caps that tell the reader where this slide sits in the story or what it is about — the project or room, the stage, the turn ("THE TERRACE", "WHAT HAD TO STAY", "THE BRIEF", "NEXT STEP"). Draw it from the unit's role and purpose and the post's story; never repeat the headline's words.
   - **Supporting line** (`data-slot="supporting-text"`): one short reader-facing sentence (about 4–12 words) that adds the concrete detail behind the headline — what, where, or how. Build it from the unit's `support`, the post's `verifiedTruth`, `story` and `caption`, rewritten for the reader. On the closing slide it restates the ask.
   - Write only what the strategy output makes true: no new facts, numbers, results or claims. Never paste `support` as written — it is the evidence behind the unit, written for the brief ("The capture says…", "The image shows…") — and never publish `purpose`, `contentGuidance` or other planning text. In FINAL COPY, a slide's `title` / `body` may hold exactly that planning text; do not use them as copy.
