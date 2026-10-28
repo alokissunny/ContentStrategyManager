@@ -21,7 +21,8 @@ function loadPrompt() {
 }
 
 const SIGNAL_KEYS = ['happened', 'intent', 'difficulty', 'actionTaken', 'outcome'];
-const QUESTION_BUDGET = 4;
+// Usually no more than 2; a 3rd only for a missed word or an accuracy gap (prompt › How to ask).
+const QUESTION_BUDGET = 3;
 
 function escapeControlCharsInStrings(s) {
   let out = '';
@@ -654,9 +655,9 @@ function conversationBlock({ text, projectName, turns, projects }) {
   } else if (missedWord && asked === 0) {
     lines.push('The source still has a missed spoken word ([?], [unclear], [inaudible], or a similar marker). Ask exactly ONE question to recover that word or phrase before returning ready. This is not a project-filing question.');
   } else if (asked === 0) {
-    lines.push(`Ask at most ${QUESTION_BUDGET} questions, one per turn. Ask exactly ONE question only if a non-obvious material gap remains for the Strategist (why, what is wrong now, what will change, constraints, outcome). Do not ask anything the source already said. If nothing non-obvious is missing, return ready. Do not ask about Instagram, posting, or which project to file.`);
+    lines.push(`Usually ask no more than 2 questions (never more than ${QUESTION_BUDGET}), one short natural question per turn. Ask exactly ONE only if an important gap prevents understanding the design decision: why it was chosen, what problem it addresses, what constraint shaped it. Do not ask anything the source already said. If the decision is understood, return ready. Do not ask about Instagram, posting, hooks, angles, audience lessons, or which project to file.`);
   } else {
-    lines.push(`Questions asked so far: ${asked} of ${QUESTION_BUDGET}. Ask exactly ONE more only if a non-obvious material gap remains; otherwise return grounded Capture(s). Do not re-ask what they already said. Do not list multiple questions.`);
+    lines.push(`Questions asked so far: ${asked} (usually stop at 2, never more than ${QUESTION_BUDGET}). Ask exactly ONE more only if an important gap still blocks understanding the design decision; otherwise return grounded Capture(s). If the user skipped, do not re-ask or rephrase it; proceed with the facts available. Do not re-ask what they already said. Do not list multiple questions.`);
   }
   if (history.length) {
     history.forEach((t) => {
@@ -755,7 +756,8 @@ function endedTooSoon(parsed, text, turns) {
 
 const USER_JSON_INSTRUCTION = [
   'Return one JSON object with status needs_clarification or ready.',
-  'At most 4 clarification questions. No minimum. Ask only non-obvious gaps for the Strategist (why, current problem, what will change, constraints, outcome).',
+  'Usually no more than 2 clarification questions, never more than 3. No minimum. Ask only when an important gap prevents understanding the design decision (why it was chosen, what problem it addresses, what constraint shaped it, alternatives, intended outcome).',
+  'Never ask the user to invent hooks, marketing angles or audience lessons. If the user skips, proceed with the facts available.',
   'Do not ask anything the source already said. Do not pad the quota with obvious questions.',
   'Each turn: put exactly ONE question in question, or return ready. Do not list multiple questions.',
   'Detect internal stories for clarification and record them in internalStories with factIds. They are not capture boundaries and are not automatically posts.',
@@ -768,7 +770,7 @@ const USER_JSON_INSTRUCTION = [
 
 const CONTINUE_QUESTIONS_HINT = [
   'Do not complete yet.',
-  'Ask exactly ONE non-obvious question that fills a missing piece for the Strategist.',
+  'Ask exactly ONE short, natural question about the designer\'s reasoning, constraints, alternatives or intended outcome.',
   'Do not re-ask what the source already said. Do not ask about Instagram, posting, or which project to file.',
   'Return needsClarification true with exactly ONE question and captures [].',
   'Do not mention story numbers.',
