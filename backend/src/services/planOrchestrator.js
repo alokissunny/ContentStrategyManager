@@ -235,6 +235,35 @@ function audienceLensOf(v) {
   return Object.keys(out).length ? out : undefined;
 }
 
+// Strategist's audience-relevance read of the capture, done before the pillar is picked.
+function relevanceOf(v) {
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return undefined;
+  const out = {};
+  ['problemOrDesire', 'readerLearns', 'reveals', 'provingDecision', 'chosenInsight'].forEach((k) => {
+    const t = optionalText(v[k]);
+    if (t) out[k] = t;
+  });
+  return Object.keys(out).length ? out : undefined;
+}
+
+// Strategist's hook plan: context, curiosity, open loop, and the unit that pays it off.
+function hookOf(v) {
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return undefined;
+  const out = {};
+  ['context', 'curiosity', 'openLoop', 'payoffUnitId'].forEach((k) => {
+    const t = optionalText(v[k]);
+    if (t) out[k] = t;
+  });
+  return Object.keys(out).length ? out : undefined;
+}
+
+// Strategist's storytelling angle — how the story is told (separate from the pillar).
+const STORY_ANGLES = ['positive', 'contrarian', 'authority', 'list', 'transformation', 'question'];
+function storyAngleOf(v) {
+  const t = String(v || '').trim().toLowerCase();
+  return STORY_ANGLES.includes(t) ? t : '';
+}
+
 function briefFieldsOf(b) {
   const lens = normalizeLens(b.lens || b.pillar);
   // No theme: the carousel agent designs in its house style; a theme is applied
@@ -251,6 +280,7 @@ function briefFieldsOf(b) {
     originalCapture: optionalText(b.originalCapture),
     angle: b.angle || '',
     ...(audienceLensOf(b.audienceLens) ? { audienceLens: audienceLensOf(b.audienceLens) } : {}),
+    ...(relevanceOf(b.relevance) ? { relevance: relevanceOf(b.relevance) } : {}),
     clientCare: optionalText(b.clientCare),
     story: optionalText(b.story),
     caption: optionalText(b.caption),
@@ -263,6 +293,7 @@ function briefFieldsOf(b) {
     uniqueJob: optionalText(b.uniqueJob),
     audienceTension: optionalText(b.audienceTension),
     hookTerritory: optionalText(b.hookTerritory),
+    ...(hookOf(b.hook) ? { hook: hookOf(b.hook) } : {}),
     centralFact: optionalText(b.centralFact),
     ownedTerritory: optionalText(b.ownedTerritory),
     doNotRepeat: optionalTextOrList(b.doNotRepeat),
@@ -276,6 +307,8 @@ function briefFieldsOf(b) {
     hashtags: stringList(b.hashtags),
     recommendedTime: optionalText(b.recommendedTime),
     pillarJob: optionalText(b.pillarJob),
+    ...(storyAngleOf(b.storyAngle) ? { storyAngle: storyAngleOf(b.storyAngle) } : {}),
+    ...(optionalText(b.storyAngleReason) ? { storyAngleReason: optionalText(b.storyAngleReason) } : {}),
     ...(lens ? { lens, pillar: lens } : {}),
   };
 }
@@ -1149,6 +1182,8 @@ function strategyBriefPayload(brief) {
     pillar: brief.pillar,
     lens: brief.lens,
     pillarJob: brief.pillarJob,
+    ...(brief.storyAngle ? { storyAngle: brief.storyAngle } : {}),
+    ...(brief.storyAngleReason ? { storyAngleReason: brief.storyAngleReason } : {}),
     source: brief.source,
     captureId: brief.captureId,
     sourceStoryId: brief.sourceStoryId,
@@ -1156,6 +1191,7 @@ function strategyBriefPayload(brief) {
     originalCapture: brief.originalCapture,
     angle: brief.angle,
     ...(brief.audienceLens ? { audienceLens: brief.audienceLens } : {}),
+    ...(brief.relevance ? { relevance: brief.relevance } : {}),
     clientCare: brief.clientCare,
     story: brief.story,
     caption: brief.caption,
@@ -1167,6 +1203,7 @@ function strategyBriefPayload(brief) {
     uniqueJob: brief.uniqueJob,
     audienceTension: brief.audienceTension,
     hookTerritory: brief.hookTerritory,
+    ...(brief.hook ? { hook: brief.hook } : {}),
     centralFact: brief.centralFact,
     ownedTerritory: brief.ownedTerritory,
     doNotRepeat: brief.doNotRepeat,
@@ -3632,6 +3669,8 @@ async function writePlanDay(phase, projects, planned, index) {
     pillar,
     lens: pillar,
     pillarJob: optionalText(planned.pillarJob) || PILLAR_JOB[pillar] || '',
+    ...(planned.storyAngle ? { storyAngle: planned.storyAngle } : {}),
+    ...(planned.storyAngleReason ? { storyAngleReason: planned.storyAngleReason } : {}),
     source: planned.source || '',
     captureId: planned.captureId || '',
     sourceCaptureId: planned.sourceCaptureId || planned.captureId || '',
@@ -3642,6 +3681,7 @@ async function writePlanDay(phase, projects, planned, index) {
     originalCapture: planned.originalCapture || '',
     angle: planned.angle || '',
     ...(planned.audienceLens ? { audienceLens: planned.audienceLens } : {}),
+    ...(planned.relevance ? { relevance: planned.relevance } : {}),
     clientCare: planned.clientCare || '',
     story: planned.story || '',
     caption: planned.caption || '',
@@ -3655,6 +3695,7 @@ async function writePlanDay(phase, projects, planned, index) {
     uniqueJob: planned.uniqueJob || '',
     audienceTension: planned.audienceTension || '',
     hookTerritory: planned.hookTerritory || '',
+    ...(planned.hook ? { hook: planned.hook } : {}),
     centralFact: planned.centralFact || '',
     ownedTerritory: planned.ownedTerritory || '',
     doNotRepeat: planned.doNotRepeat || '',

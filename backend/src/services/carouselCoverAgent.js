@@ -52,6 +52,7 @@ function coverBriefPayload(brief = {}) {
     format: brief.format || '',
     angle: brief.angle || '',
     hookTerritory: brief.hookTerritory || '',
+    ...(brief.hook ? { hook: brief.hook } : {}),
     audienceTension: brief.audienceTension || '',
     centralFact: brief.centralFact || '',
     uniqueJob: brief.uniqueJob || '',

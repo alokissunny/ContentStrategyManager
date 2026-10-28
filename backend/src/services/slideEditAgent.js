@@ -82,7 +82,7 @@ function shrink(v, depth = 0) {
   return undefined;
 }
 const STRATEGY_FIELDS = [
-  'angle', 'audienceLens', 'pillar', 'lens', 'pillarJob', 'uniqueJob', 'audienceTension', 'hookTerritory',
+  'angle', 'audienceLens', 'relevance', 'pillar', 'lens', 'pillarJob', 'storyAngle', 'uniqueJob', 'audienceTension', 'hookTerritory', 'hook',
   'centralFact', 'verifiedTruth', 'observableDetails', 'narrativeUnits', 'ownedTerritory',
   'doNotRepeat', 'knownLimitation', 'format',
 ];
