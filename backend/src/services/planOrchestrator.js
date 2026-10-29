@@ -2697,6 +2697,7 @@ async function writeCarousel({ source, structure, post, dayBrief, brand, dayWrit
   const story = ownsStory && !one;
   const built = assembleAgentPrompt(layout.prompt, {
     SLIDE_PLAN_RULES: story ? loadPrompt('carousel-story.md').trim() : FIXED_SLIDE_RULE,
+    BRAND_ROLES: loadPrompt('carousel-brand-roles.md').trim(),
     CONTENT_STRUCTURE_JSON: json(carouselInput),
     DAY_WRITER_OUTPUT: optionalPromptJson(dayWriterOutput),
     BRAND_STYLE: optionalPromptJson(brandStyleOf(brand)),

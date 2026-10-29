@@ -15,6 +15,7 @@ Return one self-contained HTML document only:
 - A slide with no photo is text only: a solid brand-colour ground with the copy. Do not add, repeat, or borrow a photo from another slide, and do not add an image slot.
 - Highlighted words use the text accent colour instead of bold or underline treatments. If the accent colour has low contrast against a dark background, lighten it without losing its original tone.
 - Write compact HTML: one `<style>` block with shared classes for everything that repeats (frame, counter, hairline, eyebrow, headline, supporting line, accent devices), and per-slide rules only for what differs. No repeated inline styles, no unused CSS, no comments except each photo slide's focal comment.
+{{BRAND_ROLES}}
 - HTML only. No explanation.
 
 STRATEGY AGENT OUTPUT:
