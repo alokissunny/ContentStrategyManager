@@ -2596,11 +2596,6 @@ function ElementBar({ sel, menu, setMenu, run, swatches, onAsk, onImage, onClose
                 {ctl('color', 'Text colour', <Icon name="droplet" size={15} strokeWidth={1.9} />)}
                 {menuOf('color', 'Text colour', [
                   ...swatches.map((hex) => opt(hex, inkOn === hex.toLowerCase(), () => { setMenu(null); run('color', hex); }, <><i className="wv-sb__dot" style={{ background: hex }} aria-hidden="true" />{hex.toUpperCase()}</>)),
-                  <label key="any" className="wv-sb__opt wv-sb__opt--pick">
-                    <i className="wv-sb__dot wv-sb__dot--any" aria-hidden="true" />
-                    Any colour
-                    <input type="color" onChange={(e) => run('color', e.target.value)} />
-                  </label>,
                 ])}
               </span>
             </>
@@ -7315,15 +7310,20 @@ export default function WeekView({
     : (dayDateLabel(day) || 'this day');
   const editFormat = day?.format ? String(day.format).replace(/ series$/, '') : '';
 
-  // Colours offered on a selected element: the brand kit's own, then ink/paper.
+  // Colours offered on a selected element: the Brand Kit's theme colours only —
+  // the slide's own colour set first, then the kit's other sets. (Brand style
+  // vars only as a fallback for a kit with no colours set.)
   const elemSwatches = (() => {
     const out = [];
-    Object.values(igVars || {}).forEach((v) => {
-      const hex = String(v || '').trim();
-      if (/^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(hex) && !out.includes(hex.toLowerCase())) out.push(hex.toLowerCase());
-    });
-    ['#16161a', '#ffffff', '#e8552d', '#d2e823', '#6b6b73'].forEach((h) => { if (!out.includes(h)) out.push(h); });
-    return out.slice(0, 10);
+    const add = (v) => {
+      const hex = String(v || '').trim().toLowerCase();
+      if (/^#([0-9a-f]{3}|[0-9a-f]{6})$/.test(hex) && !out.includes(hex)) out.push(hex);
+    };
+    const ownId = setIdOf(activeSlide) || kitDefaultSet;
+    const ordered = [...kitSets.filter((t) => t.id === ownId), ...kitSets.filter((t) => t.id !== ownId)];
+    ordered.forEach((t) => ['fg', 'accent', 'ground'].forEach((k) => add(t.palette?.[k])));
+    if (!out.length) Object.values(igVars || {}).forEach(add);
+    return out.slice(0, 12);
   })();
 
   // The Editor's ⋯ — bauhly-v3's EditorMore (weekview/EditorMore.jsx). WeekView

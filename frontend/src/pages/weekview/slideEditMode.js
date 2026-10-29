@@ -8,7 +8,10 @@
 //
 // Move = `translate()`, rotate = `rotate()` (both composed onto whatever
 // transform the element had), resize = explicit `width`/`height`. Text is
-// typed in place (double-click). Style commands (bold / italic / underline /
+// typed in place (double-click). Words inside a line can be styled on their
+// own: press an inline run (an accent <span>, an <em>…) again once its line is
+// selected to pick just that run, or highlight words while typing — a colour /
+// bold / italic / underline then wraps only those words. Style commands (bold / italic / underline /
 // size / colour / align / hide) arrive from the host's toolbar via `api.run`.
 //
 // ── EDITS ARE PATCHES ───────────────────────────────────────────────────────
@@ -265,6 +268,10 @@ export function attachSlideEditMode(frame, {
   let activeDrag = null; // { onMove, onUp } — cancelled on detach
   let editingText = null;
   let editOrigHtml = '';
+  // the words last highlighted while typing (kept past the blur the toolbar
+  // press causes), so a style can go on just those words
+  let wordRange = null;
+  let wordRangeEl = null;
   // path → { el, style, html } — the element as it was before any edit
   const originals = new Map();
   let patches = clone(initialPatches);
@@ -312,7 +319,11 @@ export function attachSlideEditMode(frame, {
     }
     if (geo) next.geo = { ...geo };
     if (html) next.html = el.innerHTML;
-    patches = { ...patches, [path]: next };
+    const kept = { ...patches };
+    // the html now carries its children's edits; their own patches would land
+    // on whatever sits at those paths once words are wrapped or retyped
+    if (html) Object.keys(kept).forEach((k) => { if (k.startsWith(`${path}/`)) delete kept[k]; });
+    patches = { ...kept, [path]: next };
   }
 
   function commit() {
@@ -416,7 +427,8 @@ export function attachSlideEditMode(frame, {
       return;
     }
     const r = selected.getBoundingClientRect();
-    const texting = selected === editingText;
+    // an inline run picked inside its line can't be moved, sized or turned
+    const texting = selected === editingText || isInlineWrapper(selected, win);
     // A rotated element is outlined as ITSELF (its own box, turned), not by
     // the axis-aligned rectangle around it.
     const path = pathOf(selected, root);
@@ -506,6 +518,7 @@ export function attachSlideEditMode(frame, {
 
   function select(el) {
     if (editingText && el !== editingText) commitTextEdit();
+    if (el !== wordRangeEl) { wordRange = null; wordRangeEl = null; }
     selected = el || null;
     if (selected) remember(selected);
     moveHoverTo(null);
@@ -626,6 +639,7 @@ export function attachSlideEditMode(frame, {
     const el = selected;
     if (!el || !el.isConnected) return;
     if (editingText) commitTextEdit();
+    if (styleWords(el, cmd, value)) return;
     const cs = win.getComputedStyle(el);
     const setAndRecord = (prop, v) => {
       el.style.setProperty(prop, v);
@@ -731,6 +745,63 @@ export function attachSlideEditMode(frame, {
     positionUi();
   }
 
+  // A style for the words highlighted while typing: they are wrapped in a
+  // <span> carrying it (and any styled runs inside take it too, so an accent
+  // word recolours with the rest). False when there are no such words, or they
+  // are the whole line — then the style goes on the element as usual.
+  const WORD_CMDS = new Set(['color', 'bold', 'weight', 'italic', 'underline', 'strike']);
+  function styleWords(el, cmd, value) {
+    const range = wordRangeEl === el ? wordRange : null;
+    if (!range || !WORD_CMDS.has(cmd)) return false;
+    if (range.collapsed || !el.contains(range.commonAncestorContainer)) return false;
+    const picked = range.toString().replace(/\s+/g, ' ').trim();
+    const whole = (el.textContent || '').replace(/\s+/g, ' ').trim();
+    if (!picked || picked === whole) return false;
+    let start = range.startContainer;
+    if (start.nodeType === 3) start = start.parentElement;
+    const cs = win.getComputedStyle(start || el);
+    const lines = String(cs.textDecorationLine || '');
+    const css = {};
+    if (cmd === 'color') css.color = String(value || '');
+    else if (cmd === 'bold') css['font-weight'] = Number(cs.fontWeight) >= 600 ? '400' : '700';
+    else if (cmd === 'weight') css['font-weight'] = String(Number(value) || 400);
+    else if (cmd === 'italic') css['font-style'] = cs.fontStyle === 'italic' ? 'normal' : 'italic';
+    else {
+      const want = cmd === 'underline' ? 'underline' : 'line-through';
+      const keep = cmd === 'underline' ? 'line-through' : 'underline';
+      const on = [want, keep].filter((k) => (k === want ? !lines.includes(want) : lines.includes(keep)));
+      css['text-decoration'] = on.length ? on.join(' ') : 'none';
+    }
+    remember(el);
+    const frag = range.extractContents();
+    const set = (n) => Object.entries(css).forEach(([k, v]) => n.style.setProperty(k, v));
+    frag.querySelectorAll('*').forEach((n) => { if (n.tagName !== 'BR' && n.style) set(n); });
+    const span = doc.createElement('span');
+    set(span);
+    span.appendChild(frag);
+    range.insertNode(span);
+    // a run cut in two leaves empty halves behind
+    el.querySelectorAll('span, em, strong, b, i, u, mark').forEach((n) => {
+      if (n !== span && !n.textContent && !n.querySelector('br, img')) n.remove();
+    });
+    wordRange = doc.createRange();
+    wordRange.selectNodeContents(span);
+    record(el, { html: true });
+    commit();
+    positionUi();
+    return true;
+  }
+
+  function onSelectionChange() {
+    if (!editingText) return;
+    const sel = win.getSelection();
+    if (!sel || !sel.rangeCount) return;
+    const range = sel.getRangeAt(0);
+    if (!editingText.contains(range.commonAncestorContainer)) return;
+    wordRange = range.collapsed ? null : range.cloneRange();
+    wordRangeEl = editingText;
+  }
+
   // ── typing in place ──────────────────────────────────────────────────────
   function onTextBlur() { commitTextEdit(); }
   function onTextKeydown(e) {
@@ -792,6 +863,8 @@ export function attachSlideEditMode(frame, {
   function onMouseOver(e) {
     if (activeDrag) return;
     const el = selectableFrom(e.target, root, doc);
+    const inner = el && el === selected && el !== editingText ? inlineRunOf(e.target, el) : null;
+    if (inner && inner !== selected) { moveHoverTo(inner); return; }
     if (!el || el === selected) {
       moveHoverTo(null);
       if (el && el !== editingText) doc.documentElement.classList.add('wv-edit-point');
@@ -827,9 +900,25 @@ export function attachSlideEditMode(frame, {
       return;
     }
     e.preventDefault();
+    // a press on an inline run already picked keeps it
+    if (selected && isInlineWrapper(selected, win) && selected.contains(e.target)) return;
     const el = selectableFrom(e.target, root, doc);
+    // a second press on a styled run inside the picked line picks just that run
+    const inner = el && el === selected ? inlineRunOf(e.target, el) : null;
+    if (inner) { select(inner); return; }
     select(el);
     if (el) startMove(el, e.clientX, e.clientY);
+  }
+
+  // The outermost inline wrapper (<span>, <em>…) under `target` inside `block`.
+  function inlineRunOf(target, block) {
+    let n = target && target.nodeType === 3 ? target.parentElement : target;
+    let run = null;
+    while (n && n !== block && block.contains(n)) {
+      if (isInlineWrapper(n, win)) run = n;
+      n = n.parentElement;
+    }
+    return run;
   }
 
   function onDblClick(e) {
@@ -864,7 +953,7 @@ export function attachSlideEditMode(frame, {
     if (e.key === 'Enter') { e.preventDefault(); run('type'); return; }
     const step = e.shiftKey ? 10 : 1;
     const arrows = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step], ArrowDown: [0, step] };
-    if (arrows[e.key]) {
+    if (arrows[e.key] && !isInlineWrapper(selected, win)) {
       e.preventDefault();
       const g = geoOf(selected);
       const next = { ...g, tx: g.tx + arrows[e.key][0], ty: g.ty + arrows[e.key][1] };
@@ -881,6 +970,7 @@ export function attachSlideEditMode(frame, {
   doc.addEventListener('dblclick', onDblClick);
   doc.addEventListener('click', onClickCapture, true);
   doc.addEventListener('keydown', onKeyDown);
+  doc.addEventListener('selectionchange', onSelectionChange);
 
   const ro = typeof win.ResizeObserver !== 'undefined'
     ? new win.ResizeObserver(() => positionUi())
@@ -916,6 +1006,7 @@ export function attachSlideEditMode(frame, {
     doc.removeEventListener('dblclick', onDblClick);
     doc.removeEventListener('click', onClickCapture, true);
     doc.removeEventListener('keydown', onKeyDown);
+    doc.removeEventListener('selectionchange', onSelectionChange);
     doc.body?.classList.remove('wv-edit-on');
     doc.documentElement.classList.remove('wv-edit-point', 'wv-edit-grabbing');
     [style, hoverBox, selBox, tip, guideV, guideH, rotKnob, ...handles].forEach((node) => {
