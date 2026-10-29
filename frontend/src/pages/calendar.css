@@ -1496,11 +1496,14 @@
 .ywf__frame { width: 100%; position: relative; }
 .ywf__skel {
   width: 100%;
-  aspect-ratio: 4 / 5;
+  height: calc(100vw / 0.8);
   background: var(--surface-sunken, #f3f1ea);
   display: grid;
   place-items: center;
 }
+/* a loading carousel's dot row and caption, held at the room they will take */
+.ywf__skel-dots { height: 34px; } /* the drawn post's gap + dot row (yw-peek--feed) */
+.ywf__cap--hold { min-height: calc(3 * 1.45em); }
 .ywf__skel-spin {
   width: 22px;
   height: 22px;

@@ -43,6 +43,12 @@ function canvasAr(format) {
   return /^(Reel|Story)/i.test(String(format || '')) ? MOTION_AR : FEED_CANVAS;
 }
 
+/** The feed box's width ÷ height for a format — what a post takes once drawn,
+ *  so its loading placeholder can hold exactly that room. */
+export function feedBoxAr(format) {
+  return Math.max(canvasAr(format), FEED_AR);
+}
+
 function brandStyleVars(store) {
   const paint = paintAll(store?.libraryEdits);
   const ground = groundOf(styleOf(store?.brandStyle));

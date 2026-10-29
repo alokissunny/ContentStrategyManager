@@ -8,7 +8,7 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import Icon from '../brand/Icon';
-import { DayPeek } from './weekview/PostPeek';
+import { DayPeek, feedBoxAr } from './weekview/PostPeek';
 import { getPost, schedulePost, setPostReview, setPostTime, shiftPosts } from '../api/posts';
 import MobileSheet from '../components/MobileSheet';
 
@@ -275,8 +275,17 @@ function FeedItem({ row, handle, metaConnected, onOpen, enriched, loading, onPat
           {ready ? (
             <DayPeek key={String(enriched._id)} day={enriched} feed lifted={lifted} liftSheet={liftSheet} />
           ) : (
-            <div className={`ywf__skel${loading ? ' is-loading' : ''}`} aria-hidden="true">
-              {loading ? <span className="ywf__skel-spin" /> : null}
+            /* the same room the post will take — box and, for a carousel,
+               its dots — so nothing below moves when it arrives */
+            <div aria-hidden="true">
+              <div
+                className={`ywf__skel${loading ? ' is-loading' : ''}`}
+                // DayPeek draws the post at the window's width, not the column's
+                style={{ height: `calc(100vw / ${feedBoxAr(day?.format)})` }}
+              >
+                {loading ? <span className="ywf__skel-spin" /> : null}
+              </div>
+              {/^carousel/i.test(String(day?.format || 'Carousel')) && <div className="ywf__skel-dots" />}
             </div>
           )}
         </div>
@@ -293,7 +302,10 @@ function FeedItem({ row, handle, metaConnected, onOpen, enriched, loading, onPat
         onOpenPost={() => onOpen?.(row)}
       />
 
-      {caption ? (
+      {!ready ? (
+        /* a loading post's caption, held at the room a shortened one takes */
+        <p className="ywf__cap ywf__cap--hold" aria-hidden="true" />
+      ) : caption ? (
         <p className="ywf__cap">
           <b>{who || 'account'}</b>
           {' '}
@@ -425,9 +437,15 @@ export default function DayFeed({
     // marked as this mount's, and un-marked if this run is cancelled first
     // (StrictMode runs it twice; the second run must still fetch)
     const mine = new Set();
+    // nearest the day being jumped to first, so the post landed on (and the
+    // ones round it) are drawn before the far ends of the feed
+    const aim = String(scrollToIso || '').split('#')[0];
+    const at = aim ? rows.findIndex((r) => isoOf(r.date || r.day?.date) === aim) : -1;
     const todo = rows
-      .map((r) => String(r.day?._id || ''))
-      .filter(Boolean);
+      .map((r, i) => ({ id: String(r.day?._id || ''), d: at < 0 ? i : Math.abs(i - at) + (i < at ? 0.5 : 0) }))
+      .filter((r) => r.id)
+      .sort((a, b) => a.d - b.d)
+      .map((r) => r.id);
 
     const load = async () => {
       const need = todo.filter((id) => !fetchedRef.current.has(id));
@@ -487,27 +505,60 @@ export default function DayFeed({
   useEffect(() => {
     fullById.forEach((v, k) => FEED_CACHE.set(k, v));
   }, [fullById]);
+
+  /* Scroll anchoring, which iOS Safari does not do: a post that changes height
+     wholly above the screen (it finished loading, a caption opened) would push
+     everything on screen down — so the page is moved by the same amount and
+     what the studio is looking at stays put. */
+  useEffect(() => {
+    const box = listRef.current;
+    if (!box || typeof ResizeObserver === 'undefined') return undefined;
+    const was = new WeakMap();
+    const ro = new ResizeObserver((entries) => {
+      let shift = 0;
+      const top = stickyBottom();
+      entries.forEach((entry) => {
+        const el = entry.target;
+        const h = el.getBoundingClientRect().height;
+        const before = was.get(el);
+        was.set(el, h);
+        if (before === undefined || Math.abs(h - before) < 0.5) return;
+        if (el.getBoundingClientRect().bottom <= top + 1) shift += h - before;
+      });
+      if (shift) window.scrollBy(0, shift);
+    });
+    const watch = () => box.querySelectorAll('.ywf__item').forEach((el) => {
+      if (!was.has(el)) { was.set(el, el.getBoundingClientRect().height); ro.observe(el); }
+    });
+    watch();
+    const mo = new MutationObserver(watch);
+    mo.observe(box, { childList: true, subtree: true });
+    return () => { ro.disconnect(); mo.disconnect(); };
+  }, []);
   pendingRef.current = pending.size;
 
-  // Jump to a post, under the sticky date bar. `iso#pin#…` is the way back
-  // from the Editor: placed before paint (no visible travel), then held there
-  // while the page settles — the Editor's scroll lock restoring an old
-  // position, posts still loading above it — until it has been still for a
-  // moment, or the studio touches the screen.
+  /* Jump to a post, under the sticky date bar. The post's place is read again
+   * every frame — posts above it are still arriving and growing, and the top
+   * bar slides away on the way down — so the travel steers onto where the
+   * post IS, not where it was when the jump began. A far jump cuts straight to
+   * within a screen of it and glides the rest (no drawing every post on the
+   * way). Once there it is held while the feed settles — posts still loading
+   * round it, or the Editor's scroll lock restoring an old position — until it
+   * has been still for a moment, or the studio touches the screen.
+   * `iso#pin#…` (the way back from the Editor) lands without any travel. */
   useLayoutEffect(() => {
     if (!scrollToIso || !listRef.current) return undefined;
     const [iso, mode] = String(scrollToIso).split('#');
     const find = () => listRef.current?.querySelector(`.ywf__item[data-iso="${iso}"]`);
     const el = find();
     if (!el) return undefined;
-    if (mode !== 'pin') {
-      window.scrollTo({ top: feedYOf(el), behavior: 'smooth' });
-      return undefined;
-    }
+    const reduce = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    const glide = mode !== 'pin' && !reduce;
+    const GLIDE_MS = 380;
+    const ease = (t) => 1 - (1 - t) ** 3;
+
     let raf = 0;
     let done = false;
-    const start = performance.now();
-    let stillSince = start;
     const evs = ['wheel', 'touchstart', 'pointerdown', 'keydown'];
     const stop = () => {
       if (done) return;
@@ -515,22 +566,35 @@ export default function DayFeed({
       window.cancelAnimationFrame(raf);
       evs.forEach((ev) => window.removeEventListener(ev, stop));
     };
+
+    // a far jump starts a screen short of the post, on the side it comes from
+    const target0 = feedYOf(el);
+    const span = window.innerHeight * 0.9;
+    let from = window.scrollY;
+    if (!glide) from = target0;
+    else if (Math.abs(target0 - from) > span) from = target0 - Math.sign(target0 - from) * span;
+    window.scrollTo(0, from);
+
+    const start = performance.now();
+    let stillSince = start;
     const tick = () => {
       if (done) return;
       const now = performance.now();
       const e = find();
       if (e) {
         const y = feedYOf(e);
-        if (Math.abs(window.scrollY - y) > 1) {
-          window.scrollTo(0, y);
+        const t = glide ? Math.min(1, (now - start) / GLIDE_MS) : 1;
+        const want = t < 1 ? Math.round(from + (y - from) * ease(t)) : y;
+        if (Math.abs(window.scrollY - want) > 1) {
+          window.scrollTo(0, want);
           stillSince = now;
         }
+        if (t < 1) stillSince = now;
       }
       if (pendingRef.current > 0) stillSince = now;
-      if (now - stillSince > 500 || now - start > 8000) { stop(); return; }
+      if (now - stillSince > 450 || now - start > 6000) { stop(); return; }
       raf = window.requestAnimationFrame(tick);
     };
-    window.scrollTo(0, feedYOf(el));
     evs.forEach((ev) => window.addEventListener(ev, stop, { passive: true }));
     raf = window.requestAnimationFrame(tick);
     return stop;
