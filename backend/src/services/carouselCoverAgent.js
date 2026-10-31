@@ -51,7 +51,8 @@ function coverBriefPayload(brief = {}) {
     pillar: brief.pillar || brief.lens || '',
     format: brief.format || '',
     angle: brief.angle || '',
-    hookTerritory: brief.hookTerritory || '',
+    // story-level briefs carry no hook line — the central insight stands in
+    hookTerritory: brief.hookTerritory || brief.relevance?.chosenInsight || '',
     ...(brief.hook ? { hook: brief.hook } : {}),
     audienceTension: brief.audienceTension || '',
     centralFact: brief.centralFact || '',

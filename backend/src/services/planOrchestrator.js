@@ -16,7 +16,7 @@ const { publicMediaUrl, isCdnConfigured, getMediaUrl, isS3Configured, getObjectB
 const { toVisionImage } = require('./visionImage');
 const { isImageGenConfigured: isOpenAIImageConfigured, generateImage: renderOpenAIImage } = require('./openaiImage');
 const { buildImagePrompt, persistGeneratedImage } = require('./generatedImage');
-const { themeById, themesForStrategistPrompt, resolveThemeId, themeImageOf, themeStyleForVisuals } = require('../data/carouselThemes');
+const { themeById, resolveThemeId, themeImageOf, themeStyleForVisuals } = require('../data/carouselThemes');
 const { injectDecorativeSrc } = require('./decorativeAgent');
 
 const PROMPTS_DIR = path.join(__dirname, '..', '..', 'prompts');
@@ -268,8 +268,110 @@ function storyAngleOf(v) {
   return STORY_ANGLES.includes(t) ? t : '';
 }
 
+// ── Story-level brief (plan-strategist.md) ─────────────────────────────────
+// The Strategist says what story to tell and why; the Carousel agent writes
+// the hook, slides, caption and CTA. Its evidence map and story moments are
+// mapped onto allocatedAssets / narrativeUnits so the rest of the pipeline
+// (asset allocation, the outline, allocatedVisuals) keeps working unchanged.
+const FACT_STATUSES = ['completed', 'in-progress', 'proposed', 'n/a'];
+function supportingFactsOf(v) {
+  if (!Array.isArray(v)) return [];
+  return v.map((row) => {
+    const fact = optionalText(typeof row === 'string' ? row : row?.fact);
+    const status = String(row?.status || '').trim().toLowerCase();
+    return {
+      fact,
+      source: optionalText(row?.source),
+      ...(FACT_STATUSES.includes(status) ? { status } : {}),
+    };
+  }).filter((row) => row.fact).slice(0, 24);
+}
+
+function storyMomentsOf(v) {
+  if (!Array.isArray(v)) return [];
+  return v.map((m, i) => {
+    const need = String(m?.visualNeed || '').trim().toLowerCase();
+    return {
+      id: optionalText(m?.id) || `m${i + 1}`,
+      moment: optionalText(m?.moment),
+      facts: stringList(m?.facts),
+      ...(['essential', 'helpful', 'none'].includes(need) ? { visualNeed: need } : {}),
+      photos: stringList(m?.photos),
+      ...(optionalText(m?.note) ? { note: optionalText(m.note) } : {}),
+    };
+  }).filter((m) => m.moment).slice(0, 12);
+}
+
+// evidenceMap row → allocatedAssets row (planContext.allocatedAssetsOf shape)
+function evidenceAsAllocated(evidenceMap, moments) {
+  if (!Array.isArray(evidenceMap)) return [];
+  return evidenceMap.map((row) => {
+    const key = optionalText(row?.key);
+    const fromMoments = moments.filter((m) => m.photos.includes(key)).map((m) => m.id);
+    return {
+      key,
+      source: row?.source,
+      stage: row?.stage,
+      area: row?.area,
+      pairWith: row?.pairWith,
+      evidenceLevel: row?.evidenceLevel,
+      visibleContent: optionalText(row?.shows),
+      communicationPotential: optionalText(row?.supports),
+      why: optionalText(row?.supports),
+      limitations: Array.isArray(row?.cannotProve) ? row.cannotProve : stringList([row?.cannotProve]),
+      supportsUnitIds: [...new Set([...stringList(row?.moments), ...fromMoments])],
+    };
+  }).filter((row) => row.key);
+}
+
+// story moments → the outline units postFromBrief / Content Structure read.
+// They are story steps, not slides — the Carousel agent sets the slides.
+function momentsAsUnits(moments, allocated) {
+  const shown = new Set(allocated.flatMap((a) => a.supportsUnitIds || []));
+  return moments.map((m, i) => ({
+    id: m.id,
+    index: i + 1,
+    role: '',
+    purpose: m.moment,
+    support: m.facts.join('; '),
+    visual: (m.photos.length || shown.has(m.id)) ? 'photo' : 'text-only',
+    ...(m.visualNeed ? { visualNeed: m.visualNeed } : {}),
+  }));
+}
+
+function readerActionOf(v) {
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return undefined;
+  const out = {};
+  ['goal', 'stage', 'offerLink'].forEach((k) => {
+    const t = optionalText(v[k]);
+    if (t) out[k] = t;
+  });
+  return out.goal ? out : undefined;
+}
+
+const REVIEW_CHECKS = ['readerClear', 'realInsight', 'approachFits', 'claimsTraceable', 'proposedVsCompleted', 'evidenceLimits', 'alternativesDistinct', 'noCopy'];
+function reviewOf(v) {
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return undefined;
+  const out = {};
+  REVIEW_CHECKS.forEach((k) => {
+    const t = optionalText(v[k]);
+    if (t) out[k] = t;
+  });
+  return Object.keys(out).length ? out : undefined;
+}
+
 function briefFieldsOf(b) {
   const lens = normalizeLens(b.lens || b.pillar);
+  const storyMoments = storyMomentsOf(b.storyMoments);
+  // story-level brief: no hook / copy / caption / CTA wording from the Strategist
+  const storyLevel = storyMoments.length > 0;
+  const supportingFacts = supportingFactsOf(b.supportingFacts);
+  const allocatedAssets = allocatedAssetsOf(
+    Array.isArray(b.evidenceMap) && b.evidenceMap.length
+      ? evidenceAsAllocated(b.evidenceMap, storyMoments)
+      : (b.allocatedAssets || b.allocatedAssetKeys),
+  );
+  const verifiedTruth = stringList(b.verifiedTruth);
   // No theme: the carousel agent designs in its house style; a theme is applied
   // afterwards by the Theme Apply agent (Editor › Themes) when the studio wants one.
   const themeId = '';
@@ -287,17 +389,23 @@ function briefFieldsOf(b) {
     ...(relevanceOf(b.relevance) ? { relevance: relevanceOf(b.relevance) } : {}),
     clientCare: optionalText(b.clientCare),
     story: optionalText(b.story),
-    caption: optionalText(b.caption),
-    cta: optionalText(b.cta),
-    verifiedTruth: stringList(b.verifiedTruth),
+    caption: storyLevel ? '' : optionalText(b.caption),
+    cta: storyLevel ? '' : optionalText(b.cta),
+    verifiedTruth: verifiedTruth.length
+      ? verifiedTruth
+      : supportingFacts.filter((f) => /^(capture|clarification)/i.test(f.source)).map((f) => f.fact),
+    ...(supportingFacts.length ? { supportingFacts } : {}),
     observableDetails: stringList(b.observableDetails),
     relevantAssetContext: stringList(b.relevantAssetContext),
-    allocatedAssets: allocatedAssetsOf(b.allocatedAssets || b.allocatedAssetKeys),
+    allocatedAssets,
+    ...(storyLevel ? { storyMoments } : {}),
+    ...(readerActionOf(b.readerAction) ? { readerAction: readerActionOf(b.readerAction) } : {}),
+    ...(reviewOf(b.review) ? { review: reviewOf(b.review) } : {}),
     visualLimitations: stringList(b.visualLimitations),
     uniqueJob: optionalText(b.uniqueJob),
     audienceTension: optionalText(b.audienceTension),
-    hookTerritory: optionalText(b.hookTerritory),
-    ...(hookOf(b.hook) ? { hook: hookOf(b.hook) } : {}),
+    hookTerritory: storyLevel ? '' : optionalText(b.hookTerritory),
+    ...(!storyLevel && hookOf(b.hook) ? { hook: hookOf(b.hook) } : {}),
     centralFact: optionalText(b.centralFact),
     ownedTerritory: optionalText(b.ownedTerritory),
     doNotRepeat: optionalTextOrList(b.doNotRepeat),
@@ -305,7 +413,9 @@ function briefFieldsOf(b) {
     formatReason: optionalText(b.formatReason),
     themeId,
     themeReason: optionalText(b.themeReason),
-    narrativeUnits: narrativeUnitsOf(b),
+    narrativeUnits: storyLevel
+      ? narrativeUnitsOf({ narrativeUnits: momentsAsUnits(storyMoments, allocatedAssets) })
+      : narrativeUnitsOf(b),
     approvedGenerationRoute: optionalText(b.approvedGenerationRoute),
     knownLimitation: optionalText(b.knownLimitation),
     hashtags: stringList(b.hashtags),
@@ -661,6 +771,43 @@ function validateStrategist(parsed) {
   // Strategist briefs are always carousel posts.
   parsed.briefs = briefs.map((b) => briefFieldsOf({ ...b, format: 'Carousel' }));
   parsed.plannedDays = parsed.briefs;
+  const problems = reviewStrategistBriefs(briefs, parsed.briefs);
+  parsed.focus.codeReview = problems;
+  if (problems.length) console.warn(`[planOrchestrator] strategist review · ${problems.join(' | ')}`);
+}
+
+// plan-strategist.md › Review checks, measured in code on the story-level
+// brief. Advisory: logged and kept on focus.codeReview, never fails the plan.
+function reviewStrategistBriefs(raw, briefs) {
+  const out = [];
+  const seen = new Map();
+  briefs.forEach((b, i) => {
+    if (!b.storyMoments) return; // legacy slide-level brief
+    const tag = `brief ${i + 1}`;
+    const r = raw[i] || {};
+    if (!b.audienceLens?.reader) out.push(`${tag}: no target reader`);
+    if (!b.audienceTension) out.push(`${tag}: no audience tension`);
+    if (!b.relevance?.chosenInsight) out.push(`${tag}: no central insight`);
+    if (!b.storyAngle) out.push(`${tag}: no storytelling approach`);
+    if (!b.readerAction) out.push(`${tag}: no reader-action goal`);
+    const facts = b.supportingFacts || [];
+    if (!facts.length) out.push(`${tag}: no supporting facts`);
+    const unsourced = facts.filter((f) => !f.source).length;
+    if (unsourced) out.push(`${tag}: ${unsourced} fact(s) without a source`);
+    const keys = new Set(b.allocatedAssets.map((a) => a.key));
+    const noLimits = b.allocatedAssets.filter((a) => !(a.limitations || []).length || !a.stage).map((a) => a.key);
+    if (noLimits.length) out.push(`${tag}: photo(s) without stage/limits ${noLimits.join(',')}`);
+    const stray = [...new Set(b.storyMoments.flatMap((m) => m.photos).filter((k) => !keys.has(k)))];
+    if (stray.length) out.push(`${tag}: moment photo(s) not in evidence map ${stray.join(',')}`);
+    const copy = ['caption', 'cta', 'hook', 'hookTerritory', 'narrativeUnits'].filter((k) => r[k] && (!Array.isArray(r[k]) || r[k].length));
+    if (copy.length) out.push(`${tag}: wrote ${copy.join('/')} (dropped — the carousel writes these)`);
+    const missing = REVIEW_CHECKS.filter((k) => !b.review?.[k]);
+    if (missing.length) out.push(`${tag}: review missing ${missing.join(',')}`);
+    const insight = String(b.relevance?.chosenInsight || b.centralFact || '').trim().toLowerCase();
+    if (insight && seen.has(insight)) out.push(`${tag}: same insight as brief ${seen.get(insight)}`);
+    else if (insight) seen.set(insight, i + 1);
+  });
+  return out;
 }
 
 function captureByBriefId(conversationCaptures, brief) {
@@ -1163,6 +1310,7 @@ function mergeAllocatedVisuals(brief, dayAssets) {
       limitations: Array.isArray(a.limitations) ? a.limitations : [],
       why: optionalText(a.why),
       supportsUnitIds: Array.isArray(a.supportsUnitIds) ? a.supportsUnitIds : [],
+      ...photoStageOf(a),
     });
   });
   extras.forEach((extra) => {
@@ -1178,7 +1326,7 @@ function mergeAllocatedVisuals(brief, dayAssets) {
       preferred: Boolean(extra.preferred),
     });
   });
-  return out.slice(0, 6);
+  return out.slice(0, 16);
 }
 
 function strategyBriefPayload(brief) {
@@ -1200,6 +1348,10 @@ function strategyBriefPayload(brief) {
     story: brief.story,
     caption: brief.caption,
     cta: brief.cta,
+    ...(brief.readerAction ? { readerAction: brief.readerAction } : {}),
+    ...(brief.supportingFacts ? { supportingFacts: brief.supportingFacts } : {}),
+    ...(brief.storyMoments ? { storyMoments: brief.storyMoments } : {}),
+    ...(brief.review ? { review: brief.review } : {}),
     verifiedTruth: brief.verifiedTruth,
     observableDetails: brief.observableDetails,
     relevantAssetContext: brief.relevantAssetContext,
@@ -1582,8 +1734,13 @@ function photoStageOf(a) {
 function carouselBriefInputOf(dayBrief, post) {
   const postSlides = Array.isArray(post?.content?.slides) ? post.content.slides : [];
   const allocated = allocatedAssetsOf(dayBrief?.allocatedAssets);
+  const keptKeys = new Set(allocated.map((a) => a.key));
+  const payload = strategyBriefPayload(dayBrief);
+  if (payload.storyMoments) {
+    payload.storyMoments = payload.storyMoments.map((m) => ({ ...m, photos: (m.photos || []).filter((k) => keptKeys.has(k)) }));
+  }
   return {
-    ...strategyBriefPayload(dayBrief),
+    ...payload,
     allocatedVisuals: allocated.map((a) => ({
       key: a.key,
       visibleContent: optionalText(a.visibleContent),
@@ -2190,6 +2347,8 @@ function applyCarouselStory(content, layoutParsed) {
   content.slides = next;
   if (layoutParsed.html) content.carouselHtml = layoutParsed.html;
   if (layoutParsed.themeId) content.themeId = layoutParsed.themeId;
+  if (layoutParsed.postCopy?.caption) content.caption = layoutParsed.postCopy.caption;
+  if (layoutParsed.postCopy?.cta) content.cta = layoutParsed.postCopy.cta;
   return content;
 }
 
@@ -2582,10 +2741,84 @@ function takeHookReasoning(raw) {
   return { html: String(raw).replace(HOOK_REASONING, ''), reasoning };
 }
 
+// carousel-story.md › the caption + CTA the agent writes for the post, as
+// `<!-- post-copy {"caption":"…","cta":"…"} -->` (the Strategist no longer
+// writes them). Read off onto parsed.postCopy and removed from the html.
+const POST_COPY = /<!--\s*post-copy\b([\s\S]*?)-->\s*/i;
+function takePostCopy(raw) {
+  const m = String(raw || '').match(POST_COPY);
+  if (!m) return { html: raw, postCopy: null };
+  const body = m[1].trim();
+  let postCopy = null;
+  try {
+    const obj = JSON.parse(body.slice(body.indexOf('{'), body.lastIndexOf('}') + 1));
+    const caption = optionalText(obj?.caption);
+    const cta = optionalText(obj?.cta);
+    if (caption || cta) postCopy = { caption, cta };
+  } catch { /* unreadable — the post keeps its fallback caption */ }
+  return { html: String(raw).replace(POST_COPY, ''), postCopy };
+}
+
+// carousel-story.md › Final review: `<!-- post-review {check: "yes …" | "fixed: …"} -->`.
+const POST_REVIEW = /<!--\s*post-review\b([\s\S]*?)-->\s*/i;
+function takePostReview(raw) {
+  const m = String(raw || '').match(POST_REVIEW);
+  if (!m) return { html: raw, postReview: null };
+  const body = m[1].trim();
+  let postReview = null;
+  try {
+    const obj = JSON.parse(body.slice(body.indexOf('{'), body.lastIndexOf('}') + 1));
+    if (obj && typeof obj === 'object' && !Array.isArray(obj)) postReview = obj;
+  } catch {
+    postReview = body ? { text: body.slice(0, 2000) } : null;
+  }
+  return { html: String(raw).replace(POST_REVIEW, ''), postReview };
+}
+
+// §5.2.5 / §5.5 measured in code on a new post's carousel. Advisory: kept on
+// parsed.storyChecks (→ agentTrace.carousel) and logged, never fails the post.
+const HOOK_REASONING_FIELDS = ['hook', 'audience', 'tension', 'approach', 'curiosity', 'openLoop', 'promise', 'payoffSlide', 'payoff', 'evidence'];
+function carouselStoryChecks(parsed, carouselInput) {
+  const out = [];
+  const html = String(parsed?.html || '');
+  const articles = slideArticles(html);
+  const n = articles.length;
+  const roles = articles.map((a) => String(htmlAttr(a, 'data-role') || '').trim().toLowerCase());
+  const hr = parsed?.hookReasoning;
+  if (!hr) out.push('no hook reasoning');
+  else {
+    const missing = HOOK_REASONING_FIELDS.filter((k) => hr[k] === undefined || hr[k] === null || hr[k] === '');
+    if (missing.length && !hr.text) out.push(`hook reasoning missing ${missing.join(',')}`);
+    const pay = Number(hr.payoffSlide);
+    if (hr.payoffSlide !== undefined && !(pay > 1 && pay <= n)) out.push(`payoffSlide ${hr.payoffSlide} not a later slide (1-${n})`);
+  }
+  if (!roles.includes('resolution')) out.push('no resolution slide');
+  if (roles[n - 1] !== 'cta') out.push('last slide is not the CTA');
+  const used = new Set([...html.matchAll(/data-asset-key\s*=\s*["']([^"']+)["']/gi)].map((m) => m[1].trim()));
+  const allowed = new Set((carouselInput?.allocatedVisuals || []).map((a) => optionalText(a?.key)).filter(Boolean));
+  const foreign = [...used].filter((k) => allowed.size && !allowed.has(k));
+  if (foreign.length) out.push(`photo(s) not given by the strategy ${foreign.join(',')}`);
+  (carouselInput?.storyMoments || []).forEach((m) => {
+    if (m.visualNeed !== 'essential' || !(m.photos || []).length) return;
+    if (!m.photos.some((k) => used.has(k))) out.push(`essential moment ${m.id} shown without its photo (${m.photos.join(',')})`);
+  });
+  if (!parsed?.postCopy?.caption) out.push('no caption written');
+  if (!parsed?.postReview) out.push('no final review');
+  else if (!parsed.postReview.text) {
+    const odd = Object.entries(parsed.postReview).filter(([, v]) => !/^(yes|fixed)\b/i.test(String(v || '').trim())).map(([k]) => k);
+    if (odd.length) out.push(`review not passed: ${odd.join(',')}`);
+  }
+  return out;
+}
+
 function validateCarouselStory(parsed) {
   const taken = takeHookReasoning(String(parsed?.html || ''));
   if (taken.reasoning) parsed.hookReasoning = taken.reasoning;
-  const raw = taken.html;
+  const copy = takePostCopy(taken.html);
+  if (copy.postCopy) parsed.postCopy = copy.postCopy;
+  const review = takePostReview(copy.html);
+  if (review.postReview) parsed.postReview = review.postReview;
+  const raw = review.html;
   if (/content structure (was )?not included|awaiting content|role not supplied/i.test(raw)) {
     throw new Error('carousel html is an empty shell (structure missing from model input)');
   }
@@ -2651,8 +2884,8 @@ const photoRuleOf = (layout) => CAROUSEL_LAYOUT_PHOTO_RULES[layout?.id] || FULL_
 // The photos the strategy picked for this post (allocatedVisuals + each
 // slide's visual.assetKey), attached to the carousel agent as images so it
 // lays text out around the real subject. CAROUSEL_PHOTOS=0 = off,
-// CAROUSEL_PHOTO_MAX (default 12 — at 6, a post's before photos or its key
-// decision were often never seen). `story` = new posts, where the agent
+// CAROUSEL_PHOTO_MAX (default 16 = the most photos a brief can be given —
+// at 6, a post's before photos or its key decision were often never seen). `story` = new posts, where the agent
 // places the photos itself (several per slide, purposeful reuse).
 async function carouselPhotosOf(carouselInput, layout = carouselLayout(), { story = false } = {}) {
   if (process.env.CAROUSEL_PHOTOS === '0') return { images: [], note: '' };
@@ -2666,7 +2899,7 @@ async function carouselPhotosOf(carouselInput, layout = carouselLayout(), { stor
   (carouselInput?.slides || []).forEach((sl, i) => add(sl?.visual?.assetKey, Number(sl?.index) || i + 1));
   (carouselInput?.allocatedVisuals || []).forEach((a) => add(a?.key, 0));
   if (!onSlides.size) return { images: [], note: '' };
-  const max = Math.max(0, Number(process.env.CAROUSEL_PHOTO_MAX ?? 12) || 0);
+  const max = Math.max(0, Number(process.env.CAROUSEL_PHOTO_MAX ?? 16) || 0);
   const photos = await loadVisionPhotos([...onSlides.keys()].slice(0, max), 'Carousel');
   if (!photos.length) return { images: [], note: '' };
   const reads = new Map((carouselInput?.allocatedVisuals || []).map((a) => [optionalText(a?.key), a]));
@@ -2798,6 +3031,14 @@ async function writeCarousel({ source, structure, post, dayBrief, brand, dayWrit
   // keep the first version's reasoning
   if (out?.parsed && !out.parsed.hookReasoning && result?.parsed?.hookReasoning) {
     out.parsed.hookReasoning = result.parsed.hookReasoning;
+  }
+  // …and its caption + CTA and final review
+  ['postCopy', 'postReview'].forEach((k) => {
+    if (out?.parsed && !out.parsed[k] && result?.parsed?.[k]) out.parsed[k] = result.parsed[k];
+  });
+  if (story && out?.parsed?.status === 'ready') {
+    out.parsed.storyChecks = carouselStoryChecks(out.parsed, carouselInput);
+    if (out.parsed.storyChecks.length) console.warn(`[planOrchestrator] ${source} story checks · ${out.parsed.storyChecks.join(' | ')}`);
   }
   return out;
 }
@@ -3669,10 +3910,8 @@ async function runStrategistCall({ ctx, emptyDates, projects, source }) {
       supportedFormats: ['Carousel'],
       optionalPillars: ['discovery', 'credibility', 'trust'],
       minBriefs: 1,
-      planFrom: 'conversationCaptures only — always write at least one brief (never refuse a capture as too thin or unverified); consider several genuinely different supported angles, each answering "Why would a potential client care?", and brief every one that survives ranking and distinctness (one is fine when the facts support only one); prioritise angles proven by assets; use story-aligned uploaded photos across narrative units but never repeat a photo to fill slides — text-only slides instead; no new AI images; write story, slide copy, caption and CTA; skip weak/obvious/boring angles; do not force Discovery + Credibility + Trust; do not invent facts; capped by maxBriefs',
-      requireThemeId: true,
+      planFrom: 'conversationCaptures only — always write at least one brief (never refuse a capture as too thin or unverified); one strong supported story beats several generic or overlapping ones; story-level briefs only: reader, tension, story, approach, insight, supporting facts, evidence map, story moments, reader-action goal; never hooks, slides, captions or CTA wording; each photo in one brief only; no new AI images; do not invent facts; capped by maxBriefs',
     }),
-    CAROUSEL_THEMES_JSON: json(themesForStrategistPrompt()),
     OCCUPIED_TOPICS_JSON: json(ctx.calendar.occupiedTopics || []),
     AUTHORITY_JSON: json(ctx.authority),
     BRAND_JSON: json(ctx.brand),
@@ -3837,6 +4076,10 @@ async function writePlanDay(phase, projects, planned, index) {
     story: planned.story || '',
     caption: planned.caption || '',
     cta: planned.cta || '',
+    ...(planned.readerAction ? { readerAction: planned.readerAction } : {}),
+    ...(planned.supportingFacts ? { supportingFacts: planned.supportingFacts } : {}),
+    ...(planned.storyMoments ? { storyMoments: planned.storyMoments } : {}),
+    ...(planned.review ? { review: planned.review } : {}),
     verifiedTruth: planned.verifiedTruth || [],
     observableDetails: planned.observableDetails || [],
     relevantAssetContext: planned.relevantAssetContext || [],

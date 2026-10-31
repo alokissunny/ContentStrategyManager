@@ -83,7 +83,7 @@ function shrink(v, depth = 0) {
 }
 const STRATEGY_FIELDS = [
   'angle', 'audienceLens', 'relevance', 'pillar', 'lens', 'pillarJob', 'storyAngle', 'uniqueJob', 'audienceTension', 'hookTerritory', 'hook',
-  'centralFact', 'verifiedTruth', 'observableDetails', 'narrativeUnits', 'ownedTerritory',
+  'centralFact', 'verifiedTruth', 'supportingFacts', 'readerAction', 'observableDetails', 'narrativeUnits', 'ownedTerritory',
   'doNotRepeat', 'knownLimitation', 'format',
 ];
 function compactStrategy(brief) {
@@ -98,7 +98,7 @@ function compactStrategy(brief) {
   if (brief.project?.name || brief.project?.title) out.project = clip(brief.project.name || brief.project.title, 120);
   let text = JSON.stringify(out);
   // hard ceiling — drop the heaviest fields first
-  for (const k of ['narrativeUnits', 'observableDetails', 'ownedTerritory', 'hookTerritory']) {
+  for (const k of ['narrativeUnits', 'observableDetails', 'supportingFacts', 'ownedTerritory', 'hookTerritory', 'readerAction']) {
     if (text.length <= 3500) break;
     delete out[k];
     text = JSON.stringify(out);
