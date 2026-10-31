@@ -165,6 +165,8 @@ function narrativeUnitsOf(brief) {
     if (copy) unit.copy = copy;
     const visual = String(u?.visual || '').trim().toLowerCase();
     if (['photo', 'text-only'].includes(visual)) unit.visual = visual;
+    const visualNeed = String(u?.visualNeed || '').trim().toLowerCase();
+    if (['essential', 'helpful', 'none'].includes(visualNeed)) unit.visualNeed = visualNeed;
     const placement = String(u?.placement || '').trim().toLowerCase();
     if (['visual', 'caption', 'cta'].includes(placement)) unit.placement = placement;
     const rel = u?.relationship && typeof u.relationship === 'object' ? u.relationship : null;
@@ -246,11 +248,13 @@ function relevanceOf(v) {
   return Object.keys(out).length ? out : undefined;
 }
 
-// Strategist's hook plan: context, curiosity, open loop, and the unit that pays it off.
+// Strategist's hook plan: context, curiosity, open loop, the unit that pays it
+// off, and its internal reasoning (audience … openingVisual) — kept for review.
+const HOOK_FIELDS = ['context', 'curiosity', 'openLoop', 'payoffUnitId', 'audience', 'tension', 'approach', 'promise', 'evidence', 'openingVisual'];
 function hookOf(v) {
   if (!v || typeof v !== 'object' || Array.isArray(v)) return undefined;
   const out = {};
-  ['context', 'curiosity', 'openLoop', 'payoffUnitId'].forEach((k) => {
+  HOOK_FIELDS.forEach((k) => {
     const t = optionalText(v[k]);
     if (t) out[k] = t;
   });
@@ -1564,6 +1568,17 @@ function postFromBrief(dayBrief) {
   };
 }
 
+// The Strategist's read of an allocated photo: its stage (existing / in-progress /
+// completed / unclear), the area it shows, and its before/after partner.
+function photoStageOf(a) {
+  const out = {};
+  ['stage', 'area', 'pairWith'].forEach((k) => {
+    const t = optionalText(a?.[k]);
+    if (t) out[k] = t;
+  });
+  return out;
+}
+
 function carouselBriefInputOf(dayBrief, post) {
   const postSlides = Array.isArray(post?.content?.slides) ? post.content.slides : [];
   const allocated = allocatedAssetsOf(dayBrief?.allocatedAssets);
@@ -1577,6 +1592,7 @@ function carouselBriefInputOf(dayBrief, post) {
       supportsUnitIds: Array.isArray(a.supportsUnitIds) ? a.supportsUnitIds : [],
       communicationPotential: optionalText(a.communicationPotential),
       limitations: Array.isArray(a.limitations) ? a.limitations : [],
+      ...photoStageOf(a),
     })),
     slides: postSlides.map((raw, i) => {
       const flat = flattenSlide(raw);
@@ -1884,6 +1900,9 @@ function carouselInputOf(structure, post, dayBrief) {
       why: optionalText(a.why),
       evidenceLevel: optionalText(a.evidenceLevel),
       supportsUnitIds: Array.isArray(a.supportsUnitIds) ? a.supportsUnitIds : [],
+      communicationPotential: optionalText(a.communicationPotential),
+      limitations: Array.isArray(a.limitations) ? a.limitations : [],
+      ...photoStageOf(a),
     })),
     slides: visual.map((s, i) => {
       const index = Number(s?.index) > 0 ? Number(s.index) : i + 1;
@@ -2545,8 +2564,28 @@ function validateCarousel(parsed, post, inputCount = 0) {
 // within what a carousel can hold.
 const STORY_MIN_SLIDES = 3;
 const STORY_MAX_SLIDES = 12;
+// carousel-story.md › the agent's internal hook reasoning, written as
+// `<!-- hook-reasoning {json} -->` before the first slide. Read off (kept on
+// parsed.hookReasoning → agentTrace.carousel) and removed from the html.
+const HOOK_REASONING = /<!--\s*hook-reasoning\b([\s\S]*?)-->\s*/i;
+function takeHookReasoning(raw) {
+  const m = String(raw || '').match(HOOK_REASONING);
+  if (!m) return { html: raw, reasoning: null };
+  const body = m[1].trim();
+  let reasoning = null;
+  try {
+    const obj = JSON.parse(body.slice(body.indexOf('{'), body.lastIndexOf('}') + 1));
+    if (obj && typeof obj === 'object' && !Array.isArray(obj)) reasoning = obj;
+  } catch {
+    reasoning = body ? { text: body.slice(0, 2000) } : null;
+  }
+  return { html: String(raw).replace(HOOK_REASONING, ''), reasoning };
+}
+
 function validateCarouselStory(parsed) {
-  const raw = String(parsed?.html || '');
+  const taken = takeHookReasoning(String(parsed?.html || ''));
+  if (taken.reasoning) parsed.hookReasoning = taken.reasoning;
+  const raw = taken.html;
   if (/content structure (was )?not included|awaiting content|role not supplied/i.test(raw)) {
     throw new Error('carousel html is an empty shell (structure missing from model input)');
   }
@@ -2612,8 +2651,10 @@ const photoRuleOf = (layout) => CAROUSEL_LAYOUT_PHOTO_RULES[layout?.id] || FULL_
 // The photos the strategy picked for this post (allocatedVisuals + each
 // slide's visual.assetKey), attached to the carousel agent as images so it
 // lays text out around the real subject. CAROUSEL_PHOTOS=0 = off,
-// CAROUSEL_PHOTO_MAX (default 6).
-async function carouselPhotosOf(carouselInput, layout = carouselLayout()) {
+// CAROUSEL_PHOTO_MAX (default 12 — at 6, a post's before photos or its key
+// decision were often never seen). `story` = new posts, where the agent
+// places the photos itself (several per slide, purposeful reuse).
+async function carouselPhotosOf(carouselInput, layout = carouselLayout(), { story = false } = {}) {
   if (process.env.CAROUSEL_PHOTOS === '0') return { images: [], note: '' };
   const onSlides = new Map();
   const add = (key, idx) => {
@@ -2625,14 +2666,23 @@ async function carouselPhotosOf(carouselInput, layout = carouselLayout()) {
   (carouselInput?.slides || []).forEach((sl, i) => add(sl?.visual?.assetKey, Number(sl?.index) || i + 1));
   (carouselInput?.allocatedVisuals || []).forEach((a) => add(a?.key, 0));
   if (!onSlides.size) return { images: [], note: '' };
-  const max = Math.max(0, Number(process.env.CAROUSEL_PHOTO_MAX ?? 6) || 0);
+  const max = Math.max(0, Number(process.env.CAROUSEL_PHOTO_MAX ?? 12) || 0);
   const photos = await loadVisionPhotos([...onSlides.keys()].slice(0, max), 'Carousel');
   if (!photos.length) return { images: [], note: '' };
+  const reads = new Map((carouselInput?.allocatedVisuals || []).map((a) => [optionalText(a?.key), a]));
   const lines = photos.map((p, i) => {
     const slides = onSlides.get(p.key);
-    const where = slides.length ? `assigned to slide${slides.length > 1 ? 's' : ''} ${slides.join(', ')}` : 'selected for this post';
-    return `- Attached image ${i + 1}: asset key "${p.key}" — ${where} — ${p.width}×${p.height}, ratio ${(p.width / p.height).toFixed(2)} (${photoShapeOf(p)}).`;
+    const where = story
+      ? 'selected for this post'
+      : (slides.length ? `assigned to slide${slides.length > 1 ? 's' : ''} ${slides.join(', ')}` : 'selected for this post');
+    const read = reads.get(p.key) || {};
+    const stage = [read.stage && `stage: ${read.stage}`, read.area && `shows: ${read.area}`, read.pairWith && `pairs with "${read.pairWith}"`]
+      .filter(Boolean).join('; ');
+    return `- Attached image ${i + 1}: asset key "${p.key}" — ${where}${stage ? ` — ${stage}` : ''} — ${p.width}×${p.height}, ratio ${(p.width / p.height).toFixed(2)} (${photoShapeOf(p)}).`;
   });
+  const placement = story
+    ? 'Decide which slide(s) each photo proves: a slide may show two or three photos (a before/after or a different angle), and a photo may return on another slide when it proves a different point there. A slide the story leaves without a photo is text only.'
+    : 'A slide without a photo stays text only — do not add or repeat a photo on it.';
   return {
     images: photos.map((p) => ({
       mediaType: 'image/jpeg',
@@ -2641,7 +2691,7 @@ async function carouselPhotosOf(carouselInput, layout = carouselLayout()) {
     })),
     note: [
       '---',
-      `ATTACHED PHOTOS. These are the real photos the strategy selected for this post, in this order. Look at each one. On every slide that uses a photo, ${photoRuleOf(layout)}. A slide without a photo stays text only — do not add or repeat a photo on it. Reference a photo by its asset key exactly as in the content structure.`,
+      `ATTACHED PHOTOS. These are the real photos the strategy selected for this post, in this order. Look at each one. On every slide that uses a photo, ${photoRuleOf(layout)}. ${placement} Reference a photo by its asset key exactly as in the content structure.`,
       ...lines,
     ].join('\n'),
   };
@@ -2697,6 +2747,7 @@ async function writeCarousel({ source, structure, post, dayBrief, brand, dayWrit
   const story = ownsStory && !one;
   const built = assembleAgentPrompt(layout.prompt, {
     SLIDE_PLAN_RULES: story ? loadPrompt('carousel-story.md').trim() : FIXED_SLIDE_RULE,
+    COMPOSITION_RULES: loadPrompt('carousel-composition.md').trim(),
     BRAND_ROLES: loadPrompt('carousel-brand-roles.md').trim(),
     CONTENT_STRUCTURE_JSON: json(carouselInput),
     DAY_WRITER_OUTPUT: optionalPromptJson(dayWriterOutput),
@@ -2717,7 +2768,7 @@ async function writeCarousel({ source, structure, post, dayBrief, brand, dayWrit
   }
   let photos = { images: [], note: '' };
   try {
-    photos = await carouselPhotosOf(carouselInput, layout);
+    photos = await carouselPhotosOf(carouselInput, layout, { story });
   } catch (err) {
     console.warn(`[planOrchestrator] ${source} photos skipped — ${err.message}`);
   }
@@ -2742,7 +2793,13 @@ async function writeCarousel({ source, structure, post, dayBrief, brand, dayWrit
     htmlDirection: 'warm-editorial',
     validate,
   }));
-  return fixCarouselLayout({ source, assembled: withPhotos, images: photos.images, validate, result, layout });
+  const out = await fixCarouselLayout({ source, assembled: withPhotos, images: photos.images, validate, result, layout });
+  // the layout fix only sees the published html (hook reasoning stripped) —
+  // keep the first version's reasoning
+  if (out?.parsed && !out.parsed.hookReasoning && result?.parsed?.hookReasoning) {
+    out.parsed.hookReasoning = result.parsed.hookReasoning;
+  }
+  return out;
 }
 
 // Layout check (services/carouselLayoutCheck.js): measures the carousel's text

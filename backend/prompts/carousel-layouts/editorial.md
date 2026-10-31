@@ -11,7 +11,8 @@ Return one self-contained HTML document only:
 - One `<article class="slide" data-index="N">` per slide, numbered in reading order. Each slide is exactly `width:1080px;height:1350px`, `overflow:hidden`. Use px sizes only — no vw/vh or viewport clamp().
 {{SLIDE_PLAN_RULES}}
 - `data-slot` on every editable text run. Photos: `<img data-slot="image" data-asset-key="…">` using the asset key from the strategy output.
-- Write compact HTML: one `<style>` block with shared classes for everything that repeats (plate, counter, hairline, eyebrow, headline, supporting line, accent devices), and per-slide rules only for what differs. No repeated inline styles, no unused CSS, no comments except each photo slide's focal comment (what the narrative needs the reader to see in that photograph).
+- Write compact HTML: one `<style>` block with shared classes for everything that repeats (plate, counter, hairline, eyebrow, headline, supporting line, accent devices), and per-slide rules only for what differs. No repeated inline styles, no unused CSS, no comments except each photo slide's focal comment (what the narrative needs the reader to see in that photograph) and the hook-reasoning comment when asked for.
+{{COMPOSITION_RULES}}
 {{BRAND_ROLES}}
 - HTML only. No explanation.
 

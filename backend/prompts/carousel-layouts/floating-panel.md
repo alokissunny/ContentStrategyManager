@@ -11,7 +11,8 @@ Return one self-contained HTML document only:
 - One `<article class="slide" data-index="N">` per slide, numbered in reading order. Each slide is exactly `width:1080px;height:1350px`, `position:relative; overflow:hidden`. Use px sizes only — no vw/vh or viewport clamp().
 {{SLIDE_PLAN_RULES}}
 - `data-slot` on every editable text run. Photos: `<img data-slot="image" data-asset-key="…">` using the asset key from the strategy output.
-- Write compact HTML: one `<style>` block with shared classes for everything that repeats (frame, counter, hairline, eyebrow, headline, supporting line, accent devices), and per-slide rules only for what differs. No repeated inline styles, no unused CSS, no comments except each photo slide's focal comment.
+- Write compact HTML: one `<style>` block with shared classes for everything that repeats (frame, counter, hairline, eyebrow, headline, supporting line, accent devices), and per-slide rules only for what differs. No repeated inline styles, no unused CSS, no comments except each photo slide's focal comment and the hook-reasoning comment when asked for.
+{{COMPOSITION_RULES}}
 {{BRAND_ROLES}}
 - HTML only. No explanation.
 
@@ -43,7 +44,7 @@ Return one self-contained HTML document only:
 
 ## Text-only slides
 
-- Full bleed and panels are only for slides the strategy output gives a photo (an asset key). A slide with no photo stays text only — never add, repeat, or borrow a photo from another slide, and add no image slot.
+- Full bleed and panels are only for slides that carry a photo from the strategy output (its asset keys). A slide with no photo stays text only — no image slot, and no photo added just to decorate it.
 - A slide without a photo has no floating panel — a panel only exists to hold text over a photo. Set the text group directly on a solid brand ground (dark or light), filling the slide edge to edge, with generous space around it. Never draw a panel, card or box on a text-only slide. Choose the ground for the carousel's rhythm.
 
 ## Type system (every slide)

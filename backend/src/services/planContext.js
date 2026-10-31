@@ -287,6 +287,9 @@ function compactCaptureAssets(n, u) {
     const merged = omitEmpty({
       key: key || prev.key,
       summary: sourceText(row.summary || prev.summary),
+      detail: row.detail || prev.detail,
+      subjects: row.subjects || prev.subjects,
+      mood: row.mood || prev.mood,
       supportsFactIds: [
         ...(Array.isArray(prev.supportsFactIds) ? prev.supportsFactIds : []),
         ...(Array.isArray(row.supportsFactIds) ? row.supportsFactIds.map((id) => clip(id, 16)).filter(Boolean) : []),
@@ -301,6 +304,9 @@ function compactCaptureAssets(n, u) {
   attachedAssetsOf(n).forEach((a) => remember({
     key: a.key,
     summary: a.summary,
+    detail: a.detail,
+    subjects: (a.subjects || []).map((x) => x?.name).filter(Boolean),
+    mood: a.mood,
   }));
   (u?.captureAssets || u?.assets || []).forEach((a) => remember({
     key: a?.key,
@@ -308,7 +314,7 @@ function compactCaptureAssets(n, u) {
     supportsFactIds: a?.supportsFactIds,
     limitations: a?.limitations,
   }));
-  return [...byKey.values()].slice(0, 8);
+  return [...byKey.values()].slice(0, CAPTURE_PHOTO_MAX);
 }
 
 function conversationCaptureOf(n) {
@@ -466,12 +472,20 @@ function assetOneLiner(a) {
   return clip(a?.vision?.description || a?.note, 180);
 }
 
+// Photos per capture the Strategist sees (and a brief may allocate). A capture
+// with a before/after set easily holds 12+; cutting at 8 hid the key photos.
+const CAPTURE_PHOTO_MAX = 16;
+
 function assetContextRow(a) {
   const v = a?.vision || {};
   const photoNote = String(a?.note || '').trim();
+  const summary = sourceText(v.summary || v.description || photoNote);
   return omitEmpty({
     key: String(a?.key || '').trim(),
-    summary: sourceText(v.summary || v.description || photoNote),
+    summary,
+    // the vision description: what the Strategist reads to tell the room,
+    // element and stage (before / after) of the photo apart
+    detail: v.summary && v.description && v.description !== summary ? clip(v.description, 360) : '',
     subjects: subjectsForPlan(v.subjects, 6),
     tags: (v.tags || []).map((s) => clip(s, 28)).filter(Boolean).slice(0, 6),
     mood: clip(v.mood, 48),
@@ -483,7 +497,7 @@ function attachedAssetsOf(n) {
   return (n?.assets || [])
     .map(assetContextRow)
     .filter((row) => row.key || row.summary || (row.subjects && row.subjects.length))
-    .slice(0, 8);
+    .slice(0, CAPTURE_PHOTO_MAX);
 }
 
 function sessionQueryWords(session) {
@@ -598,6 +612,8 @@ function captureAssetKeys(projects, captureId) {
   return keys;
 }
 
+const ASSET_STAGES = ['existing', 'in-progress', 'completed', 'unclear'];
+
 function allocatedAssetsOf(value) {
   const rows = Array.isArray(value) ? value : [];
   const seen = new Set();
@@ -623,9 +639,15 @@ function allocatedAssetsOf(value) {
       limitations: Array.isArray(row?.limitations)
         ? row.limitations.map((x) => clip(x, 160)).filter(Boolean).slice(0, 4)
         : [],
+      // existing | in-progress | completed | unclear — before vs after the work
+      stage: ASSET_STAGES.includes(String(row?.stage || '').trim().toLowerCase())
+        ? String(row.stage).trim().toLowerCase()
+        : '',
+      area: clip(row && typeof row === 'object' ? row.area : '', 120),
+      pairWith: clip(row && typeof row === 'object' ? row.pairWith : '', 200),
     }));
   }
-  return out.slice(0, 8);
+  return out.slice(0, CAPTURE_PHOTO_MAX);
 }
 
 function allocatedKeysOf(dayBrief) {
@@ -719,7 +741,7 @@ function applyAssetAllocation(brief, capture, known, taken = new Set()) {
     key: a.key,
     source: 'conversation',
     why: a.summary || '',
-    visibleContent: a.summary || '',
+    visibleContent: a.detail || a.summary || '',
   }));
   if (!allocated.length && capture) {
     allocated = sanitizeAllocatedAssets(

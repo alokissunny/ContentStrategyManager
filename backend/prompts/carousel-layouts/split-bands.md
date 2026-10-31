@@ -11,7 +11,8 @@ Return one self-contained HTML document only:
 - One `<article class="slide" data-index="N">` per slide, numbered in reading order. Each slide is exactly `width:1080px;height:1350px`, `overflow:hidden`. Use px sizes only — no vw/vh or viewport clamp().
 {{SLIDE_PLAN_RULES}}
 - `data-slot` on every editable text run. Photos: `<img data-slot="image" data-asset-key="…">` using the asset key from the strategy output.
-- Write compact HTML: one `<style>` block with shared classes for everything that repeats (frame, counter, hairline, eyebrow, headline, supporting line, accent devices), and per-slide rules only for what differs. No repeated inline styles, no unused CSS, no comments except each photo slide's focal comment.
+- Write compact HTML: one `<style>` block with shared classes for everything that repeats (frame, counter, hairline, eyebrow, headline, supporting line, accent devices), and per-slide rules only for what differs. No repeated inline styles, no unused CSS, no comments except each photo slide's focal comment and the hook-reasoning comment when asked for.
+{{COMPOSITION_RULES}}
 {{BRAND_ROLES}}
 - HTML only. No explanation.
 
@@ -27,7 +28,7 @@ Return one self-contained HTML document only:
 
 ## Photo slides — two bands
 
-- Build the slide as two bands, edge to edge with no gap or border: a photo band and a text band. Choose each slide's split — its depth and its direction (horizontal or vertical) — from that slide's photograph and copy, as above; neighbouring slides should not share the same split.
+- Build the slide as two bands, edge to edge with no gap or border: a photo band and a text band. Choose each slide's split — its depth and its direction (horizontal or vertical) — from that slide's photograph and copy, as above; neighbouring slides should not share the same split. A vertical split needs a text column of at least about 520px; for longer headlines prefer a horizontal band.
 - Start each photo slide with `<!-- focal: what the slide is about in this photo, and which edge the band can take -->`. Look at the attached photo first.
 - The photo fills its band: `width:100%; height:100%; object-fit:cover`, with `object-position` set so the focal point survives the crop.
 - The text band is a solid brand colour — rotate between `--brand-background`, `--brand-primary` (with light text) and, at most once, the accent. 64–80px padding; the text group aligned to the band's left edge and vertically centred or top-aligned.
@@ -35,7 +36,11 @@ Return one self-contained HTML document only:
 
 ## Text-only slides
 
-- A slide without a photo is one solid band (full slide) in a brand colour, the text group low-left or high-left with generous space. A thin full-width hairline can echo the band split.
+- A slide without a photo is one solid band (full slide) in a brand colour. Compose the text group for the whole slide — larger type, placed by balance (high, centred or low) — so the slide reads as intended, not as a photo band left empty. A hairline may echo the band split only when the type already holds the slide.
+
+## Slides with two or three photos
+
+- The photo band divides into two or three cells (see the shared rule above) — e.g. before and after side by side above a text band, or two stacked cells beside a vertical text column. The text band keeps its solid colour and the cells keep the band's edge-to-edge fit.
 
 ## Type system (every slide)
 
