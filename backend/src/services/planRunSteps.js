@@ -14,6 +14,7 @@ const { runStrategistPhase, writePlanDay, assemblePlanResult } = require('./plan
 const { loadProjectAssets } = require('./planInputs');
 const { loadRuntimeSettings } = require('./runtimeSettings');
 const { seconds } = require('./planRunLog');
+const { notifyPlanFinished } = require('./pushNotify');
 
 // Lazy: postController requires planQueue, which must not pull these steps in.
 function posts() {
@@ -74,14 +75,17 @@ async function completeRun(run, out) {
       (out?.emptyReason && !count ? ` · reason: ${out.emptyReason}` : '') +
       (total ? ` · ${seconds(total)} from click to saved` : ''),
   );
+  notifyPlanFinished(run.user, { outcome: status, count, message: out?.emptyReason || '' });
   return status;
 }
 
 async function failRun(runId, message) {
-  await PlanRun.updateOne(
+  const run = await PlanRun.findOneAndUpdate(
     { _id: runId, status: { $nin: ['done', 'needs-input', 'failed'] } },
     { $set: { status: 'failed', error: message || posts().PLAN_FAILED_REASON, finishedAt: new Date() } },
   );
+  // only the call that actually closed the run notifies
+  if (run) notifyPlanFinished(run.user, { outcome: 'failed', message: message || posts().PLAN_FAILED_REASON });
 }
 
 // Save a finished plan's posts, tagged with the run so a retried finalize can

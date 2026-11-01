@@ -31,6 +31,7 @@ const { planQueueEnabledFor, enqueuePlanRun, activeRunFor } = require('../servic
 const { runTag, queueDebug } = require('../services/planRunLog');
 const { ownedMediaKeys, clearScheduleFields } = require('../services/metaPublish');
 const { annotatePostPhotos } = require('../services/photoFocusAgent');
+const { notifyPlanFinished } = require('../services/pushNotify');
 const {
   logPlanInstagramSource,
   loadCohortCompetitorInsights,
@@ -147,6 +148,22 @@ async function generateAndSavePosts(userId, profile, trigger = 'generate', planS
   }
 
   return savePlanAsPosts(userId, profile.username, trigger, plan);
+}
+
+// The synchronous run, plus the "your plan is ready" push once it's saved —
+// the studio may have closed the tab or backgrounded the app meanwhile. The
+// queued path notifies from planRunSteps.completeRun / failRun instead.
+async function generateSavePostsAndNotify(userId, profile, trigger, planSource) {
+  let out;
+  try {
+    out = await generateAndSavePosts(userId, profile, trigger, planSource);
+  } catch (err) {
+    notifyPlanFinished(userId, { outcome: 'failed', message: PLAN_FAILED_REASON });
+    throw err;
+  }
+  const outcome = (out.emptyReason && !out.count) ? (out.needsInput ? 'needs-input' : 'failed') : 'done';
+  notifyPlanFinished(userId, { outcome, count: out.count, message: out.emptyReason || '' });
+  return out;
 }
 
 // Everything a plan is built from: Brand DNA, the cohort's competitor
@@ -406,7 +423,7 @@ async function generatePlan(req, res) {
     }
   }
 
-  const { posts, count, debug, emptyReason, needsInput } = await generateAndSavePosts(req.user._id, profile, trigger, {
+  const { posts, count, debug, emptyReason, needsInput } = await generateSavePostsAndNotify(req.user._id, profile, trigger, {
     sessionId,
     captureIds,
     allowedWeekdays,
@@ -435,7 +452,7 @@ async function generatePlan(req, res) {
 // PLAN_QUEUE is on; otherwise — or if queuing fails — the original
 // fire-and-forget synchronous run.
 function startBackgroundGeneration(userId, profile, trigger) {
-  const runSync = () => generateAndSavePosts(userId, profile, trigger);
+  const runSync = () => generateSavePostsAndNotify(userId, profile, trigger);
   if (!planQueueEnabledFor(userId)) return runSync();
   return enqueuePlanRun({ userId, username: profile.username, trigger })
     .catch((err) => {
