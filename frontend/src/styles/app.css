@@ -1945,6 +1945,27 @@ textarea.ai-debug__input {
   margin: 0;
   width: 280px;
 }
+/* the list inside the phone's "Switch account" sheet: no frame of its own */
+.acs-sheet--embedded {
+  position: static;
+  max-width: none;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+  animation: none;
+}
+/* the phone's account sheet (AccountSwitcher › PhoneAccountSheet) */
+.acs-msheet .msheet__head { padding-left: var(--sp-5); }
+.acs-msheet .msheet__title { font-size: var(--text-lg, 20px); }
+.acs-msheet .acs-msheet__x { box-shadow: none; background: var(--surface-sunken, #efeff2); }
+.acs-msheet .msheet__menu button { min-height: 56px; font-size: var(--text-lg, 18px); }
+.acs-msheet .msheet__menu button.acs-msheet__who { min-height: 72px; font-size: var(--text-md); font-weight: 700; }
+.acs-msheet .acs-msheet__who .acs-opt__avatar { font-size: 15px; }
+.acs-msheet .acs-msheet__who em { font-weight: 400; }
+.acs-msheet__sep { display: block; height: 1px; margin: var(--sp-2) 0; background: var(--border); }
 .acs-sheet__label {
   display: block;
   padding: 6px 10px 8px;
@@ -1973,7 +1994,9 @@ textarea.ai-debug__input {
   text-decoration: none;
   transition: background var(--dur-fast);
 }
-.acs-opt:hover { background: var(--ink-100); }
+/* hover only where there is a pointer — a tap would leave it lit on a phone */
+@media (hover: hover) { .acs-opt:hover { background: var(--ink-100); } }
+.acs-opt:active { background: var(--ink-100); }
 .acs-opt.is-on { background: var(--signal-50, #fff1ec); }
 .acs-opt.is-on svg { color: var(--signal-600, #ff5227); }
 .acs-opt:disabled { cursor: default; opacity: 0.7; }

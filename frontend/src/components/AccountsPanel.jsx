@@ -42,8 +42,9 @@ export function ProfileAvatar({ profile, size = 34, className = '' }) {
   );
 }
 
-export default function AccountsPanel({ onClose, label = 'Your accounts', inline = false, footer = null }) {
-  const sheetClass = inline ? 'acs-sheet acs-sheet--inline' : 'acs-sheet';
+export default function AccountsPanel({ onClose, label = 'Your accounts', inline = false, footer = null, embedded = false }) {
+  // `embedded`: the list alone, inside a sheet that already has its own frame
+  const sheetClass = embedded ? 'acs-sheet acs-sheet--embedded' : inline ? 'acs-sheet acs-sheet--inline' : 'acs-sheet';
   const [profiles, setProfiles] = useState(readCachedProfiles);
   const [meta, setMeta] = useState(null);
   const [switching, setSwitching] = useState('');
@@ -81,7 +82,7 @@ export default function AccountsPanel({ onClose, label = 'Your accounts', inline
   if (!current) {
     return (
       <div className={sheetClass} role="menu" aria-label="Switch account">
-        <span className="acs-sheet__label">{label}</span>
+        {label ? <span className="acs-sheet__label">{label}</span> : null}
         <Link
           className="acs-opt acs-opt--quiet"
           to="/onboarding?add=1"
@@ -100,7 +101,7 @@ export default function AccountsPanel({ onClose, label = 'Your accounts', inline
 
   return (
     <div className={sheetClass} role="menu" aria-label="Switch account">
-      <span className="acs-sheet__label">{label}</span>
+      {label ? <span className="acs-sheet__label">{label}</span> : null}
       {profiles.map((p) => {
         const active = p.username === current.username;
         const busy = switching === p.username;
