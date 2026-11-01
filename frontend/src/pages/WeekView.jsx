@@ -7900,7 +7900,12 @@ export default function WeekView({
                               ? (themeIdOf(draftOpt) || THEME_ORDER[draftOptIdx] || layoutDirectionOf(previewSlide))
                               : layoutDirectionOf(previewSlide)}
                           />
-                        ) : slides[i] ? (
+                        ) : slides[i] && Math.abs(i - safeIdx) <= 1 ? (
+                          /* only the neighbours are drawn: past one step a
+                             slide is fully faded (opacity 1 − 0.62·a), and
+                             every drawn slide is a whole carousel document
+                             with its photos — a long post would otherwise
+                             hold them all in memory */
                           <SlideMedia
                             slide={slides[i]}
                             localMedia={localMedia}

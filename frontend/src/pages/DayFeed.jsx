@@ -233,6 +233,29 @@ function FeedItem({ row, handle, metaConnected, onOpen, enriched, loading, onPat
   /* List rows have no content — wait for GET /posts/:id before painting. */
   const ready = Boolean(enriched && (hasRenderableSlides(enriched) || enriched.content));
 
+  /* Only the posts near the screen are drawn. Each drawn slide is a whole
+     carousel document with its photos; a feed that kept every post it had
+     scrolled past drawn ran the phone's web view out of memory, and iOS then
+     restarts it (the app "refreshes"). A post far away keeps the exact room it
+     took, so nothing on screen moves when it is let go or drawn again. */
+  const mediaRef = useRef(null);
+  const [near, setNear] = useState(true);
+  const [heldH, setHeldH] = useState(0);
+  useEffect(() => {
+    const el = mediaRef.current;
+    if (!el || typeof IntersectionObserver === 'undefined') return undefined;
+    const io = new IntersectionObserver(([entry]) => {
+      if (!entry.isIntersecting) {
+        const h = Math.round(el.getBoundingClientRect().height);
+        if (h) setHeldH(h);
+      }
+      setNear(entry.isIntersecting);
+    }, { rootMargin: '150% 0px 150% 0px' });
+    io.observe(el);
+    return () => io.disconnect();
+  }, []);
+  const drawn = ready && (near || lifted);
+
   return (
     <article className={`ywf__item${lifted ? ' is-lift' : ''}`} data-iso={iso}>
       <header className="ywf__head">
@@ -259,6 +282,7 @@ function FeedItem({ row, handle, metaConnected, onOpen, enriched, loading, onPat
           out of the feed, whole, above a sheet with its caption; pressing it
           again puts it back. */}
       <div
+        ref={mediaRef}
         className={`ywf__media${lifted ? ' is-lift' : ''}`}
         role={ready ? 'button' : undefined}
         tabIndex={ready ? 0 : undefined}
@@ -272,8 +296,10 @@ function FeedItem({ row, handle, metaConnected, onOpen, enriched, loading, onPat
         } : undefined}
       >
         <div className="ywf__frame">
-          {ready ? (
+          {drawn ? (
             <DayPeek key={String(enriched._id)} day={enriched} feed lifted={lifted} liftSheet={liftSheet} />
+          ) : ready && heldH ? (
+            <div className="ywf__skel" style={{ height: `${heldH}px` }} aria-hidden="true" />
           ) : (
             /* the same room the post will take — box and, for a carousel,
                its dots — so nothing below moves when it arrives */
