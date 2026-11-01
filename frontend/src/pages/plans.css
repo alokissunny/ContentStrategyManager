@@ -694,6 +694,7 @@
   animation: fade-in var(--dur-base) var(--ease-out) both;
 }
 .lm-eta { margin: 10px 0 0; text-align: center; font-size: var(--text-xs); color: var(--ink-quiet); }
+.lm-notify { display: flex; justify-content: center; margin-top: var(--sp-5); }
 .lm-dots { display: flex; justify-content: center; gap: 5px; margin-bottom: var(--sp-5); }
 .lm-dots i {
   width: 7px; height: 7px; border-radius: 50%; background: var(--signal-500);

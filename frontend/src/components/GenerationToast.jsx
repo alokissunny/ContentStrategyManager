@@ -10,6 +10,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import Icon from '../brand/Icon';
 import { dismissPlanToast, usePlanGeneration } from '../lib/planGeneration';
 import { openCaptureIdea } from '../lib/captureUi';
+import NotifyWhenReady from './NotifyWhenReady';
 
 const AUTO_MS = { error: 10000, guidance: 14000 };
 
@@ -57,6 +58,7 @@ export default function GenerationToast() {
           {toast.kind === 'done' ? <b>{toast.text}</b> : toast.text}
         </span>
       </span>
+      {toast.kind === 'busy' && <NotifyWhenReady variant="toast" />}
       {toast.action === 'view' && (
         <button type="button" className="btn btn--primary btn--xs" onClick={viewPlan}>
           View plan

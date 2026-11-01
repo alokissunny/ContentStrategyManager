@@ -2169,5 +2169,8 @@
   "with the HTML": "con el HTML",
   "{{v0}} {{v1}} out of this plan.": "{{v0}} {{v1}} fuera de este plan.",
   "{{v0}} — keep at least one day": "{{v0}}: mantén al menos un día",
-  "— the questions are still open.": ": las preguntas siguen abiertas."
+  "— the questions are still open.": ": las preguntas siguen abiertas.",
+  "Notify me when it’s ready": "Avísame cuando esté listo",
+  "We’ll notify you when it’s ready — feel free to leave.": "Te avisaremos cuando esté listo — puedes salir.",
+  "Notifications are blocked — allow them in your settings to hear when it’s ready.": "Las notificaciones están bloqueadas — actívalas en tus ajustes para saber cuándo esté listo."
 }

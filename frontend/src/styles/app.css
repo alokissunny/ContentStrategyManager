@@ -2046,6 +2046,13 @@ textarea.ai-debug__input {
 .toast__text b { color: #fff; font-weight: 600; display: block; }
 .toast .btn--primary { margin-left: 27px; background: #fff; color: var(--ink-900); flex: 0 0 auto; }
 .toast .btn--primary:hover { background: rgba(255, 255, 255, 0.88); }
+.toast .notify-ready--toast:is(p) { margin: 0 0 0 27px; color: rgba(255, 255, 255, 0.72); }
+.toast .notify-ready--toast:is(p) svg { animation: none; margin-top: 0; }
+
+/* "Notify me when it's ready" — loading screen + busy toast */
+.notify-ready { display: inline-flex; align-items: center; gap: 6px; }
+p.notify-ready { margin: 0; font-size: var(--text-xs); line-height: 1.45; color: var(--ink-quiet); text-align: center; }
+p.notify-ready svg { flex-shrink: 0; }
 .toast__x {
   position: absolute;
   top: 5px;

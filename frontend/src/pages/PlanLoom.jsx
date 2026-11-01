@@ -9,6 +9,7 @@
  */
 
 import React, { useEffect, useState } from 'react';
+import NotifyWhenReady from '../components/NotifyWhenReady';
 import './plans.css';
 
 const STAGE_MS = 1500;
@@ -35,6 +36,7 @@ export default function PlanLoom() {
       <div className="lm-dots" aria-hidden="true"><i /><i /><i /></div>
       <p className="lm-stage" aria-live="polite" key={at}>{STAGES[Math.min(at, STAGES.length - 1)]}</p>
       <p className="lm-eta">Building a week of posts from your own work — this can take a moment.</p>
+      <div className="lm-notify"><NotifyWhenReady /></div>
     </div>
   );
 }

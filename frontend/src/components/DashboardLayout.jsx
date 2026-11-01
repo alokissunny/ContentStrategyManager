@@ -1,4 +1,4 @@
-import React, { Suspense } from 'react';
+import React, { Suspense, useEffect } from 'react';
 import { Outlet, useLocation, Link } from 'react-router-dom';
 import Sidebar, { useNavItems } from './Sidebar';
 import UserMenu from './UserMenu';
@@ -11,6 +11,7 @@ import { Logo } from '../brand/Logo';
 import { useScrollHide } from '../hooks/useScrollHide';
 import { useActiveHandle } from '../lib/store';
 import { openCaptureIdea } from '../lib/captureUi';
+import { initPushNotifications } from '../lib/pushNotifications';
 
 // the phone's tab bar draws the brand marks, solid on the destination you are
 // on (bauhly-v3 AppShell `${icon}-fill`); other nav items keep their glyph
@@ -37,6 +38,9 @@ function PageSlot({ handle, children }) {
 
 export default function DashboardLayout({ children }) {
   const { pathname } = useLocation();
+  // "Your plan is ready" pushes: learn the permission state, and re-register
+  // this device if it was already allowed. Never prompts on its own.
+  useEffect(() => { initPushNotifications(); }, []);
   // The active Instagram handle scopes almost every page's data. Switching it
   // (AccountSwitcher) re-keys the routed content below, remounting the current
   // page so its mount fetches re-run for the new account — a React remount, not
