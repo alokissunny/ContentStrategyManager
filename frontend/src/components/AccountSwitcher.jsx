@@ -37,12 +37,19 @@ function UserRows({ onClose }) {
     <>
       <div className="acs-sheet__sep" />
       <span className="acs-sheet__label">{user.name || user.email}</span>
-      {MENU_LINKS.filter((l) => !l.muted).map((l) => (
-        <button key={l.to} type="button" role="menuitem" className="acs-opt acs-opt--quiet acs-opt--link" onClick={() => go(l.to)}>
+      {/* same rows as the desktop UserMenu (bauhly-v3 userActions) */}
+      {MENU_LINKS.map((l) => (
+        <button key={l.to} type="button" role="menuitem" className="acs-opt acs-opt--quiet acs-opt--link" disabled={l.disabled} onClick={() => go(l.to)}>
           <span className="acs-opt__avatar acs-opt__avatar--ghost"><Glyph name={l.icon} size={16} strokeWidth={2} /></span>
           <span className="acs-opt__text"><b>{l.label}</b></span>
         </button>
       ))}
+      <div className="acs-sheet__sep" />
+      <button type="button" role="menuitem" className="acs-opt acs-opt--quiet acs-opt--link" disabled>
+        <span className="acs-opt__avatar acs-opt__avatar--ghost"><Glyph name="info" size={16} strokeWidth={2} /></span>
+        <span className="acs-opt__text"><b>Help</b></span>
+        <Glyph name="chevron-right" size={16} strokeWidth={2} />
+      </button>
       <button type="button" role="menuitem" className="acs-opt acs-opt--quiet acs-opt--link" onClick={() => { onClose(); logout(); navigate('/auth'); }}>
         <span className="acs-opt__avatar acs-opt__avatar--ghost"><Glyph name="log-out" size={16} strokeWidth={2} /></span>
         <span className="acs-opt__text"><b>Log out</b></span>

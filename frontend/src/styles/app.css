@@ -223,6 +223,9 @@
 .sb__menuitem:hover { background: var(--surface-sunken); color: var(--ink-900); }
 .sb__menuitem svg { flex-shrink: 0; color: var(--ink-500); }
 .sb__menuitem--muted { color: var(--ink-500); font-weight: 500; }
+.sb__menuitem:disabled { color: var(--ink-400); cursor: default; }
+.sb__menuitem:disabled:hover { background: none; color: var(--ink-400); }
+.sb__menuitem:disabled svg { color: var(--ink-400); }
 .sb__menuitem--profile {
   font-weight: 600;
   color: var(--ink-900);
@@ -2232,6 +2235,9 @@ body.is-immersive .apptop {
 /* one avatar on a phone: the account's — the person's links are in its sheet */
 @media (max-width: 767px) { .apptop__user { display: none; } }
 .acs-opt--link { width: 100%; border: 0; background: transparent; text-align: left; cursor: pointer; font: inherit; }
+.acs-opt--link:disabled { opacity: 1; color: var(--ink-400); }
+.acs-opt--link:disabled:hover { background: transparent; }
+.acs-opt--link:disabled b, .acs-opt--link:disabled svg { color: var(--ink-400); }
 
 /* the menus' destructive row and its rule (bauhly-v3 editor.css) */
 

@@ -40,11 +40,9 @@ function UserAvatar({ user, size = 32 }) {
 }
 
 export const MENU_LINKS = [
-  { label: 'Upgrade plan', icon: 'sparkles', to: '/#pricing', muted: true },
+  /* drawn as in bauhly-v3 but disabled — no pricing surface yet */
+  { label: 'Upgrade plan', icon: 'sparkle', to: '/#pricing', disabled: true },
   { label: 'Settings', icon: 'sun', to: '/dashboard/settings' },
-  { label: 'Brand Kit', icon: 'palette', to: '/dashboard/library-settings' },
-  { label: 'Business memory', icon: 'file-text', to: '/dashboard/brand-dna' },
-  { label: 'Competitor overview', icon: 'trending-up', to: '/dashboard/competitor-overview' },
 ];
 
 export default function UserMenu({ compact = false }) {
@@ -133,7 +131,8 @@ export default function UserMenu({ compact = false }) {
               key={link.to}
               type="button"
               role="menuitem"
-              className={`sb__menuitem${link.muted ? ' sb__menuitem--muted' : ''}`}
+              className="sb__menuitem"
+              disabled={link.disabled}
               onClick={() => go(link.to)}
             >
               <Glyph name={link.icon} size={16} strokeWidth={1.9} />
@@ -147,7 +146,7 @@ export default function UserMenu({ compact = false }) {
             type="button"
             role="menuitem"
             className="sb__menuitem"
-            onClick={() => go('/dashboard/settings')}
+            disabled
           >
             <Glyph name="info" size={16} strokeWidth={1.9} />
             <span className="sb__menuitem__label">Help</span>
