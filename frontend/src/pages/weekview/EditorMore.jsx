@@ -113,11 +113,12 @@ export default function EditorMore({ acts, onClose }) {
   ];
 
   /* ── Layout (bauhly-v3 PostMenu `layout`) ────────────────────────────
-   * Six arrangements as wireframes, and Upload a composition under them: a
-   * picture laid out the way the studio wants, read by AI for its arrangement
-   * (it then stands where the grid stood, with what it was read as and an ×).
-   * A press MARKS; the act is the pair at the foot — Apply layout to this slide
-   * / all slides — and applying is an AI edit of the slide's html. */
+   * The carousel agent's layouts (Default · Full bleed · Floating panel ·
+   * Split bands · Editorial) as wireframes: applying one reruns the carousel
+   * agent on that layout's prompt, for the whole carousel. Under them, Upload
+   * a composition: a picture laid out the way the studio wants, read by AI for
+   * its arrangement (it then stands where the grid stood, with what it was read
+   * as and an ×) and applied as an AI edit of the slide — this slide / all. */
   if (level === 'layout') {
     const lays = acts.layouts || {};
     const list = lays.list || [];
@@ -131,10 +132,13 @@ export default function EditorMore({ acts, onClose }) {
       dropShot();
       setLayPick(null);
       setLaySaid('');
-      lays.onApply?.(id, every, comp);
+      if (comp) lays.onApply?.(id, every, comp);
+      else lays.onCarousel?.(id);
       onClose();
     };
-    const applyRows = !layPick ? [] : (many ? [
+    const applyRows = !layPick ? [] : (!layShot ? [
+      { id: 'go', icon: 'sparkle', label: many ? 'Apply layout to all slides' : 'Apply layout to this post', hint: 'The carousel agent redesigns it in this layout', dead: acts.busy, fn: () => go(true) },
+    ] : many ? [
       { id: 'one', icon: 'brief', label: 'Apply layout to this slide', hint: 'The others keep theirs', dead: acts.busy, fn: () => go(false) },
       { id: 'all', icon: 'copy', label: 'Apply layout to all slides', hint: 'The whole carousel takes it', dead: acts.busy, fn: () => go(true) },
     ] : [
@@ -191,7 +195,8 @@ export default function EditorMore({ acts, onClose }) {
                   className={`wv-em__lay wv-em__lay--${l.id}${layPick === l.id ? ' is-pick' : ''}`}
                   onClick={(e) => { e.stopPropagation(); setLayPick(l.id); }}
                 >
-                  <i aria-hidden="true" />
+                  <span className="wv-em__layart" aria-hidden="true"><i /><s /><b /></span>
+                  <span className="wv-em__layname">{l.name}</span>
                 </button>
               ))}
             </div>
@@ -852,7 +857,7 @@ export default function EditorMore({ acts, onClose }) {
     <Rows
       onClose={onClose}
       rows={[
-        { id: 'layouts', icon: 'blocks', label: 'Layout', hint: 'How this slide is arranged', dead: acts.busy, fn: () => setLevel('layout'), into: true, chevron: true },
+        { id: 'layouts', icon: 'blocks', label: 'Layout', hint: 'How the carousel is arranged', dead: acts.busy, fn: () => setLevel('layout'), into: true, chevron: true },
         { id: 'themes', icon: 'droplet', label: 'Theme', hint: 'The direction it wears', dead: true /* off for now */, fn: () => setLevel('theme'), into: true, chevron: true },
         { id: 'content', icon: 'layers', label: 'Content', hint: 'Image and logo', fn: () => setLevel('content'), into: true, chevron: true },
         { id: 'style', icon: 'swatch', label: 'Style', hint: 'Colours and background', fn: () => setLevel('style'), into: true, chevron: true },

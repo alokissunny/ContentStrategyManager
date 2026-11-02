@@ -8885,8 +8885,8 @@ p.wv-sa__hint { margin: 8px 4px 0; }
 .wv-em__gobtn:hover:not(:disabled) { filter: brightness(0.97); }
 .wv-em__gobtn:disabled { opacity: 0.45; cursor: default; }
 
-/* Editor ⋯ › Layout — the six arrangements as wireframes (bauhly-v3 `pe-lays`):
-   a 4:5 card, the picture area hatched */
+/* Editor ⋯ › Layout — the carousel agent's layouts as small wireframes: a 4:5
+   card (picture area hatched, word lines as bars) with its name under it */
 .wv-em__lays {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -8894,27 +8894,65 @@ p.wv-sa__hint { margin: 8px 4px 0; }
   padding: 4px 8px 8px;
 }
 .wv-em__lay {
-  position: relative;
-  aspect-ratio: 4 / 5;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
   padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  text-align: center;
+}
+.wv-em__layart {
+  position: relative;
+  display: block;
+  width: 100%;
+  aspect-ratio: 4 / 5;
   border: 1px solid var(--border, #e3e3e8);
   border-radius: 10px;
   background: var(--surface-sunken, #f5f5f5);
   overflow: hidden;
-  cursor: pointer;
 }
-.wv-em__lay:hover { border-color: var(--ink-400, #9a9aa3); }
-.wv-em__lay.is-pick { border: 2px solid var(--ink-900, #16161a); }
-.wv-em__lay i {
-  position: absolute;
-  background: repeating-linear-gradient(135deg, #cfcfd3 0 7px, #e2e2e5 7px 14px);
+.wv-em__lay:hover .wv-em__layart { border-color: var(--ink-400, #9a9aa3); }
+.wv-em__lay.is-pick .wv-em__layart { border: 2px solid var(--ink-900, #16161a); }
+.wv-em__layname {
+  font: 600 11.5px/1.2 var(--font-ui);
+  color: var(--ink-700, #3a3a40);
 }
-.wv-em__lay--text i { display: none; }
-.wv-em__lay--top i { left: 0; right: 0; top: 0; height: 50%; }
-.wv-em__lay--bottom i { left: 0; right: 0; bottom: 0; height: 50%; }
-.wv-em__lay--left i { left: 0; top: 0; bottom: 0; width: 45%; }
-.wv-em__lay--right i { right: 0; top: 0; bottom: 0; width: 45%; }
-.wv-em__lay--bleed i { inset: 0; }
+.wv-em__lay.is-pick .wv-em__layname { color: var(--ink-900, #16161a); }
+.wv-em__layart i,
+.wv-em__layart s,
+.wv-em__layart b { position: absolute; display: block; }
+.wv-em__layart i { background: repeating-linear-gradient(135deg, #cfcfd3 0 7px, #e2e2e5 7px 14px); }
+/* word lines: a headline bar and a shorter one under it */
+.wv-em__layart b {
+  height: 5px;
+  width: 52%;
+  border-radius: 3px;
+  background: #fff;
+  box-shadow: 0 9px 0 -1px rgba(255, 255, 255, 0.8);
+}
+/* Default: full picture, a soft wash at the foot, words centred on it */
+.wv-em__lay--default i { inset: 0; }
+.wv-em__lay--default s { left: 0; right: 0; bottom: 0; height: 48%; background: linear-gradient(transparent, rgba(22, 22, 26, 0.45)); }
+.wv-em__lay--default b { left: 24%; bottom: 22%; }
+/* Full bleed: full picture, hairline at the top, words on a calm upper-left area */
+.wv-em__lay--full-bleed i { inset: 0; }
+.wv-em__lay--full-bleed s { left: 12%; right: 12%; top: 9%; height: 1px; background: #fff; }
+.wv-em__lay--full-bleed b { left: 12%; top: 20%; }
+/* Floating panel: full picture, words on a solid panel over it */
+.wv-em__lay--floating-panel i { inset: 0; }
+.wv-em__lay--floating-panel s { left: 10%; right: 28%; bottom: 10%; height: 30%; border-radius: 4px; background: #fff; box-shadow: 0 2px 6px rgba(0, 0, 0, 0.12); }
+.wv-em__lay--floating-panel b { left: 18%; bottom: 25%; width: 40%; background: var(--ink-700, #3a3a40); box-shadow: 0 9px 0 -1px var(--ink-400, #9a9aa3); }
+/* Split bands: a picture band on top, a solid colour band holding the words */
+.wv-em__lay--split-bands i { left: 0; right: 0; top: 0; height: 58%; }
+.wv-em__lay--split-bands s { left: 0; right: 0; bottom: 0; height: 42%; background: var(--ink-800, #26262b); }
+.wv-em__lay--split-bands b { left: 12%; bottom: 20%; }
+/* Editorial: paper ground, running head, a framed picture, headline under it */
+.wv-em__lay--editorial .wv-em__layart { background: #f6f1e8; }
+.wv-em__lay--editorial s { left: 12%; right: 12%; top: 8%; height: 1px; background: var(--ink-400, #9a9aa3); }
+.wv-em__lay--editorial i { left: 12%; right: 12%; top: 16%; height: 50%; }
+.wv-em__lay--editorial b { left: 12%; bottom: 16%; width: 60%; background: var(--ink-700, #3a3a40); box-shadow: 0 9px 0 -1px var(--ink-400, #9a9aa3); }
 .wv-em__note {
   margin: 2px 12px 6px;
   font-size: 12px;

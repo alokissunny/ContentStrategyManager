@@ -33,6 +33,7 @@ const { runTag, queueDebug } = require('../services/planRunLog');
 const { ownedMediaKeys, clearScheduleFields } = require('../services/metaPublish');
 const { annotatePostPhotos } = require('../services/photoFocusAgent');
 const { notifyPlanFinished } = require('../services/pushNotify');
+const { isValidCarouselLayout } = require('../services/runtimeSettings');
 const {
   logPlanInstagramSource,
   loadCohortCompetitorInsights,
@@ -1536,8 +1537,13 @@ async function rerunLayout(req, res) {
   }
 
   const promptOverride = typeof req.body?.promptOverride === 'string' ? req.body.promptOverride.trim() : '';
-  if (promptOverride && !carouselAgentEnabled()) {
-    return res.status(400).json({ message: 'Editing the prompt needs the carousel agent (it is turned off).' });
+  // Editor › Layout: rerun the carousel agent on that layout's prompt
+  const layoutId = typeof req.body?.layout === 'string' ? req.body.layout.trim() : '';
+  if (layoutId && !isValidCarouselLayout(layoutId)) {
+    return res.status(400).json({ message: 'Unknown carousel layout.' });
+  }
+  if ((promptOverride || layoutId) && !carouselAgentEnabled()) {
+    return res.status(400).json({ message: `${layoutId ? 'Changing the layout' : 'Editing the prompt'} needs the carousel agent (it is turned off).` });
   }
 
   const post = layoutPostFromPost(record);
@@ -1604,6 +1610,7 @@ async function rerunLayout(req, res) {
       onlySlide: Number(req.body?.slideIndex) || 0,
       // Debug › Carousel agent › Edit prompt: run this exact prompt instead
       promptOverride,
+      layoutId,
     });
     if (result.parsed?.status === 'failed') {
       return res.status(422).json({

@@ -173,11 +173,17 @@ function carouselLayout() {
   return CAROUSEL_LAYOUTS.find((l) => l.id === id);
 }
 
+/** A carousel layout by id (Editor › Layout), else the one chosen in Settings. */
+function carouselLayoutById(id) {
+  return CAROUSEL_LAYOUTS.find((l) => l.id === id) || carouselLayout();
+}
+
 module.exports = {
   KEYS,
   CAROUSEL_LAYOUTS,
   isValidCarouselLayout,
   carouselLayout,
+  carouselLayoutById,
   THEME_APPLY_PHOTO_MODES,
   isValidThemeApplyPhotoMode,
   themeApplyPhotoMode,

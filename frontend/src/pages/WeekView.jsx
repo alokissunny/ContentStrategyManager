@@ -2243,6 +2243,15 @@ const LAYOUT_WIRES = [
   { id: 'right', name: 'Picture right', say: 'Re-arrange this slide: the words in a column on the left; a picture area down the right side, full height, about 45% of the width.' },
   { id: 'bleed', name: 'Full-bleed picture', say: 'Re-arrange this slide: the picture fills the whole frame edge to edge, with the words set over it where they stay legible (a soft scrim behind them if needed).' },
 ];
+// Editor ⋯ › Layout: the carousel agent's layouts (backend runtimeSettings
+// CAROUSEL_LAYOUTS) — picking one reruns the carousel agent on its prompt
+const CAROUSEL_LAYOUT_CHOICES = [
+  { id: 'default', name: 'Default' },
+  { id: 'full-bleed', name: 'Full bleed' },
+  { id: 'floating-panel', name: 'Floating panel' },
+  { id: 'split-bands', name: 'Split bands' },
+  { id: 'editorial', name: 'Editorial' },
+];
 // …and a held logo on one: painted in (or taken off) by the image model
 const LOGO_REGION = { id: 'logo', role: 'logo' };
 // …and on a Theme Apply picture (bauhly-v3 ShotSpots IMAGE_TRIES)
@@ -7339,10 +7348,15 @@ export default function WeekView({
     slides: slides.length,
     busy: layoutBusy,
     uploading,
-    // Layout: the six arrangements + Upload a composition (bauhly-v3 `lays`);
-    // applying one is an AI edit — the Slide Edit agent re-lays the slide out
+    // Layout: the carousel agent's layouts — one reruns the carousel agent on
+    // that layout's prompt — + Upload a composition (bauhly-v3 `lays`), applied
+    // as an AI edit: the Slide Edit agent re-lays the slide out
     layouts: {
-      list: LAYOUT_WIRES,
+      list: CAROUSEL_LAYOUT_CHOICES,
+      onCarousel: (id) => runPostAgents(
+        () => runDayLayout(route._id, selected, { layout: id }),
+        'Carousel agent',
+      ),
       // a theme picture is one image: its arrangement is repainted by the
       // image model (see relayoutThemed); an HTML slide is re-laid out by the
       // Slide Edit agent

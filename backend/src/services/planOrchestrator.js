@@ -11,7 +11,7 @@ const { boxOf, matchSubject, regionFromBox } = require('./subjectBox');
 const { layoutById } = require('./layoutCatalog');
 const { extractLayoutHtml, extractHtmlDocument, parseCarouselDocument, slideArticles, htmlAttr, hasImageSlot, shareLayoutStyles, copyFromLayoutHtml, injectImageIntoSlots } = require('./layoutHtml');
 const sharp = require('sharp');
-const { carouselLayout } = require('./runtimeSettings');
+const { carouselLayout, carouselLayoutById } = require('./runtimeSettings');
 const { publicMediaUrl, isCdnConfigured, getMediaUrl, isS3Configured, getObjectBytes } = require('./s3Client');
 const { toVisionImage } = require('./visionImage');
 const { isImageGenConfigured: isOpenAIImageConfigured, generateImage: renderOpenAIImage } = require('./openaiImage');
@@ -2700,15 +2700,16 @@ async function carouselPhotosOf(carouselInput, layout = carouselLayout(), { stor
 // Slide rule for runs that keep the post's slides (carousel-layouts/*.md › {{SLIDE_PLAN_RULES}}).
 const FIXED_SLIDE_RULE = "- Slide count is fixed: write exactly as many slides as the strategy output lists, in its order. Never merge, drop, or skip a slide, and never fold two slides' copy into one — even when a slide has little copy or no photo. Each slide's headline is the narrative unit's `copy`, word for word.";
 
-async function writeCarousel({ source, structure, post, dayBrief, brand, dayWriterOutput, onlySlide = 0, promptOverride = '', ownsStory = false }) {
+async function writeCarousel({ source, structure, post, dayBrief, brand, dayWriterOutput, onlySlide = 0, promptOverride = '', ownsStory = false, layoutId = '' }) {
   const hasStructure = Array.isArray(structure?.slidesOrScenes) && structure.slidesOrScenes.length > 0;
   const carouselInput = hasStructure
     ? carouselInputOf(structure, post, dayBrief)
     : carouselBriefInputOf(dayBrief, post);
   const structureSlides = visualSlidesOf(structure).length;
   const postSlideCount = Array.isArray(post?.content?.slides) ? post.content.slides.length : 0;
-  // Settings › Carousel layout picks the prompt (prompts/carousel-layouts/<id>.md).
-  const layout = carouselLayout();
+  // Settings › Carousel layout picks the prompt (prompts/carousel-layouts/<id>.md);
+  // Editor › Layout can name one for this run.
+  const layout = layoutId ? carouselLayoutById(layoutId) : carouselLayout();
   // No visual theme: the carousel agent designs every post in its house style
   // (prompts/carousel-layouts/default.md › House style). Themes are applied afterwards, as
   // images, by the Theme Apply agent.

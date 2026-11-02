@@ -309,9 +309,14 @@ export function polishCaption(id, { caption, instruction, kind, role, fills }) {
 // several minutes). It has no themes: it designs in its house style; themes are
 // applied afterwards by applyThemeImage (the Theme Apply agent).
 // `promptOverride` (Debug › Carousel agent › Edit prompt) runs that exact
-// prompt instead of the one assembled from the post. → { post, layout, ... }
-export function runPostLayout(id, { promptOverride } = {}) {
-  const body = promptOverride ? { promptOverride } : {};
+// prompt instead of the one assembled from the post. `layout` (Editor ›
+// Layout) runs that carousel layout's prompt instead of the Settings one.
+// → { post, layout, ... }
+export function runPostLayout(id, { promptOverride, layout } = {}) {
+  const body = {
+    ...(promptOverride ? { promptOverride } : {}),
+    ...(layout ? { layout } : {}),
+  };
   return client.post(`/posts/${id}/layout`, body, { timeout: 540000 }).then((res) => {
     const data = res.data || {};
     ingestPlanDebug(promptOverride ? 'Carousel agent (edited prompt)' : 'Carousel agent (debug)', data);
