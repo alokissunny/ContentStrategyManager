@@ -195,6 +195,12 @@ export async function waitForPlanRun(runId, { onProgress } = {}) {
   throw runError(504, { message: 'Building posts is taking longer than expected. Check your calendar again in a few minutes.' });
 }
 
+// The current handle's queued run still in progress → { runId, status, trigger } | null.
+// Lets a reloaded page pick the wait back up instead of showing an empty calendar.
+export function getActivePlanRun() {
+  return client.get('/posts/runs/active').then((res) => res.data?.run || null);
+}
+
 // Delete every unpublished planned post for the active handle (full calendar).
 export function clearUpcoming() {
   return client.delete('/posts').then((res) => res.data);

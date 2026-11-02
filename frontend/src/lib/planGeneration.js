@@ -5,7 +5,7 @@
  */
 
 import { useSyncExternalStore } from 'react';
-import { generatePlan } from '../api/posts';
+import { generatePlan, getActivePlanRun, ingestPlanDebug, waitForPlanRun } from '../api/posts';
 import { distributionForGenerate } from './distribution';
 
 const listeners = new Set();
@@ -86,7 +86,34 @@ export function consumePlanReady() {
 
 export async function startPlanGeneration(trigger, extras = {}) {
   if (snapshot.status === 'generating' || inFlight) return inFlight;
-  const startedAt = Date.now();
+  // Fill onto the studio's chosen publishing weekdays unless the caller
+  // already named a distribution.
+  return track(trigger, Date.now(), () => generatePlan(trigger, { ...distributionForGenerate(), ...extras }));
+}
+
+// A reload (or a new tab / app restart) loses the wait above, but a queued
+// run keeps going on the server. On load, pick up the handle's run in
+// progress so the plan lands without a manual refresh.
+let resumeChecked = false;
+export async function resumePlanGeneration() {
+  if (resumeChecked || snapshot.status === 'generating' || inFlight) return inFlight;
+  resumeChecked = true;
+  let run = null;
+  try {
+    run = await getActivePlanRun();
+  } catch {
+    return null;
+  }
+  if (!run?.runId || snapshot.status === 'generating' || inFlight) return inFlight;
+  const trigger = run.trigger || 'resume';
+  return track(trigger, Date.now(), async () => {
+    const data = await waitForPlanRun(run.runId);
+    ingestPlanDebug(`Generate posts (${trigger}, resumed)`, data);
+    return data;
+  }).catch(() => null);
+}
+
+function track(trigger, startedAt, run) {
   set({
     status: 'generating',
     trigger,
@@ -98,10 +125,7 @@ export async function startPlanGeneration(trigger, extras = {}) {
   });
   inFlight = (async () => {
     try {
-      // Fill onto the studio's chosen publishing weekdays unless the caller
-      // already named a distribution.
-      const withDist = { ...distributionForGenerate(), ...extras };
-      const data = await generatePlan(trigger, withDist);
+      const data = await run();
       const posts = Array.isArray(data.posts) ? data.posts : [];
       const watching = snapshot.watching;
       set({

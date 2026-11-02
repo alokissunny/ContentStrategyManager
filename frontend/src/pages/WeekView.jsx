@@ -1502,10 +1502,12 @@ function keysOf(slide) {
   if (listed.length) return listed;
   const single = own(splitMediaKeys(slide?.assetKey));
   if (single.length) return single;
-  const fromVisual = own(splitMediaKeys(slide?.visual?.assetKey || slide?.image?.key));
-  if (fromVisual.length) return fromVisual;
   // Carousel often stamps data-asset-key on the <img> without setting slide.assetKey.
-  return own(keysFromLayoutHtml(slide?.layoutHtml));
+  // Read these before slide.image: bindOwnedSlides sets image to the FIRST of
+  // them, so checking image first drops every other frame (a before/after pair).
+  const fromHtml = own(keysFromLayoutHtml(slide?.layoutHtml));
+  if (fromHtml.length) return fromHtml;
+  return own(splitMediaKeys(slide?.visual?.assetKey || slide?.image?.key));
 }
 
 // The picture in each of a slide's frames, by position ('' for an empty

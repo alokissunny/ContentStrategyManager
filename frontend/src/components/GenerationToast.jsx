@@ -8,7 +8,7 @@ import React, { useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { useLocation, useNavigate } from 'react-router-dom';
 import Icon from '../brand/Icon';
-import { dismissPlanToast, usePlanGeneration } from '../lib/planGeneration';
+import { dismissPlanToast, resumePlanGeneration, usePlanGeneration } from '../lib/planGeneration';
 import { openCaptureIdea } from '../lib/captureUi';
 import NotifyWhenReady from './NotifyWhenReady';
 
@@ -19,6 +19,9 @@ export default function GenerationToast() {
   const toast = gen.toast;
   const navigate = useNavigate();
   const { pathname } = useLocation();
+
+  // a run started before a reload is still going on the server — wait for it
+  useEffect(() => { resumePlanGeneration(); }, []);
 
   useEffect(() => {
     if (!toast || toast.kind === 'busy') return undefined;
