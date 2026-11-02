@@ -50,5 +50,7 @@ const brandAnalysisReportSchema = new mongoose.Schema(
 );
 
 brandAnalysisReportSchema.index({ user: 1, createdAt: -1 });
+// the latest report for a handle — read on most planning / brand requests
+brandAnalysisReportSchema.index({ user: 1, instagramUsername: 1, createdAt: -1 });
 
 module.exports = mongoose.model('BrandAnalysisReport', brandAnalysisReportSchema);

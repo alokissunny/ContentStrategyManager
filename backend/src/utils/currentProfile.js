@@ -10,7 +10,7 @@ const CURRENT_SORT = { activatedAt: -1, fetchedAt: -1 };
 
 // Username lookups happen on almost every calendar/projects/brand request.
 // Cache briefly so a page load of 8 parallel GETs does not pay 8 Atlas RTTs.
-const usernameCache = createTtlCache({ ttlMs: 20_000, max: 200 });
+const usernameCache = createTtlCache({ ttlMs: 20_000, max: 5000, name: 'currentUsername' });
 
 function invalidateCurrentUsername(userId) {
   if (userId != null) usernameCache.del(userId);

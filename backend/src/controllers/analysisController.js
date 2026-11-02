@@ -82,7 +82,12 @@ function hasStoredBrandDna(report) {
 }
 
 async function listReports(req, res) {
-  const reports = await BrandAnalysisReport.find({ user: req.user._id }).sort({ createdAt: -1 });
+  // newest first, bounded; the per-language display translations and the raw
+  // brand-voice posts are large and only read by their own endpoints
+  const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 50, 1), 200);
+  const reports = await BrandAnalysisReport.find({ user: req.user._id })
+    .sort({ createdAt: -1 }).limit(limit)
+    .select('-memoryTranslations -brandVoicePosts');
   res.json({ reports });
 }
 

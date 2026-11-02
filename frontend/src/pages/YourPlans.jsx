@@ -630,6 +630,9 @@ function MonthView({
   onDistribute,
   onPatchPost,
   onPostsReload,
+  // the calendar's loaded { from, to } window (or null) — Shift answers with
+  // just that window instead of the whole history
+  getLoadedRange = null,
   onRemovePost = null,
   // phone: the months run on in one scroller (bauhly-v3 `months`) — every month
   // after the first is drawn `bare` (no weekday head) under its own `title`
@@ -743,7 +746,7 @@ function MonthView({
     setShifting(true);
     setShiftErr('');
     try {
-      const data = await shiftPosts(moving.result.dates);
+      const data = await shiftPosts(moving.result.dates, getLoadedRange?.() || null);
       onPostsReload?.(data.posts || []);
       cancelShift();
     } catch (err) {
@@ -1486,6 +1489,15 @@ export default function YourPlans() {
     return all;
   }
 
+  // Replace the loaded window with a fresh list from the server (Distribute,
+  // Shift) — the list covers the same window loadedRangeRef holds.
+  function applyCalendarList(list) {
+    const next = new Map();
+    for (const p of (list || [])) next.set(String(p._id), p);
+    postsMapRef.current = next;
+    return paintFromMap();
+  }
+
   async function reload() {
     // Full refresh of the current window: refetch it whole and REPLACE the map,
     // so edits/deletes/new posts on the server are reflected. This is the event
@@ -1815,10 +1827,8 @@ export default function YourPlans() {
         const { mode, days } = latestDistRef.current;
         latestDistRef.current = null;
         try {
-          const data = await distributePosts(mode, days);
-          const all = (data.posts || []).map(postToRoute);
-          setRoutes(all);
-          setCurrent(pickCurrentRoute(all));
+          const data = await distributePosts(mode, days, loadedRangeRef.current);
+          applyCalendarList(data.posts);
         } catch (err) {
           setError(err.response?.data?.message || "We couldn't distribute the posts just now. Please try again.");
         }
@@ -2209,11 +2219,10 @@ export default function YourPlans() {
         setCurrent((c) => (c && String(c._id) === String(id) ? null : c));
       }}
       onPostsReload={(list) => {
-        const all = (list || []).map(postToRoute);
-        setRoutes(all);
-        setCurrent(pickCurrentRoute(all));
+        applyCalendarList(list);
         fullCacheRef.current.clear();
       }}
+      getLoadedRange={() => loadedRangeRef.current}
     />
   );
 

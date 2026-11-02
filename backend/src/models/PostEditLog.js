@@ -40,5 +40,13 @@ const postEditLogSchema = new mongoose.Schema(
 
 postEditLogSchema.index({ user: 1, at: -1 });
 postEditLogSchema.index({ user: 1, instagramUsername: 1, at: -1 });
+// the merge-window lookup on every edit (middleware/postEditLog.js)
+postEditLogSchema.index({ post: 1, at: -1 });
+// Opt-in retention: POST_EDIT_LOG_TTL_DAYS=<n> expires logs older than n days
+// (they carry before/after HTML, so they grow fastest). Unset = kept forever.
+const editLogTtlDays = Number(process.env.POST_EDIT_LOG_TTL_DAYS);
+if (Number.isFinite(editLogTtlDays) && editLogTtlDays > 0) {
+  postEditLogSchema.index({ at: 1 }, { expireAfterSeconds: Math.round(editLogTtlDays * 86400) });
+}
 
 module.exports = mongoose.model('PostEditLog', postEditLogSchema);

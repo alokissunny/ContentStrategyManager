@@ -4,7 +4,7 @@ const { createTtlCache } = require('../utils/ttlCache');
 
 // Auth user docs change rarely on the request path; a short TTL skips one Atlas
 // round-trip (~1–2s on M0) for every protected API call.
-const userCache = createTtlCache({ ttlMs: 30_000, max: 200 });
+const userCache = createTtlCache({ ttlMs: 30_000, max: 5000, name: 'authUser' });
 
 // Keep protect payloads light — logos / mood / generated images are loaded by
 // their own endpoints. Shipping them on every request just slows Atlas reads.

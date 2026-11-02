@@ -5371,7 +5371,7 @@ export default function WeekView({
     setSavingTime(true);
     setPublishMsg('');
     try {
-      await shiftPosts({ [route._id]: iso });
+      await shiftPosts({ [route._id]: iso }, { from: iso, to: iso });
       const d = dateFromIso(iso);
       const patch = {
         date: iso,

@@ -209,8 +209,17 @@ export function clearUpcoming() {
 // Reallocate the upcoming movable posts (after today, not published/scheduled)
 // onto the chosen publishing weekdays. mode: 'days' (a weekday set) | 'weekly'
 // (an even spread). Returns { posts, moved } — the full refreshed calendar.
-export function distributePosts(mode, days) {
-  return client.post('/posts/distribute', { mode, days }).then((res) => res.data);
+function windowOf(range) {
+  const out = {};
+  if (range?.from) out.from = range.from;
+  if (range?.to) out.to = range.to;
+  return out;
+}
+
+// `range` ({ from, to } "YYYY-MM-DD", optional) limits the returned list to the
+// calendar's loaded window; omit it for the full list.
+export function distributePosts(mode, days, range = null) {
+  return client.post('/posts/distribute', { mode, days, ...windowOf(range) }).then((res) => res.data);
 }
 
 // The current handle's saved publishing-day rule → { mode, days }.
@@ -225,9 +234,10 @@ export function saveDistribution(mode, days) {
 }
 
 // Apply a Shift posts proposal: { [postId]: 'YYYY-MM-DD', ... }.
-// Returns { posts, moved } — the full refreshed calendar list.
-export function shiftPosts(moves) {
-  return client.post('/posts/shift', { moves }).then((res) => res.data);
+// Returns { posts, moved } — the refreshed calendar list (windowed to `range`
+// when given, else the full list).
+export function shiftPosts(moves, range = null) {
+  return client.post('/posts/shift', { moves, ...windowOf(range) }).then((res) => res.data);
 }
 
 // ── Per-post edits — all thin wrappers over PATCH /posts/:id ────────────────

@@ -224,7 +224,7 @@ async function fetchInstagram(req, res) {
 }
 
 const avatarAttempted = new Set();
-const profilesListCache = createTtlCache({ ttlMs: 15_000, max: 100 });
+const profilesListCache = createTtlCache({ ttlMs: 15_000, max: 2000, name: 'profilesList' });
 
 function scheduleMissingAvatarCache(userId, profiles) {
   const uid = String(userId);

@@ -104,7 +104,7 @@ function SchedSheet({ open, day, iso, clock, metaConnected, onClose, onPatched, 
   };
   const slotIso = (d, t) => new Date(`${d}T${t || '09:00'}:00`).toISOString();
   const saveTime = () => run(async () => {
-    if (date && date !== iso) await shiftPosts({ [id]: date });
+    if (date && date !== iso) await shiftPosts({ [id]: date }, { from: date, to: date });
     let next = await setPostTime(id, time);
     if (set) next = await schedulePost(id, slotIso(date || iso, time));
     return (await getPost(id).catch(() => null)) || next;

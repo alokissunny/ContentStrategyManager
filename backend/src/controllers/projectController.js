@@ -2,6 +2,7 @@ const crypto = require('crypto');
 const Project = require('../models/Project');
 const PlannedPost = require('../models/PlannedPost');
 const { currentUsername } = require('../utils/currentProfile');
+const { createTtlCache } = require('../utils/ttlCache');
 const {
   isS3Configured,
   getPresignedUploadUrl,
@@ -198,13 +199,22 @@ async function serializeCapture(c, { lite = false, postDates = null } = {}) {
   };
 }
 
-async function serializeProject(p, { lite = false } = {}) {
-  const ids = (p.captures || []).flatMap((c) => c.usedInPosts || []);
+// The calendar date of every post the given projects' captures went into —
+// one query for the lot (the projects list used to run one per project).
+async function postDatesFor(projects) {
+  const list = (Array.isArray(projects) ? projects : [projects]).filter(Boolean);
+  const ids = list.flatMap((p) => (p.captures || []).flatMap((c) => c.usedInPosts || []));
   const postDates = new Map();
-  if (ids.length) {
-    const rows = await PlannedPost.find({ _id: { $in: ids }, user: p.user }, { date: 1 }).lean().catch(() => []);
+  if (ids.length && list.length) {
+    const users = [...new Set(list.map((p) => String(p.user)))];
+    const rows = await PlannedPost.find({ _id: { $in: ids }, user: { $in: users } }, { date: 1 }).lean().catch(() => []);
     rows.forEach((r) => postDates.set(String(r._id), { id: String(r._id), date: r.date || '' }));
   }
+  return postDates;
+}
+
+async function serializeProject(p, { lite = false, postDates: known = null } = {}) {
+  const postDates = known || await postDatesFor(p);
   return {
     id: p._id.toString(),
     name: p.name,
@@ -268,7 +278,9 @@ async function signUploads(req, res) {
 // process — so the one-time backfill below never runs on the hot read path more
 // than once per user. Once adopted, a null-handle project can't reappear:
 // createProject always stamps the current handle.
-const legacyAdopted = new Set();
+// users whose legacy projects were already adopted (bounded: a miss just
+// re-runs the cheap no-op updateMany)
+const legacyAdopted = createTtlCache({ ttlMs: 24 * 3600 * 1000, max: 5000 });
 
 async function listProjects(req, res) {
   const lite = ['1', 'true'].includes(String(req.query.lite || '').toLowerCase());
@@ -280,16 +292,22 @@ async function listProjects(req, res) {
     // the current account so nothing disappears now that projects are scoped.
     // This is a one-time backfill; guard it so we don't issue a write on every
     // calendar load.
-    if (!legacyAdopted.has(uid)) {
+    if (!legacyAdopted.get(uid)) {
       await Project.updateMany(
         { user: req.user._id, instagramUsername: { $in: [null, ''] } },
         { $set: { instagramUsername: username } }
       );
-      legacyAdopted.add(uid);
+      legacyAdopted.set(uid, true);
     }
     filter.instagramUsername = username;
   }
+  // Optional paging (?limit=&before=<updatedAt ISO>): newest-updated first.
+  // Without `limit` the whole list, as before.
+  const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 0, 0), 100);
+  const before = req.query.before ? new Date(String(req.query.before)) : null;
+  if (before && !Number.isNaN(before.getTime())) filter.updatedAt = { $lt: before };
   const query = Project.find(filter).sort({ updatedAt: -1 });
+  if (limit) query.limit(limit + 1);
   if (lite) {
     // The calendar's lite view only needs capture ids, session text and
     // attachment keys — never the heavy per-capture analysis, understanding,
@@ -302,8 +320,13 @@ async function listProjects(req, res) {
       'captures.attachments.analysis': 0,
     });
   }
-  const projects = await query;
-  res.json({ projects: await Promise.all(projects.map((p) => serializeProject(p, { lite }))) });
+  const rows = await query;
+  const hasMore = Boolean(limit) && rows.length > limit;
+  const projects = hasMore ? rows.slice(0, limit) : rows;
+  const postDates = await postDatesFor(projects);
+  const out = { projects: await Promise.all(projects.map((p) => serializeProject(p, { lite, postDates }))) };
+  if (limit) out.nextBefore = hasMore ? projects[projects.length - 1].updatedAt : null;
+  res.json(out);
 }
 
 async function createProject(req, res) {
@@ -382,6 +405,10 @@ async function addCapture(req, res) {
   await analyzeNewImageAttachments(created.attachments);
   await project.save();
   res.status(201).json({ project: await serializeProject(project) });
+  // the light WebP the slides will show, made now rather than on first view
+  require('./mediaController').warmDisplayCopies(
+    (created.attachments || []).filter((a) => a.type === 'image').map((a) => a.key),
+  );
 }
 
 // POST /projects/captures/questions { items: [{ projectId, captureId }] }

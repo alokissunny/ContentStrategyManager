@@ -3,7 +3,8 @@ const Signal = require('../models/Signal');
 async function getSignals(req, res) {
   const filter = { user: req.user._id };
   if (req.query.category) filter.category = req.query.category;
-  const signals = await Signal.find(filter).sort({ createdAt: -1 });
+  const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 200, 1), 500);
+  const signals = await Signal.find(filter).sort({ createdAt: -1 }).limit(limit);
   res.json({ signals });
 }
 

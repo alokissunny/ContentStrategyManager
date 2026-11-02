@@ -315,6 +315,20 @@ function isoBound(value) {
   return /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : null;
 }
 
+// The calendar list for a handle — optionally windowed to the caller's
+// loaded range ({ from, to } "YYYY-MM-DD"), the same shape GET /posts sends.
+function calendarPosts(userId, handle, { from, to } = {}) {
+  const query = { user: userId, instagramUsername: handle };
+  const lo = isoBound(from);
+  const hi = isoBound(to);
+  if (lo || hi) {
+    query.date = {};
+    if (lo) query.date.$gte = lo;
+    if (hi) query.date.$lte = hi;
+  }
+  return PlannedPost.find(query).sort({ date: 1 }).select('-content -agentTrace').lean();
+}
+
 async function getPosts(req, res) {
   const profile = await currentProfile(req.user._id).select('username fetchedAt').lean();
   if (!profile) return res.json({ posts: [], username: null, preparing: false });
@@ -634,8 +648,7 @@ async function distributePosts(req, res) {
     .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
 
   const respond = async (moved) => {
-    const posts = await PlannedPost.find({ user: req.user._id, instagramUsername: handle })
-      .sort({ date: 1 }).select('-content -agentTrace').lean();
+    const posts = await calendarPosts(req.user._id, handle, req.body || {});
     res.json({ posts, moved });
   };
 
@@ -794,8 +807,7 @@ async function shiftPosts(req, res) {
   await PlannedPost.bulkWrite(parkOps, { ordered: false });
   await PlannedPost.bulkWrite(finalOps, { ordered: false });
 
-  const refreshed = await PlannedPost.find({ user: req.user._id, instagramUsername: handle })
-    .sort({ date: 1 }).select('-content -agentTrace').lean();
+  const refreshed = await calendarPosts(req.user._id, handle, req.body || {});
   console.log(`[posts] shift @${handle} · moved=${entries.length}`);
   return res.json({ posts: refreshed, moved: entries.length });
 }

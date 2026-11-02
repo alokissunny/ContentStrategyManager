@@ -4,8 +4,10 @@
  * User.findById / currentUsername on every API call is the biggest local win.
  */
 
-function createTtlCache({ ttlMs = 30_000, max = 500 } = {}) {
+// `name` (optional) shares deletes across API instances — see cacheBus.
+function createTtlCache({ ttlMs = 30_000, max = 500, name = '' } = {}) {
   const map = new Map();
+  if (name) require('./cacheBus').register(name, (key) => map.delete(String(key)));
 
   function get(key) {
     const hit = map.get(String(key));
@@ -29,6 +31,7 @@ function createTtlCache({ ttlMs = 30_000, max = 500 } = {}) {
 
   function del(key) {
     map.delete(String(key));
+    if (name) require('./cacheBus').broadcastDelete(name, String(key));
   }
 
   function clear() {

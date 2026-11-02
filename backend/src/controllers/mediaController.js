@@ -1,5 +1,5 @@
 const sharp = require('sharp');
-const { getObjectBytes, mediaCdnBaseUrl, headObject, uploadBytes } = require('../services/s3Client');
+const { getObjectBytes, mediaCdnBaseUrl, headObject, uploadBytes, isS3Configured } = require('../services/s3Client');
 const { toVisionImage } = require('../services/visionImage');
 
 // Only ever serve project media: the immutable, content-addressed objects under
@@ -157,10 +157,12 @@ function pump() {
   }
 }
 function warmDisplayCopies(keys = []) {
+  if (!isS3Configured()) return;
   keys.forEach((k) => {
     const key = String(k || '').trim();
     if (!PROJECT_KEY_RE.test(key) || /\.w\d+\.webp$/i.test(key) || /\/debug\//.test(key) || warmed.has(key)) return;
     if (warmed.size > 5000) warmed.clear();
+    if (queue.length >= 500) return; // a backlog: the copy is made on first view instead
     warmed.add(key);
     queue.push(key);
   });
