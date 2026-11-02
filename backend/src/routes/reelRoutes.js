@@ -1,5 +1,6 @@
 const express = require('express');
 const asyncHandler = require('../utils/asyncHandler');
+const { aiLimit } = require('../middleware/aiRateLimit');
 const { protect } = require('../middleware/auth');
 const { signUpload, assembleReel, editReel, exportReel, cleanupReelExport } = require('../controllers/reelController');
 
@@ -11,11 +12,11 @@ const router = express.Router();
 router.use(protect);
 
 router.post('/uploads/sign', asyncHandler(signUpload));
-router.post('/assemble', asyncHandler(assembleReel));
+router.post('/assemble', aiLimit('heavy'), asyncHandler(assembleReel));
 router.post('/export/cleanup', asyncHandler(cleanupReelExport));
-router.post('/export', asyncHandler(exportReel));
-router.post('/edit', asyncHandler(editReel));
-router.post('/prompt-edit', asyncHandler(async (req, res) => {
+router.post('/export', aiLimit('heavy'), asyncHandler(exportReel));
+router.post('/edit', aiLimit('heavy'), asyncHandler(editReel));
+router.post('/prompt-edit', aiLimit('light'), asyncHandler(async (req, res) => {
   try {
     res.json(await require('../services/reelPromptEdit').promptEdit(req.body || {}));
   } catch (error) {

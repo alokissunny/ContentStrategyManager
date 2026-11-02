@@ -26,7 +26,8 @@ const NEXT_MONTH_STUBS = 4;
 const PREP_DAYS = 5;
 
 function wantsPromptDebug(req) {
-  return String(req.get('x-debug-prompts') || '').trim() === '1';
+  // prompts are internal — only admins get them back
+  return req.user?.role === 'admin' && String(req.get('x-debug-prompts') || '').trim() === '1';
 }
 const PILLAR_ROTATION = ['discovery', 'credibility', 'trust'];
 const MONTH_ABBR = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];

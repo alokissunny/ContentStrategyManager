@@ -16,7 +16,8 @@ const { localizeBrandDnaPayload } = require('../services/memoryTranslate');
 const { appLocaleOf } = require('../utils/appLocale');
 
 function wantsPromptDebug(req) {
-  return String(req.get('x-debug-prompts') || '').trim() === '1';
+  // prompts are internal — only admins get them back
+  return req.user?.role === 'admin' && String(req.get('x-debug-prompts') || '').trim() === '1';
 }
 
 function serializeGaps(gaps) {

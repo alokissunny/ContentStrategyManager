@@ -12,6 +12,9 @@ const themeApplyJobSchema = new mongoose.Schema(
     post: { type: mongoose.Schema.Types.ObjectId, ref: 'PlannedPost', required: true },
     status: { type: String, enum: ['running', 'done', 'failed'], default: 'running' },
     bootId: { type: String, default: '' },
+    // touched every few seconds while the run is alive — a stale one means the
+    // process running it died (works across several API instances, unlike bootId)
+    heartbeatAt: { type: Date, default: Date.now },
     slideIndexes: { type: [Number], default: [] },
     // what POST /theme-image would have answered: { code, body } (JSON string —
     // agent output keys never collide with MongoDB's field-name rules)
@@ -21,6 +24,8 @@ const themeApplyJobSchema = new mongoose.Schema(
   },
   { timestamps: true }
 );
+
+themeApplyJobSchema.index({ user: 1, post: 1, status: 1 });
 
 // finished or abandoned jobs go after a day
 themeApplyJobSchema.index({ createdAt: 1 }, { expireAfterSeconds: 24 * 3600 });

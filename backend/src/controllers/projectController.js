@@ -24,7 +24,8 @@ const { appLocaleOf } = require('../utils/appLocale');
 const { transcribeAudio, correctTranscript } = require('../services/transcribeAudio');
 
 function wantsPromptDebug(req) {
-  return String(req.get('x-debug-prompts') || '').trim() === '1';
+  // prompts are internal — only admins get them back
+  return req.user?.role === 'admin' && String(req.get('x-debug-prompts') || '').trim() === '1';
 }
 
 function withOptionalDebug(result, req) {

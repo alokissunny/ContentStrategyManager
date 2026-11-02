@@ -22,6 +22,7 @@ const { applyThemeToSlide, themedSlideDocument } = require('../services/themeApp
 const { extractDesignRules, RULES_VERSION } = require('../services/themeDesignRules');
 const { savedReference, rememberReference } = require('./themeReferenceController');
 const ThemeApplyJob = require('../models/ThemeApplyJob');
+const { track, isDraining } = require('../utils/backgroundWork');
 const { isImageGenConfigured } = require('../services/openaiImage');
 const { toVisionImage } = require('../services/visionImage');
 const { currentProfile } = require('../utils/currentProfile');
@@ -48,7 +49,8 @@ const addDays = (date, n) => { const d = new Date(date); d.setDate(d.getDate() +
 const startOfDay = (d = new Date()) => { const x = new Date(d); x.setHours(0, 0, 0, 0); return x; };
 
 function wantsPromptDebug(req) {
-  return String(req.get('x-debug-prompts') || '').trim() === '1';
+  // prompts are internal — only admins get them back
+  return req.user?.role === 'admin' && String(req.get('x-debug-prompts') || '').trim() === '1';
 }
 function optionalText(value) {
   return typeof value === 'string' ? value.trim() : '';
@@ -452,7 +454,7 @@ async function generatePlan(req, res) {
 // PLAN_QUEUE is on; otherwise — or if queuing fails — the original
 // fire-and-forget synchronous run.
 function startBackgroundGeneration(userId, profile, trigger) {
-  const runSync = () => generateSavePostsAndNotify(userId, profile, trigger);
+  const runSync = () => track(generateSavePostsAndNotify(userId, profile, trigger));
   if (!planQueueEnabledFor(userId)) return runSync();
   return enqueuePlanRun({ userId, username: profile.username, trigger })
     .catch((err) => {
@@ -929,6 +931,8 @@ async function updatePost(req, res) {
       post.scheduleStatus = 'ready';
       post.scheduleError = '';
       post.scheduleClaimedAt = null;
+      post.scheduleFailures = 0;
+      post.scheduleRetryAt = null;
       post.savedForReview = false;
     }
   }
@@ -942,7 +946,12 @@ async function updatePost(req, res) {
       return res.status(400).json({ message: 'This post is not waiting to go out.' });
     }
     post.scheduleStatus = next;
-    if (next === 'ready') post.scheduleError = '';
+    if (next === 'ready') {
+      // the studio's Retry: a fresh set of attempts
+      post.scheduleError = '';
+      post.scheduleFailures = 0;
+      post.scheduleRetryAt = null;
+    }
   }
 
   // Persist slide / caption edits from the studio editor.
@@ -1801,6 +1810,8 @@ async function rerunStrategy(req, res) {
 const THEME_APPLY_MAX_ASSETS = Math.max(0, Number(process.env.THEME_APPLY_MAX_ASSETS ?? 6) || 0);
 // this server process — a theme job started by another one was cut off by a restart
 const THEME_JOB_BOOT_ID = require('crypto').randomUUID();
+const THEME_JOB_HEARTBEAT_MS = 15_000;
+const THEME_JOB_STALE_MS = 75_000; // five missed heartbeats
 const THEME_JOB_INTERRUPTED = 'The server restarted while theming these slides (it may have run out of memory), so the run stopped. Try again — or theme one slide at a time.';
 // Slides themed at once. Image renders hold several large pictures each — on
 // a 512 MB instance three in parallel ran it out of memory (the server
@@ -2434,6 +2445,17 @@ async function applyThemeImage(req, res) {
   if (!req.body?.async) return runThemeApplyRequest(req, res);
   const record = await PlannedPost.findOne({ _id: req.params.id, user: req.user._id }).select('_id').lean();
   if (!record) return res.status(404).json({ message: 'Post not found' });
+  if (isDraining()) {
+    res.set('Retry-After', '30');
+    return res.status(503).json({ message: 'The server is restarting — try again in a moment.' });
+  }
+  // A second click while a run on this post is alive joins it instead of
+  // starting another (paid) render of the same slides.
+  const live = await ThemeApplyJob.findOne({
+    user: req.user._id, post: record._id, status: 'running',
+    heartbeatAt: { $gte: new Date(Date.now() - THEME_JOB_STALE_MS) },
+  }).select('_id').lean();
+  if (live) return res.status(202).json({ jobId: String(live._id), status: 'running', reused: true });
   const job = await ThemeApplyJob.create({
     user: req.user._id,
     post: record._id,
@@ -2442,7 +2464,11 @@ async function applyThemeImage(req, res) {
   });
   // the same handler, answering into the job instead of the socket
   const answer = { code: 200, status(c) { this.code = c; return this; }, json(b) { this.body = b; return this; } };
-  setImmediate(async () => {
+  setImmediate(() => track((async () => {
+    const beat = setInterval(() => {
+      ThemeApplyJob.updateOne({ _id: job._id, status: 'running' }, { $set: { heartbeatAt: new Date() } })
+        .catch(() => {});
+    }, THEME_JOB_HEARTBEAT_MS);
     try {
       req.body = { ...req.body, async: false };
       await runThemeApplyRequest(req, answer);
@@ -2450,12 +2476,14 @@ async function applyThemeImage(req, res) {
       console.error(`[posts] ThemeApply job ${job._id} crashed:`, err.message);
       answer.code = 500;
       answer.body = { message: err.message || 'Theme Apply failed.' };
+    } finally {
+      clearInterval(beat);
     }
     const ok = answer.code < 400;
     await ThemeApplyJob.updateOne({ _id: job._id }, {
       $set: { status: ok ? 'done' : 'failed', finishedAt: new Date(), result: JSON.stringify({ code: answer.code, body: answer.body || {} }) },
     }).catch((err) => console.error(`[posts] ThemeApply job ${job._id} could not be saved:`, err.message));
-  });
+  })()));
   return res.status(202).json({ jobId: String(job._id), status: 'running' });
 }
 
@@ -2465,9 +2493,14 @@ async function getThemeApplyJob(req, res) {
   const job = await ThemeApplyJob.findOne({ _id: req.params.jobId, user: req.user._id }).lean().catch(() => null);
   if (!job) return res.status(404).json({ message: 'That theme run is not known — it may have expired.' });
   if (job.status === 'running') {
-    // started by a server process that is no longer this one: it restarted
-    // mid-run (a deploy, or out of memory) and the run died with it
-    if (job.bootId && job.bootId !== THEME_JOB_BOOT_ID) {
+    // its heartbeat stopped: the process running it restarted mid-run (a
+    // deploy, or out of memory) and the run died with it. (Jobs from before
+    // heartbeats fall back to the boot id.)
+    const beatAt = job.heartbeatAt ? new Date(job.heartbeatAt).getTime() : 0;
+    const dead = beatAt
+      ? Date.now() - beatAt > THEME_JOB_STALE_MS
+      : Boolean(job.bootId && job.bootId !== THEME_JOB_BOOT_ID);
+    if (dead) {
       await ThemeApplyJob.updateOne({ _id: job._id }, { $set: { status: 'failed', finishedAt: new Date(), result: JSON.stringify({ code: 503, body: { interrupted: true } }) } }).catch(() => {});
       return res.json({ status: 'interrupted', message: THEME_JOB_INTERRUPTED });
     }

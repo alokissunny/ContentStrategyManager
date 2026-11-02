@@ -34,14 +34,39 @@ connectDB()
     // Queued post generation: PLAN_WORKER_IN_API=1 runs the BullMQ workers in
     // this process (no separate worker service needed). See services/planQueue.
     const { isQueueConfigured } = require('./services/planQueue');
+    let workers = null;
     if (isQueueConfigured() && ['1', 'true', 'on', 'yes'].includes(String(process.env.PLAN_WORKER_IN_API || '').toLowerCase())) {
-      const workers = require('./workers/planWorkers').startPlanWorkers();
-      process.once('SIGTERM', () => {
-        workers.close()
-          .catch((err) => console.error('[server] plan workers close failed:', err.message))
-          .finally(() => process.exit(0));
-      });
+      workers = require('./workers/planWorkers').startPlanWorkers();
     }
+
+    // Graceful shutdown: a deploy sends SIGTERM. Stop taking new connections,
+    // let open requests and background runs (Theme Apply, fire-and-forget plan
+    // generation) finish, then exit. Keep SHUTDOWN_GRACE_MS under Render's
+    // maxShutdownDelaySeconds (render.yaml).
+    const graceMs = Number(process.env.SHUTDOWN_GRACE_MS) > 0 ? Number(process.env.SHUTDOWN_GRACE_MS) : 240_000;
+    let stopping = false;
+    const shutdown = async (signal) => {
+      if (stopping) return;
+      stopping = true;
+      const { drain, inFlight } = require('./utils/backgroundWork');
+      console.log(`[server] ${signal} — draining (${inFlight()} background run(s), up to ${Math.round(graceMs / 1000)}s)`);
+      const deadline = setTimeout(() => {
+        console.error('[server] shutdown grace ran out — exiting with work still running');
+        process.exit(1);
+      }, graceMs + 5_000);
+      deadline.unref();
+      const closed = new Promise((ok) => server.close(() => ok()));
+      server.closeIdleConnections?.();
+      const [drained] = await Promise.all([
+        drain(graceMs),
+        workers ? workers.close().catch((err) => console.error('[server] plan workers close failed:', err.message)) : null,
+      ]);
+      await Promise.race([closed, new Promise((ok) => setTimeout(ok, 5_000))]);
+      if (!drained) console.error('[server] background runs still going at exit');
+      process.exit(0);
+    };
+    process.once('SIGTERM', () => shutdown('SIGTERM'));
+    process.once('SIGINT', () => shutdown('SIGINT'));
   })
   .catch((err) => {
     console.error('Failed to connect to MongoDB', err);

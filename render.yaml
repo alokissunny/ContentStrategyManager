@@ -6,15 +6,34 @@ services:
     name: igsignal-api
     runtime: node
     region: oregon
-    plan: free
+    # Not free: the free plan sleeps when idle (cold starts, a dropped
+    # publish-due call) and is killed mid-run on long generations. Theme Apply
+    # renders want memory — move to `standard` (2 GB) if it restarts on OOM.
+    plan: starter
     rootDir: backend
     buildCommand: npm install
     startCommand: npm start
     healthCheckPath: /api/health
     autoDeploy: true
+    # A deploy's SIGTERM drains open requests and background runs (Theme Apply,
+    # queued plan jobs) before exit — see server.js SHUTDOWN_GRACE_MS (240 s).
+    maxShutdownDelaySeconds: 300
     envVars:
       - key: NODE_ENV
         value: production
+      # Queued post generation: /posts/generate answers at once with a run id
+      # and the BullMQ worker runs it; a restart resumes from the last phase
+      # instead of losing the run. The worker runs inside this service until the
+      # separate igsignal-gen-worker below is set up.
+      - key: PLAN_QUEUE
+        value: "1"
+      - key: PLAN_WORKER_IN_API
+        value: "1"
+      - key: REDIS_URL
+        fromService:
+          type: keyvalue
+          name: igsignal-queue
+          property: connectionString
       - key: MONGO_URI
         sync: false
       - key: JWT_SECRET
@@ -106,13 +125,14 @@ services:
       - key: GOOGLE_CLOUD_LOCATION
         sync: false
 
-  # Once a day (08:00 UTC): publish scheduled posts whose slot has passed.
+  # Every 10 minutes: publish scheduled posts whose slot has passed (a failed
+  # post backs off between tries — services/schedulePublish.js).
   - type: cron
     name: igsignal-publish-due
     runtime: node
     region: oregon
     plan: starter
-    schedule: "0 8 * * *"
+    schedule: "*/10 * * * *"
     rootDir: backend
     buildCommand: npm install
     startCommand: node src/scripts/publishDue.js
@@ -170,18 +190,20 @@ services:
           name: igsignal-api
           envVarKey: S3_BUCKET_NAME
 
-  # ── Queued post generation (opt-in) ─────────────────────────────────────
-  # Uncomment to provision Redis + a generation worker, then set on igsignal-api:
-  #   PLAN_QUEUE=1 and REDIS_URL (fromService below). Leave PLAN_QUEUE unset to
-  #   keep the synchronous path. Use a Key Value plan with persistence, and keep
-  #   maxmemoryPolicy noeviction so queued jobs are never evicted.
-  # - type: keyvalue
-  #   name: igsignal-queue
-  #   region: oregon
-  #   plan: starter
-  #   maxmemoryPolicy: noeviction
-  #   ipAllowList: []
-  #
+  # ── Queued post generation ──────────────────────────────────────────────
+  # Redis for the plan queue (and the shared AI rate-limit counters). A plan
+  # with persistence, noeviction so queued jobs are never dropped.
+  - type: keyvalue
+    name: igsignal-queue
+    region: oregon
+    plan: starter
+    maxmemoryPolicy: noeviction
+    ipAllowList: []
+
+  # Next step — a separate worker so generation never shares the API's memory.
+  # Uncomment, give it the API's env (every key the API has set in the
+  # dashboard, e.g. via an env group), then set PLAN_WORKER_IN_API to "0" on
+  # igsignal-api.
   # - type: worker
   #   name: igsignal-gen-worker
   #   runtime: node

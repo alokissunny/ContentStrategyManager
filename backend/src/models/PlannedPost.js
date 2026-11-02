@@ -58,6 +58,10 @@ const plannedPostSchema = new mongoose.Schema(
     },
     scheduleError: { type: String, default: '' },
     scheduleClaimedAt: { type: Date, default: null },
+    // failed publish attempts since the post was last scheduled, and when the
+    // cron may try again (backoff — see services/schedulePublish)
+    scheduleFailures: { type: Number, default: 0 },
+    scheduleRetryAt: { type: Date, default: null },
     igMediaId: { type: String, default: '' },
     // The live post's instagram.com URL, fetched from Graph right after publish.
     permalink: { type: String, default: '' },

@@ -44,4 +44,11 @@ async function protect(req, res, next) {
   }
 }
 
-module.exports = { protect, invalidateUserCache };
+// After protect: internal tools (prompt reruns, agent traces) are admin-only —
+// they expose our prompts and spend our model keys.
+function requireAdmin(req, res, next) {
+  if (req.user?.role !== 'admin') return res.status(403).json({ message: 'Admin only' });
+  next();
+}
+
+module.exports = { protect, requireAdmin, invalidateUserCache };

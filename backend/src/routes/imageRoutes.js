@@ -1,5 +1,6 @@
 const express = require('express');
 const asyncHandler = require('../utils/asyncHandler');
+const { aiLimit } = require('../middleware/aiRateLimit');
 const { protect } = require('../middleware/auth');
 const {
   createImage,
@@ -12,7 +13,7 @@ const router = express.Router();
 router.use(protect);
 
 // Generate an image from a prompt (WeekView "Create image").
-router.post('/create', asyncHandler(createImage));
+router.post('/create', aiLimit('heavy'), asyncHandler(createImage));
 
 // The studio's generated-image library (the "Generated" asset folder).
 router.get('/generated', asyncHandler(listGeneratedImages));

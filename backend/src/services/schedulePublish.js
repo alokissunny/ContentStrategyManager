@@ -1,5 +1,5 @@
 /*
- * Daily scheduled-publish job. Finds posts whose scheduledAt has passed,
+ * Scheduled-publish job (cron, every 10 minutes). Finds posts whose scheduledAt has passed,
  * claims them, and publishes through the existing immediate Graph flow.
  *
  * Now that each post is its own PlannedPost document, claiming is a single
@@ -16,6 +16,12 @@ const {
 } = require('./metaPublish');
 
 const STALE_MS = 30 * 60 * 1000;
+// The cron runs every few minutes, so a post that failed waits before its next
+// try (10 min, 30 min, 2 h, 6 h, 12 h) and stops after MAX_PUBLISH_ATTEMPTS —
+// it then stays failed until the studio reschedules it.
+const RETRY_BACKOFF_MS = [10, 30, 120, 360, 720].map((m) => m * 60 * 1000);
+const MAX_PUBLISH_ATTEMPTS = RETRY_BACKOFF_MS.length + 1;
+const PUBLISH_BATCH = Math.max(1, Number(process.env.PUBLISH_BATCH) || 100);
 
 function cronSecret() {
   return String(process.env.SCHEDULE_CRON_SECRET || '').trim();
@@ -44,8 +50,13 @@ function dueQuery(now) {
     scheduledAt: { $ne: null, $lte: now },
     'publishImageKeys.0': { $exists: true },
     $or: [
-      { scheduleStatus: { $in: ['', 'ready', 'failed'] } },
+      { scheduleStatus: { $in: ['', 'ready'] } },
       { scheduleStatus: { $exists: false } },
+      {
+        scheduleStatus: 'failed',
+        scheduleFailures: { $not: { $gte: MAX_PUBLISH_ATTEMPTS } },
+        $or: [{ scheduleRetryAt: null }, { scheduleRetryAt: { $lte: now } }],
+      },
       { scheduleStatus: 'publishing', scheduleClaimedAt: { $lte: stale } },
       { scheduleStatus: 'publishing', scheduleClaimedAt: { $exists: false } },
     ],
@@ -63,8 +74,13 @@ async function claimPost(postId, now) {
       scheduledAt: { $lte: now },
       'publishImageKeys.0': { $exists: true },
       $or: [
-        { scheduleStatus: { $in: ['', 'ready', 'failed'] } },
+        { scheduleStatus: { $in: ['', 'ready'] } },
         { scheduleStatus: { $exists: false } },
+        {
+          scheduleStatus: 'failed',
+          scheduleFailures: { $not: { $gte: MAX_PUBLISH_ATTEMPTS } },
+          $or: [{ scheduleRetryAt: null }, { scheduleRetryAt: { $lte: now } }],
+        },
         { scheduleStatus: 'publishing', scheduleClaimedAt: { $lte: stale } },
         { scheduleStatus: 'publishing', scheduleClaimedAt: { $exists: false } },
       ],
@@ -77,14 +93,22 @@ async function claimPost(postId, now) {
 }
 
 async function markPostFailed(postId, message) {
-  await PlannedPost.updateOne(
+  const post = await PlannedPost.findOneAndUpdate(
     { _id: postId },
     {
       $set: {
         scheduleStatus: 'failed',
         scheduleError: String(message || 'Instagram publish failed').slice(0, 500),
       },
+      $inc: { scheduleFailures: 1 },
     },
+    { new: true, projection: { scheduleFailures: 1 } },
+  );
+  const failures = Number(post?.scheduleFailures) || 1;
+  const wait = RETRY_BACKOFF_MS[Math.min(failures, RETRY_BACKOFF_MS.length) - 1];
+  await PlannedPost.updateOne(
+    { _id: postId },
+    { $set: { scheduleRetryAt: failures >= MAX_PUBLISH_ATTEMPTS ? null : new Date(Date.now() + wait) } },
   );
 }
 
@@ -97,7 +121,10 @@ async function releaseClaim(postId) {
 
 async function runPublishDue() {
   const now = new Date();
-  const due = await PlannedPost.find(dueQuery(now)).select('_id user instagramUsername scheduleStatus');
+  // oldest first, bounded: the cron runs every few minutes, so anything past
+  // the cap goes out on the next run
+  const due = await PlannedPost.find(dueQuery(now)).sort({ scheduledAt: 1 }).limit(PUBLISH_BATCH)
+    .select('_id user instagramUsername scheduleStatus');
   const summary = { scanned: 0, published: 0, failed: 0, skipped: 0, live: 0 };
 
   for (const found of due) {

@@ -1,5 +1,5 @@
 /**
- * Daily scheduled-publish run.
+ * Scheduled-publish run (Render cron, every 10 minutes).
  *
  *   node src/scripts/publishDue.js
  *
