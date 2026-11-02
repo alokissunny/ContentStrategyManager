@@ -38,7 +38,7 @@ Return one self-contained HTML document only:
 
 - The photo is `position:absolute; inset:0; width:100%; height:100%; object-fit:cover`, with `object-position` chosen so the focal point stays in frame. No card, panel, band, border, or split layout.
 - Start each photo slide with `<!-- focal: what the slide is about in this photo, where it sits, and where the text will go -->`. Look at the attached photo before you place anything.
-- Text must read at a glance. On dark or mid-tone areas use the light brand colour (`--brand-background`); on pale areas use the dark one (`--brand-primary`). Where contrast still falls short, a soft gradient may sit behind the text group only (`<div class="wash">`, the matching brand colour, fading out ~200px beyond the text) — never a solid block, and never as a way to put text over the subject.
+- Text must read at a glance. On dark or mid-tone areas use the light brand colour (`--brand-background`); on pale areas use the dark one (`--brand-primary`). Move the text to an area where it already reads before adding anything (see "Keep the photograph's own light and colour"). Only where contrast still falls short, a soft gradient may sit behind the text group only (`<div class="wash">`, the matching brand colour, fading out ~200px beyond the text) — never a solid block, never a tint over the whole photo, and never as a way to put text over the subject.
 - Every level — eyebrow, headline, accent phrase, supporting line — must read on the pixels behind it. The accent colour is often a light or saturated hue that disappears on sky, windows or pale walls: when it would, move the text group to a darker, calmer area; on a dark area, lighten the accent without losing its original tone. Never fall back to bold or underline to mark the phrase.
 - Keep text inside a 72px safe margin on every side.
 
@@ -49,7 +49,7 @@ Return one self-contained HTML document only:
 
 ## Type system (every slide)
 
-Starting points, not fixed treatments — size each level to the image and the slide's narrative.
+Starting points, not fixed treatments — size each level to the image and the slide's narrative (see "Typography adapts to the composition"); going outside these ranges is fine when the composition needs it.
 - Eyebrow: small letter-spaced caps (around 20–24px, 600–700 weight, 0.14em tracking) in the accent colour.
 - Headline: the brand display font, 600–700 weight, tight tracking (-0.02em), line-height 1.02–1.08, roughly 64–96px; one short phrase in the accent colour.
 - Highlighted words use the text accent colour instead of bold or underline treatments. If the accent colour has low contrast against a dark background, lighten it without losing its original tone.
