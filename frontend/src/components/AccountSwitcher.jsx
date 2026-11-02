@@ -9,7 +9,7 @@ import Glyph from './Glyph';
 import AccountsPanel, { ProfileAvatar } from './AccountsPanel';
 import MobileSheet from './MobileSheet';
 import { listInstagramProfiles, readCachedProfiles } from '../api/instagram';
-import { syncHandle } from '../lib/store';
+import { syncHandle, useActiveHandle } from '../lib/store';
 import { useNavigate } from 'react-router-dom';
 import { MENU_LINKS } from './UserMenu';
 import { useAuth } from '../context/AuthContext';
@@ -91,6 +91,7 @@ export default function AccountSwitcher() {
   const [profiles, setProfiles] = useState(readCachedProfiles);
   const [open, setOpen] = useState(false);
   const phone = usePhone();
+  const handle = useActiveHandle();
 
   useEffect(() => {
     listInstagramProfiles()
@@ -102,7 +103,13 @@ export default function AccountSwitcher() {
       .catch(() => setProfiles([]));
   }, []);
 
-  const current = profiles[0];
+  // A switch made in the sheet's AccountsPanel goes through syncHandle(); pick
+  // up the reordered list it cached so the chip shows the new account.
+  useEffect(() => {
+    if (handle && profiles[0]?.username !== handle) setProfiles(readCachedProfiles());
+  }, [handle]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const current = profiles.find((p) => p.username === handle) || profiles[0];
   if (!current) return null;
 
   return (
