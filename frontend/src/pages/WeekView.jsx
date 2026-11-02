@@ -63,6 +63,7 @@ import { createImage, listGeneratedImages } from '../api/images';
 import { useProjects, uploadFiles } from '../lib/projectsStore';
 import { transcribeCapture } from '../api/projects';
 import { toSvg } from 'html-to-image';
+import { slideFontCss } from './weekview/exportFonts';
 import { openCaptureIdea } from '../lib/captureUi';
 import { styleOf, groundOf } from '../lib/visualbrand';
 import { LAYOUTS as LIB_LAYOUTS, catForRole, shotsOf, DEFAULT_LAYOUT_BY_CAT, layoutShowsAllCopy } from '../data/layouts';
@@ -1918,12 +1919,11 @@ function seedWordDraft(layout, slide, contentType, visual) {
 // and an explicit timeout. Instagram feed images must be JPEG, so we encode
 // JPEG on a white ground (the composition is opaque, so nothing shows through).
 //
-// Font embedding is OFF (`skipFonts`): the brand fonts are served from
-// cross-origin CDNs (Fontshare, Google Fonts) whose stylesheets the browser
-// won't let us read (`cssRules` SecurityError / CORS), so html-to-image can't
-// inline them anyway — and attempting it only throws console errors. Every
-// font stack in the compositions ends in `system-ui, sans-serif`, so the export
-// falls back to a clean system sans-serif rather than a serif default.
+// Fonts: html-to-image can't read the cross-origin font stylesheets itself
+// (`cssRules` SecurityError), so `skipFonts` stays on and slideFontCss builds
+// the @font-face CSS (font files inlined) that we hand it as `fontEmbedCSS`.
+// Without it the brand faces fell back to a wider system sans and headlines
+// re-wrapped into the copy under them on Instagram.
 // Tiny transparent GIF — used so empty image slots don't throw during
 // html-to-image serialisation (src-less <img> fires an error event and aborts publish).
 const EXPORT_IMG_PLACEHOLDER =
@@ -2009,6 +2009,7 @@ async function rasterizeSlide(node, { timeoutMs = 20000 } = {}) {
   });
 
   const unfreeze = await readyImagesForExport(node);
+  const fontEmbedCSS = await slideFontCss(node).catch(() => '');
 
   const restoreImgs = () => {
     restored.forEach(([img, prev]) => {
@@ -2021,6 +2022,7 @@ async function rasterizeSlide(node, { timeoutMs = 20000 } = {}) {
   return toSvg(node, {
     cacheBust: true,
     skipFonts: true,
+    fontEmbedCSS,
     imagePlaceholder: EXPORT_IMG_PLACEHOLDER,
   })
     .finally(restoreImgs)

@@ -4,6 +4,7 @@
  */
 import { toSvg } from 'html-to-image';
 import { repairStrandedOffsets } from './layoutHtml';
+import { slideFontCss } from './exportFonts';
 
 const SLIDE_W = 1080;
 const SLIDE_H = 1350;
@@ -34,13 +35,14 @@ function rasterizeNode(node, { width, height, timeoutMs = 20000 } = {}) {
     });
   };
 
-  return toSvg(node, {
+  return slideFontCss(node).catch(() => '').then((fontEmbedCSS) => toSvg(node, {
     cacheBust: true,
     skipFonts: true,
+    fontEmbedCSS,
     width: w,
     height: h,
     imagePlaceholder: EXPORT_IMG_PLACEHOLDER,
-  })
+  }))
     .finally(restoreImgs)
     .then(
       (dataUrl) =>
