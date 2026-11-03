@@ -10,13 +10,14 @@ export function updateCarouselModel({ model, reasoningEffort } = {}) {
   return client.put('/settings/carousel-model', { model, reasoningEffort }).then((res) => res.data);
 }
 
-// The plan Strategist's model (GPT-6 Luna default, Astra optional).
+// The plan Strategist's model + reasoning level (GPT-6 Luna default; Astra,
+// Claude Sonnet 5.5 or Opus 5.5 optional).
 export function getStrategistModel() {
   return client.get('/settings/strategist-model').then((res) => res.data);
 }
 
-export function updateStrategistModel(model) {
-  return client.put('/settings/strategist-model', { model }).then((res) => res.data);
+export function updateStrategistModel({ model, reasoningEffort } = {}) {
+  return client.put('/settings/strategist-model', { model, reasoningEffort }).then((res) => res.data);
 }
 
 // Which provider reads posts for Business memory › Fetch brand voice.

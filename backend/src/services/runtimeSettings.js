@@ -28,10 +28,13 @@ const CAROUSEL_MODEL_OPTIONS = [
   { id: 'claude-opus-5', label: 'Claude Opus 5', provider: 'anthropic', reasoning: true, tier: 'priciest' },
 ];
 
-// The plan Strategist: Luna by default (cheap + fast); Astra when quality matters more.
+// The plan Strategist: Luna by default (cheap + fast); Astra or Claude when
+// quality matters more. All take the Strategist's own reasoning level.
 const STRATEGIST_MODEL_OPTIONS = [
-  { id: 'gpt-6-luna', label: 'GPT-6 Luna', provider: 'openai', tier: 'cheapest' },
-  { id: 'gpt-6-astra', label: 'GPT-6 Astra', provider: 'openai', tier: 'priciest' },
+  { id: 'gpt-6-luna', label: 'GPT-6 Luna', provider: 'openai', reasoning: true, tier: 'cheapest' },
+  { id: 'gpt-6-astra', label: 'GPT-6 Astra', provider: 'openai', reasoning: true, tier: 'priciest' },
+  { id: 'claude-sonnet-5-5', label: 'Claude Sonnet 5.5', provider: 'anthropic', reasoning: true, tier: 'mid' },
+  { id: 'claude-opus-5-5', label: 'Claude Opus 5.5', provider: 'anthropic', reasoning: true, tier: 'priciest' },
 ];
 
 const REASONING_OPTIONS = [
@@ -44,6 +47,7 @@ const KEYS = {
   carouselModel: 'carousel.model',
   carouselReasoningEffort: 'carousel.reasoningEffort',
   strategistModel: 'strategist.model',
+  strategistReasoningEffort: 'strategist.reasoningEffort',
   brandVoiceProvider: 'brandVoice.provider',
   themeRegionsProvider: 'themeRegions.provider',
   themeApplyPhotoMode: 'themeApply.photoMode',

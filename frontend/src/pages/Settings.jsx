@@ -160,12 +160,14 @@ export default function Settings() {
     }
   }
 
-  async function pickStrategist(model) {
-    if (!isAdmin || strategistBusy || strategist?.model === model) return;
+  async function pickStrategist(patch) {
+    if (!isAdmin || strategistBusy) return;
+    if (patch.model != null && strategist?.model === patch.model) return;
+    if (patch.reasoningEffort != null && strategist?.reasoningEffort === patch.reasoningEffort) return;
     setStrategistBusy(true);
     setStrategistErr('');
     try {
-      setStrategist(await updateStrategistModel(model));
+      setStrategist(await updateStrategistModel(patch));
     } catch (err) {
       setStrategistErr(err.response?.data?.message || 'Could not update the strategist model.');
     } finally {
@@ -740,8 +742,13 @@ export default function Settings() {
         </p>
         {!strategist ? (
           <p className="set-empty">Loading…</p>
-        ) : (
+        ) : (() => {
+          const selected = strategist.modelOptions.find((m) => m.id === strategist.model);
+          const reasoningApplies = selected ? selected.reasoning !== false : true;
+          const TIER_TAG = { cheapest: 'Faster · cheaper', mid: 'Mid-price', priciest: 'Slower · priciest' };
+          return (
           <>
+            <span className="set-seg__label">Model</span>
             <div className="set-seg" role="group" aria-label="Strategist model">
               {strategist.modelOptions.map((m) => {
                 const on = m.id === strategist.model;
@@ -752,21 +759,49 @@ export default function Settings() {
                     className={`set-seg__btn ${on ? 'is-on' : ''}`}
                     aria-pressed={on}
                     disabled={!isAdmin || strategistBusy}
-                    onClick={() => pickStrategist(m.id)}
+                    onClick={() => pickStrategist({ model: m.id })}
                   >
                     {m.label}
-                    <span className="set-seg__tag">{m.tier === 'cheapest' ? 'Faster · cheaper' : 'Slower · priciest'}</span>
+                    <span className="set-seg__tag">
+                      {m.provider === 'anthropic' ? 'Anthropic' : 'OpenAI'}
+                      {TIER_TAG[m.tier] ? ` · ${t(TIER_TAG[m.tier])}` : ''}
+                    </span>
                   </button>
                 );
               })}
             </div>
+
+            {Array.isArray(strategist.reasoningOptions) && strategist.reasoningOptions.length > 0 && (
+              <>
+                <span className="set-seg__label">Reasoning</span>
+                <div className="set-seg set-seg--sub" role="group" aria-label="Strategist reasoning level">
+                  {strategist.reasoningOptions.map((r) => {
+                    const on = reasoningApplies && r.id === strategist.reasoningEffort;
+                    return (
+                      <button
+                        type="button"
+                        key={r.id}
+                        className={`set-seg__btn ${on ? 'is-on' : ''}`}
+                        aria-pressed={on}
+                        disabled={!isAdmin || strategistBusy || !reasoningApplies}
+                        onClick={() => pickStrategist({ reasoningEffort: r.id })}
+                      >
+                        {r.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </>
+            )}
+
             {strategistErr && <p className="set-err">{strategistErr}</p>}
             <p className="set-card__note">
-              GPT-6 Luna is the default. Switch to GPT-6 Astra for deeper angle picking — it costs much more
-              and takes longer.
+              GPT-6 Luna at Medium is the default. GPT-6 Astra, Claude Sonnet 5.5 or Claude Opus 5.5 can pick
+              stronger stories, and higher reasoning thinks harder — both cost more and take longer.
             </p>
           </>
-        )}
+          );
+        })()}
       </section>
 
       {/* ── Brand voice model ── */}

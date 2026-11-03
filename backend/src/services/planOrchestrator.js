@@ -58,12 +58,6 @@ function agentModel(kind) {
 }
 
 const GOAL_TAG = { discovery: 'Get noticed', credibility: 'Show expertise', trust: 'Build confidence' };
-const PILLAR_JOB = {
-  discovery: 'Make the audience recognise the problem and care. Stay with tension, curiosity, and recognition. Do not teach the method, walk through how the brand works, or prove expertise as the body of this post. Brand may appear only as a recognisable stance, not a process.',
-  credibility: 'Show how this brand thinks and works. Reasoning, process, judgment, or first-hand experience — supported by the brief. Do not stop at naming the problem.',
-  trust: 'Reduce uncertainty. Care, reliability, transparency, guidance, or a supported outcome. Never invent proof. Do not leave this as a Discovery hook with no reliability landing.',
-};
-
 function lockedPillarOf(planned) {
   return normalizeLens(planned?.lens || planned?.pillar) || '';
 }
@@ -1188,9 +1182,6 @@ function mergeAllocatedVisuals(brief, dayAssets) {
 
 function strategyBriefPayload(brief) {
   return {
-    pillar: brief.pillar,
-    lens: brief.lens,
-    pillarJob: brief.pillarJob,
     ...(brief.storyAngle ? { storyAngle: brief.storyAngle } : {}),
     ...(brief.storyAngleReason ? { storyAngleReason: brief.storyAngleReason } : {}),
     source: brief.source,
@@ -1459,15 +1450,20 @@ function postFromBrief(dayBrief) {
       support: optionalText(dayBrief?.centralFact),
     }];
   const usedKeys = new Set();
+  const supports = (a, id) => Array.isArray(a?.supportsUnitIds)
+    && a.supportsUnitIds.map(optionalText).includes(id);
+  const textOnly = (u) => String(u?.visual || '').trim().toLowerCase() === 'text-only';
   const slides = outline.map((u, i) => {
     const id = optionalText(u?.id) || `u${i + 1}`;
     const purpose = optionalText(u?.purpose);
     const support = optionalText(u?.support);
-    const matched = allocated.find((a) => (
-      !usedKeys.has(optionalText(a?.key))
-      && Array.isArray(a?.supportsUnitIds)
-      && a.supportsUnitIds.map(optionalText).includes(id)
-    ));
+    // A unit the Strategist marked text-only gets no photo. Otherwise prefer an
+    // unused photo that supports it, then one already shown that supports it
+    // too (purposeful in-post reuse the Strategist listed in supportsUnitIds).
+    const matched = textOnly(u) ? null : (
+      allocated.find((a) => !usedKeys.has(optionalText(a?.key)) && supports(a, id))
+      || allocated.find((a) => supports(a, id))
+    );
     const assetKey = optionalText(matched?.key);
     if (assetKey) usedKeys.add(assetKey);
     const hasAsset = Boolean(assetKey);
@@ -1503,6 +1499,10 @@ function postFromBrief(dayBrief) {
 
   // Assign remaining allocated assets onto slides that still have none, so a
   // before/after pair (or any multi-photo set) is not collapsed to a single hero.
+  // A leftover photo only lands on a slide whose claim it can show: a unit it
+  // supports, or (when the Strategist tied it to no unit) a unit that asked for
+  // a photo. Never on a text-only unit — a photo of something else is no
+  // evidence (a bath photo under "the door became a slider").
   const leftover = allocated.filter((a) => {
     const key = optionalText(a?.key);
     return key && !usedKeys.has(key);
@@ -1516,12 +1516,19 @@ function postFromBrief(dayBrief) {
       return 3;
     };
     const open = slides
-      .map((s, i) => ({ s, i }))
-      .filter(({ s }) => !optionalText(s.assetKey))
+      .map((s, i) => ({ s, i, u: outline[i] }))
+      .filter(({ s, u }) => !optionalText(s.assetKey) && !textOnly(u))
       .sort((a, b) => preferRole(a.s.role) - preferRole(b.s.role));
-    leftover.forEach((asset, n) => {
-      const slot = open[n];
-      if (!slot) return;
+    leftover.forEach((asset) => {
+      const tied = Array.isArray(asset?.supportsUnitIds) && asset.supportsUnitIds.length > 0;
+      const at = open.findIndex(({ u, i }) => {
+        const id = optionalText(u?.id) || `u${i + 1}`;
+        return tied
+          ? supports(asset, id)
+          : String(u?.visual || '').trim().toLowerCase() === 'photo';
+      });
+      if (at < 0) return;
+      const [slot] = open.splice(at, 1);
       const key = optionalText(asset.key);
       usedKeys.add(key);
       const next = {
@@ -3672,22 +3679,40 @@ async function runStrategistPhase({
   };
 }
 
+// One story per capture: keep the Strategist's first (strongest) brief for each
+// capture and drop any further ones it wrote for the same capture.
+function oneBriefPerCapture(briefs, source = 'Strategist') {
+  const seen = new Set();
+  const kept = (briefs || []).filter((b) => {
+    const id = optionalText(b?.sourceCaptureId) || optionalText(b?.captureId);
+    if (!id) return true;
+    if (seen.has(id)) return false;
+    seen.add(id);
+    return true;
+  });
+  if (kept.length < (briefs || []).length) {
+    console.warn(`[planOrchestrator] ${source}: ${briefs.length - kept.length} extra brief(s) for an already-briefed capture dropped (one story per capture)`);
+  }
+  return kept;
+}
+
 // One Strategist call over a compiled context → its briefs, enriched from the
 // captures that context holds.
 async function runStrategistCall({ ctx, emptyDates, projects, source }) {
+  const captureCount = (ctx.projects?.conversationCaptures || []).length;
   const assembled = assembleAgentPrompt('plan-strategist.md', {
     LIMITS_JSON: json({
       month: ctx.calendar.month,
-      maxBriefs: Math.max(emptyDates.length, 3),
+      // One story per capture: never more briefs than captures (or open slots).
+      maxBriefs: Math.max(1, Math.min(captureCount || 1, emptyDates.length || 1)),
       supportedFormats: ['Carousel'],
-      optionalPillars: ['discovery', 'credibility', 'trust'],
       minBriefs: 1,
-      planFrom: 'conversationCaptures only — always write at least one brief (never refuse a capture as too thin or unverified); consider several genuinely different supported angles, each answering "Why would a potential client care?", and brief every one that survives ranking and distinctness (one is fine when the facts support only one); prioritise angles proven by assets; use story-aligned uploaded photos across narrative units but never repeat a photo to fill slides — text-only slides instead; no new AI images; write story, slide copy, caption and CTA; skip weak/obvious/boring angles; do not force Discovery + Credibility + Trust; do not invent facts; capped by maxBriefs',
+      briefsPerCapture: 1,
+      planFrom: 'conversationCaptures only — always write exactly one brief per capture (never refuse a capture as too thin or unverified, never split one capture into several posts); consider several candidate stories and all six storytelling angles, each answering "Why would a potential client care?", and choose the single strongest on audience relevance, evidence and value to the reader; use story-aligned uploaded photos across narrative units but never repeat a photo to fill slides — text-only slides instead; no new AI images; write story, slide copy, caption and CTA; do not invent facts; capped by maxBriefs',
       requireThemeId: true,
     }),
     CAROUSEL_THEMES_JSON: json(themesForStrategistPrompt()),
     OCCUPIED_TOPICS_JSON: json(ctx.calendar.occupiedTopics || []),
-    AUTHORITY_JSON: json(ctx.authority),
     BRAND_JSON: json(ctx.brand),
     COMPETITOR_SIGNALS_JSON: json({
       confidence: ctx.competitor.confidence,
@@ -3704,11 +3729,11 @@ async function runStrategistCall({ ctx, emptyDates, projects, source }) {
     prompt: assembled.prompt,
     validate: (p) => validateStrategist(p),
   });
-  const briefsOf = (parsed) => enrichBriefsFromCaptures(
+  const briefsOf = (parsed) => oneBriefPerCapture(enrichBriefsFromCaptures(
     Array.isArray(parsed.briefs) ? parsed.briefs : (parsed.plannedDays || []),
     ctx.projects?.conversationCaptures,
     { projectsList: projects, assetContext: ctx.assetContext },
-  );
+  ), source);
   let strategist = await ask(assembled.user);
   let briefs = briefsOf(strategist.parsed);
   const extraUsages = []; // a refused first answer still cost tokens
@@ -3832,7 +3857,7 @@ async function writePlanDay(phase, projects, planned, index) {
     day: planned.day,
     pillar,
     lens: pillar,
-    pillarJob: optionalText(planned.pillarJob) || PILLAR_JOB[pillar] || '',
+    pillarJob: '',
     ...(planned.storyAngle ? { storyAngle: planned.storyAngle } : {}),
     ...(planned.storyAngleReason ? { storyAngleReason: planned.storyAngleReason } : {}),
     source: planned.source || '',

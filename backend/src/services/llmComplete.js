@@ -141,6 +141,11 @@ function reasoningEffortFor(kind) {
     if (GPT_EFFORTS.includes(chosen)) return chosen;
     return envChoice('PLAN_CAROUSEL_REASONING_EFFORT', GPT_EFFORTS, 'low');
   }
+  if (kind === 'strategist') {
+    // A reasoning level chosen at runtime through Settings wins over env.
+    const chosen = String(getRuntimeSetting(KEYS.strategistReasoningEffort) || '').trim().toLowerCase();
+    if (GPT_EFFORTS.includes(chosen)) return chosen;
+  }
   return envChoice('PLAN_STRATEGIST_REASONING_EFFORT', GPT_EFFORTS, 'medium');
 }
 

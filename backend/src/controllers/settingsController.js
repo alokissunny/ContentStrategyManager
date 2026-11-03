@@ -22,6 +22,7 @@ const {
   carouselLayout,
 } = require('../services/runtimeSettings');
 const { resolvePlanAgentLlm } = require('../services/planAgentLlm');
+const { reasoningEffortFor } = require('../services/llmComplete');
 
 function currentCarouselModel() {
   const resolved = resolvePlanAgentLlm('carousel');
@@ -74,7 +75,9 @@ function currentStrategistModel() {
     model: resolved.model,
     provider: resolved.provider,
     overridden: Boolean(getRuntimeSetting(KEYS.strategistModel)),
+    reasoningEffort: reasoningEffortFor('strategist'),
     modelOptions: STRATEGIST_MODEL_OPTIONS,
+    reasoningOptions: REASONING_OPTIONS,
   };
 }
 
@@ -88,11 +91,23 @@ async function updateStrategistModel(req, res) {
   if (req.user?.role !== 'admin') {
     return res.status(403).json({ message: 'Only an admin can change the strategist model.' });
   }
-  const model = String(req.body?.model || '').trim();
-  if (!isValidStrategistModel(model)) {
-    return res.status(400).json({ message: `Unsupported strategist model: ${req.body?.model}` });
+  const { model, reasoningEffort } = req.body || {};
+
+  if (model != null) {
+    if (!isValidStrategistModel(String(model).trim())) {
+      return res.status(400).json({ message: `Unsupported strategist model: ${model}` });
+    }
+    await setRuntimeSetting(KEYS.strategistModel, String(model).trim());
   }
-  await setRuntimeSetting(KEYS.strategistModel, model);
+
+  if (reasoningEffort != null) {
+    const effort = String(reasoningEffort).trim().toLowerCase();
+    if (!isValidReasoning(effort)) {
+      return res.status(400).json({ message: `Unsupported reasoning level: ${reasoningEffort}` });
+    }
+    await setRuntimeSetting(KEYS.strategistReasoningEffort, effort);
+  }
+
   return res.json(currentStrategistModel());
 }
 
