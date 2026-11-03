@@ -38,8 +38,11 @@ function fillTemplate(template, vars) {
   return out;
 }
 
-function assembleAgentPrompt(name, vars) {
-  const raw = loadPrompt(name);
+// `fixed` = placeholders whose text is the same on every call (shared rule
+// files). They are filled BEFORE the system/user split, so they land in the
+// system prompt — the part providers cache — instead of the per-post user part.
+function assembleAgentPrompt(name, vars, fixed = null) {
+  const raw = fixed ? fillTemplate(loadPrompt(name), fixed) : loadPrompt(name);
   const { system, userTemplate } = splitPromptTemplate(raw);
   const filledSystem = fillTemplate(system, vars);
   const filledUser = fillTemplate(userTemplate || raw, vars);
@@ -2749,9 +2752,6 @@ async function writeCarousel({ source, structure, post, dayBrief, brand, dayWrit
   // Editor reruns and This slide keep the post's slides as they are.
   const story = ownsStory && !one;
   const built = assembleAgentPrompt(layout.prompt, {
-    SLIDE_PLAN_RULES: story ? loadPrompt('carousel-story.md').trim() : FIXED_SLIDE_RULE,
-    COMPOSITION_RULES: loadPrompt('carousel-composition.md').trim(),
-    BRAND_ROLES: loadPrompt('carousel-brand-roles.md').trim(),
     CONTENT_STRUCTURE_JSON: json(carouselInput),
     DAY_WRITER_OUTPUT: optionalPromptJson(dayWriterOutput),
     BRAND_STYLE: optionalPromptJson(brandStyleOf(brand)),
@@ -2759,6 +2759,12 @@ async function writeCarousel({ source, structure, post, dayBrief, brand, dayWrit
     contentStructure: json(carouselInput),
     dayWriterOutput: optionalPromptJson(dayWriterOutput),
     brandStyle: optionalPromptJson(brandStyleOf(brand)),
+  }, {
+    // The same text on every run of this kind → system prompt, so it is cached
+    // (it was the uncached user part: ~7k tokens on every carousel).
+    SLIDE_PLAN_RULES: story ? loadPrompt('carousel-story.md').trim() : FIXED_SLIDE_RULE,
+    COMPOSITION_RULES: loadPrompt('carousel-composition.md').trim(),
+    BRAND_ROLES: loadPrompt('carousel-brand-roles.md').trim(),
   });
   // Debug › Carousel agent › Edit prompt: the edited text replaces the
   // assembled prompt (the panel shows system + user joined by a blank line).
