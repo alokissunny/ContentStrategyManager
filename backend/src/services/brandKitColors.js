@@ -7,6 +7,7 @@
  */
 
 const User = require('../models/User');
+const { parseColor, adjustAccent } = require('./carouselContrastCheck');
 
 // frontend/src/lib/identity.js DEFAULT_PALETTE — what the Brand Kit SHOWS for a
 // colour role the studio never edited (only edited roles are saved), so the
@@ -53,16 +54,17 @@ async function kitEditsOf(userId, handle) {
 }
 
 /**
- * @returns {Promise<{ name, ground, fg, accent }|null>} null when the studio has
- * no Brand Kit colours for this handle.
+ * The selected colour set as the Brand Kit shows it: an untouched role (or an
+ * untouched kit) is the Brand Kit's default colour, so the carousel agent never
+ * invents its own palette.
+ * @returns {Promise<{ name, ground, fg, accent, defaulted }|null>} null only
+ * when the Brand Kit could not be read.
  */
 async function brandKitColors(userId, handle) {
   try {
-    const edits = await kitEditsOf(userId, handle);
-    if (!edits) return null;
+    const edits = await kitEditsOf(userId, handle) || {};
     const set = selectedSetOf(edits);
     const p = set.palette;
-    if (!p.ground && !p.fg && !p.accent) return null;
     return {
       name: set.name,
       ground: p.ground || DEFAULT_PALETTE.ground,
@@ -176,7 +178,20 @@ function brandStylePalette(colors) {
     primary: colors.fg,
     accent: colors.accent,
     background: colors.ground,
+    // the accent at a lightness that reads as small text on each brand surface
+    accentOnDark: accentFor(colors.accent, colors.fg),
+    accentOnLight: accentFor(colors.accent, colors.ground),
   };
+}
+
+// `accent` moved lighter / darker (same hue) until it reaches 4.5:1 on `ground`
+function accentFor(accent, ground) {
+  const a = parseColor(accent);
+  const g = parseColor(ground);
+  if (!a || !g) return accent;
+  const lin = (c) => { const v = c / 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; };
+  const lum = 0.2126 * lin(g[0]) + 0.7152 * lin(g[1]) + 0.0722 * lin(g[2]);
+  return adjustAccent(a, [lum], 4.5).color;
 }
 
 module.exports = {

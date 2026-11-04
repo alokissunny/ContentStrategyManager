@@ -3,6 +3,7 @@ const path = require('path');
 const { AsyncResource } = require('async_hooks');
 const { brandKitColors, brandStylePalette, brandKitFonts, brandStyleFonts } = require('./brandKitColors');
 const { carouselLayoutProblems } = require('./carouselLayoutCheck');
+const { carouselContrastFailures, makeCarouselReadable, fixAccentContrast } = require('./carouselContrastCheck');
 const { extractJson, estimatePlanCostUsd, assignToEmptyDates, normalizeLens } = require('./weeklyPlan');
 const { compileStrategyContext, assetsForDay, allocatedAssetsOf, sanitizeAllocatedAssets, applyAssetAllocation, knownAssetIndexOf, json } = require('./planContext');
 const { completeText, resolvePlanAgentLlm, splitPromptTemplate, reasoningEffortFor } = require('./llmComplete');
@@ -2818,25 +2819,50 @@ async function writeCarousel({ source, structure, post, dayBrief, brand, dayWrit
   return out;
 }
 
-// Layout check (services/carouselLayoutCheck.js): measures the carousel's text
-// boxes from its CSS — overlapping text, text on the photo, the safe area. On
-// problems, ONE repair call hands the agent its own HTML plus the problems;
-// whichever version has fewer problems is kept. CAROUSEL_LAYOUT_CHECK=0 = off.
+// The photos attached to the carousel call, keyed the way the contrast check
+// looks them up (data-asset-key → the same JPEG the model was shown).
+function visionPhotoMap(images) {
+  const map = new Map();
+  (Array.isArray(images) ? images : []).forEach((img) => {
+    const key = img?.debug?.key;
+    if (key && img.data) map.set(String(key), img.data);
+  });
+  return map;
+}
+
+function assetKeysOf(html) {
+  return [...String(html || '').matchAll(/data-asset-key\s*=\s*["']([^"']+)["']/gi)].map((m) => m[1]);
+}
+
+// Layout check (services/carouselLayoutCheck.js) measures text boxes from CSS.
+// Contrast check (services/carouselContrastCheck.js) measures the text on a
+// full-bleed photo against the real photo pixels. On problems, ONE repair call
+// hands the agent its HTML, the photos and the problems; whichever version has
+// fewer problems is kept, and photo text still unreadable after that gets a
+// light-text wash. CAROUSEL_LAYOUT_CHECK=0 = off. Accent words are corrected
+// in code afterwards (fixCarouselAccents) — on every carousel, not only here.
 async function fixCarouselLayout({ source, assembled, images, validate, result, layout = carouselLayout() }) {
-  if (process.env.CAROUSEL_LAYOUT_CHECK === '0' || !result?.parsed?.html) return result;
+  if (process.env.CAROUSEL_LAYOUT_CHECK === '0' || !result?.parsed?.html) return fixCarouselAccents({ source, images, result });
   const checkOpts = { textOnPhoto: Boolean(layout.textOnPhoto) };
-  const problems = carouselLayoutProblems(result.parsed.html, checkOpts);
+  const photoMap = visionPhotoMap(images);
+  const measure = async (html) => {
+    const layoutProblems = carouselLayoutProblems(html, checkOpts);
+    const contrast = photoMap.size ? await carouselContrastFailures(html, photoMap) : [];
+    return { contrast, problems: [...layoutProblems, ...contrast.map((f) => f.problem)] };
+  };
   const note = (list) => (list.length ? `${list.length} problem${list.length === 1 ? '' : 's'}:\n- ${list.join('\n- ')}` : 'passed');
+  const first = await measure(result.parsed.html);
+  const problems = first.problems;
   if (!problems.length) {
-    return { ...result, debugEntry: { ...result.debugEntry, output: `${result.debugEntry?.output || ''}\n\n[Layout check] passed` } };
+    return fixCarouselAccents({ source, images, result: { ...result, debugEntry: { ...result.debugEntry, output: `${result.debugEntry?.output || ''}\n\n[Layout check] passed` } } });
   }
   console.warn(`[planOrchestrator] ${source} layout check: ${problems.length} problem(s) — ${problems.join(' | ')}`);
   const fixNote = [
     '---',
-    'LAYOUT FIX. The carousel you wrote (below) was measured from its CSS and has these layout problems:',
+    'LAYOUT FIX. The carousel you wrote (below) was measured and has these problems:',
     ...problems.map((p) => `- ${p}`),
     '',
-    `Return the COMPLETE corrected HTML document (every slide). Fix exactly these problems: put each affected slide's text in ONE flex-column group with a gap, re-budget the lines, reduce type or give the group more room. On a slide with a photo, keep this carousel's layout: ${photoRuleOf(layout)}. Keep everything else — copy, slide order, data-slot attributes, images and asset keys, palette, fonts and the overall design — unchanged.`,
+    `Return the COMPLETE corrected HTML document (every slide). Fix exactly these problems. Overlapping text, overflow or the safe area: put each affected slide's text in ONE flex-column group with a gap, re-budget the lines, reduce type or give the group more room. Text unreadable on a photo: move the group to a calmer area clear of the focal point, or strengthen the wash behind the whole group, until every line reaches 4.5:1 under 32px and 3:1 at 32px and larger. On a slide with a photo, keep this carousel's layout: ${photoRuleOf(layout)}. Keep everything else — copy, slide order, data-slot attributes, images and asset keys, palette, fonts and the overall design — unchanged.`,
     '',
     'YOUR PREVIOUS HTML:',
     result.parsed.html,
@@ -2857,25 +2883,75 @@ async function fixCarouselLayout({ source, assembled, images, validate, result, 
   } catch (err) {
     console.warn(`[planOrchestrator] ${source} layout fix failed — keeping the first version: ${err.message}`);
   }
-  const after = fixed?.parsed?.html ? carouselLayoutProblems(fixed.parsed.html, checkOpts) : null;
+  const keptKeys = assetKeysOf(result.parsed.html);
+  const droppedKey = fixed?.parsed?.html && keptKeys.some((k) => !assetKeysOf(fixed.parsed.html).includes(k));
+  if (droppedKey) console.warn(`[planOrchestrator] ${source} layout fix dropped a photo — keeping the first version`);
+  const afterRun = fixed?.parsed?.html && !droppedKey ? await measure(fixed.parsed.html) : null;
+  const after = afterRun ? afterRun.problems : null;
   const keepFixed = after && after.length < problems.length;
   const chosen = keepFixed ? fixed : result;
+  // last resort: photo text still unreadable gets light text + a primary wash
+  let contrastLeft = keepFixed ? afterRun.contrast : first.contrast;
+  let washed = false;
+  if (contrastLeft.length && chosen.parsed?.html) {
+    const readable = makeCarouselReadable(chosen.parsed.html, contrastLeft);
+    if (readable !== chosen.parsed.html) {
+      const previous = chosen.parsed.html;
+      chosen.parsed.html = readable;
+      try {
+        if (typeof validate === 'function') validate(chosen.parsed);
+        contrastLeft = (await measure(readable)).contrast;
+        washed = true;
+        console.log(`[planOrchestrator] ${source} contrast wash applied · ${contrastLeft.length} still unreadable`);
+      } catch (err) {
+        chosen.parsed.html = previous;
+        console.warn(`[planOrchestrator] ${source} contrast wash rejected — ${err.message}`);
+      }
+    }
+  }
   const usage = [result.usage, fixed?.usage].filter(Boolean).reduce((a, u) => {
     const out = { ...a };
     Object.entries(u).forEach(([k, v]) => { if (typeof v === 'number') out[k] = (Number(a[k]) || 0) + v; });
     return out;
   }, { model: result.usage?.model });
   if (after) console.log(`[planOrchestrator] ${source} layout fix: ${problems.length} → ${after.length} problem(s) · kept ${keepFixed ? 'the fix' : 'the first version'}`);
-  return {
-    ...chosen,
-    usage,
-    layoutCheck: { problems, after, kept: keepFixed ? 'fix' : 'first' },
-    debugEntry: {
-      ...chosen.debugEntry,
+  const washNote = washed
+    ? `\n[Contrast check] ${contrastLeft.length ? `${contrastLeft.length} still unreadable after the wash` : 'photo text set light, with a primary wash behind the group'}`
+    : '';
+  const report = `[Layout check] first version: ${note(problems)}${after ? `\n[Layout check] after one fix: ${note(after)} → kept ${keepFixed ? 'the fix' : 'the first version'}` : '\n[Layout check] fix call failed — kept the first version'}${washNote}`;
+  // after a wash the debug preview has to render the corrected document
+  const shown = washed ? chosen.parsed.html : (chosen.debugEntry?.output || '');
+  return fixCarouselAccents({
+    source,
+    images,
+    result: {
+      ...chosen,
       usage,
-      elapsedMs: (Number(result.debugEntry?.elapsedMs) || 0) + (Number(fixed?.debugEntry?.elapsedMs) || 0),
-      output: `${chosen.debugEntry?.output || ''}\n\n[Layout check] first version: ${note(problems)}${after ? `\n[Layout check] after one fix: ${note(after)} → kept ${keepFixed ? 'the fix' : 'the first version'}` : '\n[Layout check] fix call failed — kept the first version'}`,
+      layoutCheck: { problems, after, kept: keepFixed ? 'fix' : 'first', washed },
+      debugEntry: {
+        ...chosen.debugEntry,
+        usage,
+        elapsedMs: (Number(result.debugEntry?.elapsedMs) || 0) + (Number(fixed?.debugEntry?.elapsedMs) || 0),
+        output: washed ? `${shown}\n\n<!--\n${report}\n-->` : `${shown}\n\n${report}`,
+      },
     },
+  });
+}
+
+// Accent contrast (services/carouselContrastCheck.js › fixAccentContrast): an
+// accent run that does not read on what is behind it — the photo pixels or the
+// solid ground — is lightened or darkened in place, same hue, until it does.
+// No model call. CAROUSEL_ACCENT_CONTRAST=0 = off.
+async function fixCarouselAccents({ source, images, result }) {
+  if (process.env.CAROUSEL_ACCENT_CONTRAST === '0' || !result?.parsed?.html) return result;
+  const { html, fixed } = await fixAccentContrast(result.parsed.html, visionPhotoMap(images));
+  if (!fixed.length) return result;
+  console.log(`[planOrchestrator] ${source} accent contrast: ${fixed.length} run(s) adjusted — ${fixed.join(' | ')}`);
+  result.parsed.html = html;
+  const output = String(result.debugEntry?.output || '');
+  return {
+    ...result,
+    debugEntry: { ...result.debugEntry, output: `${output}\n\n[Accent contrast] ${fixed.length} adjusted:\n- ${fixed.join('\n- ')}` },
   };
 }
 

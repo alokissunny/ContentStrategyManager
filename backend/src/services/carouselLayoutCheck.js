@@ -113,7 +113,9 @@ function parseTree(html) {
       if (n && n.parent) cur = n.parent;
       continue;
     }
-    const node = { tag, attrs: attrsOf(m[2] || ''), children: [], parent: cur };
+    // start / tagEnd: where the opening tag sits in `html` (the contrast check
+    // patches an element's inline style there)
+    const node = { tag, attrs: attrsOf(m[2] || ''), children: [], parent: cur, start: m.index, tagEnd: m.index + m[0].length };
     cur.children.push(node);
     if (!VOID.has(tag) && !/\/\s*$/.test(m[2] || '')) cur = node;
   }
@@ -475,4 +477,7 @@ function carouselLayoutProblems(html, opts = {}) {
   }
 }
 
-module.exports = { carouselLayoutProblems, wrap, parseCss };
+module.exports = {
+  carouselLayoutProblems, wrap, parseCss, parseDecls, parseTree, styleOf, absBox, flowHeight,
+  naturalWidth, labelOf, walk, els, textOf, isAbs, isText, isImg, pad, margin, px, SLIDE,
+};
