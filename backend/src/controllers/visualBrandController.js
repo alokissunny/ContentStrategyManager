@@ -52,6 +52,10 @@ function backgroundPrefix(userId, handle) {
   return `visualbrand/${userId}/${handle}/backgrounds/`;
 }
 
+function fontPrefix(userId, handle) {
+  return `visualbrand/${userId}/${handle}/fonts/`;
+}
+
 function moodSetPrefix(userId, handle) {
   return `visualbrand/${userId}/${handle}/moodsets/`;
 }
@@ -318,6 +322,36 @@ async function saveSettings(req, res) {
   res.json({ ok: true, updatedAt: now, handle });
 }
 
+// ── Own fonts (Brand Kit › Typography) ──────────────────────────────────────
+// A studio's uploaded font FILE. The client PUTs it to S3 and keeps the key in
+// libraryEdits.fonts; slides load it through the authless /media/proxy (a
+// stable URL, unlike a presigned one).
+const FONT_EXT = new Set(['woff2', 'woff', 'ttf', 'otf']);
+
+// POST /visual-brand/fonts/sign  Body: { files: [{ ext, contentType }] }
+async function signFontUploads(req, res) {
+  if (!isS3Configured()) {
+    return res.status(503).json({ message: 'Media storage is not configured (set S3_BUCKET_NAME).' });
+  }
+  const handle = await currentUsername(req.user._id);
+  if (!handle) return res.status(400).json({ message: 'Connect an Instagram account first' });
+  const files = Array.isArray(req.body.files) ? req.body.files : [];
+  if (!files.length) return res.status(400).json({ message: 'No files to sign' });
+  if (files.length > 4) return res.status(400).json({ message: 'Too many files in one request' });
+  const exts = files.map((f) => String((f && f.ext) || '').toLowerCase().replace(/^\./, ''));
+  if (exts.some((e) => !FONT_EXT.has(e))) {
+    return res.status(400).json({ message: 'Fonts must be .woff2, .woff, .ttf or .otf files' });
+  }
+  const uploads = await Promise.all(
+    files.map(async ({ contentType }, i) => {
+      const key = `${fontPrefix(req.user._id, handle)}${crypto.randomUUID()}.${exts[i]}`;
+      const uploadUrl = await getPresignedUploadUrl(key, contentType || 'application/octet-stream');
+      return { key, uploadUrl };
+    })
+  );
+  res.json({ uploads });
+}
+
 // ── Backgrounds (Brand Kit) ─────────────────────────────────────────────────
 // Picture grounds the studio can apply across content. Same S3-key pattern as
 // mood images, scoped per handle, one of them optionally the default.
@@ -539,6 +573,7 @@ module.exports = {
   addMoodImages,
   deleteMoodImage,
   signLogoUploads,
+  signFontUploads,
   listLogos,
   putLogo,
   deleteLogo,

@@ -9,6 +9,9 @@ const PROJECT_KEY_RE = /^projects\/[a-f0-9]{24}\/[A-Za-z0-9._-]+\.(png|jpe?g|web
 const LOGO_KEY_RE = /^visualbrand\/[a-f0-9]{24}\/[a-z0-9._-]+\/logos\/[A-Za-z0-9._-]+\.(png|jpe?g|webp|gif|svg)$/i;
 // Rendered video covers (Animated Carousel Cover agent). Streamed as-is, with
 // Range support so <video> can play/seek, never run through the vision path.
+// a studio's own Brand Kit font file (visual-brand/fonts/sign)
+const FONT_KEY_RE = /^visualbrand\/[a-f0-9]{24}\/[a-z0-9._-]+\/fonts\/[A-Za-z0-9._-]+\.(woff2?|ttf|otf)$/i;
+const FONT_TYPES = { woff2: 'font/woff2', woff: 'font/woff', ttf: 'font/ttf', otf: 'font/otf' };
 const VIDEO_KEY_RE = /^projects\/[a-f0-9]{24}\/[A-Za-z0-9._-]+\.(mp4|webm|mov)$/i;
 const VIDEO_MIME = { mp4: 'video/mp4', webm: 'video/webm', mov: 'video/quicktime' };
 
@@ -62,7 +65,8 @@ async function proxyMedia(req, res) {
   const key = String(req.query.key || '');
   const isLogo = LOGO_KEY_RE.test(key);
   const isVideo = VIDEO_KEY_RE.test(key);
-  if (!PROJECT_KEY_RE.test(key) && !isLogo && !isVideo) {
+  const isFont = FONT_KEY_RE.test(key);
+  if (!PROJECT_KEY_RE.test(key) && !isLogo && !isVideo && !isFont) {
     return res.status(400).json({ message: 'Invalid media key' });
   }
   try {
@@ -70,6 +74,15 @@ async function proxyMedia(req, res) {
     // Video covers stream straight through (with Range) — never vision-processed.
     if (isVideo) {
       return streamVideo(req, res, buffer, contentType, key);
+    }
+    // Font files load into slide iframes (@font-face is a CORS fetch); the key
+    // is a fresh uuid per upload, so the bytes never change.
+    if (isFont) {
+      res.set('Access-Control-Allow-Origin', '*');
+      res.set('Cross-Origin-Resource-Policy', 'cross-origin');
+      res.set('Cache-Control', 'public, max-age=31536000, immutable');
+      res.type(FONT_TYPES[key.split('.').pop().toLowerCase()]);
+      return res.send(buffer);
     }
     // Logos are not vision inputs — stream the stored bytes (including SVG)
     // so publish can inline them onto the slide canvas.

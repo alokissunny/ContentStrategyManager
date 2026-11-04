@@ -22,6 +22,7 @@ import { boxOf, fmtBox, mapBoxToCover, mapPointToCover, normalizeSubjects, place
 import { useAiDebug } from '../../lib/aiDebug';
 import { plainOf, titleRuns } from '../../lib/slidetext';
 import { HTML_THEME_FONTS_URL, usesHtmlTheme } from '../../lib/htmlThemes';
+import { ownFontsOf } from '../../lib/identity';
 
 const ANNOTATIONS_ENABLED = false;
 
@@ -508,7 +509,7 @@ export default function DynamicLayout({
   // Brand Kit fonts: the slide is its own document, so it gets the app's font
   // stylesheets and the studio's uploaded faces (identity.registerFont files).
   const kitFonts = useStore()?.libraryEdits?.fonts;
-  const faceCss = useMemo(() => (Array.isArray(kitFonts) ? kitFonts : [])
+  const faceCss = useMemo(() => ownFontsOf(kitFonts)
     .filter((f) => f?.name && /^(https?:|data:|blob:)/.test(String(f.url || '')))
     .map((f) => `@font-face{font-family:'${String(f.name).replace(/'/g, '')}';src:url("${String(f.url).replace(/"/g, '%22')}");font-display:swap}`)
     .join(''), [kitFonts]);
@@ -521,10 +522,11 @@ export default function DynamicLayout({
       extraLinks: usesHtmlTheme(doc) ? [HTML_THEME_FONTS_URL] : [],
     });
     // Same document the debug preview scales: the agent's own 1080×1350 canvas,
-    // not a reflow. Brand colours and font swaps are left off so a dark slide
-    // stays the colour the agent wrote. data-focus is the photo-focus crop.
+    // not a reflow. Brand colours are left off so a dark slide stays the colour
+    // the agent wrote; the Brand Kit fonts still apply (and load the studio's
+    // own faces). data-focus is the photo-focus crop.
     if (useDocument) {
-      return String(documentHtml).replace(/\sdata-focus\s*=\s*["'][^"']*["']/gi, '');
+      return withFonts(String(documentHtml).replace(/\sdata-focus\s*=\s*["'][^"']*["']/gi, ''));
     }
     if (!markup) return '';
     return withFonts(buildSlideFrameDocument(markup, { themed, paint: nextPaint }));

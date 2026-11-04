@@ -79,6 +79,21 @@ export async function uploadLogo(slot, file) {
   return packLogos(saved.logos);
 }
 
+// Brand Kit › Typography: one font file of the studio's own → its S3 key
+// (kept in libraryEdits.fonts; loaded back through api/media fontFileUrl).
+const FONT_TYPES = { woff2: 'font/woff2', woff: 'font/woff', ttf: 'font/ttf', otf: 'font/otf' };
+export async function uploadFont(file) {
+  const ext = String(file?.name || '').split('.').pop().toLowerCase();
+  if (!FONT_TYPES[ext]) return null;
+  const contentType = FONT_TYPES[ext];
+  const { data } = await client.post('/visual-brand/fonts/sign', { files: [{ ext, contentType }] });
+  const upload = (data.uploads || [])[0];
+  if (!upload) throw new Error('no upload');
+  const put = await fetch(upload.uploadUrl, { method: 'PUT', headers: { 'Content-Type': contentType }, body: file });
+  if (!put.ok) throw new Error(`Upload failed (${put.status})`);
+  return upload.key;
+}
+
 export function listLogos() {
   if (logosInflight) return logosInflight;
   logosInflight = client.get('/visual-brand/logos')

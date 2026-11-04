@@ -23,7 +23,7 @@ import {
   facesWith, registerFont, newThemeId, nextThemeName, activeThemeOf, commitIdentity,
   LOGO_SLOTS, LOGO_POSITIONS, markForTone,
 } from '../../lib/identity.js';
-import { uploadLogo, listLogos, deleteLogo } from '../../api/visualBrand.js';
+import { uploadLogo, listLogos, deleteLogo, uploadFont } from '../../api/visualBrand.js';
 import { BrandMark } from './BrandMark.jsx';
 import {
   SectionCard, TileMenu, Pager, DefaultChip, RenamePopover, ColourPopover, ExampleTile, usePager,
@@ -465,7 +465,7 @@ export default function BrandKit() {
     activeThemeId: draft.activeThemeId,
     activeThemeAt: draft.activeThemeAt,
     type: draft.type,
-    fonts: (draft.fonts || []).map((f) => ({ id: f.id, name: f.name })),
+    fonts: (draft.fonts || []).map((f) => ({ id: f.id, name: f.name, key: f.key || '' })),
     logoPosition: draft.logoPosition,
     background: draft.background,
   });
@@ -542,11 +542,23 @@ export default function BrandKit() {
     }
     const name = f.name.replace(/\.(woff2?|ttf|otf)$/i, '').replace(/[-_]+/g, ' ').trim() || 'Custom font';
     const url = URL.createObjectURL(f);
-    registerFont(name, url).then((ok) => {
-      if (!ok) { setToast({ kind: 'note', text: `${name} could not be read — it needs to be a .woff2, .woff, .ttf or .otf file.` }); return; }
-      setDraft((d) => (d.fonts.length >= FONT_SLOTS ? d : { ...d, fonts: [...d.fonts, { id: `own-${Date.now()}`, name, url }] }));
+    const unreadable = () => setToast({ kind: 'note', text: `${name} could not be read — it needs to be a .woff2, .woff, .ttf or .otf file.` });
+    registerFont(name, url).then(async (ok) => {
+      if (!ok) { unreadable(); return; }
+      // the file goes to S3 so the font is still there after a reload and on
+      // every slide (the saved entry keeps its key, not the session's blob URL)
+      let key = null;
+      try { key = await uploadFont(f); } catch { key = null; }
+      if (!key) { setToast({ kind: 'note', text: `${name} could not be saved — try again.` }); return; }
+      setDraft((d) => (d.fonts.length >= FONT_SLOTS ? d : { ...d, fonts: [...d.fonts, { id: `own-${Date.now()}`, name, key, url }] }));
     });
   };
+  /* saved fonts of their own load into this page for the specimens and preview */
+  const fontKeys = draft.fonts.map((f) => f.key || f.url).join('|');
+  useEffect(() => {
+    draft.fonts.forEach((f) => { if (f.url && !/^blob:/.test(f.url)) registerFont(f.name, f.url); });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fontKeys]);
   const dropFont = (id) => setDraft((d) => ({
     ...d,
     fonts: d.fonts.filter((f) => f.id !== id),

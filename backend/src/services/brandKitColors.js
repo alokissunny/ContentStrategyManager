@@ -119,22 +119,31 @@ function faceInfo(id, ownFonts) {
   };
 }
 
+// frontend/src/lib/identity.js TYPE_SLOTS — the faces the Brand Kit SHOWS for
+// a Typography slot the studio never changed (only changed slots are saved).
+const DEFAULT_FACES = { headline: 'display', body: 'ui', detail: 'ui' };
+
 /**
- * The Brand Kit's Typography — only the slots the studio chose (detail falls
- * back to a chosen body face), mirroring identity.js brandFontVars.
+ * The Brand Kit's Typography as the studio sees it: the chosen faces (detail
+ * falls back to a chosen body face, mirroring identity.js brandFontVars), and
+ * the Brand Kit's default face for a slot never changed — so the carousel
+ * agent never picks its own families and a layout rerun keeps the same type.
  * @returns {Promise<{ heading?, body?, detail? }|null>} each `{ family, stack,
- * stylesheet, note? }`; null when the studio chose no fonts for this handle.
+ * stylesheet, note? }`; null only when the Brand Kit could not be read.
  */
 async function brandKitFonts(userId, handle) {
   try {
-    const edits = await kitEditsOf(userId, handle);
-    if (!edits) return null;
+    const edits = await kitEditsOf(userId, handle) || {};
     const t = asObject(edits.type);
     const own = Array.isArray(edits.fonts) ? edits.fonts : [];
+    const faceOf = (slot) => faceInfo(slot, own);
+    const headline = asObject(t.headline).face;
+    const body = asObject(t.body).face;
+    const detail = asObject(t.detail).face || body;
     const slots = {
-      heading: faceInfo(asObject(t.headline).face, own),
-      body: faceInfo(asObject(t.body).face, own),
-      detail: faceInfo(asObject(t.detail).face || asObject(t.body).face, own),
+      heading: faceOf(headline) || faceOf(DEFAULT_FACES.headline),
+      body: faceOf(body) || faceOf(DEFAULT_FACES.body),
+      detail: faceOf(detail) || faceOf(DEFAULT_FACES.detail),
     };
     const out = Object.fromEntries(Object.entries(slots).filter(([, v]) => v));
     return Object.keys(out).length ? out : null;

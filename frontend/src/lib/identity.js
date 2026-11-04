@@ -15,6 +15,8 @@
  * have to know the list exists.
  */
 
+import { fontFileUrl } from '../api/media';
+
 /* the faces the product actually ships. Not a font menu — anything else would
    be a face the app has no file for. */
 export const FACES = [
@@ -41,6 +43,16 @@ export function registerFont(name, url) {
   } catch { return Promise.resolve(false); }
 }
 /* every face on offer: the product's, then the studio's */
+/* A studio's own fonts as saved: `{ id, name, key }` — the key of the file in
+   S3, loaded back through the API (fontFileUrl). An older entry has only a
+   `url` (an object URL that lasted its session). */
+export function ownFontsOf(list) {
+  return asArray(list)
+    .filter((f) => f && typeof f === 'object' && f.id && f.name && (f.key || f.url))
+    .map((f) => ({ ...f, url: f.url && !/^blob:/.test(f.url) ? f.url : (fontFileUrl(f.key) || f.url) }));
+}
+const savedFontOf = (f) => (f.key ? { id: f.id, name: f.name, key: f.key } : { id: f.id, name: f.name, url: f.url });
+
 export const facesWith = (custom) => [
   ...FACES,
   ...(Array.isArray(custom) ? custom : []).map((c) => ({ id: c.id, label: c.name, stack: `'${c.name}', ${FACES[1].stack}`, own: true })),
@@ -285,7 +297,7 @@ export function commitIdentity(edits) {
     activeThemeAt: ident.activeThemeAt,
     palette: { ...ident.palette },
     type: { ...ident.type },
-    fonts: ident.fonts.map((f) => ({ ...f })),
+    fonts: ident.fonts.map(savedFontOf),
     logoPosition: ident.logoPosition,
     background: ident.background,
   };
@@ -301,9 +313,9 @@ export const identityOf = (store) => {
     activeThemeId: active.id,
     activeThemeAt: activeThemeAtOf(e),
     type: asObject(e.type),
-    /* only a real list of `{ id, name, url }` — a stale object shape reads as
-       "no fonts of their own", which is true and does not throw */
-    fonts: asArray(e.fonts).filter((f) => f && typeof f === 'object' && f.id && f.name && f.url),
+    /* only a real list of `{ id, name, key|url }` — a stale object shape reads
+       as "no fonts of their own", which is true and does not throw */
+    fonts: ownFontsOf(e.fonts),
     logoPosition: logoPositionOf(e),
     background: backgroundOf(e),
     /* THERE IS NO `systemImages` HERE ANY MORE (Leon, Aug 7). It was the old

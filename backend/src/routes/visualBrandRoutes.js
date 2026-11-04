@@ -7,6 +7,7 @@ const {
   addMoodImages,
   deleteMoodImage,
   signLogoUploads,
+  signFontUploads,
   listLogos,
   putLogo,
   deleteLogo,
@@ -39,6 +40,9 @@ router.post('/logos', asyncHandler(putLogo));
 router.delete('/logos/:slot', asyncHandler(deleteLogo));
 
 // Backgrounds (Brand Kit page) — picture grounds, one per S3 key, per handle
+// Brand Kit › Typography own fonts (the key is saved in libraryEdits.fonts)
+router.post('/fonts/sign', asyncHandler(signFontUploads));
+
 router.post('/backgrounds/sign', asyncHandler(signBackgroundUploads));
 router.get('/backgrounds', asyncHandler(listBackgrounds));
 router.post('/backgrounds', asyncHandler(addBackgrounds));

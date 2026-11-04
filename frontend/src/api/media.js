@@ -53,6 +53,15 @@ export function isLogoMediaKey(key) {
   return /^visualbrand\/[a-f0-9]{24}\/[a-z0-9._-]+\/logos\/[A-Za-z0-9._-]+\.(png|jpe?g|webp|gif|svg)$/i.test(String(key || '').trim());
 }
 
+// A studio's own Brand Kit font file (api/visualBrand uploadFont) — served by
+// the API with CORS, so a slide iframe's @font-face can load it.
+export function fontFileUrl(key) {
+  const raw = String(key || '').trim();
+  if (!/^visualbrand\/[a-f0-9]{24}\/[a-z0-9._-]+\/fonts\/[A-Za-z0-9._-]+\.(woff2?|ttf|otf)$/i.test(raw)) return '';
+  const base = (client.defaults.baseURL || '/api').replace(/\/$/, '');
+  return `${base}/media/proxy?key=${encodeURIComponent(raw)}`;
+}
+
 export function isHeicKey(key) {
   return /\.hei[cf]$/i.test(String(key || '').trim());
 }
