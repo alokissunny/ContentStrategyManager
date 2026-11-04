@@ -48,15 +48,6 @@ const AGENTS = {
     // it writes a complete, valid house-style carousel (Sep 2026 test)
     defaultModel: 'gpt-6-luna',
   },
-  // Editor mode › Layout: the carousel agent rerun on a chosen layout's prompt.
-  // Its own entry so the Settings carousel model doesn't apply — Editor mode
-  // runs on GPT-6 Luna (user, Nov 2026).
-  editorLayout: {
-    defaultProvider: 'openai',
-    modelEnv: 'PLAN_EDITOR_LAYOUT_MODEL',
-    providerEnv: 'PLAN_EDITOR_LAYOUT_PROVIDER',
-    defaultModel: 'gpt-6-luna',
-  },
   cover: {
     defaultProvider: 'openai',
     modelEnv: 'PLAN_COVER_MODEL',

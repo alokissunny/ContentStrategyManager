@@ -526,10 +526,8 @@ function mergeUsage(parts, model) {
   return usage;
 }
 
-// `llmKind`: pick the model from another planAgentLlm entry while keeping
-// `kind`'s token budget, timeout and parsing (Editor › Layout → 'editorLayout').
-async function callAgent({ source, kind, llmKind = '', prompt, system, user, image, images, validate, parse, htmlDirection }) {
-  const llm = resolvePlanAgentLlm(llmKind || kind);
+async function callAgent({ source, kind, prompt, system, user, image, images, validate, parse, htmlDirection }) {
+  const llm = resolvePlanAgentLlm(kind);
   const model = llm.model;
   let maxTokens = maxTokensFor(kind);
   const asHtml = parse === 'html';
@@ -2798,12 +2796,11 @@ async function writeCarousel({ source, structure, post, dayBrief, brand, dayWrit
     if (story) return validateCarouselStory(parsed);
     return validateCarousel(parsed, post, inputCount);
   };
-  // Editor › Layout runs on the Editor's model (GPT-6 Luna), not Settings' carousel model
-  const llmKind = layoutId ? 'editorLayout' : '';
+  // Editor › Layout runs on the same model as plan generation (Settings'
+  // carousel model), so a layout change designs like the original post
   const result = await withLayoutSlot(() => callAgent({
     source,
     kind: 'carousel',
-    llmKind,
     system: withPhotos.system,
     user: withPhotos.user,
     prompt: withPhotos.prompt,
@@ -2812,7 +2809,7 @@ async function writeCarousel({ source, structure, post, dayBrief, brand, dayWrit
     htmlDirection: 'warm-editorial',
     validate,
   }));
-  const out = await fixCarouselLayout({ source, assembled: withPhotos, images: photos.images, validate, result, layout, llmKind });
+  const out = await fixCarouselLayout({ source, assembled: withPhotos, images: photos.images, validate, result, layout });
   // the layout fix only sees the published html (hook reasoning stripped) —
   // keep the first version's reasoning
   if (out?.parsed && !out.parsed.hookReasoning && result?.parsed?.hookReasoning) {
@@ -2825,7 +2822,7 @@ async function writeCarousel({ source, structure, post, dayBrief, brand, dayWrit
 // boxes from its CSS — overlapping text, text on the photo, the safe area. On
 // problems, ONE repair call hands the agent its own HTML plus the problems;
 // whichever version has fewer problems is kept. CAROUSEL_LAYOUT_CHECK=0 = off.
-async function fixCarouselLayout({ source, assembled, images, validate, result, layout = carouselLayout(), llmKind = '' }) {
+async function fixCarouselLayout({ source, assembled, images, validate, result, layout = carouselLayout() }) {
   if (process.env.CAROUSEL_LAYOUT_CHECK === '0' || !result?.parsed?.html) return result;
   const checkOpts = { textOnPhoto: Boolean(layout.textOnPhoto) };
   const problems = carouselLayoutProblems(result.parsed.html, checkOpts);
@@ -2849,7 +2846,6 @@ async function fixCarouselLayout({ source, assembled, images, validate, result, 
     fixed = await withLayoutSlot(() => callAgent({
       source: `${source}:layout-fix`,
       kind: 'carousel',
-      llmKind,
       system: assembled.system,
       user: `${assembled.user}\n\n${fixNote}`,
       prompt: `${assembled.prompt || ''}\n\n${fixNote}`,
