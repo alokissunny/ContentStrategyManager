@@ -933,6 +933,20 @@ async function updatePost(req, res) {
       if (Number.isNaN(at.getTime())) {
         return res.status(400).json({ message: 'That publish time is not a valid date.' });
       }
+      // The slot must fall on the post's own calendar day in some timezone
+      // (UTC−12…UTC+14), so a client that computed the wrong day can't queue
+      // the post for a different date than the calendar shows.
+      const dayM = String(post.date || '').match(/^(\d{4})-(\d{2})-(\d{2})/);
+      if (dayM) {
+        const dayStart = Date.UTC(Number(dayM[1]), Number(dayM[2]) - 1, Number(dayM[3]));
+        const earliest = dayStart - 14 * 3600 * 1000;
+        const latest = dayStart + (24 + 12) * 3600 * 1000;
+        if (at.getTime() < earliest || at.getTime() >= latest) {
+          return res.status(400).json({
+            message: `That publish time is not on this post's day (${post.date}). Reload and schedule again.`,
+          });
+        }
+      }
       const keys = ownedMediaKeys(req.user._id, req.body.publishImageKeys);
       if (!keys.length) {
         return res.status(400).json({

@@ -1002,22 +1002,83 @@ function SchedField({ id, label, icon, value, open, onOpen }) {
   );
 }
 
-// The Time field — the same box, but a typed 24-hour input that commits on blur.
-function SchedTime({ id, label, value, onCommit }) {
+// The Time field — the same box: type a 24-hour time (commits on blur/Enter),
+// or pick one. Focusing it (or its caret) opens a picker under the field with
+// quick times and Hour / Minute columns; a pick saves at once.
+const SCHED_HOURS = Array.from({ length: 24 }, (_, i) => i);
+const SCHED_MINS = Array.from({ length: 12 }, (_, i) => i * 5);
+const SCHED_QUICK = [
+  { label: 'Morning', at: '09:00' },
+  { label: 'Midday', at: '12:30' },
+  { label: 'Afternoon', at: '15:00' },
+  { label: 'Evening', at: '18:00' },
+  { label: 'Night', at: '21:00' },
+];
+
+// Centre the chosen option in its column without scrolling the page.
+function centreChosen(col) {
+  const on = col?.querySelector('.is-on');
+  if (!on) return;
+  col.scrollTop = on.offsetTop - col.clientHeight / 2 + on.offsetHeight / 2;
+}
+
+function SchedTime({ id, label, value, onCommit, open, onOpen, onClose, recommended }) {
   const [draft, setDraft] = useState(value);
   const live = useRef(false);
+  const skipBlur = useRef(false); // a pick already saved; the blur it causes must not re-commit
+  const wrapRef = useRef(null);
+  const inputRef = useRef(null);
+  const hourCol = useRef(null);
+  const minCol = useRef(null);
   useEffect(() => { if (!live.current) setDraft(value); }, [value]);
+
+  const { h: curH, min: curM } = parseClock(value);
+  // a typed minute off the 5-minute grid still shows (and stays chosen)
+  const mins = SCHED_MINS.includes(curM) ? SCHED_MINS : [...SCHED_MINS, curM].sort((a, b) => a - b);
+
+  useLayoutEffect(() => {
+    if (!open) return;
+    centreChosen(hourCol.current);
+    centreChosen(minCol.current);
+  }, [open, value]);
+
+  // A press outside the field and its picker closes the picker.
+  useEffect(() => {
+    if (!open) return undefined;
+    const onDown = (e) => { if (wrapRef.current && !wrapRef.current.contains(e.target)) onClose?.(); };
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('touchstart', onDown, { passive: true });
+    return () => {
+      document.removeEventListener('mousedown', onDown);
+      document.removeEventListener('touchstart', onDown);
+    };
+  }, [open, onClose]);
+
   const commit = () => {
     live.current = false;
+    if (skipBlur.current) { skipBlur.current = false; return; }
     const next = readClock(draft);
     if (next) { setDraft(next); if (next !== value) onCommit(next); } else setDraft(value);
   };
+  const choose = (next, close = false) => {
+    live.current = false;
+    setDraft(next);
+    if (next !== value) onCommit(next);
+    if (close) {
+      onClose?.();
+      if (document.activeElement === inputRef.current) { skipBlur.current = true; inputRef.current.blur(); }
+    }
+  };
+  // picker buttons keep focus in the input, so typing and picking mix freely
+  const keepFocus = (e) => e.preventDefault();
+
   return (
-    <div className="schedf">
+    <div className="schedf" ref={wrapRef}>
       <span className="schedf__label" id={`${id}-lb`}>{label}</span>
-      <span className="schedf__box schedf__box--type">
+      <span className={`schedf__box schedf__box--type ${open ? 'is-open' : ''}`}>
         <Glyph name="clock" size={16} strokeWidth={1.9} />
         <input
+          ref={inputRef}
           id={id}
           className="schedf__value schedf__input"
           type="text"
@@ -1028,15 +1089,96 @@ function SchedTime({ id, label, value, onCommit }) {
           maxLength={8}
           value={draft}
           aria-label={`${label}, 24-hour, for example 09:30`}
-          onFocus={(e) => { live.current = true; e.target.select(); }}
+          aria-haspopup="dialog"
+          aria-expanded={open}
+          onFocus={(e) => { live.current = true; e.target.select(); if (!open) onOpen?.(); }}
+          onClick={() => { if (!open) onOpen?.(); }}
           onChange={(e) => setDraft(e.target.value)}
           onBlur={commit}
           onKeyDown={(e) => {
-            if (e.key === 'Enter') { e.preventDefault(); e.currentTarget.blur(); }
+            if (e.key === 'Enter') { e.preventDefault(); onClose?.(); e.currentTarget.blur(); }
             if (e.key === 'Escape') { setDraft(value); live.current = false; e.currentTarget.blur(); }
+            if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+              // step the time by 5 minutes from the keyboard
+              e.preventDefault();
+              const base = readClock(draft) || value;
+              const { h, min } = parseClock(base);
+              const total = (h * 60 + min + (e.key === 'ArrowUp' ? 5 : -5) + 1440) % 1440;
+              const next = `${pad2(Math.floor(total / 60))}:${pad2(total % 60)}`;
+              setDraft(next);
+              onCommit(next);
+            }
           }}
         />
+        <button
+          type="button"
+          className="schedf__caretbtn"
+          aria-label={open ? 'Close time picker' : 'Open time picker'}
+          onMouseDown={keepFocus}
+          onClick={() => (open ? onClose?.() : (inputRef.current?.focus(), onOpen?.()))}
+        >
+          <Glyph name="chevron-down" size={15} strokeWidth={2.1} className="schedf__caret" />
+        </button>
       </span>
+
+      {open && (
+        <div className="schedpop schedclock" role="dialog" aria-label="Choose time" onMouseDown={keepFocus}>
+          <div className="schedclock__quick">
+            {(recommended ? [{ label: 'Recommended', at: recommended, rec: true }, ...SCHED_QUICK] : SCHED_QUICK)
+              .filter((q, i, all) => all.findIndex((o) => o.at === q.at) === i)
+              .map((q) => (
+                <button
+                  key={q.at}
+                  type="button"
+                  className={`schedclock__chip ${q.at === value ? 'is-on' : ''} ${q.rec ? 'is-rec' : ''}`}
+                  aria-pressed={q.at === value}
+                  onClick={() => choose(q.at, true)}
+                >
+                  {q.rec && <Glyph name="sparkles" size={12} strokeWidth={2.2} />}
+                  <span>{q.label}</span>
+                  <b>{q.at}</b>
+                </button>
+              ))}
+          </div>
+          <div className="schedclock__cols">
+            <div className="schedclock__colwrap">
+              <span className="schedclock__head">Hour</span>
+              <div className="schedclock__col" ref={hourCol} role="listbox" aria-label="Hour">
+                {SCHED_HOURS.map((h) => (
+                  <button
+                    key={h}
+                    type="button"
+                    role="option"
+                    aria-selected={h === curH}
+                    className={`schedclock__opt ${h === curH ? 'is-on' : ''}`}
+                    onClick={() => choose(`${pad2(h)}:${pad2(curM)}`)}
+                  >
+                    {pad2(h)}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <span className="schedclock__sep" aria-hidden="true">:</span>
+            <div className="schedclock__colwrap">
+              <span className="schedclock__head">Minute</span>
+              <div className="schedclock__col" ref={minCol} role="listbox" aria-label="Minute">
+                {mins.map((m) => (
+                  <button
+                    key={m}
+                    type="button"
+                    role="option"
+                    aria-selected={m === curM}
+                    className={`schedclock__opt ${m === curM ? 'is-on' : ''}`}
+                    onClick={() => choose(`${pad2(curH)}:${pad2(m)}`, true)}
+                  >
+                    {pad2(m)}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -1087,13 +1229,21 @@ function SchedCalendar({ value, minIso = null, onPick }) {
   );
 }
 
-// The moment this day's post is scheduled to go out — the week's start plus the
-// day's offset, stamped with the post's time. Best-effort; the "Scheduled for"
-// line reads day + time directly, so a rough Date never mislabels the slot.
+// The moment this post is scheduled to go out: the post's own date (local
+// calendar day) stamped with its time. The date comes from the post itself —
+// `route.startsAt + index` is wrong on the Day view, where startsAt is already
+// the post's date but the index is its weekday (that put Thursday's post three
+// days late). The week offset is only a fallback for a post with no date.
 function slotDateOf(route, index, day) {
-  const base = route?.startsAt ? new Date(route.startsAt) : new Date();
-  const d = Number.isNaN(base.getTime()) ? new Date() : new Date(base);
-  d.setDate(d.getDate() + index);
+  const own = dateFromIso(String(day?.date || '').slice(0, 10));
+  let d;
+  if (own && !Number.isNaN(own.getTime())) {
+    d = new Date(own.getFullYear(), own.getMonth(), own.getDate());
+  } else {
+    const base = route?.startsAt ? new Date(route.startsAt) : new Date();
+    d = Number.isNaN(base.getTime()) ? new Date() : new Date(base);
+    d.setDate(d.getDate() + index);
+  }
   const { h, min } = parseClock(slotTimeRaw(day, route));
   d.setHours(h, min, 0, 0);
   return d;
@@ -3448,9 +3598,10 @@ export default function WeekView({
   const [askSchedule, setAskSchedule] = useState(false); // no-caption confirm
   // the inline "Change time" editor: null = closed, else { date, time }
   const [timeDraft, setTimeDraft] = useState(null);
-  const [pick, setPick] = useState(null); // 'date' = the calendar popover is open
+  const [pick, setPick] = useState(null); // 'date' | 'time' = that field's picker is open
   const [clockOpen, setClockOpen] = useState(false);
   const [savingTime, setSavingTime] = useState(false);
+  const timeSaveRef = useRef({ busy: false, next: null }); // queued Time-field saves
   const [replanning, setReplanning] = useState(false);
   const [replanMsg, setReplanMsg] = useState('');
   const [cdnBase, setCdnBase] = useState(() => getCdnBase());
@@ -5358,19 +5509,35 @@ export default function WeekView({
 
   // The Time field commits a "HH:MM" — the post's own slot time. The default
   // clears it so the plan's habit takes over again (bauhly-v3 §787).
+  // Picks can land faster than a save, so the latest one waits its turn
+  // instead of being dropped; only the newest queued time is sent.
+  const openTimePick = () => setPick('time');
+  const closeTimePick = () => setPick((v) => (v === 'time' ? null : v));
   async function commitTime(at) {
-    if (!route || !day || savingTime) return;
+    if (!route || !day) return;
     setTimeDraft((d) => (d ? { ...d, time: at } : d));
-    const payload = at === DEFAULT_TIME_24 ? { time: '' } : { time: at };
+    const q = timeSaveRef.current;
+    if (q.busy) { q.next = at; return; }
+    q.busy = true;
     setSavingTime(true);
     try {
-      setRoute(await setDayTime(route._id, selected, payload));
+      let next = at;
+      while (next) {
+        q.next = null;
+        const payload = next === DEFAULT_TIME_24 ? { time: '' } : { time: next };
+        // eslint-disable-next-line no-await-in-loop
+        setRoute(await setDayTime(route._id, selected, payload));
+        next = q.next;
+      }
     } catch (err) {
       setPublishMsg(err.response?.data?.message || 'Could not save the time just now');
     } finally {
+      q.busy = false;
+      q.next = null;
       setSavingTime(false);
     }
   }
+
 
   // The Date field moves the post to another day. It reuses the Shift-posts
   // endpoint (a single-post move), then reflects the new date locally and tells
@@ -9414,6 +9581,10 @@ export default function WeekView({
                   label="Time"
                   value={timeDraft.time}
                   onCommit={commitTime}
+                  open={pick === 'time'}
+                  onOpen={openTimePick}
+                  onClose={closeTimePick}
+                  recommended={metaConnected ? timeSeedAt : null}
                 />
 
                 {metaConnected ? (
