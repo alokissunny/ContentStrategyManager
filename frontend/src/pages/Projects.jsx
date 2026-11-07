@@ -10,7 +10,7 @@
  * everything captured, grouped by week, with a side panel + lightbox per entry.
  */
 
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { translate } from '../i18n';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
@@ -29,6 +29,11 @@ import {
 import { listGeneratedImages, deleteGeneratedImage } from '../api/images';
 import { understandCapture, transcribeCapture, clarificationQuestion, hasTranscriptGap, transcriptGapQuestion } from '../api/projects';
 import { previewUrl } from '../api/media';
+import { useAuth } from '../context/AuthContext';
+import CaptureLogin from '../components/CaptureLogin';
+import { useTypedPlaceholder } from '../components/ui/typing';
+import { canTakeCaret, isCaptureOpen, CAPTURE_MORPH_MS, CAPTURE_HOLD_MS } from '../lib/captureUi';
+import { ensureProjects } from '../lib/projectsStore';
 import './projects.css';
 
 /* The generated-image list is fetched from the server, which takes a moment —
@@ -802,7 +807,12 @@ export function ProjectFormModal({ mode, project, onClose, onSubmit }) {
  * Ported from bauhly-v3's CaptureChat. Bauhly asks one thing, waits, then the
  * answer chips appear under it. */
 let ckMsgId = 1;
-function useConversation() {
+/* a landing visit is told the words matter: an answer that comes back at once
+   reads as a script (bauhly-v3, Nov 6: "a one-second loading or thinking state") */
+const LANDING_THINK_MS = 1000;
+/* a stable list for `useTypedPlaceholder` when there are no examples (its effect keys on the list) */
+const NO_ASKS = ['…'];
+function useConversation(beat = 420) {
   const [messages, setMessages] = useState([]);
   const [typing, setTyping] = useState(false);
   const timers = useRef([]);
@@ -813,10 +823,11 @@ function useConversation() {
     const list = Array.isArray(texts) ? texts : [texts];
     let delay = 0;
     list.forEach((text, i) => {
-      delay += i === 0 ? 520 : 860;
+      /* `beat` is how long the dots show. At its 420 these are the 520 and 860 this has always been */
+      delay += (i === 0 ? 100 : 440) + beat;
       const at = delay;
       timers.current.push(
-        setTimeout(() => setTyping(true), at - 420),
+        setTimeout(() => setTyping(true), at - beat),
         setTimeout(() => {
           setTyping(false);
           // Settings › Language: scripted lines come from the catalog; the
@@ -830,7 +841,12 @@ function useConversation() {
     return delay + extra;
   };
   const after = (ms, fn) => timers.current.push(setTimeout(fn, ms));
-  return { messages, typing, push, say, after };
+  /* the same dots with no line after them, for a press whose answer is not words */
+  const think = (fn) => {
+    setTyping(true);
+    timers.current.push(setTimeout(() => { setTyping(false); fn(); }, beat));
+  };
+  return { messages, typing, push, say, after, think };
 }
 
 /* ── the "other project" picker — the projects list with a check + Add ──── */
@@ -886,12 +902,15 @@ function ProjectPickerModal({ projects, onClose, onPick, onNew }) {
  * field greys and the buttons stop — it never unmounts, so the box does not
  * jump each time Bauhly speaks. Empty, it is a single bar; with text, the
  * words take the top and the controls drop to a row beneath. */
-function CaptureComposer({ value, onValue, live, canSend, placeholder, onSend, onFiles, onRecord, pending = [], onRemoveFile }) {
+function CaptureComposer({ value, onValue, live, canSend, placeholder, onSend, onFiles, onRecord, pending = [], onRemoveFile, plus = true, locked = false, fading = false, mic = true }) {
   /* staged images make the composer non-empty even with no text, so it takes
      its two-row shape (thumbnails on top, field, controls beneath) */
   const empty = !value && pending.length === 0;
+  /* `locked`: words are arriving on their own (See an example) — the field
+     keeps its resting look but takes no hand (bauhly-v3 `locked`) */
+  const on = live && !locked;
   return (
-    <div className={`capc ${empty ? 'is-empty' : ''} ${live ? '' : 'is-off'}`}>
+    <div className={`capc ${empty ? 'is-empty' : ''} ${live || locked ? '' : 'is-off'} ${locked ? 'is-locked' : ''} ${fading ? 'is-fading' : ''} ${plus ? '' : 'capc--noplus'}`}>
       {pending.length > 0 && (
         <div className="capc__pending">
           {pending.map((p) => (
@@ -917,14 +936,15 @@ function CaptureComposer({ value, onValue, live, canSend, placeholder, onSend, o
         placeholderGrows={false}
         rows={1}
         disabled={!live}
+        readOnly={locked}
         placeholder={placeholder}
         aria-label="Your capture"
         onKeyDown={(e) => {
-          if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); if (live && canSend) onSend(); }
+          if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); if (on && canSend) onSend(); }
         }}
       />
       <div className="capc__acts">
-        <label className={`capc__btn capc__add ${live ? '' : 'is-off'}`} title="Add a photo or clip">
+        {plus && <label className={`capc__btn capc__add ${live ? '' : 'is-off'}`} title="Add a photo or clip">
           <Icon name="plus" size={17} strokeWidth={2.2} />
           <span className="sr-only">Add a photo or clip</span>
           <input
@@ -935,22 +955,22 @@ function CaptureComposer({ value, onValue, live, canSend, placeholder, onSend, o
             disabled={!live}
             onChange={(e) => { onFiles(e.target.files); e.target.value = ''; }}
           />
-        </label>
+        </label>}
         <span className="capc__grow" />
-        <button
+        {mic && <button
           type="button"
           className="capc__btn capc__mic"
-          disabled={!live}
+          disabled={!on}
           onClick={onRecord}
           title="Record a voice note"
         >
           <Icon name="mic" size={16} strokeWidth={2.2} />
           <span className="sr-only">Record a voice note</span>
-        </button>
+        </button>}
         <button
           type="button"
           className="capc__send"
-          disabled={!live || !canSend}
+          disabled={!on || !canSend}
           onClick={onSend}
           title="Send"
         >
@@ -1019,9 +1039,19 @@ function CaptureReference({ of: r }) {
   );
 }
 
-export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewProject, onCaptured, exitLabel = 'Back', modal = false, opening = '', savedLine = '', projectName = '', askProject = true, maxQuestions = 4, askMedia = true, resume = null, deferQuestions = false, adding = null, onPlan = null, run = null }) {
+export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewProject, onCaptured, exitLabel = 'Back', modal = false, opening = '', savedLine = '', projectName = '', askProject = true, maxQuestions = 4, askMedia = true, resume = null, deferQuestions = false, adding = null, onPlan = null, run = null, landing = null, leaving = false, onLoggedIn = null, onRestart = null }) {
   const projects = useProjects();
-  const { messages, typing, push, say, after } = useConversation();
+  /* ══ A VISIT FROM THE LANDING PAGE (bauhly-v3, Nov 5–6) ══════════════════
+     The hero's field grows into this box. The first line is there as it opens,
+     the field cycles examples of what to say, `See an example` plays one, and
+     a visitor logs in (or asks for access) at their first real send — nothing
+     reaches the backend before they have an account. */
+  const liveIntro = Boolean(landing);
+  const asks = landing?.asks || null;
+  const example = landing?.example || null;
+  const { user } = useAuth();
+  const needsLogin = liveIntro && !user;
+  const { messages, typing, push, say, after, think } = useConversation(liveIntro ? LANDING_THINK_MS : undefined);
   const [step, setStep] = useState('boot');
   const [draft, setDraft] = useState('');
   const [pending, setPending] = useState([]); // images staged in the composer, sent with the next message
@@ -1155,6 +1185,16 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
       };
       const d = say(ask);
       after(d, () => setStep('clarify'));
+      return;
+    }
+    // a landing visit: the question is there as the box opens, with no dots first
+    if (liveIntro) {
+      // StrictMode runs this twice in dev: the line is pushed once
+      if (!resumed.current) {
+        resumed.current = true;
+        push({ from: 'bauhly', text: translate('What would you like to capture today? Maybe something that happened at work, an idea, or something you noticed.'), opener: true });
+      }
+      after(0, () => setStep('how'));
       return;
     }
     // `opening` aims the capture at one question (Editor › Add slide)
@@ -1563,7 +1603,8 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
       const cover = previewUrl(c.attachments.find((a) => a.type === 'image') || c.attachments[0]) || null;
       setSaved({ id: pid, name, captureId: made?.captureId || null, at: new Date().toISOString() });
       if (deferQuestions) {
-        const d = say('Saved. It is ready for your next plan.');
+        /* a visitor has no plan yet: what is next for them is the post they were told about */
+        const d = say(liveIntro ? 'Saved. Ready to become your first post.' : 'Saved. It is ready for your next plan.');
         after(d, () => setStep('done'));
       } else if (onCaptured) {
         const d = say(savedLine || "It's in your library — building your plan now.");
@@ -1582,8 +1623,12 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
         const d = say([{ kind: 'saved', project: { name, cover } }, "It's in your library — the next plan is written from it."]);
         after(d, () => setStep('done'));
       }
-    } catch {
-      const d = say('Something went wrong saving that — try again in a moment?');
+    } catch (err) {
+      console.error('[capture] saving failed', err?.response?.status, err?.response?.data || err);
+      /* a refusal the server explains (a rate limit, a missing project) is said as it is;
+         anything else stays the generic line */
+      const why = err?.response?.status && err.response.status < 500 ? err.response.data?.message : '';
+      const d = say(why ? { text: why } : 'Something went wrong saving that — try again in a moment?');
       after(d, () => setStep(c.attachments.length ? 'media' : 'project'));
     } finally {
       setBusy(false);
@@ -1788,6 +1833,149 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
     after(d, () => setStep('how'));
   };
 
+  /* ══ THE LANDING VISIT'S OWN PARTS (bauhly-v3 CaptureChat, Nov 5–6) ═════ */
+  /* what was typed into the hero's field before this box was there to take it:
+     `{ text, n }`, counted so one arrival is added once (dev runs effects twice) */
+  const took = useRef(0);
+  useEffect(() => {
+    const d = landing?.draft;
+    if (!d?.text || d.n === took.current) return;
+    took.current = d.n;
+    setDraft((was) => `${was}${d.text}`);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [landing?.draft?.n]);
+
+  /* the examples of what to say keep typing in the field until the first letter */
+  const [askDone, setAskDone] = useState(false);
+  if (draft && !askDone) setAskDone(true);
+  const askOn = Boolean(asks?.length) && (step === 'boot' || step === 'how') && !askDone;
+  const [askTyped, askFading] = useTypedPlaceholder(asks?.length ? asks : NO_ASKS, askOn && step === 'how');
+
+  /* ── SEE AN EXAMPLE: a demonstration typed into the real field, word by word.
+     Sent as it played it goes through a scripted conversation and is never
+     filed; the moment its words are changed they are the visitor's own. */
+  const [demo, setDemo] = useState(false);
+  const [exLive, setExLive] = useState(false);
+  const [exWait, setExWait] = useState(false);
+  const [exText, setExText] = useState('');
+  const [exView, setExView] = useState(null); // null | 'making' | 'showing'
+  const exTimer = useRef(0);
+  useEffect(() => () => clearTimeout(exTimer.current), []);
+  const isDemo = () => Boolean(exText) && (cap.current.text || draft || '').trim() === exText.trim();
+  const exPlay = () => {
+    if (!example) return;
+    example.photos.forEach((url) => { const im = new Image(); im.src = url; });
+    setExWait(true);
+    exTimer.current = setTimeout(() => {
+      setExWait(false);
+      if (!isCaptureOpen()) return;
+      const { text } = example;
+      setExText(text);
+      setDemo(true);
+      if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) { setDraft(text); return; }
+      const words = text.split(' ');
+      let at = 0;
+      setExLive(true);
+      const land = () => {
+        if (!isCaptureOpen()) { setExLive(false); return; }
+        at += 1;
+        setDraft(words.slice(0, at).join(' '));
+        if (at >= words.length) { exTimer.current = setTimeout(() => setExLive(false), 300); return; }
+        const said = words[at - 1];
+        const breath = said.endsWith('.') ? 180 : said.endsWith(',') ? 90 : 0;
+        exTimer.current = setTimeout(land, 70 + words[at].length * 11 + breath);
+      };
+      exTimer.current = setTimeout(land, 120);
+    }, LANDING_THINK_MS);
+  };
+  /* the example's send: nothing is uploaded, understood or filed */
+  const demoSend = () => {
+    const text = draft.trim();
+    setDraft('');
+    setStep('boot');
+    userSays(text);
+    cap.current.text = text;
+    const d = say('Do you have a photo or clip of this?');
+    after(d, () => setStep('exMedia'));
+  };
+  const addExamplePhotos = () => {
+    setStep('boot');
+    think(() => {
+      const added = example.photos.map((url, i) => ({ id: `example-${i}`, type: 'image', url }));
+      cap.current.attachments = added;
+      push({ from: 'user', media: added, staged: true });
+      const still = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      after(still ? 0 : (added.length - 1) * 220 + 360, () => {
+        setSaved({ id: null, name: null, demo: true });
+        const d = say('That’s how a capture works. This one was only an example, so I haven’t saved it.');
+        after(d, () => setStep('done'));
+      });
+    });
+  };
+  const showExamplePost = () => {
+    setExView('making');
+    exTimer.current = setTimeout(() => { if (isCaptureOpen()) setExView('showing'); }, 2400);
+  };
+  /* the example post, from the example's own words and pictures: each sentence
+     a slide, in order, the pictures on the last ones (bauhly-v3 composeFromWords) */
+  const examplePost = () => {
+    const said = String(example?.text || '').split(/(?<=[.!?])\s+/).map((x) => x.trim()).filter(Boolean);
+    const pics = example?.photos || [];
+    const count = Math.max(said.length, pics.length);
+    const from = Math.max(0, said.length - pics.length);
+    return Array.from({ length: count }, (_, i) => ({ words: said[i] || '', photo: i >= from ? pics[i - from] : null }));
+  };
+
+  /* ── THE ACCOUNT STEP: asked at the visitor's first real send (or press of
+     the mic, which would reach the transcriber), and only once. Their words and
+     photos stay where they were, and logging in sends them from here. */
+  const [login, setLogin] = useState(null); // null | 'send' | 'record'
+  const sendNow = useRef(null);
+  const recordNow = useRef(null);
+  const loggedIn = () => {
+    const then = login;
+    onLoggedIn?.();
+    ensureProjects({ lite: true }).catch(() => {}).finally(() => {
+      setLogin(null);
+      setTimeout(() => (then === 'record' ? recordNow.current : sendNow.current)?.(), 0);
+    });
+  };
+
+  /* ── THE BOX GROWS OUT OF WHAT WAS PRESSED, AND CLOSES BACK INTO IT ──────
+     A clip of the box itself, from the field's rectangle and corner out to its
+     own edges: nothing inside is scaled. Written before paint, on the way up
+     and again on the way down (the field may have become the pill by then). */
+  const boxRef = useRef(null);
+  useLayoutEffect(() => {
+    const box = boxRef.current;
+    const o = landing?.origin?.();
+    if (!box || !o || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return undefined;
+    const b = box.getBoundingClientRect();
+    const px = (n) => `${Math.max(0, Math.round(n))}px`;
+    const clip = `inset(${px(o.top - b.top)} ${px(b.right - (o.left + o.width))} ${px(b.bottom - (o.top + o.height))} ${px(o.left - b.left)} round ${px(o.radius || 0)})`;
+    const corner = getComputedStyle(box).borderTopLeftRadius;
+    const frames = [{ clipPath: clip }, { clipPath: `inset(0 round ${corner})` }];
+    const anim = box.animate(leaving ? frames.reverse() : frames, {
+      duration: CAPTURE_MORPH_MS,
+      delay: leaving ? CAPTURE_HOLD_MS : 0,
+      easing: 'cubic-bezier(0.65, 0, 0.35, 1)',
+      fill: leaving ? 'both' : 'none',
+    });
+    return () => anim.cancel();
+    // the origin is a stable function for the life of a visit
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [leaving]);
+  /* the caret goes into the field once the box has settled, for a real pointer only */
+  useEffect(() => {
+    if (!liveIntro) return undefined;
+    const t = setTimeout(() => {
+      if (!canTakeCaret() || boxRef.current?.contains(document.activeElement)) return;
+      boxRef.current?.querySelector('.capc__field')?.focus({ preventScroll: true });
+    }, CAPTURE_MORPH_MS);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const renderActions = () => {
     switch (step) {
       case 'how':
@@ -1850,6 +2038,10 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
           </div>
         );
       }
+      case 'exMedia':
+        return example ? (
+          <button type="button" className="ck-chip ck-chip--primary" onClick={addExamplePhotos}>{example.photosSay}</button>
+        ) : null;
       case 'media':
         return (
           <>
@@ -1905,6 +2097,24 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
             <>
               <button className="ck-chip ck-chip--primary" onClick={onExit}>Save and close</button>
               <button className="ck-chip" onClick={addAnother}>Add something else</button>
+            </>
+          );
+        }
+        /* an example was only shown, so there is nothing to plan from */
+        if (saved?.demo) {
+          if (!example) return null;
+          return (
+            <>
+              <button type="button" className="btn btn--primary" onClick={showExamplePost}>{example.postSay}</button>
+              <button type="button" className="btn btn--secondary" onClick={() => onRestart?.()}>{example.ctaSay}</button>
+            </>
+          );
+        }
+        if (deferQuestions && liveIntro) {
+          return (
+            <>
+              <button type="button" className="btn btn--primary" onClick={generatePlan}>Generate your first post</button>
+              <button type="button" className="btn btn--secondary" onClick={onExit}>Save and close</button>
             </>
           );
         }
@@ -1981,6 +2191,9 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
   });
   const composerSend = async () => {
     const text = draft.trim();
+    if (login) return;
+    if (liveIntro && demo && isDemo() && step === 'how' && !pending.length) { demoSend(); return; }
+    if (needsLogin) { setLogin('send'); return; }
     if (adding && ['noting', 'amendMedia'].includes(step)) { sendAdding(); return; }
     if (!text && !pending.length) return;
     // Text only — the existing conversational submits.
@@ -2027,17 +2240,61 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
     }
   };
   const composerRecord = () => {
+    if (needsLogin) { setLogin('record'); return; }
     if (step === 'clarify') return recordClarify();
     if (step === 'writing' && fromVoice.current) return recordAgain();
     return chooseRecord();
   };
 
   const showActions = Boolean(actions) && optionsReady && !typing && !busy && !composerOwnsInput;
+  sendNow.current = composerSend;
+  recordNow.current = composerRecord;
+  /* `See an example` sits under the first question, for an empty field */
+  const exampleAsk = Boolean(example) && step === 'how' && !typing && !demo;
 
   return createPortal(
-    <div className={`cap-overlay${modal ? ' cap-overlay--modal' : ''}`}>
+    <div
+      className={`cap-overlay${modal ? ' cap-overlay--modal' : ''}${liveIntro ? ' cap-overlay--landing' : ''}${leaving ? ' is-out' : ''}`}
+      /* the landing page scrolls with Lenis, which takes every wheel event
+         unless the thing under the pointer says otherwise */
+      data-lenis-prevent
+    >
       {modal && <div className="cap-overlay__scrim" onClick={onExit} aria-hidden="true" />}
-      <div className="ck">
+      <div className={`ck${login ? ' is-signing' : ''}`} ref={boxRef}>
+        {login && (
+          <CaptureLogin
+            onBack={() => setLogin(null)}
+            onDone={loggedIn}
+          />
+        )}
+        {exView && (
+          <div className="ck-made" role={exView === 'making' ? 'status' : undefined} aria-live="polite">
+            {exView === 'making' ? (
+              <div className="ck-made__making">
+                <span className="ck__intro-mark is-live"><Mark size={44} /></span>
+                <p className="ck-made__say">Generating your example post<span className="ck-made__dots" aria-hidden="true"><i /><i /><i /></span></p>
+              </div>
+            ) : (
+              <>
+                <h2 className="ck-made__title">Your example post</h2>
+                <p className="ck-made__lead">This is the kind of post Bauhly makes from a capture like that one.</p>
+                <div className="ck-made__row">
+                  {examplePost().map((sl, i, all) => (
+                    <figure className={`ck-made__slide${sl.photo ? '' : ' is-type'}`} key={i}>
+                      {sl.photo && <img src={sl.photo} alt="" />}
+                      {sl.words && <figcaption>{sl.words}</figcaption>}
+                      <span className="ck-made__n">{i + 1}/{all.length}</span>
+                    </figure>
+                  ))}
+                </div>
+                <div className="ck-made__acts">
+                  <button type="button" className="btn btn--primary" onClick={() => onRestart?.()}>{example?.ctaSay || 'Create your own'}</button>
+                  <button type="button" className="btn btn--secondary" onClick={onExit}>Close</button>
+                </div>
+              </>
+            )}
+          </div>
+        )}
         {modal ? (
           <>
             <div className="ck__intro ck__intro--row">
@@ -2089,9 +2346,9 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
               return (
                 <div className="ck-turn ck-turn--user ck-turn--stack" key={m.id}>
                   {m.media && (
-                    <span className="cvmedia">
-                      {m.media.map((a) => (
-                        <span className="cvmedia__item" key={a.key || a.id}>
+                    <span className={`cvmedia${m.staged ? ' cvmedia--staged' : ''}`}>
+                      {m.media.map((a, i) => (
+                        <span className="cvmedia__item" key={a.key || a.id} style={m.staged ? { '--i': i } : undefined}>
                           {a.type === 'image' ? <img src={previewUrl(a)} alt="" /> : <video src={a.url} muted />}
                         </span>
                       ))}
@@ -2118,9 +2375,17 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
               );
             }
             return (
-              <div className="ck-turn ck-turn--bauhly" key={m.id}>
+              <div className={`ck-turn ck-turn--bauhly${m.opener ? ' ck-turn--opener' : ''}`} key={m.id}>
                 <span className="ck-avatar" aria-hidden="true"><Mark size={15} /></span>
-                <div className="ck-body">{m.text}</div>
+                <div className="ck-body">
+                  {m.text}
+                  {/* what comes of it, or that this one is only being shown */}
+                  {m.opener && liveIntro && (
+                    <p className={`ck-outcome${demo ? ' is-example' : ''}`}>
+                      {demo ? 'This is an example, not your own project.' : 'We’ll turn this into your first post.'}
+                    </p>
+                  )}
+                </div>
               </div>
             );
           })}
@@ -2205,10 +2470,34 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
               </div>
             </div>
           )}
+          {exampleAsk && (
+            <div className="ck-turn ck-turn--bauhly ck-turn--actions ck-turn--cont ck-turn--ask">
+              <span className="ck-avatar ck-avatar--ghost" aria-hidden="true" />
+              <div className="ck-inline ck-inline--row">
+                <span className="ck-chip-hold" onMouseDown={(e) => e.preventDefault()}>
+                  <button
+                    type="button"
+                    className="ck-chip ck-chip--icon"
+                    disabled={exWait || Boolean(draft.trim()) || pending.length > 0}
+                    onClick={exPlay}
+                  >
+                    <Icon name="play" size={14} strokeWidth={2.25} />
+                    {example.say}
+                  </button>
+                </span>
+              </div>
+            </div>
+          )}
+          {exWait && (
+            <div className="ck-turn ck-turn--bauhly">
+              <span className="ck-avatar" aria-hidden="true"><Mark size={15} /></span>
+              <div className="ck-typing" aria-label="Bauhly is thinking"><i /><i /><i /></div>
+            </div>
+          )}
           {showActions && (
             <div className="ck-turn ck-turn--bauhly ck-turn--actions ck-turn--cont">
               <span className="ck-avatar ck-avatar--ghost" aria-hidden="true" />
-              <div className={`ck-inline ${step === 'project' ? 'ck-inline--cards' : ''}`}>{actions}</div>
+              <div className={`ck-inline ${step === 'project' ? 'ck-inline--cards' : ''} ${liveIntro && step === 'done' ? 'ck-inline--row' : ''}`}>{actions}</div>
             </div>
           )}
 
@@ -2249,15 +2538,20 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
         {modal && step !== 'recording' && (
           <CaptureComposer
             value={draft}
-            onValue={setDraft}
-            live={composerLive}
+            onValue={(v) => { if (demo && !exLive && v !== exText) setDemo(false); setDraft(v); }}
+            live={composerLive || (liveIntro && askOn && step === 'boot')}
             canSend={composerSendable}
             pending={pending}
             onRemoveFile={removePending}
-            placeholder={step === 'clarify' ? 'Answer in your own words…' : step === 'amendMedia' ? 'Add anything else, or send to save it…' : 'Say it however it comes out…'}
+            placeholder={step === 'clarify' ? 'Answer in your own words…' : step === 'amendMedia' ? 'Add anything else, or send to save it…' : (askOn ? (askTyped ?? 'Say it however it comes out…') : 'Say it however it comes out…')}
             onSend={composerSend}
             onFiles={composerFiles}
             onRecord={composerRecord}
+            /* the landing field has no plus, as the hero's had none (bauhly-v3) */
+            plus={!liveIntro}
+            locked={exLive || exWait}
+            fading={askFading}
+            mic={!demo}
           />
         )}
       </div>

@@ -26,12 +26,16 @@ export default function S4Strategist() {
           <span className="b4-card-label">
             <GlyphSpark size={20} /> Weekly review · 10 seconds
           </span>
+          {/* the two rows used to read `1,204 likes` and `3 inquiries` — figures
+              nobody measured (Leon, Nov 5 — landing audit, E1). The contrast the
+              card draws is between two KINDS of response, and it survives
+              without a number on either. */}
           <div className="b4-row">
-            <span className="b4-metric muted">1,204 likes</span>
+            <span className="b4-metric muted">Likes</span>
             <span className="b4-label">other designers</span>
           </div>
           <div className="b4-row">
-            <span className="b4-metric">3 inquiries</span>
+            <span className="b4-metric">Inquiries</span>
             <span className="b4-label">homeowners, ready to talk</span>
           </div>
         </motion.div>

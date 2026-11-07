@@ -2447,3 +2447,200 @@ body.is-immersive .app__main {
 .cap-overlay--modal .ck-turn--bauhly .ck-avatar--ghost { display: none; }
 .cap-overlay--modal .ck-turn--bauhly { padding-left: 0; gap: 0; }
 .cap-overlay--modal .ck-body { font-size: var(--text-md); line-height: 1.6; max-width: 43ch; }
+
+/* ══ CAPTURE OVER THE LANDING PAGE (bauhly-v3 `.capm--landing`, Nov 5–6) ═════
+ * A VARIANT, and the product's own box is untouched by it.
+ *   · The box is revealed from the hero field's rectangle and corner and closes
+ *     back into it — a clip written by CaptureChat (`boxRef`), not a scale, so
+ *     nothing inside is squeezed.
+ *   · The page behind goes calm and out of focus on the box's own length and
+ *     curve, so neither finishes first.
+ *   · The head, then the first line, then `See an example` rise into place once
+ *     the clip has cleared where they stand; on the way out they go first.
+ */
+.cap-overlay--landing {
+  --capm-morph: 600ms; /* CAPTURE_MORPH_MS */
+  --capm-hold: 140ms; /* CAPTURE_HOLD_MS */
+}
+.cap-overlay--landing .cap-overlay__scrim {
+  background: color-mix(in srgb, var(--ink-100, #f1f1f3) 94%, transparent);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+  animation: capm-fade var(--capm-morph) var(--ease-inout) both;
+}
+.cap-overlay--landing .ck { animation: none; }
+.cap-overlay--landing .ck__x,
+.cap-overlay--landing .ck__intro--row { animation: capm-rise 420ms var(--ease-out) 490ms backwards; }
+.cap-overlay--landing .ck-turn--opener { animation: capm-rise 420ms var(--ease-out) 590ms backwards; }
+.cap-overlay--landing .ck-turn--ask { animation: capm-rise 420ms var(--ease-out) 690ms backwards; }
+.cap-overlay--landing .capc { animation: capm-fade 300ms var(--ease-inout) 200ms backwards; }
+.cap-overlay--landing.is-out .cap-overlay__scrim { animation: capm-out var(--capm-morph) var(--ease-inout) var(--capm-hold) both; }
+.cap-overlay--landing.is-out .ck__thread,
+.cap-overlay--landing.is-out .ck-made,
+.cap-overlay--landing.is-out .ck-signup { animation: capm-sink 220ms var(--ease-inout) both; }
+.cap-overlay--landing.is-out .ck__x,
+.cap-overlay--landing.is-out .ck__intro--row { animation: capm-sink 220ms var(--ease-inout) 50ms both; }
+.cap-overlay--landing.is-out .capc { animation: capm-out 260ms var(--ease-inout) both; }
+.cap-overlay--landing.is-out { pointer-events: none; }
+@keyframes capm-rise { from { opacity: 0; transform: translateY(14px); } }
+@keyframes capm-sink { to { opacity: 0; transform: translateY(10px); } }
+@keyframes capm-out { to { opacity: 0; } }
+
+/* what comes of it, under the first question */
+.cap-overlay--landing .ck-outcome { margin: var(--sp-1, 4px) 0 0; font-size: var(--text-sm, 14px); line-height: 1.5; color: var(--ink-500); }
+.cap-overlay--landing .ck-outcome.is-example { color: var(--ink-700); font-weight: 600; }
+/* `See an example` stands close under the line it belongs to */
+.cap-overlay--landing .ck-turn--ask { margin-top: 0; }
+.ck-chip--icon > svg { display: block; flex: none; }
+.ck-chip-hold { display: inline-flex; }
+.ck-chip--icon[disabled] { pointer-events: none; opacity: 0.5; }
+/* the visitor's own words told from Bauhly's at a glance: pale blue, navy ink */
+.cap-overlay--landing .ck-turn--user .ck-said {
+  background: color-mix(in srgb, var(--blue-100, #dbe6ff) 50%, var(--blue-50, #eef3ff));
+  color: color-mix(in srgb, var(--blue-600, #2a4fd6) 30%, var(--ink-900));
+}
+/* the end of a landing visit is the one row at the button's own size */
+.cap-overlay--landing .ck-inline--row { flex-wrap: wrap; gap: var(--sp-2, 8px); }
+@media (max-width: 640px) {
+  .cap-overlay--landing .ck-inline--row .btn { flex: 1 1 auto; padding-inline: var(--sp-2, 8px); }
+}
+/* the example's pictures come in one at a time */
+.cvmedia--staged .cvmedia__item { animation: capm-fade 360ms var(--ease-out) calc(var(--i) * 220ms) backwards; }
+/* the landing field has no plus; the sentence starts where it would have */
+.capc--noplus.is-empty { padding-left: 14px; }
+/* an example arriving on its own: the field keeps its resting look */
+.capc.is-locked .capc__field { cursor: default; }
+/* a finished example fades and the next one types in (`useTypedPlaceholder`) */
+.capc.is-fading .capc__field::placeholder { opacity: 0; transition: opacity var(--dur-base, 240ms) var(--ease-out); }
+
+/* ── the account step, inside the box (bauhly-v3 `.ck-signup`) ───────────── */
+.ck.is-signing > :not(.ck-signup) { visibility: hidden; }
+.ck-signup {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  padding: 32px var(--sp-10, 40px) var(--sp-8, 32px);
+  background: var(--surface);
+  border-radius: inherit;
+  overflow-y: auto;
+  animation: capm-fade 200ms var(--ease-out) both;
+}
+.ck-signup__top { display: flex; }
+.ck-signup__back { display: inline-flex; align-items: center; gap: 6px; margin-left: -8px; }
+.ck-signup__form { flex: 1 0 auto; display: grid; place-items: center; padding: var(--sp-6, 24px) 0; }
+.ckl { width: min(380px, 100%); display: flex; flex-direction: column; gap: 14px; }
+.ckl__head { margin: 0 0 6px; font-family: var(--font-ui); font-size: 24px; font-weight: 700; letter-spacing: -0.01em; line-height: 1.2; color: var(--ink-900); }
+.ckl__sub { margin: -6px 0 4px; font-size: var(--text-sm, 14px); line-height: 1.55; color: var(--ink-500); }
+.ckl__field { display: flex; flex-direction: column; gap: 6px; }
+.ckl__label { font-size: 13px; font-weight: 600; color: var(--ink-700); }
+.ckl__input {
+  width: 100%;
+  height: 46px;
+  padding: 0 14px;
+  border: 1px solid var(--border, #e4e4e7);
+  border-radius: 12px;
+  background: var(--surface);
+  font: inherit;
+  font-size: 15px;
+  color: var(--ink-900);
+  outline: none;
+  transition: border-color var(--dur-fast, 120ms), box-shadow var(--dur-fast, 120ms);
+}
+.ckl__input:focus { border-color: var(--ink-900); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ink-900) 10%, transparent); }
+.ckl__error { margin: 0; font-size: 13px; color: #b91c1c; }
+.ckl__go {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 48px;
+  margin-top: 6px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--ink-900);
+  color: #fff;
+  font: inherit;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.ckl__go:disabled { opacity: 0.6; cursor: default; }
+.ckl__go:focus-visible, .ckl__link:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.ckl__ask { margin: 6px 0 0; text-align: center; font-size: 14px; color: var(--ink-500); }
+.ckl__link { padding: 0; border: 0; background: none; font: inherit; font-weight: 600; color: var(--blue-600, #2a4fd6); cursor: pointer; }
+.ckl__link:hover { text-decoration: underline; }
+@media (max-width: 640px) {
+  .ck-signup { padding: calc(var(--sp-5, 20px) + env(safe-area-inset-top)) var(--sp-5, 20px) calc(var(--sp-5, 20px) + env(safe-area-inset-bottom)); }
+}
+
+/* ── the example post, in the box ───────────────────────────────────────── */
+.ck-made {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  display: flex;
+  flex-direction: column;
+  padding: 48px var(--sp-10, 40px) var(--sp-8, 32px);
+  background: var(--surface);
+  border-radius: inherit;
+  overflow-y: auto;
+  animation: capm-fade 240ms var(--ease-out) both;
+}
+.ck-made__making { flex: 1; display: grid; place-content: center; justify-items: center; gap: 18px; }
+.ck-made__say { margin: 0; font-size: var(--text-base, 16px); font-weight: 600; color: var(--ink-700); }
+.ck-made__dots { display: inline-flex; gap: 3px; margin-left: 4px; }
+.ck-made__dots > i { width: 4px; height: 4px; border-radius: 50%; background: currentColor; animation: ck-made-dot 1.2s ease-in-out infinite; }
+.ck-made__dots > i:nth-child(2) { animation-delay: 0.15s; }
+.ck-made__dots > i:nth-child(3) { animation-delay: 0.3s; }
+@keyframes ck-made-dot { 0%, 100% { opacity: 0.25; } 50% { opacity: 1; } }
+.ck-made__title { margin: 0; font-family: var(--font-ui); font-size: 28px; font-weight: 700; letter-spacing: -0.01em; line-height: 1.12; color: var(--ink-900); }
+.ck-made__lead { margin: 8px 0 20px; font-size: var(--text-sm, 14px); color: var(--ink-500); }
+.ck-made__row {
+  display: flex;
+  gap: 12px;
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  padding-bottom: 8px;
+  scrollbar-width: thin;
+}
+.ck-made__slide {
+  position: relative;
+  flex: 0 0 min(300px, 72%);
+  aspect-ratio: 4 / 5;
+  margin: 0;
+  border-radius: 14px;
+  overflow: hidden;
+  background: #2f3a2c;
+  scroll-snap-align: start;
+}
+.ck-made__slide img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.ck-made__slide figcaption {
+  position: absolute;
+  inset: auto 0 0;
+  padding: 48px 18px 18px;
+  background: linear-gradient(to top, rgb(0 0 0 / 0.62), transparent);
+  font-family: var(--font-display, var(--font-ui));
+  font-size: 17px;
+  font-weight: 600;
+  line-height: 1.3;
+  color: #fff;
+}
+.ck-made__slide.is-type figcaption { inset: 0; display: flex; align-items: center; padding: 26px; background: none; font-size: 22px; }
+.ck-made__n { position: absolute; top: 12px; right: 12px; padding: 3px 8px; border-radius: 999px; background: rgb(0 0 0 / 0.4); font-size: 11px; font-weight: 600; color: #fff; }
+.ck-made__acts { display: flex; flex-wrap: wrap; gap: 8px; margin-top: auto; padding-top: 20px; }
+@media (max-width: 640px) {
+  .ck-made { padding: calc(var(--sp-6, 24px) + env(safe-area-inset-top)) var(--sp-5, 20px) calc(var(--sp-5, 20px) + env(safe-area-inset-bottom)); }
+  .ck-made__acts .btn { flex: 1 1 auto; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cap-overlay--landing .cap-overlay__scrim,
+  .cap-overlay--landing .ck__x, .cap-overlay--landing .ck__intro--row,
+  .cap-overlay--landing .ck-turn--opener, .cap-overlay--landing .ck-turn--ask,
+  .cap-overlay--landing .capc, .cvmedia--staged .cvmedia__item,
+  .cap-overlay--landing.is-out .cap-overlay__scrim, .cap-overlay--landing.is-out .ck__thread,
+  .cap-overlay--landing.is-out .ck__x, .cap-overlay--landing.is-out .ck__intro--row,
+  .cap-overlay--landing.is-out .capc, .ck-signup, .ck-made { animation: none; }
+}

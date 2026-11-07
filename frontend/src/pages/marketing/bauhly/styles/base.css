@@ -17,6 +17,19 @@
 .bauhly-landing *::before,
 .bauhly-landing *::after {
   box-sizing: border-box;
+}
+
+/* ── EXCEPT WHAT THE PRODUCT DRAWS HERE (Nov 5 — landing audit, A4) ────────
+   The hero's posts (`.hpost`, LayoutArt.jsx) and its chat field (`.hcap__field`,
+   OnbComposer) are the product's own components, and their spacing is one class
+   deep: `.vl-a--steps { padding: 9% }`, `.obc--hero { padding: 8px }`. That is
+   the same specificity as a reset written `.bauhly-landing *`, and this file
+   loads after them. MEASURED: half the posts had their words on the card's edge,
+   and the field's discs sat hard against the pill. `:where()` adds nothing, so
+   for everything else on this page this is the rule it was. */
+.bauhly-landing :where(:not(.hpost *, .hcap__field *)),
+.bauhly-landing :where(:not(.hpost *, .hcap__field *))::before,
+.bauhly-landing :where(:not(.hpost *, .hcap__field *))::after {
   margin: 0;
   padding: 0;
 }

@@ -28,35 +28,71 @@
   margin-bottom: 40px;
 }
 
-/* ============ nav — floating, hides on scroll down ============ */
+/* ============ nav — on the lime at the top, floating further down ============ */
 
 .bauhly-landing .nav {
+  /* its distance inside the lime panel, the same on the top and both sides at every
+     width (Leon, Nov 5: "too close to the top edge"). Measured from `--frame`, the
+     panel's own margin: 16px from the window put it 2px ABOVE the panel at 1280, and
+     7px wider than the panel on each side. */
+  --nav-inset: calc(var(--frame) + var(--sp-4));
   position: fixed;
-  top: 16px;
+  top: var(--nav-inset);
   left: 50%;
   transform: translateX(-50%);
-  width: min(var(--grid-max), calc(100% - 32px));
-  display: flex;
+  width: min(var(--grid-max), calc(100% - 2 * var(--nav-inset)));
+  /* three columns, the outer two equal, so the links are centred on the whole bar and
+     not on what the logo and the buttons leave between them (Leon, Nov 5). `1fr` rather
+     than a fixed share, so a narrow bar lets the buttons push the links aside instead of
+     running under them. The phone's burger bar is still a flex row, in the 900px block. */
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
   align-items: center;
-  justify-content: space-between;
   gap: 24px;
-  padding: 10px 10px 10px 26px;
-  background: color-mix(in srgb, var(--paper) 82%, transparent);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
+  /* even, or the columns' centre is not the bar's: 26 on the left and 10 on the right put
+     the links 8px off, MEASURED. The logo keeps its place by its own margin. */
+  padding: 10px;
+  /* `--nav-ground` is 1 until the last stretch of scroll to the top, then runs to 0 with the
+     scroll, written by Nav.jsx. No transition on any of these */
+  background: color-mix(in srgb, var(--paper) calc(var(--nav-ground, 1) * 82%), transparent);
+  backdrop-filter: blur(calc(var(--nav-ground, 1) * 16px));
+  -webkit-backdrop-filter: blur(calc(var(--nav-ground, 1) * 16px));
   border-radius: 999px;
-  box-shadow: 0 12px 34px rgba(0, 0, 0, 0.12);
+  box-shadow: 0 12px 34px rgba(0, 0, 0, calc(var(--nav-ground, 1) * 0.12));
   z-index: 100;
   transition: transform 420ms var(--ease-drawer), opacity 420ms var(--ease-drawer);
 }
 
-.bauhly-landing .nav-hidden {
+/* ONE BAR, THREE STATES, NEVER TWO BARS (Leon, Nov 5). `data-nav` is written by Nav.jsx.
+     top    part of the first section: placed in it rather than on the window, so it scrolls
+            away with the page and back, with nothing animating it. EXACTLY the pill's place
+            and width at the top of the page, measured from the panel instead of the window,
+            which is why the pill can become this with no movement at all. The transition
+            matters in one case only: a jump to the top from below, with the pill slid out.
+     float  the pill, in place. This is the bar's own style above. Its ground fades out over
+            the last of the scroll, so by the top it is this same bar on the lime.
+     away   the pill, slid out above the window. Between this and `float` is the slide
+            this bar has always had. */
+.bauhly-landing .nav[data-nav='top'] {
+  position: absolute;
+  top: var(--sp-4);
+  width: min(var(--grid-max), calc(100% - 2 * var(--sp-4)));
+  background: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  box-shadow: none;
+  transition: opacity var(--dur-base) linear;
+}
+
+.bauhly-landing .nav[data-nav='away'] {
   transform: translate(-50%, -140%);
   opacity: 0;
   pointer-events: none;
 }
 
 .bauhly-landing .nav-mark {
+  justify-self: start;
+  margin-left: var(--sp-4);
   font-family: var(--font-display);
   font-weight: 800;
   font-size: 22px;
@@ -70,7 +106,10 @@
 
 .bauhly-landing .nav-links {
   display: flex;
-  gap: clamp(20px, 3vw, 44px);
+  /* 3vw while the bar has room, up to 40px, because the bar stops growing at 1280 wide and
+     the links must not. Below about 1320 they close up just as fast as the bar narrows, which keeps them on its centre with the logo on one side and the language,
+     Log in and Sign up on the other. 14px is as tight as they read as separate links. */
+  gap: max(14px, min(3vw, 40px, calc(24vw - 277px)));
 }
 
 .bauhly-landing .nav-links a {
@@ -79,69 +118,48 @@
   font-size: 16px;
   color: var(--ink);
   opacity: 0.85;
-  padding: 8px 4px;
+  /* the same 56px pill as Sign up (`.cta`), and the margin hands the extra width back,
+     so the ground appears around the label with nothing moving */
+  display: inline-flex;
+  align-items: center;
+  min-height: 56px;
+  padding: 0 18px;
+  margin-inline: -14px;
+  white-space: nowrap;
+  border-radius: var(--r-full);
+  transition: background var(--dur-fast) var(--ease-out), opacity var(--dur-fast) var(--ease-out);
 }
 
-.bauhly-landing .nav-links a:hover {
+.bauhly-landing .nav-links a:hover,
+.bauhly-landing .nav-links a:focus-visible {
   opacity: 1;
 }
 
+/* ink at a low strength, so it is one hover on the lime and on the white pill. Only where
+   there is a real pointer, or a tap leaves it stuck on */
+@media (hover: hover) {
+  .bauhly-landing .nav-links a:hover,
+  .bauhly-landing .nav-actions .nav-login:hover,
+  .bauhly-landing .nav-lang__btn:hover,
+  .bauhly-landing .nav-burger:hover {
+    background: color-mix(in srgb, var(--ink) 9%, transparent);
+  }
+  /* it keeps its lift, and takes a lighter ink so the change is seen on either ground */
+  .bauhly-landing .cta.nav-cta:hover {
+    background: color-mix(in srgb, var(--ink) 78%, var(--paper));
+  }
+}
+
+.bauhly-landing .nav-links a:focus-visible,
+.bauhly-landing .nav-actions .nav-login:focus-visible {
+  background: color-mix(in srgb, var(--ink) 9%, transparent);
+}
+
 .bauhly-landing .nav-actions {
+  justify-self: end;
   display: flex;
   align-items: center;
   gap: clamp(10px, 1.4vw, 20px);
-}
-
-.bauhly-landing .nav-language {
-  position: relative;
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  align-items: center;
-  flex-shrink: 0;
-  width: 82px;
-  height: 36px;
-  padding: 3px;
-  border: 1px solid color-mix(in srgb, var(--ink) 20%, transparent);
-  border-radius: 999px;
-  background: var(--paper);
-  color: var(--ink);
-  font: inherit;
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  cursor: pointer;
-}
-
-.bauhly-landing .nav-language > span:not(.nav-language__thumb) {
-  position: relative;
-  z-index: 1;
-}
-
-.bauhly-landing .nav-language__thumb {
-  position: absolute;
-  inset: 3px auto 3px 3px;
-  width: calc((100% - 6px) / 2);
-  border-radius: 999px;
-  background: var(--ink);
-  transition: transform 160ms ease;
-}
-
-.bauhly-landing .nav-language[aria-checked="true"] .nav-language__thumb {
-  transform: translateX(100%);
-}
-
-.bauhly-landing .nav-language[aria-checked="false"] [lang="en"],
-.bauhly-landing .nav-language[aria-checked="true"] [lang="es"] {
-  color: var(--paper);
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .bauhly-landing .nav-language__thumb { transition: none; }
-}
-
-.bauhly-landing .nav-language:focus-visible {
-  outline: 2px solid var(--ink);
-  outline-offset: 3px;
 }
 
 .bauhly-landing .nav-login {
@@ -152,6 +170,58 @@
   opacity: 0.85;
   padding: 8px 6px;
   white-space: nowrap;
+  transition: background var(--dur-fast) var(--ease-out), opacity var(--dur-fast) var(--ease-out);
+}
+
+/* the same pill in the bar; the phone menu's version is its own ghost pill, further down */
+.bauhly-landing .nav-actions .nav-login {
+  min-height: 56px;
+  padding: 0 18px;
+  margin-inline: -12px;
+  border-radius: var(--r-full);
+}
+
+/* THE LANGUAGE SELECTOR (Leon, Nov 5). Its button is the same pill as Log in; its menu is
+   the product's `.pe-menu`, hung under the button. Opaque, as `.edm-menu` is and for the
+   same reason: a blurred headline behind a row is a headline you can still read through it,
+   and a menu inside the bar's own blur has nothing behind it to blur. */
+.bauhly-landing .nav-lang {
+  position: relative;
+  display: inline-flex;
+}
+
+.bauhly-landing .nav-lang__btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-1);
+  min-height: 56px;
+  padding: 0 14px 0 18px;
+  margin-inline: -12px;
+  font-weight: 600;
+  font-size: 16px;
+  color: var(--ink);
+  opacity: 0.85;
+  border-radius: var(--r-full);
+  transition: background var(--dur-fast) var(--ease-out), opacity var(--dur-fast) var(--ease-out);
+}
+
+.bauhly-landing .nav-lang__btn:hover,
+.bauhly-landing .nav-lang__btn[aria-expanded='true'] {
+  opacity: 1;
+}
+
+.bauhly-landing .nav-lang__btn:focus-visible,
+.bauhly-landing .nav-lang__btn[aria-expanded='true'] {
+  background: color-mix(in srgb, var(--ink) 9%, transparent);
+}
+
+.bauhly-landing .nav-lang__menu {
+  top: calc(100% + var(--sp-2));
+  right: -12px;
+  min-width: 168px;
+  background: var(--paper);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
 }
 
 .bauhly-landing .nav-login:hover {
@@ -172,6 +242,8 @@
   width: 44px;
   height: 44px;
   padding: 0 11px;
+  border-radius: var(--r-full);
+  transition: background var(--dur-fast) var(--ease-out);
 }
 
 .bauhly-landing .nav-burger span {
@@ -223,26 +295,67 @@
 
 .bauhly-landing .nav-panel-actions {
   display: grid;
-  grid-template-columns: 1fr;
+  grid-template-columns: 1fr 1fr;
   gap: 12px;
   margin-top: 8px;
   padding-top: 12px;
   border-top: 1px solid color-mix(in srgb, var(--ink) 10%, transparent);
 }
 
-/* Mobile menu login CTA matches the desktop filled button. */
+/* Log in becomes a grey pill matching Sign up's height — balanced halves,
+   filled Sign up still reads as primary. A fill rather than a line (Leon, Nov 6) */
 .bauhly-landing .nav-panel-actions .nav-login {
   display: flex;
   align-items: center;
   justify-content: center;
   padding: 14px 24px;
-  border: 1px solid color-mix(in srgb, var(--ink) 22%, transparent);
+  border: 1px solid transparent;
   border-radius: 999px;
   opacity: 1;
+  background: color-mix(in srgb, var(--ink) 9%, transparent);
 }
 
 .bauhly-landing .nav-panel-actions .nav-cta {
   text-align: center;
+}
+
+/* THE BAR WITH NO ROOM FOR ITS LINKS. Below this width the logo, the links and the three
+   controls cannot share it and keep the links on its centre, in either language (MEASURED).
+   So the links and the two account buttons go into the menu earlier than the page goes to
+   one column. The language selector stays on the bar at every width. */
+@media (max-width: 1200px) {
+  .bauhly-landing .nav-links,
+  .bauhly-landing .nav-actions .nav-login,
+  .bauhly-landing .nav-actions .nav-cta {
+    display: none;
+  }
+
+  .bauhly-landing .nav-burger {
+    display: flex;
+  }
+
+  .bauhly-landing .nav {
+    display: flex;
+    gap: var(--sp-2);
+  }
+
+  .bauhly-landing .nav-mark {
+    margin-right: auto;
+  }
+
+  /* level with the burger */
+  .bauhly-landing .nav-lang__btn {
+    min-height: 44px;
+    margin-inline: 0;
+  }
+
+  .bauhly-landing .nav-lang__menu {
+    right: 0;
+  }
+
+  .bauhly-landing .h1s--centre {
+    --nav-h: 64px;
+  }
 }
 
 /* ============ geometry accents ============ */
@@ -389,19 +502,11 @@
   color: var(--hero-ink);
 }
 
-/* "Built for interior designers" — integrated into the copy itself,
-   not a standalone badge. The emphasis lives in the typography: a
+/* "architects' and interior designers'" — integrated into the copy itself,
+   in the middle of the sub-line, not a standalone badge. The emphasis lives in the typography: a
    premium serif italic in the primary color with a hand-drawn
    underline, echoing the brand's editorial/Bauhaus voice rather than
    a decorative pill container. */
-.bauhly-landing .h1s-lead {
-  font-family: var(--font-body);
-  font-weight: 600;
-  font-size: clamp(18px, 1.9vw, 22px);
-  color: var(--hero-ink);
-  margin-bottom: 26px;
-}
-
 .bauhly-landing .hl-designers {
   position: relative;
   display: inline-block;
@@ -434,6 +539,708 @@
   /* higher contrast than the muted --grey token against the bright
      signature background */
   color: color-mix(in srgb, var(--ink) 78%, transparent);
+}
+
+/* ══ THE CENTRED HERO (Leon, Nov 5 — landing audit, A4) ═══════════════════
+   The message, then real posts, in a panel that fills the window, with the
+   chat field fixed over its foot (`.hcap`). A MODIFIER on the hero: everything
+   above still describes `.h1s`, and these are the places this one differs.
+   `--hero-room` is what the field takes out of the bottom of the window, so the
+   posts stop above it rather than behind it. `--post-h` is what is left of the
+   window after the message and that room, held to a size at which a post can
+   still be read: on a short screen the row runs on under the field rather than
+   shrinking to nothing. */
+.bauhly-landing .h1s--centre {
+  --hero-room: 118px;
+  /* 524: what the two-line headline and two-line sub-line leave of the window */
+  --post-h: clamp(232px, calc(100svh - 524px), 360px);
+  min-height: calc(100svh - 2 * var(--frame));
+  padding-bottom: var(--hero-room);
+  text-align: center;
+}
+
+.bauhly-landing .h1s--centre .h1s-copy {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  align-self: auto;
+  /* `--sp-6`: what the nav moved down by, and a little of what the shorter sub-line
+     gave back, so the headline has more air under the nav than it did */
+  padding-block: calc(clamp(92px, 12vh, 112px) + var(--sp-6)) 0;
+}
+
+.bauhly-landing .h1s--centre .h1s-title {
+  max-width: none;
+  /* the sentence takes two lines on a desktop and three on a phone, so it runs smaller
+     than the one-line headlines before it did, or it pushes the posts off the screen */
+  font-size: clamp(36px, calc(4.6vw + 4px), 60px);
+  margin-bottom: 12px;
+  text-wrap: balance;
+}
+
+.bauhly-landing .h1s--centre .h1s-sub {
+  max-width: 78ch;
+  margin: 0 auto;
+  text-wrap: balance;
+}
+
+/* ── THE DESKTOP COMPOSITION, TUNED TOGETHER (Leon, Nov 5: "Don't just add more padding
+   everywhere. Adjust the size and positioning of elements together") ───────────────
+   Height is what runs short on a desktop, so everything here is read off the window's
+   height as well as its width. Message first, then posts, then the chat field:
+     --hero-air   nav to headline
+     headline     smaller on a short window, larger on a tall one
+     --post-h     what the rest leaves. It gives way first on a short window, down to a
+                  size a post can still be read at
+     the row      a little above the middle of the space between the sub-line and the field
+                  (Leon, Nov 5: "sits too low", said of it exactly centred). A card's shadow
+                  falls below it and its heavier half is its words, so the eye puts the row
+                  lower than its box. The stage ends `--hero-lift` above the field, which
+                  raises the row by half of that.
+     --hero-foot  chat field to the panel's foot
+   Below 901 the 900px and 640px blocks further down still decide all of this. */
+@media (min-width: 901px) {
+  .bauhly-landing {
+    --hero-foot: clamp(28px, 4.5vh, 44px);
+  }
+  .bauhly-landing .h1s.h1s--centre {
+    --hero-air: clamp(20px, calc(8vh - 38px), 72px);
+    /* moves the row up with the words (Leon, Nov 5), keeping the gap between them */
+    --hero-lift: clamp(34px, calc(6vh - 3px), 62px);
+    /* the field, what stands under it, and the lift */
+    --hero-room: calc(var(--hero-foot) + 62px + var(--hero-lift));
+    --post-h: clamp(216px, calc(68svh - 304px), 420px);
+  }
+  .bauhly-landing .h1s--centre .h1s-posts,
+  .bauhly-landing .h1s--centre .hcar {
+    margin-top: 0;
+  }
+  .bauhly-landing .h1s--centre .h1s-copy {
+    /* the nav's 16px inset and its height, then the air */
+    padding-block: calc(var(--sp-4) + var(--nav-h, 76px) + var(--hero-air)) 0;
+  }
+  .bauhly-landing .h1s--centre .h1s-title {
+    /* two lines at every desktop size. On one line it runs the panel's whole width at
+       some sizes and not others, and it stops reading as a headline */
+    max-width: 16em;
+    margin-inline: auto;
+    font-size: clamp(36px, min(calc(4.6vw + 4px), 5.8vh), 60px);
+    margin-bottom: clamp(12px, 2vh, 20px);
+  }
+  .bauhly-landing .h1s--centre .h1s-sub {
+    font-size: clamp(15px, min(1.25vw, 2vh), 17px);
+  }
+}
+
+.bauhly-landing .h1s-posts {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  margin-top: clamp(14px, 2.4vh, 24px);
+}
+
+/* ── THE ROW ──────────────────────────────────────────────────────────────
+   Flat cards, facing forward. PostCarousel.jsx writes each card's transform and
+   its opacity: a card fades itself by where it is. */
+.bauhly-landing .hcar {
+  position: relative;
+  flex: 1 1 auto;
+  /* 1.06: room for the wave (now under 2 px) and the shadow. At 1.16, MEASURED, the longer
+     words pushed the panel past the window, by 17 px at 1280×800 and 31 at 1440×900 */
+  min-height: calc(var(--post-h) * 1.06);
+  margin-top: 8px;
+  /* the stack's order is between its own cards: without this their z-index
+     competes with the page's, and they pass over the fixed field. MEASURED at 320 */
+  isolation: isolate;
+  /* a sideways hand is the carousel's and an up-and-down one is still the page's
+     (Leon, Nov 6). `user-select` so a drag never paints the cards' words. */
+  touch-action: pan-y;
+  user-select: none;
+  -webkit-user-select: none;
+}
+@media (hover: hover) {
+  .bauhly-landing .hcar { cursor: grab; }
+}
+.bauhly-landing .hcar.is-dragging { cursor: grabbing; }
+/* the card is the one thing a hand can catch: the artwork inside it is a picture of a post */
+.bauhly-landing .hpost * { pointer-events: none; }
+
+.bauhly-landing .hcar__drum {
+  position: absolute;
+  inset: 0;
+}
+
+/* THE SIDE GRADIENTS (Leon, Nov 5: "softer and more gradual so they feel like a natural
+   extension of the lime section"). Full lime at the panel's edge, where a card is cut,
+   and clear most of a card in. Seven stops along one smooth ease, because a straight ramp
+   has a corner where it ends, and that corner is what reads as a boundary on a dark card.
+   Its width and `FADE_FROM` and `FADE_TO` in PostCarousel.jsx are meant to be read
+   together. Sized off the card (`--post-h` * 0.8 is its width) and not the window,
+   because what it has to cover is a card. Down to the panel's foot, not the stage's: the
+   corner circle (`.h1s-orb`) runs under them, and stopping at the stage drew a straight
+   line across it. The row only: the stack below 900px switches them off. */
+.bauhly-landing .hcar::before,
+.bauhly-landing .hcar::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: calc(var(--hero-room) * -1);
+  /* 2: a hovered card stands at 1, and leaves into the background like any other */
+  z-index: 2;
+  width: calc(var(--post-h) * 0.8 * 0.85);
+  pointer-events: none;
+  background: linear-gradient(
+    to var(--to),
+    var(--signature) 0%,
+    color-mix(in srgb, var(--signature) 88%, transparent) 14%,
+    color-mix(in srgb, var(--signature) 68%, transparent) 30%,
+    color-mix(in srgb, var(--signature) 44%, transparent) 47%,
+    color-mix(in srgb, var(--signature) 22%, transparent) 65%,
+    color-mix(in srgb, var(--signature) 7%, transparent) 83%,
+    transparent 100%
+  );
+}
+
+.bauhly-landing .hcar::before { left: 0; --to: right; }
+.bauhly-landing .hcar::after { right: 0; --to: left; }
+
+/* hidden until the loop has placed it: a card with no transform of its own would
+   sit dead in the middle of the stage while the others moved past it */
+.bauhly-landing .hpost {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: calc(var(--post-h) * 0.8);
+  margin-left: calc(var(--post-h) * -0.4);
+  margin-top: calc(var(--post-h) * -0.5);
+  container-type: inline-size;
+  visibility: hidden;
+  will-change: transform, opacity;
+  text-align: left;
+}
+
+.bauhly-landing .hpost .vl-a {
+  border-radius: 12px;
+  box-shadow: 0 18px 36px -20px rgb(30 38 6 / 0.45);
+  transition: box-shadow var(--dur-base) var(--ease-out);
+}
+/* the row's own shadow, nearer: the same ink on the lime, further out and a little deeper.
+   Its size is written by PostCarousel.jsx, where it can sit on top of the card's place */
+.bauhly-landing .hpost.is-hover .vl-a { box-shadow: 0 30px 56px -22px rgb(30 38 6 / 0.62); }
+
+/* ══ THE POSTS, AT THE SIZE THEY ARE SHOWN (Leon, Nov 5) ═════════════════════
+   "Check the relationship between labels, headlines, subtitles, and supporting
+    text. Each should have a clear level of importance… Don't force every post to
+    contain a label, divider, subtitle, or logo."
+   The artwork's sizes are written for a post seen whole in the Editor. Here it
+   is about 240px wide. This is a CONSUMER'S context, so it stays here and the
+   Editor and the Visual Library do not move: every rule is under `.hpost`, and
+   every size is in `cqw`, so a card reads the same at every scale.
+   Whether any of this should reach the product is a separate decision.
+
+   ONE HIERARCHY, THREE CLEAR STEPS. The headline leads, in the display face.
+   The body is a third of its weight and two-thirds of its size. The label is
+   the quietest: sentence case, regular weight, muted. Uppercase with wide
+   tracking made it as loud as the headline at this size.
+   ONE MEASURE: `--hp-m` is the margin every composition stands off the card by.
+   NO AUTOMATIC RULE: the artwork draws one above every label. It was decoration
+   standing between a label and its headline, so it is off. */
+.bauhly-landing .hpost { --hp-m: 8.6cqw; }
+.bauhly-landing .hpost .vl-a { --vl-type: 1; }
+.bauhly-landing .hpost .vl-w { gap: 2.4cqw; }
+.bauhly-landing .hpost .vl-w__lead { display: none; }
+.bauhly-landing .hpost .vl-a .vl-w__h,
+.bauhly-landing .hpost .hpost__h {
+  font-size: 6.4cqw;
+  line-height: 1.12;
+  letter-spacing: -0.025em;
+}
+.bauhly-landing .hpost .vl-a .vl-w__b {
+  font-size: 4.6cqw;
+  font-weight: 400;
+  line-height: 1.42;
+  letter-spacing: 0;
+  text-wrap: pretty; /* no line ends on one lost word */
+}
+.bauhly-landing .hpost .vl-a .vl-w__eyebrow {
+  font-size: 3.7cqw;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+}
+.bauhly-landing .hpost .vl-a .vl-w__eyebrow:empty { display: none; }
+.bauhly-landing .hpost .vl-a::after { font-size: 3.2cqw; left: var(--hp-m); bottom: 6.5%; }
+
+/* two levels in a slot built for one (`line` in PostCarousel.jsx) */
+.bauhly-landing .hpost .hpost__h {
+  display: block;
+  font-family: var(--t-headline-face, var(--font-display, var(--font-ui)));
+  font-weight: var(--t-headline-weight, 800);
+  text-wrap: balance;
+  color: var(--a-fg);
+}
+.bauhly-landing .hpost .vl-w__h > .vl-w__b,
+.bauhly-landing .hpost .vl-foot > .vl-w__b {
+  display: block;
+  margin-top: 2.4cqw;
+  font-family: var(--t-body-face, var(--font-ui));
+  text-wrap: pretty;
+  color: var(--a-mute);
+}
+
+/* the wordmark, in the signature's own place */
+.bauhly-landing .hpost__logo {
+  position: absolute;
+  left: var(--hp-m);
+  bottom: 6.5%;
+  line-height: 1;
+}
+
+@media (max-width: 640px) {
+  /* a card is about 187px wide here, and 4.2cqw of that is under 8px */
+  .bauhly-landing .hpost .vl-a .vl-w__b { font-size: 5.4cqw; line-height: 1.34; }
+  .bauhly-landing .hpost .vl-a .vl-w__eyebrow { font-size: 4cqw; }
+  .bauhly-landing .hpost--annotate-multi .vl-legend__row { font-size: 4.8cqw; }
+}
+
+/* full bleed: the words are one group on the foot of the picture, on a wash only
+   as tall as they need, so the boards and the window stay clear above them */
+.bauhly-landing .hpost--bleed .vl-a { justify-content: flex-end; }
+.bauhly-landing .hpost--bleed .vl-a .vl-wash {
+  inset: 0;
+  background: linear-gradient(to bottom, transparent 46%, var(--t-photo-wash) 94%);
+}
+.bauhly-landing .hpost--bleed .vl-a .vl-w {
+  position: absolute;
+  left: var(--hp-m);
+  right: var(--hp-m);
+  bottom: var(--hp-m);
+  padding: 0;
+}
+
+/* the other full bleed: the words stand on the bare wall the picture leaves, to
+   the right of the window, at the height of the sill. A wash from the right, so
+   the wall carries white type and the window and ladder stay in their own light.
+   A headline and one picture does not have to mean words on top, picture below. */
+.bauhly-landing .hpost--on-wall .vl-ph img { object-position: 30% 50%; }
+.bauhly-landing .hpost--on-wall .vl-a .vl-wash {
+  inset: 0;
+  background: linear-gradient(to left, color-mix(in srgb, var(--t-photo-wash) 86%, transparent) 30%, transparent 78%);
+}
+.bauhly-landing .hpost--on-wall .vl-a .vl-w {
+  left: 48%;
+  right: 7cqw;
+  top: 50%;
+  bottom: auto;
+  translate: 0 -50%;
+}
+.bauhly-landing .hpost--on-wall .vl-a .vl-w__h { font-size: 7.2cqw; }
+.bauhly-landing .hpost--on-wall .vl-a .vl-w__h em { color: inherit; opacity: 1; }
+.bauhly-landing .hpost--on-wall .vl-a .vl-w__h { color: color-mix(in srgb, #fff 78%, transparent); }
+.bauhly-landing .hpost--on-wall .vl-a .vl-w__h em { color: #fff; }
+
+/* split band: the words get the larger share and stand centred in it; the
+   picture keeps the raking light that the post is about */
+.bauhly-landing .hpost--split .vl-a .vl-w { flex: 1 1 56%; padding: var(--hp-m) 6cqw var(--hp-m) var(--hp-m); }
+.bauhly-landing .hpost--split .vl-a .vl-ph { flex: 0 0 44%; }
+.bauhly-landing .hpost--split .vl-ph img { object-position: 58% 50%; }
+.bauhly-landing .hpost--split .vl-a .vl-w__h { font-size: 7.2cqw; }
+
+/* a board, not a grid, and the words belong to it: one lead picture and two at
+   falling sizes, sharing a top and a bottom edge, with the words a clean step
+   under them, so the card is one composition rather than two sections */
+.bauhly-landing .hpost--moodboard .vl-a { justify-content: flex-end; padding: var(--hp-m); }
+.bauhly-landing .hpost--moodboard .vl-board .is-p0 { left: 8.6%; top: 6.9%; width: 53%; height: 53%; }
+.bauhly-landing .hpost--moodboard .vl-board .is-p1 { left: 63.6%; top: 6.9%; width: 27.8%; height: 32%; }
+.bauhly-landing .hpost--moodboard .vl-board .is-p2 { left: 63.6%; top: 40.9%; width: 27.8%; height: 19%; }
+.bauhly-landing .hpost--moodboard .vl-a .vl-w { gap: 0; }
+/* the words first and the board under them */
+.bauhly-landing .hpost--mood-head .vl-a { justify-content: flex-start; }
+.bauhly-landing .hpost--mood-head .vl-board .is-p0 { top: 39.5%; }
+.bauhly-landing .hpost--mood-head .vl-board .is-p1 { top: 39.5%; }
+.bauhly-landing .hpost--mood-head .vl-board .is-p2 { top: 73.5%; }
+
+/* floating panel: the layout's own panel, as the library draws it (`.vl-note`:
+   margins, padding, corner, ground). Nothing about the panel is restated here.
+   Only the mark is placed, on the door the words are about, and the picture is
+   lifted a little so the panel does not sit on the drawing. */
+.bauhly-landing .hpost--annotate .vl-ph img { --ta-zoom: 1.12; object-position: 42% 50%; transform-origin: 50% 30%; }
+.bauhly-landing .hpost--annotate .vl-pin { top: 45%; left: 37%; }
+.bauhly-landing .hpost--annotate .vl-note .vl-w { gap: 1.6cqw; }
+/* the same panel with no drawing to mark: the picture is the whole card */
+.bauhly-landing .hpost--panel .vl-pin { display: none; }
+.bauhly-landing .hpost--panel .vl-ph img { --ta-zoom: 1; object-position: 50% 62%; }
+
+/* the layout stands on a photograph, so its words default to white. In the panel
+   they are on paper: the panel already colours its body this way (`.vl-note`), and
+   nothing in the library had put a headline there before. */
+.bauhly-landing .hpost--annotate .vl-note .vl-w__h { color: var(--t-ground-fg); font-size: 5.8cqw; }
+
+/* ── BAUHLY'S OWN CARDS ──────────────────────────────────────────────────────
+   One placement for the mark: `.hpost__logo`, bottom left, on the card's margin.
+   The words stand clear of it, and hold the card's optical centre. The statement that
+   grows up from the foot takes the mark at its head instead, the same distance in.
+   THESE HAVE NO PICTURE, so the type is the composition: large, on a strong ground, with
+   each card using its space differently, so a text card reads as designed and not as a
+   card waiting for an image. */
+.bauhly-landing .hpost--logo .vl-a { padding: var(--hp-m) var(--hp-m) 19%; }
+.bauhly-landing .hpost--statement .vl-a,
+.bauhly-landing .hpost--split-type .vl-a { justify-content: flex-start; padding-top: var(--hp-m); }
+.bauhly-landing .hpost--statement .vl-a .vl-w { gap: 4.4cqw; }
+.bauhly-landing .hpost--split-type .vl-a { gap: 4.4cqw; }
+.bauhly-landing .hpost--statement .vl-a .vl-w__h,
+.bauhly-landing .hpost--split-type .vl-a .vl-w__h { width: 100%; font-size: 12.4cqw; line-height: 1; letter-spacing: -0.03em; }
+.bauhly-landing .hpost--split-type .vl-a .vl-w__h { font-size: 14cqw; }
+.bauhly-landing .hpost--statement .vl-a .vl-w__b,
+.bauhly-landing .hpost--split-type .vl-a .vl-w__b { width: 100%; font-size: 5.2cqw; line-height: 1.36; color: var(--a-fg); text-align: left; }
+.bauhly-landing .hpost--split-type .vl-a .vl-w__b { font-size: 6.4cqw; line-height: 1.25; }
+.bauhly-landing .hpost--hook-sub .vl-a { padding: 20% var(--hp-m) var(--hp-m); gap: 4.4cqw; }
+.bauhly-landing .hpost--hook-sub .vl-a .vl-w__h { font-size: 12.4cqw; line-height: 1; letter-spacing: -0.03em; }
+.bauhly-landing .hpost--hook-sub .vl-a .vl-w__b { width: 100%; font-size: 5.2cqw; line-height: 1.36; color: var(--a-fg); }
+.bauhly-landing .hpost--hook-sub .hpost__logo { top: var(--hp-m); bottom: auto; }
+/* headline holds the top and the answer stands at the foot, over the mark */
+.bauhly-landing .hpost--corner .vl-a .vl-w__h { max-width: 100%; font-size: 13.4cqw; line-height: 1; letter-spacing: -0.03em; }
+.bauhly-landing .hpost--corner .vl-a .vl-w__b { align-self: stretch; width: 100%; font-size: 5.6cqw; line-height: 1.36; text-align: left; color: var(--a-fg); }
+/* centred on both axes, with the mark on the same centre line */
+.bauhly-landing .hpost--centered .vl-a { padding: var(--hp-m) var(--hp-m) 19%; }
+.bauhly-landing .hpost--centered .vl-a .vl-w__h { font-size: 11.6cqw; line-height: 1.04; letter-spacing: -0.03em; }
+.bauhly-landing .hpost--centered .hpost__logo { left: 0; right: 0; text-align: center; }
+
+/* off balance, opened to the full width: the corner of bare ground beside the picture
+   read as a gap. The photograph is tall and has feet at its top and foot, so the frame
+   is the shape of the one clean band between them (MEASURED on the file: 37% of its
+   height) and the crop is that band: the seam where the new boards stop. */
+.bauhly-landing .hpost--asym .vl-a .vl-ph { width: 100%; height: 52.8%; }
+.bauhly-landing .hpost--asym .vl-ph img { object-position: 50% 61%; }
+.bauhly-landing .hpost--asym .vl-a .vl-w { left: var(--hp-m); right: var(--hp-m); bottom: var(--hp-m); align-items: flex-start; text-align: left; }
+.bauhly-landing .hpost--asym .vl-a .vl-w__h { font-size: 7.4cqw; }
+
+/* a plate with margins: equal on three sides, the words a clean step below */
+.bauhly-landing .hpost--frame .vl-a { padding: 6.5cqw 6.5cqw var(--hp-m); gap: 4.6cqw; }
+.bauhly-landing .hpost--frame .vl-a .vl-w { padding: 0 2.1cqw; }
+
+/* magazine: the words are one group, headline then note, and the plate takes
+   everything under them. It was two columns, which parted the note from the line
+   it answers; and with the plate on top it was the same card as the framed one. */
+.bauhly-landing .hpost--magazine .vl-a {
+  display: grid;
+  grid-template-columns: 1fr;
+  grid-template-rows: auto auto 1fr;
+  gap: 0;
+  padding: var(--hp-m);
+}
+.bauhly-landing .hpost--magazine .vl-mag { display: contents; }
+.bauhly-landing .hpost--magazine .vl-a .vl-w__h { grid-row: 1; }
+.bauhly-landing .hpost--magazine .vl-a .vl-w__b { grid-row: 2; margin-top: 2.4cqw; }
+.bauhly-landing .hpost--magazine .vl-mag .vl-ph { grid-row: 3; margin-top: 5cqw; min-height: 0; }
+.bauhly-landing .hpost--magazine .vl-mag .vl-ph img { object-position: 32% 58%; }
+
+/* words over the drawing: the picture is the card, and the headline stands in
+   the pale part of the sheet above the brass, on a veil of the card's own ground
+   that lets the drawn lines show through and fall away beneath it */
+.bauhly-landing .hpost--text-first .vl-a { justify-content: flex-start; }
+.bauhly-landing .hpost--text-first .vl-a .vl-ph { position: absolute; inset: 0; width: 100%; height: 100%; }
+.bauhly-landing .hpost--text-first .vl-ph img { object-position: 60% 50%; }
+.bauhly-landing .hpost--text-first .vl-a::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  background: linear-gradient(to bottom, var(--t-ground-bg) 8%, color-mix(in srgb, var(--t-ground-bg) 72%, transparent) 26%, transparent 42%);
+}
+.bauhly-landing .hpost--text-first .vl-a .vl-w { position: relative; z-index: 2; padding: var(--hp-m); }
+.bauhly-landing .hpost--text-first .vl-a .vl-w__h { font-size: 7cqw; }
+
+/* before and after: both halves of ONE picture of one room, framed the same, so
+   the doorway and the window line up from one to the other. That line-up is the
+   whole of the post: it is what "we didn't move a single wall" points at.
+   The picture is twice as wide as a half and has a white seam down its middle,
+   so each side is drawn from its own outer edge. */
+.bauhly-landing .hpost--duo .vl-a { padding: 6.5cqw; gap: 4.6cqw 1.6cqw; }
+.bauhly-landing .hpost--duo .vl-half .vl-ph img { --ta-zoom: 1; object-position: 7% 50%; }
+.bauhly-landing .hpost--duo .vl-half + .vl-half .vl-ph img { object-position: 92% 50%; }
+.bauhly-landing .hpost--duo .vl-a .vl-foot { padding: 0 2.1cqw 2cqw; font-size: inherit; font-weight: inherit; letter-spacing: 0; }
+
+/* the caption bar: the same margin every other card has */
+.bauhly-landing .hpost--caption .vl-a .vl-bar { padding: 5.6cqw var(--hp-m) 6.4cqw; border-top: 0; }
+/* picture above, words below: the crop keeps all three boards */
+.bauhly-landing .hpost--three .vl-ph img { object-position: 50% 62%; }
+/* the drawer of samples is tall, with hands at both ends: this crop starts below the
+   upper pair, and the bar covers the lower */
+.bauhly-landing .hpost--caption .vl-ph img { object-position: 50% 80%; }
+/* words on the left and the picture running off the right edge: tall enough to hold both
+   hands, which is the whole of what the sentence is about */
+.bauhly-landing .hpost--edge .vl-a .vl-w { flex: 0 0 47%; padding: 0 0 0 var(--hp-m); gap: 3cqw; }
+.bauhly-landing .hpost--edge .vl-a .vl-w__h { font-size: 7.2cqw; }
+.bauhly-landing .hpost--edge .vl-a .vl-ph { width: 49%; height: 70%; }
+.bauhly-landing .hpost--edge .vl-ph img { object-position: 50% 42%; }
+
+/* `.h1s.h1s--centre`, twice over, because the hero's older rule for this width
+   sets `min-height: 0` later in this file at the same weight — MEASURED: the
+   panel ended short of the window and the next section showed behind the field */
+@media (max-width: 900px) {
+  .bauhly-landing .h1s.h1s--centre {
+    /* the second limit is width: two cards pass side by side at 0.93 of their
+       size when they swap, and a card is 0.8 as wide as it is tall, so a height
+       over (panel - 4px) / 2 / 0.93 / 0.8 would make them cross on top of each
+       other. MEASURED at 320: 50 px of overlap at the swap without it. */
+    --post-h: min(clamp(232px, calc(100svh - 588px), 340px), calc((100vw - 2 * var(--frame) - 4px) * 0.67));
+    --hero-room: 118px;
+    min-height: calc(100svh - 2 * var(--frame));
+    padding-bottom: var(--hero-room);
+  }
+  /* the stack has no wave to leave room for, so it sits nearer the words and
+     further from the field */
+  .bauhly-landing .hcar {
+    min-height: calc(var(--post-h) * 1.02);
+    margin-top: 0;
+  }
+  .bauhly-landing .hcar::before,
+  .bauhly-landing .hcar::after { display: none; }
+}
+
+/* a phone has the pill and never the field (HeroCapture.jsx), so the panel keeps
+   what the pill takes (its 22px anchor, 56px, and 16px of air) and hands the rest
+   of the field's height back to the stack's spacing */
+@media (max-width: 640px) {
+  .bauhly-landing .h1s.h1s--centre {
+    --hero-room: calc(22px + 56px + 16px);
+    --post-h: min(clamp(232px, calc(100svh - 560px), 340px), calc((100vw - 2 * var(--frame) - 4px) * 0.67));
+  }
+}
+
+/* ── THE WAY INTO CAPTURE: one element, on one anchor ─────────────────────
+   See components/HeroCapture.jsx. FIXED FROM THE FIRST FRAME: its centre line
+   and its bottom edge are these two declarations and nothing ever moves them.
+   Only its width, height and colour change, in place, and they are read straight
+   off the scroll position (`--hcap-p`), with no transition (Leon, Nov 5). */
+.bauhly-landing .hcap {
+  --hcap-w: min(880px, calc(100vw - 2 * var(--gutter)));
+  position: fixed;
+  left: 50%;
+  /* measured from the lime panel's edge, not the window's: `--frame` is the page's
+     margin round the panel, so this is the same breathing room inside it at every
+     width, in both forms (Leon, Nov 5: "too close to the bottom edge") */
+  bottom: calc(var(--frame) + var(--hero-foot, 28px) + env(safe-area-inset-bottom, 0px));
+  /* `--hcap-dx` is only set on a tablet: see `align` in HeroCapture.jsx */
+  translate: calc(-50% + var(--hcap-dx, 0px) * (1 - var(--hcap-p, 0))) 0;
+  z-index: var(--z-chrome);
+  /* WHO SHOWS WHEN, ALL READ OFF `--hcap-p` (Leon, Nov 5: "as the buttons move in make them
+     fade"). In CSS and not written by the script, so one number decides everything: the
+     script and the styles cannot disagree (a tab holding the previous script drew the ink
+     ground with every button still solid on it). The discs fade as they travel, and the pill's
+     marks come up on the same spots while they finish, so the bar is never empty, its label
+     last. `--hcap-edge` brings in the pill's deeper shadow. */
+  --hcap-text: clamp(0, calc(1 - (var(--hcap-p, 0) - 0.04) / 0.22), 1);
+  --hcap-disc: clamp(0, calc(1 - (var(--hcap-p, 0) - 0.14) / 0.34), 1);
+  --hcap-edge: clamp(0, calc((var(--hcap-p, 0) - 0.42) / 0.12), 1);
+  --hcap-mark: clamp(0, calc((var(--hcap-p, 0) - 0.36) / 0.22), 1);
+  --hcap-label: clamp(0, calc((var(--hcap-p, 0) - 0.62) / 0.22), 1);
+  /* how far each side has come in, which is what the parts inside travel by */
+  --hcap-in: calc((var(--hcap-w) - 244px) * var(--hcap-p, 0) / 2);
+  /* field to pill: 244 by 56 and a 28 corner are the pill's own measure */
+  width: calc(var(--hcap-w) + (244px - var(--hcap-w)) * var(--hcap-p, 0));
+  height: calc(var(--hcap-h, 62px) + (56px - var(--hcap-h, 62px)) * var(--hcap-p, 0));
+  overflow: hidden;
+  border-radius: calc(var(--hcap-r, 31px) + (28px - var(--hcap-r, 31px)) * var(--hcap-p, 0));
+  /* LIGHT IN BOTH FORMS (Leon, Nov 5: "Keep the Start capturing button in a light theme").
+     White for the reason `.obc--hero` gives */
+  background: #fff;
+  color: var(--ink);
+  /* `--shadow-bar`, then the pill's deeper shadow. Written out, because a shadow token cannot be
+     faded. No line round the pill (Leon, Nov 6): the shadow holds it on this page's white sections */
+  box-shadow:
+    0 10px 28px -12px rgb(20 20 25 / 0.55),
+    0 16px 36px rgba(0, 0, 0, calc(var(--hcap-edge, 0) * 0.14));
+  cursor: pointer;
+  animation: hcap-in var(--dur-slow) var(--ease-out) 260ms backwards;
+  /* only stepping aside for Capture. Nothing the scroll draws may have a transition */
+  transition: opacity var(--dur-fast) linear;
+}
+
+@keyframes hcap-in {
+  from { opacity: 0; }
+}
+
+.bauhly-landing .hcap.is-covered {
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* above Capture's box, whose `.capm` is 200: the literal is that one's, and it has no token */
+.bauhly-landing .hcap.is-lifted {
+  z-index: 201;
+  pointer-events: none;
+  /* half the box's opening on its curve, not a quick linear step (Leon, Nov 5: "the fade-out
+     at the end feels too sharp"). `FADE_MS` in HeroCapture.jsx */
+  transition: opacity 300ms var(--ease-inout);
+}
+
+/* Locking the page for Capture takes the scrollbar away, and everything centred on the window
+   moved 5px in the frame of the press, this field included (MEASURED at 1280). `--hcap-sb` is
+   that scrollbar's width, written by `raise`, so the page and this field stay where they were.
+   One selector for both, so they let go together. `scrollbar-gutter: stable` was tried first:
+   MEASURED, it computes and then holds nothing once the root is `overflow: hidden`.
+   Zero where scrollbars float over the page. */
+html:has(.cap-overlay--landing) {
+  padding-right: var(--hcap-sb, 0px);
+  /* the page stands still behind the box */
+  overflow: hidden;
+}
+
+html:has(.cap-overlay--landing) .bauhly-landing .hcap {
+  translate: calc(-50% - var(--hcap-sb, 0px) / 2 + var(--hcap-dx, 0px) * (1 - var(--hcap-p, 0))) 0;
+}
+
+/* the page ends above the button rather than behind it: fixed over the last
+   line of the footer, it covered that line (MEASURED at 1280) with no scroll
+   left to move it out of the way */
+.bauhly-landing main {
+  padding-bottom: calc(var(--frame) + 100px + env(safe-area-inset-bottom, 0px));
+}
+
+/* the composer keeps its full width whatever the box is doing, standing on the
+   box's bottom edge, so the box crops it rather than squeezing it: a composer
+   decides for itself whether its placeholder fits on a row, and squeezed into a
+   button it decides that it does not (MEASURED: two rows, and it stayed there) */
+.bauhly-landing .hcap__field {
+  position: absolute;
+  left: 50%;
+  bottom: 0;
+  width: var(--hcap-w);
+  /* down by half of what the box has lost in height, so the bar's row stays on its middle */
+  translate: -50% calc((var(--hcap-h, 62px) - 56px) * var(--hcap-p, 0) / 2);
+}
+
+/* THE PARTS COME IN WITH THE EDGES (Leon, Nov 5: "smoothly reposition toward the center").
+   The bar keeps its full width, so the composer does not re-measure itself, and each part
+   is moved inward by exactly as far as its side of the box has come. So its distance from
+   that edge never changes and the box can never slice it. No transition on any of this.
+   The bar's own ground and lift are off here because `.hcap` already paints the same two
+   behind it, and that one takes the pill's hairline. */
+.bauhly-landing .hcap__field .obc {
+  background: none;
+  box-shadow: none;
+}
+
+.bauhly-landing .hcap__field .obc__input,
+.bauhly-landing .hcap__field .obc__send {
+  transition-property: background-color, color;
+}
+
+.bauhly-landing .hcap__field .obc__input,
+.bauhly-landing .hcap__field .obc__input:focus {
+  /* no plus before it, so the sentence is the first thing in the bar: at the composer's own
+     2px it started 11px from the round end, MEASURED, too tight for that curve */
+  padding-left: var(--sp-4);
+}
+
+.bauhly-landing .hcap__field .obc__input {
+  translate: var(--hcap-in) 0;
+  opacity: var(--hcap-text, 1);
+}
+
+/* this arrives on the pill's own mark, the 2px being how far that sits from where this
+   does, and the send disc closing up to the pill's 40 from its 44 */
+.bauhly-landing .hcap__field .obc__send {
+  translate: calc(var(--hcap-in) * -1 + 2px * var(--hcap-p, 0)) 0;
+  scale: calc(1 - 0.0909 * var(--hcap-p, 0));
+  opacity: var(--hcap-disc, 1);
+}
+
+/* a finished example fades and the next one types in. The transition is only in
+   this rule, so the empty field snaps back up in the frame the sentence is cleared
+   (`useTypedPlaceholder`, whose `FADE_MS` is this duration) */
+.bauhly-landing .hcap.is-fading .obc__input::placeholder {
+  opacity: 0;
+  transition: opacity var(--dur-base) var(--ease-out);
+}
+
+/* the whole bar is the press, so the composer's own controls do not show a
+   second cursor inside it */
+.bauhly-landing .hcap__field .obc,
+.bauhly-landing .hcap__field .obc * {
+  cursor: pointer;
+}
+
+/* the compact form. Its measures are in `.hcap`, read off the scroll. This class only says
+   which of the two takes the press. */
+.bauhly-landing .hcap--pill .hcap__field {
+  pointer-events: none;
+}
+
+.bauhly-landing .hcap__pill {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 8px 0 20px;
+  color: inherit;
+  font-family: var(--font-ui);
+  font-weight: 600;
+  font-size: 16px;
+  white-space: nowrap;
+  cursor: pointer;
+  pointer-events: none;
+}
+
+.bauhly-landing .hcap--pill .hcap__pill {
+  pointer-events: auto;
+}
+
+.bauhly-landing .hcap__pill:focus-visible {
+  outline-offset: -4px;
+  border-radius: 28px;
+}
+
+/* the composer's listening wave, held to the width of a mark. `display` is
+   restated because the composer hides its wave under 420px, where its own
+   bar has no room for one — MEASURED, the button had no mark on a phone.
+   This is a button, and it has the room. */
+.bauhly-landing .hcap__wave {
+  display: flex;
+  flex: 0 0 auto;
+  width: 30px;
+  opacity: var(--hcap-mark, 0);
+}
+
+/* ink, not the composer's lime: its wave stands on the bar's ink when listening, and lime on
+   this white is too faint to read */
+.bauhly-landing .hcap__wave > i {
+  background: var(--ink);
+}
+
+.bauhly-landing .hcap__say {
+  flex: 1 1 auto;
+  text-align: left;
+  opacity: var(--hcap-label, 0);
+}
+
+.bauhly-landing .hcap__go {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  /* the same disc as the composer's send, which stands on this spot in the field */
+  background: var(--ink);
+  color: #fff;
+  opacity: var(--hcap-mark, 0);
+}
+
+@media (max-width: 640px) {
+  .bauhly-landing .hcap {
+    bottom: calc(var(--frame) + 22px + env(safe-area-inset-bottom, 0px));
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bauhly-landing .hcap {
+    animation: none;
+  }
 }
 
 /* hero — continuous vertical marquee, full-bleed: fills the hero's own
@@ -1670,6 +2477,15 @@
   .bauhly-landing .intel-inputs {
     grid-template-columns: 1fr;
   }
+}
+
+/* ── THE SAME PAIR OF CARDS, UNDER THE PLANNER (landing audit, S5) ────────
+   `.intel-inputs` was centred by `.intel-flow`, a flex column it no longer
+   sits in. This is the whole of what the move needs: the same gap above that
+   `.intel-flow` kept, and centring of its own. Everything else about the grid
+   and the cards is theirs, unchanged. */
+.bauhly-landing .plan-notes {
+  margin: clamp(40px, 5vw, 64px) auto 0;
 }
 
 /* ============ block 9 — memory ============ */
@@ -3216,23 +4032,6 @@
     grid-template-columns: 1fr;
   }
 
-  .bauhly-landing .nav-links,
-  .bauhly-landing .nav-actions {
-    display: none;
-  }
-
-  .bauhly-landing .nav {
-    gap: 10px;
-    padding-left: 16px;
-  }
-
-  .bauhly-landing .nav-language {
-    margin-left: auto;
-  }
-
-  .bauhly-landing .nav-burger {
-    display: flex;
-  }
 
   .bauhly-landing .h1s {
     min-height: 0;
@@ -3364,4 +4163,78 @@
   .bauhly-landing .b2-day-why {
     display: none;
   }
+}
+
+/* ── THE HERO'S BAR (live app) ──────────────────────────────────────────────
+   bauhly-v3 draws the hero field with its onboarding composer (`OnbComposer`,
+   tone `obc--hero`); the live app has no such composer, so `HeroCapture` draws
+   the same shape — the sentence and the send disc — and these are the
+   composer's own measures for it: a 60px white pill, an 8px inset, a 44px ink
+   disc. The `.hcap__field` rules above move and fade the parts as the field
+   shrinks into the pill. */
+.bauhly-landing .hcap .obc {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 60px;
+  padding: 8px;
+  border-radius: 999px;
+  background: #fff;
+}
+.bauhly-landing .hcap .obc__input {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 44px;
+  margin: 0;
+  padding: 0 var(--sp-4, 16px);
+  border: 0;
+  outline: none;
+  background: transparent;
+  font-family: var(--font-ui, 'Inter', system-ui, sans-serif);
+  font-size: 16px;
+  line-height: 1.4;
+  color: var(--ink);
+  text-overflow: ellipsis;
+}
+.bauhly-landing .hcap .obc__input::placeholder {
+  color: color-mix(in srgb, var(--ink) 52%, transparent);
+  opacity: 1;
+}
+.bauhly-landing .hcap .obc__send {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: var(--ink);
+  color: #fff;
+}
+.bauhly-landing .hcap .obc__send > svg { width: 21px; height: 21px; }
+/* the pill's mark: six bars on one keyframe, a step apart, so a wave passes through */
+.bauhly-landing .obc__listen-wave {
+  align-items: center;
+  gap: 3px;
+  height: 22px;
+  overflow: hidden;
+}
+.bauhly-landing .obc__listen-wave > i {
+  display: block;
+  flex: 1 1 auto;
+  min-width: 2px;
+  max-width: 4px;
+  height: 4px;
+  border-radius: 999px;
+  transform-origin: center;
+  animation: hcap-hear 1100ms ease-in-out infinite;
+  animation-delay: calc(var(--i) * 70ms);
+}
+@keyframes hcap-hear {
+  0%, 100% { transform: scaleY(1); opacity: 0.55; }
+  50% { transform: scaleY(4); opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .bauhly-landing .obc__listen-wave > i { animation: none; opacity: 0.8; }
 }

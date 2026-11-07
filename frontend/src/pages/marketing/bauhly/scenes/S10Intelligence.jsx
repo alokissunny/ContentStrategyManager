@@ -48,11 +48,11 @@ export default function S10Intelligence() {
           Step 03, up close
         </motion.span>
         <motion.h2 className="block-title" {...popDelayed(0.06)}>
-          We did the homework. 300 studios of it.
+          Strategy, not guesswork.
         </motion.h2>
         <motion.p className="block-sub" {...popDelayed(0.12)}>
-          Strategy, not guesswork. We learn what earns trust across the industry — and what
-          your audience cares about right now — then match it to your work.
+          We learn what earns trust across the industry — and what your audience cares
+          about right now — then match it to your work.
         </motion.p>
 
         <div className="intel-flow">
@@ -60,8 +60,11 @@ export default function S10Intelligence() {
             <motion.div className="intel-card intel-market" {...settle(-1.2)}>
               <span className="intel-pin" aria-hidden="true" />
               <span className="intel-card-tag">The market</span>
-              <span className="intel-number">300+</span>
-              <span className="intel-card-label">interior design studios analyzed</span>
+              {/* WHAT USED TO BE HERE: `300+` over `interior design studios
+                  analysed`, and a headline that said `300 studios of it` (Leon,
+                  Nov 5 — landing audit, D5: "not true or approved"). The
+                  headline is the sub-line's own first sentence, moved up, so
+                  no new claim was written to fill the gap. */}
               <div className="intel-mosaic" aria-hidden="true">
                 {Array.from({ length: 24 }).map((_, i) => (
                   <span key={i} className={`intel-tile ${HIGHLIGHT.includes(i) ? 'on' : ''}`}>
@@ -115,8 +118,8 @@ export default function S10Intelligence() {
             <span className="intel-out-tag">A post with a reason</span>
             <span className="intel-out-when">Fri · 12:30 · Carousel</span>
             <p className="intel-out-why">
-              Homeowners are asking this exact question right now — and it&rsquo;s one only you
-              can answer well. Timely, and unmistakably yours.
+              A question homeowners ask — and one only you can answer well. Unmistakably
+              yours.
             </p>
           </motion.div>
         </div>

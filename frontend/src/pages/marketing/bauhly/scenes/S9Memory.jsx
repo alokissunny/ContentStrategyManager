@@ -1,18 +1,20 @@
 import { motion } from 'motion/react'
 import { pop, popDelayed, slide } from '../lib/motion.js'
 
+/* `The post that brought two inquiries` used to be the fourth of these, and
+   Wednesday's line used to end `small spaces are trending again` — a result
+   and a trend, neither of them known (Leon, Nov 5 — landing audit, E1). */
 const memories = [
   'The loft you finished in March',
   'That idea you noted and forgot',
   'Your Brand DNA and your voice',
-  'The post that brought two inquiries',
   'Last month’s plan — what worked',
   'What clients ask right now',
 ]
 
 const output = [
   ['Mon', 'The loft, revisited: one decision'],
-  ['Wed', 'The 2024 hallway, back — small spaces are trending again'],
+  ['Wed', 'The 2024 hallway, revisited'],
   ['Fri', 'The question everyone asks, answered'],
 ]
 

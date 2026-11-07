@@ -1,5 +1,6 @@
 import { motion } from 'motion/react'
 import { pop, popDelayed } from '../lib/motion.js'
+import { useLang } from '../lib/lang.js'
 
 /* transform-only settle on scroll-in — no opacity, so nothing fades;
    cards drop a touch and rotate into a slightly pinned resting angle */
@@ -87,28 +88,49 @@ const vignettes = [
   { Glyph: GlyphHours, rest: -1, cap: 'Marketing hours, quietly stolen from the design hours.' },
 ]
 
+const ES = {
+  title: 'El trabajo es precioso. El feed no lo muestra.',
+  caps: [
+    'Domingo por la noche. Repasando tu propia galería. Sigues sin tener nada que publicar.',
+    'El proyecto quedó espectacular. El feed apenas lo notó.',
+    'Horas de marketing, robadas en silencio a las horas de diseño.',
+  ],
+  pivot: 'Las historias ya están en el trabajo que haces.',
+}
+
 export default function S1bProblem() {
+  const [lang] = useLang()
+  const es = lang === 'es'
   return (
     <section className="block b1b" id="problem">
       <div className="container">
         <motion.h2 className="block-title b1b-title" {...pop}>
-          The work is beautiful. The feed doesn&rsquo;t show it.
+          {es ? ES.title : <>The work is beautiful. The feed doesn&rsquo;t show it.</>}
         </motion.h2>
 
         <div className="b1b-cards">
           {vignettes.map(({ Glyph, rest, cap }, i) => (
-            <motion.article key={cap} className="pv-card" {...settle(i, rest)}>
+            <motion.article key={i} className="pv-card" {...settle(i, rest)}>
               <div className="pv-illo">
                 <span className="pv-ring" />
                 <Glyph />
               </div>
-              <p className="pv-cap">{cap}</p>
+              <p className="pv-cap">{es ? ES.caps[i] : cap}</p>
             </motion.article>
           ))}
         </div>
 
+        {/* ── WHAT THIS LINE LEADS INTO HAS CHANGED (landing audit, S1) ──
+            It read `Then Monday morning, your week of posts arrives.` and
+            the planner was the next thing on the page. The result is next
+            now (`Found. Trusted. Hired.`), so a line announcing the plan
+            pointed at a section three screens further down.
+            The words are built from Leon's own (Nov 5, D1): "make your
+            expertise visible through the work you're already doing". It
+            promises nothing about the product — it only says where the
+            material is. Approved by Leon the same day. */}
         <motion.p className="b1b-pivot" {...popDelayed(0.24)}>
-          Then Monday morning, your week of posts arrives.
+          {es ? ES.pivot : <>The stories are already in the work you&rsquo;re doing.</>}
         </motion.p>
       </div>
     </section>
