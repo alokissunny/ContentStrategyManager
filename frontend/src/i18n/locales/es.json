@@ -2081,10 +2081,8 @@
   "It's in your library — the next plan is written from it.": "Ya está en tu biblioteca; el próximo plan se escribirá a partir de ello.",
   "It's in your library — building your plan now.": "Ya está en tu biblioteca; estoy creando tu plan.",
   "It's in your library — writing the new slide now.": "Ya está en tu biblioteca; estoy escribiendo la nueva diapositiva.",
-  "I'm listening — take your time. Press Add a photo if there is something to show while you talk.": "Te escucho, tómate tu tiempo. Pulsa Añadir una foto si hay algo que mostrar mientras hablas.",
   "I'm listening — take your time.": "Te escucho, tómate tu tiempo.",
   "Anything from {{name}}? Something that happened, an idea, something you noticed, or anything else that feels relevant.": "¿Algo de {{name}}? Algo que pasó, una idea, algo que notaste o cualquier otra cosa que te parezca relevante.",
-  "What would you like to capture today? Maybe something that happened at work, an idea, or something you noticed.": "¿Qué te gustaría capturar hoy? Quizá algo que pasó en el trabajo, una idea o algo que notaste.",
   "What would you like to add or change?": "¿Qué te gustaría añadir o cambiar?",
   "What are these, and what should I do with them?": "¿Qué son estos archivos y qué hago con ellos?",
   "What is this one — and what should I do with it?": "¿Qué es esto y qué hago con ello?",
@@ -2173,5 +2171,9 @@
   "— the questions are still open.": ": las preguntas siguen abiertas.",
   "Notify me when it’s ready": "Avísame cuando esté listo",
   "We’ll notify you when it’s ready — feel free to leave.": "Te avisaremos cuando esté listo — puedes salir.",
-  "Notifications are blocked — allow them in your settings to hear when it’s ready.": "Las notificaciones están bloqueadas — actívalas en tus ajustes para saber cuándo esté listo."
+  "Notifications are blocked — allow them in your settings to hear when it’s ready.": "Las notificaciones están bloqueadas — actívalas en tus ajustes para saber cuándo esté listo.",
+  "I'm listening — take your time. Press Pause to add file if there is something to show.": "Te escucho, tómate tu tiempo. Pulsa Pausar para añadir archivo si hay algo que mostrar.",
+  "Pause to add file": "Pausar para añadir archivo",
+  "Holds the take while you choose": "Pausa la grabación mientras eliges",
+  "Tell me something recent from the studio. A project you're on, one you've just finished, a decision you made, or something a client said.": "Cuéntame algo reciente del estudio. Un proyecto en el que estás, uno que acabas de terminar, una decisión que tomaste o algo que dijo un cliente."
 }

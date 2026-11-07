@@ -1111,7 +1111,33 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
   const preset = projects.find((p) => p.id === presetProjectId);
   const resumed = useRef(false);
 
-  useEffect(() => { endRef.current?.scrollIntoView({ block: 'end' }); }, [messages, typing, step]);
+  /* ── THE QUESTION IS WHAT HAS TO BE ON SCREEN (bauhly-v3, Oct 6) ─────────
+     Scrolling to the very end used to push Bauhly's question out of view above
+     its own evidence — the "From your capture" card and the Save / Skip row
+     under a clarification are taller than what is left of the box. So the
+     thread goes to its end, but never past the top of the latest question;
+     what does not fit below it stays a scroll away, the question does not. */
+  useLayoutEffect(() => {
+    const el = threadRef.current;
+    if (!modal || !el || el.scrollHeight <= el.clientHeight + 1) {
+      endRef.current?.scrollIntoView({ block: 'end' });
+      return undefined;
+    }
+    const place = () => {
+      const end = el.scrollHeight - el.clientHeight;
+      const asked = [...el.querySelectorAll('.ck-turn--bauhly')]
+        .filter((n) => !n.classList.contains('ck-turn--actions') && n.innerText.trim())
+        .pop();
+      const top = asked
+        ? asked.getBoundingClientRect().top - el.getBoundingClientRect().top + el.scrollTop - 16
+        : end;
+      el.scrollTop = Math.max(0, Math.min(end, top));
+    };
+    place();
+    // and again once a late part (a picture, the reference card) has its height
+    const t = setTimeout(place, 80);
+    return () => clearTimeout(t);
+  }, [messages, typing, step, optionsReady, busy, modal]);
 
   /* capture owns the screen while it runs — same as onboarding */
   useEffect(() => {
@@ -1192,7 +1218,7 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
       // StrictMode runs this twice in dev: the line is pushed once
       if (!resumed.current) {
         resumed.current = true;
-        push({ from: 'bauhly', text: translate('What would you like to capture today? Maybe something that happened at work, an idea, or something you noticed.'), opener: true });
+        push({ from: 'bauhly', text: translate('Tell me something recent from the studio. A project you\'re on, one you\'ve just finished, a decision you made, or something a client said.'), opener: true });
       }
       after(0, () => setStep('how'));
       return;
@@ -1200,7 +1226,7 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
     // `opening` aims the capture at one question (Editor › Add slide)
     const d = say(opening || (preset
       ? translate('Anything from {{name}}? Something that happened, an idea, something you noticed, or anything else that feels relevant.', { name: preset.name })
-      : 'What would you like to capture today? Maybe something that happened at work, an idea, or something you noticed.'));
+      : 'Tell me something recent from the studio. A project you\'re on, one you\'ve just finished, a decision you made, or something a client said.'));
     after(d, () => setStep('how'));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -1312,7 +1338,7 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
     recordingReturn.current = 'writing';
     autoDraft.current = '';
     setPolishing(false);
-    say(modal ? "I'm listening — take your time. Press Add a photo if there is something to show while you talk." : "I'm listening — take your time.");
+    say(modal ? "I'm listening — take your time. Press Pause to add file if there is something to show." : "I'm listening — take your time.");
     rec.reset();
     rec.start();
     setStep('recording');
@@ -1324,7 +1350,7 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
     recordingReturn.current = 'clarify';
     autoDraft.current = '';
     setPolishing(false);
-    say(modal ? "I'm listening — take your time. Press Add a photo if there is something to show while you talk." : "I'm listening — take your time.");
+    say(modal ? "I'm listening — take your time. Press Pause to add file if there is something to show." : "I'm listening — take your time.");
     rec.reset();
     rec.start();
     setStep('recording');
@@ -2518,8 +2544,9 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
               <span className="capc__listen-wave" aria-hidden="true">
                 {Array.from({ length: 14 }, (_, i) => <i key={i} style={{ '--i': i }} />)}
               </span>
-              <label className="capc__hearadd" title="Add a photo or file while you talk" onPointerDown={hearHold}>
-                <span>Add a photo</span>
+              {/* it names what happens to the RECORDING, not just what it opens (bauhly-v3 Oct 6) */}
+              <label className="capc__hearadd" title="Holds the take while you choose" onPointerDown={hearHold}>
+                <span>Pause to add file</span>
                 <input
                   type="file"
                   accept="image/*,video/*"
