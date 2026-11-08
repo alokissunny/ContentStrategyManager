@@ -561,6 +561,20 @@ const SLIDE_ROLES = {
 
 // Add elements flyout — structure types a slide can take on. `cats` is the
 // Visual Library categories that can carry the element; null means every role.
+/* The Editor's toolbar under the post (bauhly-v3 PostEditor POST_TOOLS,
+   Nov 1–4: "Layout → Colors → Theme → Slide Options → More", then the wand
+   back in front, Theme moved off it, and Add element given its own disc).
+   `says` is the caption over the row while that tool is open. */
+const ED_TOOLS = [
+  { id: 'ask', icon: 'wand', label: 'Ask', says: 'Ask Bauhly', stroke: 1.8 },
+  { id: 'layout', icon: 'blocks', label: 'Layout', says: 'Layout style' },
+  { id: 'colour', icon: 'droplet', label: 'Colours', says: 'Colours' },
+  { id: 'add', icon: 'plus', label: 'Add element', says: 'Add element' },
+  { id: 'more', icon: 'more', label: 'More', says: 'More' },
+];
+// the EditorMore level each menu disc opens (More is the root)
+const ED_TOOL_LEVEL = { layout: 'layout', colour: 'colour', add: 'add', more: null };
+
 const ADD_ELEMENTS = [
   {
     id: 'title',
@@ -3502,6 +3516,10 @@ export default function WeekView({
   // Opened by ⋯ › Add elements and by the AI mark on the slide.
   const [askOpen, setAskOpen] = useState(false);
   const [askFocus, setAskFocus] = useState(false);
+  // the toolbar under the post (bauhly-v3 POST_TOOLS, Nov 1–4): which of its
+  // menu discs is open — 'layout' | 'colour' | 'add' | 'more' — or null. The
+  // wand is not a menu; it raises the ask field (`askOpen`).
+  const [edTool, setEdTool] = useState(null);
   // Slide › Add before/after: { at, error? } while the Add Slide agent writes
   const [slideAdding, setSlideAdding] = useState(null);
   const [askDraft, setAskDraft] = useState('');
@@ -4212,10 +4230,12 @@ export default function WeekView({
     setSchedMenu(false);
     setPostEdit(true);
     rememberEditing(day?._id);
-    // the chat is part of the Editor (bauhly-v3 `asking` starts true): open on
-    // This post, and a selection re-aims it
+    // the ask field waits for the toolbar's wand (bauhly-v3, Nov 3: "the
+    // wand's level is a field that still has to be pressed"); a selection
+    // still raises it, aimed at what is selected
     setAskScopeAll(false);
-    setAskOpen(true);
+    setAskOpen(false);
+    setEdTool(null);
   }
 
   // Leaving Editor mode. `keep` is Apply changes: whatever the open editor is
@@ -4938,6 +4958,24 @@ export default function WeekView({
     leavePostEdit(true);
   }
 
+  // A disc on the Editor's toolbar. The press is a toggle: the open disc
+  // (wearing its ×) closes its menu, another disc swaps to its own. The wand
+  // asks about the whole post, so it drops any selection first.
+  function pickEdTool(id) {
+    elemApiRef.current?.deselect();
+    const menuUp = Boolean(edTool) && zone === 'visual';
+    if (id === 'ask') {
+      if (zone) closeZone();
+      setEdTool(null);
+      setAskOpen((v) => (menuUp ? true : !v));
+      return;
+    }
+    if (menuUp && edTool === id) { closeZone(); setEdTool(null); return; }
+    setEdTool(id);
+    if (zone !== 'visual') openZone('visual');
+    else { setVisEdit(null); setMenuPane(null); setImgPick(null); setSlideEditMode(false); }
+  }
+
   function closeZone() {
     setZone(null);
     setVisEdit(null);
@@ -5066,6 +5104,9 @@ export default function WeekView({
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [zone, visEdit, menuPane, askImgs, imgPick, creating, timeDraft, pick, adjustFor, packOpen, schedMenu, postEdit, slideEditMode, elemSel, elemMenu, askOpen, askBusy, editBusy]);
+
+  // the toolbar's disc stands down with the menu it opened
+  useEffect(() => { if (zone !== 'visual' || !postEdit) setEdTool(null); }, [zone, postEdit]);
 
   // Editor mode belongs to one post: a different day (or no day) closes it.
   useEffect(() => { setPostEdit(false); resetElemEdits(); resetAsk(); }, [selected, route?._id]);
@@ -7634,8 +7675,10 @@ export default function WeekView({
               </button>
             </div>
             <EditorMore
-              key={`${selected}-${safeIdx}`}
+              key={`${selected}-${safeIdx}-${edTool || ''}`}
               acts={moreActs}
+              startLevel={edTool ? ED_TOOL_LEVEL[edTool] : null}
+              toolbar={Boolean(edTool)}
               onClose={() => { if (!visEdit) closeZone(); }}
             />
           </div>
@@ -7927,7 +7970,7 @@ export default function WeekView({
           </header>
 
           <div
-            className={`wv-edm__body${compositionEditing || wordsEditing ? ' has-panel' : ''}${askOpen && !visEdit ? ' is-asking' : ''}`}
+            className={`wv-edm__body${compositionEditing || wordsEditing ? ' has-panel' : ''}${askOpen && !visEdit ? ' is-asking' : ''}${!phoneEd && !edCap ? ' has-tools' : ''}`}
             onMouseDown={(e) => {
               if (!elemSel) return;
               if (e.target.closest('.wv-edm__tb, .wv-edm__line, .wv-edm__panel, .wv-edm__card.is-on')) return;
@@ -8004,6 +8047,9 @@ export default function WeekView({
                     )}
                   </span>
                 )}
+                {/* the desktop's ⋯ is the toolbar's More now (below the post);
+                    the phone keeps this one, which opens its sheet */}
+                {phoneEd && (
                 <div className="wv-edm__morewrap">
                   <button
                     type="button"
@@ -8021,8 +8067,8 @@ export default function WeekView({
                   >
                     <Icon name="more" size={18} strokeWidth={2.2} />
                   </button>
-                  {!phoneEd && editMenuEl}
                 </div>
+                )}
                 </div>
               </div>
 
@@ -8213,6 +8259,50 @@ export default function WeekView({
                   ))}
                 </div>
               )}
+
+              {/* the toolbar under the post (bauhly-v3 POST_TOOLS + ToolBar,
+                  Nov 1–4): Ask · Layout · Colours · Add element · More. The
+                  caption names the open tool, or "Refine your post"; each
+                  menu disc opens the ⋯'s own menu at its level, above it. */}
+              {!phoneEd && !edCap && (() => {
+                const menuUp = Boolean(edTool) && zone === 'visual';
+                const onId = menuUp ? edTool : (askOpen && !askSel ? 'ask' : null);
+                const says = ED_TOOLS.find((t) => t.id === onId)?.says;
+                return (
+                  <div className="wv-edm__tools">
+                    <span className="tbar__cap" aria-live="polite">{says || 'Refine your post'}</span>
+                    <div className="tbar" role="group" aria-label="Change this slide">
+                      {ED_TOOLS.map((t) => {
+                        const on = onId === t.id;
+                        return (
+                          <button
+                            key={t.id}
+                            type="button"
+                            className={`btn btn--disc btn--lg tbar__tool${on ? ' is-on' : ''}`}
+                            aria-pressed={on}
+                            aria-label={on ? `Close ${t.label}` : t.label}
+                            title={on ? `Close ${t.label}` : t.label}
+                            data-tool={t.id}
+                            disabled={editBusy && t.id !== 'ask'}
+                            onPointerDown={(e) => e.stopPropagation()}
+                            onClick={(e) => { e.stopPropagation(); pickEdTool(t.id); }}
+                          >
+                            <span className="tbar__glyphs" aria-hidden="true">
+                              <span className={`tbar__glyph${on ? ' is-off' : ''}`}>
+                                <Icon name={t.icon} size={19} strokeWidth={t.stroke ?? 2} />
+                              </span>
+                              <span className={`tbar__glyph${on ? '' : ' is-off'}`}>
+                                <Icon name="x" size={19} strokeWidth={2.2} />
+                              </span>
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                    {editMenuEl}
+                  </div>
+                );
+              })()}
             </section>
 
             {(compositionEditing || wordsEditing) && (

@@ -72,8 +72,20 @@ function FilePick({ inputRef, onFile }) {
   );
 }
 
-export default function EditorMore({ acts, onClose }) {
-  const [level, setLevel] = useState(null);
+/* `startLevel` / `toolbar` (bauhly-v3 Nov 1–4, the Editor's toolbar under the
+   post): each disc opens this menu straight at its own level — Layout,
+   Colours, `add` (the `+`), or the root (More). Opened that way, Back goes
+   where the studio came from rather than up the ⋯'s hierarchy, and the level
+   a disc opened has no Back row at all: the disc, wearing its ×, is the way
+   out. In toolbar mode the root drops what the discs already carry. */
+export default function EditorMore({ acts, onClose, startLevel = null, toolbar = false }) {
+  const [level, setLevelNow] = useState(startLevel);
+  // the levels walked through to get here, for Back in toolbar mode
+  const trail = useRef([]);
+  const setLevel = (next) => {
+    if (toolbar) trail.current.push(level);
+    setLevelNow(next);
+  };
   const n = Math.max(1, acts.slides || 1);
   const many = n > 1;
   // the colour set / background pressed and waiting for its reach
@@ -103,9 +115,22 @@ export default function EditorMore({ acts, onClose }) {
   const [laySaid, setLaySaid] = useState('');
   const layFile = useRef(null);
 
-  const backRow = (label, to = null) => [
-    { id: 'back', icon: 'chevron-left', label, fn: () => setLevel(to), into: true, back: true },
-  ];
+  const backRow = (label, to = null) => {
+    if (!toolbar) return [{ id: 'back', icon: 'chevron-left', label, fn: () => setLevelNow(to), into: true, back: true }];
+    // the level a disc opened: the disc is the way out
+    if (level === startLevel && !trail.current.length) return [];
+    return [{
+      id: 'back',
+      icon: 'chevron-left',
+      label,
+      fn: () => {
+        if (!trail.current.length) { onClose(); return; }
+        setLevelNow(trail.current.pop());
+      },
+      into: true,
+      back: true,
+    }];
+  };
   // the reach pair every "how far" level ends on
   const reach = (put, { one, all }) => [
     { id: 'one', icon: 'brief', label: 'This slide', hint: one, fn: () => put(false) },
@@ -790,15 +815,15 @@ export default function EditorMore({ acts, onClose }) {
           ...backRow('Slide'),
           { id: 'before', icon: 'arrow-left', label: 'Add before', hint: 'A new slide before this one', fn: acts.onAddBefore },
           { id: 'after', icon: 'arrow-right', label: 'Add after', hint: 'A new slide after this one', fn: acts.onAddAfter },
-          ...(many ? [
+          ...(many && !toolbar ? [
             { id: 'r-slide', rule: true },
             { id: 'text', icon: 'sliders', label: 'Copy settings to', fn: () => setLevel('text'), into: true, chevron: true },
           ] : []),
-          ...(acts.onVideoCover ? [
+          ...(acts.onVideoCover && !toolbar ? [
             { id: 'r-cover', rule: true },
             { id: 'cover', icon: 'play', label: acts.coverBusy ? 'Creating cover…' : 'Video cover', hint: 'An animated hook for the first slide', dead: acts.coverBusy, fn: acts.onVideoCover },
           ] : []),
-          ...(many ? [
+          ...(many && !toolbar ? [
             { id: 'r-slidebad', rule: true },
             { id: 'removeslide', icon: 'trash', label: 'Remove slide', hint: 'Takes this frame out of the carousel', fn: acts.onRemoveSlide, bad: true },
           ] : []),
@@ -825,6 +850,25 @@ export default function EditorMore({ acts, onClose }) {
      Landings, not copies: every level they open already existed (bauhly-v3
      PostMenu, Sep 28 "five categories"). Text and Graphic from the reference
      are not wired here yet, so Content holds what is. */
+  /* ── Add element (the toolbar's `+`, bauhly-v3 ADD_ELEMENTS, Nov 1–4) ──
+     Everything a studio puts on this canvas: a picture, the ground, their
+     mark, and — the largest of them — another frame. Each row opens the
+     level that already asks its question. */
+  if (level === 'add') {
+    return (
+      <Rows
+        onClose={onClose}
+        rows={[
+          ...backRow('Add element'),
+          { id: 'image', icon: 'image-plus', label: 'Image', hint: 'A photograph on this slide', fn: () => setLevel('image'), into: true, chevron: true },
+          { id: 'background', icon: 'image', label: 'Background', hint: 'The ground behind it', fn: () => setLevel('background'), into: true, chevron: true },
+          { id: 'logo', icon: 'pin', label: 'Logo', hint: 'Your mark on this slide', fn: () => setLevel('logo'), into: true, chevron: true },
+          { id: 'slide', icon: 'plus', label: 'Add a slide', hint: 'Before or after this one', fn: () => setLevel('slide'), into: true, chevron: true },
+        ]}
+      />
+    );
+  }
+
   if (level === 'content') {
     return (
       <Rows
@@ -846,6 +890,27 @@ export default function EditorMore({ acts, onClose }) {
           { id: 'colours', icon: 'swatch', label: 'Colours', hint: 'The set this slide is drawn in', fn: () => setLevel('colour'), into: true, chevron: true },
           { id: 'background', icon: 'image', label: 'Background', hint: 'The ground behind it', fn: () => setLevel('background'), into: true, chevron: true },
         ]}
+      />
+    );
+  }
+
+  /* ── The toolbar's More (bauhly-v3 MORE_OMIT, Nov 1–4) ─────────────────
+     What the discs do not already carry: the frame's own acts, then the two
+     that take something away under a rule — Reset edits, then Remove slide. */
+  if (toolbar) {
+    const acts2 = [
+      ...(many ? [{ id: 'text', icon: 'sliders', label: 'Copy settings to', hint: 'Take this slide’s settings to others', fn: () => setLevel('text'), into: true, chevron: true }] : []),
+      ...(acts.onVideoCover ? [{ id: 'cover', icon: 'play', label: acts.coverBusy ? 'Creating cover…' : 'Video cover', hint: 'An animated hook for the first slide', dead: acts.coverBusy, fn: acts.onVideoCover }] : []),
+    ];
+    const away = [
+      ...(acts.canReset ? [{ id: 'resetedits', icon: 'undo', label: 'Reset edits', hint: 'Put back what Bauhly made', fn: () => setLevel('reset'), into: true, chevron: true }] : []),
+      ...(many ? [{ id: 'removeslide', icon: 'trash', label: 'Remove slide', hint: 'Takes this frame out of the carousel', fn: acts.onRemoveSlide, bad: true }] : []),
+    ];
+    const rows = [...acts2, ...(acts2.length && away.length ? [{ id: 'r-away', rule: true }] : []), ...away];
+    return (
+      <Rows
+        onClose={onClose}
+        rows={rows.length ? rows : [{ id: 'nothing', icon: 'check', label: 'Nothing else to change here', dead: true, fn: () => {} }]}
       />
     );
   }
