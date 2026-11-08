@@ -82,6 +82,7 @@ import { markPostSeen } from '../lib/seenPosts';
 import { BrandMark } from './visuallibrary/BrandMark';
 import { bakeSlidePatches, replaceSlideArticle, slideArticleOf, nodeAt, stampImageSlots } from './weekview/slideEditMode';
 import { auditSlideLayout, measureSlide, slideCssOf } from './weekview/slideAudit';
+import { useTypedPlaceholder } from '../components/ui/typing';
 import { actionsFor, askHint, askSay, askReady, endOf, trailOf, SLIDE_IDEAS } from '../lib/askactions';
 import { useRecorder, captureSttLanguages } from './checkin/recorder';
 import { rewriteAnnotationText, rewriteLayoutText, rewriteCarouselDocumentText, slotPlain, slideSlotPlain, withSharedLayoutStyles, layoutDirectionOf, themeIdOf, themeDirectionOf, slideIsThemed, optionForTheme, THEME_ORDER, bakeFrozenGeometry, findCarouselSlide, isCarouselDocument, carouselDocumentOf, slideRootOf } from './weekview/layoutHtml';
@@ -100,7 +101,7 @@ import useMediaQuery from '../hooks/useMediaQuery';
 import { useStore, setState as setStoreState, getState as getStoreState } from '../lib/store';
 import { listBackgrounds, uploadBackground, uploadLogo } from '../api/visualBrand';
 import { DEFAULT_BACKGROUNDS } from './visuallibrary/brandkitDefaults';
-import EditorMore from './weekview/EditorMore';
+import EditorMore, { Rows as EditorRows } from './weekview/EditorMore';
 import TextSheet from './weekview/TextSheet';
 import { readSlideTextStyles, styleForRegion } from './weekview/themedTextStyle';
 import { htmlThemeIdOf, imageSlotCount } from '../lib/htmlThemes';
@@ -561,6 +562,19 @@ const SLIDE_ROLES = {
 
 // Add elements flyout — structure types a slide can take on. `cats` is the
 // Visual Library categories that can carry the element; null means every role.
+/* The rows of the ask field's `+` menu, drawn like the ⋯ menu's (`.wv-em`). */
+function PlusRows({ rows, back = null }) {
+  return (
+    <EditorRows
+      onClose={() => {}}
+      rows={[
+        ...(back ? [{ id: 'back', icon: 'chevron-left', label: back.label, fn: back.fn, into: true, back: true }] : []),
+        ...rows.map((r) => ({ ...r, into: true, chevron: true })),
+      ]}
+    />
+  );
+}
+
 /* The Editor's toolbar under the post (bauhly-v3 PostEditor POST_TOOLS,
    Nov 1–4: "Layout → Colors → Theme → Slide Options → More", then the wand
    back in front, Theme moved off it, and Add element given its own disc).
@@ -572,6 +586,33 @@ const ED_TOOLS = [
   { id: 'add', icon: 'plus', label: 'Add element', says: 'Add element' },
   { id: 'more', icon: 'more', label: 'More', says: 'More' },
 ];
+/* The ask field's typed examples (bauhly-v3 PostEditor, Nov 2–3): the field
+   cycles them while nobody is writing. Which list depends on what was just
+   brought to it from its `+` — a picture, a ground, or a look to follow. */
+const POST_ASKS = [
+  'Improve the element layout…',
+  'Give the elements more breathing room…',
+  'Add more spacing between the elements…',
+  'Reduce the overall text size…',
+  'Keep the text in a specific position…',
+  'Fix readability and layout…',
+];
+const SHOT_ASKS = [
+  'Add the image full bleed…',
+  'Add the image to the current layout…',
+  'Add the image with some space around it…',
+];
+const GROUND_ASKS = [
+  'Make the elements work together with this background…',
+  'Adjust the composition to fit this background…',
+];
+const THEME_ASKS = [
+  'Use the decorative elements from this reference…',
+  'Match the spacing and overall look and feel…',
+  'Use the same text size, distribution and positioning…',
+];
+const ATTACH_ASKS = { image: SHOT_ASKS, background: GROUND_ASKS, theme: THEME_ASKS };
+
 // the EditorMore level each menu disc opens (More is the root)
 const ED_TOOL_LEVEL = { layout: 'layout', colour: 'colour', add: 'add', more: null };
 
@@ -3520,6 +3561,14 @@ export default function WeekView({
   // menu discs is open — 'layout' | 'colour' | 'add' | 'more' — or null. The
   // wand is not a menu; it raises the ask field (`askOpen`).
   const [edTool, setEdTool] = useState(null);
+  // the ask field's own `+` (bauhly-v3 `plusMenu`): null | 'root' | 'image'
+  // | an EditorMore level ('background' | 'theme') opened from it
+  const [askPlus, setAskPlus] = useState(null);
+  // what was last brought to the field from its `+` — picks the typed examples
+  const [askAttach, setAskAttach] = useState('');
+  // the picture the `+` brought: held in the field until Send, then placed
+  // by the Slide Edit agent where the studio's sentence says — { key, url, name }
+  const [askPic, setAskPic] = useState(null);
   // Slide › Add before/after: { at, error? } while the Add Slide agent writes
   const [slideAdding, setSlideAdding] = useState(null);
   const [askDraft, setAskDraft] = useState('');
@@ -3540,6 +3589,7 @@ export default function WeekView({
   const askRec = useRecorder();
   const [askHearing, setAskHearing] = useState(false); // transcribing a take
   const askUploadRef = useRef(null);
+  const askPicFileRef = useRef(null);
   const askRefRef = useRef(null);
   const [askBusy, setAskBusy] = useState(false);
   const [askMsg, setAskMsg] = useState(null); // { text, tone: 'ok'|'err' }
@@ -4600,6 +4650,27 @@ export default function WeekView({
     askInputRef.current?.focus();
   }
 
+  // The field's `+` › Upload: the picture is uploaded and HELD in the field
+  // (bauhly-v3: "it should add the selection to chat"), not put on the slide.
+  async function askAttachUpload(file) {
+    if (!file || !file.type?.startsWith('image/')) return;
+    setUploading(true);
+    try {
+      const added = await uploadFiles([file]);
+      const first = added[0];
+      if (!first) return;
+      rememberImage(first.key, first.url, { skipGen: true });
+      setAskAttach('image');
+      setAskPic({ key: first.key, url: first.url, name: file.name || '' });
+      setAskMsg(null);
+      requestAnimationFrame(() => askInputRef.current?.focus());
+    } catch {
+      setAskMsg({ tone: 'err', text: 'Could not upload that picture.' });
+    } finally {
+      setUploading(false);
+    }
+  }
+
   async function askUploadImage(file) {
     if (!file || !file.type?.startsWith('image/')) return;
     setUploading(true);
@@ -4730,16 +4801,34 @@ export default function WeekView({
     // a path through `An image` / `Generate an image` asks for a new picture
     const wantsPicture = !preset && (askPath.includes('visual') || askPath.includes('narrative'));
     const said = preset ? preset.instruction : (askPath.length ? askSay(askCtxNow, askDraft) : typed);
-    const instruction = said || (wantsPicture
+    // a background brought in from the field's `+` (bauhly-v3 `GROUND_ASKS`):
+    // it is already behind the slide, so the ask is to compose WITH it — the
+    // studio's words, or this sentence alone when they wrote none
+    const groundAsk = !preset && askAttach === 'background' && Boolean(activeSlide?.ground) && activeSlide.ground !== 'none'
+      ? 'This slide now stands on a background the studio chose (painted behind the slide as its ground). Make the elements work together with it: let the background show — do not cover the whole slide with a photo or an opaque panel — and keep every word readable on it.'
+      : '';
+    const asked = said || (wantsPicture
       ? `Add a visual${typed ? `: ${typed}` : ' that supports this slide'}.`
       : '');
-    const wantsVisual = wantsPicture || (!preset && ASKS_VISUAL.test(instruction));
+    // a picture held in the field: placed by the Slide Edit agent as the
+    // studio's sentence says (nothing is generated)
+    const pic = !preset && askAttach === 'image' && askPic?.key ? askPic : null;
+    const picAsk = pic
+      ? (asked
+        ? `${asked} (Use the picture the studio attached to this request — "this photo / the image" means that attached picture, not one already on the slide.)`
+        : 'Add the picture the studio attached to this slide, arranged the way that suits it best.')
+      : '';
+    const instruction = pic
+      ? (groundAsk ? `${groundAsk} ${picAsk}` : picAsk)
+      : (groundAsk ? (asked ? `${groundAsk} ${asked}` : groundAsk) : asked);
+    const wantsVisual = !pic && (wantsPicture || (!preset && ASKS_VISUAL.test(instruction)));
     // what was pressed, exactly — the backend turns it into a precise brief for
     // the Slide Edit agent, or a picture operation (replace / straighten)
     const intent = !preset && askPath.length
       ? { kind: askKind, path: [...askPath], labels: trailOf(askKind, askPath).map((n) => n.label) }
       : null;
     if (!instruction || askBusy || !day) return;
+    if (!preset) setAskAttach('');
     const postId = postIdAt(selected);
     if (!postId) return;
     const focusPath = preset ? null : (askSel?.path ?? null);
@@ -4811,8 +4900,9 @@ export default function WeekView({
         instruction,
         slideIndex: every ? null : activeIdx,
         focus: !preset && askSel ? { slideIndex: activeIdx, tag: askSel.tag, slot: askSel.slot, text: askSel.text } : null,
-        visual: wantsPicture ? true : undefined,
+        visual: pic ? false : (wantsPicture ? true : undefined),
         visualSlideIndex: activeIdx,
+        attachedPicture: pic ? { key: pic.key, alt: pic.name || '' } : undefined,
         intent,
         mode: preset?.mode,
         htmlTheme: preset?.htmlTheme,
@@ -4878,7 +4968,7 @@ export default function WeekView({
         text: (v?.ok
           ? (v.placed === false
             ? 'Made a new visual, but it did not land on the slide — try again or place it with Project photos.'
-            : (v.placement === 'replace'
+            : v.placement === 'attached' ? 'Picture placed on the slide.' : (v.placement === 'replace'
               // the selected picture was edited (or redrawn) in its own frame
               ? 'Picture updated.'
               : `Added a new visual${changed > 1 ? ` · ${changed} slides updated` : ''}.`))
@@ -6496,6 +6586,15 @@ export default function WeekView({
   const heldNow = rgnRegion ? rgnHeld[heldKey(safeIdx, rgnRegion.id)] || null : null;
   const heldList = Object.values(rgnHeld).sort((a, b) => a.slide - b.slide);
   const rgnOpen = Boolean(regionEditing);
+  // the field types its examples while it is open on the post, empty and not
+  // being written in (bauhly-v3 `useTypedPlaceholder` + `POST_ASKS`)
+  const askCycle = ATTACH_ASKS[askAttach] || POST_ASKS;
+  const askCycleLive = postEdit && askOpen && !visEdit && !edCap && !elemSel && !rgnOpen && !askPath.length
+    && !askDraft && !askFocus && !askBusy && askRec.status !== 'recording';
+  const [askTyped, askTypedFading] = useTypedPlaceholder(askCycle, askCycleLive);
+  // the `+` and what it brought go with the field
+  useEffect(() => { if (!askOpen || !postEdit) { setAskPlus(null); setAskAttach(''); setAskPic(null); } }, [askOpen, postEdit]);
+  useEffect(() => { if (askAttach !== 'image') setAskPic(null); }, [askAttach]);
   const rgnTextOpen = rgnOpen && rgnIsText;
   const rgnImgOpen = rgnOpen && !rgnIsText;
   const roleLabel = (r) => String(r?.role || 'Text').replace(/^./, (c) => c.toUpperCase());
@@ -7267,6 +7366,20 @@ export default function WeekView({
       const img = imagePool.find((i) => i.url === url || i.thumb === url);
       return img?.key || Object.entries(localMedia).find(([, u]) => u === url)?.[0] || '';
     };
+    // the field's `+` › library: the choice is HELD in the field until Send
+    if (imgPick.forAsk) {
+      const url = slots.find(Boolean);
+      const key = keyOf(url);
+      if (key) {
+        setLocalMedia((m) => ({ ...m, [key]: url }));
+        setAskAttach('image');
+        setAskPic({ key, url, name: '' });
+        setAskMsg(null);
+        requestAnimationFrame(() => askInputRef.current?.focus());
+      }
+      setImgPick(null);
+      return;
+    }
     // Replace image on a Theme Apply picture: the choice is HELD, sent by the chat
     if (imgPick.region) {
       const url = slots.find(Boolean);
@@ -7970,7 +8083,7 @@ export default function WeekView({
           </header>
 
           <div
-            className={`wv-edm__body${compositionEditing || wordsEditing ? ' has-panel' : ''}${askOpen && !visEdit ? ' is-asking' : ''}${!phoneEd && !edCap ? ' has-tools' : ''}`}
+            className={`wv-edm__body${compositionEditing || wordsEditing ? ' has-panel' : ''}${askOpen && !visEdit ? ' is-asking' : ''}${askOpen && !visEdit && !askSel && !askPath.length && !rgnOpen && !heldList.length ? ' is-plainask' : ''}${!phoneEd && !edCap ? ' has-tools' : ''}`}
             onMouseDown={(e) => {
               if (!elemSel) return;
               if (e.target.closest('.wv-edm__tb, .wv-edm__line, .wv-edm__panel, .wv-edm__card.is-on')) return;
@@ -8360,7 +8473,9 @@ export default function WeekView({
             const regionSend = rgnOpen || heldList.length > 0;
             // the reach is asked about the post, never about a selection
             const canReach = slides.length > 1 && !askSel && !regionSend;
-            const ready = (Boolean(askDraft.trim()) || askReady(askCtxNow, askDraft) || heldList.length > 0) && !askBusy && !rgnBusy && !listening && !askHearing
+            const groundHeld = askAttach === 'background' && Boolean(activeSlide?.ground) && activeSlide.ground !== 'none';
+            const picHeld = askAttach === 'image' && Boolean(askPic?.key);
+            const ready = (Boolean(askDraft.trim()) || askReady(askCtxNow, askDraft) || heldList.length > 0 || groundHeld || picHeld) && !askBusy && !rgnBusy && !listening && !askHearing
               && (!regionSend || heldList.length > 0 || (rgnOpen && Boolean(askDraft.trim())));
             const trail = trailOf(askKind, askPath);
             const SLOT_NAMES = {
@@ -8448,21 +8563,9 @@ export default function WeekView({
                     // picked holds the row of ideas back)
                     null
                     ) : ideas ? (
-                    <div className="wv-edm__asktries wv-edm__ideas" key="ideas">
-                      {SLIDE_IDEAS.map((one, i) => (
-                        <button
-                          key={one.id}
-                          type="button"
-                          className="wv-edm__asktry"
-                          style={{ '--i': i }}
-                          disabled={askBusy || Boolean(rgnBusy)}
-                          onMouseDown={(e) => { e.preventDefault(); runIdea(one); }}
-                        >
-                          {one.icon ? <Icon name={one.icon} size={14} strokeWidth={2} className="wv-edm__trymark" /> : null}
-                          {one.label}
-                        </button>
-                      ))}
-                    </div>
+                    // nothing selected: no row of suggestions under the post
+                    // (bauhly-v3 Nov 6 — the field stands on its own)
+                    null
                     ) : (
                     <div className="wv-edm__asktries" key={`${askKind}:${askSel?.path ?? ''}:${askPath.join('/')}`}>
                       {askList.map((one, i) => (
@@ -8492,6 +8595,7 @@ export default function WeekView({
                     onSubmit={(e) => {
                       e.preventDefault();
                       if (!ready) return;
+                      setAskPlus(null);
                       if (regionSend) { sendRegionChanges(); return; }
                       // a carousel asks how far the change goes before it is sent
                       if (canReach) { setAskReach(true); return; }
@@ -8582,6 +8686,90 @@ export default function WeekView({
                         )}
                       </span>
                     )}
+                    {/* the field's `+` (bauhly-v3 `plusMenu`, Nov 2): the two
+                        things a studio brings to a slide — a picture (or a
+                        ground) and a look to follow */}
+                    {!askSel && !rgnOpen && (
+                      <span className="wv-edm__plus">
+                        <button
+                          type="button"
+                          className={`wv-edm__askplus${askPlus ? ' is-on' : ''}`}
+                          aria-label="Add to this request"
+                          aria-haspopup="menu"
+                          aria-expanded={Boolean(askPlus)}
+                          title="Add an image or a reference"
+                          disabled={askBusy}
+                          onClick={() => setAskPlus((v) => (v ? null : 'root'))}
+                        >
+                          <Icon name="plus" size={18} strokeWidth={2} />
+                        </button>
+                        {askPlus && (
+                          <>
+                            <div className="wv-edm__plusscrim" onPointerDown={(e) => { e.preventDefault(); setAskPlus(null); }} aria-hidden="true" />
+                            <div className="wv-ig__menu wv-em wv-edm__plusmenu" role="menu" aria-label="Add to this request">
+                              {askPlus === 'root' ? (
+                                <PlusRows
+                                  rows={[
+                                    { id: 'img', icon: 'image', label: 'Choose image', hint: 'A picture or a ground for this slide', fn: () => setAskPlus('image') },
+                                    { id: 'thm', icon: 'edit', label: 'Choose theme or reference', hint: 'A look for Bauhly to follow', fn: () => { setAskAttach('theme'); setAskPlus('theme'); } },
+                                  ]}
+                                />
+                              ) : askPlus === 'image' ? (
+                                <PlusRows
+                                  back={{ label: 'Choose image', fn: () => setAskPlus('root') }}
+                                  rows={[
+                                    { id: 'up', icon: 'upload', label: 'Upload from your device', hint: 'A picture on this computer', fn: () => { setAskPlus(null); askPicFileRef.current?.click(); } },
+                                    { id: 'lib', icon: 'image', label: 'Choose from your library', hint: 'Images you can use', fn: () => { setAskPlus(null); setImgPick({ slots: [null], at: 0, forAsk: true }); } },
+                                    { id: 'bg', icon: 'image', label: 'Choose a background', hint: 'The ground behind it', fn: () => { setAskAttach('background'); setAskPlus('background'); } },
+                                  ]}
+                                />
+                              ) : (
+                                <>
+                                  <PlusRows back={{ label: askPlus === 'theme' ? 'Choose theme or reference' : 'Choose a background', fn: () => setAskPlus(askPlus === 'theme' ? 'root' : 'image') }} rows={[]} />
+                                  <EditorMore
+                                    key={`plus-${askPlus}-${safeIdx}`}
+                                    acts={moreActs}
+                                    startLevel={askPlus}
+                                    toolbar
+                                    onClose={() => setAskPlus(null)}
+                                  />
+                                </>
+                              )}
+                            </div>
+                          </>
+                        )}
+                      </span>
+                    )}
+                    {/* what the `+` brought, riding in the field until Send */}
+                    {picHeld && !askSel && !rgnOpen && (
+                      <span className="wv-edm__cmd wv-edm__cmd--pic" title={askPic.name || 'The picture to place'}>
+                        <img className="wv-edm__cmdpic" src={askPic.url} alt="" />
+                        Image
+                        <button
+                          type="button"
+                          className="wv-edm__cmdx"
+                          aria-label="Remove the picture from this request"
+                          disabled={askBusy}
+                          onMouseDown={(e) => { e.preventDefault(); setAskAttach(''); }}
+                        >
+                          <Icon name="x" size={12} strokeWidth={2.4} />
+                        </button>
+                      </span>
+                    )}
+                    {groundHeld && !askSel && !rgnOpen && (
+                      <span className="wv-edm__cmd">
+                        Background
+                        <button
+                          type="button"
+                          className="wv-edm__cmdx"
+                          aria-label="Remove the background from this request"
+                          disabled={askBusy}
+                          onMouseDown={(e) => { e.preventDefault(); setAskAttach(''); }}
+                        >
+                          <Icon name="x" size={12} strokeWidth={2.4} />
+                        </button>
+                      </span>
+                    )}
                     {/* the open region as the field's subject (bauhly-v3
                         `edm-cmd--slash edm-cmd--plain`): "Title /" */}
                     {askSel && !rgnOpen && (
@@ -8614,7 +8802,7 @@ export default function WeekView({
                     )}
                     <input
                       ref={askInputRef}
-                      className="wv-edm__askinput"
+                      className={`wv-edm__askinput${askCycleLive && askTypedFading ? ' is-fading' : ''}`}
                       value={askDraft}
                       onChange={(e) => setAskDraft(e.target.value)}
                       onFocus={() => setAskFocus(true)}
@@ -8626,7 +8814,7 @@ export default function WeekView({
                           setAskPath((was) => was.slice(0, -1));
                         }
                       }}
-                      placeholder={listening ? 'Listening…' : askHearing ? 'Writing down what you said…' : rgnOpen ? (rgnImgOpen
+                      placeholder={askCycleLive && askTyped != null ? askTyped : listening ? 'Listening…' : askHearing ? 'Writing down what you said…' : rgnOpen ? (rgnImgOpen
                         ? (['generate', 'ref', 'asvisual'].includes(heldNow?.change?.act) ? 'Describe the image, or leave empty to follow your post…' : 'Describe the image…')
                         : `Change the ${openLabel.toLowerCase()}…`) : askHint(askCtxNow, subject ? `What should change about ${subject.charAt(0).toLowerCase()}${subject.slice(1)}?` : 'Say what else this should be')}
                       maxLength={600}
@@ -8654,6 +8842,13 @@ export default function WeekView({
                       {askBusy || rgnBusy === 'text' ? <span className="wv-spin" aria-hidden="true" /> : <Glyph name="arrow-up" size={17} strokeWidth={2.4} />}
                     </button>
                   </form>
+                  <input
+                    ref={askPicFileRef}
+                    type="file"
+                    accept="image/*"
+                    hidden
+                    onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) askAttachUpload(f); }}
+                  />
                   <input
                     ref={askUploadRef}
                     type="file"
@@ -8894,7 +9089,7 @@ export default function WeekView({
       {imgPick && (
         <ImagePicker
           layout={(() => {
-            if (imgPick.region) return { ...BEST_FIT_LAYOUT, imgs: imgPick.slots };
+            if (imgPick.region || imgPick.forAsk) return { ...BEST_FIT_LAYOUT, imgs: imgPick.slots };
             const change = findChangeLayout(activeSlide?.layout);
             if (!change) return { ...BEST_FIT_LAYOUT, imgs: imgPick.slots };
             // Map onto LayoutArt kinds that expose .vl-ph slots for the picker.

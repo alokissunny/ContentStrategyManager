@@ -18,7 +18,7 @@ import Icon from '../../brand/Icon';
 import HtmlThemeThumb from './HtmlThemeThumb';
 import { COLOUR_ROLES, DEFAULT_PALETTE } from '../../lib/identity';
 
-function Rows({ rows, onClose }) {
+export function Rows({ rows, onClose }) {
   return rows.map((r) => (r.rule ? (
     <span key={r.id} className="wv-em__rule" role="separator" />
   ) : (

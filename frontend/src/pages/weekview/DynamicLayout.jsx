@@ -526,7 +526,14 @@ export default function DynamicLayout({
     // the agent wrote; the Brand Kit fonts still apply (and load the studio's
     // own faces). data-focus is the photo-focus crop.
     if (useDocument) {
-      return withFonts(String(documentHtml).replace(/\sdata-focus\s*=\s*["'][^"']*["']/gi, ''));
+      const doc = String(documentHtml).replace(/\sdata-focus\s*=\s*["'][^"']*["']/gi, '');
+      // a background the slide was given (Editor › Background, the ask
+      // field's `+`) is still laid behind the slide's content — the colours
+      // stay the agent's, but without this the choice was saved and never seen
+      const ground = nextPaint?.['--t-ground-image'];
+      return withFonts(ground
+        ? applyThemeToCarouselDocument(doc, { themed: 'ground', paint: { '--t-ground-image': ground } })
+        : doc);
     }
     if (!markup) return '';
     return withFonts(buildSlideFrameDocument(markup, { themed, paint: nextPaint }));

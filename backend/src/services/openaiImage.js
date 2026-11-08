@@ -17,7 +17,10 @@
 const getOpenAIClient = require('./openaiClient');
 
 // Overridable so the model id can be swapped without a code change.
-const DEFAULT_MODEL = process.env.OPENAI_IMAGE_MODEL || 'gpt-image-1';
+// gpt-image-1 was retired (Nov 2026: the API answers "The model 'gpt-image-1'
+// does not exist"). gpt-image-1.5 is its drop-in: the same sizes, transparent
+// backgrounds and `input_fidelity` on edits, which the 2.x models refuse.
+const DEFAULT_MODEL = process.env.OPENAI_IMAGE_MODEL || 'gpt-image-1.5';
 
 // gpt-image-1 only renders a fixed set of sizes. Instagram carousels are 4:5
 // portrait; the closest supported shape is 1024x1536 (2:3 portrait), which the

@@ -226,8 +226,9 @@ async function editSlideHtml({ instruction, html, newPicture, otherSlides, strat
   const lines = [`CHANGE: ${ask}`];
   if (newPicture?.key) {
     const alt = String(newPicture.alt || '').replace(/"/g, "'");
-    lines.push(
-      `NEW PICTURE (made for this request): place <img data-slot="image" data-asset-key="${newPicture.key}" alt="${alt}"> `
+    lines.push(newPicture.placement === 'attached'
+      ? `PICTURE THE STUDIO ATTACHED (REQUIRED): the studio attached a NEW picture to this request. Your output MUST contain <img data-slot="image" data-asset-key="${newPicture.key}" alt="${alt}"> with exactly that data-asset-key — a slide without it is wrong. Wherever the CHANGE says "this photo", "the image", "the picture" or "it", it means THIS attached picture, never a picture already on the slide. Place it exactly as the CHANGE asks (full bleed, one half, beside the words, with space around it…); if the CHANGE does not say, choose the arrangement that suits the slide. Re-compose the slide around it (object-fit: cover) and keep every word legible. The slide's existing pictures may stay as secondary pictures, move, or be dropped if the new arrangement has no room for them — the attached picture always wins the space. Add no other empty picture slot.`
+      : `NEW PICTURE (made for this request): place <img data-slot="image" data-asset-key="${newPicture.key}" alt="${alt}"> `
       + (newPicture.placement === 'background'
         ? 'full-bleed behind the words (object-fit: cover), words kept legible — add a soft scrim only if needed.'
         : 'as a framed inset beside or under the words (object-fit: cover), large enough to read on a phone.')

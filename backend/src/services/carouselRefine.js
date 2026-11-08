@@ -243,7 +243,7 @@ function htmlThemeNote(theme, done) {
 async function refineCarouselFromEdits({
   userId, handle, label, instruction, slideIndex, focus, current, brand,
   visual: visualFlag, visualSlideIndex, slideRecords, strategy, layoutIssues, geometry, slideCss, debug, intent, visualTheme,
-  mode = 'edit', htmlTheme = '', themeBases = null,
+  mode = 'edit', htmlTheme = '', themeBases = null, attachedPicture = null,
 }) {
   const t0 = Date.now();
   // Editor › Theme › HTML themes (experimental): a fixed template, filled with
@@ -358,6 +358,16 @@ async function refineCarouselFromEdits({
     } else if (visual) {
       logStep(debug, { source: 'Prompt edit · Visual agent', output: `Skipped — ${visual.skipReason || 'no reason given'}` });
     }
+  }
+
+  // ── a picture the studio attached in the Editor's field (its `+`) ───────
+  // Already theirs (uploaded or from the library), so nothing is generated:
+  // it goes to the Slide Edit agent as the request's picture, and the
+  // studio's sentence says where and how it sits.
+  const attachedKey = String(attachedPicture?.key || '').trim();
+  if (attachedKey && attachedKey.startsWith(own) && visualAt && composed.articles.some((a) => a.index === visualAt)) {
+    visual = { ok: true, key: attachedKey, src: '', alt: String(attachedPicture?.alt || '').slice(0, 140), placement: 'attached' };
+    logStep(debug, { source: 'Prompt edit · attached picture', output: { key: attachedKey, slide: visualAt } });
   }
 
   // ── a picture operation on the selected image: done directly ────────────
@@ -552,6 +562,22 @@ async function refineCarouselFromEdits({
   }
   const byIndex = new Map(done.map((x) => [x.index, x.html]));
   const articles = composed.articles.map((a) => (byIndex.has(a.index) ? withIndex(byIndex.get(a.index), a.index) : a.html));
+  // the studio's attached picture must land: if the agent left it out, it
+  // takes the slide's first picture frame (the frame keeps its box and crop)
+  if (visual?.ok && visual.placement === 'attached' && byIndex.has(visualAt)) {
+    const i = composed.articles.findIndex((a) => a.index === visualAt);
+    if (i >= 0 && !articles[i].includes(visual.key)) {
+      let swapped = false;
+      articles[i] = articles[i].replace(/<img\b([^>]*\bdata-slot\s*=\s*["'](?:image|illustration)["'][^>]*?)\/?>/i, (_, attrs) => {
+        swapped = true;
+        const kept = attrs
+          .replace(/\sdata-asset-key\s*=\s*("[^"]*"|'[^']*')/i, '')
+          .replace(/\ssrc\s*=\s*("[^"]*"|'[^']*')/i, '');
+        return `<img${kept} data-asset-key="${visual.key}">`;
+      });
+      logStep(debug, { source: 'Prompt edit · attached picture', output: swapped ? 'The agent left the attached picture out — it took the slide\'s first picture frame.' : 'The slide has no picture frame for the attached picture.' });
+    }
+  }
   const changed = done.map((x) => x.index);
 
   // a theme picture given an HTML theme leaves its themed-image section: it is

@@ -1250,6 +1250,10 @@ async function refinePost(req, res) {
       htmlTheme: typeof req.body?.htmlTheme === 'string' ? req.body.htmlTheme.slice(0, 60) : '',
       // …and, for a Theme Apply picture, the html under it (the pre-theme design)
       themeBases: req.body?.mode === 'html-theme' ? themeBasesOf(record, stored) : null,
+      // a picture attached in the Editor's field: placed where the sentence says
+      attachedPicture: req.body?.attachedPicture && ownKeys([req.body.attachedPicture.key]).length
+        ? { key: ownKeys([req.body.attachedPicture.key])[0], alt: String(req.body.attachedPicture.alt || '').slice(0, 140) }
+        : null,
       debug: steps,
     });
 

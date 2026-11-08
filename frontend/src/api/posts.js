@@ -477,14 +477,14 @@ export function listHtmlThemes() {
   return client.get('/posts/html-themes').then((res) => res.data || { themes: [] });
 }
 
-export function refinePost(id, { instruction, slideIndex, focus, current, visual, visualSlideIndex, layoutIssues, geometry, slideCss, intent, mode, htmlTheme } = {}) {
+export function refinePost(id, { instruction, slideIndex, focus, current, visual, visualSlideIndex, layoutIssues, geometry, slideCss, intent, mode, htmlTheme, attachedPicture } = {}) {
   // one debug-panel group per edit: every step's input and output, then a
   // summary row with the instruction — on failure too
   const label = layoutIssues?.length
     ? `Prompt edit — layout repair (${layoutIssues.length} problem${layoutIssues.length === 1 ? '' : 's'})`
     : `Prompt edit — “${String(instruction || '').slice(0, 60)}${String(instruction || '').length > 60 ? '…' : ''}”`;
   return client
-    .post(`/posts/${id}/refine`, { instruction, slideIndex, focus, current, visual, visualSlideIndex, layoutIssues, geometry, slideCss, intent, ...(mode ? { mode } : {}), ...(htmlTheme ? { htmlTheme } : {}) }, { timeout: 540000 })
+    .post(`/posts/${id}/refine`, { instruction, slideIndex, focus, current, visual, visualSlideIndex, layoutIssues, geometry, slideCss, intent, ...(mode ? { mode } : {}), ...(htmlTheme ? { htmlTheme } : {}), ...(attachedPicture?.key ? { attachedPicture } : {}) }, { timeout: 540000 })
     .then((res) => {
       const data = res.data || {};
       ingestPlanDebug(label, data);
