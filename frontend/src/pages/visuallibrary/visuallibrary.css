@@ -299,7 +299,10 @@
 .vl,
 .ls-prevs,
 .yw,
-.wv {
+.wv,
+/* the landing page's hero carousel draws the same artwork (bauhly-v3 lists it here too):
+   without these, a card that sets no ground painted none and the lime showed through */
+.hpost {
   --t-ground-bg: #f4f2ee;
   --t-ground-fg: #1b100d;
   --t-accent-bg: var(--signal-500);
