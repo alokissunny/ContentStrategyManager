@@ -2618,7 +2618,7 @@ function PhoneTextSheet({ sel, run, swatches, onClose, onRewrite }) {
   );
 }
 
-function ElementBar({ sel, menu, setMenu, run, swatches, onAsk, onImage, onClose, onRewrite }) {
+function ElementBar({ sel, menu, setMenu, run, swatches, onAsk, onAskOff, asking = false, onImage, onClose, onRewrite }) {
   const barRef = useRef(null);
   const [size, setSize] = useState({ w: 0, h: 44 });
   // the wand's page: the line as it now reads, the versions, the ask
@@ -2644,7 +2644,7 @@ function ElementBar({ sel, menu, setMenu, run, swatches, onAsk, onImage, onClose
   const st = sel.style || {};
   const isText = sel.kind === 'text';
   const isImage = sel.kind === 'image';
-  const toggle = (m) => setMenu(menu === m ? null : m);
+  const toggle = (m) => { if (asking) onAskOff?.(); setMenu(menu === m ? null : m); };
   const press = (fn) => (e) => { e.preventDefault(); e.stopPropagation(); fn(); };
   const Caret = () => <Icon name="chevron-down" size={12} strokeWidth={2.4} />;
   const titleish = /^h[1-3]$/.test(sel.tag || '') || ['title', 'stat', 'quote'].includes(sel.slot);
@@ -2777,16 +2777,20 @@ function ElementBar({ sel, menu, setMenu, run, swatches, onAsk, onImage, onClose
           <button type="button" className="wv-sb__btn wv-sb__disc" onClick={press(() => { setMenu(null); onClose(); })} aria-label="Close" title="Close">
             <Icon name="x" size={15} strokeWidth={2.2} />
           </button>
-          {isText && onRewrite && (
-            <button type="button" className="wv-sb__btn" onClick={press(openPage)} aria-label="Ask for changes" title="Ask for changes">
-              <Icon name="wand" size={15} strokeWidth={1.7} />
-            </button>
-          )}
-          {!isText && (
-            <button type="button" className="wv-sb__btn" onClick={press(() => { setMenu(null); onAsk(); })} aria-label="Ask for changes" title="Ask for changes">
-              <Icon name="wand" size={15} strokeWidth={1.7} />
-            </button>
-          )}
+          {/* the wand opens the chat UNDER the post, aimed at this element
+              (bauhly-v3 PostEditor, Nov 2–3): "The title / Say how to change
+              the title…". A second press puts the chat down and keeps the
+              element selected. */}
+          <button
+            type="button"
+            className={`wv-sb__btn${asking ? ' is-on' : ''}`}
+            onClick={press(() => { setMenu(null); onAsk(); })}
+            aria-pressed={asking}
+            aria-label={asking ? 'Close the chat' : 'Ask for changes'}
+            title={asking ? 'Close the chat' : 'Ask for changes'}
+          >
+            <Icon name="wand" size={15} strokeWidth={1.7} />
+          </button>
           {isText && (
             <>
               <span className="wv-sb__wrap">
@@ -5076,8 +5080,12 @@ export default function WeekView({
   // (wearing its ×) closes its menu, another disc swaps to its own. The wand
   // asks about the whole post, so it drops any selection first.
   function pickEdTool(id) {
+    const hadSel = Boolean(elemSel);
     elemApiRef.current?.deselect();
     const menuUp = Boolean(edTool) && zone === 'visual';
+    // the toolbar's wand asks about the whole post: with an element in hand
+    // and the chat aimed at it, the press re-aims the chat rather than closing it
+    if (id === 'ask' && hadSel && askOpen && !menuUp) return;
     if (id === 'ask') {
       if (zone) closeZone();
       setEdTool(null);
@@ -8608,7 +8616,7 @@ export default function WeekView({
                   menu disc opens the ⋯'s own menu at its level, above it. */}
               {!phoneEd && !edCap && (() => {
                 const menuUp = Boolean(edTool) && zone === 'visual';
-                const onId = menuUp ? edTool : (askOpen && !askSel ? 'ask' : null);
+                const onId = menuUp ? edTool : (askOpen ? 'ask' : null);
                 const says = ED_TOOLS.find((t) => t.id === onId)?.says;
                 // Layout opens the rail under the discs, not a menu
                 // (bauhly-v3 PostEditor, Nov 1): `Bauhly decides` first, drawn
@@ -9085,7 +9093,7 @@ export default function WeekView({
                         `edm-cmd--slash edm-cmd--plain`): "Title /" */}
                     {askSel && !rgnOpen && (
                       <span className="wv-edm__lead">
-                        {String(subject || 'Text').replace(/^The /, '').replace(/^./, (c) => c.toUpperCase())}
+                        {subject || 'The text'}
                         <i className="wv-edm__leadslash">/</i>
                       </span>
                     )}
@@ -9127,7 +9135,7 @@ export default function WeekView({
                       }}
                       placeholder={askCycleLive && askTyped != null ? askTyped : listening ? 'Listening…' : askHearing ? 'Writing down what you said…' : rgnOpen ? (rgnImgOpen
                         ? (['generate', 'ref', 'asvisual'].includes(heldNow?.change?.act) ? 'Describe the image, or leave empty to follow your post…' : 'Describe the image…')
-                        : `Change the ${openLabel.toLowerCase()}…`) : askHint(askCtxNow, subject ? `What should change about ${subject.charAt(0).toLowerCase()}${subject.slice(1)}?` : 'Say what else this should be')}
+                        : `Change the ${openLabel.toLowerCase()}…`) : askHint(askCtxNow, subject ? `Say how to change ${subject.charAt(0).toLowerCase()}${subject.slice(1)}…` : 'Say what else this should be')}
                       maxLength={600}
                       disabled={askBusy}
                       aria-label="What should change"
@@ -9195,7 +9203,14 @@ export default function WeekView({
               setMenu={setElemMenu}
               run={runElem}
               swatches={elemSwatches}
-              onAsk={() => openAsk()}
+              asking={askOpen && Boolean(askSel)}
+              onAsk={() => {
+                if (askOpen && askSel) { setAskOpen(false); return; }
+                // highlighted, not focused: a caret in the foot would hide this bar
+                setMenuPane(null); setZone(null); setVisEdit(null); setEdTool(null); setAskMsg(null);
+                setAskOpen(true);
+              }}
+              onAskOff={() => { if (askOpen && askSel && !askBusy) setAskOpen(false); }}
               onImage={() => openImagePicker(elemSel?.imageSlot)}
               onClose={() => elemApiRef.current?.deselect()}
               onRewrite={rewriteElemWords}
