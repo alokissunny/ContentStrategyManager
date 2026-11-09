@@ -3561,6 +3561,9 @@ export default function WeekView({
   // menu discs is open — 'layout' | 'colour' | 'add' | 'more' — or null. The
   // wand is not a menu; it raises the ask field (`askOpen`).
   const [edTool, setEdTool] = useState(null);
+  // the Layout disc's rail (bauhly-v3 LayoutRail): the card pressed but not
+  // yet applied — 'auto' | a CAROUSEL_LAYOUT_CHOICES id — or null
+  const [layMark, setLayMark] = useState(null);
   // the ask field's own `+` (bauhly-v3 `plusMenu`): null | 'root' | 'image'
   // | an EditorMore level ('background' | 'theme') opened from it
   const [askPlus, setAskPlus] = useState(null);
@@ -4032,6 +4035,8 @@ export default function WeekView({
   const enriched = enrichedDays[selected] || enrichedDays[0];
   const slides = enriched?.slides || [];
   const safeIdx = Math.min(slideIdx, Math.max(slides.length - 1, 0));
+  // a marked layout card is forgotten when the tool, slide or post changes
+  useEffect(() => { setLayMark(null); }, [edTool, safeIdx, selected]);
   const activeSlide = slides[safeIdx] || null;
   // Video cover: the last clip the agent rendered for this day (agentTrace.cover)
   // and the one currently applied to the hook (day.content.coverVideo).
@@ -7674,10 +7679,16 @@ export default function WeekView({
     // as an AI edit: the Slide Edit agent re-lays the slide out
     layouts: {
       list: CAROUSEL_LAYOUT_CHOICES,
-      onCarousel: (id) => runPostAgents(
-        () => runDayLayout(route._id, selected, { layout: id }),
+      // `id` 'auto' = Bauhly decides (the Settings layout); `every` false =
+      // only the slide in front of the studio is rewritten
+      onCarousel: (id, every = true) => runPostAgents(
+        () => runDayLayout(route._id, selected, {
+          ...(id && id !== 'auto' ? { layout: id } : {}),
+          ...(every ? {} : { slideIndex: safeIdx + 1 }),
+        }),
         'Carousel agent',
       ),
+      current: String(day?.agentTrace?.carouselLayout || '') || 'auto',
       // a theme picture is one image: its arrangement is repainted by the
       // image model (see relayoutThemed); an HTML slide is re-laid out by the
       // Slide Edit agent
@@ -7764,7 +7775,7 @@ export default function WeekView({
     <>
       {/* the Editor's ⋯ (bauhly-v3 PostMenu.jsx › EditorMore), anchored under
           the button. Levels open in place. */}
-      {zone === 'visual' && !visEdit && !imgPick && !slideEditMode && (
+      {zone === 'visual' && !visEdit && !imgPick && !slideEditMode && !(edTool === 'layout' && !phoneEd) && (
         <>
         <div
           className="wv-ig__menuscrim"
@@ -8083,7 +8094,7 @@ export default function WeekView({
           </header>
 
           <div
-            className={`wv-edm__body${compositionEditing || wordsEditing ? ' has-panel' : ''}${askOpen && !visEdit ? ' is-asking' : ''}${askOpen && !visEdit && !askSel && !askPath.length && !rgnOpen && !heldList.length ? ' is-plainask' : ''}${!phoneEd && !edCap ? ' has-tools' : ''}`}
+            className={`wv-edm__body${compositionEditing || wordsEditing ? ' has-panel' : ''}${askOpen && !visEdit ? ' is-asking' : ''}${askOpen && !visEdit && !askSel && !askPath.length && !rgnOpen && !heldList.length ? ' is-plainask' : ''}${!phoneEd && !edCap ? ' has-tools' : ''}${!phoneEd && !edCap && edTool === 'layout' && zone === 'visual' ? ' is-laying' : ''}`}
             onMouseDown={(e) => {
               if (!elemSel) return;
               if (e.target.closest('.wv-edm__tb, .wv-edm__line, .wv-edm__panel, .wv-edm__card.is-on')) return;
@@ -8381,9 +8392,38 @@ export default function WeekView({
                 const menuUp = Boolean(edTool) && zone === 'visual';
                 const onId = menuUp ? edTool : (askOpen && !askSel ? 'ask' : null);
                 const says = ED_TOOLS.find((t) => t.id === onId)?.says;
+                // Layout opens the rail under the discs, not a menu
+                // (bauhly-v3 PostEditor, Nov 1): `Bauhly decides` first, drawn
+                // as a mix of four, then the carousel agent's layouts
+                const layOpen = onId === 'layout';
+                const lays = moreActs.layouts || {};
+                const layCur = lays.current || 'auto';
+                const layItems = [
+                  { id: 'auto', name: 'Bauhly decides', note: 'A mix — each slide gets the arrangement that suits it.' },
+                  ...(lays.list || []),
+                ];
+                const layNow = layMark || layCur;
+                const layName = layItems.find((l) => l.id === layNow)?.name || null;
+                const layArt = (id) => (
+                  <span className={`wv-em__lay--${id}`} key={id}>
+                    <span className="wv-em__layart" aria-hidden="true"><i /><s /><b /></span>
+                  </span>
+                );
+                const markUp = layOpen && layMark && layMark !== layCur;
+                const many = slides.length > 1;
+                const applyLay = (every) => {
+                  const id = layMark;
+                  setLayMark(null);
+                  setEdTool(null);
+                  closeZone();
+                  lays.onCarousel?.(id, every);
+                };
                 return (
                   <div className="wv-edm__tools">
-                    <span className="tbar__cap" aria-live="polite">{says || 'Refine your post'}</span>
+                    <span className="tbar__cap" aria-live="polite">
+                      {says || 'Refine your post'}
+                      {layOpen && layName && <>: <span className="tbar__cappick">{layName}</span></>}
+                    </span>
                     <div className="tbar" role="group" aria-label="Change this slide">
                       {ED_TOOLS.map((t) => {
                         const on = onId === t.id;
@@ -8412,6 +8452,59 @@ export default function WeekView({
                         );
                       })}
                     </div>
+                    {layOpen && (
+                      <div className="lrail wv-edm__lrail">
+                        <div className="lrail__row lrail__cards" role="group" aria-label="Layout style">
+                          {layItems.map((l, i) => {
+                            const isOn = layCur === l.id;
+                            const isPick = layMark === l.id;
+                            return (
+                              <button
+                                key={l.id}
+                                type="button"
+                                style={{ '--lrail-i': i }}
+                                className={`pe-lay lrail__card${isPick ? ' is-pick' : ''}${isOn && !layMark ? ' is-on' : ''}`}
+                                aria-pressed={isPick || (isOn && !layMark)}
+                                aria-label={l.name}
+                                title={l.note || l.name}
+                                disabled={editBusy}
+                                onPointerDown={(e) => e.stopPropagation()}
+                                onClick={(e) => { e.stopPropagation(); setLayMark(isOn ? null : l.id); }}
+                              >
+                                {l.id === 'auto' ? (
+                                  <span className="lrail__mix" aria-hidden="true">
+                                    {(lays.list || []).filter((x) => x.id !== 'default').slice(0, 4).map((x) => layArt(x.id))}
+                                  </span>
+                                ) : layArt(l.id)}
+                                {isOn && !layMark ? <span className="pe-bgpick__now">Current</span> : null}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+                    {markUp && (
+                      <>
+                        <div
+                          className="wv-ig__menuscrim"
+                          onPointerDown={(e) => { e.preventDefault(); e.stopPropagation(); setLayMark(null); }}
+                          aria-hidden="true"
+                        />
+                        <div className="wv-ig__menuwrap">
+                          <div className="wv-ig__menu wv-em" role="menu" aria-label="Apply layout">
+                            <EditorRows
+                              onClose={() => setLayMark(null)}
+                              rows={many ? [
+                                { id: 'one', icon: 'brief', label: 'This slide', hint: 'The others keep theirs', dead: editBusy, fn: () => applyLay(false) },
+                                { id: 'all', icon: 'copy', label: 'All slides', hint: 'The carousel agent redesigns the post in this layout', dead: editBusy, fn: () => applyLay(true) },
+                              ] : [
+                                { id: 'all', icon: 'sparkle', label: 'Apply layout', hint: 'The carousel agent redesigns the post in this layout', dead: editBusy, fn: () => applyLay(true) },
+                              ]}
+                            />
+                          </div>
+                        </div>
+                      </>
+                    )}
                     {editMenuEl}
                   </div>
                 );

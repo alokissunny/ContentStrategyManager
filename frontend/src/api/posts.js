@@ -312,10 +312,11 @@ export function polishCaption(id, { caption, instruction, kind, role, fills }) {
 // prompt instead of the one assembled from the post. `layout` (Editor ›
 // Layout) runs that carousel layout's prompt instead of the Settings one.
 // → { post, layout, ... }
-export function runPostLayout(id, { promptOverride, layout } = {}) {
+export function runPostLayout(id, { promptOverride, layout, slideIndex } = {}) {
   const body = {
     ...(promptOverride ? { promptOverride } : {}),
     ...(layout ? { layout } : {}),
+    ...(slideIndex ? { slideIndex } : {}),
   };
   return client.post(`/posts/${id}/layout`, body, { timeout: 540000 }).then((res) => {
     const data = res.data || {};

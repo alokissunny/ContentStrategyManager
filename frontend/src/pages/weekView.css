@@ -10063,3 +10063,106 @@ i.shotedit__aa { font-style: italic; font-family: Georgia, serif; }
 /* the picture held in the field: a small thumbnail in front of its name */
 .wv-edm__cmd--pic { gap: 6px; padding-left: 4px; }
 .wv-edm__cmdpic { width: 22px; height: 22px; border-radius: 6px; object-fit: cover; flex: 0 0 auto; }
+
+/* ── Editor › Layout: the rail under the toolbar (bauhly-v3 LayoutRail +
+   `.pe-lay` cards, Nov 1–2). One scrolling row of wireframe cards; the first
+   is `Bauhly decides`, drawn as a 2×2 mix. A press MARKS a card (2px ink
+   border), and the rows over the toolbar ask This slide / All slides. The
+   card the post wears carries the `Current` chip. */
+.wv-edm__tools .tbar__cappick { color: var(--ink-900); font-weight: 600; }
+.wv-edm__lrail {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  /* wider than the post: six cards (Bauhly decides + five layouts) at 108
+     with 12px gaps; the body is the size container, so it never runs past it */
+  width: min(calc(100cqw - 2 * var(--sp-6)), 708px);
+  min-width: 0;
+  margin-top: var(--sp-3);
+}
+.wv-edm__lrail .lrail__row {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: start;
+  justify-content: center;
+  justify-content: safe center;
+  gap: var(--sp-3);
+  width: 100%;
+  overflow-x: auto;
+  padding: 22px 16px;
+  margin: -22px -16px;
+  scrollbar-width: none;
+}
+.wv-edm__lrail .lrail__row::-webkit-scrollbar { display: none; }
+.wv-edm__lrail button.pe-lay.lrail__card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  flex: 0 0 auto;
+  width: 108px;
+  padding: 2px;
+  border: 2px solid var(--border, #e3e3e8);
+  border-radius: 7px;
+  background: var(--surface, #fff);
+  cursor: pointer;
+  overflow: hidden;
+  transition: border-color var(--dur-fast) var(--ease-out), opacity var(--dur-fast) var(--ease-out);
+  animation: wv-lrail-in var(--dur-fast, 180ms) var(--ease-out) both;
+  animation-delay: calc(var(--lrail-i, 0) * 35ms);
+}
+.wv-edm__lrail button.pe-lay.lrail__card:hover:not(:disabled) { border-color: var(--ink-400, #9a9aa3); }
+.wv-edm__lrail button.pe-lay.lrail__card.is-on,
+.wv-edm__lrail button.pe-lay.lrail__card.is-pick { border-color: var(--ink-900, #16161a); }
+.wv-edm__lrail button.pe-lay.lrail__card:disabled { opacity: 0.5; cursor: default; }
+.wv-edm__lrail button.pe-lay.lrail__card:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+@keyframes wv-lrail-in {
+  from { opacity: 0; translate: 0 6px; }
+  to { opacity: 1; translate: 0 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .wv-edm__lrail button.pe-lay.lrail__card { animation: none; }
+}
+/* the wire fills the card; the card's own border is the frame */
+.wv-edm__lrail .wv-em__layart {
+  border: 0;
+  border-radius: 4px;
+}
+.wv-edm__lrail .lrail__mix {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: 1fr 1fr;
+  gap: 2px;
+  width: 100%;
+  aspect-ratio: 4 / 5;
+}
+.wv-edm__lrail .lrail__mix > span { display: block; min-width: 0; min-height: 0; }
+.wv-edm__lrail .lrail__mix .wv-em__layart {
+  width: 100%;
+  height: 100%;
+  aspect-ratio: auto;
+  border-radius: 3px;
+}
+/* the hatch and word bars drawn at a quarter size */
+.wv-edm__lrail .lrail__mix .wv-em__layart i { background: repeating-linear-gradient(135deg, #cfcfd3 0 4px, #e2e2e5 4px 8px); }
+.wv-edm__lrail .lrail__mix .wv-em__layart b { height: 3px; box-shadow: 0 5px 0 -1px rgba(255, 255, 255, 0.8); }
+.wv-edm__lrail .pe-bgpick__now {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  display: inline-flex;
+  align-items: center;
+  height: 18px;
+  padding: 0 7px;
+  border-radius: var(--r-full, 999px);
+  background: color-mix(in srgb, var(--surface, #fff) 88%, transparent);
+  color: var(--ink-700, #3a3a40);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  pointer-events: none;
+}
+
+/* the rail comes out of the post's height, as in bauhly-v3's Editor (the post
+   shrinks to make room): caption + discs (84) + gap + a 4:5 card at 108 wide */
+.wv-edm__body.has-tools.is-laying { --edm-tools-h: 264px; }
+.wv-edm__body.has-tools > .wv-edm__stage { transition: margin-bottom var(--dur-base, 240ms) var(--ease-out); }

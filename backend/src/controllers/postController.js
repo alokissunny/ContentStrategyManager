@@ -1699,6 +1699,9 @@ async function rerunLayout(req, res) {
       carousel: savedLayout,
       layoutPrompt: optionalText(debugEntry.prompt) || trace.layoutPrompt || '',
       themeId: slideIndex ? (trace.themeId || '') : '',
+      // Editor › Layout rail: which carousel layout the post wears ('' = the
+      // Settings default, "Bauhly decides"); a one-slide rerun leaves it
+      carouselLayout: slideIndex ? (trace.carouselLayout || '') : (layoutId || ''),
       visual: Array.isArray(next.visualTrace) && next.visualTrace.length
         ? {
           slides: next.visualTrace,
