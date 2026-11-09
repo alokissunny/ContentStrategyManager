@@ -1235,7 +1235,7 @@
 .yw-mday__menu:not(:has(.yw-peek)) {
   border-radius: calc(var(--r-sm) + 10px);
 }
-.yw-mcal__row:nth-last-child(-n + 2) .yw-mday__menu:not(:has(.yw-peek)) {
+.yw-mday__menu.is-up:not(:has(.yw-peek)) {
   border-top-left-radius: calc(var(--r-sm) + 10px);
   border-top-right-radius: calc(var(--r-sm) + 10px);
   border-bottom-left-radius: calc(var(--r-sm) + 10px);
@@ -1281,9 +1281,9 @@
   left: auto;
   right: calc(100% + 8px);
 }
-.yw-mcal__row:nth-last-child(-n + 2) .yw-mday__menu {
-  top: auto;
-  bottom: 0;
+/* opened upward (PlacedMenu in monthDayMenu.jsx measures the room and sets
+   `top` + `is-up`): the peek sits at the foot, next to the cell's bottom */
+.yw-mday__menu.is-up {
   flex-direction: column;
   border-top-left-radius: calc(var(--r-md) + 10px + var(--sp-3));
   border-top-right-radius: calc(var(--r-md) + 10px + var(--sp-3));

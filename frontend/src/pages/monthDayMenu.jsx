@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import Icon from '../brand/Icon';
 import { getPost, schedulePost, setPostReview, markPublished, deletePost } from '../api/posts';
@@ -275,9 +275,62 @@ export function MonthDayMenu({
   return (
     <>
       {!askRemove && <div className="pe-menu__scrim" onClick={onClose} />}
-      {!askRemove && <div className="pe-menu yw-mday__menu">{body}</div>}
+      {!askRemove && <PlacedMenu>{body}</PlacedMenu>}
       {confirm}
     </>
+  );
+}
+
+/* The popover beside the day cell opens DOWN from the cell's top when the
+   window has room for it, else UP from the cell's bottom; when neither side
+   fits it slides to stay inside the window (and scrolls past its height).
+   Re-measured whenever its size changes — the peek arrives after the post
+   is fetched, and the Status / Shift levels are shorter or taller. */
+const EDGE = 8;
+function PlacedMenu({ children }) {
+  const ref = useRef(null);
+  const [place, setPlace] = useState({ top: 0, up: false, max: null });
+  useLayoutEffect(() => {
+    const el = ref.current;
+    const cell = el?.offsetParent || el?.parentElement;
+    if (!el || !cell || typeof window === 'undefined') return undefined;
+    const measure = () => {
+      const vh = window.innerHeight;
+      const c = cell.getBoundingClientRect();
+      const h = el.scrollHeight;
+      const room = vh - 2 * EDGE;
+      let top = 0;
+      let up = false;
+      if (c.top + h <= vh - EDGE) top = 0;
+      else if (c.bottom - h >= EDGE) { top = c.height - h; up = true; }
+      else {
+        // neither side has the room: keep it on screen, pinned to the nearer edge
+        top = Math.max(EDGE - c.top, Math.min(0, vh - EDGE - h - c.top));
+        up = top < 0;
+      }
+      const max = h > room ? room : null;
+      if (max) top = EDGE - c.top;
+      setPlace((was) => (was.top === top && was.up === up && was.max === max ? was : { top, up, max }));
+    };
+    measure();
+    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(measure) : null;
+    ro?.observe(el);
+    window.addEventListener('resize', measure);
+    window.addEventListener('scroll', measure, true);
+    return () => {
+      ro?.disconnect();
+      window.removeEventListener('resize', measure);
+      window.removeEventListener('scroll', measure, true);
+    };
+  }, []);
+  return (
+    <div
+      ref={ref}
+      className={`pe-menu yw-mday__menu${place.up ? ' is-up' : ''}`}
+      style={{ top: `${place.top}px`, ...(place.max ? { maxHeight: `${place.max}px`, overflowY: 'auto' } : {}) }}
+    >
+      {children}
+    </div>
   );
 }
 
