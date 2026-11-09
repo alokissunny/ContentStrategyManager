@@ -681,8 +681,10 @@ export default function EditorMore({ acts, onClose, startLevel = null, toolbar =
           onClose={onClose}
           rows={[
             ...backRow('Image', 'content'),
-            { id: 'imglib', icon: 'image', label: 'Choose from library', hint: 'The project’s own photographs', fn: () => acts.onImageLibrary?.(), stay: true },
-            { id: 'imgup', icon: 'upload', label: 'Upload an image', hint: 'A file from this device', dead: acts.uploading, fn: () => imgFile.current?.click(), into: true },
+            { id: 'imgup', icon: 'upload', label: 'Upload a photo', hint: 'Use your own image', dead: acts.uploading, fn: () => imgFile.current?.click(), into: true },
+            { id: 'imglib', icon: 'image', label: 'Choose from library', hint: 'Images you can use', fn: () => acts.onImageLibrary?.(), stay: true },
+            // bauhly-v3 (Nov 2): "Move Background into the Image submenu"
+            { id: 'imgbg', icon: 'image', label: 'Background', hint: 'The ground behind it', fn: () => setLevel('background'), into: true, chevron: true },
             ...(acts.onAdjust ? [{ id: 'imgedit', icon: 'crop', label: 'Adjust the photo', hint: 'Crop, straighten and tune it', fn: () => acts.onAdjust() }] : []),
           ]}
         />
@@ -787,11 +789,38 @@ export default function EditorMore({ acts, onClose, startLevel = null, toolbar =
       </>
     );
   }
+  /* the `+`'s Logo (bauhly-v3 ADD_LOGO, Nov 2): the two places a mark can
+     come FROM — a new file (kept in the Brand Kit), or the kit's own */
+  if (level === 'addlogo') {
+    const logos = acts.logos || [];
+    return (
+      <>
+        <FilePick inputRef={logoFile} onFile={(f) => { acts.onUploadLogo?.(f); onClose(); }} />
+        <Rows
+          onClose={onClose}
+          rows={[
+            ...backRow('Logo', 'add'),
+            { id: 'logonew', icon: 'upload', label: 'Add new logo', hint: 'Saved to your kit, and on this slide', dead: acts.uploading, fn: () => logoFile.current?.click(), into: true },
+            {
+              id: 'logokit',
+              icon: 'swatch',
+              label: 'Use logo from Brand Kit',
+              hint: logos.length ? 'Placed where this composition has room' : 'No logo in your Brand Kit yet',
+              dead: !logos.length,
+              ...(logos.length > 1
+                ? { fn: () => setLevel('logopick'), into: true, chevron: true }
+                : { fn: () => acts.onLogo?.('') }),
+            },
+          ]}
+        />
+      </>
+    );
+  }
   if (level === 'logopick') {
     const wears = acts.logoMark || '';
     return (
       <>
-        <Rows onClose={onClose} rows={backRow('Replace logo', 'logo')} />
+        <Rows onClose={onClose} rows={backRow(trail.current[trail.current.length - 1] === 'addlogo' ? 'Use logo from Brand Kit' : 'Replace logo', 'logo')} />
         <div className="wv-em__grid" role="radiogroup" aria-label="Your marks">
           {(acts.logos || []).map((l) => (
             <button
@@ -838,7 +867,7 @@ export default function EditorMore({ acts, onClose, startLevel = null, toolbar =
       <Rows
         onClose={onClose}
         rows={[
-          ...backRow('Slide'),
+          ...backRow(toolbar ? 'Add a slide' : 'Slide'),
           { id: 'before', icon: 'arrow-left', label: 'Add before', hint: 'A new slide before this one', fn: acts.onAddBefore },
           { id: 'after', icon: 'arrow-right', label: 'Add after', hint: 'A new slide after this one', fn: acts.onAddAfter },
           ...(many && !toolbar ? [
@@ -886,9 +915,10 @@ export default function EditorMore({ acts, onClose, startLevel = null, toolbar =
         onClose={onClose}
         rows={[
           ...backRow('Add element'),
+          // bauhly-v3 ADD_ELEMENTS (Nov 2–4): Background moved into Image, and
+          // Logo opens its own two rows (a new mark, or the kit's)
           { id: 'image', icon: 'image-plus', label: 'Image', hint: 'A photograph on this slide', fn: () => setLevel('image'), into: true, chevron: true },
-          { id: 'background', icon: 'image', label: 'Background', hint: 'The ground behind it', fn: () => setLevel('background'), into: true, chevron: true },
-          { id: 'logo', icon: 'pin', label: 'Logo', hint: 'Your mark on this slide', fn: () => setLevel('logo'), into: true, chevron: true },
+          { id: 'logo', icon: 'pin', label: 'Logo', hint: 'Your mark on this slide', fn: () => setLevel('addlogo'), into: true, chevron: true },
           { id: 'slide', icon: 'plus', label: 'Add a slide', hint: 'Before or after this one', fn: () => setLevel('slide'), into: true, chevron: true },
         ]}
       />
