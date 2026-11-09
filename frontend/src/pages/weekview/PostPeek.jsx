@@ -275,8 +275,14 @@ export function DayPeek({ day, feed = false, phone = false, lifted = false, lift
     const own = (Number(sl?.colorSetAt) || 0) >= kitDefaultAt ? String(sl?.colorSet || '') : '';
     const id = own === 'original' ? ''
       : (own || (isThemedPicture(sl) ? '' : kitDefault));
-    const p = (id && kitSets.find((t) => t.id === id)?.palette) || null;
-    if (!p) return null;
+    const raw = (id && kitSets.find((t) => t.id === id)?.palette) || null;
+    if (!raw) return null;
+    // Swap colours (Editor › Colours): the three moved round `colorSwap` places
+    const turn = ((Number(sl?.colorSwap) || 0) % 3 + 3) % 3;
+    const three = [raw.ground, raw.fg, raw.accent];
+    const p = turn && three.every(Boolean)
+      ? { ground: three[turn % 3], fg: three[(1 + turn) % 3], accent: three[(2 + turn) % 3] }
+      : raw;
     const out = {};
     if (p.ground) out['--t-ground-bg'] = p.ground;
     if (p.fg) out['--t-ground-fg'] = p.fg;

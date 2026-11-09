@@ -825,6 +825,7 @@ function mergeSlides(incomingSlides, prevSlides) {
       role: String(s.role || ''),
       colorSet: String(s.colorSet ?? p.colorSet ?? ''),
       colorSetAt: Number(s.colorSetAt ?? p.colorSetAt ?? 0) || 0,
+      colorSwap: (Number(s.colorSwap ?? p.colorSwap ?? 0) || 0) % 3,
       themeRegions: s.themeRegions ?? p.themeRegions ?? null,
       ground: String(s.ground ?? p.ground ?? ''),
       logoMark: String(s.logoMark ?? p.logoMark ?? ''),
@@ -1858,7 +1859,7 @@ const THEME_JOB_INTERRUPTED = 'The server restarted while theming these slides (
 // restarted mid-request: "Network Error"), so one at a time unless set.
 const THEME_IMAGE_CONCURRENCY = Math.max(1, Number(process.env.THEME_IMAGE_CONCURRENCY) || 1);
 const COPY_FIELDS = ['role', 'title', 'subtitle', 'body', 'items', 'itemsA', 'itemsB', 'stat', 'quote', 'action',
-  'comparisonA', 'comparisonB', 'labels', 'colorSet', 'colorSetAt', 'ground', 'logoMark', 'annotation', 'visualNeed'];
+  'comparisonA', 'comparisonB', 'labels', 'colorSet', 'colorSetAt', 'colorSwap', 'ground', 'logoMark', 'annotation', 'visualNeed'];
 
 // A slide the Theme Apply agent painted (its section is `themed-image[-sN]`).
 // (the section alone is not enough: it must carry its render — a slide added

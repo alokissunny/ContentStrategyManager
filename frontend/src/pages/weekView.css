@@ -10166,3 +10166,20 @@ i.shotedit__aa { font-style: italic; font-family: Georgia, serif; }
    shrinks to make room): caption + discs (84) + gap + a 4:5 card at 108 wide */
 .wv-edm__body.has-tools.is-laying { --edm-tools-h: 264px; }
 .wv-edm__body.has-tools > .wv-edm__stage { transition: margin-bottom var(--dur-base, 240ms) var(--ease-out); }
+
+/* Editor › Colours (bauhly-v3 PostMenu `colour`): the menu's own heading, and
+   only the list of sets scrolls — the three acts under the rule stay put */
+.wv-em__menuhead {
+  display: block;
+  padding: 10px 12px 6px;
+  font: 600 var(--text-sm, 14px)/1.3 var(--font-ui);
+  color: var(--ink-900);
+}
+.wv-em__scroll {
+  display: flex;
+  flex-direction: column;
+  flex: 0 1 auto;
+  min-height: 0;
+  max-height: min(240px, 34vh);
+  overflow-y: auto;
+}

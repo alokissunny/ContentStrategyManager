@@ -1417,6 +1417,7 @@ function slideRecord(s, extra = {}) {
     role: s.role || '',
     colorSet: s.colorSet || '',
     colorSetAt: Number(s.colorSetAt) || 0,
+    colorSwap: Number(s.colorSwap) || 0,
     // a Theme Apply render's click regions travel with its picture key
     ...(s.themeRegions ? { themeRegions: s.themeRegions } : {}),
     ground: s.ground || '',
@@ -3945,7 +3946,17 @@ export default function WeekView({
       if (groundImg) return { paint: { ...igVars, '--t-ground-image': groundImg, '--wv-ground-img': groundImg }, themed: 'ground' };
       return { paint: igVars, themed: hasVisualEdits };
     }
-    const p = set.palette || {};
+    const raw = set.palette || {};
+    // Swap colours: the same three, in other places — ground → ink → accent
+    // move round by the slide's own `colorSwap` (0–2)
+    const turn = ((Number(slide?.colorSwap) || 0) % 3 + 3) % 3;
+    const p = (() => {
+      if (!turn) return raw;
+      const three = [raw.ground, raw.fg || (raw.ground ? readableInkOn(raw.ground) : ''), raw.accent];
+      if (three.some((c) => !c)) return raw;
+      const at = (k) => three[(k + turn) % 3];
+      return { ...raw, ground: at(0), fg: at(1), accent: at(2) };
+    })();
     // the set's ground colour is the point — the Brand Kit's background texture
     // would paint over it (it did: `bg-offwhite.svg` hid it entirely), so only a
     // background this slide was given of its own is laid over the slide
@@ -3956,6 +3967,11 @@ export default function WeekView({
     if (p.ground) { colours['--t-ground-bg'] = p.ground; colours['--wv-neutral'] = p.ground; }
     if (ink) { colours['--t-ground-fg'] = ink; colours['--wv-primary'] = ink; }
     if (p.accent) { colours['--t-accent-bg'] = p.accent; colours['--wv-accent'] = p.accent; }
+    // a set the studio chose for this slide (Editor › Colours, Swap colours)
+    // is also painted on a slide drawn from the carousel document, which
+    // otherwise keeps the agent's own colours (DynamicLayout's document path)
+    const own = String(slide?.colorSet || '');
+    if (own && own !== 'original' && (Number(slide?.colorSetAt) || 0) >= kitDefaultAt) colours['--wv-set-own'] = '1';
     // 'colours' = repaint the palette only; the slide keeps its own typefaces
     return { paint: { ...baseVars, ...colours }, themed: 'colours' };
   };
@@ -7120,7 +7136,7 @@ export default function WeekView({
   // This slide only puts the others back (the snapshot).
   const [copySnap, setCopySnap] = useState(null);
   useEffect(() => { setCopySnap(null); }, [selected, route?._id]);
-  const DRESS = ['colorSet', 'colorSetAt', 'ground', 'logoMark'];
+  const DRESS = ['colorSet', 'colorSetAt', 'colorSwap', 'ground', 'logoMark'];
   const dressOf = (sl) => Object.fromEntries(DRESS.map((k) => [k, sl?.[k] || '']));
   const isDressed = (sl) => DRESS.some((k) => Boolean(sl?.[k]));
 
@@ -7156,11 +7172,21 @@ export default function WeekView({
         }
         return sl;
       }
-      return { ...sl, colorSet: setId || 'original', colorSetAt: at };
+      return { ...sl, colorSet: setId || 'original', colorSetAt: at, colorSwap: 0 };
     });
     if (next.some((sl, i) => sl !== base[i])) replaceSlides(next);
     setCopySnap(null);
     if (held) { setAskPath([]); setAskMsg(null); setAskOpen(true); }
+  }
+  // Swap colours: the slide keeps its set (pinned, so it holds) and its
+  // three colours move round one place
+  function swapColours(every) {
+    const at = Date.now();
+    dressSlides(every, (sl) => {
+      const setId = setIdOf(sl);
+      if (!setId || isThemedPicture(sl)) return {};
+      return { colorSet: setId, colorSetAt: Math.max(Number(sl.colorSetAt) || 0, at), colorSwap: ((Number(sl.colorSwap) || 0) + 1) % 3 };
+    });
   }
   // Create a colour set: saved to the Brand Kit (libraryEdits.themes) and used
   function addKitColourSet(hex) {
@@ -7251,7 +7277,7 @@ export default function WeekView({
       setElemEdits(nextEdits);
       elemApiRef.current?.setPatches({});
     }
-    dressSlides(every, { colorSet: '', colorSetAt: 0, ground: '', logoMark: '' });
+    dressSlides(every, { colorSet: '', colorSetAt: 0, colorSwap: 0, ground: '', logoMark: '' });
   }
   // Slide › Add before / Add after goes through Capture (bauhly-v3
   // `captureForSlide`): Capture asks what the new slide is about and files the
@@ -7748,6 +7774,7 @@ export default function WeekView({
     // an unset slide follows the Brand Kit's default set
     onColour: (setId, every) => colourSlides(every, () => setId),
     onStoryColour: applyStoryColours,
+    onSwapColours: swapColours,
     onNewSet: addKitColourSet,
     onImageLibrary: () => openImagePicker(),
     onUploadImage: (file) => askUploadImage(file),

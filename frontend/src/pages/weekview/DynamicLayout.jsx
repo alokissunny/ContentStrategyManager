@@ -531,6 +531,12 @@ export default function DynamicLayout({
       // field's `+`) is still laid behind the slide's content — the colours
       // stay the agent's, but without this the choice was saved and never seen
       const ground = nextPaint?.['--t-ground-image'];
+      // …except a colour set the studio picked for this slide in the Editor
+      // (`--wv-set-own`, WeekView paintColoursFor): its palette (and any
+      // background) is painted onto the carousel's colour roles
+      if (themed === 'colours' && nextPaint?.['--wv-set-own']) {
+        return withFonts(applyThemeToCarouselDocument(doc, { themed: 'colours', paint: nextPaint }));
+      }
       return withFonts(ground
         ? applyThemeToCarouselDocument(doc, { themed: 'ground', paint: { '--t-ground-image': ground } })
         : doc);

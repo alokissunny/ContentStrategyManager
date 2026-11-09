@@ -512,47 +512,58 @@ export default function EditorMore({ acts, onClose, startLevel = null, toolbar =
     );
   }
 
-  /* ── Colours ────────────────────────────────────────────────────────── */
+  /* ── Colours (bauhly-v3 PostMenu `colour`, Nov 2–3) ────────────────────
+   * "Colour palette": the Brand Kit sets, and a press IS the act — the slide
+   * in front of the studio is repainted under the open menu and the tick
+   * moves (no Generate button). Only the sets scroll; under a rule stand the
+   * three other answers: Swap colours · Create a colour set · Bauhly decides.
+   * On a Theme Apply picture the set is redrawn by the image model, so it is
+   * held in the chat's changes and sent from there (see `onColour`). */
   if (level === 'colour') {
     const sets = acts.sets || [];
-    /* bauhly-v3 PostMenu `colour` (Sep 28): a press MARKS a set (the tick
-       starts on the one the slide wears), and `Generate colours` applies it —
-       asking This slide / All slides on a carousel. On a Theme Apply picture
-       the set is redrawn by the image model, so it is held in the chat's
-       changes and sent from there (see `onColour` in WeekView). */
     const now = acts.setId || '';
-    const marked = typeof setPick === 'string' ? setPick : now;
-    const goSet = () => {
-      if (typeof setPick !== 'string' || setPick === now) return;
-      if (!many) { acts.onColour?.(setPick, false); setSetPick(null); onClose(); return; }
-      setLevel('colour-reach');
-    };
     return (
       <>
+        {toolbar && level === startLevel && !trail.current.length
+          ? <span className="wv-em__menuhead">Colour palette</span>
+          : <Rows onClose={onClose} rows={backRow('Colour palette', 'style')} />}
+        <div className="wv-em__scroll">
+          <Rows
+            onClose={onClose}
+            rows={[
+              ...sets.map((one) => ({
+                id: `set-${one.id}`,
+                swatches: one.swatches,
+                label: one.name,
+                badge: now === one.id ? 'Current' : null,
+                on: now === one.id,
+                fn: () => { if (now !== one.id) acts.onColour?.(one.id, false); },
+                into: true,
+              })),
+              ...(now && !acts.slideThemed ? [{
+                id: 'original',
+                icon: 'undo',
+                label: 'Original colours',
+                hint: 'The colours this carousel was made in',
+                fn: () => acts.onColour?.('', false),
+                into: true,
+              }] : []),
+            ]}
+          />
+        </div>
         <Rows
           onClose={onClose}
           rows={[
-            ...backRow('Theme colour', 'style'),
-            ...sets.map((one) => ({
-              id: `set-${one.id}`,
-              swatches: one.swatches,
-              label: one.name,
-              hint: acts.defaultSetId === one.id ? 'Your Brand Kit default' : undefined,
-              badge: now === one.id ? 'Current' : null,
-              on: marked === one.id,
-              fn: () => setSetPick(setPick === one.id ? null : one.id),
-              into: true,
-            })),
-            ...(now && !acts.slideThemed ? [{
-              id: 'original',
-              icon: 'undo',
-              label: 'Original colours',
-              hint: 'The colours this carousel was made in',
-              on: setPick === '',
-              fn: () => setSetPick(setPick === '' ? null : ''),
-              into: true,
-            }] : []),
             { id: 'r-more', rule: true },
+            ...(acts.onSwapColours && now && !acts.slideThemed ? [{
+              id: 'colourswap',
+              icon: 'refresh',
+              label: 'Swap colours',
+              hint: 'The same three, in other places',
+              fn: () => setLevel('colour-swap'),
+              into: true,
+              chevron: true,
+            }] : []),
             {
               id: 'colournew',
               icon: 'plus',
@@ -566,7 +577,7 @@ export default function EditorMore({ acts, onClose, startLevel = null, toolbar =
             ...(many && sets.length > 1 ? [{
               id: 'colourstory',
               icon: 'sparkle',
-              label: 'Let the story decide',
+              label: 'Bauhly decides',
               hint: 'One set per beat',
               fn: () => { setSetPick({ story: sets.map((x) => x.id) }); setLevel('colour-reach'); },
               into: true,
@@ -574,18 +585,33 @@ export default function EditorMore({ acts, onClose, startLevel = null, toolbar =
             }] : []),
           ]}
         />
-        <div className="wv-em__go">
-          <button
-            type="button"
-            className="wv-em__gobtn"
-            disabled={typeof setPick !== 'string' || setPick === now}
-            onClick={(e) => { e.stopPropagation(); goSet(); }}
-          >
-            <Icon name="sparkle" size={16} strokeWidth={2.2} />
-            Generate colours
-          </button>
-        </div>
       </>
+    );
+  }
+  if (level === 'colour-swap') {
+    return (
+      <Rows
+        onClose={onClose}
+        rows={[
+          ...backRow('Swap colours', 'colour'),
+          {
+            id: 'swapone',
+            icon: 'brief',
+            label: many ? 'Swap colours on this slide' : 'Swap colours',
+            hint: 'The ground, the ink and the accent move round',
+            fn: () => acts.onSwapColours?.(false),
+            into: true,
+          },
+          ...(many ? [{
+            id: 'swapall',
+            icon: 'copy',
+            label: 'Swap colours on all slides',
+            hint: 'Every slide turns its three the same way',
+            fn: () => acts.onSwapColours?.(true),
+            into: true,
+          }] : []),
+        ]}
+      />
     );
   }
   if (level === 'colour-reach') {
@@ -599,7 +625,7 @@ export default function EditorMore({ acts, onClose, startLevel = null, toolbar =
       <Rows
         onClose={onClose}
         rows={[
-          ...backRow(story ? 'Let the story decide' : 'Apply the colours', 'colour'),
+          ...backRow(story ? 'Bauhly decides' : 'Apply the colours', 'colour'),
           ...reach(put, story
             ? { one: 'The colour the story gives this beat', all: 'A colour per beat, across the arc' }
             : { one: 'The others keep theirs', all: 'The whole carousel wears it' }),
