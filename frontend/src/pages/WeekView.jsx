@@ -7136,9 +7136,188 @@ export default function WeekView({
   // This slide only puts the others back (the snapshot).
   const [copySnap, setCopySnap] = useState(null);
   useEffect(() => { setCopySnap(null); }, [selected, route?._id]);
+  // More › Copy settings / Paste settings (bauhly-v3 clipboard, Nov 2–3):
+  // { at (slide index), ids (COPY_KINDS ids), values (slide fields), say }
+  const [clip, setClip] = useState(null);
+  useEffect(() => { setClip(null); }, [selected, route?._id]);
+  // More › Remove slide › Remove & connect: once the frame is gone (and its
+  // removal saved), the frame before it is asked to carry its words
+  const [pendingJoin, setPendingJoin] = useState(null);
+  useEffect(() => {
+    if (!pendingJoin) return;
+    if (pendingJoin.dayIndex !== selected) { setPendingJoin(null); return; }
+    if (safeIdx !== pendingJoin.at || saving || askBusy) return;
+    const { words } = pendingJoin;
+    setPendingJoin(null);
+    sendAsk(false, {
+      instruction: `The slide that came after this one was removed from the carousel. Carry its words onto this slide so the story runs on without it: add them after this slide's own text, word for word — do not rewrite, shorten or add to them — and keep everything readable with no overlaps. The words, one line per text element:\n${words}`,
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingJoin, safeIdx, saving, askBusy, selected]);
   const DRESS = ['colorSet', 'colorSetAt', 'colorSwap', 'ground', 'logoMark'];
   const dressOf = (sl) => Object.fromEntries(DRESS.map((k) => [k, sl?.[k] || '']));
   const isDressed = (sl) => DRESS.some((k) => Boolean(sl?.[k]));
+
+  const CLIP_FIELDS = { colour: ['colorSet', 'colorSetAt', 'colorSwap'], ground: ['ground'], logo: ['logoMark'] };
+  const CLIP_SAY = { text: 'Text styles', colour: 'Colours', ground: 'Background', logo: 'Logo' };
+  // what this slide SHOWS, not only what was changed on it: the colour set
+  // it is drawn in (its own pick or the Brand Kit default), its background
+  // (a chosen one, or the carousel's own) and its logo (when the kit has one)
+  const clipAbleOf = (sl) => ({
+    // a Theme Apply picture has no live text to read a style from
+    text: Boolean(sl) && !isThemedPicture(sl) && !isBlankSlide(sl),
+    colour: !isThemedPicture(sl) && (Boolean(setIdOf(sl)) || sl?.colorSet === 'original'),
+    ground: Boolean(sl) && !isThemedPicture(sl),
+    logo: kitLogos.length > 0 || Boolean(sl?.logoMark),
+  });
+  function copySettings(ids) {
+    const sl = activeSlide;
+    if (!sl || !ids?.length) return;
+    const values = {};
+    ids.forEach((id) => (CLIP_FIELDS[id] || []).forEach((f) => { values[f] = sl[f] ?? ''; }));
+    // the colours as drawn: a slide on the Brand Kit default copies that set,
+    // pinned as a pick made now, so it holds on the slides it is pasted to
+    if (ids.includes('colour')) {
+      values.colorSet = setIdOf(sl) || 'original';
+      values.colorSetAt = Date.now();
+      values.colorSwap = Number(sl.colorSwap) || 0;
+    }
+    if (ids.includes('text')) {
+      const styles = readTextStyles();
+      if (styles && Object.keys(styles).length) values.textStyles = styles;
+      else ids = ids.filter((id) => id !== 'text');
+      if (!ids.length) return;
+    }
+    const names = ids.map((id) => CLIP_SAY[id]).filter(Boolean);
+    const say = names.length === 1 ? names[0] : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
+    setClip({ at: safeIdx, ids, values, say });
+  }
+  /* Copy settings › Text styles: every text part of the slide (by its
+     data-slot — eyebrow, title, subtitle, body…; by tag where it has none),
+     read as the editor draws it. A post's slides share one canvas, so the
+     size travels in px; line height and letter spacing relative to it. */
+  const TEXT_PROPS = ['font-family', 'font-weight', 'font-style', 'text-transform', 'text-align', 'color', 'text-decoration-line', 'font-variant-caps'];
+  const textKeyOf = (el) => {
+    const slot = el.getAttribute('data-slot');
+    if (slot) return `slot:${slot}`;
+    const tag = el.tagName.toLowerCase();
+    return /^(h[1-6]|p|li|blockquote|figcaption)$/.test(tag) ? `tag:${tag}` : '';
+  };
+  const textPartsOf = (root) => [...root.querySelectorAll('[data-slot], h1, h2, h3, h4, h5, h6, p, li, blockquote, figcaption')]
+    .filter((el) => !el.closest('[data-wv-edit-ui]'))
+    .filter((el) => {
+      const key = textKeyOf(el);
+      if (!key || key === 'slot:image' || /^slot:(photo|picture|logo|art)/.test(key)) return false;
+      // the outermost part only: a span inside a title is the title's
+      if (el.parentElement?.closest('[data-slot]') && el.parentElement.closest('[data-slot]') !== el) return false;
+      return Boolean((el.textContent || '').trim());
+    });
+  function readTextStyles() {
+    const sl = activeSlide;
+    const frame = layoutFrameRef.current;
+    if (!sl || !frame) return null;
+    const idx = Number(sl.index) > 0 ? Number(sl.index) : safeIdx + 1;
+    const root = slideRootOf(frame, { direction: layoutDirectionOf(sl), index: idx });
+    const win = root?.ownerDocument?.defaultView;
+    if (!root || !win) return null;
+    const out = {};
+    textPartsOf(root).forEach((el) => {
+      const key = textKeyOf(el);
+      if (out[key]) return;
+      const cs = win.getComputedStyle(el);
+      const size = parseFloat(cs.fontSize) || 0;
+      if (!size) return;
+      const lh = parseFloat(cs.lineHeight);
+      const ls = parseFloat(cs.letterSpacing);
+      const style = { size };
+      TEXT_PROPS.forEach((p) => { style[p] = cs.getPropertyValue(p); });
+      style.lineHeight = Number.isFinite(lh) ? lh / size : null;
+      style.letterSpacing = Number.isFinite(ls) ? ls / size : 0;
+      out[key] = style;
+    });
+    return out;
+  }
+  // the copied styles written inline onto every matching text part of a
+  // slide's html (the carousel document's article, or the slide's own html)
+  function withTextStyles(html, styles, findRoot, isDocument) {
+    if (!html || typeof DOMParser === 'undefined') return html;
+    const d = new DOMParser().parseFromString(html, 'text/html');
+    const root = findRoot(d);
+    if (!root) return html;
+    let touched = false;
+    textPartsOf(root).forEach((el) => {
+      const st = styles[textKeyOf(el)];
+      if (!st) return;
+      el.style.setProperty('font-size', `${Math.round(st.size * 10) / 10}px`);
+      TEXT_PROPS.forEach((p) => { if (st[p]) el.style.setProperty(p, st[p]); });
+      el.style.setProperty('line-height', st.lineHeight ? String(Math.round(st.lineHeight * 1000) / 1000) : 'normal');
+      el.style.setProperty('letter-spacing', `${Math.round((st.letterSpacing || 0) * 1000) / 1000}em`);
+      touched = true;
+    });
+    return touched ? replaceSlideArticle(html, root.outerHTML, findRoot, { isDocument }) : html;
+  }
+  function pasteSettings(every) {
+    if (!clip || !day) return;
+    const { textStyles, ...dress } = clip.values;
+    const flushed = flushElemEdits();
+    const base = flushed?.slides || deriveSlides(day);
+    let docHtml = flushed?.docHtml ?? carouselDocumentOf(day);
+    const hasDoc = isCarouselDocument(docHtml);
+    let docChanged = false;
+    const next = base.map((sl, i) => {
+      if (!(every || i === safeIdx)) return sl;
+      let out = sl;
+      if (Object.keys(dress).length) {
+        out = { ...out, ...(isThemedPicture(sl) && dress.colorSet ? { ...dress, colorSet: sl.colorSet, colorSetAt: sl.colorSetAt, colorSwap: sl.colorSwap } : dress) };
+      }
+      if (textStyles && !isThemedPicture(sl) && !isBlankSlide(sl)) {
+        const idx = Number(sl.index) > 0 ? Number(sl.index) : i + 1;
+        const findRoot = (d) => findCarouselSlide(d, layoutDirectionOf(sl), idx) || d.querySelector('article.slide, .slide, article');
+        if (hasDoc && slideIsThemed(sl)) {
+          const html = withTextStyles(docHtml, textStyles, findRoot, true);
+          if (html !== docHtml) { docHtml = html; docChanged = true; }
+        } else if (sl.layoutHtml) {
+          const html = withTextStyles(sl.layoutHtml, textStyles, findRoot, false);
+          if (html !== sl.layoutHtml) out = { ...out, layoutHtml: html };
+        }
+      }
+      return out;
+    });
+    replaceSlides(next, docChanged ? { extra: { carouselHtml: docHtml } } : {});
+    setCopySnap(null);
+  }
+  // the words a slide shows — what Remove & connect carries to the frame before
+  function slideWordsAt(i) {
+    const base = deriveSlides(day);
+    const sl = base[i];
+    if (!sl) return '';
+    const doc = carouselDocumentOf(day);
+    const inDoc = isCarouselDocument(doc) && slideIsThemed(sl);
+    const src = inDoc ? doc : (sl.layoutHtml || '');
+    if (!src || typeof DOMParser === 'undefined') return [sl.title, sl.subtitle].filter(Boolean).join(' ');
+    const d = new DOMParser().parseFromString(src, 'text/html');
+    const idx = Number(sl.index) > 0 ? Number(sl.index) : i + 1;
+    const root = (inDoc ? findCarouselSlide(d, layoutDirectionOf(sl), idx) : null) || d.querySelector('article.slide, .slide, article') || d.body;
+    if (!root) return '';
+    root.querySelectorAll('style, script, img, svg, picture, [data-wv-edit-ui]').forEach((n) => n.remove());
+    const READ = ['eyebrow', 'title', 'subtitle', 'supporting-text', 'body', 'item', 'quote', 'stat', 'action'];
+    const slots = [...root.querySelectorAll('[data-slot]')]
+      .filter((el) => READ.includes(el.getAttribute('data-slot')) && !el.parentElement?.closest('[data-slot]'));
+    const parts = (slots.length ? slots : [root]).map((el) => (el.textContent || '').replace(/\s+/g, ' ').trim()).filter(Boolean);
+    return parts.join('\n');
+  }
+  function joinSlide() {
+    const i = safeIdx;
+    if (i < 1 || slides.length < 2) return;
+    const words = slideWordsAt(i);
+    if (!words) return;
+    const flushed = flushElemEdits();
+    removeSlide(i, flushed?.slides || null);
+    setSlideIdx(i - 1);
+    setPendingJoin({ at: i - 1, words, dayIndex: selected });
+    closeZone();
+    setEdTool(null);
+  }
 
   function dressSlides(every, patch) {
     if (!day) return;
@@ -7797,6 +7976,15 @@ export default function WeekView({
     canResetSlide: isDressed(activeSlide) || pendingPatchesAt(safeIdx),
     onReset: (every) => setAskRemove({ kind: 'edits', i: safeIdx, every: Boolean(every), n: slides.length }),
     onRemoveSlide: () => setAskRemove({ kind: 'slide', i: safeIdx, n: slides.length }),
+    // More › Copy / Paste settings and Remove & connect (bauhly-v3, Nov 2–3)
+    clipAble: clipAbleOf(activeSlide),
+    clip,
+    slideAt: safeIdx,
+    onCopySettings: copySettings,
+    onPasteSettings: pasteSettings,
+    canJoin: safeIdx > 0 && slides.length > 1 && !isThemedPicture(slides[safeIdx - 1]),
+    joinWhy: safeIdx < 1 ? 'The first slide has no frame before it' : (isThemedPicture(slides[safeIdx - 1]) ? 'The frame before it is a picture' : ''),
+    onJoinSlide: joinSlide,
   };
   const editMenuEl = (
     <>

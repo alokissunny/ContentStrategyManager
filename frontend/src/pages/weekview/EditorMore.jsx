@@ -18,6 +18,15 @@ import Icon from '../../brand/Icon';
 import HtmlThemeThumb from './HtmlThemeThumb';
 import { COLOUR_ROLES, DEFAULT_PALETTE } from '../../lib/identity';
 
+/* what Copy settings can carry between slides (bauhly-v3 COPY_KINDS, cut to
+   the dressing a slide here keeps of its own) */
+export const COPY_KINDS = [
+  { id: 'text', icon: 'type', label: 'Text styles', hint: 'Font, size, weight, spacing and colour of each text part' },
+  { id: 'colour', icon: 'droplet', label: 'Colours', hint: 'The set this slide is drawn in' },
+  { id: 'ground', icon: 'image', label: 'Background', hint: 'The ground behind it' },
+  { id: 'logo', icon: 'pin', label: 'Logo', hint: 'Your mark on this slide' },
+];
+
 export function Rows({ rows, onClose }) {
   return rows.map((r) => (r.rule ? (
     <span key={r.id} className="wv-em__rule" role="separator" />
@@ -90,6 +99,8 @@ export default function EditorMore({ acts, onClose, startLevel = null, toolbar =
   const many = n > 1;
   // the colour set / background pressed and waiting for its reach
   const [setPick, setSetPick] = useState(null);
+  // Copy settings › the kinds ticked (null = all this slide has)
+  const [copySel, setCopySel] = useState(null);
   const [bgPick, setBgPick] = useState(false);
   // the direction marked in the theme library, before it is generated
   const [thmPick, setThmPick] = useState(null);
@@ -888,6 +899,78 @@ export default function EditorMore({ acts, onClose, startLevel = null, toolbar =
   }
 
   /* ── Remove all edits ───────────────────────────────────────────────── */
+  /* Copy settings › the checklist (bauhly-v3 `copyset`): every kind this
+     slide has changed, ticked; the button copies the ticked ones */
+  if (level === 'copyset') {
+    const mine = COPY_KINDS.filter((k) => acts.clipAble?.[k.id]);
+    const sel = copySel ?? mine.map((k) => k.id);
+    const take = (id) => setCopySel(sel.includes(id) ? sel.filter((x) => x !== id) : [...sel, id]);
+    return (
+      <>
+        <Rows
+          onClose={onClose}
+          rows={[
+            ...backRow('Copy settings'),
+            ...mine.map((k) => ({ id: `copy-${k.id}`, icon: k.icon, label: k.label, hint: k.hint, on: sel.includes(k.id), into: true, fn: () => take(k.id) })),
+          ]}
+        />
+        <div className="wv-em__go">
+          <button
+            type="button"
+            className="wv-em__gobtn"
+            disabled={!sel.length}
+            onClick={(e) => {
+              e.stopPropagation();
+              acts.onCopySettings?.(sel);
+              setCopySel(null);
+              if (trail.current.length) setLevelNow(trail.current.pop());
+              else onClose();
+            }}
+          >
+            <Icon name="copy" size={16} strokeWidth={2.2} />
+            {sel.length === 1 ? 'Copy 1 setting' : `Copy ${sel.length} settings`}
+          </button>
+        </div>
+      </>
+    );
+  }
+  if (level === 'pasteset') {
+    const c = acts.clip;
+    const k = (c?.ids || []).length;
+    const say = k === 1 ? 'The one setting you copied' : `The ${k} settings you copied`;
+    return (
+      <Rows
+        onClose={onClose}
+        rows={[
+          ...backRow('Paste settings'),
+          { id: 'pasteone', icon: 'brief', label: 'Paste to this slide', hint: say, fn: () => acts.onPasteSettings?.(false) },
+          ...(many ? [{ id: 'pasteall', icon: 'copy', label: 'Paste to all slides', hint: 'Every frame in the carousel takes them', fn: () => acts.onPasteSettings?.(true) }] : []),
+        ]}
+      />
+    );
+  }
+  /* Remove slide (bauhly-v3 `remove`, Nov 2): take the frame out alone, or
+     take it out and carry its words onto the frame before it */
+  if (level === 'remove') {
+    return (
+      <Rows
+        onClose={onClose}
+        rows={[
+          ...backRow('Remove slide'),
+          { id: 'rmonly', icon: 'trash', label: 'Remove slide', hint: 'The frames either side are left as they are', fn: acts.onRemoveSlide, bad: true },
+          {
+            id: 'rmjoin',
+            icon: 'layers',
+            label: 'Remove & connect slides',
+            hint: acts.canJoin ? 'Its words move to the frame before it, so the story runs on' : (acts.joinWhy || 'This frame has no words to carry over'),
+            dead: !acts.canJoin,
+            fn: acts.onJoinSlide,
+            bad: true,
+          },
+        ]}
+      />
+    );
+  }
   if (level === 'reset') {
     return (
       <Rows
@@ -954,13 +1037,34 @@ export default function EditorMore({ acts, onClose, startLevel = null, toolbar =
      What the discs do not already carry: the frame's own acts, then the two
      that take something away under a rule — Reset edits, then Remove slide. */
   if (toolbar) {
+    // Copy settings (bauhly-v3 PostMenu, Nov 2–3): dead with nothing changed
+    // on this slide, the copy itself with one change, a checklist with more.
+    // It never closes the menu, so Paste settings lights up underneath.
+    const can = COPY_KINDS.filter((k) => acts.clipAble?.[k.id]);
+    const copyRow = !can.length
+      ? { id: 'copyset', icon: 'copy', label: 'Copy settings', hint: 'Change something on this slide first', dead: true, fn: () => {} }
+      : can.length === 1
+        ? { id: 'copyset', icon: 'copy', label: 'Copy settings', hint: `${can[0].label}, to another slide`, fn: () => acts.onCopySettings?.([can[0].id]), into: true }
+        : { id: 'copyset', icon: 'copy', label: 'Copy settings', hint: 'Choose what goes to another slide', fn: () => setLevel('copyset'), into: true, chevron: true };
+    const clip = acts.clip;
     const acts2 = [
-      ...(many ? [{ id: 'text', icon: 'sliders', label: 'Copy settings to', hint: 'Take this slide’s settings to others', fn: () => setLevel('text'), into: true, chevron: true }] : []),
+      ...(many ? [copyRow] : []),
+      ...(many && clip ? [{
+        id: 'pasteset',
+        icon: 'download',
+        label: 'Paste settings',
+        hint: clip.at === acts.slideAt ? `${clip.say}, copied from this slide` : `${clip.say} from slide ${clip.at + 1}`,
+        fn: () => setLevel('pasteset'),
+        into: true,
+        chevron: true,
+      }] : []),
       ...(acts.onVideoCover ? [{ id: 'cover', icon: 'play', label: acts.coverBusy ? 'Creating cover…' : 'Video cover', hint: 'An animated hook for the first slide', dead: acts.coverBusy, fn: acts.onVideoCover }] : []),
     ];
+    // under a rule, the two that take something away: Reset edits (black —
+    // it puts back what Bauhly made), then Remove slide (red), each a level
     const away = [
       ...(acts.canReset ? [{ id: 'resetedits', icon: 'undo', label: 'Reset edits', hint: 'Put back what Bauhly made', fn: () => setLevel('reset'), into: true, chevron: true }] : []),
-      ...(many ? [{ id: 'removeslide', icon: 'trash', label: 'Remove slide', hint: 'Takes this frame out of the carousel', fn: acts.onRemoveSlide, bad: true }] : []),
+      ...(many ? [{ id: 'removeslide', icon: 'trash', label: 'Remove slide', hint: 'Takes this frame out of the carousel', fn: () => setLevel('remove'), into: true, chevron: true, bad: true }] : []),
     ];
     const rows = [...acts2, ...(acts2.length && away.length ? [{ id: 'r-away', rule: true }] : []), ...away];
     return (
