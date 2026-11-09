@@ -4639,12 +4639,15 @@ export default function WeekView({
     askOnRef.current = askOn;
     setAskPath([]);
   }, [askOn]);
-  // Selecting an element in Editor mode opens the chat on it (bauhly-v3: the
-  // field is always there, and a selection re-aims its suggestions). Focus
-  // stays where it is, so a double-click to type is not interrupted.
+  // Selecting an element in Editor mode does NOT open the chat (bauhly-v3
+  // PostEditor, Oct 13): the selection bar is the element's whole surface —
+  // its wand opens the bar's own "Ask for changes" page. A plain chat left
+  // open (nothing typed or held, nothing running) stands down for it.
   const selKey = postEdit && elemSel ? `${safeIdx}:${elemSel.path ?? ''}:${elemSel.kind || ''}` : '';
   useEffect(() => {
-    if (selKey && !visEdit) setAskOpen(true);
+    if (!selKey || !askOpen || askBusy) return;
+    if (askDraft.trim() || askPath.length || heldList.length || askPic) return;
+    setAskOpen(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selKey]);
 
