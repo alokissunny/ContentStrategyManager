@@ -4178,6 +4178,8 @@ html:has(.cap-overlay--landing) .bauhly-landing .hcap {
   gap: 10px;
   min-height: 60px;
   padding: 8px;
+  /* the composer's 1px edge, clear: the bar is 62px tall like bauhly-v3's */
+  border: 1px solid transparent;
   border-radius: 999px;
   background: #fff;
 }
@@ -4191,13 +4193,13 @@ html:has(.cap-overlay--landing) .bauhly-landing .hcap {
   outline: none;
   background: transparent;
   font-family: var(--font-ui, 'Inter', system-ui, sans-serif);
-  font-size: 16px;
-  line-height: 1.4;
+  font-size: var(--text-md, 17px);
+  line-height: 1.5;
   color: var(--ink);
   text-overflow: ellipsis;
 }
 .bauhly-landing .hcap .obc__input::placeholder {
-  color: color-mix(in srgb, var(--ink) 52%, transparent);
+  color: var(--ink-400);
   opacity: 1;
 }
 .bauhly-landing .hcap .obc__send {

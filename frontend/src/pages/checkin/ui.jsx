@@ -5,12 +5,24 @@
 
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 
-export function AutoTextarea({ value, className = '', minHeight = 64, ...props }) {
+/* `placeholderGrows` (bauhly-v3): `scrollHeight` counts the PLACEHOLDER when the box is
+ * empty, so a long hint would set the height of a field with nothing in it. With it off,
+ * an empty field is exactly one measured row. Consumed here so it never reaches the DOM. */
+export function AutoTextarea({ value, className = '', minHeight = 64, placeholderGrows = true, ...props }) {
   const ref = useRef(null);
   const grow = () => {
     const el = ref.current;
     if (!el) return;
     el.style.height = 'auto';
+    const empty = !String(value ?? '').length && !el.value;
+    if (empty && !placeholderGrows) {
+      const cs = getComputedStyle(el);
+      const line = parseFloat(cs.lineHeight) || parseFloat(cs.fontSize) * 1.5;
+      const pad = parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom);
+      const bord = parseFloat(cs.borderTopWidth) + parseFloat(cs.borderBottomWidth);
+      el.style.height = `${Math.max(minHeight, Math.ceil(line + pad + bord))}px`;
+      return;
+    }
     el.style.height = `${Math.max(minHeight, el.scrollHeight)}px`;
   };
   // eslint-disable-next-line react-hooks/exhaustive-deps

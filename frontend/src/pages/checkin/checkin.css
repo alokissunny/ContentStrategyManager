@@ -2538,6 +2538,71 @@ body.is-immersive .app__main {
 /* a finished example fades and the next one types in (`useTypedPlaceholder`) */
 .capc.is-fading .capc__field::placeholder { opacity: 0; transition: opacity var(--dur-base, 240ms) var(--ease-out); }
 
+/* ── THE LANDING BOX, AT bauhly-v3's MEASURES (Nov 9) ──────────────────────
+   Read off bauhly-v3.vercel.app's `.capm--landing` at 1024 × 768. Scoped to the
+   landing variant: the dashboard's Capture keeps its own 776px card.
+   · The box: the Post Preferences size (`min(1120px, 100%)` × `min(860px, 100%)`,
+     30px corner), so it fills the screen less the overlay's 20px.
+   · The words: 15px on 24px, the title at 700.
+   · The mark: a 34px disc, the dot all but filling it.
+   · `See an example`: a filled grey pill, no outline ("no outlined buttons").
+   · The bar: the product composer's own pill — 62px, off-white with a white
+     edge and a soft 60px shadow, a 44px clear mic and a 44px send that is grey
+     until there is something to send.
+   · The close: 40px, ink-100, 42px down and 44px in. */
+.cap-overlay--landing .ck {
+  /* the box speaks in the system face, as bauhly-v3's `.capm` does */
+  --font-ui: ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  font-family: var(--font-ui);
+  width: min(1120px, 100%);
+  height: min(860px, 100%);
+  border-radius: 30px;
+}
+/* Inter, at the product's page-heading tracking (bauhly-v3 `.ck__title`) */
+.cap-overlay--landing .ck__title {
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  line-height: 1.12;
+}
+.cap-overlay--landing .ck-body { font-size: 15px; line-height: 1.6; }
+.cap-overlay--landing .ck__intro-mark { width: 34px; height: 34px; }
+.cap-overlay--landing .ck__x {
+  top: 42px;
+  right: 44px;
+  width: 40px;
+  height: 40px;
+  background: var(--ink-100);
+  color: var(--ink-800);
+}
+.cap-overlay--landing .ck__x:hover { background: var(--ink-200); }
+.cap-overlay--landing .ck-chip--icon {
+  border-color: transparent;
+  border-radius: 999px;
+  background: var(--ink-100);
+}
+.cap-overlay--landing .ck-chip--icon:hover { border-color: transparent; background: var(--ink-200); }
+.cap-overlay--landing .capc,
+.cap-overlay--landing .capc:focus-within {
+  border: 1px solid #fff;
+  border-radius: 28px;
+  background: #fcfcfd;
+  box-shadow: 0 10px 60px 0 rgba(17, 17, 20, 0.14);
+}
+.cap-overlay--landing .capc.is-empty {
+  min-height: 62px;
+  padding: 8px;
+  gap: 10px;
+  border-radius: 999px;
+}
+.cap-overlay--landing .capc.is-empty .capc__field { padding: 0 2px 0 16px; font-size: 16px; }
+.cap-overlay--landing .capc__field::placeholder { color: var(--ink-400); }
+.cap-overlay--landing .capc.is-empty .capc__mic,
+.cap-overlay--landing .capc.is-empty .capc__send { width: 44px; height: 44px; }
+.cap-overlay--landing .capc__mic { background: transparent; color: var(--ink-700); }
+.cap-overlay--landing .capc__mic:hover:not(:disabled) { background: var(--ink-100); }
+.cap-overlay--landing .capc__send:disabled { background: var(--surface-sunken); color: var(--ink-400); }
+
 /* ── the account step, inside the box (bauhly-v3 `.ck-signup`) ───────────── */
 .ck.is-signing > :not(.ck-signup) { visibility: hidden; }
 .ck-signup {

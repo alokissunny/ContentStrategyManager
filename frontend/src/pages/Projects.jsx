@@ -1058,6 +1058,19 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
   const pendingRef = useRef(pending);
   pendingRef.current = pending;
   useEffect(() => () => pendingRef.current.forEach((p) => { try { URL.revokeObjectURL(p.url); } catch { /* ok */ } }), []);
+  /* Escape closes the box, like its × and its scrim (bauhly-v3 CaptureHost). Read through a
+     ref so the listener is bound once; the account step, when it is up, is left first.
+     `defaultPrevented` leaves it to anything inside (a lightbox) that used the key itself. */
+  const escRef = useRef(null);
+  useEffect(() => {
+    if (!modal) return undefined;
+    const onKey = (e) => {
+      if (e.key !== 'Escape' || e.defaultPrevented) return;
+      escRef.current?.();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [modal]);
   const [optionsReady, setOptionsReady] = useState(false);
   const [saved, setSaved] = useState(null);
   const [creating, setCreating] = useState(false); // the new-project modal
@@ -2275,6 +2288,7 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
   const showActions = Boolean(actions) && optionsReady && !typing && !busy && !composerOwnsInput;
   sendNow.current = composerSend;
   recordNow.current = composerRecord;
+  escRef.current = leaving ? null : login ? () => setLogin(null) : onExit;
   /* `See an example` sits under the first question, for an empty field */
   const exampleAsk = Boolean(example) && step === 'how' && !typing && !demo;
 
