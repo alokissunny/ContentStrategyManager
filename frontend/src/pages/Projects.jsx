@@ -2342,7 +2342,7 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
               <h2 className="ck__title">Capture</h2>
             </div>
             <button type="button" className="ck__x" onClick={onExit} aria-label="Close capture">
-              <Icon name="x" size={18} strokeWidth={2.2} />
+              <Icon name="x" size={20} strokeWidth={2} />
             </button>
             {notice && (
               <div className="ck__notice" role="status">
