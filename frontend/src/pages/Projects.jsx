@@ -31,9 +31,12 @@ import { understandCapture, transcribeCapture, clarificationQuestion, hasTranscr
 import { previewUrl } from '../api/media';
 import { useAuth } from '../context/AuthContext';
 import CaptureLogin from '../components/CaptureLogin';
+import { ExamplePreview, ExampleEditor } from '../components/ExamplePost';
+import { IG_ASK, questionById, instagramHandle, saysNo, nextQuestion, answerSay } from '../lib/discovery';
+import { startVisitorRead, claimVisitorRead } from '../api/visitor';
 import { useTypedPlaceholder } from '../components/ui/typing';
 import { canTakeCaret, isCaptureOpen, CAPTURE_MORPH_MS, CAPTURE_HOLD_MS } from '../lib/captureUi';
-import { ensureProjects } from '../lib/projectsStore';
+import { ensureProjects, refreshProjects, projectsSnapshot } from '../lib/projectsStore';
 import './projects.css';
 
 /* The generated-image list is fetched from the server, which takes a moment —
@@ -849,6 +852,65 @@ function useConversation(beat = 420) {
   return { messages, typing, push, say, after, think };
 }
 
+/* the landing's photo question (bauhly-v3 LANDING_PHOTO_ASK) */
+const LANDING_PHOTO_ASK = 'Do you have any photos or images of this project? You can share work-in-progress photos, materials, sketches, or anything that helps tell the story.';
+
+/* ── HOW FAR BAUHLY HAS GOT WITH THE EXAMPLE (bauhly-v3 GenProgress + lib/postrun.js stages) ────────────
+   One sequence in ink: an empty ring before, a small drawing of what it is doing while it runs, a tick on a
+   disc once done. No percentages and no estimates. The example's are on a clock: it is only shown. */
+const EX_STAGES = [
+  { id: 'reading', label: 'Reading what you shared', motion: 'scan' },
+  { id: 'structuring', label: 'Structuring the story', motion: 'stack' },
+  { id: 'designing', label: 'Designing the slides', motion: 'grid' },
+  { id: 'preview', label: 'Preparing your preview', motion: 'frame' },
+];
+const EX_STAGE_MS = 1100;
+/* what happens after a visitor makes their account, in the order it happens (VisitorGenerate) */
+const VISITOR_STAGES = [
+  { id: 'studio', label: 'Understanding your studio', motion: 'scan' },
+  { id: 'reading', label: 'Reading what you shared', motion: 'stack' },
+  { id: 'saving', label: 'Saving your capture', motion: 'frame' },
+];
+function StageMotion({ kind }) {
+  return (
+    <span className={`gprog__motion gprog__motion--${kind}`} aria-hidden="true">
+      <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
+        {kind === 'scan' && (<><rect x="2.5" y="1.5" width="9" height="11" rx="1.5" /><path className="gprog__beam" d="M4 4.5h6" /></>)}
+        {kind === 'stack' && (<><path className="gprog__bar" d="M2.5 3.5h9" /><path className="gprog__bar" d="M2.5 7h9" /><path className="gprog__bar" d="M2.5 10.5h6" /></>)}
+        {kind === 'grid' && (<>
+          <rect className="gprog__cell" x="1.5" y="1.5" width="4.5" height="4.5" rx="1" />
+          <rect className="gprog__cell" x="8" y="1.5" width="4.5" height="4.5" rx="1" />
+          <rect className="gprog__cell" x="1.5" y="8" width="4.5" height="4.5" rx="1" />
+          <rect className="gprog__cell" x="8" y="8" width="4.5" height="4.5" rx="1" />
+        </>)}
+        {kind === 'frame' && (<><rect x="1.5" y="2.5" width="11" height="9" rx="1.5" /><path d="M3.5 10l2.5-3 2 2 1.5-1.5 1.5 2.5" /><path className="gprog__sheen" d="M5 3.5l-2 7" /></>)}
+      </svg>
+    </span>
+  );
+}
+function GenProgress({ at, stages = EX_STAGES, doneSay = 'Your example is ready.' }) {
+  const active = stages[at] || null;
+  return (
+    <div className="gprog">
+      <ul className="gprog__card">
+        {stages.map((s, i) => {
+          const status = i < at ? 'done' : i === at ? 'active' : 'upcoming';
+          return (
+            <li className={`gprog__stage is-${status}`} key={s.id}>
+              <span className="gprog__mark" aria-hidden="true">
+                {status === 'done' && <Icon name="check" size={10} strokeWidth={2.75} />}
+                {status === 'active' && <StageMotion kind={s.motion} />}
+              </span>
+              <span className="gprog__label">{s.label}</span>
+            </li>
+          );
+        })}
+      </ul>
+      <span className="sr-only" role="status">{active ? active.label : doneSay}</span>
+    </div>
+  );
+}
+
 /* ── the "other project" picker — the projects list with a check + Add ──── */
 function ProjectPickerModal({ projects, onClose, onPick, onNew }) {
   useBodyScrollLock();
@@ -1048,9 +1110,13 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
      reaches the backend before they have an account. */
   const liveIntro = Boolean(landing);
   const asks = landing?.asks || null;
-  const example = landing?.example || null;
+  /* a visitor's own capture after the example (Create your own) asks in its own words and skips the
+     example's offer, because they have just done it (bauhly-v3 toOwn) */
+  const example = landing?.own ? null : (landing?.example || null);
   const { user } = useAuth();
-  const needsLogin = liveIntro && !user;
+  /* dev only: `?visitor=1` on the landing page walks the signed-out visitor's flow in a signed-in browser */
+  const forceVisitor = import.meta.env.DEV && typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('visitor');
+  const needsLogin = liveIntro && (!user || forceVisitor);
   const { messages, typing, push, say, after, think } = useConversation(liveIntro ? LANDING_THINK_MS : undefined);
   const [step, setStep] = useState('boot');
   const [draft, setDraft] = useState('');
@@ -1231,7 +1297,7 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
       // StrictMode runs this twice in dev: the line is pushed once
       if (!resumed.current) {
         resumed.current = true;
-        push({ from: 'bauhly', text: translate('Tell me something recent from the studio. A project you\'re on, one you\'ve just finished, a decision you made, or something a client said.'), opener: true });
+        push({ from: 'bauhly', text: landing?.own && landing?.ownAsk ? landing.ownAsk : translate('Tell me something recent from the studio. A project you\'re on, one you\'ve just finished, a decision you made, or something a client said.'), opener: true });
       }
       after(0, () => setStep('how'));
       return;
@@ -1641,6 +1707,7 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
       });
       const cover = previewUrl(c.attachments.find((a) => a.type === 'image') || c.attachments[0]) || null;
       setSaved({ id: pid, name, captureId: made?.captureId || null, at: new Date().toISOString() });
+      if (visitorFiling.current) return true;
       if (deferQuestions) {
         /* a visitor has no plan yet: what is next for them is the post they were told about */
         const d = say(liveIntro ? 'Saved. Ready to become your first post.' : 'Saved. It is ready for your next plan.');
@@ -1668,7 +1735,8 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
          anything else stays the generic line */
       const why = err?.response?.status && err.response.status < 500 ? err.response.data?.message : '';
       const d = say(why ? { text: why } : 'Something went wrong saving that — try again in a moment?');
-      after(d, () => setStep(c.attachments.length ? 'media' : 'project'));
+      after(d, () => setStep(visitorFiling.current ? 'vDone' : c.attachments.length ? 'media' : 'project'));
+      return false;
     } finally {
       setBusy(false);
     }
@@ -1897,7 +1965,35 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
   const [exLive, setExLive] = useState(false);
   const [exWait, setExWait] = useState(false);
   const [exText, setExText] = useState('');
-  const [exView, setExView] = useState(null); // null | 'making' | 'showing'
+  /* the example's progress: the index of the running stage, EX_STAGES.length once all are done, null when off */
+  const [exView, setExView] = useState(null);
+  /* the example's post as the visitor has it (edits kept by Done), the slide both views are on, and the
+     editing view: null, 'in', or 'out' while it fades (bauhly-v3 exEdit / exSlide, decision 677) */
+  const [exPost, setExPost] = useState(null);
+  const [exSlide, setExSlide] = useState(0);
+  const [exEdit, setExEdit] = useState(null);
+  const exEditTimer = useRef(0);
+  useEffect(() => () => clearTimeout(exEditTimer.current), []);
+  /* the box is a few px wider than it shows (its scroll-jump button), so a focus or a scroll into view can
+     move it sideways under the editing view: it never scrolls sideways while the example is being edited */
+  useEffect(() => {
+    const box = boxRef.current;
+    if (!box || !exEdit) return undefined;
+    const flat = () => { if (box.scrollLeft) box.scrollLeft = 0; };
+    flat();
+    box.addEventListener('scroll', flat);
+    return () => { box.removeEventListener('scroll', flat); flat(); };
+  }, [exEdit]);
+  const leaveEdit = () => {
+    setExEdit('out');
+    clearTimeout(exEditTimer.current);
+    exEditTimer.current = setTimeout(() => {
+      setExEdit((now) => (now === 'out' ? null : now));
+      /* back on the conversation, with the post in view */
+      boxRef.current?.querySelector('.exp')?.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'smooth' });
+      if (boxRef.current) boxRef.current.scrollLeft = 0;
+    }, 200);
+  };
   const exTimer = useRef(0);
   useEffect(() => () => clearTimeout(exTimer.current), []);
   const isDemo = () => Boolean(exText) && (cap.current.text || draft || '').trim() === exText.trim();
@@ -1934,7 +2030,7 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
     setStep('boot');
     userSays(text);
     cap.current.text = text;
-    const d = say('Do you have a photo or clip of this?');
+    const d = say(LANDING_PHOTO_ASK);
     after(d, () => setStep('exMedia'));
   };
   const addExamplePhotos = () => {
@@ -1946,25 +2042,39 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
       const still = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
       after(still ? 0 : (added.length - 1) * 220 + 360, () => {
         setSaved({ id: null, name: null, demo: true });
-        const d = say('That’s how a capture works. This one was only an example, so I haven’t saved it.');
+        /* a small thank-you for doing it, and that it was an example (bauhly-v3, decisions 680, 682) */
+        const d = say('Nice, you’ve just completed your first capture! This one was only an example.');
         after(d, () => setStep('done'));
       });
     });
   };
+  /* ══ AND THE EXAMPLE'S POST IS THE NEXT THING BAUHLY SAYS (bauhly-v3, Nov 6–9; decisions 675, 733) ══
+     The progress stands in the thread, then gives way to a line saying it is ready; Bauhly introduces
+     it and the post arrives under that, in this thread. It is only shown: nothing is filed. */
   const showExamplePost = () => {
-    setExView('making');
-    exTimer.current = setTimeout(() => { if (isCaptureOpen()) setExView('showing'); }, 2400);
+    setStep('boot');
+    setExView(0);
+    const still = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const gap = still ? 300 : EX_STAGE_MS;
+    const tick = (i) => {
+      exTimer.current = setTimeout(() => {
+        if (!isCaptureOpen()) return;
+        if (i < EX_STAGES.length) { setExView(i); tick(i + 1); return; }
+        /* every stage ticked, held a moment, then Bauhly's next words */
+        setExView(EX_STAGES.length);
+        exTimer.current = setTimeout(() => {
+          setExView(null);
+          if (!isCaptureOpen()) return;
+          setExPost(example.post || null);
+          setExSlide(0);
+          push({ from: 'bauhly', text: example.readySay || 'Your example is ready.', ready: true });
+          const d = say({ text: example.revealSay || 'Here’s what I created from your example.', exPost: true });
+          after(d, () => setStep('exShown'));
+        }, still ? 0 : 700);
+      }, gap);
+    };
+    tick(1);
   };
-  /* the example post, from the example's own words and pictures: each sentence
-     a slide, in order, the pictures on the last ones (bauhly-v3 composeFromWords) */
-  const examplePost = () => {
-    const said = String(example?.text || '').split(/(?<=[.!?])\s+/).map((x) => x.trim()).filter(Boolean);
-    const pics = example?.photos || [];
-    const count = Math.max(said.length, pics.length);
-    const from = Math.max(0, said.length - pics.length);
-    return Array.from({ length: count }, (_, i) => ({ words: said[i] || '', photo: i >= from ? pics[i - from] : null }));
-  };
-
   /* ── THE ACCOUNT STEP: asked at the visitor's first real send (or press of
      the mic, which would reach the transcriber), and only once. Their words and
      photos stay where they were, and logging in sends them from here. */
@@ -1974,10 +2084,168 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
   const loggedIn = () => {
     const then = login;
     onLoggedIn?.();
+    if (then === 'generate') { setLogin(null); visitorGenerate(); return; }
     ensureProjects({ lite: true }).catch(() => {}).finally(() => {
       setLogin(null);
       setTimeout(() => (then === 'record' ? recordNow.current : sendNow.current)?.(), 0);
     });
+  };
+
+  /* ══ A VISITOR'S CAPTURE, WITH NO ACCOUNT UNTIL `GENERATE` (bauhly-v3 Flow B, Nov 6–10) ═════════════
+     The project in their words, its photos, their Instagram (or `No, for now`), then three questions about
+     the studio, which must be answered — all of it held here, in this conversation, and nothing filed. The
+     Instagram is read at once, in the background, while they answer (backend services/visitorInstagram.js).
+     The account is asked for at `Generate your first post`; once it exists the read and the answers become
+     its profile and Business memory, the photos are uploaded, the capture is filed, and the post is made. */
+  const visitorFiling = useRef(false);
+  const igToken = useRef(null);
+  const igHandleRef = useRef(null);
+  const qAnswers = useRef({});
+  const heldFiles = useRef([]);
+  const [qAt, setQAt] = useState(null);
+  const [qPicked, setQPicked] = useState([]);
+  const [qOther, setQOther] = useState(false);
+  const [vGen, setVGen] = useState(null);
+  const vStep = ['vMedia', 'ig', 'ask', 'vDone'].includes(step);
+
+  const visitorSend = (text) => {
+    if (step === 'ig') { submitIg(text); return; }
+    if (step === 'ask') { answerQ(text); return; }
+    if (!text) return;
+    setDraft('');
+    userSays(text);
+    cap.current.text = [cap.current.text, text].filter(Boolean).join('\n\n');
+    cap.current.turns = [...(cap.current.turns || []), { role: 'user', text }];
+    if (step === 'how') {
+      cap.current.kind = 'note';
+      setStep('boot');
+      const d = say(LANDING_PHOTO_ASK);
+      after(d, () => setStep('vMedia'));
+    }
+  };
+  const visitorPhotos = (files) => {
+    const arr = [...(files || [])].filter((f) => /^(image|video)\//.test(f.type));
+    if (!arr.length) return;
+    const held = arr.map((file, i) => ({ id: `held-${Date.now()}-${i}`, type: file.type.startsWith('video') ? 'video' : 'image', url: URL.createObjectURL(file), file }));
+    heldFiles.current = [...heldFiles.current, ...held];
+    cap.current.kind = held.some((a) => a.type === 'video') ? 'video' : 'photo';
+    setStep('boot');
+    push({ from: 'user', media: held, staged: true });
+    askInstagram();
+  };
+  const askInstagram = () => {
+    setStep('boot');
+    const d = say({ text: IG_ASK.say, note: IG_ASK.note });
+    after(d, () => setStep('ig'));
+  };
+  const submitIg = (typed) => {
+    const text = String(typed || '').trim();
+    if (!text) return;
+    if (saysNo(text)) { setDraft(''); igSkip(); return; }
+    const handle = instagramHandle(text);
+    setStep('boot');
+    if (!handle) {
+      const d = say(IG_ASK.invalid);
+      after(d, () => setStep('ig'));
+      return;
+    }
+    setDraft('');
+    igHandleRef.current = handle;
+    userSays(`instagram.com/${handle}`);
+    /* the read starts now and runs on its own; nothing here waits for it */
+    startVisitorRead(handle).then((r) => { igToken.current = r?.token || null; }).catch((err) => {
+      console.warn('[capture] instagram read could not start', err?.response?.status || err);
+    });
+    askNext(IG_ASK.reading(handle));
+  };
+  const igSkip = () => {
+    setStep('boot');
+    userSays(IG_ASK.skip.title);
+    askNext(IG_ASK.skipped);
+  };
+  const askNext = (lead = null) => {
+    const q = nextQuestion(qAnswers.current);
+    setStep('boot');
+    if (!q) {
+      const d = say('That’s everything I need. Ready to become your first post.');
+      after(d, () => setStep('vDone'));
+      return;
+    }
+    setQPicked([]);
+    setQOther(false);
+    const d = say([...(lead ? [lead] : []), { text: q.ask, note: q.hint }]);
+    after(d, () => { setQAt(q.id); setStep('ask'); });
+  };
+  const togglePick = (q, id) => {
+    if (id === 'other') {
+      const on = !qOther;
+      setQOther(on);
+      if (on && q.otherAlone) setQPicked([]);
+      if (on) boxRef.current?.querySelector('.capc__field, .capc textarea, .capc input')?.focus({ preventScroll: true });
+      return;
+    }
+    if (qOther && q.otherAlone) { setQOther(false); setQPicked([id]); return; }
+    setQPicked((list) => {
+      if (list.includes(id)) return list.filter((x) => x !== id);
+      return q.max && list.length + (qOther ? 1 : 0) >= q.max ? list : [...list, id];
+    });
+  };
+  const answerQ = (typed = draft) => {
+    const q = questionById(qAt);
+    const other = String(typed || '').trim();
+    if (!q || (!qPicked.length && !other) || (qOther && !other)) return;
+    const picked = q.max && other ? qPicked.slice(0, q.max - 1) : qPicked;
+    qAnswers.current[q.id] = { picked, other };
+    setDraft('');
+    userSays(answerSay(q, picked, other));
+    askNext();
+  };
+  /* what Business memory is given: the options' own words, and theirs */
+  const answersPayload = () => Object.fromEntries(Object.entries(qAnswers.current).map(([id, a]) => {
+    const q = questionById(id);
+    return [id, { picked: a.picked.map((p) => q.options.find((o) => o.id === p)).filter(Boolean).map((o) => ({ title: o.title, line: o.line })), other: a.other || '' }];
+  }));
+  const visitorGenerate = async () => {
+    setStep('boot');
+    visitorFiling.current = true;
+    setVGen(0);
+    try {
+      await claimVisitorRead({ token: igToken.current, answers: answersPayload() });
+    } catch (err) {
+      console.warn('[capture] visitor claim failed', err?.response?.status || err);
+    }
+    setVGen(1);
+    try {
+      const files = heldFiles.current.map((h) => h.file);
+      if (files.length) {
+        const added = await uploadFiles(files);
+        cap.current.attachments = added;
+      }
+      const r = await runUnderstand();
+      if (r?.understanding) cap.current.understanding = r.understanding;
+      if (Array.isArray(r?.captures) && r.captures.length) { cap.current.understandings = r.captures; cap.current.understanding = r.captures[0]; }
+      if (r?.conversationSummary) cap.current.conversationSummary = r.conversationSummary;
+      if (r?.conversationTitle) cap.current.conversationTitle = r.conversationTitle;
+      const followUp = clarificationQuestion(r, cap.current.turns);
+      if (followUp) cap.current.held = [followUp];
+      const choice = cap.current.attachments.length ? 'provided' : 'none';
+      if (cap.current.understanding) cap.current.understanding = { ...cap.current.understanding, visualAssetChoice: cap.current.understanding.visualAssetChoice || choice };
+    } catch (err) {
+      console.warn('[capture] visitor upload or understand failed', err);
+    }
+    setVGen(2);
+    /* the account's own list, now that its profile is set: a returning studio's `No project` is used, not doubled */
+    await refreshProjects().catch(() => null);
+    const list = projectsSnapshot();
+    const want = String(projectName || 'No project').trim().toLowerCase();
+    const home = (Array.isArray(list) ? list : []).find((p) => String(p.name || '').trim().toLowerCase() === want);
+    const ok = await finish(home ? home.id : null, home ? undefined : (projectName || 'No project'));
+    setVGen(null);
+    visitorFiling.current = false;
+    if (!ok) return;
+    heldFiles.current.forEach((h) => { try { URL.revokeObjectURL(h.url); } catch { /* ok */ } });
+    /* the post is next: the host closes this, goes to the calendar and starts it (CaptureHost) */
+    onCaptured?.(capturedPayload());
   };
 
   /* ── THE BOX GROWS OUT OF WHAT WAS PRESSED, AND CLOSES BACK INTO IT ──────
@@ -2080,7 +2348,7 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
       }
       case 'exMedia':
         return example ? (
-          <button type="button" className="ck-chip ck-chip--primary" onClick={addExamplePhotos}>{example.photosSay}</button>
+          <button type="button" className="btn btn--secondary btn--sm" onClick={addExamplePhotos}>{example.photosSay}</button>
         ) : null;
       case 'media':
         return (
@@ -2131,6 +2399,62 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
             </button>
           </div>
         );
+      /* ── a visitor's steps (Flow B) ── */
+      case 'vMedia':
+        return (
+          <>
+            <label className="btn btn--primary btn--sm">
+              Add a photo
+              <input type="file" accept="image/*,video/*" multiple hidden onChange={(e) => { visitorPhotos(e.target.files); e.target.value = ''; }} />
+            </label>
+            <button type="button" className="btn btn--secondary btn--sm ck-exbtn ck-exbtn--quiet" onClick={() => { userSays('Nothing right now'); askInstagram(); }}>Nothing right now</button>
+          </>
+        );
+      case 'ig':
+        return (
+          <button type="button" className="ck-igskip" onClick={igSkip}>
+            <span className="ck-igskip__ico" aria-hidden="true"><Icon name="share" size={15} /></span>
+            <span className="ck-igskip__txt"><b>{IG_ASK.skip.title}</b><span>{IG_ASK.skip.line}</span></span>
+            <Icon name="chevron-right" size={15} />
+          </button>
+        );
+      case 'ask': {
+        const q = questionById(qAt);
+        if (!q) return null;
+        const ready = (qPicked.length > 0 || Boolean(draft.trim())) && !(qOther && !draft.trim());
+        return (
+          <div className="ck-qs">
+            <div className="ck-qs__grid" role="group" aria-label={q.ask}>
+              {q.options.map((o) => {
+                const on = o.id === 'other' ? qOther : qPicked.includes(o.id);
+                return (
+                  <button type="button" key={o.id} className={`ck-qcard${on ? ' is-on' : ''}`} aria-pressed={on} onClick={() => togglePick(q, o.id)}>
+                    <b>{o.title}</b>
+                    <span>{o.line}</span>
+                  </button>
+                );
+              })}
+            </div>
+            <button type="button" className="btn btn--primary btn--sm ck-qs__go" disabled={!ready} onClick={() => answerQ()}>Continue</button>
+          </div>
+        );
+      }
+      case 'vDone':
+        return (
+          <button type="button" className="btn btn--primary btn--sm ck-exbtn" onClick={() => setLogin('generate')}>
+            <Icon name="sparkle" size={14} /> Generate your first post
+          </button>
+        );
+      /* under the example's post: their own is next */
+      case 'exShown':
+        if (!example) return null;
+        return (
+          <>
+            {/* Try editing first and primary, their own post second (bauhly-v3, decision 737) */}
+            {exPost && <button type="button" className="btn btn--primary btn--sm ck-exbtn" onClick={() => setExEdit('in')}>{example.editSay || 'Try editing'}</button>}
+            <button type="button" className="btn btn--secondary btn--sm ck-exbtn ck-exbtn--quiet" onClick={() => onRestart?.()}>{example.ctaSay}</button>
+          </>
+        );
       case 'done':
         if (adding) {
           return (
@@ -2145,8 +2469,8 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
           if (!example) return null;
           return (
             <>
-              <button type="button" className="btn btn--primary" onClick={showExamplePost}>{example.postSay}</button>
-              <button type="button" className="btn btn--secondary" onClick={() => onRestart?.()}>{example.ctaSay}</button>
+              <button type="button" className="btn btn--primary btn--sm" onClick={showExamplePost}>{example.postSay}</button>
+              <button type="button" className="btn btn--secondary btn--sm" onClick={() => onRestart?.()}>{example.ctaSay}</button>
             </>
           );
         }
@@ -2185,7 +2509,7 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
   // the foot (bauhly-v3), not by the inline chips/textarea — so those are
   // suppressed for those steps and the composer owns the input.
   const composerOwnsInput = modal && (['how', 'writing', 'clarify'].includes(step) || (adding && ['noting', 'amendMedia'].includes(step)));
-  const composerLive = composerOwnsInput && optionsReady && !typing && !busy;
+  const composerLive = (composerOwnsInput || (needsLogin && vStep)) && optionsReady && !typing && !busy;
   const composerSendable = Boolean(draft.trim()) || pending.length > 0 || Boolean(adding && step === 'amendMedia');
   // Staged images ride along with the next message (ChatGPT-style): the + adds a
   // thumbnail to the composer instead of posting a "file" turn on its own.
@@ -2233,7 +2557,7 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
     const text = draft.trim();
     if (login) return;
     if (liveIntro && demo && isDemo() && step === 'how' && !pending.length) { demoSend(); return; }
-    if (needsLogin) { setLogin('send'); return; }
+    if (needsLogin) { visitorSend(text); return; }
     if (adding && ['noting', 'amendMedia'].includes(step)) { sendAdding(); return; }
     if (!text && !pending.length) return;
     // Text only — the existing conversational submits.
@@ -2280,7 +2604,7 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
     }
   };
   const composerRecord = () => {
-    if (needsLogin) { setLogin('record'); return; }
+    if (needsLogin) return;
     if (step === 'clarify') return recordClarify();
     if (step === 'writing' && fromVoice.current) return recordAgain();
     return chooseRecord();
@@ -2289,7 +2613,8 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
   const showActions = Boolean(actions) && optionsReady && !typing && !busy && !composerOwnsInput;
   sendNow.current = composerSend;
   recordNow.current = composerRecord;
-  escRef.current = leaving ? null : login ? () => setLogin(null) : onExit;
+  /* the editing view takes Escape itself (ExampleEditor) */
+  escRef.current = leaving || exEdit ? null : login ? () => setLogin(null) : onExit;
   /* `See an example` sits under the first question, for an empty field */
   const exampleAsk = Boolean(example) && step === 'how' && !typing && !demo;
 
@@ -2301,40 +2626,25 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
       data-lenis-prevent
     >
       {modal && <div className="cap-overlay__scrim" onClick={onExit} aria-hidden="true" />}
-      <div className={`ck${login ? ' is-signing' : ''}`} ref={boxRef}>
+      <div className={`ck${login ? ' is-signing' : ''}${exEdit === 'in' ? ' is-editing' : ''}`} ref={boxRef}>
+        {exEdit && exPost && (
+          <ExampleEditor
+            post={exPost}
+            original={example?.post || exPost}
+            at={exSlide}
+            onAt={setExSlide}
+            leaving={exEdit === 'out'}
+            onCancel={leaveEdit}
+            onDone={(edited) => { setExPost(edited); setExSlide((k) => Math.min(k, edited.slides.length - 1)); leaveEdit(); }}
+          />
+        )}
         {login && (
           <CaptureLogin
+            start={login === 'generate' ? 'signup' : 'signin'}
+            forWhat="Bauhly"
             onBack={() => setLogin(null)}
             onDone={loggedIn}
           />
-        )}
-        {exView && (
-          <div className="ck-made" role={exView === 'making' ? 'status' : undefined} aria-live="polite">
-            {exView === 'making' ? (
-              <div className="ck-made__making">
-                <span className="ck__intro-mark is-live"><Mark size={44} /></span>
-                <p className="ck-made__say">Generating your example post<span className="ck-made__dots" aria-hidden="true"><i /><i /><i /></span></p>
-              </div>
-            ) : (
-              <>
-                <h2 className="ck-made__title">Your example post</h2>
-                <p className="ck-made__lead">This is the kind of post Bauhly makes from a capture like that one.</p>
-                <div className="ck-made__row">
-                  {examplePost().map((sl, i, all) => (
-                    <figure className={`ck-made__slide${sl.photo ? '' : ' is-type'}`} key={i}>
-                      {sl.photo && <img src={sl.photo} alt="" />}
-                      {sl.words && <figcaption>{sl.words}</figcaption>}
-                      <span className="ck-made__n">{i + 1}/{all.length}</span>
-                    </figure>
-                  ))}
-                </div>
-                <div className="ck-made__acts">
-                  <button type="button" className="btn btn--primary" onClick={() => onRestart?.()}>{example?.ctaSay || 'Create your own'}</button>
-                  <button type="button" className="btn btn--secondary" onClick={onExit}>Close</button>
-                </div>
-              </>
-            )}
-          </div>
         )}
         {modal ? (
           <>
@@ -2419,7 +2729,12 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
               <div className={`ck-turn ck-turn--bauhly${m.opener ? ' ck-turn--opener' : ''}`} key={m.id}>
                 <span className="ck-avatar" aria-hidden="true"><Mark size={15} /></span>
                 <div className="ck-body">
-                  {m.text}
+                  {/* a line said in paragraphs (the Instagram ask) keeps them */}
+                  {typeof m.text === 'string' && m.text.includes('\n\n')
+                    ? m.text.split('\n\n').map((para, i) => <p className="ck-para" key={i}>{para}</p>)
+                    : m.text}
+                  {m.note && <p className="ck-outcome">{m.note}</p>}
+                  {m.exPost && exPost && <ExamplePreview post={exPost} at={exSlide} onAt={setExSlide} />}
                   {/* what comes of it, or that this one is only being shown */}
                   {m.opener && liveIntro && (
                     <p className={`ck-outcome${demo ? ' is-example' : ''}`}>
@@ -2534,6 +2849,18 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
               </div>
             </div>
           )}
+          {vGen != null && (
+            <div className="ck-turn ck-turn--bauhly ck-turn--actions ck-turn--cont">
+              <span className="ck-avatar ck-avatar--ghost" aria-hidden="true" />
+              <GenProgress at={vGen} stages={VISITOR_STAGES} doneSay="Saved." />
+            </div>
+          )}
+          {exView != null && (
+            <div className="ck-turn ck-turn--bauhly ck-turn--actions ck-turn--cont">
+              <span className="ck-avatar ck-avatar--ghost" aria-hidden="true" />
+              <GenProgress at={exView} />
+            </div>
+          )}
           {exWait && (
             <div className="ck-turn ck-turn--bauhly">
               <span className="ck-avatar" aria-hidden="true"><Mark size={15} /></span>
@@ -2599,7 +2926,12 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
             canSend={composerSendable}
             pending={pending}
             onRemoveFile={removePending}
-            placeholder={step === 'clarify' ? 'Answer in your own words…' : step === 'amendMedia' ? 'Add anything else, or send to save it…' : (askOn ? (askTyped ?? 'Say it however it comes out…') : 'Say it however it comes out…')}
+            placeholder={step === 'clarify' ? 'Answer in your own words…' : step === 'amendMedia' ? 'Add anything else, or send to save it…'
+              : step === 'ig' ? IG_ASK.field
+              : step === 'ask' ? (qOther ? (questionById(qAt)?.otherField || 'Say it in your own words…') : 'Or say it in your own words…')
+              /* the same short words to the end of a landing visit (bauhly-v3) */
+              : liveIntro && step !== 'how' && !askOn ? 'Add anything else…'
+              : (askOn ? (askTyped ?? 'Say it however it comes out…') : 'Say it however it comes out…')}
             onSend={composerSend}
             onFiles={composerFiles}
             onRecord={composerRecord}
@@ -2607,8 +2939,16 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
             plus={!liveIntro}
             locked={exLive || exWait}
             fading={askFading}
-            mic={!demo}
+            /* a visitor's voice would need the transcriber, which needs an account: the field is for typing */
+            mic={!demo && !needsLogin}
           />
+        )}
+        {/* before anything real is sent and for as long as they have no account (bauhly-v3 `.ck__privacy`) */}
+        {modal && liveIntro && !user && step !== 'recording' && (
+          <p className="ck__privacy">
+            We use what you share to prepare your post. Learn how we handle your information in our{' '}
+            <a href="/privacy" target="_blank" rel="noreferrer">Privacy Policy</a>.
+          </p>
         )}
       </div>
 

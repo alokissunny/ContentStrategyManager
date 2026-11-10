@@ -8,6 +8,14 @@ const userSchema = new mongoose.Schema(
     password: { type: String, minlength: 6, select: false },
     googleId: { type: String, unique: true, sparse: true },
     authProvider: { type: String, enum: ['local', 'google'], default: 'local' },
+    // what was agreed at sign-up (the landing page's Create an account): when the Terms were accepted,
+    // which version, and the optional news opt-in, its own choice and off by default
+    legal: {
+      termsAcceptedAt: { type: Date, default: null },
+      termsVersion: { type: String, default: '' },
+      marketing: { type: Boolean, default: false },
+      marketingAt: { type: Date, default: null },
+    },
     avatar: { type: String, trim: true, default: '' },
     role: { type: String, enum: ['user', 'admin'], default: 'user' },
     business: {

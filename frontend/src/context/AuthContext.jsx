@@ -147,8 +147,9 @@ export function AuthProvider({ children }) {
     return establish(client.post('/auth/login', { email, password }));
   }
 
-  async function register(name, email, password) {
-    return establish(client.post('/auth/register', { name, email, password }));
+  // `extra`: what the landing page's Create an account agreed to ({ acceptTerms, termsVersion, marketing })
+  async function register(name, email, password, extra = {}) {
+    return establish(client.post('/auth/register', { name, email, password, ...extra }));
   }
 
   async function demoLogin() {

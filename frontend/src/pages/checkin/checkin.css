@@ -2827,3 +2827,173 @@ body.is-immersive .app__main {
 .capc-ai { align-self: flex-start; margin: 0 0 8px 2px; }
 .capc.capc--working { display: flex; justify-content: center; align-items: center; }
 .capc__field.is-ai-polishing { border-radius: 10px; }
+
+/* ── the example's post, in the thread (bauhly-v3, decisions 675, 733–748; the slide itself is
+   components/examplepost.css) ── */
+/* the editing view stands over the conversation in the same box, as the account step does */
+.ck.is-editing > :not(.exe) { visibility: hidden; }
+/* Try editing and Create your own: the ink pill, then a white one held by its shadow (no outline) */
+.ck .btn.ck-exbtn { border-radius: 999px; }
+.ck .btn.ck-exbtn--quiet,
+.ck .btn.ck-exbtn--quiet:hover {
+  border: 0;
+  background: #fff;
+  color: var(--ink-900);
+  box-shadow: 0 4px 14px -4px rgb(20 20 25 / 0.22), 0 0 0 1px rgb(20 20 25 / 0.04);
+}
+.ck .btn.ck-exbtn--quiet:hover { background: var(--ink-50, #f6f6f4); }
+
+/* ── the example's progress, in the thread (bauhly-v3 GenProgress, `.gprog`) ── */
+.gprog { width: 100%; animation: capm-fade var(--dur-base, 200ms) var(--ease-out) backwards; }
+.gprog__card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2, 8px);
+  max-width: 440px;
+  margin: 0;
+  padding: var(--sp-3, 12px) var(--sp-4, 16px);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md, 12px);
+  background: var(--surface);
+  list-style: none;
+}
+.gprog__stage {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--sp-2, 8px);
+  font-size: var(--text-sm, 14px);
+  line-height: 20px;
+  color: var(--ink-600);
+  transition: color var(--dur-slow, 400ms) var(--ease-out);
+}
+.gprog__stage.is-active { font-weight: 600; color: var(--ink-900); }
+.gprog__stage.is-done { color: var(--ink-quiet); }
+.gprog__label { min-width: 0; }
+.gprog__mark { position: relative; flex: none; display: grid; place-items: center; width: 16px; height: 16px; margin-top: 2px; color: var(--ink-900); }
+.gprog__stage.is-upcoming .gprog__mark::before { content: ''; width: 8px; height: 8px; border: 1.5px solid var(--ink-300); border-radius: 999px; }
+.gprog__stage.is-done .gprog__mark {
+  border-radius: 999px;
+  background: var(--ink-quiet);
+  color: var(--surface);
+  animation: gprog-tick-in var(--dur-base, 200ms) var(--ease-out) backwards, gprog-settle var(--dur-slow, 400ms) var(--ease-out) var(--dur-base, 200ms) backwards;
+}
+@keyframes gprog-tick-in { from { opacity: 0; transform: scale(0.6); } }
+@keyframes gprog-settle { from { background: var(--ink-900); } }
+.gprog__motion { display: grid; place-items: center; color: var(--ink-400); animation: capm-fade var(--dur-base, 200ms) var(--ease-out) backwards; }
+@media (prefers-reduced-motion: no-preference) {
+  .gprog__beam { animation: gprog-scan 1.2s var(--ease-inout) infinite alternate; }
+  .gprog__bar { animation: gprog-arrive 1.8s var(--ease-out) infinite; }
+  .gprog__bar:nth-child(2) { animation-delay: 0.25s; }
+  .gprog__bar:nth-child(3) { animation-delay: 0.5s; }
+  .gprog__cell { animation: gprog-fill 2s var(--ease-inout) infinite; }
+  .gprog__cell:nth-child(2) { animation-delay: 0.3s; }
+  .gprog__cell:nth-child(4) { animation-delay: 0.6s; }
+  .gprog__cell:nth-child(3) { animation-delay: 0.9s; }
+  .gprog__sheen { animation: gprog-sheen 1.6s var(--ease-inout) infinite; }
+}
+@keyframes gprog-scan { from { transform: translateY(0); } to { transform: translateY(5px); } }
+@keyframes gprog-arrive { 0% { opacity: 0; transform: translateX(-2px); } 25%, 80% { opacity: 1; transform: none; } 100% { opacity: 0; } }
+@keyframes gprog-fill { 0%, 100% { fill: transparent; } 30%, 60% { fill: currentColor; } }
+@keyframes gprog-sheen { 0% { opacity: 0; transform: translateX(0); } 30% { opacity: 0.7; } 100% { opacity: 0; transform: translateX(8px); } }
+
+/* ── the line under the landing's field, until they have an account (bauhly-v3 `.ck__privacy`) ── */
+.ck__privacy {
+  margin: 0;
+  padding-top: var(--sp-2, 8px);
+  text-align: center;
+  font-size: var(--text-xs, 12px);
+  line-height: 1.5;
+  color: var(--ink-500);
+}
+.ck__privacy a { color: var(--discovery-600, #2a4fd6); font-weight: 600; text-decoration: none; }
+.ck__privacy a:hover { text-decoration: underline; }
+/* the box must not scroll sideways under the editing view (MEASURED: 16px when a wide menu opened) */
+.ck.is-editing { overflow: clip; }
+
+/* ── the account step as the mock draws it (bauhly-v3 AuthForm in `.ck-signup`, Nov 10) ── */
+.ck-signup { padding-top: 48px; }
+.ck-signup__back {
+  height: 34px;
+  margin-left: 0;
+  padding: 0 14px;
+  border-radius: 999px;
+  background: var(--ink-50, #f2f2f0);
+  color: var(--ink-900);
+  font-size: 14px;
+  font-weight: 600;
+}
+.ck-signup .ckl { width: min(440px, 100%); gap: 0; }
+.ck-signup .ckl__head { margin: 0 0 6px; font-family: var(--font-display, var(--font-ui)); font-size: var(--text-2xl, 30px); font-weight: 700; letter-spacing: -0.015em; line-height: 1.15; }
+.ck-signup .ckl__sub { margin: 0 0 24px; font-size: var(--text-base, 15px); color: var(--ink-500); }
+.ck-signup .ckl__field { gap: 8px; }
+.ck-signup .ckl__field + .ckl__field { margin-top: 14px; }
+.ck-signup .ckl__label { font-size: var(--text-sm, 14px); }
+.ck-signup .ckl__input { border-color: var(--border-strong, #d6d6d2); border-radius: var(--r-md, 12px); background: #fff; }
+.ck-signup .ckl__input:focus { box-shadow: 0 0 0 3px var(--ink-100, #e7e7e4); }
+.ck-signup .ckl__error { margin-top: 12px; }
+.ck-signup .ckl__go { width: 100%; height: 46px; margin-top: 20px; }
+.ck-signup .ckl__go:disabled { opacity: 1; background: var(--ink-50, #f2f2f0); color: var(--ink-400); }
+.ck-signup .ckl__ask { margin-top: 20px; }
+.ckl__tick { position: relative; display: flex; align-items: center; gap: 12px; min-height: 44px; margin-top: 10px; font-size: var(--text-sm, 14px); color: var(--ink-600); cursor: pointer; }
+.ckl__tick + .ckl__tick { margin-top: 0; }
+.ckl__tick input { position: absolute; opacity: 0; width: 22px; height: 22px; margin: 0; cursor: pointer; }
+.ckl__box { display: grid; place-items: center; flex: none; width: 22px; height: 22px; border-radius: 6px; box-shadow: inset 0 0 0 1.5px var(--ink-300, #c8c8c4); color: transparent; transition: background 120ms, box-shadow 120ms; }
+.ckl__tick input:checked + .ckl__box { background: var(--ink-900); box-shadow: none; color: #fff; }
+.ckl__tick input:focus-visible + .ckl__box { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.ckl__note { margin: 4px 0 0; font-size: var(--text-xs, 12.5px); color: var(--ink-500); }
+.ckl__link { text-decoration: none; }
+
+/* ── a visitor's capture (bauhly-v3 Flow B): the Instagram ask, its skip card, the studio questions ── */
+.ck-para { margin: 0; }
+.ck-para + .ck-para { margin-top: 1em; }
+.ck-igskip {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: min(370px, 100%);
+  padding: 14px 16px;
+  border: 1px solid var(--border, #e6e6e2);
+  border-radius: 14px;
+  background: #fff;
+  color: var(--ink-900);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 120ms, box-shadow 120ms;
+}
+.ck-igskip:hover { border-color: var(--ink-300, #c8c8c4); box-shadow: 0 4px 14px -8px rgb(20 20 25 / 0.25); }
+.ck-igskip__ico { display: grid; place-items: center; flex: none; width: 40px; height: 40px; border-radius: 999px; background: var(--ink-50, #f2f2f0); color: var(--ink-600); }
+.ck-igskip__txt { flex: 1; display: flex; flex-direction: column; gap: 3px; }
+.ck-igskip__txt b { font-size: 14.5px; }
+.ck-igskip__txt span { font-size: 13px; line-height: 1.45; color: var(--ink-500); }
+.ck-igskip > svg { flex: none; color: var(--ink-500); }
+.ck-qs { display: flex; flex-direction: column; align-items: flex-start; gap: 14px; width: 100%; }
+.ck-inline:has(> .ck-qs) { width: 100%; }
+.ck-qs__grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; width: 100%; }
+.ck-qcard {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-height: 70px;
+  padding: 13px 18px;
+  border: 1px solid var(--border, #e6e6e2);
+  border-radius: 12px;
+  background: #fff;
+  color: var(--ink-900);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 120ms, box-shadow 120ms, background 120ms;
+}
+.ck-qcard b { font-size: 14.5px; font-weight: 600; }
+.ck-qcard span { font-size: 13px; line-height: 1.4; color: var(--ink-500); }
+.ck-qcard:hover { border-color: var(--ink-300, #c8c8c4); box-shadow: 0 4px 14px -8px rgb(20 20 25 / 0.22); }
+.ck-qcard.is-on { border-color: var(--ink-900); box-shadow: inset 0 0 0 1px var(--ink-900); }
+.ck .btn.ck-qs__go:disabled { background: var(--ink-50, #f2f2f0); color: var(--ink-400); box-shadow: none; opacity: 1; cursor: default; }
+@media (max-width: 640px) {
+  .ck-qs__grid { grid-template-columns: minmax(0, 1fr); }
+}
+.ck-signup .ckl__input:focus,
+.ck-signup .ckl__input:focus-visible { outline: none; border-color: var(--ink-900); }
+.ck-signup .btn.ck-signup__back { background: var(--ink-50, #f2f2f0); color: var(--ink-900); border: 0; border-radius: 999px; }
+.ck-signup .btn.ck-signup__back:hover { background: var(--ink-100, #e9e9e6); }

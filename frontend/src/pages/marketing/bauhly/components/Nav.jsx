@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import Icon from '../../../../brand/Icon.jsx'
 import { LANGS, useDocumentLang, useLang } from '../lib/lang.js'
-import { startCapture } from './HeroCapture.jsx'
+import { openLogin, startCapturing } from '../lib/start.js'
 
 /* in the order the page is in: `How it works` moved ahead of the planner
    (landing audit, S3/S5). The words are in lib/lang.js */
@@ -106,10 +106,11 @@ export default function Nav() {
   const bar = useRef(null)
   const [open, setOpen] = useState(false)
 
-  const goLogin = () => nav('/auth')
+  /* in the landing page's own box (bauhly-v3, decisions 706, 740); the page itself where there is none */
+  const goLogin = () => { if (!openLogin()) nav('/auth') }
   /* invite-only: there is no sign-up page to send anybody to. The primary press is the
-     product itself, Capture, which asks for an account (or access) at the first send */
-  const goSignup = () => startCapture()
+     product itself, Capture — the same press as the hero's field (decision 686) */
+  const goSignup = () => { if (!startCapturing()) nav('/auth') }
 
   /* before the first paint, so a page restored part way down never shows the wrong state.
      Written on the element with no re-render. */

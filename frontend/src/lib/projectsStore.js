@@ -75,6 +75,11 @@ export async function refreshProjects() {
   return loading;
 }
 
+/** The projects as the store holds them right now (outside React's render). */
+export function projectsSnapshot() {
+  return cache;
+}
+
 /** Drop the in-memory cache — used when the header switches Instagram account. */
 export function resetProjects() {
   cache = [];

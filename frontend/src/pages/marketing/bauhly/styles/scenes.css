@@ -41,16 +41,15 @@
   left: 50%;
   transform: translateX(-50%);
   width: min(var(--grid-max), calc(100% - 2 * var(--nav-inset)));
-  /* three columns, the outer two equal, so the links are centred on the whole bar and
-     not on what the logo and the buttons leave between them (Leon, Nov 5). `1fr` rather
-     than a fixed share, so a narrow bar lets the buttons push the links aside instead of
-     running under them. The phone's burger bar is still a flex row, in the 900px block. */
+  /* ── THE LINKS STAND WITH THE LOGO (Leon, Nov 7, from Linktree's bar; decision 685) ─────────
+     The logo, then the links straight after it, and the language, Log in and Sign up at the far
+     end, with the room between them. WHAT THIS REPLACED: three columns, the outer two equal, so
+     the links sat on the bar's centre (Leon, Nov 5). The phone's burger bar is still a flex row,
+     in the 1200px block. */
   display: grid;
-  grid-template-columns: 1fr auto 1fr;
+  grid-template-columns: auto 1fr auto;
   align-items: center;
   gap: 24px;
-  /* even, or the columns' centre is not the bar's: 26 on the left and 10 on the right put
-     the links 8px off, MEASURED. The logo keeps its place by its own margin. */
   padding: 10px;
   /* `--nav-ground` is 1 until the last stretch of scroll to the top, then runs to 0 with the
      scroll, written by Nav.jsx. No transition on any of these */
@@ -90,12 +89,14 @@
   pointer-events: none;
 }
 
+/* larger, as the reference's is against a bar of this height: about 1.3 times the bar's height wide
+   (MEASURED there: 148 wide on a 112 bar; here 88 on 76). Further in from the bar's end with it */
 .bauhly-landing .nav-mark {
   justify-self: start;
-  margin-left: var(--sp-4);
+  margin-left: var(--sp-6);
   font-family: var(--font-display);
   font-weight: 800;
-  font-size: 22px;
+  font-size: 28px;
   letter-spacing: -0.01em;
   color: var(--ink);
 }
@@ -105,11 +106,13 @@
 }
 
 .bauhly-landing .nav-links {
+  justify-self: start;
   display: flex;
-  /* 3vw while the bar has room, up to 40px, because the bar stops growing at 1280 wide and
-     the links must not. Below about 1320 they close up just as fast as the bar narrows, which keeps them on its centre with the logo on one side and the language,
-     Log in and Sign up on the other. 14px is as tight as they read as separate links. */
-  gap: max(14px, min(3vw, 40px, calc(24vw - 277px)));
+  /* a clear step after the logo, then the links closer to one another than to it, as in the
+     reference: 52 from the logo to the first word, 28 between words (each link's own 4px of
+     pill either side is in that) */
+  margin-left: var(--sp-6);
+  gap: var(--sp-5);
 }
 
 .bauhly-landing .nav-links a {
@@ -341,6 +344,8 @@
 
   .bauhly-landing .nav-mark {
     margin-right: auto;
+    /* a step down with the bar, which is 64 here rather than 76 */
+    font-size: 24px;
   }
 
   /* level with the burger */
@@ -1056,14 +1061,46 @@
   color: var(--ink);
   /* `--shadow-bar`, then the pill's deeper shadow. Written out, because a shadow token cannot be
      faded. No line round the pill (Leon, Nov 6): the shadow holds it on this page's white sections */
+  /* the first layer deepens with the hover lift (below) by the step the composer's own focus takes */
   box-shadow:
-    0 10px 28px -12px rgb(20 20 25 / 0.55),
+    0 calc(10px + 10px * var(--hcap-lift)) calc(28px + 16px * var(--hcap-lift)) -12px rgb(20 20 25 / calc(0.55 + 0.1 * var(--hcap-lift))),
     0 16px 36px rgba(0, 0, 0, calc(var(--hcap-edge, 0) * 0.14));
+  transform: translateY(calc(var(--hcap-rise) * -1 * var(--hcap-lift))) scale(calc(1 + var(--hcap-grow) * var(--hcap-lift)));
   cursor: pointer;
   animation: hcap-in var(--dur-slow) var(--ease-out) 260ms backwards;
-  /* only stepping aside for Capture. Nothing the scroll draws may have a transition */
-  transition: opacity var(--dur-fast) linear;
+  /* only stepping aside for Capture, and the hover lift. Nothing the scroll draws may have a transition */
+  transition: opacity var(--dur-fast) linear, --hcap-lift 300ms var(--ease-drawer);
 }
+
+/* ── AND THE FIELD RISES TO THE POINTER (Leon, Nov 8: "a subtle elevation or slight scale effect to make it
+   feel more interactive and inviting to click"; decision 698) ─────────────────────────────────────────────
+   The landing's own hover, "a lift" (`.wk-tab`: 2px over 300ms on `--ease-drawer`), with the shadow
+   deepening under it. ONE NUMBER MOVES: `--hcap-lift`, registered so it can be eased, and the rise and the
+   shadow are read off it. The shadow itself is not transitioned, because the scroll draws it. The field only,
+   not the pill, and only for a real pointer. Under reduced motion it deepens without rising. */
+@property --hcap-lift {
+  syntax: '<number>';
+  inherits: false;
+  initial-value: 0;
+}
+/* MORE OF IT (Leon, Nov 9 — decision 734: "too subtle… a more prominent but still subtle elevation… slightly
+   increase the shadow and consider a small scale change"). The same one number, eased the same way; it now rises
+   4px instead of 2, grows by just over one percent, and the shadow under it drops and spreads further. */
+.bauhly-landing .hcap { --hcap-rise: 4px; --hcap-grow: 0.012; }
+@media (prefers-reduced-motion: reduce) {
+  .bauhly-landing .hcap { --hcap-rise: 0px; --hcap-grow: 0; }
+}
+/* WHAT USED TO BE HERE: `.hcap--field:hover { --hcap-lift: 1 }`, the hover lift (decisions 698, 734: the field rose
+   4px, grew by 1.2% and its shadow deepened). Leon, Nov 10 (decision 803): "Remove the hover effect previously added to
+   the landing page chatfield and restore its original styling and behaviour." Nothing sets the lift now, so the field
+   rests at 0 at every moment; the press's settle (737) is left as it is, with nothing to settle from. On hover the
+   send opens into its words instead (HeroCapture, `over`). */
+/* ── AND A PRESS PUTS IT DOWN (Leon, Nov 9 — decision 737) ───────────────────────────────────────────────────────
+   Settling for `SETTLE_MS` before the box opens, and held at rest while the box is open, so the box grows from and
+   closes back into the field at its own size. After the hover rule, at the same weight, so it wins over it. */
+.bauhly-landing .hcap.is-settling,
+.bauhly-landing .hcap.is-lifted { --hcap-lift: 0; }
+.bauhly-landing .hcap.is-settling { transition: opacity var(--dur-fast) linear, --hcap-lift 160ms var(--ease-out); }
 
 @keyframes hcap-in {
   from { opacity: 0; }
@@ -1080,7 +1117,9 @@
   pointer-events: none;
   /* half the box's opening on its curve, not a quick linear step (Leon, Nov 5: "the fade-out
      at the end feels too sharp"). `FADE_MS` in HeroCapture.jsx */
-  transition: opacity 300ms var(--ease-inout);
+  /* WHAT USED TO BE HERE: the hover lift HELD while the box crossed (decision 698, a 60s delay on `--hcap-lift`).
+     The field is at rest by the time the box opens now (decision 737, `.is-settling`), and stays there. */
+  transition: opacity 300ms var(--ease-inout), --hcap-lift 160ms var(--ease-out);
 }
 
 /* Locking the page for Capture takes the scrollbar away, and everything centred on the window
@@ -1133,6 +1172,15 @@ html:has(.cap-overlay--landing) .bauhly-landing .hcap {
 .bauhly-landing .hcap__field .obc__input,
 .bauhly-landing .hcap__field .obc__send {
   transition-property: background-color, color;
+}
+/* the folding send is as wide as its word: `.obc--hero .obc__send` holds every send here at 44, which would keep it a
+   disc. The 44 is the fold's own resting disc instead (`--obc-send-d`), as Capture's states it (app.css) */
+.bauhly-landing .hcap__field .obc__send.obc__send--fold { --obc-send-d: 44px; width: auto; }
+/* and the send's own padding moves as it opens into `Start capturing` (decision 803), on the clock the word's column
+   opens on (`.obc__send-say`, onboarding.css) — Capture's send states the same pair (app.css, `.capm .obc__send`) */
+.bauhly-landing .hcap__field .obc__send {
+  transition: background-color var(--dur-base) var(--ease-out), color var(--dur-base) var(--ease-out),
+    padding-inline var(--dur-base) var(--ease-out);
 }
 
 .bauhly-landing .hcap__field .obc__input,
@@ -4093,7 +4141,10 @@ html:has(.cap-overlay--landing) .bauhly-landing .hcap {
 
   /* stack the pricing tiers (Recommended first, per DOM order) */
   .bauhly-landing .price-grid {
-    grid-template-columns: 1fr;
+    /* `minmax(0, …)`, not `1fr`: a bare `1fr` won't go below its content's minimum, which was 292 at 320
+       wide, so the cards ran past the screen's edge (MEASURED: 3px over at a 10px frame, 9 at 16; decision
+       704). Their words wrap instead, and nothing inside them overflows */
+    grid-template-columns: minmax(0, 1fr);
   }
 
   /* the Instagram mockup loses its flex-derived height once the planner
@@ -4246,3 +4297,133 @@ html:has(.cap-overlay--landing) .bauhly-landing .hcap {
 @media (prefers-reduced-motion: reduce) {
   .bauhly-landing .obc__listen-wave > i { animation: none; opacity: 0.8; }
 }
+
+/* ── AND THE SEND OPENS OUT INTO ITS WORD ON HOVER (bauhly-v3, Nov 10 — decision 803; onboarding.css's
+   `.obc__send--fold`) ─────────────────────────────────────────────────────────────────────────────────
+   The word's column runs from nothing to its own width, so the pill is as wide as the word in any
+   language with nothing measured, and the arrow stays at the button's fixed end and gives way as the
+   word arrives. Written after the hero bar above, which holds every send here at a 44 disc. */
+.bauhly-landing .hcap .obc__send.obc__send--fold {
+  --obc-send-d: 44px;
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  width: auto;
+  min-width: var(--obc-send-d);
+  padding: 0;
+  border-radius: 999px;
+  font-family: var(--font-ui, 'Inter', system-ui, sans-serif);
+  font-size: var(--text-base, 15px);
+  font-weight: 600;
+  white-space: nowrap;
+}
+.bauhly-landing .hcap .obc__send--fold.is-open { padding-inline: var(--sp-4, 16px); }
+.bauhly-landing .hcap .obc__send--fold > svg {
+  position: absolute;
+  top: 50%;
+  right: calc(var(--obc-send-d) / 2);
+  translate: 50% -50%;
+  transition: opacity var(--dur-base) var(--ease-out);
+}
+.bauhly-landing .hcap .obc__send--fold.is-open > svg { opacity: 0; }
+.bauhly-landing .hcap .obc__send-say {
+  display: grid;
+  grid-template-columns: 0fr;
+  opacity: 0;
+  transition: grid-template-columns var(--dur-base) var(--ease-out), opacity var(--dur-base) var(--ease-out);
+}
+.bauhly-landing .hcap .obc__send-say > span { min-width: 0; overflow: hidden; }
+.bauhly-landing .hcap .obc__send--fold.is-open .obc__send-say { grid-template-columns: 1fr; opacity: 1; }
+@media (prefers-reduced-motion: reduce) {
+  .bauhly-landing .hcap .obc__send--fold,
+  .bauhly-landing .hcap .obc__send--fold > svg,
+  .bauhly-landing .hcap .obc__send-say { transition: none; }
+}
+
+/* ── LOG IN, IN THE LANDING PAGE'S OWN BOX (bauhly-v3, Nov 8–9 — decisions 706, 740) ─────────────────
+   It fades in where it stands, at its final size, in step with the white overlay and its blur. */
+.lgm {
+  position: fixed;
+  inset: 0;
+  z-index: 120;
+  display: grid;
+  place-items: center;
+  padding: var(--sp-4, 16px);
+}
+.lgm__scrim {
+  position: absolute;
+  inset: 0;
+  background: rgb(255 255 255 / 0.72);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  animation: lgm-in 600ms var(--ease-inout, ease) both;
+}
+/* Capture's own box (`.capm__box`: the Post Preferences size, a 30px corner), holding the /auth page's
+   form at its centre, with the box's × in the corner (bauhly-v3 `.capm--auth`) */
+.lgm__box {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: min(1120px, 100%);
+  height: min(860px, 100%);
+  padding: 48px var(--sp-10, 40px) var(--sp-8, 32px);
+  overflow: hidden;
+  border-radius: 30px;
+  background: var(--white, #fff);
+  box-shadow: 0 40px 90px -30px rgba(20, 20, 25, 0.45);
+  animation: lgm-in 600ms var(--ease-inout, ease) both;
+}
+.lgm.is-out .lgm__scrim,
+.lgm.is-out .lgm__box { animation: lgm-out 300ms var(--ease-inout, ease) both; }
+.bauhly-landing .lgm .lgm__x {
+  position: absolute;
+  top: 28px;
+  right: 28px;
+  z-index: 2;
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 999px;
+  background: var(--ink-50, #f2f2f0);
+  color: var(--ink-900, var(--ink));
+  transition: background var(--dur-fast, 150ms) var(--ease-out, ease);
+}
+.bauhly-landing .lgm .lgm__x:hover { background: var(--ink-100, #e7e7e4); }
+.lgm .ck-signup { position: static; inset: auto; flex: 1; min-height: 0; padding: 0; background: none; overflow-y: auto; scrollbar-width: none; }
+.lgm .ck-signup__form { height: 100%; padding-block: var(--sp-4, 16px); }
+/* the /auth page's form (AuthForm): a 2xl display heading over one quiet line, the product's fields
+   (white, a strong hairline, ink on focus), the ink primary, and the way to an account under it */
+.lgm .ckl { width: min(420px, 100%); gap: 0; }
+.lgm .ckl__head { margin: 0 0 6px; font-family: var(--font-display); font-size: var(--text-2xl, 30px); font-weight: 700; letter-spacing: -0.015em; line-height: 1.15; }
+.lgm .ckl__sub { margin: 0 0 28px; font-size: var(--text-base, 15px); color: var(--ink-500); }
+.lgm .ckl__field { gap: var(--sp-2, 8px); }
+.lgm .ckl__field + .ckl__field { margin-top: 14px; }
+.lgm .ckl__label { font-size: var(--text-sm, 14px); }
+.lgm .ckl__input {
+  height: 46px;
+  padding: 0 var(--sp-4, 16px);
+  border: 1px solid var(--border-strong, #d6d6d2);
+  border-radius: var(--r-md, 12px);
+  background: var(--white, #fff);
+  font-size: var(--text-base, 15px);
+  outline: none;
+}
+.lgm .ckl__input:focus,
+.lgm .ckl__input:focus-visible { outline: none; border-color: var(--ink-900, var(--ink)); box-shadow: 0 0 0 3px var(--ink-100, #e7e7e4); }
+.lgm .ckl__error { margin-top: 12px; }
+.bauhly-landing .lgm .ckl__go { width: 100%; height: 46px; margin-top: 20px; border-radius: 999px; }
+.lgm .ckl__ask { margin-top: 20px; font-size: var(--text-sm, 14px); }
+@media (max-width: 640px) {
+  .lgm { padding: 0; }
+  .lgm__box { width: 100%; height: 100%; border-radius: 0; padding: var(--sp-6, 24px) var(--sp-4, 16px) calc(var(--sp-6, 24px) + env(safe-area-inset-bottom)); }
+  .bauhly-landing .lgm .lgm__x { top: 14px; right: var(--sp-4, 16px); }
+}
+@keyframes lgm-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes lgm-out { from { opacity: 1; } to { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) {
+  .lgm__scrim, .lgm__box, .lgm.is-out .lgm__scrim, .lgm.is-out .lgm__box { animation-duration: 1ms; }
+}
+/* the landing's own `button` reset (base.css) would take the form's primary off its ground */
+.bauhly-landing .lgm .ckl__go { background: var(--ink-900, var(--ink)); color: #fff; }
+.bauhly-landing .lgm .ckl__go:hover:not(:disabled) { background: var(--ink-700, var(--ink)); }

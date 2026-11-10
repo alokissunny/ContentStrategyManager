@@ -49,6 +49,9 @@ const instagramProfileSchema = new mongoose.Schema(
       mode: { type: String, enum: ['days', 'weekly'], default: 'days' },
       days: { type: [Number], default: [0, 2, 4] }, // Mon / Wed / Fri
     },
+    // A studio that came in through the landing page without an Instagram: planned under
+    // `my-studio` until they connect one (services/visitorInstagram.js).
+    placeholder: { type: Boolean, default: false },
     // Where the last snapshot came from: 'apify' | 'graph'.
     dataSource: { type: String, default: 'apify' },
     fetchedAt: { type: Date, default: Date.now },

@@ -1,7 +1,7 @@
 import React, { Suspense, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ensureProjects, useProjects } from '../lib/projectsStore';
-import { startPlanGeneration } from '../lib/planGeneration';
+import { startPlanGeneration, openNextInEditor } from '../lib/planGeneration';
 import { subscribeCaptureIdea, setCaptureOpen, CAPTURE_CLOSE_MS } from '../lib/captureUi';
 import { IS_NATIVE } from '../native/platform';
 import { useAuth } from '../context/AuthContext';
@@ -110,7 +110,11 @@ export default function CaptureHost() {
         landing={landing}
         leaving={leaving}
         onLoggedIn={() => { loggedInHere.current = true; }}
-        onRestart={landing ? () => setRound((r) => r + 1) : null}
+        // Create your own: the same box, emptied, asking for their own in its own words (bauhly-v3 toOwn)
+        onRestart={landing ? () => {
+          setLanding((l) => (l ? { ...l, draft: null, own: true, ownAsk: l.example?.ownAsk || l.ownAsk || null } : l));
+          setRound((r) => r + 1);
+        } : null}
         onExit={() => {
           const wasAim = aim;
           close(() => {
@@ -131,6 +135,8 @@ export default function CaptureHost() {
             return;
           }
           if (landing) {
+            /* somebody who made (or logged into) their account in this box: their first post opens in the Editor */
+            if (loggedInHere.current) openNextInEditor();
             close(() => navigate('/dashboard'));
             startPlanGeneration('capture').catch(() => {});
             return;

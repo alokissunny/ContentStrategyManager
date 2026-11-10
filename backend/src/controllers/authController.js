@@ -41,7 +41,11 @@ async function register(req, res) {
     return res.status(409).json({ message: 'An account with this email already exists' });
   }
 
-  const user = await User.create({ name, email, password });
+  const at = new Date();
+  const legal = req.body.acceptTerms
+    ? { termsAcceptedAt: at, termsVersion: String(req.body.termsVersion || '').slice(0, 64), marketing: Boolean(req.body.marketing), marketingAt: req.body.marketing ? at : null }
+    : undefined;
+  const user = await User.create({ name, email, password, ...(legal ? { legal } : {}) });
   res.status(201).json(await authPayload(user));
 }
 

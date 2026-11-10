@@ -22,6 +22,7 @@ import S8Faq from './bauhly/scenes/S8Faq.jsx';
 import S6Invitation from './bauhly/scenes/S6Invitation.jsx';
 import Footer from './bauhly/components/Footer.jsx';
 import HeroCapture from './bauhly/components/HeroCapture.jsx';
+import LandingLogin from './bauhly/components/LandingLogin.jsx';
 import './bauhly/styles/tokens.css';
 import './bauhly/styles/base.css';
 import './bauhly/styles/scenes.css';
@@ -104,6 +105,8 @@ export default function Landing() {
       {/* the box the field opens — the same Capture the app uses, mounted here because the
           dashboard's own host lives inside the signed-in layout */}
       <CaptureHost />
+      {/* the header's `Log in`, in a box on this page (bauhly-v3, decisions 706, 740) */}
+      <LandingLogin />
     </div>
     </MotionConfig>
   );

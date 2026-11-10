@@ -93,3 +93,10 @@
   --panel-radius: clamp(22px, 2.6vw, 40px);
   --r-hero: var(--panel-radius);
 }
+/* ── AND ON A PHONE THE FRAME IS 16 (Leon, Nov 8: "a minimum horizontal padding of 16px, following Apple's
+   Human Interface Guidelines"; decision 704) ── The clamp's floor put every panel 10px from the glass at 375.
+   The gap between panels follows, as it always has, and everything measured off the frame (the nav's inset,
+   the hero's height, the field's foot) moves with it. 641 up is the clamp, unchanged. */
+@media (max-width: 640px) {
+  .bauhly-landing { --frame: var(--sp-4); }
+}

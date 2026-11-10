@@ -35,6 +35,7 @@ import Icon from '../../../../brand/Icon'
 import { useTypedPlaceholder } from '../../../../components/ui/typing.js'
 import { openCaptureIdea, useCaptureOpen, canTakeCaret, CAPTURE_CLOSE_MS } from '../../../../lib/captureUi'
 import { useLang } from '../lib/lang.js'
+import { START_EVENT } from '../lib/start.js'
 
 /* it has finished shrinking once this share of the viewport is all that is left of the
    hero. It starts on the first pixel of scroll */
@@ -47,7 +48,7 @@ const isPhone = () => window.matchMedia(PHONE).matches
 const FADE_MS = 300
 
 /* the nav's primary button and the page's other calls to action open the same box,
-   growing out of this element wherever it stands */
+   growing out of this element wherever it stands (lib/start.js) */
 let raiseNow = null
 export const startCapture = () => raiseNow?.()
 
@@ -65,6 +66,10 @@ export default function HeroCapture() {
   /* read at the start, not after the first paint: a phone never sees the field */
   const [form, setForm] = useState(() => (isPhone() ? 'pill' : 'field'))
   const open = useCaptureOpen()
+  /* ── THE POINTER OVER THE FIELD OPENS ITS SEND INTO ITS WORDS (bauhly-v3, Nov 10 — decision 803) ──
+     A mouse over any part of the field folds the send out into `Start capturing` beside its arrow, and
+     back when it leaves. A touch has no hover, and a tap opens the box anyway. Landing field only. */
+  const [over, setOver] = useState(false)
   /* someone is on the field with the keyboard: the examples stop for them */
   const [held, setHeld] = useState(false)
   /* true while Capture is standing where this element was */
@@ -148,7 +153,15 @@ export default function HeroCapture() {
   const origin = useCallback(() => {
     const node = el.current
     if (!node) return null
-    const r = node.getBoundingClientRect()
+    /* the field AT REST: any transform about its centre is taken back out, so the box grows from
+       the size the field has on the page (bauhly-v3, decision 737) */
+    const seen = node.getBoundingClientRect()
+    const tf = getComputedStyle(node).transform
+    const m = tf && tf !== 'none' ? new DOMMatrixReadOnly(tf) : null
+    const k = m ? Math.hypot(m.a, m.b) || 1 : 1
+    const w = seen.width / k
+    const h = seen.height / k
+    const r = { left: seen.left + (seen.width - w) / 2, top: seen.top + (seen.height - h) / 2 - (m ? m.f : 0), width: w, height: h }
     const corner = parseFloat(getComputedStyle(node).borderTopLeftRadius) || 0
     /* the disc showing on the right, for the box's send to start on: it is the send in the
        field and the arrow in the pill, which differ in size and in their inset */
@@ -180,7 +193,9 @@ export default function HeroCapture() {
         },
       })
     })
-    if (canTakeCaret()) document.querySelector('.cap-overlay--landing .capc__field')?.focus({ preventScroll: true })
+    /* only when typing is what opened it: their next letter has to land. A press opens the box with
+       the field at rest, until they press it or `Try an example` (bauhly-v3, Nov 8; decision 697) */
+    if (text && canTakeCaret()) document.querySelector('.cap-overlay--landing .capc__field')?.focus({ preventScroll: true })
   }, [origin, EXAMPLES, t.example])
 
   /* only while they can be seen and nobody is on the field. Every press on it opens
@@ -188,7 +203,8 @@ export default function HeroCapture() {
   const [example, fading] = useTypedPlaceholder(EXAMPLES, form === 'field' && !open && !covered && !held)
   useEffect(() => {
     raiseNow = () => raise()
-    return () => { raiseNow = null }
+    window.addEventListener(START_EVENT, raiseNow)
+    return () => { window.removeEventListener(START_EVENT, raiseNow); raiseNow = null }
   }, [raise])
 
   /* ── AND IT CROSSES WITH THE BAR IN THE BOX (Leon, Nov 5: "as if it's the same component
@@ -216,7 +232,12 @@ export default function HeroCapture() {
           there to receive it. A keystroke opens it too and is carried in, so a
           visitor who arrives by keyboard loses nothing. `inert` while it is not
           the form on screen — a hidden field must not take the Tab key. */}
-      <div className="hcap__field" inert={form !== 'field' || covered ? '' : undefined}>
+      <div
+        className="hcap__field"
+        inert={form !== 'field' || covered ? '' : undefined}
+        onPointerEnter={(e) => { if (e.pointerType === 'mouse') setOver(true) }}
+        onPointerLeave={() => setOver(false)}
+      >
         {/* the shape of Capture's own bar: the sentence and the send. Every press on it
             opens the box, and a key typed into it is carried in */}
         <div className="obc obc--hero">
@@ -230,8 +251,14 @@ export default function HeroCapture() {
             placeholder={example ?? `${t.ask}…`}
             aria-label={t.ask}
           />
-          <button type="button" className="obc__send" tabIndex={-1} aria-hidden="true">
+          <button
+            type="button"
+            className={`obc__send obc__send--fold${over && form === 'field' && !covered ? ' is-open' : ''}`}
+            tabIndex={-1}
+            aria-hidden="true"
+          >
             <Icon name="arrow-up" size={17} strokeWidth={2.4} />
+            <span className="obc__send-say"><span>{t.start}</span></span>
           </button>
         </div>
       </div>

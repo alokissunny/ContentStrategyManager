@@ -30,6 +30,7 @@ import { useProjects, createProject, ensureProjects, addSession, sessionCount } 
 import {
   consumePlanReady,
   getPlanGeneration,
+  takeOpenInEditor,
   setPlanWatching,
   startPlanGeneration,
   usePlanGeneration,
@@ -1751,8 +1752,21 @@ export default function YourPlans() {
     const hold = Math.max(0, 1800 - (Date.now() - gen.startedAt));
     const t = setTimeout(async () => {
       if (getPlanGeneration().status !== 'ready') return;
-      consumePlanReady();
+      const taken = consumePlanReady();
+      const toEditor = takeOpenInEditor();
       await reload();
+      /* a first-time studio (an account made from the landing page) lands in the Editor on the post the
+         run made, not on the calendar (lib/planGeneration `openNextInEditor`) — the phone feed's pencil road */
+      const made = (taken?.posts || []).filter((p) => p?.date).sort((x, y) => String(x.date).localeCompare(String(y.date)))[0];
+      const at = toEditor && made ? parseIsoDay(String(made.date).slice(0, 10)) : null;
+      if (at) {
+        setAnchorDate(startOfDay(at));
+        setStartEdit({ mode: 'edit', iso: String(made.date).slice(0, 10) });
+        setForceWorkspace(true);
+        setView('list');
+        setReplanning(false);
+        return;
+      }
       // Post-centric: generation drops new posts onto empty calendar slots.
       // Land back on the calendar so they're all visible, rather than opening
       // one week.

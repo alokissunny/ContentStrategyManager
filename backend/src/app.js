@@ -68,6 +68,8 @@ app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
 
 app.use('/api/auth', authRoutes);
 app.use('/api/early-access', earlyAccessRoutes);
+// a landing visitor's Instagram, read before they have an account (services/visitorInstagram.js)
+app.use('/api/public', require('./routes/publicRoutes'));
 app.use('/api/signals', signalRoutes);
 app.use('/api/routes', routeRoutes);
 app.use('/api/posts', postRoutes);

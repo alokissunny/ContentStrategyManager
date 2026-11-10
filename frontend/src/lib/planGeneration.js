@@ -29,6 +29,8 @@ const IDLE = {
   // strategist asked for a clearer idea/visual; the UI shows it as a prompt/CTA
   startedAt: 0,
   watching: false,
+  // the post this run makes opens straight in the Editor (a landing visitor's first post)
+  openEditor: false,
   toast: null, // { kind: 'busy' | 'done' | 'error' | 'guidance', text, action? }
 };
 
@@ -82,6 +84,23 @@ export function consumePlanReady() {
     toast: snapshot.toast?.kind === 'done' ? null : snapshot.toast,
   });
   return taken;
+}
+
+/* ── A FIRST-TIME STUDIO LANDS IN THE EDITOR (Nov 10) ─────────────────────────────────────────────
+   A visitor who has just made their account from the landing page's Capture goes from the generation
+   straight into Editor mode on the post it made, not back to the calendar. Kept in sessionStorage too,
+   so a reload during the run still lands there (YourPlans reads it when the run is ready). */
+const OPEN_EDITOR_KEY = 'bauhly.openEditorAfterGen';
+export function openNextInEditor() {
+  try { sessionStorage.setItem(OPEN_EDITOR_KEY, '1'); } catch { /* private mode: this tab still knows */ }
+  set({ openEditor: true });
+}
+export function takeOpenInEditor() {
+  let stored = false;
+  try { stored = sessionStorage.getItem(OPEN_EDITOR_KEY) === '1'; sessionStorage.removeItem(OPEN_EDITOR_KEY); } catch { /* ok */ }
+  const want = snapshot.openEditor || stored;
+  if (snapshot.openEditor) set({ openEditor: false });
+  return want;
 }
 
 export async function startPlanGeneration(trigger, extras = {}) {

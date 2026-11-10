@@ -127,4 +127,4 @@ function aiLimit(bucket = 'light') {
   };
 }
 
-module.exports = { aiLimit, _memory: memory };
+module.exports = { aiLimit, incr, _memory: memory };
