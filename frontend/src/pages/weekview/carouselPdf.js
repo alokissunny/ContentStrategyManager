@@ -37,6 +37,7 @@ function rasterizeNode(node, { width, height, timeoutMs = 20000 } = {}) {
 
   return slideFontCss(node).catch(() => '').then((fontEmbedCSS) => toSvg(node, {
     cacheBust: true,
+    includeQueryParams: true, // proxy URLs differ only by ?key= — see WeekView rasterizeSlide
     skipFonts: true,
     fontEmbedCSS,
     width: w,

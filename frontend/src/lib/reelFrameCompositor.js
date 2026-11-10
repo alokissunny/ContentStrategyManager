@@ -26,7 +26,7 @@ const SCENE_STYLE_PROPERTIES = `
   animation-timing-function animation-delay animation-iteration-count animation-direction
   animation-fill-mode animation-play-state content
 `.trim().split(/\s+/);
-const SVG_OPTIONS = { width: 300, height: 300 * 16 / 9, pixelRatio: 1, includeStyleProperties: SCENE_STYLE_PROPERTIES };
+const SVG_OPTIONS = { includeQueryParams: true, width: 300, height: 300 * 16 / 9, pixelRatio: 1, includeStyleProperties: SCENE_STYLE_PROPERTIES };
 
 // Decode immediately rather than waiting for a display refresh as toCanvas does.
 // Export frames run on an offline clock, independently of the screen refresh rate.

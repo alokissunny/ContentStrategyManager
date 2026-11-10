@@ -2227,6 +2227,11 @@ async function rasterizeSlide(node, { timeoutMs = 20000 } = {}) {
 
   return toSvg(node, {
     cacheBust: true,
+    // Every photo goes through /api/media/proxy?key=… — html-to-image keys its
+    // (module-wide) image cache on the URL WITHOUT the query string by default,
+    // so all photos collapsed to one entry and every published slide showed the
+    // first photo fetched. Keep the query in the cache key.
+    includeQueryParams: true,
     skipFonts: true,
     fontEmbedCSS,
     imagePlaceholder: EXPORT_IMG_PLACEHOLDER,
