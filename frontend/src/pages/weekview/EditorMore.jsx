@@ -143,10 +143,21 @@ export default function EditorMore({ acts, onClose, startLevel = null, toolbar =
     }];
   };
   // the reach pair every "how far" level ends on
-  const reach = (put, { one, all }) => [
-    { id: 'one', icon: 'brief', label: 'This slide', hint: one, fn: () => put(false) },
-    { id: 'all', icon: 'copy', label: 'All slides', hint: all, fn: () => put(true) },
-  ];
+  // …read through the Editor grid's selection (`acts.scope`, bauhly-v3
+  // lib/slide-scope.js): nothing selected offers only All slides; two or more
+  // turn This slide into "The N selected slides". `scoped: false` for the acts
+  // that only ever reach the open slide.
+  const reach = (put, { one, all }, { scoped = true } = {}) => {
+    const sc = scoped ? acts.scope : null;
+    const allRow = { id: 'all', icon: 'copy', label: 'All slides', hint: all, fn: () => put(true) };
+    if (sc?.all) return [allRow];
+    return [
+      sc?.n > 1
+        ? { id: 'one', icon: 'brief', label: `The ${sc.n} selected slides`, hint: 'The others keep theirs', fn: () => put(false) }
+        : { id: 'one', icon: 'brief', label: 'This slide', hint: one, fn: () => put(false) },
+      allRow,
+    ];
+  };
 
   /* ── Layout (bauhly-v3 PostMenu `layout`) ────────────────────────────
    * The carousel agent's layouts (Default · Full bleed · Floating panel ·
@@ -354,7 +365,7 @@ export default function EditorMore({ acts, onClose, startLevel = null, toolbar =
               rows={many ? reach(go, {
                 one: 'Repainted in this look — the others keep theirs',
                 all: 'Every slide repainted in this look',
-              }).map((r) => ({ ...r, dead: acts.busy })) : [
+              }, { scoped: false }).map((r) => ({ ...r, dead: acts.busy })) : [
                 {
                   id: 'go',
                   icon: 'sparkle',
@@ -451,7 +462,7 @@ export default function EditorMore({ acts, onClose, startLevel = null, toolbar =
               rows={many ? reach(go, {
                 one: 'Re-composed in this look — the others keep theirs',
                 all: 'Every slide re-composed in this look',
-              }).map((r) => ({ ...r, dead: acts.busy })) : [
+              }, { scoped: false }).map((r) => ({ ...r, dead: acts.busy })) : [
                 {
                   id: 'go',
                   icon: 'sparkle',

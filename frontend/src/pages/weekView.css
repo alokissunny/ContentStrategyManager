@@ -10183,3 +10183,219 @@ i.shotedit__aa { font-style: italic; font-family: Georgia, serif; }
   max-height: min(240px, 34vh);
   overflow-y: auto;
 }
+
+/* ══ EDITOR MODE AS A MODAL (bauhly-v3, Nov 10 — the Editor in Capture's own box, `.capm__box .edm`) ══════════
+   On a desktop the Editor is a box over the page, not a workspace beside the sidebar: Capture's size and corner,
+   the page behind it light and blurred. The top row is the mock's: Cancel (white) at the left, undo / redo in the
+   middle, Done (ink) at the right, nothing else; the slide count sits under it. A phone keeps the whole screen. */
+.wv-edm-scrim { display: none; }
+@media (min-width: 768px) {
+  .wv-edm-scrim {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 54;
+    background: color-mix(in srgb, var(--ink-100, #ececea) 70%, transparent);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    animation: fade-in var(--dur-base, 200ms) var(--ease-out, ease) both;
+  }
+  .wv-edm {
+    inset: 0;
+    left: 0;
+    width: min(1120px, calc(100vw - 40px));
+    height: min(860px, calc(100dvh - 40px));
+    margin: auto;
+    border-radius: 30px;
+    overflow: hidden;
+    box-shadow: 0 40px 90px -30px rgba(20, 20, 25, 0.45);
+  }
+  .wv-edm__top {
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    align-items: center;
+    min-height: 0;
+    padding: 26px 26px 0;
+    background: transparent;
+    box-shadow: none;
+  }
+  .wv-edm__top .wv-edm__what { display: none; }
+  .wv-edm__top .wv-edm__acts { display: contents; }
+  .wv-edm__top .btn.wv-edm__cancel {
+    order: 1;
+    justify-self: start;
+    height: 40px;
+    padding: 0 20px;
+    border-radius: 999px;
+    background: #fff;
+    color: var(--ink-900);
+    font-size: 15px;
+    font-weight: 600;
+    box-shadow: 0 4px 14px -4px rgb(20 20 25 / 0.2), 0 0 0 1px rgb(20 20 25 / 0.04);
+  }
+  .wv-edm__top .btn.wv-edm__cancel:hover { background: var(--ink-50, #f6f6f4); color: var(--ink-900); }
+  .wv-edm__top .wv-edm__hist { order: 2; position: static; transform: none; margin: 0; gap: 8px; }
+  .wv-edm__top .btn.wv-edm__apply {
+    order: 3;
+    justify-self: end;
+    height: 40px;
+    padding: 0 22px;
+    border-radius: 999px;
+    font-size: 15px;
+    font-weight: 600;
+  }
+  .wv-edm__top .wv-edm__histbtn,
+  .wv-edm__top .wv-edm__histbtn:not(:disabled) {
+    width: 40px;
+    height: 40px;
+    background: #fff;
+    color: var(--ink-900);
+    box-shadow: 0 4px 14px -4px rgb(20 20 25 / 0.2), 0 0 0 1px rgb(20 20 25 / 0.04);
+  }
+  .wv-edm__top .wv-edm__histbtn:hover:not(:disabled) { background: var(--ink-50, #f6f6f4); }
+  .wv-edm__top .wv-edm__histbtn:disabled { background: var(--ink-50, #f4f4f2); color: var(--ink-400); box-shadow: none; }
+  .wv-edm__count {
+    align-self: center;
+    margin: 10px auto 0;
+    padding: 3px 10px;
+    border-radius: 999px;
+    background: var(--ink-50, #f2f2f0);
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--ink-600);
+  }
+  .wv-edm .wv-edm__dots { display: none; }
+  /* ── THE POST IS SIZED BY THE BOX, NOT THE WINDOW (bauhly-v3 `.capm__box .edm { --edm-vh }`, `--edm-box-chrome`) ──
+     The full-screen workspace measured the card off `100dvh` less its old header; in the box that made the post as
+     tall as the box and pushed the count under the top row and the tools out of the bottom. What the box leaves
+     after its own chrome: the top row (26 + 40), the count and its gaps (44), the body's padding (2 × 16), and the
+     tool row with its caption (`--edm-tools-h` + 34). */
+  .wv-edm { --edm-vh: min(860px, calc(100dvh - 40px)); --edm-box-chrome: 174px; }
+  .wv-edm__body { padding: var(--sp-4) var(--sp-6); align-items: flex-start; }
+  .wv-edm__body > * {
+    --edm-card-h: max(260px, min(
+      calc(var(--edm-vh) - var(--edm-box-chrome) - var(--edm-ask-h, 0px) - var(--edm-tools-h, 0px) - 34px),
+      640px,
+      calc((100cqw - var(--edm-panel-w) - 76px - 2 * var(--edm-peek)) / var(--edm-ar))
+    ));
+  }
+  .wv-edm__count { margin: 0 auto var(--sp-4); }
+  /* one slide at a time, as the mock's box shows it: the neighbours the full-screen stack peeked are not drawn */
+  .wv-edm .wv-edm__card:not(.is-on) { opacity: 0; pointer-events: none; }
+}
+@media (max-width: 767px) {
+  .wv-edm__count { display: none; }
+}
+
+/* ── the Editor's grid: every slide at once (bauhly-v3 decision 721) ── */
+.wv-edm__gridbtn.is-on,
+.wv-edm__top .wv-edm__gridbtn.is-on:not(:disabled) { background: var(--ink-900); color: var(--surface); box-shadow: none; }
+/* The grid stands in the canvas, over the stack (kept mounted and hidden so the open slide's frame can still be
+   measured). Two rows fit the post's own height; more rows scroll. The canvas widens to the columns. */
+.wv-edm__canvas.is-grid {
+  --g-gap: 16px;
+  --g-head: 44px;
+  --g-cell-h: calc((var(--edm-card-h) - var(--g-head) - var(--g-gap)) / 2);
+  --g-cell-w: calc(var(--g-cell-h) * var(--edm-ar, 0.8));
+  width: min(calc(100cqw - 2 * var(--sp-4)), calc(var(--g-cols, 3) * var(--g-cell-w) + (var(--g-cols, 3) - 1) * var(--g-gap) + 16px));
+}
+.wv-edm__canvas.is-grid > :not(.wv-edm__grid) { visibility: hidden; pointer-events: none; }
+.wv-edm__stage:has(.wv-edm__canvas.is-grid) .wv-edm__line { visibility: hidden; }
+.wv-edm__grid {
+  position: absolute;
+  inset: 0;
+  z-index: 20; /* under the tools row (21), whose menus open over the grid */
+  display: grid;
+  grid-template-columns: repeat(var(--g-cols, 3), minmax(0, var(--g-cell-w)));
+  grid-auto-rows: max-content;
+  justify-content: center;
+  align-content: start;
+  gap: var(--g-gap);
+  padding: 0 8px 8px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  animation: fade-in var(--dur-fast, 140ms) var(--ease-out, ease);
+}
+/* the head: one cell holding both badges, only one seen, so nothing moves when the count reaches nought (729) */
+.wv-edm__gridsay {
+  grid-column: 1 / -1;
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: grid;
+  place-items: center;
+  height: calc(var(--g-head) - var(--g-gap) + 12px);
+  margin-bottom: -12px;
+}
+.wv-edm__gridbar {
+  grid-area: 1 / 1;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 14px;
+  border-radius: 999px;
+  font-size: 13px;
+  line-height: 1.2;
+  white-space: nowrap;
+  transition: opacity var(--dur-fast, 140ms) var(--ease-out, ease);
+}
+.wv-edm__gridbar--hint { background: var(--ink-50, #f2f2f0); color: var(--ink-600); font-weight: 500; }
+.wv-edm__gridbar--count { background: rgb(28 28 32 / 0.82); color: #fff; font-weight: 500; opacity: 0; visibility: hidden; }
+.wv-edm__gridbar--count b { font-weight: 650; }
+.wv-edm__gridsep { opacity: 0.6; }
+.wv-edm__gridsay.is-picked .wv-edm__gridbar--hint { opacity: 0; visibility: hidden; }
+.wv-edm__gridsay.is-picked .wv-edm__gridbar--count { opacity: 1; visibility: visible; }
+.wv-edm__gridcell {
+  position: relative;
+  display: block;
+  padding: 0;
+  border: 0;
+  border-radius: 14px;
+  background: none;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.wv-edm__gridcell:disabled { cursor: progress; }
+.wv-edm__grid .wv-edm__gridslide {
+  position: relative;
+  inset: auto;
+  display: block;
+  width: 100%;
+  height: auto;
+  aspect-ratio: var(--edm-ar, 0.8);
+  overflow: hidden;
+  border-radius: 12px;
+  background: var(--surface-sunken);
+  box-shadow: 0 0 0 1px rgb(20 20 25 / 0.07), 0 8px 22px -16px rgb(22 22 26 / 0.35);
+  pointer-events: none;
+  transition: box-shadow var(--dur-fast, 140ms) var(--ease-out, ease);
+}
+.wv-edm__gridcell:hover:not(.is-on) .wv-edm__gridslide { box-shadow: 0 0 0 1px var(--ink-300, #c8c8c4), 0 8px 22px -16px rgb(22 22 26 / 0.35); }
+/* selected: the ink ring outside a white gap, as the mock draws it */
+.wv-edm__gridcell.is-on .wv-edm__gridslide { box-shadow: 0 0 0 3px var(--surface, #fff), 0 0 0 5px var(--ink-900); }
+.wv-edm__gridcell:focus-visible { outline: none; }
+.wv-edm__gridcell:focus-visible .wv-edm__gridslide { box-shadow: 0 0 0 3px var(--surface, #fff), 0 0 0 5px var(--focus-ring, #5b8cff); }
+.wv-edm__gridn {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  min-width: 26px;
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: rgb(28 28 32 / 0.72);
+  font-size: 11px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.3;
+  text-align: center;
+  color: #fff;
+  pointer-events: none;
+}
+@media (max-width: 767px) {
+  .wv-edm__canvas.is-grid { --g-gap: 12px; width: calc(100cqw - 2 * var(--sp-3)); }
+  .wv-edm__grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .wv-edm__gridbar { font-size: 12px; padding: 4px 12px; }
+  .wv-edm__gridbar--count .wv-edm__gridsep,
+  .wv-edm__gridbar--count b + .wv-edm__gridsep + span { display: none; }
+}

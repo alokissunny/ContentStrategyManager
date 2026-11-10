@@ -1188,7 +1188,7 @@ async function polishCaption(req, res) {
 // A request for a picture (`visual: true`, or words asking for one) first runs
 // the Visual agent on `visualSlideIndex`; the new picture goes to the carousel
 // agent as a supplied asset and lands on that slide.
-// Body: { instruction, slideIndex?, focus?, visual?, visualSlideIndex?,
+// Body: { instruction, slideIndex?, slideIndexes? (grid selection), focus?, visual?, visualSlideIndex?,
 //   current: { carouselHtml, direction, slides: [{ index, layoutHtml, themed, assetKeys }] } }
 async function refinePost(req, res) {
   const record = await PlannedPost.findOne({ _id: req.params.id, user: req.user._id });
@@ -1226,6 +1226,7 @@ async function refinePost(req, res) {
       label,
       instruction: req.body?.instruction,
       slideIndex: req.body?.slideIndex,
+      slideIndexes: Array.isArray(req.body?.slideIndexes) ? req.body.slideIndexes.slice(0, 40) : null,
       focus: req.body?.focus || null,
       current: { ...current, slides: sent.map((s, i) => ({ ...s, assetKeys: ownKeys(s?.assetKeys) })) },
       brand,

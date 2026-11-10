@@ -179,6 +179,7 @@ function slotKeysOf(article, prevKeys, own) {
  * @param {object} p
  * @param {string} p.instruction
  * @param {number|null} p.slideIndex  the slide in scope (null = every slide)
+ * @param {number[]|null} p.slideIndexes  with slideIndex null: just these slides (the Editor's grid selection)
  * @param {object|null} p.focus       { slideIndex, tag, slot, text } — also marked in the html
  * @param {object} p.current          { carouselHtml, slides: [{ index, layoutHtml, themed, assetKeys, role, title }] }
  * @returns {{ html, slides, direction, result }} — `html` is the new carousel document
@@ -241,7 +242,7 @@ function htmlThemeNote(theme, done) {
 }
 
 async function refineCarouselFromEdits({
-  userId, handle, label, instruction, slideIndex, focus, current, brand,
+  userId, handle, label, instruction, slideIndex, slideIndexes = null, focus, current, brand,
   visual: visualFlag, visualSlideIndex, slideRecords, strategy, layoutIssues, geometry, slideCss, debug, intent, visualTheme,
   mode = 'edit', htmlTheme = '', themeBases = null, attachedPicture = null,
 }) {
@@ -266,6 +267,11 @@ async function refineCarouselFromEdits({
   const n = composed.articles.length;
   const target = Number(slideIndex) > 0 ? Number(slideIndex) : null;
   if (target && !composed.articles.some((a) => a.index === target)) throw err(404, 'Slide not found on this post.');
+  // the Editor's grid: several selected slides at once (null = every slide)
+  const picked = !target && Array.isArray(slideIndexes)
+    ? new Set(slideIndexes.map(Number).filter((k) => composed.articles.some((a) => a.index === k)))
+    : null;
+  const inScope = (index) => (target ? index === target : (!picked || !picked.size || picked.has(index)));
   const own = `projects/${userId}/`;
   // HTML theme on a Theme Apply picture: the slide's underlying html (the
   // pre-theme design) is what goes into the template — { [index]: { html, dir, keys } }
@@ -297,14 +303,14 @@ async function refineCarouselFromEdits({
     source: 'Prompt edit · request',
     prompt: {
       instruction: ask,
-      scope: target ? `slide ${target} of ${n}` : `all ${n} slides`,
+      scope: target ? `slide ${target} of ${n}` : picked?.size ? `slides ${[...picked].join(', ')} of ${n}` : `all ${n} slides`,
       focus: focus || null,
       visualRequested: wantsVisual,
       pressed: plan.pressed || null,
       pictureOp: pictureOp || plan.op || null,
       brief: plan.brief || null,
     },
-    output: { slides: target ? [target] : composed.articles.map((a) => a.index) },
+    output: { slides: composed.articles.map((a) => a.index).filter(inScope) },
     elapsedMs: Date.now() - t0,
   });
 
@@ -488,7 +494,7 @@ async function refineCarouselFromEdits({
   const flowLines = target ? null : composed.articles.map((a) => plain(a.html));
   // a slide Theme Apply turned into a picture has no live html for a template
   const pictureAt = new Set(slides.map((s, i) => (s?.pictureThemed ? (Number(s.index) > 0 ? Number(s.index) : i + 1) : 0)).filter(Boolean));
-  const todo = composed.articles.filter((a) => (!target || a.index === target) && !(theme && pictureAt.has(a.index) && !baseOf(a.index)));
+  const todo = composed.articles.filter((a) => inScope(a.index) && !(theme && pictureAt.has(a.index) && !baseOf(a.index)));
   if (theme && !todo.length) throw err(422, 'This theme picture has no saved design underneath — use Remove theme, then apply the HTML theme.');
   const edited = await Promise.all(todo.map(async (a) => {
     if (theme) {

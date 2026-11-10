@@ -579,6 +579,13 @@ function PlusRows({ rows, back = null }) {
    Nov 1–4: "Layout → Colors → Theme → Slide Options → More", then the wand
    back in front, Theme moved off it, and Add element given its own disc).
    `says` is the caption over the row while that tool is open. */
+/* the Editor grid's columns (bauhly-v3 decision 721): 4 to a row, or 3 when
+   that leaves fewer empty cells; a short post sits in one row */
+function gridColsFor(n) {
+  if (n <= 4) return Math.max(n, 2);
+  const empty = (c) => Math.ceil(n / c) * c - n;
+  return empty(3) < empty(4) ? 3 : 4;
+}
 const ED_TOOLS = [
   { id: 'ask', icon: 'wand', label: 'Ask', says: 'Ask Bauhly', stroke: 1.8 },
   { id: 'layout', icon: 'blocks', label: 'Layout', says: 'Layout style' },
@@ -3533,6 +3540,14 @@ export default function WeekView({
   // a dark header (Cancel / Apply changes), the slide as a stack with its
   // neighbours peeking, undo/redo + ⋯ over it and the AI mark on it.
   const [postEdit, setPostEdit] = useState(false);
+  /* the Editor's grid: every slide of the post at once (bauhly-v3 decision 721, `gridSwitch`) */
+  const [edGrid, setEdGrid] = useState(false);
+  /* …and several slides at once (bauhly-v3 decision 722): `gridSel` is the
+     selection in the order it was made; the slide open (`safeIdx`) is its
+     FOCUS, the last one pressed. It outlives a trip to the single view and
+     back. With nothing selected the grid edits the whole post (decision 797). */
+  const [gridSel, setGridSel] = useState([]);
+  useEffect(() => { if (!postEdit) { setEdGrid(false); setGridSel([]); } }, [postEdit]);
   // Editor mode on the caption (bauhly-v3's phone caption editor): the post
   // above, the words in a card under it, ✓ saves them
   const [edCap, setEdCap] = useState(false);
@@ -4060,6 +4075,20 @@ export default function WeekView({
   const enriched = enrichedDays[selected] || enrichedDays[0];
   const slides = enriched?.slides || [];
   const safeIdx = Math.min(slideIdx, Math.max(slides.length - 1, 0));
+  /* What an edit reaches in the Editor's grid (bauhly-v3 lib/slide-scope.js):
+     nothing selected → the whole post (`gridAll`); two or more → those slides
+     (`gridScope`, 0-based); one → that slide, as in the single view. */
+  const gridOn = postEdit && edGrid && slides.length > 1;
+  const gridAll = gridOn && !gridSel.length;
+  const gridScope = gridOn && gridSel.length > 1 ? [...gridSel].sort((a, b) => a - b) : null;
+  const inReach = (every, i) => every || gridAll || (gridScope ? gridScope.includes(i) : i === safeIdx);
+  // a selection is a set of slide numbers: adding or removing a slide starts it again from the slide in front
+  const gridN = useRef(slides.length);
+  useEffect(() => {
+    if (gridN.current === slides.length) return;
+    gridN.current = slides.length;
+    setGridSel(edGrid && slides.length ? [Math.min(safeIdx, slides.length - 1)] : []);
+  }, [slides.length]); // eslint-disable-line react-hooks/exhaustive-deps
   // a marked layout card is forgotten when the tool, slide or post changes
   useEffect(() => { setLayMark(null); }, [edTool, safeIdx, selected]);
   const activeSlide = slides[safeIdx] || null;
@@ -4865,7 +4894,9 @@ export default function WeekView({
     const postId = postIdAt(selected);
     if (!postId) return;
     const focusPath = preset ? null : (askSel?.path ?? null);
-    const every = typeof reach === 'boolean' ? reach : askScopeOn;
+    // in the grid: nothing selected is the whole post, two or more are those slides
+    const every = typeof reach === 'boolean' ? reach : (askScopeOn || gridAll);
+    const scopeIdx = !every && gridScope ? gridScope : null;
     const saved = flushElemEdits();
     const base = saved?.slides || deriveSlides(day);
     const docBefore = saved?.docHtml ?? carouselDocumentOf(day);
@@ -4931,7 +4962,8 @@ export default function WeekView({
     try {
       const data = await refinePost(postId, {
         instruction,
-        slideIndex: every ? null : activeIdx,
+        slideIndex: every || scopeIdx ? null : activeIdx,
+        ...(scopeIdx ? { slideIndexes: scopeIdx.map((i) => (Number(base[i]?.index) > 0 ? Number(base[i].index) : i + 1)) } : {}),
         focus: !preset && askSel ? { slideIndex: activeIdx, tag: askSel.tag, slot: askSel.slot, text: askSel.text } : null,
         visual: pic ? false : (wantsPicture ? true : undefined),
         visualSlideIndex: activeIdx,
@@ -4987,7 +5019,7 @@ export default function WeekView({
         issues = introduced(await auditRenderedSlide(lastPost, activeIdx, activeDir));
       }
       setAskPhase('');
-      pushPostStep(askBefore, lastPost, every ? base.map((_, i) => i) : [safeIdx]);
+      pushPostStep(askBefore, lastPost, every ? base.map((_, i) => i) : (scopeIdx || [safeIdx]));
       const layoutNote = issues && issues.length
         ? ` Some layout problems remain (${issues.length}) — try Fix layout or adjust by hand.`
         : (repairs ? ' Layout tidied.' : '');
@@ -5084,6 +5116,40 @@ export default function WeekView({
   // A disc on the Editor's toolbar. The press is a toggle: the open disc
   // (wearing its ×) closes its menu, another disc swaps to its own. The wand
   // asks about the whole post, so it drops any selection first.
+  /* single slide ⇄ every slide (bauhly-v3 `toggleGrid`, decisions 721/730):
+     going in, no tool is left open and no element held; the selection that was
+     there comes back, focused on its last slide — or, the first time, the slide
+     that was open. */
+  function toggleEdGrid() {
+    elemApiRef.current?.deselect?.();
+    if (!edGrid) {
+      if (zone) closeZone();
+      setEdTool(null);
+      setLayMark(null);
+      if (!gridSel.length) setGridSel([safeIdx]);
+      else if (!gridSel.includes(safeIdx)) setSlideIdx(gridSel[gridSel.length - 1]);
+    }
+    setEdGrid((g) => !g);
+  }
+  // a press adds a slide and focuses it, or takes a selected one out (the
+  // focus going to the last one still selected)
+  function pressInGrid(i) {
+    if (gridSel.includes(i)) {
+      const rest = gridSel.filter((k) => k !== i);
+      setGridSel(rest);
+      if (i === safeIdx && rest.length) setSlideIdx(rest[rest.length - 1]);
+    } else {
+      setGridSel([...gridSel, i]);
+      if (i !== safeIdx) setSlideIdx(i);
+    }
+  }
+  // a double press opens that slide in the single view
+  function openFromGrid(i) {
+    if (!gridSel.includes(i)) setGridSel([...gridSel, i]);
+    setSlideIdx(i);
+    setEdGrid(false);
+  }
+
   function pickEdTool(id) {
     const hadSel = Boolean(elemSel);
     elemApiRef.current?.deselect();
@@ -7281,7 +7347,7 @@ export default function WeekView({
     const hasDoc = isCarouselDocument(docHtml);
     let docChanged = false;
     const next = base.map((sl, i) => {
-      if (!(every || i === safeIdx)) return sl;
+      if (!inReach(every, i)) return sl;
       let out = sl;
       if (Object.keys(dress).length) {
         out = { ...out, ...(isThemedPicture(sl) && dress.colorSet ? { ...dress, colorSet: sl.colorSet, colorSetAt: sl.colorSetAt, colorSwap: sl.colorSwap } : dress) };
@@ -7338,7 +7404,7 @@ export default function WeekView({
   function dressSlides(every, patch) {
     if (!day) return;
     const base = deriveSlides(day);
-    replaceSlides(base.map((sl, i) => ((every || i === safeIdx)
+    replaceSlides(base.map((sl, i) => (inReach(every, i)
       ? { ...sl, ...(typeof patch === 'function' ? patch(sl, i) : patch) } : sl)));
     setCopySnap(null);
   }
@@ -7357,7 +7423,7 @@ export default function WeekView({
     const at = Date.now();
     let held = 0;
     const next = base.map((sl, i) => {
-      if (!(every || i === safeIdx)) return sl;
+      if (!inReach(every, i)) return sl;
       const setId = setFor(sl, i) || '';
       if (isThemedPicture(sl)) {
         const set = kitSets.find((t) => t.id === setId);
@@ -7893,6 +7959,8 @@ export default function WeekView({
     .filter((l) => l.url);
   const moreActs = {
     slides: slides.length,
+    // the Editor grid's selection, read by the reach rows (EditorMore `reach`)
+    scope: gridOn ? { n: gridSel.length, all: gridAll } : null,
     busy: layoutBusy,
     uploading,
     // Layout: the carousel agent's layouts — one reruns the carousel agent on
@@ -8250,6 +8318,11 @@ export default function WeekView({
           same edit menu the preview had; its editors open in a panel beside
           the slide so the change is watched happening on it. */}
       {postEdit && day && !isEmptyCalDay(day) && createPortal(
+        <>
+        {/* ══ AND ON A DESKTOP IT IS A MODAL (bauhly-v3, Nov 10: the Editor stands in Capture's own box,
+            `.capm__box .edm`) ══ the page stays behind it, light and blurred; the box is Capture's size. A
+            phone keeps the whole screen. */}
+        <div className="wv-edm-scrim" aria-hidden="true" />
         <div
           className={`wv-edm${edCap ? ' is-capedit' : ''}`}
           role="dialog"
@@ -8299,6 +8372,20 @@ export default function WeekView({
               >
                 <Glyph name="redo-2" size={17} strokeWidth={2.2} />
               </button>
+              {/* single slide ⇄ every slide at once, beside undo / redo (bauhly-v3 decision 721) */}
+              {slides.length > 1 && !edCap && (
+                <button
+                  type="button"
+                  className={`wv-edm__histbtn wv-edm__gridbtn${edGrid ? ' is-on' : ''}`}
+                  onClick={toggleEdGrid}
+                  disabled={editBusy}
+                  aria-pressed={edGrid}
+                  aria-label={edGrid ? 'Show one slide' : 'Show all slides'}
+                  title={edGrid ? 'Show one slide' : 'Show all slides'}
+                >
+                  <Icon name="grid" size={17} />
+                </button>
+              )}
             </div>
             <div className="wv-edm__acts">
               <button
@@ -8315,10 +8402,11 @@ export default function WeekView({
                 className="btn btn--primary wv-edm__apply"
                 onClick={() => (edCap ? applyCaptionEdit() : leavePostEdit(true))}
                 disabled={editBusy || capSaving}
-                aria-label="Apply changes"
+                aria-label="Done"
                 title={editBusy ? 'Wait for Bauhly to finish' : 'Keep these changes'}
               >
-                <span className="wv-edm__applylabel">Apply<span className="wv-edm__applylong"> changes</span></span>
+                {/* the mock's word (bauhly-v3 `edm__nav--done`); it keeps the changes, as Apply did */}
+                <span className="wv-edm__applylabel">Done</span>
                 <span className="wv-edm__applymark" aria-hidden="true"><Icon name="check" size={18} strokeWidth={2.4} /></span>
               </button>
             </div>
@@ -8333,6 +8421,10 @@ export default function WeekView({
             }}
           >
             <section className="wv-edm__stage">
+              {/* the slide count under the top row (bauhly-v3 `.edm-count`, decision 794): the dots' job */}
+              {slides.length > 1 && !edCap && !edGrid && (
+                <span className="wv-edm__count" aria-live="polite">Slide {safeIdx + 1}/{slides.length}</span>
+              )}
               {/* the post's own bar (bauhly-v3 `edm__postbar`): the themed note
                   on the left, the versions + ⋯ on the right */}
               <div className="wv-edm__line">
@@ -8444,7 +8536,58 @@ export default function WeekView({
                   )}
                 </div>
               )}
-              <div className="wv-edm__canvas">
+              <div
+                className={`wv-edm__canvas${gridOn ? ' is-grid' : ''}`}
+                style={gridOn ? { '--g-cols': phoneEd ? 2 : gridColsFor(slides.length) } : undefined}
+              >
+                {/* ══ the grid (bauhly-v3 `Stack` grid, decisions 721–729, 797) ══ every slide at once,
+                    over the stack (which stays mounted, hidden, so the open slide's live frame is
+                    still there to measure). A press selects or deselects; a double press opens the
+                    slide alone. Its head says what an edit will reach. */}
+                {gridOn && (
+                  <div className="wv-edm__grid" role="listbox" aria-multiselectable="true" aria-label="All slides">
+                    <span className={`wv-edm__gridsay${gridSel.length ? ' is-picked' : ''}`} aria-live="polite">
+                      <span className="wv-edm__gridbar wv-edm__gridbar--hint">Select a slide or edit all at once</span>
+                      <span className="wv-edm__gridbar wv-edm__gridbar--count">
+                        <b>{`${Math.max(1, gridSel.length)} of ${slides.length} slides selected`}</b>
+                        <span className="wv-edm__gridsep" aria-hidden="true">·</span>
+                        <span>Changes will apply to selected slides</span>
+                      </span>
+                    </span>
+                    {slides.map((sl, i) => {
+                      const on = gridSel.includes(i);
+                      return (
+                        <button
+                          type="button"
+                          role="option"
+                          aria-selected={on}
+                          key={`grid-${slideGen}-${i}`}
+                          className={`wv-edm__gridcell${on ? ' is-on' : ''}${on && i === safeIdx ? ' is-focus' : ''}`}
+                          onClick={() => pressInGrid(i)}
+                          onDoubleClick={() => openFromGrid(i)}
+                          disabled={editBusy}
+                          aria-label={`Slide ${i + 1}${on ? ', selected' : ''}`}
+                        >
+                          <span className="wv-edm__gridslide wv-ig__photo">
+                            <SlideMedia
+                              slide={sl}
+                              localMedia={localMedia}
+                              mediaByKey={mediaByKey}
+                              subjectsByKey={subjectsByKey}
+                              paint={paintFor(sl).paint}
+                              themed={paintFor(sl).themed}
+                              carouselLayoutHtmls={slides.map((x) => x?.layoutHtml || '')}
+                              documentHtml={!isBlankSlide(sl) && slideIsThemed(sl) ? carouselDocumentOf(day) : ''}
+                              slideIndex={i + 1}
+                              direction={layoutDirectionOf(sl)}
+                            />
+                          </span>
+                          <span className="wv-edm__gridn">{String(i + 1).padStart(2, '0')}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
                 <EditStack
                   count={Math.max(slides.length, 1)}
                   index={safeIdx}
@@ -8599,7 +8742,7 @@ export default function WeekView({
                 </EditStack>
               </div>
 
-              {slides.length > 1 && (
+              {slides.length > 1 && !gridOn && (
                 <div className="wv-edm__dots" role="tablist" aria-label={`Slide ${safeIdx + 1} of ${slides.length}`}>
                   {slides.map((_, i) => (
                     <button
@@ -8667,7 +8810,9 @@ export default function WeekView({
                             aria-label={on ? `Close ${t.label}` : t.label}
                             title={on ? `Close ${t.label}` : t.label}
                             data-tool={t.id}
-                            disabled={editBusy && t.id !== 'ask'}
+                            // the grid with nothing selected edits the whole post: only Ask and
+                            // Colours make sense for every slide (bauhly-v3 decision 797)
+                            disabled={(editBusy && t.id !== 'ask') || (gridAll && t.id !== 'ask' && t.id !== 'colour')}
                             onPointerDown={(e) => e.stopPropagation()}
                             onClick={(e) => { e.stopPropagation(); pickEdTool(t.id); }}
                           >
@@ -8828,7 +8973,7 @@ export default function WeekView({
                     {rgnOpen ? (
                       <span className="wv-edm__trailwho">{openLabel}</span>
                     ) : (askSel || askPath.length || slides.length <= 1) && (
-                      <span className="wv-edm__trailwho">{subject || (askScopeOn ? 'All slides' : 'This post')}</span>
+                      <span className="wv-edm__trailwho">{subject || (askScopeOn || gridAll ? 'All slides' : gridScope ? `${gridScope.length} selected slides` : 'This post')}</span>
                     )}
                     {!rgnOpen && trail.map((node, i) => (
                       <span className="wv-edm__trailstep" key={`tr${i}`}>
@@ -9221,7 +9366,8 @@ export default function WeekView({
               onRewrite={rewriteElemWords}
             />
           )}
-        </div>,
+        </div>
+        </>,
         document.body,
       )}
       {/* ── the way back, and the plan's actions ─────────────────────────── */}
