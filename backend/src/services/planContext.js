@@ -332,8 +332,24 @@ function conversationCaptureOf(n) {
     internalStories: internalStoriesForPlan(u),
     storyRelationships: storyRelationshipsForPlan(u),
     assets: compactCaptureAssets(n, u),
+    videos: videosForPlan(n.videos),
     status: clip(u.captureStatus || u.status, 24) || 'ready',
   });
+}
+
+// The capture's filmed clips: what they show and what was said in them. The
+// stills listed here are also in `assets` (same keys) and plan like photos.
+const VIDEO_TRANSCRIPT_MAX = Number(process.env.PLAN_VIDEO_TRANSCRIPT_MAX) || 4000;
+function videosForPlan(videos) {
+  return (Array.isArray(videos) ? videos : []).slice(0, 4).map((v) => omitEmpty({
+    key: clip(v?.key, 200),
+    durationSec: Number(v?.durationSec) || 0,
+    summary: sourceText(v?.summary),
+    detail: clip(v?.description, 600),
+    transcript: clip(v?.transcript, VIDEO_TRANSCRIPT_MAX),
+    textOnScreen: clip(v?.textOnScreen, 300),
+    stills: (v?.stills || []).map((k) => clip(k, 200)).filter(Boolean).slice(0, 8),
+  })).filter((v) => v.summary || v.transcript || (v.stills && v.stills.length));
 }
 
 /** Newest captures first, across every project — never the full archive. */
@@ -353,6 +369,7 @@ function allCaptureRows(projects) {
         sessionId: n.sessionId || '',
         shown: shown.slice(0, 4),
         assets,
+        videos: Array.isArray(n.videos) ? n.videos : [],
         understanding: n.understanding || null,
       });
     }
@@ -430,7 +447,7 @@ function compileProjectTruth(projects, source = {}) {
   const session = sessionRowsOf(projects, source);
   const conversationCaptures = session
     .map(conversationCaptureOf)
-    .filter((c) => c.originalCapture || c.captureSummary);
+    .filter((c) => c.originalCapture || c.captureSummary || (c.videos && c.videos.length));
   const out = { conversationCaptures };
   if (source.sessionId || (source.captureIds && source.captureIds.length)) {
     out.planFromSession = true;
@@ -441,6 +458,7 @@ function compileProjectTruth(projects, source = {}) {
       text: session[0].text,
       shown: session[0].shown,
       attachedAssets: attachedAssetsOf(session[0]),
+      ...(videosForPlan(session[0].videos).length ? { videos: videosForPlan(session[0].videos) } : {}),
       planFromThis: true,
     };
   }

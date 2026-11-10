@@ -42,6 +42,19 @@ function fillTemplate(template, vars) {
 // `fixed` = placeholders whose text is the same on every call (shared rule
 // files). They are filled BEFORE the system/user split, so they land in the
 // system prompt — the part providers cache — instead of the per-post user part.
+// Rules that only apply when a capture has video: appended to the system
+// prompt only then, so image-only runs keep their prompt (and cache) unchanged.
+function withExtraRules(assembled, file, when) {
+  if (!when) return assembled;
+  const rules = loadPrompt(file).trim();
+  if (!rules) return assembled;
+  return {
+    ...assembled,
+    system: `${assembled.system}\n\n${rules}`,
+    prompt: `${assembled.system}\n\n${rules}\n\n${assembled.user}`,
+  };
+}
+
 function assembleAgentPrompt(name, vars, fixed = null) {
   const raw = fixed ? fillTemplate(loadPrompt(name), fixed) : loadPrompt(name);
   const { system, userTemplate } = splitPromptTemplate(raw);
@@ -687,6 +700,14 @@ function enrichBriefsFromCaptures(briefs, conversationCaptures, ctx = {}) {
         ? b.sourceInternalStoryIds
         : [],
       originalCapture: b.originalCapture || src.originalCapture,
+      // what the capture's clips show and say (their stills are in assets)
+      ...((src.videos || []).length ? {
+        captureVideos: src.videos.map((v) => ({
+          summary: v.summary || '',
+          transcript: v.transcript || '',
+          stills: v.stills || [],
+        })),
+      } : {}),
       sourceStoryId: b.sourceStoryId || src.sourceStoryId,
       project: b.project || src.project,
       knownLimitation: b.knownLimitation || src.knownLimitation,
@@ -1188,6 +1209,7 @@ function strategyBriefPayload(brief) {
     sourceStoryId: brief.sourceStoryId,
     project: brief.project,
     originalCapture: brief.originalCapture,
+    ...(brief.captureVideos && brief.captureVideos.length ? { captureVideos: brief.captureVideos } : {}),
     angle: brief.angle,
     ...(brief.audienceLens ? { audienceLens: brief.audienceLens } : {}),
     ...(brief.relevance ? { relevance: brief.relevance } : {}),
@@ -2757,7 +2779,7 @@ async function writeCarousel({ source, structure, post, dayBrief, brand, dayWrit
   // New posts: the agent writes the hook and narrative itself (carousel-story.md).
   // Editor reruns and This slide keep the post's slides as they are.
   const story = ownsStory && !one;
-  const built = assembleAgentPrompt(layout.prompt, {
+  const built = withExtraRules(assembleAgentPrompt(layout.prompt, {
     CONTENT_STRUCTURE_JSON: json(carouselInput),
     DAY_WRITER_OUTPUT: optionalPromptJson(dayWriterOutput),
     BRAND_STYLE: optionalPromptJson(brandStyleOf(brand)),
@@ -2771,7 +2793,7 @@ async function writeCarousel({ source, structure, post, dayBrief, brand, dayWrit
     SLIDE_PLAN_RULES: story ? loadPrompt('carousel-story.md').trim() : FIXED_SLIDE_RULE,
     COMPOSITION_RULES: loadPrompt('carousel-composition.md').trim(),
     BRAND_ROLES: loadPrompt('carousel-brand-roles.md').trim(),
-  });
+  }), 'carousel-video.md', (carouselInput.captureVideos || []).length > 0);
   // Debug › Carousel agent › Edit prompt: the edited text replaces the
   // assembled prompt (the panel shows system + user joined by a blank line).
   // While the system part is unchanged it is still sent as the system prompt.
@@ -3772,7 +3794,8 @@ function oneBriefPerCapture(briefs, source = 'Strategist') {
 // captures that context holds.
 async function runStrategistCall({ ctx, emptyDates, projects, source }) {
   const captureCount = (ctx.projects?.conversationCaptures || []).length;
-  const assembled = assembleAgentPrompt('plan-strategist.md', {
+  const hasVideo = (ctx.projects?.conversationCaptures || []).some((c) => (c.videos || []).length);
+  const assembled = withExtraRules(assembleAgentPrompt('plan-strategist.md', {
     LIMITS_JSON: json({
       month: ctx.calendar.month,
       // One story per capture: never more briefs than captures (or open slots).
@@ -3792,7 +3815,7 @@ async function runStrategistCall({ ctx, emptyDates, projects, source }) {
     }),
     PROJECT_TRUTH_JSON: json(ctx.projects),
     ASSET_CONTEXT_JSON: json(ctx.assetContext || { projectAssets: [] }),
-  });
+  }), 'plan-strategist-video.md', hasVideo);
   const ask = (user) => callAgent({
     source,
     kind: 'strategist',

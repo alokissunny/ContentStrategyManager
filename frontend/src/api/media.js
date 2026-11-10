@@ -235,6 +235,11 @@ export function toDisplayUrl(url, key) {
 /** Browser-safe preview for a project attachment (HEIC → JPEG proxy). */
 export function previewUrl(asset) {
   if (!asset) return '';
+  // a clip previews as its first analysed still (the video itself is no <img>)
+  if (asset.type === 'video') {
+    if (asset.posterKey) return toDisplayUrl(asset.posterUrl, asset.posterKey) || asset.posterUrl || '';
+    return '';
+  }
   const url = asset.thumbnailUrl || asset.url || '';
   if (/^(blob:|data:)/i.test(url)) return url;
   return toDisplayUrl(url, asset.key) || url;

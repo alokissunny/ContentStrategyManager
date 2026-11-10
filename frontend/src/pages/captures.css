@@ -1621,3 +1621,14 @@ body:has(.np) .mtabs { display: none; }
 .np__note__pen { display: inline-grid; place-items: center; width: 34px; height: 34px; flex: none; border: 0; border-radius: 999px; background: var(--surface-sunken, #f1f1ef); color: var(--ink-800); cursor: pointer; }
 .np__note__pen:hover { background: var(--ink-100); color: var(--ink-900); }
 .np__note__pen:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+
+/* video read-out under the capture summary (VideoReads) */
+.np__vids { display: grid; gap: var(--sp-2); margin: var(--sp-3) 0 var(--sp-1); }
+.np__vid { padding: var(--sp-3) var(--sp-4); border: 1px solid var(--border); border-radius: var(--r-md); background: var(--surface-sunken); }
+.np__vid__top { display: flex; align-items: center; gap: 7px; margin: 0; font-family: var(--font-ui); font-size: 13px; font-weight: 600; color: var(--ink-900); }
+.np__vid__state { margin-left: auto; font-weight: 500; color: var(--ink-500); }
+.np__vid__say { margin: 6px 0 0; font-size: 14px; line-height: 1.45; color: var(--ink-700); }
+.np__vid__say--quiet { color: var(--ink-500); }
+.np__vid__said { margin-top: var(--sp-2); font-size: 13px; color: var(--ink-700); }
+.np__vid__said > summary { cursor: pointer; color: var(--ink-500); font-weight: 500; }
+.np__vid__said > p { margin: 6px 0 0; line-height: 1.5; white-space: pre-wrap; max-height: 220px; overflow: auto; }

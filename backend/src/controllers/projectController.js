@@ -11,6 +11,7 @@ const {
   deleteObjects,
 } = require('../services/s3Client');
 const { analyzeImageAsset, isVisionConfigured } = require('../services/imageAnalysis');
+const { analyzeVideoAsset, stillKeysOf } = require('../services/videoAnalysis');
 const {
   understandCapture,
   sanitizeUnderstanding,
@@ -73,6 +74,14 @@ function serializeAnalysis(an) {
     costUsd: an.costUsd || 0,
     error: an.error || '',
     analyzedAt: an.analyzedAt || null,
+    // video only
+    ...(an.durationSec || (an.frames && an.frames.length) || an.transcript
+      ? {
+        transcript: an.transcript || '',
+        durationSec: an.durationSec || 0,
+        frames: (an.frames || []).map((f) => ({ key: f.key, t: f.t, summary: f.summary || '' })),
+      }
+      : {}),
   };
 }
 
@@ -89,6 +98,19 @@ async function serializeAttachment(a, { lite = false } = {}) {
     }
   }
   const out = { id: a._id.toString(), type: a.type, key: a.key, url, thumbnailUrl: url };
+  // a video's first kept still is its poster (tiles show a picture, not a blank)
+  const posterKey = a.type === 'video' ? a.analysis?.frames?.[0]?.key : '';
+  if (posterKey && isS3Configured()) {
+    try {
+      out.posterUrl = await getMediaUrl(posterKey);
+      out.posterKey = posterKey;
+      out.thumbnailUrl = out.posterUrl;
+    } catch { /* tile falls back to the video itself */ }
+  }
+  if (a.type === 'video' && a.analysis?.status) {
+    out.analysisStatus = a.analysis.status;
+    if (a.analysis.summary) out.videoSummary = a.analysis.summary;
+  }
   if (!lite) out.analysis = serializeAnalysis(a.analysis);
   return out;
 }
@@ -225,8 +247,10 @@ async function serializeProject(p, { lite = false, postDates: known = null } = {
 }
 
 // Every S3 key held by a project or a single capture — for cleanup on delete.
-const projectKeys = (p) => (p.captures || []).flatMap((c) => (c.attachments || []).map((a) => a.key));
-const captureKeys = (c) => (c.attachments || []).map((a) => a.key);
+// (a video's stills live beside it in the bucket and go with it)
+const attachmentKeys = (a) => [a.key, ...stillKeysOf(a)];
+const projectKeys = (p) => (p.captures || []).flatMap((c) => (c.attachments || []).flatMap(attachmentKeys));
+const captureKeys = (c) => (c.attachments || []).flatMap(attachmentKeys);
 
 // Only keys the API generated — never trust a client-supplied key that points
 // outside this user's own upload prefix.
@@ -403,8 +427,11 @@ async function addCapture(req, res) {
   await project.save();
   const created = project.captures[project.captures.length - 1];
   await analyzeNewImageAttachments(created.attachments);
+  markVideosPending(created.attachments);
   await project.save();
   res.status(201).json({ project: await serializeProject(project) });
+  // a clip takes longer (stills + transcript + vision) — read it after replying
+  analyzeCaptureVideosLater(project._id, created._id, created.attachments);
   // the light WebP the slides will show, made now rather than on first view
   require('./mediaController').warmDisplayCopies(
     (created.attachments || []).filter((a) => a.type === 'image').map((a) => a.key),
@@ -497,13 +524,15 @@ async function updateCapture(req, res) {
     const next = sanitizeAttachments(req.body.attachments, req.user._id);
     const nextKeys = new Set(next.map((a) => a.key));
     // objects dropped from the note are removed from the bucket too
-    await deleteObjects(captureKeys(capture).filter((k) => !nextKeys.has(k)));
+    await deleteObjects((capture.attachments || [])
+      .filter((a) => !nextKeys.has(a.key)).flatMap(attachmentKeys));
     // carry any existing AI analysis across the edit — a re-uploaded client
     // payload only carries { type, key }, so re-key it from what we hold
     const priorAnalysis = new Map((capture.attachments || []).map((a) => [a.key, a.analysis]));
     capture.attachments = next.map((a) => (priorAnalysis.get(a.key) ? { ...a, analysis: priorAnalysis.get(a.key) } : a));
     await project.save();
     await analyzeNewImageAttachments(capture.attachments);
+    analyzeCaptureVideosLater(project._id, capture._id, capture.attachments);
   }
   if (!String(capture.sessionTitle || '').trim()) {
     capture.sessionTitle = composeSessionTitle({
@@ -550,12 +579,14 @@ async function moveCapture(req, res) {
 // caller saves the project. Errors are captured onto the analysis record so a
 // bulk run over many assets never fails as a whole because one image was bad.
 async function runAssetAnalysis(attachment) {
-  if (attachment.type !== 'image') {
-    attachment.analysis = { status: 'error', error: 'Only images can be analysed', analyzedAt: new Date() };
+  if (attachment.type !== 'image' && attachment.type !== 'video') {
+    attachment.analysis = { status: 'error', error: 'Only images and videos can be analysed', analyzedAt: new Date() };
     return;
   }
   try {
-    const result = await analyzeImageAsset(attachment.key, { type: attachment.type });
+    const result = attachment.type === 'video'
+      ? await analyzeVideoAsset(attachment.key)
+      : await analyzeImageAsset(attachment.key, { type: attachment.type });
     attachment.analysis = { status: 'done', ...result, error: '', analyzedAt: new Date() };
   } catch (err) {
     console.error('[projects] analysis failed for', attachment.key, err.message);
@@ -565,6 +596,58 @@ async function runAssetAnalysis(attachment) {
       analyzedAt: new Date(),
     };
   }
+}
+
+function markVideosPending(attachments) {
+  for (const a of attachments || []) {
+    if (a.type === 'video' && !(a.analysis && a.analysis.status === 'done')) {
+      a.analysis = { status: 'pending' };
+    }
+  }
+}
+
+/**
+ * Analyse a capture's videos in the background (stills + transcript + vision),
+ * then store each result on its attachment. Re-reads the project so it never
+ * overwrites edits made while the clip was being read. Plan generation also
+ * awaits any clip still missing an analysis (planInputs), so nothing depends
+ * on this finishing.
+ */
+function analyzeCaptureVideosLater(projectId, captureId, attachments) {
+  if (!isVisionConfigured()) return;
+  // image-only captures: nothing to do (no extra DB read)
+  if (attachments && !attachments.some((a) => a.type === 'video')) return;
+  setImmediate(async () => {
+    try {
+      const fresh = await Project.findById(projectId);
+      const cap = fresh?.captures.id(captureId);
+      const todo = (cap?.attachments || [])
+        .filter((a) => a.type === 'video' && a.key && !(a.analysis && a.analysis.status === 'done'))
+        .map((a) => a.key);
+      for (const key of todo) {
+        let analysis;
+        try {
+          // eslint-disable-next-line no-await-in-loop
+          const result = await analyzeVideoAsset(key);
+          analysis = { status: 'done', ...result, error: '', analyzedAt: new Date() };
+        } catch (err) {
+          console.error('[projects] video analysis failed for', key, err.message);
+          analysis = { status: 'error', error: err.message || 'Analysis failed', analyzedAt: new Date() };
+        }
+        // eslint-disable-next-line no-await-in-loop
+        const latest = await Project.findById(projectId);
+        const att = latest?.captures.id(captureId)?.attachments.find((a) => a.key === key);
+        if (!att) continue; // removed meanwhile (its stills are orphaned; rare)
+        att.analysis = analysis;
+        // eslint-disable-next-line no-await-in-loop
+        await latest.save();
+        console.log(`[projects] video analysed ${key} · ${analysis.frames?.length || 0} still(s)`
+          + ` · transcript ${analysis.transcript ? analysis.transcript.length : 0} chars`);
+      }
+    } catch (err) {
+      console.error('[projects] background video analysis failed:', err.message);
+    }
+  });
 }
 
 /** Vision metadata for any image that does not already have a completed analysis. */
@@ -598,7 +681,7 @@ async function analyzeAsset(req, res) {
 
 // POST /projects/:id/analyze — analyse every image asset in the project.
 // By default only assets without a completed analysis are (re)run; pass
-// { force: true } to re-analyse all of them. Video assets are skipped.
+// { force: true } to re-analyse all of them. Videos get stills + transcript.
 async function analyzeProject(req, res) {
   if (!isVisionConfigured()) {
     return res.status(503).json({ message: 'AI analysis is not configured (set OPENAI_API_KEY).' });
@@ -610,7 +693,7 @@ async function analyzeProject(req, res) {
   const targets = [];
   for (const capture of project.captures) {
     for (const a of capture.attachments || []) {
-      if (a.type !== 'image') continue;
+      if (a.type !== 'image' && a.type !== 'video') continue;
       if (!force && a.analysis && a.analysis.status === 'done') continue;
       targets.push(a);
     }

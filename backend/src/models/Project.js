@@ -14,6 +14,12 @@ const analysisSchema = new mongoose.Schema(
     mood: { type: String, default: '' }, // overall feeling / tone
     subjects: { type: [mongoose.Schema.Types.Mixed], default: [] }, // { name, box:{x,y,w,h} } or legacy string
     text: { type: String, default: '' }, // any legible text in the image
+    // video only — what was said, how long it runs, and the stills taken from it
+    // (each still is its own JPEG in S3 and plans like a photo: { key, t, summary,
+    // description, subjects, tags, colors, mood, text })
+    transcript: { type: String, default: '' },
+    durationSec: { type: Number, default: 0 },
+    frames: { type: [mongoose.Schema.Types.Mixed], default: [] },
     model: { type: String, default: '' }, // which model produced this
     inputTokens: { type: Number, default: 0 }, // vision-request input tokens (image + prompt)
     outputTokens: { type: Number, default: 0 }, // response tokens

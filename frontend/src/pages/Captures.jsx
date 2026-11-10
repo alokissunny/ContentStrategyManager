@@ -429,6 +429,7 @@ function CapturePanel({ item, projects, asked, onClose, onGenerate, onDelete, on
               onSave={saveNote}
             />
           </div>
+          <VideoReads atts={atts} />
           {err && <p className="np__err" role="alert">{err}</p>}
 
           <div className="np__grid">
@@ -492,10 +493,46 @@ function CapturePanel({ item, projects, asked, onClose, onGenerate, onDelete, on
 
 export const wordsOf = (it) => String(sessionDisplayText(it.session) || it.session.text || '').trim();
 
+/* What Bauhly took from each clip: its stills plan like photos, and what was
+   said in it is read as the studio's own words. */
+function VideoReads({ atts }) {
+  const clips = (atts || []).filter((a) => a.type === 'video');
+  if (!clips.length) return null;
+  return (
+    <div className="np__vids">
+      {clips.map((a, i) => {
+        const st = a.analysisStatus || a.analysis?.status || '';
+        const summary = a.videoSummary || a.analysis?.summary || '';
+        const transcript = a.analysis?.transcript || '';
+        const stills = a.analysis?.frames?.length || 0;
+        return (
+          <div className="np__vid" key={a.key || a.id || i}>
+            <p className="np__vid__top">
+              <Icon name="film" size={14} strokeWidth={2.2} />
+              {clips.length > 1 ? `Video ${i + 1}` : 'From your video'}
+              {st === 'pending' && <span className="np__vid__state">Watching it…</span>}
+              {st === 'error' && <span className="np__vid__state">Could not read it</span>}
+              {st === 'done' && stills > 0 && <span className="np__vid__state">{`${stills} ${stills === 1 ? 'still' : 'stills'} for slides`}</span>}
+            </p>
+            {summary && <p className="np__vid__say">{summary}</p>}
+            {!st && <p className="np__vid__say np__vid__say--quiet">Bauhly watches it when your next plan is made.</p>}
+            {transcript && (
+              <details className="np__vid__said">
+                <summary>What you said</summary>
+                <p>{transcript}</p>
+              </details>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 export function Thumb({ att }) {
   const [broken, setBroken] = useState(false);
   const src = previewUrl(att);
-  if (!src || broken) return <Icon name="image" size={18} strokeWidth={2} />;
+  if (!src || broken) return <Icon name={att?.type === 'video' ? 'film' : 'image'} size={18} strokeWidth={2} />;
   return <img src={src} alt="" loading="lazy" onError={() => setBroken(true)} />;
 }
 
@@ -1076,7 +1113,8 @@ export default function Captures() {
                   const atts = it.session.attachments || [];
                   const cover = atts[0] || null;
                   const words = wordsOf(it);
-                  const images = atts.length;
+                  const clips = atts.filter((a) => a.type === 'video').length;
+                  const images = atts.length - clips;
                   return (
                     <li key={`${it.projectId}-${it.id}`} className={`pjw-row is-${it.status} ${on ? 'is-sel' : ''}`}>
                       <label className="pjw-tick">
@@ -1120,6 +1158,9 @@ export default function Captures() {
                         <span className="pjw-meta">
                           {images > 0 && (
                             <span><Icon name="image" size={13} strokeWidth={2} />{`${images} ${images === 1 ? 'image' : 'images'}`}</span>
+                          )}
+                          {clips > 0 && (
+                            <span><Icon name="film" size={13} strokeWidth={2} />{`${clips} ${clips === 1 ? 'video' : 'videos'}`}</span>
                           )}
                           <span><Icon name="calendar" size={13} strokeWidth={2} />{fmtWhen(it.session.createdAt)}</span>
                         </span>

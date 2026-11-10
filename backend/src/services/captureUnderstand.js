@@ -14,6 +14,7 @@ const { getObjectBytes, isS3Configured } = require('./s3Client');
 const { completeToolCall, conversationModel, hasConversationModel, splitPromptTemplate } = require('./llmComplete');
 const { toVisionImage } = require('./visionImage');
 const { LANGUAGES } = require('../utils/appLocale');
+const { videoAnalysisWithin, fmtTime } = require('./videoAnalysis');
 
 const PROMPT_PATH = path.join(__dirname, '..', '..', 'prompts', 'capture-understand-prompt.md');
 function loadPrompt() {
@@ -678,9 +679,25 @@ function attachedAssetsBlock({ text, attachments, turns }) {
   (attachments || []).forEach((a) => {
     if (!a?.key) return;
     const summary = str(a.analysis?.summary || a.note);
-    lines.push(`- key: ${a.key}${summary ? ` — ${summary}` : ''}`);
+    if (a.type === 'video' && a.analysis && a.analysis.status === 'done') {
+      const an = a.analysis;
+      lines.push(`- video key: ${a.key} (${fmtTime(an.durationSec || 0)})${summary ? ` — ${summary}` : ''}`);
+      if (str(an.description)) lines.push(`  What it shows: ${str(an.description)}`);
+      lines.push(str(an.transcript)
+        ? `  What is said in it (transcript, the studio's own words):\n  """${str(an.transcript).slice(0, 6000)}"""`
+        : '  No speech in this clip.');
+      (an.frames || []).forEach((f) => {
+        lines.push(`  - still key: ${f.key} at ${fmtTime(f.t)}${str(f.summary) ? ` — ${str(f.summary)}` : ''}`);
+      });
+      return;
+    }
+    lines.push(`- ${a.type === 'video' ? 'video ' : ''}key: ${a.key}${summary ? ` — ${summary}` : ''}`);
   });
-  if (videos.length && !str(text) && !history.length) {
+  const unwatched = videos.filter((a) => !(a.analysis && a.analysis.status === 'done'));
+  if (videos.length && !unwatched.length) {
+    lines.push('The video(s) were watched for you: the stills above (some attached as images) and the transcript are what they show and say. Use them like the user\'s own words — do not ask what the clip is about when they already answer it. A video key is not a photo; refer to its still keys in captureAssets.');
+  }
+  if (unwatched.length && !str(text) && !history.length) {
     lines.push('Video is attached but cannot be watched here. Treat missing visual context as a possible reason to ask what the clip is about — only if the note does not already make the meaning clear.');
   }
   return lines.join('\n');
@@ -801,8 +818,14 @@ const FORCE_READY_HINT = [
 async function imageContentParts(attachments) {
   if (!isS3Configured()) return [];
   const images = (attachments || []).filter((a) => a && a.type === 'image' && a.key).slice(0, 2);
+  // a few stills from each watched clip, so the agent sees what was filmed
+  (attachments || []).filter((a) => a && a.type === 'video' && a.analysis?.frames?.length).forEach((a) => {
+    const frames = a.analysis.frames;
+    const pick = frames.length <= 3 ? frames : [frames[0], frames[Math.floor(frames.length / 2)], frames[frames.length - 1]];
+    pick.forEach((f) => { if (f?.key) images.push({ type: 'image', key: f.key }); });
+  });
   const parts = [];
-  for (const a of images) {
+  for (const a of images.slice(0, 8)) {
     try {
       // eslint-disable-next-line no-await-in-loop
       const { buffer, contentType } = await getObjectBytes(a.key);
@@ -835,6 +858,19 @@ function languageHintOf(locale) {
   ].join('\n');
 }
 
+const CAPTURE_VIDEO_WAIT_MS = Number(process.env.CAPTURE_VIDEO_WAIT_MS) || 60000;
+
+async function withVideoAnalysis(attachments) {
+  const list = Array.isArray(attachments) ? attachments : [];
+  if (!list.some((a) => a && a.type === 'video' && a.key)) return list;
+  return Promise.all(list.map(async (a) => {
+    if (!a || a.type !== 'video' || !a.key) return a;
+    if (a.analysis && a.analysis.status === 'done') return a;
+    const result = await videoAnalysisWithin(a.key, CAPTURE_VIDEO_WAIT_MS);
+    return result ? { ...a, analysis: { status: 'done', ...result } } : a;
+  }));
+}
+
 async function understandCapture(input = {}) {
   const text = str(input.text);
   const attachments = Array.isArray(input.attachments) ? input.attachments : [];
@@ -853,8 +889,13 @@ async function understandCapture(input = {}) {
     throw err;
   }
 
+  // Clips are watched first (stills + transcript), so the conversation reads
+  // them like photos instead of asking what the video is about. Shared with
+  // the save, so the clip is analysed once. Wait is bounded; a slow clip falls
+  // back to "cannot be watched here".
+  const attachmentsSeen = await withVideoAnalysis(attachments);
   const assembled = assemblePrompt({
-    text, projectName, attachments, turns, projects, kind,
+    text, projectName, attachments: attachmentsSeen, turns, projects, kind,
   });
   const systemPrompt = assembled.system;
   const userText = [
@@ -883,7 +924,7 @@ async function understandCapture(input = {}) {
   }
 
   const model = conversationModel();
-  const imageParts = await imageContentParts(attachments);
+  const imageParts = await imageContentParts(attachmentsSeen);
   const userParts = [
     ...imageParts,
     { type: 'text', text: userText },

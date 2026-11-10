@@ -12,10 +12,13 @@
 const BrandAnalysisReport = require('../models/BrandAnalysisReport');
 const Project = require('../models/Project');
 const { analyzeImageAsset, isVisionConfigured } = require('./imageAnalysis');
+const { analyzeVideoAsset, fmtTime } = require('./videoAnalysis');
 const { loadCompetitorOverviewForUser } = require('../controllers/competitorController');
 const { findMetaConnectionForUsername } = require('./graphInstagram');
 
 const MAX_AUTO_ANALYZE = Number(process.env.PLAN_AUTO_ANALYZE_LIMIT) || 16;
+// Clips are slower (stills + transcript + vision), so fewer per run.
+const MAX_AUTO_ANALYZE_VIDEO = Number(process.env.PLAN_AUTO_ANALYZE_VIDEO_LIMIT) || 4;
 
 /** Human age of a Date for plan-source logs. */
 function ageLabel(date) {
@@ -114,18 +117,27 @@ function captureSourceText(c) {
 async function ensureProjectImagesAnalyzed(projects) {
   if (!isVisionConfigured()) return;
   let budget = MAX_AUTO_ANALYZE;
+  let videoBudget = MAX_AUTO_ANALYZE_VIDEO;
   for (const p of projects) {
-    if (budget <= 0) break;
+    if (budget <= 0 && videoBudget <= 0) break;
     let dirty = false;
     for (const c of p.captures || []) {
+      if (c.excluded) continue;
       for (const a of c.attachments || []) {
-        if (budget <= 0) break;
-        if (a.type !== 'image' || !a.key) continue;
+        if (!a.key || (a.type !== 'image' && a.type !== 'video')) continue;
         if (a.analysis && a.analysis.status === 'done') continue;
-        budget -= 1;
+        if (a.type === 'video') {
+          if (videoBudget <= 0) continue;
+          videoBudget -= 1;
+        } else {
+          if (budget <= 0) continue;
+          budget -= 1;
+        }
         try {
           // eslint-disable-next-line no-await-in-loop
-          const result = await analyzeImageAsset(a.key, { type: a.type });
+          const result = a.type === 'video'
+            ? await analyzeVideoAsset(a.key)
+            : await analyzeImageAsset(a.key, { type: a.type });
           a.analysis = { status: 'done', ...result, error: '', analyzedAt: new Date() };
           dirty = true;
         } catch (err) {
@@ -192,7 +204,44 @@ async function loadProjectAssets(userId, username) {
       // held back by the studio on the Captures page — never planned from
       if (c.excluded) continue;
       const captureAssets = [];
+      const videos = [];
+      const videoKeys = new Set();
       for (const a of c.attachments || []) {
+        if (a.type === 'video' && a.key) {
+          videoKeys.add(a.key);
+          const an = a.analysis && a.analysis.status === 'done' ? a.analysis : null;
+          if (!an) continue;
+          const stills = (an.frames || []).filter((f) => f && f.key);
+          videos.push({
+            key: a.key,
+            durationSec: an.durationSec || 0,
+            summary: an.summary || '',
+            description: an.description || '',
+            transcript: an.transcript || '',
+            textOnScreen: an.text || '',
+            stills: stills.map((f) => f.key),
+          });
+          // Each still plans exactly like a photo (own key, own vision row).
+          for (const f of stills) {
+            const item = {
+              key: f.key,
+              note: `Still from the capture's video at ${fmtTime(f.t)}`,
+              fromVideo: a.key,
+              vision: {
+                summary: f.summary ? `Video still (${fmtTime(f.t)}): ${f.summary}` : `Video still at ${fmtTime(f.t)}`,
+                description: f.description || '',
+                subjects: (f.subjects || []).slice(0, 8),
+                tags: (f.tags || []).slice(0, 10),
+                colors: (an.colors || []).slice(0, 6),
+                mood: an.mood || '',
+                text: f.text || '',
+              },
+            };
+            captureAssets.push(item);
+            assets.push(item);
+          }
+          continue;
+        }
         if (a.type === 'image' && a.key) {
           const an = a.analysis && a.analysis.status === 'done' ? a.analysis : null;
           const item = {
@@ -223,7 +272,12 @@ async function loadProjectAssets(userId, username) {
         understanding: primary,
       });
       const filled = mergeStoriesForPlan(storyRows, originalCapture);
-      if (originalCapture || captureAssets.length || filled) {
+      // the capture chat may list the clip itself as an asset — a video key is
+      // never a photo; its stills stand in for it
+      if (filled && Array.isArray(filled.captureAssets) && videoKeys.size) {
+        filled.captureAssets = filled.captureAssets.filter((x) => !videoKeys.has(String(x?.key || '')));
+      }
+      if (originalCapture || captureAssets.length || filled || videos.length) {
         notes.push({
           // Always the capture's MongoDB id: the Strategist cites it back as the
           // brief's captureId and capturesForSource pins requests by it. The
@@ -234,6 +288,7 @@ async function loadProjectAssets(userId, username) {
           createdAt: c.createdAt || null,
           sessionId,
           assets: captureAssets,
+          ...(videos.length ? { videos } : {}),
           understanding: filled,
         });
       }
