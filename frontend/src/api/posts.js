@@ -312,11 +312,12 @@ export function polishCaption(id, { caption, instruction, kind, role, fills }) {
 // prompt instead of the one assembled from the post. `layout` (Editor ›
 // Layout) runs that carousel layout's prompt instead of the Settings one.
 // → { post, layout, ... }
-export function runPostLayout(id, { promptOverride, layout, slideIndex } = {}) {
+export function runPostLayout(id, { promptOverride, layout, slideIndex, slideIndexes } = {}) {
   const body = {
     ...(promptOverride ? { promptOverride } : {}),
     ...(layout ? { layout } : {}),
     ...(slideIndex ? { slideIndex } : {}),
+    ...(Array.isArray(slideIndexes) && slideIndexes.length ? { slideIndexes } : {}),
   };
   return client.post(`/posts/${id}/layout`, body, { timeout: 540000 }).then((res) => {
     const data = res.data || {};
@@ -456,9 +457,12 @@ export async function applyThemeImage(id, { referenceImageKey, referenceName, th
 // slide, or only `slideIndex` (1-based). → { post, restored }. A 409 with
 // `needsRegenerate` means the post has no saved design (themed before
 // snapshots existed, or slides were added / removed since).
-export function removeTheme(id, { slideIndex } = {}) {
+export function removeTheme(id, { slideIndex, slideIndexes } = {}) {
+  const body = Array.isArray(slideIndexes) && slideIndexes.length
+    ? { slideIndexes }
+    : (Number(slideIndex) > 0 ? { slideIndex: Number(slideIndex) } : {});
   return client
-    .post(`/posts/${id}/remove-theme`, Number(slideIndex) > 0 ? { slideIndex: Number(slideIndex) } : {})
+    .post(`/posts/${id}/remove-theme`, body)
     .then((res) => res.data || {});
 }
 

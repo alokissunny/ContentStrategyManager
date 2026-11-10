@@ -1584,7 +1584,7 @@ async function rerunLayout(req, res) {
   // carousel run builds the slides from the NEW brief (as post generation does
   // with Content Structure off), not the old copy. Its photos: the ones the
   // Strategist allocated, else the post's own.
-  const strategyRerun = !req.body?.slideIndex && trace.strategyRerun && typeof trace.strategyRerun === 'object'
+  const strategyRerun = !req.body?.slideIndex && !(Array.isArray(req.body?.slideIndexes) && req.body.slideIndexes.length) && trace.strategyRerun && typeof trace.strategyRerun === 'object'
     ? plainOf(trace.strategyRerun)
     : null;
   if (strategyRerun) {
@@ -1607,11 +1607,18 @@ async function rerunLayout(req, res) {
   // This slide: the slide the studio is looking at NOW (after any added /
   // removed slides and edits), so the index and its words line up
   const oneSlide = Number(req.body?.slideIndex) || 0;
+  // the Editor grid's selection: several slides move into the new layout from
+  // ONE carousel-agent run (the whole carousel is written, only these are merged)
+  const nowCount = Array.isArray(record.content?.slides) ? record.content.slides.length : 0;
+  const someSlides = !oneSlide && Array.isArray(req.body?.slideIndexes)
+    ? [...new Set(req.body.slideIndexes.map(Number).filter((k) => k >= 1 && k <= nowCount))].sort((a, b) => a - b)
+    : [];
+  const mergeAt = oneSlide ? [oneSlide] : (someSlides.length && someSlides.length < nowCount ? someSlides : []);
   let layoutPost = post;
   let layoutStructure = structure;
-  if (oneSlide) {
+  if (mergeAt.length) {
     const current = Array.isArray(record.content?.slides) ? record.content.slides.map((s) => plainOf(s)) : [];
-    if (oneSlide < 1 || oneSlide > current.length) return res.status(404).json({ message: 'Slide not found on this post.' });
+    if (oneSlide && (oneSlide < 1 || oneSlide > current.length)) return res.status(404).json({ message: 'Slide not found on this post.' });
     layoutPost = { ...post, content: { ...(post.content || {}), slides: current.map((s, i) => ({ ...s, index: i + 1 })) } };
     layoutStructure = {};
   }
@@ -1644,26 +1651,32 @@ async function rerunLayout(req, res) {
     // but only this slide moves into it — into a section of its own, with its
     // CSS scoped — and every other slide keeps exactly what it has (see
     // services/themeMerge.js).
-    const slideIndex = Number(req.body?.slideIndex) || 0;
+    const slideIndex = mergeAt[0] || 0;
     let layoutForContent = result.parsed;
     let baseSlides = post.content.slides;
     let slideDir = '';
+    const slideDirs = {};
     if (slideIndex) {
       const stored = Array.isArray(current.slides) ? current.slides : [];
       const curDoc = current.carouselHtml || plainOf(trace.carousel)?.html || plainOf(trace.layout)?.html || '';
       if (slideIndex < 1 || slideIndex > stored.length) return res.status(404).json({ message: 'Slide not found on this post.' });
       if (!curDoc) return res.status(400).json({ message: 'This carousel has no layout yet — apply a theme to all slides first.' });
-      const merged = applySlideTheme({ currentDoc: curDoc, newDoc: result.parsed.html, slideIndex });
-      slideDir = merged.dir;
-      const parsed2 = parseCarouselDocument(merged.html, stored.length);
+      let mergedHtml = curDoc;
+      for (const at of mergeAt) {
+        const merged = applySlideTheme({ currentDoc: mergedHtml, newDoc: result.parsed.html, slideIndex: at });
+        mergedHtml = merged.html;
+        slideDirs[at] = merged.dir;
+      }
+      slideDir = slideDirs[slideIndex];
+      const parsed2 = parseCarouselDocument(mergedHtml, stored.length);
       layoutForContent = { status: 'ready', html: parsed2.html, slides: parsed2.slides, themeId: current.themeId || '' };
       baseSlides = stored;
     }
     let next = applyLayoutToContent({ ...current, slides: baseSlides }, layoutForContent);
     if (slideIndex) {
       // the re-themed slide's words are what its new html shows
-      next.slides = next.slides.map((sl, i) => (i === slideIndex - 1
-        ? { ...sl, ...(copyFromLayoutHtml(sl.layoutHtml)?.filled || {}), layoutTheme: slideDir || sl.layoutTheme }
+      next.slides = next.slides.map((sl, i) => (mergeAt.includes(i + 1)
+        ? { ...sl, ...(copyFromLayoutHtml(sl.layoutHtml)?.filled || {}), layoutTheme: slideDirs[i + 1] || sl.layoutTheme }
         : sl));
     }
     // Fill any slide that now has an empty image slot but no supplied asset with
@@ -2420,10 +2433,16 @@ async function removeTheme(req, res) {
   if (snap.slides.length !== stored.length) {
     return res.status(409).json({ needsRegenerate: true, message: 'Slides were added or removed since the theme was applied, so the saved design no longer lines up.' });
   }
-  const one = Number(req.body?.slideIndex) || 0;
-  if (one && (one < 1 || one > stored.length)) return res.status(404).json({ message: 'Slide not found on this post.' });
-  // no slideIndex: the whole carousel goes back to the agent's design
-  const targets = one ? [one] : stored.map((_, i) => i + 1);
+  // `slideIndexes` (the Editor grid's selection) or one `slideIndex`; neither:
+  // the whole carousel goes back to the agent's design
+  const picked = Array.isArray(req.body?.slideIndexes)
+    ? [...new Set(req.body.slideIndexes.map(Number).filter((k) => k >= 1 && k <= stored.length))].sort((x, y) => x - y)
+    : [];
+  const oneAt = Number(req.body?.slideIndex) || 0;
+  if (oneAt && (oneAt < 1 || oneAt > stored.length)) return res.status(404).json({ message: 'Slide not found on this post.' });
+  const targets = picked.length && picked.length < stored.length ? picked : (oneAt ? [oneAt] : stored.map((_, i) => i + 1));
+  // `one`: only some slides are restored (merged into the current document)
+  const one = targets.length < stored.length ? targets[0] : 0;
   const { sectionsOf, indexOf, buildDocument, stylesOf, linksOf } = require('../services/themeMerge');
   const { extractHtmlDocument } = require('../services/layoutHtml');
   try {

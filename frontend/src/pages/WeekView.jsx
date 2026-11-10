@@ -101,7 +101,7 @@ import useMediaQuery from '../hooks/useMediaQuery';
 import { useStore, setState as setStoreState, getState as getStoreState } from '../lib/store';
 import { listBackgrounds, uploadBackground, uploadLogo } from '../api/visualBrand';
 import { DEFAULT_BACKGROUNDS } from './visuallibrary/brandkitDefaults';
-import EditorMore, { Rows as EditorRows } from './weekview/EditorMore';
+import EditorMore, { Rows as EditorRows, SlideScope } from './weekview/EditorMore';
 import TextSheet from './weekview/TextSheet';
 import { readSlideTextStyles, styleForRegion } from './weekview/themedTextStyle';
 import { htmlThemeIdOf, imageSlotCount } from '../lib/htmlThemes';
@@ -3242,14 +3242,19 @@ function RemoveDialog({ ask, onConfirm, onClose }) {
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose]);
   const edits = ask.kind === 'edits';
+  // several slides at once (the Editor grid's selection)
+  const many = !ask.every && ask.idx?.length > 1 ? ask.idx : null;
+  const names = many ? `slides ${many.map((i) => i + 1).join(', ').replace(/, (\d+)$/, ' and $1')}` : '';
   const title = edits
-    ? (ask.every ? 'Remove your edits to every slide?' : `Remove your edits to slide ${ask.i + 1}?`)
-    : `Remove slide ${ask.i + 1}?`;
+    ? (ask.every ? 'Remove your edits to every slide?' : many ? `Remove your edits to ${names}?` : `Remove your edits to slide ${ask.i + 1}?`)
+    : many ? `Remove ${names}?` : `Remove slide ${ask.i + 1}?`;
   const body = edits
     ? (ask.every
       ? `The colours, background and logo you chose on all ${ask.n} slides go, with any element changes you have not applied yet. The words and layout stay as they are.`
-      : 'The colours, background and logo you chose on this slide go, with any element changes you have not applied yet. The words and layout stay as they are.')
-    : `Slide ${ask.i + 1} of ${ask.n} goes, with its words and its picture. The other ${ask.n - 1} slides close up around it and the post stays where it is.`;
+      : `The colours, background and logo you chose on ${many ? 'these slides' : 'this slide'} go, with any element changes you have not applied yet. The words and layout stay as they are.`)
+    : many
+      ? `${many.length} of ${ask.n} slides go, with their words and pictures. The other ${ask.n - many.length} close up around them and the post stays where it is.`
+      : `Slide ${ask.i + 1} of ${ask.n} goes, with its words and its picture. The other ${ask.n - 1} slides close up around it and the post stays where it is.`;
   return createPortal(
     <>
       <div className="wv-confirm__scrim" onClick={onClose} />
@@ -3262,7 +3267,7 @@ function RemoveDialog({ ask, onConfirm, onClose }) {
           </button>
           <button type="button" className="btn btn--primary btn--sm wv-confirm__bad" onClick={onConfirm}>
             <Icon name="trash" size={15} strokeWidth={2} />
-            {edits ? 'Remove edits' : 'Remove slide'}
+            {edits ? 'Remove edits' : many ? `Remove ${many.length} slides` : 'Remove slide'}
           </button>
         </div>
       </div>
@@ -4082,6 +4087,14 @@ export default function WeekView({
   const gridAll = gridOn && !gridSel.length;
   const gridScope = gridOn && gridSel.length > 1 ? [...gridSel].sort((a, b) => a - b) : null;
   const inReach = (every, i) => every || gridAll || (gridScope ? gridScope.includes(i) : i === safeIdx);
+  // the slides an act reaches, 0-based, in order
+  const reachIdx = (every) => slides.map((_, i) => i).filter((i) => inReach(every, i));
+  // …as the server's scope: {} = every slide, one `slideIndex`, or `slideIndexes` (1-based)
+  const reachBody = (every) => {
+    const idx = reachIdx(every);
+    if (idx.length >= slides.length) return {};
+    return idx.length === 1 ? { slideIndex: idx[0] + 1 } : { slideIndexes: idx.map((i) => i + 1) };
+  };
   // a selection is a set of slide numbers: adding or removing a slide starts it again from the slide in front
   const gridN = useRef(slides.length);
   useEffect(() => {
@@ -4741,6 +4754,15 @@ export default function WeekView({
       const first = added[0];
       if (!first) return;
       rememberImage(first.key, first.url, { skipGen: true });
+      // the Editor grid's selection: the photo goes on every selected slide
+      const reached = reachIdx(false);
+      if (reached.length > 1) {
+        const base = deriveSlides(day);
+        replaceSlides(base.map((sl, i) => (reached.includes(i)
+          ? { ...sl, assetKey: first.key, assetKeys: [first.key, ...keysOf(sl).slice(1)] } : sl)));
+        setAskMsg({ tone: 'ok', text: `Picture added to ${reached.length} slides.` });
+        return;
+      }
       patchActiveSlide({ assetKey: first.key, assetKeys: [first.key, ...keysOf(activeSlide).slice(1)] });
       setAskMsg({ tone: 'ok', text: 'Picture added to this slide.' });
     } catch {
@@ -5475,6 +5497,16 @@ export default function WeekView({
     setSlideIdx(insertAt);
   }
 
+  // the grid's selection: every selected frame goes at once (one always stays)
+  function removeSlides(indexes, from = null) {
+    const base = from || deriveSlides(day);
+    const gone = new Set(indexes);
+    const next = base.filter((_, i) => !gone.has(i));
+    if (!next.length || next.length === base.length) return;
+    replaceSlides(next);
+    setSlideIdx(Math.max(0, Math.min(Math.min(...indexes), next.length - 1)));
+    setGridSel([]);
+  }
   function removeSlide(index, from = null) {
     const base = from || deriveSlides(day);
     if (base.length <= 1) return;
@@ -5974,13 +6006,17 @@ export default function WeekView({
     if (layoutBusy || !route?._id) return;
     setMenuPane(null);
     closeZone();
-    flushElemEdits();
+    const flushed = flushElemEdits();
+    const dayIndex = selected;
+    const wasDay = flushed ? dayWith(day, flushed) : day;
     const here = safeIdx + 1;
+    const scope = reachBody(every);
+    const slideIndexes = scope.slideIndexes || (scope.slideIndex ? [scope.slideIndex] : slides.map((_, i) => i + 1));
     const wasEditing = postEdit;
     setLayoutBusy(true);
     setLayoutErr('');
     try {
-      const data = await removeDayTheme(route._id, selected, every ? {} : { slideIndex: here });
+      const data = await removeDayTheme(route._id, selected, scope);
       if (data?.route) {
         const failed = new Set((data.failed || []).map((f) => Number(f.index)));
         pushPostStep(
@@ -6040,7 +6076,8 @@ export default function WeekView({
     const wasDay = flushed ? dayWith(day, flushed) : day;
     const count = slides.length;
     const here = safeIdx + 1;
-    const slideIndexes = every ? Array.from({ length: count }, (_, i) => i + 1) : [here];
+    // every slide, the grid's selection, or the slide open
+    const slideIndexes = every ? Array.from({ length: count }, (_, i) => i + 1) : reachIdx(false).map((i) => i + 1);
     setLayoutBusy(true);
     setLayoutErr('');
     try {
@@ -7478,6 +7515,23 @@ export default function WeekView({
      file in (replacing the logo already painted) — or takes it off — in the
      slide's one image call. */
   function logoSlide(mark, slots = vbStore?.brandLogos) {
+    // the grid's selection (or the whole post): HTML slides take the mark at
+    // once, a Theme Apply picture has it held for its own redraw
+    const reached = reachIdx(false);
+    if (reached.length > 1) {
+      dressSlides(false, (sl) => (isThemedPicture(sl) ? {} : { logoMark: mark }));
+      let held = 0;
+      const rec = mark === 'off' ? null : markForSlide(slots, { logoMark: mark }, 'ground');
+      const name = rec ? (LOGO_SLOT_NAMES.find((l) => l.slot === rec.slot)?.name || 'your logo') : '';
+      reached.filter((i) => isThemedPicture(slides[i])).forEach((i) => {
+        if (mark === 'off') holdChange(LOGO_REGION, { kind: 'logo', remove: true }, i);
+        else if (rec?.key) holdChange(LOGO_REGION, { kind: 'logo', slot: rec.slot, key: rec.key, name }, i);
+        else return;
+        held += 1;
+      });
+      if (held) { closeZone(); setAskPath([]); setAskMsg(null); setAskOpen(true); }
+      return;
+    }
     if (!isThemedPicture(activeSlide)) {
       dressSlides(false, { logoMark: mark });
       return;
@@ -7530,13 +7584,14 @@ export default function WeekView({
   const pendingPatchesAt = (i) => Object.keys(elemEdits[i]?.patches || {}).length > 0;
   function resetDressing(every) {
     if (!day) return;
-    if (every) resetElemEdits({ keepHist: true });
-    else if (pendingPatchesAt(safeIdx)) {
+    const reached = reachIdx(every);
+    if (reached.length >= slides.length) resetElemEdits({ keepHist: true });
+    else if (reached.some(pendingPatchesAt)) {
       const nextEdits = { ...elemEditsRef.current };
-      delete nextEdits[safeIdx];
+      reached.forEach((i) => { delete nextEdits[i]; });
       elemEditsRef.current = nextEdits;
       setElemEdits(nextEdits);
-      elemApiRef.current?.setPatches({});
+      if (reached.includes(safeIdx)) elemApiRef.current?.setPatches({});
     }
     dressSlides(every, { colorSet: '', colorSetAt: 0, colorSwap: 0, ground: '', logoMark: '' });
   }
@@ -7623,6 +7678,7 @@ export default function WeekView({
     if (!ask) return;
     if (ask.kind === 'edits') { resetDressing(ask.every); return; }
     const flushed = flushElemEdits();
+    if (ask.idx?.length > 1) { removeSlides(ask.idx, flushed?.slides || null); return; }
     removeSlide(ask.i, flushed?.slides || null);
   }
 
@@ -7692,23 +7748,32 @@ export default function WeekView({
     // slide's own <img> slots by position (pictures bind to the frame that
     // names them), so filling a second frame never moves the first.
     const frames = imageSlotCount(activeSlide?.layoutHtml);
-    if (frames > 0 && typeof DOMParser !== 'undefined') {
+    // the Editor grid's selection: the same picture(s) go into every selected
+    // slide's frames, in frame order (a slide with no frame takes it as its photo)
+    const reached = reachIdx(false);
+    if ((frames > 0 || reached.length > 1) && typeof DOMParser !== 'undefined') {
       const saved = flushElemEdits();
       const base = saved?.slides || deriveSlides(day);
-      const sl = base[safeIdx];
-      const docHtml = saved?.docHtml ?? carouselDocumentOf(day);
-      const dir = layoutDirectionOf(sl);
-      const idx = Number(sl?.index) > 0 ? Number(sl.index) : safeIdx + 1;
-      const findRoot = (d) => findCarouselSlide(d, dir, idx) || d.querySelector('article.slide, .slide, article');
+      let docHtml = saved?.docHtml ?? carouselDocumentOf(day);
+      const docWas = docHtml;
       const urls = slots.map((u, i) => (u && keys[i] ? canvasSafeUrl(u, keys[i]) : ''));
-      const inDoc = Boolean(sl && slideIsThemed(sl) && isCarouselDocument(docHtml));
-      const nextDoc = inDoc ? stampImageSlots(docHtml, findRoot, keys, urls, { isDocument: true }) : docHtml;
-      const nextOwn = stampImageSlots(sl?.layoutHtml, findRoot, keys, urls);
-      // the slide's keys: every frame's picture, in frame order
-      const listed = [];
-      slots.forEach((_, i) => { const k = keys[i] || slotKeysNow(sl)[i]; if (k && !listed.includes(k)) listed.push(k); });
-      const next = base.map((s, i) => (i === safeIdx ? { ...s, layoutHtml: nextOwn || s.layoutHtml, assetKey: listed[0] || '', assetKeys: listed } : s));
-      replaceSlides(next, nextDoc !== docHtml ? { extra: { carouselHtml: nextDoc } } : {});
+      const next = base.map((sl, at) => {
+        if (!reached.includes(at)) return sl;
+        if (!imageSlotCount(sl?.layoutHtml) && !(slideIsThemed(sl) && isCarouselDocument(docHtml))) {
+          return { ...sl, assetKey: keys.find(Boolean) || '', assetKeys: keys.filter(Boolean) };
+        }
+        const dir = layoutDirectionOf(sl);
+        const idx = Number(sl?.index) > 0 ? Number(sl.index) : at + 1;
+        const findRoot = (d) => findCarouselSlide(d, dir, idx) || d.querySelector('article.slide, .slide, article');
+        const inDoc = Boolean(sl && slideIsThemed(sl) && isCarouselDocument(docHtml));
+        if (inDoc) docHtml = stampImageSlots(docHtml, findRoot, keys, urls, { isDocument: true });
+        const nextOwn = stampImageSlots(sl?.layoutHtml, findRoot, keys, urls);
+        // the slide's keys: every frame's picture, in frame order
+        const listed = [];
+        slots.forEach((_, i) => { const k = keys[i] || slotKeysNow(sl)[i]; if (k && !listed.includes(k)) listed.push(k); });
+        return { ...sl, layoutHtml: nextOwn || sl.layoutHtml, assetKey: listed[0] || '', assetKeys: listed };
+      });
+      replaceSlides(next, docHtml !== docWas ? { extra: { carouselHtml: docHtml } } : {});
       setImgPick(null);
       return;
     }
@@ -7973,7 +8038,8 @@ export default function WeekView({
       onCarousel: (id, every = true) => runPostAgents(
         () => runDayLayout(route._id, selected, {
           ...(id && id !== 'auto' ? { layout: id } : {}),
-          ...(every ? {} : { slideIndex: safeIdx + 1 }),
+          // the grid's selection: several slides from one carousel-agent run
+          ...reachBody(every),
         }),
         'Carousel agent',
       ),
@@ -7996,8 +8062,9 @@ export default function WeekView({
           ? `Re-arrange this slide to follow the studio's reference composition: ${comp.description}`
           : wire.say;
         const themedAt = slides.map((sl, i) => (isThemedPicture(sl) ? i : -1)).filter((i) => i >= 0);
-        const pictures = every ? themedAt : (activeThemed ? [safeIdx] : []);
-        const htmlToo = every ? themedAt.length < slides.length : !activeThemed;
+        const reached = reachIdx(every);
+        const pictures = reached.filter((i) => themedAt.includes(i));
+        const htmlToo = pictures.length < reached.length;
         // the HTML slides first, then the pictures — one write at a time
         if (htmlToo) await sendAsk(every, { instruction: `${said}\n\n${LAYOUT_KEEP}` });
         if (pictures.length) await relayoutThemed(pictures, said, id === 'bleed');
@@ -8052,22 +8119,24 @@ export default function WeekView({
     onUploadLogo: uploadKitLogo,
     sameAll: Boolean(copySnap && copySnap.dayIndex === selected),
     onSameAll: copyDressToAll,
-    onAddBefore: () => insertSlideAt(safeIdx),
-    onAddAfter: () => insertSlideAt(safeIdx + 1),
+    // with several selected: before the first of them, after the last
+    onAddBefore: () => insertSlideAt(gridScope ? gridScope[0] : (gridAll ? 0 : safeIdx)),
+    onAddAfter: () => insertSlideAt(gridScope ? gridScope[gridScope.length - 1] + 1 : (gridAll ? slides.length : safeIdx + 1)),
     onVideoCover: safeIdx === 0 && videoCoverOn ? handleMakeCover : null,
     coverBusy,
     canReset: slides.some(isDressed) || Object.keys(elemEdits).some((k) => pendingPatchesAt(k)),
-    canResetSlide: isDressed(activeSlide) || pendingPatchesAt(safeIdx),
-    onReset: (every) => setAskRemove({ kind: 'edits', i: safeIdx, every: Boolean(every), n: slides.length }),
-    onRemoveSlide: () => setAskRemove({ kind: 'slide', i: safeIdx, n: slides.length }),
+    canResetSlide: reachIdx(false).some((i) => isDressed(slides[i]) || pendingPatchesAt(i)),
+    onReset: (every) => setAskRemove({ kind: 'edits', i: safeIdx, idx: reachIdx(every), every: Boolean(every) || reachIdx(false).length >= slides.length, n: slides.length }),
+    // never every slide: the post keeps one (the grid with nothing selected cannot remove)
+    onRemoveSlide: gridAll || (gridScope && gridScope.length >= slides.length) ? null : () => setAskRemove({ kind: 'slide', i: safeIdx, idx: reachIdx(false), n: slides.length }),
     // More › Copy / Paste settings and Remove & connect (bauhly-v3, Nov 2–3)
     clipAble: clipAbleOf(activeSlide),
     clip,
     slideAt: safeIdx,
     onCopySettings: copySettings,
     onPasteSettings: pasteSettings,
-    canJoin: safeIdx > 0 && slides.length > 1 && !isThemedPicture(slides[safeIdx - 1]),
-    joinWhy: safeIdx < 1 ? 'The first slide has no frame before it' : (isThemedPicture(slides[safeIdx - 1]) ? 'The frame before it is a picture' : ''),
+    canJoin: !gridScope && !gridAll && safeIdx > 0 && slides.length > 1 && !isThemedPicture(slides[safeIdx - 1]),
+    joinWhy: gridScope || gridAll ? 'Connects one slide at a time — select just one' : safeIdx < 1 ? 'The first slide has no frame before it' : (isThemedPicture(slides[safeIdx - 1]) ? 'The frame before it is a picture' : ''),
     onJoinSlide: joinSlide,
   };
   const editMenuEl = (
@@ -8097,6 +8166,7 @@ export default function WeekView({
                 <Icon name="x" size={20} strokeWidth={2.25} />
               </button>
             </div>
+            <SlideScope.Provider value={moreActs.scope}>
             <EditorMore
               key={`${selected}-${safeIdx}-${edTool || ''}`}
               acts={moreActs}
@@ -8104,6 +8174,7 @@ export default function WeekView({
               toolbar={Boolean(edTool)}
               onClose={() => { if (!visEdit) closeZone(); }}
             />
+            </SlideScope.Provider>
           </div>
         </div>
         </>
@@ -8810,9 +8881,8 @@ export default function WeekView({
                             aria-label={on ? `Close ${t.label}` : t.label}
                             title={on ? `Close ${t.label}` : t.label}
                             data-tool={t.id}
-                            // the grid with nothing selected edits the whole post: only Ask and
-                            // Colours make sense for every slide (bauhly-v3 decision 797)
-                            disabled={(editBusy && t.id !== 'ask') || (gridAll && t.id !== 'ask' && t.id !== 'colour')}
+                            // in the grid every tool reaches the selection (nothing selected = the whole post)
+                            disabled={editBusy && t.id !== 'ask'}
                             onPointerDown={(e) => e.stopPropagation()}
                             onClick={(e) => { e.stopPropagation(); pickEdTool(t.id); }}
                           >
@@ -8871,7 +8941,7 @@ export default function WeekView({
                             <EditorRows
                               onClose={() => setLayMark(null)}
                               rows={many ? [
-                                { id: 'one', icon: 'brief', label: 'This slide', hint: 'The others keep theirs', dead: editBusy, fn: () => applyLay(false) },
+                                ...(gridAll ? [] : [{ id: 'one', icon: 'brief', label: gridScope ? `The ${gridScope.length} selected slides` : 'This slide', hint: 'The others keep theirs', dead: editBusy, fn: () => applyLay(false) }]),
                                 { id: 'all', icon: 'copy', label: 'All slides', hint: 'The carousel agent redesigns the post in this layout', dead: editBusy, fn: () => applyLay(true) },
                               ] : [
                                 { id: 'all', icon: 'sparkle', label: 'Apply layout', hint: 'The carousel agent redesigns the post in this layout', dead: editBusy, fn: () => applyLay(true) },
@@ -9195,6 +9265,7 @@ export default function WeekView({
                               ) : (
                                 <>
                                   <PlusRows back={{ label: askPlus === 'theme' ? 'Choose theme or reference' : 'Choose a background', fn: () => setAskPlus(askPlus === 'theme' ? 'root' : 'image') }} rows={[]} />
+                                  <SlideScope.Provider value={moreActs.scope}>
                                   <EditorMore
                                     key={`plus-${askPlus}-${safeIdx}`}
                                     acts={moreActs}
@@ -9202,6 +9273,7 @@ export default function WeekView({
                                     toolbar
                                     onClose={() => setAskPlus(null)}
                                   />
+                                  </SlideScope.Provider>
                                 </>
                               )}
                             </div>

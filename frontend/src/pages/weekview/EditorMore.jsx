@@ -13,7 +13,7 @@
  * decides what to draw.
  */
 
-import { useEffect, useRef, useState } from 'react';
+import { createContext, useContext, useEffect, useRef, useState } from 'react';
 import Icon from '../../brand/Icon';
 import HtmlThemeThumb from './HtmlThemeThumb';
 import { COLOUR_ROLES, DEFAULT_PALETTE } from '../../lib/identity';
@@ -27,7 +27,39 @@ export const COPY_KINDS = [
   { id: 'logo', icon: 'pin', label: 'Logo', hint: 'Your mark on this slide' },
 ];
 
+/* ══ the Editor grid's selection (bauhly-v3 lib/slide-scope.js) ══════════════
+   `{ n, all }` while the grid is on: every act reaches the selected slides (or,
+   with nothing selected, the whole post), so the rows say so — "this slide"
+   becomes "the 2 selected slides" / "every slide". WeekView provides it around
+   EditorMore; a menu outside it reads null and is unchanged. */
+export const SlideScope = createContext(null);
+function scopeWords(scope) {
+  if (!scope || (!scope.all && !(scope.n > 1))) return null;
+  const many = scope.all ? 'every slide' : `the ${scope.n} selected slides`;
+  const cap = many[0].toUpperCase() + many.slice(1);
+  const plural = !scope.all;
+  const say = (t) => (typeof t !== 'string' ? t : t
+    .replace(/^This slide only$/, cap)
+    .replace(/^This slide$/, cap)
+    .replace(/\bthis slide is\b/gi, plural ? 'these slides are' : 'every slide is')
+    .replace(/\bthis slide\b/g, plural ? 'these slides' : 'every slide')
+    .replace(/\bThis slide\b/g, plural ? 'These slides' : 'Every slide')
+    .replace(/^Before or after this one$/, plural ? 'Before the first or after the last selected' : 'Before the first or after the last')
+    .replace(/\bthis frame\b/g, plural ? 'these frames' : 'every frame')
+    .replace(/before this one/, plural ? 'before the first selected' : 'before the first')
+    .replace(/after this one/, plural ? 'after the last selected' : 'after the last'));
+  return { say, n: scope.n, all: scope.all };
+}
 export function Rows({ rows, onClose }) {
+  const sw = scopeWords(useContext(SlideScope));
+  if (sw) {
+    rows = rows.map((r) => {
+      if (r.rule || r.back) return r;
+      const label = (r.id === 'removeslide' || r.id === 'rmonly') && !sw.all ? `Remove ${sw.n} slides` : sw.say(r.label);
+      const out = (r.id === 'removeslide' || r.id === 'rmonly') && (sw.all || !r.fn); // the post keeps a slide
+      return { ...r, label, hint: sw.say(r.hint), dead: r.dead || out || !r.fn };
+    });
+  }
   return rows.map((r) => (r.rule ? (
     <span key={r.id} className="wv-em__rule" role="separator" />
   ) : (
@@ -145,10 +177,9 @@ export default function EditorMore({ acts, onClose, startLevel = null, toolbar =
   // the reach pair every "how far" level ends on
   // …read through the Editor grid's selection (`acts.scope`, bauhly-v3
   // lib/slide-scope.js): nothing selected offers only All slides; two or more
-  // turn This slide into "The N selected slides". `scoped: false` for the acts
-  // that only ever reach the open slide.
-  const reach = (put, { one, all }, { scoped = true } = {}) => {
-    const sc = scoped ? acts.scope : null;
+  // turn This slide into "The N selected slides".
+  const reach = (put, { one, all }) => {
+    const sc = acts.scope;
     const allRow = { id: 'all', icon: 'copy', label: 'All slides', hint: all, fn: () => put(true) };
     if (sc?.all) return [allRow];
     return [
@@ -365,7 +396,7 @@ export default function EditorMore({ acts, onClose, startLevel = null, toolbar =
               rows={many ? reach(go, {
                 one: 'Repainted in this look — the others keep theirs',
                 all: 'Every slide repainted in this look',
-              }, { scoped: false }).map((r) => ({ ...r, dead: acts.busy })) : [
+              }).map((r) => ({ ...r, dead: acts.busy })) : [
                 {
                   id: 'go',
                   icon: 'sparkle',
@@ -462,7 +493,7 @@ export default function EditorMore({ acts, onClose, startLevel = null, toolbar =
               rows={many ? reach(go, {
                 one: 'Re-composed in this look — the others keep theirs',
                 all: 'Every slide re-composed in this look',
-              }, { scoped: false }).map((r) => ({ ...r, dead: acts.busy })) : [
+              }).map((r) => ({ ...r, dead: acts.busy })) : [
                 {
                   id: 'go',
                   icon: 'sparkle',
