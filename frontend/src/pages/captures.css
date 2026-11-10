@@ -1632,3 +1632,14 @@ body:has(.np) .mtabs { display: none; }
 .np__vid__said { margin-top: var(--sp-2); font-size: 13px; color: var(--ink-700); }
 .np__vid__said > summary { cursor: pointer; color: var(--ink-500); font-weight: 500; }
 .np__vid__said > p { margin: 6px 0 0; line-height: 1.5; white-space: pre-wrap; max-height: 220px; overflow: auto; }
+
+/* Captures bar (Nov 10 mock): Filters left; Slide preferences + Generate plan right */
+.pjw-filters .pjw-acts { display: flex; align-items: center; gap: var(--sp-2); margin-left: auto; }
+.pjw-bar { padding-top: var(--sp-2); padding-bottom: var(--sp-5); }
+.pjw-bar .pjw-fbtn, .pjw-bar .pjw-genall { height: 40px; padding: 0 var(--sp-4); font-size: var(--text-sm); }
+.pjw-bar .pjw-genall { padding-right: var(--sp-2); }
+.pjw-bar .pjw-genall .pjw-chip__n { min-width: 24px; height: 24px; margin-left: 4px; }
+@media (max-width: 560px) {
+  .pjw-bar .pjw-fbtn { width: 36px; height: 36px; padding: 0; justify-content: center; }
+  .pjw-bar .pjw-genall { height: 36px; padding: 0 var(--sp-2) 0 var(--sp-3); font-size: var(--text-xs); }
+}

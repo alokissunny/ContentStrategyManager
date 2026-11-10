@@ -38,7 +38,7 @@ const MAX_GEN_IDS = 24;
 
 export const STATUS_SAY = {
   unclear: { label: 'Needs clarification', short: 'Answer', icon: 'info', tone: 'ask' },
-  thin: { label: 'Needs more information', short: 'More info', icon: 'info', tone: 'ask' },
+  thin: { label: 'Needs clarification', short: 'Answer', icon: 'info', tone: 'ask' },
   ready: { label: 'Ready for plan', short: 'Ready', icon: 'plan', tone: 'ready' },
   used: { label: 'Generated plan', short: 'Generated', icon: 'check', tone: 'done' },
   off: { label: 'Excluded from plan', short: 'Excluded', icon: 'eye-off', tone: 'off' },
@@ -46,7 +46,6 @@ export const STATUS_SAY = {
 
 const STATES = [
   { id: 'unclear', label: 'Needs clarification' },
-  { id: 'thin', label: 'Needs more information' },
   { id: 'ready', label: 'Ready for plan' },
   { id: 'used', label: 'Used in a plan' },
   { id: 'off', label: 'Excluded' },
@@ -120,6 +119,18 @@ const questionsOf = (item, asked = {}) => [...new Set((item.project.captures || 
 // the first gap — what the Capture window needs to pick it back up
 // `asked`: questions fetched on this visit; an unclear capture with none yet
 // still gets the generic one, so Generate plan can ask it
+// every post the capture went into is dated before today → it is out (grey tick
+// on the thumb); any still ahead, or none linked → the lime clock
+const postsOut = (item) => {
+  const dates = (item.project.captures || [])
+    .filter((c) => item.memberIds.includes(c.id))
+    .flatMap((c) => c.usedInPosts || [])
+    .map((p) => String(p.date || '').slice(0, 10))
+    .filter(Boolean);
+  const today = new Date().toLocaleDateString('en-CA');
+  return dates.length > 0 && dates.every((d) => d < today);
+};
+
 function resumeOf(item, asked = {}) {
   const members = (item.project.captures || []).filter((c) => item.memberIds.includes(c.id));
   const asks = (c) => [...(c.openQuestions || []), ...(asked[c.id] || [])];
@@ -704,7 +715,9 @@ export default function Captures() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projects]);
   const inProject = (it, s) => (!s.length ? true : s.includes(it.projectId));
-  const inStatus = (it, s) => (!s.length ? true : s.includes(it.status));
+  // `thin` (words, but a gap) shows as Needs clarification, so that filter takes both
+  const statusKey = (st) => (st === 'thin' ? 'unclear' : st);
+  const inStatus = (it, s) => (!s.length ? true : s.includes(statusKey(it.status)));
   const flip = (was, id) => (was.includes(id) ? was.filter((x) => x !== id) : [...was, id]);
   const shown = all.filter((it) => inProject(it, pick) && inStatus(it, stat));
 
@@ -734,7 +747,7 @@ export default function Captures() {
     n: all.filter((it) => it.projectId === p.id && inStatus(it, stat)).length,
   }));
   const states = STATES.map((x) => {
-    const hit = all.filter((it) => inProject(it, pick) && it.status === x.id);
+    const hit = all.filter((it) => inProject(it, pick) && statusKey(it.status) === x.id);
     return { ...x, n: tab === 'assets' ? hit.reduce((t, it) => t + (it.session.attachments || []).length, 0) : hit.length };
   });
   const sayOf = (s, rows, none, many) => (!s.length
@@ -841,15 +854,6 @@ export default function Captures() {
     <div className="pj pjw">
       <div className="pj-head">
         <h1 className="pj-head__title">Captures</h1>
-        <div className="pj-head__acts">
-          {(readyNow.length > 0 || waiting.length > 0) && (
-            <button type="button" className="pjw-genall" onClick={startGen}>
-              <Icon name="sparkle" size={14} strokeWidth={2.2} />
-              Generate plan
-              {readyNow.length > 0 && <b className="pjw-chip__n">{readyNow.length}</b>}
-            </button>
-          )}
-        </div>
       </div>
 
       {hydrated && projects.length === 0 ? (
@@ -866,20 +870,6 @@ export default function Captures() {
         <>
           <div className="pjw-bar">
             <div className="pjw-filters">
-              <button
-                type="button"
-                className={`pjw-fbtn pjw-swap ${tab === 'assets' ? 'is-on' : ''}`}
-                onClick={() => setTab(tab === 'assets' ? 'captures' : 'assets')}
-                aria-label={tab === 'assets' ? 'Show captures' : 'Show assets'}
-                title={tab === 'assets' ? 'Show captures' : 'Show assets'}
-              >
-                <Icon name={tab === 'assets' ? 'blocks' : 'grid'} size={15} strokeWidth={2} />
-                {!phone && <span className="pjw-fbtn__say">{tab === 'assets' ? 'Show captures' : 'Show assets'}</span>}
-              </button>
-              <button type="button" className="pjw-new" onClick={() => setManaging(true)} aria-label="New project" title="New project">
-                <Icon name="plus" size={14} strokeWidth={2.5} />
-                {!phone && 'New project'}
-              </button>
               <div className="pjw-pick">
                 <button
                   type="button"
@@ -927,6 +917,10 @@ export default function Captures() {
                             </button>
                           )}
                           <div className="pe-menu__sep" />
+                          <button role="menuitem" onClick={() => { setMenu(false); setTab(tab === 'assets' ? 'captures' : 'assets'); }}>
+                            <Icon name={tab === 'assets' ? 'blocks' : 'grid'} size={17} strokeWidth={2} />
+                            <span className="pe-menu__grow">{tab === 'assets' ? 'Show captures' : 'Show assets'}</span>
+                          </button>
                           {genImages.length > 0 && (
                             <button role="menuitem" onClick={() => { setMenu(false); setShowGen(true); }}>
                               <Icon name="sparkle" size={17} strokeWidth={2} />
@@ -990,6 +984,25 @@ export default function Captures() {
                       )}
                     </div>
                   </>
+                )}
+              </div>
+              <div className="pjw-acts">
+                <button
+                  type="button"
+                  className="pjw-fbtn pjw-prefs"
+                  onClick={() => navigate('/dashboard/library-settings')}
+                  aria-label="Slide preferences"
+                  title="Slide preferences"
+                >
+                  <Icon name="sliders" size={15} strokeWidth={2} />
+                  {!phone && <span className="pjw-fbtn__say">Slide preferences</span>}
+                </button>
+                {(readyNow.length > 0 || waiting.length > 0) && (
+                  <button type="button" className="pjw-genall" onClick={startGen}>
+                    <Icon name="sparkle" size={14} strokeWidth={2.2} />
+                    Generate plan
+                    {readyNow.length > 0 && <b className="pjw-chip__n">{readyNow.length}</b>}
+                  </button>
                 )}
               </div>
             </div>
@@ -1127,11 +1140,14 @@ export default function Captures() {
                           {cover ? <Thumb att={cover} /> : <Icon name="brief" size={18} strokeWidth={2} />}
                           {cover?.type === 'video' && <span className="pjw-thumb__play"><Icon name="play" size={12} /></span>}
                         </span>
-                        {it.status === 'used' && (
-                          <span className="pjw-disc" title="In a plan">
-                            <Icon name="clock" size={12} strokeWidth={2.25} />
-                          </span>
-                        )}
+                        {it.status === 'used' && (() => {
+                          const out = postsOut(it);
+                          return (
+                            <span className={`pjw-disc ${out ? 'pjw-disc--done' : ''}`} title={out ? 'Published' : 'In a plan'}>
+                              <Icon name={out ? 'check' : 'clock'} size={12} strokeWidth={2.25} />
+                            </span>
+                          );
+                        })()}
                       </span>
                       <span className="pjw-body">
                         <span className="pjw-facts">
@@ -1149,12 +1165,6 @@ export default function Captures() {
                         {words
                           ? <span className="pjw-quote">{`“${words}”`}</span>
                           : <span className="pjw-quote pjw-quote--none">No words captured</span>}
-                        {(it.status === 'unclear' ? questionsOf(it, asked) : it.status === 'thin' ? gapsOfItem(it) : []).map((q) => (
-                          <span key={q} className="pjw-ask">
-                            <Icon name="info" size={13} strokeWidth={2.2} />
-                            {q}
-                          </span>
-                        ))}
                         <span className="pjw-meta">
                           {images > 0 && (
                             <span><Icon name="image" size={13} strokeWidth={2} />{`${images} ${images === 1 ? 'image' : 'images'}`}</span>
