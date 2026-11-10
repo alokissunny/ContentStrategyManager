@@ -14,7 +14,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import Icon from '../../brand/Icon';
 import { Mark } from '../../brand/Logo';
 import { AutoTextarea, useBodyScrollLock } from './ui';
-import { RecordingSheet, useRecorder, refreshDraftIfUnedited, captureSttLanguages } from './recorder';
+import { RecordingSheet, useRecorder, refreshDraftIfUnedited, captureSttLanguages, AiProcessing } from './recorder';
 import { CHECKIN, PILLARS } from './checkinData';
 import { useConversation } from './useConversation.js';
 import ScrollJump from './ScrollJump.jsx';
@@ -1004,6 +1004,7 @@ export default function Checkin({ projects, filingProjects, week, name, lastWeek
       <AutoTextarea
         value={draft}
         onChange={(e) => setDraft(e.target.value)}
+        className={polishing && fromVoice.current && draft === autoDraft.current ? 'is-ai-polishing' : ''}
         minHeight={88}
         autoFocus
         placeholder={placeholder}
@@ -1016,7 +1017,7 @@ export default function Checkin({ projects, filingProjects, week, name, lastWeek
         }}
       />
       {polishing && fromVoice.current && (
-        <span className="cvtype__polish">Cleaning the words up…</span>
+        <AiProcessing className="cvtype__polish" />
       )}
       <div className="cvtype__acts">
         <button

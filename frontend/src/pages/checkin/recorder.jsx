@@ -15,6 +15,27 @@
 import { useEffect, useRef, useState } from 'react';
 import { correctTranscriptLive } from '../../api/projects';
 
+/* "AI is working on your words" — a sparkle that breathes, a label with a
+   moving sheen and three dots, so a correction in flight reads as work being
+   done rather than a stalled field. Shared by the recorder sheet and every
+   draft field a voice note lands in. */
+export function AiProcessing({ label = 'AI is correcting your words', tone = '', className = '' }) {
+  return (
+    <span
+      className={`ai-proc${tone ? ` ai-proc--${tone}` : ''}${className ? ` ${className}` : ''}`}
+      role="status"
+      aria-live="polite"
+    >
+      <svg className="ai-proc__mark" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
+        <path d="M12 2.5l1.9 5.6 5.6 1.9-5.6 1.9L12 17.5l-1.9-5.6L4.5 10l5.6-1.9z" fill="currentColor" />
+        <path d="M19 15l.8 2.2 2.2.8-2.2.8L19 21l-.8-2.2-2.2-.8 2.2-.8z" fill="currentColor" opacity=".7" />
+      </svg>
+      <span className="ai-proc__label">{label}</span>
+      <span className="ai-proc__dots" aria-hidden="true"><i /><i /><i /></span>
+    </span>
+  );
+}
+
 /* a waveform glyph — the capture identity */
 export function Waveform({ size = 44 }) {
   const h = [10, 20, 34, 16, 44, 22, 30, 12];
@@ -165,7 +186,7 @@ export function RecordingSheet({ rec, note, label = 'Recording' }) {
             </p>
           )}
           {rec.correcting && rec.status === 'recording' && (
-            <span className="cvrec__polish">Cleaning the words up…</span>
+            <AiProcessing label="AI is correcting the words" tone="quiet" className="cvrec__polish" />
           )}
           {rec.status === 'recording' && (
             <div className="cvrec__langs" role="radiogroup" aria-label="Spoken language">
@@ -184,7 +205,7 @@ export function RecordingSheet({ rec, note, label = 'Recording' }) {
             </div>
           )}
           {finishing ? (
-            <span className="cvrec__finishing">Writing it down…</span>
+            <AiProcessing label="Transcribing your voice note" className="cvrec__finishing" />
           ) : (
             <button className="ck-chip ck-chip--primary" onClick={rec.stop}>
               <span className="cvrec__stop" /> Stop

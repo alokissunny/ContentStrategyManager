@@ -17,7 +17,7 @@ import { useNavigate } from 'react-router-dom';
 import Icon from '../brand/Icon';
 import { Mark } from '../brand/Logo';
 import { AutoTextarea, useBodyScrollLock } from './checkin/ui';
-import { RecordingSheet, useRecorder, refreshDraftIfUnedited, captureSttLanguages } from './checkin/recorder';
+import { RecordingSheet, useRecorder, refreshDraftIfUnedited, captureSttLanguages, AiProcessing } from './checkin/recorder';
 import ScrollJump from './checkin/ScrollJump';
 import {
   useProjects, useProjectsHydrated, createProject, renameProject, deleteProject,
@@ -326,7 +326,7 @@ function SessionConversation({
                       minHeight={72}
                       autoFocus
                     />
-                    {polishing && <span className="sc__edit-note">Cleaning the words up…</span>}
+                    {polishing && <AiProcessing className="sc__edit-note" />}
                     <div className="sc__edit-acts">
                       <button
                         type="button"
@@ -902,7 +902,7 @@ function ProjectPickerModal({ projects, onClose, onPick, onNew }) {
  * field greys and the buttons stop — it never unmounts, so the box does not
  * jump each time Bauhly speaks. Empty, it is a single bar; with text, the
  * words take the top and the controls drop to a row beneath. */
-function CaptureComposer({ value, onValue, live, canSend, placeholder, onSend, onFiles, onRecord, pending = [], onRemoveFile, plus = true, locked = false, fading = false, mic = true }) {
+function CaptureComposer({ aiPolishing = false, value, onValue, live, canSend, placeholder, onSend, onFiles, onRecord, pending = [], onRemoveFile, plus = true, locked = false, fading = false, mic = true }) {
   /* staged images make the composer non-empty even with no text, so it takes
      its two-row shape (thumbnails on top, field, controls beneath) */
   const empty = !value && pending.length === 0;
@@ -929,7 +929,7 @@ function CaptureComposer({ value, onValue, live, canSend, placeholder, onSend, o
         </div>
       )}
       <AutoTextarea
-        className="capc__field"
+        className={`capc__field${aiPolishing ? ' is-ai-polishing' : ''}`}
         value={value}
         onChange={(e) => onValue(e.target.value)}
         minHeight={24}
@@ -2040,6 +2040,7 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
             <AutoTextarea
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
+              className={polishing && draft === autoDraft.current ? 'is-ai-polishing' : ''}
               minHeight={step === 'clarify' ? 64 : 92}
               autoFocus
               placeholder={step === 'clarify' ? 'Answer in your own words…' : 'Say it however it comes out…'}
@@ -2052,7 +2053,7 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
               }}
             />
             {polishing && (
-              <span className="cvtype__polish">Cleaning the words up…</span>
+              <AiProcessing className="cvtype__polish" />
             )}
             <div className="cvtype__acts">
               <button
@@ -2448,8 +2449,13 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
                 {rec.liveText
                   ? <span>{rec.liveText}</span>
                   : <span className="ck-said__waiting">{rec.liveSupported ? 'Transcribing…' : 'Recording…'}</span>}
-                <i className="ck-said__caret" aria-hidden="true" />
+                {rec.status === 'recording' && <i className="ck-said__caret" aria-hidden="true" />}
               </span>
+              {rec.status === 'done' ? (
+                <AiProcessing label="Transcribing your voice note" className="ck-said__ai" />
+              ) : rec.correcting && rec.status === 'recording' ? (
+                <AiProcessing label="AI is correcting the words" tone="quiet" className="ck-said__ai" />
+              ) : null}
             </div>
           )}
 
@@ -2550,7 +2556,12 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
             bar that never changes the box height (bauhly-v3 CaptureComposer). */}
         {/* in the modal the bar IS the recorder (bauhly-v3 OnbComposer
             `listening`): the mark, Listening…, a live wave, Add a photo and Stop */}
-        {modal && step === 'recording' && (
+        {modal && step === 'recording' && rec.status === 'done' && (
+          <div className="capc capc--hearing capc--working">
+            <AiProcessing label="Transcribing your voice note" />
+          </div>
+        )}
+        {modal && step === 'recording' && rec.status !== 'done' && (
           <div className="capc capc--hearing">
             <span className={`capc__listen ${rec.status === 'paused' ? 'is-held' : ''}`}>
               <Icon name={rec.status === 'paused' ? 'image-plus' : 'mic'} size={18} strokeWidth={1.9} className="capc__listen-mic" />
@@ -2576,8 +2587,12 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
             </span>
           </div>
         )}
+        {modal && step !== 'recording' && polishing && (
+          <AiProcessing className="capc-ai" />
+        )}
         {modal && step !== 'recording' && (
           <CaptureComposer
+            aiPolishing={polishing && draft === autoDraft.current}
             value={draft}
             onValue={(v) => { if (demo && !exLive && v !== exText) setDemo(false); setDraft(v); }}
             live={composerLive || (liveIntro && askOn && step === 'boot')}
