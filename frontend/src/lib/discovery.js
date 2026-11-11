@@ -14,9 +14,8 @@ export const IG_ASK = {
   /* the two lines of the reference's card, as they are (Leon's screenshots, Nov 6) */
   skip: { title: 'No, for now', line: 'I’ll tell you a bit about my business instead.' },
   invalid: 'That doesn’t look like an Instagram profile. Try instagram.com/yourstudio or @yourstudio, or choose No, for now.',
-  /* the live app reads it straight away, in the background, while the questions go on (the user's call,
-     Nov 10: the read starts as soon as they type it; backend services/visitorInstagram.js) */
-  reading: (handle) => `Thanks — I’m looking through @${handle} in the background. Meanwhile, a few quick questions about your studio.`,
+  /* a handle given: the read stands in for the studio questions, so none are asked (bauhly-v3 `readyForAccount`) */
+  held: (handle) => `Thanks — I’m looking through @${handle} in the background. That’s everything I need. Ready to become your first post.`,
   skipped: 'No problem. A few quick questions will help me understand your studio.',
   enough: 'No problem. I have what I need from what you told me.',
 };

@@ -3042,3 +3042,26 @@ body.is-immersive .app__main {
 .ckl__input--code { font-family: var(--font-mono, ui-monospace, monospace); font-weight: 600; letter-spacing: 0.24em; text-transform: uppercase; }
 .ckl__input--code::placeholder { font-family: var(--font-ui, inherit); font-weight: 400; letter-spacing: 0; text-transform: none; }
 .ckl__field--invite + .ckl__google { margin-top: 20px; }
+
+/* ── the Instagram profile they gave, as a card (bauhly-v3 `.ck-ig`, decision 690) ───────────────────── */
+.ck-turn--user:has(> .ck-ig) { justify-content: flex-end; }
+.ck-ig {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  column-gap: var(--sp-3, 12px);
+  width: min(360px, 100%);
+  padding: var(--sp-3, 12px) var(--sp-4, 16px);
+  border: 1px solid var(--border, #e4e4e7);
+  border-radius: var(--r-lg, 16px);
+  background: var(--surface, #fff);
+}
+.ck-ig__avatar { display: grid; place-items: center; width: 48px; height: 48px; border-radius: 999px; background: var(--ink-100, #ececea); color: var(--ink-800); }
+.ck-ig__who { display: flex; flex-direction: column; gap: 2px; min-width: 0; text-align: left; }
+.ck-ig__handle { overflow: hidden; font-size: var(--text-base, 15px); font-weight: 600; color: var(--ink-900); text-overflow: ellipsis; white-space: nowrap; }
+.ck-ig__link { display: inline-flex; align-items: center; gap: 4px; min-width: 0; font-size: var(--text-sm, 14px); color: var(--ink-500); text-decoration: none; }
+.ck-ig__link > span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ck-ig__link > svg { flex: none; }
+.ck-ig__link:hover { color: var(--ink-900); text-decoration: underline; }
+.ck-ig__link:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; border-radius: 6px; }
+.ck-ig__acts { grid-column: 1 / -1; display: flex; justify-content: flex-end; gap: var(--sp-2, 8px); margin-top: var(--sp-3, 12px); padding-top: var(--sp-3, 12px); border-top: 1px solid var(--border, #e4e4e7); }

@@ -850,7 +850,9 @@ function useConversation(beat = 420) {
     setTyping(true);
     timers.current.push(setTimeout(() => { setTyping(false); fn(); }, beat));
   };
-  return { messages, typing, push, say, after, think };
+  /* takes back what was said about something that has changed (the Instagram card and its reply) */
+  const drop = (fn) => setMessages((m) => m.filter((x) => !fn(x)));
+  return { messages, typing, push, say, after, think, drop };
 }
 
 /* the landing's photo question (bauhly-v3 LANDING_PHOTO_ASK) */
@@ -1134,7 +1136,7 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
   /* dev only: `?visitor=1` on the landing page walks the signed-out visitor's flow in a signed-in browser */
   const forceVisitor = import.meta.env.DEV && typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('visitor');
   const needsLogin = liveIntro && (!user || forceVisitor);
-  const { messages, typing, push, say, after, think } = useConversation(liveIntro ? LANDING_THINK_MS : undefined);
+  const { messages, typing, push, say, after, think, drop } = useConversation(liveIntro ? LANDING_THINK_MS : undefined);
   const [step, setStep] = useState('boot');
   const [draft, setDraft] = useState('');
   const [pending, setPending] = useState([]); // images staged in the composer, sent with the next message
@@ -2172,12 +2174,38 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
     }
     setDraft('');
     igHandleRef.current = handle;
-    userSays(`instagram.com/${handle}`);
-    /* the read starts now and runs on its own; nothing here waits for it */
-    startVisitorRead(handle).then((r) => { igToken.current = r?.token || null; }).catch((err) => {
+    igToken.current = null;
+    /* the profile they gave as a card (bauhly-v3 `.ck-ig`, decision 690): Instagram's mark, the handle, the link */
+    push({ from: 'user', ig: handle, tag: 'ig' });
+    /* the read starts now and runs on its own; nothing here waits for it. It stands in for the studio
+       questions, so with a handle none are asked (only "No, for now" asks them) */
+    startVisitorRead(handle).then((r) => { if (igHandleRef.current === handle) igToken.current = r?.token || null; }).catch((err) => {
       console.warn('[capture] instagram read could not start', err?.response?.status || err);
     });
-    askNext(IG_ASK.reading(handle));
+    const d = say({ text: IG_ASK.held(handle), tag: 'ig' });
+    after(d, () => setStep('vDone'));
+  };
+  /* `Change account`: the question again with their address in the field, selected, so typing replaces it
+     (bauhly-v3 igChange). What was said about the old one goes with it */
+  const igChange = () => {
+    const was = igHandleRef.current;
+    igHandleRef.current = null;
+    igToken.current = null;
+    drop((m) => m.tag === 'ig');
+    setDraft(was ? `instagram.com/${was}` : '');
+    setStep('ig');
+    requestAnimationFrame(() => {
+      const field = boxRef.current?.querySelector('.capc__field textarea, .capc__field input, .capc textarea, .capc input');
+      field?.focus({ preventScroll: true });
+      field?.select?.();
+    });
+  };
+  /* `Remove`: the same as never having given it, so the same as saying no — the questions are asked */
+  const igTakeBack = () => {
+    igHandleRef.current = null;
+    igToken.current = null;
+    drop((m) => m.tag === 'ig');
+    igSkip();
   };
   const igSkip = () => {
     setStep('boot');
@@ -2757,6 +2785,32 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
           )}
 
           {messages.map((m) => {
+            if (m.from === 'user' && m.ig) {
+              return (
+                <div className="ck-turn ck-turn--user" key={m.id}>
+                  <div className="ck-ig">
+                    <span className="ck-ig__avatar" aria-hidden="true"><Icon name="instagram" size={22} strokeWidth={1.8} /></span>
+                    <span className="ck-ig__who">
+                      <b className="ck-ig__handle">@{m.ig}</b>
+                      <a className="ck-ig__link" href={`https://instagram.com/${m.ig}`} target="_blank" rel="noopener noreferrer">
+                        <span>instagram.com/{m.ig}</span>
+                        <Icon name="arrow-up-right" size={13} strokeWidth={2} />
+                        <span className="sr-only"> (opens Instagram)</span>
+                      </a>
+                    </span>
+                    {step === 'vDone' && !login && (
+                      <span className="ck-ig__acts">
+                        <button type="button" className="btn btn--secondary btn--sm" onClick={igChange}>Change account</button>
+                        <button type="button" className="btn btn--quiet btn--sm" onClick={igTakeBack}>
+                          <Icon name="trash" size={14} strokeWidth={2} />
+                          Remove
+                        </button>
+                      </span>
+                    )}
+                  </div>
+                </div>
+              );
+            }
             if (m.from === 'user') {
               return (
                 <div className="ck-turn ck-turn--user ck-turn--stack" key={m.id}>
