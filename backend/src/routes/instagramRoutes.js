@@ -5,6 +5,7 @@ const { protect } = require('../middleware/auth');
 const { fetchInstagram, getInstagramProfile, activateInstagram, getAuthorityFunnel, getAnalysisOverview, refreshGraphMedia } = require('../controllers/instagramController');
 
 const { claimVisitorRead } = require('../services/visitorInstagram');
+const { wantsPromptDebug } = require('../utils/promptDebug');
 
 const router = express.Router();
 
@@ -19,7 +20,7 @@ router.get('/analysis-overview', asyncHandler(getAnalysisOverview));
 // studio answers become this account's profile and Business memory (services/visitorInstagram.js).
 // POST /api/instagram/visitor-claim { token?, answers? } → { username, instagram }
 router.post('/visitor-claim', aiLimit('heavy'), asyncHandler(async (req, res) => {
-  const out = await claimVisitorRead(req.user, { token: req.body?.token, answers: req.body?.answers });
+  const out = await claimVisitorRead(req.user, { token: req.body?.token, answers: req.body?.answers, debug: wantsPromptDebug(req) });
   res.json(out);
 }));
 

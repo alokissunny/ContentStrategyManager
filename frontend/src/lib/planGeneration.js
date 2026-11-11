@@ -28,6 +28,9 @@ const IDLE = {
   guidance: '', // a soft "needs more context" note (not an error) — the
   // strategist asked for a clearer idea/visual; the UI shows it as a prompt/CTA
   startedAt: 0,
+  // the queued run's own stage while it runs ('queued' | 'planning' | 'writing' | 'finalizing'), '' when
+  // the backend does not report one (no PLAN_QUEUE) — the onboarding Capture's progress reads it
+  phase: '',
   watching: false,
   // the post this run makes opens straight in the Editor (a landing visitor's first post)
   openEditor: false,
@@ -107,7 +110,10 @@ export async function startPlanGeneration(trigger, extras = {}) {
   if (snapshot.status === 'generating' || inFlight) return inFlight;
   // Fill onto the studio's chosen publishing weekdays unless the caller
   // already named a distribution.
-  return track(trigger, Date.now(), () => generatePlan(trigger, { ...distributionForGenerate(), ...extras }));
+  const onProgress = (run) => {
+    if (snapshot.status === 'generating' && run?.status && run.status !== snapshot.phase) set({ phase: run.status });
+  };
+  return track(trigger, Date.now(), () => generatePlan(trigger, { ...distributionForGenerate(), ...extras, onProgress }));
 }
 
 // A reload (or a new tab / app restart) loses the wait above, but a queued
@@ -136,6 +142,7 @@ function track(trigger, startedAt, run) {
   set({
     status: 'generating',
     trigger,
+    phase: '',
     posts: [],
     count: null,
     error: '',

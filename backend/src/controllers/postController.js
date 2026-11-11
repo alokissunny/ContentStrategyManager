@@ -49,10 +49,7 @@ const REGENERATING_WINDOW_MS = 15 * 60 * 1000;
 const addDays = (date, n) => { const d = new Date(date); d.setDate(d.getDate() + n); return d; };
 const startOfDay = (d = new Date()) => { const x = new Date(d); x.setHours(0, 0, 0, 0); return x; };
 
-function wantsPromptDebug(req) {
-  // prompts are internal — only admins get them back
-  return req.user?.role === 'admin' && String(req.get('x-debug-prompts') || '').trim() === '1';
-}
+const { wantsPromptDebug } = require('../utils/promptDebug');
 function optionalText(value) {
   return typeof value === 'string' ? value.trim() : '';
 }

@@ -23,6 +23,11 @@ const visitorInstagramReadSchema = new mongoose.Schema(
     attachedAt: { type: Date, default: null },
     attaching: { type: Boolean, default: false },
     ip: { type: String, default: '' },
+    // the read's own rows for the AI debug panel (the Apify scrape, the account analysis); a claim that
+    // wanted them takes them, or — the read still running — names `debugTo`, and they are logged for that
+    // account when it finishes (services/aiDebugLog.js)
+    debug: { type: [mongoose.Schema.Types.Mixed], default: [] },
+    debugTo: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
     createdAt: { type: Date, default: Date.now, expires: 7 * 24 * 3600 },
   },
   { minimize: false }

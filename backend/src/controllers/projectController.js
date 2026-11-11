@@ -25,10 +25,7 @@ const { understandCheckin } = require('../services/checkinUnderstand');
 const { appLocaleOf } = require('../utils/appLocale');
 const { transcribeAudio, correctTranscript } = require('../services/transcribeAudio');
 
-function wantsPromptDebug(req) {
-  // prompts are internal — only admins get them back
-  return req.user?.role === 'admin' && String(req.get('x-debug-prompts') || '').trim() === '1';
-}
+const { wantsPromptDebug } = require('../utils/promptDebug');
 
 function withOptionalDebug(result, req) {
   if (!result || typeof result !== 'object') return result;

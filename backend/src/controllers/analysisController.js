@@ -15,10 +15,7 @@ const { brandVoiceLlm } = require('../services/runtimeSettings');
 const { localizeBrandDnaPayload } = require('../services/memoryTranslate');
 const { appLocaleOf } = require('../utils/appLocale');
 
-function wantsPromptDebug(req) {
-  // prompts are internal — only admins get them back
-  return req.user?.role === 'admin' && String(req.get('x-debug-prompts') || '').trim() === '1';
-}
+const { wantsPromptDebug } = require('../utils/promptDebug');
 
 function serializeGaps(gaps) {
   return (Array.isArray(gaps) ? gaps : [])

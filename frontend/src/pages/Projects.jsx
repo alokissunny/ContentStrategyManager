@@ -37,6 +37,7 @@ import { startVisitorRead, claimVisitorRead } from '../api/visitor';
 import { useTypedPlaceholder } from '../components/ui/typing';
 import { canTakeCaret, isCaptureOpen, CAPTURE_MORPH_MS, CAPTURE_HOLD_MS } from '../lib/captureUi';
 import { ensureProjects, refreshProjects, projectsSnapshot } from '../lib/projectsStore';
+import { startPlanGeneration, getPlanGeneration, openNextInEditor } from '../lib/planGeneration';
 import './projects.css';
 
 /* The generated-image list is fetched from the server, which takes a moment —
@@ -865,12 +866,28 @@ const EX_STAGES = [
   { id: 'preview', label: 'Preparing your preview', motion: 'frame' },
 ];
 const EX_STAGE_MS = 1100;
-/* what happens after a visitor makes their account, in the order it happens (VisitorGenerate) */
+/* what happens after a visitor makes their account, in the order it happens (visitorGenerate; bauhly-v3
+   lib/postrun.js STAGES). Their first post is made in this box, not on the calendar's loading screen
+   (bauhly-v3 decision 743: "Keep the user in the same view while generation finishes"). Each stage is a
+   real step: the studio is the Instagram claim (only when they gave one), reading is the upload, the
+   capture's understanding and filing, structuring is the plan run's `queued`/`planning` (the Strategist),
+   designing its `writing`/`finalizing` (the carousel), and the preview is handing the post to the Editor. */
 const VISITOR_STAGES = [
   { id: 'studio', label: 'Understanding your studio', motion: 'scan' },
-  { id: 'reading', label: 'Reading what you shared', motion: 'stack' },
-  { id: 'saving', label: 'Saving your capture', motion: 'frame' },
+  { id: 'reading', label: 'Reading what you shared', motion: 'scan' },
+  { id: 'structuring', label: 'Structuring the story', motion: 'stack' },
+  { id: 'designing', label: 'Designing the slides', motion: 'grid' },
+  { id: 'preview', label: 'Preparing your preview', motion: 'frame' },
 ];
+/* paced to be read (bauhly-v3 postrun.js MIN_STAGE_MS / MIN_PREVIEW_MS / TICK_MS): a stage that finishes
+   early is held, a slower one is shown for as long as it really takes */
+const VISITOR_STAGE_MS = 2900;
+const VISITOR_PREVIEW_MS = 1900;
+const VISITOR_TICK_MS = 200;
+/* with every stage ticked, a moment to see it before the Editor opens (bauhly-v3 OPEN_HOLD_MS) */
+const VISITOR_OPEN_HOLD_MS = 700;
+/* no queue to report the run's stage: the Strategist has usually finished by then */
+const VISITOR_UNREPORTED_DESIGN_MS = 30000;
 function StageMotion({ kind }) {
   return (
     <span className={`gprog__motion gprog__motion--${kind}`} aria-hidden="true">
@@ -2106,6 +2123,10 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
   const [qPicked, setQPicked] = useState([]);
   const [qOther, setQOther] = useState(false);
   const [vGen, setVGen] = useState(null);
+  const [vStages, setVStages] = useState(VISITOR_STAGES);
+  /* the box can be closed while the post is made: the run goes on (the calendar picks it up), this card stops */
+  const vAlive = useRef(true);
+  useEffect(() => { vAlive.current = true; return () => { vAlive.current = false; }; }, []);
   const vStep = ['vMedia', 'ig', 'ask', 'vDone'].includes(step);
 
   const visitorSend = (text) => {
@@ -2208,13 +2229,26 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
   const visitorGenerate = async () => {
     setStep('boot');
     visitorFiling.current = true;
-    setVGen(0);
+    const wait = (ms) => new Promise((r) => { setTimeout(r, ms); });
+    const stages = VISITOR_STAGES.filter((st) => st.id !== 'studio' || igToken.current);
+    setVStages(stages);
+    let since = Date.now();
+    const show = (id) => { setVGen(stages.findIndex((st) => st.id === id)); since = Date.now(); };
+    /* the stage on screen held to its minimum, a tick, then the next one */
+    const next = async (id, least = VISITOR_STAGE_MS) => {
+      const left = least - (Date.now() - since);
+      if (left > 0) await wait(left);
+      setVGen(stages.findIndex((st) => st.id === id) - 0.5);
+      await wait(VISITOR_TICK_MS);
+      show(id);
+    };
+    show(stages[0].id);
     try {
       await claimVisitorRead({ token: igToken.current, answers: answersPayload() });
     } catch (err) {
       console.warn('[capture] visitor claim failed', err?.response?.status || err);
     }
-    setVGen(1);
+    if (stages[0].id === 'studio') await next('reading');
     try {
       const files = heldFiles.current.map((h) => h.file);
       if (files.length) {
@@ -2233,19 +2267,50 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
     } catch (err) {
       console.warn('[capture] visitor upload or understand failed', err);
     }
-    setVGen(2);
     /* the account's own list, now that its profile is set: a returning studio's `No project` is used, not doubled */
     await refreshProjects().catch(() => null);
     const list = projectsSnapshot();
     const want = String(projectName || 'No project').trim().toLowerCase();
     const home = (Array.isArray(list) ? list : []).find((p) => String(p.name || '').trim().toLowerCase() === want);
     const ok = await finish(home ? home.id : null, home ? undefined : (projectName || 'No project'));
-    setVGen(null);
-    visitorFiling.current = false;
-    if (!ok) return;
+    if (!ok) {
+      setVGen(null);
+      visitorFiling.current = false;
+      return;
+    }
     heldFiles.current.forEach((h) => { try { URL.revokeObjectURL(h.url); } catch { /* ok */ } });
-    /* the post is next: the host closes this, goes to the calendar and starts it (CaptureHost) */
-    onCaptured?.(capturedPayload());
+
+    /* ── THE POST IS MADE HERE, NOT ON THE CALENDAR (bauhly-v3 decision 743) ── the box stays open with its
+       progress while the plan run makes the post; the run lives in the planGeneration store, so closing the
+       box does not stop it. Its own stages move this card on. */
+    await next('structuring');
+    /* they made their account in this box: the post opens in the Editor, even if they close the box first */
+    openNextInEditor();
+    startPlanGeneration('capture').catch(() => {});
+    let designing = false;
+    while (getPlanGeneration().status === 'generating' && vAlive.current) {
+      const g = getPlanGeneration();
+      const reported = g.phase === 'writing' || g.phase === 'finalizing';
+      if (!designing && (reported || (!g.phase && Date.now() - since > VISITOR_UNREPORTED_DESIGN_MS))) {
+        designing = true;
+        await next('designing');
+      }
+      await wait(500);
+    }
+    if (!vAlive.current) return;
+    const made = getPlanGeneration().status === 'ready';
+    if (made) {
+      if (!designing) await next('designing');
+      await next('preview');
+      await wait(VISITOR_PREVIEW_MS);
+      setVGen(stages.length);
+      await wait(VISITOR_OPEN_HOLD_MS);
+    }
+    visitorFiling.current = false;
+    if (!vAlive.current) return;
+    /* ready: the host opens it in the Editor. A failure, or the Strategist asking for more, is said where
+       the calendar says it (YourPlans reads the store), so the box closes onto that */
+    onCaptured?.({ ...capturedPayload(), generated: true });
   };
 
   /* ── THE BOX GROWS OUT OF WHAT WAS PRESSED, AND CLOSES BACK INTO IT ──────
@@ -2852,7 +2917,7 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
           {vGen != null && (
             <div className="ck-turn ck-turn--bauhly ck-turn--actions ck-turn--cont">
               <span className="ck-avatar ck-avatar--ghost" aria-hidden="true" />
-              <GenProgress at={vGen} stages={VISITOR_STAGES} doneSay="Saved." />
+              <GenProgress at={vGen} stages={vStages} doneSay="Your post is ready." />
             </div>
           )}
           {exView != null && (

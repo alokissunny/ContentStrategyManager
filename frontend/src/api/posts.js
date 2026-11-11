@@ -151,7 +151,7 @@ export function generatePlan(trigger = 'generate', extras = {}) {
     // Queued generation (backend PLAN_QUEUE): a 202 with a run id. Wait for the
     // run here so callers get the same result — or the same 422-style error —
     // as the synchronous response.
-    if (res.status === 202 && data.runId) data = await waitForPlanRun(data.runId);
+    if (res.status === 202 && data.runId) data = await waitForPlanRun(data.runId, { onProgress: extras.onProgress });
     ingestPlanDebug(`Generate posts (${trigger})`, data);
     return data;
   });

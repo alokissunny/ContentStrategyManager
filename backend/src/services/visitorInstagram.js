@@ -18,6 +18,8 @@ const BrandAnalysisReport = require('../models/BrandAnalysisReport');
 const { scrapeProfile, scrapePosts } = require('./instagramScraper');
 const { generateBrandAnalysis, assessBrandDnaGaps, BRAND_DNA_FIELDS } = require('./brandAnalysis');
 const { buildBrandVoice } = require('./brandVoice');
+const { brandVoiceLlm } = require('./runtimeSettings');
+const { recordBackgroundDebug } = require('./aiDebugLog');
 const { uploadMarkdown } = require('./s3Client');
 const { cacheProfilePicture } = require('./profileAvatar');
 const { invalidateCurrentUsername } = require('../utils/currentProfile');
@@ -45,13 +47,24 @@ function profileOf(scraped) {
 async function runRead(id) {
   const read = await VisitorInstagramRead.findById(id);
   if (!read) return;
+  const debug = [];
   try {
+    const scrapeStarted = Date.now();
     const [profile, posts] = await Promise.all([scrapeProfile(read.handle), scrapePosts(read.handle)]);
+    debug.push({
+      source: 'Account read · Instagram',
+      model: 'Apify',
+      prompt: '',
+      output: '',
+      elapsedMs: Date.now() - scrapeStarted,
+      usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0, estimatedCostUsd: 0 },
+      note: `@${read.handle} · profile + ${(posts || []).length} posts · no AI call (Apify run cost not included)`,
+    });
     if (!profile) throw new Error('Could not read this Instagram profile. It may be private or the username may be wrong.');
     read.profile = profileOf(profile);
     read.posts = posts || [];
     try {
-      read.analysis = await generateBrandAnalysis({ username: read.handle, ...read.profile, posts: read.posts });
+      read.analysis = await generateBrandAnalysis({ username: read.handle, ...read.profile, posts: read.posts }, { debug });
     } catch (err) {
       // the profile and posts are still worth keeping; Business memory can be filled later
       console.error(`[visitorInstagram] brand analysis failed for @${read.handle}:`, err.message);
@@ -65,14 +78,19 @@ async function runRead(id) {
   read.markModified('profile');
   read.markModified('posts');
   read.markModified('analysis');
+  read.debug = debug;
   await read.save();
   // claimed while it ran: attach it now
   // (read afresh: the claim sets claimedBy on the stored read, not on this copy)
-  const now = await VisitorInstagramRead.findById(read._id).select('claimedBy attachedAt').lean();
+  const now = await VisitorInstagramRead.findById(read._id).select('claimedBy attachedAt debugTo').lean();
+  // a claim that came while this ran, with the debug panel on, gets these rows (and the attach's) logged
+  const wantDebug = Boolean(now?.debugTo) && String(now.debugTo) === String(now.claimedBy);
+  const logged = wantDebug ? [...debug] : null;
   if (now?.claimedBy && !now.attachedAt) {
-    const late = await attachRead(read, now.claimedBy).catch((err) => { console.error('[visitorInstagram] late attach failed:', err.message); return null; });
-    if (late?.report) brandVoiceInBackground(now.claimedBy, late.report);
+    const late = await attachRead(read, now.claimedBy, logged).catch((err) => { console.error('[visitorInstagram] late attach failed:', err.message); return null; });
+    if (late?.report) brandVoiceInBackground(now.claimedBy, late.report, { debug: wantDebug });
   }
+  if (wantDebug) await recordBackgroundDebug(now.claimedBy, 'Onboarding · account read', debugBlock(logged));
 }
 
 async function startVisitorRead(rawHandle, ip = '') {
@@ -89,6 +107,15 @@ async function startVisitorRead(rawHandle, ip = '') {
   if (recent) {
     await VisitorInstagramRead.create({
       token, handle, status: 'done', profile: recent.profile, posts: recent.posts, analysis: recent.analysis, ip,
+      debug: [{
+        source: 'Account read · reused',
+        model: 'reused',
+        prompt: '',
+        output: '',
+        elapsedMs: 0,
+        usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0, estimatedCostUsd: 0 },
+        note: `@${handle} was read in the last 30 days: no Instagram or AI call, no cost`,
+      }],
     });
     return { token, handle, reused: true };
   }
@@ -97,7 +124,18 @@ async function startVisitorRead(rawHandle, ip = '') {
   return { token, handle, reused: false };
 }
 
-async function reportFromAnalysis(userId, handle, analysis) {
+/* the debug panel's block for a set of rows (frontend api/posts.js ingestPlanDebug) */
+function debugBlock(agents, mode = 'onboarding') {
+  const rows = (agents || []).filter(Boolean);
+  return {
+    mode,
+    model: rows.find((r) => r.model && !['Apify', 'reused'].includes(r.model))?.model || '',
+    elapsedMs: rows.reduce((n, r) => n + (Number(r.elapsedMs) || 0), 0),
+    agents: rows,
+  };
+}
+
+async function reportFromAnalysis(userId, handle, analysis, debug = null) {
   const markdown = analysis?.markdown || `# @${handle}\n\nRead from the landing page.`;
   const s3Key = `reports/${userId}/${handle}-${Date.now()}.md`;
   try { await uploadMarkdown(s3Key, markdown); } catch (err) { console.warn('[visitorInstagram] report upload failed:', err.message); }
@@ -114,7 +152,7 @@ async function reportFromAnalysis(userId, handle, analysis) {
   };
   let memoryGaps = [];
   if (analysis) {
-    try { memoryGaps = await assessBrandDnaGaps(fields); } catch (err) { console.warn('[visitorInstagram] gap assessment failed:', err.message); }
+    try { memoryGaps = await assessBrandDnaGaps(fields, { debug }); } catch (err) { console.warn('[visitorInstagram] gap assessment failed:', err.message); }
   }
   return BrandAnalysisReport.create({
     user: userId,
@@ -127,7 +165,7 @@ async function reportFromAnalysis(userId, handle, analysis) {
   });
 }
 
-async function attachRead(read, userId) {
+async function attachRead(read, userId, debug = null) {
   const handle = read.handle;
   /* one attach per read: the finishing job and the claim can both get here */
   const mine = await VisitorInstagramRead.findOneAndUpdate(
@@ -167,7 +205,7 @@ async function attachRead(read, userId) {
   );
   invalidateCurrentUsername(userId);
   const existing = await BrandAnalysisReport.findOne({ user: userId, instagramUsername: handle }).sort({ createdAt: -1 });
-  const report = existing || await reportFromAnalysis(userId, handle, read.status === 'done' ? read.analysis : null);
+  const report = existing || await reportFromAnalysis(userId, handle, read.status === 'done' ? read.analysis : null, debug);
   await VisitorInstagramRead.updateOne({ _id: read._id }, { claimedBy: userId, attachedAt: new Date() });
   return { profile, report };
 }
@@ -194,7 +232,7 @@ async function ensureProfile(userId, handle, fullName) {
    The posts the visitor read were just stored on the profile, so it normally reuses them rather than
    scraping again. Never awaited by onboarding; a failure is only logged. Runs at most once per report:
    not when a brand voice is already stored, nor while another run holds `brandVoiceRunningAt`. */
-function brandVoiceInBackground(userId, report) {
+function brandVoiceInBackground(userId, report, { debug: wantDebug = false } = {}) {
   const handle = report?.instagramUsername;
   if (!report?._id || !handle || handle === PLACEHOLDER_HANDLE) return;
   setImmediate(async () => {
@@ -213,7 +251,18 @@ function brandVoiceInBackground(userId, report) {
     try {
       const currentFields = {};
       for (const { key } of BRAND_DNA_FIELDS) currentFields[key] = String(claimed[key] || '').trim();
-      const result = await buildBrandVoice({ userId, username: handle, currentFields, snapshot: claimed.brandVoicePosts });
+      const rows = wantDebug ? [] : null;
+      const started = Date.now();
+      let result;
+      try {
+        result = await buildBrandVoice({ userId, username: handle, currentFields, snapshot: claimed.brandVoicePosts, debug: rows });
+      } finally {
+        if (rows) {
+          await recordBackgroundDebug(userId, 'Onboarding · brand voice', {
+            ...debugBlock(rows, 'brand-voice'), model: brandVoiceLlm().model, elapsedMs: Date.now() - started,
+          });
+        }
+      }
       // a manual Fetch brand voice that finished first wins
       await BrandAnalysisReport.updateOne(
         { _id: reportId, brandVoice: null },
@@ -266,13 +315,19 @@ async function rememberAnswers(report, answers) {
   if (changed) await report.save();
 }
 
-async function claimVisitorRead(user, { token, answers } = {}) {
+async function claimVisitorRead(user, { token, answers, debug: wantDebug = false } = {}) {
   const userId = user._id;
+  const rows = wantDebug ? [] : null;
   let attached = null;
   let read = token ? await VisitorInstagramRead.findOne({ token: String(token) }) : null;
   if (read && read.claimedBy && String(read.claimedBy) !== String(userId)) read = null;
   if (read) {
-    if (!read.claimedBy) await VisitorInstagramRead.updateOne({ _id: read._id }, { claimedBy: userId });
+    /* a read still running logs its own rows when it ends (`debugTo`); a finished one's come back here */
+    const wasRunning = read.status === 'running';
+    if (!read.claimedBy || (rows && wasRunning)) {
+      await VisitorInstagramRead.updateOne({ _id: read._id }, { claimedBy: userId, ...(rows && wasRunning ? { debugTo: userId } : {}) });
+    }
+    if (rows && !wasRunning) rows.push(...(read.debug || []));
     // still reading: wait for it, up to a point (the post's own progress is on screen meanwhile)
     const until = Date.now() + CLAIM_WAIT_MS;
     while (read && read.status === 'running' && Date.now() < until) {
@@ -280,23 +335,24 @@ async function claimVisitorRead(user, { token, answers } = {}) {
       read = await VisitorInstagramRead.findById(read._id);
     }
     if (read?.attachedAt || read?.attaching) {
-      if (!read.attachedAt) await attachRead(read, userId);
+      if (!read.attachedAt) await attachRead(read, userId, rows);
       attached = {
         profile: await InstagramProfile.findOne({ user: userId, username: read.handle }),
         report: await BrandAnalysisReport.findOne({ user: userId, instagramUsername: read.handle }).sort({ createdAt: -1 }),
       };
     } else if (read?.status === 'done') {
-      attached = await attachRead(read, userId);
+      attached = await attachRead(read, userId, rows);
     }
   }
   // no read, a failed one, or one that is taking too long: plan under the handle they gave, or none
   const result = attached || await ensureProfile(userId, read?.handle || null, user.name);
   await rememberAnswers(result.report, answers);
   // after the answers, so the voice read sees them; a read still running attaches (and starts it) later
-  if (attached || (read?.handle && read.status !== 'running')) brandVoiceInBackground(userId, result.report);
+  if (attached || (read?.handle && read.status !== 'running')) brandVoiceInBackground(userId, result.report, { debug: wantDebug });
   return {
     username: result.profile?.username || null,
     instagram: read ? read.status : 'none',
+    ...(rows && rows.length ? { debug: debugBlock(rows) } : {}),
   };
 }
 

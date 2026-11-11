@@ -12,6 +12,7 @@ import { useScrollHide } from '../hooks/useScrollHide';
 import { useActiveHandle } from '../lib/store';
 import { openCaptureIdea } from '../lib/captureUi';
 import { initPushNotifications } from '../lib/pushNotifications';
+import { watchBackgroundDebug } from '../lib/backgroundDebug';
 
 // the phone's tab bar draws the brand marks, solid on the destination you are
 // on (bauhly-v3 AppShell `${icon}-fill`); other nav items keep their glyph
@@ -41,6 +42,8 @@ export default function DashboardLayout({ children }) {
   // "Your plan is ready" pushes: learn the permission state, and re-register
   // this device if it was already allowed. Never prompts on its own.
   useEffect(() => { initPushNotifications(); }, []);
+  // background AI calls (onboarding's account read, brand voice) into the debug panel while it is on
+  useEffect(() => watchBackgroundDebug(), []);
   // The active Instagram handle scopes almost every page's data. Switching it
   // (AccountSwitcher) re-keys the routed content below, remounting the current
   // page so its mount fetches re-run for the new account — a React remount, not

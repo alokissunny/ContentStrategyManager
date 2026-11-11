@@ -138,7 +138,8 @@ export default function CaptureHost() {
             /* somebody who made (or logged into) their account in this box: their first post opens in the Editor */
             if (loggedInHere.current) openNextInEditor();
             close(() => navigate('/dashboard'));
-            startPlanGeneration('capture').catch(() => {});
+            /* the box already made it, showing its progress (CaptureChat visitorGenerate) */
+            if (!captured?.generated) startPlanGeneration('capture').catch(() => {});
             return;
           }
           setOpen(false);

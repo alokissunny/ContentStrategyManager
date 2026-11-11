@@ -53,7 +53,32 @@ function splitBrandProfile(fullText) {
   }
 }
 
-async function generateBrandAnalysis(profile) {
+/* one row for the AI debug panel (the `agents[]` shape every debug block uses); `debug` is an array or null */
+function pushDebugRow(debug, { source, model, prompt, output, startedAt, usage, note = '' }) {
+  if (!Array.isArray(debug)) return;
+  const inputTokens = Number(usage?.input_tokens) || 0;
+  const outputTokens = Number(usage?.output_tokens) || 0;
+  const cachedTokens = Number(usage?.cache_read_input_tokens) || 0;
+  const cacheWriteTokens = Number(usage?.cache_creation_input_tokens) || 0;
+  // lazy: weeklyPlan reaches this module through its own requires
+  const { estimatePlanCostUsd } = require('./weeklyPlan');
+  debug.push({
+    source,
+    model,
+    prompt,
+    output,
+    elapsedMs: Date.now() - startedAt,
+    usage: {
+      inputTokens,
+      outputTokens,
+      totalTokens: inputTokens + outputTokens,
+      estimatedCostUsd: estimatePlanCostUsd(model, inputTokens, outputTokens, cachedTokens, cacheWriteTokens),
+    },
+    note,
+  });
+}
+
+async function generateBrandAnalysis(profile, { debug = null } = {}) {
   const model = process.env.ANTHROPIC_MODEL || 'claude-sonnet-5';
   const snapshot = buildSnapshot(profile);
   // Function replacement so `$` sequences in captions are inserted literally.
@@ -62,6 +87,7 @@ async function generateBrandAnalysis(profile) {
   console.log(`[brandAnalysis] Requesting analysis from ${model} for @${snapshot.username} (${snapshot.posts.length} posts)`);
 
   const client = getAnthropicClient();
+  const startedAt = Date.now();
   const response = await client.messages.create({
     model,
     max_tokens: 8192,
@@ -72,6 +98,10 @@ async function generateBrandAnalysis(profile) {
     .filter((block) => block.type === 'text')
     .map((block) => block.text)
     .join('\n');
+  pushDebugRow(debug, {
+    source: 'Account analysis', model, prompt, output: fullText, startedAt, usage: response.usage,
+    note: `@${snapshot.username} · ${snapshot.posts.length} posts`,
+  });
 
   console.log(`[brandAnalysis] Received markdown report for @${snapshot.username} (${fullText.length} chars):\n${fullText}`);
 
@@ -312,7 +342,7 @@ function sanitizeBrandDnaGaps(raw) {
  * Gaps the Business memory banner should show — written from this account's
  * current fields. Falls back to a heuristic if the model is down.
  */
-async function assessBrandDnaGaps(fields) {
+async function assessBrandDnaGaps(fields, { debug = null } = {}) {
   const current = {};
   for (const { key } of BRAND_DNA_FIELDS) {
     current[key] = String(fields?.[key] || '').trim();
@@ -344,6 +374,7 @@ async function assessBrandDnaGaps(fields) {
     ].join('\n');
 
     const client = getAnthropicClient();
+    const startedAt = Date.now();
     const response = await client.messages.create({
       model,
       max_tokens: 1024,
@@ -354,6 +385,7 @@ async function assessBrandDnaGaps(fields) {
       .map((block) => block.text)
       .join('\n')
       .trim();
+    pushDebugRow(debug, { source: 'Business memory · gaps', model, prompt, output: text, startedAt, usage: response.usage });
     const jsonMatch = text.match(/\{[\s\S]*\}/);
     if (!jsonMatch) return fallback;
     let parsed;
