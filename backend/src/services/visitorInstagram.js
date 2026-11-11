@@ -16,7 +16,8 @@ const VisitorInstagramRead = require('../models/VisitorInstagramRead');
 const InstagramProfile = require('../models/InstagramProfile');
 const BrandAnalysisReport = require('../models/BrandAnalysisReport');
 const { scrapeProfile, scrapePosts } = require('./instagramScraper');
-const { generateBrandAnalysis, assessBrandDnaGaps } = require('./brandAnalysis');
+const { generateBrandAnalysis, assessBrandDnaGaps, BRAND_DNA_FIELDS } = require('./brandAnalysis');
+const { buildBrandVoice } = require('./brandVoice');
 const { uploadMarkdown } = require('./s3Client');
 const { cacheProfilePicture } = require('./profileAvatar');
 const { invalidateCurrentUsername } = require('../utils/currentProfile');
@@ -25,6 +26,8 @@ const REUSE_MS = 30 * 24 * 3600 * 1000;
 const CLAIM_WAIT_MS = 100 * 1000;
 /* the profile a studio with no Instagram is planned under: a hyphen can never be a real handle */
 const PLACEHOLDER_HANDLE = 'my-studio';
+/* a background Brand Voice read older than this is taken as dead (a restart) and may start again */
+const VOICE_STALE_MS = 15 * 60 * 1000;
 
 const HANDLE_RE = /^[a-z0-9._]{1,30}$/;
 function cleanHandle(raw) {
@@ -64,8 +67,11 @@ async function runRead(id) {
   read.markModified('analysis');
   await read.save();
   // claimed while it ran: attach it now
-  if (read.claimedBy && !read.attachedAt) {
-    await attachRead(read, read.claimedBy).catch((err) => console.error('[visitorInstagram] late attach failed:', err.message));
+  // (read afresh: the claim sets claimedBy on the stored read, not on this copy)
+  const now = await VisitorInstagramRead.findById(read._id).select('claimedBy attachedAt').lean();
+  if (now?.claimedBy && !now.attachedAt) {
+    const late = await attachRead(read, now.claimedBy).catch((err) => { console.error('[visitorInstagram] late attach failed:', err.message); return null; });
+    if (late?.report) brandVoiceInBackground(now.claimedBy, late.report);
   }
 }
 
@@ -182,6 +188,47 @@ async function ensureProfile(userId, handle, fullName) {
   return { profile, report };
 }
 
+/* ── BRAND VOICE, IN THE BACKGROUND ─────────────────────────────────────────────────────────────
+   Once the account has its report, Business memory's "Fetch brand voice" runs by itself (the same
+   buildBrandVoice: last 10 posts, Graph or Apify, the Settings model), so it is there without a press.
+   The posts the visitor read were just stored on the profile, so it normally reuses them rather than
+   scraping again. Never awaited by onboarding; a failure is only logged. Runs at most once per report:
+   not when a brand voice is already stored, nor while another run holds `brandVoiceRunningAt`. */
+function brandVoiceInBackground(userId, report) {
+  const handle = report?.instagramUsername;
+  if (!report?._id || !handle || handle === PLACEHOLDER_HANDLE) return;
+  setImmediate(async () => {
+    const reportId = report._id;
+    const claimed = await BrandAnalysisReport.findOneAndUpdate(
+      {
+        _id: reportId,
+        user: userId,
+        brandVoice: null,
+        $or: [{ brandVoiceRunningAt: null }, { brandVoiceRunningAt: { $lt: new Date(Date.now() - VOICE_STALE_MS) } }],
+      },
+      { $set: { brandVoiceRunningAt: new Date() } },
+      { new: true },
+    );
+    if (!claimed) return;
+    try {
+      const currentFields = {};
+      for (const { key } of BRAND_DNA_FIELDS) currentFields[key] = String(claimed[key] || '').trim();
+      const result = await buildBrandVoice({ userId, username: handle, currentFields, snapshot: claimed.brandVoicePosts });
+      // a manual Fetch brand voice that finished first wins
+      await BrandAnalysisReport.updateOne(
+        { _id: reportId, brandVoice: null },
+        { $set: { brandVoice: result.brandVoice, brandVoicePosts: result.postsSnapshot } },
+      );
+      console.log(`[visitorInstagram] brand voice ready for @${handle}`);
+    } catch (err) {
+      console.warn(`[visitorInstagram] background brand voice failed for @${handle}:`, err.message);
+    } finally {
+      await BrandAnalysisReport.updateOne({ _id: reportId }, { $set: { brandVoiceRunningAt: null } })
+        .catch(() => {});
+    }
+  });
+}
+
 /* ── THE STUDIO ANSWERS, INTO BUSINESS MEMORY ──────────────────────────────────────────────────
    What they said, in the words of the options they pressed or their own (bauhly-v3 discovery.js
    `declaredLines`): nothing inferred. Added to the report's fields, after anything already there. */
@@ -245,6 +292,8 @@ async function claimVisitorRead(user, { token, answers } = {}) {
   // no read, a failed one, or one that is taking too long: plan under the handle they gave, or none
   const result = attached || await ensureProfile(userId, read?.handle || null, user.name);
   await rememberAnswers(result.report, answers);
+  // after the answers, so the voice read sees them; a read still running attaches (and starts it) later
+  if (attached || (read?.handle && read.status !== 'running')) brandVoiceInBackground(userId, result.report);
   return {
     username: result.profile?.username || null,
     instagram: read ? read.status : 'none',

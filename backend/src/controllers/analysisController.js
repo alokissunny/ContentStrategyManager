@@ -39,6 +39,9 @@ function brandDnaPayload(report, parsedFromMarkdown, gaps) {
     ...buildBrandDnaSections(report, parsedFromMarkdown),
     gaps: serializeGaps(gaps !== undefined ? gaps : report.memoryGaps),
     brandVoice: hasBrandVoice(report.brandVoice) ? report.brandVoice : null,
+    // onboarding's background read is still running (services/visitorInstagram.js)
+    brandVoicePending: !hasBrandVoice(report.brandVoice) && Boolean(report.brandVoiceRunningAt)
+      && Date.now() - new Date(report.brandVoiceRunningAt).getTime() < 15 * 60 * 1000,
   };
 }
 
@@ -135,7 +138,7 @@ async function getLatestBrandDna(req, res) {
 
   const report = await BrandAnalysisReport.findOne(filter)
     .sort({ createdAt: -1 })
-    .select(['_id', 's3Key', 'brandDnaClearedAt', 'memoryGaps', 'memoryGapsAssessedAt', 'brandVoice', 'memoryTranslations', ...BRAND_DNA_FIELDS.map(({ key }) => key)].join(' '))
+    .select(['_id', 's3Key', 'brandDnaClearedAt', 'memoryGaps', 'memoryGapsAssessedAt', 'brandVoice', 'brandVoiceRunningAt', 'memoryTranslations', ...BRAND_DNA_FIELDS.map(({ key }) => key)].join(' '))
     .lean();
 
   if (!report) {

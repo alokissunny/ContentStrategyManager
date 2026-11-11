@@ -39,6 +39,9 @@ const brandAnalysisReportSchema = new mongoose.Schema(
     // The posts that Brand Voice read ({ fetchedAt, source, posts }) — reused
     // instead of re-fetching from Instagram within the same calendar month.
     brandVoicePosts: { type: mongoose.Schema.Types.Mixed, default: null },
+    // Set while onboarding's background Brand Voice read runs (services/visitorInstagram.js), so it
+    // starts once per report and Business memory can show it as on its way. Cleared when it ends.
+    brandVoiceRunningAt: { type: Date, default: null },
     // Display translations of the memory text, per UI language:
     // { es: { hash, strings, at } } (services/memoryTranslate.js).
     memoryTranslations: { type: mongoose.Schema.Types.Mixed, default: null },

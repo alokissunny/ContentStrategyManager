@@ -1403,6 +1403,8 @@ export default function YourPlans() {
   // phone feed pencils: open the workspace straight into Editor mode / the
   // caption editor, and come back to the feed at that post (bauhly-v3)
   const [startEdit, setStartEdit] = useState(null); // { mode, iso } | null
+  // the calendar view to go back to when the Editor a first generation opened is closed
+  const editorReturnViewRef = useRef(null);
   const feedOn = phoneWidth && calView === 'day' && !forceWorkspace;
   /* The phone's day feed (bauhly-v3 YourWeek `is-tophidden`): the top bar
      slides away while the studio scrolls DOWN the posts and comes back as soon
@@ -1762,6 +1764,12 @@ export default function YourPlans() {
       if (at) {
         setAnchorDate(startOfDay(at));
         setStartEdit({ mode: 'edit', iso: String(made.date).slice(0, 10) });
+        /* only the Day view mounts the post workspace (Month — the default — never does), so go
+           there for the Editor and come back to the view they had when they leave it */
+        setCalView((v) => {
+          if (v !== 'day') editorReturnViewRef.current = v;
+          return 'day';
+        });
         setForceWorkspace(true);
         setView('list');
         setReplanning(false);
@@ -2243,6 +2251,7 @@ export default function YourPlans() {
   const pickView = (v) => {
     const next = (phoneWidth && v === 'week') ? 'day' : v;
     setForceWorkspace(false);
+    editorReturnViewRef.current = null;
     setCalView(next);
   };
 
@@ -2459,6 +2468,10 @@ export default function YourPlans() {
                   const iso = startEdit?.iso;
                   setStartEdit(null);
                   setForceWorkspace(false);
+                  if (editorReturnViewRef.current) {
+                    setCalView(editorReturnViewRef.current);
+                    editorReturnViewRef.current = null;
+                  }
                   if (iso) setFeedScrollIso(`${iso}#pin#${Date.now()}`);
                 }}
                 onCaptured={() => runGenerate('capture')}
@@ -2472,6 +2485,10 @@ export default function YourPlans() {
                 }}
                 onBack={() => {
                   setStartEdit(null);
+                  if (editorReturnViewRef.current) {
+                    setCalView(editorReturnViewRef.current);
+                    editorReturnViewRef.current = null;
+                  }
                   if (forceWorkspace) setForceWorkspace(false);
                   else pickView('month');
                 }}

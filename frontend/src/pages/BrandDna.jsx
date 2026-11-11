@@ -599,6 +599,8 @@ export default function BrandDna() {
   const [inspecting, setInspecting] = useState(false);
   const [voice, setVoice] = useState(null);
   const [voiceBusy, setVoiceBusy] = useState(false);
+  /* onboarding reads the brand voice in the background (backend services/visitorInstagram.js) */
+  const [voicePending, setVoicePending] = useState(false);
   const inputRef = useRef(null);
   const COMPOSER_MIN = 72;
   const COMPOSER_MAX = 180;
@@ -624,6 +626,7 @@ export default function BrandDna() {
         setSections(data.sections || []);
         setGaps(Array.isArray(data.gaps) ? data.gaps : []);
         setVoice(data.brandVoice || null);
+        setVoicePending(Boolean(data.brandVoicePending) && !data.brandVoice);
       })
       .catch((err) => {
         if (cancelled) return;
@@ -636,6 +639,25 @@ export default function BrandDna() {
       cancelled = true;
     };
   }, [reloadKey, locale]);
+
+  // while it is on its way, look again every few seconds until it is there (or has given up)
+  useEffect(() => {
+    if (!voicePending) return undefined;
+    let cancelled = false;
+    const timer = setInterval(() => {
+      getBrandDna()
+        .then((data) => {
+          if (cancelled) return;
+          if (data.brandVoice) setVoice(data.brandVoice);
+          if (data.brandVoice || !data.brandVoicePending) setVoicePending(false);
+        })
+        .catch(() => {});
+    }, 8000);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [voicePending]);
 
   async function runAnalysisAgain() {
     setRerunning(true);
@@ -802,10 +824,10 @@ export default function BrandDna() {
                 type="button"
                 className="btn btn--primary bm-clear-btn"
                 onClick={loadBrandVoice}
-                disabled={voiceBusy}
+                disabled={voiceBusy || voicePending}
                 title="Read the last 10 Instagram posts and add tone, style, vocabulary, positioning, themes and patterns to memory"
               >
-                {voiceBusy ? 'Reading last 10 posts…' : voice ? 'Refresh brand voice' : 'Fetch brand voice'}
+                {voiceBusy || voicePending ? 'Reading last 10 posts…' : voice ? 'Refresh brand voice' : 'Fetch brand voice'}
               </button>
             ) : null}
             {debug.enabled && reportId ? (
