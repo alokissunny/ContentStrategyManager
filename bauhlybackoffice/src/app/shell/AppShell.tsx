@@ -8,6 +8,7 @@ import {
   CompetitorsIcon,
   CustomersIcon,
   EarlyAccessIcon,
+  InviteIcon,
   LogoutIcon,
   MenuIcon,
 } from '../../components/icons'
@@ -21,6 +22,7 @@ const primaryNav = [
   { to: '/', label: 'Competitors', icon: CompetitorsIcon, alsoActiveOn: ['/competitors'] as string[] },
   { to: '/customers', label: 'Customers', icon: CustomersIcon },
   { to: '/early-access', label: 'Early access', icon: EarlyAccessIcon },
+  { to: '/invite-codes', label: 'Invite codes', icon: InviteIcon },
 ]
 
 const operationsNav: { to: string; label: string; icon: typeof CompetitorsIcon }[] = []
@@ -40,12 +42,18 @@ const EARLY_ACCESS_TITLE = {
   subtitle: 'Waitlist requests from the login page',
 }
 
+const INVITE_CODES_TITLE = {
+  title: 'Invite codes',
+  subtitle: 'One-use codes needed to create a Bauhly account',
+}
+
 const titles: Record<string, { title: string; subtitle: string }> = {
   '/': COMPETITORS_TITLE,
   '/competitors-overview': COMPETITORS_TITLE,
   '/competitors': COMPETITORS_TITLE,
   '/customers': CUSTOMERS_TITLE,
   '/early-access': EARLY_ACCESS_TITLE,
+  '/invite-codes': INVITE_CODES_TITLE,
 }
 
 export function AppShell() {

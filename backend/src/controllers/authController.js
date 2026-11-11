@@ -2,6 +2,7 @@ const { OAuth2Client } = require('google-auth-library');
 const User = require('../models/User');
 const { currentUsername } = require('../utils/currentProfile');
 const generateToken = require('../utils/generateToken');
+const { withInviteCode } = require('../services/inviteCodes');
 
 const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
@@ -45,7 +46,14 @@ async function register(req, res) {
   const legal = req.body.acceptTerms
     ? { termsAcceptedAt: at, termsVersion: String(req.body.termsVersion || '').slice(0, 64), marketing: Boolean(req.body.marketing), marketingAt: req.body.marketing ? at : null }
     : undefined;
-  const user = await User.create({ name, email, password, ...(legal ? { legal } : {}) });
+  let user;
+  try {
+    user = await withInviteCode(req.body.inviteCode, email, (inviteCode) =>
+      User.create({ name, email, password, inviteCode, ...(legal ? { legal } : {}) }));
+  } catch (err) {
+    if (err.status) return res.status(err.status).json({ message: err.message, code: err.code });
+    throw err;
+  }
   res.status(201).json(await authPayload(user));
 }
 
@@ -149,14 +157,21 @@ async function googleAuth(req, res) {
       const legal = req.body.acceptTerms
         ? { termsAcceptedAt: at, termsVersion: String(req.body.termsVersion || '').slice(0, 64), marketing: Boolean(req.body.marketing), marketingAt: req.body.marketing ? at : null }
         : undefined;
-      user = await User.create({
-        name: name || normalizedEmail.split('@')[0],
-        email: normalizedEmail,
-        googleId,
-        authProvider: 'google',
-        avatar: picture || '',
-        ...(legal ? { legal } : {}),
-      });
+      // a new account needs an invitation code, as email sign-up does; an existing one never does
+      try {
+        user = await withInviteCode(req.body.inviteCode, normalizedEmail, (inviteCode) => User.create({
+          name: name || normalizedEmail.split('@')[0],
+          email: normalizedEmail,
+          googleId,
+          authProvider: 'google',
+          avatar: picture || '',
+          inviteCode,
+          ...(legal ? { legal } : {}),
+        }));
+      } catch (err) {
+        if (err.status) return res.status(err.status).json({ message: err.message, code: err.code });
+        throw err;
+      }
       created = true;
     }
   } else if (picture && user.avatar !== picture) {

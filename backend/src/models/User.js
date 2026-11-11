@@ -16,6 +16,8 @@ const userSchema = new mongoose.Schema(
       marketing: { type: Boolean, default: false },
       marketingAt: { type: Date, default: null },
     },
+    // the invitation code this account was made with (see InviteCode)
+    inviteCode: { type: String, default: '' },
     avatar: { type: String, trim: true, default: '' },
     role: { type: String, enum: ['user', 'admin'], default: 'user' },
     business: {

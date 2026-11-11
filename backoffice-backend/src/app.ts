@@ -7,6 +7,7 @@ import { authRoutes } from './routes/auth.ts'
 import { competitorRoutes } from './routes/competitors.ts'
 import { customerRoutes } from './routes/customers.ts'
 import { earlyAccessRoutes } from './routes/earlyAccess.ts'
+import { inviteCodeRoutes } from './routes/inviteCodes.ts'
 
 /*
  * Internal tool, so the browser origin is restricted — but in development Vite
@@ -57,6 +58,7 @@ export function createApp() {
   app.use('/api/backoffice', requireAdmin, competitorRoutes)
   app.use('/api/backoffice', requireAdmin, customerRoutes)
   app.use('/api/backoffice', requireAdmin, earlyAccessRoutes)
+  app.use('/api/backoffice', requireAdmin, inviteCodeRoutes)
 
   app.use((_req, res) => res.status(404).json({ message: 'Not found' }))
 

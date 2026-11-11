@@ -1,0 +1,40 @@
+.ic-stats { grid-template-columns: repeat(3, 1fr); width: min(720px, 100%); min-width: 0; }
+.ic-generate { margin-bottom: var(--sp-5); padding: var(--sp-5); }
+.ic-generate-head h3 { margin: 0 0 4px; font-size: var(--text-md); }
+.ic-generate-head .section-note { margin: 0 0 var(--sp-4); }
+.ic-generate-fields { display: flex; flex-wrap: wrap; gap: var(--sp-3); align-items: flex-end; }
+.ic-generate-fields input {
+  height: 36px;
+  padding: 0 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-md);
+  font: inherit;
+  font-size: var(--text-sm);
+  background: var(--surface);
+}
+.ic-generate-fields input[type='number'] { width: 90px; }
+.ic-note-field { flex: 1 1 240px; }
+.ic-note-field input { width: 100%; }
+.ic-error { color: var(--red-600, #b91c1c); margin-top: var(--sp-3); }
+.ic-fresh {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--sp-3);
+  margin-top: var(--sp-4); padding: var(--sp-3) var(--sp-4);
+  border-radius: var(--r-md); background: var(--ink-50, #f4f4f2);
+}
+.ic-fresh-codes { display: flex; flex-wrap: wrap; gap: 8px; }
+.ic-fresh-codes code, .ic-code {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: var(--text-sm); font-weight: 700; letter-spacing: 0.12em;
+}
+.ic-fresh-codes code { padding: 4px 8px; border-radius: 6px; background: var(--surface); border: 1px solid var(--border); }
+.ic-code { display: inline-flex; align-items: center; gap: 8px; padding: 0; border: 0; background: none; color: var(--ink-900); cursor: copy; }
+.ic-copied { font-family: inherit; font-size: var(--text-xs); font-weight: 500; letter-spacing: 0; color: var(--ink-500); }
+.ic-status { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: var(--text-xs); font-weight: 600; }
+.ic-status--unused { background: #e7f6ec; color: #17733a; }
+.ic-status--used { background: #e8eefc; color: #2a4fd6; }
+.ic-status--revoked { background: var(--ink-100, #ececea); color: var(--ink-600, #555); }
+.ic-note { max-width: 260px; color: var(--ink-700); font-size: var(--text-sm); }
+.ic-email, .ic-date { display: block; font-size: var(--text-sm); white-space: nowrap; }
+.ic-sub { display: block; margin-top: 2px; font-size: var(--text-xs); color: var(--ink-500); }
+.ic-actions { display: flex; gap: 6px; justify-content: flex-end; align-items: center; white-space: nowrap; }
+@media (max-width: 720px) { .ic-stats { grid-template-columns: 1fr; } }

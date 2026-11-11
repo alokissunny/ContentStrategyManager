@@ -58,7 +58,7 @@ function GoogleButton({ disabled, onToken, onFail }) {
  * The conversation stays mounted underneath with the visitor's words and photos where they were, so
  * going back loses nothing.
  *
- *   signup  name, email, password, the Terms (required) and news from Bauhly (optional, off by
+ *   signup  a one-use invitation code (4 letters/digits, made in the backoffice), name, email, password, the Terms (required) and news from Bauhly (optional, off by
  *           default), as the mock's — `/auth/register`. What was agreed is kept on the account (`legal`).
  *   signin  the real Log in, `/auth/login`.
  *   Google  "Continue with Google" in both (`/auth/google`, access-token flow); in sign-up it waits for
@@ -73,6 +73,7 @@ export default function CaptureLogin({ start = 'signin', backLabel = 'Back to yo
   const [name, setName] = useState('');
   const [agreed, setAgreed] = useState(false);
   const [marketing, setMarketing] = useState(false);
+  const [invite, setInvite] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const root = useRef(null);
@@ -106,18 +107,23 @@ export default function CaptureLogin({ start = 'signin', backLabel = 'Back to yo
       done.current = true;
       onDone({ created: typeof data?.created === 'boolean' ? data.created : mode === 'signup' });
     } catch (err) {
-      setError(err?.response?.data?.message || 'Something went wrong. Please try again.');
+      const data = err?.response?.data;
+      /* Google on Log in with no account yet: making one needs an invitation code, so go to Create account */
+      if (data?.code === 'INVITE_REQUIRED' && mode === 'signin') setMode('signup');
+      setError(data?.message || 'Something went wrong. Please try again.');
       setBusy(false);
     }
   };
-  const legal = () => ({ acceptTerms: agreed, termsVersion: TERMS_VERSION, marketing });
+  const legal = () => ({ acceptTerms: agreed, termsVersion: TERMS_VERSION, marketing, inviteCode });
   const signIn = (e) => go(e, () => login(email, password));
   const signUp = (e) => go(e, () => register(name.trim(), email, password, legal()));
 
   const withGoogle = (accessToken) => go(null, () => googleLogin({ accessToken }, mode === 'signup' ? legal() : {}));
   const switchTo = (next) => { setError(''); setMode(next); };
   const say = COPY[bare ? 'page' : 'step'][mode];
-  const held = mode === 'signup' && !agreed;
+  /* every new account needs a one-use invitation code: 4 letters/digits */
+  const inviteCode = invite.replace(/[^a-z0-9]/gi, '').toUpperCase();
+  const held = mode === 'signup' && (!agreed || inviteCode.length !== 4);
 
   const google = HAS_GOOGLE && (
     <>
@@ -165,6 +171,24 @@ export default function CaptureLogin({ start = 'signin', backLabel = 'Back to yo
           <form className="ckl" onSubmit={signUp}>
             <h2 className="ckl__head">{say.head}</h2>
             <p className="ckl__sub">{say.sub}</p>
+            <label className="ckl__field ckl__field--invite">
+              <span className="ckl__label">Invitation code</span>
+              <input
+                className="ckl__input ckl__input--code"
+                type="text"
+                required
+                inputMode="text"
+                autoCapitalize="characters"
+                autoComplete="off"
+                spellCheck={false}
+                maxLength={4}
+                pattern="[A-Za-z0-9]{4}"
+                title="4 letters or digits"
+                placeholder="e.g. K7PM"
+                value={invite}
+                onChange={(e) => setInvite(e.target.value.replace(/[^a-z0-9]/gi, '').toUpperCase().slice(0, 4))}
+              />
+            </label>
             {google}
             <label className="ckl__field">
               <span className="ckl__label">Your name</span>

@@ -62,6 +62,13 @@ export const EarlyAccessIcon = (p: IconProps) => (
   </Icon>
 )
 
+export const InviteIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M3 7.5a1.5 1.5 0 0 0 0 3v2.5a1.5 1.5 0 0 0 1.5 1.5h11A1.5 1.5 0 0 0 17 13v-2.5a1.5 1.5 0 0 1 0-3V5A1.5 1.5 0 0 0 15.5 3.5h-11A1.5 1.5 0 0 0 3 5z" />
+    <path d="M12 4v1.5M12 8.25v1.5M12 12.5V14" />
+  </Icon>
+)
+
 export const MonthlyReviewIcon = (p: IconProps) => (
   <Icon {...p}>
     <rect x="3" y="4" width="14" height="13" rx="2.5" />
