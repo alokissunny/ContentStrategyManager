@@ -1818,6 +1818,16 @@ export default function YourPlans() {
     goToPostRef.current?.({ date: iso });
   }), []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  /* a capture's `View post` (Captures panel) arrives with the post's day in the route state: open it in Day view.
+     Route state, not the open-post bus, because the calendar may take longer than the bus's 5s to mount; it waits
+     for the first load, since goToPost is only wired once the loading screen is gone */
+  useEffect(() => {
+    const iso = location.state?.openPostDay;
+    if (!iso || loading || !goToPostRef.current) return;
+    navigate('.', { replace: true, state: {} });
+    goToPostRef.current({ date: iso });
+  }, [location.state?.openPostDay, loading]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Re-run the current month's plan (same path as check-in generate).
   async function runGenerate(trigger, extras = {}) {
     setError('');

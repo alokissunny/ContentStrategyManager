@@ -175,7 +175,7 @@ function addingOf(item, files) {
   };
 }
 
-function CapturePanel({ item, projects, asked, onClose, onGenerate, onDelete, onMove, onAddDetail, onAddFiles, onEditCapture }) {
+function CapturePanel({ item, projects, asked, onClose, onGenerate, onDelete, onMove, onAddDetail, onAddFiles, onEditCapture, onViewPost }) {
   useBodyScrollLock();
   const entry = item.session;
   const atts = entry.attachments || [];
@@ -399,6 +399,12 @@ function CapturePanel({ item, projects, asked, onClose, onGenerate, onDelete, on
                     ? 'The posts made from it are no longer on the calendar.'
                     : (usedAt ? `A plan was made from it on ${shortDay(usedAt)}.` : 'This capture has already been through a plan.'))}
               </p>
+              {usedPosts.length > 0 && onViewPost && (
+                <button type="button" className="np__needs__go np__needs__go--ink" onClick={() => onViewPost(usedPosts[0])}>
+                  {usedPosts.length > 1 ? 'View first post' : 'View post'}
+                  <Icon name="arrow-right" size={15} strokeWidth={2.2} />
+                </button>
+              )}
               <button type="button" className="np__needs__go np__needs__go--quiet" onClick={onGenerate}>
                 Generate another plan
                 <Icon name="arrow-right" size={15} strokeWidth={2.2} />
@@ -1300,6 +1306,8 @@ export default function Captures() {
           onAddDetail={() => { const r = resumeOf(openItem); if (r) { setOpen(null); setResuming(r); } else setAdding({ ...addingOf(openItem, []), itemId: openItem.id }); }}
           onAddFiles={(files) => setAdding({ ...addingOf(openItem, files), itemId: openItem.id })}
           onEditCapture={() => setAdding({ ...addingOf(openItem, []), itemId: openItem.id })}
+          // the calendar opens the post's day in Day view (YourPlans reads `openPostDay` from the route state)
+          onViewPost={(post) => { setOpen(null); navigate('/dashboard', { state: post?.date ? { openPostDay: String(post.date).slice(0, 10) } : {} }); }}
         />
       )}
       {adding && (
