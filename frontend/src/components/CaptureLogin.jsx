@@ -1,26 +1,72 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { useGoogleLogin } from '@react-oauth/google';
 import Icon from '../brand/Icon';
 import { useAuth } from '../context/AuthContext';
 import { canTakeCaret } from '../lib/captureUi';
+import { IS_NATIVE } from '../native/platform';
 
 /* what a sign-up agrees to (bauhly-v3 AuthForm `TERMS_VERSION`); recorded on the account */
 const TERMS_VERSION = '2026-11';
 
+/* Google needs a client id, and its popup does not run inside the iOS app's web view */
+const HAS_GOOGLE = Boolean(import.meta.env.VITE_GOOGLE_CLIENT_ID) && !IS_NATIVE;
+
+/* bauhly-v3 AuthForm's words. `page`: the /auth page and the landing's Log in box (`bare`);
+   `step`: the account step inside Capture (SignupStep's COPY, Nov 6–9). */
+const COPY = {
+  page: {
+    signup: { head: 'Start your analysis', sub: 'Create an account \u2014 building your first week takes a few minutes.', go: 'Create account', ask: 'Already have an account? ', other: 'Sign in' },
+    signin: { head: 'Welcome back', sub: 'Sign in to pick up this week\u2019s plan.', go: 'Sign in', ask: 'New to Bauhly? ', other: 'Start your analysis' },
+  },
+  step: {
+    signup: { head: 'Create an account', sub: 'Create your account to continue and save your work.', go: 'Create account', ask: 'Already have an account? ', other: 'Log in' },
+    signin: { head: 'Log in to Bauhly', sub: 'Log in to continue and save your work.', go: 'Log in', ask: 'New to Bauhly? ', other: 'Create an account' },
+  },
+};
+
+function GoogleG() {
+  return (
+    <svg width="17" height="17" viewBox="0 0 18 18" aria-hidden="true">
+      <path fill="#4285F4" d="M17.6 9.2c0-.6-.1-1.2-.2-1.8H9v3.5h4.8a4.1 4.1 0 0 1-1.8 2.7v2.2h2.9c1.7-1.6 2.7-3.9 2.7-6.6z" />
+      <path fill="#34A853" d="M9 18c2.4 0 4.5-.8 6-2.2l-2.9-2.2c-.8.5-1.8.9-3.1.9-2.4 0-4.4-1.6-5.1-3.8H.9v2.3A9 9 0 0 0 9 18z" />
+      <path fill="#FBBC05" d="M3.9 10.7a5.4 5.4 0 0 1 0-3.4V5H.9a9 9 0 0 0 0 8z" />
+      <path fill="#EA4335" d="M9 3.6c1.3 0 2.5.5 3.4 1.3l2.6-2.6A9 9 0 0 0 .9 5l3 2.3C4.6 5.2 6.6 3.6 9 3.6z" />
+    </svg>
+  );
+}
+
+/* its own component so the Google hook only mounts where a client id exists */
+function GoogleButton({ disabled, onToken, onFail }) {
+  const start = useGoogleLogin({
+    flow: 'implicit',
+    scope: 'openid email profile',
+    onSuccess: (t) => onToken(t.access_token),
+    onError: () => onFail('Google sign-in did not finish. Please try again.'),
+    onNonOAuthError: (e) => { if (e?.type !== 'popup_closed') onFail('Google sign-in could not open. Please try again.'); },
+  });
+  return (
+    <button type="button" className="ckl__google" disabled={disabled} onClick={() => start()}>
+      <GoogleG />
+      Continue with Google
+    </button>
+  );
+}
+
 /**
- * The account step INSIDE the landing page's Capture (bauhly-v3 SignupStep / AuthForm, Nov 6–10), and
- * the landing header's Log in box (`bare`). The conversation stays mounted underneath with the visitor's
- * words and photos where they were, so going back loses nothing.
+ * The account form (bauhly-v3 AuthForm / SignupStep, Nov 6–10): the account step INSIDE the landing
+ * page's Capture, the landing header's Log in box (`bare`) and the /auth page (`bare`).
+ * The conversation stays mounted underneath with the visitor's words and photos where they were, so
+ * going back loses nothing.
  *
- *   signup  `Create an account`: name, email, password, the Terms (required) and news from Bauhly
- *           (optional, off by default), as the mock's — the same `/auth/register` the app uses. What was
- *           agreed is kept on the account (`legal`).
+ *   signup  name, email, password, the Terms (required) and news from Bauhly (optional, off by
+ *           default), as the mock's — `/auth/register`. What was agreed is kept on the account (`legal`).
  *   signin  the real Log in, `/auth/login`.
- * Sign-up is open now (Nov 10, the user's call); it replaced `Request early access`.
- * There is no Google button: Google sign-in is not set up in this app's frontend.
+ *   Google  "Continue with Google" in both (`/auth/google`, access-token flow); in sign-up it waits for
+ *           the Terms like the mock's, and a new Google account keeps what was agreed too.
  */
-export default function CaptureLogin({ start = 'signin', forWhat = 'turn this into your first post', backLabel = 'Back to your capture', bare = false, onBack, onDone }) {
+export default function CaptureLogin({ start = 'signin', backLabel = 'Back to your capture', bare = false, onBack, onDone }) {
   /* `bare`: the landing page's own Log in box: the box's × is the way out, so no back row */
-  const { login, register } = useAuth();
+  const { login, register, googleLogin } = useAuth();
   const [mode, setMode] = useState(start); // signin | signup
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -50,24 +96,35 @@ export default function CaptureLogin({ start = 'signin', forWhat = 'turn this in
   }, []);
 
   const go = async (e, act) => {
-    e.preventDefault();
+    e?.preventDefault();
     if (busy) return;
     setError('');
     setBusy(true);
     try {
-      await act();
+      const data = await act();
       if (done.current) return;
       done.current = true;
-      onDone({ created: mode === 'signup' });
+      onDone({ created: typeof data?.created === 'boolean' ? data.created : mode === 'signup' });
     } catch (err) {
       setError(err?.response?.data?.message || 'Something went wrong. Please try again.');
       setBusy(false);
     }
   };
+  const legal = () => ({ acceptTerms: agreed, termsVersion: TERMS_VERSION, marketing });
   const signIn = (e) => go(e, () => login(email, password));
-  const signUp = (e) => go(e, () => register(name.trim(), email, password, { acceptTerms: agreed, termsVersion: TERMS_VERSION, marketing }));
+  const signUp = (e) => go(e, () => register(name.trim(), email, password, legal()));
 
+  const withGoogle = (accessToken) => go(null, () => googleLogin({ accessToken }, mode === 'signup' ? legal() : {}));
   const switchTo = (next) => { setError(''); setMode(next); };
+  const say = COPY[bare ? 'page' : 'step'][mode];
+  const held = mode === 'signup' && !agreed;
+
+  const google = HAS_GOOGLE && (
+    <>
+      <GoogleButton disabled={busy || held} onToken={withGoogle} onFail={setError} />
+      <div className="ckl__divider">or</div>
+    </>
+  );
 
   return (
     <div className={`ck-signup${mode === 'signup' ? ' is-signup' : ''}`} ref={root}>
@@ -82,8 +139,9 @@ export default function CaptureLogin({ start = 'signin', forWhat = 'turn this in
       <div className="ck-signup__form">
         {mode === 'signin' && (
           <form className="ckl" onSubmit={signIn}>
-            <h2 className="ckl__head">{bare ? 'Welcome back' : `Log in to ${forWhat}.`}</h2>
-            {bare && <p className="ckl__sub">Sign in to pick up this week&rsquo;s plan.</p>}
+            <h2 className="ckl__head">{say.head}</h2>
+            <p className="ckl__sub">{say.sub}</p>
+            {google}
             <label className="ckl__field">
               <span className="ckl__label">Email</span>
               <input className="ckl__input" type="email" required autoComplete="email" placeholder="you@business.com" value={email} onChange={(e) => setEmail(e.target.value)} />
@@ -94,19 +152,20 @@ export default function CaptureLogin({ start = 'signin', forWhat = 'turn this in
             </label>
             {error && <p className="ckl__error" role="alert">{error}</p>}
             <button type="submit" className="ckl__go" disabled={busy}>
-              {busy ? 'Please wait…' : bare ? 'Sign in' : 'Log in'}
+              {busy ? 'Please wait…' : say.go}
               <Icon name="arrow-right" size={16} />
             </button>
             <p className="ckl__ask">
-              New to Bauhly?{' '}
-              <button type="button" className="ckl__link" onClick={() => switchTo('signup')}>Create an account</button>
+              {say.ask}
+              <button type="button" className="ckl__link" onClick={() => switchTo('signup')}>{say.other}</button>
             </p>
           </form>
         )}
         {mode === 'signup' && (
           <form className="ckl" onSubmit={signUp}>
-            <h2 className="ckl__head">Create an account</h2>
-            <p className="ckl__sub">Create your account to continue and save your work.</p>
+            <h2 className="ckl__head">{say.head}</h2>
+            <p className="ckl__sub">{say.sub}</p>
+            {google}
             <label className="ckl__field">
               <span className="ckl__label">Your name</span>
               <input className="ckl__input" type="text" required maxLength={80} autoComplete="name" placeholder="Mara Jansen" value={name} onChange={(e) => setName(e.target.value)} />
@@ -131,13 +190,13 @@ export default function CaptureLogin({ start = 'signin', forWhat = 'turn this in
             </label>
             <p className="ckl__note">Read our <a className="ckl__link" href="/privacy" target="_blank" rel="noreferrer">Privacy Policy</a>.</p>
             {error && <p className="ckl__error" role="alert">{error}</p>}
-            <button type="submit" className="ckl__go" disabled={busy || !agreed}>
-              {busy ? 'Please wait…' : 'Create account'}
+            <button type="submit" className="ckl__go" disabled={busy || held}>
+              {busy ? 'Please wait…' : say.go}
               <Icon name="arrow-right" size={16} />
             </button>
             <p className="ckl__ask">
-              Already have an account?{' '}
-              <button type="button" className="ckl__link" onClick={() => switchTo('signin')}>Log in</button>
+              {say.ask}
+              <button type="button" className="ckl__link" onClick={() => switchTo('signin')}>{say.other}</button>
             </p>
           </form>
         )}

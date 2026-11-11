@@ -4392,28 +4392,7 @@ html:has(.cap-overlay--landing) .bauhly-landing .hcap {
 .bauhly-landing .lgm .lgm__x:hover { background: var(--ink-100, #e7e7e4); }
 .lgm .ck-signup { position: static; inset: auto; flex: 1; min-height: 0; padding: 0; background: none; overflow-y: auto; scrollbar-width: none; }
 .lgm .ck-signup__form { height: 100%; padding-block: var(--sp-4, 16px); }
-/* the /auth page's form (AuthForm): a 2xl display heading over one quiet line, the product's fields
-   (white, a strong hairline, ink on focus), the ink primary, and the way to an account under it */
-.lgm .ckl { width: min(420px, 100%); gap: 0; }
-.lgm .ckl__head { margin: 0 0 6px; font-family: var(--font-display); font-size: var(--text-2xl, 30px); font-weight: 700; letter-spacing: -0.015em; line-height: 1.15; }
-.lgm .ckl__sub { margin: 0 0 28px; font-size: var(--text-base, 15px); color: var(--ink-500); }
-.lgm .ckl__field { gap: var(--sp-2, 8px); }
-.lgm .ckl__field + .ckl__field { margin-top: 14px; }
-.lgm .ckl__label { font-size: var(--text-sm, 14px); }
-.lgm .ckl__input {
-  height: 46px;
-  padding: 0 var(--sp-4, 16px);
-  border: 1px solid var(--border-strong, #d6d6d2);
-  border-radius: var(--r-md, 12px);
-  background: var(--white, #fff);
-  font-size: var(--text-base, 15px);
-  outline: none;
-}
-.lgm .ckl__input:focus,
-.lgm .ckl__input:focus-visible { outline: none; border-color: var(--ink-900, var(--ink)); box-shadow: 0 0 0 3px var(--ink-100, #e7e7e4); }
-.lgm .ckl__error { margin-top: 12px; }
-.bauhly-landing .lgm .ckl__go { width: 100%; height: 46px; margin-top: 20px; border-radius: 999px; }
-.lgm .ckl__ask { margin-top: 20px; font-size: var(--text-sm, 14px); }
+/* the form's own look (AuthForm) lives with `.ckl` in checkin.css, shared with the /auth page */
 @media (max-width: 640px) {
   .lgm { padding: 0; }
   .lgm__box { width: 100%; height: 100%; border-radius: 0; padding: var(--sp-6, 24px) var(--sp-4, 16px) calc(var(--sp-6, 24px) + env(safe-area-inset-bottom)); }
@@ -4427,3 +4406,8 @@ html:has(.cap-overlay--landing) .bauhly-landing .hcap {
 /* the landing's own `button` reset (base.css) would take the form's primary off its ground */
 .bauhly-landing .lgm .ckl__go { background: var(--ink-900, var(--ink)); color: #fff; }
 .bauhly-landing .lgm .ckl__go:hover:not(:disabled) { background: var(--ink-700, var(--ink)); }
+/* …and the same reset would take the Google pill's ground, the links' blue and the held look (mock: AuthForm) */
+.bauhly-landing .lgm .ckl__google { background: var(--ink-50, #f2f2f0); color: var(--ink-900, var(--ink)); }
+.bauhly-landing .lgm .ckl__google:hover:not(:disabled) { background: var(--ink-100, #e7e7e4); }
+.bauhly-landing .lgm .ckl__link { color: var(--blue-600, #2a4fd6); font-weight: 600; }
+.bauhly-landing .lgm .ckl__go:disabled { background: var(--ink-50, #f2f2f0); color: var(--ink-400, #9a9a96); opacity: 1; }

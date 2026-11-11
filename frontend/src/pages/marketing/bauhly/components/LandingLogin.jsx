@@ -51,7 +51,6 @@ export default function LandingLogin() {
         </button>
         <CaptureLogin
           bare
-          forWhat="Bauhly"
           backLabel="Back"
           onBack={() => close()}
           onDone={() => close(() => nav('/dashboard'))}

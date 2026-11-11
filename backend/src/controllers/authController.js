@@ -85,9 +85,25 @@ async function demoLogin(req, res) {
   res.json(await authPayload(user));
 }
 
+/* `accessToken` (the custom-styled "Continue with Google" button, implicit flow): checked against our
+   client id with Google's tokeninfo, then the profile read from userinfo. */
+async function googleProfileFromAccessToken(accessToken) {
+  const info = await fetch(`https://oauth2.googleapis.com/tokeninfo?access_token=${encodeURIComponent(accessToken)}`);
+  if (!info.ok) throw new Error('tokeninfo failed');
+  const tok = await info.json();
+  const clientId = process.env.GOOGLE_CLIENT_ID;
+  if (tok.aud !== clientId && tok.azp !== clientId) throw new Error('wrong audience');
+  const res = await fetch('https://openidconnect.googleapis.com/v1/userinfo', { headers: { Authorization: `Bearer ${accessToken}` } });
+  if (!res.ok) throw new Error('userinfo failed');
+  const p = await res.json();
+  if (!p.sub || p.sub !== tok.sub) throw new Error('subject mismatch');
+  if (p.email && p.email_verified === false) throw new Error('email not verified');
+  return p;
+}
+
 async function googleAuth(req, res) {
-  const { credential } = req.body;
-  if (!credential) {
+  const { credential, accessToken } = req.body;
+  if (!credential && !accessToken) {
     return res.status(400).json({ message: 'Google credential is required' });
   }
   if (!process.env.GOOGLE_CLIENT_ID) {
@@ -96,11 +112,15 @@ async function googleAuth(req, res) {
 
   let payload;
   try {
-    const ticket = await googleClient.verifyIdToken({
-      idToken: credential,
-      audience: process.env.GOOGLE_CLIENT_ID,
-    });
-    payload = ticket.getPayload();
+    if (credential) {
+      const ticket = await googleClient.verifyIdToken({
+        idToken: credential,
+        audience: process.env.GOOGLE_CLIENT_ID,
+      });
+      payload = ticket.getPayload();
+    } else {
+      payload = await googleProfileFromAccessToken(String(accessToken));
+    }
   } catch {
     return res.status(401).json({ message: 'Invalid Google credential' });
   }
@@ -112,6 +132,7 @@ async function googleAuth(req, res) {
 
   const normalizedEmail = email.toLowerCase();
   let user = await User.findOne({ googleId });
+  let created = false;
 
   if (!user) {
     user = await User.findOne({ email: normalizedEmail });
@@ -123,20 +144,27 @@ async function googleAuth(req, res) {
       if (picture) user.avatar = picture;
       await user.save();
     } else {
+      // a new account: what the Create account form agreed to (Terms required there, news optional)
+      const at = new Date();
+      const legal = req.body.acceptTerms
+        ? { termsAcceptedAt: at, termsVersion: String(req.body.termsVersion || '').slice(0, 64), marketing: Boolean(req.body.marketing), marketingAt: req.body.marketing ? at : null }
+        : undefined;
       user = await User.create({
         name: name || normalizedEmail.split('@')[0],
         email: normalizedEmail,
         googleId,
         authProvider: 'google',
         avatar: picture || '',
+        ...(legal ? { legal } : {}),
       });
+      created = true;
     }
   } else if (picture && user.avatar !== picture) {
     user.avatar = picture;
     await user.save();
   }
 
-  res.json(await authPayload(user));
+  res.status(created ? 201 : 200).json({ ...(await authPayload(user)), created });
 }
 
 module.exports = { register, login, getMe, demoLogin, googleAuth };

@@ -156,8 +156,11 @@ export function AuthProvider({ children }) {
     return establish(client.post('/auth/demo-login'));
   }
 
-  async function googleLogin(credential) {
-    return establish(client.post('/auth/google', { credential }));
+  // `auth`: { credential } (Google's ID token) or { accessToken } (the custom button's implicit flow);
+  // `extra`: what Create account agreed to ({ acceptTerms, termsVersion, marketing }), kept on a NEW account
+  async function googleLogin(auth, extra = {}) {
+    const body = typeof auth === 'string' ? { credential: auth } : auth;
+    return establish(client.post('/auth/google', { ...body, ...extra }));
   }
 
   function logout() {

@@ -2706,7 +2706,6 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
         {login && (
           <CaptureLogin
             start={login === 'generate' ? 'signup' : 'signin'}
-            forWhat="Bauhly"
             onBack={() => setLogin(null)}
             onDone={loggedIn}
           />

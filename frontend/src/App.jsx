@@ -38,6 +38,7 @@ export default function App() {
         <Route path="/terms" element={<Terms />} />
         <Route path="/data-deletion" element={<DataDeletion />} />
         <Route path="/auth" element={<Auth />} />
+        <Route path="/signup" element={<Auth start="signup" />} />
         <Route element={<ProtectedLayout />}>
           <Route path="/onboarding" element={<Onboarding />} />
           <Route path="/dashboard" element={<YourPlans />} />
