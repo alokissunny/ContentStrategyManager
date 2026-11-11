@@ -1,0 +1,306 @@
+/* ══ THE GENERATION QUEUE, AS ONE PILL — ported from bauhly-v3 app.css `.gpill*` (editor/selbar-ai-button,
+   decisions 735, 744, 746, 764, 765, 778). Shut: a dark rounded box with its words and a field of lime dots. Open:
+   the same element grown into the panel; only width and height change, the corner it stands on never moves. */
+.gpill-host {
+  --gpill-w: 240px;
+  --gpill-h: 48px;
+  --gpill-open-w: min(380px, calc(100vw - 2 * var(--sp-3, 12px)));
+  --genq-bot: calc(max(var(--genq-floor, 0px), env(safe-area-inset-bottom)) + var(--sp-3, 12px));
+  --gp-on-dark-rest: rgb(255 255 255 / 0.86);
+  --gp-on-dark-quiet: rgb(255 255 255 / 0.55);
+  --gp-on-dark-ground: rgb(255 255 255 / 0.14);
+  position: fixed;
+  left: calc(var(--sidebar-w, 0px) + var(--sp-3, 12px));
+  bottom: var(--genq-bot);
+  z-index: 66;
+  width: var(--gpill-w);
+  height: var(--gpill-h);
+  pointer-events: none;
+  transition: opacity var(--dur-base, 200ms) var(--ease-out), transform var(--dur-base, 200ms) var(--ease-out);
+}
+/* stands down under the Capture box, which is where the same work is being shown */
+.gpill-host.is-under { opacity: 0; transform: translateY(8px); }
+.gpill-host.is-under .gpill { pointer-events: none; }
+
+.gpill {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  width: var(--gpill-w);
+  height: var(--gpill-h);
+  overflow: hidden;
+  border-radius: var(--r-lg, 18px);
+  background: rgb(22 22 26 / 0.96);
+  -webkit-backdrop-filter: blur(12px) saturate(140%);
+  backdrop-filter: blur(12px) saturate(140%);
+  color: #fff;
+  font-family: var(--font-ui, inherit);
+  box-shadow: 0 18px 40px -14px rgb(20 20 25 / 0.6), inset 0 0 0 1px rgb(255 255 255 / 0.06);
+  pointer-events: auto;
+  animation: gpill-in 420ms var(--ease-out) both;
+  transition:
+    width 420ms cubic-bezier(0.32, 0.72, 0, 1),
+    height 420ms cubic-bezier(0.32, 0.72, 0, 1),
+    opacity var(--dur-base, 200ms) var(--ease-out);
+}
+@keyframes gpill-in { from { opacity: 0; transform: translateY(10px) scale(0.96); } }
+.gpill.is-open {
+  width: var(--gpill-open-w);
+  height: min(var(--gpill-open-h, 240px), calc(100dvh - var(--genq-bot) - 64px));
+}
+
+/* ── SHUT: THE WORDS AND THE DOTS ── */
+.gpill__tab {
+  position: absolute;
+  inset: 0 auto auto 0;
+  width: var(--gpill-w);
+  height: var(--gpill-h);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3, 12px);
+  padding: 0 var(--sp-4, 16px) 0 var(--sp-5, 20px);
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  transition: opacity 160ms var(--ease-out);
+}
+.gpill__tab:focus-visible { outline: 2px solid #fff; outline-offset: -4px; border-radius: inherit; }
+.gpill.is-open .gpill__tab { opacity: 0; pointer-events: none; }
+.gpill__say { font-size: var(--text-sm, 14px); font-weight: 600; letter-spacing: 0.01em; white-space: nowrap; }
+
+/* eight by three; a dot is 4px on a 7px pitch */
+.gpill__dots {
+  display: grid;
+  grid-template-columns: repeat(8, 4px);
+  grid-auto-rows: 4px;
+  gap: 3px;
+  flex: none;
+}
+.gpill__dots i { display: block; width: 4px; height: 4px; border-radius: 50%; background: rgb(255 255 255 / 0.16); }
+.gpill__dots.is-ready i { background: var(--experiment-500); opacity: 0.38; }
+@media (prefers-reduced-motion: no-preference) {
+  .gpill__dots.is-ready i { animation: gpill-glint 7000ms var(--ease-inout) infinite; }
+  .gpill__dots.is-live i { animation: gpill-dot 1800ms var(--ease-inout) infinite; }
+}
+@keyframes gpill-glint {
+  0%, 16%, 100% { opacity: 0.38; }
+  7% { opacity: 0.95; }
+}
+.gpill__dots.is-live i { background: var(--experiment-500); opacity: 0.22; }
+@keyframes gpill-dot {
+  0%, 100% { opacity: 0.14; }
+  45% { opacity: 1; }
+  70% { opacity: 0.4; }
+}
+.gpill__dots--sm { grid-template-columns: repeat(8, 3px); grid-auto-rows: 3px; gap: 2px; margin-left: var(--sp-2, 8px); }
+.gpill__dots--sm i { width: 3px; height: 3px; }
+
+/* ── OPEN: THE PANEL ── */
+.gpill__panel {
+  display: flex;
+  flex-direction: column;
+  width: var(--gpill-open-w);
+  height: 100%;
+  padding: var(--sp-3, 12px);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 140ms var(--ease-out);
+}
+.gpill.is-open .gpill__panel { opacity: 1; pointer-events: auto; transition: opacity 220ms var(--ease-out) 140ms; }
+.gpill__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex: none;
+  min-height: 36px;
+  padding: 0 0 0 var(--sp-2, 8px);
+}
+.gpill__title { display: inline-flex; align-items: center; font-size: var(--text-sm, 14px); font-weight: 600; }
+.gpill__icon {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border: 0;
+  border-radius: 999px;
+  background: none;
+  color: rgb(255 255 255 / 0.72);
+  cursor: pointer;
+}
+.gpill__icon:hover { color: #fff; background: rgb(255 255 255 / 0.12); }
+.gpill__headacts { display: flex; align-items: center; gap: var(--sp-1, 4px); }
+.gpill__list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1, 4px);
+  min-height: 0;
+  margin-top: var(--sp-1, 4px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+/* ── A LINE IN IT ── */
+.gpill__item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: var(--sp-2, 8px);
+  padding: var(--sp-2, 8px) var(--sp-2, 8px) var(--sp-2, 8px) var(--sp-3, 12px);
+  border-radius: var(--r-md, 12px);
+  transition: background var(--dur-fast, 120ms) var(--ease-out);
+}
+.gpill__item:hover { background: rgb(255 255 255 / 0.05); }
+.gpill__row {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: var(--sp-2, 8px);
+  row-gap: 2px;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.gpill__chev { flex: none; margin-left: auto; color: var(--gp-on-dark-quiet); transition: transform 360ms cubic-bezier(0.32, 0.72, 0, 1), color var(--dur-fast, 120ms) var(--ease-out); }
+.gpill__row:hover .gpill__chev { color: var(--gp-on-dark-rest); }
+.gpill__item.is-unfolded .gpill__chev { transform: rotate(180deg); }
+.gpill__row:focus-visible { outline: 2px solid #fff; outline-offset: 2px; border-radius: 6px; }
+.gpill__mark {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  color: var(--ink-900);
+}
+.gpill__mark--queued::before { content: ''; width: 8px; height: 8px; border: 1.5px solid rgb(255 255 255 / 0.3); border-radius: 999px; }
+/* three states told apart by shape, not bright colour: a breathing ring, a tick on quiet ground, an orange cross */
+.gpill__mark--running { box-shadow: inset 0 0 0 1.5px var(--gp-on-dark-rest); }
+@media (prefers-reduced-motion: no-preference) {
+  .gpill__mark--running { animation: gpill-ring 1600ms var(--ease-inout) infinite; }
+}
+@keyframes gpill-ring { 50% { box-shadow: inset 0 0 0 4px var(--gp-on-dark-rest); } }
+.gpill__mark--running.has-motion { box-shadow: none; animation: none; }
+.gpill__mark--done { background: rgb(255 255 255 / 0.48); color: var(--ink-900); }
+.gpill__mark--failed { background: var(--gp-on-dark-ground); color: var(--signal-400); }
+.gpill__label { font-size: var(--text-sm, 14px); font-weight: 600; line-height: 20px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gpill__said {
+  grid-column: 1 / -1;
+  min-width: 0;
+  overflow: hidden;
+  font-size: var(--text-xs, 12px);
+  line-height: 18px;
+  color: rgb(255 255 255 / 0.62);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.gpill__acts { display: flex; align-items: center; gap: var(--sp-1, 4px); }
+.gpill__go,
+.gpill__clear {
+  height: 30px;
+  padding: 0 var(--sp-3, 12px);
+  border: 0;
+  border-radius: 999px;
+  font: inherit;
+  font-size: var(--text-xs, 12px);
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+}
+/* lime with its own ink on it, never white */
+.gpill__go { background: var(--experiment-500); color: var(--experiment-ink); }
+.gpill__go:hover { filter: brightness(1.06); }
+.gpill__go--quiet { background: var(--gp-on-dark-ground); color: #fff; }
+.gpill__clear { background: none; color: rgb(255 255 255 / 0.72); }
+.gpill__clear:hover { color: #fff; background: rgb(255 255 255 / 0.12); }
+.gpill__go:focus-visible,
+.gpill__clear:focus-visible { outline: 2px solid #fff; outline-offset: 1px; }
+.gpill__fail { margin: 0; font-size: var(--text-xs, 12px); line-height: 18px; color: rgb(255 255 255 / 0.72); }
+.gpill__fact { margin: 0; font-size: var(--text-xs, 12px); line-height: 18px; color: var(--gp-on-dark-rest); }
+.gpill__moreacts { display: flex; flex-wrap: wrap; gap: var(--sp-1, 4px); margin: var(--sp-2, 8px) 0 0 calc(-1 * var(--sp-3, 12px)); }
+.gpill__notify { margin-top: var(--sp-2, 8px); }
+.gpill__notify .notify-ready--pill { display: flex; justify-content: flex-start; gap: 6px; max-width: none; margin: 0; text-align: left; font-size: var(--text-xs, 12px); line-height: 18px; color: rgb(255 255 255 / 0.62); }
+.gpill__notify .notify-ready--pill:is(button) {
+  height: 28px;
+  padding: 0 var(--sp-3, 12px);
+  margin-left: calc(-1 * var(--sp-3, 12px));
+  border: 0;
+  border-radius: 999px;
+  background: none;
+  color: rgb(255 255 255 / 0.72);
+  font-weight: 600;
+  cursor: pointer;
+}
+.gpill__notify .notify-ready--pill:is(button):hover { color: #fff; background: rgb(255 255 255 / 0.12); }
+
+/* ── A LINE OPENS ON ITS HEIGHT (grid-template-rows 0fr → 1fr) ── */
+.gpill__more {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 360ms cubic-bezier(0.32, 0.72, 0, 1);
+}
+.gpill__item.is-unfolded .gpill__more { grid-template-rows: 1fr; }
+.gpill__more-in { min-height: 0; overflow: hidden; }
+.gpill__item.is-unfolded .gpill__more-in { padding-top: var(--sp-2, 8px); }
+
+/* the run's steps, hanging from the line's mark (bauhly-v3 GenProgress `.gprog`, turned for ink) */
+.gpill .gprog__card { display: flex; flex-direction: column; gap: var(--sp-2, 8px); max-width: none; margin: 0; padding: 0; border: 0; border-radius: 0; background: none; list-style: none; }
+.gpill .gprog__stage {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--sp-2, 8px);
+  font-size: var(--text-sm, 14px);
+  line-height: 20px;
+  color: rgb(255 255 255 / 0.56);
+  transition: color var(--dur-slow, 400ms) var(--ease-out);
+}
+.gpill .gprog__stage.is-active { font-weight: 600; color: #fff; }
+.gpill .gprog__stage.is-done { color: rgb(255 255 255 / 0.48); }
+.gpill .gprog__mark { position: relative; flex: none; display: grid; place-items: center; width: 16px; height: 16px; margin-top: 2px; color: #fff; }
+.gpill .gprog__stage.is-upcoming .gprog__mark::before { content: ''; width: 8px; height: 8px; border: 1.5px solid rgb(255 255 255 / 0.3); border-radius: 999px; }
+.gpill .gprog__stage.is-done .gprog__mark { border-radius: 999px; background: rgb(255 255 255 / 0.48); color: var(--ink-900); animation: gpill-tick-in var(--dur-base, 200ms) var(--ease-out) backwards; }
+@keyframes gpill-tick-in { from { opacity: 0; transform: scale(0.6); } }
+
+/* the stage drawings (shared names with the Capture card's `.gprog__motion`, coloured lime here) */
+.gpill .gprog__motion { display: grid; place-items: center; color: var(--experiment-500); }
+@media (prefers-reduced-motion: no-preference) {
+  .gpill .gprog__beam { animation: gpill-scan 1.2s var(--ease-inout) infinite alternate; }
+  .gpill .gprog__bar { animation: gpill-arrive 1.8s var(--ease-out) infinite; }
+  .gpill .gprog__bar:nth-child(2) { animation-delay: 0.25s; }
+  .gpill .gprog__bar:nth-child(3) { animation-delay: 0.5s; }
+  .gpill .gprog__cell { animation: gpill-fill 2s var(--ease-inout) infinite; }
+  .gpill .gprog__cell:nth-child(2) { animation-delay: 0.3s; }
+  .gpill .gprog__cell:nth-child(4) { animation-delay: 0.6s; }
+  .gpill .gprog__cell:nth-child(3) { animation-delay: 0.9s; }
+  .gpill .gprog__sheen { animation: gpill-sheen 1.6s var(--ease-inout) infinite; }
+}
+@keyframes gpill-scan { from { transform: translateY(0); } to { transform: translateY(5px); } }
+@keyframes gpill-arrive { 0% { opacity: 0; transform: translateX(-2px); } 25%, 80% { opacity: 1; transform: none; } 100% { opacity: 0; } }
+@keyframes gpill-fill { 0%, 100% { fill: transparent; } 30%, 60% { fill: currentColor; } }
+@keyframes gpill-sheen { 0% { opacity: 0; transform: translateX(0); } 30% { opacity: 0.7; } 100% { opacity: 0; transform: translateX(8px); } }
+
+/* where it floats, the page can scroll clear of it */
+body:has(.gpill-host) .app__main { padding-bottom: calc(var(--gpill-h, 48px) + 24px); }
+
+/* a phone: the page's own margin, above the floating tab bar */
+@media (max-width: 799px) {
+  .gpill-host { left: var(--sp-3, 12px); }
+}
+/* the Editor overlay has its own foot; the queue stands down there on a phone */
+@media (max-width: 767px) {
+  body:has(.wv-edm) .gpill-host { display: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .gpill { animation: none; transition: none; }
+  .gpill__more { transition: none; }
+}

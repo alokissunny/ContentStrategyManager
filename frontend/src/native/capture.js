@@ -70,8 +70,8 @@ const HANDLERS = {
     conversationTitle: p.conversationTitle,
     conversationTurns: p.conversationTurns,
   }).then(() => ({})),
-  plan: () => {
-    startPlanGeneration('capture').catch(() => {});
+  plan: (p) => {
+    startPlanGeneration('capture', { label: p?.text }).catch(() => {});
     return {};
   },
 };

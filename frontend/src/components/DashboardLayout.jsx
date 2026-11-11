@@ -5,7 +5,7 @@ import UserMenu from './UserMenu';
 import AccountSwitcher from './AccountSwitcher';
 import MobileNav from './MobileNav';
 import AiDebugPanel from './AiDebugPanel';
-import GenerationToast from './GenerationToast';
+import GenPill from './GenPill';
 import CaptureHost from './CaptureHost';
 import { Logo } from '../brand/Logo';
 import { useScrollHide } from '../hooks/useScrollHide';
@@ -96,7 +96,7 @@ export default function DashboardLayout({ children }) {
       </div>
       <CaptureHost />
       <AiDebugPanel />
-      <GenerationToast />
+      <GenPill />
     </div>
   );
 }

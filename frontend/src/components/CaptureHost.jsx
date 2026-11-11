@@ -139,12 +139,12 @@ export default function CaptureHost() {
             if (loggedInHere.current) openNextInEditor();
             close(() => navigate('/dashboard'));
             /* the box already made it, showing its progress (CaptureChat visitorGenerate) */
-            if (!captured?.generated) startPlanGeneration('capture').catch(() => {});
+            if (!captured?.generated) startPlanGeneration('capture', { label: captured?.text }).catch(() => {});
             return;
           }
           setOpen(false);
           setCaptureOpen(false);
-          startPlanGeneration('capture').catch(() => {});
+          startPlanGeneration('capture', { label: captured?.text }).catch(() => {});
         }}
       />
     </Suspense>

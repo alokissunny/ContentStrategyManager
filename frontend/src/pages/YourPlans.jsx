@@ -29,6 +29,8 @@ import { peekMetaOAuthResult, takeMetaOAuthResult, getMetaStatus, isMetaConnecte
 import { useProjects, createProject, ensureProjects, addSession, sessionCount } from '../lib/projectsStore';
 import {
   consumePlanReady,
+  subscribeOpenPostDay,
+  takePendingOpen,
   getPlanGeneration,
   takeOpenInEditor,
   setPlanWatching,
@@ -1335,7 +1337,8 @@ export default function YourPlans() {
   const [guidance, setGuidance] = useState('');
   const gen = usePlanGeneration();
   const [view, setView] = useState(() => {
-    if (getPlanGeneration().status === 'generating' || getPlanGeneration().status === 'ready') return 'gen';
+    const g0 = getPlanGeneration();
+    if ((g0.status === 'generating' || g0.status === 'ready') && g0.trigger !== 'capture') return 'gen';
     if (location.state?.generateAfterCapture) return 'gen';
     return 'list';
   });        // 'list' | 'checkin' | 'gen' | 'week'
@@ -1745,9 +1748,11 @@ export default function YourPlans() {
     return () => setPlanWatching(false);
   }, [view]);
 
+  /* a capture's run stays in the corner (GenPill, bauhly-v3 decision 743: keep the studio in the same view
+     while generation finishes); only a plan the studio asked for on this page takes it over */
   useEffect(() => {
-    if (gen.status === 'generating') setView('gen');
-  }, [gen.status]);
+    if (gen.status === 'generating' && gen.trigger !== 'capture') setView('gen');
+  }, [gen.status, gen.trigger]);
 
   useEffect(() => {
     if (gen.status !== 'ready') return undefined;
@@ -1799,6 +1804,19 @@ export default function YourPlans() {
     setView('list');
     setReplanning(false);
   }, [gen.status, gen.error, gen.guidance]);
+
+  /* the generation queue's `View post` (GenPill): land on the post's day in Day view. Read through a ref so the
+     listener always calls the current render's goToPost, and reload first so a just-made post is there */
+  const goToPostRef = useRef(null);
+  useEffect(() => subscribeOpenPostDay(async ({ iso }) => {
+    takePendingOpen();
+    if (!iso) return;
+    if (getPlanGeneration().status === 'ready') consumePlanReady();
+    setView('list');
+    setReplanning(false);
+    await reload();
+    goToPostRef.current?.({ date: iso });
+  }), []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Re-run the current month's plan (same path as check-in generate).
   async function runGenerate(trigger, extras = {}) {
@@ -2143,6 +2161,7 @@ export default function YourPlans() {
     setView('week');
   }
 
+  goToPostRef.current = goToPost;
   // Month "Open post" / double-click → Day view on that date (bauhly-v3 openDay).
   // Never Weekly: the month names a day; Weekly is only via the View menu.
   function goToPost(clicked) {

@@ -2314,7 +2314,7 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
     await next('structuring');
     /* they made their account in this box: the post opens in the Editor, even if they close the box first */
     openNextInEditor();
-    startPlanGeneration('capture').catch(() => {});
+    startPlanGeneration('capture', { label: cap.current?.text }).catch(() => {});
     let designing = false;
     while (getPlanGeneration().status === 'generating' && vAlive.current) {
       const g = getPlanGeneration();
