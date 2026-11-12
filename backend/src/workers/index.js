@@ -17,7 +17,15 @@ async function main() {
   await connectDB();
   await loadRuntimeSettings();
   const { startPlanWorkers } = require('./planWorkers');
-  const workers = startPlanWorkers();
+  const planWorkers = String(process.env.PLAN_WORKERS || '1') === '0' ? null : startPlanWorkers();
+  // Capture reels render here too; REEL_WORKERS=0 leaves them to another
+  // service (e.g. a bigger instance that only renders reels — with
+  // PLAN_WORKERS=0 there).
+  const reelWorkers = String(process.env.REEL_WORKERS || '1') === '0'
+    ? null : require('./reelWorkers').startReelWorkers();
+  const workers = {
+    close: () => Promise.all([planWorkers?.close(), reelWorkers?.close()]),
+  };
 
   let stopping = false;
   const stop = async (signal) => {
@@ -25,6 +33,7 @@ async function main() {
     stopping = true;
     console.log(`[workers] ${signal} — finishing in-flight jobs…`);
     await workers.close().catch((err) => console.error('[workers] close failed:', err.message));
+    await require('../services/reelQueue').closeReelQueue();
     await closePlanQueue();
     process.exit(0);
   };

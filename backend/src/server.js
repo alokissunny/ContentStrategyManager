@@ -35,8 +35,15 @@ connectDB()
     // this process (no separate worker service needed). See services/planQueue.
     const { isQueueConfigured } = require('./services/planQueue');
     let workers = null;
-    if (isQueueConfigured() && ['1', 'true', 'on', 'yes'].includes(String(process.env.PLAN_WORKER_IN_API || '').toLowerCase())) {
+    const workersInApi = ['1', 'true', 'on', 'yes'].includes(String(process.env.PLAN_WORKER_IN_API || '').toLowerCase());
+    if (isQueueConfigured() && workersInApi) {
       workers = require('./workers/planWorkers').startPlanWorkers();
+    }
+    // Capture reels (Captures › Generate reel) — same switch; production should
+    // run them on the worker service instead (rendering is CPU-heavy).
+    let reelWorkers = null;
+    if (require('./services/reelQueue').isReelQueueConfigured() && workersInApi) {
+      reelWorkers = require('./workers/reelWorkers').startReelWorkers();
     }
 
     // Graceful shutdown: a deploy sends SIGTERM. Stop taking new connections,
@@ -60,6 +67,7 @@ connectDB()
       const [drained] = await Promise.all([
         drain(graceMs),
         workers ? workers.close().catch((err) => console.error('[server] plan workers close failed:', err.message)) : null,
+        reelWorkers ? reelWorkers.close().catch((err) => console.error('[server] reel workers close failed:', err.message)) : null,
       ]);
       await Promise.race([closed, new Promise((ok) => setTimeout(ok, 5_000))]);
       if (!drained) console.error('[server] background runs still going at exit');

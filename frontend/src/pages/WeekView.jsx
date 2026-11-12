@@ -4111,6 +4111,9 @@ export default function WeekView({
   const existingCoverUrl = existingCover?.videoKey ? videoProxyUrl(existingCover.videoKey) : '';
   const appliedCoverKey = day?.content?.coverVideo?.key || '';
   const appliedCoverUrl = appliedCoverKey ? videoProxyUrl(appliedCoverKey) : '';
+  // A Reel made from a capture (Captures › Generate reel): the post IS this video
+  const reelVideoUrl = day?.content?.reel?.videoKey ? videoProxyUrl(day.content.reel.videoKey) : '';
+  const reelPosterUrl = day?.content?.reel?.posterKey ? mediaProxyUrl(day.content.reel.posterKey) : undefined;
   const handle = route?.instagramUsername || 'your.studio';
   // Publish/schedule only when Meta is linked for *this* plan's Instagram handle.
   const metaForHandle = metaConnectionFor(metaStatus, handle);
@@ -10079,7 +10082,20 @@ export default function WeekView({
                 enterPostEdit();
               }}
             >
-              <div className={`wv-ig__photo${layoutBusy ? ' is-laying' : ''}`}>
+              <div className={`wv-ig__photo${layoutBusy ? ' is-laying' : ''}${reelVideoUrl ? ' is-reel' : ''}`}>
+                {reelVideoUrl && (
+                  <video
+                    key={reelVideoUrl}
+                    className="wv-ig__reelvideo"
+                    src={reelVideoUrl}
+                    poster={reelPosterUrl}
+                    controls
+                    loop
+                    playsInline
+                    preload="metadata"
+                    aria-label="Reel"
+                  />
+                )}
                 <SlideMedia
                   slide={previewSlide}
                   localMedia={localMedia}

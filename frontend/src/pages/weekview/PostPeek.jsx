@@ -26,6 +26,7 @@ import { isThemedPicture } from '../../lib/themedSlide';
 import { styleOf, groundOf } from '../../lib/visualbrand';
 import { useStore } from '../../lib/store';
 import { slideTick } from '../../native/haptics';
+import { videoProxyUrl } from '../../api/media';
 import '../weekView.css';
 
 const PEEK_MS = 2800;
@@ -259,7 +260,41 @@ function PeekSlide({ slide, paint, themed, documentHtml, carouselLayoutHtmls, sl
 
 /** Scaled post thumbnail for the month day menu, or full-width feed frame.
  *  `phone` = taller peek inside the mobile day sheet (bauhly-v3). */
-export function DayPeek({ day, feed = false, phone = false, lifted = false, liftSheet = 0 }) {
+/* A Reel made from a capture (Captures › Generate reel): its own video,
+   muted and looping, in the 9:16 frame a reel takes — no slides to page. */
+function ReelPeek({ day, feed, phone }) {
+  const reel = day.content.reel;
+  const src = videoProxyUrl(reel.videoKey);
+  const poster = reel.posterKey ? mediaProxyUrl(reel.posterKey) : undefined;
+  const ar = MOTION_AR;
+  const video = (
+    <video className="yw-peek__reel" src={src} poster={poster} autoPlay muted loop playsInline preload="metadata" aria-label="Reel" />
+  );
+  if (feed) {
+    const vw = typeof window !== 'undefined' ? window.innerWidth : 375;
+    const boxH = Math.round(Math.min(vw / ar, vw / FEED_AR));
+    return (
+      <div className="yw-peek yw-peek--feed">
+        <div className="yw-peek__hold" style={{ height: `${boxH}px` }}>
+          <div className="yw-peek__frame yw-peek__frame--feed" style={{ width: '100%', height: `${boxH}px` }}>{video}</div>
+        </div>
+      </div>
+    );
+  }
+  const deskH = Math.min(phone ? 210 : 290, Math.round((phone ? 260 : 232) / ar));
+  return (
+    <div className={`yw-peek${phone ? ' is-phone' : ''}`} style={{ '--peek-h': `${deskH}px` }}>
+      <div className="yw-peek__frame" style={{ width: `${Math.round(deskH * ar)}px`, height: `${deskH}px` }}>{video}</div>
+    </div>
+  );
+}
+
+export function DayPeek(props) {
+  if (props.day?.content?.reel?.videoKey) return <ReelPeek day={props.day} feed={props.feed} phone={props.phone} />;
+  return <SlidesPeek {...props} />;
+}
+
+function SlidesPeek({ day, feed = false, phone = false, lifted = false, liftSheet = 0 }) {
   const store = useStore();
   const paint = useMemo(() => brandStyleVars(store), [store]);
   // Same rule as WeekView's own preview: agent-generated slides render as the

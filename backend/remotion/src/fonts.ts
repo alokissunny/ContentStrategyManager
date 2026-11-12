@@ -17,6 +17,7 @@ import { loadFont as fraunces } from '@remotion/google-fonts/Fraunces';
 import { loadFont as dmSerif } from '@remotion/google-fonts/DMSerifDisplay';
 import { loadFont as manrope } from '@remotion/google-fonts/Manrope';
 import { loadFont as archivo } from '@remotion/google-fonts/Archivo';
+import { loadFont as montserrat } from '@remotion/google-fonts/Montserrat';
 
 const opt = (weights: string[]) => ({ weights, subsets: ['latin'], ignoreTooManyRequestsWarning: true } as const);
 
@@ -33,6 +34,9 @@ fraunces('italic', opt(['400']));
 const DMSerif = dmSerif('normal', opt(['400'])).fontFamily;
 const Manrope = manrope('normal', opt(['400', '600', '700', '800'])).fontFamily;
 const Archivo = archivo('normal', opt(['500', '700', '800'])).fontFamily;
+// Capture reels: the heavy caption face (karaoke words, hook slams)
+const Montserrat = montserrat('normal', opt(['600', '800', '900'])).fontFamily;
+export const CAPTION_FONT = `${Montserrat}, system-ui, sans-serif`;
 
 type Entry = { family: string; category: 'serif' | 'sans' | 'display' | 'mono' };
 
@@ -41,6 +45,7 @@ const REGISTRY: Record<string, Entry> = {
   inter: { family: Inter, category: 'sans' },
   manrope: { family: Manrope, category: 'sans' },
   archivo: { family: Archivo, category: 'sans' },
+  montserrat: { family: Montserrat, category: 'sans' },
   splinesansmono: { family: SplineMono, category: 'mono' },
   bricolagegrotesque: { family: Bricolage, category: 'display' },
   // App ships "Cabinet Grotesk" (not on Google) → its shipped fallback.

@@ -41,6 +41,15 @@ function cronAuthorized(req) {
   }
 }
 
+// Something to publish: slide images rendered at Schedule time, or a reel video
+// (Captures › Generate reel), which needs no rendering.
+const HAS_MEDIA = {
+  $or: [
+    { 'publishImageKeys.0': { $exists: true } },
+    { 'content.reel.videoKey': { $type: 'string', $gt: '' } },
+  ],
+};
+
 // Posts due to go out: unpublished, scheduled in the past, with rendered images,
 // and either waiting or a stale claim we can retake.
 function dueQuery(now) {
@@ -48,7 +57,7 @@ function dueQuery(now) {
   return {
     published: { $ne: true },
     scheduledAt: { $ne: null, $lte: now },
-    'publishImageKeys.0': { $exists: true },
+    $and: [HAS_MEDIA],
     $or: [
       { scheduleStatus: { $in: ['', 'ready'] } },
       { scheduleStatus: { $exists: false } },
@@ -72,7 +81,7 @@ async function claimPost(postId, now) {
       _id: postId,
       published: { $ne: true },
       scheduledAt: { $lte: now },
-      'publishImageKeys.0': { $exists: true },
+      $and: [HAS_MEDIA],
       $or: [
         { scheduleStatus: { $in: ['', 'ready'] } },
         { scheduleStatus: { $exists: false } },

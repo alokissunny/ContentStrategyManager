@@ -147,9 +147,9 @@ function sleep(ms) {
  * "Media ID is not available" until the container status_code is FINISHED.
  * Poll slowly — Development-mode apps hit Graph rate limits quickly.
  */
-async function waitForContainer(containerId, token, base) {
+async function waitForContainer(containerId, token, base, maxMs = 90_000) {
   await sleep(4000);
-  const deadline = Date.now() + 90_000;
+  const deadline = Date.now() + maxMs;
   let delay = 5000;
   while (Date.now() < deadline) {
     const json = await graphGet(
@@ -621,6 +621,34 @@ async function createAndPublishMedia({ igId, token, graph, caption, imageUrls })
   return publishContainer(igId, creationId, token, graph);
 }
 
+// A Reel (Captures › Generate reel): one video container, which Instagram
+// transcodes before it can be published — that takes longer than a photo.
+async function createAndPublishReel({ igId, token, graph, caption, videoUrl, coverUrl }) {
+  const c = await graphPost(
+    `${igId}/media`,
+    {
+      media_type: 'REELS',
+      video_url: videoUrl,
+      caption,
+      share_to_feed: 'true',
+      ...(coverUrl ? { cover_url: coverUrl } : {}),
+      access_token: token,
+    },
+    graph,
+  );
+  await waitForContainer(c.id, token, graph, 5 * 60_000);
+  return publishContainer(igId, c.id, token, graph);
+}
+
+// The reel video a post carries, if it is one of this user's own files.
+function reelOf(userId, post) {
+  const reel = post?.content?.reel;
+  const [videoKey] = ownedMediaKeys(userId, [reel?.videoKey]);
+  if (!videoKey) return null;
+  const [posterKey] = ownedMediaKeys(userId, [reel?.posterKey]);
+  return { videoKey, posterKey: posterKey || '' };
+}
+
 /**
  * Publish one planned post to Instagram via Content Publishing API.
  * Used by the HTTP handler and the daily scheduled-publish job.
@@ -643,7 +671,8 @@ async function publishPostToInstagram({ userId, post, imageKeys, imageUrls }) {
   const storedKeys = Array.isArray(post.publishImageKeys) ? post.publishImageKeys : [];
   const requestedKeys = Array.isArray(imageKeys) ? imageKeys : [];
   const hasUrls = Array.isArray(imageUrls) && imageUrls.some(Boolean);
-  const hasMedia = slides.some((s) => s.assetKey) || post.content?.onScreenText?.length
+  const reel = reelOf(userId, post);
+  const hasMedia = reel || slides.some((s) => s.assetKey) || post.content?.onScreenText?.length
     || storedKeys.length || requestedKeys.length || hasUrls;
   if (!hasMedia && !post.content?.caption) {
     throw httpError(400, 'This post needs a caption or at least one slide before publishing.');
@@ -679,6 +708,21 @@ async function publishPostToInstagram({ userId, post, imageKeys, imageUrls }) {
       await post.save();
       console.log(`[meta] post ${post._id} already on Instagram as ${already.id}`);
       return { post, published: true, live: true, igMediaId: already.id, permalink: already.permalink || '' };
+    }
+
+    if (reel) {
+      const [videoUrl, coverUrl] = await Promise.all([
+        getPresignedMediaUrl(reel.videoKey),
+        reel.posterKey ? getPresignedMediaUrl(reel.posterKey) : '',
+      ]);
+      const pub = await createAndPublishReel({ igId, token, graph, caption, videoUrl, coverUrl });
+      const permalink = await fetchPermalink(pub.id, token, graph);
+      markDayPosted(post, pub.id, permalink);
+      conn.lastPublishAt = new Date();
+      await conn.save();
+      await post.save();
+      console.log(`[meta] published reel ${post._id} to @${conn.igUsername || igId} as media ${pub.id}`);
+      return { post, published: true, live: true, igMediaId: pub.id, permalink };
     }
 
     // Public, Graph-fetchable image URLs. Preference order:

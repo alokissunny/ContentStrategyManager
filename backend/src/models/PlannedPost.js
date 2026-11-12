@@ -172,6 +172,10 @@ const plannedPostSchema = new mongoose.Schema(
       // When set, the post view plays it in place of the static hook (slide 1).
       // The full spec + render metadata live on agentTrace.cover.
       coverVideo: { type: mongoose.Schema.Types.Mixed, default: null },
+      // A Reel made from a capture (Captures › Generate reel): the rendered
+      // 9:16 MP4 and its poster — { reelId, videoKey, posterKey, durationSec,
+      // hook, audioMode }. Present = this post publishes as a video Reel.
+      reel: { type: mongoose.Schema.Types.Mixed, default: null },
     },
 
     // Parsed outputs from Strategist / Structure / Day Writer / Layout for this

@@ -32,6 +32,7 @@ function ymdKey(d) {
 /** True when the post has real slide paint — not a lite list stub / direction-only fallback. */
 export function peekReady(day) {
   if (!day) return false;
+  if (String(day?.content?.reel?.videoKey || '').trim()) return true;
   if (String(day?.content?.carouselHtml || '').trim()) return true;
   const slides = day?.content?.slides;
   if (!Array.isArray(slides) || !slides.length) return false;

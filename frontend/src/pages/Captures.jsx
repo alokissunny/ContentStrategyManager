@@ -30,6 +30,8 @@ import { captureQuestions } from '../api/projects';
 import { listGeneratedImages, deleteGeneratedImage } from '../api/images';
 import { previewUrl } from '../api/media';
 import { GeneratedFolderView, readGenCache, writeGenCache, CaptureChat } from './Projects';
+import ReelStudio from './captures/ReelStudio';
+import { listCaptureReels, createCaptureReel, reelWorking } from '../api/captureReels';
 import './projects.css';
 import './captures.css';
 
@@ -175,7 +177,7 @@ function addingOf(item, files) {
   };
 }
 
-function CapturePanel({ item, projects, asked, onClose, onGenerate, onDelete, onMove, onAddDetail, onAddFiles, onEditCapture, onViewPost }) {
+function CapturePanel({ item, projects, asked, onClose, onGenerate, onDelete, onMove, onAddDetail, onAddFiles, onEditCapture, onViewPost, reel, onReel }) {
   useBodyScrollLock();
   const entry = item.session;
   const atts = entry.attachments || [];
@@ -418,6 +420,21 @@ function CapturePanel({ item, projects, asked, onClose, onGenerate, onDelete, on
                 Held back from plans
               </p>
               <p className="np__needs__say">Your plans leave this one out until you include it again from the list.</p>
+            </div>
+          )}
+
+          {onReel && atts.length > 0 && (
+            <div className="np__reel">
+              <span className="np__reel__say">
+                <Icon name="film" size={15} strokeWidth={2} />
+                {!reel ? 'Cut a vertical reel from these photos and clips'
+                  : reelWorking(reel) ? 'A reel is being made from this capture…'
+                    : reel.status === 'done' ? 'A reel is ready from this capture' : 'The last reel did not finish'}
+              </span>
+              <button type="button" className="np__needs__go np__needs__go--ink" onClick={() => onReel(!reel)}>
+                {!reel ? 'Generate reel' : 'View reel'}
+                <Icon name="arrow-right" size={15} strokeWidth={2.2} />
+              </button>
             </div>
           )}
 
@@ -683,12 +700,36 @@ export default function Captures() {
   const warnOff = useRef(false);
   const askingRef = useRef(null);
   askingRef.current = asking;
+  const [reeling, setReeling] = useState(null); // { item, autoStart } — the Reel studio
+  const [reelsBy, setReelsBy] = useState({}); // capture id → its newest reel
   const [adding, setAdding] = useState(null); // Add: files chosen for a capture, asked about in Capture // Add the detail: the capture conversation picked back up
 
   // The generated-image folder (WeekView › Create image) — reached from Filters.
   const [genImages, setGenImages] = useState(readGenCache);
   const [genLoaded, setGenLoaded] = useState(false);
   const [showGen, setShowGen] = useState(false);
+
+  const noteReels = (list) => setReelsBy((cur) => {
+    const next = { ...cur };
+    [...list].reverse().forEach((r) => r.captureIds.forEach((id) => { next[id] = r; }));
+    return next;
+  });
+  useEffect(() => {
+    listCaptureReels().then(noteReels).catch(() => {});
+  }, []);
+  const reelOf = (it) => it.memberIds.map((id) => reelsBy[id]).filter(Boolean)
+    .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)))[0] || null;
+  const hasMedia = (it) => (it.session.attachments || []).length > 0;
+  // Generate reel: one reel per ticked capture; the studio opens on the first
+  const reelThese = (list) => run(async () => {
+    const ok = list.filter(hasMedia);
+    if (!ok.length) return;
+    if (ok.length === 1) { setReeling({ item: ok[0], autoStart: true }); return; }
+    const made = await Promise.all(ok.map((it) => createCaptureReel({ projectId: it.projectId, captureIds: it.memberIds }).catch(() => null)));
+    noteReels(made.filter(Boolean));
+    setSel([]);
+    setReeling({ item: ok[0], autoStart: false });
+  });
 
   useEffect(() => {
     // a plan generated since the list was loaded marks captures used server-side
@@ -1069,6 +1110,19 @@ export default function Captures() {
                   <Icon name="trash" size={15} strokeWidth={2} />
                   <span className="pjw-bulk__b__t">Delete</span>
                 </button>
+                {picked.some(hasMedia) && (
+                  <button
+                    type="button"
+                    className="pjw-bulk__b"
+                    disabled={busy}
+                    onClick={() => reelThese(picked)}
+                    title="Generate reel"
+                    aria-label="Generate reel"
+                  >
+                    <Icon name="film" size={15} strokeWidth={2} />
+                    <span className="pjw-bulk__b__t">{phone ? 'Reel' : (picked.filter(hasMedia).length > 1 ? 'Generate reels' : 'Generate reel')}</span>
+                  </button>
+                )}
                 <button
                   type="button"
                   className="pjw-bulk__b pjw-bulk__b--go"
@@ -1179,6 +1233,16 @@ export default function Captures() {
                             <span><Icon name="film" size={13} strokeWidth={2} />{`${clips} ${clips === 1 ? 'video' : 'videos'}`}</span>
                           )}
                           <span><Icon name="calendar" size={13} strokeWidth={2} />{fmtWhen(it.session.createdAt)}</span>
+                          {(() => {
+                            const r = reelOf(it);
+                            if (!r || r.status === 'error') return null;
+                            return (
+                              <button type="button" className="pjw-reel" onClick={() => setReeling({ item: it, autoStart: false })}>
+                                {reelWorking(r) ? <span className="pj-spin" /> : <Icon name="play" size={11} />}
+                                {reelWorking(r) ? 'Making reel' : 'Reel'}
+                              </button>
+                            );
+                          })()}
                         </span>
                       </span>
                     </li>
@@ -1308,6 +1372,20 @@ export default function Captures() {
           onEditCapture={() => setAdding({ ...addingOf(openItem, []), itemId: openItem.id })}
           // the calendar opens the post's day in Day view (YourPlans reads `openPostDay` from the route state)
           onViewPost={(post) => { setOpen(null); navigate('/dashboard', { state: post?.date ? { openPostDay: String(post.date).slice(0, 10) } : {} }); }}
+          reel={reelOf(openItem)}
+          onReel={(fresh) => { setOpen(null); setReeling({ item: openItem, autoStart: fresh }); }}
+        />
+      )}
+      {reeling && (
+        <ReelStudio
+          key={reeling.item.id}
+          item={reeling.item}
+          autoStart={reeling.autoStart}
+          onReels={noteReels}
+          // a finished reel is on the calendar and its capture is now used
+          onDone={() => refreshProjects().catch(() => {})}
+          onViewPost={(post) => { setReeling(null); navigate('/dashboard', { state: post?.date ? { openPostDay: String(post.date).slice(0, 10) } : {} }); }}
+          onClose={() => setReeling(null)}
         />
       )}
       {adding && (

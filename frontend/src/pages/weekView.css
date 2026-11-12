@@ -10399,3 +10399,23 @@ i.shotedit__aa { font-style: italic; font-family: Georgia, serif; }
   .wv-edm__gridbar--count .wv-edm__gridsep,
   .wv-edm__gridbar--count b + .wv-edm__gridsep + span { display: none; }
 }
+
+/* A Reel made from a capture: the post is its video, at 9:16 (capped so the
+   card stays on screen), above the stub slide underneath */
+.wv-ig__photo.is-reel {
+  aspect-ratio: 9 / 16;
+  /* sized from the height cap, so the column's width cannot stretch it off 9:16 */
+  width: min(100%, calc(min(78vh, 720px) * 9 / 16));
+  max-height: none;
+  margin-inline: auto;
+  background: #000;
+}
+/* a reel has no slides to page through */
+.wv-ig:has(.wv-ig__photo.is-reel) .wv-ig__count,
+.wv-ig:has(.wv-ig__photo.is-reel) .wv-igm__nav,
+.wv-ig:has(.wv-ig__photo.is-reel) .wv-ig__dotrow { display: none; }
+.wv-ig__reelvideo {
+  position: absolute; inset: 0; width: 100%; height: 100%;
+  object-fit: cover; background: #000; z-index: 3;
+}
+.yw-peek__reel { width: 100%; height: 100%; object-fit: cover; display: block; background: #000; border-radius: inherit; }

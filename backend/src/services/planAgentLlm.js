@@ -81,6 +81,14 @@ const AGENTS = {
     providerEnv: 'PLAN_REEL_MIXER_PROVIDER',
     defaultModel: 'gpt-5.6-terra',
   },
+  // Captures › Generate reel — the Reel Director that cuts a capture's photos
+  // and clips into one reel (services/captureReelAgent.js). Sees the media.
+  captureReel: {
+    defaultProvider: 'openai',
+    modelEnv: 'PLAN_CAPTURE_REEL_MODEL',
+    providerEnv: 'PLAN_CAPTURE_REEL_PROVIDER',
+    defaultModel: 'gpt-5.6-terra',
+  },
   reelDirector: {
     defaultProvider: 'openai',
     modelEnv: 'PLAN_REEL_DIRECTOR_MODEL',

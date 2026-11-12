@@ -3183,6 +3183,7 @@ async function renderCover(req, res) {
 }
 
 module.exports = {
+  allowedWeekdaysFor,
   getRemixSources,
   readCompositionPicture,
   deletePost,
