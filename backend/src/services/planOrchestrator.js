@@ -5,6 +5,7 @@ const { brandKitColors, brandStylePalette, brandKitFonts, brandStyleFonts } = re
 const { carouselLayoutProblems } = require('./carouselLayoutCheck');
 const { carouselContrastFailures, makeCarouselReadable, fixAccentContrast } = require('./carouselContrastCheck');
 const { extractJson, estimatePlanCostUsd, assignToEmptyDates, normalizeLens } = require('./weeklyPlan');
+const postRemix = require('./postRemix');
 const { compileStrategyContext, assetsForDay, allocatedAssetsOf, sanitizeAllocatedAssets, applyAssetAllocation, knownAssetIndexOf, json } = require('./planContext');
 const { completeText, resolvePlanAgentLlm, splitPromptTemplate, reasoningEffortFor } = require('./llmComplete');
 const { ANNOTATIONS_ENABLED, asStoredText, asStoredLines, flattenSlide, layoutForStructure, mediaKeysOf, projectMediaKeysIn } = require('./slideContent');
@@ -2810,8 +2811,10 @@ async function writeCarousel({ source, structure, post, dayBrief, brand, dayWrit
     console.warn(`[planOrchestrator] ${source} photos skipped — ${err.message}`);
   }
   // an edited prompt (Debug › Edit prompt) already carries the note it was shown
-  const withPhotos = photos.note && !promptOverride
-    ? { ...assembled, user: `${assembled.user}\n\n${photos.note}`, prompt: `${assembled.prompt || ''}\n\n${photos.note}` }
+  // Post remix: the published post this carousel follows up
+  const extraNote = [photos.note, postRemix.carouselReferenceBlock(dayBrief?.referencePosts)].filter(Boolean).join('\n\n');
+  const withPhotos = extraNote && !promptOverride
+    ? { ...assembled, user: `${assembled.user}\n\n${extraNote}`, prompt: `${assembled.prompt || ''}\n\n${extraNote}` }
     : assembled;
   const inputCount = (carouselInput.slides || []).length;
   const validate = (parsed) => {
@@ -3629,8 +3632,14 @@ async function runStrategistPhase({
   sessionId = '',
   captureIds = [],
   userId = '',
+  referencePosts = null,
 }) {
   const started = Date.now();
+  // Post remix: the reference post's own images go to every Strategist call
+  const reference = referencePosts?.length
+    ? { posts: referencePosts, ...(await postRemix.referenceImages(referencePosts)) }
+    : null;
+  if (reference) console.log(`[planOrchestrator] @${profile?.username || '?'}: post remix of ${referencePosts.map((r) => r.id).join(', ')} · ${reference.images.length} reference images`);
   const username = profile?.username || '?';
   const ctx = compileStrategyContext({
     brandDna,
@@ -3682,7 +3691,7 @@ async function runStrategistPhase({
       const sameName = groups.filter((g) => g.project === group.project).length > 1;
       const source = `Strategist:${group.project || `capture ${i + 1}`}${sameName ? ` #${i + 1}` : ''}`;
       try {
-        return await runStrategistCall({ ctx: groupCtx, emptyDates, projects, source });
+        return await runStrategistCall({ ctx: groupCtx, emptyDates, projects, source, reference });
       } catch (err) {
         console.warn(`[planOrchestrator] ${source} failed — planning the other captures without it: ${err.message}`);
         return null;
@@ -3691,7 +3700,7 @@ async function runStrategistPhase({
     results.filter(Boolean).forEach((r) => calls.push(r));
     if (!calls.length) throw new Error(`Strategist failed for all ${groups.length} captures`);
   } else {
-    calls.push(await runStrategistCall({ ctx, emptyDates, projects, source: 'Strategist' }));
+    calls.push(await runStrategistCall({ ctx, emptyDates, projects, source: 'Strategist', reference }));
   }
 
   // Round-robin across the calls (each call's briefs stay in its own rank
@@ -3765,6 +3774,7 @@ async function runStrategistPhase({
     plannedDays,
     brandJson,
     visualBrand,
+    referencePosts: postRemix.referenceSummary(referencePosts),
     flags: {
       layoutOn: layoutAgentEnabled(),
       carouselOn: carouselAgentEnabled(),
@@ -3792,7 +3802,7 @@ function oneBriefPerCapture(briefs, source = 'Strategist') {
 
 // One Strategist call over a compiled context → its briefs, enriched from the
 // captures that context holds.
-async function runStrategistCall({ ctx, emptyDates, projects, source }) {
+async function runStrategistCall({ ctx, emptyDates, projects, source, reference = null }) {
   const captureCount = (ctx.projects?.conversationCaptures || []).length;
   const hasVideo = (ctx.projects?.conversationCaptures || []).some((c) => (c.videos || []).length);
   const assembled = withExtraRules(assembleAgentPrompt('plan-strategist.md', {
@@ -3816,12 +3826,19 @@ async function runStrategistCall({ ctx, emptyDates, projects, source }) {
     PROJECT_TRUTH_JSON: json(ctx.projects),
     ASSET_CONTEXT_JSON: json(ctx.assetContext || { projectAssets: [] }),
   }), 'plan-strategist-video.md', hasVideo);
+  // Post remix: the published post this plan builds on
+  const referenceNote = reference ? postRemix.strategistReferenceBlock(reference.posts, reference.labels) : '';
+  if (referenceNote) {
+    assembled.user = `${assembled.user}\n\n${referenceNote}`;
+    assembled.prompt = `${assembled.prompt || ''}\n\n${referenceNote}`;
+  }
   const ask = (user) => callAgent({
     source,
     kind: 'strategist',
     system: assembled.system,
     user,
     prompt: assembled.prompt,
+    ...(reference?.images?.length ? { images: reference.images } : {}),
     validate: (p) => validateStrategist(p),
   });
   const briefsOf = (parsed) => oneBriefPerCapture(enrichBriefsFromCaptures(
@@ -3993,6 +4010,7 @@ async function writePlanDay(phase, projects, planned, index) {
     knownLimitation: planned.knownLimitation || '',
     hashtags: planned.hashtags || [],
     recommendedTime: planned.recommendedTime || '',
+    ...(phase.referencePosts ? { referencePosts: phase.referencePosts } : {}),
   };
   const dayAssets = (() => {
     const rows = assetsForDay(projects, brief);

@@ -18,6 +18,7 @@ export const NAV_ITEMS = [
 // Nav items that only appear when their experimental feature flag is on.
 const FLAGGED_NAV_ITEMS = [
   { to: '/dashboard/reel-editor', label: 'Reel editor', icon: 'clapperboard', flag: 'reelEditor' },
+  { to: '/dashboard/remix', label: 'Post remix', icon: 'repeat-2', flag: 'postRemix' },
 ];
 
 // The nav the current browser should see — base items plus any enabled

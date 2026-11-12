@@ -9,6 +9,7 @@ const KEYS = {
   reelEditor: 'bauhly.ff.reelEditor',
   linkedin: 'bauhly.ff.linkedin',
   htmlThemes: 'bauhly.ff.htmlThemes',
+  postRemix: 'bauhly.ff.postRemix',
 };
 
 function readBool(key, fallback = false) {
@@ -26,6 +27,7 @@ let state = {
   reelEditor: readBool(KEYS.reelEditor, false),
   linkedin: readBool(KEYS.linkedin, false),
   htmlThemes: readBool(KEYS.htmlThemes, false),
+  postRemix: readBool(KEYS.postRemix, false),
 };
 
 const listeners = new Set();
@@ -41,6 +43,7 @@ function setState(patch) {
     if ('reelEditor' in patch) localStorage.setItem(KEYS.reelEditor, state.reelEditor ? '1' : '0');
     if ('linkedin' in patch) localStorage.setItem(KEYS.linkedin, state.linkedin ? '1' : '0');
     if ('htmlThemes' in patch) localStorage.setItem(KEYS.htmlThemes, state.htmlThemes ? '1' : '0');
+    if ('postRemix' in patch) localStorage.setItem(KEYS.postRemix, state.postRemix ? '1' : '0');
   } catch {
     // best-effort local cache only
   }
@@ -70,6 +73,11 @@ export function setLinkedInEnabled(next) {
 // Editor ⋯ › Theme › HTML themes (experimental interior templates)
 export function setHtmlThemesEnabled(next) {
   setState({ htmlThemes: Boolean(next) });
+}
+
+// Post remix tab (last 3 Instagram posts → Capture → new carousel)
+export function setPostRemixEnabled(next) {
+  setState({ postRemix: Boolean(next) });
 }
 
 export function useFeatureFlags() {

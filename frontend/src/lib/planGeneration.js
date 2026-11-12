@@ -86,6 +86,10 @@ function newJob(trigger, extras, status) {
     message: '',
     needsInput: false,
     seen: false,
+    // what a retry must send again (Post remix: its capture + reference post)
+    replay: (extras?.referencePostIds?.length || extras?.referencePostId)
+      ? { captureIds: extras.captureIds || [], referencePostIds: extras.referencePostIds || [extras.referencePostId] }
+      : null,
   };
 }
 function patchJob(id, patch) {
@@ -123,7 +127,7 @@ export function retryGenJob(id) {
   const j = snapshot.jobs.find((x) => x.id === id);
   if (!j) return null;
   clearGenJob(id);
-  return startPlanGeneration(j.trigger || 'generate', { label: j.label }).catch(() => null);
+  return startPlanGeneration(j.trigger || 'generate', { label: j.label, ...(j.replay || {}) }).catch(() => null);
 }
 
 /* ── VIEW POST: the calendar opens the post's day in Day view (YourPlans listens) ─────────────────────────────── */

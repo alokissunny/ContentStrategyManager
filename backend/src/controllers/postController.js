@@ -33,6 +33,7 @@ const { runTag, queueDebug } = require('../services/planRunLog');
 const { ownedMediaKeys, clearScheduleFields } = require('../services/metaPublish');
 const { annotatePostPhotos } = require('../services/photoFocusAgent');
 const { notifyPlanFinished } = require('../services/pushNotify');
+const postRemix = require('../services/postRemix');
 const { isValidCarouselLayout } = require('../services/runtimeSettings');
 const {
   logPlanInstagramSource,
@@ -218,6 +219,7 @@ function planOptionsOf(inputs, userId, planSource = {}) {
     sessionId: planSource.sessionId || '',
     captureIds: planSource.captureIds || [],
     userId,
+    referencePosts: planSource.referencePosts || null,
   };
 }
 
@@ -387,6 +389,27 @@ async function getPostDebug(req, res) {
   res.json({ agentTrace: post.agentTrace || {} });
 }
 
+// GET /posts/remix-sources — Post remix (experimental): the handle's last 10
+// Instagram posts with their images. `?refresh=1` re-reads Instagram.
+async function getRemixSources(req, res) {
+  const profile = await currentProfile(req.user._id).select('username').lean();
+  if (!profile) return res.json({ posts: [], username: null });
+  try {
+    const snapshot = await postRemix.loadRemixPosts(req.user._id, profile.username, {
+      refresh: req.query.refresh === '1' || req.query.refresh === 'true',
+    });
+    res.json({
+      posts: await postRemix.remixPostsForClient(snapshot),
+      username: profile.username,
+      source: snapshot.source || '',
+      fetchedAt: snapshot.fetchedAt || null,
+    });
+  } catch (err) {
+    console.error(`[posts] remix sources for @${profile.username} failed:`, err.message);
+    res.status(502).json({ message: 'We could not read your recent Instagram posts just now. Please try again.' });
+  }
+}
+
 // POST /posts/generate — fill empty calendar slots for the current handle.
 async function generatePlan(req, res) {
   const profile = await currentProfile(req.user._id);
@@ -416,6 +439,21 @@ async function generatePlan(req, res) {
   }
   const allowedWeekdays = allowedWeekdaysFor(profile);
   const pubRule = readPublishingRule(profile);
+  // Post remix (experimental): build on one of the last 10 published posts
+  // (`referencePostIds` — one or several; `referencePostId` kept for a single pick)
+  const referencePostIds = (Array.isArray(req.body?.referencePostIds) ? req.body.referencePostIds : [req.body?.referencePostId])
+    .map((id) => String(id || '').trim().slice(0, 200)).filter(Boolean).slice(0, postRemix.MAX_REFERENCE_POSTS);
+  const referencePosts = referencePostIds.length
+    ? await postRemix.referencePostsFor(req.user._id, profile.username, referencePostIds)
+    : null;
+  if (referencePostIds.length && !referencePosts) {
+    return res.status(404).json({ message: 'A post you picked is no longer in your last 10 posts. Refresh the list and pick it again.' });
+  }
+  // the post's own photos / video become the remix capture's assets
+  if (referencePosts && captureIds[0]) {
+    await postRemix.attachReferencesMedia(req.user._id, profile.username, captureIds[0], referencePosts)
+      .catch((e) => console.error('[posts] could not attach the reference post media:', e.message));
+  }
   console.log(`[posts] POST /posts/generate trigger=${trigger} user=${req.user._id} @${profile.username}` +
     (sessionId ? ` session=${sessionId}` : '') +
     ` publish=${pubRule.mode}${allowedWeekdays ? `[${allowedWeekdays.join(',')}]` : '(any day)'}`);
@@ -423,7 +461,8 @@ async function generatePlan(req, res) {
   // Queued path (PLAN_QUEUE): answer at once with a run id the client polls
   // (GET /posts/runs/:runId). If Redis is unreachable, fall through and
   // generate synchronously as before.
-  if (planQueueEnabledFor(req.user._id)) {
+  // (a remix runs synchronously — the queued path does not carry the reference post)
+  if (!referencePosts && planQueueEnabledFor(req.user._id)) {
     try {
       const { run, reused } = await enqueuePlanRun({
         userId: req.user._id,
@@ -441,6 +480,7 @@ async function generatePlan(req, res) {
     sessionId,
     captureIds,
     allowedWeekdays,
+    referencePosts,
   });
   if (emptyReason && !count) {
     const out = { message: emptyReason };
@@ -3143,6 +3183,7 @@ async function renderCover(req, res) {
 }
 
 module.exports = {
+  getRemixSources,
   readCompositionPicture,
   deletePost,
   generateAndSavePosts,

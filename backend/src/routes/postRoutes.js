@@ -10,6 +10,7 @@ const {
   getPostOptions,
   getPostDebug,
   generatePlan,
+  getRemixSources,
   getPlanRun,
   getActivePlanRun,
   clearUpcoming,
@@ -50,6 +51,8 @@ router.get('/theme-references', asyncHandler(listThemeReferences));
 router.get('/theme-jobs/:jobId', asyncHandler(getThemeApplyJob));
 router.delete('/theme-references/:refId', asyncHandler(deleteThemeReference));
 router.post('/generate', aiLimit('heavy'), asyncHandler(generatePlan));
+// Post remix (experimental): the last 10 Instagram posts to build on
+router.get('/remix-sources', aiLimit('heavy'), asyncHandler(getRemixSources));
 // Queued generation runs (PLAN_QUEUE) — before '/:id' so "runs" isn't read as a post id.
 router.get('/runs/active', asyncHandler(getActivePlanRun));
 router.get('/runs/:runId', asyncHandler(getPlanRun));

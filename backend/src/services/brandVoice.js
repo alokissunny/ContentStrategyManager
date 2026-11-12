@@ -557,6 +557,12 @@ function brandVoiceForMemory(bv) {
 
 module.exports = {
   VOICE_KEYS,
+  // reused by services/postRemix.js
+  cachedPostsThisMonth,
+  fetchRecentPosts,
+  plainPost,
+  preparePostMedia,
+  download,
   buildBrandVoice,
   hasBrandVoice,
   brandVoiceForMemory,

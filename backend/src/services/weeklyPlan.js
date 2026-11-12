@@ -1010,6 +1010,8 @@ function multiAgentArgsOf(pre, profile, brandDna, competitorInsights, projects, 
     sessionId: options.sessionId || '',
     captureIds: options.captureIds || [],
     userId: options.userId || '',
+    // Post remix: the published post(s) this plan builds on (services/postRemix.js)
+    referencePosts: options.referencePosts || null,
   };
 }
 

@@ -17,7 +17,7 @@ import { getMetaStatus, startMetaConnect, disconnectMeta, metaConnectionFor, rem
 import { syncHandle } from '../lib/store';
 import { resetProjects } from '../lib/projectsStore';
 import { useAiDebug, setAiDebugEnabled, clearAiDebugEntries } from '../lib/aiDebug';
-import { useFeatureFlags, setVideoCoverEnabled, setReelEditorEnabled, setLinkedInEnabled, setHtmlThemesEnabled } from '../lib/featureFlags';
+import { useFeatureFlags, setVideoCoverEnabled, setReelEditorEnabled, setLinkedInEnabled, setHtmlThemesEnabled, setPostRemixEnabled } from '../lib/featureFlags';
 import { getCarouselLayout, updateCarouselLayout, getBrandVoiceModel, getCarouselModel, getStrategistModel, getThemeApplyPhotoMode, getThemeRegionsModel, updateBrandVoiceModel, updateCarouselModel, updateStrategistModel, updateThemeApplyPhotoMode, updateThemeRegionsModel } from '../api/settings';
 import LinkedInSettings from '../components/LinkedInSettings';
 import './settings.css';
@@ -973,6 +973,28 @@ export default function Settings() {
               aria-checked={flags.reelEditor}
               aria-label={`${flags.reelEditor ? 'Disable' : 'Enable'} reel editor`}
               onClick={() => setReelEditorEnabled(!flags.reelEditor)}
+            >
+              <i aria-hidden="true" />
+            </button>
+          </span>
+        </div>
+        <div className="set-row">
+          <span className="set-row__ico"><Icon name="image-find" size={19} /></span>
+          <span className="set-row__main">
+            <b className="set-row__title">Post remix</b>
+            <span className="set-row__sub">
+              {flags.postRemix
+                ? 'On · a “Post remix” page appears in the sidebar'
+                : 'Off · pick one of your last 3 Instagram posts, add something new through Capture, and get a fresh carousel that builds on it'}
+            </span>
+          </span>
+          <span className="set-row__acts">
+            <button
+              className={`set-switch ${flags.postRemix ? 'is-on' : ''}`}
+              role="switch"
+              aria-checked={flags.postRemix}
+              aria-label={`${flags.postRemix ? 'Disable' : 'Enable'} post remix`}
+              onClick={() => setPostRemixEnabled(!flags.postRemix)}
             >
               <i aria-hidden="true" />
             </button>

@@ -133,6 +133,12 @@ export function getPost(id) {
   return p;
 }
 
+// Post remix (experimental): the handle's last 3 Instagram posts → { posts, username }
+export function getRemixSources({ refresh = false } = {}) {
+  return client.get('/posts/remix-sources', { params: refresh ? { refresh: 1 } : {}, timeout: 3 * 60 * 1000 })
+    .then((res) => res.data || { posts: [] });
+}
+
 // Fill empty calendar slots with fresh posts from the latest analysis.
 // Optional `trigger` is logged server-side. → { posts, count, ... }
 export function generatePlan(trigger = 'generate', extras = {}) {
@@ -145,6 +151,10 @@ export function generatePlan(trigger = 'generate', extras = {}) {
   // Fill only the studio's chosen publishing weekdays (Distribute panel), so a
   // fresh post takes the next allowed slot rather than the next calendar day.
   if (extras.mode) body.mode = extras.mode;
+  // Post remix: the published post(s) the new carousel builds on
+  if (Array.isArray(extras.referencePostIds) && extras.referencePostIds.length) {
+    body.referencePostIds = extras.referencePostIds.map(String);
+  } else if (extras.referencePostId) body.referencePostId = String(extras.referencePostId);
   if (Array.isArray(extras.days)) body.days = extras.days;
   return client.post('/posts/generate', body, { timeout: 10 * 60 * 1000 }).then(async (res) => {
     let data = res.data || {};

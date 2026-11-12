@@ -1737,6 +1737,7 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
         after(d + 700, () => onCaptured({
           projectId: pid,
           projectName: name,
+          captureId: made?.captureId || null,
           text,
           attachments: (c.attachments || []).map((a) => ({ key: a.key, type: a.type, url: a.url })),
           understanding: c.understanding,
@@ -1767,6 +1768,7 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
     return {
       projectId: saved?.id,
       projectName: saved?.name,
+      captureId: saved?.captureId || null,
       text: c.text || '',
       attachments: (c.attachments || []).map((a) => ({ key: a.key, type: a.type, url: a.url })),
       understanding: c.understanding,
