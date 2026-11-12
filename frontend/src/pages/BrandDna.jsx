@@ -681,7 +681,11 @@ export default function BrandDna() {
       })),
     [map],
   );
-  const hasMemory = groups.some((g) => g.text) || Boolean(voice);
+  const hasDna = groups.some((g) => g.text);
+  const hasMemory = hasDna || Boolean(voice);
+  // A report exists but every Brand DNA field is empty (e.g. the analysis came
+  // back without its Brand Profile block) → offer to rebuild it from the snapshot.
+  const canRerun = Boolean(reportId) && !notFound && !hasDna;
   const visibleGaps = notFound ? [] : gaps;
 
   async function clearMemory() {
@@ -800,9 +804,10 @@ export default function BrandDna() {
     </form>
   ) : null;
 
-  const status = (error || flash) ? (
-    <p className={`bm-status${error ? ' is-err' : ''}`} role="status">
-      {translate(error || flash)}
+  const statusText = error || (canRerun ? rerunError : '') || flash;
+  const status = statusText ? (
+    <p className={`bm-status${statusText !== flash ? ' is-err' : ''}`} role="status">
+      {translate(statusText)}
     </p>
   ) : null;
 
@@ -819,6 +824,17 @@ export default function BrandDna() {
         </div>
         {reportId || hasMemory ? (
           <div className="bm-head__acts">
+            {canRerun ? (
+              <button
+                type="button"
+                className="btn btn--primary bm-clear-btn"
+                onClick={runAnalysisAgain}
+                disabled={rerunning}
+                title="Analyse this account again from its saved Instagram snapshot and fill the empty Brand DNA"
+              >
+                {rerunning ? 'Analysing account… (about a minute)' : 'Run analysis'}
+              </button>
+            ) : null}
             {reportId && !notFound ? (
               <button
                 type="button"
