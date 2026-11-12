@@ -42,9 +42,11 @@ const { brandKitColors, brandKitFonts } = require('./brandKitColors');
 const { loadBrandDna } = require('./planInputs');
 const { toVisionImage } = require('./visionImage');
 const { recordBackgroundDebug } = require('./aiDebugLog');
+const styleRun = require('./reelStyleRun');
 
 const run = promisify(execFile);
 const PROMPT_FILE = path.join(__dirname, '..', '..', 'prompts', 'capture-reel.md');
+const STYLE_RULES_FILE = path.join(__dirname, '..', '..', 'prompts', 'capture-reel-style.md');
 const REMOTION_DIR = path.join(__dirname, '..', '..', 'remotion');
 
 const FPS = 30;
@@ -53,6 +55,7 @@ const HEIGHT = 1920;
 const MAX_ASSETS = 18;
 const MAX_VISION_IMAGES = 12;
 const MAX_SCENES = 18;
+const MAX_STYLED_SCENES = 40; // fast-cut styles
 const VOICE_LEAD = 0.15; // the voice starts a beat after frame 0
 const CTA_SEC = 2.1;
 const HOOK_MIN = 1.3;
@@ -285,7 +288,7 @@ const TOOL = {
   description: 'The cut list for one Instagram reel made from this capture.',
   input_schema: obj({
     concept: { type: 'string' },
-    audioMode: { type: 'string', enum: ['voiceover', 'original'] },
+    audioMode: { type: 'string', enum: ['voiceover', 'original', 'music'] },
     voice: obj({ name: { type: 'string', enum: VOICES }, direction: { type: 'string' } }),
     hook: obj({ text: { type: 'string' }, emphasis: { type: 'string' } }),
     scenes: {
@@ -296,6 +299,8 @@ const TOOL = {
         durationSec: { type: 'number' },
         voiceLine: { type: 'string' },
         kicker: { type: 'string' },
+        overlayText: { type: 'string' },
+        cardNumber: { type: 'integer' },
         motion: { type: 'string', enum: MOTIONS },
         transition: { type: 'string', enum: TRANSITIONS },
         focusX: { type: 'number' },
@@ -320,14 +325,27 @@ function assetsForPrompt(assets) {
 
 const wordsIn = (s) => String(s || '').split(/\s+/).filter(Boolean);
 
-function normalizePlan(raw, assets) {
+function normalizePlan(raw, assets, style = null) {
   const byId = new Map(assets.map((a) => [a.id, a]));
   const p = raw && typeof raw === 'object' ? raw : {};
+  const cardsOn = Boolean(style?.chapters?.numbered) && style?.chapters?.card === 'white-card';
+  const overlayOf = (v) => (style
+    ? str(v, 90).split(/\s*(?:\n|\|)\s*/).map((l) => wordsIn(l).join(' ')).filter(Boolean).join(' | ')
+      .split(' ').slice(0, 10).join(' ')
+    : '');
   const scenes = (Array.isArray(p.scenes) ? p.scenes : []).map((s) => {
+    if (cardsOn && str(s?.assetId, 8).toUpperCase() === 'CARD' && Number(s.cardNumber) > 0) {
+      return {
+        assetId: 'CARD', card: true, cardNumber: Math.min(20, Math.round(Number(s.cardNumber))),
+        startSec: 0, durationSec: clampN(num(s.durationSec, 1.8), 1, 3),
+        voiceLine: str(s.voiceLine, 260), kicker: '', overlayText: overlayOf(s.overlayText),
+        motion: 'none', transition: 'cut', focusX: 50, focusY: 50,
+      };
+    }
     const a = byId.get(str(s?.assetId, 8));
     if (!a) return null;
     let start = a.kind === 'video' ? clampN(num(s.startSec), 0, Math.max(0, a.durationSec - 0.5)) : 0;
-    let dur = clampN(num(s.durationSec, 2), 0.8, a.kind === 'video' ? 8 : 4);
+    let dur = clampN(num(s.durationSec, 2), style ? 0.3 : 0.8, a.kind === 'video' ? 8 : (style ? 6 : 4));
     if (a.kind === 'video' && start + dur > a.durationSec) {
       start = Math.max(0, a.durationSec - dur);
       dur = Math.min(dur, a.durationSec - start);
@@ -337,29 +355,75 @@ function normalizePlan(raw, assets) {
       startSec: Math.round(start * 100) / 100,
       durationSec: Math.round(dur * 100) / 100,
       voiceLine: str(s.voiceLine, 260),
-      kicker: wordsIn(str(s.kicker, 28)).slice(0, 4).join(' '),
+      kicker: style ? '' : wordsIn(str(s.kicker, 28)).slice(0, 4).join(' '),
+      overlayText: overlayOf(s.overlayText),
       motion: MOTIONS.includes(s.motion) ? s.motion : (a.kind === 'video' ? 'none' : 'push-in'),
       transition: TRANSITIONS.includes(s.transition) ? s.transition : 'cut',
       focusX: Math.round(clampN(num(s.focusX, 50), 0, 100)),
       focusY: Math.round(clampN(num(s.focusY, 45), 0, 100)),
     };
-  }).filter(Boolean).slice(0, MAX_SCENES);
-  if (scenes.length < 2 && assets.length >= 2) throw new Error('The director returned fewer than two usable shots.');
+  }).filter(Boolean).slice(0, style ? MAX_STYLED_SCENES : MAX_SCENES);
+  if (scenes[0]?.card) scenes.push(scenes.shift()); // never open on a chapter card
+  // a styled plan that holds one shot (a single-take reference) becomes a slow
+  // sequence of the capture's photos — one still cannot carry a long take
+  if (style && scenes.filter((x) => !x.card).length < 2 && assets.length >= 2) {
+    const first = scenes.find((x) => !x.card) || null;
+    const asked = scenes.reduce((n, x) => n + x.durationSec, 0);
+    const total = clampN(Math.max(asked, num(style.pacing?.targetLengthSec, 12)), 8, 30);
+    const n = clampN(Math.round(total / 5), 2, Math.min(5, assets.length));
+    const pool = assets.filter((a) => a.id !== first?.assetId)
+      .sort((a, b) => (a.kind === 'image' ? 0 : 1) - (b.kind === 'image' ? 0 : 1));
+    const moves = ['push-in', 'pan-left', 'pull-out', 'pan-right'];
+    const per = Math.round((total / n) * 100) / 100;
+    const seq = [];
+    for (let i = 0; i < n; i += 1) {
+      const a = i === 0 && first ? byId.get(first.assetId) : pool[(i - (first ? 1 : 0)) % pool.length];
+      seq.push({
+        ...(i === 0 && first ? first : {
+          assetId: a.id, startSec: 0, voiceLine: '', kicker: '', overlayText: '', transition: 'cut', focusX: 50, focusY: 45,
+        }),
+        assetId: a.id,
+        durationSec: a.kind === 'video' ? Math.min(per, a.durationSec) : Math.min(per, 6),
+        motion: a.kind === 'video' ? 'none' : moves[i % moves.length],
+      });
+    }
+    scenes.splice(0, scenes.length, ...seq, ...scenes.filter((x) => x.card));
+  }
+  if (scenes.filter((x) => !x.card).length < 2 && assets.length >= 2) throw new Error('The director returned fewer than two usable shots.');
   if (!scenes.length) throw new Error('The director returned no usable shots.');
   scenes[0].kicker = '';
   scenes[0].transition = 'cut';
   let kickers = 0;
   scenes.forEach((s) => { if (s.kicker && ++kickers > 4) s.kicker = ''; });
 
-  const talking = scenes.some((s) => byId.get(s.assetId).kind === 'video' && byId.get(s.assetId).words?.length);
-  let audioMode = p.audioMode === 'original' && talking ? 'original' : 'voiceover';
+  const talking = scenes.some((s) => !s.card && byId.get(s.assetId).kind === 'video' && byId.get(s.assetId).words?.length);
+  const musicLed = style?.audio?.mode === 'music';
+  let audioMode = musicLed ? 'music' : (p.audioMode === 'original' && talking ? 'original' : 'voiceover');
   const voiceWords = scenes.reduce((n, s) => n + wordsIn(s.voiceLine).length, 0);
+  if (musicLed) {
+    scenes.forEach((x) => { x.voiceLine = ''; });
+    // no narration is tied to the picture: a photo repeated back-to-back is
+    // swapped for the least-used other one (a repeated still is a dead cut)
+    const used = new Map();
+    scenes.forEach((x) => used.set(x.assetId, (used.get(x.assetId) || 0) + 1));
+    for (let i = 1; i < scenes.length; i += 1) {
+      const cur = scenes[i];
+      if (cur.card || cur.assetId !== scenes[i - 1].assetId || byId.get(cur.assetId)?.kind !== 'image') continue;
+      const spare = assets.filter((a) => a.id !== cur.assetId && a.id !== scenes[i + 1]?.assetId)
+        .sort((a, b) => (used.get(a.id) || 0) - (used.get(b.id) || 0))[0];
+      if (!spare) continue;
+      used.set(cur.assetId, used.get(cur.assetId) - 1);
+      used.set(spare.id, (used.get(spare.id) || 0) + 1);
+      Object.assign(cur, { assetId: spare.id, startSec: 0 });
+    }
+  }
+  if (audioMode === 'original') scenes.forEach((x) => { if (x.card) x.card = false; });
   if (audioMode === 'voiceover' && voiceWords < 6) {
     if (talking) audioMode = 'original';
     else throw new Error('The director wrote no narration.');
   }
 
-  const hookText = wordsIn(str(p.hook?.text, 80)).slice(0, 9).join(' ');
+  const hookText = wordsIn(str(p.hook?.text, 120)).slice(0, style ? 14 : 9).join(' ');
   const emph = str(p.hook?.emphasis, 30);
   const hookWords = wordsIn(hookText).map((w) => w.toLowerCase().replace(/[^\p{L}\p{N}']/gu, ''));
   const emphasis = hookWords.includes(emph.toLowerCase().replace(/[^\p{L}\p{N}']/gu, '')) ? emph : '';
@@ -380,8 +444,13 @@ function normalizePlan(raw, assets) {
   };
 }
 
-async function directReel({ material, handle, brand, direction }) {
-  const { system, userTemplate } = splitPromptTemplate(loadPrompt());
+async function directReel({ material, handle, brand, direction, style = null }) {
+  const split = splitPromptTemplate(loadPrompt());
+  // a chosen reel style adds its rules to the system prompt and its spec to the data
+  const system = style ? `${split.system}\n\n${fs.readFileSync(STYLE_RULES_FILE, 'utf8')}` : split.system;
+  const userTemplate = style
+    ? `${split.userTemplate}\n\nREEL STYLE (follow its pattern, not its words):\n${JSON.stringify(styleRun.styleBriefOf(style), null, 2)}`
+    : split.userTemplate;
   const user = fill(userTemplate, {
     HANDLE: handle ? `@${handle}` : '(no handle connected)',
     BRAND_JSON: JSON.stringify(brand || {}, null, 2),
@@ -406,21 +475,30 @@ async function directReel({ material, handle, brand, direction }) {
   const inputTokens = num(usage.input_tokens);
   const outputTokens = num(usage.output_tokens);
   const costUsd = estimatePlanCostUsd(res.model, inputTokens, outputTokens, num(usage.cached_tokens));
+  const debug = {
+    source: 'Capture reel — director',
+    model: res.model,
+    prompt: `${system}\n\n---\n\n${user}\n\n[${images.filter((x) => x.type === 'image').length} image(s) attached]`,
+    output: JSON.stringify(res.parsed, null, 2),
+    elapsedMs: Date.now() - started,
+    inputTokens,
+    outputTokens,
+    costUsd,
+  };
+  let plan;
+  try {
+    plan = normalizePlan(res.parsed, material.assets, style);
+  } catch (err) {
+    // the rejected cut list goes to the debug panel with the error
+    err.debug = { ...debug, note: `rejected: ${err.message}` };
+    throw err;
+  }
   return {
-    plan: normalizePlan(res.parsed, material.assets),
+    plan,
     raw: res.parsed,
     model: res.model,
     costUsd,
-    debug: {
-      source: 'Capture reel — director',
-      model: res.model,
-      prompt: `${system}\n\n---\n\n${user}\n\n[${images.filter((x) => x.type === 'image').length} image(s) attached]`,
-      output: JSON.stringify(res.parsed, null, 2),
-      elapsedMs: Date.now() - started,
-      inputTokens,
-      outputTokens,
-      costUsd,
-    },
+    debug,
   };
 }
 
@@ -573,9 +651,10 @@ async function letterboxOf(key, startSec, durSec) {
 // its shot, and for the end card's backdrop.
 const stillNear = (asset, t) => asset.stills.slice().sort((a, b) => Math.abs(a.t - t) - Math.abs(b.t - t))[0] || null;
 
-async function buildTimeline({ plan, material, voice, voiceUrl, brand }) {
+async function buildTimeline({ plan, material, voice, voiceUrl, brand, style = null, music = null }) {
   const byId = new Map(material.assets.map((a) => [a.id, a]));
-  const shots = [];
+  const look = style ? styleRun.lookOf(style) : null;
+  let shots = [];
   const captionWords = [];
   let voEnd;
 
@@ -597,10 +676,25 @@ async function buildTimeline({ plan, material, voice, voiceUrl, brand }) {
       shots.push({ scene: s, start: starts[i], dur: Math.max(0.5, end - starts[i]), volume: 0 });
     });
     voice.words.forEach((w) => captionWords.push({ text: w.text, start: w.start + VOICE_LEAD, end: w.end + VOICE_LEAD }));
+    if (style) shots = styleRun.splitFastShots(shots, { shotSec: style.pacing?.shotSec, assets: material.assets, hookHoldSec: num(style.pacing?.hookHoldSec, 0), everyShot: style.text?.perShot === 'every-shot' });
+  } else if (plan.audioMode === 'music') {
+    // music-led: the director's shot lengths, the opener held, cuts on the beat
+    let t = 0;
+    plan.scenes.forEach((s, i) => {
+      const dur = i === 0 ? Math.max(s.durationSec, clampN(num(style?.pacing?.hookHoldSec, 1.5), 0.8, 3)) : s.durationSec;
+      shots.push({ scene: s, start: t, dur, volume: 0 });
+      t += dur;
+    });
+    if (style?.pacing?.beatSync && music?.beats) {
+      const snapped = styleRun.snapToBeats(shots, music.beats, { shotSec: style.pacing.shotSec });
+      shots = shots.map((sh, i) => ({ ...sh, ...snapped[i] }));
+    }
+    voEnd = t;
   } else {
     let t = 0;
     plan.scenes.forEach((s) => {
       const a = byId.get(s.assetId);
+      if (!a) return;
       const dur = a.kind === 'video' ? s.durationSec : Math.min(s.durationSec, 1.6);
       shots.push({ scene: s, start: t, dur, volume: a.kind === 'video' ? 1 : 0 });
       if (a.kind === 'video' && a.words?.length) {
@@ -613,12 +707,24 @@ async function buildTimeline({ plan, material, voice, voiceUrl, brand }) {
     voEnd = t;
   }
 
-  const ctaStart = shots.length ? shots[shots.length - 1].start + shots[shots.length - 1].dur : voEnd;
-  const total = ctaStart + (plan.cta.line ? CTA_SEC : 0.3);
+  const endCard = look ? look.endCard : 'card';
+  const lastEnd = shots.length ? shots[shots.length - 1].start + shots[shots.length - 1].dur : voEnd;
+  const hasCta = Boolean(plan.cta.line) && endCard !== 'none';
+  // text-on-shot: the last shot is held a beat longer and carries the CTA
+  if (hasCta && endCard === 'text-on-shot' && shots.length) shots[shots.length - 1].dur += CTA_SEC;
+  const ctaStart = endCard === 'text-on-shot' ? lastEnd : lastEnd;
+  const total = hasCta ? lastEnd + CTA_SEC : lastEnd + 0.3;
 
   // every shot's media is prepared at once (S3 reads, JPEG copies, band checks)
   const scenes = await Promise.all(shots.map(async (sh) => {
     const a = byId.get(sh.scene.assetId);
+    if (sh.scene.card || !a) {
+      return {
+        from: frames(sh.start), durationInFrames: Math.max(1, frames(sh.start + sh.dur) - frames(sh.start)),
+        kind: 'card', src: '', motion: 'none', transition: 'cut',
+        cardNumber: sh.scene.cardNumber || 1, cardTitle: sh.scene.overlayText || '',
+      };
+    }
     const base = {
       from: frames(sh.start),
       durationInFrames: Math.max(1, frames(sh.start + sh.dur) - frames(sh.start)),
@@ -627,6 +733,7 @@ async function buildTimeline({ plan, material, voice, voiceUrl, brand }) {
       focusX: sh.scene.focusX,
       focusY: sh.scene.focusY,
       ...(sh.scene.kicker ? { kicker: sh.scene.kicker } : {}),
+      ...(sh.scene.overlayText ? { overlayText: sh.scene.overlayText } : {}),
     };
     const still = (key) => imageSrc(key).then((src) => ({ ...base, kind: 'image', src, motion: base.motion === 'none' ? 'push-in' : base.motion }));
     if (a.kind !== 'video') return still(a.key);
@@ -643,7 +750,7 @@ async function buildTimeline({ plan, material, voice, voiceUrl, brand }) {
   }));
 
   // end card backdrop: the opening shot again (a loop back to the hook)
-  if (plan.cta.line) {
+  if (hasCta && endCard === 'card') {
     const first = byId.get(plan.scenes[0].assetId);
     const still = first.kind === 'video' ? stillNear(first, plan.scenes[0].startSec) : null;
     const key = first.kind === 'image' ? first.key : still?.key;
@@ -659,7 +766,9 @@ async function buildTimeline({ plan, material, voice, voiceUrl, brand }) {
     }
   }
 
-  const hookSec = clampN(0.55 + wordsIn(plan.hook.text).length * 0.22, HOOK_MIN, HOOK_MAX);
+  const hookSec = style
+    ? clampN(num(style.pacing?.hookHoldSec, 1.6), 1.1, 3.2)
+    : clampN(0.55 + wordsIn(plan.hook.text).length * 0.22, HOOK_MIN, HOOK_MAX);
   const accent = brand.accent || '#FFFFFF';
   const lit = liftAccent(accent);
   return {
@@ -673,9 +782,15 @@ async function buildTimeline({ plan, material, voice, voiceUrl, brand }) {
     ...(plan.hook.text ? { hook: { text: plan.hook.text, emphasis: plan.hook.emphasis, durationInFrames: frames(hookSec) } } : {}),
     scenes,
     // captions stay off the end card
-    captions: captionCues(captionWords.filter((w) => w.start < ctaStart)),
-    ...(plan.cta.line ? { cta: { line: plan.cta.line, sub: plan.cta.sub, fromFrame: frames(ctaStart), durationInFrames: frames(total) - frames(ctaStart) } } : {}),
-    ...(voiceUrl ? { audio: { voiceoverSrc: voiceUrl, voiceVolume: 1, startFrame: frames(VOICE_LEAD) } } : {}),
+    captions: look?.captions === 'none' ? [] : captionCues(captionWords.filter((w) => w.start < ctaStart)),
+    ...(hasCta ? { cta: { line: plan.cta.line, sub: plan.cta.sub, fromFrame: frames(ctaStart), durationInFrames: frames(total) - frames(ctaStart) } } : {}),
+    ...((voiceUrl || music?.url) ? {
+      audio: {
+        ...(voiceUrl ? { voiceoverSrc: voiceUrl, voiceVolume: 1, startFrame: frames(VOICE_LEAD) } : {}),
+        ...(music?.url ? { musicSrc: music.url, musicVolume: plan.audioMode === 'music' ? 0.9 : 0.13 } : {}),
+      },
+    } : {}),
+    ...(look ? { look } : {}),
   };
 }
 
@@ -764,11 +879,21 @@ async function runCaptureReel(reelId) {
       voice: dna.brandVoice && typeof dna.brandVoice === 'object' ? dna.brandVoice : undefined,
     }).filter(([, v]) => v)) : {};
 
+    const styleDoc = reel.styleId ? await require('../models/ReelStyle').findById(reel.styleId).lean() : null;
+    const style = styleDoc?.status === 'ready' ? styleDoc.style : null;
+    if (reel.styleId && !style) throw userError('That reel style is not available any more. Pick another.');
+
     await stage(reel, 'writing', clock);
-    const directed = await directReel({ material, handle, brand: brandForPrompt, direction: reel.direction });
+    const directed = await directReel({ material, handle, brand: brandForPrompt, direction: reel.direction, style });
     ledger.add(directed.debug);
     model = directed.model;
     const { plan } = directed;
+
+    // the style's music bed is generated while the voice is recorded
+    const wantsMusic = style && style.audio?.mode !== 'voiceover' && plan.audioMode !== 'original';
+    const musicJob = wantsMusic
+      ? styleRun.generateMusic(style).catch((err) => { console.warn(`[captureReel] ${reel._id} music:`, err.message); return { error: err.message }; })
+      : null;
 
     let voice = null;
     let voiceUrl = '';
@@ -797,13 +922,38 @@ async function runCaptureReel(reelId) {
       });
     }
 
+    let music = null;
+    let musicKeySaved = '';
+    if (musicJob) {
+      await stage(reel, 'scoring', clock);
+      const got = await musicJob;
+      if (got?.mp3) {
+        music = got;
+        ledger.add({
+          source: 'Capture reel — music bed', model: got.model, prompt: got.prompt,
+          output: got.beats ? `${got.beats.bpm} BPM · pulse ${got.beats.pulse} · ${got.beats.durationSec}s generated` : 'generated',
+          elapsedMs: got.elapsedMs, costUsd: got.costUsd, note: 'original instrumental (Lyria) · cost is an estimate per track (REEL_MUSIC_USD_PER_TRACK)',
+        });
+      } else {
+        ledger.add({ source: 'Capture reel — music bed', output: `Skipped: ${got?.error || 'unavailable'}`, note: 'reel rendered without music' });
+      }
+    }
+
     await stage(reel, 'cutting', clock);
     const brand = {
       accent: colors?.accent || '',
       headlineFont: fonts?.heading?.family || '',
       bodyFont: fonts?.body?.family || '',
     };
-    const timeline = await buildTimeline({ plan, material, voice, voiceUrl, brand });
+    const timeline = await buildTimeline({ plan, material, voice, voiceUrl, brand, style, music });
+    if (music) {
+      // the bed is cut to the finished length, faded, and stored with the reel
+      const bed = await styleRun.fitMusic(music.mp3, timeline.format.durationInFrames / FPS);
+      const musicKey = `projects/${reel.user}/reel-${reel._id}-music.mp3`;
+      await uploadBytes(musicKey, bed, 'audio/mpeg', { immutable: true });
+      timeline.audio = { ...(timeline.audio || {}), musicSrc: await getMediaUrl(musicKey), musicVolume: plan.audioMode === 'music' ? 0.9 : 0.13 };
+      musicKeySaved = musicKey;
+    }
     clock.to('rendering'); // 'cutting' above = choosing + preparing the media
     const renderInfo = await renderReel(timeline, tmp);
     if (renderInfo.timing) Object.assign(clock.times, renderInfo.timing);
@@ -823,7 +973,7 @@ async function runCaptureReel(reelId) {
         status: 'done', stage: 'done', error: '',
         plan, timeline,
         caption: plan.caption, hashtags: plan.hashtags,
-        videoKey, posterKey, voiceKey,
+        videoKey, posterKey, voiceKey, musicKey: musicKeySaved,
         durationSec: Math.round((timeline.format.durationInFrames / FPS) * 10) / 10,
         model,
         costUsd: Math.round(ledger.total() * 10000) / 10000,
@@ -844,6 +994,7 @@ async function runCaptureReel(reelId) {
     console.log(`[captureReel] ${reel._id} done · ${plan.audioMode} · ${timeline.scenes.length} shots`
       + ` · ${(timeline.format.durationInFrames / FPS).toFixed(1)}s · ${Math.round((Date.now() - started) / 1000)}s · ~$${ledger.total().toFixed(3)}`);
   } catch (err) {
+    if (err.debug) ledger.add(err.debug);
     console.error(`[captureReel] ${reel._id} failed:`, err.stack || err.message);
     await CaptureReel.updateOne({ _id: reel._id }, {
       $set: {
@@ -907,6 +1058,8 @@ function runInProcess(id) {
 const isRunningHere = (id) => active.has(String(id)) || queue.includes(String(id));
 
 module.exports = {
+  _loadMaterial: loadMaterial,
+  _directReel: directReel,
   runInProcess,
   isRunningHere,
   runCaptureReel,

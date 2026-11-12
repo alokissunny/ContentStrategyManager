@@ -18,6 +18,7 @@ import { loadFont as dmSerif } from '@remotion/google-fonts/DMSerifDisplay';
 import { loadFont as manrope } from '@remotion/google-fonts/Manrope';
 import { loadFont as archivo } from '@remotion/google-fonts/Archivo';
 import { loadFont as montserrat } from '@remotion/google-fonts/Montserrat';
+import { loadFont as bodoniModa } from '@remotion/google-fonts/BodoniModa';
 
 const opt = (weights: string[]) => ({ weights, subsets: ['latin'], ignoreTooManyRequestsWarning: true } as const);
 
@@ -37,6 +38,14 @@ const Archivo = archivo('normal', opt(['500', '700', '800'])).fontFamily;
 // Capture reels: the heavy caption face (karaoke words, hook slams)
 const Montserrat = montserrat('normal', opt(['600', '800', '900'])).fontFamily;
 export const CAPTION_FONT = `${Montserrat}, system-ui, sans-serif`;
+// Reel styles (reelLook.tsx): a tall high-contrast serif for chant stacks,
+// an editorial serif (+ italic), and a clean sans for subtitles / cards.
+const BodoniModa = bodoniModa('normal', opt(['500', '600'])).fontFamily;
+export const LOOK_FONTS = {
+  condensedSerif: `${BodoniModa}, ${Playfair}, Georgia, serif`,
+  serif: `${Playfair}, Georgia, serif`,
+  sans: `${Inter}, system-ui, sans-serif`,
+};
 
 type Entry = { family: string; category: 'serif' | 'sans' | 'display' | 'mono' };
 

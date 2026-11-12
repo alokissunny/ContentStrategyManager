@@ -89,6 +89,14 @@ const AGENTS = {
     providerEnv: 'PLAN_CAPTURE_REEL_PROVIDER',
     defaultModel: 'gpt-5.6-terra',
   },
+  // Reel style analyst — reads a reference reel's frames + measured cuts/tempo
+  // into a reproducible style spec (services/reelStyleAnalyzer.js).
+  reelStyle: {
+    defaultProvider: 'openai',
+    modelEnv: 'PLAN_REEL_STYLE_MODEL',
+    providerEnv: 'PLAN_REEL_STYLE_PROVIDER',
+    defaultModel: 'gpt-5.6-terra',
+  },
   reelDirector: {
     defaultProvider: 'openai',
     modelEnv: 'PLAN_REEL_DIRECTOR_MODEL',

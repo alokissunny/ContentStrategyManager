@@ -2,6 +2,7 @@ const mongoose = require('mongoose');
 const Project = require('../models/Project');
 const CaptureReel = require('../models/CaptureReel');
 const PlannedPost = require('../models/PlannedPost');
+const ReelStyle = require('../models/ReelStyle');
 const { getMediaUrl, deleteObjects } = require('../services/s3Client');
 const { currentUsername } = require('../utils/currentProfile');
 const { isRunningHere } = require('../services/captureReelAgent');
@@ -39,6 +40,8 @@ async function serialize(r, posts = null) {
     stage: r.stage,
     error: r.error || '',
     direction: r.direction || '',
+    styleId: r.styleId ? String(r.styleId) : '',
+    styleName: r.styleName || '',
     concept: plan.concept || '',
     hook: plan.hook?.text || '',
     audioMode: plan.audioMode || '',
@@ -57,7 +60,12 @@ async function serialize(r, posts = null) {
 
 // POST /capture-reels { projectId, captureIds: [..], direction? }
 async function createReel(req, res) {
-  const { projectId, direction } = req.body || {};
+  const { projectId, direction, styleId } = req.body || {};
+  let style = null;
+  if (styleId) {
+    style = isId(styleId) ? await ReelStyle.findOne({ _id: styleId, status: 'ready' }).select('name').lean() : null;
+    if (!style) return res.status(400).json({ message: 'That reel style is not available.' });
+  }
   const captureIds = (Array.isArray(req.body?.captureIds) ? req.body.captureIds : []).filter(isId).slice(0, 24);
   if (!isId(projectId) || !captureIds.length) return res.status(400).json({ message: 'Choose a capture to make a reel from.' });
   const project = await Project.findOne({ _id: projectId, user: req.user._id });
@@ -80,6 +88,8 @@ async function createReel(req, res) {
     projectId: project._id,
     captureIds: members.map((c) => c._id),
     direction: String(direction || '').trim().slice(0, 600),
+    styleId: style?._id || null,
+    styleName: style?.name || '',
   });
   const via = await enqueueCaptureReel(reel._id);
   console.log(`[captureReel] ${reel._id} queued (${via})`);

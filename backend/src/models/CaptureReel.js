@@ -22,6 +22,10 @@ const captureReelSchema = new mongoose.Schema(
     videoKey: { type: String, default: '' },
     posterKey: { type: String, default: '' },
     voiceKey: { type: String, default: '' },
+    musicKey: { type: String, default: '' }, // generated music bed (styled reels)
+    // Captures › Generate reel › Choose reel style (null = Bauhly's default look)
+    styleId: { type: mongoose.Schema.Types.ObjectId, ref: 'ReelStyle', default: null },
+    styleName: { type: String, default: '' },
     durationSec: { type: Number, default: 0 },
     model: { type: String, default: '' },
     costUsd: { type: Number, default: 0 },

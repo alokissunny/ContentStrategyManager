@@ -3,10 +3,25 @@
  * CaptureReel composition. Frames, not seconds: the backend aligns every cut
  * and caption to the voice track before rendering.
  */
+export type ReelLook = {
+  overlay: 'serif-stack' | 'serif-center' | 'serif-accent' | 'two-weight' | 'bold-sans' | 'pill' | 'none';
+  hook: 'stack-repeat' | 'serif-center' | 'listicle' | 'two-weight' | 'slam';
+  captions: 'subtitle' | 'two-weight' | 'karaoke' | 'none';
+  font: 'condensed-serif' | 'serif' | 'serif-italic' | 'sans' | 'sans-bold';
+  textCase: 'upper' | 'lower' | 'sentence';
+  captionCase?: 'lower' | 'sentence';
+  color: string;
+  captionColor?: string;
+  position: 'top' | 'center' | 'lower';
+  grade: 'warm' | 'neutral' | 'bright' | 'cool';
+  endCard: 'card' | 'text-on-shot' | 'none';
+  progress: boolean;
+};
+
 export type ReelScene = {
   from: number;
   durationInFrames: number;
-  kind: 'image' | 'video';
+  kind: 'image' | 'video' | 'card';
   src: string;
   sourceStartSec?: number; // video trim-in
   volume?: number; // clip audio (0 = muted)
@@ -15,6 +30,10 @@ export type ReelScene = {
   focusX?: number; // 0–100, object-position
   focusY?: number;
   kicker?: string;
+  overlayText?: string; // styled reels: the words on this shot
+  cardNumber?: number; // kind 'card': numbered chapter card
+  cardTitle?: string;
+  playbackRate?: number;
   // the picture inside letterbox bands baked into a clip (fractions of the frame)
   crop?: { x: number; y: number; w: number; h: number };
 };
@@ -29,7 +48,8 @@ export type ReelSpec = {
   scenes: ReelScene[];
   captions: ReelCaption[];
   cta?: { line: string; sub?: string; fromFrame: number; durationInFrames: number };
-  audio?: { voiceoverSrc?: string; voiceVolume?: number; startFrame?: number };
+  audio?: { voiceoverSrc?: string; voiceVolume?: number; startFrame?: number; musicSrc?: string; musicVolume?: number };
+  look?: ReelLook; // set = a reel style (reelLook.tsx); unset = the default look
 };
 
 const IMG = 'https://images.unsplash.com/photo-1556911220-bff31c812dba?w=1080';

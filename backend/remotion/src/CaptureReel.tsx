@@ -16,6 +16,7 @@ import {
   useCurrentFrame, useVideoConfig,
 } from 'remotion';
 import { resolveFont, CAPTION_FONT } from './fonts';
+import { LookOverlay, LookHook, ChapterCard, LookCaptions, LookEndLine, GRADE } from './reelLook';
 import type { ReelSpec, ReelScene, ReelCaption } from './reelSchema';
 
 const clamp = { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' } as const;
@@ -23,7 +24,7 @@ const outCubic = Easing.out(Easing.cubic);
 const outBack = Easing.out(Easing.back(1.8));
 
 // ── One scene: media + its motion + its entry transition ─────────────────────
-const SceneMedia: React.FC<{ scene: ReelScene; fps: number }> = ({ scene, fps }) => {
+const SceneMedia: React.FC<{ scene: ReelScene; fps: number; grade?: string }> = ({ scene, fps, grade }) => {
   const frame = useCurrentFrame();
   const d = Math.max(1, scene.durationInFrames);
   const p = frame / d;
@@ -69,7 +70,7 @@ const SceneMedia: React.FC<{ scene: ReelScene; fps: number }> = ({ scene, fps })
     objectFit: 'cover', objectPosition: `${c ? 50 : fx}% ${c ? 50 : fy}%`,
     transformOrigin: `${ox}% ${oy}%`,
     transform: `translate(${tx + enterX}%, ${ty}%) scale(${scale * enterScale * unbox})`,
-    filter: blur > 0.2 ? `blur(${blur}px)` : undefined,
+    filter: [blur > 0.2 ? `blur(${blur}px)` : '', grade || ''].filter(Boolean).join(' ') || undefined,
   };
 
   return (
@@ -80,6 +81,7 @@ const SceneMedia: React.FC<{ scene: ReelScene; fps: number }> = ({ scene, fps })
           trimBefore={Math.max(0, Math.round((scene.sourceStartSec || 0) * fps))}
           volume={scene.volume ?? 0}
           muted={!(scene.volume && scene.volume > 0)}
+          playbackRate={scene.playbackRate || 1}
           style={style}
         />
       ) : (
@@ -228,7 +230,60 @@ const Progress: React.FC<{ color: string }> = ({ color }) => {
   );
 };
 
+// A reel cut in a reference reel's style (reel.look) — see reelLook.tsx
+const StyledReel: React.FC<{ reel: ReelSpec }> = ({ reel }) => {
+  const { fps } = useVideoConfig();
+  const look = reel.look!;
+  const grade = GRADE[look.grade];
+  const endFrom = reel.cta ? reel.cta.fromFrame : Infinity;
+  return (
+    <AbsoluteFill style={{ background: '#000' }}>
+      {reel.scenes.map((s, i) => (
+        <Sequence key={`m${i}`} from={s.from} durationInFrames={s.durationInFrames} layout="none">
+          {s.kind === 'card' ? <ChapterCard scene={s} look={look} /> : <SceneMedia scene={s} fps={fps} grade={grade} />}
+        </Sequence>
+      ))}
+      {reel.scenes.map((s, i) => {
+        if (!s.overlayText || s.kind === 'card') return null;
+        const from = Math.max(s.from, reel.hook ? Math.min(reel.hook.durationInFrames, s.from + s.durationInFrames) : 0);
+        const len = Math.min(s.from + s.durationInFrames, endFrom) - from;
+        return len > 4 ? (
+          <Sequence key={`o${i}`} from={from} durationInFrames={len}>
+            <LookOverlay text={s.overlayText} look={look} durationInFrames={len} />
+          </Sequence>
+        ) : null;
+      })}
+      {reel.hook?.text ? (
+        <Sequence from={0} durationInFrames={reel.hook.durationInFrames}>
+          {look.hook === 'slam' ? <Hook spec={reel} headline={resolveFont(reel.brand.headlineFont || 'Montserrat', 'display')} /> : <LookHook spec={reel} />}
+        </Sequence>
+      ) : null}
+      {look.captions === 'karaoke' ? <Captions captions={reel.captions} spec={reel} />
+        : look.captions !== 'none' ? <LookCaptions captions={reel.captions} look={look} scenes={reel.scenes} /> : null}
+      {reel.cta && look.endCard !== 'none' ? (
+        <Sequence from={reel.cta.fromFrame} durationInFrames={reel.cta.durationInFrames}>
+          {look.endCard === 'card'
+            ? <EndCard spec={reel} headline={resolveFont(reel.brand.headlineFont || 'Montserrat', 'display')} body={resolveFont(reel.brand.bodyFont || 'Inter', 'sans')} />
+            : <LookEndLine spec={reel} durationInFrames={reel.cta.durationInFrames} />}
+        </Sequence>
+      ) : null}
+      {reel.audio?.musicSrc ? <Audio src={reel.audio.musicSrc} volume={reel.audio.musicVolume ?? 0.9} /> : null}
+      {reel.audio?.voiceoverSrc ? (
+        <Sequence from={reel.audio.startFrame ?? 0} layout="none">
+          <Audio src={reel.audio.voiceoverSrc} volume={reel.audio.voiceVolume ?? 1} />
+        </Sequence>
+      ) : null}
+      {look.progress ? <Progress color={reel.brand.accent} /> : null}
+    </AbsoluteFill>
+  );
+};
+
 export const CaptureReel: React.FC<{ reel: ReelSpec }> = ({ reel }) => {
+  if (reel.look) return <StyledReel reel={reel} />;
+  return <DefaultReel reel={reel} />;
+};
+
+const DefaultReel: React.FC<{ reel: ReelSpec }> = ({ reel }) => {
   const { fps } = useVideoConfig();
   const headline = resolveFont(reel.brand.headlineFont || 'Montserrat', 'display');
   const body = resolveFont(reel.brand.bodyFont || 'Inter', 'sans');

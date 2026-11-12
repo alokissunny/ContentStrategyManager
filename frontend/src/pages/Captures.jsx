@@ -31,6 +31,7 @@ import { listGeneratedImages, deleteGeneratedImage } from '../api/images';
 import { previewUrl } from '../api/media';
 import { GeneratedFolderView, readGenCache, writeGenCache, CaptureChat } from './Projects';
 import ReelStudio from './captures/ReelStudio';
+import ReelStyleModal from './captures/ReelStyleModal';
 import { listCaptureReels, createCaptureReel, reelWorking } from '../api/captureReels';
 import './projects.css';
 import './captures.css';
@@ -700,7 +701,8 @@ export default function Captures() {
   const warnOff = useRef(false);
   const askingRef = useRef(null);
   askingRef.current = asking;
-  const [reeling, setReeling] = useState(null); // { item, autoStart } — the Reel studio
+  const [reeling, setReeling] = useState(null); // { item, autoStart, startWith } — the Reel studio
+  const [stylePick, setStylePick] = useState(null); // { list } — Generate reel › style picker
   const [reelsBy, setReelsBy] = useState({}); // capture id → its newest reel
   const [adding, setAdding] = useState(null); // Add: files chosen for a capture, asked about in Capture // Add the detail: the capture conversation picked back up
 
@@ -720,12 +722,18 @@ export default function Captures() {
   const reelOf = (it) => it.memberIds.map((id) => reelsBy[id]).filter(Boolean)
     .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)))[0] || null;
   const hasMedia = (it) => (it.session.attachments || []).length > 0;
-  // Generate reel: one reel per ticked capture; the studio opens on the first
-  const reelThese = (list) => run(async () => {
+  // Generate reel: pick Default or a reel style first, then one reel per
+  // ticked capture; the studio opens on the first
+  const reelThese = (list) => {
     const ok = list.filter(hasMedia);
+    if (ok.length) setStylePick({ list: ok });
+  };
+  const generateReels = ({ styleId, direction }) => run(async () => {
+    const ok = stylePick?.list || [];
+    setStylePick(null);
     if (!ok.length) return;
-    if (ok.length === 1) { setReeling({ item: ok[0], autoStart: true }); return; }
-    const made = await Promise.all(ok.map((it) => createCaptureReel({ projectId: it.projectId, captureIds: it.memberIds }).catch(() => null)));
+    if (ok.length === 1) { setReeling({ item: ok[0], autoStart: true, startWith: { styleId, direction } }); return; }
+    const made = await Promise.all(ok.map((it) => createCaptureReel({ projectId: it.projectId, captureIds: it.memberIds, styleId, direction }).catch(() => null)));
     noteReels(made.filter(Boolean));
     setSel([]);
     setReeling({ item: ok[0], autoStart: false });
@@ -1373,7 +1381,14 @@ export default function Captures() {
           // the calendar opens the post's day in Day view (YourPlans reads `openPostDay` from the route state)
           onViewPost={(post) => { setOpen(null); navigate('/dashboard', { state: post?.date ? { openPostDay: String(post.date).slice(0, 10) } : {} }); }}
           reel={reelOf(openItem)}
-          onReel={(fresh) => { setOpen(null); setReeling({ item: openItem, autoStart: fresh }); }}
+          onReel={(fresh) => { setOpen(null); if (fresh) setStylePick({ list: [openItem] }); else setReeling({ item: openItem, autoStart: false }); }}
+        />
+      )}
+      {stylePick && (
+        <ReelStyleModal
+          count={stylePick.list.length}
+          onClose={() => setStylePick(null)}
+          onGenerate={generateReels}
         />
       )}
       {reeling && (
@@ -1381,6 +1396,7 @@ export default function Captures() {
           key={reeling.item.id}
           item={reeling.item}
           autoStart={reeling.autoStart}
+          startWith={reeling.startWith}
           onReels={noteReels}
           // a finished reel is on the calendar and its capture is now used
           onDone={() => refreshProjects().catch(() => {})}

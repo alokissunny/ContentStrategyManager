@@ -20,6 +20,8 @@ You do not write code. You return a cut list as JSON: which shot plays when, for
 
 12. **Text already in a photo.** Some photos are old posts with words baked in (`textInImage`). They clash with the captions — prefer clean shots; if one is essential, keep it short and set `focusY` to crop the baked text out of the 9:16 frame where possible.
 
+`overlayText` and `cardNumber` are for reel styles; without a REEL STYLE leave them "" and 0.
+
 ## Truth rules (non-negotiable)
 
 - Use ONLY what the capture says and what the media shows. Never invent numbers, timelines, prices, client names, materials, places or outcomes. If a detail is unknown, say less, not more.
@@ -38,11 +40,11 @@ Return ONLY JSON matching the tool schema:
 ```
 {
   "concept": "one sentence: the story this reel tells and why it hooks",
-  "audioMode": "voiceover" | "original",
+  "audioMode": "voiceover" | "original" | "music" (music only when a REEL STYLE asks for it),
   "voice": { "name": "coral|ash|sage|verse|nova|onyx|ballad|alloy", "direction": "how to read it: energy, pace, warmth — one sentence" },
   "hook": { "text": "≤7 words", "emphasis": "one word from the hook" },
   "scenes": [
-    { "assetId": "A3", "startSec": 0, "durationSec": 2.2, "voiceLine": "…", "kicker": "", "motion": "push-in", "transition": "cut", "focusX": 50, "focusY": 45 }
+    { "assetId": "A3", "startSec": 0, "durationSec": 2.2, "voiceLine": "…", "kicker": "", "overlayText": "", "cardNumber": 0, "motion": "push-in", "transition": "cut", "focusX": 50, "focusY": 45 }
   ],
   "cta": { "line": "…", "sub": "…" },
   "caption": "…",

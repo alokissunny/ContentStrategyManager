@@ -13,12 +13,14 @@ import { videoProxyUrl } from '../../api/media';
 import {
   createCaptureReel, listCaptureReels, getCaptureReel, deleteCaptureReel, reelWorking,
 } from '../../api/captureReels';
+import ReelStyleModal from './ReelStyleModal';
 import './reelStudio.css';
 
 const STEPS = [
   { id: 'reading', say: 'Watching your photos and clips' },
   { id: 'writing', say: 'Writing the hook and the cut' },
   { id: 'voicing', say: 'Recording the voiceover' },
+  { id: 'scoring', say: 'Composing the music' },
   { id: 'cutting', say: 'Cutting and animating the reel' },
   { id: 'saving', say: 'Saving it' },
 ];
@@ -32,13 +34,12 @@ const dayOf = (iso) => {
     .toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' });
 };
 
-export default function ReelStudio({ item, autoStart = false, onClose, onReels, onDone, onViewPost }) {
+export default function ReelStudio({ item, autoStart = false, startWith = null, onClose, onReels, onDone, onViewPost }) {
   useBodyScrollLock();
   const captureIds = item.memberIds;
   const [reels, setReels] = useState(null); // null = loading
   const [shownId, setShownId] = useState(null);
-  const [direction, setDirection] = useState('');
-  const [steering, setSteering] = useState(false);
+  const [picking, setPicking] = useState(false); // Make another › style picker
   const [err, setErr] = useState('');
   const [copied, setCopied] = useState(false);
   const started = useRef(false);
@@ -53,14 +54,12 @@ export default function ReelStudio({ item, autoStart = false, onClose, onReels, 
     return list;
   });
 
-  const start = async (note = '') => {
+  const start = async (note = '', styleId = '') => {
     setErr('');
     try {
-      const r = await createCaptureReel({ projectId: item.projectId, captureIds, direction: note });
+      const r = await createCaptureReel({ projectId: item.projectId, captureIds, direction: note, styleId });
       upsert(r);
       setShownId(r.id);
-      setSteering(false);
-      setDirection('');
     } catch (e) {
       setErr(e?.response?.data?.message || 'The reel could not be started. Try again.');
     }
@@ -75,7 +74,7 @@ export default function ReelStudio({ item, autoStart = false, onClose, onReels, 
         setShownId(list[0]?.id || null);
         if (autoStart && !started.current && !list.some(reelWorking)) {
           started.current = true;
-          start();
+          start(startWith?.direction || '', startWith?.styleId || '');
         }
       })
       .catch(() => { if (alive) { put([]); setErr('Your reels could not be loaded.'); } });
@@ -117,23 +116,6 @@ export default function ReelStudio({ item, autoStart = false, onClose, onReels, 
     } catch (e) { setErr(e?.response?.data?.message || 'That reel could not be deleted.'); }
   };
 
-  const steer = (
-    <div className="rls-steer">
-      <textarea
-        className="rls-steer__in"
-        rows={2}
-        value={direction}
-        onChange={(e) => setDirection(e.target.value)}
-        placeholder="Anything to steer it? e.g. open on the finished kitchen, keep it under 20 seconds, more playful"
-        maxLength={600}
-      />
-      <button type="button" className="rls-btn rls-btn--go" onClick={() => start(direction.trim())}>
-        <Icon name="film" size={16} />
-        {reel ? 'Make another reel' : 'Generate reel'}
-      </button>
-    </div>
-  );
-
   return (
     <div className="rls" role="dialog" aria-modal="true" aria-label="Reel from this capture">
       <div className="rls__scrim" onClick={onClose} />
@@ -157,7 +139,9 @@ export default function ReelStudio({ item, autoStart = false, onClose, onReels, 
               voiceover in your voice (or keeps what you said on camera), and adds word-by-word
               captions and an end card, then puts it on your calendar. It takes about a minute.
             </p>
-            {steer}
+            <button type="button" className="rls-btn rls-btn--go" onClick={() => setPicking(true)}>
+              <Icon name="film" size={16} /> Generate reel
+            </button>
           </div>
         ) : (
           <div className="rls__body">
@@ -203,6 +187,7 @@ export default function ReelStudio({ item, autoStart = false, onClose, onReels, 
               )}
               {reel.hook && <p className="rls__hook">“{reel.hook}”</p>}
               {reel.concept && <p className="rls__concept">{reel.concept}</p>}
+              <p className="rls__style">{reel.styleName ? `Style · ${reel.styleName}` : 'Style · Default'}</p>
               {reel.status === 'done' && (
                 <>
                   <div className="rls__acts">
@@ -239,15 +224,15 @@ export default function ReelStudio({ item, autoStart = false, onClose, onReels, 
                     <p className="rls__meta">Not on the calendar — there was no empty publishing day to put it on.</p>
                   )}
                   <p className="rls__meta">
-                    {Math.round(reel.durationSec)}s · {reel.audioMode === 'original' ? 'your own audio' : 'voiceover'}
+                    {Math.round(reel.durationSec)}s · {reel.audioMode === 'original' ? 'your own audio' : reel.audioMode === 'music' ? 'music' : 'voiceover'}
                   </p>
                 </>
               )}
-              {!reelWorking(reel) && (steering ? steer : (
-                <button type="button" className="rls-btn" onClick={() => setSteering(true)}>
+              {!reelWorking(reel) && (
+                <button type="button" className="rls-btn" onClick={() => setPicking(true)}>
                   <Icon name="refresh" size={16} /> Make another
                 </button>
-              ))}
+              )}
               {reels.length > 1 && (
                 <div className="rls__others">
                   <span className="rls__lab">Reels from this capture</span>
@@ -272,6 +257,13 @@ export default function ReelStudio({ item, autoStart = false, onClose, onReels, 
         )}
         {err && <p className="rls__err" role="alert">{err}</p>}
       </div>
+      {picking && (
+        <ReelStyleModal
+          initialStyleId={reel?.styleId || ''}
+          onClose={() => setPicking(false)}
+          onGenerate={({ styleId, direction: note }) => { setPicking(false); start(note, styleId); }}
+        />
+      )}
     </div>
   );
 }

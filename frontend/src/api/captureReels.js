@@ -2,9 +2,9 @@ import client from './client';
 
 // Captures › Generate reel. POST starts a background job (202); poll GET /:id
 // until status is 'done' or 'error'.
-export async function createCaptureReel({ projectId, captureIds, direction = '' }) {
+export async function createCaptureReel({ projectId, captureIds, direction = '', styleId = '' }) {
   try {
-    const { data } = await client.post('/capture-reels', { projectId, captureIds, direction });
+    const { data } = await client.post('/capture-reels', { projectId, captureIds, direction, ...(styleId ? { styleId } : {}) });
     return data.reel;
   } catch (err) {
     // one reel at a time per capture: the running one comes back with the 409
@@ -29,3 +29,20 @@ export async function deleteCaptureReel(id) {
 }
 
 export const reelWorking = (r) => Boolean(r) && (r.status === 'queued' || r.status === 'working');
+
+// Reel styles (Generate reel › Choose reel style): analysed reference reels
+export async function listReelStyles() {
+  const { data } = await client.get('/reel-styles');
+  return data.styles || [];
+}
+
+// Paste a reel link → its style is analysed in the background (~30 s); poll
+// listReelStyles until it is 'ready' (or 'error')
+export async function addReelStyle(url) {
+  const { data } = await client.post('/reel-styles', { url });
+  return data.style;
+}
+
+export async function removeReelStyle(id) {
+  await client.delete(`/reel-styles/${encodeURIComponent(id)}`);
+}
