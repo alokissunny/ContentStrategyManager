@@ -4113,7 +4113,7 @@ export default function WeekView({
   const appliedCoverUrl = appliedCoverKey ? videoProxyUrl(appliedCoverKey) : '';
   // A Reel made from a capture (Captures › Generate reel): the post IS this video
   const reelVideoUrl = day?.content?.reel?.videoKey ? videoProxyUrl(day.content.reel.videoKey) : '';
-  const reelPosterUrl = day?.content?.reel?.posterKey ? mediaProxyUrl(day.content.reel.posterKey) : undefined;
+  const reelPosterUrl = day?.content?.reel?.posterKey ? mediaDisplayUrl(day.content.reel.posterKey) : undefined;
   const handle = route?.instagramUsername || 'your.studio';
   // Publish/schedule only when Meta is linked for *this* plan's Instagram handle.
   const metaForHandle = metaConnectionFor(metaStatus, handle);

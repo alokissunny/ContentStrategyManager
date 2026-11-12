@@ -1,5 +1,5 @@
 const sharp = require('sharp');
-const { getObjectBytes, mediaCdnBaseUrl, headObject, uploadBytes, isS3Configured } = require('../services/s3Client');
+const { getObjectBytes, getObjectStream, mediaCdnBaseUrl, headObject, uploadBytes, isS3Configured } = require('../services/s3Client');
 const { toVisionImage } = require('../services/visionImage');
 
 // Only ever serve project media: the immutable, content-addressed objects under
@@ -208,8 +208,49 @@ async function displayMedia(req, res) {
   }
 }
 
+/*
+ * A video (capture reels, animated covers) for a <video> element.
+ *
+ * With a CDN this is a cacheable redirect to the CloudFront object, which
+ * answers the browser's Range requests itself from the edge. Without one, the
+ * requested byte range is streamed from S3 — /media/proxy reads the WHOLE file
+ * into memory for every Range request (seconds per seek on a 20 MB reel).
+ * Authless like the proxy: the key is the capability.
+ */
+async function videoMedia(req, res) {
+  const key = String(req.query.key || '');
+  if (!VIDEO_KEY_RE.test(key)) return res.status(400).json({ message: 'Invalid media key' });
+  const cdn = mediaCdnBaseUrl();
+  if (cdn) {
+    res.set('Cache-Control', 'public, max-age=31536000, immutable');
+    return res.redirect(302, `${cdn}/${key.split('/').map(encodeURIComponent).join('/')}`);
+  }
+  const range = /^bytes=\d*-\d*$/.test(String(req.headers.range || '')) ? req.headers.range : '';
+  try {
+    const obj = await getObjectStream(key, range);
+    const ext = String(key.split('.').pop() || '').toLowerCase();
+    res.set('Access-Control-Allow-Origin', '*');
+    res.set('Cross-Origin-Resource-Policy', 'cross-origin');
+    res.set('Cache-Control', 'public, max-age=31536000, immutable');
+    res.set('Accept-Ranges', 'bytes');
+    res.type(/^video\//.test(obj.contentType) ? obj.contentType : (VIDEO_MIME[ext] || 'video/mp4'));
+    if (obj.contentLength != null) res.set('Content-Length', String(obj.contentLength));
+    if (range && obj.contentRange) {
+      res.status(206);
+      res.set('Content-Range', obj.contentRange);
+    }
+    obj.body.on('error', () => res.destroy());
+    req.on('close', () => obj.body.destroy?.());
+    return obj.body.pipe(res);
+  } catch (err) {
+    if (err?.name === 'InvalidRange' || err?.$metadata?.httpStatusCode === 416) return res.status(416).end();
+    console.error('[media] video failed for', key, err.message);
+    return res.status(404).json({ message: 'Media not found' });
+  }
+}
+
 function cdnBase(req, res) {
   return res.json({ base: mediaCdnBaseUrl() || '' });
 }
 
-module.exports = { proxyMedia, cdnBase, displayMedia, warmDisplayCopies };
+module.exports = { proxyMedia, cdnBase, displayMedia, videoMedia, warmDisplayCopies };

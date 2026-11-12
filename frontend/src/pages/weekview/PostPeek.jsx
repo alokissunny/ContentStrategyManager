@@ -26,7 +26,7 @@ import { isThemedPicture } from '../../lib/themedSlide';
 import { styleOf, groundOf } from '../../lib/visualbrand';
 import { useStore } from '../../lib/store';
 import { slideTick } from '../../native/haptics';
-import { videoProxyUrl } from '../../api/media';
+import { videoProxyUrl, mediaDisplayUrl } from '../../api/media';
 import '../weekView.css';
 
 const PEEK_MS = 2800;
@@ -265,7 +265,7 @@ function PeekSlide({ slide, paint, themed, documentHtml, carouselLayoutHtmls, sl
 function ReelPeek({ day, feed, phone }) {
   const reel = day.content.reel;
   const src = videoProxyUrl(reel.videoKey);
-  const poster = reel.posterKey ? mediaProxyUrl(reel.posterKey) : undefined;
+  const poster = reel.posterKey ? mediaDisplayUrl(reel.posterKey, 480) : undefined;
   const ar = MOTION_AR;
   const video = (
     <video className="yw-peek__reel" src={src} poster={poster} autoPlay muted loop playsInline preload="metadata" aria-label="Reel" />

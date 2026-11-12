@@ -109,11 +109,16 @@ export function isProxyUrl(url) {
 // Proxy URL for a stored video cover (mp4/webm/mov). Same endpoint as
 // mediaProxyUrl but not gated to image extensions, so an .mp4 project key
 // resolves instead of being dropped.
+// A stored video (capture reel, animated cover) for <video src>. Straight from
+// the CDN once its base is known; otherwise /media/video, which redirects to
+// the CDN (or streams just the requested byte range when there is none) — the
+// old /media/proxy read the whole file from S3 on every seek.
 export function videoProxyUrl(key) {
   const raw = String(key || '').trim();
   if (!/^projects\/[a-f0-9]{24}\/[A-Za-z0-9._-]+\.(mp4|webm|mov)$/i.test(raw)) return '';
+  if (cachedCdnBase) return `${cachedCdnBase}/${raw.split('/').map(encodeURIComponent).join('/')}`;
   const base = (client.defaults.baseURL || '/api').replace(/\/$/, '');
-  return `${base}/media/proxy?key=${encodeURIComponent(raw)}`;
+  return `${base}/media/video?key=${encodeURIComponent(raw)}`;
 }
 
 // Bytes the canvas 2d context can actually read. CDN <img> URLs display fine

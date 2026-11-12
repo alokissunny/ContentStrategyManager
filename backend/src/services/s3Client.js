@@ -179,7 +179,25 @@ async function getObjectBytes(key) {
   return { buffer: Buffer.from(bytes), contentType: result.ContentType || 'application/octet-stream' };
 }
 
+// A byte range of an object as a stream (video seeking) — never the whole
+// object in memory. `range` is an HTTP Range header value or ''.
+async function getObjectStream(key, range = '') {
+  const s3 = getS3Client();
+  const result = await s3.send(new GetObjectCommand({
+    Bucket: process.env.S3_BUCKET_NAME,
+    Key: key,
+    ...(range ? { Range: range } : {}),
+  }));
+  return {
+    body: result.Body,
+    contentType: result.ContentType || 'application/octet-stream',
+    contentLength: result.ContentLength,
+    contentRange: result.ContentRange || '',
+  };
+}
+
 module.exports = {
+  getObjectStream,
   uploadMarkdown,
   uploadBytes,
   headObject,
