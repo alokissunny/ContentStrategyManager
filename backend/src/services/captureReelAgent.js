@@ -1119,7 +1119,11 @@ async function runCaptureReel(reelId) {
         $set: {
           status: 'error',
           errorDetail: detail,
-          error: err.userFacing ? err.message : 'The reel could not be made this time. Try again.',
+          error: err.userFacing ? err.message
+            // a rejected key won't fix itself — say so instead of "try again"
+            : /\b401\b|invalid(ated)? api key|incorrect api key|API key (has been|was) (invalidated|revoked)|PERMISSION_DENIED|API_KEY_INVALID/i.test(detail)
+              ? 'The AI service rejected its API key, so the reel could not be made. An admin needs to update the key.'
+              : 'The reel could not be made this time. Try again.',
           finishedAt: new Date(),
           costUsd: Math.round(ledger.total() * 10000) / 10000,
         },
