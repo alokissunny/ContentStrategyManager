@@ -15,6 +15,10 @@ const LOCK_MS = 60 * 1000;
 // Starts the capture-reel worker in this process. CAPTURE_REEL_CONCURRENCY =
 // reels rendered at once here (each is a headless Chromium — keep it to the
 // cores you have). Returns { close } for graceful shutdown.
+// what /capture-reels/system reports about this process
+let state = { started: false, reason: 'never asked to start (no queue, or REEL_WORKER_IN_API / PLAN_WORKER_IN_API off here)' };
+const reelWorkerState = () => state;
+
 function startReelWorkers() {
   // Only a machine that can render takes reel jobs: on a smaller one the job
   // would OOM-kill the process — instead it stays queued for a worker that can.
@@ -22,6 +26,7 @@ function startReelWorkers() {
   const minMb = Number(process.env.REEL_RENDER_MIN_MEMORY_MB) || 1536;
   if (memMb < minMb) {
     console.warn(`[reelWorkers] NOT started: ${memMb} MB memory < ${minMb} MB a render needs — reels wait in the queue for a bigger worker`);
+    state = { started: false, reason: `memory ${memMb} MB < ${minMb} MB needed (REEL_RENDER_MIN_MEMORY_MB)`, memoryLimitMb: memMb };
     return { close: async () => {} };
   }
   const concurrency = envPositiveInt('CAPTURE_REEL_CONCURRENCY', 1);
@@ -63,7 +68,8 @@ function startReelWorkers() {
   });
   worker.on('error', (err) => console.error('[reelWorkers] worker error:', err.message));
   console.log(`[reelWorkers] listening on ${QUEUE_NAME} · concurrency ${concurrency} · memory limit ${memoryLimitMb()} MB`);
+  state = { started: true, concurrency, memoryLimitMb: memoryLimitMb(), since: new Date().toISOString() };
   return { close: () => worker.close() };
 }
 
-module.exports = { startReelWorkers };
+module.exports = { startReelWorkers, reelWorkerState };

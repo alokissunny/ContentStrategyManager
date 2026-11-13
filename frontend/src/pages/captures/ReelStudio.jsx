@@ -11,7 +11,7 @@ import Icon from '../../brand/Icon';
 import { useBodyScrollLock } from '../checkin/ui';
 import { videoProxyUrl } from '../../api/media';
 import {
-  createCaptureReel, listCaptureReels, getCaptureReel, deleteCaptureReel, reelWorking,
+  createCaptureReel, listCaptureReels, getCaptureReel, deleteCaptureReel, reelWorking, getReelSystem,
 } from '../../api/captureReels';
 import ReelStyleModal from './ReelStyleModal';
 
@@ -115,6 +115,24 @@ export default function ReelStudio({ item, autoStart = false, startWith = null, 
   }, [onClose]);
 
   const reel = (reels || []).find((r) => r.id === shownId) || (reels || [])[0] || null;
+
+  // a reel queued for a while: ask the server why (admins only — others get 403)
+  const [whyWait, setWhyWait] = useState('');
+  const queuedId = reel?.status === 'queued' && reel?.stage !== 'retrying' ? reel.id : '';
+  useEffect(() => {
+    setWhyWait('');
+    if (!queuedId) return undefined;
+    const t = setTimeout(() => {
+      getReelSystem().then((sys) => {
+        const w = sys.workerInThisProcess || {};
+        if (!sys.queueConfigured) setWhyWait('Admin: no reel queue on this server (REDIS_URL / PLAN_QUEUE).');
+        else if (!w.started) setWhyWait(`Admin: no reel worker is running on this server — ${w.reason || 'not started'}. Memory seen: ${sys.memoryLimitMb} MB (needs ${sys.renderNeedsMb}).`);
+        else if (sys.queue && sys.queue.active >= (w.concurrency || 1)) setWhyWait(`Admin: the worker is busy (${sys.queue.active} rendering, ${sys.queue.waiting} waiting).`);
+        else setWhyWait(`Admin: a worker is running (${w.memoryLimitMb} MB, since ${String(w.since || '').slice(11, 16)} UTC) but has not taken this reel yet.`);
+      }).catch(() => {});
+    }, 45000);
+    return () => clearTimeout(t);
+  }, [queuedId]);
   const src = reel?.videoKey ? videoProxyUrl(reel.videoKey) : '';
   const postText = reel ? [reel.caption, (reel.hashtags || []).join(' ')].filter(Boolean).join('\n\n') : '';
 
@@ -189,6 +207,7 @@ export default function ReelStudio({ item, autoStart = false, startWith = null, 
                         {reel.stage === 'retrying' ? 'Something went wrong — trying again in a moment…'
                           : reel.status === 'queued' ? 'Waiting for the reel ahead of it…' : 'You can close this — it keeps going.'}
                       </li>
+                      {whyWait && <li className="rls__note rls__note--admin">{whyWait}</li>}
                     </ol>
                   ) : (
                     <div className="rls__fail">

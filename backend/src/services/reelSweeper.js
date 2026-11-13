@@ -29,10 +29,14 @@ async function failReel(reel, error, detail) {
 }
 
 async function sweepReels() {
-  const { isReelQueueConfigured, reelJobAlive, enqueueCaptureReel, removeReelJob } = require('./reelQueue');
+  const {
+    isReelQueueConfigured, reelJobAlive, enqueueCaptureReel, removeReelJob, queueTag,
+  } = require('./reelQueue');
   const { isRunningHere, runInProcess, MAX_ATTEMPTS } = require('./captureReelAgent');
   const now = Date.now();
   const rows = await CaptureReel.find({
+    // only reels made against THIS queue: dev and prod share the database
+    queueTag: queueTag(),
     status: { $in: ['queued', 'working'] },
     updatedAt: { $lt: new Date(now - QUIET_MS) },
   }).select('_id status stage attempts jobId createdAt startedAt updatedAt').limit(50).lean();

@@ -78,7 +78,10 @@ const PROMPT_FILE = path.join(__dirname, '..', '..', 'prompts', 'capture-reel.md
 const STYLE_RULES_FILE = path.join(__dirname, '..', '..', 'prompts', 'capture-reel-style.md');
 const REMOTION_DIR = path.join(__dirname, '..', '..', 'remotion');
 
-const FPS = 30;
+// 25 fps: every frame is a full headless-Chrome capture + encode (~2/3 of a
+// frame's cost is that fixed overhead, measured Nov 2026), so 30 → 25 is ~17%
+// less render time; Instagram takes 25 fps and slow camera moves don't show it.
+const FPS = Math.min(30, Math.max(24, Number(process.env.REEL_FPS) || 25));
 const WIDTH = 1080;
 const HEIGHT = 1920;
 const MAX_ASSETS = 18;
@@ -618,14 +621,33 @@ function captionCues(words) {
 
 // Remotion fetches media over http: a light, upright JPEG next to each photo
 // (HEIC-safe), the clip itself as stored.
-async function imageSrc(key) {
-  const out = `${key.replace(/\.[^./]+$/, '')}.reel.jpg`;
+// A reel style's colour grade, applied ONCE to the photo here instead of as a
+// CSS filter Chrome re-applies on every frame (~20% of a frame's render cost
+// in software GL). Matches reelLook GRADE: warm = sepia .12 · saturate 1.08 ·
+// contrast 1.03; bright; cool.
+const SEPIA = [[0.393, 0.769, 0.189], [0.349, 0.686, 0.168], [0.272, 0.534, 0.131]];
+function gradeImage(img, grade) {
+  const contrast = (img2, c) => img2.linear(c, 128 * (1 - c));
+  if (grade === 'warm') {
+    const a = 0.12;
+    const m = SEPIA.map((row, i) => row.map((v, j) => v * a + (i === j ? 1 - a : 0)));
+    return contrast(img.recomb(m).modulate({ saturation: 1.08 }), 1.03);
+  }
+  if (grade === 'bright') return contrast(img.modulate({ brightness: 1.06, saturation: 1.04 }), 1.04);
+  if (grade === 'cool') return contrast(img.modulate({ hue: -6, saturation: 0.95 }), 1.02);
+  return img;
+}
+
+async function imageSrc(key, grade = '') {
+  const g = ['warm', 'bright', 'cool'].includes(grade) ? grade : '';
+  const out = `${key.replace(/\.[^./]+$/, '')}.reel${g ? `.${g}` : ''}.jpg`;
   const have = await headObject(out).catch(() => null);
   if (!have) {
     const { buffer, contentType } = await getObjectBytes(key);
     const vis = await toVisionImage(buffer, contentType, key);
-    const jpg = await sharp(vis.buffer).rotate()
-      .resize(1440, 2560, { fit: 'inside', withoutEnlargement: true }).jpeg({ quality: 86 }).toBuffer();
+    const img = sharp(vis.buffer).rotate()
+      .resize(1440, 2560, { fit: 'inside', withoutEnlargement: true });
+    const jpg = await gradeImage(img, g).jpeg({ quality: 86 }).toBuffer();
     await uploadBytes(out, jpg, 'image/jpeg', { immutable: true });
   }
   return getMediaUrl(out);
@@ -764,7 +786,10 @@ async function buildTimeline({ plan, material, voice, voiceUrl, brand, style = n
       ...(sh.scene.kicker ? { kicker: sh.scene.kicker } : {}),
       ...(sh.scene.overlayText ? { overlayText: sh.scene.overlayText } : {}),
     };
-    const still = (key) => imageSrc(key).then((src) => ({ ...base, kind: 'image', src, motion: base.motion === 'none' ? 'push-in' : base.motion }));
+    const still = (key) => imageSrc(key, look?.grade).then((src) => ({
+      ...base, kind: 'image', src, motion: base.motion === 'none' ? 'push-in' : base.motion,
+      ...(look && look.grade !== 'neutral' ? { graded: true } : {}),
+    }));
     if (a.kind !== 'video') return still(a.key);
     let start = sh.scene.startSec;
     if (a.durationSec - start < sh.dur) start = Math.max(0, a.durationSec - sh.dur);
@@ -787,7 +812,8 @@ async function buildTimeline({ plan, material, voice, voiceUrl, brand, style = n
     if (key) {
       scenes.push({
         from: frames(ctaStart), durationInFrames: frames(total) - frames(ctaStart), kind: 'image',
-        src: await imageSrc(key), motion: 'pull-out', transition: 'zoom',
+        src: await imageSrc(key, look?.grade), motion: 'pull-out', transition: 'zoom',
+        ...(look && look.grade !== 'neutral' ? { graded: true } : {}),
         focusX: plan.scenes[0].focusX, focusY: plan.scenes[0].focusY,
       });
     } else if (last) {

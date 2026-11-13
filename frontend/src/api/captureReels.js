@@ -46,3 +46,9 @@ export async function addReelStyle(url) {
 export async function removeReelStyle(id) {
   await client.delete(`/reel-styles/${encodeURIComponent(id)}`);
 }
+
+// Admin only: can this server render reels right now? (403 for everyone else)
+export async function getReelSystem() {
+  const { data } = await client.get('/capture-reels/system');
+  return data;
+}

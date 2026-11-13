@@ -34,6 +34,7 @@ export type ReelScene = {
   cardNumber?: number; // kind 'card': numbered chapter card
   cardTitle?: string;
   playbackRate?: number;
+  graded?: boolean; // the style's colour grade is already baked into src
   // the picture inside letterbox bands baked into a clip (fractions of the frame)
   crop?: { x: number; y: number; w: number; h: number };
 };

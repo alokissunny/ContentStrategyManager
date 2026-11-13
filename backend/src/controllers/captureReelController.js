@@ -6,7 +6,10 @@ const ReelStyle = require('../models/ReelStyle');
 const { getMediaUrl, deleteObjects } = require('../services/s3Client');
 const { currentUsername } = require('../utils/currentProfile');
 const { isRunningHere } = require('../services/captureReelAgent');
-const { enqueueCaptureReel, reelJobAlive } = require('../services/reelQueue');
+const {
+  enqueueCaptureReel, reelJobAlive, queueTag, isReelQueueConfigured, reelQueueDepth,
+} = require('../services/reelQueue');
+const { memoryLimitMb } = require('../utils/memoryLimit');
 
 const isId = (v) => mongoose.isValidObjectId(String(v || ''));
 // the sweeper (services/reelSweeper.js) re-queues lost reels within minutes;
@@ -18,6 +21,7 @@ const STALE_MS = 60 * 60 * 1000;
 // A reel still waiting its turn in the queue is not stale, however long.
 async function closeStale(reel) {
   if (!['queued', 'working'].includes(reel.status) || isRunningHere(reel._id)) return reel;
+  if (reel.queueTag && reel.queueTag !== queueTag()) return reel; // another environment's queue
   if (Date.now() - new Date(reel.updatedAt).getTime() < STALE_MS) return reel;
   if ((await reelJobAlive(reel)) !== false) return reel; // alive, or can't tell (Redis down)
   reel.status = 'error';
@@ -95,6 +99,7 @@ async function createReel(req, res) {
     direction: String(direction || '').trim().slice(0, 600),
     styleId: style?._id || null,
     styleName: style?.name || '',
+    queueTag: queueTag(),
   });
   const via = await enqueueCaptureReel(reel._id);
   console.log(`[captureReel] ${reel._id} queued (${via})`);
@@ -141,4 +146,29 @@ async function deleteReel(req, res) {
   return res.json({ ok: true });
 }
 
-module.exports = { createReel, listReels, getReel, deleteReel };
+// GET /capture-reels/system (admin) — can THIS server render reels? What the
+// reel worker sees from inside the deployment: memory, whether it started,
+// and the queue. For "my reel keeps waiting".
+async function reelSystem(req, res) {
+  const minMb = Number(process.env.REEL_RENDER_MIN_MEMORY_MB) || 1536;
+  const memMb = memoryLimitMb();
+  const { reelWorkerState } = require('../workers/reelWorkers');
+  const waiting = await CaptureReel.countDocuments({ status: 'queued', queueTag: queueTag() });
+  res.json({
+    queueConfigured: isReelQueueConfigured(),
+    queueTag: queueTag(),
+    memoryLimitMb: memMb,
+    renderNeedsMb: minMb,
+    canRender: memMb >= minMb,
+    workerInThisProcess: reelWorkerState(),
+    env: {
+      PLAN_QUEUE: process.env.PLAN_QUEUE || '', REEL_QUEUE: process.env.REEL_QUEUE || '',
+      PLAN_WORKER_IN_API: process.env.PLAN_WORKER_IN_API || '', REEL_WORKER_IN_API: process.env.REEL_WORKER_IN_API || '',
+      CAPTURE_REEL_CONCURRENCY: process.env.CAPTURE_REEL_CONCURRENCY || '', NODE_ENV: process.env.NODE_ENV || '',
+    },
+    queue: await reelQueueDepth(),
+    reelsWaitingInThisQueue: waiting,
+  });
+}
+
+module.exports = { createReel, listReels, getReel, deleteReel, reelSystem };

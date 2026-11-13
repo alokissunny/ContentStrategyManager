@@ -240,7 +240,7 @@ const StyledReel: React.FC<{ reel: ReelSpec }> = ({ reel }) => {
     <AbsoluteFill style={{ background: '#000' }}>
       {reel.scenes.map((s, i) => (
         <Sequence key={`m${i}`} from={s.from} durationInFrames={s.durationInFrames} layout="none">
-          {s.kind === 'card' ? <ChapterCard scene={s} look={look} /> : <SceneMedia scene={s} fps={fps} grade={grade} />}
+          {s.kind === 'card' ? <ChapterCard scene={s} look={look} /> : <SceneMedia scene={s} fps={fps} grade={s.graded ? undefined : grade} />}
         </Sequence>
       ))}
       {reel.scenes.map((s, i) => {

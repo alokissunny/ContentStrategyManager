@@ -16,6 +16,15 @@
 const { redisConnection, envPositiveInt } = require('./planQueue');
 
 const QUEUE_NAME = 'capture-reel';
+
+// Which queue a reel belongs to. Local dev and prod share one MongoDB, so a
+// sweeper must only touch reels made against ITS OWN Redis — else a dev
+// machine re-queues (and renders) prod's reels. Stamped on every reel.
+function queueTag() {
+  if (process.env.REEL_QUEUE_TAG) return process.env.REEL_QUEUE_TAG;
+  const basis = isReelQueueConfigured() ? `redis:${process.env.REDIS_URL}` : `local:${require('os').hostname()}`;
+  return require('crypto').createHash('sha1').update(basis).digest('hex').slice(0, 12);
+}
 const ENQUEUE_TIMEOUT_MS = 5000;
 
 const flag = (name) => ['1', 'true', 'on', 'yes'].includes(String(process.env[name] || '').trim().toLowerCase());
@@ -112,6 +121,7 @@ async function closeReelQueue() {
 
 module.exports = {
   QUEUE_NAME,
+  queueTag,
   envPositiveInt,
   isReelQueueConfigured,
   enqueueCaptureReel,

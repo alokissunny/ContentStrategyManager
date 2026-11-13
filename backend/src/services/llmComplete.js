@@ -160,6 +160,9 @@ function reasoningEffortFor(kind) {
   if (kind === 'slideEdit') return envChoice('PLAN_SLIDE_EDIT_REASONING_EFFORT', GPT_EFFORTS, 'low');
   if (kind === 'addSlide') return envChoice('PLAN_ADD_SLIDE_REASONING_EFFORT', GPT_EFFORTS, 'low');
   if (kind === 'decorative') return envChoice('PLAN_DECORATIVE_REASONING_EFFORT', GPT_EFFORTS, 'low');
+  // Capture reel director: a bounded cut list, not strategy — 'low' halves its
+  // time (it fell through to the Strategist's 'medium' before)
+  if (kind === 'captureReel') return envChoice('CAPTURE_REEL_REASONING_EFFORT', GPT_EFFORTS, 'low');
   // Keep carousel at 'low': 'medium' pushed gpt-6-astra past the 180s timeout on
   // this 5-theme build. The earlier "terse stub" symptom was really an EMPTY
   // contentStructure (see carouselInputOf's post-slide fallback), not low
