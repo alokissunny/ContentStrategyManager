@@ -14,6 +14,8 @@ const captureReelSchema = new mongoose.Schema(
     status: { type: String, enum: ['queued', 'working', 'done', 'error'], default: 'queued' },
     stage: { type: String, default: 'queued' }, // reading | writing | voicing | cutting | saving
     error: { type: String, default: '' },
+    // what actually went wrong (for the team: debug panel / admin), never shown as is
+    errorDetail: { type: String, default: '' },
     // the director's cut list (as returned, validated) + the frame timeline rendered
     plan: { type: mongoose.Schema.Types.Mixed, default: null },
     timeline: { type: mongoose.Schema.Types.Mixed, default: null },

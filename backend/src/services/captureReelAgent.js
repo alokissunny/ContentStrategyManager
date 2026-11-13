@@ -815,8 +815,14 @@ function renderReel(timeline, outPath, timeoutMs = 15 * 60 * 1000) {
       const bundleMs = /\[render:timing\] bundle (\d+)ms/.exec(timingLines);
       const renderMs = /· render (\d+)ms/.exec(timingLines);
       const timing = bundleMs && renderMs ? { 'render · bundle': Number(bundleMs[1]), 'render · frames': Number(renderMs[1]) } : null;
-      if (code === 0 && fs.existsSync(outPath)) resolve({ outPath, timing });
-      else reject(new Error(`Reel render failed (${code}): ${stderr.split('\n').filter(Boolean).slice(-4).join(' | ')}`));
+      if (code === 0 && fs.existsSync(outPath)) { resolve({ outPath, timing }); return; }
+      const tail = stderr.split('\n').filter(Boolean).slice(-6).join(' | ');
+      // the renderer workspace was never installed on this server (see scripts/setup-remotion.js)
+      if (/ERR_MODULE_NOT_FOUND|Cannot find (package|module) '@remotion|Could not find Chrome|browser.*not.*found/i.test(stderr)) {
+        reject(Object.assign(new Error('Video rendering is not set up on this server yet, so the reel could not be made.'), { userFacing: true, detail: tail }));
+        return;
+      }
+      reject(Object.assign(new Error(`Reel render failed (${code === null ? 'killed — out of memory or timed out' : `exit ${code}`})`), { detail: tail }));
     });
     child.on('error', (err) => { clearTimeout(timer); reject(err); });
   });
@@ -954,7 +960,7 @@ async function runCaptureReel(reelId) {
       timeline.audio = { ...(timeline.audio || {}), musicSrc: await getMediaUrl(musicKey), musicVolume: plan.audioMode === 'music' ? 0.9 : 0.13 };
       musicKeySaved = musicKey;
     }
-    clock.to('rendering'); // 'cutting' above = choosing + preparing the media
+    await stage(reel, 'rendering', clock); // 'cutting' above = choosing + preparing the media
     const renderInfo = await renderReel(timeline, tmp);
     if (renderInfo.timing) Object.assign(clock.times, renderInfo.timing);
 
@@ -995,10 +1001,13 @@ async function runCaptureReel(reelId) {
       + ` · ${(timeline.format.durationInFrames / FPS).toFixed(1)}s · ${Math.round((Date.now() - started) / 1000)}s · ~$${ledger.total().toFixed(3)}`);
   } catch (err) {
     if (err.debug) ledger.add(err.debug);
-    console.error(`[captureReel] ${reel._id} failed:`, err.stack || err.message);
+    const detail = [err.message, err.detail].filter(Boolean).join(' — ').slice(0, 2000);
+    ledger.add({ source: 'Capture reel — failed', output: detail, note: `stage: ${reel.stage || '?'}` });
+    console.error(`[captureReel] ${reel._id} failed:`, err.stack || err.message, err.detail || '');
     await CaptureReel.updateOne({ _id: reel._id }, {
       $set: {
         status: 'error',
+        errorDetail: detail,
         error: err.userFacing ? err.message : 'The reel could not be made this time. Try again.',
         finishedAt: new Date(),
         costUsd: Math.round(ledger.total() * 10000) / 10000,

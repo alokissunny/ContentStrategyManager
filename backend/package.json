@@ -10,7 +10,8 @@
     "seed:admin": "node src/scripts/seedAdmin.js",
     "seed:test": "node src/scripts/seedTestUser.js",
     "publish:due": "node src/scripts/publishDue.js",
-    "queue:watch": "node src/scripts/watchPlanQueue.js"
+    "queue:watch": "node src/scripts/watchPlanQueue.js",
+    "postinstall": "node scripts/setup-remotion.js"
   },
   "engines": {
     "node": ">=20"

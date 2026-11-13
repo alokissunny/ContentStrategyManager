@@ -24,7 +24,8 @@ const STEPS = [
   { id: 'cutting', say: 'Cutting and animating the reel' },
   { id: 'saving', say: 'Saving it' },
 ];
-const stepAt = (stage) => Math.max(0, STEPS.findIndex((s) => s.id === stage));
+// the render itself is part of 'Cutting and animating the reel'
+const stepAt = (stage) => Math.max(0, STEPS.findIndex((s) => s.id === (stage === 'rendering' ? 'cutting' : stage)));
 const POLL_MS = 3000;
 
 const dayOf = (iso) => {

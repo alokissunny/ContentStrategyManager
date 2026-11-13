@@ -83,7 +83,10 @@ async function main() {
     codec: 'h264',
     outputLocation: outPath,
     inputProps,
-    concurrency: compositionId === 'CaptureReel' ? Number(process.env.REEL_RENDER_CONCURRENCY) || null : null,
+    // a production box is small (Render starter = 512 MB, shared with the API):
+    // one Chrome tab and a capped video-frame cache unless told otherwise
+    concurrency: Number(process.env.REEL_RENDER_CONCURRENCY) || (process.env.NODE_ENV === 'production' ? 1 : null),
+    offthreadVideoCacheSizeInBytes: Number(process.env.REEL_VIDEO_CACHE_BYTES) || (process.env.NODE_ENV === 'production' ? 150 * 1024 * 1024 : null),
     timeoutInMilliseconds: 120000,
     chromiumOptions: { gl: glBackend(compositionId) },
     x264Preset: process.env.REEL_X264_PRESET || 'veryfast',

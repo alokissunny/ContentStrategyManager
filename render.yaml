@@ -9,6 +9,10 @@ services:
     # Not free: the free plan sleeps when idle (cold starts, a dropped
     # publish-due call) and is killed mid-run on long generations. Theme Apply
     # renders want memory — move to `standard` (2 GB) if it restarts on OOM.
+    # Capture reels render here too (headless Chrome via Remotion, installed by
+    # backend's postinstall → scripts/setup-remotion.js). On 512 MB a render
+    # runs one tab (REEL_RENDER_CONCURRENCY) and can still be tight next to the
+    # API — `standard`, or the separate worker below, is the safe home for it.
     plan: starter
     rootDir: backend
     buildCommand: npm install
@@ -139,6 +143,10 @@ services:
     envVars:
       - key: NODE_ENV
         value: production
+      # never renders video — skip the Remotion renderer + Chrome download
+      # that backend's postinstall (scripts/setup-remotion.js) does
+      - key: SKIP_REMOTION_SETUP
+        value: "1"
       - key: API_BASE_URL
         fromService:
           type: web

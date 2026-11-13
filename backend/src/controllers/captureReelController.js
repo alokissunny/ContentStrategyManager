@@ -39,6 +39,7 @@ async function serialize(r, posts = null) {
     status: r.status,
     stage: r.stage,
     error: r.error || '',
+    ...(r.errorDetail && r.status === 'error' ? { errorDetail: r.errorDetail } : {}),
     direction: r.direction || '',
     styleId: r.styleId ? String(r.styleId) : '',
     styleName: r.styleName || '',
