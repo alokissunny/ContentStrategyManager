@@ -43,6 +43,35 @@ const { loadBrandDna } = require('./planInputs');
 const { toVisionImage } = require('./visionImage');
 const { recordBackgroundDebug } = require('./aiDebugLog');
 const styleRun = require('./reelStyleRun');
+const { memoryLimitMb } = require('../utils/memoryLimit');
+
+// A render peaks around 700 MB (headless Chrome + ffmpeg, one tab — measured
+// Nov 2026) on top of the process itself. Below this the container is
+// OOM-killed mid-render and takes everything in the process down with it, so
+// the reel is refused up front, before any paid model call.
+const REEL_MIN_MEMORY_MB = Number(process.env.REEL_RENDER_MIN_MEMORY_MB) || 1536;
+
+// A reel is tried up to this many times before it is marked failed (a
+// temporary error, a worker that died). A retry after the cut was saved only
+// re-renders it — no model call is paid twice.
+const MAX_ATTEMPTS = Math.max(1, Number(process.env.CAPTURE_REEL_MAX_ATTEMPTS) || 3);
+const retryError = (message) => Object.assign(new Error(message), { retryable: true });
+
+// A saved timeline's media URLs may be presigned (no CDN) and expire after an
+// hour — re-sign them from their keys before re-rendering.
+async function refreshTimelineUrls(timeline) {
+  const resign = async (url) => {
+    if (!url || !/X-Amz-/i.test(url)) return url;
+    try { return await getMediaUrl(decodeURIComponent(new URL(url).pathname.replace(/^\/+/, ''))); } catch { return url; }
+  };
+  const t = JSON.parse(JSON.stringify(timeline));
+  await Promise.all((t.scenes || []).map(async (sc) => { sc.src = await resign(sc.src); }));
+  if (t.audio) {
+    t.audio.voiceoverSrc = await resign(t.audio.voiceoverSrc);
+    t.audio.musicSrc = await resign(t.audio.musicSrc);
+  }
+  return t;
+}
 
 const run = promisify(execFile);
 const PROMPT_FILE = path.join(__dirname, '..', '..', 'prompts', 'capture-reel.md');
@@ -800,7 +829,15 @@ function renderReel(timeline, outPath, timeoutMs = 15 * 60 * 1000) {
   return new Promise((resolve, reject) => {
     const specPath = path.join(os.tmpdir(), `capreel-${crypto.randomUUID()}.json`);
     fs.writeFileSync(specPath, JSON.stringify({ composition: 'CaptureReel', props: { reel: timeline } }));
-    const child = spawn('node', ['render.mjs', specPath, outPath], { cwd: REMOTION_DIR, stdio: ['ignore', 'pipe', 'pipe'] });
+    // its own process group, so a kill takes headless Chrome down with it
+    // (killing only node leaves Chrome running, holding its memory)
+    const child = spawn('node', ['render.mjs', specPath, outPath], { cwd: REMOTION_DIR, stdio: ['ignore', 'pipe', 'pipe'], detached: true });
+    const killAll = () => { try { process.kill(-child.pid, 'SIGKILL'); } catch { child.kill('SIGKILL'); } };
+    // a stop asks first (render.mjs closes Chrome on SIGTERM), then forces
+    const stopRender = () => {
+      try { process.kill(-child.pid, 'SIGTERM'); } catch { child.kill('SIGTERM'); }
+      setTimeout(killAll, 5000).unref?.();
+    };
     let stderr = '';
     let timingLines = '';
     child.stderr.on('data', (d) => {
@@ -808,9 +845,10 @@ function renderReel(timeline, outPath, timeoutMs = 15 * 60 * 1000) {
       if (text.includes('[render:timing]')) timingLines += text;
       stderr = (stderr + text).slice(-6000);
     });
-    const timer = setTimeout(() => child.kill('SIGKILL'), timeoutMs);
+    const timer = setTimeout(stopRender, timeoutMs);
     child.on('close', (code) => {
       clearTimeout(timer);
+      if (code !== 0) killAll(); // a crashed render can leave Chrome behind too
       fs.unlink(specPath, () => {});
       const bundleMs = /\[render:timing\] bundle (\d+)ms/.exec(timingLines);
       const renderMs = /· render (\d+)ms/.exec(timingLines);
@@ -864,14 +902,47 @@ async function runCaptureReel(reelId) {
     await CaptureReel.updateOne({ _id: reelId }, { $set: { status: 'error', error: 'Storage is not configured, so a reel cannot be rendered here.' } });
     return;
   }
+  const memMb = memoryLimitMb();
+  if (memMb < REEL_MIN_MEMORY_MB) {
+    const msg = 'Reels can\'t be rendered on this server yet — it doesn\'t have enough memory. Nothing was charged.';
+    console.error(`[captureReel] ${reel._id} refused: ${memMb} MB available, rendering needs ≥ ${REEL_MIN_MEMORY_MB} MB (REEL_RENDER_MIN_MEMORY_MB)`);
+    await CaptureReel.updateOne({ _id: reel._id }, {
+      $set: { status: 'error', stage: 'queued', error: msg, errorDetail: `memory limit ${memMb} MB < ${REEL_MIN_MEMORY_MB} MB needed to render`, finishedAt: new Date() },
+    });
+    return;
+  }
+  const counted = await CaptureReel.findOneAndUpdate({ _id: reel._id }, { $inc: { attempts: 1 } }, { new: true }).select('attempts').lean();
+  const attempt = counted?.attempts || 1;
+  if (attempt > MAX_ATTEMPTS + 1) {
+    // a worker kept dying on this reel — stop, so it can't loop
+    await CaptureReel.updateOne({ _id: reel._id }, {
+      $set: { status: 'error', error: 'This reel could not be made after several tries. Try again.', errorDetail: `gave up after ${attempt - 1} attempts`, finishedAt: new Date() },
+    });
+    return;
+  }
+  // the cut was already made (and paid for) on an earlier try: render it again
+  const resumed = attempt > 1 && Boolean(reel.previewAt && reel.timeline && reel.plan && !reel.videoKey);
   const started = Date.now();
   const tmp = path.join(os.tmpdir(), `capreel-${reel._id}.mp4`);
   const ledger = costLedger();
   let model = '';
+  let plan;
+  let timeline;
+  let voiceKey = '';
+  let musicKeySaved = '';
+  let retryErr = null;
   const clock = stageClock();
   clock.to('reading');
   try {
-    await CaptureReel.updateOne({ _id: reel._id }, { $set: { status: 'working', stage: 'reading', startedAt: new Date(), error: '' } });
+    await CaptureReel.updateOne({ _id: reel._id }, { $set: { status: 'working', stage: resumed ? 'rendering' : 'reading', startedAt: new Date(), error: '' } });
+    if (resumed) {
+      plan = reel.plan;
+      timeline = await refreshTimelineUrls(reel.timeline);
+      voiceKey = reel.voiceKey || '';
+      musicKeySaved = reel.musicKey || '';
+      model = reel.model || '';
+      ledger.add({ source: 'Capture reel — resumed', output: `try ${attempt}: the saved cut is rendered again — no new model calls` });
+    } else {
     const material = await loadMaterial(reel, ledger);
     const handle = reel.instagramUsername || '';
     const [dna, colors, fonts] = await Promise.all([
@@ -893,7 +964,7 @@ async function runCaptureReel(reelId) {
     const directed = await directReel({ material, handle, brand: brandForPrompt, direction: reel.direction, style });
     ledger.add(directed.debug);
     model = directed.model;
-    const { plan } = directed;
+    ({ plan } = directed);
 
     // the style's music bed is generated while the voice is recorded
     const wantsMusic = style && style.audio?.mode !== 'voiceover' && plan.audioMode !== 'original';
@@ -903,7 +974,7 @@ async function runCaptureReel(reelId) {
 
     let voice = null;
     let voiceUrl = '';
-    let voiceKey = '';
+    voiceKey = '';
     if (plan.audioMode === 'voiceover') {
       await stage(reel, 'voicing', clock);
       voice = await voiceReel(plan);
@@ -929,7 +1000,6 @@ async function runCaptureReel(reelId) {
     }
 
     let music = null;
-    let musicKeySaved = '';
     if (musicJob) {
       await stage(reel, 'scoring', clock);
       const got = await musicJob;
@@ -951,7 +1021,7 @@ async function runCaptureReel(reelId) {
       headlineFont: fonts?.heading?.family || '',
       bodyFont: fonts?.body?.family || '',
     };
-    const timeline = await buildTimeline({ plan, material, voice, voiceUrl, brand, style, music });
+    timeline = await buildTimeline({ plan, material, voice, voiceUrl, brand, style, music });
     if (music) {
       // the bed is cut to the finished length, faded, and stored with the reel
       const bed = await styleRun.fitMusic(music.mp3, timeline.format.durationInFrames / FPS);
@@ -960,6 +1030,13 @@ async function runCaptureReel(reelId) {
       timeline.audio = { ...(timeline.audio || {}), musicSrc: await getMediaUrl(musicKey), musicVolume: plan.audioMode === 'music' ? 0.9 : 0.13 };
       musicKeySaved = musicKey;
     }
+    // the finished cut is playable in the browser right away (Remotion Player,
+    // same composition) while the server renders the MP4 for download/publish
+    // (+ what a retry needs to render it again without paying twice)
+    await CaptureReel.updateOne({ _id: reel._id }, {
+      $set: { timeline, plan, caption: plan.caption, hashtags: plan.hashtags, previewAt: new Date(), voiceKey, musicKey: musicKeySaved, model },
+    });
+    } // end: fresh cut
     await stage(reel, 'rendering', clock); // 'cutting' above = choosing + preparing the media
     const renderInfo = await renderReel(timeline, tmp);
     if (renderInfo.timing) Object.assign(clock.times, renderInfo.timing);
@@ -1003,16 +1080,25 @@ async function runCaptureReel(reelId) {
     if (err.debug) ledger.add(err.debug);
     const detail = [err.message, err.detail].filter(Boolean).join(' — ').slice(0, 2000);
     ledger.add({ source: 'Capture reel — failed', output: detail, note: `stage: ${reel.stage || '?'}` });
-    console.error(`[captureReel] ${reel._id} failed:`, err.stack || err.message, err.detail || '');
-    await CaptureReel.updateOne({ _id: reel._id }, {
-      $set: {
-        status: 'error',
-        errorDetail: detail,
-        error: err.userFacing ? err.message : 'The reel could not be made this time. Try again.',
-        finishedAt: new Date(),
-        costUsd: Math.round(ledger.total() * 10000) / 10000,
-      },
-    });
+    console.error(`[captureReel] ${reel._id} failed (try ${attempt}/${MAX_ATTEMPTS}):`, err.stack || err.message, err.detail || '');
+    if (!err.userFacing && attempt < MAX_ATTEMPTS) {
+      // temporary trouble (a model timeout, bad JSON, S3, the render): queued
+      // again; the caller (queue / in-process runner) schedules the next try
+      await CaptureReel.updateOne({ _id: reel._id }, {
+        $set: { status: 'queued', stage: 'retrying', error: '', errorDetail: `try ${attempt} failed: ${detail}` },
+      });
+      retryErr = retryError(`try ${attempt} failed: ${err.message}`);
+    } else {
+      await CaptureReel.updateOne({ _id: reel._id }, {
+        $set: {
+          status: 'error',
+          errorDetail: detail,
+          error: err.userFacing ? err.message : 'The reel could not be made this time. Try again.',
+          finishedAt: new Date(),
+          costUsd: Math.round(ledger.total() * 10000) / 10000,
+        },
+      });
+    }
   } finally {
     fs.promises.unlink(tmp).catch(() => {});
     for (const [key, file] of clipFileCache) {
@@ -1038,6 +1124,7 @@ async function runCaptureReel(reelId) {
       ...(latest?.status === 'error' ? { error: latest.error } : {}),
     });
   }
+  if (retryErr) throw retryErr;
 }
 
 // In-process fallback runner (no Redis): one reel at a time per API process,
@@ -1052,8 +1139,16 @@ function pump() {
     const id = queue.shift();
     active.add(id);
     track(runCaptureReel(id)
-      .catch((err) => console.error('[captureReel] runner crashed', err.message))
-      .finally(() => { active.delete(id); pump(); }));
+      .then(() => ({}), (err) => {
+        if (err.retryable) return { retryInMs: 20000 };
+        console.error('[captureReel] runner crashed', err.message);
+        return {};
+      })
+      .then(({ retryInMs }) => {
+        active.delete(id);
+        if (retryInMs) setTimeout(() => runInProcess(id), retryInMs).unref?.();
+        pump();
+      }));
   }
 }
 
@@ -1067,6 +1162,7 @@ function runInProcess(id) {
 const isRunningHere = (id) => active.has(String(id)) || queue.includes(String(id));
 
 module.exports = {
+  MAX_ATTEMPTS,
   _loadMaterial: loadMaterial,
   _directReel: directReel,
   runInProcess,

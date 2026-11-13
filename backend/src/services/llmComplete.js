@@ -95,7 +95,36 @@ function parseToolArgs(raw) {
   const start = candidate.indexOf('{');
   const end = candidate.lastIndexOf('}');
   if (start === -1 || end === -1) return JSON.parse(candidate);
-  return JSON.parse(candidate.slice(start, end + 1));
+  try {
+    return JSON.parse(candidate.slice(start, end + 1));
+  } catch (err) {
+    // a complete object followed by more text or a second object ("{…}{…}",
+    // "{…} }"): the first balanced object is the answer
+    const first = firstJsonObject(candidate, start);
+    if (first) return JSON.parse(first);
+    throw err;
+  }
+}
+
+// The first brace-balanced {…} from `from`, ignoring braces inside strings.
+function firstJsonObject(s, from = 0) {
+  let depth = 0;
+  let inStr = false;
+  let esc = false;
+  for (let i = from; i < s.length; i += 1) {
+    const c = s[i];
+    if (inStr) {
+      if (esc) esc = false;
+      else if (c === '\\') esc = true;
+      else if (c === '"') inStr = false;
+    } else if (c === '"') inStr = true;
+    else if (c === '{') depth += 1;
+    else if (c === '}') {
+      depth -= 1;
+      if (depth === 0) return s.slice(from, i + 1);
+    }
+  }
+  return null;
 }
 
 function jsonSchemaInstruction(tool) {

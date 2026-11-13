@@ -6,7 +6,7 @@
  * reel with its post caption, Download, Copy caption and Make another (with an
  * optional note to steer the next cut). The job keeps running if this closes.
  */
-import React, { useEffect, useRef, useState } from 'react';
+import React, { Suspense, lazy, useEffect, useRef, useState } from 'react';
 import Icon from '../../brand/Icon';
 import { useBodyScrollLock } from '../checkin/ui';
 import { videoProxyUrl } from '../../api/media';
@@ -14,6 +14,9 @@ import {
   createCaptureReel, listCaptureReels, getCaptureReel, deleteCaptureReel, reelWorking,
 } from '../../api/captureReels';
 import ReelStyleModal from './ReelStyleModal';
+
+// Remotion (the in-browser player) only downloads when a preview is shown
+const ReelPreview = lazy(() => import('./ReelPreview'));
 import './reelStudio.css';
 
 const STEPS = [
@@ -45,15 +48,26 @@ export default function ReelStudio({ item, autoStart = false, startWith = null, 
   const [copied, setCopied] = useState(false);
   const started = useRef(false);
 
-  const put = (list) => { setReels(list); onReels?.(list); };
+  const put = (list) => setReels(list);
   const upsert = (r) => setReels((cur) => {
     const was = (cur || []).find((x) => x.id === r.id);
-    if (was && reelWorking(was) && r.status === 'done') onDone?.(r);
-    const list = [r, ...(cur || []).filter((x) => x.id !== r.id)]
+    if (was?.preview && r.preview) r = { ...r, preview: was.preview }; // keep the player from restarting
+    return [r, ...(cur || []).filter((x) => x.id !== r.id)]
       .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
-    onReels?.(list);
-    return list;
   });
+  // tell the page after the update (never from inside it): its reel badges,
+  // and — once a reel finishes — that its capture is now used
+  const lastStatus = useRef({}); // reel id → status at the previous update
+  useEffect(() => {
+    if (reels === null) return;
+    onReels?.(reels);
+    reels.forEach((r) => {
+      const was = lastStatus.current[r.id];
+      if (was && was !== 'done' && was !== 'error' && r.status === 'done') onDone?.(r);
+      lastStatus.current[r.id] = r.status;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reels]);
 
   const start = async (note = '', styleId = '') => {
     setErr('');
@@ -149,12 +163,20 @@ export default function ReelStudio({ item, autoStart = false, startWith = null, 
             <div className="rls__stage">
               {reel.status === 'done' && src ? (
                 <video key={reel.id} className="rls__video" src={src} poster={reel.posterUrl || undefined} controls autoPlay playsInline loop />
+              ) : reelWorking(reel) && reel.preview ? (
+                // the cut is ready: play it here while the server makes the file
+                <div className="rls__preview">
+                  <Suspense fallback={<div className="rls__empty"><span className="pj-spin" /></div>}>
+                    <ReelPreview key={reel.id} timeline={reel.preview} />
+                  </Suspense>
+                  <span className="rls__badge"><span className="pj-spin" />Finishing the video file…</span>
+                </div>
               ) : (
                 <div className="rls__wait" style={reel.posterUrl ? { backgroundImage: `url(${reel.posterUrl})` } : undefined}>
                   {reelWorking(reel) ? (
                     <ol className="rls__steps">
                       {STEPS.map((s, i) => {
-                        const at = reel.status === 'queued' ? -1 : stepAt(reel.stage);
+                        const at = reel.status === 'queued' || reel.stage === 'retrying' ? -1 : stepAt(reel.stage);
                         const state = i < at ? 'done' : i === at ? 'now' : 'next';
                         return (
                           <li key={s.id} className={`rls__step is-${state}`}>
@@ -163,13 +185,16 @@ export default function ReelStudio({ item, autoStart = false, startWith = null, 
                           </li>
                         );
                       })}
-                      <li className="rls__note">{reel.status === 'queued' ? 'Waiting for the reel ahead of it…' : 'You can close this — it keeps going.'}</li>
+                      <li className="rls__note">
+                        {reel.stage === 'retrying' ? 'Something went wrong — trying again in a moment…'
+                          : reel.status === 'queued' ? 'Waiting for the reel ahead of it…' : 'You can close this — it keeps going.'}
+                      </li>
                     </ol>
                   ) : (
                     <div className="rls__fail">
                       <Icon name="info" size={18} />
                       <p>{reel.error || 'The reel could not be made this time.'}</p>
-                      <button type="button" className="rls-btn rls-btn--go" onClick={() => start(reel.direction || '')}>Try again</button>
+                      <button type="button" className="rls-btn rls-btn--go" onClick={() => start(reel.direction || '', reel.styleId || '')}>Try again</button>
                     </div>
                   )}
                 </div>
@@ -177,6 +202,11 @@ export default function ReelStudio({ item, autoStart = false, startWith = null, 
             </div>
 
             <aside className="rls__side">
+              {reelWorking(reel) && reel.preview && (
+                <p className="rls__meta">
+                  This is a live preview. Download and posting unlock in a few seconds, when the video file is ready.
+                </p>
+              )}
               {reelWorking(reel) && !reel.hook && (
                 <>
                   <p className="rls__hook">Making your reel</p>

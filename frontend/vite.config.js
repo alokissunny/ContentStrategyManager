@@ -1,3 +1,4 @@
+import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import localize from './build/localize.cjs';
@@ -22,7 +23,18 @@ export default defineConfig(({ mode }) => ({
     mode === 'mobile' && nativeShellHtml(),
   ].filter(Boolean),
   build: mode === 'mobile' ? { outDir: 'dist-mobile' } : undefined,
+  // The reel preview plays the SAME Remotion composition the server renders
+  // (backend/remotion/src, imported via @reel). Those files sit outside this
+  // package, so their react / remotion imports are pinned to ours (one React).
+  resolve: {
+    alias: { '@reel': fileURLToPath(new URL('../backend/remotion/src', import.meta.url)) },
+    dedupe: ['react', 'react-dom', 'remotion', '@remotion/google-fonts', '@remotion/player'],
+  },
+  // prebundled at startup, so the dev server never re-optimises mid-session
+  // (that briefly loads two copies of React → "Invalid hook call")
+  optimizeDeps: { include: ['remotion', '@remotion/player'] },
   server: {
+    fs: { allow: ['..'] },
     port: 5173,
     proxy: {
       '/api': 'http://localhost:5002',

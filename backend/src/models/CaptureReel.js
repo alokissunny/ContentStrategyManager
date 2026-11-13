@@ -19,6 +19,7 @@ const captureReelSchema = new mongoose.Schema(
     // the director's cut list (as returned, validated) + the frame timeline rendered
     plan: { type: mongoose.Schema.Types.Mixed, default: null },
     timeline: { type: mongoose.Schema.Types.Mixed, default: null },
+    previewAt: { type: Date, default: null }, // when the timeline became playable (before the MP4)
     caption: { type: String, default: '' },
     hashtags: { type: [String], default: [] },
     videoKey: { type: String, default: '' },
@@ -35,6 +36,10 @@ const captureReelSchema = new mongoose.Schema(
     timings: { type: mongoose.Schema.Types.Mixed, default: null },
     // the calendar post it was placed on (PlannedPost, format Reel)
     postId: { type: mongoose.Schema.Types.ObjectId, ref: 'PlannedPost', default: null },
+    // delivery: tries so far (services/captureReelAgent MAX_ATTEMPTS) and the
+    // BullMQ job carrying it now (a re-queue gets a fresh id)
+    attempts: { type: Number, default: 0 },
+    jobId: { type: String, default: '' },
     startedAt: { type: Date, default: null },
     finishedAt: { type: Date, default: null },
   },

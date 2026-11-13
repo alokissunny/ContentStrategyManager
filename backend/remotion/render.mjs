@@ -17,7 +17,7 @@
  * Exit code 0 on success; prints the output path as the last stdout line.
  */
 import { bundle } from '@remotion/bundler';
-import { selectComposition, renderMedia } from '@remotion/renderer';
+import { selectComposition, renderMedia, openBrowser } from '@remotion/renderer';
 import { readFileSync, mkdirSync, readdirSync, statSync, existsSync, rmSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { dirname, resolve } from 'node:path';
@@ -62,12 +62,17 @@ async function main() {
 
   const t0 = Date.now();
   const serveUrl = await cachedBundle();
+  // We open (and always close) headless Chrome ourselves: left to Remotion,
+  // Chrome outlived a finished render as an orphan holding ~1.3 GB — every
+  // reel leaked one until the server ran out of memory.
+  browser = await openBrowser('chrome', { chromiumOptions: { gl: glBackend(compositionId) }, logLevel: 'error' });
 
   const tBundled = Date.now();
   console.error(`[render:timing] bundle ${tBundled - t0}ms`);
   console.error('[render] selecting composition…');
   const composition = await selectComposition({
     serveUrl,
+    puppeteerInstance: browser,
     id: compositionId,
     inputProps,
     timeoutInMilliseconds: 120000,
@@ -79,6 +84,7 @@ async function main() {
   const tRender = Date.now();
   await renderMedia({
     serveUrl,
+    puppeteerInstance: browser,
     composition,
     codec: 'h264',
     outputLocation: outPath,
@@ -159,7 +165,19 @@ async function cachedBundle() {
 
 // Remotion can leave handles open after the file is written (seen: a finished
 // render hanging until killed), so leave explicitly.
-main().then(() => process.exit(0)).catch((err) => {
+let browser = null;
+async function closeBrowser() {
+  const b = browser;
+  browser = null;
+  if (b) await b.close({ silent: true }).catch(() => {});
+}
+// the server stops a render with SIGTERM first (then SIGKILL): close Chrome
+for (const sig of ['SIGTERM', 'SIGINT']) {
+  process.on(sig, () => { closeBrowser().finally(() => process.exit(143)); });
+}
+
+main().then(async () => { await closeBrowser(); process.exit(0); }).catch(async (err) => {
+  await closeBrowser();
   console.error('[render] failed:', err?.stack || err?.message || err);
   process.exit(1);
 });

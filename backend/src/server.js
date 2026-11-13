@@ -42,9 +42,15 @@ connectDB()
     // Capture reels (Captures › Generate reel) — same switch; production should
     // run them on the worker service instead (rendering is CPU-heavy).
     let reelWorkers = null;
-    if (require('./services/reelQueue').isReelQueueConfigured() && workersInApi) {
+    // REEL_WORKER_IN_API=0 leaves reels to a separate (bigger) worker service
+    // even when plan workers run here — a render needs ~700 MB.
+    const reelEnv = String(process.env.REEL_WORKER_IN_API || '').trim().toLowerCase();
+    const reelsInApi = reelEnv ? ['1', 'true', 'on', 'yes'].includes(reelEnv) : workersInApi;
+    if (require('./services/reelQueue').isReelQueueConfigured() && reelsInApi) {
       reelWorkers = require('./workers/reelWorkers').startReelWorkers();
     }
+    // the API keeps every capture reel moving: re-queues ones whose job was lost
+    require('./services/reelSweeper').startReelSweeper();
 
     // Graceful shutdown: a deploy sends SIGTERM. Stop taking new connections,
     // let open requests and background runs (Theme Apply, fire-and-forget plan

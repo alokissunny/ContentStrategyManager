@@ -9,7 +9,9 @@ const { isRunningHere } = require('../services/captureReelAgent');
 const { enqueueCaptureReel, reelJobAlive } = require('../services/reelQueue');
 
 const isId = (v) => mongoose.isValidObjectId(String(v || ''));
-const STALE_MS = 20 * 60 * 1000;
+// the sweeper (services/reelSweeper.js) re-queues lost reels within minutes;
+// this only closes one nothing has touched for an hour
+const STALE_MS = 60 * 60 * 1000;
 
 // A job that stopped reporting (its worker died and the queue lost it, or the
 // in-process fallback restarted) is closed rather than left spinning forever.
@@ -17,14 +19,14 @@ const STALE_MS = 20 * 60 * 1000;
 async function closeStale(reel) {
   if (!['queued', 'working'].includes(reel.status) || isRunningHere(reel._id)) return reel;
   if (Date.now() - new Date(reel.updatedAt).getTime() < STALE_MS) return reel;
-  if (await reelJobAlive(reel._id)) return reel;
+  if ((await reelJobAlive(reel)) !== false) return reel; // alive, or can't tell (Redis down)
   reel.status = 'error';
   reel.error = 'This reel was interrupted. Try again.';
   await CaptureReel.updateOne({ _id: reel._id }, { $set: { status: 'error', error: reel.error } });
   return reel;
 }
 
-async function serialize(r, posts = null) {
+async function serialize(r, posts = null, { withPreview = false } = {}) {
   const plan = r.plan || {};
   // the calendar post it went onto (read live: moved / deleted posts show)
   let post = null;
@@ -52,6 +54,8 @@ async function serialize(r, posts = null) {
     posterKey: r.posterKey || '',
     posterUrl: r.posterKey ? await getMediaUrl(r.posterKey).catch(() => '') : '',
     durationSec: r.durationSec || 0,
+    // still rendering: the cut itself, for the in-browser preview player
+    ...(withPreview && r.timeline && ['queued', 'working'].includes(r.status) ? { preview: r.timeline } : {}),
     post: post ? { id: String(post._id), date: post.date, published: Boolean(post.published) } : null,
     costUsd: r.costUsd || 0,
     createdAt: r.createdAt,
@@ -113,9 +117,9 @@ async function listReels(req, res) {
 
 async function getReel(req, res) {
   if (!isId(req.params.id)) return res.status(404).json({ message: 'Reel not found' });
-  const reel = await CaptureReel.findOne({ _id: req.params.id, user: req.user._id }).select('-timeline');
+  const reel = await CaptureReel.findOne({ _id: req.params.id, user: req.user._id });
   if (!reel) return res.status(404).json({ message: 'Reel not found' });
-  return res.json({ reel: await serialize(await closeStale(reel)) });
+  return res.json({ reel: await serialize(await closeStale(reel), null, { withPreview: true }) });
 }
 
 async function deleteReel(req, res) {
