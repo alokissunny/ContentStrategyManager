@@ -56,9 +56,11 @@ function lookOf(style) {
     color: /^#[0-9a-f]{6}$/i.test(t.color || '') ? t.color : '#FFFFFF',
     captionColor: /^#[0-9a-f]{6}$/i.test(t.color || '') ? t.color : '#FFFFFF',
     position: pick(t.position, ['top', 'center', 'lower'], 'center'),
-    grade: pick(s.visuals?.grade, ['warm', 'neutral', 'bright', 'cool'], 'neutral'),
+    grade: pick(s.visuals?.grade, ['warm', 'neutral', 'bright', 'cool', 'clean', 'moody'], 'neutral'),
     endCard: pick(s.cta?.endCard, ['card', 'text-on-shot', 'none'], 'text-on-shot'),
     progress: false,
+    // words land one by one with a pop (teaser text)
+    kinetic: Boolean(t.kinetic),
   };
 }
 

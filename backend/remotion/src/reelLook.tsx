@@ -36,7 +36,7 @@ const padOf = (pos: ReelLook['position']) => (pos === 'top' ? { paddingTop: '22%
 const SOFT = '0 4px 22px rgba(0,0,0,0.45), 0 1px 3px rgba(0,0,0,0.35)';
 
 // ── Overlay text on a shot ───────────────────────────────────────────────────
-export const LookOverlay: React.FC<{ text: string; look: ReelLook; durationInFrames: number }> = ({ text, look, durationInFrames }) => {
+export const LookOverlay: React.FC<{ text: string; look: ReelLook; durationInFrames: number; textY?: number }> = ({ text, look, durationInFrames, textY }) => {
   const frame = useCurrentFrame();
   const quick = durationInFrames < 24; // fast-cut styles: no time to animate in
   const tIn = quick ? 1 : interpolate(frame, [0, 8], [0, 1], { ...clamp, easing: outCubic });
@@ -81,11 +81,34 @@ export const LookOverlay: React.FC<{ text: string; look: ReelLook; durationInFra
       break;
     }
     case 'bold-sans':
+      if (look.kinetic) {
+        // teaser text: each word lands on its own, with a pop
+        const ws = words.split(/\s+/).filter(Boolean);
+        node = (
+          <div style={{ ...base, opacity: tOut, transform: 'none', fontFamily: CAPTION_FONT, fontStyle: 'normal', fontWeight: 900, fontSize: 86, lineHeight: 1.04, textAlign: 'center', width: '86%', textTransform: 'uppercase', letterSpacing: -1 }}>
+            {ws.map((w, i) => {
+              const t = interpolate(frame, [i * 3, i * 3 + 6], [0, 1], { ...clamp, easing: outBack });
+              return <span key={i} style={{ display: 'inline-block', margin: '0 12px', opacity: t, transform: `scale(${interpolate(t, [0, 1], [1.6, 1])})` }}>{w}</span>;
+            })}
+          </div>
+        );
+        break;
+      }
       node = <div style={{ ...base, fontFamily: CAPTION_FONT, fontStyle: 'normal', fontWeight: 800, fontSize: 72, lineHeight: 1.06, textAlign: 'center', width: '84%' }}>{words}</div>;
       break;
     case 'serif-center':
     default:
       node = <div style={{ ...base, fontSize: 60, lineHeight: 1.14, textAlign: 'center', width: '78%' }}>{words}</div>;
+  }
+  if (typeof textY === 'number') {
+    // a planned height (0–1 of the frame), centred on that line
+    return (
+      <AbsoluteFill>
+        <div style={{ position: 'absolute', left: 0, right: 0, top: `${textY * 100}%`, transform: 'translateY(-50%)', display: 'flex', justifyContent: 'center' }}>
+          {node}
+        </div>
+      </AbsoluteFill>
+    );
   }
   return (
     <AbsoluteFill style={{ justifyContent: justifyOf(look.position), alignItems: 'center', ...padOf(look.position) }}>
@@ -220,5 +243,7 @@ export const GRADE: Record<string, string | undefined> = {
   warm: 'sepia(0.12) saturate(1.08) contrast(1.03)',
   bright: 'brightness(1.06) contrast(1.04) saturate(1.04)',
   cool: 'hue-rotate(-6deg) saturate(0.95) contrast(1.02)',
+  clean: 'brightness(1.05) saturate(0.94) contrast(1.03)',
+  moody: 'brightness(0.9) saturate(0.88) contrast(1.1)',
   neutral: undefined,
 };

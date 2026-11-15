@@ -52,6 +52,8 @@ async function serialize(r, posts = null, { withPreview = false } = {}) {
     concept: plan.concept || '',
     hook: plan.hook?.text || '',
     audioMode: plan.audioMode || '',
+    format: plan.format || '',
+    altHook: plan.altHook || '',
     caption: r.caption || '',
     hashtags: r.hashtags || [],
     videoKey: r.videoKey || '',

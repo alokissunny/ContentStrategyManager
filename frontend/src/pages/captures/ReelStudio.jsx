@@ -22,7 +22,6 @@ import './reelStudio.css';
 const STEPS = [
   { id: 'reading', say: 'Watching your photos and clips' },
   { id: 'writing', say: 'Writing the hook and the cut' },
-  { id: 'voicing', say: 'Recording the voiceover' },
   { id: 'scoring', say: 'Composing the music' },
   { id: 'cutting', say: 'Cutting and animating the reel' },
   { id: 'saving', say: 'Saving it' },
@@ -168,9 +167,9 @@ export default function ReelStudio({ item, autoStart = false, startWith = null, 
           <div className="rls__intro">
             <p className="rls__lead">Turn this capture into a vertical reel.</p>
             <p className="rls__say">
-              Bauhly picks the strongest shots, writes a hook for the first second, records a
-              voiceover in your voice (or keeps what you said on camera), and adds word-by-word
-              captions and an end card, then puts it on your calendar. It takes about a minute.
+              Bauhly cuts your strongest shots into a short teaser — a hook in the first second,
+              fast cuts on the beat of original music, animated callouts and one big reveal —
+              then puts it on your calendar. It takes about a minute.
             </p>
             <button type="button" className="rls-btn rls-btn--go" onClick={() => setPicking(true)}>
               <Icon name="film" size={16} /> Generate reel
@@ -237,7 +236,13 @@ export default function ReelStudio({ item, autoStart = false, startWith = null, 
               )}
               {reel.hook && <p className="rls__hook">“{reel.hook}”</p>}
               {reel.concept && <p className="rls__concept">{reel.concept}</p>}
-              <p className="rls__style">{reel.styleName ? `Style · ${reel.styleName}` : 'Style · Default'}</p>
+              <p className="rls__style">
+                {reel.styleName ? `Style · ${reel.styleName}` : 'Style · Default'}
+                {reel.format ? ` · ${reel.format.replace('_', ' ')}` : ''}
+              </p>
+              {reel.altHook && (
+                <p className="rls__alt"><span className="rls__lab">Alternative hook (A/B)</span>“{reel.altHook}”</p>
+              )}
               {reel.status === 'done' && (
                 <>
                   <div className="rls__acts">
@@ -274,7 +279,7 @@ export default function ReelStudio({ item, autoStart = false, startWith = null, 
                     <p className="rls__meta">Not on the calendar — there was no empty publishing day to put it on.</p>
                   )}
                   <p className="rls__meta">
-                    {Math.round(reel.durationSec)}s · {reel.audioMode === 'original' ? 'your own audio' : reel.audioMode === 'music' ? 'music' : 'voiceover'}
+                    {Math.round(reel.durationSec)}s · {reel.audioMode === 'voiceover' ? 'voiceover' : 'music'}
                   </p>
                 </>
               )}

@@ -13,9 +13,18 @@ export type ReelLook = {
   color: string;
   captionColor?: string;
   position: 'top' | 'center' | 'lower';
-  grade: 'warm' | 'neutral' | 'bright' | 'cool';
+  grade: 'warm' | 'neutral' | 'bright' | 'cool' | 'clean' | 'moody';
   endCard: 'card' | 'text-on-shot' | 'none';
   progress: boolean;
+  kinetic?: boolean; // overlay words pop in one by one
+};
+
+export type ReelAnnotation = {
+  type: 'circle' | 'arrow' | 'label' | 'spotlight' | 'zoom';
+  text?: string;
+  atFrame: number; // from the start of its shot
+  box: { x: number; y: number; w: number; h: number }; // % of the image
+  point: { x: number; y: number };
 };
 
 export type ReelScene = {
@@ -31,10 +40,15 @@ export type ReelScene = {
   focusY?: number;
   kicker?: string;
   overlayText?: string; // styled reels: the words on this shot
+  textY?: number; // 0–1: where the words sit (the default director places them)
   cardNumber?: number; // kind 'card': numbered chapter card
   cardTitle?: string;
   playbackRate?: number;
   graded?: boolean; // the style's colour grade is already baked into src
+  annotations?: ReelAnnotation[]; // teaser overlays anchored on the photo
+  srcW?: number; // the photo's size (maps anchors through the cover crop)
+  srcH?: number;
+  beforeSrc?: string; // before → after wipe
   // the picture inside letterbox bands baked into a clip (fractions of the frame)
   crop?: { x: number; y: number; w: number; h: number };
 };

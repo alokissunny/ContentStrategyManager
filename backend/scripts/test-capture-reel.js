@@ -11,6 +11,7 @@
  * (director → voice → timeline → Remotion → S3). Costs a few cents.
  */
 require('dotenv').config();
+process.env.CAPTURE_REEL_SKIP_CALENDAR = '1'; // test reels stay off the calendar
 const mongoose = require('mongoose');
 const Project = require('../src/models/Project');
 const CaptureReel = require('../src/models/CaptureReel');
@@ -46,6 +47,9 @@ const { runCaptureReel } = require('../src/services/captureReelAgent');
     videoKey: done.videoKey, audioMode: done.plan?.audioMode, hook: done.plan?.hook, concept: done.plan?.concept,
     scenes: done.plan?.scenes?.map((s) => `${s.assetId}${s.card ? `#${s.cardNumber}` : ''} ${s.startSec}+${s.durationSec}s ${s.motion}/${s.transition} ${s.kicker ? `[${s.kicker}] ` : ''}${s.overlayText ? `«${s.overlayText}» ` : ''}${s.voiceLine}`),
     look: done.timeline?.look, timings: done.timings, shots: done.timeline?.scenes?.length,
+    format: done.plan?.format, grade: done.plan?.grade, altHook: done.plan?.altHook, warnings: done.plan?.warnings,
+    rejected: done.plan?.rejectedAssets, cover: done.plan?.coverShotIndex,
+    sceneTimes: done.timeline?.scenes?.map((sc) => `${(sc.from / done.timeline.format.fps).toFixed(2)}s ${sc.kind}${sc.textY != null ? ` y${sc.textY}` : ''}${sc.transition === 'flash' ? ' FLASH' : ''}`),
     cta: done.plan?.cta, caption: done.caption, hashtags: done.hashtags,
   }, null, 2));
   await mongoose.disconnect();

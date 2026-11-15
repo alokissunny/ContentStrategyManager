@@ -17,6 +17,7 @@ import {
 } from 'remotion';
 import { resolveFont, CAPTION_FONT } from './fonts';
 import { LookOverlay, LookHook, ChapterCard, LookCaptions, LookEndLine, GRADE } from './reelLook';
+import { cameraAt, zoomPunchAt, SceneAnnotations } from './teaserFx';
 import type { ReelSpec, ReelScene, ReelCaption } from './reelSchema';
 
 const clamp = { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' } as const;
@@ -26,55 +27,22 @@ const outBack = Easing.out(Easing.back(1.8));
 // ── One scene: media + its motion + its entry transition ─────────────────────
 const SceneMedia: React.FC<{ scene: ReelScene; fps: number; grade?: string }> = ({ scene, fps, grade }) => {
   const frame = useCurrentFrame();
-  const d = Math.max(1, scene.durationInFrames);
-  const p = frame / d;
-  const fx = scene.focusX ?? 50;
-  const fy = scene.focusY ?? 50;
-
-  // continuous camera move across the whole scene
-  let scale = 1.06;
-  let tx = 0;
-  let ty = 0;
-  switch (scene.motion) {
-    case 'push-in': scale = interpolate(p, [0, 1], [1.04, 1.16]); break;
-    case 'pull-out': scale = interpolate(p, [0, 1], [1.18, 1.04]); break;
-    case 'pan-left': scale = 1.14; tx = interpolate(p, [0, 1], [3.5, -3.5]); break;
-    case 'pan-right': scale = 1.14; tx = interpolate(p, [0, 1], [-3.5, 3.5]); break;
-    case 'pan-up': scale = 1.14; ty = interpolate(p, [0, 1], [3, -3]); break;
-    case 'none': scale = scene.kind === 'video' ? 1 : 1.04; break;
-    default: break;
-  }
-
-  // entry transition (first ~8 frames)
-  const tIn = interpolate(frame, [0, 8], [0, 1], { ...clamp, easing: outCubic });
-  let enterScale = 1;
-  let enterX = 0;
-  let enterY = 0;
-  let blur = 0;
-  let flash = 0;
-  switch (scene.transition) {
-    case 'zoom': enterScale = interpolate(tIn, [0, 1], [1.28, 1]); blur = interpolate(tIn, [0, 1], [10, 0]); break;
-    case 'whip': enterX = interpolate(tIn, [0, 1], [38, 0]); blur = interpolate(tIn, [0, 1], [18, 0]); break;
-    case 'slide': enterY = interpolate(tIn, [0, 1], [100, 0]); break;
-    case 'flash': flash = interpolate(frame, [0, 6], [0.85, 0], clamp); break;
-    default: break;
-  }
-
-  // zoom past letterbox bands baked into the clip, centred on the picture
+  const cam = cameraAt(scene, frame);
   const c = scene.crop;
-  const unbox = c ? 1 / Math.max(0.35, Math.min(c.w, c.h)) : 1;
-  const ox = c ? (c.x + c.w / 2) * 100 : fx;
-  const oy = c ? (c.y + c.h / 2) * 100 : fy;
+  const fx = c ? 50 : (scene.focusX ?? 50);
+  const fy = c ? 50 : (scene.focusY ?? 50);
   const style: React.CSSProperties = {
     position: 'absolute', inset: 0, width: '100%', height: '100%',
-    objectFit: 'cover', objectPosition: `${c ? 50 : fx}% ${c ? 50 : fy}%`,
-    transformOrigin: `${ox}% ${oy}%`,
-    transform: `translate(${tx + enterX}%, ${ty}%) scale(${scale * enterScale * unbox})`,
-    filter: [blur > 0.2 ? `blur(${blur}px)` : '', grade || ''].filter(Boolean).join(' ') || undefined,
+    objectFit: 'cover', objectPosition: `${fx}% ${fy}%`,
+    transformOrigin: `${cam.ox}% ${cam.oy}%`,
+    transform: `translate(${cam.tx}%, ${cam.ty}%) scale(${cam.scale})`,
+    filter: [cam.blur > 0.2 ? `blur(${cam.blur}px)` : '', grade || ''].filter(Boolean).join(' ') || undefined,
   };
+  // before → after wipe: the before photo is pulled away left-to-right
+  const wipe = scene.beforeSrc ? interpolate(frame, [Math.round(fps * 0.35), Math.round(fps * 0.85)], [0, 100], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp', easing: Easing.inOut(Easing.cubic) }) : 100;
 
   return (
-    <AbsoluteFill style={{ background: '#000', transform: `translateY(${enterY}%)`, overflow: 'hidden' }}>
+    <AbsoluteFill style={{ background: '#000', transform: `translateY(${cam.enterY}%)`, overflow: 'hidden' }}>
       {scene.kind === 'video' ? (
         <OffthreadVideo
           src={scene.src}
@@ -87,7 +55,30 @@ const SceneMedia: React.FC<{ scene: ReelScene; fps: number; grade?: string }> = 
       ) : (
         <Img src={scene.src} style={style} />
       )}
-      {flash > 0 ? <AbsoluteFill style={{ background: '#fff', opacity: flash }} /> : null}
+      {scene.beforeSrc && wipe < 100 ? (
+        <>
+          <Img src={scene.beforeSrc} style={{ ...style, clipPath: `inset(0 0 0 ${wipe}%)` }} />
+          {wipe > 0 ? <div style={{ position: 'absolute', top: 0, bottom: 0, left: `${wipe}%`, width: 8, marginLeft: -4, background: '#fff', boxShadow: '0 0 24px rgba(255,255,255,0.9)' }} /> : null}
+        </>
+      ) : null}
+      {cam.flash > 0 ? <AbsoluteFill style={{ background: '#fff', opacity: cam.flash }} /> : null}
+    </AbsoluteFill>
+  );
+};
+
+// A styled shot: its media, the overlays anchored to it, and — for a 'zoom'
+// overlay — a crash-zoom that moves both together
+const SceneFrame: React.FC<{ scene: ReelScene; fps: number; grade?: string; accent: string; ink: string }> = ({ scene, fps, grade, accent, ink }) => {
+  const frame = useCurrentFrame();
+  const { width, height } = useVideoConfig();
+  const punch = zoomPunchAt(scene, frame, width, height);
+  return (
+    <AbsoluteFill style={punch ? {
+      transformOrigin: `${punch.originX}px ${punch.originY}px`,
+      transform: `translate(${punch.shake}px, 0) scale(${punch.scale})`,
+    } : undefined}>
+      <SceneMedia scene={scene} fps={fps} grade={grade} />
+      {scene.annotations?.length ? <SceneAnnotations scene={scene} accent={accent} ink={ink} /> : null}
     </AbsoluteFill>
   );
 };
@@ -240,7 +231,8 @@ const StyledReel: React.FC<{ reel: ReelSpec }> = ({ reel }) => {
     <AbsoluteFill style={{ background: '#000' }}>
       {reel.scenes.map((s, i) => (
         <Sequence key={`m${i}`} from={s.from} durationInFrames={s.durationInFrames} layout="none">
-          {s.kind === 'card' ? <ChapterCard scene={s} look={look} /> : <SceneMedia scene={s} fps={fps} grade={s.graded ? undefined : grade} />}
+          {s.kind === 'card' ? <ChapterCard scene={s} look={look} />
+            : <SceneFrame scene={s} fps={fps} grade={s.graded ? undefined : grade} accent={reel.brand.accent} ink={reel.brand.accentInk} />}
         </Sequence>
       ))}
       {reel.scenes.map((s, i) => {
@@ -249,7 +241,7 @@ const StyledReel: React.FC<{ reel: ReelSpec }> = ({ reel }) => {
         const len = Math.min(s.from + s.durationInFrames, endFrom) - from;
         return len > 4 ? (
           <Sequence key={`o${i}`} from={from} durationInFrames={len}>
-            <LookOverlay text={s.overlayText} look={look} durationInFrames={len} />
+            <LookOverlay text={s.overlayText} look={look} durationInFrames={len} textY={s.textY} />
           </Sequence>
         ) : null;
       })}

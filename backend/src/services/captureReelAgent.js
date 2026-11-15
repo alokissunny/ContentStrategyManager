@@ -229,6 +229,10 @@ async function loadMaterial(reel, ledger) {
           id: `A${assets.length + 1}`, kind: 'image', key: a.key,
           summary: str(an.summary, 200), description: str(an.description, 400),
           subjects: (an.subjects || []).map((s) => (typeof s === 'string' ? s : s?.name)).filter(Boolean).slice(0, 8),
+          // where each subject is (% of the image) — anchors for animated overlays
+          subjectBoxes: (an.subjects || []).filter((s) => s && s.name && s.box)
+            .map((s) => ({ name: String(s.name), box: s.box, point: s.point || { x: s.box.x + s.box.w / 2, y: s.box.y + s.box.h / 2 } }))
+            .slice(0, 8),
           text: str(an.text, 160),
         });
       } else if (a.type === 'video' && num(an.durationSec) > 0.5) {
@@ -635,11 +639,13 @@ function gradeImage(img, grade) {
   }
   if (grade === 'bright') return contrast(img.modulate({ brightness: 1.06, saturation: 1.04 }), 1.04);
   if (grade === 'cool') return contrast(img.modulate({ hue: -6, saturation: 0.95 }), 1.02);
+  if (grade === 'clean') return contrast(img.modulate({ brightness: 1.05, saturation: 0.94 }), 1.03);
+  if (grade === 'moody') return contrast(img.modulate({ brightness: 0.9, saturation: 0.88 }), 1.1);
   return img;
 }
 
 async function imageSrc(key, grade = '') {
-  const g = ['warm', 'bright', 'cool'].includes(grade) ? grade : '';
+  const g = ['warm', 'bright', 'cool', 'clean', 'moody'].includes(grade) ? grade : '';
   const out = `${key.replace(/\.[^./]+$/, '')}.reel${g ? `.${g}` : ''}.jpg`;
   const have = await headObject(out).catch(() => null);
   if (!have) {
@@ -762,9 +768,10 @@ async function buildTimeline({ plan, material, voice, voiceUrl, brand, style = n
   const lastEnd = shots.length ? shots[shots.length - 1].start + shots[shots.length - 1].dur : voEnd;
   const hasCta = Boolean(plan.cta.line) && endCard !== 'none';
   // text-on-shot: the last shot is held a beat longer and carries the CTA
-  if (hasCta && endCard === 'text-on-shot' && shots.length) shots[shots.length - 1].dur += CTA_SEC;
+  const ctaSec = clampN(num(plan.cta?.durationSec, CTA_SEC), 1, 3);
+  if (hasCta && endCard === 'text-on-shot' && shots.length) shots[shots.length - 1].dur += ctaSec;
   const ctaStart = endCard === 'text-on-shot' ? lastEnd : lastEnd;
-  const total = hasCta ? lastEnd + CTA_SEC : lastEnd + 0.3;
+  const total = hasCta ? lastEnd + ctaSec : lastEnd + 0.3;
 
   // every shot's media is prepared at once (S3 reads, JPEG copies, band checks)
   const scenes = await Promise.all(shots.map(async (sh) => {
@@ -785,17 +792,31 @@ async function buildTimeline({ plan, material, voice, voiceUrl, brand, style = n
       focusY: sh.scene.focusY,
       ...(sh.scene.kicker ? { kicker: sh.scene.kicker } : {}),
       ...(sh.scene.overlayText ? { overlayText: sh.scene.overlayText } : {}),
+      ...(sh.scene.textY != null ? { textY: sh.scene.textY } : {}),
+      // teaser overlays, anchored on the photo (the renderer follows the camera)
+      ...(sh.scene.annotations?.length ? {
+        annotations: sh.scene.annotations.map((an) => ({ ...an, atFrame: Math.max(0, Math.round(num(an.atSec) * FPS)) })),
+      } : {}),
+      ...(a.width && a.height ? { srcW: a.width, srcH: a.height } : {}),
     };
-    const still = (key) => imageSrc(key, look?.grade).then((src) => ({
-      ...base, kind: 'image', src, motion: base.motion === 'none' ? 'push-in' : base.motion,
+    const before = sh.scene.beforeAssetId ? byId.get(sh.scene.beforeAssetId) : null;
+    const still = async (key) => ({
+      ...base,
+      kind: 'image',
+      src: await imageSrc(key, look?.grade),
+      // a before → after wipe: the before photo is wiped away to reveal this one
+      ...(before?.kind === 'image' ? { beforeSrc: await imageSrc(before.key, look?.grade) } : {}),
+      motion: base.motion === 'none' && !before ? 'push-in' : base.motion,
       ...(look && look.grade !== 'neutral' ? { graded: true } : {}),
-    }));
+    });
     if (a.kind !== 'video') return still(a.key);
     let start = sh.scene.startSec;
-    if (a.durationSec - start < sh.dur) start = Math.max(0, a.durationSec - sh.dur);
-    if (a.durationSec - start - 0.1 >= sh.dur) {
+    const rate = clampN(num(sh.scene.speed, 1), 0.75, 2);
+    const need = sh.dur * rate; // seconds of source a sped-up shot plays
+    if (a.durationSec - start < need) start = Math.max(0, a.durationSec - need);
+    if (a.durationSec - start - 0.1 >= need) {
       const [src, crop] = await Promise.all([getMediaUrl(a.key), letterboxOf(a.key, start, sh.dur)]);
-      return { ...base, kind: 'video', src, sourceStartSec: start, volume: sh.volume, ...(crop ? { crop } : {}) };
+      return { ...base, kind: 'video', src, sourceStartSec: start, volume: sh.volume, ...(rate !== 1 ? { playbackRate: rate } : {}), ...(crop ? { crop } : {}) };
     }
     // too short for the line said over it: hold its closest still instead
     const near = stillNear(a, start);
@@ -983,20 +1004,39 @@ async function runCaptureReel(reelId) {
     }).filter(([, v]) => v)) : {};
 
     const styleDoc = reel.styleId ? await require('../models/ReelStyle').findById(reel.styleId).lean() : null;
-    const style = styleDoc?.status === 'ready' ? styleDoc.style : null;
+    let style = styleDoc?.status === 'ready' ? styleDoc.style : null;
     if (reel.styleId && !style) throw userError('That reel style is not available any more. Pick another.');
+    // No voice in any reel (product decision, Nov 2026): a style keeps its look,
+    // pacing and type, and its story is told by on-screen words over music.
+    if (style) style = { ...style, audio: { ...(style.audio || {}), mode: 'music' }, captions: 'none' };
 
     await stage(reel, 'writing', clock);
-    const directed = await directReel({ material, handle, brand: brandForPrompt, direction: reel.direction, style });
-    ledger.add(directed.debug);
-    model = directed.model;
-    ({ plan } = directed);
+    let earlyMusic = null;
+    if (!style) {
+      // Default: the Bauhly Reel Director brief — a short, text-led cut to the
+      // beat of an original track, which is composed while the director plans
+      const { directDefaultReel, DEFAULT_MUSIC } = require('./reelDirectorDefault');
+      earlyMusic = styleRun.generateMusic({ audio: { mode: 'music', music: DEFAULT_MUSIC } })
+        .catch((err) => { console.warn(`[captureReel] ${reel._id} music:`, err.message); return { error: err.message }; });
+      const profile = handle
+        ? await require('../models/InstagramProfile').findOne({ user: reel.user, username: handle }).select('username fullName biography').lean().catch(() => null)
+        : null;
+      const directed = await directDefaultReel({ material, profile, dna, dcttStage: 'discovery' });
+      directed.debugRows.forEach((r) => ledger.add(r));
+      model = directed.model;
+      ({ plan, style } = directed);
+    } else {
+      const directed = await directReel({ material, handle, brand: brandForPrompt, direction: reel.direction, style });
+      ledger.add(directed.debug);
+      model = directed.model;
+      ({ plan } = directed);
+    }
 
     // the style's music bed is generated while the voice is recorded
     const wantsMusic = style && style.audio?.mode !== 'voiceover' && plan.audioMode !== 'original';
-    const musicJob = wantsMusic
+    const musicJob = earlyMusic || (wantsMusic
       ? styleRun.generateMusic(style).catch((err) => { console.warn(`[captureReel] ${reel._id} music:`, err.message); return { error: err.message }; })
-      : null;
+      : null);
 
     let voice = null;
     let voiceUrl = '';
@@ -1070,7 +1110,10 @@ async function runCaptureReel(reelId) {
     await stage(reel, 'saving', clock);
     const videoKey = `projects/${reel.user}/reel-${reel._id}.mp4`;
     const posterKey = `projects/${reel.user}/reel-${reel._id}-poster.jpg`;
-    const hookEnd = timeline.hook ? timeline.hook.durationInFrames / FPS - 0.2 : 0.8;
+    const coverScene = Number.isInteger(plan.coverShotIndex) ? timeline.scenes[plan.coverShotIndex] : null;
+    const hookEnd = coverScene
+      ? (coverScene.from + coverScene.durationInFrames * 0.6) / FPS
+      : (timeline.hook ? timeline.hook.durationInFrames / FPS - 0.2 : 0.8);
     await Promise.all([
       fs.promises.readFile(tmp).then((buf) => uploadBytes(videoKey, buf, 'video/mp4', { immutable: true })),
       posterOf(tmp, Math.max(0.3, hookEnd))
@@ -1091,7 +1134,8 @@ async function runCaptureReel(reelId) {
       },
     });
     // on the calendar like a generated carousel (next empty publishing day)
-    try {
+    // (scripts/test-capture-reel.js sets CAPTURE_REEL_SKIP_CALENDAR: tests stay off the calendar)
+    if (!process.env.CAPTURE_REEL_SKIP_CALENDAR) try {
       const post = await require('./reelCalendar').placeReelOnCalendar(reel._id);
       if (post) {
         ledger.add({ source: 'Capture reel — calendar', output: `Placed on ${post.date} (${post.day})`, note: `post ${post._id}` });

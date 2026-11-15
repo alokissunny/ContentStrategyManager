@@ -115,7 +115,7 @@ export default function ReelStyleModal({ count = 1, initialStyleId = DEFAULT_STY
             <span className="rsm__radio" aria-hidden="true">{pick === DEFAULT_STYLE && <Icon name="check" size={12} strokeWidth={3} />}</span>
             <span className="rsm__default__txt">
               <b>Default</b>
-              <span>Bold hook in the first second, word-by-word captions, a voiceover in your voice and an end card.</span>
+              <span>A 7–12 second teaser: a hook in the first second, fast cuts on the beat of original music, animated callouts on your details, one big reveal — no voiceover.</span>
             </span>
           </button>
 
