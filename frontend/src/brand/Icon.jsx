@@ -425,6 +425,9 @@ const PATHS = {
     <path d="M21 11.5a8.5 8.5 0 0 1-12.7 7.4L3 20l1.1-5.3A8.5 8.5 0 1 1 21 11.5Z" />
   ),
   play: <path d="M8 5.5v13l11-6.5L8 5.5Z" />,
+  /* the example's demo hand (bauhly-v3 DemoCursor): `click` presses, `point-left` waits beside `View post` */
+  click: <path d="M5.5 4.5 11 20l2.4-6.6L20 11z" />,
+  'point-left': <path d="M3 12 18 5.6l-3.1 6.4 3.1 6.4z" />,
   film: (
     <>
       <rect x="3.5" y="4.5" width="17" height="15" rx="2.5" />

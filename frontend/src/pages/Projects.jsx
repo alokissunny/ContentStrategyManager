@@ -31,7 +31,8 @@ import { understandCapture, transcribeCapture, clarificationQuestion, hasTranscr
 import { previewUrl } from '../api/media';
 import { useAuth } from '../context/AuthContext';
 import CaptureLogin from '../components/CaptureLogin';
-import { ExamplePreview, ExampleEditor } from '../components/ExamplePost';
+import { ExampleEditor } from '../components/ExamplePost';
+import { useDemoCursor } from './checkin/DemoCursor';
 import { IG_ASK, questionById, instagramHandle, saysNo, nextQuestion, answerSay } from '../lib/discovery';
 import { startVisitorRead, claimVisitorRead } from '../api/visitor';
 import { useTypedPlaceholder } from '../components/ui/typing';
@@ -856,6 +857,8 @@ function useConversation(beat = 420) {
 }
 
 /* the landing's photo question (bauhly-v3 LANDING_PHOTO_ASK) */
+/* a visit's own capture says it is complete before the post is built (bauhly-v3 decision 902) */
+const CAPTURE_DONE_SAY = 'Capture complete. Ready to become your first post.';
 const LANDING_PHOTO_ASK = 'Do you have any photos or images of this project? You can share work-in-progress photos, materials, sketches, or anything that helps tell the story.';
 
 /* ── HOW FAR BAUHLY HAS GOT WITH THE EXAMPLE (bauhly-v3 GenProgress + lib/postrun.js stages) ────────────
@@ -868,6 +871,15 @@ const EX_STAGES = [
   { id: 'preview', label: 'Preparing your preview', motion: 'frame' },
 ];
 const EX_STAGE_MS = 1100;
+/* ── THE PRESS THAT MAKES A VISITOR'S POST (bauhly-v3 decision 824: "Build post") ── one constant for the example's
+   end row, a visitor's own and the hand that finds the example's */
+const BUILD_POST_SAY = 'Build post';
+/* how long each step of the example is left to be read before the hand sets off (bauhly-v3 decisions 815, 826) */
+const EX_READ = { send: 1300, photos: 2100, gen: 1500, view: 1200 };
+/* what the hand says where it stops, on `View post` (bauhly-v3 decision 823) */
+const EX_YOUR_TURN = 'Now it’s your turn';
+/* the demo's one refusal sentence (bauhly-v3 decision 888) */
+const DEMO_REFUSE_SAY = 'Not available in the demo.';
 /* what happens after a visitor makes their account, in the order it happens (visitorGenerate; bauhly-v3
    lib/postrun.js STAGES). Their first post is made in this box, not on the calendar's loading screen
    (bauhly-v3 decision 743: "Keep the user in the same view while generation finishes"). Each stage is a
@@ -1995,6 +2007,31 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
   const [exEdit, setExEdit] = useState(null);
   const exEditTimer = useRef(0);
   useEffect(() => () => clearTimeout(exEditTimer.current), []);
+  /* ── THE EXAMPLE PLAYS ITSELF (bauhly-v3 decisions 815–970) ── from its first word to the hand settling on `View post`
+     the hand has the presses (`exAuto`), and the visitor's are refused; `handWaits` while it rests on `View post`;
+     `exHandOff` once the visitor has pressed, so a scheduled rest never comes back over the Editor (decision 926);
+     `exBack` once they have come back from the Editor: the row is then `Create my post` + `View post` (decision 945) */
+  const [exAuto, setExAuto] = useState(false);
+  const [handWaits, setHandWaits] = useState(false);
+  const [exBack, setExBack] = useState(false);
+  const exHandOff = useRef(false);
+  const handBusy = useRef(false);
+  const hand = useDemoCursor();
+  /* a press the example refused says so over the field, once per press (bauhly-v3 decisions 813, 888) */
+  const [refused, setRefused] = useState(0);
+  const refuseDemo = () => setRefused((n) => n + 1);
+  useEffect(() => {
+    if (!refused) return undefined;
+    const t = setTimeout(() => setRefused(0), 1800);
+    return () => clearTimeout(t);
+  }, [refused]);
+  const openExampleEditor = () => {
+    exHandOff.current = true;
+    hand.stop();
+    setHandWaits(false);
+    setExAuto(false);
+    setExEdit('in');
+  };
   /* the box is a few px wider than it shows (its scroll-jump button), so a focus or a scroll into view can
      move it sideways under the editing view: it never scrolls sideways while the example is being edited */
   useEffect(() => {
@@ -2007,6 +2044,7 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
   }, [exEdit]);
   const leaveEdit = () => {
     setExEdit('out');
+    setExBack(true);
     clearTimeout(exEditTimer.current);
     exEditTimer.current = setTimeout(() => {
       setExEdit((now) => (now === 'out' ? null : now));
@@ -2028,6 +2066,10 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
       const { text } = example;
       setExText(text);
       setDemo(true);
+      /* from its first word the hand has the presses (bauhly-v3 decision 815) */
+      setExAuto(true);
+      setExBack(false);
+      exHandOff.current = false;
       if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) { setDraft(text); return; }
       const words = text.split(' ');
       let at = 0;
@@ -2038,8 +2080,9 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
         setDraft(words.slice(0, at).join(' '));
         if (at >= words.length) { exTimer.current = setTimeout(() => setExLive(false), 300); return; }
         const said = words[at - 1];
-        const breath = said.endsWith('.') ? 180 : said.endsWith(',') ? 90 : 0;
-        exTimer.current = setTimeout(land, 70 + words[at].length * 11 + breath);
+        /* about eight words a second, a real breath at a full stop (bauhly-v3 decision 826) */
+        const breath = said.endsWith('.') ? 380 : said.endsWith(',') ? 160 : 0;
+        exTimer.current = setTimeout(land, 70 + words[at].length * 9 + breath);
       };
       exTimer.current = setTimeout(land, 120);
     }, LANDING_THINK_MS);
@@ -2063,8 +2106,9 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
       const still = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
       after(still ? 0 : (added.length - 1) * 220 + 360, () => {
         setSaved({ id: null, name: null, demo: true });
-        /* a small thank-you for doing it, and that it was an example (bauhly-v3, decisions 680, 682) */
-        const d = say('Nice, you’ve just completed your first capture! This one was only an example.');
+        /* the visit's own last line, and its end row: no Instagram step, no studio questions (bauhly-v3 decision 819).
+           WHAT USED TO BE HERE: "Nice, you've just completed your first capture! This one was only an example." */
+        const d = say('That’s everything I need. Ready to become your first post.');
         after(d, () => setStep('done'));
       });
     });
@@ -2084,13 +2128,13 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
         /* every stage ticked, held a moment, then Bauhly's next words */
         setExView(EX_STAGES.length);
         exTimer.current = setTimeout(() => {
-          setExView(null);
           if (!isCaptureOpen()) return;
+          /* the card stays, every stage ticked, and ends as a studio's does: "Your post is ready." and `View post`,
+             which opens the post in its Editor (bauhly-v3 decision 814). WHAT USED TO BE HERE: the post revealed in the
+             thread under "Here's what I created from your example", then `Try editing` / `Create your own` */
           setExPost(example.post || null);
           setExSlide(0);
-          push({ from: 'bauhly', text: example.readySay || 'Your example is ready.', ready: true });
-          const d = say({ text: example.revealSay || 'Here’s what I created from your example.', exPost: true });
-          after(d, () => setStep('exShown'));
+          setStep('exReady');
         }, still ? 0 : 700);
       }, gap);
     };
@@ -2184,7 +2228,8 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
     startVisitorRead(handle).then((r) => { if (igHandleRef.current === handle) igToken.current = r?.token || null; }).catch((err) => {
       console.warn('[capture] instagram read could not start', err?.response?.status || err);
     });
-    const d = say({ text: IG_ASK.held(handle), tag: 'ig' });
+    /* the capture ends before the post begins: "Capture complete." and what it holds (bauhly-v3 decision 902) */
+    const d = say([{ text: IG_ASK.held(handle), tag: 'ig' }, { text: CAPTURE_DONE_SAY, note: captureHolds(), tag: 'ig' }]);
     after(d, () => setStep('vDone'));
   };
   /* `Change account`: the question again with their address in the field, selected, so typing replaces it
@@ -2209,6 +2254,16 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
     drop((m) => m.tag === 'ig');
     igSkip();
   };
+  /* what the capture holds, in the visitor's terms (bauhly-v3 decision 902 `captureHolds`) */
+  const captureHolds = () => {
+    const n = heldFiles.current.length;
+    const answered = Object.keys(qAnswers.current).length;
+    return [
+      (cap.current.text || '').trim() ? 'Your description' : null,
+      n ? `${n} ${n === 1 ? 'photo' : 'photos'}` : null,
+      igHandleRef.current ? `@${igHandleRef.current}` : answered ? `${answered} ${answered === 1 ? 'answer' : 'answers'} about your studio` : null,
+    ].filter(Boolean).join(' · ') || null;
+  };
   const igSkip = () => {
     setStep('boot');
     userSays(IG_ASK.skip.title);
@@ -2218,7 +2273,7 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
     const q = nextQuestion(qAnswers.current);
     setStep('boot');
     if (!q) {
-      const d = say('That’s everything I need. Ready to become your first post.');
+      const d = say({ text: CAPTURE_DONE_SAY, note: captureHolds() });
       after(d, () => setStep('vDone'));
       return;
     }
@@ -2258,6 +2313,8 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
   }));
   const visitorGenerate = async () => {
     setStep('boot');
+    /* the press is said back, so the thread reads capture, choice, making (bauhly-v3 decision 902) */
+    userSays(BUILD_POST_SAY);
     visitorFiling.current = true;
     const wait = (ms) => new Promise((r) => { setTimeout(r, ms); });
     const stages = VISITOR_STAGES.filter((st) => st.id !== 'studio' || igToken.current);
@@ -2441,9 +2498,13 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
           </div>
         );
       }
+      /* the real photo step's own buttons, `Nothing right now` shown and refused (bauhly-v3 decision 813) */
       case 'exMedia':
         return example ? (
-          <button type="button" className="btn btn--secondary btn--sm" onClick={addExamplePhotos}>{example.photosSay}</button>
+          <>
+            <button type="button" className="btn btn--secondary btn--sm" onClick={addExamplePhotos}>Add a photo</button>
+            <button type="button" className="btn btn--tertiary btn--sm" onClick={refuseDemo}>Nothing right now</button>
+          </>
         ) : null;
       case 'media':
         return (
@@ -2534,21 +2595,24 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
           </div>
         );
       }
+      /* the row's one act, at full size (bauhly-v3 decisions 889, 902) */
       case 'vDone':
         return (
-          <button type="button" className="btn btn--primary btn--sm ck-exbtn" onClick={() => setLogin('generate')}>
-            <Icon name="sparkle" size={14} /> Generate your first post
+          <button type="button" className="btn btn--primary ck-exbtn" onClick={() => setLogin('generate')}>
+            {BUILD_POST_SAY}
           </button>
         );
-      /* under the example's post: their own is next */
-      case 'exShown':
-        if (!example) return null;
-        return (
+      /* the example's post is made: `View post` opens it in its Editor; back from there, their own is the way on
+         (bauhly-v3 decisions 814, 945, 991) */
+      case 'exReady':
+        if (!example || !exPost) return null;
+        return exBack ? (
           <>
-            {/* Try editing first and primary, their own post second (bauhly-v3, decision 737) */}
-            {exPost && <button type="button" className="btn btn--primary btn--sm ck-exbtn" onClick={() => setExEdit('in')}>{example.editSay || 'Try editing'}</button>}
-            <button type="button" className="btn btn--secondary btn--sm ck-exbtn ck-exbtn--quiet" onClick={() => onRestart?.()}>{example.ctaSay}</button>
+            <button type="button" className="btn btn--primary btn--sm ck-exbtn" onClick={() => onRestart?.()}>Create my post</button>
+            <button type="button" className="btn btn--secondary btn--sm ck-exbtn" onClick={openExampleEditor}>View post</button>
           </>
+        ) : (
+          <button type="button" className="btn btn--primary btn--sm ck-exbtn" onClick={openExampleEditor}>View post</button>
         );
       case 'done':
         if (adding) {
@@ -2562,18 +2626,16 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
         /* an example was only shown, so there is nothing to plan from */
         if (saved?.demo) {
           if (!example) return null;
+          /* the visit's own end row: `Build post` alone, at full size (bauhly-v3 decisions 813, 889, 902) */
           return (
-            <>
-              <button type="button" className="btn btn--primary btn--sm" onClick={showExamplePost}>{example.postSay}</button>
-              <button type="button" className="btn btn--secondary btn--sm" onClick={() => onRestart?.()}>{example.ctaSay}</button>
-            </>
+            <button type="button" className="btn btn--primary" onClick={showExamplePost}>{BUILD_POST_SAY}</button>
           );
         }
         if (deferQuestions && liveIntro) {
           return (
             <>
-              <button type="button" className="btn btn--primary" onClick={generatePlan}>Generate your first post</button>
-              <button type="button" className="btn btn--secondary" onClick={onExit}>Save and close</button>
+              {/* a landing visit ends on `Build post` alone (bauhly-v3 decisions 824, 889) */}
+              <button type="button" className="btn btn--primary" onClick={generatePlan}>{BUILD_POST_SAY}</button>
             </>
           );
         }
@@ -2713,6 +2775,69 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
   /* `See an example` sits under the first question, for an empty field */
   const exampleAsk = Boolean(example) && step === 'how' && !typing && !demo;
 
+  /* ══ THE EXAMPLE PLAYS ITSELF TO `View post` (bauhly-v3 decisions 815, 819, 820, 823, 826) ══════════════════════
+     Each step's own button, found on screen and pressed by the hand with a real click, so every press goes through the
+     handler a visitor's would: the send once the words have landed, `Add a photo`, `Build post`; then the hand goes to
+     `View post` and stays beside it with "Now it's your turn", and the presses are the visitor's from that moment. */
+  useEffect(() => {
+    if (!exAuto || handBusy.current) return undefined;
+    const root = boxRef.current;
+    if (!root) return undefined;
+    const byText = (t) => [...root.querySelectorAll('.ck-turn--actions button')].find((b) => b.textContent.trim() === t);
+    let el = null;
+    let read = 0;
+    if (step === 'how') {
+      if (!demo || exLive || exWait || !draft.trim()) return undefined;
+      el = root.querySelector('.capc__send');
+      read = EX_READ.send;
+    } else if (!showActions) {
+      return undefined;
+    } else if (step === 'exMedia') {
+      el = byText('Add a photo');
+      read = EX_READ.photos;
+    } else if (step === 'done' && saved?.demo) {
+      el = byText(BUILD_POST_SAY);
+      read = EX_READ.gen;
+    } else if (step === 'exReady') {
+      el = byText('View post');
+      read = EX_READ.view;
+    }
+    if (!el) return undefined;
+    const t = setTimeout(() => {
+      if (!el.isConnected || exHandOff.current) return;
+      if (step === 'exReady') {
+        /* the end: room under the thread, the thread at its end, and then the hand comes and waits (decisions 830, 846) */
+        setExAuto(false);
+        setHandWaits(true);
+        requestAnimationFrame(() => {
+          const th = threadRef.current;
+          if (!th) return;
+          const still = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+          th.scrollTo({ top: Math.max(0, th.scrollHeight - th.clientHeight), behavior: still ? 'auto' : 'smooth' });
+          setTimeout(() => { if (!exHandOff.current && el.isConnected) hand.rest(el, EX_YOUR_TURN); }, still ? 0 : 600);
+        });
+        return;
+      }
+      handBusy.current = true;
+      hand.tap(el, () => {
+        handBusy.current = false;
+        el.click();
+      });
+    }, read);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [exAuto, step, showActions, demo, exLive, exWait, saved]);
+  /* the hand goes with the box, and with a new conversation in it (Create my post) */
+  useEffect(() => { if (!demo) { hand.stop(); setExAuto(false); setHandWaits(false); } /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [demo]);
+  /* the visitor's own presses are refused while it plays: a pointer is already stopped by `is-autoplay` (CSS), this is
+     for a key press on a focused control (decisions 815, 963). The box's × is not inside the conversation. */
+  const refuseWhilePlaying = (e) => {
+    if (!exAuto || !e.isTrusted || !e.target.closest('button, label, [role="button"]') || e.target.closest('.ck__x, .ck__jump')) return;
+    e.preventDefault();
+    e.stopPropagation();
+    refuseDemo();
+  };
+
   return createPortal(
     <div
       className={`cap-overlay${modal ? ' cap-overlay--modal' : ''}${liveIntro ? ' cap-overlay--landing' : ''}${leaving ? ' is-out' : ''}`}
@@ -2721,7 +2846,12 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
       data-lenis-prevent
     >
       {modal && <div className="cap-overlay__scrim" onClick={onExit} aria-hidden="true" />}
-      <div className={`ck${login ? ' is-signing' : ''}${exEdit === 'in' ? ' is-editing' : ''}`} ref={boxRef}>
+      <div
+        className={`ck${login ? ' is-signing' : ''}${exEdit === 'in' ? ' is-editing' : ''}${exAuto ? ' is-autoplay' : ''}${handWaits ? ' is-hand-waiting' : ''}`}
+        ref={boxRef}
+        onClickCapture={refuseWhilePlaying}
+      >
+        {hand.node}
         {exEdit && exPost && (
           <ExampleEditor
             post={exPost}
@@ -2731,6 +2861,7 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
             leaving={exEdit === 'out'}
             onCancel={leaveEdit}
             onDone={(edited) => { setExPost(edited); setExSlide((k) => Math.min(k, edited.slides.length - 1)); leaveEdit(); }}
+            onOwn={onRestart ? () => onRestart() : null}
           />
         )}
         {login && (
@@ -2854,7 +2985,6 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
                     ? m.text.split('\n\n').map((para, i) => <p className="ck-para" key={i}>{para}</p>)
                     : m.text}
                   {m.note && <p className="ck-outcome">{m.note}</p>}
-                  {m.exPost && exPost && <ExamplePreview post={exPost} at={exSlide} onAt={setExSlide} />}
                   {/* what comes of it, or that this one is only being shown */}
                   {m.opener && liveIntro && (
                     <p className={`ck-outcome${demo ? ' is-example' : ''}`}>
@@ -2978,7 +3108,11 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
           {exView != null && (
             <div className="ck-turn ck-turn--bauhly ck-turn--actions ck-turn--cont">
               <span className="ck-avatar ck-avatar--ghost" aria-hidden="true" />
-              <GenProgress at={exView} />
+              <div className="ck-genwrap">
+                <GenProgress at={exView} doneSay="Your post is ready." />
+                {/* said under the finished card, as a studio's run says it (bauhly-v3 decision 814) */}
+                {exView >= EX_STAGES.length && step === 'exReady' && <p className="ck-gendone">Your post is ready.</p>}
+              </div>
             </div>
           )}
           {exWait && (
@@ -3036,6 +3170,10 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
         )}
         {modal && step !== 'recording' && polishing && (
           <AiProcessing className="capc-ai" />
+        )}
+        {/* a press the example refused, said over the field (bauhly-v3 decisions 813, 888) */}
+        {modal && refused > 0 && (
+          <div className="ck-refusewrap"><span className="ck-refused" key={refused} role="status">{DEMO_REFUSE_SAY}</span></div>
         )}
         {modal && step !== 'recording' && (
           <CaptureComposer

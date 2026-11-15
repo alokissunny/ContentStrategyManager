@@ -221,7 +221,7 @@ const Wire = ({ id }) => (
   <span className={`exw exw--${id}`} aria-hidden="true"><i className="exw__pic" /><i className="exw__txt" /></span>
 );
 
-export function ExampleEditor({ post, original, at, onAt, onCancel, onDone, leaving = false }) {
+export function ExampleEditor({ post, original, at, onAt, onCancel, onDone, onOwn = null, leaving = false }) {
   /* the edits are a history, so undo and redo walk it; Cancel drops all of it */
   const [hist, setHist] = useState({ list: [post], i: 0 });
   const now = hist.list[hist.i];
@@ -570,7 +570,11 @@ export function ExampleEditor({ post, original, at, onAt, onCancel, onDone, leav
         closeTool();
       }} />
       <div className="exe__head">
-        <button type="button" className="exe__pill" onClick={onCancel}>Cancel</button>
+        {/* from the landing's example: no Cancel, the way back to the conversation keeps the edits (bauhly-v3
+            decisions 894, 944, 990) */}
+        {onOwn
+          ? <button type="button" className="exe__pill exe__pill--quiet" onClick={() => onDone(now)}><Icon name="arrow-left" size={16} strokeWidth={2.25} /> Back to Capture</button>
+          : <button type="button" className="exe__pill" onClick={onCancel}>Cancel</button>}
         {!gen && (
           <div className="exe__mid">
             <button type="button" className="exe__disc" onClick={undo} disabled={hist.i === 0} aria-label="Undo"><Icon name="undo" size={18} /></button>
@@ -578,7 +582,10 @@ export function ExampleEditor({ post, original, at, onAt, onCancel, onDone, leav
             <button type="button" className={`exe__disc${grid ? ' is-on' : ''}`} onClick={() => { setGrid((g) => !g); closeTool(); }} aria-label={grid ? 'Show one slide' : 'Show all slides'} aria-pressed={grid}><Icon name="grid" size={18} /></button>
           </div>
         )}
-        <button type="button" className="exe__pill exe__pill--ink" onClick={() => onDone(now)}>Done</button>
+        {/* its way on is the visitor's own post (bauhly-v3 decisions 814, 967: `Create my post` with its arrow) */}
+        {onOwn
+          ? <button type="button" className="exe__pill exe__pill--ink" onClick={() => { onDone(now); onOwn(); }}>Create my post <Icon name="arrow-right" size={16} strokeWidth={2.25} /></button>
+          : <button type="button" className="exe__pill exe__pill--ink" onClick={() => onDone(now)}>Done</button>}
       </div>
 
       {grid ? (

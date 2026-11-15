@@ -3065,3 +3065,72 @@ body.is-immersive .app__main {
 .ck-ig__link:hover { color: var(--ink-900); text-decoration: underline; }
 .ck-ig__link:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; border-radius: 6px; }
 .ck-ig__acts { grid-column: 1 / -1; display: flex; justify-content: flex-end; gap: var(--sp-2, 8px); margin-top: var(--sp-3, 12px); padding-top: var(--sp-3, 12px); border-top: 1px solid var(--border, #e4e4e7); }
+
+/* ══ THE EXAMPLE PLAYS ITSELF (bauhly-v3 decisions 815–970, Nov 10–15; checkin/DemoCursor.jsx) ══════════════════
+   While the hand plays (`is-autoplay`, CaptureChat `exAuto`) nothing in the conversation answers the visitor's pointer:
+   no hover, no press, nothing greyed. The hand's own presses are `el.click()`, which pointer-events do not stop.
+   The ↓ and the box's × stay theirs. */
+.ck.is-autoplay :is(button, a, label, [role="button"], input, textarea, .capc, .cvmedia__item):not(.ck__jump, .ck__jump *) { pointer-events: none; }
+.ck-cursor {
+  position: fixed;
+  left: 0;
+  top: 0;
+  z-index: 210;
+  display: block;
+  pointer-events: none;
+  opacity: 0;
+  color: var(--surface);
+  transition:
+    opacity var(--dur-base) var(--ease-out),
+    translate var(--ck-cursor-ms, 0ms) cubic-bezier(0.45, 0, 0.25, 1);
+}
+.ck-cursor.is-on { opacity: 1; }
+.ck-cursor svg { display: block; transform-origin: 23% 19%; transition: scale var(--dur-fast) var(--ease-out); filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.28)); }
+@media (min-width: 641px) and (hover: hover) and (pointer: fine) {
+  .ck-cursor svg { filter: none; }
+}
+.ck-cursor svg path { fill: var(--ink-900); stroke-linejoin: round; }
+.ck-cursor.is-press svg { scale: 0.84; }
+/* at the end it waits beside `View post`, easing toward it and back (decision 834) */
+.ck-cursor.is-rest svg { animation: ck-cursor-nudge calc(var(--dur-slow) * 4) ease-in-out infinite; }
+@keyframes ck-cursor-nudge { 50% { translate: 5px 0; } }
+/* "Now it's your turn": words alone, written, held, faded and written again (decision 827, TypedSay) */
+.ck-cursor__line { position: absolute; pointer-events: none; }
+.ck.is-hand-waiting .ck__thread { padding-bottom: var(--sp-9); }
+.ck-cursor__say {
+  display: block;
+  color: var(--ink-800);
+  font-family: var(--font-ui);
+  font-size: var(--text-sm);
+  font-weight: 500;
+  line-height: 1.35;
+  white-space: nowrap;
+  transition: opacity var(--dur-slow) var(--ease-out);
+}
+.ck-cursor__say.is-out { opacity: 0; }
+.ck-cursor__say-rest { visibility: hidden; }
+@media (prefers-reduced-motion: reduce) {
+  .ck-cursor:not(.is-rest) { display: none; }
+  .ck-cursor, .ck-cursor svg, .ck-cursor__say { animation: none; transition: none; }
+}
+/* a refused press in the example says so, over the field (bauhly-v3 decisions 813, 888) */
+.ck-refusewrap { position: relative; height: 0; }
+.ck-refused {
+  position: absolute;
+  left: 50%;
+  bottom: var(--sp-2);
+  translate: -50% 0;
+  z-index: 5;
+  padding: 6px 10px;
+  border-radius: 10px;
+  background: var(--ink-900);
+  color: var(--surface);
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+  pointer-events: none;
+  animation: ck-refused-in var(--dur-base) var(--ease-out);
+}
+@keyframes ck-refused-in { from { opacity: 0; translate: -50% 4px; } }
+.ck-gendone { margin: var(--sp-3) 0 0; animation: ck-refused-in var(--dur-base) var(--ease-out); }
+.ck-genwrap { flex: 1; min-width: 0; color: var(--ink-800); font-size: 15px; line-height: 1.6; }

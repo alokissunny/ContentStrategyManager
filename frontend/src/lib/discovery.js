@@ -8,14 +8,14 @@
  */
 
 export const IG_ASK = {
-  say: 'Want me to understand your studio better?\n\nShare your Instagram profile and I’ll review up to 10 recent public posts to help tailor your content.',
+  say: 'Let’s start by understanding your business.\n\nShare your Instagram profile and I’ll review up to 10 recent public posts to help tailor your content.',
   note: 'Optional · No Instagram login needed',
   field: 'instagram.com/yourstudio',
-  /* the two lines of the reference's card, as they are (Leon's screenshots, Nov 6) */
-  skip: { title: 'No, for now', line: 'I’ll tell you a bit about my business instead.' },
-  invalid: 'That doesn’t look like an Instagram profile. Try instagram.com/yourstudio or @yourstudio, or choose No, for now.',
+  /* the card's two lines (bauhly-v3 decision 901: "Continue without Instagram", and that a few questions follow) */
+  skip: { title: 'Continue without Instagram', line: 'I’ll ask a few quick questions about your studio instead.' },
+  invalid: 'That doesn’t look like an Instagram profile. Try instagram.com/yourstudio or @yourstudio, or choose Continue without Instagram.',
   /* a handle given: the read stands in for the studio questions, so none are asked (bauhly-v3 `readyForAccount`) */
-  held: (handle) => `Thanks — I’m looking through @${handle} in the background. That’s everything I need. Ready to become your first post.`,
+  held: (handle) => `Thanks — I’m looking through @${handle} in the background.`,
   skipped: 'No problem. A few quick questions will help me understand your studio.',
   enough: 'No problem. I have what I need from what you told me.',
 };
@@ -94,7 +94,7 @@ export function instagramHandle(text) {
 }
 
 /* typed instead of pressing `No, for now`, which would otherwise be read as a handle */
-export const saysNo = (text) => /^(no|nope|none|skip|later|not now|no thanks|no thank you)[.!]?$/i.test(String(text || '').trim());
+export const saysNo = (text) => /^(no|nope|none|skip|later|not now|no thanks|no thank you|continue without instagram)[.!]?$/i.test(String(text || '').trim());
 
 /* the next question still to ask, or null */
 export function nextQuestion(answers) {

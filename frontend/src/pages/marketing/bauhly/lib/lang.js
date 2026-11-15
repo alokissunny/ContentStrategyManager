@@ -6,7 +6,7 @@
  *
  * The navbar's and the hero's words are here. Each section below keeps its Spanish beside
  * its English, in its own file, so the comments that say why a claim reads as it does stay
- * next to both (decision 635). Capture and /auth are the product and are still English.
+ * next to both (decision 635). Capture and the Sign in box are the product and are still English.
  * The Spanish was written by Claude and has not had a native read.
  */
 import { useCallback, useEffect } from 'react'
@@ -19,118 +19,93 @@ export const LANGS = [
   { id: 'es', short: 'ES', name: 'Español' },
 ]
 
-/* Capture's example and its pictures are one thing, written together (Leon, Nov 6: "Build the
-   example text and photo selection together"). One decision, three pictures, in the order the
-   story tells them: the rough wall in low sun, the samples against the plan, the ash beside the
-   plaster. All already in the project (D8a), and none of them a finished room. */
+/* ── THE EXAMPLE'S OWN PICTURES (Leon, Nov 12 — decision 831: "Use the material image from the attached reference and
+   build a realistic story around it… Don't limit the story to just two images. Use as many relevant images as needed…
+   Each image should support the story and help explain the designer's thinking") ── four, in the order the story tells
+   them, each with one job: the sample drawer (the stones and timbers the choice was made from), the bare room in strong
+   window light (why a photo was the wrong way to choose), the samples laid out on the plan in daylight (the test), and
+   oak, linen, pale stone and brass together in sun (the palette it became). All already in the project (D8a), high
+   resolution, and illustrative: the studio library's README asserts none of them as one documented project, and the
+   story claims nothing they do not show. The drawer's hands are cropped by the slides, never retouched (its README).
+   WHAT USED TO BE HERE: the marble and oak samples and the dining room (decision 829, the same morning; Leon: "I don't
+   like the current story or image selection"); before them, the plaster wall, the desk and the ash (Nov 6). */
 const EXAMPLE_PHOTOS = [
-  '/assets/photo/mood/raw-light.png',
+  '/assets/photo/studio/08-material-samples.webp',
+  '/assets/photo/studio/07-unfinished-room.webp',
   '/assets/photo/canal-house-04-desk.jpg',
-  '/assets/photo/canal-house-02-detail-ash.jpg',
+  '/assets/photo/piece-swatches.jpg',
 ]
 
-/* ══ WHAT BAUHLY MAKES OF THE EXAMPLE (Leon, Nov 9 — decisions 733, 734) ═════════════════════════════════════════
-   "Keep the story cohesive, with each slide naturally leading to the next… Use different layout types… Don't force
-    layout variety… Avoid annotations… Include a meaningful CTA on the final slide… Use different colour sets across
-    slides when they help communicate the narrative… The current hook text is too small for a hook."
-   Seven slides on the Content OS frame (Hook, Struggle, Shift, Takeaway, then ONE ask), one decision told in the order
-   it was made. EVERY FACT IS THE CAPTURE'S (D8, decision 653): the plaster kept, low sun and the trowel marks, the
-   darker timber on the drawing fighting it, samples beside the plan, pale ash, and the plaster as the only rough thing
-   left. What is added is the reading a designer brings to it, never a name, a figure, a client or a result. No labels
-   or marks on the photographs (734): the pictures carry the evidence on their own.
-   Each slide's arrangement is chosen for what it carries, not for variety:
-     1 Hook       Full bleed: the wall in low sun is strong enough to carry the headline; the words sit low, on the
-                  floor's shadow, clear of the light on the wall. The headline is large, over a small line.
-     2 Context    Split band: the trowel marks, cropped close, take most of the slide; an observation, so a medium
-                  headline over small type.
-     3 Struggle   Text only: the problem has no picture, and a large headline is the turn in the story.
-     4 Shift      Editorial: the desk set as a plate with the page around it, so the samples AND the plan stay in
-                  view (a floating panel sits in the bottom-left corner, which on this photograph is the plan).
-     5 Decision   Split band: the ash beside the plaster above, the decision large below.
-     6 Takeaway   Text only, large.
-     7 Ask        Editorial: the wall again, closing where the story opened, as a plate cropped to the light and its
-                  shadow, on Nature's deep green, with the ask under it (decision 739; WHAT USED TO BE HERE, 735: an
-                  orange floating panel over the floor, which Leon found disconnected from the picture).
-   The hook sits at the foot with `spacious` padding, which keeps it clear of the preview's dots.
-   Colour follows the turn (decisions 735, 738), and the grounds alternate light and dark so no two neighbours look
-   alike (738: the test on cream beside the decision on sand read as one slide twice): picture, cream, near-black,
-   cream, deep green, sand, orange. The problem is the Primary set read DARK (cream on near-black), the one hard stop;
-   the test is back on cream; the decision is Nature read DARK (sand on deep green), the post's decision said with
-   weight and set against its own pale photograph of ash; the takeaway is Nature as it is (green on sand), the palette
-   relaxing once the problem is solved; the ask (decision 739) is Nature read dark again: Leon,
-   "the current orange panel feels disconnected from the image… Don't force the accent colour into the composition
-   if it doesn't work". The deep green is the colour the decision was made in and it sits with the warm plaster rather
-   than against it; the ask is the last thing said in it. Its words close the hook's loop ("We kept the rough wall" →
-   "the next wall worth keeping"), the kicker says when to use it ("Before your next sample day"), the ask is large,
-   and the line under it is the takeaway as the reason to save. The light on the wall stays the picture: the plate
-   is cropped to it (`at: 64% 34%`, a little closer), so no panel sits on it. Every tone is the set's own three colours (lib/postcolors.js).
-   Type follows the job (decision 735): the problem is the loudest line in the post, a statement; the hook is large
-   but low and small enough to leave the light on the wall in view; the ask is a compact panel, so the wall it closes
-   on is still the picture.
-   `base` is the library layout whose words the slide carries; `layout` the flow type (a slide with no photograph
-   takes the text stack); `picture` the crop that keeps the subject in view; `refine` the block's Refine Layout
-   settings (`textProminence` sizes the block, `titleGroupPosition` places it); `tune` a line set apart from its
-   block (`partAlign`).
-   ── ONE SET FOR THE WHOLE CAROUSEL (Leon, Nov 9 — decision 748: "For demo purposes only, use one colour set throughout
-   each generated carousel… Allow different combinations of the colours within that set to create contrast and
-   variety… Don't change the existing colour selection behaviour for posts generated in the main Bauhly app") ──
-   Nature, every slide: its deep green and its sand are the plaster's own warmth and the decision's colour, and the
-   example already closed in it. The variety is the set's own readings: the hook on its photograph, sand grounds with
-   green type (slides 2, 4, 6) and green grounds with sand type (3, 5, 7), so no two neighbours share a ground. The
-   accent reading (sage) is left out as a ground: green type on it is about 3.8:1, under what the body lines need.
-   The app's own posts still choose per slide (`colourPlan`, lib/firstpost.js). */
+/* ══ WHAT BAUHLY MAKES OF THE EXAMPLE (Leon, Nov 12 — decision 832, the example-narrative brief: "The slides should tell a
+   connected story… Hook → Setup → Decision → Result → Lesson or CTA, where relevant… Choose the layout based on the
+   content, narrative role, and image focal point… Use annotations only to highlight real, relevant details… Don't cover
+   the subject with text"; and "Use as many relevant images as needed… Each image should support the story") ══════════
+   Five slides, one per role, nothing the capture or its pictures do not say:
+     1 Hook      The sample drawer, the whole slide, the line on a floating panel (Leon's reference card): the stones the
+                 choice was made from, and the tension in one line. Cropped up and in so the hands at its lower edge and
+                 top right are out of the frame (studio README: crop, never retouch).
+     2 Problem   The bare room in strong window light above, the words below (Split band): why a photo was the wrong
+                 way to choose. Over the photograph the words sat on the bright window, unreadable (MEASURED).
+     3 Decision  The samples on the plan, as a plate (Editorial), on Nature read dark: the test, and why it was done that
+                 way.
+     4 Result    Oak, linen, pale stone and brass together in sun above, the words below (Split band, as slide 2, not next
+                 to it): what was chosen, and the green's fate, in the capture's words. On a panel over the picture the
+                 words covered the pale stone itself (MEASURED).
+     5 Lesson    Text only, centred, on Nature read dark: what to take from it, and the reason to save it — the CTA the
+                 brief allows "where relevant", because the lesson is the one thing a reader can do with the story.
+   One colour set (decision 748), grounds alternating between the pictures and dark/light; no labels on the pictures
+   (decision 734). `base` is the library layout whose words the slide carries; `layout` the flow type; `picture` the
+   crop; `refine` the block's Refine Layout settings; `tune` a line set apart from its block.
+   WHAT USED TO BE HERE: the marble-or-oak table in four slides (decision 830's note, the same morning, never accepted);
+   before it, the plaster wall in seven (decisions 733–739, 748). */
 const examplePost = (t) => ({
   id: 'own-example',
   caption: t.caption,
-  format: '7-slide carousel',
-  formatId: 'example-7',
+  format: '5-slide carousel',
+  formatId: 'example-5',
   slides: [
-    { i: 0, base: 'b-hook-bleed', kind: 'hero', layout: 'bleed', photo: EXAMPLE_PHOTOS[0], picture: { at: '58% 52%' }, set: 'nature',
-      refine: { textProminence: 'small', titleGroupPosition: 'bottom', postPadding: 'spacious' }, tune: { title: { textProminence: 'large' } },
-      eyebrow: t.s[0][0], headline: t.s[0][1], body: t.s[0][2] },
-    { i: 1, base: 'e-edu-split', kind: 'hero', layout: 'band', photo: EXAMPLE_PHOTOS[0], picture: { at: '62% 38%', zoom: 1.8 }, set: 'nature',
+    /* the panel small and low, so the drawer stays the picture; cropped in and down so neither hand is in frame
+       (MEASURED: at 50% 40% × 1.15 the top right hand showed, and a large panel covered half the drawer) */
+    { i: 0, base: 'b-hook-bleed', kind: 'hero', layout: 'panel', photo: EXAMPLE_PHOTOS[0], picture: { at: '42% 55%', zoom: 1.35 }, set: 'nature',
+      refine: { textProminence: 'small', titleGroupPosition: 'bottom' }, tune: { title: { textProminence: 'medium' } },
+      eyebrow: '', headline: t.s[0][0], body: t.s[0][1] },
+    /* the room above and the words under it: over the photograph they sat on the bright window, unreadable, and covered
+       the light that is the problem (MEASURED) */
+    { i: 1, base: 'q-story-frame', kind: 'hero', layout: 'band', photo: EXAMPLE_PHOTOS[1], picture: { at: '45% 45%' }, set: 'nature',
+      refine: { textProminence: 'medium' }, tune: { title: { textProminence: 'medium' } },
+      eyebrow: '', headline: t.s[1][0], body: t.s[1][1] },
+    { i: 2, base: 'e-story-hero', kind: 'hero', layout: 'editorial', photo: EXAMPLE_PHOTOS[2], picture: { at: '45% 55%' }, set: 'nature', tone: 'dark',
       refine: { textProminence: 'small' }, tune: { title: { textProminence: 'medium' } },
-      eyebrow: t.s[1][0], headline: t.s[1][1], body: t.s[1][2] },
-    { i: 2, base: 'n-edu-callout', kind: 'type', layout: 'bleed', photo: null, set: 'nature', tone: 'dark',
-      refine: { textProminence: 'medium' }, tune: { title: { textProminence: 'statement' } },
-      eyebrow: t.s[2][0], headline: t.s[2][1], body: t.s[2][2] },
-    { i: 3, base: 'e-story-hero', kind: 'hero', layout: 'editorial', photo: EXAMPLE_PHOTOS[1], picture: { at: '45% 55%' }, set: 'nature',
-      refine: { textProminence: 'small' }, tune: { title: { textProminence: 'medium' } },
-      eyebrow: t.s[3][0], headline: t.s[3][1], body: t.s[3][2] },
-    { i: 4, base: 'q-story-frame', kind: 'hero', layout: 'band', photo: EXAMPLE_PHOTOS[2], picture: { at: '55% 45%' }, set: 'nature', tone: 'dark',
+      eyebrow: '', headline: t.s[2][0], body: t.s[2][1] },
+    /* the palette above and the words under it: on a panel over the photograph the words covered the pale stone, the
+       sample the slide is about, and a square picture in a 4:5 slide cannot be moved up out of its way (MEASURED) */
+    { i: 3, base: 'q-story-frame', kind: 'hero', layout: 'band', photo: EXAMPLE_PHOTOS[3], picture: { at: '50% 50%' }, set: 'nature',
       refine: { textProminence: 'medium' }, tune: { title: { textProminence: 'large' } },
-      eyebrow: t.s[4][0], headline: t.s[4][1], body: t.s[4][2] },
-    { i: 5, base: 'e-story-title', kind: 'type', layout: 'bleed', photo: null, set: 'nature',
+      eyebrow: '', headline: t.s[3][0], body: t.s[3][1] },
+    { i: 4, base: 'n-cta-centered', kind: 'cta', layout: 'bleed', photo: null, set: 'nature', tone: 'dark',
       refine: { textProminence: 'medium' }, tune: { title: { textProminence: 'large' } },
-      eyebrow: t.s[5][0], headline: t.s[5][1], body: t.s[5][2] },
-    { i: 6, base: 'e-cta-edge', kind: 'cta', layout: 'editorial', photo: EXAMPLE_PHOTOS[0], picture: { at: '64% 34%', zoom: 1.25 }, set: 'nature', tone: 'dark',
-      refine: { textProminence: 'small' }, tune: { title: { textProminence: 'medium' } },
-      eyebrow: t.s[6][0], headline: t.s[6][1], body: t.s[6][2] },
+      eyebrow: '', headline: t.s[4][0], body: t.s[4][1] },
   ],
-  basis: { captureIds: ['example'], photos: 3, photosFromProject: false, fromAssets: 3, derived: 0, made: 3, sentences: 4, shortOfWords: 0, dropped: 0, mayPromiseSwipe: true, mayPromiseTour: false, note: 'The example, told as one decision in seven slides.' },
+  basis: { captureIds: ['example'], photos: 4, photosFromProject: false, fromAssets: 4, derived: 0, made: 4, sentences: 5, shortOfWords: 0, dropped: 0, mayPromiseSwipe: true, mayPromiseTour: false, note: 'The example, told as one decision in five slides.' },
 });
 const EXAMPLE_POST_EN = examplePost({
-  caption: 'We kept the old plaster on the long wall, rough as it was. Low sun showed every trowel mark, and the darker timber on the drawing fought with it. Samples next to the plan settled it: pale ash, fine grain. Now the plaster is the only rough thing in the room.',
+  caption: 'The client chose a dark green stone from a photo. But the room gets strong sun all day. So we tested our samples in real light, next to the oak. The green looked heavy. The pale stone stayed calm, so that’s the one we chose. Test materials where they will live.',
   s: [
-    ['The long wall', 'We kept the rough wall.', 'In the end, it chose the timber.'],
-    ['Low sun', 'Raking light shows every trowel mark.', 'Midday flattens a wall like this. Low sun turns it into texture.'],
-    ['The problem', 'The darker timber I’d drawn fought with it.', 'Two strong textures side by side, both asking to be looked at.'],
-    ['The test', 'So the samples went next to the plan.', 'Plaster, two timbers and the drawing, in the same light.'],
-    ['The decision', 'Pale ash, fine grain.', 'Quiet enough to let the plaster lead.'],
-    ['What changed', 'Now the plaster is the only rough thing in the room.', 'Pale ash beside it lets the wall be the first thing you see.'],
-    ['Before your next sample day', 'Save this for the next wall worth keeping.', 'Then test the timber against it, in its own light.'],
+    ['Never choose a stone from a photo.', ''],
+    ['The client chose a dark green stone online.', 'But this room gets strong sun all day.'],
+    ['So we tested samples in real light.', 'Next to the oak, not on a screen.'],
+    ['The pale stone won.', 'Next to the oak, the green looked heavy. The pale stone stayed calm.'],
+    ['Test materials where they will live.', 'Save this for your next material choice.'],
   ],
 });
 const EXAMPLE_POST_ES = examplePost({
-  caption: 'Dejamos el yeso viejo de la pared larga tal cual, rugoso. Con el sol bajo se veía cada marca de llana, y la madera oscura del plano se peleaba con él. Las muestras junto al plano lo decidieron: fresno claro, veta fina. Ahora lo único rugoso de la habitación es el yeso.',
+  caption: 'El cliente eligió una piedra verde oscura por una foto. Pero la habitación recibe sol fuerte todo el día. Así que probamos nuestras muestras con luz real, junto al roble. La verde se veía pesada. La clara se mantenía tranquila, así que elegimos esa. Prueba los materiales donde van a vivir.',
   s: [
-    ['La pared larga', 'Dejamos la pared rugosa.', 'Al final, ella eligió la madera.'],
-    ['Sol bajo', 'La luz rasante muestra cada marca de llana.', 'A mediodía una pared así parece plana. Con el sol bajo, es pura textura.'],
-    ['El problema', 'La madera oscura que había dibujado se peleaba con ella.', 'Dos texturas fuertes, una al lado de la otra, pidiendo atención a la vez.'],
-    ['La prueba', 'Así que las muestras fueron junto al plano.', 'Yeso, dos maderas y el dibujo, bajo la misma luz.'],
-    ['La decisión', 'Fresno claro, veta fina.', 'Lo bastante tranquilo para que mande el yeso.'],
-    ['Qué cambió', 'Ahora lo único rugoso de la habitación es el yeso.', 'Con el fresno claro al lado, la pared es lo primero que ves.'],
-    ['Antes de tu próxima prueba de muestras', 'Guárdalo para la próxima pared que merezca quedarse.', 'Y prueba la madera junto a ella, con su propia luz.'],
+    ['Nunca elijas una piedra por una foto.', ''],
+    ['El cliente eligió una piedra verde oscura en internet.', 'Pero esta habitación recibe sol fuerte todo el día.'],
+    ['Así que probamos muestras con luz real.', 'Junto al roble, no en una pantalla.'],
+    ['Ganó la piedra clara.', 'Junto al roble, la verde se veía pesada. La clara se mantenía tranquila.'],
+    ['Prueba los materiales donde van a vivir.', 'Guárdalo para tu próxima elección de materiales.'],
   ],
 });
 
@@ -163,7 +138,23 @@ export const COPY = {
       ownAsk: 'Now let’s create something from your own studio. Tell me about a project, detail, or decision you’d like to share.',
       photos: EXAMPLE_PHOTOS,
       post: EXAMPLE_POST_EN,
-      text: 'We kept the old plaster on the long wall, rough as it was. In low sun it showed every trowel mark, and the darker timber I’d drawn just fought with it. So I put samples next to the plan and went with pale ash. Now the plaster is the only rough thing in the room.',
+      /* ── A PROBLEM, A DECISION, A RESULT (Leon, Nov 11 — decision 822: "really clear, quick and very easy to understand
+         read quickly, like starting with a problem, continuing with a decision and the result, but as brief as possible to
+         complete the story") ── one sentence each, 33 words, the same story as the photos and the post (the plaster wall,
+         the samples by the plan, pale ash). The result is the room's, not a client's or a number (D8).
+         WHAT USED TO BE HERE (56 words): "We kept the old plaster on the long wall, rough as it was. In low sun it showed every
+         trowel mark, and the darker timber I'd drawn just fought with it. So I put samples next to the plan and went with
+         pale ash. Now the plaster is the only rough thing in the room." */
+      /* ── ONE EVERYDAY DECISION, IN EVERYDAY WORDS (Leon, Nov 12 — decision 831, the example-narrative brief: "Keep the
+         story short, engaging, and easy to understand, especially for non-native English speakers… a clear problem,
+         decision, and result… realistic") ── five short sentences, 42 words: the problem (a dark green stone chosen
+         from a photo, for a room in strong sun), the decision (the samples tested in real light, beside the oak), the
+         result (the green heavy, the pale stone calm, and chosen). Every fact is one the four pictures can stand behind:
+         green and pale stones and timber in the drawer, the room's strong light, the samples on the plan in daylight,
+         oak and pale stone together in sun. No client reaction: this capture has none to report.
+         WHAT USED TO BE HERE: the marble-or-oak table (decision 829, the same morning); before it, the plaster wall
+         (decision 822). */
+      text: 'The client chose a dark green stone from a photo. But the room gets strong sun all day. We tested our samples in real light, next to the oak. The green looked heavy. The pale stone looked calm, so we chose it.',
     },
     start: 'Start capturing',
     /* What a designer or architect says to this field in a working day. From the two
@@ -206,7 +197,8 @@ export const COPY = {
       ownAsk: 'Ahora creemos algo de tu propio estudio. Cuéntame sobre un proyecto, un detalle o una decisión que quieras compartir.',
       photos: EXAMPLE_PHOTOS,
       post: EXAMPLE_POST_ES,
-      text: 'Dejamos el yeso viejo de la pared larga tal cual, rugoso. Con el sol bajo se veía cada marca de llana, y la madera oscura que había dibujado se peleaba con él. Así que puse muestras junto al plano y me fui a un fresno claro. Ahora lo único rugoso de la habitación es el yeso.',
+      /* decision 831, as the English: problem, decision, result */
+      text: 'El cliente eligió una piedra verde oscura por una foto. Pero la habitación recibe sol fuerte todo el día. Probamos nuestras muestras con luz real, junto al roble. La verde se veía pesada. La piedra clara se veía tranquila, así que la elegimos.',
     },
     /* short on purpose: the pill is a fixed 244 wide, and `Empezar a capturar` ran under its arrow */
     start: 'Empieza aquí',
