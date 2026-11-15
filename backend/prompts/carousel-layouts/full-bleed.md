@@ -45,7 +45,7 @@ Return one self-contained HTML document only:
 ## Text-only slides — solid ground
 
 - Full bleed is only for slides that carry a photo from the strategy output (its asset keys). A slide with no photo stays text only — no image slot, and no photo added just to decorate it.
-- A slide without a photo uses a solid brand ground (dark or light), chosen for the carousel's rhythm so neighbouring slides don't look alike. Let the empty ground breathe — never centre everything by default.
+- A slide without a photo uses a solid ground from the Brand Kit tonal ladder, chosen from the slide's mood and its place in the carousel's tonal progression (see "Ground tones follow the story") — not to make neighbouring slides look different. Let the empty ground breathe — never centre everything by default.
 
 ## Type system (every slide)
 

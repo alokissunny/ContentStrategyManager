@@ -51,7 +51,7 @@ Return one self-contained HTML document only:
 ## Text-only slides
 
 - Full bleed and panels are only for slides that carry a photo from the strategy output (its asset keys). A slide with no photo stays text only — no image slot, and no photo added just to decorate it.
-- A slide without a photo has no floating panel — a panel only exists to hold text over a photo. Set the text group directly on a solid brand ground (dark or light), filling the slide edge to edge, with generous space around it. Never draw a panel, card or box on a text-only slide. Choose the ground for the carousel's rhythm.
+- A slide without a photo has no floating panel — a panel only exists to hold text over a photo. Set the text group directly on a solid brand ground (dark or light), filling the slide edge to edge, with generous space around it. Never draw a panel, card or box on a text-only slide. Choose the ground from the Brand Kit tonal ladder by the slide's mood and the carousel's tonal progression (see "Ground tones follow the story").
 
 ## Type system (every slide)
 
