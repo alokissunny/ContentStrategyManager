@@ -49,7 +49,7 @@ const reelJsonParser = express.json({ limit: '8mb' });
 const themeImageJsonParser = express.json({ limit: '24mb' });
 app.use((req, res, next) => {
   // Voice-note transcription sends a raw audio body, not JSON.
-  if (req.originalUrl.includes('/projects/captures/transcribe')) return next();
+  if (req.originalUrl.includes('/projects/captures/transcribe') || req.originalUrl.includes('/public/transcribe')) return next();
   // Prompt-debug reruns send the full captured Input, which can exceed the
   // default 100kb JSON limit (weekly-plan prompts especially).
   if (req.originalUrl.includes('/debug/rerun-prompt')) return debugJsonParser(req, res, next);

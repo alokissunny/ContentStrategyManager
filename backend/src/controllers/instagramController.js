@@ -395,6 +395,20 @@ async function rerunAnalysis(req, res) {
     return res.status(404).json({ message: 'No Instagram account yet. Connect one from onboarding first.' });
   }
   try {
+    /* a snapshot from a read that failed (onboarding's Instagram read gave up on a restricted exit) has no posts
+       to analyse: read the public account again first. A Meta-connected account is refreshed through Graph
+       elsewhere, and the placeholder `my-studio` has nothing to read. */
+    const empty = !(snapshot.posts || []).length && !String(snapshot.biography || '').trim();
+    if (empty && !snapshot.placeholder && snapshot.username !== 'my-studio'
+      && !(await findMetaConnectionForUsername(req.user._id, snapshot.username))) {
+      const [profile, posts] = await Promise.all([scrapeProfile(snapshot.username), scrapePosts(snapshot.username)]);
+      if (!profile) {
+        return res.status(502).json({ message: `Could not read @${snapshot.username} on Instagram just now. Try again in a minute.` });
+      }
+      const { username: _ignored, ...fields } = profile;
+      Object.assign(snapshot, fields, { posts: posts || [], fetchedAt: new Date(), dataSource: snapshot.dataSource || 'apify' });
+      await snapshot.save();
+    }
     const report = await createAnalysisReport(req.user._id, snapshot);
     res.json({ report });
   } catch (err) {

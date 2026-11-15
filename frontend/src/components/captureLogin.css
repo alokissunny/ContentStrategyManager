@@ -1,0 +1,160 @@
+/* ══ THE ACCOUNT FORM (bauhly-v3 pages/auth/flow.css + AuthForm, Nov 12–15) ══════════════════════════════════════
+   The invitation, Create account, Sign in and the waitlist, in one centred column. Scoped to `.ck-signup` so the
+   app's own `.btn` / `.input` elsewhere are untouched: here the primary is the ink pill, the secondary the white
+   pill with a soft lift (the mock's), and a field's focus is ink. The box itself is `.ck-signup` (checkin.css). */
+.ck-signup .au__form {
+  width: min(420px, 100%);
+  animation: au-rise var(--dur-slow) var(--ease-out) both;
+}
+@keyframes au-rise { from { opacity: 0; transform: translateY(8px); } }
+.ck-signup .au__head {
+  margin: 0 0 6px;
+  font-family: var(--font-display, var(--font-ui));
+  font-size: var(--text-2xl, 28px);
+  font-weight: 700;
+  letter-spacing: -0.015em;
+  line-height: 1.15;
+  color: var(--ink-900);
+}
+.ck-signup .au__head:focus { outline: none; }
+.ck-signup .au__sub { margin: 0 0 28px; font-size: var(--text-sm, 14px); line-height: 1.5; color: var(--ink-500); }
+.ck-signup .au__sub--tight { margin-bottom: 0; }
+.ck-signup .au__sub--tight + .au__sub--tight { margin-top: 2px; }
+
+.ck-signup .field + .field { margin-top: 14px; }
+.ck-signup .au__fields { display: flex; flex-direction: column; gap: 14px; }
+.ck-signup .au__fields .field + .field { margin-top: 0; }
+.ck-signup .input { background: #fff; border-color: var(--border, #e4e4e7); border-radius: 12px; font-size: 15px; }
+.ck-signup .input::placeholder { color: var(--ink-400, #a1a1aa); }
+.ck-signup .input:focus { border-color: var(--ink-900); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ink-900) 10%, transparent); }
+.ck-signup .input[aria-invalid="true"] { border-color: var(--negative); }
+.ck-signup .input[aria-invalid="true"]:focus { box-shadow: 0 0 0 3px color-mix(in srgb, var(--negative) 14%, transparent); }
+.ck-signup .au__code { letter-spacing: 0.08em; }
+.ck-signup .field__error { margin: 2px 0 0; font-size: 13px; line-height: 1.45; color: var(--negative, #b91c1c); }
+.ck-signup .au__form-error { margin-top: var(--sp-3); }
+
+/* buttons: the ink pill, and the white pill with a lift (Google) */
+.ck-signup .au__wide { width: 100%; height: 48px; border-radius: 999px; font-size: 15px; }
+.ck-signup .au__go { margin-top: 20px; }
+.ck-signup .btn--primary.au__wide { background: var(--ink-900); color: #fff; border: 0; }
+.ck-signup .btn--primary.au__wide:hover:not(:disabled) { background: var(--ink-800); }
+.ck-signup .btn--primary.au__wide:disabled { background: var(--ink-100, #ececee); color: var(--ink-400, #a1a1aa); cursor: default; }
+.ck-signup .btn--secondary.au__wide {
+  background: var(--surface);
+  color: var(--ink-900);
+  border: 0;
+  box-shadow: 0 4px 14px -4px rgb(20 20 25 / 0.18), 0 0 0 1px rgb(20 20 25 / 0.05);
+}
+.ck-signup .btn--secondary.au__wide:hover:not(:disabled) { background: var(--surface); box-shadow: 0 6px 18px -6px rgb(20 20 25 / 0.22), 0 0 0 1px rgb(20 20 25 / 0.08); }
+.ck-signup .btn--secondary.au__wide:disabled { opacity: 0.55; cursor: default; }
+/* the box's Back, opposite its × (bauhly-v3 decision 904): the secondary in words, white with the lift */
+.ck-signup .ck-signup__back.btn--secondary {
+  height: 40px;
+  padding: 0 16px 0 12px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--ink-900);
+  box-shadow: 0 4px 14px -4px rgb(20 20 25 / 0.18), 0 0 0 1px rgb(20 20 25 / 0.05);
+  margin-left: 0;
+}
+
+.ck-signup .au__alt { margin: var(--sp-5, 20px) 0 0; text-align: center; font-size: var(--text-sm, 14px); color: var(--ink-500); }
+.ck-signup .au__alt + .au__alt { margin-top: var(--sp-2, 8px); }
+.ck-signup .au__link {
+  display: inline;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-weight: 600;
+  color: var(--discovery-600, #2a4fd6);
+  text-decoration: none;
+  cursor: pointer;
+}
+.ck-signup .au__link:hover { text-decoration: underline; }
+.ck-signup .au__link:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; border-radius: var(--r-sm); }
+
+.ck-signup .au__divider { display: flex; align-items: center; gap: var(--sp-3, 12px); margin: var(--sp-5, 20px) 0; font-size: var(--text-xs, 12px); color: var(--ink-500); }
+.ck-signup .au__divider::before,
+.ck-signup .au__divider::after { content: ''; flex: 1; height: 1px; background: var(--border); }
+
+/* the password's eye, inside the field's right edge, and its one rule under it */
+.ck-signup .au__pw { position: relative; }
+.ck-signup .au__pw .input { padding-right: 48px; }
+.ck-signup .au__eye {
+  position: absolute;
+  top: 50%;
+  right: 6px;
+  translate: 0 -50%;
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--ink-500);
+  cursor: pointer;
+}
+.ck-signup .au__eye:hover { background: var(--ink-50, #f4f4f5); color: var(--ink-900); }
+.ck-signup .au__rule { display: flex; align-items: center; gap: 4px; margin: 0; }
+.ck-signup .au__rule-mark { display: inline-flex; color: var(--positive, #16a34a); opacity: 0; transition: opacity var(--dur-fast) var(--ease-out); }
+.ck-signup .au__rule-mark.is-met { opacity: 1; }
+
+/* the Terms and news ticks: the app's checkbox (`.pjw-tick`'s look) */
+.ck-signup .au__terms { position: relative; display: flex; align-items: center; gap: var(--sp-3, 12px); min-height: 44px; margin-top: var(--sp-3, 12px); font-size: var(--text-sm, 14px); color: var(--ink-600); cursor: pointer; }
+.ck-signup .au__terms + .au__terms { margin-top: 0; }
+.ck-signup .au__terms input { position: absolute; opacity: 0; width: 0; height: 0; }
+.ck-signup .au__box {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 19px;
+  height: 19px;
+  border: 1.5px solid var(--ink-quiet, #a1a1aa);
+  border-radius: 5px;
+  background: var(--surface);
+  color: transparent;
+  transition: background var(--dur-fast), border-color var(--dur-fast), color var(--dur-fast);
+}
+.ck-signup .au__terms input:checked + .au__box { background: var(--ink-900); border-color: var(--ink-900); color: #fff; }
+.ck-signup .au__terms input:focus-visible + .au__box { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.ck-signup .au__terms-note { margin: var(--sp-1, 4px) 0 0; font-size: var(--text-xs, 12px); line-height: 1.5; color: var(--ink-500); }
+
+/* ── the joined waitlist: its picture, centred words (bauhly-v3 decisions 905–909, 992) ── */
+.ck-signup .au__form--done { display: flex; flex-direction: column; align-items: center; text-align: center; }
+.ck-signup .au__form--done > h2,
+.ck-signup .au__form--done > p { width: 100%; text-wrap: balance; }
+.ck-signup .au__form--done > h2 { animation: au-rise var(--dur-slow) var(--ease-out) 160ms both; }
+.ck-signup .au__form--done > .au__sub { max-width: 46ch; animation: au-rise var(--dur-slow) var(--ease-out) 220ms both; }
+.ck-signup .au__form--done > .au__sub + .au__alt { margin-top: var(--sp-6, 24px); padding-top: var(--sp-5, 20px); border-top: 1px solid var(--ink-100, #ececee); }
+.jart { display: block; width: 240px; max-width: 100%; height: auto; margin: 0 auto var(--sp-4, 16px); overflow: visible; }
+.jart__sheet { filter: drop-shadow(0 8px 16px rgb(22 22 26 / 0.07)); }
+.jart__card { animation: jart-card 400ms var(--ease-out) both; }
+.jart__tick { transform-box: fill-box; transform-origin: center; animation: jart-tick 260ms var(--ease-out) 280ms both; }
+.jart__tick path { stroke-dasharray: 1; stroke-dashoffset: 1; animation: jart-draw 220ms var(--ease-out) 360ms forwards; }
+.jart__bit { transform-box: fill-box; transform-origin: center; animation: jart-bit 360ms var(--ease-out) calc(300ms + var(--i) * 25ms) both; }
+.jart__bit--turned { rotate: 45deg; }
+@keyframes jart-card { from { opacity: 0; translate: 0 10px; } }
+@keyframes jart-tick { from { opacity: 0; scale: 0.6; } }
+@keyframes jart-draw { to { stroke-dashoffset: 0; } }
+@keyframes jart-bit { from { opacity: 0; translate: var(--dx) var(--dy); scale: 0.4; } }
+.jart__bit--float { animation: jart-bit 360ms var(--ease-out) calc(300ms + var(--i) * 25ms) both, jart-float var(--float-t) var(--ease-inout) var(--float-at) infinite alternate; }
+.jart__bit--f1 { --float-t: 2.1s; --float-at: 800ms; }
+.jart__bit--f2 { --float-t: 2.4s; --float-at: 1000ms; }
+.jart__bit--f3 { --float-t: 1.8s; --float-at: 900ms; }
+.jart[data-paused] .jart__bit--float { animation-play-state: paused; }
+@keyframes jart-float { to { transform: translateY(-3px); } }
+@media (max-width: 640px) {
+  .jart { width: 192px; margin-bottom: var(--sp-3, 12px); }
+  .ck-signup .ck-signup__back.btn--secondary { height: 36px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ck-signup .au__form, .jart, .jart *, .ck-signup .au__form--done > * { animation: none !important; }
+  .jart__tick path { stroke-dashoffset: 0; }
+}
+/* the landing page's own focus outline and button grounds do not reach in here */
+.ck-signup .au__form .input:focus-visible { outline: none; }
+.ck-signup .au__form .btn--secondary.au__wide { background: #fff; }
+.ck-signup .au__form .btn--primary.au__wide:not(:disabled) { background: var(--ink-900); color: #fff; }

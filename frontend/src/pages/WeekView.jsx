@@ -68,7 +68,7 @@ import { openCaptureIdea } from '../lib/captureUi';
 import { styleOf, groundOf } from '../lib/visualbrand';
 import { LAYOUTS as LIB_LAYOUTS, catForRole, shotsOf, DEFAULT_LAYOUT_BY_CAT, layoutShowsAllCopy } from '../data/layouts';
 import { CAROUSEL_THEMES } from '../data/carouselThemes';
-import { paintAll, identityOf, TYPE_SLOTS, FACES, logoPositionOf, markForSlide, themesOf, activeThemeIdOf, activeThemeAtOf, brandFontVars, newThemeId, nextThemeName, THEME_CAP, DEFAULT_PALETTE } from '../lib/identity';
+import { paintAll, identityOf, TYPE_SLOTS, FACES, logoPositionOf, markForSlide, themesOf, activeThemeIdOf, activeThemeAtOf, brandFontVars, newThemeId, nextThemeName, THEME_CAP, DEFAULT_PALETTE, COLOUR_ROLES } from '../lib/identity';
 import { rolesOf as textRolesOf, plainOf, parseMarked, isListRole, listIndexOf } from '../lib/slidetext';
 import ImagePicker from './weekview/ImagePicker';
 import { PhotoEditor, SlotPack } from './weekview/PhotoEditor';
@@ -589,7 +589,7 @@ function gridColsFor(n) {
 const ED_TOOLS = [
   { id: 'ask', icon: 'wand', label: 'Ask', says: 'Ask Bauhly', stroke: 1.8 },
   { id: 'layout', icon: 'blocks', label: 'Layout', says: 'Layout style' },
-  { id: 'colour', icon: 'droplet', label: 'Colours', says: 'Colours' },
+  { id: 'colour', icon: 'droplet', label: 'Colours', says: 'Colour palette' },
   { id: 'add', icon: 'plus', label: 'Add element', says: 'Add element' },
   { id: 'more', icon: 'more', label: 'More', says: 'More' },
 ];
@@ -2861,7 +2861,7 @@ function EditorScrollLock() {
 // behind it — offset, shrunk, faded and blurred by their distance (`--a`) —
 // so moving between slides is a travel, not a swap. Arrows only where there is
 // somewhere to go; ←/→ step (except while typing into something editable).
-function EditStack({ count, index, onIndex, children }) {
+function EditStack({ count, index, onIndex, children, after = null }) {
   const frame = useRef(null);
   const rail = useRef(null);
   useEffect(() => {
@@ -2982,7 +2982,8 @@ function EditStack({ count, index, onIndex, children }) {
     };
   }, []);
   return (
-    <div className="wv-edm__frame" ref={frame}>
+    <div className={`wv-edm__frame${after ? ' has-cap' : ''}`} ref={frame}>
+      {after}
       {index > 0 && (
         <button type="button" className="wv-edm__arrow wv-edm__arrow--prev"
           onClick={(e) => { e.stopPropagation(); go(index - 1); }} aria-label="Previous slide">
@@ -3556,6 +3557,11 @@ export default function WeekView({
   // Editor mode on the caption (bauhly-v3's phone caption editor): the post
   // above, the words in a card under it, ✓ saves them
   const [edCap, setEdCap] = useState(false);
+  /* ── THE CAPTION BESIDE THE POST (bauhly-v3 decisions 912–916, 922) ── written in place in the Editor; `edCapSeed`
+     is what the words were when the Editor opened (React never rewrites the text under the caret), `edCapText` what
+     they are now, null while untouched. Saved with Done, dropped with Cancel. */
+  const [edCapSeed, setEdCapSeed] = useState({ n: 0, text: '' });
+  const [edCapText, setEdCapText] = useState(null);
   const [capPolishOn, setCapPolishOn] = useState(false);
   // the phone's Editor (bauhly-v3 `.edm--phone`): the text sheet for a text
   // selection, the ⋯ as a sheet, the round header controls
@@ -3594,6 +3600,19 @@ export default function WeekView({
   // the Layout disc's rail (bauhly-v3 LayoutRail): the card pressed but not
   // yet applied — 'auto' | a CAROUSEL_LAYOUT_CHOICES id — or null
   const [layMark, setLayMark] = useState(null);
+  /* the Colours rail's open menu (bauhly-v3 decisions 946, 947, 954): null, 'new' (Add colours), 'story' (Bauhly
+     decides' reach) or a set's id (its menu: reach rows, Swap colours) */
+  const [colMenu, setColMenu] = useState(null);
+  /* where the open colour menu hangs: centred over the card it is about, 10 clear (bauhly-v3 `placeMenu`, decisions
+     954, 994), and the three being edited in `Add colours` / `Edit colours` */
+  const [colMenuAt, setColMenuAt] = useState(null);
+  const [colHex, setColHex] = useState(null);
+  /* Undo / Redo stay out of sight until this visit has something to undo (bauhly-v3 decision 944, item 7) */
+  const [histSeen, setHistSeen] = useState(false);
+  useEffect(() => {
+    if (!postEdit) { setHistSeen(false); return; }
+    if (elemHist.past.length || elemHist.future.length) setHistSeen(true);
+  }, [postEdit, elemHist]);
   // the ask field's own `+` (bauhly-v3 `plusMenu`): null | 'root' | 'image'
   // | an EditorMore level ('background' | 'theme') opened from it
   const [askPlus, setAskPlus] = useState(null);
@@ -4341,6 +4360,8 @@ export default function WeekView({
   }
 
   function enterPostEdit() {
+    setEdCapSeed((was) => ({ n: was.n + 1, text: String(day?.content?.caption || '') }));
+    setEdCapText(null);
     editSnapRef.current = day && !isEmptyCalDay(day) ? {
       dayIndex: selected,
       slides: JSON.parse(JSON.stringify(deriveSlides(day))),
@@ -5108,6 +5129,10 @@ export default function WeekView({
   }
 
   function leavePostEdit(keep) {
+    if (keep && edCapText !== null && edCapText !== String(day?.content?.caption || '')) {
+      saveCaption(edCapText, hashtagsOf(day));
+    }
+    setEdCapText(null);
     if (keep) {
       flushElemEdits();
       editSnapRef.current = null;
@@ -5188,6 +5213,7 @@ export default function WeekView({
       setAskOpen((v) => (menuUp ? true : !v));
       return;
     }
+    setColMenu(null);
     if (menuUp && edTool === id) { closeZone(); setEdTool(null); return; }
     setEdTool(id);
     if (zone !== 'visual') openZone('visual');
@@ -5395,10 +5421,10 @@ export default function WeekView({
 
   // Persist the caption for the open day — optimistic, then reconciled with the
   // server's copy. Backend whitelists `content.caption` (routeController §642).
-  async function saveCaption(text) {
+  async function saveCaption(text, tagsGiven = null) {
     if (!route?._id) return;
     const clean = String(text || '');
-    const tags = parseHashtagLine(tagDraft);
+    const tags = tagsGiven || parseHashtagLine(tagDraft);
     setRoute((prev) => {
       const daysCopy = [...(prev.days || [])];
       const d = { ...daysCopy[selected] };
@@ -7499,6 +7525,15 @@ export default function WeekView({
     setStoreState({ libraryEdits: { ...edits, themes: [...themes, { id, name: nextThemeName(themes), note: '', palette }] } });
     return id;
   }
+  /* Editor › Colours › a set's Edit colours (bauhly-v3 decision 946 `onEditSet`): the set's three, saved back INTO the
+     Brand Kit's set, so every slide and post wearing it takes the change, as an edit in the Brand Kit does */
+  function editKitColourSet(id, hex) {
+    const edits = getStoreState().libraryEdits || {};
+    const themes = themesOf(edits);
+    if (!themes.some((t) => t.id === id)) return false;
+    setStoreState({ libraryEdits: { ...edits, themes: themes.map((t) => (t.id === id ? { ...t, palette: { ...(t.palette || {}), ground: hex.ground, fg: hex.fg, accent: hex.accent } } : t)) } });
+    return true;
+  }
   async function uploadKitGround(file) {
     if (!file?.type?.startsWith('image/')) return;
     setUploading(true);
@@ -8098,7 +8133,11 @@ export default function WeekView({
     themed: slides.some((sl) => isThemedPicture(sl) || isThemedHtml(sl)),
     slideThemed: isThemedPicture(activeSlide) || isThemedHtml(activeSlide),
     onRemoveTheme: (every) => handleRemoveTheme(every),
-    sets: kitSets.map((t) => ({ ...t, swatches: [t.palette?.fg, t.palette?.accent, t.palette?.ground] })),
+    /* a set with no colours saved yet paints in the defaults, so it is drawn in them (not as a grey card) */
+    sets: kitSets.map((t) => {
+      const pal = { ...DEFAULT_PALETTE, ...(t.palette || {}) };
+      return { ...t, palette: pal, swatches: [pal.fg, pal.accent, pal.ground] };
+    }),
     setId: setIdOf(activeSlide),
     defaultSetId: kitDefaultSet,
     setHexes: (kitSets.find((t) => t.id === (setIdOf(activeSlide) || kitDefaultSet)) || {}).palette || null,
@@ -8146,7 +8185,7 @@ export default function WeekView({
     <>
       {/* the Editor's ⋯ (bauhly-v3 PostMenu.jsx › EditorMore), anchored under
           the button. Levels open in place. */}
-      {zone === 'visual' && !visEdit && !imgPick && !slideEditMode && !(edTool === 'layout' && !phoneEd) && (
+      {zone === 'visual' && !visEdit && !imgPick && !slideEditMode && !((edTool === 'layout' || edTool === 'colour') && !phoneEd) && (
         <>
         <div
           className="wv-ig__menuscrim"
@@ -8425,7 +8464,7 @@ export default function WeekView({
               {editFormat && <span className="wv-edm__format">{editFormat}</span>}
             </p>
             {/* undo / redo sit in the middle of the bar (bauhly-v3 `edm__hist`) */}
-            <div className="wv-edm__hist">
+            <div className={`wv-edm__hist${histSeen ? '' : ' is-unseen'}`} aria-hidden={histSeen ? undefined : true}>
               <button
                 type="button"
                 className="wv-edm__histbtn"
@@ -8446,7 +8485,12 @@ export default function WeekView({
               >
                 <Glyph name="redo-2" size={17} strokeWidth={2.2} />
               </button>
-              {/* single slide ⇄ every slide at once, beside undo / redo (bauhly-v3 decision 721) */}
+            </div>
+            {/* the Editor's name, centred on the whole row whatever stands either side (bauhly-v3 decisions 978,
+                979, 981: "Edit post" on the app's desktop Editor); the phone keeps its day line */}
+            <h2 className="wv-edm__title">{edCap ? 'Edit caption' : 'Edit post'}</h2>
+            <div className="wv-edm__acts">
+              {/* single slide ⇄ every slide, beside the way out at every width (bauhly-v3 decisions 721, 979) */}
               {slides.length > 1 && !edCap && (
                 <button
                   type="button"
@@ -8457,11 +8501,9 @@ export default function WeekView({
                   aria-label={edGrid ? 'Show one slide' : 'Show all slides'}
                   title={edGrid ? 'Show one slide' : 'Show all slides'}
                 >
-                  <Icon name="grid" size={17} />
+                  <Icon name={edGrid ? 'square' : 'grid'} size={17} />
                 </button>
               )}
-            </div>
-            <div className="wv-edm__acts">
               <button
                 type="button"
                 className="btn btn--quiet wv-edm__cancel"
@@ -8487,7 +8529,7 @@ export default function WeekView({
           </header>
 
           <div
-            className={`wv-edm__body${compositionEditing || wordsEditing ? ' has-panel' : ''}${askOpen && !visEdit ? ' is-asking' : ''}${askOpen && !visEdit && !askSel && !askPath.length && !rgnOpen && !heldList.length ? ' is-plainask' : ''}${!phoneEd && !edCap ? ' has-tools' : ''}${!phoneEd && !edCap && edTool === 'layout' && zone === 'visual' ? ' is-laying' : ''}`}
+            className={`wv-edm__body${compositionEditing || wordsEditing ? ' has-panel' : ''}${askOpen && !visEdit ? ' is-asking' : ''}${askOpen && !visEdit && !askSel && !askPath.length && !rgnOpen && !heldList.length ? ' is-plainask' : ''}${!phoneEd && !edCap ? ' has-tools' : ''}${!phoneEd && !edCap && (edTool === 'layout' || edTool === 'colour') && zone === 'visual' ? ' is-laying' : ''}`}
             onMouseDown={(e) => {
               if (!elemSel) return;
               if (e.target.closest('.wv-edm__tb, .wv-edm__line, .wv-edm__panel, .wv-edm__card.is-on')) return;
@@ -8495,10 +8537,6 @@ export default function WeekView({
             }}
           >
             <section className="wv-edm__stage">
-              {/* the slide count under the top row (bauhly-v3 `.edm-count`, decision 794): the dots' job */}
-              {slides.length > 1 && !edCap && !edGrid && (
-                <span className="wv-edm__count" aria-live="polite">Slide {safeIdx + 1}/{slides.length}</span>
-              )}
               {/* the post's own bar (bauhly-v3 `edm__postbar`): the themed note
                   on the left, the versions + ⋯ on the right */}
               <div className="wv-edm__line">
@@ -8626,6 +8664,10 @@ export default function WeekView({
                         <b>{`${Math.max(1, gridSel.length)} of ${slides.length} slides selected`}</b>
                         <span className="wv-edm__gridsep" aria-hidden="true">·</span>
                         <span>Changes will apply to selected slides</span>
+                        {/* back to the open slide alone; one slide always stays selected (bauhly-v3 decisions 838, 897) */}
+                        {gridSel.length > 1 && (
+                          <button type="button" className="wv-edm__gridkeep" onClick={() => setGridSel([safeIdx])}>Unselect all</button>
+                        )}
                       </span>
                     </span>
                     {slides.map((sl, i) => {
@@ -8656,7 +8698,7 @@ export default function WeekView({
                               direction={layoutDirectionOf(sl)}
                             />
                           </span>
-                          <span className="wv-edm__gridn">{String(i + 1).padStart(2, '0')}</span>
+                          <span className="wv-edm__gridn wv-edm__no">{String(i + 1).padStart(2, '0')}</span>
                         </button>
                       );
                     })}
@@ -8666,9 +8708,49 @@ export default function WeekView({
                   count={Math.max(slides.length, 1)}
                   index={safeIdx}
                   onIndex={(i) => { if (!visEdit) setSlideIdx(i); }}
+                  after={!phoneEd && !edCap && !gridOn ? (
+                    /* ══ THE CAPTION BESIDE THE POST (bauhly-v3 decisions 912–916, 922) ══ the Preview's caption, one
+                       container with the slides: the account row, then the words, written where they are read (the
+                       handle bold, the words editable in place). Hidden where the box is too narrow (CSS). */
+                    <aside className="wv-edm__cap" aria-label="Caption">
+                      <div className="wv-edm__caphead">
+                        <span className="wv-edm__capava" aria-hidden="true" />
+                        <b>{handle}</b>
+                        {capNeedsReview && edCapText === null && <span className="wv-ig__caprev">Caption needs review</span>}
+                      </div>
+                      <div className="wv-edm__capbody">
+                        <p className="wv-edm__captext">
+                          <b>{handle}</b>{' '}
+                          <span
+                            key={edCapSeed.n}
+                            className="wv-edm__capwords"
+                            contentEditable="plaintext-only"
+                            suppressContentEditableWarning
+                            role="textbox"
+                            aria-multiline="true"
+                            aria-label="Caption"
+                            data-placeholder="Write the caption…"
+                            spellCheck
+                            onInput={(e) => setEdCapText(e.currentTarget.innerText)}
+                            onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); e.currentTarget.blur(); } }}
+                          >
+                            {edCapSeed.text}
+                          </span>
+                        </p>
+                        {captionCta && <p className="wv-edm__capcta">{captionCta}</p>}
+                        {captionTags.length > 0 && (
+                          <p className="wv-edm__captags">{captionTags.map((t) => <span key={t}>#{t}</span>)}</p>
+                        )}
+                      </div>
+                    </aside>
+                  ) : null}
                 >
                   {(i, on) => (
                     <div className={`wv-edm__card${on ? ' is-on' : ''}`} key={`g${slideGen}-${i}`}>
+                      {/* the slide number, dark, in the slide's own top-right corner (bauhly-v3 decision 843) */}
+                      {on && slides.length > 1 && !edCap && (
+                        <span className="wv-edm__no" aria-live="polite">{safeIdx + 1}/{slides.length}</span>
+                      )}
                       <div className={`wv-ig__photo${on && layoutBusy ? ' is-laying' : ''}`}>
                         {on ? (
                           <SlideMedia
@@ -8858,6 +8940,73 @@ export default function WeekView({
                   </span>
                 );
                 const markUp = layOpen && layMark && layMark !== layCur;
+                /* ══ COLOURS IS A RAIL LIKE LAYOUT'S (bauhly-v3 decisions 946, 947, 954, 975, 981, 994) ══
+                   Add colours first, then Bauhly decides (a mosaic of the sets it deals from), then the kit's sets
+                   drawn as their three bands with no name. A set's press puts it on the slide (or the selection) at
+                   once; pressing the current one opens its menu: the reach rows and Swap colours. `Current` only
+                   when every slide in reach wears the same set. */
+                const colOpen = onId === 'colour';
+                const colSets = moreActs.sets || [];
+                const reachNow = slides.map((_, i) => i).filter((i) => inReach(false, i));
+                const reachSets = [...new Set(reachNow.map((i) => setIdOf(slides[i])))];
+                const colCur = reachSets.length === 1 ? reachSets[0] : null;
+                const colMixed = reachSets.length > 1;
+                /* the menu opens over the card it is about (bauhly-v3 `placeMenu`): measured from the tools' own box */
+                const openColMenu = (what, cardId) => {
+                  const tools = document.querySelector('.wv-edm__tools');
+                  const card = tools?.querySelector(`.wv-edm__crail .lrail__card[data-id="${CSS.escape(cardId)}"]`);
+                  if (tools && card) {
+                    const t = tools.getBoundingClientRect();
+                    const c = card.getBoundingClientRect();
+                    setColMenuAt({ x: Math.round(c.left + c.width / 2 - t.left), y: Math.round(c.top - t.top) });
+                  } else setColMenuAt(null);
+                  setColMenu(what);
+                };
+                const seedHex = (setId) => {
+                  const set = colSets.find((x) => x.id === setId);
+                  return { ...DEFAULT_PALETTE, ...((set && set.palette) || moreActs.setHexes || {}) };
+                };
+                /* ── A SET'S PRESS IS THE APPLY, AND OPENS ITS MENU (bauhly-v3 decisions 946, 947, 993) ── it lands on the
+                   slide in front of the studio, or on the grid's selection, at once; the menu then offers what is left:
+                   all slides (Single View only), Swap colours and Edit colours for THIS set. Pressing it again shuts it. */
+                const colPress = (id) => {
+                  if (editBusy) return;
+                  if (colMenu === id) { setColMenu(null); return; }
+                  if (id !== colCur) moreActs.onColour?.(id, false);
+                  openColMenu(id, id);
+                };
+                /* `Bauhly decides` deals the sets by the story onto what is in reach at once; in Single View on a carousel
+                   its menu asks only about all slides, in the grid nothing is left to ask (decision 993) */
+                const dealt = colSets.length > 1;
+                const colAuto = () => {
+                  if (editBusy) return;
+                  if (dealt) moreActs.onStoryColour?.(colSets.map((x) => x.id), gridAll);
+                  else moreActs.onColour?.('', gridAll);
+                  if (many && !gridOn) openColMenu('story', 'story'); else setColMenu(null);
+                };
+                const colAdd = () => {
+                  if (colMenu === 'new') { setColMenu(null); return; }
+                  setColHex(seedHex(colCur));
+                  openColMenu('new', 'new');
+                };
+                const colMenuRows = () => {
+                  const allRow = (fn) => ({ id: 'all', icon: 'copy', label: 'Apply colours to all slides', hint: 'The whole carousel takes it', fn });
+                  if (colMenu === 'story') {
+                    return [allRow(() => {
+                      if (dealt) moreActs.onStoryColour?.(colSets.map((x) => x.id), true);
+                      else moreActs.onColour?.('', true);
+                      setColMenu(null);
+                    })];
+                  }
+                  const set = colSets.find((x) => x.id === colMenu);
+                  if (!set) return [];
+                  const reachAll = many && !gridOn;
+                  return [
+                    ...(reachAll ? [allRow(() => { moreActs.onColour?.(set.id, true); setColMenu(null); }), { id: 'r-col', rule: true }] : []),
+                    ...(moreActs.onSwapColours && !moreActs.slideThemed ? [{ id: 'swap', icon: 'refresh', label: 'Swap colours', hint: 'The same three, in other places', fn: () => { moreActs.onSwapColours(false); setColMenu(null); } }] : []),
+                    { id: 'edit', icon: 'edit', label: 'Edit colours', hint: 'Change the three in this set', stay: true, fn: () => { setColHex(seedHex(set.id)); setColMenu(`edit:${set.id}`); } },
+                  ];
+                };
                 const many = slides.length > 1;
                 const applyLay = (every) => {
                   const id = layMark;
@@ -8871,6 +9020,7 @@ export default function WeekView({
                     <span className="tbar__cap" aria-live="polite">
                       {says || 'Refine your post'}
                       {layOpen && layName && <>: <span className="tbar__cappick">{layName}</span></>}
+                      {colOpen && colMixed && <>: <span className="tbar__cappick">Mixed</span></>}
                     </span>
                     <div className="tbar" role="group" aria-label="Change this slide">
                       {ED_TOOLS.map((t) => {
@@ -8925,12 +9075,149 @@ export default function WeekView({
                                     {(lays.list || []).filter((x) => x.id !== 'default').slice(0, 4).map((x) => layArt(x.id))}
                                   </span>
                                 ) : layArt(l.id)}
-                                {isOn && !layMark ? <span className="pe-bgpick__now">Current</span> : null}
+                                {/* only the combined card says its name, `Bauhly decides` (bauhly-v3 decision 974); the layouts
+                                    are named by the line over the toolbar. `Current` is on the layout in use, never on Bauhly
+                                    decides (982) */}
+                                {l.id === 'auto' && <span className="pe-lay__name">{l.name}</span>}
+                                {isOn && !layMark && l.id !== 'auto' ? <span className="pe-bgpick__now">Current</span> : null}
                               </button>
                             );
                           })}
                         </div>
                       </div>
+                    )}
+                    {colOpen && (
+                      <div className="lrail wv-edm__lrail wv-edm__crail">
+                        <div className="lrail__row lrail__cards" role="group" aria-label="Colour palette">
+                          <button
+                            type="button"
+                            data-id="new"
+                            style={{ '--lrail-i': 0 }}
+                            className={`pe-lay lrail__card wv-col__add${colMenu === 'new' ? ' is-pick' : ''}`}
+                            aria-label="Add colours"
+                            disabled={editBusy || !moreActs.canNewSet}
+                            title={moreActs.canNewSet ? 'Add colours' : 'Your Brand Kit is full'}
+                            onPointerDown={(e) => e.stopPropagation()}
+                            onClick={(e) => { e.stopPropagation(); colAdd(); }}
+                          >
+                            <span className="wv-col__plus" aria-hidden="true"><Icon name="plus" size={20} strokeWidth={2} /></span>
+                            <span className="pe-lay__name">Add colours</span>
+                          </button>
+                          {(
+                            <button
+                              type="button"
+                              data-id="story"
+                              style={{ '--lrail-i': 1 }}
+                              className={`pe-lay lrail__card${colMenu === 'story' ? ' is-pick' : ''}${!dealt && colCur === '' ? ' is-on' : ''}`}
+                              aria-label="Bauhly decides"
+                              title={dealt ? 'One set per beat' : 'The colours Bauhly made this post in'}
+                              disabled={editBusy}
+                              onPointerDown={(e) => e.stopPropagation()}
+                              onClick={(e) => { e.stopPropagation(); colAuto(); }}
+                            >
+                              <span className="wv-col__mix" aria-hidden="true">
+                                {colSets.slice(0, 4).map((x) => (
+                                  <span className="wv-col__bands" key={x.id}>
+                                    {x.swatches.map((c, k) => <i key={k} style={{ background: c || '#ddd' }} />)}
+                                  </span>
+                                ))}
+                                {/* fewer than four sets: the rest of the mosaic is Bauhly's own sparkle cell */}
+                                {Array.from({ length: Math.max(0, 4 - Math.min(4, colSets.length)) }, (_, k) => (
+                                  <span className="wv-col__bands wv-col__bands--empty" key={`e${k}`}>
+                                    {k === 0 && <Icon name="sparkle" size={14} strokeWidth={2} />}
+                                  </span>
+                                ))}
+                              </span>
+                              <span className="pe-lay__name">Bauhly decides</span>
+                            </button>
+                          )}
+                          {colSets.map((x, i) => {
+                            const isCur = colCur === x.id;
+                            return (
+                              <button
+                                key={x.id}
+                                type="button"
+                                data-id={x.id}
+                                style={{ '--lrail-i': i + 2 }}
+                                className={`pe-lay lrail__card${isCur ? ' is-on' : ''}${colMenu === x.id || colMenu === `edit:${x.id}` ? ' is-pick' : ''}`}
+                                aria-pressed={isCur}
+                                aria-label={x.name}
+                                title={x.name}
+                                disabled={editBusy}
+                                onPointerDown={(e) => e.stopPropagation()}
+                                onClick={(e) => { e.stopPropagation(); colPress(x.id); }}
+                              >
+                                <span className="wv-col__bands wv-col__bands--card" aria-hidden="true">
+                                  {x.swatches.map((c, k) => <i key={k} style={{ background: c || '#ddd' }} />)}
+                                </span>
+                                {isCur && <span className="pe-bgpick__now">Current</span>}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+                    {colOpen && colMenu && (
+                      <>
+                        <div
+                          className="wv-ig__menuscrim"
+                          onPointerDown={(e) => { e.preventDefault(); e.stopPropagation(); setColMenu(null); }}
+                          aria-hidden="true"
+                        />
+                        <div
+                          className="wv-ig__menu wv-em wv-col__menu"
+                          role="menu"
+                          aria-label={colMenu === 'new' ? 'New colour set' : String(colMenu).startsWith('edit:') ? 'Edit colours' : 'Colour palette'}
+                          style={colMenuAt ? { '--col-x': `${colMenuAt.x}px`, '--col-y': `${colMenuAt.y}px` } : undefined}
+                          onPointerDown={(e) => e.stopPropagation()}
+                        >
+                          {colMenu === 'new' || String(colMenu).startsWith('edit:') ? (() => {
+                            const editing = String(colMenu).startsWith('edit:') ? String(colMenu).slice(5) : null;
+                            const hex = colHex || seedHex(editing || colCur);
+                            return (
+                              <>
+                                <span className="wv-em__menuhead">{editing ? 'Edit colours' : 'New colour set'}</span>
+                                {/* the swatch, the role and the hex (decision 994: no description under them) */}
+                                <div className="wv-col__roles">
+                                  {COLOUR_ROLES.map((r) => (
+                                    <label className="wv-col__role" key={r.id}>
+                                      <span className="wv-col__swatch" style={{ background: hex[r.id] }} aria-hidden="true" />
+                                      <b>{r.label}</b>
+                                      <em>{String(hex[r.id] || '').toUpperCase()}</em>
+                                      <input
+                                        type="color"
+                                        value={hex[r.id] || '#000000'}
+                                        aria-label={`${r.label} colour`}
+                                        onChange={(e) => setColHex({ ...hex, [r.id]: e.target.value })}
+                                      />
+                                    </label>
+                                  ))}
+                                </div>
+                                <button
+                                  type="button"
+                                  className="btn btn--primary wv-col__save"
+                                  /* until a colour changes there is nothing to save (decision 994) */
+                                  disabled={COLOUR_ROLES.every((r) => String(hex[r.id] || '').toLowerCase() === String(seedHex(editing || colCur)[r.id] || '').toLowerCase())}
+                                  onClick={() => {
+                                    if (editing) {
+                                      if (editKitColourSet(editing, hex)) moreActs.onColour?.(editing, false);
+                                    } else {
+                                      const made = moreActs.onNewSet?.(hex);
+                                      if (made) moreActs.onColour?.(made, false);
+                                    }
+                                    setColMenu(null);
+                                    setColHex(null);
+                                  }}
+                                >
+                                  Save colour
+                                </button>
+                              </>
+                            );
+                          })() : (
+                            <EditorRows onClose={() => setColMenu(null)} rows={colMenuRows()} />
+                          )}
+                        </div>
+                      </>
                     )}
                     {markUp && (
                       <>

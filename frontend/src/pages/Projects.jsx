@@ -34,7 +34,7 @@ import CaptureLogin from '../components/CaptureLogin';
 import { ExampleEditor } from '../components/ExamplePost';
 import { useDemoCursor } from './checkin/DemoCursor';
 import { IG_ASK, questionById, instagramHandle, saysNo, nextQuestion, answerSay } from '../lib/discovery';
-import { startVisitorRead, claimVisitorRead } from '../api/visitor';
+import { startVisitorRead, claimVisitorRead, transcribeVisitor } from '../api/visitor';
 import { useTypedPlaceholder } from '../components/ui/typing';
 import { canTakeCaret, isCaptureOpen, CAPTURE_MORPH_MS, CAPTURE_HOLD_MS } from '../lib/captureUi';
 import { ensureProjects, refreshProjects, projectsSnapshot } from '../lib/projectsStore';
@@ -1194,6 +1194,7 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
   } : null));
   const rec = useRecorder({
     keywords: projects.map((p) => p.name).filter(Boolean),
+    liveCorrect: !needsLogin,
   });
   const autoDraft = useRef('');
   const endRef = useRef(null);
@@ -1445,10 +1446,11 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
     userSays('Record a voice note');
     cap.current.kind = 'note';
     fromVoice.current = true;
-    recordingReturn.current = 'writing';
+    /* a visitor's words come back into the first question's field, where their send moves the visit on (visitorSend) */
+    recordingReturn.current = needsLogin ? 'how' : 'writing';
     autoDraft.current = '';
     setPolishing(false);
-    say(modal ? "I'm listening — take your time. Press Pause to add file if there is something to show." : "I'm listening — take your time.");
+    say(modal && !needsLogin ? "I'm listening — take your time. Press Pause to add file if there is something to show." : "I'm listening — take your time.");
     rec.reset();
     rec.start();
     setStep('recording');
@@ -1565,11 +1567,14 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
           let text = live;
           if (blob) {
             try {
-              const result = await transcribeCapture(blob, {
-                hint: live,
-                keywords: projects.map((p) => p.name).filter(Boolean),
-                languages: captureSttLanguages(rec.speechLang),
-              });
+              /* a visitor with no account goes through the public, capped transcriber (backend publicRoutes.js) */
+              const result = needsLogin
+                ? await transcribeVisitor(blob, { hint: live, languages: captureSttLanguages(rec.speechLang) })
+                : await transcribeCapture(blob, {
+                  hint: live,
+                  keywords: projects.map((p) => p.name).filter(Boolean),
+                  languages: captureSttLanguages(rec.speechLang),
+                });
               text = result.text || live;
             } catch {
               text = live;
@@ -2761,7 +2766,7 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
     }
   };
   const composerRecord = () => {
-    if (needsLogin) return;
+    if (needsLogin) { if (step === 'how') chooseRecord(); return; }
     if (step === 'clarify') return recordClarify();
     if (step === 'writing' && fromVoice.current) return recordAgain();
     return chooseRecord();
@@ -3151,6 +3156,8 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
                 {Array.from({ length: 14 }, (_, i) => <i key={i} style={{ '--i': i }} />)}
               </span>
               {/* it names what happens to the RECORDING, not just what it opens (bauhly-v3 Oct 6) */}
+              {/* not for a visitor: their photos are the next question's, and nothing is uploaded before sign-up */}
+              {!needsLogin && (
               <label className="capc__hearadd" title="Holds the take while you choose" onPointerDown={hearHold}>
                 <span>Pause to add file</span>
                 <input
@@ -3161,6 +3168,7 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
                   onChange={(e) => { const f = [...(e.target.files || [])]; e.target.value = ''; if (f.length) hearFiles(f); else { pickingFile.current = false; rec.resume(); } }}
                 />
               </label>
+              )}
               <button type="button" className="capc__stop" onClick={() => rec.stop()} title="Stop recording">
                 <span className="capc__stop-mark" aria-hidden="true" />
                 <span className="sr-only">Stop recording</span>
@@ -3198,7 +3206,8 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
             locked={exLive || exWait}
             fading={askFading}
             /* a visitor's voice would need the transcriber, which needs an account: the field is for typing */
-            mic={!demo && !needsLogin}
+            /* a visitor gets the mic on the first question, through the public transcriber (needsLogin) */
+            mic={!demo && (!needsLogin || step === 'how')}
           />
         )}
         {/* before anything real is sent and for as long as they have no account (bauhly-v3 `.ck__privacy`) */}

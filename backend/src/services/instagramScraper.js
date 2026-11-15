@@ -67,21 +67,46 @@ function normalizePost(raw) {
   };
 }
 
+/* ── RETRY A RESTRICTED READ ── the profile actor sometimes reaches Instagram through an exit that gets the
+   "restricted profile" view of a PUBLIC account (MEASURED 2026-11-15, @livspace: two restricted exits, then the
+   full profile on the third), and once its own retries run out it hands back an item with `error` or nothing.
+   Only a handle Instagram says does not exist is final; anything else is tried again with a fresh run. */
+const PROFILE_TRIES = Math.max(1, Number(process.env.INSTAGRAM_PROFILE_TRIES) || 3);
+const POSTS_TRIES = Math.max(1, Number(process.env.INSTAGRAM_POSTS_TRIES) || 2);
+const isMissing = (raw) => /not[_\s-]?found|does not exist|no such user/i.test(String(raw?.error || raw?.errorDescription || ''));
+
 async function scrapeProfile(username) {
   const client = getApifyClient();
   const actorId = process.env.APIFY_INSTAGRAM_PROFILE_ACTOR || 'apify/instagram-profile-scraper';
-  const run = await client.actor(actorId).call({ usernames: [username] });
-  const { items } = await client.dataset(run.defaultDatasetId).listItems();
-  return normalizeProfile(items[0]);
+  let last = null;
+  for (let attempt = 1; attempt <= PROFILE_TRIES; attempt += 1) {
+    const run = await client.actor(actorId).call({ usernames: [username] });
+    const { items } = await client.dataset(run.defaultDatasetId).listItems();
+    last = items[0] || null;
+    const profile = normalizeProfile(last);
+    if (profile) return profile;
+    if (isMissing(last)) break;
+    console.warn(`[instagramScraper] @${username} profile read empty or restricted (try ${attempt}/${PROFILE_TRIES}):`, last?.error || last?.errorDescription || 'no item');
+  }
+  return null;
 }
 
 async function scrapePosts(username, limit) {
   const client = getApifyClient();
   const actorId = process.env.APIFY_INSTAGRAM_POST_ACTOR || 'apify/instagram-post-scraper';
   const resultsLimit = limit || Number(process.env.INSTAGRAM_POSTS_LIMIT) || 12;
-  const run = await client.actor(actorId).call({ username: [username], resultsLimit });
-  const { items } = await client.dataset(run.defaultDatasetId).listItems();
-  return items.map(normalizePost);
+  let posts = [];
+  for (let attempt = 1; attempt <= POSTS_TRIES; attempt += 1) {
+    const run = await client.actor(actorId).call({ username: [username], resultsLimit });
+    const { items } = await client.dataset(run.defaultDatasetId).listItems();
+    /* the post actor reports a restricted or missing account as an item with `error` */
+    const real = items.filter((it) => it && !it.error);
+    posts = real.map(normalizePost);
+    if (posts.length) return posts;
+    if (items.some(isMissing)) break;
+    console.warn(`[instagramScraper] @${username} posts read empty (try ${attempt}/${POSTS_TRIES})`);
+  }
+  return posts;
 }
 
 module.exports = { scrapeProfile, scrapePosts };

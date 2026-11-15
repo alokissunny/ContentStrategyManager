@@ -711,8 +711,8 @@ export default function EditorMore({ acts, onClose, startLevel = null, toolbar =
             { id: 'r-new', rule: true },
             {
               id: 'savenew',
-              icon: 'check',
-              label: 'Save and use it',
+              /* bauhly-v3 decisions 954, 994: `Save colour`, no check */
+              label: 'Save colour',
               hint: 'Kept in your Brand Kit',
               fn: () => {
                 const made = acts.onNewSet?.(newHex);

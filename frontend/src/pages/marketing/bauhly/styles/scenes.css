@@ -4411,3 +4411,11 @@ html:has(.cap-overlay--landing) .bauhly-landing .hcap {
 .bauhly-landing .lgm .ckl__google:hover:not(:disabled) { background: var(--ink-100, #e7e7e4); }
 .bauhly-landing .lgm .ckl__link { color: var(--blue-600, #2a4fd6); font-weight: 600; }
 .bauhly-landing .lgm .ckl__go:disabled { background: var(--ink-50, #f2f2f0); color: var(--ink-400, #9a9a96); opacity: 1; }
+/* ══ THE BOX IS THE SIZE OF WHAT IT HOLDS (bauhly-v3 decision 878: "make its height responsive to the content…
+   Fit the width too") ══ the form (420) and the box's own padding, as tall as the step it is on; a phone keeps the
+   whole screen. */
+@media (min-width: 641px) {
+  .lgm__box { width: min(calc(420px + var(--sp-10, 40px) * 2), 100%); height: auto; max-height: 100%; padding-top: var(--sp-10, 40px); }
+  .lgm .ck-signup { flex: 0 1 auto; }
+  .lgm .ck-signup__form { height: auto; }
+}

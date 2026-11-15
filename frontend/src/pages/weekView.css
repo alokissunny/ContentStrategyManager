@@ -10164,7 +10164,31 @@ i.shotedit__aa { font-style: italic; font-family: Georgia, serif; }
 
 /* the rail comes out of the post's height, as in bauhly-v3's Editor (the post
    shrinks to make room): caption + discs (84) + gap + a 4:5 card at 108 wide */
-.wv-edm__body.has-tools.is-laying { --edm-tools-h: 264px; }
+/* ══ ONE POST SIZE WHATEVER TOOL IS OPEN; THE RAIL RISES OVER THE POST'S FOOT (bauhly-v3 decisions 871, 898, 899,
+   910) ══ Layout's and Colours' cards no longer shrink the post: the toolbar (its line, the discs, the rail) rises
+   over the post's lower edge by the rail's height, and the post and caption fade to white under it on an eased
+   ramp, with a trace running on behind the discs. */
+.wv-edm__body.has-tools.is-laying { --edm-rail-rise: 96px; }
+.wv-edm__body.has-tools.is-laying .wv-edm__tools { top: calc(100% + 34px - var(--edm-rail-rise)); }
+.wv-edm__body.has-tools.is-laying > .wv-edm__stage::after {
+  content: '';
+  position: absolute;
+  left: -48px;
+  right: -48px;
+  bottom: calc(-34px);
+  z-index: 20;
+  height: calc(var(--edm-rail-rise) + 34px + 64px);
+  background: linear-gradient(to bottom,
+    rgb(255 255 255 / 0) 0%,
+    rgb(255 255 255 / 0.16) 18%,
+    rgb(255 255 255 / 0.38) 30%,
+    rgb(255 255 255 / 0.64) 42%,
+    rgb(255 255 255 / 0.86) 52%,
+    rgb(255 255 255 / 0.96) 60%,
+    #fff 66%);
+  pointer-events: none;
+  animation: fade-in var(--dur-base, 200ms) var(--ease-out, ease) both;
+}
 .wv-edm__body.has-tools > .wv-edm__stage { transition: margin-bottom var(--dur-base, 240ms) var(--ease-out); }
 
 /* Editor › Colours (bauhly-v3 PostMenu `colour`): the menu's own heading, and
@@ -10419,3 +10443,223 @@ i.shotedit__aa { font-style: italic; font-family: Georgia, serif; }
   object-fit: cover; background: #000; z-index: 3;
 }
 .yw-peek__reel { width: 100%; height: 100%; object-fit: cover; display: block; background: #000; border-radius: inherit; }
+
+/* ══ THE EDITOR'S HEADER AND COUNT, AS THE MOCK'S (bauhly-v3 decisions 843, 965, 978–981, 991; Nov 12–15) ══════════
+   Desktop: Cancel · Undo Redo on the left, "Edit post" centred on the whole row, the Single/Grid toggle and Done on
+   the right. The slide number is a dark badge in the slide's own top-right corner, the grid's numbers wear the same. */
+.wv-edm__title { display: none; }
+@media (min-width: 768px) {
+  .wv-edm__top { position: relative; display: flex; align-items: center; gap: var(--sp-2); }
+  .wv-edm__top .btn.wv-edm__cancel { order: 1; }
+  .wv-edm__top .wv-edm__hist { order: 2; }
+  .wv-edm__top .wv-edm__gridbtn { order: 3; margin-left: auto; }
+  .wv-edm__top .btn.wv-edm__apply { order: 4; }
+  .wv-edm__top .wv-edm__hist + .wv-edm__acts { margin-left: 0; }
+  .wv-edm__title {
+    display: block;
+    position: absolute;
+    left: 50%;
+    top: calc(26px + 20px);
+    translate: -50% -50%;
+    max-width: 34%;
+    margin: 0;
+    overflow: hidden;
+    font-family: var(--font-ui);
+    font-size: 17px;
+    font-weight: 700;
+    letter-spacing: -0.005em;
+    color: var(--ink-900);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    pointer-events: none;
+  }
+  /* a one-slide post has no toggle: Done keeps the far end */
+  .wv-edm__top .wv-edm__acts:not(:has(.wv-edm__gridbtn)) .btn.wv-edm__apply { margin-left: auto; }
+}
+.wv-edm__no {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 3;
+  padding: 4px 12px;
+  border-radius: 999px;
+  background: rgb(16 18 23 / 0.64);
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+  color: #fff;
+  font-family: var(--font-ui);
+  font-size: 12px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.35;
+  pointer-events: none;
+}
+.wv-edm__gridn.wv-edm__no { top: 8px; right: 8px; padding: 2px 8px; font-size: 11px; }
+
+/* ══ THE CAPTION BESIDE THE POST, ONE CONTAINER (bauhly-v3 decisions 914–916, 922) ═══════════════════════════════════
+   The caption joins the card's right edge, the same height, the pair under one ring and shadow and centred as one
+   (the frame moves left by half the column). The slide arrows come inside the card, small (911, 980). Only where
+   the box has the room; a narrower window and a phone keep the slide alone. */
+.wv-edm__cap { display: none; }
+@media (min-width: 1000px) {
+  .wv-edm { --edm-cap-w: clamp(260px, 28vw, 340px); }
+  .wv-edm__frame.has-cap { translate: calc(-0.5 * var(--edm-cap-w)) 0; }
+  .wv-edm__frame.has-cap .wv-edm__cap {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: calc(50% + var(--card-half, 200px));
+    z-index: 2;
+    display: flex;
+    flex-direction: column;
+    width: var(--edm-cap-w);
+    background: var(--surface, #fff);
+    border-radius: 0 var(--r-lg) var(--r-lg) 0;
+    box-shadow: 0 0 0 1px var(--border), 0 18px 44px -20px rgba(22, 22, 26, 0.3);
+    clip-path: inset(-60px -60px -60px 0);
+    overflow: hidden;
+  }
+  .wv-edm__frame.has-cap .wv-edm__card.is-on { border-radius: var(--r-lg) 0 0 var(--r-lg); box-shadow: 0 0 0 1px var(--border), 0 18px 44px -20px rgba(22, 22, 26, 0.3); }
+  .wv-edm__frame.has-cap .wv-edm__arrow { width: 30px; height: 30px; box-shadow: 0 2px 8px -2px rgb(20 20 25 / 0.3); }
+  .wv-edm__frame.has-cap .wv-edm__arrow--prev { left: calc(50% - var(--card-half, 200px) + 12px); }
+  .wv-edm__frame.has-cap .wv-edm__arrow--next { left: calc(50% + var(--card-half, 200px) - 42px); }
+}
+.wv-edm__caphead {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: none;
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--border);
+  font-size: 14px;
+  color: var(--ink-900);
+}
+.wv-edm__caphead .wv-ig__caprev { margin-left: auto; }
+.wv-edm__capava {
+  flex: none;
+  width: 32px;
+  height: 32px;
+  border-radius: 999px;
+  background: linear-gradient(135deg, #f7a046, #ec5a2c);
+}
+.wv-edm__capbody {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 16px 8px 24px;
+  scrollbar-width: thin;
+}
+.wv-edm__captext,
+.wv-edm__capcta,
+.wv-edm__captags {
+  margin: 0;
+  padding: 6px 12px;
+  border-radius: 10px;
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--ink-700);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.wv-edm__captext b { color: var(--ink-900); font-weight: 700; }
+/* the words are written where they are read: a quiet ground on hover, nothing drawn round them while writing */
+.wv-edm__captext:hover { background: var(--surface-sunken, #f5f5f3); }
+.wv-edm__captext:focus-within { background: transparent; }
+.wv-edm__capwords { outline: none; caret-color: var(--ink-900); }
+.wv-edm__capwords:empty::before { content: attr(data-placeholder); color: var(--ink-400); }
+.wv-edm__capcta { margin-top: 6px; color: var(--ink-900); font-weight: 600; }
+.wv-edm__captags { display: flex; flex-wrap: wrap; gap: 4px 8px; color: var(--discovery-600, #2a4fd6); }
+.wv-edm__caphead .wv-ig__caprev { white-space: nowrap; font-size: 11px; }
+
+/* ══ THE RAILS' CARDS: a name under every layout, the colour sets as their three bands (bauhly-v3 decisions
+   946, 947, 974, 982, 985) ══ 108 wide like Layout's; a set's card is ground-heavy bands with no name, `Add colours`
+   a plain + over its name, `Bauhly decides` a 2 × 2 of the sets it deals from. */
+.wv-edm__lrail .pe-lay__name {
+  display: block;
+  padding: 6px 2px 3px;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.2;
+  color: var(--ink-700);
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.wv-edm__crail .wv-col__bands {
+  display: grid;
+  grid-template-rows: 1fr 1fr 2fr;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  border-radius: 3px;
+}
+.wv-edm__crail .wv-col__bands > i { display: block; }
+.wv-edm__crail .wv-col__bands--card { width: 100%; aspect-ratio: 4 / 5; border-radius: 4px; }
+.wv-edm__crail .wv-col__mix {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: 1fr 1fr;
+  gap: 3px;
+  width: 100%;
+  aspect-ratio: 100 / 103;
+}
+.wv-edm__crail .wv-col__plus {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  aspect-ratio: 100 / 103;
+  border-radius: 4px;
+  background: var(--surface-sunken, #f4f4f2);
+  color: var(--ink-700);
+}
+/* `Unselect all` inside the count badge (bauhly-v3 decision 897) */
+.wv-edm__gridkeep {
+  margin-left: 6px;
+  padding: 2px 10px;
+  border: 0;
+  border-radius: 999px;
+  background: rgb(255 255 255 / 0.16);
+  color: #fff;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  pointer-events: auto;
+}
+.wv-edm__gridkeep:hover { background: rgb(255 255 255 / 0.28); }
+/* Undo / Redo keep their room while unseen, so nothing moves when they come (bauhly-v3 decision 944) */
+.wv-edm__hist.is-unseen { visibility: hidden; pointer-events: none; }
+
+/* ══ THE COLOUR RAIL'S MENU HANGS OFF ITS CARD (bauhly-v3 `placeMenu`, decisions 947, 954, 994) ══ centred over the
+   card it is about, 10 clear above it; Add colours' and Edit colours' sections are the swatch, the role and the hex,
+   then Save colour. */
+.wv-edm__tools .wv-col__menu {
+  position: absolute;
+  left: var(--col-x, 50%);
+  top: var(--col-y, 0px);
+  z-index: 30;
+  width: max-content;
+  min-width: 248px;
+  max-width: 320px;
+  translate: -50% calc(-100% - 10px);
+  pointer-events: auto;
+}
+.wv-col__roles { display: flex; flex-direction: column; gap: 2px; padding: 2px 4px 8px; }
+.wv-col__role {
+  position: relative;
+  display: grid;
+  grid-template-columns: 36px 1fr auto;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 8px;
+  border-radius: 10px;
+  cursor: pointer;
+}
+.wv-col__role:hover { background: var(--surface-sunken, #f5f5f3); }
+.wv-col__swatch { width: 36px; height: 36px; border-radius: 8px; box-shadow: inset 0 0 0 1px rgb(20 20 25 / 0.1); }
+.wv-col__role b { font-size: 13px; font-weight: 600; color: var(--ink-900); }
+.wv-col__role em { font-style: normal; font-size: 12px; color: var(--ink-500); font-family: var(--font-mono, ui-monospace, monospace); }
+.wv-col__role input[type="color"] { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+.wv-col__save { width: calc(100% - 8px); margin: 2px 4px 4px; height: 40px; border-radius: 999px; background: var(--ink-900); color: #fff; }
+.wv-col__save:disabled { background: var(--ink-100, #ececee); color: var(--ink-400); cursor: default; }
+.wv-edm__crail .wv-col__bands--empty { display: grid; place-items: center; background: var(--surface-sunken, #f4f4f2); color: var(--ink-400); }

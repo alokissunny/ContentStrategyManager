@@ -1033,7 +1033,7 @@ export function applyThemeToCarouselDocument(html, { themed = false, paint } = {
     // Older ones wrote literal hex values, recoloured by inference.
     const roles = colourRoleVars(paint);
     const named = roles && BRAND_ROLE_RE.test(raw);
-    const recoloured = named ? raw : recolourCarouselDocument(raw, paint);
+    const recoloured = named ? remapRoleLiterals(raw, paint) : recolourCarouselDocument(raw, paint);
     const gv = paintCssVars(groundVars(paint));
     const extra = `${named ? `:root:root,html.is-themed [data-direction],html.is-themed .slide{${roles}}` : ''}${gv ? `:root{${gv}}${SLIDE_FRAME_GROUND}` : ''}`;
     return markThemed(recoloured, `<style data-brand-theme>${extra}${IMG_SHIMMER_CSS}</style>`);
@@ -1122,12 +1122,113 @@ export function applyBrandFonts(page, paint, { links = [], faceCss = '', extraLi
 // The carousel's declared colour roles → the set's three colours.
 const BRAND_ROLE_RE = /--brand-(?:primary|background|accent)\s*:/i;
 function colourRoleVars(paint) {
+  const fg = paint?.['--t-ground-fg'];
+  const ground = paint?.['--t-ground-bg'];
+  const accent = paint?.['--t-accent-bg'];
   const decls = [
-    ['--brand-primary', paint?.['--t-ground-fg']],
-    ['--brand-background', paint?.['--t-ground-bg']],
-    ['--brand-accent', paint?.['--t-accent-bg']],
+    ['--brand-primary', fg],
+    ['--brand-background', ground],
+    ['--brand-accent', accent],
+    /* the accent's two reading shades follow the new set too (backend brandKitColors `accentFor`): left as the old
+       set's, accent words kept the old colour (the "red that is not in the set") */
+    ['--brand-accent-on-dark', accent && fg ? accentOn(accent, fg) : ''],
+    ['--brand-accent-on-light', accent && ground ? accentOn(accent, ground) : ''],
   ].filter(([, v]) => parseHex(v)).map(([k, v]) => `${k}:${v}`);
   return decls.length ? decls.join(';') : '';
+}
+
+// ── the accent at a lightness that reads (port of backend carouselContrastCheck `adjustAccent`) ──
+function relLum(rgb) {
+  const lin = (c) => { const v = c / 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; };
+  return 0.2126 * lin(rgb[0]) + 0.7152 * lin(rgb[1]) + 0.0722 * lin(rgb[2]);
+}
+function rgbToHsl([r, g, b]) {
+  r /= 255; g /= 255; b /= 255;
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  const l = (max + min) / 2;
+  if (max === min) return [0, 0, l];
+  const d = max - min;
+  const sat = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+  let h;
+  if (max === r) h = ((g - b) / d + (g < b ? 6 : 0));
+  else if (max === g) h = (b - r) / d + 2;
+  else h = (r - g) / d + 4;
+  return [h * 60, sat, l];
+}
+function hslToRgb([h, sat, l]) {
+  const c = (1 - Math.abs(2 * l - 1)) * sat;
+  const x = c * (1 - Math.abs(((h / 60) % 2) - 1));
+  const m = l - c / 2;
+  const [r, g, b] = h < 60 ? [c, x, 0] : h < 120 ? [x, c, 0] : h < 180 ? [0, c, x] : h < 240 ? [0, x, c] : h < 300 ? [x, 0, c] : [c, 0, x];
+  return [r, g, b].map((v) => Math.round((v + m) * 255));
+}
+const toHexRgb = (rgb) => `#${rgb.map((v) => Math.max(0, Math.min(255, v)).toString(16).padStart(2, '0')).join('')}`;
+const ratioOf = (a, b) => (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+function accentOn(accentHex, groundHex, need = 4.5) {
+  const a = parseHex(accentHex);
+  const g = parseHex(groundHex);
+  if (!a || !g) return accentHex;
+  const gl = relLum(g);
+  if (ratioOf(relLum(a), gl) >= need) return toHexRgb(a);
+  const [h, sat, l0] = rgbToHsl(a);
+  let best = null;
+  for (let d = 0.01; d <= 1; d += 0.01) {
+    for (const l of [l0 + d, l0 - d]) {
+      if (l < 0 || l > 1) continue;
+      const rgb = hslToRgb([h, sat, l]);
+      const r = ratioOf(relLum(rgb), gl);
+      if (!best || r > best.r) best = { rgb, r };
+      if (r >= need) return toHexRgb(rgb);
+    }
+  }
+  return toHexRgb(best.rgb);
+}
+
+/* ══ A SET LANDS WHOLE (bauhly-v3 decision 981) ══ a named-role carousel still carries literal colours the app wrote
+   into it: the contrast check's corrected accent words (`color: #… !important` inline, carouselContrastCheck
+   `fixAccentContrast`). Each literal that is a role of the document's OWN old set — its primary, background, or any
+   shade of its accent's hue — takes the same role in the new set: accent-family shades become the new accent at the
+   lightness that reads where they stand (lighter than the old accent = it sat on dark). Only inline `style`
+   attributes and `<style>` blocks are touched; `url(#…)` is not a colour. */
+function oldRolesOf(raw) {
+  const read = (name) => {
+    const m = raw.match(new RegExp(`${name}\\s*:\\s*(#[0-9a-f]{3,8})\\b`, 'i'));
+    return m ? parseHex(m[1]) : null;
+  };
+  return { primary: read('--brand-primary'), background: read('--brand-background'), accent: read('--brand-accent') };
+}
+function remapRoleLiterals(raw, paint) {
+  const old = oldRolesOf(raw);
+  const fg = paint?.['--t-ground-fg'];
+  const ground = paint?.['--t-ground-bg'];
+  const accent = paint?.['--t-accent-bg'];
+  if (!old.accent || !parseHex(accent)) return raw;
+  const [oh, os, ol] = rgbToHsl(old.accent);
+  const onDark = fg ? accentOn(accent, fg) : accent;
+  const onLight = ground ? accentOn(accent, ground) : accent;
+  const dist = (a, b) => Math.abs(a[0] - b[0]) + Math.abs(a[1] - b[1]) + Math.abs(a[2] - b[2]);
+  const swap = (token) => {
+    const rgb = parseHex(token);
+    if (!rgb) return token;
+    if (old.primary && fg && dist(rgb, old.primary) < 12) return fg;
+    if (old.background && ground && dist(rgb, old.background) < 12) return ground;
+    const [h, sat, l] = rgbToHsl(rgb);
+    const hueGap = Math.min(Math.abs(h - oh), 360 - Math.abs(h - oh));
+    if (os > 0.15 && sat > 0.15 && hueGap < 22) {
+      if (Math.abs(l - ol) < 0.04) return accent;
+      return l > ol ? onDark : onLight;
+    }
+    return token;
+  };
+  const hexRe = /#[0-9a-f]{6}\b|#[0-9a-f]{3}\b/gi;
+  const inValue = (text) => text.replace(/url\([^)]*\)/gi, (u) => `\u0000${encodeURIComponent(u)}\u0000`)
+    .replace(hexRe, swap)
+    .replace(/\u0000([^\u0000]*)\u0000/g, (_, u) => decodeURIComponent(u));
+  return raw
+    .replace(/(\sstyle\s*=\s*")([^"]*)(")/gi, (_, a, v, b) => `${a}${inValue(v)}${b}`)
+    .replace(/(\sstyle\s*=\s*')([^']*)(')/gi, (_, a, v, b) => `${a}${inValue(v)}${b}`)
+    .replace(/(<style\b[^>]*>)([\s\S]*?)(<\/style>)/gi, (_, a, v, b) => `${a}${inValue(v)}${b}`);
 }
 
 // ── Colour-set recolour (older carousels with literal colours) ──────────────

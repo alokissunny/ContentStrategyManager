@@ -241,6 +241,9 @@ export function useRecorder(opts = {}) {
   const pauseInFlight = useRef(false);
   const keywordsRef = useRef(opts.keywords);
   keywordsRef.current = opts.keywords;
+  /* the live clean-up at a pause is a signed-in call: off for a landing visitor with no account */
+  const liveCorrectRef = useRef(opts.liveCorrect !== false);
+  liveCorrectRef.current = opts.liveCorrect !== false;
   const speechLangRef = useRef(speechLang);
   speechLangRef.current = speechLang;
 
@@ -313,7 +316,7 @@ export function useRecorder(opts = {}) {
 
   const schedulePauseClean = (hasInterim) => {
     clearPauseTimer();
-    if (!listening.current) return;
+    if (!listening.current || !liveCorrectRef.current) return;
     pauseTimer.current = window.setTimeout(runPauseClean, hasInterim ? 1700 : 1200);
   };
 

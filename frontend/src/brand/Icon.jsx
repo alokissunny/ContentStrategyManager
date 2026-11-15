@@ -428,6 +428,8 @@ const PATHS = {
   /* the example's demo hand (bauhly-v3 DemoCursor): `click` presses, `point-left` waits beside `View post` */
   click: <path d="M5.5 4.5 11 20l2.4-6.6L20 11z" />,
   'point-left': <path d="M3 12 18 5.6l-3.1 6.4 3.1 6.4z" />,
+  /* one slide, the Editor's grid toggle when the grid is open (bauhly-v3 decision 965: it draws the view it opens) */
+  square: <rect x="5.5" y="4.5" width="13" height="15" rx="2.5" />,
   film: (
     <>
       <rect x="3.5" y="4.5" width="17" height="15" rx="2.5" />

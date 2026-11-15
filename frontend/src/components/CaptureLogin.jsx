@@ -4,25 +4,66 @@ import Icon from '../brand/Icon';
 import { useAuth } from '../context/AuthContext';
 import { canTakeCaret } from '../lib/captureUi';
 import { IS_NATIVE } from '../native/platform';
+import { checkInviteCode, joinWaitlist } from '../api/earlyAccess';
+import JoinedArt from './JoinedArt';
+import './captureLogin.css';
 
 /* what a sign-up agrees to (bauhly-v3 AuthForm `TERMS_VERSION`); recorded on the account */
 const TERMS_VERSION = '2026-11';
+/* the backend's own rule (models/User.js `minlength`) */
+const PASSWORD_MIN = 6;
 
 /* Google needs a client id, and its popup does not run inside the iOS app's web view */
 const HAS_GOOGLE = Boolean(import.meta.env.VITE_GOOGLE_CLIENT_ID) && !IS_NATIVE;
 
-/* bauhly-v3 AuthForm's words. `page`: the /auth page and the landing's Log in box (`bare`);
-   `step`: the account step inside Capture (SignupStep's COPY, Nov 6–9). */
-const COPY = {
-  page: {
-    signup: { head: 'Start your analysis', sub: 'Create an account \u2014 building your first week takes a few minutes.', go: 'Create account', ask: 'Already have an account? ', other: 'Sign in' },
-    signin: { head: 'Welcome back', sub: 'Sign in to pick up this week\u2019s plan.', go: 'Sign in', ask: 'New to Bauhly? ', other: 'Start your analysis' },
-  },
-  step: {
-    signup: { head: 'Create an account', sub: 'Create your account to continue and save your work.', go: 'Create account', ask: 'Already have an account? ', other: 'Log in' },
-    signin: { head: 'Log in to Bauhly', sub: 'Log in to continue and save your work.', go: 'Log in', ask: 'New to Bauhly? ', other: 'Create an account' },
-  },
+/* ══ THE WORDS (bauhly-v3 AuthForm, the Early Access brief, Nov 12–15; decisions 875–906, 992) ══════════════════════
+   One set for every place the form appears: the landing's Log in box, `/auth`, and Capture's account step. */
+const ACCOUNT_COPY = {
+  signup: { head: 'Create your account', sub: 'You’re invited! Create your account to get started with Bauhly.', go: 'Create account', busy: 'Creating your account…', ask: 'Already have an account? ', other: 'Sign in' },
+  signin: { head: 'Welcome back', sub: 'Sign in to continue where you left off.', go: 'Sign in', busy: 'Signing in…', ask: 'New to Bauhly? ', other: 'Create an account' },
 };
+const INVITE_COPY = {
+  head: 'Your invitation to Bauhly',
+  sub: 'Bauhly is currently available by invitation. Enter your code to get started.',
+  go: 'Continue',
+};
+const INVITE_SAY = {
+  empty: 'Enter your invitation code.',
+  invalid: 'This code isn’t valid. Check it and try again.',
+  redeemed: 'This invitation has already been used.',
+  limited: 'Too many tries. Try again in an hour.',
+  offline: 'You’re offline. Check your connection and try again.',
+  error: 'We couldn’t check your code. Try again.',
+};
+const RETRY = new Set(['offline', 'error']);
+const WAITLIST_COPY = {
+  head: 'Join the waitlist',
+  sub: 'Leave your email and we’ll let you know when there’s a place for you.',
+  go: 'Join the waitlist',
+  doneHead: 'You’re on the list!',
+  doneSub: 'Thanks for joining Bauhly.',
+  doneMore: 'We’ll email you when your early access is ready.',
+};
+const WAITLIST_SAY = {
+  email: 'Enter a valid email address.',
+  limited: 'Too many requests today. Try again tomorrow.',
+  offline: 'You’re offline. Check your connection and try again.',
+  error: 'We couldn’t add you just now. Try again.',
+};
+/* where a capture is waiting for the account (Capture's step, after `Build post`): say what happens to it
+   (bauhly-v3 decision 903, `postWaits`) */
+const POST_WAITS_SAY = {
+  invite: 'Building your post needs an invitation code. Your capture is kept here until you close Capture.',
+  wait: 'Leave your email and we’ll let you know when there’s a place for you. Your capture is kept here until you close Capture.',
+};
+const RULE_SAY = `At least ${PASSWORD_MIN} characters`;
+const RULE_MISSED = `Use at least ${PASSWORD_MIN} characters.`;
+
+/* a checked invitation, held for this tab so the code is never asked for twice (bauhly-v3 lib/invites.js `heldInvite`).
+   It is only USED when the account is made: /auth/register claims it atomically (backend withInviteCode). */
+const HELD_KEY = 'bauhly.invite';
+const heldInvite = () => { try { return sessionStorage.getItem(HELD_KEY) || ''; } catch { return ''; } };
+const holdInvite = (code) => { try { if (code) sessionStorage.setItem(HELD_KEY, code); else sessionStorage.removeItem(HELD_KEY); } catch { /* this visit only */ } };
 
 function GoogleG() {
   return (
@@ -36,7 +77,7 @@ function GoogleG() {
 }
 
 /* its own component so the Google hook only mounts where a client id exists */
-function GoogleButton({ disabled, onToken, onFail }) {
+function GoogleButton({ disabled, busy, onToken, onFail }) {
   const start = useGoogleLogin({
     flow: 'implicit',
     scope: 'openid email profile',
@@ -45,44 +86,67 @@ function GoogleButton({ disabled, onToken, onFail }) {
     onNonOAuthError: (e) => { if (e?.type !== 'popup_closed') onFail('Google sign-in could not open. Please try again.'); },
   });
   return (
-    <button type="button" className="ckl__google" disabled={disabled} onClick={() => start()}>
+    <button type="button" className="btn btn--secondary au__wide" disabled={disabled} aria-busy={busy || undefined} onClick={() => start()}>
       <GoogleG />
-      Continue with Google
+      {busy ? ACCOUNT_COPY.signup.busy : 'Continue with Google'}
     </button>
   );
 }
 
 /**
- * The account form (bauhly-v3 AuthForm / SignupStep, Nov 6–10): the account step INSIDE the landing
+ * The account form (bauhly-v3 AuthForm + SignupStep, Nov 12–15): the account step INSIDE the landing
  * page's Capture, the landing header's Log in box (`bare`) and the /auth page (`bare`).
  * The conversation stays mounted underneath with the visitor's words and photos where they were, so
  * going back loses nothing.
  *
- *   signup  a one-use invitation code (4 letters/digits, made in the backoffice), name, email, password, the Terms (required) and news from Bauhly (optional, off by
- *           default), as the mock's — `/auth/register`. What was agreed is kept on the account (`legal`).
- *   signin  the real Log in, `/auth/login`.
- *   Google  "Continue with Google" in both (`/auth/google`, access-token flow); in sign-up it waits for
- *           the Terms like the mock's, and a new Google account keeps what was agreed too.
+ *   invite    a new account starts with a one-use invitation code (backoffice), checked before Create account
+ *             is shown (`/early-access/invite/check`); held for the tab once good.
+ *   signup    name, email, password (shown/hidden, its rule on screen), Terms (required) and news (optional);
+ *             `/auth/register` uses the held code. A code gone bad meanwhile goes back to `invite` saying why;
+ *             an address that has an account says so beside the field.
+ *   waitlist  no code: an email, kept (`/early-access/waitlist`), then the joined screen.
+ *   signin    the real Log in, `/auth/login`. Never asks for a code.
  */
-export default function CaptureLogin({ start = 'signin', backLabel = 'Back to your capture', bare = false, onBack, onDone }) {
-  /* `bare`: the landing page's own Log in box: the box's × is the way out, so no back row */
+export default function CaptureLogin({ start = 'signin', backLabel = 'Back', bare = false, onBack, onDone }) {
   const { login, register, googleLogin } = useAuth();
-  const [mode, setMode] = useState(start); // signin | signup
+  /* asking for sign-up without a checked invitation is asking for the invitation */
+  const [mode, setMode] = useState(() => (start === 'signup' && !heldInvite() ? 'invite' : start));
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [showPw, setShowPw] = useState(false);
+  const [pwMissed, setPwMissed] = useState(false);
+  const [emailTaken, setEmailTaken] = useState(false);
   const [name, setName] = useState('');
   const [agreed, setAgreed] = useState(false);
   const [marketing, setMarketing] = useState(false);
-  const [invite, setInvite] = useState('');
+  const [code, setCode] = useState('');
+  const [codeError, setCodeError] = useState(null);
+  const [checking, setChecking] = useState(false);
+  const [waitEmail, setWaitEmail] = useState('');
+  const [waitError, setWaitError] = useState(null);
+  const [joining, setJoining] = useState(false);
+  const [listed, setListed] = useState(false);
   const [error, setError] = useState('');
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState(null); // null | 'email' | 'google'
   const root = useRef(null);
+  const moved = useRef(false);
   /* one account is one send: nothing behind this may run twice */
   const done = useRef(false);
+  /* Capture's step, after `Build post`: the words say what happens to the capture */
+  const postWaits = !bare && start === 'signup';
 
+  const signup = mode === 'signup';
+  const signin = mode === 'signin';
+  const inviting = mode === 'invite';
+  const waiting = mode === 'waitlist';
+
+  /* a step that replaces another takes the keyboard with it: the first field on a pointer, the heading on touch */
   useEffect(() => {
-    if (canTakeCaret()) root.current?.querySelector('input')?.focus({ preventScroll: true });
-  }, [mode]);
+    const el = root.current;
+    const field = el?.querySelector('input:not([type="checkbox"])');
+    if (field && canTakeCaret()) field.focus({ preventScroll: true });
+    else if (moved.current) el?.querySelector('h2')?.focus({ preventScroll: true });
+  }, [mode, listed]);
 
   useEffect(() => {
     /* before Capture's own Escape, which would close the conversation behind this */
@@ -96,134 +160,297 @@ export default function CaptureLogin({ start = 'signin', backLabel = 'Back to yo
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const go = async (e, act) => {
-    e?.preventDefault();
+  /* every way between the steps; one address, typed once (the waitlist's is the account's and back) */
+  const go = (next) => {
+    setCodeError(null);
+    setWaitError(null);
+    setListed(false);
+    setPwMissed(false);
+    setEmailTaken(false);
+    setError('');
+    setShowPw(false);
+    if ((next === 'signup' || next === 'invite') && !email.trim() && waitEmail.trim()) setEmail(waitEmail.trim());
+    if (next === 'waitlist' && !waitEmail.trim() && email.trim()) setWaitEmail(email.trim());
+    moved.current = true;
+    setMode(next === 'signup' && !heldInvite() ? 'invite' : next);
+  };
+
+  const check = () => {
+    if (checking) return;
+    const raw = code.replace(/[^a-z0-9]/gi, '').toUpperCase();
+    if (!raw) { setCodeError('empty'); return; }
+    setCodeError(null);
+    setChecking(true);
+    checkInviteCode(raw).then((res) => {
+      setChecking(false);
+      if (res?.ok) { holdInvite(res.code || raw); go('signup'); return; }
+      setCodeError(res?.reason || 'error');
+    });
+  };
+
+  const join = () => {
+    if (joining) return;
+    setWaitError(null);
+    setJoining(true);
+    joinWaitlist(waitEmail.trim(), bare ? 'login' : 'capture').then((res) => {
+      setJoining(false);
+      if (res?.ok) { moved.current = true; setListed(true); return; }
+      setWaitError(res?.reason || 'error');
+    });
+  };
+
+  /* the account is made, or signed into: only a success leaves */
+  const finish = async (method, act) => {
     if (busy) return;
     setError('');
-    setBusy(true);
+    setEmailTaken(false);
+    setBusy(method);
     try {
       const data = await act();
       if (done.current) return;
       done.current = true;
-      onDone({ created: typeof data?.created === 'boolean' ? data.created : mode === 'signup' });
+      if (signup) holdInvite('');
+      onDone({ created: typeof data?.created === 'boolean' ? data.created : signup });
     } catch (err) {
-      const data = err?.response?.data;
-      /* Google on Log in with no account yet: making one needs an invitation code, so go to Create account */
-      if (data?.code === 'INVITE_REQUIRED' && mode === 'signin') setMode('signup');
+      setBusy(null);
+      const res = err?.response;
+      const data = res?.data;
+      if (!res) { setError('You’re offline. Check your connection and try again.'); return; }
+      if (res.status === 409) { setEmailTaken(true); return; }
+      /* the invitation went bad between the two steps (or Google with no account yet): back to it, saying why */
+      if (data?.code === 'INVITE_INVALID' || data?.code === 'INVITE_REQUIRED') {
+        const was = heldInvite();
+        holdInvite('');
+        go('invite');
+        setCode(was);
+        if (data.code === 'INVITE_INVALID') setCodeError('invalid');
+        return;
+      }
       setError(data?.message || 'Something went wrong. Please try again.');
-      setBusy(false);
     }
   };
-  const legal = () => ({ acceptTerms: agreed, termsVersion: TERMS_VERSION, marketing, inviteCode });
-  const signIn = (e) => go(e, () => login(email, password));
-  const signUp = (e) => go(e, () => register(name.trim(), email, password, legal()));
+  const legal = () => ({ acceptTerms: agreed, termsVersion: TERMS_VERSION, marketing, inviteCode: heldInvite() });
+  const ruleHolds = () => {
+    if (password.length >= PASSWORD_MIN) return true;
+    setPwMissed(true);
+    root.current?.querySelector('#au-password')?.focus();
+    return false;
+  };
+  const withGoogle = (accessToken) => finish('google', () => googleLogin({ accessToken }, signup ? legal() : {}));
 
-  const withGoogle = (accessToken) => go(null, () => googleLogin({ accessToken }, mode === 'signup' ? legal() : {}));
-  const switchTo = (next) => { setError(''); setMode(next); };
-  const say = COPY[bare ? 'page' : 'step'][mode];
-  /* every new account needs a one-use invitation code: 4 letters/digits */
-  const inviteCode = invite.replace(/[^a-z0-9]/gi, '').toUpperCase();
-  const held = mode === 'signup' && (!agreed || inviteCode.length !== 4);
+  const proceed = (e) => {
+    e?.preventDefault();
+    if (inviting) { check(); return; }
+    if (waiting) { if (!listed) join(); return; }
+    if (signup) {
+      if (!agreed || !ruleHolds()) return;
+      finish('email', () => register(name.trim(), email, password, legal()));
+      return;
+    }
+    finish('email', () => login(email, password));
+  };
 
-  const google = HAS_GOOGLE && (
-    <>
-      <GoogleButton disabled={busy || held} onToken={withGoogle} onFail={setError} />
-      <div className="ckl__divider">or</div>
-    </>
-  );
+  const say = inviting
+    ? (postWaits ? { ...INVITE_COPY, sub: POST_WAITS_SAY.invite } : INVITE_COPY)
+    : waiting
+      ? (listed ? { head: WAITLIST_COPY.doneHead, sub: WAITLIST_COPY.doneSub, more: WAITLIST_COPY.doneMore } : (postWaits ? { ...WAITLIST_COPY, sub: POST_WAITS_SAY.wait } : WAITLIST_COPY))
+      : ACCOUNT_COPY[mode];
+  const held = signup && !agreed;
+  const joined = waiting && listed;
+
+  const passwordField = () => {
+    const met = password.length >= PASSWORD_MIN;
+    return (
+      <div className="field">
+        <label className="field__label" htmlFor="au-password">Password</label>
+        <div className="au__pw">
+          <input
+            id="au-password"
+            className="input"
+            type={showPw ? 'text' : 'password'}
+            required
+            placeholder="Password"
+            autoComplete={signup ? 'new-password' : 'current-password'}
+            value={password}
+            readOnly={Boolean(busy)}
+            onChange={(e) => { setPassword(e.target.value); if (pwMissed && e.target.value.length >= PASSWORD_MIN) setPwMissed(false); }}
+            aria-invalid={pwMissed ? 'true' : undefined}
+            aria-describedby={[signup && 'au-password-rule', pwMissed && 'au-password-error'].filter(Boolean).join(' ') || undefined}
+          />
+          <button type="button" className="au__eye" onClick={() => setShowPw((on) => !on)} aria-label={showPw ? 'Hide password' : 'Show password'} aria-pressed={showPw}>
+            <Icon name={showPw ? 'eye-off' : 'eye'} size={16} />
+          </button>
+        </div>
+        {signup && (
+          <p id="au-password-rule" className="field__hint au__rule">
+            {RULE_SAY}
+            <span className={`au__rule-mark ${met ? 'is-met' : ''}`} aria-hidden="true"><Icon name="check" size={12} strokeWidth={2.5} /></span>
+          </p>
+        )}
+        {pwMissed && <p id="au-password-error" className="field__error" role="alert">{RULE_MISSED}</p>}
+      </div>
+    );
+  };
 
   return (
-    <div className={`ck-signup${mode === 'signup' ? ' is-signup' : ''}`} ref={root}>
+    <div className={`ck-signup${signup ? ' is-signup' : ''}${bare ? ' ck-signup--bare' : ''}`}>
       {!bare && (
         <div className="ck-signup__top">
-          <button type="button" className="btn btn--quiet btn--sm ck-signup__back" onClick={onBack}>
+          <button type="button" className="btn btn--secondary btn--sm ck-signup__back" onClick={onBack}>
             <Icon name="arrow-left" size={15} />
             {backLabel}
           </button>
         </div>
       )}
       <div className="ck-signup__form">
-        {mode === 'signin' && (
-          <form className="ckl" onSubmit={signIn}>
-            <h2 className="ckl__head">{say.head}</h2>
-            <p className="ckl__sub">{say.sub}</p>
-            {google}
-            <label className="ckl__field">
-              <span className="ckl__label">Email</span>
-              <input className="ckl__input" type="email" required autoComplete="email" placeholder="you@business.com" value={email} onChange={(e) => setEmail(e.target.value)} />
-            </label>
-            <label className="ckl__field">
-              <span className="ckl__label">Password</span>
-              <input className="ckl__input" type="password" required minLength={6} autoComplete="current-password" placeholder="Password" value={password} onChange={(e) => setPassword(e.target.value)} />
-            </label>
-            {error && <p className="ckl__error" role="alert">{error}</p>}
-            <button type="submit" className="ckl__go" disabled={busy}>
-              {busy ? 'Please wait…' : say.go}
-              <Icon name="arrow-right" size={16} />
-            </button>
-            <p className="ckl__ask">
-              {say.ask}
-              <button type="button" className="ckl__link" onClick={() => switchTo('signup')}>{say.other}</button>
-            </p>
-          </form>
-        )}
-        {mode === 'signup' && (
-          <form className="ckl" onSubmit={signUp}>
-            <h2 className="ckl__head">{say.head}</h2>
-            <p className="ckl__sub">{say.sub}</p>
-            <label className="ckl__field ckl__field--invite">
-              <span className="ckl__label">Invitation code</span>
-              <input
-                className="ckl__input ckl__input--code"
-                type="text"
-                required
-                inputMode="text"
-                autoCapitalize="characters"
-                autoComplete="off"
-                spellCheck={false}
-                maxLength={4}
-                pattern="[A-Za-z0-9]{4}"
-                title="4 letters or digits"
-                placeholder="e.g. K7PM"
-                value={invite}
-                onChange={(e) => setInvite(e.target.value.replace(/[^a-z0-9]/gi, '').toUpperCase().slice(0, 4))}
-              />
-            </label>
-            {google}
-            <label className="ckl__field">
-              <span className="ckl__label">Your name</span>
-              <input className="ckl__input" type="text" required maxLength={80} autoComplete="name" placeholder="Mara Jansen" value={name} onChange={(e) => setName(e.target.value)} />
-            </label>
-            <label className="ckl__field">
-              <span className="ckl__label">Email</span>
-              <input className="ckl__input" type="email" required autoComplete="email" placeholder="you@business.com" value={email} onChange={(e) => setEmail(e.target.value)} />
-            </label>
-            <label className="ckl__field">
-              <span className="ckl__label">Password</span>
-              <input className="ckl__input" type="password" required minLength={6} autoComplete="new-password" placeholder="Password" value={password} onChange={(e) => setPassword(e.target.value)} />
-            </label>
-            <label className="ckl__tick">
-              <input type="checkbox" checked={agreed} onChange={(e) => setAgreed(e.target.checked)} />
-              <span className="ckl__box" aria-hidden="true"><Icon name="check" size={12} strokeWidth={2.8} /></span>
-              <span>I agree to the <a className="ckl__link" href="/terms" target="_blank" rel="noreferrer">Terms &amp; Conditions</a></span>
-            </label>
-            <label className="ckl__tick">
-              <input type="checkbox" checked={marketing} onChange={(e) => setMarketing(e.target.checked)} />
-              <span className="ckl__box" aria-hidden="true"><Icon name="check" size={12} strokeWidth={2.8} /></span>
-              <span>Email me news from Bauhly (optional)</span>
-            </label>
-            <p className="ckl__note">Read our <a className="ckl__link" href="/privacy" target="_blank" rel="noreferrer">Privacy Policy</a>.</p>
-            {error && <p className="ckl__error" role="alert">{error}</p>}
-            <button type="submit" className="ckl__go" disabled={busy || held}>
-              {busy ? 'Please wait…' : say.go}
-              <Icon name="arrow-right" size={16} />
-            </button>
-            <p className="ckl__ask">
-              {say.ask}
-              <button type="button" className="ckl__link" onClick={() => switchTo('signin')}>{say.other}</button>
-            </p>
-          </form>
-        )}
+        <form className={`au__form${joined ? ' au__form--done' : ''}`} onSubmit={proceed} ref={root} noValidate={inviting}>
+          {joined && <JoinedArt />}
+          <h2 className="au__head" tabIndex={-1}>{say.head}</h2>
+          {say.sub && <p className={`au__sub${say.more || joined ? ' au__sub--tight' : ''}`}>{say.sub}</p>}
+          {say.more && <p className="au__sub au__sub--tight">{say.more}</p>}
+
+          {inviting && (
+            <>
+              <div className="field">
+                <label className="field__label" htmlFor="au-code">Invitation code</label>
+                <input
+                  id="au-code"
+                  className="input au__code"
+                  type="text"
+                  placeholder="Your code"
+                  autoComplete="off"
+                  autoCapitalize="characters"
+                  spellCheck={false}
+                  maxLength={9}
+                  value={code}
+                  readOnly={checking}
+                  onChange={(e) => { setCode(e.target.value.toUpperCase()); if (codeError) setCodeError(null); }}
+                  aria-invalid={codeError && !RETRY.has(codeError) ? 'true' : undefined}
+                  aria-describedby={codeError ? 'au-code-error' : undefined}
+                />
+                {codeError && <p id="au-code-error" className="field__error" role="alert">{INVITE_SAY[codeError] || INVITE_SAY.error}</p>}
+              </div>
+              <button type="submit" className="btn btn--primary au__wide au__go" aria-busy={checking || undefined}>
+                {checking ? 'Checking…' : codeError && RETRY.has(codeError) ? 'Try again' : INVITE_COPY.go}
+                {!checking && <Icon name="arrow-right" size={16} />}
+              </button>
+              <p className="au__alt">
+                {postWaits ? 'No code yet? ' : 'Don’t have a code? '}
+                <button type="button" className="au__link" onClick={() => go('waitlist')}>Join the waitlist</button>
+              </p>
+              <p className="au__alt">
+                Already have an account?{' '}
+                <button type="button" className="au__link" onClick={() => go('signin')}>Sign in</button>
+              </p>
+            </>
+          )}
+
+          {waiting && !listed && (
+            <>
+              <div className="field">
+                <label className="field__label" htmlFor="au-wait-email">Email</label>
+                <input
+                  id="au-wait-email"
+                  className="input"
+                  type="email"
+                  required
+                  placeholder="you@business.com"
+                  autoComplete="email"
+                  value={waitEmail}
+                  readOnly={joining}
+                  onChange={(e) => { setWaitEmail(e.target.value); if (waitError) setWaitError(null); }}
+                  aria-invalid={waitError === 'email' ? 'true' : undefined}
+                  aria-describedby={waitError ? 'au-wait-error' : undefined}
+                />
+                {waitError && <p id="au-wait-error" className="field__error" role="alert">{WAITLIST_SAY[waitError] || WAITLIST_SAY.error}</p>}
+              </div>
+              <button type="submit" className="btn btn--primary au__wide au__go" aria-busy={joining || undefined}>
+                {joining ? 'Joining…' : waitError && RETRY.has(waitError) ? 'Try again' : WAITLIST_COPY.go}
+                {!joining && <Icon name="arrow-right" size={16} />}
+              </button>
+            </>
+          )}
+          {waiting && (
+            <>
+              <p className="au__alt">
+                Have an invitation code?{' '}
+                <button type="button" className="au__link" onClick={() => go('invite')}>Enter it</button>
+              </p>
+              <p className="au__alt">
+                Already have an account?{' '}
+                <button type="button" className="au__link" onClick={() => go('signin')}>Sign in</button>
+              </p>
+            </>
+          )}
+
+          {(signup || signin) && (
+            <>
+              {HAS_GOOGLE && (
+                <>
+                  <GoogleButton disabled={Boolean(busy) || held} busy={busy === 'google'} onToken={withGoogle} onFail={setError} />
+                  <div className="au__divider">or</div>
+                </>
+              )}
+              <div className="au__fields">
+                {signup && (
+                  <div className="field">
+                    <label className="field__label" htmlFor="au-name">Your name</label>
+                    <input id="au-name" className="input" type="text" required maxLength={80} placeholder="Mara Jansen" autoComplete="name" value={name} readOnly={Boolean(busy)} onChange={(e) => setName(e.target.value)} />
+                  </div>
+                )}
+                <div className="field">
+                  <label className="field__label" htmlFor="au-email">Email</label>
+                  <input
+                    id="au-email"
+                    className="input"
+                    type="email"
+                    required
+                    placeholder="you@business.com"
+                    autoComplete="email"
+                    value={email}
+                    readOnly={Boolean(busy)}
+                    onChange={(e) => { setEmail(e.target.value); if (emailTaken) setEmailTaken(false); }}
+                    aria-invalid={emailTaken ? 'true' : undefined}
+                    aria-describedby={emailTaken ? 'au-email-error' : undefined}
+                  />
+                  {emailTaken && (
+                    <p id="au-email-error" className="field__error" role="alert">
+                      An account with this email already exists.{' '}
+                      <button type="button" className="au__link" onClick={() => go('signin')}>Sign in instead</button>
+                    </p>
+                  )}
+                </div>
+                {passwordField()}
+              </div>
+
+              {signup && (
+                <>
+                  <label className="au__terms">
+                    <input type="checkbox" checked={agreed} onChange={(e) => setAgreed(e.target.checked)} />
+                    <span className="au__box" aria-hidden="true"><Icon name="check" size={13} strokeWidth={2.6} /></span>
+                    <span>I agree to the <a className="au__link" href="/terms" target="_blank" rel="noreferrer">Terms &amp; Conditions</a></span>
+                  </label>
+                  <label className="au__terms">
+                    <input type="checkbox" checked={marketing} onChange={(e) => setMarketing(e.target.checked)} />
+                    <span className="au__box" aria-hidden="true"><Icon name="check" size={13} strokeWidth={2.6} /></span>
+                    <span>Email me news from Bauhly (optional)</span>
+                  </label>
+                  <p className="au__terms-note">Read our <a className="au__link" href="/privacy" target="_blank" rel="noreferrer">Privacy Policy</a>.</p>
+                </>
+              )}
+
+              {error && <p className="field__error au__form-error" role="alert">{error}</p>}
+              <button type="submit" className="btn btn--primary au__wide au__go" disabled={held} aria-busy={busy === 'email' || undefined}>
+                {busy === 'email' ? say.busy : say.go}
+                {busy !== 'email' && <Icon name="arrow-right" size={16} />}
+              </button>
+              <p className="au__alt">
+                {say.ask}
+                <button type="button" className="au__link" onClick={() => go(signup ? 'signin' : 'signup')}>{say.other}</button>
+              </p>
+            </>
+          )}
+        </form>
       </div>
     </div>
   );
