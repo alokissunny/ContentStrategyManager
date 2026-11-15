@@ -2676,7 +2676,7 @@ const FULL_BLEED_PHOTO_RULE = 'the photo is full bleed (edge to edge, object-fit
 const CAROUSEL_LAYOUT_PHOTO_RULES = {
   default: FULL_BLEED_PHOTO_RULE,
   'full-bleed': FULL_BLEED_PHOTO_RULE,
-  'floating-panel': 'the photo is full bleed (edge to edge, object-fit: cover) and the text sits on ONE compact, flat, opaque panel over a quiet area of the photo, clear of the subject — sized by its text, between square and twice as wide as tall, never a band across the slide',
+  'floating-panel': 'the photo is full bleed (edge to edge, object-fit: cover) and the text sits on ONE compact, flat, opaque panel over a quiet area of the photo, never touching the subject (at least a 40px gap from its edge) — sized by its text, between square and twice as wide as tall, never a band across the slide',
   'split-bands': 'the slide is split into a photo band and a solid colour text band; the photo fills its band with the subject kept in frame, and no text sits on the photo',
   editorial: 'the photo sits in a frame inside the margins, close to its own ratio, with the subject kept in frame; no text sits on the photo',
 };
