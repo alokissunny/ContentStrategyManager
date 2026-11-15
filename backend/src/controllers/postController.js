@@ -1651,6 +1651,29 @@ async function rerunLayout(req, res) {
     ? [...new Set(req.body.slideIndexes.map(Number).filter((k) => k >= 1 && k <= nowCount))].sort((a, b) => a - b)
     : [];
   const mergeAt = oneSlide ? [oneSlide] : (someSlides.length && someSlides.length < nowCount ? someSlides : []);
+  // Editor › Layout on the whole post: behave as if the post were generated
+  // from scratch in that layout — the carousel agent owns the story again
+  // (carousel-story.md: hook, narrative, slide count, headlines) from the
+  // post's strategy brief, instead of keeping the old slides word for word.
+  // This slide / a grid selection still keep the post's slides.
+  const ownsStory = !mergeAt.length && !promptOverride && !!trace.strategyBrief;
+  if (ownsStory && !strategyRerun) {
+    const slideKeys = [...new Set((plainOf(record.content?.slides) || [])
+      .flatMap((sl) => [sl?.assetKey, ...(Array.isArray(sl?.assetKeys) ? sl.assetKeys : [])])
+      .map((k) => String(k || '').trim())
+      .filter((k) => k && !/\/themed-/.test(k)))];
+    const stored = plainOf(trace.strategyBrief) || {};
+    const brief = {
+      ...stored,
+      allocatedAssets: Array.isArray(stored.allocatedAssets) && stored.allocatedAssets.length
+        ? stored.allocatedAssets
+        : slideKeys.map((key) => ({ key })),
+    };
+    const writer = postFromBrief(brief);
+    post.content = normalizeWriterPost(writer, brief, []);
+    structure = {};
+    dayWriterOutput = '';
+  }
   let layoutPost = post;
   let layoutStructure = structure;
   if (mergeAt.length) {
@@ -1675,6 +1698,7 @@ async function rerunLayout(req, res) {
       // Debug › Carousel agent › Edit prompt: run this exact prompt instead
       promptOverride,
       layoutId,
+      ownsStory,
     });
     if (result.parsed?.status === 'failed') {
       return res.status(422).json({
