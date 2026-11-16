@@ -880,6 +880,10 @@ const EX_READ = { send: 1300, photos: 2100, gen: 1500, view: 1200 };
 const EX_YOUR_TURN = 'Now it’s your turn';
 /* the demo's one refusal sentence (bauhly-v3 decision 888) */
 const DEMO_REFUSE_SAY = 'Not available in the demo.';
+/* how long the hand rests on the opened `Send` before it presses (bauhly-v3 EX_SEND_DWELL) */
+const EX_SEND_DWELL = 900;
+/* the badge over the field while the example plays (bauhly-v3 decision 946) */
+const DEMO_BADGE_SAY = 'You’re exploring a demo';
 /* what happens after a visitor makes their account, in the order it happens (visitorGenerate; bauhly-v3
    lib/postrun.js STAGES). Their first post is made in this box, not on the calendar's loading screen
    (bauhly-v3 decision 743: "Keep the user in the same view while generation finishes"). Each stage is a
@@ -995,15 +999,43 @@ function ProjectPickerModal({ projects, onClose, onPick, onNew }) {
  * field greys and the buttons stop — it never unmounts, so the box does not
  * jump each time Bauhly speaks. Empty, it is a single bar; with text, the
  * words take the top and the controls drop to a row beneath. */
-function CaptureComposer({ aiPolishing = false, value, onValue, live, canSend, placeholder, onSend, onFiles, onRecord, pending = [], onRemoveFile, plus = true, locked = false, fading = false, mic = true }) {
+function CaptureComposer({ aiPolishing = false, value, onValue, live, canSend, placeholder, onSend, onFiles, onRecord, pending = [], onRemoveFile, plus = true, locked = false, fading = false, mic = true, micOn = false, sendLabel = null, sendFolded = null }) {
+  /* ── THE WORDS FILL THEIR ROW BEFORE THE BAR GOES TALL (bauhly-v3 Composer `tall`, decisions 998/999) ── a bar with
+     words in it stays one row, the mic and send beside them, until the sentence no longer fits beside them; only then
+     do the words take a row of their own and the controls drop beneath. Measured against the STRING on a canvas, at the
+     room the row has (the bar less its padding, the field's own padding, every control and the gaps), so the verdict
+     is about what was typed and not about the layout it caused. */
+  const boxRef = useRef(null);
+  const [tall, setTall] = useState(false);
+  useLayoutEffect(() => {
+    const box = boxRef.current;
+    const ta = box?.querySelector('textarea');
+    if (!box || !ta) return;
+    const said = value || '';
+    if (!said) { setTall(false); return; }
+    if (said.includes('\n')) { setTall(true); return; }
+    const cs = getComputedStyle(ta);
+    const pen = (CaptureComposer.pen ||= document.createElement('canvas').getContext('2d'));
+    pen.font = `${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
+    const px = (el, ...k) => k.reduce((n, side) => n + (parseFloat(getComputedStyle(el)[side]) || 0), 0);
+    const gap = parseFloat(getComputedStyle(box).columnGap) || 10;
+    const ctrls = [...box.querySelectorAll('.capc__acts > :not(.capc__grow)')]
+      .filter((el) => el.offsetWidth && !['absolute', 'fixed'].includes(getComputedStyle(el).position));
+    const room = ctrls.reduce((left, el) => left - el.offsetWidth - gap,
+      box.clientWidth - px(box, 'paddingLeft', 'paddingRight') - px(ta, 'paddingLeft', 'paddingRight', 'marginLeft', 'marginRight'));
+    setTall(pen.measureText(said).width > room);
+  });
   /* staged images make the composer non-empty even with no text, so it takes
      its two-row shape (thumbnails on top, field, controls beneath) */
   const empty = !value && pending.length === 0;
+  /* one row: nothing in it, or words that still fit beside the controls (the `is-empty` layout is the one-row bar) */
+  const row = pending.length === 0 && (!value || !tall);
+  const fold = sendLabel && sendFolded !== null;
   /* `locked`: words are arriving on their own (See an example) — the field
      keeps its resting look but takes no hand (bauhly-v3 `locked`) */
   const on = live && !locked;
   return (
-    <div className={`capc ${empty ? 'is-empty' : ''} ${live || locked ? '' : 'is-off'} ${locked ? 'is-locked' : ''} ${fading ? 'is-fading' : ''} ${plus ? '' : 'capc--noplus'}`}>
+    <div ref={boxRef} className={`capc ${row ? 'is-empty' : ''} ${empty ? 'is-blank' : ''} ${live || locked ? '' : 'is-off'} ${locked ? 'is-locked' : ''} ${fading ? 'is-fading' : ''} ${plus ? '' : 'capc--noplus'}`}>
       {pending.length > 0 && (
         <div className="capc__pending">
           {pending.map((p) => (
@@ -1053,7 +1085,7 @@ function CaptureComposer({ aiPolishing = false, value, onValue, live, canSend, p
         {mic && <button
           type="button"
           className="capc__btn capc__mic"
-          disabled={!on}
+          disabled={!on && !micOn}
           onClick={onRecord}
           title="Record a voice note"
         >
@@ -1062,13 +1094,15 @@ function CaptureComposer({ aiPolishing = false, value, onValue, live, canSend, p
         </button>}
         <button
           type="button"
-          className="capc__send"
+          className={`capc__send${fold ? ` capc__send--fold${sendFolded ? '' : ' is-open'}` : ''}`}
           disabled={!on || !canSend}
           onClick={onSend}
-          title="Send"
+          title={fold && !sendFolded ? sendLabel : 'Send'}
         >
           <Icon name="arrow-up" size={16} strokeWidth={2.4} />
-          <span className="sr-only">Send</span>
+          {/* the example's send opens out into its word as the hand comes to it (bauhly-v3 decision 944) */}
+          {fold && <span className="capc__send-say" aria-hidden={sendFolded || undefined}><span>{sendLabel}</span></span>}
+          {(!fold || sendFolded) && <span className="sr-only">Send</span>}
         </button>
       </div>
     </div>
@@ -2017,6 +2051,8 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
      `exHandOff` once the visitor has pressed, so a scheduled rest never comes back over the Editor (decision 926);
      `exBack` once they have come back from the Editor: the row is then `Create my post` + `View post` (decision 945) */
   const [exAuto, setExAuto] = useState(false);
+  /* the example's send, folded to its arrow until the hand reaches it (bauhly-v3 decision 944) */
+  const [exSendOpen, setExSendOpen] = useState(false);
   const [handWaits, setHandWaits] = useState(false);
   const [exBack, setExBack] = useState(false);
   const exHandOff = useRef(false);
@@ -2073,6 +2109,7 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
       setDemo(true);
       /* from its first word the hand has the presses (bauhly-v3 decision 815) */
       setExAuto(true);
+      setExSendOpen(false);
       setExBack(false);
       exHandOff.current = false;
       if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) { setDraft(text); return; }
@@ -2824,10 +2861,17 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
         return;
       }
       handBusy.current = true;
+      /* the send opens into `Send` as the hand comes to rest on it, and is pressed a beat later (bauhly-v3 decision
+         944), the hand on its right end, which stays put as the word opens out leftward */
+      const onSend = step === 'how';
       hand.tap(el, () => {
         handBusy.current = false;
         el.click();
-      });
+      }, onSend ? {
+        reach: () => setExSendOpen(true),
+        dwell: EX_SEND_DWELL,
+        spot: (b) => { const r = b.getBoundingClientRect(); return { x: r.right - 12, y: r.top + r.height / 2 }; },
+      } : undefined);
     }, read);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -3183,6 +3227,13 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
         {modal && refused > 0 && (
           <div className="ck-refusewrap"><span className="ck-refused" key={refused} role="status">{DEMO_REFUSE_SAY}</span></div>
         )}
+        {/* the box is showing an example: a badge over the field, from the press of `Try an example` for the rest of
+            that conversation (bauhly-v3 `.capm__demo`, decisions 945, 946, 977) */}
+        {modal && liveIntro && step !== 'recording' && (
+          <div className="ck-demowrap" aria-hidden={exWait || demo ? undefined : true}>
+            <span className={`ck-demo${exWait || demo ? ' is-on' : ''}`}>{DEMO_BADGE_SAY}</span>
+          </div>
+        )}
         {modal && step !== 'recording' && (
           <CaptureComposer
             aiPolishing={polishing && draft === autoDraft.current}
@@ -3200,14 +3251,18 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
               : (askOn ? (askTyped ?? 'Say it however it comes out…') : 'Say it however it comes out…')}
             onSend={composerSend}
             onFiles={composerFiles}
-            onRecord={composerRecord}
+            onRecord={demo ? refuseDemo : composerRecord}
+            /* the example keeps its mic, and a press on it is refused (bauhly-v3 decision 945) */
+            micOn={demo}
+            sendLabel={demo && step === 'how' ? 'Send' : null}
+            sendFolded={demo && step === 'how' ? !exSendOpen : null}
             /* the landing field has no plus, as the hero's had none (bauhly-v3) */
             plus={!liveIntro}
             locked={exLive || exWait}
             fading={askFading}
             /* a visitor's voice would need the transcriber, which needs an account: the field is for typing */
             /* a visitor gets the mic on the first question, through the public transcriber (needsLogin) */
-            mic={!demo && (!needsLogin || step === 'how')}
+            mic={demo || !needsLogin || step === 'how'}
           />
         )}
         {/* before anything real is sent and for as long as they have no account (bauhly-v3 `.ck__privacy`) */}

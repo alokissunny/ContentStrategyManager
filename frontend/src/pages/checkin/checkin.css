@@ -2630,6 +2630,71 @@ body.is-immersive .app__main {
   .cap-overlay--landing .ck > .capc { margin-inline: 26px; }
   .cap-overlay--landing .ck__x { top: 45px; }
 }
+/* ── TWO ROWS ONCE THE WORDS FILL THE ONE (bauhly-v3 `.obc--tall`, MEASURED: 110 tall, `10px 10px 8px`, the words a
+   row of their own at `2px 6px 0`, the 44px mic and send kept beneath on the right, an 18px corner) ── */
+.cap-overlay--landing .capc:not(.is-empty) { padding: 10px 10px 8px; border-radius: var(--r-lg, 18px); }
+.cap-overlay--landing .capc:not(.is-empty) .capc__field { padding: 2px 6px 0; font-size: 16px; line-height: 24px; }
+.cap-overlay--landing .capc:not(.is-empty) .capc__acts { gap: 10px; margin-top: 8px; }
+.cap-overlay--landing .capc:not(.is-empty) .capc__btn,
+.cap-overlay--landing .capc:not(.is-empty) .capc__send { width: 44px; height: 44px; }
+/* ── THE EXAMPLE'S SEND OPENS OUT INTO `Send` AS THE HAND COMES TO IT (bauhly-v3 `.obc__send--fold`, decision 944) ──
+   the word's column runs from nothing to its own width, the arrow stays at the button's right end and gives way as the
+   word arrives; the mic beside it stays and moves left on the same clock (decision 945) */
+.cap-overlay--landing .capc .capc__send.capc__send--fold {
+  position: relative;
+  width: auto;
+  min-width: 44px;
+  padding: 0;
+  border-radius: 999px;
+  font-family: var(--font-ui);
+  font-size: 15px;
+  font-weight: 600;
+  white-space: nowrap;
+  transition: background var(--dur-base) var(--ease-out), padding-inline var(--dur-base) var(--ease-out);
+}
+.cap-overlay--landing .capc .capc__send.capc__send--fold.is-open { padding-inline: var(--sp-4, 16px); }
+.capc__send--fold > svg {
+  position: absolute;
+  top: 50%;
+  right: 22px;
+  translate: 50% -50%;
+  transition: opacity var(--dur-base) var(--ease-out);
+}
+.capc__send--fold.is-open > svg { opacity: 0; }
+.capc__send-say {
+  display: grid;
+  grid-template-columns: 0fr;
+  opacity: 0;
+  transition: grid-template-columns var(--dur-base) var(--ease-out), opacity var(--dur-base) var(--ease-out);
+}
+.capc__send-say > span { min-width: 0; overflow: hidden; }
+.capc__send--fold.is-open .capc__send-say { grid-template-columns: 1fr; opacity: 1; }
+/* the example's mic is there, pressable (it is refused) — not greyed while the words arrive */
+.cap-overlay--landing .capc.is-locked .capc__mic:not(:disabled) { opacity: 1; }
+/* ── "YOU'RE EXPLORING A DEMO" (bauhly-v3 `.capm__demo` + StatusChip `quiet`, decisions 945, 946, 977) ── centred over
+   the field, `--sp-4` clear of its top edge, fading in and rising `--sp-2` from the press of `Try an example`. MEASURED
+   on the mock: 12px / 700, `4px 11px`, ink-100 ground, ink-700 words, a full pill. The wrapper has no height and sits
+   just before the field, whose own `margin-top` (`--sp-5`) is the gap the badge stands in. */
+.ck-demowrap { position: relative; height: 0; z-index: 2; pointer-events: none; }
+.ck-demo {
+  position: absolute;
+  left: 50%;
+  bottom: calc(var(--sp-4, 16px) - var(--sp-5, 20px));
+  translate: -50% var(--sp-2, 8px);
+  padding: 4px 11px;
+  border-radius: 999px;
+  background: var(--ink-100);
+  color: var(--ink-700);
+  font-family: var(--font-ui);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 19px;
+  white-space: nowrap;
+  opacity: 0;
+  transition: opacity var(--dur-slow) var(--ease-inout), translate var(--dur-slow) var(--ease-inout);
+}
+.ck-demo.is-on { opacity: 1; translate: -50% 0; }
+@media (prefers-reduced-motion: reduce) { .ck-demo { transition: none; } }
 /* the composer's own inset, as the hero field has it (12px before the words) */
 .cap-overlay--landing .capc.is-empty .capc__field { padding-left: 12px; }
 /* the buttons are the product's secondary level (`.btn--secondary` / `.btn--disc` in bauhly-v3): a raised off-white
