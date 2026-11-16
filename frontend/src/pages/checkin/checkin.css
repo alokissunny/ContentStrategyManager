@@ -3232,7 +3232,26 @@ body.is-immersive .app__main {
 .ck-qcard b { font-size: 14.5px; font-weight: 600; }
 .ck-qcard span { font-size: 13px; line-height: 1.4; color: var(--ink-500); }
 .ck-qcard:hover { border-color: var(--ink-300, #c8c8c4); box-shadow: 0 4px 14px -8px rgb(20 20 25 / 0.22); }
-.ck-qcard.is-on { border-color: var(--ink-900); box-shadow: inset 0 0 0 1px var(--ink-900); }
+/* ── CHOSEN IS FILLED, NOT OUTLINED (bauhly-v3 `.capm--landing .ck-card--pick.is-on`; León, Nov 16: "The box is
+   outlined not filled") ── the primary action's ink, white title, the line at the on-dark rest; and the card is the
+   mock's size: `--sp-3` × `--sp-4`, 2px between title and line, `--r-md`, a hairline + `--shadow-xs` */
+.ck-qs__grid { gap: var(--sp-2, 8px); }
+.ck-qcard {
+  gap: 2px;
+  min-height: 0;
+  padding: var(--sp-3, 12px) var(--sp-4, 16px);
+  border-radius: var(--r-md, 14px);
+  background: var(--surface, #fff);
+  box-shadow: var(--shadow-xs);
+}
+.ck-qcard b { font-size: var(--text-sm); line-height: normal; }
+.ck-qcard span { font-size: var(--text-xs); line-height: 1.5; color: var(--ink-600); }
+.ck-qcard.is-on,
+.ck-qcard.is-on:hover { border-color: var(--action-primary); background: var(--action-primary); color: var(--action-primary-ink); box-shadow: var(--shadow-xs); }
+.ck-qcard.is-on:hover { border-color: var(--action-primary-hover); background: var(--action-primary-hover); }
+.ck-qcard.is-on b { color: var(--action-primary-ink); }
+.ck-qcard.is-on span { color: rgb(255 255 255 / 0.86); }
+.ck-qcard:focus-visible { outline: 2px solid var(--focus-ring, var(--ink-900)); outline-offset: 2px; }
 .ck .btn.ck-qs__go:disabled { background: var(--ink-50, #f2f2f0); color: var(--ink-400); box-shadow: none; opacity: 1; cursor: default; }
 @media (max-width: 640px) {
   .ck-qs__grid { grid-template-columns: minmax(0, 1fr); }
