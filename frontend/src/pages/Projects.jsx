@@ -3097,7 +3097,7 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
                     disabled={exWait || Boolean(draft.trim()) || pending.length > 0}
                     onClick={exPlay}
                   >
-                    <Icon name="play" size={14} strokeWidth={2.25} />
+                    <Icon name="click" size={15} strokeWidth={2} />
                     {example.say}
                   </button>
                 </span>

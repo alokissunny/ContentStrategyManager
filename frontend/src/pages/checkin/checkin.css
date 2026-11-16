@@ -2614,6 +2614,49 @@ body.is-immersive .app__main {
 .cap-overlay--landing .capc__mic { background: transparent; color: var(--ink-700); }
 .cap-overlay--landing .capc__mic:hover:not(:disabled) { background: var(--ink-100); }
 
+/* ── THE LANDING'S CAPTURE: THE MOCK'S COLUMN AND BUTTONS (bauhly-v3 decisions 863, 882, 883, 960; Leon's review,
+   Nov 16: "text indented position", "buttons") ── MEASURED on bauhly-v3 at 1512: the red mark 44 in (the ×'s distance
+   from the right), Bauhly's words and the field on the title's WORD, 90 in from both edges (44 + the mark's 34 + the
+   row's 12), and the user's own turns in the centred column, `--field-max` (940) at most. Here the box's own padding is
+   64, so: the title row out by 20, the words and the field in by 26, and the thread's column centred inside it.
+   `container-type` lets the children read the box's content width (`cqw`). A phone keeps its own insets (decision 926). */
+@media (min-width: 641px) {
+  .cap-overlay--landing .ck { container-type: inline-size; }
+  .cap-overlay--landing .ck > .ck__intro--row { margin-left: -20px; }
+  .cap-overlay--landing .ck > .ck__thread { padding-inline: max(0px, (100cqw - 940px) / 2); }
+  .cap-overlay--landing .ck .ck-turn--bauhly {
+    margin-inline: calc(26px - max(0px, (100cqw - 940px) / 2));
+  }
+  .cap-overlay--landing .ck > .capc { margin-inline: 26px; }
+  .cap-overlay--landing .ck__x { top: 45px; }
+}
+/* the composer's own inset, as the hero field has it (12px before the words) */
+.cap-overlay--landing .capc.is-empty .capc__field { padding-left: 12px; }
+/* the buttons are the product's secondary level (`.btn--secondary` / `.btn--disc` in bauhly-v3): a raised off-white
+   ground, a 1px ink-100 rim drawn inside, the soft two-layer lift, and a little rise under a pointer */
+.cap-overlay--landing .ck__x,
+.cap-overlay--landing .ck-chip--icon,
+.cap-overlay--landing .ck .btn--secondary {
+  border: 0;
+  background: #fcfcfd;
+  color: var(--ink-900);
+  box-shadow: inset 0 0 0 1px var(--ink-100), 0 2px 12px rgba(22, 22, 26, 0.035), 0 8px 32px rgba(22, 22, 26, 0.07);
+  transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out),
+    box-shadow var(--dur-base) var(--ease-out), scale var(--dur-base) var(--ease-out);
+}
+.cap-overlay--landing .ck__x svg { width: 18px; height: 18px; }
+@media (hover: hover) {
+  .cap-overlay--landing .ck__x:hover,
+  .cap-overlay--landing .ck-chip--icon:hover:not(:disabled),
+  .cap-overlay--landing .ck .btn--secondary:hover:not(:disabled) {
+    border: 0;
+    background: #fcfcfd;
+    color: var(--ink-900);
+    box-shadow: inset 0 0 0 1px var(--ink-100), 0 6px 18px rgba(22, 22, 26, 0.06), 0 18px 48px rgba(22, 22, 26, 0.13);
+    scale: 1.05;
+  }
+}
+
 /* ── the account step, inside the box (bauhly-v3 `.ck-signup`) ───────────── */
 .ck.is-signing > :not(.ck-signup) { visibility: hidden; }
 .ck-signup {
