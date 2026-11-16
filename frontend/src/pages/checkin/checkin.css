@@ -2548,7 +2548,9 @@ body.is-immersive .app__main {
 .cap-overlay--landing .ck__thread > .ck-turn--bauhly + .ck-turn--user { margin-top: 54px; }
 /* ── THE STEP'S BUTTONS ARE THE PRODUCT'S (bauhly-v3 `.btn--secondary` / `.btn--tertiary`, full pills): the secondary
    is the raised off-white with the rim (above), the tertiary is words alone, a grey ground under a pointer ── */
-.cap-overlay--landing .ck .btn--sm { border-radius: 999px; }
+/* every button in the Capture box is a full pill, `Build post` (full size) included — bauhly-v3 `.capm .btn
+   { border-radius: var(--r-full) }`; the 14px `--r-md` corners are the app's, not the box's (León, Nov 16) */
+.cap-overlay--modal .ck .btn { border-radius: 999px; }
 .cap-overlay--landing .ck .btn--tertiary {
   border: 0;
   background: transparent;
