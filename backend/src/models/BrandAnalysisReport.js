@@ -42,6 +42,9 @@ const brandAnalysisReportSchema = new mongoose.Schema(
     // Post remix (experimental): the last 3 posts with their stored images
     // ({ fetchedAt, source, posts }) — services/postRemix.js.
     remixPosts: { type: mongoose.Schema.Types.Mixed, default: null },
+    // Passion / Skills / Story tag per Instagram post id, set by the next-post
+    // idea agent the first time it reads the post (services/nextPostIdea.js).
+    igPillarTags: { type: mongoose.Schema.Types.Mixed, default: null },
     // Set while onboarding's background Brand Voice read runs (services/visitorInstagram.js), so it
     // starts once per report and Business memory can show it as on its way. Cleared when it ends.
     brandVoiceRunningAt: { type: Date, default: null },

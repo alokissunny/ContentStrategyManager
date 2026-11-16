@@ -16,6 +16,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Icon from '../brand/Icon';
 import NotifyWhenReady from './NotifyWhenReady';
+import IdeaCard from './IdeaCard';
 import {
   usePlanGeneration, resumePlanGeneration, clearGenJob, clearFinishedGenJobs, retryGenJob, markGenJobSeen,
   requestOpenPostDay,
@@ -99,6 +100,10 @@ export default function GenPill() {
   const doneN = done.reduce((n, j) => n + Math.max(1, (j.posts || []).length), 0);
   const failN = jobs.filter((j) => j.status === 'failed').length;
   const n = jobs.length;
+  // the next-post idea follows the newest finished run, once nothing else is being made
+  const lastDone = making ? null
+    : [...done].filter((j) => (j.posts || []).length).sort((a, b) => (b.endedAt || 0) - (a.endedAt || 0))[0];
+  const ideaRun = lastDone ? `${handle}:${lastDone.id}` : '';
 
   // the clock-driven stage moves on while something is being made
   useEffect(() => {
@@ -118,16 +123,18 @@ export default function GenPill() {
       if (!head || !list) return;
       const cs = window.getComputedStyle(el);
       const gap = parseFloat(window.getComputedStyle(list).marginTop) || 0;
-      setTall(Math.ceil((parseFloat(cs.paddingTop) || 0) + (parseFloat(cs.paddingBottom) || 0)
-        + head.getBoundingClientRect().height + gap + list.scrollHeight));
+      const next = Math.ceil((parseFloat(cs.paddingTop) || 0) + (parseFloat(cs.paddingBottom) || 0)
+        + head.getBoundingClientRect().height + gap + list.scrollHeight);
+      // a pixel either way is rounding, not a new size — ignoring it keeps the panel from see-sawing
+      setTall((prev) => (Math.abs(prev - next) <= 1 ? prev : next));
     };
     read();
     if (typeof ResizeObserver === 'undefined') return undefined;
     const ro = new ResizeObserver(read);
     ro.observe(el);
-    el.querySelectorAll('.gpill__list, .gpill__item').forEach((x) => ro.observe(x));
+    el.querySelectorAll('.gpill__list, .gpill__item, .gpill__ideaslot').forEach((x) => ro.observe(x));
     return () => ro.disconnect();
-  }, [open, n, unfold]);
+  }, [open, n, unfold, ideaRun]);
 
   /* ── THE FLOOR: the phone's tab bar, measured ── */
   useEffect(() => {
@@ -210,6 +217,11 @@ export default function GenPill() {
           </div>
 
           <div className="gpill__list">
+            {ideaRun && (
+              <div className="gpill__ideaslot">
+                <IdeaCard runKey={ideaRun} tabIndex={tab} onExplore={() => setOpen(false)} />
+              </div>
+            )}
             {jobs.map((j) => {
               const phase = j.status === 'running' || j.status === 'queued' ? 'live' : j.status;
               const key = `${j.id}:${phase}`;

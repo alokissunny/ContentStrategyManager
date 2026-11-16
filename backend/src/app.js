@@ -73,6 +73,7 @@ app.use('/api/public', require('./routes/publicRoutes'));
 app.use('/api/signals', signalRoutes);
 app.use('/api/routes', routeRoutes);
 app.use('/api/posts', postRoutes);
+app.use('/api/ideas', require('./routes/postIdeaRoutes'));
 app.use('/api/projects', projectRoutes);
 app.use('/api/instagram', instagramRoutes);
 app.use('/api/competitors', competitorRoutes);

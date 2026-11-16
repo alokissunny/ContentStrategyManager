@@ -34,6 +34,11 @@ const plannedPostSchema = new mongoose.Schema(
     contentType: { type: String, default: '' },
     pillar: { type: String, enum: ['discovery', 'credibility', 'trust'], default: 'discovery' },
     goalTag: { type: String, default: '' },
+    // What the post is about, in the next-post idea's terms (services/
+    // nextPostIdea.js): Passion / Skills / Story. Set lazily by that agent the
+    // first time it reads the post; '' = not tagged yet. Separate from
+    // `pillar`, which is only the weekday label the UI shows.
+    contentPillar: { type: String, enum: ['', 'passion', 'skills', 'story'], default: '' },
     title: { type: String, default: '' },
     direction: { type: String, default: '' },
 

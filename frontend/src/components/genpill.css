@@ -140,7 +140,11 @@
   margin-top: var(--sp-1, 4px);
   overflow-y: auto;
   overscroll-behavior: contain;
+  /* no scrollbar width: while the panel grows (or on a short screen) a classic scrollbar would narrow the idea
+     card, rewrap its text, change the measured height, and the panel would grow/shrink in a loop (flicker) */
+  scrollbar-width: none;
 }
+.gpill__list::-webkit-scrollbar { display: none; }
 
 /* ── A LINE IN IT ── */
 .gpill__item {
@@ -304,3 +308,127 @@ body:has(.gpill-host) .app__main { padding-bottom: calc(var(--gpill-h, 48px) + 2
   .gpill { animation: none; transition: none; }
   .gpill__more { transition: none; }
 }
+
+/* ══ "WHAT COULD YOU SHARE NEXT?" — the next-post idea at the top of the open panel (IdeaCard.jsx). A light card
+   on the ink panel: the ask, the idea (pillar · where it came from, its headline, why), a photo on file if there
+   is one, then Another idea / Explore idea (lime) / Dismiss. */
+.gpill__ideaslot { flex: none; margin-bottom: var(--sp-1, 4px); }
+.gidea {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3, 12px);
+  padding: var(--sp-3, 12px) var(--sp-3, 12px) var(--sp-3, 12px) var(--sp-4, 16px);
+  border-radius: var(--r-md, 12px);
+  background: var(--paper, #f6f5f1);
+  color: var(--ink-900, #16161a);
+  animation: gidea-in 320ms var(--ease-out) both;
+}
+@keyframes gidea-in { from { opacity: 0; transform: translateY(6px); } }
+.gidea__top { display: flex; align-items: center; gap: var(--sp-2, 8px); }
+.gidea__spark {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 24px;
+  height: 24px;
+  border-radius: 999px;
+  background: var(--experiment-500);
+  color: var(--experiment-ink);
+}
+.gidea__ask { flex: 1; min-width: 0; font-size: var(--text-sm, 14px); font-weight: 600; line-height: 20px; }
+.gidea__x {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 28px;
+  height: 28px;
+  margin: -4px -4px -4px 0;
+  border: 0;
+  border-radius: 999px;
+  background: none;
+  color: rgb(22 22 26 / 0.55);
+  cursor: pointer;
+}
+.gidea__x:hover { color: var(--ink-900, #16161a); background: rgb(22 22 26 / 0.06); }
+.gidea__body { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--sp-3, 12px); align-items: start; }
+.gidea__body.has-thumb { grid-template-columns: minmax(0, 1fr) 76px; }
+.gidea__words { min-width: 0; }
+.gidea__eyebrow {
+  margin: 0 0 4px;
+  font-family: var(--font-mono, inherit);
+  font-size: 10px;
+  font-weight: 500;
+  line-height: 14px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: rgb(22 22 26 / 0.55);
+}
+.gidea__title {
+  margin: 0;
+  font-family: var(--font-display, inherit);
+  font-size: 19px;
+  font-weight: 700;
+  line-height: 1.12;
+  letter-spacing: -0.01em;
+  text-wrap: balance;
+}
+.gidea__why {
+  display: -webkit-box;
+  margin: 6px 0 0;
+  overflow: hidden;
+  font-size: var(--text-xs, 12px);
+  line-height: 17px;
+  color: rgb(22 22 26 / 0.7);
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+}
+.gidea__thumb { width: 76px; height: 92px; border-radius: 10px; object-fit: cover; background: rgb(22 22 26 / 0.06); }
+.gidea__acts { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2, 8px); }
+.gidea__btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 var(--sp-3, 12px);
+  border: 0;
+  border-radius: 999px;
+  font: inherit;
+  font-size: var(--text-xs, 12px);
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.gidea__btn--line { background: none; color: var(--ink-900, #16161a); box-shadow: inset 0 0 0 1px rgb(22 22 26 / 0.22); }
+.gidea__btn--line:hover { background: rgb(22 22 26 / 0.05); }
+.gidea__btn--go { background: var(--experiment-500); color: var(--experiment-ink); }
+.gidea__btn--go:hover { filter: brightness(1.05); }
+.gidea__btn:disabled { opacity: 0.6; cursor: default; }
+.gidea__dismiss {
+  margin-left: auto;
+  height: 32px;
+  padding: 0 var(--sp-2, 8px);
+  border: 0;
+  border-radius: 999px;
+  background: none;
+  font: inherit;
+  font-size: var(--text-xs, 12px);
+  font-weight: 500;
+  color: rgb(22 22 26 / 0.55);
+  cursor: pointer;
+}
+.gidea__dismiss:hover { color: var(--ink-900, #16161a); }
+.gidea :is(button):focus-visible { outline: 2px solid var(--ink-900, #16161a); outline-offset: 2px; }
+/* still thinking: one quiet line, on the ink */
+.gidea--loading { flex-direction: row; align-items: center; gap: var(--sp-2, 8px); padding: var(--sp-2, 8px) var(--sp-3, 12px); background: rgb(255 255 255 / 0.06); color: var(--gp-on-dark-rest); }
+.gidea--loading .gidea__ask { font-weight: 500; font-size: var(--text-xs, 12px); }
+@media (prefers-reduced-motion: no-preference) {
+  .gidea--loading .gidea__spark { animation: gpill-ring 1600ms var(--ease-inout) infinite; }
+}
+/* a phone: the photo gets smaller, the actions keep one line */
+@media (max-width: 479px) {
+  .gidea__body.has-thumb { grid-template-columns: minmax(0, 1fr) 60px; }
+  .gidea__thumb { width: 60px; height: 74px; }
+  .gidea__title { font-size: 17px; }
+}
+@media (prefers-reduced-motion: reduce) { .gidea { animation: none; } }
