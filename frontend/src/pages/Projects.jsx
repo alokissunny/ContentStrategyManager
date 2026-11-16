@@ -2889,7 +2889,7 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
 
   return createPortal(
     <div
-      className={`cap-overlay${modal ? ' cap-overlay--modal' : ''}${liveIntro ? ' cap-overlay--landing' : ''}${leaving ? ' is-out' : ''}`}
+      className={`cap-overlay${modal ? ' cap-overlay--modal' : ''}${liveIntro ? ' cap-overlay--landing' : ''}${liveIntro && (exWait || demo) ? ' is-demo' : ''}${leaving ? ' is-out' : ''}`}
       /* the landing page scrolls with Lenis, which takes every wheel event
          unless the thing under the pointer says otherwise */
       data-lenis-prevent
@@ -3266,11 +3266,15 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
           />
         )}
         {/* before anything real is sent and for as long as they have no account (bauhly-v3 `.ck__privacy`) */}
-        {modal && liveIntro && !user && step !== 'recording' && (
-          <p className="ck__privacy">
-            We use what you share to prepare your post. Learn how we handle your information in our{' '}
-            <a href="/privacy" target="_blank" rel="noreferrer">Privacy Policy</a>.
-          </p>
+        {/* `needsLogin` is the same test (no account), and lets the dev-only `?visitor=1` see it too. It folds away under
+            the field from the press of `Try an example` for the rest of that conversation (bauhly-v3 decisions 946, 976) */}
+        {modal && needsLogin && step !== 'recording' && (
+          <div className={`ck__privacy${exWait || demo ? ' is-folded' : ''}`} aria-hidden={exWait || demo ? true : undefined}>
+            <p>
+              We use what you share to prepare your post. Learn how we handle your information in our{' '}
+              <a href="/privacy" target="_blank" rel="noreferrer">Privacy Policy</a>.
+            </p>
+          </div>
         )}
       </div>
 
