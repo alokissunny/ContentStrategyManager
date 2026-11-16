@@ -882,6 +882,8 @@ const EX_YOUR_TURN = 'Now it’s your turn';
 const DEMO_REFUSE_SAY = 'Not available in the demo.';
 /* how long the hand rests on the opened `Send` before it presses (bauhly-v3 EX_SEND_DWELL) */
 const EX_SEND_DWELL = 900;
+/* how long `Your post is ready.` stands before the example's post opens itself (bauhly-v3 OPEN_HOLD_MS) */
+const OPEN_HOLD_MS = 640;
 /* the badge over the field while the example plays (bauhly-v3 decision 946) */
 const DEMO_BADGE_SAY = 'You’re exploring a demo';
 /* what happens after a visitor makes their account, in the order it happens (visitorGenerate; bauhly-v3
@@ -1262,11 +1264,62 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
      under a clarification are taller than what is left of the box. So the
      thread goes to its end, but never past the top of the latest question;
      what does not fit below it stays a scroll away, the question does not. */
+  const landed = useRef(0);
+  const landedLen = useRef(0);
   useLayoutEffect(() => {
     const el = threadRef.current;
-    if (!modal || !el || el.scrollHeight <= el.clientHeight + 1) {
+    if (!modal || !el || (!liveIntro && el.scrollHeight <= el.clientHeight + 1)) {
       endRef.current?.scrollIntoView({ block: 'end' });
       return undefined;
+    }
+    /* ══ A LANDING VISIT PARKS EACH STEP AT THE TOP (bauhly-v3 decisions 766, 893, 970: "smoothly moving to the next
+       question or step while keeping the current content clearly visible and preventing previous messages from
+       appearing partially at the top") ══ What Bauhly says first after the visitor's last turn goes up under the title
+       (8 under the thread's top, where the mock's parked turn stands), the tail growing to make that reachable, and what
+       was said before goes up out of view, whole. Anything else only comes into view as far as it must, stopping at a
+       turn's start. Never back up (`landed`); a new conversation starts over. */
+    if (liveIntro) {
+      const tail = endRef.current;
+      if (!tail) return undefined;
+      /* layout positions (`offsetTop`), which a turn's rising transform does not move: measured mid-rise, a
+         rectangle put a parked step 10 too high (MEASURED) */
+      const flow = (n) => (n.offsetParent === el ? n.offsetTop : n.offsetTop - el.offsetTop);
+      if (messages.length < landedLen.current) landed.current = 0;
+      landedLen.current = messages.length;
+      const placeLanding = (glide) => {
+        const kids = [...el.children].filter((n) => n.classList.contains('ck-turn'));
+        if (!kids.length) return;
+        /* a parked step stands where the conversation's first turn stands at rest (the mock: 114 both) */
+        const home = flow(kids[0]);
+        /* the end of what is there, measured at the tail's TOP: the tail is never shrunk to measure, which clamped the
+           scroll and threw the thread back to its start on every press (MEASURED: 322 → 0 → 323) */
+        const content = flow(tail);
+        const fits = Math.max(0, content + 16 - el.clientHeight);
+        const starts = kids.map((n) => Math.max(0, flow(n) - home));
+        const lastUser = kids.filter((n) => n.classList.contains('ck-turn--user')).pop();
+        let first = lastUser?.nextElementSibling || null;
+        while (first && !(first.classList.contains('ck-turn--bauhly') && !first.classList.contains('ck-turn--actions') && first.innerText.trim())) first = first.nextElementSibling;
+        /* the step parks the moment its first line is there, not once the dots for what follows have gone (the mock
+           glides as the question lands; MEASURED: ours a second later, with the buttons) */
+        const stepTop = first ? Math.max(0, flow(first) - home) : null;
+        const stopAt = (at) => (at <= landed.current ? landed.current : (starts.find((t) => t >= at) ?? at));
+        const aim = stepTop !== null && fits <= stepTop ? Math.max(landed.current, stepTop) : stopAt(fits);
+        /* within one stop the room only grows: a part replaced by a shorter one (the buttons by the dots, the progress
+           card by its line) would otherwise shorten the thread under where it stands and the browser would pull it back
+           (MEASURED: 358 → 349, 649 → 508) */
+        const need = Math.max(16, aim + el.clientHeight - content);
+        const room = `${aim === landed.current ? Math.max(need, tail.offsetHeight) : need}px`;
+        if (tail.style.height !== room) tail.style.height = room;
+        if (Math.abs(el.scrollTop - aim) > 1) {
+          const still = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+          if (glide && !still) el.scrollTo({ top: aim, behavior: 'smooth' });
+          else el.scrollTop = aim;
+        }
+        landed.current = aim;
+      };
+      placeLanding(true);
+      const t2 = setTimeout(() => placeLanding(true), 80);
+      return () => clearTimeout(t2);
     }
     const place = () => {
       const end = el.scrollHeight - el.clientHeight;
@@ -1282,7 +1335,7 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
     // and again once a late part (a picture, the reference card) has its height
     const t = setTimeout(place, 80);
     return () => clearTimeout(t);
-  }, [messages, typing, step, optionsReady, busy, modal]);
+  }, [messages, typing, step, optionsReady, busy, modal, liveIntro]);
 
   /* capture owns the screen while it runs — same as onboarding */
   useEffect(() => {
@@ -2060,12 +2113,30 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
   const hand = useDemoCursor();
   /* a press the example refused says so over the field, once per press (bauhly-v3 decisions 813, 888) */
   const [refused, setRefused] = useState(0);
+  /* the turn whose words were just copied, for a moment (its Copy shows a tick) */
+  const [copied, setCopied] = useState(null);
+  const copySaid = (m) => {
+    try { navigator.clipboard?.writeText(m.text || ''); } catch { /* a page without the clipboard: nothing to say */ }
+    setCopied(m.id);
+    setTimeout(() => setCopied((c) => (c === m.id ? null : c)), 1400);
+  };
   const refuseDemo = () => setRefused((n) => n + 1);
   useEffect(() => {
     if (!refused) return undefined;
     const t = setTimeout(() => setRefused(0), 1800);
     return () => clearTimeout(t);
   }, [refused]);
+  /* ══ AND THE EXAMPLE'S POST OPENS ITSELF (bauhly-v3 decision 997: "Once the post is generated, automatically open the
+     Edit View directly. Don't require the user to click 'View post'") ══ `Your post is ready.` and `View post` hold for
+     OPEN_HOLD_MS, then the Editor opens as `View post`'s press opens it, and the presses are the visitor's from there.
+     Only while the example plays itself and the first time: back from the Editor (`exBack`) the row is
+     `Create my post` + `View post`. */
+  useEffect(() => {
+    if (step !== 'exReady' || !exAuto || exBack || exHandOff.current || !exPost) return undefined;
+    const t = setTimeout(() => { if (!exHandOff.current && isCaptureOpen()) openExampleEditor(); }, OPEN_HOLD_MS);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step, exAuto, exBack, exPost]);
   const openExampleEditor = () => {
     exHandOff.current = true;
     hand.stop();
@@ -2171,12 +2242,19 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
         setExView(EX_STAGES.length);
         exTimer.current = setTimeout(() => {
           if (!isCaptureOpen()) return;
+          /* the card gives way to Bauhly's line, said as any line is (dots first), with `View post` under it, and while
+             the example plays itself the post then opens on its own (bauhly-v3 decision 997, `exOpens`) */
+          setExView(null);
+          const d = say('Your post is ready.');
+          exTimer.current = setTimeout(() => {
+            if (!isCaptureOpen()) return;
           /* the card stays, every stage ticked, and ends as a studio's does: "Your post is ready." and `View post`,
              which opens the post in its Editor (bauhly-v3 decision 814). WHAT USED TO BE HERE: the post revealed in the
              thread under "Here's what I created from your example", then `Try editing` / `Create your own` */
           setExPost(example.post || null);
           setExSlide(0);
           setStep('exReady');
+          }, d);
         }, still ? 0 : 700);
       }, gap);
     };
@@ -2840,7 +2918,7 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
     } else if (step === 'done' && saved?.demo) {
       el = byText(BUILD_POST_SAY);
       read = EX_READ.gen;
-    } else if (step === 'exReady') {
+    } else if (step === 'exReady' && !exAuto) {
       el = byText('View post');
       read = EX_READ.view;
     }
@@ -3006,6 +3084,23 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
                     </span>
                   )}
                   {m.text && <span className="ck-said">{m.text}</span>}
+                  {/* ── COPY AND EDIT UNDER THE WORDS, AT THEIR RIGHT EDGE (bauhly-v3 `.ck-said__acts`, decisions 766, 817,
+                      961) ── a chat's message actions, 36px tertiary discs with an 18 icon. On the example's words `Edit`
+                      is refused (they are not the visitor's to change); a visitor's own are held until the account, and
+                      this box has no in-place edit, so theirs carry Copy alone. */}
+                  {m.text && modal && liveIntro && (
+                    <span className="ck-said__acts">
+                      <button type="button" className="ck-said__act" onClick={() => copySaid(m)}
+                        aria-label={copied === m.id ? 'Copied' : 'Copy'} title={copied === m.id ? 'Copied' : 'Copy'}>
+                        <Icon name={copied === m.id ? 'check' : 'copy'} size={18} strokeWidth={1.9} />
+                      </button>
+                      {demo && (
+                        <button type="button" className="ck-said__act" onClick={refuseDemo} aria-label="Edit" title="Edit">
+                          <Icon name="edit" size={18} strokeWidth={1.9} />
+                        </button>
+                      )}
+                    </span>
+                  )}
                 </div>
               );
             }
@@ -3160,7 +3255,6 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
               <div className="ck-genwrap">
                 <GenProgress at={exView} doneSay="Your post is ready." />
                 {/* said under the finished card, as a studio's run says it (bauhly-v3 decision 814) */}
-                {exView >= EX_STAGES.length && step === 'exReady' && <p className="ck-gendone">Your post is ready.</p>}
               </div>
             </div>
           )}

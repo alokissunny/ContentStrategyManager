@@ -2524,6 +2524,8 @@ body.is-immersive .app__main {
 .cap-overlay--landing .ck-outcome.is-example { color: var(--ink-700); font-weight: 600; }
 /* `See an example` stands close under the line it belongs to */
 .cap-overlay--landing .ck-turn--ask { margin-top: 0; }
+/* and every step's buttons do, the thread's 12 gap alone (MEASURED on bauhly-v3: no margin of their own) */
+.cap-overlay--landing .ck__thread > .ck-turn--actions { margin-top: 0; }
 .ck-chip--icon > svg { display: block; flex: none; }
 .ck-chip-hold { display: inline-flex; }
 .ck-chip--icon[disabled] { pointer-events: none; opacity: 0.5; }
@@ -2532,6 +2534,52 @@ body.is-immersive .app__main {
   background: color-mix(in srgb, var(--blue-100, #dbe6ff) 50%, var(--blue-50, #eef3ff));
   color: color-mix(in srgb, var(--blue-600, #2a4fd6) 30%, var(--ink-900));
 }
+/* ── THE VISITOR'S BUBBLE AT THE MOCK'S SIZE (MEASURED on bauhly-v3: 15px on 1.55, at most 560 wide, `10px 15px`, an
+   18px corner all round) ── */
+.cap-overlay--landing .ck-turn--user .ck-said {
+  max-width: min(560px, 100%);
+  font-size: 15px;
+  line-height: 1.55;
+  border-radius: 18px;
+}
+/* ── AND AN EXCHANGE IS SET APART (bauhly-v3 `--ck-exchange-gap`: the title row's 34 + the fade's 32, less the thread's
+   12 gap = 54) ── so a step parked at the top has nothing of the last one showing under the title */
+.cap-overlay--landing .ck__thread > .ck-turn--user + .ck-turn--bauhly,
+.cap-overlay--landing .ck__thread > .ck-turn--bauhly + .ck-turn--user { margin-top: 54px; }
+/* ── THE STEP'S BUTTONS ARE THE PRODUCT'S (bauhly-v3 `.btn--secondary` / `.btn--tertiary`, full pills): the secondary
+   is the raised off-white with the rim (above), the tertiary is words alone, a grey ground under a pointer ── */
+.cap-overlay--landing .ck .btn--sm { border-radius: 999px; }
+.cap-overlay--landing .ck .btn--tertiary {
+  border: 0;
+  background: transparent;
+  color: var(--ink-700);
+  box-shadow: none;
+}
+@media (hover: hover) {
+  .cap-overlay--landing .ck .btn--tertiary:hover:not(:disabled) { background: var(--ink-100); color: var(--ink-900); border: 0; }
+}
+/* ── THE CONVERSATION STARTS WHERE THE MOCK'S DOES (MEASURED on bauhly-v3: the opener 128 from the box's top at rest,
+   114 in demo mode; ours stood 8 higher) ── */
+@media (min-width: 641px) { .cap-overlay--landing .ck > .ck__thread { padding-top: 8px; } }
+/* ── COPY AND EDIT UNDER THE VISITOR'S WORDS (bauhly-v3 `.ck-said__acts`: at the bubble's right edge, 2 under it, 36px
+   tertiary discs `--sp-1` apart, an 18 icon) ── the turn is 128 tall with its 90 of words (MEASURED) */
+.cap-overlay--landing .ck-turn--user.ck-turn--stack { gap: 2px; }
+.ck-said__acts { display: flex; gap: var(--sp-1, 4px); }
+.ck-said__act {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--ink-700);
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
+}
+@media (hover: hover) { .ck-said__act:hover { background: var(--ink-100); color: var(--ink-900); } }
+.ck-said__act:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 /* the end of a landing visit is the one row at the button's own size */
 .cap-overlay--landing .ck-inline--row { flex-wrap: wrap; gap: var(--sp-2, 8px); }
 @media (max-width: 640px) {
