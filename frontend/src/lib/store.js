@@ -168,6 +168,21 @@ function syncPayload(s) {
   return out;
 }
 
+/* Did the studio actually change anything here? The Brand Kit page writes a
+   default-shaped `libraryEdits` just by opening, so "has the key" is not
+   enough — and uploading defaults would create a server copy that then
+   OVERWRITES the real edits held by another browser on its next load. */
+function hasOwnKit(s) {
+  const e = s?.libraryEdits && typeof s.libraryEdits === 'object' ? s.libraryEdits : {};
+  const hasHex = (p) => p && typeof p === 'object' && Object.values(p).some((v) => typeof v === 'string' && v.trim());
+  const themes = Array.isArray(e.themes) ? e.themes : [];
+  if (themes.length > 1 || themes.some((t) => hasHex(t?.palette)) || hasHex(e.palette)) return true;
+  if (e.type && Object.values(e.type).some((v) => v && v.face)) return true;
+  if (Array.isArray(e.fonts) && e.fonts.length) return true;
+  const filled = (v) => v && typeof v === 'object' && Object.keys(v).length > 0;
+  return Boolean(filled(s?.layoutsOff) || filled(s?.layoutsGone) || filled(s?.brand) || filled(s?.brandStyle));
+}
+
 let pushTimer = null;
 let lastPushedSig = null;
 /* hydrate is async; a local write to a synced field (Update Library) must not
@@ -210,6 +225,7 @@ async function hydrateNow(h) {
     ]);
     if (settingsResult.status === 'fulfilled') remote = settingsResult.value;
     else return; /* offline or signed out — local-first stands */
+    serverHas.set(h, Boolean(remote && typeof remote === 'object'));
     if (logosResult.status === 'fulfilled') logos = logosResult.value;
   } catch {
     return;
@@ -221,6 +237,15 @@ async function hydrateNow(h) {
       state = { ...state, brandLogos: logos };
       persist();
       listeners.forEach((fn) => fn());
+    }
+    /* The server has nothing for this account, but this browser may: edits
+       made while a save failed (or before sync existed) stayed local only, and
+       generation reads the Brand Kit from the SERVER — so a post came out in
+       the default colours while the Brand Kit page showed the studio's own.
+       Upload what this browser has; with the server empty nothing is lost. */
+    if (hasOwnKit(state)) {
+      lastPushedSig = null;
+      schedulePush();
     }
     return;
   }
@@ -237,17 +262,41 @@ async function hydrateNow(h) {
 // Debounced write-back of the synced fields. Coalesces a burst of edits into one
 // request and skips a no-op (same blob as last pushed). No account → nothing to
 // scope to, so it holds until one is connected.
-function schedulePush() {
+/* A failed save used to wait for the studio's NEXT edit to retry — after the
+   last edit of a session that never came, so the Brand Kit stayed in this
+   browser only. Now it retries on its own (backoff, a few times) unless the
+   server refused it for good (a 4xx other than timeout / rate limit). */
+let pushFailures = 0;
+/* handle → does the server hold a Brand Kit for it (learnt on hydrate) */
+const serverHas = new Map();
+const PUSH_RETRY_MS = [3000, 10000, 30000, 60000, 120000];
+
+function schedulePush(delay = 800) {
   if (!activeHandle) return;
   if (pushTimer) clearTimeout(pushTimer);
   pushTimer = setTimeout(() => {
     pushTimer = null;
+    const handle = activeHandle;
+    /* Defaults never go up unless the server already has a copy to update (a
+       studio resetting their kit): opening the Brand Kit in a fresh browser
+       writes a default-shaped blob, and uploading it would wipe the real edits
+       another browser still has to upload. */
+    if (!hasOwnKit(state) && serverHas.get(handle) !== true) return;
     const payload = syncPayload(state);
     const sig = JSON.stringify(payload);
     if (sig === lastPushedSig) return;
     lastPushedSig = sig;
-    saveBrandSettings(payload, activeHandle).catch(() => { lastPushedSig = null; /* let the next edit retry */ });
-  }, 800);
+    saveBrandSettings(payload, handle)
+      .then(() => { pushFailures = 0; serverHas.set(handle, true); })
+      .catch((err) => {
+        if (lastPushedSig === sig) lastPushedSig = null;
+        const status = err?.response?.status;
+        console.warn('[brand kit] could not save to the server', status || err?.message || err);
+        const final = status >= 400 && status < 500 && status !== 408 && status !== 429;
+        if (final || pushFailures >= PUSH_RETRY_MS.length || handle !== activeHandle) return;
+        schedulePush(PUSH_RETRY_MS[pushFailures++]);
+      });
+  }, delay);
 }
 
 // Point the store at a given Instagram handle's namespace and reload its state.
