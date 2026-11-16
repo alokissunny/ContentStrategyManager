@@ -1027,7 +1027,8 @@
    Only its width, height and colour change, in place, and they are read straight
    off the scroll position (`--hcap-p`), with no transition (Leon, Nov 5). */
 .bauhly-landing .hcap {
-  --hcap-w: min(880px, calc(100vw - 2 * var(--gutter)));
+  /* bauhly-v3's `--field-max` (940, tokens.css) — MEASURED on the mock at 1512: 940 wide, was 880 here */
+  --hcap-w: min(940px, calc(100vw - 2 * var(--gutter)));
   position: fixed;
   left: 50%;
   /* measured from the lime panel's edge, not the window's: `--frame` is the page's
@@ -1185,9 +1186,9 @@ html:has(.cap-overlay--landing) .bauhly-landing .hcap {
 
 .bauhly-landing .hcap__field .obc__input,
 .bauhly-landing .hcap__field .obc__input:focus {
-  /* no plus before it, so the sentence is the first thing in the bar: at the composer's own
-     2px it started 11px from the round end, MEASURED, too tight for that curve */
-  padding-left: var(--sp-4);
+  /* the mock's composer inset (MEASURED on bauhly-v3: 0 2px 0 12px — the sentence starts 21px in) */
+  padding-left: 12px;
+  padding-right: 2px;
 }
 
 .bauhly-landing .hcap__field .obc__input {
@@ -4245,13 +4246,14 @@ html:has(.cap-overlay--landing) .bauhly-landing .hcap {
   min-width: 0;
   height: 44px;
   margin: 0;
-  padding: 0 var(--sp-4, 16px);
+  padding: 0 2px 0 12px;
   border: 0;
   outline: none;
   background: transparent;
   font-family: var(--font-ui, 'Inter', system-ui, sans-serif);
-  font-size: var(--text-md, 17px);
-  line-height: 1.5;
+  /* the mock's composer text: 16/24 (MEASURED on bauhly-v3) */
+  font-size: 16px;
+  line-height: 24px;
   color: var(--ink);
   text-overflow: ellipsis;
 }
