@@ -31,6 +31,8 @@ export const EX_SETS = {
   nature: { name: 'Nature', ink: '#1f4a3d', accent: '#8aa695', ground: '#efe6d9' },
   minimal: { name: 'Minimal', ink: '#14245c', accent: '#a9c4f2', ground: '#eef0f3' },
 };
+/* `Swap colours`: the next arrangement of the same three (see ExampleSlide) */
+const SWAP_NEXT = { light: 'dark', dark: 'accent', accent: undefined };
 const setOf = (slide, custom) => (slide.set === 'custom' && custom ? custom : EX_SETS[slide.set] || EX_SETS.nature);
 
 const LAYOUTS = [
@@ -59,9 +61,19 @@ const posOf = (sl) => sl.pos || (['bleed', 'panel'].includes(layoutOf(sl)) ? 'bo
 /* ── THE SLIDE ───────────────────────────────────────────────────────────────────────────────────── */
 export function ExampleSlide({ slide, custom = null, n, of, selected = null, editing = null, onSelect = null, onEdit = null, onText = null }) {
   const set = setOf(slide, custom);
+  /* three arrangements of the same three colours (`Swap colours` steps through them): the light ground with ink words,
+     the ink ground with light words, and the accent as the ground, its words whichever of the other two reads on it.
+     The accent is the one colour that points: the rule over the words wears it, except where it is the ground */
   const dark = slide.tone === 'dark';
-  const bg = dark ? set.ink : set.ground;
-  const fg = dark ? set.ground : set.ink;
+  const onAccent = slide.tone === 'accent';
+  const lum = (hex) => {
+    const n = parseInt(String(hex).replace('#', ''), 16);
+    const ch = [(n >> 16) & 255, (n >> 8) & 255, n & 255].map((v) => { const c = v / 255; return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4; });
+    return 0.2126 * ch[0] + 0.7152 * ch[1] + 0.0722 * ch[2];
+  };
+  const bg = dark ? set.ink : onAccent ? set.accent : set.ground;
+  const fg = dark ? set.ground : onAccent ? (lum(set.accent) > 0.35 ? set.ink : set.ground) : set.ink;
+  const mark = onAccent ? fg : set.accent;
   const layout = layoutOf(slide);
   const pic = layout !== 'type' && slide.photo ? {
     backgroundImage: `url(${slide.photo})`,
@@ -101,8 +113,8 @@ export function ExampleSlide({ slide, custom = null, n, of, selected = null, edi
   const align = slide.els?.headline?.align;
   return (
     <figure
-      className={`exs exs--${layout} is-${sizeOf(slide)} at-${posOf(slide)}${dark ? ' is-dark' : ''}${align ? ` al-${align}` : ''}`}
-      style={{ '--ex-bg': bg, '--ex-fg': fg, '--ex-accent': set.accent, ...(slide.bgTex ? { '--ex-tex': `url(${slide.bgTex})` } : {}) }}
+      className={`exs exs--${layout} is-${sizeOf(slide)} at-${posOf(slide)}${dark || (onAccent && fg === set.ground) ? ' is-dark' : ''}${align ? ` al-${align}` : ''}`}
+      style={{ '--ex-bg': bg, '--ex-fg': fg, '--ex-accent': mark, ...(slide.bgTex ? { '--ex-tex': `url(${slide.bgTex})` } : {}) }}
       onClick={onSelect ? () => onSelect(null) : undefined}
     >
       {slide.bgTex && <span className="exs__tex" aria-hidden="true" />}
@@ -147,7 +159,7 @@ export function ExamplePreview({ post, at, onAt }) {
 const TOOLS = [
   { id: 'ask', icon: 'wand', label: 'Ask', says: 'Ask Bauhly' },
   { id: 'layout', icon: 'blocks', label: 'Layout', says: 'Layout style' },
-  { id: 'colour', icon: 'droplet', label: 'Colours', says: 'Colours' },
+  { id: 'colour', icon: 'droplet', label: 'Colours', says: 'Colour palette' },
   { id: 'add', icon: 'plus', label: 'Add element', says: 'Add element' },
   { id: 'more', icon: 'more', label: 'More', says: 'More' },
 ];
@@ -213,6 +225,12 @@ function Row({ icon, title, sub, onClick, disabled, more, on, tag, children }) {
     </button>
   );
 }
+/* a colour set as the mock's rail shows it: its three colours as bands, the ground the deepest */
+const Bands = ({ set }) => (
+  <span className="exe__bands" aria-hidden="true"><i style={{ background: set.ink }} /><i style={{ background: set.accent }} /><i style={{ background: set.ground }} /></span>
+);
+/* the demo studio the example post is posted as (bauhly-v3's demo store) */
+const HANDLE = 'atelier.noor';
 const Tri = ({ set }) => (
   <span className="exm__tri" aria-hidden="true"><i style={{ background: set.ink }} /><i style={{ background: set.accent }} /><i style={{ background: set.ground }} /></span>
 );
@@ -231,6 +249,7 @@ export function ExampleEditor({ post, original, at, onAt, onCancel, onDone, onOw
   const [tool, setTool] = useState(null);
   const [level, setLevel] = useState(null); // a sub-level of the open tool's menu
   const [layPick, setLayPick] = useState(null); // the layout card whose `this slide / all slides` is open
+  const [setPick, setSetPick] = useState(null); // the colour set whose `all slides / swap / edit` menu is open
   const [gen, setGen] = useState(null); // `Generating layout…` while it runs
   const genT = useRef(0);
   const [sel, setSel] = useState(null); // the element selected on the slide
@@ -270,9 +289,9 @@ export function ExampleEditor({ post, original, at, onAt, onCancel, onDone, onOw
   const undo = () => setHist((h) => ({ ...h, i: Math.max(0, h.i - 1) }));
   const redo = () => setHist((h) => ({ ...h, i: Math.min(h.list.length - 1, h.i + 1) }));
   const go = (k) => { setCur(k); onAt?.(k); };
-  const closeTool = () => { setTool(null); setLevel(null); setLayPick(null); setDraftSet(null); };
+  const closeTool = () => { setTool(null); setLevel(null); setLayPick(null); setSetPick(null); setDraftSet(null); };
   const pickTool = (id) => {
-    setSel(null); setSelMenu(null); setLayPick(null); setLevel(null); setDraftSet(null);
+    setSel(null); setSelMenu(null); setLayPick(null); setSetPick(null); setLevel(null); setDraftSet(null);
     setTool((on) => (on === id ? null : id));
     if (id === 'ask') requestAnimationFrame(() => askRef.current?.focus({ preventScroll: true }));
   };
@@ -370,7 +389,7 @@ export function ExampleEditor({ post, original, at, onAt, onCancel, onDone, onOw
           </Row>
         )}
         <hr className="exm__rule" />
-        <Row icon="refresh" title="Swap colours" sub="The same three, in other places" onClick={() => editSlide((s) => ({ ...s, tone: s.tone === 'dark' ? undefined : 'dark' }))} />
+        <Row icon="refresh" title="Swap colours" sub="The same three, in other places" onClick={() => editSlide((s) => ({ ...s, tone: SWAP_NEXT[s.tone || 'light'] }))} />
         <Row icon="plus" title="Create a colour set" sub="Three of your own" more onClick={() => setLevel('newset')} />
         <Row icon="sparkle" title="Bauhly decides" sub="One set per beat" more disabled />
       </Menu>
@@ -569,23 +588,30 @@ export function ExampleEditor({ post, original, at, onAt, onCancel, onDone, onOw
         editSlide((s) => ({ ...s, photo: url, picture: { at: 'center' }, kind: 'hero', layout: layoutOf(s) === 'type' ? 'bleed' : s.layout }));
         closeTool();
       }} />
+      {/* ── THE MOCK'S EDIT VIEW HEADER (bauhly-v3 `.edm__top--titled`) ── `Close` (decisions 1011–1013: the way back to
+          the conversation, keeping the edits, no arrow), the view's name centred ("View post demo", decision 995), and at
+          the end the grid toggle and `Create my post →` (decisions 814, 967). Undo and redo stay on ⌘Z / ⇧⌘Z. */}
       <div className="exe__head">
-        {/* from the landing's example: no Cancel, the way back to the conversation keeps the edits (bauhly-v3
-            decisions 894, 944, 990) */}
         {onOwn
-          ? <button type="button" className="exe__pill exe__pill--quiet" onClick={() => onDone(now)}><Icon name="arrow-left" size={16} strokeWidth={2.25} /> Back to Capture</button>
+          ? <button type="button" className="exe__pill" onClick={() => onDone(now)}>Close</button>
           : <button type="button" className="exe__pill" onClick={onCancel}>Cancel</button>}
-        {!gen && (
-          <div className="exe__mid">
-            <button type="button" className="exe__disc" onClick={undo} disabled={hist.i === 0} aria-label="Undo"><Icon name="undo" size={18} /></button>
-            <button type="button" className="exe__disc exe__disc--redo" onClick={redo} disabled={hist.i === hist.list.length - 1} aria-label="Redo"><Icon name="undo" size={18} /></button>
-            <button type="button" className={`exe__disc${grid ? ' is-on' : ''}`} onClick={() => { setGrid((g) => !g); closeTool(); }} aria-label={grid ? 'Show one slide' : 'Show all slides'} aria-pressed={grid}><Icon name="grid" size={18} /></button>
-          </div>
+        {/* undo and redo beside the way out, once anything has been changed (bauhly-v3 `.edm__histbtn`: tertiary 48px
+            discs, the one with nothing to do greyed) */}
+        {hist.list.length > 1 && !gen && (
+          <span className="exe__hist">
+            <button type="button" className="exe__histbtn" onClick={undo} disabled={hist.i === 0} aria-label="Undo" title="Undo (⌘Z)"><Icon name="undo" size={18} /></button>
+            <button type="button" className="exe__histbtn exe__disc--redo" onClick={redo} disabled={hist.i === hist.list.length - 1} aria-label="Redo" title="Redo (⇧⌘Z)"><Icon name="undo" size={18} /></button>
+          </span>
         )}
-        {/* its way on is the visitor's own post (bauhly-v3 decisions 814, 967: `Create my post` with its arrow) */}
-        {onOwn
-          ? <button type="button" className="exe__pill exe__pill--ink" onClick={() => { onDone(now); onOwn(); }}>Create my post <Icon name="arrow-right" size={16} strokeWidth={2.25} /></button>
-          : <button type="button" className="exe__pill exe__pill--ink" onClick={() => onDone(now)}>Done</button>}
+        <h2 className="exe__title">{onOwn ? 'View post demo' : 'Edit post'}</h2>
+        <div className="exe__end">
+          {!gen && (
+            <button type="button" className={`exe__disc exe__disc--head${grid ? ' is-on' : ''}`} onClick={() => { setGrid((g) => !g); closeTool(); }} aria-label={grid ? 'Show one slide' : 'Show all slides'} aria-pressed={grid} title={grid ? 'Show one slide' : 'Show all slides'}><Icon name={grid ? 'square' : 'grid'} size={18} /></button>
+          )}
+          {onOwn
+            ? <button type="button" className="exe__pill exe__pill--ink" onClick={() => { onDone(now); onOwn(); }}>Create my post <Icon name="arrow-right" size={18} strokeWidth={2.25} /></button>
+            : <button type="button" className="exe__pill exe__pill--ink" onClick={() => onDone(now)}>Done</button>}
+        </div>
       </div>
 
       {grid ? (
@@ -599,9 +625,11 @@ export function ExampleEditor({ post, original, at, onAt, onCancel, onDone, onOw
         </div>
       ) : (
         <>
-          {!gen && <span className="exe__badge">Slide {cur + 1}/{slides.length}</span>}
+          {/* ── THE POST AS IT WILL READ (bauhly-v3 `.edm-card` + `.edm-cap.is-beside`) ── the slide, 4:5, and the caption
+              beside it in a column of its own under the studio's name, one card with an 18px outer corner; the arrows are
+              small discs on the slide's own edges */}
           <div className="exe__stage">
-            <button type="button" className="exe__arrow" style={cur > 0 && !gen ? undefined : { visibility: 'hidden' }} onClick={() => go(cur - 1)} aria-label="Previous slide"><Icon name="arrow-left" size={18} /></button>
+            <div className="exe__post">
             <div className={`exe__slide${gen ? ' is-gen' : ''}`} ref={slideBox}>
               <ExampleSlide
                 slide={slide}
@@ -630,14 +658,25 @@ export function ExampleEditor({ post, original, at, onAt, onCancel, onDone, onOw
                   </button>
                 </div>
               )}
+              {cur > 0 && !gen && <button type="button" className="exe__arrow exe__arrow--prev" onClick={() => go(cur - 1)} aria-label="Previous slide"><Icon name="arrow-left" size={14} strokeWidth={2.2} /></button>}
+              {cur < slides.length - 1 && !gen && <button type="button" className="exe__arrow exe__arrow--next" onClick={() => go(cur + 1)} aria-label="Next slide"><Icon name="arrow-right" size={14} strokeWidth={2.2} /></button>}
             </div>
-            <button type="button" className="exe__arrow" style={cur < slides.length - 1 && !gen ? undefined : { visibility: 'hidden' }} onClick={() => go(cur + 1)} aria-label="Next slide"><Icon name="arrow-right" size={18} /></button>
+            <section className="exe__cap" aria-label="Caption">
+              <header className="exe__cap-head">
+                <span className="exe__avatar" aria-hidden="true" />
+                <b>{HANDLE}</b>
+              </header>
+              <div className="exe__cap-body">
+                <p><strong>{HANDLE}</strong> {now.caption || post.caption}</p>
+              </div>
+            </section>
+            </div>
           </div>
           {!gen && (
             <div className="exe__tools">
               <span className="exe__say">{caption}</span>
               <div className="exe__discs">
-                {(tool === 'colour' || tool === 'add' || tool === 'more') && (
+                {(tool === 'add' || tool === 'more' || (tool === 'colour' && level === 'newset')) && (
                   <div className={`exe__pop exe__pop--${tool}`}>
                     {tool === 'colour' ? colourMenu() : tool === 'add' ? addMenu() : moreMenu()}
                   </div>
@@ -656,17 +695,67 @@ export function ExampleEditor({ post, original, at, onAt, onCancel, onDone, onOw
                   </button>
                 ))}
               </div>
+              {/* ── COLOURS: A RAIL OF SETS UNDER THE TOOLS (bauhly-v3 `.lrail--colours`) ── `Add colours` (a set of their
+                  own), `Bauhly decides`, then each set as its three bands, the one on the slide marked `Current` */}
+              {tool === 'colour' && (
+                <div className="exe__rail" role="listbox" aria-label="Colour palette">
+                  <button type="button" className={`exe__card${level === 'newset' ? ' is-picked' : ''}`} onClick={() => setLevel(level === 'newset' ? null : 'newset')}>
+                    <span className="exe__card-act"><Icon name="plus" size={20} /></span>
+                    <span className="exe__card-name">Add colours</span>
+                  </button>
+                  <button type="button" className="exe__card" onClick={() => say('Bauhly decides isn’t available in this demo.')}>
+                    <span className="exe__card-mix">
+                      {Object.values(EX_SETS).map((set) => <Bands key={set.name} set={set} />)}
+                    </span>
+                    <span className="exe__card-name">Bauhly decides</span>
+                  </button>
+                  {/* a press puts the set on this slide and opens what else it can do, over the tile (bauhly-v3: `Apply
+                      colours to all slides`, `Swap colours`, `Edit colours ›`) */}
+                  {[...Object.entries(EX_SETS), ...(now.custom ? [['custom', now.custom]] : [])].map(([id, set]) => {
+                    const on = slide.set === id;
+                    return (
+                      <span className="exe__railhold" key={id}>
+                        <button type="button" role="option" aria-selected={on} className={`exe__card${on ? ' is-on' : ''}`} aria-label={set.name} title={set.name}
+                          onClick={() => { if (!on) editSlide((s) => ({ ...s, set: id })); setLevel(null); setSetPick((p) => (p === id ? null : id)); }}>
+                          <Bands set={set} />
+                          {on && <span className="exe__card-cur">Current</span>}
+                        </button>
+                        {setPick === id && (
+                          <Menu className="exm--lay">
+                            <Row icon="copy" title="Apply colours to all slides" sub="The whole carousel takes it" onClick={() => {
+                              commit({ ...now, slides: slides.map((s) => ({ ...s, set: id })) });
+                              closeTool();
+                              say(`${set.name} is on every slide.`);
+                            }} />
+                            <hr className="exm__rule" />
+                            <Row icon="refresh" title="Swap colours" sub="The same three, in other places" onClick={() => editSlide((s) => ({ ...s, tone: SWAP_NEXT[s.tone || 'light'] }))} />
+                            <Row icon="edit" title="Edit colours" sub="Change the three in this set" more onClick={() => { setDraftSet({ name: set.name, ink: set.ink, accent: set.accent, ground: set.ground }); setSetPick(null); setLevel('newset'); }} />
+                          </Menu>
+                        )}
+                      </span>
+                    );
+                  })}
+                </div>
+              )}
               {tool === 'layout' && (
                 <div className="exe__rail" role="listbox" aria-label="Layout style">
+                  <span className="exe__railhold">
+                    <button type="button" className="exe__card" onClick={() => say('Bauhly decides isn’t available in this demo.')}>
+                      <span className="exe__card-mix exe__card-mix--wire">
+                        {['bleed', 'band', 'panel', 'editorial'].map((id) => <Wire key={id} id={id} />)}
+                      </span>
+                      <span className="exe__card-name">Bauhly decides</span>
+                    </button>
+                  </span>
                   {LAYOUTS.map((l) => {
                     const on = l.id === curLayout?.id;
                     const can = !l.photo || Boolean(slide.photo);
                     return (
                       <span className="exe__railhold" key={l.id}>
-                        <button type="button" role="option" aria-selected={on} className={`exe__lay${on ? ' is-on' : ''}${layPick === l.id ? ' is-picked' : ''}`} disabled={!can} aria-label={l.label} title={l.label}
+                        <button type="button" role="option" aria-selected={on} className={`exe__card${on ? ' is-on' : ''}${layPick === l.id ? ' is-picked' : ''}`} disabled={!can} aria-label={l.label} title={l.label}
                           onClick={() => { if (!on) setLayPick((p) => (p === l.id ? null : l.id)); }}>
-                          <Wire id={l.id} />
-                          {on && <span className="exe__lay-cur">Current</span>}
+                          <span className="exe__card-wire"><Wire id={l.id} /></span>
+                          {on && <span className="exe__card-cur">Current</span>}
                         </button>
                         {layPick === l.id && (
                           <Menu className="exm--lay">

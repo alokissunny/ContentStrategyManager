@@ -2586,7 +2586,28 @@ body.is-immersive .app__main {
   .cap-overlay--landing .ck-inline--row .btn { flex: 1 1 auto; padding-inline: var(--sp-2, 8px); }
 }
 /* the example's pictures come in one at a time */
-.cvmedia--staged .cvmedia__item { animation: capm-fade 360ms var(--ease-out) calc(var(--i) * 220ms) backwards; }
+/* ── THE EXAMPLE'S PICTURES (bauhly-v3 decisions 831, 884, 844) ── one row, the thread's width rather than the words'
+   column, each up to 112 (`--cv-example`; a studio's own stay 84), square, giving way evenly where the row is narrower;
+   they come in from the right, each scaling up from 0.92 as it fades in, 260 apart. MEASURED on the mock: 466 × 112. */
+.cap-overlay--modal { --cv-example: 112px; }
+.cap-overlay--modal .cvmedia--staged { flex-wrap: nowrap; max-width: 100%; align-self: flex-end; }
+.cvmedia--staged .cvmedia__item {
+  flex: 0 1 var(--cv-example, 112px);
+  width: auto;
+  height: auto;
+  aspect-ratio: 1;
+  min-width: 0;
+  animation: cvmedia-in calc(var(--dur-slow, 420ms) * 1.5) var(--ease-out) calc(var(--i) * 260ms) backwards;
+}
+@keyframes cvmedia-in { from { opacity: 0; transform: scale(0.92); } }
+/* four to a row on a phone, a quarter of it each less the three 6px gaps; a fifth starts a new row (decision 844) */
+@media (max-width: 640px) {
+  .cap-overlay--modal .ck-turn--user:has(> .cvmedia) { align-items: stretch; }
+  .cap-overlay--modal .cvmedia { width: 100%; max-width: 100%; }
+  .cap-overlay--modal .cvmedia .cvmedia__item { width: min(84px, calc((100% - 18px) / 4)); height: auto; aspect-ratio: 1; }
+  .cap-overlay--modal .cvmedia--staged { flex-wrap: wrap; }
+  .cap-overlay--modal .cvmedia--staged .cvmedia__item { flex: 0 0 calc((100% - 18px) / 4); width: auto; max-width: var(--cv-example); }
+}
 /* the landing field has no plus; the sentence starts where it would have */
 .capc--noplus.is-empty { padding-left: 14px; }
 /* an example arriving on its own: the field keeps its resting look */

@@ -3077,7 +3077,8 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
                   {m.media && (
                     <span className={`cvmedia${m.staged ? ' cvmedia--staged' : ''}`}>
                       {m.media.map((a, i) => (
-                        <span className="cvmedia__item" key={a.key || a.id} style={m.staged ? { '--i': i } : undefined}>
+                        /* counted from the right, so the picture nearest the edge arrives first (bauhly-v3 decision 681) */
+                        <span className="cvmedia__item" key={a.key || a.id} style={m.staged ? { '--i': m.media.length - 1 - i } : undefined}>
                           {a.type === 'image' ? <img src={previewUrl(a)} alt="" /> : <video src={a.url} muted />}
                         </span>
                       ))}
