@@ -1,0 +1,95 @@
+/* Analysis › Mission coverage — pages/MissionAnalysis.jsx. Mission colours follow the missions diagram
+   (Attract green, Nurture blue, Position purple, Convert red), the same set as the idea card's band. */
+.mca-page { max-width: 960px; margin: 0 auto; padding-bottom: var(--sp-6, 24px); }
+.mca-head { margin-bottom: var(--sp-5, 20px); }
+.mca-refresh { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.mca-error { margin: 0 0 var(--sp-4, 16px); color: var(--signal-600, #c2410c); font-size: var(--text-sm, 14px); }
+.mca-empty { margin: var(--sp-3, 12px) 0; font-size: var(--text-sm, 14px); line-height: 1.5; color: var(--ink-500, #6b6b73); }
+.mca-loading { display: flex; align-items: center; gap: var(--sp-3, 12px); padding: var(--sp-5, 20px); border-radius: 16px; background: var(--surface-sunken, #f4f4f2); font-size: var(--text-sm, 14px); color: var(--ink-700, #3a3a42); }
+.mca-loading__dot { flex: none; width: 10px; height: 10px; border-radius: 999px; background: var(--experiment-500, #d4ff3a); }
+@media (prefers-reduced-motion: no-preference) {
+  .mca-loading__dot { animation: mca-pulse 1.2s ease-in-out infinite; }
+}
+@keyframes mca-pulse { 50% { transform: scale(1.6); opacity: 0.5; } }
+
+.mca-tone--attract { --mca-bg: #d7f2d3; --mca-line: #6cc768; --mca-ink: #1d4a1b; }
+.mca-tone--nurture { --mca-bg: #cfe3fb; --mca-line: #5aa9f5; --mca-ink: #123a63; }
+.mca-tone--position { --mca-bg: #ddd3fb; --mca-line: #8b5cf6; --mca-ink: #35206e; }
+.mca-tone--convert { --mca-bg: #f6cdc8; --mca-line: #e2553a; --mca-ink: #6b1f12; }
+
+/* the coverage card, as the diagram: title, line, four bars narrowing into a funnel */
+.mca-card { padding: var(--sp-6, 24px); border-radius: 18px; background: #f7f4fd; box-shadow: inset 0 0 0 1px rgb(22 22 26 / 0.06); }
+.mca-card__title { display: flex; align-items: center; gap: 8px; margin: 0; font-family: var(--font-display, inherit); font-size: 22px; font-weight: 700; color: var(--ink-900, #16161a); }
+.mca-card__sub { margin: 6px 0 var(--sp-5, 20px); font-size: var(--text-sm, 14px); line-height: 1.5; color: var(--ink-700, #3a3a42); }
+.mca-funnel { display: flex; flex-direction: column; align-items: center; gap: var(--sp-3, 12px); }
+.mca-bar {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  row-gap: 2px;
+  width: var(--mca-w, 100%);
+  min-height: 60px;
+  padding: 10px var(--sp-4, 16px);
+  overflow: hidden;
+  border: 3px solid var(--mca-line);
+  border-radius: 10px;
+  background: var(--mca-bg);
+  color: var(--mca-ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: transform var(--dur-fast, 120ms) var(--ease-out), box-shadow var(--dur-fast, 120ms) var(--ease-out);
+}
+.mca-bar:hover { transform: translateY(-1px); }
+.mca-bar.is-on { box-shadow: 0 0 0 3px var(--surface, #fff), 0 0 0 5px var(--mca-line); }
+.mca-bar:focus-visible { outline: 2px solid var(--ink-900, #16161a); outline-offset: 3px; }
+/* the share, drawn as a quiet fill behind the words */
+.mca-bar__fill { position: absolute; inset: 0 auto 0 0; background: var(--mca-line); opacity: 0.18; pointer-events: none; transition: width 500ms var(--ease-out); }
+.mca-bar__say, .mca-bar__meta, .mca-bar__purpose { position: relative; }
+.mca-bar__say { display: inline-flex; align-items: center; gap: 8px; font-size: 16px; }
+.mca-bar__say strong { font-weight: 800; letter-spacing: 0.01em; }
+.mca-bar__meta { display: inline-flex; align-items: center; gap: 8px; font-size: var(--text-xs, 12px); font-weight: 600; white-space: nowrap; }
+.mca-bar__flag { padding: 2px 8px; border-radius: 999px; background: var(--mca-ink); color: var(--mca-bg); font-size: 11px; font-weight: 700; }
+.mca-bar__purpose { grid-column: 1 / -1; font-size: var(--text-xs, 12px); opacity: 0.8; }
+.mca-note { margin: var(--sp-5, 20px) 0 0; padding: var(--sp-3, 12px) var(--sp-4, 16px); border-radius: 10px; background: var(--surface, #fff); font-size: var(--text-sm, 14px); font-weight: 600; line-height: 1.5; color: var(--ink-900, #16161a); }
+
+/* the posts, each with the job it did */
+.mca-posts { margin-top: var(--sp-6, 24px); }
+.mca-posts__head { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3, 12px); margin-bottom: var(--sp-3, 12px); }
+.mca-posts__head h2 { margin: 0; font-size: 18px; font-weight: 700; }
+.mca-posts__head h2 span { font-weight: 500; color: var(--ink-500, #6b6b73); }
+.mca-post { display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: var(--sp-4, 16px); padding: var(--sp-3, 12px) 0; border-top: 1px solid rgb(22 22 26 / 0.08); }
+.mca-post__media { display: block; width: 96px; height: 120px; overflow: hidden; border-radius: 10px; background: var(--surface-sunken, #f4f4f2); }
+.mca-post__media img { width: 100%; height: 100%; object-fit: cover; }
+.mca-post__noimg { display: grid; place-items: center; height: 100%; color: var(--ink-500, #6b6b73); }
+.mca-post__body { min-width: 0; }
+.mca-post__top { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.mca-chip { display: inline-flex; align-items: center; gap: 4px; padding: 3px 10px; border: 1.5px solid var(--mca-line); border-radius: 999px; background: var(--mca-bg); color: var(--mca-ink); font-size: var(--text-xs, 12px); font-weight: 700; }
+.mca-post__pillar { font-family: var(--font-mono, inherit); font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-500, #6b6b73); }
+.mca-post__date { margin-left: auto; font-size: var(--text-xs, 12px); color: var(--ink-500, #6b6b73); }
+.mca-post__reason { margin: 8px 0 0; font-size: var(--text-sm, 14px); font-weight: 600; line-height: 1.45; color: var(--ink-900, #16161a); }
+.mca-post__caption {
+  display: -webkit-box;
+  margin: 4px 0 0;
+  overflow: hidden;
+  font-size: var(--text-xs, 12px);
+  line-height: 1.5;
+  color: var(--ink-700, #3a3a42);
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+}
+.mca-post__stats { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-3, 12px); margin: 8px 0 0; font-size: var(--text-xs, 12px); color: var(--ink-500, #6b6b73); }
+.mca-post__stats span { display: inline-flex; align-items: center; gap: 4px; }
+.mca-post__stats a { color: var(--ink-700, #3a3a42); text-decoration: underline; text-underline-offset: 2px; }
+
+/* a phone: the funnel keeps its shape but never gets too narrow to read */
+@media (max-width: 599px) {
+  .mca-card { padding: var(--sp-4, 16px); }
+  .mca-bar { width: max(var(--mca-w, 100%), 82%); }
+  .mca-bar__say { font-size: 14px; }
+  .mca-post { grid-template-columns: 72px minmax(0, 1fr); gap: var(--sp-3, 12px); }
+  .mca-post__media { width: 72px; height: 90px; }
+}
+@media (prefers-reduced-motion: reduce) { .mca-bar, .mca-bar__fill { transition: none; } }

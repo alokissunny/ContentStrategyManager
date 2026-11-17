@@ -14,15 +14,7 @@ import Icon from '../brand/Icon';
 import { getNextIdeas, updateIdea } from '../api/ideas';
 import { openCaptureIdea } from '../lib/captureUi';
 import { startPlanGeneration } from '../lib/planGeneration';
-
-const PILLAR_SAY = { passion: 'Passion', skills: 'Skills', story: 'Story' };
-/* the four content missions — the ONE job the post does (backend prompts/next-post-idea.md) */
-export const MISSIONS = {
-  attract: { mark: '📣', say: 'Attract', purpose: 'Reach relevant new audiences' },
-  nurture: { mark: '❤️', say: 'Nurture', purpose: 'Build connection and trust' },
-  position: { mark: '🧑🏽‍💻', say: 'Position', purpose: 'Demonstrate expertise and authority' },
-  convert: { mark: '🎯', say: 'Convert', purpose: 'Encourage qualified inquiries' },
-};
+import { MISSIONS, PILLAR_SAY } from '../lib/missions';
 
 /* one fetch per finished run, kept across the panel opening and shutting */
 const byRun = new Map(); // runKey → { status: 'loading'|'ready'|'failed', ideas, at, shut }

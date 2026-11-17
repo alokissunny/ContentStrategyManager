@@ -13,6 +13,8 @@ import { readyCount } from '../lib/captureStatus';
 export const NAV_ITEMS = [
   { to: '/dashboard', label: 'Calendar', icon: 'calendar', exact: true },
   { to: '/dashboard/projects', label: 'Captures', icon: 'notebook-text' },
+  // Mission coverage of the last Instagram posts (pages/MissionAnalysis.jsx)
+  { to: '/dashboard/analysis', label: 'Analysis', icon: 'chart-pie' },
 ];
 
 // Nav items that only appear when their experimental feature flag is on.

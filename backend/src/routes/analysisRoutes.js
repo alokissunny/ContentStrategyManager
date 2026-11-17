@@ -5,11 +5,14 @@ const { protect } = require('../middleware/auth');
 const { listReports, getReportDownloadUrl, confirmReport, getLatestBrandDna, updateBrandDna, reviseBrandDna, fillBrandDnaGaps, getBrandDnaRaw, fetchBrandVoice } = require('../controllers/analysisController');
 
 const { rerunAnalysis } = require('../controllers/instagramController');
+const { getMissionCoverage } = require('../controllers/missionCoverageController');
 
 const router = express.Router();
 
 router.use(protect);
 router.get('/reports', asyncHandler(listReports));
+// Analysis › Mission coverage (services/missionCoverage.js)
+router.get('/missions', aiLimit('light'), asyncHandler(getMissionCoverage));
 router.post('/reports/rerun', aiLimit('heavy'), asyncHandler(rerunAnalysis));
 router.get('/reports/latest/brand-dna', asyncHandler(getLatestBrandDna));
 router.get('/reports/:id/download', asyncHandler(getReportDownloadUrl));

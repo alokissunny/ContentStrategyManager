@@ -654,6 +654,8 @@ async function decideIdea(userId, ideaId, { status, captureId } = {}) {
 module.exports = {
   nextIdeas,
   decideIdea,
+  ideaModel,
+  parseJsonAnswer,
   // exported for tests / dry runs (scripts/test-next-post-idea.js)
   loadMaterial,
   callModel,

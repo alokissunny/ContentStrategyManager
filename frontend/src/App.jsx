@@ -18,6 +18,7 @@ const CompetitorOverview = lazy(() => import('./pages/CompetitorOverview'));
 const Settings = lazy(() => import('./pages/Settings'));
 const ReelEditor = lazy(() => import('./pages/reeleditor/ReelEditor'));
 const PostRemix = lazy(() => import('./pages/PostRemix'));
+const MissionAnalysis = lazy(() => import('./pages/MissionAnalysis'));
 const LinkedInCallback = lazy(() => import('./pages/LinkedInCallback'));
 const MetaCallback = lazy(() => import('./pages/MetaCallback'));
 const Privacy = lazy(() => import('./pages/Privacy'));
@@ -63,6 +64,8 @@ export default function App() {
           <Route path="/dashboard/reel-editor" element={<ReelEditor />} />
           {/* Experimental Post remix (postRemix flag) */}
           <Route path="/dashboard/remix" element={<PostRemix />} />
+          {/* Analysis › Mission coverage */}
+          <Route path="/dashboard/analysis" element={<MissionAnalysis />} />
           <Route path="/dashboard/linkedin/callback" element={<LinkedInCallback />} />
           <Route path="/dashboard/meta/callback" element={<MetaCallback />} />
         </Route>
