@@ -39,6 +39,8 @@ const plannedPostSchema = new mongoose.Schema(
     // first time it reads the post; '' = not tagged yet. Separate from
     // `pillar`, which is only the weekday label the UI shows.
     contentPillar: { type: String, enum: ['', 'passion', 'skills', 'story'], default: '' },
+    // ...and the content mission it served: Attract / Nurture / Position / Convert (same agent, same lazy tagging)
+    contentMission: { type: String, enum: ['', 'attract', 'nurture', 'position', 'convert'], default: '' },
     title: { type: String, default: '' },
     direction: { type: String, default: '' },
 

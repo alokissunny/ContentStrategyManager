@@ -41,7 +41,7 @@ const { loadMaterial, contextOf, callModel, cleanIdeas } = require('../src/servi
   console.log(`balance: ${parsed.balanceNote || '-'}`);
   console.log(`sources kept ${keptSources}/${rawSources}`);
   for (const i of ideas) {
-    console.log(`\n#${i.rank} [${i.pillar}] ${i.title}\n  ${i.eyebrow}\n  why: ${i.why}\n  opening: ${i.opening}`
+    console.log(`\n#${i.rank} ${i.mission.toUpperCase()} (${i.missionWhy}) [${i.pillar}] ${i.title}\n  ${i.eyebrow}\n  why: ${i.why}\n  opening: ${i.opening}`
       + `\n  questions: ${JSON.stringify(i.questions)}\n  sources: ${i.sources.map((s) => `${s.kind}:${s.label || s.id}`).join(', ')}`
       + `\n  assets: ${i.assets.length} · questionLed ${i.questionLed} · scores ${JSON.stringify(i.scores)}`);
   }

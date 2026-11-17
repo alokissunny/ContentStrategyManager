@@ -16,6 +16,13 @@ import { openCaptureIdea } from '../lib/captureUi';
 import { startPlanGeneration } from '../lib/planGeneration';
 
 const PILLAR_SAY = { passion: 'Passion', skills: 'Skills', story: 'Story' };
+/* the four content missions — the ONE job the post does (backend prompts/next-post-idea.md) */
+export const MISSIONS = {
+  attract: { mark: '📣', say: 'Attract', purpose: 'Reach relevant new audiences' },
+  nurture: { mark: '❤️', say: 'Nurture', purpose: 'Build connection and trust' },
+  position: { mark: '🧑🏽‍💻', say: 'Position', purpose: 'Demonstrate expertise and authority' },
+  convert: { mark: '🎯', say: 'Convert', purpose: 'Encourage qualified inquiries' },
+};
 
 /* one fetch per finished run, kept across the panel opening and shutting */
 const byRun = new Map(); // runKey → { status: 'loading'|'ready'|'failed', ideas, at, shut }
@@ -61,6 +68,8 @@ export default function IdeaCard({ runKey, tabIndex = 0, onExplore }) {
   const idea = ideas[at];
   const thumb = (idea.assets || []).find((a) => a.url && a.type !== 'video');
   const eyebrow = [PILLAR_SAY[idea.pillar], idea.eyebrow].filter(Boolean).join(' · ');
+  const mission = MISSIONS[idea.mission] || null;
+  const why = [idea.missionWhy, idea.why].filter(Boolean).join(' ');
 
   const next = () => put(runKey, { at: (at + 1) % ideas.length });
   const shut = () => put(runKey, { shut: true });
@@ -106,14 +115,20 @@ export default function IdeaCard({ runKey, tabIndex = 0, onExplore }) {
           <Icon name="x" size={14} strokeWidth={2.25} />
         </button>
       </div>
+      {mission && (
+        <p className={`gidea__mission gidea__mission--${idea.mission}`} title={mission.purpose}>
+          <span aria-hidden="true">{mission.mark}</span>
+          {' '}Next: <strong>{mission.say.toUpperCase()}</strong>
+        </p>
+      )}
       <div className={`gidea__body ${thumb ? 'has-thumb' : ''}`}>
+        {thumb && <img className="gidea__thumb" src={thumb.url} alt="" loading="lazy" />}
         <div className="gidea__words">
           {eyebrow && <p className="gidea__eyebrow">{eyebrow}</p>}
           <h3 className="gidea__title">{idea.title}</h3>
-          {idea.why && <p className="gidea__why">{idea.why}</p>}
         </div>
-        {thumb && <img className="gidea__thumb" src={thumb.url} alt="" loading="lazy" />}
       </div>
+      {why && <p className="gidea__why"><strong>Why:</strong> {why}</p>}
       <div className="gidea__acts">
         {ideas.length > 1 && (
           <button type="button" className="gidea__btn gidea__btn--line" onClick={next} tabIndex={tabIndex}>

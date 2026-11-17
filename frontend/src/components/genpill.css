@@ -351,7 +351,7 @@ body:has(.gpill-host) .app__main { padding-bottom: calc(var(--gpill-h, 48px) + 2
 }
 .gidea__x:hover { color: var(--ink-900, #16161a); background: rgb(22 22 26 / 0.06); }
 .gidea__body { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--sp-3, 12px); align-items: start; }
-.gidea__body.has-thumb { grid-template-columns: minmax(0, 1fr) 76px; }
+.gidea__body.has-thumb { grid-template-columns: 76px minmax(0, 1fr); align-items: center; }
 .gidea__words { min-width: 0; }
 .gidea__eyebrow {
   margin: 0 0 4px;
@@ -374,7 +374,7 @@ body:has(.gpill-host) .app__main { padding-bottom: calc(var(--gpill-h, 48px) + 2
 }
 .gidea__why {
   display: -webkit-box;
-  margin: 6px 0 0;
+  margin: 0;
   overflow: hidden;
   font-size: var(--text-xs, 12px);
   line-height: 17px;
@@ -383,6 +383,25 @@ body:has(.gpill-host) .app__main { padding-bottom: calc(var(--gpill-h, 48px) + 2
   -webkit-line-clamp: 3;
   line-clamp: 3;
 }
+.gidea__why strong { font-weight: 700; color: var(--ink-900, #16161a); }
+
+/* the mission band — "🎯 Next: CONVERT", in the mission's own colour (the missions diagram) */
+.gidea__mission {
+  margin: 0;
+  padding: 8px var(--sp-3, 12px);
+  border-radius: 8px;
+  font-size: var(--text-sm, 14px);
+  font-weight: 600;
+  line-height: 20px;
+  color: var(--ink-900, #16161a);
+  box-shadow: inset 0 0 0 1px var(--gm-line, transparent);
+  background: var(--gm-bg, rgb(22 22 26 / 0.06));
+}
+.gidea__mission strong { font-weight: 800; letter-spacing: 0.02em; }
+.gidea__mission--attract { --gm-bg: #d7f2d3; --gm-line: rgb(84 182 80 / 0.45); }
+.gidea__mission--nurture { --gm-bg: #cfe3fb; --gm-line: rgb(66 147 238 / 0.45); }
+.gidea__mission--position { --gm-bg: #ddd3fb; --gm-line: rgb(124 77 240 / 0.45); }
+.gidea__mission--convert { --gm-bg: #f6cdc8; --gm-line: rgb(226 85 58 / 0.45); }
 .gidea__thumb { width: 76px; height: 92px; border-radius: 10px; object-fit: cover; background: rgb(22 22 26 / 0.06); }
 .gidea__acts { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2, 8px); }
 .gidea__btn {
@@ -427,7 +446,7 @@ body:has(.gpill-host) .app__main { padding-bottom: calc(var(--gpill-h, 48px) + 2
 }
 /* a phone: the photo gets smaller, the actions keep one line */
 @media (max-width: 479px) {
-  .gidea__body.has-thumb { grid-template-columns: minmax(0, 1fr) 60px; }
+  .gidea__body.has-thumb { grid-template-columns: 60px minmax(0, 1fr); }
   .gidea__thumb { width: 60px; height: 74px; }
   .gidea__title { font-size: 17px; }
 }

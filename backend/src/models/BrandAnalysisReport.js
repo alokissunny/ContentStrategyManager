@@ -45,6 +45,8 @@ const brandAnalysisReportSchema = new mongoose.Schema(
     // Passion / Skills / Story tag per Instagram post id, set by the next-post
     // idea agent the first time it reads the post (services/nextPostIdea.js).
     igPillarTags: { type: mongoose.Schema.Types.Mixed, default: null },
+    // ...and the content mission (attract / nurture / position / convert) per Instagram post id
+    igMissionTags: { type: mongoose.Schema.Types.Mixed, default: null },
     // Set while onboarding's background Brand Voice read runs (services/visitorInstagram.js), so it
     // starts once per report and Business memory can show it as on its way. Cleared when it ends.
     brandVoiceRunningAt: { type: Date, default: null },

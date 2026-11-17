@@ -43,6 +43,10 @@ const postIdeaSchema = new mongoose.Schema(
     },
 
     pillar: { type: String, enum: ['passion', 'skills', 'story'], required: true },
+    // the ONE content mission the post serves (prompts/next-post-idea.md)
+    // ('' only on ideas stored before missions existed; the agent's code requires one on every new idea)
+    mission: { type: String, enum: ['', 'attract', 'nurture', 'position', 'convert'], default: '' },
+    missionWhy: { type: String, default: '' }, // "Convert is missing." — why this mission now
     title: { type: String, default: '' },
     eyebrow: { type: String, default: '' }, // "Inspired by your bathroom project"
     why: { type: String, default: '' }, // why it is worth sharing, one or two sentences
