@@ -1791,3 +1791,6 @@
   text-underline-offset: 2px;
 }
 .pd__emptylink:hover { color: var(--signal-500); }
+
+/* photos Bauhly already has for a recommended post, shown under its line */
+.cvmedia--said { justify-content: flex-start; max-width: 100%; margin-top: 8px; }

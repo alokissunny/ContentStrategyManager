@@ -1168,7 +1168,7 @@ function CaptureReference({ of: r }) {
   );
 }
 
-export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewProject, onCaptured, exitLabel = 'Back', modal = false, opening = '', savedLine = '', projectName = '', askProject = true, maxQuestions = 4, askMedia = true, resume = null, deferQuestions = false, adding = null, onPlan = null, run = null, landing = null, leaving = false, onLoggedIn = null, onRestart = null }) {
+export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewProject, onCaptured, exitLabel = 'Back', modal = false, opening = '', savedLine = '', projectName = '', askProject = true, maxQuestions = 4, askMedia = true, resume = null, deferQuestions = false, adding = null, onPlan = null, run = null, landing = null, leaving = false, onLoggedIn = null, onRestart = null, idea = null, seedAttachments = null }) {
   const projects = useProjects();
   /* ══ A VISIT FROM THE LANDING PAGE (bauhly-v3, Nov 5–6) ══════════════════
      The hero's field grows into this box. The first line is there as it opens,
@@ -1421,6 +1421,29 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
       after(0, () => setStep('how'));
       return;
     }
+    // a recommended post (IdeaCard › Explore idea): its photos already on file
+    // are this capture's own, shown once, and the opening is the agent's first
+    // question — so the studio's reply is read as an answer to it
+    if (idea) {
+      const seeded = (seedAttachments || []).filter((a) => a?.key);
+      if (seeded.length) {
+        cap.current.attachments = seeded;
+        cap.current.kind = seeded.some((a) => a.type === 'video') ? 'video' : 'photo';
+      }
+      const ask = opening || idea.title || '';
+      cap.current.turns = [{ role: 'assistant', text: ask }];
+      cap.current.askedQuestion = ask;
+      const lines = [ask];
+      if (seeded.length) {
+        lines.push({
+          text: seeded.length === 1 ? 'I’ll use this photo you already shared.' : 'I’ll use these photos you already shared.',
+          media: seeded,
+        });
+      }
+      const d = say(lines);
+      after(d, () => setStep('how'));
+      return;
+    }
     // `opening` aims the capture at one question (Editor › Add slide)
     const d = say(opening || (preset
       ? translate('Anything from {{name}}? Something that happened, an idea, something you noticed, or anything else that feels relevant.', { name: preset.name })
@@ -1441,6 +1464,10 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
   const attachmentPayload = () =>
     (cap.current.attachments || []).map((a) => ({ type: a.type, key: a.key }));
 
+  /* a recommended post opens on the agent's own question: the first reply is
+   * read as its answer, so that question stays at the head of the chat */
+  const openingTurn = () => (idea && cap.current.turns?.[0]?.role === 'assistant' ? [cap.current.turns[0]] : []);
+
   const runUnderstand = async ({ extraTurn } = {}) => {
     const turns = [...(cap.current.turns || [])];
     if (extraTurn?.text) turns.push(extraTurn);
@@ -1451,6 +1478,7 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
         attachments: attachmentPayload(),
         projectName: preset?.name || '',
         turns,
+        ...(idea ? { idea } : {}),
       });
     } catch (err) {
       console.warn('[capture] understand failed', err);
@@ -1574,7 +1602,7 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
     setStep('boot');
     userSays(text);
     cap.current.text = text;
-    cap.current.turns = [{ role: 'user', text }];
+    cap.current.turns = [...openingTurn(), { role: 'user', text }];
     setBusy(true);
     try {
       const finishing = afterUnderstood(await runUnderstand());
@@ -1747,7 +1775,8 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
     try {
       const added = await uploadFiles(arr);
       cap.current.kind = added.some((a) => a.type === 'video') ? 'video' : 'photo';
-      cap.current.attachments = added;
+      // a recommended post keeps the photos already on file beside the new ones
+      cap.current.attachments = idea ? [...(cap.current.attachments || []), ...added] : added;
       if (!cap.current.turns?.length) cap.current.turns = [{ role: 'user', text: verb || 'Uploaded a file' }];
       push({ from: 'user', media: added });
       const finishing = afterUnderstood(await runUnderstand());
@@ -2868,7 +2897,7 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
         extra = { extraTurn: { role: 'user', text } };
       } else if (text) {
         cap.current.text = text;
-        cap.current.turns = [{ role: 'user', text }];
+        cap.current.turns = [...openingTurn(), { role: 'user', text }];
       } else if (!cap.current.turns?.length) {
         cap.current.turns = [{ role: 'user', text: 'Uploaded a file' }];
       }
@@ -3129,6 +3158,15 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
                   {typeof m.text === 'string' && m.text.includes('\n\n')
                     ? m.text.split('\n\n').map((para, i) => <p className="ck-para" key={i}>{para}</p>)
                     : m.text}
+                  {m.media && (
+                    <span className="cvmedia cvmedia--said">
+                      {m.media.map((a) => (
+                        <span className="cvmedia__item" key={a.key || a.id}>
+                          {a.type === 'image' ? <img src={previewUrl(a)} alt="" /> : <video src={a.url} muted />}
+                        </span>
+                      ))}
+                    </span>
+                  )}
                   {m.note && <p className="ck-outcome">{m.note}</p>}
                   {/* what comes of it, or that this one is only being shown */}
                   {m.opener && liveIntro && (

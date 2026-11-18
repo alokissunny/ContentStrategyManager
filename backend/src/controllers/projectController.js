@@ -724,6 +724,25 @@ async function analyzeProject(req, res) {
 // POST /projects/captures/understand
 // Capture Conversation: detect internal stories for clarification, preserve
 // one unified Capture for strategy. Never blocks filing if the model is down.
+// The recommended post a capture is for (IdeaCard › Explore idea): what the
+// idea agent already knows, so the conversation never re-asks it.
+function ideaContextOf(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  const s = (v, n) => String(v || '').trim().slice(0, n);
+  const list = (v, n, len) => (Array.isArray(v) ? v : []).map((x) => s(x, len)).filter(Boolean).slice(0, n);
+  const idea = {
+    title: s(raw.title, 160),
+    mission: s(raw.mission, 24),
+    why: s(raw.why, 400),
+    known: list(raw.known, 8, 300),
+    questions: list(raw.questions, 3, 220),
+    assets: (Array.isArray(raw.assets) ? raw.assets : []).slice(0, 12)
+      .map((a) => ({ key: s(a?.key, 300), reason: s(a?.reason, 200) }))
+      .filter((a) => a.key),
+  };
+  return idea.title || idea.known.length ? idea : null;
+}
+
 async function understandDraft(req, res) {
   const text = (req.body.text || '').trim();
   const attachments = sanitizeAttachments(req.body.attachments, req.user._id);
@@ -744,6 +763,7 @@ async function understandDraft(req, res) {
     ? req.body.confirmedIds.map((id) => String(id || '').trim()).filter(Boolean).slice(0, 10)
     : [];
   const forceReady = Boolean(req.body.forceReady);
+  const idea = ideaContextOf(req.body.idea);
 
   if (!text && attachments.length === 0 && turns.length === 0) {
     return res.status(400).json({ message: 'A capture needs a note or a file' });
@@ -753,6 +773,7 @@ async function understandDraft(req, res) {
     const result = await understandCapture({
       text,
       attachments,
+      idea,
       projectName,
       alreadyAsked,
       askedQuestion,

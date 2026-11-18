@@ -871,6 +871,35 @@ async function withVideoAnalysis(attachments) {
   }));
 }
 
+// A capture made for a recommended post (IdeaCard › Explore idea). The idea
+// agent already read the studio's earlier captures, posts and Brand memory;
+// this block hands the conversation what is known, what is still open and the
+// photos already on file, so it asks 1–2 contextual questions and never
+// re-asks what the studio already said. Appended after the cached system
+// prompt, so the prompt cache is unaffected.
+function ideaContextBlock(idea) {
+  if (!idea || typeof idea !== 'object') return '';
+  const known = (idea.known || []).filter(Boolean);
+  const open = (idea.questions || []).filter(Boolean);
+  const assets = (idea.assets || []).filter((a) => a && a.key);
+  return [
+    '## Recommended post this capture is for',
+    'Bauhly recommended this post from the studio\'s own earlier captures, posts and Brand memory. The conversation opened with Bauhly\'s first question (the first assistant turn); the studio\'s first reply answers it.',
+    `- Working title: ${str(idea.title)}`,
+    idea.mission ? `- Job of the post: ${str(idea.mission)}${idea.why ? ` — ${str(idea.why)}` : ''}` : null,
+    known.length ? `- Already known from the studio (true, from their own records — never ask for any of it again):\n${known.map((k) => `  - ${k}`).join('\n')}` : null,
+    open.length ? `- What was still missing when the idea was made (ask only what the conversation has not answered yet):\n${open.map((q) => `  - ${q}`).join('\n')}` : null,
+    assets.length ? `- Photos/clips already on file for it (attached to this capture; the post may reuse them even if they appeared in an earlier post):\n${assets.map((a) => `  - ${a.key}${a.reason ? ` — ${a.reason}` : ''}`).join('\n')}` : null,
+    '',
+    'For this capture:',
+    '- Reuse what is already known and what the studio already said. Never ask for it again, even reworded.',
+    '- Ask at most 1–2 questions in the whole conversation (the opening counts as the first). Ask a second only when a real gap still blocks THIS story — the specific moment, decision, reason or result the post needs — and make it contextual: name the project, room, element or photo it is about, the way a colleague who knows the work would ask. No generic questions ("Can you tell me more?", "What happened?").',
+    '- Photos: check the photos already on file first. Do not ask for photos those already cover. If the story needs one specific shot that is missing (e.g. the finished result), you may ask for that exact shot once instead of a second fact question.',
+    '- If the studio\'s answer plus what is known already supports the post, return ready — no filler question.',
+    '- Never invent personal beliefs, project details, experiences or outcomes. The "already known" lines are the studio\'s own records: carry them into verifiedFacts (source: originalCapture) word for word in meaning, so the post has them, unless the studio corrects one in this conversation (then keep their correction). Add nothing beyond them and what the studio says now.',
+  ].filter((line) => line !== null).join('\n');
+}
+
 async function understandCapture(input = {}) {
   const text = str(input.text);
   const attachments = Array.isArray(input.attachments) ? input.attachments : [];
@@ -882,6 +911,7 @@ async function understandCapture(input = {}) {
   const kind = str(input.kind) || 'capture';
   const forceReady = Boolean(input.forceReady);
   const languageHint = languageHintOf(str(input.language));
+  const ideaBlock = ideaContextBlock(input.idea);
 
   if (!text && attachments.length === 0 && turns.length === 0) {
     const err = new Error('A capture needs a note or a file');
@@ -900,6 +930,7 @@ async function understandCapture(input = {}) {
   const systemPrompt = assembled.system;
   const userText = [
     assembled.user,
+    ideaBlock,
     forceReady ? FORCE_READY_HINT : '',
     USER_JSON_INSTRUCTION,
     languageHint,

@@ -75,15 +75,31 @@ export default function IdeaCard({ runKey, tabIndex = 0, onExplore }) {
     if (busy) return;
     setBusy(true);
     onExplore?.();
-    const ask = (idea.questions || []).length;
+    // photos the studio already uploaded for this idea come along as the
+    // capture's own attachments, so the post reuses them (studio, 2026-11-19)
+    const onFile = (idea.assets || [])
+      .filter((a) => a.key && (a.type === 'image' || a.type === 'video'))
+      .map((a) => ({ id: a.key, key: a.key, type: a.type, url: a.url || '' }));
     openCaptureIdea({
       opening: idea.opening || idea.title,
       savedLine: 'Got it — planning your reel now.',
       projectName: 'No project',
       askProject: false,
-      maxQuestions: Math.max(1, Math.min(2, ask)),
-      // photos already on file for it: don't ask for more (phase 3 shows them in the box)
-      askMedia: !(idea.assets || []).length,
+      // the opening is question 1; the agent may add one more only if the
+      // story still has a real gap (1–2 contextual questions in all)
+      maxQuestions: 2,
+      // the capture agent reads what is already known, so it never re-asks it
+      idea: {
+        title: idea.title || '',
+        mission: idea.mission || '',
+        why: [idea.missionWhy, idea.why].filter(Boolean).join(' '),
+        known: idea.known || [],
+        questions: idea.questions || [],
+        assets: (idea.assets || []).map((a) => ({ key: a.key, type: a.type, reason: a.reason || '' })),
+      },
+      attachments: onFile,
+      // photos already on file for it: don't ask for more
+      askMedia: !onFile.length,
       onCancel: () => setBusy(false),
       onSaved: (captured) => {
         setBusy(false);

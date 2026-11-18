@@ -36,7 +36,7 @@ const PROMPT_FILE = path.join(__dirname, '..', '..', 'prompts', 'next-post-idea.
 const PILLARS = ['passion', 'skills', 'story'];
 const MISSIONS = ['attract', 'nurture', 'position', 'convert'];
 // bump when the prompt / output shape changes: stored batches made before are not served again
-const PROMPT_VERSION = 2;
+const PROMPT_VERSION = 3; // 3: contextual questions, opening recalls what's known, asset reuse (2026-11-19)
 const MAX_IDEAS = 3;
 const MAX_QUESTIONS = 2;
 const MAX_ASSETS = 4;

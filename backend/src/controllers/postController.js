@@ -198,7 +198,10 @@ async function loadGenerationInputs(userId, profile, trigger = 'generate', planS
     occupiedDates: existingPosts.map((p) => p.date),
     allowedWeekdays: planSource.allowedWeekdays || null,
   });
-  const usedAssetKeys = collectUsedAssetKeys(existingPosts);
+  // A recommended post (IdeaCard › Explore idea) is built on photos the studio
+  // already uploaded, often ones an earlier post used — reusing them is fine
+  // (studio, 2026-11-19). Repeats inside this run are still prevented.
+  const usedAssetKeys = trigger === 'idea' ? new Set() : collectUsedAssetKeys(existingPosts);
 
   console.log(
     `[posts] ${trigger} @${profile.username} · context: brandDna=${brandDna ? 'yes' : 'no'}` +
