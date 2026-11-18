@@ -220,36 +220,61 @@ async function loadMaterial(reel, ledger) {
   if (dirty) await project.save().catch((err) => console.warn('[captureReel] could not keep clip analysis', err.message));
 
   const assets = [];
-  for (const c of captures) {
-    for (const a of c.attachments || []) {
-      if (!a.key || assets.length >= MAX_ASSETS) continue;
-      const an = a.analysis || {};
-      if (a.type === 'image') {
-        assets.push({
-          id: `A${assets.length + 1}`, kind: 'image', key: a.key,
-          summary: str(an.summary, 200), description: str(an.description, 400),
-          subjects: (an.subjects || []).map((s) => (typeof s === 'string' ? s : s?.name)).filter(Boolean).slice(0, 8),
-          // where each subject is (% of the image) — anchors for animated overlays
-          subjectBoxes: (an.subjects || []).filter((s) => s && s.name && s.box)
-            .map((s) => ({ name: String(s.name), box: s.box, point: s.point || { x: s.box.x + s.box.w / 2, y: s.box.y + s.box.h / 2 } }))
-            .slice(0, 8),
-          text: str(an.text, 160),
-        });
-      } else if (a.type === 'video' && num(an.durationSec) > 0.5) {
-        assets.push({
-          id: `A${assets.length + 1}`, kind: 'video', key: a.key,
-          durationSec: num(an.durationSec),
-          summary: str(an.summary, 200), description: str(an.description, 500),
-          transcript: str(an.transcript, 1500),
-          stills: (an.frames || []).filter((f) => f?.key).map((f) => ({ key: f.key, t: num(f.t), summary: str(f.summary, 160) })),
-        });
-      }
+  // what the studio recorded in the recording guide (ReelPlanner): which story
+  // sequence a take belongs to, and whether it is them talking or B-roll
+  const takeOf = new Map((reel.takes || []).filter((t) => t?.key).map((t) => [t.key, t]));
+  const pushAsset = (a, pool) => {
+    if (!a.key || assets.length >= MAX_ASSETS || assets.some((x) => x.key === a.key)) return;
+    const an = a.analysis || {};
+    const take = takeOf.get(a.key);
+    const extra = {
+      ...(pool ? { pool } : {}),
+      ...(take ? { take: { sequence: Number(take.sequence) + 1, role: take.role === 'broll' ? 'broll' : 'speaking' } } : {}),
+    };
+    if (a.type === 'image') {
+      assets.push({
+        id: `A${assets.length + 1}`, kind: 'image', key: a.key,
+        summary: str(an.summary, 200), description: str(an.description, 400),
+        subjects: (an.subjects || []).map((s) => (typeof s === 'string' ? s : s?.name)).filter(Boolean).slice(0, 8),
+        // where each subject is (% of the image) — anchors for animated overlays
+        subjectBoxes: (an.subjects || []).filter((s) => s && s.name && s.box)
+          .map((s) => ({ name: String(s.name), box: s.box, point: s.point || { x: s.box.x + s.box.w / 2, y: s.box.y + s.box.h / 2 } }))
+          .slice(0, 8),
+        text: str(an.text, 160),
+        ...extra,
+      });
+    } else if (a.type === 'video' && num(an.durationSec) > 0.5) {
+      assets.push({
+        id: `A${assets.length + 1}`, kind: 'video', key: a.key,
+        durationSec: num(an.durationSec),
+        summary: str(an.summary, 200), description: str(an.description, 500),
+        transcript: str(an.transcript, 1500),
+        stills: (an.frames || []).filter((f) => f?.key).map((f) => ({ key: f.key, t: num(f.t), summary: str(f.summary, 160) })),
+        ...extra,
+      });
     }
+  };
+  for (const c of captures) {
+    for (const a of c.attachments || []) pushAsset(a, '');
+  }
+  // a recommended post's B-roll pool: the idea's suggested photos/clips and its
+  // source captures' media (other captures of the same studio), after the capture's own
+  const libKeys = (reel.brollKeys || []).filter(Boolean);
+  if (libKeys.length && assets.length < MAX_ASSETS) {
+    const others = await Project.find({ user: reel.user, 'captures.attachments.key': { $in: libKeys } })
+      .select('captures.attachments').lean().catch(() => []);
+    const byKey = new Map();
+    others.forEach((p) => (p.captures || []).forEach((c) => (c.attachments || []).forEach((a) => {
+      if (libKeys.includes(a.key)) byKey.set(a.key, a);
+    })));
+    libKeys.forEach((k) => { if (byKey.get(k)?.analysis?.status === 'done' || byKey.get(k)?.type === 'image') pushAsset(byKey.get(k), 'library'); });
   }
   if (!assets.length) throw userError('This capture has no photos or clips to cut a reel from. Add some first.');
 
   // timed transcripts for clips that have speech (≤4)
-  const talking = assets.filter((a) => a.kind === 'video' && a.transcript.split(/\s+/).length >= 6).slice(0, 4);
+  // a recommended post's spoken takes are the reel's A-roll: transcribe them all
+  const talking = assets.filter((a) => a.kind === 'video' && (a.take?.role === 'speaking' || a.transcript.split(/\s+/).length >= 6))
+    .slice(0, reel.storyPlan ? 10 : 4);
   await Promise.all(talking.map(async (a) => {
     try {
       const cached = clipWordsCache.has(a.key);
@@ -480,10 +505,11 @@ function normalizePlan(raw, assets, style = null) {
   };
 }
 
-async function directReel({ material, handle, brand, direction, style = null }) {
+async function directReel({ material, handle, brand, direction, style = null, extraRules = '' }) {
   const split = splitPromptTemplate(loadPrompt());
   // a chosen reel style adds its rules to the system prompt and its spec to the data
-  const system = style ? `${split.system}\n\n${fs.readFileSync(STYLE_RULES_FILE, 'utf8')}` : split.system;
+  let system = style ? `${split.system}\n\n${fs.readFileSync(STYLE_RULES_FILE, 'utf8')}` : split.system;
+  if (extraRules) system = `${system}\n\n${extraRules}`;
   const userTemplate = style
     ? `${split.userTemplate}\n\nREEL STYLE (follow its pattern, not its words):\n${JSON.stringify(styleRun.styleBriefOf(style), null, 2)}`
     : split.userTemplate;
@@ -977,6 +1003,7 @@ async function runCaptureReel(reelId) {
   let timeline;
   let voiceKey = '';
   let musicKeySaved = '';
+  let dialogueBuild = null; // talking formats build their own timeline (reelFormatDirector)
   let retryErr = null;
   const clock = stageClock();
   clock.to('reading');
@@ -1012,7 +1039,51 @@ async function runCaptureReel(reelId) {
 
     await stage(reel, 'writing', clock);
     let earlyMusic = null;
-    if (!style) {
+    // a recommended post's reel plan (services/ideaReelPlan.js): every director
+    // reads it with the capture, and its FORMAT picks the editor
+    // (services/reelFormatDirector.js — one director per reel category)
+    const story = reel.storyPlan?.sequences?.length ? reel.storyPlan : null;
+    let formatDone = false;
+    if (story) {
+      const { storyPlanDirection } = require('./ideaReelPlan');
+      material.capture.storyPlan = {
+        title: story.title, format: story.format,
+        sequences: story.sequences.map((q) => ({ title: q.title, role: q.role, shot: q.shot, say: q.say, onScreenText: q.onScreenText, seconds: q.targetSec })),
+      };
+      material.capture.notes.unshift({ note: storyPlanDirection(story) });
+    }
+    if (story && !style) {
+      const fd = require('./reelFormatDirector');
+      let fmt = story.format;
+      const spoken = material.assets.some((a) => a.kind === 'video' && a.words?.length);
+      if (fd.DIALOGUE_FORMATS.has(fmt) && !spoken) {
+        // nobody was recorded speaking: the story is told in on-screen lines instead
+        ledger.add({ source: 'Capture reel — format', output: `${fmt} → faceless_text`, note: 'no spoken take in the footage' });
+        fmt = 'faceless_text';
+      }
+      if (fd.DIALOGUE_FORMATS.has(fmt)) {
+        const out = await fd.directDialogueReel({ reel, material, story: { ...story, format: fmt }, brand: brandForPrompt, handle });
+        out.debugRows.forEach((r) => ledger.add(r));
+        model = out.model;
+        ({ plan, style } = out);
+        dialogueBuild = out.build;
+        // one retry: Lyria now and then answers with no audio
+        earlyMusic = styleRun.generateMusic(style)
+          .catch(() => styleRun.generateMusic(style))
+          .catch((err) => { console.warn(`[captureReel] ${reel._id} music:`, err.message); return { error: err.message }; });
+        formatDone = true;
+      } else if (fmt === 'faceless_text') {
+        const out = await fd.directFacelessText({ material, story, brand: brandForPrompt, handle, directReel });
+        ledger.add(out.debug);
+        model = out.model;
+        ({ plan, style } = out);
+        formatDone = true;
+      }
+      // music_led: the Bauhly Reel Director below (a beat-cut teaser) — the plan rides in the notes
+    }
+    if (formatDone) {
+      // the format director made the cut
+    } else if (!style) {
       // Default: the Bauhly Reel Director brief — a short, text-led cut to the
       // beat of an original track, which is composed while the director plans
       const { directDefaultReel, DEFAULT_MUSIC } = require('./reelDirectorDefault');
@@ -1087,13 +1158,20 @@ async function runCaptureReel(reelId) {
       headlineFont: fonts?.heading?.family || '',
       bodyFont: fonts?.body?.family || '',
     };
-    timeline = await buildTimeline({ plan, material, voice, voiceUrl, brand, style, music });
+    if (dialogueBuild) {
+      const built = await dialogueBuild({ brandKit: brand, music });
+      timeline = built.timeline;
+      voiceKey = built.voiceKey;
+      ledger.add({ source: 'Capture reel — dialogue edit', output: `${built.stats.spokenSec}s spoken · ${built.stats.pieces} cuts · B-roll on ${built.stats.brollShare}% of it`, note: 'dead air cut; one levelled dialogue track; picture muted over it' });
+    } else {
+      timeline = await buildTimeline({ plan, material, voice, voiceUrl, brand, style, music });
+    }
     if (music) {
       // the bed is cut to the finished length, faded, and stored with the reel
       const bed = await styleRun.fitMusic(music.mp3, timeline.format.durationInFrames / FPS);
       const musicKey = `projects/${reel.user}/reel-${reel._id}-music.mp3`;
       await uploadBytes(musicKey, bed, 'audio/mpeg', { immutable: true });
-      timeline.audio = { ...(timeline.audio || {}), musicSrc: await getMediaUrl(musicKey), musicVolume: plan.audioMode === 'music' ? 0.9 : 0.13 };
+      timeline.audio = { ...(timeline.audio || {}), musicSrc: await getMediaUrl(musicKey), musicVolume: plan.audioMode === 'music' ? 0.9 : plan.audioMode === 'dialogue' ? 0.1 : 0.13 };
       musicKeySaved = musicKey;
     }
     // the finished cut is playable in the browser right away (Remotion Player,
@@ -1237,6 +1315,15 @@ const isRunningHere = (id) => active.has(String(id)) || queue.includes(String(id
 
 module.exports = {
   MAX_ATTEMPTS,
+  FPS,
+  // shared with services/reelFormatDirector.js
+  _visionParts: visionParts,
+  _clipFile: clipFile,
+  _ffmpegPath: ffmpegPath,
+  _imageSrc: imageSrc,
+  _letterboxOf: letterboxOf,
+  _stillNear: stillNear,
+  _luminance: luminance,
   _loadMaterial: loadMaterial,
   _directReel: directReel,
   runInProcess,

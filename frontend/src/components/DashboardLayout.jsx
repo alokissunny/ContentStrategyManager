@@ -7,6 +7,7 @@ import MobileNav from './MobileNav';
 import AiDebugPanel from './AiDebugPanel';
 import GenPill from './GenPill';
 import CaptureHost from './CaptureHost';
+import { ReelPlannerHost } from './ReelPlanner';
 import { Logo } from '../brand/Logo';
 import { useScrollHide } from '../hooks/useScrollHide';
 import { useActiveHandle } from '../lib/store';
@@ -100,6 +101,7 @@ export default function DashboardLayout({ children }) {
         </main>
       </div>
       <CaptureHost />
+      <ReelPlannerHost />
       <AiDebugPanel />
       <GenPill slot={pillSlot} />
     </div>

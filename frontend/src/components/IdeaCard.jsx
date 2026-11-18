@@ -4,7 +4,8 @@
  * shows one at a time:
  *   - Another idea → the next one in the batch (round again at the end, no new model call)
  *   - Explore idea → Capture opens on the idea's own first line and asks only what is missing; once it is
- *     saved the post is generated from that capture and the idea is marked accepted
+ *     saved the idea is marked accepted and the recommended REEL opens (ReelPlanner: format, story
+ *     sequences, recording guide, footage). Explore alternatives there can still choose a carousel.
  *   - Dismiss      → never suggested again (PATCH dismissed), the next one shows
  *   - ×            → hides the card until the next finished run
  * Fetched once per finished run (keyed by the newest done job) and kept for the session.
@@ -13,7 +14,7 @@ import { useEffect, useState } from 'react';
 import Icon from '../brand/Icon';
 import { getNextIdeas, updateIdea } from '../api/ideas';
 import { openCaptureIdea } from '../lib/captureUi';
-import { startPlanGeneration } from '../lib/planGeneration';
+import { openReelPlanner } from './ReelPlanner';
 import { MISSIONS, PILLAR_SAY } from '../lib/missions';
 
 /* one fetch per finished run, kept across the panel opening and shutting */
@@ -77,7 +78,7 @@ export default function IdeaCard({ runKey, tabIndex = 0, onExplore }) {
     const ask = (idea.questions || []).length;
     openCaptureIdea({
       opening: idea.opening || idea.title,
-      savedLine: 'Got it — writing this post now.',
+      savedLine: 'Got it — planning your reel now.',
       projectName: 'No project',
       askProject: false,
       maxQuestions: Math.max(1, Math.min(2, ask)),
@@ -90,10 +91,8 @@ export default function IdeaCard({ runKey, tabIndex = 0, onExplore }) {
         updateIdea(idea.id, 'accepted', captureId).catch(() => {});
         // the explored idea leaves the card; the others wait for another run
         put(runKey, { shut: true });
-        startPlanGeneration('idea', {
-          label: `Next idea · ${idea.title}`,
-          captureIds: captureId ? [captureId] : [],
-        }).catch(() => {});
+        // a recommended post is always a reel (studio's rule, 2026-11-18)
+        openReelPlanner({ idea, captured });
       },
     });
   };

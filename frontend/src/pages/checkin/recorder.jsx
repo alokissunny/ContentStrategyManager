@@ -55,13 +55,16 @@ const two = (n) => String(n).padStart(2, '0');
 export const fmtDur = (s) => (s == null ? '' : `${two(Math.floor(s / 60))}:${two(Math.round(s % 60))}`);
 export const fmtDurMs = (ms) => fmtDur(Math.round(ms / 1000));
 
-/* Swap in a polished transcript only if they have not started editing. */
-export function refreshDraftIfUnedited(setDraft, seedRef, next) {
+/* Swap in a polished transcript only if they have not started editing.
+   `allowEmpty: false` — the box was seeded with the live words, so an empty box
+   means they already SENT it: never refill it (it would sit there, stale and
+   locked, under the next question). */
+export function refreshDraftIfUnedited(setDraft, seedRef, next, { allowEmpty = true } = {}) {
   const polished = String(next || '').trim();
   if (!polished) return;
   setDraft((cur) => {
     const current = String(cur || '');
-    if (!current || current === seedRef.current) {
+    if ((!current && allowEmpty) || (current && current === seedRef.current)) {
       seedRef.current = polished;
       return polished;
     }

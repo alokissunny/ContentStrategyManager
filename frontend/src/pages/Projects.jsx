@@ -1668,7 +1668,7 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
             }
           }
           if (text) {
-            refreshDraftIfUnedited(setDraft, autoDraft, text);
+            refreshDraftIfUnedited(setDraft, autoDraft, text, { allowEmpty: !live });
             if (!live) {
               setStep('boot');
               const d = say(hasTranscriptGap(text)
@@ -3335,7 +3335,8 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
             value={draft}
             onValue={(v) => { if (demo && !exLive && v !== exText) setDemo(false); setDraft(v); }}
             live={composerLive || (liveIntro && askOn && step === 'boot')}
-            canSend={composerSendable}
+            // the cleaner transcript is on its way: wait for it unless they edited the words
+            canSend={composerSendable && !(polishing && draft === autoDraft.current)}
             pending={pending}
             onRemoveFile={removePending}
             placeholder={step === 'clarify' ? 'Answer in your own words…' : step === 'amendMedia' ? 'Add anything else, or send to save it…'

@@ -56,7 +56,8 @@ export function cameraAt(scene: ReelScene, frame: number): Camera {
   const c = scene.crop;
   const unbox = c ? 1 / Math.max(0.35, Math.min(c.w, c.h)) : 1;
   return {
-    scale: scale * enterScale * unbox, tx: tx + enterX, ty,
+    // zoom: a fixed punch-in on top of the move (talking-head cuts alternate framing)
+    scale: scale * enterScale * unbox * Math.max(1, Math.min(1.6, scene.zoom || 1)), tx: tx + enterX, ty,
     ox: c ? (c.x + c.w / 2) * 100 : fx, oy: c ? (c.y + c.h / 2) * 100 : fy,
     enterX, enterScale, blur, flash, enterY,
   };

@@ -71,7 +71,29 @@ async function serialize(r, posts = null, { withPreview = false } = {}) {
 
 // POST /capture-reels { projectId, captureIds: [..], direction? }
 async function createReel(req, res) {
-  const { projectId, direction, styleId } = req.body || {};
+  const { projectId, direction, styleId, ideaId } = req.body || {};
+  // a recommended post: the cut follows the reel plan made for it
+  const idea = isId(ideaId)
+    ? await require('../models/PostIdea').findOne({ _id: ideaId, user: req.user._id }).select('reelPlan assets sources').lean()
+    : null;
+  const storyPlan = idea?.reelPlan?.sequences?.length ? idea.reelPlan : null;
+  // recording-guide takes (ReelPlanner): which sequence each upload was recorded for
+  const takes = (Array.isArray(req.body?.takes) ? req.body.takes : []).slice(0, 24)
+    .filter((t) => t && typeof t.key === 'string' && t.key.length < 300)
+    .map((t) => ({ key: t.key, sequence: Math.max(0, Math.min(9, Math.round(Number(t.sequence) || 0))), role: t.role === 'broll' ? 'broll' : 'say' }));
+  // B-roll beyond this capture: the idea's suggested media, then its source captures' photos/clips
+  let brollKeys = [];
+  if (storyPlan) {
+    brollKeys = (idea.assets || []).map((a) => a.key).filter(Boolean);
+    const srcIds = (idea.sources || []).filter((x) => x.kind === 'capture' && isId(x.id)).map((x) => x.id);
+    if (srcIds.length) {
+      const srcProjects = await Project.find({ user: req.user._id, 'captures._id': { $in: srcIds } }).select('captures._id captures.attachments.key captures.attachments.type').lean();
+      srcProjects.forEach((p) => (p.captures || []).forEach((c) => {
+        if (srcIds.includes(String(c._id))) (c.attachments || []).forEach((a) => a.key && brollKeys.push(a.key));
+      }));
+    }
+    brollKeys = [...new Set(brollKeys)].slice(0, 12);
+  }
   let style = null;
   if (styleId) {
     style = isId(styleId) ? await ReelStyle.findOne({ _id: styleId, status: 'ready' }).select('name').lean() : null;
@@ -99,6 +121,10 @@ async function createReel(req, res) {
     projectId: project._id,
     captureIds: members.map((c) => c._id),
     direction: String(direction || '').trim().slice(0, 600),
+    ideaId: storyPlan ? idea._id : null,
+    storyPlan,
+    takes: takes.length ? takes : null,
+    brollKeys,
     styleId: style?._id || null,
     styleName: style?.name || '',
     queueTag: queueTag(),

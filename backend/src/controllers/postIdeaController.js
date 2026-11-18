@@ -3,6 +3,7 @@ const { currentUsername } = require('../utils/currentProfile');
 const { appLocaleOf } = require('../utils/appLocale');
 const { wantsPromptDebug } = require('../utils/promptDebug');
 const { nextIdeas, decideIdea } = require('../services/nextPostIdea');
+const { ideaReelPlan } = require('../services/ideaReelPlan');
 
 // GET /api/ideas/next[?refresh=1] — "What could you share next?" for the current handle.
 async function getNextIdeas(req, res) {
@@ -53,4 +54,38 @@ async function updateIdea(req, res) {
   }
 }
 
-module.exports = { getNextIdeas, updateIdea };
+// POST /api/ideas/:id/reel-plan { captureId, format?, refresh? } — the recommended reel
+// for an explored idea (format + story sequences + recording guide)
+async function getIdeaReelPlan(req, res) {
+  const { id } = req.params;
+  if (!mongoose.isValidObjectId(id)) return res.status(404).json({ message: 'Idea not found.' });
+  const debug = wantsPromptDebug(req) ? [] : null;
+  const started = Date.now();
+  try {
+    const out = await ideaReelPlan(req.user._id, id, {
+      captureId: mongoose.isValidObjectId(req.body?.captureId) ? String(req.body.captureId) : '',
+      format: String(req.body?.format || ''),
+      refresh: Boolean(req.body?.refresh),
+      locale: appLocaleOf(req),
+      debug,
+    });
+    if (!out) return res.status(404).json({ message: 'Idea not found.' });
+    res.json({
+      ...out,
+      ...(debug && debug.length ? {
+        debug: {
+          mode: 'idea reel plan',
+          model: debug[0].model,
+          elapsedMs: Date.now() - started,
+          agents: debug,
+          usage: { estimatedCostUsd: debug.reduce((n, r) => n + (r.usage?.estimatedCostUsd || 0), 0) },
+        },
+      } : {}),
+    });
+  } catch (err) {
+    console.error(`[ideas] reel plan for ${id} failed:`, err.message);
+    res.status(502).json({ message: 'Bauhly could not plan this reel just now. Please try again.' });
+  }
+}
+
+module.exports = { getNextIdeas, updateIdea, getIdeaReelPlan };

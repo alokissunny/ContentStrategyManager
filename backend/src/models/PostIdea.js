@@ -63,6 +63,9 @@ const postIdeaSchema = new mongoose.Schema(
     locale: { type: String, default: 'en' },
     model: { type: String, default: '' },
     captureId: { type: String, default: '' }, // the capture started from it
+    // the recommended reel made from it after Capture (services/ideaReelPlan.js):
+    // { version, format, priority, title, formatSummary, formatWhy, estimatedSec, caption, sequences, captureId }
+    reelPlan: { type: mongoose.Schema.Types.Mixed, default: null },
     decidedAt: { type: Date, default: null },
   },
   { timestamps: true }

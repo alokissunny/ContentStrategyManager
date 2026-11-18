@@ -29,6 +29,14 @@ const captureReelSchema = new mongoose.Schema(
     // Captures › Generate reel › Choose reel style (null = Bauhly's default look)
     styleId: { type: mongoose.Schema.Types.ObjectId, ref: 'ReelStyle', default: null },
     styleName: { type: String, default: '' },
+    // made from a recommended post (services/ideaReelPlan.js): the idea + its
+    // reel plan (format + sequences) the cut follows
+    ideaId: { type: mongoose.Schema.Types.ObjectId, ref: 'PostIdea', default: null },
+    storyPlan: { type: mongoose.Schema.Types.Mixed, default: null },
+    // recording-guide takes: [{ key, sequence (0-based), role: 'say' | 'broll' }]
+    takes: { type: mongoose.Schema.Types.Mixed, default: null },
+    // extra B-roll the cut may use (the idea's suggested media + its source captures')
+    brollKeys: { type: [String], default: [] },
     durationSec: { type: Number, default: 0 },
     model: { type: String, default: '' },
     costUsd: { type: Number, default: 0 },

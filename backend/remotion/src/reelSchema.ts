@@ -44,6 +44,7 @@ export type ReelScene = {
   cardNumber?: number; // kind 'card': numbered chapter card
   cardTitle?: string;
   playbackRate?: number;
+  zoom?: number; // fixed punch-in (1 = none, 1.15 medium, 1.3 close) — talking-head framing
   graded?: boolean; // the style's colour grade is already baked into src
   annotations?: ReelAnnotation[]; // teaser overlays anchored on the photo
   srcW?: number; // the photo's size (maps anchors through the cover crop)
