@@ -3557,6 +3557,8 @@ export default function WeekView({
   // Editor mode on the caption (bauhly-v3's phone caption editor): the post
   // above, the words in a card under it, ✓ saves them
   const [edCap, setEdCap] = useState(false);
+  // the caption editor was opened from inside the Editor (phone), not from the feed
+  const capInnerRef = useRef(false);
   /* ── THE CAPTION BESIDE THE POST (bauhly-v3 decisions 912–916, 922) ── written in place in the Editor; `edCapSeed`
      is what the words were when the Editor opened (React never rewrites the text under the caret), `edCapText` what
      they are now, null while untouched. Saved with Done, dropped with Cancel. */
@@ -3566,6 +3568,22 @@ export default function WeekView({
   // the phone's Editor (bauhly-v3 `.edm--phone`): the text sheet for a text
   // selection, the ⋯ as a sheet, the round header controls
   const phoneEd = useMediaQuery('(max-width: 767px)');
+  /* the phone's toolbar stands on the foot of the screen; while the ask band is up it stands on the band instead,
+     so `--edm-askfoot` is the band's height as drawn (0 without one) */
+  useLayoutEffect(() => {
+    if (!phoneEd || !postEdit) return undefined;
+    const box = document.querySelector('.wv-edm');
+    if (!box) return undefined;
+    let ro = null;
+    const read = () => {
+      const band = box.querySelector('.wv-edm__ask');
+      box.style.setProperty('--edm-askfoot', `${band ? Math.round(band.getBoundingClientRect().height) : 0}px`);
+    };
+    read();
+    const band = box.querySelector('.wv-edm__ask');
+    if (band && typeof ResizeObserver !== 'undefined') { ro = new ResizeObserver(read); ro.observe(band); }
+    return () => { ro?.disconnect(); box.style.removeProperty('--edm-askfoot'); };
+  });
   const [capSaving, setCapSaving] = useState(false);
   const startedEditRef = useRef(false);
   // Bumped after a theme / layout regeneration lands: the Editor's cards are
@@ -5149,6 +5167,7 @@ export default function WeekView({
     closeZone();
     setPostEdit(false);
     setEdCap(false);
+    capInnerRef.current = false;
     setCapPolishOn(false);
     startedEditRef.current = true;
     rememberEditing(null);
@@ -5160,7 +5179,28 @@ export default function WeekView({
     if (capSaving) return;
     setCapSaving(true);
     try { await saveCaption(capDraft); } finally { setCapSaving(false); }
+    // opened from the post's own caption (phone Edit View): back to the post
+    if (capInnerRef.current) { closeInnerCaption(); return; }
     leavePostEdit(true);
+  }
+  /* ── THE PHONE'S CAPTION, UNDER THE POST (bauhly-v3 decisions 914–916, 1007) ── pressing it opens the caption
+     editor inside the Editor; its × and ✓ come back to the post rather than leaving the Editor */
+  function openInnerCaption() {
+    if (!day || editBusy) return;
+    elemApiRef.current?.deselect?.();
+    if (zone) closeZone();
+    setEdTool(null);
+    setEdGrid(false);
+    capInnerRef.current = true;
+    setEdCap(true);
+    setAskOpen(false);
+    setCapDraft(day.content?.caption || '');
+    setTagDraft(formatHashtagLine(hashtagsOf(day)));
+  }
+  function closeInnerCaption() {
+    capInnerRef.current = false;
+    setEdCap(false);
+    setCapPolishOn(false);
   }
 
   // A disc on the Editor's toolbar. The press is a toggle: the open disc
@@ -8185,7 +8225,7 @@ export default function WeekView({
     <>
       {/* the Editor's ⋯ (bauhly-v3 PostMenu.jsx › EditorMore), anchored under
           the button. Levels open in place. */}
-      {zone === 'visual' && !visEdit && !imgPick && !slideEditMode && !((edTool === 'layout' || edTool === 'colour') && !phoneEd) && (
+      {zone === 'visual' && !visEdit && !imgPick && !slideEditMode && !(edTool === 'layout' || edTool === 'colour') && (
         <>
         <div
           className="wv-ig__menuscrim"
@@ -8203,7 +8243,8 @@ export default function WeekView({
                 MobileSheet "More"); the desktop popover hides it */}
             <span className="wv-em__sheetgrip" aria-hidden="true" />
             <div className="wv-em__sheethead">
-              <b>More</b>
+              {/* the sheet is named for the toolbar disc that opened it */}
+              <b>{(edTool && ED_TOOLS.find((t) => t.id === edTool)?.says) || 'More'}</b>
               <button type="button" className="wv-em__sheetx" aria-label="Close" onClick={() => closeZone()}>
                 <Icon name="x" size={20} strokeWidth={2.25} />
               </button>
@@ -8450,7 +8491,7 @@ export default function WeekView({
             <button
               type="button"
               className="wv-edm__close"
-              onClick={() => leavePostEdit(false)}
+              onClick={() => (edCap && capInnerRef.current ? closeInnerCaption() : leavePostEdit(false))}
               disabled={editBusy || capSaving}
               aria-label={edCap ? 'Close the caption editor' : 'Close the editor'}
               title="Close"
@@ -8529,7 +8570,7 @@ export default function WeekView({
           </header>
 
           <div
-            className={`wv-edm__body${compositionEditing || wordsEditing ? ' has-panel' : ''}${askOpen && !visEdit ? ' is-asking' : ''}${askOpen && !visEdit && !askSel && !askPath.length && !rgnOpen && !heldList.length ? ' is-plainask' : ''}${!phoneEd && !edCap ? ' has-tools' : ''}${!phoneEd && !edCap && (edTool === 'layout' || edTool === 'colour') && zone === 'visual' ? ' is-laying' : ''}`}
+            className={`wv-edm__body${compositionEditing || wordsEditing ? ' has-panel' : ''}${askOpen && !visEdit ? ' is-asking' : ''}${askOpen && !visEdit && !askSel && !askPath.length && !rgnOpen && !heldList.length ? ' is-plainask' : ''}${!edCap ? ' has-tools' : ''}${!phoneEd && !edCap && (edTool === 'layout' || edTool === 'colour') && zone === 'visual' ? ' is-laying' : ''}`}
             onMouseDown={(e) => {
               if (!elemSel) return;
               if (e.target.closest('.wv-edm__tb, .wv-edm__line, .wv-edm__panel, .wv-edm__card.is-on')) return;
@@ -8606,28 +8647,7 @@ export default function WeekView({
                     )}
                   </span>
                 )}
-                {/* the desktop's ⋯ is the toolbar's More now (below the post);
-                    the phone keeps this one, which opens its sheet */}
-                {phoneEd && (
-                <div className="wv-edm__morewrap">
-                  <button
-                    type="button"
-                    className={`wv-edm__more${zone === 'visual' && !visEdit ? ' is-on' : ''}`}
-                    aria-label="More"
-                    aria-haspopup="menu"
-                    aria-expanded={zone === 'visual' && !visEdit}
-                    onPointerDown={(e) => e.stopPropagation()}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      // an open editor steps back to the menu; otherwise toggle it
-                      if (zone === 'visual' && visEdit) { setVisEdit(null); return; }
-                      openZone('visual');
-                    }}
-                  >
-                    <Icon name="more" size={18} strokeWidth={2.2} />
-                  </button>
-                </div>
-                )}
+                {/* the ⋯ is the toolbar's More at every width now (bauhly-v3 phone foot, decisions 1001–1006) */}
                 </div>
               </div>
 
@@ -8918,14 +8938,27 @@ export default function WeekView({
                   Nov 1–4): Ask · Layout · Colours · Add element · More. The
                   caption names the open tool, or "Refine your post"; each
                   menu disc opens the ⋯'s own menu at its level, above it. */}
-              {!phoneEd && !edCap && (() => {
+              {!edCap && (() => {
                 const menuUp = Boolean(edTool) && zone === 'visual';
                 const onId = menuUp ? edTool : (askOpen ? 'ask' : null);
                 const says = ED_TOOLS.find((t) => t.id === onId)?.says;
                 // Layout opens the rail under the discs, not a menu
                 // (bauhly-v3 PostEditor, Nov 1): `Bauhly decides` first, drawn
                 // as a mix of four, then the carousel agent's layouts
+                // the rails at every width (bauhly-v3 decision 950); on a phone their menus are sheets
                 const layOpen = onId === 'layout';
+                /* a phone's menus are sheets off the foot, each with its title and × (bauhly-v3 MobileSheet) */
+                const sheetHead = (title, onClose) => (phoneEd ? (
+                  <>
+                    <span className="wv-em__sheetgrip" aria-hidden="true" />
+                    <div className="wv-em__sheethead">
+                      <b>{title}</b>
+                      <button type="button" className="wv-em__sheetx" aria-label="Close" onClick={onClose}>
+                        <Icon name="x" size={20} strokeWidth={2.25} />
+                      </button>
+                    </div>
+                  </>
+                ) : null);
                 const lays = moreActs.layouts || {};
                 const layCur = lays.current || 'auto';
                 const layItems = [
@@ -9165,12 +9198,18 @@ export default function WeekView({
                           aria-hidden="true"
                         />
                         <div
-                          className="wv-ig__menu wv-em wv-col__menu"
+                          className={`wv-ig__menu wv-em wv-col__menu${phoneEd ? ' is-sheet' : ''}`}
                           role="menu"
                           aria-label={colMenu === 'new' ? 'New colour set' : String(colMenu).startsWith('edit:') ? 'Edit colours' : 'Colour palette'}
                           style={colMenuAt ? { '--col-x': `${colMenuAt.x}px`, '--col-y': `${colMenuAt.y}px` } : undefined}
                           onPointerDown={(e) => e.stopPropagation()}
                         >
+                          {sheetHead(
+                            colMenu === 'new' ? 'New colour set'
+                              : String(colMenu).startsWith('edit:') ? 'Edit colours'
+                                : colMenu === 'story' ? 'Bauhly decides' : 'Colour palette',
+                            () => setColMenu(null),
+                          )}
                           {colMenu === 'new' || String(colMenu).startsWith('edit:') ? (() => {
                             const editing = String(colMenu).startsWith('edit:') ? String(colMenu).slice(5) : null;
                             const hex = colHex || seedHex(editing || colCur);
@@ -9227,7 +9266,8 @@ export default function WeekView({
                           aria-hidden="true"
                         />
                         <div className="wv-ig__menuwrap">
-                          <div className="wv-ig__menu wv-em" role="menu" aria-label="Apply layout">
+                          <div className={`wv-ig__menu wv-em${phoneEd ? ' is-sheet' : ''}`} role="menu" aria-label="Apply layout">
+                            {sheetHead(`Layout style${layName ? `: ${layName}` : ''}`, () => setLayMark(null))}
                             <EditorRows
                               onClose={() => setLayMark(null)}
                               rows={many ? [
@@ -9241,11 +9281,34 @@ export default function WeekView({
                         </div>
                       </>
                     )}
-                    {editMenuEl}
+                    {!phoneEd && editMenuEl}
                   </div>
                 );
               })()}
             </section>
+
+            {/* ── THE CAPTION UNDER THE POST, ON A PHONE (bauhly-v3 `.edm-cap.is-flow`, decisions 914–916, 1015–1017) ──
+                the account row and the words, read in the same column as the post; a press opens the caption editor */}
+            {phoneEd && !edCap && !gridOn && (
+              <section className="wv-edm__pcap" aria-label="Caption">
+                <button
+                  type="button"
+                  className="wv-edm__pcapbtn"
+                  onClick={openInnerCaption}
+                  disabled={editBusy}
+                  aria-label="Edit the caption"
+                >
+                  <span className="wv-edm__pcaphead">
+                    <span className="wv-edm__capava" aria-hidden="true" />
+                    <b>{handle}</b>
+                    {capNeedsReview && <span className="wv-ig__caprev">Caption needs review</span>}
+                  </span>
+                  <span className="wv-edm__pcaptext">
+                    {String(captionText || '').trim() || 'Write the caption…'}
+                  </span>
+                </button>
+              </section>
+            )}
 
             {(compositionEditing || wordsEditing) && (
               <aside className="wv-edm__panel wv-ig">

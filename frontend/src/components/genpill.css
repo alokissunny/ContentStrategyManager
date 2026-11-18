@@ -293,7 +293,7 @@
 @keyframes gpill-sheen { 0% { opacity: 0; transform: translateX(0); } 30% { opacity: 0.7; } 100% { opacity: 0; transform: translateX(8px); } }
 
 /* where it floats, the page can scroll clear of it */
-body:has(.gpill-host) .app__main { padding-bottom: calc(var(--gpill-h, 48px) + 24px); }
+body:has(.gpill-host:not(.is-row)) .app__main { padding-bottom: calc(var(--gpill-h, 48px) + 24px); }
 
 /* a phone: the page's own margin, above the floating tab bar */
 @media (max-width: 799px) {
@@ -451,3 +451,24 @@ body:has(.gpill-host) .app__main { padding-bottom: calc(var(--gpill-h, 48px) + 2
   .gidea__title { font-size: 17px; }
 }
 @media (prefers-reduced-motion: reduce) { .gidea { animation: none; } }
+
+/* ══ AND ON A PHONE, A ROW OF ITS OWN (bauhly-v3 app.css, decisions 745 / 770 / 777) ══════════════════════════════════
+   Below 800 the pill is portalled into `.gpill-slot`, the first thing in the main column (DashboardLayout). The shut
+   pill's 48 is the row, as wide as the page's content; open, the same element grows DOWN from the row over the page,
+   as far as the room between its top and the tab bar (`--gpill-room`). Empty slot = no row. */
+.gpill-slot:empty { display: none; }
+.gpill-slot { padding-top: var(--sp-3, 12px); }
+.gpill-host.is-row {
+  --gpill-w: 100%;
+  --gpill-open-w: 100%;
+  position: relative;
+  left: auto;
+  bottom: auto;
+  width: auto;
+  height: var(--gpill-h);
+  /* over the calendar's pinned date row (z 30), which it opens across; under sheets, panels and the tab bar */
+  z-index: 31;
+}
+.gpill-host.is-row .gpill { top: 0; bottom: auto; animation: none; box-shadow: none; }
+.gpill-host.is-row .gpill.is-open { height: min(var(--gpill-open-h, 240px), var(--gpill-room, 60dvh)); }
+.gpill-host.is-row .gpill.is-open { box-shadow: 0 18px 40px -14px rgb(20 20 25 / 0.6); }

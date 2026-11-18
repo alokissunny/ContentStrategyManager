@@ -10663,3 +10663,274 @@ i.shotedit__aa { font-style: italic; font-family: Georgia, serif; }
 .wv-col__save { width: calc(100% - 8px); margin: 2px 4px 4px; height: 40px; border-radius: 999px; background: var(--ink-900); color: #fff; }
 .wv-col__save:disabled { background: var(--ink-100, #ececee); color: var(--ink-400); cursor: default; }
 .wv-edm__crail .wv-col__bands--empty { display: grid; place-items: center; background: var(--surface-sunken, #f4f4f2); color: var(--ink-400); }
+
+/* ══ THE PHONE'S EDIT VIEW, AS THE MOCK'S (bauhly-v3 `.edm--phone`, decisions 1001–1015, 1021; Nov 16) ══════════════════
+   Header: × at the left, "Edit post" centred on the row, the Single/Grid disc and the ink ✓ at the right (the day line
+   goes). The post edge to edge under the header, no radius and no shadow, its caption flowing under it (account row,
+   then the words; a press opens the caption editor). The toolbar is the foot of the screen: "Refine your post" on a
+   white pill over five 48px discs (Ask · Layout · Colours · Add · More), on a white veil the caption passes under.
+   Layout and Colours open the ⋯'s sheet at their level instead of the desktop's rails. */
+@media (max-width: 767px) {
+  .wv-edm { --edm-foot-h: 124px; }
+
+  /* ── the header ── */
+  .wv-edm__top {
+    position: relative;
+    background: var(--canvas, #fff);
+    box-shadow: none;
+  }
+  .wv-edm__what { display: none; }
+  .wv-edm__title {
+    display: block;
+    position: absolute;
+    left: 50%;
+    top: calc(env(safe-area-inset-top) + 12px + 22px);
+    translate: -50% -50%;
+    max-width: 40%;
+    margin: 0;
+    overflow: hidden;
+    font-family: var(--font-ui);
+    font-size: 17px;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+    color: var(--ink-900);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    pointer-events: none;
+  }
+  .wv-edm__top .wv-edm__hist { gap: 0; }
+  .wv-edm__top .wv-edm__hist .wv-edm__histbtn { width: 40px; height: 40px; }
+  .wv-edm__acts { margin-left: auto; gap: var(--sp-2); }
+  .wv-edm__close,
+  .wv-edm__top .wv-edm__gridbtn:not(.is-on) {
+    background: var(--surface, #fff);
+    box-shadow: 0 0 0 1px rgb(22 22 26 / 0.06), 0 4px 14px -6px rgb(20 20 25 / 0.28);
+  }
+  .wv-edm__top .wv-edm__gridbtn { width: 44px; height: 44px; border-radius: 999px; }
+  .btn.wv-edm__apply { width: 48px; height: 48px; }
+
+  /* ── the post, edge to edge, and the caption under it ── */
+  .wv-edm:not(.is-capedit) .wv-edm__body {
+    /* no container here: a container contains fixed children, and the toolbar is fixed to the screen's foot.
+       `100cqw` then reads the screen's width, which on a phone is the body's */
+    container-type: normal;
+    gap: 0;
+    padding: 0 0 calc(var(--edm-foot-h) + var(--edm-askfoot, 0px) + var(--sp-4));
+    --edm-peek: 0px;
+  }
+  .wv-edm:not(.is-capedit) .wv-edm__body > * {
+    --edm-card-h: min(calc(100vw / var(--edm-ar)), calc(100dvh - 68px - env(safe-area-inset-top)));
+  }
+  .wv-edm:not(.is-capedit) .wv-edm__card,
+  .wv-edm:not(.is-capedit) .wv-edm__card.is-on { border-radius: 0; box-shadow: none; }
+  /* the post's own line only carries the themed note now (its ⋯ is the toolbar's More) */
+  .wv-edm .wv-edm__line {
+    position: static;
+    transform: none;
+    width: 100%;
+    padding: var(--sp-2) var(--sp-4);
+    box-sizing: border-box;
+  }
+  .wv-edm .wv-edm__line:not(:has(.wv-edm__themenote)) { display: none; }
+  .wv-edm__pcap { width: 100%; flex: none; }
+  .wv-edm__pcapbtn {
+    display: flex;
+    flex-direction: column;
+    gap: var(--sp-2);
+    width: 100%;
+    padding: var(--sp-3) var(--sp-4) var(--sp-4);
+    border: 0;
+    background: none;
+    color: inherit;
+    font: inherit;
+    text-align: left;
+    cursor: text;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .wv-edm__pcapbtn:disabled { cursor: default; }
+  .wv-edm__pcaphead {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 15px;
+    color: var(--ink-900);
+  }
+  .wv-edm__pcaphead .wv-ig__caprev { margin-left: auto; }
+  .wv-edm__pcaptext {
+    font-family: var(--font-ui);
+    font-size: 15px;
+    line-height: 1.55;
+    color: var(--ink-quiet, var(--ink-500));
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+
+  /* ── the toolbar at the foot ── */
+  .wv-edm__body.has-tools { --edm-tools-h: 0px; }
+  .wv-edm__body.has-tools > .wv-edm__stage { margin-bottom: 0; }
+  .wv-edm__tools {
+    position: fixed;
+    top: auto;
+    left: 0;
+    right: 0;
+    bottom: var(--edm-askfoot, 0px);
+    z-index: 30;
+    gap: var(--sp-3);
+    padding: 40px var(--sp-4) calc(var(--sp-4) + env(safe-area-inset-bottom));
+  }
+  .wv-edm__body.is-asking .wv-edm__tools { padding-bottom: var(--sp-2); }
+  /* the veil: the caption goes under the toolbar into the page's white */
+  .wv-edm__tools::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    background: linear-gradient(to bottom,
+      rgb(255 255 255 / 0) 0,
+      rgb(255 255 255 / 0.7) 28px,
+      var(--canvas, #fff) 56px);
+    pointer-events: none;
+  }
+  /* "Refine your post" on a white pill, its padding given back as margin so the discs don't move (decision 1021) */
+  .wv-edm__tools .tbar__cap {
+    width: fit-content;
+    max-width: calc(100% - 2 * var(--sp-3));
+    padding: var(--sp-1) var(--sp-3);
+    margin-block: calc(-1 * var(--sp-1));
+    border-radius: var(--r-full);
+    background: var(--canvas, #fff);
+    font-size: 15px;
+    font-weight: 500;
+    box-sizing: content-box;
+  }
+  .wv-edm__tools .tbar {
+    width: 100%;
+    max-width: 380px;
+    justify-content: space-between;
+    gap: 0;
+  }
+  .wv-edm__tools .btn.btn--disc {
+    width: 48px;
+    height: 48px;
+    box-shadow: 0 0 0 1px rgb(22 22 26 / 0.06), 0 6px 18px -8px rgb(20 20 25 / 0.35);
+  }
+  .wv-edm__tools .btn.btn--disc:hover:not(:disabled):not(.is-on) { background: var(--surface); color: var(--ink-900); }
+  /* a text selection's sheet takes the foot; the toolbar waits under it */
+  .wv-edm:has(.shotedit) .wv-edm__tools { display: none; }
+  /* the grid scrolls under the foot too */
+  .wv-edm__canvas.is-grid { padding-bottom: var(--sp-4); }
+}
+
+/* ══ THE PHONE'S LAYOUT AND COLOURS RAILS, AND ITS MENUS AS SHEETS (bauhly-v3 decisions 950, 1020; Nov 16) ════════════
+   Layout and Colours open their rail under the discs at every width: on a phone the rail is the foot's last row, the
+   screen's width, starting at the page's 16 and scrolling sideways, its far end fading out. What a card asks next
+   (apply this layout to this slide / all; a set's reach, Swap and Edit colours) is a sheet off the foot, with a title
+   and an ×, as every phone menu is. */
+@media (max-width: 767px) {
+  .wv-edm__tools .wv-edm__lrail {
+    align-self: stretch;
+    align-items: stretch;
+    width: auto;
+    margin: var(--sp-1) calc(-1 * var(--sp-4)) 0;
+  }
+  .wv-edm__tools .wv-edm__lrail .lrail__row {
+    justify-content: flex-start;
+    gap: var(--sp-3);
+    margin: -22px 0;
+    padding: 22px var(--sp-4);
+    -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 40px), transparent);
+    mask-image: linear-gradient(to right, #000 calc(100% - 40px), transparent);
+    scroll-snap-type: x proximity;
+  }
+  .wv-edm__tools .wv-edm__lrail button.pe-lay.lrail__card {
+    width: 106px;
+    border-radius: 10px;
+    scroll-snap-align: start;
+  }
+  /* the rail rises the foot: no padding under it but the safe area */
+  .wv-edm__tools:has(.wv-edm__lrail) { padding-bottom: calc(var(--sp-3) + env(safe-area-inset-bottom)); }
+
+  /* sheets */
+  .wv-edm__tools .wv-ig__menuscrim { z-index: 39; background: rgb(16 16 20 / 0.32); }
+  .wv-edm__tools .wv-ig__menuwrap:has(> .is-sheet) {
+    position: fixed;
+    top: auto;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 40;
+    transform: none;
+  }
+  .wv-edm__tools .wv-ig__menu.is-sheet,
+  .wv-edm__tools .wv-col__menu.is-sheet {
+    position: fixed;
+    top: auto;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 40;
+    width: 100%;
+    min-width: 0;
+    max-width: none;
+    max-height: min(78dvh, 640px);
+    overflow-y: auto;
+    translate: none;
+    margin: 0;
+    padding: 0 16px calc(24px + env(safe-area-inset-bottom));
+    border: 0;
+    border-radius: 18px 18px 0 0;
+    background: var(--surface);
+    box-shadow: 0 -18px 44px -14px rgba(20, 20, 25, 0.4);
+    animation: wv-em-sheet-in 240ms cubic-bezier(0.32, 0.72, 0, 1) both;
+  }
+  .wv-edm__tools .is-sheet .wv-em__sheetgrip {
+    display: block;
+    width: 36px;
+    height: 4px;
+    margin: 8px auto 0;
+    border-radius: 999px;
+    background: #e3e3e8;
+  }
+  .wv-edm__tools .is-sheet .wv-em__sheethead {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--sp-3);
+    padding: 12px 0 12px 8px;
+    background: var(--surface);
+  }
+  .wv-edm__tools .is-sheet .wv-em__sheethead b {
+    min-width: 0;
+    overflow: hidden;
+    font-size: 19px;
+    font-weight: 700;
+    color: var(--ink-900);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .wv-edm__tools .is-sheet .wv-em__sheetx {
+    display: inline-grid;
+    place-items: center;
+    flex: none;
+    width: 44px;
+    height: 44px;
+    padding: 0;
+    border: 0;
+    border-radius: 999px;
+    background: #efeff2;
+    color: #26262c;
+    cursor: pointer;
+  }
+  /* the sheet's own title says it; the desktop menu's head would repeat it */
+  .wv-edm__tools .is-sheet .wv-em__menuhead { display: none; }
+  .wv-edm__tools .is-sheet .wv-em__row { min-height: 64px; padding: 12px 8px; gap: 16px; border-radius: 14px; }
+  .wv-edm__tools .is-sheet .wv-em__row > svg:first-child { width: 22px; height: 22px; flex: none; }
+  .wv-edm__tools .is-sheet .wv-em__label { font-size: 17px; }
+  .wv-edm__tools .is-sheet .wv-em__hint { font-size: 14px; }
+  .wv-edm__tools .is-sheet .wv-col__role { padding: 10px 8px; }
+  .wv-edm__tools .is-sheet .wv-col__role b { font-size: 16px; }
+  .wv-edm__tools .is-sheet .wv-col__save { height: 48px; margin-top: var(--sp-3); }
+}

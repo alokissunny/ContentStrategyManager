@@ -17,7 +17,7 @@ import { getMetaStatus, startMetaConnect, disconnectMeta, metaConnectionFor, rem
 import { syncHandle } from '../lib/store';
 import { resetProjects } from '../lib/projectsStore';
 import { useAiDebug, setAiDebugEnabled, clearAiDebugEntries } from '../lib/aiDebug';
-import { useFeatureFlags, setVideoCoverEnabled, setReelEditorEnabled, setLinkedInEnabled, setHtmlThemesEnabled, setPostRemixEnabled } from '../lib/featureFlags';
+import { useFeatureFlags, setVideoCoverEnabled, setReelEditorEnabled, setLinkedInEnabled, setHtmlThemesEnabled, setPostRemixEnabled, setMissionAnalysisEnabled } from '../lib/featureFlags';
 import { getCarouselLayout, updateCarouselLayout, getBrandVoiceModel, getCarouselModel, getStrategistModel, getThemeApplyPhotoMode, getThemeRegionsModel, updateBrandVoiceModel, updateCarouselModel, updateStrategistModel, updateThemeApplyPhotoMode, updateThemeRegionsModel } from '../api/settings';
 import LinkedInSettings from '../components/LinkedInSettings';
 import './settings.css';
@@ -995,6 +995,28 @@ export default function Settings() {
               aria-checked={flags.postRemix}
               aria-label={`${flags.postRemix ? 'Disable' : 'Enable'} post remix`}
               onClick={() => setPostRemixEnabled(!flags.postRemix)}
+            >
+              <i aria-hidden="true" />
+            </button>
+          </span>
+        </div>
+        <div className="set-row">
+          <span className="set-row__ico"><Icon name="chart" size={19} /></span>
+          <span className="set-row__main">
+            <b className="set-row__title">Analysis</b>
+            <span className="set-row__sub">
+              {flags.missionAnalysis
+                ? 'On · an “Analysis” page appears in the sidebar'
+                : 'Off · see how your Instagram posts spread across the four content missions — Attract, Nurture, Position, Convert — and which need attention'}
+            </span>
+          </span>
+          <span className="set-row__acts">
+            <button
+              className={`set-switch ${flags.missionAnalysis ? 'is-on' : ''}`}
+              role="switch"
+              aria-checked={flags.missionAnalysis}
+              aria-label={`${flags.missionAnalysis ? 'Disable' : 'Enable'} analysis`}
+              onClick={() => setMissionAnalysisEnabled(!flags.missionAnalysis)}
             >
               <i aria-hidden="true" />
             </button>

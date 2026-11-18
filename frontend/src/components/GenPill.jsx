@@ -13,7 +13,9 @@
  * Non-blocking: the host takes no pointer, only the pill does. It closes when the studio presses elsewhere.
  */
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
+import useMediaQuery from '../hooks/useMediaQuery';
 import Icon from '../brand/Icon';
 import NotifyWhenReady from './NotifyWhenReady';
 import IdeaCard from './IdeaCard';
@@ -80,7 +82,7 @@ const dayOf = (iso) => (iso
   : null);
 const TRIGGER_SAY = { capture: 'New capture', generate: 'Your plan', replan: 'Your plan', resume: 'Your plan', checkin: 'Your plan' };
 
-export default function GenPill() {
+export default function GenPill({ slot = null }) {
   const gen = usePlanGeneration();
   const handle = useActiveHandle() || '';
   const nav = useNavigate();
@@ -90,6 +92,11 @@ export default function GenPill() {
   const [now, setNow] = useState(Date.now());
   const box = useRef(null);
   const inner = useRef(null);
+  /* ON A PHONE IT HAS A ROW OF ITS OWN (bauhly-v3 GenPill, decision 745): below
+     800 the pill is portalled into `.gpill-slot`, the first thing in the main
+     column, as wide as the page's content; open, it grows down over the page */
+  const narrow = useMediaQuery('(max-width: 800px)');
+  const inRow = narrow && Boolean(slot);
 
   // a run started before a reload is still going on the server — wait for it (was GenerationToast's job)
   useEffect(() => { resumePlanGeneration(); }, []);
@@ -134,7 +141,7 @@ export default function GenPill() {
     ro.observe(el);
     el.querySelectorAll('.gpill__list, .gpill__item, .gpill__ideaslot').forEach((x) => ro.observe(x));
     return () => ro.disconnect();
-  }, [open, n, unfold, ideaRun]);
+  }, [open, n, unfold, ideaRun, inRow]);
 
   /* ── THE FLOOR: the phone's tab bar, measured ── */
   useEffect(() => {
@@ -160,6 +167,23 @@ export default function GenPill() {
   }, [open]);
   useEffect(() => { if (!n) setOpen(false); }, [n]);
 
+  /* on its row, the room below it: open, it may take what is between its top
+     and the tab bar (`--genq-floor`), less a step (decision 770) */
+  const [room, setRoom] = useState(0);
+  useEffect(() => {
+    if (!open || !inRow) return undefined;
+    const read = () => {
+      const el = box.current;
+      if (!el) return;
+      const floor = parseFloat(document.body.style.getPropertyValue('--genq-floor')) || 0;
+      setRoom(Math.max(120, Math.floor(window.innerHeight - el.getBoundingClientRect().top - floor - 12)));
+    };
+    read();
+    window.addEventListener('resize', read);
+    window.addEventListener('scroll', read, true);
+    return () => { window.removeEventListener('resize', read); window.removeEventListener('scroll', read, true); };
+  }, [open, inRow]);
+
   if (!n) return null;
 
   const viewPost = (j) => {
@@ -177,12 +201,14 @@ export default function GenPill() {
       : failN ? `${postsSay(failN)} not finished`
         : postsSay(n);
 
-  return (
-    <div className={`gpill-host ${open ? 'is-open' : 'is-shut'} ${capOpen ? 'is-under' : ''}`}>
+  const tree = (
+    <div className={`gpill-host ${open ? 'is-open' : 'is-shut'} ${capOpen ? 'is-under' : ''} ${inRow ? 'is-row' : ''}`}>
       <div
         className={`gpill ${open ? 'is-open' : 'is-shut'} ${making ? 'is-busy' : ''}`}
         ref={box}
-        style={tall ? { '--gpill-open-h': `${tall}px` } : undefined}
+        style={tall || (inRow && room)
+          ? { ...(tall ? { '--gpill-open-h': `${tall}px` } : null), ...(inRow && room ? { '--gpill-room': `${room}px` } : null) }
+          : undefined}
       >
         <button
           type="button"
@@ -311,4 +337,5 @@ export default function GenPill() {
       </div>
     </div>
   );
+  return inRow ? createPortal(tree, slot) : tree;
 }

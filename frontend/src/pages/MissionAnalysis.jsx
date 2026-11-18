@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import Glyph from '../components/Glyph';
 import { getMissionCoverage, fetchRecentMissionPosts } from '../api/missions';
 import { MISSIONS, MISSION_ORDER, PILLAR_SAY } from '../lib/missions';
 import { useActiveHandle } from '../lib/store';
+import { useFeatureFlags } from '../lib/featureFlags';
 import './missionAnalysis.css';
 
 /*
@@ -51,6 +53,7 @@ function PostRow({ post }) {
 
 export default function MissionAnalysis() {
   const handle = useActiveHandle() || '';
+  const flags = useFeatureFlags();
   const [state, setState] = useState({ loading: true, error: '', data: null, refreshing: false });
   const [only, setOnly] = useState('');
   const [fetching, setFetching] = useState(false);
@@ -69,7 +72,8 @@ export default function MissionAnalysis() {
   }, []);
 
   // the header account switcher changes whose posts these are
-  useEffect(() => { setOnly(''); setFetchSay(''); load(false); }, [handle, load]);
+  // (nothing is read — or paid for — while the Analysis flag is off)
+  useEffect(() => { if (!flags.missionAnalysis) return; setOnly(''); setFetchSay(''); load(false); }, [handle, load, flags.missionAnalysis]);
 
   // Fetch recent: only posts published after the newest one already here are read and analysed
   const fetchRecent = () => {
@@ -94,6 +98,25 @@ export default function MissionAnalysis() {
   const data = state.data;
   const posts = useMemo(() => (data?.posts || []).filter((p) => !only || p.mission === only), [data, only]);
   const focus = new Set(data?.focus || []);
+
+  if (!flags.missionAnalysis) {
+    return (
+      <div className="mca-page">
+        <div className="page-head">
+          <div>
+            <span className="eyebrow">Experimental</span>
+            <h1>Analysis</h1>
+          </div>
+        </div>
+        <section className="card set-card">
+          <p className="set-card__sub">
+            Analysis is off. Turn it on under{' '}
+            <Link to="/dashboard/settings">Settings → Experimental features</Link> to try it.
+          </p>
+        </section>
+      </div>
+    );
+  }
 
   return (
     <div className="mca-page">

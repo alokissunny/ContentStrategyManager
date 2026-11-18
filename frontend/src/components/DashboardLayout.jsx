@@ -61,6 +61,7 @@ export default function DashboardLayout({ children }) {
   const hideNav = pathname.startsWith('/onboarding');
   const navHidden = useScrollHide();
   const content = children ?? <Outlet />;
+  const [pillSlot, setPillSlot] = React.useState(null);
 
   if (hideNav) {
     return (
@@ -91,12 +92,16 @@ export default function DashboardLayout({ children }) {
       <div className="app__body">
         <Sidebar />
         <main className="app__main">
+          {/* the generation queue's own row under the app bar, below 800
+              (bauhly-v3 AppShell `.gpill-slot`, decision 745); empty — no
+              height — whenever nothing is being made or the pill floats */}
+          <div className="gpill-slot" ref={setPillSlot} />
           <PageSlot handle={activeHandle}>{content}</PageSlot>
         </main>
       </div>
       <CaptureHost />
       <AiDebugPanel />
-      <GenPill />
+      <GenPill slot={pillSlot} />
     </div>
   );
 }

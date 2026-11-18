@@ -6,9 +6,9 @@
  * DynamicLayout gets layoutHtml / slides — the same paint as WeekView.
  */
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { createPortal } from 'react-dom';
 import Icon from '../brand/Icon';
 import { DayPeek, feedBoxAr } from './weekview/PostPeek';
+import DayPostView from './DayPostView';
 import { getPost, schedulePost, setPostReview, setPostTime, shiftPosts } from '../api/posts';
 import MobileSheet from '../components/MobileSheet';
 
@@ -208,7 +208,7 @@ function SchedSheet({ open, day, iso, clock, metaConnected, onClose, onPatched, 
   );
 }
 
-function FeedItem({ row, handle, metaConnected, onOpen, enriched, loading, onPatched, lifted = false, liftSheet = 0, onLift, onDrop }) {
+function FeedItem({ row, handle, metaConnected, onOpen, enriched, loading, onPatched, opened = false, onView }) {
   const [schedOpen, setSchedOpen] = useState(false);
   const day = enriched || row.day;
   const iso = isoOf(row.date || day?.date);
@@ -254,10 +254,10 @@ function FeedItem({ row, handle, metaConnected, onOpen, enriched, loading, onPat
     io.observe(el);
     return () => io.disconnect();
   }, []);
-  const drawn = ready && (near || lifted);
+  const drawn = ready && (near || opened);
 
   return (
-    <article className={`ywf__item${lifted ? ' is-lift' : ''}`} data-iso={iso}>
+    <article className="ywf__item" data-iso={iso}>
       <header className="ywf__head">
         <span className="ywf__who">
           <span className="ywf__avatar" aria-hidden="true" />
@@ -278,26 +278,26 @@ function FeedItem({ row, handle, metaConnected, onOpen, enriched, loading, onPat
         </button>
       </header>
 
-      {/* Pressing the picture opens it (bauhly-v3 FeedPost): the post lifts
-          out of the feed, whole, above a sheet with its caption; pressing it
-          again puts it back. */}
+      {/* Pressing the picture opens it full size (bauhly-v3 FeedPost →
+          PostView, decision 781): the post travels to the top of the screen
+          with its whole caption under it (DayPostView). */}
       <div
         ref={mediaRef}
-        className={`ywf__media${lifted ? ' is-lift' : ''}`}
+        className="ywf__media"
         role={ready ? 'button' : undefined}
         tabIndex={ready ? 0 : undefined}
-        aria-label={ready ? (lifted ? 'Close this post' : 'Open the caption') : undefined}
-        aria-expanded={ready ? lifted : undefined}
-        onClick={ready ? () => (lifted ? onDrop?.() : onLift?.()) : undefined}
+        aria-label={ready ? 'Open this post' : undefined}
+        aria-expanded={ready ? opened : undefined}
+        onClick={ready ? () => onView?.(mediaRef.current) : undefined}
         onKeyDown={ready ? (e) => {
           if (e.key !== 'Enter' && e.key !== ' ') return;
           e.preventDefault();
-          if (lifted) onDrop?.(); else onLift?.();
+          onView?.(mediaRef.current);
         } : undefined}
       >
         <div className="ywf__frame">
           {drawn ? (
-            <DayPeek key={String(enriched._id)} day={enriched} feed lifted={lifted} liftSheet={liftSheet} />
+            <DayPeek key={String(enriched._id)} day={enriched} feed />
           ) : ready && heldH ? (
             <div className="ywf__skel" style={{ height: `${heldH}px` }} aria-hidden="true" />
           ) : (
@@ -347,69 +347,6 @@ function FeedItem({ row, handle, metaConnected, onOpen, enriched, loading, onPat
   );
 }
 
-/* The opened post's caption (bauhly-v3 `.yw-capsheet`): a titleless half
- * sheet, the pencil at the right of its head, the words scrolling inside it
- * and a floating chevron while there is more below. */
-function CaptionSheet({ open, caption, onClose, onEdit }) {
-  const [more, setMore] = useState(false);
-  useEffect(() => {
-    if (!open) { setMore(false); return undefined; }
-    let body = null;
-    const check = () => {
-      if (!body) return;
-      setMore(body.scrollHeight - body.clientHeight - body.scrollTop > 24);
-    };
-    const t = window.setTimeout(() => {
-      body = document.querySelector('.msheet:has(.yw-capsheet) .msheet__body');
-      if (!body) return;
-      body.scrollTop = 0;
-      check();
-      body.addEventListener('scroll', check, { passive: true });
-    }, 30);
-    return () => {
-      window.clearTimeout(t);
-      body?.removeEventListener('scroll', check);
-    };
-  }, [open, caption]);
-
-  return (
-    <MobileSheet
-      open={open}
-      title=""
-      nav={false}
-      onClose={onClose}
-      exit={440}
-      actions={(
-        <button
-          type="button"
-          className="btn btn--tertiary btn--sm yw-capsheet__edit"
-          aria-label="Edit the caption"
-          onClick={onEdit}
-        >
-          <Icon name="edit" size={16} strokeWidth={2} />
-        </button>
-      )}
-    >
-      <div className="yw-capsheet">
-        <p className="yw-capsheet__text">{caption}</p>
-        <button
-          type="button"
-          className={`yw-capsheet__down${more ? ' is-on' : ''}`}
-          aria-hidden={!more}
-          tabIndex={more ? 0 : -1}
-          aria-label="Read the rest of the caption"
-          onClick={(e) => {
-            const body = e.currentTarget.closest('.msheet__body');
-            body?.scrollBy({ top: Math.round(body.clientHeight * 0.7), behavior: 'smooth' });
-          }}
-        >
-          <Icon name="chevron-down" size={18} strokeWidth={2.4} />
-        </button>
-      </div>
-    </MobileSheet>
-  );
-}
-
 /* The feed's full posts outlive the feed: opening a post's Editor unmounts
  * it, and coming back to skeletons meant every post above the one just edited
  * changed height under the scroll. The cache paints them at once; each mount
@@ -446,9 +383,10 @@ export default function DayFeed({
   const fetchedRef = useRef(new Set());
   const pendingRef = useRef(0);
   const [pending, setPending] = useState(() => new Set());
-  // the opened post (its id) and the height its caption sheet really took
-  const [liftId, setLiftId] = useState(null);
-  const [sheetH, setSheetH] = useState(0);
+  // the post opened full size: { id, fromEl, closing }
+  const [pv, setPv] = useState(null);
+  const pvRef = useRef(null);
+  pvRef.current = pv;
   const rowsKey = useMemo(
     () => (items || []).map((r) => String(r?.day?._id || '')).filter(Boolean).join(','),
     [items],
@@ -521,6 +459,8 @@ export default function DayFeed({
     const seen = new Map();
     const io = new IntersectionObserver((entries) => {
       entries.forEach((r) => seen.set(r.target, r.isIntersecting));
+      // the list moves under an opened post: that is not the studio scrolling (bauhly-v3 decision 1021)
+      if (pvRef.current) return;
       const first = [...box.querySelectorAll('.ywf__item')].find((el) => seen.get(el));
       if (first) onIso?.(first.getAttribute('data-iso'));
     }, { root: null, rootMargin: '-45% 0px -45% 0px', threshold: 0 });
@@ -626,32 +566,14 @@ export default function DayFeed({
     return stop;
   }, [scrollToIso]);
 
-  const liftRow = liftId ? rows.find((r) => String(r.day?._id || '') === liftId) : null;
-  const liftDay = liftRow ? (fullById.get(liftId) || liftRow.day) : null;
-  const drop = () => setLiftId(null);
-  // the two pencils go straight into the Editor (corner) or its caption
-  // editor (sheet), as bauhly-v3's do
-  const openPost = (row, mode) => { setLiftId(null); onOpen?.(row, mode); };
-
-  // the sheet is content-sized up to half the screen: measure it, so the post
-  // is centred in the room really left above it
-  useEffect(() => {
-    if (!liftId) { setSheetH(0); return undefined; }
-    let ro = null;
-    const t = window.setTimeout(() => {
-      const el = document.querySelector('.msheet:has(.yw-capsheet)');
-      if (!el) return;
-      const read = () => setSheetH(Math.round(el.getBoundingClientRect().height));
-      read();
-      if (typeof ResizeObserver !== 'undefined') { ro = new ResizeObserver(read); ro.observe(el); }
-    }, 0);
-    return () => { window.clearTimeout(t); ro?.disconnect(); };
-  }, [liftId]);
+  const pvRow = pv ? rows.find((r) => String(r.day?._id || '') === pv.id) : null;
+  const pvDay = pvRow ? (fullById.get(pv.id) || pvRow.day) : null;
+  const closeView = () => setPv((v) => (v && !v.closing ? { ...v, closing: true } : v));
 
   // a post that left the feed (moved, deleted) cannot stay open
   useEffect(() => {
-    if (liftId && !liftRow) setLiftId(null);
-  }, [liftId, liftRow]);
+    if (pv && !pvRow) setPv(null);
+  }, [pv, pvRow]);
 
   if (!rows.length) {
     return (
@@ -662,7 +584,7 @@ export default function DayFeed({
   }
 
   return (
-    <section className={`ywf${liftId ? ' is-capopen' : ''}`} aria-label="Scheduled posts">
+    <section className="ywf" aria-label="Scheduled posts">
       <div className="ywf__list" ref={listRef}>
         {rows.map((row) => {
           const id = String(row.day?._id || '');
@@ -675,10 +597,8 @@ export default function DayFeed({
               onOpen={onOpen}
               enriched={id ? fullById.get(id) : null}
               loading={id ? pending.has(id) && !fullById.has(id) : false}
-              lifted={!!id && liftId === id}
-              liftSheet={sheetH}
-              onLift={() => setLiftId(id)}
-              onDrop={drop}
+              opened={!!id && pv?.id === id}
+              onView={(el) => { if (id && !pv) setPv({ id, fromEl: el, closing: false }); }}
               onPatched={(post) => {
                 // the PATCH returns the post without its heavy content — keep ours
                 setFullById((prev) => {
@@ -693,26 +613,19 @@ export default function DayFeed({
           );
         })}
       </div>
-      <CaptionSheet
-        open={!!liftDay}
-        caption={liftDay ? captionOf(liftDay) : ''}
-        onClose={drop}
-        onEdit={() => liftRow && openPost(liftRow, 'caption')}
-      />
-      {/* the opened post's way into the Editor, in the screen's own corner so
-          it never covers the composition it is about (bauhly-v3 .yw-capedit) */}
-      {createPortal(
-        <button
-          type="button"
-          className={`yw-capedit${liftDay ? ' is-shown' : ''}`}
-          aria-label="Edit this post"
-          aria-hidden={liftDay ? undefined : 'true'}
-          tabIndex={liftDay ? undefined : -1}
-          onClick={() => liftRow && openPost(liftRow, 'post')}
-        >
-          <Icon name="edit" size={18} strokeWidth={2} />
-        </button>,
-        document.body,
+      {pv && pvDay && (
+        <DayPostView
+          key={pv.id}
+          art={<DayPeek day={pvDay} feed />}
+          handle={String(handle || pvDay?.instagramUsername || '').replace(/^@/, '')}
+          caption={captionOf(pvDay)}
+          fromEl={pv.fromEl}
+          closing={pv.closing}
+          onBack={closeView}
+          onClosed={() => setPv(null)}
+          // Edit hands over to the Editor, as the feed's other ways in do
+          onEdit={() => { const r = pvRow; setPv(null); if (r) onOpen?.(r, 'post'); }}
+        />
       )}
     </section>
   );

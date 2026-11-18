@@ -1425,9 +1425,18 @@ export default function YourPlans() {
       const h = bar ? Math.round(bar.getBoundingClientRect().height) : 0;
       if (h > 0) root.style.setProperty('--apptop-real', `${h}px`);
     };
+    /* the queue's row (DashboardLayout `.gpill-slot`): its height, or 0, so the
+       date row pins under it and the band leaves as one (bauhly-v3 `--topq-h`) */
+    const slot = document.querySelector('.gpill-slot');
+    const publishRow = () => {
+      if (slot) root.style.setProperty('--topq-h', `${Math.round(slot.getBoundingClientRect().height)}px`);
+    };
     publish();
+    publishRow();
     const ro = bar && typeof ResizeObserver !== 'undefined' ? new ResizeObserver(publish) : null;
     if (ro) ro.observe(bar);
+    const roRow = slot && typeof ResizeObserver !== 'undefined' ? new ResizeObserver(publishRow) : null;
+    if (roRow) roRow.observe(slot);
     let last = window.scrollY;
     let pivot = last;
     let down = true;
@@ -1449,7 +1458,9 @@ export default function YourPlans() {
     return () => {
       window.removeEventListener('scroll', onScroll);
       ro?.disconnect();
+      roRow?.disconnect();
       root.classList.remove(CLS);
+      root.style.removeProperty('--topq-h');
     };
   }, [feedOn]);
   const [feedIso, setFeedIso] = useState(null);

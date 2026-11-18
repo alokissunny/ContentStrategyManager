@@ -13,14 +13,14 @@ import { readyCount } from '../lib/captureStatus';
 export const NAV_ITEMS = [
   { to: '/dashboard', label: 'Calendar', icon: 'calendar', exact: true },
   { to: '/dashboard/projects', label: 'Captures', icon: 'notebook-text' },
-  // Mission coverage of the last Instagram posts (pages/MissionAnalysis.jsx)
-  { to: '/dashboard/analysis', label: 'Analysis', icon: 'chart-pie' },
 ];
 
 // Nav items that only appear when their experimental feature flag is on.
 const FLAGGED_NAV_ITEMS = [
   { to: '/dashboard/reel-editor', label: 'Reel editor', icon: 'clapperboard', flag: 'reelEditor' },
   { to: '/dashboard/remix', label: 'Post remix', icon: 'repeat-2', flag: 'postRemix' },
+  // Mission coverage of the Instagram posts (pages/MissionAnalysis.jsx)
+  { to: '/dashboard/analysis', label: 'Analysis', icon: 'chart-pie', flag: 'missionAnalysis' },
 ];
 
 // The nav the current browser should see — base items plus any enabled

@@ -204,10 +204,14 @@ function PeekSlide({ slide, paint, themed, documentHtml, carouselLayoutHtmls, sl
     ? { ...mark, url: canvasSafeUrl(mark.url, mark.key) || mark.url }
     : mark;
   const logoPosition = logoPositionOf(store.libraryEdits);
-  /* Prefer the shared carousel document whenever it exists — themed or not —
-     so stepping slideIndex actually changes the frame. */
+  /* The same rule as WeekView's own preview (`previewUsesDoc`): a themed slide
+     is drawn from the carousel document; every other slide from its own
+     layout html, which is where the Brand Kit colour set is painted. Drawing
+     every slide from the document kept the carousel agent's colours, so the
+     phone feed showed a different palette from the desktop Day view of the
+     same post. The document is still the fallback for a slide with no html. */
   const useDoc = Boolean(documentHtml) && (
-    slideIsThemed(slide) || docSlideCount(documentHtml) > 1
+    slideIsThemed(slide) || (!slide?.layoutHtml && docSlideCount(documentHtml) > 1)
   );
 
   if (layoutHtml || useDoc) {
@@ -319,9 +323,14 @@ function SlidesPeek({ day, feed = false, phone = false, lifted = false, liftShee
       ? { ground: three[turn % 3], fg: three[(1 + turn) % 3], accent: three[(2 + turn) % 3] }
       : raw;
     const out = {};
-    if (p.ground) out['--t-ground-bg'] = p.ground;
-    if (p.fg) out['--t-ground-fg'] = p.fg;
-    if (p.accent) out['--t-accent-bg'] = p.accent;
+    // the --wv-* names too, as WeekView's paintColoursFor writes them, so the
+    // base Brand Kit paint underneath cannot win any colour role
+    if (p.ground) { out['--t-ground-bg'] = p.ground; out['--wv-neutral'] = p.ground; }
+    if (p.fg) { out['--t-ground-fg'] = p.fg; out['--wv-primary'] = p.fg; }
+    if (p.accent) { out['--t-accent-bg'] = p.accent; out['--wv-accent'] = p.accent; }
+    // a set the studio chose for this slide is painted on a document-drawn
+    // slide too, as WeekView's paintColoursFor marks it
+    if (own && own !== 'original') out['--wv-set-own'] = '1';
     return Object.keys(out).length ? out : null;
   };
   const slides = useMemo(() => slidesOf(day), [day]);

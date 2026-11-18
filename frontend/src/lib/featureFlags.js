@@ -10,6 +10,7 @@ const KEYS = {
   linkedin: 'bauhly.ff.linkedin',
   htmlThemes: 'bauhly.ff.htmlThemes',
   postRemix: 'bauhly.ff.postRemix',
+  missionAnalysis: 'bauhly.ff.missionAnalysis',
 };
 
 function readBool(key, fallback = false) {
@@ -28,6 +29,7 @@ let state = {
   linkedin: readBool(KEYS.linkedin, false),
   htmlThemes: readBool(KEYS.htmlThemes, false),
   postRemix: readBool(KEYS.postRemix, false),
+  missionAnalysis: readBool(KEYS.missionAnalysis, false),
 };
 
 const listeners = new Set();
@@ -44,6 +46,7 @@ function setState(patch) {
     if ('linkedin' in patch) localStorage.setItem(KEYS.linkedin, state.linkedin ? '1' : '0');
     if ('htmlThemes' in patch) localStorage.setItem(KEYS.htmlThemes, state.htmlThemes ? '1' : '0');
     if ('postRemix' in patch) localStorage.setItem(KEYS.postRemix, state.postRemix ? '1' : '0');
+    if ('missionAnalysis' in patch) localStorage.setItem(KEYS.missionAnalysis, state.missionAnalysis ? '1' : '0');
   } catch {
     // best-effort local cache only
   }
@@ -78,6 +81,11 @@ export function setHtmlThemesEnabled(next) {
 // Post remix tab (last 3 Instagram posts → Capture → new carousel)
 export function setPostRemixEnabled(next) {
   setState({ postRemix: Boolean(next) });
+}
+
+// Analysis › Mission coverage (pages/MissionAnalysis.jsx)
+export function setMissionAnalysisEnabled(next) {
+  setState({ missionAnalysis: Boolean(next) });
 }
 
 export function useFeatureFlags() {
