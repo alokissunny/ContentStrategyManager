@@ -11,3 +11,13 @@ export function getMissionCoverage({ refresh = false } = {}) {
       return data;
     });
 }
+
+// Fetch recent — adds only the posts published after the newest one already analysed. → coverage + { added }
+export function fetchRecentMissionPosts() {
+  return client.post('/analysis/missions/fetch', {}, { timeout: 5 * 60 * 1000 })
+    .then((res) => {
+      const data = res.data || { posts: [] };
+      ingestPlanDebug('Mission coverage · fetch recent', data);
+      return data;
+    });
+}

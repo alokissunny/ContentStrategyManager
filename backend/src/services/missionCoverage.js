@@ -2,8 +2,12 @@
  * Analysis › Mission coverage — how the account's recent Instagram posts spread
  * across the four content missions (Attract / Nurture / Position / Convert).
  *
- * Posts: the last 10 published Instagram posts (postRemix.loadRemixPosts — the
- * month cache Post remix and the Next-post idea agent read; images already in S3).
+ * Posts: a history kept on the report (`missionCoverage.history`, newest first,
+ * ≤ HISTORY_MAX). The first visit seeds it from the last 10 published Instagram
+ * posts (postRemix.loadRemixPosts — the month cache Post remix and the Next-post
+ * idea agent read; images already in S3). "Fetch recent" (fetchRecentMissions)
+ * reads the newest posts again and adds ONLY those newer than the newest one
+ * already stored — only they are downloaded and analysed.
  * Each post not analysed yet goes to ONE model call (caption + its first image)
  * that returns mission, pillar and a one-line reason; results are kept on the
  * brand report (`missionCoverage.posts`) so a post is analysed once, and copied
@@ -16,6 +20,7 @@ const path = require('path');
 const sharp = require('sharp');
 const BrandAnalysisReport = require('../models/BrandAnalysisReport');
 const { loadRemixPosts } = require('./postRemix');
+const { fetchRecentPosts, plainPost, preparePostMedia } = require('./brandVoice');
 const { completeText } = require('./llmComplete');
 const { parseJsonAnswer } = require('./nextPostIdea');
 const { isS3Configured, getObjectBytes, getPresignedMediaUrl } = require('./s3Client');
@@ -26,6 +31,8 @@ const MISSIONS = ['attract', 'nurture', 'position', 'convert'];
 const PILLARS = ['passion', 'skills', 'story'];
 const MISSION_SAY = { attract: 'Attract', nurture: 'Nurture', position: 'Position', convert: 'Convert' };
 const IMAGE_PX = 640;
+const HISTORY_MAX = 60; // posts kept and counted
+const FETCH_LIMIT = 20; // newest posts read by Fetch recent (no "since" filter upstream)
 
 function coverageModel() {
   // same model as the Next-post idea agent (Claude Sonnet 5.5) unless overridden
@@ -163,11 +170,32 @@ function attentionOf(counts, total) {
  * (all of them with `refresh`). Returns { total, counts, percents, focus, lead,
  * note, posts:[…], analysedAt, model }.
  */
-async function missionCoverage(userId, username, { refresh = false, locale = 'en', debug = null } = {}) {
-  const handle = String(username || '').toLowerCase();
+const timeOf = (p) => (p?.timestamp ? new Date(p.timestamp).getTime() || 0 : 0);
+const newestFirst = (list) => [...list].sort((a, b) => timeOf(b) - timeOf(a));
+
+/** The stored history, or — first visit — the last 10 Instagram posts, which become it. */
+async function historyOf(report, userId, handle) {
+  const kept = report?.missionCoverage?.history;
+  if (Array.isArray(kept) && kept.length) return { posts: kept, seeded: false };
   const snapshot = await loadRemixPosts(userId, handle);
-  const posts = (snapshot.posts || []).filter((p) => idOf(p));
-  const report = await reportFor(userId, handle);
+  return { posts: newestFirst((snapshot.posts || []).filter((p) => idOf(p))).slice(0, HISTORY_MAX), seeded: true };
+}
+
+/** Writes the whole coverage block (dotted paths cannot be set on a null field). */
+function saveCoverage(report, patch, extraSet = {}) {
+  if (!report) return Promise.resolve();
+  const next = { ...(report.missionCoverage || {}), ...patch };
+  report.missionCoverage = next; // later reads in this request see it
+  return BrandAnalysisReport.updateOne({ _id: report._id }, { $set: { ...extraSet, missionCoverage: next } })
+    .catch((err) => console.warn('[missionCoverage] could not store:', err.message));
+}
+
+async function missionCoverage(userId, username, { refresh = false, locale = 'en', debug = null, report: given = null } = {}) {
+  const handle = String(username || '').toLowerCase();
+  const report = given || await reportFor(userId, handle);
+  const history = await historyOf(report, userId, handle);
+  const posts = history.posts;
+  if (history.seeded && posts.length) await saveCoverage(report, { history: posts, lastFetchedAt: new Date() });
   const stored = { ...(report?.missionCoverage?.posts || {}) };
 
   const todo = posts.filter((p) => refresh || !stored[tagKey(idOf(p))]?.mission);
@@ -183,12 +211,7 @@ async function missionCoverage(userId, username, { refresh = false, locale = 'en
       set[`igMissionTags.${k}`] = tag.mission;
       if (tag.pillar) set[`igPillarTags.${k}`] = tag.pillar;
     }
-    if (report) {
-      await BrandAnalysisReport.updateOne(
-        { _id: report._id },
-        { $set: { ...set, missionCoverage: { at: new Date(), model, posts: stored } } },
-      ).catch((err) => console.warn('[missionCoverage] could not store:', err.message));
-    }
+    await saveCoverage(report, { at: new Date(), model, posts: stored }, set);
   }
 
   const canSign = isS3Configured();
@@ -220,9 +243,47 @@ async function missionCoverage(userId, username, { refresh = false, locale = 'en
     ...attentionOf(counts, total),
     posts: rows,
     analysedAt: todo.length ? new Date() : (report?.missionCoverage?.at || null),
-    fetchedAt: snapshot.fetchedAt || null,
+    lastFetchedAt: report?.missionCoverage?.lastFetchedAt || null,
     model,
   };
 }
 
-module.exports = { missionCoverage, percentsOf, attentionOf, MISSIONS };
+/**
+ * Fetch recent: reads the newest Instagram posts and adds only those published
+ * after the newest post already stored (those are the only ones downloaded and
+ * analysed). Known posts get their likes/comments refreshed. Returns the
+ * coverage plus `added` (how many new posts).
+ */
+async function fetchRecentMissions(userId, username, { locale = 'en', debug = null } = {}) {
+  const handle = String(username || '').toLowerCase();
+  const report = await reportFor(userId, handle);
+  const { posts: kept } = await historyOf(report, userId, handle);
+  const known = new Map(kept.map((p) => [idOf(p), p]));
+  const cutoff = Math.max(0, ...kept.map(timeOf));
+
+  const fresh = await fetchRecentPosts(userId, handle, FETCH_LIMIT);
+  const freshPlain = (fresh.posts || []).map(plainPost).filter((p) => idOf(p));
+  const newer = freshPlain.filter((p) => !known.has(idOf(p)) && timeOf(p) > cutoff);
+
+  // engagement moves on: refresh the counts of posts already stored
+  const counts = new Map(freshPlain.map((p) => [idOf(p), p]));
+  const updated = kept.map((p) => {
+    const f = counts.get(idOf(p));
+    return f ? { ...p, likesCount: f.likesCount, commentsCount: f.commentsCount } : p;
+  });
+
+  let added = [];
+  if (newer.length) {
+    // stores each new post's slides / reel frames in S3 (frameKeys) — only the new ones
+    const prepared = await preparePostMedia(userId, handle, newer);
+    added = (prepared.posts || []).map(plainPost);
+  }
+  const history = newestFirst([...added, ...updated]).slice(0, HISTORY_MAX);
+  await saveCoverage(report, { history, lastFetchedAt: new Date() });
+  console.log(`[missionCoverage] @${handle} fetch recent (${fresh.source || '?'}): ${freshPlain.length} read, ${added.length} new since ${cutoff ? new Date(cutoff).toISOString().slice(0, 10) : 'never'}`);
+
+  const out = await missionCoverage(userId, handle, { locale, debug, report });
+  return { ...out, added: added.length, source: fresh.source || '' };
+}
+
+module.exports = { missionCoverage, fetchRecentMissions, percentsOf, attentionOf, MISSIONS };

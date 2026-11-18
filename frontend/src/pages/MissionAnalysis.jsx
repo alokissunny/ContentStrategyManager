@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Glyph from '../components/Glyph';
-import { getMissionCoverage } from '../api/missions';
+import { getMissionCoverage, fetchRecentMissionPosts } from '../api/missions';
 import { MISSIONS, MISSION_ORDER, PILLAR_SAY } from '../lib/missions';
 import { useActiveHandle } from '../lib/store';
 import './missionAnalysis.css';
@@ -13,6 +13,7 @@ import './missionAnalysis.css';
  */
 
 const dayOf = (d) => (d ? new Date(d).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : '');
+const whenOf = (d) => (d ? new Date(d).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '');
 
 function MissionChip({ mission }) {
   const m = MISSIONS[mission];
@@ -52,6 +53,8 @@ export default function MissionAnalysis() {
   const handle = useActiveHandle() || '';
   const [state, setState] = useState({ loading: true, error: '', data: null, refreshing: false });
   const [only, setOnly] = useState('');
+  const [fetching, setFetching] = useState(false);
+  const [fetchSay, setFetchSay] = useState('');
 
   const load = useCallback((refresh) => {
     setState((s) => ({ ...s, loading: !s.data, refreshing: Boolean(s.data), error: '' }));
@@ -66,7 +69,27 @@ export default function MissionAnalysis() {
   }, []);
 
   // the header account switcher changes whose posts these are
-  useEffect(() => { setOnly(''); load(false); }, [handle, load]);
+  useEffect(() => { setOnly(''); setFetchSay(''); load(false); }, [handle, load]);
+
+  // Fetch recent: only posts published after the newest one already here are read and analysed
+  const fetchRecent = () => {
+    const before = state.data?.lastFetchedAt;
+    setFetching(true);
+    setFetchSay('');
+    fetchRecentMissionPosts()
+      .then((data) => {
+        setState({ loading: false, refreshing: false, error: '', data });
+        setFetchSay(data.added
+          ? `${data.added} new ${data.added === 1 ? 'post' : 'posts'} added and analysed.`
+          : `No new posts since ${before ? whenOf(before) : 'the last fetch'}.`);
+      })
+      .catch((err) => setState((s) => ({
+        ...s,
+        error: err.response?.data?.message || 'We could not fetch your recent posts. Please try again.',
+      })))
+      .finally(() => setFetching(false));
+  };
+  const busy = state.loading || state.refreshing || fetching;
 
   const data = state.data;
   const posts = useMemo(() => (data?.posts || []).filter((p) => !only || p.mission === only), [data, only]);
@@ -83,9 +106,21 @@ export default function MissionAnalysis() {
             four content missions — which are covered and which need attention.
           </p>
         </div>
-        <button type="button" className="btn btn--ghost mca-refresh" onClick={() => load(true)} disabled={state.loading || state.refreshing}>
-          <Glyph name="refresh-cw" size={15} /> {state.refreshing ? 'Analysing…' : 'Re-analyse'}
-        </button>
+        <div className="mca-acts">
+          <button type="button" className="btn btn--ghost mca-refresh" onClick={fetchRecent} disabled={busy}
+            title="Adds only the posts published since the newest one here">
+            <Glyph name="download" size={15} /> {fetching ? 'Fetching…' : 'Fetch recent'}
+          </button>
+          <button type="button" className="btn btn--ghost mca-refresh" onClick={() => load(true)} disabled={busy}
+            title="Works out the mission of every post here again">
+            <Glyph name="refresh-cw" size={15} /> {state.refreshing ? 'Analysing…' : 'Re-analyse'}
+          </button>
+          {(fetchSay || data?.lastFetchedAt) && (
+            <p className="mca-fetched" aria-live="polite">
+              {fetchSay || `Last fetched ${whenOf(data.lastFetchedAt)}`}
+            </p>
+          )}
+        </div>
       </div>
 
       {state.error && <p className="mca-error" role="alert">{state.error}</p>}

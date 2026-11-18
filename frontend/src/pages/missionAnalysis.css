@@ -3,6 +3,12 @@
 .mca-page { max-width: 960px; margin: 0 auto; padding-bottom: var(--sp-6, 24px); }
 .mca-head { margin-bottom: var(--sp-5, 20px); }
 .mca-refresh { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.mca-acts { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: var(--sp-2, 8px); max-width: 360px; }
+.mca-fetched { flex-basis: 100%; margin: 0; text-align: right; font-size: var(--text-xs, 12px); color: var(--ink-500, #6b6b73); }
+@media (max-width: 599px) {
+  .mca-acts { justify-content: flex-start; max-width: none; }
+  .mca-fetched { text-align: left; }
+}
 .mca-error { margin: 0 0 var(--sp-4, 16px); color: var(--signal-600, #c2410c); font-size: var(--text-sm, 14px); }
 .mca-empty { margin: var(--sp-3, 12px) 0; font-size: var(--text-sm, 14px); line-height: 1.5; color: var(--ink-500, #6b6b73); }
 .mca-loading { display: flex; align-items: center; gap: var(--sp-3, 12px); padding: var(--sp-5, 20px); border-radius: 16px; background: var(--surface-sunken, #f4f4f2); font-size: var(--text-sm, 14px); color: var(--ink-700, #3a3a42); }

@@ -1,20 +1,27 @@
 const { currentUsername } = require('../utils/currentProfile');
 const { appLocaleOf } = require('../utils/appLocale');
 const { wantsPromptDebug } = require('../utils/promptDebug');
-const { missionCoverage } = require('../services/missionCoverage');
+const { missionCoverage, fetchRecentMissions } = require('../services/missionCoverage');
 
 // GET /api/analysis/missions[?refresh=1] — Analysis › Mission coverage for the current handle.
 async function getMissionCoverage(req, res) {
+  return respond(req, res, (username, opts) => missionCoverage(req.user._id, username, {
+    ...opts, refresh: req.query.refresh === '1' || req.query.refresh === 'true',
+  }));
+}
+
+// POST /api/analysis/missions/fetch — Fetch recent: adds only posts newer than the newest one stored.
+async function fetchRecentMissionPosts(req, res) {
+  return respond(req, res, (username, opts) => fetchRecentMissions(req.user._id, username, opts));
+}
+
+async function respond(req, res, work) {
   const username = await currentUsername(req.user._id);
   if (!username) return res.json({ username: null, total: 0, posts: [] });
   const debug = wantsPromptDebug(req) ? [] : null;
   const started = Date.now();
   try {
-    const out = await missionCoverage(req.user._id, username, {
-      refresh: req.query.refresh === '1' || req.query.refresh === 'true',
-      locale: appLocaleOf(req),
-      debug,
-    });
+    const out = await work(username, { locale: appLocaleOf(req), debug });
     res.json({
       ...out,
       username,
@@ -34,4 +41,4 @@ async function getMissionCoverage(req, res) {
   }
 }
 
-module.exports = { getMissionCoverage };
+module.exports = { getMissionCoverage, fetchRecentMissionPosts };
