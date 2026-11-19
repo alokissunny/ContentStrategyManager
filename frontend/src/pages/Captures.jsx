@@ -31,6 +31,8 @@ import { listGeneratedImages, deleteGeneratedImage } from '../api/images';
 import { previewUrl } from '../api/media';
 import { GeneratedFolderView, readGenCache, writeGenCache, CaptureChat } from './Projects';
 import ReelStudio from './captures/ReelStudio';
+import { openReelPlanner } from '../components/ReelPlanner';
+import { ideaFromCapture } from '../api/ideas';
 import ReelStyleModal from './captures/ReelStyleModal';
 import { listCaptureReels, createCaptureReel, reelWorking } from '../api/captureReels';
 import './projects.css';
@@ -724,9 +726,30 @@ export default function Captures() {
   const hasMedia = (it) => (it.session.attachments || []).length > 0;
   // Generate reel: pick Default or a reel style first, then one reel per
   // ticked capture; the studio opens on the first
+  // one capture → the reel planner (format, story sequences, the same reel
+  // options as a recommended post — studio, 2026-11-19); several → one reel each
+  const planReel = (it) => run(async () => {
+    let made;
+    try {
+      made = await ideaFromCapture(it.memberIds);
+    } catch {
+      // the planner could not start: the reel style picker still makes a reel
+      setStylePick({ list: [it] });
+      return;
+    }
+    const { idea, captureId } = made;
+    const own = (it.project?.captures || []).find((c) => c.id === captureId);
+    openReelPlanner({
+      idea,
+      captured: { captureId, projectId: it.projectId, attachments: own?.attachments || it.session.attachments || [] },
+      onMade: (r) => noteReels([r]),
+    });
+    setSel([]);
+  });
   const reelThese = (list) => {
     const ok = list.filter(hasMedia);
-    if (ok.length) setStylePick({ list: ok });
+    if (ok.length === 1) planReel(ok[0]);
+    else if (ok.length) setStylePick({ list: ok });
   };
   const generateReels = ({ styleId, direction }) => run(async () => {
     const ok = stylePick?.list || [];
@@ -1381,7 +1404,7 @@ export default function Captures() {
           // the calendar opens the post's day in Day view (YourPlans reads `openPostDay` from the route state)
           onViewPost={(post) => { setOpen(null); navigate('/dashboard', { state: post?.date ? { openPostDay: String(post.date).slice(0, 10) } : {} }); }}
           reel={reelOf(openItem)}
-          onReel={(fresh) => { setOpen(null); if (fresh) setStylePick({ list: [openItem] }); else setReeling({ item: openItem, autoStart: false }); }}
+          onReel={(fresh) => { setOpen(null); if (fresh) planReel(openItem); else setReeling({ item: openItem, autoStart: false }); }}
         />
       )}
       {stylePick && (

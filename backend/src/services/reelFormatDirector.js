@@ -14,6 +14,10 @@
  *   faceless_text          the story told in on-screen lines over footage, cut
  *                          to an original track (directReel + a text-led style).
  *   music_led              the existing Bauhly Reel Director (default teaser).
+ *   motion_graphics        the same director with MOTION_GRAPHICS_LOOK: an
+ *                          explainer — a line on every shot, labels / arrows /
+ *                          circles / wipes on most photos, 15–30 s
+ *                          (prompts/reel-formats/motion-graphics.md).
  *
  * Prompts: prompts/reel-formats/*.md (dialogue-base + one file per format).
  * Why (2026-11-18): a Talking head + B-roll reel came out as four takes played
@@ -583,8 +587,18 @@ async function directFacelessText({ material, story, brand, handle, directReel }
   return { ...directed, style };
 }
 
+// Motion graphics (2026-11-19): the default director (reelDirectorDefault.js)
+// with its teaser limits replaced — longer, text on every shot, more overlays
+const MOTION_GRAPHICS_LOOK = {
+  name: 'Motion graphics',
+  target: [15, 30],
+  maxOverlays: 12,
+  get extraRules() { return read('motion-graphics.md'); },
+};
+
 module.exports = {
   DIALOGUE_FORMATS,
+  MOTION_GRAPHICS_LOOK,
   directDialogueReel,
   directFacelessText,
   // exported for tests

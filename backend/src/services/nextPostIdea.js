@@ -587,7 +587,8 @@ async function nextIdeas(userId, username, { locale = 'en', refresh = false, deb
   const basedOn = fingerprintOf(ctx, locale);
 
   if (!refresh) {
-    const latest = await PostIdea.findOne({ user: userId, instagramUsername: handle })
+    // a capture's own idea (Captures › Generate reel) is never a suggestion batch
+    const latest = await PostIdea.findOne({ user: userId, instagramUsername: handle, batchId: { $not: /^capture:/ } })
       .sort({ createdAt: -1 }).select('batchId basedOn').lean();
     if (latest && latest.basedOn === basedOn) {
       const batch = await PostIdea.find({ user: userId, instagramUsername: handle, batchId: latest.batchId, status: 'suggested' })

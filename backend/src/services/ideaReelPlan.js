@@ -24,10 +24,10 @@ const { estimatePlanCostUsd } = require('./weeklyPlan');
 const { LANGUAGES } = require('../utils/appLocale');
 
 const PROMPT_FILE = path.join(__dirname, '..', '..', 'prompts', 'idea-reel-plan.md');
-const FORMATS = ['faceless_text', 'faceless_voiceover', 'talking_head', 'talking_head_broll', 'music_led'];
+const FORMATS = ['faceless_text', 'faceless_voiceover', 'talking_head', 'talking_head_broll', 'music_led', 'motion_graphics'];
 const ROLES = ['hook', 'context', 'value', 'proof', 'payoff'];
 const SHOTS = ['talking_head', 'broll', 'talking_head_broll', 'text', 'voiceover'];
-const PLAN_VERSION = 3; // 2: per-sequence B-roll shot list · 3: Claude Sonnet 5.5 (2026-11-19)
+const PLAN_VERSION = 4; // 4: motion graphics planned from the pictures on file · 2: per-sequence B-roll shot list · 3: Claude Sonnet 5.5 (2026-11-19)
 
 // Claude Sonnet 5.5 at the studio's request (2026-11-19) — an exception to the
 // OpenAI-by-default rule, like the next-post idea agent; IDEA_REEL_MODEL overrides.
@@ -129,12 +129,13 @@ async function loadCapture(userId, captureId) {
 function cleanPlan(raw, forced) {
   const p = raw && typeof raw === 'object' ? raw : {};
   const format = forced || (FORMATS.includes(p.format) ? p.format : 'talking_head_broll');
-  const faceless = format === 'faceless_text' || format === 'faceless_voiceover' || format === 'music_led';
+  const faceless = ['faceless_text', 'faceless_voiceover', 'music_led', 'motion_graphics'].includes(format);
   const sequences = (Array.isArray(p.sequences) ? p.sequences : []).slice(0, 4).map((s, i, all) => {
     let shot = SHOTS.includes(s?.shot) ? s.shot : 'broll';
     if (faceless && (shot === 'talking_head' || shot === 'talking_head_broll')) shot = format === 'faceless_voiceover' ? 'voiceover' : 'text';
     if (format === 'talking_head') shot = 'talking_head';
-    const silent = shot === 'text' || format === 'music_led';
+    if (format === 'motion_graphics') shot = 'text';
+    const silent = shot === 'text' || format === 'music_led' || format === 'motion_graphics';
     return {
       title: str(s?.title, 60) || `Sequence ${i + 1}`,
       role: ROLES.includes(s?.role) ? s.role : (i === 0 ? 'hook' : i === all.length - 1 ? 'payoff' : 'value'),
@@ -170,6 +171,22 @@ function cleanPlan(raw, forced) {
  * made for this capture + format (unless refresh).
  * → { plan, idea: { id, mission, missionWhy, title }, cached }
  */
+async function saveMotionPlan(userId, idea, cid, { kept, brief, refresh, debug }) {
+  // served again while the same pictures are on file (a photo added → re-planned)
+  const own = cid ? await Project.findOne({ user: userId, 'captures._id': cid }).select('captures._id captures.attachments.key').lean() : null;
+  const capKeys = ((own?.captures || []).find((c) => String(c._id) === cid)?.attachments || []).map((a) => a.key).filter(Boolean);
+  const sourceSig = [...capKeys, ...(await reelBrollKeys(userId, idea))].sort().join('|');
+  if (!refresh && kept?.format === 'motion_graphics' && kept.motionPlan && kept.captureId === cid && kept.version === PLAN_VERSION && kept.sourceSig === sourceSig) {
+    return { plan: kept, idea: brief, cached: true };
+  }
+  const plan = { ...(await motionReelPlanFor(userId, idea, cid, { kept, debug })), sourceSig };
+  idea.reelPlan = plan;
+  if (cid && !idea.captureId) idea.captureId = cid;
+  idea.markModified('reelPlan');
+  await idea.save();
+  return { plan, idea: brief, cached: false };
+}
+
 async function ideaReelPlan(userId, ideaId, { captureId, format = '', refresh = false, locale = 'en', debug = null } = {}) {
   const idea = await PostIdea.findOne({ _id: ideaId, user: userId });
   if (!idea) return null;
@@ -177,9 +194,12 @@ async function ideaReelPlan(userId, ideaId, { captureId, format = '', refresh = 
   const forced = FORMATS.includes(format) ? format : '';
   const kept = idea.reelPlan;
   const brief = { id: String(idea._id), mission: idea.mission, missionWhy: idea.missionWhy || '', title: idea.title };
-  if (!refresh && kept?.version === PLAN_VERSION && kept.captureId === cid && (!forced || kept.format === forced)) {
+  if (!refresh && kept?.version === PLAN_VERSION && kept.captureId === cid && (!forced || kept.format === forced)
+    && !(forced === 'motion_graphics' && !kept.motionPlan)) {
     return { plan: kept, idea: brief, cached: true };
   }
+
+  if (forced === 'motion_graphics') return saveMotionPlan(userId, idea, cid, { kept, brief, refresh, debug });
 
   const cap = cid ? await loadCapture(userId, cid) : null;
   const handle = idea.instagramUsername || cap?.project?.instagramUsername || '';
@@ -219,6 +239,8 @@ async function ideaReelPlan(userId, ideaId, { captureId, format = '', refresh = 
       retryHint: 'Return ONLY the JSON object for plan_idea_reel, matching the schema exactly.',
     });
   const plan = { ...cleanPlan(res.parsed, forced), captureId: cid, madeAt: new Date().toISOString() };
+  // the producer chose Motion graphics: rebuild it from the pictures on file
+  if (plan.format === 'motion_graphics') return saveMotionPlan(userId, idea, cid, { kept: plan, brief, refresh: true, debug });
   const usage = res.usage || {};
   const costUsd = estimatePlanCostUsd(res.model, num(usage.input_tokens), num(usage.output_tokens), num(usage.cached_tokens), num(usage.cache_write_tokens));
   debug?.push({
@@ -237,6 +259,130 @@ async function ideaReelPlan(userId, ideaId, { captureId, format = '', refresh = 
   return { plan, idea: brief, cached: false };
 }
 
+/*
+ * The media a recommended reel may use beyond its capture: the idea's suggested
+ * photos, then its source captures' photos/clips (shared with
+ * captureReelController.createReel so the plan and the render see the same set).
+ */
+async function reelBrollKeys(userId, idea) {
+  let keys = (idea?.assets || []).map((a) => a.key).filter(Boolean);
+  const srcIds = (idea?.sources || []).filter((x) => x.kind === 'capture' && /^[a-f0-9]{24}$/i.test(String(x.id))).map((x) => String(x.id));
+  if (srcIds.length) {
+    const srcProjects = await Project.find({ user: userId, 'captures._id': { $in: srcIds } }).select('captures._id captures.attachments.key captures.attachments.type').lean();
+    srcProjects.forEach((p) => (p.captures || []).forEach((c) => {
+      if (srcIds.includes(String(c._id))) (c.attachments || []).forEach((a) => a.key && keys.push(a.key));
+    }));
+  }
+  keys = [...new Set(keys)].slice(0, 12);
+  return keys;
+}
+
+const say = (s) => String(s || '').replace(/\s+/g, ' ').trim();
+const FORMAT_SAY = {
+  before_after_wipe: 'a before → after wipe',
+  ken_burns: 'slow camera moves and captions',
+  stat_counter: 'numbers that count up',
+  listicle_tips: 'numbered tips',
+  hotspot_callouts: 'tagged details on a finished photo',
+  palette_extract: "the room's colour palette pulled from a photo",
+  grid_build: 'a four-photo grid',
+  kinetic_hook: 'animated headlines and moving shapes',
+};
+
+/*
+ * Motion graphics (studio, 2026-11-19): the reel plan IS the motion planner's
+ * plan (motionReelSelector → motionReelPlanner), built only from the photos,
+ * plans and renders already on file — nothing to film, nothing asked for. It is
+ * stored on the plan (`motionPlan`) and the render reuses it.
+ */
+async function motionReelPlanFor(userId, idea, cid, { kept, debug }) {
+  const agent = require('./captureReelAgent');
+  const project = cid ? await Project.findOne({ user: userId, 'captures._id': cid }).select('_id instagramUsername') : null;
+  if (!project) {
+    const err = new Error('Save the capture first — the motion reel is made from its photos.');
+    err.statusCode = 400;
+    throw err;
+  }
+  const handle = idea.instagramUsername || project.instagramUsername || '';
+  const brollKeys = await reelBrollKeys(userId, idea);
+  const rows = [];
+  const material = await agent._loadMaterial({
+    _id: 'plan', user: userId, projectId: project._id, captureIds: [cid], instagramUsername: handle, takes: [], brollKeys, storyPlan: { sequences: [] }, graphicsOk: true,
+  }, { add: (r) => rows.push(r) });
+  const { brandKitColors, brandKitFonts } = require('./brandKitColors');
+  const [dna, colors, fonts] = await Promise.all([
+    handle ? loadBrandDna(userId, handle).catch(() => null) : null,
+    brandKitColors(userId, handle),
+    brandKitFonts(userId, handle).catch(() => null),
+  ]);
+  const started = Date.now();
+  const mp = await require('./motionReelPlanner').planMotionReel({
+    material,
+    brand: { accent: colors?.accent, ground: colors?.ground, fg: colors?.fg, headlineFont: fonts?.heading?.family, bodyFont: fonts?.body?.family },
+    dna, handle, idea, storyPlan: null, language: 'English',
+  });
+  mp.debugRows.forEach((r) => debug?.push({ ...r, elapsedMs: r.elapsedMs || Date.now() - started }));
+  const m = mp.plan;
+  const A = new Map(mp.ctx.capture.assets.map((a) => [a.assetId, a]));
+  const pic = (id) => (!id ? 'your brand colours' : A.get(id)?.summary ? `your photo of ${A.get(id).summary.replace(/\.$/, '').toLowerCase()}` : 'one of your photos');
+  const secs = (seg) => { const d = Math.max(1, Math.round(seg.endSec - seg.startSec)); return [d, d]; };
+  const cap = (seg) => seg.accents?.find((a) => a.kind === 'fact_captions')?.items || [];
+  const NOTHING = 'Nothing to film — made from the photos you already shared.';
+  const row = (title, role, onScreenText, record, targetSec) => ({
+    title, role, shot: 'text', say: '', onScreenText: say(onScreenText).slice(0, 80), record: say(record).slice(0, 400), broll: '', guidance: NOTHING, targetSec, existing: true,
+  });
+  const sequences = [];
+  m.segments.forEach((seg) => {
+    const q = seg.props || {};
+    if (seg.type === 'intro') { sequences.push(row('Stop the scroll', 'hook', (q.words || []).join(' '), `A bold animated headline over ${pic(q.backgroundAssetId)}.`, secs(seg))); return; }
+    if (seg.type === 'outro') { sequences.push(row('Call to action', 'payoff', q.cta, `An end card in your brand colours${q.handle ? ` with ${q.handle}` : ''}.`, secs(seg))); return; }
+    const c = cap(seg);
+    const per = (n) => { const d = Math.max(1, Math.round((seg.endSec - seg.startSec) / Math.max(1, n))); return [d, d]; };
+    if (seg.formatId === 'ken_burns') {
+      (q.assetIds || []).forEach((id, i) => sequences.push(row(i === 0 ? 'Set the scene' : i === q.assetIds.length - 1 ? 'The hero shot' : 'The detail', i === 0 ? 'context' : i === q.assetIds.length - 1 ? 'proof' : 'value', c[i] || '', `A slow camera move across ${pic(id)}${i === q.assetIds.length - 1 && seg.accents?.some((a) => a.kind === 'palette_strip') ? ', with its colour palette drawn in' : ''}.`, per(q.assetIds.length))));
+    } else if (seg.formatId === 'before_after_wipe') {
+      sequences.push(row('Before → after', 'proof', c.join(' · '), `A wipe from ${pic(q.beforeAssetId)} to ${pic(q.afterAssetId)}, with Before / After labels.`, secs(seg)));
+    } else if (seg.formatId === 'stat_counter') {
+      (q.stats || []).forEach((st) => sequences.push(row(`Count up ${st.value}`, 'proof', st.label, `${st.value} counts up on screen${q.backgroundAssetId ? ` over ${pic(q.backgroundAssetId)}` : ''}.`, per(q.stats.length))));
+    } else if (seg.formatId === 'listicle_tips') {
+      (q.tips || []).forEach((t, i) => sequences.push(row(`Tip ${i + 1}`, 'value', t.title, `Numbered tip card in your brand colours${q.backgroundAssetId ? ` over ${pic(q.backgroundAssetId)}` : ''}.`, per(q.tips.length))));
+    } else if (seg.formatId === 'hotspot_callouts') {
+      const names = (q.productIds || []).map((id) => mp.ctx.project.products.find((x) => x.productId === id)?.name).filter(Boolean);
+      sequences.push(row('Tag the details', 'value', c[0] || names.join(' · '), `Pins and labels on ${pic(q.assetId)}: ${names.join(', ')}.`, secs(seg)));
+    } else if (seg.formatId === 'palette_extract') {
+      sequences.push(row('The colour story', 'value', c.join(' · '), `The room's colours are pulled out of ${pic(q.assetId)} as swatches.`, secs(seg)));
+    } else if (seg.formatId === 'grid_build') {
+      sequences.push(row('Build the grid', 'value', (q.tiles || []).map((t) => t.label).filter(Boolean).join(' · '), `Four of your photos land one by one into a grid${seg.accents?.some((a) => a.kind === 'poll_sticker') ? ', then a "Which one?" poll' : ''}.`, secs(seg)));
+    } else {
+      const lines = q.lines?.length ? q.lines : [(q.words || []).join(' ')];
+      lines.forEach((l, i) => sequences.push(row(i === 0 ? 'The headline' : `Line ${i + 1}`, i === 0 ? 'hook' : i === lines.length - 1 ? 'proof' : 'value', l, `Animated type with moving shapes over ${pic(q.backgroundAssetId)}.`, per(lines.length))));
+    }
+  });
+  const used = new Set();
+  m.segments.forEach((seg) => { const q = seg.props || {}; [q.backgroundAssetId, q.beforeAssetId, q.afterAssetId, q.assetId, ...(q.assetIds || []), ...(q.tiles || []).map((t) => t.assetId)].forEach((id) => id && used.add(id)); });
+  const total = Math.round(m.durationSec);
+  const plan = {
+    version: PLAN_VERSION,
+    format: 'motion_graphics',
+    priority: kept?.priority?.headline ? kept.priority : { headline: 'Show your work at its best.', body: '' },
+    title: say(idea.title).slice(0, 120) || (m.segments[0]?.props?.words || []).join(' '),
+    formatSummary: (used.size
+      ? `${FORMAT_SAY[m.mainFormat] || 'Animated graphics'} over ${used.size} of your photos — nothing to film.`
+      : `${FORMAT_SAY[m.mainFormat] || 'Animated graphics'} on your brand colours — no photos needed, nothing to film.`).replace(/^./, (x) => x.toUpperCase()),
+    formatWhy: used.size
+      ? `Built only from what you already shared (${used.size} of the ${mp.ctx.capture.assets.length} pictures on file), so there is nothing new to record or upload.`
+      : 'This capture has no photos, so the reel is pure graphics drawn from what you told Bauhly — nothing to record or upload.',
+    estimatedSec: [total, total],
+    caption: m.caption,
+    sequences,
+    motionPlan: m,
+    assetSig: [...mp.ctx.internal.values()].map((p) => p.key).sort().join('|'),
+    captureId: cid,
+    madeAt: new Date().toISOString(),
+  };
+  return plan;
+}
+
 /* The plan as a director note for the reel pipeline (captureReelAgent). */
 function storyPlanDirection(plan) {
   if (!plan?.sequences?.length) return '';
@@ -247,4 +393,4 @@ function storyPlanDirection(plan) {
 
 const TALKING_FORMATS = new Set(['talking_head', 'talking_head_broll', 'faceless_voiceover']);
 
-module.exports = { ideaReelPlan, storyPlanDirection, cleanPlan, FORMATS, TALKING_FORMATS, TOOL };
+module.exports = { ideaReelPlan, reelBrollKeys, motionReelPlanFor, storyPlanDirection, cleanPlan, FORMATS, TALKING_FORMATS, TOOL };

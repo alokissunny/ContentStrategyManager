@@ -82,18 +82,7 @@ async function createReel(req, res) {
     .filter((t) => t && typeof t.key === 'string' && t.key.length < 300)
     .map((t) => ({ key: t.key, sequence: Math.max(0, Math.min(9, Math.round(Number(t.sequence) || 0))), role: t.role === 'broll' ? 'broll' : 'say' }));
   // B-roll beyond this capture: the idea's suggested media, then its source captures' photos/clips
-  let brollKeys = [];
-  if (storyPlan) {
-    brollKeys = (idea.assets || []).map((a) => a.key).filter(Boolean);
-    const srcIds = (idea.sources || []).filter((x) => x.kind === 'capture' && isId(x.id)).map((x) => x.id);
-    if (srcIds.length) {
-      const srcProjects = await Project.find({ user: req.user._id, 'captures._id': { $in: srcIds } }).select('captures._id captures.attachments.key captures.attachments.type').lean();
-      srcProjects.forEach((p) => (p.captures || []).forEach((c) => {
-        if (srcIds.includes(String(c._id))) (c.attachments || []).forEach((a) => a.key && brollKeys.push(a.key));
-      }));
-    }
-    brollKeys = [...new Set(brollKeys)].slice(0, 12);
-  }
+  const brollKeys = storyPlan ? await require('../services/ideaReelPlan').reelBrollKeys(req.user._id, idea) : [];
   let style = null;
   if (styleId) {
     style = isId(styleId) ? await ReelStyle.findOne({ _id: styleId, status: 'ready' }).select('name').lean() : null;
@@ -105,7 +94,7 @@ async function createReel(req, res) {
   if (!project) return res.status(404).json({ message: 'Capture not found' });
   const members = captureIds.map((id) => project.captures.id(id)).filter(Boolean);
   if (!members.length) return res.status(404).json({ message: 'Capture not found' });
-  if (!members.some((c) => (c.attachments || []).length)) {
+  if (!members.some((c) => (c.attachments || []).length) && storyPlan?.format !== 'motion_graphics') {
     return res.status(400).json({ message: 'This capture has no photos or clips to cut a reel from. Add some first.' });
   }
   // one reel at a time per capture

@@ -179,7 +179,7 @@ async function assetsAndPreviews(assets) {
   return { assets: out.filter(Boolean), parts };
 }
 
-function briefOf({ assets, material, profile, dna, dcttStage }) {
+function briefOf({ assets, material, profile, dna, dcttStage, target = TARGET }) {
   const notes = material.capture.notes.map((n) => [n.note, n.understanding?.happened, n.understanding?.actionTaken, n.understanding?.outcome]
     .filter(Boolean).join('\n')).join('\n\n').slice(0, 4000);
   const quote = (material.capture.conversation || []).filter((t) => t.role === 'user').map((t) => t.text).join(' ').slice(0, 600);
@@ -198,7 +198,7 @@ function briefOf({ assets, material, profile, dna, dcttStage }) {
     },
     dcttStage: dcttStage || 'discovery',
     language: 'the language of project.notes (the studio\'s own words)',
-    targetSeconds: TARGET,
+    targetSeconds: target,
     music: { bpm: MUSIC_BPM, mood: DEFAULT_MUSIC.mood },
     avoid: dna?.neverDo ? [dna.neverDo.slice(0, 300)] : [],
     assets,
@@ -216,7 +216,9 @@ function subjectOf(asset, name) {
 }
 
 // ── validation (the guidance's validateReelPlan, + our renderer's limits) ─────
-function validateReelPlan(plan, assets) {
+function validateReelPlan(plan, assets, { target = TARGET, maxOverlays = MAX_OVERLAYS } = {}) {
+  const TARGET = target; // eslint-disable-line no-shadow
+  const MAX_OVERLAYS = maxOverlays; // eslint-disable-line no-shadow
   const errors = [];
   const byId = new Map(assets.map((a) => [a.id, a]));
   const shots = Array.isArray(plan?.shots) ? plan.shots : [];
@@ -247,7 +249,7 @@ function validateReelPlan(plan, assets) {
     }
   });
   const overlayCount = shots.reduce((n, s) => n + (Array.isArray(s.overlays) ? s.overlays.length : 0), 0);
-  if (overlayCount > MAX_OVERLAYS) errors.push(`${overlayCount} overlays — keep it to 2–4 in the whole reel`);
+  if (overlayCount > MAX_OVERLAYS) errors.push(`${overlayCount} overlays — at most ${MAX_OVERLAYS} in the whole reel`);
   if (!plan?.hookText && !shots[0]?.text) errors.push('shot 0 must carry the hook text');
   const end = num(plan?.endCard?.durationSec, 2);
   const total = shots.reduce((t, s) => t + num(s.durationSec), 0) + end;
@@ -259,7 +261,9 @@ function validateReelPlan(plan, assets) {
 }
 
 // whatever is still off after the repair round is fixed here, never failing a reel
-function autoFix(plan, assets) {
+function autoFix(plan, assets, { target = TARGET, maxOverlays = MAX_OVERLAYS } = {}) {
+  const TARGET = target; // eslint-disable-line no-shadow
+  const MAX_OVERLAYS = maxOverlays; // eslint-disable-line no-shadow
   const byId = new Map(assets.map((a) => [a.id, a]));
   const p = JSON.parse(JSON.stringify(plan || {}));
   let shots = (Array.isArray(p.shots) ? p.shots : []).filter((s) => byId.has(s?.assetId));
@@ -429,10 +433,19 @@ async function callDirector({ system, parts, user, extra = '' }) {
 /**
  * @returns {{ plan, style, model, debugRows: object[], costUsd: number }}
  */
-async function directDefaultReel({ material, profile, dna, dcttStage }) {
-  const { system, userTemplate } = splitPromptTemplate(fs.readFileSync(PROMPT_FILE, 'utf8'));
+/*
+ * `look` lets another reel format reuse this director with its own rules
+ * (Motion graphics, 2026-11-19): extraRules are appended to the system prompt
+ * and override it; target / maxOverlays replace the teaser's 7–12 s and 5.
+ */
+async function directDefaultReel({ material, profile, dna, dcttStage, look = null }) {
+  const base = splitPromptTemplate(fs.readFileSync(PROMPT_FILE, 'utf8'));
+  const system = look?.extraRules ? `${base.system}\n\n${look.extraRules}` : base.system;
+  const { userTemplate } = base;
+  const limits = { target: look?.target || TARGET, maxOverlays: look?.maxOverlays || MAX_OVERLAYS };
+  const label = look?.name ? ` (${look.name})` : ' (default)';
   const { assets, parts } = await assetsAndPreviews(material.assets);
-  const brief = briefOf({ assets, material, profile, dna, dcttStage });
+  const brief = briefOf({ assets, material, profile, dna, dcttStage, target: limits.target });
   const user = userTemplate.split('{{BRIEF_JSON}}').join(JSON.stringify(brief, null, 2));
   const rows = [];
   const row = (label, r, note = '') => rows.push({
@@ -441,8 +454,8 @@ async function directDefaultReel({ material, profile, dna, dcttStage }) {
   });
 
   let r = await callDirector({ system, parts, user });
-  let errors = validateReelPlan(r.raw, assets);
-  row('Capture reel — director (default)', r, errors.length ? `${errors.length} problem(s): ${errors.join('; ')}` : 'valid');
+  let errors = validateReelPlan(r.raw, assets, limits);
+  row(`Capture reel — director${label}`, r, errors.length ? `${errors.length} problem(s): ${errors.join('; ')}` : 'valid');
   let model = r.model;
   let costUsd = r.costUsd;
   if (errors.length) {
@@ -453,10 +466,10 @@ async function directDefaultReel({ material, profile, dna, dcttStage }) {
     });
     model = r.model;
     costUsd += r.costUsd;
-    errors = validateReelPlan(r.raw, assets);
+    errors = validateReelPlan(r.raw, assets, limits);
     row('Capture reel — director (repair)', r, errors.length ? `still ${errors.length}: ${errors.join('; ')} — auto-fixed` : 'valid after repair');
   }
-  const fixed = autoFix(r.raw, assets);
+  const fixed = autoFix(r.raw, assets, limits);
   const { plan, style } = toPipeline(fixed, material.assets);
   return { plan, style, model, debugRows: rows, costUsd };
 }

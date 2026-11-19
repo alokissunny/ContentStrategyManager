@@ -8,11 +8,14 @@ Every recommended post is a REEL. Never propose a carousel or a static post.
 - `talking_head` — Talking head: the studio speaks directly to camera, nothing else.
 - `talking_head_broll` — Talking head + B-roll: the studio explains on camera, cut with project footage that shows what they talk about.
 - `music_led` — Music-led: a visual sequence cut to music; at most a few words on screen.
+- `motion_graphics` — Motion graphics: animated text, diagrams, labels, arrows or transitions explain a design idea over the studio's project footage, photos, plans or renders. No one speaks; music underneath.
 
 How to choose (unless FORCED_FORMAT is set — then use it, and write the plan for it):
 - The idea explains a decision, a reason, a method, a comparison or a lesson (position / convert) → a format where the studio's voice carries the reasoning: `talking_head_broll` first, `faceless_voiceover` if they would rather not be on camera (they said so, or nothing suggests they show their face).
 - The idea is a transformation, a reveal, a before/after or a beautiful finished space (attract) → `music_led` or `faceless_text`.
 - Behind-the-scenes, site visits, work in progress (nurture) → `faceless_voiceover` or `talking_head_broll`.
+- The idea is a layout, a spatial or technical decision, a material system or a comparison that is clearest when pointed at (and the capture holds plans, drawings, renders or clear photos of it), and the studio did not ask to speak → `motion_graphics`.
+- For `motion_graphics`: every sequence's shot is `text`, `say` is empty, and `onScreenText` carries the explanation (≤ 7 words). In `record`, say which photo/plan/render each sequence uses and what the graphics point at ("Floor plan — label the moved island and an arrow along the new walkway"). `broll` lists any extra close-ups worth filming; mark `existing` true when photos on file cover it. The editor can only draw: a line of text per shot, a `label` (1–3 words) on an element, an `arrow`, a `circle`, a `spotlight`, a `zoom` onto a detail, and a before → after wipe between two photos of the same area. Plan only those — never sliding objects, dimension lines, icons or drawn diagrams. Name a plan, drawing or render only if the capture's assets include one; otherwise use the photos on file or ask them to film it in `broll`.
 - Footage they already have counts: if the capture holds clips/photos of the space, plan B-roll from them.
 
 ## Sequences

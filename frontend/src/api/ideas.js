@@ -29,3 +29,9 @@ export function getIdeaReelPlan(id, { captureId = '', format = '', refresh = fal
       return data;
     });
 }
+
+// Captures › Generate reel: the capture's own idea, so the same reel planner
+// (ReelPlanner) runs on it → { idea, captureId }
+export function ideaFromCapture(captureIds) {
+  return client.post('/ideas/from-capture', { captureIds }).then((res) => res.data);
+}

@@ -57,15 +57,47 @@ export type ReelScene = {
 export type ReelCaptionWord = { text: string; fromFrame: number; toFrame: number };
 export type ReelCaption = { fromFrame: number; toFrame: number; words: ReelCaptionWord[] };
 
+// Motion graphic reel (backend services/motionReelPlanner.js → MotionReel.tsx)
+export type MotionMedia = {
+  src: string;
+  w: number;
+  h: number;
+  focal?: { x: number; y: number; w: number; h: number }; // % of the picture
+  swatches?: { hex: string; share: number }[];
+};
+export type MotionAccent = {
+  kind: 'fact_captions' | 'stat_badge' | 'hotspot_tags' | 'palette_strip' | 'poll_sticker';
+  items?: string[];
+  text?: string;
+  productIds?: string[];
+  question?: string;
+};
+export type MotionSegment = {
+  type: 'intro' | 'main' | 'outro';
+  formatId: string;
+  from: number;
+  durationInFrames: number;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  props: Record<string, any>;
+  accents: MotionAccent[];
+};
+export type MotionTimeline = {
+  segments: MotionSegment[];
+  media: Record<string, MotionMedia>;
+  products: Record<string, { name: string; price: string; assetId: string; point: { x: number; y: number } }>;
+  coverFrame: number;
+};
+
 export type ReelSpec = {
   format: { width: number; height: number; fps: number; durationInFrames: number };
-  brand: { accent: string; accentInk: string; headlineFont?: string; bodyFont?: string };
+  brand: { accent: string; accentInk: string; headlineFont?: string; bodyFont?: string; ground?: string; fg?: string };
   hook?: { text: string; emphasis?: string; durationInFrames: number };
   scenes: ReelScene[];
   captions: ReelCaption[];
   cta?: { line: string; sub?: string; fromFrame: number; durationInFrames: number };
   audio?: { voiceoverSrc?: string; voiceVolume?: number; startFrame?: number; musicSrc?: string; musicVolume?: number };
   look?: ReelLook; // set = a reel style (reelLook.tsx); unset = the default look
+  motion?: MotionTimeline; // set = a motion graphic reel (MotionReel.tsx)
 };
 
 const IMG = 'https://images.unsplash.com/photo-1556911220-bff31c812dba?w=1080';

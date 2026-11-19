@@ -66,6 +66,8 @@ async function refreshTimelineUrls(timeline) {
   };
   const t = JSON.parse(JSON.stringify(timeline));
   await Promise.all((t.scenes || []).map(async (sc) => { sc.src = await resign(sc.src); }));
+  // motion graphics reels keep their pictures in motion.media
+  await Promise.all(Object.values(t.motion?.media || {}).map(async (m) => { m.src = await resign(m.src); }));
   if (t.audio) {
     t.audio.voiceoverSrc = await resign(t.audio.voiceoverSrc);
     t.audio.musicSrc = await resign(t.audio.musicSrc);
@@ -269,7 +271,9 @@ async function loadMaterial(reel, ledger) {
     })));
     libKeys.forEach((k) => { if (byKey.get(k)?.analysis?.status === 'done' || byKey.get(k)?.type === 'image') pushAsset(byKey.get(k), 'library'); });
   }
-  if (!assets.length) throw userError('This capture has no photos or clips to cut a reel from. Add some first.');
+  // a motion graphics reel needs no pictures: it is drawn from the capture's words
+  const graphicsOnly = reel.storyPlan?.format === 'motion_graphics' || reel.graphicsOk;
+  if (!assets.length && !graphicsOnly) throw userError('This capture has no photos or clips to cut a reel from. Add some first.');
 
   // timed transcripts for clips that have speech (≤4)
   // a recommended post's spoken takes are the reel's A-roll: transcribe them all
@@ -1044,6 +1048,8 @@ async function runCaptureReel(reelId) {
     // (services/reelFormatDirector.js — one director per reel category)
     const story = reel.storyPlan?.sequences?.length ? reel.storyPlan : null;
     let formatDone = false;
+    let defaultLook = null; // (kept for other formats that reuse the default director with their own rules)
+    let motionBuild = null; // motion_graphics: the planned motion reel (motionReelPlanner.js)
     if (story) {
       const { storyPlanDirection } = require('./ideaReelPlan');
       material.capture.storyPlan = {
@@ -1079,7 +1085,40 @@ async function runCaptureReel(reelId) {
         ({ plan, style } = out);
         formatDone = true;
       }
-      // music_led: the Bauhly Reel Director below (a beat-cut teaser) — the plan rides in the notes
+      else if (fmt === 'motion_graphics') {
+        // Motion graphics (studio's guidance, 2026-11-19): selector → planner →
+        // guard; rendered by MotionReel (remotion/src/MotionReel.tsx), no footage asked for
+        const idea = reel.ideaId ? await require('../models/PostIdea').findById(reel.ideaId).select('title').lean().catch(() => null) : null;
+        let mp;
+        try {
+          mp = await require('./motionReelPlanner').planMotionReel({
+            material,
+            brand: { accent: colors?.accent, ground: colors?.ground, fg: colors?.fg, headlineFont: fonts?.heading?.family, bodyFont: fonts?.body?.family },
+            dna, handle, idea, storyPlan: story, language: 'English',
+            stored: story.motionPlan || null,
+          });
+        } catch (err) {
+          if (err.userFacing) throw userError(err.message);
+          throw err;
+        }
+        mp.debugRows.forEach((r) => ledger.add(r));
+        model = mp.model;
+        motionBuild = mp;
+        plan = {
+          format: 'motion_graphics', audioMode: 'music', motion: mp.plan,
+          caption: mp.plan.caption, hashtags: mp.plan.hashtags,
+          // what the calendar post and the reel card read
+          concept: `Motion graphics · ${mp.plan.mainFormat.replace(/_/g, ' ')}`,
+          hook: { text: (mp.plan.segments.find((x) => x.formatId === 'kinetic_hook')?.props.words || []).join(' ') || story.title || '' },
+          cta: { line: mp.plan.segments.find((x) => x.type === 'outro')?.props.cta || '' },
+          scenes: [],
+        };
+        earlyMusic = styleRun.generateMusic({ audio: { mode: 'music', music: mp.music } })
+          .catch(() => styleRun.generateMusic({ audio: { mode: 'music', music: mp.music } }))
+          .catch((err) => { console.warn(`[captureReel] ${reel._id} music:`, err.message); return { error: err.message }; });
+        formatDone = true;
+      }
+      // music_led / motion_graphics: the Bauhly Reel Director below — the plan rides in the notes
     }
     if (formatDone) {
       // the format director made the cut
@@ -1092,7 +1131,7 @@ async function runCaptureReel(reelId) {
       const profile = handle
         ? await require('../models/InstagramProfile').findOne({ user: reel.user, username: handle }).select('username fullName biography').lean().catch(() => null)
         : null;
-      const directed = await directDefaultReel({ material, profile, dna, dcttStage: 'discovery' });
+      const directed = await directDefaultReel({ material, profile, dna, dcttStage: 'discovery', look: defaultLook });
       directed.debugRows.forEach((r) => ledger.add(r));
       model = directed.model;
       ({ plan, style } = directed);
@@ -1158,7 +1197,12 @@ async function runCaptureReel(reelId) {
       headlineFont: fonts?.heading?.family || '',
       bodyFont: fonts?.body?.family || '',
     };
-    if (dialogueBuild) {
+    if (motionBuild) {
+      timeline = await require('./motionReelPlanner').compileMotionTimeline(motionBuild.plan, motionBuild.ctx, {
+        brand: { ...brand, ground: colors?.ground, fg: colors?.fg }, fps: FPS, width: WIDTH, height: HEIGHT, music,
+      });
+      ledger.add({ source: 'Capture reel — motion graphics timeline', output: `${motionBuild.plan.mainFormat} · ${(timeline.format.durationInFrames / FPS).toFixed(1)}s · ${timeline.motion.segments.length} segment(s)` });
+    } else if (dialogueBuild) {
       const built = await dialogueBuild({ brandKit: brand, music });
       timeline = built.timeline;
       voiceKey = built.voiceKey;
@@ -1189,7 +1233,7 @@ async function runCaptureReel(reelId) {
     const videoKey = `projects/${reel.user}/reel-${reel._id}.mp4`;
     const posterKey = `projects/${reel.user}/reel-${reel._id}-poster.jpg`;
     const coverScene = Number.isInteger(plan.coverShotIndex) ? timeline.scenes[plan.coverShotIndex] : null;
-    const hookEnd = coverScene
+    const hookEnd = timeline.motion ? timeline.motion.coverFrame / FPS : coverScene
       ? (coverScene.from + coverScene.durationInFrames * 0.6) / FPS
       : (timeline.hook ? timeline.hook.durationInFrames / FPS - 0.2 : 0.8);
     await Promise.all([
@@ -1324,6 +1368,7 @@ module.exports = {
   _letterboxOf: letterboxOf,
   _stillNear: stillNear,
   _luminance: luminance,
+  _liftAccent: liftAccent,
   _loadMaterial: loadMaterial,
   _directReel: directReel,
   runInProcess,

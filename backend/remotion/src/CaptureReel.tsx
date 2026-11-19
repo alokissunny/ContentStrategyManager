@@ -19,6 +19,7 @@ import { resolveFont, CAPTION_FONT } from './fonts';
 import { LookOverlay, LookHook, ChapterCard, LookCaptions, LookEndLine, GRADE } from './reelLook';
 import { cameraAt, zoomPunchAt, SceneAnnotations } from './teaserFx';
 import type { ReelSpec, ReelScene, ReelCaption } from './reelSchema';
+import { MotionReel } from './MotionReel';
 
 const clamp = { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' } as const;
 const outCubic = Easing.out(Easing.cubic);
@@ -271,6 +272,7 @@ const StyledReel: React.FC<{ reel: ReelSpec }> = ({ reel }) => {
 };
 
 export const CaptureReel: React.FC<{ reel: ReelSpec }> = ({ reel }) => {
+  if (reel.motion) return <MotionReel reel={reel} />;
   if (reel.look) return <StyledReel reel={reel} />;
   return <DefaultReel reel={reel} />;
 };

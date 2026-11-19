@@ -56,6 +56,8 @@ const FORMATS = [
     fit: 'You explain the decision on camera, while project footage (B-roll) illustrates the key points.' },
   { id: 'music_led', name: 'Music-led', desc: 'Visual sequence synchronized with music', icon: null,
     fit: 'A visual sequence cut to the beat of an original track — best when the space speaks for itself.' },
+  { id: 'motion_graphics', name: 'Motion graphics', desc: 'Animated text, labels and diagrams explain the idea', icon: 'wand',
+    fit: 'Animated text, labels, arrows and transitions explain your design idea over project footage, photos, plans or renders. Nothing to say on camera.' },
 ];
 const CAROUSEL = { id: 'carousel', name: 'Carousel', desc: 'Photos and text across slides — nothing to record', icon: 'layers',
   fit: 'Bauhly writes a carousel from your capture and photos instead of a reel. Nothing to record.' };
@@ -256,8 +258,9 @@ function slotsOf(s) {
   return out;
 }
 
-function ReelPlanner({ idea, captured, onClose }) {
+function ReelPlanner({ idea, captured, onClose, onMade }) {
   const [step, setStep] = useState('loading');
+  const [planning, setPlanning] = useState(''); // the format being planned (loading copy)
   const [plan, setPlan] = useState(null);
   const [error, setError] = useState('');
   const [pick, setPick] = useState('');
@@ -279,6 +282,7 @@ function ReelPlanner({ idea, captured, onClose }) {
   const thumbVideo = !thumb ? (captured?.attachments || []).find((a) => a.url && a.type === 'video')?.url || '' : '';
 
   const load = (format = '') => {
+    setPlanning(format);
     setStep('loading');
     setError('');
     getIdeaReelPlan(idea.id, { captureId, format })
@@ -310,6 +314,7 @@ function ReelPlanner({ idea, captured, onClose }) {
   }, [reel]);
 
   const seqs = plan?.sequences || [];
+  const motion = plan?.format === 'motion_graphics';
   const fmt = plan ? formatOf(plan.format) : null;
   const takeUrls = useMemo(() => Object.fromEntries(Object.entries(files).map(([k, f]) => [k, URL.createObjectURL(f)])), [files]);
   useEffect(() => () => Object.values(takeUrls).forEach((u) => URL.revokeObjectURL(u)), [takeUrls]);
@@ -318,7 +323,7 @@ function ReelPlanner({ idea, captured, onClose }) {
   const goCarousel = () => {
     onClose();
     startPlanGeneration('idea', {
-      label: `Next idea · ${idea.title}`,
+      label: idea.fromCapture ? `From your capture · ${idea.title}` : `Next idea · ${idea.title}`,
       captureIds: captureId ? [captureId] : [],
     }).catch(() => {});
   };
@@ -339,7 +344,8 @@ function ReelPlanner({ idea, captured, onClose }) {
     });
     const fresh = [...tagged, ...[...extra, ...more].map((file) => ({ file }))];
     const have = captured?.attachments || [];
-    if (!fresh.length && !have.length) {
+    // Motion graphics needs no pictures: without any it is drawn on brand colours
+    if (!fresh.length && !have.length && !motion) {
       setNote('Add at least one video or photo — the reel is cut from your footage.');
       return;
     }
@@ -363,6 +369,7 @@ function ReelPlanner({ idea, captured, onClose }) {
       }
       const made = await createCaptureReel({ projectId: captured.projectId, captureIds: [captureId], ideaId: idea.id, takes });
       setReel(made);
+      onMade?.(made);
     } catch (err) {
       setReel({ status: 'error', error: err?.response?.data?.message || err?.message || 'Something went wrong.' });
     }
@@ -384,7 +391,9 @@ function ReelPlanner({ idea, captured, onClose }) {
         {head(null)}
         <div className="rpl__wait" aria-live="polite">
           <span className="rpl__spin" aria-hidden="true" />
-          <p>Planning your reel — the story, the sequences and what to record…</p>
+          <p>{planning === 'motion_graphics'
+            ? 'Planning a motion graphics reel from the photos you already shared…'
+            : 'Planning your reel — the story, the sequences and what to record…'}</p>
         </div>
       </>
     );
@@ -403,7 +412,7 @@ function ReelPlanner({ idea, captured, onClose }) {
     body = (
       <>
         <div className="rpl__head">
-          <span className="rpl__brand rpl__brand--lg"><Icon name="sparkle" size={15} strokeWidth={2} /> Your next recommended post</span>
+          <span className="rpl__brand rpl__brand--lg"><Icon name="sparkle" size={15} strokeWidth={2} /> {idea.fromCapture ? 'Your reel plan' : 'Your next recommended post'}</span>
           <span className="rpl__chip rpl__chip--ok">Strategy aligned</span>
           <button type="button" className="rpl__x" onClick={onClose} aria-label="Close"><Icon name="x" size={14} strokeWidth={2.25} /></button>
         </div>
@@ -500,14 +509,14 @@ function ReelPlanner({ idea, captured, onClose }) {
                 <span className="rpl__num">{i + 1}</span>
                 <span className="rpl__seqwords">
                   <span className="rpl__seqtitle">{s.title} <span className="rpl__chip">{ROLE[s.role] || s.role}</span></span>
-                  <span className="rpl__small">{SHOT[s.shot] || s.shot}</span>
+                  <span className="rpl__small">{motion ? 'Motion graphics · from your photos' : (SHOT[s.shot] || s.shot)}</span>
                   <span className="rpl__quote">{s.say ? `“${s.say}”` : s.record}</span>
                 </span>
                 <Icon name="chevron-down" size={14} strokeWidth={2} />
               </button>
               {open === i && (
                 <div className="rpl__seqbody">
-                  <span className="rpl__eyebrow">What to show / record</span>
+                  <span className="rpl__eyebrow">{motion ? 'What it shows' : 'What to show / record'}</span>
                   <p>{s.record}</p>
                   {s.onScreenText && (
                     <>
@@ -520,9 +529,17 @@ function ReelPlanner({ idea, captured, onClose }) {
             </li>
           ))}
         </ol>
-        <button type="button" className="rpl__btn rpl__btn--ink" onClick={() => { setAt(0); setStep('guide'); }}>
-          Continue to footage <Icon name="arrow-right" size={14} strokeWidth={2.25} />
-        </button>
+        {/* Motion graphics is made from the photos, plans and renders already
+            on file: nothing to film, so no recording guide (studio, 2026-11-19) */}
+        {motion ? (
+          <button type="button" className="rpl__btn rpl__btn--ink" onClick={() => make()}>
+            Make the reel <Icon name="arrow-right" size={14} strokeWidth={2.25} />
+          </button>
+        ) : (
+          <button type="button" className="rpl__btn rpl__btn--ink" onClick={() => { setAt(0); setStep('guide'); }}>
+            Continue to footage <Icon name="arrow-right" size={14} strokeWidth={2.25} />
+          </button>
+        )}
         <button type="button" className="rpl__link" onClick={() => { setPick(plan.format); setStep('formats'); }}>Change reel style</button>
       </>
     );
@@ -670,7 +687,7 @@ function ReelPlanner({ idea, captured, onClose }) {
         {head('Your reel')}
         <h3 className="rpl__h rpl__h--lg">{done ? 'Your reel is ready' : failed ? 'The reel could not be made' : 'Making your reel'}</h3>
         {note && !failed && <p className="rpl__warn">{note}</p>}
-        {!reel && <div className="rpl__wait"><span className="rpl__spin" aria-hidden="true" /><p>Uploading your footage…</p></div>}
+        {!reel && <div className="rpl__wait"><span className="rpl__spin" aria-hidden="true" /><p>{motion && !newFiles.length ? 'Starting your reel…' : 'Uploading your footage…'}</p></div>}
         {reel && !done && !failed && (
           <div className="rpl__wait">
             <span className="rpl__spin" aria-hidden="true" />
@@ -685,7 +702,7 @@ function ReelPlanner({ idea, captured, onClose }) {
           </>
         )}
         {failed && <p className="rpl__warn">{reel.error}</p>}
-        {failed && <button type="button" className="rpl__btn rpl__btn--ink" onClick={() => { setReel(null); setStep('footage'); }}>Back</button>}
+        {failed && <button type="button" className="rpl__btn rpl__btn--ink" onClick={() => { setReel(null); setStep(motion ? 'sequences' : 'footage'); }}>Back</button>}
         <button type="button" className="rpl__btn rpl__btn--line" onClick={onClose}>{done || failed ? 'Close' : 'Keep making it in the background'}</button>
       </>
     );

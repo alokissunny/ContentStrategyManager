@@ -54,6 +54,50 @@ async function updateIdea(req, res) {
   }
 }
 
+// POST /api/ideas/from-capture { captureIds } — Captures › Generate reel opens the
+// same reel planner as a recommended post (studio, 2026-11-19). The planner is
+// keyed on an idea, so the capture gets one of its own: batchId `capture:<id>`,
+// status accepted — never a GenPill suggestion. Reused on every later open.
+async function ideaFromCapture(req, res) {
+  const ids = (Array.isArray(req.body?.captureIds) ? req.body.captureIds : [req.body?.captureId])
+    .map(String).filter((id) => mongoose.isValidObjectId(id)).slice(0, 12);
+  if (!ids.length) return res.status(400).json({ message: 'Pick a capture first.' });
+  const Project = require('../models/Project');
+  const PostIdea = require('../models/PostIdea');
+  const project = await Project.findOne({ user: req.user._id, 'captures._id': ids[0] }).select('name instagramUsername captures');
+  const caps = ids.map((id) => project?.captures?.id(id)).filter(Boolean);
+  if (!caps.length) return res.status(404).json({ message: 'That capture no longer exists.' });
+  const lead = caps[caps.length - 1]; // the newest member carries the conversation
+  const batchId = `capture:${ids[0]}`;
+  const clip = (v, n) => String(v || '').replace(/\s+/g, ' ').trim().slice(0, n);
+  const known = caps.flatMap((c) => (c.understanding?.verifiedFacts || []).map((f) => clip(typeof f === 'string' ? f : f?.fact, 240)))
+    .filter(Boolean).slice(0, 10);
+  const title = clip(lead.conversationTitle || lead.sessionTitle || lead.understanding?.summary || lead.sessionSummary || lead.text, 110) || 'Your capture';
+  let doc = await PostIdea.findOne({ user: req.user._id, batchId });
+  if (!doc) {
+    doc = await PostIdea.create({
+      user: req.user._id,
+      instagramUsername: project.instagramUsername || '',
+      batchId, rank: 1, status: 'accepted', pillar: 'story', mission: '',
+      title,
+      why: clip(lead.sessionSummary || lead.understanding?.summary, 400),
+      known,
+      sources: ids.map((id) => ({ kind: 'capture', id, label: project.name || '' })),
+      captureId: String(lead._id),
+      decidedAt: new Date(),
+    });
+  } else if (!doc.reelPlan) {
+    // the capture may have grown since: refresh what the planner reads
+    doc.title = title;
+    doc.known = known;
+    await doc.save();
+  }
+  res.json({
+    idea: { id: String(doc._id), title: doc.title, mission: '', missionWhy: '', why: doc.why, known: doc.known, questions: [], assets: [], fromCapture: true },
+    captureId: String(lead._id),
+  });
+}
+
 // POST /api/ideas/:id/reel-plan { captureId, format?, refresh? } — the recommended reel
 // for an explored idea (format + story sequences + recording guide)
 async function getIdeaReelPlan(req, res) {
@@ -88,4 +132,5 @@ async function getIdeaReelPlan(req, res) {
   }
 }
 
-module.exports = { getNextIdeas, updateIdea, getIdeaReelPlan };
+module.exports = {
+  ideaFromCapture, getNextIdeas, updateIdea, getIdeaReelPlan };
