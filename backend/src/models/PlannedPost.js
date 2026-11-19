@@ -41,6 +41,8 @@ const plannedPostSchema = new mongoose.Schema(
     contentPillar: { type: String, enum: ['', 'passion', 'skills', 'story'], default: '' },
     // ...and the content mission it served: Attract / Nurture / Position / Convert (same agent, same lazy tagging)
     contentMission: { type: String, enum: ['', 'attract', 'nurture', 'position', 'convert'], default: '' },
+    // rules version contentMission was tagged under (utils/contentMissions MISSION_TAG_V); older = re-tag
+    contentMissionV: { type: Number, default: 0 },
     title: { type: String, default: '' },
     direction: { type: String, default: '' },
 

@@ -2,6 +2,7 @@ const { currentUsername } = require('../utils/currentProfile');
 const { appLocaleOf } = require('../utils/appLocale');
 const { wantsPromptDebug } = require('../utils/promptDebug');
 const { missionCoverage, fetchRecentMissions } = require('../services/missionCoverage');
+const { contentTerritory } = require('../services/contentTerritory');
 
 // GET /api/analysis/missions[?refresh=1] — Analysis › Mission coverage for the current handle.
 async function getMissionCoverage(req, res) {
@@ -15,7 +16,14 @@ async function fetchRecentMissionPosts(req, res) {
   return respond(req, res, (username, opts) => fetchRecentMissions(req.user._id, username, opts));
 }
 
-async function respond(req, res, work) {
+// GET /api/analysis/topics[?refresh=1] — Analysis › Topic map: Skills / Passion / Story topics, covered or not.
+async function getContentTerritory(req, res) {
+  return respond(req, res, (username, opts) => contentTerritory(req.user._id, username, {
+    ...opts, refresh: req.query.refresh === '1' || req.query.refresh === 'true',
+  }), 'topic map');
+}
+
+async function respond(req, res, work, mode = 'mission coverage') {
   const username = await currentUsername(req.user._id);
   if (!username) return res.json({ username: null, total: 0, posts: [] });
   const debug = wantsPromptDebug(req) ? [] : null;
@@ -27,7 +35,7 @@ async function respond(req, res, work) {
       username,
       ...(debug && debug.length ? {
         debug: {
-          mode: 'mission coverage',
+          mode,
           model: debug[0].model,
           elapsedMs: Date.now() - started,
           agents: debug,
@@ -36,9 +44,11 @@ async function respond(req, res, work) {
       } : {}),
     });
   } catch (err) {
-    console.error(`[analysis] mission coverage for @${username} failed:`, err.message);
-    res.status(502).json({ message: 'We could not analyse your recent Instagram posts just now. Please try again.' });
+    console.error(`[analysis] ${mode} for @${username} failed:`, err.message);
+    res.status(502).json({ message: mode === 'topic map'
+      ? 'We could not map your content topics just now. Please try again.'
+      : 'We could not analyse your recent Instagram posts just now. Please try again.' });
   }
 }
 
-module.exports = { getMissionCoverage, fetchRecentMissionPosts };
+module.exports = { getMissionCoverage, fetchRecentMissionPosts, getContentTerritory };

@@ -1,6 +1,6 @@
 /*
  * "WHAT COULD YOU SHARE NEXT?" — the next-post idea, at the top of the GenPill panel once a run has finished
- * (Next-post recommendation, phase 2). The backend (GET /api/ideas/next) returns up to 3 ranked ideas; this card
+ * (Next-post recommendation, phase 2). The backend (GET /api/ideas/next) returns up to 7 ranked ideas; this card
  * shows one at a time:
  *   - Another idea → the next one in the batch (round again at the end, no new model call)
  *   - Explore idea → Capture opens on the idea's own first line and asks only what is missing; once it is
@@ -150,6 +150,7 @@ export default function IdeaCard({ runKey, tabIndex = 0, onExplore }) {
             Another idea
           </button>
         )}
+        {ideas.length > 1 && <span className="gidea__count" aria-live="polite">{at + 1} of {ideas.length}</span>}
         <button type="button" className="gidea__btn gidea__btn--go" onClick={explore} disabled={busy} tabIndex={tabIndex}>
           Explore idea
           <Icon name="arrow-right" size={13} strokeWidth={2.25} />

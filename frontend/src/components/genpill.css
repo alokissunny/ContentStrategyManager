@@ -475,3 +475,6 @@ body:has(.gpill-host:not(.is-row)) .app__main { padding-bottom: calc(var(--gpill
 
 /* the panel with no posts and no recommendation yet */
 .gpill__empty { margin: 0; padding: var(--sp-2, 8px) var(--sp-3, 12px); color: rgba(255, 255, 255, 0.6); font-size: 13px; line-height: 1.4; }
+
+/* IdeaCard: which of the batch (up to 7) is showing */
+.gidea__count { align-self: center; font-size: 11px; font-weight: 600; color: var(--ink-500, #6b6b73); white-space: nowrap; }

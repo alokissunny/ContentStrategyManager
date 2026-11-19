@@ -21,3 +21,14 @@ export function fetchRecentMissionPosts() {
       return data;
     });
 }
+
+// Analysis › Topic map — Skills / Passion / Story topics the studio could talk about, covered or not.
+// → { summary, pillarNotes: { skills, passion, story }, topics: [{ id, pillar, topic, detail, status, coveredBy, missions, audience, needs }], at }
+export function getContentTopics({ refresh = false } = {}) {
+  return client.get('/analysis/topics', { params: refresh ? { refresh: 1 } : {}, timeout: 4 * 60 * 1000 })
+    .then((res) => {
+      const data = res.data || { topics: [] };
+      ingestPlanDebug('Topic map', data);
+      return data;
+    });
+}

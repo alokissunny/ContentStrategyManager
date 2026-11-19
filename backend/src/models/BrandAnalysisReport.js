@@ -47,9 +47,14 @@ const brandAnalysisReportSchema = new mongoose.Schema(
     igPillarTags: { type: mongoose.Schema.Types.Mixed, default: null },
     // ...and the content mission (attract / nurture / position / convert) per Instagram post id
     igMissionTags: { type: mongoose.Schema.Types.Mixed, default: null },
+    // rules version the igMissionTags were made under (utils/contentMissions MISSION_TAG_V); older = re-tag
+    igMissionTagsV: { type: Number, default: 0 },
     // Analysis › Mission coverage: { at, model, posts: { <tagKey(igId)>: { mission, pillar, reason, at } } }
     // — one row per analysed Instagram post (services/missionCoverage.js)
     missionCoverage: { type: mongoose.Schema.Types.Mixed, default: null },
+    // Analysis › Topic map: { v, basedOn, at, model, summary, pillarNotes, topics: [{ id, pillar, topic, status, coveredBy, … }] }
+    // — the studio's Skills / Passion / Story topics, covered or not (services/contentTerritory.js)
+    contentTerritory: { type: mongoose.Schema.Types.Mixed, default: null },
     // Set while onboarding's background Brand Voice read runs (services/visitorInstagram.js), so it
     // starts once per report and Business memory can show it as on its way. Cleared when it ends.
     brandVoiceRunningAt: { type: Date, default: null },

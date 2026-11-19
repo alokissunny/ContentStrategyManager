@@ -3,7 +3,7 @@ const mongoose = require('mongoose');
 /*
  * "What could you share next?" — one next-post idea the Next-post idea agent
  * (services/nextPostIdea.js) suggested after a plan run. Ideas come in batches
- * of up to 3 (rank 1 first; "Another idea" moves along the batch on the
+ * of up to 7 (rank 1 first; "Another idea" moves along the batch on the
  * device). `basedOn` is a fingerprint of what the agent read: while it is
  * unchanged the stored batch is served again instead of a new model call.
  *
@@ -13,7 +13,7 @@ const mongoose = require('mongoose');
  */
 const sourceRefSchema = new mongoose.Schema(
   {
-    kind: { type: String, enum: ['capture', 'post', 'igPost', 'memory'], required: true },
+    kind: { type: String, enum: ['capture', 'post', 'igPost', 'memory', 'topic'], required: true },
     id: { type: String, default: '' },
     label: { type: String, default: '' },
   },
@@ -38,7 +38,9 @@ const postIdeaSchema = new mongoose.Schema(
     rank: { type: Number, default: 1 },
     status: {
       type: String,
-      enum: ['suggested', 'accepted', 'saved', 'dismissed'],
+      // replaced: a newer batch took over before anyone acted on it — kept (not deleted)
+      // so an idea already open in Capture / the reel planner still resolves by id
+      enum: ['suggested', 'accepted', 'saved', 'dismissed', 'replaced'],
       default: 'suggested',
     },
 

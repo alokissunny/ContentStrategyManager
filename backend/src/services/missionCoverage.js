@@ -25,6 +25,7 @@ const { completeText } = require('./llmComplete');
 const { parseJsonAnswer } = require('./nextPostIdea');
 const { isS3Configured, getObjectBytes, getPresignedMediaUrl } = require('./s3Client');
 const { LANGUAGES } = require('../utils/appLocale');
+const { MISSION_TAG_V, withMissionRules } = require('../utils/contentMissions');
 
 const PROMPT_FILE = path.join(__dirname, '..', '..', 'prompts', 'mission-coverage.md');
 const MISSIONS = ['attract', 'nurture', 'position', 'convert'];
@@ -40,7 +41,7 @@ function coverageModel() {
 }
 
 let promptCache = null;
-const loadPrompt = () => (promptCache ||= fs.readFileSync(PROMPT_FILE, 'utf8'));
+const loadPrompt = () => (promptCache ||= withMissionRules(fs.readFileSync(PROMPT_FILE, 'utf8')));
 const idOf = (p) => String(p?.externalId || p?.url || '').trim();
 const tagKey = (id) => String(id).replace(/[.$]/g, '_');
 const oneOf = (list, v) => (list.includes(String(v || '').toLowerCase()) ? String(v).toLowerCase() : '');
@@ -128,20 +129,33 @@ async function classify(todo, { locale, debug }) {
     const id = String(r?.id || '').trim();
     const mission = oneOf(MISSIONS, r?.mission);
     if (!wanted.has(id) || !mission) continue;
-    out[id] = { mission, pillar: oneOf(PILLARS, r?.pillar), reason: clip(r?.reason, 200), at: new Date() };
+    out[id] = { mission, pillar: oneOf(PILLARS, r?.pillar), reason: clip(r?.reason, 200), at: new Date(), v: MISSION_TAG_V };
   }
   return { tags: out, model: res.model || model };
 }
 
 /** Whole percentages that add up to 100 (largest remainder). */
-function percentsOf(counts, total) {
-  if (!total) return Object.fromEntries(MISSIONS.map((m) => [m, 0]));
-  const raw = MISSIONS.map((m) => ({ m, v: (counts[m] * 100) / total }));
+function percentsOf(counts, total, keys = MISSIONS) {
+  if (!total) return Object.fromEntries(keys.map((m) => [m, 0]));
+  const raw = keys.map((m) => ({ m, v: (counts[m] * 100) / total }));
   const out = Object.fromEntries(raw.map(({ m, v }) => [m, Math.floor(v)]));
   let left = 100 - Object.values(out).reduce((a, b) => a + b, 0);
   raw.sort((a, b) => (b.v - Math.floor(b.v)) - (a.v - Math.floor(a.v)))
     .forEach(({ m }) => { if (left > 0) { out[m] += 1; left -= 1; } });
   return out;
+}
+
+/**
+ * The pillar side: how many posts talk about Skills / Passion / Story, and how
+ * each pillar spreads over the missions (matrix[pillar][mission] = posts).
+ */
+function pillarMixOf(rows) {
+  const withPillar = rows.filter((r) => PILLARS.includes(r.pillar));
+  const counts = Object.fromEntries(PILLARS.map((p) => [p, withPillar.filter((r) => r.pillar === p).length]));
+  const raw = percentsOf(counts, withPillar.length, PILLARS);
+  const matrix = Object.fromEntries(PILLARS.map((p) => [p,
+    Object.fromEntries(MISSIONS.map((m) => [m, withPillar.filter((r) => r.pillar === p && r.mission === m).length]))]));
+  return { pillars: { total: withPillar.length, counts, percents: raw, matrix } };
 }
 
 /** What the studio should hear: missing missions first, then the thinnest, and what leads. */
@@ -198,7 +212,9 @@ async function missionCoverage(userId, username, { refresh = false, locale = 'en
   if (history.seeded && posts.length) await saveCoverage(report, { history: posts, lastFetchedAt: new Date() });
   const stored = { ...(report?.missionCoverage?.posts || {}) };
 
-  const todo = posts.filter((p) => refresh || !stored[tagKey(idOf(p))]?.mission);
+  // tags made under older mission rules (e.g. "a CTA makes it convert") are redone
+  const current = (t) => t?.mission && t.v === MISSION_TAG_V;
+  const todo = posts.filter((p) => refresh || !current(stored[tagKey(idOf(p))]));
   let model = report?.missionCoverage?.model || '';
   if (todo.length) {
     const result = await classify(todo, { locale, debug });
@@ -207,9 +223,17 @@ async function missionCoverage(userId, username, { refresh = false, locale = 'en
     for (const [id, tag] of Object.entries(result.tags)) {
       const k = tagKey(id);
       stored[k] = tag;
-      // the Next-post idea agent reads these
-      set[`igMissionTags.${k}`] = tag.mission;
       if (tag.pillar) set[`igPillarTags.${k}`] = tag.pillar;
+    }
+    // the Next-post idea agent reads igMissionTags: under older rules it is
+    // replaced whole by the current-rule tags, otherwise filled key by key
+    const fresh = Object.entries(stored).filter(([, t]) => current(t));
+    if ((report?.igMissionTagsV || 0) !== MISSION_TAG_V) {
+      set.igMissionTags = Object.fromEntries(fresh.map(([k, t]) => [k, t.mission]));
+      set.igMissionTagsV = MISSION_TAG_V;
+      if (report) report.igMissionTagsV = MISSION_TAG_V;
+    } else {
+      for (const id of Object.keys(result.tags)) set[`igMissionTags.${tagKey(id)}`] = result.tags[id].mission;
     }
     await saveCoverage(report, { at: new Date(), model, posts: stored }, set);
   }
@@ -241,6 +265,7 @@ async function missionCoverage(userId, username, { refresh = false, locale = 'en
     counts,
     percents: percentsOf(counts, total),
     ...attentionOf(counts, total),
+    ...pillarMixOf(tagged),
     posts: rows,
     analysedAt: todo.length ? new Date() : (report?.missionCoverage?.at || null),
     lastFetchedAt: report?.missionCoverage?.lastFetchedAt || null,
@@ -286,4 +311,4 @@ async function fetchRecentMissions(userId, username, { locale = 'en', debug = nu
   return { ...out, added: added.length, source: fresh.source || '' };
 }
 
-module.exports = { missionCoverage, fetchRecentMissions, percentsOf, attentionOf, MISSIONS };
+module.exports = { missionCoverage, fetchRecentMissions, classify, percentsOf, pillarMixOf, attentionOf, reportFor, historyOf, MISSIONS, PILLARS };

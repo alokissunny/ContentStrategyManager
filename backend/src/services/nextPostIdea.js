@@ -10,7 +10,7 @@
  *   - the captures (their words, used-in-post state, open questions, photos)
  *   - ideas the studio dismissed
  * and asks one model call to tag untagged posts Passion / Skills / Story and
- * return up to 3 ranked ideas, each citing its sources.
+ * return up to 7 ranked ideas, each citing its sources.
  *
  * Code-side guardrails: sources and assets are checked against what was sent
  * (unknown ids/keys are dropped); an idea left with no source becomes
@@ -31,13 +31,14 @@ const { loadBrandDna } = require('./planInputs');
 const { loadRemixPosts } = require('./postRemix');
 const { isS3Configured, getPresignedMediaUrl } = require('./s3Client');
 const { LANGUAGES } = require('../utils/appLocale');
+const { MISSION_TAG_V, withMissionRules } = require('../utils/contentMissions');
 
 const PROMPT_FILE = path.join(__dirname, '..', '..', 'prompts', 'next-post-idea.md');
 const PILLARS = ['passion', 'skills', 'story'];
 const MISSIONS = ['attract', 'nurture', 'position', 'convert'];
 // bump when the prompt / output shape changes: stored batches made before are not served again
-const PROMPT_VERSION = 3; // 3: contextual questions, opening recalls what's known, asset reuse (2026-11-19)
-const MAX_IDEAS = 3;
+const PROMPT_VERSION = 6; // 6: 7 ideas per batch (5: topic map + computed mix) (2026-11-19)
+const MAX_IDEAS = 7;
 const MAX_QUESTIONS = 2;
 const MAX_ASSETS = 4;
 const BAUHLY_POSTS = 20;
@@ -52,7 +53,7 @@ function ideaModel() {
 }
 
 let promptCache = null;
-const loadPrompt = () => (promptCache ||= fs.readFileSync(PROMPT_FILE, 'utf8'));
+const loadPrompt = () => (promptCache ||= withMissionRules(fs.readFileSync(PROMPT_FILE, 'utf8')));
 
 const clip = (v, max) => {
   const s = String(v ?? '').replace(/\s+/g, ' ').trim();
@@ -86,7 +87,7 @@ async function loadBauhlyPosts(userId, username) {
   return PlannedPost.find({ user: userId, instagramUsername: username })
     .sort({ date: -1 })
     .limit(BAUHLY_POSTS)
-    .select('date title direction format published igMediaId contentPillar contentMission updatedAt content.caption content.strategy')
+    .select('date title direction format published igMediaId contentPillar contentMission contentMissionV updatedAt content.caption content.strategy')
     .lean();
 }
 
@@ -145,20 +146,23 @@ async function loadMaterial(userId, username) {
     loadCaptures(userId, username),
     loadDismissed(userId, username),
     BrandAnalysisReport.findOne({ user: userId, instagramUsername: username })
-      .sort({ createdAt: -1 }).select('igPillarTags igMissionTags').lean(),
+      .sort({ createdAt: -1 }).select('igPillarTags igMissionTags igMissionTagsV contentTerritory').lean(),
     User.findById(userId).select('business').lean(),
   ]);
   return {
     memory, igPosts, bauhly, captures, dismissed,
     business: user?.business || {},
     igTags: report?.igPillarTags || {},
-    igMissions: report?.igMissionTags || {},
+    // tags made under older mission rules count as missing (re-tagged by the agent)
+    igMissions: report?.igMissionTagsV === MISSION_TAG_V ? (report?.igMissionTags || {}) : {},
+    igMissionsStale: (report?.igMissionTagsV || 0) !== MISSION_TAG_V,
+    territory: report?.contentTerritory?.topics?.length ? report.contentTerritory : null,
   };
 }
 
 /** The JSON the model reads, plus the lookups the code checks its answer against. */
 function contextOf(material) {
-  const { memory, igPosts, bauhly, captures, dismissed, igTags, igMissions = {}, business = {} } = material;
+  const { memory, igPosts, bauhly, captures, dismissed, igTags, igMissions = {}, igMissionsStale = false, territory = null, business = {} } = material;
   const igIds = new Set(igPosts.map(igIdOf).filter(Boolean));
 
   const instagramPosts = igPosts.map((p) => ({
@@ -184,7 +188,7 @@ function contextOf(material) {
       direction: clip(p.direction || p.content?.strategy, 300),
       caption: clip(p.content?.caption, 300),
       ...(pillarOf(p.contentPillar) ? { pillar: p.contentPillar } : {}),
-      ...(missionOf(p.contentMission) ? { mission: p.contentMission } : {}),
+      ...(missionOf(p.contentMission) && p.contentMissionV === MISSION_TAG_V ? { mission: p.contentMission } : {}),
     }));
 
   const brandMemory = {};
@@ -217,6 +221,21 @@ function contextOf(material) {
     })),
     dismissed: dismissed.map((d) => ({ title: d.title, pillar: d.pillar })),
   };
+  ctx.mix = mixOf([...instagramPosts, ...bauhlyPosts]);
+  // the studio's Skills / Passion / Story topics, covered or not (services/contentTerritory.js)
+  const topics = (territory?.topics || []).map((t) => ({
+    id: t.id,
+    pillar: t.pillar,
+    topic: t.topic,
+    detail: t.detail,
+    status: t.status,
+    postsOnIt: (t.coveredBy || []).length,
+    missions: t.missions || [],
+    audience: t.audience || '',
+    ...(t.needs ? { needs: t.needs } : {}),
+    grounding: t.grounding || [],
+  }));
+  if (topics.length) ctx.topicMap = { summary: territory.summary || '', topics };
 
   const lookups = {
     captureIds: new Set(captures.map((c) => c.id)),
@@ -224,20 +243,38 @@ function contextOf(material) {
     allBauhlyIds: new Set(bauhly.map((p) => String(p._id))),
     igIds,
     memoryFields: new Set(Object.keys(brandMemory)),
+    topicIds: new Set(topics.map((t) => t.id)),
+    territoryAt: territory?.basedOn || '',
     assets: new Map(captures.flatMap((c) => c.assets.map((a) => [a.key, { ...a, captureId: c.id }]))),
     // a post missing either tag goes back to the agent; only the missing one is stored
     untaggedIg: instagramPosts.filter((p) => !p.pillar || !p.mission).map((p) => p.id),
     untaggedBauhly: bauhlyPosts.filter((p) => !p.pillar || !p.mission).map((p) => p.id),
     igTagged: new Map(instagramPosts.map((p) => [p.id, { pillar: p.pillar, mission: p.mission }])),
+    igMissionsStale,
     labels: new Map([
       // the catch-all projects ("No project", "Content ideas") are not a project name to show
       ...captures.map((c) => [`capture:${c.id}`,
         c.project && !/^(no project|content ideas)$/i.test(c.project) ? `${c.project} capture` : 'Your capture']),
       ...bauhlyPosts.map((p) => [`post:${p.id}`, p.title || `Post · ${p.date}`]),
       ...instagramPosts.map((p) => [`igPost:${p.id}`, clip(p.caption, 60) || `Instagram post · ${p.date}`]),
+      ...topics.map((t) => [`topic:${t.id}`, t.topic]),
     ]),
   };
   return { ctx, lookups };
+}
+
+/** Mission / pillar counts of the posts already tagged (worked out here, not by the model). */
+function mixOf(posts) {
+  const tagged = posts.filter((p) => p.mission || p.pillar);
+  const count = (key, list) => Object.fromEntries(list.map((v) => [v, tagged.filter((p) => p[key] === v).length]));
+  return {
+    postsTagged: tagged.length,
+    postsUntagged: posts.length - tagged.length,
+    missions: count('mission', MISSIONS),
+    pillars: count('pillar', PILLARS),
+    pillarMissions: Object.fromEntries(PILLARS.map((pl) => [pl,
+      Object.fromEntries(MISSIONS.map((m) => [m, tagged.filter((p) => p.pillar === pl && p.mission === m).length]))])),
+  };
 }
 
 /** Changes whenever anything the agent reads changes. Dismissals are left out:
@@ -259,7 +296,7 @@ function fingerprintOf(ctx, locale) {
 
 const IDEA_TOOL = {
   name: 'suggest_next_posts',
-  description: 'Tag untagged past posts by pillar and return up to 3 ranked next-post ideas.',
+  description: 'Tag untagged past posts by pillar and return up to 7 ranked next-post ideas.',
   input_schema: {
     type: 'object',
     properties: {
@@ -298,7 +335,7 @@ const IDEA_TOOL = {
               items: {
                 type: 'object',
                 properties: {
-                  kind: { type: 'string', enum: ['capture', 'post', 'igPost', 'memory'] },
+                  kind: { type: 'string', enum: ['capture', 'post', 'igPost', 'memory', 'topic'] },
                   id: { type: 'string' },
                 },
                 required: ['kind', 'id'],
@@ -375,7 +412,7 @@ async function completeClaudeJson({ model, system, user, schema = IDEA_TOOL.inpu
   const run = (text, maxTokens) => completeText({
     model, system: sys, user: text, maxTokens, kind, reasoningEffort: 'low', timeoutMs: 180000,
   });
-  let res = await run(user, 8000);
+  let res = await run(user, 14000);
   let usage = { ...res.usage };
   const add = (u) => {
     for (const k of ['input_tokens', 'output_tokens', 'cached_tokens', 'cache_write_tokens']) usage[k] = (usage[k] || 0) + (u?.[k] || 0);
@@ -385,7 +422,7 @@ async function completeClaudeJson({ model, system, user, schema = IDEA_TOOL.inpu
     if (res.stopReason === 'max_tokens') throw new Error('cut off');
     parsed = parseJsonAnswer(res.text);
   } catch {
-    res = await run(`${user}\n\nYour last answer was not one complete JSON object. Return ONLY the JSON object, shorter if needed.`, 16000);
+    res = await run(`${user}\n\nYour last answer was not one complete JSON object. Return ONLY the JSON object, shorter if needed.`, 20000);
     add(res.usage);
     parsed = parseJsonAnswer(res.text);
   }
@@ -402,7 +439,7 @@ async function callModel(ctx, locale) {
     system,
     userParts: [{ type: 'text', text: user }],
     tool: IDEA_TOOL,
-    maxTokens: 6000,
+    maxTokens: 14000,
     cacheKey: 'next-post-idea',
     kind: 'strategist',
     reasoningEffort: 'low',
@@ -442,7 +479,8 @@ function cleanSources(list, lookups) {
     const ok = (kind === 'capture' && lookups.captureIds.has(id))
       || (kind === 'post' && lookups.allBauhlyIds.has(id))
       || (kind === 'igPost' && lookups.igIds.has(id))
-      || (kind === 'memory' && lookups.memoryFields.has(id));
+      || (kind === 'memory' && lookups.memoryFields.has(id))
+      || (kind === 'topic' && lookups.topicIds?.has(id));
     const k = `${kind}:${id}`;
     if (!ok || seen.has(k)) continue;
     seen.add(k);
@@ -467,7 +505,7 @@ function cleanAssets(list, lookups) {
 
 function cleanIdeas(parsed, lookups) {
   const raw = Array.isArray(parsed.ideas) ? parsed.ideas : [];
-  const usedCaptures = new Set();
+  const usedCaptures = new Map(); // capture id → pillars it already leads
   const ideas = [];
   for (const r of raw) {
     const pillar = pillarOf(r?.pillar);
@@ -475,11 +513,14 @@ function cleanIdeas(parsed, lookups) {
     const title = str(r?.title, 120);
     if (!pillar || !mission || !title) continue;
     const sources = cleanSources(r.sources, lookups);
-    // never the same capture twice in one batch
+    // a capture leads at most two ideas in a batch, and never twice in the same pillar
     const lead = sources.find((s) => s.kind === 'capture');
-    if (lead && usedCaptures.has(lead.id)) continue;
-    if (lead) usedCaptures.add(lead.id);
-    const questionLed = !sources.length || Boolean(r.questionLed);
+    const led = lead ? usedCaptures.get(lead.id) || [] : [];
+    if (lead && (led.length >= 2 || led.includes(pillar))) continue;
+    if (lead) usedCaptures.set(lead.id, [...led, pillar]);
+    // a topic-map idea with no capture or post behind it needs the studio's own story first
+    const hasMaterial = sources.some((x) => x.kind === 'capture' || x.kind === 'post' || x.kind === 'igPost');
+    const questionLed = !sources.length || Boolean(r.questionLed) || (!hasMaterial && sources.some((x) => x.kind === 'topic'));
     const questions = (Array.isArray(r.questions) ? r.questions : [])
       .map((q) => str(q, 220)).filter(Boolean).slice(0, MAX_QUESTIONS);
     ideas.push({
@@ -513,6 +554,7 @@ async function saveTags(userId, username, parsed, lookups) {
   const untaggedIg = new Set(lookups.untaggedIg);
   const untaggedBauhly = new Set(lookups.untaggedBauhly);
   const igSet = {};
+  const igMissions = {};
   const posts = [];
   for (const t of tags) {
     const pillar = pillarOf(t?.pillar);
@@ -522,9 +564,15 @@ async function saveTags(userId, username, parsed, lookups) {
     if (t.kind === 'igPost' && untaggedIg.has(id)) {
       // a tag already stored is kept; only the missing one is filled
       if (pillar && !lookups.igTagged.get(id)?.pillar) igSet[`igPillarTags.${tagKey(id)}`] = pillar;
-      if (mission && !lookups.igTagged.get(id)?.mission) igSet[`igMissionTags.${tagKey(id)}`] = mission;
+      if (mission && !lookups.igTagged.get(id)?.mission) igMissions[tagKey(id)] = mission;
     }
     if (t.kind === 'post' && untaggedBauhly.has(id)) posts.push({ id, pillar, mission });
+  }
+  if (lookups.igMissionsStale) {
+    // tags made under older mission rules are replaced whole
+    if (Object.keys(igMissions).length) Object.assign(igSet, { igMissionTags: igMissions, igMissionTagsV: MISSION_TAG_V });
+  } else {
+    for (const [k, m] of Object.entries(igMissions)) igSet[`igMissionTags.${k}`] = m;
   }
   const jobs = [];
   if (Object.keys(igSet).length) {
@@ -533,11 +581,15 @@ async function saveTags(userId, username, parsed, lookups) {
   }
   const writes = posts.flatMap((p) => [
     p.pillar && { updateOne: { filter: { _id: p.id, user: userId, contentPillar: '' }, update: { $set: { contentPillar: p.pillar } } } },
-    p.mission && { updateOne: { filter: { _id: p.id, user: userId, contentMission: { $in: ['', null] } }, update: { $set: { contentMission: p.mission } } } },
+    // empty, or tagged under older mission rules
+    p.mission && { updateOne: {
+      filter: { _id: p.id, user: userId, $or: [{ contentMission: { $in: ['', null] } }, { contentMissionV: { $ne: MISSION_TAG_V } }] },
+      update: { $set: { contentMission: p.mission, contentMissionV: MISSION_TAG_V } },
+    } },
   ].filter(Boolean));
   if (writes.length) jobs.push(PlannedPost.bulkWrite(writes));
   await Promise.all(jobs).catch((err) => console.warn('[nextPostIdea] could not store post tags:', err.message));
-  return { instagram: Object.keys(igSet).length, bauhly: posts.length };
+  return { instagram: new Set([...Object.keys(igMissions), ...Object.keys(igSet).filter((k) => k.startsWith("igPillarTags.")).map((k) => k.slice(13))]).size, bauhly: posts.length };
 }
 
 // ── what the client gets ──────────────────────────────────────────────────────
@@ -583,6 +635,17 @@ async function forClient(doc) {
 async function nextIdeas(userId, username, { locale = 'en', refresh = false, debug = null } = {}) {
   const handle = String(username || '').toLowerCase();
   const material = await loadMaterial(userId, handle);
+  // the topic map (Skills / Passion / Story topics, covered or not): made once and
+  // waited for; afterwards refreshed in the background when what it read has changed
+  const { contentTerritory } = require('./contentTerritory'); // lazy: it requires this module
+  if (!material.territory) {
+    const made = await contentTerritory(userId, handle, { locale, debug })
+      .catch((err) => { console.warn('[nextPostIdea] topic map failed:', err.message); return null; });
+    material.territory = made?.topics?.length ? made : null;
+  } else {
+    contentTerritory(userId, handle, { locale })
+      .catch((err) => console.warn('[nextPostIdea] topic map refresh failed:', err.message));
+  }
   const { ctx, lookups } = contextOf(material);
   const basedOn = fingerprintOf(ctx, locale);
 
@@ -614,8 +677,13 @@ async function nextIdeas(userId, username, { locale = 'en', refresh = false, deb
   );
 
   const batchId = crypto.randomUUID();
-  // an older batch nobody acted on is replaced, not stacked up
-  await PostIdea.deleteMany({ user: userId, instagramUsername: handle, status: 'suggested' });
+  // an older batch nobody acted on is replaced, not stacked up — marked, never
+  // deleted: one of its ideas may be open in Capture right now (Explore idea →
+  // capture → reel plan / PATCH look it up by id)
+  await PostIdea.updateMany(
+    { user: userId, instagramUsername: handle, status: 'suggested', batchId: { $not: /^capture:/ } },
+    { $set: { status: 'replaced', decidedAt: new Date() } },
+  );
   const docs = ideas.length
     ? await PostIdea.insertMany(ideas.map((idea) => ({
       ...idea, user: userId, instagramUsername: handle, batchId, basedOn, locale, model,
@@ -631,6 +699,8 @@ async function nextIdeas(userId, username, { locale = 'en', refresh = false, deb
 
 const NEXT_STATUS = {
   suggested: ['accepted', 'dismissed'],
+  // a replaced idea can still be explored from a card that showed it before the new batch
+  replaced: ['accepted', 'dismissed'],
   accepted: ['saved', 'dismissed'],
   saved: [],
   dismissed: [],
