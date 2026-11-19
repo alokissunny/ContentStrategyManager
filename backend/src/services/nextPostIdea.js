@@ -370,10 +370,10 @@ function parseJsonAnswer(text) {
  * JSON text — the same way the Strategist gets its JSON from Claude. A cut-off
  * or unreadable answer is asked for once more.
  */
-async function completeClaudeJson({ model, system, user }) {
-  const sys = `${system}\n\n## Output\n\nReturn ONLY one JSON object (no prose, no code fences) matching this JSON Schema:\n${JSON.stringify(IDEA_TOOL.input_schema)}`;
+async function completeClaudeJson({ model, system, user, schema = IDEA_TOOL.input_schema, kind = 'strategist' }) {
+  const sys = `${system}\n\n## Output\n\nReturn ONLY one JSON object (no prose, no code fences) matching this JSON Schema:\n${JSON.stringify(schema)}`;
   const run = (text, maxTokens) => completeText({
-    model, system: sys, user: text, maxTokens, kind: 'strategist', reasoningEffort: 'low', timeoutMs: 180000,
+    model, system: sys, user: text, maxTokens, kind, reasoningEffort: 'low', timeoutMs: 180000,
   });
   let res = await run(user, 8000);
   let usage = { ...res.usage };
@@ -656,6 +656,7 @@ module.exports = {
   decideIdea,
   ideaModel,
   parseJsonAnswer,
+  completeClaudeJson,
   // exported for tests / dry runs (scripts/test-next-post-idea.js)
   loadMaterial,
   callModel,

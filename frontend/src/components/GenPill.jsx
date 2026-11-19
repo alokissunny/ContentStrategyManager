@@ -18,7 +18,7 @@ import { useNavigate } from 'react-router-dom';
 import useMediaQuery from '../hooks/useMediaQuery';
 import Icon from '../brand/Icon';
 import NotifyWhenReady from './NotifyWhenReady';
-import IdeaCard from './IdeaCard';
+import IdeaCard, { useIdeaShown } from './IdeaCard';
 import {
   usePlanGeneration, resumePlanGeneration, clearGenJob, clearFinishedGenJobs, retryGenJob, markGenJobSeen,
   requestOpenPostDay,
@@ -107,10 +107,11 @@ export default function GenPill({ slot = null }) {
   const doneN = done.reduce((n, j) => n + Math.max(1, (j.posts || []).length), 0);
   const failN = jobs.filter((j) => j.status === 'failed').length;
   const n = jobs.length;
-  // the next-post idea follows the newest finished run, once nothing else is being made
-  const lastDone = making ? null
-    : [...done].filter((j) => (j.posts || []).length).sort((a, b) => (b.endedAt || 0) - (a.endedAt || 0))[0];
-  const ideaRun = lastDone ? `${handle}:${lastDone.id}` : '';
+  // the recommended post is always in the panel (studio, 2026-11-19): it follows
+  // the newest finished run, and with none yet it is fetched for the account
+  const lastDone = [...done].filter((j) => (j.posts || []).length).sort((a, b) => (b.endedAt || 0) - (a.endedAt || 0))[0];
+  const ideaRun = handle ? `${handle}:${lastDone ? lastDone.id : 'base'}` : '';
+  const ideaShown = useIdeaShown(ideaRun);
 
   // the clock-driven stage moves on while something is being made
   useEffect(() => {
@@ -165,7 +166,6 @@ export default function GenPill({ slot = null }) {
     document.addEventListener('keydown', esc);
     return () => { document.removeEventListener('pointerdown', away, true); document.removeEventListener('keydown', esc); };
   }, [open]);
-  useEffect(() => { if (!n) setOpen(false); }, [n]);
 
   /* on its row, the room below it: open, it may take what is between its top
      and the tab bar (`--genq-floor`), less a step (decision 770) */
@@ -184,7 +184,8 @@ export default function GenPill({ slot = null }) {
     return () => { window.removeEventListener('resize', read); window.removeEventListener('scroll', read, true); };
   }, [open, inRow]);
 
-  if (!n) return null;
+  // the pill is always there: posts being made or made, and the recommended post
+  if (!handle) return null;
 
   const viewPost = (j) => {
     const first = [...(j.posts || [])].filter((p) => p.date).sort((a, b) => a.date.localeCompare(b.date))[0];
@@ -199,7 +200,8 @@ export default function GenPill({ slot = null }) {
   const label = making ? `Generating ${postsSay(making)}`
     : doneN ? `${postsSay(doneN)} ready`
       : failN ? `${postsSay(failN)} not finished`
-        : postsSay(n);
+        : n ? postsSay(n)
+          : ideaShown ? 'Your next post' : 'Your posts';
 
   const tree = (
     <div className={`gpill-host ${open ? 'is-open' : 'is-shut'} ${capOpen ? 'is-under' : ''} ${inRow ? 'is-row' : ''}`}>
@@ -247,6 +249,9 @@ export default function GenPill({ slot = null }) {
               <div className="gpill__ideaslot">
                 <IdeaCard runKey={ideaRun} tabIndex={tab} onExplore={() => setOpen(false)} />
               </div>
+            )}
+            {!n && !ideaShown && (
+              <p className="gpill__empty">Nothing being made right now. New posts and your next recommended post show here.</p>
             )}
             {jobs.map((j) => {
               const phase = j.status === 'running' || j.status === 'queued' ? 'live' : j.status;

@@ -18,7 +18,7 @@ const fs = require('fs');
 const path = require('path');
 const PostIdea = require('../models/PostIdea');
 const Project = require('../models/Project');
-const { completeToolCall } = require('./llmComplete');
+const { completeToolCall, providerOf } = require('./llmComplete');
 const { loadBrandDna } = require('./planInputs');
 const { estimatePlanCostUsd } = require('./weeklyPlan');
 const { LANGUAGES } = require('../utils/appLocale');
@@ -27,10 +27,11 @@ const PROMPT_FILE = path.join(__dirname, '..', '..', 'prompts', 'idea-reel-plan.
 const FORMATS = ['faceless_text', 'faceless_voiceover', 'talking_head', 'talking_head_broll', 'music_led'];
 const ROLES = ['hook', 'context', 'value', 'proof', 'payoff'];
 const SHOTS = ['talking_head', 'broll', 'talking_head_broll', 'text', 'voiceover'];
-const PLAN_VERSION = 2; // 2: per-sequence B-roll shot list
+const PLAN_VERSION = 3; // 2: per-sequence B-roll shot list · 3: Claude Sonnet 5.5 (2026-11-19)
 
-// OpenAI by default (openai-only rule); IDEA_REEL_MODEL overrides
-const reelPlanModel = () => process.env.IDEA_REEL_MODEL || 'gpt-6-luna';
+// Claude Sonnet 5.5 at the studio's request (2026-11-19) — an exception to the
+// OpenAI-by-default rule, like the next-post idea agent; IDEA_REEL_MODEL overrides.
+const reelPlanModel = () => process.env.IDEA_REEL_MODEL || 'claude-sonnet-5-5';
 
 let promptCache = null;
 const loadPrompt = () => (promptCache ||= fs.readFileSync(PROMPT_FILE, 'utf8'));
@@ -200,21 +201,26 @@ async function ideaReelPlan(userId, ideaId, { captureId, format = '', refresh = 
   ].join('\n\n');
 
   const started = Date.now();
-  const res = await completeToolCall({
-    model: reelPlanModel(),
-    system,
-    userParts: [{ type: 'text', text: user }],
-    tool: TOOL,
-    maxTokens: 6000,
-    kind: 'ideaReelPlan',
-    reasoningEffort: 'low',
-    cacheKey: 'idea-reel-plan',
-    timeoutMs: 120000,
-    retryHint: 'Return ONLY the JSON object for plan_idea_reel, matching the schema exactly.',
-  });
+  const model = reelPlanModel();
+  // Sonnet 5.5 refuses a forced tool call: on Claude the schema goes in the
+  // system prompt and the answer is read as JSON (same path as the idea agent)
+  const res = providerOf(model) === 'anthropic'
+    ? await require('./nextPostIdea').completeClaudeJson({ model, system, user, schema: TOOL.input_schema, kind: 'ideaReelPlan' })
+    : await completeToolCall({
+      model,
+      system,
+      userParts: [{ type: 'text', text: user }],
+      tool: TOOL,
+      maxTokens: 6000,
+      kind: 'ideaReelPlan',
+      reasoningEffort: 'low',
+      cacheKey: 'idea-reel-plan',
+      timeoutMs: 120000,
+      retryHint: 'Return ONLY the JSON object for plan_idea_reel, matching the schema exactly.',
+    });
   const plan = { ...cleanPlan(res.parsed, forced), captureId: cid, madeAt: new Date().toISOString() };
   const usage = res.usage || {};
-  const costUsd = estimatePlanCostUsd(res.model, num(usage.input_tokens), num(usage.output_tokens), num(usage.cached_tokens));
+  const costUsd = estimatePlanCostUsd(res.model, num(usage.input_tokens), num(usage.output_tokens), num(usage.cached_tokens), num(usage.cache_write_tokens));
   debug?.push({
     source: 'Idea reel plan',
     model: res.model,

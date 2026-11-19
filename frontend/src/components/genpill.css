@@ -472,3 +472,6 @@ body:has(.gpill-host:not(.is-row)) .app__main { padding-bottom: calc(var(--gpill
 .gpill-host.is-row .gpill { top: 0; bottom: auto; animation: none; box-shadow: none; }
 .gpill-host.is-row .gpill.is-open { height: min(var(--gpill-open-h, 240px), var(--gpill-room, 60dvh)); }
 .gpill-host.is-row .gpill.is-open { box-shadow: 0 18px 40px -14px rgb(20 20 25 / 0.6); }
+
+/* the panel with no posts and no recommendation yet */
+.gpill__empty { margin: 0; padding: var(--sp-2, 8px) var(--sp-3, 12px); color: rgba(255, 255, 255, 0.6); font-size: 13px; line-height: 1.4; }

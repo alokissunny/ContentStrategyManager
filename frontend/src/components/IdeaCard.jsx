@@ -43,6 +43,13 @@ function useRunIdeas(runKey) {
   return byRun.get(runKey) || null;
 }
 
+/* whether the card has something to show (the pill's label and empty line read it) */
+export function useIdeaShown(runKey) {
+  const run = useRunIdeas(runKey);
+  if (!run || run.shut) return false;
+  return run.status === 'loading' || (run.status === 'ready' && (run.ideas || []).length > 0);
+}
+
 export default function IdeaCard({ runKey, tabIndex = 0, onExplore }) {
   const run = useRunIdeas(runKey);
   const [busy, setBusy] = useState(false);
