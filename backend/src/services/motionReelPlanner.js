@@ -15,6 +15,7 @@ const fs = require('fs');
 const path = require('path');
 const { completeText } = require('./llmComplete');
 const { estimatePlanCostUsd } = require('./weeklyPlan');
+const { getMediaUrl } = require('./s3Client');
 
 const PROMPT_FILE = path.join(__dirname, '..', '..', 'prompts', 'motion-reel-planner.md');
 // Claude Sonnet 5.5 at the studio's request (2026-11-19) — an exception to the
@@ -30,7 +31,31 @@ const ACCENTS = {
   palette_extract: { fact_captions: 3 },
   grid_build: { fact_captions: 4, poll_sticker: 1 },
   kinetic_hook: {},
+  motion_story: {},
 };
+
+// motion_story: one animated scene per beat, chosen by what the beat says
+// (remotion/src/motionStory.tsx). Seconds = how long each scene needs to land.
+const SCENES = {
+  slam: 2.3, strike_swap: 3.0, prompt_type: 3.4, marker: 2.6, checklist: 3.4, split: 2.8, stamp: 2.8, circle: 2.6,
+  photo_reveal: 3.0, zoom_punch: 2.8, polaroid: 3.0,
+};
+// scenes that ARE a picture (they need one)
+const PICTURE_SCENES = new Set(['photo_reveal', 'zoom_punch', 'polaroid']);
+const STOP = /^(the|and|for|with|your|our|you|we|are|was|that|this|from|into|not|but|its|it's|they|them|their|have|has|will|can|just|more|than|what|when|how|why|a|an|of|to|in|on|is|it|do|don't|dont)$/i;
+const normWord = (w) => String(w || '').toLowerCase().replace(/[^\p{L}\p{N}]/gu, '');
+// the word a line hangs on: the longest content word
+function keyWordOf(text) {
+  return wordsOf(text).map((w) => w.replace(/[^\p{L}\p{N}'’-]/gu, '')).filter((w) => w && !STOP.test(w))
+    .sort((a, b) => b.length - a.length)[0] || '';
+}
+// a scene from the words alone (when the planner named none, or one the beat can't carry)
+function sceneFor(text, i) {
+  if (/\b(ai|a\.i\.|prompt\w*|chatgpt|gpt|digital|software|app|apps|tool|tools|automat\w*|online|algorithm\w*|generat\w*)\b/i.test(text)) return 'prompt_type';
+  if (/\b(not|don't|dont|never|no|isn't|won't|stop|instead|without|myth|wrong)\b/i.test(text)) return 'stamp';
+  if (i === 0) return 'slam';
+  return ['marker', 'circle', 'slam'][i % 3];
+}
 const MOODS = {
   'warm-upbeat': { mood: 'warm, upbeat, confident', genre: 'modern acoustic-electronic with a light groove', bpm: 108 },
   'calm-ambient': { mood: 'calm, airy, refined', genre: 'ambient minimal piano and soft pads with a gentle pulse', bpm: 90 },
@@ -207,7 +232,79 @@ function cleanMotionPlan(raw, ctx) {
       tiles = tiles.slice(0, 4);
       return tiles.length === 4 ? { tiles, variant: props.variant === 'options' ? 'options' : 'rooms' } : null;
     }
+    if (fmt === 'motion_story') {
+      let beats = storyBeats(props.beats);
+      if (beats.length < 2) beats = beatsFromFacts();
+      return beats.length >= 2 ? { beats } : null;
+    }
     return null;
+  };
+
+  // motion_story beats, repaired: valid scene for what it carries, copy limits,
+  // facts, a key word that is in the line, and never the same scene twice running
+  const storyBeats = (list) => {
+    const out = [];
+    (Array.isArray(list) ? list : []).slice(0, 7).forEach((b) => {
+      if (!b || typeof b !== 'object') return;
+      let scene = SCENES[b.scene] ? b.scene : '';
+      let text = onVideo(b.text, 8, { stop: true });
+      if (text && !ok(text)) text = '';
+      const beat = {};
+      // the picture it plays over / shows (a photo or a clip still — a clip plays)
+      const pic = isAsset(String(b.assetId || '')) ? String(b.assetId) : '';
+      const pics = ids(b.assetIds).slice(0, 2);
+      if (pic) beat.assetId = pic;
+      if (PICTURE_SCENES.has(scene) && !pic) scene = '';
+      if (scene === 'polaroid' && pics.some((x) => x !== pic)) beat.assetIds = [pic, pics.find((x) => x !== pic)];
+      if (scene === 'split' && pics.length === 2) beat.assetIds = pics;
+      if (scene === 'strike_swap') {
+        const struck = onVideo(b.struck, 4, { stop: true });
+        if (struck && ok(struck) && text) beat.struck = struck; else scene = '';
+      }
+      if (scene === 'checklist') {
+        const items = (Array.isArray(b.items) ? b.items : []).map((x) => onVideo(x, 4, { stop: true })).filter((x) => x && ok(x)).slice(0, 4);
+        if (items.length >= 2) beat.items = items; else scene = '';
+      }
+      if (scene === 'split') {
+        const left = onVideo(b.left, 4, { stop: true }); const right = onVideo(b.right, 4, { stop: true });
+        if (left && right && ok(left) && ok(right)) { beat.left = left; beat.right = right; if (!text) text = `${left} vs ${right}`; } else scene = '';
+      }
+      if (!text && scene !== 'checklist') return;
+      if (!scene) scene = sceneFor(text, out.length);
+      if (scene === 'stamp') {
+        const st = onVideo(b.stampText, 2, { stop: true });
+        beat.stampText = st && ok(st) ? st : '';
+      }
+      const emph = str(b.emphasis, 30);
+      beat.emphasis = emph && wordsOf(text).some((w) => normWord(w) === normWord(emph)) ? emph : keyWordOf(text);
+      if (scene === 'stamp' && !beat.stampText) beat.stampText = beat.emphasis;
+      out.push({ scene, text, ...beat });
+    });
+    // variety: no scene twice in a row (the content-led ones are kept, the plain ones move)
+    for (let i = 1; i < out.length; i += 1) {
+      if (out[i].scene !== out[i - 1].scene || PICTURE_SCENES.has(out[i].scene)) continue;
+      const alt = ['marker', 'circle', 'slam'].find((x) => x !== out[i - 1].scene && x !== out[i + 1]?.scene);
+      if (['marker', 'circle', 'slam', 'stamp'].includes(out[i].scene)) out[i] = { ...out[i], scene: alt };
+    }
+    const beats = out.slice(0, 6);
+    // a reel with pictures shows them: at least half the beats play over one.
+    // Unused pictures go to text beats that don't have one (hook on the widest,
+    // the last beats on finished rooms); checklist / prompt / split stay on colour
+    const pool = bySharp.map((a) => a.assetId).filter((id) => !beats.some((b) => b.assetId === id || b.assetIds?.includes(id)));
+    const want = Math.ceil(beats.length / 2);
+    let have = beats.filter((b) => b.assetId).length;
+    for (const b of beats) {
+      if (have >= want || !pool.length) break;
+      if (b.assetId || ['checklist', 'prompt_type', 'split'].includes(b.scene)) continue;
+      b.assetId = pool.shift();
+      have += 1;
+    }
+    return beats.map((b) => ({ ...b, sec: SCENES[b.scene] + (b.scene === 'checklist' ? 0.5 * Math.max(0, (b.items?.length || 0) - 2) : 0) }));
+  };
+  // no usable beats from the planner: tell the studio's own lines, a scene each
+  const beatsFromFacts = () => {
+    const lines = [ctx.hookFallback, ...ctx.project.facts.map((f) => f.text)].map((l) => onVideo(l, 8, { stop: true })).filter((l) => l && ok(l));
+    return storyBeats([...new Set(lines)].slice(0, 5).map((text, i) => ({ text, scene: sceneFor(text, i) })));
   };
 
   const kineticLines = () => {
@@ -231,7 +328,7 @@ function cleanMotionPlan(raw, ctx) {
   })();
   const fallbackHook = onVideo(ctx.hookFallback || '', 7);
   const hookText = hookWords || (fallbackHook && ok(fallbackHook) ? fallbackHook : '');
-  const opensWithText = main === 'listicle_tips' || main === 'stat_counter';
+  const opensWithText = main === 'listicle_tips' || main === 'stat_counter' || main === 'motion_story';
   const wantIntro = main !== 'kinetic_hook' && !opensWithText && Boolean(hookText) && Boolean(introRaw);
   const firstAsset = mainProps?.beforeAssetId || mainProps?.assetIds?.[0] || mainProps?.assetId || mainProps?.tiles?.[0]?.assetId || mainProps?.backgroundAssetId || bySharp[0]?.assetId || '';
 
@@ -271,6 +368,7 @@ function cleanMotionPlan(raw, ctx) {
     palette_extract: () => clamp(3 + mainProps.swatchCount * 1.0, 8, 15),
     grid_build: () => clamp(7.5 + (accents.some((x) => x.kind === 'poll_sticker') ? 1.5 : 0), 8, 15),
     kinetic_hook: () => clamp(1.2 + Math.max(1, kineticLines().length || 1) * 2.4, 3.5, 12),
+    motion_story: () => clamp(mainProps.beats.reduce((n, b) => n + b.sec, 0), 8, 20),
   };
   let mainSec = r2(natural[main]());
   const mainHook = main === 'kinetic_hook' ? (hookText || onVideo(ctx.project.title, 7)) : '';
@@ -344,6 +442,7 @@ async function compileMotionTimeline(plan, ctx, { brand, fps, width, height, mus
     const q = s.props || {};
     [q.backgroundAssetId, q.beforeAssetId, q.afterAssetId, q.assetId].forEach(take);
     (q.assetIds || []).forEach(take);
+    (q.beats || []).forEach((b) => { take(b.assetId); (b.assetIds || []).forEach(take); });
     (q.tiles || []).forEach((x) => take(x.assetId));
   });
   const media = {};
@@ -356,6 +455,15 @@ async function compileMotionTimeline(plan, ctx, { brand, fps, width, height, mus
       w: row.width || 0, h: row.height || 0,
       focal: meta.focal, swatches: meta.swatches,
     };
+    // a clip still: the clip plays (muted) from just before that moment; pinned
+    // formats (wipe, hotspots, palette) keep the still so their marks line up
+    if (row.clip?.key) {
+      const url = await getMediaUrl(row.clip.key).catch(() => '');
+      if (url) {
+        media[id].video = url;
+        media[id].videoStart = r2(Math.max(0, Math.min(row.clip.t - 0.4, (row.clip.durationSec || 0) - 2)));
+      }
+    }
   }));
   const products = Object.fromEntries(ctx.project.products.map((x) => [x.productId, { name: onVideo(x.name, 3), price: x.price || '', assetId: x.assetId, point: x.point }]));
 

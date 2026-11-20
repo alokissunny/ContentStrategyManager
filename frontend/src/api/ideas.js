@@ -3,8 +3,10 @@ import { ingestPlanDebug } from './posts';
 
 // Next-post ideas ("What could you share next?") — backend services/nextPostIdea.js.
 // → { ideas: [{ id, pillar, title, eyebrow, why, opening, questions, assets:[{url,…}], … }], cached, empty? }
-export function getNextIdeas({ refresh = false } = {}) {
-  return client.get('/ideas/next', { params: refresh ? { refresh: 1 } : {}, timeout: 3 * 60 * 1000 })
+// `handle` = the account the card is for (after a header switch the server may not know yet).
+export function getNextIdeas({ refresh = false, handle = '' } = {}) {
+  const params = { ...(refresh ? { refresh: 1 } : {}), ...(handle ? { handle } : {}) };
+  return client.get('/ideas/next', { params, timeout: 3 * 60 * 1000 })
     .then((res) => {
       const data = res.data || { ideas: [] };
       ingestPlanDebug('Next-post idea', data);

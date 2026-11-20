@@ -5,7 +5,10 @@
  *   [intro kinetic_hook] → [ONE main format + ≤ 2 accent types] → [cta_end_card]
  *
  * Main formats: before_after_wipe, ken_burns, stat_counter, listicle_tips,
- * hotspot_callouts, palette_extract, grid_build, kinetic_hook.
+ * hotspot_callouts, palette_extract, grid_build, kinetic_hook, motion_story
+ * (graphics told beat by beat, each beat animated to its meaning — motionStory.tsx).
+ * Without a picture, the hook and the tips use the same beat scenes (no more
+ * generic grid-and-disc backdrop).
  * Accents: fact_captions, stat_badge, hotspot_tags, palette_strip, poll_sticker.
  *
  * Visual rules (studio's guidance): text stays in the safe zone (not the top
@@ -17,6 +20,8 @@ import React from 'react';
 import { AbsoluteFill, Audio, Img, Sequence, interpolate, Easing, useCurrentFrame, useVideoConfig } from 'remotion';
 import { resolveFont } from './fonts';
 import type { ReelSpec, MotionMedia, MotionSegment } from './reelSchema';
+import { MotionStory, BeatCaption, type Beat } from './motionStory';
+import { MediaFill } from './motionMedia';
 
 const cl = { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' } as const;
 const outCubic = Easing.out(Easing.cubic);
@@ -55,50 +60,19 @@ function captionTop(m: MotionMedia | undefined, c: Ctx, boxH: number) {
   return f.y < c.H * 0.5 ? z.bottom - boxH : z.top + 30 * c.S;
 }
 
-// ── a picture with a slow camera ─────────────────────────────────────────────
-const Photo: React.FC<{ m?: MotionMedia; dur: number; variant?: number; dim?: number; blur?: number; still?: boolean; clip?: string }> = ({ m, dur, variant = 0, dim = 0, blur = 0, still = false, clip }) => {
-  const f = useCurrentFrame();
-  if (!m) return <AbsoluteFill style={{ background: '#111' }} />;
-  const p = interpolate(f, [0, Math.max(1, dur)], [0, 1], cl);
-  const moves = [
-    { s: [1.04, 1.14], x: [0, 0], y: [0, -1.2] },
-    { s: [1.12, 1.03], x: [0, 0], y: [0, 0] },
-    { s: [1.1, 1.1], x: [2.2, -2.2], y: [0, 0] },
-    { s: [1.1, 1.1], x: [-2.2, 2.2], y: [0, 0] },
-  ];
-  const mv = moves[variant % moves.length];
-  const s = still ? 1.02 : mv.s[0] + (mv.s[1] - mv.s[0]) * p;
-  const tx = still ? 0 : mv.x[0] + (mv.x[1] - mv.x[0]) * p;
-  const ty = still ? 0 : mv.y[0] + (mv.y[1] - mv.y[0]) * p;
-  const fx = m.focal ? m.focal.x + m.focal.w / 2 : 50;
-  const fy = m.focal ? m.focal.y + m.focal.h / 2 : 50;
-  return (
-    <AbsoluteFill style={{ overflow: 'hidden', clipPath: clip }}>
-      <Img src={m.src} style={{
-        position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover',
-        objectPosition: `${fx}% ${fy}%`, transformOrigin: `${fx}% ${fy}%`,
-        transform: `translate(${tx}%, ${ty}%) scale(${s})`,
-        filter: blur ? `blur(${blur}px)` : undefined,
-      }} />
-      {dim ? <AbsoluteFill style={{ background: `rgba(0,0,0,${dim})` }} /> : null}
-    </AbsoluteFill>
-  );
-};
+// ── a picture with a slow camera (or its clip, playing) — motionMedia.tsx ──
+const Photo = MediaFill;
 
 // ── text pieces ──────────────────────────────────────────────────────────────
-const Caption: React.FC<{ text: string; c: Ctx; top: number; dur: number }> = ({ text, c, top, dur }) => {
-  const f = useCurrentFrame();
-  const tIn = interpolate(f, [0, 9], [0, 1], { ...cl, easing: outCubic });
-  const tOut = interpolate(f, [dur - 7, dur], [1, 0], cl);
+// a caption acts out its words over the picture (motionStory BeatCaption): a
+// highlighter, a scribbled ring or a word punch — no more dark box
+const CAPTION_SCENES = ['marker', 'circle', 'slam'];
+const Caption: React.FC<{ text: string; c: Ctx; top: number; dur: number; i?: number }> = ({ text, c, top, dur, i }) => {
   const z = safe(c);
-  return (
-    <div style={{ position: 'absolute', left: z.left, top, width: z.right - z.left, display: 'flex', opacity: tIn * tOut, transform: `translateY(${(1 - tIn) * 26 * c.S}px)` }}>
-      <div style={{ display: 'flex', alignItems: 'stretch', background: 'rgba(12,12,12,0.72)', borderRadius: 18 * c.S, overflow: 'hidden', maxWidth: '100%', boxShadow: '0 12px 34px rgba(0,0,0,0.28)' }}>
-        <div style={{ width: 10 * c.S, background: c.brand.accent }} />
-        <div style={{ padding: `${22 * c.S}px ${30 * c.S}px`, fontFamily: c.head, fontWeight: 800, fontSize: 60 * c.S, lineHeight: 1.08, color: '#fff', letterSpacing: -0.5 }}>{text}</div>
-      </div>
-    </div>
-  );
+  const h = 300 * c.S;
+  const below = top > c.H / 2;
+  const scene = CAPTION_SCENES[(i ?? text.length) % CAPTION_SCENES.length];
+  return <BeatCaption text={text} scene={scene} emphasis={keyWord(text)} c={c} top={below ? z.bottom - h : z.top + 10 * c.S} h={h} dur={dur} />;
 };
 
 // items shown one at a time across [from, from+len)
@@ -110,7 +84,7 @@ const CaptionRun: React.FC<{ items: string[]; c: Ctx; from: number; len: number;
     <>
       {items.map((t, i) => (
         <Sequence key={i} from={from + i * per} durationInFrames={per} layout="none">
-          <Caption text={t} c={c} top={top} dur={per} />
+          <Caption text={t} c={c} top={top} dur={per} i={i} />
         </Sequence>
       ))}
     </>
@@ -154,6 +128,13 @@ const GraphicBackdrop: React.FC<{ c: Ctx; dur: number; variant?: number }> = ({ 
   );
 };
 
+// the word a line hangs on, when the planner named none: the longest content word
+function keyWord(t: string) {
+  const stop = /^(the|and|for|with|your|our|you|we|are|was|that|this|from|into|not|but|its|it's|they|them|their|have|has|will|can|just|more|than|what|when|how|why)$/i;
+  const words = t.split(/\s+/).map((w) => w.replace(/[^\p{L}\p{N}'’-]/gu, '')).filter((w) => w && !stop.test(w));
+  return words.sort((a, b) => b.length - a.length)[0] || '';
+}
+
 // one line of type, word by word (the hook, or a line of a graphics-only main)
 const KineticLine: React.FC<{ words: string[]; c: Ctx; dur: number; emph: string; ink: string; shadow: boolean }> = ({ words, c, dur, emph, ink, shadow }) => {
   const f = useCurrentFrame();
@@ -191,6 +172,18 @@ const KineticHook: React.FC<{ seg: MotionSegment; c: Ctx }> = ({ seg, c }) => {
   // a graphics-only main: its lines one after another
   const lines: string[] = seg.type === 'main' && Array.isArray(seg.props.lines) && seg.props.lines.length ? seg.props.lines : [];
   const per = lines.length ? Math.floor(seg.durationInFrames / lines.length) : seg.durationInFrames;
+  {
+    // the words are the show — slam the hook, then a marker / circle per line,
+    // over the picture (or its clip, playing) when there is one
+    const all = lines.length ? lines : [(seg.props.words || []).join(' ')];
+    const beats: Beat[] = all.filter(Boolean).map((t, i) => ({
+      scene: i === 0 ? 'slam' : (i % 2 ? 'marker' : 'circle'),
+      text: t,
+      emphasis: i === 0 ? emph : keyWord(t),
+      ...(m ? { assetId: seg.props.backgroundAssetId } : {}),
+    }));
+    if (beats.length) return <MotionStory beats={beats} c={c} dur={seg.durationInFrames} />;
+  }
   return (
     <AbsoluteFill>
       {m ? <Photo m={m} dur={seg.durationInFrames} variant={1} dim={0.42} /> : <GraphicBackdrop c={c} dur={seg.durationInFrames} variant={1} />}
@@ -259,7 +252,7 @@ const KenBurns: React.FC<{ seg: MotionSegment; c: Ctx }> = ({ seg, c }) => {
       })}
       {ids.map((id, i) => (caps[i] && !(strip && i === n - 1) ? (
         <Sequence key={`c${i}`} from={i * per + 8} durationInFrames={Math.max(14, per - 12)} layout="none">
-          <Caption text={caps[i]} c={c} top={captionTop(c.media[id], c, 150 * c.S)} dur={Math.max(14, per - 12)} />
+          <Caption text={caps[i]} c={c} top={captionTop(c.media[id], c, 150 * c.S)} dur={Math.max(14, per - 12)} i={i} />
         </Sequence>
       ) : null))}
       {strip ? (
@@ -330,6 +323,16 @@ const Listicle: React.FC<{ seg: MotionSegment; c: Ctx }> = ({ seg, c }) => {
   const per = Math.floor((seg.durationInFrames - intro) / Math.max(1, tips.length));
   const ink = m ? '#fff' : c.brand.fg;
   const z = safe(c);
+  {
+    // each tip is its own beat (alternating colour, entrance and scene) after a
+    // slammed title — over the picture when there is one
+    const bg = m ? { assetId: seg.props.backgroundAssetId } : {};
+    const beats: Beat[] = [
+      ...(title ? [{ scene: 'slam', text: title, emphasis: keyWord(title), ...bg }] : []),
+      ...tips.map((t, i) => ({ scene: ['marker', 'circle', 'marker', 'stamp', 'circle'][i % 5], text: `${i + 1}. ${t.title}`, emphasis: keyWord(t.title), stampText: `Tip ${i + 1}`, ...bg })),
+    ];
+    if (beats.length) return <MotionStory beats={beats} c={c} dur={seg.durationInFrames} />;
+  }
   return (
     <AbsoluteFill style={{ background: c.brand.ground }}>
       {m ? <Photo m={m} dur={seg.durationInFrames} variant={2} dim={0.6} blur={4} /> : <GraphicBackdrop c={c} dur={seg.durationInFrames} variant={2} />}
@@ -442,7 +445,7 @@ const PaletteExtract: React.FC<{ seg: MotionSegment; c: Ctx }> = ({ seg, c }) =>
           const per = Math.floor((seg.durationInFrames - capFrom) / caps.length);
           return per > 12 ? (
             <Sequence key={i} from={capFrom + i * per} durationInFrames={per} layout="none">
-              <Caption text={t} c={c} top={z.top + 30 * c.S} dur={per} />
+              <Caption text={t} c={c} top={z.top + 30 * c.S} dur={per} i={i} />
             </Sequence>
           ) : null;
         })
@@ -524,7 +527,14 @@ const EndCard: React.FC<{ seg: MotionSegment; c: Ctx }> = ({ seg, c }) => {
   );
 };
 
+const Story: React.FC<{ seg: MotionSegment; c: Ctx }> = ({ seg, c }) => {
+  const beats: Beat[] = Array.isArray(seg.props.beats) ? seg.props.beats : [];
+  if (!beats.length) return <KineticHook seg={seg} c={c} />;
+  return <MotionStory beats={beats} c={c} dur={seg.durationInFrames} />;
+};
+
 const MAIN: Record<string, React.FC<{ seg: MotionSegment; c: Ctx }>> = {
+  motion_story: Story,
   before_after_wipe: BeforeAfter,
   ken_burns: KenBurns,
   stat_counter: StatCounter,

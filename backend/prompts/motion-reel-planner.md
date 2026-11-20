@@ -11,7 +11,7 @@ Every reel has this shape:
 ```
 
 - **Main format:** exactly one. It carries the story.
-- **Intro hook:** `kinetic_hook` as a 1–2 s opener over the main format's first frame. Use it unless the main format already opens with strong text (`listicle_tips`, `stat_counter`).
+- **Intro hook:** `kinetic_hook` as a 1–2 s opener over the main format's first frame. Use it unless the main format already opens with strong text (`listicle_tips`, `stat_counter`, `motion_story`).
 - **Outro:** `cta_end_card`. Include it whenever `brandKit` is complete.
 - **Accents:** small graphics inside the main format, from the allowed list in §3 only. A maximum of 2 accent types per reel.
 - **Total length:** 10–20 s. Hard maximum 30 s.
@@ -29,6 +29,7 @@ Every reel has this shape:
 | `hotspot_callouts` | Main, or an accent on the final frame | Products are tagged on a finished photo | Fewer than 2 products are matched |
 | `palette_extract` | Main, or a palette-strip accent | The finished room has a distinctive colour story | The room is mostly neutral |
 | `grid_build` | Main | There are 4 rooms, or 4 style options of one room | Fewer than 4 qualifying photos |
+| `motion_story` | Main | There's a story to tell — a process, a decision, a challenge solved, a stance, a lesson, behind-the-scenes — with or without photos: each beat plays over its own photo/clip (or brand colour) and moves to its meaning | One picture move carries it alone (an aligned before/after, tagged products, a palette), the lines are genuinely practical tips (`listicle_tips`), or one striking number carries it (`stat_counter`) |
 | `cta_end_card` | Outro | The brand kit is complete | Never as the main format, unless the user asks |
 
 ### 3. Allowed accents per main format
@@ -43,6 +44,7 @@ Every reel has this shape:
 | `palette_extract` | `fact_captions` (materials) |
 | `grid_build` | `fact_captions` (1 label per tile), `poll_sticker` ("Which one?") in variant mode |
 | `kinetic_hook` (as main) | none |
+| `motion_story` | none (each beat is its own graphic) |
 
 An accent may only use data that exists in the input. If there's no data for an accent, leave it out. Never use a placeholder.
 
@@ -123,7 +125,7 @@ An accent may only use data that exists in the input. If there's no data for an 
 
 - `kinetic_hook`: `{ "words": ["…"], "emphasis": "one word to light in the accent (optional)", "backgroundAssetId": "…" }` — `words` joined is the hook (≤ 7 words). As the MAIN format it also takes `"lines": ["…", "…"]` — 2–4 short lines (≤ 7 words each) shown one after another, written only from `project.notes` / `project.facts`.
 
-When `assets` is empty there are no pictures: plan pure graphics on brand colours (`listicle_tips`, `stat_counter`, or `kinetic_hook` with `lines`), leave every `backgroundAssetId` out, and never ask for photos or footage.
+When `assets` is empty there are no pictures: plan pure graphics on brand colours, leave every `backgroundAssetId` out, and never ask for photos or footage. Pick by the shape of the story: `motion_story` for a stance, opinion, process or story; `listicle_tips` only when the lines are real, practical tips; `stat_counter` when a stated number carries it. Never number lines that aren't tips.
 - `before_after_wipe`: `{ "beforeAssetId", "afterAssetId", "wipe": { "direction": "ltr" | "rtl", "startSec", "durationSec" }, "labels": { "before", "after" } }` — `wipe.startSec` is from the start of this segment.
 - `ken_burns`: `{ "assetIds": ["…", "…", "…"] }` — 3–6, in show order.
 - `stat_counter`: `{ "stats": [{ "value": "₹4.2L", "label": "≤ 4 words" }], "backgroundAssetId": "… (optional)" }` — 1–3 stats; every `value` comes from `project.metrics` exactly as written there.
@@ -132,6 +134,25 @@ When `assets` is empty there are no pictures: plan pure graphics on brand colour
 - `palette_extract`: `{ "assetId": "…", "swatchCount": 3–5 }` — the swatches are that asset's own `swatches`.
 - `grid_build`: `{ "tiles": [{ "assetId": "…", "label": "≤ 3 words (optional)" }], "variant": "rooms" | "options" }` — exactly 4 tiles.
 - `cta_end_card`: `{ "cta": "≤ 6 words, verb first", "handle": "brandKit.handle", "backgroundAssetId": "… (optional)" }`.
+- `motion_story`: `{ "beats": [ { "scene": "…", "text": "≤ 8 words", "emphasis": "one word from text", "assetId": "… (optional)", … } ] }` — 3–6 beats that tell the story in order: beat 1 is the hook, the last lands the point. Every beat is written only from `project.notes` / `project.facts`. Each beat gets the ONE scene whose motion matches what that beat MEANS — the animation must act out the line, not decorate it:
+
+  | `scene` | Its motion | Use it when the beat… | Extra fields |
+  |---|---|---|---|
+  | `slam` | words punch in one by one, the screen shakes on the last | is the hook, a bold claim, tension or a feeling ("The fear is real") | — |
+  | `strike_swap` | a phrase appears, a marker strikes it out, the real line rises | rejects something or corrects a myth ("not X — Y") | `struck`: the rejected thing, ≤ 4 words, from the notes |
+  | `prompt_type` | a prompt box types the line, then an answer streams in | is about AI, software, a tool or a digital process | — |
+  | `marker` | lines rise from a mask, a highlighter paints the key word | states a value, an insight or the takeaway | — |
+  | `checklist` | items tick in with drawn checkmarks | lists what the studio does / uses / offers (2–4 items) | `items`: 2–4, ≤ 4 words each; `text` is an optional title |
+  | `split` | two halves slide in from opposite sides, "vs" pops | compares two things, then vs now, them vs us | `left`, `right`: ≤ 4 words each |
+  | `stamp` | the line lands, then a rubber stamp slams down | is a rule, a promise or a firm "never" | `stampText`: 1–2 words already in the notes (e.g. "Never", "Promise") |
+  | `circle` | a hand-drawn ring scribbles around the key word | hinges on one word the viewer must notice | — |
+  | `photo_reveal` | the line lands on colour, then the picture grows from a card to full-bleed | is the payoff or the result ("Here's how it turned out") | `assetId` (required) |
+  | `zoom_punch` | the picture punch-zooms into its focal point, a ring marks it | points at a detail in the picture (a joint, a material, a fixture) | `assetId` (required) — a picture whose `focal` is that detail |
+  | `polaroid` | the picture drops in as a tilted print, the line written under it | is a moment, a memory or a step of the process (site visit, sketch, first day) | `assetId` (required); `assetIds`: a second print behind (optional) |
+
+  **Pictures:** when `assets` has photos or clip stills, give each beat the one that shows what it says (`assetId`; a clip still makes the clip itself play): the text scenes then run over it in white, and `photo_reveal` / `zoom_punch` / `polaroid` are built from it. A `split` may take `assetIds` (one picture per half, e.g. before and after). Put a picture on most beats (at least half) — it's a photo reel. Use each picture at most once, match the line to what the picture shows (its `summary`), and keep one or two beats on plain brand colour (a checklist, a stance) for contrast. Open on the strongest picture or the boldest line.
+
+  Rules: the same scene never twice in a row; use at least 3 different scenes in a reel; `emphasis` is a word that appears in that beat's `text` (it gets the highlight, the ring or the accent colour). Write beats as spoken lines a person would say, not labels.
 
 Accents (on the main segment's `accents`):
 - `fact_captions`: `{ "kind": "fact_captions", "items": ["≤ 6 words", …] }`
@@ -150,7 +171,9 @@ Accents (on the main segment's `accents`):
 | 6 finished photos, no before, no products | `kinetic_hook` intro → `ken_burns` with `fact_captions` + `palette_strip` on the last photo → `cta_end_card` |
 | 1 finished photo, 5 priced products | `kinetic_hook` intro ("The full look, priced") → `hotspot_callouts` with a `stat_badge` total → `cta_end_card` |
 | Strong verified results ("+240% enquiries") | no intro → `stat_counter` with `fact_captions` → `cta_end_card` |
-| Japandi style, no photos, brand kit only | no intro → `listicle_tips` on brand-colour backgrounds → `cta_end_card` |
+| Japandi style, no photos, brand kit only, real practical tips | no intro → `listicle_tips` on brand-colour backgrounds → `cta_end_card` |
+| 5 photos + a clip of a kitchen renovation, the story of one tricky decision | no intro → `motion_story`: `slam` over the before photo → `polaroid` of the site-visit still → `zoom_punch` on the detail that solved it → `marker` on plain colour (the lesson) → `photo_reveal` of the finished kitchen → `cta_end_card` |
+| No photos, the studio's view on site visits (a worry → what it refuses → what it does → the point) | no intro → `motion_story`: `slam` (the worry, in the studio's words) → `strike_swap` (struck: the shortcut it refuses) → `checklist` (2–4 things it checks on site) → `marker` (the point, key word highlighted) → `cta_end_card`. Every line comes from that studio's own notes — never reuse these shapes' words. |
 | 4 style options for one bedroom | `kinetic_hook` intro ("Pick your bedroom") → `grid_build` with `poll_sticker` → `cta_end_card` |
 
 ## Quality checklist (run before returning)

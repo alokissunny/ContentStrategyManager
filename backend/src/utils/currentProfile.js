@@ -38,9 +38,22 @@ async function currentUsername(userId) {
   return username;
 }
 
+// The account a request is for: the handle the client names (?handle= / x-bauhly-handle)
+// when this user owns it, else the current one. A client that just switched accounts
+// in the header names the new handle, so it never gets the old account's data back
+// while the switch is still landing on the server (or sits in the 20s cache).
+// A named handle the user doesn't own → null (never another studio's data).
+async function requestedUsername(userId, requested) {
+  const want = String(requested || '').replace(/^@/, '').trim().toLowerCase();
+  if (!want) return currentUsername(userId);
+  const profile = await InstagramProfile.findOne({ user: userId, username: want }).select('username').lean();
+  return profile?.username || null;
+}
+
 module.exports = {
   CURRENT_SORT,
   currentProfile,
   currentUsername,
+  requestedUsername,
   invalidateCurrentUsername,
 };

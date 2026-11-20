@@ -64,6 +64,8 @@ export type MotionMedia = {
   h: number;
   focal?: { x: number; y: number; w: number; h: number }; // % of the picture
   swatches?: { hex: string; share: number }[];
+  video?: string; // a clip still: the clip itself, played muted from videoStart (s)
+  videoStart?: number;
 };
 export type MotionAccent = {
   kind: 'fact_captions' | 'stat_badge' | 'hotspot_tags' | 'palette_strip' | 'poll_sticker';

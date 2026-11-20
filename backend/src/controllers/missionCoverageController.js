@@ -1,4 +1,4 @@
-const { currentUsername } = require('../utils/currentProfile');
+const { requestedUsername } = require('../utils/currentProfile');
 const { appLocaleOf } = require('../utils/appLocale');
 const { wantsPromptDebug } = require('../utils/promptDebug');
 const { missionCoverage, fetchRecentMissions } = require('../services/missionCoverage');
@@ -24,7 +24,7 @@ async function getContentTerritory(req, res) {
 }
 
 async function respond(req, res, work, mode = 'mission coverage') {
-  const username = await currentUsername(req.user._id);
+  const username = await requestedUsername(req.user._id, req.query.handle || req.body?.handle);
   if (!username) return res.json({ username: null, total: 0, posts: [] });
   const debug = wantsPromptDebug(req) ? [] : null;
   const started = Date.now();

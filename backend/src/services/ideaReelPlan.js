@@ -287,6 +287,7 @@ const FORMAT_SAY = {
   palette_extract: "the room's colour palette pulled from a photo",
   grid_build: 'a four-photo grid',
   kinetic_hook: 'animated headlines and moving shapes',
+  motion_story: 'animated type, each line moving to its meaning',
 };
 
 /*
@@ -346,6 +347,9 @@ async function motionReelPlanFor(userId, idea, cid, { kept, debug }) {
       (q.stats || []).forEach((st) => sequences.push(row(`Count up ${st.value}`, 'proof', st.label, `${st.value} counts up on screen${q.backgroundAssetId ? ` over ${pic(q.backgroundAssetId)}` : ''}.`, per(q.stats.length))));
     } else if (seg.formatId === 'listicle_tips') {
       (q.tips || []).forEach((t, i) => sequences.push(row(`Tip ${i + 1}`, 'value', t.title, `Numbered tip card in your brand colours${q.backgroundAssetId ? ` over ${pic(q.backgroundAssetId)}` : ''}.`, per(q.tips.length))));
+    } else if (seg.formatId === 'motion_story') {
+      const SCENE_SAY = { slam: 'Words punch in one by one', strike_swap: 'A phrase gets struck out, the real line rises', prompt_type: 'A prompt box types it out', marker: 'A highlighter paints the key word', checklist: 'Items tick in one by one', split: 'Two sides slide in, face to face', stamp: 'A stamp slams down on it', circle: 'A hand-drawn circle rings the key word' };
+      (q.beats || []).forEach((b, i) => sequences.push(row(i === 0 ? 'Stop the scroll' : `Beat ${i + 1}`, i === 0 ? 'hook' : i === q.beats.length - 1 ? 'proof' : 'value', b.scene === 'checklist' ? [b.text, ...(b.items || [])].filter(Boolean).join(' · ') : b.scene === 'split' ? `${b.left} vs ${b.right}` : b.text, `${SCENE_SAY[b.scene] || 'Animated type'}, in your brand colours.`, per(q.beats.length))));
     } else if (seg.formatId === 'hotspot_callouts') {
       const names = (q.productIds || []).map((id) => mp.ctx.project.products.find((x) => x.productId === id)?.name).filter(Boolean);
       sequences.push(row('Tag the details', 'value', c[0] || names.join(' · '), `Pins and labels on ${pic(q.assetId)}: ${names.join(', ')}.`, secs(seg)));

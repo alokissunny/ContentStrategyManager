@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import Glyph from '../components/Glyph';
 import { getMissionCoverage, fetchRecentMissionPosts, getContentTopics } from '../api/missions';
@@ -179,37 +179,45 @@ export default function MissionAnalysis() {
   const [only, setOnly] = useState('');
   const [onlyPillar, setOnlyPillar] = useState('');
   const [topics, setTopics] = useState({ loading: false, error: '', data: null });
+  // every request names the account it is for; an answer that lands after a switch is dropped
+  const handleRef = useRef(handle);
+  handleRef.current = handle;
+  const stillOn = (h) => handleRef.current === h;
 
   const loadTopics = useCallback((refresh) => {
+    const h = handle;
     setTopics((t) => ({ ...t, loading: true, error: '' }));
-    getContentTopics({ refresh })
-      .then((data) => setTopics({ loading: false, error: '', data }))
-      .catch((err) => setTopics((t) => ({
+    getContentTopics({ refresh, handle: h })
+      .then((data) => { if (stillOn(h)) setTopics({ loading: false, error: '', data }); })
+      .catch((err) => stillOn(h) && setTopics((t) => ({
         ...t,
         loading: false,
         error: err.response?.data?.message || 'We could not map your topics. Please try again.',
       })));
-  }, []);
+  }, [handle]);
   const [fetching, setFetching] = useState(false);
   const [fetchSay, setFetchSay] = useState('');
 
   const load = useCallback((refresh) => {
+    const h = handle;
     setState((s) => ({ ...s, loading: !s.data, refreshing: Boolean(s.data), error: '' }));
-    getMissionCoverage({ refresh })
-      .then((data) => setState({ loading: false, refreshing: false, error: '', data }))
-      .catch((err) => setState((s) => ({
+    getMissionCoverage({ refresh, handle: h })
+      .then((data) => { if (stillOn(h)) setState({ loading: false, refreshing: false, error: '', data }); })
+      .catch((err) => stillOn(h) && setState((s) => ({
         ...s,
         loading: false,
         refreshing: false,
         error: err.response?.data?.message || 'We could not analyse your recent posts. Please try again.',
       })));
-  }, []);
+  }, [handle]);
 
   // the header account switcher changes whose posts these are
   // (nothing is read — or paid for — while the Analysis flag is off)
   useEffect(() => {
     if (!flags.missionAnalysis) return;
     setOnly(''); setOnlyPillar(''); setFetchSay(''); setTopics({ loading: false, error: '', data: null });
+    // never show the previous account's posts while this one loads
+    setState({ loading: true, error: '', data: null, refreshing: false });
     load(false);
   }, [handle, load, flags.missionAnalysis]);
   // the topic map reads the posts' pillar tags: asked for once the coverage (which tags them) is in
@@ -223,8 +231,10 @@ export default function MissionAnalysis() {
     const before = state.data?.lastFetchedAt;
     setFetching(true);
     setFetchSay('');
-    fetchRecentMissionPosts()
+    const h = handle;
+    fetchRecentMissionPosts({ handle: h })
       .then((data) => {
+        if (!stillOn(h)) return;
         setState({ loading: false, refreshing: false, error: '', data });
         setFetchSay(data.added
           ? `${data.added} new ${data.added === 1 ? 'post' : 'posts'} added and analysed.`

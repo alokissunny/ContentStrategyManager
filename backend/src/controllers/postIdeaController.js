@@ -1,5 +1,5 @@
 const mongoose = require('mongoose');
-const { currentUsername } = require('../utils/currentProfile');
+const { currentUsername, requestedUsername } = require('../utils/currentProfile');
 const { appLocaleOf } = require('../utils/appLocale');
 const { wantsPromptDebug } = require('../utils/promptDebug');
 const { nextIdeas, decideIdea } = require('../services/nextPostIdea');
@@ -7,7 +7,8 @@ const { ideaReelPlan } = require('../services/ideaReelPlan');
 
 // GET /api/ideas/next[?refresh=1] — "What could you share next?" for the current handle.
 async function getNextIdeas(req, res) {
-  const username = await currentUsername(req.user._id);
+  // the account the card is showing (header switch), not whichever the server last activated
+  const username = await requestedUsername(req.user._id, req.query.handle);
   if (!username) return res.json({ ideas: [], username: null });
   const debug = wantsPromptDebug(req) ? [] : null;
   const started = Date.now();

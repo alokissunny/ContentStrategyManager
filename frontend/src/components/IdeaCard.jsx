@@ -27,8 +27,18 @@ function put(runKey, patch) {
 function load(runKey) {
   if (!runKey || byRun.has(runKey)) return;
   put(runKey, { status: 'loading', ideas: [], at: 0 });
-  getNextIdeas()
-    .then((data) => put(runKey, { status: 'ready', ideas: data.ideas || [], at: 0 }))
+  // runKey = `${handle}:${job}` — ask for THIS account's ideas, and never keep another's
+  const handle = runKey.slice(0, runKey.indexOf(':')).toLowerCase();
+  getNextIdeas({ handle })
+    .then((data) => {
+      const forOther = data.username && handle && String(data.username).toLowerCase() !== handle;
+      if (forOther) {
+        byRun.delete(runKey); // the next mount / switch asks again
+        listeners.forEach((fn) => fn());
+        return;
+      }
+      put(runKey, { status: 'ready', ideas: data.ideas || [], at: 0 });
+    })
     .catch(() => put(runKey, { status: 'failed', ideas: [] }));
 }
 

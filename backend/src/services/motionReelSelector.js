@@ -25,12 +25,13 @@ const { toVisionImage } = require('./visionImage');
 
 const FORMAT_IDS = [
   'kinetic_hook', 'before_after_wipe', 'ken_burns', 'stat_counter', 'listicle_tips',
-  'hotspot_callouts', 'palette_extract', 'grid_build', 'cta_end_card',
+  'hotspot_callouts', 'palette_extract', 'grid_build', 'motion_story', 'cta_end_card',
 ];
 const MAX_PICTURES = 16;
 
 const str = (v, n = 400) => (typeof v === 'string' ? v.replace(/\s+/g, ' ').trim().slice(0, n) : '');
 const r2 = (n) => Math.round(n * 100) / 100;
+const num = (v, d = 0) => (Number.isFinite(Number(v)) ? Number(v) : d);
 
 const BEFORE_RE = /\b(before|existing|demoli\w*|construction|under construction|site|raw|unfinished|bare|empty|stripped|gutted|old|original state|work in progress|wip|antes|obra)\b/i;
 const DRAWING_RE = /\b(floor ?plan|plan view|layout plan|drawing|sketch|elevation|section|blueprint|render(ing)?|3d (view|model)|cad|moodboard|mood board)\b/i;
@@ -138,7 +139,8 @@ function pictureRows(material) {
       rows.push({ assetId: a.id, key: a.key, source: 'photo', summary: a.summary, description: a.description, subjects: a.subjects || [], subjectBoxes: a.subjectBoxes || [], text: a.text || '' });
     } else if (a.kind === 'video') {
       (a.stills || []).slice(0, 2).forEach((s, i) => {
-        if (rows.length < MAX_PICTURES) rows.push({ assetId: `${a.id}s${i + 1}`, key: s.key, source: 'clip still', summary: s.summary || a.summary, description: a.description, subjects: [], subjectBoxes: [], text: '' });
+        // the clip itself rides along: the renderer plays it (muted) from this moment
+        if (rows.length < MAX_PICTURES) rows.push({ assetId: `${a.id}s${i + 1}`, key: s.key, source: 'clip still', summary: s.summary || a.summary, description: a.description, subjects: [], subjectBoxes: [], text: '', clip: { key: a.key, t: num(s.t), durationSec: num(a.durationSec) } });
       });
     }
   }
@@ -315,6 +317,8 @@ function selectOptions({ project, capture, brandKit, idea, storyPlan }) {
     opt('hotspot_callouts', bestProducts >= 2, [bestProducts ? 'only 1 named element matched on a finished photo' : 'no named element matched on a finished photo']),
     opt('palette_extract', colourful.length >= 1, [finished.length ? 'the finished rooms are mostly neutral' : 'no finished photo']),
     opt('grid_build', shown.length >= 4, [`only ${shown.length} qualifying photo(s) — needs 4`]),
+    // a story told beat by beat in animated type — needs something to say, not pictures
+    opt('motion_story', project.facts.length >= 2 || project.notes.length >= 60, ['too little written down to tell a story in beats']),
     opt('cta_end_card', brandKit.complete, ['the Brand Kit has no handle or accent colour']),
   ];
   const valid = (id) => options.find((o) => o.formatId === id)?.status === 'valid';
@@ -325,11 +329,18 @@ function selectOptions({ project, capture, brandKit, idea, storyPlan }) {
   if (valid('stat_counter') && /\d/.test(ask) && metrics.some((k) => ask.includes(project.metrics[k].text.toLowerCase().replace(/\s+/g, ' ').split(' ')[0]))) order.push('stat_counter');
   if (valid('hotspot_callouts') && /\b(material|finish|detail|product|piece|fixture|furniture|light|lamp|tap|handle)\w*/.test(ask)) order.push('hotspot_callouts');
   if (valid('palette_extract') && /\b(colou?r|palette|tone|hue)\w*/.test(ask)) order.push('palette_extract');
+  // a story to tell over the photos: beat by beat, each line acting out its meaning
+  if (valid('motion_story') && shown.length && project.facts.length >= 3) order.push('motion_story');
   if (valid('ken_burns')) order.push('ken_burns');
   if (valid('grid_build')) order.push('grid_build');
   if (valid('hotspot_callouts')) order.push('hotspot_callouts');
   if (valid('palette_extract')) order.push('palette_extract');
   if (valid('stat_counter') && shown.length) order.push('stat_counter');
+  // graphics only: practical tips stay a list; anything else (a stance, a
+  // process, a story, an opinion) is told beat by beat
+  const tipsAsked = /\b(tips?|ways|steps|how to|mistakes?|rules|checklist|guide)\b/.test(`${ask} ${project.title.toLowerCase()}`);
+  if (valid('listicle_tips') && tipsAsked) order.push('listicle_tips');
+  if (valid('motion_story')) order.push('motion_story');
   if (valid('listicle_tips')) order.push('listicle_tips');
   if (valid('stat_counter')) order.push('stat_counter');
   order.push('kinetic_hook');
