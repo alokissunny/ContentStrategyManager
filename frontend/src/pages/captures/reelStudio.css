@@ -89,6 +89,8 @@
   display: flex; flex-direction: column; align-items: flex-start; gap: var(--sp-2);
   padding: var(--sp-4); border-radius: var(--r-md); background: var(--surface-sunken);
 }
+.np__reel__acts { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); }
+.np__reel__beta { margin-left: 2px; padding: 2px 7px; border-radius: 999px; background: var(--experiment-500, #d2e823); color: var(--experiment-ink, #3a4204); font-size: 10.5px; font-weight: 700; letter-spacing: 0.02em; }
 .np__reel__say { display: inline-flex; align-items: center; gap: 8px; font-size: var(--text-sm); font-weight: 600; color: var(--ink-900); }
 
 /* Generate reel › style picker (rsm-*) */

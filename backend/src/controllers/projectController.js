@@ -94,7 +94,7 @@ async function serializeAttachment(a, { lite = false } = {}) {
       console.error('[projects] could not resolve media url for', a.key, err.message);
     }
   }
-  const out = { id: a._id.toString(), type: a.type, key: a.key, url, thumbnailUrl: url };
+  const out = { id: a._id.toString(), type: a.type, key: a.key, url, thumbnailUrl: url, ...(a.reelTake ? { reelTake: a.reelTake } : {}) };
   // a video's first kept still is its poster (tiles show a picture, not a blank)
   const posterKey = a.type === 'video' ? a.analysis?.frames?.[0]?.key : '';
   if (posterKey && isS3Configured()) {
@@ -258,7 +258,8 @@ function sanitizeAttachments(attachments, userId) {
   const prefix = prefixOf(userId);
   return (attachments || [])
     .filter((a) => a && (a.type === 'image' || a.type === 'video') && typeof a.key === 'string' && a.key.startsWith(prefix))
-    .map((a) => ({ type: a.type, key: a.key }));
+    // a reel's take is marked as it is saved (shot guide), so it never shows up as a project photo/clip
+    .map((a) => ({ type: a.type, key: a.key, ...(a.reelTake === 'say' || a.reelTake === 'broll' ? { reelTake: a.reelTake } : {}) }));
 }
 
 // ── uploads ────────────────────────────────────────────────────────────────
@@ -526,7 +527,12 @@ async function updateCapture(req, res) {
     // carry any existing AI analysis across the edit — a re-uploaded client
     // payload only carries { type, key }, so re-key it from what we hold
     const priorAnalysis = new Map((capture.attachments || []).map((a) => [a.key, a.analysis]));
-    capture.attachments = next.map((a) => (priorAnalysis.get(a.key) ? { ...a, analysis: priorAnalysis.get(a.key) } : a));
+    const priorTake = new Map((capture.attachments || []).map((a) => [a.key, a.reelTake || '']));
+    capture.attachments = next.map((a) => ({
+      ...a,
+      ...(priorAnalysis.get(a.key) ? { analysis: priorAnalysis.get(a.key) } : {}),
+      ...(!a.reelTake && priorTake.get(a.key) ? { reelTake: priorTake.get(a.key) } : {}),
+    }));
     await project.save();
     await analyzeNewImageAttachments(capture.attachments);
     analyzeCaptureVideosLater(project._id, capture._id, capture.attachments);

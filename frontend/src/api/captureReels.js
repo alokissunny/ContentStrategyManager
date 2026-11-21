@@ -14,6 +14,17 @@ export async function createCaptureReel({ projectId, captureIds, direction = '',
   }
 }
 
+// Experimental: the same capture, recordings, story and photos, cut again by the current editor
+export async function regenerateCaptureReel(id) {
+  try {
+    const { data } = await client.post(`/capture-reels/${encodeURIComponent(id)}/regenerate`);
+    return data.reel;
+  } catch (err) {
+    if (err?.response?.status === 409 && err.response.data?.reel) return err.response.data.reel;
+    throw err;
+  }
+}
+
 export async function listCaptureReels(captureIds = []) {
   const q = captureIds.length ? `?captureId=${captureIds.map(encodeURIComponent).join(',')}` : '';
   const { data } = await client.get(`/capture-reels${q}`);

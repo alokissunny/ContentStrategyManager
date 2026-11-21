@@ -97,6 +97,16 @@ async function createReel(req, res) {
   if (!members.some((c) => (c.attachments || []).length) && storyPlan?.format !== 'motion_graphics') {
     return res.status(400).json({ message: 'This capture has no photos or clips to cut a reel from. Add some first.' });
   }
+  // the takes recorded for this reel are marked on the capture, so they stay this reel's
+  // footage and are never offered as project photos/clips again (studio, 2026-11-21)
+  if (takes.length) {
+    const roleOf = new Map(takes.map((t) => [t.key, t.role]));
+    let marked = false;
+    members.forEach((c) => (c.attachments || []).forEach((a) => {
+      if (roleOf.has(a.key) && a.reelTake !== roleOf.get(a.key)) { a.reelTake = roleOf.get(a.key); marked = true; }
+    }));
+    if (marked) await project.save().catch((err) => console.warn('[captureReel] could not mark takes', err.message));
+  }
   // one reel at a time per capture
   const busy = await CaptureReel.findOne({
     user: req.user._id, captureIds: { $in: members.map((c) => c._id) }, status: { $in: ['queued', 'working'] },
@@ -188,4 +198,53 @@ async function reelSystem(req, res) {
   });
 }
 
-module.exports = { createReel, listReels, getReel, deleteReel, reelSystem };
+/*
+ * POST /api/capture-reels/:id/regenerate — experimental (studio, 2026-11-21): a new reel from the
+ * SAME capture, recordings (takes), story plan and project photos, cut again by the current editor
+ * (a fresh edit, music and render). The old reel stays until the new one replaces it in the list.
+ * A Talking head story is cut as Talking head + B-roll (Face camera's format since 2026-11-21).
+ */
+async function regenerateReel(req, res) {
+  const { id } = req.params;
+  if (!isId(id)) return res.status(404).json({ message: 'Reel not found' });
+  const old = await CaptureReel.findOne({ _id: id, user: req.user._id }).lean();
+  if (!old) return res.status(404).json({ message: 'Reel not found' });
+  const project = await Project.findOne({ _id: old.projectId, user: req.user._id });
+  const members = (old.captureIds || []).map((cid) => project?.captures.id(cid)).filter(Boolean);
+  if (!project || !members.length) return res.status(404).json({ message: 'That capture no longer exists.' });
+  const busy = await CaptureReel.findOne({
+    user: req.user._id, captureIds: { $in: members.map((c) => c._id) }, status: { $in: ['queued', 'working'] },
+  });
+  if (busy && (await closeStale(busy)).status !== 'error') {
+    return res.status(409).json({ message: 'A reel is already being made from this capture.', reel: await serialize(busy) });
+  }
+  // the recordings that are still on the capture
+  const onFile = new Set(members.flatMap((c) => (c.attachments || []).map((a) => a.key)));
+  const takes = (old.takes || []).filter((t) => t?.key && onFile.has(t.key));
+  // the story: the idea's current plan when there is one, else the one this reel was cut to
+  const idea = old.ideaId
+    ? await require('../models/PostIdea').findOne({ _id: old.ideaId, user: req.user._id }).select('reelPlan assets sources').lean()
+    : null;
+  let storyPlan = idea?.reelPlan?.sequences?.length ? idea.reelPlan : old.storyPlan;
+  if (storyPlan?.format === 'talking_head') storyPlan = { ...storyPlan, format: 'talking_head_broll' };
+  const brollKeys = idea ? await require('../services/ideaReelPlan').reelBrollKeys(req.user._id, idea) : (old.brollKeys || []);
+  const reel = await CaptureReel.create({
+    user: req.user._id,
+    instagramUsername: old.instagramUsername || project.instagramUsername || null,
+    projectId: project._id,
+    captureIds: members.map((c) => c._id),
+    direction: old.direction || '',
+    ideaId: old.ideaId || null,
+    storyPlan: storyPlan || null,
+    takes: takes.length ? takes : null,
+    brollKeys,
+    styleId: old.styleId || null,
+    styleName: old.styleName || '',
+    queueTag: queueTag(),
+  });
+  const via = await enqueueCaptureReel(reel._id);
+  console.log(`[captureReel] ${reel._id} regenerated from ${old._id} (${takes.length} take(s), ${via})`);
+  return res.status(202).json({ reel: await serialize(reel) });
+}
+
+module.exports = { createReel, regenerateReel, listReels, getReel, deleteReel, reelSystem };

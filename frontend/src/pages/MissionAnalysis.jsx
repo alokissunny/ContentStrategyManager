@@ -8,7 +8,7 @@ import { useFeatureFlags } from '../lib/featureFlags';
 import './missionAnalysis.css';
 
 /*
- * Analysis › Mission coverage. How the account's last 10 Instagram posts spread across the four content missions
+ * Analysis › Mission coverage. How the account's last 20 Instagram posts (the content audit window) spread across the four content missions
  * (Attract / Nurture / Position / Convert), as the funnel in the studio's diagram, plus every post with the mission it
  * served and why. Pressing a mission filters the posts. The backend (GET /api/analysis/missions) analyses each post once
  * (caption + first image) and keeps the result; Re-analyse runs them all again.
@@ -348,6 +348,27 @@ export default function MissionAnalysis() {
             </div>
             {data.note && <p className="mca-note">{data.note}</p>}
           </section>
+
+          {/* the content audit's gaps — the same list the Next-post ideas start from */}
+          {data.gaps?.length > 0 && (
+            <section className="mca-card mca-gaps" aria-label="Your content gaps">
+              <h2 className="mca-card__title">Your content gaps</h2>
+              <p className="mca-card__sub">What your last {data.total} posts are missing, most important first. Your next-post ideas start here.</p>
+              <ol className="mca-gaps__list">
+                {data.gaps.map((g) => (
+                  <li key={`${g.kind}-${g.id}`} className={`mca-gaps__item mca-gaps__item--${g.kind}`}>
+                    <span className="mca-gaps__say">{g.say}</span>
+                    {g.kind === 'pillar' && g.openTopics > 0 && (
+                      <span className="mca-gaps__more">{g.openTopics} {PILLARS[g.id]?.say || g.id} topic{g.openTopics === 1 ? '' : 's'} you haven&rsquo;t posted on yet</span>
+                    )}
+                    {g.kind === 'mission' && MISSIONS[g.id] && (
+                      <span className="mca-gaps__more">{MISSIONS[g.id].purpose}</span>
+                    )}
+                  </li>
+                ))}
+              </ol>
+            </section>
+          )}
 
           {data.pillars?.total > 0 && <PillarMix pillars={data.pillars} onlyPillar={onlyPillar} setOnlyPillar={setOnlyPillar} />}
 

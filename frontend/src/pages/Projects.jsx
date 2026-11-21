@@ -40,6 +40,8 @@ import { canTakeCaret, isCaptureOpen, CAPTURE_MORPH_MS, CAPTURE_HOLD_MS } from '
 import { ensureProjects, refreshProjects, projectsSnapshot } from '../lib/projectsStore';
 import { startPlanGeneration, getPlanGeneration, openNextInEditor } from '../lib/planGeneration';
 import './projects.css';
+import IdeaOffer from '../components/IdeaOffer';
+import ReelStory from '../components/ReelStory';
 
 /* The generated-image list is fetched from the server, which takes a moment —
  * long enough that the "Generated" folder used to pop in a second after the page.
@@ -1168,7 +1170,7 @@ function CaptureReference({ of: r }) {
   );
 }
 
-export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewProject, onCaptured, exitLabel = 'Back', modal = false, opening = '', savedLine = '', projectName = '', askProject = true, maxQuestions = 4, askMedia = true, resume = null, deferQuestions = false, adding = null, onPlan = null, run = null, landing = null, leaving = false, onLoggedIn = null, onRestart = null, idea = null, seedAttachments = null }) {
+export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewProject, onCaptured, exitLabel = 'Back', modal = false, opening = '', savedLine = '', projectName = '', askProject = true, maxQuestions = 4, askMedia = true, resume = null, deferQuestions = false, adding = null, onPlan = null, run = null, landing = null, leaving = false, onLoggedIn = null, onRestart = null, idea = null, seedAttachments = null, offer = null }) {
   const projects = useProjects();
   /* ══ A VISIT FROM THE LANDING PAGE (bauhly-v3, Nov 5–6) ══════════════════
      The hero's field grows into this box. The first line is there as it opens,
@@ -1235,6 +1237,17 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
   const autoDraft = useRef('');
   const endRef = useRef(null);
   const threadRef = useRef(null);
+  /* ══ BUILD REEL (IdeaCard, bauhly-v3 Nov 20): before the idea's own questions, the card and two answers —
+     how to make it (`mine` footage / `auto` generated), then for footage how to record it. The answer rides on
+     the saved capture as `offer` so the caller knows what to open. */
+  const [offerStep, setOfferStep] = useState(offer && idea ? 'ways' : null); // ways | record | chat
+  const [offerWay, setOfferWay] = useState(null);
+  const [offerMode, setOfferMode] = useState(null);
+  const [offerLocked, setOfferLocked] = useState(false);
+  const offerChoice = useRef(null);
+  const offerRecordRef = useRef(null);
+  // Create with my footage: once the capture is saved, the Reel's shot guide opens in this same box
+  const [reelStory, setReelStory] = useState(null);
   const cap = useRef({
     kind: null,
     text: '',
@@ -1343,6 +1356,65 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
     return () => document.body.classList.remove('is-immersive');
   }, []);
 
+  /* a recommended post: its photos already on file are this capture's own, shown once, and the opening is
+     the agent's first question — so the studio's reply is read as an answer to it */
+  const seedIdea = () => {
+    const seeded = (seedAttachments || []).filter((a) => a?.key);
+    if (seeded.length) {
+      cap.current.attachments = seeded;
+      cap.current.kind = seeded.some((a) => a.type === 'video') ? 'video' : 'photo';
+    }
+    const ask = opening || idea.title || '';
+    cap.current.turns = [{ role: 'assistant', text: ask }];
+    cap.current.askedQuestion = ask;
+    const lines = [ask];
+    if (seeded.length) {
+      lines.push({
+        text: seeded.length === 1 ? 'I’ll use this photo you already shared.' : 'I’ll use these photos you already shared.',
+        media: seeded,
+      });
+    }
+    const d = say(lines);
+    after(d, () => setStep('how'));
+  };
+  /* Build Reel's two answers (IdeaOffer). Each press is final, like the mock's locked rows. */
+  const chooseOfferWay = (way) => {
+    if (offerWay) return;
+    setOfferWay(way);
+    if (way === 'auto') {
+      offerChoice.current = { way: 'auto' };
+      setOfferStep('chat');
+      seedIdea();
+      return;
+    }
+    setOfferStep('record');
+  };
+  /* Continue → straight to the shot guide, as in bauhly-v3 (no questions in between): the capture is filed
+     quietly from what the idea already knows + its photos on file, and the Full Story opens under the chooser */
+  const continueOffer = () => {
+    if (!offerMode || offerLocked) return;
+    setOfferLocked(true);
+    offerChoice.current = { way: 'mine', mode: offerMode };
+    setOfferStep('story');
+    const seeded = (seedAttachments || []).filter((a) => a?.key);
+    const words = [idea?.title, ...(idea?.known || [])].map((x) => String(x || '').trim()).filter(Boolean);
+    cap.current = {
+      ...cap.current,
+      kind: !seeded.length ? 'note' : seeded.some((a) => a.type === 'video') ? 'video' : 'photo',
+      text: words.join('. '),
+      attachments: seeded,
+      conversationTitle: idea?.title || '',
+      turns: [],
+    };
+    Promise.resolve(fileWithoutAsking()).catch(() => {});
+  };
+  // the newest question goes to the top of the thread (bauhly-v3 decision 1085)
+  useEffect(() => {
+    if (offerStep !== 'record') return undefined;
+    const t = setTimeout(() => offerRecordRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 80);
+    return () => clearTimeout(t);
+  }, [offerStep]);
+
   useEffect(() => {
     /* `adding` (bauhly-v3, Oct 5–6): Captures › Add opened the drive first;
        the chosen files arrive here as the studio's own turn, under the
@@ -1421,27 +1493,10 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
       after(0, () => setStep('how'));
       return;
     }
-    // a recommended post (IdeaCard › Explore idea): its photos already on file
-    // are this capture's own, shown once, and the opening is the agent's first
-    // question — so the studio's reply is read as an answer to it
+    // a recommended post (IdeaCard › Explore idea / Build Reel): see seedIdea.
+    // Build Reel asks how to make it first; the questions start once it is answered
     if (idea) {
-      const seeded = (seedAttachments || []).filter((a) => a?.key);
-      if (seeded.length) {
-        cap.current.attachments = seeded;
-        cap.current.kind = seeded.some((a) => a.type === 'video') ? 'video' : 'photo';
-      }
-      const ask = opening || idea.title || '';
-      cap.current.turns = [{ role: 'assistant', text: ask }];
-      cap.current.askedQuestion = ask;
-      const lines = [ask];
-      if (seeded.length) {
-        lines.push({
-          text: seeded.length === 1 ? 'I’ll use this photo you already shared.' : 'I’ll use these photos you already shared.',
-          media: seeded,
-        });
-      }
-      const d = say(lines);
-      after(d, () => setStep('how'));
+      if (!offer) seedIdea();
       return;
     }
     // `opening` aims the capture at one question (Editor › Add slide)
@@ -1865,7 +1920,25 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
         const d = say(liveIntro ? 'Saved. Ready to become your first post.' : 'Saved. It is ready for your next plan.');
         after(d, () => setStep('done'));
       } else if (onCaptured) {
-        const d = say(savedLine || "It's in your library — building your plan now.");
+        const line = offerChoice.current?.way === 'auto' ? 'Got it — writing your post now.' : savedLine;
+        const storyNext = Boolean(offer && offerChoice.current?.way === 'mine');
+        const d = storyNext ? 0 : say(line || "It's in your library — building your plan now.");
+        /* Build Reel › Create with my footage: the shot guide follows in this box (ReelStory), the caller only
+           hears the idea was taken */
+        if (offer && offerChoice.current?.way === 'mine') {
+          const payload = {
+            projectId: pid,
+            projectName: name,
+            captureId: made?.captureId || null,
+            text,
+            attachments: (c.attachments || []).map((a) => ({ key: a.key, type: a.type, url: a.url })),
+            offer: offerChoice.current,
+          };
+          offer.onAccepted?.(payload);
+          setOfferStep('story');
+          setReelStory(payload);
+          return true;
+        }
         // what was captured travels with it, for a caller that uses it (Add slide)
         after(d + 700, () => onCaptured({
           projectId: pid,
@@ -1877,6 +1950,7 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
           conversationSummary: c.conversationSummary,
           conversationTitle: c.conversationTitle,
           turns: c.turns,
+          offer: offerChoice.current,
         }));
       } else {
         const d = say([{ kind: 'saved', project: { name, cover } }, "It's in your library — the next plan is written from it."]);
@@ -1888,6 +1962,8 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
          anything else stays the generic line */
       const why = err?.response?.status && err.response.status < 500 ? err.response.data?.message : '';
       const d = say(why ? { text: why } : 'Something went wrong saving that — try again in a moment?');
+      // Build Reel's quiet save failed: the recording question comes back so Continue can be pressed again
+      if (offer && offerChoice.current?.way === 'mine') { setOfferLocked(false); setOfferStep('record'); return false; }
       after(d, () => setStep(visitorFiling.current ? 'vDone' : c.attachments.length ? 'media' : 'project'));
       return false;
     } finally {
@@ -1908,6 +1984,7 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
       conversationSummary: c.conversationSummary,
       conversationTitle: c.conversationTitle,
       turns: c.turns,
+      offer: offerChoice.current,
     };
   };
   /* the questions are dealt with (or skipped): the plan is the caller's */
@@ -3073,6 +3150,21 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
             </div>
           )}
 
+          {offer && idea && offerStep && (
+            <IdeaOffer
+              idea={offer.idea || idea}
+              step={offerStep}
+              way={offerWay}
+              mode={offerMode}
+              locked={offerLocked}
+              onWay={chooseOfferWay}
+              onMode={(m) => { if (!offerLocked) setOfferMode(m); }}
+              onContinue={continueOffer}
+              onDiscard={offer.onDiscard ? () => { offer.onDiscard(); onExit?.(); } : null}
+              recordRef={offerRecordRef}
+            />
+          )}
+
           {messages.map((m) => {
             if (m.from === 'user' && m.ig) {
               return (
@@ -3310,6 +3402,22 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
             </div>
           )}
 
+          {offerStep === 'story' && !reelStory && (
+            <div className="ck-turn ck-turn--bauhly rst-warm" aria-live="polite">
+              <div className="ck-body">
+                Preparing your Reel&hellip;
+                <div className="ck-typing" aria-label="Preparing your Reel"><i /><i /><i /></div>
+              </div>
+            </div>
+          )}
+          {reelStory && (
+            <ReelStory
+              idea={offer?.idea || idea}
+              captured={reelStory}
+              mode={reelStory.offer?.mode}
+              onClose={onExit}
+            />
+          )}
           <div ref={endRef} className="ck__tail" aria-hidden="true" />
         </div>
 
@@ -3367,7 +3475,8 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
             <span className={`ck-demo${exWait || demo ? ' is-on' : ''}`}>{DEMO_BADGE_SAY}</span>
           </div>
         )}
-        {modal && step !== 'recording' && (
+        {/* Build Reel's recording question stands alone, without the field (bauhly-v3 ReelPrep chooser) */}
+        {modal && step !== 'recording' && offerStep !== 'record' && offerStep !== 'story' && (
           <CaptureComposer
             aiPolishing={polishing && draft === autoDraft.current}
             value={draft}

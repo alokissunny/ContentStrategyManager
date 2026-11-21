@@ -14,7 +14,7 @@
 const fs = require('fs');
 const path = require('path');
 
-const MISSION_TAG_V = 3;
+const MISSION_TAG_V = 4; // 4: Convert = explains the real service / offer / process and the next step (studio, 2026-11-21)
 const FILE = path.join(__dirname, '..', '..', 'prompts', 'content-missions.md');
 const PILLARS_FILE = path.join(__dirname, '..', '..', 'prompts', 'content-pillars.md');
 let cache = null;

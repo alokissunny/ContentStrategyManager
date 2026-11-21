@@ -207,6 +207,7 @@ async function loadProjectAssets(userId, username) {
       const videos = [];
       const videoKeys = new Set();
       for (const a of c.attachments || []) {
+        if (a.reelTake === 'say') continue; // a reel's spoken take is not project footage
         if (a.type === 'video' && a.key) {
           videoKeys.add(a.key);
           const an = a.analysis && a.analysis.status === 'done' ? a.analysis : null;

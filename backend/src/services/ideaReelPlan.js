@@ -21,13 +21,14 @@ const Project = require('../models/Project');
 const { completeToolCall, providerOf } = require('./llmComplete');
 const { loadBrandDna } = require('./planInputs');
 const { estimatePlanCostUsd } = require('./weeklyPlan');
+const { isS3Configured, getPresignedMediaUrl } = require('./s3Client');
 const { LANGUAGES } = require('../utils/appLocale');
 
 const PROMPT_FILE = path.join(__dirname, '..', '..', 'prompts', 'idea-reel-plan.md');
 const FORMATS = ['faceless_text', 'faceless_voiceover', 'talking_head', 'talking_head_broll', 'music_led', 'motion_graphics'];
 const ROLES = ['hook', 'context', 'value', 'proof', 'payoff'];
 const SHOTS = ['talking_head', 'broll', 'talking_head_broll', 'text', 'voiceover'];
-const PLAN_VERSION = 4; // 4: motion graphics planned from the pictures on file · 2: per-sequence B-roll shot list · 3: Claude Sonnet 5.5 (2026-11-19)
+const PLAN_VERSION = 8; // 8: a photo under one shot at most; none when nothing fits (2026-11-21) · 7: 7: a reel's spoken takes left out of the photo list (2026-11-21) · 6: 6: per-sequence `assetKeys` — the photos on file each shot is about (2026-11-21) · 5: 5: per-sequence `ask` (the question the shot answers, Capture's shot guide, 2026-11-21) · 4: 4: motion graphics planned from the pictures on file · 2: per-sequence B-roll shot list · 3: Claude Sonnet 5.5 (2026-11-19)
 
 // Claude Sonnet 5.5 at the studio's request (2026-11-19) — an exception to the
 // OpenAI-by-default rule, like the next-post idea agent; IDEA_REEL_MODEL overrides.
@@ -78,9 +79,11 @@ const TOOL = {
         items: {
           type: 'object',
           additionalProperties: false,
-          required: ['title', 'role', 'shot', 'say', 'onScreenText', 'record', 'broll', 'guidance', 'targetSec', 'existing'],
+          required: ['title', 'ask', 'assets', 'role', 'shot', 'say', 'onScreenText', 'record', 'broll', 'guidance', 'targetSec', 'existing'],
           properties: {
             title: S('2–5 words'),
+            ask: S('the question this shot answers, asked to the studio, ≤ 12 words'),
+            assets: { type: 'array', items: { type: 'string' }, description: 'ids from PHOTOS ON FILE that show what this shot is about, most relevant first (0–3)' },
             role: S('story role', { enum: ROLES }),
             shot: S('shot type', { enum: SHOTS }),
             say: S('exact words to say, or ""'),
@@ -121,7 +124,8 @@ async function loadCapture(userId, captureId) {
       }).filter(([, v]) => (Array.isArray(v) ? v.length : v))),
       conversation: (capture.conversationTurns || []).filter((t) => str(t.text)).slice(-16)
         .map((t) => ({ role: t.role, text: str(t.text, 500) })),
-      assets,
+      // the photos themselves go in as PHOTOS ON FILE (ids the plan can point at)
+      assetCount: assets.length,
     },
   };
 }
@@ -138,6 +142,8 @@ function cleanPlan(raw, forced) {
     const silent = shot === 'text' || format === 'music_led' || format === 'motion_graphics';
     return {
       title: str(s?.title, 60) || `Sequence ${i + 1}`,
+      ask: str(s?.ask, 120),
+      assetIds: (Array.isArray(s?.assets) ? s.assets : []).map((x) => String(x || '').trim()).filter(Boolean).slice(0, 3),
       role: ROLES.includes(s?.role) ? s.role : (i === 0 ? 'hook' : i === all.length - 1 ? 'payoff' : 'value'),
       shot,
       say: silent ? '' : str(s?.say, 500),
@@ -187,7 +193,67 @@ async function saveMotionPlan(userId, idea, cid, { kept, brief, refresh, debug }
   return { plan, idea: brief, cached: false };
 }
 
-async function ideaReelPlan(userId, ideaId, { captureId, format = '', refresh = false, locale = 'en', debug = null } = {}) {
+/*
+ * Every photo / clip this reel may use, numbered for the planner (p1, p2…): the capture's own, the idea's
+ * suggested photos, then its source captures' media (same set the render uses — reelBrollKeys). Each carries
+ * what is known about it (vision summary, or why the idea picked it) so the planner can put the right one
+ * under each shot (Capture's shot guide shows them as that shot's Attached assets).
+ */
+async function assetCatalogue(userId, idea, cap) {
+  const out = [];
+  const seen = new Set();
+  const add = (a, extra = {}) => {
+    if (!a?.key || seen.has(a.key) || out.length >= 16) return;
+    seen.add(a.key);
+    out.push({ id: `p${out.length + 1}`, key: a.key, type: a.type === 'video' ? 'video' : 'image', ...extra });
+  };
+  // a reel's spoken takes are not project media (they stay with their own reel)
+  (cap?.capture?.attachments || []).filter((a) => a.reelTake !== 'say').forEach((a) => add(a, { about: str(a.analysis?.summary, 200) }));
+  const extraKeys = (await reelBrollKeys(userId, idea)).filter((k) => !seen.has(k));
+  if (extraKeys.length) {
+    const why = Object.fromEntries((idea?.assets || []).map((a) => [a.key, a.reason || '']));
+    const docs = await Project.find({ user: userId, 'captures.attachments.key': { $in: extraKeys } })
+      .select('captures.attachments.key captures.attachments.type captures.attachments.analysis.summary').lean();
+    const byKey = {};
+    docs.forEach((p) => (p.captures || []).forEach((c) => (c.attachments || []).forEach((a) => { if (a.key) byKey[a.key] = a; })));
+    extraKeys.forEach((k) => {
+      const a = byKey[k] || (idea.assets || []).find((x) => x.key === k) || { key: k };
+      add({ key: k, type: a.type }, { about: str(a.analysis?.summary, 200) || str(why[k], 200) });
+    });
+  }
+  return out;
+}
+
+/* ids the planner chose → S3 keys (unknown ids dropped) */
+function attachAssetKeys(plan, catalogue) {
+  const byId = Object.fromEntries(catalogue.map((a) => [a.id, a]));
+  // a photo is a reference for ONE shot (studio, 2026-11-21: no repeats): the first shot that
+  // claims it keeps it; a shot nothing fits shows none
+  const taken = new Set();
+  plan.sequences = (plan.sequences || []).map(({ assetIds = [], ...s }) => {
+    const keys = [...new Set(assetIds.map((id) => byId[id]?.key).filter(Boolean))].filter((k) => !taken.has(k));
+    keys.forEach((k) => taken.add(k));
+    return { ...s, assetKeys: keys };
+  });
+  plan.assets = catalogue.map(({ key, type }) => ({ key, type }));
+  return plan;
+}
+
+/* signed URLs for the plan's media, made per response (they expire) */
+async function withAssetMedia(out) {
+  const plan = out?.plan;
+  if (!plan || !Array.isArray(plan.assets) || !plan.assets.length || !isS3Configured()) return out;
+  const assetMedia = await Promise.all(plan.assets.map(async (a) => ({
+    ...a, url: await getPresignedMediaUrl(a.key).catch(() => ''),
+  })));
+  return { ...out, plan: { ...plan, assetMedia: assetMedia.filter((a) => a.url) } };
+}
+
+async function ideaReelPlan(userId, ideaId, opts = {}) {
+  return withAssetMedia(await ideaReelPlanRaw(userId, ideaId, opts));
+}
+
+async function ideaReelPlanRaw(userId, ideaId, { captureId, format = '', refresh = false, locale = 'en', debug = null } = {}) {
   const idea = await PostIdea.findOne({ _id: ideaId, user: userId });
   if (!idea) return null;
   const cid = String(captureId || idea.captureId || '');
@@ -209,6 +275,7 @@ async function ideaReelPlan(userId, ideaId, { captureId, format = '', refresh = 
     howYouSound: dna.howYouSound, neverDo: dna.neverDo,
   }).filter(([, v]) => v)) : {};
 
+  const catalogue = await assetCatalogue(userId, idea, cap);
   const system = loadPrompt().replace('{{LANGUAGE}}', LANGUAGES[locale] || 'English');
   const user = [
     `IDEA:\n${JSON.stringify({
@@ -217,6 +284,9 @@ async function ideaReelPlan(userId, ideaId, { captureId, format = '', refresh = 
     }, null, 2)}`,
     `CAPTURE (what the studio just told Bauhly):\n${JSON.stringify(cap?.forPrompt || { words: '(no capture saved)' }, null, 2)}`,
     `BRAND MEMORY:\n${JSON.stringify(brand, null, 2)}`,
+    `PHOTOS ON FILE (id, type, what it shows):\n${catalogue.length
+      ? catalogue.map((a) => `- ${a.id} (${a.type})${a.about ? `: ${a.about}` : ''}`).join('\n')
+      : '(none)'}`,
     `FORCED_FORMAT: ${forced || '(none — choose)'}`,
   ].join('\n\n');
 
@@ -238,7 +308,7 @@ async function ideaReelPlan(userId, ideaId, { captureId, format = '', refresh = 
       timeoutMs: 120000,
       retryHint: 'Return ONLY the JSON object for plan_idea_reel, matching the schema exactly.',
     });
-  const plan = { ...cleanPlan(res.parsed, forced), captureId: cid, madeAt: new Date().toISOString() };
+  const plan = attachAssetKeys({ ...cleanPlan(res.parsed, forced), captureId: cid, madeAt: new Date().toISOString() }, catalogue);
   // the producer chose Motion graphics: rebuild it from the pictures on file
   if (plan.format === 'motion_graphics') return saveMotionPlan(userId, idea, cid, { kept: plan, brief, refresh: true, debug });
   const usage = res.usage || {};
@@ -268,9 +338,9 @@ async function reelBrollKeys(userId, idea) {
   let keys = (idea?.assets || []).map((a) => a.key).filter(Boolean);
   const srcIds = (idea?.sources || []).filter((x) => x.kind === 'capture' && /^[a-f0-9]{24}$/i.test(String(x.id))).map((x) => String(x.id));
   if (srcIds.length) {
-    const srcProjects = await Project.find({ user: userId, 'captures._id': { $in: srcIds } }).select('captures._id captures.attachments.key captures.attachments.type').lean();
+    const srcProjects = await Project.find({ user: userId, 'captures._id': { $in: srcIds } }).select('captures._id captures.attachments.key captures.attachments.type captures.attachments.reelTake').lean();
     srcProjects.forEach((p) => (p.captures || []).forEach((c) => {
-      if (srcIds.includes(String(c._id))) (c.attachments || []).forEach((a) => a.key && keys.push(a.key));
+      if (srcIds.includes(String(c._id))) (c.attachments || []).forEach((a) => a.key && a.reelTake !== 'say' && keys.push(a.key));
     }));
   }
   keys = [...new Set(keys)].slice(0, 12);

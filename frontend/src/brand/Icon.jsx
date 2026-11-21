@@ -62,6 +62,7 @@ const PATHS = {
   'arrow-up': <path d="M12 19V5m-6 6 6-6 6 6" />,
   'chevron-down': <path d="m6 9 6 6 6-6" />,
   'chevron-right': <path d="m9 6 6 6-6 6" />,
+  'chevron-up': <path d="m6 15 6-6 6 6" />,
   'chevron-left': <path d="m15 6-6 6 6 6" />,
   download: <path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14" />,
   /* the same shape as download, the arrow the other way — one gesture, two directions */
@@ -315,6 +316,21 @@ const PATHS = {
     <>
       <path d="M4 12a8 8 0 1 0 2.34-5.66" />
       <path d="M4 3.5V8h4.5" />
+    </>
+  ),
+  /* bauhly-v3: the filled star with a spark at its shoulder — "ask the machine" */
+  'sparkle-ai': (
+    <>
+      <path fill="currentColor" stroke="none" d="M9.6 2.4c.81 4.69 2.57 6.46 7.2 7.2-4.63.81-6.39 2.57-7.2 7.2-.81-4.63-2.57-6.39-7.2-7.2 4.63-.74 6.39-2.51 7.2-7.2Z" />
+      <path fill="currentColor" stroke="none" d="M18.4 14.4c.36 2.07 1.13 2.84 3.2 3.2-2.07.36-2.84 1.13-3.2 3.2-.36-2.07-1.13-2.84-3.2-3.2 2.07-.36 2.84-1.13 3.2-3.2Z" />
+    </>
+  ),
+  /* bauhly-v3: a clapperboard — filming with your own footage */
+  clapper: (
+    <>
+      <rect x="3.5" y="9" width="17" height="11" rx="2" />
+      <path d="M3.9 9 19.6 4.8l-.8-2.7L4.6 6l-.7 3Z" />
+      <path d="m8.4 5.1 1.9 2.6M13.1 3.9l1.9 2.6" />
     </>
   ),
   sparkle: (

@@ -13,7 +13,7 @@
  */
 import React from 'react';
 import { AbsoluteFill, interpolate, Easing, useCurrentFrame, useVideoConfig } from 'remotion';
-import { CAPTION_FONT } from './fonts';
+import { CAPTION_FONT, LOOK_FONTS } from './fonts';
 import type { ReelScene, ReelAnnotation } from './reelSchema';
 
 const clamp = { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' } as const;
@@ -98,16 +98,24 @@ export function zoomPunchAt(scene: ReelScene, frame: number, W: number, H: numbe
 // ── the overlays ────────────────────────────────────────────────────────────
 const SHADOW = 'drop-shadow(0 4px 10px rgba(0,0,0,0.45))';
 
-const Pill: React.FC<{ text: string; x: number; y: number; t: number; accent: string; ink: string }> = ({ text, x, y, t, accent, ink }) => (
+// minimal (narrative look): a small white tag, sentence case — it names the thing, it does not shout
+const Pill: React.FC<{ text: string; x: number; y: number; t: number; accent: string; ink: string; minimal?: boolean }> = ({ text, x, y, t, accent, ink, minimal }) => (minimal ? (
+  <div style={{
+    position: 'absolute', left: x, top: y, transform: `translate(-50%, -50%) translateY(${(1 - t) * 10}px)`,
+    opacity: t, padding: '10px 20px 12px', borderRadius: 14, background: 'rgba(255,255,255,0.95)', color: '#111',
+    fontFamily: LOOK_FONTS.sans, fontWeight: 600, fontSize: 38, letterSpacing: -0.3, whiteSpace: 'nowrap',
+    boxShadow: '0 8px 26px rgba(0,0,0,0.28)',
+  }}>{text}</div>
+) : (
   <div style={{
     position: 'absolute', left: x, top: y, transform: `translate(-50%, -50%) scale(${interpolate(t, [0, 1], [0.4, 1])})`,
     opacity: t, padding: '14px 26px', borderRadius: 999, background: accent, color: ink,
     fontFamily: CAPTION_FONT, fontWeight: 800, fontSize: 44, letterSpacing: 0.5, whiteSpace: 'nowrap',
     textTransform: 'uppercase', boxShadow: '0 10px 30px rgba(0,0,0,0.35)',
   }}>{text}</div>
-);
+));
 
-const Annotation: React.FC<{ scene: ReelScene; an: ReelAnnotation; accent: string; ink: string }> = ({ scene, an, accent, ink }) => {
+const Annotation: React.FC<{ scene: ReelScene; an: ReelAnnotation; accent: string; ink: string; minimal?: boolean }> = ({ scene, an, accent, ink, minimal }) => {
   const frame = useCurrentFrame();
   const { width: W, height: H } = useVideoConfig();
   const local = frame - an.atFrame;
@@ -172,7 +180,7 @@ const Annotation: React.FC<{ scene: ReelScene; an: ReelAnnotation; accent: strin
           <path d={d} fill="none" stroke="#fff" strokeWidth={9} strokeLinecap="round" strokeDasharray={len} strokeDashoffset={len * (1 - draw)} />
           {head}
         </svg>
-        {an.text ? <Pill text={an.text} x={lx} y={ly} t={pop} accent={accent} ink={ink} /> : null}
+        {an.text ? <Pill text={an.text} x={lx} y={ly} t={pop} accent={accent} ink={ink} minimal={minimal} /> : null}
       </AbsoluteFill>
     );
   }
@@ -185,13 +193,13 @@ const Annotation: React.FC<{ scene: ReelScene; an: ReelAnnotation; accent: strin
         <circle cx={pt.x} cy={pt.y} r={11} fill={accent} stroke="#fff" strokeWidth={4} opacity={draw} />
         <line x1={pt.x} y1={pt.y} x2={pt.x + (sx - pt.x) * draw} y2={pt.y + (sy - pt.y) * draw} stroke="#fff" strokeWidth={5} strokeLinecap="round" />
       </svg>
-      {an.text ? <Pill text={an.text} x={lx} y={ly} t={pop} accent={accent} ink={ink} /> : null}
+      {an.text ? <Pill text={an.text} x={lx} y={ly} t={pop} accent={accent} ink={ink} minimal={minimal} /> : null}
     </AbsoluteFill>
   );
 };
 
-export const SceneAnnotations: React.FC<{ scene: ReelScene; accent: string; ink: string }> = ({ scene, accent, ink }) => (
+export const SceneAnnotations: React.FC<{ scene: ReelScene; accent: string; ink: string; minimal?: boolean }> = ({ scene, accent, ink, minimal }) => (
   <>
-    {(scene.annotations || []).map((an, i) => <Annotation key={i} scene={scene} an={an} accent={accent} ink={ink} />)}
+    {(scene.annotations || []).map((an, i) => <Annotation key={i} scene={scene} an={an} accent={accent} ink={ink} minimal={minimal} />)}
   </>
 );

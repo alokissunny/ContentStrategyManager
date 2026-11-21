@@ -23,6 +23,8 @@ How to choose (unless FORCED_FORMAT is set — then use it, and write the plan f
 
 For each sequence:
 - `title` — 2–5 words, what this part does ("Introduce the decision", "Explain the reasoning", "Show the solution").
+- `ask` — the question this shot answers, put to the studio as Bauhly would ask it while they film (≤ 12 words, specific to this idea, a real question ending in "?"): "Why did you push back on the dark walls?", "What does the room look like now?". For a silent shot (`text`, music-led) ask what to show: "Which corner shows the new light best?". Never a template with the subject missing.
+- `assets` — ids from PHOTOS ON FILE (`p1`, `p2`…) that show what THIS shot is about — the room, detail or result it talks about or films — most relevant first, at most 3. They appear under the shot as its reference, so match them to the shot's own subject, not just the project. A photo belongs to ONE shot only — the one it fits best — never repeated across shots, even when there are fewer photos than shots. `[]` when nothing on file genuinely shows what this shot is about (most shots spoken to camera need none) — never pad with an unrelated or loosely related photo.
 - `role` — one of the roles above.
 - `shot` — `talking_head`, `broll`, `talking_head_broll`, `text` (text on footage, no voice), or `voiceover` (their voice over footage). Must fit the format: faceless formats never use talking_head; talking_head never uses broll.
 - `say` — the exact words to say, in the studio's own voice, first person plural ("we"). Short spoken sentences. Built ONLY from facts in the capture, the idea and brand memory — never invent client details, numbers, materials or results. Empty for `text` / music-led shots.

@@ -38,6 +38,10 @@ const attachmentSchema = new mongoose.Schema(
     type: { type: String, enum: ['image', 'video'], required: true },
     key: { type: String, required: true }, // S3 object key
     analysis: { type: analysisSchema, default: null },
+    // recorded in a reel's shot guide (Build Reel): 'say' = the studio talking to camera,
+    // 'broll' = footage of the space. A 'say' take belongs to its reel only — it is never
+    // offered as a project photo/clip to ideas, plans or other reels (studio, 2026-11-21).
+    reelTake: { type: String, enum: ['', 'say', 'broll'], default: '' },
   },
   { _id: true }
 );

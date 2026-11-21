@@ -370,7 +370,7 @@ export async function updateEntry(projectId, entryId, patch) {
   if (patch.conversationTurns !== undefined) payload.conversationTurns = patch.conversationTurns;
   if (patch.stories !== undefined) payload.stories = patch.stories;
   if (patch.understanding !== undefined) payload.understanding = patch.understanding;
-  if (patch.attachments !== undefined) payload.attachments = patch.attachments.map((a) => ({ type: a.type, key: a.key }));
+  if (patch.attachments !== undefined) payload.attachments = patch.attachments.map((a) => ({ type: a.type, key: a.key, ...(a.reelTake ? { reelTake: a.reelTake } : {}) }));
   if (patch.gapsAnswered !== undefined) payload.gapsAnswered = Boolean(patch.gapsAnswered);
   upsert(await api.updateCapture(projectId, entryId, payload));
 }

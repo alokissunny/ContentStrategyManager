@@ -46,16 +46,25 @@ const FORMAT_FILE = {
 };
 const ZOOM = { wide: 1, medium: 1.14, close: 1.3 };
 const MOTIONS = ['push-in', 'pull-out', 'pan-left', 'pan-right', 'pan-up', 'none'];
-const GAP_SPLIT = 0.42; // a pause longer than this inside a beat is cut out (jump cut)
+const GRAPHICS = ['none', 'label', 'arrow', 'circle', 'spotlight'];
+const GAP_SPLIT = 0.3; // a pause longer than this inside a beat is cut out (jump cut) — tighter since editor v2 (2026-11-21)
 const LEAD = 0.07; // breath before the first word of a piece
-const TAIL = 0.14; // after the last word
+const TAIL = 0.1; // after the last word
 const MAX_SPOKEN = 58; // seconds — Instagram's sweet spot is well under a minute
-const END_SEC = 2.2;
+const END_SEC = 3.0; // the end card's hold: long enough to read the CTA and the handle
+// editor v2 (studio's review of a reel, 2026-11-21): inserts hold long enough to read, the speaker
+// never flashes on screen between two inserts, the hook reads before the first word
+const MIN_IMAGE_SEC = 2.0;
+const MIN_VIDEO_SEC = 1.5;
+const BRIDGE_SEC = 1.5; // a speaker gap shorter than this between two inserts is covered by the first
+const HOOK_LEAD_MAX = 0.9; // the title reads over the opening frame before the first spoken word
+const REFRAME_SEC = 6; // a long stretch on the speaker changes framing once, at a beat boundary
 
 const num = (v, d = 0) => (Number.isFinite(Number(v)) ? Number(v) : d);
 const clampN = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 const str = (v, max = 400) => (typeof v === 'string' ? v.replace(/\s+/g, ' ').trim().slice(0, max) : '');
 const words = (s) => String(s || '').split(/\s+/).filter(Boolean);
+const normWord = (w) => String(w || '').toLowerCase().replace(/[^\p{L}\p{N}']/gu, '');
 
 const agent = () => require('./captureReelAgent');
 
@@ -114,9 +123,20 @@ const EDIT_TOOL = {
             motion: { type: 'string', enum: MOTIONS },
             focusX: { type: 'number' },
             focusY: { type: 'number' },
+            // a motion graphic on a photo, only where it explains what is being said
+            graphic: o({
+              type: { type: 'string', enum: GRAPHICS },
+              text: { type: 'string' },
+              x: { type: 'number' },
+              y: { type: 'number' },
+            }),
           }),
         },
         label: { type: 'string' },
+        // the 0–2 words of this beat that carry its meaning (shown large in the narrative captions)
+        emphasis: { type: 'array', maxItems: 2, items: { type: 'string' } },
+        // how B-roll shares the frame: full screen, or split (B-roll on top, the speaker below)
+        layout: { type: 'string', enum: ['full', 'split'] },
       }),
     },
     endAssetId: { type: 'string' },
@@ -150,12 +170,15 @@ function materialForPrompt(material, phrasesByClip) {
 
 async function callEditor({ format, story, material, phrasesByClip, brand, handle, extra = '' }) {
   const system = `${read('dialogue-base.md')}\n\n${read(FORMAT_FILE[format])}`;
+  // the photos the reel planner picked for each sequence (plan v6 assetKeys), as material ids
+  const idOfKey = new Map(material.assets.map((a) => [a.key, a.id]));
+  const picksOf = (s) => (s.assetKeys || []).map((k) => idOfKey.get(k)).filter(Boolean);
   const user = [
     `STUDIO: ${handle ? `@${handle}` : '(no handle)'}`,
     `BRAND: ${JSON.stringify(brand || {})}`,
     `STORY PLAN:\n${JSON.stringify({
       title: story.title, format: story.format,
-      sequences: story.sequences.map((s, i) => ({ n: i + 1, title: s.title, role: s.role, shot: s.shot, say: s.say, onScreenText: s.onScreenText, brollToShow: s.broll || '', seconds: s.targetSec })),
+      sequences: story.sequences.map((s, i) => ({ n: i + 1, title: s.title, role: s.role, shot: s.shot, say: s.say, onScreenText: s.onScreenText, brollToShow: s.broll || '', brollAssets: picksOf(s), seconds: s.targetSec })),
     }, null, 2)}`,
     `MATERIAL (TAKES with phrases, B-ROLL):\n${JSON.stringify(materialForPrompt(material, phrasesByClip), null, 2)}`,
     extra,
@@ -189,6 +212,31 @@ async function callEditor({ format, story, material, phrasesByClip, brand, handl
       costUsd,
     },
   };
+}
+
+// ── every recorded take is used (studio, 2026-11-21: "it didn't use all my talking recordings") ──
+// A take the studio recorded for a sequence (take.role speaking) that the editor left out
+// goes back in, whole, in story order — dropping someone's recorded line is never the editor's call.
+function includeEveryTake(raw, material, phrasesByClip) {
+  if (!raw || !Array.isArray(raw.beats)) return { raw, added: [] };
+  const byId = new Map(material.assets.map((a) => [a.id, a]));
+  const used = new Set(raw.beats.map((b) => str(b?.clip, 12)));
+  const missing = material.assets
+    .filter((a) => a.take?.role === 'speaking' && phrasesByClip.get(a.id)?.length && !used.has(a.id))
+    .sort((x, y) => x.take.sequence - y.take.sequence);
+  if (!missing.length) return { raw, added: [] };
+  const seqOf = (b) => byId.get(str(b?.clip, 12))?.take?.sequence ?? 99;
+  const beats = [...raw.beats];
+  missing.forEach((a) => {
+    const ph = phrasesByClip.get(a.id);
+    const beat = {
+      clip: a.id, from: 0, to: ph.length - 1, show: 'speaker', zoom: 'medium', brollFrom: 'middle',
+      broll: [], label: '', emphasis: [], layout: 'full',
+    };
+    const at = beats.findIndex((b) => seqOf(b) > a.take.sequence);
+    if (at < 0) beats.push(beat); else beats.splice(at, 0, beat);
+  });
+  return { raw: { ...raw, beats }, added: missing.map((a) => a.id) };
 }
 
 // ── validate the edit into pieces on an output clock ──────────────────────
@@ -248,6 +296,12 @@ function cutEdit({ raw, format, material, phrasesByClip, fps }) {
         motion: MOTIONS.includes(x.motion) ? x.motion : (a.kind === 'video' ? 'none' : 'push-in'),
         focusX: Math.round(clampN(num(x.focusX, 50), 0, 100)),
         focusY: Math.round(clampN(num(x.focusY, 45), 0, 100)),
+        graphic: a.kind === 'image' && GRAPHICS.includes(x.graphic?.type) && x.graphic.type !== 'none' ? {
+          type: x.graphic.type,
+          text: words(str(x.graphic.text, 40)).slice(0, 4).join(' '),
+          x: clampN(num(x.graphic.x, 50), 4, 96),
+          y: clampN(num(x.graphic.y, 50), 4, 96),
+        } : null,
       };
     }).filter(Boolean).slice(0, 3);
     let show = b.show === 'broll' ? 'broll' : 'speaker';
@@ -262,6 +316,9 @@ function cutEdit({ raw, format, material, phrasesByClip, fps }) {
       brollFrom: b.brollFrom === 'start' ? 'start' : 'middle',
       broll,
       label: str(b.label, 28).split(' ').slice(0, 3).join(' '),
+      // a key phrase ("existing floor") lights each of its words
+      emphasis: [...new Set((Array.isArray(b.emphasis) ? b.emphasis : []).slice(0, 2).flatMap((w) => words(w).slice(0, 3).map(normWord)).filter(Boolean))],
+      layout: b.layout === 'split' ? 'split' : 'full',
     });
   }
   if (!beats.length) throw new Error('The editor returned no usable spoken beats.');
@@ -316,6 +373,169 @@ function ensureBroll({ beats, pool, format, fps }) {
   if (covered() / total < 0.3 && beats[0] && !beats[0].broll.length && secOf(beats[0]) > 4) beats[0].broll.push(take());
 }
 
+// ── each picture once (editor v2): a repeated insert swaps to an unused picture, else goes ───────
+function onceEach(beats, pool) {
+  const used = new Set();
+  beats.forEach((b) => {
+    b.broll = b.broll.map((x) => {
+      if (!used.has(x.asset.id)) { used.add(x.asset.id); x.__kept = true; return x; }
+      const alt = pool.find((a) => !used.has(a.id) && a.kind === x.asset.kind && !beats.some((bb) => bb.broll.some((y) => y.asset.id === a.id)));
+      if (!alt) return null;
+      used.add(alt.id);
+      return { ...x, asset: alt, startSec: 0, __kept: true };
+    }).filter(Boolean);
+  });
+  beats.forEach((b) => b.broll.forEach((x) => { delete x.__kept; }));
+}
+
+// ── editor v2 review: what the cut rules measure on a draft ─────────────────────────────────────
+const beatSec = (b, fps) => b.cut.reduce((n, c) => n + c.frames / fps, 0);
+function reviewIssues(cut, { fps, format }) {
+  const out = [];
+  const beats = cut.beats;
+  const total = beats.reduce((n, b) => n + beatSec(b, fps), 0);
+  if (total > 32) out.push(`The spoken track runs ${total.toFixed(1)} s; aim for 20–28 s. Cut repeated phrasing, restarts and filler inside takes (never a whole recorded line).`);
+  if (format === 'faceless_voiceover') return out;
+  beats.forEach((b, i) => {
+    const s = beatSec(b, fps);
+    const insert = b.broll.length ? (b.show === 'broll' || b.brollFrom === 'start' ? s : s * 0.6) / b.broll.length : 0;
+    if (b.broll.length && insert < MIN_IMAGE_SEC) out.push(`Beat ${i + 1}: each insert gets ~${insert.toFixed(1)} s — too short to read. Give an insert ≥ ${MIN_IMAGE_SEC} s (fewer items, or a longer stretch of speech under it).`);
+    const prev = beats[i - 1];
+    const next = beats[i + 1];
+    if (!b.broll.length && prev?.broll.length && next?.broll.length && s < BRIDGE_SEC) out.push(`Beat ${i + 1}: the speaker is back for only ${s.toFixed(1)} s between two inserts — merge it into the inserts around it or hold the speaker longer.`);
+  });
+  let run = 0;
+  beats.forEach((b, i) => {
+    run = b.broll.length ? 0 : run + beatSec(b, fps);
+    if (run > 8 && !b.broll.length && (i === beats.length - 1 || beats[i + 1].broll.length)) { out.push(`Beats up to ${i + 1}: ${run.toFixed(1)} s on the speaker with no insert — cut to the thing being described.`); run = 0; }
+  });
+  const used = beats.flatMap((b) => b.broll.map((x) => x.asset.id));
+  const twice = [...new Set(used.filter((id, k) => used.indexOf(id) !== k))];
+  if (twice.length) out.push(`Inserts ${twice.join(', ')} are used more than once — use each picture once.`);
+  return out;
+}
+function draftOf(cut, fps) {
+  return cut.beats.map((b, i) => ({
+    n: i + 1,
+    clip: b.cut[0].clip.id,
+    seconds: Math.round(beatSec(b, fps) * 10) / 10,
+    said: b.cut.flatMap((c) => c.words.map((w) => w.text)).join(' '),
+    show: b.show,
+    broll: b.broll.map((x) => x.asset.id),
+  }));
+}
+
+// ── editor v2 polish: inserts long enough to read, no speaker flash between two ────────────────
+// (studio's review: "inserts shown for only a moment before returning to the speaker"). In place,
+// on output frames: bridge a short speaker gap between two inserts with the first insert, lift an
+// insert to its minimum hold where there is room, drop one still too short to read, and keep the
+// first seconds on the speaker's face.
+function polishCutaways(list, { fps, spokenEnd, hookEnd = 0 }) {
+  const f = (sec) => Math.round(sec * fps);
+  const minOf = (c) => f(c.kind === 'video' ? MIN_VIDEO_SEC : MIN_IMAGE_SEC);
+  const room = (c, want) => (c.kind === 'video' && c.maxFrames ? Math.min(want, c.maxFrames) : want);
+  list.sort((a, b) => a.from - b.from);
+  for (let i = 0; i < list.length; i += 1) {
+    const c = list[i];
+    if (c.from < hookEnd) {
+      const cut = hookEnd - c.from;
+      c.from = hookEnd;
+      c.durationInFrames -= cut;
+    }
+    const next = list[i + 1];
+    const limit = next ? next.from : spokenEnd;
+    const end = c.from + c.durationInFrames;
+    // a speaker gap too short to register → the insert runs on to the next one
+    if (next && next.from - end > 0 && next.from - end < f(BRIDGE_SEC) && next.from - c.from <= f(5)) c.durationInFrames = room(c, next.from - c.from);
+    // too short to read → stretched to the minimum where the next insert / the end allows
+    if (c.durationInFrames < minOf(c)) c.durationInFrames = room(c, Math.min(minOf(c), limit - c.from));
+  }
+  // what is still too short to read goes; a dissolve into an insert that now follows a speaker shot is a push
+  for (let i = list.length - 1; i >= 0; i -= 1) {
+    if (list[i].durationInFrames < f(1.1)) list.splice(i, 1);
+  }
+  list.forEach((c, i) => {
+    const prev = list[i - 1];
+    c.transition = prev && prev.from + prev.durationInFrames >= c.from - 1 ? 'fade' : 'soft';
+    delete c.maxFrames;
+  });
+}
+
+// ── phrase captions (editor v2): a whole short phrase on screen at once, one size, one place ────
+// (studio's review: one word at a time and changing sizes were hard to follow). 2–5 words, broken at
+// a pause, a sentence end or ~1.8 s; the beat's key words stay marked (`em`) and are coloured, not enlarged.
+function phraseCues(list, fps) {
+  const f = (t) => Math.max(0, Math.round(t * fps));
+  const cues = [];
+  let cur = [];
+  const flush = () => { if (cur.length) cues.push(cur); cur = []; };
+  list.forEach((w, i) => {
+    const prev = list[i - 1];
+    // a new sentence starts a new caption — the transcript often has no full stops, so a capitalised
+    // word ("So", "The", "That's") after a lower-case one marks it
+    const sentence = /^\p{Lu}/u.test(w.text) && w.text !== 'I' && !/^I'/.test(w.text) && /\p{Ll}[^.!?]*$/u.test(prev?.text || '');
+    if (cur.length && (cur.length >= 5 || w.start - prev.end > 0.35 || /[.!?;:]$/.test(prev.text) || sentence
+      || (/,$/.test(prev.text) && cur.length >= 2) || w.end - cur[0].start > 1.8)) flush();
+    cur.push(w);
+  });
+  flush();
+  // a lone word joins its neighbour so the screen never flashes a single word
+  for (let i = cues.length - 1; i > 0; i -= 1) {
+    if (cues[i].length === 1 && cues[i][0].start - cues[i - 1][cues[i - 1].length - 1].end < 0.35 && cues[i - 1].length < 5) {
+      cues[i - 1].push(...cues[i]);
+      cues.splice(i, 1);
+    }
+  }
+  return cues.map((ws, i) => {
+    const next = cues[i + 1];
+    const end = Math.min(next ? next[0].start : Infinity, ws[ws.length - 1].end + 0.35);
+    const fromFrame = f(ws[0].start);
+    return {
+      fromFrame,
+      toFrame: Math.max(fromFrame + 8, f(end)),
+      words: ws.map((w, j) => ({
+        text: w.text.replace(/^[^\p{L}\p{N}$#@"“'‘]+|[,;:]+$/gu, ''),
+        fromFrame: f(w.start),
+        toFrame: j < ws.length - 1 ? f(ws[j + 1].start) : f(end),
+        ...(w.em ? { em: true } : {}),
+      })).filter((w) => w.text),
+    };
+  }).filter((c) => c.words.length);
+}
+
+// ── narrative captions: 1–3 words at a time, a key word closes its group ─────
+// (studio's reference reel: "little couple" small, then "hearts" large; the next
+// thought starts a new group). Words keep their own timing so they appear as said.
+function narrativeCues(list, fps) {
+  const f = (t) => Math.max(0, Math.round(t * fps));
+  const cues = [];
+  let cur = [];
+  const flush = () => { if (cur.length) cues.push(cur); cur = []; };
+  list.forEach((w, i) => {
+    const prev = list[i - 1];
+    if (cur.length && (cur.length >= 3 || w.start - prev.end > 0.3 || /[.!?,;:]$/.test(prev.text)
+      || w.end - cur[0].start > 1.3 || (prev.em && !w.em) || (w.em && !prev.em && cur.length >= 2))) flush();
+    cur.push(w);
+  });
+  flush();
+  return cues.map((ws, i) => {
+    const next = cues[i + 1];
+    const end = Math.min(next ? next[0].start : Infinity, ws[ws.length - 1].end + 0.3);
+    const fromFrame = f(ws[0].start);
+    const toFrame = Math.max(fromFrame + 6, f(end));
+    return {
+      fromFrame,
+      toFrame,
+      words: ws.map((w, j) => ({
+        text: w.text.replace(/^[^\p{L}\p{N}$#@"“'‘]+|[,;:]+$/gu, ''),
+        fromFrame: f(w.start),
+        toFrame: j < ws.length - 1 ? f(ws[j + 1].start) : toFrame,
+        ...(w.em ? { em: true } : {}),
+      })).filter((w) => w.text),
+    };
+  }).filter((c) => c.words.length);
+}
+
 // ── dialogue track: the chosen pieces, back to back, levelled ─────────────
 async function buildDialogueAudio(pieces, fps) {
   const { _clipFile, _ffmpegPath } = agent();
@@ -364,6 +584,12 @@ async function directDialogueReel({ reel, material, story, brand, handle }) {
   let edit = await callEditor({ format, story, material, phrasesByClip, brand, handle });
   const debugRows = [edit.debug];
   let cut;
+  const fill = (e) => {
+    const { raw, added } = includeEveryTake(e.raw, material, phrasesByClip);
+    if (added.length) console.log(`[reelFormat] ${reel._id} editor left out take(s) ${added.join(', ')} — added back in story order`);
+    return { ...e, raw };
+  };
+  edit = fill(edit);
   try {
     cut = cutEdit({ raw: edit.raw, format, material, phrasesByClip, fps });
   } catch (err) {
@@ -373,9 +599,33 @@ async function directDialogueReel({ reel, material, story, brand, handle }) {
       extra: `Your previous edit could not be used: ${err.message} Use only clip ids that have phrases, and phrase indices that exist.`,
     });
     debugRows.push(edit.debug);
+    edit = fill(edit);
     cut = cutEdit({ raw: edit.raw, format, material, phrasesByClip, fps });
   }
   ensureBroll({ beats: cut.beats, pool: cut.pool, format, fps });
+
+  // ── the review (editor v2): the draft is measured against the cut rules; when it breaks them the
+  // editor gets its own draft back with the problems and returns a revised edit (one round)
+  const issues = reviewIssues(cut, { fps, format });
+  if (issues.length && process.env.REEL_EDIT_REVIEW !== 'off') {
+    try {
+      const revised = fill(await callEditor({
+        format, story, material, phrasesByClip, brand, handle,
+        extra: `REVIEW OF YOUR DRAFT EDIT — measured by Bauhly, fix every point and return the COMPLETE revised edit (same schema):\n${issues.map((x) => `- ${x}`).join('\n')}\n\nYOUR DRAFT:\n${JSON.stringify(draftOf(cut, fps), null, 1)}`,
+      }));
+      revised.debug.source = `${revised.debug.source} (review)`;
+      debugRows.push(revised.debug);
+      const recut = cutEdit({ raw: revised.raw, format, material, phrasesByClip, fps });
+      ensureBroll({ beats: recut.beats, pool: recut.pool, format, fps });
+      const after = reviewIssues(recut, { fps, format });
+      if (after.length <= issues.length) { edit = revised; cut = recut; }
+      console.log(`[reelFormat] ${reel._id} review: ${issues.length} issue(s) → ${after.length} after revision${after.length <= issues.length ? '' : ' (draft kept)'}`);
+    } catch (err) {
+      console.warn(`[reelFormat] ${reel._id} review failed, draft kept:`, err.message);
+    }
+  }
+
+  onceEach(cut.beats, cut.pool);
 
   const raw = edit.raw || {};
   const hookText = words(str(raw.hook?.text, 80)).slice(0, 7).join(' ');
@@ -438,15 +688,24 @@ async function directDialogueReel({ reel, material, story, brand, handle }) {
     const captionWords = [];
     let at = 0; // output frame
     let lastZoom = 0;
+    let onSpeaker = 0;
     for (let bi = 0; bi < cut.beats.length; bi += 1) {
       const b = cut.beats[bi];
       const b0 = at;
+      const litInBeat = new Set();
       for (let pi = 0; pi < b.cut.length; pi += 1) {
         const p = b.cut[pi];
-        // consecutive pieces of one take alternate framing: a jump cut reads as a new angle
-        let zoom = pi % 2 === 0 ? b.zoom : (b.zoom >= ZOOM.medium ? ZOOM.wide : ZOOM.medium);
-        if (pi === 0 && zoom === lastZoom && bi > 0) zoom = zoom === ZOOM.wide ? ZOOM.medium : ZOOM.wide;
+        // steady framing (editor v2): one framing per stretch on the speaker. It changes only when
+        // the speaker comes back from an insert, or once after REFRAME_SEC on camera — never on every
+        // jump cut (that read as the camera shifting)
+        let zoom = lastZoom || b.zoom;
+        if (pi === 0 && bi > 0 && (cut.beats[bi - 1].broll.length || onSpeaker >= REFRAME_SEC)) {
+          zoom = b.zoom !== lastZoom ? b.zoom : (lastZoom >= ZOOM.medium ? ZOOM.wide : ZOOM.medium);
+          onSpeaker = 0;
+        }
+        if (zoom > ZOOM.medium && b.zoom !== ZOOM.close) zoom = ZOOM.medium;
         lastZoom = zoom;
+        onSpeaker += p.frames / fps;
         // eslint-disable-next-line no-await-in-loop
         const crop = p.clip.take?.role === 'speaking' ? null : await _letterboxOf(p.clip.key, p.start, p.frames / fps).catch(() => null);
         speaker.push({
@@ -461,10 +720,17 @@ async function directDialogueReel({ reel, material, story, brand, handle }) {
           focusX: 50,
           focusY: 38,
           zoom,
-          ...(pi === 0 && b.label ? { overlayText: b.label } : {}),
+          speaker: true,
+          // narrative typography carries the structure: no chapter pills on the face
           ...(crop ? { crop } : {}),
         });
-        p.words.forEach((w) => captionWords.push({ text: w.text, start: at / fps + (w.start - p.start), end: at / fps + (w.end - p.start) }));
+        p.words.forEach((w) => {
+          // the beat's key words are set large (once each) — the captions follow what is being said
+          const n = normWord(w.text);
+          const em = Boolean(n) && b.emphasis.includes(n) && !litInBeat.has(n);
+          if (em) litInBeat.add(n);
+          captionWords.push({ text: w.text, start: at / fps + (w.start - p.start), end: at / fps + (w.end - p.start), em });
+        });
         at += p.frames;
       }
       // B-roll over this beat (picture only — the voice runs on)
@@ -480,10 +746,24 @@ async function directDialogueReel({ reel, material, story, brand, handle }) {
             const x = b.broll[k];
             const from = b0 + startOff + k * each;
             const dur = k === b.broll.length - 1 ? b0 + len - from : each;
+            // into B-roll on a soft push (blur + settle), between B-roll shots a short dissolve;
+            // split = the B-roll takes the top half while the speaker stays below (never in a faceless reel)
+            const split = b.layout === 'split' && format !== 'faceless_voiceover';
+            const g = x.graphic;
             const base = {
-              from, durationInFrames: dur, motion: x.motion, transition: k === 0 ? 'cut' : 'cut',
+              from, durationInFrames: dur, motion: x.motion, transition: k === 0 ? 'soft' : 'fade',
               focusX: x.focusX, focusY: x.focusY,
+              ...(split ? { layout: 'split' } : {}),
               ...(x.asset.width && x.asset.height ? { srcW: x.asset.width, srcH: x.asset.height } : {}),
+              ...(g && x.asset.kind === 'image' && dur >= frames(1.4) ? {
+                annotations: [{
+                  type: g.type,
+                  ...(g.text ? { text: g.text } : {}),
+                  atFrame: Math.min(frames(0.5), Math.round(dur / 3)),
+                  box: { x: clampN(g.x - 12, 0, 76), y: clampN(g.y - 12, 0, 76), w: 24, h: 24 },
+                  point: { x: g.x, y: g.y },
+                }],
+              } : {}),
             };
             if (x.asset.kind === 'image') {
               // eslint-disable-next-line no-await-in-loop
@@ -506,6 +786,7 @@ async function directDialogueReel({ reel, material, story, brand, handle }) {
                 ...base, kind: 'video', src: await getMediaUrl(x.asset.key), // eslint-disable-line no-await-in-loop
                 sourceStartSec: Math.round(start * 1000) / 1000, volume: 0, ...(rate < 1 ? { playbackRate: Math.round(rate * 100) / 100 } : {}),
                 ...(crop ? { crop } : {}),
+                maxFrames: Math.max(dur, Math.floor(((x.asset.durationSec - start) / rate) * fps)),
               });
             }
           }
@@ -513,6 +794,7 @@ async function directDialogueReel({ reel, material, story, brand, handle }) {
       }
     }
     const spokenEnd = at;
+    polishCutaways(cutaways, { fps, spokenEnd, hookEnd: format !== 'faceless_voiceover' ? frames(1.2) : 0 });
     // end card: the best finished shot (or the last face, held) behind the CTA
     const hasCta = Boolean(plan.cta.line);
     const endFrames = hasCta ? frames(END_SEC) : frames(0.4);
@@ -526,10 +808,24 @@ async function directDialogueReel({ reel, material, story, brand, handle }) {
     } else if (speaker.length) {
       speaker[speaker.length - 1].durationInFrames += endFrames;
     }
-    const total = spokenEnd + endFrames;
+    // the hook reads first: the opening frame holds the title for a beat before the first word
+    // (the take's own lead-in before the speaker starts talking, up to HOOK_LEAD_MAX)
+    const firstPiece = pieces[0];
+    const lead = plan.hook.text && firstPiece ? frames(clampN(firstPiece.start - LEAD, 0, HOOK_LEAD_MAX)) : 0;
+    if (lead >= frames(0.3)) {
+      [...speaker, ...cutaways].forEach((x) => { x.from += lead; });
+      const first = speaker[0];
+      first.from = 0;
+      first.durationInFrames += lead;
+      first.sourceStartSec = Math.max(0, Math.round((first.sourceStartSec - lead / fps) * 1000) / 1000);
+      captionWords.forEach((w) => { w.start += lead / fps; w.end += lead / fps; });
+    }
+    const shift = lead >= frames(0.3) ? lead : 0;
+    const total = spokenEnd + shift + endFrames;
     const accent = liftAccent(brandKit.accent || '#FFFFFF');
-    const hookFrames = frames(clampN(0.6 + words(plan.hook.text).length * 0.22, 1.3, 2.2));
-    const look = { ...require('./reelStyleRun').lookOf(style), progress: true };
+    const hookFrames = Math.max(shift + frames(0.6), frames(clampN(0.6 + words(plan.hook.text).length * 0.22, 1.3, 2.2)));
+    // narrative typography (studio's reference, 2026-11-21): a calm title, small words, the key word large
+    const look = { ...require('./reelStyleRun').lookOf(style), hook: 'title', captions: 'narrative', progress: false };
     return {
       voiceKey,
       timeline: {
@@ -543,9 +839,9 @@ async function directDialogueReel({ reel, material, story, brand, handle }) {
         ...(plan.hook.text ? { hook: { text: plan.hook.text, emphasis: plan.hook.emphasis, durationInFrames: hookFrames } } : {}),
         // speaker shots first, cutaways after: later scenes draw on top
         scenes: [...speaker, ...cutaways],
-        captions: captionCues(captionWords.filter((w) => w.start < spokenEnd / fps)),
-        ...(hasCta ? { cta: { line: plan.cta.line, sub: plan.cta.sub, fromFrame: spokenEnd, durationInFrames: endFrames } } : {}),
-        audio: { voiceoverSrc: voiceUrl, voiceVolume: 1, startFrame: 0 },
+        captions: phraseCues(captionWords.filter((w) => w.start < (spokenEnd + shift) / fps), fps),
+        ...(hasCta ? { cta: { line: plan.cta.line, sub: plan.cta.sub, fromFrame: spokenEnd + shift, durationInFrames: endFrames } } : {}),
+        audio: { voiceoverSrc: voiceUrl, voiceVolume: 1, startFrame: shift },
         look,
       },
       stats: {
@@ -598,6 +894,7 @@ const MOTION_GRAPHICS_LOOK = {
 
 module.exports = {
   DIALOGUE_FORMATS,
+  includeEveryTake,
   MOTION_GRAPHICS_LOOK,
   directDialogueReel,
   directFacelessText,

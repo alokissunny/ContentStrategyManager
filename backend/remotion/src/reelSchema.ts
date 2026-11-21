@@ -5,8 +5,8 @@
  */
 export type ReelLook = {
   overlay: 'serif-stack' | 'serif-center' | 'serif-accent' | 'two-weight' | 'bold-sans' | 'pill' | 'none';
-  hook: 'stack-repeat' | 'serif-center' | 'listicle' | 'two-weight' | 'slam';
-  captions: 'subtitle' | 'two-weight' | 'karaoke' | 'none';
+  hook: 'stack-repeat' | 'serif-center' | 'listicle' | 'two-weight' | 'slam' | 'title';
+  captions: 'subtitle' | 'two-weight' | 'karaoke' | 'narrative' | 'none';
   font: 'condensed-serif' | 'serif' | 'serif-italic' | 'sans' | 'sans-bold';
   textCase: 'upper' | 'lower' | 'sentence';
   captionCase?: 'lower' | 'sentence';
@@ -35,7 +35,7 @@ export type ReelScene = {
   sourceStartSec?: number; // video trim-in
   volume?: number; // clip audio (0 = muted)
   motion: 'push-in' | 'pull-out' | 'pan-left' | 'pan-right' | 'pan-up' | 'none';
-  transition: 'cut' | 'zoom' | 'whip' | 'slide' | 'flash';
+  transition: 'cut' | 'zoom' | 'whip' | 'slide' | 'flash' | 'soft' | 'fade';
   focusX?: number; // 0–100, object-position
   focusY?: number;
   kicker?: string;
@@ -50,11 +50,13 @@ export type ReelScene = {
   srcW?: number; // the photo's size (maps anchors through the cover crop)
   srcH?: number;
   beforeSrc?: string; // before → after wipe
+  speaker?: boolean; // talking reels: the person speaking (the base layer)
+  layout?: 'split'; // a cutaway on the top half while the speaker stays below
   // the picture inside letterbox bands baked into a clip (fractions of the frame)
   crop?: { x: number; y: number; w: number; h: number };
 };
 
-export type ReelCaptionWord = { text: string; fromFrame: number; toFrame: number };
+export type ReelCaptionWord = { text: string; fromFrame: number; toFrame: number; em?: boolean };
 export type ReelCaption = { fromFrame: number; toFrame: number; words: ReelCaptionWord[] };
 
 // Motion graphic reel (backend services/motionReelPlanner.js → MotionReel.tsx)

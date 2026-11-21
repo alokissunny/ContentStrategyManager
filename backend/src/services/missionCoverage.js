@@ -34,6 +34,13 @@ const MISSION_SAY = { attract: 'Attract', nurture: 'Nurture', position: 'Positio
 const IMAGE_PX = 640;
 const HISTORY_MAX = 60; // posts kept and counted
 const FETCH_LIMIT = 20; // newest posts read by Fetch recent (no "since" filter upstream)
+// The content audit (studio, 2026-11-21): the last 20 published posts — pillar and mission
+// shares, the pillar × mission grid and the gaps. Shown on Analysis and read by the
+// Next-post idea agent, so both speak about the same posts.
+const AUDIT_WINDOW = 20;
+const PILLAR_SAY = { skills: 'Skills', passion: 'Passion', story: 'Story' };
+const WEAK_PILLAR_PCT = 20; // a pillar under this share of the window is a gap
+const THIN_MISSION_PCT = 10;
 
 function coverageModel() {
   // same model as the Next-post idea agent (Claude Sonnet 5.5) unless overridden
@@ -158,6 +165,48 @@ function pillarMixOf(rows) {
   return { pillars: { total: withPillar.length, counts, percents: raw, matrix } };
 }
 
+/**
+ * The content audit over tagged posts (newest first, already cut to the window):
+ * mission + pillar shares, the grid, and the gaps in the order they matter —
+ * missing missions (the one the objective asks for first), pillars under
+ * WEAK_PILLAR_PCT, then thin missions. `topics` (topic map) adds how many
+ * Skills / Passion / Story topics the studio has not posted on yet.
+ */
+function auditOf(tagged, { topics = [], objective = '' } = {}) {
+  const total = tagged.length;
+  const counts = Object.fromEntries(MISSIONS.map((m) => [m, tagged.filter((r) => r.mission === m).length]));
+  const percents = percentsOf(counts, total);
+  const { pillars } = pillarMixOf(tagged);
+  const open = Object.fromEntries(PILLARS.map((pl) => [pl, topics.filter((t) => t.pillar === pl && t.status !== 'covered').length]));
+  const gaps = [];
+  if (total >= 5) {
+    // what the studio says it wants decides which missing mission comes first
+    const wants = String(objective || '').toLowerCase();
+    const first = /inquir|enquir|lead|client|book|sale|sell|consult|project/.test(wants) ? 'convert'
+      : /expert|authority|known for|trust/.test(wants) ? 'position'
+        : /reach|grow|follower|audience|discover/.test(wants) ? 'attract' : 'convert';
+    const order = [first, ...['convert', 'position', 'nurture', 'attract'].filter((m) => m !== first)];
+    order.filter((m) => !counts[m]).forEach((m) => gaps.push({
+      kind: 'mission', id: m, count: 0, of: total, percent: 0,
+      say: `${MISSION_SAY[m]} is 0 of your last ${total} posts.`,
+    }));
+    if (pillars.total) {
+      PILLARS.map((pl) => ({ pl, pct: pillars.percents[pl] }))
+        .filter((x) => x.pct < WEAK_PILLAR_PCT)
+        .sort((a, b) => a.pct - b.pct)
+        .forEach(({ pl, pct }) => gaps.push({
+          kind: 'pillar', id: pl, count: pillars.counts[pl], of: pillars.total, percent: pct, openTopics: open[pl],
+          say: `${PILLAR_SAY[pl]} is ${pct}% of your last ${pillars.total} posts.`,
+        }));
+    }
+    order.filter((m) => counts[m] && percents[m] <= THIN_MISSION_PCT).forEach((m) => gaps.push({
+      kind: 'mission', id: m, count: counts[m], of: total, percent: percents[m],
+      say: `${MISSION_SAY[m]} is ${counts[m]} of your last ${total} posts.`,
+    }));
+  }
+  return { window: total, missions: { counts, percents }, pillars, openTopics: open, gaps };
+}
+
 /** What the studio should hear: missing missions first, then the thinnest, and what leads. */
 function attentionOf(counts, total) {
   if (!total) return { focus: [], lead: '', note: '' };
@@ -204,12 +253,41 @@ function saveCoverage(report, patch, extraSet = {}) {
     .catch((err) => console.warn('[missionCoverage] could not store:', err.message));
 }
 
-async function missionCoverage(userId, username, { refresh = false, locale = 'en', debug = null, report: given = null } = {}) {
+/**
+ * The audit reads the last AUDIT_WINDOW posts; a history seeded from the 10-post
+ * cache is filled once with older posts (fetched, prepared and stored like Fetch
+ * recent — but any unknown post counts, not only newer ones). Tried once per
+ * account (`backfillTriedAt`), so a short account never re-fetches.
+ */
+async function backfillHistory(report, userId, handle, kept) {
+  if (!report || kept.length >= AUDIT_WINDOW || report.missionCoverage?.backfillTriedAt) return kept;
+  try {
+    const known = new Set(kept.map(idOf));
+    const fresh = await fetchRecentPosts(userId, handle, AUDIT_WINDOW);
+    const unknown = (fresh.posts || []).map(plainPost).filter((p) => idOf(p) && !known.has(idOf(p)));
+    let added = [];
+    if (unknown.length) {
+      const prepared = await preparePostMedia(userId, handle, unknown);
+      added = (prepared.posts || []).map(plainPost);
+    }
+    const history = newestFirst([...added, ...kept]).slice(0, HISTORY_MAX);
+    await saveCoverage(report, { history, backfillTriedAt: new Date(), lastFetchedAt: new Date() });
+    console.log(`[missionCoverage] @${handle} audit backfill (${fresh.source || '?'}): +${added.length} → ${history.length} posts`);
+    return history;
+  } catch (err) {
+    console.warn(`[missionCoverage] @${handle} audit backfill failed:`, err.message);
+    await saveCoverage(report, { backfillTriedAt: new Date() });
+    return kept;
+  }
+}
+
+async function missionCoverage(userId, username, { refresh = false, locale = 'en', debug = null, report: given = null, objective = '' } = {}) {
   const handle = String(username || '').toLowerCase();
   const report = given || await reportFor(userId, handle);
   const history = await historyOf(report, userId, handle);
-  const posts = history.posts;
-  if (history.seeded && posts.length) await saveCoverage(report, { history: posts, lastFetchedAt: new Date() });
+  if (history.seeded && history.posts.length) await saveCoverage(report, { history: history.posts, lastFetchedAt: new Date() });
+  // the audit window: the newest AUDIT_WINDOW posts (the history keeps more)
+  const posts = (await backfillHistory(report, userId, handle, history.posts)).slice(0, AUDIT_WINDOW);
   const stored = { ...(report?.missionCoverage?.posts || {}) };
 
   // tags made under older mission rules (e.g. "a CTA makes it convert") are redone
@@ -260,12 +338,17 @@ async function missionCoverage(userId, username, { refresh = false, locale = 'en
   const tagged = rows.filter((r) => r.mission);
   const counts = Object.fromEntries(MISSIONS.map((m) => [m, tagged.filter((r) => r.mission === m).length]));
   const total = tagged.length;
+  const topics = report?.contentTerritory?.topics || [];
+  const audit = auditOf(tagged, { topics, objective });
   return {
     total,
+    window: AUDIT_WINDOW,
     counts,
     percents: percentsOf(counts, total),
     ...attentionOf(counts, total),
     ...pillarMixOf(tagged),
+    gaps: audit.gaps,
+    openTopics: audit.openTopics,
     posts: rows,
     analysedAt: todo.length ? new Date() : (report?.missionCoverage?.at || null),
     lastFetchedAt: report?.missionCoverage?.lastFetchedAt || null,
@@ -279,7 +362,7 @@ async function missionCoverage(userId, username, { refresh = false, locale = 'en
  * analysed). Known posts get their likes/comments refreshed. Returns the
  * coverage plus `added` (how many new posts).
  */
-async function fetchRecentMissions(userId, username, { locale = 'en', debug = null } = {}) {
+async function fetchRecentMissions(userId, username, { locale = 'en', debug = null, objective = '' } = {}) {
   const handle = String(username || '').toLowerCase();
   const report = await reportFor(userId, handle);
   const { posts: kept } = await historyOf(report, userId, handle);
@@ -307,8 +390,8 @@ async function fetchRecentMissions(userId, username, { locale = 'en', debug = nu
   await saveCoverage(report, { history, lastFetchedAt: new Date() });
   console.log(`[missionCoverage] @${handle} fetch recent (${fresh.source || '?'}): ${freshPlain.length} read, ${added.length} new since ${cutoff ? new Date(cutoff).toISOString().slice(0, 10) : 'never'}`);
 
-  const out = await missionCoverage(userId, handle, { locale, debug, report });
+  const out = await missionCoverage(userId, handle, { locale, debug, report, objective });
   return { ...out, added: added.length, source: fresh.source || '' };
 }
 
-module.exports = { missionCoverage, fetchRecentMissions, classify, percentsOf, pillarMixOf, attentionOf, reportFor, historyOf, MISSIONS, PILLARS };
+module.exports = { missionCoverage, fetchRecentMissions, classify, percentsOf, pillarMixOf, attentionOf, auditOf, reportFor, historyOf, AUDIT_WINDOW, MISSIONS, PILLARS };

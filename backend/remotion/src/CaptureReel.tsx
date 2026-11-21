@@ -15,11 +15,12 @@ import {
   AbsoluteFill, Audio, Img, OffthreadVideo, Sequence, interpolate, Easing,
   useCurrentFrame, useVideoConfig,
 } from 'remotion';
-import { resolveFont, CAPTION_FONT } from './fonts';
+import { resolveFont, CAPTION_FONT, LOOK_FONTS } from './fonts';
 import { LookOverlay, LookHook, ChapterCard, LookCaptions, LookEndLine, GRADE } from './reelLook';
 import { cameraAt, zoomPunchAt, SceneAnnotations } from './teaserFx';
 import type { ReelSpec, ReelScene, ReelCaption } from './reelSchema';
 import { MotionReel } from './MotionReel';
+import { Cutaway, NarrativeCaptions, NarrativeEnd, TitleHook, Vignette, GRADE_INSERT, GRADE_SPEAKER, splitAmount, splitWindows } from './narrative';
 
 const clamp = { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' } as const;
 const outCubic = Easing.out(Easing.cubic);
@@ -69,7 +70,7 @@ const SceneMedia: React.FC<{ scene: ReelScene; fps: number; grade?: string }> = 
 
 // A styled shot: its media, the overlays anchored to it, and — for a 'zoom'
 // overlay — a crash-zoom that moves both together
-const SceneFrame: React.FC<{ scene: ReelScene; fps: number; grade?: string; accent: string; ink: string }> = ({ scene, fps, grade, accent, ink }) => {
+const SceneFrame: React.FC<{ scene: ReelScene; fps: number; grade?: string; accent: string; ink: string; minimal?: boolean }> = ({ scene, fps, grade, accent, ink, minimal }) => {
   const frame = useCurrentFrame();
   const { width, height } = useVideoConfig();
   const punch = zoomPunchAt(scene, frame, width, height);
@@ -79,7 +80,7 @@ const SceneFrame: React.FC<{ scene: ReelScene; fps: number; grade?: string; acce
       transform: `translate(${punch.shake}px, 0) scale(${punch.scale})`,
     } : undefined}>
       <SceneMedia scene={scene} fps={fps} grade={grade} />
-      {scene.annotations?.length ? <SceneAnnotations scene={scene} accent={accent} ink={ink} /> : null}
+      {scene.annotations?.length && scene.layout !== 'split' ? <SceneAnnotations scene={scene} accent={accent} ink={ink} minimal={minimal} /> : null}
     </AbsoluteFill>
   );
 };
@@ -226,6 +227,7 @@ const Progress: React.FC<{ color: string }> = ({ color }) => {
 const StyledReel: React.FC<{ reel: ReelSpec }> = ({ reel }) => {
   const { fps } = useVideoConfig();
   const look = reel.look!;
+  if (look.captions === 'narrative') return <NarrativeReel reel={reel} />;
   const grade = GRADE[look.grade];
   const endFrom = reel.cta ? reel.cta.fromFrame : Infinity;
   return (
@@ -267,6 +269,59 @@ const StyledReel: React.FC<{ reel: ReelSpec }> = ({ reel }) => {
         </Sequence>
       ) : null}
       {look.progress ? <Progress color={reel.brand.accent} /> : null}
+    </AbsoluteFill>
+  );
+};
+
+// A talking reel in the narrative look (narrative.tsx): the speaker underneath, cutaways on soft
+// transitions (or split on the top half while the speaker moves down), minimal voice-led words
+const NarrativeReel: React.FC<{ reel: ReelSpec }> = ({ reel }) => {
+  const frame = useCurrentFrame();
+  const { fps } = useVideoConfig();
+  const look = reel.look!;
+  const grade = GRADE[look.grade];
+  // a clean sans whatever the Brand Kit's body face is (the reference's captions are a plain grotesk)
+  const font = LOOK_FONTS.sans;
+  const windows = React.useMemo(() => splitWindows(reel.scenes), [reel.scenes]);
+  const split = splitAmount(windows, frame);
+  const speakers = reel.scenes.filter((s) => s.speaker);
+  const over = reel.scenes.filter((s) => !s.speaker);
+  const endFrom = reel.cta ? reel.cta.fromFrame : reel.format.durationInFrames;
+  return (
+    <AbsoluteFill style={{ background: '#000' }}>
+      {/* the speaker: slides down into the bottom half while a split cutaway holds the top */}
+      <AbsoluteFill style={split > 0 ? { transform: `translateY(${split * 22}%)` } : undefined}>
+        {speakers.map((s, i) => (
+          <Sequence key={`s${i}`} from={s.from} durationInFrames={s.durationInFrames} layout="none">
+            <SceneFrame scene={s} fps={fps} grade={[grade, GRADE_SPEAKER].filter(Boolean).join(' ')} accent={reel.brand.accent} ink={reel.brand.accentInk} minimal />
+          </Sequence>
+        ))}
+      </AbsoluteFill>
+      {over.map((s, i) => (
+        <Sequence key={`c${i}`} from={s.from} durationInFrames={s.durationInFrames} layout="none">
+          <Cutaway scene={s} split={split}>
+            <SceneFrame scene={s} fps={fps} grade={[s.graded ? '' : grade, GRADE_INSERT].filter(Boolean).join(' ')} accent={reel.brand.accent} ink={reel.brand.accentInk} minimal />
+          </Cutaway>
+        </Sequence>
+      ))}
+      {reel.hook?.text ? (
+        <Sequence from={0} durationInFrames={reel.hook.durationInFrames}>
+          <TitleHook spec={reel} font={font} />
+        </Sequence>
+      ) : null}
+      <Vignette />
+      <NarrativeCaptions captions={reel.captions} scenes={reel.scenes} font={font} endFrame={endFrom} accent={reel.brand.accent} />
+      {reel.cta && look.endCard !== 'none' ? (
+        <Sequence from={reel.cta.fromFrame} durationInFrames={reel.cta.durationInFrames}>
+          <NarrativeEnd spec={reel} font={font} />
+        </Sequence>
+      ) : null}
+      {reel.audio?.musicSrc ? <Audio src={reel.audio.musicSrc} volume={reel.audio.musicVolume ?? 0.9} /> : null}
+      {reel.audio?.voiceoverSrc ? (
+        <Sequence from={reel.audio.startFrame ?? 0} layout="none">
+          <Audio src={reel.audio.voiceoverSrc} volume={reel.audio.voiceVolume ?? 1} />
+        </Sequence>
+      ) : null}
     </AbsoluteFill>
   );
 };

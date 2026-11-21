@@ -104,6 +104,8 @@ export default function CaptureHost() {
         maxQuestions={Number.isFinite(aim?.maxQuestions) ? aim.maxQuestions : 4}
         askMedia={aim ? aim.askMedia !== false : true}
         idea={aim?.idea || null}
+        // Build Reel (IdeaCard): the card + how to make it + how to record it, before the questions
+        offer={aim?.offer || null}
         seedAttachments={aim?.attachments || null}
         savedLine={aim?.savedLine || ''}
         // a plain capture is filed without questions; they wait for Generate plan

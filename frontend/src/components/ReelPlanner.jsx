@@ -67,7 +67,7 @@ const SHOT = {
   talking_head: 'Talking head', broll: 'B-roll', talking_head_broll: 'Talking head + B-roll',
   text: 'Text on footage', voiceover: 'Voiceover',
 };
-const STAGE = {
+export const STAGE = {
   queued: 'Waiting for its turn', reading: 'Watching your footage', writing: 'Cutting the story',
   voicing: 'Preparing the sound', scoring: 'Composing the music', cutting: 'Editing the cut',
   rendering: 'Rendering the video', saving: 'Saving your reel', retrying: 'Trying again',
@@ -84,7 +84,7 @@ const recType = () => (typeof MediaRecorder === 'undefined' ? ''
   : REC_TYPES.find((t) => MediaRecorder.isTypeSupported?.(t)) || '');
 const clock = (ms) => { const t = Math.floor(ms / 1000); return `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`; };
 
-function SequenceRecorder({ name, facing: firstFacing, prompter, targetSec, onTake, onCancel }) {
+export function SequenceRecorder({ name, facing: firstFacing, prompter, targetSec, onTake, onCancel }) {
   // talking shots face the speaker; B-roll films the space (back camera)
   const [facing, setFacing] = useState(firstFacing);
   const [phase, setPhase] = useState('starting'); // starting | ready | recording | review | failed
@@ -258,7 +258,7 @@ function slotsOf(s) {
   return out;
 }
 
-function ReelPlanner({ idea, captured, onClose, onMade }) {
+function ReelPlanner({ idea, captured, format: chosenFormat = '', onClose, onMade }) {
   const [step, setStep] = useState('loading');
   const [planning, setPlanning] = useState(''); // the format being planned (loading copy)
   const [plan, setPlan] = useState(null);
@@ -298,7 +298,8 @@ function ReelPlanner({ idea, captured, onClose, onMade }) {
         setStep('failed');
       });
   };
-  useEffect(() => { load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  // Build Reel › Create with my footage › a recording method: planned straight in that format
+  useEffect(() => { load(chosenFormat); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     const onKey = (e) => { if (e.key === 'Escape' && step !== 'making') onClose(); };

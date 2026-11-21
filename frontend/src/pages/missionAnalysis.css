@@ -163,3 +163,11 @@
   .mca-grid__col { font-size: 10px; }
 }
 @media (prefers-reduced-motion: reduce) { .mca-pbar__fill { transition: none; } }
+
+/* the content audit's gaps (2026-11-21) */
+.mca-gaps { margin-top: var(--sp-5, 20px); }
+.mca-gaps__list { display: flex; flex-direction: column; gap: var(--sp-2, 8px); margin: var(--sp-3, 12px) 0 0; padding: 0; list-style: none; counter-reset: gap; }
+.mca-gaps__item { position: relative; display: flex; flex-direction: column; gap: 2px; padding: var(--sp-3, 12px) var(--sp-4, 16px) var(--sp-3, 12px) 46px; border-radius: 10px; background: var(--surface, #fff); counter-increment: gap; }
+.mca-gaps__item::before { content: counter(gap); position: absolute; left: 14px; top: 12px; display: grid; place-items: center; width: 22px; height: 22px; border-radius: 999px; background: var(--ink-900, #16161a); color: #fff; font-size: 12px; font-weight: 700; }
+.mca-gaps__say { font-size: var(--text-sm, 14px); font-weight: 600; color: var(--ink-900, #16161a); }
+.mca-gaps__more { font-size: 13px; color: var(--ink-500, #6b6b73); }

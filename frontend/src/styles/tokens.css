@@ -49,6 +49,12 @@
    * budget made visible). Never decoration, never a second accent. ── */
   --experiment-500: #d2e823;
   --experiment-ink: #3a4204;
+  /* framing illustrations (bauhly-v3 decision 1049) — FrameShot.jsx paints the drawn shots from these */
+  --illus-ground: #f7ece1;
+  --illus-wall:   #f0e0d0;
+  --illus-form:   #e2caaf;
+  --illus-skin:   #f7ddc4;
+  --illus-ink:    #3b2e25;
 
   /* ── Ink — charcoal spine ──────────────────────────────────────────────── */
   --ink-900: #16161a;

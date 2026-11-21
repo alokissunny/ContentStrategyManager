@@ -257,7 +257,8 @@ async function loadMaterial(reel, ledger) {
     }
   };
   for (const c of captures) {
-    for (const a of c.attachments || []) pushAsset(a, '');
+    // a spoken take recorded for an earlier reel is not this reel's footage
+    for (const a of c.attachments || []) if (a.reelTake !== 'say' || takeOf.has(a.key)) pushAsset(a, '');
   }
   // a recommended post's B-roll pool: the idea's suggested photos/clips and its
   // source captures' media (other captures of the same studio), after the capture's own

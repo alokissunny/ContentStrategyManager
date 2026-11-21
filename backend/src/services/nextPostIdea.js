@@ -29,7 +29,7 @@ const User = require('../models/User');
 const { completeToolCall, completeText, providerOf } = require('./llmComplete');
 const { loadBrandDna } = require('./planInputs');
 const { loadRemixPosts } = require('./postRemix');
-const { isS3Configured, getPresignedMediaUrl } = require('./s3Client');
+const { isS3Configured, getMediaUrl } = require('./s3Client');
 const { LANGUAGES } = require('../utils/appLocale');
 const { MISSION_TAG_V, withMissionRules } = require('../utils/contentMissions');
 
@@ -37,7 +37,7 @@ const PROMPT_FILE = path.join(__dirname, '..', '..', 'prompts', 'next-post-idea.
 const PILLARS = ['passion', 'skills', 'story'];
 const MISSIONS = ['attract', 'nurture', 'position', 'convert'];
 // bump when the prompt / output shape changes: stored batches made before are not served again
-const PROMPT_VERSION = 6; // 6: 7 ideas per batch (5: topic map + computed mix) (2026-11-19)
+const PROMPT_VERSION = 9; // 9: gaps recounted with the agent's own tags before ranking · 8: 8: content audit (last 20 posts, gaps) + gap-first ranking (2026-11-21) · 7: 7: Convert = the studio's real service + a client problem + one next step, no finished project required (studio, 2026-11-21) · 6: 6: 7 ideas per batch (5: topic map + computed mix) (2026-11-19)
 const MAX_IDEAS = 7;
 const MAX_QUESTIONS = 2;
 const MAX_ASSETS = 4;
@@ -107,7 +107,7 @@ async function loadCaptures(userId, username) {
       if (c.excluded) continue;
       const words = captureWords(c);
       const assets = (c.attachments || [])
-        .filter((a) => a.key && (a.type === 'image' || a.type === 'video'))
+        .filter((a) => a.key && (a.type === 'image' || a.type === 'video') && a.reelTake !== 'say')
         .slice(0, ASSETS_PER_CAPTURE)
         .map((a) => ({
           key: a.key,
@@ -146,15 +146,28 @@ async function loadMaterial(userId, username) {
     loadCaptures(userId, username),
     loadDismissed(userId, username),
     BrandAnalysisReport.findOne({ user: userId, instagramUsername: username })
-      .sort({ createdAt: -1 }).select('igPillarTags igMissionTags igMissionTagsV contentTerritory').lean(),
+      .sort({ createdAt: -1 }).select('igPillarTags igMissionTags igMissionTagsV contentTerritory missionCoverage.history missionCoverage.posts').lean(),
     User.findById(userId).select('business').lean(),
   ]);
+  // the content audit's posts (Analysis history): the last AUDIT_WINDOW published
+  // posts and their current-rule tags — the same posts Analysis counts
+  const { AUDIT_WINDOW } = require('./missionCoverage');
+  const history = report?.missionCoverage?.history || [];
+  const covTags = report?.missionCoverage?.posts || {};
+  const auditPosts = history.length ? history.slice(0, AUDIT_WINDOW) : igPosts;
+  const igTags = { ...(report?.igPillarTags || {}) };
+  const igMissions0 = report?.igMissionTagsV === MISSION_TAG_V ? { ...(report?.igMissionTags || {}) } : {};
+  Object.entries(covTags).forEach(([k, t]) => {
+    if (t?.v !== MISSION_TAG_V) return;
+    if (t.pillar) igTags[k] = t.pillar;
+    if (t.mission) igMissions0[k] = t.mission;
+  });
   return {
-    memory, igPosts, bauhly, captures, dismissed,
+    memory, igPosts: auditPosts, bauhly, captures, dismissed,
     business: user?.business || {},
-    igTags: report?.igPillarTags || {},
+    igTags,
     // tags made under older mission rules count as missing (re-tagged by the agent)
-    igMissions: report?.igMissionTagsV === MISSION_TAG_V ? (report?.igMissionTags || {}) : {},
+    igMissions: igMissions0,
     igMissionsStale: (report?.igMissionTagsV || 0) !== MISSION_TAG_V,
     territory: report?.contentTerritory?.topics?.length ? report.contentTerritory : null,
   };
@@ -221,7 +234,23 @@ function contextOf(material) {
     })),
     dismissed: dismissed.map((d) => ({ title: d.title, pillar: d.pillar })),
   };
-  ctx.mix = mixOf([...instagramPosts, ...bauhlyPosts]);
+  // the content audit (shared with Analysis): last published posts → shares, grid, gaps;
+  // `upcoming` = what is already planned in Bauhly, so a gap isn't filled twice
+  const { auditOf } = require('./missionCoverage');
+  const audit = auditOf(instagramPosts.filter((p) => p.mission), {
+    topics: (territory?.topics || []),
+    objective: [business.goals, business.positioning].filter(Boolean).join(' '),
+  });
+  ctx.audit = {
+    posts: audit.window,
+    missions: audit.missions,
+    pillars: { counts: audit.pillars.counts, percents: audit.pillars.percents, grid: audit.pillars.matrix },
+    topicsNotPostedYet: audit.openTopics,
+    gaps: audit.gaps.map((g) => g.say),
+    untaggedPosts: instagramPosts.filter((p) => !p.mission).length,
+  };
+  const planned = bauhlyPosts.filter((p) => p.state === 'planned');
+  ctx.upcoming = mixOf(planned);
   // the studio's Skills / Passion / Story topics, covered or not (services/contentTerritory.js)
   const topics = (territory?.topics || []).map((t) => ({
     id: t.id,
@@ -238,6 +267,12 @@ function contextOf(material) {
   if (topics.length) ctx.topicMap = { summary: territory.summary || '', topics };
 
   const lookups = {
+    gaps: audit.gaps,
+    auditOpts: {
+      topics: (territory?.topics || []),
+      objective: [business.goals, business.positioning].filter(Boolean).join(' '),
+    },
+    auditPosts: instagramPosts.map((p) => ({ id: p.id, mission: p.mission || '', pillar: p.pillar || '' })),
     captureIds: new Set(captures.map((c) => c.id)),
     postIds: new Set(bauhlyPosts.map((p) => p.id)),
     allBauhlyIds: new Set(bauhly.map((p) => String(p._id))),
@@ -275,6 +310,28 @@ function mixOf(posts) {
     pillarMissions: Object.fromEntries(PILLARS.map((pl) => [pl,
       Object.fromEntries(MISSIONS.map((m) => [m, tagged.filter((p) => p.pillar === pl && p.mission === m).length]))])),
   };
+}
+
+/**
+ * Gap first (studio, 2026-11-21): the #1 idea fills the biggest gap of the audit
+ * (a missing mission, then a weak pillar, then a thin mission) when the batch has
+ * an honest idea for it; every idea that fills a gap says so in numbers
+ * (`missionWhy` = the audit's own line, e.g. "Convert is 0 of your last 20 posts.").
+ */
+function gapFirst(ideas, gaps = []) {
+  if (!ideas.length || !gaps.length) return ideas;
+  const fills = (idea, g) => (g.kind === 'mission' ? idea.mission === g.id : idea.pillar === g.id);
+  const out = ideas.map((idea) => {
+    const g = gaps.find((x) => fills(idea, x));
+    return g ? { ...idea, missionWhy: g.say, gap: `${g.kind}:${g.id}` } : idea;
+  });
+  for (const g of gaps) {
+    const at = out.findIndex((idea) => fills(idea, g));
+    if (at < 0) continue;
+    if (at > 0) out.unshift(out.splice(at, 1)[0]);
+    break;
+  }
+  return out.map((idea, i) => ({ ...idea, rank: i + 1 }));
 }
 
 /** Changes whenever anything the agent reads changes. Dismissals are left out:
@@ -594,15 +651,68 @@ async function saveTags(userId, username, parsed, lookups) {
 
 // ── what the client gets ──────────────────────────────────────────────────────
 
+/*
+ * The idea's pictures as the card can show them (studio, 2026-11-21: "sometimes a broken or no
+ * image"): only media still on a capture (a deleted capture takes its files with it) and never a
+ * reel's spoken take; a stable CDN URL (getMediaUrl) instead of an hour-long presigned one the
+ * card outlived; a clip's first kept still as its `posterKey`.
+ */
+async function liveMedia(userId, keys) {
+  if (!keys.length) return new Map();
+  const rows = await Project.find({ user: userId, 'captures.attachments.key': { $in: keys } })
+    .select('captures.attachments.key captures.attachments.type captures.attachments.reelTake captures.attachments.analysis.frames')
+    .lean().catch(() => []);
+  const out = new Map();
+  rows.forEach((p) => (p.captures || []).forEach((c) => (c.attachments || []).forEach((a) => {
+    if (keys.includes(a.key) && a.reelTake !== 'say') out.set(a.key, a);
+  })));
+  return out;
+}
+
+/*
+ * A picture for an idea with none of its own (a question-led idea built on brand memory or a topic):
+ * display only — never one of the idea's assets, so Build Reel does not seed it into the capture.
+ * Tried in order: a capture the idea cites, a capture behind the topic it opens, the studio's newest
+ * project photo.
+ */
+async function coverFor(doc) {
+  const projects = await Project.find({ user: doc.user, instagramUsername: doc.instagramUsername })
+    .select('captures._id captures.createdAt captures.excluded captures.attachments.key captures.attachments.type captures.attachments.reelTake')
+    .lean().catch(() => []);
+  const caps = projects.flatMap((p) => p.captures || []).filter((c) => !c.excluded);
+  const photoOf = (c) => (c?.attachments || []).find((a) => a.type === 'image' && a.key && a.reelTake !== 'say')?.key || '';
+  const byId = new Map(caps.map((c) => [String(c._id), c]));
+  const cited = (doc.sources || []).filter((x) => x.kind === 'capture').map((x) => byId.get(String(x.id)));
+  let key = cited.map(photoOf).find(Boolean) || '';
+  if (!key) {
+    const topicIds = (doc.sources || []).filter((x) => x.kind === 'topic').map((x) => String(x.id));
+    if (topicIds.length) {
+      const report = await BrandAnalysisReport.findOne({ user: doc.user, instagramUsername: doc.instagramUsername })
+        .sort({ createdAt: -1 }).select('contentTerritory.topics').lean().catch(() => null);
+      const grounding = (report?.contentTerritory?.topics || []).filter((t) => topicIds.includes(t.id)).flatMap((t) => t.grounding || []);
+      key = grounding.filter((g) => g.kind === 'capture').map((g) => photoOf(byId.get(String(g.id)))).find(Boolean) || '';
+    }
+  }
+  if (!key) {
+    key = [...caps].sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0)).map(photoOf).find(Boolean) || '';
+  }
+  return key ? { key, url: isS3Configured() ? await getMediaUrl(key).catch(() => '') : '' } : null;
+}
+
 async function forClient(doc) {
   const canSign = isS3Configured();
-  const assets = await Promise.all((doc.assets || []).map(async (a) => ({
-    key: a.key,
-    captureId: a.captureId,
-    type: a.type,
-    reason: a.reason,
-    url: canSign ? await getPresignedMediaUrl(a.key).catch(() => '') : '',
-  })));
+  const live = await liveMedia(doc.user, (doc.assets || []).map((a) => a.key).filter(Boolean));
+  const assets = await Promise.all((doc.assets || []).filter((a) => live.has(a.key)).map(async (a) => {
+    const posterKey = a.type === 'video' ? (live.get(a.key)?.analysis?.frames || []).find((f) => f?.key)?.key || '' : '';
+    return {
+      key: a.key,
+      captureId: a.captureId,
+      type: a.type,
+      reason: a.reason,
+      url: canSign ? await getMediaUrl(a.key).catch(() => '') : '',
+      ...(posterKey ? { posterKey, posterUrl: canSign ? await getMediaUrl(posterKey).catch(() => '') : '' } : {}),
+    };
+  }));
   return {
     id: String(doc._id),
     batchId: doc.batchId,
@@ -610,6 +720,8 @@ async function forClient(doc) {
     status: doc.status,
     mission: doc.mission,
     missionWhy: doc.missionWhy || '',
+    gap: doc.gap || '',
+    ...(assets.length ? {} : { cover: await coverFor(doc).catch(() => null) }),
     pillar: doc.pillar,
     title: doc.title,
     eyebrow: doc.eyebrow,
@@ -668,8 +780,23 @@ async function nextIdeas(userId, username, { locale = 'en', refresh = false, deb
 
   const { parsed, model, debugRow } = await callModel(ctx, locale);
   debug?.push(debugRow);
-  const ideas = cleanIdeas(parsed, lookups);
+  // the audit again, now with the posts the agent tagged in this same answer (posts whose
+  // tags were stale or missing — e.g. right after the mission rules changed)
+  const fresh = new Map((Array.isArray(parsed.pillarTags) ? parsed.pillarTags : [])
+    .filter((t) => t?.kind === 'igPost').map((t) => [String(t.id), t]));
+  const auditPosts = lookups.auditPosts.map((p) => ({
+    ...p,
+    mission: p.mission || missionOf(fresh.get(p.id)?.mission),
+    pillar: p.pillar || pillarOf(fresh.get(p.id)?.pillar),
+  })).filter((p) => p.mission);
+  const { auditOf } = require('./missionCoverage');
+  const gaps = auditPosts.length > lookups.auditPosts.filter((p) => p.mission).length
+    ? auditOf(auditPosts, lookups.auditOpts).gaps
+    : lookups.gaps;
+  const ideas = gapFirst(cleanIdeas(parsed, lookups), gaps);
   const tagged = await saveTags(userId, handle, parsed, lookups);
+  const pillarsCovered = new Set(ideas.map((i) => i.pillar));
+  if (ideas.length >= 3 && pillarsCovered.size < 3) console.warn(`[nextPostIdea] @${handle} ideas miss a pillar: ${PILLARS.filter((p) => !pillarsCovered.has(p)).join(', ')}`);
   console.log(
     `[nextPostIdea] @${handle} ${model} · ${ideas.length} idea(s) · tagged ${tagged.instagram} IG + ${tagged.bauhly} Bauhly`
     + ` · ${debugRow.usage.inputTokens}+${debugRow.usage.outputTokens} tok · ~$${debugRow.usage.estimatedCostUsd.toFixed(4)}`
@@ -724,6 +851,7 @@ async function decideIdea(userId, ideaId, { status, captureId } = {}) {
 
 module.exports = {
   nextIdeas,
+  gapFirst,
   decideIdea,
   ideaModel,
   parseJsonAnswer,

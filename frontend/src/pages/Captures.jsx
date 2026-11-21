@@ -34,7 +34,7 @@ import ReelStudio from './captures/ReelStudio';
 import { openReelPlanner } from '../components/ReelPlanner';
 import { ideaFromCapture } from '../api/ideas';
 import ReelStyleModal from './captures/ReelStyleModal';
-import { listCaptureReels, createCaptureReel, reelWorking } from '../api/captureReels';
+import { listCaptureReels, createCaptureReel, reelWorking, regenerateCaptureReel, getCaptureReel } from '../api/captureReels';
 import './projects.css';
 import './captures.css';
 
@@ -180,7 +180,7 @@ function addingOf(item, files) {
   };
 }
 
-function CapturePanel({ item, projects, asked, onClose, onGenerate, onDelete, onMove, onAddDetail, onAddFiles, onEditCapture, onViewPost, reel, onReel }) {
+function CapturePanel({ item, projects, asked, onClose, onGenerate, onDelete, onMove, onAddDetail, onAddFiles, onEditCapture, onViewPost, reel, onReel, onRegenerate }) {
   useBodyScrollLock();
   const entry = item.session;
   const atts = entry.attachments || [];
@@ -434,10 +434,21 @@ function CapturePanel({ item, projects, asked, onClose, onGenerate, onDelete, on
                   : reelWorking(reel) ? 'A reel is being made from this capture…'
                     : reel.status === 'done' ? 'A reel is ready from this capture' : 'The last reel did not finish'}
               </span>
-              <button type="button" className="np__needs__go np__needs__go--ink" onClick={() => onReel(!reel)}>
-                {!reel ? 'Generate reel' : 'View reel'}
-                <Icon name="arrow-right" size={15} strokeWidth={2.2} />
-              </button>
+              <div className="np__reel__acts">
+                <button type="button" className="np__needs__go np__needs__go--ink" onClick={() => onReel(!reel)}>
+                  {!reel ? 'Generate reel' : 'View reel'}
+                  <Icon name="arrow-right" size={15} strokeWidth={2.2} />
+                </button>
+                {/* experimental: the same photos and recordings, cut again by the current editor */}
+                {reel && !reelWorking(reel) && onRegenerate && (
+                  <button type="button" className="np__needs__go np__needs__go--quiet" onClick={onRegenerate}
+                    title="Makes a new reel from the same photos and recordings with the latest editor. The current reel stays until the new one is ready.">
+                    <Icon name="refresh" size={15} strokeWidth={2.2} />
+                    Regenerate reel
+                    <span className="np__reel__beta">Experimental</span>
+                  </button>
+                )}
+              </div>
             </div>
           )}
 
@@ -721,6 +732,17 @@ export default function Captures() {
   useEffect(() => {
     listCaptureReels().then(noteReels).catch(() => {});
   }, []);
+  // a reel still being made (e.g. Regenerate reel) is followed until it is done
+  const working = Object.values(reelsBy).filter(reelWorking).map((r) => r.id);
+  const workingKey = [...new Set(working)].join(',');
+  useEffect(() => {
+    if (!workingKey) return undefined;
+    const t = setTimeout(() => {
+      Promise.all(workingKey.split(',').map((id) => getCaptureReel(id).catch(() => null)))
+        .then((list) => noteReels(list.filter(Boolean)));
+    }, 5000);
+    return () => clearTimeout(t);
+  }, [workingKey, reelsBy]); // eslint-disable-line react-hooks/exhaustive-deps
   const reelOf = (it) => it.memberIds.map((id) => reelsBy[id]).filter(Boolean)
     .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)))[0] || null;
   const hasMedia = (it) => (it.session.attachments || []).length > 0;
@@ -1405,6 +1427,11 @@ export default function Captures() {
           onViewPost={(post) => { setOpen(null); navigate('/dashboard', { state: post?.date ? { openPostDay: String(post.date).slice(0, 10) } : {} }); }}
           reel={reelOf(openItem)}
           onReel={(fresh) => { setOpen(null); if (fresh) planReel(openItem); else setReeling({ item: openItem, autoStart: false }); }}
+          onRegenerate={() => {
+            const r = reelOf(openItem);
+            if (!r) return;
+            run(async () => { noteReels([await regenerateCaptureReel(r.id)]); });
+          }}
         />
       )}
       {stylePick && (

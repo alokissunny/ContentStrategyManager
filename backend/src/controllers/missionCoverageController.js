@@ -3,17 +3,24 @@ const { appLocaleOf } = require('../utils/appLocale');
 const { wantsPromptDebug } = require('../utils/promptDebug');
 const { missionCoverage, fetchRecentMissions } = require('../services/missionCoverage');
 const { contentTerritory } = require('../services/contentTerritory');
+const User = require('../models/User');
+
+// what the studio said it wants from Instagram decides which missing mission the audit names first
+const objectiveOf = async (userId) => {
+  const u = await User.findById(userId).select('business.goals business.positioning').lean().catch(() => null);
+  return [u?.business?.goals, u?.business?.positioning].filter(Boolean).join(' ');
+};
 
 // GET /api/analysis/missions[?refresh=1] — Analysis › Mission coverage for the current handle.
 async function getMissionCoverage(req, res) {
-  return respond(req, res, (username, opts) => missionCoverage(req.user._id, username, {
-    ...opts, refresh: req.query.refresh === '1' || req.query.refresh === 'true',
+  return respond(req, res, async (username, opts) => missionCoverage(req.user._id, username, {
+    ...opts, refresh: req.query.refresh === '1' || req.query.refresh === 'true', objective: await objectiveOf(req.user._id),
   }));
 }
 
 // POST /api/analysis/missions/fetch — Fetch recent: adds only posts newer than the newest one stored.
 async function fetchRecentMissionPosts(req, res) {
-  return respond(req, res, (username, opts) => fetchRecentMissions(req.user._id, username, opts));
+  return respond(req, res, async (username, opts) => fetchRecentMissions(req.user._id, username, { ...opts, objective: await objectiveOf(req.user._id) }));
 }
 
 // GET /api/analysis/topics[?refresh=1] — Analysis › Topic map: Skills / Passion / Story topics, covered or not.

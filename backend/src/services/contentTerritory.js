@@ -29,7 +29,7 @@ const { MISSION_TAG_V, withMissionRules } = require('../utils/contentMissions');
 const PROMPT_FILE = path.join(__dirname, '..', '..', 'prompts', 'content-territory.md');
 const PILLARS = ['skills', 'passion', 'story'];
 const MISSIONS = ['attract', 'nurture', 'position', 'convert'];
-const VERSION = 1; // bump when the prompt / output shape changes
+const VERSION = 2; // 2: Convert redefined (service + next step, 2026-11-21) · bump when the prompt / output shape changes
 const MAX_TOPICS = 20;
 const MAX_POSTS = 60;
 

@@ -22,10 +22,14 @@ Example: "Why we chose a sliding door instead of a traditional door for this bat
 Key distinction: the post shows how the studio thinks and decides, so potential clients understand the value of its expertise. Never invent expertise, experience or results.
 
 ### convert — encourage business inquiries
-Purpose: help interested potential clients see how the studio can address THEIR needs, and encourage a relevant commercial next step.
-Possible elements (use what fits, not a required structure): a specific problem potential clients face; its consequences; the outcome clients want; how the studio's actual service or method addresses it; how that works, backed by verified evidence; a clear next action (discuss a project, request a consultation).
-Example: "Planning to renovate a small bathroom? Here's how our studio approaches limited spaces." — the studio's actual approach, its relevant capability, an invitation to discuss the project.
-Key distinction: convert connects a potential client's problem to the studio's actual service. The service offer is the subject of the post, not a sign-off.
+Purpose: help interested potential clients understand how the studio can solve their problems, and encourage a specific commercial action.
+A convert post answers a question that stands between interest and action: **Can you help me? What do you offer? What happens next?**
+Possible elements (use what fits, not a required structure): a specific problem or decision potential clients face; what it costs them to get it wrong; how the studio's actual service, offer or process addresses it (a consultation, a design package, how a project runs, what the client gets at each step); what working together looks like; one specific next action and how to take it (book the consultation, send the floor plan, DM "kitchen").
+It does NOT need a finished project or a client's words: explaining the real service, offer or process is enough. Results, numbers and testimonials appear only when they are on file — never invented.
+Example — the same kitchen project:
+- attract: "This kitchen felt cramped — even though it had enough space. See how changing the layout opened it up." (gets relevant people interested in the work)
+- convert: "Considering a kitchen renovation but unsure whether you need a new layout? Here's how our design consultation helps you explore the options before committing to changes." (explains the actual consultation and how to inquire)
+Key distinction: convert connects a potential client's problem to the studio's actual service. The service and the next step are the subject of the post, not a sign-off — adding "DM us" to a beautiful room photo does not make a convert post.
 
 ### The same project, four missions
 | Mission | Content angle | Intended outcome |
@@ -33,7 +37,7 @@ Key distinction: convert connects a potential client's problem to the studio's a
 | attract | Why small bathrooms feel smaller than they are | Reach relevant new people |
 | nurture | The challenges we faced during this renovation | Build connection and trust |
 | position | Why we chose a sliding door to improve the layout | Demonstrate design judgment |
-| convert | How our studio helps clients plan functional small bathrooms | Encourage project inquiries |
+| convert | Unsure if your small bathroom needs a new layout? How our design consultation helps you decide — and how to book it | Encourage project inquiries |
 
 ### Mission rules
 1. **One primary mission per post.** A post can have secondary benefits, but it has one clear strategic purpose.

@@ -4,7 +4,7 @@
 .gpill-host {
   --gpill-w: 240px;
   --gpill-h: 48px;
-  --gpill-open-w: min(380px, calc(100vw - 2 * var(--sp-3, 12px)));
+  --gpill-open-w: min(460px, calc(100vw - 2 * var(--sp-3, 12px)));
   --genq-bot: calc(max(var(--genq-floor, 0px), env(safe-area-inset-bottom)) + var(--sp-3, 12px));
   --gp-on-dark-rest: rgb(255 255 255 / 0.86);
   --gp-on-dark-quiet: rgb(255 255 255 / 0.55);
