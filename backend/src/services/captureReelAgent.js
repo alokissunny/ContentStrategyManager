@@ -1205,6 +1205,7 @@ async function runCaptureReel(reelId) {
       ledger.add({ source: 'Capture reel — motion graphics timeline', output: `${motionBuild.plan.mainFormat} · ${(timeline.format.durationInFrames / FPS).toFixed(1)}s · ${timeline.motion.segments.length} segment(s)` });
     } else if (dialogueBuild) {
       const built = await dialogueBuild({ brandKit: brand, music });
+      (built.debugRows || []).forEach((r) => ledger.add(r)); // caption + motion graphics agents
       timeline = built.timeline;
       voiceKey = built.voiceKey;
       ledger.add({ source: 'Capture reel — dialogue edit', output: `${built.stats.spokenSec}s spoken · ${built.stats.pieces} cuts · B-roll on ${built.stats.brollShare}% of it`, note: 'dead air cut; one levelled dialogue track; picture muted over it' });

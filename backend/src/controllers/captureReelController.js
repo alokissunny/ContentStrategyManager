@@ -226,7 +226,9 @@ async function regenerateReel(req, res) {
     ? await require('../models/PostIdea').findOne({ _id: old.ideaId, user: req.user._id }).select('reelPlan assets sources').lean()
     : null;
   let storyPlan = idea?.reelPlan?.sequences?.length ? idea.reelPlan : old.storyPlan;
-  if (storyPlan?.format === 'talking_head') storyPlan = { ...storyPlan, format: 'talking_head_broll' };
+  // spoken formats this build cuts as Talking head + B-roll (Face camera's format; talking_head_motion is
+  // a format from another branch) — so a regenerate runs the cut, caption and motion-graphics agents
+  if (['talking_head', 'talking_head_motion'].includes(storyPlan?.format)) storyPlan = { ...storyPlan, format: 'talking_head_broll' };
   const brollKeys = idea ? await require('../services/ideaReelPlan').reelBrollKeys(req.user._id, idea) : (old.brollKeys || []);
   const reel = await CaptureReel.create({
     user: req.user._id,

@@ -123,18 +123,10 @@ const EDIT_TOOL = {
             motion: { type: 'string', enum: MOTIONS },
             focusX: { type: 'number' },
             focusY: { type: 'number' },
-            // a motion graphic on a photo, only where it explains what is being said
-            graphic: o({
-              type: { type: 'string', enum: GRAPHICS },
-              text: { type: 'string' },
-              x: { type: 'number' },
-              y: { type: 'number' },
-            }),
           }),
         },
+        // a chapter title (2–4 words) on the beat where a new point starts, else ""
         label: { type: 'string' },
-        // the 0–2 words of this beat that carry its meaning (shown large in the narrative captions)
-        emphasis: { type: 'array', maxItems: 2, items: { type: 'string' } },
         // how B-roll shares the frame: full screen, or split (B-roll on top, the speaker below)
         layout: { type: 'string', enum: ['full', 'split'] },
       }),
@@ -315,7 +307,7 @@ function cutEdit({ raw, format, material, phrasesByClip, fps }) {
       zoom: ZOOM[b.zoom] || 1,
       brollFrom: b.brollFrom === 'start' ? 'start' : 'middle',
       broll,
-      label: str(b.label, 28).split(' ').slice(0, 3).join(' '),
+      label: str(b.label, 32).split(' ').slice(0, 4).join(' '),
       // a key phrase ("existing floor") lights each of its words
       emphasis: [...new Set((Array.isArray(b.emphasis) ? b.emphasis : []).slice(0, 2).flatMap((w) => words(w).slice(0, 3).map(normWord)).filter(Boolean))],
       layout: b.layout === 'split' ? 'split' : 'full',
@@ -729,7 +721,7 @@ async function directDialogueReel({ reel, material, story, brand, handle }) {
           const n = normWord(w.text);
           const em = Boolean(n) && b.emphasis.includes(n) && !litInBeat.has(n);
           if (em) litInBeat.add(n);
-          captionWords.push({ text: w.text, start: at / fps + (w.start - p.start), end: at / fps + (w.end - p.start), em });
+          captionWords.push({ text: w.text, start: at / fps + (w.start - p.start), end: at / fps + (w.end - p.start), em, beat: bi });
         });
         at += p.frames;
       }
@@ -749,21 +741,13 @@ async function directDialogueReel({ reel, material, story, brand, handle }) {
             // into B-roll on a soft push (blur + settle), between B-roll shots a short dissolve;
             // split = the B-roll takes the top half while the speaker stays below (never in a faceless reel)
             const split = b.layout === 'split' && format !== 'faceless_voiceover';
-            const g = x.graphic;
             const base = {
+              _asset: x.asset,
+              _beat: bi,
               from, durationInFrames: dur, motion: x.motion, transition: k === 0 ? 'soft' : 'fade',
               focusX: x.focusX, focusY: x.focusY,
               ...(split ? { layout: 'split' } : {}),
               ...(x.asset.width && x.asset.height ? { srcW: x.asset.width, srcH: x.asset.height } : {}),
-              ...(g && x.asset.kind === 'image' && dur >= frames(1.4) ? {
-                annotations: [{
-                  type: g.type,
-                  ...(g.text ? { text: g.text } : {}),
-                  atFrame: Math.min(frames(0.5), Math.round(dur / 3)),
-                  box: { x: clampN(g.x - 12, 0, 76), y: clampN(g.y - 12, 0, 76), w: 24, h: 24 },
-                  point: { x: g.x, y: g.y },
-                }],
-              } : {}),
             };
             if (x.asset.kind === 'image') {
               // eslint-disable-next-line no-await-in-loop
@@ -822,10 +806,80 @@ async function directDialogueReel({ reel, material, story, brand, handle }) {
     }
     const shift = lead >= frames(0.3) ? lead : 0;
     const total = spokenEnd + shift + endFrames;
+
+    // ── the design agents (2026-11-22): captions and motion graphics, side by side, on the final cut ──
+    const inserts = cutaways.filter((c) => c._asset);
+    const spokenWords = captionWords.filter((w) => w.start < (spokenEnd + shift) / fps).map((w, i) => {
+      const mid = ((w.start + w.end) / 2) * fps;
+      const over = inserts.find((c) => mid >= c.from && mid < c.from + c.durationInFrames);
+      return { ...w, i, on: !over ? 'speaker' : over.layout === 'split' ? 'split' : 'insert' };
+    });
+    const chapters = [];
+    cut.beats.forEach((b, bi) => {
+      if (!b.label || bi === 0) return;
+      const first = spokenWords.find((w) => w.beat === bi);
+      if (first) chapters.push({ text: b.label, fromFrame: frames(first.start), durationInFrames: frames(1.8) });
+    });
+    const story = [plan.concept, ...(plan.beats || []).map((b) => b.said)].join(' ').slice(0, 600);
+    const design = require('./reelDesignAgents');
+    const [capOut, motOut] = await Promise.all([
+      design.designCaptions({ words: spokenWords, chapters: chapters.map((c) => c.text), story })
+        .catch((err) => { console.warn(`[reelFormat] ${reel._id} caption agent failed:`, err.message); return null; }),
+      design.designGraphics({
+        inserts: inserts.map((c, index) => ({
+          index,
+          asset: c._asset,
+          seconds: c.durationInFrames / fps,
+          said: spokenWords.filter((w) => w.start * fps >= c.from && w.start * fps < c.from + c.durationInFrames).map((w) => w.text).join(' '),
+        })),
+        visionParts: (list) => agent()._visionParts(list),
+        story,
+      }).catch((err) => { console.warn(`[reelFormat] ${reel._id} motion agent failed:`, err.message); return null; }),
+    ]);
+    const designRows = [capOut?.debug, motOut?.debug].filter(Boolean);
+    // graphics → annotations on the photo, or a ✓/✗ explainer card
+    inserts.forEach((c, index) => {
+      const g = motOut?.graphics?.get(index);
+      if (!g) return;
+      const at = Math.min(frames(0.4), Math.round(c.durationInFrames / 4));
+      if (g.type === 'verdict') {
+        // a white card under a chapter title would hide it: the chapter wins
+        const underChapter = chapters.some((ch) => c.from < ch.fromFrame + ch.durationInFrames && ch.fromFrame < c.from + c.durationInFrames);
+        if (!underChapter && c.layout !== 'split') c.card = { verdict: g.verdict, title: g.text };
+        return;
+      }
+      if (c.layout === 'split') return;
+      c.annotations = [g.type === 'measure'
+        ? { type: 'measure', text: g.value, atFrame: at, box: { x: Math.min(g.x, g.x2), y: Math.min(g.y, g.y2), w: Math.abs(g.x2 - g.x), h: Math.abs(g.y2 - g.y) }, point: { x: g.x, y: g.y }, point2: { x: g.x2, y: g.y2 } }
+        : { type: g.type, ...(g.text ? { text: g.text } : {}), atFrame: at, box: { x: clampN(g.x - 12, 0, 76), y: clampN(g.y - 12, 0, 76), w: 24, h: 24 }, point: { x: g.x, y: g.y } }];
+    });
+    // captions: the agent's groups (or the default phrase grouping when it failed)
+    const captions = capOut?.cues?.length
+      ? capOut.cues.map((cue, k) => {
+        const ws = spokenWords.slice(cue.from, cue.to + 1);
+        const next = capOut.cues[k + 1] ? spokenWords[capOut.cues[k + 1].from] : null;
+        const end = Math.min(next ? next.start : Infinity, ws[ws.length - 1].end + 0.3);
+        const fromFrame = frames(ws[0].start);
+        const onScreen = ws[0].on;
+        return {
+          fromFrame,
+          toFrame: Math.max(fromFrame + 8, frames(end)),
+          key: cue.key >= 0 ? cue.key - cue.from : -1,
+          keyStyle: cue.keyStyle,
+          pos: cue.position || (onScreen === 'speaker' ? 'top' : onScreen === 'split' ? 'center' : 'lower'),
+          words: ws.map((w, j) => ({
+            text: w.text.replace(/^[^\p{L}\p{N}$#@"“'‘]+|[,;:]+$/gu, ''),
+            fromFrame: frames(w.start),
+            toFrame: j < ws.length - 1 ? frames(ws[j + 1].start) : frames(end),
+          })),
+        };
+      }).filter((c) => c.words.some((w) => w.text))
+      : phraseCues(spokenWords, fps);
+    inserts.forEach((c) => { delete c._asset; delete c._beat; });
     const accent = liftAccent(brandKit.accent || '#FFFFFF');
     const hookFrames = Math.max(shift + frames(0.6), frames(clampN(0.6 + words(plan.hook.text).length * 0.22, 1.3, 2.2)));
     // narrative typography (studio's reference, 2026-11-21): a calm title, small words, the key word large
-    const look = { ...require('./reelStyleRun').lookOf(style), hook: 'title', captions: 'narrative', progress: false };
+    const look = { ...require('./reelStyleRun').lookOf(style), hook: 'title', captions: capOut?.cues?.length ? 'twovoice' : 'narrative', progress: false };
     return {
       voiceKey,
       timeline: {
@@ -839,11 +893,13 @@ async function directDialogueReel({ reel, material, story, brand, handle }) {
         ...(plan.hook.text ? { hook: { text: plan.hook.text, emphasis: plan.hook.emphasis, durationInFrames: hookFrames } } : {}),
         // speaker shots first, cutaways after: later scenes draw on top
         scenes: [...speaker, ...cutaways],
-        captions: phraseCues(captionWords.filter((w) => w.start < (spokenEnd + shift) / fps), fps),
+        captions,
+        ...(chapters.length ? { chapters } : {}),
         ...(hasCta ? { cta: { line: plan.cta.line, sub: plan.cta.sub, fromFrame: spokenEnd + shift, durationInFrames: endFrames } } : {}),
         audio: { voiceoverSrc: voiceUrl, voiceVolume: 1, startFrame: shift },
         look,
       },
+      debugRows: designRows,
       stats: {
         spokenSec: Math.round((spokenEnd / fps) * 10) / 10,
         brollShare: Math.round((cutaways.filter((c) => c.from < spokenEnd).reduce((n, c) => n + Math.min(c.durationInFrames, spokenEnd - c.from), 0) / Math.max(1, spokenEnd)) * 100),

@@ -19,6 +19,8 @@ import { loadFont as manrope } from '@remotion/google-fonts/Manrope';
 import { loadFont as archivo } from '@remotion/google-fonts/Archivo';
 import { loadFont as montserrat } from '@remotion/google-fonts/Montserrat';
 import { loadFont as bodoniModa } from '@remotion/google-fonts/BodoniModa';
+import { loadFont as anton } from '@remotion/google-fonts/Anton';
+import { loadFont as abrilFatface } from '@remotion/google-fonts/AbrilFatface';
 
 const opt = (weights: string[]) => ({ weights, subsets: ['latin'], ignoreTooManyRequestsWarning: true } as const);
 
@@ -36,11 +38,20 @@ const DMSerif = dmSerif('normal', opt(['400'])).fontFamily;
 const Manrope = manrope('normal', opt(['400', '600', '700', '800'])).fontFamily;
 const Archivo = archivo('normal', opt(['500', '700', '800'])).fontFamily;
 // Capture reels: the heavy caption face (karaoke words, hook slams)
-const Montserrat = montserrat('normal', opt(['600', '800', '900'])).fontFamily;
+const Montserrat = montserrat('normal', opt(['400', '500', '600', '800', '900'])).fontFamily;
 export const CAPTION_FONT = `${Montserrat}, system-ui, sans-serif`;
 // Reel styles (reelLook.tsx): a tall high-contrast serif for chant stacks,
 // an editorial serif (+ italic), and a clean sans for subtitles / cards.
 const BodoniModa = bodoniModa('normal', opt(['500', '600'])).fontFamily;
+// Two-voice captions (studio's reference reel, 2026-11-22): a tall condensed heavy sans and a fat
+// display serif for the key word, a light rounded sans for the lead words
+const AntonF = anton('normal', opt(['400'])).fontFamily;
+const Abril = abrilFatface('normal', opt(['400'])).fontFamily;
+export const CAPTION_FACES = {
+  lead: `${Montserrat}, ${Inter}, system-ui, sans-serif`,
+  condensed: `${AntonF}, ${Montserrat}, Impact, sans-serif`,
+  serif: `${Abril}, ${Playfair}, Georgia, serif`,
+};
 export const LOOK_FONTS = {
   condensedSerif: `${BodoniModa}, ${Playfair}, Georgia, serif`,
   serif: `${Playfair}, Georgia, serif`,

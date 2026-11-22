@@ -145,6 +145,26 @@ const Annotation: React.FC<{ scene: ReelScene; an: ReelAnnotation; accent: strin
       </AbsoluteFill>
     );
   }
+  // measure (motion agent): a dimension line between two points, end ticks, the value in a tag
+  if (an.type === 'measure' && an.point2) {
+    const q = projectPoint(scene, frame, W, H, an.point2.x, an.point2.y);
+    const ex = pt.x + (q.x - pt.x) * draw;
+    const ey = pt.y + (q.y - pt.y) * draw;
+    const ang = Math.atan2(q.y - pt.y, q.x - pt.x) + Math.PI / 2;
+    const tick = (x: number, y: number) => `M ${x - 18 * Math.cos(ang)} ${y - 18 * Math.sin(ang)} L ${x + 18 * Math.cos(ang)} ${y + 18 * Math.sin(ang)}`;
+    const mx = (pt.x + q.x) / 2;
+    const my = (pt.y + q.y) / 2;
+    return (
+      <AbsoluteFill style={{ filter: SHADOW }}>
+        <svg width={W} height={H} style={{ position: 'absolute', inset: 0 }}>
+          <path d={tick(pt.x, pt.y)} stroke="#fff" strokeWidth={6} strokeLinecap="round" opacity={draw} />
+          <line x1={pt.x} y1={pt.y} x2={ex} y2={ey} stroke="#fff" strokeWidth={6} strokeLinecap="round" />
+          {draw >= 0.98 ? <path d={tick(q.x, q.y)} stroke="#fff" strokeWidth={6} strokeLinecap="round" /> : null}
+        </svg>
+        {an.text ? <Pill text={an.text} x={mx} y={my} t={pop} accent={accent} ink={ink} minimal={minimal} /> : null}
+      </AbsoluteFill>
+    );
+  }
   if (an.type === 'spotlight') {
     const cx = (a.x + b.x) / 2;
     const cy = (a.y + b.y) / 2;

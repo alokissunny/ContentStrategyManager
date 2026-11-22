@@ -166,3 +166,117 @@ export const NarrativeEnd: React.FC<{ spec: ReelSpec; font: string }> = ({ spec,
     </AbsoluteFill>
   );
 };
+
+/* ══ TWO-VOICE CAPTIONS (caption agent, 2026-11-22 — the studio's reference reel) ═══════════════════
+   A caption is 2–5 words that appear as they are said. Lead words: small, light, lowercase-ish.
+   One key word (the agent's `key`) is set ~2.2× larger in the face its meaning asks for — a tall
+   condensed sans for things and numbers, a fat display serif for qualities and verdicts, or wide
+   letter-spacing for an airy word. Position follows the shot: above the head on the speaker, lower
+   third on inserts, the seam on a split; on a ✓/✗ card the words turn dark. No backdrop — a soft
+   shadow only, as in the reference. */
+export const TwoVoiceCaptions: React.FC<{ captions: ReelCaption[]; scenes: ReelScene[]; endFrame: number; faces: { lead: string; condensed: string; serif: string }; chapters?: { fromFrame: number; durationInFrames: number }[] }> = ({ captions, scenes, endFrame, faces, chapters = [] }) => {
+  const frame = useCurrentFrame();
+  if (frame >= endFrame) return null;
+  const cue = captions.find((c) => frame >= c.fromFrame && frame < c.toFrame);
+  if (!cue) return null;
+  const over = scenes.filter((s) => !s.speaker && frame >= s.from && frame < s.from + s.durationInFrames).pop();
+  const onCard = Boolean(over?.card);
+  // a chapter title owns the lower third while it shows: the caption goes up top
+  const chapterOn = chapters.some((c) => frame >= c.fromFrame && frame < c.fromFrame + c.durationInFrames);
+  const pos = onCard ? 'lower' : chapterOn ? 'top' : (cue.pos || 'top');
+  const top = onCard ? 80 : pos === 'top' ? 17 : pos === 'center' ? 50 : 72;
+  const ink = onCard ? '#1d1d1f' : '#fff';
+  const shadow = onCard ? 'none' : '0 2px 18px rgba(0,0,0,0.45), 0 1px 3px rgba(0,0,0,0.4)';
+  const out = interpolate(frame, [cue.toFrame - 3, cue.toFrame], [1, 0], clamp);
+  const keyAt = typeof cue.key === 'number' ? cue.key : -1;
+  // lead words before the key on one line, the key (with what follows) on the next — as in the reference
+  const before = keyAt > 0 ? cue.words.slice(0, keyAt) : keyAt === 0 ? [] : cue.words;
+  const keyWord = keyAt >= 0 ? cue.words[keyAt] : null;
+  const after = keyAt >= 0 ? cue.words.slice(keyAt + 1) : [];
+  const shown = (w: { fromFrame: number }) => interpolate(frame, [w.fromFrame - 1, w.fromFrame + 3], [0, 1], { ...clamp, easing: ease });
+  const lead = (w: { text: string; fromFrame: number }, k: number) => {
+    const t = shown(w);
+    return (
+      <span key={`l${k}`} style={{
+        display: 'inline-block', fontFamily: faces.lead, fontWeight: 500, fontSize: 52, letterSpacing: 0.2,
+        color: ink, textShadow: shadow, opacity: t, transform: `translateY(${interpolate(t, [0, 1], [6, 0])}px)`,
+      }}>{w.text}</span>
+    );
+  };
+  let keyEl = null;
+  if (keyWord) {
+    const t = shown(keyWord);
+    const style = cue.keyStyle || 'condensed';
+    const base: React.CSSProperties = {
+      display: 'inline-block', color: ink, textShadow: shadow, lineHeight: 1.0,
+      opacity: t, transform: `scale(${interpolate(t, [0, 1], [0.94, 1])})`, transformOrigin: '50% 70%',
+    };
+    keyEl = style === 'serif'
+      ? <span style={{ ...base, fontFamily: faces.serif, fontSize: 112, letterSpacing: -0.5 }}>{keyWord.text}</span>
+      : style === 'spaced'
+        ? <span style={{ ...base, fontFamily: faces.serif, fontSize: 84, letterSpacing: '0.42em', marginRight: '-0.42em', textTransform: 'lowercase' }}>{keyWord.text}</span>
+        : <span style={{ ...base, fontFamily: faces.condensed, fontSize: 118, letterSpacing: 0.5, textTransform: 'lowercase' }}>{keyWord.text}</span>;
+  }
+  return (
+    <AbsoluteFill style={{ pointerEvents: 'none' }}>
+      <div style={{
+        position: 'absolute', left: '7%', right: '7%', top: `${top}%`, transform: 'translateY(-50%)',
+        display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, textAlign: 'center', opacity: out,
+      }}>
+        {before.length > 0 && (
+          <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'center', columnGap: 14, alignItems: 'baseline' }}>
+            {before.map(lead)}
+          </div>
+        )}
+        {keyEl && (
+          <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'center', columnGap: 16, alignItems: 'baseline' }}>
+            {keyEl}
+            {after.map((w, k) => lead(w, k + 100))}
+          </div>
+        )}
+      </div>
+    </AbsoluteFill>
+  );
+};
+
+/* ── chapter title card (cut agent's `label` on a new point): two lines, uppercase, condensed ───── */
+export const ChapterTitle: React.FC<{ text: string; durationInFrames: number; font: string }> = ({ text, durationInFrames, font }) => {
+  const frame = useCurrentFrame();
+  const tin = interpolate(frame, [0, 8], [0, 1], { ...clamp, easing: ease });
+  const tout = interpolate(frame, [durationInFrames - 6, durationInFrames], [1, 0], clamp);
+  return (
+    <AbsoluteFill style={{ justifyContent: 'flex-end', alignItems: 'center', paddingBottom: '30%', pointerEvents: 'none' }}>
+      <div style={{
+        maxWidth: '78%', textAlign: 'center', fontFamily: font, fontSize: 104, lineHeight: 0.98, letterSpacing: 1,
+        textTransform: 'uppercase', color: '#fff', textShadow: '0 3px 24px rgba(0,0,0,0.5)',
+        opacity: tin * tout, transform: `translateY(${interpolate(tin, [0, 1], [22, 0])}px)`,
+      }}>{text}</div>
+    </AbsoluteFill>
+  );
+};
+
+/* ── ✓/✗ explainer card (motion agent's `verdict`): the photo inset on white, a badge and a title ── */
+export const VerdictCard: React.FC<{ card: { verdict: 'good' | 'bad'; title: string }; font: string; children: React.ReactNode }> = ({ card, font, children }) => {
+  const frame = useCurrentFrame();
+  const t = interpolate(frame, [0, 10], [0, 1], { ...clamp, easing: ease });
+  const badge = interpolate(frame, [4, 14], [0, 1], { ...clamp, easing: Easing.out(Easing.back(2)) });
+  const good = card.verdict === 'good';
+  return (
+    <AbsoluteFill style={{ background: '#f6f5f2', opacity: t }}>
+      <div style={{ position: 'absolute', top: '9%', left: 0, right: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 22 }}>
+        <div style={{
+          width: 120, height: 120, borderRadius: 999, background: good ? '#2fa84f' : '#e0403a', color: '#fff',
+          display: 'grid', placeItems: 'center', fontSize: 74, fontWeight: 800, fontFamily: font,
+          boxShadow: '0 10px 30px rgba(0,0,0,0.15)', transform: `scale(${badge})`,
+        }}>{good ? '✓' : '✕'}</div>
+        <div style={{ fontFamily: font, fontSize: 56, fontWeight: 700, color: '#1d1d1f', letterSpacing: -0.6, textAlign: 'center', maxWidth: '82%' }}>{card.title}</div>
+      </div>
+      <div style={{
+        position: 'absolute', left: '8%', right: '8%', top: '28%', height: '44%', borderRadius: 28, overflow: 'hidden',
+        boxShadow: '0 18px 50px rgba(0,0,0,0.18)', transform: `translateY(${interpolate(t, [0, 1], [26, 0])}px)`,
+      }}>
+        {children}
+      </div>
+    </AbsoluteFill>
+  );
+};

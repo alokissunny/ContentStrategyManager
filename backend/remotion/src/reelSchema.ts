@@ -6,7 +6,7 @@
 export type ReelLook = {
   overlay: 'serif-stack' | 'serif-center' | 'serif-accent' | 'two-weight' | 'bold-sans' | 'pill' | 'none';
   hook: 'stack-repeat' | 'serif-center' | 'listicle' | 'two-weight' | 'slam' | 'title';
-  captions: 'subtitle' | 'two-weight' | 'karaoke' | 'narrative' | 'none';
+  captions: 'subtitle' | 'two-weight' | 'karaoke' | 'narrative' | 'twovoice' | 'none';
   font: 'condensed-serif' | 'serif' | 'serif-italic' | 'sans' | 'sans-bold';
   textCase: 'upper' | 'lower' | 'sentence';
   captionCase?: 'lower' | 'sentence';
@@ -20,11 +20,12 @@ export type ReelLook = {
 };
 
 export type ReelAnnotation = {
-  type: 'circle' | 'arrow' | 'label' | 'spotlight' | 'zoom';
+  type: 'circle' | 'arrow' | 'label' | 'spotlight' | 'zoom' | 'measure';
   text?: string;
   atFrame: number; // from the start of its shot
   box: { x: number; y: number; w: number; h: number }; // % of the image
   point: { x: number; y: number };
+  point2?: { x: number; y: number }; // measure: the second end
 };
 
 export type ReelScene = {
@@ -52,12 +53,17 @@ export type ReelScene = {
   beforeSrc?: string; // before → after wipe
   speaker?: boolean; // talking reels: the person speaking (the base layer)
   layout?: 'split'; // a cutaway on the top half while the speaker stays below
+  card?: { verdict: 'good' | 'bad'; title: string }; // motion agent: the photo as a ✓/✗ explainer card
   // the picture inside letterbox bands baked into a clip (fractions of the frame)
   crop?: { x: number; y: number; w: number; h: number };
 };
 
 export type ReelCaptionWord = { text: string; fromFrame: number; toFrame: number; em?: boolean };
-export type ReelCaption = { fromFrame: number; toFrame: number; words: ReelCaptionWord[] };
+export type ReelCaption = {
+  fromFrame: number; toFrame: number; words: ReelCaptionWord[];
+  // two-voice captions (caption agent): the key word's index, its face, where the caption sits
+  key?: number; keyStyle?: 'condensed' | 'serif' | 'spaced' | 'none'; pos?: 'top' | 'lower' | 'center';
+};
 
 // Motion graphic reel (backend services/motionReelPlanner.js → MotionReel.tsx)
 export type MotionMedia = {
@@ -101,6 +107,7 @@ export type ReelSpec = {
   cta?: { line: string; sub?: string; fromFrame: number; durationInFrames: number };
   audio?: { voiceoverSrc?: string; voiceVolume?: number; startFrame?: number; musicSrc?: string; musicVolume?: number };
   look?: ReelLook; // set = a reel style (reelLook.tsx); unset = the default look
+  chapters?: { text: string; fromFrame: number; durationInFrames: number }[]; // chapter title cards
   motion?: MotionTimeline; // set = a motion graphic reel (MotionReel.tsx)
 };
 

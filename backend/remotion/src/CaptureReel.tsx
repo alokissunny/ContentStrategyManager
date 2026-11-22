@@ -15,12 +15,12 @@ import {
   AbsoluteFill, Audio, Img, OffthreadVideo, Sequence, interpolate, Easing,
   useCurrentFrame, useVideoConfig,
 } from 'remotion';
-import { resolveFont, CAPTION_FONT, LOOK_FONTS } from './fonts';
+import { resolveFont, CAPTION_FONT, LOOK_FONTS, CAPTION_FACES } from './fonts';
 import { LookOverlay, LookHook, ChapterCard, LookCaptions, LookEndLine, GRADE } from './reelLook';
 import { cameraAt, zoomPunchAt, SceneAnnotations } from './teaserFx';
 import type { ReelSpec, ReelScene, ReelCaption } from './reelSchema';
 import { MotionReel } from './MotionReel';
-import { Cutaway, NarrativeCaptions, NarrativeEnd, TitleHook, Vignette, GRADE_INSERT, GRADE_SPEAKER, splitAmount, splitWindows } from './narrative';
+import { Cutaway, NarrativeCaptions, NarrativeEnd, TitleHook, Vignette, GRADE_INSERT, GRADE_SPEAKER, splitAmount, splitWindows, TwoVoiceCaptions, ChapterTitle, VerdictCard } from './narrative';
 
 const clamp = { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' } as const;
 const outCubic = Easing.out(Easing.cubic);
@@ -227,7 +227,7 @@ const Progress: React.FC<{ color: string }> = ({ color }) => {
 const StyledReel: React.FC<{ reel: ReelSpec }> = ({ reel }) => {
   const { fps } = useVideoConfig();
   const look = reel.look!;
-  if (look.captions === 'narrative') return <NarrativeReel reel={reel} />;
+  if (look.captions === 'narrative' || look.captions === 'twovoice') return <NarrativeReel reel={reel} />;
   const grade = GRADE[look.grade];
   const endFrom = reel.cta ? reel.cta.fromFrame : Infinity;
   return (
@@ -300,7 +300,13 @@ const NarrativeReel: React.FC<{ reel: ReelSpec }> = ({ reel }) => {
       {over.map((s, i) => (
         <Sequence key={`c${i}`} from={s.from} durationInFrames={s.durationInFrames} layout="none">
           <Cutaway scene={s} split={split}>
-            <SceneFrame scene={s} fps={fps} grade={[s.graded ? '' : grade, GRADE_INSERT].filter(Boolean).join(' ')} accent={reel.brand.accent} ink={reel.brand.accentInk} minimal />
+            {s.card ? (
+              <VerdictCard card={s.card} font={font}>
+                <SceneFrame scene={s} fps={fps} grade={[s.graded ? '' : grade, GRADE_INSERT].filter(Boolean).join(' ')} accent={reel.brand.accent} ink={reel.brand.accentInk} minimal />
+              </VerdictCard>
+            ) : (
+              <SceneFrame scene={s} fps={fps} grade={[s.graded ? '' : grade, GRADE_INSERT].filter(Boolean).join(' ')} accent={reel.brand.accent} ink={reel.brand.accentInk} minimal />
+            )}
           </Cutaway>
         </Sequence>
       ))}
@@ -310,7 +316,14 @@ const NarrativeReel: React.FC<{ reel: ReelSpec }> = ({ reel }) => {
         </Sequence>
       ) : null}
       <Vignette />
-      <NarrativeCaptions captions={reel.captions} scenes={reel.scenes} font={font} endFrame={endFrom} accent={reel.brand.accent} />
+      {(reel.chapters || []).map((c, i) => (
+        <Sequence key={`ch${i}`} from={c.fromFrame} durationInFrames={c.durationInFrames}>
+          <ChapterTitle text={c.text} durationInFrames={c.durationInFrames} font={CAPTION_FACES.condensed} />
+        </Sequence>
+      ))}
+      {look.captions === 'twovoice'
+        ? <TwoVoiceCaptions captions={reel.captions} scenes={reel.scenes} endFrame={endFrom} faces={CAPTION_FACES} chapters={reel.chapters || []} />
+        : <NarrativeCaptions captions={reel.captions} scenes={reel.scenes} font={font} endFrame={endFrom} accent={reel.brand.accent} />}
       {reel.cta && look.endCard !== 'none' ? (
         <Sequence from={reel.cta.fromFrame} durationInFrames={reel.cta.durationInFrames}>
           <NarrativeEnd spec={reel} font={font} />

@@ -9,4 +9,4 @@ The studio explains a decision on camera; B-roll proves every point. This is the
 - If there is no B-roll at all, still vary framing every beat and put `label`s on the turning points.
 - Each sequence's `brollAssets` are the project photos chosen for it: cut to them while that sequence is spoken. Project photos and clips ARE the B-roll — use them even when no B-roll was filmed.
 - Transitions are drawn for you (a soft push into B-roll, a dissolve between B-roll shots, a framing change back on the face) — you only choose what is shown and when.
-- Typography is minimal and follows the voice: mark the 1–2 words per beat that carry the meaning (`emphasis`); everything else stays small so the picture is seen in full.
+- When the story is a list (mistakes, steps, rules), give each point a chapter title (`label`) on the beat where it starts; the caption and motion-graphics designers take it from there.
