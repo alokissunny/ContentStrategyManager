@@ -81,7 +81,9 @@ function phrasesOf(asset) {
     const next = ws[i + 1];
     const gap = next ? next.start - w.end : 99;
     const stop = /[.?!;:,]$/.test(w.text);
-    if (gap >= 0.28 || (stop && cur.length >= 3) || cur.length >= 12) flush();
+    // a long phrase splits only where the speaker breathes (a ≥ 0.12 s gap) — never mid-flow, so a beat
+    // that ends on a phrase never ends in the middle of a run of words
+    if (gap >= 0.28 || (stop && cur.length >= 3) || (cur.length >= 12 && gap >= 0.12) || cur.length >= 20) flush();
   });
   flush();
   return out.map((p, i) => ({
@@ -254,6 +256,17 @@ function cutEdit({ raw, format, material, phrasesByClip, fps }) {
     if (to < from) [from, to] = [to, from];
     const chosen = ph.slice(from, to + 1).filter((p) => !used.has(p.id));
     if (!chosen.length) continue;
+    // finish the sentence (2026-11-23): a beat that stops mid-sentence takes the short rest of it —
+    // the next phrase of the same take, said straight on, that ends the sentence
+    for (let k = 0; k < 2; k += 1) {
+      const tail = chosen[chosen.length - 1];
+      const lastWord = tail.words[tail.words.length - 1]?.text || '';
+      const next = ph[tail.index + 1];
+      if (/[.?!…]["”']?$/.test(lastWord) || !next || used.has(next.id)) break;
+      if (next.start - tail.end > 0.5 || next.words.length > 8) break;
+      chosen.push(next);
+      if (/[.?!…]["”']?$/.test(next.words[next.words.length - 1]?.text || '')) break;
+    }
     chosen.forEach((p) => used.add(p.id));
     // pieces = contiguous runs of words: a new piece at a long pause, or where
     // a phrase in between was dropped (already used / skipped by the editor)
@@ -647,6 +660,14 @@ async function directDialogueReel({ reel, material, story, brand, handle }) {
   }
 
   onceEach(cut.beats, cut.pool);
+  // cut accuracy (2026-11-23): every in/out point snapped to where the voice really starts and stops
+  try {
+    const snap = await require('./reelCutSnap').snapCuts(cut.beats, { fps, helpers: { clipFile: agent()._clipFile, ffmpegPath: agent()._ffmpegPath } });
+    console.log(`[reelFormat] ${reel._id} cut snap: ${JSON.stringify(snap)}`);
+    debugRows.push({ source: 'Capture reel — cut points snapped to the voice (code)', output: JSON.stringify(snap) });
+  } catch (err) {
+    console.warn(`[reelFormat] ${reel._id} cut snap failed, transcript timings kept:`, err.message);
+  }
 
   const raw = edit.raw || {};
   const hookText = words(str(raw.hook?.text, 80)).slice(0, 7).join(' ');
