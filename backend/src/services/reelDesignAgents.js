@@ -14,13 +14,12 @@
  *
  * Everything they return is checked in code: captions are re-tiled to cover every word once
  * (gaps filled by the default phrase grouping), graphics are clamped and limited.
- * Model: the reel agents' model (resolvePlanAgentLlm 'captureReel'); REEL_CAPTION_MODEL /
- * REEL_MOTION_MODEL override.
+ * Model: Claude Sonnet 5.5 (2026-11-23) through completeToolCall's Claude JSON mode (Sonnet 5.5 can't be
+ * forced to call a tool); REEL_CAPTION_MODEL / REEL_MOTION_MODEL override.
  */
 const fs = require('fs');
 const path = require('path');
 const { completeToolCall } = require('./llmComplete');
-const { resolvePlanAgentLlm } = require('./planAgentLlm');
 const { estimatePlanCostUsd } = require('./weeklyPlan');
 
 const DIR = path.join(__dirname, '..', '..', 'prompts', 'reel-agents');
@@ -72,9 +71,11 @@ const MOTION_TOOL = {
   }),
 };
 
+// Claude Sonnet 5.5 for both (studio, 2026-11-23); REEL_CAPTION_MODEL / REEL_MOTION_MODEL override
+const DEFAULT_MODEL = 'claude-sonnet-5-5';
+
 async function call({ tool, system, userParts, kind, envModel }) {
-  const llm = resolvePlanAgentLlm('captureReel');
-  const model = process.env[envModel] || llm.model;
+  const model = process.env[envModel] || DEFAULT_MODEL;
   const started = Date.now();
   const res = await completeToolCall({
     model, system, userParts, tool, maxTokens: 8000, kind, timeoutMs: 180000,

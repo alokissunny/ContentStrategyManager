@@ -30,7 +30,6 @@ const path = require('path');
 const { execFile } = require('child_process');
 const { promisify } = require('util');
 const { completeToolCall } = require('./llmComplete');
-const { resolvePlanAgentLlm } = require('./planAgentLlm');
 const { estimatePlanCostUsd } = require('./weeklyPlan');
 const { uploadBytes, getMediaUrl } = require('./s3Client');
 
@@ -176,10 +175,12 @@ async function callEditor({ format, story, material, phrasesByClip, brand, handl
     extra,
   ].filter(Boolean).join('\n\n');
   const images = await agent()._visionParts(material.assets);
-  const llm = resolvePlanAgentLlm('captureReel');
+  // the cut agent runs on Claude Sonnet 5.5 (studio, 2026-11-23); its own setting, since
+  // captureReel's model is shared with the other reel directors
+  const model = process.env.REEL_EDIT_MODEL || 'claude-sonnet-5-5';
   const started = Date.now();
   const res = await completeToolCall({
-    model: llm.model,
+    model,
     system,
     userParts: [...images, { type: 'text', text: user }],
     tool: EDIT_TOOL,

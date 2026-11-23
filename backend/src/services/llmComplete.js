@@ -434,6 +434,71 @@ async function completeText({
   };
 }
 
+// ── Claude JSON mode (models without forced tool calls) ─────────────────────────
+const anthropicForcesTools = (model) => !/sonnet-5-5|opus-5-5|fable-5-[12]|mythos-5-[12]/.test(String(model || ''));
+
+/* the first complete JSON object in a reply, parsed (fences / prose around it ignored) */
+function parseFirstJsonObject(text) {
+  const t = String(text || '');
+  const start = t.indexOf('{');
+  if (start < 0) throw new Error('No JSON object in the reply.');
+  let depth = 0;
+  let inStr = false;
+  let esc = false;
+  for (let i = start; i < t.length; i += 1) {
+    const ch = t[i];
+    if (inStr) {
+      if (esc) esc = false;
+      else if (ch === '\\') esc = true;
+      else if (ch === '"') inStr = false;
+      continue;
+    }
+    if (ch === '"') inStr = true;
+    else if (ch === '{') depth += 1;
+    else if (ch === '}') {
+      depth -= 1;
+      if (depth === 0) return JSON.parse(t.slice(start, i + 1));
+    }
+  }
+  throw new Error('The JSON object in the reply is incomplete.');
+}
+
+/**
+ * The structured answer from a Claude model that cannot be forced to call a tool: the tool's
+ * schema goes in the system prompt, the reply is read as JSON, one retry with the hint when it
+ * is not one complete object. Same return shape as completeToolCall ({ parsed, model, usage }).
+ * Images in `userParts` are sent as they are (labelled parts stay in order).
+ */
+async function completeAnthropicJson({ model, system, userParts, tool, maxTokens, retryHint, extraUserText, kind, reasoningEffort, timeoutMs }) {
+  const sys = `${String(system || '').trim()}\n\n## Output\n\nReturn ONLY one JSON object (no prose, no code fences) — the input of \`${tool.name}\` (${tool.description || ''}) — matching this JSON Schema exactly:\n${JSON.stringify(tool.input_schema)}`;
+  const content = toAnthropicUserContent([...(userParts || []), ...(extraUserText ? [{ type: 'text', text: extraUserText }] : [])]);
+  const requestOpts = Number(timeoutMs) > 0 ? { timeout: Number(timeoutMs) } : undefined;
+  // thinking shares the token budget: leave the answer room
+  const tokens = Math.max(16000, Number(maxTokens) || 0);
+  const ask = (messages) => anthropicMessagesCreate({
+    model,
+    max_tokens: tokens,
+    system: [{ type: 'text', text: sys, cache_control: { type: 'ephemeral' } }],
+    messages,
+    ...anthropicExtraParams(model, { kind, reasoningEffort }),
+  }, requestOpts);
+  let response = await ask([{ role: 'user', content }]);
+  let usage = anthropicUsageOf(response.usage);
+  try {
+    if (response.stop_reason === 'max_tokens') throw new Error('cut off');
+    return { parsed: parseFirstJsonObject(textOfAnthropic(response)), model, usage };
+  } catch {
+    response = await ask([
+      { role: 'user', content },
+      { role: 'assistant', content: (response.content || []).filter((b) => b.type === 'text') },
+      { role: 'user', content: retryHint || 'Your last answer was not one complete JSON object. Return ONLY the JSON object, shorter if needed.' },
+    ].filter((m) => m.role !== 'assistant' || m.content.length));
+    const u = anthropicUsageOf(response.usage);
+    usage = Object.fromEntries(Object.keys({ ...usage, ...u }).map((k) => [k, (Number(usage[k]) || 0) + (Number(u[k]) || 0)]));
+    return { parsed: parseFirstJsonObject(textOfAnthropic(response)), model, usage };
+  }
+}
+
 /**
  * Force a structured tool/function call. `userParts` is a list of
  * { type: 'text', text } and { type: 'image', mediaType, data } (base64).
@@ -488,6 +553,12 @@ async function completeToolCall({
 
   if (provider !== 'anthropic') {
     throw new Error(`Unknown LLM provider "${provider || 'none'}" for model ${resolved}`);
+  }
+
+  // Claude models that reject a forced tool call (tool_choice tool/any → 400): Sonnet 5.5, Opus 5.5,
+  // Fable / Mythos 5.1–5.2. Ask for the same schema as JSON in the reply instead (2026-11-23)
+  if (!anthropicForcesTools(resolved)) {
+    return completeAnthropicJson({ model: resolved, system, userParts, tool, maxTokens, retryHint, extraUserText, kind, reasoningEffort, timeoutMs });
   }
 
   const client = getAnthropicClient();
