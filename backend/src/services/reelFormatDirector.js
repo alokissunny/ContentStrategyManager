@@ -530,6 +530,14 @@ function narrativeCues(list, fps) {
 }
 
 // ── dialogue track: the chosen pieces, back to back, levelled ─────────────
+// the dialogue's clean-up (2026-11-23, measured on studio takes: room noise floor −57…−60 dB → −85…−98 dB
+// between words, speech level unchanged). REEL_DENOISE=off keeps the raw room sound.
+const DENOISE = process.env.REEL_DENOISE === 'off' ? 'anull' : 'anlmdn=s=7:p=0.002:r=0.006,afftdn=nr=20:nf=-58:tn=1';
+// a soft gate between words (−20 dB at most, slow release: no pumping on breaths)
+const GATE = process.env.REEL_DENOISE === 'off' ? 'anull' : 'agate=threshold=0.012:ratio=3:range=0.1:attack=5:release=220:knee=4';
+const XFADE = 0.05; // s of overlap at each join
+const DISSOLVE = 4; // frames: a jump cut on the speaker dissolves
+
 async function buildDialogueAudio(pieces, fps) {
   const { _clipFile, _ffmpegPath } = agent();
   const files = [];
@@ -543,14 +551,34 @@ async function buildDialogueAudio(pieces, fps) {
   }
   const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'reeldlg-'));
   const out = path.join(dir, 'dialogue.m4a');
+  // clean voice (2026-11-23): each recording is denoised once, whole (one noise profile per take):
+  // non-local means for the broadband room noise under the speech, FFT denoise for the steady hiss/hum
+  const uses = files.map((_, k) => pieces.filter((p) => index.get(p.clip.key) === k).length);
+  const sources = files.map((_, k) => `[${k}:a]aresample=48000,aformat=channel_layouts=mono,highpass=f=80,${DENOISE}`
+    + (uses[k] > 1 ? `,asplit=${uses[k]}${Array.from({ length: uses[k] }, (_, u) => `[s${k}_${u}]`).join('')}` : `[s${k}_0]`));
+  // smooth joins: every piece starts on its exact slot (words stay in sync with the picture) and runs
+  // XFADE past its out-point, fading out while the next one fades in — a short crossfade on room tone,
+  // never a hard edit or a hole
+  const taken = files.map(() => 0);
+  let at = 0;
   const parts = pieces.map((p, i) => {
+    const k = index.get(p.clip.key);
+    const label = `s${k}_${taken[k]}`;
+    taken[k] += 1;
     const dur = p.frames / fps;
-    const fade = Math.min(0.03, dur / 4).toFixed(3);
-    return `[${index.get(p.clip.key)}:a]atrim=start=${p.start.toFixed(3)}:duration=${dur.toFixed(4)},asetpts=PTS-STARTPTS,`
-      + `aresample=48000,aformat=channel_layouts=mono,afade=t=in:d=${fade},afade=t=out:st=${Math.max(0, dur - Number(fade)).toFixed(4)}:d=${fade},apad=whole_dur=${dur.toFixed(4)}[a${i}]`;
+    const last = i === pieces.length - 1;
+    const len = dur + (last ? 0 : XFADE);
+    const fin = i === 0 ? 0.01 : Math.min(XFADE, dur / 4);
+    const fout = last ? Math.min(0.03, dur / 4) : Math.min(XFADE * 2, dur / 3);
+    const delay = Math.round(at * 1000);
+    at += dur;
+    return `[${label}]atrim=start=${p.start.toFixed(3)}:duration=${len.toFixed(4)},asetpts=PTS-STARTPTS,`
+      + `afade=t=in:d=${fin.toFixed(3)}:curve=qsin,afade=t=out:st=${Math.max(0, len - fout).toFixed(4)}:d=${fout.toFixed(3)}:curve=qsin,`
+      + `adelay=delays=${delay}:all=1[a${i}]`;
   });
-  const filter = `${parts.join(';')};${pieces.map((_, i) => `[a${i}]`).join('')}concat=n=${pieces.length}:v=0:a=1,`
-    + 'highpass=f=80,acompressor=threshold=-18dB:ratio=3:attack=8:release=120,loudnorm=I=-15:TP=-1.5:LRA=9,aresample=48000[out]';
+  const filter = `${sources.join(';')};${parts.join(';')};${pieces.map((_, i) => `[a${i}]`).join('')}amix=inputs=${pieces.length}:duration=longest:normalize=0,`
+    + `atrim=duration=${at.toFixed(4)},${GATE},`
+    + 'acompressor=threshold=-18dB:ratio=3:attack=8:release=120,loudnorm=I=-15:TP=-1.5:LRA=9,aresample=48000,aformat=sample_fmts=fltp:channel_layouts=mono[out]';
   try {
     await run(_ffmpegPath(), ['-nostdin', '-hide_banner', '-loglevel', 'error', '-y',
       ...files.flatMap((f) => ['-i', f]), '-filter_complex', filter, '-map', '[out]', '-c:a', 'aac', '-b:a', '160k', out],
@@ -714,6 +742,7 @@ async function directDialogueReel({ reel, material, story, brand, handle }) {
           focusY: 38,
           zoom,
           speaker: true,
+          _src: { key: p.clip.key, kind: 'video' }, // for the caption contrast measure (removed before render)
           // narrative typography carries the structure: no chapter pills on the face
           ...(crop ? { crop } : {}),
         });
@@ -752,7 +781,7 @@ async function directDialogueReel({ reel, material, story, brand, handle }) {
             };
             if (x.asset.kind === 'image') {
               // eslint-disable-next-line no-await-in-loop
-              cutaways.push({ ...base, kind: 'image', src: await _imageSrc(x.asset.key, 'clean'), graded: true, motion: x.motion === 'none' ? 'push-in' : x.motion });
+              cutaways.push({ ...base, _src: { key: x.asset.key, kind: 'image' }, kind: 'image', src: await _imageSrc(x.asset.key, 'clean'), graded: true, motion: x.motion === 'none' ? 'push-in' : x.motion });
             } else {
               const need = dur / fps;
               let start = x.startSec;
@@ -762,13 +791,13 @@ async function directDialogueReel({ reel, material, story, brand, handle }) {
               if (x.asset.durationSec / rate < need - 0.05) {
                 const near = _stillNear(x.asset, start);
                 // eslint-disable-next-line no-await-in-loop
-                if (near) cutaways.push({ ...base, kind: 'image', src: await _imageSrc(near.key, 'clean'), graded: true, motion: 'push-in' });
+                if (near) cutaways.push({ ...base, _src: { key: near.key, kind: 'image' }, kind: 'image', src: await _imageSrc(near.key, 'clean'), graded: true, motion: 'push-in' });
                 continue;
               }
               // eslint-disable-next-line no-await-in-loop
               const crop = await _letterboxOf(x.asset.key, start, need).catch(() => null);
               cutaways.push({
-                ...base, kind: 'video', src: await getMediaUrl(x.asset.key), // eslint-disable-line no-await-in-loop
+                ...base, _src: { key: x.asset.key, kind: 'video' }, kind: 'video', src: await getMediaUrl(x.asset.key), // eslint-disable-line no-await-in-loop
                 sourceStartSec: Math.round(start * 1000) / 1000, volume: 0, ...(rate < 1 ? { playbackRate: Math.round(rate * 100) / 100 } : {}),
                 ...(crop ? { crop } : {}),
                 maxFrames: Math.max(dur, Math.floor(((x.asset.durationSec - start) / rate) * fps)),
@@ -780,6 +809,24 @@ async function directDialogueReel({ reel, material, story, brand, handle }) {
     }
     const spokenEnd = at;
     polishCutaways(cutaways, { fps, spokenEnd, hookEnd: format !== 'faceless_voiceover' ? frames(1.2) : 0 });
+    // smooth joins (2026-11-23): a jump cut on the speaker dissolves over a few frames (the outgoing
+    // piece runs on under the incoming one) — unless the take simply continues (no cut to hide)
+    for (let i = 1; i < speaker.length; i += 1) {
+      const prev = speaker[i - 1];
+      const cur = speaker[i];
+      if (cur.from !== prev.from + prev.durationInFrames) continue;
+      const continuous = cur.src === prev.src
+        && Math.abs(cur.sourceStartSec - (prev.sourceStartSec + prev.durationInFrames / fps)) < 0.08 && cur.zoom === prev.zoom;
+      if (continuous) continue;
+      prev.durationInFrames += DISSOLVE;
+      cur.transition = 'fade';
+    }
+    // an insert leaving for the speaker fades out (the speaker is already underneath)
+    cutaways.forEach((c) => {
+      const end = c.from + c.durationInFrames;
+      const next = cutaways.some((d) => d !== c && Math.abs(d.from - end) <= 1);
+      if (!next && end < spokenEnd) c.exit = 'fade';
+    });
     // end card: the best finished shot (or the last face, held) behind the CTA
     const hasCta = Boolean(plan.cta.line);
     const endFrames = hasCta ? frames(END_SEC) : frames(0.4);
@@ -789,7 +836,7 @@ async function directDialogueReel({ reel, material, story, brand, handle }) {
     const endKey = (endAsset?.kind === 'image' && endAsset.key !== lastShown ? endAsset.key : '')
       || (images.find((a) => a.key !== lastShown && a.pool !== 'library') || images.find((a) => a.key !== lastShown) || images[0])?.key || '';
     if (endKey) {
-      cutaways.push({ from: spokenEnd, durationInFrames: endFrames, kind: 'image', src: await _imageSrc(endKey, 'clean'), graded: true, motion: 'pull-out', transition: 'zoom', focusX: 50, focusY: 45 });
+      cutaways.push({ from: spokenEnd, durationInFrames: endFrames, _src: { key: endKey, kind: 'image' }, kind: 'image', src: await _imageSrc(endKey, 'clean'), graded: true, motion: 'pull-out', transition: 'zoom', focusX: 50, focusY: 45 });
     } else if (speaker.length) {
       speaker[speaker.length - 1].durationInFrames += endFrames;
     }
@@ -822,9 +869,13 @@ async function directDialogueReel({ reel, material, story, brand, handle }) {
       if (first) chapters.push({ text: b.label, fromFrame: frames(first.start), durationInFrames: frames(1.8) });
     });
     const story = [plan.concept, ...(plan.beats || []).map((b) => b.said)].join(' ').slice(0, 600);
+    // the Brand Kit's colour roles, for the caption agent's key words (only real, distinct colours)
+    const palette = Object.fromEntries(['accent', 'fg', 'ground']
+      .map((r) => [r, String(brandKit[r] || '').trim()])
+      .filter(([, v]) => /^#[0-9a-f]{6}$/i.test(v)));
     const design = require('./reelDesignAgents');
-    const [capOut, motOut] = await Promise.all([
-      design.designCaptions({ words: spokenWords, chapters: chapters.map((c) => c.text), story })
+    const [capOut, motOut, expOut] = await Promise.all([
+      design.designCaptions({ words: spokenWords, chapters: chapters.map((c) => c.text), story, palette })
         .catch((err) => { console.warn(`[reelFormat] ${reel._id} caption agent failed:`, err.message); return null; }),
       design.designGraphics({
         inserts: inserts.map((c, index) => ({
@@ -836,8 +887,50 @@ async function directDialogueReel({ reel, material, story, brand, handle }) {
         visionParts: (list) => agent()._visionParts(list),
         story,
       }).catch((err) => { console.warn(`[reelFormat] ${reel._id} motion agent failed:`, err.message); return null; }),
+      // the explainer specialist (2026-11-23): animated line drawings where they explain the words
+      require('./reelExplainerAgent').designExplainers({
+        words: spokenWords,
+        inserts: inserts.map((c) => ({ fromSec: c.from / fps, toSec: (c.from + c.durationInFrames) / fps, shows: c._asset.summary || '' })),
+        story,
+        hookEndSec: (shift + frames(1.5)) / fps,
+      }).catch((err) => { console.warn(`[reelFormat] ${reel._id} explainer agent failed:`, err.message); return null; }),
     ]);
-    const designRows = [capOut?.debug, motOut?.debug].filter(Boolean);
+    const designRows = [capOut?.debug, motOut?.debug, expOut?.debug].filter(Boolean);
+    // explainers → full-screen drawing cutaways: the speaker runs on underneath, inserts under a
+    // drawing are trimmed (or dropped when < 0.8 s is left), a chapter title under one is dropped
+    const explainerScenes = (expOut?.explainers || []).map((x) => ({
+      from: frames(x.fromSec), durationInFrames: Math.max(1, frames(x.toSec) - frames(x.fromSec)),
+      kind: 'card', src: '', motion: 'none', transition: 'fade', explainer: x.spec,
+    }));
+    explainerScenes.forEach((e) => {
+      const a = e.from;
+      const b = e.from + e.durationInFrames;
+      for (let k = cutaways.length - 1; k >= 0; k -= 1) {
+        const c = cutaways[k];
+        const ca = c.from;
+        const cb = c.from + c.durationInFrames;
+        if (cb <= a || ca >= b || !c._asset) continue;
+        const before = a - ca;
+        const after = cb - b;
+        if (before >= frames(0.8)) {
+          c.durationInFrames = before; // keeps its start; the drawing cuts in over it
+        } else if (after >= frames(0.8)) {
+          const cutIn = b - ca;
+          c.from = b;
+          c.durationInFrames = after;
+          if (c.kind === 'video' && c.sourceStartSec != null) c.sourceStartSec = Math.round((c.sourceStartSec + (cutIn / fps) * (c.playbackRate || 1)) * 1000) / 1000;
+          c.transition = 'fade';
+        } else {
+          cutaways.splice(k, 1);
+        }
+      }
+      for (let k = chapters.length - 1; k >= 0; k -= 1) {
+        const ch = chapters[k];
+        if (ch.fromFrame < b && a < ch.fromFrame + ch.durationInFrames) chapters.splice(k, 1);
+      }
+    });
+    cutaways.push(...explainerScenes);
+    cutaways.sort((x, y) => x.from - y.from);
     // graphics → annotations on the photo, or a ✓/✗ explainer card
     inserts.forEach((c, index) => {
       const g = motOut?.graphics?.get(index);
@@ -846,7 +939,9 @@ async function directDialogueReel({ reel, material, story, brand, handle }) {
       if (g.type === 'verdict') {
         // a white card under a chapter title would hide it: the chapter wins
         const underChapter = chapters.some((ch) => c.from < ch.fromFrame + ch.durationInFrames && ch.fromFrame < c.from + c.durationInFrames);
-        if (!underChapter && c.layout !== 'split') c.card = { verdict: g.verdict, title: g.text };
+        // and next to a drawing it would repeat it: the drawing wins
+        const nearDrawing = explainerScenes.some((e) => c.from < e.from + e.durationInFrames + frames(3) && e.from < c.from + c.durationInFrames + frames(3));
+        if (!underChapter && !nearDrawing && c.layout !== 'split') c.card = { verdict: g.verdict, title: g.text };
         return;
       }
       if (c.layout === 'split') return;
@@ -868,6 +963,7 @@ async function directDialogueReel({ reel, material, story, brand, handle }) {
           key: cue.key >= 0 ? cue.key - cue.from : -1,
           keyStyle: cue.keyStyle,
           pos: cue.position || (onScreen === 'speaker' ? 'top' : onScreen === 'split' ? 'center' : 'lower'),
+          keyColorRole: cue.key >= 0 ? cue.keyColor : 'ink',
           words: ws.map((w, j) => ({
             text: w.text.replace(/^[^\p{L}\p{N}$#@"“'‘]+|[,;:]+$/gu, ''),
             fromFrame: frames(w.start),
@@ -876,7 +972,33 @@ async function directDialogueReel({ reel, material, story, brand, handle }) {
         };
       }).filter((c) => c.words.some((w) => w.text))
       : phraseCues(spokenWords, fps);
+    // contrast (2026-11-23): measure the picture behind every caption and chapter title; pick the ink,
+    // a soft scrim where needed, and fit the Brand Kit colour so every word reads
+    const sceneAt = (f) => {
+      const cut = cutaways.filter((c) => f >= c.from && f < c.from + c.durationInFrames).pop();
+      const sc = cut || speaker.find((c) => f >= c.from && f < c.from + c.durationInFrames);
+      if (!sc) return null;
+      if (sc.explainer || sc.card) return { card: true };
+      if (sc.layout === 'split') return { split: true };
+      if (!sc._src) return null;
+      const into = (f - sc.from) / fps;
+      return {
+        key: sc._src.key, kind: sc._src.kind,
+        atSec: sc._src.kind === 'video' ? (sc.sourceStartSec || 0) + into * (sc.playbackRate || 1) : 0,
+        focusX: sc.focusX, focusY: sc.focusY, zoom: sc.zoom, crop: sc.crop,
+      };
+    };
+    const contrast = await require('./reelCaptionContrast').applyCaptionContrast({
+      captions, chapters, sceneAt, palette,
+      helpers: { clipFile: agent()._clipFile, ffmpegPath: agent()._ffmpegPath },
+    }).catch((err) => { console.warn(`[reelFormat] ${reel._id} caption contrast failed:`, err.message); return null; });
+    if (contrast) {
+      designRows.push({ source: 'Capture reel — caption contrast (code)', output: JSON.stringify({ palette, ...contrast }) });
+      console.log(`[reelFormat] ${reel._id} caption contrast: ${JSON.stringify(contrast)}`);
+    }
+    captions.forEach((c) => { delete c.keyColorRole; });
     inserts.forEach((c) => { delete c._asset; delete c._beat; });
+    [...speaker, ...cutaways].forEach((c) => { delete c._src; });
     const accent = liftAccent(brandKit.accent || '#FFFFFF');
     const hookFrames = Math.max(shift + frames(0.6), frames(clampN(0.6 + words(plan.hook.text).length * 0.22, 1.3, 2.2)));
     // narrative typography (studio's reference, 2026-11-21): a calm title, small words, the key word large

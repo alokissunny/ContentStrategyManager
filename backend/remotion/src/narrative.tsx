@@ -60,8 +60,10 @@ export const Cutaway: React.FC<{ scene: ReelScene; split: number; children: Reac
   }
   const soft = scene.transition === 'soft';
   const t = interpolate(frame, [0, soft ? 10 : 7], [0, 1], { ...clamp, easing: ease });
-  const style: React.CSSProperties = scene.transition === 'soft' || scene.transition === 'fade' ? {
-    opacity: t,
+  // back to the speaker on a short fade (the speaker is underneath)
+  const exit = scene.exit === 'fade' ? interpolate(frame, [scene.durationInFrames - 6, scene.durationInFrames], [1, 0], { ...clamp, easing: ease }) : 1;
+  const style: React.CSSProperties = scene.transition === 'soft' || scene.transition === 'fade' || exit < 1 ? {
+    opacity: (scene.transition === 'soft' || scene.transition === 'fade' ? t : 1) * exit,
     transform: soft ? `scale(${interpolate(t, [0, 1], [1.07, 1])})` : undefined,
     filter: soft && t < 0.98 ? `blur(${interpolate(t, [0, 1], [14, 0])}px)` : undefined,
   } : {};
@@ -180,13 +182,17 @@ export const TwoVoiceCaptions: React.FC<{ captions: ReelCaption[]; scenes: ReelS
   const cue = captions.find((c) => frame >= c.fromFrame && frame < c.toFrame);
   if (!cue) return null;
   const over = scenes.filter((s) => !s.speaker && frame >= s.from && frame < s.from + s.durationInFrames).pop();
-  const onCard = Boolean(over?.card);
+  const onCard = Boolean(over?.card || over?.explainer);
   // a chapter title owns the lower third while it shows: the caption goes up top
   const chapterOn = chapters.some((c) => frame >= c.fromFrame && frame < c.fromFrame + c.durationInFrames);
   const pos = onCard ? 'lower' : chapterOn ? 'top' : (cue.pos || 'top');
   const top = onCard ? 80 : pos === 'top' ? 17 : pos === 'center' ? 50 : 72;
-  const ink = onCard ? '#1d1d1f' : '#fff';
-  const shadow = onCard ? 'none' : '0 2px 18px rgba(0,0,0,0.45), 0 1px 3px rgba(0,0,0,0.4)';
+  // ink + scrim come from the measured picture behind this caption (reelCaptionContrast.js)
+  const ink = onCard ? '#1d1d1f' : (cue.ink || '#fff');
+  const darkInk = !onCard && ink.toUpperCase() !== '#FFF' && ink.toUpperCase() !== '#FFFFFF';
+  const scrim = onCard ? undefined : cue.scrim;
+  const shadow = onCard ? 'none' : darkInk ? '0 1px 12px rgba(255,255,255,0.55)' : '0 2px 18px rgba(0,0,0,0.45), 0 1px 3px rgba(0,0,0,0.4)';
+  const keyInk = cue.keyColor || ink;
   const out = interpolate(frame, [cue.toFrame - 3, cue.toFrame], [1, 0], clamp);
   const keyAt = typeof cue.key === 'number' ? cue.key : -1;
   // lead words before the key on one line, the key (with what follows) on the next — as in the reference
@@ -207,8 +213,12 @@ export const TwoVoiceCaptions: React.FC<{ captions: ReelCaption[]; scenes: ReelS
   if (keyWord) {
     const t = shown(keyWord);
     const style = cue.keyStyle || 'condensed';
+    const marker: React.CSSProperties = cue.keyBg
+      ? { background: cue.keyBg, padding: '0.04em 0.16em 0.02em', borderRadius: 8, boxShadow: '0 6px 22px rgba(0,0,0,0.18)' }
+      : {};
     const base: React.CSSProperties = {
-      display: 'inline-block', color: ink, textShadow: shadow, lineHeight: 1.0,
+      ...marker,
+      display: 'inline-block', color: keyInk, textShadow: cue.keyBg ? 'none' : shadow, lineHeight: 1.0,
       opacity: t, transform: `scale(${interpolate(t, [0, 1], [0.94, 1])})`, transformOrigin: '50% 70%',
     };
     keyEl = style === 'serif'
@@ -221,8 +231,16 @@ export const TwoVoiceCaptions: React.FC<{ captions: ReelCaption[]; scenes: ReelS
     <AbsoluteFill style={{ pointerEvents: 'none' }}>
       <div style={{
         position: 'absolute', left: '7%', right: '7%', top: `${top}%`, transform: 'translateY(-50%)',
-        display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, textAlign: 'center', opacity: out,
+        display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, textAlign: 'center', opacity: out, isolation: 'isolate',
       }}>
+        {scrim ? (
+          /* a soft blurred glow that hugs the words (no box, no edge) */
+          <div style={{
+            position: 'absolute', left: '50%', top: '50%', width: `${Math.min(100, 30 + cue.words.map((w) => w.text).join(' ').length * 3.2)}%`, height: keyEl && before.length ? '120%' : '135%',
+            transform: 'translate(-50%, -50%)', zIndex: -1, borderRadius: 999, filter: 'blur(26px)',
+            background: scrim === 'dark' ? 'rgba(0,0,0,0.42)' : 'rgba(255,255,255,0.6)',
+          }} />
+        ) : null}
         {before.length > 0 && (
           <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'center', columnGap: 14, alignItems: 'baseline' }}>
             {before.map(lead)}
@@ -240,7 +258,7 @@ export const TwoVoiceCaptions: React.FC<{ captions: ReelCaption[]; scenes: ReelS
 };
 
 /* ── chapter title card (cut agent's `label` on a new point): two lines, uppercase, condensed ───── */
-export const ChapterTitle: React.FC<{ text: string; durationInFrames: number; font: string }> = ({ text, durationInFrames, font }) => {
+export const ChapterTitle: React.FC<{ text: string; durationInFrames: number; font: string; ink?: string; scrim?: 'dark' | 'light' }> = ({ text, durationInFrames, font, ink = '#fff', scrim }) => {
   const frame = useCurrentFrame();
   const tin = interpolate(frame, [0, 8], [0, 1], { ...clamp, easing: ease });
   const tout = interpolate(frame, [durationInFrames - 6, durationInFrames], [1, 0], clamp);
@@ -248,9 +266,18 @@ export const ChapterTitle: React.FC<{ text: string; durationInFrames: number; fo
     <AbsoluteFill style={{ justifyContent: 'flex-end', alignItems: 'center', paddingBottom: '30%', pointerEvents: 'none' }}>
       <div style={{
         maxWidth: '78%', textAlign: 'center', fontFamily: font, fontSize: 104, lineHeight: 0.98, letterSpacing: 1,
-        textTransform: 'uppercase', color: '#fff', textShadow: '0 3px 24px rgba(0,0,0,0.5)',
-        opacity: tin * tout, transform: `translateY(${interpolate(tin, [0, 1], [22, 0])}px)`,
-      }}>{text}</div>
+        textTransform: 'uppercase', color: ink,
+        textShadow: ink.toUpperCase() === '#FFF' || ink.toUpperCase() === '#FFFFFF' ? '0 3px 24px rgba(0,0,0,0.5)' : '0 1px 14px rgba(255,255,255,0.55)',
+        opacity: tin * tout, transform: `translateY(${interpolate(tin, [0, 1], [22, 0])}px)`, position: 'relative', isolation: 'isolate',
+      }}>
+        {scrim ? (
+          <div style={{
+            position: 'absolute', left: '-6%', right: '-6%', top: '-12%', bottom: '-12%', zIndex: -1, borderRadius: 999, filter: 'blur(30px)',
+            background: scrim === 'dark' ? 'rgba(0,0,0,0.42)' : 'rgba(255,255,255,0.6)',
+          }} />
+        ) : null}
+        {text}
+      </div>
     </AbsoluteFill>
   );
 };
@@ -279,4 +306,12 @@ export const VerdictCard: React.FC<{ card: { verdict: 'good' | 'bad'; title: str
       </div>
     </AbsoluteFill>
   );
+};
+
+/* a speaker piece after a jump cut: dissolves in over the outgoing piece (which runs on underneath) */
+export const SpeakerIn: React.FC<{ scene: ReelScene; children: React.ReactNode }> = ({ scene, children }) => {
+  const frame = useCurrentFrame();
+  if (scene.transition !== 'fade') return <>{children}</>;
+  const t = interpolate(frame, [0, 4], [0, 1], { ...clamp, easing: Easing.inOut(Easing.quad) });
+  return <AbsoluteFill style={{ opacity: t }}>{children}</AbsoluteFill>;
 };

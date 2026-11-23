@@ -31,6 +31,7 @@ const o = (properties) => ({ type: 'object', additionalProperties: false, proper
 
 const KEY_STYLES = ['condensed', 'serif', 'spaced', 'none'];
 const POSITIONS = ['top', 'lower', 'center'];
+const KEY_COLORS = ['ink', 'accent', 'fg', 'ground'];
 const GRAPHIC_TYPES = ['none', 'label', 'arrow', 'circle', 'spotlight', 'measure', 'verdict'];
 
 const CAPTION_TOOL = {
@@ -45,6 +46,7 @@ const CAPTION_TOOL = {
         key: { type: 'integer' },
         keyStyle: { type: 'string', enum: KEY_STYLES },
         position: { type: 'string', enum: POSITIONS },
+        keyColor: { type: 'string', enum: KEY_COLORS },
       }),
     },
   }),
@@ -101,27 +103,28 @@ async function call({ tool, system, userParts, kind, envModel }) {
  * words: [{ i, text, start, end, on }] (output seconds, in order). Returns
  * [{ from, to, key, keyStyle, position }] covering every word once, or null on failure.
  */
-async function designCaptions({ words, chapters = [], story = '' }) {
+async function designCaptions({ words, chapters = [], story = '', palette = null }) {
   if (!words.length) return { cues: [], debug: null };
   const user = JSON.stringify({
     story: str(story, 300),
     chapters,
+    ...(palette ? { brandColours: palette } : {}),
     words: words.map((w) => ({ i: w.i, w: w.text, t: Math.round(w.start * 10) / 10, on: w.on })),
   });
   const { parsed, debug } = await call({
     tool: CAPTION_TOOL, system: read('captions.md'), userParts: [{ type: 'text', text: user }],
     kind: 'reelCaptions', envModel: 'REEL_CAPTION_MODEL',
   });
-  return { cues: cleanCaptions(parsed.captions, words), debug };
+  return { cues: cleanCaptions(parsed.captions, words, palette), debug };
 }
 
 /* the agent's groups, re-tiled: every word once, in order, 1–6 words a group */
-function cleanCaptions(list, words) {
+function cleanCaptions(list, words, palette = null) {
   const n = words.length;
   const taken = new Array(n).fill(false);
   const out = [];
   (Array.isArray(list) ? list : [])
-    .map((c) => ({ from: Math.round(num(c?.from, -1)), to: Math.round(num(c?.to, -1)), key: Math.round(num(c?.key, -1)), keyStyle: c?.keyStyle, position: c?.position }))
+    .map((c) => ({ from: Math.round(num(c?.from, -1)), to: Math.round(num(c?.to, -1)), key: Math.round(num(c?.key, -1)), keyStyle: c?.keyStyle, position: c?.position, keyColor: c?.keyColor }))
     .filter((c) => c.from >= 0 && c.to >= c.from && c.to < n && c.to - c.from < 6)
     .sort((a, b) => a.from - b.from)
     .forEach((c) => {
@@ -134,6 +137,8 @@ function cleanCaptions(list, words) {
         key: hasKey ? c.key : -1,
         keyStyle: hasKey ? c.keyStyle : 'none',
         position: POSITIONS.includes(c.position) ? c.position : null,
+        // a Brand Kit colour on the key word (only a role the kit has; contrast is fitted later in code)
+        keyColor: hasKey && KEY_COLORS.includes(c.keyColor) && c.keyColor !== 'ink' && palette?.[c.keyColor] ? c.keyColor : 'ink',
       });
     });
   // words the agent left out: grouped by pause (≤ 4 words), no key word
@@ -144,7 +149,7 @@ function cleanCaptions(list, words) {
     let to = k;
     while (to + 1 < n && !taken[to + 1] && to - from < 3 && words[to + 1].start - words[to].end < 0.35) to += 1;
     for (let m = from; m <= to; m += 1) taken[m] = true;
-    out.push({ from, to, key: -1, keyStyle: 'none', position: null });
+    out.push({ from, to, key: -1, keyStyle: 'none', position: null, keyColor: 'ink' });
     k = to + 1;
   }
   return out.sort((a, b) => a.from - b.from);

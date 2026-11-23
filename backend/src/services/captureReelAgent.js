@@ -1195,6 +1195,9 @@ async function runCaptureReel(reelId) {
     await stage(reel, 'cutting', clock);
     const brand = {
       accent: colors?.accent || '',
+      // the kit's text + background roles too: the caption agent may colour a key word with them
+      fg: colors?.fg || '',
+      ground: colors?.ground || '',
       headlineFont: fonts?.heading?.family || '',
       bodyFont: fonts?.body?.family || '',
     };

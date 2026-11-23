@@ -1,0 +1,240 @@
+/*
+ * Explainer animation specialist (studio, 2026-11-23) — the third design agent of a talking reel,
+ * running beside the caption and motion agents once the cut agent has fixed the edit.
+ *
+ * Studio's reference reel (DMfntZZNuLH): while the designer explains a kitchen mistake, the reel cuts to a
+ * small animated line drawing — a section of the cabinet base with a foot and "7cm / 10cm", the recess
+ * filled green with a ✓; a person at the counter with the ceiling light behind them, "shadowed area", ✗;
+ * the counter at "80cm" ✗ then "85cm" ✓. This agent finds such moments in the spoken words and orders a
+ * drawing from a fixed vocabulary (prompts/reel-agents/explainer.md); Remotion draws it (explainers.tsx).
+ *
+ * Code checks everything it returns: word ranges, spacing (≥ 3 s apart unless a ✗→✓ pair), at most one
+ * per ~9 s and never more than 3, never over the hook or the last sentence, and every number must be one
+ * the speaker actually said (a drawing never shows a made-up value).
+ * Model: Claude Sonnet 5.5 (JSON mode); REEL_EXPLAINER_MODEL overrides, REEL_EXPLAINERS=off disables.
+ */
+const fs = require('fs');
+const path = require('path');
+const { completeToolCall } = require('./llmComplete');
+const { estimatePlanCostUsd } = require('./weeklyPlan');
+
+const PROMPT = path.join(__dirname, '..', '..', 'prompts', 'reel-agents', 'explainer.md');
+const num = (v, d = 0) => (Number.isFinite(Number(v)) ? Number(v) : d);
+const str = (v, max = 80) => (typeof v === 'string' ? v.replace(/\s+/g, ' ').trim().slice(0, max) : '');
+const firstWords = (s, n) => s.split(' ').filter(Boolean).slice(0, n).join(' ');
+const o = (properties) => ({ type: 'object', additionalProperties: false, properties, required: Object.keys(properties) });
+
+const SCENES = ['measure', 'light', 'compare', 'flow', 'checklist', 'open_plan', 'stat'];
+const MEASURE_SUBJECTS = ['counter', 'toe_kick', 'upper_cabinet', 'table', 'seat', 'shelf', 'window', 'walkway', 'ceiling'];
+const LIGHT_SUBJECTS = ['ceiling', 'pendant', 'under_cabinet', 'wall', 'lamp'];
+const FIGURES = ['standing', 'seated', 'foot', 'none'];
+const DIMENSIONS = ['height', 'depth', 'gap', 'width', 'none'];
+const VERDICTS = ['good', 'bad', 'none'];
+
+const EXPLAINER_TOOL = {
+  name: 'design_explainers',
+  description: 'The animated explainer drawings of a talking reel (or none).',
+  input_schema: o({
+    explainers: {
+      type: 'array',
+      items: o({
+        from: { type: 'integer' },
+        to: { type: 'integer' },
+        scene: { type: 'string', enum: SCENES },
+        subject: { type: 'string', enum: [...new Set([...MEASURE_SUBJECTS, ...LIGHT_SUBJECTS, 'none'])] },
+        figure: { type: 'string', enum: FIGURES },
+        dimension: { type: 'string', enum: DIMENSIONS },
+        value: { type: 'string' },
+        dimension2: { type: 'string', enum: DIMENSIONS },
+        value2: { type: 'string' },
+        title: { type: 'string' },
+        label: { type: 'string' },
+        verdict: { type: 'string', enum: VERDICTS },
+        items: {
+          type: 'array',
+          items: o({ text: { type: 'string' }, value: { type: 'string' }, verdict: { type: 'string', enum: VERDICTS }, at: { type: 'integer' } }),
+        },
+        why: { type: 'string' },
+        strength: { type: 'integer' },
+      }),
+    },
+  }),
+};
+
+const DEFAULT_MODEL = 'claude-sonnet-5-5';
+const MAX = 3;
+const PER_SEC = 9; // at most one drawing per ~9 s of speech
+const MIN_GAP = 3; // s between two drawings (a ✗ → ✓ pair may touch)
+const MIN_SEC = 2.2;
+const MAX_SEC = 4.5;
+const LIST_MAX_SEC = 7; // a checklist / flow holds while its items are said
+
+/* "85 cm" → ["85"]; "1,5 m" → ["1.5"] — the digits a value claims */
+const numbersIn = (s) => (String(s || '').replace(/(\d),(\d)/g, '$1.$2').match(/\d+(?:\.\d+)?/g) || []);
+/* number words the speaker may say instead of digits */
+const NUMBER_WORDS = {
+  one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10, eleven: 11, twelve: 12,
+  fifteen: 15, twenty: 20, thirty: 30, forty: 40, fifty: 50, sixty: 60, seventy: 70, eighty: 80, ninety: 90, hundred: 100,
+};
+function spokenNumbers(text) {
+  const out = new Set(numbersIn(text));
+  const ws = String(text || '').toLowerCase().split(/[^a-z]+/);
+  for (let k = 0; k < ws.length; k += 1) {
+    const a = NUMBER_WORDS[ws[k]];
+    if (a == null) continue;
+    const b = NUMBER_WORDS[ws[k + 1]];
+    out.add(String(a));
+    if (b != null && a >= 20 && b < 10) out.add(String(a + b)); // "eighty five"
+  }
+  return out;
+}
+/* a value is kept only when every number in it was said near the drawing (or anywhere in the reel) */
+const saidValue = (value, near, all) => {
+  const v = str(value, 14);
+  const ns = numbersIn(v);
+  if (!v || !ns.length) return '';
+  return ns.every((n) => near.has(n) || all.has(n)) ? v : '';
+};
+
+/**
+ * words: [{ i, text, start, end, on }] (output seconds); inserts: [{ fromSec, toSec, shows }].
+ * Returns { explainers: [{ fromSec, toSec, spec }], debug }.
+ */
+async function designExplainers({ words, inserts = [], story = '', hookEndSec = 1.5 }) {
+  if (process.env.REEL_EXPLAINERS === 'off' || words.length < 12) return { explainers: [], debug: null };
+  const system = fs.readFileSync(PROMPT, 'utf8');
+  const user = JSON.stringify({
+    story: str(story, 300),
+    spokenSeconds: Math.round((words[words.length - 1].end - words[0].start) * 10) / 10,
+    words: words.map((w) => ({ i: w.i, w: w.text, t: Math.round(w.start * 10) / 10, on: w.on })),
+    inserts: inserts.map((x) => ({ from: Math.round(x.fromSec * 10) / 10, to: Math.round(x.toSec * 10) / 10, shows: str(x.shows, 140) })),
+  });
+  const model = process.env.REEL_EXPLAINER_MODEL || DEFAULT_MODEL;
+  const started = Date.now();
+  const res = await completeToolCall({
+    model, system, userParts: [{ type: 'text', text: user }], tool: EXPLAINER_TOOL, maxTokens: 6000,
+    kind: 'reelExplainers', timeoutMs: 180000,
+    retryHint: 'Return ONLY the JSON object for design_explainers, matching the schema exactly.',
+  });
+  const u = res.usage || {};
+  const explainers = cleanExplainers(res.parsed?.explainers, words, { hookEndSec });
+  return {
+    explainers,
+    debug: {
+      source: 'Capture reel — explainer animation agent',
+      model: res.model,
+      prompt: `${system}\n\n---\n\n${user}`,
+      output: JSON.stringify({ agent: res.parsed, kept: explainers.map((x) => ({ at: `${x.fromSec.toFixed(1)}–${x.toSec.toFixed(1)}s`, ...x.spec })) }, null, 2),
+      elapsedMs: Date.now() - started,
+      inputTokens: num(u.input_tokens),
+      outputTokens: num(u.output_tokens),
+      costUsd: estimatePlanCostUsd(res.model, num(u.input_tokens), num(u.output_tokens), num(u.cached_tokens)),
+    },
+  };
+}
+
+function cleanExplainers(list, words, { hookEndSec = 1.5 } = {}) {
+  const n = words.length;
+  if (!n) return [];
+  const all = spokenNumbers(words.map((w) => w.text).join(' '));
+  const speechSec = words[n - 1].end - words[0].start;
+  const cap = Math.min(MAX, Math.max(1, Math.floor(speechSec / PER_SEC)));
+  // the last sentence is the call to action: from the last pause ≥ 0.45 s in the final 5 s
+  let lastSentence = words[n - 1].start;
+  for (let k = n - 1; k > 0; k -= 1) {
+    if (words[n - 1].end - words[k].start > 5) break;
+    if (words[k].start - words[k - 1].end >= 0.45 || /[.!?]$/.test(words[k - 1].text)) { lastSentence = words[k].start; break; }
+  }
+  const out = [];
+  (Array.isArray(list) ? list : [])
+    .map((x) => ({ ...x, from: Math.round(num(x?.from, -1)), to: Math.round(num(x?.to, -1)) }))
+    .filter((x) => x.from >= 0 && x.to >= x.from && x.to < n && SCENES.includes(x.scene))
+    .map((x) => ({ ...x, strength: Math.max(1, Math.min(5, Math.round(num(x.strength, 3)))) }))
+    .filter((x, _, all) => {
+      // the agent scores every candidate; strong ones (≥ 3) are drawn. With none strong, the single best
+      // concrete one (a list, a process, light, a comparison, a measurement — never a lone stat) still is:
+      // an explaining reel should show at least one idea, not only say it
+      if (x.strength >= 3) return true;
+      if (all.some((y) => y.strength >= 3) || x.strength < 2 || x.scene === 'stat') return false;
+      const best = all.filter((y) => y.strength === 2 && y.scene !== 'stat').sort((a, b) => b.to - b.from - (a.to - a.from))[0];
+      return best === x;
+    })
+    .sort((a, b) => a.from - b.from)
+    .forEach((x) => {
+      if (out.length >= cap) return;
+      const near = spokenNumbers(words.slice(Math.max(0, x.from - 10), Math.min(n, x.to + 11)).map((w) => w.text).join(' '));
+      const verdict = VERDICTS.includes(x.verdict) ? x.verdict : 'none';
+      const spec = { scene: x.scene, verdict, title: firstWords(str(x.title, 48), 5).replace(/[.!]+$/, '') };
+      if (x.scene === 'measure') {
+        spec.subject = MEASURE_SUBJECTS.includes(x.subject) ? x.subject : 'counter';
+        spec.figure = FIGURES.includes(x.figure) ? x.figure : 'standing';
+        spec.dimension = DIMENSIONS.includes(x.dimension) ? x.dimension : 'none';
+        spec.value = spec.dimension === 'none' ? '' : saidValue(x.value, near, all);
+        spec.dimension2 = DIMENSIONS.includes(x.dimension2) && x.dimension2 !== spec.dimension ? x.dimension2 : 'none';
+        spec.value2 = spec.dimension2 === 'none' ? '' : saidValue(x.value2, near, all);
+        if (!spec.value2) spec.dimension2 = 'none';
+        spec.label = firstWords(str(x.label, 30), 3);
+      } else if (x.scene === 'light') {
+        spec.subject = LIGHT_SUBJECTS.includes(x.subject) ? x.subject : 'ceiling';
+        spec.label = firstWords(str(x.label, 30), 3);
+      } else {
+        const items = (Array.isArray(x.items) ? x.items : []).map((it) => ({
+          text: firstWords(str(it?.text, 40), x.scene === 'stat' ? 5 : 3),
+          value: saidValue(it?.value, near, all),
+          verdict: VERDICTS.includes(it?.verdict) ? it.verdict : 'none',
+          at: Math.round(num(it?.at, -1)),
+        })).filter((it) => it.text || it.value);
+        if (x.scene === 'compare') {
+          if (items.length < 2) return;
+          spec.items = items.slice(0, 2);
+        } else if (x.scene === 'flow' || x.scene === 'checklist') {
+          if (items.length < 2) return;
+          spec.items = items.slice(0, 4).map((it) => ({ text: it.text, value: '', verdict: 'none', at: it.at }));
+        } else if (x.scene === 'open_plan') {
+          if (items.length < 2) return;
+          spec.items = items.slice(0, 2).map((it) => ({ text: it.text, value: '', verdict: 'none' }));
+        } else {
+          if (!items[0]?.value) return; // a stat is its number: no said number, no stat
+          spec.items = [items[0]];
+        }
+      }
+      if (!spec.title && !spec.value && !spec.items?.length) return;
+      // timing: the sentence, held 2.2–4.5 s
+      const fromSec = Math.max(words[x.from].start - 0.12, hookEndSec);
+      let toSec = words[x.to].end + 0.3; // eslint-disable-line prefer-const
+      const listy = x.scene === 'checklist' || x.scene === 'flow';
+      if (toSec - fromSec > (listy ? LIST_MAX_SEC : MAX_SEC)) toSec = fromSec + (listy ? LIST_MAX_SEC : MAX_SEC);
+      if (toSec - fromSec < MIN_SEC) toSec = fromSec + MIN_SEC;
+      toSec = Math.min(toSec, lastSentence - 0.05);
+      if (toSec - fromSec < 1.6) return;
+      const prev = out[out.length - 1];
+      if (prev) {
+        const pair = prev.spec.scene === spec.scene && prev.spec.verdict === 'bad' && spec.verdict === 'good';
+        if (fromSec < prev.toSec + (pair ? 0 : MIN_GAP)) {
+          if (!pair || fromSec < prev.toSec - 0.6) return;
+        }
+      }
+      const start = prev && fromSec < prev.toSec ? prev.toSec : fromSec;
+      // list items appear as they are said: `at` (a word index) → seconds into the drawing
+      if (spec.items) {
+        let last = 0;
+        spec.items = spec.items.map((it, k) => {
+          const w = it.at >= x.from && it.at <= x.to + 2 && it.at < n ? words[it.at] : null;
+          const atSec = w ? Math.max(last, Math.round((w.start - start) * 100) / 100) : (listy ? last + (k ? 0.5 : 0.25) : 0);
+          last = atSec;
+          const { at, ...rest } = it; // eslint-disable-line no-unused-vars
+          return listy ? { ...rest, atSec: Math.max(0, Math.round(last * 100) / 100) } : rest;
+        });
+      }
+      // a list holds until its last point has been read (~1.2 s), within the limits
+      if (listy && spec.items.length) {
+        const lastAt = spec.items[spec.items.length - 1].atSec || 0;
+        toSec = Math.min(Math.max(toSec, start + lastAt + 1.2), lastSentence - 0.05, start + LIST_MAX_SEC + 1.5);
+        spec.items = spec.items.map((it) => ({ ...it, atSec: Math.min(it.atSec, Math.max(0, Math.round((toSec - start - 0.8) * 100) / 100)) }));
+      }
+      out.push({ fromSec: start, toSec, from: x.from, to: x.to, strength: x.strength, why: str(x.why, 160), spec });
+    });
+  return out;
+}
+
+module.exports = { designExplainers, cleanExplainers, spokenNumbers, EXPLAINER_TOOL };

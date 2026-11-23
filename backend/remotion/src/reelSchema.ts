@@ -53,9 +53,25 @@ export type ReelScene = {
   beforeSrc?: string; // before → after wipe
   speaker?: boolean; // talking reels: the person speaking (the base layer)
   layout?: 'split'; // a cutaway on the top half while the speaker stays below
+  exit?: 'fade'; // talking reels: an insert fades back to the speaker instead of cutting
   card?: { verdict: 'good' | 'bad'; title: string }; // motion agent: the photo as a ✓/✗ explainer card
+  explainer?: ReelExplainer; // explainer agent: an animated line drawing (explainers.tsx)
   // the picture inside letterbox bands baked into a clip (fractions of the frame)
   crop?: { x: number; y: number; w: number; h: number };
+};
+
+export type ReelExplainer = {
+  scene: 'measure' | 'light' | 'compare' | 'flow' | 'checklist' | 'open_plan' | 'stat';
+  verdict: 'good' | 'bad' | 'none';
+  title: string;
+  subject?: string;
+  figure?: 'standing' | 'seated' | 'foot' | 'none';
+  dimension?: 'height' | 'depth' | 'gap' | 'width' | 'none';
+  value?: string;
+  dimension2?: 'height' | 'depth' | 'gap' | 'width' | 'none';
+  value2?: string;
+  label?: string;
+  items?: { text: string; value: string; verdict: 'good' | 'bad' | 'none'; atSec?: number }[]; // atSec: when the item is said
 };
 
 export type ReelCaptionWord = { text: string; fromFrame: number; toFrame: number; em?: boolean };
@@ -63,6 +79,8 @@ export type ReelCaption = {
   fromFrame: number; toFrame: number; words: ReelCaptionWord[];
   // two-voice captions (caption agent): the key word's index, its face, where the caption sits
   key?: number; keyStyle?: 'condensed' | 'serif' | 'spaced' | 'none'; pos?: 'top' | 'lower' | 'center';
+  // contrast (measured on the picture behind it): the words' ink, a soft scrim, the key word's Brand Kit colour
+  ink?: string; scrim?: 'dark' | 'light'; keyColor?: string; keyBg?: string; // keyBg: the brand colour as a marker behind the key word
 };
 
 // Motion graphic reel (backend services/motionReelPlanner.js → MotionReel.tsx)
@@ -107,7 +125,7 @@ export type ReelSpec = {
   cta?: { line: string; sub?: string; fromFrame: number; durationInFrames: number };
   audio?: { voiceoverSrc?: string; voiceVolume?: number; startFrame?: number; musicSrc?: string; musicVolume?: number };
   look?: ReelLook; // set = a reel style (reelLook.tsx); unset = the default look
-  chapters?: { text: string; fromFrame: number; durationInFrames: number }[]; // chapter title cards
+  chapters?: { text: string; fromFrame: number; durationInFrames: number; ink?: string; scrim?: 'dark' | 'light' }[]; // chapter title cards
   motion?: MotionTimeline; // set = a motion graphic reel (MotionReel.tsx)
 };
 
