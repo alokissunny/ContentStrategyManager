@@ -321,7 +321,7 @@ function cutEdit({ raw, format, material, phrasesByClip, fps }) {
       zoom: ZOOM[b.zoom] || 1,
       brollFrom: b.brollFrom === 'start' ? 'start' : 'middle',
       broll,
-      label: str(b.label, 32).split(' ').slice(0, 4).join(' '),
+      label: GENERIC_LABEL.test(str(b.label, 32)) ? '' : str(b.label, 32).split(' ').slice(0, 4).join(' '),
       // a key phrase ("existing floor") lights each of its words
       emphasis: [...new Set((Array.isArray(b.emphasis) ? b.emphasis : []).slice(0, 2).flatMap((w) => words(w).slice(0, 3).map(normWord)).filter(Boolean))],
       layout: b.layout === 'split' ? 'split' : 'full',
@@ -549,6 +549,9 @@ const DENOISE = process.env.REEL_DENOISE === 'off' ? 'anull' : 'anlmdn=s=7:p=0.0
 // a soft gate between words (−20 dB at most, slow release: no pumping on breaths)
 const GATE = process.env.REEL_DENOISE === 'off' ? 'anull' : 'agate=threshold=0.012:ratio=3:range=0.1:attack=5:release=220:knee=4';
 const XFADE = 0.05; // s of overlap at each join
+// a chapter label must say something (studio review 2026-11-24: "THE RESULT" adds nothing when the
+// finished project is on screen) — generic section names are dropped in code
+const GENERIC_LABEL = /^\s*(the\s+|our\s+|a\s+)?(result|results|outcome|problem|challenge|brief|solution|process|before|after|reveal|final reveal|transformation|the end|intro|conclusion|step \d+|part \d+|finished|done)\s*[.!:]?\s*$/i;
 const DISSOLVE = 4; // frames: a jump cut on the speaker dissolves
 const DRAWING_READ_SEC = 1.0; // a drawing stays this long after its last element lands
 const MAX_HOLD_SEC = 2.0; // the longest pause the edit will hold for a drawing

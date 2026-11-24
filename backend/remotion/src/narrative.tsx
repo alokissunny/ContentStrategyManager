@@ -222,14 +222,16 @@ export const TwoVoiceCaptions: React.FC<{ captions: ReelCaption[]; scenes: ReelS
   const under = scenes.filter((s) => !s.speaker && mid >= s.from && mid < s.from + s.durationInFrames).pop();
   const onCard = cue.onCard ?? Boolean(under?.card || under?.explainer);
   const pos = onCard ? 'lower' : (cue.pos || 'top');
-  const top = onCard ? 80 : pos === 'top' ? 17 : pos === 'center' ? 50 : 74;
+  const top = onCard ? 84 : pos === 'top' ? 17 : pos === 'center' ? 50 : 74;
   const ink = onCard ? (cardInk || '#1d1d1f') : (cue.ink || '#fff');
   const shadow = textShadowFor(ink, cue.scrim, onCard);
   const keyInk = cue.keyColor || ink;
   // a captions-first start: the caption that is running when the hook ends appears whole
   const appear = (w: { fromFrame: number }) => wordIn(frame, Math.max(w.fromFrame, startFrame + TEXT_MOTION.lead));
   const out = blockOut(frame, end);
-  const keyAt = typeof cue.key === 'number' ? cue.key : -1;
+  // over a drawing card the drawing is the focus (studio review 2026-11-24): the caption is one quiet
+  // line — no large key word, no brand marker, smaller, the card's ink
+  const keyAt = onCard ? -1 : (typeof cue.key === 'number' ? cue.key : -1);
   const before = keyAt > 0 ? cue.words.slice(0, keyAt) : keyAt === 0 ? [] : cue.words;
   const keyWord = keyAt >= 0 ? cue.words[keyAt] : null;
   const after = keyAt >= 0 ? cue.words.slice(keyAt + 1) : [];
@@ -237,7 +239,7 @@ export const TwoVoiceCaptions: React.FC<{ captions: ReelCaption[]; scenes: ReelS
   const chapter = chapters.find((c) => cue.fromFrame >= c.fromFrame - 6 && cue.fromFrame < c.fromFrame + c.durationInFrames);
   const lead = (w: { text: string; fromFrame: number }, i: number) => (
     <span key={`l${i}`} style={{
-      display: 'inline-block', fontFamily: faces.body, fontWeight: 500, fontSize: 50, letterSpacing: 0.2, lineHeight: 1.15,
+      display: 'inline-block', fontFamily: faces.body, fontWeight: 500, fontSize: onCard ? 42 : 50, letterSpacing: 0.2, lineHeight: 1.15,
       color: ink, textShadow: shadow, ...appear(w),
     }}>{w.text}</span>
   );
