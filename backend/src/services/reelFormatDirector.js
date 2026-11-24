@@ -1061,6 +1061,8 @@ async function directDialogueReel({ reel, material, story, brand, handle }) {
           bodyFont: brandKit.bodyFont || '',
           // Brand Kit typography for every word (studio review 2026-11-24: "use only the Brand Kit fonts")
           ...(reelFonts ? { fonts: reelFonts } : {}),
+          // Brand Kit colours for what Bauhly draws (explainers, ✓/✗ cards) — remotion/src/brandPalette.ts
+          ...(Object.keys(palette).length ? { palette } : {}),
         },
         ...(hookSpec ? { hook: hookSpec } : {}),
         // speaker shots first, cutaways after: later scenes draw on top

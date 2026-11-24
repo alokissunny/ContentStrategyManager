@@ -13,22 +13,22 @@
 import React from 'react';
 import { AbsoluteFill, interpolate, Easing, useCurrentFrame } from 'remotion';
 import type { ReelExplainer } from './reelSchema';
+import { drawPalette, type DrawPalette, type BrandPalette } from './brandPalette';
 
 const clamp = { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' } as const;
 const ease = Easing.bezier(0.22, 1, 0.36, 1);
-const INK = '#1d1d1f';
-const PAPER = '#f6f5f2';
-const GOOD = '#2fa84f';
-const BAD = '#e0403a';
-const NEUTRAL = '#c8b48f';
+// the drawing's colours: set from the Brand Kit by ExplainerScene before its children render
+// (one drawing on screen at a time), see brandPalette.ts
+const C: DrawPalette = drawPalette(null);
 const FLOOR = 800;
 
-const zoneColour = (v: string) => (v === 'good' ? GOOD : v === 'bad' ? BAD : NEUTRAL);
+const markInk = (v: string) => (v === 'good' ? C.onGood : C.paper);
+const zoneColour = (v: string) => (v === 'good' ? C.good : v === 'bad' ? C.bad : C.soft);
 const prog = (frame: number, a: number, b: number) => interpolate(frame, [a, b], [0, 1], { ...clamp, easing: ease });
 const circle = (cx: number, cy: number, r: number) => `M${cx + r} ${cy} A${r} ${r} 0 1 1 ${cx - r} ${cy} A${r} ${r} 0 1 1 ${cx + r} ${cy}`;
 
 /* a stroke that draws itself on (t: 0 → 1) */
-const Draw: React.FC<{ d: string; t: number; w?: number; color?: string; fill?: string; dash?: boolean }> = ({ d, t, w = 6, color = INK, fill = 'none', dash = false }) => (
+const Draw: React.FC<{ d: string; t: number; w?: number; color?: string; fill?: string; dash?: boolean }> = ({ d, t, w = 6, color = C.ink, fill = 'none', dash = false }) => (
   t <= 0 ? null : (
     <path
       d={d} pathLength={1} fill={fill} stroke={color} strokeWidth={w} strokeLinecap="round" strokeLinejoin="round"
@@ -196,10 +196,10 @@ function lightPlan(s: ReelExplainer): Plan {
   return {
     lines,
     cone: lit ? `M${src[0]} ${src[1]} L470 470 L790 470 Z` : `M${src[0]} ${src[1]} L120 ${FLOOR} L440 ${FLOOR} Z`,
-    coneColour: '#f2c94c',
+    coneColour: C.light,
     // the worktop: lit warm when the light falls on the work, in shadow when it comes from behind
     zone: 'M470 470 H790 V490 H470 Z',
-    zoneColour: lit ? '#e8b923' : '#6e6e73',
+    zoneColour: lit ? C.good : C.ink,
     figure: standing(330, [478, 462]),
     dims: [],
     label: { x: 700, y: 470, tx: 700, ty: 405, anchor: 'middle' },
@@ -221,11 +221,11 @@ const Dimension: React.FC<{ d: Dim; t: number; v: number; font: string }> = ({ d
   const anchor = d.anchor ?? (vertical ? (right ? 'start' : 'end') : 'middle');
   return (
     <g>
-      <path d={`M${a[0]} ${a[1]} L${b[0]} ${b[1]}`} stroke={INK} strokeWidth={3.5} strokeLinecap="round" />
-      {t > 0.92 ? <path d={`${tick(d.x1, d.y1)} ${tick(d.x2, d.y2)}`} stroke={INK} strokeWidth={3.5} strokeLinecap="round" /> : null}
+      <path d={`M${a[0]} ${a[1]} L${b[0]} ${b[1]}`} stroke={C.ink} strokeWidth={3.5} strokeLinecap="round" />
+      {t > 0.92 ? <path d={`${tick(d.x1, d.y1)} ${tick(d.x2, d.y2)}`} stroke={C.ink} strokeWidth={3.5} strokeLinecap="round" /> : null}
       <text
         x={tx} y={ty} textAnchor={anchor} dominantBaseline="middle" fontFamily={font} fontWeight={700} fontSize={46}
-        fill={INK} opacity={v} stroke={PAPER} strokeWidth={10} paintOrder="stroke"
+        fill={C.ink} opacity={v} stroke={C.paper} strokeWidth={10} paintOrder="stroke"
         style={{ transformBox: 'fill-box', transformOrigin: 'center', transform: `scale(${interpolate(v, [0, 1], [0.8, 1])})` } as React.CSSProperties}
       >{d.value}</text>
     </g>
@@ -244,8 +244,8 @@ const Callout: React.FC<{ at: Label; text: string; t: number; font: string }> = 
   return (
     <g opacity={Math.min(1, t * 1.4)}>
       <Draw d={`M${at.x} ${at.y} L${ex} ${ey}`} t={t} w={3} />
-      <circle cx={at.x} cy={at.y} r={7} fill={INK} />
-      <text x={lx} y={ly} textAnchor={anchor} fontFamily={font} fontStyle="italic" fontSize={38} fill={INK} stroke={PAPER} strokeWidth={8} paintOrder="stroke">{text}</text>
+      <circle cx={at.x} cy={at.y} r={7} fill={C.ink} />
+      <text x={lx} y={ly} textAnchor={anchor} fontFamily={font} fontStyle="italic" fontSize={38} fill={C.ink} stroke={C.paper} strokeWidth={8} paintOrder="stroke">{text}</text>
     </g>
   );
 };
@@ -300,11 +300,11 @@ const ComparePanels: React.FC<{ items: NonNullable<ReelExplainer['items']>; font
             {mark ? (
               <g opacity={pop} transform={`translate(${cx} 330) scale(${pop})`}>
                 <circle r={58} fill={colour} />
-                <text textAnchor="middle" dominantBaseline="central" fontFamily={font} fontWeight={800} fontSize={64} fill="#fff">{mark}</text>
+                <text textAnchor="middle" dominantBaseline="central" fontFamily={font} fontWeight={800} fontSize={64} fill={markInk(it.verdict)}>{mark}</text>
               </g>
             ) : null}
             {lines.map((ln, k) => (
-              <text key={k} x={cx} y={490 + k * 62 - (lines.length - 1) * 20} textAnchor="middle" fontFamily={font} fontWeight={700} fontSize={50} fill={INK} opacity={tt}>{ln}</text>
+              <text key={k} x={cx} y={490 + k * 62 - (lines.length - 1) * 20} textAnchor="middle" fontFamily={font} fontWeight={700} fontSize={50} fill={C.ink} opacity={tt}>{ln}</text>
             ))}
             {it.value ? <text x={cx} y={665} textAnchor="middle" fontFamily={font} fontWeight={700} fontSize={44} fill={colour} opacity={tt}>{it.value}</text> : null}
           </g>
@@ -343,15 +343,15 @@ const CompareDrawing: React.FC<{ spec: ReelExplainer; font: string }> = ({ spec,
           <g key={i}>
             <rect x={cx - 110} y={760 - h * g} width={220} height={h * g} fill={colour} opacity={0.9} />
             <Draw d={`M${cx - 110} 760 V${top} H${cx + 110} V760`} t={prog(frame, 6 + i * 8, 22 + i * 8)} />
-            {it.value ? <text x={cx} y={top - 34} textAnchor="middle" fontFamily={font} fontWeight={700} fontSize={56} fill={INK} opacity={pop}>{it.value}</text> : null}
+            {it.value ? <text x={cx} y={top - 34} textAnchor="middle" fontFamily={font} fontWeight={700} fontSize={56} fill={C.ink} opacity={pop}>{it.value}</text> : null}
             {mark ? (
               <g opacity={pop} transform={`translate(${cx} ${top - (it.value ? 120 : 60)}) scale(${pop})`}>
                 <circle r={34} fill={colour} />
-                <text textAnchor="middle" dominantBaseline="central" fontFamily={font} fontWeight={800} fontSize={40} fill="#fff">{mark}</text>
+                <text textAnchor="middle" dominantBaseline="central" fontFamily={font} fontWeight={800} fontSize={40} fill={markInk(it.verdict)}>{mark}</text>
               </g>
             ) : null}
             {wrap(it.text, 13).map((ln, k) => (
-              <text key={k} x={cx} y={818 + k * 50} textAnchor="middle" fontFamily={font} fontWeight={600} fontSize={42} fill={INK} opacity={prog(frame, 20 + i * 8, 30 + i * 8)}>{ln}</text>
+              <text key={k} x={cx} y={818 + k * 50} textAnchor="middle" fontFamily={font} fontWeight={600} fontSize={42} fill={C.ink} opacity={prog(frame, 20 + i * 8, 30 + i * 8)}>{ln}</text>
             ))}
           </g>
         );
@@ -379,7 +379,7 @@ const FlowDrawing: React.FC<{ spec: ReelExplainer; font: string }> = ({ spec, fo
           <g key={i}>
             <path d={box} fill={i === n - 1 ? zoneColour(spec.verdict === 'none' ? 'none' : spec.verdict) : 'none'} opacity={i === n - 1 ? 0.25 * prog(frame, a + 10, a + 18) : 0} />
             <Draw d={box} t={prog(frame, a, a + 12)} w={5} />
-            <text x={450} y={y} textAnchor="middle" dominantBaseline="central" fontFamily={font} fontWeight={600} fontSize={52} fill={INK} opacity={prog(frame, a + 6, a + 12)}>{it.text}</text>
+            <text x={450} y={y} textAnchor="middle" dominantBaseline="central" fontFamily={font} fontWeight={600} fontSize={52} fill={C.ink} opacity={prog(frame, a + 6, a + 12)}>{it.text}</text>
             {next != null ? (
               <g>
                 <Draw d={`M450 ${y + 70} V${next - 72}`} t={prog(frame, a + 8, a + step + 2)} w={4.5} />
@@ -393,28 +393,65 @@ const FlowDrawing: React.FC<{ spec: ReelExplainer; font: string }> = ({ spec, fo
   );
 };
 
-/* ── points ticking in as they are said ─────────────────────────────────────── */
+/* ── small line icons that picture a point (checklist / flow) — drawn on like the rest ──────────── */
+function iconPaths(name: string, x: number, y: number): string[] {
+  // a 64 × 64 icon centred on (x, y)
+  const L = x - 32;
+  const T = y - 32;
+  switch (name) {
+    case 'material': // three material samples, fanned
+      return [`M${L + 6} ${T + 40} L${L + 34} ${T + 28} L${L + 58} ${T + 40} L${L + 30} ${T + 52} Z`, `M${L + 6} ${T + 30} L${L + 34} ${T + 18} L${L + 58} ${T + 30}`, `M${L + 6} ${T + 20} L${L + 34} ${T + 8} L${L + 58} ${T + 20}`];
+    case 'weather': // sun behind a cloud, rain
+      return [circle(L + 22, T + 20, 10), `M${L + 22} ${T + 2} V${T + 6} M${L + 4} ${T + 20} H${L + 8} M${L + 9} ${T + 7} L${L + 12} ${T + 10}`, `M${L + 20} ${T + 44} Q${L + 18} ${T + 30} ${L + 32} ${T + 30} Q${L + 38} ${T + 20} ${L + 48} ${T + 28} Q${L + 60} ${T + 30} ${L + 56} ${T + 44} Z`, `M${L + 26} ${T + 52} L${L + 23} ${T + 60} M${L + 38} ${T + 52} L${L + 35} ${T + 60} M${L + 50} ${T + 52} L${L + 47} ${T + 60}`];
+    case 'water':
+      return [`M${x} ${T + 4} C${x + 18} ${T + 26} ${x + 22} ${T + 34} ${x + 22} ${T + 42} A22 22 0 0 1 ${x - 22} ${T + 42} C${x - 22} ${T + 34} ${x - 18} ${T + 26} ${x} ${T + 4} Z`];
+    case 'storage': // a cabinet with drawers
+      return [`M${L + 8} ${T + 6} H${L + 56} V${T + 58} H${L + 8} Z`, `M${L + 8} ${T + 24} H${L + 56} M${L + 8} ${T + 42} H${L + 56}`, `M${L + 28} ${T + 15} H${L + 36} M${L + 28} ${T + 33} H${L + 36} M${L + 28} ${T + 51} H${L + 36}`];
+    case 'floor': // tiles in perspective
+      return [`M${L + 2} ${T + 58} L${L + 16} ${T + 14} H${L + 48} L${L + 62} ${T + 58} Z`, `M${L + 9} ${T + 36} H${L + 55} M${L + 27} ${T + 14} L${L + 22} ${T + 58} M${L + 37} ${T + 14} L${L + 42} ${T + 58}`];
+    case 'light': // a pendant lamp and its light
+      return [`M${x} ${T} V${T + 18}`, `M${x - 20} ${T + 34} Q${x} ${T + 10} ${x + 20} ${T + 34} Z`, `M${x - 10} ${T + 44} L${x - 16} ${T + 58} M${x} ${T + 46} V${T + 60} M${x + 10} ${T + 44} L${x + 16} ${T + 58}`];
+    case 'measure': // a ruler
+      return [`M${L + 4} ${T + 22} H${L + 60} V${T + 42} H${L + 4} Z`, `M${L + 14} ${T + 22} V${T + 30} M${L + 24} ${T + 22} V${T + 34} M${L + 34} ${T + 22} V${T + 30} M${L + 44} ${T + 22} V${T + 34} M${L + 54} ${T + 22} V${T + 30}`];
+    case 'time':
+      return [circle(x, y, 26), `M${x} ${y - 16} V${y} L${x + 12} ${y + 8}`];
+    case 'budget': // a coin
+      return [circle(x, y, 26), `M${x + 9} ${y - 10} Q${x} ${y - 16} ${x - 8} ${y - 9} Q${x - 12} ${y - 2} ${x} ${y} Q${x + 12} ${y + 3} ${x + 8} ${y + 10} Q${x} ${y + 16} ${x - 9} ${y + 10} M${x} ${y - 20} V${y + 20}`];
+    case 'plant':
+      return [`M${x} ${T + 60} V${T + 24}`, `M${x} ${T + 40} Q${x - 26} ${T + 36} ${x - 22} ${T + 12} Q${x + 2} ${T + 14} ${x} ${T + 40}`, `M${x} ${T + 32} Q${x + 24} ${T + 30} ${x + 22} ${T + 6} Q${x} ${T + 8} ${x} ${T + 32}`];
+    case 'layout': // a floor plan with a door
+      return [`M${L + 4} ${T + 6} H${L + 60} V${T + 58} H${L + 4} Z`, `M${L + 32} ${T + 6} V${T + 30} M${L + 32} ${T + 44} V${T + 58}`, `M${L + 4} ${T + 32} H${L + 18}`];
+    case 'seat': // a chair
+      return [`M${L + 16} ${T + 4} V${T + 36} H${L + 50}`, `M${L + 16} ${T + 36} V${T + 60} M${L + 48} ${T + 36} V${T + 60}`];
+    case 'style': // a swatch fan
+      return [`M${L + 10} ${T + 56} L${L + 22} ${T + 8} H${L + 34} L${L + 26} ${T + 56} Z`, `M${L + 26} ${T + 56} L${L + 44} ${T + 12} L${L + 54} ${T + 18} L${L + 34} ${T + 58}`];
+    default:
+      return [circle(x, y, 8)];
+  }
+}
+
+/* ── points appearing as they are said, each with a drawing of what it is (not a tick) ────────── */
 const ChecklistDrawing: React.FC<{ spec: ReelExplainer; font: string }> = ({ spec, font }) => {
   const frame = useCurrentFrame();
   const items = (spec.items || []).slice(0, 4);
   const n = items.length;
-  const tickColour = spec.verdict === 'bad' ? BAD : GOOD;
   return (
     <g>
       {items.map((it, k) => {
-        const y = 450 - ((n - 1) * 170) / 2 + k * 170;
+        const y = 450 - ((n - 1) * 175) / 2 + k * 175;
         const a = typeof it.atSec === 'number' ? 2 + Math.round(it.atSec * 30) : 2 + k * 12;
-        const box = `M120 ${y - 44} H208 V${y + 44} H120 Z`;
-        const tick = spec.verdict === 'bad'
-          ? `M136 ${y - 28} L192 ${y + 28} M192 ${y - 28} L136 ${y + 28}`
-          : `M134 ${y + 2} L158 ${y + 28} L198 ${y - 30}`;
-        const tt = prog(frame, a + 4, a + 14);
+        const tile = `M${130} ${y - 62} H${238} Q${262} ${y - 62} ${262} ${y - 38} V${y + 38} Q${262} ${y + 62} ${238} ${y + 62} H${130} Q${106} ${y + 62} ${106} ${y + 38} V${y - 38} Q${106} ${y - 62} ${130} ${y - 62} Z`;
+        const tt = prog(frame, a + 6, a + 16);
         return (
           <g key={k}>
-            <Draw d={box} t={prog(frame, a, a + 10)} w={5} />
-            <Draw d={tick} t={prog(frame, a + 8, a + 16)} w={9} color={tickColour} />
-            <text x={250} y={y} dominantBaseline="central" fontFamily={font} fontWeight={600} fontSize={60} fill={INK} opacity={tt}
-              transform={`translate(${interpolate(tt, [0, 1], [-18, 0])} 0)`}>{it.text}</text>
+            <path d={tile} fill={C.soft} opacity={0.6 * prog(frame, a, a + 10)} />
+            <g transform={`translate(184 ${y}) scale(1.5) translate(-184 ${-y})`}>
+              {iconPaths(it.icon || 'none', 184, y).map((d, j) => (
+                <Draw key={j} d={d} t={prog(frame, a + 2 + j * 2, a + 14 + j * 2)} w={3.4} color={C.ink} />
+              ))}
+            </g>
+            <text x={300} y={y} dominantBaseline="central" fontFamily={font} fontWeight={600} fontSize={58} fill={C.ink} opacity={tt}
+              transform={`translate(0 ${interpolate(tt, [0, 1], [18, 0])})`}>{it.text}</text>
           </g>
         );
       })}
@@ -435,12 +472,12 @@ const OpenPlanDrawing: React.FC<{ spec: ReelExplainer; font: string }> = ({ spec
       <Draw d="M160 590 A90 90 0 0 1 250 680" t={prog(frame, 16, 24)} w={3} />
       {/* the wall: drawn, then erased from the middle out, leaving two stubs */}
       <Draw d="M450 220 V680" t={prog(frame, 6, 18)} w={9} />
-      {wallGone > 0 ? <rect x={438} y={262 + (1 - wallGone) * 188} width={24} height={376 * wallGone} fill={PAPER} /> : null}
-      <path d="M104 224 H796 V676 H104 Z" fill={GOOD} opacity={0.16 * wallGone} />
-      <Draw d="M270 520 C380 420 520 420 630 520" t={prog(frame, 38, 52)} w={4} color={GOOD} />
-      <Draw d="M604 500 L632 522 L600 536" t={prog(frame, 50, 54)} w={4} color={GOOD} />
-      {a ? <text x={275} y={360} textAnchor="middle" fontFamily={font} fontWeight={600} fontSize={50} fill={INK} opacity={prog(frame, 10, 20)}>{a.text}</text> : null}
-      {b ? <text x={625} y={360} textAnchor="middle" fontFamily={font} fontWeight={600} fontSize={50} fill={INK} opacity={prog(frame, 14, 24)}>{b.text}</text> : null}
+      {wallGone > 0 ? <rect x={438} y={262 + (1 - wallGone) * 188} width={24} height={376 * wallGone} fill={C.paper} /> : null}
+      <path d="M104 224 H796 V676 H104 Z" fill={C.good} opacity={0.16 * wallGone} />
+      <Draw d="M270 520 C380 420 520 420 630 520" t={prog(frame, 38, 52)} w={4} color={C.good} />
+      <Draw d="M604 500 L632 522 L600 536" t={prog(frame, 50, 54)} w={4} color={C.good} />
+      {a ? <text x={275} y={360} textAnchor="middle" fontFamily={font} fontWeight={600} fontSize={50} fill={C.ink} opacity={prog(frame, 10, 20)}>{a.text}</text> : null}
+      {b ? <text x={625} y={360} textAnchor="middle" fontFamily={font} fontWeight={600} fontSize={50} fill={C.ink} opacity={prog(frame, 14, 24)}>{b.text}</text> : null}
     </g>
   );
 };
@@ -458,15 +495,16 @@ const StatDrawing: React.FC<{ spec: ReelExplainer; font: string }> = ({ spec, fo
   const colour = zoneColour(spec.verdict);
   return (
     <g>
-      <Draw d={circle(450, 380, 280)} t={prog(frame, 2, 30)} w={6} color={spec.verdict === 'none' ? INK : colour} />
-      <text x={450} y={390} textAnchor="middle" dominantBaseline="central" fontFamily={font} fontWeight={800} fontSize={shown.length > 6 ? 150 : 200} fill={INK} letterSpacing={-4}>{shown}</text>
-      <text x={450} y={760} textAnchor="middle" fontFamily={font} fontWeight={600} fontSize={50} fill={INK} opacity={prog(frame, 26, 36)}>{it.text}</text>
+      <Draw d={circle(450, 380, 280)} t={prog(frame, 2, 30)} w={6} color={spec.verdict === 'none' ? C.ink : colour} />
+      <text x={450} y={390} textAnchor="middle" dominantBaseline="central" fontFamily={font} fontWeight={800} fontSize={shown.length > 6 ? 150 : 200} fill={C.ink} letterSpacing={-4}>{shown}</text>
+      <text x={450} y={760} textAnchor="middle" fontFamily={font} fontWeight={600} fontSize={50} fill={C.ink} opacity={prog(frame, 26, 36)}>{it.text}</text>
     </g>
   );
 };
 
 /* ── the card: badge + title above, the drawing in the middle, the captions below (80 %) ── */
-export const ExplainerScene: React.FC<{ spec: ReelExplainer; durationInFrames: number; font: string; titleFont?: string }> = ({ spec, durationInFrames, font, titleFont }) => {
+export const ExplainerScene: React.FC<{ spec: ReelExplainer; durationInFrames: number; font: string; titleFont?: string; palette?: BrandPalette | null }> = ({ spec, durationInFrames, font, titleFont, palette }) => {
+  Object.assign(C, drawPalette(palette));
   const frame = useCurrentFrame();
   const out = interpolate(frame, [durationInFrames - 5, durationInFrames], [1, 0], clamp);
   const settle = prog(frame, 0, 20);
@@ -482,18 +520,18 @@ export const ExplainerScene: React.FC<{ spec: ReelExplainer; durationInFrames: n
   else if (spec.scene === 'open_plan') drawing = <OpenPlanDrawing spec={spec} font={font} />;
   else if (spec.scene === 'stat') drawing = <StatDrawing spec={spec} font={font} />;
   return (
-    <AbsoluteFill style={{ background: PAPER, opacity: out }}>
+    <AbsoluteFill style={{ background: C.paper, opacity: out }}>
       <div style={{ position: 'absolute', top: hasBadge ? '6.5%' : '9%', left: 0, right: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 20 }}>
         {hasBadge ? (
           <div style={{
-            width: 112, height: 112, borderRadius: 999, background: spec.verdict === 'good' ? GOOD : BAD, color: '#fff',
+            width: 112, height: 112, borderRadius: 999, background: spec.verdict === 'good' ? C.good : C.bad, color: markInk(spec.verdict),
             display: 'grid', placeItems: 'center', fontSize: 68, fontWeight: 800, fontFamily: font,
             boxShadow: '0 10px 30px rgba(0,0,0,0.14)', transform: `scale(${badge})`,
           }}>{spec.verdict === 'good' ? '✓' : '✕'}</div>
         ) : null}
         {spec.title ? (
           <div style={{
-            fontFamily: titleFont || font, fontSize: 54, fontWeight: 700, color: INK, letterSpacing: -0.6, textAlign: 'center', maxWidth: '84%',
+            fontFamily: titleFont || font, fontSize: 54, fontWeight: 700, color: C.ink, letterSpacing: -0.6, textAlign: 'center', maxWidth: '84%',
             opacity: title, transform: `translateY(${interpolate(title, [0, 1], [14, 0])}px)`,
           }}>{spec.title}</div>
         ) : null}

@@ -30,6 +30,9 @@ const LIGHT_SUBJECTS = ['ceiling', 'pendant', 'under_cabinet', 'wall', 'lamp'];
 const FIGURES = ['standing', 'seated', 'foot', 'none'];
 const DIMENSIONS = ['height', 'depth', 'gap', 'width', 'none'];
 const VERDICTS = ['good', 'bad', 'none'];
+// what a checklist / flow point SHOWS (a small line icon drawn for it) — a point that can't be pictured
+// is not a checklist point
+const ICONS = ['material', 'weather', 'water', 'storage', 'floor', 'light', 'measure', 'time', 'budget', 'plant', 'layout', 'seat', 'style', 'none'];
 
 const EXPLAINER_TOOL = {
   name: 'design_explainers',
@@ -52,7 +55,7 @@ const EXPLAINER_TOOL = {
         verdict: { type: 'string', enum: VERDICTS },
         items: {
           type: 'array',
-          items: o({ text: { type: 'string' }, value: { type: 'string' }, verdict: { type: 'string', enum: VERDICTS }, at: { type: 'integer' } }),
+          items: o({ text: { type: 'string' }, value: { type: 'string' }, verdict: { type: 'string', enum: VERDICTS }, at: { type: 'integer' }, icon: { type: 'string', enum: ICONS } }),
         },
         why: { type: 'string' },
         strength: { type: 'integer' },
@@ -183,13 +186,17 @@ function cleanExplainers(list, words, { hookEndSec = 1.5 } = {}) {
           value: saidValue(it?.value, near, all),
           verdict: VERDICTS.includes(it?.verdict) ? it.verdict : 'none',
           at: Math.round(num(it?.at, -1)),
+          icon: ICONS.includes(it?.icon) ? it.icon : 'none',
         })).filter((it) => it.text || it.value);
         if (x.scene === 'compare') {
           if (items.length < 2) return;
           spec.items = items.slice(0, 2);
         } else if (x.scene === 'flow' || x.scene === 'checklist') {
           if (items.length < 2) return;
-          spec.items = items.slice(0, 4).map((it) => ({ text: it.text, value: '', verdict: 'none', at: it.at }));
+          // a checklist must SHOW its points (studio review 2026-11-24: a tick explains nothing):
+          // at least half of the points need a picture, else it is decoration and is dropped
+          if (x.scene === 'checklist' && items.filter((it) => it.icon !== 'none').length < Math.ceil(items.length / 2)) return;
+          spec.items = items.slice(0, 4).map((it) => ({ text: it.text, value: '', verdict: 'none', at: it.at, icon: it.icon }));
         } else if (x.scene === 'open_plan') {
           if (items.length < 2) return;
           spec.items = items.slice(0, 2).map((it) => ({ text: it.text, value: '', verdict: 'none' }));

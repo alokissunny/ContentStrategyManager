@@ -15,6 +15,7 @@
 import React from 'react';
 import { AbsoluteFill, interpolate, Easing, useCurrentFrame } from 'remotion';
 import type { ReelSpec, ReelScene, ReelCaption } from './reelSchema';
+import { drawPalette, type BrandPalette } from './brandPalette';
 
 const clamp = { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' } as const;
 const ease = Easing.bezier(0.22, 1, 0.36, 1);
@@ -204,7 +205,7 @@ export const NarrativeEnd: React.FC<{ spec: ReelSpec; font: string }> = ({ spec,
    captions while it shows. Where a caption sits, its ink and whether it is on a drawing card are fixed
    once per caption (no jumping mid-caption); captions that follow closely hand over without a blank. */
 type Chapter = { text: string; fromFrame: number; durationInFrames: number };
-export const TwoVoiceCaptions: React.FC<{ captions: ReelCaption[]; scenes: ReelScene[]; endFrame: number; faces: { heading: string; body: string; detail: string }; chapters?: Chapter[]; startFrame?: number }> = ({ captions, scenes, endFrame, faces, chapters = [], startFrame = 0 }) => {
+export const TwoVoiceCaptions: React.FC<{ captions: ReelCaption[]; scenes: ReelScene[]; endFrame: number; faces: { heading: string; body: string; detail: string }; chapters?: Chapter[]; startFrame?: number; cardInk?: string }> = ({ captions, scenes, endFrame, faces, chapters = [], startFrame = 0, cardInk }) => {
   const frame = useCurrentFrame();
   if (frame >= endFrame || frame < startFrame) return null;
   const k = captions.findIndex((c, i) => {
@@ -222,7 +223,7 @@ export const TwoVoiceCaptions: React.FC<{ captions: ReelCaption[]; scenes: ReelS
   const onCard = cue.onCard ?? Boolean(under?.card || under?.explainer);
   const pos = onCard ? 'lower' : (cue.pos || 'top');
   const top = onCard ? 80 : pos === 'top' ? 17 : pos === 'center' ? 50 : 74;
-  const ink = onCard ? '#1d1d1f' : (cue.ink || '#fff');
+  const ink = onCard ? (cardInk || '#1d1d1f') : (cue.ink || '#fff');
   const shadow = textShadowFor(ink, cue.scrim, onCard);
   const keyInk = cue.keyColor || ink;
   // a captions-first start: the caption that is running when the hook ends appears whole
@@ -303,20 +304,21 @@ export const ChapterTitle: React.FC<{ text: string; durationInFrames: number; fo
 };
 
 /* ── ✓/✗ explainer card (motion agent's `verdict`): the photo inset on white, a badge and a title ── */
-export const VerdictCard: React.FC<{ card: { verdict: 'good' | 'bad'; title: string }; font: string; children: React.ReactNode }> = ({ card, font, children }) => {
+export const VerdictCard: React.FC<{ card: { verdict: 'good' | 'bad'; title: string }; font: string; children: React.ReactNode; palette?: BrandPalette | null }> = ({ card, font, children, palette }) => {
+  const P = drawPalette(palette);
   const frame = useCurrentFrame();
   const t = interpolate(frame, [0, 10], [0, 1], { ...clamp, easing: ease });
   const badge = interpolate(frame, [4, 14], [0, 1], { ...clamp, easing: Easing.out(Easing.back(2)) });
   const good = card.verdict === 'good';
   return (
-    <AbsoluteFill style={{ background: '#f6f5f2', opacity: t }}>
+    <AbsoluteFill style={{ background: P.paper, opacity: t }}>
       <div style={{ position: 'absolute', top: '9%', left: 0, right: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 22 }}>
         <div style={{
-          width: 120, height: 120, borderRadius: 999, background: good ? '#2fa84f' : '#e0403a', color: '#fff',
+          width: 120, height: 120, borderRadius: 999, background: good ? P.good : P.bad, color: good ? P.onGood : P.paper,
           display: 'grid', placeItems: 'center', fontSize: 74, fontWeight: 800, fontFamily: font,
           boxShadow: '0 10px 30px rgba(0,0,0,0.15)', transform: `scale(${badge})`,
         }}>{good ? '✓' : '✕'}</div>
-        <div style={{ fontFamily: font, fontSize: 56, fontWeight: 700, color: '#1d1d1f', letterSpacing: -0.6, textAlign: 'center', maxWidth: '82%' }}>{card.title}</div>
+        <div style={{ fontFamily: font, fontSize: 56, fontWeight: 700, color: P.ink, letterSpacing: -0.6, textAlign: 'center', maxWidth: '82%' }}>{card.title}</div>
       </div>
       <div style={{
         position: 'absolute', left: '8%', right: '8%', top: '28%', height: '44%', borderRadius: 28, overflow: 'hidden',

@@ -36,9 +36,15 @@ fix, a design rule, why a choice works) have one or two such moments — "light 
 the room" is a `light` drawing; "four challenges: …" is a `checklist`; "we opened the kitchen to the
 living room" is an `open_plan`.
 
+MEANING, NOT DECORATION (the studio's review): a drawing must SHOW the idea — the recess that saves the
+toes, the light that falls on the worktop, the wall that opens up. A tick next to a phrase, or a box with
+the words in it, only repeats what is said; that is decoration. If the footage on screen already shows the
+thing (a material, a finish, a piece of furniture), the photo is the explanation — don't draw over it.
+Colours come from the studio's Brand Kit (Bauhly sets them); you never choose colours.
+
 LIST EVERY CANDIDATE (up to 5), each with a `strength` 1–5 — Bauhly picks from them:
-5 = the drawing IS the explanation (a said measurement, a counted list, right vs wrong);
-4 = it makes a spoken idea much clearer (how light falls, how two rooms connect, a process);
+5 = the drawing IS the explanation (a said measurement, right vs wrong, how light falls);
+4 = it makes a spoken idea much clearer (how two rooms connect, a process, a list whose points can each be pictured);
 3 = it clearly helps a point that is otherwise only said;
 2 = it would help a little;  1 = decorative — don't list it.
 Return an empty list only when the reel has nothing a drawing could explain (only feelings, only a tour).
@@ -61,8 +67,13 @@ THE DRAWINGS YOU CAN ORDER (`scene`):
   {text: ≤ 3 words, value: a said number or "", verdict: bad|good, at: -1}.
 - `flow` — 2–4 steps or places joined by drawn arrows. `items`: {text: ≤ 3 words, value: "", verdict: none,
   at: the index of the word where that step is said}.
-- `checklist` — 2–4 points ticking in one by one. `items`: {text: ≤ 3 words, value: "", verdict: none,
-  at: the index of the word where that point is said}. `verdict` good when the points are what was done.
+- `checklist` — 2–4 points appearing one by one, EACH WITH A LITTLE DRAWING OF WHAT IT IS (`icon`), not a
+  tick. `items`: {text: ≤ 3 words, value: "", verdict: none, at: the index of the word where that point is
+  said, icon}. icons: material (a stack of material samples) · weather (sun and rain) · water (a drop) ·
+  storage (a cabinet) · floor (tiles) · light (a lamp) · measure (a ruler) · time (a clock) · budget (a
+  coin) · plant · layout (a floor plan) · seat (a chair) · style (a swatch) · none. Pick the icon that
+  pictures the point ("durable materials" → material, "weather-proof" → weather, "keep the existing
+  floor" → floor, "storage" → storage). A point no icon can picture → that list is not a checklist.
 - `open_plan` — two rooms side by side in plan; the wall between them erases. `items`: exactly 2 rooms,
   {text: the room's name (≤ 2 words), value: "", verdict: none, at: -1}. `verdict`: good.
 - `stat` — one big number counting up with a short line under it. `items`: exactly 1,

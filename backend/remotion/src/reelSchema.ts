@@ -71,7 +71,7 @@ export type ReelExplainer = {
   dimension2?: 'height' | 'depth' | 'gap' | 'width' | 'none';
   value2?: string;
   label?: string;
-  items?: { text: string; value: string; verdict: 'good' | 'bad' | 'none'; atSec?: number }[]; // atSec: when the item is said
+  items?: { text: string; value: string; verdict: 'good' | 'bad' | 'none'; atSec?: number; icon?: string }[]; // atSec: when the item is said; icon: what it pictures
 };
 
 export type ReelCaptionWord = { text: string; fromFrame: number; toFrame: number; em?: boolean };
@@ -118,7 +118,7 @@ export type MotionTimeline = {
 
 export type ReelSpec = {
   format: { width: number; height: number; fps: number; durationInFrames: number };
-  brand: { accent: string; accentInk: string; headlineFont?: string; bodyFont?: string; ground?: string; fg?: string; fonts?: import('./brandFonts').BrandFonts };
+  brand: { accent: string; accentInk: string; headlineFont?: string; bodyFont?: string; ground?: string; fg?: string; fonts?: import('./brandFonts').BrandFonts; palette?: import('./brandPalette').BrandPalette };
   hook?: { text: string; emphasis?: string; durationInFrames: number; ink?: string; scrim?: 'dark' | 'light' };
   scenes: ReelScene[];
   captions: ReelCaption[];

@@ -22,6 +22,7 @@ import type { ReelSpec, ReelScene, ReelCaption } from './reelSchema';
 import { MotionReel } from './MotionReel';
 import { ExplainerScene } from './explainers';
 import { useReelFaces } from './brandFonts';
+import { drawPalette } from './brandPalette';
 import { Cutaway, NarrativeCaptions, NarrativeEnd, TitleHook, Vignette, GRADE_INSERT, GRADE_SPEAKER, splitAmount, splitWindows, TwoVoiceCaptions, ChapterTitle, VerdictCard, SpeakerIn } from './narrative';
 
 const clamp = { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' } as const;
@@ -306,9 +307,9 @@ const NarrativeReel: React.FC<{ reel: ReelSpec }> = ({ reel }) => {
         <Sequence key={`c${i}`} from={s.from} durationInFrames={s.durationInFrames} layout="none">
           <Cutaway scene={s} split={split}>
             {s.explainer ? (
-              <ExplainerScene spec={s.explainer} durationInFrames={s.durationInFrames} font={font} titleFont={faces.heading} />
+              <ExplainerScene spec={s.explainer} durationInFrames={s.durationInFrames} font={font} titleFont={faces.heading} palette={reel.brand.palette} />
             ) : s.card ? (
-              <VerdictCard card={s.card} font={font}>
+              <VerdictCard card={s.card} font={font} palette={reel.brand.palette}>
                 <SceneFrame scene={s} fps={fps} grade={[s.graded ? '' : grade, GRADE_INSERT].filter(Boolean).join(' ')} accent={reel.brand.accent} ink={reel.brand.accentInk} minimal />
               </VerdictCard>
             ) : (
@@ -331,7 +332,7 @@ const NarrativeReel: React.FC<{ reel: ReelSpec }> = ({ reel }) => {
         </Sequence>
       )) : null}
       {look.captions === 'twovoice'
-        ? <TwoVoiceCaptions captions={reel.captions} scenes={reel.scenes} endFrame={endFrom} faces={faces} chapters={reel.chapters || []} startFrame={reel.hook?.text ? reel.hook.durationInFrames : 0} />
+        ? <TwoVoiceCaptions captions={reel.captions} scenes={reel.scenes} endFrame={endFrom} faces={faces} chapters={reel.chapters || []} startFrame={reel.hook?.text ? reel.hook.durationInFrames : 0} cardInk={drawPalette(reel.brand.palette).ink} />
         : <NarrativeCaptions captions={reel.captions} scenes={reel.scenes} font={font} endFrame={endFrom} accent={reel.brand.accent} />}
       {reel.cta && look.endCard !== 'none' ? (
         <Sequence from={reel.cta.fromFrame} durationInFrames={reel.cta.durationInFrames}>
