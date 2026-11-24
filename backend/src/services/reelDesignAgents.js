@@ -29,7 +29,9 @@ const clampN = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 const str = (v, max = 80) => (typeof v === 'string' ? v.replace(/\s+/g, ' ').trim().slice(0, max) : '');
 const o = (properties) => ({ type: 'object', additionalProperties: false, properties, required: Object.keys(properties) });
 
-const KEY_STYLES = ['condensed', 'serif', 'spaced', 'none'];
+// one face (the Brand Kit heading font) for every key word — the style only sets weight, size and spacing
+const KEY_STYLES = ['strong', 'soft', 'spaced', 'none'];
+const LEGACY_KEY = { condensed: 'strong', serif: 'soft' };
 const POSITIONS = ['top', 'lower', 'center'];
 const KEY_COLORS = ['ink', 'accent', 'fg', 'ground'];
 const GRAPHIC_TYPES = ['none', 'label', 'arrow', 'circle', 'spotlight', 'measure', 'verdict'];
@@ -124,7 +126,7 @@ function cleanCaptions(list, words, palette = null) {
   const taken = new Array(n).fill(false);
   const out = [];
   (Array.isArray(list) ? list : [])
-    .map((c) => ({ from: Math.round(num(c?.from, -1)), to: Math.round(num(c?.to, -1)), key: Math.round(num(c?.key, -1)), keyStyle: c?.keyStyle, position: c?.position, keyColor: c?.keyColor }))
+    .map((c) => ({ from: Math.round(num(c?.from, -1)), to: Math.round(num(c?.to, -1)), key: Math.round(num(c?.key, -1)), keyStyle: LEGACY_KEY[c?.keyStyle] || c?.keyStyle, position: c?.position, keyColor: c?.keyColor }))
     .filter((c) => c.from >= 0 && c.to >= c.from && c.to < n && c.to - c.from < 6)
     .sort((a, b) => a.from - b.from)
     .forEach((c) => {
@@ -152,7 +154,17 @@ function cleanCaptions(list, words, palette = null) {
     out.push({ from, to, key: -1, keyStyle: 'none', position: null, keyColor: 'ink' });
     k = to + 1;
   }
-  return out.sort((a, b) => a.from - b.from);
+  out.sort((a, b) => a.from - b.from);
+  // calm hierarchy (studio review 2026-11-24): never three key-word captions in a row, and key words on
+  // at most ~half of the captions (the later ones in a run lose theirs first)
+  const plain = (c) => { c.key = -1; c.keyStyle = 'none'; c.keyColor = 'ink'; };
+  for (let i = 2; i < out.length; i += 1) if (out[i].key >= 0 && out[i - 1].key >= 0 && out[i - 2].key >= 0) plain(out[i]);
+  const cap = Math.ceil(out.length * 0.55);
+  let keyed = out.filter((c) => c.key >= 0).length;
+  for (let i = out.length - 1; i > 0 && keyed > cap; i -= 1) {
+    if (out[i].key >= 0 && out[i - 1].key >= 0) { plain(out[i]); keyed -= 1; }
+  }
+  return out;
 }
 
 /**

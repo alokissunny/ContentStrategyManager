@@ -983,7 +983,8 @@ async function directDialogueReel({ reel, material, story, brand, handle }) {
           toFrame: Math.max(fromFrame + 8, frames(end)),
           key: cue.key >= 0 ? cue.key - cue.from : -1,
           keyStyle: cue.keyStyle,
-          pos: cue.position || (onScreen === 'speaker' ? 'top' : onScreen === 'split' ? 'center' : 'lower'),
+          // position follows the shot, always (studio review 2026-11-24: captions hopping on one shot read as flicker)
+          pos: onScreen === 'speaker' ? 'top' : onScreen === 'split' ? 'center' : 'lower',
           keyColorRole: cue.key >= 0 ? cue.keyColor : 'ink',
           words: ws.map((w, j) => ({
             text: w.text.replace(/^[^\p{L}\p{N}$#@"“'‘]+|[,;:]+$/gu, ''),
@@ -1009,8 +1010,34 @@ async function directDialogueReel({ reel, material, story, brand, handle }) {
         focusX: sc.focusX, focusY: sc.focusY, zoom: sc.zoom, crop: sc.crop,
       };
     };
+    // one focus at a time (studio review 2026-11-24): a chapter label that only repeats what is being
+    // said right then adds nothing — it goes
+    for (let k = chapters.length - 1; k >= 0; k -= 1) {
+      const ch = chapters[k];
+      const said = new Set(spokenWords
+        .filter((w) => w.start * fps >= ch.fromFrame - fps * 1.5 && w.start * fps < ch.fromFrame + ch.durationInFrames + fps * 0.5)
+        .map((w) => normWord(w.text)).filter(Boolean));
+      const content = words(ch.text).map(normWord).filter((w) => w && w.length > 2);
+      if (content.length && content.filter((w) => said.has(w)).length >= Math.ceil(content.length / 2)) chapters.splice(k, 1);
+    }
+    const hookFrames = Math.max(shift + frames(0.6), frames(clampN(0.6 + words(plan.hook.text).length * 0.22, 1.3, 2.2)));
+    // the kit's fonts as the renderer loads them: a stylesheet (Google / Fontshare) or the uploaded file
+    const reelFonts = await (async () => {
+      const f = brandKit.fonts;
+      if (!f) return null;
+      const out = {};
+      for (const role of ['heading', 'body', 'detail']) {
+        const v = f[role];
+        if (!v?.family) continue;
+        // eslint-disable-next-line no-await-in-loop
+        const url = v.fileKey ? await getMediaUrl(v.fileKey).catch(() => '') : '';
+        out[role] = { family: v.family, stack: v.stack || `'${v.family}', sans-serif`, ...(v.stylesheet ? { css: v.stylesheet } : {}), ...(url ? { url } : {}) };
+      }
+      return Object.keys(out).length ? out : null;
+    })();
+    const hookSpec = plan.hook.text ? { text: plan.hook.text, emphasis: plan.hook.emphasis, durationInFrames: hookFrames } : null;
     const contrast = await require('./reelCaptionContrast').applyCaptionContrast({
-      captions, chapters, sceneAt, palette,
+      captions, chapters, hook: hookSpec, sceneAt, palette,
       helpers: { clipFile: agent()._clipFile, ffmpegPath: agent()._ffmpegPath },
     }).catch((err) => { console.warn(`[reelFormat] ${reel._id} caption contrast failed:`, err.message); return null; });
     if (contrast) {
@@ -1021,7 +1048,6 @@ async function directDialogueReel({ reel, material, story, brand, handle }) {
     inserts.forEach((c) => { delete c._asset; delete c._beat; });
     [...speaker, ...cutaways].forEach((c) => { delete c._src; });
     const accent = liftAccent(brandKit.accent || '#FFFFFF');
-    const hookFrames = Math.max(shift + frames(0.6), frames(clampN(0.6 + words(plan.hook.text).length * 0.22, 1.3, 2.2)));
     // narrative typography (studio's reference, 2026-11-21): a calm title, small words, the key word large
     const look = { ...require('./reelStyleRun').lookOf(style), hook: 'title', captions: capOut?.cues?.length ? 'twovoice' : 'narrative', progress: false };
     return {
@@ -1033,8 +1059,10 @@ async function directDialogueReel({ reel, material, story, brand, handle }) {
           accentInk: _luminance(accent) > 0.45 ? '#111111' : '#FFFFFF',
           headlineFont: brandKit.headlineFont || '',
           bodyFont: brandKit.bodyFont || '',
+          // Brand Kit typography for every word (studio review 2026-11-24: "use only the Brand Kit fonts")
+          ...(reelFonts ? { fonts: reelFonts } : {}),
         },
-        ...(plan.hook.text ? { hook: { text: plan.hook.text, emphasis: plan.hook.emphasis, durationInFrames: hookFrames } } : {}),
+        ...(hookSpec ? { hook: hookSpec } : {}),
         // speaker shots first, cutaways after: later scenes draw on top
         scenes: [...speaker, ...cutaways],
         captions,

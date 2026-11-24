@@ -21,6 +21,7 @@ import { cameraAt, zoomPunchAt, SceneAnnotations } from './teaserFx';
 import type { ReelSpec, ReelScene, ReelCaption } from './reelSchema';
 import { MotionReel } from './MotionReel';
 import { ExplainerScene } from './explainers';
+import { useReelFaces } from './brandFonts';
 import { Cutaway, NarrativeCaptions, NarrativeEnd, TitleHook, Vignette, GRADE_INSERT, GRADE_SPEAKER, splitAmount, splitWindows, TwoVoiceCaptions, ChapterTitle, VerdictCard, SpeakerIn } from './narrative';
 
 const clamp = { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' } as const;
@@ -281,8 +282,9 @@ const NarrativeReel: React.FC<{ reel: ReelSpec }> = ({ reel }) => {
   const { fps } = useVideoConfig();
   const look = reel.look!;
   const grade = GRADE[look.grade];
-  // a clean sans whatever the Brand Kit's body face is (the reference's captions are a plain grotesk)
-  const font = LOOK_FONTS.sans;
+  // the Brand Kit's three type roles for every word (heading / body / detail); shipped faces when unset
+  const faces = useReelFaces(reel.brand.fonts);
+  const font = faces.fromKit ? faces.body : LOOK_FONTS.sans;
   const windows = React.useMemo(() => splitWindows(reel.scenes), [reel.scenes]);
   const split = splitAmount(windows, frame);
   const speakers = reel.scenes.filter((s) => s.speaker);
@@ -304,7 +306,7 @@ const NarrativeReel: React.FC<{ reel: ReelSpec }> = ({ reel }) => {
         <Sequence key={`c${i}`} from={s.from} durationInFrames={s.durationInFrames} layout="none">
           <Cutaway scene={s} split={split}>
             {s.explainer ? (
-              <ExplainerScene spec={s.explainer} durationInFrames={s.durationInFrames} font={font} />
+              <ExplainerScene spec={s.explainer} durationInFrames={s.durationInFrames} font={font} titleFont={faces.heading} />
             ) : s.card ? (
               <VerdictCard card={s.card} font={font}>
                 <SceneFrame scene={s} fps={fps} grade={[s.graded ? '' : grade, GRADE_INSERT].filter(Boolean).join(' ')} accent={reel.brand.accent} ink={reel.brand.accentInk} minimal />
@@ -317,18 +319,19 @@ const NarrativeReel: React.FC<{ reel: ReelSpec }> = ({ reel }) => {
       ))}
       {reel.hook?.text ? (
         <Sequence from={0} durationInFrames={reel.hook.durationInFrames}>
-          <TitleHook spec={reel} font={font} />
+          <TitleHook spec={reel} font={font} faces={look.captions === 'twovoice' ? faces : undefined} />
         </Sequence>
       ) : null}
       {/* the edge vignette is for photos: a drawing card stays clean paper */}
       {over.some((s) => s.explainer && frame >= s.from && frame < s.from + s.durationInFrames) ? null : <Vignette />}
-      {(reel.chapters || []).map((c, i) => (
+      {/* two-voice reels: a chapter is a small label above the caption (one text block at a time) */}
+      {look.captions !== 'twovoice' ? (reel.chapters || []).map((c, i) => (
         <Sequence key={`ch${i}`} from={c.fromFrame} durationInFrames={c.durationInFrames}>
-          <ChapterTitle text={c.text} durationInFrames={c.durationInFrames} font={CAPTION_FACES.condensed} ink={c.ink} scrim={c.scrim} />
+          <ChapterTitle text={c.text} durationInFrames={c.durationInFrames} font={faces.heading} ink={c.ink} scrim={c.scrim} />
         </Sequence>
-      ))}
+      )) : null}
       {look.captions === 'twovoice'
-        ? <TwoVoiceCaptions captions={reel.captions} scenes={reel.scenes} endFrame={endFrom} faces={CAPTION_FACES} chapters={reel.chapters || []} />
+        ? <TwoVoiceCaptions captions={reel.captions} scenes={reel.scenes} endFrame={endFrom} faces={faces} chapters={reel.chapters || []} startFrame={reel.hook?.text ? reel.hook.durationInFrames : 0} />
         : <NarrativeCaptions captions={reel.captions} scenes={reel.scenes} font={font} endFrame={endFrom} accent={reel.brand.accent} />}
       {reel.cta && look.endCard !== 'none' ? (
         <Sequence from={reel.cta.fromFrame} durationInFrames={reel.cta.durationInFrames}>

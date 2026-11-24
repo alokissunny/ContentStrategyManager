@@ -466,7 +466,7 @@ const StatDrawing: React.FC<{ spec: ReelExplainer; font: string }> = ({ spec, fo
 };
 
 /* ── the card: badge + title above, the drawing in the middle, the captions below (80 %) ── */
-export const ExplainerScene: React.FC<{ spec: ReelExplainer; durationInFrames: number; font: string }> = ({ spec, durationInFrames, font }) => {
+export const ExplainerScene: React.FC<{ spec: ReelExplainer; durationInFrames: number; font: string; titleFont?: string }> = ({ spec, durationInFrames, font, titleFont }) => {
   const frame = useCurrentFrame();
   const out = interpolate(frame, [durationInFrames - 5, durationInFrames], [1, 0], clamp);
   const settle = prog(frame, 0, 20);
@@ -493,7 +493,7 @@ export const ExplainerScene: React.FC<{ spec: ReelExplainer; durationInFrames: n
         ) : null}
         {spec.title ? (
           <div style={{
-            fontFamily: font, fontSize: 54, fontWeight: 700, color: INK, letterSpacing: -0.6, textAlign: 'center', maxWidth: '84%',
+            fontFamily: titleFont || font, fontSize: 54, fontWeight: 700, color: INK, letterSpacing: -0.6, textAlign: 'center', maxWidth: '84%',
             opacity: title, transform: `translateY(${interpolate(title, [0, 1], [14, 0])}px)`,
           }}>{spec.title}</div>
         ) : null}

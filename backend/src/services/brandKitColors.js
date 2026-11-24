@@ -118,6 +118,8 @@ function faceInfo(id, ownFonts) {
     stack: `'${family}', ${SHIPPED_FACES.ui.stack}`,
     stylesheet: '',
     note: "the studio's own uploaded font — the app loads the file; do not try to load it",
+    // the uploaded file (S3 key) — reels load it into the renderer; stripped before the carousel prompt
+    ...(typeof own.key === 'string' && own.key ? { fileKey: own.key } : {}),
   };
 }
 
@@ -160,9 +162,13 @@ async function brandKitFonts(userId, handle) {
 function brandStyleFonts(fonts) {
   if (!fonts) return null;
   const stylesheets = [...new Set(Object.values(fonts).map((f) => f.stylesheet).filter(Boolean))];
+  const forPrompt = Object.fromEntries(Object.entries(fonts).map(([k, v]) => {
+    const { fileKey, ...rest } = v || {}; // eslint-disable-line no-unused-vars
+    return [k, rest];
+  }));
   return {
     source: 'Brand Kit Typography — chosen by the studio; use exactly these families for these roles',
-    ...fonts,
+    ...forPrompt,
     ...(stylesheets.length ? { stylesheets } : {}),
   };
 }

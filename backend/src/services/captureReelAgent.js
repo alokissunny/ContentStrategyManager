@@ -1198,6 +1198,8 @@ async function runCaptureReel(reelId) {
       // the kit's text + background roles too: the caption agent may colour a key word with them
       fg: colors?.fg || '',
       ground: colors?.ground || '',
+      // the kit's three type roles (heading / body / detail) — every word of a talking reel uses them
+      fonts: fonts || null,
       headlineFont: fonts?.heading?.family || '',
       bodyFont: fonts?.body?.family || '',
     };

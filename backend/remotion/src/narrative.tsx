@@ -70,29 +70,57 @@ export const Cutaway: React.FC<{ scene: ReelScene; split: number; children: Reac
   return <AbsoluteFill style={style}>{children}</AbsoluteFill>;
 };
 
-/* ── the hook: a calm title card ────────────────────────────────────────────── */
-export const TitleHook: React.FC<{ spec: ReelSpec; font: string }> = ({ spec, font }) => {
+/* ══ ONE MOTION LANGUAGE for every word in a talking reel (studio review, 2026-11-24) ══════════════
+   "All text should use the same animation style and feel, with a very smooth ease-in." Hook, captions
+   and chapter labels share it: each word rises a little (22 px) while it fades in, on a long soft
+   ease-out, a few frames before it is said; a block leaves by fading while drifting up a touch. Sizes
+   and faces vary with meaning — the motion never does. No boxes, no glow blobs. */
+export const TEXT_MOTION = { rise: 22, inFrames: 10, lead: 2, stagger: 3, outFrames: 7, ease: Easing.bezier(0.16, 1, 0.3, 1) };
+export const wordIn = (frame: number, at: number) => {
+  const t = interpolate(frame, [at - TEXT_MOTION.lead, at - TEXT_MOTION.lead + TEXT_MOTION.inFrames], [0, 1], { ...clamp, easing: TEXT_MOTION.ease });
+  return { opacity: t, transform: `translateY(${(1 - t) * TEXT_MOTION.rise}px)` };
+};
+export const blockOut = (frame: number, end: number) => {
+  const t = interpolate(frame, [end - TEXT_MOTION.outFrames, end], [0, 1], { ...clamp, easing: Easing.bezier(0.4, 0, 1, 1) });
+  return { opacity: 1 - t, transform: `translateY(${-t * 8}px)` };
+};
+/* a shadow only where the picture needs it (contrast measured per caption in reelCaptionContrast.js) */
+export const textShadowFor = (ink: string, scrim?: 'dark' | 'light', onCard = false) => {
+  if (onCard) return 'none';
+  const white = ink.toUpperCase() === '#FFF' || ink.toUpperCase() === '#FFFFFF';
+  if (scrim === 'dark') return '0 1px 2px rgba(0,0,0,0.35), 0 2px 10px rgba(0,0,0,0.35)';
+  if (scrim === 'light') return '0 0 8px rgba(255,255,255,0.55)';
+  return white ? '0 1px 2px rgba(0,0,0,0.22)' : 'none';
+};
+
+/* ── the hook: the first words, in the caption system (no card) — lead words + one key word ───────── */
+export const TitleHook: React.FC<{ spec: ReelSpec; font: string; faces?: { heading: string; body: string; detail: string } }> = ({ spec, font, faces }) => {
   const frame = useCurrentFrame();
   const hook = spec.hook;
   if (!hook?.text) return null;
-  const tin = interpolate(frame, [2, 12], [0, 1], { ...clamp, easing: ease });
-  const tout = interpolate(frame, [hook.durationInFrames - 7, hook.durationInFrames], [1, 0], clamp);
   const lit = (hook.emphasis || '').toLowerCase();
-  const n = hook.text.split(/\s+/).length;
+  const ws = hook.text.split(/\s+/);
+  const ink = hook.ink || '#fff';
+  const shadow = textShadowFor(ink, hook.scrim);
+  const out = blockOut(frame, hook.durationInFrames);
   return (
-    <AbsoluteFill>
+    <AbsoluteFill style={{ pointerEvents: 'none' }}>
       <div style={{
-        position: 'absolute', top: '34%', left: '50%', translate: '-50% -50%', width: 'max-content',
-        maxWidth: '80%', padding: '22px 34px 26px', borderRadius: 24, background: 'rgba(255,255,255,0.96)',
-        color: '#111', fontFamily: font, fontWeight: 600, fontSize: n <= 4 ? 64 : 56, lineHeight: 1.16,
-        letterSpacing: -0.6, textAlign: 'center', boxShadow: '0 12px 40px rgba(0,0,0,0.22)',
-        opacity: tin * tout, transform: `translateY(${interpolate(tin, [0, 1], [18, 0])}px)`,
+        position: 'absolute', left: '8%', right: '8%', top: '22%', transform: `translateY(-50%) ${out.transform}`, opacity: out.opacity,
+        display: 'flex', flexWrap: 'wrap', justifyContent: 'center', alignItems: 'baseline', columnGap: 18, rowGap: 2, textAlign: 'center',
       }}>
-        {hook.text.split(/\s+/).map((w, i) => (
-          <span key={i} style={{ fontWeight: lit && w.toLowerCase().replace(/[^\p{L}\p{N}']/gu, '') === lit ? 800 : 600 }}>
-            {i ? ' ' : ''}{w}
-          </span>
-        ))}
+        {ws.map((w, i) => {
+          const key = lit && w.toLowerCase().replace(/[^\p{L}\p{N}']/gu, '') === lit;
+          const m = wordIn(frame, 4 + i * TEXT_MOTION.stagger);
+          return (
+            <span key={i} style={{
+              display: 'inline-block', color: ink, textShadow: shadow, ...m,
+              ...(key && faces
+                ? { fontFamily: faces.heading, fontSize: 100, fontWeight: 800, lineHeight: 1, letterSpacing: -1.5 }
+                : { fontFamily: faces?.body || font, fontSize: 60, fontWeight: 600, lineHeight: 1.15, letterSpacing: -0.4 }),
+            }}>{w}</span>
+          );
+        })}
       </div>
     </AbsoluteFill>
   );
@@ -169,77 +197,78 @@ export const NarrativeEnd: React.FC<{ spec: ReelSpec; font: string }> = ({ spec,
   );
 };
 
-/* ══ TWO-VOICE CAPTIONS (caption agent, 2026-11-22 — the studio's reference reel) ═══════════════════
-   A caption is 2–5 words that appear as they are said. Lead words: small, light, lowercase-ish.
-   One key word (the agent's `key`) is set ~2.2× larger in the face its meaning asks for — a tall
-   condensed sans for things and numbers, a fat display serif for qualities and verdicts, or wide
-   letter-spacing for an airy word. Position follows the shot: above the head on the speaker, lower
-   third on inserts, the seam on a split; on a ✓/✗ card the words turn dark. No backdrop — a soft
-   shadow only, as in the reference. */
-export const TwoVoiceCaptions: React.FC<{ captions: ReelCaption[]; scenes: ReelScene[]; endFrame: number; faces: { lead: string; condensed: string; serif: string }; chapters?: { fromFrame: number; durationInFrames: number }[] }> = ({ captions, scenes, endFrame, faces, chapters = [] }) => {
+/* ══ TWO-VOICE CAPTIONS (caption agent, 2026-11-22; motion + focus rules from the studio review 2026-11-24) ══
+   A caption is 2–5 words that rise in as they are said (TEXT_MOTION). Lead words: small and light. One
+   key word (the agent's `key`) larger, in the face its meaning asks for. One text block on screen at a
+   time: a chapter is a small label ABOVE the caption, not a second headline; the hook replaces the
+   captions while it shows. Where a caption sits, its ink and whether it is on a drawing card are fixed
+   once per caption (no jumping mid-caption); captions that follow closely hand over without a blank. */
+type Chapter = { text: string; fromFrame: number; durationInFrames: number };
+export const TwoVoiceCaptions: React.FC<{ captions: ReelCaption[]; scenes: ReelScene[]; endFrame: number; faces: { heading: string; body: string; detail: string }; chapters?: Chapter[]; startFrame?: number }> = ({ captions, scenes, endFrame, faces, chapters = [], startFrame = 0 }) => {
   const frame = useCurrentFrame();
-  if (frame >= endFrame) return null;
-  const cue = captions.find((c) => frame >= c.fromFrame && frame < c.toFrame);
-  if (!cue) return null;
-  const over = scenes.filter((s) => !s.speaker && frame >= s.from && frame < s.from + s.durationInFrames).pop();
-  const onCard = Boolean(over?.card || over?.explainer);
-  // a chapter title owns the lower third while it shows: the caption goes up top
-  const chapterOn = chapters.some((c) => frame >= c.fromFrame && frame < c.fromFrame + c.durationInFrames);
-  const pos = onCard ? 'lower' : chapterOn ? 'top' : (cue.pos || 'top');
-  const top = onCard ? 80 : pos === 'top' ? 17 : pos === 'center' ? 50 : 72;
-  // ink + scrim come from the measured picture behind this caption (reelCaptionContrast.js)
+  if (frame >= endFrame || frame < startFrame) return null;
+  const k = captions.findIndex((c, i) => {
+    const next = captions[i + 1];
+    const end = next && next.fromFrame - c.toFrame < 12 ? next.fromFrame : c.toFrame; // no blink between close captions
+    return frame >= c.fromFrame && frame < end;
+  });
+  if (k < 0) return null;
+  const cue = captions[k];
+  const next = captions[k + 1];
+  const end = Math.min(endFrame, next && next.fromFrame - cue.toFrame < 12 ? next.fromFrame : cue.toFrame);
+  // the caption's place, decided once (at its middle), never per frame
+  const mid = Math.round((cue.fromFrame + cue.toFrame) / 2);
+  const under = scenes.filter((s) => !s.speaker && mid >= s.from && mid < s.from + s.durationInFrames).pop();
+  const onCard = cue.onCard ?? Boolean(under?.card || under?.explainer);
+  const pos = onCard ? 'lower' : (cue.pos || 'top');
+  const top = onCard ? 80 : pos === 'top' ? 17 : pos === 'center' ? 50 : 74;
   const ink = onCard ? '#1d1d1f' : (cue.ink || '#fff');
-  const darkInk = !onCard && ink.toUpperCase() !== '#FFF' && ink.toUpperCase() !== '#FFFFFF';
-  const scrim = onCard ? undefined : cue.scrim;
-  const shadow = onCard ? 'none' : darkInk ? '0 1px 12px rgba(255,255,255,0.55)' : '0 2px 18px rgba(0,0,0,0.45), 0 1px 3px rgba(0,0,0,0.4)';
+  const shadow = textShadowFor(ink, cue.scrim, onCard);
   const keyInk = cue.keyColor || ink;
-  const out = interpolate(frame, [cue.toFrame - 3, cue.toFrame], [1, 0], clamp);
+  // a captions-first start: the caption that is running when the hook ends appears whole
+  const appear = (w: { fromFrame: number }) => wordIn(frame, Math.max(w.fromFrame, startFrame + TEXT_MOTION.lead));
+  const out = blockOut(frame, end);
   const keyAt = typeof cue.key === 'number' ? cue.key : -1;
-  // lead words before the key on one line, the key (with what follows) on the next — as in the reference
   const before = keyAt > 0 ? cue.words.slice(0, keyAt) : keyAt === 0 ? [] : cue.words;
   const keyWord = keyAt >= 0 ? cue.words[keyAt] : null;
   const after = keyAt >= 0 ? cue.words.slice(keyAt + 1) : [];
-  const shown = (w: { fromFrame: number }) => interpolate(frame, [w.fromFrame - 1, w.fromFrame + 3], [0, 1], { ...clamp, easing: ease });
-  const lead = (w: { text: string; fromFrame: number }, k: number) => {
-    const t = shown(w);
-    return (
-      <span key={`l${k}`} style={{
-        display: 'inline-block', fontFamily: faces.lead, fontWeight: 500, fontSize: 52, letterSpacing: 0.2,
-        color: ink, textShadow: shadow, opacity: t, transform: `translateY(${interpolate(t, [0, 1], [6, 0])}px)`,
-      }}>{w.text}</span>
-    );
-  };
+  // the chapter whose window this caption starts in: a quiet label above it
+  const chapter = chapters.find((c) => cue.fromFrame >= c.fromFrame - 6 && cue.fromFrame < c.fromFrame + c.durationInFrames);
+  const lead = (w: { text: string; fromFrame: number }, i: number) => (
+    <span key={`l${i}`} style={{
+      display: 'inline-block', fontFamily: faces.body, fontWeight: 500, fontSize: 50, letterSpacing: 0.2, lineHeight: 1.15,
+      color: ink, textShadow: shadow, ...appear(w),
+    }}>{w.text}</span>
+  );
   let keyEl = null;
   if (keyWord) {
-    const t = shown(keyWord);
-    const style = cue.keyStyle || 'condensed';
-    const marker: React.CSSProperties = cue.keyBg
-      ? { background: cue.keyBg, padding: '0.04em 0.16em 0.02em', borderRadius: 8, boxShadow: '0 6px 22px rgba(0,0,0,0.18)' }
-      : {};
+    const m = appear(keyWord);
+    // one face (the kit's heading) for every key word; meaning sets weight, size and spacing only
+    const style = cue.keyStyle === 'serif' ? 'soft' : cue.keyStyle === 'condensed' ? 'strong' : (cue.keyStyle || 'strong');
     const base: React.CSSProperties = {
-      ...marker,
-      display: 'inline-block', color: keyInk, textShadow: cue.keyBg ? 'none' : shadow, lineHeight: 1.0,
-      opacity: t, transform: `scale(${interpolate(t, [0, 1], [0.94, 1])})`, transformOrigin: '50% 70%',
+      display: 'inline-block', color: keyInk, lineHeight: 1.0, ...m,
+      ...(cue.keyBg
+        ? { background: cue.keyBg, padding: '0.04em 0.16em 0.02em', borderRadius: 8, textShadow: 'none' }
+        : { textShadow: shadow }),
     };
-    keyEl = style === 'serif'
-      ? <span style={{ ...base, fontFamily: faces.serif, fontSize: 112, letterSpacing: -0.5 }}>{keyWord.text}</span>
+    keyEl = style === 'soft'
+      ? <span style={{ ...base, fontFamily: faces.heading, fontWeight: 400, fontSize: 100, letterSpacing: -1 }}>{keyWord.text}</span>
       : style === 'spaced'
-        ? <span style={{ ...base, fontFamily: faces.serif, fontSize: 84, letterSpacing: '0.42em', marginRight: '-0.42em', textTransform: 'lowercase' }}>{keyWord.text}</span>
-        : <span style={{ ...base, fontFamily: faces.condensed, fontSize: 118, letterSpacing: 0.5, textTransform: 'lowercase' }}>{keyWord.text}</span>;
+        ? <span style={{ ...base, fontFamily: faces.heading, fontWeight: 500, fontSize: 62, letterSpacing: '0.28em', marginRight: '-0.28em', textTransform: 'uppercase' }}>{keyWord.text}</span>
+        : <span style={{ ...base, fontFamily: faces.heading, fontWeight: 800, fontSize: 96, letterSpacing: -1.5 }}>{keyWord.text}</span>;
   }
   return (
     <AbsoluteFill style={{ pointerEvents: 'none' }}>
       <div style={{
-        position: 'absolute', left: '7%', right: '7%', top: `${top}%`, transform: 'translateY(-50%)',
-        display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, textAlign: 'center', opacity: out, isolation: 'isolate',
+        position: 'absolute', left: '7%', right: '7%', top: `${top}%`, transform: `translateY(-50%) ${out.transform}`, opacity: out.opacity,
+        display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, textAlign: 'center',
       }}>
-        {scrim ? (
-          /* a soft blurred glow that hugs the words (no box, no edge) */
+        {chapter ? (
           <div style={{
-            position: 'absolute', left: '50%', top: '50%', width: `${Math.min(100, 30 + cue.words.map((w) => w.text).join(' ').length * 3.2)}%`, height: keyEl && before.length ? '120%' : '135%',
-            transform: 'translate(-50%, -50%)', zIndex: -1, borderRadius: 999, filter: 'blur(26px)',
-            background: scrim === 'dark' ? 'rgba(0,0,0,0.42)' : 'rgba(255,255,255,0.6)',
-          }} />
+            fontFamily: faces.detail, fontWeight: 500, fontSize: 32, letterSpacing: '0.18em', textTransform: 'uppercase',
+            color: ink, textShadow: shadow, marginBottom: 6,
+            ...(() => { const m = wordIn(frame, Math.max(chapter.fromFrame, cue.fromFrame)); return { ...m, opacity: m.opacity * 0.86 }; })(),
+          }}>{chapter.text}</div>
         ) : null}
         {before.length > 0 && (
           <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'center', columnGap: 14, alignItems: 'baseline' }}>
@@ -249,7 +278,7 @@ export const TwoVoiceCaptions: React.FC<{ captions: ReelCaption[]; scenes: ReelS
         {keyEl && (
           <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'center', columnGap: 16, alignItems: 'baseline' }}>
             {keyEl}
-            {after.map((w, k) => lead(w, k + 100))}
+            {after.map((w, i) => lead(w, i + 100))}
           </div>
         )}
       </div>
@@ -257,27 +286,18 @@ export const TwoVoiceCaptions: React.FC<{ captions: ReelCaption[]; scenes: ReelS
   );
 };
 
-/* ── chapter title card (cut agent's `label` on a new point): two lines, uppercase, condensed ───── */
+/* ── chapter title (fallback narrative captions only): uppercase, condensed, the shared motion ───── */
 export const ChapterTitle: React.FC<{ text: string; durationInFrames: number; font: string; ink?: string; scrim?: 'dark' | 'light' }> = ({ text, durationInFrames, font, ink = '#fff', scrim }) => {
   const frame = useCurrentFrame();
-  const tin = interpolate(frame, [0, 8], [0, 1], { ...clamp, easing: ease });
-  const tout = interpolate(frame, [durationInFrames - 6, durationInFrames], [1, 0], clamp);
+  const m = wordIn(frame, TEXT_MOTION.lead);
+  const out = blockOut(frame, durationInFrames);
   return (
     <AbsoluteFill style={{ justifyContent: 'flex-end', alignItems: 'center', paddingBottom: '30%', pointerEvents: 'none' }}>
       <div style={{
-        maxWidth: '78%', textAlign: 'center', fontFamily: font, fontSize: 104, lineHeight: 0.98, letterSpacing: 1,
-        textTransform: 'uppercase', color: ink,
-        textShadow: ink.toUpperCase() === '#FFF' || ink.toUpperCase() === '#FFFFFF' ? '0 3px 24px rgba(0,0,0,0.5)' : '0 1px 14px rgba(255,255,255,0.55)',
-        opacity: tin * tout, transform: `translateY(${interpolate(tin, [0, 1], [22, 0])}px)`, position: 'relative', isolation: 'isolate',
-      }}>
-        {scrim ? (
-          <div style={{
-            position: 'absolute', left: '-6%', right: '-6%', top: '-12%', bottom: '-12%', zIndex: -1, borderRadius: 999, filter: 'blur(30px)',
-            background: scrim === 'dark' ? 'rgba(0,0,0,0.42)' : 'rgba(255,255,255,0.6)',
-          }} />
-        ) : null}
-        {text}
-      </div>
+        maxWidth: '78%', textAlign: 'center', fontFamily: font, fontSize: 84, lineHeight: 0.98, letterSpacing: 1,
+        textTransform: 'uppercase', color: ink, textShadow: textShadowFor(ink, scrim),
+        opacity: m.opacity * out.opacity, transform: `${m.transform} ${out.transform}`,
+      }}>{text}</div>
     </AbsoluteFill>
   );
 };

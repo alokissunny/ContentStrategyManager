@@ -160,9 +160,8 @@ const ON_CARD = (brandColour) => ({
  * sceneAt(frame) → { key, kind, atSec, focusX, focusY, zoom, crop, card, split } or null.
  * palette: { accent, fg, ground }. Mutates the cues: ink, scrim, keyColor. Returns a summary.
  */
-async function applyCaptionContrast({ captions, chapters = [], sceneAt, palette = {}, helpers }) {
+async function applyCaptionContrast({ captions, chapters = [], hook = null, sceneAt, palette = {}, helpers }) {
   const summary = { measured: 0, scrims: 0, darkInk: 0, brandKept: 0, brandAdjusted: 0, brandMarker: 0, brandDropped: 0 };
-  const chapterOn = (f) => chapters.some((c) => f >= c.fromFrame && f < c.fromFrame + c.durationInFrames);
   await Promise.all(captions.map(async (cue) => {
     const mid = Math.round((cue.fromFrame + cue.toFrame) / 2);
     const sc = sceneAt(mid);
@@ -170,11 +169,12 @@ async function applyCaptionContrast({ captions, chapters = [], sceneAt, palette 
     const wanted = role && role !== 'ink' ? palette[role] : null;
     delete cue.keyColorRole;
     let out;
+    cue.onCard = Boolean(sc?.card); // decided once per caption (the renderer never flips it mid-caption)
     if (sc?.card) out = ON_CARD(wanted);
     else {
-      // where TwoVoiceCaptions puts it: top 17 %, centre 50 %, lower 72 % (top while a chapter shows)
-      const pos = chapterOn(mid) ? 'top' : (cue.pos || 'top');
-      const y = pos === 'top' ? 0.17 : pos === 'center' ? 0.5 : 0.72;
+      // where TwoVoiceCaptions puts it: top 17 %, centre 50 %, lower 74 %
+      const pos = cue.pos || 'top';
+      const y = pos === 'top' ? 0.17 : pos === 'center' ? 0.5 : 0.74;
       const band = sc && !sc.split ? await bandStats(sc, y - 0.065, y + 0.065, helpers).catch(() => null) : null;
       if (band) summary.measured += 1;
       out = inkFor(band, wanted);
@@ -192,7 +192,15 @@ async function applyCaptionContrast({ captions, chapters = [], sceneAt, palette 
       if (out.keyBg) cue.keyBg = out.keyBg;
     }
   }));
-  // chapter titles sit at ~62–70 % (ChapterTitle: bottom padding 30 %)
+  // the hook: the opening words at ~22 %
+  if (hook?.text) {
+    const sc = sceneAt(Math.round(hook.durationInFrames / 2));
+    const band = sc && !sc.card && !sc.split ? await bandStats(sc, 0.15, 0.29, helpers).catch(() => null) : null;
+    const out = inkFor(band, null);
+    hook.ink = out.ink;
+    if (out.scrim !== 'none') hook.scrim = out.scrim;
+  }
+  // chapter titles (fallback look) sit at ~62–70 %; in two-voice reels they are a label in the caption
   await Promise.all(chapters.map(async (ch) => {
     const sc = sceneAt(ch.fromFrame + Math.round(ch.durationInFrames / 2));
     if (sc?.card) { ch.ink = INK; return; }
