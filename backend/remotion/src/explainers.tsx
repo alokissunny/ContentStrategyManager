@@ -11,7 +11,7 @@
  * The geometry is authored here, in a 900 × 900 drawing; the agent only chooses and labels it.
  */
 import React from 'react';
-import { AbsoluteFill, interpolate, Easing, useCurrentFrame } from 'remotion';
+import { AbsoluteFill, interpolate, Easing, useCurrentFrame, useVideoConfig } from 'remotion';
 import type { ReelExplainer } from './reelSchema';
 import { drawPalette, type DrawPalette, type BrandPalette } from './brandPalette';
 
@@ -363,6 +363,7 @@ const CompareDrawing: React.FC<{ spec: ReelExplainer; font: string }> = ({ spec,
 /* ── steps joined by arrows ────────────────────────────────────────────────── */
 const FlowDrawing: React.FC<{ spec: ReelExplainer; font: string }> = ({ spec, font }) => {
   const frame = useCurrentFrame();
+  const { fps } = useVideoConfig();
   const items = (spec.items || []).slice(0, 4);
   const n = items.length;
   const ys = items.map((_, i) => (n === 1 ? 450 : 130 + (i * 640) / (n - 1)));
@@ -372,11 +373,18 @@ const FlowDrawing: React.FC<{ spec: ReelExplainer; font: string }> = ({ spec, fo
       {items.map((it, i) => {
         const y = ys[i];
         // each step draws as it is said (atSec from the agent's word index), else in turn
-        const a = typeof it.atSec === 'number' ? 2 + Math.round(it.atSec * 30) : 2 + i * step;
+        const a = typeof it.atSec === 'number' ? 2 + Math.round(it.atSec * fps) : 2 + i * step;
         const box = `M190 ${y - 58} H710 Q740 ${y - 58} 740 ${y - 28} V${y + 28} Q740 ${y + 58} 710 ${y + 58} H190 Q160 ${y + 58} 160 ${y + 28} V${y - 28} Q160 ${y - 58} 190 ${y - 58} Z`;
         const next = ys[i + 1];
+        const wait = prog(frame, 0, 8) * (1 - prog(frame, a, a + 12));
         return (
           <g key={i}>
+            {wait > 0.01 ? (
+              <g opacity={wait}>
+                <path d={box} fill="none" stroke={C.soft} strokeWidth={4} strokeDasharray="14 12" />
+                {next != null ? <path d={`M450 ${y + 70} V${next - 72}`} stroke={C.soft} strokeWidth={4} strokeDasharray="8 10" /> : null}
+              </g>
+            ) : null}
             <path d={box} fill={i === n - 1 ? zoneColour(spec.verdict === 'none' ? 'none' : spec.verdict) : 'none'} opacity={i === n - 1 ? 0.25 * prog(frame, a + 10, a + 18) : 0} />
             <Draw d={box} t={prog(frame, a, a + 12)} w={5} />
             <text x={450} y={y} textAnchor="middle" dominantBaseline="central" fontFamily={font} fontWeight={600} fontSize={52} fill={C.ink} opacity={prog(frame, a + 6, a + 12)}>{it.text}</text>
@@ -433,17 +441,28 @@ function iconPaths(name: string, x: number, y: number): string[] {
 /* ── points appearing as they are said, each with a drawing of what it is (not a tick) ────────── */
 const ChecklistDrawing: React.FC<{ spec: ReelExplainer; font: string }> = ({ spec, font }) => {
   const frame = useCurrentFrame();
+  const { fps } = useVideoConfig();
   const items = (spec.items || []).slice(0, 4);
   const n = items.length;
   return (
     <g>
       {items.map((it, k) => {
         const y = 450 - ((n - 1) * 175) / 2 + k * 175;
-        const a = typeof it.atSec === 'number' ? 2 + Math.round(it.atSec * 30) : 2 + k * 12;
+        const a = typeof it.atSec === 'number' ? 2 + Math.round(it.atSec * fps) : 2 + k * 12;
         const tile = `M${130} ${y - 62} H${238} Q${262} ${y - 62} ${262} ${y - 38} V${y + 38} Q${262} ${y + 62} ${238} ${y + 62} H${130} Q${106} ${y + 62} ${106} ${y + 38} V${y - 38} Q${106} ${y - 62} ${130} ${y - 62} Z`;
         const tt = prog(frame, a + 6, a + 16);
+        // a point not said yet holds its place as a soft placeholder (studio review 2026-11-24: the card
+        // must look balanced at every stage of the build, not only once every point is in)
+        const wait = prog(frame, 0, 8) * (1 - prog(frame, a, a + 10));
+        const bar = Math.min(560, Math.max(180, it.text.length * 30));
         return (
           <g key={k}>
+            {wait > 0.01 ? (
+              <g opacity={wait}>
+                <path d={tile} fill="none" stroke={C.soft} strokeWidth={4} />
+                <rect x={300} y={y - 13} width={bar} height={26} rx={13} fill={C.soft} opacity={0.55} />
+              </g>
+            ) : null}
             <path d={tile} fill={C.soft} opacity={0.6 * prog(frame, a, a + 10)} />
             <g transform={`translate(184 ${y}) scale(1.5) translate(-184 ${-y})`}>
               {iconPaths(it.icon || 'none', 184, y).map((d, j) => (
@@ -521,7 +540,9 @@ export const ExplainerScene: React.FC<{ spec: ReelExplainer; durationInFrames: n
   else if (spec.scene === 'stat') drawing = <StatDrawing spec={spec} font={font} />;
   return (
     <AbsoluteFill style={{ background: C.paper, opacity: out }}>
-      <div style={{ position: 'absolute', top: hasBadge ? '6.5%' : '9%', left: 0, right: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 20 }}>
+      {/* header and drawing form one stack, centred in the space above the captions (studio review 2026-11-24:
+          the heading sat too close to the top) */}
+      <div style={{ position: 'absolute', top: hasBadge ? '10.5%' : '13%', left: 0, right: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 18 }}>
         {hasBadge ? (
           <div style={{
             width: 112, height: 112, borderRadius: 999, background: spec.verdict === 'good' ? C.good : C.bad, color: markInk(spec.verdict),
@@ -538,7 +559,7 @@ export const ExplainerScene: React.FC<{ spec: ReelExplainer; durationInFrames: n
       </div>
       <svg
         viewBox="0 0 900 900" width={960} height={960}
-        style={{ position: 'absolute', left: 60, top: '21%', transform: `scale(${interpolate(settle, [0, 1], [0.97, 1])})`, transformOrigin: '50% 60%' }}
+        style={{ position: 'absolute', left: 60, top: '22.5%', transform: `scale(${interpolate(settle, [0, 1], [0.97, 1])})`, transformOrigin: '50% 60%' }}
       >
         {drawing}
       </svg>

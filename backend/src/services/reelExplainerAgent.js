@@ -237,7 +237,6 @@ function cleanExplainers(list, words, { hookEndSec = 1.5 } = {}) {
       if (listy && spec.items.length) {
         const lastAt = spec.items[spec.items.length - 1].atSec || 0;
         toSec = Math.min(Math.max(toSec, start + lastAt + 1.2), lastSentence - 0.05, start + LIST_MAX_SEC + 1.5);
-        spec.items = spec.items.map((it) => ({ ...it, atSec: Math.min(it.atSec, Math.max(0, Math.round((toSec - start - 0.8) * 100) / 100)) }));
       }
       out.push({ fromSec: start, toSec, from: x.from, to: x.to, strength: x.strength, why: str(x.why, 160), spec });
     });

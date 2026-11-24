@@ -550,6 +550,8 @@ const DENOISE = process.env.REEL_DENOISE === 'off' ? 'anull' : 'anlmdn=s=7:p=0.0
 const GATE = process.env.REEL_DENOISE === 'off' ? 'anull' : 'agate=threshold=0.012:ratio=3:range=0.1:attack=5:release=220:knee=4';
 const XFADE = 0.05; // s of overlap at each join
 const DISSOLVE = 4; // frames: a jump cut on the speaker dissolves
+const DRAWING_READ_SEC = 1.0; // a drawing stays this long after its last element lands
+const MAX_HOLD_SEC = 2.0; // the longest pause the edit will hold for a drawing
 
 async function buildDialogueAudio(pieces, fps) {
   const { _clipFile, _ffmpegPath } = agent();
@@ -584,13 +586,13 @@ async function buildDialogueAudio(pieces, fps) {
     const fin = i === 0 ? 0.01 : Math.min(XFADE, dur / 4);
     const fout = last ? Math.min(0.03, dur / 4) : Math.min(XFADE * 2, dur / 3);
     const delay = Math.round(at * 1000);
-    at += dur;
+    at += dur + (p.holdAfter || 0); // a pause the edit holds for a drawing to finish
     return `[${label}]atrim=start=${p.start.toFixed(3)}:duration=${len.toFixed(4)},asetpts=PTS-STARTPTS,`
       + `afade=t=in:d=${fin.toFixed(3)}:curve=qsin,afade=t=out:st=${Math.max(0, len - fout).toFixed(4)}:d=${fout.toFixed(3)}:curve=qsin,`
       + `adelay=delays=${delay}:all=1[a${i}]`;
   });
   const filter = `${sources.join(';')};${parts.join(';')};${pieces.map((_, i) => `[a${i}]`).join('')}amix=inputs=${pieces.length}:duration=longest:normalize=0,`
-    + `atrim=duration=${at.toFixed(4)},${GATE},`
+    + `apad=whole_dur=${at.toFixed(4)},atrim=duration=${at.toFixed(4)},${GATE},`
     + 'acompressor=threshold=-18dB:ratio=3:attack=8:release=120,loudnorm=I=-15:TP=-1.5:LRA=9,aresample=48000,aformat=sample_fmts=fltp:channel_layouts=mono[out]';
   try {
     await run(_ffmpegPath(), ['-nostdin', '-hide_banner', '-loglevel', 'error', '-y',
@@ -665,6 +667,10 @@ async function directDialogueReel({ reel, material, story, brand, handle }) {
     const snap = await require('./reelCutSnap').snapCuts(cut.beats, { fps, helpers: { clipFile: agent()._clipFile, ffmpegPath: agent()._ffmpegPath } });
     console.log(`[reelFormat] ${reel._id} cut snap: ${JSON.stringify(snap)}`);
     debugRows.push({ source: 'Capture reel — cut points snapped to the voice (code)', output: JSON.stringify(snap) });
+    // pacing: real pauses where the reel should breathe (sentence ends, new points, before the close)
+    const breath = await require('./reelCutSnap').breatheCuts(cut.beats, { fps, helpers: { clipFile: agent()._clipFile, ffmpegPath: agent()._ffmpegPath } });
+    console.log(`[reelFormat] ${reel._id} pacing: ${JSON.stringify(breath)}`);
+    debugRows.push({ source: 'Capture reel — pacing: pauses where the reel breathes (code)', output: JSON.stringify(breath) });
   } catch (err) {
     console.warn(`[reelFormat] ${reel._id} cut snap failed, transcript timings kept:`, err.message);
   }
@@ -720,10 +726,7 @@ async function directDialogueReel({ reel, material, story, brand, handle }) {
     const { _imageSrc, _letterboxOf, _stillNear, captionCues, liftAccent, _luminance } = agent();
     const frames = (s) => Math.max(0, Math.round(s * fps));
     const pieces = cut.beats.flatMap((b) => b.cut);
-    const audio = await buildDialogueAudio(pieces, fps);
-    const voiceKey = `projects/${reel.user}/reel-${reel._id}-dialogue.m4a`;
-    await uploadBytes(voiceKey, audio, 'audio/mp4', { immutable: true });
-    const voiceUrl = await getMediaUrl(voiceKey);
+    // (the dialogue track is built once the edit is final — after any pauses held for drawings)
 
     const speaker = [];
     const cutaways = [];
@@ -828,7 +831,7 @@ async function directDialogueReel({ reel, material, story, brand, handle }) {
         }
       }
     }
-    const spokenEnd = at;
+    let spokenEnd = at; // grows when the edit holds a pause for a drawing
     polishCutaways(cutaways, { fps, spokenEnd, hookEnd: format !== 'faceless_voiceover' ? frames(1.2) : 0 });
     // smooth joins (2026-11-23): a jump cut on the speaker dissolves over a few frames (the outgoing
     // piece runs on under the incoming one) — unless the take simply continues (no cut to hide)
@@ -874,7 +877,6 @@ async function directDialogueReel({ reel, material, story, brand, handle }) {
       captionWords.forEach((w) => { w.start += lead / fps; w.end += lead / fps; });
     }
     const shift = lead >= frames(0.3) ? lead : 0;
-    const total = spokenEnd + shift + endFrames;
 
     // ── the design agents (2026-11-22): captions and motion graphics, side by side, on the final cut ──
     const inserts = cutaways.filter((c) => c._asset);
@@ -917,12 +919,96 @@ async function directDialogueReel({ reel, material, story, brand, handle }) {
       }).catch((err) => { console.warn(`[reelFormat] ${reel._id} explainer agent failed:`, err.message); return null; }),
     ]);
     const designRows = [capOut?.debug, motOut?.debug, expOut?.debug].filter(Boolean);
+    // a pause at the gap between two spoken words: the audio piece is split there (if the words are in one
+    // piece) and holds silence after the first half; the speaker shot is split the same way so the
+    // picture stays in sync after the pause. Returns the output frame where the pause starts.
+    const splitForHold = (word, next, hold) => {
+      let outStart = shift;
+      for (let i = 0; i < pieces.length; i += 1) {
+        const p = pieces[i];
+        const outEnd = outStart + p.frames;
+        const wf = frames(word.end);
+        if (wf >= outStart && wf <= outEnd + 1) {
+          const srcEnd = p.start + (word.end * fps - outStart) / fps; // the word's end in the take
+          const k = p.words.findIndex((w) => Math.abs(w.end - srcEnd) < 0.25 && w.end <= srcEnd + 0.25);
+          const isLast = k < 0 || k === p.words.length - 1 || frames(next.start) >= outEnd;
+          if (isLast) {
+            p.holdAfter = (p.holdAfter || 0) + hold / fps;
+            return outEnd;
+          }
+          // split the piece in the gap after word k
+          const gapMid = (p.words[k].end + p.words[k + 1].start) / 2;
+          const off = Math.max(2, Math.min(p.frames - 2, Math.round((gapMid - p.start) * fps)));
+          const p2 = { ...p, start: p.start + off / fps, frames: p.frames - off, words: p.words.slice(k + 1), holdAfter: p.holdAfter || 0 };
+          p.frames = off;
+          p.words = p.words.slice(0, k + 1);
+          p.holdAfter = hold / fps;
+          pieces.splice(i + 1, 0, p2);
+          const T = outStart + off;
+          // the speaker shot playing this piece: split at T (second half re-enters the take at the gap)
+          const si = speaker.findIndex((sc) => sc.from <= T && sc.from + sc.durationInFrames > T && sc.src && sc._src?.key === p.clip.key);
+          if (si >= 0) {
+            const sc = speaker[si];
+            const b2 = { ...sc, from: T, durationInFrames: sc.from + sc.durationInFrames - T, sourceStartSec: Math.round((sc.sourceStartSec + (T - sc.from) / fps) * 1000) / 1000, transition: 'cut' };
+            sc.durationInFrames = T - sc.from;
+            speaker.splice(si + 1, 0, b2);
+          }
+          return T;
+        }
+        outStart = outEnd + Math.round((p.holdAfter || 0) * fps);
+      }
+      return null;
+    };
     // explainers → full-screen drawing cutaways: the speaker runs on underneath, inserts under a
     // drawing are trimmed (or dropped when < 0.8 s is left), a chapter title under one is dropped
     const explainerScenes = (expOut?.explainers || []).map((x) => ({
       from: frames(x.fromSec), durationInFrames: Math.max(1, frames(x.toSec) - frames(x.fromSec)),
       kind: 'card', src: '', motion: 'none', transition: 'fade', explainer: x.spec,
     }));
+    // ── let every drawing finish (studio review 2026-11-24: "it rushes to the next frame without finishing
+    // the animation — pause when required so the flow gets a natural finish") ──
+    // A drawing needs its animation time + a beat to be read after its last element lands. When the
+    // speaker moves on sooner, the edit HOLDS: the voice pauses between the drawing's last word and the
+    // next one (the speaker clip runs on silently under the card), and everything after moves later.
+    const holds = [];
+    (expOut?.explainers || []).forEach((x, xi) => {
+      const e = explainerScenes[xi];
+      const spec = x.spec;
+      const lastAt = Math.max(0, ...(spec.items || []).map((it) => Number(it.atSec) || 0));
+      const anim = ['checklist', 'flow'].includes(spec.scene) ? frames(lastAt) + 18
+        : spec.scene === 'open_plan' ? 56 : ['measure', 'light'].includes(spec.scene) ? 48 : 40;
+      const need = anim + frames(DRAWING_READ_SEC);
+      if (e.durationInFrames >= need) return;
+      const next = spokenWords[x.to + 1];
+      const nextAt = next ? frames(next.start) : spokenEnd + shift;
+      const natural = nextAt - e.from; // the room before the speaker says the next word
+      if (natural >= need) { e.durationInFrames = need; return; }
+      e.durationInFrames = Math.max(e.durationInFrames, natural);
+      const hold = Math.min(frames(MAX_HOLD_SEC), need - e.durationInFrames);
+      if (hold >= 4 && next) holds.push({ x, e, word: spokenWords[x.to], next, hold });
+    });
+    // apply each hold at the gap after the drawing's last word, latest first so earlier frames stay valid
+    holds.sort((a2, b2) => b2.next.start - a2.next.start).forEach(({ e, word, next, hold }) => {
+      const T = splitForHold(word, next, hold);
+      if (T == null) return;
+      // everything from T on moves later; what spans T runs on (the card, an insert, the speaker)
+      const move = (list) => list.forEach((c) => {
+        if (c.from >= T) c.from += hold;
+        else if (c.from + c.durationInFrames > T) c.durationInFrames += hold;
+      });
+      move(speaker);
+      move(cutaways);
+      explainerScenes.forEach((o) => { if (o !== e && o.from >= T) o.from += hold; });
+      if (e.from + e.durationInFrames > T) e.durationInFrames += hold; else e.durationInFrames = T + hold - e.from;
+      spokenWords.forEach((w) => { if (w.start * fps >= T) { w.start += hold / fps; w.end += hold / fps; } });
+      chapters.forEach((ch) => { if (ch.fromFrame >= T) ch.fromFrame += hold; });
+      spokenEnd += hold;
+    });
+    if (holds.length) {
+      designRows.push({ source: 'Capture reel — pauses held for drawings (code)', output: JSON.stringify(holds.map((h) => ({ drawing: h.x.spec.title, pauseSec: Math.round((h.hold / fps) * 100) / 100, after: h.word.text }))) });
+      console.log(`[reelFormat] ${reel._id} held ${holds.length} pause(s) for drawings: ${holds.map((h) => `${(h.hold / fps).toFixed(2)}s after "${h.word.text}"`).join(', ')}`);
+    }
+
     explainerScenes.forEach((e) => {
       const a = e.from;
       const b = e.from + e.durationInFrames;
@@ -1047,6 +1133,12 @@ async function directDialogueReel({ reel, material, story, brand, handle }) {
     captions.forEach((c) => { delete c.keyColorRole; });
     inserts.forEach((c) => { delete c._asset; delete c._beat; });
     [...speaker, ...cutaways].forEach((c) => { delete c._src; });
+    // the dialogue track: built now that the edit is final (pauses held for drawings included)
+    const audio = await buildDialogueAudio(pieces, fps);
+    const voiceKey = `projects/${reel.user}/reel-${reel._id}-dialogue.m4a`;
+    await uploadBytes(voiceKey, audio, 'audio/mp4', { immutable: true });
+    const voiceUrl = await getMediaUrl(voiceKey);
+    const total = spokenEnd + shift + endFrames;
     const accent = liftAccent(brandKit.accent || '#FFFFFF');
     // narrative typography (studio's reference, 2026-11-21): a calm title, small words, the key word large
     const look = { ...require('./reelStyleRun').lookOf(style), hook: 'title', captions: capOut?.cues?.length ? 'twovoice' : 'narrative', progress: false };

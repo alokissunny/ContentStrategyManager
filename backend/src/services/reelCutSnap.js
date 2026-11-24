@@ -137,4 +137,85 @@ async function snapCuts(beats, { fps, helpers }) {
   return summary;
 }
 
-module.exports = { snapCuts, envelopeOf, trueEnd, trueStart, deepestDip };
+/*
+ * Pacing (studio, 2026-11-24: "bring in pauses where appropriate so the flow doesn't break and the whole
+ * reel feels seamless"). Snapped cuts sit tight against the words; a talk cut that tight runs sentences
+ * and points into each other. So the edit breathes where a good editor would let it:
+ *   end of a sentence      → ~0.22 s of quiet before the next one
+ *   a new point (beat)     → ~0.42 s
+ *   before the closing line→ ~0.5 s
+ *   mid-sentence joins stay tight (that's where hesitations were cut out).
+ * The pause is REAL: the piece runs on into the take's own quiet after the voice stops, and the next one
+ * starts a little earlier in its own quiet lead-in — the speaker is genuinely silent on camera, no frozen
+ * frame, no synthetic silence. A pause is only as long as the takes' quiet allows.
+ */
+const BREATH = { sentence: 0.22, point: 0.42, closing: 0.5 };
+const SENTENCE_END = /[.?!…]["”')]?$/;
+
+/* seconds of quiet (voice below threshold) from t forward (dir 1) or backward (dir −1), up to limit */
+function quietRun(e, t, dir, limit) {
+  const { env, thr } = e;
+  let k = idx(t, env.length);
+  let n = 0;
+  const max = Math.round(limit / HOP);
+  while (n < max && k >= 0 && k < env.length && env[k] < thr) { n += 1; k += dir; }
+  return n * HOP;
+}
+
+async function breatheCuts(beats, { fps, helpers }) {
+  const flat = beats.flatMap((b, bi) => b.cut.map((c, ci) => ({ c, bi, lastInBeat: ci === b.cut.length - 1 })));
+  const summary = { joins: 0, breathed: 0, addedSec: 0, short: 0 };
+  for (let k = 0; k < flat.length - 1; k += 1) {
+    const { c, bi, lastInBeat } = flat[k];
+    const n = flat[k + 1].c;
+    const lastWord = c.words?.[c.words.length - 1];
+    const firstWord = n.words?.[0];
+    if (!lastWord || !firstWord) continue;
+    summary.joins += 1;
+    let target = 0;
+    if (lastInBeat) target = bi === beats.length - 2 ? BREATH.closing : BREATH.point;
+    else if (
+      SENTENCE_END.test(lastWord.text || '')
+      // the transcript often drops the full stop: a capitalised next word (not "I") or a different take
+      // is a new sentence too
+      || (/^[A-Z]/.test(firstWord.text || '') && !/^I\b|^I'/.test(firstWord.text || ''))
+      || n.clip.key !== c.clip.key
+    ) target = BREATH.sentence;
+    if (!target) continue;
+    // eslint-disable-next-line no-await-in-loop
+    const [eC, eN] = await Promise.all([envelopeOf(c.clip.key, helpers), envelopeOf(n.clip.key, helpers)]);
+    if (!eC || !eN) continue;
+    const cEnd = c.start + c.frames / fps;
+    // the quiet already heard: after the voice stops in c, before it starts in n
+    const voiceEnd = trueEnd(eC, lastWord.end, cEnd) ?? lastWord.end;
+    const voiceStart = trueStart(eN, firstWord.start, n.start) ?? firstWord.start;
+    const have = Math.max(0, cEnd - voiceEnd) + Math.max(0, voiceStart - n.start);
+    let need = target - have;
+    if (need <= 0.02) continue;
+    const before = need;
+    // run c on into its own quiet (never into its next word)
+    const cWords = (c.clip.words || []).filter((w) => w.end > w.start);
+    const nextInTake = cWords.find((w) => w.start >= lastWord.end + 0.01);
+    const tailLimit = Math.max(0, (nextInTake ? nextInTake.start - 0.08 : (c.clip.durationSec || 1e9) - 0.05) - cEnd);
+    const tail = Math.min(need * 0.6, quietRun(eC, cEnd, 1, tailLimit));
+    if (tail > 0.01) { c.frames += Math.round(tail * fps); need -= tail; }
+    // start n earlier in its own quiet lead-in (never into its previous word)
+    const nWords = (n.clip.words || []).filter((w) => w.end > w.start);
+    const prevInTake = [...nWords].reverse().find((w) => w.end <= firstWord.start - 0.01);
+    const leadLimit = Math.max(0, n.start - (prevInTake ? prevInTake.end + 0.08 : 0));
+    const lead = Math.min(need, quietRun(eN, n.start - HOP, -1, leadLimit));
+    if (lead > 0.01) { const f = Math.round(lead * fps); n.start -= f / fps; n.frames += f; need -= f / fps; }
+    // whatever is left: more of c's tail, if its quiet allows
+    if (need > 0.02) {
+      const more = Math.min(need, Math.max(0, quietRun(eC, c.start + c.frames / fps, 1, tailLimit - tail)));
+      if (more > 0.01) { c.frames += Math.round(more * fps); need -= more; }
+    }
+    const added = before - Math.max(0, need);
+    if (added > 0.02) { summary.breathed += 1; summary.addedSec += added; }
+    if (need > 0.08) summary.short += 1;
+  }
+  summary.addedSec = Math.round(summary.addedSec * 100) / 100;
+  return summary;
+}
+
+module.exports = { snapCuts, breatheCuts, envelopeOf, trueEnd, trueStart, deepestDip, BREATH };
