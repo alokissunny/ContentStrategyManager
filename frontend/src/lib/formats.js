@@ -37,11 +37,11 @@ export const materialOf = (attachments = []) => (attachments || [])
   .filter((a) => a && a.key && a.reelTake !== 'say')
   .map((a) => ({ ...a, video: a.type === 'video', seconds: Number(a.durationSeconds || a.analysis?.durationSec) || 0 }));
 
-/* a Reel needs motion: a clip, or at least two stills to cut between */
+/* a Reel is offered whenever the capture holds any photo or video (user, 2026-11-24 — was: a clip or ≥ 2 photos);
+   the reel director moves a single still with motion */
 export const canMake = (id, assets = []) => {
   if (id !== 'reel') return true;
-  const clips = assets.filter((a) => a.video).length;
-  return clips > 0 || assets.length - clips >= 2;
+  return assets.length > 0;
 };
 
 export const blankMake = (best = 'carousel') => ({

@@ -1246,6 +1246,11 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
     liveCorrect: !needsLogin,
   });
   const autoDraft = useRef('');
+  /* the studio typed in the field since the take ended: only then does the server's cleaner transcript NOT
+     replace the words (comparing the field to the first fill missed late changes and left the raw words) */
+  const draftTouched = useRef(false);
+  /* which take a transcription answer belongs to — an answer for an older take is dropped */
+  const takeId = useRef(0);
   const endRef = useRef(null);
   const threadRef = useRef(null);
   /* ══ BUILD REEL (IdeaCard, bauhly-v3 Nov 20): before the idea's own questions, the card and two answers —
@@ -1623,6 +1628,8 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
     setStep('writing');
   };
   const chooseRecord = () => {
+    takeId.current += 1;
+    draftTouched.current = false;
     setStep('boot');
     userSays('Record a voice note');
     cap.current.kind = 'note';
@@ -1637,6 +1644,8 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
     setStep('recording');
   };
   const recordClarify = () => {
+    takeId.current += 1;
+    draftTouched.current = false;
     setStep('boot');
     userSays(fromVoice.current ? 'Record it again' : 'Record a voice note');
     fromVoice.current = true;
@@ -1649,6 +1658,8 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
     setStep('recording');
   };
   const recordAgain = () => {
+    takeId.current += 1;
+    draftTouched.current = false;
     setDraft('');
     autoDraft.current = '';
     setPolishing(false);
@@ -1733,6 +1744,9 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
       const blob = rec.blob;
       const live = (rec.getLiveText?.() || rec.liveText || '').trim();
       autoDraft.current = live;
+      draftTouched.current = false;
+      takeId.current += 1;
+      const take = takeId.current;
       if (live) {
         setDraft(live);
         setPolishing(true);
@@ -1761,8 +1775,13 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
               text = live;
             }
           }
+          if (take !== takeId.current) return; // a newer take has started
           if (text) {
-            refreshDraftIfUnedited(setDraft, autoDraft, text, { allowEmpty: !live });
+            // the cleaner transcript replaces the live words unless the studio has typed since
+            if (!draftTouched.current) {
+              autoDraft.current = text;
+              setDraft(text);
+            }
             if (!live) {
               setStep('boot');
               const d = say(hasTranscriptGap(text)
@@ -1778,8 +1797,10 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
             after(d, () => setStep(recordingReturn.current || 'writing'));
           }
         } finally {
-          setPolishing(false);
-          setBusy(false);
+          if (take === takeId.current) {
+            setPolishing(false);
+            setBusy(false);
+          }
         }
       })();
     }
@@ -2768,8 +2789,8 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
           <div className="cvtype">
             <AutoTextarea
               value={draft}
-              onChange={(e) => setDraft(e.target.value)}
-              className={polishing && draft === autoDraft.current ? 'is-ai-polishing' : ''}
+              onChange={(e) => { draftTouched.current = true; setDraft(e.target.value); }}
+              className={polishing && !draftTouched.current ? 'is-ai-polishing' : ''}
               minHeight={step === 'clarify' ? 64 : 92}
               autoFocus
               placeholder={step === 'clarify' ? 'Answer in your own words…' : 'Say it however it comes out…'}
@@ -2787,7 +2808,7 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
             <div className="cvtype__acts">
               <button
                 className="ck-chip ck-chip--primary cvtype__send"
-                disabled={!draft.trim() || (polishing && draft === autoDraft.current)}
+                disabled={!draft.trim() || (polishing && !draftTouched.current)}
                 onClick={send}
               >
                 <Icon name="arrow-up-right" size={14} /> {label}
@@ -3573,12 +3594,12 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
         {/* Build Reel's recording question stands alone, without the field (bauhly-v3 ReelPrep chooser) */}
         {modal && step !== 'recording' && offerStep !== 'record' && offerStep !== 'story' && (
           <CaptureComposer
-            aiPolishing={polishing && draft === autoDraft.current}
+            aiPolishing={polishing && !draftTouched.current}
             value={draft}
-            onValue={(v) => { if (demo && !exLive && v !== exText) setDemo(false); setDraft(v); }}
+            onValue={(v) => { if (demo && !exLive && v !== exText) setDemo(false); draftTouched.current = true; setDraft(v); }}
             live={composerLive || (liveIntro && askOn && step === 'boot')}
             // the cleaner transcript is on its way: wait for it unless they edited the words
-            canSend={composerSendable && !(polishing && draft === autoDraft.current)}
+            canSend={composerSendable && !(polishing && !draftTouched.current)}
             pending={pending}
             onRemoveFile={removePending}
             placeholder={step === 'clarify' ? 'Answer in your own words…' : step === 'amendMedia' ? 'Add anything else, or send to save it…'
