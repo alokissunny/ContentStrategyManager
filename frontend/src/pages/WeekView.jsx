@@ -4149,6 +4149,24 @@ export default function WeekView({
   const appliedCoverKey = day?.content?.coverVideo?.key || '';
   const appliedCoverUrl = appliedCoverKey ? videoProxyUrl(appliedCoverKey) : '';
   // A Reel made from a capture (Captures › Generate reel): the post IS this video
+  // Debug › Regenerate reel finished: the server swapped the video into this post — show it here too
+  const handleReelReplaced = (r) => {
+    const at = selected;
+    setRoute((prev) => {
+      if (!prev?.days?.[at]) return prev;
+      const days = prev.days.map((d, i) => (i !== at ? d : {
+        ...d,
+        title: r.hook || d.title,
+        content: {
+          ...(d.content || {}),
+          caption: r.caption || d.content?.caption || '',
+          hashtags: r.hashtags?.length ? r.hashtags : (d.content?.hashtags || []),
+          reel: { ...(d.content?.reel || {}), reelId: r.id, videoKey: r.videoKey, posterKey: r.posterKey || '', durationSec: r.durationSec || 0, hook: r.hook || '', audioMode: r.audioMode || '' },
+        },
+      }));
+      return { ...prev, days };
+    });
+  };
   const reelVideoUrl = day?.content?.reel?.videoKey ? videoProxyUrl(day.content.reel.videoKey) : '';
   const reelPosterUrl = day?.content?.reel?.posterKey ? mediaDisplayUrl(day.content.reel.posterKey) : undefined;
   const handle = route?.instagramUsername || 'your.studio';
@@ -10722,6 +10740,7 @@ export default function WeekView({
                   day={day}
                   onRunLayout={handleRunLayout}
                   onRunStrategy={handleRunStrategy}
+                  onReelReplaced={handleReelReplaced}
                   layoutBusy={layoutBusy}
                   layoutErr={layoutErr}
                   elapsedMs={weekUsage?.elapsedMs}
@@ -10916,6 +10935,7 @@ export default function WeekView({
                     day={day}
                     onRunLayout={handleRunLayout}
                     onRunStrategy={handleRunStrategy}
+                    onReelReplaced={handleReelReplaced}
                     layoutBusy={layoutBusy}
                     layoutErr={layoutErr}
                     elapsedMs={weekUsage?.elapsedMs}

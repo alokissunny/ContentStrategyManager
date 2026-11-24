@@ -22,6 +22,7 @@ import { resolveFont } from './fonts';
 import type { ReelSpec, MotionMedia, MotionSegment } from './reelSchema';
 import { MotionStory, BeatCaption, type Beat } from './motionStory';
 import { MediaFill } from './motionMedia';
+import { SfxTrack, type SfxEvent } from './sfx';
 
 const cl = { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' } as const;
 const outCubic = Easing.out(Easing.cubic);
@@ -37,6 +38,8 @@ type Ctx = {
   S: number; // px scale vs 1080 wide
   W: number;
   H: number;
+  sfx?: boolean;
+  grain?: boolean;
 };
 
 // the safe zone, in frame px
@@ -553,9 +556,14 @@ export const MotionReel: React.FC<{ reel: ReelSpec }> = ({ reel }) => {
     head: resolveFont(reel.brand.headlineFont || 'Montserrat', 'display'),
     body: resolveFont(reel.brand.bodyFont || 'Inter', 'sans'),
     S: width / 1080, W: width, H: height,
+    sfx: reel.audio?.sfx !== false,
+    grain: !reel.postGrain, // postGrain: render.mjs adds it in ffmpeg instead (faster capture)
   };
+  // a whoosh on every hand-over between segments (motion stories add their own per beat)
+  const segSfx: SfxEvent[] = mo.segments.filter((s) => s.from > 0).map((s) => ({ at: s.from + 2, kind: 'whoosh' as const }));
   return (
     <AbsoluteFill style={{ background: '#000' }}>
+      {c.sfx ? <SfxTrack events={segSfx} /> : null}
       {mo.segments.map((s, i) => {
         if (s.type === 'intro') {
           return (

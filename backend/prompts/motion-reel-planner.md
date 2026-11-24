@@ -149,8 +149,12 @@ When `assets` is empty there are no pictures: plan pure graphics on brand colour
   | `photo_reveal` | the line lands on colour, then the picture grows from a card to full-bleed | is the payoff or the result ("Here's how it turned out") | `assetId` (required) |
   | `zoom_punch` | the picture punch-zooms into its focal point, a ring marks it | points at a detail in the picture (a joint, a material, a fixture) | `assetId` (required) — a picture whose `focal` is that detail |
   | `polaroid` | the picture drops in as a tilted print, the line written under it | is a moment, a memory or a step of the process (site visit, sketch, first day) | `assetId` (required); `assetIds`: a second print behind (optional) |
+  | `outline_fill` | the key word, huge in outline, fills with colour from below like a rising liquid | hinges on a quality, a material or a feeling ("warmth", "oak", "calm") | `emphasis`: that one word (≤ 11 letters) |
+  | `text_mask` | the picture shows through the giant key word, then the camera dives into a letter and the picture opens full-bleed | is the big reveal or names the space ("The finished kitchen") | `assetId` (required); `emphasis`: one short word (≤ 9 letters) |
 
   **Pictures:** when `assets` has photos or clip stills, give each beat the one that shows what it says (`assetId`; a clip still makes the clip itself play): the text scenes then run over it in white, and `photo_reveal` / `zoom_punch` / `polaroid` are built from it. A `split` may take `assetIds` (one picture per half, e.g. before and after). Put a picture on most beats (at least half) — it's a photo reel. Use each picture at most once, match the line to what the picture shows (its `summary`), and keep one or two beats on plain brand colour (a checklist, a stance) for contrast. Open on the strongest picture or the boldest line.
+
+  **Signature move:** mark the ONE beat that is the reel's emotional peak (usually the reveal or the turn, never beat 1) with `"signature": true` — it gets the reel's one special transition. Leave it out on every other beat.
 
   Rules: the same scene never twice in a row; use at least 3 different scenes in a reel; `emphasis` is a word that appears in that beat's `text` (it gets the highlight, the ring or the accent colour). Write beats as spoken lines a person would say, not labels.
 

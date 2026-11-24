@@ -35,6 +35,38 @@ async function placeReelOnCalendar(reelId) {
     const existing = await PlannedPost.findById(reel.postId);
     if (existing) return existing;
   }
+  // regenerated from a post's Debug tab: swap the video into THAT post, keep its day (unless it is
+  // already on Instagram — then it keeps what it published and the new reel goes on a new day)
+  if (reel.replacesPostId) {
+    const target = await PlannedPost.findOne({ _id: reel.replacesPostId, user: reel.user });
+    if (target && !target.published) {
+      const plan = reel.plan || {};
+      const oldReelId = target.content?.reel?.reelId;
+      target.set({
+        title: plan.hook?.text || target.title,
+        direction: plan.concept || target.direction,
+        'content.caption': reel.caption || plan.caption || '',
+        'content.hashtags': reel.hashtags || [],
+        'content.cta': plan.cta?.line || '',
+        'content.onScreenText': [plan.hook?.text, ...(plan.scenes || []).map((s) => s.kicker)].filter(Boolean),
+        'content.reel': {
+          reelId: String(reel._id), videoKey: reel.videoKey, posterKey: reel.posterKey || '',
+          durationSec: reel.durationSec || 0, hook: plan.hook?.text || '', audioMode: plan.audioMode || '',
+        },
+        agentTrace: { reel: { reelId: String(reel._id), concept: plan.concept || '', scenes: plan.scenes || [] } },
+        model: reel.model || '',
+        generatedAt: new Date(),
+        usage: { estimatedCostUsd: reel.costUsd || 0, model: reel.model || '' },
+      });
+      target.markModified('content');
+      await target.save();
+      await CaptureReel.updateOne({ _id: reel._id }, { $set: { postId: target._id } });
+      // the old reel lets go of the post, so deleting it later can't take the post with it
+      await CaptureReel.updateMany({ _id: { $ne: reel._id }, postId: target._id }, { $set: { postId: null } });
+      console.log(`[reelCalendar] reel ${reel._id} replaced the video of post ${target._id} (${target.date}; was reel ${oldReelId || '—'})`);
+      return target;
+    }
+  }
   const { allowedWeekdaysFor, markCapturesUsed } = require('../controllers/postController');
   const profile = reel.instagramUsername
     ? await InstagramProfile.findOne({ user: reel.user, username: reel.instagramUsername })

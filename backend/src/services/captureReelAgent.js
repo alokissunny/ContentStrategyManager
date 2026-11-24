@@ -975,7 +975,9 @@ async function buildTimeline({ plan, material, voice, voiceUrl, brand, style = n
 function renderReel(timeline, outPath, timeoutMs = 15 * 60 * 1000) {
   return new Promise((resolve, reject) => {
     const specPath = path.join(os.tmpdir(), `capreel-${crypto.randomUUID()}.json`);
-    fs.writeFileSync(specPath, JSON.stringify({ composition: 'CaptureReel', props: { reel: timeline } }));
+    // sound effects (remotion/src/sfx.tsx) are on unless REEL_SFX=off
+    const reel = String(process.env.REEL_SFX || '').toLowerCase() === 'off' ? { ...timeline, audio: { ...(timeline.audio || {}), sfx: false } } : timeline;
+    fs.writeFileSync(specPath, JSON.stringify({ composition: 'CaptureReel', props: { reel } }));
     // its own process group, so a kill takes headless Chrome down with it
     // (killing only node leaves Chrome running, holding its memory)
     const child = spawn('node', ['render.mjs', specPath, outPath], { cwd: REMOTION_DIR, stdio: ['ignore', 'pipe', 'pipe'], detached: true });

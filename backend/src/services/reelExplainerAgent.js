@@ -71,6 +71,11 @@ const MIN_GAP = 3; // s between two drawings (a ✗ → ✓ pair may touch)
 const MIN_SEC = 2.2;
 const MAX_SEC = 4.5;
 const LIST_MAX_SEC = 7; // a checklist / flow holds while its items are said
+// a list whose points are said far apart (> LIST_GAP_SEC) does not sit on screen through the gap: the
+// card leaves after a point has been read and comes back (`resume`) just before the next one — one
+// focus at a time, nothing on screen that isn't moving or being read (Dec 17 reel: 14 s card)
+const LIST_GAP_SEC = 3;
+const LIST_READ_SEC = 1.4;
 
 /* "85 cm" → ["85"]; "1,5 m" → ["1.5"] — the digits a value claims */
 const numbersIn = (s) => (String(s || '').replace(/(\d),(\d)/g, '$1.$2').match(/\d+(?:\.\d+)?/g) || []);
@@ -235,6 +240,29 @@ function cleanExplainers(list, words, { hookEndSec = 1.5 } = {}) {
       }
       // a list holds until its last point has been read (~1.2 s), within the limits
       if (listy && spec.items.length) {
+        const times = spec.items.map((it) => start + (it.atSec || 0));
+        const groups = [[0]];
+        for (let k = 1; k < times.length; k += 1) {
+          if (times[k] - times[k - 1] > LIST_GAP_SEC) groups.push([k]); else groups[groups.length - 1].push(k);
+        }
+        if (groups.length > 1) {
+          // one card per run of points, the later ones returning with the earlier points already in place
+          const wordAt = (t) => { let i = x.from; while (i + 1 < n && words[i + 1].start <= t) i += 1; return i; };
+          groups.forEach((g, gi) => {
+            const a = gi === 0 ? start : times[g[0]] - 0.5;
+            const lastT = times[g[g.length - 1]];
+            let b = Math.max(lastT + LIST_READ_SEC, a + MIN_SEC);
+            b = Math.min(b, a + LIST_MAX_SEC, lastSentence - 0.05);
+            if (gi + 1 < groups.length) b = Math.min(b, times[groups[gi + 1][0]] - 0.5 - 0.8); // footage between
+            if (b - a < 1.6) return;
+            const items = spec.items.map((it, k) => ({ ...it, atSec: Math.round((times[k] - a) * 100) / 100 }));
+            out.push({
+              fromSec: a, toSec: b, from: gi === 0 ? x.from : wordAt(a + 0.5), to: wordAt(lastT), strength: x.strength, why: str(x.why, 160),
+              spec: { ...spec, items, ...(gi > 0 ? { resume: true } : {}) },
+            });
+          });
+          return;
+        }
         const lastAt = spec.items[spec.items.length - 1].atSec || 0;
         toSec = Math.min(Math.max(toSec, start + lastAt + 1.2), lastSentence - 0.05, start + LIST_MAX_SEC + 1.5);
       }

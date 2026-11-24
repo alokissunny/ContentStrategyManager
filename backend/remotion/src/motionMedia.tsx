@@ -7,6 +7,7 @@
 import React from 'react';
 import { AbsoluteFill, Img, OffthreadVideo, interpolate, useCurrentFrame, useVideoConfig } from 'remotion';
 import type { MotionMedia } from './reelSchema';
+import { windup } from './motionTiming';
 
 const cl = { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' } as const;
 
@@ -21,7 +22,10 @@ export const MediaFill: React.FC<{
   m?: MotionMedia; dur: number; variant?: number; dim?: number; blur?: number; still?: boolean; clip?: string;
   zoom?: { at: number; to: number; len: number }; // a punch-in toward the focal point
   radius?: number;
-}> = ({ m, dur, variant = 0, dim = 0, blur = 0, still = false, clip, zoom, radius }) => {
+  // depth (motion-graphics repos, 2026-11-24): the lens pulls focus as the shot opens and the picture
+  // turns a degree or two in perspective, so a flat photo reads as a space, not a slide
+  depth?: boolean;
+}> = ({ m, dur, variant = 0, dim = 0, blur = 0, still = false, clip, zoom, radius, depth = false }) => {
   const f = useCurrentFrame();
   const { fps } = useVideoConfig();
   if (!m) return <AbsoluteFill style={{ background: '#111' }} />;
@@ -32,14 +36,19 @@ export const MediaFill: React.FC<{
   let s = still ? 1.02 : playing ? 1.03 + 0.04 * p : mv.s[0] + (mv.s[1] - mv.s[0]) * p;
   const tx = still || playing ? 0 : mv.x[0] + (mv.x[1] - mv.x[0]) * p;
   const ty = still || playing ? 0 : mv.y[0] + (mv.y[1] - mv.y[0]) * p;
-  if (zoom) s *= interpolate(f, [zoom.at, zoom.at + zoom.len], [1, zoom.to], { ...cl, easing: (t) => 1 - Math.pow(1 - t, 4) });
+  if (zoom) {
+    s *= interpolate(f, [zoom.at, zoom.at + zoom.len], [1, zoom.to], { ...cl, easing: (t) => 1 - Math.pow(1 - t, 4) });
+    s *= 1 - 0.045 * windup(f, zoom.at, 8); // anticipation: a small pull back before the punch
+  }
+  const focus = depth && !still ? interpolate(f, [0, 14], [7, 0], { ...cl, easing: (t) => 1 - Math.pow(1 - t, 3) }) : 0;
+  const turn = depth && !still ? (variant % 2 ? -1 : 1) * interpolate(p, [0, 1], [-2.2, 2.2]) : 0;
   const fx = m.focal ? m.focal.x + m.focal.w / 2 : 50;
   const fy = m.focal ? m.focal.y + m.focal.h / 2 : 50;
   const style: React.CSSProperties = {
     position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover',
     objectPosition: `${fx}% ${fy}%`, transformOrigin: `${fx}% ${fy}%`,
-    transform: `translate(${tx}%, ${ty}%) scale(${s})`,
-    filter: blur ? `blur(${blur}px)` : undefined,
+    transform: `${turn ? `perspective(1600px) rotateY(${turn}deg) rotateX(${turn * -0.4}deg) ` : ''}translate(${tx}%, ${ty}%) scale(${s * (turn ? 1.04 : 1)})`,
+    filter: blur + focus > 0.05 ? `blur(${blur + focus}px)` : undefined,
   };
   return (
     <AbsoluteFill style={{ overflow: 'hidden', clipPath: clip, borderRadius: radius }}>

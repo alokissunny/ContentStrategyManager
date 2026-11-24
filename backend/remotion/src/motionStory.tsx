@@ -17,6 +17,13 @@
  *   photo_reveal the line lands, then the picture grows from a card to full-bleed → the payoff, the result
  *   zoom_punch   the picture punch-zooms into its focal point, a ring marks it  → a detail, "look at this"
  *   polaroid     the picture drops in as a tilted print, the line written under → memories, process, a moment
+ *   outline_fill the key word huge in outline, filled from below like a liquid  → a quality, a material, a feeling
+ *   text_mask    the picture shows through the key word, then the camera dives in → the reveal, a room's name
+ *
+ * Motion rules (motionTiming.ts, from the motion-graphics repos, 2026-11-24): runs of words arrive
+ * faster and faster; big moves wind up first and settle after; only ≤ 3 beats may shake the whole
+ * frame; pictures pull focus and turn slightly in depth with the type drifting against them; one
+ * beat per reel is the signature move ('through' entrance + riser).
  *
  * Any beat can carry a picture (`assetId`, a photo or a clip still — a clip
  * plays): the scene then runs over it, in white with a soft shade. BeatCaption
@@ -28,9 +35,11 @@
  * function of useCurrentFrame() — deterministic.
  */
 import React from 'react';
-import { AbsoluteFill, Sequence, interpolate, Easing, useCurrentFrame } from 'remotion';
+import { AbsoluteFill, Sequence, interpolate, Easing, useCurrentFrame, useVideoConfig } from 'remotion';
 import { MediaFill } from './motionMedia';
 import type { MotionMedia } from './reelSchema';
+import { SfxTrack, storySfx } from './sfx';
+import { stagger, windup, planStory, slamPer, slamLand, markerPaintAt, circleDrawAt, stampHitAt, outlineFillAt, FILL_LEN, maskOpenAt, MASK_LEN } from './motionTiming';
 
 const cl = { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' } as const;
 const outCubic = Easing.out(Easing.cubic);
@@ -41,6 +50,8 @@ const inOut = Easing.inOut(Easing.cubic);
 export type StoryCtx = {
   brand: { accent: string; accentInk: string; ground?: string; fg?: string };
   media?: Record<string, MotionMedia>;
+  sfx?: boolean; // false = no sound effects (reel.audio.sfx)
+  grain?: boolean; // false = no in-page grain (added in ffmpeg after the render instead)
   head: string;
   body: string;
   S: number;
@@ -60,6 +71,8 @@ export type Beat = {
   assetId?: string; // the picture this beat plays over (or shows, for photo scenes)
   assetIds?: string[]; // split: one picture per half; polaroid: a second print behind
   sec?: number; // how long it needs (backend guard); the beats share the segment in proportion
+  signature?: boolean; // the planner's pick for the reel's one signature move (motionTiming.planStory)
+  impact?: boolean; // set by MotionStory: this beat may shake the whole frame (≤ 3 per reel)
 };
 
 type Pal = { bg: string; ink: string; hi: string; hiInk: string; shadow?: boolean };
@@ -131,6 +144,8 @@ function entranceStyle(kind: string, f: number, len: number, c: StoryCtx): React
   if (kind === 'none' || len <= 0) return {};
   const p = interpolate(f, [0, len], [0, 1], { ...cl, easing: inOut });
   if (kind === 'circle') return { clipPath: `circle(${p * 150}% at 50% 55%)` };
+  // the signature move: the camera pulls back out of the next scene, from blur into focus
+  if (kind === 'through') return { transform: `scale(${1.45 - 0.45 * p})`, filter: p < 1 ? `blur(${(1 - p) * 14}px)` : undefined, opacity: Math.min(1, p * 1.6) };
   if (kind === 'push') return { transform: `translateY(${(1 - p) * c.H}px)` };
   if (kind === 'block-down') return { clipPath: `inset(0 0 ${(1 - p) * 100}% 0)` };
   return { clipPath: `inset(0 ${(1 - p) * 100}% 0 0)` };
@@ -139,8 +154,15 @@ function entranceStyle(kind: string, f: number, len: number, c: StoryCtx): React
 // the leading edge of a block wipe: a thin bar in the next colour's highlight
 const WipeEdge: React.FC<{ kind: string; len: number; pal: Pal; c: StoryCtx }> = ({ kind, len, pal, c }) => {
   const f = useCurrentFrame();
-  if (len <= 0 || f > len || (kind !== 'block' && kind !== 'block-down')) return null;
+  if (len <= 0 || f > len + 10) return null;
   const p = interpolate(f, [0, len], [0, 1], { ...cl, easing: inOut });
+  if (kind === 'through') {
+    // a ring of the highlight colour opening past the frame as it lands
+    const q = interpolate(f, [len - 6, len + 10], [0, 1], { ...cl, easing: outCubic });
+    const r = q * Math.hypot(c.W, c.H) * 0.6;
+    return q > 0 && q < 1 ? <div style={{ position: 'absolute', left: c.W / 2 - r, top: c.H * 0.5 - r, width: 2 * r, height: 2 * r, borderRadius: '50%', border: `${(1 - q) * 30 * c.S}px solid ${pal.hi}`, opacity: 1 - q }} /> : null;
+  }
+  if (f > len || (kind !== 'block' && kind !== 'block-down')) return null;
   const t = 26 * c.S;
   return kind === 'block'
     ? <div style={{ position: 'absolute', top: 0, bottom: 0, left: p * c.W - t, width: t, background: pal.hi }} />
@@ -163,23 +185,29 @@ const Slam: React.FC<SceneProps> = ({ beat, c, pal, dur, start, area, k = 1 }) =
   const f = useCurrentFrame() - start;
   const words = beat.text.split(/\s+/).filter(Boolean);
   const n = Math.max(1, words.length);
-  const per = Math.max(3, Math.min(6, Math.floor((dur * 0.42) / n)));
+  const per = slamPer(n, dur);
   const size = fit(beat.text, c, 1.08 * k);
   const z = zone(c, area);
-  const lastAt = (n - 1) * per + 3;
-  const sh = shake(f, lastAt, c, 18);
+  const lastAt = slamLand(n, dur);
+  // only an impact beat shakes the frame; the others land on the element alone
+  const sh = beat.impact ? shake(f, lastAt, c, 18) : { x: 0, y: 0 };
   const drift = interpolate(f, [0, dur], [1, 1.05], cl);
   return (
     <div style={{ position: 'absolute', left: z.left, top: z.top, width: z.w, height: z.h, display: 'flex', alignItems: 'center', transform: `translate(${sh.x}px, ${sh.y}px) scale(${drift})`, transformOrigin: '0% 50%' }}>
       <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'baseline' }}>
         {words.map((w, i) => {
-          const t = interpolate(f, [i * per, i * per + 5], [0, 1], { ...cl, easing: outExpo });
+          const at = stagger(i, n, per);
+          const t = interpolate(f, [at, at + 5], [0, 1], { ...cl, easing: outExpo });
+          // follow-through: it lands a touch small and settles
+          const settle = interpolate(f, [at + 5, at + 8, at + 13], [1, 0.94, 1], cl);
+          // a beat without the frame shake gets its hit on the last word alone
+          const pop = !beat.impact && i === n - 1 ? interpolate(f, [at + 4, at + 7, at + 12], [1, 1.07, 1], cl) : 1;
           const lit = isEmph(w, beat.emphasis);
           return (
             <span key={i} style={{
               display: 'inline-block', marginRight: 22 * c.S, fontFamily: c.head, fontWeight: 900, fontSize: size, lineHeight: 0.98, letterSpacing: -3 * c.S,
               color: lit ? pal.hi : pal.ink, opacity: t > 0 ? 1 : 0,
-              transform: `scale(${2.1 - 1.1 * t})`, transformOrigin: '30% 70%', filter: `blur(${(1 - t) * 6}px)`,
+              transform: `scale(${(2.1 - 1.1 * t) * settle * pop})`, transformOrigin: '30% 70%', filter: t < 1 ? `blur(${(1 - t) * 6}px)` : undefined,
             }}>{w}</span>
           );
         })}
@@ -217,7 +245,8 @@ const StrikeSwap: React.FC<SceneProps> = ({ beat, c, pal, dur, start, area, k = 
       <div style={{ position: 'absolute', left: 0, right: 0, top: struck ? z.h * 0.3 : 0, bottom: 0, display: 'flex', alignItems: 'center' }}>
         <div style={{ display: 'flex', flexWrap: 'wrap' }}>
           {words.map((w, i) => {
-            const t = interpolate(f, [swapAt + 4 + i * 2, swapAt + 14 + i * 2], [0, 1], { ...cl, easing: outCubic });
+            const at = swapAt + 4 + stagger(i, words.length, 2.4);
+            const t = interpolate(f, [at, at + 10], [0, 1], { ...cl, easing: outCubic });
             const lit = isEmph(w, beat.emphasis);
             return (
               <span key={i} style={{ display: 'inline-block', overflow: 'hidden', marginRight: 20 * c.S, paddingBottom: 6 * c.S }}>
@@ -277,14 +306,15 @@ const Marker: React.FC<SceneProps> = ({ beat, c, pal, dur, start, area, k = 1 })
   const z = zone(c, area);
   const words = beat.text.split(/\s+/).filter(Boolean);
   const size = fit(beat.text, c, 1 * k);
-  const revealEnd = 6 + words.length * 3 + 8;
+  const revealEnd = markerPaintAt(words.length);
   const paint = interpolate(f, [revealEnd, revealEnd + 9], [0, 1], { ...cl, easing: outCubic });
   const settle = interpolate(f, [0, dur], [0, 1], cl);
   return (
     <div style={{ position: 'absolute', left: z.left, top: z.top, width: z.w, height: z.h, display: 'flex', alignItems: 'center' }}>
       <div style={{ display: 'flex', flexWrap: 'wrap', transform: `translateY(${-settle * 16 * c.S}px)` }}>
         {words.map((w, i) => {
-          const t = interpolate(f, [4 + i * 3, 14 + i * 3], [0, 1], { ...cl, easing: outCubic });
+          const at = 4 + stagger(i, words.length, 3);
+          const t = interpolate(f, [at, at + 10], [0, 1], { ...cl, easing: outCubic });
           const lit = isEmph(w, beat.emphasis);
           return (
             <span key={i} style={{ position: 'relative', display: 'inline-block', overflow: 'hidden', marginRight: 22 * c.S, padding: `0 ${lit ? 10 * c.S : 0}px ${8 * c.S}px` }}>
@@ -365,9 +395,13 @@ const Stamp: React.FC<SceneProps> = ({ beat, c, pal, dur, start, area, k = 1 }) 
   const z = zone(c, area);
   const words = beat.text.split(/\s+/).filter(Boolean);
   const size = fit(beat.text, c, 0.86 * k);
-  const hitAt = Math.max(14, Math.floor(dur * 0.38));
+  const hitAt = stampHitAt(dur);
   const drop = interpolate(f, [hitAt - 6, hitAt], [0, 1], { ...cl, easing: Easing.in(Easing.cubic) });
-  const sh = shake(f, hitAt, c, 22);
+  // anticipation: the stamp hovers in, lifts, then slams
+  const hover = interpolate(f, [hitAt - 16, hitAt - 10], [0, 1], { ...cl, easing: outCubic });
+  const lift = windup(f, hitAt - 5, 9);
+  const sh = beat.impact ? shake(f, hitAt, c, 22) : { x: 0, y: 0 };
+  const own = beat.impact ? { x: 0, y: 0 } : shake(f, hitAt, c, 9); // the stamp alone jolts
   const ring = interpolate(f, [hitAt, hitAt + 12], [0, 1], { ...cl, easing: outCubic });
   const label = (beat.stampText || beat.emphasis || '').toUpperCase();
   const st = 460 * c.S;
@@ -375,17 +409,18 @@ const Stamp: React.FC<SceneProps> = ({ beat, c, pal, dur, start, area, k = 1 }) 
     <div style={{ position: 'absolute', left: z.left, top: z.top, width: z.w, height: z.h, transform: `translate(${sh.x}px, ${sh.y}px)` }}>
       <div style={{ position: 'absolute', left: 0, right: 0, top: z.h * 0.12, display: 'flex', flexWrap: 'wrap' }}>
         {words.map((w, i) => {
-          const t = interpolate(f, [2 + i * 2, 11 + i * 2], [0, 1], { ...cl, easing: outCubic });
+          const at = 2 + stagger(i, words.length, 2);
+          const t = interpolate(f, [at, at + 9], [0, 1], { ...cl, easing: outCubic });
           return <span key={i} style={{ display: 'inline-block', marginRight: 20 * c.S, fontFamily: c.head, fontWeight: 900, fontSize: size, lineHeight: 1.02, letterSpacing: -2 * c.S, color: pal.ink, opacity: t, transform: `translateY(${(1 - t) * 40 * c.S}px)` }}>{w}</span>;
         })}
       </div>
       {label ? (
-        <div style={{ position: 'absolute', right: -20 * c.S, top: z.h * 0.42, width: st, height: st }}>
+        <div style={{ position: 'absolute', right: -20 * c.S, top: z.h * 0.42, width: st, height: st, transform: `translate(${own.x}px, ${own.y}px)` }}>
           <div style={{ position: 'absolute', inset: -ring * 60 * c.S, borderRadius: '50%', border: `${6 * c.S}px solid ${pal.hi}`, opacity: (1 - ring) * (f >= hitAt ? 0.8 : 0) }} />
           <div style={{
             position: 'absolute', inset: 0, borderRadius: '50%', border: `${12 * c.S}px double ${pal.hi}`, display: 'grid', placeItems: 'center', textAlign: 'center',
             fontFamily: c.head, fontWeight: 900, fontSize: Math.min(110 * c.S, (st * 0.8) / Math.max(4, label.length * 0.64)), letterSpacing: 3 * c.S, color: pal.hi, background: `${pal.bg}cc`,
-            opacity: f >= hitAt - 6 ? 0.25 + 0.75 * drop : 0, transform: `scale(${2.6 - 1.6 * drop}) rotate(${-14 + (1 - drop) * 20}deg)`, padding: 24 * c.S, lineHeight: 1,
+            opacity: f >= hitAt - 16 ? 0.18 * hover + (0.82 * drop) : 0, transform: `scale(${(2.6 - 1.6 * drop) * (1 + 0.14 * lift)}) rotate(${-14 + (1 - drop) * 20 + lift * 6}deg)`, padding: 24 * c.S, lineHeight: 1,
           }}>{label}</div>
         </div>
       ) : null}
@@ -398,14 +433,15 @@ const Circle: React.FC<SceneProps> = ({ beat, c, pal, dur, start, area, k = 1 })
   const z = zone(c, area);
   const words = beat.text.split(/\s+/).filter(Boolean);
   const size = fit(beat.text, c, 1 * k);
-  const revealEnd = 4 + words.length * 3 + 8;
+  const revealEnd = circleDrawAt(words.length);
   const draw = interpolate(f, [revealEnd, revealEnd + 12], [0, 1], { ...cl, easing: outCubic });
   const L = 900;
   return (
     <div style={{ position: 'absolute', left: z.left, top: z.top, width: z.w, height: z.h, display: 'flex', alignItems: 'center' }}>
       <div style={{ display: 'flex', flexWrap: 'wrap' }}>
         {words.map((w, i) => {
-          const t = interpolate(f, [2 + i * 3, 11 + i * 3], [0, 1], { ...cl, easing: outBack });
+          const at = 2 + stagger(i, words.length, 3);
+          const t = interpolate(f, [at, at + 9], [0, 1], { ...cl, easing: outBack });
           const lit = isEmph(w, beat.emphasis);
           return (
             <span key={i} style={{ position: 'relative', display: 'inline-block', marginRight: 24 * c.S, marginBottom: 6 * c.S }}>
@@ -436,6 +472,7 @@ const PhotoReveal: React.FC<SceneProps> = ({ beat, c, pal, dur, start, k = 1 }) 
   const growAt = Math.max(10, Math.floor(dur * 0.3));
   const g = interpolate(f, [growAt, growAt + 14], [0, 1], { ...cl, easing: inOut });
   const cardIn = interpolate(f, [4, 14], [0, 1], { ...cl, easing: outBack });
+  const pull = windup(f, growAt + 2, 9); // anticipation: it draws back before it opens
   const w = interpolate(g, [0, 1], [0.46, 1]) * c.W;
   const h = interpolate(g, [0, 1], [0.3, 1]) * c.H;
   const top = interpolate(g, [0, 1], [c.H * 0.58, 0]);
@@ -443,13 +480,14 @@ const PhotoReveal: React.FC<SceneProps> = ({ beat, c, pal, dur, start, k = 1 }) 
   const textTop = interpolate(g, [0, 1], [z.top + z.h * 0.08, z.bottom - size * 2.4]);
   return (
     <AbsoluteFill>
-      <div style={{ position: 'absolute', left: (c.W - w) / 2, top, width: w, height: h, borderRadius: interpolate(g, [0, 1], [40, 0]) * c.S, overflow: 'hidden', transform: `scale(${0.7 + 0.3 * cardIn}) rotate(${(1 - g) * -3}deg)`, opacity: cardIn, boxShadow: '0 30px 80px rgba(0,0,0,0.3)' }}>
-        <MediaFill m={m} dur={dur} variant={1} />
+      <div style={{ position: 'absolute', left: (c.W - w) / 2, top, width: w, height: h, borderRadius: interpolate(g, [0, 1], [40, 0]) * c.S, overflow: 'hidden', transform: `scale(${(0.7 + 0.3 * cardIn) * (1 - 0.06 * pull)}) rotate(${(1 - g) * -3}deg)`, opacity: cardIn, boxShadow: '0 30px 80px rgba(0,0,0,0.3)' }}>
+        <MediaFill m={m} dur={dur} variant={1} depth />
         <AbsoluteFill style={{ background: `linear-gradient(0deg, rgba(0,0,0,${0.55 * g}) 0%, rgba(0,0,0,0) 55%)` }} />
       </div>
       <div style={{ position: 'absolute', left: z.left, width: z.w, top: textTop, display: 'flex', flexWrap: 'wrap', textShadow: g > 0.5 ? '0 4px 24px rgba(0,0,0,0.5)' : 'none' }}>
         {words.map((wd, i) => {
-          const t = interpolate(f, [i * 2, i * 2 + 9], [0, 1], { ...cl, easing: outCubic });
+          const at = stagger(i, words.length, 2);
+          const t = interpolate(f, [at, at + 9], [0, 1], { ...cl, easing: outCubic });
           const lit = isEmph(wd, beat.emphasis);
           return (
             <span key={i} style={{ display: 'inline-block', overflow: 'hidden', marginRight: 20 * c.S, paddingBottom: 6 * c.S }}>
@@ -478,7 +516,7 @@ const ZoomPunch: React.FC<SceneProps> = ({ beat, c, pal, dur, start, k = 1 }) =>
   const words = beat.text.split(/\s+/).filter(Boolean);
   return (
     <AbsoluteFill>
-      <MediaFill m={m} dur={dur} variant={0} zoom={{ at, to: 1.55, len: 7 }} />
+      <MediaFill m={m} dur={dur} variant={0} zoom={{ at, to: 1.55, len: 7 }} depth />
       <AbsoluteFill style={{ background: 'radial-gradient(circle at 50% 46%, rgba(0,0,0,0) 22%, rgba(0,0,0,0.5) 75%)', opacity: ring }} />
       <svg width={c.W} height={c.H} style={{ position: 'absolute', inset: 0 }}>
         <circle cx={cx} cy={cy} r={R} fill="none" stroke={pal.hi} strokeWidth={10 * c.S} strokeDasharray={2 * Math.PI * R} strokeDashoffset={2 * Math.PI * R * (1 - ring)} transform={`rotate(-90 ${cx} ${cy})`} strokeLinecap="round" />
@@ -521,13 +559,115 @@ const Polaroid: React.FC<SceneProps> = ({ beat, c, pal, dur, start, k = 1 }) => 
   );
 };
 
+// a quality or material word set huge in outline, then filled from below like a liquid rising
+// (video-shotcraft typography/outline-word-fill) → "warmth", "texture", "light", "calm"
+const OutlineFill: React.FC<SceneProps> = ({ beat, c, pal, dur, start, area, k = 1 }) => {
+  const f = useCurrentFrame() - start;
+  const z = zone(c, area);
+  const all = beat.text.split(/\s+/).filter(Boolean);
+  const keyIdx = Math.max(0, all.findIndex((w) => isEmph(w, beat.emphasis)));
+  const key = (all[keyIdx] || beat.text).replace(/[.,!?;:]+$/, '');
+  const before = all.slice(0, keyIdx); const after = all.slice(keyIdx + 1);
+  const small = Math.min(84 * c.S, fit(beat.text, c, 0.5 * k));
+  // heavy display faces run ~0.7 em a letter: size so the word still fits the column
+  const big = Math.min(330 * c.S * k, (z.w * 0.94) / Math.max(2, key.length * 0.7));
+  const fillAt = outlineFillAt(all.length);
+  const fill = interpolate(f, [fillAt, fillAt + FILL_LEN], [0, 1], { ...cl, easing: inOut });
+  const keyIn = interpolate(f, [2, 12], [0, 1], { ...cl, easing: outCubic });
+  const land = interpolate(f, [fillAt + FILL_LEN, fillAt + FILL_LEN + 6, fillAt + FILL_LEN + 14], [0, 1, 0], cl);
+  // the liquid's surface: a gentle wave that calms as it fills
+  const pts: string[] = [];
+  const amp = 3.2 * (1 - fill * 0.8);
+  for (let x = 0; x <= 100; x += 5) pts.push(`${x}% ${(1 - fill) * 104 - 2 + amp * Math.sin(x / 9 + f / 3)}%`);
+  const clip = `polygon(${pts.join(', ')}, 100% 100%, 0% 100%)`;
+  const word = (style: React.CSSProperties) => (
+    <div style={{ fontFamily: c.head, fontWeight: 900, fontSize: big, lineHeight: 1, letterSpacing: -3 * c.S, whiteSpace: 'nowrap', ...style }}>{key}</div>
+  );
+  // the small words keep reading order: those before the key word above it, the rest below
+  const n = before.length + after.length;
+  const line = (ws: string[], from: number) => ws.length ? (
+    <div style={{ display: 'flex', flexWrap: 'wrap' }}>
+      {ws.map((w, i) => {
+        const at = 10 + stagger(from + i, Math.max(1, n), 3);
+        const t = interpolate(f, [at, at + 10], [0, 1], { ...cl, easing: outCubic });
+        return (
+          <span key={i} style={{ display: 'inline-block', overflow: 'hidden', marginRight: 16 * c.S }}>
+            <span style={{ display: 'inline-block', fontFamily: c.head, fontWeight: 800, fontSize: small, lineHeight: 1.08, color: pal.ink, transform: `translateY(${(1 - t) * 110}%)` }}>{w}</span>
+          </span>
+        );
+      })}
+    </div>
+  ) : null;
+  return (
+    <div style={{ position: 'absolute', left: z.left, top: z.top, width: z.w, height: z.h, display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 24 * c.S }}>
+      {line(before, 0)}
+      <div style={{ position: 'relative', opacity: keyIn, transform: `translateY(${(1 - keyIn) * 50 * c.S}px) scale(${1 + 0.03 * land})`, transformOrigin: '0% 60%' }}>
+        {word({ color: 'transparent', WebkitTextStroke: `${Math.max(3, 4 * c.S)}px ${pal.ink}` })}
+        <div style={{ position: 'absolute', inset: 0, clipPath: clip }}>{word({ color: pal.hi })}</div>
+      </div>
+      {line(after, before.length)}
+    </div>
+  );
+};
+
+// the key word set huge with the picture showing THROUGH its letters, then the camera flies into
+// a letter and the picture opens full-bleed (video-shotcraft opening/text-as-mask)
+const TextMask: React.FC<SceneProps> = ({ beat, c, pal, dur, start, k = 1 }) => {
+  const f = useCurrentFrame() - start;
+  const m = mediaOf(c, beat.assetId);
+  const z = zone(c);
+  const all = beat.text.split(/\s+/).filter(Boolean);
+  const key = ((all.find((w) => isEmph(w, beat.emphasis)) || all[0] || '').replace(/[.,!?;:]+$/, '')).toUpperCase();
+  const size = Math.min(420 * c.S * k, (c.W * 0.9) / Math.max(2, key.length * 0.66));
+  const openAt = maskOpenAt(dur);
+  const keyIn = interpolate(f, [0, 12], [0, 1], { ...cl, easing: outCubic });
+  const pull = windup(f, openAt + 1, 8); // it draws back before the dive
+  const dive = interpolate(f, [openAt, openAt + MASK_LEN], [0, 1], { ...cl, easing: Easing.in(Easing.cubic) });
+  const scale = (1.12 - 0.12 * keyIn) * (1 - 0.06 * pull) * (1 + 26 * dive ** 2.2);
+  const cover = interpolate(f, [openAt + MASK_LEN - 5, openAt + MASK_LEN + 2], [1, 0], cl);
+  const line = all.filter((w) => w.replace(/[.,!?;:]+$/, '').toUpperCase() !== key);
+  const lineSize = Math.min(96 * c.S, fit(line.join(' ') || 'x', c, 0.7 * k));
+  const cx = c.W / 2; const cy = c.H * 0.46;
+  const id = `tm-${start}-${key.length}`;
+  return (
+    <AbsoluteFill>
+      <MediaFill m={m} dur={dur} variant={0} depth />
+      {cover > 0 ? (
+        <svg width={c.W} height={c.H} style={{ position: 'absolute', inset: 0 }}>
+          <defs>
+            <mask id={id} maskUnits="userSpaceOnUse" x={0} y={0} width={c.W} height={c.H}>
+              <rect x={0} y={0} width={c.W} height={c.H} fill="#fff" />
+              <g transform={`translate(${cx} ${cy}) scale(${scale}) translate(${-cx} ${-cy})`}>
+                <text x={cx} y={cy} textAnchor="middle" dominantBaseline="central" fontFamily={c.head} fontWeight={900} fontSize={size} letterSpacing={-2 * c.S} fill="#000">{key}</text>
+              </g>
+            </mask>
+          </defs>
+          <rect x={0} y={0} width={c.W} height={c.H} fill={pal.bg} mask={`url(#${id})`} opacity={cover} />
+        </svg>
+      ) : null}
+      <div style={{ position: 'absolute', left: z.left, width: z.w, top: z.bottom - lineSize * 2.5, display: 'flex', flexWrap: 'wrap', textShadow: '0 4px 24px rgba(0,0,0,0.55)' }}>
+        {line.map((w, i) => {
+          const at = openAt + MASK_LEN + 2 + stagger(i, line.length, 2.5);
+          const t = interpolate(f, [at, at + 10], [0, 1], { ...cl, easing: outCubic });
+          return (
+            <span key={i} style={{ display: 'inline-block', overflow: 'hidden', marginRight: 18 * c.S, paddingBottom: 6 * c.S }}>
+              <span style={{ display: 'inline-block', fontFamily: c.head, fontWeight: 900, fontSize: lineSize, lineHeight: 1.04, letterSpacing: -2 * c.S, color: '#fff', transform: `translateY(${(1 - t) * 110}%)` }}>{w}</span>
+            </span>
+          );
+        })}
+      </div>
+    </AbsoluteFill>
+  );
+};
+
 const SCENES: Record<string, React.FC<SceneProps>> = {
   slam: Slam, strike_swap: StrikeSwap, prompt_type: PromptType, marker: Marker,
   checklist: Checklist, split: Split, stamp: Stamp, circle: Circle,
   photo_reveal: PhotoReveal, zoom_punch: ZoomPunch, polaroid: Polaroid,
+  outline_fill: OutlineFill, text_mask: TextMask,
 };
 // scenes that draw their own picture (the others run over it)
-const OWN_PICTURE = new Set(['photo_reveal', 'zoom_punch', 'polaroid', 'split']);
+const OWN_PICTURE = new Set(['photo_reveal', 'zoom_punch', 'polaroid', 'split', 'text_mask']);
 
 // one beat: its ground, its entrance over the last beat, grain, the scene
 export const BeatScene: React.FC<{ beat: Beat; c: StoryCtx; pal: Pal; dur: number; enter: string; enterLen: number; index: number; marquee?: boolean }> = ({ beat, c, pal, dur, enter, enterLen, index, marquee = true }) => {
@@ -546,15 +686,16 @@ export const BeatScene: React.FC<{ beat: Beat; c: StoryCtx; pal: Pal; dur: numbe
       <AbsoluteFill style={{ background: pal.bg }} />
       {over ? (
         <>
-          <MediaFill m={m} dur={dur} variant={index} />
+          <MediaFill m={m} dur={dur} variant={index} depth />
           <AbsoluteFill style={{ background: 'linear-gradient(180deg, rgba(0,0,0,0.45) 0%, rgba(0,0,0,0.25) 40%, rgba(0,0,0,0.6) 100%)' }} />
         </>
       ) : null}
       {marquee && word && !over && !OWN_PICTURE.has(beat.scene) ? <Marquee word={word} c={c} pal={pal} y={c.H * (index % 2 ? 0.08 : 0.74)} dir={index % 2 ? -1 : 1} /> : null}
-      <AbsoluteFill style={{ textShadow: usePal.shadow ? '0 4px 26px rgba(0,0,0,0.55)' : undefined }}>
+      {/* parallax: over a picture the type drifts against the photo's own move, so the two read as layers */}
+      <AbsoluteFill style={{ textShadow: usePal.shadow ? '0 4px 26px rgba(0,0,0,0.55)' : undefined, transform: over ? `translateY(${interpolate(f, [0, dur], [18, -18]) * c.S}px)` : undefined }}>
         <Scene beat={beat} c={c} pal={usePal} dur={dur} start={0} />
       </AbsoluteFill>
-      <Grain id={`b${index}`} opacity={over ? 0.05 : 0.09} />
+      {c.grain === false ? null : <Grain id={`b${index}`} opacity={over ? 0.05 : 0.09} />}
       <WipeEdge kind={enter} len={enterLen} pal={pal} c={c} />
     </AbsoluteFill>
   );
@@ -562,27 +703,21 @@ export const BeatScene: React.FC<{ beat: Beat; c: StoryCtx; pal: Pal; dur: numbe
 
 /** The whole main segment: beats in sequence, overlapping by their entrance. */
 export const MotionStory: React.FC<{ beats: Beat[]; c: StoryCtx; dur: number; palOffset?: number }> = ({ beats, c, dur, palOffset = 0 }) => {
+  const { fps } = useVideoConfig();
   const pals = palettes(c);
-  const n = Math.max(1, beats.length);
-  const enterLen = 9;
-  const weights = beats.map((b) => (b.sec && b.sec > 0 ? b.sec : 2.6));
-  const sum = weights.reduce((a, b) => a + b, 0) || 1;
-  const starts: number[] = [];
-  let acc = 0;
-  weights.forEach((w) => { starts.push(Math.round((acc / sum) * dur)); acc += w; });
+  // where each beat starts, which may hit the whole frame, which is the signature move (motionTiming.ts)
+  const plan = React.useMemo(() => planStory(beats, dur, fps), [beats, dur, fps]);
   return (
     <AbsoluteFill style={{ background: pals[palOffset % 3].bg }}>
       {beats.map((b, i) => {
-        const at = starts[i];
-        const end = i === n - 1 ? dur : starts[i + 1];
-        const from = i === 0 ? 0 : at - enterLen;
-        const len = end - at + (i === 0 ? 0 : enterLen);
+        const enter = i === 0 ? 'none' : i === plan.signature ? 'through' : ENTRANCES[(i - 1) % ENTRANCES.length];
         return (
-          <Sequence key={i} from={from} durationInFrames={Math.max(1, len)} layout="none">
-            <BeatScene beat={b} c={c} pal={pals[(i + palOffset) % 3]} dur={len} enter={i === 0 ? 'none' : ENTRANCES[(i - 1) % ENTRANCES.length]} enterLen={i === 0 ? 0 : enterLen} index={i} />
+          <Sequence key={i} from={plan.froms[i]} durationInFrames={plan.lens[i]} layout="none">
+            <BeatScene beat={{ ...b, impact: plan.impact[i] }} c={c} pal={pals[(i + palOffset) % 3]} dur={plan.lens[i]} enter={enter} enterLen={plan.enters[i]} index={i} />
           </Sequence>
         );
       })}
+      {c.sfx !== false ? <SfxTrack events={storySfx(beats, dur, fps)} total={dur} /> : null}
     </AbsoluteFill>
   );
 };

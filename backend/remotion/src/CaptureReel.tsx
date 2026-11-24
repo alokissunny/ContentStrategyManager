@@ -23,6 +23,7 @@ import { MotionReel } from './MotionReel';
 import { ExplainerScene } from './explainers';
 import { useReelFaces } from './brandFonts';
 import { drawPalette } from './brandPalette';
+import { SfxTrack, explainerSfx, type SfxEvent } from './sfx';
 import { Cutaway, NarrativeCaptions, NarrativeEnd, TitleHook, Vignette, GRADE_INSERT, GRADE_SPEAKER, splitAmount, splitWindows, TwoVoiceCaptions, ChapterTitle, VerdictCard, SpeakerIn, Framed } from './narrative';
 
 const clamp = { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' } as const;
@@ -226,6 +227,28 @@ const Progress: React.FC<{ color: string }> = ({ color }) => {
   );
 };
 
+// Sound for a reel cut from footage (sfx.tsx): only what is DRAWN or PLACED gets a sound — plain
+// cuts between shots stay silent (lemo-opuscar: "don't cut on every beat"); under a voice the
+// effects sit at half level.
+function reelSfx(reel: ReelSpec, fps: number): SfxEvent[] {
+  const ev: SfxEvent[] = [];
+  for (const s of reel.scenes) {
+    if (s.speaker) continue;
+    if (s.explainer) for (const e of explainerSfx(s.explainer, fps)) ev.push({ ...e, at: s.from + e.at });
+    else if (s.card) { ev.push({ at: s.from + 3, kind: 'paper' }); ev.push({ at: s.from + 14, kind: 'stamp', gain: 0.45 }); }
+    else if (s.kind === 'card') ev.push({ at: s.from + 3, kind: 'paper' }); // a styled reel's chapter card
+  }
+  for (const c of reel.chapters || []) ev.push({ at: c.fromFrame + 2, kind: 'tick', gain: 0.6 });
+  if (reel.cta) ev.push({ at: reel.cta.fromFrame + 2, kind: 'whoosh', gain: 0.8 });
+  return ev;
+}
+const ReelSfx: React.FC<{ reel: ReelSpec }> = ({ reel }) => {
+  const { fps } = useVideoConfig();
+  const events = React.useMemo(() => reelSfx(reel, fps), [reel, fps]);
+  if (reel.audio?.sfx === false) return null;
+  return <SfxTrack events={events} master={reel.audio?.voiceoverSrc ? 0.5 : 0.8} />;
+};
+
 // A reel cut in a reference reel's style (reel.look) — see reelLook.tsx
 const StyledReel: React.FC<{ reel: ReelSpec }> = ({ reel }) => {
   const { fps } = useVideoConfig();
@@ -265,6 +288,7 @@ const StyledReel: React.FC<{ reel: ReelSpec }> = ({ reel }) => {
             : <LookEndLine spec={reel} durationInFrames={reel.cta.durationInFrames} />}
         </Sequence>
       ) : null}
+      <ReelSfx reel={reel} />
       {reel.audio?.musicSrc ? <Audio src={reel.audio.musicSrc} volume={reel.audio.musicVolume ?? 0.9} /> : null}
       {reel.audio?.voiceoverSrc ? (
         <Sequence from={reel.audio.startFrame ?? 0} layout="none">
@@ -341,6 +365,7 @@ const NarrativeReel: React.FC<{ reel: ReelSpec }> = ({ reel }) => {
           <NarrativeEnd spec={reel} font={font} />
         </Sequence>
       ) : null}
+      <ReelSfx reel={reel} />
       {reel.audio?.musicSrc ? <Audio src={reel.audio.musicSrc} volume={reel.audio.musicVolume ?? 0.9} /> : null}
       {reel.audio?.voiceoverSrc ? (
         <Sequence from={reel.audio.startFrame ?? 0} layout="none">
@@ -394,6 +419,7 @@ const DefaultReel: React.FC<{ reel: ReelSpec }> = ({ reel }) => {
           <Audio src={reel.audio.voiceoverSrc} volume={reel.audio.voiceVolume ?? 1} />
         </Sequence>
       ) : null}
+      <ReelSfx reel={reel} />
       <Progress color={reel.brand.accent} />
     </AbsoluteFill>
   );

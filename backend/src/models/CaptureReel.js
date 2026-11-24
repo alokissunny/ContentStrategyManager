@@ -44,6 +44,9 @@ const captureReelSchema = new mongoose.Schema(
     timings: { type: mongoose.Schema.Types.Mixed, default: null },
     // the calendar post it was placed on (PlannedPost, format Reel)
     postId: { type: mongoose.Schema.Types.ObjectId, ref: 'PlannedPost', default: null },
+    // a regenerate from a post's Debug tab: when done, this reel's video replaces the one in that post
+    // (same day) instead of going onto the next empty day (services/reelCalendar.js)
+    replacesPostId: { type: mongoose.Schema.Types.ObjectId, ref: 'PlannedPost', default: null },
     // delivery: tries so far (services/captureReelAgent MAX_ATTEMPTS) and the
     // BullMQ job carrying it now (a re-queue gets a fresh id)
     attempts: { type: Number, default: 0 },

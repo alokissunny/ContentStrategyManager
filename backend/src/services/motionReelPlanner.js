@@ -38,10 +38,17 @@ const ACCENTS = {
 // (remotion/src/motionStory.tsx). Seconds = how long each scene needs to land.
 const SCENES = {
   slam: 2.3, strike_swap: 3.0, prompt_type: 3.4, marker: 2.6, checklist: 3.4, split: 2.8, stamp: 2.8, circle: 2.6,
-  photo_reveal: 3.0, zoom_punch: 2.8, polaroid: 3.0,
+  photo_reveal: 3.0, zoom_punch: 2.8, polaroid: 3.0, outline_fill: 2.8, text_mask: 3.2,
 };
 // scenes that ARE a picture (they need one)
-const PICTURE_SCENES = new Set(['photo_reveal', 'zoom_punch', 'polaroid']);
+const PICTURE_SCENES = new Set(['photo_reveal', 'zoom_punch', 'polaroid', 'text_mask']);
+// how long a beat must stay up to be READ (lemo-opuscar DIRECTOR §7: once the words are in,
+// hold letters ÷ 15 + 1.5 s; ~0.7 s for them to animate in) — never shorter than the scene needs
+function readableSec(b) {
+  const words = [b.text, b.struck, b.left, b.right, ...(b.items || [])].filter(Boolean).join(' ');
+  const letters = words.replace(/\s+/g, '').length;
+  return Math.max(SCENES[b.scene] || 2.6, Math.min(6.5, 0.7 + letters / 15 + 1.5));
+}
 const STOP = /^(the|and|for|with|your|our|you|we|are|was|that|this|from|into|not|but|its|it's|they|them|their|have|has|will|can|just|more|than|what|when|how|why|a|an|of|to|in|on|is|it|do|don't|dont)$/i;
 const normWord = (w) => String(w || '').toLowerCase().replace(/[^\p{L}\p{N}]/gu, '');
 // the word a line hangs on: the longest content word
@@ -278,6 +285,10 @@ function cleanMotionPlan(raw, ctx) {
       const emph = str(b.emphasis, 30);
       beat.emphasis = emph && wordsOf(text).some((w) => normWord(w) === normWord(emph)) ? emph : keyWordOf(text);
       if (scene === 'stamp' && !beat.stampText) beat.stampText = beat.emphasis;
+      // outline_fill hangs on one short word (it is set huge)
+      if (scene === 'outline_fill' && (beat.emphasis || '').length > 11) scene = 'marker';
+      if (scene === 'text_mask' && (beat.emphasis || '').length > 9) scene = 'photo_reveal';
+      if (b.signature === true && out.length > 0) beat.signature = true;
       out.push({ scene, text, ...beat });
     });
     // variety: no scene twice in a row (the content-led ones are kept, the plain ones move)
@@ -299,7 +310,10 @@ function cleanMotionPlan(raw, ctx) {
       b.assetId = pool.shift();
       have += 1;
     }
-    return beats.map((b) => ({ ...b, sec: SCENES[b.scene] + (b.scene === 'checklist' ? 0.5 * Math.max(0, (b.items?.length || 0) - 2) : 0) }));
+    // one signature move per reel at most (the renderer picks one when the planner didn't)
+    let sig = false;
+    for (const b of beats) { if (b.signature && !sig) sig = true; else delete b.signature; }
+    return beats.map((b) => ({ ...b, sec: r2(readableSec(b) + (b.scene === 'checklist' ? 0.5 * Math.max(0, (b.items?.length || 0) - 2) : 0)) }));
   };
   // no usable beats from the planner: tell the studio's own lines, a scene each
   const beatsFromFacts = () => {

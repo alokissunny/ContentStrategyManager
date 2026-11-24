@@ -74,6 +74,7 @@ export type ReelExplainer = {
   value2?: string;
   label?: string;
   items?: { text: string; value: string; verdict: 'good' | 'bad' | 'none'; atSec?: number; icon?: string }[]; // atSec: when the item is said; icon: what it pictures
+  resume?: boolean; // a long list split by the backend: this card returns after footage (header already shown)
 };
 
 export type ReelCaptionWord = { text: string; fromFrame: number; toFrame: number; em?: boolean };
@@ -125,10 +126,11 @@ export type ReelSpec = {
   scenes: ReelScene[];
   captions: ReelCaption[];
   cta?: { line: string; sub?: string; fromFrame: number; durationInFrames: number };
-  audio?: { voiceoverSrc?: string; voiceVolume?: number; startFrame?: number; musicSrc?: string; musicVolume?: number };
+  audio?: { voiceoverSrc?: string; voiceVolume?: number; startFrame?: number; musicSrc?: string; musicVolume?: number; sfx?: boolean };
   look?: ReelLook; // set = a reel style (reelLook.tsx); unset = the default look
   chapters?: { text: string; fromFrame: number; durationInFrames: number; ink?: string; scrim?: 'dark' | 'light' }[]; // chapter title cards
   motion?: MotionTimeline; // set = a motion graphic reel (MotionReel.tsx)
+  postGrain?: boolean; // grain added by ffmpeg after the render instead of drawn in every frame
 };
 
 const IMG = 'https://images.unsplash.com/photo-1556911220-bff31c812dba?w=1080';

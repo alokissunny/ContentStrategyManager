@@ -42,6 +42,16 @@ the words in it, only repeats what is said; that is decoration. If the footage o
 thing (a material, a finish, a piece of furniture), the photo is the explanation — don't draw over it.
 Colours come from the studio's Brand Kit (Bauhly sets them); you never choose colours.
 
+HOW YOUR DRAWING MOVES (so you can choose and time it well): every line draws itself on, quick at first
+and settling at the end; each list point winds up, lands and settles exactly at the word you give as its
+`at`; while a list builds, the point being said has the focus and the earlier ones step back, then all come
+back together once the list is complete; the camera leans toward the point being said. So:
+- give each `items[].at` the index of the word that NAMES that point (not the start of its sentence);
+- a list works best when its points are said close together. When they are said far apart (more than ~3 s
+  between two points), Bauhly takes the card off screen in the gap and brings it back for the next point —
+  that is fine, but don't build a list out of points scattered across the whole reel;
+- one idea per drawing: if two lists are said, they are two drawings, not one long one.
+
 LIST EVERY CANDIDATE (up to 5), each with a `strength` 1–5 — Bauhly picks from them:
 5 = the drawing IS the explanation (a said measurement, right vs wrong, how light falls);
 4 = it makes a spoken idea much clearer (how two rooms connect, a process, a list whose points can each be pictured);

@@ -6,6 +6,84 @@ import { prepareLayoutHtml, repairStrandedOffsets, shareLayoutStyles } from './l
 import { downloadCarouselPreviewPdf } from './carouselPdf';
 import DynamicLayout from './DynamicLayout';
 import { carouselDocPreview, carouselSlideImageUrls, carouselSlideIndexOf } from './carouselDocPreview';
+import { regenerateCaptureReel, getCaptureReel, reelWorking } from '../../api/captureReels';
+
+const REEL_STAGE = {
+  queued: 'Waiting for a free renderer…', reading: 'Reading the recordings and photos…', writing: 'Editing the cut…',
+  voicing: 'Recording the voice…', scoring: 'Composing the music…', cutting: 'Designing captions and drawings…',
+  rendering: 'Rendering the video…', saving: 'Saving…',
+};
+const runKey = (postId) => `wv.reelRegen.${postId}`;
+const readRun = (postId) => { try { return sessionStorage.getItem(runKey(postId)) || ''; } catch { return ''; } };
+const writeRun = (postId, id) => { try { if (id) sessionStorage.setItem(runKey(postId), id); else sessionStorage.removeItem(runKey(postId)); } catch { /* private mode */ } };
+
+/**
+ * A reel post's Debug tab: regenerate the reel from the same capture, recordings, story plan and photos
+ * with the current editor and design agents. The new video replaces this post's (same day) when done.
+ */
+function ReelDebug({ day, onReelReplaced }) {
+  const reelId = day?.content?.reel?.reelId || '';
+  const postId = day?._id || day?.id || reelId;
+  const [job, setJob] = useState(null);
+  const [err, setErr] = useState('');
+  const [starting, setStarting] = useState(false);
+  const timer = useRef(null);
+
+  const poll = (id) => {
+    clearTimeout(timer.current);
+    getCaptureReel(id).then((r) => {
+      setJob(r);
+      if (reelWorking(r)) { timer.current = setTimeout(() => poll(id), 4000); return; }
+      writeRun(postId, '');
+      if (r.status === 'done') onReelReplaced?.(r);
+      else setErr(r.error || 'The reel could not be made.');
+    }).catch(() => { timer.current = setTimeout(() => poll(id), 8000); });
+  };
+  // a regenerate started earlier (tab switched or page reloaded) is picked up again
+  useEffect(() => {
+    const running = readRun(postId);
+    if (running) poll(running);
+    return () => clearTimeout(timer.current);
+  }, [postId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const start = async () => {
+    setErr(''); setStarting(true);
+    try {
+      const r = await regenerateCaptureReel(reelId, { replacePost: true });
+      writeRun(postId, r.id);
+      setJob(r);
+      poll(r.id);
+    } catch (e) {
+      setErr(e?.response?.data?.message || e?.message || 'Could not start the reel.');
+    } finally { setStarting(false); }
+  };
+  const busy = starting || reelWorking(job);
+  const done = job?.status === 'done';
+  return (
+    <div className="wv-agentdbg">
+      <p className="wv-agentdbg__lead">
+        This post is a reel{day?.content?.reel?.durationSec ? ` (${Math.round(day.content.reel.durationSec)} s)` : ''}. Regenerate it from the same capture,
+        recordings, story plan and photos with the current editor, caption, motion-graphics and drawing agents.
+      </p>
+      <div className="wv-agentdbg__run">
+        <button type="button" className="btn btn--tertiary btn--sm" disabled={busy || !reelId || day?.published} onClick={start}>
+          {busy ? 'Regenerating…' : 'Regenerate reel'}
+        </button>
+        <span className="wv-agentdbg__runhint">
+          {day?.published ? 'Already on Instagram — the video can’t be replaced.' : 'This post only — the new video replaces this one, same day. Takes 2–4 minutes.'}
+        </span>
+      </div>
+      {busy && job ? <p className="wv-agentdbg__time">{REEL_STAGE[job.stage] || REEL_STAGE[job.status] || 'Working…'}</p> : null}
+      {done ? (
+        <p className="wv-agentdbg__time">
+          New reel ready{job.durationSec ? ` · ${Math.round(job.durationSec)} s` : ''}{job.format ? ` · ${job.format.replace(/_/g, ' ')}` : ''} — it now plays in this post.
+        </p>
+      ) : null}
+      {err ? <p className="wv-agentdbg__empty">{err}</p> : null}
+      <p className="wv-agentdbg__time">Reel id <code>{job?.id && done ? job.id : reelId || '—'}</code></p>
+    </div>
+  );
+}
 
 function pretty(value) {
   if (value == null || value === '') return '';
@@ -741,7 +819,13 @@ function Block({ title, input, output, open = false, cost = '', images = [], inp
   );
 }
 
-export default function PostAgentDebug({
+export default function PostAgentDebug(props) {
+  // a reel post has no Strategy / Carousel agents: its own Debug panel (regenerate the reel)
+  if (props.day?.content?.reel?.reelId) return <ReelDebug day={props.day} onReelReplaced={props.onReelReplaced} />;
+  return <CarouselAgentDebug {...props} />;
+}
+
+function CarouselAgentDebug({
   day,
   onRunLayout,
   onRunStrategy,

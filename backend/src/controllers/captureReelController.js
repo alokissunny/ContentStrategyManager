@@ -230,6 +230,13 @@ async function regenerateReel(req, res) {
   // a format from another branch) — so a regenerate runs the cut, caption and motion-graphics agents
   if (['talking_head', 'talking_head_motion'].includes(storyPlan?.format)) storyPlan = { ...storyPlan, format: 'talking_head_broll' };
   const brollKeys = idea ? await require('../services/ideaReelPlan').reelBrollKeys(req.user._id, idea) : (old.brollKeys || []);
+  // from a post's Debug tab: the new video replaces the one in that post (same day)
+  let replacesPostId = null;
+  if (req.body?.replacePost && old.postId) {
+    const target = await PlannedPost.findOne({ _id: old.postId, user: req.user._id }).select('published').lean();
+    if (target?.published) return res.status(409).json({ message: 'This post is already on Instagram — its video can’t be replaced.' });
+    if (target) replacesPostId = target._id;
+  }
   const reel = await CaptureReel.create({
     user: req.user._id,
     instagramUsername: old.instagramUsername || project.instagramUsername || null,
@@ -242,6 +249,7 @@ async function regenerateReel(req, res) {
     brollKeys,
     styleId: old.styleId || null,
     styleName: old.styleName || '',
+    replacesPostId,
     queueTag: queueTag(),
   });
   const via = await enqueueCaptureReel(reel._id);

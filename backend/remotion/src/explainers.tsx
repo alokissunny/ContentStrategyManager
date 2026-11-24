@@ -14,6 +14,7 @@ import React from 'react';
 import { AbsoluteFill, interpolate, Easing, useCurrentFrame, useVideoConfig } from 'remotion';
 import type { ReelExplainer } from './reelSchema';
 import { drawPalette, type DrawPalette, type BrandPalette } from './brandPalette';
+import { stagger, windup } from './motionTiming';
 
 const clamp = { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' } as const;
 const ease = Easing.bezier(0.22, 1, 0.36, 1);
@@ -25,6 +26,35 @@ const FLOOR = 800;
 const markInk = (v: string) => (v === 'good' ? C.onGood : C.paper);
 const zoneColour = (v: string) => (v === 'good' ? C.good : v === 'bad' ? C.bad : C.soft);
 const prog = (frame: number, a: number, b: number) => interpolate(frame, [a, b], [0, 1], { ...clamp, easing: ease });
+// follow-through: overshoots a little, then settles (bars, dimension lines, value chips)
+const overshoot = Easing.out(Easing.back(1.5));
+const progOver = (frame: number, a: number, b: number) => interpolate(frame, [a, b], [0, 1], { ...clamp, easing: overshoot });
+// anticipation + follow-through for a thing that lands at frame a: dips to 0.9, lands at 1.06, settles at 1
+const landScale = (frame: number, a: number) => (1 - 0.1 * windup(frame, a + 1, 5)) * interpolate(frame, [a + 6, a + 10, a + 16], [1, 1.06, 1], clamp);
+
+/**
+ * Motion rules from the motion-graphics repos (2026-11-24, lemo-opuscar + video-shotcraft): lines of a
+ * drawing arrive faster and faster (stagger); things wind up before they land and settle after;
+ * on a list ONE point has focus — the one being said — the earlier ones step back, and all come
+ * back together once the list is complete; the camera pushes in slowly and leans toward the point
+ * being said; the drawing pulls focus as the card opens.
+ */
+/** when list item k starts drawing (frames into the card) — shared by the drawings and the camera */
+export function itemStart(it: { atSec?: number }, k: number, n: number, fps: number, scene: string): number {
+  if (typeof it.atSec === 'number') return 2 + Math.round(it.atSec * fps);
+  const per = scene === 'flow' ? (n > 3 ? 10 : 14) : 12;
+  return 2 + stagger(k, n, per);
+}
+/** how much item k steps back (1 = full ink, 0.45 = an earlier point) */
+function focusLevel(starts: number[], k: number, frame: number): number {
+  if (starts.length < 2) return 1;
+  const last = starts[starts.length - 1];
+  const next = starts[k + 1];
+  if (next === undefined) return 1;
+  const back = interpolate(frame, [next, next + 8], [0, 1], clamp);
+  const again = interpolate(frame, [last + 40, last + 52], [0, 1], clamp);
+  return 1 - 0.55 * back * (1 - again);
+}
 const circle = (cx: number, cy: number, r: number) => `M${cx + r} ${cy} A${r} ${r} 0 1 1 ${cx - r} ${cy} A${r} ${r} 0 1 1 ${cx + r} ${cy}`;
 
 /* a stroke that draws itself on (t: 0 → 1) */
@@ -257,10 +287,10 @@ const SectionDrawing: React.FC<{ plan: Plan; spec: ReelExplainer; font: string }
     <g>
       {plan.cone ? <path d={plan.cone} fill={plan.coneColour} opacity={0.45 * prog(frame, 14, 30)} /> : null}
       {plan.zone ? <path d={plan.zone} fill={zc} opacity={(plan.zoneOpacity ?? 0.9) * prog(frame, 22, 32)} /> : null}
-      {plan.lines.map((d, i) => <Draw key={`l${i}`} d={d} t={prog(frame, 2 + i * 3, 16 + i * 3)} />)}
-      {plan.figure.map((d, i) => <Draw key={`f${i}`} d={d} t={prog(frame, 10 + i * 2, 26 + i * 2)} w={5} />)}
+      {plan.lines.map((d, i) => { const a = 2 + stagger(i, plan.lines.length, 3); return <Draw key={`l${i}`} d={d} t={prog(frame, a, a + 14)} />; })}
+      {plan.figure.map((d, i) => { const a = 10 + stagger(i, plan.figure.length, 2); return <Draw key={`f${i}`} d={d} t={prog(frame, a, a + 16)} w={5} />; })}
       {plan.dims.map((d, i) => (
-        <Dimension key={`d${i}`} d={d} t={prog(frame, 24 + i * 6, 36 + i * 6)} v={prog(frame, 32 + i * 6, 40 + i * 6)} font={font} />
+        <Dimension key={`d${i}`} d={d} t={progOver(frame, 24 + i * 6, 36 + i * 6)} v={progOver(frame, 32 + i * 6, 40 + i * 6)} font={font} />
       ))}
       {plan.label ? <Callout at={plan.label} text={spec.label || ''} t={prog(frame, 36, 46)} font={font} /> : null}
     </g>
@@ -335,7 +365,7 @@ const CompareDrawing: React.FC<{ spec: ReelExplainer; font: string }> = ({ spec,
         const cx = i === 0 ? 270 : 630;
         const h = heights[i];
         const top = 760 - h;
-        const g = prog(frame, 10 + i * 8, 28 + i * 8);
+        const g = progOver(frame, 10 + i * 8, 28 + i * 8);
         const colour = zoneColour(it.verdict);
         const mark = it.verdict === 'good' ? '✓' : it.verdict === 'bad' ? '✕' : '';
         const pop = interpolate(frame, [26 + i * 8, 34 + i * 8], [0, 1], { ...clamp, easing: Easing.out(Easing.back(2)) });
@@ -368,12 +398,15 @@ const FlowDrawing: React.FC<{ spec: ReelExplainer; font: string }> = ({ spec, fo
   const n = items.length;
   const ys = items.map((_, i) => (n === 1 ? 450 : 130 + (i * 640) / (n - 1)));
   const step = n > 3 ? 10 : 14;
+  const starts = items.map((it, k) => itemStart(it, k, n, fps, 'flow'));
   return (
     <g>
       {items.map((it, i) => {
         const y = ys[i];
         // each step draws as it is said (atSec from the agent's word index), else in turn
-        const a = typeof it.atSec === 'number' ? 2 + Math.round(it.atSec * fps) : 2 + i * step;
+        const a = starts[i];
+        const lvl = focusLevel(starts, i, frame);
+        const sc = landScale(frame, a);
         const box = `M190 ${y - 58} H710 Q740 ${y - 58} 740 ${y - 28} V${y + 28} Q740 ${y + 58} 710 ${y + 58} H190 Q160 ${y + 58} 160 ${y + 28} V${y - 28} Q160 ${y - 58} 190 ${y - 58} Z`;
         const next = ys[i + 1];
         const wait = prog(frame, 0, 8) * (1 - prog(frame, a, a + 12));
@@ -385,9 +418,11 @@ const FlowDrawing: React.FC<{ spec: ReelExplainer; font: string }> = ({ spec, fo
                 {next != null ? <path d={`M450 ${y + 70} V${next - 72}`} stroke={C.soft} strokeWidth={4} strokeDasharray="8 10" /> : null}
               </g>
             ) : null}
-            <path d={box} fill={i === n - 1 ? zoneColour(spec.verdict === 'none' ? 'none' : spec.verdict) : 'none'} opacity={i === n - 1 ? 0.25 * prog(frame, a + 10, a + 18) : 0} />
-            <Draw d={box} t={prog(frame, a, a + 12)} w={5} />
-            <text x={450} y={y} textAnchor="middle" dominantBaseline="central" fontFamily={font} fontWeight={600} fontSize={52} fill={C.ink} opacity={prog(frame, a + 6, a + 12)}>{it.text}</text>
+            <g opacity={lvl} transform={`translate(450 ${y}) scale(${sc}) translate(-450 ${-y})`}>
+              <path d={box} fill={i === n - 1 ? zoneColour(spec.verdict === 'none' ? 'none' : spec.verdict) : 'none'} opacity={i === n - 1 ? 0.25 * prog(frame, a + 10, a + 18) : 0} />
+              <Draw d={box} t={prog(frame, a, a + 12)} w={5} />
+              <text x={450} y={y} textAnchor="middle" dominantBaseline="central" fontFamily={font} fontWeight={600} fontSize={52} fill={C.ink} opacity={prog(frame, a + 6, a + 12)}>{it.text}</text>
+            </g>
             {next != null ? (
               <g>
                 <Draw d={`M450 ${y + 70} V${next - 72}`} t={prog(frame, a + 8, a + step + 2)} w={4.5} />
@@ -444,11 +479,14 @@ const ChecklistDrawing: React.FC<{ spec: ReelExplainer; font: string }> = ({ spe
   const { fps } = useVideoConfig();
   const items = (spec.items || []).slice(0, 4);
   const n = items.length;
+  const starts = items.map((it, k) => itemStart(it, k, n, fps, 'checklist'));
   return (
     <g>
       {items.map((it, k) => {
         const y = 450 - ((n - 1) * 175) / 2 + k * 175;
-        const a = typeof it.atSec === 'number' ? 2 + Math.round(it.atSec * fps) : 2 + k * 12;
+        const a = starts[k];
+        const lvl = focusLevel(starts, k, frame);
+        const sc = landScale(frame, a);
         const tile = `M${130} ${y - 62} H${238} Q${262} ${y - 62} ${262} ${y - 38} V${y + 38} Q${262} ${y + 62} ${238} ${y + 62} H${130} Q${106} ${y + 62} ${106} ${y + 38} V${y - 38} Q${106} ${y - 62} ${130} ${y - 62} Z`;
         const tt = prog(frame, a + 6, a + 16);
         // a point not said yet holds its place as a soft placeholder (studio review 2026-11-24: the card
@@ -463,14 +501,19 @@ const ChecklistDrawing: React.FC<{ spec: ReelExplainer; font: string }> = ({ spe
                 <rect x={300} y={y - 13} width={bar} height={26} rx={13} fill={C.soft} opacity={0.55} />
               </g>
             ) : null}
-            <path d={tile} fill={C.soft} opacity={0.6 * prog(frame, a, a + 10)} />
-            <g transform={`translate(184 ${y}) scale(1.5) translate(-184 ${-y})`}>
-              {iconPaths(it.icon || 'none', 184, y).map((d, j) => (
-                <Draw key={j} d={d} t={prog(frame, a + 2 + j * 2, a + 14 + j * 2)} w={3.4} color={C.ink} />
-              ))}
+            <g opacity={lvl}>
+              <g transform={`translate(184 ${y}) scale(${sc}) translate(-184 ${-y})`}>
+                <path d={tile} fill={C.soft} opacity={0.6 * prog(frame, a, a + 10)} />
+                <g transform={`translate(184 ${y}) scale(1.5) translate(-184 ${-y})`}>
+                  {iconPaths(it.icon || 'none', 184, y).map((d, j, all) => {
+                    const b = a + 2 + stagger(j, all.length, 2);
+                    return <Draw key={j} d={d} t={prog(frame, b, b + 12)} w={3.4} color={C.ink} />;
+                  })}
+                </g>
+              </g>
+              <text x={300} y={y} dominantBaseline="central" fontFamily={font} fontWeight={600} fontSize={58} fill={C.ink} opacity={tt}
+                transform={`translate(0 ${interpolate(tt, [0, 1], [18, 0])})`}>{it.text}</text>
             </g>
-            <text x={300} y={y} dominantBaseline="central" fontFamily={font} fontWeight={600} fontSize={58} fill={C.ink} opacity={tt}
-              transform={`translate(0 ${interpolate(tt, [0, 1], [18, 0])})`}>{it.text}</text>
           </g>
         );
       })}
@@ -525,10 +568,30 @@ const StatDrawing: React.FC<{ spec: ReelExplainer; font: string }> = ({ spec, fo
 export const ExplainerScene: React.FC<{ spec: ReelExplainer; durationInFrames: number; font: string; titleFont?: string; palette?: BrandPalette | null }> = ({ spec, durationInFrames, font, titleFont, palette }) => {
   Object.assign(C, drawPalette(palette));
   const frame = useCurrentFrame();
+  const { fps } = useVideoConfig();
   const out = interpolate(frame, [durationInFrames - 5, durationInFrames], [1, 0], clamp);
-  const settle = prog(frame, 0, 20);
-  const badge = interpolate(frame, [3, 13], [0, 1], { ...clamp, easing: Easing.out(Easing.back(2)) });
-  const title = prog(frame, 5, 14);
+  // a list card coming BACK after a stretch of footage (backend splits long lists): its header is
+  // already known, so it is simply there; only the new points animate
+  const resume = Boolean(spec.resume);
+  const settle = resume ? 1 : prog(frame, 0, 20);
+  const badge = resume ? 1 : interpolate(frame, [3, 13], [0, 1], { ...clamp, easing: Easing.out(Easing.back(2)) });
+  const title = resume ? 1 : prog(frame, 5, 14);
+  // the camera: a slow push-in over the card's life, leaning toward the point being said
+  const push = interpolate(frame, [0, Math.max(1, durationInFrames)], [1, 1.035], clamp);
+  let lean = 0;
+  if (spec.scene === 'checklist' || spec.scene === 'flow') {
+    const items = (spec.items || []).slice(0, 4);
+    const n = items.length;
+    const starts = items.map((it, k) => itemStart(it, k, n, fps, spec.scene));
+    const ys = items.map((_, k) => (spec.scene === 'flow' ? (n === 1 ? 450 : 130 + (k * 640) / (n - 1)) : 450 - ((n - 1) * 175) / 2 + k * 175));
+    // eased toward each point as it arrives, back to centre once the list is complete
+    lean = ys.reduce((acc, y, k) => acc + (y - 450 - acc) * prog(frame, starts[k], starts[k] + 14), 0);
+    lean *= 1 - prog(frame, starts[n - 1] + 40, starts[n - 1] + 60);
+  }
+  const leanPx = -lean * (960 / 900) * 0.12;
+  // the drawing pulls focus as the card opens; header and drawing drift apart a few px (two layers)
+  const focus = resume ? 0 : interpolate(frame, [0, 10], [5, 0], { ...clamp, easing: ease });
+  const drift = interpolate(frame, [0, Math.max(1, durationInFrames)], [0, 1], clamp);
   const hasBadge = spec.verdict === 'good' || spec.verdict === 'bad';
   let drawing: React.ReactNode = null;
   if (spec.scene === 'measure') drawing = <SectionDrawing plan={measurePlan(spec)} spec={spec} font={font} />;
@@ -542,7 +605,7 @@ export const ExplainerScene: React.FC<{ spec: ReelExplainer; durationInFrames: n
     <AbsoluteFill style={{ background: C.paper, opacity: out }}>
       {/* header and drawing form one stack, centred in the space above the captions (studio review 2026-11-24:
           the heading sat too close to the top) */}
-      <div style={{ position: 'absolute', top: hasBadge ? '10.5%' : '13%', left: 0, right: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 18 }}>
+      <div style={{ position: 'absolute', top: hasBadge ? '10.5%' : '13%', left: 0, right: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 18, transform: `translateY(${-6 * drift}px)` }}>
         {hasBadge ? (
           <div style={{
             width: 112, height: 112, borderRadius: 999, background: spec.verdict === 'good' ? C.good : C.bad, color: markInk(spec.verdict),
@@ -559,7 +622,11 @@ export const ExplainerScene: React.FC<{ spec: ReelExplainer; durationInFrames: n
       </div>
       <svg
         viewBox="0 0 900 900" width={960} height={960}
-        style={{ position: 'absolute', left: 60, top: '22.5%', transform: `scale(${interpolate(settle, [0, 1], [0.97, 1])})`, transformOrigin: '50% 60%' }}
+        style={{
+          position: 'absolute', left: 60, top: '22.5%', transformOrigin: '50% 60%',
+          transform: `translateY(${leanPx + 6 * drift}px) scale(${interpolate(settle, [0, 1], [0.97, 1]) * push})`,
+          filter: focus > 0.05 ? `blur(${focus}px)` : undefined,
+        }}
       >
         {drawing}
       </svg>

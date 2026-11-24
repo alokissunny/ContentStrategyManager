@@ -20,6 +20,8 @@ import { bundle } from '@remotion/bundler';
 import { selectComposition, renderMedia, openBrowser } from '@remotion/renderer';
 import { readFileSync, mkdirSync, readdirSync, statSync, existsSync, rmSync } from 'node:fs';
 import { createHash } from 'node:crypto';
+import { spawn } from 'node:child_process';
+import { createRequire } from 'node:module';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -60,6 +62,14 @@ async function main() {
     }
   }
 
+  // Motion reels: film grain is added by ffmpeg after the render instead of drawn into every frame
+  // (lemo-opuscar TECHNIQUE §2: in-page grain makes frames incompressible and slow — measured here
+  // 2026-11-24: 31.2 s → 19.7 s capture on an 18 s reel). REEL_POST_GRAIN=off keeps it in the page.
+  const reelSpec = inputProps && inputProps.reel;
+  const postGrain = Boolean(reelSpec && reelSpec.motion) && reelSpec.postGrain !== false && String(process.env.REEL_POST_GRAIN || '').toLowerCase() !== 'off';
+  if (postGrain) inputProps = { ...inputProps, reel: { ...reelSpec, postGrain: true } };
+  const renderOut = postGrain ? outPath.replace(/\.mp4$/i, '') + '.pregrain.mp4' : outPath;
+
   const t0 = Date.now();
   const serveUrl = await cachedBundle();
   // We open (and always close) headless Chrome ourselves: left to Remotion,
@@ -87,7 +97,7 @@ async function main() {
     puppeteerInstance: browser,
     composition,
     codec: 'h264',
-    outputLocation: outPath,
+    outputLocation: renderOut,
     inputProps,
     // a production box is small (Render starter = 512 MB, shared with the API):
     // one Chrome tab and a capped video-frame cache unless told otherwise
@@ -117,11 +127,38 @@ async function main() {
   });
 
   console.error(`[render:timing] select ${tRender - tBundled}ms · render ${Date.now() - tRender}ms`);
+  if (postGrain) {
+    const tGrain = Date.now();
+    await addGrain(renderOut, outPath, Number(process.env.REEL_CRF) || 21);
+    rmSync(renderOut, { force: true });
+    console.error(`[render:timing] grain ${Date.now() - tGrain}ms`);
+  }
   // last stdout line = the artifact path (the agent module reads this)
   console.log(outPath);
 }
 
 let lastPct = -1;
+
+// the same ffmpeg the backend uses (FFMPEG_PATH, else the ffmpeg-static package, else the PATH one)
+function ffmpegBin() {
+  if (process.env.FFMPEG_PATH) return process.env.FFMPEG_PATH;
+  try { return createRequire(import.meta.url)('ffmpeg-static') || 'ffmpeg'; } catch { return 'ffmpeg'; }
+}
+
+// temporal luma grain, light (the page used to draw it at ~9 % multiply); audio copied untouched
+function addGrain(src, dst, crf) {
+  return new Promise((res, rej) => {
+    const p = spawn(ffmpegBin(), [
+      '-hide_banner', '-loglevel', 'error', '-y', '-i', src,
+      '-vf', 'noise=c0s=9:c0f=t+u', '-c:v', 'libx264', '-preset', process.env.REEL_X264_PRESET || 'veryfast',
+      '-crf', String(crf), '-tune', 'grain', '-pix_fmt', 'yuv420p', '-c:a', 'copy', '-movflags', '+faststart', dst,
+    ], { stdio: ['ignore', 'ignore', 'pipe'] });
+    let err = '';
+    p.stderr.on('data', (d) => { err += d; });
+    p.on('error', rej);
+    p.on('close', (code) => (code === 0 ? res() : rej(new Error(`grain pass failed (${code}): ${err.slice(-400)}`))));
+  });
+}
 
 // Capture reels: SwiftShader (pure CPU, works on a GPU-less host) renders
 // ~6× faster than swangle — 150 frames 4.2 s vs 26 s (Nov 2026 bench), and a
@@ -144,6 +181,8 @@ async function cachedBundle() {
   const files = [
     ...readdirSync(resolve(__dirname, 'src')).map((f) => resolve(__dirname, 'src', f)),
     resolve(__dirname, 'package-lock.json'),
+    // public/ is copied into the bundle (sound effects: scripts/make-sfx.mjs)
+    ...(existsSync(resolve(__dirname, 'public/sfx')) ? readdirSync(resolve(__dirname, 'public/sfx')).map((f) => resolve(__dirname, 'public/sfx', f)) : []),
   ].filter((f) => existsSync(f) && statSync(f).isFile()).sort();
   const hash = createHash('sha1');
   for (const f of files) hash.update(f).update(readFileSync(f));
@@ -155,7 +194,7 @@ async function cachedBundle() {
   // old bundles are dead weight once the source changed
   if (existsSync(root)) for (const d of readdirSync(root)) if (d !== key && !d.startsWith('tmp-')) rmSync(resolve(root, d), { recursive: true, force: true });
   const tmp = resolve(root, `tmp-${process.pid}-${Date.now()}`);
-  await bundle({ entryPoint: resolve(__dirname, 'src/index.ts'), outDir: tmp });
+  await bundle({ entryPoint: resolve(__dirname, 'src/index.ts'), outDir: tmp, publicDir: resolve(__dirname, 'public') });
   // publish atomically so a parallel render never reads a half-written bundle
   try {
     const { renameSync } = await import('node:fs');

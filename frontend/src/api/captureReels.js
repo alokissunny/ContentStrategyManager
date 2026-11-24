@@ -14,10 +14,11 @@ export async function createCaptureReel({ projectId, captureIds, direction = '',
   }
 }
 
-// Experimental: the same capture, recordings, story and photos, cut again by the current editor
-export async function regenerateCaptureReel(id) {
+// Experimental: the same capture, recordings, story and photos, cut again by the current editor.
+// replacePost: the new video replaces the one in the reel's calendar post (same day) — the post's Debug tab
+export async function regenerateCaptureReel(id, { replacePost = false } = {}) {
   try {
-    const { data } = await client.post(`/capture-reels/${encodeURIComponent(id)}/regenerate`);
+    const { data } = await client.post(`/capture-reels/${encodeURIComponent(id)}/regenerate`, replacePost ? { replacePost: true } : {});
     return data.reel;
   } catch (err) {
     if (err?.response?.status === 409 && err.response.data?.reel) return err.response.data.reel;

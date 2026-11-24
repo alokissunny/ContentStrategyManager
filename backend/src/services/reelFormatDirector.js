@@ -997,7 +997,9 @@ async function directDialogueReel({ reel, material, story, brand, handle }) {
     (expOut?.explainers || []).forEach((x, xi) => {
       const e = explainerScenes[xi];
       const spec = x.spec;
-      const lastAt = Math.max(0, ...(spec.items || []).map((it) => Number(it.atSec) || 0));
+      // only the points this card shows being said (a split list's later points belong to its next card)
+      const span = x.toSec - x.fromSec;
+      const lastAt = Math.max(0, ...(spec.items || []).map((it) => Number(it.atSec) || 0).filter((t) => t <= span));
       const anim = ['checklist', 'flow'].includes(spec.scene) ? frames(lastAt) + 18
         : spec.scene === 'open_plan' ? 56 : ['measure', 'light'].includes(spec.scene) ? 48 : 40;
       const need = anim + frames(DRAWING_READ_SEC);
