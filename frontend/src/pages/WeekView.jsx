@@ -10450,7 +10450,7 @@ export default function WeekView({
                 enterPostEdit();
               }}
             >
-              <div className={`wv-ig__photo${layoutBusy ? ' is-laying' : ''}${reelVideoUrl ? ' is-reel' : ''}`}>
+              <div className={`wv-ig__photo${layoutBusy ? ' is-laying' : ''}${reelVideoUrl ? ' is-reel' : ''}${!reelVideoUrl && day?.format === 'Story' ? ' is-story' : ''}`}>
                 {reelVideoUrl && (
                   <video
                     key={reelVideoUrl}
@@ -10962,8 +10962,9 @@ export default function WeekView({
               <div
                 key={i}
                 ref={(el) => { exportRefs.current[i] = el; }}
-                className="wv-ig__photo"
-                style={{ width: 1080 }}
+                // a Story's frames go to Instagram at 1080×1920 (9:16), feed slides at 1080×1350
+                className={`wv-ig__photo${day?.format === 'Story' ? ' is-story' : ''}`}
+                style={{ width: 1080, ...(day?.format === 'Story' ? { height: 1920, aspectRatio: 'auto' } : {}) }}
               >
                 <SlideMedia
                   slide={s}

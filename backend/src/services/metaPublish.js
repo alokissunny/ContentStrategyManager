@@ -640,6 +640,30 @@ async function createAndPublishReel({ igId, token, graph, caption, videoUrl, cov
   return publishContainer(igId, c.id, token, graph);
 }
 
+// A Story (Capture › Story): each frame is its own Instagram story — a
+// STORIES container per image, published in order. Instagram has no
+// multi-frame story container. Frames already out (post.igStoryMediaIds) are
+// skipped, so a retry after a failure does not post a frame twice. Stories
+// carry no caption.
+async function createAndPublishStories({ igId, token, graph, imageUrls, post }) {
+  const done = Array.isArray(post.igStoryMediaIds) ? [...post.igStoryMediaIds] : [];
+  for (let i = done.length; i < imageUrls.length; i += 1) {
+    const c = await graphPost(
+      `${igId}/media`,
+      { media_type: 'STORIES', image_url: imageUrls[i], access_token: token },
+      graph,
+    );
+    const pub = await publishContainer(igId, c.id, token, graph);
+    done.push(String(pub.id));
+    post.igStoryMediaIds = done;
+    await post.save().catch((err) => console.warn('[meta] could not record story frame:', err.message));
+    console.log(`[meta] story ${post._id} frame ${i + 1}/${imageUrls.length} published as ${pub.id}`);
+  }
+  return done;
+}
+
+const isStoryPost = (post) => String(post?.format || '') === 'Story';
+
 // The reel video a post carries, if it is one of this user's own files.
 function reelOf(userId, post) {
   const reel = post?.content?.reel;
@@ -699,8 +723,10 @@ async function publishPostToInstagram({ userId, post, imageKeys, imageUrls }) {
   const token = conn.accessToken;
   const graph = igGraphBase(conn);
 
+  const story = isStoryPost(post);
   try {
-    const already = await findRecentPublishedMedia(igId, token, graph, caption);
+    // (a story has no caption and is not listed in /media, so this check is a feed-post one)
+    const already = story ? null : await findRecentPublishedMedia(igId, token, graph, caption);
     if (already?.id) {
       markDayPosted(post, already.id, already.permalink);
       conn.lastPublishAt = new Date();
@@ -746,6 +772,17 @@ async function publishPostToInstagram({ userId, post, imageKeys, imageUrls }) {
       );
     }
 
+    if (story) {
+      const ids = await createAndPublishStories({ igId, token, graph, imageUrls: urls.slice(0, 10), post });
+      // a story's link is the profile's story ring; the first frame's id stands for the post
+      markDayPosted(post, ids[0], conn.igUsername ? `https://www.instagram.com/stories/${conn.igUsername}/` : '');
+      conn.lastPublishAt = new Date();
+      await conn.save();
+      await post.save();
+      console.log(`[meta] published story ${post._id} to @${conn.igUsername || igId} · ${ids.length} frame(s)`);
+      return { post, published: true, live: true, igMediaId: ids[0], permalink: post.permalink || '', story: true, frames: ids.length };
+    }
+
     const pub = await createAndPublishMedia({ igId, token, graph, caption, imageUrls: urls });
     const permalink = await fetchPermalink(pub.id, token, graph);
     markDayPosted(post, pub.id, permalink);
@@ -757,6 +794,13 @@ async function publishPostToInstagram({ userId, post, imageKeys, imageUrls }) {
   } catch (err) {
     if (err.status && err.status < 500) throw err;
     console.error('[meta] publish failed:', err.message);
+    // a story never matches the feed-post recovery below; frames that went out are kept on the post
+    if (story) {
+      const out = (post.igStoryMediaIds || []).length;
+      throw httpError(502, out
+        ? `Instagram published ${out} story frame${out === 1 ? '' : 's'}, then failed: ${err.message}. Publishing again carries on from the next frame.`
+        : (err.message || 'Instagram story publish failed'));
+    }
     try {
       const recent = await findRecentPublishedMedia(igId, token, graph, caption);
       if (recent?.id) {
@@ -818,6 +862,7 @@ module.exports = {
   disconnect,
   publishPost,
   publishPostToInstagram,
+  createAndPublishStories,
   resolveConnection,
   refreshIgTokenIfNeeded,
   publishingQuotaRemaining,

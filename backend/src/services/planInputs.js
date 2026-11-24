@@ -290,6 +290,8 @@ async function loadProjectAssets(userId, username) {
           sessionId,
           assets: captureAssets,
           ...(videos.length ? { videos } : {}),
+          // Capture › format panel: the layout / shape the studio asked for
+          ...(c.make && typeof c.make === 'object' ? { make: c.make } : {}),
           understanding: filled,
         });
       }

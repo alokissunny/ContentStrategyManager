@@ -1120,7 +1120,12 @@ async function runCaptureReel(reelId) {
     // (services/reelFormatDirector.js — one director per reel category)
     const story = reel.storyPlan?.sequences?.length ? reel.storyPlan : null;
     let formatDone = false;
-    let defaultLook = null; // (kept for other formats that reuse the default director with their own rules)
+    // Capture › format panel › Reel: "No graphics" keeps the cut to the footage and plain words
+    const noGraphics = reel.prefs?.graphics === 'out';
+    const noMusic = reel.prefs?.music === 'none';
+    let defaultLook = noGraphics ? {
+      extraRules: 'THE STUDIO CHOSE NO MOTION GRAPHICS for this reel. Use no animated graphic devices — no shapes, arrows, lines, stickers, icons, counters or decorative overlays. Words on screen stay plain text over the footage, and only where they carry the story.',
+    } : null; // (also used by other formats that reuse the default director with their own rules)
     let motionBuild = null; // motion_graphics: the planned motion reel (motionReelPlanner.js)
     if (story) {
       const { storyPlanDirection } = require('./ideaReelPlan');
@@ -1198,7 +1203,7 @@ async function runCaptureReel(reelId) {
       // Default: the Bauhly Reel Director brief — a short, text-led cut to the
       // beat of an original track, which is composed while the director plans
       const { directDefaultReel, DEFAULT_MUSIC } = require('./reelDirectorDefault');
-      earlyMusic = styleRun.generateMusic({ audio: { mode: 'music', music: DEFAULT_MUSIC } })
+      earlyMusic = noMusic ? null : styleRun.generateMusic({ audio: { mode: 'music', music: DEFAULT_MUSIC } })
         .catch((err) => { console.warn(`[captureReel] ${reel._id} music:`, err.message); return { error: err.message }; });
       const profile = handle
         ? await require('../models/InstagramProfile').findOne({ user: reel.user, username: handle }).select('username fullName biography').lean().catch(() => null)
@@ -1216,7 +1221,12 @@ async function runCaptureReel(reelId) {
 
     // the style's music bed is generated while the voice is recorded
     const wantsMusic = style && style.audio?.mode !== 'voiceover' && plan.audioMode !== 'original';
-    const musicJob = earlyMusic || (wantsMusic
+    if (noMusic && earlyMusic) {
+      earlyMusic.catch(() => {});
+      earlyMusic = null;
+      ledger.add({ source: 'Capture reel — music bed', output: 'Skipped: the studio chose No music' });
+    }
+    const musicJob = noMusic ? null : earlyMusic || (wantsMusic
       ? styleRun.generateMusic(style).catch((err) => { console.warn(`[captureReel] ${reel._id} music:`, err.message); return { error: err.message }; })
       : null);
 

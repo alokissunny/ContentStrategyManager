@@ -581,13 +581,15 @@ function makeCarouselReadable(html, failures) {
     bySlide.set(f.slide, span);
   });
   if (!bySlide.size) return String(html || '');
-  const H = 1350;
-  const pct = (v) => `${Math.max(0, Math.min(100, (v / H) * 100)).toFixed(1)}%`;
+  // a Story frame (data-aspect="9:16") is 1920 tall, a feed slide 1350
+  const heightOf = (attrs) => (/data-aspect\s*=\s*["']9:16/i.test(attrs) ? 1920 : 1350);
   const strong = 'color-mix(in srgb, var(--brand-primary) 78%, transparent)';
   return String(html || '').replace(/<article\b([^>]*)>([\s\S]*?)<\/article>/gi, (full, attrs, body) => {
     const idx = Number((attrs.match(/data-index\s*=\s*["']?(\d+)/i) || [])[1]);
     const span = bySlide.get(idx);
     if (!span) return full;
+    const H = heightOf(attrs);
+    const pct = (v) => `${Math.max(0, Math.min(100, (v / H) * 100)).toFixed(1)}%`;
     // wash on the text's side: top text fades downward, bottom text upward,
     // middle text fades both ways
     const mid = (span.y0 + span.y1) / 2;

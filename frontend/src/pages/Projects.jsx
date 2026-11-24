@@ -42,6 +42,9 @@ import { startPlanGeneration, getPlanGeneration, openNextInEditor } from '../lib
 import './projects.css';
 import IdeaOffer from '../components/IdeaOffer';
 import ReelStory from '../components/ReelStory';
+import FormatPicker from '../components/FormatPicker';
+import { MAKE, blankMake, materialOf } from '../lib/formats';
+import { createCaptureReel } from '../api/captureReels';
 
 /* The generated-image list is fetched from the server, which takes a moment —
  * long enough that the "Generated" folder used to pop in a second after the page.
@@ -1208,6 +1211,14 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
   }, [modal]);
   const [optionsReady, setOptionsReady] = useState(false);
   const [saved, setSaved] = useState(null);
+  /* Capture › "What should Bauhly make from this?" (FormatPicker): the choice, and whether Continue ran */
+  const [make, setMake] = useState(() => blankMake());
+  const [made, setMade] = useState(false);
+  const madeRef = useRef(false);
+  // the held question is being asked before the format panel (not after Continue)
+  const askFirst = useRef(false);
+  const makeRef = useRef(make);
+  makeRef.current = make;
   const [creating, setCreating] = useState(false); // the new-project modal
   const [busy, setBusy] = useState(false); // an upload, understand, or save is in flight
   const [polishing, setPolishing] = useState(false);
@@ -1692,7 +1703,7 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
     userSays('Skip this question');
     // Generate plan: the question stays open on the capture and Bauhly guesses
     if (planning.current) {
-      handOff();
+      questionDone();
       return;
     }
     // a Generate-plan run: the capture stays as it was, on to the next question
@@ -1917,8 +1928,18 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
       if (visitorFiling.current) return true;
       if (deferQuestions) {
         /* a visitor has no plan yet: what is next for them is the post they were told about */
-        const d = say(liveIntro ? 'Saved. Ready to become your first post.' : 'Saved. It is ready for your next plan.');
-        after(d, () => setStep('done'));
+        if (liveIntro) {
+          const d = say('Saved. Ready to become your first post.');
+          after(d, () => setStep('done'));
+        } else if ((c.held || []).length && made?.captureId) {
+          /* the held question comes BEFORE the format panel: answered or skipped, the panel follows */
+          askFirst.current = true;
+          const d = say('Your idea is saved.');
+          after(d, () => askHeld({ id: pid, name, captureId: made.captureId, at: new Date().toISOString() }));
+        } else {
+          const d = say('Your idea is saved. What should Bauhly make from it?');
+          after(d, () => setStep('done'));
+        }
       } else if (onCaptured) {
         const line = offerChoice.current?.way === 'auto' ? 'Got it — writing your post now.' : savedLine;
         const storyNext = Boolean(offer && offerChoice.current?.way === 'mine');
@@ -1985,8 +2006,20 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
       conversationTitle: c.conversationTitle,
       turns: c.turns,
       offer: offerChoice.current,
+      make: madeRef.current ? makeRef.current : null,
     };
   };
+  /* the held question was asked before the format panel (askFirst): answered or skipped, the panel comes next */
+  const toFormats = () => {
+    askFirst.current = false;
+    planning.current = false;
+    setNotice(false);
+    setStep('boot');
+    // the panel asks its own question ("What should Bauhly make from this?")
+    const d = say('Got it — that’s everything I need.');
+    after(d, () => setStep('done'));
+  };
+  const questionDone = () => (askFirst.current ? toFormats() : handOff());
   /* the questions are dealt with (or skipped): the plan is the caller's */
   const handOff = () => {
     planning.current = false;
@@ -1999,15 +2032,21 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
      asked now, in this conversation; with none, the plan starts */
   const generatePlan = () => {
     setStep('boot');
-    userSays('Generate plan');
+    if (!madeRef.current) userSays('Generate plan');
     const ask = (cap.current.held || [])[0];
     if (!ask || !saved?.captureId) { handOff(); return; }
+    askHeld(saved);
+  };
+  /* ask the question held back at filing, under the heads-up band and the capture's own words */
+  const askHeld = (where) => {
+    const ask = (cap.current.held || [])[0];
+    if (!ask) { questionDone(); return; }
     planning.current = true;
     setReference({
       quote: saidIn(cap.current.turns, cap.current.text),
       shots: cap.current.attachments || [],
-      when: refWhen(saved.at),
-      project: saved.name || '',
+      when: refWhen(where.at),
+      project: where.name || '',
     });
     cap.current.held = [];
     cap.current.askedQuestion = ask;
@@ -2015,6 +2054,50 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
     try { if (localStorage.getItem('bauhly.planNotice.off') !== '1') setNotice(true); } catch { setNotice(true); }
     const d = say(ask);
     after(d, () => setStep('clarify'));
+  };
+  /* ══ Continue on the format panel (bauhly-v3 runMake) ══
+     The choice is written onto the capture (plan generation reads its layout /
+     single-image shape from there); a Reel starts a Capture reel with its
+     settings; a post format goes on to Generate plan (the held question first);
+     a Story alone is kept. */
+  const runMake = async () => {
+    if (made || !saved?.captureId) return;
+    const ids = make.formats || [];
+    if (!ids.length) return;
+    // a Story is written by plan generation too (its own Strategy + Layout agents)
+    const wantsPost = ids.some((id) => MAKE[id]?.post || id === 'story');
+    const wantsReel = ids.includes('reel');
+    setMade(true);
+    madeRef.current = true;
+    setStep('boot');
+    userSays(ids.map((id) => MAKE[id].name).join(' · '));
+    try {
+      await updateEntry(saved.id, saved.captureId, { make });
+    } catch (err) {
+      console.warn('[capture] saving the format choice failed', err);
+    }
+    let reelLine = '';
+    if (wantsReel) {
+      try {
+        await createCaptureReel({
+          projectId: saved.id,
+          captureIds: [saved.captureId],
+          prefs: { graphics: make.reel?.graphics, music: make.reel?.music },
+        });
+        reelLine = 'Your Reel is being made — you’ll find it on this capture in Captures.';
+      } catch (err) {
+        reelLine = err?.response?.data?.message || 'The Reel could not be started — try Generate reel from Captures.';
+      }
+    }
+    if (wantsPost) {
+      if (reelLine) {
+        const d = say(reelLine);
+        after(d + 300, generatePlan);
+      } else generatePlan();
+      return;
+    }
+    const d = say(reelLine || 'Kept. Bauhly will bring this up with your next plan.');
+    after(d, () => setStep('kept'));
   };
   /* the answer is in: written over the capture it was asked about (which also
      clears its open question), then the plan */
@@ -2036,7 +2119,7 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
     } finally {
       setBusy(false);
     }
-    handOff();
+    questionDone();
   };
 
   /* Captures › Add: the files (and any words) go onto the capture they were
@@ -2867,10 +2950,15 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
         }
         if (deferQuestions) {
           return (
-            <>
-              <button className="ck-chip ck-chip--primary" onClick={generatePlan}><Icon name="sparkle" size={14} /> Generate plan</button>
-              <button className="ck-chip" onClick={onExit}>Save and close</button>
-            </>
+            <FormatPicker
+              assets={materialOf(cap.current.attachments)}
+              make={make}
+              onChange={setMake}
+              onContinue={runMake}
+              onExit={onExit}
+              busy={busy}
+              done={made}
+            />
           );
         }
         return (
@@ -2878,6 +2966,13 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
             <button className="ck-chip ck-chip--primary" onClick={() => onViewProject?.(saved.id)}><Icon name="arrow-right" size={14} /> Open {saved.name}</button>
             <button className="ck-chip" onClick={restart}>Capture another</button>
             <button className="ck-chip ck-chip--ghost" onClick={onExit}>Done for now</button>
+          </>
+        );
+      case 'kept':
+        return (
+          <>
+            <button className="ck-chip ck-chip--primary" onClick={onExit}>Close</button>
+            {onViewProject && <button className="ck-chip" onClick={() => onViewProject(saved?.id)}>Open Captures</button>}
           </>
         );
       default:
@@ -3398,7 +3493,7 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
           {showActions && (
             <div className="ck-turn ck-turn--bauhly ck-turn--actions ck-turn--cont">
               <span className="ck-avatar ck-avatar--ghost" aria-hidden="true" />
-              <div className={`ck-inline ${step === 'project' ? 'ck-inline--cards' : ''} ${liveIntro && step === 'done' ? 'ck-inline--row' : ''}`}>{actions}</div>
+              <div className={`ck-inline ${step === 'project' ? 'ck-inline--cards' : ''} ${liveIntro && step === 'done' ? 'ck-inline--row' : ''} ${deferQuestions && !liveIntro && !adding && !saved?.demo && step === 'done' ? 'ck-inline--fmt' : ''}`}>{actions}</div>
             </div>
           )}
 

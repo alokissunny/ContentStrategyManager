@@ -164,6 +164,26 @@ function postsOf(c, postDates) {
     .sort((a, b) => String(a.date).localeCompare(String(b.date)));
 }
 
+// Capture › format panel: only the known keys and values are kept
+const MAKE_FORMATS = ['carousel', 'reel', 'static', 'story'];
+function sanitizeMake(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  const formats = MAKE_FORMATS.filter((f) => (Array.isArray(raw.formats) ? raw.formats : []).includes(f));
+  const layout = /^[a-z-]{1,40}$/.test(String(raw.layout || '')) ? String(raw.layout) : 'auto';
+  const ids = (Array.isArray(raw.images?.ids) ? raw.images.ids : [])
+    .map((k) => String(k || '').slice(0, 300)).filter(Boolean).slice(0, 1);
+  const reel = raw.reel && typeof raw.reel === 'object' ? raw.reel : {};
+  return {
+    formats,
+    layout,
+    images: { pick: ids.length ? 'own' : 'auto', ids },
+    reel: {
+      graphics: reel.graphics === 'out' ? 'out' : 'in',
+      music: reel.music === 'none' ? 'none' : 'auto',
+    },
+  };
+}
+
 async function serializeCapture(c, { lite = false, postDates = null } = {}) {
   const stories = lite ? [] : serializeStories(c.stories);
   const understanding = lite ? null : serializeUnderstanding(c.understanding);
@@ -188,6 +208,7 @@ async function serializeCapture(c, { lite = false, postDates = null } = {}) {
       linkedPosts: (c.usedInPosts || []).length,
       openQuestions: openQuestionsOf(c),
       gaps: gapsOf(c),
+      make: c.make || null,
       attachments,
     };
   }
@@ -214,6 +235,7 @@ async function serializeCapture(c, { lite = false, postDates = null } = {}) {
     linkedPosts: (c.usedInPosts || []).length,
     openQuestions: openQuestionsOf(c),
     gaps: gapsOf(c),
+    make: c.make || null,
     attachments,
   };
 }
@@ -502,6 +524,10 @@ async function updateCapture(req, res) {
     if (changed && capture.text.trim()) capture.gapsAnswered = true;
   }
   if (req.body.excluded !== undefined) capture.excluded = Boolean(req.body.excluded);
+  if (req.body.make !== undefined) {
+    capture.make = sanitizeMake(req.body.make);
+    capture.markModified('make');
+  }
   // the capture conversation picked back up (Captures › Add the detail)
   if (req.body.gapsAnswered !== undefined) capture.gapsAnswered = Boolean(req.body.gapsAnswered);
   if (req.body.sessionTitle !== undefined) capture.sessionTitle = String(req.body.sessionTitle).trim();

@@ -10434,6 +10434,13 @@ i.shotedit__aa { font-style: italic; font-family: Georgia, serif; }
   margin-inline: auto;
   background: #000;
 }
+/* A Story (Capture › Story): its frames are 9:16, paged like slides */
+.wv-ig__photo.is-story {
+  aspect-ratio: 9 / 16;
+  width: min(100%, calc(min(78vh, 720px) * 9 / 16));
+  max-height: none;
+  margin-inline: auto;
+}
 /* a reel has no slides to page through */
 .wv-ig:has(.wv-ig__photo.is-reel) .wv-ig__count,
 .wv-ig:has(.wv-ig__photo.is-reel) .wv-igm__nav,

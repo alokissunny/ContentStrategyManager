@@ -749,7 +749,9 @@ export function cropIframeToCarouselSlide(frame, { direction, index }) {
   // clips any internal overflow past the frame.
   slide.style.boxSizing = 'border-box';
   slide.style.width = `${designWidth}px`;
-  slide.style.height = `${Math.round(designWidth * 1.25)}px`;
+  // a Story frame (data-aspect="9:16", Capture › Story) is pinned to 9:16 instead
+  const tall = /^9\s*:\s*16$/.test(String(slide.getAttribute('data-aspect') || '').trim());
+  slide.style.height = `${Math.round(designWidth * (tall ? 16 / 9 : 1.25))}px`;
   void doc.documentElement.offsetWidth;
 
   const bottom = slide.getBoundingClientRect().bottom;

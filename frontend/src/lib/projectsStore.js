@@ -372,6 +372,8 @@ export async function updateEntry(projectId, entryId, patch) {
   if (patch.understanding !== undefined) payload.understanding = patch.understanding;
   if (patch.attachments !== undefined) payload.attachments = patch.attachments.map((a) => ({ type: a.type, key: a.key, ...(a.reelTake ? { reelTake: a.reelTake } : {}) }));
   if (patch.gapsAnswered !== undefined) payload.gapsAnswered = Boolean(patch.gapsAnswered);
+  // Capture › "What should Bauhly make from this?" (FormatPicker)
+  if (patch.make !== undefined) payload.make = patch.make;
   upsert(await api.updateCapture(projectId, entryId, payload));
 }
 /** Captures page › Exclude / Include — hold a session's captures back from

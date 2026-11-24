@@ -126,6 +126,11 @@ async function createReel(req, res) {
     brollKeys,
     styleId: style?._id || null,
     styleName: style?.name || '',
+    // Capture › format panel › Reel settings
+    prefs: req.body?.prefs && typeof req.body.prefs === 'object' ? {
+      graphics: req.body.prefs.graphics === 'out' ? 'out' : 'in',
+      music: req.body.prefs.music === 'none' ? 'none' : 'auto',
+    } : null,
     queueTag: queueTag(),
   });
   const via = await enqueueCaptureReel(reel._id);
@@ -249,6 +254,7 @@ async function regenerateReel(req, res) {
     brollKeys,
     styleId: old.styleId || null,
     styleName: old.styleName || '',
+    prefs: old.prefs || null,
     replacesPostId,
     queueTag: queueTag(),
   });

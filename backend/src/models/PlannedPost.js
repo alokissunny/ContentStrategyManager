@@ -72,6 +72,9 @@ const plannedPostSchema = new mongoose.Schema(
     scheduleFailures: { type: Number, default: 0 },
     scheduleRetryAt: { type: Date, default: null },
     igMediaId: { type: String, default: '' },
+    // A Story (format 'Story') goes out as one Instagram story per frame: the
+    // frames already published, in order — a retry carries on from the next one
+    igStoryMediaIds: { type: [String], default: [] },
     // The live post's instagram.com URL, fetched from Graph right after publish.
     permalink: { type: String, default: '' },
     // "Save for review" — the studio wants this post kept in the calendar as a

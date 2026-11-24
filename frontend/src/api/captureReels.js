@@ -2,10 +2,11 @@ import client from './client';
 
 // Captures › Generate reel. POST starts a background job (202); poll GET /:id
 // until status is 'done' or 'error'.
-export async function createCaptureReel({ projectId, captureIds, direction = '', styleId = '', ideaId = '', takes = [] }) {
+export async function createCaptureReel({ projectId, captureIds, direction = '', styleId = '', ideaId = '', takes = [], prefs = null }) {
   try {
     // ideaId: a recommended post — the cut follows its reel plan (sequences)
-    const { data } = await client.post('/capture-reels', { projectId, captureIds, direction, ...(styleId ? { styleId } : {}), ...(ideaId ? { ideaId } : {}), ...(takes.length ? { takes } : {}) });
+    // prefs: Capture › format panel › Reel settings { graphics, music }
+    const { data } = await client.post('/capture-reels', { projectId, captureIds, direction, ...(styleId ? { styleId } : {}), ...(ideaId ? { ideaId } : {}), ...(takes.length ? { takes } : {}), ...(prefs ? { prefs } : {}) });
     return data.reel;
   } catch (err) {
     // one reel at a time per capture: the running one comes back with the 409

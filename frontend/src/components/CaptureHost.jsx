@@ -148,7 +148,12 @@ export default function CaptureHost() {
           }
           setOpen(false);
           setCaptureOpen(false);
-          startPlanGeneration('capture', { label: captured?.text }).catch(() => {});
+          // the format panel's choice is about THIS capture: the post is written from it
+          // (its layout / single-image shape is read off the capture by the backend)
+          startPlanGeneration('capture', {
+            label: captured?.text,
+            ...(captured?.make && captured?.captureId ? { captureIds: [captured.captureId] } : {}),
+          }).catch(() => {});
         }}
       />
     </Suspense>

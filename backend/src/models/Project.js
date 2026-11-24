@@ -132,6 +132,11 @@ const captureSchema = new mongoose.Schema(
     // …and a capture with words whose gaps (skipped questions, a missing
     // piece) the studio has since filled in by editing the note.
     gapsAnswered: { type: Boolean, default: false },
+    // Capture › "What should Bauhly make from this?" (bauhly-v3 FormatPicker):
+    // { formats: ['carousel'|'static'|'reel'|'story'], layout: 'auto'|<carousel
+    // layout id>, images: { pick, ids }, reel: { graphics, music } } — read by
+    // plan generation (layout / single-image post) and kept for the Reel/Story.
+    make: { type: mongoose.Schema.Types.Mixed, default: null },
     createdAt: { type: Date, default: Date.now },
   },
   { _id: true }

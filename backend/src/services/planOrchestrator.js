@@ -2616,7 +2616,7 @@ function takeHookReasoning(raw) {
   return { html: String(raw).replace(HOOK_REASONING, ''), reasoning };
 }
 
-function validateCarouselStory(parsed) {
+function validateCarouselStory(parsed, { min = STORY_MIN_SLIDES, max = STORY_MAX_SLIDES } = {}) {
   const taken = takeHookReasoning(String(parsed?.html || ''));
   if (taken.reasoning) parsed.hookReasoning = taken.reasoning;
   const raw = taken.html;
@@ -2625,13 +2625,22 @@ function validateCarouselStory(parsed) {
   }
   const doc = parseCarouselDocument(raw, 0);
   if (!doc.html || !doc.slides.length) throw new Error(`carousel html missing slides (chars=${raw.length})`);
-  if (doc.slides.length < STORY_MIN_SLIDES || doc.slides.length > STORY_MAX_SLIDES) {
-    throw new Error(`carousel slide count ${doc.slides.length} outside ${STORY_MIN_SLIDES}-${STORY_MAX_SLIDES}`);
+  if (doc.slides.length < min || doc.slides.length > max) {
+    throw new Error(`carousel slide count ${doc.slides.length} outside ${min}-${max}`);
   }
   parsed.status = 'ready';
   parsed.html = doc.html;
   parsed.slides = doc.slides;
   parsed.ownsStory = true;
+}
+
+// Story frames are 9:16: every frame carries data-aspect="9:16" (the app sizes its preview from it)
+function markStoryFrames(parsed) {
+  const tag = (html) => String(html || '').replace(/<article\b([^>]*\bclass\s*=\s*["'][^"']*\bslide\b[^"']*["'][^>]*)>/gi,
+    (m, attrs) => (/data-aspect\s*=/.test(attrs) ? m : `<article${attrs} data-aspect="9:16">`));
+  parsed.html = tag(parsed.html);
+  parsed.slides = (parsed.slides || []).map((sl) => (sl?.html ? { ...sl, html: tag(sl.html) } : sl));
+  parsed.aspect = '9:16';
 }
 
 // This slide: exactly one slide back, numbered as the slide it replaces.
@@ -2734,7 +2743,7 @@ async function carouselPhotosOf(carouselInput, layout = carouselLayout(), { stor
 // Slide rule for runs that keep the post's slides (carousel-layouts/*.md › {{SLIDE_PLAN_RULES}}).
 const FIXED_SLIDE_RULE = "- Slide count is fixed: write exactly as many slides as the strategy output lists, in its order. Never merge, drop, or skip a slide, and never fold two slides' copy into one — even when a slide has little copy or no photo. Each slide's headline is the narrative unit's `copy`, word for word.";
 
-async function writeCarousel({ source, structure, post, dayBrief, brand, dayWriterOutput, onlySlide = 0, promptOverride = '', ownsStory = false, layoutId = '' }) {
+async function writeCarousel({ source, structure, post, dayBrief, brand, dayWriterOutput, onlySlide = 0, promptOverride = '', ownsStory = false, layoutId = '', formatKind = '' }) {
   const hasStructure = Array.isArray(structure?.slidesOrScenes) && structure.slidesOrScenes.length > 0;
   const carouselInput = hasStructure
     ? carouselInputOf(structure, post, dayBrief)
@@ -2743,7 +2752,13 @@ async function writeCarousel({ source, structure, post, dayBrief, brand, dayWrit
   const postSlideCount = Array.isArray(post?.content?.slides) ? post.content.slides.length : 0;
   // Settings › Carousel layout picks the prompt (prompts/carousel-layouts/<id>.md);
   // Editor › Layout can name one for this run.
-  const layout = layoutId ? carouselLayoutById(layoutId) : carouselLayout();
+  // Static post / Story: the format's own Layout agent (prompts/format-layouts/<kind>.md),
+  // with full-bleed photo rules for the photo note, the checks and the fix call
+  const layout = formatKind
+    ? { ...carouselLayoutById('full-bleed'), id: `format-${formatKind}`, prompt: `format-layouts/${formatKind}.md` }
+    : (layoutId ? carouselLayoutById(layoutId) : carouselLayout());
+  // the format strategy's plan is what the format Layout agent designs
+  if (formatKind && dayBrief?.formatStrategy) carouselInput.formatStrategy = dayBrief.formatStrategy;
   // No visual theme: the carousel agent designs every post in its house style
   // (prompts/carousel-layouts/default.md › House style). Themes are applied afterwards, as
   // images, by the Theme Apply agent.
@@ -2791,7 +2806,7 @@ async function writeCarousel({ source, structure, post, dayBrief, brand, dayWrit
   }, {
     // The same text on every run of this kind → system prompt, so it is cached
     // (it was the uncached user part: ~7k tokens on every carousel).
-    SLIDE_PLAN_RULES: story ? loadPrompt('carousel-story.md').trim() : FIXED_SLIDE_RULE,
+    SLIDE_PLAN_RULES: formatKind ? '' : (story ? loadPrompt('carousel-story.md').trim() : FIXED_SLIDE_RULE),
     COMPOSITION_RULES: loadPrompt('carousel-composition.md').trim(),
     BRAND_ROLES: loadPrompt('carousel-brand-roles.md').trim(),
   }), 'carousel-video.md', (carouselInput.captureVideos || []).length > 0);
@@ -2819,6 +2834,12 @@ async function writeCarousel({ source, structure, post, dayBrief, brand, dayWrit
   const inputCount = (carouselInput.slides || []).length;
   const validate = (parsed) => {
     if (one) return validateOneSlide(parsed, one);
+    if (formatKind === 'static') return validateCarouselStory(parsed, { min: 1, max: 1 });
+    if (formatKind === 'story') {
+      const frames = (dayBrief?.formatStrategy?.frames || []).length || 1;
+      validateCarouselStory(parsed, { min: 1, max: Math.max(frames, 1) });
+      return markStoryFrames(parsed);
+    }
     if (story) return validateCarouselStory(parsed);
     return validateCarousel(parsed, post, inputCount);
   };
@@ -3021,6 +3042,8 @@ async function attachCarousel({ label, structure, writer, collect, dayBrief, day
       dayWriterOutput: '',
       themeId: dayBrief?.themeId || '',
       ownsStory: true,
+      layoutId: dayBrief?.make?.layoutId || '',
+      formatKind: dayBrief?.make?.kind && dayBrief.make.kind !== 'carousel' ? dayBrief.make.kind : '',
     });
     collectLayoutParts(carousel, collect);
     const htmlCount = (carousel.parsed?.slides || []).filter((s) => s.html).length;
@@ -3712,7 +3735,7 @@ async function runStrategistPhase({
       if (c.briefs[rank]) briefs.push(calls.length > 1 ? { ...c.briefs[rank], strategistCall: callIndex } : c.briefs[rank]);
     });
   }
-  const plannedDays = assignToEmptyDates(calls.length > 1 ? dropRepeatedAssets(briefs) : briefs, emptyDates);
+  const plannedDays = assignToEmptyDates(expandFormatBriefs(calls.length > 1 ? dropRepeatedAssets(briefs) : briefs, projects), emptyDates);
   const strategistPrompt = calls[0].prompt;
   const constraints = calls.length > 1 ? mergedConstraintsOf(calls) : (calls[0].parsed.constraints || {});
   console.log(
@@ -3958,6 +3981,93 @@ function strategistConcurrency() {
 // ── Phase 2: one post (Structure → Carousel/Layout → Visual Generator) ─────
 // Independent per brief, so the sync path pools these and the queued path runs
 // each as its own job. Returns a JSON-serializable day result.
+// The format panel's answer for one capture (Capture › "What should Bauhly make
+// from this?", capture.make): { post: 'carousel'|'static'|'', story, layoutId,
+// imageKey }. null when the studio never answered it.
+function captureMakeOf(projects, captureId) {
+  const id = String(captureId || '').trim();
+  if (!id) return null;
+  let make = null;
+  for (const p of projects || []) {
+    const n = (p.notes || []).find((x) => String(x.id || '') === id);
+    if (n) { make = n.make || null; break; }
+  }
+  if (!make || typeof make !== 'object') return null;
+  const formats = Array.isArray(make.formats) ? make.formats : [];
+  const post = formats.includes('carousel') ? 'carousel' : (formats.includes('static') ? 'static' : '');
+  const layoutId = post === 'carousel' && make.layout && make.layout !== 'auto' && carouselLayoutById(make.layout)?.id === make.layout
+    ? make.layout : '';
+  const imageKey = post === 'static' ? String(make.images?.ids?.[0] || '') : '';
+  return { post, story: formats.includes('story'), layoutId, imageKey };
+}
+
+// One planned post per format the studio chose for the brief's capture: the
+// post shape (Carousel / Static post) and, when ticked, a Story — each written
+// by its own strategy + layout agents (writePlanDay › makeKind). A capture with
+// no choice stays one carousel.
+const MAKE_FORMAT = { carousel: 'Carousel', static: 'Post', story: 'Story' };
+function expandFormatBriefs(briefs, projects) {
+  return (briefs || []).flatMap((b) => {
+    const make = captureMakeOf(projects, b?.sourceCaptureId || b?.captureId);
+    if (!make) return [b];
+    const kinds = [make.post || (make.story ? '' : 'carousel'), make.story ? 'story' : ''].filter(Boolean);
+    return kinds.map((k) => ({ ...b, makeKind: k, format: MAKE_FORMAT[k] }));
+  });
+}
+
+// ── Static post / Story: the format's own Strategy agent ───────────────────
+// prompts/format-strategy/<kind>.md: the Strategist brief (+ photos) → the plan
+// for one image or for a Story's frames (JSON). Its words and photo picks are
+// then designed by the format's Layout agent (prompts/format-layouts/<kind>.md,
+// via writeCarousel › formatKind).
+const FORMAT_LABEL = { static: 'Static post', story: 'Story' };
+function validateFormatStrategy(kind) {
+  return (parsed) => {
+    if (!parsed || typeof parsed !== 'object') throw new Error('missing strategy');
+    if (kind === 'story') {
+      const frames = (Array.isArray(parsed.frames) ? parsed.frames : [])
+        .filter((f) => f && optionalText(f.text));
+      if (frames.length < 1 || frames.length > 5) throw new Error(`story needs 1-5 frames with text (got ${frames.length})`);
+      parsed.frames = frames.map((f, i) => ({ ...f, index: i + 1 }));
+    } else if (!optionalText(parsed.headline)) {
+      throw new Error('missing headline');
+    }
+  };
+}
+
+async function writeFormatStrategy({ kind, label, brief, brandJson, imageKey = '' }) {
+  const keys = allocatedAssetsOf(brief?.allocatedAssets).map((a) => a.key).filter(Boolean).slice(0, 12);
+  const images = keys.length ? await loadVisionPhotos(keys, `${FORMAT_LABEL[kind]} strategy:${label}`) : [];
+  const briefJson = {
+    story: brief.story, centralFact: brief.centralFact, audienceTension: brief.audienceTension,
+    relevance: brief.relevance, audienceLens: brief.audienceLens, storyAngle: brief.storyAngle,
+    hook: brief.hook, hookTerritory: brief.hookTerritory, angle: brief.angle,
+    verifiedTruth: brief.verifiedTruth, observableDetails: brief.observableDetails,
+    originalCapture: brief.originalCapture, project: brief.project,
+    caption: brief.caption, cta: brief.cta, hashtags: brief.hashtags,
+    allocatedVisuals: allocatedAssetsOf(brief.allocatedAssets),
+    narrativeUnits: (brief.narrativeUnits || []).map((u) => ({ copy: u.copy, purpose: u.purpose })),
+  };
+  const assembled = assembleAgentPrompt(`format-strategy/${kind}.md`, {
+    BRIEF_JSON: json(briefJson),
+    STUDIO_PHOTO: imageKey ? `The studio chose the photo with asset key "${imageKey}". Use exactly this one.` : '(none — choose the best photo)',
+    BRAND_JSON: optionalPromptJson(brandJson),
+  });
+  const photoNote = images.length
+    ? `\n\n---\nATTACHED PHOTOS, in this order: ${images.map((im, i) => `${i + 1}. ${im.key}`).join(' · ')}. Look at each before choosing.`
+    : '';
+  const result = await callAgent({
+    source: `${FORMAT_LABEL[kind]} strategy:${label}`,
+    kind: 'carousel',
+    system: assembled.system,
+    user: `${assembled.user}${photoNote}`,
+    prompt: `${assembled.prompt}${photoNote}`,
+    images: images.map((im) => ({ mediaType: 'image/jpeg', data: im.data, debug: { key: im.key, label: im.key } })),
+    validate: validateFormatStrategy(kind),
+  });
+  return result;
+}
+
 async function writePlanDay(phase, projects, planned, index) {
   const { brandJson, visualBrand, userId, username } = phase;
   const { structureOn } = phase.flags;
@@ -4012,6 +4122,32 @@ async function writePlanDay(phase, projects, planned, index) {
     recommendedTime: planned.recommendedTime || '',
     ...(phase.referencePosts ? { referencePosts: phase.referencePosts } : {}),
   };
+  // Capture › "What should Bauhly make from this?": which format this planned
+  // post is (expandFormatBriefs), its carousel layout, the Static post's photo
+  const make = captureMakeOf(projects, brief.sourceCaptureId || brief.captureId);
+  const makeKind = MAKE_FORMAT[planned.makeKind] ? planned.makeKind : 'carousel';
+  brief.make = {
+    kind: makeKind,
+    layoutId: makeKind === 'carousel' ? (make?.layoutId || '') : '',
+    imageKey: makeKind === 'static' ? (make?.imageKey || '') : '',
+  };
+  if (makeKind !== 'carousel') brief.format = MAKE_FORMAT[makeKind];
+  if (brief.make.imageKey) {
+    const rest = (brief.allocatedAssets || []).filter((a) => String(a?.key || a || '') !== brief.make.imageKey);
+    let vision = null;
+    for (const p of projects || []) {
+      const hit = (p.notes || []).flatMap((n) => n.assets || []).find((a) => a.key === brief.make.imageKey);
+      if (hit) { vision = hit.vision || null; break; }
+    }
+    brief.allocatedAssets = [{
+      key: brief.make.imageKey,
+      source: 'conversation',
+      why: 'The studio chose this photo for the post.',
+      evidenceLevel: 'direct',
+      ...(vision?.summary ? { visibleContent: String(vision.summary).slice(0, 240) } : {}),
+    }, ...rest];
+    brief.suggestedAssetKey = brief.make.imageKey;
+  }
   const dayAssets = (() => {
     const rows = assetsForDay(projects, brief);
     if (rows[0]?.key) return rows.map((a, i) => ({ ...a, preferred: i === 0 }));
@@ -4026,8 +4162,29 @@ async function writePlanDay(phase, projects, planned, index) {
     runUsages.push(agent.usage);
   };
 
+  // Static post / Story: the format's own Strategy agent plans the image (or the
+  // Story's frames) from the Strategist brief; its caption / CTA / hashtags
+  // become the post's, and its plan goes to the format's Layout agent
+  if (makeKind !== 'carousel') {
+    try {
+      const strategy = await writeFormatStrategy({
+        kind: makeKind, label, brief, brandJson, imageKey: brief.make.imageKey,
+      });
+      collect(strategy);
+      const plan = strategy.parsed;
+      brief.formatStrategy = plan;
+      if (optionalText(plan.caption)) brief.caption = optionalText(plan.caption);
+      if (optionalText(plan.cta)) brief.cta = optionalText(plan.cta);
+      if (Array.isArray(plan.hashtags) && plan.hashtags.length) brief.hashtags = plan.hashtags.map(String).slice(0, 12);
+      console.log(`[planOrchestrator] ${FORMAT_LABEL[makeKind]} strategy:${label} · ${makeKind === 'story' ? `${plan.frames.length} frames` : `"${optionalText(plan.headline).slice(0, 60)}"`}`);
+    } catch (err) {
+      console.warn(`[planOrchestrator] ${FORMAT_LABEL[makeKind]} strategy:${label} failed — ${err.message}`);
+      return { index, dayBrief: brief, result: null, skipped: `${makeKind} strategy failed: ${err.message}`, debugEntries, runUsages, structure: null };
+    }
+  }
+
   let structure = null;
-  if (structureOn) {
+  if (structureOn && makeKind === 'carousel') {
     try {
       structure = await writeContentStructure({
         source: `Structure:${label}`,
@@ -4200,6 +4357,7 @@ function assemblePlanResult(phase, dayResults) {
       const structureDbg = dbg.find((e) => /^Structure:/i.test(String(e?.source || '')));
       const carouselDbg = dbg.find((e) => /^(Carousel|Layout):/i.test(String(e?.source || '')));
       const visualDbg = dbg.filter((e) => /^Visual:/i.test(String(e?.source || '')));
+      const formatDbg = dbg.find((e) => / strategy:/i.test(String(e?.source || '')));
       return {
         day: dayBrief.day,
         date: dayBrief.date,
@@ -4221,6 +4379,15 @@ function assemblePlanResult(phase, dayResults) {
           layout: layout || null,
           layoutPrompt: optionalText(carouselDbg?.prompt),
           carousel: carouselOn ? (layout || null) : null,
+          // Static post / Story: the format Strategy agent's plan (the Layout agent's input)
+          ...(dayBrief.formatStrategy ? {
+            formatStrategy: {
+              kind: dayBrief.make?.kind || '',
+              plan: dayBrief.formatStrategy,
+              prompt: optionalText(formatDbg?.prompt),
+            },
+          } : {}),
+          ...(dayBrief.make?.layoutId ? { carouselLayout: dayBrief.make.layoutId } : {}),
           visual: (content && Array.isArray(content.visualTrace) && content.visualTrace.length)
             ? {
               slides: content.visualTrace,

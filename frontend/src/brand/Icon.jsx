@@ -9,6 +9,8 @@
  */
 
 const PATHS = {
+  /* Capture › format panel: Story (bauhly-v3) */
+  'slide-one': <rect x="6" y="3" width="12" height="18" rx="2.2" />,
   /* "Notify me when it's ready" (plan generation) */
   bell: (
     <>
