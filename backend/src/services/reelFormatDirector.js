@@ -552,6 +552,7 @@ const XFADE = 0.05; // s of overlap at each join
 // a chapter label must say something (studio review 2026-11-24: "THE RESULT" adds nothing when the
 // finished project is on screen) — generic section names are dropped in code
 const GENERIC_LABEL = /^\s*(the\s+|our\s+|a\s+)?(result|results|outcome|problem|challenge|brief|solution|process|before|after|reveal|final reveal|transformation|the end|intro|conclusion|step \d+|part \d+|finished|done)\s*[.!:]?\s*$/i;
+const LANDSCAPE = 1.05; // width/height at or above this = landscape: shown whole, never cropped to 9:16
 const DISSOLVE = 4; // frames: a jump cut on the speaker dissolves
 const DRAWING_READ_SEC = 1.0; // a drawing stays this long after its last element lands
 const MAX_HOLD_SEC = 2.0; // the longest pause the edit will hold for a drawing
@@ -757,8 +758,12 @@ async function directDialogueReel({ reel, material, story, brand, handle }) {
         // fill the 9:16 frame — a 1.14 punch-in on top made it visibly soft, 2026-11-24)
         // eslint-disable-next-line no-await-in-loop
         const size = await agent()._videoSizeOf(p.clip.key).catch(() => null);
-        const zoomCap = size ? Math.max(1, 1.15 / Math.max(1080 / size.w, 1920 / size.h)) : 1.15;
+        // a landscape take is shown WHOLE (framed full-width on a soft backdrop), never cropped to 9:16
+        const framed = Boolean(size && size.w / size.h >= LANDSCAPE);
+        const zoomCap = size ? Math.max(1, 1.15 / (framed ? 1080 / size.w : Math.max(1080 / size.w, 1920 / size.h))) : 1.15;
         const drawZoom = Math.min(zoom, zoomCap);
+        // eslint-disable-next-line no-await-in-loop
+        const frameOf = framed ? { aspect: Math.round((size.w / size.h) * 1000) / 1000, backdrop: await agent()._backdropOf(p.clip.key, 'video', p.start).catch(() => '') } : null;
         onSpeaker += p.frames / fps;
         // eslint-disable-next-line no-await-in-loop
         const crop = p.clip.take?.role === 'speaking' ? null : await _letterboxOf(p.clip.key, p.start, p.frames / fps).catch(() => null);
@@ -775,6 +780,7 @@ async function directDialogueReel({ reel, material, story, brand, handle }) {
           focusY: 38,
           zoom: drawZoom,
           speaker: true,
+          ...(frameOf ? { frame: frameOf } : {}),
           _src: { key: p.clip.key, kind: 'video' }, // for the caption contrast measure (removed before render)
           // narrative typography carries the structure: no chapter pills on the face
           ...(crop ? { crop } : {}),
@@ -803,13 +809,21 @@ async function directDialogueReel({ reel, material, story, brand, handle }) {
             const dur = k === b.broll.length - 1 ? b0 + len - from : each;
             // into B-roll on a soft push (blur + settle), between B-roll shots a short dissolve;
             // split = the B-roll takes the top half while the speaker stays below (never in a faceless reel)
-            const split = b.layout === 'split' && format !== 'faceless_voiceover';
+            // no split screen any more: its half-frame band crops portrait AND landscape footage (2026-11-24)
+            const split = false;
+            // eslint-disable-next-line no-await-in-loop
+            const msize = x.asset.kind === 'image' ? await agent()._imageSizeOf(x.asset.key).catch(() => null) : await agent()._videoSizeOf(x.asset.key).catch(() => null);
+            const landscape = Boolean(msize && msize.w / msize.h >= LANDSCAPE);
+            // eslint-disable-next-line no-await-in-loop
+            const frame = landscape ? { aspect: Math.round((msize.w / msize.h) * 1000) / 1000, backdrop: await agent()._backdropOf(x.asset.key, x.asset.kind, x.startSec || 0).catch(() => '') } : null;
             const base = {
               _asset: x.asset,
               _beat: bi,
               from, durationInFrames: dur, motion: x.motion, transition: k === 0 ? 'soft' : 'fade',
               focusX: x.focusX, focusY: x.focusY,
               ...(split ? { layout: 'split' } : {}),
+              ...(frame ? { frame } : {}),
+              ...(msize ? { _aspect: msize.w / msize.h } : {}),
               ...(x.asset.width && x.asset.height ? { srcW: x.asset.width, srcH: x.asset.height } : {}),
             };
             if (x.asset.kind === 'image') {
@@ -1057,10 +1071,12 @@ async function directDialogueReel({ reel, material, story, brand, handle }) {
         const underChapter = chapters.some((ch) => c.from < ch.fromFrame + ch.durationInFrames && ch.fromFrame < c.from + c.durationInFrames);
         // and next to a drawing it would repeat it: the drawing wins
         const nearDrawing = explainerScenes.some((e) => c.from < e.from + e.durationInFrames + frames(3) && e.from < c.from + c.durationInFrames + frames(3));
-        if (!underChapter && !nearDrawing && c.layout !== 'split') c.card = { verdict: g.verdict, title: g.text };
+        // the card insets the photo in a near-square box: only a near-square photo fits it uncropped
+        const fitsCard = c._aspect && c._aspect >= 0.8 && c._aspect <= 1.3;
+        if (!underChapter && !nearDrawing && fitsCard && c.layout !== 'split') c.card = { verdict: g.verdict, title: g.text };
         return;
       }
-      if (c.layout === 'split') return;
+      if (c.layout === 'split' || c.frame) return; // a framed (landscape) shot keeps its picture clean
       c.annotations = [g.type === 'measure'
         ? { type: 'measure', text: g.value, atFrame: at, box: { x: Math.min(g.x, g.x2), y: Math.min(g.y, g.y2), w: Math.abs(g.x2 - g.x), h: Math.abs(g.y2 - g.y) }, point: { x: g.x, y: g.y }, point2: { x: g.x2, y: g.y2 } }
         : { type: g.type, ...(g.text ? { text: g.text } : {}), atFrame: at, box: { x: clampN(g.x - 12, 0, 76), y: clampN(g.y - 12, 0, 76), w: 24, h: 24 }, point: { x: g.x, y: g.y } }];
@@ -1089,6 +1105,16 @@ async function directDialogueReel({ reel, material, story, brand, handle }) {
         };
       }).filter((c) => c.words.some((w) => w.text))
       : phraseCues(spokenWords, fps);
+    // a caption over a FRAMED (landscape) shot sits in the free band above the picture — never on it
+    captions.forEach((c) => {
+      const mid = Math.round((c.fromFrame + c.toFrame) / 2);
+      const cut = cutaways.filter((x) => mid >= x.from && mid < x.from + x.durationInFrames).pop();
+      const sc = cut || speaker.find((x) => mid >= x.from && mid < x.from + x.durationInFrames);
+      if (!sc?.frame || sc.explainer || sc.card) return;
+      const hPct = (100 * (1080 / sc.frame.aspect)) / 1920; // the picture's height, % of the frame
+      const top = 50 - hPct / 2;
+      c.posY = Math.round((top >= 14 ? top / 2 : 50 + hPct / 2 + (50 - hPct / 2) / 2) * 10) / 10;
+    });
     // contrast (2026-11-23): measure the picture behind every caption and chapter title; pick the ink,
     // a soft scrim where needed, and fit the Brand Kit colour so every word reads
     const sceneAt = (f) => {
@@ -1097,6 +1123,7 @@ async function directDialogueReel({ reel, material, story, brand, handle }) {
       if (!sc) return null;
       if (sc.explainer || sc.card) return { card: true };
       if (sc.layout === 'split') return { split: true };
+      if (sc.frame) return { framed: true }; // the words sit on the dark blurred backdrop, not the footage
       if (!sc._src) return null;
       const into = (f - sc.from) / fps;
       return {
@@ -1140,7 +1167,7 @@ async function directDialogueReel({ reel, material, story, brand, handle }) {
       console.log(`[reelFormat] ${reel._id} caption contrast: ${JSON.stringify(contrast)}`);
     }
     captions.forEach((c) => { delete c.keyColorRole; });
-    inserts.forEach((c) => { delete c._asset; delete c._beat; });
+    inserts.forEach((c) => { delete c._asset; delete c._beat; delete c._aspect; });
     [...speaker, ...cutaways].forEach((c) => { delete c._src; });
     // the dialogue track: built now that the edit is final (pauses held for drawings included)
     const audio = await buildDialogueAudio(pieces, fps);

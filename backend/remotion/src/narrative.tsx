@@ -13,7 +13,7 @@
  * Movement is small on purpose: enough to feel edited, never enough to pull the eye off the image.
  */
 import React from 'react';
-import { AbsoluteFill, interpolate, Easing, useCurrentFrame } from 'remotion';
+import { AbsoluteFill, Img, interpolate, Easing, useCurrentFrame, useVideoConfig } from 'remotion';
 import type { ReelSpec, ReelScene, ReelCaption } from './reelSchema';
 import { drawPalette, type BrandPalette } from './brandPalette';
 
@@ -222,7 +222,7 @@ export const TwoVoiceCaptions: React.FC<{ captions: ReelCaption[]; scenes: ReelS
   const under = scenes.filter((s) => !s.speaker && mid >= s.from && mid < s.from + s.durationInFrames).pop();
   const onCard = cue.onCard ?? Boolean(under?.card || under?.explainer);
   const pos = onCard ? 'lower' : (cue.pos || 'top');
-  const top = onCard ? 84 : pos === 'top' ? 17 : pos === 'center' ? 50 : 74;
+  const top = onCard ? 84 : typeof cue.posY === 'number' ? cue.posY : pos === 'top' ? 17 : pos === 'center' ? 50 : 74;
   const ink = onCard ? (cardInk || '#1d1d1f') : (cue.ink || '#fff');
   const shadow = textShadowFor(ink, cue.scrim, onCard);
   const keyInk = cue.keyColor || ink;
@@ -338,4 +338,24 @@ export const SpeakerIn: React.FC<{ scene: ReelScene; children: React.ReactNode }
   if (scene.transition !== 'fade') return <>{children}</>;
   const t = interpolate(frame, [0, 4], [0, 1], { ...clamp, easing: Easing.inOut(Easing.quad) });
   return <AbsoluteFill style={{ opacity: t }}>{children}</AbsoluteFill>;
+};
+
+/* ── a landscape shot shown whole (studio, 2026-11-24: "don't convert landscape footage to portrait") ──
+   An editor keeps the composition that was filmed: the shot runs the full width at its own aspect,
+   centred, on a soft blurred still of itself (made once in the backend), and the words sit in the free
+   bands above/below — never on the work. The scene's own motion (push-in, pan) stays inside its frame. */
+export const Framed: React.FC<{ scene: ReelScene; children: React.ReactNode }> = ({ scene, children }) => {
+  const { width, height } = useVideoConfig();
+  if (!scene.frame) return <>{children}</>;
+  const h = Math.round(width / Math.max(1, scene.frame.aspect));
+  return (
+    <AbsoluteFill style={{ background: '#0e0e10' }}>
+      {scene.frame.backdrop ? (
+        <Img src={scene.frame.backdrop} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', transform: 'scale(1.08)' }} />
+      ) : null}
+      <div style={{ position: 'absolute', left: 0, width, top: Math.round((height - h) / 2), height: h, overflow: 'hidden', boxShadow: '0 18px 50px rgba(0,0,0,0.35)' }}>
+        {children}
+      </div>
+    </AbsoluteFill>
+  );
 };

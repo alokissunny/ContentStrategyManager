@@ -694,6 +694,7 @@ async function imageSrc(key, grade = '') {
     const img = sharp(vis.buffer).rotate()
       .resize(1134, 2016, { fit: 'outside', withoutEnlargement: true }); // cover + 5 % for the push-in, no bigger (render cost)
     const jpg = await gradeImage(img, g).jpeg({ quality: 90, mozjpeg: true }).toBuffer();
+    sharp(jpg).metadata().then((m) => { if (m.width && m.height) imageSizes.set(key, { w: m.width, h: m.height }); }).catch(() => {});
     await uploadBytes(out, jpg, 'image/jpeg', { immutable: true });
   }
   return getMediaUrl(out);
@@ -715,6 +716,48 @@ async function clipFile(key) {
     })());
   }
   return clipFileCache.get(key);
+}
+
+// ── orientation (studio, 2026-11-24: "don't convert landscape footage to portrait, or the reverse") ──
+// A photo's size as the reel shows it (rotation applied), from the reel copy imageSrc made.
+const imageSizes = new Map();
+async function imageSizeOf(key) {
+  if (imageSizes.has(key)) return imageSizes.get(key);
+  try {
+    const url = await imageSrc(key, 'clean');
+    if (imageSizes.has(key)) return imageSizes.get(key);
+    const out = decodeURIComponent(String(url).split('?')[0].split('/').slice(3).join('/'));
+    const { buffer } = await getObjectBytes(out);
+    const m = await sharp(buffer).metadata();
+    const size = m.width && m.height ? { w: m.width, h: m.height } : null;
+    imageSizes.set(key, size);
+    return size;
+  } catch {
+    imageSizes.set(key, null);
+    return null;
+  }
+}
+
+// A soft backdrop for a landscape shot shown whole in the 9:16 frame: the same picture, small, heavily
+// blurred and darkened — rendered once as a still (a live CSS blur on video is far too slow in SwiftShader).
+async function backdropOf(key, kind, atSec = 0) {
+  const t = kind === 'video' ? Math.max(0, Math.round(atSec / 4) * 4) : 0; // one per 4 s of a clip
+  const out = `${key.replace(/\.[^./]+$/, '')}.bd${kind === 'video' ? `-${t}` : ''}.jpg`;
+  if (await headObject(out).catch(() => null)) return getMediaUrl(out);
+  let frameBuf;
+  if (kind === 'video') {
+    const file = await clipFile(key);
+    const { stdout } = await run(ffmpegPath(), ['-nostdin', '-v', 'error', '-ss', String(t + 0.5), '-i', file,
+      '-frames:v', '1', '-vf', 'scale=480:-2', '-f', 'image2pipe', '-vcodec', 'mjpeg', '-'], { encoding: 'buffer', timeout: 30000, maxBuffer: 8 * 1024 * 1024 });
+    frameBuf = stdout;
+  } else {
+    const { buffer, contentType } = await getObjectBytes(key);
+    frameBuf = (await toVisionImage(buffer, contentType, key)).buffer;
+  }
+  const jpg = await sharp(frameBuf).rotate().resize(216, 384, { fit: 'cover' }).blur(14)
+    .modulate({ brightness: 0.55, saturation: 0.85 }).jpeg({ quality: 72 }).toBuffer();
+  await uploadBytes(out, jpg, 'image/jpeg', { immutable: true });
+  return getMediaUrl(out);
 }
 
 // a clip's DISPLAY size (rotation applied) — how much the frame may punch in before it upscales
@@ -1400,6 +1443,8 @@ module.exports = {
   _imageSrc: imageSrc,
   _letterboxOf: letterboxOf,
   _videoSizeOf: videoSizeOf,
+  _imageSizeOf: imageSizeOf,
+  _backdropOf: backdropOf,
   _stillNear: stillNear,
   _luminance: luminance,
   _liftAccent: liftAccent,

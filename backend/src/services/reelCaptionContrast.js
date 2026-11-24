@@ -171,6 +171,7 @@ async function applyCaptionContrast({ captions, chapters = [], hook = null, scen
     let out;
     cue.onCard = Boolean(sc?.card); // decided once per caption (the renderer never flips it mid-caption)
     if (sc?.card) out = ON_CARD(wanted);
+    else if (sc?.framed) out = inkFor({ lum: 0.05, busy: 0 }, wanted); // the dark blurred backdrop
     else {
       // where TwoVoiceCaptions puts it: top 17 %, centre 50 %, lower 74 %
       const pos = cue.pos || 'top';

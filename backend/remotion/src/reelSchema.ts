@@ -54,6 +54,8 @@ export type ReelScene = {
   speaker?: boolean; // talking reels: the person speaking (the base layer)
   layout?: 'split'; // a cutaway on the top half while the speaker stays below
   exit?: 'fade'; // talking reels: an insert fades back to the speaker instead of cutting
+  // a landscape shot shown WHOLE: full width, its own aspect, centred on a blurred still backdrop (never cropped to 9:16)
+  frame?: { aspect: number; backdrop?: string };
   card?: { verdict: 'good' | 'bad'; title: string }; // motion agent: the photo as a ✓/✗ explainer card
   explainer?: ReelExplainer; // explainer agent: an animated line drawing (explainers.tsx)
   // the picture inside letterbox bands baked into a clip (fractions of the frame)
@@ -80,7 +82,7 @@ export type ReelCaption = {
   // two-voice captions (caption agent): the key word's index, its face, where the caption sits
   key?: number; keyStyle?: 'strong' | 'soft' | 'spaced' | 'condensed' | 'serif' | 'none'; pos?: 'top' | 'lower' | 'center';
   // contrast (measured on the picture behind it): the words' ink, a soft scrim, the key word's Brand Kit colour
-  ink?: string; scrim?: 'dark' | 'light'; keyColor?: string; keyBg?: string; onCard?: boolean; // keyBg: the brand colour as a marker behind the key word
+  ink?: string; scrim?: 'dark' | 'light'; keyColor?: string; keyBg?: string; onCard?: boolean; posY?: number; // posY: explicit centre (% of height) — the free band beside a framed shot // keyBg: the brand colour as a marker behind the key word
 };
 
 // Motion graphic reel (backend services/motionReelPlanner.js → MotionReel.tsx)

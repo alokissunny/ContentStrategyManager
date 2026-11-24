@@ -23,7 +23,7 @@ import { MotionReel } from './MotionReel';
 import { ExplainerScene } from './explainers';
 import { useReelFaces } from './brandFonts';
 import { drawPalette } from './brandPalette';
-import { Cutaway, NarrativeCaptions, NarrativeEnd, TitleHook, Vignette, GRADE_INSERT, GRADE_SPEAKER, splitAmount, splitWindows, TwoVoiceCaptions, ChapterTitle, VerdictCard, SpeakerIn } from './narrative';
+import { Cutaway, NarrativeCaptions, NarrativeEnd, TitleHook, Vignette, GRADE_INSERT, GRADE_SPEAKER, splitAmount, splitWindows, TwoVoiceCaptions, ChapterTitle, VerdictCard, SpeakerIn, Framed } from './narrative';
 
 const clamp = { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' } as const;
 const outCubic = Easing.out(Easing.cubic);
@@ -298,7 +298,9 @@ const NarrativeReel: React.FC<{ reel: ReelSpec }> = ({ reel }) => {
         {speakers.map((s, i) => (
           <Sequence key={`s${i}`} from={s.from} durationInFrames={s.durationInFrames} layout="none">
             <SpeakerIn scene={s}>
-              <SceneFrame scene={s} fps={fps} grade={[grade, GRADE_SPEAKER].filter(Boolean).join(' ')} accent={reel.brand.accent} ink={reel.brand.accentInk} minimal />
+              <Framed scene={s}>
+                <SceneFrame scene={s} fps={fps} grade={[grade, GRADE_SPEAKER].filter(Boolean).join(' ')} accent={reel.brand.accent} ink={reel.brand.accentInk} minimal />
+              </Framed>
             </SpeakerIn>
           </Sequence>
         ))}
@@ -313,7 +315,7 @@ const NarrativeReel: React.FC<{ reel: ReelSpec }> = ({ reel }) => {
                 <SceneFrame scene={s} fps={fps} grade={[s.graded ? '' : grade, GRADE_INSERT].filter(Boolean).join(' ')} accent={reel.brand.accent} ink={reel.brand.accentInk} minimal />
               </VerdictCard>
             ) : (
-              <SceneFrame scene={s} fps={fps} grade={[s.graded ? '' : grade, GRADE_INSERT].filter(Boolean).join(' ')} accent={reel.brand.accent} ink={reel.brand.accentInk} minimal />
+              <Framed scene={s}><SceneFrame scene={s} fps={fps} grade={[s.graded ? '' : grade, GRADE_INSERT].filter(Boolean).join(' ')} accent={reel.brand.accent} ink={reel.brand.accentInk} minimal /></Framed>
             )}
           </Cutaway>
         </Sequence>
