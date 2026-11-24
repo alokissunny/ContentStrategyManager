@@ -677,14 +677,23 @@ function gradeImage(img, grade) {
 
 async function imageSrc(key, grade = '') {
   const g = ['warm', 'bright', 'cool', 'clean', 'moody'].includes(grade) ? grade : '';
-  const out = `${key.replace(/\.[^./]+$/, '')}.reel${g ? `.${g}` : ''}.jpg`;
+  // `.reelhd`: sized to COVER the 1080×1920 frame with room for a push-in (was 'inside' 1440×2560, which
+  // left a landscape photo 1080 px tall — stretched ~1.8× to fill the frame: soft reels, 2026-11-24)
+  const out = `${key.replace(/\.[^./]+$/, '')}.reelhd${g ? `.${g}` : ''}.jpg`;
   const have = await headObject(out).catch(() => null);
   if (!have) {
-    const { buffer, contentType } = await getObjectBytes(key);
+    const legacy = `${key.replace(/\.[^./]+$/, '')}.reel${g ? `.${g}` : ''}.jpg`;
+    const src = await getObjectBytes(key).catch(async (err) => {
+      // the original is gone but an earlier (smaller) copy was made: use that rather than fail the reel
+      if (await headObject(legacy).catch(() => null)) return null;
+      throw err;
+    });
+    if (!src) return getMediaUrl(legacy);
+    const { buffer, contentType } = src;
     const vis = await toVisionImage(buffer, contentType, key);
     const img = sharp(vis.buffer).rotate()
-      .resize(1440, 2560, { fit: 'inside', withoutEnlargement: true });
-    const jpg = await gradeImage(img, g).jpeg({ quality: 86 }).toBuffer();
+      .resize(1134, 2016, { fit: 'outside', withoutEnlargement: true }); // cover + 5 % for the push-in, no bigger (render cost)
+    const jpg = await gradeImage(img, g).jpeg({ quality: 90, mozjpeg: true }).toBuffer();
     await uploadBytes(out, jpg, 'image/jpeg', { immutable: true });
   }
   return getMediaUrl(out);
@@ -706,6 +715,23 @@ async function clipFile(key) {
     })());
   }
   return clipFileCache.get(key);
+}
+
+// a clip's DISPLAY size (rotation applied) — how much the frame may punch in before it upscales
+const videoSizeCache = new Map();
+async function videoSizeOf(key) {
+  if (!videoSizeCache.has(key)) {
+    videoSizeCache.set(key, (async () => {
+      const file = await clipFile(key);
+      const { stderr } = await run(ffmpegPath(), ['-hide_banner', '-nostdin', '-i', file], { timeout: 30000 }).catch((e) => ({ stderr: String(e.stderr || '') }));
+      const m = /Video: [^\n]*?, (\d{2,5})x(\d{2,5})/.exec(stderr);
+      if (!m) return null;
+      let [w, h] = [Number(m[1]), Number(m[2])];
+      if (/rotation of -?90|rotate\s*:\s*-?(90|270)/i.test(stderr)) [w, h] = [h, w];
+      return { w, h };
+    })().catch(() => null));
+  }
+  return videoSizeCache.get(key);
 }
 
 async function letterboxOf(key, startSec, durSec) {
@@ -1373,6 +1399,7 @@ module.exports = {
   _ffmpegPath: ffmpegPath,
   _imageSrc: imageSrc,
   _letterboxOf: letterboxOf,
+  _videoSizeOf: videoSizeOf,
   _stillNear: stillNear,
   _luminance: luminance,
   _liftAccent: liftAccent,

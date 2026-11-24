@@ -750,6 +750,12 @@ async function directDialogueReel({ reel, material, story, brand, handle }) {
         }
         if (zoom > ZOOM.medium && b.zoom !== ZOOM.close) zoom = ZOOM.medium;
         lastZoom = zoom;
+        // never punch in past the source's resolution (a landscape take is already stretched ~1.8× to
+        // fill the 9:16 frame — a 1.14 punch-in on top made it visibly soft, 2026-11-24)
+        // eslint-disable-next-line no-await-in-loop
+        const size = await agent()._videoSizeOf(p.clip.key).catch(() => null);
+        const zoomCap = size ? Math.max(1, 1.15 / Math.max(1080 / size.w, 1920 / size.h)) : 1.15;
+        const drawZoom = Math.min(zoom, zoomCap);
         onSpeaker += p.frames / fps;
         // eslint-disable-next-line no-await-in-loop
         const crop = p.clip.take?.role === 'speaking' ? null : await _letterboxOf(p.clip.key, p.start, p.frames / fps).catch(() => null);
@@ -764,7 +770,7 @@ async function directDialogueReel({ reel, material, story, brand, handle }) {
           transition: 'cut',
           focusX: 50,
           focusY: 38,
-          zoom,
+          zoom: drawZoom,
           speaker: true,
           _src: { key: p.clip.key, kind: 'video' }, // for the caption contrast measure (removed before render)
           // narrative typography carries the structure: no chapter pills on the face

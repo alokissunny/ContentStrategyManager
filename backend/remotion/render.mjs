@@ -96,10 +96,15 @@ async function main() {
     timeoutInMilliseconds: 120000,
     chromiumOptions: { gl: glBackend(compositionId) },
     x264Preset: process.env.REEL_X264_PRESET || 'veryfast',
-    // Remotion's default CRF 18 makes a ~5.5 Mbps 1080×1920 reel (22 MB for 32 s)
-    // that streams slowly; 23 is visually the same on phone footage and
-    // Instagram re-encodes on upload anyway. REEL_CRF overrides.
-    ...(compositionId === 'CaptureReel' ? { crf: Number(process.env.REEL_CRF) || 23 } : {}),
+    // Quality (studio report "the video quality seems degraded", 2026-11-24 bench on a real reel, 100
+    // frames vs a lossless PNG/CRF 8 reference): Remotion captures each frame as JPEG q80 by default and
+    // we encoded at CRF 23 → PSNR 42.0 dB. JPEG q95 + CRF 21 → 43.3 dB (same as lossless PNG capture,
+    // which costs +55 % render time) for +3 % render time, ~6.6 Mbps. REEL_CRF / REEL_JPEG_QUALITY /
+    // REEL_IMAGE_FORMAT override.
+    ...(compositionId === 'CaptureReel' ? { crf: Number(process.env.REEL_CRF) || 21 } : {}),
+    ...(compositionId === 'CaptureReel' || process.env.REEL_JPEG_QUALITY
+      ? { jpegQuality: Number(process.env.REEL_JPEG_QUALITY) || 92 } : {}),
+    ...(process.env.REEL_IMAGE_FORMAT ? { imageFormat: process.env.REEL_IMAGE_FORMAT } : {}),
     ...(Number(process.env.REEL_RENDER_SCALE) > 0 ? { scale: Number(process.env.REEL_RENDER_SCALE) } : {}),
     ...(frameRange() ? { frameRange: frameRange() } : {}),
     onProgress: ({ progress }) => {
