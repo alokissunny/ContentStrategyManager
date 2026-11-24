@@ -10934,3 +10934,22 @@ i.shotedit__aa { font-style: italic; font-family: Georgia, serif; }
   .wv-edm__tools .is-sheet .wv-col__role b { font-size: 16px; }
   .wv-edm__tools .is-sheet .wv-col__save { height: 48px; margin-top: var(--sp-3); }
 }
+
+/* A Reel post on desktop: the card's picture column takes the video's own 9:16 instead of the
+   slides' 4:5 (studio review 2026-11-24: "adapt the frame to the video size — no side bands").
+   The variables are re-declared on .wv so the column, the caption rail and the card width all
+   recompute from the reel's ratio. */
+@media (min-width: 961px) {
+  .wv:has(.wv-ig__photo.is-reel) {
+    --igc-ar: 0.5625;
+  }
+  .wv-postwrap > .wv-ig .wv-ig__photo.is-reel {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    aspect-ratio: auto;
+    margin: 0;
+  }
+  .wv-ig:has(.wv-ig__photo.is-reel) .wv-ig__media { background: #000; }
+}
