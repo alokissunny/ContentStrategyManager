@@ -4,6 +4,7 @@
  */
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import DynamicLayout from './DynamicLayout';
+import InViewVideo from '../../components/InViewVideo';
 import { SlideCompose } from './slideLayouts';
 import { BrandMark } from '../visuallibrary/BrandMark';
 import {
@@ -272,7 +273,7 @@ function ReelPeek({ day, feed, phone }) {
   const poster = reel.posterKey ? mediaDisplayUrl(reel.posterKey, 480) : undefined;
   const ar = MOTION_AR;
   const video = (
-    <video className="yw-peek__reel" src={src} poster={poster} autoPlay muted loop playsInline preload="metadata" aria-label="Reel" />
+    <InViewVideo className="yw-peek__reel" src={src} poster={poster} preload="metadata" aria-label="Reel" />
   );
   if (feed) {
     const vw = typeof window !== 'undefined' ? window.innerWidth : 375;

@@ -7,6 +7,7 @@
  * optional note to steer the next cut). The job keeps running if this closes.
  */
 import React, { Suspense, lazy, useEffect, useRef, useState } from 'react';
+import InViewVideo from '../../components/InViewVideo';
 import Icon from '../../brand/Icon';
 import { useBodyScrollLock } from '../checkin/ui';
 import { videoProxyUrl } from '../../api/media';
@@ -179,7 +180,7 @@ export default function ReelStudio({ item, autoStart = false, startWith = null, 
           <div className="rls__body">
             <div className="rls__stage">
               {reel.status === 'done' && src ? (
-                <video key={reel.id} className="rls__video" src={src} poster={reel.posterUrl || undefined} controls autoPlay playsInline loop />
+                <InViewVideo key={reel.id} className="rls__video" src={src} poster={reel.posterUrl || undefined} controls />
               ) : reelWorking(reel) && reel.preview ? (
                 // the cut is ready: play it here while the server makes the file
                 <div className="rls__preview">

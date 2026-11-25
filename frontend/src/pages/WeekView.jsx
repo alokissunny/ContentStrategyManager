@@ -8,6 +8,7 @@ import { translate as t } from '../i18n';
  */
 
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import InViewVideo from '../components/InViewVideo';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import Glyph from '../components/Glyph';
@@ -10452,14 +10453,12 @@ export default function WeekView({
             >
               <div className={`wv-ig__photo${layoutBusy ? ' is-laying' : ''}${reelVideoUrl ? ' is-reel' : ''}${!reelVideoUrl && day?.format === 'Story' ? ' is-story' : ''}`}>
                 {reelVideoUrl && (
-                  <video
+                  <InViewVideo
                     key={reelVideoUrl}
                     className="wv-ig__reelvideo"
                     src={reelVideoUrl}
                     poster={reelPosterUrl}
                     controls
-                    loop
-                    playsInline
                     preload="metadata"
                     aria-label="Reel"
                   />

@@ -18,7 +18,7 @@
 .rls__say { font-size: var(--text-sm); color: var(--ink-700); line-height: 1.55; margin: 0 0 var(--sp-4); }
 
 .rls__body { display: grid; grid-template-columns: minmax(0, 320px) minmax(0, 1fr); gap: var(--sp-5); align-items: start; }
-.rls__stage { aspect-ratio: 9 / 16; border-radius: var(--r-lg); overflow: hidden; background: var(--ink-900); }
+.rls__stage { position: relative; aspect-ratio: 9 / 16; border-radius: var(--r-lg); overflow: hidden; background: var(--ink-900); }
 .rls__video { width: 100%; height: 100%; object-fit: cover; display: block; background: #000; }
 .rls__wait { position: relative; width: 100%; height: 100%; background: var(--ink-900) center / cover no-repeat; display: flex; align-items: flex-end; }
 .rls__wait::before { content: ''; position: absolute; inset: 0; background: linear-gradient(180deg, rgba(22,22,26,0.35), rgba(22,22,26,0.88)); }
