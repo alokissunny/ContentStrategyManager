@@ -293,3 +293,21 @@
   color: var(--ink-700);
 }
 .vprep .vprep__upload:hover { color: var(--ink-900); }
+
+/* Capture › Reel › voiceover › "Try it with your cloned voice" (VoiceClone.jsx) */
+.vprep .vclone { margin: 4px 0 16px; }
+.vclone__head { display: flex; gap: 12px; align-items: flex-start; }
+.vclone__icon { flex: none; width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; background: var(--surface-sunken); color: var(--ink-900); }
+.vclone__copy { min-width: 0; }
+.vclone .vclone__title { margin: 4px 0 2px; }
+.vclone__sub { margin: 0; font-size: 13px; color: var(--ink-500); line-height: 1.45; }
+.vclone .ck-gr__acts { margin-top: 14px; flex-wrap: wrap; }
+.vclone__setup { margin-top: 14px; }
+.vclone__passage { font-size: 14px; line-height: 1.6; }
+.vclone__tip { margin: 10px 0 0; font-size: 12.5px; color: var(--ink-500); }
+.vclone__consent { display: flex; gap: 10px; align-items: flex-start; margin-top: 14px; font-size: 13px; line-height: 1.45; color: var(--ink-700, var(--ink-900)); cursor: pointer; }
+.vclone__consent input { margin-top: 3px; flex: none; }
+.vclone__err { color: var(--danger, #c0392b); }
+.vprep .vprep__clone { margin-top: 6px; }
+.vprep__play { height: 30px; max-width: 220px; margin-left: auto; }
+@media (max-width: 560px) { .vprep__play { max-width: 150px; } }

@@ -79,6 +79,9 @@ services:
         sync: false
       - key: ANTHROPIC_MODEL
         value: claude-sonnet-5
+      # Capture › Reel › voiceover: "Use my cloned voice" (ElevenLabs Instant Voice Cloning + TTS)
+      - key: ELEVENLABS_API_KEY
+        sync: false
       # Instagram API with Instagram Login (Connect Instagram → publish).
       # App ID is the Instagram app ID, not the Facebook app ID.
       - key: INSTAGRAM_APP_ID

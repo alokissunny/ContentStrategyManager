@@ -699,6 +699,64 @@ async function coverFor(doc) {
   return key ? { key, url: isS3Configured() ? await getMediaUrl(key).catch(() => '') : '' } : null;
 }
 
+/*
+ * Every photo / clip the idea is built on, for Capture to seed (studio, 2026-11-25: "it used only
+ * one photo"). The agent's own picks (`assets`, ≤4, shown on the card) come first, then every other
+ * picture on the captures it cites or took photos from, and the photos on the Bauhly posts it cites
+ * (plus the rest of those photos' captures) — de-duplicated, never a reel's spoken take or an
+ * excluded capture. The studio can untick any of them in Capture.
+ */
+const MAX_RELATED = 30;
+function relatedKeysOf(doc, caps, posts) {
+  const captureIds = new Set([
+    ...(doc.assets || []).map((a) => String(a.captureId || '')),
+    ...(doc.sources || []).filter((x) => x.kind === 'capture').map((x) => String(x.id)),
+  ].filter(Boolean));
+  const usable = (a) => a?.key && (a.type === 'image' || a.type === 'video') && a.reelTake !== 'say';
+  const owner = new Map(); // media key → capture it is on
+  caps.forEach((c) => (c.attachments || []).forEach((a) => { if (usable(a)) owner.set(a.key, c); }));
+  const postKeys = posts.flatMap((p) => (p.content?.slides || []).flatMap((s) => [s.assetKey, ...(s.assetKeys || [])]))
+    .filter((k) => k && owner.has(k));
+  postKeys.forEach((k) => captureIds.add(String(owner.get(k)._id)));
+  const out = new Map();
+  const add = (key) => {
+    const c = owner.get(key);
+    if (!c || out.has(key) || out.size >= MAX_RELATED) return;
+    const a = (c.attachments || []).find((x) => x.key === key);
+    out.set(key, { key, captureId: String(c._id), type: a.type, a });
+  };
+  (doc.assets || []).forEach((a) => add(a.key));
+  postKeys.forEach(add);
+  caps.filter((c) => captureIds.has(String(c._id)))
+    .forEach((c) => (c.attachments || []).filter(usable).forEach((a) => add(a.key)));
+  return [...out.values()];
+}
+
+async function relatedMediaFor(doc) {
+  const postIds = (doc.sources || []).filter((x) => x.kind === 'post').map((x) => String(x.id));
+  const [projects, posts] = await Promise.all([
+    Project.find({ user: doc.user, instagramUsername: doc.instagramUsername })
+      .select('captures._id captures.excluded captures.attachments.key captures.attachments.type captures.attachments.reelTake captures.attachments.analysis.frames')
+      .lean().catch(() => []),
+    postIds.length
+      ? PlannedPost.find({ _id: { $in: postIds }, user: doc.user })
+        .select('content.slides.assetKey content.slides.assetKeys').lean().catch(() => [])
+      : [],
+  ]);
+  const caps = projects.flatMap((p) => p.captures || []).filter((c) => !c.excluded);
+  const canSign = isS3Configured();
+  return Promise.all(relatedKeysOf(doc, caps, posts).map(async ({ key, captureId, type, a }) => {
+    const posterKey = type === 'video' ? (a.analysis?.frames || []).find((f) => f?.key)?.key || '' : '';
+    const picked = (doc.assets || []).find((x) => x.key === key);
+    return {
+      key, captureId, type,
+      reason: picked?.reason || '',
+      url: canSign ? await getMediaUrl(key).catch(() => '') : '',
+      ...(posterKey ? { posterKey, posterUrl: canSign ? await getMediaUrl(posterKey).catch(() => '') : '' } : {}),
+    };
+  }));
+}
+
 async function forClient(doc) {
   const canSign = isS3Configured();
   const live = await liveMedia(doc.user, (doc.assets || []).map((a) => a.key).filter(Boolean));
@@ -732,6 +790,8 @@ async function forClient(doc) {
     sources: doc.sources || [],
     questionLed: Boolean(doc.questionLed),
     assets,
+    // all the idea's media (agent picks first) — what Capture seeds, each one untickable
+    related: await relatedMediaFor(doc).catch(() => assets),
     scores: doc.scores || null,
     createdAt: doc.createdAt,
   };
@@ -861,6 +921,7 @@ module.exports = {
   callModel,
   contextOf,
   cleanIdeas,
+  relatedKeysOf,
   fingerprintOf,
   IDEA_TOOL,
 };

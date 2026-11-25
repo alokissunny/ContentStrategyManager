@@ -9,6 +9,8 @@ import React, { useEffect, useRef, useState } from 'react';
 import Icon from '../brand/Icon';
 import { useRecorder } from '../pages/checkin/recorder';
 import { uploadFiles } from '../api/projects';
+import { getVoiceClone, speakWithClone } from '../api/voiceClone';
+import VoiceClone from './VoiceClone';
 import './formatPicker.css';
 
 const fmtMs = (ms) => {
@@ -22,6 +24,15 @@ export default function VoicePrep({ parts = [], loading = false, error = '', onR
   const [voices, setVoices] = useState({}); // part → [{ key, ms, name, state }]
   const head = useRef(null);
   const recFor = useRef(null);
+  // "Try it with your cloned voice" (ElevenLabs): { configured, cloned } once the server answers
+  const [clone, setClone] = useState(null);
+  const [cloningAll, setCloningAll] = useState(false);
+
+  useEffect(() => {
+    let on = true;
+    getVoiceClone().then((c) => { if (on) setClone(c); }).catch(() => { if (on) setClone({ configured: false, cloned: false }); });
+    return () => { on = false; };
+  }, []);
 
   useEffect(() => {
     const el = head.current;
@@ -38,6 +49,29 @@ export default function VoicePrep({ parts = [], loading = false, error = '', onR
       setVoices((v) => ({ ...v, [part]: (v[part] || []).map((t) => (t.id === id ? { ...t, key: up?.key || '', state: up?.key ? 'saved' : 'failed' } : t)) }));
     } catch {
       setVoices((v) => ({ ...v, [part]: (v[part] || []).map((t) => (t.id === id ? { ...t, state: 'failed' } : t)) }));
+    }
+  };
+
+  // the part's script read in the cloned voice — saved server-side, so it lands as a take like a recording
+  const addClonedTake = async (part) => {
+    const text = parts[part]?.say;
+    if (!text) return;
+    const id = `${part}-c${Date.now()}`;
+    setVoices((v) => ({ ...v, [part]: [...(v[part] || []), { id, kind: 'cloned', state: 'saving' }] }));
+    try {
+      const out = await speakWithClone({ text, part });
+      setVoices((v) => ({ ...v, [part]: (v[part] || []).map((t) => (t.id === id ? { ...t, key: out?.key || '', ms: out?.ms || 0, url: out?.url || '', state: out?.key ? 'saved' : 'failed' } : t)) }));
+    } catch (e) {
+      const why = e?.response?.data?.message || '';
+      setVoices((v) => ({ ...v, [part]: (v[part] || []).map((t) => (t.id === id ? { ...t, state: 'failed', why } : t)) }));
+    }
+  };
+  const cloneAll = async () => {
+    setCloningAll(true);
+    try {
+      for (let i = 0; i < parts.length; i += 1) await addClonedTake(i); // one at a time: ElevenLabs limits concurrent requests
+    } finally {
+      setCloningAll(false);
     }
   };
 
@@ -101,6 +135,7 @@ export default function VoicePrep({ parts = [], loading = false, error = '', onR
       <p className="ck-gr__later">
         One take for each part of your Reel, in your own words. Every take is kept — record again as often as you like.
       </p>
+      <VoiceClone clone={clone} onChange={setClone} onCloneAll={cloneAll} cloning={cloningAll} disabled={recAt != null} />
       {parts.map((p, i) => {
         const list = voices[i] || [];
         const live = recAt === i;
@@ -130,11 +165,13 @@ export default function VoicePrep({ parts = [], loading = false, error = '', onR
                   <li className="ck-take" key={t.id}>
                     <span className="ck-take__tick" aria-hidden="true"><Icon name="mic" size={13} strokeWidth={2} /></span>
                     <span className="ck-take__say">
-                      {list.length > 1 ? `Take ${ix + 1}` : 'Your recording'}
+                      {list.length > 1 ? `Take ${ix + 1}` : t.kind === 'cloned' ? 'Your cloned voice' : 'Your recording'}
+                      {list.length > 1 && t.kind === 'cloned' ? ' · cloned voice' : ''}
                       {t.kind === 'uploaded' && t.name ? ` · ${t.name}` : ''}
                       {t.ms ? ` · ${fmtMs(t.ms)}` : ''}
-                      {t.state === 'saving' ? ' · Saving…' : t.state === 'failed' ? ' · Could not save' : ''}
+                      {t.state === 'saving' ? (t.kind === 'cloned' ? ' · Reading in your voice…' : ' · Saving…') : t.state === 'failed' ? ` · ${t.why || 'Could not save'}` : ''}
                     </span>
+                    {t.kind === 'cloned' && t.url && <audio className="vprep__play" src={t.url} controls preload="none" />}
                     <button type="button" className="btn btn--quiet btn--sm ck-take__act" onClick={() => drop(i, t.id)}>Remove</button>
                   </li>
                 ))}
@@ -167,6 +204,13 @@ export default function VoicePrep({ parts = [], loading = false, error = '', onR
                 />
               </label>
             </div>
+            {clone?.cloned && (
+              <div className="ck-gr__acts vprep__clone">
+                <button type="button" className="btn btn--quiet btn--sm" onClick={() => addClonedTake(i)} disabled={recAt != null || cloningAll || list.some((t) => t.state === 'saving')}>
+                  <Icon name="sparkle" size={13} strokeWidth={2} /> {list.some((t) => t.kind === 'cloned') ? 'Read it again in my cloned voice' : 'Use my cloned voice'}
+                </button>
+              </div>
+            )}
             {live && rec.liveText && <p className="vprep__live">{rec.liveText}</p>}
           </section>
         );
@@ -175,7 +219,7 @@ export default function VoicePrep({ parts = [], loading = false, error = '', onR
         <p className="ck-stage__note">Bauhly could not reach your microphone. Upload an audio file instead.</p>
       )}
       <div className="ck-gr__outs">
-        <button type="button" className="btn btn--primary btn--sm" onClick={() => onDone(takes)} disabled={busy || saving || recAt != null}>
+        <button type="button" className="btn btn--primary btn--sm" onClick={() => onDone(takes)} disabled={busy || saving || cloningAll || recAt != null}>
           {saving ? 'Saving your takes…' : got ? 'Continue' : 'Continue without a take'}
         </button>
       </div>

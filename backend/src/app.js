@@ -85,6 +85,7 @@ app.use('/api/media', mediaRoutes);
 app.use('/api/reels', reelRoutes);
 app.use('/api/capture-reels', require('./routes/captureReelRoutes'));
 app.use('/api/reel-styles', require('./routes/reelStyleRoutes'));
+app.use('/api/voice-clone', require('./routes/voiceCloneRoutes'));
 app.use('/api/debug', debugRoutes);
 app.use('/api/internal', internalRoutes);
 app.use('/api/settings', settingsRoutes);

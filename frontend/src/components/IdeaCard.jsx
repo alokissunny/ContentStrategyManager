@@ -96,9 +96,12 @@ export default function IdeaCard({ runKey, tabIndex = 0, onExplore }) {
     onExplore?.();
     // photos the studio already uploaded for this idea come along as the
     // capture's own attachments, so the post reuses them (studio, 2026-11-19)
-    const onFile = (idea.assets || [])
+    // every photo/clip behind the idea (`related`: its captures + cited posts, agent picks first),
+    // not just the card's few — the studio can tap any out in Capture (2026-11-25)
+    const media = idea.related?.length ? idea.related : (idea.assets || []);
+    const onFile = [...new Map(media
       .filter((a) => a.key && (a.type === 'image' || a.type === 'video'))
-      .map((a) => ({ id: a.key, key: a.key, type: a.type, url: a.url || '' }));
+      .map((a) => [a.key, { id: a.key, key: a.key, type: a.type, url: a.url || '', ...(a.posterUrl ? { posterUrl: a.posterUrl } : {}) }])).values()];
     /* Use this idea (Nov 25 mock): the normal Capture — the idea's opening question, its photos already
        on file, the agent knowing what is known — then the same "What should Bauhly make from this?"
        panel as any capture (Carousel / Reel / Static post / Story) */
@@ -123,7 +126,7 @@ export default function IdeaCard({ runKey, tabIndex = 0, onExplore }) {
         why: [idea.missionWhy, idea.why].filter(Boolean).join(' '),
         known: idea.known || [],
         questions: idea.questions || [],
-        assets: (idea.assets || []).map((a) => ({ key: a.key, type: a.type, reason: a.reason || '' })),
+        assets: onFile.map((a) => ({ key: a.key, type: a.type, reason: media.find((m) => m.key === a.key)?.reason || '' })),
       },
       attachments: onFile,
       // photos already on file for it: don't ask for more

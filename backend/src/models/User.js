@@ -26,6 +26,15 @@ const userSchema = new mongoose.Schema(
       audience: { type: String, trim: true, default: '' },
       positioning: { type: String, trim: true, default: '' },
     },
+    // Capture › Reel › voiceover: the person's own voice cloned with ElevenLabs
+    // (services/voiceClone.js). Only the voice id is kept; the samples stay in S3.
+    voiceClone: {
+      provider: { type: String, default: '' },
+      voiceId: { type: String, default: '' },
+      sampleKeys: { type: [String], default: [] },
+      consentAt: { type: Date, default: null },
+      createdAt: { type: Date, default: null },
+    },
     // The studio's visual brand. `moodImages` are the reference pictures added on
     // the Library Settings page ("Visual Mood") — the DB keeps only the S3 object
     // key; the bytes live in S3 and the client is handed short-lived presigned

@@ -1212,6 +1212,9 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
   }, [modal]);
   const [optionsReady, setOptionsReady] = useState(false);
   const [saved, setSaved] = useState(null);
+  /* a recommended post's photos on file: all of them come in, and the studio can tap any one out (2026-11-25) */
+  const seededRef = useRef([]);
+  const [seedOff, setSeedOff] = useState(() => new Set());
   /* Capture › "What should Bauhly make from this?" (FormatPicker): the choice, and whether Continue ran */
   const [make, setMake] = useState(() => blankMake());
   const [made, setMade] = useState(false);
@@ -1380,6 +1383,8 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
      the agent's first question — so the studio's reply is read as an answer to it */
   const seedIdea = () => {
     const seeded = (seedAttachments || []).filter((a) => a?.key);
+    seededRef.current = seeded;
+    setSeedOff(new Set());
     if (seeded.length) {
       cap.current.attachments = seeded;
       cap.current.kind = seeded.some((a) => a.type === 'video') ? 'video' : 'photo';
@@ -1390,12 +1395,30 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
     const lines = [ask];
     if (seeded.length) {
       lines.push({
-        text: seeded.length === 1 ? 'I’ll use this photo you already shared.' : 'I’ll use these photos you already shared.',
+        text: seeded.length === 1
+          ? 'I’ll use this photo you already shared. Tap it to leave it out.'
+          : 'I’ll use these photos you already shared. Tap any to leave it out.',
         media: seeded,
+        pickable: true,
       });
     }
     const d = say(lines);
     after(d, () => setStep('how'));
+  };
+  /* tap a seeded photo: out of (or back into) this capture — the studio's own later uploads stay as they are */
+  const toggleSeed = (key) => {
+    if (saved) return;
+    const next = new Set(seedOff);
+    if (next.has(key)) next.delete(key); else next.add(key);
+    setSeedOff(next);
+    const seeded = seededRef.current;
+    const seededKeys = new Set(seeded.map((a) => a.key));
+    const own = (cap.current.attachments || []).filter((a) => !seededKeys.has(a.key));
+    cap.current.attachments = [...seeded.filter((a) => !next.has(a.key)), ...own];
+    const all = cap.current.attachments;
+    if (cap.current.kind !== 'note' || all.length) {
+      cap.current.kind = !all.length ? 'note' : all.some((a) => a.type === 'video') ? 'video' : 'photo';
+    }
   };
   /* Build Reel's two answers (IdeaOffer). Each press is final, like the mock's locked rows. */
   const chooseOfferWay = (way) => {
@@ -1572,7 +1595,8 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
         attachments: attachmentPayload(),
         projectName: preset?.name || '',
         turns,
-        ...(idea ? { idea } : {}),
+        // only the idea's photos still ticked: the agent never builds on one the studio took out
+        ...(idea ? { idea: { ...idea, assets: (idea.assets || []).filter((a) => !seedOff.has(a.key)) } } : {}),
       });
     } catch (err) {
       console.warn('[capture] understand failed', err);
@@ -3489,7 +3513,7 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
                   {typeof m.text === 'string' && m.text.includes('\n\n')
                     ? m.text.split('\n\n').map((para, i) => <p className="ck-para" key={i}>{para}</p>)
                     : m.text}
-                  {m.media && (
+                  {m.media && !m.pickable && (
                     <span className="cvmedia cvmedia--said">
                       {m.media.map((a) => (
                         <span className="cvmedia__item" key={a.key || a.id}>
@@ -3497,6 +3521,33 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
                         </span>
                       ))}
                     </span>
+                  )}
+                  {m.media && m.pickable && (
+                    <>
+                      <span className="cvmedia cvmedia--said cvmedia--pick" role="group" aria-label="Photos for this post">
+                        {m.media.map((a) => {
+                          const off = seedOff.has(a.key);
+                          return (
+                            <button type="button" key={a.key || a.id}
+                              className={`cvmedia__item cvmedia__pick${off ? ' is-off' : ''}`}
+                              onClick={() => toggleSeed(a.key)} disabled={Boolean(saved)}
+                              aria-pressed={!off} title={off ? 'Left out — tap to use it' : 'Used — tap to leave it out'}>
+                              {a.type === 'image' ? <img src={previewUrl(a)} alt="" /> : <video src={a.url} poster={a.posterUrl || undefined} muted />}
+                              <span className="cvmedia__tick" aria-hidden="true">
+                                <Icon name={off ? 'plus' : 'check'} size={12} strokeWidth={2.6} />
+                              </span>
+                            </button>
+                          );
+                        })}
+                      </span>
+                      {m.media.length > 1 && (
+                        <p className="ck-outcome">
+                          {seedOff.size
+                            ? translate('Using {{n}} of {{total}}.', { n: m.media.length - seedOff.size, total: m.media.length })
+                            : translate('Using all {{total}}.', { total: m.media.length })}
+                        </p>
+                      )}
+                    </>
                   )}
                   {m.note && <p className="ck-outcome">{m.note}</p>}
                   {/* what comes of it, or that this one is only being shown */}
