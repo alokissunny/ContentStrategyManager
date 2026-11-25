@@ -601,6 +601,44 @@ async function voiceReel(plan) {
   return { mp3, words, duration: total || words[words.length - 1].end, script, chars: script.length, ttsMs, whisperMs };
 }
 
+// Capture › Reel › Include voiceover: the studio's own recordings (one take per
+// script part, in part order — the last take of a part wins) joined into one
+// voice track, levelled, then timed word by word like the TTS voice.
+async function studioVoiceOf(reel) {
+  const takes = Array.isArray(reel.voiceover?.takes) ? reel.voiceover.takes : [];
+  if (!takes.length) return null;
+  const byPart = new Map();
+  takes.forEach((t) => { if (t?.key) byPart.set(Number(t.part) || 0, t.key); });
+  const keys = [...byPart.entries()].sort((a, b) => a[0] - b[0]).map(([, k]) => k);
+  const t0 = Date.now();
+  const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'capreel-vo-'));
+  try {
+    const inputs = [];
+    for (let i = 0; i < keys.length; i += 1) {
+      const { buffer } = await getObjectBytes(keys[i]);
+      const src = path.join(dir, `take-${i}`);
+      await fs.promises.writeFile(src, buffer);
+      inputs.push(src);
+    }
+    const out = path.join(dir, 'voice.mp3');
+    // each take trimmed of leading/trailing silence, a short breath between parts, one level for the whole track
+    const chains = inputs.map((_, i) => `[${i}:a]aformat=sample_rates=44100:channel_layouts=mono,silenceremove=start_periods=1:start_threshold=-45dB:start_silence=0.1,areverse,silenceremove=start_periods=1:start_threshold=-45dB:start_silence=0.15,areverse,apad=pad_dur=0.25[a${i}]`);
+    const filter = `${chains.join(';')};${inputs.map((_, i) => `[a${i}]`).join('')}concat=n=${inputs.length}:v=0:a=1,loudnorm=I=-16:TP=-1.5[v]`;
+    await run(ffmpegPath(), ['-nostdin', '-hide_banner', '-loglevel', 'error', '-y',
+      ...inputs.flatMap((f) => ['-i', f]),
+      '-filter_complex', filter, '-map', '[v]', '-ac', '1', '-ar', '44100', '-b:a', '128k', out], { timeout: 180000 });
+    const mp3 = await fs.promises.readFile(out);
+    const joinMs = Date.now() - t0;
+    const timed = await whisperWords(mp3);
+    const words = timed.words || [];
+    const duration = timed.duration || (words.length ? words[words.length - 1].end : 0);
+    const script = words.map((w) => w.text).join(' ').replace(/\s+/g, ' ').trim();
+    return { mp3, words, duration, script, chars: script.length, ttsMs: joinMs, whisperMs: Date.now() - t0 - joinMs, parts: keys.length };
+  } finally {
+    fs.promises.rm(dir, { recursive: true, force: true }).catch(() => {});
+  }
+}
+
 // ── 4. Timeline ──────────────────────────────────────────────────────────────
 
 function luminance(hex) {
@@ -1113,6 +1151,26 @@ async function runCaptureReel(reelId) {
     // pacing and type, and its story is told by on-screen words over music.
     if (style) style = { ...style, audio: { ...(style.audio || {}), mode: 'music' }, captions: 'none' };
 
+    // Capture › Reel › Include voiceover: the studio's recorded takes are the voice
+    let studioVoice = null;
+    if (reel.voiceover?.takes?.length) {
+      try {
+        studioVoice = await studioVoiceOf(reel);
+        if (studioVoice && studioVoice.words.length < 4) studioVoice = null;
+      } catch (err) {
+        console.warn(`[captureReel] ${reel._id} studio voiceover unusable — cutting without it: ${err.message}`);
+        studioVoice = null;
+      }
+      ledger.add({
+        source: 'Capture reel — studio voiceover',
+        model: process.env.REEL_TRANSCRIBE_MODEL || 'whisper-1',
+        output: studioVoice
+          ? `${studioVoice.parts} recorded part(s) joined · ${studioVoice.duration.toFixed(1)}s · ${studioVoice.words.length} timed words\n\n${studioVoice.script}`
+          : 'not used (no speech found in the takes)',
+        costUsd: studioVoice ? mins(studioVoice.duration) * WHISPER_USD_PER_MIN : 0,
+      });
+    }
+
     await stage(reel, 'writing', clock);
     let earlyMusic = null;
     // a recommended post's reel plan (services/ideaReelPlan.js): every director
@@ -1199,6 +1257,23 @@ async function runCaptureReel(reelId) {
     }
     if (formatDone) {
       // the format director made the cut
+    } else if (studioVoice) {
+      // the studio's voiceover leads: the director cuts the material to what they said
+      if (!noMusic) {
+        const { DEFAULT_MUSIC } = require('./reelDirectorDefault');
+        earlyMusic = styleRun.generateMusic({ audio: { mode: 'music', music: DEFAULT_MUSIC } })
+          .catch((err) => { console.warn(`[captureReel] ${reel._id} music:`, err.message); return { error: err.message }; });
+      }
+      const voiceDirection = [
+        reel.direction,
+        `THE STUDIO RECORDED THE VOICEOVER. Set audioMode "voiceover". This is exactly what they say, in order: "${studioVoice.script}". Write each scene's voiceLine as the next consecutive stretch of that transcript, word for word, so the scenes together read the whole transcript once and in order; pick for each scene the asset that shows what its line is about.`,
+        noGraphics ? 'No motion graphics: no animated graphic devices, words on screen stay plain.' : '',
+      ].filter(Boolean).join('\n\n');
+      const directed = await directReel({ material, handle, brand: brandForPrompt, direction: voiceDirection, style: null });
+      ledger.add(directed.debug);
+      model = directed.model;
+      ({ plan } = directed);
+      plan.audioMode = 'voiceover';
     } else if (!style) {
       // Default: the Bauhly Reel Director brief — a short, text-led cut to the
       // beat of an original track, which is composed while the director plans
@@ -1233,7 +1308,13 @@ async function runCaptureReel(reelId) {
     let voice = null;
     let voiceUrl = '';
     voiceKey = '';
-    if (plan.audioMode === 'voiceover') {
+    if (plan.audioMode === 'voiceover' && studioVoice) {
+      // the studio's own recording, already joined and timed
+      voice = studioVoice;
+      voiceKey = `projects/${reel.user}/reel-${reel._id}-voice.mp3`;
+      await uploadBytes(voiceKey, voice.mp3, 'audio/mpeg', { immutable: true });
+      voiceUrl = await getMediaUrl(voiceKey);
+    } else if (plan.audioMode === 'voiceover') {
       await stage(reel, 'voicing', clock);
       voice = await voiceReel(plan);
       voiceKey = `projects/${reel.user}/reel-${reel._id}-voice.mp3`;
@@ -1452,6 +1533,7 @@ module.exports = {
   _visionParts: visionParts,
   _clipFile: clipFile,
   _ffmpegPath: ffmpegPath,
+  _studioVoiceOf: studioVoiceOf,
   _imageSrc: imageSrc,
   _letterboxOf: letterboxOf,
   _videoSizeOf: videoSizeOf,

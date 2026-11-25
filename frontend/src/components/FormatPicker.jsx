@@ -1,5 +1,5 @@
 /*
- * "What should Bauhly make from this? Pick one or more." — the format panel at
+ * "What should Bauhly make from this? Pick one." — the format panel at
  * the end of Capture, ported from bauhly-v3 `checkin/FormatPicker.jsx`
  * (editor/selbar-ai-button, decisions 1153–1181).
  *
@@ -9,7 +9,7 @@
  * `onChange` and comes back as `make` (lib/formats.js).
  *
  *   Carousel     › How should the slides be laid out? (layout rail)
- *   Reel         › Your material · graphics with motion · music
+ *   Reel         › Your material · voiceover · graphics with motion · music
  *                  (only drawn when the capture holds a clip or ≥ 2 photos)
  *   Static post  › Which images should Bauhly use? (one photo, or none = Bauhly decides)
  *   Story        › what happens with a Story (2–4 vertical frames, own agents)
@@ -110,10 +110,10 @@ export default function FormatPicker({ assets = [], make, onChange, onContinue, 
   // every row arrives closed (the mock's first frame); ticking or the chevron opens one
   const [open, setOpen] = useState(null);
   const on = (id) => (make.formats || []).includes(id);
+  // one format at a time: choosing a row replaces the choice and opens its settings
   const tick = (id) => {
-    const want = !on(id);
-    onChange(withFormat(make, id, want));
-    if (want) setOpen(id);
+    if (!on(id)) onChange(withFormat(make, id));
+    setOpen(id);
   };
   const fold = (id) => setOpen((had) => (had === id ? null : id));
   const reel = (patch) => onChange({ ...make, reel: { ...make.reel, ...patch } });
@@ -148,6 +148,13 @@ export default function FormatPicker({ assets = [], make, onChange, onContinue, 
           </div>
         )}
         <div className="fmt-block">
+          <p className="fmt-name">Should it include a voiceover?</p>
+          <div className="fmt-opts" role="radiogroup" aria-label="Voiceover">
+            <Opt on={make.reel?.say === 'in'} onPick={() => reel({ say: 'in' })}>Include voiceover</Opt>
+            <Opt on={make.reel?.say !== 'in'} onPick={() => reel({ say: 'out' })}>No voiceover</Opt>
+          </div>
+        </div>
+        <div className="fmt-block">
           <p className="fmt-name">Should it include graphics with motion?</p>
           <div className="fmt-opts" role="radiogroup" aria-label="Graphics with motion">
             <Opt on={make.reel?.graphics !== 'out'} onPick={() => reel({ graphics: 'in' })}>Include graphics</Opt>
@@ -171,8 +178,8 @@ export default function FormatPicker({ assets = [], make, onChange, onContinue, 
 
   return (
     <div className="fmt">
-      {heading && <p className="ck-body fmt-q">What should Bauhly make from this? Pick one or more.</p>}
-      <div className="fmt-list">
+      {heading && <p className="ck-body fmt-q">What should Bauhly make from this? Pick one.</p>}
+      <div className="fmt-list" role="radiogroup" aria-label="Format">
         {rows.map((id) => {
           const f = MAKE[id];
           const lit = on(id);
@@ -182,9 +189,9 @@ export default function FormatPicker({ assets = [], make, onChange, onContinue, 
               <div className="fmt-head">
                 <button
                   type="button"
-                  role="checkbox"
+                  role="radio"
                   aria-checked={lit}
-                  aria-label={`${lit ? 'Deselect' : 'Select'} ${f.name}`}
+                  aria-label={`Make a ${f.name}`}
                   className="fmt-hit"
                   onClick={() => tick(id)}
                   disabled={done}

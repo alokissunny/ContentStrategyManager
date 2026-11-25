@@ -180,6 +180,7 @@ function sanitizeMake(raw) {
     reel: {
       graphics: reel.graphics === 'out' ? 'out' : 'in',
       music: reel.music === 'none' ? 'none' : 'auto',
+      say: reel.say === 'in' ? 'in' : 'out',
     },
   };
 }
@@ -290,6 +291,9 @@ const EXT = {
   'image/gif': 'gif', 'image/heic': 'heic', 'image/heif': 'heif',
   'video/mp4': 'mp4', 'video/quicktime': 'mov',
   'video/webm': 'webm',
+  // Capture › Reel › voiceover takes (recorded in the browser or uploaded)
+  'audio/webm': 'webm', 'audio/ogg': 'ogg', 'audio/mpeg': 'mp3', 'audio/mp3': 'mp3',
+  'audio/mp4': 'm4a', 'audio/x-m4a': 'm4a', 'audio/aac': 'aac', 'audio/wav': 'wav', 'audio/x-wav': 'wav',
 };
 
 // Hand the browser presigned PUT URLs so it can upload media straight to S3.
@@ -304,7 +308,7 @@ async function signUploads(req, res) {
 
   const uploads = await Promise.all(
     files.map(async ({ contentType }) => {
-      const ext = EXT[contentType] || 'bin';
+      const ext = EXT[contentType] || EXT[String(contentType || '').split(';')[0].trim()] || 'bin';
       const key = `${prefixOf(req.user._id)}${crypto.randomUUID()}.${ext}`;
       const uploadUrl = await getPresignedUploadUrl(key, contentType);
       // The presigned PUT signs an immutable Cache-Control header, so the browser

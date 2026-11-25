@@ -731,6 +731,10 @@ export default function Captures() {
   });
   useEffect(() => {
     listCaptureReels().then(noteReels).catch(() => {});
+    // a reel started elsewhere (Capture › format panel › Reel) joins the list and is followed until done
+    const started = (e) => { if (e.detail?.id) noteReels([e.detail]); };
+    window.addEventListener('bauhly:reel-started', started);
+    return () => window.removeEventListener('bauhly:reel-started', started);
   }, []);
   // a reel still being made (e.g. Regenerate reel) is followed until it is done
   const working = Object.values(reelsBy).filter(reelWorking).map((r) => r.id);

@@ -43,8 +43,9 @@ import './projects.css';
 import IdeaOffer from '../components/IdeaOffer';
 import ReelStory from '../components/ReelStory';
 import FormatPicker from '../components/FormatPicker';
-import { MAKE, blankMake, materialOf } from '../lib/formats';
-import { createCaptureReel } from '../api/captureReels';
+import { MAKE, blankMake, materialOf, bestFormat } from '../lib/formats';
+import { createCaptureReel, voiceoverScript } from '../api/captureReels';
+import VoicePrep from '../components/VoicePrep';
 
 /* The generated-image list is fetched from the server, which takes a moment —
  * long enough that the "Generated" folder used to pop in a second after the page.
@@ -1215,6 +1216,8 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
   const [make, setMake] = useState(() => blankMake());
   const [made, setMade] = useState(false);
   const madeRef = useRef(false);
+  // Capture › Reel › Include voiceover: { loading } | { error } | { parts } while the studio records
+  const [voicePrep, setVoicePrep] = useState(null);
   // the held question is being asked before the format panel (not after Continue)
   const askFirst = useRef(false);
   const makeRef = useRef(make);
@@ -1596,6 +1599,8 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
     }
     if (result?.conversationSummary) cap.current.conversationSummary = result.conversationSummary;
     if (result?.conversationTitle) cap.current.conversationTitle = result.conversationTitle;
+    // the Capture agent's pick for the format panel (from the narrative and the material)
+    if (result?.recommendedFormat?.format) cap.current.recommendedFormat = result.recommendedFormat;
     // an aimed capture (Editor › Add slide) caps its follow-ups: the post's
     // strategy already holds the context, so the studio is not interviewed
     const asked = (cap.current.turns || []).filter((t) => t?.role === 'assistant').length;
@@ -1959,7 +1964,7 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
           after(d, () => askHeld({ id: pid, name, captureId: made.captureId, at: new Date().toISOString() }));
         } else {
           const d = say('Your idea is saved. What should Bauhly make from it?');
-          after(d, () => setStep('done'));
+          after(d, showFormats);
         }
       } else if (onCaptured) {
         const line = offerChoice.current?.way === 'auto' ? 'Got it — writing your post now.' : savedLine;
@@ -2038,7 +2043,15 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
     setStep('boot');
     // the panel asks its own question ("What should Bauhly make from this?")
     const d = say('Got it — that’s everything I need.');
-    after(d, () => setStep('done'));
+    after(d, showFormats);
+  };
+  /* the format panel arrives with the ONE format that suits this capture already chosen */
+  const showFormats = () => {
+    if (!madeRef.current) {
+      const best = bestFormat(cap.current.recommendedFormat?.format, materialOf(cap.current.attachments));
+      setMake((m) => ({ ...(m || blankMake()), formats: [best] }));
+    }
+    setStep('done');
   };
   const questionDone = () => (askFirst.current ? toFormats() : handOff());
   /* the questions are dealt with (or skipped): the plan is the caller's */
@@ -2097,19 +2110,12 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
     } catch (err) {
       console.warn('[capture] saving the format choice failed', err);
     }
-    let reelLine = '';
-    if (wantsReel) {
-      try {
-        await createCaptureReel({
-          projectId: saved.id,
-          captureIds: [saved.captureId],
-          prefs: { graphics: make.reel?.graphics, music: make.reel?.music },
-        });
-        reelLine = 'Your Reel is being made — you’ll find it on this capture in Captures.';
-      } catch (err) {
-        reelLine = err?.response?.data?.message || 'The Reel could not be started — try Generate reel from Captures.';
-      }
+    // Include voiceover: the script comes first, and the studio records it (VoicePrep) before the Reel is cut
+    if (wantsReel && make.reel?.say === 'in') {
+      loadVoiceScript();
+      return;
     }
+    const reelLine = wantsReel ? await startReel(null) : '';
     if (wantsPost) {
       if (reelLine) {
         const d = say(reelLine);
@@ -2118,6 +2124,43 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
       return;
     }
     const d = say(reelLine || 'Kept. Bauhly will bring this up with your next plan.');
+    after(d, () => setStep('kept'));
+  };
+  /* the Reel from this capture, with the panel's settings and — when recorded — the studio's voiceover */
+  const startReel = async (voiceover) => {
+    try {
+      const made = await createCaptureReel({
+        projectId: saved.id,
+        captureIds: [saved.captureId],
+        prefs: { graphics: make.reel?.graphics, music: make.reel?.music },
+        ...(voiceover ? { voiceover } : {}),
+      });
+      // the Captures page follows it on the capture's row (it only loads reels when it opens)
+      if (made) window.dispatchEvent(new CustomEvent('bauhly:reel-started', { detail: made }));
+      return 'Your Reel is being made — you’ll find it on this capture in Captures.';
+    } catch (err) {
+      return err?.response?.data?.message || 'The Reel could not be started — try Generate reel from Captures.';
+    }
+  };
+  /* Include voiceover › the script for the studio to record (bauhly-v3 VoicePrep) */
+  const loadVoiceScript = async () => {
+    setVoicePrep({ loading: true });
+    try {
+      const parts = await voiceoverScript({ projectId: saved.id, captureId: saved.captureId });
+      setVoicePrep({ parts });
+    } catch (err) {
+      setVoicePrep({ error: err?.response?.data?.message || 'Bauhly could not write the voiceover script just now.' });
+    }
+  };
+  const voiceDone = async (takes) => {
+    const parts = voicePrep?.parts || [];
+    setVoicePrep(null);
+    setStep('boot');
+    userSays(takes.length ? 'Continue' : 'Continue without a take');
+    setBusy(true);
+    const line = await startReel(takes.length ? { parts: parts.map((p) => ({ say: p.say, ask: p.ask })), takes } : null);
+    setBusy(false);
+    const d = say(takes.length ? line.replace('is being made', 'is being made with your voiceover') : line);
     after(d, () => setStep('kept'));
   };
   /* the answer is in: written over the capture it was asked about (which also
@@ -3518,6 +3561,16 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
             </div>
           )}
 
+          {voicePrep && (
+            <VoicePrep
+              parts={voicePrep.parts || []}
+              loading={Boolean(voicePrep.loading)}
+              error={voicePrep.error || ''}
+              onRetry={loadVoiceScript}
+              onDone={voiceDone}
+              busy={busy}
+            />
+          )}
           {offerStep === 'story' && !reelStory && (
             <div className="ck-turn ck-turn--bauhly rst-warm" aria-live="polite">
               <div className="ck-body">
@@ -3592,7 +3645,7 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
           </div>
         )}
         {/* Build Reel's recording question stands alone, without the field (bauhly-v3 ReelPrep chooser) */}
-        {modal && step !== 'recording' && offerStep !== 'record' && offerStep !== 'story' && (
+        {modal && step !== 'recording' && offerStep !== 'record' && offerStep !== 'story' && !voicePrep && (
           <CaptureComposer
             aiPolishing={polishing && !draftTouched.current}
             value={draft}

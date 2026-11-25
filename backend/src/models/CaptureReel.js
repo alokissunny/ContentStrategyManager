@@ -35,6 +35,8 @@ const captureReelSchema = new mongoose.Schema(
     storyPlan: { type: mongoose.Schema.Types.Mixed, default: null },
     // Capture › format panel › Reel: { graphics: 'in'|'out', music: 'auto'|'none' }
     prefs: { type: mongoose.Schema.Types.Mixed, default: null },
+    // Capture › Reel › Include voiceover: { parts: [{ say, ask }], takes: [{ key, part }] } — the studio's voice track
+    voiceover: { type: mongoose.Schema.Types.Mixed, default: null },
     // recording-guide takes: [{ key, sequence (0-based), role: 'say' | 'broll' }]
     takes: { type: mongoose.Schema.Types.Mixed, default: null },
     // extra B-roll the cut may use (the idea's suggested media + its source captures')

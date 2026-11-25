@@ -2,11 +2,11 @@ import client from './client';
 
 // Captures › Generate reel. POST starts a background job (202); poll GET /:id
 // until status is 'done' or 'error'.
-export async function createCaptureReel({ projectId, captureIds, direction = '', styleId = '', ideaId = '', takes = [], prefs = null }) {
+export async function createCaptureReel({ projectId, captureIds, direction = '', styleId = '', ideaId = '', takes = [], prefs = null, voiceover = null }) {
   try {
     // ideaId: a recommended post — the cut follows its reel plan (sequences)
     // prefs: Capture › format panel › Reel settings { graphics, music }
-    const { data } = await client.post('/capture-reels', { projectId, captureIds, direction, ...(styleId ? { styleId } : {}), ...(ideaId ? { ideaId } : {}), ...(takes.length ? { takes } : {}), ...(prefs ? { prefs } : {}) });
+    const { data } = await client.post('/capture-reels', { projectId, captureIds, direction, ...(styleId ? { styleId } : {}), ...(ideaId ? { ideaId } : {}), ...(takes.length ? { takes } : {}), ...(prefs ? { prefs } : {}), ...(voiceover ? { voiceover } : {}) });
     return data.reel;
   } catch (err) {
     // one reel at a time per capture: the running one comes back with the 409
@@ -65,4 +65,10 @@ export async function removeReelStyle(id) {
 export async function getReelSystem() {
   const { data } = await client.get('/capture-reels/system');
   return data;
+}
+
+// Capture › Reel › Include voiceover: the script the studio records, part by part
+export async function voiceoverScript({ projectId, captureId }) {
+  const { data } = await client.post('/capture-reels/voiceover-script', { projectId, captureId }, { timeout: 120000 });
+  return data.parts || [];
 }

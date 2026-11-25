@@ -10,7 +10,7 @@
  *   · static   — a single-image post; `images.ids[0]` is the studio's photo (key)
  *   · reel     — a Capture reel (POST /capture-reels) with `reel` preferences
  *   · story    — a Story (9:16 frames) written by its own Strategy + Layout agents
- * The two post shapes are one choice: ticking one clears the other.
+ * One format per capture: choosing a row replaces the choice (bestFormat picks the default).
  */
 
 export const MAKE_IDS = ['carousel', 'reel', 'static', 'story'];
@@ -48,7 +48,8 @@ export const blankMake = (best = 'carousel') => ({
   formats: [best],
   layout: 'auto',
   images: { pick: 'auto', ids: [] },
-  reel: { graphics: 'in', music: 'auto' },
+  // `say`: Include voiceover ('in') opens VoicePrep after Continue — the studio records the script
+  reel: { graphics: 'in', music: 'auto', say: 'out' },
 });
 
 export const makeOf = (held, best = 'carousel') => {
@@ -63,14 +64,18 @@ export const makeOf = (held, best = 'carousel') => {
   };
 };
 
-export const withFormat = (make, id, on) => {
-  const had = new Set(make.formats || []);
-  if (!on) had.delete(id);
-  else {
-    had.add(id);
-    if (MAKE[id].post) MAKE_IDS.filter((x) => MAKE[x].post && x !== id).forEach((x) => had.delete(x));
-  }
-  return { ...make, formats: MAKE_IDS.filter((x) => had.has(x)) };
+/* one format per capture (user, 2026-11-25): choosing a row replaces the choice; the chosen row stays chosen */
+export const withFormat = (make, id) => ({ ...make, formats: [id] });
+
+/* the format a capture arrives with: the Capture agent's recommendation (from the narrative and the material)
+   when the capture can carry it, else a reading of the material alone */
+export const bestFormat = (recommended, assets = []) => {
+  const rec = String(recommended || '');
+  if (MAKE[rec] && canMake(rec, assets)) return rec;
+  const clips = assets.filter((a) => a.video).length;
+  if (clips) return 'reel';
+  if (assets.length === 1) return 'static';
+  return 'carousel';
 };
 
 export const fmtClock = (secs) => {

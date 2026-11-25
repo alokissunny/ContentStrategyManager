@@ -155,6 +155,14 @@ const UNDERSTAND_TOOL = {
         type: 'string',
         description: 'Optional library card body for the whole chat. Prefer captureSummary on the capture; do not also emit summary/whatHappened/intent on the capture.',
       },
+      recommendedFormat: {
+        type: 'object',
+        description: 'When status is ready: the ONE Instagram format this capture is best made into, judged from its narrative and the material attached.',
+        properties: {
+          format: { type: 'string', enum: ['carousel', 'reel', 'static', 'story'] },
+          reason: { type: 'string', description: 'One short sentence, in the user\'s language, why this format fits.' },
+        },
+      },
       captures: {
         type: 'array',
         description: 'One connected project story per item. Internal stories go in internalStories, not as extra captures. Separate top-level captures only for different projects or unrelated events.',
@@ -617,10 +625,14 @@ function normalizeUnderstanding(parsed, { text, askedQuestion, askedAnswer }) {
     understanding.originalCapture = str(text);
   }
 
+  const recFormat = ['carousel', 'reel', 'static', 'story'].includes(str(parsed?.recommendedFormat?.format))
+    ? { format: str(parsed.recommendedFormat.format), reason: str(parsed.recommendedFormat.reason) }
+    : null;
   return {
     action: 'ready',
     question: null,
     message: '',
+    ...(recFormat ? { recommendedFormat: recFormat } : {}),
     matchedProjectName: str(parsed?.matchedProjectName),
     conversationSummary: str(parsed?.conversationSummary) || composeSessionSummary(captures, text),
     conversationTitle: composeSessionTitle({
@@ -783,6 +795,7 @@ const USER_JSON_INSTRUCTION = [
   'Do not also return summary, whatHappened, intent, tension, action, outcome, distinctSignals, or copy facts into each internal story.',
   'captureSummary is navigation only. Never put a fact in it that is not in originalCapture, a clarification, or an asset.',
   'Only verifiedFacts that the user stated or an asset clearly shows.',
+  'When status is ready, also pass recommendedFormat {format, reason}: the ONE format this capture is best made into. carousel = a story with several steps, decisions or before/after stages, or several photos that each prove a different point. reel = motion is the point: a video clip is attached, a process or transformation that plays out over time, or a talking moment. static = one strong idea one photo can carry (a finished space, a single detail, a single decision). story = an informal, in-the-moment update (on site today, work in progress, a quick behind-the-scenes) with little to explain. Never reel when nothing is attached; never static or reel when there is no photo or video unless nothing else fits.',
 ].join(' ');
 
 const CONTINUE_QUESTIONS_HINT = [

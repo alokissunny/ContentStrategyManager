@@ -10,6 +10,38 @@ const {
   enqueueCaptureReel, reelJobAlive, queueTag, isReelQueueConfigured, reelQueueDepth,
 } = require('../services/reelQueue');
 const { memoryLimitMb } = require('../utils/memoryLimit');
+const { wantsPromptDebug } = require('../utils/promptDebug');
+const { writeVoiceoverScript } = require('../services/voiceoverScript');
+
+// Capture › Reel › Include voiceover: the script the studio records (bauhly-v3 VoicePrep)
+// POST /capture-reels/voiceover-script { projectId, captureId } → { parts: [{ ask, say, seconds, assetKeys }] }
+async function voiceoverScript(req, res) {
+  const { projectId, captureId } = req.body || {};
+  if (!isId(projectId) || !isId(captureId)) return res.status(400).json({ message: 'Choose a capture first.' });
+  try {
+    const { parts, debug } = await writeVoiceoverScript({ userId: req.user._id, projectId, captureId });
+    return res.json({ parts, ...(wantsPromptDebug(req) ? { debug } : {}) });
+  } catch (err) {
+    if (err.status === 404) return res.status(404).json({ message: err.message });
+    console.error('[captureReel] voiceover script failed:', err.message);
+    return res.status(502).json({ message: 'Bauhly could not write the voiceover script just now. Try again.' });
+  }
+}
+
+// the studio's recorded voiceover for a capture reel: the script parts and one take
+// (an uploaded audio key under the user's own prefix) per part
+function voiceoverOf(raw, userId) {
+  if (!raw || typeof raw !== 'object') return null;
+  const prefix = `projects/${userId}/`;
+  const parts = (Array.isArray(raw.parts) ? raw.parts : []).slice(0, 6)
+    .map((p) => ({ say: String(p?.say || '').trim().slice(0, 600), ask: String(p?.ask || '').trim().slice(0, 140) }))
+    .filter((p) => p.say);
+  const takes = (Array.isArray(raw.takes) ? raw.takes : []).slice(0, 12)
+    .filter((t) => t && typeof t.key === 'string' && t.key.startsWith(prefix) && t.key.length < 300)
+    .map((t) => ({ key: t.key, part: Math.max(0, Math.min(5, Math.round(Number(t.part) || 0))) }));
+  if (!takes.length) return null;
+  return { parts, takes };
+}
 
 const isId = (v) => mongoose.isValidObjectId(String(v || ''));
 // the sweeper (services/reelSweeper.js) re-queues lost reels within minutes;
@@ -126,6 +158,8 @@ async function createReel(req, res) {
     brollKeys,
     styleId: style?._id || null,
     styleName: style?.name || '',
+    // Capture › format panel › Reel › Include voiceover: the studio's own recorded takes
+    voiceover: voiceoverOf(req.body?.voiceover, req.user._id),
     // Capture › format panel › Reel settings
     prefs: req.body?.prefs && typeof req.body.prefs === 'object' ? {
       graphics: req.body.prefs.graphics === 'out' ? 'out' : 'in',
@@ -255,6 +289,7 @@ async function regenerateReel(req, res) {
     styleId: old.styleId || null,
     styleName: old.styleName || '',
     prefs: old.prefs || null,
+    voiceover: old.voiceover || null,
     replacesPostId,
     queueTag: queueTag(),
   });
@@ -263,4 +298,5 @@ async function regenerateReel(req, res) {
   return res.status(202).json({ reel: await serialize(reel) });
 }
 
-module.exports = { createReel, regenerateReel, listReels, getReel, deleteReel, reelSystem };
+module.exports = {
+  voiceoverScript, createReel, regenerateReel, listReels, getReel, deleteReel, reelSystem };
