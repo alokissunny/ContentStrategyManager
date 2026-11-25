@@ -3,22 +3,18 @@
  * ContentOpportunity (dark tone, Nov 20). The backend (GET /api/ideas/next) returns up to 7 ranked ideas; the
  * card shows one at a time:
  *   - 1 of N ›    → the next one in the batch (wraps; no new model call)
- *   - Build Reel  → Capture opens on the same card (lean, light) and asks how to make it:
- *                     Create with my footage → How would you like to record your Reel? (Face camera /
- *                       Speak while filming / Show and explain) → the idea's questions → ReelPlanner in the
- *                       matching format (talking_head / faceless_voiceover / talking_head_broll)
- *                     Generate automatically → the idea's questions → a plan run writes the post
+ *   - Use this idea → the normal Capture, prefilled: the idea's opening question, its photos on file, the
+ *                     agent told what is known; follow-ups held until filing, then the format panel
+ *                     (Carousel / Reel / Static post / Story) — a post format runs an 'idea' plan
  *   - Discard     → never suggested again (PATCH dismissed), the next one shows
  * Fetched once per finished run (keyed by the newest done job) and kept for the session.
  */
 import { useEffect, useState } from 'react';
 import Icon from '../brand/Icon';
 import ContentOpportunity from './ContentOpportunity';
-import { formatForMode } from './IdeaOffer';
 import { startPlanGeneration } from '../lib/planGeneration';
 import { getNextIdeas, updateIdea } from '../api/ideas';
 import { openCaptureIdea } from '../lib/captureUi';
-import { openReelPlanner } from './ReelPlanner';
 
 /* one fetch per finished run, kept across the panel opening and shutting */
 const byRun = new Map(); // runKey → { status: 'loading'|'ready'|'failed', ideas, at, shut }
@@ -103,9 +99,18 @@ export default function IdeaCard({ runKey, tabIndex = 0, onExplore }) {
     const onFile = (idea.assets || [])
       .filter((a) => a.key && (a.type === 'image' || a.type === 'video'))
       .map((a) => ({ id: a.key, key: a.key, type: a.type, url: a.url || '' }));
+    /* Use this idea (Nov 25 mock): the normal Capture — the idea's opening question, its photos already
+       on file, the agent knowing what is known — then the same "What should Bauhly make from this?"
+       panel as any capture (Carousel / Reel / Static post / Story) */
+    let taken = false;
+    const take = (captureId) => {
+      if (taken) return;
+      taken = true;
+      updateIdea(idea.id, 'accepted', captureId || '').catch(() => {});
+      takeIdea(idea);
+    };
     openCaptureIdea({
       opening: idea.opening || idea.title,
-      savedLine: 'Got it — planning your reel now.',
       projectName: 'No project',
       askProject: false,
       // the opening is question 1; the agent may add one more only if the
@@ -120,37 +125,24 @@ export default function IdeaCard({ runKey, tabIndex = 0, onExplore }) {
         questions: idea.questions || [],
         assets: (idea.assets || []).map((a) => ({ key: a.key, type: a.type, reason: a.reason || '' })),
       },
-      // Build Reel: the card, then how to make it / how to record it (IdeaOffer)
-      offer: {
-        idea,
-        onDiscard: () => dismissIdea(idea),
-        // Create with my footage: the shot guide opens in Capture itself (ReelStory) — the idea is taken here
-        onAccepted: (captured) => {
-          setBusy(false);
-          updateIdea(idea.id, 'accepted', captured?.captureId || '').catch(() => {});
-          takeIdea(idea);
-        },
-      },
       attachments: onFile,
       // photos already on file for it: don't ask for more
       askMedia: !onFile.length,
+      // the format panel, as in a plain capture (its held question comes first)
+      formats: true,
+      // filed = the idea is taken, whatever is made from it (a Reel alone never reaches onSaved)
+      onFiled: (filed) => { setBusy(false); take(filed?.captureId); },
       onCancel: () => setBusy(false),
       onSaved: (captured) => {
         setBusy(false);
         const captureId = captured?.captureId || '';
-        updateIdea(idea.id, 'accepted', captureId).catch(() => {});
-        takeIdea(idea);
-        const choice = captured?.offer || {};
-        if (choice.way === 'auto') {
-          // Generate automatically: Bauhly writes the post and puts it on the plan
-          startPlanGeneration('idea', {
-            label: `Next idea · ${idea.title}`,
-            captureIds: captureId ? [captureId] : [],
-          }).catch(() => {});
-          return;
-        }
-        // Create with my footage: the reel planned in the recording method's format
-        openReelPlanner({ idea, captured, format: formatForMode(choice.mode) });
+        take(captureId);
+        // a post format: written from THIS capture, in the chosen shape (read off the capture by the backend);
+        // 'idea' runs may reuse photos already on other posts
+        startPlanGeneration('idea', {
+          label: `Next idea · ${idea.title}`,
+          captureIds: captureId ? [captureId] : [],
+        }).catch(() => {});
       },
     });
   };

@@ -109,7 +109,9 @@ export default function CaptureHost() {
         seedAttachments={aim?.attachments || null}
         savedLine={aim?.savedLine || ''}
         // a plain capture is filed without questions; they wait for Generate plan
-        deferQuestions={!aim}
+        deferQuestions={!aim || Boolean(aim.formats)}
+        // Use this idea: told once the capture is filed (a Reel made from the panel never reaches onCaptured)
+        onFiled={aim?.onFiled || null}
         exitLabel="Back"
         landing={landing}
         leaving={leaving}

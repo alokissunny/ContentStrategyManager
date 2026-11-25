@@ -1174,7 +1174,7 @@ function CaptureReference({ of: r }) {
   );
 }
 
-export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewProject, onCaptured, exitLabel = 'Back', modal = false, opening = '', savedLine = '', projectName = '', askProject = true, maxQuestions = 4, askMedia = true, resume = null, deferQuestions = false, adding = null, onPlan = null, run = null, landing = null, leaving = false, onLoggedIn = null, onRestart = null, idea = null, seedAttachments = null, offer = null }) {
+export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewProject, onCaptured, exitLabel = 'Back', modal = false, opening = '', savedLine = '', projectName = '', askProject = true, maxQuestions = 4, askMedia = true, resume = null, deferQuestions = false, adding = null, onPlan = null, run = null, landing = null, leaving = false, onLoggedIn = null, onRestart = null, idea = null, seedAttachments = null, offer = null, onFiled = null }) {
   const projects = useProjects();
   /* ══ A VISIT FROM THE LANDING PAGE (bauhly-v3, Nov 5–6) ══════════════════
      The hero's field grows into this box. The first line is there as it opens,
@@ -1970,6 +1970,7 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
       });
       const cover = previewUrl(c.attachments.find((a) => a.type === 'image') || c.attachments[0]) || null;
       setSaved({ id: pid, name, captureId: made?.captureId || null, at: new Date().toISOString() });
+      try { onFiled?.({ projectId: pid, captureId: made?.captureId || null }); } catch { /* the caller's note only */ }
       if (visitorFiling.current) return true;
       if (deferQuestions) {
         /* a visitor has no plan yet: what is next for them is the post they were told about */
