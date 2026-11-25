@@ -154,6 +154,50 @@ export default function ContentOpportunity({
     onShow?.(next);
   };
 
+  /* the queue card (bauhly-v3 mock, Nov 25): "Suggested next post" pill + pager, the idea's title, then
+     WHY WE RECOMMEND THIS with the reason in full, and Use this idea / Discard — no picture, no goal line */
+  if (tone === 'dark' && !lean) {
+    return (
+      <section className="copp copp--dark copp--next" aria-label="Suggested next post">
+        <header className="copp__head">
+          <span className="copp__tag">
+            <Icon name="sparkle-ai" size={14} strokeWidth={2} />
+            Suggested next post
+          </span>
+          {ideas.length > 1 && (
+            <span className="copp__pager">
+              <span className="copp__count">{here + 1} of {ideas.length}</span>
+              <button type="button" className="copp__step" onClick={step} aria-label="Next idea" title="Next idea" tabIndex={tabIndex}>
+                <Icon name="chevron-right" size={16} strokeWidth={2.2} />
+              </button>
+            </span>
+          )}
+        </header>
+        <h4 className="copp__title copp__title--next">{o.title}</h4>
+        {say && (
+          <div className="copp__reason">
+            <p className="copp__reason__lab">Why we recommend this</p>
+            <p className="copp__reason__say">{say}</p>
+          </div>
+        )}
+        {(onBuild || onDismiss) && (
+          <div className="copp__acts copp__acts--next">
+            {onBuild && (
+              <button type="button" className="copp__act copp__act--go" disabled={buildDone || busy} onClick={() => onBuild(o, here)} tabIndex={tabIndex}>
+                Use this idea
+              </button>
+            )}
+            {onDismiss && (
+              <button type="button" className="copp__act copp__act--no" onClick={() => onDismiss(o, here)} tabIndex={tabIndex}>
+                Discard
+              </button>
+            )}
+          </div>
+        )}
+      </section>
+    );
+  }
+
   return (
     <section className={`copp copp--${tone}${lean ? ' copp--lean' : ''}`} aria-label="What could you share next?">
       <header className="copp__head">

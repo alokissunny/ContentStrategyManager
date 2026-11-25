@@ -451,3 +451,45 @@
 .rst-missing { display: flex; flex-direction: column; gap: var(--sp-2); padding: var(--sp-4) var(--sp-5); border-radius: var(--r-lg); background: var(--signal-50, #fff1ec); border: 1px solid var(--signal-100, #ffddd2); }
 .rst-missing .ck-gr__outs { margin-top: var(--sp-2); }
 .ck-task__go:disabled { opacity: 0.7; }
+
+/* ── the queue card, Nov 25 mock: pill · pager / title / WHY WE RECOMMEND THIS / Use this idea · Discard ── */
+.copp--next { gap: var(--sp-3); padding: var(--sp-5) var(--sp-6, 24px) var(--sp-5); }
+.copp--next .copp__head { justify-content: space-between; }
+.copp__tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 32px;
+  padding: 0 14px;
+  border-radius: var(--r-full);
+  background: var(--copp-pill);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--copp-ink);
+}
+.copp__title--next {
+  margin-top: var(--sp-3);
+  font-family: var(--font-ui);
+  font-size: var(--text-md, 17px);
+  font-weight: 600;
+  line-height: 1.35;
+}
+.copp__reason { display: flex; flex-direction: column; gap: 6px; }
+.copp__reason__lab {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--copp-quiet);
+}
+.copp__reason__say {
+  margin: 0;
+  font-size: var(--text-sm);
+  line-height: 1.55;
+  color: var(--copp-say);
+  overflow-wrap: break-word;
+}
+/* the two presses sit at their own width, left-aligned (mock) */
+.copp__acts--next { margin-top: var(--sp-2); }
+.copp__acts--next .copp__act { flex: 0 0 auto; height: 40px; padding: 0 18px; }
