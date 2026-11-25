@@ -1216,6 +1216,7 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
   const [make, setMake] = useState(() => blankMake());
   const [made, setMade] = useState(false);
   const madeRef = useRef(false);
+  const filedRef = useRef(null); // the capture just filed (visitorGenerate reads it after `finish`)
   // Capture › Reel › Include voiceover: { loading } | { error } | { parts } while the studio records
   const [voicePrep, setVoicePrep] = useState(null);
   // the held question is being asked before the format panel (not after Continue)
@@ -1970,6 +1971,7 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
       });
       const cover = previewUrl(c.attachments.find((a) => a.type === 'image') || c.attachments[0]) || null;
       setSaved({ id: pid, name, captureId: made?.captureId || null, at: new Date().toISOString() });
+      filedRef.current = { id: pid, name, captureId: made?.captureId || null };
       try { onFiled?.({ projectId: pid, captureId: made?.captureId || null }); } catch { /* the caller's note only */ }
       if (visitorFiling.current) return true;
       if (deferQuestions) {
@@ -2158,12 +2160,13 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
     after(d, () => setStep('kept'));
   };
   /* the Reel from this capture, with the panel's settings and — when recorded — the studio's voiceover */
-  const startReel = async (voiceover) => {
+  const startReel = async (voiceover, where = saved) => {
+    const m = makeRef.current || make;
     try {
       const made = await createCaptureReel({
-        projectId: saved.id,
-        captureIds: [saved.captureId],
-        prefs: { graphics: make.reel?.graphics, music: make.reel?.music },
+        projectId: where.id,
+        captureIds: [where.captureId],
+        prefs: { graphics: m.reel?.graphics, music: m.reel?.music },
         ...(voiceover ? { voiceover } : {}),
       });
       // the Captures page follows it on the capture's row (it only loads reels when it opens)
@@ -2715,10 +2718,19 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
     const q = questionById(id);
     return [id, { picked: a.picked.map((p) => q.options.find((o) => o.id === p)).filter(Boolean).map((o) => ({ title: o.title, line: o.line })), other: a.other || '' }];
   }));
+  /* the visitor's Continue on the format panel: the choice is said back, then the account step */
+  const visitorMake = () => {
+    const ids = make.formats || [];
+    if (made || !ids.length) return;
+    setMade(true);
+    madeRef.current = true;
+    userSays(ids.map((id) => MAKE[id].name).join(' · '));
+    setLogin('generate');
+  };
   const visitorGenerate = async () => {
     setStep('boot');
     /* the press is said back, so the thread reads capture, choice, making (bauhly-v3 decision 902) */
-    userSays(BUILD_POST_SAY);
+    if (!madeRef.current) userSays(BUILD_POST_SAY);
     visitorFiling.current = true;
     const wait = (ms) => new Promise((r) => { setTimeout(r, ms); });
     const stages = VISITOR_STAGES.filter((st) => st.id !== 'studio' || igToken.current);
@@ -2745,6 +2757,13 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
       if (files.length) {
         const added = await uploadFiles(files);
         cap.current.attachments = added;
+        // Static post › the photos picked on the panel were the held files: point at their uploads
+        const ids = makeRef.current?.images?.ids || [];
+        if (ids.length) {
+          const keyOf = new Map(heldFiles.current.map((h, i) => [h.id, added[i]?.key]));
+          const m = makeRef.current;
+          makeRef.current = { ...m, images: { ...m.images, ids: ids.map((id) => keyOf.get(id)).filter(Boolean) } };
+        }
       }
       const r = await runUnderstand();
       if (r?.understanding) cap.current.understanding = r.understanding;
@@ -2771,13 +2790,32 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
     }
     heldFiles.current.forEach((h) => { try { URL.revokeObjectURL(h.url); } catch { /* ok */ } });
 
+    /* the format panel's choice goes onto the capture (plan generation reads its shape from there); a Reel
+       is started from it; with no post format there is no plan to wait for */
+    const filed = filedRef.current;
+    const chosen = madeRef.current ? makeRef.current : null;
+    if (chosen && filed?.captureId) {
+      try { await updateEntry(filed.id, filed.captureId, { make: chosen }); } catch (err) { console.warn('[capture] saving the format choice failed', err); }
+      const ids = chosen.formats || [];
+      if (ids.includes('reel')) await startReel(null, filed);
+      if (!ids.some((id) => MAKE[id]?.post || id === 'story')) {
+        visitorFiling.current = false;
+        setVGen(null);
+        if (vAlive.current) onCaptured?.({ ...capturedPayload(), generated: true });
+        return;
+      }
+    }
+
     /* ── THE POST IS MADE HERE, NOT ON THE CALENDAR (bauhly-v3 decision 743) ── the box stays open with its
        progress while the plan run makes the post; the run lives in the planGeneration store, so closing the
        box does not stop it. Its own stages move this card on. */
     await next('structuring');
     /* they made their account in this box: the post opens in the Editor, even if they close the box first */
     openNextInEditor();
-    startPlanGeneration('capture', { label: cap.current?.text }).catch(() => {});
+    startPlanGeneration('capture', {
+      label: cap.current?.text,
+      ...(chosen && filed?.captureId ? { captureIds: [filed.captureId] } : {}),
+    }).catch(() => {});
     let designing = false;
     while (getPlanGeneration().status === 'generating' && vAlive.current) {
       const g = getPlanGeneration();
@@ -3000,11 +3038,19 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
         );
       }
       /* the row's one act, at full size (bauhly-v3 decisions 889, 902) */
+      /* the same "What should Bauhly make from this?" panel as any capture (user, 2026-11-25); the choice is
+         held in the browser until the account is made, then saved on the capture visitorGenerate files */
       case 'vDone':
         return (
-          <button type="button" className="btn btn--primary ck-exbtn" onClick={() => setLogin('generate')}>
-            {BUILD_POST_SAY}
-          </button>
+          <FormatPicker
+            assets={materialOf(heldFiles.current.map((h) => ({ key: h.id, type: h.type, url: h.url })))}
+            make={make}
+            onChange={setMake}
+            onContinue={visitorMake}
+            busy={busy}
+            done={made}
+            voice={false}
+          />
         );
       /* the example's post is made: `View post` opens it in its Editor; back from there, their own is the way on
          (bauhly-v3 decisions 814, 945, 991) */
@@ -3035,14 +3081,7 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
             <button type="button" className="btn btn--primary" onClick={showExamplePost}>{BUILD_POST_SAY}</button>
           );
         }
-        if (deferQuestions && liveIntro) {
-          return (
-            <>
-              {/* a landing visit ends on `Build post` alone (bauhly-v3 decisions 824, 889) */}
-              <button type="button" className="btn btn--primary" onClick={generatePlan}>{BUILD_POST_SAY}</button>
-            </>
-          );
-        }
+        // a landing visit too ends on the format panel, like any capture (user, 2026-11-25)
         if (deferQuestions || adding?.another) {
           return (
             <FormatPicker
@@ -3188,7 +3227,16 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
   sendNow.current = composerSend;
   recordNow.current = composerRecord;
   /* the editing view takes Escape itself (ExampleEditor) */
-  escRef.current = leaving || exEdit ? null : login ? () => setLogin(null) : onExit;
+  /* backing out of the account step before Build: the format panel can be changed again */
+  const leaveLogin = () => {
+    if (login === 'generate' && step === 'vDone') {
+      setMade(false);
+      madeRef.current = false;
+      drop((m) => m.from === 'user' && m.text === (make.formats || []).map((id) => MAKE[id]?.name).join(' · '));
+    }
+    setLogin(null);
+  };
+  escRef.current = leaving || exEdit ? null : login ? leaveLogin : onExit;
   /* `See an example` sits under the first question, for an empty field */
   const exampleAsk = Boolean(example) && step === 'how' && !typing && !demo;
 
@@ -3291,7 +3339,7 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
         {login && (
           <CaptureLogin
             start={login === 'generate' ? 'signup' : 'signin'}
-            onBack={() => setLogin(null)}
+            onBack={leaveLogin}
             onDone={loggedIn}
           />
         )}
@@ -3598,7 +3646,7 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
           {showActions && (
             <div className="ck-turn ck-turn--bauhly ck-turn--actions ck-turn--cont">
               <span className="ck-avatar ck-avatar--ghost" aria-hidden="true" />
-              <div className={`ck-inline ${step === 'project' ? 'ck-inline--cards' : ''} ${liveIntro && step === 'done' ? 'ck-inline--row' : ''} ${(deferQuestions ? !liveIntro && !adding : adding?.another) && !saved?.demo && step === 'done' ? 'ck-inline--fmt' : ''}`}>{actions}</div>
+              <div className={`ck-inline ${step === 'project' ? 'ck-inline--cards' : ''} ${liveIntro && step === 'done' && saved?.demo ? 'ck-inline--row' : ''} ${(deferQuestions ? !adding : adding?.another) && !saved?.demo && (step === 'done' || step === 'vDone') ? 'ck-inline--fmt' : ''}`}>{actions}</div>
             </div>
           )}
 

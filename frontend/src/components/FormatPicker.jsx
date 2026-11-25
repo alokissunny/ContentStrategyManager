@@ -106,7 +106,8 @@ function Opt({ on, onPick, children }) {
   );
 }
 
-export default function FormatPicker({ assets = [], make, onChange, onContinue, onExit = null, busy = false, done = false, heading = true }) {
+// `voice={false}`: no voiceover question (a landing visitor has no account yet to record the script into)
+export default function FormatPicker({ assets = [], make, onChange, onContinue, onExit = null, busy = false, done = false, heading = true, voice = true }) {
   // every row arrives closed (the mock's first frame); ticking or the chevron opens one
   const [open, setOpen] = useState(null);
   const on = (id) => (make.formats || []).includes(id);
@@ -147,13 +148,13 @@ export default function FormatPicker({ assets = [], make, onChange, onContinue, 
             </div>
           </div>
         )}
-        <div className="fmt-block">
+        {voice && <div className="fmt-block">
           <p className="fmt-name">Should it include a voiceover?</p>
           <div className="fmt-opts" role="radiogroup" aria-label="Voiceover">
             <Opt on={make.reel?.say === 'in'} onPick={() => reel({ say: 'in' })}>Include voiceover</Opt>
             <Opt on={make.reel?.say !== 'in'} onPick={() => reel({ say: 'out' })}>No voiceover</Opt>
           </div>
-        </div>
+        </div>}
         <div className="fmt-block">
           <p className="fmt-name">Should it include graphics with motion?</p>
           <div className="fmt-opts" role="radiogroup" aria-label="Graphics with motion">

@@ -10960,3 +10960,32 @@ i.shotedit__aa { font-style: italic; font-family: Georgia, serif; }
   }
   .wv-ig:has(.wv-ig__photo.is-reel) .wv-ig__media { background: #000; }
 }
+
+/* A Story post on desktop: like a Reel, the picture column takes the frames' own 9:16 — no side or
+   top/bottom bands (user, 2026-11-25). Its frames still page: the dots sit over the bottom of the frame. */
+@media (min-width: 961px) {
+  .wv:has(.wv-ig__photo.is-story) {
+    --igc-ar: 0.5625;
+  }
+  .wv-postwrap > .wv-ig .wv-ig__photo.is-story {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    aspect-ratio: auto;
+    margin: 0;
+  }
+  .wv-ig:has(.wv-ig__photo.is-story) .wv-ig__dotrow {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 3;
+    padding: 0 14px 14px;
+    background: none;
+    pointer-events: none;
+  }
+  .wv-ig:has(.wv-ig__photo.is-story) .wv-ig__dots { pointer-events: auto; }
+  .wv-ig:has(.wv-ig__photo.is-story) .wv-ig__dotrow .wv-ig__dot { background: rgb(255 255 255 / 0.55); box-shadow: 0 0 0 1px rgb(0 0 0 / 0.1); }
+  .wv-ig:has(.wv-ig__photo.is-story) .wv-ig__dotrow .wv-ig__dot.is-active { background: #fff; }
+}

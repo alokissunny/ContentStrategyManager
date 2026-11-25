@@ -145,7 +145,13 @@ export default function CaptureHost() {
             if (loggedInHere.current) openNextInEditor();
             close(() => navigate('/dashboard'));
             /* the box already made it, showing its progress (CaptureChat visitorGenerate) */
-            if (!captured?.generated) startPlanGeneration('capture', { label: captured?.text }).catch(() => {});
+            if (!captured?.generated) {
+              startPlanGeneration('capture', {
+                label: captured?.text,
+                // the format panel's choice is on this capture: the post is written from it
+                ...(captured?.make && captured?.captureId ? { captureIds: [captured.captureId] } : {}),
+              }).catch(() => {});
+            }
             return;
           }
           setOpen(false);
