@@ -1447,6 +1447,25 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
           ? { from: 'bauhly', text: t.text }
           : { from: 'user', text: /^skip this question/i.test(t.text) ? 'Skip this question' : t.text }));
         if (adding.files.length) push({ from: 'user', media: adding.files });
+        // Generate another plan: the history above is words only when the
+        // capture has a chat, so its files come over as the studio's turn
+        if (adding.another && (adding.turns || []).length && (adding.media || []).length) push({ from: 'user', media: adding.media });
+      }
+      /* Generate another plan (bauhly-v3 mock, Nov 25): the capture's whole
+         conversation and files are back in view; Bauhly asks what the new post
+         should say. An answer joins the note and the plan starts; Nothing to
+         add plans from what was already said. */
+      if (adding.another) {
+        const n = (adding.media || []).length;
+        cap.current = { ...cap.current, text: '', kind: 'note', attachments: [], askedQuestion: translate('What should this one say?') };
+        const d1 = say(n
+          ? `Let's make another post from this one. I have brought its ${n} ${n === 1 ? 'file' : 'files'} over.`
+          : "Let's make another post from this one.");
+        after(d1, () => {
+          const d2 = say('What should this one say? Answer below, or press Nothing to add and I will use what you already said.');
+          after(d2, () => setStep('noting'));
+        });
+        return;
       }
       // Add arrives holding files; the pencil (Edit capture) arrives empty
       const ask = translate(!adding.files.length
@@ -2053,6 +2072,17 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
     }
     setStep('done');
   };
+  /* Generate another plan: after the words (or Nothing to add) the same
+     "What should Bauhly make from this?" panel as a new capture — Continue
+     (runMake) saves the choice on this capture and starts the plan / Reel */
+  const anotherFormats = (said) => {
+    if (!adding?.another) return;
+    const owner = (projects.find((p) => p.id === adding.projectId) || {});
+    setSaved({ id: adding.projectId, name: owner.name || '', captureId: adding.captureId });
+    cap.current = { ...cap.current, held: [], attachments: [...(adding.media || [])] };
+    const d = say(said ? 'Got it — that’s on this capture now.' : 'Fine — I’ll use what you already said.');
+    after(d, showFormats);
+  };
   const questionDone = () => (askFirst.current ? toFormats() : handOff());
   /* the questions are dealt with (or skipped): the plan is the caller's */
   const handOff = () => {
@@ -2060,7 +2090,7 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
     setNotice(false);
     setStep('boot');
     const d = say('Generating your plan…');
-    after(d + 500, () => (onCaptured ? onCaptured(capturedPayload()) : onExit?.()));
+    after(d + 500, () => (onCaptured ? onCaptured(capturedPayload()) : adding?.another && onPlan ? onPlan() : onExit?.()));
   };
   /* `Generate plan` (deferQuestions): the question held back at filing is
      asked now, in this conversation; with none, the plan starts */
@@ -2988,7 +3018,7 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
           <button type="button" className="btn btn--primary btn--sm ck-exbtn" onClick={openExampleEditor}>View post</button>
         );
       case 'done':
-        if (adding) {
+        if (adding && !adding.another) {
           return (
             <>
               <button className="ck-chip ck-chip--primary" onClick={onExit}>Save and close</button>
@@ -3012,7 +3042,7 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
             </>
           );
         }
-        if (deferQuestions) {
+        if (deferQuestions || adding?.another) {
           return (
             <FormatPicker
               assets={materialOf(cap.current.attachments)}
@@ -3100,6 +3130,7 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
     if (login) return;
     if (liveIntro && demo && isDemo() && step === 'how' && !pending.length) { demoSend(); return; }
     if (needsLogin) { visitorSend(text); return; }
+    if (adding?.another && step === 'noting') { if (draft.trim() || pending.length) keepAdding(() => anotherFormats(true)); return; }
     if (adding && ['noting', 'amendMedia'].includes(step)) { sendAdding(); return; }
     if (!text && !pending.length) return;
     // Text only — the existing conversational submits.
@@ -3469,7 +3500,16 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
               question offers — not answering it — sits under it as a chip */}
           {/* Captures › Add: the composer is the answer; these keep the file
               without one, or go straight on to the plan */}
-          {composerLive && adding && step === 'noting' && (
+          {composerLive && adding?.another && step === 'noting' && (
+            <div className="ck-turn ck-turn--bauhly ck-turn--actions ck-turn--cont">
+              <span className="ck-avatar ck-avatar--ghost" aria-hidden="true" />
+              <div className="ck-inline">
+                <button type="button" className="btn btn--quiet btn--sm" onClick={() => { setStep('boot'); userSays('Nothing to add'); anotherFormats(false); }}>Nothing to add</button>
+                <button type="button" className="ck-chip" onClick={() => keepAdding(onExit)}>Save and close</button>
+              </div>
+            </div>
+          )}
+          {composerLive && adding && !adding.another && step === 'noting' && (
             <div className="ck-turn ck-turn--bauhly ck-turn--actions ck-turn--cont">
               <span className="ck-avatar ck-avatar--ghost" aria-hidden="true" />
               <div className="ck-inline">
@@ -3557,7 +3597,7 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
           {showActions && (
             <div className="ck-turn ck-turn--bauhly ck-turn--actions ck-turn--cont">
               <span className="ck-avatar ck-avatar--ghost" aria-hidden="true" />
-              <div className={`ck-inline ${step === 'project' ? 'ck-inline--cards' : ''} ${liveIntro && step === 'done' ? 'ck-inline--row' : ''} ${deferQuestions && !liveIntro && !adding && !saved?.demo && step === 'done' ? 'ck-inline--fmt' : ''}`}>{actions}</div>
+              <div className={`ck-inline ${step === 'project' ? 'ck-inline--cards' : ''} ${liveIntro && step === 'done' ? 'ck-inline--row' : ''} ${(deferQuestions ? !liveIntro && !adding : adding?.another) && !saved?.demo && step === 'done' ? 'ck-inline--fmt' : ''}`}>{actions}</div>
             </div>
           )}
 
@@ -3655,7 +3695,7 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
             canSend={composerSendable && !(polishing && !draftTouched.current)}
             pending={pending}
             onRemoveFile={removePending}
-            placeholder={step === 'clarify' ? 'Answer in your own words…' : step === 'amendMedia' ? 'Add anything else, or send to save it…'
+            placeholder={step === 'clarify' ? 'Answer in your own words…' : adding?.another && step === 'noting' ? 'What is this about?' : step === 'amendMedia' ? 'Add anything else, or send to save it…'
               : step === 'ig' ? IG_ASK.field
               : step === 'ask' ? (qOther ? (questionById(qAt)?.otherField || 'Say it in your own words…') : 'Or say it in your own words…')
               /* the same short words to the end of a landing visit (bauhly-v3) */

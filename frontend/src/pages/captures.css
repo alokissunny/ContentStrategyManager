@@ -1643,3 +1643,7 @@ body:has(.np) .mtabs { display: none; }
   .pjw-bar .pjw-fbtn { width: 36px; height: 36px; padding: 0; justify-content: center; }
   .pjw-bar .pjw-genall { height: 36px; padding: 0 var(--sp-2) 0 var(--sp-3); font-size: var(--text-xs); }
 }
+
+/* used capture: the View post pill alone under the head (bauhly-v3 mock, Nov 25) */
+.np__viewpost { display: flex; }
+.np__viewpost .np__needs__go { margin-top: 0; height: 40px; padding: 0 var(--sp-5, 20px); }

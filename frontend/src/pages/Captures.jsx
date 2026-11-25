@@ -87,8 +87,6 @@ const postDay = (ymd, { weekday = true } = {}) => {
   const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
   return d.toLocaleDateString(undefined, { ...(weekday ? { weekday: 'short' } : {}), month: 'short', day: 'numeric' });
 };
-const listDays = (days) => (days.length <= 1 ? days.join('')
-  : `${days.slice(0, -1).join(', ')} and ${days[days.length - 1]}`);
 
 function NoteField({ value, placeholder, onSave, fieldRef, read = false }) {
   const [v, setV] = useState(value || '');
@@ -172,6 +170,8 @@ function addingOf(item, files) {
     projectId: item.projectId,
     captureId: lead?.id || item.session.id,
     files,
+    // every file on the capture (Generate another plan brings them all over)
+    media: members.flatMap((c) => (c.attachments || []).map((a) => ({ type: a.type, key: a.key, url: a.url }))),
     turns: chat,
     history: chat.length ? null : members.map((c) => ({
       text: String(c.text || c.sessionSummary || '').trim(),
@@ -180,7 +180,7 @@ function addingOf(item, files) {
   };
 }
 
-function CapturePanel({ item, projects, asked, onClose, onGenerate, onDelete, onMove, onAddDetail, onAddFiles, onEditCapture, onViewPost, reel, onReel, onRegenerate }) {
+function CapturePanel({ item, projects, asked, onClose, onGenerate, onGenerateAnother, onDelete, onMove, onAddDetail, onAddFiles, onEditCapture, onViewPost, reel, onReel, onRegenerate }) {
   useBodyScrollLock();
   const entry = item.session;
   const atts = entry.attachments || [];
@@ -298,7 +298,15 @@ function CapturePanel({ item, projects, asked, onClose, onGenerate, onDelete, on
                             <span className="pe-menu__grow">Edit capture</span>
                           </button>
                         )}
-                        {onEditCapture && <div className="pe-menu__sep" />}
+                        {/* a used capture can go into another plan: Capture reopens
+                            with its history and files and asks what this one should say */}
+                        {st === 'used' && onGenerateAnother && (
+                          <button role="menuitem" onClick={() => { closeMenu(); onGenerateAnother(); }}>
+                            <Icon name="sparkle" size={17} />
+                            <span className="pe-menu__grow">Generate another plan</span>
+                          </button>
+                        )}
+                        {(onEditCapture || (st === 'used' && onGenerateAnother)) && <div className="pe-menu__sep" />}
                         {others.length > 0 && (
                           <button role="menuitem" onClick={() => setMoveOpen(true)}>
                             <Icon name="plan" size={17} />
@@ -391,31 +399,27 @@ function CapturePanel({ item, projects, asked, onClose, onGenerate, onDelete, on
               </button>
             </div>
           )}
-          {st === 'used' && (
+          {/* bauhly-v3 mock (Nov 25): a used capture shows just View post;
+              Generate another plan lives in ⋯ */}
+          {st === 'used' && (usedPosts.length > 0 && onViewPost ? (
+            <div className="np__viewpost">
+              <button type="button" className="np__needs__go np__needs__go--ink" onClick={() => onViewPost(usedPosts[0])}>
+                {usedPosts.length > 1 ? 'View first post' : 'View post'}
+              </button>
+            </div>
+          ) : (
             <div className="np__needs np__needs--done">
               <p className="np__needs__top">
                 <Icon name="check-circle" size={15} strokeWidth={2.2} />
                 Already generated
               </p>
               <p className="np__needs__say">
-                {usedPosts.length
-                  ? `It went into the ${usedPosts.length > 1 ? 'posts' : 'post'} on ${listDays(usedPosts.map((p) => postDay(p.date)))}.`
-                  : (linked
-                    ? 'The posts made from it are no longer on the calendar.'
-                    : (usedAt ? `A plan was made from it on ${shortDay(usedAt)}.` : 'This capture has already been through a plan.'))}
+                {linked
+                  ? 'The posts made from it are no longer on the calendar.'
+                  : (usedAt ? `A plan was made from it on ${shortDay(usedAt)}.` : 'This capture has already been through a plan.')}
               </p>
-              {usedPosts.length > 0 && onViewPost && (
-                <button type="button" className="np__needs__go np__needs__go--ink" onClick={() => onViewPost(usedPosts[0])}>
-                  {usedPosts.length > 1 ? 'View first post' : 'View post'}
-                  <Icon name="arrow-right" size={15} strokeWidth={2.2} />
-                </button>
-              )}
-              <button type="button" className="np__needs__go np__needs__go--quiet" onClick={onGenerate}>
-                Generate another plan
-                <Icon name="arrow-right" size={15} strokeWidth={2.2} />
-              </button>
             </div>
-          )}
+          ))}
           {st === 'off' && (
             <div className="np__needs np__needs--done">
               <p className="np__needs__top">
@@ -1427,6 +1431,7 @@ export default function Captures() {
           onAddDetail={() => { const r = resumeOf(openItem); if (r) { setOpen(null); setResuming(r); } else setAdding({ ...addingOf(openItem, []), itemId: openItem.id }); }}
           onAddFiles={(files) => setAdding({ ...addingOf(openItem, files), itemId: openItem.id })}
           onEditCapture={() => setAdding({ ...addingOf(openItem, []), itemId: openItem.id })}
+          onGenerateAnother={() => { setOpen(null); setAdding({ ...addingOf(openItem, []), another: true, itemId: openItem.id }); }}
           // the calendar opens the post's day in Day view (YourPlans reads `openPostDay` from the route state)
           onViewPost={(post) => { setOpen(null); navigate('/dashboard', { state: post?.date ? { openPostDay: String(post.date).slice(0, 10) } : {} }); }}
           reel={reelOf(openItem)}
