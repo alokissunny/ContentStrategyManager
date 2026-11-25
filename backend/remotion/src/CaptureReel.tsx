@@ -249,6 +249,25 @@ const ReelSfx: React.FC<{ reel: ReelSpec }> = ({ reel }) => {
   return <SfxTrack events={events} master={reel.audio?.voiceoverSrc ? 0.5 : 0.8} />;
 };
 
+// Explainer drawings in a photo reel (backend captureReelAgent commissionDrawings): full-screen paper
+// cards — over the footage while their words are said, or cut in between shots of a music-led reel.
+// Words on the photos (overlays, kickers) stay off while a drawing is up: one text block at a time.
+const drawnOver = (reel: ReelSpec, from: number, to: number) =>
+  reel.scenes.some((d) => d.explainer && from < d.from + d.durationInFrames && d.from < to);
+const ExplainerLayer: React.FC<{ reel: ReelSpec }> = ({ reel }) => {
+  const body = resolveFont(reel.brand.bodyFont || 'Inter', 'sans');
+  const head = resolveFont(reel.brand.headlineFont || 'Montserrat', 'display');
+  return (
+    <>
+      {reel.scenes.map((s, i) => (s.explainer ? (
+        <Sequence key={`x${i}`} from={s.from} durationInFrames={s.durationInFrames}>
+          <ExplainerScene spec={s.explainer} durationInFrames={s.durationInFrames} font={body} titleFont={head} palette={reel.brand.palette} centered={!reel.captions?.length} />
+        </Sequence>
+      ) : null))}
+    </>
+  );
+};
+
 // A reel cut in a reference reel's style (reel.look) — see reelLook.tsx
 const StyledReel: React.FC<{ reel: ReelSpec }> = ({ reel }) => {
   const { fps } = useVideoConfig();
@@ -258,14 +277,15 @@ const StyledReel: React.FC<{ reel: ReelSpec }> = ({ reel }) => {
   const endFrom = reel.cta ? reel.cta.fromFrame : Infinity;
   return (
     <AbsoluteFill style={{ background: '#000' }}>
-      {reel.scenes.map((s, i) => (
+      {reel.scenes.map((s, i) => (s.explainer ? null : (
         <Sequence key={`m${i}`} from={s.from} durationInFrames={s.durationInFrames} layout="none">
           {s.kind === 'card' ? <ChapterCard scene={s} look={look} />
             : <SceneFrame scene={s} fps={fps} grade={s.graded ? undefined : grade} accent={reel.brand.accent} ink={reel.brand.accentInk} />}
         </Sequence>
-      ))}
+      )))}
+      <ExplainerLayer reel={reel} />
       {reel.scenes.map((s, i) => {
-        if (!s.overlayText || s.kind === 'card') return null;
+        if (!s.overlayText || s.kind === 'card' || drawnOver(reel, s.from, s.from + s.durationInFrames)) return null;
         const from = Math.max(s.from, reel.hook ? Math.min(reel.hook.durationInFrames, s.from + s.durationInFrames) : 0);
         const len = Math.min(s.from + s.durationInFrames, endFrom) - from;
         return len > 4 ? (
@@ -388,16 +408,17 @@ const DefaultReel: React.FC<{ reel: ReelSpec }> = ({ reel }) => {
   const body = resolveFont(reel.brand.bodyFont || 'Inter', 'sans');
   return (
     <AbsoluteFill style={{ background: '#000' }}>
-      {reel.scenes.map((s, i) => (
+      {reel.scenes.map((s, i) => (s.explainer ? null : (
         <Sequence key={`m${i}`} from={s.from} durationInFrames={s.durationInFrames} layout="none">
           <SceneMedia scene={s} fps={fps} />
         </Sequence>
-      ))}
+      )))}
       <Scrims />
+      <ExplainerLayer reel={reel} />
       {reel.scenes.map((s, i) => {
         const end = Math.min(s.from + s.durationInFrames, reel.cta ? reel.cta.fromFrame : Infinity);
         const len = Math.min(end - s.from, Math.round(fps * 2.6));
-        return s.kicker && len > 12 ? (
+        return s.kicker && len > 12 && !drawnOver(reel, s.from, s.from + len) ? (
           <Sequence key={`k${i}`} from={s.from} durationInFrames={len}>
             <Kicker text={s.kicker} spec={reel} durationInFrames={len} />
           </Sequence>

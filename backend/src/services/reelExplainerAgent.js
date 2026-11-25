@@ -141,6 +141,52 @@ async function designExplainers({ words, inserts = [], story = '', hookEndSec = 
   };
 }
 
+/* the drawing an agent ordered, checked against the vocabulary: every value must be a number that was
+   said (`near` = said around it, `all` = said anywhere); null when nothing honest is left to draw */
+function specOf(x, near, all) {
+  const verdict = VERDICTS.includes(x.verdict) ? x.verdict : 'none';
+  const spec = { scene: x.scene, verdict, title: firstWords(str(x.title, 48), 5).replace(/[.!]+$/, '') };
+  if (x.scene === 'measure') {
+    spec.subject = MEASURE_SUBJECTS.includes(x.subject) ? x.subject : 'counter';
+    spec.figure = FIGURES.includes(x.figure) ? x.figure : 'standing';
+    spec.dimension = DIMENSIONS.includes(x.dimension) ? x.dimension : 'none';
+    spec.value = spec.dimension === 'none' ? '' : saidValue(x.value, near, all);
+    spec.dimension2 = DIMENSIONS.includes(x.dimension2) && x.dimension2 !== spec.dimension ? x.dimension2 : 'none';
+    spec.value2 = spec.dimension2 === 'none' ? '' : saidValue(x.value2, near, all);
+    if (!spec.value2) spec.dimension2 = 'none';
+    spec.label = firstWords(str(x.label, 30), 3);
+  } else if (x.scene === 'light') {
+    spec.subject = LIGHT_SUBJECTS.includes(x.subject) ? x.subject : 'ceiling';
+    spec.label = firstWords(str(x.label, 30), 3);
+  } else {
+    const items = (Array.isArray(x.items) ? x.items : []).map((it) => ({
+      text: firstWords(str(it?.text, 40), x.scene === 'stat' ? 5 : 3),
+      value: saidValue(it?.value, near, all),
+      verdict: VERDICTS.includes(it?.verdict) ? it.verdict : 'none',
+      at: Math.round(num(it?.at, -1)),
+      icon: ICONS.includes(it?.icon) ? it.icon : 'none',
+    })).filter((it) => it.text || it.value);
+    if (x.scene === 'compare') {
+      if (items.length < 2) return null;
+      spec.items = items.slice(0, 2);
+    } else if (x.scene === 'flow' || x.scene === 'checklist') {
+      if (items.length < 2) return null;
+      // a checklist must SHOW its points (studio review 2026-11-24: a tick explains nothing):
+      // at least half of the points need a picture, else it is decoration and is dropped
+      if (x.scene === 'checklist' && items.filter((it) => it.icon !== 'none').length < Math.ceil(items.length / 2)) return null;
+      spec.items = items.slice(0, 4).map((it) => ({ text: it.text, value: '', verdict: 'none', at: it.at, icon: it.icon }));
+    } else if (x.scene === 'open_plan') {
+      if (items.length < 2) return null;
+      spec.items = items.slice(0, 2).map((it) => ({ text: it.text, value: '', verdict: 'none' }));
+    } else {
+      if (!items[0]?.value) return null; // a stat is its number: no said number, no stat
+      spec.items = [items[0]];
+    }
+  }
+  if (!spec.title && !spec.value && !spec.items?.length) return null;
+  return spec;
+}
+
 function cleanExplainers(list, words, { hookEndSec = 1.5 } = {}) {
   const n = words.length;
   if (!n) return [];
@@ -171,46 +217,8 @@ function cleanExplainers(list, words, { hookEndSec = 1.5 } = {}) {
     .forEach((x) => {
       if (out.length >= cap) return;
       const near = spokenNumbers(words.slice(Math.max(0, x.from - 10), Math.min(n, x.to + 11)).map((w) => w.text).join(' '));
-      const verdict = VERDICTS.includes(x.verdict) ? x.verdict : 'none';
-      const spec = { scene: x.scene, verdict, title: firstWords(str(x.title, 48), 5).replace(/[.!]+$/, '') };
-      if (x.scene === 'measure') {
-        spec.subject = MEASURE_SUBJECTS.includes(x.subject) ? x.subject : 'counter';
-        spec.figure = FIGURES.includes(x.figure) ? x.figure : 'standing';
-        spec.dimension = DIMENSIONS.includes(x.dimension) ? x.dimension : 'none';
-        spec.value = spec.dimension === 'none' ? '' : saidValue(x.value, near, all);
-        spec.dimension2 = DIMENSIONS.includes(x.dimension2) && x.dimension2 !== spec.dimension ? x.dimension2 : 'none';
-        spec.value2 = spec.dimension2 === 'none' ? '' : saidValue(x.value2, near, all);
-        if (!spec.value2) spec.dimension2 = 'none';
-        spec.label = firstWords(str(x.label, 30), 3);
-      } else if (x.scene === 'light') {
-        spec.subject = LIGHT_SUBJECTS.includes(x.subject) ? x.subject : 'ceiling';
-        spec.label = firstWords(str(x.label, 30), 3);
-      } else {
-        const items = (Array.isArray(x.items) ? x.items : []).map((it) => ({
-          text: firstWords(str(it?.text, 40), x.scene === 'stat' ? 5 : 3),
-          value: saidValue(it?.value, near, all),
-          verdict: VERDICTS.includes(it?.verdict) ? it.verdict : 'none',
-          at: Math.round(num(it?.at, -1)),
-          icon: ICONS.includes(it?.icon) ? it.icon : 'none',
-        })).filter((it) => it.text || it.value);
-        if (x.scene === 'compare') {
-          if (items.length < 2) return;
-          spec.items = items.slice(0, 2);
-        } else if (x.scene === 'flow' || x.scene === 'checklist') {
-          if (items.length < 2) return;
-          // a checklist must SHOW its points (studio review 2026-11-24: a tick explains nothing):
-          // at least half of the points need a picture, else it is decoration and is dropped
-          if (x.scene === 'checklist' && items.filter((it) => it.icon !== 'none').length < Math.ceil(items.length / 2)) return;
-          spec.items = items.slice(0, 4).map((it) => ({ text: it.text, value: '', verdict: 'none', at: it.at, icon: it.icon }));
-        } else if (x.scene === 'open_plan') {
-          if (items.length < 2) return;
-          spec.items = items.slice(0, 2).map((it) => ({ text: it.text, value: '', verdict: 'none' }));
-        } else {
-          if (!items[0]?.value) return; // a stat is its number: no said number, no stat
-          spec.items = [items[0]];
-        }
-      }
-      if (!spec.title && !spec.value && !spec.items?.length) return;
+      const spec = specOf(x, near, all);
+      if (!spec) return;
       // timing: the sentence, held 2.2–4.5 s
       const fromSec = Math.max(words[x.from].start - 0.12, hookEndSec);
       let toSec = words[x.to].end + 0.3; // eslint-disable-line prefer-const
@@ -271,4 +279,94 @@ function cleanExplainers(list, words, { hookEndSec = 1.5 } = {}) {
   return out;
 }
 
-module.exports = { designExplainers, cleanExplainers, spokenNumbers, EXPLAINER_TOOL };
+/* ── Teaser / photo reels (Capture › Reel, "Include graphics", studio 2026-11-25) ──────────────────────────
+   A music-led reel has no speech to time a drawing against, so this agent reads the capture (the studio's
+   own words) and the cut (shot by shot) and orders up to 2 drawings, each cut in AFTER a given shot as
+   its own full-screen card. Same vocabulary and the same code checks as the talking-reel agent; numbers
+   must be in the studio's words. OpenAI (house rule): REEL_TEASER_EXPLAINER_MODEL, default gpt-5.6-terra. */
+const TEASER_MAX = 2;
+const TEASER_TOOL = (() => {
+  const item = JSON.parse(JSON.stringify(EXPLAINER_TOOL.input_schema.properties.explainers.items));
+  delete item.properties.from;
+  delete item.properties.to;
+  item.properties = { afterShot: { type: 'integer' }, ...item.properties };
+  item.required = Object.keys(item.properties);
+  return {
+    name: 'design_reel_explainers',
+    description: 'Animated explainer drawings cut into a photo reel (or none).',
+    input_schema: o({ explainers: { type: 'array', items: item } }),
+  };
+})();
+// how long a drawing holds on screen (its lines draw on in ~1.6 s, then it is read)
+function teaserSeconds(spec) {
+  const n = spec.items?.length || 0;
+  if (spec.scene === 'checklist' || spec.scene === 'flow') return Math.min(LIST_MAX_SEC, 0.35 + Math.max(0, n - 1) * 0.75 + 2.0);
+  if (spec.scene === 'stat') return 2.6;
+  if (spec.scene === 'measure' || spec.scene === 'light') return 3.4;
+  return 3.0;
+}
+
+/**
+ * story: the studio's words (notes / summary / what they said in Capture); shots: [{ i, text, shows }] —
+ * the cut in order (text = the words on that shot, shows = what the picture is).
+ * Returns { explainers: [{ afterShot, durationSec, spec }], debug }.
+ */
+async function designTeaserExplainers({ story = '', shots = [], language = '' }) {
+  if (process.env.REEL_EXPLAINERS === 'off' || shots.length < 2 || String(story).trim().split(/\s+/).length < 8) return { explainers: [], debug: null };
+  const base = fs.readFileSync(PROMPT, 'utf8');
+  // the drawing vocabulary is the talking-reel agent's, word for word
+  const vocab = base.slice(base.indexOf('MEANING, NOT DECORATION'), base.indexOf('HOW YOUR DRAWING MOVES'))
+    + base.slice(base.indexOf('THE DRAWINGS YOU CAN ORDER'), base.indexOf('FOR EVERY DRAWING:'));
+  const system = fs.readFileSync(path.join(path.dirname(PROMPT), 'explainer-teaser.md'), 'utf8').replace('{{VOCABULARY}}', vocab);
+  const user = JSON.stringify({
+    studioWords: str(story, 2400),
+    ...(language ? { language } : {}),
+    shots: shots.map((x) => ({ i: x.i, text: str(x.text, 80), shows: str(x.shows, 160) })),
+  });
+  const model = process.env.REEL_TEASER_EXPLAINER_MODEL || 'gpt-5.6-terra';
+  const started = Date.now();
+  const res = await completeToolCall({
+    model, system, userParts: [{ type: 'text', text: user }], tool: TEASER_TOOL, maxTokens: 6000,
+    kind: 'reelExplainers', timeoutMs: 120000,
+    retryHint: 'Return ONLY the JSON object for design_reel_explainers, matching the schema exactly.',
+  });
+  const u = res.usage || {};
+  const all = spokenNumbers(`${story} ${shots.map((x) => x.text).join(' ')}`);
+  const last = shots.length - 1;
+  const out = [];
+  (Array.isArray(res.parsed?.explainers) ? res.parsed.explainers : [])
+    .map((x) => ({ ...x, afterShot: Math.round(num(x?.afterShot, -1)), strength: Math.max(1, Math.min(5, Math.round(num(x?.strength, 3)))) }))
+    // never before the hook has been seen, never after the last shot (the end card follows it)
+    .filter((x) => x.afterShot >= 1 && x.afterShot < last && SCENES.includes(x.scene) && x.strength >= 3)
+    .sort((a, b) => b.strength - a.strength)
+    .forEach((x) => {
+      if (out.length >= TEASER_MAX || out.some((y) => Math.abs(y.afterShot - x.afterShot) < 2)) return;
+      const spec = specOf(x, all, all);
+      if (!spec) return;
+      const listy = spec.scene === 'checklist' || spec.scene === 'flow';
+      if (spec.items) {
+        // no words to time the points against: they land one after another
+        spec.items = spec.items.map((it, k) => {
+          const { at, ...rest } = it; // eslint-disable-line no-unused-vars
+          return listy ? { ...rest, atSec: Math.round((0.35 + k * 0.75) * 100) / 100 } : rest;
+        });
+      }
+      out.push({ afterShot: x.afterShot, durationSec: teaserSeconds(spec), strength: x.strength, why: str(x.why, 160), spec });
+    });
+  out.sort((a, b) => a.afterShot - b.afterShot);
+  return {
+    explainers: out,
+    debug: {
+      source: 'Capture reel — explainer animation agent (photo reel)',
+      model: res.model,
+      prompt: `${system}\n\n---\n\n${user}`,
+      output: JSON.stringify({ agent: res.parsed, kept: out.map((x) => ({ afterShot: x.afterShot, sec: x.durationSec, ...x.spec })) }, null, 2),
+      elapsedMs: Date.now() - started,
+      inputTokens: num(u.input_tokens),
+      outputTokens: num(u.output_tokens),
+      costUsd: estimatePlanCostUsd(res.model, num(u.input_tokens), num(u.output_tokens), num(u.cached_tokens)),
+    },
+  };
+}
+
+module.exports = { designExplainers, designTeaserExplainers, cleanExplainers, spokenNumbers, EXPLAINER_TOOL };

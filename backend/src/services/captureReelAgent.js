@@ -846,7 +846,16 @@ async function letterboxOf(key, startSec, durSec) {
 // its shot, and for the end card's backdrop.
 const stillNear = (asset, t) => asset.stills.slice().sort((a, b) => Math.abs(a.t - t) - Math.abs(b.t - t))[0] || null;
 
-async function buildTimeline({ plan, material, voice, voiceUrl, brand, style = null, music = null }) {
+/* the studio's own words about a capture — what the explainer agent may draw from */
+function storyText(capture) {
+  const notes = (capture?.notes || []).map((n) => [n.note, n.summary, ...Object.values(n.understanding || {}).flat()].filter(Boolean).join(' '));
+  const said = (capture?.conversation || []).filter((t) => t.role === 'user').map((t) => t.text);
+  return [...notes, ...said].join('\n').slice(0, 6000);
+}
+
+/* drawings: { overlay: [{ fromSec, toSec, spec }] — over a voiced cut, timed to its words;
+               inserts: [{ afterShot, durationSec, spec }] — cut into a music-led cut as their own card } */
+async function buildTimeline({ plan, material, voice, voiceUrl, brand, style = null, music = null, drawings = null }) {
   const byId = new Map(material.assets.map((a) => [a.id, a]));
   const look = style ? styleRun.lookOf(style) : null;
   let shots = [];
@@ -884,6 +893,19 @@ async function buildTimeline({ plan, material, voice, voiceUrl, brand, style = n
       const snapped = styleRun.snapToBeats(shots, music.beats, { shotSec: style.pacing.shotSec });
       shots = shots.map((sh, i) => ({ ...sh, ...snapped[i] }));
     }
+    // explainer drawings (Include graphics): each its own card after its shot, held a whole number of
+    // beats so the cuts after it stay on the music's grid
+    const ins = (drawings?.inserts || []).filter((x) => x.afterShot >= 0 && x.afterShot < shots.length - 1);
+    if (ins.length) {
+      const period = music?.beats?.bpm ? 60 / music.beats.bpm : 0;
+      [...ins].sort((a, b) => b.afterShot - a.afterShot).forEach((x) => {
+        const dur = period ? Math.ceil(x.durationSec / period) * period : x.durationSec;
+        shots.splice(x.afterShot + 1, 0, { explainer: x.spec, start: 0, dur, volume: 0 });
+      });
+      let at = 0;
+      shots.forEach((sh) => { sh.start = at; at += sh.dur; });
+      t = at;
+    }
     voEnd = t;
   } else {
     let t = 0;
@@ -913,6 +935,12 @@ async function buildTimeline({ plan, material, voice, voiceUrl, brand, style = n
 
   // every shot's media is prepared at once (S3 reads, JPEG copies, band checks)
   const scenes = await Promise.all(shots.map(async (sh) => {
+    if (sh.explainer) {
+      return {
+        from: frames(sh.start), durationInFrames: Math.max(1, frames(sh.start + sh.dur) - frames(sh.start)),
+        kind: 'card', src: '', motion: 'none', transition: 'cut', explainer: sh.explainer,
+      };
+    }
     const a = byId.get(sh.scene.assetId);
     if (sh.scene.card || !a) {
       return {
@@ -962,6 +990,19 @@ async function buildTimeline({ plan, material, voice, voiceUrl, brand, style = n
     return { ...base, kind: 'video', src: await getMediaUrl(a.key), sourceStartSec: 0, volume: sh.volume };
   }));
 
+  // drawings sit at the END of the scene list, so plan.coverShotIndex still points at its shot; over a
+  // voiced cut they lie on top of the footage while their words are said
+  const drawn = scenes.filter((x) => x.explainer);
+  for (let k = scenes.length - 1; k >= 0; k -= 1) if (scenes[k].explainer) scenes.splice(k, 1);
+  (drawings?.overlay || []).forEach((x) => {
+    if (x.toSec > ctaStart - 0.1) return;
+    drawn.push({
+      from: frames(x.fromSec), durationInFrames: Math.max(1, frames(x.toSec) - frames(x.fromSec)),
+      kind: 'card', src: '', motion: 'none', transition: 'cut', explainer: x.spec,
+    });
+  });
+  const underDrawing = (sec) => drawn.some((x) => frames(sec) >= x.from && frames(sec) < x.from + x.durationInFrames);
+
   // end card backdrop: the opening shot again (a loop back to the hook)
   if (hasCta && endCard === 'card') {
     const first = byId.get(plan.scenes[0].assetId);
@@ -992,11 +1033,13 @@ async function buildTimeline({ plan, material, voice, voiceUrl, brand, style = n
       accentInk: luminance(lit) > 0.45 ? '#111111' : '#FFFFFF',
       headlineFont: brand.headlineFont || '',
       bodyFont: brand.bodyFont || '',
+      // Brand Kit colours for the explainer drawings (remotion/src/brandPalette.ts)
+      palette: { accent: brand.accent || '', fg: brand.fg || '', ground: brand.ground || '' },
     },
     ...(plan.hook.text ? { hook: { text: plan.hook.text, emphasis: plan.hook.emphasis, durationInFrames: frames(hookSec) } } : {}),
-    scenes,
-    // captions stay off the end card
-    captions: look?.captions === 'none' ? [] : captionCues(captionWords.filter((w) => w.start < ctaStart)),
+    scenes: [...scenes, ...drawn],
+    // captions stay off the end card, and off a drawing (its title says the idea; one text block at a time)
+    captions: look?.captions === 'none' ? [] : captionCues(captionWords.filter((w) => w.start < ctaStart && !underDrawing(w.start))),
     ...(hasCta ? { cta: { line: plan.cta.line, sub: plan.cta.sub, fromFrame: frames(ctaStart), durationInFrames: frames(total) - frames(ctaStart) } } : {}),
     ...((voiceUrl || music?.url) ? {
       audio: {
@@ -1080,6 +1123,26 @@ async function stage(reel, name, clock) {
   reel.stage = name;
   clock?.to(name);
   await CaptureReel.updateOne({ _id: reel._id }, { $set: { stage: name, status: 'working' } });
+}
+
+/* the explainer drawings for a photo reel (reelExplainerAgent.js): timed to the words over a voiced cut,
+   or cut in after shots of a music-led one. Resolves { overlay | inserts, debug }. */
+async function commissionDrawings({ plan, material, voice }) {
+  const agent = require('./reelExplainerAgent');
+  const story = storyText(material.capture);
+  if (plan.audioMode === 'voiceover') {
+    const words = voice.words.map((w, i) => ({ i, text: w.text, start: w.start + VOICE_LEAD, end: w.end + VOICE_LEAD, on: 'photo' }));
+    const hookEndSec = clampN(0.55 + wordsIn(plan.hook?.text).length * 0.22, HOOK_MIN, HOOK_MAX);
+    const got = await agent.designExplainers({ words, story, hookEndSec });
+    return { overlay: got.explainers, debug: got.debug };
+  }
+  const byId = new Map(material.assets.map((a) => [a.id, a]));
+  const shots = plan.scenes.map((sc, i) => {
+    const a = byId.get(sc.assetId);
+    return { i, text: [sc.overlayText, sc.kicker].filter(Boolean).join(' · '), shows: a ? (a.summary || a.description || '') : '' };
+  });
+  const got = await agent.designTeaserExplainers({ story, shots });
+  return { inserts: got.explainers, debug: got.debug };
 }
 
 async function runCaptureReel(reelId) {
@@ -1294,6 +1357,12 @@ async function runCaptureReel(reelId) {
       ({ plan } = directed);
     }
 
+    // music-led cut + Include graphics: the explainer agent reads the cut while the music and voice are made
+    const drawingJob = !noGraphics && plan.audioMode === 'music' && !motionBuild && !dialogueBuild
+      ? commissionDrawings({ plan, material, voice: null })
+      : null;
+    drawingJob?.catch(() => {}); // awaited (and its failure noted) when the timeline is built
+
     // the style's music bed is generated while the voice is recorded
     const wantsMusic = style && style.audio?.mode !== 'voiceover' && plan.audioMode !== 'original';
     if (noMusic && earlyMusic) {
@@ -1377,7 +1446,20 @@ async function runCaptureReel(reelId) {
       voiceKey = built.voiceKey;
       ledger.add({ source: 'Capture reel — dialogue edit', output: `${built.stats.spokenSec}s spoken · ${built.stats.pieces} cuts · B-roll on ${built.stats.brollShare}% of it`, note: 'dead air cut; one levelled dialogue track; picture muted over it' });
     } else {
-      timeline = await buildTimeline({ plan, material, voice, voiceUrl, brand, style, music });
+      // Capture › Reel › Include graphics: animated explainer drawings where they explain the story
+      let drawings = null;
+      if (!noGraphics && (plan.audioMode === 'music' || (plan.audioMode === 'voiceover' && voice?.words?.length))) {
+        try {
+          drawings = await (drawingJob || commissionDrawings({ plan, material, voice }));
+          if (drawings?.debug) ledger.add(drawings.debug);
+        } catch (err) {
+          console.warn(`[captureReel] ${reel._id} explainer drawings:`, err.message);
+          ledger.add({ source: 'Capture reel — explainer animation agent', output: `Skipped: ${err.message}`, note: 'reel cut without drawings' });
+        }
+      }
+      timeline = await buildTimeline({ plan, material, voice, voiceUrl, brand, style, music, drawings });
+      const n = timeline.scenes.filter((x) => x.explainer).length;
+      if (drawings) ledger.add({ source: 'Capture reel — explainer drawings', output: n ? `${n} drawing(s): ${timeline.scenes.filter((x) => x.explainer).map((x) => `${x.explainer.scene} "${x.explainer.title}"`).join(' · ')}` : 'none fitted this reel' });
     }
     if (music) {
       // the bed is cut to the finished length, faded, and stored with the reel

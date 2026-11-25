@@ -565,7 +565,9 @@ const StatDrawing: React.FC<{ spec: ReelExplainer; font: string }> = ({ spec, fo
 };
 
 /* ── the card: badge + title above, the drawing in the middle, the captions below (80 %) ── */
-export const ExplainerScene: React.FC<{ spec: ReelExplainer; durationInFrames: number; font: string; titleFont?: string; palette?: BrandPalette | null }> = ({ spec, durationInFrames, font, titleFont, palette }) => {
+// `centered`: no captions under the card (a music-led photo reel) — the stack sits in the middle of the frame
+export const ExplainerScene: React.FC<{ spec: ReelExplainer; durationInFrames: number; font: string; titleFont?: string; palette?: BrandPalette | null; centered?: boolean }> = ({ spec, durationInFrames, font, titleFont, palette, centered }) => {
+  const lift = centered ? 7 : 0; // % of the frame the whole stack moves down
   Object.assign(C, drawPalette(palette));
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
@@ -605,7 +607,7 @@ export const ExplainerScene: React.FC<{ spec: ReelExplainer; durationInFrames: n
     <AbsoluteFill style={{ background: C.paper, opacity: out }}>
       {/* header and drawing form one stack, centred in the space above the captions (studio review 2026-11-24:
           the heading sat too close to the top) */}
-      <div style={{ position: 'absolute', top: hasBadge ? '10.5%' : '13%', left: 0, right: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 18, transform: `translateY(${-6 * drift}px)` }}>
+      <div style={{ position: 'absolute', top: `${(hasBadge ? 10.5 : 13) + lift}%`, left: 0, right: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 18, transform: `translateY(${-6 * drift}px)` }}>
         {hasBadge ? (
           <div style={{
             width: 112, height: 112, borderRadius: 999, background: spec.verdict === 'good' ? C.good : C.bad, color: markInk(spec.verdict),
@@ -623,7 +625,7 @@ export const ExplainerScene: React.FC<{ spec: ReelExplainer; durationInFrames: n
       <svg
         viewBox="0 0 900 900" width={960} height={960}
         style={{
-          position: 'absolute', left: 60, top: '22.5%', transformOrigin: '50% 60%',
+          position: 'absolute', left: 60, top: `${22.5 + lift}%`, transformOrigin: '50% 60%',
           transform: `translateY(${leanPx + 6 * drift}px) scale(${interpolate(settle, [0, 1], [0.97, 1]) * push})`,
           filter: focus > 0.05 ? `blur(${focus}px)` : undefined,
         }}
