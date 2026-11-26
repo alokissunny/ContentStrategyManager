@@ -16,7 +16,8 @@
  * Off with `reel.audio.sfx === false` (backend REEL_SFX=off).
  */
 import React from 'react';
-import { Audio, Sequence, staticFile, useVideoConfig } from 'remotion';
+import { Sequence, staticFile, useVideoConfig } from 'remotion';
+import { Audio } from './media';
 import { SFX_FILES } from './sfxManifest';
 import type { Beat } from './motionStory';
 import { planStory, slamLand, markerPaintAt, circleDrawAt, stampHitAt, outlineFillAt, FILL_LEN, maskOpenAt, MASK_LEN } from './motionTiming';

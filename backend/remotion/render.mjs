@@ -19,6 +19,7 @@
 import { bundle } from '@remotion/bundler';
 import { selectComposition, renderMedia, openBrowser } from '@remotion/renderer';
 import { readFileSync, mkdirSync, readdirSync, statSync, existsSync, rmSync } from 'node:fs';
+import os from 'node:os';
 import { createHash } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { createRequire } from 'node:module';
@@ -32,6 +33,14 @@ async function main() {
   let specPath = null;
   let outPath = null;
   let compositionId = 'AnimatedCover';
+
+  // build time (scripts/setup-remotion.js): make the webpack bundle now, so
+  // the first reel after a deploy doesn't pay ~16 s for it
+  if (args[0] === '--bundle-only') {
+    const dir = await cachedBundle();
+    console.log(dir);
+    return;
+  }
 
   if (args[0] === '--sample-reel') {
     outPath = args[1] || 'out/reel-sample.mp4';
@@ -89,7 +98,7 @@ async function main() {
   });
 
   console.error(
-    `[render] ${composition.width}x${composition.height} @ ${composition.fps}fps · ${composition.durationInFrames} frames`,
+    `[render] ${composition.width}x${composition.height} @ ${composition.fps}fps · ${composition.durationInFrames} frames · ${renderTabs()} tab(s)`,
   );
   const tRender = Date.now();
   await renderMedia({
@@ -101,7 +110,7 @@ async function main() {
     inputProps,
     // a production box is small (Render starter = 512 MB, shared with the API):
     // one Chrome tab and a capped video-frame cache unless told otherwise
-    concurrency: Number(process.env.REEL_RENDER_CONCURRENCY) || (process.env.NODE_ENV === 'production' ? 1 : null),
+    concurrency: renderTabs(),
     offthreadVideoCacheSizeInBytes: Number(process.env.REEL_VIDEO_CACHE_BYTES) || (process.env.NODE_ENV === 'production' ? 150 * 1024 * 1024 : null),
     timeoutInMilliseconds: 120000,
     chromiumOptions: { gl: glBackend(compositionId) },
@@ -118,7 +127,9 @@ async function main() {
     ...(Number(process.env.REEL_RENDER_SCALE) > 0 ? { scale: Number(process.env.REEL_RENDER_SCALE) } : {}),
     ...(frameRange() ? { frameRange: frameRange() } : {}),
     onProgress: ({ progress }) => {
-      const pct = Math.floor(progress * 5) * 20;
+      // every 5 %: the server turns these into the reel's progress bar and
+      // its hang watchdog (services/captureReelAgent.js renderReel)
+      const pct = Math.floor(progress * 20) * 5;
       if (pct !== lastPct) {
         lastPct = pct;
         process.stderr.write(`[render] ${pct}%\n`);
@@ -138,6 +149,33 @@ async function main() {
 }
 
 let lastPct = -1;
+
+// How many Chrome tabs render frames at once. Frames scale ~linearly with
+// tabs, so use every CPU the box has — but each tab holds ~450 MB on a reel
+// with video clips (measured 2026-11-26: 972-frame voiceover reel, one tab,
+// ~1 GB for the renderer + Chrome), so memory caps it too.
+// REEL_RENDER_CONCURRENCY overrides.
+function renderTabs() {
+  const forced = Number(process.env.REEL_RENDER_CONCURRENCY);
+  if (forced > 0) return forced;
+  const cpus = typeof os.availableParallelism === 'function' ? os.availableParallelism() : os.cpus().length;
+  const memMb = memoryLimitMb();
+  const byMem = Math.floor((memMb - 900) / 450); // ~900 MB for node + Chrome itself
+  return Math.max(1, Math.min(cpus, byMem, 8));
+}
+
+// the container's memory limit (cgroup), not the host's — same as backend utils/memoryLimit.js
+function memoryLimitMb() {
+  const read = (f) => {
+    try {
+      const raw = readFileSync(f, 'utf8').trim();
+      const n = Number(raw);
+      return raw && raw !== 'max' && Number.isFinite(n) && n > 0 && n < 2 ** 60 ? n : null;
+    } catch { return null; }
+  };
+  const bytes = read('/sys/fs/cgroup/memory.max') ?? read('/sys/fs/cgroup/memory/memory.limit_in_bytes');
+  return Math.round(Math.min(bytes || os.totalmem(), os.totalmem()) / (1024 * 1024));
+}
 
 // the same ffmpeg the backend uses (FFMPEG_PATH, else the ffmpeg-static package, else the PATH one)
 function ffmpegBin() {

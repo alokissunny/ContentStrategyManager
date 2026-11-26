@@ -57,7 +57,7 @@ function withTimeout(promise, ms, what) {
  * `fresh` = a re-queue by the sweeper: a new job id, since BullMQ ignores an
  * add whose id it still remembers (finished jobs are kept for a day).
  */
-async function enqueueCaptureReel(reelId, { fresh = false } = {}) {
+async function enqueueCaptureReel(reelId, { fresh = false, delayMs = 0 } = {}) {
   const id = String(reelId);
   const { runInProcess, MAX_ATTEMPTS } = require('./captureReelAgent');
   if (!isReelQueueConfigured()) { runInProcess(id); return 'local'; }
@@ -71,6 +71,7 @@ async function enqueueCaptureReel(reelId, { fresh = false } = {}) {
       backoff: { type: 'exponential', delay: 20000 },
       removeOnComplete: { age: 24 * 60 * 60, count: 2000 },
       removeOnFail: { age: 7 * 24 * 60 * 60 },
+      ...(delayMs > 0 ? { delay: delayMs } : {}),
     }), ENQUEUE_TIMEOUT_MS, 'enqueue');
     await require('../models/CaptureReel').updateOne({ _id: id }, { $set: { jobId } }).catch(() => {});
     return 'queue';

@@ -293,7 +293,12 @@ export default function GenPill({ slot = null }) {
                   </button>
                   {live && (
                     <span className="gpill__reelbar" aria-hidden="true">
-                      <i className={queued ? 'is-indeterminate' : ''} style={queued ? undefined : { width: `${Math.min(96, Math.max(4, (spent / total) * 100))}%` }} />
+                      <i
+                        className={queued ? 'is-indeterminate' : ''}
+                        style={queued ? undefined : {
+                          width: `${r.stage === 'rendering' ? Math.max(4, r.renderPct || 0) : Math.min(96, Math.max(4, (spent / total) * 100))}%`,
+                        }}
+                      />
                     </span>
                   )}
                   {st === 'done' && (
@@ -315,7 +320,7 @@ export default function GenPill({ slot = null }) {
                             : 'Yours is next — starting now.'}
                         </p>
                       )}
-                      {live && !queued && (
+                      {live && !queued && r.stage !== 'rendering' && (
                         <p className="gpill__fact">
                           {spent > total - 10000 ? 'Almost done.' : `About ${aboutMin((total - spent) / 1000).replace(/^about /, '')} left.`}
                         </p>

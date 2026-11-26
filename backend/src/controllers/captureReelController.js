@@ -152,6 +152,8 @@ async function serialize(r, posts = null, { withPreview = false, facts = undefin
     costUsd: r.costUsd || 0,
     createdAt: r.createdAt,
     startedAt: r.startedAt || null,
+    ...(r.stage === 'rendering' && live ? { renderPct: r.renderPct || 0 } : {}),
+    ...(live && r.browserRender?.state ? { browserRender: { state: r.browserRender.state } } : {}),
     finishedAt: r.finishedAt,
     // queued: { ahead, startsInSec, etaSec, renderSec }; working: { etaSec, renderSec }
     ...(queueInfo ? { queue: queueInfo } : {}),
@@ -267,6 +269,11 @@ async function getReel(req, res) {
   if (!isId(req.params.id)) return res.status(404).json({ message: 'Reel not found' });
   const reel = await CaptureReel.findOne({ _id: req.params.id, user: req.user._id });
   if (!reel) return res.status(404).json({ message: 'Reel not found' });
+  // ?viewer=browser: a studio that can render is watching this reel — the
+  // worker offers it the render (services/browserReelRender.js)
+  if (req.query.viewer === 'browser' && ['queued', 'working'].includes(reel.status)) {
+    await CaptureReel.updateOne({ _id: reel._id }, { $set: { 'browserRender.viewerAt': new Date() } }).catch(() => {});
+  }
   return res.json({ reel: await serialize(await closeStale(reel), null, { withPreview: true }) });
 }
 
@@ -322,6 +329,77 @@ async function reelSystem(req, res) {
     queue: await reelQueueDepth(),
     reelsWaitingInThisQueue: waiting,
   });
+}
+
+// ── Rendering in the studio's browser (services/browserReelRender.js) ──────
+
+// POST /capture-reels/:id/browser-render/claim → { timeline, uploadUrl, cacheControl }
+async function claimBrowserRender(req, res) {
+  if (!isId(req.params.id)) return res.status(404).json({ message: 'Reel not found' });
+  const now = new Date();
+  const reel = await CaptureReel.findOneAndUpdate(
+    { _id: req.params.id, user: req.user._id, status: 'working', 'browserRender.state': 'offered' },
+    { $set: { 'browserRender.state': 'claimed', 'browserRender.claimedAt': now, 'browserRender.heartbeatAt': now, renderPct: 0 } },
+    { new: true },
+  );
+  if (!reel) return res.status(409).json({ message: 'This reel is no longer waiting for a browser.' });
+  const { refreshTimelineUrls } = require('../services/captureReelAgent');
+  const { uploadKeyOf } = require('../services/browserReelRender');
+  const key = uploadKeyOf(reel);
+  await CaptureReel.updateOne({ _id: reel._id }, { $set: { 'browserRender.uploadKey': key } });
+  const { getPresignedUploadUrl, MEDIA_CACHE_CONTROL } = require('../services/s3Client');
+  return res.json({
+    timeline: await refreshTimelineUrls(reel.timeline),
+    uploadUrl: await getPresignedUploadUrl(key, 'video/mp4'),
+    cacheControl: MEDIA_CACHE_CONTROL,
+  });
+}
+
+// POST /capture-reels/:id/browser-render/progress { pct } — also the heartbeat;
+// 409 = the server took it back (the browser stops)
+async function browserRenderProgress(req, res) {
+  if (!isId(req.params.id)) return res.status(404).json({ message: 'Reel not found' });
+  const pct = Math.max(0, Math.min(100, Math.round(Number(req.body?.pct) || 0)));
+  const r = await CaptureReel.updateOne(
+    { _id: req.params.id, user: req.user._id, status: 'working', 'browserRender.state': 'claimed' },
+    { $set: { 'browserRender.heartbeatAt': new Date(), renderPct: pct } },
+  );
+  if (!r.matchedCount) return res.status(409).json({ stop: true });
+  return res.json({ ok: true });
+}
+
+// POST /capture-reels/:id/browser-render/done { renderSec } — the MP4 is uploaded
+async function browserRenderDone(req, res) {
+  if (!isId(req.params.id)) return res.status(404).json({ message: 'Reel not found' });
+  const reel = await CaptureReel.findOne({ _id: req.params.id, user: req.user._id, 'browserRender.state': 'claimed' });
+  if (!reel) return res.status(409).json({ message: 'This reel is no longer being rendered here.' });
+  const { headObject } = require('../services/s3Client');
+  const head = await headObject(reel.browserRender.uploadKey).catch(() => null);
+  const size = Number(head?.ContentLength || head?.contentLength || head?.size || 0);
+  if (!head || (size && size < 50 * 1024)) return res.status(400).json({ message: 'The video upload did not arrive.' });
+  await CaptureReel.updateOne({ _id: reel._id, 'browserRender.state': 'claimed' }, {
+    $set: {
+      'browserRender.state': 'uploaded',
+      'browserRender.renderSec': Math.max(0, Number(req.body?.renderSec) || 0),
+      renderPct: 100,
+      stage: 'saving',
+    },
+  });
+  await enqueueCaptureReel(reel._id, { fresh: true });
+  return res.json({ ok: true });
+}
+
+// POST /capture-reels/:id/browser-render/fail { reason } — hand it back to the server now
+async function browserRenderFail(req, res) {
+  if (!isId(req.params.id)) return res.status(404).json({ message: 'Reel not found' });
+  const reason = String(req.body?.reason || 'the browser could not render it').slice(0, 300);
+  const r = await CaptureReel.updateOne(
+    { _id: req.params.id, user: req.user._id, 'browserRender.state': { $in: ['claimed', 'offered'] } },
+    { $set: { 'browserRender.state': 'abandoned', 'browserRender.failReason': reason, renderPct: 0 } },
+  );
+  if (r.modifiedCount) await enqueueCaptureReel(req.params.id, { fresh: true });
+  console.warn(`[browserRender] ${req.params.id} handed back: ${reason}`);
+  return res.json({ ok: true });
 }
 
 /*
@@ -386,4 +464,5 @@ async function regenerateReel(req, res) {
 }
 
 module.exports = {
-  voiceoverScript, createReel, regenerateReel, listReels, getReel, deleteReel, reelSystem };
+  voiceoverScript, createReel, regenerateReel, listReels, getReel, deleteReel, reelSystem,
+  claimBrowserRender, browserRenderProgress, browserRenderDone, browserRenderFail };

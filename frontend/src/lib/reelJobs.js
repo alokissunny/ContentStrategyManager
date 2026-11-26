@@ -123,6 +123,8 @@ export function reelStatusLine(r) {
     const ahead = r.queue?.ahead || 0;
     return ahead ? `In line · ${ahead} ${ahead === 1 ? 'reel' : 'reels'} ahead` : 'Starting';
   }
+  if (r.browserRender?.state === 'claimed') return `Rendering in your browser · ${r.renderPct || 0}%`;
+  if (r.stage === 'rendering') return `Rendering the video · ${r.renderPct || 0}%`;
   const i = reelStepIndex(r.stage);
   return i >= 0 ? REEL_STEPS[i].say : 'Making your reel';
 }

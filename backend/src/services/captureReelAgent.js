@@ -313,9 +313,24 @@ async function loadMaterial(reel, ledger) {
     })));
     libKeys.forEach((k) => { if (byKey.get(k)?.analysis?.status === 'done' || byKey.get(k)?.type === 'image') pushAsset(byKey.get(k), 'library'); });
   }
+  // a photo or clip whose upload never finished is on the capture but not in S3:
+  // it would fail every try with NoSuchKey (2026-11-26) — leave it out
+  const listed = assets.length;
+  const present = await Promise.all(assets.map((a) => headObject(a.key).then(Boolean).catch(() => true)));
+  const missing = assets.filter((_, i) => !present[i]);
+  if (missing.length) {
+    console.warn(`[captureReel] ${reel._id} skipping ${missing.length} file(s) never uploaded:`, missing.map((a) => a.key).join(', '));
+    const kept = assets.filter((_, i) => present[i]);
+    assets.length = 0;
+    kept.forEach((a, i) => assets.push({ ...a, id: `A${i + 1}` }));
+  }
   // a motion graphics reel needs no pictures: it is drawn from the capture's words
   const graphicsOnly = reel.storyPlan?.format === 'motion_graphics' || reel.graphicsOk;
-  if (!assets.length && !graphicsOnly) throw userError('This capture has no photos or clips to cut a reel from. Add some first.');
+  if (!assets.length && !graphicsOnly) {
+    throw userError(listed
+      ? "This capture's photos didn't finish uploading, so there is nothing to cut a reel from. Add them to the capture again."
+      : 'This capture has no photos or clips to cut a reel from. Add some first.');
+  }
 
   // timed transcripts for clips that have speech (≤4)
   // a recommended post's spoken takes are the reel's A-roll: transcribe them all
@@ -1460,7 +1475,14 @@ async function buildTimeline({ plan, material, voice, voiceUrl, brand, style = n
 
 // ── 5. Render ────────────────────────────────────────────────────────────────
 
-function renderReel(timeline, outPath, timeoutMs = 15 * 60 * 1000) {
+// A render reports every 5 % (render.mjs). It is stopped when it goes quiet
+// for REEL_RENDER_STALL_MS (a real hang), not on a fixed clock: a long reel on
+// a small box can legitimately take a while, and killing it at a fixed time
+// only made it start over. REEL_RENDER_TIMEOUT_MS is the outer limit.
+const RENDER_STALL_MS = Number(process.env.REEL_RENDER_STALL_MS) || 4 * 60 * 1000;
+const RENDER_TIMEOUT_MS = Number(process.env.REEL_RENDER_TIMEOUT_MS) || 45 * 60 * 1000;
+
+function renderReel(timeline, outPath, { onProgress = null, timeoutMs = RENDER_TIMEOUT_MS, stallMs = RENDER_STALL_MS } = {}) {
   return new Promise((resolve, reject) => {
     const specPath = path.join(os.tmpdir(), `capreel-${crypto.randomUUID()}.json`);
     // sound effects (remotion/src/sfx.tsx) are on unless REEL_SFX=off
@@ -1477,14 +1499,29 @@ function renderReel(timeline, outPath, timeoutMs = 15 * 60 * 1000) {
     };
     let stderr = '';
     let timingLines = '';
+    let why = '';
+    // the watchdog: any output from the renderer counts as life
+    let lastSign = Date.now();
+    const watchdog = setInterval(() => {
+      if (Date.now() - lastSign > stallMs) {
+        why = `no progress for ${Math.round(stallMs / 1000)}s`;
+        clearInterval(watchdog);
+        stopRender();
+      }
+    }, 15000);
+    watchdog.unref?.();
     child.stderr.on('data', (d) => {
       const text = d.toString();
+      lastSign = Date.now();
       if (text.includes('[render:timing]')) timingLines += text;
+      const pct = [...text.matchAll(/\[render\] (\d+)%/g)].pop();
+      if (pct && onProgress) { try { onProgress(Number(pct[1])); } catch { /* never stops the render */ } }
       stderr = (stderr + text).slice(-6000);
     });
-    const timer = setTimeout(stopRender, timeoutMs);
+    const timer = setTimeout(() => { why = `over ${Math.round(timeoutMs / 60000)} min`; stopRender(); }, timeoutMs);
     child.on('close', (code) => {
       clearTimeout(timer);
+      clearInterval(watchdog);
       if (code !== 0) killAll(); // a crashed render can leave Chrome behind too
       fs.unlink(specPath, () => {});
       const bundleMs = /\[render:timing\] bundle (\d+)ms/.exec(timingLines);
@@ -1497,9 +1534,9 @@ function renderReel(timeline, outPath, timeoutMs = 15 * 60 * 1000) {
         reject(Object.assign(new Error('Video rendering is not set up on this server yet, so the reel could not be made.'), { userFacing: true, detail: tail }));
         return;
       }
-      reject(Object.assign(new Error(`Reel render failed (${code === null ? 'killed — out of memory or timed out' : `exit ${code}`})`), { detail: tail }));
+      reject(Object.assign(new Error(`Reel render failed (${why ? `stopped: ${why}` : code === null ? 'killed — out of memory' : `exit ${code}`})`), { detail: tail }));
     });
-    child.on('error', (err) => { clearTimeout(timer); reject(err); });
+    child.on('error', (err) => { clearTimeout(timer); clearInterval(watchdog); reject(err); });
   });
 }
 
@@ -1568,6 +1605,10 @@ async function runCaptureReel(reelId) {
     });
     return;
   }
+  // the studio's browser is rendering this one (services/browserReelRender.js):
+  // leave it while it reports, take over when it goes quiet
+  const browser = require('./browserReelRender');
+  if (await browser.deferToBrowser(reel)) return;
   const counted = await CaptureReel.findOneAndUpdate({ _id: reel._id }, { $inc: { attempts: 1 } }, { new: true }).select('attempts').lean();
   const attempt = counted?.attempts || 1;
   if (attempt > MAX_ATTEMPTS + 1) {
@@ -1578,7 +1619,10 @@ async function runCaptureReel(reelId) {
     return;
   }
   // the cut was already made (and paid for) on an earlier try: render it again
-  const resumed = attempt > 1 && Boolean(reel.previewAt && reel.timeline && reel.plan && !reel.videoKey);
+  // (or the browser rendered it / gave it back — the cut is made either way)
+  const handedBack = ['uploaded', 'abandoned'].includes(reel.browserRender?.state);
+  const resumed = (attempt > 1 || handedBack) && Boolean(reel.previewAt && reel.timeline && reel.plan && !reel.videoKey);
+  let handedOff = false; // the browser took the render: this run stops quietly
   const started = Date.now();
   const tmp = path.join(os.tmpdir(), `capreel-${reel._id}.mp4`);
   const ledger = costLedger();
@@ -1592,7 +1636,7 @@ async function runCaptureReel(reelId) {
   const clock = stageClock();
   clock.to('reading');
   try {
-    await CaptureReel.updateOne({ _id: reel._id }, { $set: { status: 'working', stage: resumed ? 'rendering' : 'reading', startedAt: new Date(), error: '' } });
+    await CaptureReel.updateOne({ _id: reel._id }, { $set: { status: 'working', stage: resumed ? 'rendering' : 'reading', startedAt: new Date(), error: '', renderPct: 0 } });
     if (resumed) {
       plan = reel.plan;
       timeline = await refreshTimelineUrls(reel.timeline);
@@ -1884,7 +1928,49 @@ async function runCaptureReel(reelId) {
     });
     } // end: fresh cut
     await stage(reel, 'rendering', clock); // 'cutting' above = choosing + preparing the media
-    const renderInfo = await renderReel(timeline, tmp);
+    // the MP4: from the studio's browser when it rendered it, else offered to a
+    // watching browser, else rendered here
+    let renderInfo = null;
+    const fromBrowser = reel.browserRender?.state === 'uploaded' && reel.browserRender.uploadKey
+      ? await getObjectBytes(reel.browserRender.uploadKey).catch((err) => {
+        console.warn(`[captureReel] ${reel._id} browser upload unreadable (${err.message}) — rendering here`);
+        return null;
+      })
+      : null;
+    if (fromBrowser && fromBrowser.buffer.length > 50 * 1024) {
+      await fs.promises.writeFile(tmp, fromBrowser.buffer);
+      const sec = Number(reel.browserRender.renderSec) || 0;
+      renderInfo = { timing: { 'render · browser': Math.round(sec * 1000) } };
+      ledger.add({ source: 'Capture reel — rendered in the browser', output: `${(fromBrowser.buffer.length / 1e6).toFixed(1)} MB in ${sec.toFixed(1)}s (studio's browser)` });
+    } else if (!handedBack && await browser.offerToBrowser(reel._id, timeline)) {
+      handedOff = true;
+      // what the cut cost and took so far — the finishing run adds it to its own
+      const times = { ...clock.times };
+      await CaptureReel.updateOne({ _id: reel._id }, {
+        $set: { 'browserRender.cutCostUsd': ledger.total(), 'browserRender.cutTimings': times },
+      });
+      recordBackgroundDebug(reel.user, 'Capture reel', {
+        agents: [...ledger.rows, { source: 'Capture reel — handed to the browser', output: 'The studio\'s browser renders the MP4; the server finishes it after the upload.' }],
+        model,
+        mode: 'capture reel',
+        elapsedMs: Date.now() - started,
+        usage: { estimatedCostUsd: Math.round(ledger.total() * 1e6) / 1e6 },
+      });
+      console.log(`[captureReel] ${reel._id} handed to the studio's browser to render`);
+      return;
+    } else {
+      // the render's own % → the reel (studio + pill progress bars), at most every 5 s
+      let pctSaved = -1;
+      let pctAt = 0;
+      renderInfo = await renderReel(timeline, tmp, {
+        onProgress: (pct) => {
+          if (pct === pctSaved || (Date.now() - pctAt < 5000 && pct < 100)) return;
+          pctSaved = pct;
+          pctAt = Date.now();
+          CaptureReel.updateOne({ _id: reel._id }, { $set: { renderPct: pct } }).catch(() => {});
+        },
+      });
+    }
     if (renderInfo.timing) Object.assign(clock.times, renderInfo.timing);
 
     await stage(reel, 'saving', clock);
@@ -1895,7 +1981,10 @@ async function runCaptureReel(reelId) {
       ? (coverScene.from + coverScene.durationInFrames * 0.6) / FPS
       : (timeline.hook ? timeline.hook.durationInFrames / FPS - 0.2 : 0.8);
     await Promise.all([
-      fs.promises.readFile(tmp).then((buf) => uploadBytes(videoKey, buf, 'video/mp4', { immutable: true })),
+      // a browser-rendered MP4 is already in S3: copied there, not uploaded again
+      fromBrowser
+        ? require('./s3Client').copyObject(reel.browserRender.uploadKey, videoKey, 'video/mp4', { immutable: true })
+        : fs.promises.readFile(tmp).then((buf) => uploadBytes(videoKey, buf, 'video/mp4', { immutable: true })),
       posterOf(tmp, Math.max(0.3, hookEnd))
         .then((jpg) => uploadBytes(posterKey, jpg, 'image/jpeg', { immutable: true }))
         .catch((err) => console.warn('[captureReel] poster failed', err.message)),
@@ -1908,13 +1997,16 @@ async function runCaptureReel(reelId) {
         videoKey, posterKey, voiceKey, musicKey: musicKeySaved,
         durationSec: Math.round((timeline.format.durationInFrames / FPS) * 10) / 10,
         model,
-        costUsd: Math.round(ledger.total() * 10000) / 10000,
-        timings: clock.end(),
+        // + the cut's cost and times when the browser rendered it (paid in the run that handed it off)
+        costUsd: Math.round((ledger.total() + (fromBrowser ? Number(reel.browserRender.cutCostUsd) || 0 : 0)) * 10000) / 10000,
+        timings: fromBrowser && reel.browserRender.cutTimings ? { ...reel.browserRender.cutTimings, ...clock.end() } : clock.end(),
         finishedAt: new Date(),
       },
     });
     // on the calendar like a generated carousel (next empty publishing day)
     // (scripts/test-capture-reel.js sets CAPTURE_REEL_SKIP_CALENDAR: tests stay off the calendar)
+    // the browser's upload was copied to the reel's own key: drop the temp file
+    if (fromBrowser) require('./s3Client').deleteObjects([reel.browserRender.uploadKey]).catch(() => {});
     if (!process.env.CAPTURE_REEL_SKIP_CALENDAR) try {
       const post = await require('./reelCalendar').placeReelOnCalendar(reel._id);
       if (post) {
@@ -1959,6 +2051,10 @@ async function runCaptureReel(reelId) {
       clipFileCache.delete(key);
       file.then((f) => fs.promises.unlink(f)).catch(() => {});
     }
+  }
+  // handed to the browser: no summary row yet — the finishing run writes it
+  if (handedOff) return;
+  {
     // the run's summary row in the AI debug panel: total cost + where the time went
     const times = clock.end();
     const fmt = (ms) => `${(ms / 1000).toFixed(1)}s`;
@@ -2021,6 +2117,8 @@ module.exports = {
   speechQualityOf,
   MAX_ATTEMPTS,
   FPS,
+  // the studio's browser render gets the cut with fresh media URLs
+  refreshTimelineUrls,
   // shared with services/reelFormatDirector.js
   _visionParts: visionParts,
   _clipFile: clipFile,

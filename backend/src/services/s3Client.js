@@ -4,6 +4,7 @@ const {
   GetObjectCommand,
   HeadObjectCommand,
   DeleteObjectsCommand,
+  CopyObjectCommand,
 } = require('@aws-sdk/client-s3');
 const { getSignedUrl } = require('@aws-sdk/s3-request-presigner');
 
@@ -172,6 +173,19 @@ async function getObjectText(key) {
 
 // Fetch the raw bytes of a stored object (e.g. an image to send to a vision
 // model). Returns the buffer plus the object's stored Content-Type.
+// Server-side copy (no bytes through this process) — e.g. a browser-rendered
+// reel MP4 moved to its final, immutable key.
+async function copyObject(fromKey, toKey, contentType = 'application/octet-stream', { immutable = false } = {}) {
+  await getS3Client().send(new CopyObjectCommand({
+    Bucket: process.env.S3_BUCKET_NAME,
+    CopySource: `${process.env.S3_BUCKET_NAME}/${fromKey.split('/').map(encodeURIComponent).join('/')}`,
+    Key: toKey,
+    ContentType: contentType,
+    MetadataDirective: 'REPLACE',
+    ...(immutable ? { CacheControl: MEDIA_CACHE_CONTROL } : {}),
+  }));
+}
+
 async function getObjectBytes(key) {
   const s3 = getS3Client();
   const result = await s3.send(new GetObjectCommand({ Bucket: process.env.S3_BUCKET_NAME, Key: key }));
@@ -197,6 +211,7 @@ async function getObjectStream(key, range = '') {
 }
 
 module.exports = {
+  copyObject,
   getObjectStream,
   uploadMarkdown,
   uploadBytes,

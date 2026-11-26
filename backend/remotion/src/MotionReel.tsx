@@ -17,7 +17,8 @@
  * palette swatches). Every frame comes from useCurrentFrame() — deterministic.
  */
 import React from 'react';
-import { AbsoluteFill, Audio, Img, Sequence, interpolate, Easing, useCurrentFrame, useVideoConfig } from 'remotion';
+import { AbsoluteFill, Img, Sequence, interpolate, Easing, useCurrentFrame, useVideoConfig } from 'remotion';
+import { Audio } from './media';
 import { resolveFont } from './fonts';
 import type { ReelSpec, MotionMedia, MotionSegment } from './reelSchema';
 import { MotionStory, BeatCaption, type Beat } from './motionStory';

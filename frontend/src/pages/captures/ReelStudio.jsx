@@ -16,6 +16,9 @@ import {
 } from '../../api/captureReels';
 import ReelStyleModal from './ReelStyleModal';
 import { REEL_STEPS, reelStepIndex, aboutMin, clockOf } from '../../lib/reelJobs';
+import {
+  browserCanRenderReels, renderOfferedReel, stopBrowserRender, browserRenderRunning,
+} from '../../lib/browserReelRender';
 
 // Remotion (the in-browser player) only downloads when a preview is shown
 const ReelPreview = lazy(() => import('./ReelPreview'));
@@ -89,12 +92,35 @@ export default function ReelStudio({ item, autoStart = false, startWith = null, 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // ── rendering the MP4 here (lib/browserReelRender.js) ──
+  const [canRender, setCanRender] = useState(false);
+  const canRenderRef = useRef(false); // read by the poll below (its interval outlives renders)
+  const [local, setLocal] = useState(null); // { reelId, phase, pct }
+  useEffect(() => {
+    let alive = true;
+    browserCanRenderReels().then((ok) => { if (alive) { canRenderRef.current = Boolean(ok); setCanRender(Boolean(ok)); } });
+    return () => { alive = false; stopBrowserRender(); };
+  }, []);
+  const offered = canRender ? (reels || []).find((r) => reelWorking(r) && r.browserRender?.state === 'offered') : null;
+  useEffect(() => {
+    if (!offered || browserRenderRunning() || document.visibilityState !== 'visible') return;
+    const id = offered.id;
+    renderOfferedReel(id, { onState: (st) => setLocal({ reelId: id, ...st }) })
+      .finally(() => {
+        setLocal((cur) => (cur?.reelId === id && cur.phase !== 'done' ? null : cur));
+        getCaptureReel(id).then(upsert).catch(() => {});
+      });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [offered?.id]);
+
   // poll every running job until it lands
   const running = (reels || []).filter(reelWorking).map((r) => r.id).join(',');
   useEffect(() => {
     if (!running) return undefined;
     const t = setInterval(() => {
-      running.split(',').forEach((id) => getCaptureReel(id).then(upsert).catch(() => {}));
+      // a capable, visible studio says so: the worker then offers it the render
+      const viewer = canRenderRef.current && document.visibilityState === 'visible';
+      running.split(',').forEach((id) => getCaptureReel(id, { viewer }).then(upsert).catch(() => {}));
     }, POLL_MS);
     return () => clearInterval(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -166,6 +192,28 @@ export default function ReelStudio({ item, autoStart = false, startWith = null, 
     const spent = reel.startedAt ? now - new Date(reel.startedAt).getTime() : 0;
     // time drives the bar inside a step's share, so it moves but never runs ahead of the work
     const share = 100 / steps.length;
+    // the render reports its own %: the bar follows it inside the cutting step
+    // rendering in this browser
+    if (local?.reelId === reel.id && ['checking', 'rendering', 'uploading'].includes(local.phase)) {
+      const share2 = 100 / steps.length;
+      return {
+        title: local.phase === 'uploading' ? 'Uploading the video'
+          : local.phase === 'checking' ? 'Rendering in your browser' : `Rendering in your browser · ${local.pct || 0}%`,
+        say: local.phase === 'uploading' ? 'Almost there — sending the finished file.'
+          : 'Keep this tab open: your computer renders it many times faster than our server.',
+        pct: at * share2 + (share2 * (local.pct || 0)) / 100,
+        clock: reel.startedAt ? clockOf(now - new Date(reel.startedAt).getTime()) : '',
+      };
+    }
+    if (reel.stage === 'rendering') {
+      const rp = Math.max(0, Math.min(100, reel.renderPct || 0));
+      return {
+        title: `Rendering the video · ${rp}%`,
+        say: 'Drawing every frame with its captions and motion, then encoding the file.',
+        pct: at * share + (share * rp) / 100,
+        clock: clockOf(spent),
+      };
+    }
     const byTime = Math.min(96, (spent / total) * 100);
     const pct = Math.max(at * share + 2, Math.min((at + 1) * share - 2, byTime));
     const left = Math.max(0, total - spent);
@@ -230,7 +278,12 @@ export default function ReelStudio({ item, autoStart = false, startWith = null, 
                   <Suspense fallback={<div className="rls__empty"><span className="pj-spin" /></div>}>
                     <ReelPreview key={reel.id} timeline={reel.preview} />
                   </Suspense>
-                  <span className="rls__badge"><span className="pj-spin" />Finishing the video file…</span>
+                  <span className="rls__badge"><span className="pj-spin" />
+                    {local?.reelId === reel.id && local.phase === 'rendering' ? `Rendering in your browser · ${local.pct || 0}%`
+                      : local?.reelId === reel.id && local.phase === 'uploading' ? 'Uploading the video…'
+                        : reel.browserRender?.state === 'claimed' ? `Rendering in your browser · ${reel.renderPct || 0}%`
+                          : reel.stage === 'rendering' && reel.renderPct > 0 ? `Rendering the video file · ${reel.renderPct}%` : 'Finishing the video file…'}
+                  </span>
                 </div>
               ) : (
                 <div className="rls__wait" style={reel.posterUrl ? { backgroundImage: `url(${reel.posterUrl})` } : undefined}>

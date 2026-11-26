@@ -12,9 +12,10 @@
  */
 import React from 'react';
 import {
-  AbsoluteFill, Audio, Img, OffthreadVideo, Sequence, interpolate, Easing,
+  AbsoluteFill, Img, Sequence, interpolate, Easing,
   useCurrentFrame, useVideoConfig,
 } from 'remotion';
+import { Audio, OffthreadVideo } from './media';
 import { resolveFont, CAPTION_FONT, LOOK_FONTS, CAPTION_FACES } from './fonts';
 import { LookOverlay, LookHook, ChapterCard, LookCaptions, LookEndLine, GRADE } from './reelLook';
 import { cameraAt, zoomPunchAt, SceneAnnotations, OVERLAP, type Exit } from './teaserFx';

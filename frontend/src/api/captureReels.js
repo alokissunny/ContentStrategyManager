@@ -49,9 +49,25 @@ export async function listCaptureReels(captureIds = []) {
   return data.reels || [];
 }
 
-export async function getCaptureReel(id) {
-  const { data } = await client.get(`/capture-reels/${encodeURIComponent(id)}`);
+// viewer: this studio can render reels in the browser (lib/browserReelRender)
+export async function getCaptureReel(id, { viewer = false } = {}) {
+  const { data } = await client.get(`/capture-reels/${encodeURIComponent(id)}${viewer ? '?viewer=browser' : ''}`);
   return data.reel;
+}
+
+// ── rendering the MP4 in this browser (lib/browserReelRender.js) ──
+export async function claimBrowserRender(id) {
+  const { data } = await client.post(`/capture-reels/${encodeURIComponent(id)}/browser-render/claim`);
+  return data; // { timeline, uploadUrl, cacheControl }
+}
+export async function browserRenderProgress(id, pct) {
+  await client.post(`/capture-reels/${encodeURIComponent(id)}/browser-render/progress`, { pct });
+}
+export async function browserRenderDone(id, renderSec) {
+  await client.post(`/capture-reels/${encodeURIComponent(id)}/browser-render/done`, { renderSec });
+}
+export async function browserRenderFail(id, reason) {
+  await client.post(`/capture-reels/${encodeURIComponent(id)}/browser-render/fail`, { reason });
 }
 
 export async function deleteCaptureReel(id) {

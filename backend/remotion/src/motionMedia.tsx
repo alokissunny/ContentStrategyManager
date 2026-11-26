@@ -5,7 +5,8 @@
  * need their marks to stay put), so a clip falls back to its still there.
  */
 import React from 'react';
-import { AbsoluteFill, Img, OffthreadVideo, interpolate, useCurrentFrame, useVideoConfig } from 'remotion';
+import { AbsoluteFill, Img, interpolate, useCurrentFrame, useVideoConfig } from 'remotion';
+import { OffthreadVideo } from './media';
 import type { MotionMedia } from './reelSchema';
 import { windup } from './motionTiming';
 

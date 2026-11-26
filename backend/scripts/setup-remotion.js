@@ -37,6 +37,14 @@ try {
     'node -e "require(\'@remotion/renderer\').ensureBrowser().then(() => console.log(\'[setup-remotion] browser ready\'))"',
     { cwd: dir, stdio: 'inherit' },
   );
+  // the webpack bundle the renderer loads: made now (cached under
+  // remotion/.bundle-cache), not by the first reel after a deploy (~16 s)
+  try {
+    log('bundling the compositions…');
+    execSync('node render.mjs --bundle-only', { cwd: dir, stdio: 'inherit' });
+  } catch (err) {
+    log(`bundle skipped (the first render will make it): ${err.message}`);
+  }
   log('renderer ready');
 } catch (err) {
   console.error('[setup-remotion] WARNING: the video renderer could not be installed — capture reels and video covers will not render on this server.');

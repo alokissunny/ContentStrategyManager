@@ -157,3 +157,38 @@ variants at the edge with a **CloudFront Function / Lambda@Edge** image resizer
 (or front the distribution with a serverless image handler). That's a follow-up:
 the API would return a transformed `thumbnailUrl` for image attachments when a
 CDN is configured.
+
+---
+
+## CORS — needed for reels rendered in the browser
+
+Capture reels can be rendered in the studio's browser (`@remotion/web-renderer`,
+see `src/services/browserReelRender.js`). The browser must **read** every photo,
+clip, voiceover and music file of the reel (pixels and audio samples), so the
+CDN has to answer with CORS headers on **every** response.
+
+Today it doesn't: S3's bucket CORS only reaches the viewer when the *first*
+request for an object carried an `Origin` header (CloudFront caches whichever
+response it saw first). Clips and audio are usually first fetched by a plain
+`<video>`/`<audio>` tag, so their cached copies have no
+`Access-Control-Allow-Origin` — checked 2026-11-26: `.jpg` had it, `.mov` and
+`.mp3` didn't.
+
+Fix (console, one change, no code): CloudFront → the media distribution →
+**Behaviors** → default behavior → **Edit** →
+
+- **Response headers policy** → **Managed-SimpleCORS**
+  (adds `Access-Control-Allow-Origin: *` to every response, cached or not).
+
+Save; it deploys in a few minutes. `*` is fine here: these objects are already
+public to anyone holding the unguessable URL.
+
+Check:
+
+```bash
+curl -sI -H "Origin: https://bauhly.com" "<a reel's .mov or .mp3 CDN URL>" | grep -i access-control
+```
+
+Until this is done the browser render checks each media URL first and, if one
+isn't readable, hands the render back to the reel worker — nothing breaks, it
+just isn't faster. (Local dev uses the Vite proxy `/__cdn` instead.)

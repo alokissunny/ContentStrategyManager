@@ -20,6 +20,11 @@ const captureReelSchema = new mongoose.Schema(
     plan: { type: mongoose.Schema.Types.Mixed, default: null },
     timeline: { type: mongoose.Schema.Types.Mixed, default: null },
     previewAt: { type: Date, default: null }, // when the timeline became playable (before the MP4)
+    renderPct: { type: Number, default: 0 }, // the MP4 render's progress (0–100), while stage = rendering
+    // Rendering in the studio's browser (services/browserReelRender.js):
+    // { viewerAt, state: offered|claimed|uploaded|abandoned|declined, offeredAt,
+    //   claimedAt, heartbeatAt, uploadKey, renderSec, failReason }
+    browserRender: { type: mongoose.Schema.Types.Mixed, default: null },
     caption: { type: String, default: '' },
     hashtags: { type: [String], default: [] },
     videoKey: { type: String, default: '' },
