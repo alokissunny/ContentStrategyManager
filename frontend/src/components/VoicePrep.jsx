@@ -59,8 +59,8 @@ export default function VoicePrep({ parts = [], loading = false, error = '', onR
     const id = `${part}-c${Date.now()}`;
     setVoices((v) => ({ ...v, [part]: [...(v[part] || []), { id, kind: 'cloned', state: 'saving' }] }));
     try {
-      const out = await speakWithClone({ text, part });
-      setVoices((v) => ({ ...v, [part]: (v[part] || []).map((t) => (t.id === id ? { ...t, key: out?.key || '', ms: out?.ms || 0, url: out?.url || '', state: out?.key ? 'saved' : 'failed' } : t)) }));
+      const out = await speakWithClone({ text, part, script: parts.map((p) => p.say || '') });
+      setVoices((v) => ({ ...v, [part]: (v[part] || []).map((t) => (t.id === id ? { ...t, key: out?.key || '', ms: out?.ms || 0, url: out?.url || '', tone: out?.tone || '', state: out?.key ? 'saved' : 'failed' } : t)) }));
     } catch (e) {
       const why = e?.response?.data?.message || '';
       setVoices((v) => ({ ...v, [part]: (v[part] || []).map((t) => (t.id === id ? { ...t, state: 'failed', why } : t)) }));
@@ -167,6 +167,7 @@ export default function VoicePrep({ parts = [], loading = false, error = '', onR
                     <span className="ck-take__say">
                       {list.length > 1 ? `Take ${ix + 1}` : t.kind === 'cloned' ? 'Your cloned voice' : 'Your recording'}
                       {list.length > 1 && t.kind === 'cloned' ? ' · cloned voice' : ''}
+                      {t.kind === 'cloned' && t.tone ? ` · ${t.tone}` : ''}
                       {t.kind === 'uploaded' && t.name ? ` · ${t.name}` : ''}
                       {t.ms ? ` · ${fmtMs(t.ms)}` : ''}
                       {t.state === 'saving' ? (t.kind === 'cloned' ? ' · Reading in your voice…' : ' · Saving…') : t.state === 'failed' ? ` · ${t.why || 'Could not save'}` : ''}

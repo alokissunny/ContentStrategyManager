@@ -19,6 +19,6 @@ const handle = (fn) => asyncHandler(async (req, res) => {
 
 router.get('/', handle((req) => vc.status(req.user._id)));
 router.post('/', aiLimit('heavy'), handle((req) => vc.cloneVoice(req.user._id, { keys: req.body?.keys, consent: req.body?.consent === true })));
-router.post('/speak', aiLimit('light'), handle((req) => vc.speak(req.user._id, { text: req.body?.text, part: req.body?.part })));
+router.post('/speak', aiLimit('light'), handle((req) => vc.speak(req.user._id, { text: req.body?.text, part: req.body?.part, script: req.body?.script, prevText: req.body?.prevText, nextText: req.body?.nextText })));
 router.delete('/', handle((req) => vc.removeVoice(req.user._id)));
 module.exports = router;

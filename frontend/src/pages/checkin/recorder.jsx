@@ -384,17 +384,21 @@ export function useRecorder(opts = {}) {
       pauseInFlight.current = false;
       setCorrecting(false);
       setLive('');
+      // opts.raw: the microphone as it is (a voice-clone sample) — the browser's
+      // noise suppression / auto gain / echo cancellation leave a processed
+      // "call" texture a clone copies, so they are off and the bitrate is higher
+      const raw = opts.raw === true;
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true,
+          echoCancellation: !raw,
+          noiseSuppression: !raw,
+          autoGainControl: !raw,
           channelCount: 1,
         },
       });
       const mimeType = pickRecorderMime();
       const mr = mimeType
-        ? new MediaRecorder(stream, { mimeType, audioBitsPerSecond: 128000 })
+        ? new MediaRecorder(stream, { mimeType, audioBitsPerSecond: raw ? 256000 : 128000 })
         : new MediaRecorder(stream);
       chunks.current = [];
       mr.ondataavailable = (e) => e.data.size && chunks.current.push(e.data);

@@ -13,8 +13,9 @@ export async function createVoiceClone({ keys, consent }) {
 }
 
 // one script part read in the cloned voice → { key, ms, url } (a take like a recorded one)
-export async function speakWithClone({ text, part }) {
-  const { data } = await client.post('/voice-clone/speak', { text, part });
+// script: every part's words in order — the voice director reads the whole story to set this part's delivery
+export async function speakWithClone({ text, part, script = [] }) {
+  const { data } = await client.post('/voice-clone/speak', { text, part, script });
   return data;
 }
 

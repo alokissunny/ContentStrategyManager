@@ -23,7 +23,7 @@ const fmtMs = (ms) => {
 };
 
 export default function VoiceClone({ clone, onChange, onCloneAll, cloning = false, disabled = false }) {
-  const rec = useRecorder({ liveCorrect: false });
+  const rec = useRecorder({ liveCorrect: false, raw: true });
   const [setup, setSetup] = useState(false);
   const [samples, setSamples] = useState([]); // { id, file, ms, name }
   const [consent, setConsent] = useState(false);
@@ -47,7 +47,7 @@ export default function VoiceClone({ clone, onChange, onCloneAll, cloning = fals
   if (!clone) return null; // still asking the server
   const sampleMs = samples.reduce((n, s) => n + (s.ms || 0), 0);
   const hasUpload = samples.some((s) => !s.ms);
-  const enough = hasUpload || sampleMs >= 20000;
+  const enough = hasUpload || sampleMs >= 30000;
 
   const create = async () => {
     setErr('');
@@ -117,10 +117,14 @@ export default function VoiceClone({ clone, onChange, onCloneAll, cloning = fals
       {clone.configured && setup && (
         <div className="vclone__setup">
           <div className="ck-say">
-            <div className="ck-say__head"><p className="ck-say__label">Read this aloud · about a minute, your normal pace</p></div>
+            <div className="ck-say__head"><p className="ck-say__label">Say this the way you'd tell a client · one to two minutes</p></div>
             <p className="ck-say__text vclone__passage">{PASSAGE}</p>
           </div>
-          <p className="vclone__tip">A quiet room, phone or laptop about a hand&rsquo;s width from your mouth. Or upload a clean recording of just you talking.</p>
+          <p className="vclone__tip">
+            Your clone copies how you sound here, so talk it, don&rsquo;t read it: your normal energy, smiles and pauses included —
+            go off-script if you like. A quiet room with soft furnishings (no echo), the phone or laptop about a hand&rsquo;s width away.
+            Or upload a clean recording of just you talking, like a voice note or a talking video.
+          </p>
 
           {samples.length > 0 && (
             <ul className="ck-takes ck-takes--tight">
@@ -167,7 +171,7 @@ export default function VoiceClone({ clone, onChange, onCloneAll, cloning = fals
             </label>
           </div>
           {rec.status === 'denied' && <p className="ck-stage__note">Bauhly could not reach your microphone. Upload a recording instead.</p>}
-          {samples.length > 0 && !enough && <p className="vclone__tip">Keep going — at least 20 seconds in all (about a minute sounds most like you).</p>}
+          {samples.length > 0 && !enough && <p className="vclone__tip">Keep going — at least 30 seconds in all (one to two minutes sounds most like you).</p>}
 
           <label className="vclone__consent">
             <input type="checkbox" checked={consent} onChange={(e) => setConsent(e.target.checked)} disabled={Boolean(busy)} />

@@ -40,15 +40,21 @@ async function eleven(pathname, init = {}) {
   return res;
 }
 
-// a browser recording (webm/opus, m4a…) → mp3 ElevenLabs takes as a clone sample
-async function toMp3(buffer) {
+// a recording (webm/opus, m4a, a phone video…) → a clean clone sample. WAV, so
+// nothing is lost to a second lossy encode; only a rumble cut, the silence at
+// the ends trimmed and one gentle level. No denoise: a clone learns whatever is
+// in the sample, and noise reduction (the browser's, or ElevenLabs'
+// remove_background_noise) leaves the metallic, "phone call" texture that makes
+// a cloned voice sound robotic.
+async function toSample(buffer) {
   const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'vclone-'));
   try {
     const src = path.join(dir, 'in');
-    const out = path.join(dir, 'out.mp3');
+    const out = path.join(dir, 'out.wav');
     await fs.promises.writeFile(src, buffer);
-    await run(ffmpegPath(), ['-nostdin', '-hide_banner', '-loglevel', 'error', '-y', '-i', src,
-      '-vn', '-ac', '1', '-ar', '44100', '-b:a', '128k', out], { timeout: 120000 });
+    await run(ffmpegPath(), ['-nostdin', '-hide_banner', '-loglevel', 'error', '-y', '-i', src, '-vn',
+      '-af', 'highpass=f=60,silenceremove=start_periods=1:start_threshold=-50dB,areverse,silenceremove=start_periods=1:start_threshold=-50dB,areverse,loudnorm=I=-18:TP=-2:LRA=11',
+      '-ac', '1', '-ar', '44100', '-c:a', 'pcm_s16le', out], { timeout: 180000 });
     return await fs.promises.readFile(out);
   } finally {
     fs.promises.rm(dir, { recursive: true, force: true }).catch(() => {});
@@ -59,7 +65,7 @@ async function durationOf(buffer) {
   // ffmpeg prints "Duration: 00:00:07.34" on stderr for an input with no output
   const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'vclone-d-'));
   try {
-    const src = path.join(dir, 'a.mp3');
+    const src = path.join(dir, 'a.audio');
     await fs.promises.writeFile(src, buffer);
     const { stderr } = await run(ffmpegPath(), ['-nostdin', '-hide_banner', '-i', src, '-f', 'null', '-'], { timeout: 60000 })
       .catch((e) => ({ stderr: e.stderr || '' }));
@@ -90,16 +96,17 @@ async function cloneVoice(userId, { keys = [], consent = false } = {}) {
 
   const form = new FormData();
   form.append('name', `Bauhly · ${String(user.name || 'studio').slice(0, 40)} · ${String(userId).slice(-6)}`);
-  form.append('remove_background_noise', 'true');
+  // off by default: the samples are recorded raw and only lightly cleaned (toSample)
+  form.append('remove_background_noise', process.env.ELEVENLABS_CLONE_DENOISE === '1' ? 'true' : 'false');
   form.append('description', 'Studio voice for Instagram Reel voiceovers (Bauhly).');
   let total = 0;
   for (let i = 0; i < sampleKeys.length; i += 1) {
     const { buffer } = await getObjectBytes(sampleKeys[i]);
-    const mp3 = await toMp3(buffer);
-    total += await durationOf(mp3);
-    form.append('files', new Blob([mp3], { type: 'audio/mpeg' }), `sample-${i + 1}.mp3`);
+    const wav = await toSample(buffer);
+    total += await durationOf(wav);
+    form.append('files', new Blob([wav], { type: 'audio/wav' }), `sample-${i + 1}.wav`);
   }
-  if (total && total < 10000) throw new VoiceCloneError('That sample is too short — read for at least 20 seconds (about a minute is best).');
+  if (total && total < 25000) throw new VoiceCloneError('That sample is too short — talk for at least 30 seconds (one to two minutes is best).');
 
   const res = await eleven('/voices/add', { method: 'POST', body: form });
   const { voice_id: voiceId } = await res.json();
@@ -113,32 +120,103 @@ async function cloneVoice(userId, { keys = [], consent = false } = {}) {
   return { cloned: true, createdAt: user.voiceClone.createdAt, sampleMs: total };
 }
 
-// one script part read in the cloned voice → an mp3 take in S3
-async function speak(userId, { text = '', part = 0 } = {}) {
-  const script = String(text || '').replace(/\s+/g, ' ').trim().slice(0, 1200);
-  if (!script) throw new VoiceCloneError('Nothing to read.');
+// eleven_v3 is ElevenLabs' most expressive model: it performs audio tags
+// ([warmly], [short pause]…) and reads punctuation as rhythm, which is what
+// lets the delivery follow the story. v2 is the fallback when the account
+// can't use v3: tags stripped, the directed punctuation kept, and request
+// stitching (previous_text / next_text) so the parts flow as one voiceover.
+const TTS_MODEL = () => process.env.ELEVENLABS_TTS_MODEL || 'eleven_v3';
+const FALLBACK_MODEL = 'eleven_multilingual_v2';
+const isV3 = (m) => /v3/i.test(m);
+const clean = (t, max = 1200) => String(t || '').replace(/\s+/g, ' ').trim().slice(0, max);
+const stripTags = (t) => clean(String(t || '').replace(/\[[^\]\n]{1,40}\]/g, ' '));
+// the spoken words only, to check the director kept them all, in order
+const wordsOf = (t) => stripTags(t).toLowerCase().normalize('NFKD').replace(/[^\p{L}\p{N}\s']/gu, ' ').split(/\s+/).filter(Boolean);
+
+const DELIVERY_PROMPT = path.join(__dirname, '..', '..', 'prompts', 'voiceover-delivery.md');
+// Voice director: marks one part up with audio tags + rhythm punctuation for
+// where it sits in the story (hook / reason / result / next step). Never trusted
+// with the words — if anything spoken changed, the plain part is read instead.
+async function directDelivery(script, partIndex, userId) {
+  const text = script[partIndex];
+  if (process.env.VOICE_DELIVERY_DIRECTOR === 'off') return { text, tone: '' };
+  try {
+    const { completeText, splitPromptTemplate, resolvePlanAgentLlm } = require('./llmComplete');
+    const { extractJson } = require('./weeklyPlan');
+    const { system, userTemplate } = splitPromptTemplate(fs.readFileSync(DELIVERY_PROMPT, 'utf8'));
+    const user = userTemplate
+      .replace('{{SCRIPT_JSON}}', JSON.stringify(script.map((say, i) => ({ part: i, say })), null, 1))
+      .replace('{{PART_INDEX}}', String(partIndex))
+      .replace('{{PART_TEXT}}', text);
+    const llm = resolvePlanAgentLlm('captureReel');
+    const t0 = Date.now();
+    const res = await completeText({ model: process.env.VOICE_DELIVERY_MODEL || llm.model, system, user, maxTokens: 1200, kind: 'captureReel', timeoutMs: 30000 });
+    const out = extractJson(res.text || '') || {};
+    const directed = clean(out.text, 1600);
+    const same = directed && wordsOf(directed).join(' ') === wordsOf(text).join(' ');
+    console.log(`[voiceClone] ${userId} part ${partIndex} direction (${Date.now() - t0} ms, ${same ? 'kept' : 'words changed — plain read'}): ${directed}`);
+    return same ? { text: directed, tone: clean(out.tone, 60) } : { text, tone: '' };
+  } catch (err) {
+    console.warn(`[voiceClone] delivery direction failed — plain read: ${err.message}`);
+    return { text, tone: '' };
+  }
+}
+
+async function tts(voiceId, model, { text, prevText, nextText }) {
+  const v3 = isV3(model);
+  return eleven(`/text-to-speech/${encodeURIComponent(voiceId)}?output_format=mp3_44100_128`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Accept: 'audio/mpeg' },
+    body: JSON.stringify({
+      text: v3 ? text : stripTags(text),
+      model_id: model,
+      // v3 performs from the tags and doesn't take stitching; v2 needs the neighbours to flow
+      ...(!v3 && prevText ? { previous_text: prevText } : {}),
+      ...(!v3 && nextText ? { next_text: nextText } : {}),
+      voice_settings: v3
+        // "Natural" (0.5): follows the tags but stays close to the person's own voice
+        ? { stability: 0.5, similarity_boost: 0.9, use_speaker_boost: true }
+        // likeness first; some style so it doesn't flatten; normal speed (slowing it down sounds synthetic)
+        : { stability: 0.4, similarity_boost: 0.9, style: 0.3, use_speaker_boost: true, speed: 1 },
+    }),
+  });
+}
+
+// one script part read in the cloned voice → an mp3 take in S3.
+// script: every part's words in order (the director reads the whole story);
+// older clients send only text (+ prevText / nextText).
+async function speak(userId, { text = '', part = 0, script = null, prevText = '', nextText = '' } = {}) {
+  const idx = Math.max(0, Math.min(11, Math.round(Number(part) || 0)));
+  const all = Array.isArray(script) && script.length ? script.slice(0, 12).map((x) => clean(x, 1200)) : null;
+  const words = clean(text) || (all ? all[idx] : '');
+  if (!words) throw new VoiceCloneError('Nothing to read.');
+  const parts = all && all[idx] === words ? all : [clean(prevText, 600), words, clean(nextText, 600)].filter(Boolean);
+  const at = parts.indexOf(words);
   const u = await User.findById(userId).select('voiceClone').lean();
   const voiceId = u?.voiceClone?.voiceId;
   if (!voiceId) throw new VoiceCloneError('Clone your voice first.', 409);
 
   const t0 = Date.now();
-  const res = await eleven(`/text-to-speech/${encodeURIComponent(voiceId)}?output_format=mp3_44100_128`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Accept: 'audio/mpeg' },
-    body: JSON.stringify({
-      text: script,
-      model_id: process.env.ELEVENLABS_TTS_MODEL || 'eleven_multilingual_v2',
-      // close to the person, a little expressive — a Reel voiceover, not a reading
-      voice_settings: { stability: 0.45, similarity_boost: 0.85, style: 0.15, use_speaker_boost: true },
-    }),
-  });
+  const directed = await directDelivery(parts, at, userId);
+  const around = { prevText: clean(parts[at - 1], 600), nextText: clean(parts[at + 1], 600) };
+  let model = TTS_MODEL();
+  let res;
+  try {
+    res = await tts(voiceId, model, { text: directed.text, ...around });
+  } catch (err) {
+    // v3 not on this plan / not for this voice → the v2 read, still directed
+    if (!isV3(model) || !(err instanceof VoiceCloneError) || err.status === 503) throw err;
+    console.warn(`[voiceClone] ${model} refused (${err.message}) — falling back to ${FALLBACK_MODEL}`);
+    model = FALLBACK_MODEL;
+    res = await tts(voiceId, model, { text: directed.text, ...around });
+  }
   const mp3 = Buffer.from(await res.arrayBuffer());
   if (!mp3.length) throw new VoiceCloneError('ElevenLabs returned no audio — try again.', 502);
-  const key = `projects/${userId}/voiceover/clone-${Date.now()}-${crypto.randomBytes(4).toString('hex')}-p${Math.max(0, Number(part) || 0)}.mp3`;
+  const key = `projects/${userId}/voiceover/clone-${Date.now()}-${crypto.randomBytes(4).toString('hex')}-p${idx}.mp3`;
   await uploadBytes(key, mp3, 'audio/mpeg', { immutable: true });
   const ms = await durationOf(mp3).catch(() => 0);
-  console.log(`[voiceClone] ${userId} part ${part}: ${script.length} chars → ${ms} ms in ${Date.now() - t0} ms`);
-  return { key, ms, url: await getMediaUrl(key) };
+  console.log(`[voiceClone] ${userId} part ${idx}: ${model}, ${words.length} chars → ${ms} ms in ${Date.now() - t0} ms`);
+  return { key, ms, url: await getMediaUrl(key), tone: directed.tone, model };
 }
 
 async function removeVoice(userId) {
@@ -151,4 +229,4 @@ async function removeVoice(userId) {
   return { cloned: false };
 }
 
-module.exports = { status, cloneVoice, speak, removeVoice, VoiceCloneError, isConfigured };
+module.exports = { status, cloneVoice, speak, removeVoice, VoiceCloneError, isConfigured, wordsOf, stripTags };
