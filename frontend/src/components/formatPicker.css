@@ -311,3 +311,16 @@
 .vprep .vprep__clone { margin-top: 6px; }
 .vprep__play { height: 30px; max-width: 220px; margin-left: auto; }
 @media (max-width: 560px) { .vprep__play { max-width: 150px; } }
+.vclone__pick { margin-top: 16px; }
+.vclone__pick-label { margin: 0 0 8px; font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-500); }
+.vclone__voices { display: flex; flex-wrap: wrap; gap: 8px; }
+.vclone__voice { display: inline-flex; align-items: center; gap: 8px; height: 36px; padding: 0 14px 0 10px; border-radius: 999px; border: 1px solid var(--border); background: var(--surface); color: var(--ink-900); font: inherit; font-size: 13px; font-weight: 500; cursor: pointer; text-decoration: none; }
+.vclone__voice:hover:not(:disabled) { border-color: var(--ink-300, #c8c8cc); }
+.vclone__voice:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.vclone__voice.is-on { border-color: var(--ink-900); box-shadow: inset 0 0 0 1px var(--ink-900); }
+.vclone__voice-dot { width: 18px; height: 18px; border-radius: 50%; border: 1.5px solid var(--ink-300, #c8c8cc); display: grid; place-items: center; flex: none; }
+.vclone__voice.is-on .vclone__voice-dot { background: var(--ink-900); border-color: var(--ink-900); color: var(--surface); }
+.vclone__voice-tag { font-size: 11px; font-weight: 600; padding: 2px 7px; border-radius: 999px; background: var(--surface-sunken); color: var(--ink-500); }
+.vclone__voice--add { color: var(--ink-500); border-style: dashed; padding-left: 12px; }
+.vclone__voice--add:hover { color: var(--ink-900); }
+.vclone__voice-note { margin: 8px 0 0; font-size: 12.5px; color: var(--ink-500); }

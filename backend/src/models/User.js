@@ -26,8 +26,26 @@ const userSchema = new mongoose.Schema(
       audience: { type: String, trim: true, default: '' },
       positioning: { type: String, trim: true, default: '' },
     },
-    // Capture › Reel › voiceover: the person's own voice cloned with ElevenLabs
-    // (services/voiceClone.js). Only the voice id is kept; the samples stay in S3.
+    // Brand Kit › Voice profiles: cloned voices (ElevenLabs) Reel voiceovers can be
+    // read in — several per person (services/voiceClone.js). Only the voice id is
+    // kept; the samples stay in S3. One is the default.
+    voiceClones: {
+      type: [
+        {
+          id: { type: String, required: true },
+          name: { type: String, trim: true, default: '' },
+          note: { type: String, trim: true, default: '' },
+          provider: { type: String, default: 'elevenlabs' },
+          voiceId: { type: String, default: '' },
+          sampleKeys: { type: [String], default: [] },
+          consentAt: { type: Date, default: null },
+          createdAt: { type: Date, default: null },
+          isDefault: { type: Boolean, default: false },
+        },
+      ],
+      default: [],
+    },
+    // legacy (one clone per person, 2026-11-25) — moved into voiceClones on first read
     voiceClone: {
       provider: { type: String, default: '' },
       voiceId: { type: String, default: '' },

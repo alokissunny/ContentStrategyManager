@@ -95,7 +95,7 @@ const CTA_SEC = 2.1;
 const HOOK_MIN = 1.3;
 const HOOK_MAX = 2.1;
 const MOTIONS = ['push-in', 'pull-out', 'pan-left', 'pan-right', 'pan-up', 'none'];
-const TRANSITIONS = ['cut', 'zoom', 'whip', 'slide', 'flash'];
+const TRANSITIONS = ['cut', 'zoom', 'whip', 'slide', 'flash', 'dissolve'];
 const VOICES = ['coral', 'ash', 'sage', 'verse', 'nova', 'onyx', 'ballad', 'alloy'];
 const STAGES = ['queued', 'reading', 'writing', 'voicing', 'cutting', 'saving', 'done'];
 
@@ -163,9 +163,48 @@ async function whisperWords(mp3, { segments = false } = {}) {
     .map((w) => ({ text: str(w.word, 40), start: num(w.start), end: num(w.end) }))
     .filter((w) => w.text && w.end >= w.start);
   const segs = (res.segments || [])
-    .map((s) => ({ start: Math.round(num(s.start) * 10) / 10, end: Math.round(num(s.end) * 10) / 10, text: str(s.text, 300) }))
+    .map((s) => ({
+      start: Math.round(num(s.start) * 10) / 10, end: Math.round(num(s.end) * 10) / 10, text: str(s.text, 300),
+      // how sure Whisper was it heard clear speech — the on-camera sound check (speechQualityOf)
+      ...(s.avg_logprob != null ? { conf: Math.round(num(s.avg_logprob) * 100) / 100 } : {}),
+      ...(s.no_speech_prob != null ? { noSpeech: Math.round(num(s.no_speech_prob) * 100) / 100 } : {}),
+    }))
     .filter((s) => s.text);
   return { words, segments: segs, duration: num(res.duration) };
+}
+
+// Integrated loudness (LUFS) of a clip's sound — a whisper-quiet or distant
+// speaker reads as poor sound however well Whisper understood it
+async function loudnessOf(mp3) {
+  const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'capreel-l-'));
+  try {
+    const src = path.join(dir, 'a.mp3');
+    await fs.promises.writeFile(src, mp3);
+    const { stderr } = await run(ffmpegPath(), ['-nostdin', '-hide_banner', '-i', src, '-af', 'ebur128', '-f', 'null', '-'], { timeout: 60000 })
+      .catch((e) => ({ stderr: e.stderr || '' }));
+    const m = /Integrated loudness:[\s\S]*?I:\s*(-?[\d.]+)\s*LUFS/.exec(String(stderr));
+    return m ? Number(m[1]) : null;
+  } finally {
+    fs.promises.rm(dir, { recursive: true, force: true }).catch(() => {});
+  }
+}
+
+// Is a talking clip's own sound good enough to play in a voiceover reel?
+// Whisper's confidence over the speech (avg_logprob; ≈ −0.2 clear, below −0.6
+// mumbled / noisy / far away), how much of it it thought was not speech, and
+// how loud it is. Poor sound never replaces the voiceover.
+function speechQualityOf({ segments = [], words = [], loudness = null }) {
+  const spoken = segments.filter((x) => x.end > x.start && x.conf != null);
+  if (words.length < 6 || !spoken.length) return { quality: 'poor', note: 'too little speech' };
+  const len = spoken.reduce((n, x) => n + (x.end - x.start), 0) || 1;
+  const conf = spoken.reduce((n, x) => n + x.conf * (x.end - x.start), 0) / len;
+  const noSpeech = spoken.reduce((n, x) => n + (x.noSpeech || 0) * (x.end - x.start), 0) / len;
+  const why = [];
+  if (conf < -0.6) why.push('hard to make out');
+  if (noSpeech > 0.35) why.push('much of it is not clear speech');
+  if (loudness != null && loudness < -34) why.push('too quiet / far from the mic');
+  const note = `clarity ${conf.toFixed(2)}, ${loudness != null ? `${loudness.toFixed(0)} LUFS` : 'loudness unknown'}`;
+  return why.length ? { quality: 'poor', note: `${why.join('; ')} (${note})` } : { quality: 'good', note };
 }
 
 // The words of a clip with their times — so the director can cut on sentences
@@ -175,7 +214,9 @@ async function clipWords(key) {
   if (clipWordsCache.has(key)) return clipWordsCache.get(key);
   const p = (async () => {
     const { buffer } = await getObjectBytes(key);
-    return whisperWords(await audioOf(buffer), { segments: true });
+    const mp3 = await audioOf(buffer);
+    const [w, loudness] = await Promise.all([whisperWords(mp3, { segments: true }), loudnessOf(mp3).catch(() => null)]);
+    return { ...w, loudness };
   })();
   clipWordsCache.set(key, p);
   if (clipWordsCache.size > 40) clipWordsCache.delete(clipWordsCache.keys().next().value);
@@ -287,11 +328,12 @@ async function loadMaterial(reel, ledger) {
       const w = await clipWords(a.key);
       a.words = w.words;
       a.segments = w.segments;
+      a.speech = speechQualityOf(w);
       if (!cached) {
         ledger?.add({
           source: 'Capture reel — clip transcript (timed)', model: process.env.REEL_TRANSCRIBE_MODEL || 'whisper-1',
           elapsedMs: Date.now() - t0, output: str(w.segments.map((x) => x.text).join(' '), 1200),
-          costUsd: mins(w.duration || a.durationSec) * WHISPER_USD_PER_MIN, note: `${a.id} · ${Math.round(w.duration || a.durationSec)}s of audio`,
+          costUsd: mins(w.duration || a.durationSec) * WHISPER_USD_PER_MIN, note: `${a.id} · ${Math.round(w.duration || a.durationSec)}s of audio · on-camera sound ${a.speech.quality} — ${a.speech.note}`,
         });
       }
     } catch (err) {
@@ -364,6 +406,8 @@ const TOOL = {
         startSec: { type: 'number' },
         durationSec: { type: 'number' },
         voiceLine: { type: 'string' },
+        // voiceover reels: "clip" = this talking clip plays its own sound (the voiceover pauses)
+        sound: { type: 'string', enum: ['voiceover', 'clip'] },
         kicker: { type: 'string' },
         overlayText: { type: 'string' },
         cardNumber: { type: 'integer' },
@@ -385,11 +429,108 @@ function assetsForPrompt(assets) {
     : {
       id: a.id, type: 'clip', durationSec: a.durationSec, summary: a.summary, description: a.description,
       stills: a.stills.map((s) => ({ t: s.t, summary: s.summary })),
-      ...(a.segments?.length ? { timedTranscript: a.segments } : (a.transcript ? { transcript: a.transcript } : {})),
+      ...(a.segments?.length ? { timedTranscript: a.segments.map(({ start, end, text }) => ({ start, end, text })) } : (a.transcript ? { transcript: a.transcript } : {})),
+      // whether this clip's own sound may play in a voiceover reel (scene sound "clip")
+      ...(a.speech ? { onCameraSound: a.speech.quality } : {}),
     }));
 }
 
 const wordsIn = (s) => String(s || '').split(/\s+/).filter(Boolean);
+
+// A voiceover reel's on-camera moment: allowed only on a talking clip whose own
+// sound passed speechQualityOf, and only around words actually said in the
+// window asked for — widened to whole sentences (Whisper segments), at most 12 s.
+const CLIP_MAX_SEC = 12;
+function onCameraCut(a, startSec, durationSec) {
+  if (a?.kind !== 'video' || a.speech?.quality !== 'good' || !a.words?.length) return null;
+  const from = Math.max(0, startSec);
+  const to = Math.min(a.durationSec, from + Math.max(1, durationSec));
+  const inWin = a.words.filter((w) => w.end > from + 0.05 && w.start < to - 0.05);
+  if (inWin.length < 3) return null;
+  // whole sentences: start at the segment the first word is in, end at the one the last word is in
+  const segOf = (t) => (a.segments || []).find((x) => t >= x.start - 0.05 && t <= x.end + 0.05);
+  let s0 = segOf(inWin[0].start)?.start ?? inWin[0].start;
+  let s1 = segOf(inWin[inWin.length - 1].end)?.end ?? inWin[inWin.length - 1].end;
+  if (s1 - s0 > CLIP_MAX_SEC) s1 = (inWin.filter((w) => w.end <= s0 + CLIP_MAX_SEC).pop() || inWin[0]).end;
+  // land on word edges, a breath either side, inside the clip
+  const first = a.words.find((w) => w.end > s0 + 0.02) || inWin[0];
+  const last = [...a.words].reverse().find((w) => w.start < s1 - 0.02) || inWin[inWin.length - 1];
+  s0 = Math.max(0, first.start - 0.15);
+  s1 = Math.min(a.durationSec, last.end + 0.3);
+  if (s1 - s0 < 1) return null;
+  return { startSec: Math.round(s0 * 100) / 100, durationSec: Math.round((s1 - s0) * 100) / 100 };
+}
+
+// Lip-flap: someone talking on mute while a different voice narrates is the tell of an amateur cut.
+// A voiceover scene on a stretch of a clip where they speak moves to a silent stretch of the same clip
+// (between sentences, before or after they talk) — or, with none long enough, to the least-used other
+// shot that has no one talking (never the one either side of it).
+function noLipFlap(scenes, byId, assets) {
+  const speaking = (a, s0, s1) => (a.words || []).reduce((n, w) => n + Math.max(0, Math.min(s1, w.end) - Math.max(s0, w.start)), 0);
+  const used = new Map();
+  scenes.forEach((x) => used.set(x.assetId, (used.get(x.assetId) || 0) + 1));
+  scenes.forEach((x, i) => {
+    if (x.card || x.sound === 'clip') return;
+    const a = byId.get(x.assetId);
+    if (a?.kind !== 'video' || !a.words?.length) return;
+    if (speaking(a, x.startSec, x.startSec + x.durationSec) < 0.4) return;
+    // silent stretches: the gaps between words (and before the first / after the last)
+    // in a voiceover the shot lasts as long as its line takes to say (~2.6 words a second)
+    const need = Math.max(x.durationSec, wordsIn(x.voiceLine).length / 2.6) + 0.2;
+    const edges = [0, ...a.words.flatMap((w) => [w.start, w.end]), a.durationSec];
+    let best = null;
+    for (let k = 0; k + 1 < edges.length; k += 2) {
+      const g0 = edges[k] + 0.1;
+      const g1 = edges[k + 1] - 0.1;
+      if (g1 - g0 >= need && (!best || g1 - g0 > best[1] - best[0])) best = [g0, g1];
+    }
+    if (best) {
+      x.startSec = Math.round(best[0] * 100) / 100;
+      return;
+    }
+    const near = new Set([scenes[i - 1]?.assetId, scenes[i + 1]?.assetId]);
+    const spare = assets
+      .filter((b) => b.id !== a.id && !near.has(b.id) && !(b.kind === 'video' && b.words?.length > 2))
+      .sort((b, c) => (used.get(b.id) || 0) - (used.get(c.id) || 0))[0]
+      || assets.filter((b) => b.id !== a.id && !(b.kind === 'video' && b.words?.length > 2))
+        .sort((b, c) => (used.get(b.id) || 0) - (used.get(c.id) || 0))[0];
+    if (!spare) return;
+    used.set(a.id, used.get(a.id) - 1);
+    used.set(spare.id, (used.get(spare.id) || 0) + 1);
+    Object.assign(x, { assetId: spare.id, startSec: 0, motion: spare.kind === 'image' ? (x.motion === 'none' ? 'push-in' : x.motion) : 'none' });
+  });
+}
+
+// The editor's pass over the director's cut (default look). What a seasoned Reel editor does without
+// thinking: transitions are punctuation (≤ ~1 join in 4, never two in a row, one flash at most, none on
+// the opening shot); talking heads are cut straight in and out; slides read cheap (→ whip); and the camera
+// keeps one direction of travel across a cut — no pan answered by the opposite pan, no push-in repeated
+// on the next still, a whip continuing the way the previous shot was already moving.
+function editorPass(scenes, byId, assets = []) {
+  const isStill = (x) => !x.card && byId.get(x.assetId)?.kind === 'image';
+  const talks = (x) => x.sound === 'clip';
+  noLipFlap(scenes, byId, assets);
+  let sinceFancy = 9;
+  let flashes = 0;
+  scenes.forEach((x, i) => {
+    const prev = scenes[i - 1];
+    if (x.transition === 'slide') x.transition = 'whip';
+    if (x.transition === 'flash' && ++flashes > 1) x.transition = 'zoom';
+    const fancy = x.transition !== 'cut';
+    // same subject on both sides: a straight (jump) cut — a dissolve or whip between two takes of one shot reads as a mistake
+    const same = prev && prev.assetId === x.assetId;
+    if (i === 0 || talks(x) || (prev && talks(prev)) || same || (fancy && sinceFancy < 3)) x.transition = 'cut';
+    sinceFancy = x.transition === 'cut' ? sinceFancy + 1 : 0;
+    // camera continuity between two stills
+    if (prev && isStill(x) && isStill(prev)) {
+      const opposite = { 'pan-left': 'pan-right', 'pan-right': 'pan-left', 'push-in': 'pull-out', 'pull-out': 'push-in' };
+      if (x.motion === prev.motion && x.motion !== 'none' && x.transition === 'cut') x.motion = opposite[x.motion] || 'push-in';
+      else if ((x.motion === 'pan-left' && prev.motion === 'pan-right') || (x.motion === 'pan-right' && prev.motion === 'pan-left')) x.motion = 'push-in';
+      // a whip carries the previous pan's direction on (it enters from the right: the world moves left)
+      if (x.transition === 'whip' && prev.motion === 'pan-right') prev.motion = 'pan-left';
+    }
+  });
+}
 
 function normalizePlan(raw, assets, style = null) {
   const byId = new Map(assets.map((a) => [a.id, a]));
@@ -410,6 +551,18 @@ function normalizePlan(raw, assets, style = null) {
     }
     const a = byId.get(str(s?.assetId, 8));
     if (!a) return null;
+    // an on-camera moment: the clip's own sound, cut to whole spoken words
+    if (s.sound === 'clip' && !style) {
+      const own = onCameraCut(a, num(s.startSec), num(s.durationSec, 4));
+      if (own) {
+        return {
+          assetId: a.id, sound: 'clip', startSec: own.startSec, durationSec: own.durationSec, voiceLine: '',
+          kicker: wordsIn(str(s.kicker, 28)).slice(0, 4).join(' '), overlayText: '',
+          motion: 'none', transition: TRANSITIONS.includes(s.transition) ? s.transition : 'cut',
+          focusX: Math.round(clampN(num(s.focusX, 50), 0, 100)), focusY: Math.round(clampN(num(s.focusY, 40), 0, 100)),
+        };
+      }
+    }
     let start = a.kind === 'video' ? clampN(num(s.startSec), 0, Math.max(0, a.durationSec - 0.5)) : 0;
     let dur = clampN(num(s.durationSec, 2), style ? 0.3 : 0.8, a.kind === 'video' ? 8 : (style ? 6 : 4));
     if (a.kind === 'video' && start + dur > a.durationSec) {
@@ -421,6 +574,7 @@ function normalizePlan(raw, assets, style = null) {
       startSec: Math.round(start * 100) / 100,
       durationSec: Math.round(dur * 100) / 100,
       voiceLine: str(s.voiceLine, 260),
+      sound: 'voiceover',
       kicker: style ? '' : wordsIn(str(s.kicker, 28)).slice(0, 4).join(' '),
       overlayText: overlayOf(s.overlayText),
       motion: MOTIONS.includes(s.motion) ? s.motion : (a.kind === 'video' ? 'none' : 'push-in'),
@@ -484,6 +638,8 @@ function normalizePlan(raw, assets, style = null) {
     }
   }
   if (audioMode === 'original') scenes.forEach((x) => { if (x.card) x.card = false; });
+  // on-camera moments live inside a voiceover reel only (original mode plays every clip's sound anyway)
+  if (audioMode !== 'voiceover') scenes.forEach((x) => { if (x.sound === 'clip') x.sound = 'voiceover'; });
   if (audioMode === 'voiceover' && voiceWords < 6) {
     if (talking) audioMode = 'original';
     else throw new Error('The director wrote no narration.');
@@ -497,6 +653,8 @@ function normalizePlan(raw, assets, style = null) {
     .map((h) => str(h, 40).replace(/\s+/g, ''))
     .map((h) => (h.startsWith('#') ? h : `#${h}`))
     .filter((h) => /^#[\p{L}\p{N}_]{2,}$/u.test(h)))].slice(0, 10);
+
+  if (!style) editorPass(scenes, byId, assets);
 
   return {
     concept: str(p.concept, 400),
@@ -820,10 +978,14 @@ async function letterboxOf(key, startSec, durSec) {
     const file = await clipFile(key);
     const { stderr } = await run(ffmpegPath(), ['-hide_banner', '-nostdin', '-ss', String(startSec), '-t', String(Math.max(0.5, durSec)),
       '-i', file, '-an', '-vf', 'cropdetect=limit=40:round=2:reset=1:skip=0', '-f', 'null', '-'], { timeout: 60000, maxBuffer: 8 * 1024 * 1024 });
-    const size = /Video: [^\n]*?, (\d{2,5})x(\d{2,5})/.exec(stderr);
     const crops = [...stderr.matchAll(/crop=(\d+):(\d+):(\d+):(\d+)/g)].map((m) => m.slice(1).map(Number));
+    // cropdetect measures the picture AFTER rotation (a phone clip stored 1920×1080 + "rotate 90" is a
+    // 1080×1920 picture) — so the frame is the display size, never the coded one. Reading the coded size
+    // made every rotated phone clip look like a narrow letterboxed box and zoomed it ~1.8× (2026-11-26).
+    const size = await videoSizeOf(key);
     if (!size || !crops.length) return null;
-    const [W, H] = [Number(size[1]), Number(size[2])];
+    const [W, H] = [size.w, size.h];
+    if (crops.some((c) => c[0] > W + 2 || c[1] > H + 2)) return null; // sizes disagree: never guess a zoom
     // bands for part of the shot: zoom when they are on for a good share of
     // it (a clean frame then only gets a slightly tighter crop)
     const boxed = crops.filter((c) => c[0] < W * 0.96 || c[1] < H * 0.96);
@@ -835,6 +997,7 @@ async function letterboxOf(key, startSec, durSec) {
     const box = { x: x0 / W, y: y0 / H, w: (x1 - x0) / W, h: (y1 - y0) / H };
     if (box.w >= 0.96 && box.h >= 0.96) return null;
     if (box.w < 0.35 || box.h < 0.35) return null; // a dark shot, not bands
+    if (box.x < 0 || box.y < 0 || box.x + box.w > 1.001 || box.y + box.h > 1.001) return null;
     return Object.fromEntries(Object.entries(box).map(([k, v]) => [k, Math.round(v * 1000) / 1000]));
   } catch (err) {
     console.warn('[captureReel] letterbox check failed', key, err.message);
@@ -855,6 +1018,136 @@ function storyText(capture) {
 
 /* drawings: { overlay: [{ fromSec, toSec, spec }] — over a voiced cut, timed to its words;
                inserts: [{ afterShot, durationSec, spec }] — cut into a music-led cut as their own card } */
+// ── Punch-ins ────────────────────────────────────────────────────────────────
+// A long hold is where a Reel loses people. An editor cuts in on the same shot — a hard step to a tighter
+// framing and back — on a word onset, ideally after a small pause, every ~2.5 s. On a talking head it is the
+// classic jump-zoom; on a still under narration it reads as a second angle. Not in the first or last second
+// of a shot (too close to a cut), not on a drawing card or the end card.
+const PUNCH_EVERY = 2.5;
+function addPunchIns(scenes, words, endFrame) {
+  scenes.forEach((x) => {
+    if (x.explainer || x.kind === 'card' || x.frame || x.from >= endFrame) return; // a framed (landscape) shot holds its composition
+    const talking = x.volume > 0;
+    const sec = x.durationInFrames / FPS;
+    if (sec < (talking ? 4.5 : 3.4)) return;
+    const lo = x.from + FPS * 1.1;
+    const hi = x.from + x.durationInFrames - FPS * 1.0;
+    // onsets inside the shot, the ones after a breath first
+    const onsets = words
+      .map((w, i) => ({ f: frames(w.start), gap: i ? w.start - words[i - 1].end : 1 }))
+      .filter((o) => o.f >= lo && o.f <= hi);
+    if (!onsets.length) return;
+    const want = Math.max(1, Math.floor(sec / PUNCH_EVERY) - (talking ? 0 : 1));
+    const picks = [];
+    for (let k = 1; k <= want; k += 1) {
+      const target = x.from + (x.durationInFrames * k) / (want + 1);
+      const best = onsets
+        .filter((o) => picks.every((pf) => Math.abs(pf - o.f) > FPS * 1.4))
+        .sort((a, b) => (Math.abs(a.f - target) - (a.gap > 0.2 ? FPS * 0.6 : 0)) - (Math.abs(b.f - target) - (b.gap > 0.2 ? FPS * 0.6 : 0)))[0];
+      if (best) picks.push(best.f);
+    }
+    if (picks.length) x.punches = picks.sort((a, b) => a - b).map((f) => f - x.from);
+  });
+}
+
+// ── Voiceover with on-camera moments ─────────────────────────────────────────
+const J_CUT = 0.2; // s the speaker is heard before seen
+const L_CUT = 0.3; // s the next picture comes up under the speaker's last words
+// Scenes with sound "clip" play the talking clip's own audio; the voiceover is
+// cut into runs (the stretches between them) and each run plays its slice of
+// the voice track. Within a run the shots are timed to the voice words as in a
+// plain voiceover reel; a clip scene holds the sentences the director picked.
+// Voice time → reel time is `src + off` for the run that holds it.
+function mixedVoiceShots(plan, voice, byId, captionWords) {
+  const W = voice.words.length;
+  const voiced = plan.scenes.filter((x) => x.sound !== 'clip');
+  const counts = voiced.map((x) => wordsIn(x.voiceLine).length);
+  const S = counts.reduce((a, b) => a + b, 0) || 1;
+  // each voiced scene's words in the track, by its share of the script
+  let cum = 0;
+  const range = new Map();
+  voiced.forEach((x, i) => {
+    const a = Math.round((cum * W) / S);
+    cum += counts[i];
+    range.set(x, [a, Math.max(a, Math.round((cum * W) / S))]);
+  });
+  const shots = [];
+  const runs = [];
+  let t = 0;
+  let run = null;
+  const closeRun = (last) => {
+    if (!run) return;
+    const B = run.b;
+    // the run ends after its last word (a breath), never into the next run's first word
+    run.srcEnd = B >= W ? voice.duration + 0.05 : Math.max(run.srcStart + 0.3, Math.min(voice.words[B].start - 0.06, voice.words[B - 1].end + 0.3));
+    runs.push(run);
+    t = run.srcEnd + run.off;
+    // the run's last shot holds until the voice stops
+    if (last) last.dur = Math.max(0.5, t - last.start);
+    run = null;
+  };
+  let lastVoiced = null;
+  let afterClip = false;
+  plan.scenes.forEach((sc) => {
+    if (sc.sound === 'clip') {
+      closeRun(lastVoiced);
+      lastVoiced = null;
+      const start = t;
+      // J-cut: their voice starts a beat before we see them (the previous shot holds over their breath in,
+      // and runs a few frames on underneath so no black frame can show at the reveal)
+      const j = shots.length && sc.startSec >= J_CUT ? J_CUT : 0;
+      if (shots.length) shots[shots.length - 1].dur += 0.12;
+      shots.push({ scene: j ? { ...sc, startSec: Math.round((sc.startSec - j) * 100) / 100 } : sc, start: start - j, dur: sc.durationSec + j, volume: 1, revealSec: j });
+      afterClip = true;
+      const a = byId.get(sc.assetId);
+      (a?.words || [])
+        .filter((w) => w.start >= sc.startSec - 0.05 && w.end <= sc.startSec + sc.durationSec + 0.05)
+        .forEach((w) => captionWords.push({ text: w.text, start: start + (w.start - sc.startSec), end: start + (w.end - sc.startSec) }));
+      t = start + sc.durationSec;
+      return;
+    }
+    const [a, b] = range.get(sc);
+    afterClip = afterClip && !run;
+    if (!run) {
+      // the voice (re)starts: the first run after a short lead, a later one a breath after the clip
+      const srcStart = a === 0 ? 0 : Math.max(runs.length ? runs[runs.length - 1].srcEnd : 0, (voice.words[a]?.start ?? 0) - 0.12);
+      const lead = runs.length || shots.length ? 0.2 : VOICE_LEAD;
+      run = { a, b, srcStart, off: t + lead - srcStart };
+      // L-cut: after someone on camera, the next picture comes up under their last words
+      const start = shots.length ? Math.max(shots[shots.length - 1].start + 1, t - (afterClip ? L_CUT : 0)) : 0;
+      shots.push({ scene: sc, start, dur: Math.max(0.5, t - start + 0.5), volume: 0 });
+    } else {
+      run.b = b;
+      const at = Math.max(lastVoiced.start + 0.6, (voice.words[Math.min(W - 1, a)]?.start ?? 0) + run.off - 0.08);
+      lastVoiced.dur = Math.max(0.5, at - lastVoiced.start);
+      shots.push({ scene: sc, start: at, dur: 0.5, volume: 0 });
+    }
+    run.b = b;
+    lastVoiced = shots[shots.length - 1];
+  });
+  closeRun(lastVoiced);
+  if (lastVoiced) lastVoiced.dur += 0.2;
+  // captions: the voice words where they now sound
+  runs.forEach((r) => voice.words.forEach((w) => {
+    if (w.start >= r.srcStart - 0.01 && w.end <= r.srcEnd + 0.05) captionWords.push({ text: w.text, start: w.start + r.off, end: w.end + r.off });
+  }));
+  captionWords.sort((x, y) => x.start - y.start);
+  const last = shots[shots.length - 1];
+  return { shots, voiceRuns: runs, voEnd: last ? last.start + last.dur : t };
+}
+
+// a span the explainer agent placed on the continuous voice (seconds incl. VOICE_LEAD) → where it now
+// sounds, cut to the run it starts in (a drawing never hangs over an on-camera moment)
+function voiceSpanToReel(runs, x) {
+  const s0 = x.fromSec - VOICE_LEAD;
+  const s1 = x.toSec - VOICE_LEAD;
+  const r = runs.find((q) => s0 >= q.srcStart - 0.05 && s0 < q.srcEnd);
+  if (!r) return null;
+  const to = Math.min(s1, r.srcEnd);
+  if (to - s0 < 0.8) return null;
+  return { ...x, fromSec: s0 + r.off, toSec: to + r.off };
+}
+
 // The Brand Kit's type roles as the renderer loads them (remotion/src/brandFonts.ts): a stylesheet
 // (Google / Fontshare) or the uploaded file — same as a talking reel (reelFormatDirector)
 async function reelFontsOf(f) {
@@ -917,6 +1210,7 @@ async function twoVoiceCaptions({ words, scenes, plan, voice, brand, onDebug, re
     const sc = sceneOf(f);
     if (!sc) return null;
     if (sc.explainer || sc.kind === 'card') return { card: true };
+    if (sc.frame) return { framed: true }; // the words sit on the dark blurred backdrop, not the footage
     if (!sc._src) return null;
     const into = (f - sc.from) / FPS;
     return {
@@ -942,7 +1236,10 @@ async function buildTimeline({ plan, material, voice, voiceUrl, brand, style = n
   const captionWords = [];
   let voEnd;
 
-  if (plan.audioMode === 'voiceover') {
+  let voiceRuns = null; // mixed voiceover: [{ srcStart, srcEnd, off }] — the voice track in stretches
+  if (plan.audioMode === 'voiceover' && plan.scenes.some((x) => x.sound === 'clip')) {
+    ({ shots, voiceRuns, voEnd } = mixedVoiceShots(plan, voice, byId, captionWords));
+  } else if (plan.audioMode === 'voiceover') {
     // a shot runs while its line is said: cut a hair before its first word
     const counts = plan.scenes.map((s) => wordsIn(s.voiceLine).length);
     const S = counts.reduce((a, b) => a + b, 0) || 1;
@@ -1037,6 +1334,7 @@ async function buildTimeline({ plan, material, voice, voiceUrl, brand, style = n
       focusX: sh.scene.focusX,
       focusY: sh.scene.focusY,
       ...(sh.scene.kicker ? { kicker: sh.scene.kicker } : {}),
+      ...(sh.revealSec ? { revealFrames: frames(sh.revealSec) } : {}),
       ...(sh.scene.overlayText ? { overlayText: sh.scene.overlayText } : {}),
       ...(sh.scene.textY != null ? { textY: sh.scene.textY } : {}),
       // teaser overlays, anchored on the photo (the renderer follows the camera)
@@ -1062,8 +1360,17 @@ async function buildTimeline({ plan, material, voice, voiceUrl, brand, style = n
     const need = sh.dur * rate; // seconds of source a sped-up shot plays
     if (a.durationSec - start < need) start = Math.max(0, a.durationSec - need);
     if (a.durationSec - start - 0.1 >= need) {
-      const [src, crop] = await Promise.all([getMediaUrl(a.key), letterboxOf(a.key, start, sh.dur)]);
-      return { ...base, kind: 'video', _src: { key: a.key, kind: 'video' }, src, sourceStartSec: start, volume: sh.volume, ...(rate !== 1 ? { playbackRate: rate } : {}), ...(crop ? { crop } : {}) };
+      const [src, crop, size] = await Promise.all([getMediaUrl(a.key), letterboxOf(a.key, start, sh.dur), videoSizeOf(a.key)]);
+      // landscape footage is never cropped to portrait (studio rule 2026-11-24): shown whole, full width,
+      // on its own blurred backdrop — a 16:9 clip cropped to 9:16 is a ~3× zoom that throws away the shot
+      const landscape = !look && size && size.w / size.h >= 1.05;
+      const frame = landscape ? { aspect: Math.round((size.w / size.h) * 1000) / 1000, backdrop: await backdropOf(a.key, 'video', start).catch(() => '') } : null;
+      return {
+        ...base, kind: 'video', _src: { key: a.key, kind: 'video' }, src, sourceStartSec: start, volume: sh.volume,
+        ...(rate !== 1 ? { playbackRate: rate } : {}), ...(crop && !frame ? { crop } : {}),
+        ...(size ? { srcW: size.w, srcH: size.h } : {}),
+        ...(frame ? { frame, motion: 'none' } : {}),
+      };
     }
     // too short for the line said over it: hold its closest still instead
     const near = stillNear(a, start);
@@ -1075,8 +1382,9 @@ async function buildTimeline({ plan, material, voice, voiceUrl, brand, style = n
   // voiced cut they lie on top of the footage while their words are said
   const drawn = scenes.filter((x) => x.explainer);
   for (let k = scenes.length - 1; k >= 0; k -= 1) if (scenes[k].explainer) scenes.splice(k, 1);
-  (drawings?.overlay || []).forEach((x) => {
-    if (x.toSec > ctaStart - 0.1) return;
+  (drawings?.overlay || []).forEach((raw) => {
+    const x = voiceRuns ? voiceSpanToReel(voiceRuns, raw) : raw;
+    if (!x || x.toSec > ctaStart - 0.1) return;
     drawn.push({
       from: frames(x.fromSec), durationInFrames: Math.max(1, frames(x.toSec) - frames(x.fromSec)),
       kind: 'card', src: '', motion: 'none', transition: 'cut', explainer: x.spec,
@@ -1105,6 +1413,8 @@ async function buildTimeline({ plan, material, voice, voiceUrl, brand, style = n
   const hookSec = style
     ? clampN(num(style.pacing?.hookHoldSec, 1.6), 1.1, 3.2)
     : clampN(0.55 + wordsIn(plan.hook.text).length * 0.22, HOOK_MIN, HOOK_MAX);
+  if (!look) addPunchIns([...scenes, ...drawn], captionWords, hasCta ? frames(ctaStart) : Infinity);
+
   // captions: the talking-reel caption agent when the default look carries them (no reel style — a
   // style keeps its own caption look); the karaoke chunks only when the agent fails
   const spokenWords = captionWords.filter((w) => w.start < ctaStart && !underDrawing(w.start));
@@ -1136,7 +1446,12 @@ async function buildTimeline({ plan, material, voice, voiceUrl, brand, style = n
     ...((voiceUrl || music?.url) ? {
       audio: {
         ...(voiceUrl ? { voiceoverSrc: voiceUrl, voiceVolume: 1, startFrame: frames(VOICE_LEAD) } : {}),
+        // on-camera moments: the voice plays in stretches around them (remotion VoiceTrack)
+        ...(voiceUrl && voiceRuns ? {
+          voiceSegments: voiceRuns.map((r) => ({ fromFrame: frames(r.srcStart + r.off), trimBeforeFrames: frames(r.srcStart), durationInFrames: Math.max(1, frames(r.srcEnd) - frames(r.srcStart)) })),
+        } : {}),
         ...(music?.url ? { musicSrc: music.url, musicVolume: plan.audioMode === 'music' ? 0.9 : 0.13 } : {}),
+        ...(voiceRuns ? { duck: scenes.filter((x) => x.volume > 0).map((x) => ({ fromFrame: x.from, toFrame: x.from + x.durationInFrames })) } : {}),
       },
     } : {}),
     ...(look ? { look } : {}),
@@ -1421,7 +1736,7 @@ async function runCaptureReel(reelId) {
       }
       const voiceDirection = [
         reel.direction,
-        `THE STUDIO RECORDED THE VOICEOVER. Set audioMode "voiceover". This is exactly what they say, in order: "${studioVoice.script}". Write each scene's voiceLine as the next consecutive stretch of that transcript, word for word, so the scenes together read the whole transcript once and in order; pick for each scene the asset that shows what its line is about.`,
+        `THE STUDIO RECORDED THE VOICEOVER. Set audioMode "voiceover". This is exactly what they say, in order: "${studioVoice.script}". Write each scene's voiceLine as the next consecutive stretch of that transcript, word for word, so the scenes together read the whole transcript once and in order; pick for each scene the asset that shows what its line is about. Talking clips with onCameraSound "good" come first: where the person on camera says something on this story, put that as an on-camera moment (sound "clip", voiceLine "", cut to just those sentences) BETWEEN two stretches of the transcript where it fits the narrative — the recording pauses there and resumes after. Every word of the transcript is still used, in order, across the other scenes.`,
         noGraphics ? 'No motion graphics: no animated graphic devices, words on screen stay plain.' : '',
       ].filter(Boolean).join('\n\n');
       const directed = await directReel({ material, handle, brand: brandForPrompt, direction: voiceDirection, style: null });
@@ -1701,6 +2016,9 @@ function runInProcess(id) {
 const isRunningHere = (id) => active.has(String(id)) || queue.includes(String(id));
 
 module.exports = {
+  // the on-camera sound check, shared with the voiceover script writer (voiceoverScript.js)
+  clipWords,
+  speechQualityOf,
   MAX_ATTEMPTS,
   FPS,
   // shared with services/reelFormatDirector.js

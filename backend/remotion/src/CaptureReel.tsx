@@ -17,7 +17,7 @@ import {
 } from 'remotion';
 import { resolveFont, CAPTION_FONT, LOOK_FONTS, CAPTION_FACES } from './fonts';
 import { LookOverlay, LookHook, ChapterCard, LookCaptions, LookEndLine, GRADE } from './reelLook';
-import { cameraAt, zoomPunchAt, SceneAnnotations } from './teaserFx';
+import { cameraAt, zoomPunchAt, SceneAnnotations, OVERLAP, type Exit } from './teaserFx';
 import type { ReelSpec, ReelScene, ReelCaption } from './reelSchema';
 import { MotionReel } from './MotionReel';
 import { ExplainerScene } from './explainers';
@@ -31,9 +31,15 @@ const outCubic = Easing.out(Easing.cubic);
 const outBack = Easing.out(Easing.back(1.8));
 
 // ── One scene: media + its motion + its entry transition ─────────────────────
-const SceneMedia: React.FC<{ scene: ReelScene; fps: number; grade?: string }> = ({ scene, fps, grade }) => {
+const SceneMedia: React.FC<{ scene: ReelScene; fps: number; grade?: string; exit?: Exit }> = ({ scene, fps, grade, exit = null }) => {
   const frame = useCurrentFrame();
-  const cam = cameraAt(scene, frame);
+  const cam = cameraAt(scene, frame, exit);
+  // a clip's own sound never clicks in or out: 4 frames up, and down over its overlap (or 6 frames)
+  const total = scene.durationInFrames + (exit?.frames || 0);
+  const clipVolume = (f: number) => (scene.volume ?? 0) * Math.min(
+    interpolate(f, [0, 4], [0, 1], clamp),
+    interpolate(f, [total - Math.max(6, exit?.frames || 0), total], [1, 0], clamp),
+  );
   const c = scene.crop;
   const fx = c ? 50 : (scene.focusX ?? 50);
   const fy = c ? 50 : (scene.focusY ?? 50);
@@ -48,12 +54,13 @@ const SceneMedia: React.FC<{ scene: ReelScene; fps: number; grade?: string }> = 
   const wipe = scene.beforeSrc ? interpolate(frame, [Math.round(fps * 0.35), Math.round(fps * 0.85)], [0, 100], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp', easing: Easing.inOut(Easing.cubic) }) : 100;
 
   return (
-    <AbsoluteFill style={{ background: '#000', transform: `translateY(${cam.enterY}%)`, overflow: 'hidden' }}>
+    <AbsoluteFill style={{ background: '#000', transform: `translateY(${cam.enterY}%)`, overflow: 'hidden', opacity: cam.opacity }}>
+      <Framed scene={scene}>
       {scene.kind === 'video' ? (
         <OffthreadVideo
           src={scene.src}
           trimBefore={Math.max(0, Math.round((scene.sourceStartSec || 0) * fps))}
-          volume={scene.volume ?? 0}
+          volume={clipVolume}
           muted={!(scene.volume && scene.volume > 0)}
           playbackRate={scene.playbackRate || 1}
           style={style}
@@ -61,6 +68,7 @@ const SceneMedia: React.FC<{ scene: ReelScene; fps: number; grade?: string }> = 
       ) : (
         <Img src={scene.src} style={style} />
       )}
+      </Framed>
       {scene.beforeSrc && wipe < 100 ? (
         <>
           <Img src={scene.beforeSrc} style={{ ...style, clipPath: `inset(0 0 0 ${wipe}%)` }} />
@@ -100,6 +108,47 @@ const Scrims: React.FC<{ light?: boolean }> = ({ light = false }) => (
       : 'linear-gradient(0deg, rgba(0,0,0,0.62) 0%, rgba(0,0,0,0.12) 42%, rgba(0,0,0,0) 60%)' }} />
   </>
 );
+
+// the transition the next shot arrives with, if it needs this one to play on underneath
+const exitOf = (scenes: ReelScene[], s: ReelScene): Exit => {
+  const end = s.from + s.durationInFrames;
+  const next = scenes.find((x) => !x.explainer && x !== s && Math.abs(x.from - end) <= 1);
+  const frames = next ? OVERLAP[next.transition] || 0 : 0;
+  return next && frames ? { type: next.transition, frames } : null;
+};
+
+// ── Voice + music for the default look ──────────────────────────────────────
+// voiceSegments (on-camera moments): each stretch of the voiceover in its own Sequence, trimmed to its
+// slice of the one voice track; else the whole track from startFrame. The music bed dips to a third
+// under on-camera speech (audio.duck), easing over 6 frames either side.
+const VoiceTrack: React.FC<{ audio: NonNullable<ReelSpec['audio']> }> = ({ audio }) => {
+  if (!audio.voiceoverSrc) return null;
+  if (audio.voiceSegments?.length) {
+    return (
+      <>
+        {audio.voiceSegments.map((g, i) => (
+          <Sequence key={`v${i}`} from={g.fromFrame} durationInFrames={g.durationInFrames} layout="none">
+            <Audio
+              src={audio.voiceoverSrc as string}
+              trimBefore={g.trimBeforeFrames}
+              volume={(f) => (audio.voiceVolume ?? 1) * Math.min(interpolate(f, [0, 3], [0, 1], clamp), interpolate(f, [g.durationInFrames - 5, g.durationInFrames], [1, 0], clamp))}
+            />
+          </Sequence>
+        ))}
+      </>
+    );
+  }
+  return (
+    <Sequence from={audio.startFrame ?? 0} layout="none">
+      <Audio src={audio.voiceoverSrc} volume={audio.voiceVolume ?? 1} />
+    </Sequence>
+  );
+};
+const musicVolumeAt = (audio: NonNullable<ReelSpec['audio']>) => (f: number) => {
+  const base = audio.musicVolume ?? 0.9;
+  const dip = (audio.duck || []).reduce((m, d) => Math.max(m, interpolate(f, [d.fromFrame - 6, d.fromFrame, d.toFrame, d.toFrame + 6], [0, 1, 1, 0], clamp)), 0);
+  return base * (1 - dip * 0.65);
+};
 
 // ── Hook: the first ~1.5 s — words slam in one after another ────────────────
 const Hook: React.FC<{ spec: ReelSpec; headline: string }> = ({ spec, headline }) => {
@@ -414,11 +463,15 @@ const DefaultReel: React.FC<{ reel: ReelSpec }> = ({ reel }) => {
   const faces = useReelFaces(reel.brand.fonts);
   return (
     <AbsoluteFill style={{ background: '#000' }}>
-      {reel.scenes.map((s, i) => (s.explainer ? null : (
-        <Sequence key={`m${i}`} from={s.from} durationInFrames={s.durationInFrames} layout="none">
-          <SceneMedia scene={s} fps={fps} />
-        </Sequence>
-      )))}
+      {reel.scenes.map((s, i) => {
+        if (s.explainer) return null;
+        const exit = exitOf(reel.scenes, s);
+        return (
+          <Sequence key={`m${i}`} from={s.from} durationInFrames={s.durationInFrames + (exit?.frames || 0)} layout="none">
+            <SceneMedia scene={s} fps={fps} exit={exit} />
+          </Sequence>
+        );
+      })}
       <Scrims light={twoVoice} />
       <ExplainerLayer reel={reel} />
       {reel.scenes.map((s, i) => {
@@ -451,11 +504,8 @@ const DefaultReel: React.FC<{ reel: ReelSpec }> = ({ reel }) => {
           <EndCard spec={reel} headline={headline} body={body} />
         </Sequence>
       ) : null}
-      {reel.audio?.voiceoverSrc ? (
-        <Sequence from={reel.audio.startFrame ?? 0} layout="none">
-          <Audio src={reel.audio.voiceoverSrc} volume={reel.audio.voiceVolume ?? 1} />
-        </Sequence>
-      ) : null}
+      {reel.audio?.musicSrc ? <Audio src={reel.audio.musicSrc} volume={musicVolumeAt(reel.audio)} /> : null}
+      {reel.audio ? <VoiceTrack audio={reel.audio} /> : null}
       <ReelSfx reel={reel} />
       <Progress color={reel.brand.accent} />
     </AbsoluteFill>

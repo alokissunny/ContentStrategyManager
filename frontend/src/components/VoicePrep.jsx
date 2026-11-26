@@ -27,11 +27,16 @@ export default function VoicePrep({ parts = [], loading = false, error = '', onR
   // "Try it with your cloned voice" (ElevenLabs): { configured, cloned } once the server answers
   const [clone, setClone] = useState(null);
   const [cloningAll, setCloningAll] = useState(false);
+  const [profileId, setProfileId] = useState(''); // '' = the Brand Kit default voice profile
 
   useEffect(() => {
     let on = true;
-    getVoiceClone().then((c) => { if (on) setClone(c); }).catch(() => { if (on) setClone({ configured: false, cloned: false }); });
-    return () => { on = false; };
+    const load = () => getVoiceClone().then((c) => { if (on) setClone(c); }).catch(() => { if (on) setClone((x) => x || { configured: false, cloned: false }); });
+    load();
+    // a voice added in Brand Kit (opened from "Add or manage voices" in a new tab) shows up on return
+    const back = () => { if (document.visibilityState === 'visible') load(); };
+    document.addEventListener('visibilitychange', back);
+    return () => { on = false; document.removeEventListener('visibilitychange', back); };
   }, []);
 
   useEffect(() => {
@@ -59,7 +64,7 @@ export default function VoicePrep({ parts = [], loading = false, error = '', onR
     const id = `${part}-c${Date.now()}`;
     setVoices((v) => ({ ...v, [part]: [...(v[part] || []), { id, kind: 'cloned', state: 'saving' }] }));
     try {
-      const out = await speakWithClone({ text, part, script: parts.map((p) => p.say || '') });
+      const out = await speakWithClone({ text, part, script: parts.map((p) => p.say || ''), profileId });
       setVoices((v) => ({ ...v, [part]: (v[part] || []).map((t) => (t.id === id ? { ...t, key: out?.key || '', ms: out?.ms || 0, url: out?.url || '', tone: out?.tone || '', state: out?.key ? 'saved' : 'failed' } : t)) }));
     } catch (e) {
       const why = e?.response?.data?.message || '';
@@ -135,7 +140,7 @@ export default function VoicePrep({ parts = [], loading = false, error = '', onR
       <p className="ck-gr__later">
         One take for each part of your Reel, in your own words. Every take is kept — record again as often as you like.
       </p>
-      <VoiceClone clone={clone} onChange={setClone} onCloneAll={cloneAll} cloning={cloningAll} disabled={recAt != null} />
+      <VoiceClone clone={clone} onChange={setClone} profileId={profileId} onProfile={setProfileId} onCloneAll={cloneAll} cloning={cloningAll} disabled={recAt != null} />
       {parts.map((p, i) => {
         const list = voices[i] || [];
         const live = recAt === i;
@@ -208,7 +213,12 @@ export default function VoicePrep({ parts = [], loading = false, error = '', onR
             {clone?.cloned && (
               <div className="ck-gr__acts vprep__clone">
                 <button type="button" className="btn btn--quiet btn--sm" onClick={() => addClonedTake(i)} disabled={recAt != null || cloningAll || list.some((t) => t.state === 'saving')}>
-                  <Icon name="sparkle" size={13} strokeWidth={2} /> {list.some((t) => t.kind === 'cloned') ? 'Read it again in my cloned voice' : 'Use my cloned voice'}
+                  <Icon name="sparkle" size={13} strokeWidth={2} /> {(() => {
+                    const ps = clone.profiles || [];
+                    const v = ps.find((x) => x.id === profileId) || ps.find((x) => x.isDefault) || ps[0];
+                    const name = v?.name || 'my cloned voice';
+                    return list.some((t) => t.kind === 'cloned') ? `Read it again in ${name}` : `Use ${name}`;
+                  })()}
                 </button>
               </div>
             )}

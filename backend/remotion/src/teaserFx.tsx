@@ -20,11 +20,18 @@ const clamp = { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' } as const;
 const outCubic = Easing.out(Easing.cubic);
 const outBack = Easing.out(Easing.back(1.7));
 
-export type Camera = { scale: number; tx: number; ty: number; ox: number; oy: number; enterX: number; enterScale: number; blur: number; flash: number; enterY: number };
+export type Camera = { scale: number; tx: number; ty: number; ox: number; oy: number; enterX: number; enterScale: number; blur: number; flash: number; enterY: number; opacity: number };
 
 /** The shot's camera at `frame` (translate % of the frame, scale about origin %). */
-export function cameraAt(scene: ReelScene, frame: number): Camera {
+// An editor's transitions overlap: the outgoing shot keeps moving for `exit.frames` after its own end
+// (its Sequence is that much longer) while the incoming one arrives on top — a whip leaves the way the
+// next shot comes in, a zoom pushes through into it, a dissolve lets the picture underneath keep living.
+export type Exit = { type: ReelScene['transition']; frames: number } | null;
+export const OVERLAP: Partial<Record<ReelScene['transition'], number>> = { whip: 6, zoom: 6, dissolve: 12, slide: 6 };
+
+export function cameraAt(scene: ReelScene, frame: number, exit: Exit = null): Camera {
   const d = Math.max(1, scene.durationInFrames);
+  // the move keeps its speed through the overlap (no stop at the cut)
   const p = frame / d;
   const fx = scene.focusX ?? 50;
   const fy = scene.focusY ?? 50;
@@ -40,7 +47,7 @@ export function cameraAt(scene: ReelScene, frame: number): Camera {
     case 'none': scale = scene.kind === 'video' ? 1 : 1.04; break;
     default: break;
   }
-  const tIn = interpolate(frame, [0, 8], [0, 1], { ...clamp, easing: outCubic });
+  const tIn = interpolate(frame, [0, scene.transition === 'dissolve' ? 12 : 8], [0, 1], { ...clamp, easing: outCubic });
   let enterScale = 1;
   let enterX = 0;
   let enterY = 0;
@@ -51,15 +58,49 @@ export function cameraAt(scene: ReelScene, frame: number): Camera {
     case 'whip': enterX = interpolate(tIn, [0, 1], [38, 0]); blur = interpolate(tIn, [0, 1], [18, 0]); break;
     case 'slide': enterY = interpolate(tIn, [0, 1], [100, 0]); break;
     case 'flash': flash = interpolate(frame, [0, 6], [0.85, 0], clamp); break;
+    // whip and zoom arrive faster than they leave: the energy lands on the new shot
     default: break;
   }
+  let opacity = scene.transition === 'dissolve' ? interpolate(tIn, [0, 1], [0, 1]) : 1;
+  if (scene.revealFrames && frame < scene.revealFrames) opacity = 0; // J-cut: heard before seen
+  // the outgoing side, after this scene's own end
+  if (exit && frame >= d) {
+    const tOut = interpolate(frame, [d, d + Math.max(1, exit.frames)], [0, 1], { ...clamp, easing: Easing.in(Easing.cubic) });
+    if (exit.type === 'whip') { enterX -= tOut * 38; blur = Math.max(blur, tOut * 18); }
+    if (exit.type === 'zoom') { enterScale *= 1 + tOut * 0.3; blur = Math.max(blur, tOut * 12); }
+    if (exit.type === 'slide') enterY -= tOut * 30;
+  }
+  // punch-ins: every other step is a hard cut to a tighter framing of the same shot
+  const talking = scene.kind === 'video' && (scene.volume ?? 0) > 0;
+  const PUNCH = talking ? 1.1 : 1.12;
+  const steps = (scene.punches || []).filter((f) => frame >= f).length;
+  if (steps % 2) scale *= PUNCH;
   const c = scene.crop;
-  const unbox = c ? 1 / Math.max(0.35, Math.min(c.w, c.h)) : 1;
+  const unbox = c ? 1 / Math.max(0.6, Math.min(1, c.w, c.h)) : 1;
+  // ── the zoom budget ─────────────────────────────────────────────────────
+  // Every zoom on a shot (its move, punch-ins, letterbox removal, a fixed punch) multiplies. An editor
+  // keeps the total inside what the shot can take: a talking head barely moves (faces get uncomfortable
+  // past ~1.2× and lose their forehead / chin), B-roll and photos a little more, a framed landscape shot
+  // almost none — and nothing upscales its source past ~1.2× (soft). When the stack would go over, the
+  // moves shrink in proportion (they slow, they don't stop).
+  const SHOT_CAP = scene.frame ? 1.06 : talking ? 1.18 : 1.25;
+  const W = 1080;
+  const H = 1920;
+  const cover = scene.srcW && scene.srcH && !scene.frame ? Math.max(W / scene.srcW, H / scene.srcH) : 1;
+  const cap = Math.max(1.02, Math.min(SHOT_CAP, cover > 0 ? 1.2 / cover : SHOT_CAP));
+  const moveMax = ({ 'push-in': 1.16, 'pull-out': 1.18, 'pan-left': 1.14, 'pan-right': 1.14, 'pan-up': 1.14 } as Record<string, number>)[scene.motion] || (scene.kind === 'video' ? 1 : 1.04);
+  const fixed = unbox * Math.max(1, Math.min(1.6, scene.zoom || 1));
+  const peak = moveMax * ((scene.punches || []).length ? PUNCH : 1) * fixed;
+  const k = peak > cap ? (cap - 1) / (peak - 1) : 1;
+  const budget = (v: number) => 1 + (v - 1) * k;
   return {
-    // zoom: a fixed punch-in on top of the move (talking-head cuts alternate framing)
-    scale: scale * enterScale * unbox * Math.max(1, Math.min(1.6, scene.zoom || 1)), tx: tx + enterX, ty,
-    ox: c ? (c.x + c.w / 2) * 100 : fx, oy: c ? (c.y + c.h / 2) * 100 : fy,
-    enterX, enterScale, blur, flash, enterY,
+    // zoom: a fixed punch-in on top of the move (talking-head cuts alternate framing) — all inside the budget;
+    // the transition's own scale (enterScale) is momentary and sits on top
+    scale: budget(scale * fixed) * enterScale, tx: (tx * k) + enterX, ty: ty * k,
+    // a talking head scales about its upper part, so a punch-in keeps the eyes and never crops to mouth and chin
+    ox: c ? (c.x + c.w / 2) * 100 : fx,
+    oy: c ? (c.y + c.h / 2) * 100 : talking ? Math.min(fy, 36) : fy,
+    enterX, enterScale, blur, flash, enterY, opacity,
   };
 }
 

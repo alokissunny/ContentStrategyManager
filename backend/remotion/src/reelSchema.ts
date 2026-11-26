@@ -36,7 +36,11 @@ export type ReelScene = {
   sourceStartSec?: number; // video trim-in
   volume?: number; // clip audio (0 = muted)
   motion: 'push-in' | 'pull-out' | 'pan-left' | 'pan-right' | 'pan-up' | 'none';
-  transition: 'cut' | 'zoom' | 'whip' | 'slide' | 'flash' | 'soft' | 'fade';
+  transition: 'cut' | 'zoom' | 'whip' | 'slide' | 'flash' | 'soft' | 'fade' | 'dissolve';
+  // J-cut: the scene's sound starts this many frames before its picture (the picture stays hidden until then)
+  revealFrames?: number;
+  // punch-ins: frames (from the scene start) where the framing steps tighter / back (a cut-in on the same shot)
+  punches?: number[];
   focusX?: number; // 0–100, object-position
   focusY?: number;
   kicker?: string;
@@ -126,7 +130,13 @@ export type ReelSpec = {
   scenes: ReelScene[];
   captions: ReelCaption[];
   cta?: { line: string; sub?: string; fromFrame: number; durationInFrames: number };
-  audio?: { voiceoverSrc?: string; voiceVolume?: number; startFrame?: number; musicSrc?: string; musicVolume?: number; sfx?: boolean };
+  audio?: {
+    voiceoverSrc?: string; voiceVolume?: number; startFrame?: number; musicSrc?: string; musicVolume?: number; sfx?: boolean;
+    // a voiceover with on-camera moments: the voice track plays in stretches around them
+    voiceSegments?: { fromFrame: number; trimBeforeFrames: number; durationInFrames: number }[];
+    // the music dips under on-camera speech
+    duck?: { fromFrame: number; toFrame: number }[];
+  };
   look?: ReelLook; // set = a reel style (reelLook.tsx); unset = the default look
   chapters?: { text: string; fromFrame: number; durationInFrames: number; ink?: string; scrim?: 'dark' | 'light' }[]; // chapter title cards
   motion?: MotionTimeline; // set = a motion graphic reel (MotionReel.tsx)

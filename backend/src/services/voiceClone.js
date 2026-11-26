@@ -79,23 +79,43 @@ async function durationOf(buffer) {
   }
 }
 
-async function status(userId) {
-  const u = await User.findById(userId).select('voiceClone').lean();
-  const vc = u?.voiceClone || {};
-  return { configured: isConfigured(), cloned: Boolean(vc.voiceId), createdAt: vc.createdAt || null };
+// ── voice profiles (Brand Kit › Voice profiles) ─────────────────────────────
+const MAX_PROFILES = Math.max(1, Number(process.env.VOICE_PROFILES_MAX) || 5);
+const publicOf = (p) => ({ id: p.id, name: p.name || 'My voice', note: p.note || '', isDefault: Boolean(p.isDefault), createdAt: p.createdAt || null });
+
+// the user's profiles, the 2026-11-25 single clone moved in as the first one
+async function profilesDoc(userId) {
+  const user = await User.findById(userId).select('name voiceClones voiceClone');
+  if (!user) throw new VoiceCloneError('Account not found.', 404);
+  if (!user.voiceClones.length && user.voiceClone?.voiceId) {
+    user.voiceClones.push({
+      id: crypto.randomBytes(6).toString('hex'), name: 'My voice', voiceId: user.voiceClone.voiceId,
+      sampleKeys: user.voiceClone.sampleKeys || [], consentAt: user.voiceClone.consentAt, createdAt: user.voiceClone.createdAt, isDefault: true,
+    });
+    user.voiceClone = { provider: '', voiceId: '', sampleKeys: [], consentAt: null, createdAt: null };
+    await user.save();
+  }
+  // always exactly one default while there are any
+  if (user.voiceClones.length && !user.voiceClones.some((p) => p.isDefault)) {
+    user.voiceClones[0].isDefault = true;
+    await user.save();
+  }
+  return user;
 }
 
-// samples: S3 keys the browser uploaded (projects/<userId>/…), 1–5 of them, ~1 min in all is plenty
-async function cloneVoice(userId, { keys = [], consent = false } = {}) {
-  if (!consent) throw new VoiceCloneError('Please confirm this is your own voice first.');
-  const prefix = `projects/${userId}/`;
+async function status(userId) {
+  const user = await profilesDoc(userId);
+  const profiles = user.voiceClones.map(publicOf);
+  return { configured: isConfigured(), cloned: profiles.length > 0, profiles, max: MAX_PROFILES };
+}
+
+// samples: S3 keys the browser uploaded (projects/<userId>/…) → an ElevenLabs voice id
+async function cloneSamples(user, keys) {
+  const prefix = `projects/${user._id}/`;
   const sampleKeys = (Array.isArray(keys) ? keys : []).filter((k) => typeof k === 'string' && k.startsWith(prefix) && k.length < 300).slice(0, 5);
   if (!sampleKeys.length) throw new VoiceCloneError('Record or upload a sample of your voice first.');
-  const user = await User.findById(userId).select('name voiceClone');
-  if (!user) throw new VoiceCloneError('Account not found.', 404);
-
   const form = new FormData();
-  form.append('name', `Bauhly · ${String(user.name || 'studio').slice(0, 40)} · ${String(userId).slice(-6)}`);
+  form.append('name', `Bauhly · ${String(user.name || 'studio').slice(0, 40)} · ${String(user._id).slice(-6)}`);
   // off by default: the samples are recorded raw and only lightly cleaned (toSample)
   form.append('remove_background_noise', process.env.ELEVENLABS_CLONE_DENOISE === '1' ? 'true' : 'false');
   form.append('description', 'Studio voice for Instagram Reel voiceovers (Bauhly).');
@@ -107,17 +127,79 @@ async function cloneVoice(userId, { keys = [], consent = false } = {}) {
     form.append('files', new Blob([wav], { type: 'audio/wav' }), `sample-${i + 1}.wav`);
   }
   if (total && total < 25000) throw new VoiceCloneError('That sample is too short — talk for at least 30 seconds (one to two minutes is best).');
-
   const res = await eleven('/voices/add', { method: 'POST', body: form });
   const { voice_id: voiceId } = await res.json();
   if (!voiceId) throw new VoiceCloneError('ElevenLabs did not return a voice — try again.', 502);
+  return { voiceId, sampleKeys, sampleMs: total };
+}
 
-  // a re-clone replaces the old voice (one per person)
-  const old = user.voiceClone?.voiceId;
-  user.voiceClone = { provider: 'elevenlabs', voiceId, sampleKeys, consentAt: new Date(), createdAt: new Date() };
+const cleanName = (v, max) => String(v || '').replace(/\s+/g, ' ').trim().slice(0, max);
+
+// a new profile, or (profileId) the same profile cloned again from new samples
+async function cloneVoice(userId, { keys = [], consent = false, name = '', note = '', profileId = '' } = {}) {
+  if (!consent) throw new VoiceCloneError('Please confirm this is your own voice first.');
+  const user = await profilesDoc(userId);
+  const existing = profileId ? user.voiceClones.find((p) => p.id === profileId) : null;
+  if (profileId && !existing) throw new VoiceCloneError('That voice profile is gone.', 404);
+  if (!existing && user.voiceClones.length >= MAX_PROFILES) throw new VoiceCloneError(`You can keep up to ${MAX_PROFILES} voice profiles — delete one first.`);
+  const t0 = Date.now();
+  const { voiceId, sampleKeys, sampleMs } = await cloneSamples(user, keys);
+  const cloneDebug = debugOf([{
+    source: existing ? 'ElevenLabs · re-record voice' : 'ElevenLabs · instant voice clone',
+    model: 'ivc', elapsedMs: Date.now() - t0, prompt: `${sampleKeys.length} sample(s) · ${Math.round(sampleMs / 1000)} s of audio`, output: voiceId,
+    estimatedCostUsd: 0, note: 'no credits — instant voice cloning is included in the plan (uses one custom-voice slot)',
+  }], Date.now() - t0, 'ivc');
+  const now = new Date();
+  let profile;
+  if (existing) {
+    const old = existing.voiceId;
+    Object.assign(existing, { voiceId, sampleKeys, consentAt: now, createdAt: now });
+    if (cleanName(name, 40)) existing.name = cleanName(name, 40);
+    profile = existing;
+    await user.save();
+    if (old && old !== voiceId) eleven(`/voices/${encodeURIComponent(old)}`, { method: 'DELETE' }).catch(() => {});
+  } else {
+    profile = {
+      id: crypto.randomBytes(6).toString('hex'),
+      name: cleanName(name, 40) || (user.voiceClones.length ? `Voice ${user.voiceClones.length + 1}` : 'My voice'),
+      note: cleanName(note, 120), voiceId, sampleKeys, consentAt: now, createdAt: now,
+      isDefault: user.voiceClones.length === 0,
+    };
+    user.voiceClones.push(profile);
+    await user.save();
+  }
+  return { profile: publicOf(profile), profiles: user.voiceClones.map(publicOf), sampleMs, debug: cloneDebug };
+}
+
+async function updateProfile(userId, id, { name, note, isDefault } = {}) {
+  const user = await profilesDoc(userId);
+  const p = user.voiceClones.find((x) => x.id === id);
+  if (!p) throw new VoiceCloneError('That voice profile is gone.', 404);
+  if (name !== undefined && cleanName(name, 40)) p.name = cleanName(name, 40);
+  if (note !== undefined) p.note = cleanName(note, 120);
+  if (isDefault === true) user.voiceClones.forEach((x) => { x.isDefault = x.id === id; });
   await user.save();
-  if (old && old !== voiceId) eleven(`/voices/${encodeURIComponent(old)}`, { method: 'DELETE' }).catch(() => {});
-  return { cloned: true, createdAt: user.voiceClone.createdAt, sampleMs: total };
+  return { profiles: user.voiceClones.map(publicOf) };
+}
+
+async function removeProfile(userId, id) {
+  const user = await profilesDoc(userId);
+  const p = user.voiceClones.find((x) => x.id === id);
+  if (!p) return { profiles: user.voiceClones.map(publicOf) };
+  const { voiceId } = p;
+  user.voiceClones = user.voiceClones.filter((x) => x.id !== id);
+  if (user.voiceClones.length && !user.voiceClones.some((x) => x.isDefault)) user.voiceClones[0].isDefault = true;
+  await user.save();
+  if (voiceId && isConfigured()) await eleven(`/voices/${encodeURIComponent(voiceId)}`, { method: 'DELETE' }).catch(() => {});
+  return { profiles: user.voiceClones.map(publicOf) };
+}
+
+// the profile asked for, else the default
+async function voiceOf(userId, profileId = '') {
+  const user = await profilesDoc(userId);
+  const p = (profileId && user.voiceClones.find((x) => x.id === profileId)) || user.voiceClones.find((x) => x.isDefault) || user.voiceClones[0];
+  if (!p?.voiceId) throw new VoiceCloneError('Clone your voice first.', 409);
+  return p.voiceId;
 }
 
 // eleven_v3 is ElevenLabs' most expressive model: it performs audio tags
@@ -132,6 +214,42 @@ const clean = (t, max = 1200) => String(t || '').replace(/\s+/g, ' ').trim().sli
 const stripTags = (t) => clean(String(t || '').replace(/\[[^\]\n]{1,40}\]/g, ' '));
 // the spoken words only, to check the director kept them all, in order
 const wordsOf = (t) => stripTags(t).toLowerCase().normalize('NFKD').replace(/[^\p{L}\p{N}\s']/gu, ' ').split(/\s+/).filter(Boolean);
+
+// ── debug panel rows (x-debug-prompts) ─────────────────────────────────────
+// ElevenLabs bills text to speech in credits: about one per character on the
+// v2 / v3 models, half on flash / turbo. The response says what it charged
+// (`character-cost`); the text length is the fallback. A credit's price
+// depends on the plan — Starter is $6 for 30k credits ≈ $0.0002 — so it's an
+// env setting (ELEVENLABS_USD_PER_CREDIT). Instant voice cloning itself costs no credits.
+const USD_PER_CREDIT = () => Number(process.env.ELEVENLABS_USD_PER_CREDIT) || 0.0002;
+const creditsPerChar = (model) => (/flash|turbo/i.test(model) ? 0.5 : 1);
+const round6 = (n) => Math.round((Number(n) || 0) * 1e6) / 1e6;
+function ttsRow({ model, text, res, elapsedMs, source, note = '' }) {
+  const billed = Number(res?.headers?.get?.('character-cost'));
+  const fromHeader = Number.isFinite(billed) && billed > 0;
+  const credits = fromHeader ? billed : Math.ceil(String(text || '').length * creditsPerChar(model));
+  return {
+    source, model, elapsedMs,
+    prompt: text, output: '',
+    estimatedCostUsd: round6(credits * USD_PER_CREDIT()),
+    note: [`ElevenLabs · ${credits} credits${fromHeader ? '' : ' (est. from characters)'}`, `≈ $${USD_PER_CREDIT()}/credit`, note].filter(Boolean).join(' · '),
+  };
+}
+function llmRow({ source, model, usage = {}, elapsedMs, prompt, output, note }) {
+  const { estimatePlanCostUsd } = require('./weeklyPlan');
+  const inputTokens = Number(usage.input_tokens) || 0;
+  const outputTokens = Number(usage.output_tokens) || 0;
+  return {
+    source, model, elapsedMs, prompt, output, note,
+    inputTokens, outputTokens, totalTokens: inputTokens + outputTokens,
+    estimatedCostUsd: round6(estimatePlanCostUsd(model, inputTokens, outputTokens, Number(usage.cached_tokens) || 0)),
+  };
+}
+// the panel's payload: one summary row (label) over its agent rows
+function debugOf(rows, elapsedMs, model = 'elevenlabs') {
+  const agents = rows.filter(Boolean);
+  return { model, elapsedMs, agents, usage: { estimatedCostUsd: round6(agents.reduce((n, a) => n + (Number(a.estimatedCostUsd) || 0), 0)) } };
+}
 
 const DELIVERY_PROMPT = path.join(__dirname, '..', '..', 'prompts', 'voiceover-delivery.md');
 // Voice director: marks one part up with audio tags + rhythm punctuation for
@@ -155,10 +273,16 @@ async function directDelivery(script, partIndex, userId) {
     const directed = clean(out.text, 1600);
     const same = directed && wordsOf(directed).join(' ') === wordsOf(text).join(' ');
     console.log(`[voiceClone] ${userId} part ${partIndex} direction (${Date.now() - t0} ms, ${same ? 'kept' : 'words changed — plain read'}): ${directed}`);
-    return same ? { text: directed, tone: clean(out.tone, 60) } : { text, tone: '' };
+    const model = res.model || process.env.VOICE_DELIVERY_MODEL || llm.model;
+    const row = llmRow({
+      source: `Voice director · part ${partIndex + 1}`, model, usage: res.usage, elapsedMs: Date.now() - t0,
+      prompt: `${system}\n\n---\n\n${user}`, output: res.text || '',
+      note: same ? `tone: ${clean(out.tone, 60) || '—'}` : 'words changed — plain read used',
+    });
+    return same ? { text: directed, tone: clean(out.tone, 60), row } : { text, tone: '', row };
   } catch (err) {
     console.warn(`[voiceClone] delivery direction failed — plain read: ${err.message}`);
-    return { text, tone: '' };
+    return { text, tone: '', row: { source: `Voice director · part ${partIndex + 1}`, output: `Error — ${err.message}`, note: 'plain read used', estimatedCostUsd: 0 } };
   }
 }
 
@@ -185,19 +309,18 @@ async function tts(voiceId, model, { text, prevText, nextText }) {
 // one script part read in the cloned voice → an mp3 take in S3.
 // script: every part's words in order (the director reads the whole story);
 // older clients send only text (+ prevText / nextText).
-async function speak(userId, { text = '', part = 0, script = null, prevText = '', nextText = '' } = {}) {
+async function speak(userId, { text = '', part = 0, script = null, prevText = '', nextText = '', profileId = '', direct = true } = {}) {
   const idx = Math.max(0, Math.min(11, Math.round(Number(part) || 0)));
   const all = Array.isArray(script) && script.length ? script.slice(0, 12).map((x) => clean(x, 1200)) : null;
   const words = clean(text) || (all ? all[idx] : '');
   if (!words) throw new VoiceCloneError('Nothing to read.');
   const parts = all && all[idx] === words ? all : [clean(prevText, 600), words, clean(nextText, 600)].filter(Boolean);
   const at = parts.indexOf(words);
-  const u = await User.findById(userId).select('voiceClone').lean();
-  const voiceId = u?.voiceClone?.voiceId;
-  if (!voiceId) throw new VoiceCloneError('Clone your voice first.', 409);
+  const voiceId = await voiceOf(userId, profileId);
 
   const t0 = Date.now();
-  const directed = await directDelivery(parts, at, userId);
+  const directed = direct ? await directDelivery(parts, at, userId) : { text: words, tone: '', row: null };
+  const tTts = Date.now();
   const around = { prevText: clean(parts[at - 1], 600), nextText: clean(parts[at + 1], 600) };
   let model = TTS_MODEL();
   let res;
@@ -212,21 +335,19 @@ async function speak(userId, { text = '', part = 0, script = null, prevText = ''
   }
   const mp3 = Buffer.from(await res.arrayBuffer());
   if (!mp3.length) throw new VoiceCloneError('ElevenLabs returned no audio — try again.', 502);
+  const spoken = isV3(model) ? directed.text : stripTags(directed.text);
+  const ttsDebug = ttsRow({ model, text: spoken, res, elapsedMs: Date.now() - tTts, source: direct ? `ElevenLabs voice · part ${idx + 1}` : 'ElevenLabs voice · preview' });
   const key = `projects/${userId}/voiceover/clone-${Date.now()}-${crypto.randomBytes(4).toString('hex')}-p${idx}.mp3`;
   await uploadBytes(key, mp3, 'audio/mpeg', { immutable: true });
   const ms = await durationOf(mp3).catch(() => 0);
   console.log(`[voiceClone] ${userId} part ${idx}: ${model}, ${words.length} chars → ${ms} ms in ${Date.now() - t0} ms`);
-  return { key, ms, url: await getMediaUrl(key), tone: directed.tone, model };
+  return { key, ms, url: await getMediaUrl(key), tone: directed.tone, model, debug: debugOf([directed.row, ttsDebug], Date.now() - t0, model) };
 }
 
-async function removeVoice(userId) {
-  const user = await User.findById(userId).select('voiceClone');
-  const voiceId = user?.voiceClone?.voiceId;
-  if (!user) return { cloned: false };
-  user.voiceClone = { provider: '', voiceId: '', sampleKeys: [], consentAt: null, createdAt: null };
-  await user.save();
-  if (voiceId && isConfigured()) await eleven(`/voices/${encodeURIComponent(voiceId)}`, { method: 'DELETE' }).catch(() => {});
-  return { cloned: false };
+// Brand Kit › Voice profiles › Play: a short line in that voice, to hear it (not a take)
+const PREVIEW_LINE = 'This is how I sound on Bauhly. Every voiceover for my Reels, read in my own voice.';
+async function preview(userId, profileId) {
+  return speak(userId, { text: PREVIEW_LINE, profileId, direct: false });
 }
 
-module.exports = { status, cloneVoice, speak, removeVoice, VoiceCloneError, isConfigured, wordsOf, stripTags };
+module.exports = { status, cloneVoice, updateProfile, removeProfile, preview, speak, VoiceCloneError, isConfigured, wordsOf, stripTags };

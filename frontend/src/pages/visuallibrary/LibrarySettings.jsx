@@ -30,6 +30,7 @@ import {
 } from './brandkitBits.jsx';
 import Backgrounds from './Backgrounds.jsx';
 import VisualMood from './VisualMood.jsx';
+import VoiceProfiles from './VoiceProfiles.jsx';
 import './visuallibrary.css';
 import './librarysettings.css';
 import './brandkit.css';
@@ -719,6 +720,9 @@ export default function BrandKit() {
 
       {/* ── VISUAL MOOD (sets) ── */}
       <VisualMood onNote={note} />
+
+      {/* ── VOICE PROFILES (cloned voices for Reel voiceovers) ── */}
+      <VoiceProfiles onNote={note} />
 
       {/* ── the toast ── */}
       {toast && createPortal(

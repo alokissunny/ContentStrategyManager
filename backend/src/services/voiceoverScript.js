@@ -81,6 +81,16 @@ async function writeVoiceoverScript({ userId, projectId, captureId }) {
     throw err;
   }
   const material = materialOf(capture);
+  // talking clips: is their own sound good enough to play in the Reel? (the same check the Reel director
+  // uses — captureReelAgent speechQualityOf). Where it is, the script writes around what they say.
+  await Promise.all(material.filter((m) => m.kind === 'video' && String(m.saidInClip || '').split(/\s+/).length >= 6).map(async (m) => {
+    try {
+      const reel = require('./captureReelAgent');
+      m.onCameraSound = reel.speechQualityOf(await reel.clipWords(m.key)).quality;
+    } catch (err) {
+      console.warn('[voiceoverScript] on-camera sound check failed', m.key, err.message);
+    }
+  }));
   const dna = project.instagramUsername ? await loadBrandDna(userId, project.instagramUsername).catch(() => null) : null;
   const brand = dna ? {
     whatYouOffer: dna.whatYouOffer, whoYouHelp: dna.whoYouHelp, howYouSound: dna.howYouSound,

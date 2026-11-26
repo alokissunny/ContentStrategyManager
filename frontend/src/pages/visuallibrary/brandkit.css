@@ -538,3 +538,14 @@
  * gutters come from the shell's `.app__main`, exactly as `.ls`/`.vl` rely on.
  * Match those: centre the column and cap its width. */
 .bk { max-width: 1240px; margin: 0 auto; }
+
+/* Voice profiles (VoiceProfiles.jsx) — rows follow the Visual Mood list */
+.bk-voices-anchor { scroll-margin-top: 80px; }
+.bk-voice { padding: 10px 10px 10px 12px; }
+.bk-voice__play { flex: none; width: 40px; height: 40px; border-radius: 50%; border: 1px solid var(--border); background: var(--surface-sunken); color: var(--ink-900); display: grid; place-items: center; cursor: pointer; margin-right: var(--sp-2); }
+.bk-voice__play:hover { background: var(--surface); }
+.bk-voice__play.is-on { background: var(--ink-900); color: var(--surface); border-color: var(--ink-900); }
+.bk-voice__play:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.bk-voices__note { margin: 0; font-size: var(--text-sm); color: var(--ink-500); }
+.bk-voices__err { color: var(--danger, #c0392b); }
+.bk-modal__card.bk-voice-modal { width: min(640px, 100%); }

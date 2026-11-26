@@ -281,7 +281,7 @@ function InputAssetsBlock({ assets }) {
   );
 }
 
-function InputBlock({ draft, onDraftChange, onRerun, busy, disabled }) {
+function InputBlock({ draft, onDraftChange, onRerun, busy, disabled, rerunnable = true }) {
   const onRerunClick = (e) => {
     e.preventDefault();
     e.stopPropagation();
@@ -294,15 +294,17 @@ function InputBlock({ draft, onDraftChange, onRerun, busy, disabled }) {
         <span>Input</span>
         <span className="ai-debug__block-acts">
           <CopyButton text={draft} />
-          <button
-            type="button"
-            className="ai-debug__copy"
-            onClick={onRerunClick}
-            onPointerDown={(e) => e.stopPropagation()}
-            disabled={busy || disabled}
-          >
-            {busy ? 'Rerunning…' : 'Rerun'}
-          </button>
+          {rerunnable && (
+            <button
+              type="button"
+              className="ai-debug__copy"
+              onClick={onRerunClick}
+              onPointerDown={(e) => e.stopPropagation()}
+              disabled={busy || disabled}
+            >
+              {busy ? 'Rerunning…' : 'Rerun'}
+            </button>
+          )}
         </span>
       </summary>
       <textarea
@@ -378,6 +380,8 @@ function DebugEntry({ entry }) {
             onRerun={onRerun}
             busy={busy}
             disabled={!draft.trim()}
+            // an ElevenLabs reading / voice clone row is audio, not a prompt a text model can rerun
+            rerunnable={!/^(eleven|ivc)/i.test(entry.model || '')}
           />
           {error ? <p className="ai-debug__error">{error}</p> : null}
           {busy ? <p className="ai-debug__missing">Rerunning with modified input…</p> : null}

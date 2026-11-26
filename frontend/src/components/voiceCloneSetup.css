@@ -1,0 +1,17 @@
+/* VoiceCloneSetup.jsx — clone a voice (Brand Kit › Voice profiles, Capture › Reel › voiceover) */
+.vcs { display: flex; flex-direction: column; gap: 12px; }
+.vcs__passage { padding: 14px 16px; border-radius: var(--r-md, 12px); background: var(--surface-sunken, #f3f3f1); }
+.vcs__label { margin: 0 0 6px; font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-500, #6b6b70); }
+.vcs__text { margin: 0; font-size: 14px; line-height: 1.6; color: var(--ink-900, #1d1d1f); }
+.vcs__tip { margin: 0; font-size: 12.5px; line-height: 1.5; color: var(--ink-500, #6b6b70); }
+.vcs__samples { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.vcs__sample { display: flex; align-items: center; gap: 8px; padding: 6px 6px 6px 12px; border: 1px solid var(--border, #e5e5e2); border-radius: var(--r-sm, 8px); background: var(--surface, #fff); color: var(--ink-700, #3a3a42); font-size: 13px; }
+.vcs__sample-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vcs__acts { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.vcs__upload { cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
+.vcs__upload.is-off { opacity: 0.5; pointer-events: none; }
+.vcs__bead { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #e5372b; margin-right: 6px; }
+.vcs__consent { display: flex; gap: 10px; align-items: flex-start; font-size: 13px; line-height: 1.45; color: var(--ink-700, #3a3a42); cursor: pointer; }
+.vcs__consent input { margin-top: 3px; flex: none; }
+.vcs__note { margin: 0; font-size: 13px; color: var(--ink-500, #6b6b70); }
+.vcs__err { color: var(--danger, #c0392b); }
