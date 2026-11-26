@@ -94,6 +94,14 @@ export const textShadowFor = (ink: string, scrim?: 'dark' | 'light', onCard = fa
   return white ? '0 1px 2px rgba(0,0,0,0.22)' : 'none';
 };
 
+// photo reels: white words over a bright, textured room need a fuller (still soft, never a box) shadow
+const photoShadowFor = (ink: string, scrim?: 'dark' | 'light') => {
+  const white = ink.toUpperCase() === '#FFF' || ink.toUpperCase() === '#FFFFFF';
+  if (scrim === 'light') return '0 0 10px rgba(255,255,255,0.7), 0 0 24px rgba(255,255,255,0.45)';
+  if (scrim === 'dark') return '0 1px 3px rgba(0,0,0,0.55), 0 2px 16px rgba(0,0,0,0.5), 0 0 34px rgba(0,0,0,0.35)';
+  return white ? '0 1px 3px rgba(0,0,0,0.4), 0 2px 10px rgba(0,0,0,0.25)' : 'none';
+};
+
 /* ── the hook: the first words, in the caption system (no card) — lead words + one key word ───────── */
 export const TitleHook: React.FC<{ spec: ReelSpec; font: string; faces?: { heading: string; body: string; detail: string } }> = ({ spec, font, faces }) => {
   const frame = useCurrentFrame();
@@ -205,7 +213,9 @@ export const NarrativeEnd: React.FC<{ spec: ReelSpec; font: string }> = ({ spec,
    captions while it shows. Where a caption sits, its ink and whether it is on a drawing card are fixed
    once per caption (no jumping mid-caption); captions that follow closely hand over without a blank. */
 type Chapter = { text: string; fromFrame: number; durationInFrames: number };
-export const TwoVoiceCaptions: React.FC<{ captions: ReelCaption[]; scenes: ReelScene[]; endFrame: number; faces: { heading: string; body: string; detail: string }; chapters?: Chapter[]; startFrame?: number; cardInk?: string }> = ({ captions, scenes, endFrame, faces, chapters = [], startFrame = 0, cardInk }) => {
+// photo: a voiceover / photo reel (CaptureReel DefaultReel) — bright, busy interiors behind every word, no
+// speaker: lead words a size up and the measured scrim a fuller soft shadow (talking reels unchanged)
+export const TwoVoiceCaptions: React.FC<{ captions: ReelCaption[]; scenes: ReelScene[]; endFrame: number; faces: { heading: string; body: string; detail: string }; chapters?: Chapter[]; startFrame?: number; cardInk?: string; photo?: boolean }> = ({ captions, scenes, endFrame, faces, chapters = [], startFrame = 0, cardInk, photo = false }) => {
   const frame = useCurrentFrame();
   if (frame >= endFrame || frame < startFrame) return null;
   const k = captions.findIndex((c, i) => {
@@ -224,7 +234,7 @@ export const TwoVoiceCaptions: React.FC<{ captions: ReelCaption[]; scenes: ReelS
   const pos = onCard ? 'lower' : (cue.pos || 'top');
   const top = onCard ? 84 : typeof cue.posY === 'number' ? cue.posY : pos === 'top' ? 17 : pos === 'center' ? 50 : 74;
   const ink = onCard ? (cardInk || '#1d1d1f') : (cue.ink || '#fff');
-  const shadow = textShadowFor(ink, cue.scrim, onCard);
+  const shadow = photo && !onCard ? photoShadowFor(ink, cue.scrim) : textShadowFor(ink, cue.scrim, onCard);
   const keyInk = cue.keyColor || ink;
   // a captions-first start: the caption that is running when the hook ends appears whole
   const appear = (w: { fromFrame: number }) => wordIn(frame, Math.max(w.fromFrame, startFrame + TEXT_MOTION.lead));
@@ -239,7 +249,7 @@ export const TwoVoiceCaptions: React.FC<{ captions: ReelCaption[]; scenes: ReelS
   const chapter = chapters.find((c) => cue.fromFrame >= c.fromFrame - 6 && cue.fromFrame < c.fromFrame + c.durationInFrames);
   const lead = (w: { text: string; fromFrame: number }, i: number) => (
     <span key={`l${i}`} style={{
-      display: 'inline-block', fontFamily: faces.body, fontWeight: 500, fontSize: onCard ? 42 : 50, letterSpacing: 0.2, lineHeight: 1.15,
+      display: 'inline-block', fontFamily: faces.body, fontWeight: 500, fontSize: onCard ? 42 : photo ? 60 : 50, letterSpacing: 0.2, lineHeight: 1.15,
       color: ink, textShadow: shadow, ...appear(w),
     }}>{w.text}</span>
   );

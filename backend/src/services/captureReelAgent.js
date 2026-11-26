@@ -855,7 +855,87 @@ function storyText(capture) {
 
 /* drawings: { overlay: [{ fromSec, toSec, spec }] — over a voiced cut, timed to its words;
                inserts: [{ afterShot, durationSec, spec }] — cut into a music-led cut as their own card } */
-async function buildTimeline({ plan, material, voice, voiceUrl, brand, style = null, music = null, drawings = null }) {
+// The Brand Kit's type roles as the renderer loads them (remotion/src/brandFonts.ts): a stylesheet
+// (Google / Fontshare) or the uploaded file — same as a talking reel (reelFormatDirector)
+async function reelFontsOf(f) {
+  if (!f) return null;
+  const out = {};
+  for (const role of ['heading', 'body', 'detail']) {
+    const v = f[role];
+    if (!v?.family) continue;
+    // eslint-disable-next-line no-await-in-loop
+    const url = v.fileKey ? await getMediaUrl(v.fileKey).catch(() => '') : '';
+    out[role] = { family: v.family, stack: v.stack || `'${v.family}', sans-serif`, ...(v.stylesheet ? { css: v.stylesheet } : {}), ...(url ? { url } : {}) };
+  }
+  return Object.keys(out).length ? out : null;
+}
+
+// Voiceover / photo reels get the talking reel's captions (2026-11-26, "captions look bad"): the caption
+// agent groups the words by meaning and picks one key word (Brand Kit heading face, brand colour), then
+// the photo behind every caption is measured for ink / soft shadow / brand-colour fit. Every scene here
+// is a photo or clip (no speaker), so captions sit in the lower third (TwoVoiceCaptions 74 %).
+async function twoVoiceCaptions({ words, scenes, plan, voice, brand, onDebug, reelId }) {
+  const design = require('./reelDesignAgents');
+  const palette = Object.fromEntries(Object.entries({ accent: brand.accent, fg: brand.fg, ground: brand.ground })
+    .filter(([, v]) => /^#[0-9a-f]{6}$/i.test(String(v || ''))));
+  const sceneOf = (f) => scenes.filter((x) => f >= x.from && f < x.from + x.durationInFrames).pop() || null;
+  const indexed = words.map((w, i) => {
+    const sc = sceneOf(frames(w.start));
+    return { ...w, i, on: sc?.explainer || sc?.kind === 'card' ? 'card' : 'insert' };
+  });
+  const story = [plan.hook?.text, voice?.script || plan.scenes.map((x) => x.voiceLine).filter(Boolean).join(' ')].filter(Boolean).join(' — ');
+  let out;
+  try {
+    out = await design.designCaptions({ words: indexed, chapters: [], story, palette: Object.keys(palette).length ? palette : null });
+  } catch (err) {
+    console.warn(`[captureReel] ${reelId} caption agent failed — karaoke captions:`, err.message);
+    onDebug?.({ source: 'Capture reel — caption agent', output: `Skipped: ${err.message}`, note: 'karaoke captions instead' });
+    return null;
+  }
+  if (out?.debug) onDebug?.(out.debug);
+  if (!out?.cues?.length) return null;
+  const captions = out.cues.map((cue, k) => {
+    const ws = indexed.slice(cue.from, cue.to + 1);
+    const next = out.cues[k + 1] ? indexed[out.cues[k + 1].from] : null;
+    const end = Math.min(next ? next.start : Infinity, ws[ws.length - 1].end + 0.3);
+    const fromFrame = frames(ws[0].start);
+    return {
+      fromFrame,
+      toFrame: Math.max(fromFrame + 8, frames(end)),
+      key: cue.key >= 0 ? cue.key - cue.from : -1,
+      keyStyle: cue.keyStyle,
+      pos: 'lower',
+      keyColorRole: cue.key >= 0 ? cue.keyColor : 'ink',
+      words: ws.map((w, j) => ({
+        text: w.text.replace(/^[^\p{L}\p{N}$#@"“'‘]+|[,;:]+$/gu, ''),
+        fromFrame: frames(w.start),
+        toFrame: j < ws.length - 1 ? frames(ws[j + 1].start) : frames(end),
+      })),
+    };
+  }).filter((c) => c.words.some((w) => w.text));
+  const sceneAt = (f) => {
+    const sc = sceneOf(f);
+    if (!sc) return null;
+    if (sc.explainer || sc.kind === 'card') return { card: true };
+    if (!sc._src) return null;
+    const into = (f - sc.from) / FPS;
+    return {
+      key: sc._src.key, kind: sc._src.kind,
+      atSec: sc._src.kind === 'video' ? (sc.sourceStartSec || 0) + into * (sc.playbackRate || 1) : 0,
+      // photos drift (push-in / pull-out): measured at a middling zoom
+      focusX: sc.focusX, focusY: sc.focusY, zoom: sc.kind === 'image' ? 1.06 : 1, crop: sc.crop,
+    };
+  };
+  const contrast = await require('./reelCaptionContrast').applyCaptionContrast({
+    captions, chapters: [], hook: null, sceneAt, palette,
+    helpers: { clipFile, ffmpegPath },
+  }).catch((err) => { console.warn(`[captureReel] ${reelId} caption contrast failed:`, err.message); return null; });
+  captions.forEach((c) => { delete c.keyColorRole; });
+  if (contrast) onDebug?.({ source: 'Capture reel — caption contrast (code)', output: JSON.stringify({ palette, ...contrast }) });
+  return captions;
+}
+
+async function buildTimeline({ plan, material, voice, voiceUrl, brand, style = null, music = null, drawings = null, onDebug = null, reelId = '' }) {
   const byId = new Map(material.assets.map((a) => [a.id, a]));
   const look = style ? styleRun.lookOf(style) : null;
   let shots = [];
@@ -969,6 +1049,7 @@ async function buildTimeline({ plan, material, voice, voiceUrl, brand, style = n
     const still = async (key) => ({
       ...base,
       kind: 'image',
+      _src: { key, kind: 'image' }, // the caption contrast measure reads the original; removed before render
       src: await imageSrc(key, look?.grade),
       // a before → after wipe: the before photo is wiped away to reveal this one
       ...(before?.kind === 'image' ? { beforeSrc: await imageSrc(before.key, look?.grade) } : {}),
@@ -982,12 +1063,12 @@ async function buildTimeline({ plan, material, voice, voiceUrl, brand, style = n
     if (a.durationSec - start < need) start = Math.max(0, a.durationSec - need);
     if (a.durationSec - start - 0.1 >= need) {
       const [src, crop] = await Promise.all([getMediaUrl(a.key), letterboxOf(a.key, start, sh.dur)]);
-      return { ...base, kind: 'video', src, sourceStartSec: start, volume: sh.volume, ...(rate !== 1 ? { playbackRate: rate } : {}), ...(crop ? { crop } : {}) };
+      return { ...base, kind: 'video', _src: { key: a.key, kind: 'video' }, src, sourceStartSec: start, volume: sh.volume, ...(rate !== 1 ? { playbackRate: rate } : {}), ...(crop ? { crop } : {}) };
     }
     // too short for the line said over it: hold its closest still instead
     const near = stillNear(a, start);
     if (near) return still(near.key);
-    return { ...base, kind: 'video', src: await getMediaUrl(a.key), sourceStartSec: 0, volume: sh.volume };
+    return { ...base, kind: 'video', _src: { key: a.key, kind: 'video' }, src: await getMediaUrl(a.key), sourceStartSec: 0, volume: sh.volume };
   }));
 
   // drawings sit at the END of the scene list, so plan.coverShotIndex still points at its shot; over a
@@ -1024,6 +1105,14 @@ async function buildTimeline({ plan, material, voice, voiceUrl, brand, style = n
   const hookSec = style
     ? clampN(num(style.pacing?.hookHoldSec, 1.6), 1.1, 3.2)
     : clampN(0.55 + wordsIn(plan.hook.text).length * 0.22, HOOK_MIN, HOOK_MAX);
+  // captions: the talking-reel caption agent when the default look carries them (no reel style — a
+  // style keeps its own caption look); the karaoke chunks only when the agent fails
+  const spokenWords = captionWords.filter((w) => w.start < ctaStart && !underDrawing(w.start));
+  const twoVoice = !look && spokenWords.length >= 3 && process.env.REEL_VO_CAPTION_AGENT !== 'off'
+    ? await twoVoiceCaptions({ words: spokenWords, scenes: [...scenes, ...drawn], plan, voice, brand, onDebug, reelId })
+    : null;
+  [...scenes, ...drawn].forEach((x) => { delete x._src; });
+  const reelFonts = twoVoice ? await reelFontsOf(brand.fonts) : null;
   const accent = brand.accent || '#FFFFFF';
   const lit = liftAccent(accent);
   return {
@@ -1035,11 +1124,14 @@ async function buildTimeline({ plan, material, voice, voiceUrl, brand, style = n
       bodyFont: brand.bodyFont || '',
       // Brand Kit colours for the explainer drawings (remotion/src/brandPalette.ts)
       palette: { accent: brand.accent || '', fg: brand.fg || '', ground: brand.ground || '' },
+      // Brand Kit typography for the two-voice captions (heading = key word, body = lead words)
+      ...(reelFonts ? { fonts: reelFonts } : {}),
     },
     ...(plan.hook.text ? { hook: { text: plan.hook.text, emphasis: plan.hook.emphasis, durationInFrames: frames(hookSec) } } : {}),
     scenes: [...scenes, ...drawn],
     // captions stay off the end card, and off a drawing (its title says the idea; one text block at a time)
-    captions: look?.captions === 'none' ? [] : captionCues(captionWords.filter((w) => w.start < ctaStart && !underDrawing(w.start))),
+    captions: look?.captions === 'none' ? [] : (twoVoice || captionCues(spokenWords)),
+    ...(twoVoice ? { captionStyle: 'twovoice' } : {}),
     ...(hasCta ? { cta: { line: plan.cta.line, sub: plan.cta.sub, fromFrame: frames(ctaStart), durationInFrames: frames(total) - frames(ctaStart) } } : {}),
     ...((voiceUrl || music?.url) ? {
       audio: {
@@ -1457,7 +1549,7 @@ async function runCaptureReel(reelId) {
           ledger.add({ source: 'Capture reel — explainer animation agent', output: `Skipped: ${err.message}`, note: 'reel cut without drawings' });
         }
       }
-      timeline = await buildTimeline({ plan, material, voice, voiceUrl, brand, style, music, drawings });
+      timeline = await buildTimeline({ plan, material, voice, voiceUrl, brand, style, music, drawings, onDebug: (r) => ledger.add(r), reelId: String(reel._id) });
       const n = timeline.scenes.filter((x) => x.explainer).length;
       if (drawings) ledger.add({ source: 'Capture reel — explainer drawings', output: n ? `${n} drawing(s): ${timeline.scenes.filter((x) => x.explainer).map((x) => `${x.explainer.scene} "${x.explainer.title}"`).join(' · ')}` : 'none fitted this reel' });
     }

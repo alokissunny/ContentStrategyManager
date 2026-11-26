@@ -131,6 +131,9 @@ export type ReelSpec = {
   chapters?: { text: string; fromFrame: number; durationInFrames: number; ink?: string; scrim?: 'dark' | 'light' }[]; // chapter title cards
   motion?: MotionTimeline; // set = a motion graphic reel (MotionReel.tsx)
   postGrain?: boolean; // grain added by ffmpeg after the render instead of drawn in every frame
+  // the default (photo) look with the talking-reel caption agent's captions: key word, Brand Kit faces,
+  // measured contrast, rise+fade motion (narrative.tsx TwoVoiceCaptions) instead of the karaoke chunks
+  captionStyle?: 'twovoice';
 };
 
 const IMG = 'https://images.unsplash.com/photo-1556911220-bff31c812dba?w=1080';

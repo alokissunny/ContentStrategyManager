@@ -90,10 +90,14 @@ const SceneFrame: React.FC<{ scene: ReelScene; fps: number; grade?: string; acce
 };
 
 // legibility scrims, always on (top for the hook/kicker, bottom for captions)
-const Scrims: React.FC = () => (
+// twovoice: the caption's own ink + shadow are measured against the photo, so the bottom gradient
+// (which the measurement doesn't see) stays light — just enough to seat the end card and progress bar
+const Scrims: React.FC<{ light?: boolean }> = ({ light = false }) => (
   <>
     <AbsoluteFill style={{ background: 'linear-gradient(180deg, rgba(0,0,0,0.55) 0%, rgba(0,0,0,0) 30%)' }} />
-    <AbsoluteFill style={{ background: 'linear-gradient(0deg, rgba(0,0,0,0.62) 0%, rgba(0,0,0,0.12) 42%, rgba(0,0,0,0) 60%)' }} />
+    <AbsoluteFill style={{ background: light
+      ? 'linear-gradient(0deg, rgba(0,0,0,0.28) 0%, rgba(0,0,0,0) 22%)'
+      : 'linear-gradient(0deg, rgba(0,0,0,0.62) 0%, rgba(0,0,0,0.12) 42%, rgba(0,0,0,0) 60%)' }} />
   </>
 );
 
@@ -406,6 +410,8 @@ const DefaultReel: React.FC<{ reel: ReelSpec }> = ({ reel }) => {
   const { fps } = useVideoConfig();
   const headline = resolveFont(reel.brand.headlineFont || 'Montserrat', 'display');
   const body = resolveFont(reel.brand.bodyFont || 'Inter', 'sans');
+  const twoVoice = reel.captionStyle === 'twovoice';
+  const faces = useReelFaces(reel.brand.fonts);
   return (
     <AbsoluteFill style={{ background: '#000' }}>
       {reel.scenes.map((s, i) => (s.explainer ? null : (
@@ -413,7 +419,7 @@ const DefaultReel: React.FC<{ reel: ReelSpec }> = ({ reel }) => {
           <SceneMedia scene={s} fps={fps} />
         </Sequence>
       )))}
-      <Scrims />
+      <Scrims light={twoVoice} />
       <ExplainerLayer reel={reel} />
       {reel.scenes.map((s, i) => {
         const end = Math.min(s.from + s.durationInFrames, reel.cta ? reel.cta.fromFrame : Infinity);
@@ -429,7 +435,17 @@ const DefaultReel: React.FC<{ reel: ReelSpec }> = ({ reel }) => {
           <Hook spec={reel} headline={headline} />
         </Sequence>
       ) : null}
-      <Captions captions={reel.captions} spec={reel} />
+      {twoVoice ? (
+        <TwoVoiceCaptions
+          captions={reel.captions}
+          scenes={reel.scenes}
+          endFrame={reel.cta ? reel.cta.fromFrame : reel.format.durationInFrames}
+          faces={faces}
+          startFrame={reel.hook?.text ? reel.hook.durationInFrames : 0}
+          cardInk={drawPalette(reel.brand.palette).ink}
+          photo
+        />
+      ) : <Captions captions={reel.captions} spec={reel} />}
       {reel.cta ? (
         <Sequence from={reel.cta.fromFrame} durationInFrames={reel.cta.durationInFrames}>
           <EndCard spec={reel} headline={headline} body={body} />
