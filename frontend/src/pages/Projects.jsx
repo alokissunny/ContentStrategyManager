@@ -1482,9 +1482,11 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
       if (adding.another) {
         const n = (adding.media || []).length;
         cap.current = { ...cap.current, text: '', kind: 'note', attachments: [], askedQuestion: translate('What should this one say?') };
+        // `first`: a ready capture's first plan (⋯ › Generate plan) — same flow, its own words
+        const what = adding.first ? 'a post' : 'another post';
         const d1 = say(n
-          ? `Let's make another post from this one. I have brought its ${n} ${n === 1 ? 'file' : 'files'} over.`
-          : "Let's make another post from this one.");
+          ? `Let's make ${what} from this one. I have brought its ${n} ${n === 1 ? 'file' : 'files'} over.`
+          : `Let's make ${what} from this one.`);
         after(d1, () => {
           const d2 = say('What should this one say? Answer below, or press Nothing to add and I will use what you already said.');
           after(d2, () => setStep('noting'));

@@ -180,7 +180,7 @@ function addingOf(item, files) {
   };
 }
 
-function CapturePanel({ item, projects, asked, onClose, onGenerate, onGenerateAnother, onDelete, onMove, onAddDetail, onAddFiles, onEditCapture, onViewPost, reel, onReel, onRegenerate }) {
+function CapturePanel({ item, projects, asked, onClose, onGenerate, onGenerateAnother, onGenerateFirst, onDelete, onMove, onAddDetail, onAddFiles, onEditCapture, onViewPost, reel, onReel, onRegenerate }) {
   useBodyScrollLock();
   const entry = item.session;
   const atts = entry.attachments || [];
@@ -306,7 +306,15 @@ function CapturePanel({ item, projects, asked, onClose, onGenerate, onGenerateAn
                             <span className="pe-menu__grow">Generate another plan</span>
                           </button>
                         )}
-                        {(onEditCapture || (st === 'used' && onGenerateAnother)) && <div className="pe-menu__sep" />}
+                        {/* a ready capture plans through the same Capture conversation:
+                            its history and files come back, then the format panel */}
+                        {st === 'ready' && onGenerateFirst && (
+                          <button role="menuitem" onClick={() => { closeMenu(); onGenerateFirst(); }}>
+                            <Icon name="sparkle" size={17} />
+                            <span className="pe-menu__grow">Generate plan</span>
+                          </button>
+                        )}
+                        {(onEditCapture || (st === 'used' && onGenerateAnother) || (st === 'ready' && onGenerateFirst)) && <div className="pe-menu__sep" />}
                         {others.length > 0 && (
                           <button role="menuitem" onClick={() => setMoveOpen(true)}>
                             <Icon name="plan" size={17} />
@@ -430,7 +438,8 @@ function CapturePanel({ item, projects, asked, onClose, onGenerate, onGenerateAn
             </div>
           )}
 
-          {onReel && atts.length > 0 && (
+          {/* a finished reel shows no box here (its Reel chip on the row opens it) */}
+          {onReel && atts.length > 0 && !(reel && !reelWorking(reel) && reel.status === 'done') && (
             <div className="np__reel">
               <span className="np__reel__say">
                 <Icon name="film" size={15} strokeWidth={2} />
@@ -1432,6 +1441,7 @@ export default function Captures() {
           onAddFiles={(files) => setAdding({ ...addingOf(openItem, files), itemId: openItem.id })}
           onEditCapture={() => setAdding({ ...addingOf(openItem, []), itemId: openItem.id })}
           onGenerateAnother={() => { setOpen(null); setAdding({ ...addingOf(openItem, []), another: true, itemId: openItem.id }); }}
+          onGenerateFirst={() => { setOpen(null); setAdding({ ...addingOf(openItem, []), another: true, first: true, itemId: openItem.id }); }}
           // the calendar opens the post's day in Day view (YourPlans reads `openPostDay` from the route state)
           onViewPost={(post) => { setOpen(null); navigate('/dashboard', { state: post?.date ? { openPostDay: String(post.date).slice(0, 10) } : {} }); }}
           reel={reelOf(openItem)}
