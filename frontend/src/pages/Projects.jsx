@@ -2195,8 +2195,7 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
         prefs: { graphics: m.reel?.graphics, music: m.reel?.music },
         ...(voiceover ? { voiceover } : {}),
       });
-      // the Captures page follows it on the capture's row (it only loads reels when it opens)
-      if (made) window.dispatchEvent(new CustomEvent('bauhly:reel-started', { detail: made }));
+      // createCaptureReel announces it (bauhly:reel-started): the Captures page and the floating pill follow it
       return 'Your Reel is being made — you’ll find it on this capture in Captures.';
     } catch (err) {
       return err?.response?.data?.message || 'The Reel could not be started — try Generate reel from Captures.';

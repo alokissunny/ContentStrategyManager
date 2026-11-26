@@ -62,8 +62,62 @@ async function closeStale(reel) {
   return reel;
 }
 
-async function serialize(r, posts = null, { withPreview = false } = {}) {
+/*
+ * Where the queue stands, for the "in line · starts in about N min" message:
+ * every reel queued/working in THIS queue (all customers — only counts leave
+ * here), how long a render takes lately, and how many reels render at once.
+ * Cached a few seconds: every open studio and the floating pill poll it.
+ */
+const DEFAULT_RENDER_SEC = 150;
+let queueFactsCache = { at: 0, value: null };
+async function queueFacts() {
+  if (Date.now() - queueFactsCache.at < 5000 && queueFactsCache.value) return queueFactsCache.value;
+  const tag = queueTag();
+  const [line, recent] = await Promise.all([
+    CaptureReel.find({ queueTag: tag, status: { $in: ['queued', 'working'] } })
+      .select('_id status createdAt').sort({ createdAt: 1 }).limit(200).lean(),
+    CaptureReel.find({ queueTag: tag, status: 'done', startedAt: { $ne: null }, finishedAt: { $ne: null } })
+      .select('startedAt finishedAt').sort({ finishedAt: -1 }).limit(10).lean(),
+  ]);
+  const took = recent.map((x) => (new Date(x.finishedAt) - new Date(x.startedAt)) / 1000)
+    .filter((s) => s > 5 && s < 30 * 60).sort((a, b) => a - b);
+  const renderSec = took.length ? Math.round(took[Math.floor(took.length / 2)]) : DEFAULT_RENDER_SEC;
+  let slots = 1;
+  if (isReelQueueConfigured()) {
+    const { liveReelWorkers } = require('../workers/reelWorkers');
+    const live = await Promise.race([liveReelWorkers(), new Promise((ok) => setTimeout(() => ok(null), 1500))]).catch(() => null);
+    if (live && live.length) slots = live.reduce((n, w) => n + (Number(w.concurrency) || 1), 0);
+  }
+  const value = { order: line.map((x) => String(x._id)), working: line.filter((x) => x.status === 'working').length, renderSec, slots };
+  queueFactsCache = { at: Date.now(), value };
+  return value;
+}
+
+// { ahead, etaSec } for a queued reel; { etaSec } (time left) for a working one
+function progressOf(r, facts) {
+  if (!facts) return null;
+  const elapsed = r.startedAt ? (Date.now() - new Date(r.startedAt)) / 1000 : 0;
+  if (r.status === 'working') {
+    return { renderSec: facts.renderSec, etaSec: Math.max(15, Math.round(facts.renderSec - elapsed)) };
+  }
+  if (r.status !== 'queued') return null;
+  const idx = facts.order.indexOf(String(r._id));
+  // reels before it in the line, the ones rendering now included
+  const ahead = idx >= 0 ? idx : facts.order.length;
+  // with `slots` rendering at once, its turn comes after this many renders
+  const rounds = Math.floor(ahead / Math.max(1, facts.slots));
+  return {
+    ahead,
+    renderSec: facts.renderSec,
+    startsInSec: Math.round(rounds * facts.renderSec),
+    etaSec: Math.round((rounds + 1) * facts.renderSec),
+  };
+}
+
+async function serialize(r, posts = null, { withPreview = false, facts = undefined } = {}) {
   const plan = r.plan || {};
+  const live = ['queued', 'working'].includes(r.status);
+  const queueInfo = live ? progressOf(r, facts === undefined ? await queueFacts().catch(() => null) : facts) : null;
   // the calendar post it went onto (read live: moved / deleted posts show)
   let post = null;
   if (r.postId) {
@@ -97,7 +151,10 @@ async function serialize(r, posts = null, { withPreview = false } = {}) {
     post: post ? { id: String(post._id), date: post.date, published: Boolean(post.published) } : null,
     costUsd: r.costUsd || 0,
     createdAt: r.createdAt,
+    startedAt: r.startedAt || null,
     finishedAt: r.finishedAt,
+    // queued: { ahead, startsInSec, etaSec, renderSec }; working: { etaSec, renderSec }
+    ...(queueInfo ? { queue: queueInfo } : {}),
   };
 }
 
@@ -173,16 +230,36 @@ async function createReel(req, res) {
 }
 
 // GET /capture-reels?captureId=…  (newest first)
+// GET /capture-reels?captureId=a,b — a capture's reels
+// GET /capture-reels?recent=1 — the floating pill: reels being made, and ones
+//   finished in the last 12 h (with their project's name)
 async function listReels(req, res) {
   const filter = { user: req.user._id };
   const ids = String(req.query.captureId || '').split(',').filter(isId).slice(0, 24);
   if (ids.length) filter.captureIds = { $in: ids };
-  const rows = await CaptureReel.find(filter).select('-timeline').sort({ createdAt: -1 }).limit(ids.length ? 20 : 50);
+  const recent = !ids.length && ['1', 'true'].includes(String(req.query.recent || ''));
+  if (recent) {
+    filter.$or = [
+      { status: { $in: ['queued', 'working'] } },
+      { finishedAt: { $gt: new Date(Date.now() - 12 * 3600 * 1000) } },
+    ];
+  }
+  const rows = await CaptureReel.find(filter).select('-timeline').sort({ createdAt: -1 }).limit(recent ? 10 : ids.length ? 20 : 50);
   const postIds = rows.map((r) => r.postId).filter(Boolean);
   const posts = new Map((postIds.length
     ? await PlannedPost.find({ _id: { $in: postIds }, user: req.user._id }).select('date published').lean()
     : []).map((p) => [String(p._id), p]));
-  const reels = await Promise.all(rows.map(async (r) => serialize(await closeStale(r), posts)));
+  const facts = rows.some((r) => ['queued', 'working'].includes(r.status)) ? await queueFacts().catch(() => null) : null;
+  const names = new Map();
+  if (recent && rows.length) {
+    const projects = await Project.find({ _id: { $in: [...new Set(rows.map((r) => String(r.projectId)))] }, user: req.user._id })
+      .select('name').lean();
+    projects.forEach((p) => names.set(String(p._id), p.name));
+  }
+  const reels = await Promise.all(rows.map(async (r) => {
+    const out = await serialize(await closeStale(r), posts, { facts });
+    return recent ? { ...out, projectName: names.get(String(r.projectId)) || '' } : out;
+  }));
   return res.json({ reels });
 }
 

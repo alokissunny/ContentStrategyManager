@@ -31,6 +31,27 @@
 .rls__step.is-now .rls__dot { border-color: transparent; }
 .rls__step .pj-spin { width: 16px; height: 16px; border-color: rgba(255,255,255,0.3); border-top-color: #fff; }
 .rls__note { margin-top: 6px; font-size: var(--text-xs); color: rgba(255,255,255,0.6); }
+
+/* while it is being made: where it is, in words, with a bar and a clock */
+.rls__progress { position: relative; width: 100%; height: 100%; display: flex; flex-direction: column; justify-content: space-between; }
+.rls__now { padding: var(--sp-5) var(--sp-4) 0; color: #fff; display: grid; gap: 6px; }
+.rls__now-title { margin: 6px 0 0; font-family: var(--font-display); font-weight: 700; font-size: 1.25rem; line-height: 1.2; }
+.rls__now-say { margin: 0; font-size: var(--text-sm); line-height: 1.45; color: rgba(255,255,255,0.7); min-height: 2.9em; }
+.rls__clock { margin: 0; font-size: var(--text-xs); color: rgba(255,255,255,0.55); font-variant-numeric: tabular-nums; }
+.rls__pulse { display: inline-flex; gap: 6px; height: 10px; align-items: center; }
+.rls__pulse i { width: 8px; height: 8px; border-radius: 50%; background: var(--experiment-500, #C6F432); animation: rls-pulse 1200ms ease-in-out infinite; }
+.rls__pulse i:nth-child(2) { animation-delay: 160ms; }
+.rls__pulse i:nth-child(3) { animation-delay: 320ms; }
+.rls__pulse.is-queued i { background: rgba(255,255,255,0.7); animation-duration: 2000ms; }
+@keyframes rls-pulse { 0%, 100% { opacity: 0.25; transform: scale(0.8); } 40% { opacity: 1; transform: scale(1.1); } }
+.rls__bar { position: relative; margin-top: 8px; height: 4px; border-radius: var(--r-full); background: rgba(255,255,255,0.14); overflow: hidden; }
+.rls__bar span { position: absolute; inset: 0 auto 0 0; border-radius: inherit; background: var(--experiment-500, #C6F432); transition: width 900ms linear; }
+.rls__bar.is-indeterminate span { width: 35%; animation: rls-slide 1600ms ease-in-out infinite; }
+@keyframes rls-slide { from { transform: translateX(-100%); } to { transform: translateX(290%); } }
+@media (prefers-reduced-motion: reduce) {
+  .rls__pulse i, .rls__bar.is-indeterminate span { animation: none; }
+  .rls__pulse i { opacity: 0.8; }
+}
 .rls__fail { position: relative; padding: var(--sp-4); color: #fff; display: grid; gap: var(--sp-3); justify-items: start; font-size: var(--text-sm); }
 .rls__fail p { margin: 0; line-height: 1.5; }
 

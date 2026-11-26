@@ -25,6 +25,8 @@ import {
 } from '../lib/planGeneration';
 import { useActiveHandle } from '../lib/store';
 import { openCaptureIdea, useCaptureOpen } from '../lib/captureUi';
+import { useReelJobs, clearReelJob, clearFinishedReelJobs, reelStatusLine, aboutMin } from '../lib/reelJobs';
+import { reelWorking } from '../api/captureReels';
 import './genpill.css';
 
 /* the dots: eight across, three down; each one's delay is fixed so the rhythm reads as a pattern, not noise */
@@ -77,6 +79,9 @@ export function Motion({ kind }) {
 }
 
 const postsSay = (k) => `${k} ${k === 1 ? 'post' : 'posts'}`;
+const reelsSay = (k) => `${k} ${k === 1 ? 'reel' : 'reels'}`;
+// "1 post · 2 reels" — only the parts there are
+const bothSay = (p, r) => [p ? postsSay(p) : '', r ? reelsSay(r) : ''].filter(Boolean).join(' · ');
 const dayOf = (iso) => (iso
   ? new Date(`${iso}T12:00:00`).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })
   : null);
@@ -102,11 +107,19 @@ export default function GenPill({ slot = null }) {
   useEffect(() => { resumePlanGeneration(); }, []);
 
   const jobs = (gen.jobs || []).filter((j) => !j.handle || !handle || j.handle === handle);
-  const making = jobs.filter((j) => j.status === 'running' || j.status === 'queued').length;
+  const postsMaking = jobs.filter((j) => j.status === 'running' || j.status === 'queued').length;
   const done = jobs.filter((j) => j.status === 'done');
-  const doneN = done.reduce((n, j) => n + Math.max(1, (j.posts || []).length), 0);
-  const failN = jobs.filter((j) => j.status === 'failed').length;
-  const n = jobs.length;
+  const postsDone = done.reduce((n, j) => n + Math.max(1, (j.posts || []).length), 0);
+  const postsFailed = jobs.filter((j) => j.status === 'failed').length;
+  // reels being made / made (server-side jobs — lib/reelJobs)
+  const { reels } = useReelJobs();
+  const reelsMaking = reels.filter(reelWorking).length;
+  const reelsDone = reels.filter((r) => r.status === 'done').length;
+  const reelsFailed = reels.filter((r) => r.status === 'error').length;
+  const making = postsMaking + reelsMaking;
+  const doneN = postsDone + reelsDone;
+  const failN = postsFailed + reelsFailed;
+  const n = jobs.length + reels.length;
   // the recommended post is always in the panel (studio, 2026-11-19): it follows
   // the newest finished run, and with none yet it is fetched for the account
   const lastDone = [...done].filter((j) => (j.posts || []).length).sort((a, b) => (b.endedAt || 0) - (a.endedAt || 0))[0];
@@ -195,12 +208,17 @@ export default function GenPill({ slot = null }) {
     if (first) requestOpenPostDay(first.date);
   };
   const toggle = (key) => setUnfold((u) => ({ ...u, [key]: !u[key] }));
+  // a reel opens in its Reel studio on the Captures page (Captures reads `openReel`)
+  const openReel = (r) => {
+    setOpen(false);
+    nav('/dashboard/projects', { state: { openReel: { id: r.id, captureIds: r.captureIds || [] } } });
+  };
   const tab = open ? 0 : -1;
 
-  const label = making ? `Generating ${postsSay(making)}`
-    : doneN ? `${postsSay(doneN)} ready`
-      : failN ? `${postsSay(failN)} not finished`
-        : n ? postsSay(n)
+  const label = making ? `Generating ${bothSay(postsMaking, reelsMaking)}`
+    : doneN ? `${bothSay(postsDone, reelsDone)} ready`
+      : failN ? `${bothSay(postsFailed, reelsFailed)} not finished`
+        : n ? bothSay(jobs.length, reels.length)
           : ideaShown ? 'Your next post' : 'Your posts';
 
   const tree = (
@@ -236,7 +254,7 @@ export default function GenPill({ slot = null }) {
             </span>
             <span className="gpill__headacts">
               {(done.length + failN) > 0 && (
-                <button type="button" className="gpill__clear" onClick={clearFinishedGenJobs} tabIndex={tab}>Clear all</button>
+                <button type="button" className="gpill__clear" onClick={() => { clearFinishedGenJobs(); clearFinishedReelJobs(); }} tabIndex={tab}>Clear all</button>
               )}
               <button type="button" className="gpill__icon" onClick={() => setOpen(false)} aria-label="Collapse" title="Collapse" tabIndex={tab}>
                 <Icon name="chevron-down" size={15} strokeWidth={2.5} />
@@ -251,8 +269,77 @@ export default function GenPill({ slot = null }) {
               </div>
             )}
             {!n && !ideaShown && (
-              <p className="gpill__empty">Nothing being made right now. New posts and your next recommended post show here.</p>
+              <p className="gpill__empty">Nothing being made right now. New posts, reels and your next recommended post show here.</p>
             )}
+            {reels.map((r) => {
+              const live = reelWorking(r);
+              const st = live ? 'running' : r.status === 'done' ? 'done' : 'failed';
+              const key = `reel:${r.id}:${st}`;
+              const on = Boolean(unfold[key]);
+              const queued = live && r.status === 'queued' && r.stage !== 'retrying';
+              const spent = r.startedAt ? now - new Date(r.startedAt).getTime() : 0;
+              const total = (r.queue?.renderSec || 150) * 1000;
+              return (
+                <div key={key} className={`gpill__item is-${st} ${on ? 'is-unfolded' : ''}`}>
+                  <button type="button" className="gpill__row" onClick={() => toggle(key)} tabIndex={tab} aria-expanded={on}>
+                    <span className={`gpill__mark gpill__mark--${st} ${live && !queued ? 'has-motion' : ''}`} aria-hidden="true">
+                      {st === 'done' && <Icon name="check" size={10} strokeWidth={2.75} />}
+                      {st === 'failed' && <Icon name="x" size={10} strokeWidth={2.75} />}
+                      {live && !queued && <Motion kind="frame" />}
+                    </span>
+                    <span className="gpill__label">{reelStatusLine(r)}</span>
+                    <Icon name="chevron-down" size={14} strokeWidth={2.25} className="gpill__chev" />
+                    <span className="gpill__said">{`Reel · ${r.projectName || 'No project'}`}</span>
+                  </button>
+                  {live && (
+                    <span className="gpill__reelbar" aria-hidden="true">
+                      <i className={queued ? 'is-indeterminate' : ''} style={queued ? undefined : { width: `${Math.min(96, Math.max(4, (spent / total) * 100))}%` }} />
+                    </span>
+                  )}
+                  {st === 'done' && (
+                    <span className="gpill__acts">
+                      <button type="button" className="gpill__go" onClick={() => openReel(r)} tabIndex={tab}>View reel</button>
+                    </span>
+                  )}
+                  {st === 'failed' && (
+                    <span className="gpill__acts">
+                      <button type="button" className="gpill__go gpill__go--quiet" onClick={() => openReel(r)} tabIndex={tab}>Open</button>
+                    </span>
+                  )}
+                  <div className="gpill__more" aria-hidden={!on}>
+                    <div className="gpill__more-in">
+                      {queued && (
+                        <p className="gpill__fact">
+                          {r.queue?.ahead
+                            ? `Reels are made one after another. Yours starts in ${aboutMin(r.queue.startsInSec)}.`
+                            : 'Yours is next — starting now.'}
+                        </p>
+                      )}
+                      {live && !queued && (
+                        <p className="gpill__fact">
+                          {spent > total - 10000 ? 'Almost done.' : `About ${aboutMin((total - spent) / 1000).replace(/^about /, '')} left.`}
+                        </p>
+                      )}
+                      {live && (
+                        <span className="gpill__moreacts">
+                          <button type="button" className="gpill__clear" onClick={() => openReel(r)} tabIndex={on ? tab : -1}>Open</button>
+                        </span>
+                      )}
+                      {st === 'done' && r.post?.date && <p className="gpill__fact">{`On your calendar · ${dayOf(String(r.post.date).slice(0, 10))}`}</p>}
+                      {st === 'failed' && <p className="gpill__fail">{r.error || 'This reel could not be made.'}</p>}
+                      {!live && (
+                        <span className="gpill__moreacts">
+                          <button type="button" className="gpill__clear" onClick={() => clearReelJob(r.id)} tabIndex={on ? tab : -1}
+                            title="Takes it off this list. The reel stays on its capture.">
+                            Clear
+                          </button>
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
             {jobs.map((j) => {
               const phase = j.status === 'running' || j.status === 'queued' ? 'live' : j.status;
               const key = `${j.id}:${phase}`;

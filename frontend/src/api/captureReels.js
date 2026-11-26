@@ -2,12 +2,22 @@ import client from './client';
 
 // Captures › Generate reel. POST starts a background job (202); poll GET /:id
 // until status is 'done' or 'error'.
+// fired whenever a reel is started (detail = the reel), so the floating pill
+// (lib/reelJobs) and the Captures page's reel badges pick it up at once
+export const REEL_STARTED_EVENT = 'bauhly:reel-started';
+const announce = (reel) => {
+  if (reel?.id) {
+    try { window.dispatchEvent(new CustomEvent(REEL_STARTED_EVENT, { detail: reel })); } catch { /* no window */ }
+  }
+  return reel;
+};
+
 export async function createCaptureReel({ projectId, captureIds, direction = '', styleId = '', ideaId = '', takes = [], prefs = null, voiceover = null }) {
   try {
     // ideaId: a recommended post — the cut follows its reel plan (sequences)
     // prefs: Capture › format panel › Reel settings { graphics, music }
     const { data } = await client.post('/capture-reels', { projectId, captureIds, direction, ...(styleId ? { styleId } : {}), ...(ideaId ? { ideaId } : {}), ...(takes.length ? { takes } : {}), ...(prefs ? { prefs } : {}), ...(voiceover ? { voiceover } : {}) });
-    return data.reel;
+    return announce(data.reel);
   } catch (err) {
     // one reel at a time per capture: the running one comes back with the 409
     if (err?.response?.status === 409 && err.response.data?.reel) return err.response.data.reel;
@@ -15,12 +25,18 @@ export async function createCaptureReel({ projectId, captureIds, direction = '',
   }
 }
 
+// the floating pill: reels being made + finished in the last 12 h (with projectName)
+export async function listRecentCaptureReels() {
+  const { data } = await client.get('/capture-reels?recent=1');
+  return data.reels || [];
+}
+
 // Experimental: the same capture, recordings, story and photos, cut again by the current editor.
 // replacePost: the new video replaces the one in the reel's calendar post (same day) — the post's Debug tab
 export async function regenerateCaptureReel(id, { replacePost = false } = {}) {
   try {
     const { data } = await client.post(`/capture-reels/${encodeURIComponent(id)}/regenerate`, replacePost ? { replacePost: true } : {});
-    return data.reel;
+    return announce(data.reel);
   } catch (err) {
     if (err?.response?.status === 409 && err.response.data?.reel) return err.response.data.reel;
     throw err;

@@ -15,20 +15,12 @@ import {
   createCaptureReel, listCaptureReels, getCaptureReel, deleteCaptureReel, reelWorking, getReelSystem,
 } from '../../api/captureReels';
 import ReelStyleModal from './ReelStyleModal';
+import { REEL_STEPS, reelStepIndex, aboutMin, clockOf } from '../../lib/reelJobs';
 
 // Remotion (the in-browser player) only downloads when a preview is shown
 const ReelPreview = lazy(() => import('./ReelPreview'));
 import './reelStudio.css';
 
-const STEPS = [
-  { id: 'reading', say: 'Watching your photos and clips' },
-  { id: 'writing', say: 'Writing the hook and the cut' },
-  { id: 'scoring', say: 'Composing the music' },
-  { id: 'cutting', say: 'Cutting and animating the reel' },
-  { id: 'saving', say: 'Saving it' },
-];
-// the render itself is part of 'Cutting and animating the reel'
-const stepAt = (stage) => Math.max(0, STEPS.findIndex((s) => s.id === (stage === 'rendering' ? 'cutting' : stage)));
 const POLL_MS = 3000;
 
 const dayOf = (iso) => {
@@ -38,7 +30,7 @@ const dayOf = (iso) => {
     .toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' });
 };
 
-export default function ReelStudio({ item, autoStart = false, startWith = null, onClose, onReels, onDone, onViewPost }) {
+export default function ReelStudio({ item, autoStart = false, startWith = null, showReelId = '', onClose, onReels, onDone, onViewPost }) {
   useBodyScrollLock();
   const captureIds = item.memberIds;
   const [reels, setReels] = useState(null); // null = loading
@@ -86,7 +78,7 @@ export default function ReelStudio({ item, autoStart = false, startWith = null, 
       .then((list) => {
         if (!alive) return;
         put(list);
-        setShownId(list[0]?.id || null);
+        setShownId((list.find((r) => r.id === showReelId) || list[0])?.id || null);
         if (autoStart && !started.current && !list.some(reelWorking)) {
           started.current = true;
           start(startWith?.direction || '', startWith?.styleId || '');
@@ -138,6 +130,52 @@ export default function ReelStudio({ item, autoStart = false, startWith = null, 
     }, 45000);
     return () => clearTimeout(t);
   }, [queuedId]);
+  // ── where the reel is, in words, with a clock ─────────────────────────────
+  const working = reelWorking(reel);
+  const queued = working && reel.status === 'queued' && reel.stage !== 'retrying';
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    if (!working) return undefined;
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, [working]);
+  // the voiceover step only for a reel that has one
+  const steps = REEL_STEPS.filter((s) => s.id !== 'voicing' || reel?.audioMode === 'voiceover' || reel?.stage === 'voicing');
+  const at = !working || reel.status === 'queued' ? -1
+    : Math.max(0, steps.findIndex((s) => s.id === REEL_STEPS[reelStepIndex(reel.stage)]?.id));
+  const progress = (() => {
+    if (!working) return {};
+    if (reel.stage === 'retrying') {
+      return { title: 'Trying again', say: 'Something went wrong on our side — starting this reel again in a moment.', pct: null };
+    }
+    if (queued) {
+      const ahead = reel.queue?.ahead || 0;
+      const waited = now - new Date(reel.createdAt).getTime();
+      const slow = !ahead && waited > 60000;
+      return {
+        title: ahead ? `In line · ${ahead} ${ahead === 1 ? 'reel' : 'reels'} ahead of yours`
+          : slow ? 'Waiting for a renderer' : 'Starting your reel',
+        say: ahead ? `Yours starts in ${aboutMin(reel.queue?.startsInSec)}.`
+          : slow ? 'This is taking longer than usual — it starts as soon as one is free.' : 'Getting a renderer ready…',
+        pct: null,
+        clock: waited > 3000 ? `Waiting ${clockOf(waited)}` : '',
+      };
+    }
+    const step = steps[at] || REEL_STEPS[0];
+    const total = (reel.queue?.renderSec || 150) * 1000;
+    const spent = reel.startedAt ? now - new Date(reel.startedAt).getTime() : 0;
+    // time drives the bar inside a step's share, so it moves but never runs ahead of the work
+    const share = 100 / steps.length;
+    const byTime = Math.min(96, (spent / total) * 100);
+    const pct = Math.max(at * share + 2, Math.min((at + 1) * share - 2, byTime));
+    const left = Math.max(0, total - spent);
+    return {
+      title: step.say,
+      say: step.detail,
+      pct,
+      clock: `${clockOf(spent)}${left > 10000 ? ` · ${aboutMin(left / 1000)} left` : ' · almost done'}`,
+    };
+  })();
   const src = reel?.videoKey ? videoProxyUrl(reel.videoKey) : '';
   const postText = reel ? [reel.caption, (reel.hashtags || []).join(' ')].filter(Boolean).join('\n\n') : '';
 
@@ -197,23 +235,34 @@ export default function ReelStudio({ item, autoStart = false, startWith = null, 
               ) : (
                 <div className="rls__wait" style={reel.posterUrl ? { backgroundImage: `url(${reel.posterUrl})` } : undefined}>
                   {reelWorking(reel) ? (
-                    <ol className="rls__steps">
-                      {STEPS.map((s, i) => {
-                        const at = reel.status === 'queued' || reel.stage === 'retrying' ? -1 : stepAt(reel.stage);
-                        const state = i < at ? 'done' : i === at ? 'now' : 'next';
-                        return (
-                          <li key={s.id} className={`rls__step is-${state}`}>
-                            <span className="rls__dot">{state === 'done' ? <Icon name="check" size={12} strokeWidth={3} /> : state === 'now' ? <span className="pj-spin" /> : null}</span>
-                            {s.say}
-                          </li>
-                        );
-                      })}
-                      <li className="rls__note">
-                        {reel.stage === 'retrying' ? 'Something went wrong — trying again in a moment…'
-                          : reel.status === 'queued' ? 'Waiting for the reel ahead of it…' : 'You can close this — it keeps going.'}
-                      </li>
-                      {whyWait && <li className="rls__note rls__note--admin">{whyWait}</li>}
-                    </ol>
+                    <div className="rls__progress">
+                      <div className="rls__now" aria-live="polite">
+                        <span className={`rls__pulse ${queued ? 'is-queued' : ''}`} aria-hidden="true"><i /><i /><i /></span>
+                        <p className="rls__now-title">{progress.title}</p>
+                        <p className="rls__now-say">{progress.say}</p>
+                        <div
+                          className={`rls__bar ${progress.pct == null ? 'is-indeterminate' : ''}`}
+                          role="progressbar"
+                          aria-label="Reel progress"
+                          {...(progress.pct != null ? { 'aria-valuenow': Math.round(progress.pct), 'aria-valuemin': 0, 'aria-valuemax': 100 } : {})}
+                        >
+                          <span style={progress.pct != null ? { width: `${progress.pct}%` } : undefined} />
+                        </div>
+                        {progress.clock && <p className="rls__clock">{progress.clock}</p>}
+                      </div>
+                      <ol className="rls__steps">
+                        {steps.map((s, i) => {
+                          const state = i < at ? 'done' : i === at ? 'now' : 'next';
+                          return (
+                            <li key={s.id} className={`rls__step is-${state}`}>
+                              <span className="rls__dot">{state === 'done' ? <Icon name="check" size={12} strokeWidth={3} /> : state === 'now' ? <span className="pj-spin" /> : null}</span>
+                              {s.say}
+                            </li>
+                          );
+                        })}
+                        {whyWait && <li className="rls__note rls__note--admin">{whyWait}</li>}
+                      </ol>
+                    </div>
                   ) : (
                     <div className="rls__fail">
                       <Icon name="info" size={18} />
@@ -233,10 +282,15 @@ export default function ReelStudio({ item, autoStart = false, startWith = null, 
               )}
               {reelWorking(reel) && !reel.hook && (
                 <>
-                  <p className="rls__hook">Making your reel</p>
+                  <p className="rls__hook">{queued ? 'Your reel is in line' : 'Making your reel'}</p>
                   <p className="rls__concept">
-                    Usually about a minute. You can close this and keep working — the reel
-                    shows on this capture when it is ready.
+                    {queued
+                      ? `Reels are made one after another. ${reel.queue?.ahead
+                        ? `Yours starts in ${aboutMin(reel.queue.startsInSec)} and should be ready in ${aboutMin(reel.queue.etaSec)}.`
+                        : `Yours is next and takes ${aboutMin(reel.queue?.renderSec || 150)}.`}`
+                      : `A reel takes ${aboutMin(reel.queue?.renderSec || 150)}.`}
+                    {' '}You can close this and keep working — it shows on this capture and in the
+                    panel at the bottom when it is ready.
                   </p>
                 </>
               )}

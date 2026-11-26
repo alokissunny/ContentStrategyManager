@@ -17,7 +17,7 @@
  */
 
 import React, { useEffect, useRef, useState } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import Icon from '../brand/Icon';
 import EmptyState from '../components/ui/EmptyState';
 import { useBodyScrollLock } from './checkin/ui';
@@ -812,6 +812,17 @@ export default function Captures() {
   }, []);
 
   const all = allCaptureSessions(projects);
+  // the floating pill's "View reel": open that reel's studio here (route state `openReel`)
+  const location = useLocation();
+  const wantReel = location.state?.openReel || null;
+  useEffect(() => {
+    if (!wantReel || !hydrated) return;
+    const ids = wantReel.captureIds || [];
+    const it = all.find((x) => x.memberIds.some((id) => ids.includes(id)));
+    if (it) setReeling({ item: it, autoStart: false, reelId: wantReel.id });
+    navigate(`${location.pathname}${location.search}`, { replace: true, state: {} });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wantReel, hydrated]);
   // the questions Bauhly would ask about captures it cannot read — fetched for
   // the ones that have none stored yet (each is asked once, then kept)
   const [asked, setAsked] = useState({});
@@ -1466,6 +1477,7 @@ export default function Captures() {
           item={reeling.item}
           autoStart={reeling.autoStart}
           startWith={reeling.startWith}
+          showReelId={reeling.reelId || ''}
           onReels={noteReels}
           // a finished reel is on the calendar and its capture is now used
           onDone={() => refreshProjects().catch(() => {})}
