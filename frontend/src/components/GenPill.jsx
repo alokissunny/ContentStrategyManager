@@ -25,7 +25,7 @@ import {
 } from '../lib/planGeneration';
 import { useActiveHandle } from '../lib/store';
 import { openCaptureIdea, useCaptureOpen } from '../lib/captureUi';
-import { useReelJobs, clearReelJob, clearFinishedReelJobs, reelStatusLine, aboutMin } from '../lib/reelJobs';
+import { useReelJobs, clearReelJob, clearFinishedReelJobs, reelStatusLine, aboutMin, openReelStudio } from '../lib/reelJobs';
 import { reelWorking } from '../api/captureReels';
 import './genpill.css';
 
@@ -211,7 +211,7 @@ export default function GenPill({ slot = null }) {
   // a reel opens in its Reel studio on the Captures page (Captures reads `openReel`)
   const openReel = (r) => {
     setOpen(false);
-    nav('/dashboard/projects', { state: { openReel: { id: r.id, captureIds: r.captureIds || [] } } });
+    openReelStudio(nav, r);
   };
   const tab = open ? 0 : -1;
 

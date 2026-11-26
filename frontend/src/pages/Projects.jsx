@@ -14,6 +14,7 @@ import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { translate } from '../i18n';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
+import { openReelStudio } from '../lib/reelJobs';
 import Icon from '../brand/Icon';
 import { Mark } from '../brand/Logo';
 import { AutoTextarea, useBodyScrollLock } from './checkin/ui';
@@ -1219,6 +1220,17 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
   const [make, setMake] = useState(() => blankMake());
   const [made, setMade] = useState(false);
   const madeRef = useRef(false);
+  // the Reel started from the format panel: once this box is done, its Reel
+  // studio opens on the loading screen (not a "you'll find it in Captures" line)
+  const reelRef = useRef(null);
+  const navigate = useNavigate();
+  const toReelStudio = () => {
+    const r = reelRef.current;
+    if (!r?.id || landing) return false;
+    reelRef.current = null;
+    openReelStudio(navigate, r);
+    return true;
+  };
   const filedRef = useRef(null); // the capture just filed (visitorGenerate reads it after `finish`)
   // Capture › Reel › Include voiceover: { loading } | { error } | { parts } while the studio records
   const [voicePrep, setVoicePrep] = useState(null);
@@ -2119,7 +2131,13 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
     setNotice(false);
     setStep('boot');
     const d = say('Generating your plan…');
-    after(d + 500, () => (onCaptured ? onCaptured(capturedPayload()) : adding?.another && onPlan ? onPlan() : onExit?.()));
+    after(d + 500, () => {
+      if (onCaptured) onCaptured(capturedPayload());
+      else if (adding?.another && onPlan) onPlan();
+      else onExit?.();
+      // a Reel was started too: the plan carries on in the floating pill
+      toReelStudio();
+    });
   };
   /* `Generate plan` (deferQuestions): the question held back at filing is
      asked now, in this conversation; with none, the plan starts */
@@ -2182,6 +2200,8 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
       } else generatePlan();
       return;
     }
+    // a Reel alone: straight to its loading screen
+    if (reelRef.current && !landing) { onExit?.(); toReelStudio(); return; }
     const d = say(reelLine || 'Kept. Bauhly will bring this up with your next plan.');
     after(d, () => setStep('kept'));
   };
@@ -2196,6 +2216,7 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
         ...(voiceover ? { voiceover } : {}),
       });
       // createCaptureReel announces it (bauhly:reel-started): the Captures page and the floating pill follow it
+      if (made?.id && made.status !== 'error') reelRef.current = made;
       return 'Your Reel is being made — you’ll find it on this capture in Captures.';
     } catch (err) {
       return err?.response?.data?.message || 'The Reel could not be started — try Generate reel from Captures.';
@@ -2219,6 +2240,7 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
     setBusy(true);
     const line = await startReel(takes.length ? { parts: parts.map((p) => ({ say: p.say, ask: p.ask })), takes } : null);
     setBusy(false);
+    if (reelRef.current && !landing) { onExit?.(); toReelStudio(); return; }
     const d = say(takes.length ? line.replace('is being made', 'is being made with your voiceover') : line);
     after(d, () => setStep('kept'));
   };

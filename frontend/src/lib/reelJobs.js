@@ -128,3 +128,13 @@ export function reelStatusLine(r) {
   const i = reelStepIndex(r.stage);
   return i >= 0 ? REEL_STEPS[i].say : 'Making your reel';
 }
+
+/**
+ * Open a reel in its Reel studio (Captures page, which reads `openReel` from
+ * the route state): the floating pill's "View reel", and every flow that
+ * starts a reel — they jump straight to the studio's progress screen.
+ */
+export function openReelStudio(navigate, reel) {
+  if (!reel?.id) return;
+  navigate('/dashboard/projects', { state: { openReel: { id: reel.id, captureIds: reel.captureIds || [] } } });
+}

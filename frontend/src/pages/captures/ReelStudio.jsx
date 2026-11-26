@@ -25,6 +25,8 @@ const ReelPreview = lazy(() => import('./ReelPreview'));
 import './reelStudio.css';
 
 const POLL_MS = 3000;
+// the reel being started: shown at once, while the server answers
+const STARTING = '__starting';
 
 const dayOf = (iso) => {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(iso || ''));
@@ -55,8 +57,9 @@ export default function ReelStudio({ item, autoStart = false, startWith = null, 
   const lastStatus = useRef({}); // reel id → status at the previous update
   useEffect(() => {
     if (reels === null) return;
-    onReels?.(reels);
-    reels.forEach((r) => {
+    const real = reels.filter((r) => r.id !== STARTING);
+    onReels?.(real);
+    real.forEach((r) => {
       const was = lastStatus.current[r.id];
       if (was && was !== 'done' && was !== 'error' && r.status === 'done') onDone?.(r);
       lastStatus.current[r.id] = r.status;
@@ -66,28 +69,39 @@ export default function ReelStudio({ item, autoStart = false, startWith = null, 
 
   const start = async (note = '', styleId = '') => {
     setErr('');
+    // straight to the progress screen — the request takes a few seconds
+    let before = null;
+    setShownId((cur) => { before = cur; return STARTING; });
+    upsert({ id: STARTING, status: 'queued', stage: 'starting', captureIds, createdAt: new Date().toISOString(), styleId });
     try {
       const r = await createCaptureReel({ projectId: item.projectId, captureIds, direction: note, styleId });
-      upsert(r);
+      setReels((cur) => [r, ...(cur || []).filter((x) => x.id !== STARTING && x.id !== r.id)]
+        .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt))));
       setShownId(r.id);
     } catch (e) {
+      setReels((cur) => (cur || []).filter((x) => x.id !== STARTING));
+      setShownId(before);
       setErr(e?.response?.data?.message || 'The reel could not be started. Try again.');
     }
   };
 
   useEffect(() => {
     let alive = true;
+    // a new reel starts at once (the server answers a capture that already has
+    // one running with that reel) — not after the list loads
+    if (autoStart && !started.current) {
+      started.current = true;
+      start(startWith?.direction || '', startWith?.styleId || '');
+    }
     listCaptureReels(captureIds)
       .then((list) => {
         if (!alive) return;
-        put(list);
-        setShownId((list.find((r) => r.id === showReelId) || list[0])?.id || null);
-        if (autoStart && !started.current && !list.some(reelWorking)) {
-          started.current = true;
-          start(startWith?.direction || '', startWith?.styleId || '');
-        }
+        // keep the reel being started (or just started) that the list may not have yet
+        setReels((cur) => [...(cur || []).filter((x) => !list.some((l) => l.id === x.id)), ...list]
+          .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt))));
+        setShownId((cur) => cur || (list.find((r) => r.id === showReelId) || list[0])?.id || null);
       })
-      .catch(() => { if (alive) { put([]); setErr('Your reels could not be loaded.'); } });
+      .catch(() => { if (alive) { setReels((cur) => cur || []); setErr('Your reels could not be loaded.'); } });
     return () => { alive = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -114,7 +128,7 @@ export default function ReelStudio({ item, autoStart = false, startWith = null, 
   }, [offered?.id]);
 
   // poll every running job until it lands
-  const running = (reels || []).filter(reelWorking).map((r) => r.id).join(',');
+  const running = (reels || []).filter((r) => reelWorking(r) && r.id !== STARTING).map((r) => r.id).join(',');
   useEffect(() => {
     if (!running) return undefined;
     const t = setInterval(() => {
@@ -136,7 +150,7 @@ export default function ReelStudio({ item, autoStart = false, startWith = null, 
 
   // a reel queued for a while: ask the server why (admins only — others get 403)
   const [whyWait, setWhyWait] = useState('');
-  const queuedId = reel?.status === 'queued' && reel?.stage !== 'retrying' ? reel.id : '';
+  const queuedId = reel?.status === 'queued' && reel?.stage !== 'retrying' && reel.id !== STARTING ? reel.id : '';
   useEffect(() => {
     setWhyWait('');
     if (!queuedId) return undefined;
@@ -158,7 +172,8 @@ export default function ReelStudio({ item, autoStart = false, startWith = null, 
   }, [queuedId]);
   // ── where the reel is, in words, with a clock ─────────────────────────────
   const working = reelWorking(reel);
-  const queued = working && reel.status === 'queued' && reel.stage !== 'retrying';
+  const starting = reel?.id === STARTING;
+  const queued = working && !starting && reel.status === 'queued' && reel.stage !== 'retrying';
   const [now, setNow] = useState(Date.now());
   useEffect(() => {
     if (!working) return undefined;
@@ -171,6 +186,7 @@ export default function ReelStudio({ item, autoStart = false, startWith = null, 
     : Math.max(0, steps.findIndex((s) => s.id === REEL_STEPS[reelStepIndex(reel.stage)]?.id));
   const progress = (() => {
     if (!working) return {};
+    if (starting) return { title: 'Starting your reel', say: 'Sending your photos and story to the editor…', pct: null };
     if (reel.stage === 'retrying') {
       return { title: 'Trying again', say: 'Something went wrong on our side — starting this reel again in a moment.', pct: null };
     }

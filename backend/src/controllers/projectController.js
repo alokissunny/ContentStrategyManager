@@ -269,8 +269,32 @@ async function serializeProject(p, { lite = false, postDates: known = null } = {
 // Every S3 key held by a project or a single capture — for cleanup on delete.
 // (a video's stills live beside it in the bucket and go with it)
 const attachmentKeys = (a) => [a.key, ...stillKeysOf(a)];
-const projectKeys = (p) => (p.captures || []).flatMap((c) => (c.attachments || []).flatMap(attachmentKeys));
-const captureKeys = (c) => (c.attachments || []).flatMap(attachmentKeys);
+
+/**
+ * Delete the files of attachments that are going away — except a file another
+ * capture still shows. Captures share photos (an idea's capture reuses the
+ * earlier post's photos, a capture copied to a project keeps its files), and
+ * deleting one capture used to delete the file under all of them: their reels
+ * then failed with NoSuchKey (2026-11-26).
+ * `except`: { projectId } (a whole project going) or { captureId } (one capture).
+ */
+async function deleteUnsharedFiles(userId, attachments, except = {}) {
+  const going = (attachments || []).filter((a) => a?.key);
+  if (!going.length) return;
+  const others = await Project.find({ user: userId, 'captures.attachments.key': { $in: going.map((a) => a.key) } })
+    .select('_id captures._id captures.attachments.key').lean();
+  const shared = new Set();
+  others.forEach((p) => {
+    if (except.projectId && String(p._id) === String(except.projectId)) return;
+    (p.captures || []).forEach((c) => {
+      if (except.captureId && String(c._id) === String(except.captureId)) return;
+      (c.attachments || []).forEach((a) => shared.add(a.key));
+    });
+  });
+  const keep = going.filter((a) => shared.has(a.key));
+  if (keep.length) console.log(`[projects] kept ${keep.length} file(s) another capture still uses`);
+  await deleteObjects(going.filter((a) => !shared.has(a.key)).flatMap(attachmentKeys));
+}
 
 // Only keys the API generated — never trust a client-supplied key that points
 // outside this user's own upload prefix.
@@ -398,7 +422,7 @@ async function renameProject(req, res) {
 async function deleteProject(req, res) {
   const project = await Project.findOne({ _id: req.params.id, user: req.user._id });
   if (!project) return res.status(404).json({ message: 'Project not found' });
-  await deleteObjects(projectKeys(project));
+  await deleteUnsharedFiles(req.user._id, (project.captures || []).flatMap((c) => c.attachments || []), { projectId: project._id });
   await project.deleteOne();
   res.json({ id: req.params.id });
 }
@@ -552,8 +576,7 @@ async function updateCapture(req, res) {
     const next = sanitizeAttachments(req.body.attachments, req.user._id);
     const nextKeys = new Set(next.map((a) => a.key));
     // objects dropped from the note are removed from the bucket too
-    await deleteObjects((capture.attachments || [])
-      .filter((a) => !nextKeys.has(a.key)).flatMap(attachmentKeys));
+    await deleteUnsharedFiles(req.user._id, (capture.attachments || []).filter((a) => !nextKeys.has(a.key)), { captureId: capture._id });
     // carry any existing AI analysis across the edit — a re-uploaded client
     // payload only carries { type, key }, so re-key it from what we hold
     const priorAnalysis = new Map((capture.attachments || []).map((a) => [a.key, a.analysis]));
@@ -583,7 +606,7 @@ async function deleteCapture(req, res) {
   if (!project) return res.status(404).json({ message: 'Project not found' });
   const capture = project.captures.id(req.params.captureId);
   if (!capture) return res.status(404).json({ message: 'Capture not found' });
-  await deleteObjects(captureKeys(capture));
+  await deleteUnsharedFiles(req.user._id, capture.attachments, { captureId: capture._id });
   capture.deleteOne();
   await project.save();
   res.json({ project: await serializeProject(project) });

@@ -25,6 +25,7 @@
  * then POST /api/capture-reels { ideaId } cuts the reel to the plan.
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import Icon from '../brand/Icon';
 import FrameShot from './FrameShot';
 import { SequenceRecorder, STAGE } from './ReelPlanner';
@@ -32,6 +33,7 @@ import { getIdeaReelPlan, updateIdea } from '../api/ideas';
 import { createCaptureReel, getCaptureReel } from '../api/captureReels';
 import { uploadFiles, updateEntry } from '../lib/projectsStore';
 import { formatForMode } from './IdeaOffer';
+import { openReelStudio } from '../lib/reelJobs';
 import './contentOpportunity.css';
 
 /* ── framing references (bauhly-v3 lib/reelprep.js SHOTS / FILMING / WANTS) ─────────────────────────────── */
@@ -110,6 +112,7 @@ function writeTakes(captureId, takes) {
 }
 
 export default function ReelStory({ idea, captured, mode, onReady, onClose }) {
+  const navigate = useNavigate();
   const [phase, setPhase] = useState('warm'); // warm | story | failed | making
   const [plan, setPlan] = useState(null);
   const [error, setError] = useState('');
@@ -234,6 +237,8 @@ export default function ReelStory({ idea, captured, mode, onReady, onClose }) {
       const made = await createCaptureReel({ projectId: captured.projectId, captureIds: [captureId], ideaId: idea.id, takes: tk });
       writeTakes(captureId, {});
       setReel(made);
+      // straight to the Reel studio's progress screen
+      if (made?.id && made.status !== 'error') { onClose?.(); openReelStudio(navigate, made); }
     } catch (err) {
       setReel({ status: 'error', error: err?.response?.data?.message || err?.message || 'Something went wrong.' });
     }

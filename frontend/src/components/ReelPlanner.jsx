@@ -17,12 +17,14 @@
  */
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { createPortal } from 'react-dom';
+import { useNavigate } from 'react-router-dom';
 import Icon from '../brand/Icon';
 import { getIdeaReelPlan, updateIdea } from '../api/ideas';
 import { createCaptureReel, getCaptureReel } from '../api/captureReels';
 import { uploadFiles, updateEntry } from '../lib/projectsStore';
 import { startPlanGeneration } from '../lib/planGeneration';
 import { MISSIONS } from '../lib/missions';
+import { openReelStudio } from '../lib/reelJobs';
 import './reelPlanner.css';
 
 /* ── one open path (IdeaCard calls openReelPlanner; DashboardLayout mounts the host) ── */
@@ -259,6 +261,7 @@ function slotsOf(s) {
 }
 
 function ReelPlanner({ idea, captured, format: chosenFormat = '', onClose, onMade }) {
+  const navigate = useNavigate();
   const [step, setStep] = useState('loading');
   const [planning, setPlanning] = useState(''); // the format being planned (loading copy)
   const [plan, setPlan] = useState(null);
@@ -371,6 +374,8 @@ function ReelPlanner({ idea, captured, format: chosenFormat = '', onClose, onMad
       const made = await createCaptureReel({ projectId: captured.projectId, captureIds: [captureId], ideaId: idea.id, takes });
       setReel(made);
       onMade?.(made);
+      // straight to the Reel studio's progress screen
+      if (made?.id && made.status !== 'error') { onClose?.(); openReelStudio(navigate, made); }
     } catch (err) {
       setReel({ status: 'error', error: err?.response?.data?.message || err?.message || 'Something went wrong.' });
     }
