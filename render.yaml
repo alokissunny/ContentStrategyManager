@@ -12,7 +12,7 @@ services:
     # Capture reels render here too (headless Chrome via Remotion, installed by
     # backend's postinstall → scripts/setup-remotion.js). On 512 MB a render
     # runs one tab (REEL_RENDER_CONCURRENCY) and can still be tight next to the
-    # API — `standard`, or the separate worker below, is the safe home for it.
+    # API — production renders them on igsignal-reel-worker (REEL_WORKER_IN_API=0).
     plan: starter
     rootDir: backend
     buildCommand: npm install
@@ -33,6 +33,9 @@ services:
         value: "1"
       - key: PLAN_WORKER_IN_API
         value: "1"
+      # reels render on igsignal-reel-worker, never here (512 MB)
+      - key: REEL_WORKER_IN_API
+        value: "0"
       - key: REDIS_URL
         fromService:
           type: keyvalue
@@ -210,6 +213,72 @@ services:
     plan: starter
     maxmemoryPolicy: noeviction
     ipAllowList: []
+
+  # ── Capture reel renderer ───────────────────────────────────────────────
+  # Reels (headless Chrome via Remotion + ffmpeg) need ≥ 1.5 GB, so they never
+  # run on the 512 MB API — the API only queues them (Redis "capture-reel") and
+  # this worker renders them. `standard` = 2 GB / 1 CPU: one reel at a time.
+  # More reels at once → raise numInstances (each instance takes one), or move
+  # to `pro` (4 GB / 2 CPU) with CAPTURE_REEL_CONCURRENCY=2.
+  # Every key below comes from igsignal-api, so secrets live in one place.
+  - type: worker
+    name: igsignal-reel-worker
+    runtime: node
+    region: oregon
+    plan: standard
+    numInstances: 1
+    rootDir: backend
+    # postinstall (scripts/setup-remotion.js) installs backend/remotion and
+    # downloads Remotion's headless Chrome at build time
+    buildCommand: npm install
+    startCommand: node src/workers/index.js
+    autoDeploy: true
+    # a deploy's SIGTERM lets the reel in progress finish (a render is a few
+    # minutes); one cut off anyway is re-delivered and resumes from its saved cut
+    maxShutdownDelaySeconds: 300
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PLAN_QUEUE
+        value: "1"
+      - key: REEL_QUEUE
+        value: "1"
+      # reels only — plan generation stays where it is (PLAN_WORKER_IN_API)
+      - key: PLAN_WORKERS
+        value: "0"
+      - key: REEL_WORKERS
+        value: "1"
+      - key: CAPTURE_REEL_CONCURRENCY
+        value: "1"
+      - key: REDIS_URL
+        fromService:
+          type: keyvalue
+          name: igsignal-queue
+          property: connectionString
+      - key: MONGO_URI
+        fromService: { type: web, name: igsignal-api, envVarKey: MONGO_URI }
+      - key: OPENAI_API_KEY
+        fromService: { type: web, name: igsignal-api, envVarKey: OPENAI_API_KEY }
+      - key: ANTHROPIC_API_KEY
+        fromService: { type: web, name: igsignal-api, envVarKey: ANTHROPIC_API_KEY }
+      - key: ANTHROPIC_MODEL
+        fromService: { type: web, name: igsignal-api, envVarKey: ANTHROPIC_MODEL }
+      # voiceover (cloned voices) + Lyria music
+      - key: ELEVENLABS_API_KEY
+        fromService: { type: web, name: igsignal-api, envVarKey: ELEVENLABS_API_KEY }
+      - key: GEMINI_API_KEY
+        fromService: { type: web, name: igsignal-api, envVarKey: GEMINI_API_KEY }
+      # clips in, MP4 / poster / voice out
+      - key: AWS_REGION
+        fromService: { type: web, name: igsignal-api, envVarKey: AWS_REGION }
+      - key: AWS_ACCESS_KEY_ID
+        fromService: { type: web, name: igsignal-api, envVarKey: AWS_ACCESS_KEY_ID }
+      - key: AWS_SECRET_ACCESS_KEY
+        fromService: { type: web, name: igsignal-api, envVarKey: AWS_SECRET_ACCESS_KEY }
+      - key: S3_BUCKET_NAME
+        fromService: { type: web, name: igsignal-api, envVarKey: S3_BUCKET_NAME }
+      - key: MEDIA_CDN_BASE_URL
+        fromService: { type: web, name: igsignal-api, envVarKey: MEDIA_CDN_BASE_URL }
 
   # Next step — a separate worker so generation never shares the API's memory.
   # Uncomment, give it the API's env (every key the API has set in the

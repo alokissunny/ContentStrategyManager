@@ -218,8 +218,16 @@ async function deleteReel(req, res) {
 async function reelSystem(req, res) {
   const minMb = Number(process.env.REEL_RENDER_MIN_MEMORY_MB) || 1536;
   const memMb = memoryLimitMb();
-  const { reelWorkerState } = require('../workers/reelWorkers');
+  const { reelWorkerState, liveReelWorkers } = require('../workers/reelWorkers');
   const waiting = await CaptureReel.countDocuments({ status: 'queued', queueTag: queueTag() });
+  // workers on any service (the API itself never renders in production)
+  let workers = null;
+  if (isReelQueueConfigured()) {
+    workers = await Promise.race([
+      liveReelWorkers(),
+      new Promise((ok) => setTimeout(() => ok(null), 2000)),
+    ]).catch(() => null);
+  }
   res.json({
     queueConfigured: isReelQueueConfigured(),
     queueTag: queueTag(),
@@ -227,6 +235,8 @@ async function reelSystem(req, res) {
     renderNeedsMb: minMb,
     canRender: memMb >= minMb,
     workerInThisProcess: reelWorkerState(),
+    // null = couldn't ask Redis; [] = no reel worker alive anywhere
+    workers,
     env: {
       PLAN_QUEUE: process.env.PLAN_QUEUE || '', REEL_QUEUE: process.env.REEL_QUEUE || '',
       PLAN_WORKER_IN_API: process.env.PLAN_WORKER_IN_API || '', REEL_WORKER_IN_API: process.env.REEL_WORKER_IN_API || '',

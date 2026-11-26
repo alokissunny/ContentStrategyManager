@@ -69,7 +69,51 @@ function startReelWorkers() {
   worker.on('error', (err) => console.error('[reelWorkers] worker error:', err.message));
   console.log(`[reelWorkers] listening on ${QUEUE_NAME} · concurrency ${concurrency} · memory limit ${memoryLimitMb()} MB`);
   state = { started: true, concurrency, memoryLimitMb: memoryLimitMb(), since: new Date().toISOString() };
-  return { close: () => worker.close() };
+  const stopBeat = startHeartbeat(state);
+  return { close: async () => { await stopBeat(); await worker.close(); } };
 }
 
-module.exports = { startReelWorkers, reelWorkerState };
+// Heartbeat in Redis, so the API (which never renders) can tell admins which
+// reel workers are alive on OTHER services — e.g. igsignal-reel-worker.
+const HEARTBEAT_PREFIX = 'reel-worker:alive:';
+const HEARTBEAT_EVERY_MS = 30 * 1000;
+const HEARTBEAT_TTL_S = 90;
+
+function startHeartbeat(info) {
+  const os = require('os');
+  const key = `${HEARTBEAT_PREFIX}${os.hostname()}:${process.pid}`;
+  const value = () => JSON.stringify({
+    host: os.hostname(),
+    service: process.env.RENDER_SERVICE_NAME || '',
+    concurrency: info.concurrency,
+    memoryLimitMb: info.memoryLimitMb,
+    since: info.since,
+  });
+  const beat = () => redisConnection().set(key, value(), 'EX', HEARTBEAT_TTL_S)
+    .catch((err) => console.warn('[reelWorkers] heartbeat failed:', err.message));
+  beat();
+  const t = setInterval(beat, HEARTBEAT_EVERY_MS);
+  t.unref();
+  return async () => {
+    clearInterval(t);
+    await redisConnection().del(key).catch(() => {});
+  };
+}
+
+// The reel workers alive anywhere on this Redis (heartbeat < 90 s old).
+async function liveReelWorkers() {
+  const redis = redisConnection();
+  const keys = [];
+  let cursor = '0';
+  do {
+    // eslint-disable-next-line no-await-in-loop
+    const [next, batch] = await redis.scan(cursor, 'MATCH', `${HEARTBEAT_PREFIX}*`, 'COUNT', 100);
+    cursor = next;
+    keys.push(...batch);
+  } while (cursor !== '0' && keys.length < 200);
+  if (!keys.length) return [];
+  const values = await redis.mget(keys);
+  return values.filter(Boolean).map((v) => { try { return JSON.parse(v); } catch { return null; } }).filter(Boolean);
+}
+
+module.exports = { startReelWorkers, reelWorkerState, liveReelWorkers };

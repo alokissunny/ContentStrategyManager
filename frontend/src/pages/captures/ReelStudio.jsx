@@ -124,11 +124,16 @@ export default function ReelStudio({ item, autoStart = false, startWith = null, 
     if (!queuedId) return undefined;
     const t = setTimeout(() => {
       getReelSystem().then((sys) => {
-        const w = sys.workerInThisProcess || {};
+        const here = sys.workerInThisProcess || {};
+        // a worker on another service (igsignal-reel-worker) counts too
+        const live = Array.isArray(sys.workers) ? sys.workers : null;
+        const w = here.started ? here : (live && live[0]) ? { ...live[0], started: true } : here;
+        const slots = live && live.length ? live.reduce((n, x) => n + (x.concurrency || 1), 0) : (w.concurrency || 1);
         if (!sys.queueConfigured) setWhyWait('Admin: no reel queue on this server (REDIS_URL / PLAN_QUEUE).');
+        else if (live && !live.length && !here.started) setWhyWait(`Admin: no reel worker is running anywhere — start igsignal-reel-worker (needs ≥ ${sys.renderNeedsMb} MB). This API: ${here.reason || 'does not render'}.`);
         else if (!w.started) setWhyWait(`Admin: no reel worker is running on this server — ${w.reason || 'not started'}. Memory seen: ${sys.memoryLimitMb} MB (needs ${sys.renderNeedsMb}).`);
-        else if (sys.queue && sys.queue.active >= (w.concurrency || 1)) setWhyWait(`Admin: the worker is busy (${sys.queue.active} rendering, ${sys.queue.waiting} waiting).`);
-        else setWhyWait(`Admin: a worker is running (${w.memoryLimitMb} MB, since ${String(w.since || '').slice(11, 16)} UTC) but has not taken this reel yet.`);
+        else if (sys.queue && sys.queue.active >= slots) setWhyWait(`Admin: the reel worker${live && live.length > 1 ? 's are' : ' is'} busy (${sys.queue.active} rendering, ${sys.queue.waiting} waiting).`);
+        else setWhyWait(`Admin: a reel worker is running${w.service ? ` on ${w.service}` : ''} (${w.memoryLimitMb} MB, since ${String(w.since || '').slice(11, 16)} UTC) but has not taken this reel yet.`);
       }).catch(() => {});
     }, 45000);
     return () => clearTimeout(t);
