@@ -1720,11 +1720,6 @@ async function runCaptureReel(reelId) {
       ledger.add({ source: 'Capture reel — resumed', output: `try ${attempt}: the saved cut is rendered again — no new model calls` });
     } else {
     const material = await loadMaterial(reel, ledger);
-    // Lambda renders read 1080p copies of the clips: start them now, so they encode while the AI
-    // steps below wait on their APIs and the render doesn't wait for them (reelRenderProxy.js)
-    if (useLambdaFor(reel.user)) {
-      require('./reelRenderProxy').warmClipCopies(material.assets.filter((a) => a.kind === 'video').map((a) => a.key));
-    }
     const handle = reel.instagramUsername || '';
     const [dna, colors, fonts] = await Promise.all([
       handle ? loadBrandDna(reel.user, handle).catch(() => null) : null,

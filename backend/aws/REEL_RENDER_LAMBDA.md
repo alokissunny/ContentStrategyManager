@@ -138,10 +138,13 @@ Measured end to end on the explainer reel: clip copy 42.5 s (once; Mac), Lambda 
   `REMOTION_AWS_SECRET_ACCESS_KEY` set in the Render dashboard.** Without them every reel falls back
   to the local render (exit 3), so it's slower but nothing breaks. Kill switch:
   `REEL_RENDER_BACKEND=local`.
-- Clip copies start as soon as the reel worker knows the clips (`warmClipCopies` right after
-  `loadMaterial`), so the encode overlaps the AI steps. At most 2 encodes per process,
-  `-threads 2`. Not done at upload: the API box (512 MB) is too small for a 4K encode, and
-  only reels need the copies.
+- Clip copies (revised 2026-11-27 after an OOM): copying every clip of a capture as the reel
+  started, 2 at a time, with ffmpeg's default threads, killed the worker twice on a capture with
+  six 4K clips. A 4K HEVC decode is ~700 MB that way, because the decoder threads follow the
+  host's CPUs. Now copies are made at render time, only for the clips the cut uses and only the
+  seconds it plays (`<name>.r1080-<from>-<to>.mp4`, scene start times shifted). One encode runs
+  per process, with 2 decoder / 1 filter / 2 encoder threads, ~350 MB. The explainer reel's
+  3 s of a 28 s 4K clip copies in 8.7 s instead of 42.5 s.
 - `clipFile()` streams clips to disk (no whole-clip Buffer).
 - One local Chrome render per process at a time (`localRenderSlot`): the fallback can't stack
   two Chromes on 2 GB however many reels run.
