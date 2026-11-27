@@ -84,18 +84,20 @@ const AGENTS = {
   // Captures › Generate reel — the Reel Director that cuts a capture's photos
   // and clips into one reel (services/captureReelAgent.js). Sees the media.
   captureReel: {
-    defaultProvider: 'openai',
+    // Claude Sonnet 5.5 for the reel agents (studio, 2026-11-27); PLAN_CAPTURE_REEL_MODEL overrides
+    defaultProvider: 'anthropic',
     modelEnv: 'PLAN_CAPTURE_REEL_MODEL',
     providerEnv: 'PLAN_CAPTURE_REEL_PROVIDER',
-    defaultModel: 'gpt-5.6-terra',
+    defaultModel: 'claude-sonnet-5-5',
   },
   // Reel style analyst — reads a reference reel's frames + measured cuts/tempo
   // into a reproducible style spec (services/reelStyleAnalyzer.js).
   reelStyle: {
-    defaultProvider: 'openai',
+    // Claude Sonnet 5.5 for the reel agents (studio, 2026-11-27); PLAN_REEL_STYLE_MODEL overrides
+    defaultProvider: 'anthropic',
     modelEnv: 'PLAN_REEL_STYLE_MODEL',
     providerEnv: 'PLAN_REEL_STYLE_PROVIDER',
-    defaultModel: 'gpt-5.6-terra',
+    defaultModel: 'claude-sonnet-5-5',
   },
   reelDirector: {
     defaultProvider: 'openai',

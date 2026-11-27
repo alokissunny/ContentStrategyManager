@@ -283,7 +283,8 @@ function cleanExplainers(list, words, { hookEndSec = 1.5 } = {}) {
    A music-led reel has no speech to time a drawing against, so this agent reads the capture (the studio's
    own words) and the cut (shot by shot) and orders up to 2 drawings, each cut in AFTER a given shot as
    its own full-screen card. Same vocabulary and the same code checks as the talking-reel agent; numbers
-   must be in the studio's words. OpenAI (house rule): REEL_TEASER_EXPLAINER_MODEL, default gpt-5.6-terra. */
+   must be in the studio's words. Claude Sonnet 5.5 like the other reel agents (2026-11-27):
+   REEL_TEASER_EXPLAINER_MODEL overrides. */
 const TEASER_MAX = 2;
 const TEASER_TOOL = (() => {
   const item = JSON.parse(JSON.stringify(EXPLAINER_TOOL.input_schema.properties.explainers.items));
@@ -323,7 +324,7 @@ async function designTeaserExplainers({ story = '', shots = [], language = '' })
     ...(language ? { language } : {}),
     shots: shots.map((x) => ({ i: x.i, text: str(x.text, 80), shows: str(x.shows, 160) })),
   });
-  const model = process.env.REEL_TEASER_EXPLAINER_MODEL || 'gpt-5.6-terra';
+  const model = process.env.REEL_TEASER_EXPLAINER_MODEL || 'claude-sonnet-5-5';
   const started = Date.now();
   const res = await completeToolCall({
     model, system, userParts: [{ type: 'text', text: user }], tool: TEASER_TOOL, maxTokens: 6000,
