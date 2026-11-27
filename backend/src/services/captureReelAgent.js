@@ -1554,7 +1554,8 @@ function renderReel(timeline, outPath, { onProgress = null, timeoutMs = RENDER_T
       if (code === 0 && fs.existsSync(outPath)) { resolve({ outPath, timing, lambda }); return; }
       // render-lambda.mjs: Lambda isn't set up here (no creds / no function) — not a render failure
       if (code === 3) { reject(Object.assign(new Error('Lambda render unavailable'), { lambdaUnavailable: true, detail: stderr.split('\n').filter(Boolean).slice(-2).join(' | ') })); return; }
-      const tail = stderr.split('\n').filter(Boolean).slice(-6).join(' | ');
+      // the error lines, not the stack frames under them (a crash at import is otherwise only "at …" lines)
+      const tail = stderr.split('\n').filter((l) => l.trim() && !/^\s+at /.test(l)).slice(-6).join(' | ');
       // the renderer workspace was never installed on this server (see scripts/setup-remotion.js)
       if (/ERR_MODULE_NOT_FOUND|Cannot find (package|module) '@remotion|Could not find Chrome|browser.*not.*found/i.test(stderr)) {
         reject(Object.assign(new Error('Video rendering is not set up on this server yet, so the reel could not be made.'), { userFacing: true, detail: tail }));
