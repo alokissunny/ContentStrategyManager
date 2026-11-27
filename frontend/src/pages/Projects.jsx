@@ -2232,8 +2232,9 @@ export function CaptureChat({ presetProjectId, defaultProjectId, onExit, onViewP
       setVoicePrep({ error: err?.response?.data?.message || 'Bauhly could not write the voiceover script just now.' });
     }
   };
-  const voiceDone = async (takes) => {
-    const parts = voicePrep?.parts || [];
+  // editedParts: the script as the studio left it in VoicePrep (their edits included)
+  const voiceDone = async (takes, editedParts) => {
+    const parts = editedParts?.length ? editedParts : (voicePrep?.parts || []);
     setVoicePrep(null);
     setStep('boot');
     userSays(takes.length ? 'Continue' : 'Continue without a take');

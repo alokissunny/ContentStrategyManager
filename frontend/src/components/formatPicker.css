@@ -324,3 +324,18 @@
 .vclone__voice--add { color: var(--ink-500); border-style: dashed; padding-left: 12px; }
 .vclone__voice--add:hover { color: var(--ink-900); }
 .vclone__voice-note { margin: 8px 0 0; font-size: 12.5px; color: var(--ink-500); }
+
+/* Edit script (2026-11-27): the part's words are editable before they're recorded or read by the clone */
+.vprep__sayhead { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-2); }
+.vprep__edited { color: var(--ink-400); font-weight: 500; letter-spacing: 0; text-transform: none; }
+.vprep .vprep__editbtn { margin-right: calc(-1 * var(--sp-2)); }
+.vprep__editor { display: flex; flex-direction: column; gap: var(--sp-2); }
+.vprep__text {
+  width: 100%; box-sizing: border-box; resize: vertical; min-height: 84px;
+  padding: var(--sp-3); border: 1px solid var(--border-strong, var(--border)); border-radius: var(--r-sm);
+  background: var(--surface); color: var(--ink-900);
+  font-family: inherit; font-size: var(--text-base); line-height: 1.6;
+}
+.vprep__text:focus { outline: none; border-color: var(--ink-900); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ink-900) 12%, transparent); }
+.vprep__editacts { display: flex; align-items: center; justify-content: flex-end; gap: var(--sp-2); flex-wrap: wrap; }
+.vprep__count { margin-right: auto; font-size: var(--text-xs); color: var(--ink-500); font-variant-numeric: tabular-nums; }

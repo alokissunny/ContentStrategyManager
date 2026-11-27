@@ -4,6 +4,8 @@
  * each with Record voiceover / Upload audio. Every take is kept (the last one of a part is used);
  * a take is uploaded the moment it lands. Continue hands the takes back; it is not a gate —
  * "Continue without a take" builds the Reel without a voice.
+ * Each part's script can be edited before it's read (2026-11-27): the cloned voice reads the edited
+ * words, and Continue hands the edited parts back with the takes.
  */
 import React, { useEffect, useRef, useState } from 'react';
 import Icon from '../brand/Icon';
@@ -28,6 +30,17 @@ export default function VoicePrep({ parts = [], loading = false, error = '', onR
   const [clone, setClone] = useState(null);
   const [cloningAll, setCloningAll] = useState(false);
   const [profileId, setProfileId] = useState(''); // '' = the Brand Kit default voice profile
+  // the studio's edits to the script, part → text (none = Bauhly's suggestion)
+  const [script, setScript] = useState({});
+  const [editing, setEditing] = useState(null); // the part whose script is open for editing
+  useEffect(() => { setScript({}); setEditing(null); }, [parts]);
+  const textOf = (i) => (script[i] ?? parts[i]?.say ?? '');
+  const edited = (i) => script[i] != null && script[i].trim() !== (parts[i]?.say || '').trim();
+  const finishEdit = (i) => {
+    // an emptied part goes back to the suggestion
+    if (script[i] != null && !script[i].trim()) setScript((x) => { const n = { ...x }; delete n[i]; return n; });
+    setEditing(null);
+  };
 
   useEffect(() => {
     let on = true;
@@ -59,12 +72,13 @@ export default function VoicePrep({ parts = [], loading = false, error = '', onR
 
   // the part's script read in the cloned voice — saved server-side, so it lands as a take like a recording
   const addClonedTake = async (part) => {
-    const text = parts[part]?.say;
+    const text = textOf(part).trim();
     if (!text) return;
     const id = `${part}-c${Date.now()}`;
-    setVoices((v) => ({ ...v, [part]: [...(v[part] || []), { id, kind: 'cloned', state: 'saving' }] }));
+    // `text`: what this take reads — a later edit to the part marks it out of date
+    setVoices((v) => ({ ...v, [part]: [...(v[part] || []), { id, kind: 'cloned', state: 'saving', text }] }));
     try {
-      const out = await speakWithClone({ text, part, script: parts.map((p) => p.say || ''), profileId });
+      const out = await speakWithClone({ text, part, script: parts.map((_, i) => textOf(i).trim()), profileId });
       setVoices((v) => ({ ...v, [part]: (v[part] || []).map((t) => (t.id === id ? { ...t, key: out?.key || '', ms: out?.ms || 0, url: out?.url || '', tone: out?.tone || '', state: out?.key ? 'saved' : 'failed' } : t)) }));
     } catch (e) {
       const why = e?.response?.data?.message || '';
@@ -111,6 +125,8 @@ export default function VoicePrep({ parts = [], loading = false, error = '', onR
   const takes = Object.entries(voices)
     .flatMap(([part, list]) => list.filter((t) => t.state === 'saved' && t.key).map((t) => ({ part: Number(part), key: t.key })));
   const got = new Set(takes.map((t) => t.part)).size;
+  // the script as it stands now, edits included — what the Reel is cut to
+  const finalParts = () => parts.map((p, i) => ({ ...p, say: textOf(i).trim() || p.say }));
 
   if (loading) {
     return (
@@ -157,12 +173,44 @@ export default function VoicePrep({ parts = [], loading = false, error = '', onR
             </div>
             {p.ask && <p className="ck-scard__q">{p.ask}</p>}
             <div className="ck-say">
-              <div className="ck-say__head"><p className="ck-say__label">Say this</p></div>
-              <p className="ck-say__text">
-                <span className="ck-say__mark" aria-hidden="true">&ldquo;</span>
-                {p.say}
-                <span className="ck-say__mark" aria-hidden="true">&rdquo;</span>
-              </p>
+              <div className="ck-say__head vprep__sayhead">
+                <p className="ck-say__label">Say this{edited(i) ? <span className="vprep__edited"> · Edited</span> : null}</p>
+                {editing !== i && (
+                  <button type="button" className="btn btn--quiet btn--sm vprep__editbtn" onClick={() => setEditing(i)} disabled={recAt != null}>
+                    <Icon name="edit" size={13} strokeWidth={2} /> Edit script
+                  </button>
+                )}
+              </div>
+              {editing === i ? (
+                <div className="vprep__editor">
+                  <textarea
+                    className="vprep__text"
+                    value={textOf(i)}
+                    maxLength={600}
+                    rows={Math.min(8, Math.max(3, Math.ceil(textOf(i).length / 52)))}
+                    aria-label={`Script for part ${i + 1}`}
+                    // eslint-disable-next-line jsx-a11y/no-autofocus
+                    autoFocus
+                    onChange={(e) => { const val = e.target.value; setScript((x) => ({ ...x, [i]: val })); }}
+                    onKeyDown={(e) => { if (e.key === 'Escape' || (e.key === 'Enter' && (e.metaKey || e.ctrlKey))) finishEdit(i); }}
+                  />
+                  <div className="vprep__editacts">
+                    <span className="vprep__count">{textOf(i).length}/600</span>
+                    {edited(i) && (
+                      <button type="button" className="btn btn--quiet btn--sm" onClick={() => setScript((x) => { const n = { ...x }; delete n[i]; return n; })}>
+                        Use Bauhly’s suggestion
+                      </button>
+                    )}
+                    <button type="button" className="btn btn--secondary btn--sm" onClick={() => finishEdit(i)}>Done</button>
+                  </div>
+                </div>
+              ) : (
+                <p className="ck-say__text">
+                  <span className="ck-say__mark" aria-hidden="true">&ldquo;</span>
+                  {textOf(i)}
+                  <span className="ck-say__mark" aria-hidden="true">&rdquo;</span>
+                </p>
+              )}
             </div>
             {list.length > 0 && (
               <ul className="ck-takes ck-takes--tight">
@@ -173,6 +221,7 @@ export default function VoicePrep({ parts = [], loading = false, error = '', onR
                       {list.length > 1 ? `Take ${ix + 1}` : t.kind === 'cloned' ? 'Your cloned voice' : 'Your recording'}
                       {list.length > 1 && t.kind === 'cloned' ? ' · cloned voice' : ''}
                       {t.kind === 'cloned' && t.tone ? ` · ${t.tone}` : ''}
+                      {t.kind === 'cloned' && t.text && t.state === 'saved' && t.text !== textOf(i).trim() ? ' · reads the earlier script' : ''}
                       {t.kind === 'uploaded' && t.name ? ` · ${t.name}` : ''}
                       {t.ms ? ` · ${fmtMs(t.ms)}` : ''}
                       {t.state === 'saving' ? (t.kind === 'cloned' ? ' · Reading in your voice…' : ' · Saving…') : t.state === 'failed' ? ` · ${t.why || 'Could not save'}` : ''}
@@ -212,7 +261,7 @@ export default function VoicePrep({ parts = [], loading = false, error = '', onR
             </div>
             {clone?.cloned && (
               <div className="ck-gr__acts vprep__clone">
-                <button type="button" className="btn btn--quiet btn--sm" onClick={() => addClonedTake(i)} disabled={recAt != null || cloningAll || list.some((t) => t.state === 'saving')}>
+                <button type="button" className="btn btn--quiet btn--sm" onClick={() => addClonedTake(i)} disabled={recAt != null || cloningAll || editing === i || list.some((t) => t.state === 'saving')}>
                   <Icon name="sparkle" size={13} strokeWidth={2} /> {(() => {
                     const ps = clone.profiles || [];
                     const v = ps.find((x) => x.id === profileId) || ps.find((x) => x.isDefault) || ps[0];
@@ -230,7 +279,7 @@ export default function VoicePrep({ parts = [], loading = false, error = '', onR
         <p className="ck-stage__note">Bauhly could not reach your microphone. Upload an audio file instead.</p>
       )}
       <div className="ck-gr__outs">
-        <button type="button" className="btn btn--primary btn--sm" onClick={() => onDone(takes)} disabled={busy || saving || cloningAll || recAt != null}>
+        <button type="button" className="btn btn--primary btn--sm" onClick={() => onDone(takes, finalParts())} disabled={busy || saving || cloningAll || recAt != null}>
           {saving ? 'Saving your takes…' : got ? 'Continue' : 'Continue without a take'}
         </button>
       </div>
