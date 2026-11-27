@@ -35,7 +35,7 @@ const { completeToolCall, splitPromptTemplate } = require('./llmComplete');
 const { resolvePlanAgentLlm } = require('./planAgentLlm');
 const { estimatePlanCostUsd } = require('./weeklyPlan');
 const {
-  getObjectBytes, uploadBytes, headObject, getMediaUrl, isS3Configured,
+  getObjectBytes, getObjectStream, uploadBytes, headObject, getMediaUrl, isS3Configured,
 } = require('./s3Client');
 const { analyzeVideoAsset } = require('./videoAnalysis');
 const { brandKitColors, brandKitFonts } = require('./brandKitColors');
@@ -151,6 +151,25 @@ async function audioOf(buffer) {
   }
 }
 
+// The soundtrack of a stored clip without holding the video in memory: the
+// object streams to a temp file and ffmpeg reads it from disk. Phone clips run
+// to hundreds of MB — buffering them (getObjectBytes) OOM-killed the 512 MB
+// API instance on Include voiceover's sound check.
+async function audioOfKey(key) {
+  const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'capreel-k-'));
+  try {
+    const src = path.join(dir, 'src');
+    const out = path.join(dir, 'voice.mp3');
+    const { body } = await getObjectStream(key);
+    await require('stream/promises').pipeline(body, fs.createWriteStream(src));
+    await run(ffmpegPath(), ['-nostdin', '-hide_banner', '-loglevel', 'error', '-y', '-i', src,
+      '-vn', '-ac', '1', '-ar', '16000', '-b:a', '48k', '-t', '600', out], { timeout: 120000 });
+    return await fs.promises.readFile(out);
+  } finally {
+    fs.promises.rm(dir, { recursive: true, force: true }).catch(() => {});
+  }
+}
+
 async function whisperWords(mp3, { segments = false } = {}) {
   const client = getOpenAIClient();
   const res = await client.audio.transcriptions.create({
@@ -213,8 +232,7 @@ const clipWordsCache = new Map();
 async function clipWords(key) {
   if (clipWordsCache.has(key)) return clipWordsCache.get(key);
   const p = (async () => {
-    const { buffer } = await getObjectBytes(key);
-    const mp3 = await audioOf(buffer);
+    const mp3 = await audioOfKey(key);
     const [w, loudness] = await Promise.all([whisperWords(mp3, { segments: true }), loudnessOf(mp3).catch(() => null)]);
     return { ...w, loudness };
   })();

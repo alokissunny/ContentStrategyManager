@@ -16,6 +16,14 @@ const { extractJson, estimatePlanCostUsd } = require('./weeklyPlan');
 const { loadBrandDna } = require('./planInputs');
 
 const PROMPT_FILE = path.join(__dirname, '..', '..', 'prompts', 'reel-voiceover-script.md');
+// the sound check + the script call must finish inside the studio's 120 s request timeout
+const SOUND_CHECK_BUDGET_MS = 30000;
+const SCRIPT_TIMEOUT_MS = 75000;
+function withTimeout(promise, ms) {
+  let t;
+  return Promise.race([promise, new Promise((resolve) => { t = setTimeout(() => resolve(null), ms); })])
+    .finally(() => clearTimeout(t));
+}
 const str = (v, max = 2000) => String(v == null ? '' : v).trim().slice(0, max);
 
 function materialOf(capture) {
@@ -83,14 +91,24 @@ async function writeVoiceoverScript({ userId, projectId, captureId }) {
   const material = materialOf(capture);
   // talking clips: is their own sound good enough to play in the Reel? (the same check the Reel director
   // uses — captureReelAgent speechQualityOf). Where it is, the script writes around what they say.
-  await Promise.all(material.filter((m) => m.kind === 'video' && String(m.saidInClip || '').split(/\s+/).length >= 6).map(async (m) => {
+  // One clip at a time (each streams to disk + ffmpeg + Whisper) and inside a fixed budget, so the
+  // whole request answers well before the studio's 120 s timeout; a clip not checked in time is simply
+  // left without onCameraSound (the script then treats it as material, not as a sound bite).
+  const talking = material.filter((m) => m.kind === 'video' && String(m.saidInClip || '').split(/\s+/).length >= 6);
+  const deadline = Date.now() + SOUND_CHECK_BUDGET_MS;
+  for (const m of talking) {
+    const left = deadline - Date.now();
+    if (left <= 1000) { console.warn('[voiceoverScript] sound check budget spent, skipping', m.key); continue; }
     try {
       const reel = require('./captureReelAgent');
-      m.onCameraSound = reel.speechQualityOf(await reel.clipWords(m.key)).quality;
+      // eslint-disable-next-line no-await-in-loop
+      const words = await withTimeout(reel.clipWords(m.key), left);
+      if (words) m.onCameraSound = reel.speechQualityOf(words).quality;
+      else console.warn('[voiceoverScript] on-camera sound check timed out', m.key);
     } catch (err) {
       console.warn('[voiceoverScript] on-camera sound check failed', m.key, err.message);
     }
-  }));
+  }
   const dna = project.instagramUsername ? await loadBrandDna(userId, project.instagramUsername).catch(() => null) : null;
   const brand = dna ? {
     whatYouOffer: dna.whatYouOffer, whoYouHelp: dna.whoYouHelp, howYouSound: dna.howYouSound,
@@ -103,7 +121,7 @@ async function writeVoiceoverScript({ userId, projectId, captureId }) {
     .replace('{{BRAND_JSON}}', JSON.stringify(brand, null, 2));
   const llm = resolvePlanAgentLlm('captureReel');
   const started = Date.now();
-  const res = await completeText({ model: llm.model, system, user, maxTokens: 4000, kind: 'captureReel', timeoutMs: 90000 });
+  const res = await completeText({ model: llm.model, system, user, maxTokens: 4000, kind: 'captureReel', timeoutMs: SCRIPT_TIMEOUT_MS });
   const parts = normalize(extractJson(res.text || ''), material);
   const usage = res.usage || {};
   const debug = {
