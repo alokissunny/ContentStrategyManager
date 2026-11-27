@@ -112,3 +112,23 @@ test('an accent phrase on a mid-tone photo is lightened until it reads', async (
   assert.ok(parseInt(hex.slice(3, 5), 16) > 0x52, `lighter than the accent: ${hex}`);
   assert.equal((await accentContrastFailures(out, photos)).length, 0);
 });
+
+// León 2026-11-27: a large accent at ~3:1 on a dark wash still looked faint.
+test('a large accent phrase at 3:1 on a dark ground is lightened to 4.5:1', async () => {
+  const css = ACCENT_CSS.replace('--brand-accent:#FF5227', '--brand-accent:#8A6F5E');
+  const html = `<section>${css}<article class="slide" data-index="1" style="background:#3A3534"><h2 data-slot="title" style="color:var(--brand-background)">Un papel pintado que pone <span class="ac">color</span></h2></article></section>`;
+  const failures = await accentContrastFailures(html);
+  assert.equal(failures.length, 1);
+  const { html: out } = await fixAccentContrast(html);
+  assert.equal((await accentContrastFailures(out)).length, 0);
+});
+
+test('the readability wash stays on the text side of the photo', async () => {
+  const photos = new Map([[KEY, await photo()]]);
+  const narrow = spilled.replace('width: 720px', 'width: 460px');
+  const failures = await carouselContrastFailures(narrow, photos);
+  assert.ok(failures.length >= 1);
+  const washed = makeCarouselReadable(narrow, failures);
+  assert.match(washed, /mask-image: linear-gradient\(to right, #000 0px, #000 \d+px, transparent \d+px\)/);
+  assert.deepEqual((await carouselContrastFailures(washed, photos)).map((f) => f.problem), []);
+});

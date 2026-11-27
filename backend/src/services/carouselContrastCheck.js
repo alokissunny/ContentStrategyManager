@@ -391,13 +391,16 @@ async function checkSlide(article, idx, opts) {
   // already passed: the last resort recolours the whole group light
   const y0 = Math.min(...texts.map((t) => t.box.y));
   const y1 = Math.max(...texts.map((t) => t.box.y + t.box.h));
-  const group = { x: 0, y: y0, w: W, h: Math.max(1, y1 - y0) };
+  const x0 = Math.min(...texts.map((t) => t.box.x));
+  const x1 = Math.max(...texts.map((t) => t.box.x + t.box.w));
+  const group = { x: x0, y: y0, w: Math.max(1, x1 - x0), h: Math.max(1, y1 - y0) };
   failures.forEach((f) => { f.group = group; });
   return failures;
 }
 
 
 // ── accent words ───────────────────────────────────────────────────────────
+const ACCENT_NEED = 4.5;
 // Parsed with <style>/<script> blanked to spaces, so every node's
 // start/tagEnd is its true offset in `html`.
 const treeOf = (html) => parseTree(String(html).replace(/<(style|script)\b[\s\S]*?<\/\1>/gi, (m) => ' '.repeat(m.length)));
@@ -438,6 +441,21 @@ function accentRunsOf(article, rules, vars) {
   });
 }
 
+// Which way the accent may move (the surrounding text's way: light text →
+// lighter) and the contrast it must reach. 4.5:1 at every size; a large
+// accent on a mid-tone photo where even white/black in that direction can't
+// reach it takes what that direction can give (≥ 3:1) rather than flipping
+// to a near-black or near-white that no longer reads as the accent.
+function accentTarget(n, rules, vars, lums, size, need) {
+  const around = n.parent && n.parent.tag !== '#root' ? inheritedOwn(n.parent, 'color', rules) : null;
+  const tc = around ? resolve(around, vars) : null;
+  const meanLum = lums.reduce((a, b) => a + b, 0) / (lums.length || 1);
+  const dir = tc ? (lum(tc[0], tc[1], tc[2]) > 0.4 ? 'lighter' : 'darker') : (meanLum < 0.18 ? 'lighter' : 'darker');
+  if (size < 32) return { dir, need };
+  const ceiling = worstRatio(dir === 'lighter' ? 1 : 0, lums);
+  return { dir, need: Math.max(3, Math.min(need, ceiling * 0.95)) };
+}
+
 // ── HSL, to move an accent's lightness without touching its hue ─────────────
 function toHsl([r, g, b]) {
   const [R, G, B] = [r / 255, g / 255, b / 255];
@@ -472,11 +490,22 @@ const hex = (rgb) => `#${rgb.map((v) => Math.round(Math.max(0, Math.min(255, v))
  * that makes its worst-case contrast against `lums` reach `need`.
  * @returns {{ color: string, ratio: number }}
  */
-function adjustAccent(color, lums, need) {
+function adjustAccent(color, lums, need, dir = null) {
   const [h, s, l0] = toHsl(color);
   const at = (l) => { const rgb = fromHsl([h, s, l]); return { rgb, r: worstRatio(lum(...rgb), lums) }; };
   const own = worstRatio(lum(color[0], color[1], color[2]), lums);
   if (own >= need) return { color: hex(color.slice(0, 3)), ratio: own };
+  // the direction the surrounding text already took (light text → lighter
+  // accent), so the accent keeps reading as part of that text
+  if (dir) {
+    const sign = dir === 'lighter' ? 1 : -1;
+    for (let d = 0.01; d <= 1; d += 0.01) {
+      const l = l0 + sign * d;
+      if (l < 0 || l > 1) break;
+      const t = at(l);
+      if (t.r >= need) return { color: hex(t.rgb), ratio: t.r };
+    }
+  }
   let best = null;
   for (let d = 0.01; d <= 1; d += 0.01) {
     for (const l of [l0 + d, l0 - d]) {
@@ -490,7 +519,7 @@ function adjustAccent(color, lums, need) {
 }
 
 /**
- * Accent runs whose worst-case contrast misses 4.5:1 (under 32px) / 3:1.
+ * Accent runs whose worst-case contrast misses 4.5:1 (any size).
  * @returns {Promise<{ slide, start, tagEnd, label, ratio, need, color }[]>}
  */
 async function accentContrastFailures(html, photos = new Map()) {
@@ -515,7 +544,9 @@ async function accentContrastFailures(html, photos = new Map()) {
         const st = styleOf(n, rules);
         const color = resolve(n._own.color, vars);
         const size = px(st['font-size'], 0, 16) || 16;
-        const need = size >= 32 ? 3 : 4.5;
+        // accent words carry the slide's meaning: body-text contrast at every
+        // size (León 2026-11-27 — large accents at 3:1 still looked faint)
+        const need = ACCENT_NEED;
         let lums = null;
         // on the photo, unless a panel / chip of its own sits between them
         const solid = solidBehind(n, article, rules, vars);
@@ -528,9 +559,10 @@ async function accentContrastFailures(html, photos = new Map()) {
         } else {
           lums = [lum(solid.color[0], solid.color[1], solid.color[2])];
         }
+        const { dir, need: target } = accentTarget(n, rules, vars, lums, size, need);
         const worst = worstRatio(lum(color[0], color[1], color[2]), lums);
-        if (worst >= need) return;
-        out.push({ slide: idx, start: n.start, tagEnd: n.tagEnd, label: labelOf(n), ratio: worst, need, color, lums });
+        if (worst >= target) return;
+        out.push({ slide: idx, start: n.start, tagEnd: n.tagEnd, label: labelOf(n), ratio: worst, need: target, dir, color, lums });
       });
     }
     return out;
@@ -553,7 +585,7 @@ async function fixAccentContrast(html, photos = new Map()) {
   const fixed = [];
   // from the end, so earlier offsets stay true
   [...failures].sort((a, b) => b.start - a.start).forEach((f) => {
-    const { color, ratio: r } = adjustAccent(f.color, f.lums, f.need);
+    const { color, ratio: r } = adjustAccent(f.color, f.lums, f.need, f.dir);
     const tag = out.slice(f.start, f.tagEnd);
     const decl = `color: ${color} !important;`;
     let next;
@@ -569,15 +601,20 @@ async function fixAccentContrast(html, photos = new Map()) {
 // ── last resort ────────────────────────────────────────────────────────────
 // For each slide in `failures`: every text run on it turns light
 // (--brand-background) and a primary gradient wash — 78% across the text,
-// fading out 200px beyond it — goes over the photo on the text's side. The
+// fading out 200px beyond it, above/below and left/right — goes over the
+// photo on the text's side. The
 // photo's far side (where the focal point is) stays untouched.
 function makeCarouselReadable(html, failures) {
   const bySlide = new Map();
   (failures || []).forEach((f) => {
-    const span = bySlide.get(f.slide) || { y0: Infinity, y1: -Infinity };
+    const span = bySlide.get(f.slide) || { y0: Infinity, y1: -Infinity, x0: Infinity, x1: -Infinity };
     const box = f.group || f.box;
     span.y0 = Math.min(span.y0, box.y);
     span.y1 = Math.max(span.y1, box.y + box.h);
+    if (Number.isFinite(box.x) && Number.isFinite(box.w)) {
+      span.x0 = Math.min(span.x0, box.x);
+      span.x1 = Math.max(span.x1, box.x + box.w);
+    }
     bySlide.set(f.slide, span);
   });
   if (!bySlide.size) return String(html || '');
@@ -602,7 +639,21 @@ function makeCarouselReadable(html, failures) {
     } else {
       gradient = `linear-gradient(to bottom, transparent ${pct(span.y0 - fade)}, ${strong} ${pct(span.y0 - 24)}, ${strong} ${pct(span.y1 + 24)}, transparent ${pct(span.y1 + fade)})`;
     }
-    const wash = `<div data-wash="readability" style="position: absolute; inset: 0; pointer-events: none; background: ${gradient};"></div>`;
+    // …and only on the text's side horizontally too: a group in one half of
+    // the slide leaves the other half (and its interior detail) untouched
+    const W = 1080;
+    const xpx = (v) => `${Math.round(Math.max(0, Math.min(W, v)))}px`;
+    let mask = '';
+    if (Number.isFinite(span.x0) && span.x1 - span.x0 < W * 0.75) {
+      const parts = [];
+      if (span.x0 > W * 0.15) parts.push(`transparent ${xpx(span.x0 - fade)}`, `#000 ${xpx(span.x0 - 24)}`);
+      else parts.push('#000 0px');
+      if (span.x1 < W * 0.85) parts.push(`#000 ${xpx(span.x1 + 24)}`, `transparent ${xpx(span.x1 + fade)}`);
+      else parts.push(`#000 ${W}px`);
+      const m = `linear-gradient(to right, ${parts.join(', ')})`;
+      mask = ` -webkit-mask-image: ${m}; mask-image: ${m};`;
+    }
+    const wash = `<div data-wash="readability" style="position: absolute; inset: 0; pointer-events: none; background: ${gradient};${mask}"></div>`;
     // right after the full-bleed picture, so it paints above it and below the text
     let placed = false;
     let next = body.replace(/<img\b[^>]*\bdata-slot\s*=\s*["']image["'][^>]*>/i, (tag) => {
