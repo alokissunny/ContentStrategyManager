@@ -31,7 +31,7 @@ Return one self-contained HTML document only:
 - Build the slide as two bands, edge to edge with no gap or border: a photo band and a text band. Choose each slide's split — its depth and its direction (horizontal or vertical) — from that slide's photograph and copy, as above; neighbouring slides should not share the same split. A vertical split needs a text column of at least about 520px; for longer headlines prefer a horizontal band.
 - Start each photo slide with `<!-- focal: what the slide is about in this photo, and which edge the band can take -->`. Look at the attached photo first.
 - The photo fills its band: `width:100%; height:100%; object-fit:cover`, with `object-position` set so the focal point survives the crop.
-- The text band is a solid tone from the Brand Kit tonal ladder (see "Ground tones follow the story"), chosen from the slide's mood rather than rotated — the accent at most once, and only for a moment the story earns. 64–80px padding; the text group aligned to the band's left edge and vertically centred or top-aligned.
+- The text band is one exact Brand Kit colour, never a mixed shade (see "Grounds follow the story"), chosen from the slide's mood rather than rotated — the accent at most once, and only for a moment the story earns. 64–80px padding; the text group aligned to the band's left edge and vertically centred or top-aligned.
 - No text, gradient, or overlay on the photo band.
 
 ## Text-only slides
